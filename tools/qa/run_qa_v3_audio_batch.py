@@ -89,7 +89,13 @@ def main(argv: list[str] | None = None) -> int:
             print(f"FAIL: capture for {pid} not complete at {cap_dir}",
                   file=sys.stderr)
             return 1
-        for variant in variants:
+        # Gate B 孪生:视觉事实换、音频锚不变 —— program 沿用主点,
+        # 且只渲 main(Gate A 换音频的对照对孪生无意义)。
+        spec = json.loads((args.inputs_root / pid / "spec.json").read_text())
+        twin_of = spec.get("twin_of")
+        program_pid = twin_of if twin_of else pid
+        point_variants = ["main"] if twin_of else variants
+        for variant in point_variants:
             out_dir = args.output_root / (pid if variant == "main"
                                           else f"{pid}_{variant}")
             state = point_state(out_dir)
@@ -101,7 +107,7 @@ def main(argv: list[str] | None = None) -> int:
                       f"or overwrite automatically; inspect and remove manually "
                       f"(b007-lesson guard)", file=sys.stderr)
                 return 1
-            prog = program_path(programs_dir, pid, variant)
+            prog = program_path(programs_dir, program_pid, variant)
             cmd = [cfg["python"],
                    str(repo / "tools/dataset/render_current_apartment_dynamic_audio.py"),
                    "--visual-capture-dir", str(cap_dir),
