@@ -79,6 +79,16 @@ def effective_half_fov(scene, params) -> float:
     return half_fov - margin
 
 
+def interior_answer_band(band_lo: float, band_hi: float, params):
+    margin = float(params.get("ANSWER_BAND_INTERIOR_MARGIN_DEG", 0.0))
+    if (
+        not math.isfinite(margin) or margin < 0.0
+        or 2.0 * margin >= float(band_hi) - float(band_lo)
+    ):
+        raise ValueError("ANSWER_BAND_INTERIOR_MARGIN_DEG does not fit the band")
+    return float(band_lo) + margin, float(band_hi) - margin
+
+
 @dataclass
 class Route:
     route_id: str
@@ -402,7 +412,8 @@ def solve_forward_cross_time(scene: SceneInputs, params: dict, *,
         if _too_close(camera, end_xy, params):
             ledger.add(Rejection("camera_too_close_to_target"))
             continue
-        lo_yaw, hi_yaw = yaw_interval_for_band(camera, end_xy, band_lo, band_hi)
+        solve_lo, solve_hi = interior_answer_band(band_lo, band_hi, params)
+        lo_yaw, hi_yaw = yaw_interval_for_band(camera, end_xy, solve_lo, solve_hi)
         yaw = float(lo_yaw + (hi_yaw - lo_yaw) * rng.random())
         az_end = relative_azimuth_deg(camera, yaw, end_xy)
         if not (band_lo <= az_end < band_hi):
@@ -502,7 +513,8 @@ def solve_backward_cross_time(scene: SceneInputs, params: dict, *,
         if _too_close(camera, query_xy, params):
             ledger.add(Rejection("camera_too_close_to_target"))
             continue
-        lo_yaw, hi_yaw = yaw_interval_for_band(camera, query_xy, band_lo, band_hi)
+        solve_lo, solve_hi = interior_answer_band(band_lo, band_hi, params)
+        lo_yaw, hi_yaw = yaw_interval_for_band(camera, query_xy, solve_lo, solve_hi)
         yaw = float(lo_yaw + (hi_yaw - lo_yaw) * rng.random())
         az_query = relative_azimuth_deg(camera, yaw, query_xy)
         if not (band_lo <= az_query < band_hi) or abs(az_query) > half_fov:

@@ -853,7 +853,7 @@ def build_gatea_answer(kind, profile, cell, timeline, schedule,
         gatea_band = next((band for band in bands
                            if band[0] <= gatea_truth_deg < band[1]), None)
         if gatea_band is None:
-            raise ValueError(
+            raise GenerationConstraintError(
                 f"Gate A angular truth {gatea_truth_deg:.2f} is outside all "
                 "declared MCQ bands")
         gatea_cell["answer_band"] = gatea_band
@@ -902,7 +902,7 @@ def build_answer(kind, profile, cell, timeline, schedule, slot_events,
                     if lo <= truth_deg < hi), None)
         want = bands.index(tuple(cell["answer_band"]))
         if got != want:
-            raise ValueError(
+            raise GenerationConstraintError(
                 f"recomputed truth {truth_deg:.2f} deg lands in band {got}, "
                 f"not the assigned {want}: the final camera pose disagrees "
                 "with the solver's geometry")

@@ -24,6 +24,7 @@ from scene_sampler import (  # noqa: E402
     Route,
     SceneInputs,
     circular_gap_deg,
+    interior_answer_band,
     line_of_sight_from_feasible_grid,
     load_scene,
     open_angle_gold_regions_disjoint,
@@ -169,6 +170,16 @@ def test_visual_fov_margin_reserves_space_for_actor_extent():
     )
     assert isinstance(plan, Rejection)
     assert "answer_band_outside_fov" in ledger.summary()["by_reason"]
+
+
+def test_answer_band_interior_margin_keeps_numeric_truth_off_boundaries():
+    assert interior_answer_band(-17.5, 17.5, {
+        "ANSWER_BAND_INTERIOR_MARGIN_DEG": 0.25
+    }) == (-17.25, 17.25)
+    with pytest.raises(ValueError, match="does not fit"):
+        interior_answer_band(-1.0, 1.0, {
+            "ANSWER_BAND_INTERIOR_MARGIN_DEG": 1.0
+        })
 
 
 def test_static_target_rejected_for_insufficient_travel():
