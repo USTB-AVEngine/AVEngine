@@ -783,6 +783,7 @@ def _closure_mappings(
     *,
     closure_report_path: str | Path,
     bindings: Mapping[str, Mapping[str, Any]],
+    native_map: str,
 ) -> tuple[Path, list[tuple[str, str]]]:
     path = _external_file(closure_report_path, owner="--closure-report")
     report = _read_mapping(path, owner="closure report")
@@ -790,7 +791,7 @@ def _closure_mappings(
     if not isinstance(variants, Mapping):
         raise CurrentApartmentVisualError("closure report has no variants")
     required = {
-        NATIVE_APARTMENT_MAP,
+        native_map,
         "/SpContent/Blueprints/BP_CameraSensor",
         *(
             value
@@ -1243,8 +1244,10 @@ def capture_current_apartment_visual(
         }
         _write_new_json(output / "research_receipt.json", receipt)
         return receipt
+    resolved_map = resolve_native_map(timeline, native_map)
     closure_file, mappings = _closure_mappings(
-        closure_report_path=closure_report_path, bindings=bindings
+        closure_report_path=closure_report_path, bindings=bindings,
+        native_map=resolved_map,
     )
     stage, executable = _validate_stage(
         stage_root=stage_root,
@@ -1273,7 +1276,6 @@ def capture_current_apartment_visual(
     run_traceback = None
     cleanup_error: BaseException | None = None
     try:
-        resolved_map = resolve_native_map(timeline, native_map)
         instance = launch_external_game_instance(
             spear_executable=executable,
             native_map=resolved_map,

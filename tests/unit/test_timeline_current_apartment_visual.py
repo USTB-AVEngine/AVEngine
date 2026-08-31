@@ -13,6 +13,46 @@ REPOSITORY = Path(__file__).resolve().parents[2]
 REGISTRY = REPOSITORY / "examples/runtime/source_asset_runtime_profiles.json"
 
 
+def test_closure_selection_uses_the_resolved_timeline_map(tmp_path: Path) -> None:
+    debug_map = "/Game/SPEAR/Scenes/debug_0000/Maps/debug_0000"
+    packages = {
+        debug_map: "/tmp/debug.umap",
+        "/SpContent/Blueprints/BP_CameraSensor": "/tmp/camera.uasset",
+        "/Game/Test/BP_Dog": "/tmp/dog.uasset",
+        "/Game/Test/DogMesh": "/tmp/mesh.uasset",
+        "/Game/Test/Idle": "/tmp/idle.uasset",
+        "/Game/Test/Walk": "/tmp/walk.uasset",
+    }
+    report = tmp_path / "closure.json"
+    report.write_text(json.dumps({
+        "variants": {"debug": {
+            "mapping_complete": True,
+            "physical_mappings": [
+                {"package": package,
+                 "status": "unique_authorized_external_input",
+                 "source_file": source}
+                for package, source in packages.items()
+            ],
+        }},
+    }))
+    bindings = {
+        "source1": {
+            "blueprint_class_path": "/Game/Test/BP_Dog.BP_Dog_C",
+            "graph_mesh_package": "/Game/Test/DogMesh",
+            "idle_animation": "/Game/Test/Idle.Idle",
+            "walking_animation": "/Game/Test/Walk.Walk",
+        },
+    }
+    _, mappings = apartment_visual._closure_mappings(
+        closure_report_path=report, bindings=bindings, native_map=debug_map)
+    assert (debug_map, ".umap") in mappings
+    with pytest.raises(apartment_visual.CurrentApartmentVisualError,
+                       match="no complete variant"):
+        apartment_visual._closure_mappings(
+            closure_report_path=report, bindings=bindings,
+            native_map=apartment_visual.NATIVE_APARTMENT_MAP)
+
+
 def _profile_selection(
     tmp_path: Path, *, asset_authorization: str = "unverified"
 ) -> Path:
