@@ -182,3 +182,53 @@ def captured_static_camera_world_m(
     world = apartment_ue_point_to_world_m(first["location_cm"])
     yaw = float(first["rotation_deg"][2])
     return world, yaw
+
+
+def listener_ue_yaw_deg(listener_orientation_wxyz) -> float:
+    """UE yaw (degrees) implied by the habitat listener orientation.
+
+    The habitat camera looks down ``-Z`` and the legacy glTF-import transform
+    maps UE ``(x, y)`` to habitat ``(x, z)``, so a yaw-only listener faces
+    ``(cos(yaw), 0, sin(yaw))`` in world meters. Raises when the orientation
+    carries pitch or roll, because a single UE yaw cannot represent it.
+    """
+
+    values = [float(v) for v in listener_orientation_wxyz]
+    if len(values) != 4:
+        raise CurrentMP3DDynamicAudioError("listener orientation must be wxyz")
+    w, x, y, z = values
+    axis = np.array([x, y, z])
+    forward = np.array([0.0, 0.0, -1.0])
+    rotated = forward + 2.0 * np.cross(
+        axis, np.cross(axis, forward) + w * forward
+    )
+    if abs(float(rotated[1])) > 1.0e-6:
+        raise CurrentMP3DDynamicAudioError(
+            "the listener orientation is not yaw-only: forward vector "
+            f"{rotated.tolist()} leaves the horizontal plane"
+        )
+    return float(np.degrees(np.arctan2(rotated[2], rotated[0])))
+
+
+def assert_listener_matches_capture_yaw(
+    listener_orientation_wxyz, camera_ue_yaw_deg: float, *, tolerance_deg: float = 1.0e-3
+) -> float:
+    """Fail closed when the M1 listener faces elsewhere than the capture camera.
+
+    The renderer takes the listener **orientation** from the M1 request while
+    the video camera yaw comes from the capture; only the position was
+    cross-checked, so a per-point camera yaw would rotate the picture while
+    leaving the binaural rendering untouched — silently, and in a spatial
+    audio benchmark. This closes that gap.
+    """
+
+    listener_yaw = listener_ue_yaw_deg(listener_orientation_wxyz)
+    gap = abs((listener_yaw - float(camera_ue_yaw_deg) + 180.0) % 360.0 - 180.0)
+    if gap > tolerance_deg:
+        raise CurrentMP3DDynamicAudioError(
+            "the capture camera yaw does not match the M1 listener "
+            f"orientation: capture {camera_ue_yaw_deg} deg vs request "
+            f"{listener_yaw:.6f} deg (gap {gap:.6f} deg); the video would "
+            "rotate while the binaural audio does not"
+        )
+    return listener_yaw

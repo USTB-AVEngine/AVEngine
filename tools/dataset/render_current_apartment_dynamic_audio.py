@@ -78,6 +78,7 @@ def main() -> int:
         render_dynamic_research_audio,
     )
     from avengine.dataset.apartment_dynamic_audio import (  # noqa: E402
+        assert_listener_matches_capture_yaw,
         captured_static_camera_world_m,
         derive_slot_bindings,
         load_ue_anchor_trajectories,
@@ -118,6 +119,7 @@ def main() -> int:
                 "the capture camera does not match the M1 listener authority: "
                 f"capture {camera_world} vs request {listener_position}"
             )
+        assert_listener_matches_capture_yaw(listener_wxyz, camera_ue_yaw)
         receipt = render_dynamic_research_audio(
             source_trajectories_m=trajectories,
             listener_position_m=listener_position,
