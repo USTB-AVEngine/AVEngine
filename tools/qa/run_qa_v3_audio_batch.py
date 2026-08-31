@@ -52,6 +52,14 @@ def program_path(programs_dir: Path, pid: str, variant: str) -> Path:
     return matches[0]
 
 
+def point_m1_request(inputs_root: Path, pid: str, configured: str) -> Path:
+    per_point = inputs_root / pid / "m1_capture_request.json"
+    selected = per_point if per_point.is_file() else Path(configured)
+    if not selected.is_file():
+        raise SystemExit(f"FAIL: M1 request is missing for {pid}: {selected}")
+    return selected
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -92,8 +100,12 @@ def main(argv: list[str] | None = None) -> int:
         # Gate B 孪生只渲 main(Gate A 换音频的对照对孪生无意义);
         # 孪生的 program 由 derive_twin_programs.py 预先派生(外观孪生
         # 的 endpoint 绑定随资产翻转,必须换绑重密封),每点用自己的。
-        spec = json.loads((args.inputs_root / pid / "spec.json").read_text())
+        spec_path = args.inputs_root / pid / "spec.json"
+        spec = json.loads(spec_path.read_text()) if spec_path.is_file() else {}
         point_variants = ["main"] if spec.get("twin_of") else variants
+        m1_request = point_m1_request(
+            args.inputs_root, pid, cfg["m1_request"]
+        )
         for variant in point_variants:
             out_dir = args.output_root / (pid if variant == "main"
                                           else f"{pid}_{variant}")
@@ -110,7 +122,7 @@ def main(argv: list[str] | None = None) -> int:
             cmd = [cfg["python"],
                    str(repo / "tools/dataset/render_current_apartment_dynamic_audio.py"),
                    "--visual-capture-dir", str(cap_dir),
-                   "--m1-request", cfg["m1_request"],
+                   "--m1-request", str(m1_request),
                    "--simulation-request", cfg["simulation_request"],
                    "--package-manifest", cfg["package_manifest"],
                    "--audio-program", str(prog),

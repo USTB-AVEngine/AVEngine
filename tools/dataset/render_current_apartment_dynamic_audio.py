@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Render motion-following binaural audio for a current Apartment UE capture.
+"""Render motion-following binaural audio for a current UE research capture.
 
 The UE capture supplies the per-frame anchor poses (production RGB authority);
-the fixed-apartment M1 review request supplies the camera-colocated listener
+the matching per-point M1 request supplies the camera-colocated listener
 pose, which is cross-checked against the capture's own static camera. Audio
 is rendered by the room-agnostic dynamic research-audio core (per-state RIRs
 plus one AudioProgram routing variant). Research review only.
@@ -27,7 +27,7 @@ def main() -> int:
         "--m1-request",
         required=True,
         type=Path,
-        help="fixed-apartment M1 review request (listener pose authority)",
+        help="matching per-point M1 listener-pose request",
     )
     parser.add_argument("--simulation-request", required=True, type=Path)
     parser.add_argument("--package-manifest", required=True, type=Path)
@@ -136,12 +136,12 @@ def main() -> int:
             hrtf_license_path=args.hrtf_license,
             output_path=args.output,
             position_authority=(
-                "current Apartment UE capture actor_anchor_poses (legacy "
+                "current UE capture actor_anchor_poses (legacy "
                 "glTF-import transform inverted; per-slot emitter heights "
-                "from the fixed-apartment anchor library)"
+                "from the selected runtime asset profiles)"
             ),
             listener_authority=(
-                "fixed-apartment M1 review request, cross-checked against "
+                "matching per-point M1 request, cross-checked against "
                 f"the capture camera (UE yaw {camera_ue_yaw} deg)"
             ),
             rir_stride_frames=args.rir_stride_frames,
