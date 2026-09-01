@@ -106,7 +106,7 @@ def _apply_frame(
         "camera": read_actor_pose(camera),
         "actors": {
             slot: read_actor_pose(runtimes[slot]["anchor"])
-            for slot in ("source1", "source2")
+            for slot in runtimes
         },
         "animations": animations,
     }
@@ -125,7 +125,8 @@ def _maximum_pass_drift(
                 left["declared_camera_pose_id"] == right["declared_camera_pose_id"],
                 f"{pass_name} replayed a different declared camera pose",
             )
-            for owner in ("camera", "source1", "source2"):
+            actor_slots = tuple(left["actors"])
+            for owner in ("camera", *actor_slots):
                 left_pose = left["camera"] if owner == "camera" else left["actors"][owner]
                 right_pose = right["camera"] if owner == "camera" else right["actors"][owner]
                 maximum_location_cm = max(
@@ -219,8 +220,8 @@ def run(args: argparse.Namespace) -> Path:
     normal_depths: list[np.ndarray] = []
     normal_object_ids: list[np.ndarray] = []
     normal_readbacks: list[dict[str, Any]] = []
-    target_depths: dict[str, list[np.ndarray]] = {"source1": [], "source2": []}
-    target_readbacks: dict[str, list[dict[str, Any]]] = {"source1": [], "source2": []}
+    target_depths: dict[str, list[np.ndarray]] = {slot: [] for slot in bindings}
+    target_readbacks: dict[str, list[dict[str, Any]]] = {slot: [] for slot in bindings}
     descriptors: list[dict[str, Any]] = []
     stable_names: dict[str, str] = {}
     try:
@@ -281,7 +282,7 @@ def run(args: argparse.Namespace) -> Path:
             normal_object_ids.append(capture["raw_object_ids_uint32"])
             normal_readbacks.append(readback)
 
-        for slot in ("source1", "source2"):
+        for slot in bindings:
             with instance.begin_frame():
                 manager = game.segmentation_service.proxy_component_manager
                 manager.SetAllowedActors(AllowedActors=[runtimes[slot]["visual_actor"]])
@@ -325,7 +326,7 @@ def run(args: argparse.Namespace) -> Path:
         "frame_indices": indices,
         "camera_pose_ids": pose_ids,
     }
-    semantic_ids = {"source1": 1, "source2": 2}
+    semantic_ids = {slot: index for index, slot in enumerate(bindings, start=1)}
     truth = compile_depth_pixel_visibility_truth(
         normal_depth_m_frames=normal_depths,
         target_only_depth_m_frames_by_instance=target_depths,
@@ -344,13 +345,14 @@ def run(args: argparse.Namespace) -> Path:
         "pixel compiler returned the wrong authority",
     )
     alignment = _maximum_pass_drift(normal_readbacks, target_readbacks)
-    np.savez_compressed(
-        output / "native_depth_and_object_ids.npz",
-        normal_depth_m=np.stack(normal_depths),
-        normal_object_ids_uint32=np.stack(normal_object_ids),
-        target_only_source1_depth_m=np.stack(target_depths["source1"]),
-        target_only_source2_depth_m=np.stack(target_depths["source2"]),
-    )
+    arrays = {
+        "normal_depth_m": np.stack(normal_depths),
+        "normal_object_ids_uint32": np.stack(normal_object_ids),
+    }
+    arrays.update({
+        f"target_only_{slot}_depth_m": np.stack(depths)
+        for slot, depths in target_depths.items()})
+    np.savez_compressed(output / "native_depth_and_object_ids.npz", **arrays)
     _write_json(output / "pixel_visibility_truth.json", truth)
     _write_json(
         output / "runtime_readbacks.json",

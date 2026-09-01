@@ -665,3 +665,44 @@ def test_capture_failure_writes_honest_partial_receipt_and_always_closes(
     assert "camera.cleanup" not in events
     assert "game.paused:False" in events
     assert events[-1] == "instance.close:True"
+
+
+def test_n_actor_author_and_loader_accept_four_contiguous_slots(
+        tmp_path: Path) -> None:
+    selection = _profile_selection(tmp_path)
+    value = json.loads(selection.read_text())
+    for source_index, template_index in ((3, 0), (4, 1)):
+        actor = json.loads(json.dumps(value["actors"][template_index]))
+        actor["source_slot_id"] = f"source{source_index}"
+        value["actors"].append(actor)
+    selection.write_text(json.dumps(value))
+    routes = {}
+    for source_index in range(1, 5):
+        routes[f"source{source_index}"] = [
+            [float(frame * source_index), float(source_index * 50), 0.0]
+            for frame in range(apartment_visual.FRAME_COUNT)
+        ]
+    timeline_path = tmp_path / "n_actor_timeline.json"
+    timeline = apartment_visual.author_current_n_actor_visual_timeline(
+        actor_selection_path=selection,
+        source_asset_registry_path=REGISTRY,
+        output_path=timeline_path,
+        camera_position_ue_cm=(0.0, -600.0, 240.0),
+        camera_yaw_deg=0.0,
+        routes_by_slot_ue_cm=routes,
+        native_map=apartment_visual.NATIVE_APARTMENT_MAP,
+        room_profile_id=apartment_visual.APARTMENT_ROOM_PROFILE_ID,
+    )
+    assert [actor["source_slot_id"] for actor in timeline["actors"]] == [
+        "source1", "source2", "source3", "source4"]
+    assert all(
+        [state["source_slot_id"] for state in frame["actor_states"]]
+        == ["source1", "source2", "source3", "source4"]
+        for frame in timeline["frames"])
+    _, bindings, authorization = apartment_visual._selection_bindings(
+        actor_selection_path=selection,
+        source_asset_registry_path=REGISTRY)
+    _, loaded = apartment_visual._load_timeline(
+        timeline_path=timeline_path, bindings=bindings,
+        asset_authorization=authorization)
+    assert len(loaded["actors"]) == 4

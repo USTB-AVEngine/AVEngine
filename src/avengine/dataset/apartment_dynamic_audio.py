@@ -41,6 +41,8 @@ def derive_slot_bindings(
     Fail-closed: every selected actor must resolve to exactly one endpoint
     whose binding matches the actor's instance id, asset id and the asset's
     default emitter anchor; heights come from that anchor's measured offset.
+    Slots must be the contiguous sequence source1..sourceN so downstream
+    trajectory and AudioProgram ordering cannot silently disagree.
     """
 
     actors = actor_selection.get("actors")
@@ -56,6 +58,13 @@ def derive_slot_bindings(
         for entry in endpoint_registry.get("source_endpoints", [])
         if isinstance(entry, Mapping)
     ]
+    slots = [actor.get("source_slot_id") for actor in actors]
+    expected_slots = {f"source{index}" for index in range(1, len(actors) + 1)}
+    if len(actors) < 2 or set(slots) != expected_slots:
+        raise CurrentMP3DDynamicAudioError(
+            "actor selection must bind contiguous source1..sourceN slots "
+            "with at least two actors"
+        )
     slot_endpoints: dict[str, str] = {}
     emitter_heights: dict[str, float] = {}
     for actor in actors:
@@ -94,10 +103,6 @@ def derive_slot_bindings(
             )
         slot_endpoints[slot] = str(matches[0]["source_endpoint_id"])
         emitter_heights[slot] = float(anchor["offset_m"][1])
-    if set(slot_endpoints) != {"source1", "source2"}:
-        raise CurrentMP3DDynamicAudioError(
-            "actor selection must bind exactly source1 and source2"
-        )
     return slot_endpoints, emitter_heights
 
 

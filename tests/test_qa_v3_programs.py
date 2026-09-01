@@ -101,3 +101,48 @@ def test_cli_batch_onset_spread_plans_and_no_clobber(tmp_path):
     # no-clobber
     assert main(["--requests", str(req_p), "--seed", "s1",
                  "--out-dir", str(out)]) == 2
+
+
+def test_build_program_supports_four_slot_endpoints():
+    request = {
+        "pair_kind": "dog4",
+        "point_id": "n4",
+        "slot_endpoints": {
+            "source1": "ep1", "source2": "ep2",
+            "source3": "ep3", "source4": "ep4",
+        },
+        "sound_asset_id": "dry",
+    }
+    events = [
+        ("source1", 1000), ("source2", 10000),
+        ("source3", 20000), ("source4", 30000),
+    ]
+    program = build_program(request, events)
+    assert program["candidate_source_endpoint_ids"] == [
+        "ep1", "ep2", "ep3", "ep4"]
+    assert [event["source_endpoint_id"] for event in program["events"]] == [
+        "ep1", "ep2", "ep3", "ep4"]
+    assert [event["event_id"] for event in program["events"]] == [
+        "source1_event_0", "source2_event_1",
+        "source3_event_2", "source4_event_3"]
+
+
+def test_build_program_supports_per_event_sound_assets():
+    request = {
+        "pair_kind": "sound4",
+        "point_id": "four-sounds",
+        "slot_endpoints": {
+            "source1": "ep1", "source2": "ep2",
+            "source3": "ep3", "source4": "ep4",
+        },
+        "sound_asset_id": "fallback",
+    }
+    events = [
+        ("source1", 1000, "sound_a"),
+        ("source2", 10000, "sound_b"),
+        ("source3", 20000, "sound_c"),
+        ("source4", 30000, "sound_d"),
+    ]
+    program = build_program(request, events)
+    assert [event["sound_asset_id"] for event in program["events"]] == [
+        "sound_a", "sound_b", "sound_c", "sound_d"]

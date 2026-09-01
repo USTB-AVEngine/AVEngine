@@ -196,15 +196,30 @@ def _finish_plan(slots, starts, n_events):
 
 
 def build_program(request: dict, events, *, revision: str = "v1") -> dict:
-    endpoints = [request["endpoint_1"], request["endpoint_2"]]
-    slot_to_ep = {"source1": endpoints[0], "source2": endpoints[1]}
+    if "slot_endpoints" in request:
+        slot_to_ep = {
+            str(slot): str(endpoint)
+            for slot, endpoint in request["slot_endpoints"].items()}
+        if len(slot_to_ep) < 2 or len(set(slot_to_ep.values())) != len(slot_to_ep):
+            raise ValueError("slot_endpoints must bind at least two unique endpoints")
+        endpoints = list(slot_to_ep.values())
+    else:
+        endpoints = [request["endpoint_1"], request["endpoint_2"]]
+        slot_to_ep = {"source1": endpoints[0], "source2": endpoints[1]}
     ev_rows = []
-    for i, (slot, start) in enumerate(events):
+    for i, event in enumerate(events):
+        if len(event) == 2:
+            slot, start = event
+            sound_asset_id = request["sound_asset_id"]
+        elif len(event) == 3:
+            slot, start, sound_asset_id = event
+        else:
+            raise ValueError("events must be (slot,start) or (slot,start,sound_asset_id)")
         end = start + EVENT_LEN
         ev_rows.append({
-            "event_id": f"{'src1' if slot == 'source1' else 'src2'}_event_{i}",
+            "event_id": f"{slot}_event_{i}",
             "source_endpoint_id": slot_to_ep[slot],
-            "sound_asset_id": request["sound_asset_id"],
+            "sound_asset_id": str(sound_asset_id),
             "start_tick": start * TICKS_PER_SAMPLE,
             "end_tick_exclusive": end * TICKS_PER_SAMPLE,
             "start_sample": start,
@@ -220,7 +235,7 @@ def build_program(request: dict, events, *, revision: str = "v1") -> dict:
         "schema": "avengine_m6_audio_program_v1",
         "program_id": f"qa_v3_{request['pair_kind']}_{request['point_id']}_rand_{revision}",
         "revision": revision,
-        "mode": "sequential_sources",
+        "mode": str(request.get("mode", "sequential_sources")),
         "timeline": dict(TIMELINE_BLOCK),
         "candidate_source_endpoint_ids": endpoints,
         "events": ev_rows,
