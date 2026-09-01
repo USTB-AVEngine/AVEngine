@@ -71,23 +71,41 @@ def test_card15a_requires_all_four_visible():
     assert result["bindings"]["distinct_callers"] == 2
 
 
+def _card16_pixel(source1_binding, source2_binding, source1_final, source2_final):
+    return {
+        "authority": "test_pixel_authority",
+        "per_instance": {
+            "source1": {"frames": [
+                {"frame_index": 12, "state": source1_binding},
+                {"frame_index": 74, "state": source1_final},
+            ]},
+            "source2": {"frames": [
+                {"frame_index": 12, "state": source2_binding},
+                {"frame_index": 74, "state": source2_final},
+            ]},
+        },
+    }
+
+
 def test_card16_binds_main_and_gatea_to_distinct_final_states():
     result = evaluate(
         _fact("card16"),
-        _pixel({
-            "source1": "visible_occluded",
-            "source2": "out_of_view",
-        }, 74))
+        _card16_pixel(
+            "visible_clear", "visible_occluded",
+            "visible_occluded", "out_of_view"))
     assert result["status"] == "pass"
     assert result["bindings"]["main_truth_option"] == "visible_occluded"
     assert result["bindings"]["gatea_truth_option"] == "out_of_view"
     rejected = evaluate(
         _fact("card16"),
-        _pixel({
-            "source1": "out_of_view",
-            "source2": "out_of_view",
-        }, 74))
+        _card16_pixel(
+            "fully_occluded", "visible_clear",
+            "out_of_view", "out_of_view"))
     assert rejected["status"] == "pixel_rejected"
+    assert rejected["rejection_reasons"] == [
+        "main_first_caller_not_visible_at_binding_frame",
+        "first_caller_and_counterfactual_have_same_final_state",
+    ]
 
 
 def test_cli_binds_fact_and_pixel_inputs(tmp_path):

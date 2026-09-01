@@ -1156,3 +1156,18 @@ because its fourth actor remained visible. Full evidence and claim boundaries
 are in `docs/roadmap/QA_V3_ALL_PROFILE_ENGINE_REPORT_20260901.md`; the matrix
 is retained at
 `/data/jzy/tmp/qa_v3_all21_two_room_matrix_20260901_v4_reviewfix`.
+
+
+
+QA-v3 room-centric pilot selected manifest now carries 216 research
+candidates: 108 per room, six for each of the 18 currently runnable profiles.
+Kujiale shortfalls were filled only by independent supplemental searches;
+card1B required a deeper 30,000-attempt profile to obtain center-band examples.
+The final selector balances card1B/card17 at 2:2:2 and materializes Gate B for
+all 216 points (48 extended inline plus 168 dual-source twins). Apartment
+runtime evidence closes pixel-bound card11/card15a/card16, main/Gate-A audio,
+and two distinct card17 segments. The authoritative report is
+`docs/roadmap/QA_V3_ROOM_CENTRIC_PILOT_REPORT_20260901.md`; selected and runtime
+manifests are retained at
+`/data/jzy/tmp/qa_v3_room_pilot_selected_2rooms_108each_20260901_v3` and
+`/data/jzy/tmp/qa_v3_room_pilot_runtime_evidence_20260901_v1`.

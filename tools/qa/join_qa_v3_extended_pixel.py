@@ -72,18 +72,28 @@ def evaluate(fact, pixel_truth):
             "open_truth_value": fact["open"]["truth_value"],
         }
     else:
+        binding_frame = 12
         frame = 74
+        source1_binding = states.get("source1", {}).get(binding_frame)
+        source2_binding = states.get("source2", {}).get(binding_frame)
         source1 = states.get("source1", {}).get(frame)
         source2 = states.get("source2", {}).get(frame)
+        if source1_binding not in VISIBLE:
+            reasons.append("main_first_caller_not_visible_at_binding_frame")
+        if source2_binding not in VISIBLE:
+            reasons.append("gatea_first_caller_not_visible_at_binding_frame")
         if source1 is None or source2 is None:
             reasons.append("missing_final_state")
         elif source1 == source2:
             reasons.append("first_caller_and_counterfactual_have_same_final_state")
         bindings = {
+            "binding_frame": binding_frame,
             "query_frame": frame,
             "main_first_caller_slot": "source1",
+            "main_binding_state": source1_binding,
             "main_truth_option": source1,
             "gatea_first_caller_slot": "source2",
+            "gatea_binding_state": source2_binding,
             "gatea_truth_option": source2,
             "open_truth_value": source1,
         }
