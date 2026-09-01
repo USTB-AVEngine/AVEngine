@@ -1,6 +1,6 @@
 # Current Apartment execution
 
-Last updated: 2026-08-21
+Last updated: 2026-09-01
 
 This is the short operational checkpoint for the active Apartment training
 dataset work. Durable project rules live in the repository `AGENTS.md`; this
@@ -1054,3 +1054,23 @@ steps with zero deletions:
 README.md now states the completed single-repo baseline (merged via PR #2),
 links the runtime-prefix rebuild recipe, and embeds the engine logical
 pipeline diagram at docs/diagrams/engine_logical_pipeline.svg.
+
+## Checkpoint 20260901: QA-v3 room-centric scene × profile scheduler
+
+The QA-v3 research worktree now has a room-centric scheduler at
+`tools/qa/run_qa_v3_room_profile_scheduler.py`. It attempts every requested
+profile independently for every registered scene, preserves pair-level outputs
+and rejection denominators, and does not stop the room when one profile fails.
+Finite search failure is reported as `not_found_within_budget`, not as proof
+that the room is inherently infeasible. Profile absence, pipeline failure,
+pixel rejection and explicit exhaustive infeasibility remain separate states.
+
+A CPU-only smoke used Apartment and the Kujiale living-room route domain with
+the five current profiles plus an unimplemented card16 column. All 12 matrix
+cells were recorded: 9 generated, 1 not found within budget and 2 not
+implemented; quota state was 7 filled, 2 partial, 1 empty and 2 not run.
+The retained matrix is under
+`/data/jzy/tmp/qa_v3_room_profile_scheduler_smoke_20260901_cbf663f_v3`.
+No UE/GPU render or admission claim was made. The next QA-v3 action is to feed
+additional already-registered rooms through this scheduler, then pass generated
+candidates to native pixel, audio/Gate-A and modality-certification stages.
