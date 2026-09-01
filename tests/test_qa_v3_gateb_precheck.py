@@ -9,7 +9,7 @@ from pathlib import Path
 TOOLS = Path(__file__).resolve().parents[1] / "tools" / "qa"
 sys.path.insert(0, str(TOOLS))
 
-from finalize_qa_v3_gateb_precheck import pixel_case  # noqa: E402
+from finalize_qa_v3_gateb_precheck import audio_pair, pixel_case  # noqa: E402
 from recompute_qa_v3_gateb_gold import compute  # noqa: E402
 
 
@@ -50,3 +50,31 @@ def test_card15a_gateb_pixel_rejects_gold_outside_main_options(tmp_path):
     assert result["gateb_gold"] == [3, 2]
     assert result["rejection_reasons"] == [
         "gateb_gold_outside_main_mcq_option_space"]
+
+
+def _audio_root(path, payload):
+    mixture = path / "audio" / "binaural" / "mixture.wav"
+    mixture.parent.mkdir(parents=True)
+    mixture.write_bytes(payload)
+    (path / "research_receipt.json").write_text(json.dumps({
+        "status": "pass", "research_only": True,
+    }))
+    return path
+
+
+def test_canonical_appearance_audio_requires_identical_rerenders(tmp_path):
+    main = _audio_root(tmp_path / "main", b"same")
+    gateb = _audio_root(tmp_path / "gateb", b"same")
+    result = audio_pair({
+        "main_audio": str(main), "gateb_audio": str(gateb),
+        "policy": "appearance_canonical_anchor_audio_must_be_identical",
+    })
+    assert result["rerender_mixtures_identical"] is True
+    assert result["decision"] == "pass_canonical_anchor_audio_identical"
+    (gateb / "audio" / "binaural" / "mixture.wav").write_bytes(b"changed")
+    import pytest
+    with pytest.raises(RuntimeError, match="unexpectedly changed"):
+        audio_pair({
+            "main_audio": str(main), "gateb_audio": str(gateb),
+            "policy": "appearance_canonical_anchor_audio_must_be_identical",
+        })

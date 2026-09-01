@@ -44,16 +44,24 @@ def audio_pair(spec):
     policy = spec["policy"]
     if policy == "route_audio_must_change_consistently" and same:
         raise RuntimeError("route-swap audio unexpectedly remained identical")
+    if policy == "appearance_canonical_anchor_audio_must_be_identical" and not same:
+        raise RuntimeError(
+            "canonical-anchor appearance audio unexpectedly changed")
+    decisions = {
+        "route_audio_must_change_consistently": "pass_route_audio_changed",
+        "appearance_canonical_anchor_audio_must_be_identical": (
+            "pass_canonical_anchor_audio_identical"),
+        "appearance_reuse_main_audio_no_rerender": (
+            "reuse_main_audio_gateb_rerender_is_diagnostic_only"),
+    }
+    if policy not in decisions:
+        raise ValueError(f"unknown Gate-B audio policy: {policy}")
     return {
         "policy": policy,
         "main_mixture": bound(main_mix),
         "gateb_mixture": bound(gateb_mix),
         "rerender_mixtures_identical": same,
-        "decision": (
-            "pass_route_audio_changed"
-            if policy == "route_audio_must_change_consistently"
-            else "reuse_main_audio_gateb_rerender_is_diagnostic_only"
-        ),
+        "decision": decisions[policy],
     }
 
 
@@ -135,8 +143,9 @@ def main(argv=None):
         },
         "boundary": (
             "Representative Gate-B precert evidence only; appearance twins "
-            "reuse main audio, pixel-dependent twins require per-candidate "
-            "native pixel joins before certification."),
+            "either use the retained development reuse policy or an explicit "
+            "canonical semantic emitter-height rerender policy. Pixel-dependent "
+            "twins require per-candidate native pixel joins before certification."),
     }
     args.output_root.mkdir(parents=True)
     output = args.output_root / "gateb_representative_manifest.json"
