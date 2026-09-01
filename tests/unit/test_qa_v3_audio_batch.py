@@ -41,3 +41,14 @@ def test_missing_point_and_fallback_m1_request_fails(tmp_path: Path) -> None:
     inputs.mkdir()
     with pytest.raises(SystemExit, match="M1 request is missing"):
         TOOL.point_m1_request(inputs, "card1F_001", str(tmp_path / "absent.json"))
+
+
+def test_program_path_matches_generator_main_and_gatea_names(tmp_path: Path) -> None:
+    programs = tmp_path / "programs"
+    programs.mkdir()
+    main = programs / "qa_v3_dog_card1F_001_rand_v1.json"
+    gatea = programs / "qa_v3_dog_card1F_001_rand_gateA_v1.json"
+    main.write_text("{}")
+    gatea.write_text("{}")
+    assert TOOL.program_path(programs, "card1F_001", "main") == main
+    assert TOOL.program_path(programs, "card1F_001", "gateA") == gatea

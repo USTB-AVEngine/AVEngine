@@ -43,7 +43,11 @@ def point_state(out_dir: Path) -> str:
 
 
 def program_path(programs_dir: Path, pid: str, variant: str) -> Path:
-    suffix = "_rand_v1.json" if variant == "main" else f"_{variant}_rand_v1.json"
+    suffixes = {
+        "main": "_rand_v1.json",
+        "gateA": "_rand_gateA_v1.json",
+    }
+    suffix = suffixes.get(variant, f"_rand_{variant}_v1.json")
     matches = sorted(programs_dir.glob(f"qa_v3_*_{pid}{suffix}"))
     if len(matches) != 1:
         raise SystemExit(
