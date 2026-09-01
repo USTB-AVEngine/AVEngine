@@ -4,7 +4,7 @@
 
 本轮完成了所有当前可自动执行的工程修复、评分区分、反事实实渲、
 人类实验打包与 released-media 单模态探针。实现基线为服务器唯一工作副本
-`/data/jzy/tmp/wt-qa-v3-pilot` 的 `ae0e82b`；所有产物仍是
+`/data/jzy/tmp/wt-qa-v3-pilot` 的 `6dcc42a`；所有产物仍是
 `research_candidate`。
 
 **现在还不能开始大规模生成。**剩余前置不是新增题型或一般引擎能力，而是：
@@ -25,6 +25,7 @@
 | `ba95ca9` | full-AV 人类校准网页、隐藏答案表和只在绑定正确试次上计算数值误差的评分器 |
 | `286cb3f` | 跨场景 smoke 同步采用锚定带×查询带分层 |
 | `ae0e82b` | 从最终发布音频/视频/题面运行 Text/audio/video-only 简单捷径探针 |
+| `6dcc42a` | 对历史 216 条逐条重验，区分结构可保留、补元数据、重渲媒体、重采几何、像素待决、降级与 future extension |
 
 ## 测试
 
@@ -34,6 +35,30 @@
 - 工作区在报告成文前干净；未推送远端。
 
 ## 修复后真实证据
+
+### 历史 216 条统一重验
+
+权威输出：
+`/data/jzy/tmp/qa_v3_prescale_revalidation_216_20260902_v2.json`
+
+逐条读取历史 fact、timeline、AudioProgram 与 Gate B 政策，不修改原产物：
+
+- `prescale_structure_pass`：72；
+- `pixel_pending`：12；
+- `metadata_or_pool_reselection_required`：5；
+- `media_regeneration_required`：92；
+- `geometry_resample_required`：11；
+- `demoted_from_main`：12（card15a）；
+- `future_extension`：12（card17）。
+
+核心题分解：card1F 为 8 条几何重采+4 条媒体重做；card1B 为 3 条几何
+重采+4 条媒体重做+5 条仅需元数据/池重选；card5R 12 条须按目标单锚策略
+重渲音频；card6R 12 条结构可保留；card7/card8/card9 各 12 条须用
+canonical appearance Gate B 重渲；card11 12 条须重做发声帧和 pixel join；
+card16 12 条等待全量 native pixel 后四态选择。
+
+因此“历史 216 条已完成”不能解释为“216 条可直接扩大”。大部分视觉几何
+仍可复用，但正式认证池必须按每条动作分类重做或重选。
 
 ### card1 两住宅 CPU room-centric 小批
 
