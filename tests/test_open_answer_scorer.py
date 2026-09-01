@@ -88,6 +88,14 @@ def test_time_single_bare_number_ok():
     assert score_time("2.5", 2.4, SF, SH)["score"] == 1.0
 
 
+def test_card8_strict_certification_drops_wide_partial_credit():
+    rec = score_time(
+        "2.0s", 2.4, SF, SH, strict_certification=True)
+    assert rec["score"] == 0.0
+    assert rec["diagnostic_two_tier_score"] == 0.5
+    assert rec["certification_policy"] == "strict_full_credit_only"
+
+
 # ---------- 闭集 ----------
 
 def test_closed_longest_term_beats_substring_trap():
@@ -160,6 +168,8 @@ def test_main_end_to_end_and_no_clobber(tmp_path):
         {"question_id": "q3", "answer_type": "closed_set", "vocab_key": "presence",
          "model_answer": "无法判断", "truth": "offscreen_source", "refusal_truth": True},
         {"question_id": "q4", "answer_type": "time_s", "model_answer": "怎么会知道呢", "truth": 2.4},
+        {"question_id": "q5", "answer_type": "time_s", "model_answer": "2.0s",
+         "truth": 2.4, "certification_policy": "strict_full_credit_only"},
     ]
     params = {"THETA_FULL": TF, "THETA_HALF": TH, "T_FULL": SF, "T_HALF": SH,
               "BANDS_CARD8": [0.35, 1.1, 1.85, 2.6]}
@@ -168,9 +178,13 @@ def test_main_end_to_end_and_no_clobber(tmp_path):
     out = tmp_path / "scores.json"
     assert main(["--items", items_p, "--params", params_p, "--out", str(out)]) == 0
     doc = json.loads(out.read_text())
-    assert doc["counts"] == {"total": 4, "scored": 2, "invalid": 1, "abstained": 1}
-    assert doc["mean_score_over_scored"] == 1.0
-    assert doc["mean_score_over_all"] == 0.5
+    assert doc["counts"] == {"total": 5, "scored": 3, "invalid": 1, "abstained": 1}
+    assert doc["mean_score_over_scored"] == 0.6667
+    assert doc["mean_score_over_all"] == 0.4
+    q5 = next(record for record in doc["records"]
+              if record["question_id"] == "q5")
+    assert q5["score"] == 0.0
+    assert q5["diagnostic_two_tier_score"] == 0.5
     assert doc["parameters"] == {
         "THETA_FULL": TF, "THETA_HALF": TH, "T_FULL": SF, "T_HALF": SH}
     # no-clobber

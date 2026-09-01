@@ -129,13 +129,22 @@ def score_angle(answer: str, truth_deg: float, theta_full: float, theta_half: fl
     return {"status": "scored", "parsed": value, "circular_error_deg": round(err, 2), "score": score}
 
 
-def score_time(answer: str, truth_s: float, t_full: float, t_half: float) -> dict:
+def score_time(answer: str, truth_s: float, t_full: float, t_half: float, *,
+               strict_certification: bool = False) -> dict:
     value, why = _parse_numeric(answer, TIME_MARK)
     if value is None:
         return {"status": "invalid", "reason": why, "score": 0.0}
     err = abs(value - truth_s)
-    score = 1.0 if err <= t_full else 0.5 if err <= t_half else 0.0
-    return {"status": "scored", "parsed": value, "abs_error_s": round(err, 3), "score": score}
+    diagnostic = 1.0 if err <= t_full else 0.5 if err <= t_half else 0.0
+    score = (1.0 if err <= t_full else 0.0) if strict_certification else diagnostic
+    result = {"status": "scored", "parsed": value,
+              "abs_error_s": round(err, 3), "score": score}
+    if strict_certification:
+        result.update({
+            "certification_policy": "strict_full_credit_only",
+            "diagnostic_two_tier_score": diagnostic,
+        })
+    return result
 
 
 def _match_closed(answer: str, classes: dict[str, list[str]]) -> tuple[str | None, str | None]:
@@ -201,7 +210,11 @@ def score_item(item: dict, params: dict, vocab: dict) -> dict:
     if at == "angle_deg":
         return score_angle(ans, float(item["truth"]), params["THETA_FULL"], params["THETA_HALF"])
     if at == "time_s":
-        return score_time(ans, float(item["truth"]), params["T_FULL"], params["T_HALF"])
+        return score_time(
+            ans, float(item["truth"]), params["T_FULL"], params["T_HALF"],
+            strict_certification=(
+                item.get("certification_policy") ==
+                "strict_full_credit_only"))
     if at == "closed_set":
         classes = vocab[item["vocab_key"]]
         return score_closed(ans, str(item["truth"]), classes,

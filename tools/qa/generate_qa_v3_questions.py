@@ -345,7 +345,9 @@ def gen_card8(bundle: PointBundle, fe: dict, params: dict) -> list[dict]:
                               f"{COAT_LABEL[coat]} bark for the first "
                               f"time?"),
                      "truth_value": round(onset, 4), "unit": "s",
-                     "scoring": "absolute_time"},
+                     "scoring": "absolute_time",
+                     "certification_policy": "strict_full_credit_only",
+                     "wide_tolerance_role": "diagnostic_only"},
         })
         out.append(rec)
     return out

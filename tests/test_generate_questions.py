@@ -181,6 +181,10 @@ def test_card8_bands_and_both_slots(tmp_path):
     assert recs["source2"]["truth"]["band_index"] == 1
     assert recs["source2"]["mcq"]["truth_option"] == "[1.25, 2.5)"
     assert "yellow" in recs["source2"]["mcq"]["stem"]
+    assert recs["source2"]["open"]["certification_policy"] == \
+        "strict_full_credit_only"
+    assert recs["source2"]["open"]["wide_tolerance_role"] == \
+        "diagnostic_only"
     assert band_of(1.25, PARAMS["BANDS"]) == 1   # 半开边界归右带
 
 

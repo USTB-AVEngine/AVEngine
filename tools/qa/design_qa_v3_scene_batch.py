@@ -1369,7 +1369,9 @@ def build_answer(kind, profile, cell, timeline, schedule, slot_events,
                 "open": {"stem": (f"At how many seconds does the {coat} dog "
                                   "bark for the first time?"),
                          "truth_value": round(onset, 4), "unit": "s",
-                         "scoring": "absolute_time"}}
+                         "scoring": "absolute_time",
+                         "certification_policy": "strict_full_credit_only",
+                         "wide_tolerance_role": "diagnostic_only"}}
     if kind == "first_caller_coat":
         firsts = {}
         for slot, start in slot_events:
