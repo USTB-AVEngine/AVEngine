@@ -103,6 +103,26 @@ def test_closed_set_gatea_flips_both_forms():
     assert checks["open_gold_separated"]
 
 
+def test_card2_instant_azimuth_stem_and_profile_validation():
+    slot_coat = {"source1": "black-and-white", "source2": "yellow"}
+    bands = [[-52.5, -17.5], [17.5, 52.5]]
+    profile = {
+        "id": "card2", "temporal": "instant",
+        "answer_kind": "instant_azimuth_band",
+        "binding_frames": [30], "idle_choices": [0, 8],
+        "answer_bands_deg": bands, "anchor_binding": "query_caller",
+    }
+    validate_profiles([profile])
+    result = build_answer(
+        "instant_azimuth_band", profile,
+        {"answer_band": (-52.5, -17.5)}, None, None, [],
+        "source1", "source2", slot_coat, -30.0, 30, PARAMS)
+    assert "frame index 30" in result["mcq"]["stem"]
+    assert "dog barking at that frame" in result["mcq"]["stem"]
+    assert result["mcq"]["truth_option"] == "[-52.5, -17.5)"
+    assert result["open"]["scoring"] == "circular_deg"
+
+
 @pytest.mark.parametrize(
     ("mutation", "failure"),
     [

@@ -317,6 +317,17 @@ def validate_anchor_binding(profile, schedule, slot_events, *, target_slot,
 def solve_for_profile(profile, cell, scene, params, rng, ledger):
     """时间关系决定用哪个求解器 —— 题型只声明关系,不写房间分支。"""
     temporal = profile["temporal"]
+    kind = profile.get("answer_kind", "azimuth_band")
+    if temporal == "instant" and kind == "instant_azimuth_band":
+        return SS.solve_instant_azimuth(
+            scene, params, answer_band=cell["answer_band"],
+            answer_bands=[tuple(b) for b in profile["answer_bands_deg"]],
+            query_frame=profile["binding_frames"][0],
+            profile_id=profile["id"],
+            idle_choices=profile["idle_choices"], rng=rng, ledger=ledger,
+            target_moves_more=cell["target_moves_more"],
+            max_attempts=profile.get("max_attempts", 3000))
+
     if temporal == "forward":
         return SS.solve_forward_cross_time(
             scene, params, answer_band=cell["answer_band"],
@@ -354,7 +365,8 @@ def validate_profiles(profiles):
     valid_temporal = {"forward", "backward", "instant"}
     valid_binding = {"target", "query_caller", "first_caller"}
     valid_answer = {
-        "azimuth_band", "coat_at_query", "time_band", "first_caller_coat",
+        "azimuth_band", "instant_azimuth_band", "coat_at_query",
+        "time_band", "first_caller_coat",
     }
     for profile in profiles:
         pid = profile["id"]
@@ -375,6 +387,8 @@ def validate_profiles(profiles):
             required |= {"anchor_frame", "query_frame", "answer_bands_deg"}
         else:
             required |= {"binding_frames"}
+            if profile.get("answer_kind") == "instant_azimuth_band":
+                required.add("answer_bands_deg")
         missing = sorted(key for key in required if key not in profile)
         if missing:
             raise ValueError(f"{pid}: missing required profile fields {missing}")
@@ -389,7 +403,7 @@ def build_cell_plan(cells, profiles, pair_assets, params, seed):
         # 答案格按题型的答案空间分配:方位带题分带,时间带题分有序带对,
         # 外观题分目标外观 —— 一律**先分配再求解**。
         kind = profile.get("answer_kind", "azimuth_band")
-        if kind == "azimuth_band":
+        if kind in ("azimuth_band", "instant_azimuth_band"):
             cellsets = [tuple(b) for b in profile["answer_bands_deg"]]
         elif kind in ("time_band", "first_caller_coat"):
             # 直接分配**目标的答案带**(而不是带对):带对的第一分量
@@ -415,7 +429,7 @@ def build_cell_plan(cells, profiles, pair_assets, params, seed):
                 for band, flag in zip(band_alloc, first_alloc)]
         slots = ["source1", "source2"]
         coats = [COAT_OF[a1], COAT_OF[a2]]
-        if kind == "azimuth_band":
+        if kind in ("azimuth_band", "instant_azimuth_band"):
             # Six cells cover the full slot x answer-band table once.  Coat
             # is then balanced within each slot so motion/audio slot cannot
             # deterministically recover appearance.
@@ -743,9 +757,10 @@ def realise_point(pid, cell, plan, scene, base_request, params, by_id, args,
         "point_id": pid, "scene_id": scene.scene_id,
         "profile_id": profile["id"],
         "evidence_class": "geometry_candidate",
-        "temporal_relation": ("anchor_before_query"
-                              if profile["temporal"] == "forward"
-                              else "anchor_after_query"),
+        "temporal_relation": (
+            "simultaneous_binding" if profile["temporal"] == "instant"
+            else "anchor_before_query" if profile["temporal"] == "forward"
+            else "anchor_after_query"),
         "anchor_frame": plan.anchor_frame, "query_frame": query_frame,
         "target_slot": target_slot, "target_coat": slot_coat[target_slot],
         "slot_coat": slot_coat,
@@ -861,7 +876,7 @@ def build_gatea_answer(kind, profile, cell, timeline, schedule,
     first-caller relation simply reverses.
     """
     gatea_cell = dict(cell)
-    if kind == "azimuth_band":
+    if kind in ("azimuth_band", "instant_azimuth_band"):
         gatea_target_slot, gatea_other_slot = other_slot, target_slot
         gatea_truth_deg = recompute_azimuth(
             timeline, gatea_target_slot, query_frame)
@@ -911,7 +926,7 @@ def build_answer(kind, profile, cell, timeline, schedule, slot_events,
                  params):
     """按题型的答案空间造真值;MCQ 与 Open 引用**同一条**事实。"""
     coat = slot_coat[target_slot]
-    if kind == "azimuth_band":
+    if kind in ("azimuth_band", "instant_azimuth_band"):
         bands = [tuple(b) for b in profile["answer_bands_deg"]]
         labels = [f"[{lo:g}, {hi:g})" for lo, hi in bands]
         got = next((i for i, (lo, hi) in enumerate(bands)
@@ -924,12 +939,17 @@ def build_answer(kind, profile, cell, timeline, schedule, slot_events,
                 "with the solver's geometry")
         if profile["temporal"] == "forward":
             moment = "At the end of the video"
+            referent = "the dog that barked last"
         elif profile["temporal"] == "backward":
             moment = (f"At zero-based video frame index {query_frame} "
                       f"({query_frame}/15 seconds)")
+            referent = "the dog that barked last"
+        elif profile["temporal"] == "instant":
+            moment = (f"At zero-based video frame index {query_frame} "
+                      f"({query_frame}/15 seconds)")
+            referent = "the dog barking at that frame"
         else:
             raise ValueError("azimuth-band profile must declare a time direction")
-        referent = "the dog that barked last"
         return {"truth": {"band_index": got},
                 "mcq": {"stem": (f"{moment}, which azimuth band relative to "
                                  f"your facing direction contains {referent}? "

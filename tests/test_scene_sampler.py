@@ -32,6 +32,7 @@ from scene_sampler import (  # noqa: E402
     solve_backward_cross_time,
     solve_forward_cross_time,
     solve_instant_binding,
+    solve_instant_azimuth,
     yaw_interval_for_band,
     _pick_other_route,
 )
@@ -253,6 +254,7 @@ def test_backward_cross_time_queries_an_earlier_frame():
 
 
 def test_instant_binding_uses_two_moving_routes():
+
     scene = synthetic_scene()
     ledger = RejectionLedger()
     plan = solve_instant_binding(
@@ -261,6 +263,24 @@ def test_instant_binding_uses_two_moving_routes():
     assert not isinstance(plan, Rejection), ledger.summary()
     assert plan.target_route.route_id != plan.other_route.route_id
     assert plan.other_route.displacement_cm > 0
+@pytest.mark.parametrize("band", (BANDS[0], BANDS[2]))
+def test_instant_azimuth_solves_declared_side_band_and_gatea_open(band):
+    scene = synthetic_scene()
+    ledger = RejectionLedger()
+    side_bands = (BANDS[0], BANDS[2])
+    plan = solve_instant_azimuth(
+        scene, PARAMS, answer_band=band, answer_bands=side_bands,
+        query_frame=30, profile_id="card2", idle_choices=(0, 8),
+        rng=np.random.default_rng(33), ledger=ledger)
+    assert not isinstance(plan, Rejection), ledger.summary()
+    lo, hi = band
+    assert lo <= plan.answer_cell["value_deg"] < hi
+    assert plan.query_frame == plan.anchor_frame == 30
+    assert plan.checks["gatea_open_gold_separation_deg"] > (
+        2 * PARAMS["THETA_HALF"])
+    assert plan.target_route.route_id != plan.other_route.route_id
+
+
 
 
 def test_instant_binding_rejects_static_only_route_bank_for_dual_motion():

@@ -27,6 +27,18 @@
     "anchor_binding": "target"
   },
   {
+    "id": "card2",
+    "temporal": "instant",
+    "answer_kind": "instant_azimuth_band",
+    "binding_frames": [30],
+    "idle_choices": [0, 8],
+    "answer_bands_deg": [
+      [-52.5, -17.5],
+      [17.5, 52.5]
+    ],
+    "anchor_binding": "query_caller"
+  },
+  {
     "id": "card7",
     "temporal": "instant",
     "answer_kind": "coat_at_query",

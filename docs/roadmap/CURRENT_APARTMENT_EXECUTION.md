@@ -1074,3 +1074,14 @@ The retained matrix is under
 No UE/GPU render or admission claim was made. The next QA-v3 action is to feed
 additional already-registered rooms through this scheduler, then pass generated
 candidates to native pixel, audio/Gate-A and modality-certification stages.
+
+
+The first all-profile expansion slice is now complete for card2 (immediate
+emitting-time azimuth). It adds an instant-azimuth solver, answer-first side
+bands, a query-frame caller AudioProgram and MCQ/Open Gate-A flips. A two-room
+CPU smoke generated 2/2 candidates in Apartment and 2/2 in Kujiale; all four
+Open gold separations exceed 60 degrees. Evidence is retained at
+`/data/jzy/tmp/qa_v3_card2_two_room_smoke_20260901_v1`. This remains
+geometry/timeline/program/fact evidence only. The executable catalog now has
+six profiles; the next implementation slice is card3, followed by the remaining
+dual-source controls before the N-source and multi-segment work.

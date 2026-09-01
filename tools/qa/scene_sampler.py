@@ -656,6 +656,83 @@ def _pick_other_route(scene, target_route, camera, yaw, az_anchor, az_answer,
             "the field of view"))
     return None
 
+
+
+def solve_instant_azimuth(scene: SceneInputs, params: dict, *,
+                          answer_band: tuple[float, float],
+                          answer_bands: Sequence[tuple[float, float]],
+                          query_frame: int, profile_id: str,
+                          idle_choices: Iterable[int], rng,
+                          ledger: RejectionLedger,
+                          target_moves_more: bool | None = None,
+                          max_attempts: int = 4000):
+    """Immediate-DoA control: bind the caller and its visual azimuth together."""
+    band_lo, band_hi = [float(value) for value in answer_band]
+    solve_lo, solve_hi = interior_answer_band(band_lo, band_hi, params)
+    half_fov = effective_half_fov(scene, params)
+    min_sep = float(params["MIN_AZIMUTH_SEP"])
+    theta_half = float(params["THETA_HALF"])
+    n_routes, n_cams = len(scene.routes), len(scene.camera_points)
+    for attempt in range(1, max_attempts + 1):
+        ledger.note_combination()
+        route = scene.routes[int(rng.integers(n_routes))]
+        idle = int(rng.choice(list(idle_choices)))
+        moved = route.shifted(idle)
+        if moved.displacement_cm <= 1.0e-6:
+            ledger.add(Rejection("target_route_static_for_dual_motion"))
+            continue
+        answer_xy = moved.at(query_frame)
+        camera = scene.camera_points[int(rng.integers(n_cams))]
+        if _too_close(camera, answer_xy, params):
+            ledger.add(Rejection("camera_too_close_to_target"))
+            continue
+        lo_yaw, hi_yaw = yaw_interval_for_band(
+            camera, answer_xy, solve_lo, solve_hi)
+        yaw = float(rng.uniform(lo_yaw, hi_yaw))
+        azimuth = relative_azimuth_deg(camera, yaw, answer_xy)
+        if abs(azimuth) > half_fov:
+            ledger.add(Rejection("answer_band_outside_fov"))
+            continue
+        other = _pick_other_route(
+            scene, moved, camera, yaw, azimuth, azimuth,
+            band_lo, band_hi, answer_bands, min_sep, half_fov,
+            theta_half, params, query_frame, query_frame, rng, ledger,
+            target_moves_more=target_moves_more)
+        if other is None:
+            continue
+        other_azimuth = relative_azimuth_deg(
+            camera, yaw, other.at(query_frame))
+        if scene.line_of_sight is not None:
+            if not scene.line_of_sight(camera, answer_xy):
+                ledger.add(Rejection("target_occluded_at_binding_instant"))
+                continue
+            if not scene.line_of_sight(camera, other.at(query_frame)):
+                ledger.add(Rejection("other_actor_occluded"))
+                continue
+        return PointPlan(
+            scene_id=scene.scene_id, profile_id=profile_id,
+            camera_xy=camera, camera_ue_yaw_deg=yaw,
+            target_route=moved, base_route=route, other_route=other,
+            idle_frames=idle, anchor_frame=query_frame,
+            query_frame=query_frame,
+            answer_cell={"kind": "instant_azimuth_band",
+                         "band": [band_lo, band_hi],
+                         "value_deg": azimuth},
+            checks={
+                "binding_azimuth_deg": round(azimuth, 3),
+                "gatea_answer_azimuth_deg": round(other_azimuth, 3),
+                "gatea_open_gold_separation_deg": circular_gap_deg(
+                    azimuth, other_azimuth),
+                "gatea_open_min_separation_deg": 2.0 * theta_half,
+                "line_of_sight_screened": scene.line_of_sight_screened,
+                "search_attempts": attempt,
+
+
+            },
+        )
+    ledger.budget_exhausted += 1
+    return Rejection("no_candidate_within_attempt_budget",
+                     f"{max_attempts} attempts")
 def solve_instant_binding(scene: SceneInputs, params: dict, *,
                           instants: Sequence[int], profile_id: str,
                           idle_choices: Iterable[int], rng,
