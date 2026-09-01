@@ -10,6 +10,7 @@ import pytest
 from avengine.studio.production import (
     ProductionError,
     board_rows,
+    load_sound_library,
     load_sound_asset_catalog,
     read_human_verdict,
     review_queue,
@@ -408,3 +409,71 @@ def test_one_click_episode_reaches_the_review_wall(tmp_path: Path) -> None:
     assert entry["artifacts"]["mp4"] == "episode/episode_binaural.mp4"
     assert "first_frame" not in entry["artifacts"]  # the fixture wrote no frames
     assert entry["machine_audition"]["verdict"] == "pass"
+
+
+def _sound_tree(tmp_path: Path) -> tuple[Path, Path]:
+    """An asset declaring 'silent' plus two clips, one a copy of the other."""
+
+    assets = tmp_path / "sound_source_assets_v1"
+    asset_dir = assets / "audio_playback" / "speaker" / "black"
+    asset_dir.mkdir(parents=True)
+    (asset_dir / "asset.json").write_text(
+        json.dumps(
+            {
+                "asset_id": "speaker_black_v1",
+                "acoustic_profile": {
+                    "allowed_event_classes": ["music_playback", "silent"],
+                    "default_event_class": "music_playback",
+                },
+            }
+        )
+    )
+    index = assets / "index.json"
+    index.write_text(json.dumps({"created_at": "2026-08-30"}))
+
+    library = tmp_path / "sound_library_v1"
+    audio = b"RIFF" + b"\x00" * 40 + b"WAVEfmt " + b"\x11" * 200
+    for name in ("music_playback/one", "any_audioset_class_playback/one"):
+        folder = library / name
+        folder.mkdir(parents=True)
+        (folder / "clip.wav").write_bytes(audio)
+        (folder / "clip.json").write_text(
+            json.dumps({"event_classes": [name.split("/")[0]], "dry": True})
+        )
+    (library / "music_playback" / "one" / "clip.qc.json").write_text(
+        json.dumps(
+            {
+                "verdict": "warn",
+                "findings": [
+                    {"severity": "warn", "reason_zh": "轻微削波:有 12 段顶到最大值"}
+                ],
+            }
+        )
+    )
+    return library, index
+
+
+def test_silent_is_not_a_gap_to_collect(tmp_path: Path) -> None:
+    """'silent' names a state, not a recording; it sat red at the top of the
+    table with forty assets behind it and sent the collector hunting."""
+
+    library, index = _sound_tree(tmp_path)
+    payload = load_sound_library(library, index)
+    classes = [row["event_class"] for row in payload["coverage"]]
+    assert "silent" not in classes
+    assert "music_playback" in classes
+
+
+def test_library_carries_qc_verdicts_and_spots_copies(tmp_path: Path) -> None:
+    library, index = _sound_tree(tmp_path)
+    payload = load_sound_library(library, index)
+    assert payload["clip_count"] == 2
+    assert payload["distinct_audio_count"] == 1
+    by_path = {clip["path"]: clip for clip in payload["clips"]}
+    judged = by_path["music_playback/one/clip.wav"]
+    assert judged["qc"]["verdict"] == "warn"
+    assert "削波" in judged["qc"]["findings"][0]["reason_zh"]
+    assert judged["duplicate_of"] == ["any_audioset_class_playback/one/clip.wav"]
+    assert by_path["any_audioset_class_playback/one/clip.wav"]["qc"] is None
+    assert payload["qc_summary"]["warn"] == 1
+    assert payload["qc_summary"]["unchecked"] == 1

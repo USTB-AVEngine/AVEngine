@@ -23,6 +23,7 @@ dangle.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 from datetime import datetime, timezone
@@ -43,6 +44,29 @@ _VERDICT_FILE = "human_verdict.json"
 # 00800-TEEsavR23oF, receipt scene_id TEEsavR23oF - and the 11-character
 # Matterport hash is the part they all carry.
 _SCENE_HASH = re.compile(r"([A-Za-z0-9]{11})(?:\.|$|_)")
+
+
+def _digest(path: Path) -> str:
+    """A fingerprint that spots the same file copied under another name.
+
+    Size plus both ends of the file rather than the whole of it: the page
+    recomputes this for every clip on every request, and the question it
+    answers is "is this the same downloaded recording filed twice", not
+    "prove these bytes are identical" - the QC tool does that properly.
+    """
+
+    size = path.stat().st_size
+    window = 65536
+    with path.open("rb") as handle:
+        head = handle.read(window)
+        if size > window * 2:
+            handle.seek(-window, 2)
+            tail = handle.read(window)
+        else:
+            tail = b""
+    return hashlib.sha256(
+        str(size).encode() + head + tail
+    ).hexdigest()[:16]
 
 
 def _read_json(path: Path) -> dict[str, Any] | None:
@@ -135,6 +159,14 @@ def sound_asset_file(index_path: Path, relative: str) -> Path:
 
 _SOUND_FILE_SUFFIXES = frozenset({".wav", ".json"})
 
+# Event classes an asset may declare that name a state rather than a sound
+# to record. "silent" says this object is present and quiet right now - a
+# first-class negative sample - so it has no clip to collect, and listing
+# it as a gap sent the collector hunting for a recording of nothing. It
+# stayed red at the top of the table with forty assets behind it while the
+# real gaps sat below.
+_UNCOLLECTABLE_EVENT_CLASSES = frozenset({"silent"})
+
 
 def _wav_facts(path: Path) -> dict[str, Any]:
     """Header facts a curator needs before auditioning anything.
@@ -185,10 +217,13 @@ def load_sound_library(
             if default:
                 names.add(str(default))
             for name in names:
+                if str(name) in _UNCOLLECTABLE_EVENT_CLASSES:
+                    continue
                 demand[str(name)] = demand.get(str(name), 0) + 1
 
     clips: list[dict[str, Any]] = []
     supply: dict[str, int] = {}
+    digests: dict[str, list[str]] = {}
     if library_root.is_dir():
         for wav_path in sorted(library_root.rglob("*.wav")):
             relative = wav_path.relative_to(library_root).as_posix()
@@ -200,6 +235,13 @@ def load_sound_library(
             ]
             for name in event_classes:
                 supply[name] = supply.get(name, 0) + 1
+            # The QC report is written by tools/assets/qc_sound_library.py,
+            # never here: measuring a hundred-odd wavs in full on every page
+            # load would make the page slow for no gain, and a stale report
+            # that says which file it judged is more honest than a fast lie.
+            qc = _read_json(wav_path.with_suffix(".qc.json"))
+            digest = _digest(wav_path)
+            digests.setdefault(digest, []).append(relative)
             clips.append(
                 {
                     "path": relative,
@@ -209,9 +251,28 @@ def load_sound_library(
                     "license": sidecar.get("license"),
                     "dry": sidecar.get("dry"),
                     "notes": sidecar.get("notes"),
+                    "audio_digest": digest,
+                    "qc": (
+                        {
+                            "verdict": qc.get("verdict"),
+                            "findings": [
+                                {
+                                    "severity": f.get("severity"),
+                                    "reason_zh": f.get("reason_zh"),
+                                }
+                                for f in qc.get("findings") or []
+                                if isinstance(f, Mapping)
+                            ],
+                        }
+                        if qc
+                        else None
+                    ),
                     **_wav_facts(wav_path),
                 }
             )
+        for clip in clips:
+            same = digests.get(clip["audio_digest"], [])
+            clip["duplicate_of"] = [p for p in same if p != clip["path"]]
 
     coverage = [
         {
@@ -222,6 +283,12 @@ def load_sound_library(
         for name, count in sorted(demand.items(), key=lambda kv: (-kv[1], kv[0]))
     ]
     unclaimed = sorted(set(supply) - set(demand))
+    verdicts = {"pass": 0, "warn": 0, "fail": 0, "unchecked": 0}
+    for clip in clips:
+        qc = clip.get("qc")
+        verdicts[str((qc or {}).get("verdict") or "unchecked")] = verdicts.get(
+            str((qc or {}).get("verdict") or "unchecked"), 0
+        ) + 1
     return {
         "schema": "avengine_studio_sound_library_v1",
         "root": str(library_root),
@@ -229,11 +296,13 @@ def load_sound_library(
             "干声（无混响、无背景底噪）；混响由房间声学添加，素材自带混响会叠加。"
             "管线消费 16 kHz 单声道 PCM wav；其他采样率可以先入库，登记进正式"
             "registry 时再重采样。旁车 json 声明 event_classes（用资产档案里的"
-            "词表）、source、license、dry: true"
+            "词表）、source、dry: true；网上下的顺手把网址写进 source"
         ),
         "coverage": coverage,
         "clips": clips,
         "clip_count": len(clips),
+        "distinct_audio_count": len(digests),
+        "qc_summary": verdicts,
         "supply_without_demand": unclaimed,
     }
 
