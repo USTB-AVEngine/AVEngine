@@ -49,22 +49,28 @@ def run_profile(scene, params, profile, per_profile, seed_base, ledger):
     rng = np.random.default_rng(
         int.from_bytes(hashlib.sha256(tag).digest()[:8], "big") % 2**32)
     bands = [tuple(b) for b in profile["answer_bands_deg"]]
+    joint_cells = [(anchor, answer) for anchor in bands for answer in bands]
+    joint_order = list(np.asarray(joint_cells, dtype=object)[
+        rng.permutation(len(joint_cells))])
     plans, rejects = [], 0
     per_band: dict[tuple, dict] = {b: {"requested": 0, "candidates": 0,
                                        "exhausted": 0, "attempts": []}
                                    for b in bands}
     for index in range(per_profile):
-        band = bands[index % len(bands)]      # 答案带轮流分配(先分配后求解)
+        anchor_band, band = joint_order[index % len(joint_order)]
+        anchor_band, band = tuple(anchor_band), tuple(band)
         per_band[band]["requested"] += 1
         if profile["temporal"] == "forward":
             outcome = solve_forward_cross_time(
                 scene, params, answer_band=band, answer_bands=bands,
+                anchor_band=anchor_band,
                 anchor_frame=profile["anchor_frame"],
                 idle_choices=profile["idle_choices"], rng=rng, ledger=ledger,
                 max_attempts=profile.get("max_attempts", 3000))
         else:
             outcome = solve_backward_cross_time(
                 scene, params, answer_band=band, answer_bands=bands,
+                anchor_band=anchor_band,
                 anchor_frame=profile["anchor_frame"],
                 query_frame=profile["query_frame"],
                 idle_choices=profile["idle_choices"], rng=rng, ledger=ledger,
@@ -183,6 +189,10 @@ def main(argv: list[str] | None = None) -> int:
                                                   "first_example")},
                 "answer_band_distribution": {str(k): v for k, v
                                              in sorted(band_counts.items())},
+                "anchor_answer_band_distribution": dict(sorted(Counter(
+                    f"{tuple(p.checks['allocated_anchor_band'])} -> "
+                    f"{tuple(p.answer_cell['band'])}"
+                    for p in plans).items())),
                 "distinct_cameras": len({p.camera_xy for p in plans}),
                 "distinct_routes": len({p.target_route.route_id.split("+")[0]
                                         for p in plans}),

@@ -41,6 +41,8 @@ from scene_sampler import (  # noqa: E402
     _pick_other_route,
 )
 
+from run_scene_generalization_smoke import run_profile  # noqa: E402
+
 PARAMS = {"THETA_FULL": 15.0, "THETA_HALF": 30.0,
           "MIN_AZIMUTH_SEP": 25.0,
           "MIN_CAMERA_DISTANCE_CM": 100.0}
@@ -134,6 +136,22 @@ def test_card1_solver_honours_allocated_anchor_band_and_zero_score_rule():
     assert BANDS[1][0] <= plan.checks["az_anchor_deg"] < BANDS[1][1]
     assert plan.checks["anchor_open_score"] == 0.0
     assert plan.checks["azimuth_travel_deg"] > PARAMS["THETA_HALF"]
+
+
+def test_generalization_smoke_uses_allocated_anchor_strata():
+    profile = {
+        "id": "card1F", "temporal": "forward",
+        "answer_bands_deg": [list(band) for band in BANDS],
+        "anchor_frame": 45, "idle_choices": [0, 8, 16],
+        "max_attempts": 8000,
+    }
+    ledger = RejectionLedger()
+    plans, _, _ = run_profile(
+        synthetic_scene(hfov=180.0), PARAMS, profile, 18, 31, ledger)
+    assert plans
+    assert all(plan.checks["allocated_anchor_band"] is not None
+               for plan in plans)
+    assert all(plan.checks["anchor_open_score"] == 0.0 for plan in plans)
 
 
 def test_gatea_actor_outside_declared_mcq_space_is_rejected():
