@@ -5,7 +5,7 @@
 
 自 2026-08-25 起，目录本身就是能力分组（阶段目录 m1…m7 已移除），
 本表按目录列出每个工具做什么。
-当前共 261 个工具脚本。
+当前共 264 个工具脚本。
 
 ## 资产生成与装配（`tools/assets/`）
 
@@ -47,12 +47,14 @@
 | `tools/assets/model_roots.py` | Where shared model weights live, resolved instead of hard-coded |
 | `tools/assets/normalize_materials.py` | Normalize GLB PBR materials without modifying geometry or animation data |
 | `tools/assets/plan_instance_variants.py` | Derive the instance-level variant plan for accepted source assets |
+| `tools/assets/prepare_sound_library.py` | Convert the collected dry clips into the form the pipeline consumes |
 | `tools/assets/preprocess_glb.py` | Select GLB actions and strip provably unweighted controller roots |
 | `tools/assets/probe_habitat_skin_rest.py` | Generate and exercise a temporary Habitat skinned-AO rest-pose descriptor |
 | `tools/assets/probe_heading_axis.py` |  |
 | `tools/assets/promote_canary.py` | Promote one hash-closed M2 research candidate to a new canary package |
 | `tools/assets/publish_animal_assets.py` | Publish accepted generated animals into the shared sound-source asset tree |
 | `tools/assets/publish_static_source_assets.py` | Publish admitted static sound sources into the shared asset tree |
+| `tools/assets/qc_sound_library.py` | Check every clip in the dry-sound library and say what is wrong, in words |
 | `tools/assets/rebase_skin_root.py` | Create a Habitat-native, root-local GLB research candidate |
 | `tools/assets/rebind_appearance_actions.py` | Reuse one validated M2 package action set on a compatible appearance rig |
 | `tools/assets/rebind_appearance_visual.py` | Preserve a source M2 package actor frame on one appearance realization |
@@ -309,6 +311,14 @@
 | `tools/review/build_six_case_review.py` | Validate, plan, or build the immutable M6 six-case human-review package |
 | `tools/review/machine_audition_hm3d_episode.py` | Machine-audit one rendered HM3D episode and write the verdict beside it |
 | `tools/review/render_review_acoustics.py` | Render and retain variable-duration M5.1 binaural RIR evidence |
+
+## 外部数据审计（`tools/audit/`）
+
+*对外部公开数据集做独立审计（如 JAEGER 公开包的混响核查）*
+
+| 工具 | 做什么 |
+|---|---|
+| `tools/audit/audit_jaeger_rir.py` | JAEGER SpatialSceneQA 公开包 RIR 混响审计脚本(可重跑版)。 |
 
 ## 注册表与发布（`tools/registry/`）
 
