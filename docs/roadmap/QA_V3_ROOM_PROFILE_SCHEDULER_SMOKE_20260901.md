@@ -16,9 +16,9 @@ not_found_within_budget，绝不外推为“房间永远不支持”。
 - 当前五 profile：examples/qa/qa_v3_current_profiles_v1.json
 - 单测：tests/test_room_profile_scheduler.py
 - smoke：
-  /data/jzy/tmp/qa_v3_room_profile_scheduler_smoke_20260901_cbf663f_v3
+  /data/jzy/tmp/qa_v3_room_profile_scheduler_smoke_20260901_final_v1
 - 权威矩阵：
-  /data/jzy/tmp/qa_v3_room_profile_scheduler_smoke_20260901_cbf663f_v3/scene_profile_matrix.json
+  /data/jzy/tmp/qa_v3_room_profile_scheduler_smoke_20260901_final_v1/scene_profile_matrix.json
 
 ## 2. 状态语义
 

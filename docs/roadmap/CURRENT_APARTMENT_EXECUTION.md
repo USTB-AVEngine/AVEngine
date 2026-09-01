@@ -1070,7 +1070,7 @@ the five current profiles plus an unimplemented card16 column. All 12 matrix
 cells were recorded: 9 generated, 1 not found within budget and 2 not
 implemented; quota state was 7 filled, 2 partial, 1 empty and 2 not run.
 The retained matrix is under
-`/data/jzy/tmp/qa_v3_room_profile_scheduler_smoke_20260901_cbf663f_v3`.
+`/data/jzy/tmp/qa_v3_room_profile_scheduler_smoke_20260901_final_v1`.
 No UE/GPU render or admission claim was made. The next QA-v3 action is to feed
 additional already-registered rooms through this scheduler, then pass generated
 candidates to native pixel, audio/Gate-A and modality-certification stages.
