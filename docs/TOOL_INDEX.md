@@ -5,7 +5,7 @@
 
 自 2026-08-25 起，目录本身就是能力分组（阶段目录 m1…m7 已移除），
 本表按目录列出每个工具做什么。
-当前共 265 个工具脚本。
+当前共 267 个工具脚本。
 
 ## 资产生成与装配（`tools/assets/`）
 
@@ -40,6 +40,8 @@
 | `tools/assets/gate_retopology.py` | Reject a mesh preparation that damaged the animal, before it is rigged |
 | `tools/assets/gate_rigged_asset.py` | Accept or reject a rigged animal from how its surface tears during the walk |
 | `tools/assets/generate_canonical_2d.py` | Generate one canonical 2D animal candidate from a clay pose guide |
+| `tools/assets/harvest_fsd50k_clips.py` | Fill the sound-effect classes from the FSD50K copy already on this machine |
+| `tools/assets/harvest_vctk_speech.py` | Pull English speech with transcripts from the VCTK copy on this machine |
 | `tools/assets/measure_deformation_stretch.py` | Measure how much of the surface a pose stretches |
 | `tools/assets/measure_mesh_topology.py` | Compare mesh structure after welding, without a glTF round trip in between |
 | `tools/assets/measure_static_resting_pose.py` | Measure the resting or mounting pose of a published rigid static asset |
