@@ -1104,3 +1104,12 @@ at 2:2, with all eight MCQ/Open golds preserved and every slot sequence
 changed. Evidence is retained at
 `/data/jzy/tmp/qa_v3_card15b_two_room_smoke_20260901_v1`. The executable
 catalog now has eight profiles.
+
+
+Card4R (which dog is closer at frame 30) is executable as a visual control.
+The solver allocates the answer coat first, then finds a camera and two moving
+routes with at least a 50 cm distance-order margin. The two-room smoke
+generated 4/4 candidates per room with each coat at 2:2; all eight Gate-A
+audio slot swaps preserved the visual gold. Evidence is retained at
+`/data/jzy/tmp/qa_v3_card4r_two_room_smoke_20260901_v1`. The executable
+catalog now has nine profiles.

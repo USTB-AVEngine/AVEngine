@@ -357,6 +357,15 @@ def solve_for_profile(profile, cell, scene, params, rng, ledger):
             max_attempts=profile.get("max_attempts", 3000),
             open_half_width_deg=profile.get("open_half_width_deg"))
 
+    if temporal == "instant" and kind == "distance_at_query":
+        return SS.solve_instant_distance_order(
+            scene, params, query_frame=profile["binding_frames"][0],
+            profile_id=profile["id"],
+            idle_choices=profile["idle_choices"], rng=rng, ledger=ledger,
+            target_moves_more=cell["target_moves_more"],
+            min_distance_gap_cm=profile.get("min_distance_gap_cm", 50.0),
+            max_attempts=profile.get("max_attempts", 3000))
+
     if temporal == "forward":
         return SS.solve_forward_cross_time(
             scene, params, answer_band=cell["answer_band"],
@@ -395,7 +404,8 @@ def validate_profiles(profiles):
     valid_binding = {"target", "query_caller", "first_caller", "none"}
     valid_answer = {
         "azimuth_band", "instant_azimuth_band", "first_sound_side",
-        "coat_at_query", "time_band", "first_caller_coat", "event_count",
+        "coat_at_query", "distance_at_query", "time_band",
+        "first_caller_coat", "event_count",
     }
     for profile in profiles:
         pid = profile["id"]
@@ -671,6 +681,10 @@ def realise_point(pid, cell, plan, scene, base_request, params, by_id, args,
     elif profile.get("answer_kind") == "event_count":
         schedule = AP.schedule_event_count(
             rng, params=params, event_count=int(cell["answer_value"]))
+    elif profile.get("answer_kind") == "distance_at_query":
+        schedule = AP.schedule_event_count(
+            rng, params=params,
+            event_count=int(profile.get("audio_event_count", 3)))
     elif profile.get("answer_kind") == "first_sound_side":
         schedule = AP.schedule_first_sound_at_frame(
             rng, params=params, query_frame=plan.query_frame)
@@ -949,7 +963,7 @@ def build_gatea_answer(kind, profile, cell, timeline, schedule,
         gatea_truth_deg = recompute_azimuth(
             timeline, gatea_target_slot, query_frame)
         gatea_cell["target_first"] = not bool(cell["target_first"])
-    elif kind == "event_count":
+    elif kind in ("event_count", "distance_at_query"):
         gatea_target_slot, gatea_other_slot = target_slot, other_slot
         gatea_truth_deg = recompute_azimuth(
             timeline, gatea_target_slot, query_frame)
@@ -992,6 +1006,46 @@ def build_answer(kind, profile, cell, timeline, schedule, slot_events,
                 "stem": "How many sounds are heard in total?",
                 "truth_value": actual,
                 "scoring": "count_single",
+            },
+        }
+    if kind == "distance_at_query":
+        frame = timeline["frames"][query_frame]
+        camera_xy = np.asarray(
+            frame["camera"]["translation_ue_cm"][:2], dtype=float)
+        positions = {
+            state["source_slot_id"]: np.asarray(
+                state["translation_ue_cm"][:2], dtype=float)
+            for state in frame["actor_states"]
+        }
+        target_distance = float(np.linalg.norm(
+            positions[target_slot] - camera_xy))
+        other_distance = float(np.linalg.norm(
+            positions[other_slot] - camera_xy))
+        gap = other_distance - target_distance
+        minimum = float(profile.get("min_distance_gap_cm", 50.0))
+        if gap < minimum:
+            raise GenerationConstraintError(
+                f"distance gap {gap:.2f} cm is below {minimum:.2f} cm")
+        truth = slot_coat[target_slot]
+        options = ["black-and-white", "yellow"]
+        moment = (f"At zero-based video frame index {query_frame} "
+                  f"({query_frame}/15 seconds)")
+        return {
+            "truth": {
+                "closer_coat": truth,
+                "target_distance_cm": round(target_distance, 3),
+                "other_distance_cm": round(other_distance, 3),
+                "distance_gap_cm": round(gap, 3),
+            },
+            "mcq": {
+                "stem": f"{moment}, which dog is closer to you?",
+                "options_space": options,
+                "truth_option": truth,
+            },
+            "open": {
+                "stem": f"{moment}, which dog is closer to you?",
+                "truth_value": truth,
+                "scoring": "closed_set",
             },
         }
     if kind == "first_sound_side":

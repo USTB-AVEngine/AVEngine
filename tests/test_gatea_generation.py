@@ -310,3 +310,34 @@ def test_card15b_profile_and_count_answer_are_machine_checkable():
     assert validate_anchor_binding(
         profile, SimpleNamespace(), [], target_slot="source1",
         query_frame=12, answer=result)["selected_slot"] is None
+
+
+def test_card4r_distance_answer_uses_final_timeline_frame():
+    profile = {
+        "id": "card4R", "temporal": "instant",
+        "answer_kind": "distance_at_query", "binding_frames": [30],
+        "idle_choices": [0, 8],
+        "answer_labels": ["black-and-white", "yellow"],
+        "min_distance_gap_cm": 50.0, "anchor_binding": "none",
+        "gatea_gold_relation": "preserve",
+    }
+    validate_profiles([profile])
+    frames = [{} for _ in range(31)]
+    frames[30] = {
+        "camera": {"translation_ue_cm": [0.0, 0.0, 147.0]},
+        "actor_states": [
+            {"source_slot_id": "source1",
+             "translation_ue_cm": [100.0, 0.0, 0.0]},
+            {"source_slot_id": "source2",
+             "translation_ue_cm": [200.0, 0.0, 0.0]},
+        ],
+    }
+    result = build_answer(
+        "distance_at_query", profile, {}, {"frames": frames},
+        SimpleNamespace(events=[1, 2, 3]), [], "source1", "source2",
+        {"source1": "black-and-white", "source2": "yellow"},
+        0.0, 30, PARAMS)
+    assert result["truth"]["closer_coat"] == "black-and-white"
+    assert result["truth"]["distance_gap_cm"] == 100.0
+    assert result["mcq"]["truth_option"] == "black-and-white"
+    assert result["open"]["scoring"] == "closed_set"

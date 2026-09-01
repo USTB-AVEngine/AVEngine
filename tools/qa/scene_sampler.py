@@ -729,12 +729,105 @@ def solve_instant_azimuth(scene: SceneInputs, params: dict, *,
                 "line_of_sight_screened": scene.line_of_sight_screened,
                 "search_attempts": attempt,
 
-
             },
         )
     ledger.budget_exhausted += 1
     return Rejection("no_candidate_within_attempt_budget",
                      f"{max_attempts} attempts")
+
+def solve_instant_distance_order(scene: SceneInputs, params: dict, *,
+                                 query_frame: int, profile_id: str,
+                                 idle_choices: Iterable[int], rng,
+                                 ledger: RejectionLedger,
+                                 target_moves_more: bool | None = None,
+                                 min_distance_gap_cm: float = 50.0,
+                                 max_attempts: int = 4000):
+    """Visual control: the allocated target is measurably closer at one frame."""
+    half_fov = effective_half_fov(scene, params)
+    min_sep = float(params["MIN_AZIMUTH_SEP"])
+    min_gap = float(min_distance_gap_cm)
+    n_routes, n_cams = len(scene.routes), len(scene.camera_points)
+    for attempt in range(1, max_attempts + 1):
+        ledger.note_combination()
+        route = scene.routes[int(rng.integers(n_routes))]
+        idle = int(rng.choice(list(idle_choices)))
+        moved = route.shifted(idle)
+        if moved.displacement_cm <= 1.0e-6:
+            ledger.add(Rejection("target_route_static_for_dual_motion"))
+            continue
+        camera = scene.camera_points[int(rng.integers(n_cams))]
+        target_xy = moved.at(query_frame)
+        target_distance = math.dist(camera, target_xy)
+        if _too_close(camera, target_xy, params):
+            ledger.add(Rejection("camera_too_close_to_target"))
+            continue
+        yaw = float(rng.random() * 360.0 - 180.0)
+        target_azimuth = relative_azimuth_deg(camera, yaw, target_xy)
+        if abs(target_azimuth) > half_fov:
+            ledger.add(Rejection("target_outside_fov_at_binding_instant"))
+            continue
+        other = None
+        other_distance = None
+        for index in rng.permutation(n_routes)[:64]:
+            ledger.stand_points_evaluated += 1
+            candidate = scene.routes[int(index)]
+            if candidate.route_id == route.route_id:
+                continue
+            if candidate.displacement_cm <= 1.0e-6:
+                continue
+            if target_moves_more is not None:
+                observed = moved.displacement_cm > candidate.displacement_cm
+                if (math.isclose(moved.displacement_cm,
+                                 candidate.displacement_cm, abs_tol=1e-6)
+                        or observed != target_moves_more):
+                    continue
+            other_xy = candidate.at(query_frame)
+            distance = math.dist(camera, other_xy)
+            if distance - target_distance < min_gap:
+                continue
+            if _too_close(camera, other_xy, params):
+                continue
+            other_azimuth = relative_azimuth_deg(camera, yaw, other_xy)
+            if abs(other_azimuth) > half_fov:
+                continue
+            if circular_gap_deg(target_azimuth, other_azimuth) < min_sep:
+                continue
+            other, other_distance = candidate, distance
+            break
+        if other is None:
+            ledger.add(Rejection(
+                "no_farther_second_actor",
+                f"no moving second route is at least {min_gap:.1f} cm farther "
+                "while satisfying view, separation and motion-rank constraints"))
+            continue
+        if scene.line_of_sight is not None:
+            if not scene.line_of_sight(camera, target_xy):
+                ledger.add(Rejection("target_occluded_at_binding_instant"))
+                continue
+            if not scene.line_of_sight(camera, other.at(query_frame)):
+                ledger.add(Rejection("other_actor_occluded"))
+                continue
+        return PointPlan(
+            scene_id=scene.scene_id, profile_id=profile_id,
+            camera_xy=camera, camera_ue_yaw_deg=yaw,
+            target_route=moved, base_route=route, other_route=other,
+            idle_frames=idle, anchor_frame=query_frame,
+            query_frame=query_frame,
+            answer_cell={"kind": "distance_at_query",
+                         "target_distance_cm": target_distance,
+                         "other_distance_cm": other_distance},
+            checks={
+                "distance_gap_cm": other_distance - target_distance,
+                "minimum_distance_gap_cm": min_gap,
+                "line_of_sight_screened": scene.line_of_sight_screened,
+                "search_attempts": attempt,
+            },
+        )
+    ledger.budget_exhausted += 1
+    return Rejection("no_candidate_within_attempt_budget",
+                     f"{max_attempts} attempts")
+
+
 def solve_instant_binding(scene: SceneInputs, params: dict, *,
                           instants: Sequence[int], profile_id: str,
                           idle_choices: Iterable[int], rng,

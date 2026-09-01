@@ -52,6 +52,18 @@
     "open_half_width_deg": 0.0
   },
   {
+    "id": "card4R",
+    "temporal": "instant",
+    "answer_kind": "distance_at_query",
+    "binding_frames": [30],
+    "idle_choices": [0, 8],
+    "answer_labels": ["black-and-white", "yellow"],
+    "min_distance_gap_cm": 50.0,
+    "audio_event_count": 3,
+    "anchor_binding": "none",
+    "gatea_gold_relation": "preserve"
+  },
+  {
     "id": "card7",
     "temporal": "instant",
     "answer_kind": "coat_at_query",

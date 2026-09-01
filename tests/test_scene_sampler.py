@@ -32,6 +32,7 @@ from scene_sampler import (  # noqa: E402
     solve_backward_cross_time,
     solve_forward_cross_time,
     solve_instant_binding,
+    solve_instant_distance_order,
     solve_instant_azimuth,
     yaw_interval_for_band,
     _pick_other_route,
@@ -408,3 +409,17 @@ def test_feasible_grid_los_rejects_wrong_coordinate_contract(tmp_path):
             "mask_key": "feasible_mask",
             "coordinate_contract": "room_specific_guess",
         })
+
+
+def test_instant_distance_order_makes_allocated_target_closer():
+    scene = synthetic_scene()
+    ledger = RejectionLedger()
+    plan = solve_instant_distance_order(
+        scene, PARAMS, query_frame=30, profile_id="card4R",
+        idle_choices=(0, 8), rng=np.random.default_rng(44), ledger=ledger,
+        min_distance_gap_cm=50.0)
+    assert not isinstance(plan, Rejection), ledger.summary()
+    assert plan.checks["distance_gap_cm"] >= 50.0
+    assert (plan.answer_cell["other_distance_cm"]
+            > plan.answer_cell["target_distance_cm"])
+    assert plan.target_route.route_id != plan.other_route.route_id
