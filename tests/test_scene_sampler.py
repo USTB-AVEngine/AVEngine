@@ -28,6 +28,7 @@ from scene_sampler import (  # noqa: E402
     line_of_sight_from_feasible_grid,
     load_scene,
     open_angle_gold_regions_disjoint,
+    open_angle_candidate_scores_zero,
     relative_azimuth_deg,
     solve_backward_cross_time,
     solve_forward_cross_time,
@@ -113,6 +114,26 @@ def test_open_gold_separation_is_strict_at_double_half_width():
     assert open_angle_gold_regions_disjoint(179.0, -119.0, 30.0)
     # A linear abs(a-b) implementation returns 340 and would wrongly pass.
     assert not open_angle_gold_regions_disjoint(170.0, -170.0, 30.0)
+
+
+def test_anchor_angle_must_score_zero_under_widest_credit_radius():
+    assert not open_angle_candidate_scores_zero(0.0, 30.0, 30.0)
+    assert open_angle_candidate_scores_zero(0.0, 30.001, 30.0)
+    assert not open_angle_candidate_scores_zero(170.0, -170.0, 30.0)
+
+
+def test_card1_solver_honours_allocated_anchor_band_and_zero_score_rule():
+    scene = synthetic_scene(hfov=180.0)
+    ledger = RejectionLedger()
+    plan = solve_forward_cross_time(
+        scene, PARAMS,
+        answer_band=BANDS[0], answer_bands=BANDS,
+        anchor_band=BANDS[1], anchor_frame=45, idle_choices=(0, 8, 16),
+        rng=np.random.default_rng(17), ledger=ledger, max_attempts=8000)
+    assert not isinstance(plan, Rejection), ledger.summary()
+    assert BANDS[1][0] <= plan.checks["az_anchor_deg"] < BANDS[1][1]
+    assert plan.checks["anchor_open_score"] == 0.0
+    assert plan.checks["azimuth_travel_deg"] > PARAMS["THETA_HALF"]
 
 
 def test_gatea_actor_outside_declared_mcq_space_is_rejected():

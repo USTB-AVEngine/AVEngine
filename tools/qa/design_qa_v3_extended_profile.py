@@ -49,6 +49,11 @@ from avengine.timeline.current_apartment_visual import (  # noqa: E402
 
 SUPPORTED = {"card11", "card12", "card13", "card14", "card15a", "card16", "card17"}
 EVENT_STARTS = (8000, 24000, 40000, 56000)
+# Card11 binds audible direction to native pixel state at zero-based frame 30.
+# 30,000 samples spans that frame at 16 kHz/15 fps (roughly frames 28..32),
+# so event time, N-route binding and pixel authority observe the same moment.
+CARD11_BINDING_FRAME = 30
+CARD11_EVENT_START_SAMPLE = 30000
 VISIBILITY_OPTIONS = (
     "visible_clear",
     "visible_occluded",
@@ -232,8 +237,8 @@ def _program_events(profile_id, cell_index, sound_assets):
         main_slot = target_slot if positive else "source4"
         gatea_slot = "source4" if positive else target_slot
         return (
-            [(main_slot, EVENT_STARTS[0], bark)],
-            [(gatea_slot, EVENT_STARTS[0], bark)],
+            [(main_slot, CARD11_EVENT_START_SAMPLE, bark)],
+            [(gatea_slot, CARD11_EVENT_START_SAMPLE, bark)],
             {
                 "target_slot": target_slot,
                 "desired_answer": target_slot if positive else "none",
@@ -375,7 +380,8 @@ def _facts(profile, inventory, truth, scene, main_plan, segment2_plan=None):
             },
             "pixel_acceptance": {
                 "source1_source2_source3": "visible",
-                "source4": "fully_occluded_or_out_of_view",
+                "source4": "fully_occluded",
+                "binding_frame": CARD11_BINDING_FRAME,
             },
         }
     if profile_id == "card12":

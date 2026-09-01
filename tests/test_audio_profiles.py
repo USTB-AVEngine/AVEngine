@@ -52,6 +52,8 @@ def test_forward_anchor_is_last_and_tail_silence_declared():
     assert schedule.declared["tail_silence_seconds"] >= \
         PARAMS["TAIL_SILENCE_FRACTION"] * CLIP_SECONDS
     assert {e.role for e in schedule.events} == {TARGET, OTHER}
+    assert [event for event in schedule.events if event.role == TARGET] == [
+        schedule.anchor]
 
 
 def test_forward_rejects_anchor_too_late_for_declared_tail():
@@ -63,11 +65,8 @@ def test_forward_rejects_anchor_too_late_for_declared_tail():
 def test_backward_keeps_the_target_silent_around_the_query():
     schedule = schedule_backward_anchor(rng(2), params=PARAMS,
                                         anchor_frame=66, query_frame=22)
-    window = schedule.declared["query_silence_window_samples"]
-    for event in schedule.events[:-1]:
-        if event.role == TARGET:
-            assert (event.end_sample_exclusive <= window[0]
-                    or event.start_sample >= window[1])
+    assert [event for event in schedule.events if event.role == TARGET] == [
+        schedule.anchor]
     assert schedule.declared["anchor_relation"] == "anchor_after_query"
 
 
@@ -88,7 +87,18 @@ def test_backward_self_check_catches_target_sounding_in_window():
     schedule.anchor_index += 1          # 锚仍是最后一条,索引随插入右移
     with pytest.raises(AudioProfileError) as exc:
         _self_check_backward(schedule, PARAMS, window)
-    assert "query silence window" in str(exc.value)
+    assert "target must sound exactly once" in str(exc.value)
+
+
+def test_backward_self_check_catches_target_sounding_outside_query_window():
+    schedule = schedule_backward_anchor(rng(23), params=PARAMS,
+                                        anchor_frame=66, query_frame=22)
+    window = schedule.declared["query_silence_window_samples"]
+    schedule.events.insert(0, ScheduledEvent(
+        TARGET, 1000, 5800, "control_sound"))
+    schedule.anchor_index += 1
+    with pytest.raises(AudioProfileError, match="target must sound exactly once"):
+        _self_check_backward(schedule, PARAMS, window)
 
 
 def test_card8_does_not_inherit_card1_tail_silence():

@@ -52,3 +52,12 @@ def test_program_path_matches_generator_main_and_gatea_names(tmp_path: Path) -> 
     gatea.write_text("{}")
     assert TOOL.program_path(programs, "card1F_001", "main") == main
     assert TOOL.program_path(programs, "card1F_001", "gateA") == gatea
+
+
+def test_canonical_emitter_policy_is_explicit_and_validated() -> None:
+    assert TOOL.canonical_emitter_args({}) == []
+    assert TOOL.canonical_emitter_args({
+        "canonical_emitter_height_m": 0.61575,
+    }) == ["--canonical-emitter-height-m", "0.61575"]
+    with pytest.raises(SystemExit, match="finite and positive"):
+        TOOL.canonical_emitter_args({"canonical_emitter_height_m": 0})

@@ -11,6 +11,7 @@ from the fixed-apartment anchor library.
 from __future__ import annotations
 
 import json
+import math
 from pathlib import Path
 from typing import Mapping
 
@@ -33,6 +34,8 @@ def derive_slot_bindings(
     actor_selection: Mapping,
     source_asset_registry: Mapping,
     endpoint_registry: Mapping,
+    *,
+    canonical_emitter_height_m: float | None = None,
 ) -> tuple[dict[str, str], dict[str, float]]:
     """Per-slot endpoint ids and emitter heights from the executed actor
     selection, replacing the legacy human+beagle constants for arbitrary
@@ -43,7 +46,20 @@ def derive_slot_bindings(
     default emitter anchor; heights come from that anchor's measured offset.
     Slots must be the contiguous sequence source1..sourceN so downstream
     trajectory and AudioProgram ordering cannot silently disagree.
+
+    ``canonical_emitter_height_m`` is an explicit QA counterfactual policy:
+    appearance-only twins can share one semantic acoustic centre instead of
+    leaking asset-specific muzzle height. Endpoint identity remains bound to
+    the selected registered asset; only the world-space acoustic height is
+    normalized. The override is opt-in and recorded by the rendering receipt.
     """
+
+    if canonical_emitter_height_m is not None:
+        canonical_emitter_height_m = float(canonical_emitter_height_m)
+        if (not math.isfinite(canonical_emitter_height_m)
+                or canonical_emitter_height_m <= 0.0):
+            raise CurrentMP3DDynamicAudioError(
+                "canonical emitter height must be finite and positive")
 
     actors = actor_selection.get("actors")
     if not isinstance(actors, list) or not actors:
@@ -102,7 +118,10 @@ def derive_slot_bindings(
                 f"{anchor_id}, found {len(matches)}"
             )
         slot_endpoints[slot] = str(matches[0]["source_endpoint_id"])
-        emitter_heights[slot] = float(anchor["offset_m"][1])
+        emitter_heights[slot] = (
+            canonical_emitter_height_m
+            if canonical_emitter_height_m is not None
+            else float(anchor["offset_m"][1]))
     return slot_endpoints, emitter_heights
 
 

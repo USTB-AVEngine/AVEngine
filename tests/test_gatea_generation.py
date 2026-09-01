@@ -18,6 +18,7 @@ from design_qa_v3_scene_batch import (  # noqa: E402
     GenerationConstraintError,
     audit_gatea_pair,
     balanced_binary_joint,
+    build_cell_plan,
     build_answer,
     resolve_scene_render_context,
     validate_anchor_binding,
@@ -199,6 +200,31 @@ def test_joint_allocator_rotates_which_diagonal_receives_remainders():
         doubled.add(tuple(sorted(cell for cell, count in counts.items()
                                  if count == 2)))
     assert len(doubled) == 2
+
+
+def test_card1_allocates_slot_anchor_and_query_bands_jointly():
+    bands = [[-52.5, -17.5], [-17.5, 17.5], [17.5, 52.5]]
+    profile = {
+        "id": "card1F", "temporal": "forward",
+        "answer_kind": "azimuth_band", "answer_bands_deg": bands,
+        "anchor_frame": 40, "idle_choices": [0, 8, 16],
+        "anchor_binding": "target",
+    }
+    assets = [
+        "generated_border_collie_black_white_medium_standard_adult_research_v1",
+        "generated_labrador_yellow_medium_standard_adult_research_v1",
+    ]
+    rows = build_cell_plan(18, [profile], assets, {}, "room-seed")
+    triples = {
+        (row["target_slot"], tuple(row["anchor_band"]),
+         tuple(row["answer_band"]))
+        for row in rows
+    }
+    assert len(triples) == 18
+    assert {tuple(row["anchor_band"]) for row in rows} == {
+        tuple(band) for band in bands}
+    assert {tuple(row["answer_band"]) for row in rows} == {
+        tuple(band) for band in bands}
 
 
 def test_unknown_anchor_binding_fails_instead_of_falling_through():

@@ -398,6 +398,7 @@ def solve_for_profile(profile, cell, scene, params, rng, ledger):
             answer_bands=[tuple(b) for b in profile["answer_bands_deg"]],
             anchor_frame=profile["anchor_frame"],
             idle_choices=profile["idle_choices"], rng=rng, ledger=ledger,
+            anchor_band=cell.get("anchor_band"),
             target_moves_more=cell["target_moves_more"],
             max_attempts=profile.get("max_attempts", 3000))
     if temporal == "backward":
@@ -407,6 +408,7 @@ def solve_for_profile(profile, cell, scene, params, rng, ledger):
             anchor_frame=profile["anchor_frame"],
             query_frame=profile["query_frame"],
             idle_choices=profile["idle_choices"], rng=rng, ledger=ledger,
+            anchor_band=cell.get("anchor_band"),
             target_moves_more=cell["target_moves_more"],
             max_attempts=profile.get("max_attempts", 3000))
     if temporal == "instant":
@@ -496,6 +498,7 @@ def build_cell_plan(cells, profiles, pair_assets, params, seed):
                                         ["black-and-white", "yellow"]))
         n = cells
         band_alloc = balanced(cellsets, n, seed, profile["id"], "band")
+        anchor_alloc = [None] * n
         first_alloc = balanced([True, False], n, seed, profile["id"], "first")
         if kind in ("time_band", "first_caller_coat"):
             # 结构耦合(不是可选设计):事件按时间先后,**最早的带只能
@@ -513,11 +516,26 @@ def build_cell_plan(cells, profiles, pair_assets, params, seed):
             # Six cells cover the full slot x answer-band table once.  Coat
             # is then balanced within each slot so motion/audio slot cannot
             # deterministically recover appearance.
-            slot_band = balanced(
-                [(slot, band) for slot in slots for band in cellsets], n,
-                seed, profile["id"], "slot-band")
-            target_slots = [item[0] for item in slot_band]
-            band_alloc = [item[1] for item in slot_band]
+            if profile["id"] in {"card1F", "card1B"}:
+                # Card1 exposes the audible anchor azimuth to A-only systems.
+                # Allocate slot x anchor-band x query-band jointly before
+                # search so every feasible conditional row can be reported
+                # and balanced rather than discovered after sampling.
+                slot_anchor_answer = balanced(
+                    [(slot, anchor, answer)
+                     for slot in slots
+                     for anchor in cellsets
+                     for answer in cellsets],
+                    n, seed, profile["id"], "slot-anchor-answer")
+                target_slots = [item[0] for item in slot_anchor_answer]
+                anchor_alloc = [item[1] for item in slot_anchor_answer]
+                band_alloc = [item[2] for item in slot_anchor_answer]
+            else:
+                slot_band = balanced(
+                    [(slot, band) for slot in slots for band in cellsets], n,
+                    seed, profile["id"], "slot-band")
+                target_slots = [item[0] for item in slot_band]
+                band_alloc = [item[1] for item in slot_band]
             target_coats = [None] * n
             for slot in slots:
                 indices = [i for i, value in enumerate(target_slots)
@@ -550,6 +568,7 @@ def build_cell_plan(cells, profiles, pair_assets, params, seed):
             answer_coats = list(target_coats)
         per_profile[profile["id"]] = {
             "band": band_alloc,
+            "anchor_band": anchor_alloc,
             "target_first": first_alloc,
             "answer_coat": answer_coats,
             "target_coat": target_coats,
@@ -564,6 +583,7 @@ def build_cell_plan(cells, profiles, pair_assets, params, seed):
                 "profile": profile,
                 "cell_index": index,
                 "answer_band": alloc["band"][index],
+                "anchor_band": alloc["anchor_band"][index],
                 "target_band": alloc["band"][index],
                 "answer_value": alloc["band"][index],
                 "target_first": bool(alloc["target_first"][index]),
@@ -910,6 +930,7 @@ def realise_point(pid, cell, plan, scene, base_request, params, by_id, args,
                          if answer_kind in ("time_band",
                                             "first_caller_coat") else None),
         "first_caller_slot": answer.get("first_caller_slot"),
+        "generation_checks": copy.deepcopy(plan.checks),
         "search_attempts": plan.checks.get("search_attempts"),
         "line_of_sight_screened": plan.checks.get("line_of_sight_screened"),
         "status": "research_candidate", "qualification_claim": False,

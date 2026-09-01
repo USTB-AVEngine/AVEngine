@@ -59,6 +59,13 @@ def main() -> int:
         type=Path,
         help="source-asset runtime registry (required with --actor-selection)",
     )
+    parser.add_argument(
+        "--canonical-emitter-height-m",
+        type=float,
+        help="optional QA counterfactual policy: use one world-space semantic "
+        "emitter height for every selected actor while preserving registered "
+        "endpoint identity",
+    )
     parser.add_argument("--output", required=True, type=Path)
     args = parser.parse_args()
 
@@ -99,6 +106,7 @@ def main() -> int:
                 json.loads(
                     args.source_endpoint_registry.resolve().read_text(encoding="utf-8")
                 ),
+                canonical_emitter_height_m=args.canonical_emitter_height_m,
             )
             trajectories = load_ue_anchor_trajectories(
                 capture_dir,
@@ -136,9 +144,13 @@ def main() -> int:
             hrtf_license_path=args.hrtf_license,
             output_path=args.output,
             position_authority=(
-                "current UE capture actor_anchor_poses (legacy "
-                "glTF-import transform inverted; per-slot emitter heights "
-                "from the selected runtime asset profiles)"
+                "current UE capture actor_anchor_poses (legacy glTF-import "
+                "transform inverted; canonical QA semantic emitter height "
+                f"{args.canonical_emitter_height_m} m)"
+                if args.canonical_emitter_height_m is not None else
+                "current UE capture actor_anchor_poses (legacy glTF-import "
+                "transform inverted; per-slot emitter heights from the "
+                "selected runtime asset profiles)"
             ),
             listener_authority=(
                 "matching per-point M1 request, cross-checked against "

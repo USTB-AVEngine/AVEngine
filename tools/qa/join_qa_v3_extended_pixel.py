@@ -9,11 +9,11 @@ import sys
 from pathlib import Path
 
 from avengine.contracts.json_io import sha256_file
+from design_qa_v3_extended_profile import CARD11_BINDING_FRAME
 
 
 SUPPORTED = {"card11", "card15a", "card16"}
 VISIBLE = {"visible_clear", "visible_occluded"}
-HIDDEN = {"fully_occluded", "out_of_view"}
 
 
 def _read(path: Path):
@@ -44,12 +44,12 @@ def evaluate(fact, pixel_truth):
     reasons = []
     bindings = {}
     if profile_id == "card11":
-        frame = 30
+        frame = CARD11_BINDING_FRAME
         visible = [states.get(f"source{i}", {}).get(frame) for i in range(1, 4)]
         hidden = states.get("source4", {}).get(frame)
         if any(value not in VISIBLE for value in visible):
             reasons.append("one_of_three_visible_candidates_not_visible")
-        if hidden not in HIDDEN:
+        if hidden != "fully_occluded":
             reasons.append("offscreen_candidate_is_visually_present")
         bindings = {
             "query_frame": frame,

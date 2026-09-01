@@ -61,6 +61,17 @@ def open_angle_gold_regions_disjoint(
     return circular_gap_deg(main_deg, gatea_deg) > 2.0 * float(theta_half)
 
 
+def open_angle_candidate_scores_zero(
+        candidate_deg: float, truth_deg: float, theta_half: float) -> bool:
+    """Whether the production angle scorer awards zero to one candidate.
+
+    ``THETA_HALF`` is the widest credited region in score_open_answers.py;
+    binding the search constraint to it keeps the A-only "repeat the audible
+    anchor angle" strategy outside both full and half-credit regions.
+    """
+    return circular_gap_deg(candidate_deg, truth_deg) > float(theta_half)
+
+
 def yaw_interval_for_band(camera_xy, point_xy, band_lo: float,
                           band_hi: float) -> tuple[float, float]:
     """解出使 point 的相对方位落进 [band_lo, band_hi) 的 yaw 区间。
@@ -399,13 +410,15 @@ def solve_forward_cross_time(scene: SceneInputs, params: dict, *,
                              answer_bands: Sequence[tuple[float, float]],
                              anchor_frame: int, idle_choices: Iterable[int],
                              rng, ledger: RejectionLedger,
+                             anchor_band: tuple[float, float] | None = None,
                              target_moves_more: bool | None = None,
                              max_attempts: int = 4000) -> PointPlan | Rejection:
     """①F 正向错时:音频锚在前,视觉查询在后(查询帧=片尾)。
 
     约束(全部由题型声明,与房间无关):
       - 目标片尾方位落进指定答案带(解 yaw,不枚举);
-      - 锚定时刻到查询时刻目标角位移 > THETA_FULL(否则锚时即可读答案);
+      - 正式 Open 评分器下直接复述锚定角度必须得零;
+      - 若分配了锚定带,锚定方位必须落进该带,供条件配平;
       - 锚定时刻两角色方位分离 >= MIN_AZIMUTH_SEP(锚可绑定);
       - 锚定时刻与查询时刻目标都在视锥内;
       - 另一角色不得与目标同答案带(否则选项无区分度);
@@ -448,10 +461,27 @@ def solve_forward_cross_time(scene: SceneInputs, params: dict, *,
         if abs(az_anchor) > half_fov:
             ledger.add(Rejection("target_outside_fov_at_anchor"))
             continue
-        if circular_gap_deg(az_anchor, az_end) <= theta_full:
-            ledger.add(Rejection("insufficient_azimuth_travel_after_anchor",
-                                 f"{circular_gap_deg(az_anchor, az_end):.1f} "
-                                 f"<= THETA_FULL {theta_full}"))
+        if anchor_band is not None and not (
+                float(anchor_band[0]) <= az_anchor < float(anchor_band[1])):
+            ledger.add(Rejection(
+                "anchor_outside_allocated_band",
+                f"az={az_anchor:.2f} band={anchor_band[0]},{anchor_band[1]}"))
+            continue
+        gap = circular_gap_deg(az_anchor, az_end)
+        if anchor_band is not None:
+            if not open_angle_candidate_scores_zero(
+                    az_anchor, az_end, theta_half):
+                ledger.add(Rejection(
+                    "anchor_angle_scores_nonzero_at_query",
+                    f"gap {gap:.1f} <= widest credited radius "
+                    f"THETA_HALF {theta_half}"))
+                continue
+        elif gap <= theta_full:
+            # Compatibility for diagnostic callers that have not allocated an
+            # anchor stratum. Production card1 cells always pass anchor_band.
+            ledger.add(Rejection(
+                "insufficient_azimuth_travel_after_anchor",
+                f"gap {gap:.1f} <= THETA_FULL {theta_full}"))
             continue
         other_route = _pick_other_route(
             scene, moved, camera, yaw, az_anchor, az_end, band_lo, band_hi,
@@ -483,6 +513,12 @@ def solve_forward_cross_time(scene: SceneInputs, params: dict, *,
                          "value_deg": az_end},
             checks={"az_anchor_deg": az_anchor, "az_end_deg": az_end,
                     "azimuth_travel_deg": circular_gap_deg(az_anchor, az_end),
+                    "anchor_open_score": (
+                        0.0 if gap > theta_half
+                        else 0.5 if gap > theta_full else 1.0),
+                    "anchor_open_zero_score_min_gap_deg": theta_half,
+                    "allocated_anchor_band": (
+                        list(anchor_band) if anchor_band is not None else None),
                     "anchor_separation_deg": circular_gap_deg(
                         az_anchor, relative_azimuth_deg(
                             camera, yaw, other_anchor_xy)),
@@ -504,6 +540,7 @@ def solve_backward_cross_time(scene: SceneInputs, params: dict, *,
                               anchor_frame: int, query_frame: int,
                               idle_choices: Iterable[int], rng,
                               ledger: RejectionLedger,
+                              anchor_band: tuple[float, float] | None = None,
                               target_moves_more: bool | None = None,
                               max_attempts: int = 4000) -> PointPlan | Rejection:
     """①B 反向错时:视觉查询在前,音频锚在后(末段发声确定身份)。
@@ -543,11 +580,27 @@ def solve_backward_cross_time(scene: SceneInputs, params: dict, *,
         if abs(az_anchor) > half_fov:
             ledger.add(Rejection("target_outside_fov_at_anchor"))
             continue
+        if anchor_band is not None and not (
+                float(anchor_band[0]) <= az_anchor < float(anchor_band[1])):
+            ledger.add(Rejection(
+                "anchor_outside_allocated_band",
+                f"az={az_anchor:.2f} band={anchor_band[0]},{anchor_band[1]}"))
+            continue
         # 反向错时同样要求"查询时刻的状态不能在锚定时刻直接读到":
         # 目标必须在两个时刻之间移动够多,否则听完再看当前帧即可作答。
-        if circular_gap_deg(az_anchor, az_query) <= theta_full:
-            ledger.add(Rejection("insufficient_azimuth_travel_between_frames",
-                                 f"{circular_gap_deg(az_anchor, az_query):.1f}"))
+        gap = circular_gap_deg(az_anchor, az_query)
+        if anchor_band is not None:
+            if not open_angle_candidate_scores_zero(
+                    az_anchor, az_query, theta_half):
+                ledger.add(Rejection(
+                    "anchor_angle_scores_nonzero_at_query",
+                    f"gap {gap:.1f} <= widest credited radius "
+                    f"THETA_HALF {theta_half}"))
+                continue
+        elif gap <= theta_full:
+            ledger.add(Rejection(
+                "insufficient_azimuth_travel_between_frames",
+                f"gap {gap:.1f} <= THETA_FULL {theta_full}"))
             continue
         other_route = _pick_other_route(
             scene, moved, camera, yaw, az_anchor, az_query, band_lo, band_hi,
@@ -579,6 +632,12 @@ def solve_backward_cross_time(scene: SceneInputs, params: dict, *,
                          "value_deg": az_query},
             checks={"az_anchor_deg": az_anchor, "az_query_deg": az_query,
                     "azimuth_travel_deg": circular_gap_deg(az_anchor, az_query),
+                    "anchor_open_score": (
+                        0.0 if gap > theta_half
+                        else 0.5 if gap > theta_full else 1.0),
+                    "anchor_open_zero_score_min_gap_deg": theta_half,
+                    "allocated_anchor_band": (
+                        list(anchor_band) if anchor_band is not None else None),
                     "gatea_answer_azimuth_deg": other_answer_az,
                     "gatea_open_gold_separation_deg": circular_gap_deg(
                         az_query, other_answer_az),

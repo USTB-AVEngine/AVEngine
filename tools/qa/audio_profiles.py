@@ -92,8 +92,9 @@ def schedule_forward_anchor(rng, *, params, anchor_frame: int) -> Schedule:
     """①F 正向错时:身份锚在前,查询在片尾,锚后到片尾必须静。
 
     锚是**最后一声**;片尾静默长度按片长比例声明(tail_silence_fraction)。
-    前面还要有至少两声,让"哪一声是第二声"这类指代有意义,且两个角色
-    都发过声(锚定不是唯一线索)。
+    前面还要有至少两声,让"最后一声"的事件选择不是唯一事件检测。
+    但目标全片只在锚发声一次:否则 A-only 可按目标此前的 DoA 轨迹猜
+    查询时刻方位,绕过声后视觉追踪。
     """
     tail_fraction = float(params["TAIL_SILENCE_FRACTION"])
     gap = int(float(params["GAP_MIN_S"]) * SAMPLE_RATE)
@@ -122,10 +123,7 @@ def schedule_forward_anchor(rng, *, params, anchor_frame: int) -> Schedule:
         hi = anchor_start - (remaining + 1) * step
         starts.append(int(rng.integers(cursor, hi + 1)))
         cursor = starts[-1] + step
-    # 锚定者与前面的声音交替,保证两个角色都发过声
-    roles = [TARGET if i % 2 == 0 else OTHER for i in range(n_before)]
-    if roles.count(TARGET) == 0 or roles.count(OTHER) == 0:
-        roles[-1] = OTHER if roles[0] == TARGET else TARGET
+    roles = [OTHER] * n_before
     events = [ScheduledEvent(role, start, start + event_len, "control_sound")
               for role, start in zip(roles, starts)]
     events.append(ScheduledEvent(TARGET, anchor_start,
@@ -171,7 +169,7 @@ def schedule_backward_anchor(rng, *, params, anchor_frame: int,
             candidate = int(rng.integers(cursor, hi + 1))
             if candidate + event_len <= window[0] or candidate >= window[1]:
                 starts.append(candidate)
-                roles.append(OTHER if index % 2 == 0 else TARGET)
+                roles.append(OTHER)
                 cursor = candidate + event_len + gap
                 break
         else:
@@ -419,9 +417,12 @@ def _self_check_forward(schedule: Schedule, params) -> None:
     declared = float(params["TAIL_SILENCE_FRACTION"]) * CLIP_SECONDS
     if tail + 1e-9 < declared:
         raise AudioProfileError(f"tail silence {tail:.3f}s < declared {declared:.3f}s")
-    roles = {e.role for e in schedule.events}
-    if roles != {TARGET, OTHER}:
-        raise AudioProfileError("card1F needs both roles to have sounded")
+    target_events = [event for event in schedule.events if event.role == TARGET]
+    if target_events != [anchor]:
+        raise AudioProfileError(
+            "card1F target must sound exactly once, at the identity anchor")
+    if not any(event.role == OTHER for event in schedule.events):
+        raise AudioProfileError("card1F needs non-target control sounds")
     _assert_no_overlap(schedule)
 
 
@@ -429,16 +430,11 @@ def _self_check_backward(schedule: Schedule, params, window) -> None:
     anchor = schedule.anchor
     if anchor.role != TARGET or anchor is not schedule.events[-1]:
         raise AudioProfileError("card1B anchor must be the target's last event")
-    for event in schedule.events:
-        if event.role != TARGET:
-            continue
-        if event is anchor:
-            continue
-        if event.end_sample_exclusive > window[0] and \
-                event.start_sample < window[1]:
-            raise AudioProfileError(
-                "the target sounds inside the query silence window; the "
-                "earlier position would be audible")
+    target_events = [event for event in schedule.events if event.role == TARGET]
+    if target_events != [anchor]:
+        raise AudioProfileError(
+            "card1B target must sound exactly once, at the identity anchor; "
+            "earlier target audio would expose another DoA observation")
     _assert_no_overlap(schedule)
 
 
@@ -530,4 +526,3 @@ def card8_band_edges(params, *, n_bands: int = 4,
             f"feasible interval {hi - lo:.2f}s cannot host two first calls "
             f"separated by more than T_HALF={t_half}s")
     return edges
-

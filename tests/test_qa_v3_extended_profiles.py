@@ -11,6 +11,8 @@ sys.path.insert(0, str(TOOLS))
 
 from design_qa_v3_extended_profile import (  # noqa: E402
     SUPPORTED,
+    CARD11_BINDING_FRAME,
+    CARD11_EVENT_START_SAMPLE,
     _assert_gateb_visual_change,
     _facts,
     _program_events,
@@ -58,6 +60,17 @@ def test_card15a_gatea_changes_distinct_callers_not_event_times():
     assert [event[1] for event in main] == [event[1] for event in gatea]
     assert truth["distinct_callers"] == 1
     assert truth["gatea_distinct_callers"] == 4
+
+
+def test_card11_audio_spans_the_native_pixel_binding_frame():
+    main, gatea, _ = _program_events(
+        "card11", 0, [{"sound_asset_id": "dog_beagle_v2_scheduled_dry"}])
+    assert main[0][1] == gatea[0][1] == CARD11_EVENT_START_SAMPLE
+    samples_per_frame = 16000 / 15
+    first_frame = int(CARD11_EVENT_START_SAMPLE // samples_per_frame)
+    last_frame_exclusive = int(
+        -(-(CARD11_EVENT_START_SAMPLE + 4800) // samples_per_frame))
+    assert first_frame <= CARD11_BINDING_FRAME < last_frame_exclusive
 
 
 def test_card16_gatea_flips_first_caller_with_structure_preserved():

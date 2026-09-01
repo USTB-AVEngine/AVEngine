@@ -65,6 +65,26 @@ def test_derives_endpoints_and_heights():
     assert heights == {"source1": 1.64, "source2": 1.64}
 
 
+def test_optional_canonical_height_preserves_endpoints_and_normalizes_geometry():
+    source_assets, endpoints = _registries()
+    source_assets["assets"][1]["emitter_anchors"][0]["offset_m"][1] = 1.58
+    slots, heights = derive_slot_bindings(
+        _selection(), source_assets, endpoints,
+        canonical_emitter_height_m=1.61)
+    assert slots == {"source1": "ep_h1_a", "source2": "ep_h2_b"}
+    assert heights == {"source1": 1.61, "source2": 1.61}
+
+
+@pytest.mark.parametrize("value", [0.0, -1.0, float("nan")])
+def test_invalid_canonical_height_fails_closed(value):
+    source_assets, endpoints = _registries()
+    with pytest.raises(CurrentMP3DDynamicAudioError,
+                       match="canonical emitter height"):
+        derive_slot_bindings(
+            _selection(), source_assets, endpoints,
+            canonical_emitter_height_m=value)
+
+
 def test_derives_four_contiguous_source_slots():
     selection = _selection()
     selection["actors"].extend(

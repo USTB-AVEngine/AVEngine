@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import subprocess
 import sys
 from pathlib import Path
@@ -62,6 +63,18 @@ def point_m1_request(inputs_root: Path, pid: str, configured: str) -> Path:
     if not selected.is_file():
         raise SystemExit(f"FAIL: M1 request is missing for {pid}: {selected}")
     return selected
+
+
+def canonical_emitter_args(config: dict) -> list[str]:
+    """Translate one explicit QA semantic-anchor policy into renderer args."""
+    value = config.get("canonical_emitter_height_m")
+    if value is None:
+        return []
+    value = float(value)
+    if not math.isfinite(value) or value <= 0.0:
+        raise SystemExit(
+            "FAIL: canonical_emitter_height_m must be finite and positive")
+    return ["--canonical-emitter-height-m", str(value)]
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -141,6 +154,7 @@ def main(argv: list[str] | None = None) -> int:
                                             "actor_selection.json"),
                    "--source-asset-registry", cfg["source_asset_registry"],
                    "--output", str(out_dir)]
+            cmd.extend(canonical_emitter_args(cfg))
             log_path = args.output_root / f"{out_dir.name}.log"
             with open(log_path, "w") as log:
                 proc = subprocess.run(cmd, stdout=log, stderr=subprocess.STDOUT,

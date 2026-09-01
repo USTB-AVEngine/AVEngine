@@ -42,7 +42,7 @@ def test_card11_requires_three_visible_and_fourth_hidden():
             "source1": "visible_clear",
             "source2": "visible_occluded",
             "source3": "visible_clear",
-            "source4": "out_of_view",
+            "source4": "fully_occluded",
         }, 30))
     assert passed["status"] == "pass"
     failed = evaluate(
@@ -55,6 +55,17 @@ def test_card11_requires_three_visible_and_fourth_hidden():
         }, 30))
     assert failed["status"] == "pixel_rejected"
     assert failed["rejection_reasons"] == [
+        "offscreen_candidate_is_visually_present"]
+    out_of_view = evaluate(
+        _fact("card11"),
+        _pixel({
+            "source1": "visible_clear",
+            "source2": "visible_clear",
+            "source3": "visible_clear",
+            "source4": "out_of_view",
+        }, 30))
+    assert out_of_view["status"] == "pixel_rejected"
+    assert out_of_view["rejection_reasons"] == [
         "offscreen_candidate_is_visually_present"]
 
 
