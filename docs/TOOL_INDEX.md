@@ -5,7 +5,7 @@
 
 自 2026-08-25 起，目录本身就是能力分组（阶段目录 m1…m7 已移除），
 本表按目录列出每个工具做什么。
-当前共 261 个工具脚本。
+当前共 262 个工具脚本。
 
 ## 资产生成与装配（`tools/assets/`）
 
@@ -77,6 +77,7 @@
 |---|---|
 | `tools/rooms/audit_real_surface_mesh.py` | Audit a glTF/GLB as evidence for the M1 real-surface geometry gate |
 | `tools/rooms/audit_skokloster_glb.py` | Audit the exact Habitat Skokloster GLB for visual and acoustic staging |
+| `tools/rooms/audit_usd_coplanar_surfaces.py` | Find same-facing coplanar mesh surfaces that can flicker after USD import |
 | `tools/rooms/author_current_residential_visual_episode.py` | Author one current residential visual-only research episode |
 | `tools/rooms/blender_build_exterior_proxy.py` | Blender-side builder for an inward-facing, textured exterior sphere |
 | `tools/rooms/build_fixed_apartment_canary.py` | Build the fixed SPEAR Apartment S0--S5 M6.x review bundle |
