@@ -30,6 +30,41 @@ def _readback(
     }
 
 
+def test_camera_full_rotation_readback_checks_residential_pitch() -> None:
+    frames = [
+        {
+            "frame_index": frame_index,
+            "camera_state": {
+                "ue_position_cm": [0.0, 0.0, 175.0],
+                "ue_roll_deg": 0.0,
+                "ue_pitch_deg": -17.0,
+                "ue_yaw_deg": 75.0,
+            },
+        }
+        for frame_index in range(75)
+    ]
+    readbacks = [
+        {
+            "frame_index": frame_index,
+            "location_cm": [0.0, 0.0, 175.0],
+            "rotation_deg": [0.0, -17.0, 75.0],
+        }
+        for frame_index in range(75)
+    ]
+
+    assert TOOL._summarize_camera_full_rotation(
+        plan={"frames": frames, "camera": frames[0]["camera_state"]},
+        readbacks=readbacks,
+    )["maximum_pitch_error_deg"] == 0.0
+
+    readbacks[20]["rotation_deg"][1] = 0.0
+    with pytest.raises(RuntimeError, match="camera full rotation readback drifted"):
+        TOOL._summarize_camera_full_rotation(
+            plan={"frames": frames, "camera": frames[0]["camera_state"]},
+            readbacks=readbacks,
+        )
+
+
 def test_derive_native_pixel_masks_keeps_per_actor_target_footprints() -> None:
     normal = [np.asarray([[1.0, 2.0, 65504.0], [1.0, 65504.0, 3.0]], dtype=np.float32)]
     target = {
@@ -723,6 +758,34 @@ def test_parse_args_exposes_visual_only_research_flag(
     assert not hasattr(parsed, "runtime_root")
 
 
+def test_parse_args_accepts_native_capture_resolution(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "run_spear_residential_episode.py",
+            "--episode-root",
+            "/tmp/episode",
+            "--uproject",
+            "/tmp/project.uproject",
+            "--unreal-editor",
+            "/tmp/UnrealEditor",
+            "--output",
+            "/tmp/output",
+            "--width",
+            "1920",
+            "--height",
+            "1080",
+        ],
+    )
+
+    parsed = TOOL.parse_args()
+
+    assert (parsed.width, parsed.height) == (1920, 1080)
+
+
 def test_run_legacy_mode_keeps_native_multimodal_path_unreached(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -740,7 +803,9 @@ def test_run_legacy_mode_keeps_native_multimodal_path_unreached(
     rendered = {"count": 0}
 
     monkeypatch.setattr(TOOL, "_configure_spear", lambda *_: instance)
-    monkeypatch.setattr(TOOL, "_spawn_camera", lambda *_args: (camera, capture))
+    monkeypatch.setattr(
+        TOOL, "_spawn_camera", lambda *_args, **_kwargs: (camera, capture)
+    )
     monkeypatch.setattr(
         TOOL,
         "_spawn_multimodal_camera",

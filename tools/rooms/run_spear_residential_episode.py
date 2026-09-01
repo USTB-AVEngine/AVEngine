@@ -109,7 +109,11 @@ def _rgb_bgr(component: Any) -> np.ndarray:
 
 
 def _spawn_multimodal_camera(
-    game: Any, *, horizontal_fov_deg: float
+    game: Any,
+    *,
+    horizontal_fov_deg: float,
+    width: int = WIDTH,
+    height: int = HEIGHT,
 ) -> tuple[Any, dict[str, Any]]:
     """Spawn one BP_CameraSensor whose three passes share one actor pose."""
 
@@ -140,8 +144,8 @@ def _spawn_multimodal_camera(
         camera_sensor=camera,
         camera_components=list(components.values()),
         viewport_desc=viewport,
-        widths=WIDTH,
-        heights=HEIGHT,
+        widths=width,
+        heights=height,
     )
     for component in components.values():
         component.Initialize()
@@ -507,6 +511,69 @@ def _research_root_readback_summary(value: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
+def _wrap_degrees(value: float) -> float:
+    return (float(value) + 180.0) % 360.0 - 180.0
+
+
+def _summarize_camera_full_rotation(
+    *,
+    plan: Mapping[str, Any],
+    readbacks: list[Mapping[str, Any]],
+    tolerance_deg: float = 1.0e-4,
+) -> dict[str, Any]:
+    """Check optional roll/pitch as well as yaw against UE readback.
+
+    The shared Apartment helper historically checks only yaw because its
+    camera plans are level.  Residential look-at cameras can have a real
+    downward pitch; silently dropping it changes framing even when position
+    and yaw still pass.
+    """
+
+    frames = plan.get("frames")
+    _require(
+        isinstance(frames, list) and len(frames) == len(readbacks) == FRAME_COUNT,
+        "full camera rotation readback requires 75 plan and runtime frames",
+    )
+    maximum = {"roll": 0.0, "pitch": 0.0, "yaw": 0.0}
+    per_frame_states = all(
+        isinstance(frame, Mapping) and isinstance(frame.get("camera_state"), Mapping)
+        for frame in frames
+    )
+    for frame_index, (frame, observed) in enumerate(
+        zip(frames, readbacks, strict=True)
+    ):
+        expected = frame["camera_state"] if per_frame_states else plan["camera"]
+        observed_rotation = observed.get("rotation_deg")
+        _require(
+            isinstance(observed_rotation, list) and len(observed_rotation) == 3,
+            f"camera rotation readback is invalid at frame {frame_index}",
+        )
+        expected_rotation = (
+            float(expected.get("ue_roll_deg", 0.0)),
+            float(expected.get("ue_pitch_deg", 0.0)),
+            float(expected["ue_yaw_deg"]),
+        )
+        for axis_index, axis_name in enumerate(("roll", "pitch", "yaw")):
+            error = abs(
+                _wrap_degrees(
+                    float(observed_rotation[axis_index])
+                    - expected_rotation[axis_index]
+                )
+            )
+            maximum[axis_name] = max(maximum[axis_name], error)
+    _require(
+        max(maximum.values()) <= tolerance_deg,
+        f"UE camera full rotation readback drifted: {maximum}",
+    )
+    return {
+        "status": "pass",
+        "per_frame_camera_state": per_frame_states,
+        "maximum_roll_error_deg": maximum["roll"],
+        "maximum_pitch_error_deg": maximum["pitch"],
+        "maximum_yaw_error_deg": maximum["yaw"],
+    }
+
+
 def _light_plan(episode: Mapping[str, Any]) -> dict[str, Any]:
     lights = []
     for raw in episode.get("review_lights", []):
@@ -678,6 +745,15 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     )
     native_multimodal = bool(getattr(args, "native_multimodal", False))
     visual_only_research = bool(getattr(args, "visual_only_research", False))
+    capture_width = int(getattr(args, "width", WIDTH))
+    capture_height = int(getattr(args, "height", HEIGHT))
+    _require(
+        capture_width > 0
+        and capture_height > 0
+        and capture_width % 2 == 0
+        and capture_height % 2 == 0,
+        "capture width and height must be positive even integers",
+    )
     output = args.output.expanduser().resolve()
     if output.exists():
         raise FileExistsError(f"refusing to replace output: {output}")
@@ -709,10 +785,17 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                 camera, components = _spawn_multimodal_camera(
                     game,
                     horizontal_fov_deg=float(plan["camera"]["horizontal_fov_deg"]),
+                    width=capture_width,
+                    height=capture_height,
                 )
                 capture = components["rgb"]
             else:
-                camera, capture = _spawn_camera(game)
+                camera, capture = _spawn_camera(
+                    game,
+                    width=capture_width,
+                    height=capture_height,
+                    hfov_degrees=float(plan["camera"]["horizontal_fov_deg"]),
+                )
             capture.set_property_value(
                 property_name="FOVAngle",
                 property_value=float(plan["camera"]["horizontal_fov_deg"]),
@@ -798,7 +881,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                 )
                 normal_multimodal_readbacks.append(native_frame_readback)
             frame_path = frames_dir / f"frame_{frame_index:04d}.png"
-            if image.shape[:2] != (HEIGHT, WIDTH) or not cv2.imwrite(
+            if image.shape[:2] != (capture_height, capture_width) or not cv2.imwrite(
                 str(frame_path), image
             ):
                 raise RuntimeError(f"could not write frame: {frame_path}")
@@ -895,6 +978,10 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             "action_ids": sorted({item["action_id"] for item in records}),
             "maximum_absolute_error_seconds": maximum,
         }
+    camera_rotation_gate = _summarize_camera_full_rotation(
+        plan=plan,
+        readbacks=camera_readbacks,
+    )
 
     visual = output / "ue_visual_only.mp4"
     subprocess.run(
@@ -904,7 +991,12 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         check=True,
     )
     if visual_only_research:
-        visual_probe = _probe(visual, width=1280, height=720, expect_audio=False)
+        visual_probe = _probe(
+            visual,
+            width=capture_width,
+            height=capture_height,
+            expect_audio=False,
+        )
         if not args.keep_frames:
             shutil.rmtree(frames_dir)
         receipt = {
@@ -925,6 +1017,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             "runtime_review_lights": light_records,
             "visual_lighting": episode["visual_lighting"],
             "root_readback": _research_root_readback_summary(root_gate),
+            "camera_full_rotation_readback": camera_rotation_gate,
             "animation_phase_readback": animation_gate,
             "visual_bounds_readback": bounds_gate,
             "media": {"ue_visual_only": visual_probe},
@@ -945,9 +1038,17 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     _mux_topdown(visual, topdown, audio, combined)
     media = {
         "ue_visual_only": _probe(
-            visual, width=1280, height=720, expect_audio=False
+            visual,
+            width=capture_width,
+            height=capture_height,
+            expect_audio=False,
         ),
-        "ue_clean_binaural": _probe(clean, width=1280, height=720, expect_audio=True),
+        "ue_clean_binaural": _probe(
+            clean,
+            width=capture_width,
+            height=capture_height,
+            expect_audio=True,
+        ),
         "ue_topdown_binaural": _probe(
             combined, width=1280, height=480, expect_audio=True
         ),
@@ -963,6 +1064,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "runtime_review_lights": light_records,
         "visual_lighting": episode["visual_lighting"],
         "root_readback": root_gate,
+        "camera_full_rotation_readback": camera_rotation_gate,
         "animation_phase_readback": animation_gate,
         "visual_bounds_readback": bounds_gate,
         "media": media,
@@ -1008,6 +1110,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--rpc-port", type=int, default=39379)
     parser.add_argument("--graphics-adapter", type=int, default=0)
+    parser.add_argument("--width", type=int, default=WIDTH)
+    parser.add_argument("--height", type=int, default=HEIGHT)
     parser.add_argument("--streaming-warmup-frames", type=int, default=180)
     parser.add_argument("--expected-stage-actor-count", type=int, default=1)
     parser.add_argument("--keep-frames", action="store_true")
