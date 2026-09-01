@@ -1,0 +1,415 @@
+{
+  "schema": "avengine_sound_harvest_map_v1",
+  "purpose_zh": "把我们的事件类映射到 FSD50K 的标签,供批量采集脚本使用。映射由人判断,条数由脚本实算。开始采集前请同学 B 逐行核对。",
+  "source_pool": "/data/datasets/omniaudio/tse_data/single_label_output.csv",
+  "source_pool_note_zh": "FSD50K 里只挂一个标签的干净子集,避免一条录音里混进别的声音",
+  "audio_root": "/data/datasets/omniaudio/source_data/FSD50K",
+  "target_clips_per_class": 20,
+  "review_status": "draft_pending_review",
+  "entries": [
+    {
+      "event_class": "air_conditioning",
+      "fsd50k_labels": [
+        "Air_conditioning",
+        "Mechanical_fan"
+      ],
+      "available_single_label_clips": 27,
+      "target_clips": 20,
+      "enough": true,
+      "note_zh": "空调外机和风扇的持续风声,两者接近,可合用"
+    },
+    {
+      "event_class": "alarm_beep",
+      "fsd50k_labels": [
+        "Alarm",
+        "Buzzer",
+        "Buzz"
+      ],
+      "available_single_label_clips": 65,
+      "target_clips": 20,
+      "enough": true,
+      "note_zh": "通用报警的嘀嘀声。Alarm 是个大类,抽听时要剔掉警笛那种"
+    },
+    {
+      "event_class": "alarm_bell",
+      "fsd50k_labels": [
+        "Bell",
+        "Church_bell",
+        "Alarm_clock"
+      ],
+      "available_single_label_clips": 60,
+      "target_clips": 20,
+      "enough": true,
+      "note_zh": "铃铛式报警。Church_bell 偏大教堂钟,抽听注意"
+    },
+    {
+      "event_class": "alarm_clock",
+      "fsd50k_labels": [
+        "Alarm_clock"
+      ],
+      "available_single_label_clips": 18,
+      "target_clips": 20,
+      "enough": false,
+      "note_zh": "闹钟专有标签,很干净"
+    },
+    {
+      "event_class": "any_audioset_class_playback",
+      "fsd50k_labels": [],
+      "available_single_label_clips": 0,
+      "target_clips": 20,
+      "enough": true,
+      "note_zh": "音响播放任意内容的占位类,不单独收,从音乐和人声两类复用"
+    },
+    {
+      "event_class": "bathtub_filling_washing",
+      "fsd50k_labels": [
+        "Bathtub_(filling_or_washing)",
+        "Fill_(with_liquid)"
+      ],
+      "available_single_label_clips": 22,
+      "target_clips": 20,
+      "enough": true,
+      "note_zh": "浴缸放水。Fill 是通用注水,可能混进烧水壶"
+    },
+    {
+      "event_class": "blender",
+      "fsd50k_labels": [
+        "Blender"
+      ],
+      "available_single_label_clips": 15,
+      "target_clips": 20,
+      "enough": false,
+      "note_zh": "料理机,专有标签"
+    },
+    {
+      "event_class": "busy_signal",
+      "fsd50k_labels": [
+        "Busy_signal",
+        "Dial_tone"
+      ],
+      "available_single_label_clips": 9,
+      "target_clips": 20,
+      "enough": false,
+      "note_zh": "电话忙音。单标签池里极少,大概率要去多标签池补"
+    },
+    {
+      "event_class": "buzzer",
+      "fsd50k_labels": [
+        "Buzzer",
+        "Buzz"
+      ],
+      "available_single_label_clips": 9,
+      "target_clips": 20,
+      "enough": false,
+      "note_zh": "蜂鸣器。单标签池里极少,需要补"
+    },
+    {
+      "event_class": "cat_meow",
+      "fsd50k_labels": [
+        "Meow",
+        "Cat"
+      ],
+      "available_single_label_clips": 23,
+      "target_clips": 20,
+      "enough": true,
+      "note_zh": "猫叫。Cat 里可能混着呼噜声,抽听剔除"
+    },
+    {
+      "event_class": "cellphone_vibration_alert",
+      "fsd50k_labels": [
+        "Cellphone_buzz_and_vibrating_alert"
+      ],
+      "available_single_label_clips": 15,
+      "target_clips": 20,
+      "enough": false,
+      "note_zh": "手机震动,专有标签"
+    },
+    {
+      "event_class": "chime",
+      "fsd50k_labels": [
+        "Chime",
+        "Wind_chime",
+        "Tubular_bells",
+        "Jingle_bell"
+      ],
+      "available_single_label_clips": 65,
+      "target_clips": 20,
+      "enough": true,
+      "note_zh": "风铃和管钟这类清脆的响声"
+    },
+    {
+      "event_class": "clock_tick",
+      "fsd50k_labels": [
+        "Tick-tock",
+        "Tick",
+        "Clock"
+      ],
+      "available_single_label_clips": 45,
+      "target_clips": 20,
+      "enough": true,
+      "note_zh": "钟表滴答。Clock 里可能有整点报时,抽听"
+    },
+    {
+      "event_class": "crackle",
+      "fsd50k_labels": [
+        "Crackle",
+        "Crack"
+      ],
+      "available_single_label_clips": 43,
+      "target_clips": 20,
+      "enough": true,
+      "note_zh": "噼啪声。Crack 偏断裂的单响,和持续的噼啪不一样,注意区分"
+    },
+    {
+      "event_class": "dial_tone",
+      "fsd50k_labels": [
+        "Dial_tone"
+      ],
+      "available_single_label_clips": 7,
+      "target_clips": 20,
+      "enough": false,
+      "note_zh": "拨号音。单标签池只有个位数,需要补"
+    },
+    {
+      "event_class": "ding_dong",
+      "fsd50k_labels": [
+        "Ding-dong",
+        "Doorbell"
+      ],
+      "available_single_label_clips": 15,
+      "target_clips": 20,
+      "enough": false,
+      "note_zh": "门铃的叮咚。Ding-dong 只有 1 条,主要靠 Doorbell 里挑"
+    },
+    {
+      "event_class": "dog_bark",
+      "fsd50k_labels": [
+        "Bark",
+        "Dog"
+      ],
+      "available_single_label_clips": 44,
+      "target_clips": 20,
+      "enough": true,
+      "note_zh": "狗叫。Dog 里可能有呜咽和喘气,抽听剔除"
+    },
+    {
+      "event_class": "doorbell",
+      "fsd50k_labels": [
+        "Doorbell",
+        "Ding-dong"
+      ],
+      "available_single_label_clips": 15,
+      "target_clips": 20,
+      "enough": false,
+      "note_zh": "门铃总类"
+    },
+    {
+      "event_class": "doorbell_chime",
+      "fsd50k_labels": [
+        "Doorbell",
+        "Chime"
+      ],
+      "available_single_label_clips": 33,
+      "target_clips": 20,
+      "enough": true,
+      "note_zh": "带旋律的门铃"
+    },
+    {
+      "event_class": "drip",
+      "fsd50k_labels": [
+        "Drip",
+        "Trickle_and_dribble",
+        "Raindrop"
+      ],
+      "available_single_label_clips": 23,
+      "target_clips": 20,
+      "enough": true,
+      "note_zh": "滴水。Raindrop 是户外雨滴,场景不同,谨慎用"
+    },
+    {
+      "event_class": "fire",
+      "fsd50k_labels": [
+        "Fire"
+      ],
+      "available_single_label_clips": 90,
+      "target_clips": 20,
+      "enough": true,
+      "note_zh": "火焰燃烧声,专有标签而且量大"
+    },
+    {
+      "event_class": "fire_alarm",
+      "fsd50k_labels": [
+        "Fire_alarm",
+        "Alarm"
+      ],
+      "available_single_label_clips": 62,
+      "target_clips": 20,
+      "enough": true,
+      "note_zh": "火警。专有标签只有 6 条,其余得从 Alarm 里抽听挑"
+    },
+    {
+      "event_class": "gurgling",
+      "fsd50k_labels": [
+        "Gurgling",
+        "Slosh"
+      ],
+      "available_single_label_clips": 12,
+      "target_clips": 20,
+      "enough": false,
+      "note_zh": "咕嘟声,下水或沸腾"
+    },
+    {
+      "event_class": "microwave_beep",
+      "fsd50k_labels": [
+        "Microwave_oven"
+      ],
+      "available_single_label_clips": 25,
+      "target_clips": 20,
+      "enough": true,
+      "note_zh": "微波炉提示音。和运行嗡声同一个标签,必须靠抽听把两者分开"
+    },
+    {
+      "event_class": "microwave_hum",
+      "fsd50k_labels": [
+        "Microwave_oven"
+      ],
+      "available_single_label_clips": 25,
+      "target_clips": 20,
+      "enough": true,
+      "note_zh": "微波炉运行嗡声,同上,需要人工分"
+    },
+    {
+      "event_class": "music_playback",
+      "fsd50k_labels": [
+        "Piano",
+        "Guitar",
+        "Acoustic_guitar",
+        "Violin_and_fiddle",
+        "Flute",
+        "Trumpet"
+      ],
+      "available_single_label_clips": 757,
+      "target_clips": 20,
+      "enough": true,
+      "note_zh": "音响放音乐。乐器类样本很多,随便挑就够"
+    },
+    {
+      "event_class": "phone_ring",
+      "fsd50k_labels": [
+        "Telephone",
+        "Ringtone",
+        "Telephone_bell_ringing"
+      ],
+      "available_single_label_clips": 89,
+      "target_clips": 20,
+      "enough": true,
+      "note_zh": "电话铃"
+    },
+    {
+      "event_class": "printer",
+      "fsd50k_labels": [
+        "Printer"
+      ],
+      "available_single_label_clips": 17,
+      "target_clips": 20,
+      "enough": false,
+      "note_zh": "打印机,专有标签"
+    },
+    {
+      "event_class": "ringtone",
+      "fsd50k_labels": [
+        "Ringtone"
+      ],
+      "available_single_label_clips": 23,
+      "target_clips": 20,
+      "enough": true,
+      "note_zh": "手机铃声,专有标签"
+    },
+    {
+      "event_class": "sink_filling_washing",
+      "fsd50k_labels": [
+        "Sink_(filling_or_washing)"
+      ],
+      "available_single_label_clips": 35,
+      "target_clips": 20,
+      "enough": true,
+      "note_zh": "水槽放水洗涤,专有标签"
+    },
+    {
+      "event_class": "smoke_alarm",
+      "fsd50k_labels": [
+        "Fire_alarm",
+        "Alarm",
+        "Buzzer"
+      ],
+      "available_single_label_clips": 63,
+      "target_clips": 20,
+      "enough": true,
+      "note_zh": "烟雾报警。没有专有标签,靠抽听从 Alarm 里挑尖锐间断的那种"
+    },
+    {
+      "event_class": "speech_playback",
+      "fsd50k_labels": [
+        "Male_speech_and_man_speaking",
+        "Female_speech_and_woman_speaking",
+        "Speech",
+        "Conversation"
+      ],
+      "available_single_label_clips": 84,
+      "target_clips": 20,
+      "enough": true,
+      "note_zh": "音响放人声。新方案改用 VCTK 语音库,这里只当备份"
+    },
+    {
+      "event_class": "telephone",
+      "fsd50k_labels": [
+        "Telephone"
+      ],
+      "available_single_label_clips": 55,
+      "target_clips": 20,
+      "enough": true,
+      "note_zh": "电话类的总声"
+    },
+    {
+      "event_class": "telephone_bell_ringing",
+      "fsd50k_labels": [
+        "Telephone_bell_ringing",
+        "Bell"
+      ],
+      "available_single_label_clips": 42,
+      "target_clips": 20,
+      "enough": true,
+      "note_zh": "老式电话的机械铃"
+    },
+    {
+      "event_class": "telephone_dialing_dtmf",
+      "fsd50k_labels": [
+        "Telephone_dialing_and_DTMF"
+      ],
+      "available_single_label_clips": 7,
+      "target_clips": 20,
+      "enough": false,
+      "note_zh": "按键拨号音。单标签池只有 7 条,需要补"
+    },
+    {
+      "event_class": "toilet_flush",
+      "fsd50k_labels": [
+        "Toilet_flush"
+      ],
+      "available_single_label_clips": 60,
+      "target_clips": 20,
+      "enough": true,
+      "note_zh": "马桶冲水,专有标签而且量大"
+    },
+    {
+      "event_class": "water_tap_faucet",
+      "fsd50k_labels": [
+        "Water_tap_and_faucet"
+      ],
+      "available_single_label_clips": 36,
+      "target_clips": 20,
+      "enough": true,
+      "note_zh": "水龙头,专有标签"
+    }
+  ]
+}

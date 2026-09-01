@@ -5,7 +5,7 @@
 
 自 2026-08-25 起，目录本身就是能力分组（阶段目录 m1…m7 已移除），
 本表按目录列出每个工具做什么。
-当前共 264 个工具脚本。
+当前共 265 个工具脚本。
 
 ## 资产生成与装配（`tools/assets/`）
 
@@ -27,6 +27,7 @@
 | `tools/assets/build_cross_species_appearance_lineage.py` | Build one diagnostic-only cross-species appearance lineage |
 | `tools/assets/build_joint_mapping.py` | Emit the exact Habitat joint mapping bound to a rebase report |
 | `tools/assets/build_research_review_request.py` | Build an exact 75-state M2 request for research-only human review |
+| `tools/assets/build_sound_harvest_map.py` | 生成事件类到 FSD50K 标签的对照表草案。 |
 | `tools/assets/capture_animal_variant_review.py` | Build and run one single-view animal-variant Habitat review capture |
 | `tools/assets/capture_canary.py` | Run one formal 75-state M2 canary capture in Habitat |
 | `tools/assets/capture_installed_research_review.py` | Run the current installed-prefix M2 Blender-room research review |
