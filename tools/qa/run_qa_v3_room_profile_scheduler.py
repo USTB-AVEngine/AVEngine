@@ -28,6 +28,7 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
 from design_qa_v3_scene_batch import main as design_scene_batch_main  # noqa: E402
+from design_qa_v3_extended_profile import main as design_extended_main  # noqa: E402
 
 
 PAIR_STATUSES = (
@@ -37,6 +38,7 @@ PAIR_STATUSES = (
     "pixel_rejected",
     "pipeline_error",
     "profile_not_implemented",
+    "resource_unavailable",
 )
 
 
@@ -183,7 +185,13 @@ def classify_manifest(manifest: dict, pixel_result: dict | None = None) -> dict:
     }
     proof = manifest.get("feasibility_proof") or {}
     if candidates == 0:
-        if (proof.get("status") == "infeasible"
+        resources = manifest.get("resource_status") or {}
+        if (resources.get("status") == "unavailable"
+                and resources.get("method") == "registry_preflight"):
+            record["attempt_status"] = "resource_unavailable"
+            record["resource_status"] = resources
+            record["evidence_class"] = "resource_unavailable"
+        elif (proof.get("status") == "infeasible"
                 and proof.get("method") == "exhaustive"):
             record["attempt_status"] = "scene_infeasible"
             record["infeasibility_proof"] = proof
@@ -231,7 +239,12 @@ def _invoke_pair(*, scene_config: Path, profile_config: Path,
         "--seed", seed,
         "--snapshot-content", snapshot_content,
     ]
-    code = design_scene_batch_main(argv)
+    profile_value = _read_json(profile_config)
+    use_extended = (
+        isinstance(profile_value, list)
+        and len(profile_value) == 1
+        and profile_value[0].get("execution_backend") == "extended")
+    code = (design_extended_main if use_extended else design_scene_batch_main)(argv)
     if code != 0:
         raise RuntimeError(f"design scene batch returned {code}")
     manifest_path = batch_root / "batch_manifest.json"

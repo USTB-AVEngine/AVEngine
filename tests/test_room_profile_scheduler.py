@@ -48,6 +48,20 @@ def test_finite_failure_is_not_mislabeled_scene_infeasible():
     assert record["quota_shortfall"] == 1
 
 
+def test_resource_unavailable_is_not_profile_or_scene_failure():
+    manifest = _manifest(candidates=0)
+    manifest["resource_status"] = {
+        "status": "unavailable",
+        "method": "registry_preflight",
+        "missing": ["four_transcribed_speech_assets"],
+    }
+    record = classify_manifest(manifest)
+    assert record["attempt_status"] == "resource_unavailable"
+    assert record["evidence_class"] == "resource_unavailable"
+    assert record["resource_status"]["missing"] == [
+        "four_transcribed_speech_assets"]
+
+
 def test_scene_infeasible_requires_explicit_exhaustive_proof():
     record = classify_manifest(_manifest(
         candidates=0,

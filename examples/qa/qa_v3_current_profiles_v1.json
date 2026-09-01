@@ -174,5 +174,88 @@
     "mcq_options": [2, 3, 4, 5],
     "anchor_binding": "none",
     "gatea_gold_relation": "preserve"
+  },
+  {
+    "id": "card11",
+    "execution_backend": "extended",
+    "temporal": "instant",
+    "answer_kind": "source_identity_or_none",
+    "binding_frames": [30],
+    "idle_choices": [0, 8],
+    "actor_count": 4,
+    "anchor_binding": "query_caller",
+    "max_attempts": 20000
+  },
+  {
+    "id": "card12",
+    "execution_backend": "extended",
+    "temporal": "instant",
+    "answer_kind": "sound_class_by_appearance",
+    "binding_frames": [30],
+    "idle_choices": [0, 8],
+    "actor_count": 4,
+    "anchor_binding": "none",
+    "required_sound_types": 4,
+    "max_attempts": 20000
+  },
+  {
+    "id": "card13",
+    "execution_backend": "extended",
+    "temporal": "instant",
+    "answer_kind": "transcript_by_appearance",
+    "binding_frames": [30],
+    "idle_choices": [0, 8],
+    "actor_count": 4,
+    "anchor_binding": "none",
+    "required_controlled_colours": 4,
+    "required_transcripts": 4,
+    "max_attempts": 20000
+  },
+  {
+    "id": "card14",
+    "execution_backend": "extended",
+    "temporal": "instant",
+    "answer_kind": "appearance_by_transcript",
+    "binding_frames": [30],
+    "idle_choices": [0, 8],
+    "actor_count": 4,
+    "anchor_binding": "none",
+    "required_controlled_colours": 4,
+    "required_transcripts": 4,
+    "max_attempts": 20000
+  },
+  {
+    "id": "card15a",
+    "execution_backend": "extended",
+    "temporal": "instant",
+    "answer_kind": "presence_and_distinct_callers",
+    "binding_frames": [30],
+    "idle_choices": [0, 8],
+    "actor_count": 4,
+    "anchor_binding": "none",
+    "max_attempts": 20000
+  },
+  {
+    "id": "card16",
+    "execution_backend": "extended",
+    "temporal": "forward",
+    "answer_kind": "first_caller_final_visibility",
+    "binding_frames": [12, 74],
+    "idle_choices": [0, 8],
+    "actor_count": 2,
+    "anchor_binding": "first_caller",
+    "max_attempts": 20000
+  },
+  {
+    "id": "card17",
+    "execution_backend": "extended",
+    "temporal": "multisegment",
+    "answer_kind": "cross_segment_identity_location",
+    "binding_frames": [12, 40],
+    "idle_choices": [0, 8],
+    "actor_count": 2,
+    "segment_count": 2,
+    "anchor_binding": "first_caller",
+    "max_attempts": 20000
   }
 ]
