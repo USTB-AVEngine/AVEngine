@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 import sys
@@ -52,12 +53,27 @@ def _write(path: Path, value) -> None:
                     encoding="utf-8")
 
 
+class NRouteSearchExhausted(RuntimeError):
+    """Finite N-route search ended without a candidate."""
+
+    def __init__(self, message: str, *, evaluated_combinations: int):
+        super().__init__(message)
+        self.evaluated_combinations = int(evaluated_combinations)
+
+
+def seed_uint64(seed: str) -> int:
+    """Use the complete declared seed, including suffixes, as RNG entropy."""
+    if not isinstance(seed, str) or not seed:
+        raise ValueError("seed must be a non-empty string")
+    return int.from_bytes(
+        hashlib.sha256(seed.encode("utf-8")).digest()[:8], "big")
+
+
 def find_n_route_plan(scene, params, *, actor_count: int, seed: str,
                       binding_frames=(12, 40),
                       min_pairwise_sep_deg=15.0,
                       max_attempts=20000):
-    rng = np.random.default_rng(
-        int.from_bytes(seed.encode("utf-8"), "little") % (2 ** 32))
+    rng = np.random.default_rng(seed_uint64(seed))
     half_fov = effective_half_fov(scene, params)
     routes = [route for route in scene.routes
               if route.displacement_cm > 1.0e-6]
@@ -105,8 +121,9 @@ def find_n_route_plan(scene, params, *, actor_count: int, seed: str,
                     "search_attempts": attempt,
                     "line_of_sight_screened": scene.line_of_sight_screened,
                 }
-    raise RuntimeError(
-        f"no {actor_count}-route plan within {max_attempts} attempts")
+    raise NRouteSearchExhausted(
+        f"no {actor_count}-route plan within {max_attempts} attempts",
+        evaluated_combinations=max_attempts)
 
 
 def find_four_route_plan(scene, params, **kwargs):

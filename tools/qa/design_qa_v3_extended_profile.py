@@ -14,6 +14,7 @@ from __future__ import annotations
 import argparse
 import copy
 import json
+import math
 import sys
 from collections import Counter
 from pathlib import Path
@@ -25,6 +26,7 @@ sys.path.insert(0, str(REPO / "src"))
 
 from build_qa_v3_n_actor_canary import (  # noqa: E402
     DEFAULT_ASSETS,
+    NRouteSearchExhausted,
     _read,
     _write,
     build_endpoint_registry,
@@ -57,6 +59,10 @@ VISIBILITY_OPTIONS = (
 
 class SearchExhausted(RuntimeError):
     """Finite randomized search ended without a candidate."""
+
+    def __init__(self, message: str, *, evaluated_combinations: int):
+        super().__init__(message)
+        self.evaluated_combinations = int(evaluated_combinations)
 
 
 def _resource_inventory(profile_id, assets, sounds):
@@ -162,40 +168,99 @@ def _author_timeline(out_dir, name, selection_path, registry_path, scene, plan):
     return path, timeline, camera_ue
 
 
+def _asset_position_tracks(selection, timeline):
+    slot_to_asset = {
+        actor["source_slot_id"]: actor["asset_id"]
+        for actor in selection["actors"]
+    }
+    tracks = {asset_id: [] for asset_id in slot_to_asset.values()}
+    for frame in timeline["frames"]:
+        states = {
+            state["source_slot_id"]: state
+            for state in frame["actor_states"]
+        }
+        for slot, asset_id in slot_to_asset.items():
+            tracks[asset_id].append(tuple(
+                float(value)
+                for value in states[slot]["translation_ue_cm"]))
+    return {key: tuple(value) for key, value in tracks.items()}
+
+
+def _assert_gateb_visual_change(
+        main_selection, main_timeline, gateb_selection, gateb_timeline):
+    main_tracks = _asset_position_tracks(main_selection, main_timeline)
+    gateb_tracks = _asset_position_tracks(gateb_selection, gateb_timeline)
+    if main_tracks == gateb_tracks:
+        raise RuntimeError(
+            "Gate B changed only slot labels; per-asset visual tracks are identical")
+    return {
+        "main_asset_count": len(main_tracks),
+        "gateb_asset_count": len(gateb_tracks),
+        "per_asset_tracks_changed": True,
+    }
+
+
+def _find_gateb_out_of_view_route(scene, params, plan, *, frame=30):
+    half_fov = effective_half_fov(scene, params)
+    minimum_distance = float(params.get("MIN_CAMERA_DISTANCE_CM", 100.0))
+    used = {route.route_id for route in plan["routes"]}
+    evaluated = 0
+    for route in scene.routes:
+        if route.route_id in used or route.displacement_cm <= 1.0e-6:
+            continue
+        evaluated += 1
+        point = route.at(frame)
+        azimuth = relative_azimuth_deg(
+            plan["camera_xy"], float(plan["camera_yaw_deg"]), point)
+        if (abs(azimuth) > half_fov
+                and math.dist(plan["camera_xy"], point)
+                >= minimum_distance):
+            return route, evaluated
+    raise SearchExhausted(
+        "Gate B found no real route outside the query-frame view",
+        evaluated_combinations=evaluated)
+
+
 def _program_events(profile_id, cell_index, sound_assets):
     sounds = [item["sound_asset_id"] for item in sound_assets]
     bark = "dog_beagle_v2_scheduled_dry"
     slots = [f"source{index}" for index in range(1, 5)]
     if profile_id == "card11":
         positive = cell_index % 2 == 0
-        main_slot = "source1" if positive else "source4"
-        other_slot = "source4" if positive else "source1"
+        target_index = (cell_index // 2) % 3
+        target_slot = slots[target_index]
+        main_slot = target_slot if positive else "source4"
+        gatea_slot = "source4" if positive else target_slot
         return (
             [(main_slot, EVENT_STARTS[0], bark)],
-            [(other_slot, EVENT_STARTS[0], bark)],
-            {"desired_answer": "source1" if positive else "none",
-             "positive_visible_source": positive},
+            [(gatea_slot, EVENT_STARTS[0], bark)],
+            {
+                "target_slot": target_slot,
+                "desired_answer": target_slot if positive else "none",
+                "gatea_desired_answer": "none" if positive else target_slot,
+            },
         )
-    if profile_id == "card12":
+    if profile_id in {"card12", "card13", "card14"}:
+        target_index = cell_index % 4
+        swap_index = (target_index + 1) % 4
         main = [
             (slot, start, sound)
             for slot, start, sound in zip(slots, EVENT_STARTS, sounds[:4])
         ]
         gatea = list(main)
-        gatea[0] = (gatea[0][0], gatea[0][1], main[1][2])
-        gatea[1] = (gatea[1][0], gatea[1][1], main[0][2])
-        return main, gatea, {"target_sound_asset_id": main[0][2]}
-    if profile_id in {"card13", "card14"}:
-        main = [
-            (slot, start, sound)
-            for slot, start, sound in zip(slots, EVENT_STARTS, sounds[:4])
-        ]
-        gatea = list(main)
-        gatea[0], gatea[1] = (
-            (main[0][0], main[0][1], main[1][2]),
-            (main[1][0], main[1][1], main[0][2]),
-        )
-        return main, gatea, {"target_speech_asset_id": main[0][2]}
+        target_event = main[target_index]
+        swap_event = main[swap_index]
+        gatea[target_index] = (
+            target_event[0], target_event[1], swap_event[2])
+        gatea[swap_index] = (
+            swap_event[0], swap_event[1], target_event[2])
+        key = ("target_sound_asset_id" if profile_id == "card12"
+               else "target_speech_asset_id")
+        return main, gatea, {
+            "target_index": target_index,
+            "gatea_source_index": swap_index,
+            key: target_event[2],
+        }
     if profile_id == "card15a":
         distinct = cell_index % 4 + 1
         gatea_distinct = 5 - distinct
@@ -226,14 +291,17 @@ def _program_events(profile_id, cell_index, sound_assets):
 
 def _find_card16_plan(scene, params, *, seed, max_attempts):
     half_fov = effective_half_fov(scene, params)
+    evaluated = 0
     for outer in range(200):
         try:
             plan = find_n_route_plan(
                 scene, params, actor_count=2,
                 seed=f"{seed}|final-state-split|{outer}",
                 binding_frames=(12,), max_attempts=max_attempts)
-        except RuntimeError:
+        except NRouteSearchExhausted as error:
+            evaluated += error.evaluated_combinations
             continue
+        evaluated += int(plan["search_attempts"])
         final_inside = [
             abs(relative_azimuth_deg(
                 plan["camera_xy"], float(plan["camera_yaw_deg"]),
@@ -241,34 +309,68 @@ def _find_card16_plan(scene, params, *, seed, max_attempts):
             for route in plan["routes"]
         ]
         if sum(final_inside) == 1:
-            plan["search_attempts"] += outer
+            plan["search_attempts"] = evaluated
             plan["card16_final_fov_membership"] = final_inside
             return plan
     raise SearchExhausted(
-        "no card16 plan with distinct final in-view/out-of-view states")
+        "no card16 plan with distinct final in-view/out-of-view states",
+        evaluated_combinations=evaluated)
 
 
-def _location_band(scene, plan, route_index, frame=40):
+def _plan_signature(plan):
+    return (
+        tuple(float(value) for value in plan["camera_xy"]),
+        float(plan["camera_yaw_deg"]),
+        tuple(
+            (route.route_id, tuple(route.samples_xy))
+            for route in plan["routes"]),
+    )
+
+
+def _location_band(profile, scene, plan, route_index, frame=40):
     azimuth = relative_azimuth_deg(
         plan["camera_xy"], float(plan["camera_yaw_deg"]),
         plan["routes"][route_index].at(frame))
-    band = "left" if azimuth < -17.5 else "right" if azimuth >= 17.5 else "center"
-    return band, float(azimuth)
+    bands = profile.get("location_bands_deg")
+    labels = profile.get("location_band_labels")
+    if (not isinstance(bands, list) or not isinstance(labels, list)
+            or len(bands) != len(labels)):
+        raise ValueError(
+            f"{profile.get('id')}: location bands and labels are required")
+    matches = [
+        label for label, (lo, hi) in zip(labels, bands)
+        if float(lo) <= azimuth < float(hi)
+    ]
+    if len(matches) != 1:
+        raise SearchExhausted(
+            f"route {route_index} azimuth {azimuth:.3f} is outside the "
+            "declared location bands", evaluated_combinations=1)
+    return matches[0], float(azimuth)
 
 
-def _facts(profile_id, inventory, truth, scene, main_plan, segment2_plan=None):
+def _facts(profile, inventory, truth, scene, main_plan, segment2_plan=None):
+    profile = {"id": profile} if isinstance(profile, str) else profile
+    profile_id = profile["id"]
     if profile_id == "card11":
+        labels = [item["display_label"] for item in inventory["dogs"][:3]]
+        target_index = int(truth["target_slot"].removeprefix("source")) - 1
+        desired = (labels[target_index]
+                   if truth["desired_answer"] != "none" else "none")
+        gatea_desired = (labels[target_index]
+                         if truth["gatea_desired_answer"] != "none" else "none")
         return {
             "truth_status": "pending_native_pixel_join",
-            "desired_truth": truth["desired_answer"],
+            "target_slot": truth["target_slot"],
+            "desired_truth": desired,
+            "gatea_desired_truth": gatea_desired,
             "mcq": {
                 "stem": "Which visible dog made the sound?",
-                "options_space": ["source1", "source2", "source3", "none"],
-                "truth_option": truth["desired_answer"],
+                "options_space": [*labels, "none"],
+                "truth_option": desired,
             },
             "open": {
                 "stem": "Which visible dog, if any, made the sound?",
-                "truth_value": truth["desired_answer"],
+                "truth_value": desired,
                 "scoring": "closed_set",
             },
             "pixel_acceptance": {
@@ -277,22 +379,28 @@ def _facts(profile_id, inventory, truth, scene, main_plan, segment2_plan=None):
             },
         }
     if profile_id == "card12":
-        sound = inventory["sound_types"][0]
+        target_index = int(truth["target_index"])
+        sound = inventory["sound_types"][target_index]
         label = sound["taxonomy_path"][-1]
+        appearance = inventory["dogs"][target_index]["display_label"]
+        stem = f"What sound did the {appearance} make?"
         return {
             "truth_status": "engine_exact",
-            "mcq": {"stem": "What sound did source1 make?",
+            "target_index": target_index,
+            "mcq": {"stem": stem,
                     "options_space": [
                         item["taxonomy_path"][-1]
                         for item in inventory["sound_types"][:4]],
                     "truth_option": label},
-            "open": {"stem": "What sound did source1 make?",
+            "open": {"stem": stem,
                      "truth_value": label, "scoring": "closed_set"},
         }
     if profile_id in {"card13", "card14"}:
-        speech = inventory["speech"][0]
+        target_index = int(truth["target_index"])
+        speech = inventory["speech"][target_index]
         transcript = speech["transcript"].strip()
-        colour = inventory["humans"][0]["realized_attributes"]["top_color"]
+        colour = inventory["humans"][target_index][
+            "realized_attributes"]["top_color"]
         if profile_id == "card13":
             mcq = {
                 "stem": f"What did the person in {colour} say?",
@@ -354,14 +462,16 @@ def _facts(profile_id, inventory, truth, scene, main_plan, segment2_plan=None):
             },
         }
     assert segment2_plan is not None
-    band, azimuth = _location_band(scene, segment2_plan, 0)
-    other_band, other_azimuth = _location_band(scene, segment2_plan, 1)
+    band, azimuth = _location_band(
+        profile, scene, segment2_plan, 0)
+    other_band, other_azimuth = _location_band(
+        profile, scene, segment2_plan, 1)
     return {
         "truth_status": "engine_exact_future_extension",
         "selector": {"segment1_first_caller_slot": "source1"},
         "mcq": {
             "stem": "In segment 2, where is the dog that barked first in segment 1?",
-            "options_space": ["left", "center", "right"],
+            "options_space": list(profile["location_band_labels"]),
             "truth_option": band,
         },
         "open": {
@@ -445,10 +555,12 @@ def _realise_cell(out_root, profile, cell_index, scene, params, inventory,
                 seed=f"{seed}|{point_id}|main",
                 binding_frames=binding_frames,
                 max_attempts=max_attempts))
-    except RuntimeError as error:
-        if isinstance(error, SearchExhausted):
-            raise
-        raise SearchExhausted(str(error)) from error
+    except SearchExhausted:
+        raise
+    except NRouteSearchExhausted as error:
+        raise SearchExhausted(
+            str(error),
+            evaluated_combinations=error.evaluated_combinations) from error
     timeline_path, timeline, camera_ue = _author_timeline(
         point, "timeline", selection_path, registry_path, scene, plan)
 
@@ -461,7 +573,10 @@ def _realise_cell(out_root, profile, cell_index, scene, params, inventory,
     _write(point / "m1_capture_request.json", m1)
 
     segment2_plan = None
+    segment2_timeline = None
+    segment2_search_attempts = 0
     if profile_id == "card17":
+        main_signature = _plan_signature(plan)
         for attempt in range(40):
             try:
                 candidate = find_n_route_plan(
@@ -469,16 +584,27 @@ def _realise_cell(out_root, profile, cell_index, scene, params, inventory,
                     seed=f"{seed}|{point_id}|segment2|{attempt}",
                     binding_frames=(12, 40),
                     max_attempts=max_attempts)
-            except RuntimeError:
+            except NRouteSearchExhausted as error:
+                segment2_search_attempts += error.evaluated_combinations
                 continue
-            if _location_band(scene, candidate, 0)[0] != _location_band(
-                    scene, candidate, 1)[0]:
+            segment2_search_attempts += int(candidate["search_attempts"])
+            try:
+                target_band = _location_band(
+                    profile, scene, candidate, 0)[0]
+                other_band = _location_band(
+                    profile, scene, candidate, 1)[0]
+            except SearchExhausted as error:
+                segment2_search_attempts += error.evaluated_combinations
+                continue
+            if (target_band != other_band
+                    and _plan_signature(candidate) != main_signature):
                 segment2_plan = candidate
                 break
         if segment2_plan is None:
             raise SearchExhausted(
-                "segment2 actors never occupy distinct answer bands")
-        _author_timeline(
+                "segment2 never differs from segment1 with distinct answer bands",
+                evaluated_combinations=segment2_search_attempts)
+        _, segment2_timeline, _ = _author_timeline(
             point, "timeline_segment2", selection_path, registry_path,
             scene, segment2_plan)
 
@@ -513,7 +639,7 @@ def _realise_cell(out_root, profile, cell_index, scene, params, inventory,
     _write(point / "audio_program_gateA.json", gatea_program)
 
     facts = _facts(
-        profile_id, inventory, truth, scene, plan,
+        profile, inventory, truth, scene, plan,
         segment2_plan=segment2_plan)
     main_starts = [event["start_sample"] for event in main_program["events"]]
     gatea_starts = [event["start_sample"] for event in gatea_program["events"]]
@@ -545,7 +671,9 @@ def _realise_cell(out_root, profile, cell_index, scene, params, inventory,
             ],
         },
         "search": {
-            "attempts": int(plan["search_attempts"]),
+            "attempts": (
+                int(plan["search_attempts"])
+                + int(segment2_search_attempts)),
             "line_of_sight_screened": bool(plan["line_of_sight_screened"]),
         },
     })
@@ -553,35 +681,61 @@ def _realise_cell(out_root, profile, cell_index, scene, params, inventory,
         raise RuntimeError(f"Gate A structure check failed: {facts['gatea_checks']}")
     _write(point / "fact_record.json", facts)
 
-    gateb_assets = list(reversed(actor_assets))
+    gateb_assets = list(actor_assets)
+    gateb_plan = copy.deepcopy(
+        segment2_plan if profile_id == "card17" else plan)
+    gateb_plan["routes"] = list(gateb_plan["routes"])
+    gateb_search_attempts = 0
+    reference_timeline = (
+        segment2_timeline if profile_id == "card17" else timeline)
     if profile_id == "card15a":
-        gateb_assets = actor_assets[:-1]
+        outside_route, gateb_search_attempts = _find_gateb_out_of_view_route(
+            scene, params, plan, frame=30)
+        gateb_plan["routes"][-1] = outside_route
+        changed_visual_fact = "in_scene_visibility_count"
+    elif profile_id == "card16":
+        gateb_plan["routes"] = list(reversed(plan["routes"]))
+        changed_visual_fact = "final_visibility_assignment"
+    elif profile_id == "card17":
+        gateb_assets = list(reversed(actor_assets))
+        changed_visual_fact = "segment2_identity_binding"
+    else:
+        gateb_assets = list(reversed(actor_assets))
+        changed_visual_fact = "appearance_to_position_binding"
+
     gateb_selection = _selection(gateb_assets, by_id, snapshot_content)
     gateb_selection_path = point / "actor_selection_gateB.json"
     _write(gateb_selection_path, gateb_selection)
-    gateb_plan = copy.deepcopy(
-        segment2_plan if profile_id == "card17" else plan)
-    gateb_plan["routes"] = list(reversed(plan["routes"]))[:len(gateb_assets)]
-    _author_timeline(
+    gateb_endpoint_path = point / "source_endpoints_gateB.json"
+    build_endpoint_registry(gateb_selection, by_id, gateb_endpoint_path)
+    _, gateb_timeline, _ = _author_timeline(
         point, "timeline_gateB", gateb_selection_path, registry_path,
         scene, gateb_plan)
+    gateb_visual_check = _assert_gateb_visual_change(
+        selection, reference_timeline, gateb_selection, gateb_timeline)
     gateb = {
         "schema": "qa_v3_gateb_intervention_v1",
         "profile_id": profile_id,
-        "kept_fixed": ["camera", "audio_program_main", "event_times"],
-        "changed_visual_fact": (
-            "in_scene_actor_count" if profile_id == "card15a"
-            else "final_visibility_assignment" if profile_id == "card16"
-            else "segment2_identity_binding" if profile_id == "card17"
-            else "appearance_to_slot_binding"),
+        "kept_fixed": (
+            ["camera", "event_times"] if profile_id == "card17"
+            else ["camera", "audio_program_main", "event_times"]),
+        "changed_visual_fact": changed_visual_fact,
         "actor_selection": "actor_selection_gateB.json",
         "timeline": "timeline_gateB.json",
+        "source_endpoint_registry": "source_endpoints_gateB.json",
+        "audio_program": (None if profile_id == "card17"
+                          else "audio_program.json"),
+        "visual_change_check": gateb_visual_check,
         "qualification_claim": False,
     }
     _write(point / "gateB_intervention.json", gateb)
+    total_search_attempts = (
+        int(plan["search_attempts"])
+        + int(segment2_search_attempts)
+        + int(gateb_search_attempts))
     return {
         "point_id": point_id,
-        "search_attempts": int(plan["search_attempts"]),
+        "search_attempts": total_search_attempts,
         "artifacts": {
             "selection": str(selection_path),
             "timeline": str(timeline_path),
@@ -644,14 +798,15 @@ def main(argv=None):
                 args.seed)
             records.append(record)
             attempts += record["search_attempts"]
-        except Exception as error:
-            reason = "not_found_within_budget" if isinstance(
-                error, SearchExhausted) else "pipeline_constraint_failed"
+        except SearchExhausted as error:
+            reason = "not_found_within_budget"
             reasons[reason] += 1
+            attempts += error.evaluated_combinations
             rejected.append({
                 "point_id": f"{profile_id}_{cell_index + 1:03d}",
                 "reason": reason,
                 "detail": f"{type(error).__name__}: {error}"[:300],
+                "evaluated_combinations": error.evaluated_combinations,
             })
     manifest = {
         "schema": "qa_v3_extended_profile_batch_manifest_v1",

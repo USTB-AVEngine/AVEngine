@@ -11,6 +11,7 @@ sys.path.insert(0, str(TOOLS))
 
 from design_qa_v3_extended_profile import (  # noqa: E402
     SUPPORTED,
+    _assert_gateb_visual_change,
     _facts,
     _program_events,
     _resource_inventory,
@@ -83,7 +84,9 @@ def _synthetic_sound(index, *, speech=False):
 def test_asset_ready_card12_builds_four_sound_mcq_and_gatea_swap():
     inventory = {
         "sound_types": [_synthetic_sound(index) for index in range(4)],
-        "speech": [], "humans": [], "dogs": [], "missing": [],
+        "speech": [], "humans": [],
+        "dogs": [{"display_label": f"dog {index}"} for index in range(4)],
+        "missing": [],
     }
     main, gatea, truth = _program_events(
         "card12", 0, inventory["sound_types"])
@@ -129,3 +132,62 @@ def test_resource_inventory_deduplicates_semantic_values():
         "four_controlled_human_top_colours",
         "four_transcribed_speech_assets",
     ]
+
+
+def _selection_for_tracks(first_asset, second_asset):
+    return {
+        "actors": [
+            {"source_slot_id": "source1", "asset_id": first_asset},
+            {"source_slot_id": "source2", "asset_id": second_asset},
+        ]
+    }
+
+
+def _timeline_for_tracks(first_x, second_x):
+    return {
+        "frames": [
+            {
+                "actor_states": [
+                    {"source_slot_id": "source1",
+                     "translation_ue_cm": [first_x, 0.0, 0.0]},
+                    {"source_slot_id": "source2",
+                     "translation_ue_cm": [second_x, 0.0, 0.0]},
+                ]
+            }
+            for _ in range(2)
+        ]
+    }
+
+
+def test_gateb_rejects_slot_relabel_noop_and_accepts_visual_change():
+    main_selection = _selection_for_tracks("asset_a", "asset_b")
+    main_timeline = _timeline_for_tracks(1.0, 2.0)
+    reversed_selection = _selection_for_tracks("asset_b", "asset_a")
+    reversed_routes = _timeline_for_tracks(2.0, 1.0)
+    import pytest
+    with pytest.raises(RuntimeError, match="only slot labels"):
+        _assert_gateb_visual_change(
+            main_selection, main_timeline,
+            reversed_selection, reversed_routes)
+    changed = _assert_gateb_visual_change(
+        main_selection, main_timeline,
+        reversed_selection, main_timeline)
+    assert changed["per_asset_tracks_changed"] is True
+
+
+def test_extended_targets_rotate_across_visible_candidates():
+    bark = [{"sound_asset_id": "dog_beagle_v2_scheduled_dry"}]
+    card11_targets = [
+        _program_events("card11", index, bark)[2]["target_slot"]
+        for index in range(6)
+    ]
+    assert card11_targets == [
+        "source1", "source1", "source2",
+        "source2", "source3", "source3"]
+    sounds = [_synthetic_sound(index) for index in range(4)]
+    for profile_id in ["card12", "card13", "card14"]:
+        targets = [
+            _program_events(profile_id, index, sounds)[2]["target_index"]
+            for index in range(4)
+        ]
+        assert targets == [0, 1, 2, 3]

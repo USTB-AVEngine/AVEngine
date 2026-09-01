@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 
 TOOLS = Path(__file__).resolve().parents[1] / "tools" / "qa"
 sys.path.insert(0, str(TOOLS))
 
-from join_qa_v3_extended_pixel import evaluate  # noqa: E402
+from join_qa_v3_extended_pixel import evaluate, main  # noqa: E402
 
 
 def _pixel(states, frame):
@@ -87,3 +88,30 @@ def test_card16_binds_main_and_gatea_to_distinct_final_states():
             "source2": "out_of_view",
         }, 74))
     assert rejected["status"] == "pixel_rejected"
+
+
+def test_cli_binds_fact_and_pixel_inputs(tmp_path):
+    fact = tmp_path / "fact.json"
+    pixel = tmp_path / "pixel.json"
+    output = tmp_path / "join.json"
+    fact.write_text(json.dumps(_fact("card15a")))
+    pixel.write_text(json.dumps(_pixel({
+        "source1": "visible_clear",
+        "source2": "visible_occluded",
+        "source3": "visible_clear",
+        "source4": "visible_occluded",
+    }, 30)))
+    assert main([
+        "--fact", str(fact),
+        "--pixel-truth", str(pixel),
+        "--output", str(output),
+    ]) == 0
+    result = json.loads(output.read_text())
+    assert result["inputs"]["fact"]["path"] == str(fact.resolve())
+    assert result["inputs"]["pixel_truth"]["path"] == str(pixel.resolve())
+    assert len(result["inputs"]["fact"]["sha256"]) == 64
+    assert main([
+        "--fact", str(fact),
+        "--pixel-truth", str(pixel),
+        "--output", str(output),
+    ]) == 2

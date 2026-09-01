@@ -1144,12 +1144,15 @@ catalog now has fourteen profiles.
 The QA-v3 catalog now carries all 21 requested profiles. Cards 11, 12, 13, 14,
 15a, 16 and 17 use the scene-neutral extended runner over the generalized
 source1..sourceN timeline, pixel and dynamic-audio path. The final two-room
-low-cost matrix attempted all 42 scene/profile cells: 33 generated geometry
-candidates, six reported exact semantic-asset shortages, and three ended as
+low-cost matrix attempted all 42 scene/profile cells: 34 generated geometry
+candidates, six reported exact semantic-asset shortages, and two ended as
 finite-budget search misses; no cell was unimplemented or a pipeline error.
+The full-seed RNG fix now yields distinct cameras across extended profiles,
+and both card17 segments must differ before generation can succeed.
 Apartment runtime probes additionally closed four-actor RGB/pixel/binaural,
 card15a main/Gate-A audio, card16 pixel-bound main/Gate-A truth, and both
 card17 video segments. The first card11 pixel candidate was correctly rejected
 because its fourth actor remained visible. Full evidence and claim boundaries
 are in `docs/roadmap/QA_V3_ALL_PROFILE_ENGINE_REPORT_20260901.md`; the matrix
-is retained at `/data/jzy/tmp/qa_v3_all21_two_room_matrix_20260901_v3`.
+is retained at
+`/data/jzy/tmp/qa_v3_all21_two_room_matrix_20260901_v4_reviewfix`.

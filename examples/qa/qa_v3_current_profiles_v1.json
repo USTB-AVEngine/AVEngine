@@ -252,6 +252,12 @@
     "temporal": "multisegment",
     "answer_kind": "cross_segment_identity_location",
     "binding_frames": [12, 40],
+    "location_bands_deg": [
+      [-52.5, -17.5],
+      [-17.5, 17.5],
+      [17.5, 52.5]
+    ],
+    "location_band_labels": ["left", "center", "right"],
     "idle_choices": [0, 8],
     "actor_count": 2,
     "segment_count": 2,

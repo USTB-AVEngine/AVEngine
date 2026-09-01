@@ -8,6 +8,8 @@ import json
 import sys
 from pathlib import Path
 
+from avengine.contracts.json_io import sha256_file
+
 
 SUPPORTED = {"card11", "card15a", "card16"}
 VISIBLE = {"visible_clear", "visible_occluded"}
@@ -112,7 +114,19 @@ def main(argv=None):
     if args.output.exists() or args.output.is_symlink():
         print(f"refusing to overwrite: {args.output}", file=sys.stderr)
         return 2
-    result = evaluate(_read(args.fact), _read(args.pixel_truth))
+    fact_path = args.fact.resolve()
+    pixel_path = args.pixel_truth.resolve()
+    result = evaluate(_read(fact_path), _read(pixel_path))
+    result["inputs"] = {
+        "fact": {
+            "path": str(fact_path),
+            "sha256": sha256_file(fact_path),
+        },
+        "pixel_truth": {
+            "path": str(pixel_path),
+            "sha256": sha256_file(pixel_path),
+        },
+    }
     args.output.parent.mkdir(parents=True, exist_ok=True)
     _write(args.output, result)
     print(json.dumps({
