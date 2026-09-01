@@ -1,7 +1,8 @@
 # QA v3 run02 工程报告（2026-09-01）
 
-> 状态：**工程链完成，单模态认证未授予**。本报告只覆盖 research/dev
-> 小批，不是百题级 pilot、数据集准入或论文结果。
+> 状态：**工程链完成，Claude 总审未发现 P0–P2，条件收尾已落实；
+> 单模态认证未授予**。本报告只覆盖 research/dev 小批，不是百题级
+> pilot、数据集准入或论文结果。
 
 ## 0. 给 Claude 的一次性总审委托
 
@@ -134,24 +135,31 @@ Apartment 配置没有 LOS，相机中心进视锥不等于角色可见。
 - packaged UE `BlockAll` complex trace 只作预筛；
 - native same-camera normal/target-only depth作终裁。
 
-大池 3998/4000 点生成，2 个最终重算错带被记为候选 rejection；runtime
-LOS 后 183 clear。按联合格每格先取1点做像素，再补①F/⑨其余 clear 点，
-得到可组成 run02-dev 的通过池。
+大池 3998/4000 点生成；另 2 个候选 `card1B_123/534` 因 Gate A Open
+角距仅 `59.939°/59.981° < 60°` 被拒，不是“最终重算错带”。runtime LOS
+后 183 clear。按联合格每格先取1点做像素，再补①F/⑨其余 clear 点，得到
+可组成 run02-dev 的通过池。
 
 ### 5.3 最终 30 点
 
 `/data/jzy/tmp/qa_v3_run02_selected30_a547580_r2/selection_manifest.json`
-记录来源与像素证据。每型6点，所有声明答案类别和所有二元因子实际值均
-覆盖；选择后仍有边际偏差，特别是①F `source1_coat=4:2`、⑧时间带
-`2:1:1:2`，故条件基线按实际分布报告，不称统计认证。
+记录来源与像素证据。24 点来自 targeted4000；卡⑦的 6 点来自较早的
+`qa_v3_run02_pool600_77fd31b`，像素终裁补齐了该池生成时尚未存在的 FOV
+margin，不能把它写成 targeted4000 的产物。每型6点，所有主集答案类别和
+二元因子实际值均覆盖；选择后仍有边际偏差，特别是①F
+`source1_coat=4:2`、⑧时间带 `2:1:1:2`，故条件基线按实际分布报告，
+不称统计认证。版本化选择器从三份像素池独立重算并逐点复现 30 点：
+`/data/jzy/tmp/qa_v3_run02_selection_reproduction_p3fix_20260901_v2.json`。
 
 ## 6. 最终视觉、音频与反事实
 
 ### 6.1 视觉
 
 - 路径：`/data/jzy/tmp/qa_v3_run02_selected30_visual_a547580`
-- 30/30 × 75 帧；最大位置误差 `5.68e-14 cm`；最大 yaw 误差
-  `6.94e-5°`；最大动画相位误差 `4.8e-7 s`
+- 验证：`/data/jzy/tmp/qa_v3_run02_selected30_visual_verification_p3fix_20260901.json`
+- 30/30 × 75 帧（2250 帧）；最大相机位置误差 `5.68e-14 cm`；
+  最大角色 yaw 误差 `6.94e-5°`；最大动画相位误差 `4.8e-7 s`；
+  0 failures
 
 ### 6.2 音频
 
@@ -171,14 +179,14 @@ LOS 后 183 clear。按联合格每格先取1点做像素，再补①F/⑨其余
 - 问题：`/data/jzy/tmp/qa_v3_run02_dual_form_questions_a547580_r2.json`
 - MCQ 30，Open 30；是独立记录，共享 fact，不互为认证证据
 - Open 主真值阳性：
-  `/data/jzy/tmp/qa_v3_run02_open_perfect_scores_a547580.json`，均分 1.0
+  `/data/jzy/tmp/qa_v3_run02_open_perfect_scores_a547580_r2.json`，均分 1.0
 - Gate A 真值答主问题：
-  `/data/jzy/tmp/qa_v3_run02_open_gatea_counter_scores_a547580.json`，均分 0.0
+  `/data/jzy/tmp/qa_v3_run02_open_gatea_counter_scores_a547580_r2.json`，均分 0.0
 - 时间容差使用显式研究占位 `T_FULL=0.5s/T_HALF=1.0s`，未校准
 
 ## 8. 形式×缺失模态矩阵
 
-权威汇总：`/data/jzy/tmp/qa_v3_run02_form_modality_matrix_a547580.json`
+权威汇总：`/data/jzy/tmp/qa_v3_run02_form_modality_matrix_a547580_r2.json`
 （5 profile × 2 form × 2 missing modality = 20 格）。
 
 A-only 物理探针只读最终 WAV，每型 n=6、2-fold，仅作风险诊断：
@@ -203,6 +211,34 @@ Open 数值题的物理探针只是分箱标签 proxy，不是连续评分认证
 4. 强模型 A-only/V-only/AV 与 text-only 诊断；
 5. 物理侧信道越线后的重新采样与复认证；
 6. owner 未决的正式 `delta`、裁判模型与最终配额。
+7. 卡⑦ `both/neither` 音频充分对照批（须进入百题级配额表）。
 
 这些是下一阶段认证/实验，不是本次实现遗漏；在它们完成前不得把
 `research_candidate` 改写为 certified/admitted。
+
+## 10. Claude 总审条件收尾
+
+Claude 在 HEAD `fa7f3b498598d39cf5af9a7581a985984f5bb954` 上完成只读总审，
+独立重算 WAV、program、fact、像素与计数后给出“有条件放行进入百题级
+pilot”，未发现 P0–P2。条件项按以下方式闭合：
+
+1. **选择过程可复跑**：`tools/qa/select_qa_v3_run02_dev.py` 将原先只有
+   policy 文本的选择过程版本化；从 43 个像素合格候选重得同一 30 点，
+   并输出逐 profile 边际表。
+2. **Card8 声明与执行统一**：未来批次在创建输出前由
+   `materialize_derived_params` 把 `BANDS_CARD8` 写成第一性原理派生的
+   `[0.35,1.2875,2.225,3.1625,4.1]`；开放题评分产物只记录真正执行的
+   四个容差参数。历史 batch manifest 不覆盖，另有只读对账：
+   `/data/jzy/tmp/qa_v3_run02_card8_metadata_reconciliation_p3fix_20260901.json`
+   （1000 份 card8 fact 全部使用派生边，0 mismatch）。
+3. **拒绝归因与双池溯源**：§5.2/5.3 已按实物修正，不再把 Gate A
+   Open 分离不足写成错带，也不再把卡⑦说成 targeted4000 来源。
+4. **视觉极值有单一产物**：§6.1 的 30 点/2250 帧极值由版本化验证器
+   重算并写入 fresh JSON。
+5. **下一阶段边界不变**：A-only 泄漏是百题级采样与认证的设计输入；
+   卡⑦ `both/neither` 作为音频充分对照另列配额；本批仍不获得认证。
+
+旧版 Open 评分文件和含 run01 死字段的历史 batch manifest 均保留作审计
+历史，但已由上述 r2 评分与 metadata reconciliation 明确 supersede。
+`test_verify_audio_batch.py` 需要含 `soundfile` 的 `ss2` 环境；其余
+本轮回归在 `avengine-habitat-runtime` 环境执行。

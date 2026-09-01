@@ -487,6 +487,21 @@ def build_cell_plan(cells, profiles, pair_assets, params, seed):
     return plan
 
 
+def materialize_derived_params(params):
+    """Replace stale card8 input text with the interval derived by this run.
+
+    Card8's production path has used card8_band_edges since run02, but early
+    external parameter files still carried run01's dead three-band field.
+    Manifests must describe what execution actually used.
+    """
+    effective = copy.deepcopy(params)
+    effective["BANDS_CARD8"] = AP.card8_band_edges(effective)
+    effective["BANDS_CARD8_note"] = (
+        "Derived before generation by audio_profiles.card8_band_edges from "
+        "clip/event/gap/first-min constraints; not an independent input.")
+    return effective
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--scene-config", required=True, type=Path)
@@ -513,6 +528,7 @@ def main(argv=None) -> int:
     # Missing ground/map/transform is configuration failure, not a partially
     # realised candidate that should poison the no-clobber path.
     resolve_scene_render_context(scene)
+    params = materialize_derived_params(params)
     base_request = json.loads(Path(scene_cfg["camera_base_request"]).read_text())
     registry = json.loads(
         (REPO / "examples/runtime/source_asset_runtime_profiles.json").read_text())

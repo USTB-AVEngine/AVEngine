@@ -76,6 +76,7 @@ DEFAULT_VOCAB: dict[str, dict[str, list[str]]] = {
 ABSTAIN_TERMS = ["无法判断", "不知道", "说不准", "不确定", "无法确定", "难以判断",
                  "cannot tell", "can't tell", "not sure", "cannot determine", "unable to determine"]
 
+SCORER_PARAM_KEYS = ("THETA_FULL", "THETA_HALF", "T_FULL", "T_HALF")
 _NUM = re.compile(r"[-+]?\d+(?:\.\d+)?")
 ANGLE_MARK = re.compile(r"([-+]?\d+(?:\.\d+)?)\s*(?:°|度|deg(?:ree)?s?)", re.IGNORECASE)
 TIME_MARK = re.compile(r"([-+]?\d+(?:\.\d+)?)\s*(?:秒|s\b|sec(?:ond)?s?)", re.IGNORECASE)
@@ -185,6 +186,14 @@ def score_counts(answer: str, truth: list[int]) -> dict:
     return {"status": "scored", "parsed": nums, "score": 1.0 if ok else 0.0}
 
 
+def scorer_params(params: dict) -> dict:
+    """Keep only parameters that this scorer actually executes."""
+    missing = [key for key in SCORER_PARAM_KEYS if key not in params]
+    if missing:
+        raise ValueError(f"params missing explicit {missing}")
+    return {key: params[key] for key in SCORER_PARAM_KEYS}
+
+
 def score_item(item: dict, params: dict, vocab: dict) -> dict:
     """item: question_id, answer_type, model_answer, truth(类型相关), vocab_key?"""
     at = item["answer_type"]
@@ -216,11 +225,11 @@ def main(argv: list[str] | None = None) -> int:
     if os.path.exists(args.out):
         print(f"refusing to overwrite existing output: {args.out}", file=sys.stderr)
         return 2
-    params = json.load(open(args.params))
-    for key in ("THETA_FULL", "THETA_HALF", "T_FULL", "T_HALF"):
-        if key not in params:
-            print(f"params missing explicit {key}", file=sys.stderr)
-            return 2
+    try:
+        params = scorer_params(json.load(open(args.params)))
+    except ValueError as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
     vocab: dict[str, Any] = dict(DEFAULT_VOCAB)
     if args.vocab:
         vocab.update(json.load(open(args.vocab)))

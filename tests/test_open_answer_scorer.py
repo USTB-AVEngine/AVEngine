@@ -161,7 +161,8 @@ def test_main_end_to_end_and_no_clobber(tmp_path):
          "model_answer": "无法判断", "truth": "offscreen_source", "refusal_truth": True},
         {"question_id": "q4", "answer_type": "time_s", "model_answer": "怎么会知道呢", "truth": 2.4},
     ]
-    params = {"THETA_FULL": TF, "THETA_HALF": TH, "T_FULL": SF, "T_HALF": SH}
+    params = {"THETA_FULL": TF, "THETA_HALF": TH, "T_FULL": SF, "T_HALF": SH,
+              "BANDS_CARD8": [0.35, 1.1, 1.85, 2.6]}
     items_p = _write(tmp_path / "items.json", items)
     params_p = _write(tmp_path / "params.json", params)
     out = tmp_path / "scores.json"
@@ -170,6 +171,8 @@ def test_main_end_to_end_and_no_clobber(tmp_path):
     assert doc["counts"] == {"total": 4, "scored": 2, "invalid": 1, "abstained": 1}
     assert doc["mean_score_over_scored"] == 1.0
     assert doc["mean_score_over_all"] == 0.5
+    assert doc["parameters"] == {
+        "THETA_FULL": TF, "THETA_HALF": TH, "T_FULL": SF, "T_HALF": SH}
     # no-clobber
     assert main(["--items", items_p, "--params", params_p, "--out", str(out)]) == 2
 
