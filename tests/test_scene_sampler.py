@@ -34,6 +34,7 @@ from scene_sampler import (  # noqa: E402
     solve_instant_binding,
     solve_distance_change_pair,
     solve_instant_distance_order,
+    solve_motion_state_pair,
     solve_instant_azimuth,
     yaw_interval_for_band,
     _pick_other_route,
@@ -440,3 +441,30 @@ def test_distance_change_pair_has_opposite_distractor_trend(relation):
     other_delta = plan.answer_cell["other_delta_cm"]
     assert (target_delta < -25.0 and other_delta > 25.0) if relation == "closer" \
         else (target_delta > 25.0 and other_delta < -25.0)
+
+
+def test_route_pause_freezes_window_and_resumes_delayed_motion():
+    route = straight_route("r", (0.0, 0.0), (740.0, 0.0))
+    paused = route.paused(20, 30)
+    assert paused.at(20) == paused.at(30)
+    assert paused.at(31) == route.at(21)
+    assert paused.displacement_cm > 0.0
+
+
+@pytest.mark.parametrize("state", ["moving", "still"])
+def test_motion_state_pair_has_opposite_window_states(state):
+    scene = synthetic_scene()
+    ledger = RejectionLedger()
+    plan = solve_motion_state_pair(
+        scene, PARAMS, start_frame=24, end_frame=40,
+        target_state=state, profile_id="card6",
+        idle_choices=(0, 8), rng=np.random.default_rng(66),
+        ledger=ledger, min_motion_cm=10.0)
+    assert not isinstance(plan, Rejection), ledger.summary()
+    target = plan.answer_cell["target_window_displacement_cm"]
+    other = plan.answer_cell["other_window_displacement_cm"]
+    if state == "moving":
+        assert target >= 10.0 and other <= 1.0e-6
+    else:
+        assert target <= 1.0e-6 and other >= 10.0
+    assert plan.checks["uses_solved_route_samples_directly"] is True

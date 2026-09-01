@@ -45,7 +45,10 @@ from design_qa_v3_pilot_batch import _selection_doc  # noqa: E402
 # 静→走用与旧管线**同一个**变换:创作函数按弧长把整条路线铺满 75 帧,
 # 那是"压缩式";求解器用的是保速的"平移式"。两者不一致会让中途帧的
 # 位置对不上 —— 集成冒烟里正是反向题(查询帧在中途)先露馅。
-from make_idle_then_walk_timeline import transform_idle_then_walk  # noqa: E402
+from make_idle_then_walk_timeline import (  # noqa: E402
+    transform_idle_then_walk,
+    transform_to_solved_routes,
+)
 from avengine.camera_pose import apply_camera_listener_pose_ue  # noqa: E402
 from avengine.dataset.apartment_dynamic_audio import (  # noqa: E402
     apartment_ue_point_to_world_m,
@@ -378,6 +381,17 @@ def solve_for_profile(profile, cell, scene, params, rng, ledger):
             min_change_cm=profile.get("min_distance_change_cm", 50.0),
             max_attempts=profile.get("max_attempts", 3000))
 
+    if kind == "motion_state":
+        start_frame, end_frame = [
+            int(value) for value in profile["motion_frames"]]
+        return SS.solve_motion_state_pair(
+            scene, params, start_frame=start_frame, end_frame=end_frame,
+            target_state=str(cell["answer_value"]),
+            profile_id=profile["id"],
+            idle_choices=profile["idle_choices"], rng=rng, ledger=ledger,
+            min_motion_cm=profile.get("min_motion_cm", 10.0),
+            max_attempts=profile.get("max_attempts", 3000))
+
     if temporal == "forward":
         return SS.solve_forward_cross_time(
             scene, params, answer_band=cell["answer_band"],
@@ -417,7 +431,7 @@ def validate_profiles(profiles):
     valid_answer = {
         "azimuth_band", "instant_azimuth_band", "first_sound_side",
         "coat_at_query", "distance_at_query", "time_band",
-        "first_caller_coat", "event_count", "distance_change",
+        "first_caller_coat", "event_count", "distance_change", "motion_state",
     }
     for profile in profiles:
         pid = profile["id"]
@@ -449,6 +463,8 @@ def validate_profiles(profiles):
                 required.add("answer_values")
         if kind == "distance_change":
             required |= {"relation_frames", "answer_values"}
+        if kind == "motion_state":
+            required |= {"motion_frames", "answer_values"}
         missing = sorted(key for key in required if key not in profile)
         if missing:
             raise ValueError(f"{pid}: missing required profile fields {missing}")
@@ -465,7 +481,7 @@ def build_cell_plan(cells, profiles, pair_assets, params, seed):
         kind = profile.get("answer_kind", "azimuth_band")
         if kind in ("azimuth_band", "instant_azimuth_band", "first_sound_side"):
             cellsets = [tuple(b) for b in profile["answer_bands_deg"]]
-        elif kind in ("event_count", "distance_change"):
+        elif kind in ("event_count", "distance_change", "motion_state"):
             cellsets = list(profile["answer_values"])
             if kind == "event_count":
                 cellsets = [int(value) for value in cellsets]
@@ -705,6 +721,13 @@ def realise_point(pid, cell, plan, scene, base_request, params, by_id, args,
     elif profile["id"] == "card5":
         schedule = AP.schedule_first_sound_at_frame(
             rng, params=params, query_frame=plan.anchor_frame)
+    elif profile["id"] in ("card6", "card6R"):
+        schedule = AP.schedule_second_sound_at_frame(
+            rng, params=params,
+            query_frame=int(profile["second_sound_frame"]))
+    elif profile["id"] == "card10":
+        schedule = AP.schedule_first_sound_at_frame(
+            rng, params=params, query_frame=plan.anchor_frame)
     elif profile.get("answer_kind") == "event_count":
         schedule = AP.schedule_event_count(
             rng, params=params, event_count=int(cell["answer_value"]))
@@ -758,7 +781,10 @@ def realise_point(pid, cell, plan, scene, base_request, params, by_id, args,
         json.dumps(gatea_program, ensure_ascii=False, indent=1))
 
     # 时间线:相机与折线都来自求解结果
-    base_route = plan.base_route.samples_xy      # 未平移:创作用原路线
+    direct_routes = bool(profile.get("use_solved_routes_directly", False))
+    base_route = (
+        plan.target_route.samples_xy if direct_routes
+        else plan.base_route.samples_xy)
     other_route = plan.other_route.samples_xy
     z = render_context["ground_z_ue_cm"]
     routes = {target_slot: (base_route[0], base_route[-1], base_route),
@@ -783,7 +809,12 @@ def realise_point(pid, cell, plan, scene, base_request, params, by_id, args,
         room_profile_id=render_context["room_profile_id"],
         hfov_degrees=scene.hfov_deg,
     )
-    if plan.idle_frames:
+    if direct_routes:
+        timeline = transform_to_solved_routes(
+            timeline,
+            {target_slot: plan.target_route.samples_xy,
+             other_slot: plan.other_route.samples_xy})
+    elif plan.idle_frames:
         timeline = transform_idle_then_walk(timeline, target_slot,
                                             plan.idle_frames)
     (pdir / "timeline.json").write_text(
@@ -824,11 +855,15 @@ def realise_point(pid, cell, plan, scene, base_request, params, by_id, args,
         motion[f"{target_slot}_displacement_cm"]
         > motion[f"{other_slot}_displacement_cm"])
     motion["target_moves_more"] = observed_target_moves_more
-    motion["allocated_target_moves_more"] = bool(cell["target_moves_more"])
+    enforce_motion_rank = bool(
+        profile.get("enforce_target_moves_more", True))
+    motion["allocated_target_moves_more"] = (
+        bool(cell["target_moves_more"]) if enforce_motion_rank else None)
     if not motion["both_roles_move"]:
         raise GenerationConstraintError(
             f"{pid}: dual-motion profile produced a static role: {motion}")
-    if observed_target_moves_more != bool(cell["target_moves_more"]):
+    if (enforce_motion_rank
+            and observed_target_moves_more != bool(cell["target_moves_more"])):
         raise GenerationConstraintError(
             f"{pid}: realised motion rank disagrees with allocation: {motion}")
 
@@ -990,6 +1025,12 @@ def build_gatea_answer(kind, profile, cell, timeline, schedule,
         gatea_truth_deg = recompute_azimuth(
             timeline, gatea_target_slot, query_frame)
         gatea_cell["target_first"] = not bool(cell["target_first"])
+    elif kind == "motion_state":
+        gatea_target_slot, gatea_other_slot = other_slot, target_slot
+        gatea_truth_deg = recompute_azimuth(
+            timeline, gatea_target_slot, query_frame)
+        gatea_cell["answer_value"] = (
+            "still" if cell["answer_value"] == "moving" else "moving")
     elif kind == "distance_change":
         gatea_target_slot, gatea_other_slot = other_slot, target_slot
         gatea_truth_deg = recompute_azimuth(
@@ -1135,6 +1176,60 @@ def build_answer(kind, profile, cell, timeline, schedule, slot_events,
             "open": {
                 "stem": stem,
                 "truth_value": relation,
+                "scoring": "closed_set",
+            },
+        }
+    if kind == "motion_state":
+        start_frame, end_frame = [
+            int(value) for value in profile["motion_frames"]]
+
+        def actor_xy(frame_index, slot):
+            return np.asarray(next(
+                state["translation_ue_cm"][:2]
+                for state in timeline["frames"][frame_index]["actor_states"]
+                if state["source_slot_id"] == slot), dtype=float)
+
+        displacement = float(np.linalg.norm(
+            actor_xy(end_frame, target_slot)
+            - actor_xy(start_frame, target_slot)))
+        minimum = float(profile.get("min_motion_cm", 10.0))
+        state = (
+            "moving" if displacement >= minimum
+            else "still" if displacement <= 1.0e-6 else None)
+        allocated = str(cell["answer_value"])
+        if state != allocated:
+            raise GenerationConstraintError(
+                f"motion state {state} from displacement {displacement:.2f} "
+                f"does not match allocated {allocated}")
+        if profile["id"] == "card6R":
+            stem = (
+                "After the second sound ended, did the dog that made it move "
+                "during the remaining silent part of the video?")
+        elif profile["id"] == "card6":
+            stem = (
+                "Was the dog that made the second sound moving while that "
+                "sound was heard?")
+        else:
+            stem = (
+                "Was the dog that made the first sound moving while that "
+                "sound was heard?")
+        return {
+            "first_caller_slot": (
+                min(slot_events, key=lambda item: item[1])[0]),
+            "truth": {
+                "motion_state": state,
+                "start_frame": start_frame,
+                "end_frame": end_frame,
+                "window_displacement_cm": round(displacement, 3),
+            },
+            "mcq": {
+                "stem": stem,
+                "options_space": ["moving", "still"],
+                "truth_option": state,
+            },
+            "open": {
+                "stem": stem,
+                "truth_value": state,
                 "scoring": "closed_set",
             },
         }

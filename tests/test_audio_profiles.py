@@ -31,6 +31,7 @@ from audio_profiles import (  # noqa: E402
     schedule_exactly_one_calling,
     schedule_event_count,
     schedule_first_call_bands,
+    schedule_second_sound_at_frame,
     schedule_forward_anchor,
 )
 
@@ -216,3 +217,16 @@ def test_card15b_event_count_schedule_is_exact_and_gatea_invariant(count):
     gate = schedule.bind({TARGET: "source2", OTHER: "source1"})
     assert [slot for slot, _ in main] != [slot for slot, _ in gate]
     assert len(main) == len(gate) == count
+
+
+def test_card6_second_sound_is_target_at_declared_frame():
+    schedule = schedule_second_sound_at_frame(
+        rng(18), params=PARAMS, query_frame=24)
+    assert len(schedule.events) == 3
+    assert schedule.anchor is schedule.events[1]
+    assert schedule.anchor.role == TARGET
+    assert schedule.anchor.frame_span()[0] == 24
+    main = schedule.bind({TARGET: "source1", OTHER: "source2"})
+    gate = schedule.bind({TARGET: "source2", OTHER: "source1"})
+    assert main[1][0] == "source1"
+    assert gate[1][0] == "source2"

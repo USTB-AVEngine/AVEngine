@@ -20,6 +20,7 @@ from make_idle_then_walk_timeline import (  # noqa: E402
     _verify,
     main,
     transform_idle_then_walk,
+    transform_to_solved_routes,
 )
 
 
@@ -119,3 +120,22 @@ def test_cli_end_to_end_and_no_clobber(tmp_path):
     assert doc["frames"][5]["actor_states"][0]["action_id"] == "idle"
     assert main(["--timeline", str(src), "--slot", "source1",
                  "--idle-frames", "20", "--output", str(out)]) == 2
+
+
+def test_solved_route_transform_preserves_pause_and_updates_actions():
+    doc = _mini_timeline()
+    route1 = [(float(frame), 0.0) for frame in range(FRAME_COUNT)]
+    route2 = [(0.0, float(frame)) for frame in range(FRAME_COUNT)]
+    for frame in range(20, 31):
+        route1[frame] = route1[20]
+    out = transform_to_solved_routes(
+        doc, {"source1": route1, "source2": route2})
+    for frame in range(FRAME_COUNT):
+        pos1, action1 = _pos(out, "source1", frame)
+        pos2, _ = _pos(out, "source2", frame)
+        assert pos1[:2] == route1[frame]
+        assert pos2[:2] == route2[frame]
+        if 21 <= frame <= 29:
+            assert action1 == "idle"
+    assert _pos(out, "source1", 19)[1] == "walk"
+    assert _pos(out, "source1", 31)[1] == "walk"

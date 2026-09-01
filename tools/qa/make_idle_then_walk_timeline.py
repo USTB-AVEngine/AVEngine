@@ -32,6 +32,7 @@ import sys
 FRAME_COUNT = 75
 
 
+import math
 def _states(doc: dict, slot: str) -> list[dict]:
     out = []
     for fr in doc["frames"]:
@@ -81,6 +82,58 @@ def transform_idle_then_walk(doc: dict, slot: str, idle_frames: int) -> dict:
     return new_doc
 
 
+
+
+def transform_to_solved_routes(
+        doc: dict, routes_by_slot: dict[str, list[tuple[float, float]]]) -> dict:
+    """Write solver-authoritative 75-frame XY routes into the final timeline."""
+    frames = doc.get("frames", [])
+    if len(frames) != FRAME_COUNT:
+        raise ValueError(
+            f"expected {FRAME_COUNT} frames, got {len(frames)}")
+    if not routes_by_slot:
+        raise ValueError("routes_by_slot must not be empty")
+    for slot, samples in routes_by_slot.items():
+        if len(samples) != FRAME_COUNT:
+            raise ValueError(
+                f"{slot}: expected {FRAME_COUNT} solved samples, got "
+                f"{len(samples)}")
+    new_doc = copy.deepcopy(doc)
+    for slot, samples in routes_by_slot.items():
+        states = _states(new_doc, slot)
+        movement_phase = 0
+        period = int(states[0].get("walk_phase_period_frames", 25))
+        last_yaw = float(states[0].get("yaw_ue_deg", 0.0))
+        for frame, (state, sample) in enumerate(zip(states, samples)):
+            x, y = float(sample[0]), float(sample[1])
+            z = float(state["translation_ue_cm"][2])
+            state["translation_ue_cm"] = [x, y, z]
+            previous = samples[max(0, frame - 1)]
+            following = samples[min(FRAME_COUNT - 1, frame + 1)]
+            dx = float(following[0]) - float(previous[0])
+            dy = float(following[1]) - float(previous[1])
+            moving = math.hypot(dx, dy) > 1.0e-6
+            if moving:
+                last_yaw = math.degrees(math.atan2(dy, dx))
+                state["action_id"] = "walk"
+                state["action_phase"] = (
+                    movement_phase % period) / float(period)
+                movement_phase += 1
+            else:
+                state["action_id"] = "idle"
+                state["action_phase"] = 0.0
+            state["yaw_ue_deg"] = last_yaw
+            state["route_geometry"] = "solver_authoritative_75_frame"
+            state["route_waypoint_count"] = FRAME_COUNT
+            state["route_segment_index"] = frame
+    for slot, samples in routes_by_slot.items():
+        for state, sample in zip(_states(new_doc, slot), samples):
+            actual = state["translation_ue_cm"]
+            if (abs(float(actual[0]) - float(sample[0])) > 1.0e-9
+                    or abs(float(actual[1]) - float(sample[1])) > 1.0e-9):
+                raise AssertionError(
+                    f"{slot}: solved route position did not survive")
+    return new_doc
 def _pos(state: dict) -> tuple:
     return tuple(float(v) for v in state["translation_ue_cm"])
 

@@ -107,6 +107,24 @@ class Route:
         return Route(f"{self.route_id}+idle{idle_frames}", shifted,
                      self.implied_speed_mps)
 
+    def paused(self, start_frame: int, end_frame: int) -> "Route":
+        """Freeze one inclusive window, then resume the delayed route."""
+        if not 0 <= start_frame <= end_frame < FRAME_COUNT:
+            raise ValueError(
+                f"invalid pause window {start_frame}..{end_frame}")
+        delay = end_frame - start_frame
+        samples = []
+        for frame in range(FRAME_COUNT):
+            if frame < start_frame:
+                samples.append(self.samples_xy[frame])
+            elif frame <= end_frame:
+                samples.append(self.samples_xy[start_frame])
+            else:
+                samples.append(self.samples_xy[frame - delay])
+        return Route(
+            f"{self.route_id}+pause{start_frame}-{end_frame}",
+            samples, self.implied_speed_mps)
+
     @property
     def displacement_cm(self) -> float:
         return math.dist(self.samples_xy[0], self.samples_xy[-1])
@@ -953,6 +971,130 @@ def solve_distance_change_pair(scene: SceneInputs, params: dict, *,
                 "target_distance_delta_cm": target_delta,
                 "other_distance_delta_cm": other_delta,
                 "minimum_distance_change_cm": min_change,
+                "line_of_sight_screened": scene.line_of_sight_screened,
+                "search_attempts": attempt,
+            },
+        )
+    ledger.budget_exhausted += 1
+    return Rejection("no_candidate_within_attempt_budget",
+                     f"{max_attempts} attempts")
+
+
+def solve_motion_state_pair(scene: SceneInputs, params: dict, *,
+                            start_frame: int, end_frame: int,
+                            target_state: str, profile_id: str,
+                            idle_choices: Iterable[int], rng,
+                            ledger: RejectionLedger,
+                            min_motion_cm: float = 10.0,
+                            max_attempts: int = 4000):
+    """Find opposite moving/still roles over one declared frame window."""
+    if not 0 <= start_frame < end_frame < FRAME_COUNT:
+        raise ValueError(f"invalid motion window {start_frame}..{end_frame}")
+    if target_state not in ("moving", "still"):
+        raise ValueError(f"unknown motion state {target_state!r}")
+    opposite = "still" if target_state == "moving" else "moving"
+    half_fov = effective_half_fov(scene, params)
+    min_sep = float(params["MIN_AZIMUTH_SEP"])
+    minimum = float(min_motion_cm)
+    n_routes, n_cams = len(scene.routes), len(scene.camera_points)
+
+    def apply_state(route, state):
+        return route if state == "moving" else route.paused(
+            start_frame, end_frame)
+
+    def window_displacement(route):
+        return math.dist(route.at(start_frame), route.at(end_frame))
+
+    def state_matches(route, state):
+        displacement = window_displacement(route)
+        return (displacement >= minimum if state == "moving"
+                else displacement <= 1.0e-6)
+
+    for attempt in range(1, max_attempts + 1):
+        ledger.note_combination()
+        base = scene.routes[int(rng.integers(n_routes))]
+        idle = int(rng.choice(list(idle_choices)))
+        shifted = base.shifted(idle)
+        target = apply_state(shifted, target_state)
+        if target.displacement_cm <= 1.0e-6:
+            ledger.add(Rejection("target_route_static_over_full_clip"))
+            continue
+        if not state_matches(target, target_state):
+            ledger.add(Rejection("target_motion_state_mismatch"))
+            continue
+        camera = scene.camera_points[int(rng.integers(n_cams))]
+        target_points = [target.at(frame)
+                         for frame in (start_frame, end_frame)]
+        if any(_too_close(camera, point, params) for point in target_points):
+            ledger.add(Rejection("camera_too_close_to_target"))
+            continue
+        yaw = float(rng.random() * 360.0 - 180.0)
+        target_azimuths = [
+            relative_azimuth_deg(camera, yaw, point)
+            for point in target_points]
+        if any(abs(value) > half_fov for value in target_azimuths):
+            ledger.add(Rejection("target_outside_fov_at_motion_frames"))
+            continue
+        other = None
+        for index in rng.permutation(n_routes)[:64]:
+            ledger.stand_points_evaluated += 1
+            candidate_base = scene.routes[int(index)]
+            if candidate_base.route_id == base.route_id:
+                continue
+            candidate = apply_state(candidate_base, opposite)
+            if candidate.displacement_cm <= 1.0e-6:
+                continue
+            if not state_matches(candidate, opposite):
+                continue
+            other_points = [candidate.at(frame)
+                            for frame in (start_frame, end_frame)]
+            if any(_too_close(camera, point, params)
+                   for point in other_points):
+                continue
+            other_azimuths = [
+                relative_azimuth_deg(camera, yaw, point)
+                for point in other_points]
+            if any(abs(value) > half_fov for value in other_azimuths):
+                continue
+            if any(circular_gap_deg(target_az, other_az) < min_sep
+                   for target_az, other_az in zip(
+                       target_azimuths, other_azimuths)):
+                continue
+            other = candidate
+            break
+        if other is None:
+            ledger.add(Rejection(
+                "no_opposite_motion_state_actor",
+                f"no second route is {opposite} in frames "
+                f"{start_frame}..{end_frame} while satisfying view/separation"))
+            continue
+        if scene.line_of_sight is not None:
+            if not all(scene.line_of_sight(camera, target.at(frame))
+                       for frame in (start_frame, end_frame)):
+                ledger.add(Rejection("target_occluded_at_motion_frames"))
+                continue
+            if not all(scene.line_of_sight(camera, other.at(frame))
+                       for frame in (start_frame, end_frame)):
+                ledger.add(Rejection("other_actor_occluded"))
+                continue
+        return PointPlan(
+            scene_id=scene.scene_id, profile_id=profile_id,
+            camera_xy=camera, camera_ue_yaw_deg=yaw,
+            target_route=target, base_route=base, other_route=other,
+            idle_frames=idle, anchor_frame=start_frame,
+            query_frame=end_frame,
+            answer_cell={"kind": "motion_state",
+                         "state": target_state,
+                         "target_window_displacement_cm":
+                             window_displacement(target),
+                         "other_window_displacement_cm":
+                             window_displacement(other)},
+            checks={
+                "motion_window_frames": [start_frame, end_frame],
+                "minimum_motion_cm": minimum,
+                "target_state": target_state,
+                "other_state": opposite,
+                "uses_solved_route_samples_directly": True,
                 "line_of_sight_screened": scene.line_of_sight_screened,
                 "search_attempts": attempt,
             },

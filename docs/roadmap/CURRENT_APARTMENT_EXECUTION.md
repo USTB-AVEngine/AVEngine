@@ -1125,3 +1125,17 @@ than unimplemented. Evidence is retained at
 `/data/jzy/tmp/qa_v3_card5_two_room_smoke_20260901_v3` and
 `/data/jzy/tmp/qa_v3_card5r_two_room_smoke_20260901_v2`. The executable
 catalog now has eleven profiles.
+
+
+Card6, card6R and card10 now share a motion-state-pair solver and an exact
+solver-route timeline transform. The latter was required because the ordinary
+visual author reparameterized waypoints by arc length and erased pause windows;
+the final timeline now writes all 75 solver samples and synchronized
+walk/idle actions. Each profile filled 4/4 in both rooms with moving/still at
+2:2 and opposite Gate-A states. Card6 binds the second-sound window, card6R
+uses frames 29..74 after the second sound, and card10 binds the first-sound
+window. Evidence is retained under
+`/data/jzy/tmp/qa_v3_card6_two_room_smoke_20260901_v2`,
+`/data/jzy/tmp/qa_v3_card6r_two_room_smoke_20260901_v1` and
+`/data/jzy/tmp/qa_v3_card10_two_room_smoke_20260901_v1`. The executable
+catalog now has fourteen profiles.
