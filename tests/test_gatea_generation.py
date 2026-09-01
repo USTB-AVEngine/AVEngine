@@ -274,3 +274,39 @@ def test_missing_ground_fails_before_output_directory_is_created(tmp_path):
             "--seed", "test",
         ])
     assert not output.exists()
+
+
+def test_card15b_gatea_preserves_count_gold_under_slot_swap():
+    main_answer = answer(3, 3, "count_single")
+    gate_answer = answer(3, 3, "count_single")
+    checks = audit_gatea_pair(
+        {"id": "card15b", "gatea_gold_relation": "preserve"},
+        program(["ep1", "ep2", "ep1"]),
+        program(["ep2", "ep1", "ep2"]),
+        main_answer, gate_answer, PARAMS)
+    assert checks["mcq_gold_flipped"] is False
+    assert checks["mcq_gold_preserved"] is True
+    assert checks["open_gold_preserved"] is True
+    assert checks["mcq_gold_relation_satisfied"] is True
+    assert checks["open_gold_relation_satisfied"] is True
+
+
+def test_card15b_profile_and_count_answer_are_machine_checkable():
+    profile = {
+        "id": "card15b", "temporal": "instant",
+        "answer_kind": "event_count", "binding_frames": [12, 40],
+        "idle_choices": [0, 8], "answer_values": [3, 4],
+        "anchor_binding": "none", "gatea_gold_relation": "preserve",
+    }
+    validate_profiles([profile])
+    result = build_answer(
+        "event_count", profile, {"answer_value": 3}, None,
+        SimpleNamespace(events=[1, 2, 3]), [], "source1", "source2",
+        {"source1": "black-and-white", "source2": "yellow"},
+        0.0, 12, PARAMS)
+    assert result["truth"]["event_count"] == 3
+    assert result["mcq"]["truth_option"] == 3
+    assert result["open"]["scoring"] == "count_single"
+    assert validate_anchor_binding(
+        profile, SimpleNamespace(), [], target_slot="source1",
+        query_frame=12, answer=result)["selected_slot"] is None

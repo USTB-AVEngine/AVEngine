@@ -1094,3 +1094,13 @@ swaps only the first caller's slot for Gate A. The two-room smoke generated
 Gate A. Evidence is retained at
 `/data/jzy/tmp/qa_v3_card3_two_room_smoke_20260901_v1`. The executable
 catalog now has seven profiles.
+
+
+Card15b (total event count) is executable as a pure-audio control. It adds a
+randomized exact-count AudioProgram and a reusable Gate-A gold relation:
+swapping every source slot must preserve the count answer rather than flip it.
+The two-room smoke generated 4/4 candidates per room, balanced counts 3 and 4
+at 2:2, with all eight MCQ/Open golds preserved and every slot sequence
+changed. Evidence is retained at
+`/data/jzy/tmp/qa_v3_card15b_two_room_smoke_20260901_v1`. The executable
+catalog now has eight profiles.

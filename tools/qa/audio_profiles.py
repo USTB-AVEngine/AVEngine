@@ -314,6 +314,50 @@ def _self_check_first_sound(schedule: Schedule, query_frame: int) -> None:
     _assert_no_overlap(schedule)
 
 
+
+
+def schedule_event_count(rng, *, params, event_count: int) -> Schedule:
+    """Audio-count control with randomized, separated event times."""
+    if event_count < 2:
+        raise AudioProfileError("event-count profile needs at least two events")
+    event_len = _event_len()
+    gap = int(float(params["GAP_MIN_S"]) * SAMPLE_RATE)
+    first_min = int(float(params["FIRST_MIN_S"]) * SAMPLE_RATE)
+    limit = _clip_samples() - event_len
+    minimum_span = (event_count - 1) * (event_len + gap)
+    if first_min + minimum_span > limit:
+        raise AudioProfileError(
+            f"{event_count} separated events do not fit in the clip")
+    starts = None
+    for _attempt in range(400):
+        candidate = sorted(int(value) for value in rng.integers(
+            first_min, limit + 1, size=event_count))
+        if all(later - earlier >= event_len + gap
+               for earlier, later in zip(candidate, candidate[1:])):
+            starts = candidate
+            break
+    if starts is None:
+        raise AudioProfileError(
+            f"could not sample {event_count} separated events")
+    events = [
+        ScheduledEvent(TARGET if index % 2 == 0 else OTHER,
+                       start, start + event_len, "answer_evidence")
+        for index, start in enumerate(starts)
+    ]
+    schedule = Schedule(
+        "card15b", events, 0,
+        {"event_count": event_count, "count_is_gatea_invariant": True})
+    _self_check_event_count(schedule, event_count)
+    return schedule
+
+
+def _self_check_event_count(schedule: Schedule, event_count: int) -> None:
+    if len(schedule.events) != event_count:
+        raise AudioProfileError(
+            f"event count {len(schedule.events)} != declared {event_count}")
+    if {event.role for event in schedule.events} != {TARGET, OTHER}:
+        raise AudioProfileError("event-count profile must use both roles")
+    _assert_no_overlap(schedule)
 def _self_check_forward(schedule: Schedule, params) -> None:
     anchor = schedule.anchor
     if anchor is not schedule.events[-1]:

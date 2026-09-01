@@ -206,6 +206,10 @@ def audit_gatea_pair(profile, main_program, gatea_program, main_answer,
     """
     main_events = main_program["events"]
     gatea_events = gatea_program["events"]
+    gold_relation = profile.get("gatea_gold_relation", "flip")
+    if gold_relation not in ("flip", "preserve"):
+        raise GenerationConstraintError(
+            f"unknown Gate A gold relation {gold_relation!r}")
 
     def without_slot(event):
         return {k: v for k, v in event.items()
@@ -231,12 +235,16 @@ def audit_gatea_pair(profile, main_program, gatea_program, main_answer,
     }
     mcq_flipped = (main_answer["mcq"]["truth_option"]
                    != gatea_answer["mcq"]["truth_option"])
+    mcq_preserved = not mcq_flipped
+    mcq_relation_satisfied = (
+        mcq_flipped if gold_relation == "flip" else mcq_preserved)
     main_open = main_answer["open"]
     gatea_open = gatea_answer["open"]
     scoring = main_open["scoring"]
     if scoring != gatea_open["scoring"]:
         raise GenerationConstraintError(
             "Gate A changed the Open scoring protocol")
+    open_preserved = main_open["truth_value"] == gatea_open["truth_value"]
     if scoring == "circular_deg":
         separation = SS.circular_gap_deg(
             float(main_open["truth_value"]),
@@ -256,24 +264,41 @@ def audit_gatea_pair(profile, main_program, gatea_program, main_answer,
         open_separated = (main_open["truth_value"]
                           != gatea_open["truth_value"])
         open_rule = "closed_set_gold_changed"
+    elif scoring == "count_single":
+        separation = abs(int(main_open["truth_value"])
+                         - int(gatea_open["truth_value"]))
+        threshold = 0
+        open_separated = separation > 0
+        open_rule = "integer_gold_changed"
     else:
         raise GenerationConstraintError(
             f"no Gate A Open audit for scoring {scoring!r}")
 
+    open_relation_satisfied = (
+        open_separated if gold_relation == "flip" else open_preserved)
+    if gold_relation == "preserve":
+        open_rule = f"{scoring}_gold_preserved"
     checks = {
         **structure,
         "mcq_gold_flipped": mcq_flipped,
         "open_gold_separated": open_separated,
+        "gatea_gold_relation": gold_relation,
+        "mcq_gold_preserved": mcq_preserved,
+        "mcq_gold_relation_satisfied": mcq_relation_satisfied,
+        "open_gold_preserved": open_preserved,
+        "open_gold_relation_satisfied": open_relation_satisfied,
         "open_separation": separation,
         "open_min_separation": threshold,
         "open_rule": open_rule,
         "profile_id": profile["id"],
     }
     failed = [k for k, value in structure.items() if not value]
-    if not mcq_flipped:
-        failed.append("mcq_gold_flipped")
-    if not open_separated:
-        failed.append("open_gold_separated")
+    if not mcq_relation_satisfied:
+        failed.append("mcq_gold_flipped" if gold_relation == "flip"
+                      else "mcq_gold_preserved")
+    if not open_relation_satisfied:
+        failed.append("open_gold_separated" if gold_relation == "flip"
+                      else "open_gold_preserved")
     if failed:
         raise GenerationConstraintError(
             f"{profile['id']} Gate A failed generation checks: {failed}; "
@@ -285,6 +310,8 @@ def validate_anchor_binding(profile, schedule, slot_events, *, target_slot,
                             query_frame, answer):
     """Cross-check a profile's declared audio selector against bound events."""
     binding = profile.get("anchor_binding")
+    if binding == "none":
+        return {"binding": binding, "selected_slot": None}
     if binding == "target":
         actual = slot_events[schedule.anchor_index][0]
         if actual != target_slot:
@@ -365,10 +392,10 @@ def validate_profiles(profiles):
     if any(not value for value in ids) or len(set(ids)) != len(ids):
         raise ValueError(f"profile ids must be non-empty and unique: {ids}")
     valid_temporal = {"forward", "backward", "instant"}
-    valid_binding = {"target", "query_caller", "first_caller"}
+    valid_binding = {"target", "query_caller", "first_caller", "none"}
     valid_answer = {
         "azimuth_band", "instant_azimuth_band", "first_sound_side",
-        "coat_at_query", "time_band", "first_caller_coat",
+        "coat_at_query", "time_band", "first_caller_coat", "event_count",
     }
     for profile in profiles:
         pid = profile["id"]
@@ -391,6 +418,8 @@ def validate_profiles(profiles):
             required |= {"binding_frames"}
             if profile.get("answer_kind") in ("instant_azimuth_band", "first_sound_side"):
                 required.add("answer_bands_deg")
+            if profile.get("answer_kind") == "event_count":
+                required.add("answer_values")
         missing = sorted(key for key in required if key not in profile)
         if missing:
             raise ValueError(f"{pid}: missing required profile fields {missing}")
@@ -407,6 +436,8 @@ def build_cell_plan(cells, profiles, pair_assets, params, seed):
         kind = profile.get("answer_kind", "azimuth_band")
         if kind in ("azimuth_band", "instant_azimuth_band", "first_sound_side"):
             cellsets = [tuple(b) for b in profile["answer_bands_deg"]]
+        elif kind == "event_count":
+            cellsets = [int(value) for value in profile["answer_values"]]
         elif kind in ("time_band", "first_caller_coat"):
             # 直接分配**目标的答案带**(而不是带对):带对的第一分量
             # 决定目标答案带时,分布会被带对结构绑死。伙伴带随后选一个
@@ -487,6 +518,7 @@ def build_cell_plan(cells, profiles, pair_assets, params, seed):
                 "cell_index": index,
                 "answer_band": alloc["band"][index],
                 "target_band": alloc["band"][index],
+                "answer_value": alloc["band"][index],
                 "target_first": bool(alloc["target_first"][index]),
                 "answer_coat": alloc["answer_coat"][index],
                 "target_slot": alloc["target_slot"][index],
@@ -636,6 +668,9 @@ def realise_point(pid, cell, plan, scene, base_request, params, by_id, args,
         schedule = AP.schedule_backward_anchor(
             rng, params=params, anchor_frame=plan.anchor_frame,
             query_frame=plan.query_frame)
+    elif profile.get("answer_kind") == "event_count":
+        schedule = AP.schedule_event_count(
+            rng, params=params, event_count=int(cell["answer_value"]))
     elif profile.get("answer_kind") == "first_sound_side":
         schedule = AP.schedule_first_sound_at_frame(
             rng, params=params, query_frame=plan.query_frame)
@@ -914,6 +949,10 @@ def build_gatea_answer(kind, profile, cell, timeline, schedule,
         gatea_truth_deg = recompute_azimuth(
             timeline, gatea_target_slot, query_frame)
         gatea_cell["target_first"] = not bool(cell["target_first"])
+    elif kind == "event_count":
+        gatea_target_slot, gatea_other_slot = target_slot, other_slot
+        gatea_truth_deg = recompute_azimuth(
+            timeline, gatea_target_slot, query_frame)
     else:
         raise ValueError(f"no Gate A answer derivation for {kind!r}")
     gatea_other_deg = recompute_azimuth(
@@ -931,6 +970,30 @@ def build_answer(kind, profile, cell, timeline, schedule, slot_events,
                  params):
     """按题型的答案空间造真值;MCQ 与 Open 引用**同一条**事实。"""
     coat = slot_coat[target_slot]
+    if kind == "event_count":
+        actual = len(schedule.events)
+        allocated = int(cell["answer_value"])
+        if actual != allocated:
+            raise GenerationConstraintError(
+                f"event count {actual} != allocated {allocated}")
+        options = [int(value) for value in profile.get(
+            "mcq_options", [2, 3, 4, 5])]
+        if actual not in options:
+            raise GenerationConstraintError(
+                f"event count {actual} is outside MCQ options {options}")
+        return {
+            "truth": {"event_count": actual},
+            "mcq": {
+                "stem": "How many sounds are heard in total?",
+                "options_space": options,
+                "truth_option": actual,
+            },
+            "open": {
+                "stem": "How many sounds are heard in total?",
+                "truth_value": actual,
+                "scoring": "count_single",
+            },
+        }
     if kind == "first_sound_side":
         firsts = {}
         for slot, start in slot_events:
@@ -1204,6 +1267,18 @@ def write_outputs(args, scene, scene_cfg, profiles, params, ledger, made,
         "gatea": {
             "pairs": len(gatea_pairs),
             "by_profile": dict(gatea_by_profile),
+            "gold_relation_by_profile": {
+                profile_id: next(
+                    g["checks"]["gatea_gold_relation"]
+                    for g in gatea_pairs
+                    if g["checks"]["profile_id"] == profile_id)
+                for profile_id in gatea_by_profile},
+            "mcq_gold_relation_satisfied": sum(
+                bool(g["checks"]["mcq_gold_relation_satisfied"])
+                for g in gatea_pairs),
+            "open_gold_relation_satisfied": sum(
+                bool(g["checks"]["open_gold_relation_satisfied"])
+                for g in gatea_pairs),
             "mcq_gold_flipped": sum(
                 bool(g["checks"]["mcq_gold_flipped"])
                 for g in gatea_pairs),

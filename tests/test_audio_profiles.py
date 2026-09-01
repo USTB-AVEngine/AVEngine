@@ -29,6 +29,7 @@ from audio_profiles import (  # noqa: E402
     _self_check_forward,
     schedule_backward_anchor,
     schedule_exactly_one_calling,
+    schedule_event_count,
     schedule_first_call_bands,
     schedule_forward_anchor,
 )
@@ -202,3 +203,16 @@ def test_onsets_vary_across_seeds():
                                       anchor_frame=40).events[0].start_sample
               for s in range(12)}
     assert len(starts) > 6
+
+
+@pytest.mark.parametrize("count", [3, 4])
+def test_card15b_event_count_schedule_is_exact_and_gatea_invariant(count):
+    schedule = schedule_event_count(rng(13 + count), params=PARAMS,
+                                    event_count=count)
+    assert len(schedule.events) == count
+    assert schedule.declared["event_count"] == count
+    assert {event.role for event in schedule.events} == {TARGET, OTHER}
+    main = schedule.bind({TARGET: "source1", OTHER: "source2"})
+    gate = schedule.bind({TARGET: "source2", OTHER: "source1"})
+    assert [slot for slot, _ in main] != [slot for slot, _ in gate]
+    assert len(main) == len(gate) == count

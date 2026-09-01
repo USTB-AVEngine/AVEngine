@@ -78,5 +78,16 @@
     "answer_labels": ["black-and-white", "yellow"],
     "answer_band_pairs": [[0, 1], [0, 2], [1, 2]],
     "anchor_binding": "first_caller"
+  },
+  {
+    "id": "card15b",
+    "temporal": "instant",
+    "answer_kind": "event_count",
+    "binding_frames": [12, 40],
+    "idle_choices": [0, 8],
+    "answer_values": [3, 4],
+    "mcq_options": [2, 3, 4, 5],
+    "anchor_binding": "none",
+    "gatea_gold_relation": "preserve"
   }
 ]
