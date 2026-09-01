@@ -12,7 +12,7 @@ import soundfile as sf
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools" / "qa"))
 
-from verify_qa_v3_audio_batch import main  # noqa: E402
+from verify_qa_v3_audio_batch import check_onsets, main  # noqa: E402
 
 EP1, EP2 = "qa_v2_dog_1_collie_muzzle", "qa_v2_dog_2_labrador_muzzle"
 EVENTS = [
@@ -119,6 +119,17 @@ def test_gatea_identical_caught(tmp_path):
     rc, rep = run(tmp_path, design, audio)
     assert rc == 1
     assert any("gateA identical" in f for f in rep["failures"])
+
+
+def test_current_fact_binds_identity_purpose_back_to_program_event():
+    fact = {
+        "profile_id": "card1F",
+        "audio": {"events": [
+            {"start_sample": 48000, "purpose": "identity_anchor"}
+        ]},
+    }
+    program = {"events": EVENTS}
+    assert check_onsets(good_wav(), program, fact, "card1F", 1.5) == []
 
 
 def test_no_clobber(tmp_path):

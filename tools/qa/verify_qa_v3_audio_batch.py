@@ -57,8 +57,26 @@ def check_receipt(receipt: dict, expect_program: Path) -> str | None:
     return None
 
 
-def check_onsets(wav: np.ndarray, program: dict, plan: dict,
+def find_program(programs_dir: Path, base: str, variant: str) -> Path | None:
+    suffixes = (
+        ["_rand_v1.json"] if variant == "main" else
+        ["_rand_gateA_v1.json", "_gateA_rand_v1.json"]
+    )
+    matches = []
+    for suffix in suffixes:
+        matches.extend(programs_dir.glob(f"qa_v3_*_{base}{suffix}"))
+    unique = sorted(set(matches))
+    return unique[0] if len(unique) == 1 else None
+
+
+def check_onsets(wav: np.ndarray, program: dict, authority: dict,
+                 profile_id: str | None,
                  tail_min_s: float) -> list[str]:
+    """Check event energy plus profile-specific anchor/tail structure.
+
+    ``authority`` is a current fact record, or a retained run01 plan for
+    backward-compatible verification of historical evidence.
+    """
     errors = []
     mono = np.abs(wav).mean(axis=1)
     events = sorted(program["events"], key=lambda e: e["start_sample"])
@@ -71,12 +89,30 @@ def check_onsets(wav: np.ndarray, program: dict, plan: dict,
         elif pre > 0 and inside / pre < ONSET_RMS_RATIO_MIN:
             errors.append(f"event@{s0}: inside/pre RMS {inside / pre:.2f} "
                           f"< {ONSET_RMS_RATIO_MIN}")
-    anchor_end = plan["anchor_end_sample"]
-    if anchor_end != max(e["end_sample_exclusive"] for e in events):
-        errors.append("anchor is not the last event")
-    tail_s = (len(mono) - anchor_end) / SR
-    if tail_s < tail_min_s - 1e-9:
-        errors.append(f"tail {tail_s:.3f}s < TAIL_MIN {tail_min_s}")
+    if "anchor_end_sample" in authority:
+        anchor_end = int(authority["anchor_end_sample"])
+        if anchor_end != max(e["end_sample_exclusive"] for e in events):
+            errors.append("anchor is not the last event")
+        tail_s = (len(mono) - anchor_end) / SR
+        if tail_s < tail_min_s - 1e-9:
+            errors.append(f"tail {tail_s:.3f}s < TAIL_MIN {tail_min_s}")
+        return errors
+    identity_starts = {
+        int(event["start_sample"])
+        for event in authority.get("audio", {}).get("events", [])
+        if event.get("purpose") == "identity_anchor"
+    }
+    identity = [
+        event for event in events
+        if int(event["start_sample"]) in identity_starts
+    ]
+    if profile_id in {"card1F", "card1B"}:
+        if len(identity) != 1 or identity[0] is not events[-1]:
+            errors.append("identity anchor is not the unique last event")
+        elif profile_id == "card1F":
+            tail_s = (len(mono) - identity[0]["end_sample_exclusive"]) / SR
+            if tail_s < tail_min_s - 1e-9:
+                errors.append(f"tail {tail_s:.3f}s < TAIL_MIN {tail_min_s}")
     return errors
 
 
@@ -97,24 +133,27 @@ def main(argv: list[str] | None = None) -> int:
     programs_dir = args.design_root / "programs"
 
     point_dirs = sorted(d for d in args.audio_root.iterdir()
-                        if d.is_dir() and d.name.startswith("v3"))
+                        if d.is_dir() and (d / "research_receipt.json").is_file())
     failures: list[str] = []
-    checked = gatea_pairs = 0
+    checked = gatea_pairs = gatea_semantic_pairs = 0
     for d in point_dirs:
         name = d.name
         base = name[:-6] if name.endswith("_gateA") else name
         variant = "gateA" if name.endswith("_gateA") else "main"
-        suffix = "_gateA_rand_v1.json" if variant == "gateA" else "_rand_v1.json"
-        matches = sorted(programs_dir.glob(f"qa_v3_*_{base}{suffix}"))
-        if len(matches) != 1:
-            failures.append(f"{name}: program lookup found {len(matches)}")
+        prog_path = find_program(programs_dir, base, variant)
+        if prog_path is None:
+            failures.append(f"{name}: program lookup was not unique")
             continue
-        prog_path = matches[0]
         program = json.loads(prog_path.read_text())
+        fact_name = "fact_record_gateA.json" if variant == "gateA" else "fact_record.json"
+        fact_path = args.design_root / base / fact_name
+        fact = json.loads(fact_path.read_text()) if fact_path.is_file() else None
         plan_path = programs_dir / (
             prog_path.name.replace("_gateA_rand_v1.json", "_rand_v1.plan.json")
-            if variant == "gateA" else prog_path.stem + ".plan.json")
-        plan = json.loads(plan_path.read_text())
+            .replace("_rand_gateA_v1.json", "_rand_v1.plan.json")
+            if variant == "gateA" else prog_path.stem + ".plan.json"
+        )
+        plan = json.loads(plan_path.read_text()) if plan_path.is_file() else None
         try:
             wav, sr = sf.read(d / "audio" / "binaural" / "mixture.wav")
             receipt = json.loads((d / "research_receipt.json").read_text())
@@ -128,7 +167,14 @@ def main(argv: list[str] | None = None) -> int:
                                  check_receipt(receipt, prog_path)]):
             failures.append(f"{name}: {err}")
         if variant == "main":
-            for err in check_onsets(wav, program, plan, tail_min_s):
+            authority = fact if fact is not None else plan
+            if authority is None:
+                failures.append(f"{name}: no fact or retained plan authority")
+                authority = {}
+            for err in check_onsets(
+                wav, program, authority,
+                fact.get("profile_id") if fact else None, tail_min_s,
+            ):
                 failures.append(f"{name}: {err}")
         checked += 1
         if variant == "gateA":
@@ -140,16 +186,41 @@ def main(argv: list[str] | None = None) -> int:
                     failures.append(f"{name}: gateA identical to main "
                                     f"(max diff {max_diff:.2e})")
                 gatea_pairs += 1
+            main_fact_path = args.design_root / base / "fact_record.json"
+            gate_fact_path = args.design_root / base / "fact_record_gateA.json"
+            if main_fact_path.is_file() and gate_fact_path.is_file():
+                main_fact = json.loads(main_fact_path.read_text())
+                gate_fact = json.loads(gate_fact_path.read_text())
+                checks = main_fact.get("gatea", {}).get("checks", {})
+                required_checks = (
+                    "event_count_same", "candidate_endpoints_same",
+                    "non_slot_event_fields_same", "slot_sequence_changed",
+                    "mcq_stem_same", "mcq_options_same", "open_stem_same",
+                    "mcq_gold_flipped", "open_gold_separated",
+                )
+                missing = [key for key in required_checks
+                           if checks.get(key) is not True]
+                if missing:
+                    failures.append(f"{name}: Gate A semantic checks failed {missing}")
+                elif (
+                    main_fact["mcq"]["truth_option"] == gate_fact["mcq"]["truth_option"]
+                    or main_fact["open"]["truth_value"] == gate_fact["open"]["truth_value"]
+                ):
+                    failures.append(f"{name}: Gate A fact gold did not flip")
+                else:
+                    gatea_semantic_pairs += 1
 
     payload = {
         "schema": "qa_v3_audio_batch_verification_v1",
         "audio_root": str(args.audio_root),
         "checked_renders": checked,
         "audio_variant_waveform_nonidentity_pairs": gatea_pairs,
-        "gatea_semantic_flip": ("not established by this tool: waveform "
-                                "non-identity only shows the audio changed; "
-                                "per-card gold flipping must be checked "
-                                "against the fact records"),
+        "gatea_semantic_flip_pairs": gatea_semantic_pairs,
+        "gatea_semantic_flip": (
+            "established from current paired fact records and structural checks"
+            if gatea_semantic_pairs else
+            "not established by this tool for retained rows without paired facts"
+        ),
         "onset_rms_ratio_min": ONSET_RMS_RATIO_MIN,
         "gatea_max_diff_min": GATEA_MAX_DIFF_MIN,
         "failures": failures,
@@ -158,6 +229,7 @@ def main(argv: list[str] | None = None) -> int:
     }
     args.out.write_text(json.dumps(payload, ensure_ascii=False, indent=1))
     print(f"checked={checked} gateA_pairs={gatea_pairs} "
+          f"gateA_semantic_pairs={gatea_semantic_pairs} "
           f"failures={len(failures)} out={args.out}")
     if failures:
         for f in failures[:12]:
