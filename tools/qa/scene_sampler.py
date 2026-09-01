@@ -828,6 +828,138 @@ def solve_instant_distance_order(scene: SceneInputs, params: dict, *,
                      f"{max_attempts} attempts")
 
 
+
+
+def solve_distance_change_pair(scene: SceneInputs, params: dict, *,
+                               start_frame: int, end_frame: int,
+                               target_relation: str, profile_id: str,
+                               idle_choices: Iterable[int], rng,
+                               ledger: RejectionLedger,
+                               target_moves_more: bool | None = None,
+                               min_change_cm: float = 50.0,
+                               max_attempts: int = 4000):
+    """Find opposite target/distractor distance trends over one time window."""
+    if not 0 <= start_frame < end_frame < FRAME_COUNT:
+        raise ValueError(
+            f"invalid distance window {start_frame}..{end_frame}")
+    if target_relation not in ("closer", "farther"):
+        raise ValueError(f"unknown distance relation {target_relation!r}")
+    min_change = float(min_change_cm)
+    half_fov = effective_half_fov(scene, params)
+    min_sep = float(params["MIN_AZIMUTH_SEP"])
+    n_routes, n_cams = len(scene.routes), len(scene.camera_points)
+
+    def relation(delta):
+        if delta <= -min_change:
+            return "closer"
+        if delta >= min_change:
+            return "farther"
+        return None
+
+    for attempt in range(1, max_attempts + 1):
+        ledger.note_combination()
+        route = scene.routes[int(rng.integers(n_routes))]
+        idle = int(rng.choice(list(idle_choices)))
+        moved = route.shifted(idle)
+        if moved.displacement_cm <= 1.0e-6:
+            ledger.add(Rejection("target_route_static_for_dual_motion"))
+            continue
+        camera = scene.camera_points[int(rng.integers(n_cams))]
+        target_start = moved.at(start_frame)
+        target_end = moved.at(end_frame)
+        if (_too_close(camera, target_start, params)
+                or _too_close(camera, target_end, params)):
+            ledger.add(Rejection("camera_too_close_to_target"))
+            continue
+        target_d0 = math.dist(camera, target_start)
+        target_d1 = math.dist(camera, target_end)
+        target_delta = target_d1 - target_d0
+        if relation(target_delta) != target_relation:
+            ledger.add(Rejection(
+                "target_distance_relation_mismatch",
+                f"delta {target_delta:.1f} cm does not satisfy "
+                f"{target_relation} by {min_change:.1f} cm"))
+            continue
+        yaw = float(rng.random() * 360.0 - 180.0)
+        target_azimuths = [
+            relative_azimuth_deg(camera, yaw, moved.at(frame))
+            for frame in (start_frame, end_frame)]
+        if any(abs(value) > half_fov for value in target_azimuths):
+            ledger.add(Rejection("target_outside_fov_at_relation_frames"))
+            continue
+        other = None
+        other_delta = None
+        expected_other = "farther" if target_relation == "closer" else "closer"
+        for index in rng.permutation(n_routes)[:64]:
+            ledger.stand_points_evaluated += 1
+            candidate = scene.routes[int(index)]
+            if candidate.route_id == route.route_id:
+                continue
+            if candidate.displacement_cm <= 1.0e-6:
+                continue
+            if target_moves_more is not None:
+                observed = moved.displacement_cm > candidate.displacement_cm
+                if (math.isclose(moved.displacement_cm,
+                                 candidate.displacement_cm, abs_tol=1e-6)
+                        or observed != target_moves_more):
+                    continue
+            other_start = candidate.at(start_frame)
+            other_end = candidate.at(end_frame)
+            if (_too_close(camera, other_start, params)
+                    or _too_close(camera, other_end, params)):
+                continue
+            delta = (math.dist(camera, other_end)
+                     - math.dist(camera, other_start))
+            if relation(delta) != expected_other:
+                continue
+            other_azimuths = [
+                relative_azimuth_deg(camera, yaw, candidate.at(frame))
+                for frame in (start_frame, end_frame)]
+            if any(abs(value) > half_fov for value in other_azimuths):
+                continue
+            if any(circular_gap_deg(target, distractor) < min_sep
+                   for target, distractor in zip(
+                       target_azimuths, other_azimuths)):
+                continue
+            other, other_delta = candidate, delta
+            break
+        if other is None:
+            ledger.add(Rejection(
+                "no_opposite_distance_trend_actor",
+                f"no second moving route changes distance as {expected_other} "
+                "while satisfying view, separation and motion-rank constraints"))
+            continue
+        if scene.line_of_sight is not None:
+            if not all(scene.line_of_sight(camera, moved.at(frame))
+                       for frame in (start_frame, end_frame)):
+                ledger.add(Rejection("target_occluded_at_relation_frames"))
+                continue
+            if not all(scene.line_of_sight(camera, other.at(frame))
+                       for frame in (start_frame, end_frame)):
+                ledger.add(Rejection("other_actor_occluded"))
+                continue
+        return PointPlan(
+            scene_id=scene.scene_id, profile_id=profile_id,
+            camera_xy=camera, camera_ue_yaw_deg=yaw,
+            target_route=moved, base_route=route, other_route=other,
+            idle_frames=idle, anchor_frame=start_frame,
+            query_frame=end_frame,
+            answer_cell={"kind": "distance_change",
+                         "relation": target_relation,
+                         "target_delta_cm": target_delta,
+                         "other_delta_cm": other_delta},
+            checks={
+                "distance_window_frames": [start_frame, end_frame],
+                "target_distance_delta_cm": target_delta,
+                "other_distance_delta_cm": other_delta,
+                "minimum_distance_change_cm": min_change,
+                "line_of_sight_screened": scene.line_of_sight_screened,
+                "search_attempts": attempt,
+            },
+        )
+    ledger.budget_exhausted += 1
+    return Rejection("no_candidate_within_attempt_budget",
+                     f"{max_attempts} attempts")
 def solve_instant_binding(scene: SceneInputs, params: dict, *,
                           instants: Sequence[int], profile_id: str,
                           idle_choices: Iterable[int], rng,

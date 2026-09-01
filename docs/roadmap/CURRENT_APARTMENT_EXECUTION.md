@@ -1113,3 +1113,15 @@ generated 4/4 candidates per room with each coat at 2:2; all eight Gate-A
 audio slot swaps preserved the visual gold. Evidence is retained at
 `/data/jzy/tmp/qa_v3_card4r_two_room_smoke_20260901_v1`. The executable
 catalog now has nine profiles.
+
+
+Card5 and card5R now share one distance-change-pair solver that allocates the
+target relation first and requires the distractor to exhibit the opposite
+trend. Card5 binds the relation window to the first sound; card5R uses the
+last-bark anchor and retains 2.03 seconds of tail silence. Card5 filled 4/4 in
+both rooms. Card5R filled 4/4 in Apartment and produced 3/4 in the better of
+two Kujiale seeds, with the remaining cell explicitly budget-exhausted rather
+than unimplemented. Evidence is retained at
+`/data/jzy/tmp/qa_v3_card5_two_room_smoke_20260901_v3` and
+`/data/jzy/tmp/qa_v3_card5r_two_room_smoke_20260901_v2`. The executable
+catalog now has eleven profiles.

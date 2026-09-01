@@ -64,6 +64,32 @@
     "gatea_gold_relation": "preserve"
   },
   {
+    "id": "card5",
+    "temporal": "instant",
+    "answer_kind": "distance_change",
+    "binding_frames": [12, 16],
+    "relation_frames": [12, 16],
+    "idle_choices": [0, 8],
+    "answer_values": ["closer", "farther"],
+    "min_distance_change_cm": 10.0,
+    "max_attempts": 8000,
+    "anchor_binding": "first_caller",
+    "gatea_gold_relation": "flip"
+  },
+  {
+    "id": "card5R",
+    "temporal": "forward",
+    "answer_kind": "distance_change",
+    "anchor_frame": 40,
+    "relation_frames": [40, 74],
+    "idle_choices": [0, 8, 16],
+    "answer_values": ["closer", "farther"],
+    "min_distance_change_cm": 50.0,
+    "max_attempts": 8000,
+    "anchor_binding": "target",
+    "gatea_gold_relation": "flip"
+  },
+  {
     "id": "card7",
     "temporal": "instant",
     "answer_kind": "coat_at_query",

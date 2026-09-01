@@ -32,6 +32,7 @@ from scene_sampler import (  # noqa: E402
     solve_backward_cross_time,
     solve_forward_cross_time,
     solve_instant_binding,
+    solve_distance_change_pair,
     solve_instant_distance_order,
     solve_instant_azimuth,
     yaw_interval_for_band,
@@ -423,3 +424,19 @@ def test_instant_distance_order_makes_allocated_target_closer():
     assert (plan.answer_cell["other_distance_cm"]
             > plan.answer_cell["target_distance_cm"])
     assert plan.target_route.route_id != plan.other_route.route_id
+
+
+@pytest.mark.parametrize("relation", ["closer", "farther"])
+def test_distance_change_pair_has_opposite_distractor_trend(relation):
+    scene = synthetic_scene()
+    ledger = RejectionLedger()
+    plan = solve_distance_change_pair(
+        scene, PARAMS, start_frame=12, end_frame=40,
+        target_relation=relation, profile_id="card5R",
+        idle_choices=(0, 8), rng=np.random.default_rng(55),
+        ledger=ledger, min_change_cm=25.0)
+    assert not isinstance(plan, Rejection), ledger.summary()
+    target_delta = plan.answer_cell["target_delta_cm"]
+    other_delta = plan.answer_cell["other_delta_cm"]
+    assert (target_delta < -25.0 and other_delta > 25.0) if relation == "closer" \
+        else (target_delta > 25.0 and other_delta < -25.0)

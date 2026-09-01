@@ -366,6 +366,18 @@ def solve_for_profile(profile, cell, scene, params, rng, ledger):
             min_distance_gap_cm=profile.get("min_distance_gap_cm", 50.0),
             max_attempts=profile.get("max_attempts", 3000))
 
+    if kind == "distance_change":
+        start_frame, end_frame = [
+            int(value) for value in profile["relation_frames"]]
+        return SS.solve_distance_change_pair(
+            scene, params, start_frame=start_frame, end_frame=end_frame,
+            target_relation=str(cell["answer_value"]),
+            profile_id=profile["id"],
+            idle_choices=profile["idle_choices"], rng=rng, ledger=ledger,
+            target_moves_more=cell["target_moves_more"],
+            min_change_cm=profile.get("min_distance_change_cm", 50.0),
+            max_attempts=profile.get("max_attempts", 3000))
+
     if temporal == "forward":
         return SS.solve_forward_cross_time(
             scene, params, answer_band=cell["answer_band"],
@@ -405,7 +417,7 @@ def validate_profiles(profiles):
     valid_answer = {
         "azimuth_band", "instant_azimuth_band", "first_sound_side",
         "coat_at_query", "distance_at_query", "time_band",
-        "first_caller_coat", "event_count",
+        "first_caller_coat", "event_count", "distance_change",
     }
     for profile in profiles:
         pid = profile["id"]
@@ -420,16 +432,23 @@ def validate_profiles(profiles):
             raise ValueError(
                 f"{pid}: invalid answer_kind {profile.get('answer_kind')!r}")
         required = {"idle_choices"}
+        kind = profile.get("answer_kind", "azimuth_band")
         if profile["temporal"] == "forward":
-            required |= {"anchor_frame", "answer_bands_deg"}
+            required.add("anchor_frame")
+            if kind == "azimuth_band":
+                required.add("answer_bands_deg")
+            if kind == "distance_change":
+                required |= {"relation_frames", "answer_values"}
         elif profile["temporal"] == "backward":
             required |= {"anchor_frame", "query_frame", "answer_bands_deg"}
         else:
             required |= {"binding_frames"}
-            if profile.get("answer_kind") in ("instant_azimuth_band", "first_sound_side"):
+            if kind in ("instant_azimuth_band", "first_sound_side"):
                 required.add("answer_bands_deg")
-            if profile.get("answer_kind") == "event_count":
+            if kind == "event_count":
                 required.add("answer_values")
+        if kind == "distance_change":
+            required |= {"relation_frames", "answer_values"}
         missing = sorted(key for key in required if key not in profile)
         if missing:
             raise ValueError(f"{pid}: missing required profile fields {missing}")
@@ -446,8 +465,10 @@ def build_cell_plan(cells, profiles, pair_assets, params, seed):
         kind = profile.get("answer_kind", "azimuth_band")
         if kind in ("azimuth_band", "instant_azimuth_band", "first_sound_side"):
             cellsets = [tuple(b) for b in profile["answer_bands_deg"]]
-        elif kind == "event_count":
-            cellsets = [int(value) for value in profile["answer_values"]]
+        elif kind in ("event_count", "distance_change"):
+            cellsets = list(profile["answer_values"])
+            if kind == "event_count":
+                cellsets = [int(value) for value in cellsets]
         elif kind in ("time_band", "first_caller_coat"):
             # 直接分配**目标的答案带**(而不是带对):带对的第一分量
             # 决定目标答案带时,分布会被带对结构绑死。伙伴带随后选一个
@@ -678,6 +699,12 @@ def realise_point(pid, cell, plan, scene, base_request, params, by_id, args,
         schedule = AP.schedule_backward_anchor(
             rng, params=params, anchor_frame=plan.anchor_frame,
             query_frame=plan.query_frame)
+    elif profile["id"] == "card5R":
+        schedule = AP.schedule_forward_anchor(
+            rng, params=params, anchor_frame=plan.anchor_frame)
+    elif profile["id"] == "card5":
+        schedule = AP.schedule_first_sound_at_frame(
+            rng, params=params, query_frame=plan.anchor_frame)
     elif profile.get("answer_kind") == "event_count":
         schedule = AP.schedule_event_count(
             rng, params=params, event_count=int(cell["answer_value"]))
@@ -963,6 +990,12 @@ def build_gatea_answer(kind, profile, cell, timeline, schedule,
         gatea_truth_deg = recompute_azimuth(
             timeline, gatea_target_slot, query_frame)
         gatea_cell["target_first"] = not bool(cell["target_first"])
+    elif kind == "distance_change":
+        gatea_target_slot, gatea_other_slot = other_slot, target_slot
+        gatea_truth_deg = recompute_azimuth(
+            timeline, gatea_target_slot, query_frame)
+        gatea_cell["answer_value"] = (
+            "farther" if cell["answer_value"] == "closer" else "closer")
     elif kind in ("event_count", "distance_at_query"):
         gatea_target_slot, gatea_other_slot = target_slot, other_slot
         gatea_truth_deg = recompute_azimuth(
@@ -1045,6 +1078,63 @@ def build_answer(kind, profile, cell, timeline, schedule, slot_events,
             "open": {
                 "stem": f"{moment}, which dog is closer to you?",
                 "truth_value": truth,
+                "scoring": "closed_set",
+            },
+        }
+    if kind == "distance_change":
+        start_frame, end_frame = [
+            int(value) for value in profile["relation_frames"]]
+        camera_xy = np.asarray(
+            timeline["frames"][start_frame]["camera"][
+                "translation_ue_cm"][:2], dtype=float)
+
+        def actor_xy(frame_index, slot):
+            return np.asarray(next(
+                state["translation_ue_cm"][:2]
+                for state in timeline["frames"][frame_index]["actor_states"]
+                if state["source_slot_id"] == slot), dtype=float)
+
+        start_distance = float(np.linalg.norm(
+            actor_xy(start_frame, target_slot) - camera_xy))
+        end_distance = float(np.linalg.norm(
+            actor_xy(end_frame, target_slot) - camera_xy))
+        delta = end_distance - start_distance
+        minimum = float(profile.get("min_distance_change_cm", 50.0))
+        relation = (
+            "closer" if delta <= -minimum
+            else "farther" if delta >= minimum else None)
+        allocated = str(cell["answer_value"])
+        if relation != allocated:
+            raise GenerationConstraintError(
+                f"distance relation {relation} from delta {delta:.2f} cm "
+                f"does not match allocated {allocated}")
+        if profile["id"] == "card5R":
+            stem = (
+                "After the dog that barked last stopped making sound, was it "
+                "closer to you or farther from you at the end of the video?")
+        else:
+            stem = (
+                "While the dog made the first sound, was it getting closer "
+                "to you or farther from you?")
+        return {
+            "first_caller_slot": (
+                min(slot_events, key=lambda item: item[1])[0]),
+            "truth": {
+                "distance_relation": relation,
+                "start_frame": start_frame,
+                "end_frame": end_frame,
+                "start_distance_cm": round(start_distance, 3),
+                "end_distance_cm": round(end_distance, 3),
+                "distance_delta_cm": round(delta, 3),
+            },
+            "mcq": {
+                "stem": stem,
+                "options_space": ["closer", "farther"],
+                "truth_option": relation,
+            },
+            "open": {
+                "stem": stem,
+                "truth_value": relation,
                 "scoring": "closed_set",
             },
         }
