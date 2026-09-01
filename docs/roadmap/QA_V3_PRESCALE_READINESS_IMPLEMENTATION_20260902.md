@@ -88,6 +88,13 @@ Kujiale（同一普通 seed，每 profile 请求 6）：
 - HM3D val 00800 floor1：7/18、6/18；
 - 全部是 `geometry_candidate`，没有冒充跨场景渲染或题目准入。
 
+Studio 现场另有 334 个 HM3D `hm3d_end_to_end` 历史任务，其中 86 pass、
+245 fail、3 interrupted。pass 任务证明多栋 HM3D 的 Habitat 视频、移动声源
+双耳/FOA 和房间声学包可运行；但该模板使用 bookshelf speaker/moving-source
+资产，不是 QA v3 的双语义动物、MCQ/Open、Gate A/B 或 native-pixel join。
+因此这些 86 个任务是可复用的房间/声学底座，不计作 QA v3 多房间端到端
+通过，也不能替代后续语义演员接入。
+
 ### 修复后 Kujiale card1F 完整链
 
 候选：`card1F_002`。
