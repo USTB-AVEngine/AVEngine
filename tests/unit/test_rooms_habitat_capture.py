@@ -15,6 +15,7 @@ from avengine.backends.rlr.sdk import ExternalRlrSdk, ExternalRlrSdkError
 from avengine.contracts.json_io import sha256_file
 from avengine.rooms.habitat_capture import (
     _activate_runtime_prefix,
+    _connectivity_checks,
     _import_installed_habitat,
     _import_prepared_installed_habitat,
     _import_prepared_installed_habitat_dependencies,
@@ -23,6 +24,7 @@ from avengine.rooms.habitat_capture import (
     _installed_runtime_paths,
     _logical_listener_pose,
     _make_configuration,
+    _navigation_mesh_source,
     _validate_loaded_habitat_sim_origins,
     _validate_magnum_python_origins,
     _ue_project_asset_package_closure,
@@ -39,6 +41,109 @@ from avengine.rooms.habitat_capture import (
 MESH_OBJECT_PATH = "/Game/Test/SM_Test.SM_Test"
 MATERIAL_OBJECT_PATH = "/Game/Test/M_Test.M_Test"
 ENGINE_OBJECT_PATH = "/Engine/EngineMaterials/DefaultMaterial.DefaultMaterial"
+
+
+def test_navigation_mesh_source_resolves_ceiling_free_stage(tmp_path: Path) -> None:
+    room_path = tmp_path / "room_manifest.json"
+    room_path.write_text("{}\n", encoding="utf-8")
+    nav_stage = tmp_path / "visual" / "stages" / "room_nav.stage_config.json"
+    nav_stage.parent.mkdir(parents=True)
+    nav_stage.write_text("{}\n", encoding="utf-8")
+    inputs = type(
+        "Inputs",
+        (),
+        {
+            "room_path": room_path,
+            "room": {
+                "assets": [
+                    {
+                        "role": "render_surface_mesh",
+                        "path": "visual/stages/room.glb",
+                    },
+                    {
+                        "role": "navigation_stage_config",
+                        "path": "visual/stages/room_nav.stage_config.json",
+                    },
+                ]
+            },
+        },
+    )()
+
+    assert _navigation_mesh_source(inputs, None) == nav_stage.resolve()
+
+
+def test_navigation_mesh_source_preserves_legacy_package_without_role(
+    tmp_path: Path,
+) -> None:
+    inputs = type(
+        "Inputs",
+        (),
+        {
+            "room_path": tmp_path / "room_manifest.json",
+            "room": {
+                "assets": [
+                    {
+                        "role": "render_surface_mesh",
+                        "path": "visual/stages/room.glb",
+                    }
+                ]
+            },
+        },
+    )()
+
+    assert _navigation_mesh_source(inputs, None) is None
+
+
+def test_connectivity_check_records_nonfinite_navmesh_snap_as_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class ShortestPath:
+        geodesic_distance = float("inf")
+        points: list[object] = []
+
+    fake_habitat = type("FakeHabitat", (), {"ShortestPath": ShortestPath})
+    monkeypatch.setattr(
+        "avengine.rooms.habitat_capture._import_habitat",
+        lambda: (object(), fake_habitat, object(), object()),
+    )
+
+    class Pathfinder:
+        is_loaded = True
+
+        @staticmethod
+        def snap_point(_point):
+            return [float("nan"), float("nan"), float("nan")]
+
+        @staticmethod
+        def find_path(_query):
+            raise AssertionError("find_path must not receive a non-finite snap")
+
+    sim = type("FakeSim", (), {"pathfinder": Pathfinder()})()
+    inputs = type(
+        "Inputs",
+        (),
+        {
+            "room": {
+                "connectivity_pairs": [
+                    {
+                        "pair_id": "isolated_room",
+                        "start_m": [0.0, 0.05, 0.0],
+                        "end_m": [1.0, 0.05, 0.0],
+                    }
+                ]
+            }
+        },
+    )()
+
+    reports, checks = _connectivity_checks(sim, inputs)
+
+    assert reports[0]["snapped_start_m"] == [None, None, None]
+    assert reports[0]["start_snap_distance_m"] is None
+    assert reports[0]["found"] is False
+    assert checks[0]["status"] == "fail"
+    assert checks[0]["failure_reason"] == (
+        "Navmesh snap returned a non-finite point"
+    )
 
 
 def test_discover_mp3d_root_can_ignore_environment(

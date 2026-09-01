@@ -711,6 +711,43 @@ def _resolved_scene(
     }
 
 
+def _navigation_mesh_source(
+    inputs: ValidatedM1Inputs,
+    runtime_root: Path | None,
+    *,
+    mp3d_root: Path | None = None,
+) -> Path | None:
+    """Resolve an optional simplified mesh used only for navmesh baking.
+
+    Habitat's native ``Simulator::recomputeNavMesh`` joins the stage *render*
+    asset even when the stage template declares a distinct collision asset.
+    Rooms with ceilings therefore gain a large walkable island on the roof.
+    A package may declare ``navigation_stage_config`` whose render asset is a
+    ceiling-free mesh.  The explicit stage config preserves the package's
+    coordinate frame while keeping the normal scene graph unchanged for
+    capture and runtime validation.
+    """
+
+    matches = [
+        asset
+        for asset in inputs.room.get("assets", [])
+        if asset.get("role") == "navigation_stage_config"
+    ]
+    if not matches:
+        return None
+    if len(matches) != 1:
+        raise ValueError("navigation_stage_config asset role must be unique")
+    environment = _environment_for_paths(runtime_root, mp3d_root=mp3d_root)
+    path = resolve_declared_path(
+        matches[0]["path"],
+        manifest_dir=inputs.room_path.parent,
+        environment=environment,
+    )
+    if not path.is_file():
+        raise FileNotFoundError(f"navigation stage config is missing: {path}")
+    return path
+
+
 def _resolved_assets(
     inputs: ValidatedM1Inputs,
     runtime_root: Path | None,
@@ -1273,33 +1310,54 @@ def _connectivity_checks(
         end = np.asarray(pair["end_m"], dtype=np.float32)
         snapped_start = np.asarray(sim.pathfinder.snap_point(start), dtype=np.float64)
         snapped_end = np.asarray(sim.pathfinder.snap_point(end), dtype=np.float64)
-        start_snap_distance = float(
-            np.linalg.norm(snapped_start - start.astype(np.float64))
+        snaps_finite = bool(
+            np.all(np.isfinite(snapped_start)) and np.all(np.isfinite(snapped_end))
         )
-        end_snap_distance = float(np.linalg.norm(snapped_end - end.astype(np.float64)))
+        start_snap_distance = (
+            float(np.linalg.norm(snapped_start - start.astype(np.float64)))
+            if snaps_finite
+            else None
+        )
+        end_snap_distance = (
+            float(np.linalg.norm(snapped_end - end.astype(np.float64)))
+            if snaps_finite
+            else None
+        )
         maximum_snap_distance = 0.30
         query = habitat_sim.ShortestPath()
-        query.requested_start = snapped_start
-        query.requested_end = snapped_end
-        found = bool(sim.pathfinder.find_path(query))
+        if snaps_finite:
+            query.requested_start = snapped_start
+            query.requested_end = snapped_end
+            found = bool(sim.pathfinder.find_path(query))
+        else:
+            found = False
+        geodesic_distance = (
+            float(query.geodesic_distance)
+            if found and np.isfinite(query.geodesic_distance)
+            else None
+        )
+
+        def finite_point(value: np.ndarray) -> list[float | None]:
+            return [float(item) if np.isfinite(item) else None for item in value]
+
         report = {
             "pair_id": pair["pair_id"],
             "requested_start_m": start.astype(np.float64).tolist(),
             "requested_end_m": end.astype(np.float64).tolist(),
-            "snapped_start_m": snapped_start.tolist(),
-            "snapped_end_m": snapped_end.tolist(),
+            "snapped_start_m": finite_point(snapped_start),
+            "snapped_end_m": finite_point(snapped_end),
             "start_snap_distance_m": start_snap_distance,
             "end_snap_distance_m": end_snap_distance,
             "found": found,
-            "geodesic_distance_m": float(query.geodesic_distance) if found else None,
+            "geodesic_distance_m": geodesic_distance,
             "path_point_count": len(query.points) if found else 0,
         }
         reports.append(report)
         passed = bool(
             found
-            and np.isfinite(query.geodesic_distance)
-            and np.isfinite(start_snap_distance)
-            and np.isfinite(end_snap_distance)
+            and geodesic_distance is not None
+            and start_snap_distance is not None
+            and end_snap_distance is not None
             and start_snap_distance <= maximum_snap_distance
             and end_snap_distance <= maximum_snap_distance
         )
@@ -1315,7 +1373,11 @@ def _connectivity_checks(
                 },
                 failure_reason=None
                 if passed
-                else "ShortestPath did not connect the pair",
+                else (
+                    "Navmesh snap returned a non-finite point"
+                    if not snaps_finite
+                    else "ShortestPath did not connect the pair"
+                ),
             )
         )
     return reports, checks
@@ -2132,6 +2194,15 @@ def build_navmesh(
         include_audio_sensor=False,
         physics_config_path=physics_config_path,
     )
+    navigation_source = _navigation_mesh_source(inputs, None, mp3d_root=mp3d_root)
+    if navigation_source is not None:
+        # Native recomputeNavMesh reads the active stage render asset.  Point a
+        # navmesh-only simulator at the ceiling-free stage instead of weakening
+        # the normal render/collision scene used by capture.
+        configuration.sim_cfg.scene_id = str(navigation_source)
+        configuration.sim_cfg.scene_dataset_config_file = "default"
+        configuration.sim_cfg.load_semantic_mesh = False
+        configuration.sim_cfg.enable_physics = False
     destination = (
         Path(output_path).resolve()
         if output_path is not None
@@ -2148,6 +2219,11 @@ def build_navmesh(
         sim.pathfinder.save_nav_mesh(str(destination))
         return {
             "status": "pass",
+            "navigation_source_scene": str(
+                navigation_source
+                if navigation_source is not None
+                else resolved_scene["scene_id"]
+            ),
             "navigable_area_m2": float(sim.pathfinder.navigable_area),
             "num_islands": int(sim.pathfinder.num_islands),
             "artifact": {
