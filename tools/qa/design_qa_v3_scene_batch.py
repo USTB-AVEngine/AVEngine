@@ -318,7 +318,8 @@ def solve_for_profile(profile, cell, scene, params, rng, ledger):
     """时间关系决定用哪个求解器 —— 题型只声明关系,不写房间分支。"""
     temporal = profile["temporal"]
     kind = profile.get("answer_kind", "azimuth_band")
-    if temporal == "instant" and kind == "instant_azimuth_band":
+    if (temporal == "instant"
+            and kind in ("instant_azimuth_band", "first_sound_side")):
         return SS.solve_instant_azimuth(
             scene, params, answer_band=cell["answer_band"],
             answer_bands=[tuple(b) for b in profile["answer_bands_deg"]],
@@ -326,7 +327,8 @@ def solve_for_profile(profile, cell, scene, params, rng, ledger):
             profile_id=profile["id"],
             idle_choices=profile["idle_choices"], rng=rng, ledger=ledger,
             target_moves_more=cell["target_moves_more"],
-            max_attempts=profile.get("max_attempts", 3000))
+            max_attempts=profile.get("max_attempts", 3000),
+            open_half_width_deg=profile.get("open_half_width_deg"))
 
     if temporal == "forward":
         return SS.solve_forward_cross_time(
@@ -365,8 +367,8 @@ def validate_profiles(profiles):
     valid_temporal = {"forward", "backward", "instant"}
     valid_binding = {"target", "query_caller", "first_caller"}
     valid_answer = {
-        "azimuth_band", "instant_azimuth_band", "coat_at_query",
-        "time_band", "first_caller_coat",
+        "azimuth_band", "instant_azimuth_band", "first_sound_side",
+        "coat_at_query", "time_band", "first_caller_coat",
     }
     for profile in profiles:
         pid = profile["id"]
@@ -387,7 +389,7 @@ def validate_profiles(profiles):
             required |= {"anchor_frame", "query_frame", "answer_bands_deg"}
         else:
             required |= {"binding_frames"}
-            if profile.get("answer_kind") == "instant_azimuth_band":
+            if profile.get("answer_kind") in ("instant_azimuth_band", "first_sound_side"):
                 required.add("answer_bands_deg")
         missing = sorted(key for key in required if key not in profile)
         if missing:
@@ -403,7 +405,7 @@ def build_cell_plan(cells, profiles, pair_assets, params, seed):
         # 答案格按题型的答案空间分配:方位带题分带,时间带题分有序带对,
         # 外观题分目标外观 —— 一律**先分配再求解**。
         kind = profile.get("answer_kind", "azimuth_band")
-        if kind in ("azimuth_band", "instant_azimuth_band"):
+        if kind in ("azimuth_band", "instant_azimuth_band", "first_sound_side"):
             cellsets = [tuple(b) for b in profile["answer_bands_deg"]]
         elif kind in ("time_band", "first_caller_coat"):
             # 直接分配**目标的答案带**(而不是带对):带对的第一分量
@@ -429,7 +431,7 @@ def build_cell_plan(cells, profiles, pair_assets, params, seed):
                 for band, flag in zip(band_alloc, first_alloc)]
         slots = ["source1", "source2"]
         coats = [COAT_OF[a1], COAT_OF[a2]]
-        if kind in ("azimuth_band", "instant_azimuth_band"):
+        if kind in ("azimuth_band", "instant_azimuth_band", "first_sound_side"):
             # Six cells cover the full slot x answer-band table once.  Coat
             # is then balanced within each slot so motion/audio slot cannot
             # deterministically recover appearance.
@@ -634,6 +636,9 @@ def realise_point(pid, cell, plan, scene, base_request, params, by_id, args,
         schedule = AP.schedule_backward_anchor(
             rng, params=params, anchor_frame=plan.anchor_frame,
             query_frame=plan.query_frame)
+    elif profile.get("answer_kind") == "first_sound_side":
+        schedule = AP.schedule_first_sound_at_frame(
+            rng, params=params, query_frame=plan.query_frame)
     elif profile.get("answer_kind") in ("time_band", "first_caller_coat"):
         # ⑧⑨ 都要"两只都有首叫、且可分辨";目标的答案带先定,伙伴带
         # 由 target_first 决定在它之前还是之后,再交给调度器。
@@ -876,7 +881,7 @@ def build_gatea_answer(kind, profile, cell, timeline, schedule,
     first-caller relation simply reverses.
     """
     gatea_cell = dict(cell)
-    if kind in ("azimuth_band", "instant_azimuth_band"):
+    if kind in ("azimuth_band", "instant_azimuth_band", "first_sound_side"):
         gatea_target_slot, gatea_other_slot = other_slot, target_slot
         gatea_truth_deg = recompute_azimuth(
             timeline, gatea_target_slot, query_frame)
@@ -926,6 +931,44 @@ def build_answer(kind, profile, cell, timeline, schedule, slot_events,
                  params):
     """按题型的答案空间造真值;MCQ 与 Open 引用**同一条**事实。"""
     coat = slot_coat[target_slot]
+    if kind == "first_sound_side":
+        firsts = {}
+        for slot, start in slot_events:
+            firsts.setdefault(slot, start)
+        first_slot = min(firsts, key=firsts.get)
+        if first_slot != target_slot:
+            raise GenerationConstraintError(
+                f"first caller {first_slot} does not match target {target_slot}")
+        bands = [tuple(band) for band in profile["answer_bands_deg"]]
+        got = next((index for index, (lo, hi) in enumerate(bands)
+                    if lo <= truth_deg < hi), None)
+        want = bands.index(tuple(cell["answer_band"]))
+        if got != want:
+            raise GenerationConstraintError(
+                f"first-sound azimuth {truth_deg:.2f} lands in band {got}, "
+                f"not allocated band {want}")
+        side = "left" if truth_deg < 0.0 else "right"
+        moment = (f"At zero-based video frame index {query_frame} "
+                  f"({query_frame}/15 seconds)")
+        return {
+            "first_caller_slot": first_slot,
+            "truth": {
+                "first_sound_side": side,
+                "first_sound_azimuth_deg": round(truth_deg, 3),
+            },
+            "mcq": {
+                "stem": (f"{moment}, did the first sound come from the left "
+                         "or right side relative to your facing direction?"),
+                "options_space": ["left", "right"],
+                "truth_option": side,
+            },
+            "open": {
+                "stem": (f"{moment}, which side did the first sound come "
+                         "from: left or right?"),
+                "truth_value": side,
+                "scoring": "closed_set",
+            },
+        }
     if kind in ("azimuth_band", "instant_azimuth_band"):
         bands = [tuple(b) for b in profile["answer_bands_deg"]]
         labels = [f"[{lo:g}, {hi:g})" for lo, hi in bands]

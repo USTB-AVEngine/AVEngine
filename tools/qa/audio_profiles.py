@@ -267,6 +267,53 @@ def schedule_exactly_one_calling(rng, *, params, query_frame: int) -> Schedule:
     return schedule
 
 
+def schedule_first_sound_at_frame(rng, *, params, query_frame: int) -> Schedule:
+    """Card3 control: the target makes the first sound at a declared frame."""
+    event_len = _event_len()
+    gap = int(float(params["GAP_MIN_S"]) * SAMPLE_RATE)
+    first_start = int(round(query_frame * 3200 / 3))
+    limit = _clip_samples() - event_len
+    if first_start < 0 or first_start > limit:
+        raise AudioProfileError(
+            f"query frame {query_frame} cannot host the first event")
+    second_min = first_start + event_len + gap
+    third_min = second_min + event_len + gap
+    if third_min > limit:
+        raise AudioProfileError(
+            "no room for three separated events after the first sound")
+    second_start = int(rng.integers(second_min, limit - event_len - gap + 1))
+    third_start = int(rng.integers(
+        second_start + event_len + gap, limit + 1))
+    events = [
+        ScheduledEvent(TARGET, first_start, first_start + event_len,
+                       "answer_evidence"),
+        ScheduledEvent(OTHER, second_start, second_start + event_len,
+                       "control_sound"),
+        ScheduledEvent(TARGET, third_start, third_start + event_len,
+                       "control_sound"),
+    ]
+    schedule = Schedule(
+        "card3", events, 0,
+        {"first_sound_frame": query_frame,
+         "first_sound_role": TARGET,
+         "event_count": len(events)})
+    _self_check_first_sound(schedule, query_frame)
+    return schedule
+
+
+def _self_check_first_sound(schedule: Schedule, query_frame: int) -> None:
+    ordered = sorted(schedule.events, key=lambda event: event.start_sample)
+    if ordered[0] is not schedule.anchor or schedule.anchor.role != TARGET:
+        raise AudioProfileError("card3 first sound must belong to target")
+    first_frame, _ = schedule.anchor.frame_span()
+    if first_frame != query_frame:
+        raise AudioProfileError(
+            f"card3 first sound starts at frame {first_frame}, not {query_frame}")
+    if len(ordered) < 3:
+        raise AudioProfileError("card3 requires at least three events")
+    _assert_no_overlap(schedule)
+
+
 def _self_check_forward(schedule: Schedule, params) -> None:
     anchor = schedule.anchor
     if anchor is not schedule.events[-1]:

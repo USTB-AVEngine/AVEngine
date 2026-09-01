@@ -1085,3 +1085,12 @@ Open gold separations exceed 60 degrees. Evidence is retained at
 geometry/timeline/program/fact evidence only. The executable catalog now has
 six profiles; the next implementation slice is card3, followed by the remaining
 dual-source controls before the N-source and multi-segment work.
+
+
+Card3 (first-sound left/right) is also executable. Its AudioProgram fixes the
+target's first event at frame 12, keeps at least three separated events, and
+swaps only the first caller's slot for Gate A. The two-room smoke generated
+2/2 candidates in each room; every MCQ and Open closed-set side changed under
+Gate A. Evidence is retained at
+`/data/jzy/tmp/qa_v3_card3_two_room_smoke_20260901_v1`. The executable
+catalog now has seven profiles.

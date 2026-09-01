@@ -39,6 +39,19 @@
     "anchor_binding": "query_caller"
   },
   {
+    "id": "card3",
+    "temporal": "instant",
+    "answer_kind": "first_sound_side",
+    "binding_frames": [12],
+    "idle_choices": [0, 8],
+    "answer_bands_deg": [
+      [-52.5, 0.0],
+      [0.0, 52.5]
+    ],
+    "anchor_binding": "first_caller",
+    "open_half_width_deg": 0.0
+  },
+  {
     "id": "card7",
     "temporal": "instant",
     "answer_kind": "coat_at_query",

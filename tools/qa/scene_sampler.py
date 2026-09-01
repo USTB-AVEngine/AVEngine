@@ -665,13 +665,15 @@ def solve_instant_azimuth(scene: SceneInputs, params: dict, *,
                           idle_choices: Iterable[int], rng,
                           ledger: RejectionLedger,
                           target_moves_more: bool | None = None,
-                          max_attempts: int = 4000):
+                          max_attempts: int = 4000,
+                          open_half_width_deg: float | None = None):
     """Immediate-DoA control: bind the caller and its visual azimuth together."""
     band_lo, band_hi = [float(value) for value in answer_band]
     solve_lo, solve_hi = interior_answer_band(band_lo, band_hi, params)
     half_fov = effective_half_fov(scene, params)
     min_sep = float(params["MIN_AZIMUTH_SEP"])
-    theta_half = float(params["THETA_HALF"])
+    theta_half = (float(params["THETA_HALF"]) if open_half_width_deg is None
+                  else float(open_half_width_deg))
     n_routes, n_cams = len(scene.routes), len(scene.camera_points)
     for attempt in range(1, max_attempts + 1):
         ledger.note_combination()

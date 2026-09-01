@@ -25,6 +25,7 @@ from audio_profiles import (  # noqa: E402
     _assert_no_overlap,
     _self_check_backward,
     _self_check_first_call_bands,
+    schedule_first_sound_at_frame,
     _self_check_forward,
     schedule_backward_anchor,
     schedule_exactly_one_calling,
@@ -141,7 +142,22 @@ def test_card8_self_check_catches_too_close_first_calls():
     schedule.events[1].end_sample_exclusive = \
         schedule.events[1].start_sample + 4800
     with pytest.raises(AudioProfileError):
+
         _self_check_first_call_bands(schedule, PARAMS, (0, 1))
+
+def test_card3_first_sound_is_target_at_declared_frame():
+    schedule = schedule_first_sound_at_frame(
+        rng(12), params=PARAMS, query_frame=12)
+    assert len(schedule.events) == 3
+    assert schedule.anchor is schedule.events[0]
+    assert schedule.anchor.role == TARGET
+    assert schedule.anchor.frame_span()[0] == 12
+    assert schedule.declared["first_sound_role"] == TARGET
+    main = schedule.bind({TARGET: "source1", OTHER: "source2"})
+    gate = schedule.bind({TARGET: "source2", OTHER: "source1"})
+    assert main[0][0] == "source1"
+    assert gate[0][0] == "source2"
+
 
 
 def test_card7_has_exactly_one_caller_at_the_query_frame():
