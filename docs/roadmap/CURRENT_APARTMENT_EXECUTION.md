@@ -1171,3 +1171,6 @@ and two distinct card17 segments. The authoritative report is
 manifests are retained at
 `/data/jzy/tmp/qa_v3_room_pilot_selected_2rooms_108each_20260901_v3` and
 `/data/jzy/tmp/qa_v3_room_pilot_runtime_evidence_20260901_v1`.
+
+
+Gate-B precert recomputed all 216 selected twins: 180 fact/geometry rows pass and 36 pixel-dependent rows remain pixel_pending. The augmented manifest backfills every Gate-B pointer and gold status. Appearance twins must reuse main audio; route twins must rerender audio consistently. See `docs/roadmap/QA_V3_GATEB_PRECERT_REPORT_20260901.md`.
