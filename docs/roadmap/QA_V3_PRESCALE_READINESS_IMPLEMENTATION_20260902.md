@@ -4,7 +4,7 @@
 
 本轮完成了所有当前可自动执行的工程修复、评分区分、反事实实渲、
 人类实验打包与 released-media 单模态探针。实现基线为服务器唯一工作副本
-`/data/jzy/tmp/wt-qa-v3-pilot` 的 `769bb7b`；所有产物仍是
+`/data/jzy/tmp/wt-qa-v3-pilot` 的 `da6e751`；所有产物仍是
 `research_candidate`。
 
 **现在还不能开始大规模生成。**剩余前置不是新增题型或一般引擎能力，而是：
@@ -27,6 +27,7 @@
 | `ae0e82b` | 从最终发布音频/视频/题面运行 Text/audio/video-only 简单捷径探针 |
 | `6dcc42a` | 对历史 216 条逐条重验，区分结构可保留、补元数据、重渲媒体、重采几何、像素待决、降级与 future extension |
 | `769bb7b` | 人类试听 UI 改为 public/private 分离、无原生时间轴、最多从头播放两次并记录播放次数；生成三题预览版与 18 题正式版 |
+| `da6e751` | 完成页增加只读回答 JSON 与复制按钮，Blob 下载被浏览器拦截时仍可取回结果 |
 
 ## 测试
 
@@ -138,10 +139,10 @@ card7 main 与 Gate B 各自完成 75 帧视觉，并以统一 0.61575 m 语义�
 
 路径：
 正式 18 题：
-`/data/jzy/tmp/qa_v3_human_calibration_pack_run02_20260902_v2`
+`/data/jzy/tmp/qa_v3_human_calibration_pack_run02_20260902_v3`
 
 owner 三题预览：
-`/data/jzy/tmp/qa_v3_human_calibration_preview_20260902_v1`
+`/data/jzy/tmp/qa_v3_human_calibration_preview_20260902_v2`
 
 - 18 个 full-AV 项：card1F 6、card1B 6、card8 6；
 - 只把 `public/` 作为网站目录，答案表独立放在
@@ -149,6 +150,8 @@ owner 三题预览：
 - 不使用原生 video controls，不显示时间轴、不允许拖动或调速；
 - 每题最多从头播放两次，完整播放后才显示答案区，并把 `play_count`
   写入响应；
+- 完成页同时提供下载、复制和只读 JSON 文本框，避免浏览器下载策略造成
+  响应丢失；
 - 每题先收绑定答案，再收数值和置信度；
 - 评分器在全部试次报告绑定正确率，但只用绑定正确试次计算数值
   P75/P95；认错对象的大误差不会被错误吸收到容差中；
