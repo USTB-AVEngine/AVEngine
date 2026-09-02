@@ -41,6 +41,7 @@ import audio_profiles as AP  # noqa: E402
 import scene_sampler as SS  # noqa: E402
 from build_qa_v3_programs import build_program  # noqa: E402
 from qa_v3_pixel_thresholds import card1_pixel_acceptance_block  # noqa: E402
+import visibility_prediction as VP  # noqa: E402
 # 选角文档的结构(蓝图/网格/动画的物理来源、UE 绑定)已在既有装配器里
 # 验证过,直接复用它的构造函数,不在这里重写一份容易走样的副本。
 from design_qa_v3_pilot_batch import _selection_doc  # noqa: E402
@@ -77,6 +78,10 @@ EP_MAP = {
 
 class GenerationConstraintError(ValueError):
     """A candidate is well-formed but fails a declared question constraint."""
+
+
+class PredictedVisibilityRejection(GenerationConstraintError):
+    """A profile declared a minimum predicted visibility and the plan misses it."""
 
 
 def sha_rng(*parts) -> np.random.Generator:
@@ -849,6 +854,12 @@ def main(argv=None) -> int:
         try:
             record = realise_point(pid, cell, outcome, scene, base_request,
                                    params, by_id, args, programs_dir, rng)
+        except PredictedVisibilityRejection as exc:
+            rejected.append({"point_id": pid,
+                             "reason": "predicted_visibility_below_declared_minimum",
+                             "detail": str(exc)[:240],
+                             "cell": cell_allocation(cell)})
+            continue
         except GenerationConstraintError as exc:
             rejected.append({"point_id": pid,
                              "reason": "generation_constraint_failed",
@@ -875,6 +886,113 @@ def main(argv=None) -> int:
                       "evidence_class": "geometry_candidate"},
                      ensure_ascii=False))
     return 0
+
+
+def predicted_visibility_block(scene, params, profile, timeline, *, target_slot,
+                               other_slot, camera_height_m, instants):
+    """Predict, from the scene's clearance table, how visible each actor is
+    along the final timeline, and evaluate the profile's declared visual
+    requirements against the prediction.
+
+    Returns (block, failures).  The block goes into the fact as evidence of
+    what the solver expected; failures are the declarations in mode "reject"
+    that the prediction misses.  Without a table nothing is predicted and the
+    block says so.  Pixel truth remains the acceptance authority."""
+    declarations = list(profile.get("visual_requirements") or [])
+    if scene.clearance is None:
+        return ({"status": "not_predicted",
+                 "reason": "scene config declares no camera_clearance_table",
+                 "declarations": declarations}, [])
+    frames = sorted(timeline["frames"], key=lambda f: int(f["frame_index"]))
+    camera = frames[0]["camera"]
+    camera_xy = (float(camera["translation_ue_cm"][0]), float(camera["translation_ue_cm"][1]))
+    yaw = float(camera["yaw_ue_deg"])
+    ground_z = resolve_scene_render_context(scene)["ground_z_ue_cm"]
+    roles = {"target": target_slot, "other": other_slot}
+    routes = {}
+    for slot in roles.values():
+        routes[slot] = []
+        for frame in frames:
+            state = next(st for st in frame["actor_states"] if st["source_slot_id"] == slot)
+            routes[slot].append((float(state["translation_ue_cm"][0]),
+                                 float(state["translation_ue_cm"][1])))
+    body = VP.body_from_params(params)
+    edges = tuple(float(v) for v in params.get("PIXEL_TIER_VISIBLE_FRACTION_EDGES",
+                                                 VP.TIER_EDGES_DEFAULT))
+    prediction = VP.predict_timeline(
+        scene.clearance, camera_xy_cm=camera_xy, camera_height_m=float(camera_height_m),
+        camera_yaw_deg=yaw, hfov_deg=scene.hfov_deg, ground_z_cm=ground_z,
+        routes_by_slot=routes, bodies_by_slot={slot: body for slot in routes}, edges=edges)
+    rows_by_role = {role: prediction["slots"][slot]["per_frame"] for role, slot in roles.items()}
+    by_frame = {role: {row["frame"]: row for row in rows} for role, rows in rows_by_role.items()}
+    at_instants = {role: {name: {"frame": int(frame),
+                                 "tier": by_frame[role][int(frame)]["tier"],
+                                 "predicted_visible_fraction":
+                                     by_frame[role][int(frame)]["predicted_visible_fraction"],
+                                 "in_fov": by_frame[role][int(frame)]["in_fov"]}
+                          for name, frame in instants.items()}
+                   for role in roles}
+    statistics = {role: VP.timeline_statistics(rows, instants=instants)
+                  for role, rows in rows_by_role.items()}
+    results, failures = [], []
+    for declaration in declarations:
+        role = declaration["referent"]
+        if role not in roles:
+            raise ValueError(f"visual requirement referent {role!r} is not target/other")
+        minimum = float(declaration.get("min_predicted_visible_fraction", 0.0))
+        mode = str(declaration.get("mode", "tier"))
+        if mode not in ("tier", "reject"):
+            raise ValueError(f"visual requirement mode {mode!r} must be tier or reject")
+        for frame_ref in declaration["frames"]:
+            frame = int(instants[frame_ref]) if isinstance(frame_ref, str) else int(frame_ref)
+            row = by_frame[role][frame]
+            fraction = row["predicted_visible_fraction"]
+            satisfied = bool(row["in_fov"] and fraction is not None and fraction >= minimum)
+            result = {"referent": role, "frame": frame, "frame_ref": frame_ref,
+                      "min_predicted_visible_fraction": minimum, "mode": mode,
+                      "predicted_visible_fraction": fraction, "in_fov": row["in_fov"],
+                      "tier": row["tier"], "satisfied": satisfied}
+            results.append(result)
+            if mode == "reject" and not satisfied:
+                failures.append(result)
+    block = {
+        "status": "predicted",
+        "authority": "prediction_from_camera_clearance_table_not_pixel_truth",
+        "table": scene.clearance.identity,
+        "body": body,
+        "tier_edges": list(edges),
+        "camera_height_m": float(camera_height_m),
+        "instants": {name: int(frame) for name, frame in instants.items()},
+        "at_instants": at_instants,
+        "statistics": statistics,
+        "declarations": results,
+        "reject_failures": len(failures),
+        "per_frame": {role: [[row["frame"], int(row["in_fov"]),
+                              row["predicted_visible_fraction"], row["tier"]]
+                             for row in rows]
+                      for role, rows in rows_by_role.items()},
+    }
+    return block, failures
+
+
+def predicted_tier_distribution(records):
+    """Predicted tier counts per profile at the named instants, plus how many
+    candidates predict an actor that never shows in the clip."""
+    out = {}
+    for record in records:
+        block = record.get("predicted_visibility") or {}
+        if block.get("status") != "predicted":
+            continue
+        bucket = out.setdefault(record["profile_id"], {"at_instants": {}, "never_visible": {}})
+        for role, per_instant in block["at_instants"].items():
+            for name, row in per_instant.items():
+                key = f"{role}@{name}"
+                tiers = bucket["at_instants"].setdefault(key, {})
+                tiers[row["tier"]] = tiers.get(row["tier"], 0) + 1
+        for role, stats in block["statistics"].items():
+            if stats.get("never_visible"):
+                bucket["never_visible"][role] = bucket["never_visible"].get(role, 0) + 1
+    return out
 
 
 def realise_point(pid, cell, plan, scene, base_request, params, by_id, args,
@@ -1159,6 +1277,16 @@ def realise_point(pid, cell, plan, scene, base_request, params, by_id, args,
             fact["pixel_acceptance"] = card1_pixel_acceptance_block(
                 params, target_slot=target_slot, other_slot=other_slot,
                 anchor_frame=plan.anchor_frame, query_frame=query_frame)
+    predicted, visibility_failures = predicted_visibility_block(
+        scene, params, profile, timeline, target_slot=target_slot,
+        other_slot=other_slot, camera_height_m=camera_height_m,
+        instants={"anchor": int(plan.anchor_frame), "query": int(query_frame)})
+    fact["predicted_visibility"] = predicted
+    if visibility_failures:
+        raise PredictedVisibilityRejection("; ".join(
+            f"{f['referent']}@{f['frame']}: predicted "
+            f"{f['predicted_visible_fraction']} < {f['min_predicted_visible_fraction']}"
+            for f in visibility_failures))
     gatea_fact = copy.deepcopy(fact)
     gatea_fact.update({
         "variant": "gateA",
@@ -1833,6 +1961,7 @@ def write_outputs(args, scene, scene_cfg, profiles, params, ledger, made,
         "per_profile_conditional_balance": conditional_balance(records),
         "cell_budget": (cell_budget_report(cells, made, rejected)
                         if cells is not None else None),
+        "predicted_tier_distribution": predicted_tier_distribution(records),
         "per_profile_rejections": {
             pid: {k: v for k, v in led.summary().items()
                   if k != "first_example"}
