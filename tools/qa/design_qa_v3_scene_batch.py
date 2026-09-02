@@ -39,6 +39,7 @@ sys.path.insert(0, str(REPO / "src"))
 import audio_profiles as AP  # noqa: E402
 import scene_sampler as SS  # noqa: E402
 from build_qa_v3_programs import build_program  # noqa: E402
+from qa_v3_pixel_thresholds import card1_pixel_acceptance_block  # noqa: E402
 # 选角文档的结构(蓝图/网格/动画的物理来源、UE 绑定)已在既有装配器里
 # 验证过,直接复用它的构造函数,不在这里重写一份容易走样的副本。
 from design_qa_v3_pilot_batch import _selection_doc  # noqa: E402
@@ -1108,6 +1109,10 @@ def realise_point(pid, cell, plan, scene, base_request, params, by_id, args,
             other_slot=other_slot, anchor_frame=plan.anchor_frame,
             query_frame=query_frame, params=params, plan_checks=plan.checks)
         fact["acceptance_authority"] = "realized_generation_checks"
+        if profile["id"] in ("card1F", "card1B"):
+            fact["pixel_acceptance"] = card1_pixel_acceptance_block(
+                params, target_slot=target_slot, other_slot=other_slot,
+                anchor_frame=plan.anchor_frame, query_frame=query_frame)
     gatea_fact = copy.deepcopy(fact)
     gatea_fact.update({
         "variant": "gateA",

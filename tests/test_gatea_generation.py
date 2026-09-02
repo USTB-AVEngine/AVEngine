@@ -27,6 +27,7 @@ from design_qa_v3_scene_batch import (  # noqa: E402
     validate_profiles,
     main as design_main,
 )
+from qa_v3_pixel_thresholds import card1_pixel_acceptance_block  # noqa: E402
 
 
 PARAMS = {"THETA_HALF": 30.0, "T_HALF": 1.0, "T_FULL": 0.5,
@@ -241,6 +242,26 @@ def test_realized_timeline_passes_and_reports_planning_deviation():
     assert deviation["planned_anchor_azimuth_deg_planning_value_only"] == 9.415
     assert deviation["anchor_deviation_deg"] == pytest.approx(0.964, abs=1e-6)
     assert checks["realized_anchor_answer_scores_zero"] is True
+
+
+def test_card1_pixel_acceptance_block_is_explicit_and_fails_closed():
+    with pytest.raises(ValueError, match="explicit pixel thresholds"):
+        card1_pixel_acceptance_block(
+            {}, target_slot="source2", other_slot="source1",
+            anchor_frame=40, query_frame=74)
+    block = card1_pixel_acceptance_block(
+        {"PIXEL_MIN_VISIBLE_FRACTION": 0.5, "PIXEL_MIN_VISIBLE_PIXELS": 1000,
+         "PIXEL_BBOX_MUST_NOT_TOUCH_FRAME_EDGE": True,
+         "PIXEL_THRESHOLD_STATUS": "placeholder_research"},
+        target_slot="source2", other_slot="source1", anchor_frame=40,
+        query_frame=74)
+    assert block["thresholds"]["min_visible_pixels"] == 1000
+    assert block["status"] == "placeholder_research"
+    assert block["referents"]["main"]["referent_slot"] == "source2"
+    assert block["referents"]["gatea"]["referent_slot"] == "source1"
+    assert block["referents"]["gatea"]["query_frame"]["must"] == \
+        "referent_identifiable_at_visual_query"
+    assert "prefilter" in block["line_of_sight_role"]
 
 
 def test_gatea_rejects_non_slot_audio_mutation():
