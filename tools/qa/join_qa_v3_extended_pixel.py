@@ -9,6 +9,14 @@ thresholds are explicit placeholders that must travel through params, the fact
 record and this join output; they are not human-calibrated admission values.
 Line-of-sight screening is a search-time prefilter and is never accepted here
 as pixel evidence.
+
+Two acceptance policies exist for card1F / card1B.  The historical
+``both_frames_threshold_reject`` rejects any referent/frame below the
+thresholds.  The owner's ``camera_blockage_reject_then_tier`` policy keeps
+partially or momentarily hidden dogs as difficulty tiers and rejects only when
+the occluder sits close to the lens (camera-side blockage), which needs the
+captured depth arrays next to the pixel truth.  Every captured frame also feeds
+a per-referent visibility timeline so tiers can later use whole-clip evidence.
 """
 
 from __future__ import annotations
@@ -18,15 +26,25 @@ import json
 import sys
 from pathlib import Path
 
+import numpy as np
+
 from avengine.contracts.json_io import sha256_file
 from design_qa_v3_extended_profile import CARD11_BINDING_FRAME
 from qa_v3_pixel_thresholds import (
     CARD1_FRAME_REQUIREMENTS,
     LINE_OF_SIGHT_ROLE,
+    PIXEL_POLICY_THRESHOLD_REJECT,
+    PIXEL_POLICY_TIER,
     PIXEL_THRESHOLD_KEYS,
     PIXEL_THRESHOLD_STATUS_DEFAULT,
+    TIER_ORDER,
+    pixel_policy_from_params,
     pixel_thresholds_from_params,
+    tier_for_frame,
 )
+
+DEPTH_ARRAYS_FILENAME = "native_depth_and_object_ids.npz"
+BLOCKAGE_TIERS = ("medium", "heavy", "hidden")
 
 
 SUPPORTED = {"card11", "card15a", "card16", "card1F", "card1B"}
@@ -91,6 +109,102 @@ def card1_pixel_thresholds(fact, params=None):
     return chosen
 
 
+def card1_pixel_policy(fact, params=None):
+    """Resolve the acceptance policy from the fact and/or params (must agree)."""
+    from_fact = (fact.get("pixel_acceptance") or {}).get("acceptance_policy")
+    from_params = pixel_policy_from_params(params) if params is not None else None
+    if from_fact is not None and from_params is not None:
+        for key in ("policy", "camera_blockage_max_distance_m",
+                    "tier_visible_fraction_edges"):
+            if from_fact.get(key) != from_params.get(key):
+                raise ValueError(
+                    f"acceptance policy {key} differs between the fact "
+                    f"({from_fact.get(key)!r}) and params "
+                    f"({from_params.get(key)!r})")
+    chosen = dict(from_fact or from_params or
+                  {"policy": PIXEL_POLICY_THRESHOLD_REJECT,
+                   "status": PIXEL_THRESHOLD_STATUS_DEFAULT})
+    chosen["source"] = ("fact_pixel_acceptance" if from_fact is not None
+                        else "params" if from_params is not None
+                        else "default_historical")
+    return chosen
+
+
+def load_depth_arrays(pixel_truth_path, arrays_path=None):
+    """Depth arrays saved next to the pixel truth by the capture tool."""
+    path = Path(arrays_path) if arrays_path else (
+        Path(pixel_truth_path).parent / DEPTH_ARRAYS_FILENAME)
+    if not path.is_file():
+        return None, None
+    with np.load(path) as loaded:
+        arrays = {key: np.asarray(loaded[key]) for key in loaded.files}
+    return arrays, path
+
+
+def occluder_statistics(arrays, pixel_truth, slot, frame_index):
+    """What hides the referent: median depth of the occluding pixels."""
+    if arrays is None:
+        return None
+    frames = [int(value) for value in pixel_truth.get("frame_indices", [])]
+    if frame_index not in frames:
+        return None
+    key = f"target_only_{slot}_depth_m"
+    if key not in arrays or "normal_depth_m" not in arrays:
+        return None
+    position = frames.index(frame_index)
+    target = np.asarray(arrays[key][position], dtype=np.float64)
+    normal = np.asarray(arrays["normal_depth_m"][position], dtype=np.float64)
+    comparison = pixel_truth.get("depth_comparison") or {}
+    sentinel = float(comparison.get("target_only_background_depth_m", 65504.0))
+    abs_tol = float(comparison.get("absolute_tolerance_m", 0.01))
+    rel_tol = float(comparison.get("relative_tolerance", 0.002))
+    footprint = target < sentinel * 0.5
+    if not footprint.any():
+        return {"footprint_pixels": 0, "hidden_pixels": 0,
+                "hidden_fraction": None, "occluder_median_depth_m": None,
+                "target_median_depth_m": None}
+    hidden = footprint & (normal < target - (abs_tol + rel_tol * target))
+    return {
+        "footprint_pixels": int(footprint.sum()),
+        "hidden_pixels": int(hidden.sum()),
+        "hidden_fraction": float(hidden.sum() / footprint.sum()),
+        "occluder_median_depth_m": (
+            float(np.median(normal[hidden])) if hidden.any() else None),
+        "target_median_depth_m": float(np.median(target[footprint])),
+    }
+
+
+def visibility_timeline(pixel_truth, slot, anchor_frame, query_frame):
+    """Whole-clip visibility of one referent over every captured frame."""
+    frames = sorted(
+        (int(frame["frame_index"]), frame)
+        for frame in (pixel_truth.get("per_instance", {}).get(slot, {})
+                      .get("frames", [])))
+    captured = [index for index, _ in frames]
+    visible = [index for index, frame in frames
+               if frame.get("state") in VISIBLE and (frame.get("visible_pixels") or 0) > 0]
+    hidden_run = 0
+    for index, frame in reversed(frames):
+        if index > query_frame:
+            continue
+        if frame.get("state") in VISIBLE and (frame.get("visible_pixels") or 0) > 0:
+            break
+        hidden_run += 1
+    nearest_visible_to_anchor = (
+        min(abs(index - anchor_frame) for index in visible) if visible else None)
+    return {
+        "captured_frame_indices": captured,
+        "captured_frame_count": len(captured),
+        "visible_frame_count": len(visible),
+        "visible_frame_fraction": (len(visible) / len(captured)
+                                   if captured else None),
+        "hidden_captured_frames_ending_at_query": hidden_run,
+        "nearest_visible_captured_frame_distance_to_anchor": nearest_visible_to_anchor,
+        "note": ("metrics are over the captured frames only; capture more "
+                 "frames for a denser timeline"),
+    }
+
+
 def frame_pixel_conditions(frame, resolution_hw, thresholds):
     """Evaluate one referent at one frame against the explicit thresholds."""
     height, width = [int(value) for value in resolution_hw]
@@ -133,12 +247,21 @@ def frame_pixel_conditions(frame, resolution_hw, thresholds):
     return conditions
 
 
-def evaluate_card1(fact, pixel_truth, params=None):
+def evaluate_card1(fact, pixel_truth, params=None, arrays=None):
     thresholds = card1_pixel_thresholds(fact, params)
+    policy = card1_pixel_policy(fact, params)
+    tier_policy = policy["policy"] == PIXEL_POLICY_TIER
+    if tier_policy and arrays is None:
+        raise ValueError(
+            "the tier policy needs the captured depth arrays "
+            f"({DEPTH_ARRAYS_FILENAME}) to tell camera-side blockage from "
+            "scene occlusion; none were supplied")
     resolution = pixel_truth.get("resolution_hw")
     if resolution is None:
         raise ValueError("pixel truth lacks resolution_hw; bbox edge test "
                          "cannot run")
+    edges = policy.get("tier_visible_fraction_edges") or [0.5, 0.2]
+    blockage_distance = policy.get("camera_blockage_max_distance_m")
     target_slot = str(fact["target_slot"])
     other_slot = "source2" if target_slot == "source1" else "source1"
     referents = {"main": target_slot, "gatea": other_slot}
@@ -147,8 +270,16 @@ def evaluate_card1(fact, pixel_truth, params=None):
     by_index = _frames_by_index(pixel_truth)
     reasons = []
     evaluations = {}
+    tiers = {}
+    timelines = {}
+    below_threshold_frames = 0
+    frame_edge_cut = False
     for side, slot in referents.items():
         evaluations[side] = {"slot": slot}
+        tiers[side] = {}
+        timelines[side] = dict(visibility_timeline(
+            pixel_truth, slot, frames["anchor_frame"], frames["query_frame"]),
+            slot=slot)
         for role, index in frames.items():
             record = by_index.get(slot, {}).get(index)
             if record is None:
@@ -156,13 +287,55 @@ def evaluate_card1(fact, pixel_truth, params=None):
                 evaluations[side][role] = {
                     "frame_index": index, "passed": False,
                     "failures": ["missing_in_pixel_truth"]}
+                tiers[side][role] = None
                 continue
             conditions = frame_pixel_conditions(record, resolution, thresholds)
             conditions["frame_index"] = index
             conditions["requirement"] = CARD1_FRAME_REQUIREMENTS[role]
+            tier = tier_for_frame(conditions["state"],
+                                  conditions["visible_fraction"], edges)
+            conditions["tier"] = tier
+            conditions["occluder"] = occluder_statistics(
+                arrays, pixel_truth, slot, index)
+            occluder_depth = (conditions["occluder"] or {}).get(
+                "occluder_median_depth_m")
+            conditions["camera_side_blockage"] = bool(
+                blockage_distance is not None
+                and tier in BLOCKAGE_TIERS
+                and occluder_depth is not None
+                and occluder_depth <= blockage_distance)
             evaluations[side][role] = conditions
-            for failure in conditions["failures"]:
-                reasons.append(f"{side}_referent_{role}_{failure}")
+            tiers[side][role] = tier
+            if not conditions["passed"]:
+                below_threshold_frames += 1
+            if conditions["bbox_inside_frame"] is False:
+                frame_edge_cut = True
+            if tier_policy:
+                if conditions["camera_side_blockage"]:
+                    reasons.append(f"{side}_referent_{role}_camera_side_blockage")
+            else:
+                for failure in conditions["failures"]:
+                    reasons.append(f"{side}_referent_{role}_{failure}")
+    assigned = [tier for per_side in tiers.values() for tier in per_side.values()
+                if tier is not None]
+    difficulty = {
+        "tiers": tiers,
+        "tier_order": list(TIER_ORDER),
+        "worst_tier": (max(assigned, key=TIER_ORDER.index) if assigned else None),
+        "anchor_instant_hidden": any(
+            tiers[side].get("anchor_frame") in ("hidden", "out_of_view")
+            for side in referents),
+        "query_instant_hidden": any(
+            tiers[side].get("query_frame") in ("hidden", "out_of_view")
+            for side in referents),
+        "frame_edge_cut": frame_edge_cut,
+        "referent_frames_below_placeholder_thresholds": below_threshold_frames,
+        "tier_visible_fraction_edges": edges,
+        "status": policy.get("status", PIXEL_THRESHOLD_STATUS_DEFAULT),
+        "note": ("tiers are research placeholders derived from the two "
+                 "declared frames; they are recorded under both policies and "
+                 "gate nothing under the threshold policy"),
+    }
     bindings = {
         "anchor_frame": frames["anchor_frame"],
         "query_frame": frames["query_frame"],
@@ -171,6 +344,10 @@ def evaluate_card1(fact, pixel_truth, params=None):
         "requirements": dict(CARD1_FRAME_REQUIREMENTS),
         "thresholds": thresholds,
         "threshold_status": thresholds["status"],
+        "acceptance_policy": policy,
+        "difficulty": difficulty,
+        "visibility_timeline": timelines,
+        "occluder_statistics_available": arrays is not None,
         "evaluations": evaluations,
         "line_of_sight_role": LINE_OF_SIGHT_ROLE,
         "mcq_truth_option": fact["mcq"]["truth_option"],
@@ -179,7 +356,7 @@ def evaluate_card1(fact, pixel_truth, params=None):
     return bindings, reasons
 
 
-def evaluate(fact, pixel_truth, params=None):
+def evaluate(fact, pixel_truth, params=None, arrays=None):
     profile_id = fact.get("profile_id")
     if profile_id not in SUPPORTED:
         raise ValueError(f"unsupported pixel join profile: {profile_id!r}")
@@ -187,7 +364,7 @@ def evaluate(fact, pixel_truth, params=None):
     reasons = []
     bindings = {}
     if profile_id in CARD1:
-        bindings, reasons = evaluate_card1(fact, pixel_truth, params)
+        bindings, reasons = evaluate_card1(fact, pixel_truth, params, arrays)
     elif profile_id == "card11":
         frame = CARD11_BINDING_FRAME
         visible = [states.get(f"source{i}", {}).get(frame) for i in range(1, 4)]
@@ -267,6 +444,9 @@ def main(argv=None):
     parser.add_argument("--params", type=Path, default=None,
                         help="explicit pixel thresholds for card1F/card1B; "
                              "required when the fact carries none")
+    parser.add_argument("--pixel-arrays", type=Path, default=None,
+                        help="depth arrays saved by the capture tool; defaults "
+                             f"to {DEPTH_ARRAYS_FILENAME} beside the truth")
     parser.add_argument("--output", required=True, type=Path)
     args = parser.parse_args(argv)
     if args.output.exists() or args.output.is_symlink():
@@ -275,8 +455,9 @@ def main(argv=None):
     fact_path = args.fact.resolve()
     pixel_path = args.pixel_truth.resolve()
     params = _read(args.params.resolve()) if args.params else None
+    arrays, arrays_path = load_depth_arrays(pixel_path, args.pixel_arrays)
     try:
-        result = evaluate(_read(fact_path), _read(pixel_path), params)
+        result = evaluate(_read(fact_path), _read(pixel_path), params, arrays)
     except ValueError as exc:
         print(f"pixel join refused: {exc}", file=sys.stderr)
         return 2
@@ -294,6 +475,11 @@ def main(argv=None):
         result["inputs"]["params"] = {
             "path": str(args.params.resolve()),
             "sha256": sha256_file(args.params.resolve()),
+        }
+    if arrays_path is not None:
+        result["inputs"]["pixel_arrays"] = {
+            "path": str(arrays_path.resolve()),
+            "sha256": sha256_file(arrays_path.resolve()),
         }
     args.output.parent.mkdir(parents=True, exist_ok=True)
     _write(args.output, result)

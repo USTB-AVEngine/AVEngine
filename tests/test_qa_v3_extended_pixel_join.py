@@ -9,9 +9,20 @@ from pathlib import Path
 TOOLS = Path(__file__).resolve().parents[1] / "tools" / "qa"
 sys.path.insert(0, str(TOOLS))
 
+import numpy as np
 import pytest
 
-from join_qa_v3_extended_pixel import evaluate, main  # noqa: E402
+from join_qa_v3_extended_pixel import (  # noqa: E402
+    evaluate,
+    main,
+    occluder_statistics,
+    visibility_timeline,
+)
+from qa_v3_pixel_thresholds import (  # noqa: E402
+    card1_pixel_acceptance_block,
+    pixel_policy_from_params,
+    tier_for_frame,
+)
 
 
 def _pixel(states, frame):
@@ -268,6 +279,162 @@ def test_card1_cli_records_params_and_refuses_without_thresholds(tmp_path):
     assert result["status"] == "pixel_rejected"
     assert result["inputs"]["params"]["path"] == str(params.resolve())
     assert len(result["inputs"]["params"]["sha256"]) == 64
+
+
+TIER_PARAMS = dict(PIXEL_PARAMS,
+                   PIXEL_ACCEPTANCE_POLICY="camera_blockage_reject_then_tier",
+                   PIXEL_CAMERA_BLOCKAGE_MAX_DISTANCE_M=1.5,
+                   PIXEL_TIER_VISIBLE_FRACTION_EDGES=[0.5, 0.2])
+SENTINEL = 65504.0
+
+
+def _depth_arrays(truth, occluders):
+    """Tiny 4x4 depth frames: occluders[(slot, frame)] = (target_m, occluder_m,
+    hidden_cells).  Footprint = first row; hidden cells sit in front of it."""
+    frames = list(truth["frame_indices"])
+    arrays = {"normal_depth_m": np.full((len(frames), 4, 4), 9.0, np.float32)}
+    for slot in truth["per_instance"]:
+        arrays[f"target_only_{slot}_depth_m"] = np.full(
+            (len(frames), 4, 4), SENTINEL, np.float32)
+    for (slot, frame), (target_m, occluder_m, hidden_cells) in occluders.items():
+        k = frames.index(frame)
+        arrays[f"target_only_{slot}_depth_m"][k, 0, :] = target_m
+        arrays["normal_depth_m"][k, 0, :] = target_m
+        arrays["normal_depth_m"][k, 0, :hidden_cells] = occluder_m
+    return arrays
+
+
+def _truth_with_frames(main_anchor, main_query, gatea_anchor, gatea_query):
+    truth = _card1_truth(main_anchor, main_query, gatea_anchor, gatea_query)
+    truth["frame_indices"] = [40, 74]
+    truth["depth_comparison"] = {"target_only_background_depth_m": SENTINEL,
+                                 "absolute_tolerance_m": 0.01,
+                                 "relative_tolerance": 0.002}
+    return truth
+
+
+def test_tier_policy_keeps_far_occlusion_as_a_difficulty_tier():
+    """card1F_002-like: Gate A referent 10% visible behind a far curtain."""
+    truth = _truth_with_frames(
+        _card1_frame(40, pixels=9720, fraction=0.817),
+        _card1_frame(74, pixels=8735, fraction=0.967),
+        _card1_frame(40, pixels=1477, fraction=0.528),
+        _card1_frame(74, pixels=198, fraction=0.105))
+    arrays = _depth_arrays(truth, {("source1", 74): (4.5, 4.2, 3)})
+    result = evaluate(_card1_fact(), truth, TIER_PARAMS, arrays)
+    assert result["status"] == "pass"
+    assert result["rejection_reasons"] == []
+    difficulty = result["bindings"]["difficulty"]
+    assert difficulty["worst_tier"] == "heavy"
+    assert difficulty["tiers"]["gatea"]["query_frame"] == "heavy"
+    assert difficulty["tiers"]["main"]["anchor_frame"] == "light"
+    assert difficulty["anchor_instant_hidden"] is False
+    assert difficulty["referent_frames_below_placeholder_thresholds"] == 1
+    gatea_query = result["bindings"]["evaluations"]["gatea"]["query_frame"]
+    assert gatea_query["occluder"]["occluder_median_depth_m"] == pytest.approx(4.2)
+    assert gatea_query["camera_side_blockage"] is False
+    assert result["bindings"]["acceptance_policy"]["policy"] == \
+        "camera_blockage_reject_then_tier"
+    assert result["bindings"]["acceptance_policy"]["source"] == "params"
+
+
+def test_tier_policy_rejects_only_camera_side_blockage():
+    """card1B_010-like: a floor-lamp shade 0.3 m from the lens hides the dog."""
+    truth = _truth_with_frames(
+        _card1_frame(40, pixels=0, fraction=0.0, state="fully_occluded"),
+        _card1_frame(74, pixels=8735, fraction=0.967),
+        _card1_frame(40, pixels=1477, fraction=0.528),
+        _card1_frame(74, pixels=0, fraction=0.0, state="fully_occluded"))
+    arrays = _depth_arrays(truth, {("source2", 40): (5.5, 0.3, 4),
+                                   ("source1", 74): (6.8, 4.1, 4)})
+    result = evaluate(_card1_fact(), truth, TIER_PARAMS, arrays)
+    assert result["status"] == "pixel_rejected"
+    assert result["rejection_reasons"] == [
+        "main_referent_anchor_frame_camera_side_blockage"]
+    difficulty = result["bindings"]["difficulty"]
+    assert difficulty["worst_tier"] == "hidden"
+    assert difficulty["anchor_instant_hidden"] is True
+    assert difficulty["query_instant_hidden"] is True
+    # the far occluder (4.1 m) at the Gate A query frame stays a tier, not a reject
+    assert result["bindings"]["evaluations"]["gatea"]["query_frame"][
+        "camera_side_blockage"] is False
+    # the historical policy on the same evidence rejects both hidden frames
+    strict = evaluate(_card1_fact(), truth, PIXEL_PARAMS, arrays)
+    assert strict["status"] == "pixel_rejected"
+    assert "gatea_referent_query_frame_not_visible_state" in strict["rejection_reasons"]
+    assert strict["bindings"]["difficulty"]["worst_tier"] == "hidden"
+
+
+def test_tier_policy_fails_closed_without_depth_arrays_and_on_policy_mismatch():
+    truth = _truth_with_frames(
+        _card1_frame(40, pixels=9720, fraction=0.817),
+        _card1_frame(74, pixels=8735, fraction=0.967),
+        _card1_frame(40, pixels=1477, fraction=0.528),
+        _card1_frame(74, pixels=1400, fraction=0.7))
+    with pytest.raises(ValueError, match="depth arrays"):
+        evaluate(_card1_fact(), truth, TIER_PARAMS)
+    fact = _card1_fact(with_thresholds=True)
+    fact["pixel_acceptance"]["acceptance_policy"] = {
+        "policy": "both_frames_threshold_reject"}
+    arrays = _depth_arrays(truth, {})
+    with pytest.raises(ValueError, match="acceptance policy policy differs"):
+        evaluate(fact, truth, TIER_PARAMS, arrays)
+    with pytest.raises(ValueError, match="explicit"):
+        pixel_policy_from_params(dict(PIXEL_PARAMS,
+                                      PIXEL_ACCEPTANCE_POLICY="camera_blockage_reject_then_tier"))
+    with pytest.raises(ValueError, match="unknown PIXEL_ACCEPTANCE_POLICY"):
+        pixel_policy_from_params(dict(PIXEL_PARAMS, PIXEL_ACCEPTANCE_POLICY="x"))
+    block = card1_pixel_acceptance_block(
+        TIER_PARAMS, target_slot="source2", other_slot="source1",
+        anchor_frame=40, query_frame=74)
+    assert block["acceptance_policy"]["camera_blockage_max_distance_m"] == 1.5
+    assert tier_for_frame("visible_occluded", 0.49, [0.5, 0.2]) == "medium"
+    assert tier_for_frame("visible_occluded", 0.1, [0.5, 0.2]) == "heavy"
+    assert tier_for_frame("fully_occluded", 0.0, [0.5, 0.2]) == "hidden"
+    assert tier_for_frame("out_of_view", None, [0.5, 0.2]) == "out_of_view"
+
+
+def test_visibility_timeline_uses_every_captured_frame():
+    truth = _truth_with_frames(
+        _card1_frame(40, pixels=9720, fraction=0.817),
+        _card1_frame(74, pixels=8735, fraction=0.967),
+        _card1_frame(40, pixels=1477, fraction=0.528),
+        _card1_frame(74, pixels=0, fraction=0.0, state="fully_occluded"))
+    truth["per_instance"]["source1"]["frames"] += [
+        _card1_frame(60, pixels=0, fraction=0.0, state="fully_occluded"),
+        _card1_frame(70, pixels=0, fraction=0.0, state="fully_occluded"),
+        _card1_frame(20, pixels=800, fraction=0.3),
+    ]
+    truth["frame_indices"] = [20, 40, 60, 70, 74]
+    timeline = visibility_timeline(truth, "source1", 40, 74)
+    assert timeline["captured_frame_indices"] == [20, 40, 60, 70, 74]
+    assert timeline["visible_frame_count"] == 2
+    assert timeline["visible_frame_fraction"] == pytest.approx(0.4)
+    assert timeline["hidden_captured_frames_ending_at_query"] == 3
+    assert timeline["nearest_visible_captured_frame_distance_to_anchor"] == 0
+    assert occluder_statistics(None, truth, "source1", 74) is None
+
+
+def test_cli_reads_depth_arrays_beside_the_truth(tmp_path):
+    truth = _truth_with_frames(
+        _card1_frame(40, pixels=9720, fraction=0.817),
+        _card1_frame(74, pixels=8735, fraction=0.967),
+        _card1_frame(40, pixels=1477, fraction=0.528),
+        _card1_frame(74, pixels=198, fraction=0.105))
+    arrays = _depth_arrays(truth, {("source1", 74): (4.5, 4.2, 3)})
+    (tmp_path / "pixel_visibility_truth.json").write_text(json.dumps(truth))
+    np.savez_compressed(tmp_path / "native_depth_and_object_ids.npz", **arrays)
+    fact = tmp_path / "fact.json"; fact.write_text(json.dumps(_card1_fact()))
+    params = tmp_path / "params.json"; params.write_text(json.dumps(TIER_PARAMS))
+    output = tmp_path / "join.json"
+    assert main(["--fact", str(fact),
+                 "--pixel-truth", str(tmp_path / "pixel_visibility_truth.json"),
+                 "--params", str(params), "--output", str(output)]) == 0
+    result = json.loads(output.read_text())
+    assert result["status"] == "pass"
+    assert result["bindings"]["difficulty"]["worst_tier"] == "heavy"
+    assert result["inputs"]["pixel_arrays"]["path"].endswith(
+        "native_depth_and_object_ids.npz")
 
 
 def test_cli_binds_fact_and_pixel_inputs(tmp_path):
