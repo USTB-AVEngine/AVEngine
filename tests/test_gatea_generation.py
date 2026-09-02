@@ -21,6 +21,7 @@ from design_qa_v3_scene_batch import (  # noqa: E402
     build_cell_plan,
     build_answer,
     materialize_derived_params,
+    realized_cross_time_checks,
     resolve_scene_render_context,
     validate_anchor_binding,
     validate_profiles,
@@ -158,6 +159,88 @@ def test_materialized_params_fail_closed_only_when_first_call_profiles_exist():
     derived = materialize_derived_params(dict(base, T_FULL=0.5), [CARD8_PROFILE])
     assert derived["BANDS_CARD8"] == [0.35, 1.2875, 2.225, 3.1625, 4.1]
     assert derived["CARD8_FIRST_CALL_SCORING"]["min_first_call_separation_s"] == 1.0
+
+
+def _timeline(target_slot, other_slot, angles, distance=300.0):
+    """75-frame timeline; camera at origin facing +x; angles per frame index."""
+    import math
+    frames = []
+    for index in range(75):
+        states = []
+        for slot in (target_slot, other_slot):
+            angle = angles[slot].get(index, 0.0)
+            states.append({
+                "source_slot_id": slot,
+                "translation_ue_cm": [distance * math.cos(math.radians(angle)),
+                                      distance * math.sin(math.radians(angle)),
+                                      0.0]})
+        frames.append({"frame_index": index,
+                       "camera": {"translation_ue_cm": [0.0, 0.0, 147.0],
+                                  "yaw_ue_deg": 0.0},
+                       "actor_states": states})
+    return {"frames": frames}
+
+
+CARD1_PROFILE = {"id": "card1F", "temporal": "forward",
+                 "answer_kind": "azimuth_band",
+                 "answer_bands_deg": [[-52.5, -17.5], [-17.5, 17.5],
+                                      [17.5, 52.5]],
+                 "anchor_frame": 40, "idle_choices": [0], "anchor_binding": "target"}
+CARD1_CELL = {"anchor_band": (-17.5, 17.5), "answer_band": (17.5, 52.5)}
+CARD1_PARAMS = {"THETA_FULL": 15.0, "THETA_HALF": 30.0}
+
+
+def test_realized_timeline_rejects_a_plan_that_only_passed_on_paper():
+    """Plan gap > THETA_HALF, realized gap <= THETA_HALF: must be refused."""
+    plan_checks = {"az_anchor_deg": 9.415, "az_end_deg": 40.496}
+    timeline = _timeline("source2", "source1", {
+        "source2": {40: 15.0, 74: 40.5},      # realized gap 25.5 <= 30
+        "source1": {40: -36.6, 74: -31.7},
+    })
+    with pytest.raises(GenerationConstraintError,
+                       match="realized_anchor_answer_scores_zero") as exc:
+        realized_cross_time_checks(
+            timeline, profile=CARD1_PROFILE, cell=CARD1_CELL,
+            target_slot="source2", other_slot="source1", anchor_frame=40,
+            query_frame=74, params=CARD1_PARAMS, plan_checks=plan_checks)
+    assert "planning value" in str(exc.value)
+
+
+def test_realized_timeline_rejects_anchor_that_drifted_out_of_its_band():
+    timeline = _timeline("source2", "source1", {
+        "source2": {40: 20.0, 74: 52.0},      # gap 32 but anchor left the band
+        "source1": {40: -36.6, 74: -31.7},
+    })
+    with pytest.raises(GenerationConstraintError,
+                       match="realized_anchor_in_allocated_band"):
+        realized_cross_time_checks(
+            timeline, profile=CARD1_PROFILE, cell=CARD1_CELL,
+            target_slot="source2", other_slot="source1", anchor_frame=40,
+            query_frame=74, params=CARD1_PARAMS,
+            plan_checks={"az_anchor_deg": 9.415, "az_end_deg": 40.496})
+
+
+def test_realized_timeline_passes_and_reports_planning_deviation():
+    timeline = _timeline("source2", "source1", {
+        "source2": {40: 8.451, 74: 40.496},   # Kujiale card1F_002 realized
+        "source1": {40: -36.576, 74: -31.711},
+    })
+    checks = realized_cross_time_checks(
+        timeline, profile=CARD1_PROFILE, cell=CARD1_CELL,
+        target_slot="source2", other_slot="source1", anchor_frame=40,
+        query_frame=74, params=CARD1_PARAMS,
+        plan_checks={"az_anchor_deg": 9.415, "az_end_deg": 40.496})
+    assert checks["passed"] and checks["failed"] == []
+    assert checks["provenance"] == "final_timeline_recompute_after_camera_pose"
+    assert checks["main"]["anchor_azimuth_deg"] == pytest.approx(8.451, abs=1e-6)
+    assert checks["main"]["query_azimuth_deg"] == pytest.approx(40.496, abs=1e-6)
+    assert checks["gatea"]["query_azimuth_deg"] == pytest.approx(-31.711, abs=1e-6)
+    assert checks["mcq_gold_flipped"] is True
+    assert checks["open_gold_regions_disjoint"] is True
+    deviation = checks["planned_vs_realized"]
+    assert deviation["planned_anchor_azimuth_deg_planning_value_only"] == 9.415
+    assert deviation["anchor_deviation_deg"] == pytest.approx(0.964, abs=1e-6)
+    assert checks["realized_anchor_answer_scores_zero"] is True
 
 
 def test_gatea_rejects_non_slot_audio_mutation():

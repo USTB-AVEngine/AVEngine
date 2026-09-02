@@ -313,6 +313,117 @@ def audit_gatea_pair(profile, main_program, gatea_program, main_answer,
     return checks
 
 
+REALIZED_CARD1_GATES = (
+    "realized_anchor_in_allocated_band",
+    "realized_query_in_answer_band",
+    "realized_anchor_answer_scores_zero",
+    "mcq_gold_flipped",
+    "open_gold_regions_disjoint",
+)
+
+
+def realized_cross_time_checks(timeline, *, profile, cell, target_slot,
+                               other_slot, anchor_frame, query_frame, params,
+                               plan_checks=None):
+    """Fail-closed card1 acceptance on the **final** timeline.
+
+    The solver plans angles on the pre-authoring route; idle-then-walk
+    authoring and camera-pose application can move the realized anchor by a
+    fraction of a frame (Kujiale card1F_002: planning value 9.415 deg, realized
+    8.451 deg).  A borderline plan can therefore pass at plan time and fail on
+    the clip that is actually rendered, so every acceptance gate is recomputed
+    here from the timeline: allocated anchor band, answer band, zero Open
+    credit for the audible anchor angle, Gate A MCQ flip and Gate A Open
+    separation.  Plan values are reported only as planning values.
+    """
+    theta_full = float(params["THETA_FULL"])
+    theta_half = float(params["THETA_HALF"])
+    bands = [tuple(float(v) for v in band) for band in profile["answer_bands_deg"]]
+
+    def band_index(value):
+        return next((index for index, (lo, hi) in enumerate(bands)
+                     if lo <= value < hi), None)
+
+    def open_score(gap):
+        return 1.0 if gap <= theta_full else 0.5 if gap <= theta_half else 0.0
+
+    def side(slot):
+        anchor = recompute_azimuth(timeline, slot, anchor_frame)
+        query = recompute_azimuth(timeline, slot, query_frame)
+        gap = SS.circular_gap_deg(anchor, query)
+        return {
+            "slot": slot,
+            "anchor_azimuth_deg": anchor,
+            "query_azimuth_deg": query,
+            "anchor_query_gap_deg": gap,
+            "anchor_band_index": band_index(anchor),
+            "query_band_index": band_index(query),
+            "anchor_angle_open_score_as_answer": open_score(gap),
+        }
+
+    main = side(target_slot)
+    gatea = side(other_slot)
+    allocated = cell.get("anchor_band")
+    answer_band = tuple(float(v) for v in cell["answer_band"])
+    plan_checks = plan_checks or {}
+    planned_anchor = plan_checks.get("az_anchor_deg")
+    planned_query = plan_checks.get("az_end_deg", plan_checks.get("az_query_deg"))
+    checks = {
+        "provenance": "final_timeline_recompute_after_camera_pose",
+        "anchor_frame": int(anchor_frame),
+        "query_frame": int(query_frame),
+        "theta_full_deg": theta_full,
+        "theta_half_deg": theta_half,
+        "main": main,
+        "gatea": gatea,
+        "allocated_anchor_band": (list(allocated) if allocated is not None
+                                  else None),
+        "answer_band": list(answer_band),
+        "realized_anchor_in_allocated_band": (
+            allocated is None
+            or float(allocated[0]) <= main["anchor_azimuth_deg"]
+            < float(allocated[1])),
+        "realized_query_in_answer_band": (
+            answer_band[0] <= main["query_azimuth_deg"] < answer_band[1]),
+        "realized_anchor_answer_scores_zero": SS.open_angle_candidate_scores_zero(
+            main["anchor_azimuth_deg"], main["query_azimuth_deg"], theta_half),
+        "mcq_gold_flipped": (
+            main["query_band_index"] is not None
+            and gatea["query_band_index"] is not None
+            and main["query_band_index"] != gatea["query_band_index"]),
+        "open_gold_separation_deg": SS.circular_gap_deg(
+            main["query_azimuth_deg"], gatea["query_azimuth_deg"]),
+        "open_gold_min_separation_deg": 2.0 * theta_half,
+        "open_gold_regions_disjoint": SS.open_angle_gold_regions_disjoint(
+            main["query_azimuth_deg"], gatea["query_azimuth_deg"], theta_half),
+        "planned_vs_realized": {
+            "planned_anchor_azimuth_deg_planning_value_only": planned_anchor,
+            "planned_query_azimuth_deg_planning_value_only": planned_query,
+            "anchor_deviation_deg": (
+                SS.circular_gap_deg(float(planned_anchor),
+                                    main["anchor_azimuth_deg"])
+                if planned_anchor is not None else None),
+            "query_deviation_deg": (
+                SS.circular_gap_deg(float(planned_query),
+                                    main["query_azimuth_deg"])
+                if planned_query is not None else None),
+        },
+        "gates": list(REALIZED_CARD1_GATES),
+    }
+    failed = [name for name in REALIZED_CARD1_GATES if not checks[name]]
+    checks["failed"] = failed
+    checks["passed"] = not failed
+    if failed:
+        raise GenerationConstraintError(
+            f"{profile['id']} realized timeline failed {failed}: main anchor "
+            f"{main['anchor_azimuth_deg']:.3f} deg, main query "
+            f"{main['query_azimuth_deg']:.3f} deg, gap "
+            f"{main['anchor_query_gap_deg']:.3f} deg, Gate A query "
+            f"{gatea['query_azimuth_deg']:.3f} deg; planning value for the "
+            f"anchor was {planned_anchor}")
+    return checks
+
+
 def validate_anchor_binding(profile, schedule, slot_events, *, target_slot,
                             query_frame, answer):
     """Cross-check a profile's declared audio selector against bound events."""
@@ -984,6 +1095,19 @@ def realise_point(pid, cell, plan, scene, base_request, params, by_id, args,
         profile, schedule, gatea_slot_events,
         target_slot=gatea_target_slot, query_frame=plan.query_frame,
         answer=gatea_answer)
+    # 最终时间线才是验收权威:错时方位题在这里重算主题与 Gate A 指代者的
+    # 锚角/查询角并 fail-closed;像素可答性阈值随事实记录一起显式声明。
+    if answer_kind == "azimuth_band" and profile["temporal"] in (
+            "forward", "backward"):
+        fact["planned_generation_checks"] = dict(
+            copy.deepcopy(plan.checks),
+            provenance="solver_plan_before_timeline_authoring",
+            role="planning_values_only_not_acceptance")
+        fact["realized_generation_checks"] = realized_cross_time_checks(
+            timeline, profile=profile, cell=cell, target_slot=target_slot,
+            other_slot=other_slot, anchor_frame=plan.anchor_frame,
+            query_frame=query_frame, params=params, plan_checks=plan.checks)
+        fact["acceptance_authority"] = "realized_generation_checks"
     gatea_fact = copy.deepcopy(fact)
     gatea_fact.update({
         "variant": "gateA",

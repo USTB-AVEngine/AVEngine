@@ -93,6 +93,38 @@ def test_card11_rejects_old_event_frame_and_out_of_view_policy(tmp_path):
     assert "rerun_pixel_join" in result["actions"]
 
 
+def _card1_fact(allocated, gold="[17.5, 52.5)"):
+    return {
+        "target_slot": "source1", "anchor_frame": 0, "query_frame": 74,
+        "audio": {"events": [{"role": "target_actor"},
+                             {"role": "non_target_actor"}]},
+        "generation_checks": {"allocated_anchor_band": allocated,
+                              "az_anchor_deg": 9.415},
+        "mcq": {"options_space": ["[-52.5, -17.5)", "[-17.5, 17.5)",
+                                  "[17.5, 52.5)"],
+                "truth_option": gold},
+    }
+
+
+def test_card1_realized_anchor_outside_allocated_band_needs_resampling(tmp_path):
+    # timeline: source1 moves from y=0 (anchor az 0) to y=300 (query az 45)
+    fine = audit_candidate(
+        _candidate(tmp_path, "card1F", _card1_fact([-17.5, 17.5])), PARAMS)
+    assert fine["status"] == "prescale_structure_pass"
+    assert fine["checks"]["realized_anchor_in_allocated_band"] is True
+    assert fine["checks"]["angle_source"] == "final_timeline_recompute"
+    assert fine["checks"]["planned_vs_realized_anchor_deviation_deg"] == \
+        pytest.approx(9.415)
+    drifted = audit_candidate(
+        _candidate(tmp_path, "card1F", _card1_fact([17.5, 52.5])), PARAMS)
+    assert drifted["status"] == "geometry_resample_required"
+    assert "realized_anchor_outside_allocated_band" in drifted["reasons"]
+    wrong_gold = audit_candidate(
+        _candidate(tmp_path, "card1F",
+                   _card1_fact([-17.5, 17.5], gold="[-17.5, 17.5)")), PARAMS)
+    assert "realized_query_outside_gold_answer_band" in wrong_gold["reasons"]
+
+
 def test_card8_uses_derived_minimum_separation_and_output_embeds_params(tmp_path):
     fact = {"truth": {"first_onset_s": 0.5, "non_target_first_onset_s": 1.6},
             "open": {"certification_policy": "strict_full_credit_only"}}

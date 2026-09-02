@@ -49,6 +49,18 @@ def _frame_span(event):
     return start * 3 // 3200, min(75, -(-(end * 3) // 3200))
 
 
+def _band_edges_from_labels(labels):
+    """Parse '[lo, hi)' MCQ labels back into numeric half-open bands."""
+    bands = []
+    for label in labels:
+        text = str(label).strip()
+        if not (text.startswith("[") and text.endswith(")")):
+            return None
+        lo, hi = text[1:-1].split(",")
+        bands.append((float(lo), float(hi)))
+    return bands
+
+
 def scoring_snapshot(params):
     """The parameters this audit actually executes; fail closed when absent."""
     if "THETA_HALF" not in params:
@@ -91,6 +103,9 @@ def audit_candidate(candidate, params):
             actions.add("regenerate_audio_and_fact")
             reasons.append("card1_target_sounded_outside_identity_anchor")
         timeline = _read(artifacts["timeline"])
+        # Realized values come from the final timeline only.  The solver plan
+        # (generation_checks.az_anchor_deg) is a planning value: recorded for
+        # the deviation report, never trusted for a decision.
         anchor = recompute_azimuth(
             timeline, fact["target_slot"], int(fact["anchor_frame"]))
         query = recompute_azimuth(
@@ -98,11 +113,17 @@ def audit_candidate(candidate, params):
         gap = circular_gap_deg(anchor, query)
         zero = open_angle_candidate_scores_zero(
             anchor, query, float(params["THETA_HALF"]))
+        planned = (fact.get("generation_checks") or {}).get("az_anchor_deg")
         checks.update({
+            "angle_source": "final_timeline_recompute",
             "anchor_azimuth_deg": anchor,
             "query_azimuth_deg": query,
             "anchor_query_gap_deg": gap,
             "anchor_answer_scores_zero": zero,
+            "planned_anchor_azimuth_deg_planning_value_only": planned,
+            "planned_vs_realized_anchor_deviation_deg": (
+                circular_gap_deg(float(planned), anchor)
+                if planned is not None else None),
         })
         if not zero:
             actions.add("resample_geometry")
@@ -113,6 +134,24 @@ def audit_candidate(candidate, params):
         if allocated is None:
             actions.add("pool_joint_rebalance")
             reasons.append("anchor_band_query_band_stratum_not_recorded")
+        else:
+            inside = float(allocated[0]) <= anchor < float(allocated[1])
+            checks["realized_anchor_in_allocated_band"] = inside
+            if not inside:
+                actions.add("resample_geometry")
+                reasons.append("realized_anchor_outside_allocated_band")
+        bands = _band_edges_from_labels(
+            (fact.get("mcq") or {}).get("options_space") or [])
+        gold = (fact.get("mcq") or {}).get("truth_option")
+        if bands and gold is not None:
+            labels = list(fact["mcq"]["options_space"])
+            realized_band = next(
+                (labels[index] for index, (lo, hi) in enumerate(bands)
+                 if lo <= query < hi), None)
+            checks["realized_query_band"] = realized_band
+            if realized_band != gold:
+                actions.add("resample_geometry")
+                reasons.append("realized_query_outside_gold_answer_band")
 
     if profile == "card5R":
         target_events = [event for event in fact["audio"]["events"]
