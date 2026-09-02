@@ -158,6 +158,7 @@ video{width:100%;max-height:520px;background:#111;border-radius:10px}label{displ
 button{padding:.7rem 1.1rem;margin:.4rem .4rem .4rem 0;border:0;border-radius:9px;background:#1769e0;color:white;font-size:1rem}
 button:disabled{background:#aeb7c4}.muted{color:#667085}.notice{background:#fff4d6;padding:.7rem;border-radius:8px}
 input[type=text],input[type=number]{padding:.55rem;border:1px solid #aeb7c4;border-radius:7px;font-size:1rem}
+textarea{width:100%;box-sizing:border-box;padding:.6rem;border:1px solid #aeb7c4;border-radius:7px;font:13px ui-monospace,monospace}
 </style>
 <h1>QA v3 音视频试听</h1>
 <p class="notice">请戴双声道耳机。每题最多从头播放两次；页面不显示时间轴，也不能拖动或调速。</p>
@@ -171,10 +172,12 @@ input[type=text],input[type=number]{padding:.55rem;border:1px solid #aeb7c4;bord
 <label>置信度（1–5） <input id="confidence" type="number" min="1" max="5"></label>
 <button id="next">保存并进入下一题</button></div></div>
 <div id="done" class="card" hidden><h2>完成</h2><p>请下载结果文件并交给研究人员。</p>
-<button id="download">下载回答 JSON</button></div>
+<button id="download">下载回答 JSON</button><button id="copy">复制 JSON</button>
+<textarea id="resultText" rows="10" readonly aria-label="回答 JSON"></textarea></div>
 <p class="muted">本页面不会加载答案文件。</p>
 <script>
 let items=[],order=[],at=0,responses=[],plays=0,completed=false; const $=id=>document.getElementById(id);
+function payload(){return JSON.stringify({schema:'qa_v3_human_calibration_responses_v1',responses},null,2);}
 function show(){const x=items[order[at]];plays=0;completed=false;$('progress').textContent=`第 ${at+1} / ${order.length} 题`;
 $('mainQuestion').textContent=x.numeric.stem;$('video').src=x.media;$('video').load();$('answers').hidden=true;
 $('bindingStem').textContent=x.binding.stem;$('numericStem').textContent=x.numeric.stem;$('unit').textContent=x.numeric.unit;
@@ -192,9 +195,11 @@ $('next').onclick=()=>{const x=items[order[at]],b=document.querySelector('input[
 if(!completed)return alert('请先完整播放视频');if(!b||$('numeric').value===''||!$('confidence').value)return alert('请完成三个答案');
 responses.push({participant_id:$('participant').value.trim(),item_id:x.item_id,presentation_index:at,play_count:plays,
 binding_answer:b.value,numeric_answer:Number($('numeric').value),confidence:Number($('confidence').value)});
-at++;if(at<order.length)show();else{$('study').hidden=true;$('done').hidden=false;}};
-$('download').onclick=()=>{const blob=new Blob([JSON.stringify({schema:'qa_v3_human_calibration_responses_v1',responses},null,2)],{type:'application/json'});
+at++;if(at<order.length)show();else{$('study').hidden=true;$('done').hidden=false;$('resultText').value=payload();}};
+$('download').onclick=()=>{const blob=new Blob([payload()],{type:'application/json'});
 const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=`qa_v3_${$('participant').value.trim()}.json`;a.click();};
+$('copy').onclick=async()=>{const text=payload();try{await navigator.clipboard.writeText(text);$('copy').textContent='已复制';}
+catch(e){$('resultText').focus();$('resultText').select();document.execCommand('copy');$('copy').textContent='已复制';}};
 </script></html>"""
 
 

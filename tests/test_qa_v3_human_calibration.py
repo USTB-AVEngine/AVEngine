@@ -54,6 +54,8 @@ def test_pack_hides_gold_and_binds_copied_media(tmp_path):
     assert "<video id=\"video\" controls" not in html
     assert "play_count" in html
     assert "plays>=2" in html
+    assert "resultText" in html
+    assert "复制 JSON" in html
 
 
 def test_preview_limit_keeps_one_item_per_profile(tmp_path):
