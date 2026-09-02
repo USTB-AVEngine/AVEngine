@@ -10,13 +10,14 @@ record and this join output; they are not human-calibrated admission values.
 Line-of-sight screening is a search-time prefilter and is never accepted here
 as pixel evidence.
 
-Two acceptance policies exist for card1F / card1B.  The historical
-``both_frames_threshold_reject`` rejects any referent/frame below the
-thresholds.  The owner's ``camera_blockage_reject_then_tier`` policy keeps
-partially or momentarily hidden dogs as difficulty tiers and rejects only when
-the occluder sits close to the lens (camera-side blockage), which needs the
-captured depth arrays next to the pixel truth.  Every captured frame also feeds
-a per-referent visibility timeline so tiers can later use whole-clip evidence.
+Two acceptance policies exist for card1F / card1B.  The default (owner
+decision 2026-09-02) is ``camera_blockage_reject_then_tier``: partially or
+momentarily hidden dogs are difficulty tiers and a candidate is rejected only
+when the occluder sits close to the lens (camera-side blockage), which needs
+the captured depth arrays next to the pixel truth.  The historical
+``both_frames_threshold_reject`` policy, which rejects any referent/frame below
+the thresholds, stays selectable by name.  Every captured frame also feeds a
+per-referent visibility timeline so tiers can later use whole-clip evidence.
 """
 
 from __future__ import annotations
@@ -121,12 +122,16 @@ def card1_pixel_policy(fact, params=None):
                     f"acceptance policy {key} differs between the fact "
                     f"({from_fact.get(key)!r}) and params "
                     f"({from_params.get(key)!r})")
-    chosen = dict(from_fact or from_params or
-                  {"policy": PIXEL_POLICY_THRESHOLD_REJECT,
-                   "status": PIXEL_THRESHOLD_STATUS_DEFAULT})
+    if from_fact is None and from_params is None:
+        raise ValueError(
+            "card1 pixel join needs an acceptance policy: either the fact "
+            "carries pixel_acceptance.acceptance_policy or --params names "
+            "PIXEL_ACCEPTANCE_POLICY (default is the tier policy, which also "
+            "needs PIXEL_CAMERA_BLOCKAGE_MAX_DISTANCE_M and "
+            "PIXEL_TIER_VISIBLE_FRACTION_EDGES)")
+    chosen = dict(from_fact if from_fact is not None else from_params)
     chosen["source"] = ("fact_pixel_acceptance" if from_fact is not None
-                        else "params" if from_params is not None
-                        else "default_historical")
+                        else "params")
     return chosen
 
 

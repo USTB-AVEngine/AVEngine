@@ -132,11 +132,14 @@ def test_card16_binds_main_and_gatea_to_distinct_final_states():
     ]
 
 
+# the historical threshold policy must now be named explicitly; the owner's
+# tier policy is the default (see TIER_PARAMS below)
 PIXEL_PARAMS = {
     "PIXEL_MIN_VISIBLE_FRACTION": 0.5,
     "PIXEL_MIN_VISIBLE_PIXELS": 1000,
     "PIXEL_BBOX_MUST_NOT_TOUCH_FRAME_EDGE": True,
     "PIXEL_THRESHOLD_STATUS": "placeholder_research",
+    "PIXEL_ACCEPTANCE_POLICY": "both_frames_threshold_reject",
 }
 
 
@@ -168,10 +171,13 @@ def _card1_fact(profile_id="card1F", anchor_frame=40, query_frame=74,
         "open": {"truth_value": 40.496},
     }
     if with_thresholds:
-        fact["pixel_acceptance"] = {"thresholds": {
-            "min_visible_fraction": 0.5, "min_visible_pixels": 1000,
-            "bbox_must_not_touch_frame_edge": True,
-            "status": "placeholder_research"}}
+        fact["pixel_acceptance"] = {
+            "thresholds": {
+                "min_visible_fraction": 0.5, "min_visible_pixels": 1000,
+                "bbox_must_not_touch_frame_edge": True,
+                "status": "placeholder_research"},
+            "acceptance_policy": {"policy": "both_frames_threshold_reject",
+                                  "status": "placeholder_research"}}
     return fact
 
 
@@ -285,6 +291,30 @@ TIER_PARAMS = dict(PIXEL_PARAMS,
                    PIXEL_ACCEPTANCE_POLICY="camera_blockage_reject_then_tier",
                    PIXEL_CAMERA_BLOCKAGE_MAX_DISTANCE_M=1.5,
                    PIXEL_TIER_VISIBLE_FRACTION_EDGES=[0.5, 0.2])
+
+
+def test_tier_policy_is_the_default_and_the_legacy_policy_must_be_named():
+    """Owner decision 2026-09-02: tiers by default, thresholds only on request."""
+    implicit = {k: v for k, v in TIER_PARAMS.items()
+                if k != "PIXEL_ACCEPTANCE_POLICY"}
+    assert pixel_policy_from_params(implicit)["policy"] == \
+        "camera_blockage_reject_then_tier"
+    # the default still fails closed when the tier settings are missing
+    with pytest.raises(ValueError, match="explicit"):
+        pixel_policy_from_params({k: v for k, v in PIXEL_PARAMS.items()
+                                  if k != "PIXEL_ACCEPTANCE_POLICY"})
+    assert pixel_policy_from_params(PIXEL_PARAMS)["policy"] == \
+        "both_frames_threshold_reject"
+    truth = _truth_with_frames(
+        _card1_frame(40, pixels=9720, fraction=0.817),
+        _card1_frame(74, pixels=8735, fraction=0.967),
+        _card1_frame(40, pixels=1477, fraction=0.528),
+        _card1_frame(74, pixels=198, fraction=0.105))
+    # a fact with thresholds but no policy and no params cannot pick a policy
+    fact = _card1_fact(with_thresholds=True)
+    del fact["pixel_acceptance"]["acceptance_policy"]
+    with pytest.raises(ValueError, match="acceptance policy"):
+        evaluate(fact, truth)
 SENTINEL = 65504.0
 
 

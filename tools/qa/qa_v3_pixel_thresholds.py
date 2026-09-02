@@ -28,18 +28,20 @@ LINE_OF_SIGHT_ROLE = (
 # hidden behind furniture at one instant, or a dog dropping below the frame
 # edge are difficulty tiers, not rejections.  Only a camera-side blockage (the
 # occluder sits within a short distance of the lens) rejects a candidate.  The
-# historical policy is kept selectable so earlier outputs stay reproducible.
+# tier policy is the default; the historical threshold policy stays selectable
+# by name so earlier outputs remain reproducible.
 PIXEL_POLICY_THRESHOLD_REJECT = "both_frames_threshold_reject"
 PIXEL_POLICY_TIER = "camera_blockage_reject_then_tier"
 PIXEL_POLICIES = (PIXEL_POLICY_THRESHOLD_REJECT, PIXEL_POLICY_TIER)
+PIXEL_POLICY_DEFAULT = PIXEL_POLICY_TIER
 TIER_ORDER = ("light", "medium", "heavy", "hidden", "out_of_view")
 
 
 def pixel_policy_from_params(params) -> dict:
-    """Read the explicit acceptance policy; tier settings must be present when
-    the tier policy is requested.  All values are research placeholders."""
-    policy = str(params.get("PIXEL_ACCEPTANCE_POLICY",
-                            PIXEL_POLICY_THRESHOLD_REJECT))
+    """Read the acceptance policy (default: the owner's tier policy); tier
+    settings must be present when the tier policy applies.  All values are
+    research placeholders."""
+    policy = str(params.get("PIXEL_ACCEPTANCE_POLICY", PIXEL_POLICY_DEFAULT))
     if policy not in PIXEL_POLICIES:
         raise ValueError(
             f"unknown PIXEL_ACCEPTANCE_POLICY {policy!r}; expected one of "

@@ -269,12 +269,22 @@ def test_card1_pixel_acceptance_block_is_explicit_and_fails_closed():
         card1_pixel_acceptance_block(
             {}, target_slot="source2", other_slot="source1",
             anchor_frame=40, query_frame=74)
+    pixel_params = {
+        "PIXEL_MIN_VISIBLE_FRACTION": 0.5, "PIXEL_MIN_VISIBLE_PIXELS": 1000,
+        "PIXEL_BBOX_MUST_NOT_TOUCH_FRAME_EDGE": True,
+        "PIXEL_THRESHOLD_STATUS": "placeholder_research"}
+    # the owner's tier policy is the default, so its settings are required
+    with pytest.raises(ValueError, match="explicit"):
+        card1_pixel_acceptance_block(
+            pixel_params, target_slot="source2", other_slot="source1",
+            anchor_frame=40, query_frame=74)
     block = card1_pixel_acceptance_block(
-        {"PIXEL_MIN_VISIBLE_FRACTION": 0.5, "PIXEL_MIN_VISIBLE_PIXELS": 1000,
-         "PIXEL_BBOX_MUST_NOT_TOUCH_FRAME_EDGE": True,
-         "PIXEL_THRESHOLD_STATUS": "placeholder_research"},
+        dict(pixel_params, PIXEL_CAMERA_BLOCKAGE_MAX_DISTANCE_M=1.5,
+             PIXEL_TIER_VISIBLE_FRACTION_EDGES=[0.5, 0.2]),
         target_slot="source2", other_slot="source1", anchor_frame=40,
         query_frame=74)
+    assert block["acceptance_policy"]["policy"] == \
+        "camera_blockage_reject_then_tier"
     assert block["thresholds"]["min_visible_pixels"] == 1000
     assert block["status"] == "placeholder_research"
     assert block["referents"]["main"]["referent_slot"] == "source2"
