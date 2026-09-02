@@ -35,6 +35,7 @@ from camera_clearance import (  # noqa: E402
     CameraClearanceTable,
     fallback_heights_from_params,
     rule_from_params,
+    yaw_bin_index,
 )
 
 FRAME_COUNT = 75
@@ -548,6 +549,58 @@ def route_pool_report(scene: SceneInputs, params: dict) -> dict:
             "min_displacement_cm": threshold}
 
 
+def sample_clear_yaw(scene: SceneInputs, params: dict, camera, lo_yaw: float,
+                     hi_yaw: float, rng, ledger: "RejectionLedger | None"):
+    """Draw a camera yaw inside [lo_yaw, hi_yaw) that the clearance table calls clear.
+
+    Without a table this is a plain uniform draw (unchanged behaviour).  With a
+    table the draw is uniform over the clear 2-degree bins of the interval at
+    the scene camera height; only when no bin is clear are the fallback heights
+    tried, so a raised camera is used just where the room forces it.  When no
+    height has a clear bin the attempt is rejected as camera_clearance_blocked.
+    Returns (yaw, clearance) or None.  The decision is geometric: it never looks
+    at an answer."""
+    lo, hi = float(lo_yaw), float(hi_yaw)
+    width = (hi - lo) if hi > lo else (hi - lo) + 360.0
+    if scene.clearance is None:
+        yaw = lo + width * rng.random()
+        return (yaw, {"screened": False, "camera_height_m": float(scene.camera_height_m),
+                      "fallback_used": False, "yaw_sampling": "uniform_in_interval"})
+    rule = rule_from_params(params, scene.clearance)
+    table = scene.clearance
+    step = table.yaw_step_deg
+    centres = table.yaws_deg
+    inside = ((centres - lo) % 360.0) < width
+    if not inside.any():                       # interval narrower than one bin
+        inside = np.zeros_like(inside)
+        inside[yaw_bin_index(lo + width / 2.0, step)] = True
+    heights = [float(scene.camera_height_m)] + fallback_heights_from_params(params)
+    tried = []
+    for height in heights:
+        mask = table.clear_yaw_mask(camera, height, rule) & inside
+        tried.append({"camera_height_m": height, "clear_bins": int(mask.sum()),
+                      "bins_in_interval": int(inside.sum())})
+        if mask.any():
+            bins = np.flatnonzero(mask)
+            centre = float(centres[bins[int(rng.integers(len(bins)))]])
+            # uniform inside the bin, then clipped to the interval
+            yaw = centre + (rng.random() - 0.5) * step
+            offset = (yaw - lo) % 360.0
+            if offset >= width:
+                yaw = centre
+            fraction = table.blocked_fraction(camera, height, yaw, rule)
+            return (float(yaw), {"screened": True, "camera_height_m": height,
+                                 "blocked_fraction": fraction,
+                                 "fallback_used": height != float(scene.camera_height_m),
+                                 "tried": tried, "rule": rule.as_dict(),
+                                 "yaw_sampling": "clear_bins_within_interval"})
+    if ledger is not None:
+        ledger.add(Rejection(
+            "camera_clearance_blocked",
+            f"no clear yaw bin in [{lo:.1f},{hi:.1f}) at heights {heights}"))
+    return None
+
+
 def solve_forward_cross_time(scene: SceneInputs, params: dict, *,
                              answer_band: tuple[float, float],
                              answer_bands: Sequence[tuple[float, float]],
@@ -589,10 +642,10 @@ def solve_forward_cross_time(scene: SceneInputs, params: dict, *,
             continue
         solve_lo, solve_hi = interior_answer_band(band_lo, band_hi, params)
         lo_yaw, hi_yaw = yaw_interval_for_band(camera, end_xy, solve_lo, solve_hi)
-        yaw = float(lo_yaw + (hi_yaw - lo_yaw) * rng.random())
-        clearance = screen_camera_clearance(scene, params, camera, yaw, ledger)
-        if clearance is None:
+        picked = sample_clear_yaw(scene, params, camera, lo_yaw, hi_yaw, rng, ledger)
+        if picked is None:
             continue
+        yaw, clearance = picked
         az_end = relative_azimuth_deg(camera, yaw, end_xy)
         if not (band_lo <= az_end < band_hi):
             ledger.add(Rejection("band_solution_out_of_band",
@@ -725,10 +778,10 @@ def solve_backward_cross_time(scene: SceneInputs, params: dict, *,
             continue
         solve_lo, solve_hi = interior_answer_band(band_lo, band_hi, params)
         lo_yaw, hi_yaw = yaw_interval_for_band(camera, query_xy, solve_lo, solve_hi)
-        yaw = float(lo_yaw + (hi_yaw - lo_yaw) * rng.random())
-        clearance = screen_camera_clearance(scene, params, camera, yaw, ledger)
-        if clearance is None:
+        picked = sample_clear_yaw(scene, params, camera, lo_yaw, hi_yaw, rng, ledger)
+        if picked is None:
             continue
+        yaw, clearance = picked
         az_query = relative_azimuth_deg(camera, yaw, query_xy)
         if not (band_lo <= az_query < band_hi) or abs(az_query) > half_fov:
             ledger.add(Rejection("answer_band_outside_fov"))
@@ -956,10 +1009,10 @@ def solve_instant_azimuth(scene: SceneInputs, params: dict, *,
             continue
         lo_yaw, hi_yaw = yaw_interval_for_band(
             camera, answer_xy, solve_lo, solve_hi)
-        yaw = float(rng.uniform(lo_yaw, hi_yaw))
-        clearance = screen_camera_clearance(scene, params, camera, yaw, ledger)
-        if clearance is None:
+        picked = sample_clear_yaw(scene, params, camera, lo_yaw, hi_yaw, rng, ledger)
+        if picked is None:
             continue
+        yaw, clearance = picked
         azimuth = relative_azimuth_deg(camera, yaw, answer_xy)
         if abs(azimuth) > half_fov:
             ledger.add(Rejection("answer_band_outside_fov"))
@@ -1032,10 +1085,10 @@ def solve_instant_distance_order(scene: SceneInputs, params: dict, *,
         if _too_close(camera, target_xy, params):
             ledger.add(Rejection("camera_too_close_to_target"))
             continue
-        yaw = float(rng.random() * 360.0 - 180.0)
-        clearance = screen_camera_clearance(scene, params, camera, yaw, ledger)
-        if clearance is None:
+        picked = sample_clear_yaw(scene, params, camera, -180.0, 180.0, rng, ledger)
+        if picked is None:
             continue
+        yaw, clearance = picked
         target_azimuth = relative_azimuth_deg(camera, yaw, target_xy)
         if abs(target_azimuth) > half_fov:
             ledger.add(Rejection("target_outside_fov_at_binding_instant"))
@@ -1156,10 +1209,10 @@ def solve_distance_change_pair(scene: SceneInputs, params: dict, *,
                 f"delta {target_delta:.1f} cm does not satisfy "
                 f"{target_relation} by {min_change:.1f} cm"))
             continue
-        yaw = float(rng.random() * 360.0 - 180.0)
-        clearance = screen_camera_clearance(scene, params, camera, yaw, ledger)
-        if clearance is None:
+        picked = sample_clear_yaw(scene, params, camera, -180.0, 180.0, rng, ledger)
+        if picked is None:
             continue
+        yaw, clearance = picked
         target_azimuths = [
             relative_azimuth_deg(camera, yaw, moved.at(frame))
             for frame in (start_frame, end_frame)]
@@ -1290,10 +1343,10 @@ def solve_motion_state_pair(scene: SceneInputs, params: dict, *,
         if any(_too_close(camera, point, params) for point in target_points):
             ledger.add(Rejection("camera_too_close_to_target"))
             continue
-        yaw = float(rng.random() * 360.0 - 180.0)
-        clearance = screen_camera_clearance(scene, params, camera, yaw, ledger)
-        if clearance is None:
+        picked = sample_clear_yaw(scene, params, camera, -180.0, 180.0, rng, ledger)
+        if picked is None:
             continue
+        yaw, clearance = picked
         target_azimuths = [
             relative_azimuth_deg(camera, yaw, point)
             for point in target_points]
@@ -1397,10 +1450,10 @@ def solve_instant_binding(scene: SceneInputs, params: dict, *,
         if _too_close(camera, moved.at(instants[0]), params):
             ledger.add(Rejection("camera_too_close_to_target"))
             continue
-        yaw = float(rng.random() * 360.0 - 180.0)
-        clearance = screen_camera_clearance(scene, params, camera, yaw, ledger)
-        if clearance is None:
+        picked = sample_clear_yaw(scene, params, camera, -180.0, 180.0, rng, ledger)
+        if picked is None:
             continue
+        yaw, clearance = picked
         azimuths = [relative_azimuth_deg(camera, yaw, moved.at(f))
                     for f in instants]
         if any(abs(a) > half_fov for a in azimuths):

@@ -779,6 +779,8 @@ def _realise_cell(out_root, profile, cell_index, scene, params, inventory,
         + int(gateb_search_attempts))
     return {
         "point_id": point_id,
+        "camera_height_m": float(plan.get("camera_height_m") or scene.camera_height_m),
+        "camera_clearance": plan.get("camera_clearance"),
         "search_attempts": total_search_attempts,
         "artifacts": {
             "selection": str(selection_path),
@@ -866,6 +868,16 @@ def main(argv=None):
         "code": git_worktree_state(),
         "scene_id": scene.scene_id,
         "profile_ids": [profile_id],
+        "scene": {
+            "camera_clearance_screened": scene.camera_clearance_screened,
+            "camera_clearance_table": scene.provenance.get("camera_clearance_table"),
+            "camera_height_fallback_used": sum(
+                1 for record in records
+                if (record.get("camera_clearance") or {}).get("fallback_used")),
+            "camera_heights_m": sorted({record.get("camera_height_m")
+                                        for record in records
+                                        if record.get("camera_height_m") is not None}),
+        },
         "counts": {
             "cells_requested": args.cells,
             "geometry_candidates": len(records),

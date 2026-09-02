@@ -638,13 +638,17 @@ def test_solvers_refuse_blocked_headings_and_record_the_screen(tmp_path):
         assert not isinstance(plan, Rejection), ledger.summary()
         plans.append(plan)
     assert all(not _yaw_in_sector(p.camera_ue_yaw_deg) for p in plans)
-    assert ledger.summary()["by_reason"]["camera_clearance_blocked"] > 0
     for plan in plans:
         assert plan.camera_height_m == 1.47
         assert plan.camera_clearance["screened"] is True
         assert plan.camera_clearance["fallback_used"] is False
         assert plan.camera_clearance["blocked_fraction"] <= 0.2
         assert plan.camera_clearance["rule"]["near_m"] == 1.5
+        assert plan.camera_clearance["yaw_sampling"] == "clear_bins_within_interval"
+    # the yaw is drawn from the clear bins of the band interval, so a blocked
+    # heading costs no attempt unless the whole interval is blocked
+    by_reason = ledger.summary()["by_reason"]
+    assert by_reason.get("camera_clearance_blocked", 0) < ledger.summary()["combinations_evaluated"] * 0.1
     # the instant solvers draw a free yaw; the screen applies there too
     ledger = RejectionLedger()
     plan = solve_instant_binding(scene, CLEARANCE_PARAMS, profile_id="card7",
@@ -664,7 +668,8 @@ def test_without_a_table_the_screen_is_a_no_op_and_says_so():
                                     rng=np.random.default_rng(3), ledger=RejectionLedger())
     assert not isinstance(plan, Rejection)
     assert plan.camera_clearance == {"screened": False, "camera_height_m": 1.47,
-                                     "fallback_used": False}
+                                     "fallback_used": False,
+                                     "yaw_sampling": "uniform_in_interval"}
     assert plan.camera_height_m == 1.47
 
 
@@ -674,7 +679,7 @@ def test_camera_height_fallback_is_geometric_and_recorded(tmp_path):
     ledger = RejectionLedger()
     rng = np.random.default_rng(11)
     heights = {}
-    for _ in range(16):
+    for _ in range(24):
         plan = solve_forward_cross_time(scene, params, answer_band=BANDS[1],
                                         answer_bands=BANDS, anchor_frame=45,
                                         idle_choices=(0, 8, 16), rng=rng, ledger=ledger)
@@ -682,13 +687,15 @@ def test_camera_height_fallback_is_geometric_and_recorded(tmp_path):
         heights.setdefault(plan.camera_height_m, 0)
         heights[plan.camera_height_m] += 1
         if _yaw_in_sector(plan.camera_ue_yaw_deg):
+            # only reached when every clear bin of the interval needed 1.8 m
             assert plan.camera_height_m == 1.8
             assert plan.camera_clearance["fallback_used"] is True
             assert [t["camera_height_m"] for t in plan.camera_clearance["tried"]] == [1.47, 1.8]
+            assert plan.camera_clearance["tried"][0]["clear_bins"] == 0
         else:
             assert plan.camera_height_m == 1.47
     assert "camera_clearance_blocked" not in ledger.summary()["by_reason"]
-    assert 1.8 in heights
+    assert 1.8 in heights, heights
 
 
 def test_clearance_requirements_fail_closed(tmp_path):
