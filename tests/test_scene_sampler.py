@@ -550,3 +550,18 @@ def test_motion_state_pair_has_opposite_window_states(state):
     else:
         assert target <= 1.0e-6 and other >= 10.0
     assert plan.checks["uses_solved_route_samples_directly"] is True
+
+
+def test_scene_hfov_is_read_from_the_contract_and_never_defaulted(tmp_path):
+    from scene_sampler import scene_hfov_deg
+    base = tmp_path / "base.json"
+    base.write_text(json.dumps({
+        "primary_camera_rig": {"shared_calibration": {"hfov_degrees": 98.0}}}))
+    assert scene_hfov_deg({"scene_id": "s", "hfov_deg": 105.0}) == 105.0
+    assert scene_hfov_deg({"scene_id": "s", "camera_base_request": str(base)}) == 98.0
+    with pytest.raises(ValueError, match="neither hfov_deg nor camera_base_request"):
+        scene_hfov_deg({"scene_id": "s"})
+    with pytest.raises(ValueError, match="implausible hfov"):
+        scene_hfov_deg({"scene_id": "s", "hfov_deg": 200.0})
+    with pytest.raises(ValueError, match="implausible hfov"):
+        scene_hfov_deg({"scene_id": "s", "hfov_deg": float("nan")})

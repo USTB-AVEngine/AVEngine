@@ -300,9 +300,7 @@ def load_scene(config: dict, *, route_limit: int | None = None) -> SceneInputs:
     base_request = json.loads(Path(config["camera_base_request"]).read_text())
     height = float(config.get("camera_height_m")
                    or _listener_height_m(base_request))
-    hfov = float(config.get("hfov_deg") or _hfov_deg(base_request))
-    if not (0.0 < hfov < 180.0):
-        raise ValueError(f"{config['scene_id']}: implausible hfov {hfov}")
+    hfov = scene_hfov_deg(config, base_request=base_request)
     render_config = config.get("render") or {}
     if not isinstance(render_config, dict):
         raise ValueError(f"{config['scene_id']}: render must be an object")
@@ -333,6 +331,27 @@ def _listener_height_m(request: dict) -> float:
     rig = request["primary_camera_rig"]["world_from_rig"]["translation_m"]
     listener = request["listener"]["rig_from_listener"]["translation_m"]
     return float(rig[1]) + float(listener[1])
+
+
+def scene_hfov_deg(config: dict, *, base_request: dict | None = None) -> float:
+    """场景相机的水平视场角:场景配置的 hfov_deg 优先,否则读相机基准请求。
+
+    这是所有工具(求解器、预检、净空表)取相机视场角的唯一入口,任何地方
+    都不得再把 105 写死。缺失或不合理即拒绝,不回退到默认值。
+    """
+    value = config.get("hfov_deg")
+    if value is None:
+        if base_request is None:
+            path = config.get("camera_base_request")
+            if path is None:
+                raise ValueError("scene config declares neither hfov_deg nor "
+                                 "camera_base_request")
+            base_request = json.loads(Path(path).read_text())
+        value = _hfov_deg(base_request)
+    hfov = float(value)
+    if not math.isfinite(hfov) or not (0.0 < hfov < 180.0):
+        raise ValueError(f"{config.get('scene_id')}: implausible hfov {hfov}")
+    return hfov
 
 
 def _hfov_deg(request: dict) -> float:

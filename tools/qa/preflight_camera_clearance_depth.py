@@ -26,11 +26,13 @@ import numpy as np
 
 REPOSITORY = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPOSITORY / "src"))
+sys.path.insert(0, str(REPOSITORY / "tools" / "qa"))
 
 from avengine.backends.spear_ue.research_runtime import (  # noqa: E402
     launch_external_game_instance,
 )
 from avengine.timeline import current_apartment_visual as VISUAL  # noqa: E402
+from scene_sampler import scene_hfov_deg  # noqa: E402
 
 SPIKE_PATH = REPOSITORY / "tools/qa/spike_spear_native_pixel_visibility.py"
 SCHEMA = "qa_v3_camera_clearance_depth_preflight_v1"
@@ -225,11 +227,33 @@ def _close_camera(*, instance, game, camera, components) -> None:
             game.unreal_service.destroy_actor(actor=camera)
 
 
+def resolve_camera_hfov(args: argparse.Namespace) -> dict[str, Any]:
+    """The camera HFOV comes from the scene contract or an explicit flag.
+
+    Nothing here hard-codes 105 degrees: the value used for the depth camera
+    and for the band geometry is the one recorded in the output, together
+    with where it came from."""
+    if getattr(args, "hfov_deg", None) is not None:
+        value = float(args.hfov_deg)
+        source = "cli:--hfov-deg"
+    elif getattr(args, "scene_config", None) is not None:
+        config = json.loads(Path(args.scene_config).read_text(encoding="utf-8"))
+        value = scene_hfov_deg(config)
+        source = f"scene_config:{Path(args.scene_config).resolve()}"
+    else:
+        raise RuntimeError(
+            "camera HFOV must come from --scene-config or --hfov-deg")
+    _require(0.0 < value < 180.0, f"implausible camera HFOV {value}")
+    return {"hfov_deg": value, "source": source}
+
+
 def run(args: argparse.Namespace) -> Path:
     from PIL import Image
 
     spike = _load_spike()
     poses = load_poses(args)
+    camera_contract = resolve_camera_hfov(args)
+    hfov_deg = camera_contract["hfov_deg"]
     output = VISUAL._new_external_output_directory(args.output, owner="preflight output")
     thumbs = output / "thumbnails"
     if args.save_png:
@@ -249,7 +273,8 @@ def run(args: argparse.Namespace) -> Path:
     records = []
     try:
         with instance.begin_frame():
-            camera, components = spike._spawn_multimodal_camera(game)
+            camera, components = spike._spawn_multimodal_camera(
+                game, hfov_deg=hfov_deg)
             components["depth"].PrimitiveRenderMode = "PRM_RenderScenePrimitives"
             components["depth"].ShowOnlyActors = []
             _set_pose(camera, poses[0])
@@ -271,7 +296,7 @@ def run(args: argparse.Namespace) -> Path:
             depth = np.asarray(capture["depth_m"], dtype=np.float32)
             camera_height_m = float(pose["translation_ue_cm"][2]) / 100.0
             stats = clearance_statistics(
-                depth, args.near_m, hfov_deg=105.0,
+                depth, args.near_m, hfov_deg=hfov_deg,
                 camera_height_m=camera_height_m,
                 target_height_m=args.target_height_m,
                 target_distance_range_m=args.target_distance_range_m)
@@ -319,7 +344,9 @@ def run(args: argparse.Namespace) -> Path:
                    "spear_executable": str(executable.resolve()),
                    "poses": str(Path(args.poses).resolve()) if args.poses else None,
                    "facts": [str(Path(p).resolve()) for p in (args.fact or [])]},
-        "camera_contract": {"hfov_deg": 105.0, "eye_band": "middle third of rows",
+        "camera_contract": {"hfov_deg": hfov_deg,
+                            "hfov_source": camera_contract["source"],
+                            "eye_band": "middle third of rows",
                             "target_band": "rows where a floor-standing target "
                                            "of --target-height-m at "
                                            "--target-distance-range-m projects"},
@@ -370,6 +397,12 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--target-height-m", type=float, default=0.5)
     parser.add_argument("--target-distance-range-m", type=float, nargs=2,
                         default=(2.5, 10.0))
+    parser.add_argument("--scene-config", type=Path,
+                        help="scene config whose camera contract supplies the "
+                             "horizontal FOV (hfov_deg or camera_base_request)")
+    parser.add_argument("--hfov-deg", type=float,
+                        help="explicit horizontal FOV in degrees; overrides the "
+                             "scene config and is recorded as such")
     parser.add_argument("--save-png", action="store_true")
     parser.add_argument("--rpc-port", type=int, default=39561)
     parser.add_argument("--graphics-adapter", type=int, default=1)
@@ -383,6 +416,10 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         parser.error("--verdict-near-m must be one of --near-m")
     if not 0.0 <= args.blocked_fraction_max <= 1.0:
         parser.error("--blocked-fraction-max must be within [0,1]")
+    if args.scene_config is None and args.hfov_deg is None:
+        parser.error("camera HFOV must come from --scene-config or --hfov-deg")
+    if args.hfov_deg is not None and not 0.0 < args.hfov_deg < 180.0:
+        parser.error("--hfov-deg must lie in (0,180)")
     return args
 
 

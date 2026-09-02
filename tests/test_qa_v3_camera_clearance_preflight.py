@@ -95,3 +95,48 @@ def test_poses_from_facts_reads_the_recorded_camera(tmp_path):
     assert [pose["pose_id"] for pose in twice] == [
         "room::card1F_001", "room::card1F_001#2"]
     assert twice[1]["source_fact"] == str(other.resolve())
+
+
+def _scene_config(tmp_path, *, hfov=None):
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    base = tmp_path / "base_request.json"
+    base.write_text(json.dumps({
+        "primary_camera_rig": {"shared_calibration": {"hfov_degrees": 98.0}}}))
+    config = {"scene_id": "room", "camera_base_request": str(base)}
+    if hfov is not None:
+        config["hfov_deg"] = hfov
+    path = tmp_path / "scene.json"
+    path.write_text(json.dumps(config))
+    return path
+
+
+def test_camera_hfov_comes_from_the_scene_config_not_a_constant(tmp_path):
+    from argparse import Namespace
+    from preflight_camera_clearance_depth import resolve_camera_hfov
+    # explicit scene key wins, and the source is recorded
+    contract = resolve_camera_hfov(Namespace(
+        hfov_deg=None, scene_config=_scene_config(tmp_path, hfov=105.0)))
+    assert contract["hfov_deg"] == 105.0
+    assert contract["source"].startswith("scene_config:")
+    # without the key the camera base request calibration is used
+    contract = resolve_camera_hfov(Namespace(
+        hfov_deg=None, scene_config=_scene_config(tmp_path / "b")))
+    assert contract["hfov_deg"] == 98.0
+    # an explicit flag overrides both and says so
+    contract = resolve_camera_hfov(Namespace(
+        hfov_deg=90.0, scene_config=_scene_config(tmp_path / "c", hfov=105.0)))
+    assert contract == {"hfov_deg": 90.0, "source": "cli:--hfov-deg"}
+    with pytest.raises(RuntimeError, match="HFOV must come from"):
+        resolve_camera_hfov(Namespace(hfov_deg=None, scene_config=None))
+
+
+def test_cli_refuses_to_run_without_a_camera_contract(tmp_path):
+    from preflight_camera_clearance_depth import parse_args
+    common = ["--stage-root", "s", "--spear-executable", "e", "--native-map",
+              "/Game/m", "--poses", "p.json", "--output", str(tmp_path / "o")]
+    with pytest.raises(SystemExit):
+        parse_args(common)
+    args = parse_args(common + ["--hfov-deg", "90"])
+    assert args.hfov_deg == 90.0
+    with pytest.raises(SystemExit):
+        parse_args(common + ["--hfov-deg", "0"])
