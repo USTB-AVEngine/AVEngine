@@ -245,6 +245,8 @@ def audio_only_baselines(items, labels, theta_full, theta_half, step):
             "best_response_denominator": n,
             "structural_exclusion_uniform_baseline": exclusion / n if n else None,
             "nominal_uniform_baseline": 1.0 / len(labels),
+            "caveat": ("in-sample best response over the generated pool; "
+                       "small strata make it an optimistic upper bound"),
         },
         "open": {
             "best_response_conditional_expected_score": (
@@ -254,6 +256,9 @@ def audio_only_baselines(items, labels, theta_full, theta_half, step):
             "method": "grid search over candidate angles against the realized "
                       "query angles of each anchor stratum under the actual "
                       "two-tier circular scorer",
+            "caveat": ("in-sample best response over the generated pool; with "
+                       "a handful of items per anchor stratum this is an "
+                       "optimistic upper bound, not an out-of-sample estimate"),
         },
         "per_anchor_band": per_anchor,
     }
