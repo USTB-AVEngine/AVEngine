@@ -24,6 +24,7 @@ import argparse
 import copy
 import hashlib
 import json
+import math
 import subprocess
 import sys
 from collections import Counter
@@ -314,6 +315,37 @@ def audit_gatea_pair(profile, main_program, gatea_program, main_answer,
     return checks
 
 
+def frame_geometry(timeline, slot, frame):
+    """Distance, depression and whether the actor's base point projects inside
+    the frame, from the final timeline's camera pose and render contract."""
+    record = timeline["frames"][frame]
+    camera = record["camera"]
+    cam = [float(v) for v in camera["translation_ue_cm"]]
+    state = next(s for s in record["actor_states"]
+                 if s["source_slot_id"] == slot)
+    actor = [float(v) for v in state["translation_ue_cm"]]
+    render = timeline.get("render") or {}
+    hfov = float(render.get("hfov_degrees", 105.0))
+    height_px, width_px = render.get("resolution_hw", [720, 1280])
+    aspect = float(width_px) / float(height_px)
+    half_v = math.degrees(math.atan(math.tan(math.radians(hfov / 2.0)) / aspect))
+    distance_cm = math.hypot(actor[0] - cam[0], actor[1] - cam[1])
+    azimuth = recompute_azimuth(timeline, slot, frame)
+    depression = math.degrees(math.atan2(cam[2] - actor[2], distance_cm))
+    projected = (math.tan(math.radians(depression))
+                 / max(1e-9, math.cos(math.radians(azimuth))))
+    return {
+        "camera_height_cm": cam[2] - actor[2],
+        "distance_cm": distance_cm,
+        "depression_deg": depression,
+        "half_vertical_fov_deg": half_v,
+        "base_projects_inside_frame": (
+            abs(azimuth) <= hfov / 2.0
+            and abs(projected) <= math.tan(math.radians(half_v))),
+        "role": "informational_not_a_gate",
+    }
+
+
 REALIZED_CARD1_GATES = (
     "realized_anchor_in_allocated_band",
     "realized_query_in_answer_band",
@@ -360,6 +392,11 @@ def realized_cross_time_checks(timeline, *, profile, cell, target_slot,
             "anchor_band_index": band_index(anchor),
             "query_band_index": band_index(query),
             "anchor_angle_open_score_as_answer": open_score(gap),
+            # Informational framing geometry (owner 2026-09-02: a dog that
+            # drops below the bottom edge is a difficulty tier, not a
+            # rejection).  Uses the real camera height and frame aspect.
+            "anchor_frame_geometry": frame_geometry(timeline, slot, anchor_frame),
+            "query_frame_geometry": frame_geometry(timeline, slot, query_frame),
         }
 
     main = side(target_slot)

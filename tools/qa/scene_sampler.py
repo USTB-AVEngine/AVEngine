@@ -457,6 +457,9 @@ def solve_forward_cross_time(scene: SceneInputs, params: dict, *,
                                  "field of view"))
             continue
         anchor_xy = moved.at(anchor_frame)
+        if _too_close_at_anchor(camera, anchor_xy, params):
+            ledger.add(Rejection("camera_too_close_to_target_at_anchor"))
+            continue
         az_anchor = relative_azimuth_deg(camera, yaw, anchor_xy)
         if abs(az_anchor) > half_fov:
             ledger.add(Rejection("target_outside_fov_at_anchor"))
@@ -519,6 +522,9 @@ def solve_forward_cross_time(scene: SceneInputs, params: dict, *,
                     "anchor_open_zero_score_min_gap_deg": theta_half,
                     "allocated_anchor_band": (
                         list(anchor_band) if anchor_band is not None else None),
+                    "anchor_camera_distance_cm": math.hypot(
+                        anchor_xy[0] - camera[0], anchor_xy[1] - camera[1]),
+                    "anchor_camera_distance_min_cm": _anchor_min_distance_cm(params),
                     "anchor_separation_deg": circular_gap_deg(
                         az_anchor, relative_azimuth_deg(
                             camera, yaw, other_anchor_xy)),
@@ -576,6 +582,9 @@ def solve_backward_cross_time(scene: SceneInputs, params: dict, *,
             ledger.add(Rejection("answer_band_outside_fov"))
             continue
         anchor_xy = moved.at(anchor_frame)
+        if _too_close_at_anchor(camera, anchor_xy, params):
+            ledger.add(Rejection("camera_too_close_to_target_at_anchor"))
+            continue
         az_anchor = relative_azimuth_deg(camera, yaw, anchor_xy)
         if abs(az_anchor) > half_fov:
             ledger.add(Rejection("target_outside_fov_at_anchor"))
@@ -638,6 +647,9 @@ def solve_backward_cross_time(scene: SceneInputs, params: dict, *,
                     "anchor_open_zero_score_min_gap_deg": theta_half,
                     "allocated_anchor_band": (
                         list(anchor_band) if anchor_band is not None else None),
+                    "anchor_camera_distance_cm": math.hypot(
+                        anchor_xy[0] - camera[0], anchor_xy[1] - camera[1]),
+                    "anchor_camera_distance_min_cm": _anchor_min_distance_cm(params),
                     "gatea_answer_azimuth_deg": other_answer_az,
                     "gatea_open_gold_separation_deg": circular_gap_deg(
                         az_query, other_answer_az),
@@ -653,6 +665,29 @@ def solve_backward_cross_time(scene: SceneInputs, params: dict, *,
 
 def _too_close(camera, point, params) -> bool:
     min_cm = float(params.get("MIN_CAMERA_DISTANCE_CM", 100.0))
+    return math.hypot(point[0] - camera[0], point[1] - camera[1]) < min_cm
+
+
+def _anchor_min_distance_cm(params):
+    """Explicit anchor-instant camera distance floor; None keeps the old
+    query-frame-only behaviour so historical params stay reproducible."""
+    value = params.get("MIN_CAMERA_DISTANCE_ANCHOR_CM")
+    if value is None:
+        return None
+    value = float(value)
+    if not math.isfinite(value) or value < 0.0:
+        raise ValueError("MIN_CAMERA_DISTANCE_ANCHOR_CM must be a finite "
+                         "non-negative centimetre value")
+    return value
+
+
+def _too_close_at_anchor(camera, point, params) -> bool:
+    """The old floor only looked at the query frame; a dog barking 0.7 m from
+    the lens at the anchor instant fell below the frame's bottom edge and was
+    never screened.  This floor is opt-in via MIN_CAMERA_DISTANCE_ANCHOR_CM."""
+    min_cm = _anchor_min_distance_cm(params)
+    if min_cm is None:
+        return False
     return math.hypot(point[0] - camera[0], point[1] - camera[1]) < min_cm
 
 

@@ -108,6 +108,49 @@ def test_every_declared_band_is_constructible(band):
     assert plan.target_route.route_id != plan.other_route.route_id
 
 
+def test_anchor_instant_camera_distance_floor_is_explicit_and_opt_in():
+    """Core batch card1F_001: the target was 0.73 m from the lens when it
+    barked and fell below the frame.  With the floor set, such plans are
+    refused with their own reason; without it the old behaviour is kept."""
+    scene = synthetic_scene()
+    strict = dict(PARAMS, MIN_CAMERA_DISTANCE_ANCHOR_CM=100000.0)
+    ledger = RejectionLedger()
+    plan = solve_forward_cross_time(scene, strict, answer_band=BANDS[1],
+                                    answer_bands=BANDS, anchor_frame=45,
+                                    idle_choices=(0,), rng=np.random.default_rng(3),
+                                    ledger=ledger, max_attempts=200)
+    assert isinstance(plan, Rejection)
+    by_reason = ledger.summary()["by_reason"]
+    # every attempt that reaches the anchor instant is refused there; the only
+    # other reason allowed is the pre-existing query-frame distance floor
+    assert set(by_reason) <= {"camera_too_close_to_target_at_anchor",
+                              "camera_too_close_to_target"}
+    assert by_reason["camera_too_close_to_target_at_anchor"] > 100
+    ledger = RejectionLedger()
+    plan = solve_forward_cross_time(scene, PARAMS, answer_band=BANDS[1],
+                                    answer_bands=BANDS, anchor_frame=45,
+                                    idle_choices=(0, 8, 16),
+                                    rng=np.random.default_rng(3), ledger=ledger)
+    assert not isinstance(plan, Rejection)
+    assert plan.checks["anchor_camera_distance_min_cm"] is None
+    assert plan.checks["anchor_camera_distance_cm"] > 0
+    with_floor = dict(PARAMS, MIN_CAMERA_DISTANCE_ANCHOR_CM=100.0)
+    ledger = RejectionLedger()
+    plan = solve_forward_cross_time(scene, with_floor, answer_band=BANDS[1],
+                                    answer_bands=BANDS, anchor_frame=45,
+                                    idle_choices=(0, 8, 16),
+                                    rng=np.random.default_rng(3), ledger=ledger)
+    assert not isinstance(plan, Rejection)
+    assert plan.checks["anchor_camera_distance_cm"] >= 100.0
+    assert plan.checks["anchor_camera_distance_min_cm"] == 100.0
+    with pytest.raises(ValueError, match="MIN_CAMERA_DISTANCE_ANCHOR_CM"):
+        solve_backward_cross_time(
+            scene, dict(PARAMS, MIN_CAMERA_DISTANCE_ANCHOR_CM=-1.0),
+            answer_band=BANDS[1], answer_bands=BANDS, anchor_frame=62,
+            query_frame=22, idle_choices=(0,), rng=np.random.default_rng(3),
+            ledger=RejectionLedger(), max_attempts=5)
+
+
 def test_open_gold_separation_is_strict_at_double_half_width():
     """A changed number is not enough when the two credit bands overlap."""
     assert not open_angle_gold_regions_disjoint(0.0, 59.999, 30.0)

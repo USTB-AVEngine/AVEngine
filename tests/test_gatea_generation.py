@@ -242,6 +242,26 @@ def test_realized_timeline_passes_and_reports_planning_deviation():
     assert deviation["planned_anchor_azimuth_deg_planning_value_only"] == 9.415
     assert deviation["anchor_deviation_deg"] == pytest.approx(0.964, abs=1e-6)
     assert checks["realized_anchor_answer_scores_zero"] is True
+    geometry = checks["main"]["anchor_frame_geometry"]
+    assert geometry["role"] == "informational_not_a_gate"
+    assert geometry["distance_cm"] == pytest.approx(300.0)
+    assert geometry["camera_height_cm"] == pytest.approx(147.0)
+    assert geometry["base_projects_inside_frame"] is True
+
+
+def test_frame_geometry_flags_a_dog_at_the_camera_feet_without_rejecting():
+    """core batch card1F_001: 0.73 m away at 41.5 deg drops below the frame."""
+    from design_qa_v3_scene_batch import frame_geometry
+    timeline = _timeline("source2", "source1", {
+        "source2": {40: 41.5, 74: 40.0}, "source1": {40: -30.0, 74: -35.0}},
+        distance=73.0)
+    geometry = frame_geometry(timeline, "source2", 40)
+    assert geometry["depression_deg"] == pytest.approx(63.6, abs=0.2)
+    assert geometry["base_projects_inside_frame"] is False
+    far = frame_geometry(_timeline("source2", "source1", {
+        "source2": {40: 20.0}, "source1": {40: -30.0}}, distance=400.0),
+        "source2", 40)
+    assert far["base_projects_inside_frame"] is True
 
 
 def test_card1_pixel_acceptance_block_is_explicit_and_fails_closed():
