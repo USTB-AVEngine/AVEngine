@@ -738,3 +738,61 @@ def test_load_scene_rejects_a_table_that_does_not_fit_the_scene(tmp_path):
     with_table = load_scene(dict(config, camera_clearance_table=str(good)))
     assert with_table.camera_clearance_screened
     assert with_table.provenance["camera_clearance_table"]["points"] == len(loaded.camera_points)
+
+
+# ---------------------------------------------------------------------------
+# static-target route prefilter (opt-in)
+# ---------------------------------------------------------------------------
+
+def _scene_with_static_routes(static=24):
+    scene = synthetic_scene()
+    for k in range(static):
+        point = scene.camera_points[k % len(scene.camera_points)]
+        scene.routes.append(Route(f"static_{k}", [point] * FRAME_COUNT, 0.0))
+    return scene
+
+
+def test_static_target_prefilter_is_opt_in_and_changes_no_constraint():
+    from scene_sampler import route_pool_report, target_route_pool
+    scene = _scene_with_static_routes()
+    assert target_route_pool(scene, PARAMS) is scene.routes
+    pool = target_route_pool(scene, dict(PARAMS, ROUTE_PREFILTER_STATIC_TARGETS=True))
+    assert len(pool) == len(scene.routes) - 24
+    assert all(route.displacement_cm > 0 for route in pool)
+    report = route_pool_report(scene, dict(PARAMS, ROUTE_PREFILTER_STATIC_TARGETS=True))
+    assert report == {"routes_loaded": len(scene.routes), "moving_routes": len(pool),
+                      "static_routes": 24, "static_targets_prefiltered": True,
+                      "min_displacement_cm": 1e-6}
+    off = route_pool_report(scene, PARAMS)
+    assert off["static_targets_prefiltered"] is False and off["static_routes"] == 24
+    # a threshold above every route's displacement leaves nothing to sample
+    with pytest.raises(ValueError, match="no route moves more than"):
+        target_route_pool(scene, dict(PARAMS, ROUTE_PREFILTER_STATIC_TARGETS=True,
+                                      ROUTE_MIN_DISPLACEMENT_CM=1e9))
+    # with the flag off the solver still pays for static draws; with it on it never sees them
+    ledger_off, ledger_on = RejectionLedger(), RejectionLedger()
+    for params, ledger in ((PARAMS, ledger_off),
+                           (dict(PARAMS, ROUTE_PREFILTER_STATIC_TARGETS=True), ledger_on)):
+        rng = np.random.default_rng(21)
+        for _ in range(6):
+            plan = solve_forward_cross_time(scene, params, answer_band=BANDS[1],
+                                            answer_bands=BANDS, anchor_frame=45,
+                                            idle_choices=(0, 8, 16), rng=rng, ledger=ledger)
+            assert not isinstance(plan, Rejection), ledger.summary()
+            assert plan.target_route.displacement_cm > 0
+    assert ledger_off.summary()["by_reason"].get("target_route_static_for_dual_motion", 0) > 0
+    assert "target_route_static_for_dual_motion" not in ledger_on.summary()["by_reason"]
+
+
+def test_motion_state_solver_keeps_still_routes_available():
+    """card6R needs a still actor; the prefilter must not touch that solver."""
+    scene = _scene_with_static_routes()
+    params = dict(PARAMS, ROUTE_PREFILTER_STATIC_TARGETS=True)
+    ledger = RejectionLedger()
+    plan = solve_motion_state_pair(scene, params, profile_id="card6R",
+                                   start_frame=20, end_frame=60,
+                                   target_state="still", idle_choices=(0,),
+                                   rng=np.random.default_rng(4), ledger=ledger,
+                                   max_attempts=4000)
+    assert not isinstance(plan, Rejection), ledger.summary()
+    assert math.dist(plan.target_route.at(20), plan.target_route.at(60)) <= 1e-6

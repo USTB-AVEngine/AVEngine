@@ -513,6 +513,41 @@ def screen_camera_clearance(scene: SceneInputs, params: dict, camera, yaw: float
     return None
 
 
+def target_route_pool(scene: SceneInputs, params: dict) -> list[Route]:
+    """Routes a dual-motion solver may draw its target from.
+
+    Kujiale's trajectory bank is half static routes, and every draw of one is
+    a wasted attempt in solvers that reject a static target anyway (about
+    half of all card1 attempts there on 2026-09-02).  With
+    ROUTE_PREFILTER_STATIC_TARGETS set, routes whose end-to-end displacement
+    is at most ROUTE_MIN_DISPLACEMENT_CM (default: the solvers' own 1e-6 cm)
+    leave the pool before sampling.  The constraint is unchanged and the
+    per-attempt rejection stays as a backstop; the flag is off by default so
+    existing batches replay unchanged.  Solvers that need a still actor (card6R)
+    keep drawing from the full bank."""
+    if not params.get("ROUTE_PREFILTER_STATIC_TARGETS"):
+        return scene.routes
+    threshold = float(params.get("ROUTE_MIN_DISPLACEMENT_CM", 1.0e-6))
+    if not math.isfinite(threshold) or threshold < 0.0:
+        raise ValueError("ROUTE_MIN_DISPLACEMENT_CM must be a finite non-negative number")
+    pool = [route for route in scene.routes if route.displacement_cm > threshold]
+    if not pool:
+        raise ValueError(f"{scene.scene_id}: no route moves more than {threshold} cm")
+    return pool
+
+
+def route_pool_report(scene: SceneInputs, params: dict) -> dict:
+    """What the batch manifest records about the route pool."""
+    enabled = bool(params.get("ROUTE_PREFILTER_STATIC_TARGETS"))
+    threshold = float(params.get("ROUTE_MIN_DISPLACEMENT_CM", 1.0e-6)) if enabled else None
+    moving = sum(1 for route in scene.routes
+                 if route.displacement_cm > (threshold if enabled else 1.0e-6))
+    return {"routes_loaded": len(scene.routes), "moving_routes": moving,
+            "static_routes": len(scene.routes) - moving,
+            "static_targets_prefiltered": enabled,
+            "min_displacement_cm": threshold}
+
+
 def solve_forward_cross_time(scene: SceneInputs, params: dict, *,
                              answer_band: tuple[float, float],
                              answer_bands: Sequence[tuple[float, float]],
@@ -537,10 +572,11 @@ def solve_forward_cross_time(scene: SceneInputs, params: dict, *,
     theta_half = float(params["THETA_HALF"])
     min_sep = float(params["MIN_AZIMUTH_SEP"])
     band_lo, band_hi = answer_band
-    n_routes, n_cams = len(scene.routes), len(scene.camera_points)
+    pool = target_route_pool(scene, params)
+    n_routes, n_cams = len(pool), len(scene.camera_points)
     for attempt in range(1, max_attempts + 1):
         ledger.note_combination()
-        route = scene.routes[int(rng.integers(n_routes))]
+        route = pool[int(rng.integers(n_routes))]
         idle = int(rng.choice(list(idle_choices)))
         moved = route.shifted(idle)
         if moved.displacement_cm <= 1.0e-6:
@@ -672,10 +708,11 @@ def solve_backward_cross_time(scene: SceneInputs, params: dict, *,
     theta_half = float(params["THETA_HALF"])
     min_sep = float(params["MIN_AZIMUTH_SEP"])
     band_lo, band_hi = answer_band
-    n_routes, n_cams = len(scene.routes), len(scene.camera_points)
+    pool = target_route_pool(scene, params)
+    n_routes, n_cams = len(pool), len(scene.camera_points)
     for attempt in range(1, max_attempts + 1):
         ledger.note_combination()
-        route = scene.routes[int(rng.integers(n_routes))]
+        route = pool[int(rng.integers(n_routes))]
         idle = int(rng.choice(list(idle_choices)))
         moved = route.shifted(idle)
         if moved.displacement_cm <= 1.0e-6:
@@ -902,10 +939,11 @@ def solve_instant_azimuth(scene: SceneInputs, params: dict, *,
     min_sep = float(params["MIN_AZIMUTH_SEP"])
     theta_half = (float(params["THETA_HALF"]) if open_half_width_deg is None
                   else float(open_half_width_deg))
-    n_routes, n_cams = len(scene.routes), len(scene.camera_points)
+    pool = target_route_pool(scene, params)
+    n_routes, n_cams = len(pool), len(scene.camera_points)
     for attempt in range(1, max_attempts + 1):
         ledger.note_combination()
-        route = scene.routes[int(rng.integers(n_routes))]
+        route = pool[int(rng.integers(n_routes))]
         idle = int(rng.choice(list(idle_choices)))
         moved = route.shifted(idle)
         if moved.displacement_cm <= 1.0e-6:
@@ -978,10 +1016,11 @@ def solve_instant_distance_order(scene: SceneInputs, params: dict, *,
     half_fov = effective_half_fov(scene, params)
     min_sep = float(params["MIN_AZIMUTH_SEP"])
     min_gap = float(min_distance_gap_cm)
-    n_routes, n_cams = len(scene.routes), len(scene.camera_points)
+    pool = target_route_pool(scene, params)
+    n_routes, n_cams = len(pool), len(scene.camera_points)
     for attempt in range(1, max_attempts + 1):
         ledger.note_combination()
-        route = scene.routes[int(rng.integers(n_routes))]
+        route = pool[int(rng.integers(n_routes))]
         idle = int(rng.choice(list(idle_choices)))
         moved = route.shifted(idle)
         if moved.displacement_cm <= 1.0e-6:
@@ -1083,7 +1122,8 @@ def solve_distance_change_pair(scene: SceneInputs, params: dict, *,
     min_change = float(min_change_cm)
     half_fov = effective_half_fov(scene, params)
     min_sep = float(params["MIN_AZIMUTH_SEP"])
-    n_routes, n_cams = len(scene.routes), len(scene.camera_points)
+    pool = target_route_pool(scene, params)
+    n_routes, n_cams = len(pool), len(scene.camera_points)
 
     def relation(delta):
         if delta <= -min_change:
@@ -1094,7 +1134,7 @@ def solve_distance_change_pair(scene: SceneInputs, params: dict, *,
 
     for attempt in range(1, max_attempts + 1):
         ledger.note_combination()
-        route = scene.routes[int(rng.integers(n_routes))]
+        route = pool[int(rng.integers(n_routes))]
         idle = int(rng.choice(list(idle_choices)))
         moved = route.shifted(idle)
         if moved.displacement_cm <= 1.0e-6:
@@ -1343,10 +1383,11 @@ def solve_instant_binding(scene: SceneInputs, params: dict, *,
     """
     half_fov = effective_half_fov(scene, params)
     min_sep = float(params["MIN_AZIMUTH_SEP"])
-    n_routes, n_cams = len(scene.routes), len(scene.camera_points)
+    pool = target_route_pool(scene, params)
+    n_routes, n_cams = len(pool), len(scene.camera_points)
     for attempt in range(1, max_attempts + 1):
         ledger.note_combination()
-        route = scene.routes[int(rng.integers(n_routes))]
+        route = pool[int(rng.integers(n_routes))]
         idle = int(rng.choice(list(idle_choices)))
         moved = route.shifted(idle)
         if moved.displacement_cm <= 1.0e-6:
