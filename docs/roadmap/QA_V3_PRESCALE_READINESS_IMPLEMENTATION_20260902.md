@@ -485,3 +485,213 @@ owner 于 2026-09-02 晚指示：整条工作线推送到新分支 `origin/qa-v3
 3. 分档政策的硬拒条件"中/重/完全被挡 且 挡住物 ≤ 1.5 m"是否会把合法的近景遮挡也拒掉。
 4. 预检的目标带定义（相机高 1.47 m、目标高 0.5 m、2.5 到 10 m）是否应随每间房的实际参数而变。
 5. 预检、像素 join、人工标注三方的 16/16、12/13 对照是否足以让预检替代二维几何预筛。
+
+
+---
+
+# 第四轮（2026-09-02 夜）：机位净空表进求解器、预测可见性、Codex 三条 P0
+
+> 起因：Codex 对 `c52ca65..23eef13` 的只读审核给出三条 P0——机位净空要在求解时判、
+> 静止路线预过滤与 card1 联合预算、扩展题型 manifest 记代码版本——owner 同日拍板了
+> 三项裁定（1.5 m 硬拒先兜底后降诊断；相机高度按机位做确定性第二次尝试；每 5 帧
+> 时间线改叫抽样）并认可"每格 4 面立方体全景、房间算一次、换题型换资产不重渲"的
+> 求解器方案。本节记录为此做的提交、实测数字和还没做的事。**本节同样不宣布 pilot
+> 认证、放量或容差定稿。**
+
+## A. 起止 HEAD
+
+起点 `23eef13`（Codex 审核范围的终点）。代码终点 `4b9ef3b`；本节文档提交与资产政策方案文档紧随其后。
+worktree 干净。
+
+## B. 提交（按逻辑切片）
+
+| 提交 | 内容 |
+| --- | --- |
+| `273ce15` | card11/card16 批次 manifest 写入代码版本与脏树标记；运行中途失败也留下带版本与错误的 manifest（Codex P0 ③） |
+| `4d13509` | 相机水平视场角改为从场景合同读（`scene_sampler.scene_hfov_deg` 唯一入口）；深度预检加 `--scene-config/--hfov-deg` 并记录来源；捕获相机助手的视场角与渲染目标尺寸参数化 |
+| `a2a754f` | 机位净空表生成工具 `build_qa_v3_camera_clearance_table.py` 与共享几何/读取模块 `camera_clearance.py`（见 C1） |
+| `871423e` | 七个求解器与 N 角色规划器在解出朝向后立即查表；相机高度回退；fact 与 manifest 记录证据；`CAMERA_CLEARANCE_REQUIRED` 缺表即停 |
+| `6b8c85d` | 双运动题型的静止目标路线预过滤（opt-in，card6R 不受影响） |
+| `403d269` | manifest 的联合配额表（槽位×锚带×答案×运动格：请求/填满/耗尽原因）与路线池报告 |
+| `9c95687` | 预测可见性模块 `visibility_prediction.py` 与像素真值对照工具 `validate_visibility_prediction.py` |
+| `10876b6` | 每条候选在最终时间线上预测两只狗逐帧可见性写进 fact；题型声明 `visual_requirements`（tier 只记档、reject 拒）；manifest 记预测档位分布 |
+| `163fdcf` | 两条旧装配器加 `--historical-reproduction` 开关；选角助手挪到中性模块 `qa_v3_actor_selection.py`；像素 join 的全片可见性块改名 `visibility_timeline_sampled` 并记捕获步长 |
+| `aef8523` | 预测可见性的撒点改按体宽（±0.2 m）而不是体长（±0.4 m），依据 D2 的对照 |
+| `4b9ef3b` | 相机朝向直接从区间内的净空 2° 档抽样（无表时仍是均匀抽样）；1.8 m 只在区间内 1.47 m 无净空档时才用；扩展题型 manifest 记筛查、表身份、回退次数 |
+
+每个提交时点顶层测试均通过：374 → 379 → 393 → 398 → 402 → 409 → 412 passed（unit 15 passed 不变）。
+
+## C. 实现要点
+
+### C1. 机位净空表（房间算一次）
+
+- **渲什么**：对求解器可能抽到的每个相机点（`load_scene` 的 `camera_points`，Apartment 5757 个、Kujiale 598 个），
+  在场景相机高度和 1.8 m 各渲 4 张 90° 视场、512×768 的无角色深度面（世界 yaw 0/90/180/270），
+  拼成一圈 360° 深度全景。表按舞台包版本、场景、相机点、高度索引，房间不改就不重算。
+- **两个实测发现**（都有现场证据，改了实现）：
+  1. UE 的 `FOVAngle` 对竖长渲染目标仍绑定水平轴：512×768 的 90° 面与 768×768 的 90° 面中央 512 列逐像素一致
+     （中位相对差 0.0，`/data/jzy/tmp/qa_v3_fov_axis_probe_20260902_v1.npz`）。竖向视场 112.6° 也实测成立
+     （tan_v=1.5 处中位差 0.0005，其余假设 ≥ 1.5%）。生产相机 1280×720、105° 的横竖假设同样实测成立。
+  2. 引擎深度缓冲 `sp_depth_meters_` 是**径向距离**不是平面深度。按平面深度重投影时误差随朝向偏离面轴增长
+     （中位 15–22%），按径向重投影后 12 条直接渲染对照的中位误差 0.2–0.4%、98% 像素在 5% 以内。
+- **摘要**：从全景按真实 105°×72.5° 视场重投影任意朝向，2° 一档算目标带（0.5/1.0/1.7 m 目标在 2.5–10 m 投影的行带）
+  与眼高带的被挡列占比（列中位深度 < 1.0/1.5/2.5 m，与预检同一定义）。任意朝向的精确值随时可从存下的面重算。
+- **验证**：随机 (点, 朝向) 直接渲染与表对照。24 点 smoke：判定一致 12/12（精确朝向与 2° 档都是），
+  占比绝对差中位 0.0008、最大 0.08。完整表的对照数字见 D1。
+- **代价**：单点 4 面约 0.28 s（比原来 0.57 s 单张预检还快，因为一次步进读四张）；Apartment 一遍 27 min，
+  两个高度 54 min；摘要 16 进程 19 min（Apartment）；存储 3.3 GB + 0.34 GB。
+- **消费者**（`camera_clearance.CameraClearanceTable`）：按点查被挡占比、净空朝向掩码、无净空朝向的点、
+  以及任意视线的第一个障碍距离（供预测可见性）。
+
+### C2. 求解器接入（`scene_sampler`）
+
+- 场景配置多一个键 `camera_clearance_table`；`load_scene` 拒绝别的房间的表、覆盖不全的表、缺场景相机高度的表。
+- 七个求解器与 `find_n_route_plan` 在解出 yaw 后立刻 `screen_camera_clearance`：场景高度堵死→按
+  `CAMERA_HEIGHT_FALLBACK_M` 顺序试表里的其它高度→都堵记 `camera_clearance_blocked` 换机位。只看表，不看答案。
+- `PointPlan` 带 `camera_height_m` 与 `camera_clearance` 证据；两个批次生成器按该高度放相机与听者，
+  fact `camera` 块记 `height_m/scene_camera_height_m/clearance`，manifest 记 `camera_clearance_screened`、
+  表身份、`camera_height_fallback_used`。没有表时行为不变，fact 写明"未筛"。
+- params 新键（v3）：`CAMERA_CLEARANCE_REQUIRED`、`CAMERA_CLEARANCE_TARGET_HEIGHT_M 0.5`、
+  `CAMERA_CLEARANCE_NEAR_M 1.5`、`CAMERA_CLEARANCE_BLOCKED_FRACTION_MAX 0.2`、`CAMERA_HEIGHT_FALLBACK_M [1.8]`，
+  全部占位；缺键或不在表的网格上 fail-closed。
+
+### C3. 静止路线预过滤与联合配额
+
+- `ROUTE_PREFILTER_STATIC_TARGETS`（opt-in）：六个拒绝静止目标的求解器改从移动路线池抽目标；约束不变，
+  逐次拒绝保留兜底；card6R 仍用全库。manifest `route_pool` 记池大小。
+- manifest `cell_budget`：每个题型的 槽位×锚带×答案×运动格 键的请求/填满/耗尽原因；被拒格带分配信息；
+  不足留在本房，不跨房回填。
+
+### C4. 预测可见性（不拒题，记档）
+
+- 在最终时间线上对两只狗逐帧撒九条视线（三个高度×三个横向偏移）查全景第一个障碍，另一只狗按圆柱体近似；
+  得到逐帧预测可见比例与档位（沿用 join 的 0.5/0.2 阶梯）、锚帧/查询帧档位、全片统计
+  （露面比例、叫的瞬间前后是否露面、查询前被挡多久、全程不露面）。
+- 题型声明 `visual_requirements`（profiles v2）：card1F/1B 两狗锚帧与查询帧、card5R/6R 比较帧等都是 `tier`；
+  card7/card9 目前也是 `tier`，等 D2 的对照通过再改 `reject`。card8 不设。
+- 狗身尺寸 `PREDICTION_BODY_M` 占位（0.5 m 高、0.8 m 长、0.4 m 宽；横向撒点按体宽，见 D2）。
+
+## D. fresh 产物与实测数字
+
+### D1. 两房净空表
+
+Apartment（`/data/jzy/tmp/qa_v3_camera_clearance_table_apartment_20260902_v1`，代码 `163fdcf`）：
+
+| 项目 | 数值 |
+| --- | ---: |
+| 相机点 | 5757 / 5757（全覆盖） |
+| 相机高度 | 1.471 m 与 1.8 m |
+| 渲染 | 0.283 s/点，两遍共 54 min；引擎总墙钟 55 min |
+| 摘要（16 进程） | 19 min |
+| 全程墙钟 | 75 min |
+| 存储 | 3.3 GB（180 个分片，float16，两高度） |
+| 有净空朝向的点 @1.47 m | 4735 / 5757（82%），平均净空朝向占 43% |
+| 有净空朝向的点 @1.8 m | 5348 / 5757（93%），平均净空朝向占 59% |
+| 直接渲染对照（40 条随机点×朝向） | 判定一致：精确朝向 40/40，2° 档 39/40（唯一分歧 0.197 对 0.203，正压 0.2 线上） |
+| 占比绝对差 | 精确朝向中位 0.0008、最大 0.016；2° 档中位 0.0012、最大 0.024 |
+| 重投影深度误差 | 中位 0.19%，最大 0.31% |
+
+抬到 1.8 m 让"整个点没有任何净空朝向"的比例从 18% 降到 7%，与第三轮 14 个堵死机位里 7 个能靠 1.8 m 救回的实验一致。
+
+Kujiale `/data/jzy/tmp/qa_v3_camera_clearance_table_kujiale_20260902_v1`（代码 `aef8523`）：598 / 598 个相机点，1.47 m 与 1.8 m，
+0.36 s/点，引擎墙钟 7.8 min，摘要 2.8 min，全程 10.7 min，341 MB（19 个分片）。有净空朝向的点两个高度都是 585 / 598（98%），
+平均净空朝向占 63%（1.47 m）与 64%（1.8 m）——这间客厅的问题从来不是机位堵死，而是路线库一半是静止路线。
+直接渲染对照 40 条：精确朝向 40/40，2° 档 39/40（分歧 0.191 对 0.203，同样压在 0.2 线上）；重投影深度误差中位 0.19%。
+
+### D2. 预测可见性对照（已捕获像素真值的候选）
+
+对 59 条已捕获像素真值的 Apartment 候选（37 条双帧 + 26 条 16 帧，共 1020 帧行，948 行两侧都在视野内）逐帧比对预测可见比例与渲染器可见比例（`qa_v3_visibility_prediction_validation_apartment_20260902_v{1,2}.json`）：
+
+| 指标 | 撒点横向 ±0.4 m（v1，按体长） | 撒点横向 ±0.2 m（v2，按体宽，已改为缺省） |
+| --- | ---: | ---: |
+| Pearson / Spearman | 0.932 / 0.861 | 0.955 / 0.841 |
+| 绝对误差中位 / 均值 | 0.037 / 0.086 | 0.024 / 0.067 |
+| 0.5 分界一致 | 820 / 948（86.5%） | 886 / 948（93.5%） |
+| 五档一致 | 69.5% | 75.2% |
+| 真隐藏→预测可见 | 12 | 2 |
+| 真可见→预测隐藏 | 77（其中 92% 真实可见比例 < 0.2） | 112（同样几乎全是 < 0.2 的"重遮挡"） |
+| 出画一致 | 97.1% | 97.1% |
+
+读法：预测把"几乎看不见"的狗一律判成隐藏，把轻遮挡偶尔判成中遮挡，方向上偏保守；真隐藏被预测成可见的几乎没有。
+它够用来做档位配额与统计，不够用来单独拒题——card7/card9 的声明因此仍留在 `tier` 模式。
+按距离分段：2–3 m 段偏差最大（0.5 分界一致 86%），6 m 以外几乎无偏差。
+
+Kujiale 8 条候选、152 帧行、143 行两侧在视野内（`qa_v3_visibility_prediction_validation_kujiale_20260902_v1.json`，按体宽撒点）：
+Pearson 0.959、Spearman 0.943、绝对误差中位 0.0、0.5 分界一致 135 / 143（94.4%）、五档一致 84.2%、真隐藏→预测可见 0、真可见→预测隐藏 6。
+
+### D3. 两房 canary（净空表进求解器后的 fresh 批）
+
+输入：params v3（`qa_v3_prescale_params_tfull_placeholder_20260902_v3.json`，净空/回退/预过滤/狗身占位键）、题型 v2
+（`qa_v3_prescale_core_profiles_20260902_v2.json`，13 个题型的 `visual_requirements` 全是 tier）、带表的场景配置
+（`qa_v3_scene_configs_clearance_20260902_v1/`）。核心批每题型 6 格（card1F/1B/5R/6R/7/8/9/11/16），card1 smoke 每题型 18 格。
+
+**v1（代码 `163fdcf`/`aef8523`：先抽朝向再查表）**
+
+| 批次 | 结果 |
+| --- | --- |
+| Apartment 核心 | card1F 3/6、card1B 3/6，其余 7 个题型 6/6；36 条 scene-batch fact 全部筛过表并带预测可见性；相机高度 1.471 m 23 条、1.8 m 13 条 |
+| Apartment card1 smoke | card1F 10/18、card1B 11/18；21 条 fact 全筛过，8 条用了 1.8 m |
+| Kujiale 核心 | card1F 0/6、card1B 0/6、card5R 3/6、card8 5/6，其余 6/6；路线池 200/400（静止路线已剔除） |
+| Kujiale card1 smoke | card1F 2/18、card1B 0/18 |
+
+读法：
+- 拒因里 `camera_clearance_blocked` 占 card1 尝试的四分之一到三分之一（Apartment card1B 2378/9483，Kujiale card1B 8916/54000），
+  这是"先抽朝向再查表"的浪费——它促成了 `4b9ef3b`：直接从区间内的净空档抽朝向，堵死不再消耗尝试，1.8 m 只在整个区间在 1.47 m 都堵死时才用。
+- Apartment card1 的 36 格 smoke 里 21 条通过且机位全部净空；第三轮同样 36 格里 30 条通过但 14 条机位堵死，
+  可用的其实只有 16 条。也就是说净空表进求解器后，**可用产量从 16/36 提到 21/36，而且不再需要事后像素筛机位**。
+- Kujiale 的 card1 产能仍接近零，主拒因是 `camera_too_close_to_target`（2.5 m 底线）与锚带分配，不是机位堵死：
+  这间客厅只有 200 条移动路线、地面约 5.8 m × 11.8 m，card1 的联合约束在这里几乎不可满足。联合配额表如实报 18 格 18 个未填。
+  这是房间容量问题，要由 owner 决定放宽 2.5 m 占位、补路线库，还是接受该房不出 card1。
+- 预测档位分布已进 manifest（例：Apartment card1F 主狗查询帧 light 4 / medium 3 / heavy 2 / hidden 1）；
+  "对照狗全程不露面"各出现 1 条（card1F、card1B、card9），按 owner 裁定留作难题单列。
+
+**v2（代码 `4b9ef3b`：从净空档抽朝向）**
+
+| 批次 | 结果 |
+| --- | --- |
+| Apartment 核心 | card1F 2/6、card1B 3/6，其余 7 个题型 6/6；35 条 scene-batch fact 全筛过并带预测；相机高度 1.471 m 29 条、1.8 m 6 条；card11/card16 的 manifest 也记了筛查（回退 2 与 1） |
+| Apartment card1 smoke | card1F 11/18、card1B 12/18；23 条 fact 全筛过，其中 11 条用 1.8 m |
+| Kujiale 核心 | card1F 0/6、card1B 0/6，其余 7 个题型 6/6（v1 里 card5R 3/6、card8 5/6 这次都填满）；30 条 fact 全在 1.47 m，无回退 |
+| Kujiale card1 smoke | card1F 1/18、card1B 1/18 |
+
+读法：
+- 从净空档抽朝向后，`camera_clearance_blocked` 的含义变成"这个相机点在答案带解出的整个朝向区间里、两个高度都没有净空档"，
+  是真实约束而不是抽样浪费；它仍是 card1 的主要拒因之一（Apartment card1 smoke 里约 1/5 的尝试），说明 card1 的答案带把相机
+  朝向压得很窄，而 Apartment 一半左右的机位朝向被家具挡住。
+- Apartment card1 smoke 36 格通过 23 格（v1 21，第三轮可用 16），全部机位净空，不再需要事后像素筛机位。
+- **相机高度回退占比高**：Apartment card1 通过的 23 条里 11 条用了 1.8 m，核心批 35 条里 6 条。按 owner 裁定这是确定性的几何回退，
+  fact 与 manifest 都记了；但比例接近一半，值得 owner 与 Codex 一起看：是接受两种高度混用，还是把 1.8 m 改成场景级实验臂。
+  Kujiale 全部 1.47 m，没有回退。
+- Kujiale card1 仍接近零，与 v1 结论一致：主拒因 `camera_too_close_to_target`（2.5 m 占位）和锚带分配，房间容量问题。
+- 预测档位分布进了每个 manifest；"对照狗全程不露面"在两房合计出现 6 条（card1F 1、card1B 1、card5R 1、card6R 2、card7 1、card8 主狗与对照狗各 1），按裁定单列难题。
+- 所有 fact 与 manifest 记代码版本 `4b9ef3b`、dirty=false。
+
+## E. 测试
+
+顶层 412 passed；unit 15 passed。新增测试文件：`test_qa_v3_camera_clearance_table.py`（解析房间：
+重投影复现直接渲染、UE yaw 约定、与预检同一列中位指标、哨兵、读取器 fail-closed、预测可见性）、
+`test_qa_v3_predicted_visibility.py`、`test_qa_v3_cell_budget.py`、`test_qa_v3_legacy_cli_gate.py`；
+`test_scene_sampler.py` 新增净空筛查、高度回退、要求 fail-closed、表不匹配拒载入、静止路线预过滤。
+
+## F. 失败与边界
+
+1. 8 点 smoke v1 在验证阶段把 spawn 放在帧块外触发引擎断言，失败目录 `qa_v3_camera_clearance_table_apartment_smoke8_20260902_v1` 保留作证据；v2 暴露了平面/径向约定错误；v3 通过。
+2. 我曾把 `tests/test_qa_v3_extended_pixel_join.py` 在本地未拉取的情况下追加并上传，覆盖了原有 15 个测试；
+   已从上一个提交恢复并重新追加，`163fdcf` 是修正后的提交。
+3. 预测可见性只在 fact 里记档，不拒题；`reject` 模式已实现但 profiles v2 未启用。
+4. 全景的竖向覆盖 ±56°，相机 1 m 内的狗脚部视线可能落到覆盖外，返回"未知"不计入比例。
+5. 所有阈值仍是占位；没有人类数据；没有渲染完整视频音频。
+6. v1 参数在缺省 tier 政策下会因缺 `PIXEL_CAMERA_BLOCKAGE_MAX_DISTANCE_M`/`PIXEL_TIER_VISIBLE_FRACTION_EDGES`
+   而 fail-closed：历史复现请用 v2/v3 参数或显式 `PIXEL_ACCEPTANCE_POLICY=both_frames_threshold_reject`。
+
+## G. 还没做与需要 owner 决定的
+
+0. Kujiale card1 产能：放宽 2.5 m 占位、补路线库，还是接受该房不出 card1；以及 Apartment card1 近半候选用 1.8 m 相机的处理。
+1. 预测可见性目前只记档不拒题；对照数字（D2）够做配额与统计，是否允许 card7/card9 改 `reject` 由 owner 与 Codex 定；按预测档位做配额上限（现在只记分布）。
+2. 全 75 帧像素捕获与"按时间线定档"规则，等人类数据。
+3. 人类校准包 v4（要先渲 canary 候选的完整视频音频）。题型资产政策方案文档已写（`docs/roadmap/QA_V3_ASSET_POLICY_PROPOSAL_20260902.md`），只是方案，等 Codex 审与 owner 拍板。
+4. Codex 第三次审核；合入 main 由 owner 决定。
+
+## H. 远端
+
+本节提交后整条线推送到 `origin/qa-v3-prescale-20260902`（与第三轮同一分支，`main` 不动）；尖端即本节的文档提交。合入 main 等 Codex 第三次审核后由 owner 决定。
