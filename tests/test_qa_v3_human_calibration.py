@@ -56,6 +56,8 @@ def test_pack_hides_gold_and_binds_copied_media(tmp_path):
     assert "plays>=2" in html
     assert "resultText" in html
     assert "复制 JSON" in html
+    # 右键菜单会重新露出原生控件(含时间轴),必须禁掉
+    assert 'oncontextmenu="return false"' in html
 
 
 def test_preview_limit_keeps_one_item_per_profile(tmp_path):

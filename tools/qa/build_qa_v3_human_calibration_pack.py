@@ -165,7 +165,7 @@ textarea{width:100%;box-sizing:border-box;padding:.6rem;border:1px solid #aeb7c4
 <div class="card" id="welcome"><label>测试编号 <input id="participant" type="text" placeholder="例如 owner-test"></label>
 <button id="start">开始试听</button></div>
 <div id="study" class="card" hidden><p id="progress" class="muted"></p>
-<h2 id="mainQuestion"></h2><video id="video" playsinline preload="auto" disablepictureinpicture></video>
+<h2 id="mainQuestion"></h2><video id="video" playsinline preload="auto" disablepictureinpicture oncontextmenu="return false"></video>
 <div><button id="play">播放视频</button><span id="playState" class="muted">尚未播放</span></div>
 <div id="answers" hidden><h3 id="bindingStem"></h3><div id="bindingOptions"></div>
 <h3 id="numericStem"></h3><label>数值答案 <input id="numeric" type="number" step="any"> <span id="unit"></span></label>
