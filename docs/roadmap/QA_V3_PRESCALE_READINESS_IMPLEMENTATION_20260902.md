@@ -666,6 +666,18 @@ Pearson 0.959、Spearman 0.943、绝对误差中位 0.0、0.5 分界一致 135 /
 - 预测档位分布进了每个 manifest；"对照狗全程不露面"在两房合计出现 6 条（card1F 1、card1B 1、card5R 1、card6R 2、card7 1、card8 主狗与对照狗各 1），按裁定单列难题。
 - 所有 fact 与 manifest 记代码版本 `4b9ef3b`、dirty=false。
 
+### D4. 放宽距离底线的对照实验（owner 2026-09-03 允许）
+
+把查询帧与锚帧的相机距离底线从 250 cm 改为 200 cm（实验参数 `qa_v3_prescale_params_floor200_experiment_20260902_v1.json`，其余同 v3），
+重跑 Kujiale card1 18 格 smoke（`qa_v3_canary_card1_kujiale_floor200_20260902_v1`，代码 `fe061cb`）：card1F 2/18、card1B 3/18，
+合计 5/36，对照 v2 的 2/36。5 条候选全部 1.47 m 机位净空。拒因里 `camera_too_close_to_target` 仍占约四分之一，
+`anchor_outside_allocated_band` 升为 card1F 的第一拒因。结论：放宽占位只把产量从接近零提到很低，
+Kujiale card1 的瓶颈是路线库太短太少（200 条移动路线、锚帧到查询帧中位只走 1.88 m），
+下一轮的"求解器反向设计路线"才是结构性解法。2.0 m 不作为新占位值，仍以 v3 的 2.5 m 为准，等 owner 定。
+
+随机 20 万个（相机点，移动路线）组合的几何可行率作旁证：两个时刻都 ≥ 2.5 m 且锚帧到查询帧方位扫过 > 30°，
+Apartment 15.7%、Kujiale 5.0%。
+
 ## E. 测试
 
 顶层 412 passed；unit 15 passed。新增测试文件：`test_qa_v3_camera_clearance_table.py`（解析房间：
