@@ -24,7 +24,13 @@ import numpy as np
 
 from camera_clearance import NO_HIT_M, CameraClearanceTable
 
-DEFAULT_BODY_M = {"height_m": 0.5, "length_m": 0.8}
+# A dog is 0.5 m tall, 0.8 m long and about 0.4 m wide (placeholders).  The
+# lateral samples span the WIDTH, not the length: on 59 captured Apartment
+# candidates (948 in-view frames, 2026-09-02) sampling +-0.4 m sideways called
+# 122 of 338 clearly visible frames "medium" because the outer samples landed
+# beside the dog on furniture; +-0.2 m brought tier agreement from 0.695 to
+# 0.753 and the below-half agreement from 820 to 887 of 948.
+DEFAULT_BODY_M = {"height_m": 0.5, "length_m": 0.8, "width_m": 0.4}
 # body samples: three heights (legs, body, head) x three lateral offsets
 BODY_HEIGHT_FRACTIONS = (0.2, 0.6, 1.0)
 BODY_LATERAL_FRACTIONS = (-0.5, 0.0, 0.5)
@@ -40,19 +46,21 @@ def body_from_params(params: Mapping[str, Any], key: str = "PREDICTION_BODY_M") 
         return dict(DEFAULT_BODY_M, status="placeholder_default")
     height = float(body["height_m"])
     length = float(body["length_m"])
-    if not (height > 0.0 and length > 0.0):
+    width = float(body.get("width_m", DEFAULT_BODY_M["width_m"]))
+    if not (height > 0.0 and length > 0.0 and width > 0.0):
         raise ValueError(f"{key} dimensions must be positive")
-    return {"height_m": height, "length_m": length,
-            "status": str(body.get("status", "placeholder_from_params"))}
+    return {"height_m": height, "length_m": length, "width_m": width,
+            "status": str(body.get("status", "placeholder_from_params")),
+            "width_source": "params" if "width_m" in body else "default_0.4m"}
 
 
 def body_samples_m(camera_xy_m: Sequence[float], actor_xy_m: Sequence[float],
                    body: Mapping[str, float]) -> np.ndarray:
     """World (x, y, z_above_floor) of the body sample points, metres.
 
-    Lateral offsets run perpendicular to the sight line so the silhouette
-    width does not depend on the actor's heading (which the plan may not
-    know yet)."""
+    Lateral offsets span the body width perpendicular to the sight line, so
+    the silhouette does not depend on the actor's heading (which the plan may
+    not know yet); see DEFAULT_BODY_M for why width, not length."""
     dx = actor_xy_m[0] - camera_xy_m[0]
     dy = actor_xy_m[1] - camera_xy_m[1]
     norm = math.hypot(dx, dy)
@@ -60,9 +68,10 @@ def body_samples_m(camera_xy_m: Sequence[float], actor_xy_m: Sequence[float],
         raise ValueError("actor stands on the camera")
     perp = (-dy / norm, dx / norm)
     points = []
+    width = float(body.get("width_m", DEFAULT_BODY_M["width_m"]))
     for hf in BODY_HEIGHT_FRACTIONS:
         for lf in BODY_LATERAL_FRACTIONS:
-            offset = lf * float(body["length_m"])
+            offset = lf * width
             points.append((actor_xy_m[0] + perp[0] * offset,
                            actor_xy_m[1] + perp[1] * offset,
                            hf * float(body["height_m"])))
@@ -85,8 +94,11 @@ def sight_lines(camera_xyz_m: Sequence[float], points_m: np.ndarray
 def actor_cylinder_blocks(camera_xyz_m: Sequence[float], points_m: np.ndarray,
                           other_xy_m: Sequence[float], other_body: Mapping[str, float]
                           ) -> np.ndarray:
-    """Does another actor (a vertical cylinder) cut a ray before its target point?"""
-    radius = 0.5 * float(other_body["length_m"])
+    """Does another actor (a vertical cylinder) cut a ray before its target point?
+
+    The cylinder radius is the mean of the half length and half width."""
+    radius = 0.25 * (float(other_body["length_m"])
+                     + float(other_body.get("width_m", DEFAULT_BODY_M["width_m"])))
     top = float(other_body["height_m"])
     cam = np.asarray(camera_xyz_m, dtype=np.float64)
     seg = points_m - cam
