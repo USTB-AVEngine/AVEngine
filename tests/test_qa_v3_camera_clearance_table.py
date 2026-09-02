@@ -333,3 +333,96 @@ def test_fallback_heights_come_from_params_only():
     assert fallback_heights_from_params({"CAMERA_HEIGHT_FALLBACK_M": [1.8, 2.0]}) == [1.8, 2.0]
     with pytest.raises(CameraClearanceError):
         fallback_heights_from_params({"CAMERA_HEIGHT_FALLBACK_M": [-1.0]})
+
+
+# ---------------------------------------------------------------------------
+# visibility prediction on the analytic room
+# ---------------------------------------------------------------------------
+
+CAM = (100.0, -250.0)          # table point (UE cm); the room is centred on the camera
+DOG = {"height_m": 0.5, "length_m": 0.8}
+HUMAN = {"height_m": 1.7, "length_m": 0.5}
+
+
+def _actor_at(bearing_deg, distance_m):
+    return (CAM[0] + 100.0 * distance_m * math.cos(math.radians(bearing_deg)),
+            CAM[1] + 100.0 * distance_m * math.sin(math.radians(bearing_deg)))
+
+
+def _predict(table, actor_xy, body, others=()):
+    from visibility_prediction import predict_point_visibility
+    return predict_point_visibility(table, camera_xy_cm=CAM, camera_height_m=1.47,
+                                    ground_z_cm=0.0, actor_xy_cm=actor_xy, body=body,
+                                    others=others)
+
+
+def test_prediction_sees_the_island_hide_a_dog_but_not_a_standing_human(tmp_path, faces):
+    from camera_clearance import CameraClearanceTable
+    table = CameraClearanceTable.load(_write_synthetic_table(tmp_path / "table", faces))
+    dog_behind_island = _predict(table, _actor_at(0.0, 3.0), DOG)
+    assert dog_behind_island["predicted_visible_fraction"] == 0.0
+    assert dog_behind_island["blocked_by_scene"] == 9
+    human_behind_island = _predict(table, _actor_at(0.0, 3.0), HUMAN)
+    assert 0.0 < human_behind_island["predicted_visible_fraction"] < 1.0
+    dog_in_the_open = _predict(table, _actor_at(180.0, 3.0), DOG)
+    assert dog_in_the_open["predicted_visible_fraction"] == 1.0
+    assert dog_in_the_open["known_fraction"] == 1.0
+    behind_pillar = _predict(table, _actor_at(math.degrees(math.atan2(1.6, 2.1)), 3.5), DOG)
+    assert behind_pillar["predicted_visible_fraction"] < 0.5
+
+
+def test_prediction_counts_another_actor_as_an_occluder(tmp_path, faces):
+    from camera_clearance import CameraClearanceTable
+    table = CameraClearanceTable.load(_write_synthetic_table(tmp_path / "table", faces))
+    clear = _predict(table, _actor_at(180.0, 4.0), DOG)
+    # a dog just in front of the target cuts the low sight lines; a dog half
+    # way to the camera does not, because the lens looks down over its back
+    blocked = _predict(table, _actor_at(180.0, 4.0), DOG,
+                       others=[(_actor_at(180.0, 3.6), DOG)])
+    over_the_back = _predict(table, _actor_at(180.0, 4.0), DOG,
+                             others=[(_actor_at(180.0, 2.0), DOG)])
+    assert clear["predicted_visible_fraction"] == 1.0
+    assert blocked["predicted_visible_fraction"] < 1.0
+    assert blocked["blocked_by_actor"] > 0
+    assert over_the_back["blocked_by_actor"] == 0
+    aside = _predict(table, _actor_at(180.0, 4.0), DOG,
+                     others=[(_actor_at(150.0, 3.6), DOG)])
+    assert aside["blocked_by_actor"] == 0
+
+
+def test_predicted_tiers_follow_the_pixel_join_ladder():
+    from visibility_prediction import predicted_tier
+    assert predicted_tier(False, 1.0) == "out_of_view"
+    assert predicted_tier(True, None) == "unknown"
+    assert predicted_tier(True, 0.0) == "hidden"
+    assert predicted_tier(True, 0.1) == "heavy"
+    assert predicted_tier(True, 0.3) == "medium"
+    assert predicted_tier(True, 0.9) == "light"
+
+
+def test_timeline_prediction_and_statistics(tmp_path, faces):
+    from camera_clearance import CameraClearanceTable
+    from visibility_prediction import predict_timeline, timeline_statistics
+    table = CameraClearanceTable.load(_write_synthetic_table(tmp_path / "table", faces))
+    # the target walks from behind the island (bearing 0) round to the open
+    # side (bearing 180) over 10 frames; the other actor stays in the open
+    target = [_actor_at(180.0 * k / 9, 3.0) for k in range(10)]
+    other = [_actor_at(240.0, 3.0)] * 10
+    result = predict_timeline(table, camera_xy_cm=CAM, camera_height_m=1.47,
+                              camera_yaw_deg=180.0, hfov_deg=105.0, ground_z_cm=0.0,
+                              routes_by_slot={"source1": target, "source2": other},
+                              bodies_by_slot={"source1": DOG, "source2": DOG})
+    rows = result["slots"]["source1"]["per_frame"]
+    assert [r["frame"] for r in rows] == list(range(10))
+    assert rows[0]["in_fov"] is False and rows[0]["tier"] == "out_of_view"
+    assert rows[-1]["in_fov"] is True and rows[-1]["tier"] == "light"
+    assert all(r["tier"] in ("light", "medium", "heavy", "hidden", "out_of_view", "unknown")
+               for r in rows)
+    stats = timeline_statistics(rows, instants={"anchor": 1, "query": 9})
+    assert stats["frames_evaluated"] == 10
+    assert stats["visible_near_instant"]["query"] is True
+    assert stats["visible_near_instant"]["anchor"] is False
+    assert stats["hidden_frames_before_instant"]["anchor"] >= 2
+    assert stats["hidden_frames_before_instant"]["query"] == 0
+    assert stats["never_visible"] is False
+    assert 0.0 < stats["visible_frames_fraction"] < 1.0
