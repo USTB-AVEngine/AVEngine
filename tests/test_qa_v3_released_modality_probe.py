@@ -35,6 +35,25 @@ def test_text_probe_reports_empirical_not_universal_claim():
     assert "does not prove" in result["boundary"]
 
 
+def test_probe_output_embeds_executed_scoring_params_and_fails_closed():
+    items = [{
+        "question_id": f"q{index}", "group_id": f"q{index}",
+        "profile_id": "p", "form": "mcq", "task_type": "classification",
+        "question": "same", "options": ["a", "b"], "truth": "a",
+    } for index in range(4)]
+    result = run(items, "text", PARAMS, folds=2)
+    assert result["scoring_params"]["T_FULL"] == 0.3
+    assert result["scoring_params"]["T_HALF"] == 1.0
+    assert result["scoring_params"]["time_certification_policy"] == \
+        "strict_full_credit_only"
+    assert result["scoring_params"]["T_FULL_status"] == \
+        "unspecified_treat_as_placeholder"
+    import pytest
+    with pytest.raises(ValueError, match="T_FULL"):
+        run(items, "text", {k: v for k, v in PARAMS.items() if k != "T_FULL"},
+            folds=2)
+
+
 def test_numeric_time_probe_uses_strict_scorer():
     items = []
     for index in range(6):

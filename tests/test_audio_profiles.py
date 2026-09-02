@@ -21,8 +21,11 @@ from audio_profiles import (  # noqa: E402
     SAMPLE_RATE,
     TARGET,
     AudioProfileError,
+    Schedule,
     ScheduledEvent,
     _assert_no_overlap,
+    card8_band_edges,
+    card8_scoring_params,
     _self_check_backward,
     _self_check_first_call_bands,
     schedule_first_sound_at_frame,
@@ -37,6 +40,7 @@ from audio_profiles import (  # noqa: E402
 
 PARAMS = {"TAIL_SILENCE_FRACTION": 0.3, "QUERY_SILENCE_FRACTION": 0.12,
           "GAP_MIN_S": 0.3, "FIRST_MIN_S": 0.35, "T_HALF": 1.0,
+          "T_FULL": 0.5,
           "BANDS_CARD8": [0.35, 1.5, 2.65, 3.8, 4.7]}
 
 
@@ -139,6 +143,80 @@ def test_second_first_call_cannot_land_on_half_open_band_upper_edge():
     _self_check_first_call_bands(
         schedule, PARAMS, (0, 1), band_edges=edges
     )
+
+
+def test_card8_fails_closed_without_explicit_t_full():
+    """生产 params 曾经没有 T_FULL:缺它就不许调度、不许推带边。"""
+    params = {key: value for key, value in PARAMS.items() if key != "T_FULL"}
+    with pytest.raises(AudioProfileError, match="T_FULL"):
+        schedule_first_call_bands(rng(4), params=params, target_bands=(0, 1))
+    with pytest.raises(AudioProfileError, match="T_FULL"):
+        card8_band_edges(params)
+    with pytest.raises(AudioProfileError, match="T_FULL"):
+        card8_scoring_params(params)
+    # 有 T_FULL 时带边可推,且推导记录了实际执行的参数链
+    edges = card8_band_edges(PARAMS)
+    assert len(edges) == 5
+    scoring = card8_scoring_params(PARAMS)
+    assert scoring["certification_policy"] == "strict_full_credit_only"
+    assert scoring["wide_tolerance_role"] == "diagnostic_only"
+    assert scoring["T_FULL_status"] == "unspecified_treat_as_placeholder"
+    assert card8_scoring_params(dict(PARAMS, T_FULL_status="placeholder_research"))[
+        "T_FULL_status"] == "placeholder_research"
+
+
+def test_card8_minimum_separation_is_max_of_half_and_twice_full():
+    tight = card8_scoring_params(dict(PARAMS, T_FULL=0.6))
+    assert tight["min_first_call_separation_s"] == pytest.approx(1.2)
+    assert tight["min_first_call_separation_samples"] == 19200
+    loose = card8_scoring_params(dict(PARAMS, T_FULL=0.3))
+    assert loose["min_first_call_separation_s"] == pytest.approx(1.0)
+    with pytest.raises(AudioProfileError, match="narrower"):
+        card8_scoring_params(dict(PARAMS, T_FULL=1.5, T_HALF=1.0))
+
+
+def _two_first_calls(separation_samples):
+    first = 8000
+    second = first + separation_samples
+    events = [ScheduledEvent(TARGET, first, first + 4800, "answer_evidence"),
+              ScheduledEvent(OTHER, second, second + 4800, "answer_evidence")]
+    return Schedule("card8", events, 0, {})
+
+
+@pytest.mark.parametrize(("separation_s", "accepted"), [
+    (1.1, False),               # T_FULL=0.6: 报两声中点误差 0.55 <= 0.6,必须拒
+    (1.2, False),               # 边界 = 2*T_FULL,不严格大于,拒
+    (1.2 + 1.0 / SAMPLE_RATE, True),   # 严格大于一个样本即过
+    (1.5, True),
+])
+def test_card8_self_check_uses_strict_twice_t_full_boundary(separation_s, accepted):
+    params = dict(PARAMS, T_FULL=0.6)
+    edges = [0.0, 1.0, 2.5, 4.7]        # 第一声 0.5s 在带 0,第二声在带 1
+    schedule = _two_first_calls(int(round(separation_s * SAMPLE_RATE)))
+    if accepted:
+        _self_check_first_call_bands(schedule, params, (0, 1), band_edges=edges)
+    else:
+        with pytest.raises(AudioProfileError, match="strictly more than"):
+            _self_check_first_call_bands(schedule, params, (0, 1),
+                                         band_edges=edges)
+
+
+def test_scheduler_respects_derived_minimum_separation_and_records_it():
+    params = dict(PARAMS, T_FULL=0.6)
+    for seed in range(20):
+        schedule = schedule_first_call_bands(rng(seed), params=params,
+                                             target_bands=(0, 2))
+        firsts = {}
+        for event in sorted(schedule.events, key=lambda e: e.start_sample):
+            firsts.setdefault(event.role, event.start_sample)
+        earlier, later = sorted(firsts.values())
+        assert later - earlier > 19200
+        recorded = schedule.declared["first_call_scoring"]
+        assert recorded["T_FULL"] == 0.6
+        assert recorded["T_HALF"] == 1.0
+        assert recorded["min_first_call_separation_s"] == pytest.approx(1.2)
+        assert recorded["certification_policy"] == "strict_full_credit_only"
+        assert recorded["wide_tolerance_role"] == "diagnostic_only"
 
 
 def test_card8_refuses_unordered_band_pair():

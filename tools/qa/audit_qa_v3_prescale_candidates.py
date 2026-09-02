@@ -4,6 +4,11 @@
 The audit is deliberately non-mutating: it classifies retained candidates by
 the minimum next action after the 2026-09-02 modality-leakage fixes.  It does
 not rewrite historical facts, relabel media, or promote research candidates.
+
+Card1 angles are recomputed from the final timeline; solver plan values are
+reported only as planning values and never decide a status.  The scoring
+parameters that the audit executed (THETA_HALF, T_FULL, T_HALF and the derived
+card8 minimum first-call separation) are embedded in the output.
 """
 
 from __future__ import annotations
@@ -14,6 +19,7 @@ import sys
 from collections import Counter, defaultdict
 from pathlib import Path
 
+import audio_profiles as AP
 from design_qa_v3_scene_batch import recompute_azimuth
 from scene_sampler import circular_gap_deg, open_angle_candidate_scores_zero
 
@@ -28,10 +34,40 @@ def _read(path):
     return json.loads(Path(path).read_text(encoding="utf-8"))
 
 
+def _sha256(path):
+    import hashlib
+    digest = hashlib.sha256()
+    with Path(path).open("rb") as stream:
+        for block in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
 def _frame_span(event):
     start = int(event["start_sample"])
     end = int(event["end_sample_exclusive"])
     return start * 3 // 3200, min(75, -(-(end * 3) // 3200))
+
+
+def scoring_snapshot(params):
+    """The parameters this audit actually executes; fail closed when absent."""
+    if "THETA_HALF" not in params:
+        raise ValueError("params missing explicit THETA_HALF")
+    card8 = AP.card8_scoring_params(params)
+    return {
+        "THETA_FULL": (float(params["THETA_FULL"])
+                       if "THETA_FULL" in params else None),
+        "THETA_HALF": float(params["THETA_HALF"]),
+        "T_FULL": card8["T_FULL"],
+        "T_HALF": card8["T_HALF"],
+        "T_FULL_status": card8["T_FULL_status"],
+        "card8_min_first_call_separation_s": card8[
+            "min_first_call_separation_s"],
+        "card8_min_first_call_separation_rule": card8[
+            "min_first_call_separation_rule"],
+        "card8_certification_policy": card8["certification_policy"],
+        "card8_wide_tolerance_role": card8["wide_tolerance_role"],
+    }
 
 
 def _profile_id(candidate):
@@ -90,12 +126,17 @@ def audit_candidate(candidate, params):
         target = float(fact["truth"]["first_onset_s"])
         other = float(fact["truth"]["non_target_first_onset_s"])
         separation = abs(target - other)
-        strict_needed = 2.0 * float(params["T_FULL"])
+        scoring = AP.card8_scoring_params(params)
+        strict_needed = scoring["min_first_call_separation_s"]
         checks.update({"first_onset_separation_s": separation,
-                       "strict_region_disjoint_min_s": strict_needed})
+                       "min_first_call_separation_s": strict_needed,
+                       "min_first_call_separation_rule": scoring[
+                           "min_first_call_separation_rule"],
+                       "T_FULL": scoring["T_FULL"],
+                       "T_HALF": scoring["T_HALF"]})
         if separation <= strict_needed:
             actions.add("regenerate_audio_and_fact")
-            reasons.append("card8_strict_open_regions_overlap")
+            reasons.append("card8_first_call_separation_not_above_minimum")
         if fact["open"].get("certification_policy") != \
                 "strict_full_credit_only":
             actions.add("rewrite_question_metadata")
@@ -161,7 +202,8 @@ def audit_candidate(candidate, params):
     }
 
 
-def audit(pilot, params):
+def audit(pilot, params, params_source=None):
+    scoring = scoring_snapshot(params)
     records = []
     for room in pilot["rooms"].values():
         for profile in room["profiles"].values():
@@ -175,6 +217,11 @@ def audit(pilot, params):
         "schema": "qa_v3_prescale_candidate_revalidation_v1",
         "status": "research_candidate",
         "qualification_claim": False,
+        "scoring_params": scoring,
+        "params_source": params_source,
+        "angle_policy": (
+            "card1 anchor/query angles recomputed from the final timeline; "
+            "solver plan values are planning values only"),
         "candidate_count": len(records),
         "counts_by_status": dict(sorted(status.items())),
         "counts_by_profile_and_status": {
@@ -197,7 +244,15 @@ def main(argv=None):
     if args.output.exists() or args.output.is_symlink():
         print(f"refusing to overwrite: {args.output}", file=sys.stderr)
         return 2
-    result = audit(_read(args.pilot_manifest), _read(args.params))
+    params_path = args.params.resolve()
+    params_source = {"path": str(params_path),
+                     "sha256": _sha256(params_path)}
+    try:
+        result = audit(_read(args.pilot_manifest), _read(params_path),
+                       params_source)
+    except (ValueError, AP.AudioProfileError) as exc:
+        print(f"audit refused: {exc}", file=sys.stderr)
+        return 2
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(
         json.dumps(result, ensure_ascii=False, indent=2) + "\n",

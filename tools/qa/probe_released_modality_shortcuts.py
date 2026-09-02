@@ -124,7 +124,25 @@ def _numeric_score(predictions, truths, kind, params):
     return float(np.mean(scores)), scores
 
 
+SCORING_KEYS = ("THETA_FULL", "THETA_HALF", "T_FULL", "T_HALF")
+
+
+def scoring_snapshot(params):
+    """Parameters the probe's numeric scorers actually execute (fail closed)."""
+    missing = [key for key in SCORING_KEYS if key not in params]
+    if missing:
+        raise ValueError(f"params missing explicit scoring keys {missing}")
+    snapshot = {key: float(params[key]) for key in SCORING_KEYS}
+    snapshot["T_FULL_status"] = str(params.get(
+        "T_FULL_status", "unspecified_treat_as_placeholder"))
+    snapshot["time_certification_policy"] = "strict_full_credit_only"
+    snapshot["time_wide_tolerance_role"] = "diagnostic_only"
+    snapshot["angle_policy"] = "two_tier_theta_full_theta_half"
+    return snapshot
+
+
 def run(items, modality, params, folds):
+    scoring = scoring_snapshot(params)
     groups = {}
     for item in items:
         key = (item["profile_id"], item["form"], item["task_type"])
@@ -168,6 +186,7 @@ def run(items, modality, params, folds):
         "status": "research_candidate",
         "qualification_claim": False,
         "modality": modality,
+        "scoring_params": scoring,
         "records": records,
         "boundary": (
             "Released-media empirical shortcut probe only. Failure to exceed "
@@ -188,8 +207,13 @@ def main(argv=None):
     if os.path.exists(args.output):
         print(f"refusing to overwrite: {args.output}", file=sys.stderr)
         return 2
-    result = run(json.load(open(args.items)), args.modality,
-                 json.load(open(args.params)), args.folds)
+    try:
+        result = run(json.load(open(args.items)), args.modality,
+                     json.load(open(args.params)), args.folds)
+    except ValueError as exc:
+        print(f"probe refused: {exc}", file=sys.stderr)
+        return 2
+    result["params_source"] = {"path": os.path.abspath(args.params)}
     with open(args.output, "w") as stream:
         json.dump(result, stream, ensure_ascii=False, indent=2)
         stream.write("\n")

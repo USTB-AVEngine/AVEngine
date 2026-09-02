@@ -258,9 +258,13 @@ def audit_gatea_pair(profile, main_program, gatea_program, main_answer,
     elif scoring == "absolute_time":
         separation = abs(float(main_open["truth_value"])
                          - float(gatea_open["truth_value"]))
-        threshold = float(params["T_HALF"])
+        # Card8 Open is certified strictly (full credit only within T_FULL),
+        # so the two golds must be separated by the same derived minimum the
+        # scheduler enforces: strictly more than max(T_HALF, 2*T_FULL).
+        time_scoring = AP.card8_scoring_params(params)
+        threshold = time_scoring["min_first_call_separation_s"]
         open_separated = separation > threshold
-        open_rule = "absolute_time_difference > T_HALF"
+        open_rule = "absolute_time_difference > max(T_HALF, 2*T_FULL)"
     elif scoring == "closed_set":
         separation = None
         threshold = None
@@ -602,18 +606,40 @@ def build_cell_plan(cells, profiles, pair_assets, params, seed):
     return plan
 
 
-def materialize_derived_params(params):
+FIRST_CALL_ANSWER_KINDS = ("time_band", "first_caller_coat")
+
+
+def materialize_derived_params(params, profiles=None):
     """Replace stale card8 input text with the interval derived by this run.
 
     Card8's production path has used card8_band_edges since run02, but early
     external parameter files still carried run01's dead three-band field.
-    Manifests must describe what execution actually used.
+    Manifests must describe what execution actually used.  The derivation
+    needs the explicit card8 scoring chain (T_FULL / T_HALF); a batch that
+    contains a first-call profile fails closed without it, while a batch
+    without any first-call profile records that no derivation happened.
     """
     effective = copy.deepcopy(params)
-    effective["BANDS_CARD8"] = AP.card8_band_edges(effective)
+    needs_first_call = profiles is None or any(
+        profile.get("answer_kind") in FIRST_CALL_ANSWER_KINDS
+        for profile in profiles)
+    try:
+        effective["BANDS_CARD8"] = AP.card8_band_edges(effective)
+    except AP.AudioProfileError as exc:
+        if needs_first_call:
+            raise
+        effective["BANDS_CARD8_note"] = (
+            "Not derived in this batch: no first-call profile requested and "
+            f"the card8 scoring chain is incomplete ({exc}). The input "
+            "BANDS_CARD8 text is left untouched and is not used.")
+        return effective
     effective["BANDS_CARD8_note"] = (
         "Derived before generation by audio_profiles.card8_band_edges from "
-        "clip/event/gap/first-min constraints; not an independent input.")
+        "clip/event/gap/first-min constraints; not an independent input. "
+        "First calls must be strictly more than max(T_HALF, 2*T_FULL) apart; "
+        "T_FULL is an explicit input whose value stays a placeholder until "
+        "human calibration.")
+    effective["CARD8_FIRST_CALL_SCORING"] = AP.card8_scoring_params(effective)
     return effective
 
 
@@ -643,7 +669,7 @@ def main(argv=None) -> int:
     # Missing ground/map/transform is configuration failure, not a partially
     # realised candidate that should poison the no-clobber path.
     resolve_scene_render_context(scene)
-    params = materialize_derived_params(params)
+    params = materialize_derived_params(params, profiles)
     base_request = json.loads(Path(scene_cfg["camera_base_request"]).read_text())
     registry = json.loads(
         (REPO / "examples/runtime/source_asset_runtime_profiles.json").read_text())
@@ -1347,9 +1373,12 @@ def build_answer(kind, profile, cell, timeline, schedule, slot_events,
                          "truth_value": truth, "scoring": "closed_set"}}
     if kind == "time_band":
         edges = AP.card8_band_edges(params)
+        scoring_chain = AP.card8_scoring_params(params)
         firsts = {}
+        first_samples = {}
         for (slot, start), event in zip(slot_events, schedule.events):
             firsts.setdefault(slot, start / AP.SAMPLE_RATE)
+            first_samples.setdefault(slot, int(start))
         onset = firsts[target_slot]
         got = next((i for i in range(len(edges) - 1)
                     if edges[i] <= onset < edges[i + 1]), None)
@@ -1359,10 +1388,27 @@ def build_answer(kind, profile, cell, timeline, schedule, slot_events,
         labels = [f"[{edges[i]:g}, {edges[i + 1]:g})"
                   for i in range(len(edges) - 1)]
         other_onset = firsts.get(other_slot)
+        if other_onset is None:
+            raise GenerationConstraintError(
+                "card8 needs a first call from both slots")
+        # 与调度器同一条规则,在绑定后的事件上再核一次(样本域整数比较):
+        # 正式 Open 按 strict T_FULL 判分,两只首叫必须严格相隔超过
+        # max(T_HALF, 2*T_FULL),否则"报两声中点"在认证分上拿满分。
+        separation_samples = abs(first_samples[target_slot]
+                                 - first_samples[other_slot])
+        if separation_samples <= scoring_chain[
+                "min_first_call_separation_samples"]:
+            raise GenerationConstraintError(
+                f"card8 first-call separation "
+                f"{separation_samples / AP.SAMPLE_RATE:.4f}s is not strictly "
+                "above max(T_HALF, 2*T_FULL)="
+                f"{scoring_chain['min_first_call_separation_s']:.4f}s")
         return {"first_caller_slot": min(firsts, key=firsts.get),
                 "truth": {"first_onset_s": round(onset, 4), "band_index": got,
-                          "non_target_first_onset_s": (round(other_onset, 4)
-                                                       if other_onset else None)},
+                          "non_target_first_onset_s": round(other_onset, 4),
+                          "first_call_separation_s": round(
+                              separation_samples / AP.SAMPLE_RATE, 4),
+                          "first_call_separation_above_minimum": True},
                 "mcq": {"stem": (f"When does the {coat} dog bark for the FIRST "
                                  "time? Pick the time range in seconds."),
                         "options_space": labels, "truth_option": labels[got]},
@@ -1370,8 +1416,17 @@ def build_answer(kind, profile, cell, timeline, schedule, slot_events,
                                   "bark for the first time?"),
                          "truth_value": round(onset, 4), "unit": "s",
                          "scoring": "absolute_time",
-                         "certification_policy": "strict_full_credit_only",
-                         "wide_tolerance_role": "diagnostic_only"}}
+                         "certification_policy": scoring_chain[
+                             "certification_policy"],
+                         "wide_tolerance_role": scoring_chain[
+                             "wide_tolerance_role"],
+                         "T_FULL": scoring_chain["T_FULL"],
+                         "T_HALF": scoring_chain["T_HALF"],
+                         "T_FULL_status": scoring_chain["T_FULL_status"],
+                         "min_first_call_separation_s": scoring_chain[
+                             "min_first_call_separation_s"],
+                         "min_first_call_separation_rule": scoring_chain[
+                             "min_first_call_separation_rule"]}}
     if kind == "first_caller_coat":
         firsts = {}
         for slot, start in slot_events:
@@ -1429,10 +1484,18 @@ def conditional_balance(records):
 
 
 def card8_diagnostics(params, records):
-    """⑧ 的时间域逐项列明,证明它没有继承 ①F 的片尾静默。"""
-    lo, hi = AP.card8_feasible_interval(params)
-    edges = AP.card8_band_edges(params)
+    """⑧ 的时间域逐项列明,证明它没有继承 ①F 的片尾静默,并记录实际执行的
+    首叫评分参数链(T_FULL / T_HALF / 推导出的最小首叫间隔 / 认证政策)。"""
     rows = [r for r in records if r.get("answer_kind") == "time_band"]
+    try:
+        scoring_chain = AP.card8_scoring_params(params)
+        edges = AP.card8_band_edges(params)
+    except AP.AudioProfileError as exc:
+        if rows:
+            raise
+        return {"status": "not_derived",
+                "reason": f"no card8 rows and incomplete scoring chain: {exc}"}
+    lo, hi = AP.card8_feasible_interval(params)
     target_onsets = [r["truth"]["first_onset_s"] for r in rows
                      if "first_onset_s" in r["truth"]]
     other_onsets = [r["truth"].get("non_target_first_onset_s") for r in rows]
@@ -1444,13 +1507,22 @@ def card8_diagnostics(params, records):
         counts[band] = counts.get(band, 0) + 1
         key = str(record.get("target_first"))
         firsts[key] = firsts.get(key, 0) + 1
+    separations = [r["truth"].get("first_call_separation_s") for r in rows]
+    separations = [s for s in separations if s is not None]
     return {
         "clip_duration_s": float(params.get("CLIP_SECONDS", AP.CLIP_SECONDS)),
         "event_seconds": float(params.get("EVENT_SECONDS", AP.EVENT_SECONDS)),
         "card8_feasible_interval_s": [lo, hi],
         "card8_mcq_band_edges_s": edges,
         "derivation": ("clip - event - (min_events - 2) * (event + gap); "
-                       "no tail silence is applied to card8"),
+                       "no tail silence is applied to card8; the two first "
+                       "calls must be strictly more than "
+                       "max(T_HALF, 2*T_FULL) apart"),
+        "first_call_scoring": scoring_chain,
+        "realized_first_call_separation_min_s": (
+            min(separations) if separations else None),
+        "realized_first_call_separation_max_s": (
+            max(separations) if separations else None),
         "target_first_onset_min_s": min(target_onsets) if target_onsets else None,
         "target_first_onset_max_s": max(target_onsets) if target_onsets else None,
         "non_target_first_onset_min_s": min(other_onsets) if other_onsets else None,

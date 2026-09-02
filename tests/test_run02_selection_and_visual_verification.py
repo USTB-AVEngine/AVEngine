@@ -64,6 +64,7 @@ def test_scene_batch_materializes_card8_derived_edges():
         "FIRST_MIN_S": 0.35,
         "GAP_MIN_S": 0.3,
         "T_HALF": 1.0,
+        "T_FULL": 0.5,
         "CLIP_SECONDS": 5.0,
         "EVENT_SECONDS": 0.3,
     }
@@ -72,6 +73,7 @@ def test_scene_batch_materializes_card8_derived_edges():
     assert effective["BANDS_CARD8"] == [
         0.35, 1.2875, 2.225, 3.1625, 4.1]
     assert "Derived before generation" in effective["BANDS_CARD8_note"]
+    assert effective["CARD8_FIRST_CALL_SCORING"]["T_FULL"] == 0.5
 
 
 def test_pixel_eligibility_applies_all_three_rules():

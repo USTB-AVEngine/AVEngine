@@ -33,6 +33,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import audio_profiles as AP  # noqa: E402
 from filter_cross_time_points import (  # noqa: E402
     FRAME_COUNT,
     azimuth_deg,
@@ -310,15 +311,30 @@ def gen_card7(bundle: PointBundle, fe: dict, params: dict,
     return rec
 
 
-def gen_card8(bundle: PointBundle, fe: dict, params: dict) -> list[dict]:
+def gen_card8(bundle: PointBundle, fe: dict, params: dict,
+              scoring: dict | None = None) -> tuple[list[dict], str | None]:
+    """Card8 facts; returns (records, skip_reason).
+
+    The strict Open certification only holds when the two first calls are
+    strictly more than max(T_HALF, 2*T_FULL) apart, so a point whose first
+    calls are closer is not emitted (the legacy filter only required T_HALF).
+    """
     if not fe.get("card8", {}).get("admit"):
-        return []
+        return [], None
+    scoring = scoring or AP.card8_scoring_params(params)
+    onsets = bundle.first_onsets()
+    if len(onsets) != 2:
+        return [], "card8_needs_a_first_call_from_both_slots"
+    separation = abs(onsets["source1"] - onsets["source2"])
+    if separation <= scoring["min_first_call_separation_s"]:
+        return [], (f"card8_first_call_separation_{separation:.4f}s_not_above_"
+                    f"{scoring['min_first_call_separation_s']:.4f}s")
     # MCQ 带用**预先声明**的 BANDS_CARD8(run02 起由装配器带优先调度
     # 填满,答案带按构造均匀);缺省回退 BANDS。
     bands_key = "BANDS_CARD8" if "BANDS_CARD8" in params else "BANDS"
     bands = [float(b) for b in params[bands_key]]
     out = []
-    for slot, onset in sorted(bundle.first_onsets().items()):
+    for slot, onset in sorted(onsets.items()):
         coat = bundle.slot_coat[slot]
         try:
             band_idx = band_of(onset, bands)
@@ -339,18 +355,27 @@ def gen_card8(bundle: PointBundle, fe: dict, params: dict) -> list[dict]:
             "truth": {"first_onset_s": round(onset, 4),
                       "band_index": band_idx,
                       "band_bounds": (None if band_idx is None else
-                                      [bands[band_idx], bands[band_idx + 1]])},
+                                      [bands[band_idx], bands[band_idx + 1]]),
+                      "first_call_separation_s": round(separation, 4),
+                      "first_call_separation_above_minimum": True},
             "mcq": mcq,
             "open": {"stem": (f"At how many seconds into the video does "
                               f"{COAT_LABEL[coat]} bark for the first "
                               f"time?"),
                      "truth_value": round(onset, 4), "unit": "s",
                      "scoring": "absolute_time",
-                     "certification_policy": "strict_full_credit_only",
-                     "wide_tolerance_role": "diagnostic_only"},
+                     "certification_policy": scoring["certification_policy"],
+                     "wide_tolerance_role": scoring["wide_tolerance_role"],
+                     "T_FULL": scoring["T_FULL"],
+                     "T_HALF": scoring["T_HALF"],
+                     "T_FULL_status": scoring["T_FULL_status"],
+                     "min_first_call_separation_s": scoring[
+                         "min_first_call_separation_s"],
+                     "min_first_call_separation_rule": scoring[
+                         "min_first_call_separation_rule"]},
         })
         out.append(rec)
-    return out
+    return out, None
 
 
 def band_of(value: float, bands: list[float]) -> int:
@@ -397,6 +422,11 @@ def main(argv: list[str] | None = None) -> int:
               file=sys.stderr)
         return 2
     params = json.loads(args.params.read_text())
+    try:
+        card8_scoring = AP.card8_scoring_params(params)
+    except AP.AudioProfileError as exc:
+        print(f"refusing to generate card8 facts: {exc}", file=sys.stderr)
+        return 2
     freport = json.loads(
         (args.design_root / "filter_report.json").read_text())["results"]
     programs_dir = args.design_root / "programs"
@@ -410,6 +440,7 @@ def main(argv: list[str] | None = None) -> int:
                                     "card7_control_neither": [],
                                     "card8": [], "card9": []}
     skipped: list[str] = []
+    card8_skipped: list[str] = []
     # 主点(排除孪生:孪生用于 Gate B 对照,不进主题池)
     points = sorted(p for p in args.design_root.iterdir()
                     if p.is_dir() and p.name in freport
@@ -440,7 +471,10 @@ def main(argv: list[str] | None = None) -> int:
             facts[key].append(r7)
             if r7["negative_sample"]:
                 neg_used += 1
-        facts["card8"].extend(gen_card8(bundle, fe, params))
+        card8_records, card8_skip = gen_card8(bundle, fe, params, card8_scoring)
+        facts["card8"].extend(card8_records)
+        if card8_skip:
+            card8_skipped.append(f"{pdir.name}: {card8_skip}")
         r9 = gen_card9(bundle, fe)
         if r9:
             facts["card9"].append(r9)
@@ -461,6 +495,8 @@ def main(argv: list[str] | None = None) -> int:
         "parameters": params,
         "card7_negative_share": args.card7_negative_share,
         "counts": {card: len(records) for card, records in facts.items()},
+        "card8_scoring_params": card8_scoring,
+        "card8_skipped_first_call_separation": card8_skipped,
         "card7_negatives": neg_used,
         "card7_views": {
             "main": "exactly one dog calling (main set)",

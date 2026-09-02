@@ -9,10 +9,16 @@ from pathlib import Path
 TOOLS = Path(__file__).resolve().parents[1] / "tools" / "qa"
 sys.path.insert(0, str(TOOLS))
 
-from audit_qa_v3_prescale_candidates import audit_candidate  # noqa: E402
+import pytest
+
+from audit_qa_v3_prescale_candidates import (  # noqa: E402
+    audit,
+    audit_candidate,
+    scoring_snapshot,
+)
 
 
-PARAMS = {"THETA_HALF": 30.0, "T_FULL": 0.5}
+PARAMS = {"THETA_HALF": 30.0, "T_FULL": 0.5, "T_HALF": 1.0}
 
 
 def _timeline(path, anchor_y, query_y):
@@ -85,6 +91,27 @@ def test_card11_rejects_old_event_frame_and_out_of_view_policy(tmp_path):
         _candidate(tmp_path, "card11", fact, program), PARAMS)
     assert "regenerate_audio_and_fact" in result["actions"]
     assert "rerun_pixel_join" in result["actions"]
+
+
+def test_card8_uses_derived_minimum_separation_and_output_embeds_params(tmp_path):
+    fact = {"truth": {"first_onset_s": 0.5, "non_target_first_onset_s": 1.6},
+            "open": {"certification_policy": "strict_full_credit_only"}}
+    candidate = _candidate(tmp_path, "card8", fact)
+    candidate["gateb"] = {
+        "audio_policy": "appearance_canonical_anchor_audio_must_be_identical"}
+    tight = audit_candidate(candidate, dict(PARAMS, T_FULL=0.6))
+    assert tight["checks"]["min_first_call_separation_s"] == pytest.approx(1.2)
+    assert "card8_first_call_separation_not_above_minimum" in tight["reasons"]
+    loose = audit_candidate(candidate, PARAMS)
+    assert loose["status"] == "prescale_structure_pass"
+    pilot = {"rooms": {"r": {"profiles": {"card8": {
+        "candidates": [candidate]}}}}}
+    result = audit(pilot, PARAMS, {"path": "p.json", "sha256": "x" * 64})
+    assert result["scoring_params"]["T_FULL"] == 0.5
+    assert result["scoring_params"]["card8_min_first_call_separation_s"] == 1.0
+    assert result["params_source"]["path"] == "p.json"
+    with pytest.raises(Exception, match="T_FULL"):
+        scoring_snapshot({"THETA_HALF": 30.0, "T_HALF": 1.0})
 
 
 def test_demoted_and_future_profiles_are_not_reported_as_structure_pass(tmp_path):

@@ -88,6 +88,48 @@ def _fraction_to_sample(fraction: float) -> int:
     return int(round(fraction * CLIP_SECONDS * SAMPLE_RATE))
 
 
+CARD8_CERTIFICATION_POLICY = "strict_full_credit_only"
+CARD8_WIDE_TOLERANCE_ROLE = "diagnostic_only"
+CARD8_MIN_SEPARATION_RULE = "first_call_onset_gap > max(T_HALF, 2 * T_FULL)"
+
+
+def card8_scoring_params(params) -> dict:
+    """⑧ 首叫链的显式评分参数;缺 T_FULL 直接 fail-closed。
+
+    正式 Open 按 strict T_FULL 判满分(宽带 T_HALF 只作诊断),所以生成端的
+    最小首叫间隔必须同时盖住两件事:两只的首叫在 T_HALF 下可分辨,且"报两声
+    中点"这类 A-only 策略在 strict 评分下拿不到满分 —— 后者要求间隔严格大于
+    2 * T_FULL。T_FULL 的终值等人类校准:这里只记录参数文件给出的值与它的
+    状态字段,不替它写 final。
+    """
+    missing = [key for key in ("T_FULL", "T_HALF") if key not in params]
+    if missing:
+        raise AudioProfileError(
+            f"card8 requires explicit scoring params {missing}; the minimum "
+            "first-call separation cannot be derived without them")
+    t_full = float(params["T_FULL"])
+    t_half = float(params["T_HALF"])
+    if not (math.isfinite(t_full) and math.isfinite(t_half)):
+        raise AudioProfileError("T_FULL and T_HALF must be finite seconds")
+    if t_full <= 0.0 or t_half <= 0.0:
+        raise AudioProfileError("T_FULL and T_HALF must be positive seconds")
+    if t_half < t_full:
+        raise AudioProfileError(
+            f"T_HALF={t_half} must not be narrower than T_FULL={t_full}")
+    min_sep = max(t_half, 2.0 * t_full)
+    return {
+        "T_FULL": t_full,
+        "T_HALF": t_half,
+        "T_FULL_status": str(params.get(
+            "T_FULL_status", "unspecified_treat_as_placeholder")),
+        "min_first_call_separation_s": min_sep,
+        "min_first_call_separation_samples": int(round(min_sep * SAMPLE_RATE)),
+        "min_first_call_separation_rule": CARD8_MIN_SEPARATION_RULE,
+        "certification_policy": CARD8_CERTIFICATION_POLICY,
+        "wide_tolerance_role": CARD8_WIDE_TOLERANCE_ROLE,
+    }
+
+
 def schedule_forward_anchor(rng, *, params, anchor_frame: int) -> Schedule:
     """①F 正向错时:身份锚在前,查询在片尾,锚后到片尾必须静。
 
@@ -194,6 +236,10 @@ def schedule_first_call_bands(rng, *, params, target_bands: tuple[int, int],
 
     不继承 card1 的片尾静默 —— 那正是 run01 把首叫压进前 2.6 秒、后两带
     结构性为空的原因。带边由题型配置声明,窗内时刻随机。
+
+    两只的首叫间隔必须**严格大于** max(T_HALF, 2 * T_FULL)(样本域整数比较):
+    正式 Open 按 strict T_FULL 判分,只查 T_HALF 会让 1.1 s 间隔的题在
+    T_FULL=0.6 下被"报中点"拿满分。缺 T_FULL 直接拒绝调度。
     """
     bands = ([float(b) for b in band_edges] if band_edges
              else [float(b) for b in params["BANDS_CARD8"]])
@@ -204,7 +250,8 @@ def schedule_first_call_bands(rng, *, params, target_bands: tuple[int, int],
             "so the first caller's band index must be the smaller one")
     event_len = _event_len()
     gap = int(float(params["GAP_MIN_S"]) * SAMPLE_RATE)
-    min_first_gap = int(float(params["T_HALF"]) * SAMPLE_RATE)
+    scoring = card8_scoring_params(params)
+    min_first_gap = scoring["min_first_call_separation_samples"]
     second_role = OTHER if first_caller_role == TARGET else TARGET
     lo1, hi1 = int(bands[b1] * SAMPLE_RATE), int(bands[b1 + 1] * SAMPLE_RATE)
     lo2, hi2 = int(bands[b2] * SAMPLE_RATE), int(bands[b2 + 1] * SAMPLE_RATE)
@@ -230,7 +277,8 @@ def schedule_first_call_bands(rng, *, params, target_bands: tuple[int, int],
         schedule = Schedule("card8", events, len(events) - 1,
                             {"target_bands": [b1, b2],
                              "band_edges_seconds": bands,
-                             "first_caller_role": first_caller_role})
+                             "first_caller_role": first_caller_role,
+                             "first_call_scoring": dict(scoring)})
         _self_check_first_call_bands(schedule, params, target_bands,
                                      band_edges=bands)
         return schedule
@@ -442,14 +490,22 @@ def _self_check_first_call_bands(schedule: Schedule, params, target_bands,
                                  band_edges=None) -> None:
     bands = ([float(b) for b in band_edges] if band_edges
              else [float(b) for b in params["BANDS_CARD8"]])
+    scoring = card8_scoring_params(params)
     firsts: dict[str, float] = {}
+    first_samples: dict[str, int] = {}
     for event in sorted(schedule.events, key=lambda e: e.start_sample):
         firsts.setdefault(event.role, event.start_seconds)
+        first_samples.setdefault(event.role, event.start_sample)
     if len(firsts) != 2:
         raise AudioProfileError("card8 needs a first call from each role")
+    ordered_samples = sorted(first_samples.values())
+    separation = ordered_samples[1] - ordered_samples[0]
+    if separation <= scoring["min_first_call_separation_samples"]:
+        raise AudioProfileError(
+            f"the two first calls are {separation / SAMPLE_RATE:.4f}s apart; "
+            "card8 requires strictly more than max(T_HALF, 2*T_FULL)="
+            f"{scoring['min_first_call_separation_s']:.4f}s")
     ordered = sorted(firsts.values())
-    if ordered[1] - ordered[0] <= float(params["T_HALF"]):
-        raise AudioProfileError("the two first calls are closer than T_HALF")
     got = tuple(_band_index(value, bands) for value in ordered)
     if got != tuple(target_bands):
         raise AudioProfileError(
@@ -488,7 +544,7 @@ def card8_feasible_interval(params, *, min_events: int = 3) -> tuple[float, floa
     推导(全部是声明量,与房间无关):
       末事件必须在片内放完      t_last <= clip - event
       每个事件之后要留间隔      t_k    <= t_{k+1} - (event + gap)
-      两只的首叫要可分辨        t2     >  t1 + T_HALF
+      两只的首叫要可分辨        t2     >  t1 + max(T_HALF, 2 * T_FULL)
       每集至少 min_events 声
     于是 ⑧ 的**目标首叫**(可能是第一声也可能是第二声)落在
       [first_min, clip - event - (min_events - 2) * (event + gap)]
@@ -515,14 +571,17 @@ def card8_band_edges(params, *, n_bands: int = 4,
     """可行域内**等宽半开**的 MCQ 时间带;边界在生成数据前锁定。"""
     lo, hi = card8_feasible_interval(params, min_events=min_events)
     width = (hi - lo) / n_bands
-    t_half = float(params["T_HALF"])
+    # 缺 T_FULL 时这里就失败:带边是可行域的一部分,而可行域取决于两只
+    # 首叫必须相隔多远。
+    scoring = card8_scoring_params(params)
+    min_sep = scoring["min_first_call_separation_s"]
     if width <= 0:
         raise AudioProfileError("degenerate band width")
     edges = [round(lo + width * i, 6) for i in range(n_bands + 1)]
-    # 相邻带对必须仍能满足"两只首叫相隔超过 T_HALF",否则带对退化成
-    # 确定性模板(听到第一声就知道第二只在哪带)。
-    if hi - lo <= t_half:
+    # 可行域必须仍能满足"两只首叫相隔严格超过 max(T_HALF, 2*T_FULL)",
+    # 否则带对退化成确定性模板(听到第一声就知道第二只在哪带)。
+    if hi - lo <= min_sep:
         raise AudioProfileError(
             f"feasible interval {hi - lo:.2f}s cannot host two first calls "
-            f"separated by more than T_HALF={t_half}s")
+            f"separated by more than max(T_HALF, 2*T_FULL)={min_sep}s")
     return edges

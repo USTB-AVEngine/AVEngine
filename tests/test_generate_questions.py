@@ -24,7 +24,8 @@ COLLIE = "generated_border_collie_black_white_medium_standard_adult_research_v1"
 LABRADOR = "generated_labrador_yellow_medium_standard_adult_research_v1"
 EP1, EP2 = "qa_v2_dog_1_collie_muzzle", "qa_v2_dog_2_labrador_muzzle"
 
-PARAMS = {"THETA_FULL": 15.0, "THETA_HALF": 30.0, "T_HALF": 1.0,
+PARAMS = {"THETA_FULL": 15.0, "THETA_HALF": 30.0, "T_HALF": 0.9,
+          "T_FULL": 0.4, "T_FULL_status": "placeholder_research",
           "TAIL_MIN_S": 1.5, "MIN_AZIMUTH_SEP": 25.0,
           "MIN_DIST_CHANGE_CM": 50.0, "MIN_CARD7_FRAMES": 8,
           "BANDS": [0.0, 1.25, 2.5, 3.75, 5.0],
@@ -185,7 +186,40 @@ def test_card8_bands_and_both_slots(tmp_path):
         "strict_full_credit_only"
     assert recs["source2"]["open"]["wide_tolerance_role"] == \
         "diagnostic_only"
+    assert recs["source2"]["open"]["T_FULL"] == 0.4
+    assert recs["source2"]["open"]["T_HALF"] == 0.9
+    assert recs["source2"]["open"]["T_FULL_status"] == "placeholder_research"
+    assert recs["source2"]["open"]["min_first_call_separation_s"] == 0.9
+    assert recs["source2"]["truth"]["first_call_separation_s"] == 1.0
+    assert "certification_policy" not in recs["source2"]["mcq"]
     assert band_of(1.25, PARAMS["BANDS"]) == 1   # 半开边界归右带
+
+
+def test_card8_generator_fails_closed_without_t_full(tmp_path):
+    root = build_design_root(tmp_path)
+    params_p = tmp_path / "no_tfull.json"
+    params_p.write_text(json.dumps(
+        {k: v for k, v in PARAMS.items() if k != "T_FULL"}))
+    out = tmp_path / "out_no_tfull"
+    assert main(["--design-root", str(root), "--params", str(params_p),
+                 "--out-root", str(out), "--card7-negative-share", "0"]) == 2
+    assert not out.exists()
+
+
+def test_card8_skips_points_whose_first_calls_are_too_close(tmp_path):
+    """s1 首叫 0.5 s、s2 首叫 1.5 s:间隔 1.0 s 在 T_FULL=0.6 下不够严格。"""
+    root = build_design_root(tmp_path)
+    params_p = tmp_path / "tight.json"
+    params_p.write_text(json.dumps(dict(PARAMS, T_FULL=0.6, T_HALF=1.0)))
+    out = tmp_path / "out_tight"
+    assert main(["--design-root", str(root), "--params", str(params_p),
+                 "--out-root", str(out), "--card7-negative-share", "0"]) == 0
+    assert (out / "facts_card8.jsonl").read_text() == ""
+    mani = json.loads((out / "generation_manifest.json").read_text())
+    assert mani["counts"]["card8"] == 0
+    assert len(mani["card8_skipped_first_call_separation"]) == 1
+    assert "not_above_1.2000s" in mani["card8_skipped_first_call_separation"][0]
+    assert mani["card8_scoring_params"]["min_first_call_separation_s"] == 1.2
 
 
 def test_card9_first_barker(tmp_path):

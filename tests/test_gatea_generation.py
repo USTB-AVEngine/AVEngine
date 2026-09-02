@@ -20,6 +20,7 @@ from design_qa_v3_scene_batch import (  # noqa: E402
     balanced_binary_joint,
     build_cell_plan,
     build_answer,
+    materialize_derived_params,
     resolve_scene_render_context,
     validate_anchor_binding,
     validate_profiles,
@@ -27,7 +28,8 @@ from design_qa_v3_scene_batch import (  # noqa: E402
 )
 
 
-PARAMS = {"THETA_HALF": 30.0, "T_HALF": 1.0}
+PARAMS = {"THETA_HALF": 30.0, "T_HALF": 1.0, "T_FULL": 0.5,
+          "T_FULL_status": "placeholder_research"}
 
 
 def program(slots):
@@ -81,6 +83,81 @@ def test_card8_uses_the_actual_time_scorer_threshold():
         answer("band0", 0.5, "absolute_time"),
         answer("band1", 1.501, "absolute_time"), PARAMS)
     assert checks["open_separation"] == pytest.approx(1.001)
+    assert checks["open_min_separation"] == pytest.approx(1.0)
+    assert "max(T_HALF, 2*T_FULL)" in checks["open_rule"]
+    # a wider strict tolerance moves the derived minimum: 2 * 0.6 = 1.2
+    with pytest.raises(ValueError, match="open_gold_separated"):
+        audit_gatea_pair(
+            {"id": "card8"}, main, gate,
+            answer("band0", 0.5, "absolute_time"),
+            answer("band1", 1.7, "absolute_time"), dict(PARAMS, T_FULL=0.6))
+    with pytest.raises(ValueError, match="T_FULL"):
+        audit_gatea_pair(
+            {"id": "card8"}, main, gate,
+            answer("band0", 0.5, "absolute_time"),
+            answer("band1", 1.501, "absolute_time"), {"THETA_HALF": 30.0,
+                                                      "T_HALF": 1.0})
+
+
+CARD8_PARAMS = dict(PARAMS, GAP_MIN_S=0.3, FIRST_MIN_S=0.35,
+                    CLIP_SECONDS=5.0, EVENT_SECONDS=0.3)
+CARD8_PROFILE = {"id": "card8", "temporal": "instant",
+                 "answer_kind": "time_band", "binding_frames": [12, 40],
+                 "idle_choices": [0, 8], "anchor_binding": "first_caller"}
+
+
+def _card8_answer(first_sample, second_sample, params=CARD8_PARAMS):
+    slot_events = [("source1", first_sample), ("source2", second_sample)]
+    schedule = SimpleNamespace(events=[object(), object()])
+    return build_answer(
+        "time_band", CARD8_PROFILE, {"target_band": 0}, None, schedule,
+        slot_events, "source1", "source2",
+        {"source1": "black-and-white", "source2": "yellow"}, 0.0, 12, params)
+
+
+def test_card8_fact_records_scoring_chain_and_keeps_mcq_unaffected():
+    result = _card8_answer(8000, 8000 + 20000)      # 0.5 s and 1.75 s
+    open_block = result["open"]
+    assert open_block["certification_policy"] == "strict_full_credit_only"
+    assert open_block["wide_tolerance_role"] == "diagnostic_only"
+    assert open_block["T_FULL"] == 0.5
+    assert open_block["T_HALF"] == 1.0
+    assert open_block["T_FULL_status"] == "placeholder_research"
+    assert open_block["min_first_call_separation_s"] == pytest.approx(1.0)
+    assert result["truth"]["first_call_separation_s"] == pytest.approx(1.25)
+    # MCQ keeps its declared band answer space; the strict Open policy is
+    # not attached to it.
+    assert result["mcq"]["truth_option"] == "[0.35, 1.2875)"
+    assert "certification_policy" not in result["mcq"]
+    assert "wide_tolerance_role" not in result["mcq"]
+
+
+def test_card8_fact_rejects_first_calls_not_strictly_above_minimum():
+    with pytest.raises(GenerationConstraintError, match="not strictly above"):
+        _card8_answer(8000, 8000 + 16000)          # exactly 1.0 s apart
+    with pytest.raises(GenerationConstraintError, match="not strictly above"):
+        _card8_answer(8000, 8000 + 17600, dict(CARD8_PARAMS, T_FULL=0.6))
+    assert _card8_answer(8000, 8000 + 19201, dict(CARD8_PARAMS, T_FULL=0.6))[
+        "truth"]["first_call_separation_above_minimum"] is True
+    with pytest.raises(Exception, match="T_FULL"):
+        _card8_answer(8000, 8000 + 20000,
+                      {k: v for k, v in CARD8_PARAMS.items() if k != "T_FULL"})
+
+
+def test_materialized_params_fail_closed_only_when_first_call_profiles_exist():
+    base = {"BANDS_CARD8": [0.35, 1.1, 1.85, 2.6], "FIRST_MIN_S": 0.35,
+            "GAP_MIN_S": 0.3, "T_HALF": 1.0, "CLIP_SECONDS": 5.0,
+            "EVENT_SECONDS": 0.3}
+    card1_only = [{"id": "card1F", "answer_kind": "azimuth_band"}]
+    effective = materialize_derived_params(base, card1_only)
+    assert "Not derived" in effective["BANDS_CARD8_note"]
+    with pytest.raises(Exception, match="T_FULL"):
+        materialize_derived_params(base, card1_only + [CARD8_PROFILE])
+    with pytest.raises(Exception, match="T_FULL"):
+        materialize_derived_params(base)
+    derived = materialize_derived_params(dict(base, T_FULL=0.5), [CARD8_PROFILE])
+    assert derived["BANDS_CARD8"] == [0.35, 1.2875, 2.225, 3.1625, 4.1]
+    assert derived["CARD8_FIRST_CALL_SCORING"]["min_first_call_separation_s"] == 1.0
 
 
 def test_gatea_rejects_non_slot_audio_mutation():
