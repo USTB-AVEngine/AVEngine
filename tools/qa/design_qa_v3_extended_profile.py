@@ -34,7 +34,10 @@ from build_qa_v3_n_actor_canary import (  # noqa: E402
 )
 from build_qa_v3_programs import build_program  # noqa: E402
 from design_qa_v3_pilot_batch import _actor_entry  # noqa: E402
-from design_qa_v3_scene_batch import resolve_scene_render_context  # noqa: E402
+from design_qa_v3_scene_batch import (  # noqa: E402
+    git_worktree_state,
+    resolve_scene_render_context,
+)
 from make_idle_then_walk_timeline import transform_to_solved_routes  # noqa: E402
 from scene_sampler import (  # noqa: E402
     effective_half_fov,
@@ -496,6 +499,36 @@ def _facts(profile, inventory, truth, scene, main_plan, segment2_plan=None):
     }
 
 
+def _write_failed(out_root, profile_id, scene_id, error, *, cells_requested,
+                  completed):
+    """Leave a traceable manifest behind when the runner dies mid-batch.
+
+    Without it a half-written batch directory carries no code revision and
+    no statement of what failed; the scheduler and a later reader would have
+    to guess.  The exception is re-raised by the caller, so this changes no
+    outcome, only the evidence left on disk."""
+    manifest = {
+        "schema": "qa_v3_extended_profile_batch_manifest_v1",
+        "status": "failed",
+        "qualification_claim": False,
+        "evidence_class": "runner_failure",
+        "code": git_worktree_state(),
+        "scene_id": scene_id,
+        "profile_ids": [profile_id],
+        "counts": {
+            "cells_requested": int(cells_requested),
+            "geometry_candidates": int(completed),
+            "rejected": 0,
+        },
+        "failure": {
+            "type": type(error).__name__,
+            "detail": str(error)[:600],
+        },
+    }
+    _write(out_root / "batch_manifest.json", manifest)
+    return manifest
+
+
 def _write_unavailable(out_root, profile, scene, missing, cells):
     out_root.mkdir(parents=True)
     manifest = {
@@ -503,6 +536,7 @@ def _write_unavailable(out_root, profile, scene, missing, cells):
         "status": "research_dev",
         "qualification_claim": False,
         "evidence_class": "resource_unavailable",
+        "code": git_worktree_state(),
         "scene_id": scene.scene_id,
         "profile_ids": [profile["id"]],
         "counts": {
@@ -796,29 +830,35 @@ def main(argv=None):
     rejected = []
     reasons = Counter()
     attempts = 0
-    for cell_index in range(args.cells):
-        try:
-            record = _realise_cell(
-                args.out_root, profile, cell_index, scene, params, inventory,
-                by_id, registry_path, base_request, args.snapshot_content,
-                args.seed)
-            records.append(record)
-            attempts += record["search_attempts"]
-        except SearchExhausted as error:
-            reason = "not_found_within_budget"
-            reasons[reason] += 1
-            attempts += error.evaluated_combinations
-            rejected.append({
-                "point_id": f"{profile_id}_{cell_index + 1:03d}",
-                "reason": reason,
-                "detail": f"{type(error).__name__}: {error}"[:300],
-                "evaluated_combinations": error.evaluated_combinations,
-            })
+    try:
+        for cell_index in range(args.cells):
+            try:
+                record = _realise_cell(
+                    args.out_root, profile, cell_index, scene, params,
+                    inventory, by_id, registry_path, base_request,
+                    args.snapshot_content, args.seed)
+                records.append(record)
+                attempts += record["search_attempts"]
+            except SearchExhausted as error:
+                reason = "not_found_within_budget"
+                reasons[reason] += 1
+                attempts += error.evaluated_combinations
+                rejected.append({
+                    "point_id": f"{profile_id}_{cell_index + 1:03d}",
+                    "reason": reason,
+                    "detail": f"{type(error).__name__}: {error}"[:300],
+                    "evaluated_combinations": error.evaluated_combinations,
+                })
+    except Exception as error:  # noqa: BLE001 - recorded, then re-raised
+        _write_failed(args.out_root, profile_id, scene.scene_id, error,
+                      cells_requested=args.cells, completed=len(records))
+        raise
     manifest = {
         "schema": "qa_v3_extended_profile_batch_manifest_v1",
         "status": "research_dev",
         "qualification_claim": False,
         "evidence_class": "geometry_candidate",
+        "code": git_worktree_state(),
         "scene_id": scene.scene_id,
         "profile_ids": [profile_id],
         "counts": {

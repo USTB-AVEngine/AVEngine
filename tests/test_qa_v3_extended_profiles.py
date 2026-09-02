@@ -204,3 +204,40 @@ def test_extended_targets_rotate_across_visible_candidates():
             for index in range(4)
         ]
         assert targets == [0, 1, 2, 3]
+
+
+def _manifest_code_is_traceable(manifest):
+    code = manifest["code"]
+    assert len(code["revision"]) == 40 and int(code["revision"], 16) >= 0
+    assert isinstance(code["dirty"], bool)
+    assert isinstance(code["status"], list)
+
+
+def test_unavailable_manifest_records_the_code_revision(tmp_path):
+    from types import SimpleNamespace
+    from design_qa_v3_extended_profile import _write_unavailable
+    manifest = _write_unavailable(
+        tmp_path / "batch", {"id": "card12"}, SimpleNamespace(scene_id="room"),
+        ["four_registered_semantic_sound_types"], 3)
+    _manifest_code_is_traceable(manifest)
+    on_disk = json.loads((tmp_path / "batch" / "batch_manifest.json").read_text())
+    assert on_disk["code"] == manifest["code"]
+    assert on_disk["evidence_class"] == "resource_unavailable"
+
+
+def test_failed_manifest_records_code_and_the_error(tmp_path):
+    from design_qa_v3_extended_profile import _write_failed
+    out = tmp_path / "batch"
+    out.mkdir()
+    manifest = _write_failed(
+        out, "card16", "room", RuntimeError("engine handshake lost"),
+        cells_requested=4, completed=1)
+    _manifest_code_is_traceable(manifest)
+    on_disk = json.loads((out / "batch_manifest.json").read_text())
+    assert on_disk["status"] == "failed"
+    assert on_disk["evidence_class"] == "runner_failure"
+    assert on_disk["failure"] == {"type": "RuntimeError",
+                                  "detail": "engine handshake lost"}
+    assert on_disk["counts"] == {"cells_requested": 4,
+                                 "geometry_candidates": 1, "rejected": 0}
+    assert on_disk["qualification_claim"] is False
