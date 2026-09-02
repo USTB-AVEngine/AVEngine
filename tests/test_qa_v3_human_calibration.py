@@ -46,7 +46,31 @@ def test_pack_hides_gold_and_binds_copied_media(tmp_path):
     assert len(study["items"]) == len(answers["items"]) == 2
     assert "truth" not in json.dumps(study)
     assert all(len(item["media_sha256"]) == 64 for item in answers["items"])
-    assert (output / "index.html").is_file()
+    assert (output / "public/index.html").is_file()
+    assert (output / "public/study_items.json").is_file()
+    assert (output / "private/answer_key.json").is_file()
+    assert not (output / "public/answer_key.json").exists()
+    html = (output / "public/index.html").read_text()
+    assert "<video id=\"video\" controls" not in html
+    assert "play_count" in html
+    assert "plays>=2" in html
+
+
+def test_preview_limit_keeps_one_item_per_profile(tmp_path):
+    facts, media, output = tmp_path / "facts", tmp_path / "media", tmp_path / "out"
+    selected = []
+    for profile in ("card1F", "card1B", "card8"):
+        for index in range(2):
+            point = f"{profile}_{index}"
+            _fact(facts, point, profile, truth=(2.4 if profile == "card8" else -70))
+            _media(media, point)
+            selected.append({"point_id": point, "profile_id": profile})
+    output.mkdir()
+    study, _ = build({"selected": selected}, facts, media, output,
+                     per_profile_limit=1)
+    assert len(study["items"]) == 3
+    assert {item["profile_id"] for item in study["items"]} == {
+        "card1F", "card1B", "card8"}
 
 
 def test_scorer_excludes_binding_errors_from_numeric_quantiles():
