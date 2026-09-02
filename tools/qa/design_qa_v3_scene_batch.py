@@ -843,7 +843,8 @@ def main(argv=None) -> int:
                                     per_profile_ledger[profile["id"]])
         if isinstance(outcome, SS.Rejection):
             rejected.append({"point_id": pid, "reason": outcome.reason,
-                             "detail": outcome.detail})
+                             "detail": outcome.detail,
+                             "cell": cell_allocation(cell)})
             continue
         try:
             record = realise_point(pid, cell, outcome, scene, base_request,
@@ -851,7 +852,8 @@ def main(argv=None) -> int:
         except GenerationConstraintError as exc:
             rejected.append({"point_id": pid,
                              "reason": "generation_constraint_failed",
-                             "detail": str(exc)[:240]})
+                             "detail": str(exc)[:240],
+                             "cell": cell_allocation(cell)})
             continue
         made.append(pid)
         records.append(record)
@@ -863,7 +865,7 @@ def main(argv=None) -> int:
         ledger.stand_points_evaluated += sub.stand_points_evaluated
         ledger.budget_exhausted += sub.budget_exhausted
     write_outputs(args, scene, scene_cfg, profiles, params, ledger, made,
-                  rejected, records, per_profile_ledger)
+                  rejected, records, per_profile_ledger, cells=cells)
     print(json.dumps({"out": str(args.out_root), "scene": scene.scene_id,
                       "geometry_candidates": len(made),
                       "cells_requested": len(cells),
@@ -1625,6 +1627,60 @@ def build_answer(kind, profile, cell, timeline, schedule, slot_events,
     raise ValueError(f"unknown answer kind {kind!r}")
 
 
+def cell_allocation(cell):
+    """The allocation a cell was given before search (what the budget is spent on)."""
+    def band(value):
+        if isinstance(value, (list, tuple)):
+            return f"{float(value[0]):g},{float(value[1]):g}"
+        return None if value is None else str(value)
+    return {"profile_id": cell["profile"]["id"],
+            "target_slot": cell["target_slot"],
+            "anchor_band": band(cell.get("anchor_band")),
+            "answer": band(cell.get("answer_band")),
+            "target_moves_more": cell.get("target_moves_more"),
+            "target_coat": cell.get("target_coat")}
+
+
+def cell_budget_report(cells, made, rejected):
+    """Joint allocation table per profile: for every allocated
+    slot x anchor band x answer x motion-rank key, how many cells were
+    requested, how many were filled, and why the rest were exhausted.
+
+    This is the room's own denominator.  A room that cannot fill a key
+    reports it here as a shortfall; nothing is borrowed from another room."""
+    made_set = set(made)
+    reasons = {row["point_id"]: row["reason"] for row in rejected}
+    report = {}
+    for cell in cells:
+        profile = cell["profile"]
+        pid = f"{profile['id']}_{cell['cell_index'] + 1:03d}"
+        alloc = cell_allocation(cell)
+        key = "|".join(f"{name}={alloc[name]}" for name in
+                       ("target_slot", "anchor_band", "answer", "target_moves_more"))
+        bucket = report.setdefault(profile["id"], {"cells": {}, "totals": {
+            "requested": 0, "filled": 0, "exhausted": 0, "keys": 0,
+            "keys_unfilled": 0}})
+        row = bucket["cells"].setdefault(key, {"requested": 0, "filled": 0,
+                                               "exhausted_by_reason": {}})
+        row["requested"] += 1
+        bucket["totals"]["requested"] += 1
+        if pid in made_set:
+            row["filled"] += 1
+            bucket["totals"]["filled"] += 1
+        else:
+            reason = reasons.get(pid, "unknown")
+            row["exhausted_by_reason"][reason] = (
+                row["exhausted_by_reason"].get(reason, 0) + 1)
+            bucket["totals"]["exhausted"] += 1
+    for bucket in report.values():
+        bucket["totals"]["keys"] = len(bucket["cells"])
+        bucket["totals"]["keys_unfilled"] = sum(
+            1 for row in bucket["cells"].values() if row["filled"] == 0)
+        bucket["boundary"] = ("allocation before search; shortfalls stay with "
+                              "this room and are not backfilled from others")
+    return report
+
+
 def conditional_balance(records):
     """逐 profile 的条件分布 —— 总表 50:50 掩盖不了 profile 内部可预测。"""
     out = {}
@@ -1708,7 +1764,7 @@ def card8_diagnostics(params, records):
 
 
 def write_outputs(args, scene, scene_cfg, profiles, params, ledger, made,
-                  rejected, records, per_profile_ledger=None):
+                  rejected, records, per_profile_ledger=None, cells=None):
     by_profile = Counter(r["profile_id"] for r in records)
     coat_of_slot1 = Counter(r["slot_coat"]["source1"] for r in records)
     target_slots = Counter(r["target_slot"] for r in records)
@@ -1748,6 +1804,7 @@ def write_outputs(args, scene, scene_cfg, profiles, params, ledger, made,
                   "bank_adapter": scene.provenance.get("bank_adapter"),
                   "routes_loaded": scene.provenance.get("routes_loaded"),
                   "line_of_sight_screened": scene.line_of_sight_screened,
+                  "route_pool": SS.route_pool_report(scene, params),
                   "camera_clearance_screened": scene.camera_clearance_screened,
                   "camera_clearance_table": scene.provenance.get(
                       "camera_clearance_table"),
@@ -1774,6 +1831,8 @@ def write_outputs(args, scene, scene_cfg, profiles, params, ledger, made,
                     "target_slot": dict(target_slots),
                     "answer_by_profile": dict(sorted(bands.items()))},
         "per_profile_conditional_balance": conditional_balance(records),
+        "cell_budget": (cell_budget_report(cells, made, rejected)
+                        if cells is not None else None),
         "per_profile_rejections": {
             pid: {k: v for k, v in led.summary().items()
                   if k != "first_example"}
