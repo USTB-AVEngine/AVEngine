@@ -18,7 +18,7 @@ sys.path.insert(0, str(HERE))
 sys.path.insert(0, str(REPO / "src"))
 
 from build_qa_v3_programs import build_program  # noqa: E402
-from design_qa_v3_pilot_batch import _actor_entry  # noqa: E402
+from qa_v3_actor_selection import _actor_entry  # noqa: E402
 from make_idle_then_walk_timeline import transform_to_solved_routes  # noqa: E402
 from scene_sampler import (  # noqa: E402
     effective_half_fov,

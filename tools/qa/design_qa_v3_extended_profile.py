@@ -33,7 +33,7 @@ from build_qa_v3_n_actor_canary import (  # noqa: E402
     find_n_route_plan,
 )
 from build_qa_v3_programs import build_program  # noqa: E402
-from design_qa_v3_pilot_batch import _actor_entry  # noqa: E402
+from qa_v3_actor_selection import _actor_entry  # noqa: E402
 from design_qa_v3_scene_batch import (  # noqa: E402
     git_worktree_state,
     resolve_scene_render_context,

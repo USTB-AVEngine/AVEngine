@@ -246,6 +246,12 @@ REQUIRED_PARAMS = ("THETA_FULL", "THETA_HALF", "T_HALF", "TAIL_MIN_S",
                    "BANDS")
 
 
+HISTORICAL_NOTICE = (
+    "this filter is historical: it predates the explicit T_FULL first-call "
+    "chain and the room-centric scene batch (design_qa_v3_scene_batch.py). It "
+    "only runs with --historical-reproduction, for reproducing old products.")
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -255,8 +261,13 @@ def main(argv: list[str] | None = None) -> int:
                         help="build_qa_v3_programs 的输出目录(program+plan)")
     parser.add_argument("--params", required=True)
     parser.add_argument("--out", required=True)
+    parser.add_argument("--historical-reproduction", action="store_true",
+                        help=HISTORICAL_NOTICE)
     args = parser.parse_args(argv)
 
+    if not args.historical_reproduction:
+        print(f"refusing to run: {HISTORICAL_NOTICE}", file=sys.stderr)
+        return 2
     if os.path.exists(args.out):
         print(f"refusing to overwrite existing output: {args.out}", file=sys.stderr)
         return 2

@@ -175,17 +175,20 @@ def test_cli_end_to_end_and_no_clobber(tmp_path):
     params_p.write_text(json.dumps(PARAMS))
     out = tmp_path / "filter.json"
     assert main(["--inputs-root", str(inputs), "--programs-dir", str(programs),
-                 "--params", str(params_p), "--out", str(out)]) == 0
+                 "--params", str(params_p), "--out", str(out),
+                 "--historical-reproduction"]) == 0
     doc = json.loads(out.read_text())
     assert doc["counts"]["points"] == 2
     assert doc["counts"]["admits"]["card1"] == 2
     assert doc["card6R_answer_counts"] == {"moving": 2}
     assert main(["--inputs-root", str(inputs), "--programs-dir", str(programs),
-                 "--params", str(params_p), "--out", str(out)]) == 2  # no-clobber
+                 "--params", str(params_p), "--out", str(out),
+                 "--historical-reproduction"]) == 2  # no-clobber
     bad = tmp_path / "bad_params.json"
     bad.write_text(json.dumps({"THETA_FULL": 10}))
     assert main(["--inputs-root", str(inputs), "--programs-dir", str(programs),
-                 "--params", str(bad), "--out", str(tmp_path / "o2.json")]) == 2
+                 "--params", str(bad), "--out", str(tmp_path / "o2.json"),
+                 "--historical-reproduction"]) == 2
 
 
 def test_card1_end_gap_threshold_is_overridable():

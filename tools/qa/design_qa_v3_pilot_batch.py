@@ -107,75 +107,11 @@ def _sub_chords(walk, speeds=(0.60, 0.68, 0.76), t0_steps=5):
     return out or [walk]
 
 
-def _mesh_package_for(asset, snap):
-    su = asset["runtime_backends"]["spear_unreal"]
-    mesh_dir_pkg = su["idle_animation"].split(".", 1)[0].rsplit("/", 1)[0]
-    gate = mesh_dir_pkg.rsplit("/", 1)[-1]
-    phys_dir = os.path.join(snap, "MyAssets/Audioset/Meshes", gate)
-    names = [f[:-7] for f in os.listdir(phys_dir) if f.endswith(".uasset")]
-    for n in names:
-        if n + "_Skeleton" in names:
-            return mesh_dir_pkg + "/" + n
-    if "runtime" in names:
-        return mesh_dir_pkg + "/runtime"
-    raise RuntimeError(f"cannot identify skeletal mesh in {phys_dir}: {names}")
-
-
-def _actor_entry(slot, asset_id, by_id, snap):
-    rec = by_id[asset_id]
-    su = rec["runtime_backends"]["spear_unreal"]
-    bp = su["blueprint_class_path"]
-    bp_pkg = bp.split(".", 1)[0]
-    mesh_pkg = _mesh_package_for(rec, snap)
-    mesh_name = mesh_pkg.rsplit("/", 1)[-1]
-
-    def phys(package):
-        p = os.path.join(snap, package.split("/Game/", 1)[1] + ".uasset")
-        if not os.path.isfile(p):
-            raise RuntimeError(f"missing physical source: {p}")
-        return p
-
-    return {
-        "asset_id": asset_id,
-        "legacy_timeline_actor_id": f"{rec['identity']['species_id']}_{slot[-1]}",
-        "physical_authorized_internal_sources": {
-            "blueprint": phys(bp_pkg),
-            "graph_derived_mesh": phys(mesh_pkg),
-            "idle": phys(su["idle_animation"].split(".", 1)[0]),
-            "walking": phys(su["walking_animation"].split(".", 1)[0]),
-        },
-        "profile_alias": asset_id,
-        "revision": rec["revision"],
-        "source_slot_id": slot,
-        "ue_binding": {
-            "blueprint_object_path": bp,
-            "blueprint_package": bp_pkg,
-            "graph_derived_mesh": {
-                "derivation": "direct graph dependency of the selected Blueprint; profile binds blueprint_component and declares no standalone mesh path",
-                "object_path": f"{mesh_pkg}.{mesh_name}",
-                "package": mesh_pkg,
-            },
-            "idle_object_path": su["idle_animation"],
-            "idle_package": su["idle_animation"].split(".", 1)[0],
-            "profile_skeletal_mesh_binding": su["skeletal_mesh_binding"],
-            "profile_skeletal_mesh_path": su["skeletal_mesh_path"],
-            "walking_object_path": su["walking_animation"],
-            "walking_package": su["walking_animation"].split(".", 1)[0],
-        },
-    }
-
-
-def _selection_doc(a1, a2, by_id, snap):
-    return {
-        "schema": "avengine_apartment_actor_selection_v1",
-        "asset_authorization": "verified_internal",
-        "research_only": True,
-        "qualification_claim": False,
-        "claim_boundary": "QA v3 dual-source pilot batch; research only.",
-        "generated_at": datetime.now(timezone.utc).isoformat(),
-        "actors": [_actor_entry("source1", a1, by_id, snap),
-                   _actor_entry("source2", a2, by_id, snap)],
-    }
+from qa_v3_actor_selection import (  # noqa: E402,F401  (kept importable here)
+    _actor_entry,
+    _mesh_package_for,
+    _selection_doc,
+)
 # ---- 复制段结束 ---------------------------------------------------------
 
 
@@ -480,6 +416,12 @@ def build_point(pid, pair_assets, sub_class, seed, params, py, by_id, snap,
                        f"last: {last_reason[:240]}")
 
 
+HISTORICAL_NOTICE = (
+    "this assembler is historical: it predates the explicit T_FULL first-call "
+    "chain and the room-centric scene batch (design_qa_v3_scene_batch.py). It "
+    "only runs with --historical-reproduction, for reproducing old products.")
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -495,8 +437,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--python", default=sys.executable)
     parser.add_argument("--snapshot-content",
                         default="/data/avengine_external/ue-assets/actor_content_registry_v9_20260823T033709Z/cpp/unreal_projects/SpearSim/Content")
+    parser.add_argument("--historical-reproduction", action="store_true",
+                        help=HISTORICAL_NOTICE)
     args = parser.parse_args(argv)
 
+    if not args.historical_reproduction:
+        print(f"refusing to run: {HISTORICAL_NOTICE}", file=sys.stderr)
+        return 2
     if os.path.exists(args.output_root):
         print(f"refusing to overwrite existing output root: {args.output_root}",
               file=sys.stderr)

@@ -197,16 +197,20 @@ def visibility_timeline(pixel_truth, slot, anchor_frame, query_frame):
         hidden_run += 1
     nearest_visible_to_anchor = (
         min(abs(index - anchor_frame) for index in visible) if visible else None)
+    strides = sorted({b - a for a, b in zip(captured, captured[1:])})
     return {
+        "sampling": "captured_frames_only_not_every_clip_frame",
         "captured_frame_indices": captured,
         "captured_frame_count": len(captured),
+        "capture_stride_frames": (strides[0] if len(strides) == 1 else strides) if strides else None,
         "visible_frame_count": len(visible),
         "visible_frame_fraction": (len(visible) / len(captured)
                                    if captured else None),
         "hidden_captured_frames_ending_at_query": hidden_run,
         "nearest_visible_captured_frame_distance_to_anchor": nearest_visible_to_anchor,
-        "note": ("metrics are over the captured frames only; capture more "
-                 "frames for a denser timeline"),
+        "note": ("metrics are over the captured frames only (a sampled "
+                 "timeline, typically every 5th frame); capture every frame "
+                 "for a complete one"),
     }
 
 
@@ -351,7 +355,7 @@ def evaluate_card1(fact, pixel_truth, params=None, arrays=None):
         "threshold_status": thresholds["status"],
         "acceptance_policy": policy,
         "difficulty": difficulty,
-        "visibility_timeline": timelines,
+        "visibility_timeline_sampled": timelines,
         "occluder_statistics_available": arrays is not None,
         "evaluations": evaluations,
         "line_of_sight_role": LINE_OF_SIGHT_ROLE,

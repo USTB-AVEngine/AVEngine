@@ -44,7 +44,7 @@ from qa_v3_pixel_thresholds import card1_pixel_acceptance_block  # noqa: E402
 import visibility_prediction as VP  # noqa: E402
 # 选角文档的结构(蓝图/网格/动画的物理来源、UE 绑定)已在既有装配器里
 # 验证过,直接复用它的构造函数,不在这里重写一份容易走样的副本。
-from design_qa_v3_pilot_batch import _selection_doc  # noqa: E402
+from qa_v3_actor_selection import _selection_doc  # noqa: E402
 # 静→走用与旧管线**同一个**变换:创作函数按弧长把整条路线铺满 75 帧,
 # 那是"压缩式";求解器用的是保速的"平移式"。两者不一致会让中途帧的
 # 位置对不上 —— 集成冒烟里正是反向题(查询帧在中途)先露馅。

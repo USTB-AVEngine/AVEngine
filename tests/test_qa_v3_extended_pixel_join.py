@@ -492,3 +492,18 @@ def test_cli_binds_fact_and_pixel_inputs(tmp_path):
         "--pixel-truth", str(pixel),
         "--output", str(output),
     ]) == 2
+
+
+def test_visibility_timeline_declares_itself_sampled():
+    from join_qa_v3_extended_pixel import visibility_timeline
+    truth = {"per_instance": {"source1": {"frames": [
+        {"frame_index": f, "state": "visible_clear" if f >= 20 else "fully_occluded",
+         "visible_pixels": 500 if f >= 20 else 0}
+        for f in range(0, 75, 5)] + [{"frame_index": 74, "state": "visible_clear",
+                                     "visible_pixels": 300}]}}}
+    timeline = visibility_timeline(truth, "source1", 40, 74)
+    assert timeline["sampling"] == "captured_frames_only_not_every_clip_frame"
+    assert timeline["capture_stride_frames"] == [4, 5]
+    assert timeline["captured_frame_count"] == 16
+    assert timeline["visible_frame_count"] == 12
+    assert timeline["hidden_captured_frames_ending_at_query"] == 0
