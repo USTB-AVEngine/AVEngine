@@ -565,3 +565,176 @@ def test_scene_hfov_is_read_from_the_contract_and_never_defaulted(tmp_path):
         scene_hfov_deg({"scene_id": "s", "hfov_deg": 200.0})
     with pytest.raises(ValueError, match="implausible hfov"):
         scene_hfov_deg({"scene_id": "s", "hfov_deg": float("nan")})
+
+
+# ---------------------------------------------------------------------------
+# camera clearance screening inside the solvers
+# ---------------------------------------------------------------------------
+
+def _write_clearance_table(root, scene, *, blocked_sector=(-30.0, 30.0),
+                           heights=(1.47,), blocked_at=None, yaw_step=2.0):
+    """A synthetic table: every camera point is blocked when the camera faces
+    into `blocked_sector` (world yaw), clear elsewhere.  `blocked_at` limits
+    the blockage to the listed camera heights (default: all heights)."""
+    from camera_clearance import point_key
+    root.mkdir()
+    yaws = np.array([i * yaw_step for i in range(int(360 / yaw_step))])
+    rel = (yaws - blocked_sector[0]) % 360.0
+    width = (blocked_sector[1] - blocked_sector[0]) % 360.0
+    in_sector = rel < width
+    points = list(scene.camera_points)
+    target = np.zeros((len(points), len(heights), 3, 3, len(yaws)), np.float32)
+    for hi, height in enumerate(heights):
+        if blocked_at is None or height in blocked_at:
+            target[:, hi, :, :, in_sector] = 0.9
+    np.savez_compressed(root / "summaries.npz",
+                        target_band_blocked_column_fraction=target.astype(np.float16),
+                        eye_band_blocked_column_fraction=np.zeros(
+                            (len(points), len(heights), 3, len(yaws)), np.float16),
+                        clear_default_rule=target[:, :, 0, 1, :] <= 0.2,
+                        points_xy_cm=np.asarray(points, np.float32),
+                        camera_heights_m=np.asarray(heights, np.float32),
+                        yaws_deg=yaws.astype(np.float32),
+                        nears_m=np.asarray([1.0, 1.5, 2.5], np.float32),
+                        target_heights_m=np.asarray([0.5, 1.0, 1.7], np.float32),
+                        point_seconds=np.zeros((len(points), len(heights)), np.float32))
+    (root / "camera_clearance_table.json").write_text(json.dumps({
+        "schema": "qa_v3_camera_clearance_table_v1", "scene_id": scene.scene_id,
+        "code": {"revision": "0" * 40, "dirty": False},
+        "summaries": {"path": "summaries.npz", "yaw_step_deg": yaw_step},
+        "faces": {"shards": []},
+        "points": {"keys": [point_key(xy) for xy in points]},
+        "stage": {"native_map": "/Game/synthetic"}}))
+    return root
+
+
+CLEARANCE_PARAMS = dict(PARAMS, CAMERA_CLEARANCE_TARGET_HEIGHT_M=0.5,
+                        CAMERA_CLEARANCE_NEAR_M=1.5,
+                        CAMERA_CLEARANCE_BLOCKED_FRACTION_MAX=0.2)
+
+
+def _with_table(tmp_path, **kwargs):
+    from camera_clearance import CameraClearanceTable
+    scene = synthetic_scene()
+    root = _write_clearance_table(tmp_path / "table", scene, **kwargs)
+    scene.clearance = CameraClearanceTable.load(root)
+    return scene
+
+
+def _yaw_in_sector(yaw, lo=-30.0, hi=30.0):
+    return ((yaw - lo) % 360.0) < ((hi - lo) % 360.0)
+
+
+def test_solvers_refuse_blocked_headings_and_record_the_screen(tmp_path):
+    from scene_sampler import solve_instant_binding
+    scene = _with_table(tmp_path)
+    ledger = RejectionLedger()
+    rng = np.random.default_rng(11)
+    plans = []
+    for _ in range(12):
+        plan = solve_forward_cross_time(scene, CLEARANCE_PARAMS, answer_band=BANDS[1],
+                                        answer_bands=BANDS, anchor_frame=45,
+                                        idle_choices=(0, 8, 16), rng=rng, ledger=ledger)
+        assert not isinstance(plan, Rejection), ledger.summary()
+        plans.append(plan)
+    assert all(not _yaw_in_sector(p.camera_ue_yaw_deg) for p in plans)
+    assert ledger.summary()["by_reason"]["camera_clearance_blocked"] > 0
+    for plan in plans:
+        assert plan.camera_height_m == 1.47
+        assert plan.camera_clearance["screened"] is True
+        assert plan.camera_clearance["fallback_used"] is False
+        assert plan.camera_clearance["blocked_fraction"] <= 0.2
+        assert plan.camera_clearance["rule"]["near_m"] == 1.5
+    # the instant solvers draw a free yaw; the screen applies there too
+    ledger = RejectionLedger()
+    plan = solve_instant_binding(scene, CLEARANCE_PARAMS, profile_id="card7",
+                                 instants=(30,), idle_choices=(0, 8, 16),
+                                 rng=np.random.default_rng(5),
+                                 ledger=ledger, max_attempts=4000)
+    assert not isinstance(plan, Rejection), ledger.summary()
+    assert not _yaw_in_sector(plan.camera_ue_yaw_deg)
+    assert plan.camera_clearance["screened"] is True
+
+
+def test_without_a_table_the_screen_is_a_no_op_and_says_so():
+    scene = synthetic_scene()
+    plan = solve_forward_cross_time(scene, PARAMS, answer_band=BANDS[1],
+                                    answer_bands=BANDS, anchor_frame=45,
+                                    idle_choices=(0, 8, 16),
+                                    rng=np.random.default_rng(3), ledger=RejectionLedger())
+    assert not isinstance(plan, Rejection)
+    assert plan.camera_clearance == {"screened": False, "camera_height_m": 1.47,
+                                     "fallback_used": False}
+    assert plan.camera_height_m == 1.47
+
+
+def test_camera_height_fallback_is_geometric_and_recorded(tmp_path):
+    scene = _with_table(tmp_path, heights=(1.47, 1.8), blocked_at=(1.47,))
+    params = dict(CLEARANCE_PARAMS, CAMERA_HEIGHT_FALLBACK_M=[1.8])
+    ledger = RejectionLedger()
+    rng = np.random.default_rng(11)
+    heights = {}
+    for _ in range(16):
+        plan = solve_forward_cross_time(scene, params, answer_band=BANDS[1],
+                                        answer_bands=BANDS, anchor_frame=45,
+                                        idle_choices=(0, 8, 16), rng=rng, ledger=ledger)
+        assert not isinstance(plan, Rejection), ledger.summary()
+        heights.setdefault(plan.camera_height_m, 0)
+        heights[plan.camera_height_m] += 1
+        if _yaw_in_sector(plan.camera_ue_yaw_deg):
+            assert plan.camera_height_m == 1.8
+            assert plan.camera_clearance["fallback_used"] is True
+            assert [t["camera_height_m"] for t in plan.camera_clearance["tried"]] == [1.47, 1.8]
+        else:
+            assert plan.camera_height_m == 1.47
+    assert "camera_clearance_blocked" not in ledger.summary()["by_reason"]
+    assert 1.8 in heights
+
+
+def test_clearance_requirements_fail_closed(tmp_path):
+    from scene_sampler import require_camera_clearance
+    scene = synthetic_scene()
+    require_camera_clearance(scene, PARAMS)          # no table, not required: fine
+    with pytest.raises(ValueError, match="CAMERA_CLEARANCE_REQUIRED"):
+        require_camera_clearance(scene, dict(PARAMS, CAMERA_CLEARANCE_REQUIRED=True))
+    scene = _with_table(tmp_path)
+    require_camera_clearance(scene, dict(CLEARANCE_PARAMS, CAMERA_CLEARANCE_REQUIRED=True))
+    with pytest.raises(Exception, match="lack camera clearance keys"):
+        require_camera_clearance(scene, PARAMS)
+    with pytest.raises(ValueError, match="CAMERA_HEIGHT_FALLBACK_M"):
+        require_camera_clearance(scene, dict(CLEARANCE_PARAMS, CAMERA_HEIGHT_FALLBACK_M=[1.8]))
+    with pytest.raises(Exception, match="near distance"):
+        require_camera_clearance(scene, dict(CLEARANCE_PARAMS, CAMERA_CLEARANCE_NEAR_M=2.0))
+
+
+def test_load_scene_rejects_a_table_that_does_not_fit_the_scene(tmp_path):
+    scene = synthetic_scene()
+    bank = tmp_path / "bank.json"
+    bank.write_text(json.dumps({
+        "schema": "avengine_apartment_route_bank_v1",
+        "routes": [{"route_id": r.route_id,
+                    "samples_ue_cm": [[p[0], p[1], 0.0] for p in r.samples_xy],
+                    "implied_speed_mps": r.implied_speed_mps}
+                   for r in scene.routes]}))
+    base = tmp_path / "base.json"
+    base.write_text(json.dumps({
+        "primary_camera_rig": {"world_from_rig": {"translation_m": [0, 1.47, 0]},
+                               "shared_calibration": {"hfov_degrees": 105.0}},
+        "listener": {"rig_from_listener": {"translation_m": [0, 0, 0]}}}))
+    config = {"scene_id": "synth_a", "backend": "synthetic", "route_bank": str(bank),
+              "camera_base_request": str(base)}
+    loaded = load_scene(config)
+    assert len(loaded.camera_points) > 0
+    other = synthetic_scene(scene_id="synth_b")
+    wrong_scene = _write_clearance_table(tmp_path / "wrong_scene", other)
+    with pytest.raises(ValueError, match="belongs to"):
+        load_scene(dict(config, camera_clearance_table=str(wrong_scene)))
+    partial = synthetic_scene()
+    partial.camera_points = partial.camera_points[:5]
+    sparse = _write_clearance_table(tmp_path / "sparse", partial)
+    with pytest.raises(ValueError, match="does not cover"):
+        load_scene(dict(config, camera_clearance_table=str(sparse)))
+    good = _write_clearance_table(tmp_path / "good", loaded)
+    with_table = load_scene(dict(config, camera_clearance_table=str(good)))
+    assert with_table.camera_clearance_screened
+    assert with_table.provenance["camera_clearance_table"]["points"] == len(loaded.camera_points)

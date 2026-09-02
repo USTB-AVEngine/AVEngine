@@ -24,6 +24,7 @@ from scene_sampler import (  # noqa: E402
     effective_half_fov,
     load_scene,
     relative_azimuth_deg,
+    screen_camera_clearance,
 )
 from avengine.timeline.current_apartment_visual import (  # noqa: E402
     author_current_n_actor_visual_timeline,
@@ -85,6 +86,9 @@ def find_n_route_plan(scene, params, *, actor_count: int, seed: str,
     for attempt in range(1, max_attempts + 1):
         camera = scene.camera_points[int(rng.integers(len(scene.camera_points)))]
         yaw = float(rng.random() * 360.0 - 180.0)
+        clearance = screen_camera_clearance(scene, params, camera, yaw, None)
+        if clearance is None:
+            continue
         indices = rng.permutation(len(routes))
         chosen = []
         azimuths = []
@@ -120,6 +124,8 @@ def find_n_route_plan(scene, params, *, actor_count: int, seed: str,
                     "binding_azimuths_deg": azimuths,
                     "search_attempts": attempt,
                     "line_of_sight_screened": scene.line_of_sight_screened,
+                    "camera_height_m": clearance["camera_height_m"],
+                    "camera_clearance": clearance,
                 }
     raise NRouteSearchExhausted(
         f"no {actor_count}-route plan within {max_attempts} attempts",

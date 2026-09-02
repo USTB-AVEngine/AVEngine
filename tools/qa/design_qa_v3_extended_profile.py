@@ -43,6 +43,7 @@ from scene_sampler import (  # noqa: E402
     effective_half_fov,
     load_scene,
     relative_azimuth_deg,
+    require_camera_clearance,
 )
 from avengine.camera_pose import apply_camera_listener_pose_ue  # noqa: E402
 from avengine.timeline.current_apartment_visual import (  # noqa: E402
@@ -147,10 +148,11 @@ def _author_timeline(out_dir, name, selection_path, registry_path, scene, plan):
         ]
         for index, route in enumerate(plan["routes"], start=1)
     }
+    camera_height_m = float(plan.get("camera_height_m") or scene.camera_height_m)
     camera_ue = [
         float(plan["camera_xy"][0]),
         float(plan["camera_xy"][1]),
-        ground + scene.camera_height_m * 100.0,
+        ground + camera_height_m * 100.0,
     ]
     authored = out_dir / f"{name}_authored.json"
     timeline = author_current_n_actor_visual_timeline(
@@ -687,6 +689,8 @@ def _realise_cell(out_root, profile, cell_index, scene, params, inventory,
     gatea_sounds = sorted(event["sound_asset_id"] for event in gatea_program["events"])
     facts.update({
         "schema": "qa_v3_extended_fact_record_v1",
+        "camera_height_m": float(plan.get("camera_height_m") or scene.camera_height_m),
+        "camera_clearance": plan.get("camera_clearance"),
         "point_id": point_id,
         "profile_id": profile_id,
         "scene_id": scene.scene_id,
@@ -809,6 +813,7 @@ def main(argv=None):
     scene = load_scene(_read(args.scene_config))
     resolve_scene_render_context(scene)
     params = _read(args.params)
+    require_camera_clearance(scene, params)
     registry_path = REPO / "examples/runtime/source_asset_runtime_profiles.json"
     registry = _read(registry_path)
     by_id = {item["asset_id"]: item for item in registry["assets"]}

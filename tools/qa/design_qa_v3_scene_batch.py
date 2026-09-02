@@ -819,6 +819,7 @@ def main(argv=None) -> int:
     # realised candidate that should poison the no-clobber path.
     resolve_scene_render_context(scene)
     params = materialize_derived_params(params, profiles)
+    SS.require_camera_clearance(scene, params)
     base_request = json.loads(Path(scene_cfg["camera_base_request"]).read_text())
     registry = json.loads(
         (REPO / "examples/runtime/source_asset_runtime_profiles.json").read_text())
@@ -891,9 +892,12 @@ def realise_point(pid, cell, plan, scene, base_request, params, by_id, args,
 
     # 相机与听者:同一份姿态结果
     render_context = resolve_scene_render_context(scene)
+    camera_height_m = float(plan.camera_height_m
+                            if plan.camera_height_m is not None
+                            else scene.camera_height_m)
     camera_ue_cm = [plan.camera_xy[0], plan.camera_xy[1],
                     render_context["ground_z_ue_cm"]
-                    + scene.camera_height_m * 100.0]
+                    + camera_height_m * 100.0]
     camera_world_m = render_context["world_transform"](camera_ue_cm)
     m1_request = apply_camera_listener_pose_ue(
         base_request, request_id=f"qa_v3_{pid}", position_m=camera_world_m,
@@ -1077,6 +1081,9 @@ def realise_point(pid, cell, plan, scene, base_request, params, by_id, args,
         "slot_coat": slot_coat,
         "camera": {"ue_cm": camera_ue_cm,
                    "ue_yaw_deg": plan.camera_ue_yaw_deg,
+                   "height_m": camera_height_m,
+                   "scene_camera_height_m": float(scene.camera_height_m),
+                   "clearance": plan.camera_clearance,
                    "listener_from_same_pose_result": True},
         "room": {
             "native_map": timeline["room"]["map_path"],
@@ -1740,7 +1747,14 @@ def write_outputs(args, scene, scene_cfg, profiles, params, ledger, made,
                   "route_domain": scene_cfg.get("route_domain"),
                   "bank_adapter": scene.provenance.get("bank_adapter"),
                   "routes_loaded": scene.provenance.get("routes_loaded"),
-                  "line_of_sight_screened": scene.line_of_sight_screened},
+                  "line_of_sight_screened": scene.line_of_sight_screened,
+                  "camera_clearance_screened": scene.camera_clearance_screened,
+                  "camera_clearance_table": scene.provenance.get(
+                      "camera_clearance_table"),
+                  "camera_height_fallback_used": sum(
+                      1 for r in records
+                      if ((r.get("camera") or {}).get("clearance") or {}).get(
+                          "fallback_used"))},
         "evidence_class": "geometry_candidate",
         "boundary": ("no pixel or line-of-sight evidence yet; these are "
                      "pre-render candidates, not admitted questions"),

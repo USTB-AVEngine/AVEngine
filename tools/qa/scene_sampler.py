@@ -31,6 +31,12 @@ from typing import Callable, Iterable, Sequence
 
 import numpy as np
 
+from camera_clearance import (  # noqa: E402
+    CameraClearanceTable,
+    fallback_heights_from_params,
+    rule_from_params,
+)
+
 FRAME_COUNT = 75
 
 
@@ -153,10 +159,15 @@ class SceneInputs:
     line_of_sight: Callable[[Sequence[float], Sequence[float]], bool] | None = None
     provenance: dict = field(default_factory=dict)
     render_config: dict = field(default_factory=dict)
+    clearance: CameraClearanceTable | None = None
 
     @property
     def line_of_sight_screened(self) -> bool:
         return self.line_of_sight is not None
+
+    @property
+    def camera_clearance_screened(self) -> bool:
+        return self.clearance is not None
 
 
 # 路线库适配器按**库自己的 schema** 分派,不按房间 ID。每个后端声明自己的
@@ -306,6 +317,26 @@ def load_scene(config: dict, *, route_limit: int | None = None) -> SceneInputs:
         raise ValueError(f"{config['scene_id']}: render must be an object")
     los_config = config.get("line_of_sight_grid")
     line_of_sight = None if los_config is None else line_of_sight_from_feasible_grid(los_config)
+    clearance = None
+    table_path = config.get("camera_clearance_table")
+    if table_path is not None:
+        # 机位净空表是房间的属性:必须是这个房间、覆盖求解器会抽到的每个相机点、
+        # 含场景相机高度。缺任何一项都拒绝载入,不猜。
+        clearance = CameraClearanceTable.load(table_path)
+        if clearance.scene_id != str(config["scene_id"]):
+            raise ValueError(
+                f"{config['scene_id']}: camera clearance table belongs to "
+                f"{clearance.scene_id!r}")
+        missing = clearance.missing_points(ordered)
+        if missing:
+            raise ValueError(
+                f"{config['scene_id']}: camera clearance table does not cover "
+                f"{len(missing)} of {len(ordered)} camera points (first: "
+                f"{missing[:3]})")
+        if not clearance.has_height(height):
+            raise ValueError(
+                f"{config['scene_id']}: camera clearance table lacks the scene "
+                f"camera height {height} m (has {clearance.heights_m.tolist()})")
     return SceneInputs(
         scene_id=str(config["scene_id"]), backend=str(config["backend"]),
         routes=routes, stand_points=ordered, camera_points=ordered,
@@ -318,8 +349,11 @@ def load_scene(config: dict, *, route_limit: int | None = None) -> SceneInputs:
                     "camera_base_request": config["camera_base_request"],
                     "routes_loaded": len(routes),
                     "line_of_sight_grid": los_config,
+                    "camera_clearance_table": (
+                        clearance.identity if clearance is not None else None),
                     "navigable_points": len(ordered)},
         render_config=dict(render_config),
+        clearance=clearance,
     )
 
 
@@ -389,6 +423,10 @@ class PointPlan:
     query_frame: int
     answer_cell: dict
     checks: dict
+    # None means "scene camera height"; set when the clearance table sent the
+    # camera to a fallback height at this pose.
+    camera_height_m: float | None = None
+    camera_clearance: dict | None = None
 
 
 class RejectionLedger:
@@ -422,6 +460,57 @@ class RejectionLedger:
                 "by_reason": dict(sorted(self.counts.items(),
                                          key=lambda kv: -kv[1])),
                 "first_example": self.first_details}
+
+
+def require_camera_clearance(scene: SceneInputs, params: dict) -> None:
+    """Fail closed before any search when clearance screening cannot happen.
+
+    CAMERA_CLEARANCE_REQUIRED in params means: a scene without a table must
+    not be searched at all.  When a table is present, the rule keys and every
+    fallback height must exist in the table, so a later attempt never fails
+    half-way with an unscreened candidate."""
+    if scene.clearance is None:
+        if params.get("CAMERA_CLEARANCE_REQUIRED"):
+            raise ValueError(
+                f"{scene.scene_id}: CAMERA_CLEARANCE_REQUIRED but the scene config "
+                "declares no camera_clearance_table")
+        return
+    rule_from_params(params, scene.clearance)
+    for height in fallback_heights_from_params(params):
+        if not scene.clearance.has_height(height):
+            raise ValueError(
+                f"{scene.scene_id}: CAMERA_HEIGHT_FALLBACK_M {height} is not in the "
+                f"camera clearance table heights {scene.clearance.heights_m.tolist()}")
+
+
+def screen_camera_clearance(scene: SceneInputs, params: dict, camera, yaw: float,
+                            ledger: "RejectionLedger | None") -> dict | None:
+    """Decide, from the scene's clearance table, whether this pose may be used.
+
+    Returns the camera height to use and the evidence, or None (with a ledger
+    entry) when the view is blocked at the scene height and at every fallback
+    height declared in params.  Fallback heights are tried in the declared
+    order; the decision is purely geometric (no answer is consulted)."""
+    if scene.clearance is None:
+        return {"screened": False, "camera_height_m": float(scene.camera_height_m),
+                "fallback_used": False}
+    rule = rule_from_params(params, scene.clearance)
+    heights = [float(scene.camera_height_m)] + fallback_heights_from_params(params)
+    tried = []
+    for height in heights:
+        fraction = scene.clearance.blocked_fraction(camera, height, yaw, rule)
+        tried.append({"camera_height_m": height, "blocked_fraction": fraction})
+        if fraction <= rule.blocked_fraction_max:
+            return {"screened": True, "camera_height_m": height,
+                    "blocked_fraction": fraction,
+                    "fallback_used": height != float(scene.camera_height_m),
+                    "tried": tried, "rule": rule.as_dict()}
+    if ledger is not None:
+        ledger.add(Rejection(
+            "camera_clearance_blocked",
+            f"blocked fractions {[round(t['blocked_fraction'], 3) for t in tried]} at "
+            f"heights {heights} exceed {rule.blocked_fraction_max}"))
+    return None
 
 
 def solve_forward_cross_time(scene: SceneInputs, params: dict, *,
@@ -465,6 +554,9 @@ def solve_forward_cross_time(scene: SceneInputs, params: dict, *,
         solve_lo, solve_hi = interior_answer_band(band_lo, band_hi, params)
         lo_yaw, hi_yaw = yaw_interval_for_band(camera, end_xy, solve_lo, solve_hi)
         yaw = float(lo_yaw + (hi_yaw - lo_yaw) * rng.random())
+        clearance = screen_camera_clearance(scene, params, camera, yaw, ledger)
+        if clearance is None:
+            continue
         az_end = relative_azimuth_deg(camera, yaw, end_xy)
         if not (band_lo <= az_end < band_hi):
             ledger.add(Rejection("band_solution_out_of_band",
@@ -528,7 +620,8 @@ def solve_forward_cross_time(scene: SceneInputs, params: dict, *,
                 continue
         return PointPlan(
             scene_id=scene.scene_id, profile_id="card1F", camera_xy=camera,
-            camera_ue_yaw_deg=yaw, target_route=moved, base_route=route,
+            camera_ue_yaw_deg=yaw, camera_height_m=clearance["camera_height_m"],
+            camera_clearance=clearance, target_route=moved, base_route=route,
             other_route=other_route, idle_frames=idle, anchor_frame=anchor_frame,
             query_frame=FRAME_COUNT - 1,
             answer_cell={"kind": "azimuth_band", "band": [band_lo, band_hi],
@@ -596,6 +689,9 @@ def solve_backward_cross_time(scene: SceneInputs, params: dict, *,
         solve_lo, solve_hi = interior_answer_band(band_lo, band_hi, params)
         lo_yaw, hi_yaw = yaw_interval_for_band(camera, query_xy, solve_lo, solve_hi)
         yaw = float(lo_yaw + (hi_yaw - lo_yaw) * rng.random())
+        clearance = screen_camera_clearance(scene, params, camera, yaw, ledger)
+        if clearance is None:
+            continue
         az_query = relative_azimuth_deg(camera, yaw, query_xy)
         if not (band_lo <= az_query < band_hi) or abs(az_query) > half_fov:
             ledger.add(Rejection("answer_band_outside_fov"))
@@ -653,7 +749,8 @@ def solve_backward_cross_time(scene: SceneInputs, params: dict, *,
                 continue
         return PointPlan(
             scene_id=scene.scene_id, profile_id="card1B", camera_xy=camera,
-            camera_ue_yaw_deg=yaw, target_route=moved, base_route=route,
+            camera_ue_yaw_deg=yaw, camera_height_m=clearance["camera_height_m"],
+            camera_clearance=clearance, target_route=moved, base_route=route,
             other_route=other_route, idle_frames=idle, anchor_frame=anchor_frame,
             query_frame=query_frame,
             answer_cell={"kind": "azimuth_band", "band": [band_lo, band_hi],
@@ -822,6 +919,9 @@ def solve_instant_azimuth(scene: SceneInputs, params: dict, *,
         lo_yaw, hi_yaw = yaw_interval_for_band(
             camera, answer_xy, solve_lo, solve_hi)
         yaw = float(rng.uniform(lo_yaw, hi_yaw))
+        clearance = screen_camera_clearance(scene, params, camera, yaw, ledger)
+        if clearance is None:
+            continue
         azimuth = relative_azimuth_deg(camera, yaw, answer_xy)
         if abs(azimuth) > half_fov:
             ledger.add(Rejection("answer_band_outside_fov"))
@@ -845,6 +945,7 @@ def solve_instant_azimuth(scene: SceneInputs, params: dict, *,
         return PointPlan(
             scene_id=scene.scene_id, profile_id=profile_id,
             camera_xy=camera, camera_ue_yaw_deg=yaw,
+            camera_height_m=clearance["camera_height_m"], camera_clearance=clearance,
             target_route=moved, base_route=route, other_route=other,
             idle_frames=idle, anchor_frame=query_frame,
             query_frame=query_frame,
@@ -893,6 +994,9 @@ def solve_instant_distance_order(scene: SceneInputs, params: dict, *,
             ledger.add(Rejection("camera_too_close_to_target"))
             continue
         yaw = float(rng.random() * 360.0 - 180.0)
+        clearance = screen_camera_clearance(scene, params, camera, yaw, ledger)
+        if clearance is None:
+            continue
         target_azimuth = relative_azimuth_deg(camera, yaw, target_xy)
         if abs(target_azimuth) > half_fov:
             ledger.add(Rejection("target_outside_fov_at_binding_instant"))
@@ -941,6 +1045,7 @@ def solve_instant_distance_order(scene: SceneInputs, params: dict, *,
         return PointPlan(
             scene_id=scene.scene_id, profile_id=profile_id,
             camera_xy=camera, camera_ue_yaw_deg=yaw,
+            camera_height_m=clearance["camera_height_m"], camera_clearance=clearance,
             target_route=moved, base_route=route, other_route=other,
             idle_frames=idle, anchor_frame=query_frame,
             query_frame=query_frame,
@@ -1012,6 +1117,9 @@ def solve_distance_change_pair(scene: SceneInputs, params: dict, *,
                 f"{target_relation} by {min_change:.1f} cm"))
             continue
         yaw = float(rng.random() * 360.0 - 180.0)
+        clearance = screen_camera_clearance(scene, params, camera, yaw, ledger)
+        if clearance is None:
+            continue
         target_azimuths = [
             relative_azimuth_deg(camera, yaw, moved.at(frame))
             for frame in (start_frame, end_frame)]
@@ -1072,6 +1180,7 @@ def solve_distance_change_pair(scene: SceneInputs, params: dict, *,
         return PointPlan(
             scene_id=scene.scene_id, profile_id=profile_id,
             camera_xy=camera, camera_ue_yaw_deg=yaw,
+            camera_height_m=clearance["camera_height_m"], camera_clearance=clearance,
             target_route=moved, base_route=route, other_route=other,
             idle_frames=idle, anchor_frame=start_frame,
             query_frame=end_frame,
@@ -1142,6 +1251,9 @@ def solve_motion_state_pair(scene: SceneInputs, params: dict, *,
             ledger.add(Rejection("camera_too_close_to_target"))
             continue
         yaw = float(rng.random() * 360.0 - 180.0)
+        clearance = screen_camera_clearance(scene, params, camera, yaw, ledger)
+        if clearance is None:
+            continue
         target_azimuths = [
             relative_azimuth_deg(camera, yaw, point)
             for point in target_points]
@@ -1193,6 +1305,7 @@ def solve_motion_state_pair(scene: SceneInputs, params: dict, *,
         return PointPlan(
             scene_id=scene.scene_id, profile_id=profile_id,
             camera_xy=camera, camera_ue_yaw_deg=yaw,
+            camera_height_m=clearance["camera_height_m"], camera_clearance=clearance,
             target_route=target, base_route=base, other_route=other,
             idle_frames=idle, anchor_frame=start_frame,
             query_frame=end_frame,
@@ -1244,6 +1357,9 @@ def solve_instant_binding(scene: SceneInputs, params: dict, *,
             ledger.add(Rejection("camera_too_close_to_target"))
             continue
         yaw = float(rng.random() * 360.0 - 180.0)
+        clearance = screen_camera_clearance(scene, params, camera, yaw, ledger)
+        if clearance is None:
+            continue
         azimuths = [relative_azimuth_deg(camera, yaw, moved.at(f))
                     for f in instants]
         if any(abs(a) > half_fov for a in azimuths):
@@ -1292,7 +1408,8 @@ def solve_instant_binding(scene: SceneInputs, params: dict, *,
                 continue
         return PointPlan(
             scene_id=scene.scene_id, profile_id=profile_id, camera_xy=camera,
-            camera_ue_yaw_deg=yaw, target_route=moved, base_route=route,
+            camera_ue_yaw_deg=yaw, camera_height_m=clearance["camera_height_m"],
+            camera_clearance=clearance, target_route=moved, base_route=route,
             other_route=other, idle_frames=idle,
             anchor_frame=int(instants[-1]), query_frame=int(instants[0]),
             answer_cell={"kind": "binding_instants",
