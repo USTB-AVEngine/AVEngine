@@ -779,7 +779,7 @@ def _synthesize_other(synth: RouteSynthesizer, rng, ledger: "RejectionLedger",
                       camera, yaw: float, specs, acceptable, tries: int | None = None):
     """Design a second-actor route and hold it to the same checks as a bank
     candidate (``acceptable`` is the solver's own per-candidate predicate)."""
-    for _ in range(int(tries or synth.settings.design_tries)):
+    for _ in range(int(tries or synth.settings.other_design_tries)):
         ledger.stand_points_evaluated += 1
         route, reason = synth.design(rng, camera, yaw, specs, idle_frames=0, role="other")
         ledger.note_design("other", 1, 0 if route is None else 1,

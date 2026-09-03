@@ -65,6 +65,7 @@ MARGIN_KEY = "ROUTE_SYNTHESIS_WALKABLE_MARGIN_M"
 MAX_DISTANCE_KEY = "ROUTE_SYNTHESIS_MAX_CAMERA_DISTANCE_CM"
 ATTEMPTS_KEY = "ROUTE_SYNTHESIS_ATTEMPTS"
 DESIGN_TRIES_KEY = "ROUTE_SYNTHESIS_DESIGN_TRIES"
+OTHER_DESIGN_TRIES_KEY = "ROUTE_SYNTHESIS_OTHER_DESIGN_TRIES"
 MAX_TURN_KEY = "ROUTE_SYNTHESIS_MAX_TURN_DEG"
 
 REASON_SPEED = "synthesis_no_distance_solves_speed"
@@ -81,6 +82,9 @@ class SynthesisSettings:
     synthesized_attempts: int
     design_tries: int
     max_turn_deg: float
+    # a built target is the scarce outcome of an attempt; the second actor's
+    # design may try harder before the attempt is given up
+    other_design_tries: int = 32
 
     @classmethod
     def from_params(cls, params: dict) -> "SynthesisSettings | None":
@@ -111,9 +115,13 @@ class SynthesisSettings:
         turn = float(params.get(MAX_TURN_KEY, 90.0))
         if not math.isfinite(turn) or not (0.0 <= turn <= 180.0):
             raise ValueError(f"{MAX_TURN_KEY} must lie in [0, 180]")
+        other_tries = int(params.get(OTHER_DESIGN_TRIES_KEY, 4 * tries))
+        if other_tries < 1:
+            raise ValueError(f"{OTHER_DESIGN_TRIES_KEY} must be at least one")
         return cls(speed_min_mps=float(speed[0]), speed_max_mps=float(speed[1]),
                    margin_cm=margin_m * 100.0, max_camera_distance_cm=max_distance,
-                   synthesized_attempts=attempts, design_tries=tries, max_turn_deg=turn)
+                   synthesized_attempts=attempts, design_tries=tries, max_turn_deg=turn,
+                   other_design_tries=other_tries)
 
     def as_dict(self) -> dict:
         return {"speed_mps_range": [self.speed_min_mps, self.speed_max_mps],
@@ -121,6 +129,7 @@ class SynthesisSettings:
                 "max_camera_distance_cm": self.max_camera_distance_cm,
                 "synthesized_attempts_after_bank": self.synthesized_attempts,
                 "design_tries_per_attempt": self.design_tries,
+                "other_design_tries_per_attempt": self.other_design_tries,
                 "max_turn_deg": self.max_turn_deg}
 
 

@@ -139,6 +139,10 @@ def test_settings_fail_closed(tmp_path):
     settings = SynthesisSettings.from_params(SYNTH)
     assert settings.margin_cm == 30.0 and settings.synthesized_attempts == 2500
     assert settings.max_turn_deg == 90.0
+    assert settings.design_tries == 8 and settings.other_design_tries == 32
+    assert SynthesisSettings.from_params(
+        dict(SYNTH, ROUTE_SYNTHESIS_OTHER_DESIGN_TRIES=5)).other_design_tries == 5
+    assert settings.as_dict()["other_design_tries_per_attempt"] == 32
     assert attempt_budgets(None, 300) == (300, 300)
     grid = room_grid(tmp_path / "grid")
     scene = short_bank_scene(grid)
