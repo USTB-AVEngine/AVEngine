@@ -337,25 +337,45 @@ class _Clip:
         self.source_end_sample_exclusive = duration_samples
 
 
-class _ClipSource:
-    def __init__(self, clips):
-        self._clips = list(clips)
+class _RoleClips:
+    def __init__(self, by_role):
+        self.by_role = dict(by_role)
 
-    def next(self):
-        return self._clips.pop(0)
+    def for_role(self, role):
+        return self.by_role[role]
 
 
-def test_event_length_comes_from_the_drawn_clip_not_a_constant():
-    clips = [_Clip(d, f"bark_{i}") for i, d in enumerate((3200, 8000, 4000, 6400))]
+def test_event_length_comes_from_the_bound_role_clip():
+    target = _Clip(6400, "bark_target")
+    other = _Clip(3200, "bark_other")
     schedule = schedule_forward_anchor(
-        rng(1), params=PARAMS, anchor_frame=40, clip_source=_ClipSource(clips))
+        rng(1), params=PARAMS, anchor_frame=40,
+        clip_source=_RoleClips({TARGET: target, OTHER: other}))
     assert schedule.events[-1].duration_samples == 6400
-    assert schedule.events[-1].sound_asset_id == "bark_3"
+    assert schedule.events[-1].sound_asset_id == "bark_target"
+    assert {event.sound_asset_id for event in schedule.events
+            if event.role == TARGET} == {"bark_target"}
+    assert {event.sound_asset_id for event in schedule.events
+            if event.role == OTHER} == {"bark_other"}
     rows = schedule.program_events({TARGET: "source1", OTHER: "source2"})
     assert rows[-1]["duration_samples"] == 6400
     assert rows[-1]["source_start_sample"] == 0
     assert rows[-1]["source_end_sample_exclusive"] == 6400
-    assert {event.duration_samples for event in schedule.events} != {4800}
+
+
+def test_same_role_reuses_one_clip_and_roles_stay_distinct():
+    schedule = schedule_event_count(
+        rng(4), params=PARAMS, event_count=4,
+        clip_source=_RoleClips({
+            TARGET: _Clip(3200, "clip_t"),
+            OTHER: _Clip(8000, "clip_o"),
+        }))
+    by_role = {}
+    for event in schedule.events:
+        by_role.setdefault(event.role, set()).add(event.sound_asset_id)
+    assert by_role[TARGET] == {"clip_t"}
+    assert by_role[OTHER] == {"clip_o"}
+    assert by_role[TARGET] != by_role[OTHER]
 
 
 def test_params_without_event_seconds_fail_closed():

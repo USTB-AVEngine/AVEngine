@@ -153,10 +153,10 @@ def _event_len(params, clip=None) -> int:
     return int(round(seconds * _sample_rate(params)))
 
 
-def _draw_clip(clip_source):
+def _draw_clip(clip_source, role: str):
     if clip_source is None:
         return None
-    return clip_source.next()
+    return clip_source.for_role(role)
 
 
 def _stamp(role: str, start: int, purpose: str, params, clip=None) -> ScheduledEvent:
@@ -286,8 +286,9 @@ def schedule_forward_anchor(rng, *, params, anchor_frame: int,
     gap = int(float(params["GAP_MIN_S"]) * _sample_rate(params))
     first_min = int(float(params["FIRST_MIN_S"]) * _sample_rate(params))
     n_before = int(rng.integers(2, 4))          # 锚之前 2 或 3 声
-    pre_clips = [_draw_clip(clip_source) for _ in range(3)]
-    anchor_clip = _draw_clip(clip_source)
+    other_clip = _draw_clip(clip_source, OTHER)
+    anchor_clip = _draw_clip(clip_source, TARGET)
+    pre_clips = [other_clip, other_clip, other_clip]
     pre_durs = [_event_len(params, clip) for clip in pre_clips]
     anchor_dur = _event_len(params, anchor_clip)
     anchor_start = int(round(anchor_frame / _frame_count(params) * _clip_samples(params)))
@@ -343,8 +344,9 @@ def schedule_backward_anchor(rng, *, params, anchor_frame: int,
     query_sample = int(round(query_frame / _frame_count(params) * _clip_samples(params)))
     anchor_start = int(round(anchor_frame / _frame_count(params) * _clip_samples(params)))
     n_before = int(rng.integers(1, 3))
-    pre_clips = [_draw_clip(clip_source) for _ in range(n_before)]
-    anchor_clip = _draw_clip(clip_source)
+    other_clip = _draw_clip(clip_source, OTHER)
+    anchor_clip = _draw_clip(clip_source, TARGET)
+    pre_clips = [other_clip] * n_before
     pre_durs = [_event_len(params, clip) for clip in pre_clips]
     anchor_dur = _event_len(params, anchor_clip)
     if anchor_start + anchor_dur > _clip_samples(params):
@@ -403,14 +405,14 @@ def schedule_first_call_bands(rng, *, params, target_bands: tuple[int, int],
         raise AudioProfileError(
             f"unreachable band pair {target_bands}: events alternate in time "
             "so the first caller's band index must be the smaller one")
-    clip1 = _draw_clip(clip_source)
-    clip2 = _draw_clip(clip_source)
-    clip3 = _draw_clip(clip_source)
+    second_role = OTHER if first_caller_role == TARGET else TARGET
+    clip1 = _draw_clip(clip_source, first_caller_role)
+    clip2 = _draw_clip(clip_source, second_role)
+    clip3 = clip1
     dur1, dur2, dur3 = _event_len(params, clip1), _event_len(params, clip2), _event_len(params, clip3)
     gap = int(float(params["GAP_MIN_S"]) * _sample_rate(params))
     scoring = card8_scoring_params(params)
     min_first_gap = scoring["min_first_call_separation_samples"]
-    second_role = OTHER if first_caller_role == TARGET else TARGET
     lo1, hi1 = int(bands[b1] * _sample_rate(params)), int(bands[b1 + 1] * _sample_rate(params))
     lo2, hi2 = int(bands[b2] * _sample_rate(params)), int(bands[b2 + 1] * _sample_rate(params))
     limit1 = _clip_samples(params) - dur1
@@ -446,8 +448,8 @@ def schedule_first_call_bands(rng, *, params, target_bands: tuple[int, int],
 def schedule_exactly_one_calling(rng, *, params, query_frame: int,
                                  clip_source=None) -> Schedule:
     """⑦ 指定时刻恰好一只在叫:围绕查询帧安排唯一发声者。"""
-    target_clip = _draw_clip(clip_source)
-    other_clip = _draw_clip(clip_source)
+    target_clip = _draw_clip(clip_source, TARGET)
+    other_clip = _draw_clip(clip_source, OTHER)
     event_len = _event_len(params, target_clip)
     other_len = _event_len(params, other_clip)
     gap = int(float(params["GAP_MIN_S"]) * _sample_rate(params))
@@ -475,7 +477,9 @@ def schedule_exactly_one_calling(rng, *, params, query_frame: int,
 def schedule_first_sound_at_frame(rng, *, params, query_frame: int,
                                   clip_source=None) -> Schedule:
     """Card3 control: the target makes the first sound at a declared frame."""
-    clips = [_draw_clip(clip_source) for _ in range(3)]
+    target_clip = _draw_clip(clip_source, TARGET)
+    other_clip = _draw_clip(clip_source, OTHER)
+    clips = [target_clip, other_clip, target_clip]
     durs = [_event_len(params, clip) for clip in clips]
     gap = int(float(params["GAP_MIN_S"]) * _sample_rate(params))
     first_start = _frame_to_sample(params, query_frame)
@@ -521,7 +525,10 @@ def schedule_event_count(rng, *, params, event_count: int,
     """Audio-count control with randomized, separated event times."""
     if event_count < 2:
         raise AudioProfileError("event-count profile needs at least two events")
-    clips = [_draw_clip(clip_source) for _ in range(event_count)]
+    target_clip = _draw_clip(clip_source, TARGET)
+    other_clip = _draw_clip(clip_source, OTHER)
+    clips = [target_clip if index % 2 == 0 else other_clip
+             for index in range(event_count)]
     durs = [_event_len(params, clip) for clip in clips]
     gap = int(float(params["GAP_MIN_S"]) * _sample_rate(params))
     first_min = int(float(params["FIRST_MIN_S"]) * _sample_rate(params))
@@ -556,7 +563,9 @@ def schedule_second_sound_at_frame(rng, *, params,
                                    query_frame: int,
                                    clip_source=None) -> Schedule:
     """Card6 family: the target owns the second event at a declared frame."""
-    clips = [_draw_clip(clip_source) for _ in range(3)]
+    other_clip = _draw_clip(clip_source, OTHER)
+    target_clip = _draw_clip(clip_source, TARGET)
+    clips = [other_clip, target_clip, other_clip]
     durs = [_event_len(params, clip) for clip in clips]
     gap = int(float(params["GAP_MIN_S"]) * _sample_rate(params))
     second_start = _frame_to_sample(params, query_frame)
