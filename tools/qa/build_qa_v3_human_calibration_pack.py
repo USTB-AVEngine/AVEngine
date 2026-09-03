@@ -38,6 +38,29 @@ def _sha256(path):
     return digest.hexdigest()
 
 
+def _require_measured_floor(fact, point_id):
+    """Refuse media whose room floor was never measured.
+
+    On 2026-09-03 every Apartment render turned out to stand on a hand-written
+    ground_z_ue_cm (0.0) while the floor sits about 27 cm higher: dogs sunk into
+    the floor and a camera 1.20 m above it.  Such frames must not calibrate
+    human tolerances.  A fact written after the fix carries the measured floor
+    reference in its room block; older facts do not and are refused.
+    """
+    room = fact.get("room") or {}
+    reference = room.get("floor_reference") or {}
+    if reference.get("status") != "measured" or reference.get("ground_z_ue_cm") is None:
+        raise ValueError(
+            f"{point_id}: fact carries no measured floor reference "
+            f"(room.floor_reference); media rendered before the room floor was "
+            f"measured must not enter a calibration pack")
+    declared = room.get("ground_z_ue_cm")
+    if declared is None or abs(float(declared) - float(reference["ground_z_ue_cm"])) > 0.5:
+        raise ValueError(
+            f"{point_id}: room.ground_z_ue_cm={declared} disagrees with the measured "
+            f"floor {reference['ground_z_ue_cm']} cm")
+
+
 def build(selection, facts_root, media_root, output_root, *,
           per_profile_limit=None):
     facts_root = Path(facts_root).resolve()
@@ -66,6 +89,7 @@ def build(selection, facts_root, media_root, output_root, *,
             raise FileNotFoundError(
                 f"{point_id}: missing fact or full-main media")
         fact = _read(fact_path)
+        _require_measured_floor(fact, point_id)
         copied = media_output / f"{point_id}.mp4"
         shutil.copy2(source_media, copied)
         if profile_id in {"card1F", "card1B"}:

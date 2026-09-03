@@ -15,14 +15,18 @@ from build_qa_v3_human_calibration_pack import build  # noqa: E402
 from score_qa_v3_human_calibration import score  # noqa: E402
 
 
-def _fact(root, point_id, profile, target="black-and-white", truth=-70.0):
+def _fact(root, point_id, profile, target="black-and-white", truth=-70.0, room=None):
     path = root / point_id
     path.mkdir(parents=True)
     value = {
         "profile_id": profile, "target_coat": target,
         "target_first": True,
         "open": {"stem": "numeric?", "truth_value": truth},
+        "room": {"ground_z_ue_cm": 27.2,
+                 "floor_reference": {"status": "measured", "ground_z_ue_cm": 27.2}},
     }
+    if room is not None:
+        value["room"] = room
     (path / "fact_record.json").write_text(json.dumps(value))
 
 
@@ -58,6 +62,26 @@ def test_pack_hides_gold_and_binds_copied_media(tmp_path):
     assert "复制 JSON" in html
     # 右键菜单会重新露出原生控件(含时间轴),必须禁掉
     assert 'oncontextmenu="return false"' in html
+
+
+def test_pack_refuses_media_from_an_unmeasured_floor(tmp_path):
+    # 2026-09-03: Apartment renders stood on a hand-written ground_z (0 vs +27 cm).
+    # Facts written before the floor was measured carry no room.floor_reference.
+    facts, media, output = tmp_path / "facts", tmp_path / "media", tmp_path / "out"
+    _fact(facts, "card1F_001", "card1F", room={"ground_z_ue_cm": 0.0})
+    _media(media, "card1F_001")
+    output.mkdir()
+    selection = {"selected": [{"point_id": "card1F_001", "profile_id": "card1F"}]}
+    with pytest.raises(ValueError, match="floor"):
+        build(selection, facts, media, output)
+    # a declared ground that disagrees with the measured floor is refused too
+    facts2, output2 = tmp_path / "facts2", tmp_path / "out2"
+    _fact(facts2, "card1F_001", "card1F",
+          room={"ground_z_ue_cm": 0.0,
+                "floor_reference": {"status": "measured", "ground_z_ue_cm": 27.2}})
+    output2.mkdir()
+    with pytest.raises(ValueError, match="disagrees"):
+        build(selection, facts2, media, output2)
 
 
 def test_preview_limit_keeps_one_item_per_profile(tmp_path):
