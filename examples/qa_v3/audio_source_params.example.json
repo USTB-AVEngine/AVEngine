@@ -24,5 +24,5 @@
     "human": "speech_playback",
     "cat": "cat_meow"
   },
-  "_comment_event_pool": "To switch: SOUND_SOURCE_MODE=event_pool and set SOUND_EVENT_POOL to a catalog of already-split pulses. Do not keep SOUND_ASSET as a silent fallback. Pair-kind to class is only this map; there is no code default."
+  "_comment_event_pool": "To switch: SOUND_SOURCE_MODE=event_pool and set SOUND_EVENT_POOL to the JSON written by tools/assets/build_sound_event_pool.py (it eats event_manifest.json from the splitter). Each sound_asset_id must already be in the sound asset registry; this example does not register them. Do not keep SOUND_ASSET as a silent fallback. Pair-kind to class is only this map; there is no code default."
 }
