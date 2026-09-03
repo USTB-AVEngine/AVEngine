@@ -71,14 +71,6 @@
 | `tools/assets/split_sound_library_events.py` | Split a prepared sound library into one wav per sounding event |
 | `tools/assets/wrap_uniform_scene_scale.py` | Wrap every root of one GLB scene in an explicit uniform-scale node |
 
-## 审计（`tools/audit/`）
-
-*跨工具审计与索引自检（这一栏 2026-09-03 补上：目录早已存在，但没进本表，所以 tests/unit/test_tool_index_current.py 一直是红的，而大家都在跑 --ignore=tests/unit）*
-
-| 工具 | 做什么 |
-|---|---|
-| `tools/audit/audit_jaeger_rir.py` | JAEGER SpatialSceneQA 公开包 RIR 混响审计脚本(可重跑版)。 |
-
 ## 房间（`tools/rooms/`）
 
 *房间引入、制备、审计、资格金丝雀（Habitat 与 SPEAR/UE 两条腿都在这里）*
@@ -122,6 +114,7 @@
 
 | 工具 | 做什么 |
 |---|---|
+| `tools/acoustics/audit_jaeger_rir.py` | JAEGER SpatialSceneQA 公开包 RIR 混响审计脚本(可重跑版)。 |
 | `tools/acoustics/audit_skokloster_cleanup_inventory.py` | Emit the exact face inventory for a Skokloster research cleanup |
 | `tools/acoustics/build_asset_bound_rir_plan.py` | Bind concrete assets to generic root routes and plan on-demand RIR work |
 | `tools/acoustics/compile_semantic_research_package.py` | Compile one room's semantic mesh into an M3/RLR research acoustic package |
