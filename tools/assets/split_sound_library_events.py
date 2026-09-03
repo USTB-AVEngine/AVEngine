@@ -47,6 +47,24 @@ TARGET_PEAK_DBFS = -3.0
 # Closed table: every prepared-library class maps to one domain. A missing
 # class is an error, not a guess. The 2026-09-03 ring/bell/beep/alarm token
 # heuristic is what put doorbells in the wrong bucket.
+#
+# Category is what the sound is to a listener, not which device produced it.
+#   alert      a cue that demands attention
+#   ambience   ongoing background, not pointing at any event
+#   appliance  a machine's own noise while it runs
+#   animal     an animal vocalization
+#   water      water in motion
+#   speech     someone talking (kept as its own category because
+#              downstream treats it specially: separate scheduler,
+#              question types, 10 s clips). Do not fold speech_playback
+#              into playback.
+#   playback   a recording reproduced by a loudspeaker, not a
+#              program-generated waveform
+#
+# microwave_beep is alert and microwave_hum is appliance because of this
+# rule, not because they share a device. alarm_clock stays in alert
+# (the ring is a cue); clock_tick is ambience (mechanical ticking is
+# background, not appliance self-noise).
 CLASS_CATEGORY: dict[str, str] = {
     "dog_bark": "animal",
     "cat_meow": "animal",
@@ -71,7 +89,7 @@ CLASS_CATEGORY: dict[str, str] = {
     "telephone_dialing_dtmf": "alert",
     "air_conditioning": "appliance",
     "blender": "appliance",
-    "clock_tick": "appliance",
+    "clock_tick": "ambience",
     "microwave_hum": "appliance",
     "printer": "appliance",
     "bathtub_filling_washing": "water",
@@ -82,8 +100,8 @@ CLASS_CATEGORY: dict[str, str] = {
     "water_tap_faucet": "water",
     "crackle": "ambience",
     "fire": "ambience",
-    "any_audioset_class_playback": "synthetic",
-    "music_playback": "synthetic",
+    "any_audioset_class_playback": "playback",
+    "music_playback": "playback",
 }
 
 
