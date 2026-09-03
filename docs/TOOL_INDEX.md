@@ -5,7 +5,7 @@
 
 自 2026-08-25 起，目录本身就是能力分组（阶段目录 m1…m7 已移除），
 本表按目录列出每个工具做什么。
-当前共 321 个工具脚本。
+当前共 322 个工具脚本。
 
 ## 资产生成与装配（`tools/assets/`）
 
@@ -57,6 +57,7 @@
 | `tools/assets/rebase_skin_root.py` | Create a Habitat-native, root-local GLB research candidate |
 | `tools/assets/rebind_appearance_actions.py` | Reuse one validated M2 package action set on a compatible appearance rig |
 | `tools/assets/rebind_appearance_visual.py` | Preserve a source M2 package actor frame on one appearance realization |
+| `tools/assets/register_sound_event_assets.py` | Register split sound-event clips into avengine_m6_sound_asset_registry_v1 |
 | `tools/assets/render_habitat_action_review.py` | Render hash-bound M2 Idle/Walk review media in Habitat |
 | `tools/assets/render_habitat_local_tr_review.py` | Render a non-qualifying 75-frame Habitat local-TR v2 review |
 | `tools/assets/render_turntable_review.py` | Orbit the camera once around a posed asset, with soft shadow-free lighting |
