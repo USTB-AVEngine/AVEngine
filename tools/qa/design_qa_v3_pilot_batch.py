@@ -51,6 +51,7 @@ sys.path.insert(0, str(REPO / "src"))
 from build_qa_v3_programs import (  # noqa: E402
     build_program, dry_canvas_fields, plan_events,
     plan_timebase, program_request_fields,
+    require_dry_canvas_source_mode,
 )
 from filter_cross_time_points import (  # noqa: E402
     PointView,
@@ -295,6 +296,7 @@ def build_point(pid, pair_assets, sub_class, seed, params, py, by_id, snap,
         HUMANS["blue"]: ("qa_v2_human_1_blue_mouth", "qa_v2_human_2_blue_mouth"),
         HUMANS["green"]: ("qa_v2_human_1_green_mouth", "qa_v2_human_2_green_mouth"),
     }
+    require_dry_canvas_source_mode(params, owner="design_qa_v3_pilot_batch")
     request_base = {"pair_kind": "dog" if a1 in DOGS.values() else "human",
                     "endpoint_1": ep_map[a1][0], "endpoint_2": ep_map[a2][1],
                     **program_request_fields(params),
@@ -454,6 +456,7 @@ def main(argv: list[str] | None = None) -> int:
               file=sys.stderr)
         return 2
     params = json.load(open(args.params))
+    require_dry_canvas_source_mode(params, owner="design_qa_v3_pilot_batch")
     needed = ("THETA_FULL", "THETA_HALF", "T_HALF", "TAIL_MIN_S", "MIN_AZIMUTH_SEP",
               "MIN_DIST_CHANGE_CM", "MIN_CARD7_FRAMES", "BANDS",
               "BANDS_CARD8", "AZ_BANDS_CARD1",

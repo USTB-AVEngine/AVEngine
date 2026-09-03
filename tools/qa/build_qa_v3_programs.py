@@ -72,16 +72,30 @@ def _require_param(params: Mapping, key: str):
     return params[key]
 
 
-def program_request_fields(params: Mapping) -> dict:
-    """Copy program policy from a params file. None of these have code defaults."""
+def require_dry_canvas_source_mode(params: Mapping, *, owner: str) -> None:
+    """These assemblers still emit a shared dry canvas. event_pool is refused."""
+    if "SOUND_SOURCE_MODE" not in params:
+        raise ValueError(f"{owner}: params missing SOUND_SOURCE_MODE")
+    mode = str(params["SOUND_SOURCE_MODE"])
+    if mode != "dry_canvas_window":
+        raise ValueError(
+            f"{owner} currently supports only SOUND_SOURCE_MODE="
+            f"dry_canvas_window, got {mode!r}")
+
+
+def program_request_fields(params: Mapping, *, include_mode: bool = True) -> dict:
+    """Copy program policy from a params file. None of these have code defaults.
+
+    Pass include_mode=False when the caller derives AudioProgram.mode from
+    the event list instead of PROGRAM_MODE.
+    """
     rate = int(_require_param(params, "SAMPLE_RATE_HZ"))
     clip_seconds = float(_require_param(params, "CLIP_SECONDS"))
     if rate <= 0 or clip_seconds <= 0:
         raise ValueError("SAMPLE_RATE_HZ and CLIP_SECONDS must be positive")
-    return {
+    fields = {
         "linear_gain": float(_require_param(params, "PROGRAM_LINEAR_GAIN")),
         "fade_samples": int(_require_param(params, "PROGRAM_FADE_SAMPLES")),
-        "mode": str(_require_param(params, "PROGRAM_MODE")),
         "timeline": {
             "time_base_hz": int(_require_param(params, "TIME_BASE_HZ")),
             "ticks_per_frame": int(_require_param(params, "TICKS_PER_FRAME")),
@@ -100,6 +114,9 @@ def program_request_fields(params: Mapping) -> dict:
         "admission_state": str(
             _require_param(params, "PROGRAM_ADMISSION_STATE")),
     }
+    if include_mode:
+        fields["mode"] = str(_require_param(params, "PROGRAM_MODE"))
+    return fields
 
 
 def dry_canvas_window_fields(params: Mapping) -> dict:

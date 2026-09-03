@@ -19,6 +19,7 @@ sys.path.insert(0, str(REPO / "src"))
 
 from build_qa_v3_programs import (  # noqa: E402
     build_program, dry_canvas_fields, program_request_fields,
+    require_dry_canvas_source_mode,
 )
 from qa_v3_actor_selection import _actor_entry  # noqa: E402
 from make_idle_then_walk_timeline import transform_to_solved_routes  # noqa: E402
@@ -197,6 +198,7 @@ def main(argv=None) -> int:
         parser.error("exactly four distinct assets are required")
     scene_config = _read(args.scene_config)
     params = _read(args.params)
+    require_dry_canvas_source_mode(params, owner="build_qa_v3_n_actor_canary")
     scene = load_scene(scene_config)
     plan = find_four_route_plan(
         scene, params, seed=args.seed, max_attempts=args.max_attempts)
