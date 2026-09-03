@@ -260,11 +260,17 @@ def card8_scoring_params(params, *, historical_record: bool = False) -> dict:
     if t_half < t_full:
         raise AudioProfileError(
             f"T_HALF={t_half} must not be narrower than T_FULL={t_full}")
+    # owner 2026-09-03 定了 card8 的答案改成整秒桶，于是 T_FULL 不再是"等人类
+    # 校准"的占位值：答案粒度一声明，满分容差就是半个桶。两者锁在一起，所以
+    # 这里把粒度记进链条，让读的人看得见 T_FULL 是从哪来的。
+    granularity = 2.0 * t_full
     min_sep = max(t_half, 2.0 * t_full)
     return {
         "T_FULL": t_full,
         "T_HALF": t_half,
         "T_FULL_status": status,
+        "answer_granularity_seconds": granularity,
+        "answer_granularity_rule": "bucket width = 2 * T_FULL",
         "min_first_call_separation_s": min_sep,
         "min_first_call_separation_samples": int(round(min_sep * _sample_rate(params))),
         "min_first_call_separation_rule": CARD8_MIN_SEPARATION_RULE,
@@ -747,22 +753,56 @@ def card8_feasible_interval(params, *, min_events: int = 3,
     return (first_min, latest_second_call)
 
 
-def card8_band_edges(params, *, n_bands: int = 4,
-                     min_events: int = 3) -> list[float]:
-    """可行域内**等宽半开**的 MCQ 时间带;边界在生成数据前锁定。"""
+def card8_bucket_seconds(params) -> float:
+    """答案桶的宽度，由 T_FULL 导出。
+
+    "满分容差是半个桶"和"桶宽是容差的两倍"是同一个决定的两种说法，所以这里
+    不设第二个键去重复它——两个键加一道一致性检查，只是把说谎的机会留在原地。
+    params 里仍然可以显式写 CARD8_BUCKET_SECONDS，但必须与导出值一致。
+    """
+    t_full = float(_require(params, "T_FULL"))
+    if t_full <= 0:
+        raise AudioProfileError("T_FULL must be positive seconds")
+    derived = 2.0 * t_full
+    if "CARD8_BUCKET_SECONDS" in params:
+        declared = float(params["CARD8_BUCKET_SECONDS"])
+        if abs(declared - derived) > 1e-9:
+            raise AudioProfileError(
+                f"CARD8_BUCKET_SECONDS={declared} disagrees with 2*T_FULL="
+                f"{derived}; the full-credit tolerance is half a bucket")
+    return derived
+
+
+def card8_band_edges(params, *, min_events: int = 3) -> list[float]:
+    """整秒 MCQ 桶，只提供可行域**完整装得下**的那些。
+
+    等分可行域给出的是 [0.35, 1.2875, 2.225, 3.1625, 4.1] 这种边界，没人记得住。
+    owner 2026-09-03:"最好就是大概 1-2-3-4-5 秒之间"。但 5 秒片长下朴素的五个
+    整秒桶**不是均匀可达的**：首叫可行域是 0.35..4.1 秒，所以 [0,1) 只能从 0.35
+    进、[4,5) 只能从 4.0 进，可达质量差六倍。模型学会"别选头尾"就能白拿准确率，
+    那正是 v1 死掉的那个可被利用的答案先验。所以这里只提供完全可达的桶，
+    桶数由可行域推出来，不写死——片长或间隔一变，桶集自动跟着变而且仍然均匀。
+    """
     lo, hi = card8_feasible_interval(params, min_events=min_events)
-    width = (hi - lo) / n_bands
-    # 缺 T_FULL 时这里就失败:带边是可行域的一部分,而可行域取决于两只
-    # 首叫必须相隔多远。
+    width = card8_bucket_seconds(params)
     scoring = card8_scoring_params(params)
     min_sep = scoring["min_first_call_separation_s"]
-    if width <= 0:
-        raise AudioProfileError("degenerate band width")
-    edges = [round(lo + width * i, 6) for i in range(n_bands + 1)]
-    # 可行域必须仍能满足"两只首叫相隔严格超过 max(T_HALF, 2*T_FULL)",
-    # 否则带对退化成确定性模板(听到第一声就知道第二只在哪带)。
-    if hi - lo <= min_sep:
+    first = math.ceil(lo / width - 1e-9)
+    starts = []
+    index = first
+    while (index + 1) * width <= hi + 1e-9:
+        starts.append(round(index * width, 6))
+        index += 1
+    if len(starts) < 2:
         raise AudioProfileError(
-            f"feasible interval {hi - lo:.2f}s cannot host two first calls "
-            f"separated by more than max(T_HALF, 2*T_FULL)={min_sep}s")
+            f"feasible interval {lo:.2f}..{hi:.2f}s holds only {len(starts)} "
+            f"whole bucket(s) of {width}s; a banded answer needs at least two")
+    edges = starts + [round((index) * width, 6)]
+    span = edges[-1] - edges[0]
+    # 提供的答案空间必须还能满足"两只首叫相隔严格超过 max(T_HALF, 2*T_FULL)"，
+    # 否则带对退化成确定性模板（听到第一声就知道第二只在哪桶）。
+    if span <= min_sep:
+        raise AudioProfileError(
+            f"offered buckets span {span:.2f}s, which cannot host two first "
+            f"calls separated by more than max(T_HALF, 2*T_FULL)={min_sep}s")
     return edges

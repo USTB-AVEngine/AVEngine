@@ -1862,6 +1862,7 @@ def build_answer(kind, profile, cell, timeline, schedule, slot_events,
             raise ValueError(f"first call landed in band {got}, assigned {want}")
         labels = [f"[{edges[i]:g}, {edges[i + 1]:g})"
                   for i in range(len(edges) - 1)]
+        clip_seconds = float(_require_param(params, "CLIP_SECONDS"))
         other_onset = firsts.get(other_slot)
         if other_onset is None:
             raise GenerationConstraintError(
@@ -1884,11 +1885,14 @@ def build_answer(kind, profile, cell, timeline, schedule, slot_events,
                           "first_call_separation_s": round(
                               separation_samples / _sample_rate_hz(params), 4),
                           "first_call_separation_above_minimum": True},
-                "mcq": {"stem": (f"When does the {coat} dog bark for the FIRST "
-                                 "time? Pick the time range in seconds."),
+                "mcq": {"stem": (
+                    f"The clip is {clip_seconds:g} seconds long. In which "
+                    f"one-second interval does the {coat} dog bark for the "
+                    "FIRST time?"),
                         "options_space": labels, "truth_option": labels[got]},
-                "open": {"stem": (f"At how many seconds does the {coat} dog "
-                                  "bark for the first time?"),
+                "open": {"stem": (
+                    f"The clip is {clip_seconds:g} seconds long. At how many "
+                    f"seconds does the {coat} dog bark for the first time?"),
                          "truth_value": round(onset, 4), "unit": "s",
                          "scoring": "absolute_time",
                          "certification_policy": scoring_chain[
@@ -1897,6 +1901,12 @@ def build_answer(kind, profile, cell, timeline, schedule, slot_events,
                              "wide_tolerance_role"],
                          "T_FULL": scoring_chain["T_FULL"],
                          "T_HALF": scoring_chain["T_HALF"],
+                         # 让读 fact 的人看见 T_FULL 是从答案粒度锁出来的，
+                         # 而不是一个等人类校准的占位值。
+                         "answer_granularity_seconds": scoring_chain[
+                             "answer_granularity_seconds"],
+                         "answer_granularity_rule": scoring_chain[
+                             "answer_granularity_rule"],
                          "T_FULL_status": scoring_chain["T_FULL_status"],
                          "min_first_call_separation_s": scoring_chain[
                              "min_first_call_separation_s"],

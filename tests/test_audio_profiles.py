@@ -24,6 +24,7 @@ from audio_profiles import (  # noqa: E402
     ScheduledEvent,
     _assert_no_overlap,
     card8_band_edges,
+    card8_feasible_interval,
     card8_event_length_seconds,
     card8_scoring_params,
     _self_check_backward,
@@ -168,7 +169,8 @@ def test_card8_fails_closed_without_explicit_t_full():
         card8_scoring_params(params)
     # 有 T_FULL 时带边可推,且推导记录了实际执行的参数链
     edges = card8_band_edges(PARAMS)
-    assert len(edges) == 5
+    # 整秒桶：可行域 0.35..4.1 秒只完整装得下三个，所以是四条边界。
+    assert edges == [1.0, 2.0, 3.0, 4.0]
     scoring = card8_scoring_params(PARAMS)
     assert scoring["certification_policy"] == "strict_full_credit_only"
     assert scoring["wide_tolerance_role"] == "diagnostic_only"
@@ -215,10 +217,15 @@ def test_card8_pool_mode_band_edges_follow_catalog_max_duration(tmp_path: Path):
     assert source == "from_catalog_max"
     assert seconds == pytest.approx(0.3)
     assert card8_event_length_seconds(long)[0] == pytest.approx(1.0)
-    short_edges = card8_band_edges(short)
-    long_edges = card8_band_edges(long)
-    assert short_edges != long_edges
-    assert long_edges[-1] < short_edges[-1]
+    # 事件时长从 catalog 来，所以可行域跟着 catalog 变。
+    short_hi = card8_feasible_interval(short)[1]
+    long_hi = card8_feasible_interval(long)[1]
+    assert long_hi < short_hi
+    # 短事件下整秒桶装得下三个；长事件把可行域压到 2.35 秒，
+    # 一个整秒桶都凑不出两个，分桶必须 fail-closed 而不是给出单选项。
+    assert card8_band_edges(short) == [1.0, 2.0, 3.0, 4.0]
+    with pytest.raises(AudioProfileError, match="needs at least two"):
+        card8_band_edges(long)
 
 
 def test_card8_minimum_separation_is_max_of_half_and_twice_full():
@@ -450,3 +457,36 @@ def test_card6_second_sound_is_target_at_declared_frame():
     gate = schedule.bind({TARGET: "source2", OTHER: "source1"})
     assert main[1][0] == "source1"
     assert gate[1][0] == "source2"
+
+
+def test_only_fully_reachable_whole_second_buckets_are_offered():
+    """头尾那两个整秒桶进不满，所以不提供。
+
+    owner 2026-09-03 定了 card8 改整秒桶（"最好就是大概 1-2-3-4-5 秒之间"），
+    但 5 秒片长下朴素的五个桶不是均匀可达的：首叫可行域是 0.35..4.1 秒，
+    [0,1) 只能从 0.35 进、[4,5) 只能从 4.0 进，可达质量差六倍。模型学会
+    "别选头尾"就能白拿准确率——那正是 v1 死掉的那个可被利用的答案先验。
+    """
+
+    lo, hi = card8_feasible_interval(PARAMS)
+    edges = card8_band_edges(PARAMS)
+    # 提供的每一个桶都必须完整落在可行域里
+    assert edges[0] >= lo and edges[-1] <= hi
+    for index in range(len(edges) - 1):
+        assert edges[index] >= lo, edges
+        assert edges[index + 1] <= hi, edges
+    # 而紧挨着的下一个桶会越界，说明确实取到了能取的全部
+    width = edges[1] - edges[0]
+    assert edges[0] - width < lo
+    assert edges[-1] + width > hi
+    # 桶宽是满分容差的两倍，两者锁在一起
+    assert width == pytest.approx(2.0 * card8_scoring_params(PARAMS)["T_FULL"])
+    assert card8_scoring_params(PARAMS)["answer_granularity_seconds"] == (
+        pytest.approx(width))
+
+
+def test_the_bucket_width_and_the_tolerance_cannot_disagree():
+    with pytest.raises(AudioProfileError, match="half a bucket"):
+        card8_band_edges(dict(PARAMS, CARD8_BUCKET_SECONDS=1.5))
+    # 一致时照常
+    assert card8_band_edges(dict(PARAMS, CARD8_BUCKET_SECONDS=1.0))

@@ -72,8 +72,10 @@ def test_scene_batch_materializes_card8_derived_edges():
     }
     effective = materialize_derived_params(params)
     assert params["BANDS_CARD8"] == [0.35, 1.1, 1.85, 2.6]
-    assert effective["BANDS_CARD8"] == [
-        0.35, 1.2875, 2.225, 3.1625, 4.1]
+    # owner 2026-09-03 定了整秒桶：可行域 0.35..4.1 秒只完整装得下
+    # [1,2)、[2,3)、[3,4)。头尾那两个进不满，不提供——否则模型学会
+    # "别选头尾"就能白拿准确率，那正是 v1 的答案先验老毛病。
+    assert effective["BANDS_CARD8"] == [1.0, 2.0, 3.0, 4.0]
     assert "Derived before generation" in effective["BANDS_CARD8_note"]
     assert effective["CARD8_FIRST_CALL_SCORING"]["T_FULL"] == 0.5
 

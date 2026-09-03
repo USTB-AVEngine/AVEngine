@@ -81,7 +81,10 @@ def program(slots):
             "event_id": f"event_{index}_{endpoint}",
             "source_endpoint_id": endpoint,
             "sound_asset_id": "same-dry-sound",
-            "start_sample": 1000 + index * 10000,
+            # 整秒桶从 1.0 秒起（16000 采样），且两只首叫要相隔
+            # 超过 max(T_HALF, 2*T_FULL)=1.0 秒，所以 1.25 秒起步、
+            # 每声间隔 1.25 秒。
+            "start_sample": 20000 + index * 20000,
             "end_sample_exclusive": 5800 + index * 10000,
             "linear_gain": 0.18,
         })
@@ -160,7 +163,7 @@ def _card8_answer(first_sample, second_sample, params=CARD8_PARAMS):
 
 
 def test_card8_fact_records_scoring_chain_and_keeps_mcq_unaffected():
-    result = _card8_answer(8000, 8000 + 20000)      # 0.5 s and 1.75 s
+    result = _card8_answer(20000, 20000 + 20000)    # 1.25 s and 2.5 s
     open_block = result["open"]
     assert open_block["certification_policy"] == "strict_full_credit_only"
     assert open_block["wide_tolerance_role"] == "diagnostic_only"
@@ -171,20 +174,21 @@ def test_card8_fact_records_scoring_chain_and_keeps_mcq_unaffected():
     assert result["truth"]["first_call_separation_s"] == pytest.approx(1.25)
     # MCQ keeps its declared band answer space; the strict Open policy is
     # not attached to it.
-    assert result["mcq"]["truth_option"] == "[0.35, 1.2875)"
+    # 首叫在 1.25 秒，落进整秒桶 [1, 2)
+    assert result["mcq"]["truth_option"] == "[1, 2)"
     assert "certification_policy" not in result["mcq"]
     assert "wide_tolerance_role" not in result["mcq"]
 
 
 def test_card8_fact_rejects_first_calls_not_strictly_above_minimum():
     with pytest.raises(GenerationConstraintError, match="not strictly above"):
-        _card8_answer(8000, 8000 + 16000)          # exactly 1.0 s apart
+        _card8_answer(20000, 20000 + 16000)       # exactly 1.0 s apart
     with pytest.raises(GenerationConstraintError, match="not strictly above"):
-        _card8_answer(8000, 8000 + 17600, dict(CARD8_PARAMS, T_FULL=0.6))
-    assert _card8_answer(8000, 8000 + 19201, dict(CARD8_PARAMS, T_FULL=0.6))[
+        _card8_answer(20000, 20000 + 17600, dict(CARD8_PARAMS, T_FULL=0.6))
+    assert _card8_answer(20000, 20000 + 19201, dict(CARD8_PARAMS, T_FULL=0.6))[
         "truth"]["first_call_separation_above_minimum"] is True
     with pytest.raises(Exception, match="T_FULL"):
-        _card8_answer(8000, 8000 + 20000,
+        _card8_answer(20000, 20000 + 20000,
                       {k: v for k, v in CARD8_PARAMS.items() if k != "T_FULL"})
 
 
@@ -201,7 +205,8 @@ def test_materialized_params_fail_closed_only_when_first_call_profiles_exist():
     with pytest.raises(Exception, match="T_FULL"):
         materialize_derived_params(base)
     derived = materialize_derived_params(dict(base, T_FULL=0.5), [CARD8_PROFILE])
-    assert derived["BANDS_CARD8"] == [0.35, 1.2875, 2.225, 3.1625, 4.1]
+    # 整秒桶：可行域只完整装得下 [1,2)、[2,3)、[3,4)。
+    assert derived["BANDS_CARD8"] == [1.0, 2.0, 3.0, 4.0]
     assert derived["CARD8_FIRST_CALL_SCORING"]["min_first_call_separation_s"] == 1.0
 
 
