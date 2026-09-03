@@ -67,6 +67,8 @@ def test_scene_batch_materializes_card8_derived_edges():
         "T_FULL": 0.5,
         "CLIP_SECONDS": 5.0,
         "EVENT_SECONDS": 0.3,
+        "SAMPLE_RATE_HZ": 16000,
+        "T_FULL_status": "placeholder_research",
     }
     effective = materialize_derived_params(params)
     assert params["BANDS_CARD8"] == [0.35, 1.1, 1.85, 2.6]

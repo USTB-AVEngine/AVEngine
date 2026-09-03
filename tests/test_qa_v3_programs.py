@@ -16,22 +16,54 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools" / "qa"))
 
 from build_qa_v3_programs import (  # noqa: E402
-    EVENT_LEN,
-    SAMPLE_COUNT,
-    SAMPLE_RATE,
     build_program,
     main,
     plan_events,
 )
 from avengine.contracts.json_io import canonical_json_sha256  # noqa: E402
 
-KW = dict(first_min_s=0.3, gap_min_s=0.3, tail_silence_s=1.5)
+SAMPLE_RATE = 16000
+SAMPLE_COUNT = 80000
+FRAME_COUNT = 75
+EVENT_LEN = 4800
+TIMELINE = {
+    "time_base_hz": 48000, "ticks_per_frame": 3200, "video_fps": 15,
+    "frame_count": FRAME_COUNT, "sample_rate_hz": SAMPLE_RATE,
+    "ticks_per_sample": 3, "sample_count": SAMPLE_COUNT,
+}
+PROGRAM_POLICY = {
+    "linear_gain": 0.18,
+    "fade_samples": 80,
+    "mode": "sequential_sources",
+    "timeline": TIMELINE,
+    "normalization_policy": "use_sound_asset_policy",
+    "render_source_stem": True,
+    "source_specific_stems": True,
+    "admission_state": "research",
+}
+KW = dict(first_min_s=0.3, gap_min_s=0.3, tail_silence_s=1.5,
+          event_len_samples=EVENT_LEN,
+          sample_rate_hz=SAMPLE_RATE, sample_count=SAMPLE_COUNT)
+REPO = Path(__file__).resolve().parents[1]
+CLI = ["--first-min-s", "0.3", "--gap-min-s", "0.3",
+       "--tail-silence-s", "1.5", "--event-seconds", "0.3",
+       "--sample-rate-hz", str(SAMPLE_RATE),
+       "--sample-count", str(SAMPLE_COUNT),
+       "--frame-count", str(FRAME_COUNT),
+       "--max-top-first-frame-share", "0.3",
+       "--min-onset-buckets", "2",
+       "--schema", str(REPO / "schemas/m6_audio_program_v1.schema.json"),
+       "--revision", "v1"]
 
 
 def _req(pid, first="source1"):
     return {"point_id": pid, "pair_kind": "dog",
             "endpoint_1": "qa_v3_dog_1_muzzle", "endpoint_2": "qa_v3_dog_2_muzzle",
-            "sound_asset_id": "dog_beagle_v2_scheduled_dry", "first_slot": first}
+            "sound_asset_id": "dog_beagle_v2_scheduled_dry", "first_slot": first,
+            "event_duration_samples": EVENT_LEN,
+            "source_start_sample": 3200,
+            "source_end_sample_exclusive": 8000,
+            **PROGRAM_POLICY}
 
 
 def test_plan_satisfies_all_constraints():
@@ -60,12 +92,14 @@ def test_plan_deterministic_and_varies_across_points():
 def test_positive_control_infeasible_constraints_raise():
     with pytest.raises((ValueError, RuntimeError)):
         plan_events("s", "bad", "source1",
-                    first_min_s=0.3, gap_min_s=0.3, tail_silence_s=4.6)
+                    first_min_s=0.3, gap_min_s=0.3, tail_silence_s=4.6,
+                    event_len_samples=EVENT_LEN,
+                    sample_rate_hz=SAMPLE_RATE, sample_count=SAMPLE_COUNT)
 
 
 def test_program_seal_and_tick_alignment():
     events, _ = plan_events("s", "p1", "source2", **KW)
-    doc = build_program(_req("p1", first="source2"), events)
+    doc = build_program(_req("p1", first="source2"), events, revision="v1")
     body = {k: v for k, v in doc.items() if k != "program_content_sha256"}
     assert canonical_json_sha256(body) == doc["program_content_sha256"]  # 封印自洽
     for ev in doc["events"]:
@@ -86,7 +120,7 @@ def test_cli_batch_onset_spread_plans_and_no_clobber(tmp_path):
     req_p.write_text(json.dumps(reqs))
     out = tmp_path / "programs"
     assert main(["--requests", str(req_p), "--seed", "s1",
-                 "--out-dir", str(out)]) == 0
+                 "--out-dir", str(out), *CLI]) == 0
     manifest = json.loads((out / "programs_manifest.json").read_text())
     assert manifest["count"] == 16
     # 恒第4帧病根的回归锚:没有任何单一帧值占比超三成,且首/锚各铺开 ≥2 桶
@@ -100,7 +134,7 @@ def test_cli_batch_onset_spread_plans_and_no_clobber(tmp_path):
     assert plan["tail_silence_samples"] >= int(1.5 * SAMPLE_RATE)
     # no-clobber
     assert main(["--requests", str(req_p), "--seed", "s1",
-                 "--out-dir", str(out)]) == 2
+                 "--out-dir", str(out), *CLI]) == 2
 
 
 def test_build_program_supports_four_slot_endpoints():
@@ -112,12 +146,16 @@ def test_build_program_supports_four_slot_endpoints():
             "source3": "ep3", "source4": "ep4",
         },
         "sound_asset_id": "dry",
+        "event_duration_samples": EVENT_LEN,
+        "source_start_sample": 3200,
+        "source_end_sample_exclusive": 8000,
+        **PROGRAM_POLICY,
     }
     events = [
         ("source1", 1000), ("source2", 10000),
         ("source3", 20000), ("source4", 30000),
     ]
-    program = build_program(request, events)
+    program = build_program(request, events, revision="v1")
     assert program["candidate_source_endpoint_ids"] == [
         "ep1", "ep2", "ep3", "ep4"]
     assert [event["source_endpoint_id"] for event in program["events"]] == [
@@ -135,7 +173,11 @@ def test_build_program_supports_per_event_sound_assets():
             "source1": "ep1", "source2": "ep2",
             "source3": "ep3", "source4": "ep4",
         },
-        "sound_asset_id": "fallback",
+        "sound_asset_id": "unused_shared_canvas",
+        "event_duration_samples": EVENT_LEN,
+        "source_start_sample": 3200,
+        "source_end_sample_exclusive": 8000,
+        **PROGRAM_POLICY,
     }
     events = [
         ("source1", 1000, "sound_a"),
@@ -143,6 +185,52 @@ def test_build_program_supports_per_event_sound_assets():
         ("source3", 20000, "sound_c"),
         ("source4", 30000, "sound_d"),
     ]
-    program = build_program(request, events)
+    program = build_program(request, events, revision="v1")
     assert [event["sound_asset_id"] for event in program["events"]] == [
         "sound_a", "sound_b", "sound_c", "sound_d"]
+
+
+def test_program_event_dicts_use_clip_duration_and_full_source_window():
+    request = {
+        "pair_kind": "pool",
+        "point_id": "pool1",
+        "endpoint_1": "ep1",
+        "endpoint_2": "ep2",
+        "sound_asset_id": "unused",
+        **PROGRAM_POLICY,
+    }
+    events = [
+        {"slot": "source1", "start_sample": 1000, "duration_samples": 3200,
+         "sound_asset_id": "bark_a", "source_start_sample": 0,
+         "source_end_sample_exclusive": 3200},
+        {"slot": "source2", "start_sample": 10000, "duration_samples": 8000,
+         "sound_asset_id": "bark_b", "source_start_sample": 0,
+         "source_end_sample_exclusive": 8000},
+    ]
+    program = build_program(request, events, revision="v1")
+    assert [event["end_sample_exclusive"] - event["start_sample"]
+            for event in program["events"]] == [3200, 8000]
+    assert [event["sound_asset_id"] for event in program["events"]] == [
+        "bark_a", "bark_b"]
+    assert program["events"][0]["source_start_sample"] == 0
+    assert program["events"][1]["source_end_sample_exclusive"] == 8000
+
+
+def test_tuple_events_fail_without_canvas_window_in_the_request():
+    request = {
+        "pair_kind": "dog", "point_id": "p",
+        "endpoint_1": "e1", "endpoint_2": "e2",
+        "sound_asset_id": "dry",
+        **PROGRAM_POLICY,
+    }
+    with pytest.raises(ValueError, match="missing"):
+        build_program(request, [("source1", 1000), ("source2", 10000)],
+                      revision="v1")
+
+
+def test_build_program_fails_closed_without_linear_gain():
+    request = {key: value for key, value in _req("p").items()
+               if key != "linear_gain"}
+    with pytest.raises(ValueError, match="linear_gain"):
+        build_program(request, [("source1", 1000), ("source2", 10000)],
+                      revision="v1")

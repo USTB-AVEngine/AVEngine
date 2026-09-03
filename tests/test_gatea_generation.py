@@ -31,7 +31,8 @@ from qa_v3_pixel_thresholds import card1_pixel_acceptance_block  # noqa: E402
 
 
 PARAMS = {"THETA_HALF": 30.0, "T_HALF": 1.0, "T_FULL": 0.5,
-          "T_FULL_status": "placeholder_research"}
+          "T_FULL_status": "placeholder_research",
+          "SAMPLE_RATE_HZ": 16000}
 
 
 def program(slots):
@@ -102,7 +103,10 @@ def test_card8_uses_the_actual_time_scorer_threshold():
 
 
 CARD8_PARAMS = dict(PARAMS, GAP_MIN_S=0.3, FIRST_MIN_S=0.35,
-                    CLIP_SECONDS=5.0, EVENT_SECONDS=0.3)
+                    CLIP_SECONDS=5.0, EVENT_SECONDS=0.3,
+                    SAMPLE_RATE_HZ=16000, FRAME_COUNT=75,
+                    TICKS_PER_SAMPLE=3, TICKS_PER_FRAME=3200,
+                    VIDEO_FPS=15)
 CARD8_PROFILE = {"id": "card8", "temporal": "instant",
                  "answer_kind": "time_band", "binding_frames": [12, 40],
                  "idle_choices": [0, 8], "anchor_binding": "first_caller"}
@@ -149,7 +153,8 @@ def test_card8_fact_rejects_first_calls_not_strictly_above_minimum():
 def test_materialized_params_fail_closed_only_when_first_call_profiles_exist():
     base = {"BANDS_CARD8": [0.35, 1.1, 1.85, 2.6], "FIRST_MIN_S": 0.35,
             "GAP_MIN_S": 0.3, "T_HALF": 1.0, "CLIP_SECONDS": 5.0,
-            "EVENT_SECONDS": 0.3}
+            "EVENT_SECONDS": 0.3, "SAMPLE_RATE_HZ": 16000,
+            "T_FULL_status": "placeholder_research"}
     card1_only = [{"id": "card1F", "answer_kind": "azimuth_band"}]
     effective = materialize_derived_params(base, card1_only)
     assert "Not derived" in effective["BANDS_CARD8_note"]
