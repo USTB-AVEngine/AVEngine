@@ -67,7 +67,15 @@ def test_category_table_is_explicit_and_covers_the_prepared_library() -> None:
     assert CLASS_CATEGORY["air_conditioning"] == "appliance"
     assert CLASS_CATEGORY["drip"] == "water"
     assert CLASS_CATEGORY["fire"] == "ambience"
-    assert CLASS_CATEGORY["music_playback"] == "synthetic"
+    assert CLASS_CATEGORY["music_playback"] == "playback"
+    assert CLASS_CATEGORY["any_audioset_class_playback"] == "playback"
+    assert CLASS_CATEGORY["clock_tick"] == "ambience"
+    assert CLASS_CATEGORY["alarm_clock"] == "alert"
+    assert CLASS_CATEGORY["speech_playback"] == "speech"
+    assert "synthetic" not in set(CLASS_CATEGORY.values())
+    assert set(CLASS_CATEGORY.values()) == {
+        "alert", "ambience", "animal", "appliance", "playback", "speech", "water",
+    }
     with pytest.raises(SoundEventError, match="closed table"):
         category_for_class("ring_bell_alarm")
 
@@ -122,6 +130,34 @@ def test_unknown_class_fails_closed(tmp_path: Path) -> None:
     _write(library / "not_a_class" / "clip.wav", _tone(400, 16000, 0.2), 16000)
     with pytest.raises(SoundEventError, match="closed table"):
         split_library(library, tmp_path / "events")
+
+
+
+def test_reclassification_changes_the_path_not_the_asset_id(tmp_path: Path) -> None:
+    """Category is not part of the id, so a remap must not rename the clip."""
+
+    library = tmp_path / "prepared"
+    tick = _tone(1000, 16000, 1.2, amplitude=0.2)
+    music = _tone(440, 16000, 1.0, amplitude=0.2)
+    _write(library / "clock_tick" / "one.wav", tick, 16000)
+    _write(library / "music_playback" / "one.wav", music, 16000)
+    out = tmp_path / "events"
+    manifest = split_library(library, out)
+    rows = {row["event_class"]: row for row in manifest["clips"] if row["status"] == "event"}
+    tick_row = rows["clock_tick"]
+    music_row = rows["music_playback"]
+    assert tick_row["category"] == "ambience"
+    assert music_row["category"] == "playback"
+    assert tick_row["prepared"].startswith("ambience/clock_tick/")
+    assert music_row["prepared"].startswith("playback/music_playback/")
+    assert tick_row["sound_asset_id"] == sound_asset_id_for(
+        "clock_tick", tick_row["variant"])
+    assert music_row["sound_asset_id"] == sound_asset_id_for(
+        "music_playback", music_row["variant"])
+    assert "appliance" not in tick_row["prepared"]
+    assert "synthetic" not in music_row["prepared"]
+    assert (out / tick_row["prepared"]).is_file()
+    assert (out / music_row["prepared"]).is_file()
 
 
 def test_splitter_refuses_to_write_into_the_prepared_tree(
