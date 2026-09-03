@@ -7,6 +7,7 @@ card8 不再继承 card1 的片尾静默(那是 run01 首叫被压进前 2.6 秒
 
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 
@@ -23,6 +24,7 @@ from audio_profiles import (  # noqa: E402
     ScheduledEvent,
     _assert_no_overlap,
     card8_band_edges,
+    card8_event_length_seconds,
     card8_scoring_params,
     _self_check_backward,
     _self_check_first_call_bands,
@@ -180,6 +182,43 @@ def test_card8_fails_closed_without_explicit_t_full():
     labelled = card8_scoring_params(historical, historical_record=True)
     assert labelled["T_FULL_status"] == "unspecified_in_historical_record"
     assert labelled["min_first_call_separation_s"] == pytest.approx(1.0)
+
+
+def test_card8_pool_mode_band_edges_follow_catalog_max_duration(tmp_path: Path):
+    def catalog(name, duration_samples):
+        path = tmp_path / name
+        path.write_text(json.dumps({
+            "schema": "avengine_sound_event_pool_v1",
+            "clips": [
+                {"sound_asset_id": "a", "event_class": "dog_bark",
+                 "sample_rate_hz": 16000, "duration_samples": duration_samples,
+                 "source_start_sample": 0,
+                 "source_end_sample_exclusive": duration_samples},
+                {"sound_asset_id": "b", "event_class": "dog_bark",
+                 "sample_rate_hz": 16000, "duration_samples": duration_samples,
+                 "source_start_sample": 0,
+                 "source_end_sample_exclusive": duration_samples},
+            ],
+        }))
+        return path
+
+    base = {key: value for key, value in PARAMS.items() if key != "EVENT_SECONDS"}
+    base.update({
+        "SOUND_SOURCE_MODE": "event_pool",
+        "PAIR_KIND": "dog",
+        "SOUND_EVENT_CLASS_BY_PAIR_KIND": {"dog": "dog_bark"},
+    })
+    short = dict(base, SOUND_EVENT_POOL=str(catalog("short.json", 4800)))
+    long = dict(base, SOUND_EVENT_POOL=str(catalog("long.json", 16000)))
+    assert "EVENT_SECONDS" not in short
+    seconds, source = card8_event_length_seconds(short)
+    assert source == "from_catalog_max"
+    assert seconds == pytest.approx(0.3)
+    assert card8_event_length_seconds(long)[0] == pytest.approx(1.0)
+    short_edges = card8_band_edges(short)
+    long_edges = card8_band_edges(long)
+    assert short_edges != long_edges
+    assert long_edges[-1] < short_edges[-1]
 
 
 def test_card8_minimum_separation_is_max_of_half_and_twice_full():
