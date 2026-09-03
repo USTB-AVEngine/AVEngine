@@ -116,8 +116,8 @@ def audit_candidate(candidate, params):
         planned = (fact.get("generation_checks") or {}).get("az_anchor_deg")
         checks.update({
             "angle_source": "final_timeline_recompute",
-            "anchor_azimuth_deg": anchor,
-            "query_azimuth_deg": query,
+            "anchor_azimuth_deg_engine_frame": anchor,
+            "query_azimuth_deg_engine_frame": query,
             "anchor_query_gap_deg": gap,
             "anchor_answer_scores_zero": zero,
             "planned_anchor_azimuth_deg_planning_value_only": planned,

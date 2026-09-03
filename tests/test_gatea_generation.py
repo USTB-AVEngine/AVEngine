@@ -238,9 +238,9 @@ def test_realized_timeline_passes_and_reports_planning_deviation():
         plan_checks={"az_anchor_deg": 9.415, "az_end_deg": 40.496})
     assert checks["passed"] and checks["failed"] == []
     assert checks["provenance"] == "final_timeline_recompute_after_camera_pose"
-    assert checks["main"]["anchor_azimuth_deg"] == pytest.approx(8.451, abs=1e-6)
-    assert checks["main"]["query_azimuth_deg"] == pytest.approx(40.496, abs=1e-6)
-    assert checks["gatea"]["query_azimuth_deg"] == pytest.approx(-31.711, abs=1e-6)
+    assert checks["main"]["anchor_azimuth_deg_engine_frame"] == pytest.approx(8.451, abs=1e-6)
+    assert checks["main"]["query_azimuth_deg_engine_frame"] == pytest.approx(40.496, abs=1e-6)
+    assert checks["gatea"]["query_azimuth_deg_engine_frame"] == pytest.approx(-31.711, abs=1e-6)
     assert checks["mcq_gold_flipped"] is True
     assert checks["open_gold_regions_disjoint"] is True
     deviation = checks["planned_vs_realized"]
@@ -338,7 +338,9 @@ def test_card2_instant_azimuth_stem_and_profile_validation():
         "source1", "source2", slot_coat, -30.0, 30, PARAMS)
     assert "frame index 30" in result["mcq"]["stem"]
     assert "dog barking at that frame" in result["mcq"]["stem"]
-    assert result["mcq"]["truth_option"] == "[-52.5, -17.5)"
+    # 发布约定是 DCASE 左为正，所以引擎帧最左那一楔发布成 [17.5, 52.5)。
+    assert result["mcq"]["truth_option"] == "[17.5, 52.5)"
+    assert result["mcq"]["convention"] == "dcase_foa_left_positive"
     assert result["open"]["scoring"] == "circular_deg"
 
 

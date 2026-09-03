@@ -35,12 +35,12 @@ def _fact(point_id, room, anchor_label, answer_label, *, coat="yellow",
         "profile_id": profile, "target_coat": coat,
         "motion": {"target_moves_more": moves_more},
         "mcq": {"options_space": LABELS, "truth_option": answer_label},
-        "truth": {"query_azimuth_deg": query, "other_slot_azimuth_deg": other},
+        "truth": {"query_azimuth_deg_engine_frame": query, "other_slot_azimuth_deg_engine_frame": other},
         "generation_checks": {"az_anchor_deg": anchor + 0.9},
     }
     if realized:
         fact["realized_generation_checks"] = {
-            "main": {"anchor_azimuth_deg": anchor}}
+            "main": {"anchor_azimuth_deg_engine_frame": anchor}}
     return fact
 
 
@@ -148,7 +148,7 @@ def test_planned_anchor_is_used_only_when_no_realized_record_exists():
                                 realized=False),
                           room="room_a", split="unsplit", source="test")
     assert item["anchor_source"] == "planned_solver_value_no_realized_record"
-    assert item["anchor_azimuth_deg"] == pytest.approx(0.9)
+    assert item["anchor_azimuth_deg_engine_frame"] == pytest.approx(0.9)
 
 
 def test_smoke_report_reproduction_recomputes_best_response_from_table():

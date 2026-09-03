@@ -90,7 +90,7 @@ def item_from_fact(fact: dict, *, room: str, split: str, source: str) -> dict | 
     truth = fact["truth"]
     realized = fact.get("realized_generation_checks")
     if realized:
-        anchor_deg = float(realized["main"]["anchor_azimuth_deg"])
+        anchor_deg = float(realized["main"]["anchor_azimuth_deg_engine_frame"])
         anchor_source = "realized_generation_checks"
     else:
         planned = (fact.get("generation_checks") or {}).get("az_anchor_deg")
@@ -106,15 +106,15 @@ def item_from_fact(fact: dict, *, room: str, split: str, source: str) -> dict | 
         "profile_id": fact["profile_id"],
         "split": split,
         "labels": labels,
-        "anchor_azimuth_deg": anchor_deg,
+        "anchor_azimuth_deg_engine_frame": anchor_deg,
         "anchor_source": anchor_source,
         "anchor_band": band_label_for(anchor_deg, labels)
         or "outside_declared_bands",
         "answer_band": str(fact["mcq"]["truth_option"]),
-        "query_azimuth_deg": float(truth["query_azimuth_deg"]),
-        "other_query_azimuth_deg": (
-            float(truth["other_slot_azimuth_deg"])
-            if truth.get("other_slot_azimuth_deg") is not None else None),
+        "query_azimuth_deg_engine_frame": float(truth["query_azimuth_deg_engine_frame"]),
+        "other_query_azimuth_deg_engine_frame": (
+            float(truth["other_slot_azimuth_deg_engine_frame"])
+            if truth.get("other_slot_azimuth_deg_engine_frame") is not None else None),
         "target_coat": fact.get("target_coat"),
         "target_moves_more": motion.get("target_moves_more"),
     }
@@ -222,11 +222,11 @@ def audio_only_baselines(items, labels, theta_full, theta_half, step):
         answers = Counter(item["answer_band"] for item in rows)
         non_empty = len([value for value in answers.values() if value > 0])
         exclusion += len(rows) / non_empty if non_empty else 0.0
-        truths = [item["query_azimuth_deg"] for item in rows]
+        truths = [item["query_azimuth_deg_engine_frame"] for item in rows]
         angle, score = best_constant_angle(truths, theta_full, theta_half, step)
         open_expected += score * len(rows)
         repeat_anchor_score += sum(
-            circular_score(item["anchor_azimuth_deg"], item["query_azimuth_deg"],
+            circular_score(item["anchor_azimuth_deg_engine_frame"], item["query_azimuth_deg_engine_frame"],
                            theta_full, theta_half) for item in rows)
         per_anchor[anchor] = {
             "n": len(rows),
@@ -269,8 +269,8 @@ def video_only_baselines(items, labels, theta_full, theta_half):
     n = len(items)
 
     def chosen_angle(item, rule):
-        target = item["query_azimuth_deg"]
-        other = item["other_query_azimuth_deg"]
+        target = item["query_azimuth_deg_engine_frame"]
+        other = item["other_query_azimuth_deg_engine_frame"]
         if other is None:
             return None
         if rule == "pick_yellow":
@@ -285,6 +285,8 @@ def video_only_baselines(items, labels, theta_full, theta_half):
             return target if abs(target) >= abs(other) else other
         if rule == "pick_more_central_dog":
             return target if abs(target) < abs(other) else other
+        # 本报告读的是 fact 的引擎帧字段（右为正），所以 min 就是最左。
+        # 发布出去的方位是 DCASE 左为正，两者符号相反——别照发布约定改这里。
         if rule == "pick_leftmost_dog":
             return min(target, other)
         if rule == "pick_rightmost_dog":
@@ -305,7 +307,7 @@ def video_only_baselines(items, labels, theta_full, theta_half):
             usable += 1
             chosen_band = band_label_for(angle, labels)
             mcq_hits += 1.0 if chosen_band == item["answer_band"] else 0.0
-            open_total += circular_score(angle, item["query_azimuth_deg"],
+            open_total += circular_score(angle, item["query_azimuth_deg_engine_frame"],
                                          theta_full, theta_half)
         per_rule[rule] = {
             "n": usable,
@@ -339,7 +341,7 @@ def text_only_baselines(items, labels, theta_full, theta_half, step):
     n = len(items)
     answers = Counter(item["answer_band"] for item in items)
     angle, score = best_constant_angle(
-        [item["query_azimuth_deg"] for item in items], theta_full, theta_half,
+        [item["query_azimuth_deg_engine_frame"] for item in items], theta_full, theta_half,
         step)
     return {
         "attacker_observes": "question text and option labels only",

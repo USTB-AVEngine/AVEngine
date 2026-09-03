@@ -46,6 +46,7 @@ from build_qa_v3_programs import (  # noqa: E402
     validate_m6_audio_program,
 )
 from avengine.assets.sound_pool import clip_source_from_params  # noqa: E402
+import qa_v3_azimuth as AZ  # noqa: E402
 from qa_v3_pixel_thresholds import card1_pixel_acceptance_block  # noqa: E402
 import visibility_prediction as VP  # noqa: E402
 # 选角文档的结构(蓝图/网格/动画的物理来源、UE 绑定)已在既有装配器里
@@ -436,8 +437,8 @@ def realized_cross_time_checks(timeline, *, profile, cell, target_slot,
         gap = SS.circular_gap_deg(anchor, query)
         return {
             "slot": slot,
-            "anchor_azimuth_deg": anchor,
-            "query_azimuth_deg": query,
+            "anchor_azimuth_deg_engine_frame": anchor,
+            "query_azimuth_deg_engine_frame": query,
             "anchor_query_gap_deg": gap,
             "anchor_band_index": band_index(anchor),
             "query_band_index": band_index(query),
@@ -469,34 +470,37 @@ def realized_cross_time_checks(timeline, *, profile, cell, target_slot,
         "answer_band": list(answer_band),
         "realized_anchor_in_allocated_band": (
             allocated is None
-            or float(allocated[0]) <= main["anchor_azimuth_deg"]
+            or float(allocated[0]) <= main["anchor_azimuth_deg_engine_frame"]
             < float(allocated[1])),
         "realized_query_in_answer_band": (
-            answer_band[0] <= main["query_azimuth_deg"] < answer_band[1]),
+            answer_band[0] <= main["query_azimuth_deg_engine_frame"] < answer_band[1]),
         "realized_anchor_answer_scores_zero": SS.open_angle_candidate_scores_zero(
-            main["anchor_azimuth_deg"], main["query_azimuth_deg"], theta_half),
+            main["anchor_azimuth_deg_engine_frame"], main["query_azimuth_deg_engine_frame"], theta_half),
         "mcq_gold_flipped": (
             main["query_band_index"] is not None
             and gatea["query_band_index"] is not None
             and main["query_band_index"] != gatea["query_band_index"]),
         "open_gold_separation_deg": SS.circular_gap_deg(
-            main["query_azimuth_deg"], gatea["query_azimuth_deg"]),
+            main["query_azimuth_deg_engine_frame"], gatea["query_azimuth_deg_engine_frame"]),
         "open_gold_min_separation_deg": 2.0 * theta_half,
         "open_gold_regions_disjoint": SS.open_angle_gold_regions_disjoint(
-            main["query_azimuth_deg"], gatea["query_azimuth_deg"], theta_half),
+            main["query_azimuth_deg_engine_frame"], gatea["query_azimuth_deg_engine_frame"], theta_half),
         "planned_vs_realized": {
             "planned_anchor_azimuth_deg_planning_value_only": planned_anchor,
             "planned_query_azimuth_deg_planning_value_only": planned_query,
             "anchor_deviation_deg": (
                 SS.circular_gap_deg(float(planned_anchor),
-                                    main["anchor_azimuth_deg"])
+                                    main["anchor_azimuth_deg_engine_frame"])
                 if planned_anchor is not None else None),
             "query_deviation_deg": (
                 SS.circular_gap_deg(float(planned_query),
-                                    main["query_azimuth_deg"])
+                                    main["query_azimuth_deg_engine_frame"])
                 if planned_query is not None else None),
         },
         "gates": list(REALIZED_CARD1_GATES),
+        # 本字典里所有方位都是引擎帧（右为正），与发布出去的
+        # DCASE 左为正符号相反。
+        "azimuth_frame": "engine_right_positive",
     }
     failed = [name for name in REALIZED_CARD1_GATES if not checks[name]]
     checks["failed"] = failed
@@ -504,10 +508,10 @@ def realized_cross_time_checks(timeline, *, profile, cell, target_slot,
     if failed:
         raise GenerationConstraintError(
             f"{profile['id']} realized timeline failed {failed}: main anchor "
-            f"{main['anchor_azimuth_deg']:.3f} deg, main query "
-            f"{main['query_azimuth_deg']:.3f} deg, gap "
+            f"{main['anchor_azimuth_deg_engine_frame']:.3f} deg, main query "
+            f"{main['query_azimuth_deg_engine_frame']:.3f} deg, gap "
             f"{main['anchor_query_gap_deg']:.3f} deg, Gate A query "
-            f"{gatea['query_azimuth_deg']:.3f} deg; planning value for the "
+            f"{gatea['query_azimuth_deg_engine_frame']:.3f} deg; planning value for the "
             f"anchor was {planned_anchor}")
     return checks
 
@@ -1290,8 +1294,9 @@ def realise_point(pid, cell, plan, scene, base_request, params, by_id, args,
         "motion": motion,
         "answer_kind": answer_kind,
         "truth": dict(answer["truth"],
-                      query_azimuth_deg=round(truth_deg, 3),
-                      other_slot_azimuth_deg=round(other_deg, 3),
+                      query_azimuth_deg_engine_frame=round(truth_deg, 3),
+                      other_slot_azimuth_deg_engine_frame=round(
+                          other_deg, 3),
                       recomputed_after_camera_pose=True),
         "mcq": answer["mcq"],
         "open": answer["open"],
@@ -1371,8 +1376,8 @@ def realise_point(pid, cell, plan, scene, base_request, params, by_id, args,
         "target_coat": slot_coat[gatea_target_slot],
         "truth": dict(
             gatea_answer["truth"],
-            query_azimuth_deg=round(gatea_truth_deg, 3),
-            other_slot_azimuth_deg=round(gatea_other_deg, 3),
+            query_azimuth_deg_engine_frame=round(gatea_truth_deg, 3),
+            other_slot_azimuth_deg_engine_frame=round(gatea_other_deg, 3),
             recomputed_after_camera_pose=True),
         "mcq": gatea_answer["mcq"],
         "open": gatea_answer["open"],
@@ -1675,14 +1680,19 @@ def build_answer(kind, profile, cell, timeline, schedule, slot_events,
             raise GenerationConstraintError(
                 f"first-sound azimuth {truth_deg:.2f} lands in band {got}, "
                 f"not allocated band {want}")
-        side = "left" if truth_deg < 0.0 else "right"
+        # This answer is published, so left and right follow the
+        # published convention rather than the engine frame.
+        published_deg = AZ.to_published_deg(truth_deg)
+        side = AZ.side_word(published_deg)
         moment = (f"At zero-based video frame index {query_frame} "
                   f"({query_frame}/15 seconds)")
         return {
             "first_caller_slot": first_slot,
             "truth": {
                 "first_sound_side": side,
-                "first_sound_azimuth_deg": round(truth_deg, 3),
+                "first_sound_azimuth_deg_engine_frame": round(
+                    truth_deg, 3),
+                **AZ.published_block(truth_deg),
             },
             "mcq": {
                 "stem": (f"{moment}, did the first sound come from the left "
@@ -1698,8 +1708,9 @@ def build_answer(kind, profile, cell, timeline, schedule, slot_events,
             },
         }
     if kind in ("azimuth_band", "instant_azimuth_band"):
+        # Band matching stays in the engine frame: cell["answer_band"] is what
+        # the solver allocated, so the frames have to agree.
         bands = [tuple(b) for b in profile["answer_bands_deg"]]
-        labels = [f"[{lo:g}, {hi:g})" for lo, hi in bands]
         got = next((i for i, (lo, hi) in enumerate(bands)
                     if lo <= truth_deg < hi), None)
         want = bands.index(tuple(cell["answer_band"]))
@@ -1708,6 +1719,13 @@ def build_answer(kind, profile, cell, timeline, schedule, slot_events,
                 f"recomputed truth {truth_deg:.2f} deg lands in band {got}, "
                 f"not the assigned {want}: the final camera pose disagrees "
                 "with the solver's geometry")
+        # Everything published converts to DCASE left-positive.  The frame edge
+        # comes from the answer space's own outer bound, so the edge the stem
+        # states and the edge the answers live inside can never diverge.
+        published = [AZ.to_published_band(band) for band in bands]
+        labels = [f"[{lo:g}, {hi:g})" for lo, hi in published]
+        frame_edge = max(abs(v) for band in bands for v in band)
+        convention = AZ.landmark_sentence(frame_edge)
         if profile["temporal"] == "forward":
             moment = "At the end of the video"
             referent = "the dog that barked last"
@@ -1721,16 +1739,19 @@ def build_answer(kind, profile, cell, timeline, schedule, slot_events,
             referent = "the dog barking at that frame"
         else:
             raise ValueError("azimuth-band profile must declare a time direction")
-        return {"truth": {"band_index": got},
-                "mcq": {"stem": (f"{moment}, which azimuth band relative to "
-                                 f"your facing direction contains {referent}? "
-                                 "Right is positive."),
-                        "options_space": labels, "truth_option": labels[got]},
-                "open": {"stem": (f"{moment}, roughly how many degrees from "
-                                  f"your facing direction is {referent}? "
-                                  "Right is positive."),
-                         "truth_value": round(truth_deg, 3), "unit": "deg",
-                         "scoring": "circular_deg"}}
+        return {"truth": {"band_index": got, **AZ.published_block(truth_deg),
+                          "azimuth_deg_engine_frame": round(truth_deg, 3),
+                          "engine_frame_note": AZ.ENGINE_FRAME_NOTE},
+                "mcq": {"stem": (f"{convention} {moment}, which azimuth band "
+                                 f"contains {referent}?"),
+                        "options_space": labels, "truth_option": labels[got],
+                        "convention": AZ.CONVENTION},
+                "open": {"stem": (f"{convention} {moment}, roughly what is the "
+                                  f"azimuth of {referent}? Report a numeric "
+                                  "estimate in degrees rather than a category."),
+                         "truth_value": round(AZ.to_published_deg(truth_deg), 3),
+                         "unit": "deg", "scoring": "circular_deg",
+                         "convention": AZ.CONVENTION}}
     if kind == "coat_at_query":
         calling = [slot for slot, event in zip(
             [s for s, _ in slot_events], schedule.events)
