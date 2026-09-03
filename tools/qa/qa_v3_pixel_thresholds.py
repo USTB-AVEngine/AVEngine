@@ -31,12 +31,16 @@ LINE_OF_SIGHT_ROLE = (
 # tier policy is the default; the historical threshold policy stays selectable
 # by name so earlier outputs remain reproducible.
 #
-# Owner decision 2026-09-03 draws the second line: a question survives as long
-# as the referent is not blocked completely, so a referent whose declared frame
-# leaves nothing visible at all is a rejection rather than a tier.  Which tiers
-# reject is data, not code: PIXEL_TIER_REJECT_TIERS names them, an empty list
-# reproduces the 2026-09-02 behaviour where nothing but camera-side blockage
-# rejects.
+# On 2026-09-03 the owner considered rejecting a referent that is blocked
+# completely and then declined it: measured on that day's 36 pixel-truth
+# candidates it would have cost 8 of the 22 passing Apartment ones, so a
+# referent with nothing visible at a declared frame stays a difficulty tier.
+# Which tiers reject is data rather than code: PIXEL_TIER_REJECT_TIERS names
+# them and defaults to the empty list, i.e. the 2026-09-02 behaviour the owner
+# reaffirmed, where nothing but a camera-side blockage rejects.  The key exists
+# because the boundary belongs in the record: it travels into the fact and the
+# join output, and a fact designed under one list can no longer be re-judged
+# under another without a loud failure.
 PIXEL_POLICY_THRESHOLD_REJECT = "both_frames_threshold_reject"
 PIXEL_POLICY_TIER = "camera_blockage_reject_then_tier"
 PIXEL_POLICIES = (PIXEL_POLICY_THRESHOLD_REJECT, PIXEL_POLICY_TIER)
@@ -58,8 +62,7 @@ def pixel_policy_from_params(params) -> dict:
                                        PIXEL_THRESHOLD_STATUS_DEFAULT))}
     if policy == PIXEL_POLICY_TIER:
         missing = [key for key in ("PIXEL_CAMERA_BLOCKAGE_MAX_DISTANCE_M",
-                                   "PIXEL_TIER_VISIBLE_FRACTION_EDGES",
-                                   "PIXEL_TIER_REJECT_TIERS")
+                                   "PIXEL_TIER_VISIBLE_FRACTION_EDGES")
                    if key not in params]
         if missing:
             raise ValueError(
@@ -72,7 +75,8 @@ def pixel_policy_from_params(params) -> dict:
         if len(edges) != 2 or not (1.0 > edges[0] > edges[1] > 0.0):
             raise ValueError("PIXEL_TIER_VISIBLE_FRACTION_EDGES must be two "
                              "decreasing fractions inside (0, 1)")
-        reject_tiers = params["PIXEL_TIER_REJECT_TIERS"]
+        # 默认空列表 = owner 2026-09-03 重申的 2026-09-02 行为(只有相机侧遮挡拒题)。
+        reject_tiers = params.get("PIXEL_TIER_REJECT_TIERS", [])
         if isinstance(reject_tiers, (str, bytes)) or not isinstance(reject_tiers, (list, tuple)):
             raise ValueError("PIXEL_TIER_REJECT_TIERS must be a list of tier names")
         reject_tiers = [str(value) for value in reject_tiers]

@@ -448,11 +448,12 @@ def test_tier_policy_rejects_only_a_completely_blocked_referent():
     assert out["rejection_reasons"] == ["main_referent_query_frame_out_of_view"]
 
 
-def test_reject_tiers_must_be_declared_with_known_tier_names():
+def test_reject_tiers_default_to_none_and_names_must_be_known_tiers():
+    """Owner 2026-09-03 declined rejecting completely blocked referents, so the
+    default list is empty: only a camera-side blockage rejects."""
     base = {k: v for k, v in OWNER_TIER_PARAMS.items()
             if k != "PIXEL_TIER_REJECT_TIERS"}
-    with pytest.raises(ValueError, match="PIXEL_TIER_REJECT_TIERS"):
-        pixel_policy_from_params(base)
+    assert pixel_policy_from_params(base)["reject_tiers"] == []
     with pytest.raises(ValueError, match="unknown tiers"):
         pixel_policy_from_params(dict(base, PIXEL_TIER_REJECT_TIERS=["invisible"]))
     with pytest.raises(ValueError, match="repeats"):
