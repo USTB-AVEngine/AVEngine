@@ -392,3 +392,14 @@ def test_request_and_source_byte_hashes_are_not_canonical_json_hashes(
         batch["parent_request"]["canonical_content_sha256"]
         != batch["parent_request"]["sha256"]
     )
+
+
+def test_beagle_size_ratios_use_the_admitted_extremes() -> None:
+    from avengine.appearance.contracts import CANONICAL_SIZE_SCALE_RATIOS
+
+    size = _example()["realization_bindings"]["size"]["parameters_by_value"]
+    assert size["small"]["scale_ratio"] == CANONICAL_SIZE_SCALE_RATIOS["small"]
+    assert size["medium"]["scale_ratio"] == CANONICAL_SIZE_SCALE_RATIOS["medium"]
+    assert size["large"]["scale_ratio"] == CANONICAL_SIZE_SCALE_RATIOS["large"]
+    assert size["small"]["scale_ratio"] == 0.70
+    assert size["large"]["scale_ratio"] == 1.30

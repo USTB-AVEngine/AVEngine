@@ -157,13 +157,13 @@
       "operation_id": "uniform_actor_scale_v1",
       "parameters_by_value": {
         "large": {
-          "scale_ratio": 1.18
+          "scale_ratio": 1.30
         },
         "medium": {
           "scale_ratio": 1.0
         },
         "small": {
-          "scale_ratio": 0.82
+          "scale_ratio": 0.70
         }
       }
     }
