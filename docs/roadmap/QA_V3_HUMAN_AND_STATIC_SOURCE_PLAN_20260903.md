@@ -150,3 +150,139 @@ Codex 建议猫可以提前：运行时注册表已有 2 只猫，外部树再�
 ## 7. 本方案不声明
 
 不声明人的题、音响的题或猫的题可生成或可放量；不声明任何资产已完成准入（开关还没拨）；所有对照在做之前不预设结论。
+
+---
+
+# 资产存放路径与文件树（2026-09-03 实测）
+
+owner 要一份"当前资产存在哪、树长什么样"。下面每个数字都是当天在服务器上量的，不是从记忆里抄的。
+分层的口径沿用 [三层库存](#) 那一节：**生成器直接读的一张表** / **外部资产树** / **声音库**，
+再加上 **UE 侧**（cook 进渲染用的 stage）与 **房间事实**（我这条线产出的东西）。
+
+## 一、生成器直接读的那张表（在仓库里，最小）
+
+```
+examples/runtime/source_asset_runtime_profiles.json      60 KB
+  14 个资产：articulated_animal 8（狗 6 + 猫 2）、articulated_human 6
+  6 个别名
+```
+
+这是唯一被 QA 生成器与渲染路径读的注册表。**它不引用外部资产树**，所以外部树的准入改动不会自动影响出题。
+
+## 二、外部声源资产树（44 个三维模型，903 MB）
+
+```
+/data/avengine_external/assets/sound_source_assets_v1/          903 MB
+  index.json                     ← 44 条记录 + 验收门 + 族级开关 + 准入授权记录
+  <category>/<type>/<variant>/   ← 布局标准就是这三级（owner 记得的那个）
+      asset.json                 ~10 KB   这一条的全部事实
+      finalized.glb              ~5 MB    最终网格
+      watertight.glb             ~5 MB    水密版本
+      emitter_marker.glb         ~5 MB    带发声锚点标记的版本
+      evidence/                           生成与验收证据
+```
+
+类别与数量：
+
+| 类别 | 个数 | | 类别 | 个数 |
+| --- | ---: | --- | --- | ---: |
+| audio_playback（音响） | 12 | | household_clock | 2 |
+| plumbing_fixture | 8 | | door_hardware | 2 |
+| kitchen_appliance | 4 | | heating_fixture | 2 |
+| climate_control | 3 | | office_device | 2 |
+| cat | 3 | | safety_device | 2 |
+| communication_device | 3 | | dog | 1 |
+
+同目录另有两份历史快照，别当现役：`sound_source_assets_v1.pre_size_demotion_20260826`、
+`sound_source_assets_v1_before_resting_pose_20260827_v1`。
+
+## 三、声音库（1200 条，源 492 MB + 备好 204 MB）
+
+```
+/data/avengine_external/assets/sound_library_v1/            492 MB   源
+/data/avengine_external/assets/sound_library_v1_prepared/   204 MB   16 kHz 单声道、峰值归一 −3 dBFS
+  <class>/<clip_id>/clip.wav                 备好的波形
+  <class>/<clip_id>/clip.json                事实（只在源库那边）
+  prepared_manifest.json                     1151 备好 / 32 别名 / 17 跳过
+  36 个类目录
+```
+
+人声在 `speech_playback/` 下，613 条里 **600 条是 VCTK**（另 13 条来自 FSD50K）。
+每条 VCTK 的 `clip.json` 带转写、说话人、性别、口音、切分：
+
+```json
+{"transcript": "Please call Stella.", "speaker_id": "p225", "gender": "F",
+ "accent": "English", "split": "eval", "dry": true, "controlled_content": true}
+```
+
+**按 owner"只用非测试切分"的裁定，可用池是**：
+
+| 切分 | 说话人 | 句子 |
+| --- | ---: | ---: |
+| train（可用） | 16 | **400** |
+| eval（留着不用） | 8 | 200 |
+
+每个说话人恰好 25 句。所以 card13/card14 的人声池是 16 个说话人 × 25 句 = 400 句，
+两人各用各的说话人时，一段视频消耗 2 个说话人 2 句。
+
+## 四、UE 侧：内容注册表与打包好的 stage
+
+```
+/data/avengine_external/ue-assets/actor_content_registry_v9_20260823T033709Z/   389 MB
+  cpp/unreal_projects/SpearSim/Content/MyAssets/Audioset/
+      Blueprints/gate_<资产标签>/BP_gate_<资产标签>.uasset
+      Meshes/gate_<资产标签>/{Idle,Walking}.uasset
+```
+
+**闭包报告是从这棵树里挑文件 cook 进 stage 的**，不是从某个工程检出里挑，这一点第四色进 UE 时很关键。
+
+```
+/data/avengine_external/ue-package-stages/
+  qa_v3_apartment_n4_pixel_20260901_v1        14 GB   ← 公寓渲染在用
+  qa_v3_kujiale_baked_lit_275809d_20260901     ~7 GB   ← Kujiale 渲染在用
+  其余六个历史 stage                            7–12 GB 每个
+```
+
+## 五、人物源与四种上衣色
+
+```
+/data/datasets/rocketbox/Microsoft-Rocketbox/          27 GB   官方源（只读）
+/data/datasets/rocketbox/approved_baselines/           72 MB   密封基线（retarget.blend/.glb）
+    rocketbox_neutral_walk_v1/{rocketbox_male_adult_01,rocketbox_female_adult_01}/
+
+<SPEAR 根>/tmp/rocketbox_native_runtime_v1/<tag>/           runtime.glb + variant_manifest.json
+<SPEAR 根>/tmp/rocketbox_native_runtime_ue_v3/<tag>_ue_v3/  UE 归一化版 + normalization_manifest.json
+<SPEAR 根>/tmp/rocketbox_native_ue_import_v3/<tag>_ue_v3/   ue_import_manifest.json（编辑器导入的记录）
+```
+
+三种旧色在 workspace SPEAR 根下（`45e3dec20372` 酒红、`cdd6afc5b879` 绿、`f0c379dd868d` 蓝），
+**第四色黄 `ec958e7654fc` 在 `/data/jzy/code/SPEAR-lead-b-m6-atomic-audit/tmp/` 下**，
+前两段（原生 runtime、UE 归一化）已产出，第三段（编辑器导入）还没跑。
+
+## 六、房间事实（我这条线产出的，都在 /data/jzy/tmp）
+
+| 产物 | 大小 | 说明 |
+| --- | ---: | --- |
+| `qa_v3_camera_clearance_table_apartment_20260903_v2` | 3.3 GB | 按实测地面重渲的机位净空表 |
+| `qa_v3_camera_clearance_table_kujiale_20260902_v1` | 341 MB | Kujiale 净空表 |
+| `qa_v3_walkable_grid_apartment_20260903_v2` | 16 MB | 可走栅格（导航网格 10 cm） |
+| `qa_v3_walkable_grid_kujiale_20260903_v2` | 12 KB | 可走栅格（可行区 5 cm） |
+| `qa_v3_floor_reference_apartment_20260903_v2` | 3.5 MB | 地板 27.11 cm，两法互证 |
+| `qa_v3_floor_reference_kujiale_20260903_v3` | 288 KB | 地板 0.02 cm，低相机深度法 |
+
+房间与声学的外部输入：
+
+```
+/data/avengine_external/studio/tasks/20260826T183507Z-kujiale_acoustic_package/   280 MB  RLR 声学包
+/data/avengine_external/studio/tasks/20260826T185508Z-kujiale_route_bank/          11 MB  路线库
+/data/avengine_external/review/apartment_route_bank_20260825T0700Z/               6.4 MB  路线库
+/data/avengine_external/rlr-sdk/hrtf/mit_kemar_normal_pinna_16k_v*/                       HRTF
+```
+
+## 七、命名规则（owner 2026-09-03 已定）
+
+布局标准是 `<category>/<type>/<variant>`，三级、很短，没有问题。**长的是 asset_id**，
+它把类别拍平后又拼上了准入状态与版本。owner 裁定：状态不再进 ID，
+新批次的 ID 是 `generated_<type>_<variant>_v<N>`（提交见 `publish_static_source_assets.py`）。
+已发布的 44 个 ID 保持原样，因为 `..._research_v<N>` 这套命名法与狗/猫/人物那几族共用，
+那几族被上千个已产出文件引用；回溯改名要单独排一次并清算引用。
