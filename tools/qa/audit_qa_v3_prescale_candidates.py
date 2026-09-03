@@ -65,7 +65,7 @@ def scoring_snapshot(params):
     """The parameters this audit actually executes; fail closed when absent."""
     if "THETA_HALF" not in params:
         raise ValueError("params missing explicit THETA_HALF")
-    card8 = AP.card8_scoring_params(params)
+    card8 = AP.card8_scoring_params(params, historical_record=True)
     return {
         "THETA_FULL": (float(params["THETA_FULL"])
                        if "THETA_FULL" in params else None),
@@ -165,7 +165,7 @@ def audit_candidate(candidate, params):
         target = float(fact["truth"]["first_onset_s"])
         other = float(fact["truth"]["non_target_first_onset_s"])
         separation = abs(target - other)
-        scoring = AP.card8_scoring_params(params)
+        scoring = AP.card8_scoring_params(params, historical_record=True)
         strict_needed = scoring["min_first_call_separation_s"]
         checks.update({"first_onset_separation_s": separation,
                        "min_first_call_separation_s": strict_needed,

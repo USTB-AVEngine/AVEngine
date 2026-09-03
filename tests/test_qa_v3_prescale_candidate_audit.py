@@ -18,7 +18,8 @@ from audit_qa_v3_prescale_candidates import (  # noqa: E402
 )
 
 
-PARAMS = {"THETA_HALF": 30.0, "T_FULL": 0.5, "T_HALF": 1.0}
+PARAMS = {"THETA_HALF": 30.0, "T_FULL": 0.5, "T_HALF": 1.0,
+          "SAMPLE_RATE_HZ": 16000}
 
 
 def _timeline(path, anchor_y, query_y):
@@ -123,6 +124,15 @@ def test_card1_realized_anchor_outside_allocated_band_needs_resampling(tmp_path)
         _candidate(tmp_path, "card1F",
                    _card1_fact([-17.5, 17.5], gold="[-17.5, 17.5)")), PARAMS)
     assert "realized_query_outside_gold_answer_band" in wrong_gold["reasons"]
+
+
+def test_historical_params_without_t_full_status_are_labelled():
+    assert "T_FULL_status" not in PARAMS
+    snap = scoring_snapshot(PARAMS)
+    assert snap["T_FULL_status"] == "unspecified_in_historical_record"
+    with pytest.raises(Exception, match="T_FULL_status"):
+        from audio_profiles import card8_scoring_params
+        card8_scoring_params(PARAMS)
 
 
 def test_card8_uses_derived_minimum_separation_and_output_embeds_params(tmp_path):

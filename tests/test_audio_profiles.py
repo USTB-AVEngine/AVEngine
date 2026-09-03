@@ -175,6 +175,11 @@ def test_card8_fails_closed_without_explicit_t_full():
         card8_scoring_params(
             {key: value for key, value in PARAMS.items()
              if key != "T_FULL_status"})
+    historical = {key: value for key, value in PARAMS.items()
+                  if key != "T_FULL_status"}
+    labelled = card8_scoring_params(historical, historical_record=True)
+    assert labelled["T_FULL_status"] == "unspecified_in_historical_record"
+    assert labelled["min_first_call_separation_s"] == pytest.approx(1.0)
 
 
 def test_card8_minimum_separation_is_max_of_half_and_twice_full():
