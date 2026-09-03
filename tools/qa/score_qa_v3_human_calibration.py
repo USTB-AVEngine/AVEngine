@@ -45,7 +45,40 @@ def _quantiles(values):
     }
 
 
-def score(answer_key, response_documents):
+def _response_convention(answer_key, response_documents, assumed):
+    """Refuse to score answers whose azimuth convention may differ from the key.
+
+    A response produced under "right is positive" scored against a key under
+    "positive to the left" is wrong by twice the angle and nothing else would
+    notice.  A document that declares nothing is the ambiguous case that
+    actually bit us on 2026-09-03, so it needs an explicit assumption that is
+    echoed into the output rather than a silent default.
+    """
+
+    expected = answer_key.get("azimuth_convention")
+    used = None
+    for document in response_documents:
+        declared = document.get("azimuth_convention")
+        if declared is None:
+            declared = assumed
+            if expected is not None and declared is None:
+                raise ValueError(
+                    "a response document declares no azimuth_convention while "
+                    f"the answer key declares {expected!r}; pass "
+                    "--assume-response-convention to state the assumption "
+                    "explicitly, it is recorded in the output")
+        if expected is not None and declared is not None and declared != expected:
+            raise ValueError(
+                f"response azimuth convention {declared!r} disagrees with the "
+                f"answer key {expected!r}; the angular errors would be wrong "
+                "by roughly twice the angle")
+        used = declared or used
+    return expected, used
+
+
+def score(answer_key, response_documents, *, assume_response_convention=None):
+    key_convention, response_convention = _response_convention(
+        answer_key, response_documents, assume_response_convention)
     keys = {item["item_id"]: item for item in answer_key["items"]}
     rows = []
     seen = set()
@@ -86,6 +119,9 @@ def score(answer_key, response_documents):
         "schema": "qa_v3_human_calibration_scores_v1",
         "status": "research_candidate",
         "qualification_claim": False,
+        "azimuth_convention": key_convention,
+        "response_azimuth_convention": response_convention,
+        "assumed_response_convention": assume_response_convention,
         "participant_count": len(participants),
         "item_count": len(items),
         "response_count": len(rows),
@@ -115,11 +151,17 @@ def main(argv=None):
     parser.add_argument("--answer-key", required=True, type=Path)
     parser.add_argument("--responses", required=True, type=Path, action="append")
     parser.add_argument("--output", required=True, type=Path)
+    parser.add_argument("--assume-response-convention",
+                        choices=("right_positive", "left_positive"),
+                        help=("state the convention of response files that do "
+                              "not declare one; it is echoed into the output"))
     args = parser.parse_args(argv)
     if args.output.exists() or args.output.is_symlink():
         print(f"refusing to overwrite: {args.output}", file=sys.stderr)
         return 2
-    result = score(_read(args.answer_key), [_read(path) for path in args.responses])
+    result = score(
+        _read(args.answer_key), [_read(path) for path in args.responses],
+        assume_response_convention=args.assume_response_convention)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     _write(args.output, result)
     print(json.dumps({
