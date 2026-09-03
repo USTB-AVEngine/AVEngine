@@ -110,6 +110,130 @@ def effective_half_fov(scene, params) -> float:
     return half_fov - margin
 
 
+ANSWER_DOMAINS = ("camera_cone", "full_circle", "rear_cone")
+
+
+def answer_domain_arcs(domain: str, scene, params) -> tuple[tuple[float, float], ...]:
+    """The arcs a declared answer domain covers, in engine-frame degrees.
+
+    Answer ranges used to be written into each profile as absolute degrees, which
+    silently assumed one camera: the card1 table ran to 52.5 because this rig's
+    HFOV is 105.  A room with a different lens made that table wrong without
+    anything noticing, and it already cost us the 5.0 deg dead zone at each
+    outer band's edge.  A domain is declared instead and the degrees come from
+    the scene's own camera, so the same profile means the right thing in every
+    room.
+
+    ``camera_cone``  what the camera can be trusted to show, ``[-H, +H]`` for
+                     ``H = effective_half_fov``.
+    ``full_circle``  the whole circle; the sound need never be visible.
+    ``rear_cone``    the rear region whose front mirror falls inside the trusted
+                     cone, ``|az| >= 180 - H``.  A front-back pair has the same
+                     interaural time difference to the microsecond, so telling
+                     them apart needs either pinna spectrum or the sight of an
+                     empty mirror bearing -- and the mirror is only observable
+                     while it lies inside the cone, which is what fixes this
+                     bound.  At H = 47.5 it is 132.5 deg; a wider lens lowers it
+                     on its own, with nobody re-deriving it by hand.
+    """
+
+    if domain not in ANSWER_DOMAINS:
+        raise ValueError(
+            f"unknown answer_domain {domain!r}; expected one of {ANSWER_DOMAINS}")
+    if domain == "full_circle":
+        return ((-180.0, 180.0),)
+    half = effective_half_fov(scene, params)
+    if domain == "camera_cone":
+        return ((-half, half),)
+    return ((-180.0, -(180.0 - half)), (180.0 - half, 180.0))
+
+
+def derive_answer_bands(profile, scene, params) -> list[tuple[float, float]]:
+    """Equal-width bands across a profile's declared domain, for this scene.
+
+    ``answer_shape.equal_bands`` says how many.  Because the edges are derived
+    from the same ``effective_half_fov`` the visibility gate uses, declared and
+    reachable width are equal by construction: the mismatch that produced the
+    dead zone cannot be expressed here.
+    """
+
+    domain = profile.get("answer_domain")
+    if domain is None:
+        raise ValueError(f"{profile.get('id')}: no answer_domain to derive from")
+    count = int((profile.get("answer_shape") or {}).get("equal_bands", 0))
+    if count < 1:
+        raise ValueError(
+            f"{profile.get('id')}: answer_shape.equal_bands must be >= 1 to "
+            f"derive bands for domain {domain!r}")
+    bands: list[tuple[float, float]] = []
+    arcs = answer_domain_arcs(domain, scene, params)
+    total = sum(hi - lo for lo, hi in arcs)
+    for lo, hi in arcs:
+        share = max(1, round(count * (hi - lo) / total))
+        step = (hi - lo) / share
+        bands.extend((lo + i * step, lo + (i + 1) * step) for i in range(share))
+    return bands
+
+
+def audit_answer_bands(scene, params, profiles) -> dict:
+    """Reconcile every profile's answer bands against this scene's camera.
+
+    Two regimes, deliberately different:
+
+    A profile that declares ``answer_domain`` has its bands derived here, and a
+    hand-written ``answer_bands_deg`` alongside them must agree -- the floor
+    rule pointed at the camera (see ``load_scene``'s ``ground_z_ue_cm`` check,
+    written after a hand-written 0 put every rendered dog 27 cm under the
+    floor).  Disagreement is refused, not silently narrowed.
+
+    A legacy profile carrying only ``answer_bands_deg`` keeps working exactly as
+    before -- this audit does not reject it, because the 21 shipped profiles are
+    that shape and changing what they generate is a separate, visible decision.
+    What it does is *measure* the unreachable part of every band and return it,
+    so the manifest of every run carries the number instead of nobody holding
+    it.  On this rig the outer card1 bands report 5.0 of their 35 deg
+    unreachable, which is why their achieved distribution cannot be uniform and
+    why the 1/3 majority baseline the shortcut probes quote is optimistic.
+    """
+
+    half = effective_half_fov(scene, params)
+    derived, legacy = {}, {}
+    for profile in profiles:
+        pid = profile.get("id")
+        declared = profile.get("answer_bands_deg")
+        if profile.get("answer_domain") is not None:
+            bands = derive_answer_bands(profile, scene, params)
+            if declared is not None:
+                same = (len(declared) == len(bands) and all(
+                    abs(float(a) - b) <= 1e-9
+                    for pair, band in zip(declared, bands, strict=True)
+                    for a, b in zip(pair, band, strict=True)))
+                if not same:
+                    raise ValueError(
+                        f"{pid}: answer_bands_deg {[list(b) for b in declared]} "
+                        f"disagrees with what domain "
+                        f"{profile['answer_domain']!r} derives for this scene, "
+                        f"{[list(b) for b in bands]}. Drop the hand-written "
+                        f"table -- the domain is the input now")
+            derived[pid] = [list(b) for b in bands]
+            continue
+        if not declared:
+            continue
+        unreachable = 0.0
+        for lo, hi in declared:
+            lo, hi = float(lo), float(hi)
+            reach_lo, reach_hi = max(lo, -half), min(hi, half)
+            unreachable += (hi - lo) - max(0.0, reach_hi - reach_lo)
+        legacy[pid] = {
+            "declared_total_deg": round(
+                sum(float(hi) - float(lo) for lo, hi in declared), 6),
+            "unreachable_deg": round(unreachable, 6),
+        }
+    return {"usable_half_angle_deg": half,
+            "derived_from_domain": derived,
+            "legacy_declared_degrees": legacy}
+
+
 def interior_answer_band(band_lo: float, band_hi: float, params):
     margin = float(params.get("ANSWER_BAND_INTERIOR_MARGIN_DEG", 0.0))
     if (

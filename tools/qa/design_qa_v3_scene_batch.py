@@ -957,6 +957,7 @@ def main(argv=None) -> int:
     params = materialize_derived_params(params, profiles)
     SS.require_camera_clearance(scene, params)
     SS.require_route_synthesis(scene, params)
+    answer_band_audit = SS.audit_answer_bands(scene, params, profiles)
     # Every program policy value, the gain ceiling included, is read here so a
     # bad params file fails before the output directory exists.  Found on
     # 2026-09-03 by the review session's positive control: the gain check lived
@@ -1012,7 +1013,8 @@ def main(argv=None) -> int:
     for sub in per_profile_ledger.values():
         ledger.absorb(sub)
     write_outputs(args, scene, scene_cfg, profiles, params, ledger, made,
-                  rejected, records, per_profile_ledger, cells=cells)
+                  rejected, records, per_profile_ledger, cells=cells,
+                  answer_band_audit=answer_band_audit)
     print(json.dumps({"out": str(args.out_root), "scene": scene.scene_id,
                       "geometry_candidates": len(made),
                       "cells_requested": len(cells),
@@ -2123,7 +2125,8 @@ def card8_diagnostics(params, records):
 
 
 def write_outputs(args, scene, scene_cfg, profiles, params, ledger, made,
-                  rejected, records, per_profile_ledger=None, cells=None):
+                  rejected, records, per_profile_ledger=None, cells=None,
+                  answer_band_audit=None):
     by_profile = Counter(r["profile_id"] for r in records)
     coat_of_slot1 = Counter(r["slot_coat"]["source1"] for r in records)
     target_slots = Counter(r["target_slot"] for r in records)
@@ -2141,6 +2144,9 @@ def write_outputs(args, scene, scene_cfg, profiles, params, ledger, made,
                                if r.get("gatea"))
     manifest = {
         "schema": "qa_v3_scene_batch_manifest_v1",
+        # 每个批次都把答案带跟本场景相机的对账结果带上:声明多少度、其中多少度
+        # 根本到不了。没有它,外侧带 5.0 度的死区就只存在于某个人某天的记忆里。
+        "answer_band_audit": answer_band_audit,
         "code": git_worktree_state(),
         "inputs": {
             "scene_config": str(args.scene_config.resolve()),
