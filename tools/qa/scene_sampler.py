@@ -44,6 +44,12 @@ from route_synthesis import (  # noqa: E402
     SynthesisSettings,
 )
 from walkable_grid import WalkableGrid, grid_from_config  # noqa: E402
+from floor_reference import (
+    MATCH_TOLERANCE_CM as FLOOR_MATCH_TOLERANCE_CM,
+    FloorReference,
+    FloorReferenceError,
+    floor_reference_from_config,
+)
 
 FRAME_COUNT = 75
 
@@ -182,6 +188,7 @@ class SceneInputs:
     render_config: dict = field(default_factory=dict)
     clearance: CameraClearanceTable | None = None
     walkable: WalkableGrid | None = None
+    floor: FloorReference | None = None
 
     @property
     def line_of_sight_screened(self) -> bool:
@@ -341,6 +348,31 @@ def load_scene(config: dict, *, route_limit: int | None = None) -> SceneInputs:
     render_config = config.get("render") or {}
     if not isinstance(render_config, dict):
         raise ValueError(f"{config['scene_id']}: render must be an object")
+    floor = None
+    floor_config = config.get("floor_reference")
+    if floor_config is not None:
+        # 地板参照是房间的属性:引擎里量出来的地板高度,必须是这个房间的。
+        try:
+            floor = floor_reference_from_config(floor_config)
+        except FloorReferenceError as error:
+            raise ValueError(f"{config['scene_id']}: {error}") from error
+        if floor.scene_id != str(config["scene_id"]):
+            raise ValueError(
+                f"{config['scene_id']}: floor reference belongs to {floor.scene_id!r}")
+    if render_config:
+        # 要渲染的房间必须先量过地板(2026-09-03 Apartment 的 ground_z_ue_cm 手写成 0,
+        # 实际地板在 +27 cm,所有渲染的狗都陷进地板)。配置里写的 ground_z_ue_cm 必须
+        # 等于实测值,不然拒绝载入,而不是带着错的地面继续设计。
+        if floor is None:
+            raise ValueError(
+                f"{config['scene_id']}: render facts require a measured floor_reference; "
+                f"render.ground_z_ue_cm may not be a hand-written constant")
+        declared = render_config.get("ground_z_ue_cm")
+        if declared is None or not floor.matches(float(declared)):
+            raise ValueError(
+                f"{config['scene_id']}: render.ground_z_ue_cm={declared} disagrees with the "
+                f"measured floor {floor.ground_z_ue_cm} cm (tolerance "
+                f"{FLOOR_MATCH_TOLERANCE_CM} cm) in {floor.root}")
     los_config = config.get("line_of_sight_grid")
     line_of_sight = None if los_config is None else line_of_sight_from_feasible_grid(los_config)
     clearance = None
@@ -363,6 +395,13 @@ def load_scene(config: dict, *, route_limit: int | None = None) -> SceneInputs:
             raise ValueError(
                 f"{config['scene_id']}: camera clearance table lacks the scene "
                 f"camera height {height} m (has {clearance.heights_m.tolist()})")
+        table_ground = clearance.ground_z_ue_cm
+        if table_ground is not None and floor is not None and not floor.matches(table_ground):
+            # 表按绝对 z 渲:地板量错时渲的表,相机离地高度就是错的,必须重渲。
+            raise ValueError(
+                f"{config['scene_id']}: camera clearance table was rendered from ground z "
+                f"{table_ground} cm but the measured floor is {floor.ground_z_ue_cm} cm; "
+                f"re-render the table at the measured floor")
     walkable = None
     grid_config = config.get("walkable_grid")
     if grid_config is not None:
@@ -393,10 +432,13 @@ def load_scene(config: dict, *, route_limit: int | None = None) -> SceneInputs:
                         clearance.identity if clearance is not None else None),
                     "walkable_grid": (
                         walkable.identity if walkable is not None else None),
+                    "floor_reference": (
+                        floor.identity if floor is not None else None),
                     "navigable_points": len(ordered)},
         render_config=dict(render_config),
         clearance=clearance,
         walkable=walkable,
+        floor=floor,
     )
 
 

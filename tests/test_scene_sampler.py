@@ -572,7 +572,8 @@ def test_scene_hfov_is_read_from_the_contract_and_never_defaulted(tmp_path):
 # ---------------------------------------------------------------------------
 
 def _write_clearance_table(root, scene, *, blocked_sector=(-30.0, 30.0),
-                           heights=(1.47,), blocked_at=None, yaw_step=2.0):
+                           heights=(1.47,), blocked_at=None, yaw_step=2.0,
+                           ground_z_ue_cm=None):
     """A synthetic table: every camera point is blocked when the camera faces
     into `blocked_sector` (world yaw), clear elsewhere.  `blocked_at` limits
     the blockage to the listed camera heights (default: all heights)."""
@@ -604,7 +605,9 @@ def _write_clearance_table(root, scene, *, blocked_sector=(-30.0, 30.0),
         "summaries": {"path": "summaries.npz", "yaw_step_deg": yaw_step},
         "faces": {"shards": []},
         "points": {"keys": [point_key(xy) for xy in points]},
-        "stage": {"native_map": "/Game/synthetic"}}))
+        "stage": {"native_map": "/Game/synthetic"},
+        **({"camera_contract": {"ground_z_ue_cm": ground_z_ue_cm}}
+           if ground_z_ue_cm is not None else {})}))
     return root
 
 
@@ -745,6 +748,45 @@ def test_load_scene_rejects_a_table_that_does_not_fit_the_scene(tmp_path):
     with_table = load_scene(dict(config, camera_clearance_table=str(good)))
     assert with_table.camera_clearance_screened
     assert with_table.provenance["camera_clearance_table"]["points"] == len(loaded.camera_points)
+
+
+def test_load_scene_refuses_a_clearance_table_rendered_from_another_floor(tmp_path):
+    """2026-09-03: the Apartment table was rendered with ground z 0 while the floor is
+    at +27 cm.  Once the floor is measured, such a table must be refused, not reused."""
+    from floor_reference import summarize_floor_hits, write_floor_reference
+    scene = synthetic_scene()
+    bank = tmp_path / "bank.json"
+    bank.write_text(json.dumps({
+        "schema": "avengine_apartment_route_bank_v1",
+        "routes": [{"route_id": r.route_id,
+                    "samples_ue_cm": [[p[0], p[1], 0.0] for p in r.samples_xy],
+                    "implied_speed_mps": r.implied_speed_mps}
+                   for r in scene.routes]}))
+    base = tmp_path / "base.json"
+    base.write_text(json.dumps({
+        "primary_camera_rig": {"world_from_rig": {"translation_m": [0, 1.47, 0]},
+                               "shared_calibration": {"hfov_degrees": 105.0}},
+        "listener": {"rig_from_listener": {"translation_m": [0, 0, 0]}}}))
+    hits = [27.1] * 300
+    write_floor_reference(tmp_path / "floor", scene_id="synth_a", native_map="/Game/synthetic",
+                          method={"kind": "test"},
+                          summary=summarize_floor_hits(hits, total_traces=300), rows=[],
+                          thresholds={"min_hits": 200, "min_hit_fraction": 0.98,
+                                      "min_within_fraction": 0.95})
+    config = {"scene_id": "synth_a", "backend": "synthetic", "route_bank": str(bank),
+              "camera_base_request": str(base), "floor_reference": str(tmp_path / "floor"),
+              "render": {"native_map": "/Game/synthetic", "room_profile_id": "synthetic",
+                         "world_transform": "ue_xyz_cm_to_xzy_m_v1", "ground_z_ue_cm": 27.1}}
+    loaded = load_scene(config)
+    assert loaded.floor is not None and loaded.provenance["floor_reference"]["ground_z_ue_cm"] == 27.1
+    stale = _write_clearance_table(tmp_path / "stale", loaded, ground_z_ue_cm=0.0)
+    with pytest.raises(ValueError, match="rendered from ground z"):
+        load_scene(dict(config, camera_clearance_table=str(stale)))
+    fresh = _write_clearance_table(tmp_path / "fresh", loaded, ground_z_ue_cm=27.1)
+    assert load_scene(dict(config, camera_clearance_table=str(fresh))).camera_clearance_screened
+    # a table without a camera contract (synthetic fixtures) is not judged
+    legacy = _write_clearance_table(tmp_path / "legacy", loaded)
+    assert load_scene(dict(config, camera_clearance_table=str(legacy))).camera_clearance_screened
 
 
 # ---------------------------------------------------------------------------

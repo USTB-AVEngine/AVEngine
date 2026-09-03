@@ -258,6 +258,18 @@ class CameraClearanceTable:
                 "yaw_step_deg": self.yaw_step_deg,
                 "stage": self.index.get("stage")}
 
+    @property
+    def ground_z_ue_cm(self) -> float | None:
+        """Absolute floor height the camera heights were rendered from.
+
+        None for tables without a camera contract (synthetic fixtures).  A
+        production table rendered from the wrong floor must not be reused
+        after the floor is re-measured: its absolute camera z would be wrong.
+        """
+        contract = self.index.get("camera_contract") or {}
+        value = contract.get("ground_z_ue_cm")
+        return None if value is None else float(value)
+
     # -- indices -----------------------------------------------------------
     def point_index(self, xy: Sequence[float]) -> int:
         key = point_key(xy)
