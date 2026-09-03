@@ -217,7 +217,7 @@ CARD8_WIDE_TOLERANCE_ROLE = "diagnostic_only"
 CARD8_MIN_SEPARATION_RULE = "first_call_onset_gap > max(T_HALF, 2 * T_FULL)"
 
 
-def card8_scoring_params(params) -> dict:
+def card8_scoring_params(params, *, historical_record: bool = False) -> dict:
     """⑧ 首叫链的显式评分参数;缺 T_FULL 直接 fail-closed。
 
     正式 Open 按 strict T_FULL 判满分(宽带 T_HALF 只作诊断),所以生成端的
@@ -225,18 +225,28 @@ def card8_scoring_params(params) -> dict:
     中点"这类 A-only 策略在 strict 评分下拿不到满分 —— 后者要求间隔严格大于
     2 * T_FULL。T_FULL 的终值等人类校准:这里只记录参数文件给出的值与它的
     状态字段,不替它写 final。
+
+    生成路径 (historical_record=False) 必填 T_FULL_status。审计/复核历史
+    批次时传 historical_record=True:允许缺这个键,输出写成
+    unspecified_in_historical_record,一眼能看出是老数据。
     """
-    missing = [key for key in ("T_FULL", "T_HALF", "T_FULL_status")
-               if key not in params]
+    missing = [key for key in ("T_FULL", "T_HALF") if key not in params]
     if missing:
         raise AudioProfileError(
             f"card8 requires explicit scoring params {missing}; the minimum "
             "first-call separation cannot be derived without them")
+    if not historical_record and "T_FULL_status" not in params:
+        raise AudioProfileError(
+            "card8 requires explicit scoring params ['T_FULL_status']; the "
+            "minimum first-call separation cannot be derived without them")
     t_full = float(params["T_FULL"])
     t_half = float(params["T_HALF"])
-    status = str(params["T_FULL_status"])
-    if not status:
-        raise AudioProfileError("T_FULL_status is empty")
+    if historical_record and "T_FULL_status" not in params:
+        status = "unspecified_in_historical_record"
+    else:
+        status = str(params["T_FULL_status"])
+        if not status:
+            raise AudioProfileError("T_FULL_status is empty")
     if not (math.isfinite(t_full) and math.isfinite(t_half)):
         raise AudioProfileError("T_FULL and T_HALF must be finite seconds")
     if t_full <= 0.0 or t_half <= 0.0:

@@ -26,6 +26,7 @@ EP1, EP2 = "qa_v2_dog_1_collie_muzzle", "qa_v2_dog_2_labrador_muzzle"
 
 PARAMS = {"THETA_FULL": 15.0, "THETA_HALF": 30.0, "T_HALF": 0.9,
           "T_FULL": 0.4, "T_FULL_status": "placeholder_research",
+          "SAMPLE_RATE_HZ": 16000,
           "TAIL_MIN_S": 1.5, "MIN_AZIMUTH_SEP": 25.0,
           "MIN_DIST_CHANGE_CM": 50.0, "MIN_CARD7_FRAMES": 8,
           "BANDS": [0.0, 1.25, 2.5, 3.75, 5.0],
