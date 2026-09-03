@@ -909,13 +909,29 @@ def _synthesis_pose(scene: SceneInputs, params: dict, rng, ledger: "RejectionLed
 DESIGN_EDGE_MARGIN_DEG = 0.25   # keep designed azimuths off band and FOV edges
 
 
-def _design_band(band, half_fov: float) -> tuple[float, float]:
-    """Interior of an azimuth band (or of the field of view) for a designed point."""
+def _design_band(band, half_fov: float, *,
+                 bound_deg: float | None = None) -> tuple[float, float]:
+    """Interior of an azimuth band (or of the field of view) for a designed point.
+
+    ``bound_deg`` is the widest bearing a designed point may take.  It defaults
+    to ``half_fov`` because every question shipped before 2026-09-04 answers
+    about something the camera can see, so a drawn bearing outside the cone
+    would be a candidate the pixel join could never accept.
+
+    The off-screen family the owner opened on 2026-09-03 answers about a sound
+    whose source is never visible, and vision provably contributes nothing there
+    (the frames can be blanked without the family losing a point).  Those
+    profiles pass ``bound_deg=180`` so the draw covers the circle.  Passing
+    nothing keeps the old bound exactly, which is why no existing caller
+    changes behaviour.
+    """
+
+    bound = float(half_fov) if bound_deg is None else float(bound_deg)
     if band is None:
-        lo, hi = -float(half_fov), float(half_fov)
+        lo, hi = -bound, bound
     else:
         lo, hi = float(band[0]), float(band[1])
-    lo, hi = max(lo, -float(half_fov)), min(hi, float(half_fov))
+    lo, hi = max(lo, -bound), min(hi, bound)
     if hi - lo <= 2.0 * DESIGN_EDGE_MARGIN_DEG:
         return lo, hi
     return lo + DESIGN_EDGE_MARGIN_DEG, hi - DESIGN_EDGE_MARGIN_DEG
