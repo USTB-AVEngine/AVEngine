@@ -706,15 +706,18 @@ def route_synthesizer(scene: SceneInputs, params: dict) -> RouteSynthesizer | No
     return RouteSynthesizer(scene.walkable, settings)
 
 
-def bank_attempt_budget(synth: RouteSynthesizer | None, max_attempts: int) -> int:
-    """How many attempts draw from the bank before the solver starts designing.
+def attempt_budgets(synth: RouteSynthesizer | None, max_attempts: int) -> tuple[int, int]:
+    """(bank attempts, total attempts) for one solve.
 
-    Bank first: recorded routes are the more natural ones, so a cell the bank
-    can fill is filled from the bank; synthesis only spends the rest of the
-    budget.  Without a synthesizer every attempt is a bank attempt."""
+    Bank first, and the bank keeps the whole budget the profile declares, so a
+    scene that could fill a cell from recorded routes behaves exactly as it
+    did before synthesis existed.  Designed routes get their own extra budget
+    (ROUTE_SYNTHESIS_ATTEMPTS) after the bank budget is spent.  Without a
+    synthesizer every attempt is a bank attempt."""
+    bank = int(max_attempts)
     if synth is None:
-        return int(max_attempts)
-    return min(int(synth.settings.bank_attempts), int(max_attempts))
+        return bank, bank
+    return bank, bank + int(synth.settings.synthesized_attempts)
 
 
 def route_synthesis_report(scene: SceneInputs, params: dict) -> dict:
@@ -817,9 +820,9 @@ def solve_forward_cross_time(scene: SceneInputs, params: dict, *,
     pool = target_route_pool(scene, params)
     n_routes, n_cams = len(pool), len(scene.camera_points)
     synth = route_synthesizer(scene, params)
-    bank_attempts = bank_attempt_budget(synth, max_attempts)
+    bank_attempts, total_attempts = attempt_budgets(synth, max_attempts)
     solve_lo, solve_hi = interior_answer_band(band_lo, band_hi, params)
-    for attempt in range(1, max_attempts + 1):
+    for attempt in range(1, total_attempts + 1):
         ledger.note_combination()
         if synth is None or attempt <= bank_attempts:
             ledger.synthesis["bank_attempts"] += 1
@@ -958,7 +961,8 @@ def solve_forward_cross_time(scene: SceneInputs, params: dict, *,
         )
     ledger.budget_exhausted += 1
     return Rejection("no_candidate_within_attempt_budget",
-                     f"{max_attempts} attempts")
+                     f"{total_attempts} attempts ({bank_attempts} bank, "
+                     f"{total_attempts - bank_attempts} designed)")
 
 
 def solve_backward_cross_time(scene: SceneInputs, params: dict, *,
@@ -984,9 +988,9 @@ def solve_backward_cross_time(scene: SceneInputs, params: dict, *,
     pool = target_route_pool(scene, params)
     n_routes, n_cams = len(pool), len(scene.camera_points)
     synth = route_synthesizer(scene, params)
-    bank_attempts = bank_attempt_budget(synth, max_attempts)
+    bank_attempts, total_attempts = attempt_budgets(synth, max_attempts)
     solve_lo, solve_hi = interior_answer_band(band_lo, band_hi, params)
-    for attempt in range(1, max_attempts + 1):
+    for attempt in range(1, total_attempts + 1):
         ledger.note_combination()
         if synth is None or attempt <= bank_attempts:
             ledger.synthesis["bank_attempts"] += 1
@@ -1114,7 +1118,8 @@ def solve_backward_cross_time(scene: SceneInputs, params: dict, *,
         )
     ledger.budget_exhausted += 1
     return Rejection("no_candidate_within_attempt_budget",
-                     f"{max_attempts} attempts")
+                     f"{total_attempts} attempts ({bank_attempts} bank, "
+                     f"{total_attempts - bank_attempts} designed)")
 
 
 def _too_close(camera, point, params) -> bool:
@@ -1270,8 +1275,8 @@ def solve_instant_azimuth(scene: SceneInputs, params: dict, *,
     pool = target_route_pool(scene, params)
     n_routes, n_cams = len(pool), len(scene.camera_points)
     synth = route_synthesizer(scene, params)
-    bank_attempts = bank_attempt_budget(synth, max_attempts)
-    for attempt in range(1, max_attempts + 1):
+    bank_attempts, total_attempts = attempt_budgets(synth, max_attempts)
+    for attempt in range(1, total_attempts + 1):
         ledger.note_combination()
         if synth is None or attempt <= bank_attempts:
             ledger.synthesis["bank_attempts"] += 1
@@ -1355,7 +1360,8 @@ def solve_instant_azimuth(scene: SceneInputs, params: dict, *,
         )
     ledger.budget_exhausted += 1
     return Rejection("no_candidate_within_attempt_budget",
-                     f"{max_attempts} attempts")
+                     f"{total_attempts} attempts ({bank_attempts} bank, "
+                     f"{total_attempts - bank_attempts} designed)")
 
 def solve_instant_distance_order(scene: SceneInputs, params: dict, *,
                                  query_frame: int, profile_id: str,
@@ -1371,8 +1377,8 @@ def solve_instant_distance_order(scene: SceneInputs, params: dict, *,
     pool = target_route_pool(scene, params)
     n_routes, n_cams = len(pool), len(scene.camera_points)
     synth = route_synthesizer(scene, params)
-    bank_attempts = bank_attempt_budget(synth, max_attempts)
-    for attempt in range(1, max_attempts + 1):
+    bank_attempts, total_attempts = attempt_budgets(synth, max_attempts)
+    for attempt in range(1, total_attempts + 1):
         ledger.note_combination()
         if synth is None or attempt <= bank_attempts:
             ledger.synthesis["bank_attempts"] += 1
@@ -1496,7 +1502,8 @@ def solve_instant_distance_order(scene: SceneInputs, params: dict, *,
         )
     ledger.budget_exhausted += 1
     return Rejection("no_candidate_within_attempt_budget",
-                     f"{max_attempts} attempts")
+                     f"{total_attempts} attempts ({bank_attempts} bank, "
+                     f"{total_attempts - bank_attempts} designed)")
 
 
 
@@ -1529,7 +1536,7 @@ def solve_distance_change_pair(scene: SceneInputs, params: dict, *,
         return None
 
     synth = route_synthesizer(scene, params)
-    bank_attempts = bank_attempt_budget(synth, max_attempts)
+    bank_attempts, total_attempts = attempt_budgets(synth, max_attempts)
 
     def screen_target(camera, moved):
         """Distance floor at both frames and the allocated relation; None with
@@ -1549,7 +1556,7 @@ def solve_distance_change_pair(scene: SceneInputs, params: dict, *,
             return None
         return target_delta
 
-    for attempt in range(1, max_attempts + 1):
+    for attempt in range(1, total_attempts + 1):
         ledger.note_combination()
         if synth is None or attempt <= bank_attempts:
             ledger.synthesis["bank_attempts"] += 1
@@ -1685,7 +1692,8 @@ def solve_distance_change_pair(scene: SceneInputs, params: dict, *,
         )
     ledger.budget_exhausted += 1
     return Rejection("no_candidate_within_attempt_budget",
-                     f"{max_attempts} attempts")
+                     f"{total_attempts} attempts ({bank_attempts} bank, "
+                     f"{total_attempts - bank_attempts} designed)")
 
 
 def solve_motion_state_pair(scene: SceneInputs, params: dict, *,
@@ -1719,7 +1727,7 @@ def solve_motion_state_pair(scene: SceneInputs, params: dict, *,
                 else displacement <= 1.0e-6)
 
     synth = route_synthesizer(scene, params)
-    bank_attempts = bank_attempt_budget(synth, max_attempts)
+    bank_attempts, total_attempts = attempt_budgets(synth, max_attempts)
 
     def screen_target(shifted):
         """Full-clip motion and the allocated window state; None with a ledger
@@ -1733,7 +1741,7 @@ def solve_motion_state_pair(scene: SceneInputs, params: dict, *,
             return None
         return target
 
-    for attempt in range(1, max_attempts + 1):
+    for attempt in range(1, total_attempts + 1):
         ledger.note_combination()
         if synth is None or attempt <= bank_attempts:
             ledger.synthesis["bank_attempts"] += 1
@@ -1860,7 +1868,8 @@ def solve_motion_state_pair(scene: SceneInputs, params: dict, *,
         )
     ledger.budget_exhausted += 1
     return Rejection("no_candidate_within_attempt_budget",
-                     f"{max_attempts} attempts")
+                     f"{total_attempts} attempts ({bank_attempts} bank, "
+                     f"{total_attempts - bank_attempts} designed)")
 def solve_instant_binding(scene: SceneInputs, params: dict, *,
                           instants: Sequence[int], profile_id: str,
                           idle_choices: Iterable[int], rng,
@@ -1879,8 +1888,8 @@ def solve_instant_binding(scene: SceneInputs, params: dict, *,
     pool = target_route_pool(scene, params)
     n_routes, n_cams = len(pool), len(scene.camera_points)
     synth = route_synthesizer(scene, params)
-    bank_attempts = bank_attempt_budget(synth, max_attempts)
-    for attempt in range(1, max_attempts + 1):
+    bank_attempts, total_attempts = attempt_budgets(synth, max_attempts)
+    for attempt in range(1, total_attempts + 1):
         ledger.note_combination()
         if synth is None or attempt <= bank_attempts:
             ledger.synthesis["bank_attempts"] += 1
@@ -1996,4 +2005,5 @@ def solve_instant_binding(scene: SceneInputs, params: dict, *,
         )
     ledger.budget_exhausted += 1
     return Rejection("no_candidate_within_attempt_budget",
-                     f"{max_attempts} attempts")
+                     f"{total_attempts} attempts ({bank_attempts} bank, "
+                     f"{total_attempts - bank_attempts} designed)")

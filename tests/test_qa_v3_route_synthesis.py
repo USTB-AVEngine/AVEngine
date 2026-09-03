@@ -1,9 +1,10 @@
 """Route synthesis: a designed route is an ordinary route under the same checks.
 
 合成场景(一间带中央岛台的方房)证明:合成路线在关键帧准确落进方位带与
-距离范围、速度在声明范围内、整条路线不出可走区;库里抽不到时求解器才合成,
-合成候选与库候选走完全相同的检查并把来源记进 checks;开了合成却没有栅格
-就拒绝启动;同一种子结果可复现。不引用任何真实房间。
+距离范围、速度由反解保证落在声明范围、前后腿只在设计帧转向、实际占用的
+每一帧都在可走区内;库预算用完求解器才合成,合成候选与库候选走完全相同的
+检查并把来源记进 checks;开了合成却没有栅格就拒绝启动;同一种子结果可复现。
+不引用任何真实房间。
 """
 
 from __future__ import annotations
@@ -24,6 +25,7 @@ from scene_sampler import (  # noqa: E402
     RejectionLedger,
     Route,
     SceneInputs,
+    attempt_budgets,
     circular_gap_deg,
     load_scene,
     relative_azimuth_deg,
@@ -44,7 +46,8 @@ from route_synthesis import (  # noqa: E402
     PointSpec,
     RouteSynthesizer,
     SynthesisSettings,
-    line_samples,
+    polyline_positions,
+    solve_ray_distance,
 )
 from walkable_grid import WalkableGrid, write_walkable_grid  # noqa: E402
 from build_qa_v3_walkable_grid import validate_against_scene  # noqa: E402
@@ -56,7 +59,8 @@ SYNTH = dict(PARAMS, ROUTE_SYNTHESIS_ENABLED=True,
              ROUTE_SYNTHESIS_SPEED_MPS_RANGE=[0.6, 1.5],
              ROUTE_SYNTHESIS_WALKABLE_MARGIN_M=0.3,
              ROUTE_SYNTHESIS_MAX_CAMERA_DISTANCE_CM=600.0,
-             ROUTE_BANK_ATTEMPTS_BEFORE_SYNTHESIS=40)
+             ROUTE_SYNTHESIS_ATTEMPTS=2500,
+             ROUTE_SYNTHESIS_MAX_TURN_DEG=90.0)
 ROOM_CM = 1400.0
 CELL_CM = 10.0
 ISLAND = (-100.0, -100.0, 100.0, 100.0)      # a 2 m furniture island in the middle
@@ -130,12 +134,17 @@ def test_settings_fail_closed(tmp_path):
         SynthesisSettings.from_params(dict(SYNTH, ROUTE_SYNTHESIS_SPEED_MPS_RANGE=[1.5, 0.6]))
     with pytest.raises(ValueError, match="MARGIN"):
         SynthesisSettings.from_params(dict(SYNTH, ROUTE_SYNTHESIS_WALKABLE_MARGIN_M=-1))
+    with pytest.raises(ValueError, match="TURN"):
+        SynthesisSettings.from_params(dict(SYNTH, ROUTE_SYNTHESIS_MAX_TURN_DEG=200))
     settings = SynthesisSettings.from_params(SYNTH)
-    assert settings.margin_cm == 30.0 and settings.bank_attempts == 40
+    assert settings.margin_cm == 30.0 and settings.synthesized_attempts == 2500
+    assert settings.max_turn_deg == 90.0
+    assert attempt_budgets(None, 300) == (300, 300)
     grid = room_grid(tmp_path / "grid")
     scene = short_bank_scene(grid)
     require_route_synthesis(scene, PARAMS)           # off: nothing to require
     require_route_synthesis(scene, SYNTH)
+    assert attempt_budgets(route_synthesizer(scene, SYNTH), 300) == (300, 2800)
     scene.walkable = None
     with pytest.raises(ValueError, match="walkable_grid"):
         require_route_synthesis(scene, SYNTH)
@@ -154,14 +163,29 @@ def test_settings_fail_closed(tmp_path):
 # the synthesizer itself
 # ---------------------------------------------------------------------------
 
-def test_designed_route_passes_through_its_points_at_the_declared_speed(tmp_path):
+def test_ray_distance_solver_and_polyline_geometry():
+    # camera at the origin, ray along +x, target at (300, 400): distance 500
+    assert solve_ray_distance((0.0, 0.0), 0.0, (300.0, 400.0), 400.0) == [300.0]
+    assert solve_ray_distance((0.0, 0.0), 0.0, (300.0, 400.0), 500.0) == [0.0, 600.0]
+    assert solve_ray_distance((0.0, 0.0), 0.0, (300.0, 400.0), 100.0) == []
+    # a straight two-point leg with idle un-shift
+    line = polyline_positions([(0, (0.0, 0.0)), (10, (10.0, 0.0))], 1.0, 0.0, 0.0, 0)
+    assert line[5] == (5.0, 0.0) and line[74] == (74.0, 0.0)
+    assert polyline_positions([(0, (0.0, 0.0)), (10, (10.0, 0.0))], 1.0, 0.0, 0.0, 4)[0] == (4.0, 0.0)
+    # one designed frame: the incoming leg may turn at that frame
+    turned = polyline_positions([(10, (0.0, 0.0))], 1.0, 90.0, 0.0, 0)
+    assert turned[5] == pytest.approx((0.0, -5.0))
+    assert turned[15] == pytest.approx((5.0, 0.0))
+
+
+def test_designed_route_passes_through_its_points_at_a_solved_speed(tmp_path):
     grid = room_grid(tmp_path / "grid")
     synth = RouteSynthesizer(grid, SynthesisSettings.from_params(SYNTH))
     camera, yaw = (-500.0, 0.0), 0.0
     rng = np.random.default_rng(7)
     specs = [PointSpec(40, -20.0, -10.0, 300.0, 400.0), PointSpec(74, 10.0, 20.0, 300.0, 400.0)]
     built = 0
-    for _ in range(40):
+    for _ in range(100):
         for idle in (0, 8, 16):
             route, reason = synth.design(rng, camera, yaw, specs, idle_frames=idle, role="target")
             if route is None:
@@ -170,29 +194,48 @@ def test_designed_route_passes_through_its_points_at_the_declared_speed(tmp_path
             built += 1
             moved = route.shifted(idle)
             design = route.provenance["design"]
+            assert design["points"][0]["solved"] is True and design["points"][1]["solved"] is False
             for point in design["points"]:
                 xy = moved.at(point["frame"])
                 assert math.dist(xy, point["xy_cm"]) < 1e-6
                 azimuth = relative_azimuth_deg(camera, yaw, xy)
                 assert abs(azimuth - point["azimuth_deg"]) < 1e-3      # record rounds to 4 decimals
                 assert abs(math.dist(camera, xy) - point["distance_cm"]) < 1e-2
-            assert 0.6 <= design["speed_mps"] <= 1.5
+            assert 0.6 - 1e-3 <= design["speed_mps"] <= 1.5 + 1e-3
             steps = [math.dist(route.samples_xy[k], route.samples_xy[k + 1])
                      for k in range(FRAME_COUNT - 1)]
-            assert max(steps) - min(steps) < 1e-6          # constant speed
+            assert max(steps) - min(steps) < 1e-6          # one speed on every leg
             assert abs(steps[0] * 15.0 / 100.0 - design["speed_mps"]) < 1e-3
+            # headings: the middle leg joins the designed points; the legs before
+            # and after turn by the recorded angles, and nowhere else
+            def heading(a, b):
+                return math.degrees(math.atan2(b[1] - a[1], b[0] - a[0]))
+            first, last = design["points"][0]["frame"], design["points"][1]["frame"]
+            mid = heading(moved.at(first), moved.at(last))
+            assert circular_gap_deg(mid, design["heading_deg"]) < 1e-3
+            if first - 1 > idle:
+                incoming = heading(moved.at(first - 1), moved.at(first))
+                assert circular_gap_deg(incoming, mid + design["turn_in_deg"]) < 1e-3
+                assert abs(design["turn_in_deg"]) <= 90.0
+            if last < FRAME_COUNT - 1:
+                outgoing = heading(moved.at(last), moved.at(last + 1))
+                assert circular_gap_deg(outgoing, mid + design["turn_out_deg"]) < 1e-3
             assert route.source == "synthesized" and route.route_id.startswith("synth:")
             assert moved.source == "synthesized"           # provenance survives the shift
-            for xy in route.samples_xy:
+            for xy in moved.samples_xy:                    # every occupied frame keeps the margin
                 assert grid.is_walkable(xy, margin_cm=30.0)
             assert design["min_clearance_cm"] >= 30.0
-    assert built > 20
-    # a line forced through the island is refused for the right reason
-    through = [PointSpec(0, -0.5, 0.5, 300.0, 300.0), PointSpec(74, -0.5, 0.5, 700.0, 700.0)]
-    route, reason = synth.design(np.random.default_rng(1), camera, yaw, through,
-                                 idle_frames=0, role="target")
-    assert route is None and reason == REASON_WALKABLE
-    # too fast for the declared range
+            assert design["checked_frames"] == FRAME_COUNT - idle
+    assert built >= 8          # the island next to the designed points refuses many legs
+    # a leg forced across the island: nothing is built and the grid says why
+    across = [PointSpec(0, -0.5, 0.5, 250.0, 350.0), PointSpec(74, -0.5, 0.5, 650.0, 750.0)]
+    reasons = set()
+    for _ in range(40):
+        route, reason = synth.design(rng, camera, yaw, across, idle_frames=0, role="target")
+        assert route is None
+        reasons.add(reason)
+    assert REASON_WALKABLE in reasons
+    # no distance on the anchor ray gives the declared speed: refused before any walk
     fast = [PointSpec(0, 30.0, 31.0, 200.0, 200.0), PointSpec(10, -31.0, -30.0, 200.0, 200.0)]
     route, reason = synth.design(np.random.default_rng(1), camera, yaw, fast,
                                  idle_frames=0, role="target")
@@ -200,7 +243,7 @@ def test_designed_route_passes_through_its_points_at_the_declared_speed(tmp_path
     assert synth.counters["rejected"][REASON_SPEED] >= 1
 
 
-def test_one_point_design_walks_straight_from_the_designed_frame(tmp_path):
+def test_one_point_design_walks_through_the_designed_frame(tmp_path):
     grid = room_grid(tmp_path / "grid")
     synth = RouteSynthesizer(grid, SynthesisSettings.from_params(SYNTH))
     rng = np.random.default_rng(11)
@@ -211,11 +254,15 @@ def test_one_point_design_walks_straight_from_the_designed_frame(tmp_path):
     moved = route.shifted(8)
     design = route.provenance["design"]
     assert math.dist(moved.at(30), design["points"][0]["xy_cm"]) < 1e-6
-    heading = math.degrees(math.atan2(moved.at(60)[1] - moved.at(30)[1],
-                                      moved.at(60)[0] - moved.at(30)[0]))
-    assert circular_gap_deg(heading, design["heading_deg"]) < 1e-3
-    assert line_samples(0, (0.0, 0.0), 10, (10.0, 0.0), 0)[5] == (5.0, 0.0)
-    assert line_samples(0, (0.0, 0.0), 10, (10.0, 0.0), 4)[0] == (4.0, 0.0)
+    outgoing = math.degrees(math.atan2(moved.at(60)[1] - moved.at(30)[1],
+                                       moved.at(60)[0] - moved.at(30)[0]))
+    assert circular_gap_deg(outgoing, design["heading_deg"]) < 1e-3
+    incoming = math.degrees(math.atan2(moved.at(30)[1] - moved.at(10)[1],
+                                       moved.at(30)[0] - moved.at(10)[0]))
+    assert circular_gap_deg(incoming, design["heading_deg"] + design["turn_in_deg"]) < 1e-3
+    assert design["turn_out_deg"] == 0.0
+    for xy in moved.samples_xy:
+        assert grid.is_walkable(xy, margin_cm=30.0)
 
 
 # ---------------------------------------------------------------------------
@@ -242,11 +289,11 @@ def _verify_card1_plan(plan, scene, anchor_band, answer_band, anchor_frame, quer
     sources = plan.checks["route_sources"]
     assert sources["target"] in ("bank", "synthesized")
     assert sources["other"] in ("bank", "synthesized")
-    for role, route in (("target", plan.base_route), ("other", other)):
+    for role, route in (("target", plan.target_route), ("other", other)):
         if sources[role] == "synthesized":
-            for xy in route.samples_xy:
+            for xy in route.samples_xy:                    # occupied frames of the shifted route
                 assert scene.walkable.is_walkable(xy, margin_cm=30.0)
-            assert 0.6 <= route.provenance["design"]["speed_mps"] <= 1.5
+            assert 0.6 - 1e-3 <= route.provenance["design"]["speed_mps"] <= 1.5 + 1e-3
             assert route.provenance["role"] == role
 
 
@@ -263,7 +310,8 @@ def test_card1_solvers_synthesize_only_after_the_bank_budget_and_re_verify(tmp_p
     assert isinstance(outcome, Rejection)
     assert ledger.summary()["route_synthesis"]["synthesized_attempts"] == 0
     assert ledger.summary()["route_synthesis"]["bank_attempts"] == 400
-    # with synthesis every joint cell fills, and the target comes from the design
+    # with synthesis the bank keeps its whole budget, then every joint cell fills
+    # from a designed target
     ledger = RejectionLedger()
     rng = np.random.default_rng(1)
     for anchor_band in BANDS:
@@ -271,21 +319,21 @@ def test_card1_solvers_synthesize_only_after_the_bank_budget_and_re_verify(tmp_p
             plan = solve_forward_cross_time(scene, SYNTH, answer_band=answer_band,
                                             answer_bands=BANDS, anchor_frame=40,
                                             anchor_band=anchor_band, idle_choices=(0, 8, 16),
-                                            rng=rng, ledger=ledger, max_attempts=3000)
+                                            rng=rng, ledger=ledger, max_attempts=500)
             assert not isinstance(plan, Rejection), (anchor_band, answer_band, ledger.summary())
             assert plan.checks["route_sources"]["target"] == "synthesized"
-            assert plan.checks["search_attempts"] > 40
+            assert plan.checks["search_attempts"] > 500
             _verify_card1_plan(plan, scene, anchor_band, answer_band, 40, 74)
             plan_b = solve_backward_cross_time(scene, SYNTH, answer_band=answer_band,
                                                answer_bands=BANDS, anchor_frame=62, query_frame=22,
                                                anchor_band=anchor_band, idle_choices=(0, 8),
-                                               rng=rng, ledger=ledger, max_attempts=3000)
+                                               rng=rng, ledger=ledger, max_attempts=500)
             assert not isinstance(plan_b, Rejection), (anchor_band, answer_band, ledger.summary())
             assert plan_b.checks["route_sources"]["target"] == "synthesized"
             _verify_card1_plan(plan_b, scene, anchor_band, answer_band, 62, 22)
     synthesis = ledger.summary()["route_synthesis"]
-    assert synthesis["bank_attempts"] == 18 * 40
-    assert synthesis["synthesized_attempts"] > 0
+    assert synthesis["bank_attempts"] == 18 * 500
+    assert 0 < synthesis["synthesized_attempts"] <= 18 * 2500
     assert synthesis["target_built"] > 0 and synthesis["target_designs"] >= synthesis["target_built"]
 
 
@@ -294,9 +342,8 @@ def test_bank_routes_are_used_when_the_bank_suffices(tmp_path):
     scene = moving_bank_scene(grid)
     ledger = RejectionLedger()
     rng = np.random.default_rng(5)
-    bank_first = dict(SYNTH, ROUTE_BANK_ATTEMPTS_BEFORE_SYNTHESIS=3000)
     for _ in range(6):
-        plan = solve_forward_cross_time(scene, bank_first, answer_band=BANDS[1], answer_bands=BANDS,
+        plan = solve_forward_cross_time(scene, SYNTH, answer_band=BANDS[1], answer_bands=BANDS,
                                         anchor_frame=45, idle_choices=(0, 8, 16), rng=rng,
                                         ledger=ledger, max_attempts=3000)
         assert not isinstance(plan, Rejection), ledger.summary()
@@ -314,7 +361,7 @@ def test_instant_family_solvers_synthesize_when_the_bank_is_static(tmp_path):
     rng = np.random.default_rng(9)
     plan = solve_instant_azimuth(scene, SYNTH, answer_band=BANDS[0], answer_bands=BANDS,
                                  query_frame=30, profile_id="card2", idle_choices=(0, 8),
-                                 rng=rng, ledger=ledger, max_attempts=3000)
+                                 rng=rng, ledger=ledger, max_attempts=300)
     assert not isinstance(plan, Rejection), ledger.summary()
     assert plan.checks["route_sources"] == {"target": "synthesized", "other": "synthesized"}
     azimuth = relative_azimuth_deg(plan.camera_xy, plan.camera_ue_yaw_deg, plan.target_route.at(30))
@@ -323,14 +370,14 @@ def test_instant_family_solvers_synthesize_when_the_bank_is_static(tmp_path):
     assert circular_gap_deg(azimuth, other_az) >= 25.0 and abs(other_az) <= 52.5
 
     plan = solve_instant_binding(scene, SYNTH, instants=(12, 40), profile_id="card9",
-                                 idle_choices=(0, 8), rng=rng, ledger=ledger, max_attempts=3000)
+                                 idle_choices=(0, 8), rng=rng, ledger=ledger, max_attempts=300)
     assert not isinstance(plan, Rejection), ledger.summary()
     assert plan.checks["route_sources"]["target"] == "synthesized"
     assert plan.checks["min_separation_deg"] >= 25.0
 
     plan = solve_instant_distance_order(scene, SYNTH, query_frame=30, profile_id="card4R",
                                         idle_choices=(0, 8), rng=rng, ledger=ledger,
-                                        min_distance_gap_cm=50.0, max_attempts=3000)
+                                        min_distance_gap_cm=50.0, max_attempts=300)
     assert not isinstance(plan, Rejection), ledger.summary()
     assert plan.checks["route_sources"]["target"] == "synthesized"
     assert plan.checks["distance_gap_cm"] >= 50.0
@@ -339,7 +386,7 @@ def test_instant_family_solvers_synthesize_when_the_bank_is_static(tmp_path):
         plan = solve_distance_change_pair(scene, SYNTH, start_frame=40, end_frame=74,
                                           target_relation=relation, profile_id="card5R",
                                           idle_choices=(0, 8, 16), rng=rng, ledger=ledger,
-                                          min_change_cm=50.0, max_attempts=3000)
+                                          min_change_cm=50.0, max_attempts=300)
         assert not isinstance(plan, Rejection), (relation, ledger.summary())
         assert plan.checks["route_sources"]["target"] == "synthesized"
         delta = plan.checks["target_distance_delta_cm"]
@@ -351,7 +398,7 @@ def test_instant_family_solvers_synthesize_when_the_bank_is_static(tmp_path):
         plan = solve_motion_state_pair(scene, SYNTH, start_frame=29, end_frame=74,
                                        target_state=state, profile_id="card6R",
                                        idle_choices=(0, 8, 16), rng=rng, ledger=ledger,
-                                       min_motion_cm=30.0, max_attempts=3000)
+                                       min_motion_cm=30.0, max_attempts=300)
         assert not isinstance(plan, Rejection), (state, ledger.summary())
         assert plan.checks["route_sources"]["target"] == "synthesized"
         window = math.dist(plan.target_route.at(29), plan.target_route.at(74))
@@ -371,7 +418,7 @@ def test_synthesis_is_deterministic_for_a_seed(tmp_path):
         plan = solve_forward_cross_time(scene, SYNTH, answer_band=BANDS[2], answer_bands=BANDS,
                                         anchor_frame=40, anchor_band=BANDS[0],
                                         idle_choices=(0, 8, 16), rng=np.random.default_rng(21),
-                                        ledger=RejectionLedger(), max_attempts=3000)
+                                        ledger=RejectionLedger(), max_attempts=200)
         assert not isinstance(plan, Rejection)
         plans.append(plan)
     assert plans[0].base_route.route_id == plans[1].base_route.route_id
@@ -388,11 +435,11 @@ def test_ledgers_fold_synthesis_counters(tmp_path):
         plan = solve_forward_cross_time(scene, SYNTH, answer_band=BANDS[2], answer_bands=BANDS,
                                         anchor_frame=40, anchor_band=BANDS[0],
                                         idle_choices=(0, 8, 16), rng=np.random.default_rng(2),
-                                        ledger=ledger, max_attempts=3000)
+                                        ledger=ledger, max_attempts=100)
         assert not isinstance(plan, Rejection)
         total.absorb(ledger)
     summary = total.summary()
-    assert summary["route_synthesis"]["bank_attempts"] == 80
+    assert summary["route_synthesis"]["bank_attempts"] == 200
     assert summary["combinations_evaluated"] == (first.combinations_evaluated
                                                  + second.combinations_evaluated)
     assert summary["route_synthesis"]["target_built"] == 2 * first.synthesis["target_built"]
