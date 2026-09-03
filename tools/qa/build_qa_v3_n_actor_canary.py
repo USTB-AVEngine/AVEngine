@@ -23,6 +23,8 @@ from build_qa_v3_programs import (  # noqa: E402
 )
 from qa_v3_actor_selection import _actor_entry  # noqa: E402
 from make_idle_then_walk_timeline import transform_to_solved_routes  # noqa: E402
+import scene_sampler as SS  # noqa: E402
+from route_synthesis import PointSpec  # noqa: E402
 from scene_sampler import (  # noqa: E402
     effective_half_fov,
     load_scene,
@@ -77,6 +79,19 @@ def find_n_route_plan(scene, params, *, actor_count: int, seed: str,
                       binding_frames=(12, 40),
                       min_pairwise_sep_deg=15.0,
                       max_attempts=20000):
+    """Place ``actor_count`` moving actors so every one is inside the field of
+    view at every binding frame, far enough from the camera, in sight, and at
+    least ``min_pairwise_sep_deg`` from every other actor at every binding
+    frame.
+
+    Bank first, then designed routes.  The bank keeps the whole declared
+    attempt budget, so a scene that can fill the plan from recorded routes
+    behaves exactly as it did before synthesis existed; designed routes get
+    the extra ROUTE_SYNTHESIS_ATTEMPTS budget after that.  Designed candidates
+    go through the same per-actor acceptance closure as bank ones, and the
+    pairwise separation is also pushed into the draw as an exclusion window so
+    the synthesizer stops proposing routes the closure would reject anyway.
+    """
     rng = np.random.default_rng(seed_uint64(seed))
     if "MIN_CAMERA_DISTANCE_CM" not in params:
         raise ValueError("params missing MIN_CAMERA_DISTANCE_CM")
@@ -86,56 +101,105 @@ def find_n_route_plan(scene, params, *, actor_count: int, seed: str,
               if route.displacement_cm > 1.0e-6]
     if actor_count < 2:
         raise ValueError("actor_count must be at least two")
-    if len(routes) < actor_count:
+    synth = SS.route_synthesizer(scene, params)
+    bank_attempts, total_attempts = SS.attempt_budgets(synth, max_attempts)
+    if synth is None and len(routes) < actor_count:
         raise ValueError(
             f"scene has fewer than {actor_count} moving routes")
-    for attempt in range(1, max_attempts + 1):
+    designed_frames = tuple(int(frame) for frame in binding_frames)
+
+    def azimuths_of(camera, yaw, route):
+        return [relative_azimuth_deg(camera, yaw, route.at(frame))
+                for frame in designed_frames]
+
+    def acceptable(camera, yaw, route, prior_azimuths):
+        """The four per-actor checks, shared by bank and designed routes."""
+        if route.displacement_cm <= 1.0e-6:
+            return None
+        values = azimuths_of(camera, yaw, route)
+        if any(abs(value) > half_fov for value in values):
+            return None
+        if any(math.dist(camera, route.at(frame)) < min_camera_distance_cm
+               for frame in designed_frames):
+            return None
+        if scene.line_of_sight is not None and not all(
+                scene.line_of_sight(camera, route.at(frame))
+                for frame in designed_frames):
+            return None
+        if any(
+            min(abs((a - b + 180.0) % 360.0 - 180.0)
+                for a, b in zip(values, prior))
+            < min_pairwise_sep_deg
+            for prior in prior_azimuths
+        ):
+            return None
+        return values
+
+    def design_one(camera, yaw, prior_azimuths, index):
+        """One designed actor: separation from the actors already placed is an
+        exclusion window on the draw, not only a check afterwards."""
+        specs = []
+        for position, frame in enumerate(designed_frames):
+            lo, hi = SS._design_band(None, half_fov)
+            exclusions = tuple((prior[position], float(min_pairwise_sep_deg))
+                               for prior in prior_azimuths)
+            specs.append(PointSpec(frame, lo, hi, min_camera_distance_cm,
+                                   synth.settings.max_camera_distance_cm,
+                                   exclusions=exclusions))
+        route, _ = synth.design_many(rng, camera, yaw, specs, idle_frames=0,
+                                      role=f"actor{index}")
+        return route
+
+    for attempt in range(1, total_attempts + 1):
         camera = scene.camera_points[int(rng.integers(len(scene.camera_points)))]
         picked = sample_clear_yaw(scene, params, camera, -180.0, 180.0, rng, None)
         if picked is None:
             continue
         yaw, clearance = picked
-        indices = rng.permutation(len(routes))
+        indices = rng.permutation(len(routes)) if routes else []
         chosen = []
         azimuths = []
         for index in indices:
             route = routes[int(index)]
-            values = [
-                relative_azimuth_deg(camera, yaw, route.at(frame))
-                for frame in binding_frames]
-            if any(abs(value) > half_fov for value in values):
-                continue
-            if any(math.dist(camera, route.at(frame))
-                   < min_camera_distance_cm
-                   for frame in binding_frames):
-                continue
-            if scene.line_of_sight is not None and not all(
-                    scene.line_of_sight(camera, route.at(frame))
-                    for frame in binding_frames):
-                continue
-            if any(
-                min(abs((a - b + 180.0) % 360.0 - 180.0)
-                    for a, b in zip(values, prior))
-                < min_pairwise_sep_deg
-                for prior in azimuths
-            ):
+            values = acceptable(camera, yaw, route, azimuths)
+            if values is None:
                 continue
             chosen.append(route)
             azimuths.append(values)
             if len(chosen) == actor_count:
-                return {
-                    "camera_xy": camera,
-                    "camera_yaw_deg": yaw,
-                    "routes": chosen,
-                    "binding_azimuths_deg": azimuths,
-                    "search_attempts": attempt,
-                    "line_of_sight_screened": scene.line_of_sight_screened,
-                    "camera_height_m": clearance["camera_height_m"],
-                    "camera_clearance": clearance,
-                }
+                break
+        designed = 0
+        if synth is not None and attempt > bank_attempts:
+            while len(chosen) < actor_count:
+                route = design_one(camera, yaw, azimuths, len(chosen) + 1)
+                if route is None:
+                    break
+                values = acceptable(camera, yaw, route, azimuths)
+                if values is None:
+                    break
+                chosen.append(route)
+                azimuths.append(values)
+                designed += 1
+        if len(chosen) == actor_count:
+            return {
+                "camera_xy": camera,
+                "camera_yaw_deg": yaw,
+                "routes": chosen,
+                "binding_azimuths_deg": azimuths,
+                "search_attempts": attempt,
+                "line_of_sight_screened": scene.line_of_sight_screened,
+                "camera_height_m": clearance["camera_height_m"],
+                "camera_clearance": clearance,
+                "route_sources": [route.source for route in chosen],
+                "route_provenance": [route.source_record for route in chosen],
+                "designed_route_count": designed,
+                "bank_attempt_budget": bank_attempts,
+                "route_synthesis": (synth.report() if synth is not None else None),
+            }
     raise NRouteSearchExhausted(
-        f"no {actor_count}-route plan within {max_attempts} attempts",
-        evaluated_combinations=max_attempts)
+        f"no {actor_count}-route plan within {total_attempts} attempts "
+        f"({bank_attempts} of them bank-only)",
+        evaluated_combinations=total_attempts)
 
 
 def find_four_route_plan(scene, params, **kwargs):

@@ -143,6 +143,25 @@ def _selection(assets, by_id, snapshot_content):
     }
 
 
+def _route_source_counts(records):
+    """How many actor routes in this batch came from the bank vs were designed.
+
+    Counts the per-point summaries the batch collected, including a card17
+    second segment, so the manifest number cannot drift from the facts.
+    """
+    counts = {"bank": 0, "synthesized": 0, "unknown": 0}
+    designed_points = 0
+    for record in records:
+        sources = list(record.get("route_sources") or [])
+        sources += list(record.get("segment2_route_sources") or [])
+        for source in sources:
+            counts[str(source) if str(source) in counts else "unknown"] += 1
+        if any(str(source) == "synthesized" for source in sources):
+            designed_points += 1
+    return dict(counts, points_with_a_designed_route=designed_points,
+                points=len(records))
+
+
 def _author_timeline(out_dir, name, selection_path, registry_path, scene, plan):
     render = resolve_scene_render_context(scene)
     ground = float(render["ground_z_ue_cm"])
@@ -730,6 +749,17 @@ def _realise_cell(out_root, profile, cell_index, scene, params, inventory,
                 int(plan["search_attempts"])
                 + int(segment2_search_attempts)),
             "line_of_sight_screened": bool(plan["line_of_sight_screened"]),
+            "bank_attempt_budget": plan.get("bank_attempt_budget"),
+            "route_synthesis": plan.get("route_synthesis"),
+        },
+        # which of this point's actor routes came from the bank and which the
+        # solver designed, in actor order, with the full design record
+        "motion": {
+            "route_sources": list(plan.get("route_sources") or []),
+            "route_provenance": list(plan.get("route_provenance") or []),
+            "designed_route_count": plan.get("designed_route_count"),
+            "segment2_route_sources": list(
+                (segment2_plan or {}).get("route_sources") or []),
         },
     })
     if not all(facts["gatea_checks"].values()):
@@ -793,6 +823,10 @@ def _realise_cell(out_root, profile, cell_index, scene, params, inventory,
         "camera_height_m": float(plan.get("camera_height_m") or scene.camera_height_m),
         "camera_clearance": plan.get("camera_clearance"),
         "search_attempts": total_search_attempts,
+        "route_sources": list(plan.get("route_sources") or []),
+        "designed_route_count": plan.get("designed_route_count"),
+        "segment2_route_sources": list(
+            (segment2_plan or {}).get("route_sources") or []),
         "artifacts": {
             "selection": str(selection_path),
             "timeline": str(timeline_path),
@@ -892,10 +926,13 @@ def main(argv=None):
                                         if record.get("camera_height_m") is not None}),
             "walkable_grid": scene.provenance.get("walkable_grid"),
             "floor_reference": scene.provenance.get("floor_reference"),
-            # N 角色搜索仍只抽库路线;合成尚未接进 find_n_route_plan,如实记录。
+            # N 角色搜索先抽库、库不够再设计(owner 2026-09-03 要求接上)。
             "route_synthesis": dict(
-                SS.route_synthesis_report(scene, params), applied=False,
-                note="n-actor search draws bank routes only; synthesis not wired in"),
+                SS.route_synthesis_report(scene, params), applied=True,
+                realised=_route_source_counts(records),
+                note=("n-actor search fills from the bank first and designs the "
+                      "remaining actors after the bank budget; designed routes go "
+                      "through the same per-actor checks")),
         },
         "counts": {
             "cells_requested": args.cells,

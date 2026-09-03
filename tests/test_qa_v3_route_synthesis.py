@@ -526,3 +526,70 @@ def test_load_scene_reads_the_grid_and_rejects_a_grid_that_does_not_fit(tmp_path
     assert validation["bank_samples_inside_fraction"] == 1.0
     assert validation["camera_points_inside_fraction"] == 1.0
     assert set(validation["by_margin_m"]) == {"0.3"}
+
+
+def test_n_actor_search_designs_the_actors_the_bank_cannot_fill(tmp_path):
+    """Round five left the N-actor search on bank routes only; owner asked for it
+    on 2026-09-03.  With a bank that cannot seat three actors inside the field of
+    view, the search must design the rest and every actor must still pass the
+    per-actor checks."""
+    import build_qa_v3_n_actor_canary as NACTOR
+    from scene_sampler import effective_half_fov, relative_azimuth_deg
+
+    grid = room_grid(tmp_path / "grid")
+    # one usable moving route, so a three-actor plan needs two designed ones
+    routes = [straight_route("r0", (300.0, -300.0), (300.0, 300.0))]
+    scene = scene_with(grid, routes)
+    params = dict(SYNTH, MIN_CAMERA_DISTANCE_CM=150.0)
+
+    with pytest.raises(ValueError, match="fewer than 3 moving routes"):
+        NACTOR.find_n_route_plan(scene, PARAMS, actor_count=3, seed="n|bank-only",
+                                 binding_frames=(12, 40), max_attempts=50)
+
+    plan = NACTOR.find_n_route_plan(scene, params, actor_count=3, seed="n|designed",
+                                    binding_frames=(12, 40), max_attempts=25)
+    assert len(plan["routes"]) == 3
+    assert plan["designed_route_count"] >= 2
+    assert plan["route_sources"].count("synthesized") == plan["designed_route_count"]
+    assert plan["bank_attempt_budget"] == 25
+    assert plan["search_attempts"] > 25          # designed only after the bank budget
+    assert plan["route_synthesis"]["counters"]["built"] >= 2
+    assert plan["route_synthesis"]["grid"]["scene_id"] == "synth_room"
+
+    # re-verify every actor independently of the search
+    camera, yaw = plan["camera_xy"], plan["camera_yaw_deg"]
+    half_fov = effective_half_fov(scene, params)
+    azimuths = []
+    for route in plan["routes"]:
+        values = [relative_azimuth_deg(camera, yaw, route.at(frame)) for frame in (12, 40)]
+        assert all(abs(value) <= half_fov for value in values)
+        assert all(math.dist(camera, route.at(frame)) >= 150.0 for frame in (12, 40))
+        assert route.displacement_cm > 1.0e-6
+        for prior in azimuths:
+            assert min(abs((a - b + 180.0) % 360.0 - 180.0)
+                       for a, b in zip(values, prior)) >= 15.0
+        azimuths.append(values)
+        if route.source == "synthesized":
+            ok, detail = grid.route_ok(route.samples_xy, 30.0)
+            assert ok, detail
+            assert 0.6 <= route.source_record["design"]["speed_mps"] <= 1.5
+
+    # the same seed gives the same plan
+    again = NACTOR.find_n_route_plan(scene, params, actor_count=3, seed="n|designed",
+                                      binding_frames=(12, 40), max_attempts=25)
+    assert [route.route_id for route in again["routes"]] == [
+        route.route_id for route in plan["routes"]]
+
+
+def test_n_actor_search_prefers_the_bank_when_the_bank_suffices(tmp_path):
+    import build_qa_v3_n_actor_canary as NACTOR
+    grid = room_grid(tmp_path / "grid")
+    routes = [straight_route(f"r{k}", (250.0 + 60 * k, -300.0), (250.0 + 60 * k, 300.0))
+              for k in range(6)]
+    scene = scene_with(grid, routes)
+    params = dict(SYNTH, MIN_CAMERA_DISTANCE_CM=150.0)
+    plan = NACTOR.find_n_route_plan(scene, params, actor_count=2, seed="n|bank-suffices",
+                                     binding_frames=(12, 40), max_attempts=4000)
+    assert plan["route_sources"] == ["bank", "bank"]
+    assert plan["designed_route_count"] == 0
+    assert plan["search_attempts"] <= plan["bank_attempt_budget"]
