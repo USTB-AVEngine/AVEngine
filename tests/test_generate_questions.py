@@ -112,7 +112,8 @@ def run_gen(tmp_path, root, share=0.0, out_name="out"):
     out = tmp_path / out_name
     rc = main(["--design-root", str(root), "--params", str(params_p),
                "--out-root", str(out),
-               "--card7-negative-share", str(share)])
+               "--card7-negative-share", str(share),
+               "--historical-reproduction"])
     assert rc == 0
     return {c: [json.loads(line) for line in
                 (out / f"facts_{c}.jsonl").read_text().splitlines()]
@@ -203,7 +204,7 @@ def test_card8_generator_fails_closed_without_t_full(tmp_path):
         {k: v for k, v in PARAMS.items() if k != "T_FULL"}))
     out = tmp_path / "out_no_tfull"
     assert main(["--design-root", str(root), "--params", str(params_p),
-                 "--out-root", str(out), "--card7-negative-share", "0"]) == 2
+                 "--out-root", str(out), "--card7-negative-share", "0", "--historical-reproduction"]) == 2
     assert not out.exists()
 
 
@@ -214,7 +215,7 @@ def test_card8_skips_points_whose_first_calls_are_too_close(tmp_path):
     params_p.write_text(json.dumps(dict(PARAMS, T_FULL=0.6, T_HALF=1.0)))
     out = tmp_path / "out_tight"
     assert main(["--design-root", str(root), "--params", str(params_p),
-                 "--out-root", str(out), "--card7-negative-share", "0"]) == 0
+                 "--out-root", str(out), "--card7-negative-share", "0", "--historical-reproduction"]) == 0
     assert (out / "facts_card8.jsonl").read_text() == ""
     mani = json.loads((out / "generation_manifest.json").read_text())
     assert mani["counts"]["card8"] == 0
@@ -245,7 +246,7 @@ def test_card8_uses_feasible_bands_and_tolerates_outlier(tmp_path):
     params_p.write_text(json.dumps(params))
     out = tmp_path / "out_bands"
     assert main(["--design-root", str(root), "--params", str(params_p),
-                 "--out-root", str(out), "--card7-negative-share", "0"]) == 0
+                 "--out-root", str(out), "--card7-negative-share", "0", "--historical-reproduction"]) == 0
     recs = {json.loads(l)["target_slot"]: json.loads(l)
             for l in (out / "facts_card8.jsonl").read_text().splitlines()}
     # s1 首叫 0.5 → 带0 [0,0.65);s2 首叫 1.5 → 带2 [1.3,1.95)
@@ -257,7 +258,7 @@ def test_card8_uses_feasible_bands_and_tolerates_outlier(tmp_path):
                                         BANDS_CARD8=[0.0, 0.5, 1.0])))
     out2 = tmp_path / "out_bands2"
     assert main(["--design-root", str(root), "--params", str(params_p),
-                 "--out-root", str(out2), "--card7-negative-share", "0"]) == 0
+                 "--out-root", str(out2), "--card7-negative-share", "0", "--historical-reproduction"]) == 0
     recs2 = {json.loads(l)["target_slot"]: json.loads(l)
              for l in (out2 / "facts_card8.jsonl").read_text().splitlines()}
     assert recs2["source2"]["mcq"] is None
@@ -312,7 +313,19 @@ def test_no_clobber_and_stable_pick(tmp_path):
     _, out = run_gen(tmp_path, root)
     params_p = tmp_path / "params.json"
     assert main(["--design-root", str(root), "--params", str(params_p),
-                 "--out-root", str(out)]) == 2
+                 "--out-root", str(out), "--historical-reproduction"]) == 2
     assert stable_pick("seed", [1, 2, 3]) == stable_pick("seed", [1, 2, 3])
     assert stable_pick("a", list(range(50))) != stable_pick("b", list(range(50))) \
         or True  # 不同 seed 允许偶然同值,只证不抛
+
+def test_refuses_to_run_without_historical_reproduction(tmp_path, capsys):
+    root = build_design_root(tmp_path)
+    params_p = tmp_path / "params.json"
+    params_p.write_text(json.dumps(PARAMS))
+    out = tmp_path / "out"
+    rc = main(["--design-root", str(root), "--params", str(params_p),
+               "--out-root", str(out)])
+    assert rc == 2
+    assert "historical" in capsys.readouterr().err
+    assert not out.exists()
+

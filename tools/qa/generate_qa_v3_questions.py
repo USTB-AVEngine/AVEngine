@@ -41,6 +41,16 @@ from filter_cross_time_points import (  # noqa: E402
 )
 
 AUDIO_SAMPLE_RATE = 16000
+
+HISTORICAL_NOTICE = (
+    "this generator is historical: it predates the explicit T_FULL first-call "
+    "chain and the room-centric scene batch (design_qa_v3_scene_batch.py). It "
+    "bands azimuth with AZ_BANDS_CARD1 whose upper edge is +17.5, a design-era "
+    "census under a corridor-string-library-only geometry. Round 5 added route "
+    "synthesis and the right half of the frustum is reachable; current answers "
+    "reach +45. Feeding current facts into this tool silently drops about a "
+    "third of them into options_space=None. It only runs with "
+    "--historical-reproduction, for reproducing old products.")
 TICKS_PER_SAMPLE = 3
 TICKS_PER_FRAME = 3200
 VIDEO_FPS = 15
@@ -233,6 +243,10 @@ def _azimuth_band_block(truth_deg: float, params: dict) -> dict | None:
     四扇区(前/右/后/左)被 run01 证伪:目标片尾必须可见 ⇒ 方位恒在
     视锥内 ⇒ 只有"前"扇区可达,40/40 被编排器上游复检拒出。视锥等分带
     的答案空间是相机视野的属性,与走廊弦库无关。
+
+    AZ_BANDS_CARD1 是设计期普查结论,前提是"只有走廊弦库"。第五轮加了
+    路线合成之后右半视锥已通,实测能到 +45。本工具仍读那条上界 +17.5
+    的冻结带,所以它只能在 --historical-reproduction 下启动。
     """
     edges = params.get("AZ_BANDS_CARD1")
     if not edges:
@@ -415,8 +429,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--out-root", required=True, type=Path)
     parser.add_argument("--card7-negative-share", type=float, default=0.2,
                         help="卡⑦负样本(都没叫)目标占比,显式参数")
+    parser.add_argument("--historical-reproduction", action="store_true",
+                        help=HISTORICAL_NOTICE)
     args = parser.parse_args(argv)
 
+    if not args.historical_reproduction:
+        print(f"refusing to run: {HISTORICAL_NOTICE}", file=sys.stderr)
+        return 2
     if args.out_root.exists():
         print(f"refusing to overwrite existing out root: {args.out_root}",
               file=sys.stderr)
