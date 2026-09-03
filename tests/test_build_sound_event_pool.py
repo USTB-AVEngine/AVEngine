@@ -17,7 +17,7 @@ from avengine.assets.sound_pool import SoundEventPool  # noqa: E402
 from build_sound_event_pool import (  # noqa: E402
     PoolBuildError,
     build_pool_catalog,
-    sound_asset_id_for_prepared,
+    sound_asset_id_for_row,
 )
 
 
@@ -43,24 +43,28 @@ def _manifest(tmp_path: Path, rows, output_root=None) -> Path:
     return path
 
 
-def test_sound_asset_id_replaces_slashes():
-    assert sound_asset_id_for_prepared("dog_bark/clip_e000.wav") == \
-        "dog_bark__clip_e000"
+def test_sound_asset_id_comes_from_the_manifest_row():
+    assert sound_asset_id_for_row(
+        {"sound_asset_id": "sound_dog_bark_a67a7389_v1"}
+    ) == "sound_dog_bark_a67a7389_v1"
+    with pytest.raises(PoolBuildError, match="missing sound_asset_id"):
+        sound_asset_id_for_row({"prepared": "animal/dog_bark/a67a7389/event.wav"})
 
 
 def test_manifest_converts_to_a_loadable_pool(tmp_path: Path):
     output_root = tmp_path / "events"
-    wav = output_root / "dog_bark" / "clip_e000.wav"
+    wav = output_root / "animal" / "dog_bark" / "deadbeef" / "event.wav"
     _write_wav(wav, np.ones(3200) * 0.2)
     manifest = _manifest(tmp_path, [{
         "status": "event",
         "purpose": "pulse",
         "event_class": "dog_bark",
-        "prepared": "dog_bark/clip_e000.wav",
+        "sound_asset_id": "sound_dog_bark_deadbeef_v1",
+        "prepared": "animal/dog_bark/deadbeef/event.wav",
     }], output_root=output_root)
     catalog_path = tmp_path / "pool.json"
     catalog = build_pool_catalog(manifest, catalog_path)
-    assert catalog["clips"][0]["sound_asset_id"] == "dog_bark__clip_e000"
+    assert catalog["clips"][0]["sound_asset_id"] == "sound_dog_bark_deadbeef_v1"
     assert catalog["clips"][0]["duration_samples"] == 3200
     pool = SoundEventPool.from_catalog(catalog_path)
     clip = pool.clips_for("dog_bark")[0]
@@ -74,36 +78,46 @@ def test_a_fallback_span_is_excluded_and_recorded_not_fatal(tmp_path: Path):
     池子"，排除就达到了目的，所以改成排除并记录。"""
 
     output_root = tmp_path / "events"
-    _write_wav(output_root / "dog_bark" / "good_e000.wav", np.ones(4800) * 0.2)
-    _write_wav(output_root / "cat_meow" / "long_e000.wav", np.ones(16000) * 0.2)
-    _write_wav(output_root / "cat_meow" / "good_e000.wav", np.ones(9600) * 0.2)
+    _write_wav(output_root / "animal" / "dog_bark" / "aaa11111" / "event.wav",
+               np.ones(4800) * 0.2)
+    _write_wav(output_root / "animal" / "cat_meow" / "bbb22222" / "event.wav",
+               np.ones(16000) * 0.2)
+    _write_wav(output_root / "animal" / "cat_meow" / "ccc33333" / "event.wav",
+               np.ones(9600) * 0.2)
     manifest = _manifest(tmp_path, [
         {"status": "event", "purpose": "pulse", "event_class": "dog_bark",
-         "prepared": "dog_bark/good_e000.wav"},
+         "sound_asset_id": "sound_dog_bark_aaa11111_v1",
+         "prepared": "animal/dog_bark/aaa11111/event.wav"},
         {"status": "event", "purpose": "continuous", "event_class": "cat_meow",
-         "prepared": "cat_meow/long_e000.wav"},
+         "sound_asset_id": "sound_cat_meow_bbb22222_v1",
+         "prepared": "animal/cat_meow/bbb22222/event.wav"},
         {"status": "event", "purpose": "pulse", "event_class": "cat_meow",
-         "prepared": "cat_meow/good_e000.wav"},
+         "sound_asset_id": "sound_cat_meow_ccc33333_v1",
+         "prepared": "animal/cat_meow/ccc33333/event.wav"},
     ], output_root=output_root)
     catalog = build_pool_catalog(manifest, tmp_path / "pool.json")
     assert catalog["clips_by_class"] == {"dog_bark": 1, "cat_meow": 1}
     assert [row["prepared"] for row in catalog["excluded"]] == [
-        "cat_meow/long_e000.wav"]
+        "animal/cat_meow/bbb22222/event.wav"]
     assert catalog["excluded"][0]["reason"] == (
         "pulse_class_hysteresis_fallback_span")
-    # 被排除的那条不许出现在池子里
-    assert all(c["prepared"] != "cat_meow/long_e000.wav" for c in catalog["clips"])
+    assert all(c["prepared"] != "animal/cat_meow/bbb22222/event.wav"
+               for c in catalog["clips"])
 
 
 def test_a_class_that_loses_every_clip_still_fails(tmp_path: Path):
     output_root = tmp_path / "events"
-    _write_wav(output_root / "dog_bark" / "good_e000.wav", np.ones(4800) * 0.2)
-    _write_wav(output_root / "cat_meow" / "long_e000.wav", np.ones(16000) * 0.2)
+    _write_wav(output_root / "animal" / "dog_bark" / "aaa11111" / "event.wav",
+               np.ones(4800) * 0.2)
+    _write_wav(output_root / "animal" / "cat_meow" / "bbb22222" / "event.wav",
+               np.ones(16000) * 0.2)
     manifest = _manifest(tmp_path, [
         {"status": "event", "purpose": "pulse", "event_class": "dog_bark",
-         "prepared": "dog_bark/good_e000.wav"},
+         "sound_asset_id": "sound_dog_bark_aaa11111_v1",
+         "prepared": "animal/dog_bark/aaa11111/event.wav"},
         {"status": "event", "purpose": "continuous", "event_class": "cat_meow",
-         "prepared": "cat_meow/long_e000.wav"},
+         "sound_asset_id": "sound_cat_meow_bbb22222_v1",
+         "prepared": "animal/cat_meow/bbb22222/event.wav"},
     ], output_root=output_root)
     with pytest.raises(PoolBuildError, match="lost every clip"):
         build_pool_catalog(manifest, tmp_path / "pool.json")
