@@ -278,11 +278,20 @@ def test_card1_pixel_acceptance_block_is_explicit_and_fails_closed():
         card1_pixel_acceptance_block(
             pixel_params, target_slot="source2", other_slot="source1",
             anchor_frame=40, query_frame=74)
+    # 2026-09-03: which tiers reject is also declared, so it is required too
+    with pytest.raises(ValueError, match="PIXEL_TIER_REJECT_TIERS"):
+        card1_pixel_acceptance_block(
+            dict(pixel_params, PIXEL_CAMERA_BLOCKAGE_MAX_DISTANCE_M=1.5,
+                 PIXEL_TIER_VISIBLE_FRACTION_EDGES=[0.5, 0.2]),
+            target_slot="source2", other_slot="source1", anchor_frame=40,
+            query_frame=74)
     block = card1_pixel_acceptance_block(
         dict(pixel_params, PIXEL_CAMERA_BLOCKAGE_MAX_DISTANCE_M=1.5,
-             PIXEL_TIER_VISIBLE_FRACTION_EDGES=[0.5, 0.2]),
+             PIXEL_TIER_VISIBLE_FRACTION_EDGES=[0.5, 0.2],
+             PIXEL_TIER_REJECT_TIERS=["hidden", "out_of_view"]),
         target_slot="source2", other_slot="source1", anchor_frame=40,
         query_frame=74)
+    assert block["acceptance_policy"]["reject_tiers"] == ["hidden", "out_of_view"]
     assert block["acceptance_policy"]["policy"] == \
         "camera_blockage_reject_then_tier"
     assert block["thresholds"]["min_visible_pixels"] == 1000

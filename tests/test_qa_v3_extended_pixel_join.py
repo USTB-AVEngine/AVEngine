@@ -287,10 +287,16 @@ def test_card1_cli_records_params_and_refuses_without_thresholds(tmp_path):
     assert len(result["inputs"]["params"]["sha256"]) == 64
 
 
+# 2026-09-02 semantics: nothing but a camera-side blockage rejects.
 TIER_PARAMS = dict(PIXEL_PARAMS,
                    PIXEL_ACCEPTANCE_POLICY="camera_blockage_reject_then_tier",
                    PIXEL_CAMERA_BLOCKAGE_MAX_DISTANCE_M=1.5,
-                   PIXEL_TIER_VISIBLE_FRACTION_EDGES=[0.5, 0.2])
+                   PIXEL_TIER_VISIBLE_FRACTION_EDGES=[0.5, 0.2],
+                   PIXEL_TIER_REJECT_TIERS=[])
+# 2026-09-03 owner rule: keep the question unless the referent is blocked
+# completely at a declared frame.
+OWNER_TIER_PARAMS = dict(TIER_PARAMS,
+                         PIXEL_TIER_REJECT_TIERS=["hidden", "out_of_view"])
 
 
 def test_tier_policy_is_the_default_and_the_legacy_policy_must_be_named():
@@ -393,6 +399,98 @@ def test_tier_policy_rejects_only_camera_side_blockage():
     assert strict["status"] == "pixel_rejected"
     assert "gatea_referent_query_frame_not_visible_state" in strict["rejection_reasons"]
     assert strict["bindings"]["difficulty"]["worst_tier"] == "hidden"
+
+
+def test_tier_policy_rejects_only_a_completely_blocked_referent():
+    """Owner 2026-09-03: a question survives unless the referent is 100% blocked.
+
+    Same evidence as the far-curtain case: the Gate A referent keeps 198 pixels
+    (10.5%) at the query frame, so it stays a heavy tier and the candidate is
+    kept.  A referent with nothing visible at a declared frame is rejected,
+    because that instant cannot be answered at all.
+    """
+    kept = _truth_with_frames(
+        _card1_frame(40, pixels=9720, fraction=0.817),
+        _card1_frame(74, pixels=8735, fraction=0.967),
+        _card1_frame(40, pixels=1477, fraction=0.528),
+        _card1_frame(74, pixels=198, fraction=0.105))
+    arrays = _depth_arrays(kept, {("source1", 74): (4.5, 4.2, 3)})
+    result = evaluate(_card1_fact(), kept, OWNER_TIER_PARAMS, arrays)
+    assert result["status"] == "pass"
+    assert result["rejection_reasons"] == []
+    assert result["bindings"]["difficulty"]["worst_tier"] == "heavy"
+    assert result["bindings"]["difficulty"]["reject_tiers"] == ["hidden", "out_of_view"]
+
+    # nothing visible at the Gate A query frame, and the occluder is far from
+    # the lens, so the 2026-09-02 policy kept it and this rule does not
+    blocked = _truth_with_frames(
+        _card1_frame(40, pixels=9720, fraction=0.817),
+        _card1_frame(74, pixels=8735, fraction=0.967),
+        _card1_frame(40, pixels=1477, fraction=0.528),
+        _card1_frame(74, pixels=0, fraction=0.0, state="fully_occluded"))
+    arrays = _depth_arrays(blocked, {("source1", 74): (4.5, 4.2, 4)})
+    lenient = evaluate(_card1_fact(), blocked, TIER_PARAMS, arrays)
+    assert lenient["status"] == "pass"
+    strict = evaluate(_card1_fact(), blocked, OWNER_TIER_PARAMS, arrays)
+    assert strict["status"] == "pixel_rejected"
+    assert strict["rejection_reasons"] == ["gatea_referent_query_frame_hidden"]
+    assert strict["bindings"]["difficulty"]["tiers"]["gatea"]["query_frame"] == "hidden"
+
+    # a referent that walked out of frame at a declared instant rejects too
+    gone = _truth_with_frames(
+        _card1_frame(40, pixels=9720, fraction=0.817),
+        _card1_frame(74, pixels=0, fraction=None, state="out_of_view"),
+        _card1_frame(40, pixels=1477, fraction=0.528),
+        _card1_frame(74, pixels=8735, fraction=0.967))
+    arrays = _depth_arrays(gone, {})
+    out = evaluate(_card1_fact(), gone, OWNER_TIER_PARAMS, arrays)
+    assert out["status"] == "pixel_rejected"
+    assert out["rejection_reasons"] == ["main_referent_query_frame_out_of_view"]
+
+
+def test_reject_tiers_must_be_declared_with_known_tier_names():
+    base = {k: v for k, v in OWNER_TIER_PARAMS.items()
+            if k != "PIXEL_TIER_REJECT_TIERS"}
+    with pytest.raises(ValueError, match="PIXEL_TIER_REJECT_TIERS"):
+        pixel_policy_from_params(base)
+    with pytest.raises(ValueError, match="unknown tiers"):
+        pixel_policy_from_params(dict(base, PIXEL_TIER_REJECT_TIERS=["invisible"]))
+    with pytest.raises(ValueError, match="repeats"):
+        pixel_policy_from_params(dict(base, PIXEL_TIER_REJECT_TIERS=["hidden", "hidden"]))
+    with pytest.raises(ValueError, match="list of tier names"):
+        pixel_policy_from_params(dict(base, PIXEL_TIER_REJECT_TIERS="hidden"))
+    assert pixel_policy_from_params(OWNER_TIER_PARAMS)["reject_tiers"] == [
+        "hidden", "out_of_view"]
+    assert pixel_policy_from_params(TIER_PARAMS)["reject_tiers"] == []
+
+
+def test_a_fact_designed_before_the_rule_cannot_be_re_judged_silently():
+    """A pre-2026-09-03 fact carries no reject_tiers; applying the new rule to it
+    must fail loudly instead of passing the candidate under the old list."""
+    truth = _truth_with_frames(
+        _card1_frame(40, pixels=9720, fraction=0.817),
+        _card1_frame(74, pixels=8735, fraction=0.967),
+        _card1_frame(40, pixels=1477, fraction=0.528),
+        _card1_frame(74, pixels=0, fraction=0.0, state="fully_occluded"))
+    arrays = _depth_arrays(truth, {("source1", 74): (4.5, 4.2, 4)})
+    legacy = _card1_fact(with_thresholds=True)
+    legacy["pixel_acceptance"]["acceptance_policy"] = {
+        "policy": "camera_blockage_reject_then_tier",
+        "status": "placeholder_research",
+        "camera_blockage_max_distance_m": 1.5,
+        "tier_visible_fraction_edges": [0.5, 0.2]}
+    with pytest.raises(ValueError, match="designed before"):
+        evaluate(legacy, truth, OWNER_TIER_PARAMS, arrays)
+    # re-judging it under the list it was designed with reproduces the verdict
+    kept = evaluate(legacy, truth, TIER_PARAMS, arrays)
+    assert kept["status"] == "pass"
+    assert kept["bindings"]["difficulty"]["reject_tiers"] == []
+    # a fact that declares a different list than the params is also loud
+    newer = _card1_fact(with_thresholds=True)
+    newer["pixel_acceptance"]["acceptance_policy"] = dict(
+        legacy["pixel_acceptance"]["acceptance_policy"], reject_tiers=["out_of_view"])
+    with pytest.raises(ValueError, match="reject_tiers differs"):
+        evaluate(newer, truth, OWNER_TIER_PARAMS, arrays)
 
 
 def test_tier_policy_fails_closed_without_depth_arrays_and_on_policy_mismatch():

@@ -122,6 +122,26 @@ def card1_pixel_policy(fact, params=None):
                     f"acceptance policy {key} differs between the fact "
                     f"({from_fact.get(key)!r}) and params "
                     f"({from_params.get(key)!r})")
+        # 2026-09-03: which tiers reject is part of the policy, and the fact's
+        # embedded policy wins below.  A fact designed before this key existed
+        # would otherwise be re-judged under its own (empty) list while the
+        # operator believes the params applied — the mismatch must be loud.
+        fact_reject = from_fact.get("reject_tiers")
+        params_reject = list(from_params.get("reject_tiers") or [])
+        if fact_reject is None:
+            if params_reject:
+                raise ValueError(
+                    "this fact was designed before PIXEL_TIER_REJECT_TIERS "
+                    f"existed, so its effective list is [] while params ask for "
+                    f"{params_reject}. Either regenerate the candidate with the "
+                    "new params, or re-judge the existing evidence with "
+                    "PIXEL_TIER_REJECT_TIERS: [] to reproduce the original "
+                    "verdict; the join will not silently apply a rule the "
+                    "candidate was not designed under")
+        elif list(fact_reject) != params_reject:
+            raise ValueError(
+                f"acceptance policy reject_tiers differs between the fact "
+                f"({list(fact_reject)!r}) and params ({params_reject!r})")
     if from_fact is None and from_params is None:
         raise ValueError(
             "card1 pixel join needs an acceptance policy: either the fact "
@@ -270,6 +290,7 @@ def evaluate_card1(fact, pixel_truth, params=None, arrays=None):
         raise ValueError("pixel truth lacks resolution_hw; bbox edge test "
                          "cannot run")
     edges = policy.get("tier_visible_fraction_edges") or [0.5, 0.2]
+    reject_tiers = tuple(policy.get("reject_tiers") or ())
     blockage_distance = policy.get("camera_blockage_max_distance_m")
     target_slot = str(fact["target_slot"])
     other_slot = "source2" if target_slot == "source1" else "source1"
@@ -322,6 +343,10 @@ def evaluate_card1(fact, pixel_truth, params=None, arrays=None):
             if tier_policy:
                 if conditions["camera_side_blockage"]:
                     reasons.append(f"{side}_referent_{role}_camera_side_blockage")
+                # owner 2026-09-03:留下题目的底线是"不是百分百被挡住";完全看不见的
+                # 那一帧没法答,所以这些档位拒题,其余照旧只记难度。
+                if tier in reject_tiers:
+                    reasons.append(f"{side}_referent_{role}_{tier}")
             else:
                 for failure in conditions["failures"]:
                     reasons.append(f"{side}_referent_{role}_{failure}")
@@ -340,6 +365,7 @@ def evaluate_card1(fact, pixel_truth, params=None, arrays=None):
         "frame_edge_cut": frame_edge_cut,
         "referent_frames_below_placeholder_thresholds": below_threshold_frames,
         "tier_visible_fraction_edges": edges,
+        "reject_tiers": list(reject_tiers),
         "status": policy.get("status", PIXEL_THRESHOLD_STATUS_DEFAULT),
         "note": ("tiers are research placeholders derived from the two "
                  "declared frames; they are recorded under both policies and "

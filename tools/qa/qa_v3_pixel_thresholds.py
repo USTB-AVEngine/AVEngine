@@ -30,6 +30,13 @@ LINE_OF_SIGHT_ROLE = (
 # occluder sits within a short distance of the lens) rejects a candidate.  The
 # tier policy is the default; the historical threshold policy stays selectable
 # by name so earlier outputs remain reproducible.
+#
+# Owner decision 2026-09-03 draws the second line: a question survives as long
+# as the referent is not blocked completely, so a referent whose declared frame
+# leaves nothing visible at all is a rejection rather than a tier.  Which tiers
+# reject is data, not code: PIXEL_TIER_REJECT_TIERS names them, an empty list
+# reproduces the 2026-09-02 behaviour where nothing but camera-side blockage
+# rejects.
 PIXEL_POLICY_THRESHOLD_REJECT = "both_frames_threshold_reject"
 PIXEL_POLICY_TIER = "camera_blockage_reject_then_tier"
 PIXEL_POLICIES = (PIXEL_POLICY_THRESHOLD_REJECT, PIXEL_POLICY_TIER)
@@ -51,7 +58,8 @@ def pixel_policy_from_params(params) -> dict:
                                        PIXEL_THRESHOLD_STATUS_DEFAULT))}
     if policy == PIXEL_POLICY_TIER:
         missing = [key for key in ("PIXEL_CAMERA_BLOCKAGE_MAX_DISTANCE_M",
-                                   "PIXEL_TIER_VISIBLE_FRACTION_EDGES")
+                                   "PIXEL_TIER_VISIBLE_FRACTION_EDGES",
+                                   "PIXEL_TIER_REJECT_TIERS")
                    if key not in params]
         if missing:
             raise ValueError(
@@ -64,8 +72,20 @@ def pixel_policy_from_params(params) -> dict:
         if len(edges) != 2 or not (1.0 > edges[0] > edges[1] > 0.0):
             raise ValueError("PIXEL_TIER_VISIBLE_FRACTION_EDGES must be two "
                              "decreasing fractions inside (0, 1)")
+        reject_tiers = params["PIXEL_TIER_REJECT_TIERS"]
+        if isinstance(reject_tiers, (str, bytes)) or not isinstance(reject_tiers, (list, tuple)):
+            raise ValueError("PIXEL_TIER_REJECT_TIERS must be a list of tier names")
+        reject_tiers = [str(value) for value in reject_tiers]
+        unknown = [value for value in reject_tiers if value not in TIER_ORDER]
+        if unknown:
+            raise ValueError(
+                f"PIXEL_TIER_REJECT_TIERS names unknown tiers {unknown}; "
+                f"expected a subset of {list(TIER_ORDER)}")
+        if len(set(reject_tiers)) != len(reject_tiers):
+            raise ValueError("PIXEL_TIER_REJECT_TIERS repeats a tier")
         result.update({"camera_blockage_max_distance_m": distance,
-                       "tier_visible_fraction_edges": edges})
+                       "tier_visible_fraction_edges": edges,
+                       "reject_tiers": reject_tiers})
     return result
 
 
