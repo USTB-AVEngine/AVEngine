@@ -12,6 +12,20 @@ from pathlib import Path
 
 RESOURCE_PROFILES = {"card12", "card13", "card14"}
 
+# Declared selection strata.  The answer option has always been balanced.  The
+# camera height joined it on 2026-09-03: the solver falls back from the scene
+# camera height to a taller pose when the clearance table calls the lower one
+# blocked, so the taller height is not random - it concentrates in cluttered
+# corners.  Owner kept that fallback, so the height is a nuisance variable that
+# has to be balanced and declared instead of removed.  It is a secondary key:
+# the answer balance still comes first and the height round-robins inside each
+# answer group, because a small quota cannot always satisfy both exactly.
+STRATA = ("mcq_truth_option", "camera_height_m")
+STRATIFICATION_RULE = (
+    "answer option balanced first (round robin across options), camera height "
+    "round-robins inside each option; achieved counts are reported per profile "
+    "and per room so any residual imbalance is visible rather than silent")
+
 
 def _read(path: Path):
     return json.loads(path.read_text(encoding="utf-8"))
@@ -77,9 +91,17 @@ def _candidate(point, scene_id, profile_id):
     gatea_fact = point / "fact_record_gateA.json"
     gateb = point / "gateB_intervention.json"
     truth = fact.get("mcq", {}).get("truth_option")
+    camera = fact.get("camera") or {}
+    clearance = camera.get("clearance") or {}
+    height = camera.get("height_m")
     return {
         "source_point": str(point.resolve()),
         "source_point_id": point.name,
+        "camera_height_m": (None if height is None else float(height)),
+        "camera_height_fallback_used": bool(clearance.get("fallback_used")),
+        "scene_camera_height_m": (
+            None if camera.get("scene_camera_height_m") is None
+            else float(camera["scene_camera_height_m"])),
         "artifacts": {
             "actor_selection": str(selection_path.resolve()),
             "timeline": str(timeline_path.resolve()),
@@ -131,6 +153,40 @@ def collect_candidates(matrix_roots):
     return scenes, statuses, candidates
 
 
+def _height_key(item):
+    """Secondary stratum: the camera height the candidate was rendered at."""
+    height = item.get("camera_height_m")
+    return "unknown" if height is None else f"{float(height):.3f}"
+
+
+def _interleave_by_height(items):
+    """Round-robin one answer group across its camera heights.
+
+    Without this the first N candidates of an answer group can all share one
+    height, which is exactly the concentration the fallback creates.
+    """
+    by_height = {}
+    for item in items:
+        by_height.setdefault(_height_key(item), []).append(item)
+    if len(by_height) <= 1:
+        return list(items)
+    order = sorted(by_height)
+    ordered = []
+    offsets = {key: 0 for key in order}
+    while len(ordered) < len(items):
+        progressed = False
+        for key in order:
+            index = offsets[key]
+            if index >= len(by_height[key]):
+                continue
+            ordered.append(by_height[key][index])
+            offsets[key] += 1
+            progressed = True
+        if not progressed:
+            break
+    return ordered
+
+
 def _balanced_choice(pool, quota):
     if len(pool) < quota:
         raise ValueError("candidate pool is smaller than quota")
@@ -138,8 +194,10 @@ def _balanced_choice(pool, quota):
     for item in pool:
         key = json.dumps(item["mcq_truth_option"], sort_keys=True)
         groups.setdefault(key, []).append(item)
+    groups = {key: _interleave_by_height(items) for key, items in groups.items()}
     if len(pool) == quota or len(groups) <= 1:
-        return pool[:quota]
+        flat = [item for key in sorted(groups) for item in groups[key]]
+        return flat[:quota]
     selected = []
     offsets = {key: 0 for key in groups}
     keys = sorted(groups)
@@ -197,6 +255,8 @@ def assemble(*, matrix_roots, profiles, per_profile):
             truth_counts = Counter(
                 json.dumps(item["mcq_truth_option"], sort_keys=True)
                 for item in chosen)
+            height_counts = Counter(_height_key(item) for item in chosen)
+            pool_height_counts = Counter(_height_key(item) for item in unique)
             for index, item in enumerate(chosen, start=1):
                 item["pilot_id"] = (
                     f"{scene_id}__{profile_id}__{index:03d}")
@@ -206,6 +266,10 @@ def assemble(*, matrix_roots, profiles, per_profile):
                 "available_unique_candidates": len(unique),
                 "observed_statuses": statuses.get(key, []),
                 "mcq_truth_counts": dict(truth_counts),
+                "camera_height_counts": dict(height_counts),
+                "camera_height_counts_in_pool": dict(pool_height_counts),
+                "camera_height_fallback_selected": sum(
+                    1 for item in chosen if item["camera_height_fallback_used"]),
                 "candidates": chosen,
             }
             global_truth[f"{scene_id}/{profile_id}"] = dict(truth_counts)
@@ -242,6 +306,19 @@ def assemble(*, matrix_roots, profiles, per_profile):
             scene_id: room["selected_candidate_count"]
             for scene_id, room in room_manifests.items()},
         "truth_counts": global_truth,
+        "stratification": {
+            "strata": list(STRATA),
+            "rule": STRATIFICATION_RULE,
+            "camera_height_counts": {
+                f"{scene_id}/{profile_id}": counts
+                for scene_id, room in room_manifests.items()
+                for profile_id, entry in room["profiles"].items()
+                for counts in [entry.get("camera_height_counts")] if counts},
+            "status": "placeholder_research_declared_not_calibrated",
+            "note": ("balancing the evaluation split by camera height is the "
+                     "consumer's job; this manifest declares the strata and "
+                     "reports what was achieved so the consumer can check it"),
+        },
         "rooms": room_manifests,
     }
 
