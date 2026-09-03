@@ -10,6 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools" / "qa"))
 
 import design_qa_v3_pilot_batch as legacy_batch  # noqa: E402
 import filter_cross_time_points as legacy_filter  # noqa: E402
+import generate_qa_v3_questions as legacy_questions  # noqa: E402
 import qa_v3_actor_selection as selection  # noqa: E402
 
 
@@ -23,6 +24,11 @@ def test_legacy_mains_refuse_without_the_reproduction_flag(tmp_path, capsys):
                                "--out", str(tmp_path / "out.json")]) == 2
     assert "historical" in capsys.readouterr().err
     assert not (tmp_path / "out.json").exists()
+    assert legacy_questions.main(["--design-root", str(tmp_path),
+                                  "--params", str(tmp_path / "params.json"),
+                                  "--out-root", str(tmp_path / "qout")]) == 2
+    assert "historical" in capsys.readouterr().err
+    assert not (tmp_path / "qout").exists()
 
 
 def test_selection_helpers_have_one_home_and_stay_importable_from_the_legacy_module():

@@ -24,5 +24,13 @@
     "human": "speech_playback",
     "cat": "cat_meow"
   },
-  "_comment_event_pool": "To switch: SOUND_SOURCE_MODE=event_pool and set SOUND_EVENT_POOL to the JSON written by tools/assets/build_sound_event_pool.py (it eats event_manifest.json from the splitter). Each sound_asset_id must already be in the sound asset registry; this example does not register them. Do not keep SOUND_ASSET as a silent fallback. Pair-kind to class is only this map; there is no code default."
+  "_comment_event_pool": "To switch: SOUND_SOURCE_MODE=event_pool and set SOUND_EVENT_POOL to the JSON written by tools/assets/build_sound_event_pool.py (it eats event_manifest.json from the splitter). Each sound_asset_id must already be in the sound asset registry; this example does not register them. Do not keep SOUND_ASSET as a silent fallback. Pair-kind to class is only this map; there is no code default.",
+  "AZ_BANDS_CARD1": [
+    -52.5,
+    -29.17,
+    -5.83,
+    17.5
+  ],
+  "AZ_BANDS_CARD1_status": "historical_record",
+  "AZ_BANDS_CARD1_note": "Frozen design-era census of reachable card1 azimuth under a corridor-string-library-only geometry. The upper edge +17.5 is not the current reachable set: round 5 added route synthesis, the right half of the frustum is open, and measured answers reach +45. tools/qa/generate_qa_v3_questions.py still reads this band and will silently drop current facts that fall outside it, so that generator only runs with --historical-reproduction."
 }
