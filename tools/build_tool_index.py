@@ -25,6 +25,8 @@ INDEX_PATH = REPOSITORY / "docs" / "TOOL_INDEX.md"
 # Directory -> (title, subtitle). Order is the order of the index.
 DIRECTORIES: list[tuple[str, str, str]] = [
     ("assets", "资产生成与装配", "从图像/网格到可运行资产：生成、修复、绑骨、动作、验收、打包、变体"),
+    ("audit", "审计", "跨工具审计与索引自检（这一栏 2026-09-03 补上：目录早已存在，但没进本表，"
+              "所以 tests/unit/test_tool_index_current.py 一直是红的，而大家都在跑 --ignore=tests/unit）"),
     ("rooms", "房间", "房间引入、制备、审计、资格金丝雀（Habitat 与 SPEAR/UE 两条腿都在这里）"),
     ("scene", "场景放置", "基于真实场景表面规划并核验实体放置"),
     ("acoustics", "声学", "声学场景包、材质、RIR 缓存与计划、声学核验"),

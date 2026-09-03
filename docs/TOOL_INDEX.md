@@ -5,7 +5,7 @@
 
 自 2026-08-25 起，目录本身就是能力分组（阶段目录 m1…m7 已移除），
 本表按目录列出每个工具做什么。
-当前共 261 个工具脚本。
+当前共 320 个工具脚本。
 
 ## 资产生成与装配（`tools/assets/`）
 
@@ -27,6 +27,7 @@
 | `tools/assets/build_cross_species_appearance_lineage.py` | Build one diagnostic-only cross-species appearance lineage |
 | `tools/assets/build_joint_mapping.py` | Emit the exact Habitat joint mapping bound to a rebase report |
 | `tools/assets/build_research_review_request.py` | Build an exact 75-state M2 request for research-only human review |
+| `tools/assets/build_sound_event_pool.py` | Build an avengine_sound_event_pool_v1 catalog from event_manifest.json |
 | `tools/assets/capture_animal_variant_review.py` | Build and run one single-view animal-variant Habitat review capture |
 | `tools/assets/capture_canary.py` | Run one formal 75-state M2 canary capture in Habitat |
 | `tools/assets/capture_installed_research_review.py` | Run the current installed-prefix M2 Blender-room research review |
@@ -67,7 +68,16 @@
 | `tools/assets/run_pixal3d_mesh.py` | Run the vendored Pixal3D image-to-3D stage on an already-matted candidate |
 | `tools/assets/segment_canonical_2d.py` | Cut the canonical 2D candidate out of its background with the local ISNet model |
 | `tools/assets/spike_habitat_local_tr.py` | Prove one bounded local-translation-plus-rotation Habitat AO encoding |
+| `tools/assets/split_sound_library_events.py` | Split a prepared sound library into one wav per sounding event |
 | `tools/assets/wrap_uniform_scene_scale.py` | Wrap every root of one GLB scene in an explicit uniform-scale node |
+
+## 审计（`tools/audit/`）
+
+*跨工具审计与索引自检（这一栏 2026-09-03 补上：目录早已存在，但没进本表，所以 tests/unit/test_tool_index_current.py 一直是红的，而大家都在跑 --ignore=tests/unit）*
+
+| 工具 | 做什么 |
+|---|---|
+| `tools/audit/audit_jaeger_rir.py` | JAEGER SpatialSceneQA 公开包 RIR 混响审计脚本(可重跑版)。 |
 
 ## 房间（`tools/rooms/`）
 
@@ -136,6 +146,7 @@
 | `tools/routes/compile_apartment_feasibility_bank.py` | Compile Apartment feasibility, a four-case trajectory bank, and Topdown QA |
 | `tools/routes/compile_hm3d_dynamic_source_bank.py` | Ask whether a moving sound source can find legal routes in an HM3D scene |
 | `tools/routes/compile_kujiale_feasibility_bank.py` | Compile a Kujiale room polygon into reusable source-center trajectories |
+| `tools/routes/filter_route_bank_by_ground.py` | Select one UE ground-height route domain from a multi-level route bank |
 | `tools/routes/import_legacy_apartment_route.py` | Import the legacy 18 s apartment route into the M5.1 route manifest |
 | `tools/routes/plot_route_bank.py` | Render the apartment route bank as a top-down map: engine navigation vs the hand-mined corridors |
 | `tools/routes/probe_camera_pose_native.py` | Render one lightweight native Habitat camera-pose probe |
@@ -189,6 +200,11 @@
 | 工具 | 做什么 |
 |---|---|
 | `tools/qa/adapt_strict_two_human_both_move_v1_preflight.py` | Bind the reviewed both-move geometry handoff to A's materializer contract |
+| `tools/qa/assemble_qa_v3_room_pilot.py` | Assemble one quota-complete room-centric QA-v3 research pilot manifest |
+| `tools/qa/audio_profiles.py` | Question-type audio profiles: one schedule per question type, not one for all |
+| `tools/qa/audit_gatea_by_form.py` |  |
+| `tools/qa/audit_gatea_semantics.py` |  |
+| `tools/qa/audit_qa_v3_prescale_candidates.py` | Revalidate an existing room-pilot manifest against prescale QA-v3 rules |
 | `tools/qa/audit_strict_two_human_camera_pan_motion_realism.py` | Audit camera-pan motion realism against authoritative 15 Hz camera poses |
 | `tools/qa/audit_strict_two_human_room_expansion.py` | Audit two additional cooked SPEAR maps for the strict M/F/C room closure |
 | `tools/qa/bind_native_paper_balance_episode.py` | Bind one full native SPEAR capture to the paper-balance QuestionSpec strata |
@@ -197,10 +213,17 @@
 | `tools/qa/build_batch_review_page.py` | Build a self-contained lazy-loading review page for one QA v2 batch |
 | `tools/qa/build_full_episode_semantic_authority.py` | Build an approved full-Episode semantic authority without overwriting output |
 | `tools/qa/build_full_episode_validation_batch.py` | Build one validation batch from an explicit request |
+| `tools/qa/build_mcq_options.py` | MCQ option builder for the dual-source five-card pilot (work order 1.4) |
 | `tools/qa/build_native_controlled_audio_program.py` | Build controlled dog/speech AudioProgram contracts for the A native canary |
 | `tools/qa/build_native_full_occlusion_reappearance_episode.py` | Prepare one native, dynamic-rig full-occlusion/reappearance episode |
 | `tools/qa/build_native_paper_balance_episode.py` | Plan one fail-closed native Episode that closes paper answer balance |
 | `tools/qa/build_pixel_visibility_canaries.py` | Build five hermetic modal/target-only pixel-visibility canaries |
+| `tools/qa/build_qa_v3_camera_clearance_table.py` | Per-scene camera clearance table: one actor-free depth cube ring per camera point |
+| `tools/qa/build_qa_v3_human_calibration_pack.py` | Build a browser-ready full-AV human calibration pack from run02 media |
+| `tools/qa/build_qa_v3_n_actor_canary.py` | Build one scene-neutral four-actor/four-endpoint QA-v3 research canary |
+| `tools/qa/build_qa_v3_programs.py` | Per-point audio-program generator for the v3 pilot (work order item 1.2) |
+| `tools/qa/build_qa_v3_released_probe_items.py` | Build MCQ/Open shortcut-probe items from released run02-style media |
+| `tools/qa/build_qa_v3_walkable_grid.py` | Build a scene's walkable-floor grid (see walkable_grid.py for what it is for) |
 | `tools/qa/build_skokloster_strict_two_human_preflight.py` | Build a file-evidence-free CPU preflight for the Skokloster strict M/F Episode |
 | `tools/qa/build_strict_two_human_camera_pan_v2_candidate.py` | Build one CPU-only camera-pan/both-static full75 geometry candidate |
 | `tools/qa/build_strict_two_human_canary_preflight.py` | Validate and publish the CPU preflight for one strict two-human canary |
@@ -217,6 +240,8 @@
 | `tools/qa/build_strict_two_human_native_rate_dynamic_candidates.py` | Build CPU-only native-rate full75 dynamic candidate preflights |
 | `tools/qa/build_strict_two_human_row7_v2_acoustic.py` | Prepare and finalize the CPU-only strict two-human row7 v2 acoustics |
 | `tools/qa/build_strict_two_human_row7_v2_preflight.py` | Validate and publish the CPU-only strict two-human row7 v2 overlay |
+| `tools/qa/camera_clearance.py` | Camera clearance table: cube-ring depth geometry and the solver-side reader |
+| `tools/qa/capture_qa_v3_timeline_pixel.py` | Capture native pixel visibility for one current QA-v3 visual timeline |
 | `tools/qa/capture_skokloster_strict_two_human_episode.py` | Bind the native pixel runner to the isolated Skokloster package archive |
 | `tools/qa/capture_spear_imported_glb_strict_two_human_episode.py` | Capture an imported-MP3D strict two-human SPEAR review Episode |
 | `tools/qa/capture_spear_native_pixel_episode.py` | Capture a full native SPEAR RGB/depth/pixel-truth Episode |
@@ -226,30 +251,57 @@
 | `tools/qa/compile_apartment_fact_tables.py` | Compile per-episode QA fact tables for the asset-bound Apartment batch |
 | `tools/qa/compile_question_protocol_coverage.py` | Compile or independently validate the 12-type native QuestionSpec protocol |
 | `tools/qa/derive_native_occluder_evidence.py` | Derive static occluder identity from native modal/target-only pixels |
+| `tools/qa/derive_twin_programs.py` | Derive sealed audio programs for Gate B twin points (qa-v3 pilot) |
 | `tools/qa/design_qa_batch.py` | Design and author one constraint-driven QA v2 batch (reverse fitting) |
+| `tools/qa/design_qa_v3_extended_profile.py` | Generate the QA-v3 profiles that require N actors, pixel truth, or segments |
+| `tools/qa/design_qa_v3_pilot_batch.py` | Design one qa-v3 dual-source pilot batch (stage two assembler) |
+| `tools/qa/design_qa_v3_scene_batch.py` | Integrated qa-v3 batch: generic scene solver + per-type audio + facts |
 | `tools/qa/evaluate_question_specs.py` | Evaluate registry-bound QuestionSpecs and render a standalone review page |
+| `tools/qa/filter_cross_time_points.py` | Cross-time sampling filter (pilot work order item 1.7) |
 | `tools/qa/finalize_batch_visuals.py` | Retire raw rgb.npy arrays for a finished QA v2 batch (owner policy |
 | `tools/qa/finalize_native_full_occlusion_reappearance_episode.py` | Compile Facts and finalize the native full-occlusion suite after audio render |
 | `tools/qa/finalize_native_paper_balance_episode.py` | Finalize one paper-balance recipe after native RLR binaural rendering |
 | `tools/qa/finalize_native_pixel_artifacts.py` | Finalize and verify a native SPEAR pixel-capture artifact inventory |
+| `tools/qa/finalize_qa_v3_gateb_precheck.py` | Finalize representative Gate-B audio and native-pixel precert evidence |
+| `tools/qa/finalize_qa_v3_room_pilot.py` | Validate and finalize representative runtime evidence for a room pilot |
 | `tools/qa/finalize_strict_two_human_canary.py` | Finalize and fail-closed validate the strict two-human sparse canary |
 | `tools/qa/finalize_strict_two_human_dynamic_full75_canary.py` | Fail-closed finalizer for strict two-human dynamic full75 canaries |
 | `tools/qa/finalize_strict_two_human_full75_canary.py` | Fail-closed finalizer for one strict two-human 75-frame native canary |
 | `tools/qa/finalize_strict_two_human_raw_episode.py` | CPU-only finalizer for one atomically published strict full75 raw spool |
+| `tools/qa/floor_reference.py` | Per-room floor reference: the measured UE z of the walkable floor |
 | `tools/qa/generate_qa_v2_questions.py` | QA v2 question generation for a constraint-driven batch |
+| `tools/qa/generate_qa_v3_questions.py` | Generate qa-v3 pilot fact records + question candidates (cards ①⑦⑧⑨) |
+| `tools/qa/join_qa_v3_extended_pixel.py` | Join native pixel truth to pixel-dependent QA-v3 candidates |
+| `tools/qa/make_idle_then_walk_timeline.py` | Idle-then-walk timeline transform (pilot work order items 1.2/1.7 支撑件) |
+| `tools/qa/materialize_qa_v3_dual_gateb.py` | Materialize renderable Gate-B twins for selected dual-source QA-v3 points |
 | `tools/qa/materialize_strict_two_human_dynamic_canary.py` | Materialize one true-motion strict two-human full75 CPU closure |
+| `tools/qa/measure_qa_v3_floor_z.py` | Measure a room's floor height in the engine and write its floor reference |
 | `tools/qa/mine_simple_questions.py` | Mine simple (A-group) questions from compiled QA fact tables |
 | `tools/qa/mine_temporal_questions.py` | Mine temporal (B-group) and numeric questions over intermittent fact tables |
 | `tools/qa/pre_gpu_launch_ledger.py` | Fail-closed archival for prepared attempts that never reached a GPU launch |
+| `tools/qa/preflight_camera_clearance_depth.py` | Camera-only depth preflight: is the view from a candidate camera pose clear? |
+| `tools/qa/prepare_qa_v3_mcq.py` | Glue: facts (generator) -> split plan (1.3) -> MCQ items (1.4 input) |
 | `tools/qa/probe_packaged_imported_glb_room.py` | Fail-closed NullRHI packaged readback for an imported-GLB room adapter |
 | `tools/qa/probe_packaged_skokloster_room.py` | Fail-closed NullRHI packaged-object readback for Skokloster Castle |
+| `tools/qa/probe_physical_features.py` | Physical-feature classifier probe (pilot work order item 1.6) |
+| `tools/qa/probe_qa_v3_runtime_los_batch.py` | Probe QA-v3 candidate sightlines in one real packaged UE map |
+| `tools/qa/probe_released_modality_shortcuts.py` | Probe text-, audio-, or video-only shortcuts from final released media |
 | `tools/qa/probe_ue_capture_animation.py` | Probe a static-camera capture for scheduled-but-unrendered walk animation |
 | `tools/qa/publish_strict_two_human_full75_canary_summary.py` | Publish a reviewable four-row summary for strict two-human full75 canaries |
 | `tools/qa/publish_strict_two_human_review.py` | Publish a lightweight, server-linked review for the strict two-human gates |
+| `tools/qa/qa_v3_actor_selection.py` | Actor selection documents for QA v3 batches (neutral home for the helpers) |
+| `tools/qa/qa_v3_pixel_thresholds.py` | Explicit placeholder pixel-answerability thresholds for QA-v3 base cards |
 | `tools/qa/recompile_native_pixel_truth.py` | Recompile retained metric-depth truth with the current lossless fields |
+| `tools/qa/recompute_qa_v3_gateb_gold.py` | Recompute Gate-B gold for every selected QA-v3 pilot candidate |
 | `tools/qa/refresh_strict_two_human_row8_ready.py` | Refresh the row8 sparse request against the current split visibility contract |
 | `tools/qa/render_axis1_twin_audio.py` | Render route-swap twin binaural audio for axis-1 certified episodes |
 | `tools/qa/render_intermittent_batch.py` | Render intermittent-window binaural mixtures for a declared episode subset |
+| `tools/qa/report_qa_v3_card1_conditional_baseline.py` | Card1 realized conditional tables and best-response unimodal baselines |
+| `tools/qa/route_synthesis.py` | Routes designed by the solver for the pose it has chosen |
+| `tools/qa/run_qa_v3_audio_batch.py` | Sequential dynamic-audio runner for a qa-v3 design batch (stage two) |
+| `tools/qa/run_qa_v3_capture_batch.py` | Sequential UE capture runner for a qa-v3 design batch (stage two) |
+| `tools/qa/run_qa_v3_room_profile_scheduler.py` | Room-centric QA-v3 scene x profile scheduler |
+| `tools/qa/run_scene_generalization_smoke.py` | Design-layer cross-scene smoke: one question-type config, several route domains |
 | `tools/qa/run_strict_two_human_dynamic_full75_canary.py` | Launch one CPU-qualified dynamic full75 canary on physical GPU1 only |
 | `tools/qa/run_strict_two_human_full75_canary.py` | Run one planned full75 canary only after the physical-GPU1 idle gate |
 | `tools/qa/run_strict_two_human_full75_room_batch.py` | Fail-closed controller for one same-room strict full75 batch |
@@ -259,19 +311,32 @@
 | `tools/qa/run_strict_two_human_mp3d_f15_probe_v4.py` | Freeze the MP3D v3 failure and prepare the independent v4 f15 candidate |
 | `tools/qa/run_strict_two_human_skokloster_f15_probe.py` | Prepare and run one fail-closed Skokloster strict-two-human f15 probe |
 | `tools/qa/run_strict_two_human_skokloster_f15_probe_v2.py` | Freeze the Skokloster v1 environment failure and prepare f15 revision v2 |
+| `tools/qa/scan_capture_listener_yaw.py` | Batch scan: does every capture's camera yaw match its audio listener? |
+| `tools/qa/scene_sampler.py` | Scene-agnostic candidate search for qa-v3 question types |
+| `tools/qa/score_open_answers.py` | Open-form answer scorer (pilot work order item 1.5) |
+| `tools/qa/score_qa_v3_human_calibration.py` | Score QA-v3 human calibration responses without mixing binding errors |
 | `tools/qa/search_mp3d_strict_two_human_nav_positions.py` | Search the real MP3D navmesh for a safer two-adult static probe pair |
 | `tools/qa/search_skokloster_strict_listener.py` | Search one coupled Skokloster camera/listener for a strict two-adult probe |
+| `tools/qa/select_qa_v3_card16_pixel_quota.py` | Select card16 candidates after native-pixel truth, stratified by gold state |
+| `tools/qa/select_qa_v3_run02_dev.py` | Reproduce the QA-v3 run02-dev pixel-qualified 6-per-profile selection |
 | `tools/qa/spear_imported_glb_room_adapter.py` | Runtime adapter for reload-verified GLB scenes imported into cooked SPEAR |
 | `tools/qa/spear_room_batch_lifecycle.py` | SPEAR same-room Episode lifecycle gates staged for a two-Episode canary |
 | `tools/qa/spear_skokloster_room_adapter.py` | Generic imported-GLB runtime contract specialized to Skokloster's one mesh |
 | `tools/qa/spike_spear_native_pixel_visibility.py` | Capture one real SPEAR RGB/depth/modal/target-only visibility spike |
+| `tools/qa/split_isolator.py` | Split isolator for pilot batches (work order item 1.3) |
 | `tools/qa/strict_two_human_cpu_finalize_queue.py` | Low-priority one-worker CPU finalization queue for strict room batches |
 | `tools/qa/strict_two_human_raw_spool.py` | Exact, crash-safe raw spool used by the shared-room full75 capture adapter |
 | `tools/qa/upgrade_static_spear_suite_camera.py` | Bind legacy static-camera SPEAR plans to audited QA capture requests |
+| `tools/qa/validate_stereo_channels.py` | Stereo-channel integrity validator (pilot work order item 1.1) |
 | `tools/qa/validate_strict_two_human_camera_pan_motion_realism.py` | Validate or deterministically replay the camera-pan motion audit receipt |
 | `tools/qa/validate_strict_two_human_motion_realism_receipt.py` | Validate a strict two-human CPU motion-realism receipt, optionally by replay |
 | `tools/qa/validate_strict_two_human_native_rate_dynamic_candidates.py` | Validate a fail-closed native-rate full75 dynamic candidate pair |
 | `tools/qa/validate_strict_two_human_publication_plan.py` | Fail-closed validation for the strict two-human publication plan |
+| `tools/qa/validate_visibility_prediction.py` | Positive control for the visibility predictor: table prediction vs pixel truth |
+| `tools/qa/verify_qa_v3_audio_batch.py` | Batch-level verification of qa-v3 pilot audio renders (post-render gate) |
+| `tools/qa/verify_qa_v3_visual_batch.py` | Verify a materialized QA-v3 visual batch against its runtime readbacks |
+| `tools/qa/visibility_prediction.py` | Predict actor visibility from the camera clearance table, before rendering |
+| `tools/qa/walkable_grid.py` | Per-scene walkable-floor grid: where an actor may stand, and how far the |
 
 ## 数据集装配（`tools/dataset/`）
 
@@ -291,7 +356,7 @@
 | `tools/dataset/recombine_source_trajectory_bank.py` | Build many unique two-source episodes from one finite single-path pool |
 | `tools/dataset/render_asset_bound_binaural_batch.py` | Assemble many binaural training items from one completed asset-bound cache |
 | `tools/dataset/render_asset_bound_binaural_canary.py` | Render two real dry recordings through one completed asset-bound RIR cache |
-| `tools/dataset/render_current_apartment_dynamic_audio.py` | Render motion-following binaural audio for a current Apartment UE capture |
+| `tools/dataset/render_current_apartment_dynamic_audio.py` | Render motion-following binaural audio for a current UE research capture |
 | `tools/dataset/render_room_evaluation_binaural.py` | Mix generic room-evaluation sound classes through a completed RIR cache |
 | `tools/dataset/run_habitat_room_batch.py` | Batch Habitat-native RGB rendering for registry-selected rooms |
 | `tools/dataset/verify_asset_bound_batch.py` | Verify the complete M7 asset-bound binaural throughput batch |
@@ -358,6 +423,7 @@
 | `tools/ue/import_spear_3d_front_sample_editor.py` | Import the local 3D-FRONT Toolbox sample proxy into a persistent UE map |
 | `tools/ue/import_spear_replicacad_editor.py` | Import and assemble the prepared ReplicaCAD apt_0 scene inside UE 5.5 |
 | `tools/ue/import_spear_skokloster_editor.py` | Import the prepared Skokloster GLB into one isolated SPEAR/UE content root |
+| `tools/ue/import_usd_stage_to_level_editor.py` | Import an external USD stage into ordinary Unreal assets and a saved level |
 | `tools/ue/prepare_spear_mp3d_execution.py` | Bind a compiled Timeline-v2 visual plan to the imported MP3D UE scene |
 | `tools/ue/prepare_spear_replicacad_scene.py` | Prepare the complete ReplicaCAD scene request for the optional UE backend |
 | `tools/ue/probe_spear_replicacad_environment.py` | Probe whether ReplicaCAD can be imported/cooked without touching old SPEAR |
