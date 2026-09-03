@@ -256,13 +256,46 @@ def test_one_point_design_walks_through_the_designed_frame(tmp_path):
     assert math.dist(moved.at(30), design["points"][0]["xy_cm"]) < 1e-6
     outgoing = math.degrees(math.atan2(moved.at(60)[1] - moved.at(30)[1],
                                        moved.at(60)[0] - moved.at(30)[0]))
-    assert circular_gap_deg(outgoing, design["heading_deg"]) < 1e-3
+    assert circular_gap_deg(outgoing, design["heading_deg"] + design["turn_out_deg"]) < 1e-3
     incoming = math.degrees(math.atan2(moved.at(30)[1] - moved.at(10)[1],
                                        moved.at(30)[0] - moved.at(10)[0]))
     assert circular_gap_deg(incoming, design["heading_deg"] + design["turn_in_deg"]) < 1e-3
-    assert design["turn_out_deg"] == 0.0
+    assert abs(design["turn_in_deg"]) <= 90.0 and abs(design["turn_out_deg"]) <= 90.0
     for xy in moved.samples_xy:
         assert grid.is_walkable(xy, margin_cm=30.0)
+
+
+def test_exclusions_and_joint_gap_shape_the_draws(tmp_path):
+    from route_synthesis import draw_from_intervals, subtract_windows
+    assert subtract_windows((-52.5, -17.5), [(-40.0, 5.0)]) == [(-52.5, -45.0), (-35.0, -17.5)]
+    assert subtract_windows((0.0, 10.0), [(5.0, 10.0)]) == []
+    spec = PointSpec(30, -52.5, 52.5, 100.0, 300.0, exclusions=((0.0, 25.25),))
+    assert spec.azimuth_intervals() == [(-52.5, -25.25), (25.25, 52.5)]
+    rng = np.random.default_rng(3)
+    for _ in range(200):
+        value = draw_from_intervals(rng, spec.azimuth_intervals())
+        assert abs(value) >= 25.25 and abs(value) <= 52.5
+    grid = room_grid(tmp_path / "grid")
+    synth = RouteSynthesizer(grid, SynthesisSettings.from_params(SYNTH))
+    camera, yaw = (-500.0, 0.0), 0.0
+    # anchor band and answer band overlap; a 30.25 degree sweep must still hold
+    specs = [PointSpec(40, -52.5, -29.17, 100.0, 600.0), PointSpec(74, -52.5, -17.5, 100.0, 600.0)]
+    built = 0
+    for _ in range(300):
+        route, reason = synth.design(rng, camera, yaw, specs, idle_frames=0, role="target",
+                                     min_gap_between_points_deg=30.25)
+        if route is None:
+            continue
+        built += 1
+        points = route.provenance["design"]["points"]
+        assert circular_gap_deg(points[0]["azimuth_deg"], points[1]["azimuth_deg"]) >= 30.25 - 1e-3
+        assert route.provenance["design"]["min_gap_between_points_deg"] == 30.25
+    assert built > 0
+    # a gap no pair of azimuths in these bands can reach is refused as infeasible
+    from route_synthesis import REASON_SPEC
+    route, reason = synth.design(rng, camera, yaw, specs, idle_frames=0, role="target",
+                                 min_gap_between_points_deg=40.0)
+    assert route is None and reason == REASON_SPEC
 
 
 # ---------------------------------------------------------------------------

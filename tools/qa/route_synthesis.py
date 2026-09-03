@@ -126,17 +126,58 @@ class SynthesisSettings:
 
 @dataclass(frozen=True)
 class PointSpec:
-    """Where the actor must be at one frame, relative to the camera pose."""
+    """Where the actor must be at one frame, relative to the camera pose.
+
+    ``exclusions`` are (centre, half-width) azimuth windows the draw must avoid,
+    e.g. "at least MIN_AZIMUTH_SEP from the target's azimuth"; they turn a
+    rejection the solver would make anyway into a constraint on the draw."""
     frame: int
     azimuth_lo_deg: float
     azimuth_hi_deg: float
     distance_lo_cm: float
     distance_hi_cm: float
+    exclusions: tuple = ()
 
     def feasible(self) -> bool:
         return (0 <= self.frame < FRAME_COUNT
                 and self.azimuth_lo_deg < self.azimuth_hi_deg
                 and 0.0 < self.distance_lo_cm <= self.distance_hi_cm)
+
+    def azimuth_intervals(self, extra_exclusions=()) -> list[tuple[float, float]]:
+        return subtract_windows((self.azimuth_lo_deg, self.azimuth_hi_deg),
+                                list(self.exclusions) + list(extra_exclusions))
+
+
+def subtract_windows(interval, windows) -> list[tuple[float, float]]:
+    """The parts of [lo, hi) outside every (centre, half-width) window."""
+    pieces = [(float(interval[0]), float(interval[1]))]
+    for centre, half in windows:
+        lo_w, hi_w = float(centre) - float(half), float(centre) + float(half)
+        kept = []
+        for lo, hi in pieces:
+            if hi <= lo_w or lo >= hi_w:
+                kept.append((lo, hi))
+                continue
+            if lo < lo_w:
+                kept.append((lo, lo_w))
+            if hi > hi_w:
+                kept.append((hi_w, hi))
+        pieces = kept
+    return [(lo, hi) for lo, hi in pieces if hi - lo > 1e-9]
+
+
+def draw_from_intervals(rng, intervals) -> float | None:
+    """Uniform draw over a union of disjoint intervals (by length)."""
+    lengths = [hi - lo for lo, hi in intervals]
+    total = sum(lengths)
+    if total <= 0.0:
+        return None
+    u = float(rng.random()) * total
+    for (lo, hi), length in zip(intervals, lengths):
+        if u <= length:
+            return lo + u
+        u -= length
+    return intervals[-1][1]
 
 
 def _unit(bearing_deg: float) -> tuple[float, float]:
@@ -162,6 +203,14 @@ def solve_ray_distance(camera_xy, bearing_deg: float, target_xy, chord_cm: float
         return []
     root = math.sqrt(discriminant)
     return sorted({d for d in (along - root, along + root) if d >= 0.0})
+
+
+def leg_positions(anchor_frame: int, anchor_xy, heading_deg: float, step_cm: float,
+                  frames) -> list[tuple[float, float]]:
+    """Positions on a straight leg through ``anchor_xy`` at ``anchor_frame``."""
+    ux, uy = _unit(heading_deg)
+    return [(float(anchor_xy[0]) + step_cm * (t - anchor_frame) * ux,
+             float(anchor_xy[1]) + step_cm * (t - anchor_frame) * uy) for t in frames]
 
 
 def polyline_positions(designed: Sequence[tuple[int, tuple[float, float]]], step_cm: float,
@@ -200,6 +249,8 @@ def _route_id(design: dict) -> str:
 class RouteSynthesizer:
     """Designs constant-speed, piecewise-straight routes on one scene's walkable grid."""
 
+    SPEED_DRAWS = 6          # speed draws per design before giving up on the solve
+
     def __init__(self, grid: WalkableGrid, settings: SynthesisSettings,
                  frame_rate_hz: float = FRAME_RATE_HZ) -> None:
         self.grid = grid
@@ -217,9 +268,22 @@ class RouteSynthesizer:
         low, high = self.settings.speed_min_mps, self.settings.speed_max_mps
         return low + (high - low) * float(rng.random())
 
-    def _draw_turn(self, rng) -> float:
+    def _turn_candidates(self, rng) -> list[float]:
+        """Turn angles to try for a leg, straight included, in a random order."""
         limit = self.settings.max_turn_deg
-        return (2.0 * float(rng.random()) - 1.0) * limit
+        steps = 3
+        values = [0.0]
+        for k in range(1, steps + 1):
+            values.extend([limit * k / steps, -limit * k / steps])
+        order = rng.permutation(len(values))
+        return [values[int(i)] for i in order]
+
+    def _leg_ok(self, anchor_frame, anchor_xy, heading, step_cm, frames) -> bool:
+        if not frames:
+            return True
+        ok, _ = self.grid.route_ok(leg_positions(anchor_frame, anchor_xy, heading, step_cm, frames),
+                                   self.settings.margin_cm)
+        return ok
 
     def _finish(self, samples, design: dict, role: str, idle_frames: int):
         from scene_sampler import Route  # local import: scene_sampler imports this module
@@ -243,18 +307,46 @@ class RouteSynthesizer:
                       provenance=provenance)
         return route, None
 
-    def _draw_point(self, rng, camera_xy, yaw: float, spec: PointSpec) -> dict:
-        azimuth = spec.azimuth_lo_deg + (spec.azimuth_hi_deg - spec.azimuth_lo_deg) * float(rng.random())
-        distance = spec.distance_lo_cm + (spec.distance_hi_cm - spec.distance_lo_cm) * float(rng.random())
-        return {"frame": int(spec.frame), "azimuth_deg": round(azimuth, 4),
-                "distance_cm": round(distance, 3), "solved": False,
+    def _point_record(self, camera_xy, yaw, frame, azimuth, distance, solved):
+        return {"frame": int(frame), "azimuth_deg": round(azimuth, 4),
+                "distance_cm": round(distance, 3), "solved": bool(solved),
                 "xy_cm": [round(v, 3) for v in _point_from_pose(camera_xy, yaw, azimuth, distance)]}
+
+    def _legs(self, rng, designed, step_cm, heading, idle_frames):
+        """Find turn angles for the incoming and outgoing legs that stay walkable."""
+        (first_frame, first_xy) = designed[0]
+        (last_frame, last_xy) = designed[-1]
+        pre_frames = list(range(int(idle_frames), first_frame))
+        post_frames = list(range(last_frame + 1, FRAME_COUNT))
+        turn_in = None
+        for turn in self._turn_candidates(rng):
+            if self._leg_ok(first_frame, first_xy, heading + turn, step_cm, pre_frames):
+                turn_in = turn
+                break
+        if turn_in is None:
+            return None
+        turn_out = None
+        for turn in self._turn_candidates(rng):
+            if self._leg_ok(last_frame, last_xy, heading + turn, step_cm, post_frames):
+                turn_out = turn
+                break
+        if turn_out is None:
+            return None
+        return turn_in, turn_out
 
     # -- public ------------------------------------------------------------
 
     def design(self, rng, camera_xy, camera_yaw_deg: float, specs: Sequence[PointSpec], *,
-               idle_frames: int, role: str):
-        """One design attempt.  Returns (route, None) or (None, reason)."""
+               idle_frames: int, role: str, min_gap_between_points_deg: float | None = None):
+        """One design attempt.  Returns (route, None) or (None, reason).
+
+        Two specs: the later point is drawn (its azimuth from the part of its
+        band that leaves room in the earlier band once ``min_gap_between_points_deg``
+        is honoured), the speed is drawn, the earlier azimuth is drawn from
+        what remains of its band, and the earlier distance is solved so that
+        the leg has that speed.  One spec: the point is drawn, then a heading.
+        Incoming and outgoing legs try a few turn angles and keep the first
+        that stays walkable."""
         self.counters["designs"] += 1
         specs = sorted(specs, key=lambda spec: spec.frame)
         if not specs or len(specs) > 2 or not all(spec.feasible() for spec in specs):
@@ -262,34 +354,82 @@ class RouteSynthesizer:
         if len(specs) == 2 and specs[0].frame == specs[1].frame:
             return self._reject(REASON_SPEC)
         yaw = float(camera_yaw_deg)
-        speed_mps = self._draw_speed(rng)
-        step_cm = speed_mps * 100.0 / self.frame_rate_hz
         design = {"camera_xy_cm": [round(float(camera_xy[0]), 3), round(float(camera_xy[1]), 3)],
                   "camera_yaw_deg": round(yaw, 4), "idle_frames": int(idle_frames),
-                  "speed_mps": round(speed_mps, 4), "shape": "constant_speed_polyline"}
+                  "shape": "constant_speed_polyline"}
         if len(specs) == 1:
-            point = self._draw_point(rng, camera_xy, yaw, specs[0])
-            heading = 360.0 * float(rng.random())
-            turn_in = self._draw_turn(rng)
-            design.update(points=[point], heading_deg=round(heading, 4),
-                          turn_in_deg=round(turn_in, 4), turn_out_deg=0.0)
-            samples = polyline_positions([(point["frame"], tuple(point["xy_cm"]))], step_cm,
-                                         heading + turn_in, heading, idle_frames)
-            return self._finish(samples, design, role, idle_frames)
+            spec = specs[0]
+            azimuth = draw_from_intervals(rng, spec.azimuth_intervals())
+            if azimuth is None:
+                return self._reject(REASON_SPEC)
+            distance = spec.distance_lo_cm + (spec.distance_hi_cm - spec.distance_lo_cm) * float(rng.random())
+            point = self._point_record(camera_xy, yaw, spec.frame, azimuth, distance, False)
+            if not self.grid.is_walkable(point["xy_cm"], self.settings.margin_cm):
+                return self._reject(REASON_WALKABLE)
+            speed_mps = self._draw_speed(rng)
+            step_cm = speed_mps * 100.0 / self.frame_rate_hz
+            base = 360.0 * float(rng.random())
+            for k in rng.permutation(8):
+                heading = (base + 45.0 * int(k)) % 360.0
+                legs = self._legs(rng, [(spec.frame, tuple(point["xy_cm"]))], step_cm, heading,
+                                  idle_frames)
+                if legs is not None:
+                    turn_in, turn_out = legs
+                    design.update(points=[point], speed_mps=round(speed_mps, 4),
+                                  heading_deg=round(heading, 4), turn_in_deg=round(turn_in, 4),
+                                  turn_out_deg=round(turn_out, 4))
+                    samples = polyline_positions([(spec.frame, tuple(point["xy_cm"]))], step_cm,
+                                                 heading + turn_in, heading + turn_out, idle_frames)
+                    return self._finish(samples, design, role, idle_frames)
+            return self._reject(REASON_WALKABLE)
         early, late = specs
-        late_point = self._draw_point(rng, camera_xy, yaw, late)
-        chord_cm = step_cm * (late.frame - early.frame)
-        azimuth = early.azimuth_lo_deg + (early.azimuth_hi_deg - early.azimuth_lo_deg) * float(rng.random())
-        roots = [d for d in solve_ray_distance(camera_xy, yaw + azimuth, late_point["xy_cm"], chord_cm)
-                 if early.distance_lo_cm <= d <= early.distance_hi_cm]
-        if not roots:
+        gap = float(min_gap_between_points_deg or 0.0)
+        early_intervals = early.azimuth_intervals()
+        if not early_intervals:
+            return self._reject(REASON_SPEC)
+        if gap > 0.0:
+            # A late azimuth q is usable when some early azimuth lies at least
+            # `gap` away: for an early piece [lo, hi] that excludes only the
+            # window (hi - gap, lo + gap), which is empty once the piece is wider
+            # than twice the gap.  Union over pieces, then the late band's own
+            # exclusions.
+            allowed = []
+            for lo, hi in early_intervals:
+                half = gap - (hi - lo) / 2.0
+                windows = [((lo + hi) / 2.0, half)] if half > 0.0 else []
+                allowed.extend(subtract_windows((late.azimuth_lo_deg, late.azimuth_hi_deg), windows))
+            late_intervals = _intersect(
+                late.azimuth_intervals(),
+                _union_within((late.azimuth_lo_deg, late.azimuth_hi_deg), allowed))
+        else:
+            late_intervals = late.azimuth_intervals()
+        late_azimuth = draw_from_intervals(rng, late_intervals)
+        if late_azimuth is None:
+            return self._reject(REASON_SPEC)
+        late_distance = late.distance_lo_cm + (late.distance_hi_cm - late.distance_lo_cm) * float(rng.random())
+        late_point = self._point_record(camera_xy, yaw, late.frame, late_azimuth, late_distance, False)
+        if not self.grid.is_walkable(late_point["xy_cm"], self.settings.margin_cm):
+            return self._reject(REASON_WALKABLE)
+        early_choices = early.azimuth_intervals([(late_azimuth, gap)] if gap > 0.0 else [])
+        early_azimuth = draw_from_intervals(rng, early_choices)
+        if early_azimuth is None:
+            return self._reject(REASON_SPEC)
+        early_point = None
+        for _ in range(self.SPEED_DRAWS):
+            speed_mps = self._draw_speed(rng)
+            chord_cm = speed_mps * 100.0 / self.frame_rate_hz * (late.frame - early.frame)
+            roots = [d for d in solve_ray_distance(camera_xy, yaw + early_azimuth,
+                                                   late_point["xy_cm"], chord_cm)
+                     if early.distance_lo_cm <= d <= early.distance_hi_cm]
+            if roots:
+                distance = roots[int(rng.integers(len(roots)))] if len(roots) > 1 else roots[0]
+                early_point = self._point_record(camera_xy, yaw, early.frame, early_azimuth,
+                                                 distance, True)
+                break
+        if early_point is None:
             return self._reject(REASON_SPEED)
-        distance = roots[int(rng.integers(len(roots)))] if len(roots) > 1 else roots[0]
-        early_point = {"frame": int(early.frame), "azimuth_deg": round(azimuth, 4),
-                       "distance_cm": round(distance, 3), "solved": True,
-                       "xy_cm": [round(v, 3) for v in _point_from_pose(camera_xy, yaw, azimuth, distance)]}
-        # the recorded (rounded) early point is what the route passes through;
-        # the leg speed is recomputed from it so speed and geometry agree exactly
+        # the recorded (rounded) points are what the route passes through; the
+        # leg speed is recomputed from them so speed and geometry agree exactly
         leg_cm = math.dist(early_point["xy_cm"], late_point["xy_cm"])
         step_cm = leg_cm / (late.frame - early.frame)
         speed_mps = step_cm * self.frame_rate_hz / 100.0
@@ -297,24 +437,31 @@ class RouteSynthesizer:
             return self._reject(REASON_SPEED)
         heading = math.degrees(math.atan2(late_point["xy_cm"][1] - early_point["xy_cm"][1],
                                           late_point["xy_cm"][0] - early_point["xy_cm"][0]))
-        turn_in = self._draw_turn(rng)
-        turn_out = self._draw_turn(rng)
+        mid_frames = list(range(early.frame, late.frame + 1))
+        if not self._leg_ok(early.frame, early_point["xy_cm"], heading, step_cm, mid_frames):
+            return self._reject(REASON_WALKABLE)
+        designed = [(early.frame, tuple(early_point["xy_cm"])), (late.frame, tuple(late_point["xy_cm"]))]
+        legs = self._legs(rng, designed, step_cm, heading, idle_frames)
+        if legs is None:
+            return self._reject(REASON_WALKABLE)
+        turn_in, turn_out = legs
         design.update(points=[early_point, late_point], speed_mps=round(speed_mps, 4),
                       heading_deg=round(heading, 4), turn_in_deg=round(turn_in, 4),
-                      turn_out_deg=round(turn_out, 4))
-        samples = polyline_positions(
-            [(early_point["frame"], tuple(early_point["xy_cm"])),
-             (late_point["frame"], tuple(late_point["xy_cm"]))],
-            step_cm, heading + turn_in, heading + turn_out, idle_frames)
+                      turn_out_deg=round(turn_out, 4),
+                      min_gap_between_points_deg=gap if gap > 0.0 else None)
+        samples = polyline_positions(designed, step_cm, heading + turn_in, heading + turn_out,
+                                     idle_frames)
         return self._finish(samples, design, role, idle_frames)
 
     def design_many(self, rng, camera_xy, camera_yaw_deg: float, specs: Sequence[PointSpec], *,
-                    idle_frames: int, role: str, tries: int | None = None):
+                    idle_frames: int, role: str, tries: int | None = None,
+                    min_gap_between_points_deg: float | None = None):
         """Repeat ``design`` up to ``tries`` times; returns (route, last_reason)."""
         reason = REASON_SPEC
         for _ in range(int(tries or self.settings.design_tries)):
             route, reason = self.design(rng, camera_xy, camera_yaw_deg, specs,
-                                        idle_frames=idle_frames, role=role)
+                                        idle_frames=idle_frames, role=role,
+                                        min_gap_between_points_deg=min_gap_between_points_deg)
             if route is not None:
                 return route, None
         return None, reason
@@ -322,3 +469,27 @@ class RouteSynthesizer:
     def report(self) -> dict:
         return {"settings": self.settings.as_dict(), "grid": self.grid.identity,
                 "counters": json.loads(json.dumps(self.counters))}
+
+
+def _union_within(interval, pieces):
+    """Pieces clipped to interval, merged where they touch or overlap."""
+    lo0, hi0 = interval
+    clipped = sorted((max(lo0, lo), min(hi0, hi)) for lo, hi in pieces if min(hi0, hi) > max(lo0, lo))
+    merged: list[tuple[float, float]] = []
+    for lo, hi in clipped:
+        if merged and lo <= merged[-1][1]:
+            merged[-1] = (merged[-1][0], max(merged[-1][1], hi))
+        else:
+            merged.append((lo, hi))
+    return merged
+
+
+def _intersect(a, b):
+    """Intersection of two lists of disjoint intervals."""
+    out = []
+    for lo_a, hi_a in a:
+        for lo_b, hi_b in b:
+            lo, hi = max(lo_a, lo_b), min(hi_a, hi_b)
+            if hi - lo > 1e-9:
+                out.append((lo, hi))
+    return sorted(out)

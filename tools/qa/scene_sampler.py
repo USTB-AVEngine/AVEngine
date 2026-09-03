@@ -760,11 +760,14 @@ def _distance_floor_cm(params: dict) -> float:
 
 
 def _design_target(synth: RouteSynthesizer, rng, ledger: "RejectionLedger",
-                   camera, yaw: float, specs, idle: int):
+                   camera, yaw: float, specs, idle: int, min_gap_deg: float | None = None):
     """Design the target's base route; records the design counters and, on
-    failure, the reason as this attempt's rejection."""
+    failure, the reason as this attempt's rejection.  ``min_gap_deg`` is the
+    azimuth the target must sweep between the two designed frames (the
+    solver's own zero-score rule, applied at design time instead of after)."""
     before = dict(synth.counters, rejected=dict(synth.counters["rejected"]))
-    route, reason = synth.design_many(rng, camera, yaw, specs, idle_frames=idle, role="target")
+    route, reason = synth.design_many(rng, camera, yaw, specs, idle_frames=idle, role="target",
+                                      min_gap_between_points_deg=min_gap_deg)
     ledger.note_design("target", synth.counters["designs"] - before["designs"],
                        synth.counters["built"] - before["built"], reason)
     if route is None:
@@ -857,7 +860,9 @@ def solve_forward_cross_time(scene: SceneInputs, params: dict, *,
             route = _design_target(synth, rng, ledger, camera, yaw, [
                 PointSpec(anchor_frame, *_design_band(anchor_band, half_fov),
                           _anchor_min_distance_cm(params) or floor_cm, far_cm),
-                PointSpec(FRAME_COUNT - 1, solve_lo, solve_hi, floor_cm, far_cm)], idle)
+                PointSpec(FRAME_COUNT - 1, solve_lo, solve_hi, floor_cm, far_cm)], idle,
+                min_gap_deg=(theta_half if anchor_band is not None else theta_full)
+                + DESIGN_EDGE_MARGIN_DEG)
             if route is None:
                 continue
             moved = route.shifted(idle)
@@ -1022,7 +1027,9 @@ def solve_backward_cross_time(scene: SceneInputs, params: dict, *,
             route = _design_target(synth, rng, ledger, camera, yaw, [
                 PointSpec(anchor_frame, *_design_band(anchor_band, half_fov),
                           _anchor_min_distance_cm(params) or floor_cm, far_cm),
-                PointSpec(query_frame, solve_lo, solve_hi, floor_cm, far_cm)], idle)
+                PointSpec(query_frame, solve_lo, solve_hi, floor_cm, far_cm)], idle,
+                min_gap_deg=(theta_half if anchor_band is not None else theta_full)
+                + DESIGN_EDGE_MARGIN_DEG)
             if route is None:
                 continue
             moved = route.shifted(idle)
@@ -1213,13 +1220,20 @@ def _pick_other_route(scene, target_route, camera, yaw, az_anchor, az_answer,
             chosen = other_bands[int(rng.integers(len(other_bands)))]
             floor_cm = _distance_floor_cm(params)
             far_cm = synth.settings.max_camera_distance_cm
+            # the draws avoid what acceptable() would reject anyway: within
+            # MIN_AZIMUTH_SEP of the target at the anchor instant, within the
+            # Open gold radius of the target's answer at the query instant
+            separation = (az_anchor, min_sep + DESIGN_EDGE_MARGIN_DEG)
+            gold = (az_answer, 2.0 * theta_half + DESIGN_EDGE_MARGIN_DEG)
             answer_spec = PointSpec(query_frame, *_design_band(chosen, half_fov),
-                                    floor_cm, far_cm)
+                                    floor_cm, far_cm,
+                                    exclusions=((gold, separation) if anchor_frame == query_frame
+                                                else (gold,)))
             if anchor_frame == query_frame:
                 specs = [answer_spec]
             else:
                 specs = [PointSpec(anchor_frame, *_design_band(None, half_fov),
-                                   floor_cm, far_cm), answer_spec]
+                                   floor_cm, far_cm, exclusions=(separation,)), answer_spec]
             route = _synthesize_other(synth, rng, ledger, camera, yaw, specs, acceptable)
             if route is not None:
                 return route
@@ -1465,7 +1479,8 @@ def solve_instant_distance_order(scene: SceneInputs, params: dict, *,
                 designed = _synthesize_other(
                     synth, rng, ledger, camera, yaw,
                     [PointSpec(query_frame, *_design_band(None, half_fov),
-                               target_distance + min_gap, far_cm)],
+                               target_distance + min_gap, far_cm,
+                               exclusions=((target_azimuth, min_sep + DESIGN_EDGE_MARGIN_DEG),))],
                     lambda candidate: acceptable_other(candidate) is not None)
                 if designed is not None:
                     other, other_distance = designed, acceptable_other(designed)
@@ -1649,8 +1664,10 @@ def solve_distance_change_pair(scene: SceneInputs, params: dict, *,
             far_cm = synth.settings.max_camera_distance_cm
             designed = _synthesize_other(
                 synth, rng, ledger, camera, yaw,
-                [PointSpec(start_frame, *_design_band(None, half_fov), floor_cm, far_cm),
-                 PointSpec(end_frame, *_design_band(None, half_fov), floor_cm, far_cm)],
+                [PointSpec(start_frame, *_design_band(None, half_fov), floor_cm, far_cm,
+                           exclusions=((target_azimuths[0], min_sep + DESIGN_EDGE_MARGIN_DEG),)),
+                 PointSpec(end_frame, *_design_band(None, half_fov), floor_cm, far_cm,
+                           exclusions=((target_azimuths[1], min_sep + DESIGN_EDGE_MARGIN_DEG),))],
                 lambda candidate: acceptable_other(candidate) is not None)
             if designed is not None:
                 other, other_delta = designed, acceptable_other(designed)
@@ -1823,7 +1840,8 @@ def solve_motion_state_pair(scene: SceneInputs, params: dict, *,
             designed = _synthesize_other(
                 synth, rng, ledger, camera, yaw,
                 [PointSpec(start_frame, *_design_band(None, half_fov),
-                           _distance_floor_cm(params), synth.settings.max_camera_distance_cm)],
+                           _distance_floor_cm(params), synth.settings.max_camera_distance_cm,
+                           exclusions=((target_azimuths[0], min_sep + DESIGN_EDGE_MARGIN_DEG),))],
                 lambda candidate_base: acceptable_other(candidate_base) is not None)
             if designed is not None:
                 other = acceptable_other(designed)
@@ -1968,7 +1986,8 @@ def solve_instant_binding(scene: SceneInputs, params: dict, *,
             other = _synthesize_other(
                 synth, rng, ledger, camera, yaw,
                 [PointSpec(int(instants[0]), *_design_band(None, half_fov),
-                           _distance_floor_cm(params), synth.settings.max_camera_distance_cm)],
+                           _distance_floor_cm(params), synth.settings.max_camera_distance_cm,
+                           exclusions=((azimuths[0], min_sep + DESIGN_EDGE_MARGIN_DEG),))],
                 acceptable_other)
         if other is None:
             ledger.add(Rejection("no_separable_second_actor",
