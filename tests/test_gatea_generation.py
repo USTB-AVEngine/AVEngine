@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import json
+import math
 import sys
 from collections import Counter
 from pathlib import Path
@@ -14,7 +15,8 @@ import pytest
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "tools" / "qa"))
 
-from design_qa_v3_scene_batch import (  # noqa: E402
+from design_qa_v3_scene_batch import (  # noqa: F401
+    query_window_seconds,  # noqa: E402
     GenerationConstraintError,
     audit_gatea_pair,
     balanced_binary_joint,
@@ -32,7 +34,43 @@ from qa_v3_pixel_thresholds import card1_pixel_acceptance_block  # noqa: E402
 
 PARAMS = {"THETA_HALF": 30.0, "T_HALF": 1.0, "T_FULL": 0.5,
           "T_FULL_status": "placeholder_research",
-          "SAMPLE_RATE_HZ": 16000}
+          "SAMPLE_RATE_HZ": 16000, "VIDEO_FPS": 15}
+
+
+def stationary_timeline(azimuth_deg: float, target: str = "source1",
+                        slots=("source1", "source2"), frames: int = 75):
+    """一条逐帧时间线，两只都站着不动，目标恰好在给定的引擎帧方位上。
+
+    窗口式题型的真值是"那半秒扫过的区间"，所以 build_answer 现在真的要读
+    逐帧几何。站着不动的夹具让区间退化成一个点，于是断言只测窗口与带的逻辑，
+    不掺进运动。
+    """
+
+    radius = 400.0
+    xy = {}
+    others = 0
+    for slot in slots:
+        # 指定的目标槽放在给定方位上；其余的错开，免得两只重叠。
+        if slot == target:
+            angle = math.radians(azimuth_deg)
+        else:
+            others += 1
+            angle = math.radians(azimuth_deg + 60.0 * others)
+        xy[slot] = [radius * math.cos(angle), radius * math.sin(angle), 0.0]
+    return {
+        "room": {"map_path": "/Game/x", "room_profile_id": "x"},
+        "render": {"frame_count": frames, "frame_rate_hz": 15,
+                   "hfov_degrees": 105.0, "resolution_hw": [720, 1280]},
+        "frames": [
+            {"frame_index": index,
+             "camera": {"translation_ue_cm": [0.0, 0.0, 147.1],
+                        "yaw_ue_deg": 0.0},
+             "actor_states": [{"source_slot_id": slot,
+                               "translation_ue_cm": list(xy[slot])}
+                              for slot in slots]}
+            for index in range(frames)
+        ],
+    }
 
 
 def program(slots):
@@ -334,14 +372,19 @@ def test_card2_instant_azimuth_stem_and_profile_validation():
     validate_profiles([profile])
     result = build_answer(
         "instant_azimuth_band", profile,
-        {"answer_band": (-52.5, -17.5)}, None, None, [],
+        {"answer_band": (-52.5, -17.5)}, stationary_timeline(-30.0), None, [],
         "source1", "source2", slot_coat, -30.0, 30, PARAMS)
-    assert "frame index 30" in result["mcq"]["stem"]
-    assert "dog barking at that frame" in result["mcq"]["stem"]
+    # 帧编号换成人能对齐的半秒窗口：第 30 帧 @15fps = 2.0 秒 → [2, 2.5)
+    assert "Between 2 and 2.5 seconds" in result["mcq"]["stem"]
+    assert "frame index" not in result["mcq"]["stem"]
+    assert "dog barking in that window" in result["mcq"]["stem"]
     # 发布约定是 DCASE 左为正，所以引擎帧最左那一楔发布成 [17.5, 52.5)。
     assert result["mcq"]["truth_option"] == "[17.5, 52.5)"
     assert result["mcq"]["convention"] == "dcase_foa_left_positive"
-    assert result["open"]["scoring"] == "circular_deg"
+    assert result["open"]["scoring"] == "circular_deg_interval"
+    # 站着不动，所以区间退化成一个点
+    lo, hi = result["open"]["truth_interval_deg"]
+    assert lo == pytest.approx(hi) == pytest.approx(30.0)
 
 
 @pytest.mark.parametrize(
@@ -372,20 +415,24 @@ def test_card1_stems_keep_the_audio_referent_and_time_explicit():
     bands = [[-52.5, -17.5], [-17.5, 17.5], [17.5, 52.5]]
     for temporal, query_frame, phrase in (
             ("forward", 74, "At the end of the video"),
-            ("backward", 22,
-             "At zero-based video frame index 22 (22/15 seconds)")):
+            ("backward", 22, "Between 1 and 1.5 seconds")):
         profile = {"id": f"card1-{temporal}", "temporal": temporal,
                    "answer_bands_deg": bands}
+        # 主与 Gate A 的目标槽相反，所以各自要一条把自己的目标摆在 -30 度的
+        # 时间线；真值现在是从逐帧几何重算的，摆错就会被那道唯一性检查拦下。
         main = build_answer(
-            "azimuth_band", profile, cell, None, None, [], "source1",
+            "azimuth_band", profile, cell,
+            stationary_timeline(-30.0, target="source1"), None, [], "source1",
             "source2", slot_coat, -30.0, query_frame, PARAMS)
         gate = build_answer(
-            "azimuth_band", profile, cell, None, None, [], "source2",
+            "azimuth_band", profile, cell,
+            stationary_timeline(-30.0, target="source2"), None, [], "source2",
             "source1", slot_coat, -30.0, query_frame, PARAMS)
         assert main["mcq"]["stem"] == gate["mcq"]["stem"]
         assert main["open"]["stem"] == gate["open"]["stem"]
         assert "dog that barked last" in main["mcq"]["stem"].lower()
         assert phrase in main["mcq"]["stem"]
+        assert "frame index" not in main["mcq"]["stem"]
 
 
 def test_audit_rejects_a_changed_question_stem():
@@ -668,3 +715,79 @@ def test_card4r_distance_answer_uses_final_timeline_frame():
     assert result["truth"]["distance_gap_cm"] == 100.0
     assert result["mcq"]["truth_option"] == "black-and-white"
     assert result["open"]["scoring"] == "closed_set"
+
+
+def sweeping_timeline(start_deg: float, end_deg: float, target="source1",
+                      slots=("source1", "source2"), frames: int = 75):
+    """目标在整段里从 start_deg 匀速扫到 end_deg（引擎帧），另一只站着。"""
+
+    radius = 400.0
+    out = []
+    for index in range(frames):
+        share = index / max(1, frames - 1)
+        deg = start_deg + (end_deg - start_deg) * share
+        states = []
+        others = 0
+        for slot in slots:
+            if slot == target:
+                angle = math.radians(deg)
+            else:
+                others += 1
+                angle = math.radians(start_deg + 60.0 * others)
+            states.append({"source_slot_id": slot,
+                           "translation_ue_cm": [radius * math.cos(angle),
+                                                 radius * math.sin(angle), 0.0]})
+        out.append({"frame_index": index,
+                    "camera": {"translation_ue_cm": [0.0, 0.0, 147.1],
+                               "yaw_ue_deg": 0.0},
+                    "actor_states": states})
+    return {"room": {"map_path": "/Game/x", "room_profile_id": "x"},
+            "render": {"frame_count": frames, "frame_rate_hz": 15,
+                       "hfov_degrees": 105.0, "resolution_hw": [720, 1280]},
+            "frames": out}
+
+
+def test_the_query_window_is_the_tidy_half_second_holding_the_frame():
+    # owner 2026-09-03:"frame index 22 (22/15 seconds)"没人当场算成 1.47 秒。
+    assert query_window_seconds(22, 15) == (1.0, 1.5)
+    assert query_window_seconds(30, 15) == (2.0, 2.5)
+    assert query_window_seconds(0, 15) == (0.0, 0.5)
+    assert query_window_seconds(74, 15) == (4.5, 5.0)
+    with pytest.raises(ValueError):
+        query_window_seconds(22, 0)
+
+
+def test_a_moving_target_gets_an_interval_not_a_point():
+    """窗口内目标在动，所以真值是那半秒扫过的区间。"""
+
+    slot_coat = {"source1": "black-and-white", "source2": "yellow"}
+    bands = [[-52.5, -17.5], [-17.5, 17.5], [17.5, 52.5]]
+    profile = {"id": "card1B", "temporal": "backward",
+               "answer_bands_deg": bands}
+    # 整段 -45 扫到 -20，都在最左那一带里；窗口 [1.0, 1.5) 只覆盖其中一小段。
+    result = build_answer(
+        "azimuth_band", profile, {"answer_band": (-52.5, -17.5)},
+        sweeping_timeline(-45.0, -20.0), None, [], "source1", "source2",
+        slot_coat, -41.0, 22, PARAMS)
+    lo, hi = result["open"]["truth_interval_deg"]
+    assert hi > lo, "动着的目标应当给出一个真区间"
+    assert result["open"]["truth_value"] == pytest.approx((lo + hi) / 2.0, abs=1e-6)
+    assert "authoritative" in result["open"]["truth_value_note"]
+    assert result["truth"]["query_window_seconds"] == [1.0, 1.5]
+
+
+def test_a_sweep_that_crosses_a_band_edge_is_refused():
+    """跨带就没有唯一答案，必须拒而不是挑一个带。"""
+
+    slot_coat = {"source1": "black-and-white", "source2": "yellow"}
+    bands = [[-52.5, -17.5], [-17.5, 17.5], [17.5, 52.5]]
+    profile = {"id": "card1B", "temporal": "backward",
+               "answer_bands_deg": bands}
+    with pytest.raises(GenerationConstraintError, match="would not be unique"):
+        build_answer(
+            "azimuth_band", profile, {"answer_band": (-52.5, -17.5)},
+            # 窗口只覆盖 frames 15..22，也就是整段的十分之一，所以整段斜率
+            # 要足够大才会在窗口内跨过 -17.5 那条带边：-30 到 25 时窗口内
+            # 走的是 -18.85 到 -13.65。
+            sweeping_timeline(-30.0, 25.0), None, [], "source1", "source2",
+            slot_coat, -30.0, 22, PARAMS)

@@ -244,6 +244,42 @@ def recompute_azimuth(timeline, slot, frame):
     raise KeyError(f"slot {slot} missing at frame {frame}")
 
 
+QUERY_WINDOW_S = 0.5
+
+
+def query_window_seconds(query_frame: int, video_fps: float) -> tuple[float, float]:
+    """The tidy half-second window that contains the query frame.
+
+    owner 2026-09-03 ruled the frame index out: "frame index 22 (22/15 seconds)"
+    is not a moment a person can act on, and nobody converts 22/15 to 1.47 s in
+    their head.  A window has to be narrow, though -- the target sweeps, so a
+    vague moment makes the truth itself vague.  Measured over run02's card1 and
+    card2 points, a 0.5 s window sweeps a median of 3.0 deg and at most 9.6 deg,
+    against a 35 deg band; 1.0 s reaches 19.3 and 2.0 s reaches 35.7, which is a
+    whole band.
+    """
+
+    if video_fps <= 0:
+        raise ValueError("video_fps must be positive")
+    seconds = float(query_frame) / float(video_fps)
+    lo = math.floor(seconds / QUERY_WINDOW_S) * QUERY_WINDOW_S
+    return (round(lo, 3), round(lo + QUERY_WINDOW_S, 3))
+
+
+def azimuth_sweep_engine_frame(timeline, slot, window_s, video_fps):
+    """min and max engine-frame azimuth over the window, inclusive of its ends."""
+
+    lo_s, hi_s = window_s
+    frame_count = len(timeline["frames"])
+    lo_f = max(0, math.ceil(lo_s * float(video_fps)))
+    hi_f = min(frame_count - 1, math.floor(hi_s * float(video_fps)))
+    if hi_f < lo_f:
+        raise GenerationConstraintError(
+            f"query window {window_s} covers no frame of {frame_count}")
+    values = [recompute_azimuth(timeline, slot, f) for f in range(lo_f, hi_f + 1)]
+    return min(values), max(values), (lo_f, hi_f)
+
+
 def band_of(value, edges):
     for i in range(len(edges) - 1):
         if edges[i] <= value < edges[i + 1]:
@@ -300,7 +336,11 @@ def audit_gatea_pair(profile, main_program, gatea_program, main_answer,
     if scoring != gatea_open["scoring"]:
         raise GenerationConstraintError(
             "Gate A changed the Open scoring protocol")
-    open_preserved = main_open["truth_value"] == gatea_open["truth_value"]
+    if "truth_interval_deg" in main_open:
+        open_preserved = (main_open["truth_interval_deg"]
+                          == gatea_open.get("truth_interval_deg"))
+    else:
+        open_preserved = main_open["truth_value"] == gatea_open["truth_value"]
     if scoring == "circular_deg":
         separation = SS.circular_gap_deg(
             float(main_open["truth_value"]),
@@ -308,6 +348,15 @@ def audit_gatea_pair(profile, main_program, gatea_program, main_answer,
         threshold = 2.0 * float(params["THETA_HALF"])
         open_separated = separation > threshold
         open_rule = "circular_distance > 2*THETA_HALF"
+    elif scoring == "circular_deg_interval":
+        # 真值是窗口内扫过的区间，所以"宽信区域不相交"要按区间算：
+        # 两个区间各自向外扩 THETA_HALF 之后不许相交，即间隙 > 2*THETA_HALF。
+        main_lo, main_hi = (float(v) for v in main_open["truth_interval_deg"])
+        gate_lo, gate_hi = (float(v) for v in gatea_open["truth_interval_deg"])
+        separation = max(0.0, gate_lo - main_hi, main_lo - gate_hi)
+        threshold = 2.0 * float(params["THETA_HALF"])
+        open_separated = separation > threshold
+        open_rule = "interval gap > 2*THETA_HALF"
     elif scoring == "absolute_time":
         separation = abs(float(main_open["truth_value"])
                          - float(gatea_open["truth_value"]))
@@ -1726,22 +1775,40 @@ def build_answer(kind, profile, cell, timeline, schedule, slot_events,
         labels = [f"[{lo:g}, {hi:g})" for lo, hi in published]
         frame_edge = max(abs(v) for band in bands for v in band)
         convention = AZ.landmark_sentence(frame_edge)
+        video_fps = float(_require_param(params, "VIDEO_FPS"))
         if profile["temporal"] == "forward":
+            # 片尾是人能对齐的时刻，本来就不用窗口。
             moment = "At the end of the video"
             referent = "the dog that barked last"
-        elif profile["temporal"] == "backward":
-            moment = (f"At zero-based video frame index {query_frame} "
-                      f"({query_frame}/15 seconds)")
-            referent = "the dog that barked last"
-        elif profile["temporal"] == "instant":
-            moment = (f"At zero-based video frame index {query_frame} "
-                      f"({query_frame}/15 seconds)")
-            referent = "the dog barking at that frame"
+            sweep_lo = sweep_hi = truth_deg
+            window = None
+        elif profile["temporal"] in ("backward", "instant"):
+            window = query_window_seconds(query_frame, video_fps)
+            moment = f"Between {window[0]:g} and {window[1]:g} seconds"
+            referent = ("the dog that barked last"
+                        if profile["temporal"] == "backward"
+                        else "the dog barking in that window")
+            sweep_lo, sweep_hi, _ = azimuth_sweep_engine_frame(
+                timeline, target_slot, window, video_fps)
+            # 窗口内扫过的区间必须整段落在同一个带里，否则"在哪个带"没有唯一答案。
+            if not (bands[got][0] <= sweep_lo and sweep_hi < bands[got][1]):
+                raise GenerationConstraintError(
+                    f"azimuth sweeps {sweep_lo:.2f}..{sweep_hi:.2f} deg across "
+                    f"band {got} edges {bands[got]} during the query window "
+                    f"{window}: the banded answer would not be unique")
         else:
             raise ValueError("azimuth-band profile must declare a time direction")
+        published_interval = sorted(
+            (AZ.to_published_deg(sweep_hi), AZ.to_published_deg(sweep_lo)))
         return {"truth": {"band_index": got, **AZ.published_block(truth_deg),
                           "azimuth_deg_engine_frame": round(truth_deg, 3),
-                          "engine_frame_note": AZ.ENGINE_FRAME_NOTE},
+                          "engine_frame_note": AZ.ENGINE_FRAME_NOTE,
+                          "query_window_seconds": (
+                              list(window) if window else None),
+                          "azimuth_interval_deg": [round(v, 3)
+                                                   for v in published_interval],
+                          "azimuth_interval_engine_frame": [
+                              round(sweep_lo, 3), round(sweep_hi, 3)]},
                 "mcq": {"stem": (f"{convention} {moment}, which azimuth band "
                                  f"contains {referent}?"),
                         "options_space": labels, "truth_option": labels[got],
@@ -1749,8 +1816,16 @@ def build_answer(kind, profile, cell, timeline, schedule, slot_events,
                 "open": {"stem": (f"{convention} {moment}, roughly what is the "
                                   f"azimuth of {referent}? Report a numeric "
                                   "estimate in degrees rather than a category."),
-                         "truth_value": round(AZ.to_published_deg(truth_deg), 3),
-                         "unit": "deg", "scoring": "circular_deg",
+                         # 区间是权威：窗口内目标在动，落在区间里就算说对了。
+                         # truth_value 保留为区间中点，供只读单值的老消费方。
+                         "truth_interval_deg": [round(v, 3)
+                                                for v in published_interval],
+                         "truth_value": round(
+                             sum(published_interval) / 2.0, 3),
+                         "truth_value_note": (
+                             "midpoint of truth_interval_deg; the interval is "
+                             "authoritative"),
+                         "unit": "deg", "scoring": "circular_deg_interval",
                          "convention": AZ.CONVENTION}}
     if kind == "coat_at_query":
         calling = [slot for slot, event in zip(
