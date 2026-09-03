@@ -364,6 +364,15 @@ def test_params_without_event_seconds_fail_closed():
         schedule_forward_anchor(rng(1), params=params, anchor_frame=40)
 
 
+def test_program_events_refuses_dry_canvas_schedules_without_clip_identity():
+    schedule = schedule_forward_anchor(rng(1), params=PARAMS, anchor_frame=40)
+    assert all(event.sound_asset_id is None for event in schedule.events)
+    with pytest.raises(AudioProfileError, match="dry_canvas_window"):
+        schedule.program_events({TARGET: "source1", OTHER: "source2"})
+    bound = schedule.bind({TARGET: "source1", OTHER: "source2"})
+    assert bound[-1][0] == "source1"
+
+
 def test_params_without_sample_rate_fail_closed():
     params = {key: value for key, value in PARAMS.items()
               if key != "SAMPLE_RATE_HZ"}

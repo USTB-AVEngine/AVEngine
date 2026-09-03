@@ -53,10 +53,10 @@ def test_complete_seed_suffix_changes_rng_entropy_and_plan():
     seed_b = "qa-v3-common-prefix|card17|segment2|1"
     assert seed_uint64(seed_a) != seed_uint64(seed_b)
     plan_a = find_n_route_plan(
-        _scene(), {}, actor_count=2, seed=seed_a,
+        _scene(), {"MIN_CAMERA_DISTANCE_CM": 100.0}, actor_count=2, seed=seed_a,
         binding_frames=(12, 40), min_pairwise_sep_deg=5.0)
     plan_b = find_n_route_plan(
-        _scene(), {}, actor_count=2, seed=seed_b,
+        _scene(), {"MIN_CAMERA_DISTANCE_CM": 100.0}, actor_count=2, seed=seed_b,
         binding_frames=(12, 40), min_pairwise_sep_deg=5.0)
     assert _signature(plan_a) != _signature(plan_b)
 
@@ -64,7 +64,14 @@ def test_complete_seed_suffix_changes_rng_entropy_and_plan():
 def test_failed_search_reports_true_evaluated_denominator():
     with pytest.raises(NRouteSearchExhausted) as captured:
         find_n_route_plan(
-            _scene(hfov=1.0), {}, actor_count=2,
+            _scene(hfov=1.0), {"MIN_CAMERA_DISTANCE_CM": 100.0}, actor_count=2,
             seed="qa-v3-failure-denominator",
             binding_frames=(12, 40), max_attempts=17)
     assert captured.value.evaluated_combinations == 17
+
+
+def test_n_route_plan_requires_min_camera_distance():
+    with pytest.raises(ValueError, match="MIN_CAMERA_DISTANCE_CM"):
+        find_n_route_plan(
+            _scene(), {}, actor_count=2, seed="qa-v3-missing-distance",
+            binding_frames=(12, 40), min_pairwise_sep_deg=5.0)

@@ -214,8 +214,10 @@ def _assert_gateb_visual_change(
 
 
 def _find_gateb_out_of_view_route(scene, params, plan, *, frame=30):
+    if "MIN_CAMERA_DISTANCE_CM" not in params:
+        raise ValueError("params missing MIN_CAMERA_DISTANCE_CM")
     half_fov = effective_half_fov(scene, params)
-    minimum_distance = float(params.get("MIN_CAMERA_DISTANCE_CM", 100.0))
+    minimum_distance = float(params["MIN_CAMERA_DISTANCE_CM"])
     used = {route.route_id for route in plan["routes"]}
     evaluated = 0
     for route in scene.routes:
