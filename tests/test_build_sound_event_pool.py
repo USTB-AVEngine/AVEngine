@@ -68,15 +68,42 @@ def test_manifest_converts_to_a_loadable_pool(tmp_path: Path):
     assert clip.source_end_sample_exclusive - clip.source_start_sample == 3200
 
 
-def test_pulse_class_with_continuous_purpose_is_refused(tmp_path: Path):
+def test_a_fallback_span_is_excluded_and_recorded_not_fatal(tmp_path: Path):
+    """整体拒绝是附带伤害：2026-09-03 实测两条 cat_meow 降级跨度挡住了
+    一份干净的 166 条 dog_bark catalog。那道闸的本意是"别把降级跨度放进
+    池子"，排除就达到了目的，所以改成排除并记录。"""
+
     output_root = tmp_path / "events"
-    wav = output_root / "dog_bark" / "long_e000.wav"
-    _write_wav(wav, np.ones(16000) * 0.2)
-    manifest = _manifest(tmp_path, [{
-        "status": "event",
-        "purpose": "continuous",
-        "event_class": "dog_bark",
-        "prepared": "dog_bark/long_e000.wav",
-    }], output_root=output_root)
-    with pytest.raises(PoolBuildError, match="purpose=continuous"):
+    _write_wav(output_root / "dog_bark" / "good_e000.wav", np.ones(4800) * 0.2)
+    _write_wav(output_root / "cat_meow" / "long_e000.wav", np.ones(16000) * 0.2)
+    _write_wav(output_root / "cat_meow" / "good_e000.wav", np.ones(9600) * 0.2)
+    manifest = _manifest(tmp_path, [
+        {"status": "event", "purpose": "pulse", "event_class": "dog_bark",
+         "prepared": "dog_bark/good_e000.wav"},
+        {"status": "event", "purpose": "continuous", "event_class": "cat_meow",
+         "prepared": "cat_meow/long_e000.wav"},
+        {"status": "event", "purpose": "pulse", "event_class": "cat_meow",
+         "prepared": "cat_meow/good_e000.wav"},
+    ], output_root=output_root)
+    catalog = build_pool_catalog(manifest, tmp_path / "pool.json")
+    assert catalog["clips_by_class"] == {"dog_bark": 1, "cat_meow": 1}
+    assert [row["prepared"] for row in catalog["excluded"]] == [
+        "cat_meow/long_e000.wav"]
+    assert catalog["excluded"][0]["reason"] == (
+        "pulse_class_hysteresis_fallback_span")
+    # 被排除的那条不许出现在池子里
+    assert all(c["prepared"] != "cat_meow/long_e000.wav" for c in catalog["clips"])
+
+
+def test_a_class_that_loses_every_clip_still_fails(tmp_path: Path):
+    output_root = tmp_path / "events"
+    _write_wav(output_root / "dog_bark" / "good_e000.wav", np.ones(4800) * 0.2)
+    _write_wav(output_root / "cat_meow" / "long_e000.wav", np.ones(16000) * 0.2)
+    manifest = _manifest(tmp_path, [
+        {"status": "event", "purpose": "pulse", "event_class": "dog_bark",
+         "prepared": "dog_bark/good_e000.wav"},
+        {"status": "event", "purpose": "continuous", "event_class": "cat_meow",
+         "prepared": "cat_meow/long_e000.wav"},
+    ], output_root=output_root)
+    with pytest.raises(PoolBuildError, match="lost every clip"):
         build_pool_catalog(manifest, tmp_path / "pool.json")

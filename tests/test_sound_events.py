@@ -14,7 +14,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools" / "assets"))
 
 from avengine.assets.sound_events import (  # noqa: E402
-    MAX_EVENT_S,
+    split_family,
+    split_params_for_class,
     SoundEventError,
     event_policy_for_class,
     extract_sound_events,
@@ -43,6 +44,62 @@ def test_dog_bark_class_is_pulse() -> None:
     assert event_policy_for_class("cat_meow") == "pulse"
     assert event_policy_for_class("speech_playback") == "continuous"
     assert event_policy_for_class("air_conditioning") == "continuous"
+
+
+def test_nothing_whose_occurrence_is_an_utterance_may_be_cut() -> None:
+    """owner 2026-09-03:"人声可千万不能和狗一样切掉中间的声音"。
+
+    同样的道理适用于铃声(一段旋律)、拨号音(一串数字)、持续鸣响的报警:
+    切掉中间就不是那一次出现了。旧的词元启发式匹配 ring/bell/beep/alarm,
+    正是它把这些判成了脉冲。
+    """
+
+    for name in ("speech_playback", "music_playback", "ringtone",
+                 "telephone_dialing_dtmf", "phone_ring", "alarm_beep",
+                 "alarm_clock", "smoke_alarm", "busy_signal", "buzzer",
+                 "microwave_beep", "clock_tick", "cellphone_vibration_alert"):
+        assert event_policy_for_class(name) == "continuous", name
+        assert split_family(name) == "sustained", name
+
+
+def test_an_unknown_class_is_never_cut() -> None:
+    # 没被刻画过的类别一律只去头尾:切错中间不可逆,不切最坏只是事件偏长。
+    assert event_policy_for_class("some_new_sound_v3") == "continuous"
+    assert split_family("some_new_sound_v3") == "sustained"
+
+
+def test_a_sustained_class_has_no_splitting_parameters() -> None:
+    with pytest.raises(SoundEventError, match="never split"):
+        split_params_for_class("ringtone")
+
+
+def test_a_multi_tone_ring_stays_one_occurrence() -> None:
+    """门铃按一次是两个音,一次出现;60 毫秒的合并间隔会把它拆成叮和咚。"""
+
+    rate = 16000
+    ding = _tone(880, rate, 0.35)
+    dong = _tone(660, rate, 0.45)
+    quiet = np.zeros(int(rate * 0.4))
+    clip = np.concatenate([np.zeros(int(rate * 0.2)), ding, quiet, dong,
+                           np.zeros(int(rate * 0.2))])
+    grouped = extract_sound_events(clip, rate, event_class="doorbell")
+    assert len(grouped) == 1
+    atomic = extract_sound_events(clip, rate, event_class="dog_bark")
+    assert len(atomic) == 2, "同一段波形按原子脉冲切应当分成两个,证明差别来自类族"
+
+
+def test_a_long_ring_is_not_truncated_at_the_old_cap() -> None:
+    """2026-09-03 实测:doorbell 三条全部落在 1.53-1.56 s,即旧的 1.5 s 上限
+    加保护带,真实的单次门铃被切断了。"""
+
+    rate = 16000
+    clip = np.concatenate([np.zeros(int(rate * 0.2)),
+                           _tone(700, rate, 2.5),
+                           np.zeros(int(rate * 0.2))])
+    events = extract_sound_events(clip, rate, event_class="doorbell")
+    assert len(events) == 1
+    assert events[0].duration_s(rate) >= 2.5, events[0].duration_s(rate)
+    assert not events[0].truncated
 
 
 def test_two_separated_barks_become_two_events() -> None:
@@ -153,7 +210,8 @@ def test_pulse_longer_than_max_is_truncated() -> None:
     assert len(events) == 1
     assert events[0].purpose == "pulse"
     assert events[0].truncated is True
-    assert events[0].duration_s(rate) <= MAX_EVENT_S + 0.08
+    cap = split_params_for_class("dog_bark")["max_event_s"]
+    assert events[0].duration_s(rate) <= cap + 0.08
     assert events[0].untruncated_end_sample_exclusive is not None
     assert events[0].untruncated_end_sample_exclusive > events[0].end_sample_exclusive
 

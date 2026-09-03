@@ -23,50 +23,74 @@ Policy = Literal["pulse", "continuous"]
 FRAME_S = 0.010
 GUARD_S = 0.030
 MIN_EVENT_S = 0.080
-MAX_EVENT_S = 1.500
-MERGE_GAP_S = 0.060
+# Per-family split parameters.  A single global pair was wrong: 2026-09-03
+# measurement showed every doorbell event landing at 1.53-1.56 s, which is the
+# old 1.5 s cap plus the guard, so real single rings were being cut off; and one
+# chime file produced eleven 0.2-0.5 s fragments because a 60 ms merge gap
+# cannot hold a multi-tone ring together.
 HANGOVER_S = 0.040
 ENTER_DB_ABOVE_NOISE = 12.0
 EXIT_DB_ABOVE_NOISE = 6.0
 NOISE_PERCENTILE = 20.0
 ABS_NOISE_FLOOR = 1e-5
 
-PULSE_CLASSES = frozenset(
+# What counts as one occurrence decides whether a clip may be cut, not whether
+# the waveform looks pulsatile.  owner 2026-09-03: "人声可千万不能和狗一样切掉
+# 中间的声音" -- and the same holds for a ringtone (a melody), a DTMF dial (a
+# digit sequence) and an alarm (one sustained ringing episode).  Cutting the
+# middle out of any of those destroys the occurrence exactly as it would a
+# sentence.  An unknown class therefore falls through to "continuous": never
+# cut the middle of something whose occurrence you have not characterised.
+#
+# ATOMIC: one occurrence is a single short burst, self-contained and countable.
+ATOMIC_PULSE_CLASSES = frozenset({"dog_bark", "cat_meow"})
+# GROUPED: one occurrence is a short run of tones that must stay whole, but
+# separate occurrences are separable.  A doorbell press is one occurrence even
+# though it is two tones.
+GROUPED_PULSE_CLASSES = frozenset(
+    {"doorbell", "doorbell_chime", "ding_dong", "chime"}
+)
+PULSE_CLASSES = ATOMIC_PULSE_CLASSES | GROUPED_PULSE_CLASSES
+
+# Classes whose occurrence is a sustained episode.  Listed rather than inferred
+# so the reason survives: one beep of a smoke alarm is not "one alarm", and one
+# tone of a busy signal is not "one busy signal".  The 2026-09-03 split put all
+# fifty hysteresis-fallback spans in exactly these classes, which is the gate
+# reporting that these files are continuous rather than a train of bursts.
+SUSTAINED_ALERT_CLASSES = frozenset(
     {
-        "dog_bark",
-        "cat_meow",
-        "doorbell",
-        "doorbell_chime",
-        "ding_dong",
-        "chime",
-        "alarm_bell",
-        "alarm_beep",
-        "alarm_clock",
-        "buzzer",
-        "ringtone",
-        "phone_ring",
-        "telephone",
-        "telephone_bell_ringing",
-        "telephone_dialing_dtmf",
-        "busy_signal",
-        "microwave_beep",
-        "smoke_alarm",
-        "fire_alarm",
+        "alarm_bell", "alarm_beep", "alarm_clock", "buzzer", "ringtone",
+        "phone_ring", "telephone", "telephone_bell_ringing",
+        "telephone_dialing_dtmf", "busy_signal", "microwave_beep",
+        "smoke_alarm", "fire_alarm", "cellphone_vibration_alert",
     }
 )
 
-_PULSE_TOKENS = (
-    "bark",
-    "meow",
-    "beep",
-    "bell",
-    "chime",
-    "ring",
-    "alarm",
-    "buzzer",
-    "doorbell",
-    "ding",
-)
+_SPLIT_PARAMS = {
+    "atomic": {"merge_gap_s": 0.060, "max_event_s": 2.000},
+    # 0.8 s holds a ding and its dong together; 4 s lets a full chime ring out.
+    "grouped": {"merge_gap_s": 0.800, "max_event_s": 4.000},
+}
+
+
+def split_family(event_class: str | None) -> str:
+    """atomic | grouped | sustained — what one occurrence of this class is."""
+
+    name = _normalised(event_class)
+    if name in ATOMIC_PULSE_CLASSES:
+        return "atomic"
+    if name in GROUPED_PULSE_CLASSES:
+        return "grouped"
+    return "sustained"
+
+
+def split_params_for_class(event_class: str | None) -> dict:
+    family = split_family(event_class)
+    if family == "sustained":
+        raise SoundEventError(
+            f"class {event_class!r} is a sustained occurrence; it is trimmed, "
+            "never split, so it has no burst-splitting parameters")
+    return dict(_SPLIT_PARAMS[family])
 
 
 class SoundEventError(ValueError):
@@ -87,15 +111,20 @@ class SoundEvent:
         return (self.end_sample_exclusive - self.start_sample) / rate
 
 
-def event_policy_for_class(event_class: str | None) -> Policy:
-    """Pulse classes split; everything else stays one trimmed span."""
+def _normalised(event_class: str | None) -> str:
+    return (event_class or "").strip().lower().replace("-", "_").replace(" ", "_")
 
-    name = (event_class or "").strip().lower().replace("-", "_").replace(" ", "_")
-    if name in PULSE_CLASSES:
-        return "pulse"
-    if any(token in name for token in _PULSE_TOKENS):
-        return "pulse"
-    return "continuous"
+
+def event_policy_for_class(event_class: str | None) -> Policy:
+    """Pulse classes split into occurrences; everything else is trimmed whole.
+
+    There is no token heuristic any more.  The old one matched "ring", "bell",
+    "beep" and "alarm", which is how ringtone, phone_ring, alarm_* and buzzer
+    came to be split into fragments.  Membership is now declared, and an
+    unrecognised class is treated as continuous.
+    """
+
+    return "pulse" if _normalised(event_class) in PULSE_CLASSES else "continuous"
 
 
 def _rms_frames(samples: np.ndarray, rate: int) -> tuple[np.ndarray, int]:
@@ -140,7 +169,8 @@ def _continuous_span(samples: np.ndarray, rate: int) -> SoundEvent:
     return SoundEvent(start, end, "continuous")
 
 
-def _pulse_spans(samples: np.ndarray, rate: int) -> list[SoundEvent]:
+def _pulse_spans(samples: np.ndarray, rate: int, *,
+                 merge_gap_s: float, max_event_s: float) -> list[SoundEvent]:
     rms, hop = _rms_frames(samples, rate)
     if rms.size == 0:
         raise SoundEventError("clip is too short to measure")
@@ -158,8 +188,8 @@ def _pulse_spans(samples: np.ndarray, rate: int) -> list[SoundEvent]:
 
     hangover_frames = max(1, int(round(HANGOVER_S / FRAME_S)))
     min_frames = max(1, int(round(MIN_EVENT_S / FRAME_S)))
-    max_frames = max(min_frames, int(round(MAX_EVENT_S / FRAME_S)))
-    merge_gap_frames = max(1, int(round(MERGE_GAP_S / FRAME_S)))
+    max_frames = max(min_frames, int(round(max_event_s / FRAME_S)))
+    merge_gap_frames = max(1, int(round(merge_gap_s / FRAME_S)))
 
     raw: list[tuple[int, int]] = []
     i = 0
@@ -240,7 +270,7 @@ def extract_sound_events(
     chosen = policy or event_policy_for_class(event_class)
     if chosen == "continuous":
         return [_continuous_span(samples, rate)]
-    return _pulse_spans(samples, rate)
+    return _pulse_spans(samples, rate, **split_params_for_class(event_class))
 
 
 def slice_event(samples: np.ndarray, event: SoundEvent) -> np.ndarray:

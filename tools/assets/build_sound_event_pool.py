@@ -55,6 +55,7 @@ def build_pool_catalog(manifest_path: Path, output_path: Path) -> dict:
             f"{MANIFEST_SCHEMA}")
     output_root = Path(payload["output_root"])
     clips = []
+    excluded: list[dict] = []
     for index, row in enumerate(payload.get("clips") or []):
         if row.get("status") != "event":
             continue
@@ -66,9 +67,17 @@ def build_pool_catalog(manifest_path: Path, output_path: Path) -> dict:
             raise PoolBuildError(f"{owner} needs event_class and prepared")
         if (event_policy_for_class(event_class) == "pulse"
                 and purpose == "continuous"):
-            raise PoolBuildError(
-                f"{owner} pulse class {event_class!r} has purpose=continuous; "
-                "refusing to put a hysteresis-fallback span into the pool")
+            # The gate never opened on this file, so the span is the whole clip
+            # rather than one occurrence.  Keep it out of the pool, but record
+            # it: refusing the entire build meant two bad cat_meow rows blocked
+            # a clean 166-clip dog_bark catalog, which is collateral damage
+            # rather than the guard doing its job.
+            excluded.append({
+                "prepared": prepared,
+                "event_class": event_class,
+                "reason": "pulse_class_hysteresis_fallback_span",
+            })
+            continue
         wav_path = output_root / prepared
         if not wav_path.is_file():
             raise PoolBuildError(f"{owner} wav missing: {wav_path}")
@@ -87,9 +96,23 @@ def build_pool_catalog(manifest_path: Path, output_path: Path) -> dict:
         })
     if not clips:
         raise PoolBuildError(f"{manifest_path} has no event rows")
+    by_class: dict[str, int] = {}
+    for clip in clips:
+        by_class[clip["event_class"]] = by_class.get(clip["event_class"], 0) + 1
+    emptied = sorted({row["event_class"] for row in excluded} - set(by_class))
+    if emptied:
+        raise PoolBuildError(
+            f"classes {emptied} lost every clip to hysteresis-fallback spans; "
+            "re-split or reclassify them before building a pool")
     catalog = {
         "schema": POOL_SCHEMA,
         "source_manifest": str(manifest_path),
+        "clips_by_class": by_class,
+        "excluded": excluded,
+        "excluded_note": (
+            "pulse-class rows whose span came from the hysteresis fallback are "
+            "left out of the pool and listed here; a class that loses every "
+            "clip this way fails the build instead"),
         "clips": clips,
         "registration_note": (
             "sound_asset_id is not registered by this tool. Add each id to "
