@@ -46,6 +46,7 @@ from build_qa_v3_programs import (  # noqa: E402
     validate_m6_audio_program,
 )
 from avengine.assets.sound_pool import clip_source_from_params  # noqa: E402
+import qa_v3_arc as AR
 import qa_v3_azimuth as AZ  # noqa: E402
 from qa_v3_pixel_thresholds import card1_pixel_acceptance_block  # noqa: E402
 import visibility_prediction as VP  # noqa: E402
@@ -367,29 +368,26 @@ def audit_gatea_pair(profile, main_program, gatea_program, main_answer,
         open_separated = separation > threshold
         open_rule = "circular_distance > 2*THETA_HALF"
     elif scoring == "circular_deg_interval":
-        # 真值是窗口内扫过的区间，所以"宽信区域不相交"要按区间算：
-        # 两个区间各自向外扩 THETA_HALF 之后不许相交，即间隙 > 2*THETA_HALF。
-        main_lo, main_hi = (float(v) for v in main_open["truth_interval_deg"])
-        gate_lo, gate_hi = (float(v) for v in gatea_open["truth_interval_deg"])
-        # The gap below is linear. It is right only while neither interval wraps
-        # +-180: a pair straddling the wrap ([172, 178] against [-178, -172], a
-        # true gap of 4 deg) would compute 344 and pass this audit, certifying a
-        # Gate A pair whose two golds sit on top of each other -- a model that
-        # ignores the audio would answer both and still count as separated.
-        # azimuth_sweep_engine_frame refuses wrapping sweeps upstream; assert it
-        # here too so this stays true if another producer appears.
-        for name, (lo, hi) in (("main", (main_lo, main_hi)),
-                               ("gateA", (gate_lo, gate_hi))):
-            if hi < lo:
-                raise GenerationConstraintError(
-                    f"{name} truth_interval_deg [{lo}, {hi}] wraps +-180; the "
-                    "Gate A separation below is a linear gap and would report a "
-                    "wrapping pair as far apart. Give the interval a wrap-aware "
-                    "representation before scoring it")
-        separation = max(0.0, gate_lo - main_hi, main_lo - gate_hi)
+        # 真值是窗口内扫过的区间,所以"宽信区域不相交"要按区间算:两个区间各自向外扩
+        # THETA_HALF 之后不许相交。
+        #
+        # 这里原来是端点相减,而且 1f3ecd5 给它加的守卫**没有盖住它自己注释举的例子**
+        # (claude-d3 2026-09-04 在实跑中指出并复现):歧义不是某一个区间的属性,是这一对
+        # 相对于 ±180 那条缝的位置。[172,178] 与 [-178,-172] 各自都是正序的,谁都不 wrap,
+        # 所以 hi < lo 的守卫不响;线性相减照旧算出 344 度、越过 2*THETA_HALF=60、判为
+        # 已分离,而圆上真实间隙是 4 度。那是认证的假通过:两个金标叠在一起,一个不听音频
+        # 的模型两边都报同一个角度就全中。
+        #
+        # 分离是圆上的集合性质,所以按集合算,而且记录的间隙也换成环形的——原来那个 344
+        # 连证据本身都是错的。
+        main_arc = AR.Arc.from_bounds(*(float(v) for v in main_open["truth_interval_deg"]))
+        gate_arc = AR.Arc.from_bounds(*(float(v) for v in gatea_open["truth_interval_deg"]))
         threshold = 2.0 * float(params["THETA_HALF"])
-        open_separated = separation > threshold
-        open_rule = "interval gap > 2*THETA_HALF"
+        separation = AR.circular_gap_deg(main_arc, gate_arc)
+        open_separated = AR.wide_credit_regions_disjoint(
+            main_arc, gate_arc, float(params["THETA_HALF"]))
+        open_rule = ("dilated arcs disjoint on the circle "
+                     "(gap > 2*THETA_HALF for non-wrapping pairs)")
     elif scoring == "absolute_time":
         separation = abs(float(main_open["truth_value"])
                          - float(gatea_open["truth_value"]))
