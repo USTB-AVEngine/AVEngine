@@ -42,3 +42,32 @@ def test_trace_parser_reports_clear_without_out_hit() -> None:
 def test_trace_parser_rejects_ambiguous_casefolded_key() -> None:
     with pytest.raises(RuntimeError, match="unique ReturnValue"):
         TOOL.parse_trace_result({"ReturnValue": False, "returnvalue": True})
+
+
+def test_collision_presence_separates_an_empty_world_from_a_clear_sightline() -> None:
+    """2026-09-03: the Kujiale baked-lit map answers every trace with a miss, so
+    a miss cannot be read as "nothing blocks" until control traces have hit."""
+    calls = []
+
+    def collisionless(start, end, profile="BlockAll", complex_trace=True):
+        calls.append((start, end))
+        return {"ReturnValue": False}
+
+    def solid_floor(start, end, profile="BlockAll", complex_trace=True):
+        # only the downward control trace hits, which is enough
+        hit = end["Z"] < start["Z"]
+        return ({"ReturnValue": True,
+                 "OutHit": {"Location": {"X": end["X"], "Y": end["Y"], "Z": 27.1}}}
+                if hit else {"ReturnValue": False})
+
+    points = [(100.0, 200.0, 174.2), (150.0, 250.0, 174.2)]
+    empty = TOOL.collision_presence(None, collisionless, points)
+    assert empty["collision_geometry_present"] is False
+    assert empty["control_trace_hits"] == 0
+    assert empty["control_trace_count"] == len(points) * 3
+    assert len(calls) == len(points) * 3
+    assert {row["kind"] for row in empty["control_traces"]} == {"down", "up", "sideways"}
+
+    room = TOOL.collision_presence(None, solid_floor, points)
+    assert room["collision_geometry_present"] is True
+    assert room["control_trace_hits"] == len(points)

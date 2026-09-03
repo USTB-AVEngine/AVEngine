@@ -24,6 +24,40 @@ from avengine.backends.spear_ue.research_runtime import launch_external_game_ins
 
 SCHEMA = "qa_v3_packaged_runtime_sightline_probe_v1"
 
+# A miss means "nothing blocks the sightline", so a map without collision
+# geometry makes every candidate look clear.  Measured on 2026-09-03: the
+# Kujiale baked-lit map answers *every* trace with a miss (downward, upward,
+# sideways, simple and complex, BlockAll and OverlapAll: 0 of 20), because the
+# cooked home carries no collision at all - 27 actors and not one floor.  The
+# Apartment map hits on 6757 of 6757 downward traces.  So before trusting a
+# miss the probe fires control traces that must hit, and refuses the room when
+# none of them do.
+CONTROL_TRACE_DOWN_CM = 500.0
+CONTROL_TRACE_UP_CM = 500.0
+CONTROL_TRACE_SIDEWAYS_CM = 3000.0
+
+
+def collision_presence(kismet, trace, points_ue_cm) -> dict[str, Any]:
+    """Fire traces that must hit in a room with collision geometry."""
+    rows = []
+    for x, y, z in points_ue_cm:
+        for kind, end in (
+            ("down", (x, y, z - CONTROL_TRACE_DOWN_CM)),
+            ("up", (x, y, z + CONTROL_TRACE_UP_CM)),
+            ("sideways", (x + CONTROL_TRACE_SIDEWAYS_CM, y, z)),
+        ):
+            result = parse_trace_result(trace(dict(zip(("X", "Y", "Z"), (x, y, z))),
+                                              dict(zip(("X", "Y", "Z"), end))))
+            rows.append({"kind": kind, "start_ue_cm": [x, y, z], "end_ue_cm": list(end),
+                         "blocked": result["blocked"]})
+    hits = sum(row["blocked"] for row in rows)
+    return {"control_traces": rows, "control_trace_count": len(rows),
+            "control_trace_hits": hits,
+            "collision_geometry_present": bool(hits),
+            "rule": ("a room with collision answers at least one of the down/up/"
+                     "sideways control traces; zero hits means every candidate "
+                     "would be reported clear for the wrong reason")}
+
 
 def require(condition: bool, message: str) -> None:
     if not condition:
@@ -119,6 +153,27 @@ def run(args: argparse.Namespace) -> Path:
         game = instance.get_game()
         with instance.begin_frame():
             kismet = game.get_unreal_object(uclass="UKismetSystemLibrary")
+
+            def trace(start, end, profile="BlockAll", complex_trace=True):
+                return kismet.LineTraceSingleByProfile(
+                    Start=start, End=end, ProfileName=profile,
+                    bTraceComplex=complex_trace, ActorsToIgnore=[],
+                    DrawDebugType="None", bIgnoreSelf=True,
+                    TraceColor={"R": 1.0, "G": 0.0, "B": 0.0, "A": 1.0},
+                    TraceHitColor={"R": 0.0, "G": 1.0, "B": 0.0, "A": 1.0},
+                    DrawTime=0.0, as_dict=True)
+
+            control_points = [tuple(candidate["frames"][0]["camera_ue_cm"])
+                              for candidate in candidates[:8]]
+            presence = collision_presence(kismet, trace, control_points)
+            require(presence["collision_geometry_present"],
+                    f"{args.native_map} answered every one of "
+                    f"{presence['control_trace_count']} control traces with a "
+                    "miss: this cooked map has no collision geometry, so line "
+                    "traces cannot tell a clear sightline from an absent world. "
+                    "Use the room's own visibility evidence (feasible-region "
+                    "grid, measured floor reference, or native pixel truth) "
+                    "instead of this probe")
             for candidate in candidates:
                 traces = []
                 for frame in candidate["frames"]:
@@ -170,6 +225,7 @@ def run(args: argparse.Namespace) -> Path:
         ),
         "native_map": args.native_map,
         "actor_center_height_cm": args.actor_center_height_cm,
+        "collision_presence": presence,
         "candidate_count": len(per_point),
         "clear_count": sum(item["status"] == "clear" for item in per_point),
         "blocked_count": sum(item["status"] == "blocked" for item in per_point),
