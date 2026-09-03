@@ -37,6 +37,13 @@ from camera_clearance import (  # noqa: E402
     rule_from_params,
     yaw_bin_index,
 )
+from route_synthesis import (  # noqa: E402
+    ENABLED_KEY as ROUTE_SYNTHESIS_ENABLED_KEY,
+    PointSpec,
+    RouteSynthesizer,
+    SynthesisSettings,
+)
+from walkable_grid import WalkableGrid, grid_from_config  # noqa: E402
 
 FRAME_COUNT = 75
 
@@ -112,9 +119,22 @@ class Route:
     route_id: str
     samples_xy: list[tuple[float, float]]      # 75 帧位置
     implied_speed_mps: float
+    # None for a bank route; a synthesized route carries its design record so
+    # the fact can say where the trajectory came from (see route_synthesis.py).
+    provenance: dict | None = None
 
     def at(self, frame: int) -> tuple[float, float]:
         return self.samples_xy[max(0, min(FRAME_COUNT - 1, frame))]
+
+    @property
+    def source(self) -> str:
+        return "bank" if self.provenance is None else str(self.provenance.get("source"))
+
+    @property
+    def source_record(self) -> dict:
+        if self.provenance is None:
+            return {"source": "bank", "route_id": self.route_id}
+        return dict(self.provenance, route_id=self.route_id)
 
     def shifted(self, idle_frames: int) -> "Route":
         """静→走:前 idle_frames 帧停在起点,其后沿用原速度(平移式)。"""
@@ -123,7 +143,7 @@ class Route:
         shifted = ([self.samples_xy[0]] * idle_frames
                    + self.samples_xy[:FRAME_COUNT - idle_frames])
         return Route(f"{self.route_id}+idle{idle_frames}", shifted,
-                     self.implied_speed_mps)
+                     self.implied_speed_mps, provenance=self.provenance)
 
     def paused(self, start_frame: int, end_frame: int) -> "Route":
         """Freeze one inclusive window, then resume the delayed route."""
@@ -141,7 +161,7 @@ class Route:
                 samples.append(self.samples_xy[frame - delay])
         return Route(
             f"{self.route_id}+pause{start_frame}-{end_frame}",
-            samples, self.implied_speed_mps)
+            samples, self.implied_speed_mps, provenance=self.provenance)
 
     @property
     def displacement_cm(self) -> float:
@@ -161,10 +181,15 @@ class SceneInputs:
     provenance: dict = field(default_factory=dict)
     render_config: dict = field(default_factory=dict)
     clearance: CameraClearanceTable | None = None
+    walkable: WalkableGrid | None = None
 
     @property
     def line_of_sight_screened(self) -> bool:
         return self.line_of_sight is not None
+
+    @property
+    def route_synthesis_available(self) -> bool:
+        return self.walkable is not None
 
     @property
     def camera_clearance_screened(self) -> bool:
@@ -338,6 +363,20 @@ def load_scene(config: dict, *, route_limit: int | None = None) -> SceneInputs:
             raise ValueError(
                 f"{config['scene_id']}: camera clearance table lacks the scene "
                 f"camera height {height} m (has {clearance.heights_m.tolist()})")
+    walkable = None
+    grid_config = config.get("walkable_grid")
+    if grid_config is not None:
+        # 可走栅格也是房间的属性:必须是这个房间的,且求解器会抽到的每个相机点
+        # 都得落在可走格内(相机点本来就是导航可达点)。
+        walkable = grid_from_config(grid_config)
+        if walkable.scene_id != str(config["scene_id"]):
+            raise ValueError(
+                f"{config['scene_id']}: walkable grid belongs to {walkable.scene_id!r}")
+        outside = [xy for xy in ordered if not walkable.is_walkable(xy)]
+        if outside:
+            raise ValueError(
+                f"{config['scene_id']}: walkable grid does not contain {len(outside)} of "
+                f"{len(ordered)} navigable points (first: {outside[:3]})")
     return SceneInputs(
         scene_id=str(config["scene_id"]), backend=str(config["backend"]),
         routes=routes, stand_points=ordered, camera_points=ordered,
@@ -352,9 +391,12 @@ def load_scene(config: dict, *, route_limit: int | None = None) -> SceneInputs:
                     "line_of_sight_grid": los_config,
                     "camera_clearance_table": (
                         clearance.identity if clearance is not None else None),
+                    "walkable_grid": (
+                        walkable.identity if walkable is not None else None),
                     "navigable_points": len(ordered)},
         render_config=dict(render_config),
         clearance=clearance,
+        walkable=walkable,
     )
 
 
@@ -444,6 +486,13 @@ class RejectionLedger:
         self.combinations_evaluated = 0     # 抽过多少个 相机×路线×转折帧
         self.stand_points_evaluated = 0     # 为第二角色查过多少个可站点
         self.budget_exhausted = 0           # 有多少次求解把尝试预算用光
+        # 路线来源的分母:多少次尝试抽的是库路线、多少次是合成;合成设计了
+        # 多少条、建成多少条、没建成的原因。合成关掉时这些全是零。
+        self.synthesis: dict = {
+            "bank_attempts": 0, "synthesized_attempts": 0,
+            "target_designs": 0, "target_built": 0,
+            "other_designs": 0, "other_built": 0,
+            "design_rejections": {}}
 
     def add(self, rejection: Rejection) -> None:
         self.counts[rejection.reason] = self.counts.get(rejection.reason, 0) + 1
@@ -451,6 +500,30 @@ class RejectionLedger:
 
     def note_combination(self) -> None:
         self.combinations_evaluated += 1
+
+    def note_design(self, role: str, designs: int, built: int,
+                    reason: str | None = None) -> None:
+        self.synthesis[f"{role}_designs"] += int(designs)
+        self.synthesis[f"{role}_built"] += int(built)
+        if reason:
+            key = f"{role}:{reason}"
+            rejections = self.synthesis["design_rejections"]
+            rejections[key] = rejections.get(key, 0) + 1
+
+    def absorb(self, other: "RejectionLedger") -> None:
+        """Fold another ledger's counters into this one (per-profile → total)."""
+        for reason, count in other.counts.items():
+            self.counts[reason] = self.counts.get(reason, 0) + count
+            self.first_details.setdefault(reason, other.first_details.get(reason, ""))
+        self.combinations_evaluated += other.combinations_evaluated
+        self.stand_points_evaluated += other.stand_points_evaluated
+        self.budget_exhausted += other.budget_exhausted
+        for key, value in other.synthesis.items():
+            if key == "design_rejections":
+                for reason, count in value.items():
+                    self.synthesis[key][reason] = self.synthesis[key].get(reason, 0) + count
+            else:
+                self.synthesis[key] += value
 
     def summary(self) -> dict:
         total = sum(self.counts.values())
@@ -460,6 +533,7 @@ class RejectionLedger:
                 "budget_exhausted": self.budget_exhausted,
                 "by_reason": dict(sorted(self.counts.items(),
                                          key=lambda kv: -kv[1])),
+                "route_synthesis": json.loads(json.dumps(self.synthesis)),
                 "first_example": self.first_details}
 
 
@@ -601,6 +675,121 @@ def sample_clear_yaw(scene: SceneInputs, params: dict, camera, lo_yaw: float,
     return None
 
 
+def require_route_synthesis(scene: SceneInputs, params: dict) -> None:
+    """Fail closed before any search when route synthesis cannot happen.
+
+    ROUTE_SYNTHESIS_ENABLED in params means the solver may design routes; a
+    scene without a walkable grid must then not be searched at all, and every
+    synthesis key must be present and sane, so no later attempt fails
+    half-way with an unscreened designed route."""
+    settings = SynthesisSettings.from_params(params)
+    if settings is None:
+        return
+    if scene.walkable is None:
+        raise ValueError(
+            f"{scene.scene_id}: {ROUTE_SYNTHESIS_ENABLED_KEY} but the scene config "
+            "declares no walkable_grid")
+    if scene.walkable.cells_with_clearance(settings.margin_cm).size == 0:
+        raise ValueError(
+            f"{scene.scene_id}: no walkable cell keeps the {settings.margin_cm} cm margin")
+
+
+def route_synthesizer(scene: SceneInputs, params: dict) -> RouteSynthesizer | None:
+    """The scene's synthesizer, or None when synthesis is off in params."""
+    settings = SynthesisSettings.from_params(params)
+    if settings is None:
+        return None
+    if scene.walkable is None:
+        raise ValueError(
+            f"{scene.scene_id}: {ROUTE_SYNTHESIS_ENABLED_KEY} but the scene config "
+            "declares no walkable_grid")
+    return RouteSynthesizer(scene.walkable, settings)
+
+
+def bank_attempt_budget(synth: RouteSynthesizer | None, max_attempts: int) -> int:
+    """How many attempts draw from the bank before the solver starts designing.
+
+    Bank first: recorded routes are the more natural ones, so a cell the bank
+    can fill is filled from the bank; synthesis only spends the rest of the
+    budget.  Without a synthesizer every attempt is a bank attempt."""
+    if synth is None:
+        return int(max_attempts)
+    return min(int(synth.settings.bank_attempts), int(max_attempts))
+
+
+def route_synthesis_report(scene: SceneInputs, params: dict) -> dict:
+    """What a batch manifest records about route synthesis for this scene."""
+    settings = SynthesisSettings.from_params(params)
+    return {"enabled": settings is not None,
+            "settings": settings.as_dict() if settings is not None else None,
+            "walkable_grid": scene.provenance.get("walkable_grid"),
+            "order": "bank_first_then_synthesize" if settings is not None else "bank_only"}
+
+
+def _synthesis_pose(scene: SceneInputs, params: dict, rng, ledger: "RejectionLedger | None"):
+    """Camera point and a clear yaw over the whole circle: the pose a designed
+    route is built for.  Same clearance screen as every other draw."""
+    camera = scene.camera_points[int(rng.integers(len(scene.camera_points)))]
+    picked = sample_clear_yaw(scene, params, camera, -180.0, 180.0, rng, ledger)
+    if picked is None:
+        return None
+    yaw, clearance = picked
+    return camera, yaw, clearance
+
+
+DESIGN_EDGE_MARGIN_DEG = 0.25   # keep designed azimuths off band and FOV edges
+
+
+def _design_band(band, half_fov: float) -> tuple[float, float]:
+    """Interior of an azimuth band (or of the field of view) for a designed point."""
+    if band is None:
+        lo, hi = -float(half_fov), float(half_fov)
+    else:
+        lo, hi = float(band[0]), float(band[1])
+    lo, hi = max(lo, -float(half_fov)), min(hi, float(half_fov))
+    if hi - lo <= 2.0 * DESIGN_EDGE_MARGIN_DEG:
+        return lo, hi
+    return lo + DESIGN_EDGE_MARGIN_DEG, hi - DESIGN_EDGE_MARGIN_DEG
+
+
+def _distance_floor_cm(params: dict) -> float:
+    return float(params.get("MIN_CAMERA_DISTANCE_CM", 100.0))
+
+
+def _design_target(synth: RouteSynthesizer, rng, ledger: "RejectionLedger",
+                   camera, yaw: float, specs, idle: int):
+    """Design the target's base route; records the design counters and, on
+    failure, the reason as this attempt's rejection."""
+    before = dict(synth.counters, rejected=dict(synth.counters["rejected"]))
+    route, reason = synth.design_many(rng, camera, yaw, specs, idle_frames=idle, role="target")
+    ledger.note_design("target", synth.counters["designs"] - before["designs"],
+                       synth.counters["built"] - before["built"], reason)
+    if route is None:
+        ledger.add(Rejection(reason, "designed target route could not be built"))
+    return route
+
+
+def _synthesize_other(synth: RouteSynthesizer, rng, ledger: "RejectionLedger",
+                      camera, yaw: float, specs, acceptable, tries: int | None = None):
+    """Design a second-actor route and hold it to the same checks as a bank
+    candidate (``acceptable`` is the solver's own per-candidate predicate)."""
+    for _ in range(int(tries or synth.settings.design_tries)):
+        ledger.stand_points_evaluated += 1
+        route, reason = synth.design(rng, camera, yaw, specs, idle_frames=0, role="other")
+        ledger.note_design("other", 1, 0 if route is None else 1,
+                           reason if route is None else None)
+        if route is None:
+            continue
+        if acceptable(route):
+            return route
+        ledger.note_design("other", 0, 0, "other_failed_solver_checks")
+    return None
+
+
+def _route_sources(target_base: Route, other: Route) -> dict:
+    return {"target": target_base.source, "other": other.source}
+
+
 def solve_forward_cross_time(scene: SceneInputs, params: dict, *,
                              answer_band: tuple[float, float],
                              answer_bands: Sequence[tuple[float, float]],
@@ -627,25 +816,55 @@ def solve_forward_cross_time(scene: SceneInputs, params: dict, *,
     band_lo, band_hi = answer_band
     pool = target_route_pool(scene, params)
     n_routes, n_cams = len(pool), len(scene.camera_points)
+    synth = route_synthesizer(scene, params)
+    bank_attempts = bank_attempt_budget(synth, max_attempts)
+    solve_lo, solve_hi = interior_answer_band(band_lo, band_hi, params)
     for attempt in range(1, max_attempts + 1):
         ledger.note_combination()
-        route = pool[int(rng.integers(n_routes))]
-        idle = int(rng.choice(list(idle_choices)))
-        moved = route.shifted(idle)
-        if moved.displacement_cm <= 1.0e-6:
-            ledger.add(Rejection("target_route_static_for_dual_motion"))
-            continue
-        camera = scene.camera_points[int(rng.integers(n_cams))]
-        end_xy = moved.at(FRAME_COUNT - 1)
-        if _too_close(camera, end_xy, params):
-            ledger.add(Rejection("camera_too_close_to_target"))
-            continue
-        solve_lo, solve_hi = interior_answer_band(band_lo, band_hi, params)
-        lo_yaw, hi_yaw = yaw_interval_for_band(camera, end_xy, solve_lo, solve_hi)
-        picked = sample_clear_yaw(scene, params, camera, lo_yaw, hi_yaw, rng, ledger)
-        if picked is None:
-            continue
-        yaw, clearance = picked
+        if synth is None or attempt <= bank_attempts:
+            ledger.synthesis["bank_attempts"] += 1
+            route = pool[int(rng.integers(n_routes))]
+            idle = int(rng.choice(list(idle_choices)))
+            moved = route.shifted(idle)
+            if moved.displacement_cm <= 1.0e-6:
+                ledger.add(Rejection("target_route_static_for_dual_motion"))
+                continue
+            camera = scene.camera_points[int(rng.integers(n_cams))]
+            end_xy = moved.at(FRAME_COUNT - 1)
+            if _too_close(camera, end_xy, params):
+                ledger.add(Rejection("camera_too_close_to_target"))
+                continue
+            lo_yaw, hi_yaw = yaw_interval_for_band(camera, end_xy, solve_lo, solve_hi)
+            picked = sample_clear_yaw(scene, params, camera, lo_yaw, hi_yaw, rng, ledger)
+            if picked is None:
+                continue
+            yaw, clearance = picked
+        else:
+            # 库里抽不到就当场设计:先定机位与净空朝向,再把锚帧、查询帧的位置
+            # 直接画进分配的方位带与距离范围,铺一条匀速直线。下面的每条检查
+            # 对合成路线原样执行,不因来源放宽。
+            ledger.synthesis["synthesized_attempts"] += 1
+            pose = _synthesis_pose(scene, params, rng, ledger)
+            if pose is None:
+                continue
+            camera, yaw, clearance = pose
+            idle = int(rng.choice(list(idle_choices)))
+            floor_cm = _distance_floor_cm(params)
+            far_cm = synth.settings.max_camera_distance_cm
+            route = _design_target(synth, rng, ledger, camera, yaw, [
+                PointSpec(anchor_frame, *_design_band(anchor_band, half_fov),
+                          _anchor_min_distance_cm(params) or floor_cm, far_cm),
+                PointSpec(FRAME_COUNT - 1, solve_lo, solve_hi, floor_cm, far_cm)], idle)
+            if route is None:
+                continue
+            moved = route.shifted(idle)
+            if moved.displacement_cm <= 1.0e-6:
+                ledger.add(Rejection("target_route_static_for_dual_motion"))
+                continue
+            end_xy = moved.at(FRAME_COUNT - 1)
+            if _too_close(camera, end_xy, params):
+                ledger.add(Rejection("camera_too_close_to_target"))
+                continue
         az_end = relative_azimuth_deg(camera, yaw, end_xy)
         if not (band_lo <= az_end < band_hi):
             ledger.add(Rejection("band_solution_out_of_band",
@@ -734,6 +953,7 @@ def solve_forward_cross_time(scene: SceneInputs, params: dict, *,
                         az_end, other_answer_az),
                     "gatea_open_min_separation_deg": 2.0 * theta_half,
                     "line_of_sight_screened": scene.line_of_sight_screened,
+                    "route_sources": _route_sources(route, other_route),
                     "search_attempts": attempt},
         )
     ledger.budget_exhausted += 1
@@ -763,25 +983,52 @@ def solve_backward_cross_time(scene: SceneInputs, params: dict, *,
     band_lo, band_hi = answer_band
     pool = target_route_pool(scene, params)
     n_routes, n_cams = len(pool), len(scene.camera_points)
+    synth = route_synthesizer(scene, params)
+    bank_attempts = bank_attempt_budget(synth, max_attempts)
+    solve_lo, solve_hi = interior_answer_band(band_lo, band_hi, params)
     for attempt in range(1, max_attempts + 1):
         ledger.note_combination()
-        route = pool[int(rng.integers(n_routes))]
-        idle = int(rng.choice(list(idle_choices)))
-        moved = route.shifted(idle)
-        if moved.displacement_cm <= 1.0e-6:
-            ledger.add(Rejection("target_route_static_for_dual_motion"))
-            continue
-        camera = scene.camera_points[int(rng.integers(n_cams))]
-        query_xy = moved.at(query_frame)
-        if _too_close(camera, query_xy, params):
-            ledger.add(Rejection("camera_too_close_to_target"))
-            continue
-        solve_lo, solve_hi = interior_answer_band(band_lo, band_hi, params)
-        lo_yaw, hi_yaw = yaw_interval_for_band(camera, query_xy, solve_lo, solve_hi)
-        picked = sample_clear_yaw(scene, params, camera, lo_yaw, hi_yaw, rng, ledger)
-        if picked is None:
-            continue
-        yaw, clearance = picked
+        if synth is None or attempt <= bank_attempts:
+            ledger.synthesis["bank_attempts"] += 1
+            route = pool[int(rng.integers(n_routes))]
+            idle = int(rng.choice(list(idle_choices)))
+            moved = route.shifted(idle)
+            if moved.displacement_cm <= 1.0e-6:
+                ledger.add(Rejection("target_route_static_for_dual_motion"))
+                continue
+            camera = scene.camera_points[int(rng.integers(n_cams))]
+            query_xy = moved.at(query_frame)
+            if _too_close(camera, query_xy, params):
+                ledger.add(Rejection("camera_too_close_to_target"))
+                continue
+            lo_yaw, hi_yaw = yaw_interval_for_band(camera, query_xy, solve_lo, solve_hi)
+            picked = sample_clear_yaw(scene, params, camera, lo_yaw, hi_yaw, rng, ledger)
+            if picked is None:
+                continue
+            yaw, clearance = picked
+        else:
+            ledger.synthesis["synthesized_attempts"] += 1
+            pose = _synthesis_pose(scene, params, rng, ledger)
+            if pose is None:
+                continue
+            camera, yaw, clearance = pose
+            idle = int(rng.choice(list(idle_choices)))
+            floor_cm = _distance_floor_cm(params)
+            far_cm = synth.settings.max_camera_distance_cm
+            route = _design_target(synth, rng, ledger, camera, yaw, [
+                PointSpec(anchor_frame, *_design_band(anchor_band, half_fov),
+                          _anchor_min_distance_cm(params) or floor_cm, far_cm),
+                PointSpec(query_frame, solve_lo, solve_hi, floor_cm, far_cm)], idle)
+            if route is None:
+                continue
+            moved = route.shifted(idle)
+            if moved.displacement_cm <= 1.0e-6:
+                ledger.add(Rejection("target_route_static_for_dual_motion"))
+                continue
+            query_xy = moved.at(query_frame)
+            if _too_close(camera, query_xy, params):
+                ledger.add(Rejection("camera_too_close_to_target"))
+                continue
         az_query = relative_azimuth_deg(camera, yaw, query_xy)
         if not (band_lo <= az_query < band_hi) or abs(az_query) > half_fov:
             ledger.add(Rejection("answer_band_outside_fov"))
@@ -862,6 +1109,7 @@ def solve_backward_cross_time(scene: SceneInputs, params: dict, *,
                     "gatea_open_min_separation_deg": 2.0 * theta_half,
                     "line_of_sight_screened": scene.line_of_sight_screened,
                     "requires_silence_near_query": True,
+                    "route_sources": _route_sources(route, other_route),
                     "search_attempts": attempt},
         )
     ledger.budget_exhausted += 1
@@ -901,67 +1149,94 @@ def _pick_other_route(scene, target_route, camera, yaw, az_anchor, az_answer,
                       band_lo, band_hi, answer_bands, min_sep, half_fov,
                       theta_half, params, anchor_frame, query_frame, rng,
                       ledger, target_moves_more=None):
-    """Pick a moving Gate-A actor for both MCQ and Open card1 forms."""
-    order = rng.permutation(len(scene.routes))
-    saw_open_overlap = False
-    saw_outside_answer_space = False
-    saw_motion_rank_mismatch = False
-    saw_static_route = False
-    for index in order[:64]:
-        ledger.stand_points_evaluated += 1
-        route = scene.routes[int(index)]
+    """Pick a moving Gate-A actor for both MCQ and Open card1 forms.
+
+    Bank routes are tried first (64 random draws).  When the solver may
+    synthesize routes, a designed second-actor route is tried next and held
+    to exactly the same per-candidate checks (``acceptable``)."""
+    flags = {"open_overlap": False, "outside_answer_space": False,
+             "motion_rank_mismatch": False, "static_route": False}
+
+    def acceptable(route) -> bool:
         if route.route_id == target_route.route_id:
-            continue
+            return False
         if route.displacement_cm <= 1.0e-6:
-            saw_static_route = True
-            continue
+            flags["static_route"] = True
+            return False
         if target_moves_more is not None:
             observed = target_route.displacement_cm > route.displacement_cm
             if math.isclose(target_route.displacement_cm,
                             route.displacement_cm, abs_tol=1e-6) or \
                     observed != target_moves_more:
-                saw_motion_rank_mismatch = True
-                continue
+                flags["motion_rank_mismatch"] = True
+                return False
         anchor_xy = route.at(anchor_frame)
         answer_xy = route.at(query_frame)
         az_other_anchor = relative_azimuth_deg(camera, yaw, anchor_xy)
         az_other_answer = relative_azimuth_deg(camera, yaw, answer_xy)
         if abs(az_other_anchor) > half_fov or abs(az_other_answer) > half_fov:
-            continue
+            return False
         if circular_gap_deg(az_other_anchor, az_anchor) < min_sep:
-            continue
+            return False
         if not any(lo <= az_other_answer < hi for lo, hi in answer_bands):
-            saw_outside_answer_space = True
-            continue
+            flags["outside_answer_space"] = True
+            return False
         if band_lo <= az_other_answer < band_hi:
-            continue
+            return False
         if not open_angle_gold_regions_disjoint(
                 az_answer, az_other_answer, theta_half):
-            saw_open_overlap = True
-            continue
+            flags["open_overlap"] = True
+            return False
         if _too_close(camera, anchor_xy, params) or \
                 _too_close(camera, answer_xy, params):
-            continue
-        return route
-    if saw_motion_rank_mismatch:
+            return False
+        return True
+
+    order = rng.permutation(len(scene.routes))
+    for index in order[:64]:
+        ledger.stand_points_evaluated += 1
+        route = scene.routes[int(index)]
+        if acceptable(route):
+            return route
+    synth = route_synthesizer(scene, params)
+    if synth is not None:
+        # 对照狗的答案带从声明的其他带里选一条,锚帧位置在视场内;分离、
+        # 距离底线、Open 金标不重叠、运动量排序都由上面的 acceptable 复核。
+        other_bands = [(float(lo), float(hi)) for lo, hi in answer_bands
+                       if not (float(lo) == float(band_lo) and float(hi) == float(band_hi))]
+        if other_bands:
+            chosen = other_bands[int(rng.integers(len(other_bands)))]
+            floor_cm = _distance_floor_cm(params)
+            far_cm = synth.settings.max_camera_distance_cm
+            answer_spec = PointSpec(query_frame, *_design_band(chosen, half_fov),
+                                    floor_cm, far_cm)
+            if anchor_frame == query_frame:
+                specs = [answer_spec]
+            else:
+                specs = [PointSpec(anchor_frame, *_design_band(None, half_fov),
+                                   floor_cm, far_cm), answer_spec]
+            route = _synthesize_other(synth, rng, ledger, camera, yaw, specs, acceptable)
+            if route is not None:
+                return route
+    if flags["motion_rank_mismatch"]:
         ledger.add(Rejection(
             "no_second_route_for_allocated_motion_rank",
             "moving secondary routes existed, but none satisfied the "
             "allocated target_moves_more relation together with the spatial "
             "question constraints"))
-    elif saw_outside_answer_space:
+    elif flags["outside_answer_space"]:
         ledger.add(Rejection(
             "no_second_actor_in_declared_mcq_space",
             "candidate actors were visible and separated, but at least one "
             "fell outside every declared MCQ answer band and no valid Gate A "
             "actor remained"))
-    elif saw_open_overlap:
+    elif flags["open_overlap"]:
         ledger.add(Rejection(
             "no_second_actor_with_disjoint_open_gold",
             "candidate actors existed outside the main MCQ band, but none "
             f"was more than {2.0 * theta_half:.1f} degrees from the main Open "
             "gold"))
-    elif saw_static_route:
+    elif flags["static_route"]:
         ledger.add(Rejection(
             "no_moving_second_actor",
             "secondary routes were available, but only static routes survived "
@@ -994,25 +1269,49 @@ def solve_instant_azimuth(scene: SceneInputs, params: dict, *,
                   else float(open_half_width_deg))
     pool = target_route_pool(scene, params)
     n_routes, n_cams = len(pool), len(scene.camera_points)
+    synth = route_synthesizer(scene, params)
+    bank_attempts = bank_attempt_budget(synth, max_attempts)
     for attempt in range(1, max_attempts + 1):
         ledger.note_combination()
-        route = pool[int(rng.integers(n_routes))]
-        idle = int(rng.choice(list(idle_choices)))
-        moved = route.shifted(idle)
-        if moved.displacement_cm <= 1.0e-6:
-            ledger.add(Rejection("target_route_static_for_dual_motion"))
-            continue
-        answer_xy = moved.at(query_frame)
-        camera = scene.camera_points[int(rng.integers(n_cams))]
-        if _too_close(camera, answer_xy, params):
-            ledger.add(Rejection("camera_too_close_to_target"))
-            continue
-        lo_yaw, hi_yaw = yaw_interval_for_band(
-            camera, answer_xy, solve_lo, solve_hi)
-        picked = sample_clear_yaw(scene, params, camera, lo_yaw, hi_yaw, rng, ledger)
-        if picked is None:
-            continue
-        yaw, clearance = picked
+        if synth is None or attempt <= bank_attempts:
+            ledger.synthesis["bank_attempts"] += 1
+            route = pool[int(rng.integers(n_routes))]
+            idle = int(rng.choice(list(idle_choices)))
+            moved = route.shifted(idle)
+            if moved.displacement_cm <= 1.0e-6:
+                ledger.add(Rejection("target_route_static_for_dual_motion"))
+                continue
+            answer_xy = moved.at(query_frame)
+            camera = scene.camera_points[int(rng.integers(n_cams))]
+            if _too_close(camera, answer_xy, params):
+                ledger.add(Rejection("camera_too_close_to_target"))
+                continue
+            lo_yaw, hi_yaw = yaw_interval_for_band(
+                camera, answer_xy, solve_lo, solve_hi)
+            picked = sample_clear_yaw(scene, params, camera, lo_yaw, hi_yaw, rng, ledger)
+            if picked is None:
+                continue
+            yaw, clearance = picked
+        else:
+            ledger.synthesis["synthesized_attempts"] += 1
+            pose = _synthesis_pose(scene, params, rng, ledger)
+            if pose is None:
+                continue
+            camera, yaw, clearance = pose
+            idle = int(rng.choice(list(idle_choices)))
+            route = _design_target(synth, rng, ledger, camera, yaw, [
+                PointSpec(query_frame, solve_lo, solve_hi, _distance_floor_cm(params),
+                          synth.settings.max_camera_distance_cm)], idle)
+            if route is None:
+                continue
+            moved = route.shifted(idle)
+            if moved.displacement_cm <= 1.0e-6:
+                ledger.add(Rejection("target_route_static_for_dual_motion"))
+                continue
+            answer_xy = moved.at(query_frame)
+            if _too_close(camera, answer_xy, params):
+                ledger.add(Rejection("camera_too_close_to_target"))
+                continue
         azimuth = relative_azimuth_deg(camera, yaw, answer_xy)
         if abs(azimuth) > half_fov:
             ledger.add(Rejection("answer_band_outside_fov"))
@@ -1050,8 +1349,8 @@ def solve_instant_azimuth(scene: SceneInputs, params: dict, *,
                     azimuth, other_azimuth),
                 "gatea_open_min_separation_deg": 2.0 * theta_half,
                 "line_of_sight_screened": scene.line_of_sight_screened,
+                "route_sources": _route_sources(route, other),
                 "search_attempts": attempt,
-
             },
         )
     ledger.budget_exhausted += 1
@@ -1071,56 +1370,99 @@ def solve_instant_distance_order(scene: SceneInputs, params: dict, *,
     min_gap = float(min_distance_gap_cm)
     pool = target_route_pool(scene, params)
     n_routes, n_cams = len(pool), len(scene.camera_points)
+    synth = route_synthesizer(scene, params)
+    bank_attempts = bank_attempt_budget(synth, max_attempts)
     for attempt in range(1, max_attempts + 1):
         ledger.note_combination()
-        route = pool[int(rng.integers(n_routes))]
-        idle = int(rng.choice(list(idle_choices)))
-        moved = route.shifted(idle)
-        if moved.displacement_cm <= 1.0e-6:
-            ledger.add(Rejection("target_route_static_for_dual_motion"))
-            continue
-        camera = scene.camera_points[int(rng.integers(n_cams))]
-        target_xy = moved.at(query_frame)
-        target_distance = math.dist(camera, target_xy)
-        if _too_close(camera, target_xy, params):
-            ledger.add(Rejection("camera_too_close_to_target"))
-            continue
-        picked = sample_clear_yaw(scene, params, camera, -180.0, 180.0, rng, ledger)
-        if picked is None:
-            continue
-        yaw, clearance = picked
+        if synth is None or attempt <= bank_attempts:
+            ledger.synthesis["bank_attempts"] += 1
+            route = pool[int(rng.integers(n_routes))]
+            idle = int(rng.choice(list(idle_choices)))
+            moved = route.shifted(idle)
+            if moved.displacement_cm <= 1.0e-6:
+                ledger.add(Rejection("target_route_static_for_dual_motion"))
+                continue
+            camera = scene.camera_points[int(rng.integers(n_cams))]
+            target_xy = moved.at(query_frame)
+            target_distance = math.dist(camera, target_xy)
+            if _too_close(camera, target_xy, params):
+                ledger.add(Rejection("camera_too_close_to_target"))
+                continue
+            picked = sample_clear_yaw(scene, params, camera, -180.0, 180.0, rng, ledger)
+            if picked is None:
+                continue
+            yaw, clearance = picked
+        else:
+            ledger.synthesis["synthesized_attempts"] += 1
+            pose = _synthesis_pose(scene, params, rng, ledger)
+            if pose is None:
+                continue
+            camera, yaw, clearance = pose
+            idle = int(rng.choice(list(idle_choices)))
+            route = _design_target(synth, rng, ledger, camera, yaw, [
+                PointSpec(query_frame, *_design_band(None, half_fov),
+                          _distance_floor_cm(params), synth.settings.max_camera_distance_cm)],
+                idle)
+            if route is None:
+                continue
+            moved = route.shifted(idle)
+            if moved.displacement_cm <= 1.0e-6:
+                ledger.add(Rejection("target_route_static_for_dual_motion"))
+                continue
+            target_xy = moved.at(query_frame)
+            target_distance = math.dist(camera, target_xy)
+            if _too_close(camera, target_xy, params):
+                ledger.add(Rejection("camera_too_close_to_target"))
+                continue
         target_azimuth = relative_azimuth_deg(camera, yaw, target_xy)
         if abs(target_azimuth) > half_fov:
             ledger.add(Rejection("target_outside_fov_at_binding_instant"))
             continue
-        other = None
-        other_distance = None
-        for index in rng.permutation(n_routes)[:64]:
-            ledger.stand_points_evaluated += 1
-            candidate = scene.routes[int(index)]
+
+        def acceptable_other(candidate):
+            """The second actor's checks; the farther distance when they pass."""
             if candidate.route_id == route.route_id:
-                continue
+                return None
             if candidate.displacement_cm <= 1.0e-6:
-                continue
+                return None
             if target_moves_more is not None:
                 observed = moved.displacement_cm > candidate.displacement_cm
                 if (math.isclose(moved.displacement_cm,
                                  candidate.displacement_cm, abs_tol=1e-6)
                         or observed != target_moves_more):
-                    continue
+                    return None
             other_xy = candidate.at(query_frame)
             distance = math.dist(camera, other_xy)
             if distance - target_distance < min_gap:
-                continue
+                return None
             if _too_close(camera, other_xy, params):
-                continue
+                return None
             other_azimuth = relative_azimuth_deg(camera, yaw, other_xy)
             if abs(other_azimuth) > half_fov:
-                continue
+                return None
             if circular_gap_deg(target_azimuth, other_azimuth) < min_sep:
-                continue
-            other, other_distance = candidate, distance
-            break
+                return None
+            return distance
+
+        other = None
+        other_distance = None
+        for index in rng.permutation(n_routes)[:64]:
+            ledger.stand_points_evaluated += 1
+            candidate = scene.routes[int(index)]
+            distance = acceptable_other(candidate)
+            if distance is not None:
+                other, other_distance = candidate, distance
+                break
+        if other is None and synth is not None:
+            far_cm = synth.settings.max_camera_distance_cm
+            if target_distance + min_gap < far_cm:
+                designed = _synthesize_other(
+                    synth, rng, ledger, camera, yaw,
+                    [PointSpec(query_frame, *_design_band(None, half_fov),
+                               target_distance + min_gap, far_cm)],
+                    lambda candidate: acceptable_other(candidate) is not None)
+                if designed is not None:
+                    other, other_distance = designed, acceptable_other(designed)
         if other is None:
             ledger.add(Rejection(
                 "no_farther_second_actor",
@@ -1148,6 +1490,7 @@ def solve_instant_distance_order(scene: SceneInputs, params: dict, *,
                 "distance_gap_cm": other_distance - target_distance,
                 "minimum_distance_gap_cm": min_gap,
                 "line_of_sight_screened": scene.line_of_sight_screened,
+                "route_sources": _route_sources(route, other),
                 "search_attempts": attempt,
             },
         )
@@ -1185,76 +1528,125 @@ def solve_distance_change_pair(scene: SceneInputs, params: dict, *,
             return "farther"
         return None
 
-    for attempt in range(1, max_attempts + 1):
-        ledger.note_combination()
-        route = pool[int(rng.integers(n_routes))]
-        idle = int(rng.choice(list(idle_choices)))
-        moved = route.shifted(idle)
-        if moved.displacement_cm <= 1.0e-6:
-            ledger.add(Rejection("target_route_static_for_dual_motion"))
-            continue
-        camera = scene.camera_points[int(rng.integers(n_cams))]
+    synth = route_synthesizer(scene, params)
+    bank_attempts = bank_attempt_budget(synth, max_attempts)
+
+    def screen_target(camera, moved):
+        """Distance floor at both frames and the allocated relation; None with
+        a ledger entry when violated (same for bank and designed routes)."""
         target_start = moved.at(start_frame)
         target_end = moved.at(end_frame)
         if (_too_close(camera, target_start, params)
                 or _too_close(camera, target_end, params)):
             ledger.add(Rejection("camera_too_close_to_target"))
-            continue
-        target_d0 = math.dist(camera, target_start)
-        target_d1 = math.dist(camera, target_end)
-        target_delta = target_d1 - target_d0
+            return None
+        target_delta = math.dist(camera, target_end) - math.dist(camera, target_start)
         if relation(target_delta) != target_relation:
             ledger.add(Rejection(
                 "target_distance_relation_mismatch",
                 f"delta {target_delta:.1f} cm does not satisfy "
                 f"{target_relation} by {min_change:.1f} cm"))
-            continue
-        picked = sample_clear_yaw(scene, params, camera, -180.0, 180.0, rng, ledger)
-        if picked is None:
-            continue
-        yaw, clearance = picked
+            return None
+        return target_delta
+
+    for attempt in range(1, max_attempts + 1):
+        ledger.note_combination()
+        if synth is None or attempt <= bank_attempts:
+            ledger.synthesis["bank_attempts"] += 1
+            route = pool[int(rng.integers(n_routes))]
+            idle = int(rng.choice(list(idle_choices)))
+            moved = route.shifted(idle)
+            if moved.displacement_cm <= 1.0e-6:
+                ledger.add(Rejection("target_route_static_for_dual_motion"))
+                continue
+            camera = scene.camera_points[int(rng.integers(n_cams))]
+            target_delta = screen_target(camera, moved)
+            if target_delta is None:
+                continue
+            picked = sample_clear_yaw(scene, params, camera, -180.0, 180.0, rng, ledger)
+            if picked is None:
+                continue
+            yaw, clearance = picked
+        else:
+            ledger.synthesis["synthesized_attempts"] += 1
+            pose = _synthesis_pose(scene, params, rng, ledger)
+            if pose is None:
+                continue
+            camera, yaw, clearance = pose
+            idle = int(rng.choice(list(idle_choices)))
+            floor_cm = _distance_floor_cm(params)
+            far_cm = synth.settings.max_camera_distance_cm
+            route = _design_target(synth, rng, ledger, camera, yaw, [
+                PointSpec(start_frame, *_design_band(None, half_fov), floor_cm, far_cm),
+                PointSpec(end_frame, *_design_band(None, half_fov), floor_cm, far_cm)], idle)
+            if route is None:
+                continue
+            moved = route.shifted(idle)
+            if moved.displacement_cm <= 1.0e-6:
+                ledger.add(Rejection("target_route_static_for_dual_motion"))
+                continue
+            target_delta = screen_target(camera, moved)
+            if target_delta is None:
+                continue
         target_azimuths = [
             relative_azimuth_deg(camera, yaw, moved.at(frame))
             for frame in (start_frame, end_frame)]
         if any(abs(value) > half_fov for value in target_azimuths):
             ledger.add(Rejection("target_outside_fov_at_relation_frames"))
             continue
-        other = None
-        other_delta = None
         expected_other = "farther" if target_relation == "closer" else "closer"
-        for index in rng.permutation(n_routes)[:64]:
-            ledger.stand_points_evaluated += 1
-            candidate = scene.routes[int(index)]
+
+        def acceptable_other(candidate):
+            """The second actor's checks; its distance change when they pass."""
             if candidate.route_id == route.route_id:
-                continue
+                return None
             if candidate.displacement_cm <= 1.0e-6:
-                continue
+                return None
             if target_moves_more is not None:
                 observed = moved.displacement_cm > candidate.displacement_cm
                 if (math.isclose(moved.displacement_cm,
                                  candidate.displacement_cm, abs_tol=1e-6)
                         or observed != target_moves_more):
-                    continue
+                    return None
             other_start = candidate.at(start_frame)
             other_end = candidate.at(end_frame)
             if (_too_close(camera, other_start, params)
                     or _too_close(camera, other_end, params)):
-                continue
+                return None
             delta = (math.dist(camera, other_end)
                      - math.dist(camera, other_start))
             if relation(delta) != expected_other:
-                continue
+                return None
             other_azimuths = [
                 relative_azimuth_deg(camera, yaw, candidate.at(frame))
                 for frame in (start_frame, end_frame)]
             if any(abs(value) > half_fov for value in other_azimuths):
-                continue
+                return None
             if any(circular_gap_deg(target, distractor) < min_sep
                    for target, distractor in zip(
                        target_azimuths, other_azimuths)):
-                continue
-            other, other_delta = candidate, delta
-            break
+                return None
+            return delta
+
+        other = None
+        other_delta = None
+        for index in rng.permutation(n_routes)[:64]:
+            ledger.stand_points_evaluated += 1
+            candidate = scene.routes[int(index)]
+            delta = acceptable_other(candidate)
+            if delta is not None:
+                other, other_delta = candidate, delta
+                break
+        if other is None and synth is not None:
+            floor_cm = _distance_floor_cm(params)
+            far_cm = synth.settings.max_camera_distance_cm
+            designed = _synthesize_other(
+                synth, rng, ledger, camera, yaw,
+                [PointSpec(start_frame, *_design_band(None, half_fov), floor_cm, far_cm),
+                 PointSpec(end_frame, *_design_band(None, half_fov), floor_cm, far_cm)],
+                lambda candidate: acceptable_other(candidate) is not None)
+            if designed is not None:
+                other, other_delta = designed, acceptable_other(designed)
         if other is None:
             ledger.add(Rejection(
                 "no_opposite_distance_trend_actor",
@@ -1287,6 +1679,7 @@ def solve_distance_change_pair(scene: SceneInputs, params: dict, *,
                 "other_distance_delta_cm": other_delta,
                 "minimum_distance_change_cm": min_change,
                 "line_of_sight_screened": scene.line_of_sight_screened,
+                "route_sources": _route_sources(route, other),
                 "search_attempts": attempt,
             },
         )
@@ -1325,61 +1718,107 @@ def solve_motion_state_pair(scene: SceneInputs, params: dict, *,
         return (displacement >= minimum if state == "moving"
                 else displacement <= 1.0e-6)
 
-    for attempt in range(1, max_attempts + 1):
-        ledger.note_combination()
-        base = scene.routes[int(rng.integers(n_routes))]
-        idle = int(rng.choice(list(idle_choices)))
-        shifted = base.shifted(idle)
+    synth = route_synthesizer(scene, params)
+    bank_attempts = bank_attempt_budget(synth, max_attempts)
+
+    def screen_target(shifted):
+        """Full-clip motion and the allocated window state; None with a ledger
+        entry when violated (same for bank and designed routes)."""
         target = apply_state(shifted, target_state)
         if target.displacement_cm <= 1.0e-6:
             ledger.add(Rejection("target_route_static_over_full_clip"))
-            continue
+            return None
         if not state_matches(target, target_state):
             ledger.add(Rejection("target_motion_state_mismatch"))
-            continue
-        camera = scene.camera_points[int(rng.integers(n_cams))]
-        target_points = [target.at(frame)
-                         for frame in (start_frame, end_frame)]
-        if any(_too_close(camera, point, params) for point in target_points):
-            ledger.add(Rejection("camera_too_close_to_target"))
-            continue
-        picked = sample_clear_yaw(scene, params, camera, -180.0, 180.0, rng, ledger)
-        if picked is None:
-            continue
-        yaw, clearance = picked
+            return None
+        return target
+
+    for attempt in range(1, max_attempts + 1):
+        ledger.note_combination()
+        if synth is None or attempt <= bank_attempts:
+            ledger.synthesis["bank_attempts"] += 1
+            base = scene.routes[int(rng.integers(n_routes))]
+            idle = int(rng.choice(list(idle_choices)))
+            target = screen_target(base.shifted(idle))
+            if target is None:
+                continue
+            camera = scene.camera_points[int(rng.integers(n_cams))]
+            target_points = [target.at(frame)
+                             for frame in (start_frame, end_frame)]
+            if any(_too_close(camera, point, params) for point in target_points):
+                ledger.add(Rejection("camera_too_close_to_target"))
+                continue
+            picked = sample_clear_yaw(scene, params, camera, -180.0, 180.0, rng, ledger)
+            if picked is None:
+                continue
+            yaw, clearance = picked
+        else:
+            ledger.synthesis["synthesized_attempts"] += 1
+            pose = _synthesis_pose(scene, params, rng, ledger)
+            if pose is None:
+                continue
+            camera, yaw, clearance = pose
+            idle = int(rng.choice(list(idle_choices)))
+            base = _design_target(synth, rng, ledger, camera, yaw, [
+                PointSpec(start_frame, *_design_band(None, half_fov),
+                          _distance_floor_cm(params), synth.settings.max_camera_distance_cm)],
+                idle)
+            if base is None:
+                continue
+            target = screen_target(base.shifted(idle))
+            if target is None:
+                continue
+            target_points = [target.at(frame)
+                             for frame in (start_frame, end_frame)]
+            if any(_too_close(camera, point, params) for point in target_points):
+                ledger.add(Rejection("camera_too_close_to_target"))
+                continue
         target_azimuths = [
             relative_azimuth_deg(camera, yaw, point)
             for point in target_points]
         if any(abs(value) > half_fov for value in target_azimuths):
             ledger.add(Rejection("target_outside_fov_at_motion_frames"))
             continue
-        other = None
-        for index in rng.permutation(n_routes)[:64]:
-            ledger.stand_points_evaluated += 1
-            candidate_base = scene.routes[int(index)]
+
+        def acceptable_other(candidate_base):
+            """The second actor's checks; the state-applied route when they pass."""
             if candidate_base.route_id == base.route_id:
-                continue
+                return None
             candidate = apply_state(candidate_base, opposite)
             if candidate.displacement_cm <= 1.0e-6:
-                continue
+                return None
             if not state_matches(candidate, opposite):
-                continue
+                return None
             other_points = [candidate.at(frame)
                             for frame in (start_frame, end_frame)]
             if any(_too_close(camera, point, params)
                    for point in other_points):
-                continue
+                return None
             other_azimuths = [
                 relative_azimuth_deg(camera, yaw, point)
                 for point in other_points]
             if any(abs(value) > half_fov for value in other_azimuths):
-                continue
+                return None
             if any(circular_gap_deg(target_az, other_az) < min_sep
                    for target_az, other_az in zip(
                        target_azimuths, other_azimuths)):
-                continue
-            other = candidate
-            break
+                return None
+            return candidate
+
+        other = None
+        for index in rng.permutation(n_routes)[:64]:
+            ledger.stand_points_evaluated += 1
+            other = acceptable_other(scene.routes[int(index)])
+            if other is not None:
+                break
+        if other is None and synth is not None:
+            designed = _synthesize_other(
+                synth, rng, ledger, camera, yaw,
+                [PointSpec(start_frame, *_design_band(None, half_fov),
+                           _distance_floor_cm(params), synth.settings.max_camera_distance_cm)],
+                lambda candidate_base: acceptable_other(candidate_base) is not None)
+            if designed is not None:
+                other = acceptable_other(designed)
         if other is None:
             ledger.add(Rejection(
                 "no_opposite_motion_state_actor",
@@ -1415,6 +1854,7 @@ def solve_motion_state_pair(scene: SceneInputs, params: dict, *,
                 "other_state": opposite,
                 "uses_solved_route_samples_directly": True,
                 "line_of_sight_screened": scene.line_of_sight_screened,
+                "route_sources": _route_sources(base, other),
                 "search_attempts": attempt,
             },
         )
@@ -1438,59 +1878,96 @@ def solve_instant_binding(scene: SceneInputs, params: dict, *,
     min_sep = float(params["MIN_AZIMUTH_SEP"])
     pool = target_route_pool(scene, params)
     n_routes, n_cams = len(pool), len(scene.camera_points)
+    synth = route_synthesizer(scene, params)
+    bank_attempts = bank_attempt_budget(synth, max_attempts)
     for attempt in range(1, max_attempts + 1):
         ledger.note_combination()
-        route = pool[int(rng.integers(n_routes))]
-        idle = int(rng.choice(list(idle_choices)))
-        moved = route.shifted(idle)
-        if moved.displacement_cm <= 1.0e-6:
-            ledger.add(Rejection("target_route_static_for_dual_motion"))
-            continue
-        camera = scene.camera_points[int(rng.integers(n_cams))]
-        if _too_close(camera, moved.at(instants[0]), params):
-            ledger.add(Rejection("camera_too_close_to_target"))
-            continue
-        picked = sample_clear_yaw(scene, params, camera, -180.0, 180.0, rng, ledger)
-        if picked is None:
-            continue
-        yaw, clearance = picked
+        if synth is None or attempt <= bank_attempts:
+            ledger.synthesis["bank_attempts"] += 1
+            route = pool[int(rng.integers(n_routes))]
+            idle = int(rng.choice(list(idle_choices)))
+            moved = route.shifted(idle)
+            if moved.displacement_cm <= 1.0e-6:
+                ledger.add(Rejection("target_route_static_for_dual_motion"))
+                continue
+            camera = scene.camera_points[int(rng.integers(n_cams))]
+            if _too_close(camera, moved.at(instants[0]), params):
+                ledger.add(Rejection("camera_too_close_to_target"))
+                continue
+            picked = sample_clear_yaw(scene, params, camera, -180.0, 180.0, rng, ledger)
+            if picked is None:
+                continue
+            yaw, clearance = picked
+        else:
+            ledger.synthesis["synthesized_attempts"] += 1
+            pose = _synthesis_pose(scene, params, rng, ledger)
+            if pose is None:
+                continue
+            camera, yaw, clearance = pose
+            idle = int(rng.choice(list(idle_choices)))
+            route = _design_target(synth, rng, ledger, camera, yaw, [
+                PointSpec(int(instants[0]), *_design_band(None, half_fov),
+                          _distance_floor_cm(params), synth.settings.max_camera_distance_cm)],
+                idle)
+            if route is None:
+                continue
+            moved = route.shifted(idle)
+            if moved.displacement_cm <= 1.0e-6:
+                ledger.add(Rejection("target_route_static_for_dual_motion"))
+                continue
+            if _too_close(camera, moved.at(instants[0]), params):
+                ledger.add(Rejection("camera_too_close_to_target"))
+                continue
         azimuths = [relative_azimuth_deg(camera, yaw, moved.at(f))
                     for f in instants]
         if any(abs(a) > half_fov for a in azimuths):
             ledger.add(Rejection("target_outside_fov_at_binding_instant"))
             continue
-        other = None
-        order = rng.permutation(len(scene.routes))
-        for index in order[:64]:
-            ledger.stand_points_evaluated += 1
-            candidate = scene.routes[int(index)]
+
+        def acceptable_other(candidate) -> bool:
             if candidate.route_id == route.route_id:
-                continue
+                return False
             if candidate.displacement_cm <= 1.0e-6:
-                continue
+                return False
             if target_moves_more is not None:
                 observed = moved.displacement_cm > candidate.displacement_cm
                 if math.isclose(moved.displacement_cm,
                                 candidate.displacement_cm, abs_tol=1e-6) or \
                         observed != target_moves_more:
-                    continue
+                    return False
             other_azimuths = [relative_azimuth_deg(
                 camera, yaw, candidate.at(frame)) for frame in instants]
             if any(abs(value) > half_fov for value in other_azimuths):
-                continue
+                return False
             if any(circular_gap_deg(other, target) < min_sep
                    for other, target in zip(other_azimuths, azimuths)):
-                continue
+                return False
             if any(_too_close(camera, candidate.at(frame), params)
                    for frame in instants):
-                continue
-            other = candidate
-            break
+                return False
+            return True
+
+        other = None
+        order = rng.permutation(len(scene.routes))
+        for index in order[:64]:
+            ledger.stand_points_evaluated += 1
+            candidate = scene.routes[int(index)]
+            if acceptable_other(candidate):
+                other = candidate
+                break
+        if other is None and synth is not None:
+            other = _synthesize_other(
+                synth, rng, ledger, camera, yaw,
+                [PointSpec(int(instants[0]), *_design_band(None, half_fov),
+                           _distance_floor_cm(params), synth.settings.max_camera_distance_cm)],
+                acceptable_other)
         if other is None:
             ledger.add(Rejection("no_separable_second_actor",
                                  "no stand point stays in view and separated "
                                  "at every binding instant"))
             continue
+        other_azimuths = [relative_azimuth_deg(camera, yaw, other.at(frame))
+                          for frame in instants]
         if scene.line_of_sight is not None:
             if not all(scene.line_of_sight(camera, moved.at(f))
                        for f in instants):
@@ -1514,6 +1991,7 @@ def solve_instant_binding(scene: SceneInputs, params: dict, *,
                             for other_az, target_az in zip(
                                 other_azimuths, azimuths)), 2),
                     "line_of_sight_screened": scene.line_of_sight_screened,
+                    "route_sources": _route_sources(route, other),
                     "search_attempts": attempt},
         )
     ledger.budget_exhausted += 1

@@ -45,6 +45,7 @@ from scene_sampler import (  # noqa: E402
     relative_azimuth_deg,
     require_camera_clearance,
 )
+import scene_sampler as SS  # noqa: E402
 from avengine.camera_pose import apply_camera_listener_pose_ue  # noqa: E402
 from avengine.timeline.current_apartment_visual import (  # noqa: E402
     author_current_n_actor_visual_timeline,
@@ -877,6 +878,11 @@ def main(argv=None):
             "camera_heights_m": sorted({record.get("camera_height_m")
                                         for record in records
                                         if record.get("camera_height_m") is not None}),
+            "walkable_grid": scene.provenance.get("walkable_grid"),
+            # N 角色搜索仍只抽库路线;合成尚未接进 find_n_route_plan,如实记录。
+            "route_synthesis": dict(
+                SS.route_synthesis_report(scene, params), applied=False,
+                note="n-actor search draws bank routes only; synthesis not wired in"),
         },
         "counts": {
             "cells_requested": args.cells,

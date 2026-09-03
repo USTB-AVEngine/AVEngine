@@ -825,6 +825,7 @@ def main(argv=None) -> int:
     resolve_scene_render_context(scene)
     params = materialize_derived_params(params, profiles)
     SS.require_camera_clearance(scene, params)
+    SS.require_route_synthesis(scene, params)
     base_request = json.loads(Path(scene_cfg["camera_base_request"]).read_text())
     registry = json.loads(
         (REPO / "examples/runtime/source_asset_runtime_profiles.json").read_text())
@@ -870,11 +871,7 @@ def main(argv=None) -> int:
         records.append(record)
 
     for sub in per_profile_ledger.values():
-        for reason, count in sub.counts.items():
-            ledger.counts[reason] = ledger.counts.get(reason, 0) + count
-        ledger.combinations_evaluated += sub.combinations_evaluated
-        ledger.stand_points_evaluated += sub.stand_points_evaluated
-        ledger.budget_exhausted += sub.budget_exhausted
+        ledger.absorb(sub)
     write_outputs(args, scene, scene_cfg, profiles, params, ledger, made,
                   rejected, records, per_profile_ledger, cells=cells)
     print(json.dumps({"out": str(args.out_root), "scene": scene.scene_id,
@@ -1166,6 +1163,15 @@ def realise_point(pid, cell, plan, scene, base_request, params, by_id, args,
                              else plan.other_route.route_id),
         "source1_displacement_cm": displacement_cm("source1"),
         "source2_displacement_cm": displacement_cm("source2"),
+        # 路线来源:库路线记 route_id,合成路线记完整设计(机位、关键帧方位与
+        # 距离、速度、边距、最小净空)。来源不改变任何约束,只让事实可追溯。
+        "source1_route_provenance": (plan.base_route.source_record
+                                     if target_slot == "source1"
+                                     else plan.other_route.source_record),
+        "source2_route_provenance": (plan.base_route.source_record
+                                     if target_slot == "source2"
+                                     else plan.other_route.source_record),
+        "route_sources": plan.checks.get("route_sources"),
     }
     motion["both_roles_move"] = (
         motion["source1_displacement_cm"] > 0.0
@@ -1769,6 +1775,20 @@ def cell_allocation(cell):
             "target_coat": cell.get("target_coat")}
 
 
+def route_source_counts(records):
+    """How many realised candidates drew each role from the bank or from a
+    designed route (see scene_sampler.route_synthesizer)."""
+    counts = {"target": {}, "other": {}, "candidates_with_synthesized_route": 0}
+    for record in records:
+        sources = (record.get("motion") or {}).get("route_sources") or {}
+        for role in ("target", "other"):
+            source = sources.get(role, "unknown")
+            counts[role][source] = counts[role].get(source, 0) + 1
+        if "synthesized" in sources.values():
+            counts["candidates_with_synthesized_route"] += 1
+    return counts
+
+
 def cell_budget_report(cells, made, rejected):
     """Joint allocation table per profile: for every allocated
     slot x anchor band x answer x motion-rank key, how many cells were
@@ -1939,7 +1959,11 @@ def write_outputs(args, scene, scene_cfg, profiles, params, ledger, made,
                   "camera_height_fallback_used": sum(
                       1 for r in records
                       if ((r.get("camera") or {}).get("clearance") or {}).get(
-                          "fallback_used"))},
+                          "fallback_used")),
+                  "walkable_grid": scene.provenance.get("walkable_grid"),
+                  "route_synthesis": dict(
+                      SS.route_synthesis_report(scene, params),
+                      realised=route_source_counts(records))},
         "evidence_class": "geometry_candidate",
         "boundary": ("no pixel or line-of-sight evidence yet; these are "
                      "pre-render candidates, not admitted questions"),
