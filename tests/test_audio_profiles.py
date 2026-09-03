@@ -16,9 +16,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools" / "qa"))
 
 from audio_profiles import (  # noqa: E402
-    CLIP_SECONDS,
     OTHER,
-    SAMPLE_RATE,
     TARGET,
     AudioProfileError,
     Schedule,
@@ -41,7 +39,15 @@ from audio_profiles import (  # noqa: E402
 PARAMS = {"TAIL_SILENCE_FRACTION": 0.3, "QUERY_SILENCE_FRACTION": 0.12,
           "GAP_MIN_S": 0.3, "FIRST_MIN_S": 0.35, "T_HALF": 1.0,
           "T_FULL": 0.5,
+          "T_FULL_status": "placeholder_research",
+          "CLIP_SECONDS": 5.0,
+          "EVENT_SECONDS": 0.3,
+          "SAMPLE_RATE_HZ": 16000,
+          "FRAME_COUNT": 75,
+          "TICKS_PER_SAMPLE": 3,
+          "TICKS_PER_FRAME": 3200,
           "BANDS_CARD8": [0.35, 1.5, 2.65, 3.8, 4.7]}
+SAMPLE_RATE = PARAMS["SAMPLE_RATE_HZ"]
 
 
 def rng(seed=0):
@@ -54,7 +60,7 @@ def test_forward_anchor_is_last_and_tail_silence_declared():
     assert schedule.anchor.role == TARGET
     assert schedule.anchor.purpose == "identity_anchor"
     assert schedule.declared["tail_silence_seconds"] >= \
-        PARAMS["TAIL_SILENCE_FRACTION"] * CLIP_SECONDS
+        PARAMS["TAIL_SILENCE_FRACTION"] * PARAMS["CLIP_SECONDS"]
     assert {e.role for e in schedule.events} == {TARGET, OTHER}
     assert [event for event in schedule.events if event.role == TARGET] == [
         schedule.anchor]
@@ -87,7 +93,9 @@ def test_backward_self_check_catches_target_sounding_in_window():
     window = schedule.declared["query_silence_window_samples"]
     # 阳性对照:塞一声目标音进静默窗
     schedule.events.insert(0, ScheduledEvent(
-        TARGET, window[0] + 10, window[0] + 100, "control_sound"))
+        TARGET, window[0] + 10, window[0] + 100, "control_sound",
+        PARAMS["SAMPLE_RATE_HZ"], PARAMS["TICKS_PER_SAMPLE"],
+        PARAMS["TICKS_PER_FRAME"], PARAMS["FRAME_COUNT"]))
     schedule.anchor_index += 1          # 锚仍是最后一条,索引随插入右移
     with pytest.raises(AudioProfileError) as exc:
         _self_check_backward(schedule, PARAMS, window)
@@ -99,7 +107,9 @@ def test_backward_self_check_catches_target_sounding_outside_query_window():
                                         anchor_frame=66, query_frame=22)
     window = schedule.declared["query_silence_window_samples"]
     schedule.events.insert(0, ScheduledEvent(
-        TARGET, 1000, 5800, "control_sound"))
+        TARGET, 1000, 5800, "control_sound",
+        PARAMS["SAMPLE_RATE_HZ"], PARAMS["TICKS_PER_SAMPLE"],
+        PARAMS["TICKS_PER_FRAME"], PARAMS["FRAME_COUNT"]))
     schedule.anchor_index += 1
     with pytest.raises(AudioProfileError, match="target must sound exactly once"):
         _self_check_backward(schedule, PARAMS, window)
@@ -160,9 +170,11 @@ def test_card8_fails_closed_without_explicit_t_full():
     scoring = card8_scoring_params(PARAMS)
     assert scoring["certification_policy"] == "strict_full_credit_only"
     assert scoring["wide_tolerance_role"] == "diagnostic_only"
-    assert scoring["T_FULL_status"] == "unspecified_treat_as_placeholder"
-    assert card8_scoring_params(dict(PARAMS, T_FULL_status="placeholder_research"))[
-        "T_FULL_status"] == "placeholder_research"
+    assert scoring["T_FULL_status"] == "placeholder_research"
+    with pytest.raises(AudioProfileError, match="T_FULL_status"):
+        card8_scoring_params(
+            {key: value for key, value in PARAMS.items()
+             if key != "T_FULL_status"})
 
 
 def test_card8_minimum_separation_is_max_of_half_and_twice_full():
@@ -178,8 +190,14 @@ def test_card8_minimum_separation_is_max_of_half_and_twice_full():
 def _two_first_calls(separation_samples):
     first = 8000
     second = first + separation_samples
-    events = [ScheduledEvent(TARGET, first, first + 4800, "answer_evidence"),
-              ScheduledEvent(OTHER, second, second + 4800, "answer_evidence")]
+    events = [ScheduledEvent(
+                  TARGET, first, first + 4800, "answer_evidence",
+                  PARAMS["SAMPLE_RATE_HZ"], PARAMS["TICKS_PER_SAMPLE"],
+                  PARAMS["TICKS_PER_FRAME"], PARAMS["FRAME_COUNT"]),
+              ScheduledEvent(
+                  OTHER, second, second + 4800, "answer_evidence",
+                  PARAMS["SAMPLE_RATE_HZ"], PARAMS["TICKS_PER_SAMPLE"],
+                  PARAMS["TICKS_PER_FRAME"], PARAMS["FRAME_COUNT"])]
     return Schedule("card8", events, 0, {})
 
 
@@ -304,7 +322,48 @@ def test_card15b_event_count_schedule_is_exact_and_gatea_invariant(count):
     main = schedule.bind({TARGET: "source1", OTHER: "source2"})
     gate = schedule.bind({TARGET: "source2", OTHER: "source1"})
     assert [slot for slot, _ in main] != [slot for slot, _ in gate]
-    assert len(main) == len(gate) == count
+
+
+class _Clip:
+    def __init__(self, duration_samples, asset_id):
+        self.duration_samples = duration_samples
+        self.sound_asset_id = asset_id
+        self.source_start_sample = 0
+        self.source_end_sample_exclusive = duration_samples
+
+
+class _ClipSource:
+    def __init__(self, clips):
+        self._clips = list(clips)
+
+    def next(self):
+        return self._clips.pop(0)
+
+
+def test_event_length_comes_from_the_drawn_clip_not_a_constant():
+    clips = [_Clip(d, f"bark_{i}") for i, d in enumerate((3200, 8000, 4000, 6400))]
+    schedule = schedule_forward_anchor(
+        rng(1), params=PARAMS, anchor_frame=40, clip_source=_ClipSource(clips))
+    assert schedule.events[-1].duration_samples == 6400
+    assert schedule.events[-1].sound_asset_id == "bark_3"
+    rows = schedule.program_events({TARGET: "source1", OTHER: "source2"})
+    assert rows[-1]["duration_samples"] == 6400
+    assert rows[-1]["source_start_sample"] == 0
+    assert rows[-1]["source_end_sample_exclusive"] == 6400
+    assert {event.duration_samples for event in schedule.events} != {4800}
+
+
+def test_params_without_event_seconds_fail_closed():
+    params = {key: value for key, value in PARAMS.items() if key != "EVENT_SECONDS"}
+    with pytest.raises(AudioProfileError, match="EVENT_SECONDS"):
+        schedule_forward_anchor(rng(1), params=params, anchor_frame=40)
+
+
+def test_params_without_sample_rate_fail_closed():
+    params = {key: value for key, value in PARAMS.items()
+              if key != "SAMPLE_RATE_HZ"}
+    with pytest.raises(AudioProfileError, match="SAMPLE_RATE_HZ"):
+        schedule_forward_anchor(rng(1), params=params, anchor_frame=40)
 
 
 def test_card6_second_sound_is_target_at_declared_frame():

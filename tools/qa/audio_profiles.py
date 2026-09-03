@@ -22,11 +22,6 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, field
 
-SAMPLE_RATE = 16000
-CLIP_SECONDS = 5.0
-FRAME_COUNT = 75
-EVENT_SECONDS = 0.3
-
 TARGET = "target_actor"
 OTHER = "non_target_actor"
 
@@ -41,17 +36,27 @@ class ScheduledEvent:
     start_sample: int
     end_sample_exclusive: int
     purpose: str          # identity_anchor | answer_evidence | control_sound
+    sample_rate_hz: int
+    ticks_per_sample: int
+    ticks_per_frame: int
+    frame_count: int
+    sound_asset_id: str | None = None
+    source_start_sample: int | None = None
+    source_end_sample_exclusive: int | None = None
 
     @property
     def start_seconds(self) -> float:
-        return self.start_sample / SAMPLE_RATE
+        return self.start_sample / self.sample_rate_hz
+
+    @property
+    def duration_samples(self) -> int:
+        return self.end_sample_exclusive - self.start_sample
 
     def frame_span(self) -> tuple[int, int]:
-        ticks_per_frame = 3200
-        t0 = self.start_sample * 3
-        t1 = self.end_sample_exclusive * 3
-        return (t0 // ticks_per_frame,
-                min(FRAME_COUNT, -(-t1 // ticks_per_frame)))
+        t0 = self.start_sample * self.ticks_per_sample
+        t1 = self.end_sample_exclusive * self.ticks_per_sample
+        return (t0 // self.ticks_per_frame,
+                min(self.frame_count, -(-t1 // self.ticks_per_frame)))
 
 
 @dataclass
@@ -75,17 +80,136 @@ class Schedule:
             raise AudioProfileError(f"unbound roles: {sorted(missing)}")
         return [(role_to_slot[e.role], e.start_sample) for e in self.events]
 
+    def program_events(self, role_to_slot: dict[str, str]) -> list[dict]:
+        """Bind roles and keep per-event duration / clip identity."""
+        missing = {e.role for e in self.events} - set(role_to_slot)
+        if missing:
+            raise AudioProfileError(f"unbound roles: {sorted(missing)}")
+        rows = []
+        for event in self.events:
+            row = {
+                "slot": role_to_slot[event.role],
+                "start_sample": event.start_sample,
+                "duration_samples": event.duration_samples,
+            }
+            if event.sound_asset_id is not None:
+                if (event.source_start_sample is None
+                        or event.source_end_sample_exclusive is None):
+                    raise AudioProfileError(
+                        f"{event.sound_asset_id} is missing source window")
+                row["sound_asset_id"] = event.sound_asset_id
+                row["source_start_sample"] = int(event.source_start_sample)
+                row["source_end_sample_exclusive"] = int(
+                    event.source_end_sample_exclusive
+                )
+            rows.append(row)
+        return rows
 
-def _event_len() -> int:
-    return int(EVENT_SECONDS * SAMPLE_RATE)
+
+def _require(params, key):
+    if key not in params:
+        raise AudioProfileError(f"params missing {key}")
+    return params[key]
 
 
-def _clip_samples() -> int:
-    return int(CLIP_SECONDS * SAMPLE_RATE)
+def _positive_int(params, key) -> int:
+    value = int(_require(params, key))
+    if value <= 0:
+        raise AudioProfileError(f"{key} must be positive")
+    return value
 
 
-def _fraction_to_sample(fraction: float) -> int:
-    return int(round(fraction * CLIP_SECONDS * SAMPLE_RATE))
+def _sample_rate(params) -> int:
+    return _positive_int(params, "SAMPLE_RATE_HZ")
+
+
+def _frame_count(params) -> int:
+    return _positive_int(params, "FRAME_COUNT")
+
+
+def _ticks_per_sample(params) -> int:
+    return _positive_int(params, "TICKS_PER_SAMPLE")
+
+
+def _ticks_per_frame(params) -> int:
+    return _positive_int(params, "TICKS_PER_FRAME")
+
+
+def _event_len(params, clip=None) -> int:
+    if clip is not None:
+        duration = int(clip.duration_samples)
+        if duration <= 0:
+            raise AudioProfileError("clip duration_samples must be positive")
+        return duration
+    seconds = float(_require(params, "EVENT_SECONDS"))
+    if seconds <= 0:
+        raise AudioProfileError("EVENT_SECONDS must be positive")
+    return int(round(seconds * _sample_rate(params)))
+
+
+def _draw_clip(clip_source):
+    if clip_source is None:
+        return None
+    return clip_source.next()
+
+
+def _stamp(role: str, start: int, purpose: str, params, clip=None) -> ScheduledEvent:
+    duration = _event_len(params, clip)
+    event = ScheduledEvent(
+        role, start, start + duration, purpose,
+        sample_rate_hz=_sample_rate(params),
+        ticks_per_sample=_ticks_per_sample(params),
+        ticks_per_frame=_ticks_per_frame(params),
+        frame_count=_frame_count(params),
+    )
+    if clip is not None:
+        if not getattr(clip, "sound_asset_id", None):
+            raise AudioProfileError("clip is missing sound_asset_id")
+        start_src = getattr(clip, "source_start_sample", None)
+        end_src = getattr(clip, "source_end_sample_exclusive", None)
+        if start_src is None or end_src is None:
+            raise AudioProfileError(
+                f"clip {clip.sound_asset_id} is missing source window")
+        event.sound_asset_id = clip.sound_asset_id
+        event.source_start_sample = int(start_src)
+        event.source_end_sample_exclusive = int(end_src)
+    return event
+
+
+def _clip_samples(params) -> int:
+    seconds = float(_require(params, "CLIP_SECONDS"))
+    if seconds <= 0:
+        raise AudioProfileError("CLIP_SECONDS must be positive")
+    return int(round(seconds * _sample_rate(params)))
+
+
+def _fraction_to_sample(params, fraction: float) -> int:
+    return int(round(
+        fraction * float(_require(params, "CLIP_SECONDS")) * _sample_rate(params)))
+
+
+def _frame_to_sample(params, frame: int) -> int:
+    return int(round(frame / _frame_count(params) * _clip_samples(params)))
+
+
+def _place_sequential(rng, durs: list[int], gap: int, lo: int, hi_end: int):
+    """Place events of known lengths so each ends before the next starts.
+
+    ``hi_end`` is the exclusive sample limit for the last event's end.
+    """
+    n = len(durs)
+    starts: list[int] = []
+    cursor = lo
+    for index in range(n):
+        later = 0
+        for later_index in range(index + 1, n):
+            later += gap + durs[later_index]
+        hi = hi_end - later - durs[index]
+        if cursor > hi:
+            return None
+        starts.append(int(rng.integers(cursor, hi + 1)))
+        cursor = starts[-1] + durs[index] + gap
+    return starts
 
 
 CARD8_CERTIFICATION_POLICY = "strict_full_credit_only"
@@ -102,13 +226,17 @@ def card8_scoring_params(params) -> dict:
     2 * T_FULL。T_FULL 的终值等人类校准:这里只记录参数文件给出的值与它的
     状态字段,不替它写 final。
     """
-    missing = [key for key in ("T_FULL", "T_HALF") if key not in params]
+    missing = [key for key in ("T_FULL", "T_HALF", "T_FULL_status")
+               if key not in params]
     if missing:
         raise AudioProfileError(
             f"card8 requires explicit scoring params {missing}; the minimum "
             "first-call separation cannot be derived without them")
     t_full = float(params["T_FULL"])
     t_half = float(params["T_HALF"])
+    status = str(params["T_FULL_status"])
+    if not status:
+        raise AudioProfileError("T_FULL_status is empty")
     if not (math.isfinite(t_full) and math.isfinite(t_half)):
         raise AudioProfileError("T_FULL and T_HALF must be finite seconds")
     if t_full <= 0.0 or t_half <= 0.0:
@@ -120,17 +248,17 @@ def card8_scoring_params(params) -> dict:
     return {
         "T_FULL": t_full,
         "T_HALF": t_half,
-        "T_FULL_status": str(params.get(
-            "T_FULL_status", "unspecified_treat_as_placeholder")),
+        "T_FULL_status": status,
         "min_first_call_separation_s": min_sep,
-        "min_first_call_separation_samples": int(round(min_sep * SAMPLE_RATE)),
+        "min_first_call_separation_samples": int(round(min_sep * _sample_rate(params))),
         "min_first_call_separation_rule": CARD8_MIN_SEPARATION_RULE,
         "certification_policy": CARD8_CERTIFICATION_POLICY,
         "wide_tolerance_role": CARD8_WIDE_TOLERANCE_ROLE,
     }
 
 
-def schedule_forward_anchor(rng, *, params, anchor_frame: int) -> Schedule:
+def schedule_forward_anchor(rng, *, params, anchor_frame: int,
+                            clip_source=None) -> Schedule:
     """①F 正向错时:身份锚在前,查询在片尾,锚后到片尾必须静。
 
     锚是**最后一声**;片尾静默长度按片长比例声明(tail_silence_fraction)。
@@ -139,47 +267,51 @@ def schedule_forward_anchor(rng, *, params, anchor_frame: int) -> Schedule:
     查询时刻方位,绕过声后视觉追踪。
     """
     tail_fraction = float(params["TAIL_SILENCE_FRACTION"])
-    gap = int(float(params["GAP_MIN_S"]) * SAMPLE_RATE)
-    first_min = int(float(params["FIRST_MIN_S"]) * SAMPLE_RATE)
-    event_len = _event_len()
-    anchor_start = int(round(anchor_frame / FRAME_COUNT * _clip_samples()))
-    tail = _clip_samples() - (anchor_start + event_len)
-    if tail < _fraction_to_sample(tail_fraction):
-        raise AudioProfileError(
-            f"anchor at frame {anchor_frame} leaves {tail / SAMPLE_RATE:.2f}s "
-            f"of tail silence, below the declared "
-            f"{tail_fraction * CLIP_SECONDS:.2f}s")
-    step = event_len + gap
+    gap = int(float(params["GAP_MIN_S"]) * _sample_rate(params))
+    first_min = int(float(params["FIRST_MIN_S"]) * _sample_rate(params))
     n_before = int(rng.integers(2, 4))          # 锚之前 2 或 3 声
-    latest_first = anchor_start - n_before * step
-    if latest_first < first_min:
+    pre_clips = [_draw_clip(clip_source) for _ in range(3)]
+    anchor_clip = _draw_clip(clip_source)
+    pre_durs = [_event_len(params, clip) for clip in pre_clips]
+    anchor_dur = _event_len(params, anchor_clip)
+    anchor_start = int(round(anchor_frame / _frame_count(params) * _clip_samples(params)))
+    tail = _clip_samples(params) - (anchor_start + anchor_dur)
+    if tail < _fraction_to_sample(params, tail_fraction):
+        raise AudioProfileError(
+            f"anchor at frame {anchor_frame} leaves {tail / _sample_rate(params):.2f}s "
+            f"of tail silence, below the declared "
+            f"{tail_fraction * float(params['CLIP_SECONDS']):.2f}s")
+
+    def _fits(count: int) -> bool:
+        return first_min + sum(pre_durs[:count]) + count * gap <= anchor_start
+
+    if n_before == 3 and not _fits(3):
         n_before = 2
-        latest_first = anchor_start - n_before * step
-        if latest_first < first_min:
-            raise AudioProfileError(
-                "no room for the pre-anchor calls before the anchor instant")
-    starts: list[int] = []
-    cursor = first_min
-    for index in range(n_before):
-        remaining = n_before - 1 - index
-        hi = anchor_start - (remaining + 1) * step
-        starts.append(int(rng.integers(cursor, hi + 1)))
-        cursor = starts[-1] + step
-    roles = [OTHER] * n_before
-    events = [ScheduledEvent(role, start, start + event_len, "control_sound")
-              for role, start in zip(roles, starts)]
-    events.append(ScheduledEvent(TARGET, anchor_start,
-                                 anchor_start + event_len, "identity_anchor"))
+    if not _fits(n_before):
+        raise AudioProfileError(
+            "no room for the pre-anchor calls before the anchor instant")
+    pre_clips = pre_clips[:n_before]
+    pre_durs = pre_durs[:n_before]
+    starts = _place_sequential(
+        rng, pre_durs, gap, first_min, anchor_start - gap)
+    if starts is None:
+        raise AudioProfileError(
+            "no room for the pre-anchor calls before the anchor instant")
+    events = [
+        _stamp(OTHER, start, "control_sound", params, clip)
+        for start, clip in zip(starts, pre_clips)
+    ]
+    events.append(_stamp(TARGET, anchor_start, "identity_anchor", params, anchor_clip))
     schedule = Schedule("card1F", events, len(events) - 1,
-                        {"tail_silence_seconds": tail / SAMPLE_RATE,
+                        {"tail_silence_seconds": tail / _sample_rate(params),
                          "anchor_relation": "anchor_before_query",
-                         "query_frame": FRAME_COUNT - 1})
+                         "query_frame": _frame_count(params) - 1})
     _self_check_forward(schedule, params)
     return schedule
 
 
 def schedule_backward_anchor(rng, *, params, anchor_frame: int,
-                             query_frame: int) -> Schedule:
+                             query_frame: int, clip_source=None) -> Schedule:
     """①B 反向错时:视觉查询在前,身份锚在末段。
 
     要求(与正向相反):**查询时刻附近目标必须静**,否则听声即可定位,
@@ -189,49 +321,56 @@ def schedule_backward_anchor(rng, *, params, anchor_frame: int,
         raise AudioProfileError(
             "backward cross-time needs the visual query before the audio anchor")
     silence_fraction = float(params["QUERY_SILENCE_FRACTION"])
-    guard = _fraction_to_sample(silence_fraction)
-    event_len = _event_len()
-    gap = int(float(params["GAP_MIN_S"]) * SAMPLE_RATE)
-    first_min = int(float(params["FIRST_MIN_S"]) * SAMPLE_RATE)
-    query_sample = int(round(query_frame / FRAME_COUNT * _clip_samples()))
-    anchor_start = int(round(anchor_frame / FRAME_COUNT * _clip_samples()))
-    if anchor_start + event_len > _clip_samples():
+    guard = _fraction_to_sample(params, silence_fraction)
+    gap = int(float(params["GAP_MIN_S"]) * _sample_rate(params))
+    first_min = int(float(params["FIRST_MIN_S"]) * _sample_rate(params))
+    query_sample = int(round(query_frame / _frame_count(params) * _clip_samples(params)))
+    anchor_start = int(round(anchor_frame / _frame_count(params) * _clip_samples(params)))
+    n_before = int(rng.integers(1, 3))
+    pre_clips = [_draw_clip(clip_source) for _ in range(n_before)]
+    anchor_clip = _draw_clip(clip_source)
+    pre_durs = [_event_len(params, clip) for clip in pre_clips]
+    anchor_dur = _event_len(params, anchor_clip)
+    if anchor_start + anchor_dur > _clip_samples(params):
         raise AudioProfileError("the anchor event runs past the clip")
     window = (query_sample - guard, query_sample + guard)
     # 锚之前安排 1-2 声对照;它们既不能落进查询静默窗,也不能压到锚上
     starts: list[int] = []
-    roles: list[str] = []
-    n_before = int(rng.integers(1, 3))
+    kept_clips: list = []
     cursor = first_min
-    for index in range(n_before):
-        hi = anchor_start - (n_before - index) * (event_len + gap)
+    for index, (clip, duration) in enumerate(zip(pre_clips, pre_durs)):
+        remaining = n_before - 1 - index
+        later = sum(pre_durs[index + 1:]) + remaining * gap
+        hi = anchor_start - gap - later - duration
         if cursor > hi:
             break
         for _attempt in range(40):
             candidate = int(rng.integers(cursor, hi + 1))
-            if candidate + event_len <= window[0] or candidate >= window[1]:
+            if candidate + duration <= window[0] or candidate >= window[1]:
                 starts.append(candidate)
-                roles.append(OTHER)
-                cursor = candidate + event_len + gap
+                kept_clips.append(clip)
+                cursor = candidate + duration + gap
                 break
         else:
             continue
-    events = [ScheduledEvent(role, start, start + event_len, "control_sound")
-              for role, start in zip(roles, starts)]
-    events.append(ScheduledEvent(TARGET, anchor_start,
-                                 anchor_start + event_len, "identity_anchor"))
+    events = [
+        _stamp(OTHER, start, "control_sound", params, clip)
+        for start, clip in zip(starts, kept_clips)
+    ]
+    events.append(_stamp(TARGET, anchor_start, "identity_anchor", params, anchor_clip))
     schedule = Schedule("card1B", events, len(events) - 1,
                         {"anchor_relation": "anchor_after_query",
                          "query_frame": query_frame,
                          "query_silence_window_samples": list(window),
-                         "query_silence_seconds": guard / SAMPLE_RATE})
+                         "query_silence_seconds": guard / _sample_rate(params)})
     _self_check_backward(schedule, params, window)
     return schedule
 
 
 def schedule_first_call_bands(rng, *, params, target_bands: tuple[int, int],
                               band_edges: list[float] | None = None,
-                              first_caller_role: str = TARGET) -> Schedule:
+                              first_caller_role: str = TARGET,
+                              clip_source=None) -> Schedule:
     """⑧ 首叫时间带:两个角色的首叫落进**预先声明**的不同带。
 
     不继承 card1 的片尾静默 —— 那正是 run01 把首叫压进前 2.6 秒、后两带
@@ -248,32 +387,34 @@ def schedule_first_call_bands(rng, *, params, target_bands: tuple[int, int],
         raise AudioProfileError(
             f"unreachable band pair {target_bands}: events alternate in time "
             "so the first caller's band index must be the smaller one")
-    event_len = _event_len()
-    gap = int(float(params["GAP_MIN_S"]) * SAMPLE_RATE)
+    clip1 = _draw_clip(clip_source)
+    clip2 = _draw_clip(clip_source)
+    clip3 = _draw_clip(clip_source)
+    dur1, dur2, dur3 = _event_len(params, clip1), _event_len(params, clip2), _event_len(params, clip3)
+    gap = int(float(params["GAP_MIN_S"]) * _sample_rate(params))
     scoring = card8_scoring_params(params)
     min_first_gap = scoring["min_first_call_separation_samples"]
     second_role = OTHER if first_caller_role == TARGET else TARGET
-    lo1, hi1 = int(bands[b1] * SAMPLE_RATE), int(bands[b1 + 1] * SAMPLE_RATE)
-    lo2, hi2 = int(bands[b2] * SAMPLE_RATE), int(bands[b2 + 1] * SAMPLE_RATE)
-    limit = _clip_samples() - event_len
+    lo1, hi1 = int(bands[b1] * _sample_rate(params)), int(bands[b1 + 1] * _sample_rate(params))
+    lo2, hi2 = int(bands[b2] * _sample_rate(params)), int(bands[b2 + 1] * _sample_rate(params))
+    limit1 = _clip_samples(params) - dur1
+    limit2 = _clip_samples(params) - dur2
     for _attempt in range(400):
-        t1 = int(rng.integers(lo1, min(hi1, limit)))
-        t2_lo = max(t1 + event_len + gap, lo2, t1 + min_first_gap + 1)
-        t2_hi = min(hi2, limit)
+        t1 = int(rng.integers(lo1, min(hi1, limit1)))
+        t2_lo = max(t1 + dur1 + gap, lo2, t1 + min_first_gap + 1)
+        t2_hi = min(hi2, limit2)
         if t2_lo >= t2_hi:
             continue
         t2 = int(rng.integers(t2_lo, t2_hi))
         events = [
-            ScheduledEvent(first_caller_role, t1, t1 + event_len,
-                           "answer_evidence"),
-            ScheduledEvent(second_role, t2, t2 + event_len, "answer_evidence"),
+            _stamp(first_caller_role, t1, "answer_evidence", params, clip1),
+            _stamp(second_role, t2, "answer_evidence", params, clip2),
         ]
         # 第三声让"每集≥3 声"成立,且不改变任一方的首叫
-        third_lo = t2 + event_len + gap
-        if third_lo <= limit:
-            t3 = int(rng.integers(third_lo, limit + 1))
-            events.append(ScheduledEvent(first_caller_role, t3,
-                                         t3 + event_len, "control_sound"))
+        third_lo = t2 + dur2 + gap
+        if third_lo + dur3 <= _clip_samples(params):
+            t3 = int(rng.integers(third_lo, _clip_samples(params) - dur3 + 1))
+            events.append(_stamp(first_caller_role, t3, "control_sound", params, clip3))
         schedule = Schedule("card8", events, len(events) - 1,
                             {"target_bands": [b1, b2],
                              "band_edges_seconds": bands,
@@ -286,22 +427,24 @@ def schedule_first_call_bands(rng, *, params, target_bands: tuple[int, int],
         f"no onset layout lands the first calls in bands {target_bands}")
 
 
-def schedule_exactly_one_calling(rng, *, params, query_frame: int) -> Schedule:
+def schedule_exactly_one_calling(rng, *, params, query_frame: int,
+                                 clip_source=None) -> Schedule:
     """⑦ 指定时刻恰好一只在叫:围绕查询帧安排唯一发声者。"""
-    event_len = _event_len()
-    gap = int(float(params["GAP_MIN_S"]) * SAMPLE_RATE)
-    query_sample = int(round(query_frame / FRAME_COUNT * _clip_samples()))
+    target_clip = _draw_clip(clip_source)
+    other_clip = _draw_clip(clip_source)
+    event_len = _event_len(params, target_clip)
+    other_len = _event_len(params, other_clip)
+    gap = int(float(params["GAP_MIN_S"]) * _sample_rate(params))
+    query_sample = int(round(query_frame / _frame_count(params) * _clip_samples(params)))
     start = max(0, min(query_sample - event_len // 2,
-                       _clip_samples() - event_len))
-    events = [ScheduledEvent(TARGET, start, start + event_len,
-                             "answer_evidence")]
+                       _clip_samples(params) - event_len))
+    events = [_stamp(TARGET, start, "answer_evidence", params, target_clip)]
     # 另一角色的声音必须完全避开查询帧所在事件窗
-    limit = _clip_samples() - event_len
+    limit = _clip_samples(params) - other_len
     for _attempt in range(60):
         other = int(rng.integers(0, limit + 1))
-        if other + event_len + gap <= start or other >= start + event_len + gap:
-            events.append(ScheduledEvent(OTHER, other, other + event_len,
-                                         "control_sound"))
+        if other + other_len + gap <= start or other >= start + event_len + gap:
+            events.append(_stamp(OTHER, other, "control_sound", params, other_clip))
             break
     events.sort(key=lambda e: e.start_sample)
     schedule = Schedule("card7", events,
@@ -313,30 +456,25 @@ def schedule_exactly_one_calling(rng, *, params, query_frame: int) -> Schedule:
     return schedule
 
 
-def schedule_first_sound_at_frame(rng, *, params, query_frame: int) -> Schedule:
+def schedule_first_sound_at_frame(rng, *, params, query_frame: int,
+                                  clip_source=None) -> Schedule:
     """Card3 control: the target makes the first sound at a declared frame."""
-    event_len = _event_len()
-    gap = int(float(params["GAP_MIN_S"]) * SAMPLE_RATE)
-    first_start = int(round(query_frame * 3200 / 3))
-    limit = _clip_samples() - event_len
-    if first_start < 0 or first_start > limit:
+    clips = [_draw_clip(clip_source) for _ in range(3)]
+    durs = [_event_len(params, clip) for clip in clips]
+    gap = int(float(params["GAP_MIN_S"]) * _sample_rate(params))
+    first_start = _frame_to_sample(params, query_frame)
+    if first_start < 0 or first_start + durs[0] > _clip_samples(params):
         raise AudioProfileError(
             f"query frame {query_frame} cannot host the first event")
-    second_min = first_start + event_len + gap
-    third_min = second_min + event_len + gap
-    if third_min > limit:
+    rest = _place_sequential(
+        rng, durs[1:], gap, first_start + durs[0] + gap, _clip_samples(params))
+    if rest is None:
         raise AudioProfileError(
             "no room for three separated events after the first sound")
-    second_start = int(rng.integers(second_min, limit - event_len - gap + 1))
-    third_start = int(rng.integers(
-        second_start + event_len + gap, limit + 1))
     events = [
-        ScheduledEvent(TARGET, first_start, first_start + event_len,
-                       "answer_evidence"),
-        ScheduledEvent(OTHER, second_start, second_start + event_len,
-                       "control_sound"),
-        ScheduledEvent(TARGET, third_start, third_start + event_len,
-                       "control_sound"),
+        _stamp(TARGET, first_start, "answer_evidence", params, clips[0]),
+        _stamp(OTHER, rest[0], "control_sound", params, clips[1]),
+        _stamp(TARGET, rest[1], "control_sound", params, clips[2]),
     ]
     schedule = Schedule(
         "card3", events, 0,
@@ -362,33 +500,23 @@ def _self_check_first_sound(schedule: Schedule, query_frame: int) -> None:
 
 
 
-def schedule_event_count(rng, *, params, event_count: int) -> Schedule:
+def schedule_event_count(rng, *, params, event_count: int,
+                         clip_source=None) -> Schedule:
     """Audio-count control with randomized, separated event times."""
     if event_count < 2:
         raise AudioProfileError("event-count profile needs at least two events")
-    event_len = _event_len()
-    gap = int(float(params["GAP_MIN_S"]) * SAMPLE_RATE)
-    first_min = int(float(params["FIRST_MIN_S"]) * SAMPLE_RATE)
-    limit = _clip_samples() - event_len
-    minimum_span = (event_count - 1) * (event_len + gap)
-    if first_min + minimum_span > limit:
-        raise AudioProfileError(
-            f"{event_count} separated events do not fit in the clip")
-    starts = None
-    for _attempt in range(400):
-        candidate = sorted(int(value) for value in rng.integers(
-            first_min, limit + 1, size=event_count))
-        if all(later - earlier >= event_len + gap
-               for earlier, later in zip(candidate, candidate[1:])):
-            starts = candidate
-            break
+    clips = [_draw_clip(clip_source) for _ in range(event_count)]
+    durs = [_event_len(params, clip) for clip in clips]
+    gap = int(float(params["GAP_MIN_S"]) * _sample_rate(params))
+    first_min = int(float(params["FIRST_MIN_S"]) * _sample_rate(params))
+    starts = _place_sequential(rng, durs, gap, first_min, _clip_samples(params))
     if starts is None:
         raise AudioProfileError(
-            f"could not sample {event_count} separated events")
+            f"{event_count} separated events do not fit in the clip")
     events = [
-        ScheduledEvent(TARGET if index % 2 == 0 else OTHER,
-                       start, start + event_len, "answer_evidence")
-        for index, start in enumerate(starts)
+        _stamp(TARGET if index % 2 == 0 else OTHER,
+               start, "answer_evidence", params, clip)
+        for index, (start, clip) in enumerate(zip(starts, clips))
     ]
     schedule = Schedule(
         "card15b", events, 0,
@@ -409,29 +537,27 @@ def _self_check_event_count(schedule: Schedule, event_count: int) -> None:
 
 
 def schedule_second_sound_at_frame(rng, *, params,
-                                   query_frame: int) -> Schedule:
+                                   query_frame: int,
+                                   clip_source=None) -> Schedule:
     """Card6 family: the target owns the second event at a declared frame."""
-    event_len = _event_len()
-    gap = int(float(params["GAP_MIN_S"]) * SAMPLE_RATE)
-    second_start = int(round(query_frame * 3200 / 3))
-    first_latest = second_start - event_len - gap
+    clips = [_draw_clip(clip_source) for _ in range(3)]
+    durs = [_event_len(params, clip) for clip in clips]
+    gap = int(float(params["GAP_MIN_S"]) * _sample_rate(params))
+    second_start = _frame_to_sample(params, query_frame)
+    first_latest = second_start - durs[0] - gap
     if first_latest < 0:
         raise AudioProfileError(
             f"query frame {query_frame} leaves no room for a first event")
     first_start = int(rng.integers(0, first_latest + 1))
-    third_min = second_start + event_len + gap
-    limit = _clip_samples() - event_len
-    if third_min > limit:
+    third_min = second_start + durs[1] + gap
+    if third_min + durs[2] > _clip_samples(params):
         raise AudioProfileError(
             f"query frame {query_frame} leaves no room for a third event")
-    third_start = int(rng.integers(third_min, limit + 1))
+    third_start = int(rng.integers(third_min, _clip_samples(params) - durs[2] + 1))
     events = [
-        ScheduledEvent(OTHER, first_start, first_start + event_len,
-                       "control_sound"),
-        ScheduledEvent(TARGET, second_start, second_start + event_len,
-                       "answer_evidence"),
-        ScheduledEvent(OTHER, third_start, third_start + event_len,
-                       "control_sound"),
+        _stamp(OTHER, first_start, "control_sound", params, clips[0]),
+        _stamp(TARGET, second_start, "answer_evidence", params, clips[1]),
+        _stamp(OTHER, third_start, "control_sound", params, clips[2]),
     ]
     schedule = Schedule(
         "card6", events, 1,
@@ -461,8 +587,8 @@ def _self_check_forward(schedule: Schedule, params) -> None:
         raise AudioProfileError("card1F anchor must be the last event")
     if anchor.role != TARGET:
         raise AudioProfileError("card1F anchor must be the target actor")
-    tail = (_clip_samples() - anchor.end_sample_exclusive) / SAMPLE_RATE
-    declared = float(params["TAIL_SILENCE_FRACTION"]) * CLIP_SECONDS
+    tail = (_clip_samples(params) - anchor.end_sample_exclusive) / _sample_rate(params)
+    declared = float(params["TAIL_SILENCE_FRACTION"]) * float(params["CLIP_SECONDS"])
     if tail + 1e-9 < declared:
         raise AudioProfileError(f"tail silence {tail:.3f}s < declared {declared:.3f}s")
     target_events = [event for event in schedule.events if event.role == TARGET]
@@ -502,7 +628,7 @@ def _self_check_first_call_bands(schedule: Schedule, params, target_bands,
     separation = ordered_samples[1] - ordered_samples[0]
     if separation <= scoring["min_first_call_separation_samples"]:
         raise AudioProfileError(
-            f"the two first calls are {separation / SAMPLE_RATE:.4f}s apart; "
+            f"the two first calls are {separation / _sample_rate(params):.4f}s apart; "
             "card8 requires strictly more than max(T_HALF, 2*T_FULL)="
             f"{scoring['min_first_call_separation_s']:.4f}s")
     ordered = sorted(firsts.values())
@@ -553,8 +679,8 @@ def card8_feasible_interval(params, *, min_events: int = 3) -> tuple[float, floa
     run01 把 ⑧ 的带按 ①F 的 1.5 秒片尾静默切出来,首叫因此被压进前
     2.6 秒、后段结构性为空;那条边界不能带进新方案。
     """
-    clip = float(params.get("CLIP_SECONDS", CLIP_SECONDS))
-    event = float(params.get("EVENT_SECONDS", EVENT_SECONDS))
+    clip = float(_require(params, "CLIP_SECONDS"))
+    event = float(_require(params, "EVENT_SECONDS"))
     gap = float(params["GAP_MIN_S"])
     first_min = float(params["FIRST_MIN_S"])
     last_start = clip - event

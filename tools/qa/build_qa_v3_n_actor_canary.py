@@ -17,7 +17,9 @@ REPO = HERE.parents[1]
 sys.path.insert(0, str(HERE))
 sys.path.insert(0, str(REPO / "src"))
 
-from build_qa_v3_programs import build_program  # noqa: E402
+from build_qa_v3_programs import (  # noqa: E402
+    build_program, dry_canvas_fields, program_request_fields,
+)
 from qa_v3_actor_selection import _actor_entry  # noqa: E402
 from make_idle_then_walk_timeline import transform_to_solved_routes  # noqa: E402
 from scene_sampler import (  # noqa: E402
@@ -273,8 +275,9 @@ def main(argv=None) -> int:
         "pair_kind": "n4",
         "point_id": "canary",
         "slot_endpoints": slot_endpoints,
-        "sound_asset_id": params["SOUND_ASSET"],
-    }, events)
+        **program_request_fields(params),
+        **dry_canvas_fields(params),
+    }, events, revision="v1")
     program_path = args.out_root / "audio_program.json"
     _write(program_path, program)
     manifest = {

@@ -48,7 +48,10 @@ REPO = HERE.parents[1]
 sys.path.insert(0, str(HERE))
 sys.path.insert(0, str(REPO / "src"))
 
-from build_qa_v3_programs import build_program, plan_events  # noqa: E402
+from build_qa_v3_programs import (  # noqa: E402
+    build_program, dry_canvas_fields, plan_events,
+    plan_timebase, program_request_fields,
+)
 from filter_cross_time_points import (  # noqa: E402
     PointView,
     azimuth_deg,
@@ -294,7 +297,8 @@ def build_point(pid, pair_assets, sub_class, seed, params, py, by_id, snap,
     }
     request_base = {"pair_kind": "dog" if a1 in DOGS.values() else "human",
                     "endpoint_1": ep_map[a1][0], "endpoint_2": ep_map[a2][1],
-                    "sound_asset_id": params["SOUND_ASSET"]}
+                    **program_request_fields(params),
+                    **dry_canvas_fields(params)}
     pdir.mkdir(parents=True)
     (pdir / "actor_selection.json").write_text(
         json.dumps(_selection_doc(a1, a2, by_id, snap), ensure_ascii=False, indent=2))
@@ -309,7 +313,8 @@ def build_point(pid, pair_assets, sub_class, seed, params, py, by_id, snap,
                                      tail_silence_s=params["TAIL_MIN_S"],
                                      first_call_bands=params["BANDS_CARD8"],
                                      min_first_call_gap_s=params["T_HALF"],
-                                     target_first_bands=target_call_bands)
+                                     target_first_bands=target_call_bands,
+                                     **plan_timebase(params))
         anchor_slot = anchor["anchor_slot"]
         other_slot = "source2" if anchor_slot == "source1" else "source1"
         is_a = sub_class.startswith("A")
@@ -319,9 +324,9 @@ def build_point(pid, pair_assets, sub_class, seed, params, py, by_id, snap,
         first_frames = [sample_to_frame(events[0][1]), sample_to_frame(events[1][1])]
 
         request = dict(request_base, point_id=pid, first_slot=first_slot)
-        program = build_program(request, events)
+        program = build_program(request, events, revision="v1")
         gate_a = build_program(dict(request, point_id=pid + "_gateA"),
-                               _swap_events(events))
+                               _swap_events(events), revision="v1")
         for doc in (program, gate_a):
             errs = sorted(validator.iter_errors(doc), key=lambda e: list(e.absolute_path))
             if errs:

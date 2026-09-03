@@ -39,7 +39,12 @@ sys.path.insert(0, str(REPO / "src"))
 
 import audio_profiles as AP  # noqa: E402
 import scene_sampler as SS  # noqa: E402
-from build_qa_v3_programs import build_program  # noqa: E402
+from build_qa_v3_programs import (  # noqa: E402
+    build_program,
+    dry_canvas_fields,
+    program_request_fields,
+)
+from avengine.assets.sound_pool import clip_source_from_params  # noqa: E402
 from qa_v3_pixel_thresholds import card1_pixel_acceptance_block  # noqa: E402
 import visibility_prediction as VP  # noqa: E402
 # 选角文档的结构(蓝图/网格/动画的物理来源、UE 绑定)已在既有装配器里
@@ -78,6 +83,26 @@ EP_MAP = {
 
 class GenerationConstraintError(ValueError):
     """A candidate is well-formed but fails a declared question constraint."""
+
+
+def _require_param(params, key):
+    if key not in params:
+        raise ValueError(f"params missing {key}")
+    return params[key]
+
+
+def _sample_rate_hz(params) -> int:
+    rate = int(_require_param(params, "SAMPLE_RATE_HZ"))
+    if rate <= 0:
+        raise ValueError("SAMPLE_RATE_HZ must be positive")
+    return rate
+
+
+def _pair_kind(params) -> str:
+    value = str(_require_param(params, "PAIR_KIND"))
+    if not value:
+        raise ValueError("PAIR_KIND is empty")
+    return value
 
 
 class PredictedVisibilityRejection(GenerationConstraintError):
@@ -1012,6 +1037,8 @@ def realise_point(pid, cell, plan, scene, base_request, params, by_id, args,
         json.dumps(selection, ensure_ascii=False, indent=2))
     slot_asset = {a["source_slot_id"]: a["asset_id"] for a in selection["actors"]}
     slot_coat = {s: COAT_WORDS[a] for s, a in slot_asset.items()}
+    pair_kind = _pair_kind(params)
+    clip_source = clip_source_from_params(params, rng, pair_kind=pair_kind)
 
     # 相机与听者:同一份姿态结果
     render_context = resolve_scene_render_context(scene)
@@ -1032,34 +1059,34 @@ def realise_point(pid, cell, plan, scene, base_request, params, by_id, args,
     # 题型专用音频调度:语义角色 → 槽位
     if profile["id"] == "card1F":
         schedule = AP.schedule_forward_anchor(
-            rng, params=params, anchor_frame=plan.anchor_frame)
+            rng, params=params, anchor_frame=plan.anchor_frame, clip_source=clip_source)
     elif profile["id"] == "card1B":
         schedule = AP.schedule_backward_anchor(
             rng, params=params, anchor_frame=plan.anchor_frame,
-            query_frame=plan.query_frame)
+            query_frame=plan.query_frame, clip_source=clip_source)
     elif profile["id"] == "card5R":
         schedule = AP.schedule_forward_anchor(
-            rng, params=params, anchor_frame=plan.anchor_frame)
+            rng, params=params, anchor_frame=plan.anchor_frame, clip_source=clip_source)
     elif profile["id"] == "card5":
         schedule = AP.schedule_first_sound_at_frame(
-            rng, params=params, query_frame=plan.anchor_frame)
+            rng, params=params, query_frame=plan.anchor_frame, clip_source=clip_source)
     elif profile["id"] in ("card6", "card6R"):
         schedule = AP.schedule_second_sound_at_frame(
             rng, params=params,
-            query_frame=int(profile["second_sound_frame"]))
+            query_frame=int(profile["second_sound_frame"]), clip_source=clip_source)
     elif profile["id"] == "card10":
         schedule = AP.schedule_first_sound_at_frame(
-            rng, params=params, query_frame=plan.anchor_frame)
+            rng, params=params, query_frame=plan.anchor_frame, clip_source=clip_source)
     elif profile.get("answer_kind") == "event_count":
         schedule = AP.schedule_event_count(
-            rng, params=params, event_count=int(cell["answer_value"]))
+            rng, params=params, event_count=int(cell["answer_value"]), clip_source=clip_source)
     elif profile.get("answer_kind") == "distance_at_query":
         schedule = AP.schedule_event_count(
             rng, params=params,
-            event_count=int(profile.get("audio_event_count", 3)))
+            event_count=int(profile["audio_event_count"]), clip_source=clip_source)
     elif profile.get("answer_kind") == "first_sound_side":
         schedule = AP.schedule_first_sound_at_frame(
-            rng, params=params, query_frame=plan.query_frame)
+            rng, params=params, query_frame=plan.query_frame, clip_source=clip_source)
     elif profile.get("answer_kind") in ("time_band", "first_caller_coat"):
         # ⑧⑨ 都要"两只都有首叫、且可分辨";目标的答案带先定,伙伴带
         # 由 target_first 决定在它之前还是之后,再交给调度器。
@@ -1081,22 +1108,31 @@ def realise_point(pid, cell, plan, scene, base_request, params, by_id, args,
                 "no partner band on that side")
         schedule = AP.schedule_first_call_bands(
             rng, params=params, target_bands=pair, band_edges=edges,
-            first_caller_role=(AP.TARGET if cell["target_first"] else AP.OTHER))
+            first_caller_role=(AP.TARGET if cell["target_first"] else AP.OTHER), clip_source=clip_source)
     else:
         schedule = AP.schedule_exactly_one_calling(
-            rng, params=params, query_frame=plan.query_frame)
+            rng, params=params, query_frame=plan.query_frame, clip_source=clip_source)
     main_role_to_slot = {AP.TARGET: target_slot, AP.OTHER: other_slot}
     gatea_role_to_slot = {AP.TARGET: other_slot, AP.OTHER: target_slot}
     slot_events = schedule.bind(main_role_to_slot)
     gatea_slot_events = schedule.bind(gatea_role_to_slot)
-
-    request = {"pair_kind": "dog", "point_id": pid,
-               "endpoint_1": EP_MAP[assets[0]][0],
-               "endpoint_2": EP_MAP[assets[1]][1],
-               "sound_asset_id": params["SOUND_ASSET"]}
-    program = build_program(request, slot_events)
+    request = {
+        "pair_kind": pair_kind,
+        "point_id": pid,
+        "endpoint_1": EP_MAP[assets[0]][0],
+        "endpoint_2": EP_MAP[assets[1]][1],
+        **program_request_fields(params),
+    }
+    if clip_source is None:
+        request.update(dry_canvas_fields(params))
+        program_events = slot_events
+        gatea_program_events = gatea_slot_events
+    else:
+        program_events = schedule.program_events(main_role_to_slot)
+        gatea_program_events = schedule.program_events(gatea_role_to_slot)
+    program = build_program(request, program_events, revision="v1")
     gatea_program = build_program(
-        request, gatea_slot_events, revision="gateA_v1")
+        request, gatea_program_events, revision="gateA_v1")
     (programs_dir / f"{program['program_id']}.json").write_text(
         json.dumps(program, ensure_ascii=False, indent=1))
     (programs_dir / f"{gatea_program['program_id']}.json").write_text(
@@ -1377,7 +1413,7 @@ def build_gatea_answer(kind, profile, cell, timeline, schedule,
             timeline, gatea_target_slot, query_frame)
         firsts = {}
         for slot, start in gatea_slot_events:
-            firsts.setdefault(slot, start / AP.SAMPLE_RATE)
+            firsts.setdefault(slot, start / _sample_rate_hz(params))
         gatea_band = band_of(firsts[gatea_target_slot],
                              AP.card8_band_edges(params))
         if gatea_band is None:
@@ -1676,9 +1712,9 @@ def build_answer(kind, profile, cell, timeline, schedule, slot_events,
             raise ValueError(f"{len(calling)} actors sound at the query frame")
         truth = slot_coat[calling[0]]
         options = ["black-and-white", "yellow", "both", "neither"]
-        seconds = query_frame / 15.0
+        seconds = query_frame / float(_require_param(params, "VIDEO_FPS"))
         moment = (f"At zero-based video frame index {query_frame} "
-                  f"({query_frame}/15 seconds)")
+                  f"({query_frame}/{int(params['VIDEO_FPS'])} seconds)")
         return {"truth": {"calling_at_query": truth,
                           "query_frame": query_frame,
                           "query_second": round(seconds, 4)},
@@ -1693,7 +1729,7 @@ def build_answer(kind, profile, cell, timeline, schedule, slot_events,
         firsts = {}
         first_samples = {}
         for (slot, start), event in zip(slot_events, schedule.events):
-            firsts.setdefault(slot, start / AP.SAMPLE_RATE)
+            firsts.setdefault(slot, start / _sample_rate_hz(params))
             first_samples.setdefault(slot, int(start))
         onset = firsts[target_slot]
         got = next((i for i in range(len(edges) - 1)
@@ -1716,14 +1752,14 @@ def build_answer(kind, profile, cell, timeline, schedule, slot_events,
                 "min_first_call_separation_samples"]:
             raise GenerationConstraintError(
                 f"card8 first-call separation "
-                f"{separation_samples / AP.SAMPLE_RATE:.4f}s is not strictly "
+                f"{separation_samples / _sample_rate_hz(params):.4f}s is not strictly "
                 "above max(T_HALF, 2*T_FULL)="
                 f"{scoring_chain['min_first_call_separation_s']:.4f}s")
         return {"first_caller_slot": min(firsts, key=firsts.get),
                 "truth": {"first_onset_s": round(onset, 4), "band_index": got,
                           "non_target_first_onset_s": round(other_onset, 4),
                           "first_call_separation_s": round(
-                              separation_samples / AP.SAMPLE_RATE, 4),
+                              separation_samples / _sample_rate_hz(params), 4),
                           "first_call_separation_above_minimum": True},
                 "mcq": {"stem": (f"When does the {coat} dog bark for the FIRST "
                                  "time? Pick the time range in seconds."),
@@ -1758,7 +1794,7 @@ def build_answer(kind, profile, cell, timeline, schedule, slot_events,
                 "truth": {"first_to_bark": truth,
                           "onset_gap_s": round(
                               abs(firsts[target_slot] - firsts[other_slot])
-                              / AP.SAMPLE_RATE, 4)},
+                              / _sample_rate_hz(params), 4)},
                 "mcq": {"stem": ("Which dog barked first, the black-and-white "
                                  "one or the yellow one?"),
                         "options_space": ["black-and-white", "yellow"],
@@ -1894,8 +1930,8 @@ def card8_diagnostics(params, records):
     separations = [r["truth"].get("first_call_separation_s") for r in rows]
     separations = [s for s in separations if s is not None]
     return {
-        "clip_duration_s": float(params.get("CLIP_SECONDS", AP.CLIP_SECONDS)),
-        "event_seconds": float(params.get("EVENT_SECONDS", AP.EVENT_SECONDS)),
+        "clip_duration_s": float(_require_param(params, "CLIP_SECONDS")),
+        "event_seconds": float(_require_param(params, "EVENT_SECONDS")),
         "card8_feasible_interval_s": [lo, hi],
         "card8_mcq_band_edges_s": edges,
         "derivation": ("clip - event - (min_events - 2) * (event + gap); "

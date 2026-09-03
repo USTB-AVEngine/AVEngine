@@ -32,7 +32,9 @@ from build_qa_v3_n_actor_canary import (  # noqa: E402
     build_endpoint_registry,
     find_n_route_plan,
 )
-from build_qa_v3_programs import build_program  # noqa: E402
+from build_qa_v3_programs import (  # noqa: E402
+    build_program, dry_canvas_window_fields, program_request_fields,
+)
 from qa_v3_actor_selection import _actor_entry  # noqa: E402
 from design_qa_v3_scene_batch import (  # noqa: E402
     git_worktree_state,
@@ -665,6 +667,8 @@ def _realise_cell(out_root, profile, cell_index, scene, params, inventory,
         "pair_kind": profile_id,
         "point_id": point_id,
         "slot_endpoints": slot_endpoints,
+        **program_request_fields(params),
+        **dry_canvas_window_fields(params),
         "sound_asset_id": sound_assets[0]["sound_asset_id"],
         "mode": ("one_active_of_n" if profile_id == "card11"
                  else "sequential_sources"),
@@ -675,7 +679,7 @@ def _realise_cell(out_root, profile, cell_index, scene, params, inventory,
 
     main_request = dict(request, mode=program_mode(main_events))
     gatea_request = dict(request, mode=program_mode(gatea_events))
-    main_program = build_program(main_request, main_events)
+    main_program = build_program(main_request, main_events, revision="v1")
     gatea_program = build_program(
         gatea_request, gatea_events, revision="gateA_v1")
     _write(point / "audio_program.json", main_program)

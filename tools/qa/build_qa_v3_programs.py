@@ -12,7 +12,8 @@
   TAIL_SILENCE  锚事件结束到片尾的静默下限(默认 1.5s);
   n_events      每点 3 或 4(种子定),归属交替(first_slot 起手),
                 保证两只各 ≥1 声(⑧的"单叫退化"防线);
-  事件时长固定 0.3s,素材窗沿用在产 program 的 [0.2s, 0.5s) 截取。
+  历史路径事件时长固定 0.3s,素材窗 [0.2s, 0.5s)。新路径每个事件带
+  duration_samples,素材窗为整段 clip(一声一个文件)。
 
 产物:每点一个 `<program_id>.json`(结构与 schema 同在产 program:
 timeline 常量块、sequential_sources 模式、两端点、封印
@@ -41,20 +42,130 @@ import json
 import os
 import sys
 from pathlib import Path
+from typing import Mapping
 
 REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO / "src"))
 
 from avengine.contracts.json_io import canonical_json_sha256  # noqa: E402
 
-SAMPLE_RATE = 16000
-SAMPLE_COUNT = 80000
-TICKS_PER_SAMPLE = 3
-EVENT_LEN = int(0.3 * SAMPLE_RATE)          # 4800,与在产 program 一致
-SOURCE_START, SOURCE_END = 3200, 8000       # 素材内截取窗,沿用在产
-TIMELINE_BLOCK = {"time_base_hz": 48000, "ticks_per_frame": 3200, "video_fps": 15,
-                  "frame_count": 75, "sample_rate_hz": 16000,
-                  "ticks_per_sample": 3, "sample_count": 80000}
+TIMELINE_KEYS = (
+    "time_base_hz", "ticks_per_frame", "video_fps", "frame_count",
+    "sample_rate_hz", "ticks_per_sample", "sample_count",
+)
+PROGRAM_REQUEST_KEYS = (
+    "linear_gain", "fade_samples", "mode", "timeline",
+    "normalization_policy", "render_source_stem",
+    "source_specific_stems", "admission_state",
+)
+
+
+def _require_request(request: dict, key: str):
+    if key not in request:
+        raise ValueError(f"request missing {key}")
+    return request[key]
+
+
+def _require_param(params: Mapping, key: str):
+    if key not in params:
+        raise ValueError(f"params missing {key}")
+    return params[key]
+
+
+def program_request_fields(params: Mapping) -> dict:
+    """Copy program policy from a params file. None of these have code defaults."""
+    rate = int(_require_param(params, "SAMPLE_RATE_HZ"))
+    clip_seconds = float(_require_param(params, "CLIP_SECONDS"))
+    if rate <= 0 or clip_seconds <= 0:
+        raise ValueError("SAMPLE_RATE_HZ and CLIP_SECONDS must be positive")
+    return {
+        "linear_gain": float(_require_param(params, "PROGRAM_LINEAR_GAIN")),
+        "fade_samples": int(_require_param(params, "PROGRAM_FADE_SAMPLES")),
+        "mode": str(_require_param(params, "PROGRAM_MODE")),
+        "timeline": {
+            "time_base_hz": int(_require_param(params, "TIME_BASE_HZ")),
+            "ticks_per_frame": int(_require_param(params, "TICKS_PER_FRAME")),
+            "video_fps": int(_require_param(params, "VIDEO_FPS")),
+            "frame_count": int(_require_param(params, "FRAME_COUNT")),
+            "sample_rate_hz": rate,
+            "ticks_per_sample": int(_require_param(params, "TICKS_PER_SAMPLE")),
+            "sample_count": int(round(clip_seconds * rate)),
+        },
+        "normalization_policy": str(
+            _require_param(params, "PROGRAM_NORMALIZATION_POLICY")),
+        "render_source_stem": bool(
+            _require_param(params, "PROGRAM_RENDER_SOURCE_STEM")),
+        "source_specific_stems": bool(
+            _require_param(params, "PROGRAM_SOURCE_SPECIFIC_STEMS")),
+        "admission_state": str(
+            _require_param(params, "PROGRAM_ADMISSION_STATE")),
+    }
+
+
+def dry_canvas_window_fields(params: Mapping) -> dict:
+    rate = int(_require_param(params, "SAMPLE_RATE_HZ"))
+    return {
+        "event_duration_samples": int(round(
+            float(_require_param(params, "EVENT_SECONDS")) * rate)),
+        "source_start_sample": int(
+            _require_param(params, "DRY_CANVAS_SOURCE_START_SAMPLE")),
+        "source_end_sample_exclusive": int(
+            _require_param(params, "DRY_CANVAS_SOURCE_END_SAMPLE_EXCLUSIVE")),
+    }
+
+
+def dry_canvas_fields(params: Mapping) -> dict:
+    return {
+        "sound_asset_id": str(_require_param(params, "SOUND_ASSET")),
+        **dry_canvas_window_fields(params),
+    }
+
+
+def plan_timebase(params: Mapping) -> dict:
+    rate = int(_require_param(params, "SAMPLE_RATE_HZ"))
+    clip_seconds = float(_require_param(params, "CLIP_SECONDS"))
+    event_seconds = float(_require_param(params, "EVENT_SECONDS"))
+    if rate <= 0 or clip_seconds <= 0 or event_seconds <= 0:
+        raise ValueError("SAMPLE_RATE_HZ, CLIP_SECONDS, EVENT_SECONDS must be positive")
+    return {
+        "sample_rate_hz": rate,
+        "sample_count": int(round(clip_seconds * rate)),
+        "event_len_samples": int(round(event_seconds * rate)),
+    }
+
+
+def _timeline(request: dict) -> dict:
+    timeline = _require_request(request, "timeline")
+    if not isinstance(timeline, dict):
+        raise ValueError("request timeline must be an object")
+    missing = [key for key in TIMELINE_KEYS if key not in timeline]
+    if missing:
+        raise ValueError(f"request timeline missing {missing}")
+    return {
+        "time_base_hz": int(timeline["time_base_hz"]),
+        "ticks_per_frame": int(timeline["ticks_per_frame"]),
+        "video_fps": int(timeline["video_fps"]),
+        "frame_count": int(timeline["frame_count"]),
+        "sample_rate_hz": int(timeline["sample_rate_hz"]),
+        "ticks_per_sample": int(timeline["ticks_per_sample"]),
+        "sample_count": int(timeline["sample_count"]),
+    }
+
+
+def _canvas_window(request: dict) -> tuple[int, int, int]:
+    missing = [key for key in (
+        "event_duration_samples",
+        "source_start_sample",
+        "source_end_sample_exclusive",
+    ) if key not in request]
+    if missing:
+        raise ValueError(f"request missing {missing}")
+    duration = int(request["event_duration_samples"])
+    start = int(request["source_start_sample"])
+    end = int(request["source_end_sample_exclusive"])
+    if duration <= 0 or end <= start:
+        raise ValueError("request source window is empty")
+    return duration, start, end
 
 
 def _rng(seed: str, *parts: str):
@@ -65,6 +176,8 @@ def _rng(seed: str, *parts: str):
 
 def plan_events(seed: str, point_id: str, first_slot: str, *,
                 first_min_s: float, gap_min_s: float, tail_silence_s: float,
+                event_len_samples: int,
+                sample_rate_hz: int, sample_count: int,
                 first_call_bands: list[float] | None = None,
                 min_first_call_gap_s: float | None = None,
                 target_first_bands: tuple[int, int] | None = None):
@@ -83,10 +196,10 @@ def plan_events(seed: str, point_id: str, first_slot: str, *,
     """
     rng = _rng(seed, point_id, "events")
     other = "source2" if first_slot == "source1" else "source1"
-    lo = int(first_min_s * SAMPLE_RATE)
-    gap = int(gap_min_s * SAMPLE_RATE)
-    hi = SAMPLE_COUNT - int(tail_silence_s * SAMPLE_RATE) - EVENT_LEN
-    step = EVENT_LEN + gap
+    lo = int(first_min_s * sample_rate_hz)
+    gap = int(gap_min_s * sample_rate_hz)
+    hi = sample_count - int(tail_silence_s * sample_rate_hz) - event_len_samples
+    step = event_len_samples + gap
     if target_first_bands is not None:
         if first_call_bands is None:
             raise ValueError("target_first_bands requires first_call_bands")
@@ -96,10 +209,11 @@ def plan_events(seed: str, point_id: str, first_slot: str, *,
                              "(events alternate in time, so b1 < b2)")
         starts, n_events = _plan_banded_starts(
             rng, point_id, first_call_bands, (b1, b2), lo, hi, step,
-            min_first_call_gap_s)
+            min_first_call_gap_s, sample_rate_hz)
         slots = [first_slot if i % 2 == 0 else other
                  for i in range(n_events)]
-        return _finish_plan(slots, starts, n_events)
+        return _finish_plan(slots, starts, n_events, event_len_samples,
+                            sample_count)
     n_events = int(rng.integers(3, 5))  # 3 或 4
     slots = [first_slot if i % 2 == 0 else other for i in range(n_events)]
     if hi - lo < (n_events - 1) * step:
@@ -131,7 +245,7 @@ def plan_events(seed: str, point_id: str, first_slot: str, *,
         if first_call_bands is None and min_first_call_gap_s is None:
             break
         # 首叫 = 交替序列的前两个事件(各槽位第一次)
-        t1, t2 = starts[0] / SAMPLE_RATE, starts[1] / SAMPLE_RATE
+        t1, t2 = starts[0] / sample_rate_hz, starts[1] / sample_rate_hz
         gap_ok = (min_first_call_gap_s is None
                   or abs(t2 - t1) > min_first_call_gap_s)
         band_ok = (first_call_bands is None or _band(t1) != _band(t2))
@@ -140,21 +254,22 @@ def plan_events(seed: str, point_id: str, first_slot: str, *,
     else:
         raise RuntimeError(f"{point_id}: no onset layout satisfying first-call "
                            f"band/gap constraints in 300 attempts")
-    return _finish_plan(slots, starts, n_events)
+    return _finish_plan(slots, starts, n_events, event_len_samples,
+                        sample_count)
 
 
 def _plan_banded_starts(rng, point_id, bands, target, lo, hi, step,
-                        min_first_call_gap_s):
+                        min_first_call_gap_s, sample_rate_hz):
     """带优先:两个首叫先各自锁进目标带,其余事件再条件采样。
 
     带内仍是条件均匀采样(保住"首叫时刻在带内不可预测");事件数 3/4
     的选择随目标带对的可行性走——晚带对需要更短的事件序列才塞得下。
     """
     b1, b2 = target
-    lo1, hi1 = bands[b1] * SAMPLE_RATE, bands[b1 + 1] * SAMPLE_RATE
-    lo2, hi2 = bands[b2] * SAMPLE_RATE, bands[b2 + 1] * SAMPLE_RATE
+    lo1, hi1 = bands[b1] * sample_rate_hz, bands[b1 + 1] * sample_rate_hz
+    lo2, hi2 = bands[b2] * sample_rate_hz, bands[b2 + 1] * sample_rate_hz
     gap_samples = (0 if min_first_call_gap_s is None
-                   else int(min_first_call_gap_s * SAMPLE_RATE))
+                   else int(min_first_call_gap_s * sample_rate_hz))
     for n_events in [int(v) for v in rng.permutation([3, 4])]:
         t1_lo = max(lo, int(lo1))
         t1_hi = min(hi - (n_events - 1) * step, int(hi1) - 1)
@@ -182,20 +297,26 @@ def _plan_banded_starts(rng, point_id, bands, target, lo, hi, step,
                        f"bands {target} (tried 3 and 4 events)")
 
 
-def _finish_plan(slots, starts, n_events):
+def _finish_plan(slots, starts, n_events, event_len_samples, sample_count):
     events = list(zip(slots, starts))
     anchor_slot, anchor_start = events[-1]
     anchor = {"anchor_event_index": n_events - 1,
               "anchor_slot": anchor_slot,
               "anchor_start_sample": anchor_start,
-              "anchor_end_sample": anchor_start + EVENT_LEN,
-              "tail_silence_samples": SAMPLE_COUNT - (anchor_start + EVENT_LEN),
+              "anchor_end_sample": anchor_start + event_len_samples,
+              "tail_silence_samples": sample_count - (
+                  anchor_start + event_len_samples),
               "n_events": n_events,
               "per_slot_counts": {s: slots.count(s) for s in set(slots)}}
     return events, anchor
 
 
-def build_program(request: dict, events, *, revision: str = "v1") -> dict:
+def build_program(request: dict, events, *, revision: str) -> dict:
+    missing = [key for key in PROGRAM_REQUEST_KEYS if key not in request]
+    if missing:
+        raise ValueError(f"request missing {missing}")
+    timeline = _timeline(request)
+    ticks_per_sample = int(timeline["ticks_per_sample"])
     if "slot_endpoints" in request:
         slot_to_ep = {
             str(slot): str(endpoint)
@@ -208,39 +329,55 @@ def build_program(request: dict, events, *, revision: str = "v1") -> dict:
         slot_to_ep = {"source1": endpoints[0], "source2": endpoints[1]}
     ev_rows = []
     for i, event in enumerate(events):
-        if len(event) == 2:
+        if isinstance(event, dict):
+            for key in ("slot", "start_sample", "duration_samples",
+                        "sound_asset_id", "source_start_sample",
+                        "source_end_sample_exclusive"):
+                if key not in event:
+                    raise ValueError(f"program event missing {key}")
+            slot = str(event["slot"])
+            start = int(event["start_sample"])
+            duration = int(event["duration_samples"])
+            sound_asset_id = event["sound_asset_id"]
+            source_start = int(event["source_start_sample"])
+            source_end = int(event["source_end_sample_exclusive"])
+        elif len(event) == 2:
             slot, start = event
             sound_asset_id = request["sound_asset_id"]
+            duration, source_start, source_end = _canvas_window(request)
         elif len(event) == 3:
             slot, start, sound_asset_id = event
+            duration, source_start, source_end = _canvas_window(request)
         else:
-            raise ValueError("events must be (slot,start) or (slot,start,sound_asset_id)")
-        end = start + EVENT_LEN
+            raise ValueError(
+                "events must be (slot,start), (slot,start,sound_asset_id), "
+                "or a dict with duration and source window")
+        end = start + duration
         ev_rows.append({
             "event_id": f"{slot}_event_{i}",
             "source_endpoint_id": slot_to_ep[slot],
             "sound_asset_id": str(sound_asset_id),
-            "start_tick": start * TICKS_PER_SAMPLE,
-            "end_tick_exclusive": end * TICKS_PER_SAMPLE,
+            "start_tick": start * ticks_per_sample,
+            "end_tick_exclusive": end * ticks_per_sample,
             "start_sample": start,
             "end_sample_exclusive": end,
-            "source_start_sample": SOURCE_START,
-            "source_end_sample_exclusive": SOURCE_END,
-            "linear_gain": 0.18,
-            "fade_samples": 80,
-            "normalization_policy": "use_sound_asset_policy",
-            "render_source_stem": True,
+            "source_start_sample": source_start,
+            "source_end_sample_exclusive": source_end,
+            "linear_gain": float(request["linear_gain"]),
+            "fade_samples": int(request["fade_samples"]),
+            "normalization_policy": str(request["normalization_policy"]),
+            "render_source_stem": bool(request["render_source_stem"]),
         })
     doc = {
         "schema": "avengine_m6_audio_program_v1",
         "program_id": f"qa_v3_{request['pair_kind']}_{request['point_id']}_rand_{revision}",
         "revision": revision,
-        "mode": str(request.get("mode", "sequential_sources")),
-        "timeline": dict(TIMELINE_BLOCK),
+        "mode": str(request["mode"]),
+        "timeline": timeline,
         "candidate_source_endpoint_ids": endpoints,
         "events": ev_rows,
-        "source_specific_stems": True,
-        "admission_state": "research",
+        "source_specific_stems": bool(request["source_specific_stems"]),
+        "admission_state": str(request["admission_state"]),
     }
     doc["program_content_sha256"] = canonical_json_sha256(doc)
     return doc
@@ -252,10 +389,17 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--requests", required=True)
     parser.add_argument("--seed", required=True)
     parser.add_argument("--out-dir", required=True)
-    parser.add_argument("--first-min-s", type=float, default=0.3)
-    parser.add_argument("--gap-min-s", type=float, default=0.3)
-    parser.add_argument("--tail-silence-s", type=float, default=1.5)
-    parser.add_argument("--schema", default=str(REPO / "schemas/m6_audio_program_v1.schema.json"))
+    parser.add_argument("--first-min-s", type=float, required=True)
+    parser.add_argument("--gap-min-s", type=float, required=True)
+    parser.add_argument("--tail-silence-s", type=float, required=True)
+    parser.add_argument("--event-seconds", type=float, required=True)
+    parser.add_argument("--sample-rate-hz", type=int, required=True)
+    parser.add_argument("--sample-count", type=int, required=True)
+    parser.add_argument("--frame-count", type=int, required=True)
+    parser.add_argument("--max-top-first-frame-share", type=float, required=True)
+    parser.add_argument("--min-onset-buckets", type=int, required=True)
+    parser.add_argument("--schema", required=True)
+    parser.add_argument("--revision", required=True)
     args = parser.parse_args(argv)
 
     if os.path.exists(args.out_dir):
@@ -269,11 +413,15 @@ def main(argv: list[str] | None = None) -> int:
     onset_frames = []
     rows = []
     for req in requests:
-        events, anchor = plan_events(args.seed, req["point_id"], req["first_slot"],
-                                     first_min_s=args.first_min_s,
-                                     gap_min_s=args.gap_min_s,
-                                     tail_silence_s=args.tail_silence_s)
-        doc = build_program(req, events)
+        events, anchor = plan_events(
+            args.seed, req["point_id"], req["first_slot"],
+            first_min_s=args.first_min_s,
+            gap_min_s=args.gap_min_s,
+            tail_silence_s=args.tail_silence_s,
+            event_len_samples=int(round(args.event_seconds * args.sample_rate_hz)),
+            sample_rate_hz=args.sample_rate_hz,
+            sample_count=args.sample_count)
+        doc = build_program(req, events, revision=args.revision)
         errors = sorted(validator.iter_errors(doc), key=lambda e: list(e.absolute_path))
         if errors:
             print(f"FAIL {req['point_id']}: schema violation: {errors[0].message}",
@@ -291,12 +439,14 @@ def main(argv: list[str] | None = None) -> int:
                 **anchor}
         with open(os.path.join(args.out_dir, doc["program_id"] + ".plan.json"), "w") as fp:
             json.dump(plan, fp, ensure_ascii=False, indent=1)
-        onset_frames.append(int(events[0][1] / SAMPLE_COUNT * 75))
+        onset_frames.append(int(
+            events[0][1] / args.sample_count * args.frame_count))
         rows.append({"point_id": req["point_id"], "program_id": doc["program_id"],
                      "n_events": anchor["n_events"],
                      "first_onset_frame": onset_frames[-1],
                      "anchor_start_frame": int(anchor["anchor_start_sample"]
-                                               / SAMPLE_COUNT * 75),
+                                               / args.sample_count
+                                               * args.frame_count),
                      "anchor_slot": anchor["anchor_slot"]})
 
     # 批级自检:旧病根是"全批首声恒在同一帧",所以最贴切的锚是
@@ -304,8 +454,10 @@ def main(argv: list[str] | None = None) -> int:
     # 数学地压在片长前 40%(约帧 4–30),散布其中已不可预测,
     # 更宽的桶数要求会误伤合法约束。
     from collections import Counter
-    first_buckets = {f // 15 for f in onset_frames}
-    anchor_buckets = {r["anchor_start_frame"] // 15 for r in rows}
+    fps = args.frame_count / (args.sample_count / args.sample_rate_hz)
+    bucket_width = int(round(fps))
+    first_buckets = {f // bucket_width for f in onset_frames}
+    anchor_buckets = {r["anchor_start_frame"] // bucket_width for r in rows}
     top_frame_share = max(Counter(onset_frames).values()) / len(rows)
     manifest = {
         "schema": "avengine_qa_v3_program_batch_v1",
@@ -319,8 +471,10 @@ def main(argv: list[str] | None = None) -> int:
     }
     with open(os.path.join(args.out_dir, "programs_manifest.json"), "w") as fp:
         json.dump(manifest, fp, ensure_ascii=False, indent=1)
-    if len(requests) >= 12 and (len(first_buckets) < 2 or len(anchor_buckets) < 2
-                                or top_frame_share > 0.3):
+    if (len(requests) >= 12
+            and (len(first_buckets) < args.min_onset_buckets
+                 or len(anchor_buckets) < args.min_onset_buckets
+                 or top_frame_share > args.max_top_first_frame_share)):
         print(f"FAIL: onsets collapse (first={sorted(first_buckets)}, "
               f"anchor={sorted(anchor_buckets)}, top_frame_share="
               f"{top_frame_share:.2f}) — randomization is broken", file=sys.stderr)
