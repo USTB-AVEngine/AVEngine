@@ -34,6 +34,7 @@ from build_qa_v3_n_actor_canary import (  # noqa: E402
 )
 from build_qa_v3_programs import (  # noqa: E402
     build_program, dry_canvas_window_fields, program_request_fields,
+    require_dry_canvas_source_mode,
 )
 from qa_v3_actor_selection import _actor_entry  # noqa: E402
 from design_qa_v3_scene_batch import (  # noqa: E402
@@ -234,6 +235,12 @@ def _find_gateb_out_of_view_route(scene, params, plan, *, frame=30):
     raise SearchExhausted(
         "Gate B found no real route outside the query-frame view",
         evaluated_combinations=evaluated)
+
+
+def audio_program_mode(events) -> str:
+    """Mode follows the event list: one slot sounding vs several."""
+    active = {event[0] for event in events}
+    return "one_active_of_n" if len(active) == 1 else "sequential_sources"
 
 
 def _program_events(profile_id, cell_index, sound_assets):
@@ -665,22 +672,19 @@ def _realise_cell(out_root, profile, cell_index, scene, params, inventory,
         actor["source_slot_id"]: endpoint["source_endpoint_id"]
         for actor, endpoint in zip(selection["actors"], endpoint_records)
     }
+    # AudioProgram.mode is derived from which slots sound, not PROGRAM_MODE.
+    require_dry_canvas_source_mode(
+        params, owner="design_qa_v3_extended_profile")
     request = {
         "pair_kind": profile_id,
         "point_id": point_id,
         "slot_endpoints": slot_endpoints,
-        **program_request_fields(params),
+        **program_request_fields(params, include_mode=False),
         **dry_canvas_window_fields(params),
         "sound_asset_id": sound_assets[0]["sound_asset_id"],
-        "mode": ("one_active_of_n" if profile_id == "card11"
-                 else "sequential_sources"),
     }
-    def program_mode(events):
-        active = {event[0] for event in events}
-        return "one_active_of_n" if len(active) == 1 else "sequential_sources"
-
-    main_request = dict(request, mode=program_mode(main_events))
-    gatea_request = dict(request, mode=program_mode(gatea_events))
+    main_request = dict(request, mode=audio_program_mode(main_events))
+    gatea_request = dict(request, mode=audio_program_mode(gatea_events))
     main_program = build_program(main_request, main_events, revision="v1")
     gatea_program = build_program(
         gatea_request, gatea_events, revision="gateA_v1")
@@ -819,9 +823,11 @@ def main(argv=None):
     profile_id = profile.get("id")
     if profile_id not in SUPPORTED:
         raise ValueError(f"unsupported extended profile: {profile_id!r}")
+    params = _read(args.params)
+    require_dry_canvas_source_mode(
+        params, owner="design_qa_v3_extended_profile")
     scene = load_scene(_read(args.scene_config))
     resolve_scene_render_context(scene)
-    params = _read(args.params)
     require_camera_clearance(scene, params)
     registry_path = REPO / "examples/runtime/source_asset_runtime_profiles.json"
     registry = _read(registry_path)
