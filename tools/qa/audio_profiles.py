@@ -689,7 +689,36 @@ def _band_index(value: float, bands: list[float]) -> int | None:
         return len(bands) - 2
     return None
 
-def card8_feasible_interval(params, *, min_events: int = 3) -> tuple[float, float]:
+def card8_event_length_seconds(params) -> tuple[float, str]:
+    """Event length used to derive card8 bands, plus where it came from.
+
+    dry_canvas_window (or a params file that never declared a source mode)
+    reads EVENT_SECONDS. event_pool uses the longest clip in the class.
+    """
+    mode = str(params["SOUND_SOURCE_MODE"]) if "SOUND_SOURCE_MODE" in params else None
+    if mode == "event_pool":
+        from avengine.assets.sound_pool import (
+            SoundEventPool,
+            event_class_for_pair_kind,
+        )
+        if "SOUND_EVENT_POOL" not in params:
+            raise AudioProfileError(
+                "SOUND_SOURCE_MODE=event_pool needs SOUND_EVENT_POOL "
+                "to derive card8 event length")
+        pair_kind = str(_require(params, "PAIR_KIND"))
+        rate = _sample_rate(params)
+        pool = SoundEventPool.from_catalog(params["SOUND_EVENT_POOL"])
+        clips = pool.clips_for(event_class_for_pair_kind(pair_kind, params))
+        longest = max(clip.duration_samples for clip in clips)
+        return longest / rate, "from_catalog_max"
+    event = float(_require(params, "EVENT_SECONDS"))
+    if event <= 0:
+        raise AudioProfileError("EVENT_SECONDS must be positive")
+    return event, "from_params"
+
+
+def card8_feasible_interval(params, *, min_events: int = 3,
+                            event_seconds: float | None = None) -> tuple[float, float]:
     """⑧ 的首叫可行域,由片长与事件约束**推**出来,不读任何批次的答案分布。
 
     推导(全部是声明量,与房间无关):
@@ -705,7 +734,8 @@ def card8_feasible_interval(params, *, min_events: int = 3) -> tuple[float, floa
     2.6 秒、后段结构性为空;那条边界不能带进新方案。
     """
     clip = float(_require(params, "CLIP_SECONDS"))
-    event = float(_require(params, "EVENT_SECONDS"))
+    event = (float(event_seconds) if event_seconds is not None
+             else card8_event_length_seconds(params)[0])
     gap = float(params["GAP_MIN_S"])
     first_min = float(params["FIRST_MIN_S"])
     last_start = clip - event

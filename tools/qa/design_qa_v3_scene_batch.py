@@ -1931,7 +1931,8 @@ def card8_diagnostics(params, records):
             raise
         return {"status": "not_derived",
                 "reason": f"no card8 rows and incomplete scoring chain: {exc}"}
-    lo, hi = AP.card8_feasible_interval(params)
+    event_seconds, event_source = AP.card8_event_length_seconds(params)
+    lo, hi = AP.card8_feasible_interval(params, event_seconds=event_seconds)
     target_onsets = [r["truth"]["first_onset_s"] for r in rows
                      if "first_onset_s" in r["truth"]]
     other_onsets = [r["truth"].get("non_target_first_onset_s") for r in rows]
@@ -1947,7 +1948,8 @@ def card8_diagnostics(params, records):
     separations = [s for s in separations if s is not None]
     return {
         "clip_duration_s": float(_require_param(params, "CLIP_SECONDS")),
-        "event_seconds": float(_require_param(params, "EVENT_SECONDS")),
+        "event_seconds": event_seconds,
+        "event_seconds_source": event_source,
         "card8_feasible_interval_s": [lo, hi],
         "card8_mcq_band_edges_s": edges,
         "derivation": ("clip - event - (min_events - 2) * (event + gap); "
