@@ -430,10 +430,17 @@ def main() -> int:
             or not rationale["physical_rationale"].strip()
         ):
             raise SystemExit(f"{instance_id}: anchor rationale does not match authority")
-        asset_id = (
-            f"generated_{object_type}_{variant}_"
-            f"{args.admission_state}_{args.revision}"
-        )
+        # The admission state is a mutable field, so it must not sit inside an
+        # identity: owner 2026-09-03 flipped these 44 assets from research to
+        # formal and every published id still said "research", which then reads
+        # as a lie about the current state.  The id is now
+        # generated_<type>_<variant>_v<N>; the state travels in
+        # admission_state, where it can change without renaming anything.
+        # Already published ids keep their old form - renaming them is a
+        # separate, tree-wide job because the same convention is shared with the
+        # animal and human runtime assets, which thousands of produced files
+        # reference.
+        asset_id = f"generated_{object_type}_{variant}_{args.revision}"
         relative = Path(category) / object_type / variant
         destination = root / relative
         if destination.exists():
