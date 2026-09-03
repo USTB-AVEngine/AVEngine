@@ -1,8 +1,12 @@
 """Class-level sound event pools for QA scheduling.
 
-A pool is a catalog of already-cut events (one pulse per clip). The
-scheduler draws from it per event. Clip duration and source window come
-from the catalog, not from constants in this module.
+A pool is a catalog of already-cut events (one pulse per clip). Clip
+duration and source window come from the catalog, not from constants in
+this module.
+
+catalog 里的 sound_asset_id 必须是已注册的声资产，否则 program 在渲染前的
+校验会被拒（events[i].sound_asset_id is not registered）。本模块不负责
+登记，调用方在切库/转 catalog 时必须先把每一声写进声资产注册表。
 
 This module does not split libraries and does not choose a source mode.
 The caller reads SOUND_SOURCE_MODE from params.
@@ -78,6 +82,11 @@ class SoundEventPool:
             end = _int_field(row, "source_end_sample_exclusive", owner=owner)
             if duration <= 0 or rate <= 0 or end <= start:
                 raise SoundPoolError(f"{owner} has an empty source window")
+            window = end - start
+            if duration != window:
+                raise SoundPoolError(
+                    f"{owner} duration_samples={duration} != "
+                    f"source window {end}-{start}={window}")
             clips.append(
                 PoolClip(
                     sound_asset_id=asset_id,
@@ -106,14 +115,55 @@ class SoundEventPool:
         return clips[index]
 
 
+class BoundRoleClipSource:
+    """One clip per semantic role for the whole episode."""
+
+    def __init__(self, by_role: Mapping[str, PoolClip]) -> None:
+        self.by_role = dict(by_role)
+
+    def for_role(self, role: str) -> PoolClip:
+        if role not in self.by_role:
+            raise SoundPoolError(f"no clip bound for role {role!r}")
+        return self.by_role[role]
+
+
 class ClassClipSource:
-    def __init__(self, pool: SoundEventPool, event_class: str, rng: Any) -> None:
+    def __init__(
+        self,
+        pool: SoundEventPool,
+        event_class: str,
+        rng: Any,
+        *,
+        sample_rate_hz: int,
+    ) -> None:
         self.pool = pool
         self.event_class = event_class
         self.rng = rng
+        self.sample_rate_hz = sample_rate_hz
+        for clip in pool.clips_for(event_class):
+            if clip.sample_rate_hz != sample_rate_hz:
+                raise SoundPoolError(
+                    f"clip {clip.sound_asset_id} sample_rate_hz="
+                    f"{clip.sample_rate_hz} != SAMPLE_RATE_HZ={sample_rate_hz}")
 
     def next(self) -> PoolClip:
         return self.pool.draw(self.rng, self.event_class)
+
+    def bind_distinct_roles(self, roles: tuple[str, ...]) -> BoundRoleClipSource:
+        clips = self.pool.clips_for(self.event_class)
+        by_id: dict[str, PoolClip] = {}
+        for clip in clips:
+            by_id.setdefault(clip.sound_asset_id, clip)
+        if len(by_id) < len(roles):
+            raise SoundPoolError(
+                f"event class {self.event_class!r} has {len(by_id)} distinct "
+                f"clips, need {len(roles)} for roles {list(roles)}")
+        ids = list(by_id)
+        order = [ids[int(index)] for index in self.rng.permutation(len(ids))]
+        chosen = order[: len(roles)]
+        return BoundRoleClipSource(
+            {role: by_id[clip_id] for role, clip_id in zip(roles, chosen)}
+        )
 
 
 def event_class_for_pair_kind(pair_kind: str, params: Mapping[str, Any]) -> str:
@@ -153,7 +203,13 @@ def clip_source_from_params(
         raise SoundPoolError(
             "SOUND_SOURCE_MODE=event_pool requires SOUND_EVENT_POOL")
     path = params["SOUND_EVENT_POOL"]
+    if "SAMPLE_RATE_HZ" not in params:
+        raise SoundPoolError(
+            "SOUND_SOURCE_MODE=event_pool requires SAMPLE_RATE_HZ")
     pool = SoundEventPool.from_catalog(path)
     return ClassClipSource(
-        pool, event_class_for_pair_kind(pair_kind, params), rng
+        pool,
+        event_class_for_pair_kind(pair_kind, params),
+        rng,
+        sample_rate_hz=int(params["SAMPLE_RATE_HZ"]),
     )

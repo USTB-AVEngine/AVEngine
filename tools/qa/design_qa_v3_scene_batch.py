@@ -79,6 +79,7 @@ EP_MAP = {
     "generated_labrador_yellow_medium_standard_adult_research_v1":
         ("qa_v2_dog_1_labrador_muzzle", "qa_v2_dog_2_labrador_muzzle"),
 }
+ASSET_PAIR_KIND = {asset_id: "dog" for asset_id in COAT_WORDS}
 
 
 class GenerationConstraintError(ValueError):
@@ -103,6 +104,18 @@ def _pair_kind(params) -> str:
     if not value:
         raise ValueError("PAIR_KIND is empty")
     return value
+
+
+def assert_assets_match_pair_kind(params, assets) -> None:
+    pair_kind = _pair_kind(params)
+    for asset in assets:
+        mapped = ASSET_PAIR_KIND.get(asset)
+        if mapped is None:
+            raise ValueError(f"asset {asset!r} has no pair_kind mapping")
+        if mapped != pair_kind:
+            raise ValueError(
+                f"PAIR_KIND={pair_kind!r} does not match asset {asset!r} "
+                f"(mapped {mapped!r})")
 
 
 class PredictedVisibilityRejection(GenerationConstraintError):
@@ -1038,7 +1051,10 @@ def realise_point(pid, cell, plan, scene, base_request, params, by_id, args,
     slot_asset = {a["source_slot_id"]: a["asset_id"] for a in selection["actors"]}
     slot_coat = {s: COAT_WORDS[a] for s, a in slot_asset.items()}
     pair_kind = _pair_kind(params)
+    assert_assets_match_pair_kind(params, assets)
     clip_source = clip_source_from_params(params, rng, pair_kind=pair_kind)
+    if clip_source is not None:
+        clip_source = clip_source.bind_distinct_roles((AP.TARGET, AP.OTHER))
 
     # 相机与听者:同一份姿态结果
     render_context = resolve_scene_render_context(scene)
