@@ -5,7 +5,7 @@
 
 自 2026-08-25 起，目录本身就是能力分组（阶段目录 m1…m7 已移除），
 本表按目录列出每个工具做什么。
-当前共 320 个工具脚本。
+当前共 321 个工具脚本。
 
 ## 资产生成与装配（`tools/assets/`）
 
@@ -220,6 +220,7 @@
 | `tools/qa/build_pixel_visibility_canaries.py` | Build five hermetic modal/target-only pixel-visibility canaries |
 | `tools/qa/build_qa_v3_camera_clearance_table.py` | Per-scene camera clearance table: one actor-free depth cube ring per camera point |
 | `tools/qa/build_qa_v3_human_calibration_pack.py` | Build a browser-ready full-AV human calibration pack from run02 media |
+| `tools/qa/build_qa_v3_listening_copy.py` | Raise a calibration pack to a listenable level without touching the render |
 | `tools/qa/build_qa_v3_n_actor_canary.py` | Build one scene-neutral four-actor/four-endpoint QA-v3 research canary |
 | `tools/qa/build_qa_v3_programs.py` | Per-point audio-program generator for the v3 pilot (work order item 1.2) |
 | `tools/qa/build_qa_v3_released_probe_items.py` | Build MCQ/Open shortcut-probe items from released run02-style media |
