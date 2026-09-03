@@ -526,6 +526,81 @@ def test_missing_ground_fails_before_output_directory_is_created(tmp_path):
     assert not output.exists()
 
 
+def test_program_policy_is_checked_before_the_output_directory_exists(tmp_path):
+    """A bad params value must not cost a geometry search or block the retry.
+
+    Found 2026-09-03: the gain ceiling was only read inside realise_point, so an
+    out-of-range value surfaced after a full search, left a half-written
+    candidate behind, and the obvious retry at the same output path was then
+    refused because the directory existed.
+    """
+    from floor_reference import summarize_floor_hits, write_floor_reference
+
+    route_bank = tmp_path / "routes.json"
+    route_bank.write_text(json.dumps({
+        "schema": "avengine_apartment_route_bank_v1",
+        "routes": [{"route_id": f"r{k}", "implied_speed_mps": 0.7,
+                    "samples_ue_cm": [[300.0 + 10 * k, -200.0 + 400.0 * i / 74.0]
+                                      for i in range(75)]}
+                   for k in range(4)],
+    }))
+    camera = tmp_path / "camera.json"
+    camera.write_text(json.dumps({
+        "primary_camera_rig": {"world_from_rig": {"translation_m": [0.0, 1.471, 0.0]},
+                               "shared_calibration": {"hfov_degrees": 105.0}},
+        "listener": {"rig_from_listener": {"translation_m": [0.0, 0.0, 0.0]}},
+    }))
+    write_floor_reference(tmp_path / "floor", scene_id="probe_room",
+                          native_map="/Game/Test/Map", method={"kind": "test"},
+                          summary=summarize_floor_hits([0.0] * 300, total_traces=300),
+                          rows=[], thresholds={"min_hits": 200, "min_hit_fraction": 0.98,
+                                               "min_within_fraction": 0.95})
+    scene = tmp_path / "scene.json"
+    scene.write_text(json.dumps({
+        "scene_id": "probe_room", "backend": "ue_spear",
+        "route_bank": str(route_bank), "camera_base_request": str(camera),
+        "floor_reference": str(tmp_path / "floor"),
+        "render": {"native_map": "/Game/Test/Map", "room_profile_id": "probe",
+                   "world_transform": "ue_xyz_cm_to_xzy_m_v1", "ground_z_ue_cm": 0.0},
+    }))
+    profiles = tmp_path / "profiles.json"
+    profiles.write_text(json.dumps([{
+        "id": "card1F", "temporal": "forward", "answer_kind": "azimuth_band",
+        "anchor_binding": "target", "anchor_frame": 40, "idle_choices": [0],
+        "answer_bands_deg": [[-52.5, -17.5], [-17.5, 17.5], [17.5, 52.5]],
+    }]))
+    # a complete program policy except the gain, which is over the schema ceiling
+    policy = dict(PARAMS, CLIP_SECONDS=5.0, PROGRAM_FADE_SAMPLES=80,
+                  TIME_BASE_HZ=48000, TICKS_PER_FRAME=3200, VIDEO_FPS=15,
+                  FRAME_COUNT=75, TICKS_PER_SAMPLE=3,
+                  PROGRAM_NORMALIZATION_POLICY="forbidden",
+                  PROGRAM_RENDER_SOURCE_STEM=True,
+                  PROGRAM_SOURCE_SPECIFIC_STEMS=True,
+                  PROGRAM_ADMISSION_STATE="research",
+                  PROGRAM_MODE="sequential_sources",
+                  PROGRAM_LINEAR_GAIN=2.5)
+    params = tmp_path / "params.json"
+    params.write_text(json.dumps(policy))
+    output = tmp_path / "must-not-exist"
+    with pytest.raises(ValueError, match="PROGRAM_LINEAR_GAIN"):
+        design_main([
+            "--scene-config", str(scene), "--profiles", str(profiles),
+            "--params", str(params), "--out-root", str(output), "--seed", "test",
+        ])
+    assert not output.exists()
+
+    # a missing policy key is refused at the same place, also before the mkdir
+    thin = tmp_path / "thin.json"
+    thin.write_text(json.dumps(PARAMS))
+    other = tmp_path / "also-must-not-exist"
+    with pytest.raises(ValueError, match="CLIP_SECONDS"):
+        design_main([
+            "--scene-config", str(scene), "--profiles", str(profiles),
+            "--params", str(thin), "--out-root", str(other), "--seed", "test",
+        ])
+    assert not other.exists()
+
+
 def test_card15b_gatea_preserves_count_gold_under_slot_swap():
     main_answer = answer(3, 3, "count_single")
     gate_answer = answer(3, 3, "count_single")

@@ -871,6 +871,14 @@ def main(argv=None) -> int:
     params = materialize_derived_params(params, profiles)
     SS.require_camera_clearance(scene, params)
     SS.require_route_synthesis(scene, params)
+    # Every program policy value, the gain ceiling included, is read here so a
+    # bad params file fails before the output directory exists.  Found on
+    # 2026-09-03 by the review session's positive control: the gain check lived
+    # inside realise_point, so an out-of-range value only surfaced after a full
+    # geometry search and left a half-written candidate behind, and because the
+    # output root now existed the obvious retry at the same path was refused.
+    # The value is discarded; realise_point still reads it per candidate.
+    program_request_fields(params)
     base_request = json.loads(Path(scene_cfg["camera_base_request"]).read_text())
     registry = json.loads(
         (REPO / "examples/runtime/source_asset_runtime_profiles.json").read_text())
