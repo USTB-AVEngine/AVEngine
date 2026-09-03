@@ -80,6 +80,8 @@ class SoundEvent:
     start_sample: int
     end_sample_exclusive: int
     purpose: str
+    truncated: bool = False
+    untruncated_end_sample_exclusive: int | None = None
 
     def duration_s(self, rate: int) -> float:
         return (self.end_sample_exclusive - self.start_sample) / rate
@@ -182,27 +184,41 @@ def _pulse_spans(samples: np.ndarray, rate: int) -> list[SoundEvent]:
                 break
         end = last_loud + 1
         if end - start >= min_frames:
-            raw.append((start, min(end, start + max_frames)))
+            capped = min(end, start + max_frames)
+            raw.append((start, capped, capped < end, end))
 
     if not raw:
         return [_continuous_span(samples, rate)]
 
-    merged: list[tuple[int, int]] = [raw[0]]
-    for start, end in raw[1:]:
-        prev_s, prev_e = merged[-1]
+    merged: list[tuple[int, int, bool, int]] = [raw[0]]
+    for start, end, truncated, uncapped in raw[1:]:
+        prev_s, prev_e, prev_t, prev_u = merged[-1]
         if start - prev_e <= merge_gap_frames:
-            merged[-1] = (prev_s, max(prev_e, end))
+            merged[-1] = (
+                prev_s,
+                max(prev_e, end),
+                prev_t or truncated,
+                max(prev_u, uncapped),
+            )
         else:
-            merged.append((start, end))
+            merged.append((start, end, truncated, uncapped))
 
     events: list[SoundEvent] = []
-    for start_f, end_f in merged:
+    for start_f, end_f, truncated, uncapped_f in merged:
         start, end = _span_with_guard(
             start_f * hop, end_f * hop, len(samples), rate
         )
+        _, untruncated_end = _span_with_guard(
+            start_f * hop, uncapped_f * hop, len(samples), rate
+        )
         if end - start < int(round(MIN_EVENT_S * rate)):
             continue
-        events.append(SoundEvent(start, end, "pulse"))
+        events.append(SoundEvent(
+            start, end, "pulse",
+            truncated=truncated,
+            untruncated_end_sample_exclusive=(
+                untruncated_end if truncated else None),
+        ))
     if not events:
         raise SoundEventError("no pulse survived the minimum duration")
     return events

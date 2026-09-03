@@ -45,11 +45,14 @@ def _read_wav_mono(path: Path) -> tuple[np.ndarray, int]:
     return samples, rate
 
 
-def _write_wav_mono(path: Path, samples: np.ndarray, rate: int) -> str:
+def _write_wav_mono(path: Path, samples: np.ndarray, rate: int, *,
+                    peak_normalize: bool) -> tuple[str, float]:
     peak = float(np.abs(samples).max()) if samples.size else 0.0
-    if peak > 0:
+    applied_gain_db = 0.0
+    if peak_normalize and peak > 0:
         gain = (10 ** (TARGET_PEAK_DBFS / 20)) / peak
         samples = samples * gain
+        applied_gain_db = float(20.0 * np.log10(gain))
     ints = np.clip(np.round(samples * 32767.0), -32768, 32767).astype("<i2")
     path.parent.mkdir(parents=True, exist_ok=True)
     if path.exists():
@@ -59,14 +62,15 @@ def _write_wav_mono(path: Path, samples: np.ndarray, rate: int) -> str:
         handle.setsampwidth(2)
         handle.setframerate(rate)
         handle.writeframes(ints.tobytes())
-    return hashlib.sha256(path.read_bytes()).hexdigest()
+    return hashlib.sha256(path.read_bytes()).hexdigest(), applied_gain_db
 
 
 def _class_from_relative(relative: str) -> str:
     return relative.split("/", 1)[0]
 
 
-def split_library(library_root: Path, output_root: Path) -> dict:
+def split_library(library_root: Path, output_root: Path, *,
+                  peak_normalize: bool = False) -> dict:
     if output_root.exists() and any(output_root.iterdir()):
         raise FileExistsError(f"refuse to write into non-empty {output_root}")
     output_root.mkdir(parents=True, exist_ok=True)
@@ -97,10 +101,13 @@ def split_library(library_root: Path, output_root: Path) -> dict:
         for index, event in enumerate(events):
             name = f"{stem}_e{index:03d}.wav"
             target = output_root / name
-            sha = _write_wav_mono(target, slice_event(samples, event), rate)
+            sha, applied_gain_db = _write_wav_mono(
+                target, slice_event(samples, event), rate,
+                peak_normalize=peak_normalize)
             counts[f"{event.purpose}_events"] = (
                 counts.get(f"{event.purpose}_events", 0) + 1
             )
+            untruncated_end = event.untruncated_end_sample_exclusive
             records.append(
                 {
                     "source": relative,
@@ -113,6 +120,13 @@ def split_library(library_root: Path, output_root: Path) -> dict:
                     "start_sample": event.start_sample,
                     "end_sample_exclusive": event.end_sample_exclusive,
                     "duration_s": round(event.duration_s(rate), 4),
+                    "truncated": bool(event.truncated),
+                    "untruncated_end_sample_exclusive": untruncated_end,
+                    "untruncated_duration_s": (
+                        None if untruncated_end is None
+                        else round(
+                            (untruncated_end - event.start_sample) / rate, 4)),
+                    "applied_gain_db": round(applied_gain_db, 4),
                     "prepared_sha256": sha,
                 }
             )
@@ -138,12 +152,17 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--library-root", type=Path, required=True)
     parser.add_argument("--output-root", type=Path, required=True)
+    parser.add_argument(
+        "--peak-normalize", action="store_true",
+        help="Peak-normalize each cut event to -3 dBFS. Off by default "
+             "because prepared clips are already peak-normalized.")
     args = parser.parse_args(argv)
     library_root = args.library_root.resolve()
     output_root = args.output_root.resolve()
     if not library_root.is_dir():
         raise SystemExit(f"library root missing: {library_root}")
-    manifest = split_library(library_root, output_root)
+    manifest = split_library(
+        library_root, output_root, peak_normalize=args.peak_normalize)
     print(json.dumps(manifest["counts"], ensure_ascii=False))
     return 0
 
