@@ -19,6 +19,8 @@ from build_qa_v3_programs import (  # noqa: E402
     build_program,
     main,
     plan_events,
+    program_request_fields,
+    validate_m6_audio_program,
 )
 from avengine.contracts.json_io import canonical_json_sha256  # noqa: E402
 
@@ -234,3 +236,60 @@ def test_build_program_fails_closed_without_linear_gain():
     with pytest.raises(ValueError, match="linear_gain"):
         build_program(request, [("source1", 1000), ("source2", 10000)],
                       revision="v1")
+
+
+def _params_for_request_fields(**overrides):
+    fields = {
+        "SAMPLE_RATE_HZ": SAMPLE_RATE,
+        "CLIP_SECONDS": 5.0,
+        "PROGRAM_LINEAR_GAIN": 0.18,
+        "PROGRAM_FADE_SAMPLES": 80,
+        "PROGRAM_MODE": "sequential_sources",
+        "TIME_BASE_HZ": 48000,
+        "TICKS_PER_FRAME": 3200,
+        "VIDEO_FPS": 15,
+        "FRAME_COUNT": FRAME_COUNT,
+        "TICKS_PER_SAMPLE": 3,
+        "PROGRAM_NORMALIZATION_POLICY": "use_sound_asset_policy",
+        "PROGRAM_RENDER_SOURCE_STEM": True,
+        "PROGRAM_SOURCE_SPECIFIC_STEMS": True,
+        "PROGRAM_ADMISSION_STATE": "research",
+    }
+    fields.update(overrides)
+    return fields
+
+
+def test_params_missing_program_linear_gain_fail_closed():
+    params = _params_for_request_fields()
+    del params["PROGRAM_LINEAR_GAIN"]
+    with pytest.raises(ValueError, match="PROGRAM_LINEAR_GAIN"):
+        program_request_fields(params)
+
+
+def test_gain_above_schema_maximum_is_rejected_with_value_and_bound():
+    params = _params_for_request_fields(PROGRAM_LINEAR_GAIN=2.5)
+    with pytest.raises(ValueError, match=r"2\.5") as exc:
+        program_request_fields(params)
+    message = str(exc.value)
+    assert "maximum=1" in message
+    events, _ = plan_events("s", "p1", "source1", **KW)
+    doc = build_program(_req("p1"), events, revision="v1")
+    validate_m6_audio_program(doc)
+    doc["events"][0]["linear_gain"] = 2.5
+    with pytest.raises(ValueError, match=r"2\.5") as schema_exc:
+        validate_m6_audio_program(doc)
+    schema_message = str(schema_exc.value)
+    assert "maximum=1" in schema_message
+    assert "schema" in schema_message
+
+
+def test_legal_gain_one_passes_request_fields_and_schema():
+    params = _params_for_request_fields(PROGRAM_LINEAR_GAIN=1.0)
+    fields = program_request_fields(params)
+    assert fields["linear_gain"] == 1.0
+    request = _req("p-legal")
+    request["linear_gain"] = 1.0
+    events, _ = plan_events("s", "p-legal", "source1", **KW)
+    doc = build_program(request, events, revision="v1")
+    validate_m6_audio_program(doc)
+    assert {event["linear_gain"] for event in doc["events"]} == {1.0}

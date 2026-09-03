@@ -45,6 +45,7 @@ from pathlib import Path
 from typing import Mapping
 
 REPO = Path(__file__).resolve().parents[2]
+AUDIO_PROGRAM_SCHEMA_PATH = REPO / "schemas/m6_audio_program_v1.schema.json"
 sys.path.insert(0, str(REPO / "src"))
 
 from avengine.contracts.json_io import canonical_json_sha256  # noqa: E402
@@ -72,6 +73,67 @@ def _require_param(params: Mapping, key: str):
     return params[key]
 
 
+def load_audio_program_schema() -> dict:
+    return json.loads(AUDIO_PROGRAM_SCHEMA_PATH.read_text(encoding="utf-8"))
+
+
+def linear_gain_schema_bounds() -> dict:
+    spec = load_audio_program_schema()["$defs"]["event"]["properties"]["linear_gain"]
+    missing = [key for key in ("exclusiveMinimum", "maximum") if key not in spec]
+    if missing:
+        raise ValueError(f"schema linear_gain missing {missing}")
+    return {
+        "exclusiveMinimum": float(spec["exclusiveMinimum"]),
+        "maximum": float(spec["maximum"]),
+    }
+
+
+def _schema_number_text(value: float) -> str:
+    number = float(value)
+    if number.is_integer():
+        return str(int(number))
+    return repr(number)
+
+
+def check_program_linear_gain(value: float) -> float:
+    """Refuse a gain the frozen program schema would not admit.
+
+    The schema maximum is inclusive and means: prepared clips are already
+    peak-normalized, so the program may only attenuate.
+    """
+    bounds = linear_gain_schema_bounds()
+    lo = bounds["exclusiveMinimum"]
+    hi = bounds["maximum"]
+    if not (lo < float(value) <= hi):
+        raise ValueError(
+            f"PROGRAM_LINEAR_GAIN={value} is outside schema linear_gain "
+            f"bounds exclusiveMinimum={_schema_number_text(lo)} "
+            f"maximum={_schema_number_text(hi)}"
+        )
+    return float(value)
+
+
+def validate_m6_audio_program(doc, *, schema_path: Path | None = None) -> None:
+    import jsonschema
+    schema_file = Path(schema_path) if schema_path is not None else AUDIO_PROGRAM_SCHEMA_PATH
+    schema = json.loads(schema_file.read_text(encoding="utf-8"))
+    validator = jsonschema.Draft202012Validator(schema)
+    errors = sorted(validator.iter_errors(doc), key=lambda e: list(e.absolute_path))
+    if not errors:
+        return
+    err = errors[0]
+    path = list(err.absolute_path)
+    message = err.message
+    if path and path[-1] == "linear_gain":
+        bounds = linear_gain_schema_bounds()
+        message = (
+            f"linear_gain={err.instance} is outside schema linear_gain bounds "
+            f"exclusiveMinimum={_schema_number_text(bounds['exclusiveMinimum'])} "
+            f"maximum={_schema_number_text(bounds['maximum'])}: {err.message}"
+        )
+    raise ValueError(f"audio program schema violation: {message}")
+
+
 def require_dry_canvas_source_mode(params: Mapping, *, owner: str) -> None:
     """These assemblers still emit a shared dry canvas. event_pool is refused."""
     if "SOUND_SOURCE_MODE" not in params:
@@ -94,7 +156,8 @@ def program_request_fields(params: Mapping, *, include_mode: bool = True) -> dic
     if rate <= 0 or clip_seconds <= 0:
         raise ValueError("SAMPLE_RATE_HZ and CLIP_SECONDS must be positive")
     fields = {
-        "linear_gain": float(_require_param(params, "PROGRAM_LINEAR_GAIN")),
+        "linear_gain": check_program_linear_gain(
+            float(_require_param(params, "PROGRAM_LINEAR_GAIN"))),
         "fade_samples": int(_require_param(params, "PROGRAM_FADE_SAMPLES")),
         "timeline": {
             "time_base_hz": int(_require_param(params, "TIME_BASE_HZ")),
@@ -423,8 +486,6 @@ def main(argv: list[str] | None = None) -> int:
         print(f"refusing to overwrite existing output dir: {args.out_dir}", file=sys.stderr)
         return 2
     requests = json.load(open(args.requests))
-    import jsonschema
-    validator = jsonschema.Draft202012Validator(json.load(open(args.schema)))
 
     os.makedirs(args.out_dir)
     onset_frames = []
@@ -439,10 +500,10 @@ def main(argv: list[str] | None = None) -> int:
             sample_rate_hz=args.sample_rate_hz,
             sample_count=args.sample_count)
         doc = build_program(req, events, revision=args.revision)
-        errors = sorted(validator.iter_errors(doc), key=lambda e: list(e.absolute_path))
-        if errors:
-            print(f"FAIL {req['point_id']}: schema violation: {errors[0].message}",
-                  file=sys.stderr)
+        try:
+            validate_m6_audio_program(doc, schema_path=args.schema)
+        except ValueError as exc:
+            print(f"FAIL {req['point_id']}: {exc}", file=sys.stderr)
             return 1
         with open(os.path.join(args.out_dir, doc["program_id"] + ".json"), "w") as fp:
             json.dump(doc, fp, ensure_ascii=False, indent=1)

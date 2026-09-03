@@ -43,6 +43,7 @@ from build_qa_v3_programs import (  # noqa: E402
     build_program,
     dry_canvas_fields,
     program_request_fields,
+    validate_m6_audio_program,
 )
 from avengine.assets.sound_pool import clip_source_from_params  # noqa: E402
 from qa_v3_pixel_thresholds import card1_pixel_acceptance_block  # noqa: E402
@@ -1149,6 +1150,8 @@ def realise_point(pid, cell, plan, scene, base_request, params, by_id, args,
     program = build_program(request, program_events, revision="v1")
     gatea_program = build_program(
         request, gatea_program_events, revision="gateA_v1")
+    validate_m6_audio_program(program)
+    validate_m6_audio_program(gatea_program)
     (programs_dir / f"{program['program_id']}.json").write_text(
         json.dumps(program, ensure_ascii=False, indent=1))
     (programs_dir / f"{gatea_program['program_id']}.json").write_text(
