@@ -66,3 +66,15 @@ def test_a_published_number_never_travels_without_its_convention():
 
 def test_the_engine_frame_note_says_it_is_internal():
     assert "never published" in AZ.ENGINE_FRAME_NOTE
+
+
+def test_a_wrapping_wedge_is_refused_not_published_as_its_complement():
+    # 2026-09-03: owner 把答案范围放开到整圈之后，跨 +-180 的楔形才可能出现。
+    # 有序的 [lo, hi) 表示不了它：[170, -170) 排序之后就是 [-170, 170)，
+    # 一个是身后 20 度的楔形，一个是身前 340 度，两者数值完全一样。
+    assert AZ.wrapping_band((170.0, -170.0)) is True
+    assert AZ.wrapping_band((-47.5, 47.5)) is False
+    with pytest.raises(ValueError, match=r"crosses \+-180"):
+        AZ.to_published_band((170.0, -170.0))
+    # 不跨的照旧翻转
+    assert AZ.to_published_band((17.5, 52.5)) == pytest.approx((-52.5, -17.5))

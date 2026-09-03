@@ -277,6 +277,24 @@ def azimuth_sweep_engine_frame(timeline, slot, window_s, video_fps):
         raise GenerationConstraintError(
             f"query window {window_s} covers no frame of {frame_count}")
     values = [recompute_azimuth(timeline, slot, f) for f in range(lo_f, hi_f + 1)]
+    # min/max is a linear reading of a circular quantity. A sweep that crosses
+    # +-180 would come back as its complement -- samples 175, 179, -179, -175
+    # read as [-179, 179], a 358 degree interval instead of the true 10 -- and
+    # every downstream check (band containment, Gate A separation) would then be
+    # computed on the wrong interval without raising. Unwrap and compare: if the
+    # two readings disagree, refuse rather than report the complement.
+    unwrapped = [values[0]]
+    for value in values[1:]:
+        step = (value - unwrapped[-1] + 180.0) % 360.0 - 180.0
+        unwrapped.append(unwrapped[-1] + step)
+    if (max(unwrapped) - min(unwrapped)) - (max(values) - min(values)) < -1e-9:
+        raise GenerationConstraintError(
+            f"the query-window azimuth sweep of slot {slot} over {window_s} "
+            f"crosses +-180 (unwrapped extent "
+            f"{max(unwrapped) - min(unwrapped):.2f} deg vs linear "
+            f"{max(values) - min(values):.2f} deg); an ordered [lo, hi] pair "
+            "cannot express it. This is reachable only once answers leave the "
+            "camera cone; give the interval a wrap-aware representation first")
     return min(values), max(values), (lo_f, hi_f)
 
 
@@ -353,6 +371,21 @@ def audit_gatea_pair(profile, main_program, gatea_program, main_answer,
         # 两个区间各自向外扩 THETA_HALF 之后不许相交，即间隙 > 2*THETA_HALF。
         main_lo, main_hi = (float(v) for v in main_open["truth_interval_deg"])
         gate_lo, gate_hi = (float(v) for v in gatea_open["truth_interval_deg"])
+        # The gap below is linear. It is right only while neither interval wraps
+        # +-180: a pair straddling the wrap ([172, 178] against [-178, -172], a
+        # true gap of 4 deg) would compute 344 and pass this audit, certifying a
+        # Gate A pair whose two golds sit on top of each other -- a model that
+        # ignores the audio would answer both and still count as separated.
+        # azimuth_sweep_engine_frame refuses wrapping sweeps upstream; assert it
+        # here too so this stays true if another producer appears.
+        for name, (lo, hi) in (("main", (main_lo, main_hi)),
+                               ("gateA", (gate_lo, gate_hi))):
+            if hi < lo:
+                raise GenerationConstraintError(
+                    f"{name} truth_interval_deg [{lo}, {hi}] wraps +-180; the "
+                    "Gate A separation below is a linear gap and would report a "
+                    "wrapping pair as far apart. Give the interval a wrap-aware "
+                    "representation before scoring it")
         separation = max(0.0, gate_lo - main_hi, main_lo - gate_hi)
         threshold = 2.0 * float(params["THETA_HALF"])
         open_separated = separation > threshold

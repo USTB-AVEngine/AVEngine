@@ -42,6 +42,24 @@ def to_published_deg(engine_frame_deg: float) -> float:
     return 180.0 if published == -180.0 else published
 
 
+def wrapping_band(band) -> bool:
+    """Whether a ``[lo, hi)`` pair is a wedge that crosses +-180.
+
+    A wedge is stored as an ordered pair, which cannot express one that wraps:
+    ``[170, -170)`` and ``[-170, 170)`` are the same pair once ordered, but one
+    is a 20-degree wedge behind the listener and the other is the 340 degrees in
+    front of it.  Every consumer here therefore refuses a wrapping wedge rather
+    than silently publishing its complement.  Answers stayed inside the camera
+    cone until 2026-09-03, so nothing could wrap; the owner's ruling that day
+    opened the answer range to the full circle, which makes this reachable.
+    Giving the wrapping case a representation is part of building that family --
+    a start plus a signed sweep, say -- and is deliberately not guessed here.
+    """
+
+    lo, hi = (float(v) for v in band)
+    return hi < lo
+
+
 def to_published_band(engine_band) -> tuple[float, float]:
     """A right-positive [lo, hi) wedge -> the same wedge, published.
 
@@ -55,6 +73,12 @@ def to_published_band(engine_band) -> tuple[float, float]:
     explicitly instead.
     """
 
+    if wrapping_band(engine_band):
+        raise ValueError(
+            f"engine band {tuple(engine_band)} crosses +-180; an ordered "
+            "[lo, hi) pair cannot express a wrapping wedge, and publishing it "
+            "would return the complement. Give the wedge a wrap-aware "
+            "representation before using it (see wrapping_band)")
     lo, hi = (to_published_deg(v) for v in engine_band)
     return (hi, lo) if hi < lo else (lo, hi)
 
