@@ -174,12 +174,18 @@ def resolve_scene_render_context(scene):
     ground_z = float(render["ground_z_ue_cm"])
     if not np.isfinite(ground_z):
         raise ValueError(f"{scene.scene_id}: ground_z_ue_cm must be finite")
+    floor = (getattr(scene, "provenance", None) or {}).get("floor_reference")
+    if not floor or floor.get("status") != "measured":
+        raise ValueError(
+            f"{scene.scene_id}: render facts require a measured floor reference; "
+            f"ground_z_ue_cm={ground_z} is unverified")
     return {
         "native_map": native_map,
         "room_profile_id": str(render["room_profile_id"]),
         "world_transform": transform,
         "world_transform_id": transform_id,
         "ground_z_ue_cm": ground_z,
+        "floor_reference": floor,
     }
 
 
@@ -1216,6 +1222,7 @@ def realise_point(pid, cell, plan, scene, base_request, params, by_id, args,
             "room_profile_id": timeline["room"]["room_profile_id"],
             "world_transform": render_context["world_transform_id"],
             "ground_z_ue_cm": render_context["ground_z_ue_cm"],
+            "floor_reference": render_context["floor_reference"],
         },
         "motion": motion,
         "answer_kind": answer_kind,
@@ -1961,6 +1968,7 @@ def write_outputs(args, scene, scene_cfg, profiles, params, ledger, made,
                       if ((r.get("camera") or {}).get("clearance") or {}).get(
                           "fallback_used")),
                   "walkable_grid": scene.provenance.get("walkable_grid"),
+                  "floor_reference": scene.provenance.get("floor_reference"),
                   "route_synthesis": dict(
                       SS.route_synthesis_report(scene, params),
                       realised=route_source_counts(records))},

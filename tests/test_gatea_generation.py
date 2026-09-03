@@ -456,10 +456,16 @@ def test_render_context_requires_explicit_scene_map_and_transform():
         "world_transform": "ue_xyz_cm_to_xzy_m_v1",
         "ground_z_ue_cm": 0.0,
     }
+    # 2026-09-03: the Apartment ground_z was a hand-written 0.0 while the floor sits at
+    # +27 cm; render facts now require a measured floor reference in the scene provenance.
+    with pytest.raises(ValueError, match="floor reference"):
+        resolve_scene_render_context(scene)
+    scene.provenance = {"floor_reference": {"status": "measured", "ground_z_ue_cm": 0.0}}
     resolved = resolve_scene_render_context(scene)
     assert resolved["native_map"].endswith("/debug_0000")
     assert resolved["world_transform"]([100, 200, 300]) == [1.0, 3.0, 2.0]
     assert resolved["ground_z_ue_cm"] == 0.0
+    assert resolved["floor_reference"]["status"] == "measured"
 
 
 def test_profile_typo_is_a_preflight_error():

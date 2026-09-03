@@ -82,7 +82,10 @@ def _scene(table):
                        camera_height_m=CAMERA_HEIGHT_M, hfov_deg=105.0, clearance=table,
                        render_config={"native_map": "/Game/synthetic", "room_profile_id": "r",
                                       "world_transform": "ue_xyz_cm_to_xzy_m_v1",
-                                      "ground_z_ue_cm": 0.0})
+                                      "ground_z_ue_cm": 0.0},
+                       # render facts need a measured floor (2026-09-03 Apartment ground_z incident)
+                       provenance={"floor_reference": {"status": "measured",
+                                                       "ground_z_ue_cm": 0.0}})
 
 
 def _at(bearing_deg, distance_m):

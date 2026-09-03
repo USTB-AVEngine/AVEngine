@@ -879,6 +879,7 @@ def main(argv=None):
                                         for record in records
                                         if record.get("camera_height_m") is not None}),
             "walkable_grid": scene.provenance.get("walkable_grid"),
+            "floor_reference": scene.provenance.get("floor_reference"),
             # N 角色搜索仍只抽库路线;合成尚未接进 find_n_route_plan,如实记录。
             "route_synthesis": dict(
                 SS.route_synthesis_report(scene, params), applied=False,
