@@ -14,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools" / "assets"))
 
 from avengine.assets.sound_events import (  # noqa: E402
+    MAX_EVENT_S,
     SoundEventError,
     event_policy_for_class,
     extract_sound_events,
@@ -126,3 +127,40 @@ def test_library_splitter_writes_events_and_refuses_to_overwrite(
     )
     with pytest.raises(FileExistsError):
         split_library(library, out)
+    assert all(row["applied_gain_db"] == 0.0 for row in dog + hum)
+    assert all(row["truncated"] is False for row in dog)
+
+
+def test_splitter_does_not_peak_normalize_unless_asked(tmp_path: Path) -> None:
+    library = tmp_path / "prepared"
+    bark = _tone(800, 16000, 0.25, amplitude=0.1)
+    _write(library / "dog_bark" / "quiet.wav", bark, 16000)
+    plain = split_library(library, tmp_path / "plain")
+    row = next(item for item in plain["clips"] if item["status"] == "event")
+    assert row["applied_gain_db"] == 0.0
+    normalized = split_library(
+        library, tmp_path / "norm", peak_normalize=True)
+    gained = next(item for item in normalized["clips"] if item["status"] == "event")
+    assert gained["applied_gain_db"] != 0.0
+
+
+def test_pulse_longer_than_max_is_truncated() -> None:
+    rate = 16000
+    bark = _tone(800, rate, 2.5)
+    clip = np.concatenate([
+        np.zeros(int(rate * 1.5)), bark, np.zeros(int(rate * 1.5))])
+    events = extract_sound_events(clip, rate, event_class="dog_bark")
+    assert len(events) == 1
+    assert events[0].purpose == "pulse"
+    assert events[0].truncated is True
+    assert events[0].duration_s(rate) <= MAX_EVENT_S + 0.08
+    assert events[0].untruncated_end_sample_exclusive is not None
+    assert events[0].untruncated_end_sample_exclusive > events[0].end_sample_exclusive
+
+
+def test_nearly_full_loud_file_falls_back_to_continuous_purpose() -> None:
+    rate = 16000
+    clip = _tone(800, rate, 3.0, amplitude=0.4)
+    events = extract_sound_events(clip, rate, event_class="dog_bark")
+    assert len(events) == 1
+    assert events[0].purpose == "continuous"
