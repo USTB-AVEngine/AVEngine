@@ -4,12 +4,12 @@
 Each split wav is already one pulse. The catalog row therefore uses the
 whole file as the source window (start 0, end = frame count).
 
-sound_asset_id is the prepared relative path without '.wav', with '/'
-replaced by '__'. Example: dog_bark/clip_e000.wav -> dog_bark__clip_e000.
-This tool does not write the sound asset registry. The render chain will
-refuse any id that is not registered; add each clip to
-examples/registry/registries/sound_assets_v1.json (or the live registry)
-before SOUND_SOURCE_MODE=event_pool.
+sound_asset_id is copied from the splitter manifest
+(sound_<class>_<sha8>_v1). This tool does not invent ids from paths:
+source numbering is not the identity of the event. This tool does not
+write the sound asset registry. The render chain will refuse any id that
+is not registered; add each clip to the sound asset registry before
+SOUND_SOURCE_MODE=event_pool.
 
 A pulse event_class with purpose=continuous is the hysteresis fallback
 that kept a whole long file as one event. Those rows are refused so a
@@ -23,6 +23,7 @@ import json
 import sys
 import wave
 from pathlib import Path
+from typing import Mapping
 
 REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO / "src"))
@@ -37,9 +38,14 @@ class PoolBuildError(ValueError):
     """The event manifest cannot become a pool catalog."""
 
 
-def sound_asset_id_for_prepared(prepared: str) -> str:
-    stem = prepared[:-4] if prepared.endswith(".wav") else prepared
-    return stem.replace("/", "__")
+def sound_asset_id_for_row(row: Mapping) -> str:
+    asset_id = str(row.get("sound_asset_id") or "")
+    if not asset_id:
+        raise PoolBuildError(
+            "event row missing sound_asset_id; the splitter writes "
+            "sound_<class>_<sha8>_v1 into the manifest"
+        )
+    return asset_id
 
 
 def _wav_rate_and_frames(path: Path) -> tuple[int, int]:
@@ -85,7 +91,7 @@ def build_pool_catalog(manifest_path: Path, output_path: Path) -> dict:
         if frames <= 0 or rate <= 0:
             raise PoolBuildError(f"{owner} empty wav {wav_path}")
         clips.append({
-            "sound_asset_id": sound_asset_id_for_prepared(prepared),
+            "sound_asset_id": sound_asset_id_for_row(row),
             "event_class": event_class,
             "sample_rate_hz": rate,
             "duration_samples": frames,
