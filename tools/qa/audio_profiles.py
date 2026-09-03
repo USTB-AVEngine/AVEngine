@@ -81,28 +81,34 @@ class Schedule:
         return [(role_to_slot[e.role], e.start_sample) for e in self.events]
 
     def program_events(self, role_to_slot: dict[str, str]) -> list[dict]:
-        """Bind roles and keep per-event duration / clip identity."""
+        """Bind roles and keep per-event duration / clip identity.
+
+        Dry-canvas schedules have no clip identity on the events; call
+        ``bind()`` and put the canvas window on the program request.
+        """
         missing = {e.role for e in self.events} - set(role_to_slot)
         if missing:
             raise AudioProfileError(f"unbound roles: {sorted(missing)}")
         rows = []
         for event in self.events:
-            row = {
+            if event.sound_asset_id is None:
+                raise AudioProfileError(
+                    "program_events needs a sound_asset_id and source window "
+                    "on every event; dry_canvas_window schedules must use bind()")
+            if (event.source_start_sample is None
+                    or event.source_end_sample_exclusive is None):
+                raise AudioProfileError(
+                    f"{event.sound_asset_id} is missing source window")
+            rows.append({
                 "slot": role_to_slot[event.role],
                 "start_sample": event.start_sample,
                 "duration_samples": event.duration_samples,
-            }
-            if event.sound_asset_id is not None:
-                if (event.source_start_sample is None
-                        or event.source_end_sample_exclusive is None):
-                    raise AudioProfileError(
-                        f"{event.sound_asset_id} is missing source window")
-                row["sound_asset_id"] = event.sound_asset_id
-                row["source_start_sample"] = int(event.source_start_sample)
-                row["source_end_sample_exclusive"] = int(
+                "sound_asset_id": event.sound_asset_id,
+                "source_start_sample": int(event.source_start_sample),
+                "source_end_sample_exclusive": int(
                     event.source_end_sample_exclusive
-                )
-            rows.append(row)
+                ),
+            })
         return rows
 
 

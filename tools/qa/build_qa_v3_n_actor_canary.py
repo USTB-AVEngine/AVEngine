@@ -77,6 +77,9 @@ def find_n_route_plan(scene, params, *, actor_count: int, seed: str,
                       min_pairwise_sep_deg=15.0,
                       max_attempts=20000):
     rng = np.random.default_rng(seed_uint64(seed))
+    if "MIN_CAMERA_DISTANCE_CM" not in params:
+        raise ValueError("params missing MIN_CAMERA_DISTANCE_CM")
+    min_camera_distance_cm = float(params["MIN_CAMERA_DISTANCE_CM"])
     half_fov = effective_half_fov(scene, params)
     routes = [route for route in scene.routes
               if route.displacement_cm > 1.0e-6]
@@ -102,7 +105,7 @@ def find_n_route_plan(scene, params, *, actor_count: int, seed: str,
             if any(abs(value) > half_fov for value in values):
                 continue
             if any(math.dist(camera, route.at(frame))
-                   < float(params.get("MIN_CAMERA_DISTANCE_CM", 100.0))
+                   < min_camera_distance_cm
                    for frame in binding_frames):
                 continue
             if scene.line_of_sight is not None and not all(

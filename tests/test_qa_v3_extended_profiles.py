@@ -6,6 +6,8 @@ import json
 import sys
 from pathlib import Path
 
+import pytest
+
 TOOLS = Path(__file__).resolve().parents[1] / "tools" / "qa"
 sys.path.insert(0, str(TOOLS))
 
@@ -15,6 +17,7 @@ from design_qa_v3_extended_profile import (  # noqa: E402
     CARD11_EVENT_START_SAMPLE,
     _assert_gateb_visual_change,
     _facts,
+    _find_gateb_out_of_view_route,
     _program_events,
     _resource_inventory,
 )
@@ -241,3 +244,10 @@ def test_failed_manifest_records_code_and_the_error(tmp_path):
     assert on_disk["counts"] == {"cells_requested": 4,
                                  "geometry_candidates": 1, "rejected": 0}
     assert on_disk["qualification_claim"] is False
+
+
+def test_gateb_search_requires_min_camera_distance():
+    with pytest.raises(ValueError, match="MIN_CAMERA_DISTANCE_CM"):
+        _find_gateb_out_of_view_route(
+            object(), {}, {"routes": [], "camera_xy": (0.0, 0.0),
+                           "camera_yaw_deg": 0.0})
