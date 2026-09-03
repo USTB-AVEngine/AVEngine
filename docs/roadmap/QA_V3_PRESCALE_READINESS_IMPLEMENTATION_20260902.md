@@ -869,3 +869,106 @@ Apartment 不受边距影响，也没有退步（库路线本来就够）。Kuji
 ## H. 远端
 
 本节提交后整条线推送到 `origin/qa-v3-prescale-20260902`（`main` 不动）。
+
+---
+
+# 第六轮（2026-09-03）：地板偏移成为实测事实、公寓按实测地面重渲、边距 0.2 m 定占位、Kujiale card1 上限接受
+
+> 本节记录 owner 对第五轮 G 节三项决定的执行：P0 成立并升级为常设规矩（"以后所有房间都先确定地板偏移再做别的"）、
+> 可走边距占位 0.2 m、公寓 `ground_z_ue_cm` 改实测值并重渲净空表、重跑 canary/像素/预测对照、人类校准包在此之前不得用公寓画面、
+> Kujiale card1 产能上限接受。**本节同样不宣布 pilot 认证、放量或容差定稿。**
+
+## A. 起止 HEAD
+
+起点 `12eb75d`（第五轮文档提交），代码终点 `fe2119a`，文档提交见 H。工作副本仍是 `/data/jzy/tmp/wt-qa-v3-pilot`。
+
+## B. 提交（按逻辑切片）
+
+| 提交 | 内容 |
+| --- | --- |
+| `2f030f9` | `floor_reference.py`（房间地板参照产物：索引 + 带 sha256 的逐点行）、`measure_qa_v3_floor_z.py`（引擎里两法量地板）、`camera_clearance.CameraClearanceTable.ground_z_ue_cm`、`scene_sampler.load_scene` 三条 fail-closed 规则、测试 |
+| `1250947` | `resolve_scene_render_context` 要求实测地板；fact `room.floor_reference` 与批次/扩展 manifest `scene.floor_reference` 记身份 |
+| `fe2119a` | 人类校准包构建器拒绝没有实测地板参照的 fact |
+
+## C. 实现要点
+
+### C1. 量地板（`tools/qa/measure_qa_v3_floor_z.py`，房间算一次）
+
+不放任何角色，在房间自己的打包地图里，对求解器会抽到的每个相机点（路线库导航点，与净空表同一集合）和可走栅格的随机格，
+用两种彼此独立的方法量地板高度：
+
+1. **线追踪**：从 `ground_z_ue_cm + 150 cm` 垂直向下打 450 cm（`BlockAll` + 复杂碰撞，与双人贴地诊断工具同一调用），第一个命中点就是脚下地面；
+2. **向下深度**：深度相机俯视（pitch −90°，30° 视场，64×64），中心 5×5 像素的深度中位数就是相机到地面的距离。
+
+地板高度取主量法命中的**中位数**（线追踪有命中就用线追踪，否则用深度）；两法都命中时中位数必须相差 ≤ 2 cm。
+p05/p95、中位数 ±2 cm 内的命中占比、命中的组件路径、比中位数高/低 5 cm 以上的离群点都存下来：分层地面或打到家具的追踪会**显出来**，
+不会被平均掉。阈值（≥ 200 次命中、命中率 ≥ 98%、±2 cm 内 ≥ 95%）全是占位；不满足就写 `inconsistent`，这样的参照不能喂给渲染事实。
+
+### C2. 三条 fail-closed 规则（`scene_sampler.load_scene`）
+
+1. 配置里有 `render` 段就必须有同房间的 `floor_reference`，否则拒绝载入，错误直接点名 `render.ground_z_ue_cm` 不能是手写常数；
+2. `render.ground_z_ue_cm` 与实测中位数差必须 ≤ 0.5 cm；
+3. 机位净空表按绝对 z 渲，其 `camera_contract.ground_z_ue_cm` 与实测地面不符即拒（旧公寓表就这样被拒，见 D2）。
+
+`resolve_scene_render_context` 再查一次 provenance 里的参照状态；fact 的 `room.floor_reference` 与 manifest 的 `scene.floor_reference`
+记参照身份（路径、量法、实测值、p05/p95、行文件 sha256、代码 revision）。人类包构建器只接受 `room.floor_reference.status == measured`
+且与 `room.ground_z_ue_cm` 一致的 fact：run02 公寓 18 题的包 v3 因此作废，不再投放。
+
+### C3. 边距占位 0.2 m（`qa_v3_prescale_params_floor_20260903_v3.json`）
+
+只改 `ROUTE_SYNTHESIS_WALKABLE_MARGIN_M` 0.3 → 0.2，并写入 owner 三项裁定的 note；仍是 placeholder。
+
+## D. fresh 产物与实测数字（全部 research_candidate）
+
+### D1. 两房地板实测
+
+| 房间 | 线追踪 | 向下深度 | 结论 |
+| --- | --- | --- | --- |
+| Apartment（v2） | 6757/6757 命中，中位 **27.11 cm**，p95 28.48，最大 30.67，±2 cm 内 98.9%；命中面 `SM_Floor_21` 5695 次，另两块地面件 875/187 次（高 1–3 cm） | 900/900，中位 27.15 cm | 两法差 0.04 cm；`ground_z_ue_cm` 定 **27.11**，比旧配置高 27.11 cm |
+| Kujiale（v1/v2） | **0/1598 命中**：烘焙灯光版地板网格没有碰撞体 | 1.5 m 相机：998 点中位 0.0，但 ±2 cm 内只有 78%，p95 66.9 cm | 可行区含桌下格，高相机看到的是桌面；v1/v2 留作证据 |
+| Kujiale（v3，用这个） | 未做 | 相机离地 0.3 m：998/998，中位 **0.02 cm**，p05 = p95 = 0.02，±2 cm 内 95.4%，离群 23 高（12–19 cm）/23 低（−5 cm） | 地面就在 z = 0，配置不变，只加 `floor_reference` |
+
+线追踪的 Apartment 结果与第五轮深度反推（相机离地 1.201 m → 地面 ≈ 27 cm）一致，与导航点 z 28–32 cm 一致。
+两房的旧配置（`qa_v3_scene_configs_synthesis_20260903_v1`）在新规则下都不能再载入；新配置在 `qa_v3_scene_configs_floor_20260903_v{1,2}`。
+
+### D2–D5. 公寓净空表重渲、两房 canary v4、像素真值、预测对照（**提交本节时仍在后台跑**）
+
+owner 要求先把该跑的放后台、再收尾，所以这四项由一条驱动脚本串起来无人值守地跑，本节只记路径与看法，数字由下一轮补录：
+
+| 步骤 | 产物 | 说明 |
+| --- | --- | --- |
+| 公寓净空表按实测地面重渲（相机绝对 z 174.2 / 207.1 cm） | `/data/jzy/tmp/qa_v3_camera_clearance_table_apartment_20260903_v2`（日志同名 `.log`，成功标志 `QA_V3_CLEARANCE_TABLE_OK`） | 输入配置 `qa_v3_scene_configs_floor_20260903_v1/apartment_0000.json`（含地板参照、不含旧表）；约 80 分钟 |
+| 场景配置 v2 | `/data/jzy/tmp/qa_v3_scene_configs_floor_20260903_v2/` | 驱动脚本在表成功后生成：公寓加新表，Kujiale 同 v1；写完先用 `load_scene` 自检 |
+| 两房 canary v4（core 9 题型各 6 格 + card1 各 18 格，参数 v3 边距 0.2 m） | `/data/jzy/tmp/qa_v3_canary_{core,card1}_{apartment,kujiale}_20260903_v4` | 看法：`python qa_v3_prescale_round5_scripts_20260903_v1/inspect_canary_v2.py <目录…>`；对照第五轮 v3（Apartment card1 28/36，Kujiale 0.2 m 10/36） |
+| 像素真值（card1 候选，设计路线优先；Apartment ≤ 24 条、Kujiale ≤ 12 条） | `/data/jzy/tmp/qa_v3_floor_card1_pixel_20260903_v1/` | 看法：`python qa_v3_prescale_round6_scripts_20260903_v1/inspect_pixel_floor_v1.py <根目录>`。**判定地面修好的证据**：公寓帧 0 深度反推的相机离地高度应从 1.201 m 回到 ≈ 1.471 m；狗可见比例 95 分位应从 0.854 接近 Kujiale 的 1.0 |
+| 预测可见性对照 | `/data/jzy/tmp/qa_v3_visibility_prediction_validation_{apartment,kujiale}_20260903_v2.json` | 公寓用新表 + 新像素真值重算（第四轮 Pearson 0.955 是在偏移地面上算的） |
+
+驱动脚本 `/data/jzy/tmp/qa_v3_prescale_round6_scripts_20260903_v1/driver_floor_v1.sh`（日志 `driver_floor_v1.log`，结束标志 `DRIVER DONE`；任一步失败即停并留证据）。
+它在 canary 一步会拒绝脏工作副本，所以本节提交后工作副本必须保持干净。
+
+## E. 测试
+
+顶层 `tests/`（不含 `tests/unit`）439 passed（第五轮 426 + 新增 `test_qa_v3_floor_reference.py` 5 个、`test_scene_sampler.py` 1 个、
+`test_qa_v3_human_calibration.py` 1 个；`test_gatea_generation.py` 与 `test_qa_v3_predicted_visibility.py` 的夹具补了实测地板参照）。
+`tests/unit` 本轮未重跑（第五轮已核实其失败项与本线无关）。
+
+## F. 失败与边界
+
+1. Kujiale 烘焙灯光版地板没有碰撞体，线追踪全部落空（v1/v2 留证据）；1.5 m 高的深度量法有 22% 的点看到桌面，说明该房可行区含桌下格——
+   这也是 Kujiale 机位常被堵的一个来源。低相机（0.3 m）深度法才量到地面，工具要求操作者按房间选起始高度，这是已知的手工环节。
+2. 地板参照的阈值（200 次命中、98%、±2 cm 内 95%、两法差 ≤ 2 cm）全是占位。
+3. 第二至第五轮 Apartment 的全部像素数字、分档、预测对照都带着 27 cm 偏移，本轮不改写历史产物，只在新配置下重跑。
+4. run02 公寓人类校准包 v3 作废；新包要等本轮像素与 canary 出来后另起。
+5. D2–D5 的数字本节未录（后台在跑）。
+
+## G. owner 裁定（本轮已执行）与还需要决定的
+
+已执行：P0 成立并成为常设规矩（新房间先量地板）；边距占位 0.2 m；公寓地面按实测修、净空表重渲、canary/像素/预测对照重跑、人类包排除旧公寓画面；Kujiale card1 产能上限接受。
+
+还需要：1）Codex 第三次只读审核，范围现在是 `23eef13..`本节文档提交；2）1.8 m 相机在 Apartment card1 的占比（第四轮遗留）；
+3）card7/card9 `tier`→`reject`（第四轮遗留）；4）人/静态声源方案的准入开关归属、VCTK 轮换粒度、第四种上衣色、音响落地与不进运动状态题（第五轮遗留）；
+5）D2–D5 跑完后按数字决定是否可以起新的人类校准包。
+
+## H. 远端
+
+本节提交后整条线推送到 `origin/qa-v3-prescale-20260902`（`main` 不动）。
