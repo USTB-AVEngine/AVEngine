@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 
 import numpy as np
+import pytest
 
 TOOLS = Path(__file__).resolve().parents[1] / "tools" / "qa"
 sys.path.insert(0, str(TOOLS))
@@ -233,3 +234,138 @@ def test_numeric_probe_keeps_strict_policy_and_authoritative_interval():
           "certification_policy": "strict_full_credit_only"}])
     assert scores == [1.0]
     assert probe_module.scoring_snapshot(params)["angle_policy"] == "strict_full_credit_only"
+
+
+
+def test_requested_form_only_reads_its_fact_block(tmp_path):
+    selection, facts, audio, media, point = _released_fixture(
+        tmp_path,
+        {
+            "stem": "seconds?",
+            "truth_value": 2.4,
+            "scoring": "absolute_time",
+        },
+    )
+    fact_path = facts / point / "fact_record.json"
+    fact = json.loads(fact_path.read_text())
+    fact.pop("open")
+    fact_path.write_text(json.dumps(fact), encoding="utf-8")
+    rows = build(selection, facts, audio, media, answer_forms=["mcq"])
+    assert [row["form"] for row in rows] == ["mcq"]
+
+    selection, facts, audio, media, point = _released_fixture(
+        tmp_path / "open-only",
+        {
+            "stem": "seconds?",
+            "truth_value": 2.4,
+            "scoring": "absolute_time",
+        },
+    )
+    fact_path = facts / point / "fact_record.json"
+    fact = json.loads(fact_path.read_text())
+    fact.pop("mcq")
+    fact_path.write_text(json.dumps(fact), encoding="utf-8")
+    rows = build(selection, facts, audio, media, answer_forms=["open"])
+    assert [row["form"] for row in rows] == ["open"]
+
+
+def test_scene_and_point_components_are_unambiguous_and_duplicates_refused(tmp_path):
+    facts = tmp_path / "facts"
+    audio = tmp_path / "audio"
+    media = tmp_path / "media"
+    selected = []
+    for point, scene in (("b", "a__"), ("__b", "a")):
+        (facts / point).mkdir(parents=True)
+        (audio / point / "audio/binaural").mkdir(parents=True)
+        (media / point).mkdir(parents=True)
+        (audio / point / "audio/binaural/mixture.wav").write_bytes(b"wav")
+        (media / point / "video_only.mp4").write_bytes(b"mp4")
+        (facts / point / "fact_record.json").write_text(
+            json.dumps({
+                "scene_id": scene,
+                "profile_id": "p",
+                "episode_id": "e",
+                "mcq": {"stem": "m", "options_space": ["a"],
+                        "truth_option": "a"},
+                "open": {"stem": "o", "truth_value": 1.0,
+                         "scoring": "absolute_time"},
+            }),
+            encoding="utf-8",
+        )
+        selected.append({"point_id": point})
+
+    rows = build({"selected": selected}, facts, audio, media)
+    question_ids = [row["question_id"] for row in rows]
+    assert len(question_ids) == len(set(question_ids)) == 4
+    assert all(question_id.startswith("qa3:") for question_id in question_ids)
+
+    with pytest.raises(ValueError, match="duplicate question_id"):
+        build({"selected": [selected[0], selected[0]]}, facts, audio, media)
+
+
+@pytest.mark.parametrize(
+    ("theta_full", "theta_half"),
+    [(31.0, 30.0), (float("nan"), 30.0)],
+)
+def test_probe_rejects_invalid_angle_tolerances_for_classification(
+    theta_full, theta_half,
+):
+    items = [{
+        "question_id": f"q{index}", "group_id": f"q{index}",
+        "profile_id": "p", "form": "mcq", "task_type": "classification",
+        "question": "same", "options": ["a", "b"], "truth": "a",
+    } for index in range(4)]
+    with pytest.raises(ValueError, match="angle tolerances|finite"):
+        run(
+            items, "text",
+            {**PARAMS, "THETA_FULL": theta_full, "THETA_HALF": theta_half},
+            folds=2,
+        )
+
+
+
+def test_item_builder_consumes_assembler_candidates_and_pilot_media(tmp_path):
+    fact_path = tmp_path / "source" / "fact_record.json"
+    fact_path.parent.mkdir(parents=True)
+    fact_path.write_text(json.dumps({
+        "scene_id": "room_a",
+        "point_id": "card12_001",
+        "profile_id": "card12",
+        "episode_id": "episode_1",
+        "answer_forms": ["open"],
+        "open": {"stem": "which?", "truth_value": "a",
+                 "scoring": "closed_set"},
+    }))
+    pilot_id = "pilot:6:room_a6:card125:001"
+    audio = tmp_path / "audio" / pilot_id / "audio/binaural"
+    media = tmp_path / "media" / pilot_id
+    audio.mkdir(parents=True)
+    media.mkdir(parents=True)
+    (audio / "mixture.wav").write_bytes(b"wav")
+    (media / "video_only.mp4").write_bytes(b"mp4")
+    selection = {
+        "answer_forms": ["open"],
+        "rooms": {
+            "room_a": {
+                "profiles": {
+                    "card12": {
+                        "status": "selected",
+                        "answer_forms": ["open"],
+                        "candidates": [{
+                            "pilot_id": pilot_id,
+                            "source_point_id": "card12_001",
+                            "artifacts": {"fact": str(fact_path)},
+                        }],
+                    },
+                },
+            },
+        },
+    }
+    rows = build(selection, audio_root=tmp_path / "audio",
+                 media_root=tmp_path / "media")
+    assert len(rows) == 1
+    assert rows[0]["form"] == "open"
+    assert rows[0]["pilot_id"] == pilot_id
+    assert rows[0]["audio"].endswith(
+        f"/{pilot_id}/audio/binaural/mixture.wav")
+    assert rows[0]["video"].endswith(f"/{pilot_id}/video_only.mp4")

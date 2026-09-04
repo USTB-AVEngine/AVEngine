@@ -216,3 +216,45 @@ def read_qa_params(path: str | Path) -> dict[str, Any]:
         value["SOUND_EVENT_POOL"] = str(
             (pool if pool.is_absolute() else source.parent / pool).resolve())
     return value
+
+
+def answer_forms_from_params(params: Mapping[str, Any]) -> list[str]:
+    """Retain the historical two-form default only when no request declares it."""
+    return normalize_answer_forms(params.get(PARAM_ANSWER_FORMS, ["mcq", "open"]))
+
+
+def write_requested_questions(output_root: Path, fact_paths, params) -> dict[str, Any]:
+    """Write requested question views; internal twin facts may retain both golds.
+
+    Main questions consume the request budget. Counterfactual question views
+    are counted separately and never silently double that budget.
+    """
+    forms = answer_forms_from_params(params)
+    counts = {"main": 0, "gateA": 0}
+    output_root = Path(output_root)
+    main_path = output_root / "questions.jsonl"
+    twin_path = output_root / "questions_gateA.jsonl"
+    with main_path.open("x", encoding="utf-8") as main, twin_path.open("x", encoding="utf-8") as twin:
+        for fact_path in fact_paths:
+            fact_path = Path(fact_path)
+            paths = [("main", fact_path, main)]
+            gatea_path = fact_path.with_name("fact_record_gateA.json")
+            if gatea_path.is_file():
+                paths.append(("gateA", gatea_path, twin))
+            for variant, path, stream in paths:
+                fact = json.loads(path.read_text(encoding="utf-8"))
+                for form in forms:
+                    block = fact.get(form)
+                    if not isinstance(block, Mapping) or not isinstance(block.get("stem"), str):
+                        raise QARequestError(f"{path}: requested {form} question is missing")
+                    row = {"scene_id": fact.get("scene_id"), "point_id": fact["point_id"],
+                           "profile_id": fact["profile_id"], "variant": variant, "form": form,
+                           "question": block["stem"],
+                           "answer": {key: value for key, value in block.items() if key != "stem"}}
+                    stream.write(json.dumps(row, ensure_ascii=False) + "\n")
+                    counts[variant] += 1
+    return {"answer_forms": forms, "forms_per_candidate": len(forms),
+            "designed_question_count": counts["main"],
+            "counterfactual_question_count": counts["gateA"],
+            "questions": str(main_path.resolve()),
+            "counterfactual_questions": str(twin_path.resolve())}

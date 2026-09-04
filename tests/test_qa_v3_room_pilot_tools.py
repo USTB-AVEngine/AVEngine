@@ -14,7 +14,9 @@ from assemble_qa_v3_room_pilot import (  # noqa: E402
     STRATA,
     _balanced_choice,
     _interleave_by_height,
+    assemble,
 )
+from build_qa_v3_released_probe_items import build as build_released_items  # noqa: E402
 from finalize_qa_v3_room_pilot import _card17_distinct  # noqa: E402
 from materialize_qa_v3_dual_gateb import _swap_dynamic_states  # noqa: E402
 
@@ -124,3 +126,129 @@ def test_card17_runtime_distinct_check_uses_actual_readbacks(tmp_path):
     (second / "frame_records.json").write_text(json.dumps(changed))
     result = _card17_distinct(first, second)
     assert result["runtime_readbacks_differ"] is True
+
+
+
+def _write_room_candidate(root, *, scene_id="room_a", profile_id="card12",
+                          point_id="card12_001", forms=("open",)):
+    batch = root / "batch"
+    point = batch / point_id
+    (point / "programs").mkdir(parents=True)
+    fact = {
+        "schema": "qa_v3_fact_record_v1",
+        "scene_id": scene_id,
+        "point_id": point_id,
+        "profile_id": profile_id,
+        "answer_forms": list(forms),
+        "mcq": {"stem": "which?", "options_space": ["a", "b"],
+                "truth_option": "a"},
+        "open": {"stem": "which?", "truth_value": "a",
+                 "scoring": "closed_set"},
+        "camera": {"height_m": 1.471,
+                   "translation_ue_cm": [0.0, 0.0, 147.1],
+                   "ue_yaw_deg": 0.0},
+        "audio": {"program_id": "main_program"},
+    }
+    (point / "fact_record.json").write_text(json.dumps(fact))
+    timeline = {
+        "frames": [
+            {"camera": {"translation_ue_cm": [0.0, 0.0, 147.1],
+                         "yaw_ue_deg": 0.0},
+             "actor_states": [
+                 {"source_slot_id": "source1",
+                  "translation_ue_cm": [100.0, 0.0, 0.0]},
+                 {"source_slot_id": "source2",
+                  "translation_ue_cm": [200.0, 0.0, 0.0]},
+             ]}
+            for _ in range(75)
+        ]
+    }
+    (point / "timeline.json").write_text(json.dumps(timeline))
+    (point / "actor_selection.json").write_text("{}")
+    (point / "m1_capture_request.json").write_text("{}")
+    (point / "audio_program.json").write_text("{}")
+    (point / "audio_program_gateA.json").write_text("{}")
+    (batch / "questions.jsonl").write_text(
+        json.dumps({"point_id": point_id, "profile_id": profile_id,
+                    "variant": "main", "form": forms[0],
+                    "question": "which?"}) + "\n")
+    (batch / "questions_gateA.jsonl").write_text(
+        json.dumps({"point_id": point_id, "profile_id": profile_id,
+                    "variant": "gateA", "form": forms[0],
+                    "question": "which?"}) + "\n")
+    batch_manifest = batch / "batch_manifest.json"
+    batch_manifest.write_text(json.dumps({
+        "question_request": {"answer_forms": list(forms)},
+    }))
+    matrix = root / "scene_profile_matrix.json"
+    matrix.write_text(json.dumps({
+        "schema": "qa_v3_scene_profile_matrix_v1",
+        "scenes": [{"scene_id": scene_id}],
+        "question_request": {"answer_forms": list(forms)},
+        "matrix": [{"scene_id": scene_id, "profile_id": profile_id,
+                     "attempt_status": "generated", "requested_cells": 1,
+                     "batch_manifest": str(batch_manifest)}],
+    }))
+    return matrix, point
+
+
+def test_assemble_uses_scheduler_quota_and_reports_requested_question_count(tmp_path):
+    matrix, _ = _write_room_candidate(tmp_path, forms=("open",))
+    manifest = assemble(matrix_roots=[matrix.parent], profiles=[{"id": "card12"}])
+    room = manifest["rooms"]["room_a"]
+    entry = room["profiles"]["card12"]
+    assert entry["status"] == "selected"
+    assert entry["requested_cells"] == 1
+    assert entry["quota_source"] == "scheduler_requested_cells"
+    assert entry["answer_forms"] == ["open"]
+    assert entry["question_count"] == 1
+    assert entry["counterfactual_question_count"] == 1
+    assert room["question_count"] == manifest["question_count"] == 1
+    assert manifest["answer_forms"] == ["open"]
+    assert entry["candidates"][0]["pilot_id"].startswith("pilot:")
+
+
+def test_assemble_reports_observed_resource_status_without_profile_whitelist(tmp_path):
+    matrix = tmp_path / "scene_profile_matrix.json"
+    matrix.write_text(json.dumps({
+        "scenes": [{"scene_id": "room_a"}],
+        "question_request": {"answer_forms": ["open"]},
+        "matrix": [{"scene_id": "room_a", "profile_id": "card13",
+                     "attempt_status": "resource_unavailable",
+                     "requested_cells": 1}],
+    }))
+    manifest = assemble(matrix_roots=[tmp_path], profiles=[{"id": "card13"}])
+    entry = manifest["rooms"]["room_a"]["profiles"]["card13"]
+    assert entry["status"] == "resource_unavailable"
+    assert entry["selected_count"] == 0
+    assert manifest["resource_profile_count"] == 1
+    assert manifest["question_count"] == 0
+
+
+def test_explicit_per_profile_remains_a_pilot_subset(tmp_path):
+    matrix, _ = _write_room_candidate(tmp_path, forms=("open",))
+    manifest = assemble(
+        matrix_roots=[matrix.parent], profiles=[{"id": "card12"}],
+        per_profile=1,
+    )
+    assert manifest["rooms"]["room_a"]["profiles"]["card12"][
+        "quota_source"] == "explicit_per_profile"
+
+
+
+def test_assembled_manifest_flows_to_released_adapter_by_pilot_id(tmp_path):
+    matrix, _ = _write_room_candidate(tmp_path, forms=("open",))
+    manifest = assemble(matrix_roots=[matrix.parent], profiles=[{"id": "card12"}])
+    candidate = manifest["rooms"]["room_a"]["profiles"]["card12"]["candidates"][0]
+    pilot_id = candidate["pilot_id"]
+    audio = tmp_path / "audio" / pilot_id / "audio/binaural"
+    media = tmp_path / "media" / pilot_id
+    audio.mkdir(parents=True)
+    media.mkdir(parents=True)
+    (audio / "mixture.wav").write_bytes(b"wav")
+    (media / "video_only.mp4").write_bytes(b"mp4")
+    rows = build_released_items(
+        manifest, audio_root=tmp_path / "audio", media_root=tmp_path / "media")
+    assert len(rows) == manifest["question_count"] == 1
+    assert rows[0]["form"] == "open"
+    assert rows[0]["pilot_id"] == pilot_id

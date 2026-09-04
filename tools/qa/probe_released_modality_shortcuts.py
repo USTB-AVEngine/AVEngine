@@ -22,7 +22,10 @@ import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from probe_physical_features import FEATURE_NAMES, extract_features, probe  # noqa: E402
-from score_open_answers import DEFAULT_VOCAB, resolve_angle_policy, score_item, score_time  # noqa: E402
+from score_open_answers import (  # noqa: E402
+    DEFAULT_VOCAB, angle_credit_radius, resolve_angle_policy, score_item,
+    score_time,
+)
 
 
 def _text_matrix(items):
@@ -143,6 +146,11 @@ def scoring_snapshot(params):
     missing = [key for key in SCORING_KEYS if key not in params]
     if missing:
         raise ValueError(f"params missing explicit scoring keys {missing}")
+    # Validate the angle tolerance relationship even for a classification-only
+    # probe.  The snapshot is the public record of the parameters the probe
+    # accepts, so malformed values must not survive merely because this run has
+    # no numeric-angle group.
+    angle_credit_radius(params)
     snapshot = {key: float(params[key]) for key in SCORING_KEYS}
     snapshot["T_FULL_status"] = str(params.get(
         "T_FULL_status", "unspecified_treat_as_placeholder"))

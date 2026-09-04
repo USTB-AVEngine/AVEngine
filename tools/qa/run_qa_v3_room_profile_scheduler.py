@@ -217,6 +217,13 @@ def classify_manifest(manifest: dict, pixel_result: dict | None = None) -> dict:
             "rejection_reasons": dict(
                 pixel_result.get("rejection_reasons") or {}),
         }
+        if (min(pixel["attempted"], pixel["passed"], pixel["rejected"]) < 0
+                or pixel["passed"] + pixel["rejected"] != pixel["attempted"]
+                or pixel["attempted"] > candidates):
+            raise ValueError(
+                "pixel counts do not close within geometry candidates: "
+                f"attempted={pixel['attempted']}, passed={pixel['passed']}, "
+                f"rejected={pixel['rejected']}, candidates={candidates}")
         record["pixel"] = pixel
         if pixel["status"] == "complete":
             if pixel["attempted"] != candidates:

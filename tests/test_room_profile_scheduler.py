@@ -192,3 +192,15 @@ def test_existing_root_is_no_clobber_even_with_missing_inputs(tmp_path):
         "--seed", "seed",
         "--out-root", str(out),
     ]) == 2
+
+
+@pytest.mark.parametrize("complete", [False, True])
+@pytest.mark.parametrize("attempted,passed,rejected", [
+    (3, 3, 0), (2, 1, 0), (1, 2, -1), (-1, 0, -1),
+])
+def test_pixel_counts_close_even_for_partial_results(complete, attempted, passed, rejected):
+    with pytest.raises(ValueError, match="pixel counts do not close"):
+        classify_manifest(_manifest(2), {
+            "complete_for_geometry_candidates": complete,
+            "attempted": attempted, "passed": passed, "rejected": rejected,
+        })

@@ -109,3 +109,25 @@ def test_invalid_configuration_is_rejected() -> None:
             {"ITEMS_PER_ROOM_DEFAULT": 2, "ANSWER_FORMS_DEFAULT": ["mcq"]},
             profile_weights={"a": float("nan"), "b": 1.0},
         )
+
+
+def test_written_questions_follow_request_without_exposing_internal_facts(tmp_path):
+    import json
+    from qa_v3_request import write_requested_questions
+    point = tmp_path / "p1"
+    point.mkdir()
+    fact = {"point_id": "p1", "scene_id": "room", "profile_id": "card8",
+            "truth": {"hidden_timeline_position": [1, 2, 3]},
+            "open": {"stem": "When?", "truth_value": 1.5, "scoring": "absolute_time"},
+            "mcq": {"stem": "Choose when", "truth_option": 0, "options_space": ["early", "late"]}}
+    for name in ("fact_record.json", "fact_record_gateA.json"):
+        (point / name).write_text(json.dumps(fact))
+    result = write_requested_questions(tmp_path, [point / "fact_record.json"],
+                                       {"ANSWER_FORMS_DEFAULT": ["open"]})
+    assert result["designed_question_count"] == 1
+    assert result["counterfactual_question_count"] == 1
+    rows = [json.loads(line) for line in (tmp_path / "questions.jsonl").read_text().splitlines()]
+    assert [row["form"] for row in rows] == ["open"]
+    assert rows[0]["answer"]["truth_value"] == 1.5
+    assert "hidden_timeline_position" not in json.dumps(rows)
+    assert "mcq" not in rows[0]
