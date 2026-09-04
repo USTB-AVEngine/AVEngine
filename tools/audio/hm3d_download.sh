@@ -9,7 +9,7 @@
 # names the HM3D pieces separately - there is no combined "_full" uid on this
 # version. val is the split that covers the 36 scenes the local JAEGER data
 # uses, all of which are in the 00800-00894 range.
-set -e
+set -eu
 TOKEN_FILE=${HOME}/.hm3d_token
 if [ ! -f "$TOKEN_FILE" ]; then
   echo "missing $TOKEN_FILE (line 1 = token id, line 2 = token secret)" >&2
@@ -22,10 +22,13 @@ if [ -z "$ID" ] || [ -z "$SECRET" ]; then
   exit 2
 fi
 
-DEST=/data/datasets/habitat_data
-PY=/data/jzy/miniconda3/envs/ss2/bin/python
+DEST=${AVENGINE_HM3D_DATA_ROOT:-/data/datasets/habitat_data}
+PY=${AVENGINE_HABITAT_DOWNLOAD_PYTHON:-/data/jzy/miniconda3/envs/ss2/bin/python}
+if [ ! -x "$PY" ]; then
+  echo "Habitat downloader Python is not executable: $PY" >&2
+  exit 2
+fi
 mkdir -p "$DEST"
-cd /data/jzy/code/sound-spaces
 
 for uid in hm3d_val_habitat hm3d_val_glb hm3d_val_configs; do
   echo "=== $uid  $(date +%H:%M:%S)"

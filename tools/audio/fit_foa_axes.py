@@ -13,7 +13,9 @@ that are deliberately not axis aligned so nothing is degenerate, in the box
 room where the geometry is unambiguous.
 """
 
+import argparse
 import itertools
+from pathlib import Path
 
 import numpy as np
 import quaternion  # noqa: F401
@@ -21,12 +23,11 @@ import habitat_sim
 from habitat_sim.sensor import AudioSensorSpec, RLRAudioPropagationChannelLayoutType
 
 SR = 16000
-SCENE = "/data/jzy/code/sound-spaces/data/scene_datasets/testroom/testroom.glb"
 
 
-def make_sim():
+def make_sim(scene: Path):
     backend = habitat_sim.SimulatorConfiguration()
-    backend.scene_id = SCENE
+    backend.scene_id = str(scene)
     backend.load_semantic_mesh = False
     backend.enable_physics = False
     sim = habitat_sim.Simulator(
@@ -55,8 +56,17 @@ def intensity(ir):
     return np.array([float(np.sum(reference * ir[c][window])) for c in (1, 2, 3)])
 
 
-def main() -> int:
-    sim = make_sim()
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--scene", required=True, type=Path,
+        help="explicit non-axis-aligned calibration room GLB",
+    )
+    args = parser.parse_args(argv)
+    scene = args.scene.expanduser().resolve()
+    if not scene.is_file():
+        parser.error(f"--scene is not a file: {scene}")
+    sim = make_sim(scene)
     agent = sim.get_agent(0)
     receiver = np.array([3.0, 1.5, 2.0], dtype=np.float32)
     state = agent.get_state()
