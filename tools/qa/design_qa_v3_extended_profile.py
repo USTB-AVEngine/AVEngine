@@ -368,16 +368,59 @@ def _plan_signature(plan):
     )
 
 
-def _location_band(profile, scene, plan, route_index, frame=40):
-    azimuth = relative_azimuth_deg(
-        plan["camera_xy"], float(plan["camera_yaw_deg"]),
-        plan["routes"][route_index].at(frame))
+def _location_bands_and_labels(profile, scene, params):
+    """A profile's answer bands: derived from its domain, or its written table.
+
+    card17 writes ``location_bands_deg`` out to +-52.5 because this rig's HFOV is
+    105, and carries the same dead zone the base profiles do -- the visibility
+    gate stops at effective_half_fov = 47.5, so 5.0 deg of each outer band is
+    unreachable.  Writing degrees also means every new room needs the table
+    edited by hand, and an off-screen family would need eight pairs per room.
+
+    A profile may instead declare ``answer_domain`` and ``answer_shape``, and the
+    degrees come from the scene's own camera (see scene_sampler.derive_answer_bands).
+    Labels stay optional: given, they must match the derived band count; absent,
+    the bands are numbered, because a name for a direction depends on the
+    published convention and that belongs at the publication edge, not here.
+
+    A profile that declares neither keeps working exactly as before.
+    """
+
+    if profile.get("answer_domain") is not None:
+        # 域推导要用 VISUAL_FOV_MARGIN_DEG。拿不到 params 时 effective_half_fov 会
+        # 用边距 0,推出 ±52.5 而不是 ±47.5——正好是这套机制要消灭的那个 5.0 度死区,
+        # 而且不会报错。所以这里拒绝,不默认。
+        if not params or "VISUAL_FOV_MARGIN_DEG" not in params:
+            raise ValueError(
+                f"{profile.get('id')}: answer_domain "
+                f"{profile['answer_domain']!r} needs params carrying "
+                "VISUAL_FOV_MARGIN_DEG; without it the derived bands would "
+                "silently use a zero margin and reach past what the camera "
+                "can be trusted to show")
+        bands = [list(b) for b in SS.derive_answer_bands(profile, scene, params)]
+        labels = profile.get("location_band_labels")
+        if labels is None:
+            labels = [f"sector_{i}" for i in range(len(bands))]
+        elif len(labels) != len(bands):
+            raise ValueError(
+                f"{profile.get('id')}: {len(labels)} labels for "
+                f"{len(bands)} bands derived from domain "
+                f"{profile['answer_domain']!r}")
+        return bands, list(labels)
     bands = profile.get("location_bands_deg")
     labels = profile.get("location_band_labels")
     if (not isinstance(bands, list) or not isinstance(labels, list)
             or len(bands) != len(labels)):
         raise ValueError(
             f"{profile.get('id')}: location bands and labels are required")
+    return bands, labels
+
+
+def _location_band(profile, scene, plan, route_index, frame=40, params=None):
+    azimuth = relative_azimuth_deg(
+        plan["camera_xy"], float(plan["camera_yaw_deg"]),
+        plan["routes"][route_index].at(frame))
+    bands, labels = _location_bands_and_labels(profile, scene, params or {})
     matches = [
         label for label, (lo, hi) in zip(labels, bands)
         if float(lo) <= azimuth < float(hi)
