@@ -36,6 +36,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from scene_sampler import (
     resolve_scene_resource_paths,  # noqa: E402
+    materialize_answer_domains,
     RejectionLedger,
     Rejection,
     load_scene,
@@ -46,6 +47,9 @@ from scene_sampler import (
 
 def run_profile(scene, params, profile, per_profile, seed_base, ledger):
     import hashlib
+    if profile.get("answer_domain") is not None:
+        resolved, _ = materialize_answer_domains(scene, params, [profile])
+        profile = resolved[0]
     tag = f"{scene.scene_id}|{profile['id']}|{seed_base}".encode()
     rng = np.random.default_rng(
         int.from_bytes(hashlib.sha256(tag).digest()[:8], "big") % 2**32)

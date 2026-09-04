@@ -44,6 +44,7 @@ from route_synthesis import (  # noqa: E402
     SynthesisSettings,
 )
 from walkable_grid import WalkableGrid, grid_from_config  # noqa: E402
+from score_open_answers import angle_credit_radius  # noqa: E402
 from floor_reference import (
     MATCH_TOLERANCE_CM as FLOOR_MATCH_TOLERANCE_CM,
     FloorReference,
@@ -73,10 +74,8 @@ def open_angle_gold_regions_disjoint(
         main_deg: float, gatea_deg: float, theta_half: float) -> bool:
     """Whether two angular golds have disjoint wide-credit regions.
 
-    Card1 Open uses a wide half-credit radius of ``THETA_HALF`` around each
-    gold. Merely changing the numeric truth is insufficient: the two regions
-    are disjoint only when their circular distance is strictly greater than
-    twice that radius.
+    The argument is the active credit radius: THETA_FULL under strict scoring,
+    THETA_HALF for legacy two-tier scoring. Two credited regions must not overlap.
     """
     return circular_gap_deg(main_deg, gatea_deg) > 2.0 * float(theta_half)
 
@@ -85,9 +84,8 @@ def open_angle_candidate_scores_zero(
         candidate_deg: float, truth_deg: float, theta_half: float) -> bool:
     """Whether the production angle scorer awards zero to one candidate.
 
-    ``THETA_HALF`` is the widest credited region in score_open_answers.py;
-    binding the search constraint to it keeps the A-only "repeat the audible
-    anchor angle" strategy outside both full and half-credit regions.
+    The argument is the active radius supplied by angle_credit_radius, so the
+    search uses the same credited region as the selected scoring policy.
     """
     return circular_gap_deg(candidate_deg, truth_deg) > float(theta_half)
 
@@ -251,8 +249,11 @@ def derive_answer_bands(profile, scene, params) -> list[tuple[float, float]]:
     domain = profile.get("answer_domain")
     if domain is None:
         raise ValueError(f"{profile.get('id')}: no answer_domain to derive from")
-    count = int((profile.get("answer_shape") or {}).get("equal_bands", 0))
-    if count < 1:
+    shape = profile.get("answer_shape") or {}
+    if not isinstance(shape, dict):
+        raise ValueError(f"{profile.get('id')}: answer_shape must be an object")
+    count = shape.get("equal_bands", 0)
+    if isinstance(count, bool) or not isinstance(count, int) or count < 1:
         raise ValueError(
             f"{profile.get('id')}: answer_shape.equal_bands must be >= 1 to "
             f"derive bands for domain {domain!r}")
@@ -263,6 +264,14 @@ def derive_answer_bands(profile, scene, params) -> list[tuple[float, float]]:
         share = max(1, round(count * (hi - lo) / total))
         step = (hi - lo) / share
         bands.extend((lo + i * step, lo + (i + 1) * step) for i in range(share))
+    indices = shape.get("band_indices")
+    if indices is not None:
+        if (not isinstance(indices, list) or not indices
+                or any(isinstance(i, bool) or not isinstance(i, int)
+                       or not 0 <= i < len(bands) for i in indices)
+                or len(set(indices)) != len(indices)):
+            raise ValueError(f"{profile.get('id')}: band_indices must select distinct bands")
+        bands = [bands[i] for i in indices]
     return bands
 
 
@@ -282,9 +291,8 @@ def audit_answer_bands(scene, params, profiles) -> dict:
     that shape and changing what they generate is a separate, visible decision.
     What it does is *measure* the unreachable part of every band and return it,
     so the manifest of every run carries the number instead of nobody holding
-    it.  On this rig the outer card1 bands report 5.0 of their 35 deg
-    unreachable, which is why their achieved distribution cannot be uniform and
-    why the 1/3 majority baseline the shortcut probes quote is optimistic.
+    it. Unequal reachable widths do not by themselves determine the achieved
+    answer distribution: allocation and search success must be measured too.
     """
 
     half = effective_half_fov(scene, params)
@@ -323,6 +331,20 @@ def audit_answer_bands(scene, params, profiles) -> dict:
     return {"usable_half_angle_deg": half,
             "derived_from_domain": derived,
             "legacy_declared_degrees": legacy}
+
+
+
+def materialize_answer_domains(scene, params, profiles):
+    """Return executable profiles and the audit of their declared answer domains."""
+    audit = audit_answer_bands(scene, params, profiles)
+    effective = []
+    for profile in profiles:
+        item = dict(profile)
+        bands = audit["derived_from_domain"].get(profile.get("id"))
+        if bands is not None:
+            item["answer_bands_deg"] = bands
+        effective.append(item)
+    return effective, audit
 
 
 def interior_answer_band(band_lo: float, band_hi: float, params):
@@ -1090,7 +1112,7 @@ def solve_forward_cross_time(scene: SceneInputs, params: dict, *,
     """
     half_fov = effective_half_fov(scene, params)
     theta_full = float(params["THETA_FULL"])
-    theta_half = float(params["THETA_HALF"])
+    theta_half = angle_credit_radius(params)
     min_sep = float(params["MIN_AZIMUTH_SEP"])
     band_lo, band_hi = answer_band
     pool = target_route_pool(scene, params)
@@ -1260,7 +1282,7 @@ def solve_backward_cross_time(scene: SceneInputs, params: dict, *,
     """
     half_fov = effective_half_fov(scene, params)
     theta_full = float(params["THETA_FULL"])
-    theta_half = float(params["THETA_HALF"])
+    theta_half = angle_credit_radius(params)
     min_sep = float(params["MIN_AZIMUTH_SEP"])
     band_lo, band_hi = answer_band
     pool = target_route_pool(scene, params)
@@ -1557,7 +1579,7 @@ def solve_instant_azimuth(scene: SceneInputs, params: dict, *,
     solve_lo, solve_hi = interior_answer_band(band_lo, band_hi, params)
     half_fov = effective_half_fov(scene, params)
     min_sep = float(params["MIN_AZIMUTH_SEP"])
-    theta_half = (float(params["THETA_HALF"]) if open_half_width_deg is None
+    theta_half = (angle_credit_radius(params) if open_half_width_deg is None
                   else float(open_half_width_deg))
     pool = target_route_pool(scene, params)
     n_routes, n_cams = len(pool), len(scene.camera_points)

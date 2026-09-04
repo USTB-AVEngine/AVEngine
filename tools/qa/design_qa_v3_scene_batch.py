@@ -48,6 +48,7 @@ from build_qa_v3_programs import (  # noqa: E402
 from avengine.assets.sound_pool import clip_source_from_params  # noqa: E402
 import qa_v3_arc as AR
 import qa_v3_azimuth as AZ  # noqa: E402
+from score_open_answers import angle_credit_radius, resolve_angle_policy, score_angle
 from qa_v3_pixel_thresholds import card1_pixel_acceptance_block  # noqa: E402
 import visibility_prediction as VP  # noqa: E402
 # 选角文档的结构(蓝图/网格/动画的物理来源、UE 绑定)已在既有装配器里
@@ -360,13 +361,19 @@ def audit_gatea_pair(profile, main_program, gatea_program, main_answer,
                           == gatea_open.get("truth_interval_deg"))
     else:
         open_preserved = main_open["truth_value"] == gatea_open["truth_value"]
+    if scoring in ("circular_deg", "circular_deg_interval"):
+        angle_policy = resolve_angle_policy(params, main_open.get("certification_policy"))
+        if resolve_angle_policy(params, gatea_open.get("certification_policy")) != angle_policy:
+            raise GenerationConstraintError("Gate A changed the angle scoring policy")
+        credit_radius = angle_credit_radius(params, angle_policy)
+        credit_key = "THETA_FULL" if angle_policy == "strict_full_credit_only" else "THETA_HALF"
     if scoring == "circular_deg":
         separation = SS.circular_gap_deg(
             float(main_open["truth_value"]),
             float(gatea_open["truth_value"]))
-        threshold = 2.0 * float(params["THETA_HALF"])
+        threshold = 2.0 * credit_radius
         open_separated = separation > threshold
-        open_rule = "circular_distance > 2*THETA_HALF"
+        open_rule = f"circular_distance > 2*{credit_key}"
     elif scoring == "circular_deg_interval":
         # 真值是窗口内扫过的区间,所以"宽信区域不相交"要按区间算:两个区间各自向外扩
         # THETA_HALF 之后不许相交。
@@ -382,12 +389,12 @@ def audit_gatea_pair(profile, main_program, gatea_program, main_answer,
         # 连证据本身都是错的。
         main_arc = AR.Arc.from_bounds(*(float(v) for v in main_open["truth_interval_deg"]))
         gate_arc = AR.Arc.from_bounds(*(float(v) for v in gatea_open["truth_interval_deg"]))
-        threshold = 2.0 * float(params["THETA_HALF"])
+        threshold = 2.0 * credit_radius
         separation = AR.circular_gap_deg(main_arc, gate_arc)
         open_separated = AR.wide_credit_regions_disjoint(
-            main_arc, gate_arc, float(params["THETA_HALF"]))
+            main_arc, gate_arc, credit_radius)
         open_rule = ("dilated arcs disjoint on the circle "
-                     "(gap > 2*THETA_HALF for non-wrapping pairs)")
+                     f"(gap > 2*{credit_key} for non-wrapping pairs)")
     elif scoring == "absolute_time":
         separation = abs(float(main_open["truth_value"])
                          - float(gatea_open["truth_value"]))
@@ -488,7 +495,7 @@ REALIZED_CARD1_GATES = (
 
 def realized_cross_time_checks(timeline, *, profile, cell, target_slot,
                                other_slot, anchor_frame, query_frame, params,
-                               plan_checks=None):
+                               plan_checks=None, query_window_s=None):
     """Fail-closed card1 acceptance on the **final** timeline.
 
     The solver plans angles on the pre-authoring route; idle-then-walk
@@ -502,36 +509,46 @@ def realized_cross_time_checks(timeline, *, profile, cell, target_slot,
     """
     theta_full = float(params["THETA_FULL"])
     theta_half = float(params["THETA_HALF"])
+    angle_policy = resolve_angle_policy(params)
+    credit_radius = angle_credit_radius(params)
     bands = [tuple(float(v) for v in band) for band in profile["answer_bands_deg"]]
 
     def band_index(value):
         return next((index for index, (lo, hi) in enumerate(bands)
                      if lo <= value < hi), None)
 
-    def open_score(gap):
-        return 1.0 if gap <= theta_full else 0.5 if gap <= theta_half else 0.0
-
     def side(slot):
         anchor = recompute_azimuth(timeline, slot, anchor_frame)
         query = recompute_azimuth(timeline, slot, query_frame)
         gap = SS.circular_gap_deg(anchor, query)
+        interval = None
+        if query_window_s is not None:
+            lo, hi, _ = azimuth_sweep_engine_frame(
+                timeline, slot, query_window_s, float(params["VIDEO_FPS"]))
+            interval = [lo, hi]
+        scored = score_angle(
+            f"{anchor} deg", query, theta_full, theta_half,
+            certification_policy=angle_policy, convention="engine_right_positive",
+            truth_interval_deg=interval)
+        if scored["status"] != "scored":
+            raise GenerationConstraintError(f"cannot score realized anchor angle: {scored}")
         return {
             "slot": slot,
             "anchor_azimuth_deg_engine_frame": anchor,
             "query_azimuth_deg_engine_frame": query,
+            "query_interval_engine_frame": interval or [query, query],
             "anchor_query_gap_deg": gap,
             "anchor_band_index": band_index(anchor),
             "query_band_index": band_index(query),
-            "anchor_angle_open_score_as_answer": open_score(gap),
-            # Informational framing geometry (owner 2026-09-02: a dog that
-            # drops below the bottom edge is a difficulty tier, not a
-            # rejection).  Uses the real camera height and frame aspect.
+            "anchor_angle_open_score_as_answer": scored["score"],
             "anchor_frame_geometry": frame_geometry(timeline, slot, anchor_frame),
             "query_frame_geometry": frame_geometry(timeline, slot, query_frame),
         }
 
     main = side(target_slot)
     gatea = side(other_slot)
+    main_arc = AR.Arc.from_bounds(*main["query_interval_engine_frame"])
+    gatea_arc = AR.Arc.from_bounds(*gatea["query_interval_engine_frame"])
     allocated = cell.get("anchor_band")
     answer_band = tuple(float(v) for v in cell["answer_band"])
     plan_checks = plan_checks or {}
@@ -543,6 +560,9 @@ def realized_cross_time_checks(timeline, *, profile, cell, target_slot,
         "query_frame": int(query_frame),
         "theta_full_deg": theta_full,
         "theta_half_deg": theta_half,
+        "angle_certification_policy": angle_policy,
+        "credited_radius_deg": credit_radius,
+        "query_window_seconds": query_window_s,
         "main": main,
         "gatea": gatea,
         "allocated_anchor_band": (list(allocated) if allocated is not None
@@ -554,17 +574,15 @@ def realized_cross_time_checks(timeline, *, profile, cell, target_slot,
             < float(allocated[1])),
         "realized_query_in_answer_band": (
             answer_band[0] <= main["query_azimuth_deg_engine_frame"] < answer_band[1]),
-        "realized_anchor_answer_scores_zero": SS.open_angle_candidate_scores_zero(
-            main["anchor_azimuth_deg_engine_frame"], main["query_azimuth_deg_engine_frame"], theta_half),
+        "realized_anchor_answer_scores_zero": main["anchor_angle_open_score_as_answer"] == 0.0,
         "mcq_gold_flipped": (
             main["query_band_index"] is not None
             and gatea["query_band_index"] is not None
             and main["query_band_index"] != gatea["query_band_index"]),
-        "open_gold_separation_deg": SS.circular_gap_deg(
-            main["query_azimuth_deg_engine_frame"], gatea["query_azimuth_deg_engine_frame"]),
-        "open_gold_min_separation_deg": 2.0 * theta_half,
-        "open_gold_regions_disjoint": SS.open_angle_gold_regions_disjoint(
-            main["query_azimuth_deg_engine_frame"], gatea["query_azimuth_deg_engine_frame"], theta_half),
+        "open_gold_separation_deg": AR.circular_gap_deg(main_arc, gatea_arc),
+        "open_gold_min_separation_deg": 2.0 * credit_radius,
+        "open_gold_regions_disjoint": AR.wide_credit_regions_disjoint(
+            main_arc, gatea_arc, credit_radius),
         "planned_vs_realized": {
             "planned_anchor_azimuth_deg_planning_value_only": planned_anchor,
             "planned_query_azimuth_deg_planning_value_only": planned_query,
@@ -754,6 +772,11 @@ def validate_profiles(profiles):
             required |= {"relation_frames", "answer_values"}
         if kind == "motion_state":
             required |= {"motion_frames", "answer_values"}
+        if "answer_bands_deg" in required and profile.get("answer_domain") is not None:
+            required.remove("answer_bands_deg")
+            required.add("answer_shape")
+            if profile["answer_domain"] not in SS.ANSWER_DOMAINS:
+                raise ValueError(f"{pid}: unsupported answer_domain {profile['answer_domain']!r}")
         missing = sorted(key for key in required if key not in profile)
         if missing:
             raise ValueError(f"{pid}: missing required profile fields {missing}")
@@ -920,8 +943,8 @@ def materialize_derived_params(params, profiles=None):
         "Derived before generation by audio_profiles.card8_band_edges from "
         "clip/event/gap/first-min constraints; not an independent input. "
         "First calls must be strictly more than max(T_HALF, 2*T_FULL) apart; "
-        "T_FULL is an explicit input whose value stays a placeholder until "
-        "human calibration.")
+        "T_FULL follows the declared scoring parameters; the scoring block "
+        "records its status and answer granularity.")
     effective["CARD8_FIRST_CALL_SCORING"] = AP.card8_scoring_params(effective)
     return effective
 
@@ -950,7 +973,8 @@ def main(argv=None) -> int:
         return 2
     scene_cfg = SS.read_scene_config(args.scene_config)
     profiles = json.loads(args.profiles.read_text())
-    params = json.loads(args.params.read_text())
+    from qa_v3_request import read_qa_params
+    params = read_qa_params(args.params)
     validate_profiles(profiles)
     scene = SS.load_scene(scene_cfg)
     # Validate all render facts before creating the fresh output directory.
@@ -960,7 +984,7 @@ def main(argv=None) -> int:
     params = materialize_derived_params(params, profiles)
     SS.require_camera_clearance(scene, params)
     SS.require_route_synthesis(scene, params)
-    answer_band_audit = SS.audit_answer_bands(scene, params, profiles)
+    profiles, answer_band_audit = SS.materialize_answer_domains(scene, params, profiles)
     # Every program policy value, the gain ceiling included, is read here so a
     # bad params file fails before the output directory exists.  Found on
     # 2026-09-03 by the review session's positive control: the gain check lived
@@ -1445,7 +1469,8 @@ def realise_point(pid, cell, plan, scene, base_request, params, by_id, args,
         fact["realized_generation_checks"] = realized_cross_time_checks(
             timeline, profile=profile, cell=cell, target_slot=target_slot,
             other_slot=other_slot, anchor_frame=plan.anchor_frame,
-            query_frame=query_frame, params=params, plan_checks=plan.checks)
+            query_frame=query_frame, params=params, plan_checks=plan.checks,
+            query_window_s=answer.get("truth", {}).get("query_window_seconds"))
         fact["acceptance_authority"] = "realized_generation_checks"
         if profile["id"] in ("card1F", "card1B"):
             fact["pixel_acceptance"] = card1_pixel_acceptance_block(
@@ -1812,12 +1837,14 @@ def build_answer(kind, profile, cell, timeline, schedule, slot_events,
                 f"recomputed truth {truth_deg:.2f} deg lands in band {got}, "
                 f"not the assigned {want}: the final camera pose disagrees "
                 "with the solver's geometry")
-        # Everything published converts to DCASE left-positive.  The frame edge
-        # comes from the answer space's own outer bound, so the edge the stem
-        # states and the edge the answers live inside can never diverge.
+        # The camera edge comes from its calibration, not the answer domain:
+        # a safety margin or a full-circle answer space does not change the lens.
         published = [AZ.to_published_band(band) for band in bands]
         labels = [f"[{lo:g}, {hi:g})" for lo, hi in published]
-        frame_edge = max(abs(v) for band in bands for v in band)
+        try:
+            frame_edge = float(timeline["render"]["hfov_degrees"]) / 2.0
+        except (KeyError, TypeError, ValueError) as exc:
+            raise GenerationConstraintError("angle questions need the timeline camera HFOV") from exc
         convention = AZ.landmark_sentence(frame_edge)
         video_fps = float(_require_param(params, "VIDEO_FPS"))
         if profile["temporal"] == "forward":
@@ -1870,6 +1897,9 @@ def build_answer(kind, profile, cell, timeline, schedule, slot_events,
                              "midpoint of truth_interval_deg; the interval is "
                              "authoritative"),
                          "unit": "deg", "scoring": "circular_deg_interval",
+                         "certification_policy": resolve_angle_policy(params),
+                         "wide_tolerance_role": ("diagnostic_only" if resolve_angle_policy(params)
+                                                 == "strict_full_credit_only" else "graded"),
                          "convention": AZ.CONVENTION}}
     if kind == "coat_at_query":
         calling = [slot for slot, event in zip(

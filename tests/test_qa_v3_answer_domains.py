@@ -112,3 +112,38 @@ def test_a_profile_with_no_answer_bands_is_simply_absent():
     report = SS.audit_answer_bands(scene(105), PARAMS, [{"id": "card9"}])
     assert report["derived_from_domain"] == {}
     assert report["legacy_declared_degrees"] == {}
+
+
+def test_domain_profile_reaches_the_actual_cell_allocator():
+    import design_qa_v3_scene_batch as batch
+    profile = {"id": "card1F", "temporal": "forward", "anchor_binding": "target",
+               "anchor_frame": 40, "idle_choices": [0], "answer_kind": "azimuth_band",
+               "answer_domain": "camera_cone", "answer_shape": {"equal_bands": 3}}
+    batch.validate_profiles([profile])
+    effective, audit = SS.materialize_answer_domains(scene(120), PARAMS, [profile])
+    cells = batch.build_cell_plan(18, effective, list(batch.COAT_WORDS), PARAMS, "domain")
+    assert "answer_bands_deg" not in profile
+    assigned = {tuple(row["answer_band"]) for row in cells}
+    assert len(assigned) == 3
+    assert min(lo for lo, hi in assigned) == pytest.approx(-55)
+    assert max(hi for lo, hi in assigned) == pytest.approx(55)
+    assert all(hi - lo == pytest.approx(110 / 3) for lo, hi in assigned)
+    assert effective[0]["answer_bands_deg"] == audit["derived_from_domain"]["card1F"]
+
+
+def test_outer_band_selection_preserves_the_deliberate_center_gap():
+    profile = {"id": "outer", "answer_domain": "camera_cone",
+               "answer_shape": {"equal_bands": 3, "band_indices": [0, 2]}}
+    bands = SS.derive_answer_bands(profile, scene(120), PARAMS)
+    assert len(bands) == 2
+    assert bands[0] == pytest.approx((-55, -55 / 3))
+    assert bands[1] == pytest.approx((55 / 3, 55))
+
+
+@pytest.mark.parametrize("shape", [{"equal_bands": 2.5}, {"equal_bands": True},
+                                  {"equal_bands": 3, "band_indices": [0, 0]},
+                                  {"equal_bands": 3, "band_indices": [3]}])
+def test_band_shape_cannot_silently_change_the_requested_options(shape):
+    with pytest.raises(ValueError):
+        SS.derive_answer_bands({"id": "bad", "answer_domain": "camera_cone",
+                               "answer_shape": shape}, scene(105), PARAMS)

@@ -5,7 +5,7 @@
 
 自 2026-08-25 起，目录本身就是能力分组（阶段目录 m1…m7 已移除），
 本表按目录列出每个工具做什么。
-当前共 331 个工具脚本。
+当前共 332 个工具脚本。
 
 ## 资产生成与装配（`tools/assets/`）
 
@@ -294,6 +294,7 @@
 | `tools/qa/qa_v3_arc.py` | 圆上的弧:起点加带符号扫角。有序的 [lo, hi] 表示不了它。 |
 | `tools/qa/qa_v3_azimuth.py` | The one place a camera-frame azimuth becomes a published azimuth |
 | `tools/qa/qa_v3_pixel_thresholds.py` | Explicit placeholder pixel-answerability thresholds for QA-v3 base cards |
+| `tools/qa/qa_v3_request.py` | Plan QA-v3 request budgets without hiding per-profile shortages |
 | `tools/qa/recompile_native_pixel_truth.py` | Recompile retained metric-depth truth with the current lossless fields |
 | `tools/qa/recompute_qa_v3_gateb_gold.py` | Recompute Gate-B gold for every selected QA-v3 pilot candidate |
 | `tools/qa/refresh_strict_two_human_row8_ready.py` | Refresh the row8 sparse request against the current split visibility contract |

@@ -39,10 +39,12 @@ PAIR_STATUSES = (
     "pipeline_error",
     "profile_not_implemented",
     "resource_unavailable",
+    "not_scheduled",
 )
 
 
 from scene_sampler import read_scene_config
+from qa_v3_request import normalize_answer_forms, plan_room_questions, read_qa_params
 
 
 @dataclass
@@ -276,10 +278,17 @@ def _attempt_record(scene_id: str, profile_id: str, pair_dir: Path,
 def run_scheduler(*, scene_specs: list[SceneSpec],
                   profile_catalog: dict[str, dict],
                   requested_profiles: list[str], params_value: dict,
-                  params_source: Path, out_root: Path, cells: int, seed: str,
+                  params_source: Path, out_root: Path, cells: int | dict[str, int], seed: str,
                   snapshot_content: str,
                   pixel_results: dict[tuple[str, str], dict],
-                  runner: PairRunner = _invoke_pair) -> dict:
+                  runner: PairRunner = _invoke_pair,
+                  request_plan: dict | None = None) -> dict:
+    cells_by_profile = (dict(cells) if isinstance(cells, dict)
+                        else {pid: cells for pid in requested_profiles})
+    if set(cells_by_profile) != set(requested_profiles) or any(
+            isinstance(value, bool) or not isinstance(value, int) or value < 0
+            for value in cells_by_profile.values()):
+        raise ValueError("cells must give a non-negative integer for every requested profile")
     inputs_root = out_root / "inputs"
     rooms_root = out_root / "rooms"
     inputs_root.mkdir(parents=True)
@@ -311,8 +320,9 @@ def run_scheduler(*, scene_specs: list[SceneSpec],
         for profile_id in requested_profiles:
             pair_dir = room_root / "profiles" / _safe_component(profile_id)
             pair_dir.mkdir(parents=True)
+            requested_cells = cells_by_profile[profile_id]
             record = _attempt_record(
-                scene.scene_id, profile_id, pair_dir, cells)
+                scene.scene_id, profile_id, pair_dir, requested_cells)
             record.update({
                 "scene_asset_id": scene_asset_id,
                 "route_domain": route_domain,
@@ -324,6 +334,14 @@ def run_scheduler(*, scene_specs: list[SceneSpec],
                     "detail": (
                         "Requested profile is absent from the implemented "
                         "profile catalog."),
+                    "evidence_class": "not_run",
+                })
+            elif requested_cells == 0:
+                record.update({
+                    "attempt_status": "not_scheduled",
+                    "quota_status": "filled", "quota_shortfall": 0,
+                    "geometry_candidates": 0,
+                    "detail": "This profile received zero candidates within the question budget.",
                     "evidence_class": "not_run",
                 })
             elif scene.load_error is not None:
@@ -343,7 +361,7 @@ def run_scheduler(*, scene_specs: list[SceneSpec],
                                 profile_config=profile_snapshots[profile_id],
                                 params=params_snapshot,
                                 batch_root=pair_dir / "batch",
-                                cells=cells,
+                                cells=requested_cells,
                                 seed=(
                                     f"{seed}|{scene.scene_id}|{profile_id}"),
                                 snapshot_content=snapshot_content)
@@ -445,6 +463,15 @@ def run_scheduler(*, scene_specs: list[SceneSpec],
             for profile_id in requested_profiles},
         "matrix": rows,
     }
+    if request_plan is not None:
+        matrix["question_request"] = request_plan
+        matrix["designed_questions_per_scene"] = {
+            scene.scene_id: sum(row.get("geometry_candidates", 0)
+                               for row in rows if row["scene_id"] == scene.scene_id)
+            * request_plan["forms_per_candidate"]
+            for scene in scene_specs}
+        matrix["question_count_boundary"] = (
+            "Counts refer to designed question forms; rendered media and admission remain separate.")
     _write_json(out_root / "scene_profile_matrix.json", matrix)
     return matrix
 
@@ -456,7 +483,16 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--profiles", required=True, type=Path)
     parser.add_argument("--requested-profile", action="append")
     parser.add_argument("--params", required=True, type=Path)
-    parser.add_argument("--cells-per-pair", type=int, default=6)
+    quota = parser.add_mutually_exclusive_group()
+    quota.add_argument("--cells-per-pair", type=int,
+                       help="explicit legacy candidate count for every scene/profile pair")
+    quota.add_argument("--question-budget", type=int,
+                       help="final question-form budget per room; defaults to params ITEMS_PER_ROOM_DEFAULT")
+    parser.add_argument("--answer-form", action="append", help="mcq or open")
+    parser.add_argument("--profile-weights", type=Path,
+                        help="JSON mapping from requested profile ids to non-negative weights")
+    parser.add_argument("--plan-only", action="store_true",
+                        help="write the resolved request without running geometric search")
     parser.add_argument("--seed", required=True)
     parser.add_argument("--pixel-results", type=Path)
     parser.add_argument("--out-root", required=True, type=Path)
@@ -471,17 +507,52 @@ def main(argv: list[str] | None = None) -> int:
     if args.out_root.exists():
         print(f"refusing to overwrite: {args.out_root}", file=sys.stderr)
         return 2
-    if args.cells_per_pair <= 0:
+    if args.cells_per_pair is not None and args.cells_per_pair <= 0:
         parser.error("--cells-per-pair must be positive")
 
     profile_catalog = _load_profile_catalog(args.profiles)
     requested = _requested_profiles(
         args.requested_profile, profile_catalog)
-    params_value = _read_json(args.params)
+    params_value = read_qa_params(args.params)
     if not isinstance(params_value, dict):
         parser.error("--params must contain a JSON object")
     scene_specs = _load_scene_specs(args.scene_config)
     pixel_results = _load_pixel_results(args.pixel_results)
+    weights = (_read_json(args.profile_weights) if args.profile_weights is not None
+               else params_value.get("PROFILE_WEIGHTS"))
+    if isinstance(weights, dict):
+        unknown = set(weights) - set(profile_catalog)
+        if unknown:
+            parser.error(f"profile weights name unknown profiles: {sorted(unknown)}")
+        weights = {pid: weights[pid] for pid in requested if pid in weights}
+    forms = args.answer_form or params_value.get("ANSWER_FORMS_DEFAULT")
+    request_plan = None
+    if args.cells_per_pair is None:
+        request_plan = plan_room_questions(
+            requested, params_value, question_budget=args.question_budget,
+            answer_forms=forms, profile_weights=weights)
+        cells = request_plan["cells"]
+    else:
+        if weights is not None:
+            parser.error("profile weights and --cells-per-pair describe different allocation modes")
+        cells = args.cells_per_pair
+        if forms is not None:
+            forms = normalize_answer_forms(forms)
+            request_plan = plan_room_questions(
+                requested, params_value,
+                question_budget=cells * len(requested) * len(forms), answer_forms=forms)
+    if request_plan is not None:
+        params_value = dict(params_value, ANSWER_FORMS_DEFAULT=request_plan["answer_forms"])
+    if args.plan_only:
+        if request_plan is None:
+            parser.error("--plan-only requires explicit or configured answer forms")
+        args.out_root.mkdir(parents=True)
+        plan = {"status": "planned", "per_room": request_plan,
+                "scene_ids": [scene.scene_id for scene in scene_specs],
+                "planned_question_count": len(scene_specs) * request_plan["planned_question_count"]}
+        _write_json(args.out_root / "question_request.json", plan)
+        print(json.dumps(plan, ensure_ascii=False))
+        return 0
 
     args.out_root.mkdir(parents=True)
     matrix = run_scheduler(
@@ -491,10 +562,10 @@ def main(argv: list[str] | None = None) -> int:
         params_value=params_value,
         params_source=args.params,
         out_root=args.out_root,
-        cells=args.cells_per_pair,
+        cells=cells,
         seed=args.seed,
         snapshot_content=args.snapshot_content,
-        pixel_results=pixel_results)
+        pixel_results=pixel_results, request_plan=request_plan)
     print(json.dumps({
         "out": str(args.out_root),
         "status": matrix["status"],

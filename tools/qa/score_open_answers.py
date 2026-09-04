@@ -7,12 +7,18 @@
 四类判分器(按题目元数据的 answer_type 分派):
 
   angle_deg     数值角度。**环形角距离** d = min(|a-b|, 360-|a-b|);
-                d <= THETA_FULL 满分 1.0,<= THETA_HALF 半分 0.5,否则 0。
+                THETA_FULL/THETA_HALF first define the full and diagnostic
+                two-tier regions. ANGLE_CERTIFICATION_POLICY=strict_full_credit_only
+                gives certified score 1.0 only inside THETA_FULL; a half-credit
+                match remains in diagnostic_two_tier_score. Legacy two-tier
+                scoring keeps the old 0.5 score. truth_interval_deg, when
+                present, is authoritative and uses point-to-arc distance.
                 解析规则(保守,防撒网):优先取带角度记号(° / 度 /
                 deg / degree)的数字;若无记号数字**恰好一个**则用它;
-                否则 invalid。支持"左/右/left/right + 数字"的方向词
-                换算(题面约定右为正,"左 85"→ −85);同时出现方向词
-                与负号视为冲突 → invalid。
+                否则 invalid。支持"左/右/left/right + 数字"的方向词,
+                using the item's explicit convention. An item without one
+                keeps the existing right-positive compatibility convention;
+                同时出现方向词与负号视为冲突 → invalid。
   time_s        数值时刻。绝对差;<= T_FULL 满分,<= T_HALF 半分。解析
                 同上(记号:秒 / s / sec;"第 N 秒"的 N 同样计入候选,
                 因此多数字 → invalid,防模型复述题干蹭数字)。
@@ -30,8 +36,9 @@
   - 其余 → 按闭集规则(通常 0 分)。
 
 带宽与词表全部显式参数:CLI 读 --params JSON(THETA_FULL/HALF、
-T_FULL/T_HALF 必填,占位值也要写在参数文件里,不藏进代码);词表内置
-默认(毛色/动静/左右/遮挡四态/拒答),可用 --vocab JSON 覆盖。逐题输出
+T_FULL/T_HALF 必填,ANGLE_CERTIFICATION_POLICY 可选以兼容旧 params;
+提供时必须是已知策略,不藏进代码);词表内置默认(毛色/动静/左右/遮挡
+四态/拒答),可用 --vocab JSON 覆盖。逐题输出
 解析明细与判定;manifest no-clobber;出现 invalid 不算错也不算对,单独
 计率(invalid 率高说明解析器要调,不吞进准确率)。
 
@@ -42,9 +49,11 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import re
 import sys
+from collections.abc import Mapping
 from typing import Any
 
 # ---------- 默认同义词表(可被 --vocab 覆盖;matching 一律最长词条优先) ----------
@@ -83,6 +92,35 @@ TIME_MARK = re.compile(r"([-+]?\d+(?:\.\d+)?)\s*(?:秒|s\b|sec(?:ond)?s?)", re.I
 LEFT_WORDS = ("左", "left")
 RIGHT_WORDS = ("右", "right")
 
+# Existing numeric questions that do not carry a convention used the scorer's
+# right-positive interpretation. Keep that compatibility path while making
+# an explicit convention authoritative whenever a new question supplies one.
+ANGLE_CONVENTION_ALIASES = {
+    "right_positive": "right_positive",
+    "right_positive_deg": "right_positive",
+    "engine_right_positive": "right_positive",
+    "left_positive": "left_positive",
+    "left_positive_deg": "left_positive",
+    "dcase_foa_left_positive": "left_positive",
+}
+ANGLE_CERTIFICATION_POLICIES = {
+    "legacy": "legacy_two_tier",
+    "legacy_two_tier": "legacy_two_tier",
+    "two_tier": "legacy_two_tier",
+    "strict_full_credit_only": "strict_full_credit_only",
+}
+DEFAULT_ANGLE_CONVENTION = "right_positive"
+DEFAULT_ANGLE_CERTIFICATION_POLICY = "legacy_two_tier"
+
+_CONVENTION_MARKERS = (
+    ("right side is positive", "right_positive"),
+    ("right is positive", "right_positive"),
+    ("positive values to the right", "right_positive"),
+    ("left side is positive", "left_positive"),
+    ("left is positive", "left_positive"),
+    ("positive values to the left", "left_positive"),
+)
+
 
 def circular_deg(a: float, b: float) -> float:
     d = abs(a - b) % 360.0
@@ -104,8 +142,161 @@ def _parse_numeric(text: str, mark: re.Pattern) -> tuple[float | None, str | Non
     return None, f"multiple bare numbers: {bare}"
 
 
-def _apply_direction_words(text: str, value: float) -> tuple[float | None, str | None]:
-    """题面约定右为正:'左 85' → −85。方向词与显式负号并存 → 冲突。"""
+def _canonical_angle_convention(value: Any) -> str | None:
+    if value is None:
+        return DEFAULT_ANGLE_CONVENTION
+    normalized = str(value).strip().lower().replace("-", "_").replace(" ", "_")
+    return ANGLE_CONVENTION_ALIASES.get(normalized)
+
+
+def _convention_from_text(text: str) -> tuple[str | None, str | None]:
+    lowered = str(text).lower()
+    found = {canonical for marker, canonical in _CONVENTION_MARKERS
+             if marker in lowered}
+    if len(found) > 1:
+        return None, f"conflicting azimuth conventions in question: {sorted(found)}"
+    if not found:
+        return None, None
+    return next(iter(found)), None
+
+
+def _angle_convention_for_item(
+    item: Mapping[str, Any],
+) -> tuple[str | None, str | None]:
+    """Resolve an item's stated convention, preserving old numeric items."""
+    candidates: list[tuple[str, str]] = []
+    for key in ("convention", "azimuth_convention"):
+        if key not in item or item[key] is None:
+            continue
+        canonical = _canonical_angle_convention(item[key])
+        if canonical is None:
+            return None, f"unknown azimuth convention {item[key]!r} in {key}"
+        candidates.append((key, canonical))
+    truth = item.get("truth")
+    if isinstance(truth, Mapping) and truth.get("convention") is not None:
+        canonical = _canonical_angle_convention(truth["convention"])
+        if canonical is None:
+            return None, (
+                f"unknown azimuth convention {truth['convention']!r} in truth"
+            )
+        candidates.append(("truth.convention", canonical))
+
+    stem = item.get("question") or item.get("stem") or item.get("prompt")
+    if stem:
+        stem_convention, reason = _convention_from_text(str(stem))
+        if reason:
+            return None, reason
+        if stem_convention is not None:
+            candidates.append(("question", stem_convention))
+
+    if not candidates:
+        # Legacy numerical items had no convention field and were scored with
+        # the historical right-positive direction-word interpretation.
+        return DEFAULT_ANGLE_CONVENTION, None
+    unique = {canonical for _, canonical in candidates}
+    if len(unique) > 1:
+        return None, f"conflicting azimuth conventions: {sorted(unique)}"
+    return next(iter(unique)), None
+
+
+def _canonical_angle_policy(value: Any) -> str | None:
+    return ANGLE_CERTIFICATION_POLICIES.get(str(value).strip().lower())
+
+
+def resolve_angle_policy(
+    params: Mapping[str, Any] | None = None,
+    certification_policy: str | None = None,
+) -> str:
+    if certification_policy is not None:
+        raw = certification_policy
+    elif params is not None and "ANGLE_CERTIFICATION_POLICY" in params:
+        raw = params["ANGLE_CERTIFICATION_POLICY"]
+    else:
+        return DEFAULT_ANGLE_CERTIFICATION_POLICY
+    policy = _canonical_angle_policy(raw)
+    if policy is None:
+        raise ValueError(f"unknown ANGLE_CERTIFICATION_POLICY {raw!r}")
+    return policy
+
+
+def _validate_angle_tolerances(
+    theta_full: Any,
+    theta_half: Any,
+) -> tuple[float, float]:
+    try:
+        full = float(theta_full)
+        half = float(theta_half)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            "THETA_FULL and THETA_HALF must be finite numbers"
+        ) from exc
+    if not math.isfinite(full) or not math.isfinite(half):
+        raise ValueError("THETA_FULL and THETA_HALF must be finite numbers")
+    if full < 0.0 or half < 0.0 or full > half:
+        raise ValueError(
+            "angle tolerances require 0 <= THETA_FULL <= THETA_HALF"
+        )
+    return full, half
+
+
+def angle_credit_radius(
+    params: Mapping[str, Any],
+    certification_policy: str | None = None,
+) -> float:
+    """Return the angle radius that can receive certified credit.
+
+    An explicit function argument overrides params; otherwise the declared
+    ANGLE_CERTIFICATION_POLICY is used. Missing policy means legacy scoring for
+    old parameter files, while an unknown declared value raises ValueError.
+    """
+    policy = resolve_angle_policy(params, certification_policy)
+    if "THETA_FULL" not in params or "THETA_HALF" not in params:
+        raise ValueError(
+            "params must contain explicit THETA_FULL and THETA_HALF"
+        )
+    full, half = _validate_angle_tolerances(
+        params["THETA_FULL"], params["THETA_HALF"])
+    return full if policy == "strict_full_credit_only" else half
+
+
+def _arc_from_truth_interval(value: Any):
+    from qa_v3_arc import Arc
+
+    if isinstance(value, Mapping):
+        if value.get("schema") == "avengine_qa_v3_arc_v1":
+            return Arc.from_dict(dict(value))
+        if "start_deg" in value and "sweep_deg" in value:
+            return Arc(float(value["start_deg"]), float(value["sweep_deg"]))
+        raise ValueError(
+            "truth_interval_deg object must be an avengine_qa_v3_arc_v1 arc"
+        )
+    if not isinstance(value, (list, tuple)) or len(value) != 2:
+        raise ValueError(
+            "truth_interval_deg must be [lo, hi] or an avengine_qa_v3_arc_v1 arc"
+        )
+    lo, hi = (float(v) for v in value)
+    if hi < lo:
+        # The ordered pair can represent the forward arc across +-180.  Keep
+        # the orientation in Arc instead of sorting the endpoints into its
+        # complement.
+        return Arc(start_deg=lo, sweep_deg=(hi - lo) % 360.0)
+    return Arc.from_bounds(lo, hi)
+
+
+def _distance_to_arc(point_deg: float, arc) -> float:
+    if arc.contains(float(point_deg)):
+        return 0.0
+    return min(circular_deg(point_deg, arc.start_deg),
+               circular_deg(point_deg, arc.end_deg))
+
+
+def _apply_direction_words(
+    text: str,
+    value: float,
+    *,
+    convention: str = DEFAULT_ANGLE_CONVENTION,
+) -> tuple[float | None, str | None]:
+    """Apply left/right words in the item's explicit azimuth convention."""
     has_left = any(w in text.lower() for w in LEFT_WORDS)
     has_right = any(w in text.lower() for w in RIGHT_WORDS)
     if has_left and has_right:
@@ -114,19 +305,70 @@ def _apply_direction_words(text: str, value: float) -> tuple[float | None, str |
         return value, None
     if value < 0:
         return None, "direction word combined with an explicit negative sign"
-    return (-value, None) if has_left else (value, None)
+    if has_left:
+        return (value, None) if convention == "left_positive" else (-value, None)
+    return (-value, None) if convention == "left_positive" else (value, None)
 
 
-def score_angle(answer: str, truth_deg: float, theta_full: float, theta_half: float) -> dict:
+def score_angle(
+    answer: str,
+    truth_deg: float,
+    theta_full: float,
+    theta_half: float,
+    *,
+    certification_policy: str | None = None,
+    convention: str | None = None,
+    truth_interval_deg: Any = None,
+) -> dict:
+    canonical_convention = _canonical_angle_convention(convention)
+    if canonical_convention is None:
+        return {
+            "status": "invalid",
+            "reason": f"unknown azimuth convention {convention!r}",
+            "score": 0.0,
+        }
+    canonical_policy = resolve_angle_policy(
+        None, certification_policy
+    )
+    theta_full, theta_half = _validate_angle_tolerances(
+        theta_full, theta_half)
     value, why = _parse_numeric(answer, ANGLE_MARK)
     if value is None:
         return {"status": "invalid", "reason": why, "score": 0.0}
-    value, why = _apply_direction_words(answer, value)
+    value, why = _apply_direction_words(
+        answer, value, convention=canonical_convention
+    )
     if value is None:
         return {"status": "invalid", "reason": why, "score": 0.0}
-    err = circular_deg(value, truth_deg)
-    score = 1.0 if err <= theta_full else 0.5 if err <= theta_half else 0.0
-    return {"status": "scored", "parsed": value, "circular_error_deg": round(err, 2), "score": score}
+    try:
+        if truth_interval_deg is None:
+            err = circular_deg(value, float(truth_deg))
+            truth_mode = "point"
+        else:
+            err = _distance_to_arc(
+                value, _arc_from_truth_interval(truth_interval_deg))
+            truth_mode = "interval"
+    except (TypeError, ValueError) as exc:
+        return {"status": "invalid", "reason": str(exc), "score": 0.0}
+    diagnostic = 1.0 if err <= theta_full else 0.5 if err <= theta_half else 0.0
+    if canonical_policy == "strict_full_credit_only":
+        score = 1.0 if err <= theta_full else 0.0
+    else:
+        score = diagnostic
+    result = {
+        "status": "scored",
+        "parsed": value,
+        "circular_error_deg": round(err, 2),
+        "score": score,
+        "angle_convention": canonical_convention,
+        "truth_mode": truth_mode,
+    }
+    if canonical_policy == "strict_full_credit_only":
+        result.update({
+            "certification_policy": "strict_full_credit_only",
+            "diagnostic_two_tier_score": diagnostic,
+        })
+    return result
 
 
 def score_time(answer: str, truth_s: float, t_full: float, t_half: float, *,
@@ -196,11 +438,16 @@ def score_counts(answer: str, truth: list[int]) -> dict:
 
 
 def scorer_params(params: dict) -> dict:
-    """Keep only parameters that this scorer actually executes."""
+    """Keep parameters that this scorer executes, including declared angle policy."""
     missing = [key for key in SCORER_PARAM_KEYS if key not in params]
     if missing:
         raise ValueError(f"params missing explicit {missing}")
-    return {key: params[key] for key in SCORER_PARAM_KEYS}
+    _validate_angle_tolerances(
+        params["THETA_FULL"], params["THETA_HALF"])
+    result = {key: params[key] for key in SCORER_PARAM_KEYS}
+    if "ANGLE_CERTIFICATION_POLICY" in params:
+        result["ANGLE_CERTIFICATION_POLICY"] = resolve_angle_policy(params)
+    return result
 
 
 def score_item(item: dict, params: dict, vocab: dict) -> dict:
@@ -208,7 +455,71 @@ def score_item(item: dict, params: dict, vocab: dict) -> dict:
     at = item["answer_type"]
     ans = str(item.get("model_answer", ""))
     if at == "angle_deg":
-        return score_angle(ans, float(item["truth"]), params["THETA_FULL"], params["THETA_HALF"])
+        raw_truth = item.get("truth")
+        interval = item.get("truth_interval_deg")
+        if interval is not None:
+            if isinstance(raw_truth, Mapping):
+                truth_value = next(
+                    (raw_truth[key] for key in
+                     ("azimuth_deg", "final_azimuth_deg", "truth_value", "value")
+                     if key in raw_truth),
+                    0.0,
+                )
+            else:
+                truth_value = 0.0 if raw_truth is None else raw_truth
+        else:
+            if raw_truth is None:
+                return {
+                    "status": "invalid",
+                    "reason": "angle item missing truth",
+                    "score": 0.0,
+                }
+            if isinstance(raw_truth, Mapping):
+                truth_value = next(
+                    (raw_truth[key] for key in
+                     ("azimuth_deg", "final_azimuth_deg", "truth_value", "value")
+                     if key in raw_truth),
+                    None,
+                )
+                if truth_value is None:
+                    return {
+                        "status": "invalid",
+                        "reason": "angle truth object has no numeric azimuth value",
+                        "score": 0.0,
+                    }
+            else:
+                truth_value = raw_truth
+        convention, reason = _angle_convention_for_item(item)
+        if reason:
+            return {"status": "invalid", "reason": reason, "score": 0.0}
+        params_has_policy = "ANGLE_CERTIFICATION_POLICY" in params
+        params_policy = (
+            resolve_angle_policy(params) if params_has_policy else None)
+        item_has_policy = "certification_policy" in item
+        item_policy = (
+            resolve_angle_policy({}, item["certification_policy"])
+            if item_has_policy and item["certification_policy"] is not None
+            else None)
+        if item_policy is not None and params_policy is not None:
+            if item_policy != params_policy:
+                return {
+                    "status": "invalid",
+                    "reason": (
+                        "angle certification policy conflict: "
+                        f"item={item_policy!r}, params={params_policy!r}"
+                    ),
+                    "score": 0.0,
+                }
+        policy = item_policy if item_policy is not None else params_policy
+        return score_angle(
+            ans,
+            float(truth_value),
+            params["THETA_FULL"],
+            params["THETA_HALF"],
+            certification_policy=policy,
+            convention=convention,
+            truth_interval_deg=interval,
+        )
     if at == "time_s":
         return score_time(
             ans, float(item["truth"]), params["T_FULL"], params["T_HALF"],

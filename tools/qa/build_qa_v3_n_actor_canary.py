@@ -263,7 +263,8 @@ def main(argv=None) -> int:
     if len(assets) != 4 or len(set(assets)) != 4:
         parser.error("exactly four distinct assets are required")
     scene_config = SS.read_scene_config(args.scene_config)
-    params = _read(args.params)
+    from qa_v3_request import read_qa_params
+    params = read_qa_params(args.params)
     require_dry_canvas_source_mode(params, owner="build_qa_v3_n_actor_canary")
     scene = load_scene(scene_config)
     plan = find_four_route_plan(

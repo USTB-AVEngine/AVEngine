@@ -902,7 +902,8 @@ def main(argv=None):
     profile_id = profile.get("id")
     if profile_id not in SUPPORTED:
         raise ValueError(f"unsupported extended profile: {profile_id!r}")
-    params = _read(args.params)
+    from qa_v3_request import read_qa_params
+    params = read_qa_params(args.params)
     require_dry_canvas_source_mode(
         params, owner="design_qa_v3_extended_profile")
     scene_config = SS.read_scene_config(args.scene_config)

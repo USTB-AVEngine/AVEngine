@@ -32,7 +32,7 @@ from design_qa_v3_scene_batch import (  # noqa: F401
 from qa_v3_pixel_thresholds import card1_pixel_acceptance_block  # noqa: E402
 
 
-PARAMS = {"THETA_HALF": 30.0, "T_HALF": 1.0, "T_FULL": 0.5,
+PARAMS = {"THETA_FULL": 15.0, "THETA_HALF": 30.0, "T_HALF": 1.0, "T_FULL": 0.5,
           "T_FULL_status": "placeholder_research",
           "SAMPLE_RATE_HZ": 16000, "VIDEO_FPS": 15}
 
@@ -796,3 +796,67 @@ def test_a_sweep_that_crosses_a_band_edge_is_refused():
             # 走的是 -18.85 到 -13.65。
             sweeping_timeline(-30.0, 25.0), None, [], "source1", "source2",
             slot_coat, -30.0, 22, PARAMS)
+
+
+def test_strict_angle_pair_uses_the_credited_radius_not_diagnostic_half_credit():
+    main, gate = program(["ep1", "ep2"]), program(["ep2", "ep1"])
+    params = dict(PARAMS, ANGLE_CERTIFICATION_POLICY="strict_full_credit_only")
+    checks = audit_gatea_pair(
+        {"id": "card1F"}, main, gate,
+        answer("left", -20.0, "circular_deg"),
+        answer("right", 20.0, "circular_deg"), params)
+    assert checks["open_min_separation"] == 30.0
+    assert "THETA_FULL" in checks["open_rule"]
+    with pytest.raises(GenerationConstraintError, match="open_gold_separated"):
+        audit_gatea_pair(
+            {"id": "card1F"}, main, gate,
+            answer("left", -20.0, "circular_deg"),
+            answer("right", 20.0, "circular_deg"), PARAMS)
+
+
+def test_strict_interval_pair_uses_the_same_scorer_region():
+    main, gate = program(["ep1", "ep2"]), program(["ep2", "ep1"])
+    first, second = answer("a", -22.5, "circular_deg_interval"), answer("b", 22.5, "circular_deg_interval")
+    first["open"]["truth_interval_deg"] = [-25.0, -20.0]
+    second["open"]["truth_interval_deg"] = [20.0, 25.0]
+    checks = audit_gatea_pair(
+        {"id": "card1F"}, main, gate, first, second,
+        dict(PARAMS, ANGLE_CERTIFICATION_POLICY="strict_full_credit_only"))
+    assert checks["open_separation"] == 40.0
+    assert checks["open_min_separation"] == 30.0
+    assert checks["open_gold_separated"]
+
+
+def test_anchor_repetition_is_scored_against_the_whole_query_window():
+    timeline = stationary_timeline(20.0)
+
+    def put(frame, slot, angle):
+        state = next(s for s in timeline["frames"][frame]["actor_states"]
+                     if s["source_slot_id"] == slot)
+        state["translation_ue_cm"] = [400 * math.cos(math.radians(angle)),
+                                       400 * math.sin(math.radians(angle)), 0.0]
+
+    for frame in range(75):
+        put(frame, "source2", -40.0)
+    for frame in range(15, 23):
+        put(frame, "source1", 10.0 + 10.0 * (frame - 15) / 7)
+    put(40, "source1", 0.0)
+    kwargs = dict(
+        profile={"id": "card1B", "answer_bands_deg": [[-60, -10], [-10, 10], [10, 60]]},
+        cell={"answer_band": [10, 60], "anchor_band": [-10, 10]},
+        target_slot="source1", other_slot="source2", anchor_frame=40, query_frame=22,
+        params=dict(PARAMS, ANGLE_CERTIFICATION_POLICY="strict_full_credit_only"))
+    assert realized_cross_time_checks(timeline, **kwargs)["passed"]
+    with pytest.raises(GenerationConstraintError, match="realized_anchor_answer_scores_zero"):
+        realized_cross_time_checks(timeline, **kwargs, query_window_s=[1.0, 1.5])
+
+
+def test_prompt_camera_edge_is_not_the_narrower_answer_domain():
+    result = build_answer(
+        "azimuth_band", {"id": "card1F", "temporal": "forward",
+                         "answer_bands_deg": [[-47.5, 0.0], [0.0, 47.5]]},
+        {"answer_band": [0.0, 47.5]}, stationary_timeline(20.0), None, [],
+        "source1", "source2", {"source1": "black-and-white", "source2": "yellow"},
+        20.0, 74, dict(PARAMS, ANGLE_CERTIFICATION_POLICY="strict_full_credit_only"))
+    assert "about +52.5 and -52.5 degrees" in result["open"]["stem"]
+    assert result["open"]["certification_policy"] == "strict_full_credit_only"

@@ -24,6 +24,10 @@ from score_open_answers import (  # noqa: E402
     score_closed,
     score_counts,
     score_time,
+    score_item,
+    scorer_params,
+    angle_credit_radius,
+    resolve_angle_policy,
 )
 
 TF, TH = 15.0, 30.0  # 角度带占位
@@ -58,6 +62,202 @@ def test_angle_direction_words():
 def test_angle_direction_conflicts_invalid():
     assert score_angle("left -85°", -85.0, TF, TH)["status"] == "invalid"
     assert score_angle("可能在左边也可能在右边 85 度", -85.0, TF, TH)["status"] == "invalid"
+
+
+def test_angle_policy_strict_keeps_half_credit_as_diagnostic_only():
+    strict = score_angle(
+        "20°", 0.0, TF, TH,
+        certification_policy="strict_full_credit_only")
+    assert strict["score"] == 0.0
+    assert strict["diagnostic_two_tier_score"] == 0.5
+    assert strict["certification_policy"] == "strict_full_credit_only"
+
+    legacy = score_angle(
+        "20°", 0.0, TF, TH,
+        certification_policy="legacy_two_tier")
+    assert legacy["score"] == 0.5
+    assert "diagnostic_two_tier_score" not in legacy
+
+
+def test_angle_direction_words_follow_the_declared_convention():
+    # DCASE publishes left as positive. Numeric and directional answers use
+    # the same sign when they state the same direction.
+    numeric = score_angle(
+        "85°", 85.0, TF, TH, convention="dcase_foa_left_positive")
+    directional = score_angle(
+        "left 85°", 85.0, TF, TH, convention="dcase_foa_left_positive")
+    assert numeric["parsed"] == directional["parsed"] == 85.0
+    assert numeric["score"] == directional["score"] == 1.0
+    assert score_angle(
+        "right 85°", -85.0, TF, TH,
+        convention="dcase_foa_left_positive")["parsed"] == -85.0
+
+    # Existing right-positive items retain their old direction-word meaning.
+    old_numeric = score_angle("-85°", -85.0, TF, TH,
+                              convention="right_positive_deg")
+    old_directional = score_angle("left 85°", -85.0, TF, TH,
+                                  convention="right_positive_deg")
+    assert old_numeric["parsed"] == old_directional["parsed"] == -85.0
+
+
+def test_angle_circular_wraparound_survives_strict_policy():
+    result = score_angle(
+        "-179°", 179.0, TF, TH,
+        certification_policy="strict_full_credit_only",
+        convention="dcase_foa_left_positive")
+    assert result["circular_error_deg"] == pytest.approx(2.0)
+    assert result["score"] == 1.0
+
+
+def test_score_item_uses_question_convention_and_params_policy():
+    result = score_item(
+        {
+            "answer_type": "angle_deg",
+            "question": "Use DCASE FOA: positive values to the left.",
+            "model_answer": "left 20°",
+            "truth": 0.0,
+        },
+        {
+            "THETA_FULL": TF,
+            "THETA_HALF": TH,
+            "ANGLE_CERTIFICATION_POLICY": "strict_full_credit_only",
+        },
+        DEFAULT_VOCAB,
+    )
+    assert result["parsed"] == 20.0
+    assert result["score"] == 0.0
+    assert result["diagnostic_two_tier_score"] == 0.5
+
+
+def test_scorer_params_executes_declared_angle_policy_without_faking_legacy():
+    base = {"THETA_FULL": TF, "THETA_HALF": TH,
+            "T_FULL": SF, "T_HALF": SH}
+    strict = scorer_params({
+        **base, "ANGLE_CERTIFICATION_POLICY": "strict_full_credit_only"})
+    assert strict["ANGLE_CERTIFICATION_POLICY"] == "strict_full_credit_only"
+    assert "ANGLE_CERTIFICATION_POLICY" not in scorer_params(base)
+    assert resolve_angle_policy(base) == "legacy_two_tier"
+    assert resolve_angle_policy(
+        base, "strict_full_credit_only") == "strict_full_credit_only"
+    with pytest.raises(ValueError, match="ANGLE_CERTIFICATION_POLICY"):
+        scorer_params({**base, "ANGLE_CERTIFICATION_POLICY": "future_policy"})
+
+
+def test_score_item_policy_precedes_params_and_conflicts_are_explicit():
+    item = {
+        "answer_type": "angle_deg",
+        "model_answer": "20°",
+        "truth": 0.0,
+        "certification_policy": "strict_full_credit_only",
+    }
+    params = {"THETA_FULL": TF, "THETA_HALF": TH}
+    result = score_item(item, params, DEFAULT_VOCAB)
+    assert result["score"] == 0.0
+    assert result["diagnostic_two_tier_score"] == 0.5
+
+    conflict = score_item(
+        {**item, "certification_policy": "legacy_two_tier"},
+        {**params, "ANGLE_CERTIFICATION_POLICY": "strict_full_credit_only"},
+        DEFAULT_VOCAB,
+    )
+    assert conflict["status"] == "invalid"
+    assert "policy conflict" in conflict["reason"]
+
+
+def test_cli_preserves_item_strict_policy_with_old_four_key_params(tmp_path):
+    items_p = _write(tmp_path / "items.json", [{
+        "question_id": "strict-angle",
+        "answer_type": "angle_deg",
+        "model_answer": "20°",
+        "truth": 0.0,
+        "certification_policy": "strict_full_credit_only",
+    }])
+    params_p = _write(tmp_path / "params.json", {
+        "THETA_FULL": TF, "THETA_HALF": TH,
+        "T_FULL": SF, "T_HALF": SH,
+    })
+    out = tmp_path / "scores.json"
+    assert main(["--items", items_p, "--params", params_p, "--out", str(out)]) == 0
+    doc = json.loads(out.read_text())
+    assert "ANGLE_CERTIFICATION_POLICY" not in doc["parameters"]
+    record = doc["records"][0]
+    assert record["score"] == 0.0
+    assert record["diagnostic_two_tier_score"] == 0.5
+
+
+@pytest.mark.parametrize(
+    ("theta_full", "theta_half"),
+    [(float("nan"), 30.0), (15.0, float("inf")), (-1.0, 30.0), (30.0, 15.0)],
+)
+def test_angle_tolerances_are_finite_and_ordered(theta_full, theta_half):
+    with pytest.raises(ValueError, match="THETA_FULL"):
+        score_angle("20°", 0.0, theta_full, theta_half)
+    with pytest.raises(ValueError, match="THETA_FULL"):
+        angle_credit_radius({
+            "THETA_FULL": theta_full,
+            "THETA_HALF": theta_half,
+        })
+
+
+def test_angle_interval_is_authoritative_across_the_wrap():
+    # The interval [150, 180] crosses the representation boundary. An answer
+    # at -179 is one degree from the arc, while the midpoint 165 is 16 degrees
+    # away and would incorrectly lose strict credit.
+    result = score_angle(
+        "-179°", 165.0, TF, TH,
+        certification_policy="strict_full_credit_only",
+        convention="dcase_foa_left_positive",
+        truth_interval_deg=[150.0, 180.0])
+    assert result["truth_mode"] == "interval"
+    assert result["circular_error_deg"] == pytest.approx(1.0)
+    assert result["score"] == 1.0
+
+
+def test_angle_interval_can_encode_a_forward_arc_across_180():
+    result = score_angle(
+        "179°", 0.0, TF, TH,
+        certification_policy="strict_full_credit_only",
+        convention="dcase_foa_left_positive",
+        truth_interval_deg=[170.0, -170.0])
+    assert result["truth_mode"] == "interval"
+    assert result["circular_error_deg"] == pytest.approx(0.0)
+    assert result["score"] == 1.0
+
+
+def test_score_item_uses_truth_interval_instead_of_its_midpoint():
+    result = score_item(
+        {
+            "answer_type": "angle_deg",
+            "question": "positive values to the left",
+            "model_answer": "-179°",
+            "truth": 165.0,
+            "truth_interval_deg": [150.0, 180.0],
+            "convention": "dcase_foa_left_positive",
+        },
+        {
+            "THETA_FULL": TF,
+            "THETA_HALF": TH,
+            "ANGLE_CERTIFICATION_POLICY": "strict_full_credit_only",
+        },
+        DEFAULT_VOCAB,
+    )
+    assert result["truth_mode"] == "interval"
+    assert result["score"] == 1.0
+    assert result["circular_error_deg"] == pytest.approx(1.0)
+
+
+def test_angle_credit_radius_uses_policy_and_unknown_policy_is_an_error():
+    params = {"THETA_FULL": TF, "THETA_HALF": TH,
+              "ANGLE_CERTIFICATION_POLICY": "strict_full_credit_only"}
+    assert angle_credit_radius(params) == TF
+    assert angle_credit_radius(params, "legacy_two_tier") == TH
+    with pytest.raises(ValueError, match="ANGLE_CERTIFICATION_POLICY"):
+        angle_credit_radius({**params, "ANGLE_CERTIFICATION_POLICY": "bogus"})
+    with pytest.raises(ValueError, match="ANGLE_CERTIFICATION_POLICY"):
+        score_angle("20°", 0.0, TF, TH,
+                    certification_policy="bogus")
+    with pytest.raises(ValueError, match="ANGLE_CERTIFICATION_POLICY"):
+        angle_credit_radius({**params, "ANGLE_CERTIFICATION_POLICY": None})
 
 
 def test_angle_marked_number_beats_bare_and_restated_stem():
@@ -160,6 +360,29 @@ def _write(p: Path, obj) -> str:
     return str(p)
 
 
+def test_main_executes_strict_angle_policy(tmp_path):
+    items_p = _write(tmp_path / "items.json", [{
+        "question_id": "strict-angle",
+        "answer_type": "angle_deg",
+        "question": "DCASE FOA: positive values to the left.",
+        "model_answer": "20°",
+        "truth": 0.0,
+    }])
+    params_p = _write(tmp_path / "params.json", {
+        "THETA_FULL": TF,
+        "THETA_HALF": TH,
+        "T_FULL": SF,
+        "T_HALF": SH,
+        "ANGLE_CERTIFICATION_POLICY": "strict_full_credit_only",
+    })
+    out = tmp_path / "scores.json"
+    assert main(["--items", items_p, "--params", params_p, "--out", str(out)]) == 0
+    record = json.loads(out.read_text())["records"][0]
+    assert record["angle_convention"] == "left_positive"
+    assert record["score"] == 0.0
+    assert record["diagnostic_two_tier_score"] == 0.5
+
+
 def test_main_end_to_end_and_no_clobber(tmp_path):
     items = [
         {"question_id": "q1", "answer_type": "angle_deg", "model_answer": "-85°", "truth": -85},
@@ -172,6 +395,7 @@ def test_main_end_to_end_and_no_clobber(tmp_path):
          "truth": 2.4, "certification_policy": "strict_full_credit_only"},
     ]
     params = {"THETA_FULL": TF, "THETA_HALF": TH, "T_FULL": SF, "T_HALF": SH,
+              "ANGLE_CERTIFICATION_POLICY": "strict_full_credit_only",
               "BANDS_CARD8": [0.35, 1.1, 1.85, 2.6]}
     items_p = _write(tmp_path / "items.json", items)
     params_p = _write(tmp_path / "params.json", params)
@@ -186,7 +410,8 @@ def test_main_end_to_end_and_no_clobber(tmp_path):
     assert q5["score"] == 0.0
     assert q5["diagnostic_two_tier_score"] == 0.5
     assert doc["parameters"] == {
-        "THETA_FULL": TF, "THETA_HALF": TH, "T_FULL": SF, "T_HALF": SH}
+        "THETA_FULL": TF, "THETA_HALF": TH, "T_FULL": SF, "T_HALF": SH,
+        "ANGLE_CERTIFICATION_POLICY": "strict_full_credit_only"}
     # no-clobber
     assert main(["--items", items_p, "--params", params_p, "--out", str(out)]) == 2
 

@@ -22,7 +22,7 @@ import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from probe_physical_features import FEATURE_NAMES, extract_features, probe  # noqa: E402
-from score_open_answers import score_angle, score_time  # noqa: E402
+from score_open_answers import DEFAULT_VOCAB, resolve_angle_policy, score_item, score_time  # noqa: E402
 
 
 def _text_matrix(items):
@@ -108,20 +108,31 @@ def _constant_baseline(y, kind):
     return np.full(len(y), value, dtype=np.float64)
 
 
-def _numeric_score(predictions, truths, kind, params):
+def _numeric_score(predictions, truths, kind, params, items=None):
     scores = []
-    for prediction, truth in zip(predictions, truths):
+    metadata = [{} for _ in truths] if items is None else items
+    for prediction, truth, item in zip(predictions, truths, metadata, strict=True):
         if kind == "numeric_angle":
-            result = score_angle(
-                f"{prediction} deg", float(truth),
-                params["THETA_FULL"], params["THETA_HALF"])
-        else:
+            scored_item = {
+                "answer_type": "angle_deg", "truth": float(truth),
+                "model_answer": f"{prediction} deg",
+                **{key: item[key] for key in (
+                    "convention", "truth_interval_deg", "certification_policy")
+                   if item.get(key) is not None},
+            }
+            result = score_item(scored_item, params, DEFAULT_VOCAB)
+        elif kind == "numeric_time":
             result = score_time(
                 f"{prediction} s", float(truth),
                 params["T_FULL"], params["T_HALF"],
                 strict_certification=True)
+        else:
+            raise ValueError(f"unsupported numeric task type {kind!r}")
+        if result["status"] != "scored":
+            raise ValueError(f"numeric probe item could not be scored: {result}")
         scores.append(float(result["score"]))
     return float(np.mean(scores)), scores
+
 
 
 SCORING_KEYS = ("THETA_FULL", "THETA_HALF", "T_FULL", "T_HALF")
@@ -137,7 +148,8 @@ def scoring_snapshot(params):
         "T_FULL_status", "unspecified_treat_as_placeholder"))
     snapshot["time_certification_policy"] = "strict_full_credit_only"
     snapshot["time_wide_tolerance_role"] = "diagnostic_only"
-    snapshot["angle_policy"] = "two_tier_theta_full_theta_half"
+    snapshot["angle_policy"] = resolve_angle_policy(params)
+    snapshot["angle_policy_scope"] = "parameter default; explicit item policies are retained per group"
     return snapshot
 
 
@@ -167,16 +179,23 @@ def run(items, modality, params, folds):
             y = np.asarray(truths, dtype=np.float64)
             predictions = _numeric_predictions(x, y, task, folds)
             baseline = _constant_baseline(y, task)
-            score, per_item = _numeric_score(predictions, y, task, params)
-            baseline_score, _ = _numeric_score(baseline, y, task, params)
+            score, per_item = _numeric_score(predictions, y, task, params, rows)
+            baseline_score, _ = _numeric_score(baseline, y, task, params, rows)
             metric = {"mean_scorer_score": score,
                       "empirical_constant_baseline": baseline_score}
+            if task == "numeric_angle":
+                metric["angle_policies"] = sorted({
+                    resolve_angle_policy(params, row.get("certification_policy"))
+                    for row in rows})
         records.append({
             "profile_id": profile, "form": form, "task_type": task,
             "status": "research_probe_complete", "n": len(rows),
             **metric,
             "predictions": [
                 {"question_id": row["question_id"], "truth": row["truth"],
+                 **{key: row[key] for key in (
+                     "truth_interval_deg", "convention", "certification_policy")
+                    if row.get(key) is not None},
                  "prediction": (None if predictions[index] is None
                                 else str(predictions[index]))}
                 for index, row in enumerate(rows)],
