@@ -992,7 +992,10 @@ def _write_scene_candidate(
         gold=gatea_gold,
         appearance_by_slot=main_color_by_slot,
         speech_bindings=gatea_bindings,
-        schedule=speech_meta,
+        schedule={
+            **copy.deepcopy(dict(speech_meta)),
+            "events": copy.deepcopy(gatea_audio_events),
+        },
         target_slot="source2",
     )
     gateb = {

@@ -142,52 +142,106 @@ def check_onsets(wav: np.ndarray, program: dict, authority: dict,
     return errors
 
 
-def _gatea_semantic_failures(main_fact: dict, gate_fact: dict) -> list[str]:
-    """Validate either the legacy dual-form or current speech Gate-A checks."""
-    old_required = (
-        "event_count_same", "candidate_endpoints_same",
-        "non_slot_event_fields_same", "slot_sequence_changed",
-        "mcq_stem_same", "mcq_options_same", "open_stem_same",
-        "mcq_gold_flipped", "open_gold_separated",
-    )
-    current_required = (
-        "event_count_preserved", "event_times_preserved",
-        "sound_asset_multiset_preserved", "audio_assignment_changed",
-        "question_stem_preserved", "question_options_preserved",
-        "question_gold_changed",
-    )
-    checks = {}
-    for owner in (gate_fact, main_fact):
-        metadata = owner.get("gatea")
-        if isinstance(metadata, dict) and isinstance(metadata.get("checks"), dict):
-            checks = metadata["checks"]
-            if checks:
-                break
-        direct = owner.get("gatea_checks")
-        if isinstance(direct, dict) and direct:
-            checks = direct
-            break
-    if any(key in checks for key in current_required):
-        required = current_required
+def _gatea_semantic_failures(
+    main_fact: dict,
+    gate_fact: dict,
+    *,
+    main_program: dict | None = None,
+    gate_program: dict | None = None,
+) -> list[str]:
+    """Validate a route-only audio intervention from artifacts, not profile IDs."""
+
+    missing: list[str] = []
+    if isinstance(main_program, dict) and isinstance(gate_program, dict):
+        main_events = main_program.get("events")
+        gate_events = gate_program.get("events")
+        if not isinstance(main_events, list) or not isinstance(gate_events, list):
+            missing.append("events_present")
+            main_events, gate_events = [], []
+        if len(main_events) != len(gate_events):
+            missing.append("event_count_preserved")
+        elif main_events:
+            timing_fields = (
+                "start_tick", "end_tick_exclusive", "start_sample",
+                "end_sample_exclusive", "source_start_sample",
+                "source_end_sample_exclusive",
+            )
+            if any(
+                any(left.get(key) != right.get(key) for key in timing_fields)
+                for left, right in zip(main_events, gate_events)
+            ):
+                missing.append("event_times_preserved")
+            if any(
+                left.get("sound_asset_id") != right.get("sound_asset_id")
+                for left, right in zip(main_events, gate_events)
+            ):
+                missing.append("sound_asset_sequence_preserved")
+            if all(
+                left.get("source_endpoint_id") == right.get("source_endpoint_id")
+                for left, right in zip(main_events, gate_events)
+            ):
+                missing.append("audio_assignment_changed")
+            ignored = {"source_endpoint_id", "event_id"}
+            if any(
+                {key: value for key, value in left.items() if key not in ignored}
+                != {key: value for key, value in right.items() if key not in ignored}
+                for left, right in zip(main_events, gate_events)
+            ):
+                missing.append("non_assignment_event_fields_preserved")
+        main_candidates = main_program.get("candidate_source_endpoint_ids")
+        gate_candidates = gate_program.get("candidate_source_endpoint_ids")
+        if main_candidates != gate_candidates:
+            missing.append("candidate_endpoints_preserved")
     else:
-        required = old_required
-    missing = [key for key in required if checks.get(key) is not True]
+        # Retained facts produced before direct program comparison carry one of
+        # these two explicit check vocabularies.
+        old_required = (
+            "event_count_same", "candidate_endpoints_same",
+            "non_slot_event_fields_same", "slot_sequence_changed",
+            "mcq_stem_same", "mcq_options_same", "open_stem_same",
+            "mcq_gold_flipped", "open_gold_separated",
+        )
+        current_required = (
+            "event_count_preserved", "event_times_preserved",
+            "sound_asset_multiset_preserved", "audio_assignment_changed",
+            "question_stem_preserved", "question_options_preserved",
+            "question_gold_changed",
+        )
+        checks = {}
+        for owner in (gate_fact, main_fact):
+            metadata = owner.get("gatea")
+            if isinstance(metadata, dict) and isinstance(metadata.get("checks"), dict):
+                checks = metadata["checks"]
+                if checks:
+                    break
+            direct = owner.get("gatea_checks")
+            if isinstance(direct, dict) and direct:
+                checks = direct
+                break
+        required = (
+            current_required
+            if any(key in checks for key in current_required)
+            else old_required
+        )
+        missing.extend(key for key in required if checks.get(key) is not True)
 
     comparable = []
     for form, truth_key in (("mcq", "truth_option"), ("open", "truth_value")):
         main_form = main_fact.get(form)
         gate_form = gate_fact.get(form)
-        if (isinstance(main_form, dict) and isinstance(gate_form, dict)
-                and truth_key in main_form and truth_key in gate_form):
+        if not isinstance(main_form, dict) or not isinstance(gate_form, dict):
+            continue
+        if main_form.get("stem") != gate_form.get("stem"):
+            missing.append(f"{form}_stem_preserved")
+        if form == "mcq" and main_form.get("options_space") != gate_form.get("options_space"):
+            missing.append("mcq_options_preserved")
+        if truth_key in main_form and truth_key in gate_form:
             comparable.append((form, main_form[truth_key], gate_form[truth_key]))
     if not comparable:
         missing.append("question_gold_comparable")
-    else:
-        unchanged = [form for form, main_value, gate_value in comparable
-                     if main_value == gate_value]
-        if unchanged and "question_gold_changed" not in missing:
-            missing.append("question_gold_changed")
-    return missing
+    elif any(main_value == gate_value for _, main_value, gate_value in comparable):
+        missing.append("question_gold_changed")
+    return list(dict.fromkeys(missing))
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -286,7 +340,19 @@ def main(argv: list[str] | None = None) -> int:
             if main_fact_path.is_file() and gate_fact_path.is_file():
                 main_fact = json.loads(main_fact_path.read_text())
                 gate_fact = json.loads(gate_fact_path.read_text())
-                missing = _gatea_semantic_failures(main_fact, gate_fact)
+                main_program_path = find_program(
+                    programs_dir, base, "main", design_root=args.design_root
+                )
+                main_program = (
+                    json.loads(main_program_path.read_text())
+                    if main_program_path is not None else None
+                )
+                missing = _gatea_semantic_failures(
+                    main_fact,
+                    gate_fact,
+                    main_program=main_program,
+                    gate_program=program,
+                )
                 if missing:
                     failures.append(f"{name}: Gate A semantic checks failed {missing}")
                 else:

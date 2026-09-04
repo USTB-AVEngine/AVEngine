@@ -164,3 +164,93 @@ def test_onsets_tail_uses_declared_sample_rate():
         {"anchor_end_sample": 26400},
         None, 1.5, sample_rate_hz=sample_rate,
     ) == []
+
+
+def test_gatea_semantics_are_derived_from_programs_for_new_fact_shapes():
+    from verify_qa_v3_audio_batch import _gatea_semantic_failures
+
+    main_events = [
+        {
+            "event_id": "voice_1",
+            "source_endpoint_id": "source_a",
+            "sound_asset_id": "speech_a",
+            "start_tick": 30,
+            "end_tick_exclusive": 60,
+            "start_sample": 10,
+            "end_sample_exclusive": 20,
+            "source_start_sample": 0,
+            "source_end_sample_exclusive": 10,
+            "linear_gain": 1.0,
+        },
+        {
+            "event_id": "voice_2",
+            "source_endpoint_id": "source_b",
+            "sound_asset_id": "speech_b",
+            "start_tick": 90,
+            "end_tick_exclusive": 120,
+            "start_sample": 30,
+            "end_sample_exclusive": 40,
+            "source_start_sample": 0,
+            "source_end_sample_exclusive": 10,
+            "linear_gain": 1.0,
+        },
+    ]
+    gate_events = [dict(row) for row in main_events]
+    gate_events[0]["source_endpoint_id"] = "source_b"
+    gate_events[1]["source_endpoint_id"] = "source_a"
+    main_fact = {
+        "mcq": {"stem": "who?", "options_space": ["blue", "red"],
+                "truth_option": "blue"},
+        "open": {"stem": "who?", "truth_value": "blue"},
+    }
+    gate_fact = {
+        "mcq": {"stem": "who?", "options_space": ["blue", "red"],
+                "truth_option": "red"},
+        "open": {"stem": "who?", "truth_value": "red"},
+    }
+    main_program = {
+        "candidate_source_endpoint_ids": ["source_a", "source_b"],
+        "events": main_events,
+    }
+    gate_program = {
+        "candidate_source_endpoint_ids": ["source_a", "source_b"],
+        "events": gate_events,
+    }
+    assert _gatea_semantic_failures(
+        main_fact, gate_fact,
+        main_program=main_program, gate_program=gate_program,
+    ) == []
+
+    corrupted = json.loads(json.dumps(gate_program))
+    corrupted["events"][0]["start_sample"] += 1
+    assert "event_times_preserved" in _gatea_semantic_failures(
+        main_fact, gate_fact,
+        main_program=main_program, gate_program=corrupted,
+    )
+
+
+def test_gatea_semantics_reject_unchanged_assignment_and_gold():
+    from verify_qa_v3_audio_batch import _gatea_semantic_failures
+
+    event = {
+        "event_id": "voice",
+        "source_endpoint_id": "source_a",
+        "sound_asset_id": "speech",
+        "start_sample": 0,
+        "end_sample_exclusive": 10,
+        "source_start_sample": 0,
+        "source_end_sample_exclusive": 10,
+    }
+    fact = {
+        "mcq": {"stem": "who?", "options_space": ["a", "b"],
+                "truth_option": "a"},
+    }
+    program = {
+        "candidate_source_endpoint_ids": ["source_a", "source_b"],
+        "events": [event],
+    }
+    failures = _gatea_semantic_failures(
+        fact, fact, main_program=program, gate_program=program,
+    )
+    assert "audio_assignment_changed" in failures
+    assert "question_gold_changed" in failures
