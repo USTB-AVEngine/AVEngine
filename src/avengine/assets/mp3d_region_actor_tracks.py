@@ -725,6 +725,7 @@ def _track_for_actor(
         "emitter": {
             "anchor_id": actor["emitter_anchor_id"],
             "joint_id": anchor.get("joint_id"),
+            "joint_from_anchor": anchor["joint_from_anchor"],
             "position_authority": "pending_native_emitter_link_readback",
             "planned_route_center_is_not_emitter_position": True,
         },

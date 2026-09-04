@@ -217,6 +217,8 @@ def test_real_beagle_tracks_support_parameterized_clocks(
     assert not (output / "frame_records.json").exists()
     assert receipt["clock"]["frame_count"] == frame_count
     load_m1_inputs(ROOM_MANIFEST, output / "m1_capture_request.json")
+    asset = json.loads(BEAGLE_ASSET.read_text(encoding="utf-8"))
+    expected_anchor = next(anchor for anchor in asset["anchors"] if anchor["anchor_id"] == "muzzle")
     for item in receipt["actors"]:
         track = json.loads((output / item["track_path"]).read_text(encoding="utf-8"))
         assert track["native_observed"] is False
@@ -228,6 +230,7 @@ def test_real_beagle_tracks_support_parameterized_clocks(
             for frame in track["frames"]
         )
         assert track["emitter"]["planned_route_center_is_not_emitter_position"] is True
+        assert track["emitter"]["joint_from_anchor"] == expected_anchor["joint_from_anchor"]
         assert track["asset"]["actions"]["walk"]["source_action_name"] == "Walking"
         assert track["asset"]["runtime_roles"]["visual"].endswith("visual.glb")
 
