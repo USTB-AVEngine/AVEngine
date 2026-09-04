@@ -122,6 +122,7 @@ def test_speech_sidecar_carries_the_answer_and_the_split() -> None:
     pick = plan_vctk_utterances(speaker, {"001": 2.0}, per_speaker=1)[0]
     sidecar = sidecar_for_speech(pick, "  Please call Stella.\n")
     assert sidecar["transcript"] == "Please call Stella."
+    assert sidecar["utterance_id"] == "001"
     assert sidecar["gender"] == "F" and sidecar["split"] == "eval"
     assert sidecar["controlled_content"] is True
     assert sidecar["event_classes"] == ["speech_playback"]

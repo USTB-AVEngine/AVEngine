@@ -20,6 +20,7 @@ event: a family reclassification must not rename the files.
 from __future__ import annotations
 
 import argparse
+from collections.abc import Mapping
 import hashlib
 import io
 import json
@@ -37,6 +38,9 @@ from avengine.assets.sound_events import (  # noqa: E402
     extract_sound_events,
     slice_event,
     split_family,
+)
+from avengine.assets.sound_harvest import (  # noqa: E402
+    speech_metadata_from_mapping,
 )
 
 SCHEMA = "avengine_sound_event_library_v1"
@@ -167,6 +171,32 @@ def _source_library_sha256(library_root: Path) -> str | None:
     return hashlib.sha256(manifest.read_bytes()).hexdigest()
 
 
+def _prepared_metadata(library_root: Path) -> dict[str, dict]:
+    """Load explicit optional metadata from the prepared manifest only."""
+
+    manifest_path = library_root / "prepared_manifest.json"
+    if not manifest_path.is_file():
+        return {}
+    try:
+        payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return {}
+    rows = payload.get("clips") if isinstance(payload, Mapping) else None
+    if not isinstance(rows, list):
+        return {}
+    result: dict[str, dict] = {}
+    for row in rows:
+        if not isinstance(row, Mapping) or row.get("status") != "prepared":
+            continue
+        prepared = row.get("prepared")
+        if not isinstance(prepared, str) or not prepared:
+            continue
+        metadata = speech_metadata_from_mapping(row)
+        if metadata:
+            result[prepared] = metadata
+    return result
+
+
 def split_library(library_root: Path, output_root: Path, *,
                   peak_normalize: bool = False) -> dict:
     if output_root.exists() and any(output_root.iterdir()):
@@ -178,8 +208,10 @@ def split_library(library_root: Path, output_root: Path, *,
     seen_sha8: dict[tuple[str, str], str] = {}
     counts = {"pulse_events": 0, "continuous_events": 0, "failed": 0, "sources": 0}
     source_library_sha256 = _source_library_sha256(library_root)
+    prepared_metadata = _prepared_metadata(library_root)
     for wav_path in sorted(library_root.rglob("*.wav")):
         relative = wav_path.relative_to(library_root).as_posix()
+        metadata = prepared_metadata.get(relative, {})
         event_class = _class_from_relative(relative)
         category = category_for_class(event_class)
         counts["sources"] += 1
@@ -195,6 +227,7 @@ def split_library(library_root: Path, output_root: Path, *,
                     "source": relative,
                     "status": "failed",
                     "reason_zh": f"切事件失败:{error}",
+                    **metadata,
                 }
             )
             continue
@@ -256,6 +289,7 @@ def split_library(library_root: Path, output_root: Path, *,
                             (untruncated_end - event.start_sample) / rate, 4)),
                     "applied_gain_db": round(applied_gain_db, 4),
                     "prepared_sha256": sha256,
+                    **metadata,
                 }
             )
             index_assets.append(
@@ -270,6 +304,7 @@ def split_library(library_root: Path, output_root: Path, *,
                     "sample_rate_hz": rate,
                     "channel_count": 1,
                     "sample_count": sample_count,
+                    **metadata,
                 }
             )
 

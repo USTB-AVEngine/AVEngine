@@ -43,6 +43,32 @@ VCTK_MAX_SECONDS = 6.0
 FSD50K_MIN_SECONDS = 0.5
 FSD50K_MAX_SECONDS = 20.0
 
+# These are optional source metadata fields. They are copied only when an
+# explicit sidecar supplies them; no field is reconstructed from a filename or
+# the human-readable source string.
+SPEECH_METADATA_FIELDS = (
+    "speaker_id",
+    "utterance_id",
+    "transcript",
+    "split",
+)
+
+
+def speech_metadata_from_mapping(value: Mapping[str, Any]) -> dict[str, Any]:
+    """Return explicit speech provenance fields without inventing labels."""
+
+    if not isinstance(value, Mapping):
+        return {}
+    metadata: dict[str, Any] = {}
+    for key in SPEECH_METADATA_FIELDS:
+        if key not in value or value[key] is None:
+            continue
+        raw = value[key]
+        if not isinstance(raw, str) or not raw.strip():
+            continue
+        metadata[key] = raw
+    return metadata
+
 
 class HarvestError(ValueError):
     pass
@@ -284,6 +310,7 @@ def sidecar_for_speech(pick: Mapping[str, Any], transcript: str) -> dict[str, An
         "dry": True,
         "transcript": transcript.strip(),
         "speaker_id": pick["speaker_id"],
+        "utterance_id": pick["sentence_id"],
         "gender": pick["gender"],
         "accent": pick["accent"],
         "split": pick["split"],

@@ -39,7 +39,7 @@
 | 项目 | 数字 |
 | --- | ---: |
 | 条目 | 1200 条、37 类；prepared 1151、alias 32、skipped 17 |
-| 人声 `speech_playback` | 620 条：VCTK 600 条（24 个说话人 × 25 句，`clip.json` 带转写、说话人号、性别、口音、split=eval，600 条全部 prepared）+ fsd50k 20 条 |
+| 人声 `speech_playback` | 620 条：VCTK 600 条（16 个 train 说话人 × 25 句 = 400；8 个 eval 说话人 × 25 句 = 200；`clip.json` 带转写、说话人号、性别、口音与 split，600 条全部 prepared）+ FSD50K 20 条 |
 | 狗叫 `dog_bark` | 21 条（19 prepared） |
 | 猫叫 `cat_meow` | 20 条（18 prepared） |
 | 音乐 `music_playback` | 20 条（15 prepared，5 alias） |
@@ -224,6 +224,7 @@ examples/runtime/source_asset_runtime_profiles.json      60 KB
 
 每个说话人恰好 25 句。所以 card13/card14 的人声池是 16 个说话人 × 25 句 = 400 句，
 两人各用各的说话人时，一段视频消耗 2 个说话人 2 句。
+准备清单、事件清单、pool 与声资产注册表会继续携带侧车明确提供的 `speaker_id`、`utterance_id`、`transcript`、`split` 字段；旧侧车缺少这些可选字段时保持缺失，不从路径或 source 文本推断。
 
 ## 四、UE 侧：内容注册表与打包好的 stage
 

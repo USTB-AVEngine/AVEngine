@@ -29,6 +29,9 @@ REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO / "src"))
 
 from avengine.assets.sound_events import event_policy_for_class  # noqa: E402
+from avengine.assets.sound_harvest import (  # noqa: E402
+    speech_metadata_from_mapping,
+)
 from avengine.assets.sound_pool import SCHEMA as POOL_SCHEMA  # noqa: E402
 
 MANIFEST_SCHEMA = "avengine_sound_event_library_v1"
@@ -99,6 +102,7 @@ def build_pool_catalog(manifest_path: Path, output_path: Path) -> dict:
             "source_end_sample_exclusive": frames,
             "prepared": prepared,
             "purpose": purpose,
+            **speech_metadata_from_mapping(row),
         })
     if not clips:
         raise PoolBuildError(f"{manifest_path} has no event rows")

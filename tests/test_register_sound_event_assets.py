@@ -51,6 +51,24 @@ def _catalog(tmp_path: Path) -> Path:
         library / "speech_playback" / "talk.wav",
         _tone(200, 16000, 1.0, amplitude=0.2),
     )
+    (library / "prepared_manifest.json").write_text(
+        json.dumps(
+            {
+                "schema": "avengine_prepared_sound_clip_v1",
+                "clips": [
+                    {
+                        "source": "speech_playback/talk.wav",
+                        "prepared": "speech_playback/talk.wav",
+                        "status": "prepared",
+                        "speaker_id": "p225",
+                        "utterance_id": "001",
+                        "transcript": "Please call Stella.",
+                        "split": "eval",
+                    }
+                ],
+            }
+        )
+    )
     events = tmp_path / "events"
     split_library(library, events)
     catalog = tmp_path / "pool.json"
@@ -113,6 +131,14 @@ def test_register_derives_dry_audio_and_passes_validator(tmp_path: Path) -> None
     assert OWNER_ADMISSION_NOTE in dog["provenance"]["origin"]
     assert dog["sound_asset_id"].startswith("sound_dog_bark_")
     assert dog["sound_asset_id"].endswith("_v1")
+    speech = next(
+        item for item in registry["sound_assets"]
+        if item["semantic_sound_class"] == "speech_playback"
+    )
+    assert speech["speaker_id"] == "p225"
+    assert speech["utterance_id"] == "001"
+    assert speech["transcript"] == "Please call Stella."
+    assert speech["split"] == "eval"
 
 
 def test_missing_permitted_event_usage_fails(tmp_path: Path, capsys) -> None:

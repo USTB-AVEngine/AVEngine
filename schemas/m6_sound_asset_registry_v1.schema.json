@@ -26,6 +26,10 @@
         "sound_asset_id": {"$ref": "#/$defs/stable_id"},
         "revision": {"$ref": "#/$defs/stable_id"},
         "semantic_sound_class": {"$ref": "#/$defs/stable_id"},
+        "speaker_id": {"$ref": "#/$defs/stable_id"},
+        "utterance_id": {"$ref": "#/$defs/stable_id"},
+        "transcript": {"type": "string", "minLength": 1},
+        "split": {"type": "string", "minLength": 1},
         "taxonomy_path": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/stable_id"}},
         "instance_lineage_id": {"oneOf": [{"$ref": "#/$defs/stable_id"}, {"type": "null"}]},
         "dry_audio": {

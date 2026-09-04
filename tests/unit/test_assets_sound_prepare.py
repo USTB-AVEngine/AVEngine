@@ -143,3 +143,33 @@ def test_the_gate_skips_unusable_and_unchecked_and_aliases_copies(
     with wave.open(str(written[0]), "rb") as handle:
         assert handle.getframerate() == 16000
         assert handle.getnchannels() == 1
+
+def test_prepare_manifest_carries_explicit_speech_metadata(tmp_path: Path) -> None:
+    root = tmp_path / "library"
+    source = _write(
+        root / "speech_playback" / "vctk_p225_001" / "clip.wav",
+        _tone(700, 16000, 1.0),
+        16000,
+    )
+    source.with_suffix(".qc.json").write_text(
+        json.dumps({"verdict": "pass", "findings": []})
+    )
+    source.with_suffix(".json").write_text(
+        json.dumps(
+            {
+                "event_classes": ["speech_playback"],
+                "speaker_id": "p225",
+                "utterance_id": "001",
+                "transcript": "Please call Stella.",
+                "split": "eval",
+                "dry": True,
+            }
+        )
+    )
+
+    row = prepare_library(root, tmp_path / "prepared")["clips"][0]
+    assert row["speaker_id"] == "p225"
+    assert row["utterance_id"] == "001"
+    assert row["transcript"] == "Please call Stella."
+    assert row["split"] == "eval"
+    assert "dry" not in row

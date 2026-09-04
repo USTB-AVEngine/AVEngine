@@ -170,3 +170,40 @@ def test_splitter_refuses_to_write_into_the_prepared_tree(
     (library / "prepared_manifest.json").write_text("{}")
     with pytest.raises(SystemExit, match="prepared library"):
         main(["--library-root", str(library), "--output-root", str(library)])
+
+def test_splitter_carries_explicit_speech_metadata(tmp_path: Path) -> None:
+    library = tmp_path / "prepared"
+    relative = "speech_playback/vctk_p225_001/clip.wav"
+    _write(library / relative, _tone(200, 16000, 1.0), 16000)
+    (library / "prepared_manifest.json").write_text(
+        json.dumps(
+            {
+                "schema": "avengine_prepared_sound_clip_v1",
+                "clips": [
+                    {
+                        "source": relative,
+                        "prepared": relative,
+                        "status": "prepared",
+                        "speaker_id": "p225",
+                        "utterance_id": "001",
+                        "transcript": "Please call Stella.",
+                        "split": "eval",
+                    }
+                ],
+            }
+        )
+    )
+
+    output = tmp_path / "events"
+    manifest = split_library(library, output)
+    row = next(item for item in manifest["clips"] if item["status"] == "event")
+    assert row["speaker_id"] == "p225"
+    assert row["utterance_id"] == "001"
+    assert row["transcript"] == "Please call Stella."
+    assert row["split"] == "eval"
+    index = json.loads((output / "index.json").read_text())
+    asset = index["assets"][0]
+    assert asset["speaker_id"] == "p225"
+    assert asset["utterance_id"] == "001"
+    assert asset["transcript"] == "Please call Stella."
+    assert asset["split"] == "eval"

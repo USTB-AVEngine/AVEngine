@@ -19,6 +19,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping
 
+from avengine.assets.sound_harvest import speech_metadata_from_mapping
+
 SCHEMA = "avengine_sound_event_pool_v1"
 
 
@@ -34,6 +36,10 @@ class PoolClip:
     sample_rate_hz: int
     source_start_sample: int
     source_end_sample_exclusive: int
+    speaker_id: str | None = None
+    utterance_id: str | None = None
+    transcript: str | None = None
+    split: str | None = None
 
 
 def _int_field(row: Mapping[str, Any], key: str, *, owner: str) -> int:
@@ -87,6 +93,7 @@ class SoundEventPool:
                 raise SoundPoolError(
                     f"{owner} duration_samples={duration} != "
                     f"source window {end}-{start}={window}")
+            metadata = speech_metadata_from_mapping(row)
             clips.append(
                 PoolClip(
                     sound_asset_id=asset_id,
@@ -95,6 +102,10 @@ class SoundEventPool:
                     sample_rate_hz=rate,
                     source_start_sample=start,
                     source_end_sample_exclusive=end,
+                    speaker_id=metadata.get("speaker_id"),
+                    utterance_id=metadata.get("utterance_id"),
+                    transcript=metadata.get("transcript"),
+                    split=metadata.get("split"),
                 )
             )
         return cls(clips, source=str(catalog_path))

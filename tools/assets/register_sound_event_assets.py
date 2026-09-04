@@ -27,6 +27,9 @@ from avengine.registry.registry import bind_content_hash  # noqa: E402
 from avengine.registry.sources import (  # noqa: E402
     validate_sound_asset_registry,
 )
+from avengine.assets.sound_harvest import (  # noqa: E402
+    speech_metadata_from_mapping,
+)
 from split_sound_library_events import category_for_class  # noqa: E402
 
 POOL_SCHEMA = "avengine_sound_event_pool_v1"
@@ -223,6 +226,7 @@ def register_sound_event_assets(
                 "sound_asset_id": asset_id,
                 "revision": revision,
                 "semantic_sound_class": event_class,
+                **speech_metadata_from_mapping(row),
                 "taxonomy_path": [category, event_class],
                 "instance_lineage_id": None,
                 "dry_audio": {

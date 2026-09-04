@@ -43,6 +43,11 @@ from typing import Any
 import numpy as np
 from scipy.signal import resample_poly
 
+from avengine.assets.sound_harvest import (
+    SPEECH_METADATA_FIELDS,
+    speech_metadata_from_mapping,
+)
+
 SCHEMA = "avengine_prepared_sound_clip_v1"
 
 TARGET_RATE_HZ = 16000
@@ -65,6 +70,20 @@ class PreparedClip:
     status: str
     reason_zh: str
     facts: dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
+def _read_source_metadata(wav_path: Path) -> dict[str, Any]:
+    """Read only explicit optional metadata beside one source WAV."""
+
+    sidecar = wav_path.with_suffix(".json")
+    if not sidecar.is_file():
+        return {}
+    try:
+        payload = json.loads(sidecar.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return {}
+    return speech_metadata_from_mapping(payload)
 
 
 def _read_wav_mono(path: Path) -> tuple[np.ndarray, int]:
@@ -193,20 +212,28 @@ def prepare_library(
 
     for wav_path in sorted(library_root.rglob("*.wav")):
         relative = wav_path.relative_to(library_root).as_posix()
+        metadata = _read_source_metadata(wav_path)
         digest = hashlib.sha256(wav_path.read_bytes()).hexdigest()
 
         qc_path = wav_path.with_suffix(".qc.json")
         if not qc_path.is_file():
             results.append(
-                PreparedClip(relative, None, "skipped",
-                             "还没做过质检,先跑 qc_sound_library.py")
+                PreparedClip(
+                    relative, None, "skipped",
+                    "还没做过质检,先跑 qc_sound_library.py",
+                    metadata=metadata,
+                )
             )
             continue
         try:
             qc = json.loads(qc_path.read_text(encoding="utf-8"))
         except ValueError as error:
             results.append(
-                PreparedClip(relative, None, "skipped", f"质检报告读不了:{error}")
+                PreparedClip(
+                    relative, None, "skipped",
+                    f"质检报告读不了:{error}",
+                    metadata=metadata,
+                )
             )
             continue
         verdict = str(qc.get("verdict"))
@@ -216,8 +243,11 @@ def prepare_library(
                 if f.get("severity") == "fail"
             )
             results.append(
-                PreparedClip(relative, None, "skipped",
-                             f"质检判为{verdict},不做处理:{reasons}")
+                PreparedClip(
+                    relative, None, "skipped",
+                    f"质检判为{verdict},不做处理:{reasons}",
+                    metadata=metadata,
+                )
             )
             continue
 
@@ -227,6 +257,7 @@ def prepare_library(
                     relative, prepared_by_digest[digest], "alias",
                     f"与 {prepared_by_digest[digest]} 是同一段音频,不重复处理",
                     {"source_sha256": digest},
+                    metadata,
                 )
             )
             continue
@@ -238,7 +269,11 @@ def prepare_library(
             )
         except (PrepareError, wave.Error, OSError, ValueError) as error:
             results.append(
-                PreparedClip(relative, None, "failed", f"处理失败:{error}")
+                PreparedClip(
+                    relative, None, "failed",
+                    f"处理失败:{error}",
+                    metadata=metadata,
+                )
             )
             continue
 
@@ -257,6 +292,7 @@ def prepare_library(
                 relative, relative, "prepared",
                 f"已转 {target_rate_hz} Hz 单声道,去直流、去首尾静音、峰值归一",
                 facts,
+                metadata,
             )
         )
 
@@ -277,6 +313,8 @@ def prepare_library(
                 "status": row.status,
                 "reason_zh": row.reason_zh,
                 **({"facts": row.facts} if row.facts else {}),
+                **({key: row.metadata[key] for key in SPEECH_METADATA_FIELDS
+                    if key in row.metadata} if row.metadata else {}),
             }
             for row in results
         ],

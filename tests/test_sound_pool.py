@@ -153,3 +153,25 @@ def test_module_docstring_requires_registered_sound_asset_ids():
     from avengine.assets import sound_pool
     assert "已注册" in sound_pool.__doc__
     assert "sound_asset_id" in sound_pool.__doc__
+
+def test_pool_clip_keeps_explicit_speech_metadata(tmp_path: Path):
+    path = tmp_path / "pool.json"
+    _catalog(path, [
+        {
+            "sound_asset_id": "speech",
+            "event_class": "speech_playback",
+            "sample_rate_hz": 16000,
+            "duration_samples": 16000,
+            "source_start_sample": 0,
+            "source_end_sample_exclusive": 16000,
+            "speaker_id": "p225",
+            "utterance_id": "001",
+            "transcript": "Please call Stella.",
+            "split": "eval",
+        }
+    ])
+    clip = SoundEventPool.from_catalog(path).clips_for("speech_playback")[0]
+    assert clip.speaker_id == "p225"
+    assert clip.utterance_id == "001"
+    assert clip.transcript == "Please call Stella."
+    assert clip.split == "eval"

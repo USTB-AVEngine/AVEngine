@@ -121,3 +121,31 @@ def test_a_class_that_loses_every_clip_still_fails(tmp_path: Path):
     ], output_root=output_root)
     with pytest.raises(PoolBuildError, match="lost every clip"):
         build_pool_catalog(manifest, tmp_path / "pool.json")
+
+def test_pool_carries_explicit_speech_metadata(tmp_path: Path) -> None:
+    output_root = tmp_path / "events"
+    wav = output_root / "speech" / "speech_playback" / "abcdef12" / "event.wav"
+    _write_wav(wav, np.ones(16000) * 0.2)
+    manifest = _manifest(
+        tmp_path,
+        [
+            {
+                "status": "event",
+                "purpose": "continuous",
+                "event_class": "speech_playback",
+                "sound_asset_id": "sound_speech_playback_abcdef12_v1",
+                "prepared": "speech/speech_playback/abcdef12/event.wav",
+                "speaker_id": "p225",
+                "utterance_id": "001",
+                "transcript": "Please call Stella.",
+                "split": "eval",
+            }
+        ],
+        output_root=output_root,
+    )
+    catalog = build_pool_catalog(manifest, tmp_path / "pool.json")
+    row = catalog["clips"][0]
+    assert row["speaker_id"] == "p225"
+    assert row["utterance_id"] == "001"
+    assert row["transcript"] == "Please call Stella."
+    assert row["split"] == "eval"
