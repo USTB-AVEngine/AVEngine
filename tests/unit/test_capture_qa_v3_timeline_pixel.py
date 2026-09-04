@@ -88,3 +88,24 @@ def test_pixel_camera_uses_the_authored_lens_and_resolution() -> None:
     }) == {"height": 480, "width": 640, "hfov_deg": 90.0}
     with pytest.raises(RuntimeError, match="camera resolution"):
         TOOL._camera_settings({"resolution_hw": [0, 640], "hfov_degrees": 90})
+
+
+def test_spear_extension_bootstrap_requires_one_existing_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    extension = tmp_path / "host-sdk"
+    extension.mkdir()
+    original = list(TOOL.sys.path)
+    monkeypatch.setattr(TOOL.sys, "path", list(original))
+    assert TOOL._preload_spear_extension(
+        ["--spear-ext", str(extension)]
+    ) == extension.resolve()
+    assert TOOL.sys.path[1] == str(extension.resolve())
+    with pytest.raises(RuntimeError, match="exactly once"):
+        TOOL._preload_spear_extension(
+            ["--spear-ext", str(extension), "--spear-ext", str(extension)]
+        )
+    with pytest.raises(RuntimeError, match="not a directory"):
+        TOOL._preload_spear_extension(
+            ["--spear-ext", str(tmp_path / "missing")]
+        )

@@ -21,6 +21,24 @@ import numpy as np
 REPOSITORY = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPOSITORY / "src"))
 
+
+def _preload_spear_extension(argv: Sequence[str]) -> Path | None:
+    """Put an explicitly declared host SDK on sys.path before client import."""
+
+    positions = [index for index, value in enumerate(argv) if value == "--spear-ext"]
+    if not positions:
+        return None
+    if len(positions) != 1 or positions[0] + 1 >= len(argv):
+        raise RuntimeError("--spear-ext must be supplied exactly once with a path")
+    path = Path(argv[positions[0] + 1]).expanduser().resolve()
+    if not path.is_dir():
+        raise RuntimeError(f"--spear-ext is not a directory: {path}")
+    sys.path.insert(1, str(path))
+    return path
+
+
+_BOOTSTRAP_SPEAR_EXT = _preload_spear_extension(sys.argv[1:])
+
 from avengine.backends.spear_ue.research_runtime import read_actor_pose  # noqa: E402
 from avengine.qa.pixel_visibility import (  # noqa: E402
     PIXEL_VISIBILITY_DEPTH_AUTHORITY,
@@ -396,6 +414,7 @@ def run(args: argparse.Namespace) -> Path:
             "inputs": {
                 "actor_selection": str(selection_file),
                 "timeline": str(timeline_file),
+                "spear_ext": str(args.spear_ext.resolve()),
                 "closure_report": str(closure_file),
                 "stage_root": str(stage),
                 "spear_executable": str(executable),
@@ -426,6 +445,12 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--closure-report", required=True, type=Path)
     parser.add_argument("--stage-root", required=True, type=Path)
     parser.add_argument("--spear-executable", required=True, type=Path)
+    parser.add_argument(
+        "--spear-ext",
+        required=True,
+        type=Path,
+        help="declared installed AVEngine SPEAR host SDK directory",
+    )
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--native-map")
     parser.add_argument("--frame-index", type=int, action="append")
