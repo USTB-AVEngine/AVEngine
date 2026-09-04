@@ -506,3 +506,23 @@ def test_explicit_excerpt_from_long_asset_is_not_an_implicit_tail_crop():
             "end_sample_exclusive": 8000, "sample_count": 4800},
         "fit": {"cropped_tail_sample_count": 0, "copied_sample_count": 4800}}]))
     _assert_no_cropped_dry_audio(assembly)
+
+
+
+def test_capture_endpoint_order_is_authoritative_over_program_order(tmp_path):
+    frames = [{"frame_index": i, "source_positions_m": [[i, 1, 0], [i, 2, 0]]}
+              for i in range(75)]
+    (tmp_path / "frame_records.json").write_text(json.dumps({
+        "source_endpoint_ids": ["b", "a"], "frames": frames}))
+    result = load_captured_source_paths(tmp_path, ("a", "b"))
+    assert result["a"][10] == [10.0, 2.0, 0.0]
+    assert result["b"][10] == [10.0, 1.0, 0.0]
+
+
+def test_capture_endpoint_ids_cannot_silently_disagree(tmp_path):
+    (tmp_path / "frame_records.json").write_text(json.dumps({
+        "source_endpoint_ids": ["a", "wrong"],
+        "frames": [{"frame_index": i, "source_positions_m": [[0, 0, 0], [1, 0, 0]]}
+                   for i in range(75)]}))
+    with pytest.raises(CurrentMP3DDynamicAudioError, match="uniquely match"):
+        load_captured_source_paths(tmp_path, ("a", "b"))

@@ -279,7 +279,19 @@ def load_captured_source_paths(
         frame_rate_hz=frame_rate_hz,
         ticks_per_frame=ticks_per_frame,
     )
-    _, frames = _read_frame_records(visual_capture_dir)
+    payload, frames = _read_frame_records(visual_capture_dir)
+    if len(set(source_ids)) != len(source_ids) or any(not source_id for source_id in source_ids):
+        raise CurrentMP3DDynamicAudioError("program candidate source IDs must be unique and nonempty")
+    recorded_ids = payload.get("source_endpoint_ids")
+    if recorded_ids is None:
+        recorded_ids = list(source_ids)  # explicit legacy capture ordering
+    if (not isinstance(recorded_ids, list)
+            or any(not isinstance(value, str) or not value for value in recorded_ids)
+            or len(recorded_ids) != len(set(recorded_ids))
+            or set(recorded_ids) != set(source_ids)):
+        raise CurrentMP3DDynamicAudioError(
+            "captured source endpoint IDs must uniquely match the program candidates")
+    index_by_id = {source_id: index for index, source_id in enumerate(recorded_ids)}
     trajectories: dict[str, list[list[float]]] = {
         source_id: [] for source_id in source_ids
     }
@@ -289,7 +301,8 @@ def load_captured_source_paths(
             raise CurrentMP3DDynamicAudioError(
                 "each frame must record one source position per program candidate"
             )
-        for slot, source_id in enumerate(source_ids):
+        for source_id in source_ids:
+            slot = index_by_id[source_id]
             try:
                 point = [float(value) for value in positions[slot]]
             except (TypeError, ValueError, OverflowError) as error:

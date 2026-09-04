@@ -800,7 +800,11 @@ def _capture_with_runtime(
         filename = f"actor_joint_readbacks_{slot}.npy"
         _save_array(output, filename.removesuffix(".npy"), frames)
         actor_joint_artifacts[slot] = filename
-    _write_json(output / "frame_records.json", {"frames": frame_records, "render": dict(case["clock"])})
+    _write_json(output / "frame_records.json", {
+        "source_endpoint_ids": [item["track"]["source_endpoint_id"] for item in actor_runtime],
+        "frames": frame_records,
+        "render": dict(case["clock"]),
+    })
     receipt = {
         "schema": NATIVE_CAPTURE_SCHEMA,
         "artifact_role": "observed_native_habitat_capture",
