@@ -87,7 +87,14 @@ class SearchExhausted(RuntimeError):
         self.evaluated_combinations = int(evaluated_combinations)
 
 
-def _resource_inventory(profile_id, assets, sounds, speech_pool=None):
+def _speech_actor_count(profile):
+    count = profile.get("actor_count", 4)
+    if isinstance(count, bool) or not isinstance(count, int) or count < 2:
+        raise ValueError("speech contrast profiles need an integer actor_count >= 2")
+    return count
+
+
+def _resource_inventory(profile_id, assets, sounds, speech_pool=None, profile=None):
     dogs = [
         item for item in assets
         if item.get("identity", {}).get("species_id") == "dog"
@@ -137,17 +144,26 @@ def _resource_inventory(profile_id, assets, sounds, speech_pool=None):
         missing.append("two_registered_dog_assets")
     if profile_id == "card12" and len(sound_types) < 4:
         missing.append("four_registered_semantic_sound_types")
+    requirements = {}
     if profile_id in {"card13", "card14"}:
-        if len(humans) < 4:
-            missing.append("four_controlled_human_top_colours")
-        if len(speech) < 4:
-            missing.append("four_transcribed_speech_assets")
+        profile = profile or {"id": profile_id}
+        count = _speech_actor_count(profile)
+        for key, default in (("required_controlled_colours", count), ("required_transcripts", count)):
+            value = profile.get(key, default)
+            if isinstance(value, bool) or not isinstance(value, int) or value < count:
+                raise ValueError(f"{key} must be an integer >= actor_count")
+            requirements[key] = value
+        if len(humans) < requirements["required_controlled_colours"]:
+            missing.append("controlled_human_top_colours")
+        if len(speech) < requirements["required_transcripts"]:
+            missing.append("transcribed_speech_assets")
     return {
         "dogs": dogs,
         "humans": humans,
         "sound_types": sound_types,
         "speech": speech,
         "missing": missing,
+        "requirements": requirements,
     }
 
 
@@ -201,8 +217,8 @@ def _timeline_dimensions(params) -> tuple[int, float]:
         or frame_count < 2
     ):
         raise ValueError("timeline duration and frame clock must be positive and finite")
-    expected = int(round(clip_seconds * frame_rate_hz))
-    if frame_count != expected:
+    expected = clip_seconds * frame_rate_hz
+    if not math.isclose(frame_count, expected, rel_tol=0.0, abs_tol=1e-9):
         raise ValueError(
             f"FRAME_COUNT={frame_count} disagrees with "
             f"CLIP_SECONDS*VIDEO_FPS={expected}"
@@ -400,7 +416,7 @@ def _speech_pool_rows(params):
     ]
 
 
-def _speech_schedule(params, *, cell_index, seed):
+def _speech_schedule(params, *, cell_index, seed, utterance_count=4):
     source_rng = np.random.default_rng(
         seed_uint64(f"{seed}|speech-source|{cell_index}"))
     layout_rng = np.random.default_rng(
@@ -415,7 +431,8 @@ def _speech_schedule(params, *, cell_index, seed):
         layout_rng,
         params=params,
         clip_source=clip_source,
-        roles=[f"source{index}" for index in range(1, 5)],
+        roles=[f"source{index}" for index in range(1, utterance_count + 1)],
+        utterance_count=utterance_count,
         split=str(params.get("SPEECH_SPLIT", "train")),
     )
 
@@ -929,13 +946,17 @@ def _realise_cell(out_root, profile, cell_index, scene, params, inventory,
     profile_id = profile["id"]
     # Exhausted audio selection must not leave a renderable partial point.
     speech_schedule = (
-        _speech_schedule(params, cell_index=cell_index, seed=seed)
+        _speech_schedule(params, cell_index=cell_index, seed=seed,
+                         utterance_count=_speech_actor_count(profile))
         if profile_id in {"card13", "card14"} else None)
     if profile_id in {"card13", "card14"}:
         appearance_rng = np.random.default_rng(
             seed_uint64(f"{seed}|appearance|{cell_index}"))
-        humans = list(inventory["humans"][:4])
-        order = appearance_rng.permutation(len(humans))
+        humans = list(inventory["humans"])
+        count = _speech_actor_count(profile)
+        if len(humans) < count:
+            raise ValueError("not enough distinct registered human colours for this actor_count")
+        order = appearance_rng.permutation(len(humans))[:count]
         actor_assets = [humans[int(index)]["asset_id"] for index in order]
     else:
         actor_assets = [item["asset_id"] for item in inventory["dogs"][
@@ -949,7 +970,7 @@ def _realise_cell(out_root, profile, cell_index, scene, params, inventory,
     endpoint_path = point / "source_endpoints.json"
     speech_endpoint_classes = (
         {f"source{index}": ["speech_playback"]
-         for index in range(1, 5)}
+         for index in range(1, len(actor_assets) + 1)}
         if profile_id in {"card13", "card14"} else None
     )
     _, endpoint_records = build_endpoint_registry(
@@ -1335,6 +1356,7 @@ def main(argv=None):
         registry["assets"],
         sound_registry["sound_assets"],
         speech_pool=speech_pool,
+        profile=profile,
     )
     if inventory["missing"]:
         _write_unavailable(

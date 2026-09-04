@@ -54,7 +54,7 @@ def test_current_registry_exposes_semantic_asset_shortfalls():
     assert _resource_inventory("card12", assets, sounds)["missing"] == [
         "four_registered_semantic_sound_types"]
     speech_missing = _resource_inventory("card13", assets, sounds)["missing"]
-    assert speech_missing == ["four_transcribed_speech_assets"]
+    assert speech_missing == ["transcribed_speech_assets"]
 
 
 def test_card15a_gatea_changes_distinct_callers_not_event_times():
@@ -147,8 +147,8 @@ def test_resource_inventory_deduplicates_semantic_values():
     speech = [_synthetic_sound(0, speech=True) for _ in range(4)]
     result = _resource_inventory("card13", humans, speech)
     assert result["missing"] == [
-        "four_controlled_human_top_colours",
-        "four_transcribed_speech_assets",
+        "controlled_human_top_colours",
+        "transcribed_speech_assets",
     ]
 
 
@@ -515,3 +515,22 @@ def test_audio_search_exhaustion_does_not_leave_partial_point(tmp_path, monkeypa
         module._realise_cell(tmp_path, {"id": "card13"}, 0, None, {}, {}, {},
                              tmp_path / "registry.json", {}, "unused", "seed")
     assert not list(tmp_path.iterdir())
+
+
+def test_speech_inventory_uses_profile_actor_count():
+    inventory = _resource_inventory("card13", [
+        {"identity": {"species_id": "human"}, "realized_attributes": {"top_color": c}}
+        for c in ("blue", "green")], [], speech_pool=[
+        {"event_class": "speech_playback", "speaker_id": f"p{i}",
+         "utterance_id": str(i), "transcript": f"sentence {i}", "split": "train"}
+        for i in range(2)], profile={"id": "card13", "actor_count": 2})
+    assert inventory["missing"] == []
+    assert inventory["requirements"]["required_transcripts"] == 2
+
+
+def test_speech_frame_clock_does_not_round_away_a_duration_conflict():
+    import design_qa_v3_extended_profile as module
+    with pytest.raises(ValueError, match="FRAME_COUNT"):
+        module._timeline_dimensions({"CLIP_SECONDS": 5.01, "VIDEO_FPS": 15, "FRAME_COUNT": 75})
+    assert module._timeline_dimensions({"CLIP_SECONDS": 5, "VIDEO_FPS": 15, "FRAME_COUNT": 75}) == (75, 15)
+    assert module._timeline_dimensions({"CLIP_SECONDS": 10, "VIDEO_FPS": 15, "FRAME_COUNT": 150}) == (150, 15)
