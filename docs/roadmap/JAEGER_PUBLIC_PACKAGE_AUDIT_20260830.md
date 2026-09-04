@@ -41,7 +41,7 @@
 ## 三、公开包实测(完整 val 包,2,450 条,14 场景全覆盖)
 
 **方法与可重复性**:完整下载 val 包(2.5GB)并解出全部 `ir*.npy` 与
-`metadata.json`;分析脚本**已落库**——`tools/audit/audit_jaeger_rir.py`,
+`metadata.json`;分析脚本**已落库**——`tools/acoustics/audit_jaeger_rir.py`,
 其头部固定声明全部算法参数:采样率主口径 16kHz(依据:官方卷积脚本不
 重采样、干声为 16kHz;44.1kHz 口径同步换算)、四通道能量和、直达窗 =
 峰前 16 / 峰后 40 采样(16k 口径 1.0/2.5ms)、Schroeder 逆积分衰减曲线、
@@ -51,7 +51,7 @@ T20 = −5→−25dB 线性拟合外推、异常显式记录不静默。逐条�
 `rir_audit_summary.md`(脚本自动生成)。复现:
 
 ```
-python3 tools/audit/audit_jaeger_rir.py --input <解包目录> \
+python3 tools/acoustics/audit_jaeger_rir.py --input <解包目录> \
     --out-csv rir_audit_val_full.csv --out-summary rir_audit_summary.md
 ```
 
