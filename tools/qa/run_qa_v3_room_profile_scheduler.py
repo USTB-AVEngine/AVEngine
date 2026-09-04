@@ -29,6 +29,9 @@ sys.path.insert(0, str(HERE))
 
 from design_qa_v3_scene_batch import main as design_scene_batch_main  # noqa: E402
 from design_qa_v3_extended_profile import main as design_extended_main  # noqa: E402
+from design_qa_v3_offscreen_identity import (  # noqa: E402
+    main as design_offscreen_identity_main,
+)
 
 
 PAIR_STATUSES = (
@@ -103,8 +106,10 @@ def _load_scene_specs(paths: list[Path]) -> list[SceneSpec]:
 
 def _load_profile_catalog(path: Path) -> dict[str, dict]:
     value = _read_json(path)
+    if isinstance(value, dict):
+        value = [value]
     if not isinstance(value, list):
-        raise ValueError("profile catalog must be a JSON list")
+        raise ValueError("profile catalog must be a JSON list or profile object")
     catalog = {}
     safe_ids = set()
     for profile in value:
@@ -137,6 +142,149 @@ def _requested_profiles(values: list[str] | None,
     return requested
 
 
+def _point_ids(value, *, owner: str) -> list[str]:
+    if not isinstance(value, list):
+        raise ValueError(f"{owner} must be a list of point IDs")
+    result = []
+    for index, point_id in enumerate(value):
+        if not isinstance(point_id, str) or not point_id:
+            raise ValueError(
+                f"{owner}[{index}] must be a non-empty string point ID"
+            )
+        result.append(point_id)
+    if len(result) != len(set(result)):
+        raise ValueError(f"{owner} contains duplicate point IDs")
+    return result
+
+
+def _pixel_point_ids(pixel_result: dict) -> list[str] | None:
+    fields = (
+        "point_ids",
+        "candidate_point_ids",
+        "candidate_ids",
+    )
+    present = [
+        (field, pixel_result[field])
+        for field in fields
+        if field in pixel_result
+    ]
+    if not present:
+        return None
+    normalized = [
+        (field, _point_ids(value, owner=f"pixel result {field}"))
+        for field, value in present
+    ]
+    first = normalized[0][1]
+    for field, value in normalized[1:]:
+        if value != first:
+            raise ValueError(
+                f"pixel result point ID fields disagree: "
+                f"{normalized[0][0]} versus {field}"
+            )
+    return first
+
+
+def _pixel_outcome_ids(
+    pixel_result: dict,
+) -> tuple[list[str], list[str]] | None:
+    present = [
+        field for field in ("passed_point_ids", "rejected_point_ids")
+        if field in pixel_result
+    ]
+    if not present:
+        return None
+    if len(present) != 2:
+        raise ValueError(
+            "pixel result must provide both passed_point_ids and "
+            "rejected_point_ids"
+        )
+    passed = _point_ids(
+        pixel_result["passed_point_ids"],
+        owner="pixel result passed_point_ids",
+    )
+    rejected = _point_ids(
+        pixel_result["rejected_point_ids"],
+        owner="pixel result rejected_point_ids",
+    )
+    overlap = sorted(set(passed) & set(rejected))
+    if overlap:
+        raise ValueError(
+            f"pixel passed/rejected point IDs overlap: {overlap}"
+        )
+    if _pixel_point_ids(pixel_result) is None:
+        raise ValueError(
+            "pixel result with per-point outcomes must also provide point_ids"
+        )
+    return passed, rejected
+
+
+def _manifest_point_ids(manifest: dict) -> list[str] | None:
+    for field in ("generated_main_point_ids", "generated_point_ids",
+                  "main_point_ids"):
+        if field in manifest:
+            return _point_ids(
+                manifest[field], owner=f"batch manifest {field}"
+            )
+    for field in ("records", "selected", "candidates"):
+        records = manifest.get(field)
+        if records is None:
+            continue
+        if not isinstance(records, list):
+            raise ValueError(f"batch manifest {field} must be a list")
+        result = []
+        for index, record in enumerate(records):
+            if isinstance(record, str):
+                result.append(record)
+                continue
+            if not isinstance(record, dict):
+                raise ValueError(
+                    f"batch manifest {field}[{index}] must be an object"
+                )
+            if record.get("variant") not in (None, "main"):
+                continue
+            point_id = record.get("point_id")
+            if point_id is None:
+                raise ValueError(
+                    f"batch manifest {field}[{index}] has no point_id"
+                )
+            result.append(point_id)
+        return _point_ids(result, owner=f"batch manifest {field}")
+    return None
+
+
+def _generated_main_point_ids(manifest: dict, batch_root: Path) -> list[str] | None:
+    declared = _manifest_point_ids(manifest)
+    if declared is not None:
+        return declared
+    facts_path = batch_root / "facts.jsonl"
+    if not facts_path.is_file():
+        return None
+    result = []
+    with facts_path.open(encoding="utf-8") as handle:
+        for line_no, raw in enumerate(handle, start=1):
+            if not raw.strip():
+                continue
+            try:
+                record = json.loads(raw)
+            except json.JSONDecodeError as exc:
+                raise ValueError(
+                    f"invalid facts.jsonl row {facts_path}:{line_no}"
+                ) from exc
+            if not isinstance(record, dict):
+                raise ValueError(
+                    f"facts.jsonl row {facts_path}:{line_no} is not an object"
+                )
+            if record.get("variant") not in (None, "main"):
+                continue
+            point_id = record.get("point_id")
+            if point_id is None:
+                raise ValueError(
+                    f"facts.jsonl row {facts_path}:{line_no} has no point_id"
+                )
+            result.append(point_id)
+    return _point_ids(result, owner=f"facts.jsonl {facts_path}")
+
+
 def _load_pixel_results(path: Path | None) -> dict[tuple[str, str], dict]:
     if path is None:
         return {}
@@ -154,6 +302,8 @@ def _load_pixel_results(path: Path | None) -> dict[tuple[str, str], dict]:
         rejected = int(row.get("rejected", 0))
         if min(attempted, passed, rejected) < 0 or passed + rejected != attempted:
             raise ValueError(f"pixel counts do not close for {key}")
+        _pixel_point_ids(row)
+        _pixel_outcome_ids(row)
         result[key] = dict(row)
     return result
 
@@ -161,7 +311,10 @@ def _load_pixel_results(path: Path | None) -> dict[tuple[str, str], dict]:
 def classify_manifest(manifest: dict, pixel_result: dict | None = None) -> dict:
     counts = manifest.get("counts") or {}
     search = manifest.get("search") or {}
-    candidates = int(counts.get("geometry_candidates", 0))
+    candidate_value = counts.get("geometry_candidates")
+    if candidate_value is None:
+        candidate_value = counts.get("candidates", 0)
+    candidates = int(candidate_value)
     requested = int(counts.get("cells_requested", 0))
     rejected = int(counts.get("rejected", 0))
     if (min(requested, candidates, rejected) < 0
@@ -224,17 +377,82 @@ def classify_manifest(manifest: dict, pixel_result: dict | None = None) -> dict:
                 "pixel counts do not close within geometry candidates: "
                 f"attempted={pixel['attempted']}, passed={pixel['passed']}, "
                 f"rejected={pixel['rejected']}, candidates={candidates}")
-        record["pixel"] = pixel
-        if pixel["status"] == "complete":
-            if pixel["attempted"] != candidates:
+        pixel_ids = _pixel_point_ids(pixel_result)
+        outcome_ids = _pixel_outcome_ids(pixel_result)
+        generated_ids = _manifest_point_ids(manifest)
+        if outcome_ids is not None:
+            passed_ids, rejected_ids = outcome_ids
+            pixel["passed_point_ids"] = passed_ids
+            pixel["rejected_point_ids"] = rejected_ids
+            record["passed_point_ids"] = passed_ids
+            record["rejected_point_ids"] = rejected_ids
+            union_ids = set(passed_ids) | set(rejected_ids)
+        else:
+            union_ids = None
+            record["passed_point_ids"] = None
+            record["rejected_point_ids"] = None
+        if generated_ids is None:
+            pixel.update({
+                "status": "unverified",
+                "identity_status": "batch_candidate_ids_missing",
+                "qualification_blocked": True,
+            })
+        elif len(generated_ids) != candidates:
+            raise ValueError(
+                "batch generated main point IDs do not match geometry "
+                f"candidate count: ids={len(generated_ids)}, "
+                f"candidates={candidates}")
+        elif pixel_ids is None:
+            pixel.update({
+                "status": "unverified",
+                "identity_status": "legacy_pixel_counts_only",
+                "qualification_blocked": True,
+            })
+        else:
+            generated_set = set(generated_ids)
+            pixel_set = set(pixel_ids)
+            if pixel["attempted"] != len(pixel_ids):
                 raise ValueError(
-                    "complete pixel result does not cover every geometry "
-                    "candidate")
-            if pixel["passed"] == 0:
-                record["attempt_status"] = "pixel_rejected"
-                record["evidence_class"] = "pixel_rejected"
-                return record
-            record["evidence_class"] = "pixel_qualified_candidate"
+                    "pixel attempted count does not match point ID count: "
+                    f"attempted={pixel['attempted']}, ids={len(pixel_ids)}")
+            if not pixel_set <= generated_set:
+                raise ValueError(
+                    "pixel point IDs are not generated main candidate IDs: "
+                    f"extra={sorted(pixel_set - generated_set)}")
+            if outcome_ids is None:
+                pixel.update({
+                    "status": "unverified",
+                    "identity_status": "legacy_pixel_outcomes_missing",
+                    "qualification_blocked": True,
+                })
+            else:
+                if len(passed_ids) != pixel["passed"]:
+                    raise ValueError(
+                        "pixel passed count does not match passed_point_ids: "
+                        f"passed={pixel['passed']}, ids={len(passed_ids)}")
+                if len(rejected_ids) != pixel["rejected"]:
+                    raise ValueError(
+                        "pixel rejected count does not match rejected_point_ids: "
+                        f"rejected={pixel['rejected']}, ids={len(rejected_ids)}")
+                if union_ids != pixel_set:
+                    raise ValueError(
+                        "pixel passed/rejected IDs do not match point_ids: "
+                        f"missing={sorted(pixel_set - union_ids)}, "
+                        f"extra={sorted(union_ids - pixel_set)}")
+                if pixel["status"] == "complete" and pixel_set != generated_set:
+                    raise ValueError(
+                        "complete pixel result point IDs do not cover generated "
+                        f"main candidates: missing={sorted(generated_set - pixel_set)}"
+                    )
+                pixel["identity_status"] = "verified"
+                if pixel["status"] == "complete":
+                    if pixel["passed"] == 0:
+                        record["attempt_status"] = "pixel_rejected"
+                        record["evidence_class"] = "pixel_rejected"
+                        record["pixel"] = pixel
+                        return record
+                    record["evidence_class"] = "pixel_qualified_candidate"
+        record["pixel"] = pixel
     record["attempt_status"] = "generated"
     return record
 
@@ -242,26 +460,56 @@ def classify_manifest(manifest: dict, pixel_result: dict | None = None) -> dict:
 def _invoke_pair(*, scene_config: Path, profile_config: Path,
                  params: Path, batch_root: Path, cells: int, seed: str,
                  snapshot_content: str) -> dict:
-    argv = [
+    profile_value = _read_json(profile_config)
+    if isinstance(profile_value, list):
+        if len(profile_value) != 1 or not isinstance(profile_value[0], dict):
+            raise ValueError(
+                "scheduler profile snapshot must contain exactly one profile"
+            )
+        profile = profile_value[0]
+    elif isinstance(profile_value, dict):
+        profile = profile_value
+    else:
+        raise ValueError("scheduler profile snapshot must be an object or one-item list")
+    backend = profile.get("execution_backend", "scene")
+    if backend is None:
+        backend = "scene"
+    if not isinstance(backend, str) or not backend:
+        raise ValueError("profile execution_backend must be a non-empty string")
+    common = [
         "--scene-config", str(scene_config),
-        "--profiles", str(profile_config),
         "--params", str(params),
         "--out-root", str(batch_root),
         "--cells", str(cells),
         "--seed", seed,
         "--snapshot-content", snapshot_content,
     ]
-    profile_value = _read_json(profile_config)
-    use_extended = (
-        isinstance(profile_value, list)
-        and len(profile_value) == 1
-        and profile_value[0].get("execution_backend") == "extended")
-    code = (design_extended_main if use_extended else design_scene_batch_main)(argv)
-    if code != 0:
-        raise RuntimeError(f"design scene batch returned {code}")
+    if backend == "offscreen_identity":
+        argv = ["--profile", str(profile_config), *common]
+        producer = design_offscreen_identity_main
+    elif backend == "extended":
+        argv = ["--profiles", str(profile_config), *common]
+        producer = design_extended_main
+    elif backend == "scene":
+        argv = ["--profiles", str(profile_config), *common]
+        producer = design_scene_batch_main
+    else:
+        raise ValueError(f"unsupported profile execution_backend: {backend!r}")
+    code = producer(argv)
     manifest_path = batch_root / "batch_manifest.json"
+    # The offscreen producer uses exit 1 to report a bounded search with no
+    # candidates, but still writes its manifest.  Let classify_manifest apply
+    # the same quota/shortfall rules as the other producers.
+    if code != 0 and not (
+        backend == "offscreen_identity" and manifest_path.is_file()
+    ):
+        raise RuntimeError(
+            f"{backend} design producer returned {code}"
+        )
     if not manifest_path.is_file():
-        raise RuntimeError("design scene batch wrote no batch_manifest.json")
+        raise RuntimeError(
+            f"{backend} design producer wrote no batch_manifest.json"
+        )
     return _read_json(manifest_path)
 
 
@@ -307,7 +555,9 @@ def run_scheduler(*, scene_specs: list[SceneSpec],
     for profile_id, profile in profile_catalog.items():
         profile_path = inputs_root / "profiles" / (
             _safe_component(profile_id) + ".json")
-        _write_json(profile_path, [profile])
+        backend = profile.get("execution_backend", "scene")
+        snapshot = profile if backend == "offscreen_identity" else [profile]
+        _write_json(profile_path, snapshot)
         profile_snapshots[profile_id] = profile_path
 
     rows = []
@@ -334,6 +584,11 @@ def run_scheduler(*, scene_specs: list[SceneSpec],
                 "scene_asset_id": scene_asset_id,
                 "route_domain": route_domain,
                 "backend": backend,
+                "execution_backend": (
+                    profile_catalog.get(profile_id, {}).get(
+                        "execution_backend", "scene")
+                    if profile_id in profile_catalog else None
+                ),
             })
             if profile_id not in profile_catalog:
                 record.update({
@@ -372,11 +627,21 @@ def run_scheduler(*, scene_specs: list[SceneSpec],
                                 seed=(
                                     f"{seed}|{scene.scene_id}|{profile_id}"),
                                 snapshot_content=snapshot_content)
+                    batch_root = pair_dir / "batch"
+                    generated_ids = _generated_main_point_ids(
+                        batch_manifest, batch_root)
+                    if generated_ids is not None:
+                        # Enrich the scheduler's in-memory classification and
+                        # matrix row without rewriting the producer-owned
+                        # batch manifest.
+                        batch_manifest = dict(batch_manifest)
+                        batch_manifest["generated_main_point_ids"] = generated_ids
+                        record["generated_main_point_ids"] = generated_ids
                     record.update(classify_manifest(
                         batch_manifest,
                         pixel_results.get((scene.scene_id, profile_id))))
                     record["batch_manifest"] = str(
-                        (pair_dir / "batch" / "batch_manifest.json").resolve())
+                        (batch_root / "batch_manifest.json").resolve())
                 except Exception as exc:
                     record.update({
                         "attempt_status": "pipeline_error",

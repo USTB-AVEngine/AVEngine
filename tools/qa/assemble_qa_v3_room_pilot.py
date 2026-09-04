@@ -420,6 +420,28 @@ def _declared_point_dirs(batch: Path, batch_doc: Mapping | None,
     )
 
 
+def _verified_pixel_passed_ids(row: Mapping) -> set[str] | None:
+    """Return the passed candidate IDs for a complete identity-bound pixel run."""
+
+    pixel = row.get("pixel")
+    if not isinstance(pixel, Mapping):
+        return None
+    if pixel.get("status") != "complete" or pixel.get("identity_status") != "verified":
+        return None
+    values = pixel.get("passed_point_ids")
+    rejected = pixel.get("rejected_point_ids")
+    if not isinstance(values, list) or not isinstance(rejected, list):
+        raise RuntimeError(
+            "verified complete pixel evidence must declare passed/rejected point IDs"
+        )
+    combined = values + rejected
+    if any(not isinstance(value, str) or not value for value in combined):
+        raise RuntimeError("pixel point IDs must be non-empty strings")
+    if len(combined) != len(set(combined)):
+        raise RuntimeError("pixel passed/rejected point IDs must be unique")
+    return set(values)
+
+
 def collect_candidates(matrix_roots, *, include_requests=False):
     candidates = {}
     statuses = {}
@@ -449,11 +471,17 @@ def collect_candidates(matrix_roots, *, include_requests=False):
             if not batch_manifest:
                 continue
             batch = Path(batch_manifest).resolve().parent
+            pixel_passed = _verified_pixel_passed_ids(row)
             for point in _declared_point_dirs(batch, batch_doc, row):
-                candidates.setdefault(key, []).append(
-                    _candidate(
-                        point, row["scene_id"], row["profile_id"],
-                        answer_forms_hint=answer_forms))
+                item = _candidate(
+                    point, row["scene_id"], row["profile_id"],
+                    answer_forms_hint=answer_forms)
+                if (
+                    pixel_passed is not None
+                    and item["source_point_id"] not in pixel_passed
+                ):
+                    continue
+                candidates.setdefault(key, []).append(item)
     if include_requests:
         return scenes, statuses, candidates, requests
     return scenes, statuses, candidates

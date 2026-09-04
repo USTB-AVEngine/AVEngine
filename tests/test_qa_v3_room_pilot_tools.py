@@ -370,3 +370,46 @@ def test_declared_candidate_must_remain_inside_its_batch_root(tmp_path):
     }))
     with pytest.raises(RuntimeError, match="outside its batch root"):
         assemble(matrix_roots=[matrix.parent], profiles=[{"id": "card12"}])
+
+
+def test_complete_verified_pixel_rejection_is_not_selected(tmp_path):
+    matrix, point = _write_room_candidate(tmp_path)
+    matrix_doc = json.loads(matrix.read_text())
+    row = matrix_doc["matrix"][0]
+    row["attempt_status"] = "pixel_rejected"
+    row["pixel"] = {
+        "status": "complete",
+        "identity_status": "verified",
+        "attempted": 1,
+        "passed": 0,
+        "rejected": 1,
+        "passed_point_ids": [],
+        "rejected_point_ids": [point.name],
+    }
+    matrix.write_text(json.dumps(matrix_doc))
+    manifest = assemble(matrix_roots=[matrix.parent], profiles=[{"id": "card12"}])
+    assert manifest["status"] == "partial"
+    entry = manifest["rooms"]["room_a"]["profiles"]["card12"]
+    assert entry["selected_count"] == 0
+    assert entry["status"] == "pixel_rejected"
+
+
+def test_complete_verified_pixel_pass_selects_only_declared_passes(tmp_path):
+    matrix, point = _write_room_candidate(tmp_path)
+    matrix_doc = json.loads(matrix.read_text())
+    row = matrix_doc["matrix"][0]
+    row["pixel"] = {
+        "status": "complete",
+        "identity_status": "verified",
+        "attempted": 1,
+        "passed": 1,
+        "rejected": 0,
+        "passed_point_ids": [point.name],
+        "rejected_point_ids": [],
+    }
+    matrix.write_text(json.dumps(matrix_doc))
+    manifest = assemble(matrix_roots=[matrix.parent], profiles=[{"id": "card12"}])
+    entry = manifest["rooms"]["room_a"]["profiles"]["card12"]
+    assert manifest["status"] == "research_candidate"
+    assert entry["selected_count"] == 1
+    assert entry["candidates"][0]["source_point_id"] == point.name

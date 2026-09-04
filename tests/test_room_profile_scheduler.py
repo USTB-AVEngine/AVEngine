@@ -11,6 +11,7 @@ import pytest
 TOOLS = Path(__file__).resolve().parents[1] / "tools" / "qa"
 sys.path.insert(0, str(TOOLS))
 
+import run_qa_v3_room_profile_scheduler as scheduler  # noqa: E402
 from run_qa_v3_room_profile_scheduler import (  # noqa: E402
     SceneSpec,
     classify_manifest,
@@ -27,6 +28,9 @@ def _manifest(candidates=1, *, proof=None):
             "geometry_candidates": candidates,
             "rejected": max(1, candidates) - candidates,
         },
+        "generated_main_point_ids": [
+            f"point_{index + 1}" for index in range(candidates)
+        ],
         "search": {
             "combinations_evaluated": 7,
             "budget_exhausted": 1 if candidates == 0 else 0,
@@ -87,6 +91,9 @@ def test_complete_pixel_rejection_is_distinct_from_geometry_failure():
         _manifest(candidates=2),
         {"complete_for_geometry_candidates": True,
          "attempted": 2, "passed": 0, "rejected": 2,
+         "point_ids": ["point_1", "point_2"],
+         "passed_point_ids": [],
+         "rejected_point_ids": ["point_1", "point_2"],
          "rejection_reasons": {"visible_pixels_below_minimum": 2}})
     assert record["attempt_status"] == "pixel_rejected"
     assert record["geometry_candidates"] == 2
@@ -98,18 +105,24 @@ def test_partial_pixel_results_do_not_overstate_rejection():
     record = classify_manifest(
         _manifest(candidates=2),
         {"complete_for_geometry_candidates": False,
-         "attempted": 1, "passed": 0, "rejected": 1})
+         "attempted": 1, "passed": 0, "rejected": 1,
+         "point_ids": ["point_1"],
+         "passed_point_ids": [],
+         "rejected_point_ids": ["point_1"]})
     assert record["attempt_status"] == "generated"
     assert record["evidence_class"] == "geometry_candidate"
     assert record["pixel"]["status"] == "partial"
 
 
 def test_complete_pixel_counts_must_cover_all_candidates():
-    with pytest.raises(ValueError, match="does not cover every"):
+    with pytest.raises(ValueError, match="do not cover generated"):
         classify_manifest(
             _manifest(candidates=2),
             {"complete_for_geometry_candidates": True,
-             "attempted": 1, "passed": 0, "rejected": 1})
+             "attempted": 1, "passed": 0, "rejected": 1,
+             "point_ids": ["point_1"],
+             "passed_point_ids": [],
+             "rejected_point_ids": ["point_1"]})
 
 
 def test_batch_counts_must_close():
@@ -203,4 +216,153 @@ def test_pixel_counts_close_even_for_partial_results(complete, attempted, passed
         classify_manifest(_manifest(2), {
             "complete_for_geometry_candidates": complete,
             "attempted": attempted, "passed": passed, "rejected": rejected,
+            "point_ids": ["point_1", "point_2"],
+            "passed_point_ids": [],
+            "rejected_point_ids": ["point_1", "point_2"],
         })
+
+
+def test_declared_offscreen_backend_dispatches_object_profile(monkeypatch, tmp_path):
+    profile = {
+        "schema": "avengine_qa_v3_offscreen_identity_profile_v1",
+        "id": "offscreen_profile",
+        "execution_backend": "offscreen_identity",
+    }
+    profile_path = tmp_path / "profile.json"
+    profile_path.write_text(json.dumps(profile), encoding="utf-8")
+    batch_root = tmp_path / "batch"
+
+    calls = []
+
+    def fake_offscreen(argv):
+        calls.append(list(argv))
+        assert "--profile" in argv
+        assert "--profiles" not in argv
+        assert json.loads(
+            Path(argv[argv.index("--profile") + 1]).read_text()
+        )["execution_backend"] == "offscreen_identity"
+        batch_root.mkdir(parents=True)
+        (batch_root / "batch_manifest.json").write_text(json.dumps({
+            "schema": "avengine_qa_v3_offscreen_identity_batch_v1",
+            "status": "research_candidate",
+            "counts": {
+                "cells_requested": 1,
+                "candidates": 1,
+                "rejected": 0,
+            },
+            "records": [{"point_id": "room_a_f2_001"}],
+        }))
+        return 1
+
+    monkeypatch.setattr(scheduler, "design_offscreen_identity_main", fake_offscreen)
+    manifest = scheduler._invoke_pair(
+        scene_config=tmp_path / "scene.json",
+        profile_config=profile_path,
+        params=tmp_path / "params.json",
+        batch_root=batch_root,
+        cells=1,
+        seed="seed",
+        snapshot_content=str(tmp_path),
+    )
+    assert calls
+    assert manifest["counts"]["candidates"] == 1
+    classified = scheduler.classify_manifest(manifest)
+    assert classified["attempt_status"] == "generated"
+    assert classified["geometry_candidates"] == 1
+
+
+def test_legacy_pixel_counts_without_ids_cannot_qualify():
+    record = classify_manifest(_manifest(candidates=2), {
+        "complete_for_geometry_candidates": True,
+        "attempted": 2, "passed": 2, "rejected": 0,
+    })
+    assert record["attempt_status"] == "generated"
+    assert record["evidence_class"] == "geometry_candidate"
+    assert record["pixel"]["status"] == "unverified"
+    assert record["pixel"]["identity_status"] == "legacy_pixel_counts_only"
+    assert record["pixel"]["qualification_blocked"] is True
+
+
+def test_pixel_wrong_point_ids_are_rejected_even_when_counts_match():
+    with pytest.raises(ValueError, match="not generated main candidate IDs"):
+        classify_manifest(_manifest(candidates=2), {
+            "complete_for_geometry_candidates": True,
+            "attempted": 2, "passed": 2, "rejected": 0,
+            "point_ids": ["point_1", "wrong_point"],
+            "passed_point_ids": ["point_1", "wrong_point"],
+            "rejected_point_ids": [],
+        })
+
+
+def test_pixel_point_ids_reject_duplicates_for_complete_result():
+    with pytest.raises(ValueError, match="duplicate point IDs"):
+        classify_manifest(_manifest(candidates=2), {
+            "complete_for_geometry_candidates": True,
+            "attempted": 2, "passed": 2, "rejected": 0,
+            "point_ids": ["point_1", "point_1"],
+        })
+
+
+def test_generated_main_ids_are_taken_from_facts_jsonl(tmp_path):
+    facts = tmp_path / "facts.jsonl"
+    facts.write_text(
+        json.dumps({"point_id": "p_main", "variant": "main"}) + "\n"
+        + json.dumps({"point_id": "p_main", "variant": "gateA"}) + "\n",
+        encoding="utf-8",
+    )
+    import run_qa_v3_room_profile_scheduler as scheduler_module
+    ids = scheduler_module._generated_main_point_ids({}, tmp_path)
+    assert ids == ["p_main"]
+
+
+def test_pixel_outcomes_preserve_swapped_point_order_and_are_saved():
+    record = classify_manifest(_manifest(candidates=2), {
+        "complete_for_geometry_candidates": True,
+        "attempted": 2, "passed": 1, "rejected": 1,
+        "point_ids": ["point_2", "point_1"],
+        "passed_point_ids": ["point_1"],
+        "rejected_point_ids": ["point_2"],
+    })
+    assert record["attempt_status"] == "generated"
+    assert record["evidence_class"] == "pixel_qualified_candidate"
+    assert record["passed_point_ids"] == ["point_1"]
+    assert record["rejected_point_ids"] == ["point_2"]
+    assert record["pixel"]["identity_status"] == "verified"
+
+
+def test_partial_pixel_outcomes_must_be_a_generated_subset():
+    record = classify_manifest(_manifest(candidates=2), {
+        "complete_for_geometry_candidates": False,
+        "attempted": 1, "passed": 1, "rejected": 0,
+        "point_ids": ["point_2"],
+        "passed_point_ids": ["point_2"],
+        "rejected_point_ids": [],
+    })
+    assert record["attempt_status"] == "generated"
+    assert record["pixel"]["status"] == "partial"
+    assert record["passed_point_ids"] == ["point_2"]
+    assert record["rejected_point_ids"] == []
+
+
+@pytest.mark.parametrize(
+    "pixel",
+    [
+        {
+            "complete_for_geometry_candidates": True,
+            "attempted": 2, "passed": 1, "rejected": 1,
+            "point_ids": ["point_1", "point_2"],
+            "passed_point_ids": ["point_1"],
+            "rejected_point_ids": [],
+        },
+        {
+            "complete_for_geometry_candidates": True,
+            "attempted": 2, "passed": 1, "rejected": 1,
+            "point_ids": ["point_1", "point_2"],
+            "passed_point_ids": ["point_1"],
+            "rejected_point_ids": ["point_1"],
+        },
+    ],
+)
+def test_pixel_outcome_union_and_exclusivity_are_required(pixel):
+    with pytest.raises(ValueError, match="(match point_ids|overlap|rejected count)"):
+        classify_manifest(_manifest(candidates=2), pixel)
