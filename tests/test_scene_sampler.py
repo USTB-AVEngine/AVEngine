@@ -410,7 +410,7 @@ def test_rejection_ledger_reports_reasons_and_examples():
     assert summary["first_example"]["a"] == "first a"
 
 
-def test_load_scene_refuses_incomplete_config(tmp_path):
+def test_load_scene_refuses_incomplete_config_and_adapts_known_clocks(tmp_path):
     with pytest.raises(ValueError) as exc:
         load_scene({"scene_id": "x", "backend": "y"})
     assert "missing keys" in str(exc.value)
@@ -427,15 +427,22 @@ def test_load_scene_refuses_incomplete_config(tmp_path):
     assert "no route-bank adapter" in str(exc2.value)
     assert "room id" in str(exc2.value)
 
-    # 已知 schema 但帧数不对:不能悄悄混入
-    bad = tmp_path / "bad.json"
-    bad.write_text(json.dumps({"schema": "avengine_apartment_route_bank_v1",
-                               "routes": [{"route_id": "r1",
-                                           "samples_ue_cm": [[0, 0]] * 10}]}))
-    with pytest.raises(ValueError) as exc3:
-        load_scene({"scene_id": "x", "backend": "y", "route_bank": str(bad),
-                    "camera_base_request": str(req)})
-    assert "no usable" in str(exc3.value)
+    # 已知 schema 的不同采样时钟由通用适配器显式重采样并留证据。
+    short = tmp_path / "short.json"
+    short.write_text(json.dumps({
+        "schema": "avengine_apartment_route_bank_v1",
+        "routes": [{"route_id": "r1",
+                    "samples_ue_cm": [[0, 0]] * 10}],
+    }))
+    scene = load_scene({
+        "scene_id": "x", "backend": "y", "route_bank": str(short),
+        "camera_base_request": str(req), "camera_height_m": 1.47,
+        "hfov_deg": 105.0,
+    })
+    assert len(scene.routes) == 1
+    assert len(scene.routes[0].samples_xy) == FRAME_COUNT
+    assert scene.routes[0].provenance["clock_adapted"] is True
+    assert scene.routes[0].provenance["source_frame_count"] == 10
 
 
 def test_habitat_bank_adapter_normalises_metres_and_plane(tmp_path):
