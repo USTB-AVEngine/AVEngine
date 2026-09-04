@@ -665,3 +665,135 @@ def test_audio_command_uses_point_local_bindings_without_batch_fallbacks(
     assert "--config" in command
     assert "m1_request" not in cfg
     assert "source_endpoint_registry" not in cfg
+
+
+def test_pair_failure_stops_later_stages(monkeypatch, tmp_path: Path) -> None:
+    batch = tmp_path / "batch"
+    batch.mkdir()
+    (batch / "batch_manifest.json").write_text("{}")
+    monkeypatch.setattr(pipeline, "batch_point_ids", lambda root: ["point_001"])
+    monkeypatch.setattr(
+        pipeline, "_run_capture",
+        lambda *args, **kwargs: {"status": "complete", "root": "capture"})
+    monkeypatch.setattr(
+        pipeline, "_run_audio",
+        lambda *args, **kwargs: {"status": "complete", "root": "audio"})
+    monkeypatch.setattr(
+        pipeline, "_run_media",
+        lambda *args, **kwargs: {
+            "status": "failed", "root": "media", "detail": "missing codec"})
+    verification_called = []
+    monkeypatch.setattr(
+        pipeline, "_run_verifications",
+        lambda *args, **kwargs: verification_called.append(True)
+        or {"status": "complete"})
+    pair = pipeline._pair_record(
+        {"audio_variants": ["main"]},
+        {},
+        {
+            "scene_id": "room_a",
+            "profile_id": "profile_a",
+            "attempt_status": "generated",
+            "batch_manifest": str(batch / "batch_manifest.json"),
+        },
+        tmp_path,
+        tmp_path / "output",
+        params_path=tmp_path / "params.json",
+        resume_only=False,
+        through_stage="questions",
+    )
+    assert pair["status"] == "failed"
+    assert pair["media"]["status"] == "failed"
+    assert pair["verification"]["status"] == "pending"
+    assert "fail-fast" in pair["verification"]["detail"]
+    assert verification_called == []
+
+
+def test_failed_pair_prevents_later_pair_launch(monkeypatch, tmp_path: Path) -> None:
+    scene = _write(tmp_path / "scene.json", {"scene_id": "room_a"})
+    profiles = _write(
+        tmp_path / "profiles.json",
+        [{"id": "first"}, {"id": "second"}],
+    )
+    params = _write(
+        tmp_path / "params.json",
+        {
+            "PAIR_KIND": "dog",
+            "SOUND_SOURCE_MODE": "dry_canvas_window",
+            "ITEMS_PER_ROOM_DEFAULT": 2,
+            "ANSWER_FORMS_DEFAULT": ["mcq"],
+        },
+    )
+    request = _write(
+        tmp_path / "request.json",
+        {
+            "scene_configs": [str(scene)],
+            "profiles": str(profiles),
+            "params": str(params),
+            "requested_profiles": ["first", "second"],
+            "cells_per_pair": 1,
+            "answer_forms": ["mcq"],
+            "audio_variants": ["main"],
+            "seed": "fail-fast-test",
+        },
+    )
+    runtime = _write(tmp_path / "runtime.json", {"python": sys.executable})
+    rows = [
+        {
+            "scene_id": "room_a",
+            "profile_id": profile,
+            "attempt_status": "generated",
+            "batch_manifest": str(tmp_path / f"{profile}.json"),
+        }
+        for profile in ("first", "second")
+    ]
+    design = {
+        "status": "complete",
+        "groups": [{
+            "root": str(tmp_path / "design"),
+            "matrix": {"matrix": rows},
+            "params_path": str(params),
+        }],
+    }
+    monkeypatch.setattr(pipeline, "_design", lambda *args, **kwargs: design)
+    monkeypatch.setattr(
+        pipeline,
+        "_assemble",
+        lambda *args, **kwargs: {
+            "status": "partial",
+            "root": str(tmp_path / "assembly"),
+            "pilot": {"rooms": {}},
+        },
+    )
+    launched = []
+
+    def fake_pair(request, runtime, row, design_root, out_root, **kwargs):
+        del request, runtime, design_root, out_root, kwargs
+        launched.append(row["profile_id"])
+        return {
+            "scene_id": row["scene_id"],
+            "profile_id": row["profile_id"],
+            "status": "failed",
+            "design": dict(row),
+            "capture": {"status": "failed", "detail": "fixture failure"},
+            "audio": {"status": "pending"},
+            "media": {"status": "pending"},
+            "verification": {"status": "pending"},
+            "points": [],
+        }
+
+    monkeypatch.setattr(pipeline, "_pair_record", fake_pair)
+    monkeypatch.setattr(
+        pipeline,
+        "_run_questions",
+        lambda *args, **kwargs: {"status": "pending", "root": "questions"},
+    )
+    result = pipeline.run_pipeline(
+        request, runtime, tmp_path / "output", through_stage="questions")
+    assert launched == ["first"]
+    assert result["status"] == "failed"
+    assert result["stages"]["pairs"][0]["status"] == "failed"
+    second = result["stages"]["pairs"][1]
+    assert second["profile_id"] == "second"
+    assert second["status"] == "pending"
+    assert "fail-fast stopped after room_a/first failed" in second["detail"]

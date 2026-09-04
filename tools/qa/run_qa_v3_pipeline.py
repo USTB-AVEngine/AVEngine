@@ -1792,6 +1792,16 @@ def _run_questions(request: Mapping[str, Any], runtime: Mapping[str, Any],
     }
 
 
+def _blocked_stage_after_failure(
+    stage: str, root: Path, failed_stage: str
+) -> dict[str, Any]:
+    return {
+        "status": "pending",
+        "root": str(root.resolve()),
+        "detail": f"{failed_stage} failed; fail-fast stopped before {stage}",
+    }
+
+
 def _pair_record(request: Mapping[str, Any], runtime: Mapping[str, Any],
                  row: Mapping[str, Any], design_root: Path, out_root: Path,
                  *, params_path: Path, resume_only: bool,
@@ -1846,7 +1856,10 @@ def _pair_record(request: Mapping[str, Any], runtime: Mapping[str, Any],
     else:
         capture = _deferred_stage(
             "capture", pair_root / "capture", through_stage)
-    if _stage_enabled(through_stage, "audio"):
+    if capture.get("status") == "failed":
+        audio = _blocked_stage_after_failure(
+            "audio", pair_root / "audio", "capture")
+    elif _stage_enabled(through_stage, "audio"):
         try:
             audio = _run_audio(
                 request, runtime, scene_id, profile_id, batch_root, pair_root, point_ids,
@@ -1859,7 +1872,10 @@ def _pair_record(request: Mapping[str, Any], runtime: Mapping[str, Any],
             }
     else:
         audio = _deferred_stage("audio", pair_root / "audio", through_stage)
-    if _stage_enabled(through_stage, "media"):
+    if audio.get("status") == "failed":
+        media = _blocked_stage_after_failure(
+            "media", pair_root / "media", "audio")
+    elif _stage_enabled(through_stage, "media"):
         try:
             media = _run_media(
                 runtime, scene_id, profile_id, batch_root, pair_root, point_ids,
@@ -1872,7 +1888,10 @@ def _pair_record(request: Mapping[str, Any], runtime: Mapping[str, Any],
             }
     else:
         media = _deferred_stage("media", pair_root / "media", through_stage)
-    if _stage_enabled(through_stage, "verify"):
+    if media.get("status") == "failed":
+        verifications = _blocked_stage_after_failure(
+            "verification", pair_root / "verification", "media")
+    elif _stage_enabled(through_stage, "verify"):
         try:
             verifications = _run_verifications(
                 runtime, request, scene_id, profile_id, batch_root, pair_root, point_ids,
@@ -1886,12 +1905,18 @@ def _pair_record(request: Mapping[str, Any], runtime: Mapping[str, Any],
     else:
         verifications = _deferred_stage(
             "verify", pair_root / "verification", through_stage)
+    stage_values = [
+        stage.get("status")
+        for stage in (capture, audio, media, verifications)
+    ]
+    pair_status = (
+        "failed" if "failed" in stage_values
+        else "complete" if all(value == "complete" for value in stage_values)
+        else "partial"
+    )
     return {
         "scene_id": scene_id, "profile_id": profile_id,
-        "status": ("complete"
-                   if all(stage.get("status") == "complete"
-                          for stage in (capture, audio, media, verifications))
-                   else "partial"),
+        "status": pair_status,
         "design": dict(row),
         "params_path": str(params_path.resolve()),
         "batch_root": str(batch_root),
@@ -1999,17 +2024,59 @@ def run_pipeline(request_path: str | Path, runtime_config_path: str | Path,
                 (Path(design["root"]), design["matrix"],
                  Path(request["params"]).resolve())
             )
+    failed_pair: tuple[str, str] | None = None
     for design_root, matrix, params_path in matrix_sources:
         for row in _design_rows(matrix):
+            scene_id, profile_id = _pair_key(
+                row.get("scene_id"), row.get("profile_id"))
             if row.get("attempt_status") == "generated":
-                pairs.append(_pair_record(
+                if failed_pair is not None:
+                    pair_root = _pair_root(out_root, scene_id, profile_id)
+                    detail = (
+                        f"fail-fast stopped after {failed_pair[0]}/"
+                        f"{failed_pair[1]} failed"
+                    )
+                    pairs.append({
+                        "scene_id": scene_id,
+                        "profile_id": profile_id,
+                        "status": "pending",
+                        "design": dict(row),
+                        "params_path": str(params_path.resolve()),
+                        "points": [],
+                        "capture": {
+                            "status": "pending",
+                            "root": str((pair_root / "capture").resolve()),
+                            "detail": detail,
+                        },
+                        "audio": {
+                            "status": "pending",
+                            "root": str((pair_root / "audio").resolve()),
+                            "detail": detail,
+                        },
+                        "media": {
+                            "status": "pending",
+                            "root": str((pair_root / "media").resolve()),
+                            "detail": detail,
+                        },
+                        "verification": {
+                            "status": "pending",
+                            "root": str((pair_root / "verification").resolve()),
+                            "detail": detail,
+                        },
+                        "detail": detail,
+                    })
+                    continue
+                pair = _pair_record(
                     request, runtime, row, design_root, out_root,
                     params_path=params_path, resume_only=resume_only,
-                    through_stage=through_stage))
+                    through_stage=through_stage)
+                pairs.append(pair)
+                if pair.get("status") == "failed":
+                    failed_pair = (scene_id, profile_id)
             else:
                 pairs.append({
-                    "scene_id": str(row.get("scene_id")),
-                    "profile_id": str(row.get("profile_id")),
+                    "scene_id": scene_id,
+                    "profile_id": profile_id,
                     "status": str(row.get("attempt_status")),
                     "design": dict(row),
                     "detail": row.get("detail"),
