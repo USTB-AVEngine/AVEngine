@@ -1588,6 +1588,29 @@ def _verification_selection(path: Path, point_ids: Sequence[str]) -> dict[str, A
     return selected
 
 
+def _verification_report_passed(name: str, value: Any) -> bool:
+    """Interpret the declared result contract of each maintained verifier."""
+
+    if not isinstance(value, Mapping):
+        return False
+    if name == "visual":
+        return (
+            value.get("schema") == "qa_v3_visual_batch_verification_v1"
+            and value.get("status") == "pass"
+            and int((value.get("counts") or {}).get("failures", 0)) == 0
+        )
+    if name == "audio":
+        failures = value.get("failures")
+        return (
+            value.get("schema") == "qa_v3_audio_batch_verification_v1"
+            and value.get("status") == "research_candidate"
+            and isinstance(failures, list)
+            and not failures
+            and int(value.get("checked_renders", 0)) > 0
+        )
+    raise PipelineError(f"unknown verification report kind: {name}")
+
+
 def _run_verifications(runtime: Mapping[str, Any], request: Mapping[str, Any],
                        scene_id: str, profile_id: str, batch_root: Path,
                        pair_root: Path, point_ids: Sequence[str],
@@ -1605,7 +1628,7 @@ def _run_verifications(runtime: Mapping[str, Any], request: Mapping[str, Any],
         records["audio"] = _read_json(audio_path)
     invalid_existing = [
         name for name, value in records.items()
-        if value.get("status") != "pass"
+        if not _verification_report_passed(name, value)
     ]
     if invalid_existing:
         return {
@@ -1656,9 +1679,13 @@ def _run_verifications(runtime: Mapping[str, Any], request: Mapping[str, Any],
                     "reports": records, "runs": runs,
                     "detail": f"{name} verifier wrote no report"}
         records[name] = _read_json(Path(visual_path if name == "visual" else audio_path))
-        if run["status"] != "complete" or records[name].get("status") != "pass":
+        if (
+            run["status"] != "complete"
+            or not _verification_report_passed(name, records[name])
+        ):
             return {"status": "failed", "root": str(verification_root.resolve()),
-                    "reports": records, "runs": runs}
+                    "reports": records, "runs": runs,
+                    "detail": f"{name} verifier did not produce a passing report"}
     return {"status": "complete", "root": str(verification_root.resolve()),
             "reports": records, "runs": runs}
 

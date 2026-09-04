@@ -494,7 +494,21 @@ def test_verifiers_receive_each_pair_effective_params(monkeypatch, tmp_path: Pat
         captured.append((label, list(command)))
         output = Path(command[command.index("--out") + 1])
         output.parent.mkdir(parents=True, exist_ok=True)
-        output.write_text(json.dumps({"status": "pass"}), encoding="utf-8")
+        report = (
+            {
+                "schema": "qa_v3_audio_batch_verification_v1",
+                "status": "research_candidate",
+                "checked_renders": 1,
+                "failures": [],
+            }
+            if label.endswith("/audio")
+            else {
+                "schema": "qa_v3_visual_batch_verification_v1",
+                "status": "pass",
+                "counts": {"failures": 0},
+            }
+        )
+        output.write_text(json.dumps(report), encoding="utf-8")
         return {"status": "complete", "label": label}
 
     monkeypatch.setattr(pipeline, "_run_logged", fake_run)
@@ -797,3 +811,25 @@ def test_failed_pair_prevents_later_pair_launch(monkeypatch, tmp_path: Path) -> 
     assert second["profile_id"] == "second"
     assert second["status"] == "pending"
     assert "fail-fast stopped after room_a/first failed" in second["detail"]
+
+
+def test_verification_report_contracts_distinguish_visual_and_audio_statuses() -> None:
+    visual = {
+        "schema": "qa_v3_visual_batch_verification_v1",
+        "status": "pass",
+        "counts": {"failures": 0},
+    }
+    audio = {
+        "schema": "qa_v3_audio_batch_verification_v1",
+        "status": "research_candidate",
+        "checked_renders": 2,
+        "failures": [],
+    }
+    assert pipeline._verification_report_passed("visual", visual)
+    assert pipeline._verification_report_passed("audio", audio)
+    assert not pipeline._verification_report_passed(
+        "audio", {**audio, "failures": ["bad onset"]})
+    assert not pipeline._verification_report_passed(
+        "audio", {**audio, "checked_renders": 0})
+    assert not pipeline._verification_report_passed(
+        "visual", {**visual, "status": "research_candidate"})
