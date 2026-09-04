@@ -113,69 +113,63 @@ PRODUCTION_SCENE_RENDER_REQUIRED = ("floor_reference", "camera_clearance_table")
 
 def resolve_production_scene_config(path, *, repo_root=None,
                                     historical_reproduction=False):
-    """The scene config a production run may load: the room's one file, or nothing.
+    """Resolve an explicit scene input, including a run's recorded copy.
 
-    Marking the old copies superseded is not enough on its own, because a
-    superseded file still loads if someone points at it -- and on 2026-09-04 two
-    of the apartment's six copies carried a hand-written ground height of 0.0
-    against a measured floor of +27.11 cm.  Owner's ruling that day: one file per
-    room, and no new ones.  This is the half that makes it stick, by refusing a
-    path outside ``examples/qa/scenes`` instead of trusting everyone to pick
-    right.
-
-    ``historical_reproduction`` reopens the door for replaying an old batch,
-    which is the same escape the frozen card1 band table uses.  It has to be
-    asked for, so nobody arrives at an old config by accident.
+    Resource identity and measured-floor checks validate the scene. Its storage
+    directory cannot do that: the room scheduler writes a complete input copy
+    outside the example catalog before invoking the same generator.
+    The two keyword arguments remain accepted for historical callers.
     """
-
-    path = Path(path).resolve()
-    root = Path(repo_root or Path(__file__).resolve().parents[2])
-    canonical = (root / PRODUCTION_SCENE_DIR).resolve()
-    if historical_reproduction:
-        return path
-    try:
-        path.relative_to(canonical)
-    except ValueError:
-        raise ValueError(
-            f"{path} is not under {canonical}. A room has one scene config and "
-            f"it lives there; pass --historical-reproduction only to replay an "
-            f"old batch. Copies elsewhere are superseded and at least two of "
-            f"them carry a hand-written floor height that is wrong."
-        ) from None
+    path = Path(path).expanduser().resolve()
     if not path.is_file():
-        raise ValueError(f"{path} does not exist under {canonical}")
+        raise ValueError(f"scene config does not exist: {path}")
     return path
 
 
+def resolve_scene_resource_paths(config: dict, base_dir: str | Path) -> dict:
+    """Resolve file references relative to their declaring configuration."""
+    if not isinstance(config, dict):
+        raise ValueError("scene config must be a JSON object")
+    base = Path(base_dir).resolve()
+
+    def resource(value):
+        if not isinstance(value, (str, Path)) or not str(value).strip():
+            raise ValueError(f"scene resource path must be non-empty: {value!r}")
+        path = Path(value).expanduser()
+        return str((path if path.is_absolute() else base / path).resolve())
+
+    resolved = dict(config)
+    for key in ("route_bank", "camera_base_request", "camera_clearance_table"):
+        if resolved.get(key) is not None:
+            resolved[key] = resource(resolved[key])
+    for key in ("floor_reference", "walkable_grid"):
+        value = resolved.get(key)
+        if isinstance(value, dict):
+            resolved[key] = dict(value, path=resource(value.get("path")))
+        elif value is not None:
+            resolved[key] = resource(value)
+    value = resolved.get("line_of_sight_grid")
+    if isinstance(value, dict):
+        resolved["line_of_sight_grid"] = dict(value)
+        for field in ("arrays", "metadata"):
+            if value.get(field) is not None:
+                resolved["line_of_sight_grid"][field] = resource(value[field])
+    return resolved
+
+
+def read_scene_config(path: str | Path) -> dict:
+    """Read a scene without making its resource paths depend on the caller cwd."""
+    source = resolve_production_scene_config(path)
+    value = json.loads(source.read_text(encoding="utf-8"))
+    return resolve_scene_resource_paths(value, source.parent)
+
+
 def require_production_scene_config(config, path) -> None:
-    """A room that questions ship from must be one file, and complete.
+    """Validate a complete scene declaration and its room identity.
 
-    ``load_scene`` asks for four keys, which is right for the ad-hoc configs unit
-    tests build.  A *production* room is a different thing and gets a stricter
-    contract, because on 2026-09-04 the apartment had six scene configs sitting
-    in /data/jzy/tmp with nothing in their names saying which was current.  They
-    turned out to be strictly cumulative, so merging cost nothing -- but two of
-    them carried ``render.ground_z_ue_cm: 0.0``, the hand-written zero that put
-    every rendered dog 27 cm under the floor, and one had dropped
-    ``camera_clearance_table`` entirely.  Picking by mtime or by the newest-
-    looking name would have picked a wrong one twice.
-
-    The rule this enforces:
-
-    * one file per room, in the repository under ``examples/qa/scenes``, not in
-      a scratch directory -- a file that gates production should be reviewable
-      and versioned;
-    * the file is named ``<scene_id>.json`` and the two must agree, which is
-      what catches a copy-paste;
-    * the schema is declared, so the format can move without guessing;
-    * a config carrying render facts must also carry the measured floor and the
-      camera clearance table.  ``load_scene`` already refuses a hand-written
-      ground height; this refuses the *absence* of the things that make render
-      facts checkable, which is how floor_v1 lost its clearance table quietly.
-
-    Ad-hoc configs elsewhere are untouched: a unit test that needs three keys and
-    a fake route bank is not a production room, and conflating the two is what
-    would make this rule unenforceable.
+    The default catalog has one named file per room. A run may record that
+    declaration elsewhere without changing its meaning; measured-floor and
+    resource checks in ``load_scene`` still apply to the recorded copy.
     """
 
     path = Path(path)

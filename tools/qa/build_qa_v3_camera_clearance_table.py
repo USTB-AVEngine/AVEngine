@@ -84,7 +84,7 @@ from preflight_camera_clearance_depth import (  # noqa: E402
     clearance_statistics,
     target_band_rows,
 )
-from scene_sampler import load_scene, scene_hfov_deg  # noqa: E402
+from scene_sampler import load_scene, read_scene_config, scene_hfov_deg  # noqa: E402
 
 DEPTH_COMPONENT = "DefaultSceneRoot.sp_depth_meters_"
 DEFAULT_NEAR_M = (1.0, 1.5, 2.5)
@@ -508,7 +508,7 @@ def validation_summary(rows: list[dict[str, Any]], args) -> dict[str, Any]:
 def run(args: argparse.Namespace) -> Path:
     from avengine.timeline import current_apartment_visual as VISUAL
 
-    config = json.loads(Path(args.scene_config).read_text(encoding="utf-8"))
+    config = read_scene_config(args.scene_config)
     scene = load_scene(config)
     facts = scene_render_facts(config, scene)
     contract_hfov = scene_hfov_deg(config)

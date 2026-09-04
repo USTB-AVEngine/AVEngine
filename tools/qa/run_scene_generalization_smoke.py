@@ -34,7 +34,8 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from scene_sampler import (  # noqa: E402
+from scene_sampler import (
+    resolve_scene_resource_paths,  # noqa: E402
     RejectionLedger,
     Rejection,
     load_scene,
@@ -122,6 +123,7 @@ def main(argv: list[str] | None = None) -> int:
 
     for cfg in scenes_cfg:
         try:
+            cfg = resolve_scene_resource_paths(cfg, args.scenes.resolve().parent)
             scene = load_scene(cfg, route_limit=args.route_limit)
         except (ValueError, OSError, KeyError, json.JSONDecodeError) as exc:
             report["scenes_failed"].append(

@@ -1,6 +1,6 @@
 {
   "backend": "ue_spear",
-  "camera_base_request": "/data/jzy/tmp/wt-qa-v3-pilot/examples/routes/fixed_apartment/m1_capture_request_review_720p.json",
+  "camera_base_request": "../../routes/fixed_apartment/m1_capture_request_review_720p.json",
   "camera_clearance_table": "/data/jzy/tmp/qa_v3_camera_clearance_table_kujiale_20260902_v1",
   "camera_height_m": 1.47,
   "floor_reference": "/data/jzy/tmp/qa_v3_floor_reference_kujiale_20260903_v3",

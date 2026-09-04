@@ -890,6 +890,8 @@ def main(argv=None):
     parser.add_argument("--seed", required=True)
     parser.add_argument("--snapshot-content", required=True)
     args = parser.parse_args(argv)
+    # Repository tmp may be a declared symlink to external output storage.
+    args.out_root = args.out_root.resolve()
     if args.out_root.exists():
         print(f"refusing to overwrite: {args.out_root}", file=sys.stderr)
         return 2
@@ -903,7 +905,8 @@ def main(argv=None):
     params = _read(args.params)
     require_dry_canvas_source_mode(
         params, owner="design_qa_v3_extended_profile")
-    scene = load_scene(_read(args.scene_config))
+    scene_config = SS.read_scene_config(args.scene_config)
+    scene = load_scene(scene_config)
     resolve_scene_render_context(scene)
     require_camera_clearance(scene, params)
     registry_path = REPO / "examples/runtime/source_asset_runtime_profiles.json"
@@ -922,7 +925,7 @@ def main(argv=None):
         return 0
 
     args.out_root.mkdir(parents=True)
-    base_request = _read(Path(_read(args.scene_config)["camera_base_request"]))
+    base_request = _read(Path(scene_config["camera_base_request"]))
     records = []
     rejected = []
     reasons = Counter()

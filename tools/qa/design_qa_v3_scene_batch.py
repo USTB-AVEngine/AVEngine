@@ -931,9 +931,7 @@ def main(argv=None) -> int:
     parser.add_argument("--scene-config", required=True, type=Path)
     parser.add_argument(
         "--historical-reproduction", action="store_true",
-        help="replay an old batch from a superseded scene config; "
-             "without it only the room's one config under "
-             "examples/qa/scenes is accepted")
+        help="compatibility flag for replaying a recorded historical batch")
     parser.add_argument("--profiles", required=True, type=Path)
     parser.add_argument("--params", required=True, type=Path)
     parser.add_argument("--out-root", required=True, type=Path)
@@ -944,11 +942,13 @@ def main(argv=None) -> int:
         "actor_content_registry_v9_20260823T033709Z/cpp/unreal_projects/"
         "SpearSim/Content"))
     args = parser.parse_args(argv)
+    # Repository tmp may be a declared symlink to external output storage.
+    args.out_root = args.out_root.resolve()
 
     if args.out_root.exists():
         print(f"refusing to overwrite: {args.out_root}", file=sys.stderr)
         return 2
-    scene_cfg = json.loads(args.scene_config.read_text())
+    scene_cfg = SS.read_scene_config(args.scene_config)
     profiles = json.loads(args.profiles.read_text())
     params = json.loads(args.params.read_text())
     validate_profiles(profiles)
@@ -969,9 +969,7 @@ def main(argv=None) -> int:
     # output root now existed the obvious retry at the same path was refused.
     # The value is discarded; realise_point still reads it per candidate.
     program_request_fields(params)
-    # 位置规矩是最后一道预检:排在所有数据检查(参数、profile、场景、节目策略)之后,
-    # 因为那些是就地能判的错误、报错更具体,而且有测试钉着"坏参数要在建输出目录之前
-    # 失败";又排在 out_root.mkdir 之前,所以指错配置不会留下半个产物目录。
+    # Recorded scene inputs use the same completeness checks as the catalog.
     scene_config_path = SS.resolve_production_scene_config(
         args.scene_config,
         historical_reproduction=bool(

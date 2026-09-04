@@ -254,13 +254,15 @@ def main(argv=None) -> int:
     parser.add_argument("--snapshot-content", required=True)
     parser.add_argument("--max-attempts", type=int, default=20000)
     args = parser.parse_args(argv)
+    # Repository tmp may be a declared symlink to external output storage.
+    args.out_root = args.out_root.resolve()
     if args.out_root.exists():
         print(f"refusing to overwrite: {args.out_root}", file=sys.stderr)
         return 2
     assets = list(args.asset or DEFAULT_ASSETS)
     if len(assets) != 4 or len(set(assets)) != 4:
         parser.error("exactly four distinct assets are required")
-    scene_config = _read(args.scene_config)
+    scene_config = SS.read_scene_config(args.scene_config)
     params = _read(args.params)
     require_dry_canvas_source_mode(params, owner="build_qa_v3_n_actor_canary")
     scene = load_scene(scene_config)

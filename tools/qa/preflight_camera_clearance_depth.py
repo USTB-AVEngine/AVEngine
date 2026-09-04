@@ -32,7 +32,7 @@ from avengine.backends.spear_ue.research_runtime import (  # noqa: E402
     launch_external_game_instance,
 )
 from avengine.timeline import current_apartment_visual as VISUAL  # noqa: E402
-from scene_sampler import scene_hfov_deg  # noqa: E402
+from scene_sampler import read_scene_config, scene_hfov_deg  # noqa: E402
 
 SPIKE_PATH = REPOSITORY / "tools/qa/spike_spear_native_pixel_visibility.py"
 SCHEMA = "qa_v3_camera_clearance_depth_preflight_v1"
@@ -237,7 +237,7 @@ def resolve_camera_hfov(args: argparse.Namespace) -> dict[str, Any]:
         value = float(args.hfov_deg)
         source = "cli:--hfov-deg"
     elif getattr(args, "scene_config", None) is not None:
-        config = json.loads(Path(args.scene_config).read_text(encoding="utf-8"))
+        config = read_scene_config(args.scene_config)
         value = scene_hfov_deg(config)
         source = f"scene_config:{Path(args.scene_config).resolve()}"
     else:

@@ -269,7 +269,7 @@ def validate_against_scene(grid: WalkableGrid, scene: SS.SceneInputs,
 
 def run(args: argparse.Namespace) -> dict:
     _require(not args.output.exists(), f"refusing to overwrite: {args.output}")
-    config = json.loads(args.scene_config.read_text())
+    config = SS.read_scene_config(args.scene_config)
     scene = SS.load_scene(config)
     if args.from_ue_navmesh:
         render = config.get("render") or {}

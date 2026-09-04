@@ -1,6 +1,6 @@
 {
   "backend": "ue_spear",
-  "camera_base_request": "/data/jzy/tmp/wt-qa-v3-pilot/examples/routes/fixed_apartment/m1_capture_request_review_720p.json",
+  "camera_base_request": "../../routes/fixed_apartment/m1_capture_request_review_720p.json",
   "camera_clearance_table": "/data/jzy/tmp/qa_v3_camera_clearance_table_apartment_20260903_v2",
   "floor_reference": "/data/jzy/tmp/qa_v3_floor_reference_apartment_20260903_v2",
   "floor_reference_note": "2026-09-03 引擎实测:线追踪 6757/6757 命中中位 27.11 cm,向下深度 900 点中位 27.15 cm,两法相差 0.04 cm;旧配置手写 0.0 是 P0 错误。净空表须按此地面重渲;净空表已按实测地面重渲(v2)。",

@@ -91,33 +91,34 @@ def test_render_facts_without_a_floor_reference_are_refused():
         SS.require_production_scene_config(doc, SCENES[0])
 
 
-# ── 一个房间一份，而且以后也不许有新的（owner 2026-09-04）──────────────────
+# The default catalog stays unique; recorded run inputs remain valid inputs.
 def test_the_canonical_config_is_accepted():
     got = SS.resolve_production_scene_config(SCENES[0], repo_root=REPO)
     assert got == SCENES[0].resolve()
 
 
-@pytest.mark.parametrize("stale", [
-    "/data/jzy/tmp/qa_v3_scene_apartment_codex_v3.json",
-    "/data/jzy/tmp/qa_v3_scene_configs_floor_20260903_v2/apartment_0000.json",
-    "/data/jzy/tmp/somewhere_else/apartment_0000.json",
-])
-def test_a_config_from_anywhere_else_is_refused(stale):
-    """标死旧文件不够:标死的文件照样能被指着加载。
-
-    floor_20260903_v2 也在这张表里,尽管仓库里那份的内容就是从它合来的——
-    内容合进来之后再从 /tmp 加载就是走回头路,这条要一并拦掉。
-    """
-    with pytest.raises(ValueError, match="one scene config|not under"):
-        SS.resolve_production_scene_config(stale, repo_root=REPO)
+def test_a_recorded_scene_copy_outside_the_catalog_is_accepted(tmp_path):
+    recorded = tmp_path / "inputs" / "scenes" / SCENES[0].name
+    recorded.parent.mkdir(parents=True)
+    recorded.write_text(json.dumps(SS.read_scene_config(SCENES[0])))
+    assert SS.resolve_production_scene_config(recorded, repo_root=REPO) == recorded
+    SS.require_production_scene_config(SS.read_scene_config(recorded), recorded)
 
 
-def test_replaying_an_old_batch_still_has_a_door():
-    """历史复现要能走,但必须明说,不能是默认。"""
-    stale = "/data/jzy/tmp/qa_v3_scene_apartment_codex_v3.json"
-    got = SS.resolve_production_scene_config(
-        stale, repo_root=REPO, historical_reproduction=True)
-    assert got == Path(stale).resolve()
+def test_copying_a_scene_does_not_bypass_its_measured_floor(tmp_path):
+    doc = SS.read_scene_config(SCENES[0])
+    doc["render"]["ground_z_ue_cm"] += 10.0
+    recorded = tmp_path / SCENES[0].name
+    recorded.write_text(json.dumps(doc))
+    with pytest.raises(ValueError, match="disagrees with the measured floor"):
+        SS.load_scene(SS.read_scene_config(recorded))
+
+
+def test_historical_flag_does_not_change_path_resolution(tmp_path):
+    recorded = tmp_path / "recorded_scene.json"
+    recorded.write_text("{}")
+    assert SS.resolve_production_scene_config(
+        recorded, repo_root=REPO, historical_reproduction=True) == recorded
 
 
 def test_a_name_under_the_canonical_directory_that_does_not_exist_is_refused():

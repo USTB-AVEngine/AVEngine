@@ -42,6 +42,9 @@ PAIR_STATUSES = (
 )
 
 
+from scene_sampler import read_scene_config
+
+
 @dataclass
 class SceneSpec:
     source_path: Path
@@ -73,7 +76,7 @@ def _load_scene_specs(paths: list[Path]) -> list[SceneSpec]:
     seen_safe = set()
     for path in paths:
         try:
-            value = _read_json(path)
+            value = read_scene_config(path)
             if not isinstance(value, dict):
                 raise ValueError("scene config must be a JSON object")
             scene_id = str(value.get("scene_id") or "").strip()
@@ -462,6 +465,8 @@ def main(argv: list[str] | None = None) -> int:
         "actor_content_registry_v9_20260823T033709Z/cpp/unreal_projects/"
         "SpearSim/Content"))
     args = parser.parse_args(argv)
+    # Repository tmp may be a declared symlink to external output storage.
+    args.out_root = args.out_root.resolve()
 
     if args.out_root.exists():
         print(f"refusing to overwrite: {args.out_root}", file=sys.stderr)

@@ -324,7 +324,8 @@ def _summaries(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
 
 def run(args: argparse.Namespace) -> int:
     _require(not args.output.exists(), f"refusing to overwrite: {args.output}")
-    config = json.loads(args.scene_config.read_text(encoding="utf-8"))
+    from scene_sampler import read_scene_config
+    config = read_scene_config(args.scene_config)
     render = config.get("render") or {}
     native_map = str(render.get("native_map") or "")
     _require(native_map.startswith("/Game/"), "scene config render.native_map must be a /Game path")
