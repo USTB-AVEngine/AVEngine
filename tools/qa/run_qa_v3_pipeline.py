@@ -1626,7 +1626,12 @@ def _verification_selection(path: Path, point_ids: Sequence[str]) -> dict[str, A
     return selected
 
 
-def _verification_report_passed(name: str, value: Any) -> bool:
+def _verification_report_passed(
+    name: str,
+    value: Any,
+    *,
+    expected_audio_variants: Sequence[str] | None = None,
+) -> bool:
     """Interpret the declared result contract of each maintained verifier."""
 
     if not isinstance(value, Mapping):
@@ -1639,12 +1644,42 @@ def _verification_report_passed(name: str, value: Any) -> bool:
         )
     if name == "audio":
         failures = value.get("failures")
-        return (
+        if not (
             value.get("schema") == "qa_v3_audio_batch_verification_v1"
             and value.get("status") == "research_candidate"
             and isinstance(failures, list)
             and not failures
-            and int(value.get("checked_renders", 0)) > 0
+        ):
+            return False
+        reported = value.get("expected_variants")
+        if not isinstance(reported, list) or not reported:
+            return False
+        expected = list(expected_audio_variants or reported)
+        if reported != expected or "main" not in expected:
+            return False
+        complete = value.get("complete_render_point_ids")
+        if not isinstance(complete, Mapping):
+            return False
+        main_ids = complete.get("main")
+        if not isinstance(main_ids, list) or not main_ids:
+            return False
+        if int(value.get("checked_renders", 0)) < len(main_ids) * len(expected):
+            return False
+        if "gateA" not in expected:
+            return True
+        gatea_ids = complete.get("gateA")
+        pair_count = value.get("complete_pair_count")
+        execution = value.get("execution_variant_verification")
+        return (
+            isinstance(gatea_ids, list)
+            and sorted(gatea_ids) == sorted(main_ids)
+            and isinstance(pair_count, int)
+            and not isinstance(pair_count, bool)
+            and pair_count == len(main_ids)
+            and value.get("audio_variant_waveform_nonidentity_pairs") == pair_count
+            and value.get("gatea_semantic_flip_pairs") == pair_count
+            and isinstance(execution, Mapping)
+            and execution.get("status") == "verified"
         )
     raise PipelineError(f"unknown verification report kind: {name}")
 
@@ -1666,7 +1701,11 @@ def _run_verifications(runtime: Mapping[str, Any], request: Mapping[str, Any],
         records["audio"] = _read_json(audio_path)
     invalid_existing = [
         name for name, value in records.items()
-        if not _verification_report_passed(name, value)
+        if not _verification_report_passed(
+            name,
+            value,
+            expected_audio_variants=request["audio_variants"],
+        )
     ]
     if invalid_existing:
         return {

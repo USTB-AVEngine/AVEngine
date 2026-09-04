@@ -498,6 +498,10 @@ def test_verifiers_receive_each_pair_effective_params(monkeypatch, tmp_path: Pat
             {
                 "schema": "qa_v3_audio_batch_verification_v1",
                 "status": "research_candidate",
+                "expected_variants": ["main"],
+                "complete_render_point_ids": {
+                    "main": ["point_001"], "gateA": []},
+                "complete_pair_count": 0,
                 "checked_renders": 1,
                 "failures": [],
             }
@@ -823,15 +827,36 @@ def test_verification_report_contracts_distinguish_visual_and_audio_statuses() -
     audio = {
         "schema": "qa_v3_audio_batch_verification_v1",
         "status": "research_candidate",
-        "checked_renders": 2,
+        "expected_variants": ["main"],
+        "complete_render_point_ids": {"main": ["p1"], "gateA": []},
+        "complete_pair_count": 0,
+        "checked_renders": 1,
         "failures": [],
     }
+    pair_audio = {
+        **audio,
+        "expected_variants": ["main", "gateA"],
+        "complete_render_point_ids": {"main": ["p1"], "gateA": ["p1"]},
+        "complete_pair_count": 1,
+        "checked_renders": 2,
+        "audio_variant_waveform_nonidentity_pairs": 1,
+        "gatea_semantic_flip_pairs": 1,
+        "execution_variant_verification": {"status": "verified"},
+    }
     assert pipeline._verification_report_passed("visual", visual)
-    assert pipeline._verification_report_passed("audio", audio)
+    assert pipeline._verification_report_passed(
+        "audio", audio, expected_audio_variants=["main"])
+    assert pipeline._verification_report_passed(
+        "audio", pair_audio, expected_audio_variants=["main", "gateA"])
+    assert not pipeline._verification_report_passed(
+        "audio", pair_audio, expected_audio_variants=["main"])
     assert not pipeline._verification_report_passed(
         "audio", {**audio, "failures": ["bad onset"]})
     assert not pipeline._verification_report_passed(
         "audio", {**audio, "checked_renders": 0})
+    assert not pipeline._verification_report_passed(
+        "audio", {key: value for key, value in audio.items()
+                  if key != "expected_variants"})
     assert not pipeline._verification_report_passed(
         "visual", {**visual, "status": "research_candidate"})
 
