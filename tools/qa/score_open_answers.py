@@ -4,7 +4,7 @@
 服务双源五题(①⑦⑧⑨⑯,外加⑮的计数规则)的开放问答版判分。设计原则
 (全案 2.2):能机器判的绝不交裁判;判不动的宁可记 invalid 也不蒙对。
 
-四类判分器(按题目元数据的 answer_type 分派):
+按题目元数据的 answer_type 分派:
 
   angle_deg     数值角度。**环形角距离** d = min(|a-b|, 360-|a-b|);
                 THETA_FULL/THETA_HALF first define the full and diagnostic
@@ -28,6 +28,9 @@
                 → invalid(冲突);无命中 → invalid。
   count_pair /  计数。从文本抽非负整数,数量与位数须与真值完全一致,
   count_single  逐个相等才满分(计数不设容差);多余数字 → invalid。
+
+transcript_wer  完整转写的词错误率；显式配置 Unicode、大小写和标点处理。
+                输出 WER、exact_match 和 max(0, 1-WER)，不含语义改写容差。
 
 拒答三分(适用于带 refusal_truth 的可回答负样本题,如⑪/⑯的"已出画"):
   - 命中真值枚举(正确断言)→ 按闭集规则得分;
@@ -53,6 +56,7 @@ import math
 import os
 import re
 import sys
+import unicodedata
 from collections.abc import Mapping
 from typing import Any
 
@@ -437,16 +441,96 @@ def score_counts(answer: str, truth: list[int]) -> dict:
     return {"status": "scored", "parsed": nums, "score": 1.0 if ok else 0.0}
 
 
-def scorer_params(params: dict) -> dict:
-    """Keep parameters that this scorer executes, including declared angle policy."""
-    missing = [key for key in SCORER_PARAM_KEYS if key not in params]
+def transcript_normalization(params: Mapping[str, Any]) -> dict:
+    """Read text preprocessing explicitly; do not silently choose a benchmark policy."""
+    value = params.get("TRANSCRIPT_NORMALIZATION")
+    if not isinstance(value, Mapping):
+        raise ValueError("transcript scoring requires TRANSCRIPT_NORMALIZATION")
+    required = {"unicode_form", "casefold", "punctuation"}
+    if set(value) != required:
+        raise ValueError(f"TRANSCRIPT_NORMALIZATION requires exactly {sorted(required)}")
+    if value["unicode_form"] not in {"NFC", "NFKC", "none"}:
+        raise ValueError("transcript unicode_form must be NFC, NFKC, or none")
+    if not isinstance(value["casefold"], bool):
+        raise ValueError("transcript casefold must be boolean")
+    if value["punctuation"] not in {"keep", "space", "remove"}:
+        raise ValueError("transcript punctuation must be keep, space, or remove")
+    return dict(value)
+
+
+def _transcript_words(text: str, policy: Mapping[str, Any]) -> list[str]:
+    if policy["unicode_form"] != "none":
+        text = unicodedata.normalize(policy["unicode_form"], text)
+    if policy["casefold"]:
+        text = text.casefold()
+    punctuation = policy["punctuation"]
+    if punctuation != "keep":
+        replacement = " " if punctuation == "space" else ""
+        text = "".join(replacement if unicodedata.category(char).startswith("P")
+                       else char for char in text)
+    return text.split()
+
+
+def score_transcript(answer: str, truth: Any, params: Mapping[str, Any]) -> dict:
+    """Whitespace-word Levenshtein error rate, using two bounded DP rows.
+
+    WER may exceed one when the hypothesis inserts many words. The accompanying
+    score is max(0, 1-WER); exact_match is reported separately, not inferred from
+    a tolerance or a dataset-specific phrase table.
+    """
+    policy = transcript_normalization(params)
+    if not isinstance(truth, str):
+        return {"status": "invalid", "reason": "transcript truth must be text", "score": 0.0}
+    reference = _transcript_words(truth, policy)
+    hypothesis = _transcript_words(answer, policy)
+    if not reference:
+        return {"status": "invalid", "reason": "transcript truth has no words", "score": 0.0}
+    # The edit distance is symmetric; put the shorter sequence on the columns.
+    rows, columns = (reference, hypothesis) if len(hypothesis) < len(reference) else (hypothesis, reference)
+    previous = list(range(len(columns) + 1))
+    for row_index, word in enumerate(rows, start=1):
+        current = [row_index]
+        for column_index, other in enumerate(columns, start=1):
+            current.append(min(current[-1] + 1, previous[column_index] + 1,
+                               previous[column_index - 1] + (word != other)))
+        previous = current
+    edits = previous[-1]
+    wer = edits / len(reference)
+    return {"status": "scored", "metric": "word_error_rate", "wer": wer,
+            "word_edits": edits, "reference_word_count": len(reference),
+            "hypothesis_word_count": len(hypothesis),
+            "score": max(0.0, 1.0 - wer), "exact_match": edits == 0,
+            "normalization": policy, "tokenization": "whitespace_words"}
+
+
+def scorer_params(params: dict, *, answer_types=None) -> dict:
+    """Keep the parameters used by the requested answer types.
+
+    Calling without types preserves the numeric scorer's historical interface.
+    Transcript-only and count-only CLI runs need no unrelated angle tolerances.
+    """
+    kinds = None if answer_types is None else set(answer_types)
+    required = set(SCORER_PARAM_KEYS) if kinds is None else set()
+    if kinds is not None:
+        if "angle_deg" in kinds:
+            required.update(("THETA_FULL", "THETA_HALF"))
+        if "time_s" in kinds:
+            required.update(("T_FULL", "T_HALF"))
+    # A supplied numeric pair must remain valid even if this batch happens to
+    # contain only another type; absence is different from malformed config.
+    for pair in (("THETA_FULL", "THETA_HALF"), ("T_FULL", "T_HALF")):
+        if any(key in params for key in pair):
+            required.update(pair)
+    missing = sorted(required - params.keys())
     if missing:
         raise ValueError(f"params missing explicit {missing}")
-    _validate_angle_tolerances(
-        params["THETA_FULL"], params["THETA_HALF"])
-    result = {key: params[key] for key in SCORER_PARAM_KEYS}
-    if "ANGLE_CERTIFICATION_POLICY" in params:
+    if "THETA_FULL" in required:
+        _validate_angle_tolerances(params["THETA_FULL"], params["THETA_HALF"])
+    result = {key: params[key] for key in SCORER_PARAM_KEYS if key in required}
+    if (kinds is None or "angle_deg" in kinds) and "ANGLE_CERTIFICATION_POLICY" in params:
         result["ANGLE_CERTIFICATION_POLICY"] = resolve_angle_policy(params)
+    if kinds is not None and "transcript_wer" in kinds:
+        result["TRANSCRIPT_NORMALIZATION"] = transcript_normalization(params)
     return result
 
 
@@ -520,6 +604,8 @@ def score_item(item: dict, params: dict, vocab: dict) -> dict:
             convention=convention,
             truth_interval_deg=interval,
         )
+    if at == "transcript_wer":
+        return score_transcript(ans, item.get("truth"), params)
     if at == "time_s":
         return score_time(
             ans, float(item["truth"]), params["T_FULL"], params["T_HALF"],
@@ -549,16 +635,16 @@ def main(argv: list[str] | None = None) -> int:
     if os.path.exists(args.out):
         print(f"refusing to overwrite existing output: {args.out}", file=sys.stderr)
         return 2
+    items = json.load(open(args.items))
     try:
-        params = scorer_params(json.load(open(args.params)))
+        params = scorer_params(json.load(open(args.params)),
+                               answer_types=[item["answer_type"] for item in items])
     except ValueError as exc:
         print(str(exc), file=sys.stderr)
         return 2
     vocab: dict[str, Any] = dict(DEFAULT_VOCAB)
     if args.vocab:
         vocab.update(json.load(open(args.vocab)))
-    items = json.load(open(args.items))
-
     records = []
     for item in items:
         rec = dict(question_id=item.get("question_id"), answer_type=item["answer_type"])

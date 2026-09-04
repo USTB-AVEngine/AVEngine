@@ -1,0 +1,7 @@
+{
+  "TRANSCRIPT_NORMALIZATION": {
+    "unicode_form": "NFKC",
+    "casefold": true,
+    "punctuation": "space"
+  }
+}

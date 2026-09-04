@@ -421,3 +421,45 @@ def test_main_rejects_missing_band_params(tmp_path):
     params_p = _write(tmp_path / "p.json", {"THETA_FULL": 15})
     assert main(["--items", items_p, "--params", params_p,
                  "--out", str(tmp_path / "o.json")]) == 2
+
+
+def test_transcript_wer_respects_explicit_normalization_and_edit_costs():
+    policy = {"TRANSCRIPT_NORMALIZATION": {
+        "unicode_form": "NFKC", "casefold": True, "punctuation": "space"}}
+    def scored(answer, truth="So it should be."):
+        return score_item({"answer_type": "transcript_wer", "truth": truth,
+                           "model_answer": answer}, policy, DEFAULT_VOCAB)
+    assert scored("SO it should be!")["exact_match"]
+    assert scored("So it could be")["wer"] == 0.25
+    assert scored("So it be")["wer"] == 0.25
+    assert scored("So it really should be")["wer"] == 0.25
+    assert scored("")["wer"] == 1.0
+    assert scored("a b c d e", "x")["wer"] == 5.0
+    assert scored("a b c d e", "x")["score"] == 0.0
+    assert scored("text", "...")["status"] == "invalid"
+    raw = {"TRANSCRIPT_NORMALIZATION": {
+        "unicode_form": "none", "casefold": False, "punctuation": "keep"}}
+    result = score_item({"answer_type": "transcript_wer", "truth": "Hello.",
+                         "model_answer": "hello"}, raw, DEFAULT_VOCAB)
+    assert result["wer"] == 1.0
+
+
+def test_transcript_only_params_do_not_require_angle_thresholds():
+    policy = {"TRANSCRIPT_NORMALIZATION": {
+        "unicode_form": "NFKC", "casefold": True, "punctuation": "space"}}
+    assert scorer_params(policy, answer_types=["transcript_wer"]) == policy
+    with pytest.raises(ValueError, match="TRANSCRIPT_NORMALIZATION"):
+        scorer_params({}, answer_types=["transcript_wer"])
+
+
+def test_main_scores_transcripts_from_standalone_policy_file(tmp_path):
+    items = _write(tmp_path / "items.json", [{
+        "question_id": "speech-1", "answer_type": "transcript_wer",
+        "model_answer": "so it should be!", "truth": "So it should be."}])
+    params = _write(tmp_path / "params.json", {"TRANSCRIPT_NORMALIZATION": {
+        "unicode_form": "NFKC", "casefold": True, "punctuation": "space"}})
+    out = tmp_path / "scores.json"
+    assert main(["--items", items, "--params", params, "--out", str(out)]) == 0
+    payload = json.loads(out.read_text())
+    assert payload["records"][0]["wer"] == 0
+    assert payload["records"][0]["exact_match"] is True

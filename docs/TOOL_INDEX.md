@@ -5,7 +5,7 @@
 
 自 2026-08-25 起，目录本身就是能力分组（阶段目录 m1…m7 已移除），
 本表按目录列出每个工具做什么。
-当前共 334 个工具脚本。
+当前共 335 个工具脚本。
 
 ## 资产生成与装配（`tools/assets/`）
 
@@ -330,6 +330,7 @@
 | `tools/qa/split_isolator.py` | Split isolator for pilot batches (work order item 1.3) |
 | `tools/qa/strict_two_human_cpu_finalize_queue.py` | Low-priority one-worker CPU finalization queue for strict room batches |
 | `tools/qa/strict_two_human_raw_spool.py` | Exact, crash-safe raw spool used by the shared-room full75 capture adapter |
+| `tools/qa/transcribe_audio_review.py` | Transcribe declared review audio with an installed Whisper model |
 | `tools/qa/upgrade_static_spear_suite_camera.py` | Bind legacy static-camera SPEAR plans to audited QA capture requests |
 | `tools/qa/validate_stereo_channels.py` | Stereo-channel integrity validator (pilot work order item 1.1) |
 | `tools/qa/validate_strict_two_human_camera_pan_motion_realism.py` | Validate or deterministically replay the camera-pan motion audit receipt |
