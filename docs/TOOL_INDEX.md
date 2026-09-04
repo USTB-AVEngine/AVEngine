@@ -5,7 +5,7 @@
 
 自 2026-08-25 起，目录本身就是能力分组（阶段目录 m1…m7 已移除），
 本表按目录列出每个工具做什么。
-当前共 348 个工具脚本。
+当前共 356 个工具脚本。
 
 ## 资产生成与装配（`tools/assets/`）
 
@@ -49,6 +49,7 @@
 | `tools/assets/generated_quadruped_semantics.py` | Bone-name-independent semantic decomposition for generated quadruped rigs |
 | `tools/assets/harvest_fsd50k_clips.py` | Fill the sound-effect classes from the FSD50K copy already on this machine |
 | `tools/assets/harvest_vctk_speech.py` | Pull English speech with transcripts from the VCTK copy on this machine |
+| `tools/assets/inspect_mesh_quality.py` | Measure one GLB mesh with bounded memory and optional explicit policy |
 | `tools/assets/measure_deformation_stretch.py` | Measure how much of the surface a pose stretches |
 | `tools/assets/measure_mesh_topology.py` | Compare mesh structure after welding, without a glTF round trip in between |
 | `tools/assets/measure_static_resting_pose.py` | Measure the resting or mounting pose of a published rigid static asset |
@@ -71,6 +72,7 @@
 | `tools/assets/register_sound_event_assets.py` | Register split sound-event clips into avengine_m6_sound_asset_registry_v1 |
 | `tools/assets/render_habitat_action_review.py` | Render hash-bound M2 Idle/Walk review media in Habitat |
 | `tools/assets/render_habitat_local_tr_review.py` | Render a non-qualifying 75-frame Habitat local-TR v2 review |
+| `tools/assets/render_mesh_rgba_review.py` | Render a mesh to a transparent RGBA review preview |
 | `tools/assets/render_turntable_review.py` | Orbit the camera once around a posed asset, with soft shadow-free lighting |
 | `tools/assets/render_walk_review.py` | Render a walk cycle with soft, shadow-free lighting and the asset's own materials |
 | `tools/assets/retime_actions.py` | Apply explicit action durations without changing sampled pose values |
@@ -83,6 +85,7 @@
 | `tools/assets/skintokens_loopback_bpy_server.py` | Private Unix-socket Blender RPC endpoint for local SkinTokens inference |
 | `tools/assets/spike_habitat_local_tr.py` | Prove one bounded local-translation-plus-rotation Habitat AO encoding |
 | `tools/assets/split_sound_library_events.py` | Split a prepared sound library into one wav per sounding event |
+| `tools/assets/validate_animated_animal_closure.py` | Validate an animated animal GLB and write one fresh closure report |
 | `tools/assets/wrap_uniform_scene_scale.py` | Wrap every root of one GLB scene in an explicit uniform-scale node |
 
 ## 房间（`tools/rooms/`）
@@ -219,6 +222,7 @@
 | `tools/qa/audit_qa_v3_prescale_candidates.py` | Revalidate an existing room-pilot manifest against prescale QA-v3 rules |
 | `tools/qa/audit_strict_two_human_camera_pan_motion_realism.py` | Audit camera-pan motion realism against authoritative 15 Hz camera poses |
 | `tools/qa/audit_strict_two_human_room_expansion.py` | Audit two additional cooked SPEAR maps for the strict M/F/C room closure |
+| `tools/qa/author_observed_f2_direction.py` | Author backend-independent F2 direction facts from observed native frames |
 | `tools/qa/bind_native_paper_balance_episode.py` | Bind one full native SPEAR capture to the paper-balance QuestionSpec strata |
 | `tools/qa/bind_native_pixel_fact_episode.py` | Bind one full native SPEAR pixel capture to Facts and QuestionSpecs |
 | `tools/qa/bind_native_spear_episode.py` | Bind one compiled QA Fact table to retained native SPEAR/UE evidence |
@@ -267,6 +271,7 @@
 | `tools/qa/derive_twin_programs.py` | Derive sealed audio programs for Gate B twin points (qa-v3 pilot) |
 | `tools/qa/design_qa_batch.py` | Design and author one constraint-driven QA v2 batch (reverse fitting) |
 | `tools/qa/design_qa_v3_extended_profile.py` | Generate the QA-v3 profiles that require N actors, pixel truth, or segments |
+| `tools/qa/design_qa_v3_offscreen_identity.py` | Produce CPU research candidates for the off-screen-to-on-screen identity task |
 | `tools/qa/design_qa_v3_pilot_batch.py` | Design one qa-v3 dual-source pilot batch (stage two assembler) |
 | `tools/qa/design_qa_v3_scene_batch.py` | Integrated qa-v3 batch: generic scene solver + per-type audio + facts |
 | `tools/qa/evaluate_question_specs.py` | Evaluate registry-bound QuestionSpecs and render a standalone review page |
@@ -284,6 +289,8 @@
 | `tools/qa/floor_reference.py` | Per-room floor reference: the measured UE z of the walkable floor |
 | `tools/qa/generate_qa_v2_questions.py` | QA v2 question generation for a constraint-driven batch |
 | `tools/qa/generate_qa_v3_questions.py` | Generate qa-v3 pilot fact records + question candidates (cards ①⑦⑧⑨) |
+| `tools/qa/join_f2_direction_pixel.py` | Join F2 direction facts with native windowed pixel/audio evidence |
+| `tools/qa/join_f2_offscreen_identity_pixel.py` | Join native main/GateB pixel evidence for an F2 identity candidate |
 | `tools/qa/join_qa_v3_extended_pixel.py` | Join native pixel truth to pixel-dependent QA-v3 candidates |
 | `tools/qa/make_idle_then_walk_timeline.py` | Idle-then-walk timeline transform (pilot work order items 1.2/1.7 支撑件) |
 | `tools/qa/materialize_qa_v3_dual_gateb.py` | Materialize renderable Gate-B twins for selected dual-source QA-v3 points |
@@ -317,6 +324,7 @@
 | `tools/qa/route_synthesis.py` | Routes designed by the solver for the pose it has chosen |
 | `tools/qa/run_qa_v3_audio_batch.py` | Sequential dynamic-audio runner for a qa-v3 design batch (stage two) |
 | `tools/qa/run_qa_v3_capture_batch.py` | Sequential UE capture runner for a qa-v3 design batch (stage two) |
+| `tools/qa/run_qa_v3_pipeline.py` | Run one declared QA-v3 request through design, media and verification |
 | `tools/qa/run_qa_v3_room_profile_scheduler.py` | Room-centric QA-v3 scene x profile scheduler |
 | `tools/qa/run_scene_generalization_smoke.py` | Design-layer cross-scene smoke: one question-type config, several route domains |
 | `tools/qa/run_strict_two_human_dynamic_full75_canary.py` | Launch one CPU-qualified dynamic full75 canary on physical GPU1 only |
