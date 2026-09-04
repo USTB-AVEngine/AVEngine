@@ -506,6 +506,7 @@ def _find_offscreen_entry_plan(
         reports: list[dict[str, Any]] = []
         for index in indices:
             route = moving[index]
+            source_slot_id = f"source{len(chosen) + 1}"
             early_ok, early_report = _check_route(
                 route,
                 camera=camera,
@@ -515,7 +516,7 @@ def _find_offscreen_entry_plan(
                 phase="early_offscreen",
                 clock=clock,
                 min_distance_cm=min_distance_cm,
-                slot=f"source{len(chosen) + 1}",
+                slot=source_slot_id,
                 visibility=str(visibility_rule["early"]),
                 visibility_margin_deg=visibility_margin,
             )
@@ -528,7 +529,7 @@ def _find_offscreen_entry_plan(
                 phase="late_onscreen_repeat",
                 clock=clock,
                 min_distance_cm=min_distance_cm,
-                slot=f"source{len(chosen) + 1}",
+                slot=source_slot_id,
                 visibility=str(visibility_rule["late"]),
                 visibility_margin_deg=visibility_margin,
             )
@@ -549,6 +550,7 @@ def _find_offscreen_entry_plan(
             chosen.append(route)
             reports.append(
                 {
+                    "source_slot_id": source_slot_id,
                     "route_id": route.route_id,
                     "route_source": route.source,
                     "route_provenance": route.source_record,

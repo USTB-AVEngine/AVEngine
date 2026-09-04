@@ -160,6 +160,9 @@ def test_route_plan_uses_each_actor_own_early_and_late_windows(monkeypatch):
         seed="route-test",
     )
     assert [route.route_id for route in plan["routes"]] == ["a", "b"]
+    assert [
+        report["source_slot_id"] for report in plan["route_reports"]
+    ] == ["source1", "source2"]
     assert all(report["early"]["visibility_ok"] for report in plan["route_reports"])
     assert all(report["late"]["visibility_ok"] for report in plan["route_reports"])
 
