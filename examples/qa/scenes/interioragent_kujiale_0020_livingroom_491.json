@@ -1,0 +1,34 @@
+{
+  "backend": "ue_spear",
+  "camera_base_request": "/data/jzy/tmp/wt-qa-v3-pilot/examples/routes/fixed_apartment/m1_capture_request_review_720p.json",
+  "camera_clearance_table": "/data/jzy/tmp/qa_v3_camera_clearance_table_kujiale_20260902_v1",
+  "camera_height_m": 1.47,
+  "floor_reference": "/data/jzy/tmp/qa_v3_floor_reference_kujiale_20260903_v3",
+  "floor_reference_note": "2026-09-03 引擎实测:地板网格没有碰撞体,线追踪 0/1598 命中(v1/v2 留作证据);相机离地 0.3 m 向下深度 998/998 命中中位 0.02 cm,即地面就在 z=0,配置不变。1.5 m 高的深度量法有 22% 的点看到家具顶面(可行区含桌下格),故用低相机。",
+  "hfov_deg": 105.0,
+  "line_of_sight_grid": {
+    "arrays": "/data/avengine_external/studio/tasks/20260826T185508Z-kujiale_route_bank/output/render/feasible_region_source1.npz",
+    "coordinate_contract": "habitat_xz_m_to_ue_xy_cm_v1",
+    "mask_key": "feasible_mask",
+    "metadata": "/data/avengine_external/studio/tasks/20260826T185508Z-kujiale_route_bank/output/render/feasible_region.json",
+    "metadata_key": "source1"
+  },
+  "provenance": {
+    "merged_at": "2026-09-04",
+    "merged_from": "/data/jzy/tmp/qa_v3_scene_configs_floor_20260903_v2/interioragent_kujiale_0020_livingroom_491.json",
+    "note": "Apartment 这一个房间在 /data/jzy/tmp 下曾有六份场景配置并存,名字看不出哪份是当前的。六份是严格累积的、没有互相矛盾之处,本文件取各项最新值——也就是 qa_v3_scene_configs_floor_20260903_v2 的内容。被取代的几份里 codex_v3 与 synthesis_v1 的 render.ground_z_ue_cm 是手写的 0.0,正是让所有渲染的狗陷进地板 27 cm 的那个值;floor_v1 则丢了 camera_clearance_table。它们不是过期,是错的。"
+  },
+  "render": {
+    "ground_z_ue_cm": 0.0,
+    "native_map": "/Game/AVEngine/Optional/KujialeBakedLit/kujiale_0020_full_home_baked_lit_v1",
+    "room_profile_id": "interioragent_kujiale_0020_livingroom_491_baked_lit_research_v1",
+    "world_transform": "ue_xyz_cm_to_xzy_m_v1"
+  },
+  "route_bank": "/data/avengine_external/studio/tasks/20260826T185508Z-kujiale_route_bank/output/render/trajectory_bank.json",
+  "route_domain": "livingroom_491_trajectory_bank_v2",
+  "scene_asset_id": "interioragent_kujiale_0020",
+  "scene_id": "interioragent_kujiale_0020_livingroom_491",
+  "schema": "avengine_qa_v3_production_scene_v1",
+  "walkable_grid": "/data/jzy/tmp/qa_v3_walkable_grid_kujiale_20260903_v2",
+  "walkable_grid_note": "qa_v3_walkable_grid_v1; Apartment 来自舞台导航网格随机点(10 cm 格),Kujiale 来自路线库自己的可行区栅格(5 cm 格);见 walkable_grid.json 的 source 与 validation"
+}

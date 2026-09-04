@@ -1,0 +1,25 @@
+{
+  "backend": "ue_spear",
+  "camera_base_request": "/data/jzy/tmp/wt-qa-v3-pilot/examples/routes/fixed_apartment/m1_capture_request_review_720p.json",
+  "camera_clearance_table": "/data/jzy/tmp/qa_v3_camera_clearance_table_apartment_20260903_v2",
+  "floor_reference": "/data/jzy/tmp/qa_v3_floor_reference_apartment_20260903_v2",
+  "floor_reference_note": "2026-09-03 引擎实测:线追踪 6757/6757 命中中位 27.11 cm,向下深度 900 点中位 27.15 cm,两法相差 0.04 cm;旧配置手写 0.0 是 P0 错误。净空表须按此地面重渲;净空表已按实测地面重渲(v2)。",
+  "provenance": {
+    "merged_at": "2026-09-04",
+    "merged_from": "/data/jzy/tmp/qa_v3_scene_configs_floor_20260903_v2/apartment_0000.json",
+    "note": "Apartment 这一个房间在 /data/jzy/tmp 下曾有六份场景配置并存,名字看不出哪份是当前的。六份是严格累积的、没有互相矛盾之处,本文件取各项最新值——也就是 qa_v3_scene_configs_floor_20260903_v2 的内容。被取代的几份里 codex_v3 与 synthesis_v1 的 render.ground_z_ue_cm 是手写的 0.0,正是让所有渲染的狗陷进地板 27 cm 的那个值;floor_v1 则丢了 camera_clearance_table。它们不是过期,是错的。"
+  },
+  "render": {
+    "ground_z_ue_cm": 27.11,
+    "native_map": "/Game/SPEAR/Scenes/apartment_0000/Maps/apartment_0000",
+    "room_profile_id": "spear_apartment_0000",
+    "world_transform": "ue_xyz_cm_to_xzy_m_v1"
+  },
+  "route_bank": "/data/avengine_external/review/apartment_route_bank_20260825T0700Z/route_bank.json",
+  "route_domain": "single_floor",
+  "scene_asset_id": "apartment_0000",
+  "scene_id": "apartment_0000",
+  "schema": "avengine_qa_v3_production_scene_v1",
+  "walkable_grid": "/data/jzy/tmp/qa_v3_walkable_grid_apartment_20260903_v2",
+  "walkable_grid_note": "qa_v3_walkable_grid_v1; Apartment 来自舞台导航网格随机点(10 cm 格),Kujiale 来自路线库自己的可行区栅格(5 cm 格);见 walkable_grid.json 的 source 与 validation"
+}

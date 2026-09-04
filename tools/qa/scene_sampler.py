@@ -102,6 +102,67 @@ def yaw_interval_for_band(camera_xy, point_xy, band_lo: float,
     return (bearing - band_hi, bearing - band_lo)
 
 
+PRODUCTION_SCENE_SCHEMA = "avengine_qa_v3_production_scene_v1"
+PRODUCTION_SCENE_DIR = "examples/qa/scenes"
+PRODUCTION_SCENE_REQUIRED = (
+    "schema", "scene_id", "scene_asset_id", "backend", "route_domain",
+    "route_bank", "camera_base_request", "walkable_grid",
+)
+PRODUCTION_SCENE_RENDER_REQUIRED = ("floor_reference", "camera_clearance_table")
+
+
+def require_production_scene_config(config, path) -> None:
+    """A room that questions ship from must be one file, and complete.
+
+    ``load_scene`` asks for four keys, which is right for the ad-hoc configs unit
+    tests build.  A *production* room is a different thing and gets a stricter
+    contract, because on 2026-09-04 the apartment had six scene configs sitting
+    in /data/jzy/tmp with nothing in their names saying which was current.  They
+    turned out to be strictly cumulative, so merging cost nothing -- but two of
+    them carried ``render.ground_z_ue_cm: 0.0``, the hand-written zero that put
+    every rendered dog 27 cm under the floor, and one had dropped
+    ``camera_clearance_table`` entirely.  Picking by mtime or by the newest-
+    looking name would have picked a wrong one twice.
+
+    The rule this enforces:
+
+    * one file per room, in the repository under ``examples/qa/scenes``, not in
+      a scratch directory -- a file that gates production should be reviewable
+      and versioned;
+    * the file is named ``<scene_id>.json`` and the two must agree, which is
+      what catches a copy-paste;
+    * the schema is declared, so the format can move without guessing;
+    * a config carrying render facts must also carry the measured floor and the
+      camera clearance table.  ``load_scene`` already refuses a hand-written
+      ground height; this refuses the *absence* of the things that make render
+      facts checkable, which is how floor_v1 lost its clearance table quietly.
+
+    Ad-hoc configs elsewhere are untouched: a unit test that needs three keys and
+    a fake route bank is not a production room, and conflating the two is what
+    would make this rule unenforceable.
+    """
+
+    path = Path(path)
+    missing = [k for k in PRODUCTION_SCENE_REQUIRED if k not in config]
+    if missing:
+        raise ValueError(f"{path.name}: production scene config missing {missing}")
+    if config["schema"] != PRODUCTION_SCENE_SCHEMA:
+        raise ValueError(
+            f"{path.name}: schema is {config['schema']!r}, "
+            f"expected {PRODUCTION_SCENE_SCHEMA!r}")
+    if path.stem != str(config["scene_id"]):
+        raise ValueError(
+            f"{path.name}: file name and scene_id {config['scene_id']!r} disagree; "
+            "one room, one file, named after it")
+    if config.get("render"):
+        absent = [k for k in PRODUCTION_SCENE_RENDER_REQUIRED if k not in config]
+        if absent:
+            raise ValueError(
+                f"{path.name}: carries render facts but not {absent}; render "
+                "facts are only checkable against a measured floor and a "
+                "clearance table for this room")
+
+
 def effective_half_fov(scene, params) -> float:
     margin = float(params.get("VISUAL_FOV_MARGIN_DEG", 0.0))
     half_fov = float(scene.hfov_deg) / 2.0
