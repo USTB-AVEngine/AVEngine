@@ -16,6 +16,7 @@ from design_qa_v3_scene_batch import (  # noqa: E402
     build_answer,
     materialize_emitter_paths,
     profile_query_geometry,
+    query_visibility_window_geometry,
     recompute_azimuth,
     recompute_emitter_azimuth,
     validate_profiles,
@@ -69,11 +70,11 @@ def _front_back_profile():
         "vocab_key": "front_back",
         "query_geometry_by_answer": {
             "front": {"query_domain": "camera_cone",
-                      "query_requires_visibility": True,
+                      "query_visibility": "visible",
                       "secondary_anchor_bound_deg": 180.0,
                       "secondary_query_bound_deg": 180.0},
             "back": {"query_domain": "rear_cone",
-                     "query_requires_visibility": False},
+                     "query_visibility": "out_of_view"},
         },
         "convention": "dcase_foa_left_positive",
         "answer_bands_deg": [[-47.5, 47.5], [132.5, -132.5]],
@@ -146,11 +147,13 @@ def test_front_back_shape_is_distinct_from_rear_cone_and_configurable():
     front = profile_query_geometry(profile, {"answer_band": [-47.5, 47.5]})
     back = profile_query_geometry(profile, {"answer_band": [132.5, -132.5]})
     assert front["query_domain"] == "camera_cone"
-    assert front["query_requires_visibility"] is True
+    assert front["query_visibility"] == "visible"
+    assert front["query_requires_visibility"] is None
     assert front["secondary_anchor_bound_deg"] == pytest.approx(180.0)
     assert front["secondary_query_bound_deg"] == pytest.approx(180.0)
     assert back["query_domain"] == "rear_cone"
-    assert back["query_requires_visibility"] is False
+    assert back["query_visibility"] == "out_of_view"
+    assert back["query_requires_visibility"] is None
 
 
 def test_front_back_builds_two_label_gold_and_convention_metadata():
@@ -271,3 +274,23 @@ def test_decimal_window_boundary_does_not_round_into_the_previous_bucket():
     assert query_window_seconds(9, 15, window_seconds=0.2) == (0.6, 0.8)
     with pytest.raises(ValueError, match="finite and positive"):
         query_window_seconds(9, 15, window_seconds=0)
+
+
+def test_query_visibility_checks_every_frame_of_the_declared_window():
+    timeline = _timeline(120.0)
+    scene = SimpleNamespace(hfov_deg=105.0)
+    check = query_visibility_window_geometry(
+        timeline, "source1", policy="out_of_view",
+        window_s=(2.0, 2.5), scene=scene, params=PARAMS)
+    assert check["passes"] is True
+    assert check["frame_bounds"] == [30, 37]
+    assert check["in_camera_cone_frames"] == []
+
+    radius = 400.0
+    timeline["frames"][34]["actor_states"][0]["translation_ue_cm"] = [
+        radius, 0.0, 0.0]
+    failed = query_visibility_window_geometry(
+        timeline, "source1", policy="out_of_view",
+        window_s=(2.0, 2.5), scene=scene, params=PARAMS)
+    assert failed["passes"] is False
+    assert failed["violating_frames"] == [34]

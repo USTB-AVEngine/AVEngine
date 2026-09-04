@@ -55,6 +55,7 @@ from floor_reference import (
 
 FRAME_COUNT = 75
 DEFAULT_VIDEO_FPS = 15.0
+QUERY_VISIBILITY_VALUES = ("any", "visible", "out_of_view")
 
 
 def _positive_integer(value, *, owner: str) -> int:
@@ -486,6 +487,57 @@ def query_bound_for_domain(domain: str | None, scene, params) -> float:
         f"unknown query answer_domain {domain!r}; expected one of {ANSWER_DOMAINS}")
 
 
+def resolve_query_visibility(
+    domain: str | None,
+    *,
+    query_visibility: str | None = None,
+    query_requires_visibility: bool | None = None,
+) -> str:
+    """Resolve tri-state query visibility while accepting the legacy bool."""
+    if query_visibility is not None:
+        if not isinstance(query_visibility, str):
+            raise ValueError(
+                "query_visibility must be one of "
+                f"{QUERY_VISIBILITY_VALUES}")
+        state = query_visibility.strip().lower()
+        if state not in QUERY_VISIBILITY_VALUES:
+            raise ValueError(
+                "query_visibility must be one of "
+                f"{QUERY_VISIBILITY_VALUES}, got {query_visibility!r}")
+        if query_requires_visibility is not None:
+            if not isinstance(query_requires_visibility, bool):
+                raise ValueError("query_requires_visibility must be a boolean")
+            if query_requires_visibility and state != "visible":
+                raise ValueError(
+                    "query_requires_visibility=True conflicts with "
+                    f"query_visibility={state!r}")
+            if not query_requires_visibility and state == "visible":
+                raise ValueError(
+                    "query_requires_visibility=False conflicts with "
+                    "query_visibility='visible'")
+        return state
+    if query_requires_visibility is None:
+        return "visible" if domain in (None, "camera_cone") else "any"
+    if not isinstance(query_requires_visibility, bool):
+        raise ValueError("query_requires_visibility must be a boolean")
+    return "visible" if query_requires_visibility else "any"
+
+
+def query_visibility_matches(
+    azimuth_deg: float, visibility: str, half_fov_deg: float,
+) -> bool:
+    """Return whether one emitter bearing satisfies a camera-cone policy."""
+    if visibility not in QUERY_VISIBILITY_VALUES:
+        raise ValueError(
+            f"query visibility must be one of {QUERY_VISIBILITY_VALUES}")
+    inside = abs(float(azimuth_deg)) <= float(half_fov_deg)
+    if visibility == "visible":
+        return inside
+    if visibility == "out_of_view":
+        return not inside
+    return True
+
+
 def resolve_query_geometry(
     scene,
     params,
@@ -494,6 +546,7 @@ def resolve_query_geometry(
     answer_domain: str | None = None,
     query_bound_deg: float | None = None,
     query_requires_visibility: bool | None = None,
+    query_visibility: str | None = None,
 ) -> tuple[float, bool]:
     """Resolve the declared query domain into a bearing bound and visibility rule.
 
@@ -513,13 +566,12 @@ def resolve_query_geometry(
     bound = default_bound if query_bound_deg is None else float(query_bound_deg)
     if not math.isfinite(bound) or not 0.0 <= bound <= 180.0:
         raise ValueError("query_bound_deg must be finite and lie in [0, 180]")
-    if query_requires_visibility is None:
-        requires_visibility = domain in (None, "camera_cone")
-    elif not isinstance(query_requires_visibility, bool):
-        raise ValueError("query_requires_visibility must be a boolean")
-    else:
-        requires_visibility = query_requires_visibility
-    return bound, requires_visibility
+    visibility = resolve_query_visibility(
+        domain,
+        query_visibility=query_visibility,
+        query_requires_visibility=query_requires_visibility,
+    )
+    return bound, visibility == "visible"
 
 
 def derive_answer_arcs(profile, scene, params) -> list[Arc]:
@@ -1606,6 +1658,7 @@ def solve_forward_cross_time(scene: SceneInputs, params: dict, *,
                              answer_domain: str | None = None,
                              query_bound_deg: float | None = None,
                              query_requires_visibility: bool | None = None,
+                             query_visibility: str | None = None,
                              secondary_anchor_bound_deg: float | None = None,
                              secondary_query_bound_deg: float | None = None) -> PointPlan | Rejection:
     """①F 正向错时:音频锚在前,视觉查询在后(查询帧=片尾)。
@@ -1624,8 +1677,14 @@ def solve_forward_cross_time(scene: SceneInputs, params: dict, *,
     query_bound, query_visible = resolve_query_geometry(
         scene, params, query_domain=query_domain, answer_domain=answer_domain,
         query_bound_deg=query_bound_deg,
-        query_requires_visibility=query_requires_visibility)
+        query_requires_visibility=query_requires_visibility,
+        query_visibility=query_visibility)
     half_fov = effective_half_fov(scene, params)
+    visibility = resolve_query_visibility(
+        query_domain if query_domain is not None else answer_domain,
+        query_visibility=query_visibility,
+        query_requires_visibility=query_requires_visibility,
+    )
     theta_full = float(params["THETA_FULL"])
     theta_half = angle_credit_radius(params)
     min_sep = float(params["MIN_AZIMUTH_SEP"])
@@ -1695,6 +1754,12 @@ def solve_forward_cross_time(scene: SceneInputs, params: dict, *,
             ledger.add(Rejection("answer_band_outside_fov",
                                  "the declared band lies outside the camera "
                                  "field of view"))
+            continue
+        if not query_visibility_matches(az_end, visibility, half_fov):
+            ledger.add(Rejection(
+                "target_query_visibility_mismatch",
+                f"az={az_end:.2f} policy={visibility} "
+                f"half_fov={half_fov:.2f}"))
             continue
         anchor_xy = moved.at(anchor_frame)
         if _too_close_at_anchor(camera, anchor_xy, params):
@@ -1780,6 +1845,7 @@ def solve_forward_cross_time(scene: SceneInputs, params: dict, *,
                     "route_sources": _route_sources(route, other_route),
                     "query_bound_deg": query_bound,
                     "query_requires_visibility": query_visible,
+                    "query_visibility": visibility,
                     "search_attempts": attempt},
         )
     ledger.budget_exhausted += 1
@@ -1801,6 +1867,7 @@ def solve_backward_cross_time(scene: SceneInputs, params: dict, *,
                               answer_domain: str | None = None,
                               query_bound_deg: float | None = None,
                               query_requires_visibility: bool | None = None,
+                              query_visibility: str | None = None,
                               secondary_anchor_bound_deg: float | None = None,
                               secondary_query_bound_deg: float | None = None) -> PointPlan | Rejection:
     """①B 反向错时:视觉查询在前,音频锚在后(末段发声确定身份)。
@@ -1815,8 +1882,14 @@ def solve_backward_cross_time(scene: SceneInputs, params: dict, *,
     query_bound, query_visible = resolve_query_geometry(
         scene, params, query_domain=query_domain, answer_domain=answer_domain,
         query_bound_deg=query_bound_deg,
-        query_requires_visibility=query_requires_visibility)
+        query_requires_visibility=query_requires_visibility,
+        query_visibility=query_visibility)
     half_fov = effective_half_fov(scene, params)
+    visibility = resolve_query_visibility(
+        query_domain if query_domain is not None else answer_domain,
+        query_visibility=query_visibility,
+        query_requires_visibility=query_requires_visibility,
+    )
     theta_full = float(params["THETA_FULL"])
     theta_half = angle_credit_radius(params)
     min_sep = float(params["MIN_AZIMUTH_SEP"])
@@ -1878,6 +1951,12 @@ def solve_backward_cross_time(scene: SceneInputs, params: dict, *,
         if (not _angle_in_band(az_query, (band_lo, band_hi))
                 or abs(az_query) > query_bound):
             ledger.add(Rejection("answer_band_outside_fov"))
+            continue
+        if not query_visibility_matches(az_query, visibility, half_fov):
+            ledger.add(Rejection(
+                "target_query_visibility_mismatch",
+                f"az={az_query:.2f} policy={visibility} "
+                f"half_fov={half_fov:.2f}"))
             continue
         anchor_xy = moved.at(anchor_frame)
         if _too_close_at_anchor(camera, anchor_xy, params):
@@ -1961,6 +2040,7 @@ def solve_backward_cross_time(scene: SceneInputs, params: dict, *,
                     "route_sources": _route_sources(route, other_route),
                     "query_bound_deg": query_bound,
                     "query_requires_visibility": query_visible,
+                    "query_visibility": visibility,
                     "search_attempts": attempt},
         )
     ledger.budget_exhausted += 1
@@ -2144,6 +2224,7 @@ def solve_instant_azimuth(scene: SceneInputs, params: dict, *,
                           answer_domain: str | None = None,
                           query_bound_deg: float | None = None,
                           query_requires_visibility: bool | None = None,
+                          query_visibility: str | None = None,
                           secondary_anchor_bound_deg: float | None = None,
                           secondary_query_bound_deg: float | None = None,
                           candidate_validator: Callable[[PointPlan], Rejection | None] | None = None):
@@ -2155,8 +2236,14 @@ def solve_instant_azimuth(scene: SceneInputs, params: dict, *,
     query_bound, query_visible = resolve_query_geometry(
         scene, params, query_domain=query_domain, answer_domain=answer_domain,
         query_bound_deg=query_bound_deg,
-        query_requires_visibility=query_requires_visibility)
+        query_requires_visibility=query_requires_visibility,
+        query_visibility=query_visibility)
     half_fov = effective_half_fov(scene, params)
+    visibility = resolve_query_visibility(
+        query_domain if query_domain is not None else answer_domain,
+        query_visibility=query_visibility,
+        query_requires_visibility=query_requires_visibility,
+    )
     min_sep = float(params["MIN_AZIMUTH_SEP"])
     theta_half = (angle_credit_radius(params) if open_half_width_deg is None
                   else float(open_half_width_deg))
@@ -2212,6 +2299,12 @@ def solve_instant_azimuth(scene: SceneInputs, params: dict, *,
         if abs(azimuth) > query_bound:
             ledger.add(Rejection("answer_band_outside_fov"))
             continue
+        if not query_visibility_matches(azimuth, visibility, half_fov):
+            ledger.add(Rejection(
+                "target_query_visibility_mismatch",
+                f"az={azimuth:.2f} policy={visibility} "
+                f"half_fov={half_fov:.2f}"))
+            continue
         other = _pick_other_route(
             scene, moved, camera, yaw, azimuth, azimuth,
             band_lo, band_hi, answer_bands, min_sep, half_fov,
@@ -2251,6 +2344,7 @@ def solve_instant_azimuth(scene: SceneInputs, params: dict, *,
                 "route_sources": _route_sources(route, other),
                 "query_bound_deg": query_bound,
                 "query_requires_visibility": query_visible,
+                "query_visibility": visibility,
                 "search_attempts": attempt,
             },
         )

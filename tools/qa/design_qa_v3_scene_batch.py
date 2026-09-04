@@ -844,8 +844,9 @@ def realized_cross_time_checks(timeline, *, profile, cell, target_slot,
         "credited_radius_deg": credit_radius,
         "answer_domain": profile.get("answer_domain"),
         "query_domain": resolved_geometry.get("query_domain"),
-        "query_requires_visibility": resolved_geometry.get(
-            "query_requires_visibility"),
+        "query_requires_visibility": (
+            _resolved_query_visibility(profile, cell) == "visible"),
+        "query_visibility": _resolved_query_visibility(profile, cell),
         "convention": _profile_convention(profile),
         "query_window_seconds": query_window_s,
         "main": main,
@@ -949,6 +950,7 @@ def profile_query_geometry(profile, cell):
         "answer_domain": profile.get("answer_domain"),
         "query_bound_deg": profile.get("query_bound_deg"),
         "query_requires_visibility": profile.get("query_requires_visibility"),
+        "query_visibility": profile.get("query_visibility"),
         "secondary_anchor_bound_deg": profile.get("secondary_anchor_bound_deg"),
         "secondary_query_bound_deg": profile.get("secondary_query_bound_deg"),
     }
@@ -983,9 +985,19 @@ def profile_query_geometry(profile, cell):
         # a conflicting alias.
         geometry["answer_domain"] = None
     for key in ("query_bound_deg", "query_requires_visibility",
-                "secondary_anchor_bound_deg", "secondary_query_bound_deg"):
+                "query_visibility", "secondary_anchor_bound_deg",
+                "secondary_query_bound_deg"):
         if key in override:
             geometry[key] = override[key]
+    # The string form replaces a legacy boolean inherited from the profile,
+    # and vice versa. Supplying both in the same declaration is still checked
+    # for consistency by resolve_query_visibility.
+    if ("query_visibility" in override
+            and "query_requires_visibility" not in override):
+        geometry["query_requires_visibility"] = None
+    if ("query_requires_visibility" in override
+            and "query_visibility" not in override):
+        geometry["query_visibility"] = None
     return geometry
 
 def solve_for_profile(profile, cell, scene, params, rng, ledger, *, candidate_validator=None):
@@ -1130,6 +1142,11 @@ def validate_profiles(profiles):
         if profile.get("query_domain") is not None:
             if profile["query_domain"] not in SS.ANSWER_DOMAINS:
                 raise ValueError(f"{pid}: unsupported query_domain {profile['query_domain']!r}")
+        SS.resolve_query_visibility(
+            profile.get("query_domain", profile.get("answer_domain")),
+            query_visibility=profile.get("query_visibility"),
+            query_requires_visibility=profile.get("query_requires_visibility"),
+        )
         if kind == "front_back":
             if profile.get("answer_domain") != "front_back":
                 raise ValueError(f"{pid}: front_back answer_kind requires answer_domain 'front_back'")
@@ -1151,6 +1168,23 @@ def validate_profiles(profiles):
                 if domain is not None and domain not in SS.ANSWER_DOMAINS:
                     raise ValueError(
                         f"{pid}: unsupported query domain {domain!r} for {label!r}")
+                override_visibility = override.get(
+                    "query_visibility", profile.get("query_visibility"))
+                override_legacy = override.get(
+                    "query_requires_visibility",
+                    profile.get("query_requires_visibility"))
+                if ("query_visibility" in override
+                        and "query_requires_visibility" not in override):
+                    override_legacy = None
+                if ("query_requires_visibility" in override
+                        and "query_visibility" not in override):
+                    override_visibility = None
+                SS.resolve_query_visibility(
+                    domain or profile.get("query_domain")
+                    or profile.get("answer_domain"),
+                    query_visibility=override_visibility,
+                    query_requires_visibility=override_legacy,
+                )
         if profile.get("convention") is not None:
             AZ.canonical_convention(profile["convention"])
         missing = sorted(key for key in required if key not in profile)
@@ -1716,6 +1750,50 @@ def build_point_timeline_geometry(
 
 
 
+def query_visibility_window_geometry(
+    timeline, slot, *, policy, window_s, scene, params,
+    emitter_paths_by_slot=None,
+):
+    """Evaluate an emitter against a declared camera-cone policy per frame."""
+    if policy not in SS.QUERY_VISIBILITY_VALUES:
+        raise ValueError(
+            f"query visibility must be one of {SS.QUERY_VISIBILITY_VALUES}")
+    fps = _timeline_video_fps(timeline, params)
+    lo_f, hi_f = query_window_frame_bounds(
+        window_s, fps, len(timeline["frames"]))
+    half_fov = SS.effective_half_fov(scene, params)
+    azimuths = [
+        recompute_emitter_azimuth(
+            timeline, slot, frame, emitter_paths_by_slot)
+        for frame in range(lo_f, hi_f + 1)
+    ]
+    matches = [
+        SS.query_visibility_matches(angle, policy, half_fov)
+        for angle in azimuths
+    ]
+    inside_frames = [
+        frame for frame, angle in zip(
+            range(lo_f, hi_f + 1), azimuths, strict=True)
+        if abs(angle) <= half_fov
+    ]
+    violating_frames = [
+        frame for frame, accepted in zip(
+            range(lo_f, hi_f + 1), matches, strict=True)
+        if not accepted
+    ]
+    return {
+        "policy": policy,
+        "authority": "runtime_emitter_anchor_camera_cone_geometry",
+        "frame_bounds": [lo_f, hi_f],
+        "half_fov_deg": round(half_fov, 6),
+        "azimuth_deg_min": round(min(azimuths), 6),
+        "azimuth_deg_max": round(max(azimuths), 6),
+        "in_camera_cone_frames": inside_frames,
+        "violating_frames": violating_frames,
+        "passes": not violating_frames,
+    }
+
+
 def instant_direction_candidate_validator(
     profile, cell, scene, params, by_id, args, asset_context,
 ):
@@ -1747,11 +1825,34 @@ def instant_direction_candidate_validator(
                 kind, profile, cell, timeline, None, [], target, other, labels,
                 truth, plan.query_frame, params, asset_context=asset_context,
                 slot_context_data=context, emitter_paths_by_slot=emitters)
-            _, _, ga_answer, _, _ = build_gatea_answer(
+            gatea_target, _, ga_answer, _, _ = build_gatea_answer(
                 kind, profile, cell, timeline, None, [], target, other, labels,
                 plan.query_frame, params, asset_context=asset_context,
                 slot_context_data=context, emitter_paths_by_slot=emitters)
             audit_gatea_answers(profile, answer, ga_answer, params)
+            fps = _timeline_video_fps(timeline, params)
+            window = profile_query_window(
+                profile, params, plan.query_frame, fps)
+            visibility_checks = {}
+            for variant, slot, answer_doc in (
+                ("main", target, answer),
+                ("gateA", gatea_target, ga_answer),
+            ):
+                policy = answer_doc.get("truth", {}).get("query_visibility")
+                if policy is None:
+                    raise GenerationConstraintError(
+                        f"{variant} answer did not retain query_visibility")
+                check = query_visibility_window_geometry(
+                    timeline, slot, policy=policy, window_s=window,
+                    scene=scene, params=params,
+                    emitter_paths_by_slot=emitters)
+                visibility_checks[variant] = dict(check, source_slot_id=slot)
+                if not check["passes"]:
+                    return SS.Rejection(
+                        f"{variant.lower()}_query_visibility_failed",
+                        f"{slot} policy={policy} violated at frames "
+                        f"{check['violating_frames']}")
+            plan.checks["query_visibility_window_geometry"] = visibility_checks
         except GenerationConstraintError as error:
             return SS.Rejection("emitter_query_geometry_failed", str(error))
         return None
@@ -2091,8 +2192,9 @@ def realise_point(
         "answer_kind": answer_kind,
         "answer_domain": profile.get("answer_domain"),
         "query_domain": _resolved_query_geometry(profile, cell).get("query_domain"),
-        "query_requires_visibility": _resolved_query_geometry(profile, cell).get(
-            "query_requires_visibility"),
+        "query_requires_visibility": (
+            _resolved_query_visibility(profile, cell) == "visible"),
+        "query_visibility": _resolved_query_visibility(profile, cell),
         "secondary_anchor_bound_deg": _resolved_query_geometry(
             profile, cell).get("secondary_anchor_bound_deg"),
         "secondary_query_bound_deg": _resolved_query_geometry(
@@ -2206,8 +2308,10 @@ def realise_point(
         "target_slot": gatea_target_slot,
         "target_coat": slot_coat[gatea_target_slot],
         "query_domain": gatea_answer.get("open", {}).get("query_domain"),
-        "query_requires_visibility": gatea_answer.get("open", {}).get(
-            "query_requires_visibility"),
+        "query_requires_visibility": (
+            gatea_answer.get("truth", {}).get("query_visibility") == "visible"),
+        "query_visibility": gatea_answer.get("truth", {}).get(
+            "query_visibility"),
         "truth": dict(
             gatea_answer["truth"],
             query_azimuth_deg_engine_frame=round(gatea_truth_deg, 3),
@@ -2357,8 +2461,19 @@ def _resolved_query_geometry(profile, cell) -> dict:
         "answer_domain": profile.get("answer_domain"),
         "query_bound_deg": profile.get("query_bound_deg"),
         "query_requires_visibility": profile.get("query_requires_visibility"),
+        "query_visibility": profile.get("query_visibility"),
         "secondary_query_bound_deg": profile.get("secondary_query_bound_deg"),
     }
+
+
+def _resolved_query_visibility(profile, cell) -> str:
+    geometry = _resolved_query_geometry(profile, cell)
+    domain = geometry.get("query_domain") or geometry.get("answer_domain")
+    return SS.resolve_query_visibility(
+        domain,
+        query_visibility=geometry.get("query_visibility"),
+        query_requires_visibility=geometry.get("query_requires_visibility"),
+    )
 
 
 def _profile_convention(profile) -> str:
@@ -2736,7 +2851,9 @@ def build_answer(
             "answer_band_index": got,
             "answer_domain": "front_back",
             "query_domain": resolved_geometry.get("query_domain"),
-            "query_requires_visibility": resolved_geometry.get("query_requires_visibility"),
+            "query_requires_visibility": (
+                _resolved_query_visibility(profile, cell) == "visible"),
+            "query_visibility": _resolved_query_visibility(profile, cell),
             "query_window_seconds": list(window),
             "query_window_frame_bounds": list(window_frames),
             "azimuth_deg_engine_frame": round(truth_deg, 3),
@@ -2765,7 +2882,9 @@ def build_answer(
                 "vocab_path": profile.get("vocab_path"),
                 "answer_domain": "front_back",
                 "query_domain": resolved_geometry.get("query_domain"),
-                "query_requires_visibility": resolved_geometry.get("query_requires_visibility"),
+                "query_requires_visibility": (
+                    _resolved_query_visibility(profile, cell) == "visible"),
+                "query_visibility": _resolved_query_visibility(profile, cell),
                 "convention": convention,
                 "convention_note": AZ.convention_note(convention),
                 "direction_evidence": profile.get("direction_evidence"),
@@ -2851,7 +2970,9 @@ def build_answer(
             "azimuth_interval_arc": published_arc.as_dict(),
             "answer_domain": profile.get("answer_domain"),
             "query_domain": resolved_geometry.get("query_domain"),
-            "query_requires_visibility": resolved_geometry.get("query_requires_visibility"),
+            "query_requires_visibility": (
+                _resolved_query_visibility(profile, cell) == "visible"),
+            "query_visibility": _resolved_query_visibility(profile, cell),
         }
         if published_arc.width_deg >= 360.0:
             midpoint = 0.0
@@ -2883,8 +3004,12 @@ def build_answer(
                          "convention_note": AZ.convention_note(convention),
                          "direction_evidence": profile.get("direction_evidence"),
                          "answer_domain": profile.get("answer_domain"),
-                         "query_domain": profile.get("query_domain"),
-                         "query_requires_visibility": profile.get("query_requires_visibility")}}
+                         "query_domain": resolved_geometry.get("query_domain"),
+                         "query_requires_visibility": (
+                             _resolved_query_visibility(profile, cell)
+                             == "visible"),
+                         "query_visibility": _resolved_query_visibility(
+                             profile, cell)}}
     if kind == "coat_at_query":
         calling = [slot for slot, event in zip(
             [s for s, _ in slot_events], schedule.events)

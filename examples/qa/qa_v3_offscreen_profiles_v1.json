@@ -15,9 +15,9 @@
       "equal_bands": 8
     },
     "query_domain": "full_circle",
-    "query_requires_visibility": false,
     "direction_evidence": "audio_only",
-    "query_window_seconds": 0.5
+    "query_window_seconds": 0.5,
+    "query_visibility": "out_of_view"
   },
   {
     "id": "f2_rear_cone_audio_only",
@@ -35,9 +35,9 @@
       "equal_bands": 5
     },
     "query_domain": "rear_cone",
-    "query_requires_visibility": false,
     "direction_evidence": "audio_only",
-    "query_window_seconds": 0.5
+    "query_window_seconds": 0.5,
+    "query_visibility": "out_of_view"
   },
   {
     "id": "f2_front_back_binary",
@@ -60,13 +60,13 @@
     "query_geometry_by_answer": {
       "front": {
         "query_domain": "camera_cone",
-        "query_requires_visibility": true,
         "secondary_query_bound_deg": 180.0,
-        "secondary_anchor_bound_deg": 180.0
+        "secondary_anchor_bound_deg": 180.0,
+        "query_visibility": "visible"
       },
       "back": {
         "query_domain": "rear_cone",
-        "query_requires_visibility": false
+        "query_visibility": "out_of_view"
       }
     },
     "convention": "dcase_foa_left_positive",

@@ -112,13 +112,14 @@ def test_full_circle_solver_can_return_a_behind_offscreen_query():
         answer_band=(135.0, 180.0), answer_bands=bands,
         anchor_frame=45, idle_choices=(0,), rng=np.random.default_rng(11),
         ledger=ledger, max_attempts=200,
-        query_domain="full_circle",
+        query_domain="full_circle", query_visibility="out_of_view",
     )
     assert not isinstance(plan, SS.Rejection), ledger.summary()
     assert 135.0 <= plan.answer_cell["value_deg"] < 180.0
     assert abs(plan.answer_cell["value_deg"]) > scene.hfov_deg / 2.0
     assert plan.checks["query_bound_deg"] == pytest.approx(180.0)
     assert plan.checks["query_requires_visibility"] is False
+    assert plan.checks["query_visibility"] == "out_of_view"
     assert abs(SS.relative_azimuth_deg(
         plan.camera_xy, plan.camera_ue_yaw_deg,
         plan.other_route.at(plan.query_frame))) <= 180.0
@@ -157,3 +158,17 @@ def test_default_solver_query_geometry_keeps_visible_front_behavior():
         _scene(), PARAMS, query_bound_deg=60.0,
         query_requires_visibility=True)
     assert (bound, visible) == (60.0, True)
+
+
+def test_query_visibility_is_tri_state_and_legacy_false_remains_any():
+    assert SS.resolve_query_visibility(
+        "full_circle", query_visibility="out_of_view") == "out_of_view"
+    assert SS.resolve_query_visibility(
+        "full_circle", query_requires_visibility=False) == "any"
+    assert SS.query_visibility_matches(120.0, "out_of_view", 52.5)
+    assert not SS.query_visibility_matches(20.0, "out_of_view", 52.5)
+    assert SS.query_visibility_matches(20.0, "visible", 52.5)
+    with pytest.raises(ValueError, match="conflicts"):
+        SS.resolve_query_visibility(
+            "full_circle", query_visibility="out_of_view",
+            query_requires_visibility=True)
