@@ -32,6 +32,7 @@ REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(REPO / "src"))
 from verify_qa_v3_visual_batch import verify_point
+from qa_v3_request import batch_point_ids
 
 
 def _resolve_description_path(raw: object, *, description_path: Path,
@@ -155,11 +156,13 @@ def main(argv: list[str] | None = None) -> int:
         print(f"output root exists; pass --resume to continue: {args.output_root}",
               file=sys.stderr)
         return 2
+    try:
+        points = batch_point_ids(
+            args.inputs_root, args.points.split(",") if args.points else None)
+    except (OSError, ValueError, TypeError) as error:
+        print(f"FAIL: cannot select design batch points: {error}", file=sys.stderr)
+        return 2
     args.output_root.mkdir(parents=True, exist_ok=True)
-
-    points = (args.points.split(",") if args.points else
-              sorted(d.name for d in args.inputs_root.iterdir()
-                     if d.is_dir() and (d / "timeline.json").is_file()))
     done = skipped = 0
     for pid in points:
         out_dir = args.output_root / pid

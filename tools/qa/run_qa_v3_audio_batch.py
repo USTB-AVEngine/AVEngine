@@ -35,6 +35,8 @@ REQUIRED_CONFIG_KEYS = (
     "source_asset_registry",
 )
 AVENGINE_REPOSITORY = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from qa_v3_request import batch_point_ids  # noqa: E402
 
 
 def _read_float32_wav_metadata(path: Path) -> dict[str, int]:
@@ -372,14 +374,16 @@ def main(argv: list[str] | None = None) -> int:
         print(f"output root exists; pass --resume to continue: {args.output_root}",
               file=sys.stderr)
         return 2
-    args.output_root.mkdir(parents=True, exist_ok=True)
-
     inputs_root = args.inputs_root.resolve()
     captures_root = args.captures_root.resolve()
     variants = [v.strip() for v in args.variants.split(",") if v.strip()]
-    points = (args.points.split(",") if args.points else
-              sorted(d.name for d in inputs_root.iterdir()
-                     if d.is_dir() and (d / "timeline.json").is_file()))
+    try:
+        points = batch_point_ids(
+            inputs_root, args.points.split(",") if args.points else None)
+    except (OSError, ValueError, TypeError) as error:
+        print(f"FAIL: cannot select design batch points: {error}", file=sys.stderr)
+        return 2
+    args.output_root.mkdir(parents=True, exist_ok=True)
     programs_dir = inputs_root / "programs"
     done = skipped = 0
     for pid in points:

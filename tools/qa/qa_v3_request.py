@@ -260,3 +260,62 @@ def write_requested_questions(output_root: Path, fact_paths, params) -> dict[str
             "counterfactual_question_count": counts["gateA"],
             "questions": str(main_path.resolve()),
             "counterfactual_questions": str(twin_path.resolve())}
+
+
+
+def batch_point_ids(inputs_root: str | Path, requested: Sequence[str] | None = None) -> list[str]:
+    """Select completed design records, never leftover rejected timelines.
+
+    Standalone capture inputs without a batch manifest retain directory-based
+    discovery. Once a design batch declares its results, those ordinary IDs
+    determine membership, including for an explicitly requested subset.
+    """
+    root = Path(inputs_root)
+
+    def point_id(value: object) -> str:
+        if (not isinstance(value, str) or not value or value in {".", ".."}
+                or Path(value).name != value):
+            raise QARequestError(f"invalid batch point ID: {value!r}")
+        return value
+
+    manifest_path = root / "batch_manifest.json"
+    if manifest_path.is_file():
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        if not isinstance(manifest, Mapping):
+            raise QARequestError("batch manifest must be an object")
+        if manifest.get("status") == "failed":
+            raise QARequestError("the design batch failed; inspect its recorded failure first")
+        records = manifest.get("records", manifest.get("selected"))
+        if records is None and (root / "facts.jsonl").is_file():
+            all_facts = [json.loads(line) for line in (root / "facts.jsonl").read_text(
+                encoding="utf-8").splitlines() if line.strip()]
+            if any(not isinstance(record, Mapping) for record in all_facts):
+                raise QARequestError("batch facts must be objects")
+            # Ordinary design batches write main and Gate A rows together.
+            # Variants share a point; only the main row declares its capture.
+            records = [record for record in all_facts
+                       if record.get("variant") in (None, "main")]
+        if records is None and (manifest.get("counts") or {}).get("geometry_candidates") == 0:
+            records = []
+        if not isinstance(records, list) or any(not isinstance(r, Mapping) for r in records):
+            raise QARequestError("design batch has no completed point records")
+        available = [point_id(record.get("point_id")) for record in records]
+        if len(available) != len(set(available)):
+            raise QARequestError("design batch contains duplicate completed point IDs")
+        rejected = set()
+        for key in ("rejected", "rejections"):
+            for record in manifest.get(key, []):
+                if isinstance(record, Mapping) and record.get("point_id") is not None:
+                    rejected.add(point_id(record["point_id"]))
+        if set(available) & rejected:
+            raise QARequestError("design batch marks the same point completed and rejected")
+    else:
+        available = sorted(p.name for p in root.iterdir()
+                           if p.is_dir() and (p / "timeline.json").is_file())
+    selected = available if requested is None else [point_id(value) for value in requested]
+    if len(selected) != len(set(selected)):
+        raise QARequestError("requested batch point IDs must be unique")
+    unknown = sorted(set(selected) - set(available))
+    if unknown:
+        raise QARequestError(f"points are not completed members of this batch: {unknown}")
+    return selected
