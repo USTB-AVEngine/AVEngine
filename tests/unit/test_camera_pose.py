@@ -3,9 +3,11 @@ from __future__ import annotations
 import math
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 from avengine.camera_pose import (
+    apply_camera_listener_look_at,
     CameraPoseError,
     apply_camera_listener_pose,
     normalized_yaw_degrees,
@@ -72,3 +74,20 @@ def test_camera_pose_rejects_invalid_position_yaw_and_fov():
             yaw_deg=0.0,
             horizontal_fov_deg=180.0,
         )
+
+
+
+def test_look_at_keeps_camera_and_listener_cooriented():
+    request = load_json(BASE_REQUEST)
+    result = apply_camera_listener_look_at(
+        request, request_id="look-at", position_m=[0, 1, 0], target_m=[1, 0, -1])
+    q = result["primary_camera_rig"]["world_from_rig"]["rotation_xyzw"]
+    x, y, z, w = q
+    rotation = np.asarray([
+        [1-2*(y*y+z*z), 2*(x*y-z*w), 2*(x*z+y*w)],
+        [2*(x*y+z*w), 1-2*(x*x+z*z), 2*(y*z-x*w)],
+        [2*(x*z-y*w), 2*(y*z+x*w), 1-2*(x*x+y*y)]])
+    forward = rotation @ np.asarray([0, 0, -1.0])
+    expected = np.asarray([1, -1, -1.0]) / np.sqrt(3)
+    assert forward == pytest.approx(expected)
+    assert result["listener"]["rig_from_listener"]["rotation_xyzw"] == [0, 0, 0, 1]

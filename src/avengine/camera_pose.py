@@ -69,6 +69,80 @@ def yaw_rotation_xyzw(yaw_degrees: float) -> list[float]:
     return [0.0, y, 0.0, w]
 
 
+def _look_at_quaternion_xyzw(
+    position_m: Sequence[float], target_m: Sequence[float], up: Sequence[float] = (0, 1, 0),
+) -> list[float]:
+    """Orient camera local -Z at a target while keeping local +Y upright."""
+    position = _finite_position(position_m)
+    target = _finite_position(target_m)
+    up_vector = _finite_position(up)
+    forward = [target[i] - position[i] for i in range(3)]
+    length = math.sqrt(sum(value * value for value in forward))
+    up_length = math.sqrt(sum(value * value for value in up_vector))
+    if length <= 1.0e-12 or up_length <= 1.0e-12:
+        raise CameraPoseError("look-at target and up vector must be nondegenerate")
+    forward = [value / length for value in forward]
+    up_vector = [value / up_length for value in up_vector]
+    right = [forward[1] * up_vector[2] - forward[2] * up_vector[1],
+             forward[2] * up_vector[0] - forward[0] * up_vector[2],
+             forward[0] * up_vector[1] - forward[1] * up_vector[0]]
+    right_length = math.sqrt(sum(value * value for value in right))
+    if right_length <= 1.0e-12:
+        raise CameraPoseError("look-at direction cannot be parallel to up")
+    right = [value / right_length for value in right]
+    camera_up = [right[1] * forward[2] - right[2] * forward[1],
+                 right[2] * forward[0] - right[0] * forward[2],
+                 right[0] * forward[1] - right[1] * forward[0]]
+    rotation = [[right[0], camera_up[0], -forward[0]],
+                [right[1], camera_up[1], -forward[1]],
+                [right[2], camera_up[2], -forward[2]]]
+    trace = rotation[0][0] + rotation[1][1] + rotation[2][2]
+    if trace > 0:
+        scale = math.sqrt(trace + 1.0) * 2
+        q = [(rotation[2][1] - rotation[1][2]) / scale,
+             (rotation[0][2] - rotation[2][0]) / scale,
+             (rotation[1][0] - rotation[0][1]) / scale, 0.25 * scale]
+    else:
+        index = max(range(3), key=lambda i: rotation[i][i])
+        if index == 0:
+            scale = math.sqrt(1 + rotation[0][0] - rotation[1][1] - rotation[2][2]) * 2
+            q = [0.25 * scale, (rotation[0][1] + rotation[1][0]) / scale,
+                 (rotation[0][2] + rotation[2][0]) / scale,
+                 (rotation[2][1] - rotation[1][2]) / scale]
+        elif index == 1:
+            scale = math.sqrt(1 + rotation[1][1] - rotation[0][0] - rotation[2][2]) * 2
+            q = [(rotation[0][1] + rotation[1][0]) / scale, 0.25 * scale,
+                 (rotation[1][2] + rotation[2][1]) / scale,
+                 (rotation[0][2] - rotation[2][0]) / scale]
+        else:
+            scale = math.sqrt(1 + rotation[2][2] - rotation[0][0] - rotation[1][1]) * 2
+            q = [(rotation[0][2] + rotation[2][0]) / scale,
+                 (rotation[1][2] + rotation[2][1]) / scale, 0.25 * scale,
+                 (rotation[1][0] - rotation[0][1]) / scale]
+    norm = math.sqrt(sum(value * value for value in q))
+    q = [value / norm for value in q]
+    if q[3] < 0 or (q[3] == 0 and next((x for x in q[:3] if x), 0) < 0):
+        q = [-value for value in q]
+    return [0.0 if abs(value) < 1.0e-15 else float(value) for value in q]
+
+
+def apply_camera_listener_look_at(
+    request: Mapping[str, Any], *, request_id: str, position_m: Sequence[float],
+    target_m: Sequence[float], up: Sequence[float] = (0, 1, 0),
+    horizontal_fov_deg: float | None = None,
+) -> dict[str, Any]:
+    """Return a co-located camera/listener request aimed at a declared target."""
+    result = apply_camera_listener_pose(
+        request, request_id=request_id, position_m=position_m, yaw_deg=0,
+        horizontal_fov_deg=horizontal_fov_deg)
+    result["primary_camera_rig"]["world_from_rig"]["rotation_xyzw"] = (
+        _look_at_quaternion_xyzw(position_m, target_m, up))
+    errors = validate_capture_request(result, room_id=result.get("room_id"))
+    if errors:
+        raise ContractError(errors)
+    return result
+
+
 def apply_camera_listener_pose(
     request: Mapping[str, Any],
     *,
@@ -128,6 +202,7 @@ def apply_camera_listener_pose(
 
 __all__ = [
     "CameraPoseError",
+    "apply_camera_listener_look_at",
     "apply_camera_listener_pose",
     "normalized_yaw_degrees",
     "yaw_rotation_xyzw",
