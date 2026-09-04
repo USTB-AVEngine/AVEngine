@@ -6,6 +6,7 @@ import json
 import sys
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 TOOLS = Path(__file__).resolve().parents[1] / "tools" / "qa"
@@ -109,12 +110,15 @@ def test_pixel_eligibility_applies_all_three_rules():
 def _frame(index, actor_x, observed_x, animation_error):
     return {
         "frame_index": index,
+        "pts_ticks": index * 100,
         "camera": {
             "translation_ue_cm": [1.0, 2.0, 3.0],
             "yaw_ue_deg": 10.0,
         },
         "actor_states": [{
             "source_slot_id": "source1",
+            "action_id": "walk",
+            "action_phase": 0.0,
             "translation_ue_cm": [actor_x, 0.0, 0.0],
             "yaw_ue_deg": 20.0,
         }],
@@ -149,14 +153,23 @@ def test_visual_verifier_writes_recomputable_batch_maxima(tmp_path):
     point.mkdir(parents=True)
     (point / "frame_records.json").write_text(json.dumps({
         "frames": [_frame(0, 0.0, 0.0, 0.0),
-                   _frame(1, 1.0, 1.25, 0.000001)],
+                   _frame(1, 1.0, 1.01, 0.000001)],
     }))
+    arrays = point / "arrays"
+    arrays.mkdir()
+    np.save(arrays / "rgb.npy", np.zeros((2, 1, 1, 3), dtype=np.uint8))
     (point / "research_receipt.json").write_text(json.dumps({
+        "status": "research_only",
+        "qualification_claim": False,
+        "artifacts": {"rgb": "arrays/rgb.npy"},
         "capture": {
             "completed_frame_count": 2,
             "frame_count": 2,
+            "frame_rate_hz": 15,
+            "ticks_per_frame": 100,
             "root_readback_summary": {
                 "source1_actor": {"status": "pass"},
+                "camera": {"status": "pass"},
             },
             "animation_readback_summary": {"status": "pass"},
         },
@@ -168,5 +181,5 @@ def test_visual_verifier_writes_recomputable_batch_maxima(tmp_path):
         "verified_frames": 2,
         "failures": 0,
     }
-    assert result["maxima"]["actor_position_error_cm"] == pytest.approx(0.25)
+    assert result["maxima"]["actor_position_error_cm"] == pytest.approx(0.01)
     assert result["maxima"]["animation_error_seconds"] == pytest.approx(1e-6)
