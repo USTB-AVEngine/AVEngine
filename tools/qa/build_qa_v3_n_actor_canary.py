@@ -207,27 +207,47 @@ def find_four_route_plan(scene, params, **kwargs):
     return find_n_route_plan(scene, params, actor_count=4, **kwargs)
 
 
-def build_endpoint_registry(selection, by_id, output_path: Path):
+def build_endpoint_registry(selection, by_id, output_path: Path, *,
+                            allowed_sound_classes_by_slot=None,
+                            selection_path: Path | None = None):
     endpoint_records = []
-    evidence = sha256_file(output_path.parent / "actor_selection.json")
+    selection_path = Path(selection_path or output_path.parent / "actor_selection.json")
+    if _read(selection_path) != selection:
+        raise ValueError("endpoint evidence selection differs from the selected actors")
+    evidence = sha256_file(selection_path)
+    slots = {actor["source_slot_id"] for actor in selection["actors"]}
+    if allowed_sound_classes_by_slot is not None and set(allowed_sound_classes_by_slot) != slots:
+        raise ValueError("allowed sound classes must cover every selected source slot")
     for index, actor in enumerate(selection["actors"], start=1):
         asset = by_id[actor["asset_id"]]
         anchor_id = str(asset["default_emitter_anchor_id"])
-        sound_class = (
-            "human_speech" if asset.get("entity_class") == "articulated_human"
-            else "animal_vocalization")
+        slot = actor["source_slot_id"]
+        instance_id = actor.get("entity_instance_id") or actor.get("legacy_timeline_actor_id")
+        if not isinstance(instance_id, str) or not instance_id:
+            raise ValueError(f"{slot}: an explicit entity instance ID is required")
+        if allowed_sound_classes_by_slot is not None:
+            sound_classes = allowed_sound_classes_by_slot[slot]
+        elif asset.get("entity_class") == "rigid_object":
+            raise ValueError(f"{slot}: declare allowed sound classes for the rigid source")
+        else:
+            sound_classes = ["human_speech" if asset.get("entity_class") == "articulated_human"
+                             else "animal_vocalization"]
+        if (not isinstance(sound_classes, list) or not sound_classes
+                or any(not isinstance(value, str) or not value for value in sound_classes)
+                or len(set(sound_classes)) != len(sound_classes)):
+            raise ValueError(f"{slot}: allowed sound classes must be unique nonempty strings")
         endpoint_records.append({
-            "source_endpoint_id": f"qa_v3_n{len(selection['actors'])}_source{index}_{anchor_id}",
+            "source_endpoint_id": f"qa_v3_n{len(selection['actors'])}_{slot}_{anchor_id}",
             "revision": "v1",
             "binding": {
                 "kind": "entity_anchor",
-                "entity_instance_id": actor["legacy_timeline_actor_id"],
+                "entity_instance_id": instance_id,
                 "entity_asset_id": actor["asset_id"],
                 "entity_asset_revision": actor["revision"],
                 "emitter_anchor_id": anchor_id,
             },
             "source_visibility_mode": "visible_entity",
-            "allowed_sound_class_ids": [sound_class],
+            "allowed_sound_class_ids": list(sound_classes),
             "directivity_profile_id": "point_emitter_v1",
             "persistent_when_silent": True,
             "admission_state": "research",

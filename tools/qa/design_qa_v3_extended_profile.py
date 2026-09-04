@@ -16,6 +16,8 @@ import copy
 import json
 import math
 import sys
+
+import numpy as np
 from collections import Counter
 from pathlib import Path
 
@@ -31,23 +33,30 @@ from build_qa_v3_n_actor_canary import (  # noqa: E402
     _write,
     build_endpoint_registry,
     find_n_route_plan,
+    seed_uint64,
 )
 from build_qa_v3_programs import (  # noqa: E402
     build_program, dry_canvas_window_fields, program_request_fields,
-    require_dry_canvas_source_mode,
+    require_dry_canvas_source_mode, validate_m6_audio_program,
 )
 from qa_v3_actor_selection import _actor_entry  # noqa: E402
 from design_qa_v3_scene_batch import (  # noqa: E402
     git_worktree_state,
     resolve_scene_render_context,
 )
-from make_idle_then_walk_timeline import transform_to_solved_routes  # noqa: E402
+from make_idle_then_walk_timeline import (  # noqa: E402
+    resample_route_samples,
+    transform_to_solved_routes,
+)
 from scene_sampler import (  # noqa: E402
     effective_half_fov,
     load_scene,
     relative_azimuth_deg,
     require_camera_clearance,
 )
+from qa_v3_request import answer_forms_from_params, write_requested_questions
+from audio_profiles import schedule_speech_utterances  # noqa: E402
+from avengine.assets.sound_pool import clip_source_from_params  # noqa: E402
 import scene_sampler as SS  # noqa: E402
 from avengine.camera_pose import apply_camera_listener_pose_ue  # noqa: E402
 from avengine.timeline.current_apartment_visual import (  # noqa: E402
@@ -78,7 +87,7 @@ class SearchExhausted(RuntimeError):
         self.evaluated_combinations = int(evaluated_combinations)
 
 
-def _resource_inventory(profile_id, assets, sounds):
+def _resource_inventory(profile_id, assets, sounds, speech_pool=None):
     dogs = [
         item for item in assets
         if item.get("identity", {}).get("species_id") == "dog"
@@ -101,13 +110,26 @@ def _resource_inventory(profile_id, assets, sounds):
                 and isinstance(label, str) and label):
             sound_types_by_label.setdefault(label, item)
     sound_types = list(sound_types_by_label.values())
-    speech_by_transcript = {}
-    for item in sounds:
+    speech_source = sounds if speech_pool is None else speech_pool
+    speech_by_identity = {}
+    for item in speech_source:
+        if not isinstance(item, dict):
+            continue
+        sound_class = item.get("semantic_sound_class") or item.get("event_class")
         transcript = item.get("transcript")
-        if (item.get("semantic_sound_class") == "human_speech"
-                and isinstance(transcript, str) and transcript.strip()):
-            speech_by_transcript.setdefault(transcript.strip(), item)
-    speech = list(speech_by_transcript.values())
+        if sound_class not in {"human_speech", "speech_playback"}:
+            continue
+        if not isinstance(transcript, str) or not transcript.strip():
+            continue
+        if speech_pool is not None and item.get("split") != "train":
+            continue
+        identity = (
+            item.get("speaker_id"),
+            item.get("utterance_id"),
+        )
+        key = identity if all(identity) else ("transcript", transcript.strip())
+        speech_by_identity.setdefault(key, item)
+    speech = list(speech_by_identity.values())
     missing = []
     if profile_id in {"card11", "card15a"} and len(dogs) < 4:
         missing.append("four_registered_dog_assets")
@@ -162,12 +184,40 @@ def _route_source_counts(records):
                 points=len(records))
 
 
-def _author_timeline(out_dir, name, selection_path, registry_path, scene, plan):
+def _timeline_dimensions(params) -> tuple[int, float]:
+    try:
+        clip_seconds = float(params["CLIP_SECONDS"])
+        frame_rate_hz = float(params["VIDEO_FPS"])
+        frame_count = int(params["FRAME_COUNT"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ValueError(
+            "speech timeline needs CLIP_SECONDS, VIDEO_FPS, and FRAME_COUNT"
+        ) from exc
+    if (
+        not math.isfinite(clip_seconds)
+        or clip_seconds <= 0.0
+        or not math.isfinite(frame_rate_hz)
+        or frame_rate_hz <= 0.0
+        or frame_count < 2
+    ):
+        raise ValueError("timeline duration and frame clock must be positive and finite")
+    expected = int(round(clip_seconds * frame_rate_hz))
+    if frame_count != expected:
+        raise ValueError(
+            f"FRAME_COUNT={frame_count} disagrees with "
+            f"CLIP_SECONDS*VIDEO_FPS={expected}"
+        )
+    return frame_count, frame_rate_hz
+
+
+def _author_timeline(out_dir, name, selection_path, registry_path, scene, plan, params):
     render = resolve_scene_render_context(scene)
     ground = float(render["ground_z_ue_cm"])
+    frame_count, frame_rate_hz = _timeline_dimensions(params)
     routes_3d = {
         f"source{index}": [
-            [float(x), float(y), ground] for x, y in route.samples_xy
+            [float(x), float(y), ground]
+            for x, y in resample_route_samples(route.samples_xy, frame_count)
         ]
         for index, route in enumerate(plan["routes"], start=1)
     }
@@ -188,6 +238,8 @@ def _author_timeline(out_dir, name, selection_path, registry_path, scene, plan):
         native_map=str(render["native_map"]),
         room_profile_id=str(render["room_profile_id"]),
         hfov_degrees=scene.hfov_deg,
+        frame_count=frame_count,
+        frame_rate_hz=frame_rate_hz,
     )
     timeline = transform_to_solved_routes(
         timeline,
@@ -258,7 +310,11 @@ def _find_gateb_out_of_view_route(scene, params, plan, *, frame=30):
 
 def audio_program_mode(events) -> str:
     """Mode follows the event list: one slot sounding vs several."""
-    active = {event[0] for event in events}
+
+    active = {
+        event["slot"] if isinstance(event, dict) else event[0]
+        for event in events
+    }
     return "one_active_of_n" if len(active) == 1 else "sequential_sources"
 
 
@@ -328,6 +384,74 @@ def _program_events(profile_id, cell_index, sound_assets):
     ]
     return main, gatea, {"first_caller_slot": "source1",
                          "gatea_first_caller_slot": "source2"}
+
+
+def _speech_pool_rows(params):
+    path = params.get("SOUND_EVENT_POOL")
+    if not path:
+        return None
+    payload = _read(Path(path))
+    rows = payload.get("clips") if isinstance(payload, dict) else None
+    if not isinstance(rows, list):
+        raise ValueError(f"speech event pool {path} has no clips list")
+    return [
+        row for row in rows
+        if isinstance(row, dict) and row.get("event_class") == "speech_playback"
+    ]
+
+
+def _speech_schedule(params, *, cell_index, seed):
+    source_rng = np.random.default_rng(
+        seed_uint64(f"{seed}|speech-source|{cell_index}"))
+    layout_rng = np.random.default_rng(
+        seed_uint64(f"{seed}|speech-layout|{cell_index}"))
+    clip_source = clip_source_from_params(
+        params, source_rng, pair_kind="human")
+    if clip_source is None:
+        raise ValueError(
+            "card13/card14 require SOUND_SOURCE_MODE=event_pool with speech clips"
+        )
+    return schedule_speech_utterances(
+        layout_rng,
+        params=params,
+        clip_source=clip_source,
+        roles=[f"source{index}" for index in range(1, 5)],
+        split=str(params.get("SPEECH_SPLIT", "train")),
+    )
+
+
+def _speech_program_events(schedule, cell_index):
+    role_to_slot = {role: role for role in schedule.declared["role_order"]}
+    main = schedule.program_events(role_to_slot)
+    shift = 1 + (cell_index % (len(main) - 1))
+    gatea = [
+        dict(row, slot=f"source{((index + shift) % len(main)) + 1}")
+        for index, row in enumerate(main)
+    ]
+    target_index = cell_index % len(main)
+    return main, gatea, {
+        "target_index": target_index,
+        "gatea_source_index": (target_index + shift) % len(main),
+        "target_speech_asset_id": main[target_index]["sound_asset_id"],
+        "target_speech_utterance_id": main[target_index]["utterance_id"],
+    }
+
+
+def _speech_bindings(events, colour_by_slot):
+    return [
+        {
+            "slot": row["slot"],
+            "sound_asset_id": row["sound_asset_id"],
+            "speaker_id": row.get("speaker_id"),
+            "utterance_id": row.get("utterance_id"),
+            "transcript": row.get("transcript"),
+            "split": row.get("split"),
+            "colour": colour_by_slot[row["slot"]],
+            "start_sample": row["start_sample"],
+            "duration_samples": row["duration_samples"],
+        }
+        for row in events
+    ]
 
 
 def _find_card16_plan(scene, params, *, seed, max_attempts):
@@ -432,7 +556,18 @@ def _location_band(profile, scene, plan, route_index, frame=40, params=None):
     return matches[0], float(azimuth)
 
 
-def _facts(profile, inventory, truth, scene, main_plan, segment2_plan=None):
+def _facts(
+    profile,
+    inventory,
+    truth,
+    scene,
+    main_plan,
+    segment2_plan=None,
+    *,
+    speech_events=None,
+    colour_by_slot=None,
+    speech_schedule=None,
+):
     profile = {"id": profile} if isinstance(profile, str) else profile
     profile_id = profile["id"]
     if profile_id == "card11":
@@ -481,6 +616,57 @@ def _facts(profile, inventory, truth, scene, main_plan, segment2_plan=None):
                      "truth_value": label, "scoring": "closed_set"},
         }
     if profile_id in {"card13", "card14"}:
+        if speech_events is not None:
+            if colour_by_slot is None:
+                raise ValueError("speech facts need colour_by_slot")
+            target_index = int(truth["target_index"])
+            if not 0 <= target_index < len(speech_events):
+                raise ValueError(
+                    f"speech target index {target_index} is outside event list")
+            target = speech_events[target_index]
+            transcript = str(target["transcript"]).strip()
+            colour = colour_by_slot[target["slot"]]
+            bindings = _speech_bindings(speech_events, colour_by_slot)
+            if profile_id == "card13":
+                mcq = {
+                    "stem": f"What did the person in {colour} say?",
+                    "options_space": [
+                        str(row["transcript"]).strip() for row in speech_events
+                    ],
+                    "truth_option": transcript,
+                }
+                open_answer = transcript
+                scoring = "transcript_wer"
+            else:
+                mcq = {
+                    "stem": (
+                        f"What colour was the person who said "
+                        f"'{transcript}'?"
+                    ),
+                    "options_space": [
+                        colour_by_slot[row["slot"]] for row in speech_events
+                    ],
+                    "truth_option": colour,
+                }
+                open_answer = colour
+                scoring = "closed_set"
+            result = {
+                "truth_status": "engine_exact",
+                "target_index": target_index,
+                "target_slot": target["slot"],
+                "target_speaker_id": target["speaker_id"],
+                "target_utterance_id": target["utterance_id"],
+                "speech_bindings": bindings,
+                "mcq": mcq,
+                "open": {
+                    "stem": mcq["stem"],
+                    "truth_value": open_answer,
+                    "scoring": scoring,
+                },
+            }
+            if speech_schedule is not None:
+                result["speech_schedule"] = dict(speech_schedule.declared)
+            return result
         target_index = int(truth["target_index"])
         speech = inventory["speech"][target_index]
         transcript = speech["transcript"].strip()
@@ -641,12 +827,15 @@ def _write_unavailable(out_root, profile, scene, missing, cells):
 def _realise_cell(out_root, profile, cell_index, scene, params, inventory,
                   by_id, registry_path, base_request, snapshot_content, seed):
     profile_id = profile["id"]
-    actor_assets = (
-        [item["asset_id"] for item in inventory["humans"][:4]]
-        if profile_id in {"card13", "card14"}
-        else [item["asset_id"] for item in inventory["dogs"][
+    if profile_id in {"card13", "card14"}:
+        appearance_rng = np.random.default_rng(
+            seed_uint64(f"{seed}|appearance|{cell_index}"))
+        humans = list(inventory["humans"][:4])
+        order = appearance_rng.permutation(len(humans))
+        actor_assets = [humans[int(index)]["asset_id"] for index in order]
+    else:
+        actor_assets = [item["asset_id"] for item in inventory["dogs"][
             :2 if profile_id in {"card16", "card17"} else 4]]
-    )
     point_id = f"{profile_id}_{cell_index + 1:03d}"
     point = out_root / point_id
     point.mkdir()
@@ -654,7 +843,23 @@ def _realise_cell(out_root, profile, cell_index, scene, params, inventory,
     selection_path = point / "actor_selection.json"
     _write(selection_path, selection)
     endpoint_path = point / "source_endpoints.json"
-    _, endpoint_records = build_endpoint_registry(selection, by_id, endpoint_path)
+    speech_endpoint_classes = (
+        {f"source{index}": ["speech_playback"]
+         for index in range(1, 5)}
+        if profile_id in {"card13", "card14"} else None
+    )
+    _, endpoint_records = build_endpoint_registry(
+        selection,
+        by_id,
+        endpoint_path,
+        allowed_sound_classes_by_slot=speech_endpoint_classes,
+        selection_path=selection_path,
+    )
+    colour_by_slot = {
+        actor["source_slot_id"]: by_id[actor["asset_id"]]
+        .get("realized_attributes", {}).get("top_color")
+        for actor in selection["actors"]
+    }
     actor_count = len(actor_assets)
     binding_frames = (
         (12,) if profile_id == "card16"
@@ -678,7 +883,7 @@ def _realise_cell(out_root, profile, cell_index, scene, params, inventory,
             str(error),
             evaluated_combinations=error.evaluated_combinations) from error
     timeline_path, timeline, camera_ue = _author_timeline(
-        point, "timeline", selection_path, registry_path, scene, plan)
+        point, "timeline", selection_path, registry_path, scene, plan, params)
 
     render = resolve_scene_render_context(scene)
     m1 = apply_camera_listener_pose_ue(
@@ -722,40 +927,57 @@ def _realise_cell(out_root, profile, cell_index, scene, params, inventory,
                 evaluated_combinations=segment2_search_attempts)
         _, segment2_timeline, _ = _author_timeline(
             point, "timeline_segment2", selection_path, registry_path,
-            scene, segment2_plan)
+            scene, segment2_plan, params)
 
-    sound_assets = (
-        inventory["sound_types"] if profile_id == "card12"
-        else inventory["speech"] if profile_id in {"card13", "card14"}
-        else [{"sound_asset_id": "dog_beagle_v2_scheduled_dry"}])
-    main_events, gatea_events, truth = _program_events(
-        profile_id, cell_index, sound_assets)
+    speech_schedule = None
+    if profile_id in {"card13", "card14"}:
+        speech_schedule = _speech_schedule(
+            params, cell_index=cell_index, seed=seed)
+        main_events, gatea_events, truth = _speech_program_events(
+            speech_schedule, cell_index)
+        sound_assets = []
+    else:
+        sound_assets = (
+            inventory["sound_types"] if profile_id == "card12"
+            else [{"sound_asset_id": "dog_beagle_v2_scheduled_dry"}])
+        main_events, gatea_events, truth = _program_events(
+            profile_id, cell_index, sound_assets)
     slot_endpoints = {
         actor["source_slot_id"]: endpoint["source_endpoint_id"]
         for actor, endpoint in zip(selection["actors"], endpoint_records)
     }
     # AudioProgram.mode is derived from which slots sound, not PROGRAM_MODE.
-    require_dry_canvas_source_mode(
-        params, owner="design_qa_v3_extended_profile")
     request = {
         "pair_kind": profile_id,
         "point_id": point_id,
         "slot_endpoints": slot_endpoints,
         **program_request_fields(params, include_mode=False),
-        **dry_canvas_window_fields(params),
-        "sound_asset_id": sound_assets[0]["sound_asset_id"],
     }
+    if speech_schedule is None:
+        require_dry_canvas_source_mode(
+            params, owner="design_qa_v3_extended_profile")
+        request.update(
+            dry_canvas_window_fields(params),
+            sound_asset_id=sound_assets[0]["sound_asset_id"],
+        )
     main_request = dict(request, mode=audio_program_mode(main_events))
     gatea_request = dict(request, mode=audio_program_mode(gatea_events))
     main_program = build_program(main_request, main_events, revision="v1")
     gatea_program = build_program(
         gatea_request, gatea_events, revision="gateA_v1")
+    if speech_schedule is not None:
+        validate_m6_audio_program(main_program)
+        validate_m6_audio_program(gatea_program)
     _write(point / "audio_program.json", main_program)
     _write(point / "audio_program_gateA.json", gatea_program)
 
     facts = _facts(
         profile, inventory, truth, scene, plan,
-        segment2_plan=segment2_plan)
+        segment2_plan=segment2_plan,
+        speech_events=main_events if speech_schedule is not None else None,
+        colour_by_slot=colour_by_slot,
+        speech_schedule=speech_schedule,
+    )
     main_starts = [event["start_sample"] for event in main_program["events"]]
     gatea_starts = [event["start_sample"] for event in gatea_program["events"]]
     main_sounds = sorted(event["sound_asset_id"] for event in main_program["events"])
@@ -807,6 +1029,49 @@ def _realise_cell(out_root, profile, cell_index, scene, params, inventory,
     })
     if not all(facts["gatea_checks"].values()):
         raise RuntimeError(f"Gate A structure check failed: {facts['gatea_checks']}")
+    facts["answer_forms"] = answer_forms_from_params(params)
+    if speech_schedule is not None:
+        facts["audio"]["schedule"] = dict(speech_schedule.declared)
+        facts["audio"]["utterances"] = _speech_bindings(
+            main_events, colour_by_slot)
+        gatea_result = _facts(
+            profile, inventory, truth, scene, plan,
+            segment2_plan=segment2_plan,
+            speech_events=gatea_events,
+            colour_by_slot=colour_by_slot,
+            speech_schedule=speech_schedule,
+        )
+        gatea_facts = copy.deepcopy(facts)
+        for key in (
+            "truth_status",
+            "target_index",
+            "target_slot",
+            "target_speaker_id",
+            "target_utterance_id",
+            "speech_bindings",
+            "mcq",
+            "open",
+            "speech_schedule",
+        ):
+            if key in gatea_result:
+                gatea_facts[key] = gatea_result[key]
+        gatea_facts.update({
+            "variant": "gateA",
+            "gatea_of": point_id,
+            "audio": {
+                "program": "audio_program_gateA.json",
+                "schedule": dict(speech_schedule.declared),
+                "utterances": _speech_bindings(
+                    gatea_events, colour_by_slot),
+            },
+            "gatea_checks": dict(facts["gatea_checks"]),
+        })
+        gatea_facts["gatea"] = {
+            "program_id": gatea_program["program_id"],
+            "fact_record": "fact_record_gateA.json",
+            "checks": dict(facts["gatea_checks"]),
+        }
+        _write(point / "fact_record_gateA.json", gatea_facts)
     _write(point / "fact_record.json", facts)
 
     gateb_assets = list(actor_assets)
@@ -835,10 +1100,16 @@ def _realise_cell(out_root, profile, cell_index, scene, params, inventory,
     gateb_selection_path = point / "actor_selection_gateB.json"
     _write(gateb_selection_path, gateb_selection)
     gateb_endpoint_path = point / "source_endpoints_gateB.json"
-    build_endpoint_registry(gateb_selection, by_id, gateb_endpoint_path)
+    build_endpoint_registry(
+        gateb_selection,
+        by_id,
+        gateb_endpoint_path,
+        allowed_sound_classes_by_slot=speech_endpoint_classes,
+        selection_path=gateb_selection_path,
+    )
     _, gateb_timeline, _ = _author_timeline(
         point, "timeline_gateB", gateb_selection_path, registry_path,
-        scene, gateb_plan)
+        scene, gateb_plan, params)
     gateb_visual_check = _assert_gateb_visual_change(
         selection, reference_timeline, gateb_selection, gateb_timeline)
     gateb = {
@@ -904,8 +1175,18 @@ def main(argv=None):
         raise ValueError(f"unsupported extended profile: {profile_id!r}")
     from qa_v3_request import read_qa_params
     params = read_qa_params(args.params)
-    require_dry_canvas_source_mode(
-        params, owner="design_qa_v3_extended_profile")
+    if profile_id in {"card13", "card14"}:
+        if str(params.get("SOUND_SOURCE_MODE")) != "event_pool":
+            raise ValueError(
+                "card13/card14 require SOUND_SOURCE_MODE=event_pool")
+        speech_pool = _speech_pool_rows(params)
+        if speech_pool is None:
+            raise ValueError(
+                "card13/card14 require SOUND_EVENT_POOL with speech clips")
+    else:
+        speech_pool = None
+        require_dry_canvas_source_mode(
+            params, owner="design_qa_v3_extended_profile")
     scene_config = SS.read_scene_config(args.scene_config)
     scene = load_scene(scene_config)
     resolve_scene_render_context(scene)
@@ -915,7 +1196,11 @@ def main(argv=None):
     by_id = {item["asset_id"]: item for item in registry["assets"]}
     sound_registry = _read(REPO / "examples/registry/registries/sound_assets_v1.json")
     inventory = _resource_inventory(
-        profile_id, registry["assets"], sound_registry["sound_assets"])
+        profile_id,
+        registry["assets"],
+        sound_registry["sound_assets"],
+        speech_pool=speech_pool,
+    )
     if inventory["missing"]:
         _write_unavailable(
             args.out_root, profile, scene, inventory["missing"], args.cells)
@@ -998,6 +1283,12 @@ def main(argv=None):
             "Pixel-dependent cards require the native pixel join; this is not "
             "question admission or missing-modality certification."),
     }
+    request_result = write_requested_questions(
+        args.out_root, (record["artifacts"]["fact"] for record in records), params,
+    )
+    manifest["question_request"] = request_result
+    manifest["counts"]["designed_questions"] = request_result["designed_question_count"]
+    manifest["counts"]["counterfactual_questions"] = request_result["counterfactual_question_count"]
     _write(args.out_root / "batch_manifest.json", manifest)
     print(json.dumps({
         "out": str(args.out_root), "scene": scene.scene_id,

@@ -44,6 +44,37 @@ def _states(doc: dict, slot: str) -> list[dict]:
     return out
 
 
+def resample_route_samples(samples, frame_count: int) -> list[list[float]]:
+    """Linearly resample route waypoints to a target timeline length."""
+
+    if isinstance(frame_count, bool) or not isinstance(frame_count, int) or frame_count < 2:
+        raise ValueError("frame_count must be an integer >= 2")
+    source = list(samples)
+    if len(source) < 2:
+        raise ValueError("route samples must contain at least two points")
+    dimensions = len(source[0])
+    if dimensions == 0 or any(len(point) != dimensions for point in source):
+        raise ValueError("route samples must have a consistent point dimension")
+    if len(source) == frame_count:
+        return [
+            [float(value) for value in point]
+            for point in source
+        ]
+    result: list[list[float]] = []
+    scale = (len(source) - 1) / float(frame_count - 1)
+    for index in range(frame_count):
+        position = index * scale
+        lower = min(int(math.floor(position)), len(source) - 1)
+        upper = min(lower + 1, len(source) - 1)
+        fraction = position - lower
+        result.append([
+            float(source[lower][axis])
+            + (float(source[upper][axis]) - float(source[lower][axis])) * fraction
+            for axis in range(dimensions)
+        ])
+    return result
+
+
 def transform_idle_then_walk(doc: dict, slot: str, idle_frames: int) -> dict:
     if not 1 <= idle_frames <= FRAME_COUNT - 2:
         raise ValueError(f"idle_frames must be in [1, {FRAME_COUNT - 2}], got {idle_frames}")
@@ -86,30 +117,37 @@ def transform_idle_then_walk(doc: dict, slot: str, idle_frames: int) -> dict:
 
 def transform_to_solved_routes(
         doc: dict, routes_by_slot: dict[str, list[tuple[float, float]]]) -> dict:
-    """Write solver-authoritative 75-frame XY routes into the final timeline."""
+    """Write solver routes into the timeline's declared frame clock."""
+
     frames = doc.get("frames", [])
-    if len(frames) != FRAME_COUNT:
-        raise ValueError(
-            f"expected {FRAME_COUNT} frames, got {len(frames)}")
+    frame_count = len(frames)
+    if frame_count < 2:
+        raise ValueError("timeline must contain at least two frames")
     if not routes_by_slot:
         raise ValueError("routes_by_slot must not be empty")
+    resolved_routes = {}
     for slot, samples in routes_by_slot.items():
-        if len(samples) != FRAME_COUNT:
+        if len(samples) == frame_count:
+            resolved_routes[slot] = resample_route_samples(samples, frame_count)
+        elif len(samples) == FRAME_COUNT:
+            resolved_routes[slot] = resample_route_samples(samples, frame_count)
+        else:
             raise ValueError(
-                f"{slot}: expected {FRAME_COUNT} solved samples, got "
-                f"{len(samples)}")
+                f"{slot}: expected {frame_count} solved samples (or legacy "
+                f"{FRAME_COUNT}-sample route), got {len(samples)}")
     new_doc = copy.deepcopy(doc)
     for slot, samples in routes_by_slot.items():
         states = _states(new_doc, slot)
         movement_phase = 0
         period = int(states[0].get("walk_phase_period_frames", 25))
         last_yaw = float(states[0].get("yaw_ue_deg", 0.0))
-        for frame, (state, sample) in enumerate(zip(states, samples)):
+        for frame, (state, sample) in enumerate(
+                zip(states, resolved_routes[slot])):
             x, y = float(sample[0]), float(sample[1])
             z = float(state["translation_ue_cm"][2])
             state["translation_ue_cm"] = [x, y, z]
-            previous = samples[max(0, frame - 1)]
-            following = samples[min(FRAME_COUNT - 1, frame + 1)]
+            previous = resolved_routes[slot][max(0, frame - 1)]
+            following = resolved_routes[slot][min(frame_count - 1, frame + 1)]
             dx = float(following[0]) - float(previous[0])
             dy = float(following[1]) - float(previous[1])
             moving = math.hypot(dx, dy) > 1.0e-6
@@ -123,10 +161,11 @@ def transform_to_solved_routes(
                 state["action_id"] = "idle"
                 state["action_phase"] = 0.0
             state["yaw_ue_deg"] = last_yaw
-            state["route_geometry"] = "solver_authoritative_75_frame"
-            state["route_waypoint_count"] = FRAME_COUNT
+            state["route_geometry"] = (
+                f"solver_authoritative_{frame_count}_frame")
+            state["route_waypoint_count"] = frame_count
             state["route_segment_index"] = frame
-    for slot, samples in routes_by_slot.items():
+    for slot, samples in resolved_routes.items():
         for state, sample in zip(_states(new_doc, slot), samples):
             actual = state["translation_ue_cm"]
             if (abs(float(actual[0]) - float(sample[0])) > 1.0e-9

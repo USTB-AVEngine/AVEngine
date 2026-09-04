@@ -120,6 +120,117 @@ class SoundEventPool:
                 f"sound event class {event_class!r} is empty in {self.source}")
         return list(found)
 
+    def select_distinct_speech_clips(
+        self,
+        rng: Any,
+        count: int = 4,
+        *,
+        split: str | None = "train",
+    ) -> list[PoolClip]:
+        """Select a bounded set of complete speech clips with explicit identity.
+
+        The pool is sorted once by duration, with seeded tie order. A selected
+        clip must declare a split, speaker, utterance, and transcript, and neither
+        speaker nor utterance may repeat. This is a finite filter, not a
+        search over combinations.
+        """
+
+        if isinstance(count, bool) or not isinstance(count, int) or count <= 0:
+            raise SoundPoolError("speech clip count must be a positive integer")
+        if split is not None and (not isinstance(split, str) or not split.strip()):
+            raise SoundPoolError("speech split must be a non-empty string or None")
+        candidates = self.clips_for("speech_playback")
+        eligible = [
+            clip
+            for clip in candidates
+            if (split is None or clip.split == split)
+            and clip.speaker_id
+            and clip.utterance_id
+            and clip.transcript
+        ]
+        # Duration-first ordering finds a feasible short set with one bounded
+        # pass; it never searches combinations across the full pool.
+        try:
+            permutation = rng.permutation(len(eligible))
+        except (AttributeError, TypeError, ValueError) as exc:
+            raise SoundPoolError(
+                "speech clip selection needs an RNG with permutation()"
+            ) from exc
+        tie_rank = {
+            int(index): rank for rank, index in enumerate(permutation)
+        }
+        eligible = [
+            clip
+            for index, clip in sorted(
+                enumerate(eligible),
+                key=lambda pair: (
+                    pair[1].duration_samples,
+                    tie_rank[pair[0]],
+                    pair[1].speaker_id,
+                    pair[1].utterance_id,
+                    pair[1].sound_asset_id,
+                ),
+            )
+        ]
+        edges: dict[str, list[tuple[str, PoolClip]]] = {}
+        clip_by_pair: dict[tuple[str, str], PoolClip] = {}
+        for clip in eligible:
+            pair = (clip.speaker_id, clip.utterance_id)
+            if pair in clip_by_pair:
+                continue
+            clip_by_pair[pair] = clip
+            edges.setdefault(clip.speaker_id, []).append(
+                (clip.utterance_id, clip)
+            )
+
+        # Match speakers to utterances with augmenting paths. Processing
+        # low-degree speakers first handles constrained speakers without
+        # enumerating candidate combinations.
+        speaker_order = sorted(
+            edges,
+            key=lambda speaker: (
+                len(edges[speaker]),
+                min(clip.duration_samples for _, clip in edges[speaker]),
+                speaker,
+            ),
+        )
+        matched_by_utterance: dict[str, str] = {}
+
+        def augment(speaker: str, seen: set[str]) -> bool:
+            for utterance, _ in edges[speaker]:
+                if utterance in seen:
+                    continue
+                seen.add(utterance)
+                owner = matched_by_utterance.get(utterance)
+                if owner is None or augment(owner, seen):
+                    matched_by_utterance[utterance] = speaker
+                    return True
+            return False
+
+        for speaker in speaker_order:
+            if len(matched_by_utterance) == count:
+                break
+            augment(speaker, set())
+
+        if len(matched_by_utterance) < count:
+            raise SoundPoolError(
+                f"speech pool has fewer than {count} distinct clips with explicit "
+                f"speaker/utterance/transcript metadata in split={split!r}"
+            )
+        selected = [
+            clip_by_pair[(speaker, utterance)]
+            for utterance, speaker in matched_by_utterance.items()
+        ]
+        selected.sort(
+            key=lambda clip: (
+                clip.duration_samples,
+                clip.speaker_id,
+                clip.utterance_id,
+                clip.sound_asset_id,
+            )
+        )
+        return selected
+
     def draw(self, rng: Any, event_class: str) -> PoolClip:
         clips = self.clips_for(event_class)
         index = int(rng.integers(0, len(clips)))
@@ -159,6 +270,20 @@ class ClassClipSource:
 
     def next(self) -> PoolClip:
         return self.pool.draw(self.rng, self.event_class)
+
+    def select_distinct_speech_clips(
+        self,
+        count: int = 4,
+        *,
+        split: str | None = "train",
+    ) -> list[PoolClip]:
+        if self.event_class != "speech_playback":
+            raise SoundPoolError(
+                "distinct speech selection requires event_class='speech_playback'"
+            )
+        return self.pool.select_distinct_speech_clips(
+            self.rng, count=count, split=split
+        )
 
     def bind_distinct_roles(self, roles: tuple[str, ...]) -> BoundRoleClipSource:
         clips = self.pool.clips_for(self.event_class)

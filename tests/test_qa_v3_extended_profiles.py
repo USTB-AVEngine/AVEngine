@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+
+import numpy as np
 import sys
 from pathlib import Path
 
@@ -20,6 +22,8 @@ from design_qa_v3_extended_profile import (  # noqa: E402
     _find_gateb_out_of_view_route,
     _program_events,
     _resource_inventory,
+    _speech_program_events,
+    audio_program_mode,
 )
 
 
@@ -49,10 +53,7 @@ def test_current_registry_exposes_semantic_asset_shortfalls():
     assert _resource_inventory("card12", assets, sounds)["missing"] == [
         "four_registered_semantic_sound_types"]
     speech_missing = _resource_inventory("card13", assets, sounds)["missing"]
-    assert speech_missing == [
-        "four_controlled_human_top_colours",
-        "four_transcribed_speech_assets",
-    ]
+    assert speech_missing == ["four_transcribed_speech_assets"]
 
 
 def test_card15a_gatea_changes_distinct_callers_not_event_times():
@@ -251,3 +252,130 @@ def test_gateb_search_requires_min_camera_distance():
         _find_gateb_out_of_view_route(
             object(), {}, {"routes": [], "camera_xy": (0.0, 0.0),
                            "camera_yaw_deg": 0.0})
+
+def test_speech_program_events_keep_full_windows_and_swap_gatea_slots():
+    from audio_profiles import schedule_speech_utterances
+    from avengine.assets.sound_pool import PoolClip
+
+    clips = [
+        PoolClip(
+            sound_asset_id=f"speech_{index}",
+            event_class="speech_playback",
+            duration_samples=16000 + index * 1000,
+            sample_rate_hz=16000,
+            source_start_sample=0,
+            source_end_sample_exclusive=16000 + index * 1000,
+            speaker_id=f"p{index}",
+            utterance_id=f"{index:03d}",
+            transcript=f"sentence {index}",
+            split="train",
+        )
+        for index in range(4)
+    ]
+
+    class Source:
+        def select_distinct_speech_clips(self, count=4, *, split="train"):
+            assert split == "train"
+            return clips[:count]
+
+    params = {
+        "CLIP_SECONDS": 10.0,
+        "SAMPLE_RATE_HZ": 16000,
+        "FRAME_COUNT": 150,
+        "TICKS_PER_SAMPLE": 3,
+        "TICKS_PER_FRAME": 3200,
+        "GAP_MIN_S": 0.3,
+    }
+    schedule = schedule_speech_utterances(
+        np.random.default_rng(1),
+        params=params,
+        clip_source=Source(),
+        roles=["source1", "source2", "source3", "source4"],
+    )
+    main, gatea, truth = _speech_program_events(schedule, 0)
+    assert audio_program_mode(main) == "sequential_sources"
+    assert [row["start_sample"] for row in gatea] == [
+        row["start_sample"] for row in main
+    ]
+    assert [row["duration_samples"] for row in gatea] == [
+        row["duration_samples"] for row in main
+    ]
+    assert [row["sound_asset_id"] for row in gatea] == [
+        row["sound_asset_id"] for row in main
+    ]
+    assert [row["slot"] for row in gatea] != [row["slot"] for row in main]
+    assert truth["target_speech_utterance_id"] == main[0]["utterance_id"]
+
+
+def test_speech_facts_bind_transcript_to_colour_and_preserve_metadata():
+    events = [
+        {
+            "slot": f"source{index + 1}",
+            "sound_asset_id": f"speech_{index}",
+            "speaker_id": f"p{index}",
+            "utterance_id": f"{index:03d}",
+            "transcript": f"sentence {index}",
+            "split": "train",
+            "start_sample": index * 20000,
+            "duration_samples": 16000,
+        }
+        for index in range(4)
+    ]
+    colours = {
+        "source1": "blue",
+        "source2": "burgundy",
+        "source3": "green",
+        "source4": "yellow",
+    }
+    inventory = {"humans": [], "speech": [], "dogs": [], "sound_types": []}
+    for profile_id in ("card13", "card14"):
+        fact = _facts(
+            {"id": profile_id},
+            inventory,
+            {"target_index": 2},
+            None,
+            None,
+            speech_events=events,
+            colour_by_slot=colours,
+        )
+        assert fact["target_speaker_id"] == "p2"
+        assert fact["target_utterance_id"] == "002"
+        assert fact["speech_bindings"][2]["colour"] == "green"
+        assert fact["speech_bindings"][2]["split"] == "train"
+        assert fact["mcq"]["truth_option"] in fact["mcq"]["options_space"]
+        assert fact["open"]["truth_value"] == fact["mcq"]["truth_option"]
+
+
+def test_speech_pool_inventory_uses_train_pool_rows():
+    rows = [
+        {
+            "event_class": "speech_playback",
+            "speaker_id": f"p{index}",
+            "utterance_id": f"{index:03d}",
+            "transcript": f"sentence {index}",
+            "split": "train",
+            "sound_asset_id": f"speech_{index}",
+        }
+        for index in range(4)
+    ]
+    rows.append({
+        "event_class": "speech_playback",
+        "speaker_id": "eval",
+        "utterance_id": "999",
+        "transcript": "eval sentence",
+        "split": "eval",
+        "sound_asset_id": "eval_speech",
+    })
+    inventory = _resource_inventory(
+        "card13",
+        [
+            {"identity": {"species_id": "human"},
+             "realized_attributes": {"top_color": colour}}
+            for colour in ("blue", "burgundy", "green", "yellow")
+        ],
+        [],
+        speech_pool=rows,
+    )
+    assert len(inventory["speech"]) == 4
+    assert {row["split"] for row in inventory["speech"]} == {"train"}
+    assert inventory["missing"] == []

@@ -37,6 +37,7 @@ from audio_profiles import (  # noqa: E402
     schedule_first_call_bands,
     schedule_second_sound_at_frame,
     schedule_forward_anchor,
+    schedule_speech_utterances,
 )
 
 PARAMS = {"TAIL_SILENCE_FRACTION": 0.3, "QUERY_SILENCE_FRACTION": 0.12,
@@ -490,3 +491,127 @@ def test_the_bucket_width_and_the_tolerance_cannot_disagree():
         card8_band_edges(dict(PARAMS, CARD8_BUCKET_SECONDS=1.5))
     # 一致时照常
     assert card8_band_edges(dict(PARAMS, CARD8_BUCKET_SECONDS=1.0))
+
+class _SpeechClip(_Clip):
+    def __init__(
+        self,
+        duration_samples,
+        asset_id,
+        speaker_id,
+        utterance_id,
+        transcript,
+        split="train",
+    ):
+        super().__init__(duration_samples, asset_id)
+        self.speaker_id = speaker_id
+        self.utterance_id = utterance_id
+        self.transcript = transcript
+        self.split = split
+        self.sample_rate_hz = SAMPLE_RATE
+
+
+class _SpeechSource:
+    def __init__(self, clips):
+        self.clips = list(clips)
+        self.calls = []
+
+    def select_distinct_speech_clips(self, count=4, *, split="train"):
+        self.calls.append((count, split))
+        return self.clips[:count]
+
+
+def test_speech_schedule_uses_complete_durations_and_keeps_identity():
+    clips = [
+        _SpeechClip(28705, "speech_0", "p262", "362", "That would help."),
+        _SpeechClip(25330, "speech_1", "p340", "233", "So it should be."),
+        _SpeechClip(31692, "speech_2", "p227", "270", "Did he trip?"),
+        _SpeechClip(36207, "speech_3", "p304", "100", "Did you get the script?"),
+    ]
+    source = _SpeechSource(clips)
+    params = dict(PARAMS, CLIP_SECONDS=10.0, SPEECH_GAP_SECONDS=0.3)
+    roles = ["role_a", "role_b", "role_c", "role_d"]
+    schedule = schedule_speech_utterances(
+        rng(123),
+        params=params,
+        clip_source=source,
+        roles=roles,
+    )
+    assert source.calls == [(4, "train")]
+    assert schedule.profile_id == "speech_utterances"
+    assert [event.role for event in schedule.events] == roles
+    assert [event.duration_samples for event in schedule.events] == [
+        clip.duration_samples for clip in clips
+    ]
+    assert [event.speaker_id for event in schedule.events] == [
+        clip.speaker_id for clip in clips
+    ]
+    assert [event.utterance_id for event in schedule.events] == [
+        clip.utterance_id for clip in clips
+    ]
+    assert [event.transcript for event in schedule.events] == [
+        clip.transcript for clip in clips
+    ]
+    assert all(event.split == "train" for event in schedule.events)
+    assert all(
+        later.start_sample - earlier.end_sample_exclusive >= 4800
+        for earlier, later in zip(schedule.events, schedule.events[1:])
+    )
+    assert schedule.declared["required_seconds"] == pytest.approx(8.520875)
+    program_rows = schedule.program_events(
+        {role: f"source{index + 1}" for index, role in enumerate(roles)}
+    )
+    assert [row["duration_samples"] for row in program_rows] == [
+        clip.duration_samples for clip in clips
+    ]
+    assert [row["speaker_id"] for row in program_rows] == [
+        clip.speaker_id for clip in clips
+    ]
+    assert [row["utterance_id"] for row in program_rows] == [
+        clip.utterance_id for clip in clips
+    ]
+    assert [row["transcript"] for row in program_rows] == [
+        clip.transcript for clip in clips
+    ]
+    assert all(row["split"] == "train" for row in program_rows)
+
+
+def test_speech_schedule_fails_when_complete_utterances_do_not_fit():
+    clips = [
+        _SpeechClip(28705, "speech_0", "p262", "362", "That would help."),
+        _SpeechClip(25330, "speech_1", "p340", "233", "So it should be."),
+        _SpeechClip(31692, "speech_2", "p227", "270", "Did he trip?"),
+        _SpeechClip(36207, "speech_3", "p304", "100", "Did you get the script?"),
+    ]
+    with pytest.raises(AudioProfileError, match="complete speech utterances need"):
+        schedule_speech_utterances(
+            rng(1),
+            params=dict(PARAMS, CLIP_SECONDS=8.0),
+            clip_source=_SpeechSource(clips),
+            gap_seconds=0.3,
+        )
+
+
+def test_speech_schedule_rejects_missing_or_wrong_split_identity():
+    clips = [
+        _SpeechClip(1000, "speech_0", "p1", "001", "one"),
+        _SpeechClip(1000, "speech_1", "p2", "002", "two"),
+        _SpeechClip(1000, "speech_2", "p3", "003", "three"),
+        _SpeechClip(1000, "speech_3", "p4", "004", "four", split="eval"),
+    ]
+    with pytest.raises(AudioProfileError, match="fewer than 4|split metadata|expected .train."):
+        schedule_speech_utterances(
+            rng(2),
+            params=dict(PARAMS, CLIP_SECONDS=10.0),
+            clip_source=_SpeechSource(clips),
+        )
+
+
+def test_complete_speech_reserves_requested_receiver_tail():
+    clips = [_SpeechClip(16000, f"speech_{i}", f"p{i}", str(i), f"utterance {i}") for i in range(4)]
+    params = dict(PARAMS, CLIP_SECONDS=6.0, SPEECH_GAP_SECONDS=0.3, SPEECH_TAIL_SECONDS=0.5)
+    for seed in range(8):
+        schedule = schedule_speech_utterances(rng(seed), params=params, clip_source=_SpeechSource(clips))
+        assert max(event.end_sample_exclusive for event in schedule.events) <= 88000
+        assert schedule.declared["reserved_tail_seconds"] == 0.5
+    with pytest.raises(AudioProfileError, match="reserved tail"):
+        schedule_speech_utterances(rng(0), params=dict(params, CLIP_SECONDS=5.0), clip_source=_SpeechSource(clips))

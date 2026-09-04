@@ -19,6 +19,7 @@ from make_idle_then_walk_timeline import (  # noqa: E402
     FRAME_COUNT,
     _verify,
     main,
+    resample_route_samples,
     transform_idle_then_walk,
     transform_to_solved_routes,
 )
@@ -139,3 +140,18 @@ def test_solved_route_transform_preserves_pause_and_updates_actions():
             assert action1 == "idle"
     assert _pos(out, "source1", 19)[1] == "walk"
     assert _pos(out, "source1", 31)[1] == "walk"
+
+def test_solved_routes_resample_legacy_75_points_to_timeline_clock():
+    doc = _mini_timeline(n=150)
+    source_route = [(float(frame), float(frame * 2)) for frame in range(FRAME_COUNT)]
+    out = transform_to_solved_routes(
+        doc,
+        {"source1": source_route, "source2": source_route},
+    )
+    assert len(out["frames"]) == 150
+    assert resample_route_samples(source_route, 150)[0] == [0.0, 0.0]
+    assert resample_route_samples(source_route, 150)[-1] == [74.0, 148.0]
+    state = out["frames"][-1]["actor_states"][0]
+    assert state["translation_ue_cm"][:2] == [74.0, 148.0]
+    assert state["route_waypoint_count"] == 150
+    assert state["route_geometry"] == "solver_authoritative_150_frame"

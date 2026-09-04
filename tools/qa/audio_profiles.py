@@ -20,6 +20,7 @@ run01 的 card8 被压扁,是因为它继承了 card1 需要的片尾静默 —�
 from __future__ import annotations
 
 import math
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 
 TARGET = "target_actor"
@@ -43,6 +44,10 @@ class ScheduledEvent:
     sound_asset_id: str | None = None
     source_start_sample: int | None = None
     source_end_sample_exclusive: int | None = None
+    speaker_id: str | None = None
+    utterance_id: str | None = None
+    transcript: str | None = None
+    split: str | None = None
 
     @property
     def start_seconds(self) -> float:
@@ -99,7 +104,7 @@ class Schedule:
                     or event.source_end_sample_exclusive is None):
                 raise AudioProfileError(
                     f"{event.sound_asset_id} is missing source window")
-            rows.append({
+            row = {
                 "slot": role_to_slot[event.role],
                 "start_sample": event.start_sample,
                 "duration_samples": event.duration_samples,
@@ -108,7 +113,18 @@ class Schedule:
                 "source_end_sample_exclusive": int(
                     event.source_end_sample_exclusive
                 ),
+            }
+            row.update({
+                key: value
+                for key, value in {
+                    "speaker_id": event.speaker_id,
+                    "utterance_id": event.utterance_id,
+                    "transcript": event.transcript,
+                    "split": event.split,
+                }.items()
+                if value is not None
             })
+            rows.append(row)
         return rows
 
 
@@ -179,6 +195,10 @@ def _stamp(role: str, start: int, purpose: str, params, clip=None) -> ScheduledE
         event.sound_asset_id = clip.sound_asset_id
         event.source_start_sample = int(start_src)
         event.source_end_sample_exclusive = int(end_src)
+        event.speaker_id = getattr(clip, "speaker_id", None)
+        event.utterance_id = getattr(clip, "utterance_id", None)
+        event.transcript = getattr(clip, "transcript", None)
+        event.split = getattr(clip, "split", None)
     return event
 
 
@@ -609,6 +629,209 @@ def _self_check_second_sound(schedule: Schedule, query_frame: int) -> None:
             f"card6 second sound starts at frame {second_frame}, not {query_frame}")
     if len(ordered) != 3:
         raise AudioProfileError("card6 schedule must contain three events")
+    _assert_no_overlap(schedule)
+
+
+def _speech_roles(roles: Sequence[str] | None, count: int) -> list[str]:
+    if roles is None:
+        return [f"speaker_{index}" for index in range(count)]
+    if isinstance(roles, (str, bytes, bytearray)) or not isinstance(roles, Sequence):
+        raise AudioProfileError("speech roles must be a sequence of strings")
+    result = list(roles)
+    if len(result) != count:
+        raise AudioProfileError(
+            f"speech roles must contain exactly {count} entries")
+    if any(not isinstance(role, str) or not role.strip() for role in result):
+        raise AudioProfileError("speech roles must contain non-empty strings")
+    if len(set(result)) != len(result):
+        raise AudioProfileError("speech roles must be unique")
+    return result
+
+
+def schedule_speech_utterances(
+    rng,
+    *,
+    params,
+    clip_source=None,
+    roles: Sequence[str] | None = None,
+    gap_seconds: float | None = None,
+    tail_seconds: float | None = None,
+    split: str = "train",
+    utterance_count: int = 4,
+) -> Schedule:
+    """Schedule complete identity-bearing speech utterances sequentially.
+
+    The clip source selects a bounded set of explicit train utterances. Their
+    actual source lengths become the event lengths; no fixed speech duration
+    or bark-sized crop is applied. The existing sequential placement helper
+    then places the requested role order inside CLIP_SECONDS.
+    """
+
+    if (
+        isinstance(utterance_count, bool)
+        or not isinstance(utterance_count, int)
+        or utterance_count <= 0
+    ):
+        raise AudioProfileError("speech utterance_count must be a positive integer")
+    if not isinstance(split, str) or not split.strip():
+        raise AudioProfileError("speech split must be a non-empty string")
+    if clip_source is None:
+        raise AudioProfileError(
+            "speech utterance scheduling needs an event-pool clip source"
+        )
+    params = params or {}
+    rate = _sample_rate(params)
+    episode_seconds = float(_require(params, "CLIP_SECONDS"))
+    if not math.isfinite(episode_seconds) or episode_seconds <= 0.0:
+        raise AudioProfileError("CLIP_SECONDS must be a finite positive number")
+    episode_samples = _clip_samples(params)
+    if tail_seconds is None:
+        tail_seconds = params.get("SPEECH_TAIL_SECONDS", params.get("TAIL_SILENCE_S", 0.0))
+    tail_seconds = float(tail_seconds)
+    if not math.isfinite(tail_seconds) or tail_seconds < 0.0:
+        raise AudioProfileError("speech tail_seconds must be finite and non-negative")
+    tail_samples = int(math.ceil(tail_seconds * rate))
+    usable_samples = episode_samples - tail_samples
+    if episode_samples <= 0:
+        raise AudioProfileError("CLIP_SECONDS is shorter than one sample")
+
+    if gap_seconds is None:
+        gap_seconds = params.get(
+            "SPEECH_GAP_SECONDS", params.get("GAP_MIN_S", None)
+        )
+    if gap_seconds is None:
+        raise AudioProfileError(
+            "speech utterance scheduling needs gap_seconds or params GAP_MIN_S"
+        )
+    gap_seconds = float(gap_seconds)
+    if not math.isfinite(gap_seconds) or gap_seconds < 0.0:
+        raise AudioProfileError("speech gap_seconds must be finite and non-negative")
+    gap_samples = int(round(gap_seconds * rate))
+    role_order = _speech_roles(roles, utterance_count)
+
+    from avengine.assets.sound_pool import SoundPoolError
+
+    try:
+        clips = clip_source.select_distinct_speech_clips(
+            utterance_count, split=split
+        )
+    except (AttributeError, SoundPoolError) as exc:
+        raise AudioProfileError(
+            f"cannot select complete speech utterances: {exc}"
+        ) from exc
+    if len(clips) != utterance_count:
+        raise AudioProfileError(
+            f"speech source returned {len(clips)} clips, need {utterance_count}"
+        )
+
+    durations: list[int] = []
+    for index, clip in enumerate(clips):
+        duration = int(getattr(clip, "duration_samples", 0))
+        if duration <= 0:
+            raise AudioProfileError(
+                f"speech clip {index} has non-positive duration_samples"
+            )
+        clip_rate = getattr(clip, "sample_rate_hz", rate)
+        if int(clip_rate) != rate:
+            raise AudioProfileError(
+                f"speech clip {getattr(clip, 'sound_asset_id', index)} sample rate "
+                f"{clip_rate} != SAMPLE_RATE_HZ={rate}"
+            )
+        source_start = getattr(clip, "source_start_sample", None)
+        source_end = getattr(clip, "source_end_sample_exclusive", None)
+        if source_start is None or source_end is None:
+            raise AudioProfileError(
+                f"speech clip {getattr(clip, 'sound_asset_id', index)} "
+                "is missing its complete source window"
+            )
+        if int(source_end) - int(source_start) != duration:
+            raise AudioProfileError(
+                f"speech clip {getattr(clip, 'sound_asset_id', index)} source window "
+                f"length {int(source_end) - int(source_start)} != duration {duration}"
+            )
+        missing = [
+            key for key in ("speaker_id", "utterance_id", "transcript", "split")
+            if not getattr(clip, key, None)
+        ]
+        if missing:
+            raise AudioProfileError(
+                f"speech clip {getattr(clip, 'sound_asset_id', index)} missing "
+                f"identity metadata {missing}"
+            )
+        if clip.split != split:
+            raise AudioProfileError(
+                f"speech clip {getattr(clip, 'sound_asset_id', index)} "
+                f"has split={clip.split!r}, expected {split!r}"
+            )
+        durations.append(duration)
+
+    required_samples = sum(durations) + max(0, utterance_count - 1) * gap_samples
+    if required_samples > usable_samples:
+        required_seconds = required_samples / rate
+        raise AudioProfileError(
+            f"{utterance_count} complete speech utterances need "
+            f"{required_seconds:.3f}s including {utterance_count - 1} gaps of "
+            f"{gap_samples / rate:.3f}s, but episode CLIP_SECONDS="
+            f"{episode_seconds:.3f}s with {tail_samples / rate:.3f}s reserved tail is too short"
+        )
+    starts = _place_sequential(rng, durations, gap_samples, 0, usable_samples)
+    if starts is None:
+        raise AudioProfileError(
+            f"{utterance_count} complete speech utterances do not fit in "
+            f"CLIP_SECONDS={episode_seconds:.3f}s"
+        )
+    events = [
+        _stamp(role, start, "answer_evidence", params, clip)
+        for role, start, clip in zip(role_order, starts, clips)
+    ]
+    schedule = Schedule(
+        "speech_utterances",
+        events,
+        0,
+        {
+            "event_count": utterance_count,
+            "role_order": role_order,
+            "speech_split": split,
+            "episode_seconds": episode_seconds,
+            "reserved_tail_seconds": tail_samples / rate,
+            "gap_seconds": gap_samples / rate,
+            "required_seconds": required_samples / rate,
+            "speaker_ids": [clip.speaker_id for clip in clips],
+            "utterance_ids": [clip.utterance_id for clip in clips],
+            "transcripts": [clip.transcript for clip in clips],
+        },
+    )
+    _self_check_speech_utterances(schedule, params, role_order, split)
+    return schedule
+
+
+def _self_check_speech_utterances(
+    schedule: Schedule,
+    params,
+    role_order: Sequence[str],
+    split: str,
+) -> None:
+    if len(schedule.events) != len(role_order):
+        raise AudioProfileError("speech schedule event count drifted")
+    if [event.role for event in schedule.events] != list(role_order):
+        raise AudioProfileError("speech schedule role order drifted")
+    speakers = [event.speaker_id for event in schedule.events]
+    utterances = [event.utterance_id for event in schedule.events]
+    if any(value is None for value in speakers + utterances):
+        raise AudioProfileError("speech schedule lost speaker or utterance identity")
+    if len(set(speakers)) != len(speakers):
+        raise AudioProfileError("speech schedule repeats a speaker")
+    if len(set(utterances)) != len(utterances):
+        raise AudioProfileError("speech schedule repeats an utterance")
+    if any(event.transcript is None for event in schedule.events):
+        raise AudioProfileError("speech schedule lost transcript metadata")
+    if any(event.split != split for event in schedule.events):
+        raise AudioProfileError("speech schedule split metadata drifted")
+    if any(event.duration_samples <= 0 for event in schedule.events):
+        raise AudioProfileError("speech schedule contains an empty utterance")
+    episode_samples = _clip_samples(params)
+    if any(event.end_sample_exclusive > episode_samples for event in schedule.events):
+        raise AudioProfileError("speech schedule extends beyond the episode")
     _assert_no_overlap(schedule)
 
 

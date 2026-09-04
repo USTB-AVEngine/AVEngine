@@ -175,3 +175,139 @@ def test_pool_clip_keeps_explicit_speech_metadata(tmp_path: Path):
     assert clip.utterance_id == "001"
     assert clip.transcript == "Please call Stella."
     assert clip.split == "eval"
+
+def test_distinct_speech_selection_is_bounded_and_keeps_train_identity(tmp_path: Path):
+    path = tmp_path / "pool.json"
+    clips = []
+    for index in range(6):
+        clips.append({
+            "sound_asset_id": f"speech-{index}",
+            "event_class": "speech_playback",
+            "sample_rate_hz": 16000,
+            "duration_samples": 16000 + index,
+            "source_start_sample": 0,
+            "source_end_sample_exclusive": 16000 + index,
+            "speaker_id": f"p{index}",
+            "utterance_id": f"{index:03d}",
+            "transcript": f"sentence {index}",
+            "split": "train",
+        })
+    clips.append({
+        "sound_asset_id": "eval-speech",
+        "event_class": "speech_playback",
+        "sample_rate_hz": 16000,
+        "duration_samples": 16000,
+        "source_start_sample": 0,
+        "source_end_sample_exclusive": 16000,
+        "speaker_id": "peval",
+        "utterance_id": "999",
+        "transcript": "evaluation sentence",
+        "split": "eval",
+    })
+    _catalog(path, clips)
+    source = clip_source_from_params(
+        {
+            "SOUND_SOURCE_MODE": "event_pool",
+            "SOUND_EVENT_POOL": str(path),
+            "SOUND_EVENT_CLASS_BY_PAIR_KIND": {"human": "speech_playback"},
+            "SAMPLE_RATE_HZ": 16000,
+        },
+        np.random.default_rng(3),
+        pair_kind="human",
+    )
+    selected = source.select_distinct_speech_clips(4)
+    assert len(selected) == 4
+    assert {clip.split for clip in selected} == {"train"}
+    assert len({clip.speaker_id for clip in selected}) == 4
+    assert len({clip.utterance_id for clip in selected}) == 4
+    assert all(clip.transcript.startswith("sentence ") for clip in selected)
+
+
+def test_distinct_speech_selection_fails_when_metadata_or_split_is_insufficient(
+    tmp_path: Path,
+):
+    path = tmp_path / "pool.json"
+    _catalog(path, [
+        {
+            "sound_asset_id": "speech",
+            "event_class": "speech_playback",
+            "sample_rate_hz": 16000,
+            "duration_samples": 16000,
+            "source_start_sample": 0,
+            "source_end_sample_exclusive": 16000,
+            "speaker_id": "p1",
+            "utterance_id": "001",
+            "transcript": "one",
+            "split": "eval",
+        }
+    ])
+    source = clip_source_from_params(
+        {
+            "SOUND_SOURCE_MODE": "event_pool",
+            "SOUND_EVENT_POOL": str(path),
+            "SOUND_EVENT_CLASS_BY_PAIR_KIND": {"human": "speech_playback"},
+            "SAMPLE_RATE_HZ": 16000,
+        },
+        np.random.default_rng(0),
+        pair_kind="human",
+    )
+    with pytest.raises(SoundPoolError, match="fewer than 2"):
+        source.select_distinct_speech_clips(2)
+
+def test_distinct_speech_selection_uses_augmenting_path_for_feasible_matching(
+    tmp_path: Path,
+):
+    path = tmp_path / "pool.json"
+    _catalog(path, [
+        {
+            "sound_asset_id": "a-x",
+            "event_class": "speech_playback",
+            "sample_rate_hz": 16000,
+            "duration_samples": 32000,
+            "source_start_sample": 0,
+            "source_end_sample_exclusive": 32000,
+            "speaker_id": "speaker_a",
+            "utterance_id": "x",
+            "transcript": "x",
+            "split": "train",
+        },
+        {
+            "sound_asset_id": "b-x",
+            "event_class": "speech_playback",
+            "sample_rate_hz": 16000,
+            "duration_samples": 16000,
+            "source_start_sample": 0,
+            "source_end_sample_exclusive": 16000,
+            "speaker_id": "speaker_b",
+            "utterance_id": "x",
+            "transcript": "x",
+            "split": "train",
+        },
+        {
+            "sound_asset_id": "b-y",
+            "event_class": "speech_playback",
+            "sample_rate_hz": 16000,
+            "duration_samples": 17600,
+            "source_start_sample": 0,
+            "source_end_sample_exclusive": 17600,
+            "speaker_id": "speaker_b",
+            "utterance_id": "y",
+            "transcript": "y",
+            "split": "train",
+        },
+    ])
+    source = clip_source_from_params(
+        {
+            "SOUND_SOURCE_MODE": "event_pool",
+            "SOUND_EVENT_POOL": str(path),
+            "SOUND_EVENT_CLASS_BY_PAIR_KIND": {"human": "speech_playback"},
+            "SAMPLE_RATE_HZ": 16000,
+        },
+        np.random.default_rng(0),
+        pair_kind="human",
+    )
+    selected = source.select_distinct_speech_clips(2)
+    assert {(clip.speaker_id, clip.utterance_id) for clip in selected} == {
+        ("speaker_a", "x"),
+        ("speaker_b", "y"),
+    }
