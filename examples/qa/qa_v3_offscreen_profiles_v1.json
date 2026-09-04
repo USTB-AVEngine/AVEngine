@@ -16,7 +16,8 @@
     },
     "query_domain": "full_circle",
     "query_requires_visibility": false,
-    "direction_evidence": "audio_only"
+    "direction_evidence": "audio_only",
+    "query_window_seconds": 0.5
   },
   {
     "id": "f2_rear_cone_audio_only",
@@ -35,7 +36,8 @@
     },
     "query_domain": "rear_cone",
     "query_requires_visibility": false,
-    "direction_evidence": "audio_only"
+    "direction_evidence": "audio_only",
+    "query_window_seconds": 0.5
   },
   {
     "id": "f2_front_back_binary",
@@ -71,6 +73,7 @@
     "direction_evidence": "front_back_binary",
     "vocab_key": "front_back",
     "enforce_target_moves_more": false,
-    "vocab_path": "qa_v3_front_back_vocab_v1.json"
+    "vocab_path": "qa_v3_front_back_vocab_v1.json",
+    "query_window_seconds": 0.5
   }
 ]

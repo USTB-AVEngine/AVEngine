@@ -254,3 +254,20 @@ def test_wide_band_cannot_accept_sweep_through_its_excluded_gap():
         build_answer("instant_azimuth_band", profile, {"answer_band": [-170, 170]},
                      timeline, None, [], "source1", "source2",
                      {"source1": "black", "source2": "yellow"}, 160, 30, PARAMS)
+
+
+
+def test_profile_window_duration_changes_the_actual_answer_window():
+    profile = dict(_front_back_profile(), query_window_seconds=0.25)
+    answer = build_answer("front_back", profile, {"answer_band": [-47.5, 47.5]},
+                          _timeline(20), None, [], "source1", "source2",
+                          {"source1": "black", "source2": "yellow"}, 20, 30, PARAMS)
+    assert answer["truth"]["query_window_seconds"] == [2.0, 2.25]
+    assert "Between 2 and 2.25 seconds" in answer["mcq"]["stem"]
+
+
+def test_decimal_window_boundary_does_not_round_into_the_previous_bucket():
+    from design_qa_v3_scene_batch import query_window_seconds
+    assert query_window_seconds(9, 15, window_seconds=0.2) == (0.6, 0.8)
+    with pytest.raises(ValueError, match="finite and positive"):
+        query_window_seconds(9, 15, window_seconds=0)

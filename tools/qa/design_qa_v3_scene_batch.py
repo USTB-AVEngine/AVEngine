@@ -28,6 +28,7 @@ import math
 import subprocess
 import sys
 from collections import Counter
+from fractions import Fraction
 from pathlib import Path
 
 import numpy as np
@@ -496,35 +497,43 @@ def materialize_emitter_paths(timeline, asset_registry, slot_assets):
 QUERY_WINDOW_S = 0.5
 
 
-def query_window_seconds(query_frame: int, video_fps: float) -> tuple[float, float]:
-    """The tidy half-second window that contains the query frame.
+def query_window_seconds(
+    query_frame: int, video_fps: float, *, window_seconds: float = QUERY_WINDOW_S,
+) -> tuple[float, float]:
+    """Return a tidy configured window containing the query frame.
 
-    owner 2026-09-03 ruled the frame index out: "frame index 22 (22/15 seconds)"
-    is not a moment a person can act on, and nobody converts 22/15 to 1.47 s in
-    their head.  A window has to be narrow, though -- the target sweeps, so a
-    vague moment makes the truth itself vague.  Measured over run02's card1 and
-    card2 points, a 0.5 s window sweeps a median of 3.0 deg and at most 9.6 deg,
-    against a 35 deg band; 1.0 s reaches 19.3 and 2.0 s reaches 35.7, which is a
-    whole band.
+    Half a second remains the historical default. Fraction arithmetic avoids
+    assigning a decimal boundary such as 0.6/0.2 to the preceding window.
     """
+    if isinstance(query_frame, bool) or not isinstance(query_frame, int) or query_frame < 0:
+        raise ValueError("query_frame must be a nonnegative integer")
+    rate = float(video_fps)
+    width = float(window_seconds)
+    if not math.isfinite(rate) or rate <= 0:
+        raise ValueError("video_fps must be finite and positive")
+    if not math.isfinite(width) or width <= 0:
+        raise ValueError("query window duration must be finite and positive")
+    seconds = Fraction(query_frame) / Fraction(str(rate))
+    duration = Fraction(str(width))
+    lo = (seconds // duration) * duration
+    return float(lo), float(lo + duration)
 
-    if video_fps <= 0:
-        raise ValueError("video_fps must be positive")
-    seconds = float(query_frame) / float(video_fps)
-    lo = math.floor(seconds / QUERY_WINDOW_S) * QUERY_WINDOW_S
-    return (round(lo, 3), round(lo + QUERY_WINDOW_S, 3))
+
+def profile_query_window(profile, params, query_frame, video_fps):
+    duration = profile.get("query_window_seconds", params.get("QUERY_WINDOW_SECONDS", QUERY_WINDOW_S))
+    return query_window_seconds(query_frame, video_fps, window_seconds=duration)
 
 
 def query_window_frame_bounds(window_s, video_fps, frame_count):
-    """Map the human half-second window to inclusive frame indices."""
+    """Map the declared human time window to inclusive frame indices."""
     lo_s, hi_s = (float(value) for value in window_s)
     fps = float(video_fps)
     count = int(frame_count)
     if not math.isfinite(fps) or fps <= 0.0 or count < 1:
         raise GenerationConstraintError(
             "query window needs a positive frame rate and non-empty timeline")
-    lo_f = max(0, math.ceil(lo_s * fps))
-    hi_f = min(count - 1, math.floor(hi_s * fps))
+    lo_f = max(0, math.ceil(Fraction(str(lo_s)) * Fraction(str(fps))))
+    hi_f = min(count - 1, math.floor(Fraction(str(hi_s)) * Fraction(str(fps))))
     if hi_f < lo_f:
         raise GenerationConstraintError(
             f"query window {window_s} covers no frame of {count}")
@@ -1352,6 +1361,16 @@ def main(argv=None) -> int:
     params = read_qa_params(args.params)
     validate_profiles(profiles)
     clock = SS.validate_frame_clock(params, require_clip_seconds=True)
+    for profile in profiles:
+        kind = profile.get("answer_kind", "azimuth_band")
+        if ((kind in {"instant_azimuth_band", "front_back"} and profile["temporal"] == "instant")
+                or (kind == "azimuth_band" and profile["temporal"] == "backward")):
+            query = (profile["query_frame"] if profile["temporal"] == "backward"
+                     else profile["binding_frames"][0])
+            SS.require_frame(query, clock["frame_count"], name="query_frame")
+            window = profile_query_window(profile, params, query, clock["frame_rate_hz"])
+            if window[1] > clock["clip_seconds"] + 1.0e-9:
+                raise ValueError(f"{profile['id']}: query window {window} extends beyond the requested clip")
     scene = SS.load_scene(
         scene_cfg, frame_count=clock["frame_count"],
         frame_rate_hz=clock["frame_rate_hz"])
@@ -2702,7 +2721,7 @@ def build_answer(
         engine_arc = SS.band_to_arc(bands[got])
         published_arc = AZ.to_convention_arc(engine_arc, convention)
         fps = _timeline_video_fps(timeline, params)
-        window = query_window_seconds(query_frame, fps)
+        window = profile_query_window(profile, params, query_frame, fps)
         query_sweep, window_frames = azimuth_sweep_engine_arc(
             timeline, target_slot, window, fps, emitter_paths_by_slot)
         if not query_sweep_inside_band(query_sweep, bands[got]):
@@ -2788,7 +2807,7 @@ def build_answer(
             window = None
             window_frames = None
         elif profile["temporal"] in ("backward", "instant"):
-            window = query_window_seconds(query_frame, video_fps)
+            window = profile_query_window(profile, params, query_frame, video_fps)
             moment = f"Between {window[0]:g} and {window[1]:g} seconds"
             referent = ("the dog that barked last"
                         if profile["temporal"] == "backward"
