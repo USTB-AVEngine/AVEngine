@@ -15,12 +15,25 @@ import pickle
 import socketserver
 import stat
 import sys
+import importlib
 import traceback
 from typing import Any
 
 REPOSITORY = Path(__file__).resolve().parents[2]
 ASSET_ROOT = REPOSITORY / "src" / "avengine" / "assets"
 sys.path.insert(0, str(ASSET_ROOT))
+
+# NumPy 2 serializes array reconstruction through numpy._core.numeric,
+# whereas Blender 4.2 commonly embeds NumPy 1.x under numpy.core.numeric.
+# Both parent and child are trusted only through the private Unix socket, so
+# install the narrow compatibility aliases before pickle.loads is reachable.
+try:
+    _numpy_core = importlib.import_module("numpy.core")
+    _numpy_numeric = importlib.import_module("numpy.core.numeric")
+    sys.modules.setdefault("numpy._core", _numpy_core)
+    sys.modules.setdefault("numpy._core.numeric", _numpy_numeric)
+except ImportError:
+    pass
 
 from skintokens.rig_package.parser.bpy import BpyParser, transfer_rigging  # noqa: E402
 

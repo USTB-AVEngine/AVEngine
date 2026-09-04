@@ -48,6 +48,7 @@ def test_runner_and_chain_have_no_upstream_checkout_execution_path() -> None:
     assert "UnixStreamServer" in server_source
     assert "HTTPServer((" not in server_source
     assert "127.0.0.1" not in runner_source
+    assert 'sys.modules.setdefault("numpy._core"' in server_source
 
 
 def test_model_registry_declares_local_skintokens_and_qwen_roots() -> None:
