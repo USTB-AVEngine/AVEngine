@@ -594,24 +594,6 @@ def render_dynamic_research_audio(
     program_clock_binding = _program_clock_binding(program, clock)
     program = _program_for_visual_clock(program, clock)
     timeline = program["timeline"]
-    grid = build_strided_review_keyframes(
-        ordered_trajectories,
-        visual_frame_rate_hz=clock["frame_rate_hz"],
-        rir_stride_frames=rir_stride_frames,
-        listener_position_m=list(listener_position_m),
-        listener_orientation_wxyz=list(listener_orientation_wxyz),
-        timeline_tick_rate_hz=clock["time_base_hz"],
-        sample_rate_hz=AUDIO_SAMPLE_RATE_HZ,
-    )
-    _, simulation = _load_simulation_request(Path(simulation_request_path).resolve())
-    scene = load_compiled_acoustic_scene(
-        package_manifest_path, allow_nonpassing_research_qa=True
-    )
-    hrtf = Path(hrtf_file_path).resolve()
-    sequence = render_research_review_binaural_rir_sequence(
-        scene, simulation, grid=grid, hrtf_file_path=str(hrtf)
-    )
-
     required_sounds = {
         str(event["sound_asset_id"]) for event in program.get("events") or ()
     }
@@ -641,6 +623,24 @@ def render_dynamic_research_audio(
             owner=f"dry bus {source_id!r}",
             channel_major=False,
         )
+    grid = build_strided_review_keyframes(
+        ordered_trajectories,
+        visual_frame_rate_hz=clock["frame_rate_hz"],
+        rir_stride_frames=rir_stride_frames,
+        listener_position_m=list(listener_position_m),
+        listener_orientation_wxyz=list(listener_orientation_wxyz),
+        timeline_tick_rate_hz=clock["time_base_hz"],
+        sample_rate_hz=AUDIO_SAMPLE_RATE_HZ,
+    )
+    _, simulation = _load_simulation_request(Path(simulation_request_path).resolve())
+    scene = load_compiled_acoustic_scene(
+        package_manifest_path, allow_nonpassing_research_qa=True
+    )
+    hrtf = Path(hrtf_file_path).resolve()
+    sequence = render_research_review_binaural_rir_sequence(
+        scene, simulation, grid=grid, hrtf_file_path=str(hrtf)
+    )
+
     stems, mixture = render_research_review_binaural_audio(
         dry_buses, sequence, grid=grid
     )

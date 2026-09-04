@@ -314,15 +314,15 @@ def materialize_audio_program_variant(
     result = deepcopy(dict(value))
     if value["mode"] != "counterfactual_route_swap":
         if variant_id != "A":
-            raise AudioProgramError(
+            raise AudioProgramError([
                 "non-counterfactual AudioProgram supports only variant 'A'"
-            )
+            ])
         return result
     counterfactual = value["counterfactual"]
     if variant_id not in counterfactual["variants"]:
-        raise AudioProgramError(
+        raise AudioProgramError([
             f"unknown counterfactual AudioProgram variant {variant_id!r}"
-        )
+        ])
     if variant_id == counterfactual["mapped_variant"]:
         permutation = counterfactual["endpoint_permutation"]
         for event in result["events"]:

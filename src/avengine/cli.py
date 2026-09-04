@@ -2297,7 +2297,7 @@ def build_parser() -> argparse.ArgumentParser:
     m5_dynamic_audio.add_argument("--frame-count", type=int)
     m5_dynamic_audio.add_argument("--frame-rate-hz", type=float)
     m5_dynamic_audio.add_argument("--ticks-per-frame", type=int)
-    m5_dynamic_audio.add_argument("--variant", default="A")
+    m5_dynamic_audio.add_argument("--variant", default="A", choices=("A", "B"))
     m5_dynamic_audio.add_argument("--output", required=True)
     m5_dynamic_audio.set_defaults(handler=_m5_render_current_mp3d_dynamic_audio)
 

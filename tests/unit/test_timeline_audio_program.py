@@ -3,8 +3,11 @@ from __future__ import annotations
 from copy import deepcopy
 from pathlib import Path
 
+import pytest
+
 from avengine.contracts.json_io import load_json
 from avengine.timeline.audio_program import (
+    AudioProgramError,
     bind_audio_program_hash,
     compile_audio_program_variant,
     compile_audio_program,
@@ -333,3 +336,12 @@ def test_audio_program_modes_fail_closed_when_their_required_pattern_is_absent()
             sound_asset_registry=sounds,
         )
     )
+
+
+
+def test_non_counterfactual_variant_error_is_one_message():
+    base_program = _inputs()[2]
+    with pytest.raises(AudioProgramError) as error:
+        materialize_audio_program_variant(base_program, "not-a-variant")
+    assert error.value.errors == (
+        "non-counterfactual AudioProgram supports only variant 'A'",)

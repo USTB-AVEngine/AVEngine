@@ -324,13 +324,15 @@ def test_dynamic_runtime_serializes_exact_clock_length_waves(
         "load_compiled_acoustic_scene",
         lambda *_args, **_kwargs: object(),
     )
+    rir_calls = []
+
+    def fake_rir(*_args, **_kwargs):
+        rir_calls.append(True)
+        return SimpleNamespace(keyframe_samples=(0,), trajectory_sha256="test-trajectory")
+
     monkeypatch.setattr(
-        dynamic_audio,
-        "render_research_review_binaural_rir_sequence",
-        lambda *_args, **_kwargs: SimpleNamespace(
-            keyframe_samples=(0,), trajectory_sha256="test-trajectory"
-        ),
-    )
+        dynamic_audio, "render_research_review_binaural_rir_sequence", fake_rir)
+
     monkeypatch.setattr(
         dynamic_audio,
         "_asset_bindings",
@@ -338,6 +340,8 @@ def test_dynamic_runtime_serializes_exact_clock_length_waves(
     )
 
     def fake_assembly(materialized_program, _variant_id, **_kwargs):
+        if _variant_id != "A":
+            raise RuntimeError("invalid variant discovered during program assembly")
         return SimpleNamespace(
             materialized_program=materialized_program,
             dry_audio=SimpleNamespace(
@@ -398,6 +402,21 @@ def test_dynamic_runtime_serializes_exact_clock_length_waves(
         wave = read_float32_wav(wave_path)
         assert wave.sample_rate_hz == 16000
         assert wave.frame_count == sample_count
+    assert len(rir_calls) == 1
+    with pytest.raises(RuntimeError, match="invalid variant"):
+        render_dynamic_research_audio(
+            source_trajectories_m=trajectories,
+            listener_position_m=[0, 0, 0],
+            listener_orientation_wxyz=[1, 0, 0, 0],
+            simulation_request_path=simulation_path,
+            package_manifest_path=package_path,
+            audio_program_path=program_path,
+            source_endpoint_registry_path=REPOSITORY / "examples/registry/registries/source_endpoints_v1.json",
+            sound_asset_registry_path=REPOSITORY / "examples/registry/registries/sound_assets_v1.json",
+            external_sound_asset_paths={}, hrtf_file_path=hrtf_path,
+            output_path=tmp_path / "invalid_variant", position_authority="test",
+            listener_authority="test", variant_id="invalid")
+    assert len(rir_calls) == 1
 
 
 def test_dynamic_runtime_rejects_cropped_complete_utterance() -> None:
