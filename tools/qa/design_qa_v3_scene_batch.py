@@ -62,7 +62,7 @@ import visibility_prediction as VP  # noqa: E402
 # 选角文档的结构(蓝图/网格/动画的物理来源、UE 绑定)已在既有装配器里
 # 验证过,直接复用它的构造函数,不在这里重写一份容易走样的副本。
 from qa_v3_actor_selection import _selection_doc  # noqa: E402
-# 静→走用与旧管线**同一个**变换:创作函数按弧长把整条路线铺满 75 帧,
+# 静→走用与旧管线**同一个**变换:创作函数按弧长把整条路线铺满请求帧数,
 # 那是"压缩式";求解器用的是保速的"平移式"。两者不一致会让中途帧的
 # 位置对不上 —— 集成冒烟里正是反向题(查询帧在中途)先露馅。
 from make_idle_then_walk_timeline import (  # noqa: E402
@@ -74,7 +74,7 @@ from avengine.dataset.apartment_dynamic_audio import (  # noqa: E402
     apartment_ue_point_to_world_m,
 )
 from avengine.timeline.current_apartment_visual import (  # noqa: E402
-    author_current_n_actor_visual_timeline,
+    build_current_n_actor_visual_timeline,
 )
 
 COAT_WORDS = {
@@ -564,43 +564,17 @@ def band_of(value, edges):
     return None
 
 
-def audit_gatea_pair(profile, main_program, gatea_program, main_answer,
-                     gatea_answer, params):
-    """Verify a profile-specific Gate A under both answer forms.
-
-    A waveform difference is not enough.  The intervention must preserve
-    event timing and all non-slot audio fields, change the slot sequence,
-    flip the MCQ gold, and separate the Open golds under that form's actual
-    scorer.
-    """
-    main_events = main_program["events"]
-    gatea_events = gatea_program["events"]
+def audit_gatea_answers(profile, main_answer, gatea_answer, params):
+    """Check question and gold relations without making audio-render claims."""
     gold_relation = profile.get("gatea_gold_relation", "flip")
     if gold_relation not in ("flip", "preserve"):
         raise GenerationConstraintError(
             f"unknown Gate A gold relation {gold_relation!r}")
 
-    def without_slot(event):
-        return {k: v for k, v in event.items()
-                if k not in ("event_id", "source_endpoint_id")}
-
     structure = {
-        "event_count_same": len(main_events) == len(gatea_events),
-        "candidate_endpoints_same": (
-            main_program["candidate_source_endpoint_ids"]
-            == gatea_program["candidate_source_endpoint_ids"]),
-        "non_slot_event_fields_same": (
-            [without_slot(e) for e in main_events]
-            == [without_slot(e) for e in gatea_events]),
-        "slot_sequence_changed": (
-            [e["source_endpoint_id"] for e in main_events]
-            != [e["source_endpoint_id"] for e in gatea_events]),
-        "mcq_stem_same": (main_answer["mcq"]["stem"]
-                           == gatea_answer["mcq"]["stem"]),
-        "mcq_options_same": (main_answer["mcq"]["options_space"]
-                              == gatea_answer["mcq"]["options_space"]),
-        "open_stem_same": (main_answer["open"]["stem"]
-                            == gatea_answer["open"]["stem"]),
+        "mcq_stem_same": main_answer["mcq"]["stem"] == gatea_answer["mcq"]["stem"],
+        "mcq_options_same": main_answer["mcq"]["options_space"] == gatea_answer["mcq"]["options_space"],
+        "open_stem_same": main_answer["open"]["stem"] == gatea_answer["open"]["stem"],
     }
     mcq_flipped = (main_answer["mcq"]["truth_option"]
                    != gatea_answer["mcq"]["truth_option"])
@@ -715,6 +689,30 @@ def audit_gatea_pair(profile, main_program, gatea_program, main_answer,
             f"{profile['id']} Gate A failed generation checks: {failed}; "
             f"open separation={separation}, threshold={threshold}")
     return checks
+
+
+def audit_gatea_pair(profile, main_program, gatea_program, main_answer,
+                     gatea_answer, params):
+    """Check both audio intervention structure and the shared answer rules."""
+    checks = audit_gatea_answers(profile, main_answer, gatea_answer, params)
+    main_events = main_program["events"]
+    gatea_events = gatea_program["events"]
+
+    def without_slot(event):
+        return {k: v for k, v in event.items()
+                if k not in ("event_id", "source_endpoint_id")}
+
+    structure = {
+        "event_count_same": len(main_events) == len(gatea_events),
+        "candidate_endpoints_same": main_program["candidate_source_endpoint_ids"] == gatea_program["candidate_source_endpoint_ids"],
+        "non_slot_event_fields_same": [without_slot(e) for e in main_events] == [without_slot(e) for e in gatea_events],
+        "slot_sequence_changed": [e["source_endpoint_id"] for e in main_events] != [e["source_endpoint_id"] for e in gatea_events],
+    }
+    failed = [key for key, value in structure.items() if not value]
+    if failed:
+        raise GenerationConstraintError(
+            f"{profile['id']} Gate A failed generation checks: {failed}")
+    return {**checks, **structure}
 
 
 def frame_geometry(timeline, slot, frame):
@@ -981,7 +979,7 @@ def profile_query_geometry(profile, cell):
             geometry[key] = override[key]
     return geometry
 
-def solve_for_profile(profile, cell, scene, params, rng, ledger):
+def solve_for_profile(profile, cell, scene, params, rng, ledger, *, candidate_validator=None):
     """Dispatch a declared temporal/question shape to the generic solver."""
     temporal = profile["temporal"]
     kind = profile.get("answer_kind", "azimuth_band")
@@ -1003,6 +1001,7 @@ def solve_for_profile(profile, cell, scene, params, rng, ledger):
             target_moves_more=solver_target_moves_more(profile, cell),
             max_attempts=profile.get("max_attempts", 3000),
             open_half_width_deg=profile.get("open_half_width_deg"),
+            candidate_validator=candidate_validator,
             **geometry)
 
     if temporal == "instant" and kind == "distance_at_query":
@@ -1414,8 +1413,11 @@ def main(argv=None) -> int:
         profile = cell["profile"]
         pid = f"{profile['id']}_{cell['cell_index'] + 1:03d}"
         rng = sha_rng(args.seed, pid)
-        outcome = solve_for_profile(profile, cell, scene, params, rng,
-                                    per_profile_ledger[profile["id"]])
+        validator = instant_direction_candidate_validator(
+            profile, cell, scene, params, by_id, args, asset_context)
+        outcome = solve_for_profile(
+            profile, cell, scene, params, rng, per_profile_ledger[profile["id"]],
+            candidate_validator=validator)
         if isinstance(outcome, SS.Rejection):
             rejected.append({"point_id": pid, "reason": outcome.reason,
                              "detail": outcome.detail,
@@ -1583,6 +1585,159 @@ def predicted_tier_distribution(records):
             if stats.get("never_visible"):
                 bucket["never_visible"][role] = bucket["never_visible"].get(role, 0) + 1
     return out
+
+
+def build_point_timeline_geometry(
+    pid, profile, plan, scene, params, by_id, selection_path,
+    slot_asset, slot_context_data, target_slot, *, asset_context=None,
+):
+    """Use the runtime timeline builder for both candidate search and authoring."""
+    other_slot = "source2" if target_slot == "source1" else "source1"
+    clock = SS.validate_frame_clock(params, require_clip_seconds=True)
+    render_context = resolve_scene_render_context(scene)
+    camera_height_m = float(plan.camera_height_m
+                            if plan.camera_height_m is not None
+                            else scene.camera_height_m)
+    camera_ue_cm = [plan.camera_xy[0], plan.camera_xy[1],
+                    render_context["ground_z_ue_cm"] + camera_height_m * 100.0]
+    # 时间线:相机与折线都来自求解结果
+    if (
+        answer_depends_on_source_displacement(profile)
+        and by_id[slot_asset[target_slot]].get("entity_class") == "rigid_object"
+    ):
+        raise GenerationConstraintError(
+            f"{pid}: a displacement-dependent answer cannot use a rigid target "
+            f"asset {slot_asset[target_slot]!r}"
+        )
+    direct_routes = bool(profile.get("use_solved_routes_directly", False))
+    base_route = (
+        plan.target_route.samples_xy if direct_routes
+        else plan.base_route.samples_xy)
+    other_route = plan.other_route.samples_xy
+    z = render_context["ground_z_ue_cm"]
+    routes = {
+        target_slot: (base_route[0], base_route[-1], base_route),
+        other_slot: (other_route[0], other_route[-1], other_route),
+    }
+    route_samples_by_slot = {}
+    for slot, route in routes.items():
+        samples = [
+            [float(point[0]), float(point[1]), float(z)]
+            for point in route[2]
+        ]
+        if slot_context_data["motion_by_slot"].get(slot) == "must_be_still":
+            samples = [list(samples[0]) for _ in samples]
+        route_samples_by_slot[slot] = samples
+    timeline = build_current_n_actor_visual_timeline(
+        actor_selection_path=selection_path,
+        source_asset_registry_path=(
+            REPO / "examples/runtime/source_asset_runtime_profiles.json"),
+        camera_position_ue_cm=camera_ue_cm,
+        camera_yaw_deg=plan.camera_ue_yaw_deg,
+        routes_by_slot_ue_cm=route_samples_by_slot,
+        native_map=render_context["native_map"],
+        room_profile_id=render_context["room_profile_id"],
+        hfov_degrees=scene.hfov_deg,
+        frame_count=clock["frame_count"],
+        frame_rate_hz=clock["frame_rate_hz"],
+        ticks_per_frame=clock.get("ticks_per_frame"),
+    )
+    authored = copy.deepcopy(timeline)
+    moving_routes = {
+        slot: [(point[0], point[1]) for point in samples]
+        for slot, samples in route_samples_by_slot.items()
+        if slot_context_data["motion_by_slot"].get(slot) != "must_be_still"
+    }
+    facing_by_slot = (
+        apply_asset_facing_policy(
+            timeline,
+            camera_position_ue_cm=camera_ue_cm,
+            assets_by_slot=slot_asset,
+            asset_context=asset_context,
+        )
+        if asset_context is not None
+        else {}
+    )
+    if direct_routes and moving_routes:
+        timeline = transform_to_solved_routes(timeline, moving_routes)
+    elif (
+        plan.idle_frames
+        and slot_context_data["motion_by_slot"].get(target_slot)
+        != "must_be_still"
+    ):
+        timeline = transform_idle_then_walk(timeline, target_slot,
+                                            plan.idle_frames)
+    # Audio truth follows the registry-bound emitter child, while the actor
+    # root remains the visual/navigation coordinate. The helper uses the
+    # authored timeline yaw and scale rather than breed-specific constants.
+    emitter_paths_by_slot, emitter_metadata = materialize_emitter_paths(
+        timeline,
+        {"assets": list(by_id.values())},
+        slot_asset,
+    )
+    render_clock = timeline.get("render", {})
+    timeline_rate = float(render_clock.get("frame_rate_hz"))
+    parameter_rate = float(params["VIDEO_FPS"])
+    if not math.isclose(timeline_rate, parameter_rate, rel_tol=0.0, abs_tol=1.0e-9):
+        raise GenerationConstraintError(
+            f"{pid}: timeline frame rate {timeline_rate} differs from VIDEO_FPS "
+            f"{parameter_rate}")
+    timeline["emitter_bindings"] = {
+        "authority": "source_asset_registry_default_emitter_anchor",
+        "coordinate_space": "timeline_ue_cm",
+        "root_for_visual_navigation_only": True,
+        "frame_clock": {
+            "frame_count": len(timeline["frames"]),
+            "frame_rate_hz": timeline_rate,
+            "ticks_per_frame": render_clock.get("ticks_per_frame"),
+        },
+        "by_slot": emitter_metadata,
+    }
+    return timeline, authored, facing_by_slot, emitter_paths_by_slot, emitter_metadata
+
+
+
+def instant_direction_candidate_validator(
+    profile, cell, scene, params, by_id, args, asset_context,
+):
+    """Validate candidate emitters inside the solver's existing attempt budget."""
+    kind = profile.get("answer_kind")
+    if profile.get("temporal") != "instant" or kind not in {
+            "instant_azimuth_band", "front_back"}:
+        return None
+    pid = f"{profile['id']}_{cell['cell_index'] + 1:03d}"
+    selection = _selection_doc(*cell["pair_assets"], by_id, args.snapshot_content)
+    input_dir = args.out_root / "candidate_inputs" / pid
+    input_dir.mkdir(parents=True)
+    selection_path = input_dir / "actor_selection.json"
+    with selection_path.open("x", encoding="utf-8") as stream:
+        json.dump(selection, stream, ensure_ascii=False, indent=2)
+    slots = {actor["source_slot_id"]: actor["asset_id"] for actor in selection["actors"]}
+    target = cell["target_slot"]
+    other = "source2" if target == "source1" else "source1"
+    context = slot_context(asset_context, assets_by_slot=slots, target_slot=target)
+    labels = context["labels_by_slot"]
+
+    def validate(plan):
+        try:
+            timeline, _, _, emitters, _ = build_point_timeline_geometry(
+                pid, profile, plan, scene, params, by_id, selection_path,
+                slots, context, target, asset_context=asset_context)
+            truth = recompute_emitter_azimuth(timeline, target, plan.query_frame, emitters)
+            answer = build_answer(
+                kind, profile, cell, timeline, None, [], target, other, labels,
+                truth, plan.query_frame, params, asset_context=asset_context,
+                slot_context_data=context, emitter_paths_by_slot=emitters)
+            _, _, ga_answer, _, _ = build_gatea_answer(
+                kind, profile, cell, timeline, None, [], target, other, labels,
+                plan.query_frame, params, asset_context=asset_context,
+                slot_context_data=context, emitter_paths_by_slot=emitters)
+            audit_gatea_answers(profile, answer, ga_answer, params)
+        except GenerationConstraintError as error:
+            return SS.Rejection("emitter_query_geometry_failed", str(error))
+        return None
+
+    return validate
 
 
 def realise_point(
@@ -1754,99 +1909,13 @@ def realise_point(
     (programs_dir / f"{gatea_program['program_id']}.json").write_text(
         json.dumps(gatea_program, ensure_ascii=False, indent=1))
 
-    # 时间线:相机与折线都来自求解结果
-    if (
-        answer_depends_on_source_displacement(profile)
-        and by_id[slot_asset[target_slot]].get("entity_class") == "rigid_object"
-    ):
-        raise GenerationConstraintError(
-            f"{pid}: a displacement-dependent answer cannot use a rigid target "
-            f"asset {slot_asset[target_slot]!r}"
-        )
-    direct_routes = bool(profile.get("use_solved_routes_directly", False))
-    base_route = (
-        plan.target_route.samples_xy if direct_routes
-        else plan.base_route.samples_xy)
-    other_route = plan.other_route.samples_xy
-    z = render_context["ground_z_ue_cm"]
-    routes = {
-        target_slot: (base_route[0], base_route[-1], base_route),
-        other_slot: (other_route[0], other_route[-1], other_route),
-    }
-    route_samples_by_slot = {}
-    for slot, route in routes.items():
-        samples = [
-            [float(point[0]), float(point[1]), float(z)]
-            for point in route[2]
-        ]
-        if slot_context_data["motion_by_slot"].get(slot) == "must_be_still":
-            samples = [list(samples[0]) for _ in samples]
-        route_samples_by_slot[slot] = samples
-    timeline = author_current_n_actor_visual_timeline(
-        actor_selection_path=pdir / "actor_selection.json",
-        source_asset_registry_path=(
-            REPO / "examples/runtime/source_asset_runtime_profiles.json"),
-        output_path=pdir / "timeline_authored.json",
-        camera_position_ue_cm=camera_ue_cm,
-        camera_yaw_deg=plan.camera_ue_yaw_deg,
-        routes_by_slot_ue_cm=route_samples_by_slot,
-        native_map=render_context["native_map"],
-        room_profile_id=render_context["room_profile_id"],
-        hfov_degrees=scene.hfov_deg,
-        frame_count=clock["frame_count"],
-        frame_rate_hz=clock["frame_rate_hz"],
-        ticks_per_frame=clock.get("ticks_per_frame"),
-    )
-    moving_routes = {
-        slot: [(point[0], point[1]) for point in samples]
-        for slot, samples in route_samples_by_slot.items()
-        if slot_context_data["motion_by_slot"].get(slot) != "must_be_still"
-    }
-    facing_by_slot = (
-        apply_asset_facing_policy(
-            timeline,
-            camera_position_ue_cm=camera_ue_cm,
-            assets_by_slot=slot_asset,
-            asset_context=asset_context,
-        )
-        if asset_context is not None
-        else {}
-    )
-    if direct_routes and moving_routes:
-        timeline = transform_to_solved_routes(timeline, moving_routes)
-    elif (
-        plan.idle_frames
-        and slot_context_data["motion_by_slot"].get(target_slot)
-        != "must_be_still"
-    ):
-        timeline = transform_idle_then_walk(timeline, target_slot,
-                                            plan.idle_frames)
-    # Audio truth follows the registry-bound emitter child, while the actor
-    # root remains the visual/navigation coordinate. The helper uses the
-    # authored timeline yaw and scale rather than breed-specific constants.
-    emitter_paths_by_slot, emitter_metadata = materialize_emitter_paths(
-        timeline,
-        {"assets": list(by_id.values())},
-        slot_asset,
-    )
-    render_clock = timeline.get("render", {})
-    timeline_rate = float(render_clock.get("frame_rate_hz"))
-    parameter_rate = float(params["VIDEO_FPS"])
-    if not math.isclose(timeline_rate, parameter_rate, rel_tol=0.0, abs_tol=1.0e-9):
-        raise GenerationConstraintError(
-            f"{pid}: timeline frame rate {timeline_rate} differs from VIDEO_FPS "
-            f"{parameter_rate}")
-    timeline["emitter_bindings"] = {
-        "authority": "source_asset_registry_default_emitter_anchor",
-        "coordinate_space": "timeline_ue_cm",
-        "root_for_visual_navigation_only": True,
-        "frame_clock": {
-            "frame_count": len(timeline["frames"]),
-            "frame_rate_hz": timeline_rate,
-            "ticks_per_frame": render_clock.get("ticks_per_frame"),
-        },
-        "by_slot": emitter_metadata,
-    }
+    timeline, authored, facing_by_slot, emitter_paths_by_slot, emitter_metadata = (
+        build_point_timeline_geometry(
+            pid, profile, plan, scene, params, by_id,
+            pdir / "actor_selection.json", slot_asset, slot_context_data,
+            target_slot, asset_context=asset_context))
+    (pdir / "timeline_authored.json").write_text(
+        json.dumps(authored, indent=2, sort_keys=True) + "\n")
     (pdir / "timeline.json").write_text(
         json.dumps(timeline, ensure_ascii=False, indent=1))
 
@@ -2349,6 +2418,14 @@ def _arc_interval_bounds(arc) -> tuple[float, float]:
     return tuple(sorted((arc.start_deg, arc.end_deg)))
 
 
+def query_sweep_inside_band(sweep: AR.Arc, band) -> bool:
+    """The whole circular sweep must stay in the half-open answer band."""
+    arc = SS.band_to_arc(band)
+    return (arc.contains(sweep.start_deg) and arc.contains(sweep.end_deg)
+            and math.isclose(AR.arc_overlap_width_deg(sweep, arc), sweep.width_deg,
+                             rel_tol=0.0, abs_tol=1.0e-9))
+
+
 def build_answer(
     kind,
     profile,
@@ -2626,8 +2703,12 @@ def build_answer(
         published_arc = AZ.to_convention_arc(engine_arc, convention)
         fps = _timeline_video_fps(timeline, params)
         window = query_window_seconds(query_frame, fps)
-        window_frames = query_window_frame_bounds(
-            window, fps, len(timeline["frames"]))
+        query_sweep, window_frames = azimuth_sweep_engine_arc(
+            timeline, target_slot, window, fps, emitter_paths_by_slot)
+        if not query_sweep_inside_band(query_sweep, bands[got]):
+            raise GenerationConstraintError(
+                f"front/back query sweep {query_sweep.as_dict()} crosses "
+                f"band {got} during query window {window}")
         moment = f"Between {window[0]:g} and {window[1]:g} seconds"
         stem = (f"{moment}, was the queried sound source in front of you "
                 f"or behind you? Choose {labels[0]} or {labels[1]}.")
@@ -2716,8 +2797,7 @@ def build_answer(
                 timeline, target_slot, window, video_fps,
                 emitter_paths_by_slot)
             # The whole query sweep must stay in one band for a unique answer.
-            if (not SS.band_contains(sweep_arc.start_deg, bands[got])
-                    or not SS.band_contains(sweep_arc.end_deg, bands[got])):
+            if not query_sweep_inside_band(sweep_arc, bands[got]):
                 raise GenerationConstraintError(
                     f"azimuth sweep {sweep_arc.as_dict()} crosses band "
                     f"{got} edges {bands[got]} during query window {window}: "

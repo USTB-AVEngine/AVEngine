@@ -975,11 +975,10 @@ def author_current_apartment_visual_timeline(
 
 
 
-def author_current_n_actor_visual_timeline(
+def build_current_n_actor_visual_timeline(
     *,
     actor_selection_path: str | Path,
     source_asset_registry_path: str | Path,
-    output_path: str | Path,
     camera_position_ue_cm: Sequence[float],
     camera_yaw_deg: float,
     routes_by_slot_ue_cm: Mapping[str, Sequence[Sequence[float]]],
@@ -993,7 +992,7 @@ def author_current_n_actor_visual_timeline(
     frame_rate_hz: float = FRAME_RATE_HZ,
     ticks_per_frame: int | None = None,
 ) -> dict[str, Any]:
-    """Author a research-only visual timeline for contiguous source1..sourceN."""
+    """Build a research timeline without writing an output artifact."""
     selection_file, bindings, asset_authorization = _selection_bindings(
         actor_selection_path=actor_selection_path,
         source_asset_registry_path=source_asset_registry_path,
@@ -1094,11 +1093,51 @@ def author_current_n_actor_visual_timeline(
         "spatial_validation": "not_run",
         "frames": frames,
     }
+    return timeline
+
+
+def author_current_n_actor_visual_timeline(
+    *,
+    actor_selection_path: str | Path,
+    source_asset_registry_path: str | Path,
+    output_path: str | Path,
+    camera_position_ue_cm: Sequence[float],
+    camera_yaw_deg: float,
+    routes_by_slot_ue_cm: Mapping[str, Sequence[Sequence[float]]],
+    native_map: str,
+    room_profile_id: str,
+    width: int = 1280,
+    height: int = 720,
+    hfov_degrees: float = 105.0,
+    walk_start_frames: Mapping[str, int] | None = None,
+    frame_count: int = FRAME_COUNT,
+    frame_rate_hz: float = FRAME_RATE_HZ,
+    ticks_per_frame: int | None = None,
+) -> dict[str, Any]:
+    """Build and write a fresh N-actor timeline using the shared geometry path."""
+    timeline = build_current_n_actor_visual_timeline(
+        actor_selection_path=actor_selection_path,
+        source_asset_registry_path=source_asset_registry_path,
+        camera_position_ue_cm=camera_position_ue_cm,
+        camera_yaw_deg=camera_yaw_deg,
+        routes_by_slot_ue_cm=routes_by_slot_ue_cm,
+        native_map=native_map,
+        room_profile_id=room_profile_id,
+        width=width,
+        height=height,
+        hfov_degrees=hfov_degrees,
+        walk_start_frames=walk_start_frames,
+        frame_count=frame_count,
+        frame_rate_hz=frame_rate_hz,
+        ticks_per_frame=ticks_per_frame,
+    )
     output = _new_external_output_file(output_path, owner="timeline output")
     with output.open("x", encoding="utf-8") as stream:
         json.dump(timeline, stream, indent=2, sort_keys=True)
         stream.write("\n")
     return timeline
+
+
 def _load_timeline(
     *,
     timeline_path: str | Path,

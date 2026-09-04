@@ -173,3 +173,25 @@ def test_sample_clock_cannot_round_away_partial_sample():
 def test_frame_time_cannot_truncate_fractional_frame():
     with pytest.raises(ValueError, match="integer"):
         SS.frame_time_seconds(30.5, _params(75, 5))
+
+
+
+def test_realized_candidate_rejections_consume_the_existing_solver_budget():
+    seen = []
+    ledger = SS.RejectionLedger()
+
+    def reject(plan):
+        seen.append(plan)
+        return SS.Rejection("actual_emitter_outside_requested_band")
+
+    params = dict(_params(75, 5), THETA_FULL=1, THETA_HALF=3)
+    outcome = SS.solve_instant_azimuth(
+        _scene(75), params, answer_band=(-60, 0), answer_bands=[(-60, 0), (0, 60)],
+        query_frame=30, profile_id="generic_direction", idle_choices=[0],
+        rng=np.random.default_rng(12), ledger=ledger, max_attempts=20,
+        candidate_validator=reject)
+    assert seen
+    assert isinstance(outcome, SS.Rejection)
+    assert outcome.reason == "no_candidate_within_attempt_budget"
+    assert ledger.summary()["combinations_evaluated"] == 20
+    assert ledger.summary()["by_reason"]["actual_emitter_outside_requested_band"] == len(seen)

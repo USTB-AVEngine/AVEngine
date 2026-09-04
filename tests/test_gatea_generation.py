@@ -569,7 +569,7 @@ def test_missing_ground_fails_before_output_directory_is_created(tmp_path):
         "answer_bands_deg": [[-52.5, -17.5], [-17.5, 17.5], [17.5, 52.5]],
     }]))
     params = tmp_path / "params.json"
-    params.write_text("{}")
+    params.write_text(json.dumps({"FRAME_COUNT": 75, "VIDEO_FPS": 15, "CLIP_SECONDS": 5.0}))
     output = tmp_path / "must-not-exist"
     with pytest.raises(ValueError, match="ground_z_ue_cm"):
         design_main([
@@ -712,7 +712,7 @@ def test_card4r_distance_answer_uses_final_timeline_frame():
         ],
     }
     result = build_answer(
-        "distance_at_query", profile, {}, {"frames": frames},
+        "distance_at_query", profile, {}, {"frames": frames, "render": {"frame_rate_hz": PARAMS["VIDEO_FPS"]}},
         SimpleNamespace(events=[1, 2, 3]), [], "source1", "source2",
         {"source1": "black-and-white", "source2": "yellow"},
         0.0, 30, PARAMS)

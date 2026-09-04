@@ -2145,7 +2145,8 @@ def solve_instant_azimuth(scene: SceneInputs, params: dict, *,
                           query_bound_deg: float | None = None,
                           query_requires_visibility: bool | None = None,
                           secondary_anchor_bound_deg: float | None = None,
-                          secondary_query_bound_deg: float | None = None):
+                          secondary_query_bound_deg: float | None = None,
+                          candidate_validator: Callable[[PointPlan], Rejection | None] | None = None):
     """Immediate-DoA control: bind the caller and its visual azimuth together."""
     frame_count = scene_frame_count(scene, params)
     query_frame = _require_frame(query_frame, frame_count, name="query_frame")
@@ -2230,7 +2231,7 @@ def solve_instant_azimuth(scene: SceneInputs, params: dict, *,
             if not scene.line_of_sight(camera, other.at(query_frame)):
                 ledger.add(Rejection("other_actor_occluded"))
                 continue
-        return PointPlan(
+        plan = PointPlan(
             scene_id=scene.scene_id, profile_id=profile_id,
             camera_xy=camera, camera_ue_yaw_deg=yaw,
             camera_height_m=clearance["camera_height_m"], camera_clearance=clearance,
@@ -2253,6 +2254,14 @@ def solve_instant_azimuth(scene: SceneInputs, params: dict, *,
                 "search_attempts": attempt,
             },
         )
+        if candidate_validator is not None:
+            rejection = candidate_validator(plan)
+            if rejection is not None:
+                if not isinstance(rejection, Rejection):
+                    raise TypeError("candidate validator must return a Rejection or None")
+                ledger.add(rejection)
+                continue
+        return plan
     ledger.budget_exhausted += 1
     return Rejection("no_candidate_within_attempt_budget",
                      f"{total_attempts} attempts ({bank_attempts} bank, "

@@ -225,3 +225,32 @@ def test_numeric_wrap_answer_keeps_recoverable_published_arc():
     assert option["published"]["sweep_deg"] == pytest.approx(-20.0)
     assert result["open"]["truth_interval_arc"]["schema"] == "avengine_qa_v3_arc_v1"
     assert result["truth"]["answer_domain"] == "rear_cone"
+
+
+
+
+def test_front_back_label_cannot_change_inside_query_window():
+    from design_qa_v3_scene_batch import GenerationConstraintError
+    timeline = _timeline(20)
+    timeline["frames"][34]["actor_states"][0]["translation_ue_cm"] = [-400, 0, 0]
+    with pytest.raises(GenerationConstraintError, match="crosses"):
+        build_answer("front_back", _front_back_profile(),
+                     {"answer_band": [-47.5, 47.5]}, timeline, None, [],
+                     "source1", "source2", {"source1": "black", "source2": "yellow"},
+                     20.0, 30, PARAMS)
+
+
+def test_wide_band_cannot_accept_sweep_through_its_excluded_gap():
+    from design_qa_v3_scene_batch import GenerationConstraintError
+    timeline = _timeline(160)
+    for frame in range(30, 38):
+        angle = math.radians(160 + (frame - 30) * 40 / 7)
+        timeline["frames"][frame]["actor_states"][0]["translation_ue_cm"] = [
+            400 * math.cos(angle), 400 * math.sin(angle), 0]
+    profile = {"id": "wide_arc", "temporal": "instant",
+               "answer_kind": "instant_azimuth_band",
+               "answer_bands_deg": [[-170, 170], [170, -170]]}
+    with pytest.raises(GenerationConstraintError, match="crosses band"):
+        build_answer("instant_azimuth_band", profile, {"answer_band": [-170, 170]},
+                     timeline, None, [], "source1", "source2",
+                     {"source1": "black", "source2": "yellow"}, 160, 30, PARAMS)
