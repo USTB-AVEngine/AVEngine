@@ -1,6 +1,7 @@
 """Unit tests for the idle-then-walk timeline transform (items 1.2/1.7 支撑件).
 
-阳性对照:非 75 帧输入、越界 K、缺角色帧都必须拒;变换自带的验证器
+阳性对照:合法的任意帧数都按声明时钟变换;越界 K、缺角色帧仍必须拒;
+变换自带的验证器
 必须能抓出人为注入的边界跳变(直接调用 _verify 对坏文档断言)。
 """
 
@@ -87,9 +88,13 @@ def test_other_actor_untouched_and_input_not_mutated():
         assert _pos(out, "source2", i) == _pos(doc, "source2", i)
 
 
-def test_positive_control_rejects_bad_inputs():
-    with pytest.raises(ValueError):
-        transform_idle_then_walk(_mini_timeline(n=60), "source1", 10)  # 非 75 帧
+def test_generic_frame_count_and_positive_control_rejects_bad_inputs():
+    sixty = _mini_timeline(n=60)
+    adapted = transform_idle_then_walk(sixty, "source1", 10)
+    assert len(adapted["frames"]) == 60
+    assert _pos(adapted, "source1", 10)[0] == _pos(sixty, "source1", 0)[0]
+    assert _pos(adapted, "source1", 59)[0] == _pos(sixty, "source1", 49)[0]
+
     with pytest.raises(ValueError):
         transform_idle_then_walk(_mini_timeline(), "source1", 0)       # K 越界
     with pytest.raises(ValueError):
