@@ -2,19 +2,21 @@
 """Sequential dynamic-audio runner for a qa-v3 design batch (stage two).
 
 对设计批每个点位逐点调用 render_current_apartment_dynamic_audio.py。
-固定依赖路径从 --config JSON 读(一个批一份,进 manifest 链);每点渲染
-主 program(必要时含 Gate A program,--variants main,gateA)。
+固定共享依赖从 --config JSON 读并进入批次记录；每点渲染 main，
+并按请求渲染 Gate A 等音频变体。
 
-续跑语义与捕获调度器一致(b007 教训):
-  - 完成点 = pass receipt 与每个实际 WAV 的格式、声道、采样率、帧数一致 → 跳过;
-  - 半成品 → 拒绝清理,立即失败报人;
-  - 任一点失败 → 停。
-输出根 fresh,续跑需显式 --resume。全链 research_candidate。
+续跑语义与捕获调度器一致：
+  - 完成点由 pass receipt 和实际 WAV 的格式/时钟共同确认后跳过；
+  - 半成品拒绝自动清理或覆盖；
+  - 任一点失败即停止。
+输出根必须 fresh；续跑需显式 --resume。全链为 research_candidate。
 
 config JSON 必备键:
-  python, repo, m1_request, simulation_request, package_manifest,
-  source_endpoint_registry, sound_asset_registry, hrtf, runtime_prefix,
-  rlr_sdk_root, magnum_python_site, source_asset_registry
+  python, repo, simulation_request, package_manifest, sound_asset_registry,
+  hrtf, runtime_prefix, rlr_sdk_root, magnum_python_site,
+  source_asset_registry
+每个候选优先读取自己的 m1_capture_request.json 和 source_endpoints.json；
+仅旧候选需要可选的 m1_request/source_endpoint_registry 批级后备。
 可选 sound_asset_map、sound_asset_paths；beagle_audio 仅为旧版兼容绑定。
 """
 
@@ -29,10 +31,9 @@ import sys
 from pathlib import Path
 
 REQUIRED_CONFIG_KEYS = (
-    "python", "repo", "m1_request", "simulation_request", "package_manifest",
-    "source_endpoint_registry", "sound_asset_registry",
-    "hrtf", "runtime_prefix", "rlr_sdk_root", "magnum_python_site",
-    "source_asset_registry",
+    "python", "repo", "simulation_request", "package_manifest",
+    "sound_asset_registry", "hrtf", "runtime_prefix", "rlr_sdk_root",
+    "magnum_python_site", "source_asset_registry",
 )
 AVENGINE_REPOSITORY = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -247,20 +248,37 @@ def program_path(
     return matches[0].resolve()
 
 
+def _fallback_path(
+    configured: str | Path | None,
+    *,
+    config_base: Path | None,
+) -> Path | None:
+    if configured is None:
+        return None
+    configured_path = Path(configured).expanduser()
+    if not configured_path.is_absolute() and config_base is not None:
+        configured_path = config_base / configured_path
+    return configured_path.resolve()
+
+
 def endpoint_registry_path(
     inputs_root: Path,
     pid: str,
-    configured: str | Path,
+    configured: str | Path | None = None,
+    *,
+    config_base: Path | None = None,
 ) -> Path:
     point_local = inputs_root / pid / "source_endpoints.json"
     if point_local.is_file():
         return point_local.resolve()
-    configured_path = Path(configured).expanduser()
-    if not configured_path.is_file():
+    configured_path = _fallback_path(configured, config_base=config_base)
+    if configured_path is None or not configured_path.is_file():
+        fallback = "<none>" if configured_path is None else str(configured_path)
         raise SystemExit(
-            f"FAIL: source endpoint registry is missing for {pid}: {configured_path}"
+            f"FAIL: source endpoint registry is missing for {pid}; "
+            f"checked point-local source_endpoints.json and fallback {fallback}"
         )
-    return configured_path.resolve()
+    return configured_path
 
 
 def sound_asset_args(config: dict, *, config_path: Path) -> list[str]:
@@ -325,12 +343,24 @@ def validate_config_repo(config: dict, *, config_path: Path) -> Path:
     return AVENGINE_REPOSITORY
 
 
-def point_m1_request(inputs_root: Path, pid: str, configured: str) -> Path:
+def point_m1_request(
+    inputs_root: Path,
+    pid: str,
+    configured: str | Path | None = None,
+    *,
+    config_base: Path | None = None,
+) -> Path:
     per_point = inputs_root / pid / "m1_capture_request.json"
-    selected = per_point if per_point.is_file() else Path(configured)
-    if not selected.is_file():
-        raise SystemExit(f"FAIL: M1 request is missing for {pid}: {selected}")
-    return selected
+    if per_point.is_file():
+        return per_point.resolve()
+    configured_path = _fallback_path(configured, config_base=config_base)
+    if configured_path is None or not configured_path.is_file():
+        fallback = "<none>" if configured_path is None else str(configured_path)
+        raise SystemExit(
+            f"FAIL: M1 request is missing for {pid}; "
+            f"checked point-local m1_capture_request.json and fallback {fallback}"
+        )
+    return configured_path
 
 
 def canonical_emitter_args(config: dict) -> list[str]:
@@ -417,7 +447,8 @@ def main(argv: list[str] | None = None) -> int:
         spec = json.loads(spec_path.read_text()) if spec_path.is_file() else {}
         point_variants = ["main"] if spec.get("twin_of") else variants
         m1_request = point_m1_request(
-            inputs_root, pid, cfg["m1_request"]
+            inputs_root, pid, cfg.get("m1_request"),
+            config_base=config_path.parent,
         )
         for variant in point_variants:
             out_dir = args.output_root / (pid if variant == "main"
@@ -435,7 +466,8 @@ def main(argv: list[str] | None = None) -> int:
                 programs_dir, pid, variant, inputs_root=inputs_root
             )
             endpoint_path = endpoint_registry_path(
-                inputs_root, pid, cfg["source_endpoint_registry"]
+                inputs_root, pid, cfg.get("source_endpoint_registry"),
+                config_base=config_path.parent,
             )
             cmd = [cfg["python"],
                    str(repo / "tools/dataset/render_current_apartment_dynamic_audio.py"),

@@ -338,3 +338,43 @@ def test_main_uses_current_repo_point_bindings_and_sound_map(
     )
     assert command[command.index("--sound-asset-map") + 1] == str(sound_map)
     assert "--beagle-audio" not in command
+
+
+def test_point_local_m1_and_endpoints_need_no_batch_fallback(tmp_path: Path) -> None:
+    inputs = tmp_path / "inputs"
+    point = inputs / "dynamic_point"
+    point.mkdir(parents=True)
+    local_m1 = point / "m1_capture_request.json"
+    local_endpoints = point / "source_endpoints.json"
+    local_m1.write_text("{}")
+    local_endpoints.write_text("{}")
+    assert TOOL.point_m1_request(inputs, point.name) == local_m1.resolve()
+    assert TOOL.endpoint_registry_path(inputs, point.name) == local_endpoints.resolve()
+
+
+def test_missing_point_local_m1_and_endpoints_fail_without_fallback(
+    tmp_path: Path,
+) -> None:
+    inputs = tmp_path / "inputs"
+    inputs.mkdir()
+    with pytest.raises(SystemExit, match="no point-local|fallback <none>"):
+        TOOL.point_m1_request(inputs, "missing")
+    with pytest.raises(SystemExit, match="fallback <none>"):
+        TOOL.endpoint_registry_path(inputs, "missing")
+
+
+def test_relative_legacy_fallbacks_resolve_from_batch_config(tmp_path: Path) -> None:
+    inputs = tmp_path / "inputs"
+    inputs.mkdir()
+    config_root = tmp_path / "config"
+    config_root.mkdir()
+    m1 = config_root / "m1.json"
+    endpoints = config_root / "endpoints.json"
+    m1.write_text("{}")
+    endpoints.write_text("{}")
+    assert TOOL.point_m1_request(
+        inputs, "legacy", "m1.json", config_base=config_root
+    ) == m1.resolve()
+    assert TOOL.endpoint_registry_path(
+        inputs, "legacy", "endpoints.json", config_base=config_root
+    ) == endpoints.resolve()

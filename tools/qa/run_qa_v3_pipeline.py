@@ -1402,8 +1402,8 @@ def _audio_command(cfg: Mapping[str, Any], batch_root: Path,
                    variants: Sequence[str], point_ids: Sequence[str],
                    *, resume: bool) -> list[str]:
     required = (
-        "python", "repo", "m1_request", "simulation_request",
-        "package_manifest", "source_endpoint_registry", "sound_asset_registry",
+        "python", "repo", "simulation_request",
+        "package_manifest", "sound_asset_registry",
         "hrtf", "runtime_prefix", "rlr_sdk_root", "magnum_python_site",
         "source_asset_registry",
     )

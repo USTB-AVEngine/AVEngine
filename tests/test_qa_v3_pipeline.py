@@ -635,3 +635,33 @@ def test_resume_rejects_scene_and_profile_content_changes(tmp_path: Path) -> Non
         pipeline.run_pipeline(
             request, runtime, output, resume=True, resume_only=True,
             through_stage="questions")
+
+
+def test_audio_command_uses_point_local_bindings_without_batch_fallbacks(
+    tmp_path: Path,
+) -> None:
+    cfg = {
+        "python": sys.executable,
+        "repo": str(pipeline.REPO),
+        "simulation_request": "simulation.json",
+        "package_manifest": "package.json",
+        "sound_asset_registry": "sounds.json",
+        "hrtf": "hrtf.sofa",
+        "runtime_prefix": "runtime",
+        "rlr_sdk_root": "rlr",
+        "magnum_python_site": "magnum",
+        "source_asset_registry": "source_assets.json",
+        "_snapshot_path": str(tmp_path / "audio_config.json"),
+    }
+    command = pipeline._audio_command(
+        cfg,
+        tmp_path / "batch",
+        tmp_path / "capture",
+        tmp_path / "audio",
+        ["main"],
+        ["point_001"],
+        resume=False,
+    )
+    assert "--config" in command
+    assert "m1_request" not in cfg
+    assert "source_endpoint_registry" not in cfg
