@@ -539,6 +539,7 @@ def test_verifiers_receive_each_pair_effective_params(monkeypatch, tmp_path: Pat
     for profile_id, params in params_by_profile.items():
         command = audio_commands[profile_id]
         assert command[command.index("--params") + 1] == str(params.resolve())
+        assert command[command.index("--variants") + 1] == "main"
 
 
 def test_resume_extends_stage_scope_and_rejects_backward_scope(tmp_path: Path) -> None:

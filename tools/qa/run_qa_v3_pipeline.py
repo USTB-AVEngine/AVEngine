@@ -1703,6 +1703,7 @@ def _run_verifications(runtime: Mapping[str, Any], request: Mapping[str, Any],
             "--design-root", str(batch_root),
             "--audio-root", str(audio_root),
             "--params", str(params_path.resolve()),
+            "--variants", ",".join(request["audio_variants"]),
             "--out", str(audio_path),
         ]))
     runs = {}
