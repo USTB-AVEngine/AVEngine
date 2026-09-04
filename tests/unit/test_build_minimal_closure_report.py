@@ -20,6 +20,7 @@ _SPEC.loader.exec_module(tool)
 
 MAP_PACKAGE = "/Game/SPEAR/Scenes/apartment_0000/Maps/apartment_0000"
 CAMERA_PACKAGE = "/SpContent/Blueprints/BP_CameraSensor"
+EMISSIVE_PACKAGE = "/SpContent/Materials/M_Emissive"
 ACTOR_BP = "/Game/MyAssets/Audioset/Blueprints/gate_demo/BP_gate_demo"
 ACTOR_MESH = "/Game/MyAssets/Audioset/Meshes/gate_demo/runtime"
 ACTOR_IDLE = "/Game/MyAssets/Audioset/Meshes/gate_demo/Standing_Idle"
@@ -133,6 +134,29 @@ def test_closure_report_maps_reachable_content(tmp_path: Path) -> None:
     assert map_entry["source_file"].endswith(".umap")
 
 
+def test_explicit_runtime_package_is_auditable_closure_seed(tmp_path: Path) -> None:
+    graph = _graph(tmp_path, edges=[])
+    value = json.loads(graph.read_text())
+    value["packages"].append(EMISSIVE_PACKAGE)
+    graph.write_text(json.dumps(value))
+    root = _source_root(tmp_path)
+    _write(
+        root
+        / "cpp/unreal_plugins/SpContent/Content/Materials/M_Emissive.uasset"
+    )
+    args = _args(tmp_path, graph, _registry(tmp_path), [root])
+    args.extra_seed_package = [EMISSIVE_PACKAGE]
+    report = tool.build_report(args)
+    variant = report["variants"]["test_variant"]
+    assert EMISSIVE_PACKAGE in {
+        entry["package"] for entry in variant["physical_mappings"]
+    }
+    assert {
+        (entry["package"], entry["role"])
+        for entry in variant["seed_records"]
+    } >= {(EMISSIVE_PACKAGE, "runtime_loaded_package")}
+
+
 def test_missing_source_fails_closed(tmp_path: Path) -> None:
     graph = _graph(tmp_path, edges=[(ACTOR_BP, ACTOR_MESH)])
     root = _source_root(tmp_path)
@@ -174,4 +198,12 @@ def test_unknown_seed_asset_fails_closed(tmp_path: Path) -> None:
     args = _args(tmp_path, graph, _registry(tmp_path), [_source_root(tmp_path)])
     args.asset_id = ["missing_actor"]
     with pytest.raises(tool.ClosureReportError, match="unknown registry asset"):
+        tool.build_report(args)
+
+
+def test_invalid_explicit_runtime_package_fails_closed(tmp_path: Path) -> None:
+    graph = _graph(tmp_path, edges=[])
+    args = _args(tmp_path, graph, _registry(tmp_path), [_source_root(tmp_path)])
+    args.extra_seed_package = ["/Engine/NotAnAuthorizedContentRoot"]
+    with pytest.raises(tool.ClosureReportError, match="extra seed is not"):
         tool.build_report(args)

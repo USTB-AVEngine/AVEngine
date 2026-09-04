@@ -1,0 +1,36 @@
+{
+  "SOUND_SOURCE_MODE": "dry_canvas_window",
+  "SOUND_ASSET": "dog_beagle_v2_scheduled_dry",
+  "PAIR_KIND": "dog",
+  "EVENT_SECONDS": 0.3,
+  "CLIP_SECONDS": 5.0,
+  "SAMPLE_RATE_HZ": 16000,
+  "FRAME_COUNT": 75,
+  "VIDEO_FPS": 15,
+  "TIME_BASE_HZ": 48000,
+  "TICKS_PER_FRAME": 3200,
+  "TICKS_PER_SAMPLE": 3,
+  "DRY_CANVAS_SOURCE_START_SAMPLE": 3200,
+  "DRY_CANVAS_SOURCE_END_SAMPLE_EXCLUSIVE": 8000,
+  "PROGRAM_LINEAR_GAIN": 0.18,
+  "PROGRAM_FADE_SAMPLES": 80,
+  "PROGRAM_MODE": "sequential_sources",
+  "PROGRAM_NORMALIZATION_POLICY": "use_sound_asset_policy",
+  "PROGRAM_RENDER_SOURCE_STEM": true,
+  "PROGRAM_SOURCE_SPECIFIC_STEMS": true,
+  "PROGRAM_ADMISSION_STATE": "research",
+  "SOUND_EVENT_CLASS_BY_PAIR_KIND": {
+    "dog": "dog_bark",
+    "human": "speech_playback",
+    "cat": "cat_meow"
+  },
+  "_comment_event_pool": "To switch: SOUND_SOURCE_MODE=event_pool and set SOUND_EVENT_POOL to the JSON written by tools/assets/build_sound_event_pool.py (it eats event_manifest.json from the splitter). Each sound_asset_id must already be in the sound asset registry; this example does not register them. Do not keep SOUND_ASSET as a silent fallback. Pair-kind to class is only this map; there is no code default.",
+  "AZ_BANDS_CARD1": [
+    -52.5,
+    -29.17,
+    -5.83,
+    17.5
+  ],
+  "AZ_BANDS_CARD1_status": "historical_record",
+  "AZ_BANDS_CARD1_note": "Frozen design-era census of reachable card1 azimuth under a corridor-string-library-only geometry. The upper edge +17.5 is not the current reachable set: round 5 added route synthesis, the right half of the frustum is open, and measured answers reach +45. tools/qa/generate_qa_v3_questions.py still reads this band and will silently drop current facts that fall outside it, so that generator only runs with --historical-reproduction."
+}

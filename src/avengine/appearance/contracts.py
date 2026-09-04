@@ -234,6 +234,13 @@ REALIZER_PARAMETER_BOUNDS: Mapping[str, tuple[float, float]] = MappingProxyType(
         "head_scale": (0.85, 1.20),
     }
 )
+
+# Default linear scales for the three size labels.  These sit at the
+# admitted realizer extremes so small versus large is 86% in length
+# (0.70 vs 1.30) instead of the earlier 44% (0.82 vs 1.18).
+CANONICAL_SIZE_SCALE_RATIOS: Mapping[str, float] = MappingProxyType(
+    {"small": 0.70, "medium": 1.00, "large": 1.30}
+)
 _OPERATION_BY_AXIS = {
     "size": "uniform_actor_scale_v1",
     "body_build": "semantic_torso_girth_scale_v1",

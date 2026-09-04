@@ -11,6 +11,7 @@ from the fixed-apartment anchor library.
 from __future__ import annotations
 
 import json
+import math
 from pathlib import Path
 from typing import Mapping
 
@@ -33,6 +34,8 @@ def derive_slot_bindings(
     actor_selection: Mapping,
     source_asset_registry: Mapping,
     endpoint_registry: Mapping,
+    *,
+    canonical_emitter_height_m: float | None = None,
 ) -> tuple[dict[str, str], dict[str, float]]:
     """Per-slot endpoint ids and emitter heights from the executed actor
     selection, replacing the legacy human+beagle constants for arbitrary
@@ -41,7 +44,22 @@ def derive_slot_bindings(
     Fail-closed: every selected actor must resolve to exactly one endpoint
     whose binding matches the actor's instance id, asset id and the asset's
     default emitter anchor; heights come from that anchor's measured offset.
+    Slots must be the contiguous sequence source1..sourceN so downstream
+    trajectory and AudioProgram ordering cannot silently disagree.
+
+    ``canonical_emitter_height_m`` is an explicit QA counterfactual policy:
+    appearance-only twins can share one semantic acoustic centre instead of
+    leaking asset-specific muzzle height. Endpoint identity remains bound to
+    the selected registered asset; only the world-space acoustic height is
+    normalized. The override is opt-in and recorded by the rendering receipt.
     """
+
+    if canonical_emitter_height_m is not None:
+        canonical_emitter_height_m = float(canonical_emitter_height_m)
+        if (not math.isfinite(canonical_emitter_height_m)
+                or canonical_emitter_height_m <= 0.0):
+            raise CurrentMP3DDynamicAudioError(
+                "canonical emitter height must be finite and positive")
 
     actors = actor_selection.get("actors")
     if not isinstance(actors, list) or not actors:
@@ -56,6 +74,13 @@ def derive_slot_bindings(
         for entry in endpoint_registry.get("source_endpoints", [])
         if isinstance(entry, Mapping)
     ]
+    slots = [actor.get("source_slot_id") for actor in actors]
+    expected_slots = {f"source{index}" for index in range(1, len(actors) + 1)}
+    if len(actors) < 2 or set(slots) != expected_slots:
+        raise CurrentMP3DDynamicAudioError(
+            "actor selection must bind contiguous source1..sourceN slots "
+            "with at least two actors"
+        )
     slot_endpoints: dict[str, str] = {}
     emitter_heights: dict[str, float] = {}
     for actor in actors:
@@ -93,11 +118,10 @@ def derive_slot_bindings(
                 f"{anchor_id}, found {len(matches)}"
             )
         slot_endpoints[slot] = str(matches[0]["source_endpoint_id"])
-        emitter_heights[slot] = float(anchor["offset_m"][1])
-    if set(slot_endpoints) != {"source1", "source2"}:
-        raise CurrentMP3DDynamicAudioError(
-            "actor selection must bind exactly source1 and source2"
-        )
+        emitter_heights[slot] = (
+            canonical_emitter_height_m
+            if canonical_emitter_height_m is not None
+            else float(anchor["offset_m"][1]))
     return slot_endpoints, emitter_heights
 
 
@@ -182,3 +206,53 @@ def captured_static_camera_world_m(
     world = apartment_ue_point_to_world_m(first["location_cm"])
     yaw = float(first["rotation_deg"][2])
     return world, yaw
+
+
+def listener_ue_yaw_deg(listener_orientation_wxyz) -> float:
+    """UE yaw (degrees) implied by the habitat listener orientation.
+
+    The habitat camera looks down ``-Z`` and the legacy glTF-import transform
+    maps UE ``(x, y)`` to habitat ``(x, z)``, so a yaw-only listener faces
+    ``(cos(yaw), 0, sin(yaw))`` in world meters. Raises when the orientation
+    carries pitch or roll, because a single UE yaw cannot represent it.
+    """
+
+    values = [float(v) for v in listener_orientation_wxyz]
+    if len(values) != 4:
+        raise CurrentMP3DDynamicAudioError("listener orientation must be wxyz")
+    w, x, y, z = values
+    axis = np.array([x, y, z])
+    forward = np.array([0.0, 0.0, -1.0])
+    rotated = forward + 2.0 * np.cross(
+        axis, np.cross(axis, forward) + w * forward
+    )
+    if abs(float(rotated[1])) > 1.0e-6:
+        raise CurrentMP3DDynamicAudioError(
+            "the listener orientation is not yaw-only: forward vector "
+            f"{rotated.tolist()} leaves the horizontal plane"
+        )
+    return float(np.degrees(np.arctan2(rotated[2], rotated[0])))
+
+
+def assert_listener_matches_capture_yaw(
+    listener_orientation_wxyz, camera_ue_yaw_deg: float, *, tolerance_deg: float = 1.0e-3
+) -> float:
+    """Fail closed when the M1 listener faces elsewhere than the capture camera.
+
+    The renderer takes the listener **orientation** from the M1 request while
+    the video camera yaw comes from the capture; only the position was
+    cross-checked, so a per-point camera yaw would rotate the picture while
+    leaving the binaural rendering untouched — silently, and in a spatial
+    audio benchmark. This closes that gap.
+    """
+
+    listener_yaw = listener_ue_yaw_deg(listener_orientation_wxyz)
+    gap = abs((listener_yaw - float(camera_ue_yaw_deg) + 180.0) % 360.0 - 180.0)
+    if gap > tolerance_deg:
+        raise CurrentMP3DDynamicAudioError(
+            "the capture camera yaw does not match the M1 listener "
+            f"orientation: capture {camera_ue_yaw_deg} deg vs request "
+            f"{listener_yaw:.6f} deg (gap {gap:.6f} deg); the video would "
+            "rotate while the binaural audio does not"
+        )
+    return listener_yaw

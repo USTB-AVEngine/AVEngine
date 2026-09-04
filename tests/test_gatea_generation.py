@@ -1,0 +1,798 @@
+"""Generation-time Gate A checks for both MCQ and Open forms."""
+
+from __future__ import annotations
+
+import copy
+import json
+import math
+import sys
+from collections import Counter
+from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
+
+REPO = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(REPO / "tools" / "qa"))
+
+from design_qa_v3_scene_batch import (  # noqa: F401
+    query_window_seconds,  # noqa: E402
+    GenerationConstraintError,
+    audit_gatea_pair,
+    balanced_binary_joint,
+    build_cell_plan,
+    build_answer,
+    materialize_derived_params,
+    realized_cross_time_checks,
+    resolve_scene_render_context,
+    validate_anchor_binding,
+    validate_profiles,
+    main as design_main,
+)
+from qa_v3_pixel_thresholds import card1_pixel_acceptance_block  # noqa: E402
+
+
+PARAMS = {"THETA_HALF": 30.0, "T_HALF": 1.0, "T_FULL": 0.5,
+          "T_FULL_status": "placeholder_research",
+          "SAMPLE_RATE_HZ": 16000, "VIDEO_FPS": 15}
+
+
+def stationary_timeline(azimuth_deg: float, target: str = "source1",
+                        slots=("source1", "source2"), frames: int = 75):
+    """一条逐帧时间线，两只都站着不动，目标恰好在给定的引擎帧方位上。
+
+    窗口式题型的真值是"那半秒扫过的区间"，所以 build_answer 现在真的要读
+    逐帧几何。站着不动的夹具让区间退化成一个点，于是断言只测窗口与带的逻辑，
+    不掺进运动。
+    """
+
+    radius = 400.0
+    xy = {}
+    others = 0
+    for slot in slots:
+        # 指定的目标槽放在给定方位上；其余的错开，免得两只重叠。
+        if slot == target:
+            angle = math.radians(azimuth_deg)
+        else:
+            others += 1
+            angle = math.radians(azimuth_deg + 60.0 * others)
+        xy[slot] = [radius * math.cos(angle), radius * math.sin(angle), 0.0]
+    return {
+        "room": {"map_path": "/Game/x", "room_profile_id": "x"},
+        "render": {"frame_count": frames, "frame_rate_hz": 15,
+                   "hfov_degrees": 105.0, "resolution_hw": [720, 1280]},
+        "frames": [
+            {"frame_index": index,
+             "camera": {"translation_ue_cm": [0.0, 0.0, 147.1],
+                        "yaw_ue_deg": 0.0},
+             "actor_states": [{"source_slot_id": slot,
+                               "translation_ue_cm": list(xy[slot])}
+                              for slot in slots]}
+            for index in range(frames)
+        ],
+    }
+
+
+def program(slots):
+    endpoints = ["ep1", "ep2"]
+    rows = []
+    for index, endpoint in enumerate(slots):
+        rows.append({
+            "event_id": f"event_{index}_{endpoint}",
+            "source_endpoint_id": endpoint,
+            "sound_asset_id": "same-dry-sound",
+            # 整秒桶从 1.0 秒起（16000 采样），且两只首叫要相隔
+            # 超过 max(T_HALF, 2*T_FULL)=1.0 秒，所以 1.25 秒起步、
+            # 每声间隔 1.25 秒。
+            "start_sample": 20000 + index * 20000,
+            "end_sample_exclusive": 5800 + index * 10000,
+            "linear_gain": 0.18,
+        })
+    return {"candidate_source_endpoint_ids": endpoints, "events": rows}
+
+
+def answer(mcq, value, scoring):
+    return {
+        "mcq": {"stem": "same question", "options_space": ["a", "b"],
+                "truth_option": mcq},
+        "open": {"stem": "same open question", "truth_value": value,
+                 "scoring": scoring},
+    }
+
+
+def test_card1_requires_strictly_disjoint_open_credit_regions():
+    main, gate = program(["ep1", "ep2"]), program(["ep2", "ep1"])
+    with pytest.raises(ValueError, match="open_gold_separated"):
+        audit_gatea_pair(
+            {"id": "card1F"}, main, gate,
+            answer("left", 0.0, "circular_deg"),
+            answer("right", 60.0, "circular_deg"), PARAMS)
+    checks = audit_gatea_pair(
+        {"id": "card1F"}, main, gate,
+        answer("left", 0.0, "circular_deg"),
+        answer("right", 60.001, "circular_deg"), PARAMS)
+    assert checks["mcq_gold_flipped"]
+    assert checks["open_gold_separated"]
+
+
+def test_card8_uses_the_actual_time_scorer_threshold():
+    main, gate = program(["ep1", "ep2"]), program(["ep2", "ep1"])
+    with pytest.raises(ValueError, match="open_gold_separated"):
+        audit_gatea_pair(
+            {"id": "card8"}, main, gate,
+            answer("band0", 0.5, "absolute_time"),
+            answer("band1", 1.5, "absolute_time"), PARAMS)
+    checks = audit_gatea_pair(
+        {"id": "card8"}, main, gate,
+        answer("band0", 0.5, "absolute_time"),
+        answer("band1", 1.501, "absolute_time"), PARAMS)
+    assert checks["open_separation"] == pytest.approx(1.001)
+    assert checks["open_min_separation"] == pytest.approx(1.0)
+    assert "max(T_HALF, 2*T_FULL)" in checks["open_rule"]
+    # a wider strict tolerance moves the derived minimum: 2 * 0.6 = 1.2
+    with pytest.raises(ValueError, match="open_gold_separated"):
+        audit_gatea_pair(
+            {"id": "card8"}, main, gate,
+            answer("band0", 0.5, "absolute_time"),
+            answer("band1", 1.7, "absolute_time"), dict(PARAMS, T_FULL=0.6))
+    with pytest.raises(ValueError, match="T_FULL"):
+        audit_gatea_pair(
+            {"id": "card8"}, main, gate,
+            answer("band0", 0.5, "absolute_time"),
+            answer("band1", 1.501, "absolute_time"), {"THETA_HALF": 30.0,
+                                                      "T_HALF": 1.0})
+
+
+CARD8_PARAMS = dict(PARAMS, GAP_MIN_S=0.3, FIRST_MIN_S=0.35,
+                    CLIP_SECONDS=5.0, EVENT_SECONDS=0.3,
+                    SAMPLE_RATE_HZ=16000, FRAME_COUNT=75,
+                    TICKS_PER_SAMPLE=3, TICKS_PER_FRAME=3200,
+                    VIDEO_FPS=15)
+CARD8_PROFILE = {"id": "card8", "temporal": "instant",
+                 "answer_kind": "time_band", "binding_frames": [12, 40],
+                 "idle_choices": [0, 8], "anchor_binding": "first_caller"}
+
+
+def _card8_answer(first_sample, second_sample, params=CARD8_PARAMS):
+    slot_events = [("source1", first_sample), ("source2", second_sample)]
+    schedule = SimpleNamespace(events=[object(), object()])
+    return build_answer(
+        "time_band", CARD8_PROFILE, {"target_band": 0}, None, schedule,
+        slot_events, "source1", "source2",
+        {"source1": "black-and-white", "source2": "yellow"}, 0.0, 12, params)
+
+
+def test_card8_fact_records_scoring_chain_and_keeps_mcq_unaffected():
+    result = _card8_answer(20000, 20000 + 20000)    # 1.25 s and 2.5 s
+    open_block = result["open"]
+    assert open_block["certification_policy"] == "strict_full_credit_only"
+    assert open_block["wide_tolerance_role"] == "diagnostic_only"
+    assert open_block["T_FULL"] == 0.5
+    assert open_block["T_HALF"] == 1.0
+    assert open_block["T_FULL_status"] == "placeholder_research"
+    assert open_block["min_first_call_separation_s"] == pytest.approx(1.0)
+    assert result["truth"]["first_call_separation_s"] == pytest.approx(1.25)
+    # MCQ keeps its declared band answer space; the strict Open policy is
+    # not attached to it.
+    # 首叫在 1.25 秒，落进整秒桶 [1, 2)
+    assert result["mcq"]["truth_option"] == "[1, 2)"
+    assert "certification_policy" not in result["mcq"]
+    assert "wide_tolerance_role" not in result["mcq"]
+
+
+def test_card8_fact_rejects_first_calls_not_strictly_above_minimum():
+    with pytest.raises(GenerationConstraintError, match="not strictly above"):
+        _card8_answer(20000, 20000 + 16000)       # exactly 1.0 s apart
+    with pytest.raises(GenerationConstraintError, match="not strictly above"):
+        _card8_answer(20000, 20000 + 17600, dict(CARD8_PARAMS, T_FULL=0.6))
+    assert _card8_answer(20000, 20000 + 19201, dict(CARD8_PARAMS, T_FULL=0.6))[
+        "truth"]["first_call_separation_above_minimum"] is True
+    with pytest.raises(Exception, match="T_FULL"):
+        _card8_answer(20000, 20000 + 20000,
+                      {k: v for k, v in CARD8_PARAMS.items() if k != "T_FULL"})
+
+
+def test_materialized_params_fail_closed_only_when_first_call_profiles_exist():
+    base = {"BANDS_CARD8": [0.35, 1.1, 1.85, 2.6], "FIRST_MIN_S": 0.35,
+            "GAP_MIN_S": 0.3, "T_HALF": 1.0, "CLIP_SECONDS": 5.0,
+            "EVENT_SECONDS": 0.3, "SAMPLE_RATE_HZ": 16000,
+            "T_FULL_status": "placeholder_research"}
+    card1_only = [{"id": "card1F", "answer_kind": "azimuth_band"}]
+    effective = materialize_derived_params(base, card1_only)
+    assert "Not derived" in effective["BANDS_CARD8_note"]
+    with pytest.raises(Exception, match="T_FULL"):
+        materialize_derived_params(base, card1_only + [CARD8_PROFILE])
+    with pytest.raises(Exception, match="T_FULL"):
+        materialize_derived_params(base)
+    derived = materialize_derived_params(dict(base, T_FULL=0.5), [CARD8_PROFILE])
+    # 整秒桶：可行域只完整装得下 [1,2)、[2,3)、[3,4)。
+    assert derived["BANDS_CARD8"] == [1.0, 2.0, 3.0, 4.0]
+    assert derived["CARD8_FIRST_CALL_SCORING"]["min_first_call_separation_s"] == 1.0
+
+
+def _timeline(target_slot, other_slot, angles, distance=300.0):
+    """75-frame timeline; camera at origin facing +x; angles per frame index."""
+    import math
+    frames = []
+    for index in range(75):
+        states = []
+        for slot in (target_slot, other_slot):
+            angle = angles[slot].get(index, 0.0)
+            states.append({
+                "source_slot_id": slot,
+                "translation_ue_cm": [distance * math.cos(math.radians(angle)),
+                                      distance * math.sin(math.radians(angle)),
+                                      0.0]})
+        frames.append({"frame_index": index,
+                       "camera": {"translation_ue_cm": [0.0, 0.0, 147.0],
+                                  "yaw_ue_deg": 0.0},
+                       "actor_states": states})
+    return {"frames": frames}
+
+
+CARD1_PROFILE = {"id": "card1F", "temporal": "forward",
+                 "answer_kind": "azimuth_band",
+                 "answer_bands_deg": [[-52.5, -17.5], [-17.5, 17.5],
+                                      [17.5, 52.5]],
+                 "anchor_frame": 40, "idle_choices": [0], "anchor_binding": "target"}
+CARD1_CELL = {"anchor_band": (-17.5, 17.5), "answer_band": (17.5, 52.5)}
+CARD1_PARAMS = {"THETA_FULL": 15.0, "THETA_HALF": 30.0}
+
+
+def test_realized_timeline_rejects_a_plan_that_only_passed_on_paper():
+    """Plan gap > THETA_HALF, realized gap <= THETA_HALF: must be refused."""
+    plan_checks = {"az_anchor_deg": 9.415, "az_end_deg": 40.496}
+    timeline = _timeline("source2", "source1", {
+        "source2": {40: 15.0, 74: 40.5},      # realized gap 25.5 <= 30
+        "source1": {40: -36.6, 74: -31.7},
+    })
+    with pytest.raises(GenerationConstraintError,
+                       match="realized_anchor_answer_scores_zero") as exc:
+        realized_cross_time_checks(
+            timeline, profile=CARD1_PROFILE, cell=CARD1_CELL,
+            target_slot="source2", other_slot="source1", anchor_frame=40,
+            query_frame=74, params=CARD1_PARAMS, plan_checks=plan_checks)
+    assert "planning value" in str(exc.value)
+
+
+def test_realized_timeline_rejects_anchor_that_drifted_out_of_its_band():
+    timeline = _timeline("source2", "source1", {
+        "source2": {40: 20.0, 74: 52.0},      # gap 32 but anchor left the band
+        "source1": {40: -36.6, 74: -31.7},
+    })
+    with pytest.raises(GenerationConstraintError,
+                       match="realized_anchor_in_allocated_band"):
+        realized_cross_time_checks(
+            timeline, profile=CARD1_PROFILE, cell=CARD1_CELL,
+            target_slot="source2", other_slot="source1", anchor_frame=40,
+            query_frame=74, params=CARD1_PARAMS,
+            plan_checks={"az_anchor_deg": 9.415, "az_end_deg": 40.496})
+
+
+def test_realized_timeline_passes_and_reports_planning_deviation():
+    timeline = _timeline("source2", "source1", {
+        "source2": {40: 8.451, 74: 40.496},   # Kujiale card1F_002 realized
+        "source1": {40: -36.576, 74: -31.711},
+    })
+    checks = realized_cross_time_checks(
+        timeline, profile=CARD1_PROFILE, cell=CARD1_CELL,
+        target_slot="source2", other_slot="source1", anchor_frame=40,
+        query_frame=74, params=CARD1_PARAMS,
+        plan_checks={"az_anchor_deg": 9.415, "az_end_deg": 40.496})
+    assert checks["passed"] and checks["failed"] == []
+    assert checks["provenance"] == "final_timeline_recompute_after_camera_pose"
+    assert checks["main"]["anchor_azimuth_deg_engine_frame"] == pytest.approx(8.451, abs=1e-6)
+    assert checks["main"]["query_azimuth_deg_engine_frame"] == pytest.approx(40.496, abs=1e-6)
+    assert checks["gatea"]["query_azimuth_deg_engine_frame"] == pytest.approx(-31.711, abs=1e-6)
+    assert checks["mcq_gold_flipped"] is True
+    assert checks["open_gold_regions_disjoint"] is True
+    deviation = checks["planned_vs_realized"]
+    assert deviation["planned_anchor_azimuth_deg_planning_value_only"] == 9.415
+    assert deviation["anchor_deviation_deg"] == pytest.approx(0.964, abs=1e-6)
+    assert checks["realized_anchor_answer_scores_zero"] is True
+    geometry = checks["main"]["anchor_frame_geometry"]
+    assert geometry["role"] == "informational_not_a_gate"
+    assert geometry["distance_cm"] == pytest.approx(300.0)
+    assert geometry["camera_height_cm"] == pytest.approx(147.0)
+    assert geometry["base_projects_inside_frame"] is True
+
+
+def test_frame_geometry_flags_a_dog_at_the_camera_feet_without_rejecting():
+    """core batch card1F_001: 0.73 m away at 41.5 deg drops below the frame."""
+    from design_qa_v3_scene_batch import frame_geometry
+    timeline = _timeline("source2", "source1", {
+        "source2": {40: 41.5, 74: 40.0}, "source1": {40: -30.0, 74: -35.0}},
+        distance=73.0)
+    geometry = frame_geometry(timeline, "source2", 40)
+    assert geometry["depression_deg"] == pytest.approx(63.6, abs=0.2)
+    assert geometry["base_projects_inside_frame"] is False
+    far = frame_geometry(_timeline("source2", "source1", {
+        "source2": {40: 20.0}, "source1": {40: -30.0}}, distance=400.0),
+        "source2", 40)
+    assert far["base_projects_inside_frame"] is True
+
+
+def test_card1_pixel_acceptance_block_is_explicit_and_fails_closed():
+    with pytest.raises(ValueError, match="explicit pixel thresholds"):
+        card1_pixel_acceptance_block(
+            {}, target_slot="source2", other_slot="source1",
+            anchor_frame=40, query_frame=74)
+    pixel_params = {
+        "PIXEL_MIN_VISIBLE_FRACTION": 0.5, "PIXEL_MIN_VISIBLE_PIXELS": 1000,
+        "PIXEL_BBOX_MUST_NOT_TOUCH_FRAME_EDGE": True,
+        "PIXEL_THRESHOLD_STATUS": "placeholder_research"}
+    # the owner's tier policy is the default, so its settings are required
+    with pytest.raises(ValueError, match="explicit"):
+        card1_pixel_acceptance_block(
+            pixel_params, target_slot="source2", other_slot="source1",
+            anchor_frame=40, query_frame=74)
+    block = card1_pixel_acceptance_block(
+        dict(pixel_params, PIXEL_CAMERA_BLOCKAGE_MAX_DISTANCE_M=1.5,
+             PIXEL_TIER_VISIBLE_FRACTION_EDGES=[0.5, 0.2]),
+        target_slot="source2", other_slot="source1", anchor_frame=40,
+        query_frame=74)
+    # owner 2026-09-03 declined rejecting completely blocked referents
+    assert block["acceptance_policy"]["reject_tiers"] == []
+    assert block["acceptance_policy"]["policy"] == \
+        "camera_blockage_reject_then_tier"
+    assert block["thresholds"]["min_visible_pixels"] == 1000
+    assert block["status"] == "placeholder_research"
+    assert block["referents"]["main"]["referent_slot"] == "source2"
+    assert block["referents"]["gatea"]["referent_slot"] == "source1"
+    assert block["referents"]["gatea"]["query_frame"]["must"] == \
+        "referent_identifiable_at_visual_query"
+    assert "prefilter" in block["line_of_sight_role"]
+
+
+def test_gatea_rejects_non_slot_audio_mutation():
+    main, gate = program(["ep1", "ep2"]), program(["ep2", "ep1"])
+    gate = copy.deepcopy(gate)
+    gate["events"][0]["linear_gain"] = 0.4
+    with pytest.raises(ValueError, match="non_slot_event_fields_same"):
+        audit_gatea_pair(
+            {"id": "card9"}, main, gate,
+            answer("black-and-white", "black-and-white", "closed_set"),
+            answer("yellow", "yellow", "closed_set"), PARAMS)
+
+
+def test_closed_set_gatea_flips_both_forms():
+    checks = audit_gatea_pair(
+        {"id": "card9"},
+        program(["ep1", "ep2"]), program(["ep2", "ep1"]),
+        answer("black-and-white", "black-and-white", "closed_set"),
+        answer("yellow", "yellow", "closed_set"), PARAMS)
+    assert checks["mcq_gold_flipped"]
+    assert checks["open_gold_separated"]
+
+
+def test_card2_instant_azimuth_stem_and_profile_validation():
+    slot_coat = {"source1": "black-and-white", "source2": "yellow"}
+    bands = [[-52.5, -17.5], [17.5, 52.5]]
+    profile = {
+        "id": "card2", "temporal": "instant",
+        "answer_kind": "instant_azimuth_band",
+        "binding_frames": [30], "idle_choices": [0, 8],
+        "answer_bands_deg": bands, "anchor_binding": "query_caller",
+    }
+    validate_profiles([profile])
+    result = build_answer(
+        "instant_azimuth_band", profile,
+        {"answer_band": (-52.5, -17.5)}, stationary_timeline(-30.0), None, [],
+        "source1", "source2", slot_coat, -30.0, 30, PARAMS)
+    # 帧编号换成人能对齐的半秒窗口：第 30 帧 @15fps = 2.0 秒 → [2, 2.5)
+    assert "Between 2 and 2.5 seconds" in result["mcq"]["stem"]
+    assert "frame index" not in result["mcq"]["stem"]
+    assert "dog barking in that window" in result["mcq"]["stem"]
+    # 发布约定是 DCASE 左为正，所以引擎帧最左那一楔发布成 [17.5, 52.5)。
+    assert result["mcq"]["truth_option"] == "[17.5, 52.5)"
+    assert result["mcq"]["convention"] == "dcase_foa_left_positive"
+    assert result["open"]["scoring"] == "circular_deg_interval"
+    # 站着不动，所以区间退化成一个点
+    lo, hi = result["open"]["truth_interval_deg"]
+    assert lo == pytest.approx(hi) == pytest.approx(30.0)
+
+
+@pytest.mark.parametrize(
+    ("mutation", "failure"),
+    [
+        (lambda gate: gate["events"].pop(), "event_count_same"),
+        (lambda gate: gate.update(candidate_source_endpoint_ids=["x", "y"]),
+         "candidate_endpoints_same"),
+        (lambda gate: [event.update(source_endpoint_id=main)
+                       for event, main in zip(
+                           gate["events"], ["ep1", "ep2"])],
+         "slot_sequence_changed"),
+    ],
+)
+def test_each_gatea_structure_check_has_a_failing_control(mutation, failure):
+    main, gate = program(["ep1", "ep2"]), program(["ep2", "ep1"])
+    mutation(gate)
+    with pytest.raises(GenerationConstraintError, match=failure):
+        audit_gatea_pair(
+            {"id": "card9"}, main, gate,
+            answer("black-and-white", "black-and-white", "closed_set"),
+            answer("yellow", "yellow", "closed_set"), PARAMS)
+
+
+def test_card1_stems_keep_the_audio_referent_and_time_explicit():
+    slot_coat = {"source1": "black-and-white", "source2": "yellow"}
+    cell = {"answer_band": (-52.5, -17.5)}
+    bands = [[-52.5, -17.5], [-17.5, 17.5], [17.5, 52.5]]
+    for temporal, query_frame, phrase in (
+            ("forward", 74, "At the end of the video"),
+            ("backward", 22, "Between 1 and 1.5 seconds")):
+        profile = {"id": f"card1-{temporal}", "temporal": temporal,
+                   "answer_bands_deg": bands}
+        # 主与 Gate A 的目标槽相反，所以各自要一条把自己的目标摆在 -30 度的
+        # 时间线；真值现在是从逐帧几何重算的，摆错就会被那道唯一性检查拦下。
+        main = build_answer(
+            "azimuth_band", profile, cell,
+            stationary_timeline(-30.0, target="source1"), None, [], "source1",
+            "source2", slot_coat, -30.0, query_frame, PARAMS)
+        gate = build_answer(
+            "azimuth_band", profile, cell,
+            stationary_timeline(-30.0, target="source2"), None, [], "source2",
+            "source1", slot_coat, -30.0, query_frame, PARAMS)
+        assert main["mcq"]["stem"] == gate["mcq"]["stem"]
+        assert main["open"]["stem"] == gate["open"]["stem"]
+        assert "dog that barked last" in main["mcq"]["stem"].lower()
+        assert phrase in main["mcq"]["stem"]
+        assert "frame index" not in main["mcq"]["stem"]
+
+
+def test_audit_rejects_a_changed_question_stem():
+    main_answer = answer("black-and-white", "black-and-white", "closed_set")
+    gate_answer = answer("yellow", "yellow", "closed_set")
+    main_answer["mcq"].update(stem="same", options_space=["a", "b"])
+    gate_answer["mcq"].update(stem="different", options_space=["a", "b"])
+    main_answer["open"]["stem"] = gate_answer["open"]["stem"] = "same"
+    with pytest.raises(GenerationConstraintError, match="mcq_stem_same"):
+        audit_gatea_pair(
+            {"id": "card9"}, program(["ep1", "ep2"]),
+            program(["ep2", "ep1"]), main_answer, gate_answer, PARAMS)
+
+
+def test_joint_allocator_covers_all_slot_coat_cells_for_six():
+    rows = balanced_binary_joint(
+        ["source1", "source2"], ["black-and-white", "yellow"], 6,
+        "seed")
+    assert set(rows) == {
+        ("source1", "black-and-white"), ("source1", "yellow"),
+        ("source2", "black-and-white"), ("source2", "yellow"),
+    }
+
+
+def test_joint_allocator_rotates_which_diagonal_receives_remainders():
+    doubled = set()
+    for seed in range(20):
+        rows = balanced_binary_joint(
+            ["source1", "source2"], ["black-and-white", "yellow"], 6,
+            seed)
+        counts = Counter(rows)
+        doubled.add(tuple(sorted(cell for cell, count in counts.items()
+                                 if count == 2)))
+    assert len(doubled) == 2
+
+
+def test_card1_allocates_slot_anchor_and_query_bands_jointly():
+    bands = [[-52.5, -17.5], [-17.5, 17.5], [17.5, 52.5]]
+    profile = {
+        "id": "card1F", "temporal": "forward",
+        "answer_kind": "azimuth_band", "answer_bands_deg": bands,
+        "anchor_frame": 40, "idle_choices": [0, 8, 16],
+        "anchor_binding": "target",
+    }
+    assets = [
+        "generated_border_collie_black_white_medium_standard_adult_research_v1",
+        "generated_labrador_yellow_medium_standard_adult_research_v1",
+    ]
+    rows = build_cell_plan(18, [profile], assets, {}, "room-seed")
+    triples = {
+        (row["target_slot"], tuple(row["anchor_band"]),
+         tuple(row["answer_band"]))
+        for row in rows
+    }
+    assert len(triples) == 18
+    assert {tuple(row["anchor_band"]) for row in rows} == {
+        tuple(band) for band in bands}
+    assert {tuple(row["answer_band"]) for row in rows} == {
+        tuple(band) for band in bands}
+
+
+def test_unknown_anchor_binding_fails_instead_of_falling_through():
+    with pytest.raises(GenerationConstraintError, match="unknown anchor_binding"):
+        validate_anchor_binding(
+            {"id": "bad", "anchor_binding": "first_callerr"},
+            SimpleNamespace(), [], target_slot="source1", query_frame=0,
+            answer={})
+
+
+def test_render_context_requires_explicit_scene_map_and_transform():
+    scene = SimpleNamespace(scene_id="new-room", render_config={})
+    with pytest.raises(ValueError, match="no apartment fallback"):
+        resolve_scene_render_context(scene)
+    scene.render_config = {
+        "native_map": "/Game/SPEAR/Scenes/debug_0000/Maps/debug_0000",
+        "room_profile_id": "spear_debug_0000",
+        "world_transform": "ue_xyz_cm_to_xzy_m_v1",
+        "ground_z_ue_cm": 0.0,
+    }
+    # 2026-09-03: the Apartment ground_z was a hand-written 0.0 while the floor sits at
+    # +27 cm; render facts now require a measured floor reference in the scene provenance.
+    with pytest.raises(ValueError, match="floor reference"):
+        resolve_scene_render_context(scene)
+    scene.provenance = {"floor_reference": {"status": "measured", "ground_z_ue_cm": 0.0}}
+    resolved = resolve_scene_render_context(scene)
+    assert resolved["native_map"].endswith("/debug_0000")
+    assert resolved["world_transform"]([100, 200, 300]) == [1.0, 3.0, 2.0]
+    assert resolved["ground_z_ue_cm"] == 0.0
+    assert resolved["floor_reference"]["status"] == "measured"
+
+
+def test_profile_typo_is_a_preflight_error():
+    profile = {
+        "id": "bad", "temporal": "instant", "answer_kind": "time_band",
+        "anchor_binding": "first_callerr",
+    }
+    with pytest.raises(ValueError, match="invalid anchor_binding"):
+        validate_profiles([profile])
+
+
+def test_missing_ground_fails_before_output_directory_is_created(tmp_path):
+    route_bank = tmp_path / "routes.json"
+    route_bank.write_text(json.dumps({
+        "schema": "avengine_apartment_route_bank_v1",
+        "routes": [{"route_id": "r1", "implied_speed_mps": 0.5,
+                    "samples_ue_cm": [[float(i), 0.0] for i in range(75)]}],
+    }))
+    camera = tmp_path / "camera.json"
+    camera.write_text(json.dumps({
+        "primary_camera_rig": {
+            "world_from_rig": {"translation_m": [0.0, 1.471, 0.0]},
+            "shared_calibration": {"hfov_degrees": 105.0},
+        },
+        "listener": {"rig_from_listener": {"translation_m": [0.0, 0.0, 0.0]}},
+    }))
+    scene = tmp_path / "scene.json"
+    scene.write_text(json.dumps({
+        "scene_id": "missing-ground", "backend": "ue_spear",
+        "route_bank": str(route_bank), "camera_base_request": str(camera),
+        "render": {"native_map": "/Game/Test/Map",
+                   "room_profile_id": "test-room",
+                   "world_transform": "ue_xyz_cm_to_xzy_m_v1"},
+    }))
+    profiles = tmp_path / "profiles.json"
+    profiles.write_text(json.dumps([{
+        "id": "card1F", "temporal": "forward",
+        "answer_kind": "azimuth_band", "anchor_binding": "target",
+        "anchor_frame": 40, "idle_choices": [0],
+        "answer_bands_deg": [[-52.5, -17.5], [-17.5, 17.5], [17.5, 52.5]],
+    }]))
+    params = tmp_path / "params.json"
+    params.write_text("{}")
+    output = tmp_path / "must-not-exist"
+    with pytest.raises(ValueError, match="ground_z_ue_cm"):
+        design_main([
+            "--scene-config", str(scene), "--profiles", str(profiles),
+            "--params", str(params), "--out-root", str(output),
+            "--seed", "test",
+        ])
+    assert not output.exists()
+
+
+def test_program_policy_is_checked_before_the_output_directory_exists(tmp_path):
+    """A bad params value must not cost a geometry search or block the retry.
+
+    Found 2026-09-03: the gain ceiling was only read inside realise_point, so an
+    out-of-range value surfaced after a full search, left a half-written
+    candidate behind, and the obvious retry at the same output path was then
+    refused because the directory existed.
+    """
+    from floor_reference import summarize_floor_hits, write_floor_reference
+
+    route_bank = tmp_path / "routes.json"
+    route_bank.write_text(json.dumps({
+        "schema": "avengine_apartment_route_bank_v1",
+        "routes": [{"route_id": f"r{k}", "implied_speed_mps": 0.7,
+                    "samples_ue_cm": [[300.0 + 10 * k, -200.0 + 400.0 * i / 74.0]
+                                      for i in range(75)]}
+                   for k in range(4)],
+    }))
+    camera = tmp_path / "camera.json"
+    camera.write_text(json.dumps({
+        "primary_camera_rig": {"world_from_rig": {"translation_m": [0.0, 1.471, 0.0]},
+                               "shared_calibration": {"hfov_degrees": 105.0}},
+        "listener": {"rig_from_listener": {"translation_m": [0.0, 0.0, 0.0]}},
+    }))
+    write_floor_reference(tmp_path / "floor", scene_id="probe_room",
+                          native_map="/Game/Test/Map", method={"kind": "test"},
+                          summary=summarize_floor_hits([0.0] * 300, total_traces=300),
+                          rows=[], thresholds={"min_hits": 200, "min_hit_fraction": 0.98,
+                                               "min_within_fraction": 0.95})
+    scene = tmp_path / "scene.json"
+    scene.write_text(json.dumps({
+        "scene_id": "probe_room", "backend": "ue_spear",
+        "route_bank": str(route_bank), "camera_base_request": str(camera),
+        "floor_reference": str(tmp_path / "floor"),
+        "render": {"native_map": "/Game/Test/Map", "room_profile_id": "probe",
+                   "world_transform": "ue_xyz_cm_to_xzy_m_v1", "ground_z_ue_cm": 0.0},
+    }))
+    profiles = tmp_path / "profiles.json"
+    profiles.write_text(json.dumps([{
+        "id": "card1F", "temporal": "forward", "answer_kind": "azimuth_band",
+        "anchor_binding": "target", "anchor_frame": 40, "idle_choices": [0],
+        "answer_bands_deg": [[-52.5, -17.5], [-17.5, 17.5], [17.5, 52.5]],
+    }]))
+    # a complete program policy except the gain, which is over the schema ceiling
+    policy = dict(PARAMS, CLIP_SECONDS=5.0, PROGRAM_FADE_SAMPLES=80,
+                  TIME_BASE_HZ=48000, TICKS_PER_FRAME=3200, VIDEO_FPS=15,
+                  FRAME_COUNT=75, TICKS_PER_SAMPLE=3,
+                  PROGRAM_NORMALIZATION_POLICY="forbidden",
+                  PROGRAM_RENDER_SOURCE_STEM=True,
+                  PROGRAM_SOURCE_SPECIFIC_STEMS=True,
+                  PROGRAM_ADMISSION_STATE="research",
+                  PROGRAM_MODE="sequential_sources",
+                  PROGRAM_LINEAR_GAIN=2.5)
+    params = tmp_path / "params.json"
+    params.write_text(json.dumps(policy))
+    output = tmp_path / "must-not-exist"
+    with pytest.raises(ValueError, match="PROGRAM_LINEAR_GAIN"):
+        design_main([
+            "--scene-config", str(scene), "--profiles", str(profiles),
+            "--params", str(params), "--out-root", str(output), "--seed", "test",
+        ])
+    assert not output.exists()
+
+    # a missing policy key is refused at the same place, also before the mkdir
+    thin = tmp_path / "thin.json"
+    thin.write_text(json.dumps(PARAMS))
+    other = tmp_path / "also-must-not-exist"
+    with pytest.raises(ValueError, match="CLIP_SECONDS"):
+        design_main([
+            "--scene-config", str(scene), "--profiles", str(profiles),
+            "--params", str(thin), "--out-root", str(other), "--seed", "test",
+        ])
+    assert not other.exists()
+
+
+def test_card15b_gatea_preserves_count_gold_under_slot_swap():
+    main_answer = answer(3, 3, "count_single")
+    gate_answer = answer(3, 3, "count_single")
+    checks = audit_gatea_pair(
+        {"id": "card15b", "gatea_gold_relation": "preserve"},
+        program(["ep1", "ep2", "ep1"]),
+        program(["ep2", "ep1", "ep2"]),
+        main_answer, gate_answer, PARAMS)
+    assert checks["mcq_gold_flipped"] is False
+    assert checks["mcq_gold_preserved"] is True
+    assert checks["open_gold_preserved"] is True
+    assert checks["mcq_gold_relation_satisfied"] is True
+    assert checks["open_gold_relation_satisfied"] is True
+
+
+def test_card15b_profile_and_count_answer_are_machine_checkable():
+    profile = {
+        "id": "card15b", "temporal": "instant",
+        "answer_kind": "event_count", "binding_frames": [12, 40],
+        "idle_choices": [0, 8], "answer_values": [3, 4],
+        "anchor_binding": "none", "gatea_gold_relation": "preserve",
+    }
+    validate_profiles([profile])
+    result = build_answer(
+        "event_count", profile, {"answer_value": 3}, None,
+        SimpleNamespace(events=[1, 2, 3]), [], "source1", "source2",
+        {"source1": "black-and-white", "source2": "yellow"},
+        0.0, 12, PARAMS)
+    assert result["truth"]["event_count"] == 3
+    assert result["mcq"]["truth_option"] == 3
+    assert result["open"]["scoring"] == "count_single"
+    assert validate_anchor_binding(
+        profile, SimpleNamespace(), [], target_slot="source1",
+        query_frame=12, answer=result)["selected_slot"] is None
+
+
+def test_card4r_distance_answer_uses_final_timeline_frame():
+    profile = {
+        "id": "card4R", "temporal": "instant",
+        "answer_kind": "distance_at_query", "binding_frames": [30],
+        "idle_choices": [0, 8],
+        "answer_labels": ["black-and-white", "yellow"],
+        "min_distance_gap_cm": 50.0, "anchor_binding": "none",
+        "gatea_gold_relation": "preserve",
+    }
+    validate_profiles([profile])
+    frames = [{} for _ in range(31)]
+    frames[30] = {
+        "camera": {"translation_ue_cm": [0.0, 0.0, 147.0]},
+        "actor_states": [
+            {"source_slot_id": "source1",
+             "translation_ue_cm": [100.0, 0.0, 0.0]},
+            {"source_slot_id": "source2",
+             "translation_ue_cm": [200.0, 0.0, 0.0]},
+        ],
+    }
+    result = build_answer(
+        "distance_at_query", profile, {}, {"frames": frames},
+        SimpleNamespace(events=[1, 2, 3]), [], "source1", "source2",
+        {"source1": "black-and-white", "source2": "yellow"},
+        0.0, 30, PARAMS)
+    assert result["truth"]["closer_coat"] == "black-and-white"
+    assert result["truth"]["distance_gap_cm"] == 100.0
+    assert result["mcq"]["truth_option"] == "black-and-white"
+    assert result["open"]["scoring"] == "closed_set"
+
+
+def sweeping_timeline(start_deg: float, end_deg: float, target="source1",
+                      slots=("source1", "source2"), frames: int = 75):
+    """目标在整段里从 start_deg 匀速扫到 end_deg（引擎帧），另一只站着。"""
+
+    radius = 400.0
+    out = []
+    for index in range(frames):
+        share = index / max(1, frames - 1)
+        deg = start_deg + (end_deg - start_deg) * share
+        states = []
+        others = 0
+        for slot in slots:
+            if slot == target:
+                angle = math.radians(deg)
+            else:
+                others += 1
+                angle = math.radians(start_deg + 60.0 * others)
+            states.append({"source_slot_id": slot,
+                           "translation_ue_cm": [radius * math.cos(angle),
+                                                 radius * math.sin(angle), 0.0]})
+        out.append({"frame_index": index,
+                    "camera": {"translation_ue_cm": [0.0, 0.0, 147.1],
+                               "yaw_ue_deg": 0.0},
+                    "actor_states": states})
+    return {"room": {"map_path": "/Game/x", "room_profile_id": "x"},
+            "render": {"frame_count": frames, "frame_rate_hz": 15,
+                       "hfov_degrees": 105.0, "resolution_hw": [720, 1280]},
+            "frames": out}
+
+
+def test_the_query_window_is_the_tidy_half_second_holding_the_frame():
+    # owner 2026-09-03:"frame index 22 (22/15 seconds)"没人当场算成 1.47 秒。
+    assert query_window_seconds(22, 15) == (1.0, 1.5)
+    assert query_window_seconds(30, 15) == (2.0, 2.5)
+    assert query_window_seconds(0, 15) == (0.0, 0.5)
+    assert query_window_seconds(74, 15) == (4.5, 5.0)
+    with pytest.raises(ValueError):
+        query_window_seconds(22, 0)
+
+
+def test_a_moving_target_gets_an_interval_not_a_point():
+    """窗口内目标在动，所以真值是那半秒扫过的区间。"""
+
+    slot_coat = {"source1": "black-and-white", "source2": "yellow"}
+    bands = [[-52.5, -17.5], [-17.5, 17.5], [17.5, 52.5]]
+    profile = {"id": "card1B", "temporal": "backward",
+               "answer_bands_deg": bands}
+    # 整段 -45 扫到 -20，都在最左那一带里；窗口 [1.0, 1.5) 只覆盖其中一小段。
+    result = build_answer(
+        "azimuth_band", profile, {"answer_band": (-52.5, -17.5)},
+        sweeping_timeline(-45.0, -20.0), None, [], "source1", "source2",
+        slot_coat, -41.0, 22, PARAMS)
+    lo, hi = result["open"]["truth_interval_deg"]
+    assert hi > lo, "动着的目标应当给出一个真区间"
+    assert result["open"]["truth_value"] == pytest.approx((lo + hi) / 2.0, abs=1e-6)
+    assert "authoritative" in result["open"]["truth_value_note"]
+    assert result["truth"]["query_window_seconds"] == [1.0, 1.5]
+
+
+def test_a_sweep_that_crosses_a_band_edge_is_refused():
+    """跨带就没有唯一答案，必须拒而不是挑一个带。"""
+
+    slot_coat = {"source1": "black-and-white", "source2": "yellow"}
+    bands = [[-52.5, -17.5], [-17.5, 17.5], [17.5, 52.5]]
+    profile = {"id": "card1B", "temporal": "backward",
+               "answer_bands_deg": bands}
+    with pytest.raises(GenerationConstraintError, match="would not be unique"):
+        build_answer(
+            "azimuth_band", profile, {"answer_band": (-52.5, -17.5)},
+            # 窗口只覆盖 frames 15..22，也就是整段的十分之一，所以整段斜率
+            # 要足够大才会在窗口内跨过 -17.5 那条带边：-30 到 25 时窗口内
+            # 走的是 -18.85 到 -13.65。
+            sweeping_timeline(-30.0, 25.0), None, [], "source1", "source2",
+            slot_coat, -30.0, 22, PARAMS)

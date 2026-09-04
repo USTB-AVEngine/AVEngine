@@ -99,6 +99,47 @@ def test_assembles_stage_layout(tmp_path: Path) -> None:
     assert "BuildCookRun" in result["command"][1]
 
 
+def test_enables_runtime_plugin_and_required_global_definition(tmp_path: Path) -> None:
+    source = _source_slice(tmp_path)
+    target = source / "SpearSim/Source/SpearSim.Target.cs"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(
+        "public class SpearSimTarget {\n"
+        "    public SpearSimTarget() {\n"
+        "        Type = TargetType.Game;\n"
+        "    }\n"
+        "}\n"
+    )
+    stage = tmp_path / "stage"
+    args = _args(tmp_path, _closure_report(tmp_path), stage)
+    args.enable_engine_plugin = ["USDImporter"]
+    args.global_definition = ["FORCE_ANSI_ALLOCATOR=1"]
+    tool.assemble_stage(args)
+    uproject = json.loads((stage / "SpearSim/SpearSim.uproject").read_text())
+    assert {"Name": "USDImporter", "Enabled": True} in uproject["Plugins"]
+    assert (
+        'GlobalDefinitions.Add("FORCE_ANSI_ALLOCATOR=1");'
+        in (stage / "SpearSim/Source/SpearSim.Target.cs").read_text()
+    )
+    provenance = json.loads((stage / "STAGE_PROVENANCE.json").read_text())
+    assert provenance["enabled_engine_plugins"] == ["USDImporter"]
+    assert provenance["global_definitions"] == ["FORCE_ANSI_ALLOCATOR=1"]
+
+
+@pytest.mark.parametrize(
+    ("plugins", "definitions"),
+    [(["../../bad"], []), ([], ['BAD=1\"; injected'])],
+)
+def test_refuses_unsafe_generated_stage_values(
+    tmp_path: Path, plugins: list[str], definitions: list[str]
+) -> None:
+    args = _args(tmp_path, _closure_report(tmp_path), tmp_path / "stage")
+    args.enable_engine_plugin = plugins
+    args.global_definition = definitions
+    with pytest.raises(tool.StageAssemblyError, match="invalid"):
+        tool.assemble_stage(args)
+
+
 def test_refuses_existing_stage(tmp_path: Path) -> None:
     stage = tmp_path / "stage"
     stage.mkdir()

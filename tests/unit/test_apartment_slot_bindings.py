@@ -65,6 +65,69 @@ def test_derives_endpoints_and_heights():
     assert heights == {"source1": 1.64, "source2": 1.64}
 
 
+def test_optional_canonical_height_preserves_endpoints_and_normalizes_geometry():
+    source_assets, endpoints = _registries()
+    source_assets["assets"][1]["emitter_anchors"][0]["offset_m"][1] = 1.58
+    slots, heights = derive_slot_bindings(
+        _selection(), source_assets, endpoints,
+        canonical_emitter_height_m=1.61)
+    assert slots == {"source1": "ep_h1_a", "source2": "ep_h2_b"}
+    assert heights == {"source1": 1.61, "source2": 1.61}
+
+
+@pytest.mark.parametrize("value", [0.0, -1.0, float("nan")])
+def test_invalid_canonical_height_fails_closed(value):
+    source_assets, endpoints = _registries()
+    with pytest.raises(CurrentMP3DDynamicAudioError,
+                       match="canonical emitter height"):
+        derive_slot_bindings(
+            _selection(), source_assets, endpoints,
+            canonical_emitter_height_m=value)
+
+
+def test_derives_four_contiguous_source_slots():
+    selection = _selection()
+    selection["actors"].extend(
+        [
+            {
+                "source_slot_id": "source3",
+                "asset_id": "human_c",
+                "legacy_timeline_actor_id": "human_3",
+            },
+            {
+                "source_slot_id": "source4",
+                "asset_id": "human_d",
+                "legacy_timeline_actor_id": "human_4",
+            },
+        ]
+    )
+    source_assets, endpoints = _registries()
+    source_assets["assets"].extend([_asset("human_c", 1.62), _asset("human_d", 1.61)])
+    endpoints["source_endpoints"].extend(
+        [
+            _endpoint("ep_h3_c", "human_3", "human_c"),
+            _endpoint("ep_h4_d", "human_4", "human_d"),
+        ]
+    )
+    slots, heights = derive_slot_bindings(selection, source_assets, endpoints)
+    assert slots == {
+        "source1": "ep_h1_a",
+        "source2": "ep_h2_b",
+        "source3": "ep_h3_c",
+        "source4": "ep_h4_d",
+    }
+    assert heights["source3"] == 1.62
+    assert heights["source4"] == 1.61
+
+
+def test_source_slot_gap_fails_closed():
+    selection = _selection()
+    selection["actors"][1]["source_slot_id"] = "source3"
+    source_assets, endpoints = _registries()
+    with pytest.raises(CurrentMP3DDynamicAudioError, match="contiguous source1"):
+        derive_slot_bindings(selection, source_assets, endpoints)
+
+
 def test_missing_endpoint_fails_closed():
     source_assets, endpoints = _registries()
     endpoints["source_endpoints"] = endpoints["source_endpoints"][:1]

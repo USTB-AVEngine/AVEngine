@@ -1,6 +1,6 @@
 # Current Apartment execution
 
-Last updated: 2026-08-21
+Last updated: 2026-09-01
 
 This is the short operational checkpoint for the active Apartment training
 dataset work. Durable project rules live in the repository `AGENTS.md`; this
@@ -1054,3 +1054,123 @@ steps with zero deletions:
 README.md now states the completed single-repo baseline (merged via PR #2),
 links the runtime-prefix rebuild recipe, and embeds the engine logical
 pipeline diagram at docs/diagrams/engine_logical_pipeline.svg.
+
+## Checkpoint 20260901: QA-v3 room-centric scene × profile scheduler
+
+The QA-v3 research worktree now has a room-centric scheduler at
+`tools/qa/run_qa_v3_room_profile_scheduler.py`. It attempts every requested
+profile independently for every registered scene, preserves pair-level outputs
+and rejection denominators, and does not stop the room when one profile fails.
+Finite search failure is reported as `not_found_within_budget`, not as proof
+that the room is inherently infeasible. Profile absence, pipeline failure,
+pixel rejection and explicit exhaustive infeasibility remain separate states.
+
+A CPU-only smoke used Apartment and the Kujiale living-room route domain with
+the five current profiles plus an unimplemented card16 column. All 12 matrix
+cells were recorded: 9 generated, 1 not found within budget and 2 not
+implemented; quota state was 7 filled, 2 partial, 1 empty and 2 not run.
+The retained matrix is under
+`/data/jzy/tmp/qa_v3_room_profile_scheduler_smoke_20260901_final_v1`.
+No UE/GPU render or admission claim was made. The next QA-v3 action is to feed
+additional already-registered rooms through this scheduler, then pass generated
+candidates to native pixel, audio/Gate-A and modality-certification stages.
+
+
+The first all-profile expansion slice is now complete for card2 (immediate
+emitting-time azimuth). It adds an instant-azimuth solver, answer-first side
+bands, a query-frame caller AudioProgram and MCQ/Open Gate-A flips. A two-room
+CPU smoke generated 2/2 candidates in Apartment and 2/2 in Kujiale; all four
+Open gold separations exceed 60 degrees. Evidence is retained at
+`/data/jzy/tmp/qa_v3_card2_two_room_smoke_20260901_v1`. This remains
+geometry/timeline/program/fact evidence only. The executable catalog now has
+six profiles; the next implementation slice is card3, followed by the remaining
+dual-source controls before the N-source and multi-segment work.
+
+
+Card3 (first-sound left/right) is also executable. Its AudioProgram fixes the
+target's first event at frame 12, keeps at least three separated events, and
+swaps only the first caller's slot for Gate A. The two-room smoke generated
+2/2 candidates in each room; every MCQ and Open closed-set side changed under
+Gate A. Evidence is retained at
+`/data/jzy/tmp/qa_v3_card3_two_room_smoke_20260901_v1`. The executable
+catalog now has seven profiles.
+
+
+Card15b (total event count) is executable as a pure-audio control. It adds a
+randomized exact-count AudioProgram and a reusable Gate-A gold relation:
+swapping every source slot must preserve the count answer rather than flip it.
+The two-room smoke generated 4/4 candidates per room, balanced counts 3 and 4
+at 2:2, with all eight MCQ/Open golds preserved and every slot sequence
+changed. Evidence is retained at
+`/data/jzy/tmp/qa_v3_card15b_two_room_smoke_20260901_v1`. The executable
+catalog now has eight profiles.
+
+
+Card4R (which dog is closer at frame 30) is executable as a visual control.
+The solver allocates the answer coat first, then finds a camera and two moving
+routes with at least a 50 cm distance-order margin. The two-room smoke
+generated 4/4 candidates per room with each coat at 2:2; all eight Gate-A
+audio slot swaps preserved the visual gold. Evidence is retained at
+`/data/jzy/tmp/qa_v3_card4r_two_room_smoke_20260901_v1`. The executable
+catalog now has nine profiles.
+
+
+Card5 and card5R now share one distance-change-pair solver that allocates the
+target relation first and requires the distractor to exhibit the opposite
+trend. Card5 binds the relation window to the first sound; card5R uses the
+last-bark anchor and retains 2.03 seconds of tail silence. Card5 filled 4/4 in
+both rooms. Card5R filled 4/4 in Apartment and produced 3/4 in the better of
+two Kujiale seeds, with the remaining cell explicitly budget-exhausted rather
+than unimplemented. Evidence is retained at
+`/data/jzy/tmp/qa_v3_card5_two_room_smoke_20260901_v3` and
+`/data/jzy/tmp/qa_v3_card5r_two_room_smoke_20260901_v2`. The executable
+catalog now has eleven profiles.
+
+
+Card6, card6R and card10 now share a motion-state-pair solver and an exact
+solver-route timeline transform. The latter was required because the ordinary
+visual author reparameterized waypoints by arc length and erased pause windows;
+the final timeline now writes all 75 solver samples and synchronized
+walk/idle actions. Each profile filled 4/4 in both rooms with moving/still at
+2:2 and opposite Gate-A states. Card6 binds the second-sound window, card6R
+uses frames 29..74 after the second sound, and card10 binds the first-sound
+window. Evidence is retained under
+`/data/jzy/tmp/qa_v3_card6_two_room_smoke_20260901_v2`,
+`/data/jzy/tmp/qa_v3_card6r_two_room_smoke_20260901_v1` and
+`/data/jzy/tmp/qa_v3_card10_two_room_smoke_20260901_v1`. The executable
+catalog now has fourteen profiles.
+
+
+The QA-v3 catalog now carries all 21 requested profiles. Cards 11, 12, 13, 14,
+15a, 16 and 17 use the scene-neutral extended runner over the generalized
+source1..sourceN timeline, pixel and dynamic-audio path. The final two-room
+low-cost matrix attempted all 42 scene/profile cells: 34 generated geometry
+candidates, six reported exact semantic-asset shortages, and two ended as
+finite-budget search misses; no cell was unimplemented or a pipeline error.
+The full-seed RNG fix now yields distinct cameras across extended profiles,
+and both card17 segments must differ before generation can succeed.
+Apartment runtime probes additionally closed four-actor RGB/pixel/binaural,
+card15a main/Gate-A audio, card16 pixel-bound main/Gate-A truth, and both
+card17 video segments. The first card11 pixel candidate was correctly rejected
+because its fourth actor remained visible. Full evidence and claim boundaries
+are in `docs/roadmap/QA_V3_ALL_PROFILE_ENGINE_REPORT_20260901.md`; the matrix
+is retained at
+`/data/jzy/tmp/qa_v3_all21_two_room_matrix_20260901_v4_reviewfix`.
+
+
+
+QA-v3 room-centric pilot selected manifest now carries 216 research
+candidates: 108 per room, six for each of the 18 currently runnable profiles.
+Kujiale shortfalls were filled only by independent supplemental searches;
+card1B required a deeper 30,000-attempt profile to obtain center-band examples.
+The final selector balances card1B/card17 at 2:2:2 and materializes Gate B for
+all 216 points (48 extended inline plus 168 dual-source twins). Apartment
+runtime evidence closes pixel-bound card11/card15a/card16, main/Gate-A audio,
+and two distinct card17 segments. The authoritative report is
+`docs/roadmap/QA_V3_ROOM_CENTRIC_PILOT_REPORT_20260901.md`; selected and runtime
+manifests are retained at
+`/data/jzy/tmp/qa_v3_room_pilot_selected_2rooms_108each_20260901_v3` and
+`/data/jzy/tmp/qa_v3_room_pilot_runtime_evidence_20260901_v1`.
+
+
+Gate-B precert recomputed all 216 selected twins: 180 fact/geometry rows pass and 36 pixel-dependent rows remain pixel_pending. The augmented manifest backfills every Gate-B pointer and gold status. Appearance twins must reuse main audio; route twins must rerender audio consistently. See `docs/roadmap/QA_V3_GATEB_PRECERT_REPORT_20260901.md`.

@@ -1,0 +1,267 @@
+[
+  {
+    "id": "card1F",
+    "temporal": "forward",
+    "answer_kind": "azimuth_band",
+    "anchor_frame": 40,
+    "idle_choices": [0, 8, 16],
+    "answer_bands_deg": [
+      [-52.5, -17.5],
+      [-17.5, 17.5],
+      [17.5, 52.5]
+    ],
+    "anchor_binding": "target"
+  },
+  {
+    "id": "card1B",
+    "temporal": "backward",
+    "answer_kind": "azimuth_band",
+    "anchor_frame": 62,
+    "query_frame": 22,
+    "idle_choices": [0, 8],
+    "answer_bands_deg": [
+      [-52.5, -17.5],
+      [-17.5, 17.5],
+      [17.5, 52.5]
+    ],
+    "anchor_binding": "target"
+  },
+  {
+    "id": "card2",
+    "temporal": "instant",
+    "answer_kind": "instant_azimuth_band",
+    "binding_frames": [30],
+    "idle_choices": [0, 8],
+    "answer_bands_deg": [
+      [-52.5, -17.5],
+      [17.5, 52.5]
+    ],
+    "anchor_binding": "query_caller"
+  },
+  {
+    "id": "card3",
+    "temporal": "instant",
+    "answer_kind": "first_sound_side",
+    "binding_frames": [12],
+    "idle_choices": [0, 8],
+    "answer_bands_deg": [
+      [-52.5, 0.0],
+      [0.0, 52.5]
+    ],
+    "anchor_binding": "first_caller",
+    "open_half_width_deg": 0.0
+  },
+  {
+    "id": "card4R",
+    "temporal": "instant",
+    "answer_kind": "distance_at_query",
+    "binding_frames": [30],
+    "idle_choices": [0, 8],
+    "answer_labels": ["black-and-white", "yellow"],
+    "min_distance_gap_cm": 50.0,
+    "audio_event_count": 3,
+    "anchor_binding": "none",
+    "gatea_gold_relation": "preserve"
+  },
+  {
+    "id": "card5",
+    "temporal": "instant",
+    "answer_kind": "distance_change",
+    "binding_frames": [12, 16],
+    "relation_frames": [12, 16],
+    "idle_choices": [0, 8],
+    "answer_values": ["closer", "farther"],
+    "min_distance_change_cm": 10.0,
+    "max_attempts": 8000,
+    "anchor_binding": "first_caller",
+    "gatea_gold_relation": "flip"
+  },
+  {
+    "id": "card5R",
+    "temporal": "forward",
+    "answer_kind": "distance_change",
+    "anchor_frame": 40,
+    "relation_frames": [40, 74],
+    "idle_choices": [0, 8, 16],
+    "answer_values": ["closer", "farther"],
+    "min_distance_change_cm": 50.0,
+    "max_attempts": 8000,
+    "anchor_binding": "target",
+    "gatea_gold_relation": "flip"
+  },
+  {
+    "id": "card6",
+    "temporal": "instant",
+    "answer_kind": "motion_state",
+    "binding_frames": [24, 28],
+    "motion_frames": [24, 28],
+    "second_sound_frame": 24,
+    "idle_choices": [0, 8],
+    "answer_values": ["moving", "still"],
+    "min_motion_cm": 10.0,
+    "max_attempts": 8000,
+    "anchor_binding": "target",
+    "gatea_gold_relation": "flip",
+    "use_solved_routes_directly": true,
+    "enforce_target_moves_more": false
+  },
+  {
+    "id": "card6R",
+    "temporal": "forward",
+    "answer_kind": "motion_state",
+    "anchor_frame": 24,
+    "motion_frames": [29, 74],
+    "second_sound_frame": 24,
+    "idle_choices": [0, 8, 16],
+    "answer_values": ["moving", "still"],
+    "min_motion_cm": 30.0,
+    "max_attempts": 12000,
+    "anchor_binding": "target",
+    "gatea_gold_relation": "flip",
+    "use_solved_routes_directly": true,
+    "enforce_target_moves_more": false
+  },
+  {
+    "id": "card10",
+    "temporal": "instant",
+    "answer_kind": "motion_state",
+    "binding_frames": [12, 16],
+    "motion_frames": [12, 16],
+    "idle_choices": [0, 8],
+    "answer_values": ["moving", "still"],
+    "min_motion_cm": 10.0,
+    "max_attempts": 8000,
+    "anchor_binding": "first_caller",
+    "gatea_gold_relation": "flip",
+    "use_solved_routes_directly": true,
+    "enforce_target_moves_more": false
+  },
+  {
+    "id": "card7",
+    "temporal": "instant",
+    "answer_kind": "coat_at_query",
+    "binding_frames": [30],
+    "idle_choices": [0, 8],
+    "answer_labels": ["black-and-white", "yellow"],
+    "anchor_binding": "query_caller"
+  },
+  {
+    "id": "card8",
+    "temporal": "instant",
+    "answer_kind": "time_band",
+    "binding_frames": [12, 40],
+    "idle_choices": [0, 8],
+    "answer_band_pairs": [[0, 1], [0, 2], [1, 2]],
+    "anchor_binding": "first_caller"
+  },
+  {
+    "id": "card9",
+    "temporal": "instant",
+    "answer_kind": "first_caller_coat",
+    "binding_frames": [12, 40],
+    "idle_choices": [0, 8],
+    "answer_labels": ["black-and-white", "yellow"],
+    "answer_band_pairs": [[0, 1], [0, 2], [1, 2]],
+    "anchor_binding": "first_caller"
+  },
+  {
+    "id": "card15b",
+    "temporal": "instant",
+    "answer_kind": "event_count",
+    "binding_frames": [12, 40],
+    "idle_choices": [0, 8],
+    "answer_values": [3, 4],
+    "mcq_options": [2, 3, 4, 5],
+    "anchor_binding": "none",
+    "gatea_gold_relation": "preserve"
+  },
+  {
+    "id": "card11",
+    "execution_backend": "extended",
+    "temporal": "instant",
+    "answer_kind": "source_identity_or_none",
+    "binding_frames": [30],
+    "idle_choices": [0, 8],
+    "actor_count": 4,
+    "anchor_binding": "query_caller",
+    "max_attempts": 20000
+  },
+  {
+    "id": "card12",
+    "execution_backend": "extended",
+    "temporal": "instant",
+    "answer_kind": "sound_class_by_appearance",
+    "binding_frames": [30],
+    "idle_choices": [0, 8],
+    "actor_count": 4,
+    "anchor_binding": "none",
+    "required_sound_types": 4,
+    "max_attempts": 20000
+  },
+  {
+    "id": "card13",
+    "execution_backend": "extended",
+    "temporal": "instant",
+    "answer_kind": "transcript_by_appearance",
+    "binding_frames": [30],
+    "idle_choices": [0, 8],
+    "actor_count": 4,
+    "anchor_binding": "none",
+    "required_controlled_colours": 4,
+    "required_transcripts": 4,
+    "max_attempts": 20000
+  },
+  {
+    "id": "card14",
+    "execution_backend": "extended",
+    "temporal": "instant",
+    "answer_kind": "appearance_by_transcript",
+    "binding_frames": [30],
+    "idle_choices": [0, 8],
+    "actor_count": 4,
+    "anchor_binding": "none",
+    "required_controlled_colours": 4,
+    "required_transcripts": 4,
+    "max_attempts": 20000
+  },
+  {
+    "id": "card15a",
+    "execution_backend": "extended",
+    "temporal": "instant",
+    "answer_kind": "presence_and_distinct_callers",
+    "binding_frames": [30],
+    "idle_choices": [0, 8],
+    "actor_count": 4,
+    "anchor_binding": "none",
+    "max_attempts": 20000
+  },
+  {
+    "id": "card16",
+    "execution_backend": "extended",
+    "temporal": "forward",
+    "answer_kind": "first_caller_final_visibility",
+    "binding_frames": [12, 74],
+    "idle_choices": [0, 8],
+    "actor_count": 2,
+    "anchor_binding": "first_caller",
+    "max_attempts": 20000
+  },
+  {
+    "id": "card17",
+    "execution_backend": "extended",
+    "temporal": "multisegment",
+    "answer_kind": "cross_segment_identity_location",
+    "binding_frames": [12, 40],
+    "location_bands_deg": [
+      [-52.5, -17.5],
+      [-17.5, 17.5],
+      [17.5, 52.5]
+    ],
+    "location_band_labels": ["left", "center", "right"],
+    "idle_choices": [0, 8],
+    "actor_count": 2,
+    "segment_count": 2,
+    "anchor_binding": "first_caller",
+    "max_attempts": 20000
+  }
+]

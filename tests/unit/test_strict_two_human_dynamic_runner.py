@@ -727,9 +727,14 @@ def test_failed_real_attempt_is_persisted_and_cannot_retry(
         runner.run(request_path, receipt_path, dry_run=False)
 
 _RETAINED_TMP_WORKSPACE = Path(__file__).resolve().parents[2] / "tmp"
-if not _RETAINED_TMP_WORKSPACE.exists():
+# Guarding on tmp/ existing was wrong: running the engine in a
+# checkout creates tmp/spear_instance_*, which made this look
+# mounted and sent 49 tests into a run without their data.  The
+# evidence mount signature is a lead_* workspace.
+if not any(_RETAINED_TMP_WORKSPACE.glob("lead_*")):
     pytest.skip(
-        "retained strict-two-human evidence workspace (repository tmp "
-        "symlink) is not present in this checkout",
+        "no lead_* evidence workspace under the repository tmp "
+        "directory, so this checkout does not carry the retained "
+        "strict-two-human evidence",
         allow_module_level=True,
     )

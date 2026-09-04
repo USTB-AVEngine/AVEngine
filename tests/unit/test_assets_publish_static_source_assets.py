@@ -148,3 +148,20 @@ def test_index_axes_union_existing_and_new_static_records() -> None:
         "existing_speaker",
         "new_microwave",
     ]
+
+
+def test_published_id_does_not_carry_the_admission_state():
+    """owner 2026-09-03: the state is a field, not part of the name.
+
+    These 44 assets were flipped from research to formal that day and every
+    published id still read ..._research_v2, which then says the wrong thing
+    about the current state.  New ids are generated_<type>_<variant>_v<N>.
+    """
+    import re
+    source = (Path(__file__).resolve().parents[2]
+              / "tools/assets/publish_static_source_assets.py").read_text(encoding="utf-8")
+    formula = re.search(r'asset_id = f"generated_\{object_type\}_\{variant\}_\{([a-z_.]+)\}"',
+                        source)
+    assert formula, "the id formula moved; keep the state out of it"
+    assert formula.group(1) == "args.revision"
+    assert "args.admission_state}" not in source.split("asset_id =")[1][:200]

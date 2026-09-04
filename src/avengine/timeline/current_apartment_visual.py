@@ -48,6 +48,38 @@ TICKS_PER_FRAME = 3_200
 CAMERA_BLUEPRINT = "/SpContent/Blueprints/BP_CameraSensor.BP_CameraSensor_C"
 CAPTURE_COMPONENT_NAME = "DefaultSceneRoot.final_tone_curve_hdr_"
 NATIVE_APARTMENT_MAP = "/Game/SPEAR/Scenes/apartment_0000/Maps/apartment_0000"
+APARTMENT_ROOM_PROFILE_ID = "spear_apartment_0000"
+
+
+def resolve_native_map(timeline, requested_map=None):
+    """Which UE map does this capture launch, and does the timeline agree?
+
+    The map used to be a module constant, which made the renderer room-specific
+    and — worse — let a timeline authored for one room be captured in another
+    without complaint. The timeline now carries its own ``room.map_path``; an
+    explicit argument may override it only when the two agree. Same failure
+    shape as the camera-yaw mismatch: a declared fact and an executed fact that
+    silently diverge.
+    """
+
+    room = (timeline or {}).get("room") or {}
+    declared = room.get("map_path")
+    if "map_path" in room and not declared:
+        raise CurrentApartmentVisualError(
+            "the timeline declares an empty room.map_path; a declared-but-blank "
+            "map must fail rather than fall back to a default room"
+        )
+    if requested_map and declared and requested_map != declared:
+        raise CurrentApartmentVisualError(
+            "the timeline was authored for map "
+            f"{declared!r} but the capture was asked for {requested_map!r}"
+        )
+    resolved = requested_map or declared or NATIVE_APARTMENT_MAP
+    if not str(resolved).startswith("/Game/"):
+        raise CurrentApartmentVisualError(
+            f"native map must be a /Game package path, got {resolved!r}"
+        )
+    return str(resolved)
 
 
 class CurrentApartmentVisualError(RuntimeError):
@@ -224,9 +256,15 @@ def _selection_bindings(
         slot = raw.get("source_slot_id")
         asset_id = raw.get("asset_id")
         revision = raw.get("revision")
-        if slot not in {"source1", "source2"} or slot in result:
+        valid_slot = (
+            isinstance(slot, str)
+            and slot.startswith("source")
+            and slot.removeprefix("source").isdigit()
+            and int(slot.removeprefix("source")) >= 1
+        )
+        if not valid_slot or slot in result:
             raise CurrentApartmentVisualError(
-                "actor selection must contain unique source1/source2 slots"
+                "actor selection must contain unique canonical sourceN slots"
             )
         if not isinstance(asset_id, str) or not isinstance(revision, str):
             raise CurrentApartmentVisualError(
@@ -310,10 +348,15 @@ def _selection_bindings(
             "component_frame_delta": dict(raw_binding["ue_component_frame_delta"]),
             "anatomical_basis_bones": raw_binding.get("ue_anatomical_basis_bones"),
         }
-    if set(result) != {"source1", "source2"}:
+    expected_slots = {
+        f"source{index}" for index in range(1, len(result) + 1)}
+    if len(result) < 2 or set(result) != expected_slots:
         raise CurrentApartmentVisualError(
-            "actor selection must contain exactly source1 and source2"
+            "actor selection must contain contiguous source1..sourceN slots "
+            "with at least two actors"
         )
+    result = {slot: result[slot] for slot in sorted(
+        result, key=lambda value: int(value.removeprefix("source")))}
     authorization = selection.get("asset_authorization")
     if authorization not in {"verified_internal", "unverified"}:
         authorization = "unverified"
@@ -483,6 +526,8 @@ def author_current_apartment_visual_timeline(
     beagle_end_ue_cm: Sequence[float],
     human_waypoints_ue_cm: Sequence[Sequence[float]] | None = None,
     beagle_waypoints_ue_cm: Sequence[Sequence[float]] | None = None,
+    native_map: str = NATIVE_APARTMENT_MAP,
+    room_profile_id: str = APARTMENT_ROOM_PROFILE_ID,
     width: int = 1280,
     height: int = 720,
     hfov_degrees: float = 105.0,
@@ -494,6 +539,10 @@ def author_current_apartment_visual_timeline(
         actor_selection_path=actor_selection_path,
         source_asset_registry_path=source_asset_registry_path,
     )
+    if set(bindings) != {"source1", "source2"}:
+        raise CurrentApartmentVisualError(
+            "two-source author requires exactly source1 and source2; "
+            "use author_current_n_actor_visual_timeline for N actors")
     if (
         isinstance(width, bool)
         or isinstance(height, bool)
@@ -576,8 +625,8 @@ def author_current_apartment_visual_timeline(
         ),
         "actor_selection": str(selection_file),
         "room": {
-            "map_path": NATIVE_APARTMENT_MAP,
-            "room_profile_id": "spear_apartment_0000",
+            "map_path": native_map,
+            "room_profile_id": room_profile_id,
         },
         "render": {
             "frame_count": FRAME_COUNT,
@@ -617,6 +666,127 @@ def author_current_apartment_visual_timeline(
     return timeline
 
 
+
+
+def author_current_n_actor_visual_timeline(
+    *,
+    actor_selection_path: str | Path,
+    source_asset_registry_path: str | Path,
+    output_path: str | Path,
+    camera_position_ue_cm: Sequence[float],
+    camera_yaw_deg: float,
+    routes_by_slot_ue_cm: Mapping[str, Sequence[Sequence[float]]],
+    native_map: str,
+    room_profile_id: str,
+    width: int = 1280,
+    height: int = 720,
+    hfov_degrees: float = 105.0,
+    walk_start_frames: Mapping[str, int] | None = None,
+) -> dict[str, Any]:
+    """Author a research-only visual timeline for contiguous source1..sourceN."""
+    selection_file, bindings, asset_authorization = _selection_bindings(
+        actor_selection_path=actor_selection_path,
+        source_asset_registry_path=source_asset_registry_path,
+    )
+    slots = tuple(bindings)
+    if set(routes_by_slot_ue_cm) != set(slots):
+        raise CurrentApartmentVisualError(
+            "N-actor routes must match actor-selection source slots")
+    if (
+        isinstance(width, bool)
+        or isinstance(height, bool)
+        or not isinstance(width, int)
+        or not isinstance(height, int)
+        or width < 1
+        or height < 1
+        or not 0.0 < hfov_degrees < 180.0
+    ):
+        raise CurrentApartmentVisualError(
+            "timeline render dimensions or HFOV are invalid")
+    camera_position = _finite_triplet(
+        camera_position_ue_cm, owner="camera_position_ue_cm")
+    camera_yaw = _finite_number(camera_yaw_deg, owner="camera_yaw_deg")
+    starts_at = dict(walk_start_frames or {})
+    routes = {}
+    for slot in slots:
+        route = _finite_waypoints(
+            routes_by_slot_ue_cm[slot], owner=f"{slot}_waypoints_ue_cm")
+        if route is None or len(route) != FRAME_COUNT:
+            raise CurrentApartmentVisualError(
+                f"{slot} must declare exactly {FRAME_COUNT} route samples")
+        walk_start = int(starts_at.get(slot, 0))
+        if not 0 <= walk_start < FRAME_COUNT - 1:
+            raise CurrentApartmentVisualError(
+                f"{slot} walk_start_frame must be in [0, 73]")
+        routes[slot] = (route, walk_start)
+
+    frames = []
+    for frame_index in range(FRAME_COUNT):
+        frames.append({
+            "frame_index": frame_index,
+            "pts_ticks": frame_index * TICKS_PER_FRAME,
+            "camera": {
+                "translation_ue_cm": list(camera_position),
+                "yaw_ue_deg": camera_yaw,
+            },
+            "actor_states": [
+                _timeline_state(
+                    binding=bindings[slot],
+                    start=routes[slot][0][0],
+                    end=routes[slot][0][-1],
+                    frame_index=frame_index,
+                    walk_start_frame=routes[slot][1],
+                    waypoints=routes[slot][0],
+                )
+                for slot in slots
+            ],
+        })
+    timeline = {
+        "kind": "current_n_actor_visual_research_timeline",
+        "status": "research_only",
+        "research_only": True,
+        "episode_counted": False,
+        "qualification_claim": False,
+        "claim_boundary": (
+            "N-actor external UE RGB research timeline only; no dataset, "
+            "room, source, audio or modality-certification claim"),
+        "actor_selection": str(selection_file),
+        "room": {
+            "map_path": native_map,
+            "room_profile_id": room_profile_id,
+        },
+        "render": {
+            "frame_count": FRAME_COUNT,
+            "frame_rate_hz": FRAME_RATE_HZ,
+            "ticks_per_frame": TICKS_PER_FRAME,
+            "resolution_hw": [height, width],
+            "hfov_degrees": float(hfov_degrees),
+            "walk_start_frames": {
+                slot: routes[slot][1] for slot in slots},
+        },
+        "actors": [
+            {
+                key: bindings[slot][key]
+                for key in (
+                    "source_slot_id", "actor_id", "asset_id", "revision",
+                    "walk_phase_period_frames",
+                    "ue_anatomical_forward_yaw_deg",
+                    "blueprint_class_path", "idle_animation",
+                    "walking_animation", "graph_mesh_package",
+                    "graph_mesh_object_path",
+                )
+            }
+            for slot in slots
+        ],
+        "asset_authorization": asset_authorization,
+        "spatial_validation": "not_run",
+        "frames": frames,
+    }
+    output = _new_external_output_file(output_path, owner="timeline output")
+    with output.open("x", encoding="utf-8") as stream:
+        json.dump(timeline, stream, indent=2, sort_keys=True)
+        stream.write("\n")
+    return timeline
 def _load_timeline(
     *,
     timeline_path: str | Path,
@@ -641,8 +811,8 @@ def _load_timeline(
             "timeline must be a 75-frame 15fps non-counted research record"
         )
     actors = timeline.get("actors")
-    if not isinstance(actors, list) or len(actors) != 2:
-        raise CurrentApartmentVisualError("timeline must declare exactly two actors")
+    if not isinstance(actors, list) or len(actors) != len(bindings):
+        raise CurrentApartmentVisualError("timeline actor count differs from selection")
     actor_by_slot = {
         actor.get("source_slot_id"): actor
         for actor in actors
@@ -695,18 +865,18 @@ def _load_timeline(
             camera.get("yaw_ue_deg"), owner=f"timeline frame {frame_index} camera yaw"
         )
         states = frame.get("actor_states")
-        if not isinstance(states, list) or len(states) != 2:
+        if not isinstance(states, list) or len(states) != len(bindings):
             raise CurrentApartmentVisualError(
-                f"timeline frame {frame_index} must contain two actor states"
+                f"timeline frame {frame_index} actor count differs from selection"
             )
         state_slots = [
             state.get("source_slot_id")
             for state in states
             if isinstance(state, Mapping)
         ]
-        if state_slots != ["source1", "source2"]:
+        if state_slots != list(bindings):
             raise CurrentApartmentVisualError(
-                f"timeline frame {frame_index} actor order must be source1/source2"
+                f"timeline frame {frame_index} actor order differs from selection"
             )
         for state in states:
             assert isinstance(state, Mapping)
@@ -749,6 +919,7 @@ def _closure_mappings(
     *,
     closure_report_path: str | Path,
     bindings: Mapping[str, Mapping[str, Any]],
+    native_map: str,
 ) -> tuple[Path, list[tuple[str, str]]]:
     path = _external_file(closure_report_path, owner="--closure-report")
     report = _read_mapping(path, owner="closure report")
@@ -756,7 +927,7 @@ def _closure_mappings(
     if not isinstance(variants, Mapping):
         raise CurrentApartmentVisualError("closure report has no variants")
     required = {
-        NATIVE_APARTMENT_MAP,
+        native_map,
         "/SpContent/Blueprints/BP_CameraSensor",
         *(
             value
@@ -912,7 +1083,7 @@ def _spawn_runtime_actors(
         if isinstance(state, Mapping)
     }
     runtimes = {}
-    for slot in ("source1", "source2"):
+    for slot in bindings:
         binding = bindings[slot]
         state = states[slot]
         runtime = spawn_attached_visual_actor(
@@ -1052,7 +1223,7 @@ def _animation_readback_summary(
     """Summarize observed animation positions without adding a new contract."""
 
     actors: dict[str, dict[str, Any]] = {}
-    for slot in ("source1", "source2"):
+    for slot in records_by_slot:
         records = list(records_by_slot[slot])
         if not records:
             raise CurrentApartmentVisualError(
@@ -1171,6 +1342,7 @@ def capture_current_apartment_visual(
     output_directory: str | Path,
     rpc_port: int = 39511,
     graphics_adapter: int | None = None,
+    native_map: str | None = None,
 ) -> dict[str, Any]:
     """Run a preflighted native SPEAR RGB-only research capture."""
 
@@ -1208,8 +1380,10 @@ def capture_current_apartment_visual(
         }
         _write_new_json(output / "research_receipt.json", receipt)
         return receipt
+    resolved_map = resolve_native_map(timeline, native_map)
     closure_file, mappings = _closure_mappings(
-        closure_report_path=closure_report_path, bindings=bindings
+        closure_report_path=closure_report_path, bindings=bindings,
+        native_map=resolved_map,
     )
     stage, executable = _validate_stage(
         stage_root=stage_root,
@@ -1229,9 +1403,7 @@ def capture_current_apartment_visual(
         str(binding["actor_id"]): [] for binding in bindings.values()
     }
     animation_records_by_slot: dict[str, list[dict[str, Any]]] = {
-        "source1": [],
-        "source2": [],
-    }
+        slot: [] for slot in bindings}
     root_readback_summary: dict[str, Any] | None = None
     success_receipt: dict[str, Any] | None = None
     run_error: BaseException | None = None
@@ -1240,7 +1412,7 @@ def capture_current_apartment_visual(
     try:
         instance = launch_external_game_instance(
             spear_executable=executable,
-            native_map=NATIVE_APARTMENT_MAP,
+            native_map=resolved_map,
             frame_rate_hz=FRAME_RATE_HZ,
             rpc_port=rpc_port,
             graphics_adapter=graphics_adapter,
@@ -1314,7 +1486,7 @@ def capture_current_apartment_visual(
                     "camera_pose": read_actor_pose(camera),
                     "actor_anchor_poses": {
                         slot: read_actor_pose(runtimes[slot]["anchor"])
-                        for slot in ("source1", "source2")
+                        for slot in bindings
                     },
                     "animation_readbacks": dict(animation_readbacks),
                 }
@@ -1349,7 +1521,7 @@ def capture_current_apartment_visual(
                     **pose,
                 }
             observed_animation_records = [
-                observed_animations[slot] for slot in ("source1", "source2")
+                observed_animations[slot] for slot in bindings
             ]
             frame_record = {
                 "frame_index": frame_index,

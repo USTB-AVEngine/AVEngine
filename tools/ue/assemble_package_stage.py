@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -54,6 +55,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--map", dest="cook_map", default=DEFAULT_MAP)
     parser.add_argument("--source-commit", default=None,
                         help="repository commit recorded in STAGE_PROVENANCE")
+    parser.add_argument(
+        "--enable-engine-plugin", action="append", default=[],
+        help="engine plugin to enable in the fresh staged uproject; repeatable",
+    )
+    parser.add_argument(
+        "--global-definition", action="append", default=[],
+        help=("C++ target GlobalDefinitions entry required by an enabled "
+              "runtime plugin; repeatable"),
+    )
     parser.add_argument("--run-buildcookrun", action="store_true")
     return parser.parse_args(argv)
 
@@ -84,6 +94,54 @@ def _stage_path_for(package: str, source_file: Path, stage: Path) -> Path:
     raise StageAssemblyError(f"unsupported package root: {package}")
 
 
+def _enable_plugins(uproject: dict[str, Any], requested: list[str]) -> None:
+    plugins = uproject.setdefault("Plugins", [])
+    if not isinstance(plugins, list):
+        raise StageAssemblyError("staged uproject Plugins must be a list")
+    for name in requested:
+        if not isinstance(name, str) or not re.fullmatch(
+            r"[A-Za-z][A-Za-z0-9_]*", name
+        ):
+            raise StageAssemblyError(f"invalid engine plugin name: {name!r}")
+        matches = [
+            item for item in plugins
+            if isinstance(item, dict) and item.get("Name") == name
+        ]
+        if len(matches) > 1:
+            raise StageAssemblyError(f"duplicate staged plugin declaration: {name}")
+        if matches:
+            matches[0]["Enabled"] = True
+        else:
+            plugins.append({"Name": name, "Enabled": True})
+
+
+def _add_global_definitions(target_path: Path, definitions: list[str]) -> None:
+    if not definitions:
+        return
+    for value in definitions:
+        if not isinstance(value, str) or not re.fullmatch(
+            r"[A-Z][A-Z0-9_]*(=[A-Za-z0-9_.-]+)?", value
+        ):
+            raise StageAssemblyError(f"invalid global definition: {value!r}")
+    if not target_path.is_file():
+        raise StageAssemblyError(
+            f"staged game target is missing for global definitions: {target_path}"
+        )
+    text = target_path.read_text(encoding="utf-8")
+    marker = "        Type = TargetType.Game;\n"
+    if marker not in text:
+        raise StageAssemblyError("staged game target lacks TargetType.Game marker")
+    additions = []
+    for value in definitions:
+        statement = f'        GlobalDefinitions.Add("{value}");\n'
+        if statement not in text:
+            additions.append(statement)
+    if additions:
+        target_path.write_text(
+            text.replace(marker, marker + "".join(additions), 1), encoding="utf-8"
+        )
+
+
 def assemble_stage(args: argparse.Namespace) -> dict[str, Any]:
     stage = args.stage_root.expanduser()
     if stage.exists() or stage.is_symlink():
@@ -111,14 +169,14 @@ def assemble_stage(args: argparse.Namespace) -> dict[str, Any]:
     # AdditionalPluginDirectories.
     uproject_path = stage / "SpearSim/SpearSim.uproject"
     uproject = json.loads(uproject_path.read_text(encoding="utf-8"))
-    plugins = uproject.setdefault("Plugins", [])
-    if not any(
-        isinstance(item, dict) and item.get("Name") == "SpContent" for item in plugins
-    ):
-        plugins.append({"Name": "SpContent", "Enabled": True})
-        uproject_path.write_text(
-            json.dumps(uproject, indent=4) + "\n", encoding="utf-8"
-        )
+    enabled_plugins = ["SpContent", *args.enable_engine_plugin]
+    _enable_plugins(uproject, enabled_plugins)
+    uproject_path.write_text(
+        json.dumps(uproject, indent=4) + "\n", encoding="utf-8"
+    )
+    _add_global_definitions(
+        stage / "SpearSim/Source/SpearSim.Target.cs", args.global_definition
+    )
 
     copied_files = 0
     copied_bytes = 0
@@ -179,6 +237,8 @@ def assemble_stage(args: argparse.Namespace) -> dict[str, Any]:
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "qualification_claim": False,
         "research_only": True,
+        "enabled_engine_plugins": list(args.enable_engine_plugin),
+        "global_definitions": list(args.global_definition),
         "rights_scope": "owner_authorized_internal_research_not_redistribution",
         "status": "assembled_for_build",
     }

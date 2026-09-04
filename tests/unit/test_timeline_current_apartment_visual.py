@@ -13,6 +13,46 @@ REPOSITORY = Path(__file__).resolve().parents[2]
 REGISTRY = REPOSITORY / "examples/runtime/source_asset_runtime_profiles.json"
 
 
+def test_closure_selection_uses_the_resolved_timeline_map(tmp_path: Path) -> None:
+    debug_map = "/Game/SPEAR/Scenes/debug_0000/Maps/debug_0000"
+    packages = {
+        debug_map: "/tmp/debug.umap",
+        "/SpContent/Blueprints/BP_CameraSensor": "/tmp/camera.uasset",
+        "/Game/Test/BP_Dog": "/tmp/dog.uasset",
+        "/Game/Test/DogMesh": "/tmp/mesh.uasset",
+        "/Game/Test/Idle": "/tmp/idle.uasset",
+        "/Game/Test/Walk": "/tmp/walk.uasset",
+    }
+    report = tmp_path / "closure.json"
+    report.write_text(json.dumps({
+        "variants": {"debug": {
+            "mapping_complete": True,
+            "physical_mappings": [
+                {"package": package,
+                 "status": "unique_authorized_external_input",
+                 "source_file": source}
+                for package, source in packages.items()
+            ],
+        }},
+    }))
+    bindings = {
+        "source1": {
+            "blueprint_class_path": "/Game/Test/BP_Dog.BP_Dog_C",
+            "graph_mesh_package": "/Game/Test/DogMesh",
+            "idle_animation": "/Game/Test/Idle.Idle",
+            "walking_animation": "/Game/Test/Walk.Walk",
+        },
+    }
+    _, mappings = apartment_visual._closure_mappings(
+        closure_report_path=report, bindings=bindings, native_map=debug_map)
+    assert (debug_map, ".umap") in mappings
+    with pytest.raises(apartment_visual.CurrentApartmentVisualError,
+                       match="no complete variant"):
+        apartment_visual._closure_mappings(
+            closure_report_path=report, bindings=bindings,
+            native_map=apartment_visual.NATIVE_APARTMENT_MAP)
+
+
 def _profile_selection(
     tmp_path: Path, *, asset_authorization: str = "unverified"
 ) -> Path:
@@ -625,3 +665,44 @@ def test_capture_failure_writes_honest_partial_receipt_and_always_closes(
     assert "camera.cleanup" not in events
     assert "game.paused:False" in events
     assert events[-1] == "instance.close:True"
+
+
+def test_n_actor_author_and_loader_accept_four_contiguous_slots(
+        tmp_path: Path) -> None:
+    selection = _profile_selection(tmp_path)
+    value = json.loads(selection.read_text())
+    for source_index, template_index in ((3, 0), (4, 1)):
+        actor = json.loads(json.dumps(value["actors"][template_index]))
+        actor["source_slot_id"] = f"source{source_index}"
+        value["actors"].append(actor)
+    selection.write_text(json.dumps(value))
+    routes = {}
+    for source_index in range(1, 5):
+        routes[f"source{source_index}"] = [
+            [float(frame * source_index), float(source_index * 50), 0.0]
+            for frame in range(apartment_visual.FRAME_COUNT)
+        ]
+    timeline_path = tmp_path / "n_actor_timeline.json"
+    timeline = apartment_visual.author_current_n_actor_visual_timeline(
+        actor_selection_path=selection,
+        source_asset_registry_path=REGISTRY,
+        output_path=timeline_path,
+        camera_position_ue_cm=(0.0, -600.0, 240.0),
+        camera_yaw_deg=0.0,
+        routes_by_slot_ue_cm=routes,
+        native_map=apartment_visual.NATIVE_APARTMENT_MAP,
+        room_profile_id=apartment_visual.APARTMENT_ROOM_PROFILE_ID,
+    )
+    assert [actor["source_slot_id"] for actor in timeline["actors"]] == [
+        "source1", "source2", "source3", "source4"]
+    assert all(
+        [state["source_slot_id"] for state in frame["actor_states"]]
+        == ["source1", "source2", "source3", "source4"]
+        for frame in timeline["frames"])
+    _, bindings, authorization = apartment_visual._selection_bindings(
+        actor_selection_path=selection,
+        source_asset_registry_path=REGISTRY)
+    _, loaded = apartment_visual._load_timeline(
+        timeline_path=timeline_path, bindings=bindings,
+        asset_authorization=authorization)
+    assert len(loaded["actors"]) == 4

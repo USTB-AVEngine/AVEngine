@@ -60,6 +60,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--room-map", default=DEFAULT_ROOM_MAP)
     parser.add_argument("--camera-package", default=DEFAULT_CAMERA_PACKAGE)
     parser.add_argument(
+        "--extra-seed-package",
+        action="append",
+        default=[],
+        help=("runtime-loaded /Game or /SpContent package to seed explicitly; "
+              "repeatable"),
+    )
+    parser.add_argument(
         "--source-root",
         action="append",
         required=True,
@@ -99,6 +106,7 @@ def select_seed_records(
     asset_ids: list[str] | None,
     room_map: str,
     camera_package: str,
+    extra_seed_packages: list[str] | None = None,
 ) -> list[dict[str, str]]:
     assets = registry.get("assets")
     if not isinstance(assets, list):
@@ -113,6 +121,18 @@ def select_seed_records(
             "role": "camera_blueprint",
         },
     ]
+    for package in extra_seed_packages or []:
+        if not isinstance(package, str) or not package.startswith(CONTENT_ROOTS):
+            raise ClosureReportError(
+                f"extra seed is not a /Game or /SpContent package: {package!r}"
+            )
+        seeds.append(
+            {
+                "origin": "explicit runtime-loaded closure seed",
+                "package": package,
+                "role": "runtime_loaded_package",
+            }
+        )
     for asset_id in selected:
         asset = by_id.get(asset_id)
         if asset is None:
@@ -284,6 +304,7 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
         asset_ids=args.asset_id,
         room_map=args.room_map,
         camera_package=args.camera_package,
+        extra_seed_packages=args.extra_seed_package,
     )
     seed_packages = sorted({seed["package"] for seed in seeds})
     content, class_counts, non_content_count = reachable_closure(graph, seed_packages)

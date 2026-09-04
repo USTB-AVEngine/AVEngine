@@ -1,0 +1,504 @@
+#!/usr/bin/env python3
+"""Room-centric QA-v3 scene x profile scheduler.
+
+For every registered scene, attempt every requested question profile with an
+independent fresh output. A failed pair never suppresses another profile in
+the same room. The scheduler reads geometry/configuration evidence only; it
+does not read model scores, missing-modality probes, or downstream outcomes.
+
+Finite randomized search failure is reported as not_found_within_budget.
+scene_infeasible is reserved for an explicit exhaustive proof in a producer
+manifest and is never inferred from repeated failure alone.
+"""
+
+from __future__ import annotations
+
+import argparse
+import contextlib
+import io
+import json
+import re
+import sys
+from collections import Counter
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Callable
+
+HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE))
+
+from design_qa_v3_scene_batch import main as design_scene_batch_main  # noqa: E402
+from design_qa_v3_extended_profile import main as design_extended_main  # noqa: E402
+
+
+PAIR_STATUSES = (
+    "generated",
+    "not_found_within_budget",
+    "scene_infeasible",
+    "pixel_rejected",
+    "pipeline_error",
+    "profile_not_implemented",
+    "resource_unavailable",
+)
+
+
+@dataclass
+class SceneSpec:
+    source_path: Path
+    scene_id: str
+    config: dict | None
+    load_error: str | None = None
+
+
+def _read_json(path: Path):
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _write_json(path: Path, value) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(value, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def _safe_component(value: str) -> str:
+    safe = re.sub(r"[^A-Za-z0-9_.-]+", "_", value).strip("._")
+    if not safe:
+        raise ValueError(f"identifier has no safe path component: {value!r}")
+    return safe
+
+
+def _load_scene_specs(paths: list[Path]) -> list[SceneSpec]:
+    specs = []
+    seen_ids = set()
+    seen_safe = set()
+    for path in paths:
+        try:
+            value = _read_json(path)
+            if not isinstance(value, dict):
+                raise ValueError("scene config must be a JSON object")
+            scene_id = str(value.get("scene_id") or "").strip()
+            if not scene_id:
+                raise ValueError("scene config has no non-empty scene_id")
+            spec = SceneSpec(path.resolve(), scene_id, value)
+        except (OSError, ValueError, TypeError, json.JSONDecodeError) as exc:
+            scene_id = f"invalid_{path.stem}"
+            spec = SceneSpec(
+                path.resolve(), scene_id, None,
+                f"{type(exc).__name__}: {exc}")
+        safe = _safe_component(scene_id)
+        if scene_id in seen_ids or safe in seen_safe:
+            raise ValueError(f"duplicate or path-colliding scene id: {scene_id}")
+        seen_ids.add(scene_id)
+        seen_safe.add(safe)
+        specs.append(spec)
+    if not specs:
+        raise ValueError("at least one scene config is required")
+    return specs
+
+
+def _load_profile_catalog(path: Path) -> dict[str, dict]:
+    value = _read_json(path)
+    if not isinstance(value, list):
+        raise ValueError("profile catalog must be a JSON list")
+    catalog = {}
+    safe_ids = set()
+    for profile in value:
+        if not isinstance(profile, dict):
+            raise ValueError("every profile must be an object")
+        profile_id = str(profile.get("id") or "").strip()
+        if not profile_id or profile_id in catalog:
+            raise ValueError(
+                f"profile ids must be non-empty and unique: {profile_id!r}")
+        safe = _safe_component(profile_id)
+        if safe in safe_ids:
+            raise ValueError(f"profile ids collide as paths: {profile_id!r}")
+        safe_ids.add(safe)
+        catalog[profile_id] = profile
+    if not catalog:
+        raise ValueError("profile catalog is empty")
+    return catalog
+
+
+def _requested_profiles(values: list[str] | None,
+                        catalog: dict[str, dict]) -> list[str]:
+    requested = list(values or catalog)
+    if not requested:
+        raise ValueError("at least one profile must be requested")
+    if len(requested) != len(set(requested)):
+        raise ValueError(f"requested profiles are not unique: {requested}")
+    safe = [_safe_component(value) for value in requested]
+    if len(safe) != len(set(safe)):
+        raise ValueError("requested profile ids collide as paths")
+    return requested
+
+
+def _load_pixel_results(path: Path | None) -> dict[tuple[str, str], dict]:
+    if path is None:
+        return {}
+    value = _read_json(path)
+    rows = value.get("results") if isinstance(value, dict) else value
+    if not isinstance(rows, list):
+        raise ValueError("pixel results must be a list or {results: [...]}")
+    result = {}
+    for row in rows:
+        key = (str(row["scene_id"]), str(row["profile_id"]))
+        if key in result:
+            raise ValueError(f"duplicate pixel result for {key}")
+        attempted = int(row.get("attempted", 0))
+        passed = int(row.get("passed", 0))
+        rejected = int(row.get("rejected", 0))
+        if min(attempted, passed, rejected) < 0 or passed + rejected != attempted:
+            raise ValueError(f"pixel counts do not close for {key}")
+        result[key] = dict(row)
+    return result
+
+
+def classify_manifest(manifest: dict, pixel_result: dict | None = None) -> dict:
+    counts = manifest.get("counts") or {}
+    search = manifest.get("search") or {}
+    candidates = int(counts.get("geometry_candidates", 0))
+    requested = int(counts.get("cells_requested", 0))
+    rejected = int(counts.get("rejected", 0))
+    if (min(requested, candidates, rejected) < 0
+            or candidates + rejected != requested):
+        raise ValueError(
+            "batch counts do not close: "
+            f"requested={requested}, generated={candidates}, rejected={rejected}")
+    quota_shortfall = max(0, requested - candidates)
+    quota_status = ("empty" if candidates == 0 else
+                    "filled" if quota_shortfall == 0 else "partial")
+    record = {
+        "attempt_status": None,
+        "requested_cells": requested,
+        "quota_status": quota_status,
+        "quota_shortfall": quota_shortfall,
+        "geometry_candidates": candidates,
+        "generation_rejected": rejected,
+        "evaluated_combinations": int(
+            search.get("combinations_evaluated", 0)),
+        "search_budget_exhausted": int(search.get("budget_exhausted", 0)),
+        "rejection_reasons": dict(search.get("by_reason") or {}),
+        "evidence_class": manifest.get(
+            "evidence_class", "geometry_candidate"),
+        "qualification_claim": False,
+        "pixel": {"status": "not_run"},
+    }
+    proof = manifest.get("feasibility_proof") or {}
+    if candidates == 0:
+        resources = manifest.get("resource_status") or {}
+        if (resources.get("status") == "unavailable"
+                and resources.get("method") == "registry_preflight"):
+            record["attempt_status"] = "resource_unavailable"
+            record["resource_status"] = resources
+            record["evidence_class"] = "resource_unavailable"
+        elif (proof.get("status") == "infeasible"
+                and proof.get("method") == "exhaustive"):
+            record["attempt_status"] = "scene_infeasible"
+            record["infeasibility_proof"] = proof
+        else:
+            record["attempt_status"] = "not_found_within_budget"
+            record["boundary"] = (
+                "No candidate was found under this search budget; this is not "
+                "proof that the scene can never support the profile.")
+        return record
+
+    if pixel_result is not None:
+        pixel = {
+            "status": "complete" if pixel_result.get(
+                "complete_for_geometry_candidates") else "partial",
+            "attempted": int(pixel_result.get("attempted", 0)),
+            "passed": int(pixel_result.get("passed", 0)),
+            "rejected": int(pixel_result.get("rejected", 0)),
+            "rejection_reasons": dict(
+                pixel_result.get("rejection_reasons") or {}),
+        }
+        record["pixel"] = pixel
+        if pixel["status"] == "complete":
+            if pixel["attempted"] != candidates:
+                raise ValueError(
+                    "complete pixel result does not cover every geometry "
+                    "candidate")
+            if pixel["passed"] == 0:
+                record["attempt_status"] = "pixel_rejected"
+                record["evidence_class"] = "pixel_rejected"
+                return record
+            record["evidence_class"] = "pixel_qualified_candidate"
+    record["attempt_status"] = "generated"
+    return record
+
+
+def _invoke_pair(*, scene_config: Path, profile_config: Path,
+                 params: Path, batch_root: Path, cells: int, seed: str,
+                 snapshot_content: str) -> dict:
+    argv = [
+        "--scene-config", str(scene_config),
+        "--profiles", str(profile_config),
+        "--params", str(params),
+        "--out-root", str(batch_root),
+        "--cells", str(cells),
+        "--seed", seed,
+        "--snapshot-content", snapshot_content,
+    ]
+    profile_value = _read_json(profile_config)
+    use_extended = (
+        isinstance(profile_value, list)
+        and len(profile_value) == 1
+        and profile_value[0].get("execution_backend") == "extended")
+    code = (design_extended_main if use_extended else design_scene_batch_main)(argv)
+    if code != 0:
+        raise RuntimeError(f"design scene batch returned {code}")
+    manifest_path = batch_root / "batch_manifest.json"
+    if not manifest_path.is_file():
+        raise RuntimeError("design scene batch wrote no batch_manifest.json")
+    return _read_json(manifest_path)
+
+
+PairRunner = Callable[..., dict]
+
+
+def _attempt_record(scene_id: str, profile_id: str, pair_dir: Path,
+                    requested_cells: int) -> dict:
+    return {
+        "scene_id": scene_id,
+        "profile_id": profile_id,
+        "attempt_status": None,
+        "requested_cells": requested_cells,
+        "quota_status": "not_run",
+        "quota_shortfall": requested_cells,
+        "pair_output": str(pair_dir.resolve()),
+        "qualification_claim": False,
+    }
+
+
+def run_scheduler(*, scene_specs: list[SceneSpec],
+                  profile_catalog: dict[str, dict],
+                  requested_profiles: list[str], params_value: dict,
+                  params_source: Path, out_root: Path, cells: int, seed: str,
+                  snapshot_content: str,
+                  pixel_results: dict[tuple[str, str], dict],
+                  runner: PairRunner = _invoke_pair) -> dict:
+    inputs_root = out_root / "inputs"
+    rooms_root = out_root / "rooms"
+    inputs_root.mkdir(parents=True)
+    rooms_root.mkdir()
+    params_snapshot = inputs_root / "params.json"
+    _write_json(params_snapshot, params_value)
+
+    profile_snapshots = {}
+    for profile_id, profile in profile_catalog.items():
+        profile_path = inputs_root / "profiles" / (
+            _safe_component(profile_id) + ".json")
+        _write_json(profile_path, [profile])
+        profile_snapshots[profile_id] = profile_path
+
+    rows = []
+    for scene in scene_specs:
+        scene_safe = _safe_component(scene.scene_id)
+        scene_config = scene.config or {}
+        scene_asset_id = str(
+            scene_config.get("scene_asset_id") or scene.scene_id)
+        route_domain = scene_config.get("route_domain")
+        backend = scene_config.get("backend")
+        room_root = rooms_root / scene_safe
+        room_root.mkdir()
+        scene_snapshot = inputs_root / "scenes" / (scene_safe + ".json")
+        if scene.config is not None:
+            _write_json(scene_snapshot, scene.config)
+        room_rows = []
+        for profile_id in requested_profiles:
+            pair_dir = room_root / "profiles" / _safe_component(profile_id)
+            pair_dir.mkdir(parents=True)
+            record = _attempt_record(
+                scene.scene_id, profile_id, pair_dir, cells)
+            record.update({
+                "scene_asset_id": scene_asset_id,
+                "route_domain": route_domain,
+                "backend": backend,
+            })
+            if profile_id not in profile_catalog:
+                record.update({
+                    "attempt_status": "profile_not_implemented",
+                    "detail": (
+                        "Requested profile is absent from the implemented "
+                        "profile catalog."),
+                    "evidence_class": "not_run",
+                })
+            elif scene.load_error is not None:
+                record.update({
+                    "attempt_status": "pipeline_error",
+                    "detail": scene.load_error,
+                    "evidence_class": "not_run",
+                })
+            else:
+                stdout = io.StringIO()
+                stderr = io.StringIO()
+                try:
+                    with contextlib.redirect_stdout(stdout):
+                        with contextlib.redirect_stderr(stderr):
+                            batch_manifest = runner(
+                                scene_config=scene_snapshot,
+                                profile_config=profile_snapshots[profile_id],
+                                params=params_snapshot,
+                                batch_root=pair_dir / "batch",
+                                cells=cells,
+                                seed=(
+                                    f"{seed}|{scene.scene_id}|{profile_id}"),
+                                snapshot_content=snapshot_content)
+                    record.update(classify_manifest(
+                        batch_manifest,
+                        pixel_results.get((scene.scene_id, profile_id))))
+                    record["batch_manifest"] = str(
+                        (pair_dir / "batch" / "batch_manifest.json").resolve())
+                except Exception as exc:
+                    record.update({
+                        "attempt_status": "pipeline_error",
+                        "detail": f"{type(exc).__name__}: {exc}",
+                        "evidence_class": "not_run",
+                    })
+                if stdout.getvalue():
+                    (pair_dir / "runner_stdout.txt").write_text(
+                        stdout.getvalue(), encoding="utf-8")
+                if stderr.getvalue():
+                    (pair_dir / "runner_stderr.txt").write_text(
+                        stderr.getvalue(), encoding="utf-8")
+            if record["attempt_status"] not in PAIR_STATUSES:
+                raise AssertionError(f"unknown pair status: {record}")
+            _write_json(pair_dir / "attempt_manifest.json", record)
+            rows.append(record)
+            room_rows.append(record)
+
+        room_manifest = {
+            "schema": "qa_v3_room_profile_attempt_manifest_v1",
+            "status": "research_dev",
+            "qualification_claim": False,
+            "scene_id": scene.scene_id,
+            "scene_config_source": str(scene.source_path),
+            "requested_profiles": requested_profiles,
+            "scene_asset_id": scene_asset_id,
+            "route_domain": route_domain,
+            "backend": backend,
+            "attempted_all_requested_profiles": (
+                len(room_rows) == len(requested_profiles)),
+            "counts_by_status": dict(Counter(
+                row["attempt_status"] for row in room_rows)),
+            "counts_by_quota_status": dict(Counter(
+                row["quota_status"] for row in room_rows)),
+            "attempts": room_rows,
+        }
+        _write_json(room_root / "room_attempt_manifest.json", room_manifest)
+
+    status_counts = Counter(row["attempt_status"] for row in rows)
+    matrix = {
+        "schema": "qa_v3_scene_profile_matrix_v1",
+        "status": (
+            "completed_with_pipeline_errors"
+            if status_counts["pipeline_error"] else "completed"),
+        "qualification_claim": False,
+        "boundary": (
+            "Room-centric research/dev feasibility attempts. generated may "
+            "still mean geometry_candidate when pixel evidence is not supplied; "
+            "this matrix is not question admission or modality certification."),
+        "selection_boundary": (
+            "Every requested profile is attempted independently per scene. "
+            "No model score, modality probe, or downstream question outcome is "
+            "read or used to switch profiles."),
+        "inputs": {
+            "scene_configs": [str(spec.source_path) for spec in scene_specs],
+            "profile_catalog": {
+                profile_id: str(profile_snapshots[profile_id].resolve())
+                for profile_id in profile_catalog},
+            "params_source": str(params_source.resolve()),
+            "params_snapshot": str(params_snapshot.resolve()),
+            "cells_per_scene_profile": cells,
+            "seed": seed,
+        },
+        "scene_count": len(scene_specs),
+        "requested_profiles": requested_profiles,
+        "scenes": [
+            {
+                "scene_id": scene.scene_id,
+                "scene_asset_id": str(
+                    (scene.config or {}).get("scene_asset_id") or scene.scene_id),
+                "route_domain": (scene.config or {}).get("route_domain"),
+                "backend": (scene.config or {}).get("backend"),
+            } for scene in scene_specs],
+        "expected_matrix_cells": (
+            len(scene_specs) * len(requested_profiles)),
+        "observed_matrix_cells": len(rows),
+        "attempted_every_requested_profile_per_scene": (
+            len(rows) == len(scene_specs) * len(requested_profiles)),
+        "counts_by_status": dict(status_counts),
+        "counts_by_quota_status": dict(Counter(
+            row["quota_status"] for row in rows)),
+        "per_scene": {
+            scene.scene_id: dict(Counter(
+                row["attempt_status"] for row in rows
+                if row["scene_id"] == scene.scene_id))
+            for scene in scene_specs},
+        "per_profile": {
+            profile_id: dict(Counter(
+                row["attempt_status"] for row in rows
+                if row["profile_id"] == profile_id))
+            for profile_id in requested_profiles},
+        "matrix": rows,
+    }
+    _write_json(out_root / "scene_profile_matrix.json", matrix)
+    return matrix
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--scene-config", action="append", required=True,
+                        type=Path)
+    parser.add_argument("--profiles", required=True, type=Path)
+    parser.add_argument("--requested-profile", action="append")
+    parser.add_argument("--params", required=True, type=Path)
+    parser.add_argument("--cells-per-pair", type=int, default=6)
+    parser.add_argument("--seed", required=True)
+    parser.add_argument("--pixel-results", type=Path)
+    parser.add_argument("--out-root", required=True, type=Path)
+    parser.add_argument("--snapshot-content", default=(
+        "/data/avengine_external/ue-assets/"
+        "actor_content_registry_v9_20260823T033709Z/cpp/unreal_projects/"
+        "SpearSim/Content"))
+    args = parser.parse_args(argv)
+
+    if args.out_root.exists():
+        print(f"refusing to overwrite: {args.out_root}", file=sys.stderr)
+        return 2
+    if args.cells_per_pair <= 0:
+        parser.error("--cells-per-pair must be positive")
+
+    profile_catalog = _load_profile_catalog(args.profiles)
+    requested = _requested_profiles(
+        args.requested_profile, profile_catalog)
+    params_value = _read_json(args.params)
+    if not isinstance(params_value, dict):
+        parser.error("--params must contain a JSON object")
+    scene_specs = _load_scene_specs(args.scene_config)
+    pixel_results = _load_pixel_results(args.pixel_results)
+
+    args.out_root.mkdir(parents=True)
+    matrix = run_scheduler(
+        scene_specs=scene_specs,
+        profile_catalog=profile_catalog,
+        requested_profiles=requested,
+        params_value=params_value,
+        params_source=args.params,
+        out_root=args.out_root,
+        cells=args.cells_per_pair,
+        seed=args.seed,
+        snapshot_content=args.snapshot_content,
+        pixel_results=pixel_results)
+    print(json.dumps({
+        "out": str(args.out_root),
+        "status": matrix["status"],
+        "scene_count": matrix["scene_count"],
+        "matrix_cells": matrix["observed_matrix_cells"],
+        "counts_by_status": matrix["counts_by_status"],
+    }, ensure_ascii=False))
+    return 1 if matrix["counts_by_status"].get("pipeline_error") else 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

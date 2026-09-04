@@ -59,7 +59,26 @@ def _write_json(path: Path, value: Mapping[str, Any]) -> None:
     )
 
 
-def _spawn_multimodal_camera(game: Any) -> tuple[Any, dict[str, Any]]:
+def _spawn_multimodal_camera(
+    game: Any,
+    *,
+    hfov_deg: float = 105.0,
+    width: int | None = None,
+    height: int | None = None,
+) -> tuple[Any, dict[str, Any]]:
+    """Spawn the rgb / object-id / depth capture camera.
+
+    The horizontal FOV and render-target size default to the production
+    camera contract (105 degrees at RUNNER.WIDTH x RUNNER.HEIGHT); callers
+    that render other views (square 90-degree cube faces for the camera
+    clearance table) pass them explicitly.  The FOV is read back after
+    being set so a silently ignored value cannot masquerade as the contract.
+    """
+    hfov_deg = float(hfov_deg)
+    _require(0.0 < hfov_deg < 180.0, f"implausible camera HFOV {hfov_deg}")
+    width = RUNNER.WIDTH if width is None else int(width)
+    height = RUNNER.HEIGHT if height is None else int(height)
+    _require(width > 0 and height > 0, "render target size must be positive")
     game.segmentation_service.initialize()
     camera_class = game.unreal_service.load_class(
         uclass="AActor", name=RUNNER.CAMERA_BLUEPRINT
@@ -87,15 +106,15 @@ def _spawn_multimodal_camera(game: Any) -> tuple[Any, dict[str, Any]]:
         camera_sensor=camera,
         camera_components=list(components.values()),
         viewport_desc=viewport,
-        widths=RUNNER.WIDTH,
-        heights=RUNNER.HEIGHT,
+        widths=width,
+        heights=height,
     )
     for component in components.values():
         component.Initialize()
         component.initialize_sp_funcs()
-        component.set_property_value(property_name="FOVAngle", property_value=105.0)
+        component.set_property_value(property_name="FOVAngle", property_value=hfov_deg)
         _require(
-            abs(float(component.get_property_value(property_name="FOVAngle")) - 105.0)
+            abs(float(component.get_property_value(property_name="FOVAngle")) - hfov_deg)
             <= 1.0e-4,
             "multimodal camera FOV readback drift",
         )

@@ -481,3 +481,44 @@ def test_formal_admission_requires_a_matching_immutable_exact_closure():
         "immutable relative non-tmp paths" in error
         for error in validate_source_asset_runtime_registry(formal)
     )
+
+
+def test_registry_validation_is_remembered_per_content(monkeypatch):
+    """Every lookup re-validated the whole registry: 28 full passes over the same
+    14-asset document in one two-cell design, 1.75 s of a 3.05 s run.  The result
+    is now remembered per content hash, which took that run to 1.23 s."""
+    from avengine import runtime_profiles as RP
+
+    registry = load_default_source_asset_runtime_registry()
+    passes = {"n": 0}
+    original = RP._validate_source_asset_runtime_registry_uncached
+
+    def counted(value):
+        passes["n"] += 1
+        return original(value)
+
+    monkeypatch.setattr(RP, "_validate_source_asset_runtime_registry_uncached", counted)
+    RP._VALIDATED_SOURCE_REGISTRIES.clear()
+
+    first = RP.validate_source_asset_runtime_registry(registry)
+    for _ in range(5):
+        assert RP.validate_source_asset_runtime_registry(registry) == first
+    assert passes["n"] == 1, "the same document must be validated once"
+
+    # the caller may mutate its own copy of the errors without poisoning anyone
+    again = RP.validate_source_asset_runtime_registry(registry)
+    again.append("caller scribble")
+    assert "caller scribble" not in RP.validate_source_asset_runtime_registry(registry)
+
+    # a changed document is a different key, so it is validated again
+    changed = deepcopy(registry)
+    changed["assets"] = list(changed["assets"])[:-1]
+    RP.validate_source_asset_runtime_registry(changed)
+    assert passes["n"] == 2
+
+    # and a broken document still reports its errors through the cache
+    broken = deepcopy(registry)
+    broken["assets"][0].pop("emitter_anchors", None)
+    errors = RP.validate_source_asset_runtime_registry(broken)
+    assert errors and RP.validate_source_asset_runtime_registry(broken) == errors
+    assert passes["n"] == 3
