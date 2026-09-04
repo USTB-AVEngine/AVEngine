@@ -34,6 +34,33 @@ class M6XVisualProfileError(ValueError):
     """A review visual profile or its runtime realization is invalid."""
 
 
+def resolve_review_capture_rgb_path(capture_directory: str | Path) -> Path:
+    """Resolve the producer's declared RGB artifact, including legacy layouts."""
+    directory = Path(capture_directory).resolve()
+    receipt_path = directory / "research_receipt.json"
+    if receipt_path.is_file():
+        receipt = load_json(receipt_path)
+        if not isinstance(receipt, Mapping):
+            raise M6XVisualProfileError("capture receipt must be an object")
+        artifacts = receipt.get("artifacts", {})
+        if not isinstance(artifacts, Mapping):
+            raise M6XVisualProfileError("capture artifacts must be an object")
+        declared = artifacts.get("rgb")
+        if declared is not None:
+            if not isinstance(declared, str) or not declared:
+                raise M6XVisualProfileError("declared RGB artifact must be a file path")
+            path = Path(declared).expanduser()
+            path = path if path.is_absolute() else directory / path
+            if not path.is_file():
+                raise M6XVisualProfileError(f"declared RGB artifact is missing: {path}")
+            return path.resolve()
+    for relative in ("arrays/rgb.npy", "rgb.npy"):
+        path = directory / relative
+        if path.is_file():
+            return path.resolve()
+    raise M6XVisualProfileError(f"capture has no declared or legacy RGB artifact: {directory}")
+
+
 def resolve_review_capture_channel_order(
     capture_directory: str | Path, override: str | None = None,
 ) -> str:

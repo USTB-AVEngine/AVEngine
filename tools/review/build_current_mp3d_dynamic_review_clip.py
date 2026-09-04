@@ -25,6 +25,7 @@ from avengine.rooms.visual_profile import (  # noqa: E402
     encode_profiled_h264_base_video,
     mux_profiled_binaural_wav,
     resolve_review_capture_channel_order,
+    resolve_review_capture_rgb_path,
 )
 
 
@@ -132,8 +133,11 @@ def main() -> int:
         parser.error("output must end in .mp4")
     output.parent.mkdir(parents=True, exist_ok=True)
 
-    rgb_path = args.visual_capture_dir.resolve() / "arrays/rgb.npy"
-    rgb = np.load(rgb_path, allow_pickle=False)
+    try:
+        rgb_path = resolve_review_capture_rgb_path(args.visual_capture_dir)
+        rgb = np.load(rgb_path, allow_pickle=False, mmap_mode="r")
+    except (OSError, ValueError) as exc:
+        parser.error(str(exc))
     if rgb.ndim != 4 or rgb.shape[3] != 3 or rgb.shape[0] < 1:
         parser.error(
             f"rgb array must be [positive frames, height, width, 3]: {rgb.shape}")

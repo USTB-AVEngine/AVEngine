@@ -337,3 +337,25 @@ def test_legacy_color_order_can_be_explicit_without_rewriting_capture(tmp_path):
     from avengine.rooms.visual_profile import resolve_review_capture_channel_order
     assert resolve_review_capture_channel_order(tmp_path, "bgr") == "bgr"
     assert resolve_review_capture_channel_order(tmp_path) == "rgb"
+
+
+
+def test_review_uses_declared_rgb_artifact_instead_of_assuming_one_layout(tmp_path):
+    import json
+    from avengine.rooms.visual_profile import resolve_review_capture_rgb_path
+    data = tmp_path / "producer_frames.npy"
+    data.write_bytes(b"fixture")
+    (tmp_path / "research_receipt.json").write_text(json.dumps({
+        "artifacts": {"rgb": data.name}}))
+    assert resolve_review_capture_rgb_path(tmp_path) == data
+    data.unlink()
+    (tmp_path / "rgb.npy").write_bytes(b"stale legacy file")
+    with pytest.raises(ValueError, match="declared RGB artifact is missing"):
+        resolve_review_capture_rgb_path(tmp_path)
+
+
+def test_review_accepts_historical_root_rgb_layout(tmp_path):
+    from avengine.rooms.visual_profile import resolve_review_capture_rgb_path
+    data = tmp_path / "rgb.npy"
+    data.write_bytes(b"fixture")
+    assert resolve_review_capture_rgb_path(tmp_path) == data
