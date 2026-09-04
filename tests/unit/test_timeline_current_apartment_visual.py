@@ -1037,6 +1037,78 @@ def test_n_actor_author_uses_explicit_150_frame_clock(
     assert len(loaded["frames"]) == frame_count
 
 
+@pytest.mark.parametrize("frame_count", [75, 90, 150])
+def test_n_actor_clock_supports_rigid_animal_and_human(
+    tmp_path: Path, frame_count: int
+) -> None:
+    """All selected actor classes share the same configurable render clock."""
+
+    original_selection = json.loads(
+        _profile_selection(tmp_path).read_text(encoding="utf-8")
+    )
+    registry_path, selection_path = _static_registry_and_selection(tmp_path)
+    selection = json.loads(selection_path.read_text(encoding="utf-8"))
+    human = json.loads(json.dumps(original_selection["actors"][0]))
+    human["source_slot_id"] = "source3"
+    selection["actors"].append(human)
+    selection_path.write_text(json.dumps(selection), encoding="utf-8")
+
+    routes = {
+        f"source{source_index}": [
+            [float(frame * source_index), float(source_index * 100), 0.0]
+            for frame in range(frame_count)
+        ]
+        for source_index in range(1, 4)
+    }
+    timeline_path = tmp_path / f"timeline_{frame_count}.json"
+    timeline = apartment_visual.author_current_n_actor_visual_timeline(
+        actor_selection_path=selection_path,
+        source_asset_registry_path=registry_path,
+        output_path=timeline_path,
+        camera_position_ue_cm=(0.0, -600.0, 240.0),
+        camera_yaw_deg=0.0,
+        routes_by_slot_ue_cm=routes,
+        native_map=apartment_visual.NATIVE_APARTMENT_MAP,
+        room_profile_id=apartment_visual.APARTMENT_ROOM_PROFILE_ID,
+        frame_count=frame_count,
+        frame_rate_hz=15,
+    )
+
+    registry = json.loads(registry_path.read_text(encoding="utf-8"))
+    records = {
+        (record["asset_id"], record["revision"]): record
+        for record in registry["assets"]
+    }
+    classes = {
+        records[(actor["asset_id"], actor["revision"])]["entity_class"]
+        for actor in selection["actors"]
+    }
+    assert classes == {
+        "rigid_object",
+        "articulated_animal",
+        "articulated_human",
+    }
+    assert timeline["render"]["frame_count"] == frame_count
+    _, bindings, authorization = apartment_visual._selection_bindings(
+        actor_selection_path=selection_path,
+        source_asset_registry_path=registry_path,
+    )
+    assert timeline["render"]["frame_rate_hz"] == 15
+    assert timeline["render"]["ticks_per_frame"] == 3200
+    assert len(timeline["frames"]) == frame_count
+    assert timeline["frames"][-1]["pts_ticks"] == (frame_count - 1) * 3200
+    assert all(
+        len(frame["actor_states"]) == 3 for frame in timeline["frames"]
+    )
+
+    _, loaded = apartment_visual._load_timeline(
+        timeline_path=timeline_path,
+        bindings=bindings,
+        asset_authorization=authorization,
+    )
+    assert len(loaded["frames"]) == frame_count
+
+
 @pytest.mark.parametrize(
     ("field", "value", "match"),
     [
@@ -1070,8 +1142,10 @@ def test_loader_validates_the_declared_render_clock(
         )
 
 
-def test_custom_clock_root_readback_summary_uses_all_150_frames() -> None:
-    frame_count = 150
+@pytest.mark.parametrize("frame_count", [75, 90, 150])
+def test_custom_clock_root_readback_summary_uses_all_frames(
+    frame_count: int,
+) -> None:
     expected_frames = []
     actor_readbacks = {"source1_actor": [], "source2_actor": []}
     camera_readbacks = []

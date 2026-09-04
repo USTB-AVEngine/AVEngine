@@ -58,9 +58,11 @@ def test_ue_point_transform_matches_the_camera_authority() -> None:
     )
 
 
-def _synthetic_capture(tmp_path: Path, *, move_camera: bool = False) -> Path:
+def _synthetic_capture(
+    tmp_path: Path, *, frame_count: int = 75, move_camera: bool = False
+) -> Path:
     frames = []
-    for index in range(75):
+    for index in range(frame_count):
         camera = {
             "location_cm": [-70.0, 65.0 + (index if move_camera else 0), 147.1],
             "rotation_deg": [0.0, 0.0, -145.0],
@@ -128,11 +130,12 @@ def test_observed_emitter_retains_horizontal_offset_and_height(tmp_path):
             emitter_heights_m={"source2": 0.45},
         )
 
-def test_150_frame_capture_clock_drives_apartment_audio_trajectories(
-    tmp_path: Path,
+@pytest.mark.parametrize("frame_count", [75, 90, 150])
+def test_capture_clock_drives_apartment_audio_trajectories(
+    tmp_path: Path, frame_count: int
 ) -> None:
     frames = []
-    for index in range(150):
+    for index in range(frame_count):
         frames.append({
             "frame_index": index,
             "pts_ticks": index * 3200,
@@ -151,7 +154,7 @@ def test_150_frame_capture_clock_drives_apartment_audio_trajectories(
     (tmp_path / "research_receipt.json").write_text(
         json.dumps({
             "capture": {
-                "frame_count": 150,
+                "frame_count": frame_count,
                 "frame_rate_hz": 15,
                 "ticks_per_frame": 3200,
                 "time_base_hz": 48000,
@@ -160,9 +163,9 @@ def test_150_frame_capture_clock_drives_apartment_audio_trajectories(
         encoding="utf-8",
     )
     trajectories = load_ue_anchor_trajectories(tmp_path)
-    assert len(trajectories["m6x_human0_mouth"]) == 150
+    assert len(trajectories["m6x_human0_mouth"]) == frame_count
     assert trajectories["m6x_dog0_muzzle"][-1] == pytest.approx(
-        [1.49, 0.45, 1.0]
+        [(frame_count - 1) / 100.0, 0.45, 1.0]
     )
     world, yaw = captured_static_camera_world_m(tmp_path)
     assert world == pytest.approx([-0.7, 1.471, 0.65])

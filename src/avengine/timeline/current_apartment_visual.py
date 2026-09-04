@@ -1,9 +1,10 @@
 """Standalone current Apartment RGB research author and capture path.
 
 This is intentionally separate from the retained M6/M7 Apartment writers.
-It owns only an external A2 actor selection, a freely authored 75-frame
-visual timeline, and native SPEAR RGB research capture. It does not read a
-formal source bundle, qualification, dry audio, RLR, or a historical reader.
+It owns only an external A2 actor selection, a configurable-frame-count
+visual timeline (75 frames at 15 Hz by default), and native SPEAR RGB research
+capture. It does not read a formal source bundle, qualification, dry audio,
+RLR, or a historical reader.
 """
 
 from __future__ import annotations
@@ -38,7 +39,6 @@ from avengine.optional_backends.spear_apartment import (
     ROTATION_TOLERANCE_DEGREES,
     animation_position_seconds,
     apply_ue_component_frame_delta,
-    summarize_root_readbacks,
 )
 from avengine.runtime_profiles import (
     build_asset_emitter_binding,
@@ -1685,12 +1685,6 @@ def _summarize_root_readbacks_for_clock(
     frame_count: int,
 ) -> dict[str, Any]:
     """Validate root readback counts against the timeline's render clock."""
-    if frame_count == FRAME_COUNT:
-        return summarize_root_readbacks(
-            expected_frames=expected_frames,
-            actor_readbacks=actor_readbacks,
-            camera_readbacks=camera_readbacks,
-        )
     if len(expected_frames) != frame_count or len(camera_readbacks) != frame_count:
         raise CurrentApartmentVisualError(
             "root readback requires the timeline frame_count for every frame"

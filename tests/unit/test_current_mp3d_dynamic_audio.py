@@ -3,11 +3,13 @@ from __future__ import annotations
 from copy import deepcopy
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
 
 import avengine.cli as cli
+import avengine.timeline.current_mp3d_dynamic_audio as dynamic_audio
 from avengine.timeline.current_mp3d_dynamic_audio import (
     CurrentMP3DDynamicAudioError,
     _program_clock_binding,
@@ -25,6 +27,7 @@ from avengine.registry.sources import (
     load_sound_asset_registry,
     load_source_endpoint_registry,
 )
+from avengine.spatial_audio.audio import read_float32_wav
 
 REPOSITORY = Path(__file__).resolve().parents[2]
 PROGRAM_PATH = (
@@ -153,22 +156,26 @@ def _write_dynamic_capture(
     )
 
 
-def test_150_frame_capture_clock_drives_trajectory_and_sample_duration(
-    tmp_path: Path,
+@pytest.mark.parametrize(
+    ("frame_count", "sample_count"),
+    [(75, 80000), (90, 96000), (150, 160000)],
+)
+def test_capture_clock_drives_trajectory_and_sample_duration(
+    tmp_path: Path, frame_count: int, sample_count: int
 ) -> None:
-    _write_dynamic_capture(tmp_path, frame_count=150)
+    _write_dynamic_capture(tmp_path, frame_count=frame_count)
     clock = load_captured_render_clock(tmp_path)
     assert clock == {
-        "frame_count": 150,
+        "frame_count": frame_count,
         "frame_rate_hz": 15,
         "ticks_per_frame": 3200,
         "time_base_hz": 48000,
         "sample_rate_hz": 16000,
-        "sample_count": 160000,
+        "sample_count": sample_count,
     }
     trajectories = load_captured_source_paths(tmp_path, ("a", "b"))
-    assert len(trajectories["a"]) == 150
-    assert trajectories["b"][-1] == [149.0, 0.5, 1.0]
+    assert len(trajectories["a"]) == frame_count
+    assert trajectories["b"][-1] == [float(frame_count - 1), 0.5, 1.0]
 
 
 def test_capture_clock_rejects_a_pts_mismatch(tmp_path: Path) -> None:
@@ -272,6 +279,158 @@ def test_audio_program_clock_binding_accepts_a_new_explicit_duration() -> None:
     assert validate_audio_program(bound) == []
 
 
+@pytest.mark.parametrize(
+    ("frame_count", "sample_count"),
+    [(75, 80000), (90, 96000), (150, 160000)],
+)
+def test_dynamic_runtime_serializes_exact_clock_length_waves(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    frame_count: int,
+    sample_count: int,
+) -> None:
+    """Exercise the runtime's clock and real WAVE writer with tiny downstream fakes."""
+
+    program = deepcopy(json.loads(PROGRAM_PATH.read_text(encoding="utf-8")))
+    program["timeline"].update({
+        "frame_count": frame_count,
+        "sample_count": sample_count,
+    })
+    program = bind_audio_program_hash(program)
+    program_path = tmp_path / "program.json"
+    program_path.write_text(json.dumps(program), encoding="utf-8")
+    simulation_path = tmp_path / "simulation.json"
+    package_path = tmp_path / "package.json"
+    hrtf_path = tmp_path / "hrtf.sofa"
+    simulation_path.write_text("{}", encoding="utf-8")
+    package_path.write_text("{}", encoding="utf-8")
+    hrtf_path.write_bytes(b"tiny test hrtf")
+
+    trajectories = {
+        "beagle_0_muzzle": [
+            [float(index), 0.0, 0.0] for index in range(frame_count)
+        ],
+        "beagle_1_muzzle": [
+            [float(index), 0.0, 1.0] for index in range(frame_count)
+        ],
+    }
+    monkeypatch.setattr(
+        dynamic_audio,
+        "_load_simulation_request",
+        lambda _path: (None, None),
+    )
+    monkeypatch.setattr(
+        dynamic_audio,
+        "load_compiled_acoustic_scene",
+        lambda *_args, **_kwargs: object(),
+    )
+    monkeypatch.setattr(
+        dynamic_audio,
+        "render_research_review_binaural_rir_sequence",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            keyframe_samples=(0,), trajectory_sha256="test-trajectory"
+        ),
+    )
+    monkeypatch.setattr(
+        dynamic_audio,
+        "_asset_bindings",
+        lambda *_args, **_kwargs: {},
+    )
+
+    def fake_assembly(materialized_program, _variant_id, **_kwargs):
+        return SimpleNamespace(
+            materialized_program=materialized_program,
+            dry_audio=SimpleNamespace(
+                buses={
+                    source_id: np.zeros(sample_count, dtype=np.float64)
+                    for source_id in trajectories
+                },
+                placement_receipts=(),
+            ),
+        )
+
+    monkeypatch.setattr(
+        dynamic_audio,
+        "assemble_audio_program_dry_buses",
+        fake_assembly,
+    )
+
+    def fake_binaural_audio(dry_buses, _sequence, *, grid):
+        expected = int(grid.episode_sample_count)
+        stems = {
+            source_id: SimpleNamespace(
+                episode=np.zeros((2, expected), dtype=np.float32)
+            )
+            for source_id in dry_buses
+        }
+        return stems, np.zeros((2, expected), dtype=np.float32)
+
+    monkeypatch.setattr(
+        dynamic_audio,
+        "render_research_review_binaural_audio",
+        fake_binaural_audio,
+    )
+    output = tmp_path / "rendered"
+    receipt = render_dynamic_research_audio(
+        source_trajectories_m=trajectories,
+        listener_position_m=[0.0, 0.0, 0.0],
+        listener_orientation_wxyz=[1.0, 0.0, 0.0, 0.0],
+        simulation_request_path=simulation_path,
+        package_manifest_path=package_path,
+        audio_program_path=program_path,
+        source_endpoint_registry_path=(
+            REPOSITORY / "examples/registry/registries/source_endpoints_v1.json"
+        ),
+        sound_asset_registry_path=(
+            REPOSITORY / "examples/registry/registries/sound_assets_v1.json"
+        ),
+        external_sound_asset_paths={},
+        hrtf_file_path=hrtf_path,
+        output_path=output,
+        position_authority="test",
+        listener_authority="test",
+    )
+
+    assert receipt["audio"]["sample_count"] == sample_count
+    wave_paths = sorted(output.rglob("*.wav"))
+    assert len(wave_paths) == 5
+    for wave_path in wave_paths:
+        wave = read_float32_wav(wave_path)
+        assert wave.sample_rate_hz == 16000
+        assert wave.frame_count == sample_count
+
+
+def test_dynamic_runtime_rejects_cropped_complete_utterance() -> None:
+    assembly = SimpleNamespace(
+        dry_audio=SimpleNamespace(
+            placement_receipts=(
+                {
+                    "event_id": "long-speech",
+                    "fit": {"cropped_tail_sample_count": 3},
+                },
+            )
+        )
+    )
+    with pytest.raises(
+        CurrentMP3DDynamicAudioError,
+        match="long-speech.*refusing to crop",
+    ):
+        dynamic_audio._assert_no_cropped_dry_audio(assembly)
+
+
+def test_dynamic_runtime_rejects_wrong_episode_sample_shape() -> None:
+    with pytest.raises(
+        CurrentMP3DDynamicAudioError,
+        match="requires exactly 96000",
+    ):
+        dynamic_audio._require_exact_episode_samples(
+            np.zeros(95999),
+            expected=96000,
+            owner="dry bus",
+            channel_major=False,
+        )
+
+
 def test_cli_propagates_explicit_dynamic_clock_options() -> None:
     parser = cli.build_parser()
     args = parser.parse_args([
@@ -316,3 +475,15 @@ def test_cli_propagates_explicit_dynamic_clock_options() -> None:
     assert author.frame_count == 150
     assert author.frame_rate_hz == 15.0
     assert author.ticks_per_frame == 3200
+
+
+def test_explicit_excerpt_from_long_asset_is_not_an_implicit_tail_crop():
+    from types import SimpleNamespace
+    from avengine.timeline.current_mp3d_dynamic_audio import _assert_no_cropped_dry_audio
+    # The selected 0.3 second excerpt is complete even though its parent asset is 5 seconds.
+    assembly = SimpleNamespace(dry_audio=SimpleNamespace(placement_receipts=[{
+        "event_id": "ordinary_excerpt", "dry_asset": {"frame_count": 80000},
+        "dry_clip_source_native_interval": {"start_sample": 3200,
+            "end_sample_exclusive": 8000, "sample_count": 4800},
+        "fit": {"cropped_tail_sample_count": 0, "copied_sample_count": 4800}}]))
+    _assert_no_cropped_dry_audio(assembly)

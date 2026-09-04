@@ -426,6 +426,71 @@ def _program_for_visual_clock(
     return bind_audio_program_hash(result)
 
 
+def _assert_no_cropped_dry_audio(assembly: Any) -> None:
+    """Preserve the explicitly selected source window during placement.
+
+    Source start/end selection is applied before these fit receipts, so an
+    intentional excerpt from a longer ordinary sound remains supported. This
+    rejects an additional implicit crop of that selected window, not the wet
+    reverberation tail. Speech producers select the whole utterance as their
+    source window; the same rule then preserves its complete content.
+    """
+
+    dry_audio = getattr(assembly, "dry_audio", None)
+    receipts = getattr(dry_audio, "placement_receipts", ())
+    for receipt in receipts:
+        if not isinstance(receipt, Mapping):
+            raise CurrentMP3DDynamicAudioError(
+                "dry-audio placement receipt must be an object"
+            )
+        fit = receipt.get("fit")
+        if fit is None:
+            continue
+        if not isinstance(fit, Mapping):
+            raise CurrentMP3DDynamicAudioError(
+                "dry-audio placement fit must be an object"
+            )
+        cropped = fit.get("cropped_tail_sample_count", 0)
+        if isinstance(cropped, bool) or not isinstance(cropped, (int, np.integer)):
+            raise CurrentMP3DDynamicAudioError(
+                "dry-audio cropped_tail_sample_count must be an integer"
+            )
+        if int(cropped) < 0:
+            raise CurrentMP3DDynamicAudioError(
+                "dry-audio cropped_tail_sample_count cannot be negative"
+            )
+        if int(cropped) > 0:
+            event_id = receipt.get("event_id", "<unknown>")
+            raise CurrentMP3DDynamicAudioError(
+                "selected source window for event "
+                f"{event_id!r} exceeds its AudioProgram event window by "
+                f"{int(cropped)} samples; refusing to crop the utterance"
+            )
+
+
+def _require_exact_episode_samples(
+    samples: Any,
+    *,
+    expected: int,
+    owner: str,
+    channel_major: bool,
+) -> np.ndarray:
+    """Require an audio array to retain the visual clock's sample boundary."""
+
+    array = np.asarray(samples)
+    expected_ndim = 2 if channel_major else 1
+    if array.ndim != expected_ndim:
+        layout = "[channels, samples]" if channel_major else "[samples]"
+        raise CurrentMP3DDynamicAudioError(
+            f"{owner} must have channel-major {layout} audio samples"
+        )
+    actual = int(array.shape[1] if channel_major else array.shape[0])
+    if actual != int(expected):
+        raise CurrentMP3DDynamicAudioError(
+            f"{owner} has {actual} samples; the visual AudioProgram clock "
+            f"requires exactly {int(expected)}; refusing to retime or truncate"
+        )
+    return array
 
 
 def render_dynamic_research_audio(
@@ -566,9 +631,41 @@ def render_dynamic_research_audio(
         sound_asset_registry=sounds,
         asset_bindings=bindings,
     )
+    _assert_no_cropped_dry_audio(assembly)
     dry_buses = assembly.dry_audio.buses
+    expected_sample_count = int(clock["sample_count"])
+    for source_id in source_ids:
+        _require_exact_episode_samples(
+            dry_buses[source_id],
+            expected=expected_sample_count,
+            owner=f"dry bus {source_id!r}",
+            channel_major=False,
+        )
     stems, mixture = render_research_review_binaural_audio(
         dry_buses, sequence, grid=grid
+    )
+    if int(grid.episode_sample_count) != expected_sample_count:
+        raise CurrentMP3DDynamicAudioError(
+            "dynamic acoustic grid sample boundary differs from the visual "
+            "AudioProgram clock"
+        )
+    for source_id in source_ids:
+        stem = stems.get(source_id)
+        if stem is None:
+            raise CurrentMP3DDynamicAudioError(
+                f"dynamic renderer omitted source stem {source_id!r}"
+            )
+        _require_exact_episode_samples(
+            stem.episode,
+            expected=expected_sample_count,
+            owner=f"binaural stem {source_id!r}",
+            channel_major=True,
+        )
+    mixture = _require_exact_episode_samples(
+        mixture,
+        expected=expected_sample_count,
+        owner="binaural mixture",
+        channel_major=True,
     )
 
     audio_root = output / "audio"
