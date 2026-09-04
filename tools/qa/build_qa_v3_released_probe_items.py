@@ -11,6 +11,9 @@ from __future__ import annotations
 import argparse
 from collections.abc import Mapping
 import json
+import math
+import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -106,6 +109,135 @@ def _group_id(scene_id, episode):
     return episode
 
 
+def _ffprobe_video(path: Path) -> dict:
+    ffprobe = shutil.which("ffprobe")
+    if ffprobe is None:
+        raise ValueError("ffprobe is required to validate released video duration")
+    command = [
+        ffprobe, "-v", "error", "-select_streams", "v:0", "-count_frames",
+        "-show_entries", "stream=nb_read_frames,nb_frames,r_frame_rate,duration",
+        "-of", "json", str(path),
+    ]
+    try:
+        done = subprocess.run(
+            command, capture_output=True, text=True, check=False, timeout=30)
+    except subprocess.TimeoutExpired as exc:
+        raise ValueError(f"ffprobe timed out for released video: {path}") from exc
+    if done.returncode != 0:
+        raise ValueError(f"ffprobe failed for released video {path}: {done.stderr[-400:]}")
+    try:
+        payload = json.loads(done.stdout)
+        stream = payload["streams"][0]
+    except (KeyError, IndexError, TypeError, json.JSONDecodeError) as exc:
+        raise ValueError(f"ffprobe returned no video stream for {path}") from exc
+    frames = stream.get("nb_read_frames", stream.get("nb_frames"))
+    if frames in (None, "N/A"):
+        raise ValueError(f"ffprobe returned no video frame count for {path}")
+    try:
+        frame_count = int(frames)
+        duration = float(stream["duration"])
+    except (TypeError, ValueError, KeyError) as exc:
+        raise ValueError(f"ffprobe returned an invalid video clock for {path}") from exc
+    return {"frame_count": frame_count, "duration_seconds": duration,
+            "frame_rate": stream.get("r_frame_rate")}
+
+
+def _declared_frame_clock(fact, point_dir: Path | None = None):
+    """Read an existing QA-v3 clock from the fact or point-local program."""
+    sources = [fact]
+    if point_dir is not None:
+        point_dir = Path(point_dir)
+        for name in ("audio_program.json", "timeline.json"):
+            path = point_dir / name
+            if not path.is_file():
+                continue
+            try:
+                value = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+                raise ValueError(f"cannot read declared clock input {path}") from exc
+            sources.append(value)
+    for value in sources:
+        if not isinstance(value, Mapping):
+            continue
+        for key in ("frame_clock", "timeline"):
+            clock = value.get(key)
+            if isinstance(clock, Mapping):
+                normalized = dict(clock)
+                # Audio programs use the existing video_fps spelling;
+                # facts/render clocks use frame_rate_hz.
+                if "frame_rate_hz" not in normalized and "video_fps" in normalized:
+                    normalized["frame_rate_hz"] = normalized["video_fps"]
+                return normalized
+    return None
+
+
+def _validate_media_clock(
+    fact, wav: Path, video: Path, *, owner: str, point_dir: Path | None = None
+):
+    """Validate real released media when the fact or point declares a clock."""
+    clock = _declared_frame_clock(fact, point_dir)
+    if clock is None:
+        return None
+    if not isinstance(clock, Mapping):
+        raise ValueError(f"{owner}: frame_clock must be an object")
+    required = ("frame_count", "frame_rate_hz", "sample_rate_hz", "sample_count")
+    missing = [key for key in required if key not in clock]
+    if missing:
+        raise ValueError(f"{owner}: frame_clock missing {missing}")
+    try:
+        expected_frames = int(clock["frame_count"])
+        expected_fps = float(clock["frame_rate_hz"])
+        expected_rate = int(clock["sample_rate_hz"])
+        expected_samples = int(clock["sample_count"])
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{owner}: frame_clock contains invalid values") from exc
+    if (expected_frames < 1 or not math.isfinite(expected_fps)
+            or expected_fps <= 0.0 or expected_rate < 1 or expected_samples < 1):
+        raise ValueError(f"{owner}: frame_clock values must be positive and finite")
+    try:
+        import soundfile as sf
+        audio_info = sf.info(wav)
+    except (OSError, RuntimeError) as exc:
+        raise ValueError(f"{owner}: cannot inspect released audio {wav}") from exc
+    if (audio_info.samplerate != expected_rate
+            or audio_info.frames != expected_samples
+            or audio_info.channels != 2):
+        raise ValueError(
+            f"{owner}: released audio clock differs from fact: "
+            f"media={audio_info.samplerate}Hz/{audio_info.frames} samples/"
+            f"{audio_info.channels}ch, expected={expected_rate}Hz/"
+            f"{expected_samples} samples/2ch")
+    expected_duration = expected_frames / expected_fps
+    tolerance = max(1.0 / expected_fps, 0.05)
+    audio_duration = audio_info.frames / expected_rate
+    if (not math.isfinite(audio_duration)
+            or abs(audio_duration - expected_duration) > tolerance):
+        raise ValueError(
+            f"{owner}: released audio duration {audio_duration:.6f}s "
+            f"differs from expected {expected_duration:.6f}s")
+    video_info = _ffprobe_video(video)
+    if video_info["frame_count"] != expected_frames:
+        raise ValueError(
+            f"{owner}: released video has {video_info['frame_count']} frames, "
+            f"expected {expected_frames}")
+    if (not math.isfinite(video_info["duration_seconds"])
+            or abs(video_info["duration_seconds"] - expected_duration) > tolerance):
+        raise ValueError(
+            f"{owner}: released video duration {video_info['duration_seconds']:.6f}s "
+            f"differs from expected {expected_duration:.6f}s")
+    return {
+        "frame_count": expected_frames,
+        "frame_rate_hz": expected_fps,
+        "clip_seconds": expected_duration,
+        "sample_rate_hz": expected_rate,
+        "sample_count": expected_samples,
+        "audio_media_frames": audio_info.frames,
+        "audio_media_duration_seconds": audio_duration,
+        "video_media_frames": video_info["frame_count"],
+        "video_media_duration_seconds": video_info["duration_seconds"],
+    }
+
+
 def _entry_forms(candidate, profile, selection):
     for owner in (candidate, profile, selection):
         if isinstance(owner, Mapping):
@@ -196,6 +328,9 @@ def build(selection, facts_root=None, audio_root=None, media_root=None, *,
         video = Path(media_root) / media_id / "video_only.mp4"
         if not wav.is_file() or not video.is_file():
             raise FileNotFoundError(f"{media_id}: released audio/video missing")
+        media_clock = _validate_media_clock(
+            fact, wav, video, owner=f"{media_id} released media",
+            point_dir=entry["fact_path"].parent)
 
         scene_id = fact.get("scene_id")
         if ((scene_id is None or str(scene_id) == "")
@@ -208,6 +343,8 @@ def build(selection, facts_root=None, audio_root=None, media_root=None, *,
             "audio": str(wav.resolve()),
             "video": str(video.resolve()),
         }
+        if media_clock is not None:
+            common["media_clock"] = media_clock
         if entry.get("pilot_id") is not None:
             common["pilot_id"] = entry["pilot_id"]
         forms = _answer_forms(

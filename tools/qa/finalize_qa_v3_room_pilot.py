@@ -8,6 +8,8 @@ import json
 import sys
 from pathlib import Path
 
+import soundfile as sf
+
 from avengine.contracts.json_io import sha256_file
 
 
@@ -22,18 +24,31 @@ def _write(path, value):
         encoding="utf-8")
 
 
-def _visual_receipt(root):
+def _visual_receipt(root, expected_timeline=None):
     root = Path(root).resolve()
     receipt = _read(root / "research_receipt.json")
     if receipt.get("status") != "research_only":
         raise RuntimeError(f"visual receipt is not research_only: {root}")
-    if receipt.get("capture", {}).get("completed_frame_count") != 75:
-        raise RuntimeError(f"visual receipt does not close 75 frames: {root}")
+    capture = receipt.get("capture") or {}
+    frame_count = capture.get("completed_frame_count")
+    declared_count = capture.get("frame_count")
+    if (isinstance(frame_count, bool) or not isinstance(frame_count, int)
+            or frame_count < 1 or declared_count != frame_count):
+        raise RuntimeError(f"visual receipt has no consistent frame count: {root}")
+    if expected_timeline is not None:
+        timeline = _read(Path(expected_timeline))
+        expected_render = timeline.get("render") or {}
+        expected_count = expected_render.get("frame_count")
+        if expected_count != frame_count:
+            raise RuntimeError(
+                f"visual receipt closes {frame_count} frames but timeline declares "
+                f"{expected_count}: {root}")
     return {
         "root": str(root),
         "receipt": str((root / "research_receipt.json").resolve()),
         "frame_records": str((root / "frame_records.json").resolve()),
-        "frame_count": 75,
+        "frame_count": frame_count,
+        "frame_rate_hz": capture.get("frame_rate_hz"),
     }
 
 
@@ -46,6 +61,23 @@ def _audio_receipt(root):
         raise RuntimeError(f"audio receipt is not a research pass: {root}")
     if not mixture.is_file():
         raise RuntimeError(f"audio mixture is missing: {mixture}")
+    audio = receipt.get("audio") or {}
+    sample_rate = audio.get("sample_rate_hz")
+    sample_count = audio.get("sample_count")
+    if (isinstance(sample_rate, bool) or not isinstance(sample_rate, int)
+            or sample_rate < 1 or isinstance(sample_count, bool)
+            or not isinstance(sample_count, int) or sample_count < 1):
+        raise RuntimeError(f"audio receipt has no valid sample clock: {root}")
+    try:
+        info = sf.info(mixture)
+    except RuntimeError as exc:
+        raise RuntimeError(f"cannot inspect audio mixture: {mixture}") from exc
+    if (info.samplerate != sample_rate or info.frames != sample_count
+            or info.channels != 2):
+        raise RuntimeError(
+            f"audio media clock differs from receipt at {root}: "
+            f"media={info.samplerate}Hz/{info.frames} samples/{info.channels}ch, "
+            f"receipt={sample_rate}Hz/{sample_count} samples/2ch")
     return {
         "root": str(root),
         "receipt": str(receipt_path.resolve()),
@@ -53,6 +85,9 @@ def _audio_receipt(root):
         "mixture_sha256": sha256_file(mixture),
         "event_count": receipt["audio_program"]["event_count"],
         "keyframe_count": receipt["rir"]["keyframe_count"],
+        "sample_rate_hz": sample_rate,
+        "sample_count": sample_count,
+        "duration_seconds": sample_count / sample_rate,
     }
 
 

@@ -9,11 +9,15 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+import soundfile as sf
 
 TOOLS = Path(__file__).resolve().parents[1] / "tools" / "qa"
 sys.path.insert(0, str(TOOLS))
 
-from build_qa_v3_released_probe_items import build  # noqa: E402
+from build_qa_v3_released_probe_items import (  # noqa: E402
+    _validate_media_clock,
+    build,
+)
 from probe_released_modality_shortcuts import run  # noqa: E402
 
 
@@ -369,3 +373,43 @@ def test_item_builder_consumes_assembler_candidates_and_pilot_media(tmp_path):
     assert rows[0]["audio"].endswith(
         f"/{pilot_id}/audio/binaural/mixture.wav")
     assert rows[0]["video"].endswith(f"/{pilot_id}/video_only.mp4")
+
+
+def test_released_clock_rejects_inconsistent_audio_duration(tmp_path):
+    wav = tmp_path / "mixture.wav"
+    video = tmp_path / "video_only.mp4"
+    sf.write(wav, np.zeros((32000, 2), dtype=np.float32), 16000, subtype="FLOAT")
+    subprocess.run(
+        [
+            "ffmpeg", "-v", "error", "-y",
+            "-f", "lavfi", "-i", "color=c=black:s=2x2:r=15:d=2",
+            "-t", "2", "-c:v", "libx264", "-pix_fmt", "yuv420p",
+            "-r", "15", str(video),
+        ],
+        check=True,
+    )
+    clock = {
+        "frame_count": 30, "frame_rate_hz": 15,
+        "sample_rate_hz": 16000, "sample_count": 32000,
+    }
+    report = _validate_media_clock(
+        {"frame_clock": clock}, wav, video, owner="clock-test")
+    assert report["clip_seconds"] == pytest.approx(2.0)
+    assert report["audio_media_duration_seconds"] == pytest.approx(2.0)
+
+    point_dir = tmp_path / "point"
+    point_dir.mkdir()
+    point_clock = {key: value for key, value in clock.items()
+                   if key != "frame_rate_hz"}
+    point_clock["video_fps"] = 15
+    point_dir.joinpath("audio_program.json").write_text(json.dumps({
+        "timeline": point_clock,
+    }), encoding="utf-8")
+    point_local_report = _validate_media_clock(
+        {}, wav, video, owner="point-local-clock-test", point_dir=point_dir)
+    assert point_local_report["frame_count"] == 30
+    with pytest.raises(ValueError, match="released audio duration"):
+        _validate_media_clock(
+            {"frame_clock": {**clock, "frame_count": 45}},
+            wav, video, owner="clock-test",
+        )

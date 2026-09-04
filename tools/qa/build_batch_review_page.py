@@ -25,6 +25,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
+import shutil
 import subprocess
 import sys
 from datetime import datetime, timezone
@@ -53,6 +55,7 @@ def receipt_summary(receipt: dict) -> dict:
     anim = cap.get("animation_readback_summary", {})
     return {
         "frames": cap.get("completed_frame_count"),
+        "frame_rate_hz": cap.get("frame_rate_hz"),
         "max_pos_err_cm": max(
             (v.get("maximum_position_error_cm", 0.0) for v in root.values()), default=None
         ),
@@ -65,9 +68,83 @@ def receipt_summary(receipt: dict) -> dict:
     }
 
 
-def mux_clip(captures_root: Path, audio_root: Path, pid: str, out_path: Path) -> bool:
+def _ffprobe_clip_clock(path: Path) -> dict[str, float | int]:
+    ffprobe = shutil.which("ffprobe")
+    if ffprobe is None:
+        raise RuntimeError("ffprobe is required to validate review clips")
+    command = [
+        ffprobe, "-v", "error", "-count_frames",
+        "-show_entries",
+        "stream=codec_type,nb_read_frames,nb_frames,duration",
+        "-of", "json", str(path),
+    ]
+    try:
+        proc = subprocess.run(
+            command, capture_output=True, text=True, check=False, timeout=30)
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError(f"ffprobe timed out for review clip: {path}") from exc
+    if proc.returncode != 0:
+        raise RuntimeError(
+            f"ffprobe failed for review clip {path}: {proc.stderr[-400:]}")
+    try:
+        streams = json.loads(proc.stdout)["streams"]
+        videos = [row for row in streams if row.get("codec_type") == "video"]
+        audios = [row for row in streams if row.get("codec_type") == "audio"]
+        video = videos[0]
+        audio = audios[0]
+        raw_frames = video.get("nb_read_frames", video.get("nb_frames"))
+        frames = int(raw_frames)
+        video_duration = float(video["duration"])
+        audio_duration = float(audio["duration"])
+    except (KeyError, IndexError, TypeError, ValueError, json.JSONDecodeError) as exc:
+        raise RuntimeError(
+            f"review clip has no usable video/audio clock: {path}") from exc
+    if (len(videos) != 1 or len(audios) != 1 or frames < 1
+            or not math.isfinite(video_duration)
+            or not math.isfinite(audio_duration)):
+        raise RuntimeError(f"review clip has invalid stream clock: {path}")
+    return {
+        "frame_count": frames,
+        "video_duration_seconds": video_duration,
+        "audio_duration_seconds": audio_duration,
+    }
+
+
+def _clip_matches_receipt(path: Path, receipt: dict | None) -> bool | None:
+    if not isinstance(receipt, dict):
+        return None
+    expected_frames = receipt.get("frames")
+    expected_fps = receipt.get("frame_rate_hz")
+    if expected_frames is None or expected_fps is None:
+        # Retain compatibility with old receipts that predate the explicit
+        # capture FPS field; current dynamic captures always provide both.
+        return None
+    if (isinstance(expected_frames, bool) or not isinstance(expected_frames, int)
+            or expected_frames < 1 or isinstance(expected_fps, bool)
+            or not isinstance(expected_fps, (int, float))
+            or not math.isfinite(float(expected_fps))
+            or float(expected_fps) <= 0.0):
+        return False
+    observed = _ffprobe_clip_clock(path)
+    expected_duration = expected_frames / float(expected_fps)
+    tolerance = max(1.0 / float(expected_fps), 0.05)
+    return (
+        observed["frame_count"] == expected_frames
+        and abs(float(observed["video_duration_seconds"]) - expected_duration)
+        <= tolerance
+        and abs(float(observed["audio_duration_seconds"]) - expected_duration)
+        <= tolerance
+    )
+
+
+def mux_clip(captures_root: Path, audio_root: Path, pid: str, out_path: Path,
+             *, expected_receipt: dict | None = None) -> bool:
     mixture = audio_root / pid / "audio/binaural/mixture.wav"
     if out_path.exists():
+        valid = _clip_matches_receipt(out_path, expected_receipt)
+        if valid is False:
+            raise RuntimeError(
+                f"existing review clip clock does not match capture receipt: {out_path}")
         return True
     if not mixture.is_file():
         return False
@@ -85,7 +162,13 @@ def mux_clip(captures_root: Path, audio_root: Path, pid: str, out_path: Path) ->
     base = out_path.with_name(out_path.stem + ".base.mp4")
     if base.exists():
         base.unlink()
-    return proc.returncode == 0 and out_path.is_file()
+    if proc.returncode != 0 or not out_path.is_file():
+        return False
+    valid = _clip_matches_receipt(out_path, expected_receipt)
+    if valid is False:
+        raise RuntimeError(
+            f"new review clip clock does not match capture receipt: {out_path}")
+    return True
 
 
 def make_thumb(clip: Path, thumb: Path) -> bool:
@@ -249,7 +332,8 @@ function card(p){
  if(p.offscreen)head.append(tag("off-screen","warn"));
  if(!p.capture)head.append(tag("视觉缺","miss"));
  if(!p.audio)head.append(tag("音频缺","miss"));
- if(p.receipt&&p.receipt.frames!==75)head.append(tag("帧数 "+p.receipt.frames,"miss"));
+ if(p.receipt&&(!Number.isInteger(p.receipt.frames)||p.receipt.frames<1))
+  head.append(tag("帧数 "+p.receipt.frames,"miss"));
  body.append(head);
  for(const q of p.questions){
   const d=document.createElement("div");d.className="q";
@@ -334,7 +418,14 @@ def main() -> int:
             and (args.audio_root / pid / "audio/binaural/mixture.wav").is_file()
         )
         clip_path = clips_dir / f"{pid}.mp4"
-        has_clip = clip_path.is_file()
+        has_clip = False
+        if clip_path.is_file() and captured and has_audio:
+            clip_matches = _clip_matches_receipt(clip_path, receipt)
+            if clip_matches is False:
+                raise RuntimeError(
+                    f"existing review clip clock does not match capture receipt: "
+                    f"{clip_path}")
+            has_clip = True
         qs = questions_by_pid.get(pid, [])
         points.append({
             "pid": pid,
@@ -376,7 +467,11 @@ def main() -> int:
             pid = row_entry["pid"]
             if row_entry["clip"] or not (row_entry["capture"] and row_entry["audio"]):
                 continue
-            if mux_clip(args.captures_root, args.audio_root, pid, clips_dir / f"{pid}.mp4"):
+            if mux_clip(
+                args.captures_root, args.audio_root, pid,
+                clips_dir / f"{pid}.mp4",
+                expected_receipt=details[pid]["receipt"],
+            ):
                 row_entry["clip"] = f"clips/{pid}.mp4"
                 details[pid]["clip"] = f"clips/{pid}.mp4"
                 (out / "data" / f"{pid}.json").write_text(

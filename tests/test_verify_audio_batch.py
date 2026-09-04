@@ -140,3 +140,27 @@ def test_no_clobber(tmp_path):
     assert main(["--design-root", str(design), "--audio-root", str(audio),
                  "--params", str(tmp_path / "params.json"),
                  "--out", str(out)]) == 2
+
+
+def test_onsets_tail_uses_declared_sample_rate():
+    sample_rate = 8000
+    events = [
+        {"source_endpoint_id": EP1, "start_sample": 4000,
+         "end_sample_exclusive": 6400},
+        {"source_endpoint_id": EP2, "start_sample": 24000,
+         "end_sample_exclusive": 26400},
+    ]
+    rng = np.random.default_rng(17)
+    wav = np.zeros((40000, 2), dtype=np.float32)
+    for event in events:
+        burst = rng.normal(
+            0.0, 0.1,
+            (event["end_sample_exclusive"] - event["start_sample"], 2),
+        ).astype(np.float32)
+        burst[:, 1] *= 0.6
+        wav[event["start_sample"]:event["end_sample_exclusive"]] = burst
+    assert check_onsets(
+        wav, {"events": events},
+        {"anchor_end_sample": 26400},
+        None, 1.5, sample_rate_hz=sample_rate,
+    ) == []

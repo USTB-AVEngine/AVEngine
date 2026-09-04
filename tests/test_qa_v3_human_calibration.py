@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 import sys
 from pathlib import Path
 
@@ -46,10 +47,18 @@ def _practice(root, media, point_id="card1F_practice"):
     return {"selected": [{"point_id": point_id, "profile_id": "card1F"}]}
 
 
-def _media(root, point_id):
+def _media(root, point_id, *, frame_count=75, frame_rate_hz=15):
     path = root / point_id
-    path.mkdir(parents=True)
-    (path / "full_main.mp4").write_bytes(b"fixture-mp4-" + point_id.encode())
+    path.mkdir(parents=True, exist_ok=True)
+    subprocess.run(
+        ["ffmpeg", "-v", "error", "-y", "-f", "lavfi",
+         "-i", f"color=c=black:s=2x2:r={frame_rate_hz}:d={frame_count / frame_rate_hz}",
+         "-f", "lavfi", "-i", f"anullsrc=r=16000:cl=stereo:d={frame_count / frame_rate_hz}",
+         "-map", "0:v:0", "-map", "1:a:0", "-t", str(frame_count / frame_rate_hz),
+         "-c:v", "libx264", "-pix_fmt", "yuv420p", "-r", str(frame_rate_hz),
+         "-c:a", "aac", str(path / "full_main.mp4")],
+        check=True,
+    )
 
 
 def test_pack_hides_gold_and_binds_copied_media(tmp_path):
@@ -272,3 +281,29 @@ def test_scorer_needs_an_explicit_assumption_for_undeclared_responses():
     # 旁路旗标必须回显被旁路的内容
     assert result["assumed_response_convention"] == "right_positive"
     assert result["azimuth_convention"] == "right_positive"
+
+
+
+def test_calibration_scale_labels_follow_the_clip_length():
+    from build_qa_v3_human_calibration_pack import _HTML
+    assert "const last=Math.ceil(item.view.clip_seconds)" in _HTML
+    assert "[0,1,2,3,4,5].filter" not in _HTML
+
+
+
+def test_pack_checks_a_real_150_frame_av_media_clock(tmp_path):
+    facts, media, output = tmp_path / "facts", tmp_path / "media", tmp_path / "out"
+    _fact(facts, "card1F_150", "card1F",
+          render={"hfov_degrees": 105.0, "frame_count": 150,
+                  "frame_rate_hz": 15})
+    _media(media, "card1F_150", frame_count=150)
+    practice = _practice(facts, media, "card1F_practice150")
+    output.mkdir()
+    study, _ = build(
+        {"selected": [{"point_id": "card1F_150", "profile_id": "card1F"}]},
+        facts, media, output, practice_selection=practice)
+    view = study["items"][0]["view"]
+    assert view["frame_count"] == 150
+    assert view["clip_seconds"] == pytest.approx(10.0)
+    assert view["media_frame_count"] == 150
+    assert view["media_audio_duration_seconds"] == pytest.approx(10.0, abs=0.1)

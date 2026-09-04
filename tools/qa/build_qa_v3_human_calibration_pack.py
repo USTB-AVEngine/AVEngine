@@ -12,7 +12,9 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -118,6 +120,63 @@ def _view_facts(point_dir, point_id):
     }
 
 
+def _ffprobe_media(path: Path) -> dict:
+    ffprobe = shutil.which("ffprobe")
+    if ffprobe is None:
+        raise ValueError("ffprobe is required to validate calibration media")
+    command = [
+        ffprobe, "-v", "error", "-count_frames",
+        "-show_entries", "stream=codec_type,nb_read_frames,nb_frames,r_frame_rate,duration",
+        "-of", "json", str(path),
+    ]
+    try:
+        done = subprocess.run(
+            command, capture_output=True, text=True, check=False, timeout=30)
+    except subprocess.TimeoutExpired as exc:
+        raise ValueError(f"ffprobe timed out for calibration media: {path}") from exc
+    if done.returncode != 0:
+        raise ValueError(f"ffprobe failed for calibration media {path}: {done.stderr[-400:]}")
+    try:
+        streams = json.loads(done.stdout)["streams"]
+    except (TypeError, KeyError, json.JSONDecodeError) as exc:
+        raise ValueError(f"ffprobe returned no streams for calibration media {path}") from exc
+    video = next((row for row in streams if row.get("codec_type") == "video"), None)
+    audio = next((row for row in streams if row.get("codec_type") == "audio"), None)
+    if video is None or audio is None:
+        raise ValueError(f"calibration media must contain video and audio: {path}")
+    raw_frames = video.get("nb_read_frames", video.get("nb_frames"))
+    try:
+        frames = int(raw_frames)
+        video_duration = float(video["duration"])
+        audio_duration = float(audio["duration"])
+    except (TypeError, ValueError, KeyError) as exc:
+        raise ValueError(f"calibration media has an invalid stream clock: {path}") from exc
+    return {"frame_count": frames, "video_duration_seconds": video_duration,
+            "audio_duration_seconds": audio_duration}
+
+
+def _validate_calibration_media(path: Path, view: dict, point_id: str) -> dict:
+    observed = _ffprobe_media(path)
+    expected_frames = int(view["frame_count"])
+    expected_duration = float(view["clip_seconds"])
+    if observed["frame_count"] != expected_frames:
+        raise ValueError(
+            f"{point_id}: calibration video has {observed['frame_count']} frames, "
+            f"expected {expected_frames}")
+    tolerance = max(1.0 / float(view["video_fps"]), 0.05)
+    for stream_name in ("video", "audio"):
+        duration = observed[f"{stream_name}_duration_seconds"]
+        if not math.isfinite(duration) or abs(duration - expected_duration) > tolerance:
+            raise ValueError(
+                f"{point_id}: calibration {stream_name} duration {duration:.6f}s "
+                f"differs from expected {expected_duration:.6f}s")
+    return {
+        "media_frame_count": observed["frame_count"],
+        "media_video_duration_seconds": observed["video_duration_seconds"],
+        "media_audio_duration_seconds": observed["audio_duration_seconds"],
+    }
+
+
 def build(selection, facts_root, media_root, output_root, *,
           practice_selection, per_profile_limit=None,
           practice_per_profile_limit=None):
@@ -149,6 +208,7 @@ def build(selection, facts_root, media_root, output_root, *,
             fact = _read(fact_path)
             _require_measured_floor(fact, point_id)
             view = _view_facts(point_dir, point_id)
+            view.update(_validate_calibration_media(source_media, view, point_id))
             copied = media_output / f"{point_id}.mp4"
             shutil.copy2(source_media, copied)
             stem = str(fact["open"]["stem"])
@@ -374,7 +434,8 @@ function drawScale(item){
     $("unit").textContent="度";
   }else{
     $("legend").textContent="片长 "+item.view.clip_seconds.toFixed(1)+" 秒；报你听到那一声的时刻。";
-    $("tickRow").innerHTML=[0,1,2,3,4,5].filter(s=>s<=item.view.clip_seconds)
+    const last=Math.ceil(item.view.clip_seconds);
+    $("tickRow").innerHTML=Array.from({length:last+1},(_,s)=>s)
       .map(s=>"<span>"+s+"s</span>").join("");
     $("unit").textContent="秒";
   }

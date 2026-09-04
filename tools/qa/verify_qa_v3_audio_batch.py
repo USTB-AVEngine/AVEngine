@@ -4,9 +4,8 @@
 对整个音频批做四层检查,任何一层失败即非零退出(失败即停):
 1. 双声道结构:每个 mixture.wav 过 1.1 校验器同款判定(双声道 + 左右
    逐样本差异达标),这里直接内联同一判定式以免子进程 ×288;
-2. receipt 一致性:endpoint registry 必须是 qa_v2 表、audio_program 路径
-   必须指向该点自己的 program(孪生用派生 program)、qualification_claim
-   恒 false;
+2. receipt 一致性:当前点的 endpoint registry、audio_program 路径和
+   qualification_claim 必须与实际输入一致（保留旧 QA-v2 兼容回退）;
 3. onset 落位抽验:每点每事件,事件内 RMS 必须显著高于事件前静默段
    (比值下限显式参数);锚事件必须是最后事件且锚后尾静默 ≥ TAIL_MIN_S;
 4. **音频变体非同一**:同点 main 与 gateA 的 mixture 波形最大逐样本差
@@ -45,19 +44,45 @@ def check_stereo(wav: np.ndarray) -> str | None:
     return None
 
 
-def check_receipt(receipt: dict, expect_program: Path) -> str | None:
+def check_receipt(receipt: dict, expect_program: Path,
+                  expected_endpoint: Path | None = None) -> str | None:
     if receipt.get("qualification_claim") is not False:
         return "qualification_claim is not false"
-    reg = receipt["inputs"]["source_endpoint_registry"]["path"]
-    if "qa_v2/source_endpoints_qa_v2_v1.json" not in reg:
-        return f"wrong endpoint registry: {reg}"
-    prog = receipt["audio_program"]["path"]
+    try:
+        reg = receipt["inputs"]["source_endpoint_registry"]["path"]
+    except (KeyError, TypeError):
+        return "receipt has no source endpoint registry"
+    if expected_endpoint is None:
+        # Retain the historical positive control for old QA v2 fixture batches;
+        # current QA-v3 points pass their point-local registry explicitly.
+        if "qa_v2/source_endpoints_qa_v2_v1.json" not in reg:
+            return f"wrong endpoint registry: {reg}"
+    else:
+        actual_endpoint = Path(reg).expanduser()
+        if actual_endpoint.resolve() != Path(expected_endpoint).resolve():
+            return f"wrong endpoint registry: {actual_endpoint} != {expected_endpoint}"
+    try:
+        prog = receipt["audio_program"]["path"]
+    except (KeyError, TypeError):
+        return "receipt has no audio program"
     if Path(prog).name != expect_program.name:
         return f"program mismatch: {Path(prog).name} != {expect_program.name}"
     return None
 
 
-def find_program(programs_dir: Path, base: str, variant: str) -> Path | None:
+def find_program(programs_dir: Path, base: str, variant: str,
+                  *, design_root: Path | None = None) -> Path | None:
+    # Current QA-v3 points keep the main/Gate-A program beside their fact and
+    # endpoint registry.  Resolve that authoritative point-local input first;
+    # retain the shared-program glob for older pilot batches.
+    if design_root is not None:
+        local_name = (
+            "audio_program.json" if variant == "main"
+            else "audio_program_gateA.json"
+        )
+        local = Path(design_root) / base / local_name
+        if local.is_file():
+            return local.resolve()
     suffixes = (
         ["_rand_v1.json"] if variant == "main" else
         ["_rand_gateA_v1.json", "_gateA_rand_v1.json"]
@@ -71,7 +96,7 @@ def find_program(programs_dir: Path, base: str, variant: str) -> Path | None:
 
 def check_onsets(wav: np.ndarray, program: dict, authority: dict,
                  profile_id: str | None,
-                 tail_min_s: float) -> list[str]:
+                 tail_min_s: float, sample_rate_hz: int = SR) -> list[str]:
     """Check event energy plus profile-specific anchor/tail structure.
 
     ``authority`` is a current fact record, or a retained run01 plan for
@@ -79,11 +104,12 @@ def check_onsets(wav: np.ndarray, program: dict, authority: dict,
     """
     errors = []
     mono = np.abs(wav).mean(axis=1)
+    pre_window = max(1, int(round(sample_rate_hz * 0.1)))
     events = sorted(program["events"], key=lambda e: e["start_sample"])
     for e in events:
         s0, s1 = e["start_sample"], e["end_sample_exclusive"]
-        pre = float(mono[max(0, s0 - 1600):s0].mean()) if s0 >= 800 else 0.0
-        inside = float(mono[s0:min(s1, s0 + 4800)].mean())
+        pre = float(mono[max(0, s0 - pre_window):s0].mean()) if s0 >= pre_window else 0.0
+        inside = float(mono[s0:s1].mean())
         if inside <= 0:
             errors.append(f"event@{s0}: zero energy inside event")
         elif pre > 0 and inside / pre < ONSET_RMS_RATIO_MIN:
@@ -93,7 +119,7 @@ def check_onsets(wav: np.ndarray, program: dict, authority: dict,
         anchor_end = int(authority["anchor_end_sample"])
         if anchor_end != max(e["end_sample_exclusive"] for e in events):
             errors.append("anchor is not the last event")
-        tail_s = (len(mono) - anchor_end) / SR
+        tail_s = (len(mono) - anchor_end) / float(sample_rate_hz)
         if tail_s < tail_min_s - 1e-9:
             errors.append(f"tail {tail_s:.3f}s < TAIL_MIN {tail_min_s}")
         return errors
@@ -110,10 +136,58 @@ def check_onsets(wav: np.ndarray, program: dict, authority: dict,
         if len(identity) != 1 or identity[0] is not events[-1]:
             errors.append("identity anchor is not the unique last event")
         elif profile_id == "card1F":
-            tail_s = (len(mono) - identity[0]["end_sample_exclusive"]) / SR
+            tail_s = (len(mono) - identity[0]["end_sample_exclusive"]) / float(sample_rate_hz)
             if tail_s < tail_min_s - 1e-9:
                 errors.append(f"tail {tail_s:.3f}s < TAIL_MIN {tail_min_s}")
     return errors
+
+
+def _gatea_semantic_failures(main_fact: dict, gate_fact: dict) -> list[str]:
+    """Validate either the legacy dual-form or current speech Gate-A checks."""
+    old_required = (
+        "event_count_same", "candidate_endpoints_same",
+        "non_slot_event_fields_same", "slot_sequence_changed",
+        "mcq_stem_same", "mcq_options_same", "open_stem_same",
+        "mcq_gold_flipped", "open_gold_separated",
+    )
+    current_required = (
+        "event_count_preserved", "event_times_preserved",
+        "sound_asset_multiset_preserved", "audio_assignment_changed",
+        "question_stem_preserved", "question_options_preserved",
+        "question_gold_changed",
+    )
+    checks = {}
+    for owner in (gate_fact, main_fact):
+        metadata = owner.get("gatea")
+        if isinstance(metadata, dict) and isinstance(metadata.get("checks"), dict):
+            checks = metadata["checks"]
+            if checks:
+                break
+        direct = owner.get("gatea_checks")
+        if isinstance(direct, dict) and direct:
+            checks = direct
+            break
+    if any(key in checks for key in current_required):
+        required = current_required
+    else:
+        required = old_required
+    missing = [key for key in required if checks.get(key) is not True]
+
+    comparable = []
+    for form, truth_key in (("mcq", "truth_option"), ("open", "truth_value")):
+        main_form = main_fact.get(form)
+        gate_form = gate_fact.get(form)
+        if (isinstance(main_form, dict) and isinstance(gate_form, dict)
+                and truth_key in main_form and truth_key in gate_form):
+            comparable.append((form, main_form[truth_key], gate_form[truth_key]))
+    if not comparable:
+        missing.append("question_gold_comparable")
+    else:
+        unchanged = [form for form, main_value, gate_value in comparable
+                     if main_value == gate_value]
+        if unchanged and "question_gold_changed" not in missing:
+            missing.append("question_gold_changed")
+    return missing
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -140,7 +214,8 @@ def main(argv: list[str] | None = None) -> int:
         name = d.name
         base = name[:-6] if name.endswith("_gateA") else name
         variant = "gateA" if name.endswith("_gateA") else "main"
-        prog_path = find_program(programs_dir, base, variant)
+        prog_path = find_program(
+            programs_dir, base, variant, design_root=args.design_root)
         if prog_path is None:
             failures.append(f"{name}: program lookup was not unique")
             continue
@@ -160,11 +235,30 @@ def main(argv: list[str] | None = None) -> int:
         except (OSError, json.JSONDecodeError) as exc:
             failures.append(f"{name}: load failed: {exc}")
             continue
-        if sr != SR or len(wav) != 80000:
-            failures.append(f"{name}: wav {sr}Hz {len(wav)} samples")
+        timeline = (program.get("timeline") or {}) if isinstance(program, dict) else {}
+        receipt_audio = (receipt.get("audio") or {}) if isinstance(receipt, dict) else {}
+        expected_sr = timeline.get("sample_rate_hz", receipt_audio.get("sample_rate_hz", SR))
+        expected_count = timeline.get("sample_count", receipt_audio.get("sample_count", 80000))
+        if (isinstance(expected_sr, bool) or not isinstance(expected_sr, int)
+                or expected_sr < 1 or isinstance(expected_count, bool)
+                or not isinstance(expected_count, int) or expected_count < 1):
+            failures.append(f"{name}: invalid program/receipt audio clock")
             continue
+        if sr != expected_sr or len(wav) != expected_count:
+            failures.append(
+                f"{name}: wav {sr}Hz {len(wav)} samples; expected "
+                f"{expected_sr}Hz {expected_count}")
+            continue
+        receipt_audio = (receipt.get("audio") or {}) if isinstance(receipt, dict) else {}
+        if isinstance(receipt_audio, dict) and (
+                receipt_audio.get("sample_rate_hz") not in (None, expected_sr)
+                or receipt_audio.get("sample_count") not in (None, expected_count)):
+            failures.append(f"{name}: receipt audio clock disagrees with program")
+        expected_endpoint_path = args.design_root / base / "source_endpoints.json"
+        expected_endpoint = (expected_endpoint_path
+                             if expected_endpoint_path.is_file() else None)
         for err in filter(None, [check_stereo(wav),
-                                 check_receipt(receipt, prog_path)]):
+                                 check_receipt(receipt, prog_path, expected_endpoint)]):
             failures.append(f"{name}: {err}")
         if variant == "main":
             authority = fact if fact is not None else plan
@@ -174,6 +268,7 @@ def main(argv: list[str] | None = None) -> int:
             for err in check_onsets(
                 wav, program, authority,
                 fact.get("profile_id") if fact else None, tail_min_s,
+                sample_rate_hz=expected_sr,
             ):
                 failures.append(f"{name}: {err}")
         checked += 1
@@ -191,22 +286,9 @@ def main(argv: list[str] | None = None) -> int:
             if main_fact_path.is_file() and gate_fact_path.is_file():
                 main_fact = json.loads(main_fact_path.read_text())
                 gate_fact = json.loads(gate_fact_path.read_text())
-                checks = main_fact.get("gatea", {}).get("checks", {})
-                required_checks = (
-                    "event_count_same", "candidate_endpoints_same",
-                    "non_slot_event_fields_same", "slot_sequence_changed",
-                    "mcq_stem_same", "mcq_options_same", "open_stem_same",
-                    "mcq_gold_flipped", "open_gold_separated",
-                )
-                missing = [key for key in required_checks
-                           if checks.get(key) is not True]
+                missing = _gatea_semantic_failures(main_fact, gate_fact)
                 if missing:
                     failures.append(f"{name}: Gate A semantic checks failed {missing}")
-                elif (
-                    main_fact["mcq"]["truth_option"] == gate_fact["mcq"]["truth_option"]
-                    or main_fact["open"]["truth_value"] == gate_fact["open"]["truth_value"]
-                ):
-                    failures.append(f"{name}: Gate A fact gold did not flip")
                 else:
                     gatea_semantic_pairs += 1
 
