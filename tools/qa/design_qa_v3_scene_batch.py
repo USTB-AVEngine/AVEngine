@@ -948,11 +948,7 @@ def main(argv=None) -> int:
     if args.out_root.exists():
         print(f"refusing to overwrite: {args.out_root}", file=sys.stderr)
         return 2
-    scene_config_path = SS.resolve_production_scene_config(
-        args.scene_config,
-        historical_reproduction=bool(getattr(args, "historical_reproduction", False)))
-    scene_cfg = json.loads(scene_config_path.read_text())
-    SS.require_production_scene_config(scene_cfg, scene_config_path)
+    scene_cfg = json.loads(args.scene_config.read_text())
     profiles = json.loads(args.profiles.read_text())
     params = json.loads(args.params.read_text())
     validate_profiles(profiles)
@@ -973,6 +969,14 @@ def main(argv=None) -> int:
     # output root now existed the obvious retry at the same path was refused.
     # The value is discarded; realise_point still reads it per candidate.
     program_request_fields(params)
+    # 位置规矩是最后一道预检:排在所有数据检查(参数、profile、场景、节目策略)之后,
+    # 因为那些是就地能判的错误、报错更具体,而且有测试钉着"坏参数要在建输出目录之前
+    # 失败";又排在 out_root.mkdir 之前,所以指错配置不会留下半个产物目录。
+    scene_config_path = SS.resolve_production_scene_config(
+        args.scene_config,
+        historical_reproduction=bool(
+            getattr(args, "historical_reproduction", False)))
+    SS.require_production_scene_config(scene_cfg, scene_config_path)
     base_request = json.loads(Path(scene_cfg["camera_base_request"]).read_text())
     registry = json.loads(
         (REPO / "examples/runtime/source_asset_runtime_profiles.json").read_text())
