@@ -57,6 +57,17 @@ def _timeline(azimuth_deg: float):
     }
 
 
+def _emitter_paths(timeline, slot):
+    return {
+        slot: [
+            next(state["translation_ue_cm"]
+                 for state in frame["actor_states"]
+                 if state["source_slot_id"] == slot)
+            for frame in timeline["frames"]
+        ]
+    }
+
+
 def _front_back_profile():
     return {
         "id": "f2_front_back",
@@ -281,7 +292,8 @@ def test_query_visibility_checks_every_frame_of_the_declared_window():
     scene = SimpleNamespace(hfov_deg=105.0)
     check = query_visibility_window_geometry(
         timeline, "source1", policy="out_of_view",
-        window_s=(2.0, 2.5), scene=scene, params=PARAMS)
+        window_s=(2.0, 2.5), scene=scene, params=PARAMS,
+        emitter_paths_by_slot=_emitter_paths(timeline, "source1"))
     assert check["passes"] is True
     assert check["frame_bounds"] == [30, 37]
     assert check["in_camera_cone_frames"] == []
@@ -291,6 +303,41 @@ def test_query_visibility_checks_every_frame_of_the_declared_window():
         radius, 0.0, 0.0]
     failed = query_visibility_window_geometry(
         timeline, "source1", policy="out_of_view",
-        window_s=(2.0, 2.5), scene=scene, params=PARAMS)
+        window_s=(2.0, 2.5), scene=scene, params=PARAMS,
+        emitter_paths_by_slot=_emitter_paths(timeline, "source1"))
     assert failed["passes"] is False
     assert failed["violating_frames"] == [34]
+
+
+def test_visibility_uses_physical_hfov_without_answer_margin():
+    timeline = _timeline(50.0)
+    scene = SimpleNamespace(hfov_deg=105.0)
+    paths = _emitter_paths(timeline, "source1")
+    params = dict(PARAMS, VISUAL_FOV_MARGIN_DEG=5.0)
+
+    visible = query_visibility_window_geometry(
+        timeline, "source1", policy="visible", window_s=(2.0, 2.5),
+        scene=scene, params=params, emitter_paths_by_slot=paths)
+    assert visible["half_fov_deg"] == pytest.approx(52.5)
+    assert visible["in_camera_cone_frames"] == list(range(30, 38))
+    assert visible["passes"] is True
+
+    out_of_view = query_visibility_window_geometry(
+        timeline, "source1", policy="out_of_view", window_s=(2.0, 2.5),
+        scene=scene, params=params, emitter_paths_by_slot=paths)
+    assert out_of_view["passes"] is False
+    assert out_of_view["violating_frames"] == list(range(30, 38))
+
+
+def test_visibility_window_requires_explicit_target_emitter_path():
+    timeline = _timeline(120.0)
+    scene = SimpleNamespace(hfov_deg=105.0)
+    with pytest.raises(ValueError, match="explicit.*emitter_paths_by_slot"):
+        query_visibility_window_geometry(
+            timeline, "source1", policy="out_of_view",
+            window_s=(2.0, 2.5), scene=scene, params=PARAMS)
+    with pytest.raises(ValueError, match="emitter_paths_by_slot.*source1"):
+        query_visibility_window_geometry(
+            timeline, "source1", policy="out_of_view",
+            window_s=(2.0, 2.5), scene=scene, params=PARAMS,
+            emitter_paths_by_slot={})

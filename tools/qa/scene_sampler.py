@@ -327,9 +327,25 @@ def require_production_scene_config(config, path) -> None:
                 "clearance table for this room")
 
 
+def camera_half_fov(scene) -> float:
+    """Return the physical camera-cone half angle from the scene calibration.
+
+    VISUAL_FOV_MARGIN_DEG is a conservative design allowance for answer bands
+    and safety screening. It is deliberately absent here: a declared
+    visible/out_of_view query describes the actual camera cone.
+    """
+    try:
+        hfov = float(scene.hfov_deg)
+    except (AttributeError, TypeError, ValueError) as exc:
+        raise ValueError("scene must declare a numeric hfov_deg") from exc
+    if not math.isfinite(hfov) or not (0.0 < hfov <= 180.0):
+        raise ValueError(f"scene declares an invalid hfov_deg {hfov!r}")
+    return hfov / 2.0
+
+
 def effective_half_fov(scene, params) -> float:
     margin = float(params.get("VISUAL_FOV_MARGIN_DEG", 0.0))
-    half_fov = float(scene.hfov_deg) / 2.0
+    half_fov = camera_half_fov(scene)
     if not math.isfinite(margin) or margin < 0.0 or margin >= half_fov:
         raise ValueError("VISUAL_FOV_MARGIN_DEG must lie in [0, half_fov)")
     return half_fov - margin
@@ -1680,6 +1696,7 @@ def solve_forward_cross_time(scene: SceneInputs, params: dict, *,
         query_requires_visibility=query_requires_visibility,
         query_visibility=query_visibility)
     half_fov = effective_half_fov(scene, params)
+    visibility_half_fov = camera_half_fov(scene)
     visibility = resolve_query_visibility(
         query_domain if query_domain is not None else answer_domain,
         query_visibility=query_visibility,
@@ -1755,11 +1772,11 @@ def solve_forward_cross_time(scene: SceneInputs, params: dict, *,
                                  "the declared band lies outside the camera "
                                  "field of view"))
             continue
-        if not query_visibility_matches(az_end, visibility, half_fov):
+        if not query_visibility_matches(az_end, visibility, visibility_half_fov):
             ledger.add(Rejection(
                 "target_query_visibility_mismatch",
                 f"az={az_end:.2f} policy={visibility} "
-                f"half_fov={half_fov:.2f}"))
+                f"half_fov={visibility_half_fov:.2f}"))
             continue
         anchor_xy = moved.at(anchor_frame)
         if _too_close_at_anchor(camera, anchor_xy, params):
@@ -1885,6 +1902,7 @@ def solve_backward_cross_time(scene: SceneInputs, params: dict, *,
         query_requires_visibility=query_requires_visibility,
         query_visibility=query_visibility)
     half_fov = effective_half_fov(scene, params)
+    visibility_half_fov = camera_half_fov(scene)
     visibility = resolve_query_visibility(
         query_domain if query_domain is not None else answer_domain,
         query_visibility=query_visibility,
@@ -1952,11 +1970,11 @@ def solve_backward_cross_time(scene: SceneInputs, params: dict, *,
                 or abs(az_query) > query_bound):
             ledger.add(Rejection("answer_band_outside_fov"))
             continue
-        if not query_visibility_matches(az_query, visibility, half_fov):
+        if not query_visibility_matches(az_query, visibility, visibility_half_fov):
             ledger.add(Rejection(
                 "target_query_visibility_mismatch",
                 f"az={az_query:.2f} policy={visibility} "
-                f"half_fov={half_fov:.2f}"))
+                f"half_fov={visibility_half_fov:.2f}"))
             continue
         anchor_xy = moved.at(anchor_frame)
         if _too_close_at_anchor(camera, anchor_xy, params):
@@ -2239,6 +2257,7 @@ def solve_instant_azimuth(scene: SceneInputs, params: dict, *,
         query_requires_visibility=query_requires_visibility,
         query_visibility=query_visibility)
     half_fov = effective_half_fov(scene, params)
+    visibility_half_fov = camera_half_fov(scene)
     visibility = resolve_query_visibility(
         query_domain if query_domain is not None else answer_domain,
         query_visibility=query_visibility,
@@ -2299,11 +2318,11 @@ def solve_instant_azimuth(scene: SceneInputs, params: dict, *,
         if abs(azimuth) > query_bound:
             ledger.add(Rejection("answer_band_outside_fov"))
             continue
-        if not query_visibility_matches(azimuth, visibility, half_fov):
+        if not query_visibility_matches(azimuth, visibility, visibility_half_fov):
             ledger.add(Rejection(
                 "target_query_visibility_mismatch",
                 f"az={azimuth:.2f} policy={visibility} "
-                f"half_fov={half_fov:.2f}"))
+                f"half_fov={visibility_half_fov:.2f}"))
             continue
         other = _pick_other_route(
             scene, moved, camera, yaw, azimuth, azimuth,

@@ -150,6 +150,13 @@ def test_rear_cone_solver_can_return_a_back_answer_with_two_sides():
     assert plan.checks["gatea_open_gold_separation_deg"] > 2 * PARAMS["THETA_HALF"]
 
 
+def test_camera_half_fov_is_physical_edge_separate_from_design_margin():
+    scene = _scene()
+    assert SS.camera_half_fov(scene) == pytest.approx(90.0)
+    assert SS.effective_half_fov(
+        scene, {"VISUAL_FOV_MARGIN_DEG": 10.0}) == pytest.approx(80.0)
+
+
 def test_default_solver_query_geometry_keeps_visible_front_behavior():
     bound, visible = SS.resolve_query_geometry(_scene(), PARAMS)
     assert bound == pytest.approx(90.0)

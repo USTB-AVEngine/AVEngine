@@ -1750,18 +1750,53 @@ def build_point_timeline_geometry(
 
 
 
+def _require_emitter_path_for_window(timeline, slot, emitter_paths_by_slot):
+    """Require the runtime emitter anchor for every query-window check.
+
+    Actor-root positions are useful for visual navigation, but they are not an
+    audio emitter location. A visibility policy on a sound source therefore
+    fails closed when the caller did not provide the explicitly materialized
+    runtime path for its slot.
+    """
+    if emitter_paths_by_slot is None:
+        raise GenerationConstraintError(
+            "query visibility window requires explicit "
+            "emitter_paths_by_slot")
+    try:
+        path = emitter_paths_by_slot[slot]
+    except (KeyError, TypeError) as exc:
+        raise GenerationConstraintError(
+            "query visibility window emitter_paths_by_slot has no path for "
+            f"slot {slot!r}") from exc
+    frame_count = len(timeline.get("frames", ()))
+    try:
+        path_count = len(path)
+    except TypeError as exc:
+        raise GenerationConstraintError(
+            f"query visibility window emitter path for slot {slot!r} "
+            "must be a per-frame sequence") from exc
+    if path_count != frame_count:
+        raise GenerationConstraintError(
+            f"query visibility window emitter path for slot {slot!r} has "
+            f"{path_count} frames; expected {frame_count}")
+    return path
+
+
 def query_visibility_window_geometry(
     timeline, slot, *, policy, window_s, scene, params,
     emitter_paths_by_slot=None,
 ):
-    """Evaluate an emitter against a declared camera-cone policy per frame."""
+    """Evaluate an emitter against the actual camera cone per frame."""
     if policy not in SS.QUERY_VISIBILITY_VALUES:
         raise ValueError(
             f"query visibility must be one of {SS.QUERY_VISIBILITY_VALUES}")
+    _require_emitter_path_for_window(timeline, slot, emitter_paths_by_slot)
     fps = _timeline_video_fps(timeline, params)
     lo_f, hi_f = query_window_frame_bounds(
         window_s, fps, len(timeline["frames"]))
-    half_fov = SS.effective_half_fov(scene, params)
+    # The margin belongs to answer-band/safety solving. Visibility is the
+    # physical camera cone and must use the calibrated HFOV edge itself.
+    half_fov = SS.camera_half_fov(scene)
     azimuths = [
         recompute_emitter_azimuth(
             timeline, slot, frame, emitter_paths_by_slot)
