@@ -20,8 +20,11 @@ The acoustic package is not consumed by the episode render (the ss2
 audio chain reads the raw scene plus material config); it is compiled
 here because it is the certified-QA chain's admission gate for this
 house, and its frame-parity check is the one defence a sideways mesh
-cannot pass. A house whose package fails is a house we must not ship,
-so it fails this chain too.
+cannot pass. A scan-mesh geometry report may legitimately say ``fail`` for
+its production watertight check; that reported QA status is retained and is
+not the package stage exit condition. This chain fails the package stage when
+the compiler or frame-parity command exits nonzero, including a frame-parity
+mismatch.
 """
 
 from __future__ import annotations
@@ -34,6 +37,55 @@ import sys
 from pathlib import Path
 
 REPOSITORY = Path(__file__).resolve().parents[2]
+
+
+def _source_provenance() -> dict[str, object]:
+    """Record the source and interpreter without making provenance a gate."""
+
+    record: dict[str, object] = {
+        "repository": str(REPOSITORY.resolve()),
+        "git_commit": None,
+        "git_branch": None,
+        "entrypoint": str(Path(__file__).resolve()),
+        "python_executable": str(Path(sys.executable).resolve()),
+    }
+    errors: list[str] = []
+
+    def git(*args: str, optional: bool = False) -> str | None:
+        try:
+            completed = subprocess.run(
+                ["git", "-C", str(REPOSITORY), *args],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
+            )
+        except OSError as exc:
+            if not optional:
+                errors.append(f"{args}: {exc}")
+            return None
+        if completed.returncode != 0:
+            if not optional:
+                errors.append(
+                    f"{args}: {completed.stderr.strip() or completed.returncode}"
+                )
+            return None
+        return completed.stdout.strip() or None
+
+    repository = git("rev-parse", "--show-toplevel")
+    if repository:
+        try:
+            record["repository"] = str(Path(repository).resolve())
+        except OSError:
+            record["repository"] = repository
+    record["git_commit"] = git("rev-parse", "HEAD")
+    record["git_branch"] = git(
+        "symbolic-ref", "--quiet", "--short", "HEAD", optional=True
+    )
+    if errors:
+        record["git_error"] = "; ".join(errors)
+    return record
+
 
 _FURNISHED = {
     "couch", "sofa", "bed", "chair", "table", "tv", "cabinet", "desk",
@@ -126,6 +178,43 @@ def band_for(shorter: float) -> tuple[float, float]:
     if shorter >= 6.0:
         return 3.5, 5.5
     return 1.5, max(2.0, round(shorter - 0.5, 1))
+
+
+def _build_receipt(
+    *,
+    scene_dir: Path,
+    scene_id: str,
+    chosen: dict,
+    attempts: list[dict],
+    bank: Path,
+    rooms_dir: Path,
+    routes_dir: Path,
+    output: Path,
+) -> dict:
+    return {
+        "schema": "avengine_hm3d_end_to_end_receipt_v1",
+        "scene_dir": str(scene_dir),
+        "scene_id": scene_id,
+        "source": _source_provenance(),
+        "room_chosen": {
+            "label": f"R{chosen['region_id']}",
+            "floor_area_m2": chosen["floor_area_m2"],
+            "furnished_with": chosen["_furnished"],
+            "reason": (
+                "有家具且面积最大" if chosen["_furnished"] else "无家具房间中面积最大"
+            ),
+        },
+        "rooms_tried": attempts,
+        "bank": str(bank),
+        "stages": {
+            "rooms": str(rooms_dir),
+            "package": str(output / "package"),
+            "routes": str(routes_dir),
+            "episode": str(output / "episode"),
+        },
+        "episode_receipt": str(output / "episode" / "receipt.json"),
+        "machine_audition": str(output / "episode" / "machine_audition.json"),
+    }
 
 
 def main() -> int:
@@ -314,29 +403,16 @@ def main() -> int:
         logs,
     )
 
-    receipt = {
-        "schema": "avengine_hm3d_end_to_end_receipt_v1",
-        "scene_dir": str(scene_dir),
-        "scene_id": scene_id,
-        "room_chosen": {
-            "label": f"R{chosen['region_id']}",
-            "floor_area_m2": chosen["floor_area_m2"],
-            "furnished_with": chosen["_furnished"],
-            "reason": (
-                "有家具且面积最大" if chosen["_furnished"] else "无家具房间中面积最大"
-            ),
-        },
-        "rooms_tried": attempts,
-        "bank": str(bank),
-        "stages": {
-            "rooms": str(rooms_dir),
-            "package": str(output / "package"),
-            "routes": str(routes_dir),
-            "episode": str(output / "episode"),
-        },
-        "episode_receipt": str(output / "episode" / "receipt.json"),
-        "machine_audition": str(output / "episode" / "machine_audition.json"),
-    }
+    receipt = _build_receipt(
+        scene_dir=scene_dir,
+        scene_id=scene_id,
+        chosen=chosen,
+        attempts=attempts,
+        bank=bank,
+        rooms_dir=rooms_dir,
+        routes_dir=routes_dir,
+        output=output,
+    )
     (output / "end_to_end_receipt.json").write_text(
         json.dumps(receipt, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
