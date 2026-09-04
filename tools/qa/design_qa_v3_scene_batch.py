@@ -1829,7 +1829,7 @@ def realise_point(
     camera_world_m = render_context["world_transform"](camera_ue_cm)
     m1_request = apply_camera_listener_pose_ue(
         base_request, request_id=f"qa_v3_{pid}", position_m=camera_world_m,
-        ue_yaw_degrees=plan.camera_ue_yaw_deg,
+        ue_yaw_degrees=plan.camera_ue_yaw_deg, room_id=scene.scene_id,
         horizontal_fov_deg=scene.hfov_deg)
     (pdir / "m1_capture_request.json").write_text(
         json.dumps(m1_request, ensure_ascii=False, indent=2))

@@ -91,3 +91,27 @@ def test_look_at_keeps_camera_and_listener_cooriented():
     expected = np.asarray([1, -1, -1.0]) / np.sqrt(3)
     assert forward == pytest.approx(expected)
     assert result["listener"]["rig_from_listener"]["rotation_xyzw"] == [0, 0, 0, 1]
+
+
+def test_explicit_room_id_rebinds_scene_without_mutating_base_request():
+    base = load_json(BASE_REQUEST)
+    result = apply_camera_listener_pose(
+        base,
+        request_id="kujiale-pose",
+        room_id="interioragent_kujiale_0020_livingroom_491",
+        position_m=(1.0, 1.47, 2.0),
+        yaw_deg=15.0,
+    )
+    assert result["room_id"] == "interioragent_kujiale_0020_livingroom_491"
+    assert base["room_id"] == "legacy_ue_apartment_0000_v1"
+    assert validate_capture_request(
+        result, room_id="interioragent_kujiale_0020_livingroom_491"
+    ) == []
+    with pytest.raises(CameraPoseError, match="room_id"):
+        apply_camera_listener_pose(
+            base,
+            request_id="bad-room",
+            room_id=" ",
+            position_m=(1.0, 1.47, 2.0),
+            yaw_deg=15.0,
+        )

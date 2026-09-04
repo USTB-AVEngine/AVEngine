@@ -863,6 +863,7 @@ def _write_scene_candidate(
         position_m=render["world_transform"](camera_ue),
         ue_yaw_degrees=float(plan["camera_yaw_deg"]),
         horizontal_fov_deg=float(scene.hfov_deg),
+        room_id=scene.scene_id,
     )
     m1_path = _write(point_dir / "m1_capture_request.json", m1_request)
 

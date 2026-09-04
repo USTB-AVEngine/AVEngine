@@ -21,6 +21,16 @@ class CameraPoseError(ValueError):
     """A requested camera/listener pose is malformed."""
 
 
+def _optional_room_id(value: str | None) -> str | None:
+    """Validate an explicit scene binding without changing legacy defaults."""
+
+    if value is None:
+        return None
+    if not isinstance(value, str) or not value.strip():
+        raise CameraPoseError("room_id must be non-empty")
+    return value.strip()
+
+
 def _finite_position(value: Sequence[float]) -> tuple[float, float, float]:
     if isinstance(value, (str, bytes)) or len(value) != 3:
         raise CameraPoseError("camera position must contain three finite numbers")
@@ -129,12 +139,12 @@ def _look_at_quaternion_xyzw(
 def apply_camera_listener_look_at(
     request: Mapping[str, Any], *, request_id: str, position_m: Sequence[float],
     target_m: Sequence[float], up: Sequence[float] = (0, 1, 0),
-    horizontal_fov_deg: float | None = None,
+    horizontal_fov_deg: float | None = None, room_id: str | None = None,
 ) -> dict[str, Any]:
     """Return a co-located camera/listener request aimed at a declared target."""
     result = apply_camera_listener_pose(
         request, request_id=request_id, position_m=position_m, yaw_deg=0,
-        horizontal_fov_deg=horizontal_fov_deg)
+        horizontal_fov_deg=horizontal_fov_deg, room_id=room_id)
     result["primary_camera_rig"]["world_from_rig"]["rotation_xyzw"] = (
         _look_at_quaternion_xyzw(position_m, target_m, up))
     errors = validate_capture_request(result, room_id=result.get("room_id"))
@@ -150,6 +160,7 @@ def apply_camera_listener_pose(
     position_m: Sequence[float],
     yaw_deg: float,
     horizontal_fov_deg: float | None = None,
+    room_id: str | None = None,
 ) -> dict[str, Any]:
     """Return a validated M1 request with one new formal camera/listener pose.
 
@@ -161,6 +172,7 @@ def apply_camera_listener_pose(
         raise CameraPoseError("base capture request must be an object")
     if not isinstance(request_id, str) or not request_id.strip():
         raise CameraPoseError("request_id must be non-empty")
+    explicit_room_id = _optional_room_id(room_id)
     position = _finite_position(position_m)
     yaw = normalized_yaw_degrees(yaw_deg)
     result = deepcopy(dict(request))
@@ -193,6 +205,8 @@ def apply_camera_listener_pose(
         ):
             raise CameraPoseError("camera horizontal FOV must lie within (0,180)")
         calibration["hfov_degrees"] = float(horizontal_fov_deg)
+    if explicit_room_id is not None:
+        result["room_id"] = explicit_room_id
     result["request_id"] = request_id.strip()
     errors = validate_capture_request(result, room_id=result.get("room_id"))
     if errors:
@@ -231,6 +245,7 @@ def apply_camera_listener_pose_ue(
     position_m,
     ue_yaw_degrees: float,
     horizontal_fov_deg: float | None = None,
+    room_id: str | None = None,
 ):
     """``apply_camera_listener_pose`` addressed by UE yaw instead of pose yaw."""
 
@@ -240,4 +255,5 @@ def apply_camera_listener_pose_ue(
         position_m=position_m,
         yaw_deg=ue_yaw_to_pose_yaw_degrees(ue_yaw_degrees),
         horizontal_fov_deg=horizontal_fov_deg,
+        room_id=room_id,
     )
