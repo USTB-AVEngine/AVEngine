@@ -4,6 +4,7 @@ catch its corresponding corruption (工单纪律:检查器先证明能抓坏样�
 from __future__ import annotations
 
 import json
+import shutil
 import sys
 from pathlib import Path
 
@@ -45,11 +46,38 @@ def build_batch(tmp_path: Path, wav_main: np.ndarray,
     prog = {"program_id": "qa_v3_dog_v3b_001_rand_v1",
             "candidate_source_endpoint_ids": [EP1, EP2], "events": EVENTS}
     (programs / "qa_v3_dog_v3b_001_rand_v1.json").write_text(json.dumps(prog))
+    gate_events = [dict(event) for event in EVENTS]
+    gate_events[0]["source_endpoint_id"] = EP2
+    gate_events[1]["source_endpoint_id"] = EP1
     (programs / "qa_v3_dog_v3b_001_gateA_rand_v1.json").write_text(
-        json.dumps(dict(prog, program_id="qa_v3_dog_v3b_001_gateA_rand_v1")))
+        json.dumps(dict(
+            prog,
+            program_id="qa_v3_dog_v3b_001_gateA_rand_v1",
+            events=gate_events,
+        )))
     (programs / "qa_v3_dog_v3b_001_rand_v1.plan.json").write_text(json.dumps(
         {"anchor_slot": "source2", "anchor_start_sample": 48000,
          "anchor_end_sample": 52800, "tail_silence_samples": 27200}))
+    point = design / "v3b_001"
+    point.mkdir()
+    (point / "fact_record.json").write_text(json.dumps({
+        "profile_id": "fixture",
+        "mcq": {
+            "stem": "which source?",
+            "options_space": ["blue", "red"],
+            "truth_option": "blue",
+        },
+        "open": {"stem": "which source?", "truth_value": "blue"},
+    }))
+    (point / "fact_record_gateA.json").write_text(json.dumps({
+        "profile_id": "fixture",
+        "mcq": {
+            "stem": "which source?",
+            "options_space": ["blue", "red"],
+            "truth_option": "red",
+        },
+        "open": {"stem": "which source?", "truth_value": "red"},
+    }))
     audio = tmp_path / "audio"
     reg = ("examples/qa_v2/source_endpoints_qa_v2_v1.json" if registry_ok
            else "examples/registry/registries/source_endpoints_v1.json")
@@ -79,10 +107,16 @@ def build_batch(tmp_path: Path, wav_main: np.ndarray,
     return design, audio
 
 
-def run(tmp_path, design, audio, out_name="report.json"):
+def run(tmp_path, design, audio, out_name="report.json", variants=None):
     out = tmp_path / out_name
-    rc = main(["--design-root", str(design), "--audio-root", str(audio),
-               "--params", str(tmp_path / "params.json"), "--out", str(out)])
+    argv = [
+        "--design-root", str(design), "--audio-root", str(audio),
+        "--params", str(tmp_path / "params.json"),
+    ]
+    if variants is not None:
+        argv.extend(["--variants", variants])
+    argv.extend(["--out", str(out)])
+    rc = main(argv)
     return rc, json.loads(out.read_text())
 
 
@@ -93,8 +127,8 @@ def test_clean_batch_passes(tmp_path):
     assert rc == 0 and rep["failures"] == []
     assert rep["audio_variant_waveform_nonidentity_pairs"] == 1
     assert rep["execution_variant_verification"]["status"] == "verified"
-    # 这一层只说明音频变体非同一;Gate A 语义要另行逐题核验
-    assert "not established by this tool" in rep["gatea_semantic_flip"]
+    assert rep["gatea_semantic_flip_pairs"] == 1
+    assert "established from current paired fact records" in rep["gatea_semantic_flip"]
 
 
 def test_mono_fold_caught(tmp_path):
@@ -127,6 +161,7 @@ def test_gatea_identical_caught(tmp_path):
     design, audio = build_batch(tmp_path, w, wav_gatea=w.copy())
     rc, rep = run(tmp_path, design, audio)
     assert rc == 1
+    assert rep["audio_variant_waveform_nonidentity_pairs"] == 0
     assert any("gateA identical" in f for f in rep["failures"])
 
 
@@ -143,7 +178,7 @@ def test_current_fact_binds_identity_purpose_back_to_program_event():
 
 def test_no_clobber(tmp_path):
     design, audio = build_batch(tmp_path, good_wav())
-    rc, _ = run(tmp_path, design, audio)
+    rc, _ = run(tmp_path, design, audio, variants="main")
     assert rc == 0
     out = tmp_path / "report.json"
     assert main(["--design-root", str(design), "--audio-root", str(audio),
@@ -283,9 +318,47 @@ def test_legacy_execution_variant_receipt_is_compatible_but_unverified(tmp_path)
     design, audio = build_batch(
         tmp_path, good_wav(), include_execution_variant=False
     )
-    rc, rep = run(tmp_path, design, audio)
+    rc, rep = run(tmp_path, design, audio, variants="main")
     assert rc == 0
     verification = rep["execution_variant_verification"]
     assert verification["status"] == "unverified"
     assert verification["verified_renders"] == []
     assert verification["unverified_renders"] == ["v3b_001"]
+
+
+def test_requested_pair_rejects_missing_gatea_render(tmp_path):
+    design, audio = build_batch(tmp_path, good_wav())
+    rc, rep = run(tmp_path, design, audio, variants="main,gateA")
+    assert rc == 1
+    assert any("missing complete gateA render" in failure for failure in rep["failures"])
+    assert rep["complete_pair_count"] == 0
+
+
+def test_requested_pair_rejects_missing_main_render(tmp_path):
+    design, audio = build_batch(
+        tmp_path, good_wav(), wav_gatea=good_wav(seed=7)
+    )
+    shutil.rmtree(audio / "v3b_001")
+    rc, rep = run(tmp_path, design, audio, variants="main,gateA")
+    assert rc == 1
+    assert any("missing complete main render" in failure for failure in rep["failures"])
+    assert rep["complete_pair_count"] == 0
+
+
+def test_empty_render_directory_is_not_a_complete_main(tmp_path):
+    design, audio = build_batch(tmp_path, good_wav())
+    (audio / "v3b_001" / "research_receipt.json").unlink()
+    rc, rep = run(tmp_path, design, audio, variants="main")
+    assert rc == 1
+    assert rep["execution_variant_verification"]["status"] == "unverified"
+    assert any("missing complete main render" in failure for failure in rep["failures"])
+
+
+def test_gatea_semantic_pair_count_is_required(tmp_path):
+    design, audio = build_batch(
+        tmp_path, good_wav(), wav_gatea=good_wav(seed=7)
+    )
+    (design / "v3b_001" / "fact_record_gateA.json").unlink()
+    rc, rep = run(tmp_path, design, audio, variants="main,gateA")
+    assert rc == 1
+    assert any("Gate A semantic pair count" in failure for failure in rep["failures"])

@@ -57,6 +57,105 @@ def execution_variant_status(
     return "verified"
 
 
+def _normalize_expected_variants(value: object, *, owner: str) -> tuple[str, ...]:
+    if isinstance(value, str):
+        raw = [item.strip() for item in value.split(",") if item.strip()]
+    elif isinstance(value, (list, tuple)):
+        raw = list(value)
+    else:
+        raise ValueError(f"{owner} must be a comma-separated string or list")
+    if not raw:
+        raise ValueError(f"{owner} must not be empty")
+    result: list[str] = []
+    for item in raw:
+        if (
+            not isinstance(item, str)
+            or not item
+            or item != item.strip()
+            or any(ord(character) < 32 or ord(character) == 127 for character in item)
+        ):
+            raise ValueError(f"{owner} contains an invalid execution variant")
+        if item in result:
+            raise ValueError(f"{owner} contains duplicate execution variant {item!r}")
+        result.append(item)
+    if "main" not in result:
+        raise ValueError(f"{owner} must include main")
+    return tuple(result)
+
+
+def _declared_audio_variants(payload: object) -> tuple[str, ...] | None:
+    if not isinstance(payload, dict):
+        return None
+    owners: list[dict] = [payload]
+    for key in ("request", "request_snapshot", "declaration"):
+        value = payload.get(key)
+        if isinstance(value, dict):
+            owners.append(value)
+    for owner in owners:
+        value = owner.get("audio_variants")
+        if value is not None:
+            return _normalize_expected_variants(
+                value, owner="declared audio_variants"
+            )
+    question_request = payload.get("question_request")
+    if isinstance(question_request, dict) and question_request.get(
+        "counterfactual_questions"
+    ):
+        return ("main", "gateA")
+    return None
+
+
+def _expected_variants(
+    design_root: Path,
+    audio_root: Path,
+    explicit: object,
+) -> tuple[tuple[str, ...], str]:
+    if explicit is not None:
+        return (
+            _normalize_expected_variants(explicit, owner="--variants"),
+            "explicit",
+        )
+    candidates: list[Path] = []
+    for root in (design_root, audio_root, audio_root.parent):
+        for name in ("request.json", "batch_manifest.json", "scene_profile_matrix.json"):
+            path = root / name
+            if path.is_file() and path not in candidates:
+                candidates.append(path)
+    for root in (design_root, *design_root.parents[:12]):
+        path = root / "request.json"
+        if path.is_file() and path not in candidates:
+            candidates.append(path)
+    for path in candidates:
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError):
+            continue
+        declared = _declared_audio_variants(payload)
+        if declared is not None:
+            return declared, f"declared:{path}"
+    # A Gate-A fact/program/question artifact is an actual design declaration.
+    # Merely having a shared legacy program filename is insufficient.
+    for marker in (
+        design_root.rglob("fact_record_gateA.json"),
+        design_root.rglob("audio_program_gateA.json"),
+        design_root.rglob("questions_gateA.jsonl"),
+    ):
+        if next(iter(marker), None) is not None:
+            return ("main", "gateA"), "design_gateA_artifact"
+    if audio_root.is_dir() and any(
+        path.is_dir() and path.name.endswith("_gateA")
+        for path in audio_root.iterdir()
+    ):
+        return ("main", "gateA"), "observed_gateA_directory"
+    return ("main",), "legacy_single_main_default"
+
+
+def _split_render_directory(name: str) -> tuple[str, str]:
+    if name.endswith("_gateA"):
+        return name[:-6], "gateA"
+    return name, "main"
+
+
 def check_stereo(wav: np.ndarray) -> str | None:
     if wav.ndim != 2 or wav.shape[1] != 2:
         return f"not stereo: shape={wav.shape}"
@@ -286,6 +385,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--design-root", required=True, type=Path)
     parser.add_argument("--audio-root", required=True, type=Path)
     parser.add_argument("--params", required=True, type=Path)
+    parser.add_argument(
+        "--variants",
+        default=None,
+        help="expected execution variants, comma-separated; defaults to design/request declaration",
+    )
     parser.add_argument("--out", required=True, type=Path)
     args = parser.parse_args(argv)
 
@@ -295,13 +399,38 @@ def main(argv: list[str] | None = None) -> int:
     params = json.loads(args.params.read_text())
     tail_min_s = float(params["TAIL_MIN_S"])
     programs_dir = args.design_root / "programs"
-
-    point_dirs = sorted(d for d in args.audio_root.iterdir()
-                        if d.is_dir() and (d / "research_receipt.json").is_file())
+    expected_variants, expected_variants_source = _expected_variants(
+        args.design_root.resolve(),
+        args.audio_root.resolve(),
+        args.variants,
+    )
+    expected_variant_set = set(expected_variants)
+    audio_directories = sorted(
+        d for d in args.audio_root.iterdir() if d.is_dir()
+    )
+    point_dirs = sorted(
+        d for d in audio_directories
+        if (d / "research_receipt.json").is_file()
+    )
+    observed_directory_variants = {
+        _split_render_directory(path.name)[1] for path in audio_directories
+    }
     failures: list[str] = []
+    if not audio_directories:
+        failures.append("audio root contains no render directories")
+    unexpected_variants = observed_directory_variants - expected_variant_set
+    if unexpected_variants:
+        failures.append(
+            "unexpected render variants: "
+            + ", ".join(sorted(unexpected_variants))
+        )
     execution_variant_verified: list[str] = []
     execution_variant_unverified: list[str] = []
     execution_variant_failed: list[str] = []
+    validated_render_ids: dict[str, set[str]] = {
+        "main": set(),
+        "gateA": set(),
+    }
     checked = gatea_pairs = gatea_semantic_pairs = 0
     for d in point_dirs:
         name = d.name
@@ -377,15 +506,32 @@ def main(argv: list[str] | None = None) -> int:
             ):
                 failures.append(f"{name}: {err}")
         checked += 1
+        if variant in validated_render_ids:
+            validated_render_ids[variant].add(base)
         if variant == "gateA":
             main_wav_path = args.audio_root / base / "audio" / "binaural" / "mixture.wav"
             if main_wav_path.is_file():
-                main_wav, _ = sf.read(main_wav_path)
-                max_diff = float(np.abs(wav - main_wav).max())
-                if max_diff < GATEA_MAX_DIFF_MIN:
-                    failures.append(f"{name}: gateA identical to main "
-                                    f"(max diff {max_diff:.2e})")
-                gatea_pairs += 1
+                try:
+                    main_wav, _ = sf.read(main_wav_path)
+                except (OSError, RuntimeError) as exc:
+                    failures.append(f"{name}: main waveform could not be read: {exc}")
+                else:
+                    if main_wav.shape != wav.shape:
+                        failures.append(
+                            f"{name}: main/gateA waveform shapes differ: "
+                            f"{main_wav.shape} != {wav.shape}"
+                        )
+                    else:
+                        max_diff = float(np.abs(wav - main_wav).max())
+                        if not np.isfinite(max_diff):
+                            failures.append(
+                                f"{name}: main/gateA waveform difference is non-finite"
+                            )
+                        elif max_diff < GATEA_MAX_DIFF_MIN:
+                            failures.append(f"{name}: gateA identical to main "
+                                            f"(max diff {max_diff:.2e})")
+                        else:
+                            gatea_pairs += 1
             main_fact_path = args.design_root / base / "fact_record.json"
             gate_fact_path = args.design_root / base / "fact_record_gateA.json"
             if main_fact_path.is_file() and gate_fact_path.is_file():
@@ -409,9 +555,48 @@ def main(argv: list[str] | None = None) -> int:
                 else:
                     gatea_semantic_pairs += 1
 
+    complete_main_ids = validated_render_ids["main"]
+    complete_gatea_ids = validated_render_ids["gateA"]
+    complete_pair_ids = complete_main_ids & complete_gatea_ids
+    if "main" not in expected_variant_set or not complete_main_ids:
+        failures.append("missing complete main render")
+    if "gateA" in expected_variant_set:
+        if not complete_gatea_ids:
+            failures.append("missing complete gateA render")
+        if complete_main_ids != complete_gatea_ids:
+            failures.append(
+                "main and gateA render point IDs do not form complete pairs: "
+                f"main_only={sorted(complete_main_ids - complete_gatea_ids)} "
+                f"gateA_only={sorted(complete_gatea_ids - complete_main_ids)}"
+            )
+        if not complete_pair_ids:
+            failures.append("no complete main/gateA render pair")
+        complete_pair_count = len(complete_pair_ids)
+        if gatea_pairs != complete_pair_count:
+            failures.append(
+                "waveform nonidentity pair count "
+                f"{gatea_pairs} != complete pair count {complete_pair_count}"
+            )
+        if gatea_semantic_pairs != complete_pair_count:
+            failures.append(
+                "Gate A semantic pair count "
+                f"{gatea_semantic_pairs} != complete pair count {complete_pair_count}"
+            )
+        if execution_variant_unverified:
+            failures.append(
+                "execution_variant is unverified for requested main+gateA batch: "
+                + ", ".join(sorted(execution_variant_unverified))
+            )
     payload = {
         "schema": "qa_v3_audio_batch_verification_v1",
         "audio_root": str(args.audio_root),
+        "expected_variants": list(expected_variants),
+        "expected_variants_source": expected_variants_source,
+        "complete_render_point_ids": {
+            "main": sorted(complete_main_ids),
+            "gateA": sorted(complete_gatea_ids),
+        },
+        "complete_pair_count": len(complete_pair_ids),
         "checked_renders": checked,
         "audio_variant_waveform_nonidentity_pairs": gatea_pairs,
         "gatea_semantic_flip_pairs": gatea_semantic_pairs,
@@ -429,6 +614,7 @@ def main(argv: list[str] | None = None) -> int:
                 if execution_variant_failed
                 else "unverified"
                 if execution_variant_unverified
+                or not execution_variant_verified
                 else "verified"
             ),
             "verified_renders": execution_variant_verified,
