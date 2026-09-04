@@ -412,6 +412,14 @@ def summarize_action_samples(
     }
 
 
+def blender_frame_components(value: Any) -> tuple[int, float]:
+    """Split a possibly fractional action frame for Blender's frame_set API."""
+
+    frame = _finite_number(value, owner="action sample frame")
+    integer = math.floor(frame)
+    return int(integer), float(frame - integer)
+
+
 def _require_blender() -> Any:
     if bpy is None:
         raise AnimatedAnimalClosureError(
@@ -554,7 +562,8 @@ def _validate_imported_glb(
         armature.animation_data.action = action
         samples = []
         for frame in sample_frames:
-            blender.context.scene.frame_set(frame)
+            integer_frame, subframe = blender_frame_components(frame)
+            blender.context.scene.frame_set(integer_frame, subframe=subframe)
             blender.context.view_layer.update()
             samples.append(_blender_pose_snapshot(armature, bone_names))
         report = summarize_action_samples(

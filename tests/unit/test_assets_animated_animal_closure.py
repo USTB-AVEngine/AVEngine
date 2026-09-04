@@ -7,6 +7,7 @@ import pytest
 
 from tools.assets.validate_animated_animal_closure import (
     AnimatedAnimalClosureError,
+    blender_frame_components,
     parse_args,
     summarize_action_samples,
     validate_level_manifest,
@@ -127,3 +128,13 @@ def test_report_writer_is_fresh_and_json_serializable(tmp_path: Path) -> None:
     assert json.loads(report_path.read_text(encoding="utf-8")) == {"status": "passed"}
     with pytest.raises(AnimatedAnimalClosureError, match="refusing to overwrite"):
         write_report(report_path, {"status": "changed"})
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [(1.5, (1, 0.5)), (2.0, (2, 0.0)), (-0.25, (-1, 0.75))],
+)
+def test_fractional_blender_frames_use_integer_frame_and_subframe(value, expected):
+    integer, subframe = blender_frame_components(value)
+    assert integer == expected[0]
+    assert subframe == pytest.approx(expected[1])
