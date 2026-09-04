@@ -244,11 +244,15 @@ def test_hm3d_end_to_end_leaves_only_the_house_to_choose(tmp_path: Path) -> None
         )
     }
     defaults["split"] = "val"
+    train_dataset_config = tmp_path / "hm3d_all.scene_dataset_config.json"
+    train_dataset_config.write_text("{}", encoding="utf-8")
+    defaults["dataset_config_by_split"] = {"train": str(train_dataset_config)}
     config = _config(tmp_path, {"hm3d_end_to_end": defaults})
     argv = build_template_argv(config, "hm3d_end_to_end", {}, tmp_path / "out")
     assert argv[1].endswith("tools/studio/run_hm3d_end_to_end.py")
     assert "--split" in argv and "val" in argv
     assert str((tmp_path / "out").resolve()) in argv
+    assert argv[argv.index("--dataset-config") + 1] != str(train_dataset_config)
     with pytest.raises(StudioTemplateError, match="overrides not allowed"):
         build_template_argv(
             config, "hm3d_end_to_end", {"room_bounds": [0, 0, 1, 1]},
@@ -258,3 +262,13 @@ def test_hm3d_end_to_end_leaves_only_the_house_to_choose(tmp_path: Path) -> None
         build_template_argv(
             config, "hm3d_end_to_end", {"split": "vale"}, tmp_path / "out3"
         )
+
+    train_argv = build_template_argv(
+        config,
+        "hm3d_end_to_end",
+        {"split": "train"},
+        tmp_path / "train-out",
+    )
+    assert train_argv[train_argv.index("--dataset-config") + 1] == str(
+        train_dataset_config.resolve()
+    )

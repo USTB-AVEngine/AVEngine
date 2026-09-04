@@ -560,6 +560,16 @@ def build_template_argv(
             raise StudioTemplateError(
                 f"split must be one of {sorted(_HM3D_SPLITS)}, got {split!r}"
             )
+        dataset_config_by_split = merged.get("dataset_config_by_split")
+        if dataset_config_by_split is not None:
+            if not isinstance(dataset_config_by_split, dict):
+                raise StudioTemplateError(
+                    "dataset_config_by_split must be an object of split-to-path"
+                )
+            split_dataset_config = dataset_config_by_split.get(split)
+            if split_dataset_config is not None:
+                merged = dict(merged)
+                merged["dataset_config"] = split_dataset_config
         argv = [python, str(repo / "tools/studio/run_hm3d_end_to_end.py")]
         _append_paths(argv, merged, template_name, _HM3D_E2E_PATH_KEYS, repo)
         argv += ["--split", split]

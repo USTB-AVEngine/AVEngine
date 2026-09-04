@@ -53,10 +53,10 @@ class StudioConfig:
     sound_library_root: Path | None = None
 
 
-def _resolved_path(value: object, repository_root: Path) -> Path:
+def _resolved_path(value: object, base_dir: Path) -> Path:
     path = Path(str(value)).expanduser()
     if not path.is_absolute():
-        path = repository_root / path
+        path = base_dir / path
     return path.resolve()
 
 
@@ -77,7 +77,9 @@ def load_studio_config(config_path: str | Path) -> StudioConfig:
             f"got {payload.get('schema')!r}"
         )
 
-    repository_root = Path(str(_required(payload, "repository_root"))).resolve()
+    repository_root = _resolved_path(
+        _required(payload, "repository_root"), config_file.parent
+    )
     if not repository_root.is_dir():
         raise StudioConfigError(f"repository_root is not a directory: {repository_root}")
 

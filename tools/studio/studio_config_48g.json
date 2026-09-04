@@ -1,6 +1,6 @@
 {
   "schema": "avengine_studio_config_v1",
-  "repository_root": "/data/jzy/code/AVEngine-lead-a",
+  "repository_root": "../..",
   "python_executable": "/data/jzy/miniconda3/envs/avengine-habitat-runtime/bin/python",
   "review_root": "/data/avengine_external/review",
   "tasks_root": "/data/avengine_external/studio/tasks",
@@ -199,6 +199,9 @@
       "audio_python": "/data/jzy/miniconda3/envs/ss2/bin/python",
       "asset_dir": "/data/avengine_external/assets/sound_source_assets_v1/audio_playback/bookshelf_speaker/compact_shelf_cabinet_black_ash",
       "dataset_config": "/data/datasets/habitat_data/versioned_data/hm3d-1.0/hm3d/val/hm3d_vertexcolour_val_basis.scene_dataset_config.json",
+      "dataset_config_by_split": {
+        "train": "/data/avengine_external/studio/configs/hm3d_all_basis.scene_dataset_config.json"
+      },
       "materials_json": "/data/avengine_external/assets/hm3d_material_config.json",
       "hrtf": "/data/avengine_external/rlr-sdk/hrtf/mit_kemar_normal_pinna_16k_v2_sofar_20260820T2200Z/mit_kemar_normal_pinna_16k.sofa"
     }
