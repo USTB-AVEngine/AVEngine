@@ -46,6 +46,30 @@ def _resolve_input(path: str | Path, *, owner: str) -> Path:
     return value
 
 
+def _resolve_directory(path: str | Path, *, owner: str) -> Path:
+    value = Path(path).expanduser().resolve()
+    if not value.is_dir():
+        raise F2DirectionPixelJoinError(f"{owner} is missing: {value}")
+    return value
+
+
+def _resolve_declared_path(
+    raw: Any, *, base: Path, owner: str, directory: bool = False,
+) -> Path:
+    if isinstance(raw, Mapping):
+        raw = raw.get("path")
+    if not isinstance(raw, str) or not raw.strip():
+        raise F2DirectionPixelJoinError(f"{owner} must be a non-empty path")
+    value = Path(raw.strip()).expanduser()
+    if not value.is_absolute():
+        value = base / value
+    return (
+        _resolve_directory(value, owner=owner)
+        if directory
+        else _resolve_input(value, owner=owner)
+    )
+
+
 def _value_from_containers(
     fact: Mapping[str, Any], key: str,
 ) -> Any:
@@ -64,6 +88,33 @@ def _required_string(value: Any, *, owner: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise F2DirectionPixelJoinError(f"{owner} must be a non-empty string")
     return value.strip()
+
+
+def _fact_artifact_path(
+    fact: Mapping[str, Any],
+    fact_path: Path,
+    *,
+    keys: tuple[str, ...],
+    default_name: str,
+    owner: str,
+) -> Path:
+    raw = None
+    artifacts = fact.get("artifacts")
+    if isinstance(artifacts, Mapping):
+        for key in keys:
+            if artifacts.get(key) is not None:
+                raw = artifacts[key]
+                break
+    if raw is None:
+        for key in keys:
+            if fact.get(key) is not None:
+                raw = fact[key]
+                break
+    if raw is None:
+        raw = default_name
+    return _resolve_declared_path(
+        raw, base=fact_path.parent, owner=owner
+    )
 
 
 def _window(fact: Mapping[str, Any], *, owner: str) -> tuple[int, int]:
@@ -123,12 +174,12 @@ def _geometry_status(value: Any, *, role: str) -> str | None:
     return ("pass" if passed else "fail") if isinstance(passed, bool) else None
 
 
-def _window_geometry_status(
+def _window_geometry_detail(
     main_fact: Mapping[str, Any],
     gatea_fact: Mapping[str, Any],
     *,
     role: str,
-) -> str | None:
+) -> Mapping[str, Any] | None:
     for fact in (main_fact, gatea_fact):
         for container in (
             fact,
@@ -138,13 +189,31 @@ def _window_geometry_status(
         ):
             if not isinstance(container, Mapping):
                 continue
-            status = _geometry_status(
-                container.get("query_visibility_window_geometry"),
-                role=role,
-            )
-            if status is not None:
-                return status
+            value = container.get("query_visibility_window_geometry")
+            if not isinstance(value, Mapping):
+                continue
+            role_value = value.get(role)
+            if isinstance(role_value, Mapping):
+                return role_value
+            if role_value is not None:
+                return None
+            # A direct status is meaningful only on the matching fact. Do
+            # not copy one aggregate/direct status to both main and GateA.
+            if fact.get("variant") == role and (
+                "status" in value or "passes" in value
+            ):
+                return value
     return None
+
+
+def _window_geometry_status(
+    main_fact: Mapping[str, Any],
+    gatea_fact: Mapping[str, Any],
+    *,
+    role: str,
+) -> str | None:
+    detail = _window_geometry_detail(main_fact, gatea_fact, role=role)
+    return _geometry_status(detail, role=role) if detail is not None else None
 
 
 def _pixel_truth(raw: Mapping[str, Any], *, path: Path) -> Mapping[str, Any]:
@@ -277,6 +346,230 @@ def _evaluate_fact(
     )
 
 
+def _visual_binding_checks(
+    visual: Mapping[str, Any],
+    *,
+    visual_path: Path,
+    point_id: str,
+) -> tuple[dict[str, Any], list[str]]:
+    inputs = _mapping(visual.get("inputs"), owner="visual verification.inputs")
+    selection_path = _resolve_declared_path(
+        inputs.get("selection_manifest"),
+        base=visual_path.parent,
+        owner="visual verification.inputs.selection_manifest",
+    )
+    visual_root = _resolve_declared_path(
+        inputs.get("visual_root"),
+        base=visual_path.parent,
+        owner="visual verification.inputs.visual_root",
+        directory=True,
+    )
+    selection = _mapping(
+        _read(selection_path), owner="visual selection manifest"
+    )
+    selected = selection.get("selected")
+    selected_ids = {
+        item.get("point_id")
+        for item in selected
+        if isinstance(item, Mapping) and isinstance(item.get("point_id"), str)
+    } if isinstance(selected, list) else set()
+    points = visual.get("points")
+    point_rows = [
+        item for item in points
+        if isinstance(item, Mapping) and item.get("point_id") == point_id
+    ] if isinstance(points, list) else []
+    point_dir = visual_root / point_id
+    checks = {
+        "selection_manifest": str(selection_path),
+        "selected_point": point_id in selected_ids,
+        "visual_root": str(visual_root),
+        "point_directory": str(point_dir),
+        "point_directory_exists": point_dir.is_dir(),
+        "point_rows": len(point_rows),
+        "point_status_pass": (
+            len(point_rows) == 1 and point_rows[0].get("status") == "pass"
+        ),
+    }
+    reasons: list[str] = []
+    if point_id not in selected_ids:
+        reasons.append("visual_selection_manifest_missing_point")
+    if not point_dir.is_dir():
+        reasons.append("visual_root_missing_point")
+    if len(point_rows) != 1 or point_rows[0].get("status") != "pass":
+        reasons.append("visual_report_missing_passing_point")
+    return checks, reasons
+
+
+def _fact_program_id(fact: Mapping[str, Any], *, owner: str) -> str:
+    audio = _mapping(fact.get("audio"), owner=f"{owner}.audio")
+    return _required_string(audio.get("program_id"), owner=f"{owner}.audio.program_id")
+
+
+def _audio_binding_checks(
+    audio: Mapping[str, Any],
+    *,
+    audio_path: Path,
+    main_fact: Mapping[str, Any],
+    gatea_fact: Mapping[str, Any],
+    main_fact_path: Path,
+    gatea_fact_path: Path,
+    point_id: str,
+) -> tuple[dict[str, Any], list[str]]:
+    root = _resolve_declared_path(
+        audio.get("audio_root"),
+        base=audio_path.parent,
+        owner="audio verification.audio_root",
+        directory=True,
+    )
+    expected_names = {
+        "main": point_id,
+        "gateA": f"{point_id}_gateA",
+    }
+    checked = audio.get("checked_renders")
+    waveform_pairs = audio.get("audio_variant_waveform_nonidentity_pairs")
+    semantic_pairs = audio.get("gatea_semantic_flip_pairs")
+    reasons: list[str] = []
+    scalar_checks = {
+        "audio_root": str(root),
+        "checked_renders": checked,
+        "waveform_nonidentity_pairs": waveform_pairs,
+        "semantic_flip_pairs": semantic_pairs,
+        "checked_renders_sufficient": (
+            isinstance(checked, int) and not isinstance(checked, bool) and checked >= 2
+        ),
+        "waveform_nonidentity_sufficient": (
+            isinstance(waveform_pairs, int)
+            and not isinstance(waveform_pairs, bool)
+            and waveform_pairs >= 1
+        ),
+        "semantic_flip_sufficient": (
+            isinstance(semantic_pairs, int)
+            and not isinstance(semantic_pairs, bool)
+            and semantic_pairs >= 1
+        ),
+    }
+    if not scalar_checks["checked_renders_sufficient"]:
+        reasons.append("audio_checked_renders_insufficient")
+    if not scalar_checks["waveform_nonidentity_sufficient"]:
+        reasons.append("audio_waveform_nonidentity_not_established")
+    if not scalar_checks["semantic_flip_sufficient"]:
+        reasons.append("audio_semantic_flip_not_established")
+
+    execution = _mapping(
+        audio.get("execution_variant_verification"),
+        owner="audio verification.execution_variant_verification",
+    )
+    verified_renders = execution.get("verified_renders")
+    execution_verified = (
+        execution.get("status") == "verified"
+        and isinstance(verified_renders, list)
+        and all(name in verified_renders for name in expected_names.values())
+    )
+    scalar_checks["execution_variant_verified"] = execution_verified
+    scalar_checks["verified_renders"] = verified_renders
+    if not execution_verified:
+        reasons.append("audio_execution_variants_not_verified_for_pair")
+
+    fact_by_variant = {"main": main_fact, "gateA": gatea_fact}
+    fact_path_by_variant = {"main": main_fact_path, "gateA": gatea_fact_path}
+    render_checks: dict[str, Any] = {}
+    program_variant_ids: dict[str, Any] = {}
+    for variant, name in expected_names.items():
+        render_dir = root / name
+        receipt_path = render_dir / "research_receipt.json"
+        row: dict[str, Any] = {
+            "render_name": name,
+            "directory": str(render_dir),
+            "directory_exists": render_dir.is_dir(),
+            "receipt": str(receipt_path),
+            "receipt_exists": receipt_path.is_file(),
+        }
+        if not render_dir.is_dir() or not receipt_path.is_file():
+            reasons.append(f"audio_{variant}_render_missing")
+            render_checks[variant] = row
+            continue
+        receipt = _mapping(_read(receipt_path), owner=f"{variant} audio receipt")
+        program = _mapping(
+            receipt.get("audio_program"),
+            owner=f"{variant} audio receipt.audio_program",
+        )
+        fact = fact_by_variant[variant]
+        expected_program_id = _fact_program_id(
+            fact, owner=f"{variant} fact"
+        )
+        row.update({
+            "receipt_status": receipt.get("status"),
+            "execution_variant": receipt.get("execution_variant"),
+            "program_id": program.get("program_id"),
+            "program_variant_id": program.get("variant_id"),
+            "program_path": program.get("path"),
+        })
+        program_variant_ids[variant] = program.get("variant_id")
+        if receipt.get("status") != "pass":
+            reasons.append(f"audio_{variant}_receipt_not_pass")
+        if receipt.get("execution_variant") != variant:
+            reasons.append(f"audio_{variant}_execution_variant_mismatch")
+        if program.get("program_id") != expected_program_id:
+            reasons.append(f"audio_{variant}_program_id_mismatch")
+        program_path = program.get("path")
+        if (
+            not isinstance(program_path, str)
+            or not Path(program_path).expanduser().is_file()
+        ):
+            reasons.append(f"audio_{variant}_program_path_missing")
+        inputs = _mapping(
+            receipt.get("inputs"), owner=f"{variant} audio receipt.inputs"
+        )
+        expected_m1 = _fact_artifact_path(
+            fact,
+            fact_path_by_variant[variant],
+            keys=("m1_capture_request", "m1_request"),
+            default_name="m1_capture_request.json",
+            owner=f"{variant} fact M1 request",
+        )
+        expected_endpoint = _fact_artifact_path(
+            fact,
+            fact_path_by_variant[variant],
+            keys=("source_endpoint_registry", "source_endpoints"),
+            default_name="source_endpoints.json",
+            owner=f"{variant} fact endpoint registry",
+        )
+        for field, expected in (
+            ("m1_request", expected_m1),
+            ("source_endpoint_registry", expected_endpoint),
+        ):
+            actual = _resolve_declared_path(
+                inputs.get(field),
+                base=receipt_path.parent,
+                owner=f"{variant} audio receipt.inputs.{field}",
+            )
+            same = actual == expected
+            row[f"{field}_path_equal"] = same
+            if not same:
+                reasons.append(f"audio_{variant}_{field}_path_mismatch")
+        row["mixture_exists"] = (
+            (render_dir / "audio" / "binaural" / "mixture.wav").is_file()
+        )
+        if not row["mixture_exists"]:
+            reasons.append(f"audio_{variant}_mixture_missing")
+        render_checks[variant] = row
+    if (
+        "main" in program_variant_ids
+        and "gateA" in program_variant_ids
+        and (
+            not isinstance(program_variant_ids["main"], str)
+            or not isinstance(program_variant_ids["gateA"], str)
+            or program_variant_ids["main"] != program_variant_ids["gateA"]
+        )
+    ):
+        reasons.append("audio_program_variant_id_changed_between_main_and_gateA")
+    return {
+        **scalar_checks,
+        "render_checks": render_checks,
+        "program_variant_ids": program_variant_ids,
+    }, reasons
+
+
 def _verification_checks(
     visual: Mapping[str, Any],
     audio: Mapping[str, Any],
@@ -338,6 +631,11 @@ def join(
     profile_id = _required_string(
         main.get("profile_id"), owner="main fact.profile_id"
     )
+    reasons: list[str] = []
+    if main.get("variant") != "main":
+        reasons.append("main_fact_variant_must_be_main")
+    if gatea.get("variant") != "gateA":
+        reasons.append("gateA_fact_variant_must_be_gateA")
     for label, fact in (("main", main), ("GateA", gatea)):
         if fact.get("point_id") != point_id:
             raise F2DirectionPixelJoinError(
@@ -351,38 +649,149 @@ def join(
             raise F2DirectionPixelJoinError(
                 f"{label} fact profile_id differs from main fact"
             )
+    if gatea.get("gatea_of") is not None and gatea.get("gatea_of") != point_id:
+        reasons.append("gateA_fact_gatea_of_mismatch")
+
+    main_target = _required_string(
+        main.get("target_slot"), owner="main fact.target_slot"
+    )
+    gatea_target = _required_string(
+        gatea.get("target_slot"), owner="GateA fact.target_slot"
+    )
+    if main_target == gatea_target:
+        reasons.append("main_gateA_target_slot_not_exchanged")
 
     main_window = _window(main, owner="main fact")
     gatea_window = _window(gatea, owner="GateA fact")
-    reasons: list[str] = []
     if main_window != gatea_window:
         reasons.append("main_gatea_query_windows_differ")
 
-    geometry = {
-        "main": _window_geometry_status(main, gatea, role="main"),
-        "gateA": _window_geometry_status(main, gatea, role="gateA"),
+    geometry_details = {
+        "main": _window_geometry_detail(main, gatea, role="main"),
+        "gateA": _window_geometry_detail(main, gatea, role="gateA"),
     }
     geometry_checks = {
-        "main_status": geometry["main"],
-        "gateA_status": geometry["gateA"],
-        "main_pass": geometry["main"] == "pass",
-        "gateA_pass": geometry["gateA"] == "pass",
-        "both_pass": (
-            geometry["main"] == "pass" and geometry["gateA"] == "pass"
+        "main_status": (
+            _geometry_status(geometry_details["main"], role="main")
+            if geometry_details["main"] is not None else None
+        ),
+        "gateA_status": (
+            _geometry_status(geometry_details["gateA"], role="gateA")
+            if geometry_details["gateA"] is not None else None
         ),
     }
-    if not geometry_checks["main_pass"]:
-        reasons.append("main_query_visibility_window_geometry_not_pass")
-    if not geometry_checks["gateA_pass"]:
-        reasons.append("gateA_query_visibility_window_geometry_not_pass")
+    geometry_checks.update({
+        "main_pass": geometry_checks["main_status"] == "pass",
+        "gateA_pass": geometry_checks["gateA_status"] == "pass",
+    })
+    geometry_checks["both_pass"] = (
+        geometry_checks["main_pass"] and geometry_checks["gateA_pass"]
+    )
+    for label in ("main", "gateA"):
+        detail = geometry_details[label]
+        if not geometry_checks[f"{label}_pass"]:
+            reasons.append(f"{label}_query_visibility_window_geometry_not_pass")
+            continue
+        fact = main if label == "main" else gatea
+        expected_window = main_window if label == "main" else gatea_window
+        expected_policy = _query_visibility(fact, owner=f"{label} fact")
+        if detail.get("frame_bounds") != list(expected_window):
+            reasons.append(
+                f"{label}_query_visibility_window_geometry_window_mismatch"
+            )
+        if detail.get("policy") != expected_policy:
+            reasons.append(
+                f"{label}_query_visibility_window_geometry_policy_mismatch"
+            )
+        if detail.get("source_slot_id") != fact.get("target_slot"):
+            reasons.append(
+                f"{label}_query_visibility_window_geometry_slot_mismatch"
+            )
 
     visual = _mapping(_read(visual_path), owner="visual verification")
     audio = _mapping(_read(audio_path), owner="audio verification")
+    visual_binding, visual_binding_reasons = _visual_binding_checks(
+        visual, visual_path=visual_path, point_id=point_id
+    )
+    reasons.extend(visual_binding_reasons)
     verifier_checks, verifier_reasons = _verification_checks(visual, audio)
     reasons.extend(verifier_reasons)
+    audio_binding, audio_binding_reasons = _audio_binding_checks(
+        audio,
+        audio_path=audio_path,
+        main_fact=main,
+        gatea_fact=gatea,
+        main_fact_path=main_path,
+        gatea_fact_path=gatea_path,
+        point_id=point_id,
+    )
+    reasons.extend(audio_binding_reasons)
 
     pixel_wrapper = _mapping(_read(pixel_path), owner="pixel evidence")
+    if pixel_wrapper.get("schema") != "qa_v3_current_timeline_native_pixel_probe_v1":
+        raise F2DirectionPixelJoinError(
+            "pixel evidence must have schema "
+            "'qa_v3_current_timeline_native_pixel_probe_v1'"
+        )
+    if pixel_wrapper.get("status") != "pass":
+        raise F2DirectionPixelJoinError("pixel evidence must have status='pass'")
+    pixel_inputs = _mapping(
+        pixel_wrapper.get("inputs"), owner="pixel evidence.inputs"
+    )
+    expected_selection = _fact_artifact_path(
+        main,
+        main_path,
+        keys=("actor_selection", "selection"),
+        default_name="actor_selection.json",
+        owner="main fact actor selection",
+    )
+    expected_timeline = _fact_artifact_path(
+        main,
+        main_path,
+        keys=("timeline",),
+        default_name="timeline.json",
+        owner="main fact timeline",
+    )
+    pixel_path_checks: dict[str, Any] = {}
+    for field, expected in (
+        ("actor_selection", expected_selection),
+        ("timeline", expected_timeline),
+    ):
+        actual = _resolve_declared_path(
+            pixel_inputs.get(field),
+            base=pixel_path.parent,
+            owner=f"pixel evidence.inputs.{field}",
+        )
+        same = actual == expected
+        pixel_path_checks[f"{field}_path_equal"] = same
+        if not same:
+            reasons.append(f"pixel_{field}_path_mismatch")
+    expected_map = (
+        (main.get("room") or {}).get("native_map")
+        if isinstance(main.get("room"), Mapping)
+        else None
+    )
+    native_map = _required_string(
+        pixel_wrapper.get("native_map"), owner="pixel evidence.native_map"
+    )
+    if not isinstance(expected_map, str) or not expected_map:
+        raise F2DirectionPixelJoinError(
+            "main fact.room.native_map is required to bind pixel evidence"
+        )
+    pixel_path_checks["native_map"] = native_map
+    pixel_path_checks["native_map_matches_fact"] = native_map == expected_map
+    if native_map != expected_map:
+        reasons.append("pixel_native_map_mismatch")
+
     truth = _pixel_truth(pixel_wrapper, path=pixel_path)
+    if truth.get("schema") != "avengine_qa_pixel_visibility_truth_v1":
+        raise F2DirectionPixelJoinError(
+            "pixel truth must have schema 'avengine_qa_pixel_visibility_truth_v1'"
+        )
+    if truth.get("status") != "computed_modal_target_only_v1":
+        raise F2DirectionPixelJoinError(
+            "pixel truth must have status='computed_modal_target_only_v1'"
+        )
     frames_by_slot = _frames_by_slot(truth)
     main_eval, main_reasons = _evaluate_fact(
         main, label="main", frames_by_slot=frames_by_slot
@@ -407,8 +816,18 @@ def join(
         "profile_id": profile_id,
         "rejection_reasons": reasons,
         "checks": {
+            "fact_variants": {
+                "main": main.get("variant"),
+                "gateA": gatea.get("variant"),
+                "main_gateA_target_slots_exchanged": (
+                    main_target != gatea_target
+                ),
+            },
             "query_visibility_window_geometry": geometry_checks,
+            "visual_binding": visual_binding,
             "visual_audio_verification": verifier_checks,
+            "audio_binding": audio_binding,
+            "pixel_binding": pixel_path_checks,
             "main_window": main_eval,
             "gateA_window": gatea_eval,
             "pixel_truth_schema": truth.get("schema"),
