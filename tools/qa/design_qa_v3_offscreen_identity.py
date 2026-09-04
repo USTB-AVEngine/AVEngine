@@ -3,9 +3,9 @@
 
 Two selected human voices each speak one complete train utterance while their
 planned route is outside the camera cone, then repeat that same utterance after
-entering the cone.  Gate A swaps the two appearances on the same route slots,
-so every early and late occurrence follows the new binding while audio content
-and timing stay fixed.  Gate A swaps audio endpoint bindings while Gate B swaps visual appearance bindings.
+entering the cone. Gate A rebinds both occurrences of each voice to the other
+audio endpoint while visual identity, content and timing stay fixed. Gate B
+swaps visual appearance bindings while keeping the main audio program.
 The route and visibility labels are geometric plans; pixel visibility and
 recognisability remain pending native media review.
 """
