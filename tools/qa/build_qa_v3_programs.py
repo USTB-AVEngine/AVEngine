@@ -408,13 +408,23 @@ def build_program(request: dict, events, *, revision: str) -> dict:
         endpoints = [request["endpoint_1"], request["endpoint_2"]]
         slot_to_ep = {"source1": endpoints[0], "source2": endpoints[1]}
     ev_rows = []
+    seen_event_ids: set[str] = set()
     for i, event in enumerate(events):
+        explicit_event_id: str | None = None
         if isinstance(event, dict):
             for key in ("slot", "start_sample", "duration_samples",
                         "sound_asset_id", "source_start_sample",
                         "source_end_sample_exclusive"):
                 if key not in event:
                     raise ValueError(f"program event missing {key}")
+            if "event_id" in event:
+                raw_event_id = event["event_id"]
+                if (not isinstance(raw_event_id, str)
+                        or not raw_event_id.strip()):
+                    raise ValueError(
+                        "program event event_id must be a non-empty string"
+                    )
+                explicit_event_id = raw_event_id
             slot = str(event["slot"])
             start = int(event["start_sample"])
             duration = int(event["duration_samples"])
@@ -432,9 +442,13 @@ def build_program(request: dict, events, *, revision: str) -> dict:
             raise ValueError(
                 "events must be (slot,start), (slot,start,sound_asset_id), "
                 "or a dict with duration and source window")
+        event_id = explicit_event_id or f"{slot}_event_{i}"
+        if event_id in seen_event_ids:
+            raise ValueError(f"program event_id must be unique: {event_id!r}")
+        seen_event_ids.add(event_id)
         end = start + duration
         ev_rows.append({
-            "event_id": f"{slot}_event_{i}",
+            "event_id": event_id,
             "source_endpoint_id": slot_to_ep[slot],
             "sound_asset_id": str(sound_asset_id),
             "start_tick": start * ticks_per_sample,

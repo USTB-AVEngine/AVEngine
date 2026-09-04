@@ -1,0 +1,37 @@
+{
+  "schema": "avengine_qa_v3_offscreen_identity_profile_v1",
+  "id": "f2_offscreen_identity_first_speaker_v1",
+  "answer_kind": "first_speaker_appearance",
+  "actor_count": 2,
+  "appearance_colors": [
+    "burgundy",
+    "blue"
+  ],
+  "speech_split": "train",
+  "distinct_transcripts": true,
+  "speech_selection_strategy": "bounded_random",
+  "speech_selection_attempts": 64,
+  "speech_selection_candidate_window": 8,
+  "speech_selection_fallback_strategy": null,
+  "early_window_seconds": [
+    0.2,
+    4.7
+  ],
+  "late_window_seconds": [
+    5.0,
+    9.5
+  ],
+  "gap_seconds": 0.3,
+  "tail_seconds": 0.5,
+  "min_pairwise_azimuth_deg": 15.0,
+  "min_camera_distance_cm": 250.0,
+  "max_search_attempts": 2000,
+  "visibility_rule": {
+    "early": "out_of_view",
+    "late": "in_view",
+    "basis": "camera_cone_geometry_only"
+  },
+  "pixel_status": "pending_native_pixel_join",
+  "visibility_margin_deg": 5.0,
+  "execution_backend": "offscreen_identity"
+}

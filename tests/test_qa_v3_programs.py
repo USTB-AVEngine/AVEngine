@@ -293,3 +293,45 @@ def test_legal_gain_one_passes_request_fields_and_schema():
     doc = build_program(request, events, revision="v1")
     validate_m6_audio_program(doc)
     assert {event["linear_gain"] for event in doc["events"]} == {1.0}
+
+
+def test_build_program_preserves_explicit_event_ids_and_rejects_duplicates():
+    events = [
+        {
+            "event_id": "speech_early_voice_a",
+            "slot": "source1",
+            "start_sample": 1000,
+            "duration_samples": EVENT_LEN,
+            "sound_asset_id": "sound_a",
+            "source_start_sample": 0,
+            "source_end_sample_exclusive": EVENT_LEN,
+        },
+        {
+            "event_id": "speech_early_voice_b",
+            "slot": "source2",
+            "start_sample": 10000,
+            "duration_samples": EVENT_LEN,
+            "sound_asset_id": "sound_b",
+            "source_start_sample": 0,
+            "source_end_sample_exclusive": EVENT_LEN,
+        },
+    ]
+    doc = build_program(_req("explicit-event-ids"), events, revision="v1")
+    assert [event["event_id"] for event in doc["events"]] == [
+        "speech_early_voice_a", "speech_early_voice_b"
+    ]
+    duplicate = [dict(event, event_id="same") for event in events]
+    with pytest.raises(ValueError, match="event_id.*unique"):
+        build_program(_req("duplicate-event-ids"), duplicate, revision="v1")
+    with pytest.raises(ValueError, match="event_id.*non-empty"):
+        build_program(
+            _req("blank-event-id"),
+            [dict(events[0], event_id="")],
+            revision="v1",
+        )
+    with pytest.raises(ValueError, match="event_id.*non-empty"):
+        build_program(
+            _req("null-event-id"),
+            [dict(events[0], event_id=None)],
+            revision="v1",
+        )
