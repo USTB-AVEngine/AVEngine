@@ -5,7 +5,7 @@
 
 自 2026-08-25 起，目录本身就是能力分组（阶段目录 m1…m7 已移除），
 本表按目录列出每个工具做什么。
-当前共 344 个工具脚本。
+当前共 347 个工具脚本。
 
 ## 资产生成与装配（`tools/assets/`）
 
@@ -154,8 +154,11 @@
 | `tools/routes/compile_apartment_feasibility_bank.py` | Compile Apartment feasibility, a four-case trajectory bank, and Topdown QA |
 | `tools/routes/compile_hm3d_dynamic_source_bank.py` | Ask whether a moving sound source can find legal routes in an HM3D scene |
 | `tools/routes/compile_kujiale_feasibility_bank.py` | Compile a Kujiale room polygon into reusable source-center trajectories |
+| `tools/routes/compile_mp3d_region_plan.py` | Build a bounded CPU MP3D .house region/camera/source-route plan |
 | `tools/routes/filter_route_bank_by_ground.py` | Select one UE ground-height route domain from a multi-level route bank |
 | `tools/routes/import_legacy_apartment_route.py` | Import the legacy 18 s apartment route into the M5.1 route manifest |
+| `tools/routes/materialize_mp3d_actor_tracks.py` | Build CPU Habitat apply tracks for one planned MP3D region case |
+| `tools/routes/materialize_mp3d_region_case.py` | Materialize one MP3D region route case into current AVEngine inputs |
 | `tools/routes/plot_route_bank.py` | Render the apartment route bank as a top-down map: engine navigation vs the hand-mined corridors |
 | `tools/routes/probe_camera_pose_native.py` | Render one lightweight native Habitat camera-pose probe |
 | `tools/routes/select_asset_bound_trajectories.py` | Select asset-bound source-slot routes that pass the real center-point gate |
