@@ -1,8 +1,8 @@
 """Deterministic M5 episode-video assembly and independent readback.
 
 The four-channel FOA WAVE remains the dataset-authority spatial signal.  This
-module owns only the ordinary review-video boundary: one exact 75-frame H.264
-base MP4 and one explicitly mapped, two-channel 16 kHz AAC presentation track.
+module owns the ordinary review-video boundary: a requested-clock H.264
+base MP4 and one explicitly mapped AAC presentation track. Formal wrappers retain the historical 75-frame, 5-second, 16 kHz defaults.
 It never uses FFmpeg's ``-shortest`` policy and it verifies the published bytes
 before returning them to a caller.
 """
@@ -35,6 +35,7 @@ VIDEO_DURATION_TICKS = 240_000
 AUDIO_SAMPLE_RATE_HZ = 16_000
 AUDIO_SAMPLE_COUNT = 80_000
 AUDIO_CHANNEL_COUNT = 2
+AAC_CODEC_FRAME_SAMPLES = 1024
 
 QA_PANEL_WIDTH = 560
 QA_PANEL_HEIGHT = 240
@@ -43,6 +44,51 @@ TOPDOWN_WIDTH = 240
 
 class M5VideoError(ValueError):
     """An input, media tool, or decoded output violates the M5 contract."""
+
+
+def _positive_int(value: Any, *, owner: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+        raise M5VideoError(f"{owner} must be a positive integer")
+    return int(value)
+
+
+def _positive_rate(value: Any, *, owner: str) -> float:
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, (int, float, Fraction))
+        or not math.isfinite(float(value))
+        or float(value) <= 0.0
+    ):
+        raise M5VideoError(f"{owner} must be a finite positive number")
+    return float(value)
+
+
+def _rate_fraction(value: Any, *, owner: str) -> Fraction:
+    rate = _positive_rate(value, owner=owner)
+    try:
+        result = Fraction(str(rate))
+    except (TypeError, ValueError, ZeroDivisionError) as exc:
+        raise M5VideoError(f"{owner} is not a valid frame rate") from exc
+    if result <= 0:
+        raise M5VideoError(f"{owner} must be positive")
+    return result
+
+
+def _fraction_text(value: Fraction) -> str:
+    return f"{value.numerator}/{value.denominator}"
+
+
+def _video_duration_tolerance(frame_rate_hz: float) -> float:
+    del frame_rate_hz
+    # Video PTS are written on the 48 kHz MP4 time base. Half a tick is
+    # sufficient for quantization while frame count is checked separately.
+    return 0.5 / VIDEO_TIME_BASE_HZ
+
+
+def _audio_duration_tolerance(sample_rate_hz: int) -> float:
+    # AAC packetization can expose one codec frame of padding in a container.
+    # Decoded shortfall is checked independently.
+    return AAC_CODEC_FRAME_SAMPLES / float(sample_rate_hz) + 0.5 / VIDEO_TIME_BASE_HZ
 
 
 def _tool(value: str | Path, *, owner: str) -> str:
@@ -154,8 +200,17 @@ def _rgb_frame(value: Any, *, shape: tuple[int, int, int], owner: str) -> np.nda
 
 
 def _base_encode_command(
-    *, ffmpeg: str, width: int, height: int, destination: Path
+    *,
+    ffmpeg: str,
+    width: int,
+    height: int,
+    destination: Path,
+    frame_rate_hz: float = FRAME_RATE,
 ) -> list[str]:
+    rate = _rate_fraction(frame_rate_hz, owner="video frame rate")
+    # x264 requires an integer GOP length. Input PTS still carry the rational rate.
+    gop = max(1, int(round(float(rate))))
+    rate_text = _fraction_text(rate)
     return [
         ffmpeg,
         "-nostdin",
@@ -172,7 +227,7 @@ def _base_encode_command(
         "-video_size",
         f"{width}x{height}",
         "-framerate",
-        str(FRAME_RATE),
+        rate_text,
         "-i",
         "pipe:0",
         "-map",
@@ -189,9 +244,9 @@ def _base_encode_command(
         "-profile:v",
         "high",
         "-g",
-        str(FRAME_RATE),
+        str(gop),
         "-keyint_min",
-        str(FRAME_RATE),
+        str(gop),
         "-sc_threshold",
         "0",
         "-bf",
@@ -219,10 +274,17 @@ def _encode_h264_video_profile(
     width: int,
     height: int,
     profile_name: str,
+    frame_count: int | None = FRAME_COUNT,
+    frame_rate_hz: float = FRAME_RATE,
     ffmpeg: str | Path = "ffmpeg",
     ffprobe: str | Path = "ffprobe",
 ) -> dict[str, Any]:
     owner = f"{profile_name} base video output"
+    expected_count = (
+        None if frame_count is None
+        else _positive_int(frame_count, owner="expected video frame count")
+    )
+    rate = _positive_rate(frame_rate_hz, owner="expected video frame rate")
     destination = _new_mp4_path(output_path, owner=owner)
     executable = _tool(ffmpeg, owner="ffmpeg")
     temporary = _temporary_mp4(destination)
@@ -231,6 +293,7 @@ def _encode_h264_video_profile(
         width=width,
         height=height,
         destination=temporary,
+        frame_rate_hz=rate,
     )
     try:
         process = subprocess.Popen(
@@ -261,9 +324,9 @@ def _encode_h264_video_profile(
             raise M5VideoError(
                 f"FFmpeg H.264 encoder returned {return_code}: {stderr}"
             )
-        if count != FRAME_COUNT:
+        if expected_count is not None and count != expected_count:
             raise M5VideoError(
-                f"{profile_name} base video requires exactly {FRAME_COUNT} frames, "
+                f"{profile_name} base video requires exactly {expected_count} frames, "
                 f"received {count}"
             )
         report = _probe_video_profile(
@@ -272,9 +335,12 @@ def _encode_h264_video_profile(
             expected_height=height,
             profile_name=profile_name,
             require_audio=False,
+            expected_frame_count=expected_count,
+            expected_frame_rate_hz=rate,
             ffprobe=ffprobe,
         )
-        packet_hash = video_packet_sha256(temporary, ffprobe=ffprobe)
+        packet_hash = video_packet_sha256(
+            temporary, expected_frame_count=count, ffprobe=ffprobe)
         _publish(temporary, destination, owner=owner)
         report["path"] = str(destination)
         report["video_packet_hash"] = packet_hash
@@ -345,8 +411,12 @@ def _mux_command(
     base_video: Path,
     audio_wav: Path,
     destination: Path,
+    sample_rate_hz: int = AUDIO_SAMPLE_RATE_HZ,
+    channel_count: int = AUDIO_CHANNEL_COUNT,
 ) -> list[str]:
-    """Build the frozen M5 mux command (kept separate for contract tests)."""
+    """Build an explicit stream-mapped mux command without shortest truncation."""
+    sample_rate = _positive_int(sample_rate_hz, owner="audio sample rate")
+    channels = _positive_int(channel_count, owner="audio channel count")
 
     return [
         ffmpeg,
@@ -374,9 +444,9 @@ def _mux_command(
         "-b:a",
         "96k",
         "-ar",
-        str(AUDIO_SAMPLE_RATE_HZ),
+        str(sample_rate),
         "-ac",
-        str(AUDIO_CHANNEL_COUNT),
+        str(channels),
         "-threads:a",
         "1",
         "-flags:a",
@@ -419,8 +489,33 @@ def _probe_video_profile(
     expected_height: int,
     profile_name: str,
     require_audio: bool = True,
+    expected_frame_count: int | None = FRAME_COUNT,
+    expected_frame_rate_hz: float | None = FRAME_RATE,
+    expected_audio_sample_rate_hz: int | None = AUDIO_SAMPLE_RATE_HZ,
+    expected_audio_sample_count: int | None = AUDIO_SAMPLE_COUNT,
+    expected_audio_channel_count: int | None = AUDIO_CHANNEL_COUNT,
     ffprobe: str | Path = "ffprobe",
 ) -> dict[str, Any]:
+    if expected_frame_count is not None:
+        expected_frame_count = _positive_int(
+            expected_frame_count, owner="expected video frame count")
+    expected_rate_fraction = (
+        None if expected_frame_rate_hz is None
+        else _rate_fraction(expected_frame_rate_hz, owner="expected video frame rate")
+    )
+    expected_audio_rate = (
+        None if expected_audio_sample_rate_hz is None
+        else _positive_int(expected_audio_sample_rate_hz, owner="expected audio sample rate")
+    )
+    expected_audio_count = (
+        None if expected_audio_sample_count is None
+        else _positive_int(expected_audio_sample_count, owner="expected audio sample count")
+    )
+    expected_audio_channels = (
+        None if expected_audio_channel_count is None
+        else _positive_int(expected_audio_channel_count, owner="expected audio channel count")
+    )
+
     media = _media_path(path, owner=f"{profile_name} video")
     value = _ffprobe_json(
         media,
@@ -453,11 +548,12 @@ def _probe_video_profile(
     audios = [stream for stream in streams if stream.get("codec_type") == "audio"]
     if len(videos) != 1:
         raise M5VideoError(f"{profile_name} must contain exactly one video stream")
-    expected_audio_count = 1 if require_audio else 0
-    if len(audios) != expected_audio_count or len(streams) != 1 + expected_audio_count:
+    expected_audio_count_streams = 1 if require_audio else 0
+    if (len(audios) != expected_audio_count_streams
+            or len(streams) != 1 + expected_audio_count_streams):
         raise M5VideoError(
             f"{profile_name} must contain one video and "
-            f"{expected_audio_count} audio streams"
+            f"{expected_audio_count_streams} audio streams"
         )
 
     video = videos[0]
@@ -476,38 +572,76 @@ def _probe_video_profile(
         average_rate = Fraction(str(video["avg_frame_rate"]))
     except (KeyError, ValueError, ZeroDivisionError) as exc:
         raise M5VideoError("video average frame rate is malformed") from exc
-    if average_rate != FRAME_RATE:
+    if average_rate <= 0:
+        raise M5VideoError("video average frame rate must be positive")
+    if expected_rate_fraction is not None and average_rate != expected_rate_fraction:
         raise M5VideoError(
-            f"{profile_name} video average frame rate is not exactly 15 fps"
+            f"{profile_name} video average frame rate is not "
+            f"{_fraction_text(expected_rate_fraction)}"
         )
     frame_count = _integer_field(video, "nb_read_frames", owner="video")
-    if frame_count != FRAME_COUNT:
+    if expected_frame_count is not None and frame_count != expected_frame_count:
         raise M5VideoError(
             f"{profile_name} video has {frame_count} decoded frames, "
-            f"expected {FRAME_COUNT}"
+            f"expected {expected_frame_count}"
         )
     if _integer_field(video, "start_pts", owner="video") != 0:
         raise M5VideoError(
             f"{profile_name} video first presentation timestamp is not zero"
         )
-    if _stream_duration(video, owner="video") != Fraction(5, 1):
-        raise M5VideoError(f"{profile_name} video duration is not exactly five seconds")
+    video_duration = _stream_duration(video, owner="video")
+    expected_video_duration = (
+        None if expected_frame_count is None or expected_rate_fraction is None
+        else Fraction(expected_frame_count, 1) / expected_rate_fraction
+    )
+    if (
+        expected_video_duration is not None
+        and abs(float(video_duration - expected_video_duration))
+        > _video_duration_tolerance(float(expected_rate_fraction))
+    ):
+        raise M5VideoError(
+            f"{profile_name} video duration {float(video_duration):.9f}s "
+            f"differs from expected {float(expected_video_duration):.9f}s"
+        )
 
     audio_report: dict[str, Any] | None = None
     if require_audio:
         audio = audios[0]
         if audio.get("codec_name") != "aac":
             raise M5VideoError("episode presentation audio codec must be AAC")
+        actual_audio_rate = _integer_field(audio, "sample_rate", owner="audio")
+        actual_audio_channels = _integer_field(audio, "channels", owner="audio")
         if (
-            _integer_field(audio, "sample_rate", owner="audio")
-            != AUDIO_SAMPLE_RATE_HZ
-            or _integer_field(audio, "channels", owner="audio")
-            != AUDIO_CHANNEL_COUNT
+            expected_audio_rate is not None
+            and actual_audio_rate != expected_audio_rate
+        ) or (
+            expected_audio_channels is not None
+            and actual_audio_channels != expected_audio_channels
         ):
-            raise M5VideoError("episode presentation audio must be 16 kHz stereo")
-        if _stream_duration(audio, owner="audio") != Fraction(5, 1):
+            expected_rate_text = (
+                str(expected_audio_rate) if expected_audio_rate is not None else "any"
+            )
+            expected_channels_text = (
+                str(expected_audio_channels)
+                if expected_audio_channels is not None else "any"
+            )
             raise M5VideoError(
-                "episode presentation audio duration is not five seconds"
+                f"episode presentation audio must be "
+                f"{expected_rate_text} Hz/{expected_channels_text} channels"
+            )
+        audio_duration = _stream_duration(audio, owner="audio")
+        expected_audio_duration = (
+            None if expected_audio_count is None or expected_audio_rate is None
+            else Fraction(expected_audio_count, 1) / expected_audio_rate
+        )
+        if (
+            expected_audio_duration is not None
+            and abs(float(audio_duration - expected_audio_duration))
+            > _audio_duration_tolerance(actual_audio_rate)
+        ):
+            raise M5VideoError(
+                f"episode presentation audio duration {float(audio_duration):.9f}s "
+                f"differs from expected {float(expected_audio_duration):.9f}s"
             )
         try:
             audio_start = Fraction(str(audio.get("start_time", "0")))
@@ -518,13 +652,18 @@ def _probe_video_profile(
         audio_report = {
             "codec_name": "aac",
             "profile": audio.get("profile"),
-            "sample_rate_hz": AUDIO_SAMPLE_RATE_HZ,
-            "channel_count": AUDIO_CHANNEL_COUNT,
+            "sample_rate_hz": actual_audio_rate,
+            "channel_count": actual_audio_channels,
             "channel_layout": audio.get("channel_layout"),
-            "duration_seconds": 5,
-            "start_seconds": 0,
+            "duration_seconds": float(audio_duration),
+            "start_seconds": float(audio_start),
         }
 
+    video_duration_ticks = video.get("duration_ts")
+    try:
+        video_duration_ticks = int(video_duration_ticks)
+    except (TypeError, ValueError):
+        video_duration_ticks = int(round(float(video_duration) * VIDEO_TIME_BASE_HZ))
     return {
         "path": str(media),
         "format_name": format_value.get("format_name"),
@@ -533,11 +672,11 @@ def _probe_video_profile(
             "width": expected_width,
             "height": expected_height,
             "pixel_format": "yuv420p",
-            "frame_count": FRAME_COUNT,
-            "frame_rate": "15/1",
+            "frame_count": frame_count,
+            "frame_rate": _fraction_text(average_rate),
             "first_pts": 0,
-            "duration_ticks": VIDEO_DURATION_TICKS,
-            "duration_seconds": 5,
+            "duration_ticks": video_duration_ticks,
+            "duration_seconds": float(video_duration),
         },
         "audio": audio_report,
     }
@@ -582,6 +721,7 @@ def probe_qa_review_video(
 def video_packet_sha256(
     path: str | Path,
     *,
+    expected_frame_count: int | None = FRAME_COUNT,
     ffprobe: str | Path = "ffprobe",
 ) -> dict[str, Any]:
     """Hash ordered H.264 packet payloads independently of MP4 metadata.
@@ -591,6 +731,9 @@ def video_packet_sha256(
     counterfactual A/B pair must have equal payload and timeline hashes.
     """
 
+    if expected_frame_count is not None:
+        expected_frame_count = _positive_int(
+            expected_frame_count, owner="expected packet frame count")
     media = _media_path(path, owner="video packet input")
     value = _ffprobe_json(
         media,
@@ -607,10 +750,12 @@ def video_packet_sha256(
         owner="FFprobe video packet hashing",
     )
     packets = value.get("packets")
-    if not isinstance(packets, list) or len(packets) != FRAME_COUNT:
+    if not isinstance(packets, list):
+        raise M5VideoError("video packet hashing returned an invalid packet list")
+    if expected_frame_count is not None and len(packets) != expected_frame_count:
         raise M5VideoError(
-            f"video packet hashing expected {FRAME_COUNT} packets, got "
-            f"{len(packets) if isinstance(packets, list) else 'invalid'}"
+            f"video packet hashing expected {expected_frame_count} packets, got "
+            f"{len(packets)}"
         )
     payload_digest = hashlib.sha256()
     payload_digest.update(b"avengine_m5_h264_packet_payloads_v1\0")
@@ -653,7 +798,7 @@ def video_packet_sha256(
     ).encode("ascii")
     return {
         "algorithm": "sha256_length_bound_ordered_packet_payloads_v1",
-        "packet_count": FRAME_COUNT,
+        "packet_count": len(packets),
         "payload_sha256": payload_digest.hexdigest(),
         "timeline_sha256": hashlib.sha256(timeline_bytes).hexdigest(),
         "packet_sha256": packet_hashes,
@@ -663,8 +808,23 @@ def video_packet_sha256(
 def _probe_authoritative_wav(
     path: Path,
     *,
+    expected_sample_rate_hz: int | None = AUDIO_SAMPLE_RATE_HZ,
+    expected_sample_count: int | None = AUDIO_SAMPLE_COUNT,
+    expected_channel_count: int | None = AUDIO_CHANNEL_COUNT,
     ffprobe: str | Path,
 ) -> dict[str, Any]:
+    expected_rate = (
+        None if expected_sample_rate_hz is None
+        else _positive_int(expected_sample_rate_hz, owner="expected audio sample rate")
+    )
+    expected_count = (
+        None if expected_sample_count is None
+        else _positive_int(expected_sample_count, owner="expected audio sample count")
+    )
+    expected_channels = (
+        None if expected_channel_count is None
+        else _positive_int(expected_channel_count, owner="expected audio channel count")
+    )
     value = _ffprobe_json(
         path,
         [
@@ -688,20 +848,34 @@ def _probe_authoritative_wav(
         stream.get("codec_name", "")
     ).startswith("pcm_"):
         raise M5VideoError("authoritative WAVE must contain PCM audio")
+    actual_rate = _integer_field(stream, "sample_rate", owner="authoritative WAVE")
+    actual_channels = _integer_field(stream, "channels", owner="authoritative WAVE")
     if (
-        _integer_field(stream, "sample_rate", owner="authoritative WAVE")
-        != AUDIO_SAMPLE_RATE_HZ
-        or _integer_field(stream, "channels", owner="authoritative WAVE")
-        != AUDIO_CHANNEL_COUNT
+        (expected_rate is not None and actual_rate != expected_rate)
+        or (expected_channels is not None and actual_channels != expected_channels)
     ):
-        raise M5VideoError("authoritative WAVE must be 16 kHz stereo")
-    if _stream_duration(stream, owner="authoritative WAVE") != Fraction(5, 1):
-        raise M5VideoError("authoritative WAVE duration must be exactly five seconds")
+        if expected_rate == AUDIO_SAMPLE_RATE_HZ and expected_channels == AUDIO_CHANNEL_COUNT:
+            raise M5VideoError("authoritative WAVE must be 16 kHz stereo")
+        raise M5VideoError(
+            f"authoritative WAVE must be {expected_rate or 'any'} Hz/"
+            f"{expected_channels or 'any'} channels"
+        )
+    duration = _stream_duration(stream, owner="authoritative WAVE")
+    sample_count_fraction = duration * actual_rate
+    if sample_count_fraction.denominator != 1:
+        raise M5VideoError("authoritative WAVE duration is not aligned to samples")
+    actual_count = int(sample_count_fraction)
+    if expected_count is not None and actual_count != expected_count:
+        raise M5VideoError(
+            f"authoritative WAVE has {actual_count} samples, "
+            f"expected {expected_count}"
+        )
     return {
         "codec_name": stream.get("codec_name"),
-        "sample_rate_hz": AUDIO_SAMPLE_RATE_HZ,
-        "channel_count": AUDIO_CHANNEL_COUNT,
-        "sample_count": AUDIO_SAMPLE_COUNT,
+        "sample_rate_hz": actual_rate,
+        "channel_count": actual_channels,
+        "sample_count": actual_count,
+        "duration_seconds": float(duration),
     }
 
 
@@ -713,6 +887,11 @@ def _mux_binaural_wav_profile(
     expected_width: int,
     expected_height: int,
     profile_name: str,
+    frame_count: int | None = None,
+    frame_rate_hz: float | None = None,
+    sample_rate_hz: int | None = None,
+    sample_count: int | None = None,
+    audio_channel_count: int | None = AUDIO_CHANNEL_COUNT,
     ffmpeg: str | Path = "ffmpeg",
     ffprobe: str | Path = "ffprobe",
 ) -> dict[str, Any]:
@@ -721,19 +900,68 @@ def _mux_binaural_wav_profile(
     output_owner = f"muxed {profile_name} output"
     destination = _new_mp4_path(output_path, owner=output_owner)
     executable = _tool(ffmpeg, owner="ffmpeg")
-    _probe_video_profile(
+
+    requested_frame_count = (
+        None if frame_count is None
+        else _positive_int(frame_count, owner="expected video frame count")
+    )
+    requested_frame_rate = (
+        None if frame_rate_hz is None
+        else _positive_rate(frame_rate_hz, owner="expected video frame rate")
+    )
+    requested_sample_rate = (
+        None if sample_rate_hz is None
+        else _positive_int(sample_rate_hz, owner="expected audio sample rate")
+    )
+    requested_sample_count = (
+        None if sample_count is None
+        else _positive_int(sample_count, owner="expected audio sample count")
+    )
+    requested_channels = (
+        None if audio_channel_count is None
+        else _positive_int(audio_channel_count, owner="expected audio channel count")
+    )
+
+    base_report = _probe_video_profile(
         base_video,
         expected_width=expected_width,
         expected_height=expected_height,
         profile_name=profile_name,
         require_audio=False,
+        expected_frame_count=requested_frame_count,
+        expected_frame_rate_hz=requested_frame_rate,
         ffprobe=ffprobe,
     )
-    _probe_authoritative_wav(audio_wav, ffprobe=ffprobe)
-    decoded_reference = _decode_audio_f32(audio_wav, ffmpeg=executable)
-    if decoded_reference.shape != (AUDIO_SAMPLE_COUNT, AUDIO_CHANNEL_COUNT):
+    actual_frame_count = int(base_report["video"]["frame_count"])
+    actual_frame_rate = float(Fraction(base_report["video"]["frame_rate"]))
+    wav_report = _probe_authoritative_wav(
+        audio_wav,
+        expected_sample_rate_hz=requested_sample_rate,
+        expected_sample_count=requested_sample_count,
+        expected_channel_count=requested_channels,
+        ffprobe=ffprobe,
+    )
+    actual_sample_rate = int(wav_report["sample_rate_hz"])
+    actual_sample_count = int(wav_report["sample_count"])
+    actual_channels = int(wav_report["channel_count"])
+
+    video_duration = actual_frame_count / actual_frame_rate
+    audio_duration = actual_sample_count / actual_sample_rate
+    if abs(video_duration - audio_duration) > max(
+        _video_duration_tolerance(actual_frame_rate),
+        1.0 / actual_sample_rate,
+    ):
         raise M5VideoError(
-            "authoritative WAVE decode is not exactly 80,000 stereo samples"
+            f"{profile_name} video/audio durations differ: "
+            f"{video_duration:.9f}s vs {audio_duration:.9f}s"
+        )
+
+    decoded_reference = _decode_audio_f32(
+        audio_wav, channel_count=actual_channels, ffmpeg=executable)
+    if decoded_reference.shape != (actual_sample_count, actual_channels):
+        raise M5VideoError(
+            f"authoritative WAVE decode is not exactly "
+            f"{actual_sample_count} samples/{actual_channels} channels"
         )
 
     temporary = _temporary_mp4(destination)
@@ -742,19 +970,38 @@ def _mux_binaural_wav_profile(
         base_video=base_video,
         audio_wav=audio_wav,
         destination=temporary,
+        sample_rate_hz=actual_sample_rate,
+        channel_count=actual_channels,
     )
     try:
-        _run(command, owner="FFmpeg M5 AAC mux")
+        _run(command, owner="FFmpeg AAC mux")
         report = _probe_video_profile(
             temporary,
             expected_width=expected_width,
             expected_height=expected_height,
             profile_name=profile_name,
             require_audio=True,
+            expected_frame_count=actual_frame_count,
+            expected_frame_rate_hz=actual_frame_rate,
+            expected_audio_sample_rate_hz=actual_sample_rate,
+            expected_audio_sample_count=actual_sample_count,
+            expected_audio_channel_count=actual_channels,
             ffprobe=ffprobe,
         )
-        base_hash = video_packet_sha256(base_video, ffprobe=ffprobe)
-        muxed_hash = video_packet_sha256(temporary, ffprobe=ffprobe)
+        decoded_presentation = _decode_audio_f32(
+            temporary, channel_count=actual_channels, ffmpeg=executable)
+        if len(decoded_presentation) < actual_sample_count:
+            raise M5VideoError(
+                f"encoded AAC presentation is short by "
+                f"{actual_sample_count - len(decoded_presentation)} samples"
+            )
+        report["audio"]["decoded_sample_count"] = int(len(decoded_presentation))
+        report["audio"]["decoded_padding_samples"] = max(
+            0, int(len(decoded_presentation) - actual_sample_count))
+        base_hash = video_packet_sha256(
+            base_video, expected_frame_count=actual_frame_count, ffprobe=ffprobe)
+        muxed_hash = video_packet_sha256(
+            temporary, expected_frame_count=actual_frame_count, ffprobe=ffprobe)
         if (
             base_hash["payload_sha256"] != muxed_hash["payload_sha256"]
             or base_hash["timeline_sha256"] != muxed_hash["timeline_sha256"]
@@ -766,9 +1013,10 @@ def _mux_binaural_wav_profile(
         report["video_stream_copy_verified"] = True
         report["authoritative_wav"] = {
             "path": str(audio_wav),
-            "sample_rate_hz": AUDIO_SAMPLE_RATE_HZ,
-            "channel_count": AUDIO_CHANNEL_COUNT,
-            "sample_count": AUDIO_SAMPLE_COUNT,
+            "sample_rate_hz": actual_sample_rate,
+            "channel_count": actual_channels,
+            "sample_count": actual_sample_count,
+            "duration_seconds": audio_duration,
         }
         return report
     except BaseException:
@@ -798,6 +1046,11 @@ def mux_binaural_wav(
         expected_width=FRAME_WIDTH,
         expected_height=FRAME_HEIGHT,
         profile_name="formal episode",
+        frame_count=FRAME_COUNT,
+        frame_rate_hz=FRAME_RATE,
+        sample_rate_hz=AUDIO_SAMPLE_RATE_HZ,
+        sample_count=AUDIO_SAMPLE_COUNT,
+        audio_channel_count=AUDIO_CHANNEL_COUNT,
         ffmpeg=ffmpeg,
         ffprobe=ffprobe,
     )
@@ -820,6 +1073,11 @@ def mux_qa_binaural_wav(
         expected_width=QA_PANEL_WIDTH,
         expected_height=QA_PANEL_HEIGHT,
         profile_name="QA review",
+        frame_count=FRAME_COUNT,
+        frame_rate_hz=FRAME_RATE,
+        sample_rate_hz=AUDIO_SAMPLE_RATE_HZ,
+        sample_count=AUDIO_SAMPLE_COUNT,
+        audio_channel_count=AUDIO_CHANNEL_COUNT,
         ffmpeg=ffmpeg,
         ffprobe=ffprobe,
     )
@@ -828,8 +1086,10 @@ def mux_qa_binaural_wav(
 def _decode_audio_f32(
     path: Path,
     *,
+    channel_count: int = AUDIO_CHANNEL_COUNT,
     ffmpeg: str | Path,
 ) -> np.ndarray:
+    channel_count = _positive_int(channel_count, owner="audio channel count")
     command = [
         _tool(ffmpeg, owner="ffmpeg"),
         "-nostdin",
@@ -854,12 +1114,12 @@ def _decode_audio_f32(
         binary_stdout=True,
     )
     payload = completed.stdout
-    if not isinstance(payload, bytes) or len(payload) % (4 * AUDIO_CHANNEL_COUNT):
+    if not isinstance(payload, bytes) or len(payload) % (4 * channel_count):
         raise M5VideoError(
-            "decoded audio byte count is not whole stereo float32 frames"
+            "decoded audio byte count is not whole float32 frames"
         )
     values = np.frombuffer(payload, dtype="<f4")
-    result = values.reshape(-1, AUDIO_CHANNEL_COUNT).astype(np.float64)
+    result = values.reshape(-1, channel_count).astype(np.float64)
     if not np.all(np.isfinite(result)):
         raise M5VideoError("decoded audio contains non-finite samples")
     return result
@@ -945,26 +1205,61 @@ def aac_decode_diagnostics(
     authoritative_wav_path: str | Path,
     *,
     maximum_lag_samples: int = 4096,
+    expected_width: int = FRAME_WIDTH,
+    expected_height: int = FRAME_HEIGHT,
+    expected_frame_count: int | None = FRAME_COUNT,
+    expected_frame_rate_hz: float | None = FRAME_RATE,
+    expected_sample_rate_hz: int | None = AUDIO_SAMPLE_RATE_HZ,
+    expected_sample_count: int | None = AUDIO_SAMPLE_COUNT,
+    expected_channel_count: int | None = AUDIO_CHANNEL_COUNT,
     ffmpeg: str | Path = "ffmpeg",
     ffprobe: str | Path = "ffprobe",
 ) -> dict[str, Any]:
-    """Decode AAC and report count, lag, correlation, SNR and LR-swap cues.
+    """Decode AAC and report count, lag, correlation, SNR and LR cues.
 
-    These are codec/readback diagnostics, not a replacement for the independent
-    authoritative WAVE.  The function reports measurements without silently
-    trimming encoder delay or padding.
+    These are codec/readback diagnostics, not a replacement for the
+    authoritative WAVE. The function reports padding and shortfall without
+    silently trimming either stream.
     """
 
     muxed = _media_path(muxed_video_path, owner="muxed episode video")
     reference_path = _media_path(
         authoritative_wav_path, owner="authoritative binaural WAVE"
     )
-    probe_episode_video(muxed, require_audio=True, ffprobe=ffprobe)
-    _probe_authoritative_wav(reference_path, ffprobe=ffprobe)
-    reference = _decode_audio_f32(reference_path, ffmpeg=ffmpeg)
-    decoded = _decode_audio_f32(muxed, ffmpeg=ffmpeg)
-    if reference.shape != (AUDIO_SAMPLE_COUNT, AUDIO_CHANNEL_COUNT):
-        raise M5VideoError("reference decode is not exactly 80,000 stereo samples")
+    wav_report = _probe_authoritative_wav(
+        reference_path,
+        expected_sample_rate_hz=expected_sample_rate_hz,
+        expected_sample_count=expected_sample_count,
+        expected_channel_count=expected_channel_count,
+        ffprobe=ffprobe,
+    )
+    actual_sample_rate = int(wav_report["sample_rate_hz"])
+    actual_sample_count = int(wav_report["sample_count"])
+    actual_channel_count = int(wav_report["channel_count"])
+    if actual_channel_count != AUDIO_CHANNEL_COUNT:
+        raise M5VideoError("AAC diagnostics require two-channel binaural audio")
+    _probe_video_profile(
+        muxed,
+        expected_width=expected_width,
+        expected_height=expected_height,
+        profile_name="AAC diagnostics",
+        require_audio=True,
+        expected_frame_count=expected_frame_count,
+        expected_frame_rate_hz=expected_frame_rate_hz,
+        expected_audio_sample_rate_hz=actual_sample_rate,
+        expected_audio_sample_count=actual_sample_count,
+        expected_audio_channel_count=actual_channel_count,
+        ffprobe=ffprobe,
+    )
+    reference = _decode_audio_f32(
+        reference_path, channel_count=actual_channel_count, ffmpeg=ffmpeg)
+    decoded = _decode_audio_f32(
+        muxed, channel_count=actual_channel_count, ffmpeg=ffmpeg)
+    if reference.shape != (actual_sample_count, actual_channel_count):
+        raise M5VideoError(
+            f"reference decode is not exactly "
+            f"{actual_sample_count} samples/{actual_channel_count} channels"
+        )
     lag = _best_lag_samples(
         reference,
         decoded,
@@ -973,11 +1268,11 @@ def aac_decode_diagnostics(
     aligned_reference, aligned_decoded = _aligned(reference, decoded, lag)
     correlation_by_channel = [
         _correlation(aligned_reference[:, channel], aligned_decoded[:, channel])
-        for channel in range(AUDIO_CHANNEL_COUNT)
+        for channel in range(actual_channel_count)
     ]
     snr_by_channel = [
         _snr_db(aligned_reference[:, channel], aligned_decoded[:, channel])
-        for channel in range(AUDIO_CHANNEL_COUNT)
+        for channel in range(actual_channel_count)
     ]
     normal_score = float(np.mean(correlation_by_channel))
     swapped_correlations = [
@@ -988,13 +1283,13 @@ def aac_decode_diagnostics(
     return {
         "reference_sample_count": int(len(reference)),
         "decoded_sample_count": int(len(decoded)),
-        "sample_count_matches": len(decoded) == AUDIO_SAMPLE_COUNT,
-        "presentation_sample_count": min(int(len(decoded)), AUDIO_SAMPLE_COUNT),
-        "presentation_sample_count_matches": len(decoded) >= AUDIO_SAMPLE_COUNT,
-        "decoded_padding_samples": max(0, int(len(decoded)) - AUDIO_SAMPLE_COUNT),
-        "decoded_shortfall_samples": max(0, AUDIO_SAMPLE_COUNT - int(len(decoded))),
-        "sample_rate_hz": AUDIO_SAMPLE_RATE_HZ,
-        "channel_count": AUDIO_CHANNEL_COUNT,
+        "sample_count_matches": len(decoded) == actual_sample_count,
+        "presentation_sample_count": min(int(len(decoded)), actual_sample_count),
+        "presentation_sample_count_matches": len(decoded) >= actual_sample_count,
+        "decoded_padding_samples": max(0, int(len(decoded) - actual_sample_count)),
+        "decoded_shortfall_samples": max(0, actual_sample_count - int(len(decoded))),
+        "sample_rate_hz": actual_sample_rate,
+        "channel_count": actual_channel_count,
         "lag_samples": lag,
         "aligned_sample_count": int(len(aligned_reference)),
         "correlation_by_channel": correlation_by_channel,

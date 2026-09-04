@@ -28,11 +28,33 @@ from avengine.capture.review import SourceOverlayTrack, compose_annotated_frames
 
 
 VISUAL_PROFILE_SCHEMA = "avengine_m6x_review_visual_profile_v1"
-VIDEO_FRAME_COUNT = 75
 
 
 class M6XVisualProfileError(ValueError):
     """A review visual profile or its runtime realization is invalid."""
+
+
+def resolve_review_capture_channel_order(
+    capture_directory: str | Path, override: str | None = None,
+) -> str:
+    """Use producer metadata; explicit legacy ordering cannot contradict it."""
+    receipt = Path(capture_directory) / "research_receipt.json"
+    declared = None
+    if receipt.is_file():
+        value = load_json(receipt)
+        if not isinstance(value, Mapping):
+            raise M6XVisualProfileError("capture receipt must be an object")
+        capture = value.get("capture", {})
+        if not isinstance(capture, Mapping):
+            raise M6XVisualProfileError("capture receipt capture must be an object")
+        declared = capture.get("rgb_channel_order")
+    for owner, value in (("declared", declared), ("override", override)):
+        if value is not None and (not isinstance(value, str) or value not in {"rgb", "bgr"}):
+            raise M6XVisualProfileError(f"{owner} channel order must be rgb or bgr")
+    if declared is not None and override is not None and declared != override:
+        raise M6XVisualProfileError("channel-order override differs from capture receipt")
+    # Historical Habitat/raw inputs used RGB; legacy UE callers already pass BGR.
+    return override or declared or "rgb"
 
 
 @dataclass(frozen=True)
@@ -44,6 +66,7 @@ class ReviewVisualProfile:
     profile_id: str
     capture_resolution_hw: tuple[int, int]
     diagnostic_panel_resolution_hw: tuple[int, int]
+    capture_frame_rate_hz: float = 15.0
 
     @property
     def capture_height(self) -> int:
@@ -110,8 +133,16 @@ def load_review_visual_profile(path: str | Path) -> ReviewVisualProfile:
     capture_resolution = _resolution(
         capture.get("resolution_hw"), owner="capture.resolution_hw", minimum=(480, 640)
     )
-    if capture.get("frame_rate_hz") != 15:
-        raise M6XVisualProfileError("capture.frame_rate_hz must remain 15")
+    capture_frame_rate = capture.get("frame_rate_hz")
+    if (
+        isinstance(capture_frame_rate, bool)
+        or not isinstance(capture_frame_rate, (int, float))
+        or not math.isfinite(float(capture_frame_rate))
+        or float(capture_frame_rate) <= 0.0
+    ):
+        raise M6XVisualProfileError(
+            "capture.frame_rate_hz must be a finite positive number"
+        )
     clean = capture.get("clean_video")
     if not isinstance(clean, Mapping) or clean != {
         "codec": "h264",
@@ -345,6 +376,7 @@ def load_review_visual_profile(path: str | Path) -> ReviewVisualProfile:
         profile_id=profile_id,
         capture_resolution_hw=capture_resolution,
         diagnostic_panel_resolution_hw=diagnostic_resolution,
+        capture_frame_rate_hz=float(capture_frame_rate),
     )
 
 
@@ -813,26 +845,48 @@ def encode_profiled_h264_base_video(
     output_path: str | Path,
     *,
     profile: ReviewVisualProfile,
+    frame_count: int | None = None,
+    frame_rate_hz: float | None = None,
 ) -> dict[str, Any]:
-    """Encode a 75-frame clean review video at the native profile resolution."""
+    """Encode a clean review video at the native profile resolution."""
 
     array = np.asarray(frames)
-    expected = (
-        VIDEO_FRAME_COUNT,
+    expected_shape = (
         profile.capture_height,
         profile.capture_width,
         3,
     )
-    if array.shape != expected or array.dtype != np.uint8:
+    if array.ndim != 4 or tuple(array.shape[1:]) != expected_shape:
         raise M6XVisualProfileError(
-            f"clean review frames must be uint8 with shape {expected}"
+            f"clean review frames must have shape [frames,{expected_shape[0]},"
+            f"{expected_shape[1]},3], got {array.shape}"
         )
+    if array.dtype != np.uint8:
+        raise M6XVisualProfileError(
+            f"clean review frames must be uint8, got {array.dtype}"
+        )
+    actual_count = int(array.shape[0])
+    if frame_count is not None:
+        if (
+            isinstance(frame_count, bool)
+            or not isinstance(frame_count, int)
+            or frame_count < 1
+            or frame_count != actual_count
+        ):
+            raise M6XVisualProfileError(
+                f"requested frame count {frame_count!r} differs from "
+                f"RGB frame count {actual_count}"
+            )
+    if frame_rate_hz is None:
+        frame_rate_hz = profile.capture_frame_rate_hz
     return _encode_h264_video_profile(
         array,
         output_path,
         width=profile.capture_width,
         height=profile.capture_height,
         profile_name=f"M6.x {profile.profile_id}",
+        frame_count=actual_count,
+        frame_rate_hz=frame_rate_hz,
     )
 
 
@@ -842,8 +896,13 @@ def mux_profiled_binaural_wav(
     output_path: str | Path,
     *,
     profile: ReviewVisualProfile,
+    frame_count: int | None = None,
+    frame_rate_hz: float | None = None,
+    sample_rate_hz: int | None = None,
+    sample_count: int | None = None,
+    audio_channel_count: int | None = 2,
 ) -> dict[str, Any]:
-    """Mux the profile-sized clean stream through the frozen M5 audio contract."""
+    """Mux a profiled clean stream with its authoritative audio clock."""
 
     return _mux_binaural_wav_profile(
         base_video_path,
@@ -852,6 +911,11 @@ def mux_profiled_binaural_wav(
         expected_width=profile.capture_width,
         expected_height=profile.capture_height,
         profile_name=f"M6.x {profile.profile_id}",
+        frame_count=frame_count,
+        frame_rate_hz=frame_rate_hz,
+        sample_rate_hz=sample_rate_hz,
+        sample_count=sample_count,
+        audio_channel_count=audio_channel_count,
     )
 
 

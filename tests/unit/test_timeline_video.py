@@ -25,6 +25,10 @@ from avengine.timeline.video import (
     probe_qa_review_video,
     video_packet_sha256,
 )
+from avengine.timeline.video import (  # noqa: E402
+    _encode_h264_video_profile,
+    _mux_binaural_wav_profile,
+)
 
 
 FFMPEG_AVAILABLE = shutil.which("ffmpeg") is not None
@@ -313,3 +317,53 @@ def test_mux_rejects_non_stereo_authoritative_wav_before_publication(
         mux_binaural_wav(encoded_media["base_a"], mono, output)
 
     assert not output.exists()
+
+
+@pytest.mark.skipif(not MEDIA_TOOLS_AVAILABLE, reason="FFmpeg tools are unavailable")
+def test_dynamic_profile_preserves_frame_and_audio_clocks(tmp_path: Path) -> None:
+    frame_count = 90
+    frame_rate_hz = 12.0
+    sample_rate_hz = 12_000
+    sample_count = 90_000
+    y, x = np.indices((48, 64))
+    frames = np.empty((frame_count, 48, 64, 3), dtype=np.uint8)
+    for index in range(frame_count):
+        frames[index, :, :, 0] = (x + index) % 256
+        frames[index, :, :, 1] = (y * 3 + index * 2) % 256
+        frames[index, :, :, 2] = (x + y + index * 5) % 256
+    rng = np.random.default_rng(20260905)
+    samples = rng.normal(0.0, 0.05, (sample_count, 2)).astype(np.float64)
+    wav = tmp_path / "dynamic.wav"
+    write_float32_wav(wav, samples.T, sample_rate_hz)
+    base = tmp_path / "dynamic-base.mp4"
+    base_report = _encode_h264_video_profile(
+        frames, base, width=64, height=48, profile_name="dynamic",
+        frame_count=frame_count, frame_rate_hz=frame_rate_hz,
+    )
+    muxed = tmp_path / "dynamic-muxed.mp4"
+    mux_report = _mux_binaural_wav_profile(
+        base, wav, muxed, expected_width=64, expected_height=48,
+        profile_name="dynamic", frame_count=frame_count,
+        frame_rate_hz=frame_rate_hz, sample_rate_hz=sample_rate_hz,
+        sample_count=sample_count,
+    )
+    assert base_report["video"]["frame_count"] == frame_count
+    assert base_report["video"]["frame_rate"] == "12/1"
+    assert base_report["video"]["duration_seconds"] == pytest.approx(7.5)
+    assert mux_report["video"]["frame_count"] == frame_count
+    assert mux_report["video"]["duration_seconds"] == pytest.approx(7.5)
+    assert mux_report["audio"]["sample_rate_hz"] == sample_rate_hz
+    assert mux_report["audio"]["duration_seconds"] == pytest.approx(7.5)
+    assert mux_report["audio"]["decoded_sample_count"] >= sample_count
+    assert mux_report["audio"]["decoded_padding_samples"] >= 0
+    assert video_packet_sha256(
+        muxed, expected_frame_count=frame_count
+    )["packet_count"] == frame_count
+    diagnostics = aac_decode_diagnostics(
+        muxed, wav,
+        expected_width=64, expected_height=48,
+        expected_frame_count=frame_count, expected_frame_rate_hz=frame_rate_hz,
+        expected_sample_rate_hz=sample_rate_hz, expected_sample_count=sample_count,
+    )
+    assert diagnostics["sample_rate_hz"] == sample_rate_hz
+    assert diagnostics["decoded_shortfall_samples"] == 0

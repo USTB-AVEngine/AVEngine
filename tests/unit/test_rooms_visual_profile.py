@@ -1,4 +1,6 @@
 from dataclasses import dataclass
+import json
+import shutil
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -7,13 +9,17 @@ import pytest
 
 from avengine.contracts.json_io import load_json
 from avengine.contracts.json_io import sha256_file
+from avengine.spatial_audio.audio import write_float32_wav
 from avengine.rooms.visual_profile import (
     M6XVisualProfileError,
+    ReviewVisualProfile,
     aspect_preserving_downscale_no_upscale,
     configure_runtime_review_profile,
+    encode_profiled_h264_base_video,
     letterbox_marker_coordinates,
     light_setup_records,
     load_review_visual_profile,
+    mux_profiled_binaural_wav,
     validate_profile_capture_request,
     validate_realized_review_profile,
     validate_runtime_review_light_readback,
@@ -23,6 +29,58 @@ from avengine.rooms.visual_profile import (
 ROOT = Path(__file__).resolve().parents[2]
 PROFILE_PATH = ROOT / "examples/routes/fixed_apartment/review_visual_profile.json"
 REQUEST_PATH = ROOT / "examples/routes/fixed_apartment/m1_capture_request_review_720p.json"
+
+
+def test_review_profile_accepts_a_declared_non15_frame_rate(tmp_path: Path) -> None:
+    value = load_json(PROFILE_PATH)
+    value["capture"]["frame_rate_hz"] = 12.0
+    path = tmp_path / "review_profile_12fps.json"
+    path.write_text(json.dumps(value), encoding="utf-8")
+    profile = load_review_visual_profile(path)
+    assert profile.capture_frame_rate_hz == pytest.approx(12.0)
+
+
+@pytest.mark.skipif(
+    shutil.which("ffmpeg") is None or shutil.which("ffprobe") is None,
+    reason="FFmpeg tools are unavailable",
+)
+def test_profile_encoder_uses_declared_non15_frame_rate(tmp_path: Path) -> None:
+    frame_count = 90
+    frame_rate_hz = 12.0
+    sample_rate_hz = 12_000
+    sample_count = 90_000
+    profile = ReviewVisualProfile(
+        path=tmp_path / "profile.json",
+        raw={"capture": {"frame_rate_hz": frame_rate_hz}},
+        profile_id="declared_12fps",
+        capture_resolution_hw=(48, 64),
+        diagnostic_panel_resolution_hw=(48, 64),
+        capture_frame_rate_hz=frame_rate_hz,
+    )
+    frames = np.zeros((frame_count, 48, 64, 3), dtype=np.uint8)
+    for index in range(frame_count):
+        frames[index, :, :, 0] = index % 256
+        frames[index, :, :, 1] = (2 * index) % 256
+    rng = np.random.default_rng(20260905)
+    samples = rng.normal(0.0, 0.05, (sample_count, 2)).astype(np.float64)
+    wav = tmp_path / "declared.wav"
+    write_float32_wav(wav, samples.T, sample_rate_hz)
+    base = tmp_path / "declared.base.mp4"
+    encoded = encode_profiled_h264_base_video(
+        frames, base, profile=profile)
+    muxed = tmp_path / "declared.mp4"
+    mux = mux_profiled_binaural_wav(
+        base, wav, muxed, profile=profile,
+        sample_rate_hz=sample_rate_hz, sample_count=sample_count,
+    )
+    assert encoded["video"]["frame_count"] == frame_count
+    assert encoded["video"]["frame_rate"] == "12/1"
+    assert encoded["video"]["duration_seconds"] == pytest.approx(7.5)
+    assert mux["video"]["duration_seconds"] == pytest.approx(7.5)
+    assert mux["audio"]["sample_rate_hz"] == sample_rate_hz
+    assert mux["audio"]["duration_seconds"] == pytest.approx(7.5)
+    assert mux["audio"]["decoded_sample_count"] >= sample_count
+    assert mux["audio"]["decoded_padding_samples"] >= 0
 
 
 def test_review_profile_freezes_native_720p_and_non_upscaling_diagnostic() -> None:
@@ -261,3 +319,21 @@ def test_retained_capture_visual_evidence_binds_profile_and_proxy(
         validate_realized_review_profile(
             evidence, profile=profile, exterior_proxy_glb_path=proxy
         )
+
+
+
+def test_capture_color_order_comes_from_receipt_not_backend_name(tmp_path):
+    import json
+    from avengine.rooms.visual_profile import resolve_review_capture_channel_order
+    (tmp_path / "research_receipt.json").write_text(json.dumps({
+        "capture": {"rgb_channel_order": "bgr"}}))
+    assert resolve_review_capture_channel_order(tmp_path) == "bgr"
+    assert resolve_review_capture_channel_order(tmp_path, "bgr") == "bgr"
+    with pytest.raises(ValueError, match="differs"):
+        resolve_review_capture_channel_order(tmp_path, "rgb")
+
+
+def test_legacy_color_order_can_be_explicit_without_rewriting_capture(tmp_path):
+    from avengine.rooms.visual_profile import resolve_review_capture_channel_order
+    assert resolve_review_capture_channel_order(tmp_path, "bgr") == "bgr"
+    assert resolve_review_capture_channel_order(tmp_path) == "rgb"

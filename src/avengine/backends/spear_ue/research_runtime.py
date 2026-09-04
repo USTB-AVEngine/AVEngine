@@ -206,7 +206,7 @@ def close_scene_capture(
 
 
 def read_rgb_bgr(capture: Any) -> np.ndarray:
-    """Copy the current RGB plane before a later frame reuses shared memory."""
+    """Copy native BGR channels from the BGRA buffer before shared-memory reuse."""
 
     pixels = np.asarray(capture.read_pixels()["arrays"]["data"][:, :, [0, 1, 2]])
     return np.ascontiguousarray(pixels.copy())
