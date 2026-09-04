@@ -13,7 +13,10 @@ MP3D capture record layout.
 
 from __future__ import annotations
 
+from copy import deepcopy
+from fractions import Fraction
 import json
+import math
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
@@ -30,6 +33,7 @@ from avengine.capture.acoustics import (
     render_research_review_binaural_audio,
     render_research_review_binaural_rir_sequence,
 )
+from avengine.timeline.audio_program import bind_audio_program_hash
 from avengine.timeline.audio_render import assemble_audio_program_dry_buses
 from avengine.registry.sources import (
     load_sound_asset_registry,
@@ -38,10 +42,17 @@ from avengine.registry.sources import (
 )
 
 CURRENT_MP3D_DYNAMIC_AUDIO_SCHEMA = "avengine_m5_current_mp3d_dynamic_audio_v1"
-VISUAL_FRAME_RATE_HZ = 15
-EPISODE_FRAME_COUNT = 75
+DEFAULT_VISUAL_FRAME_RATE_HZ = 15
+DEFAULT_EPISODE_FRAME_COUNT = 75
+DEFAULT_TIMELINE_TICK_RATE_HZ = 48_000
+DEFAULT_TICKS_PER_FRAME = 3_200
 AUDIO_SAMPLE_RATE_HZ = 16_000
-EPISODE_SAMPLE_COUNT = 80_000
+DEFAULT_EPISODE_SAMPLE_COUNT = 80_000
+
+# Backward-compatible names retained for the original current-MP3D route.
+VISUAL_FRAME_RATE_HZ = DEFAULT_VISUAL_FRAME_RATE_HZ
+EPISODE_FRAME_COUNT = DEFAULT_EPISODE_FRAME_COUNT
+EPISODE_SAMPLE_COUNT = DEFAULT_EPISODE_SAMPLE_COUNT
 CLAIM_BOUNDARY = (
     "Research review audio only. Captured per-frame source positions and one "
     "AudioProgram routing variant drive strided per-state binaural RIRs; no "
@@ -53,6 +64,193 @@ class CurrentMP3DDynamicAudioError(RuntimeError):
     """Raised when the dynamic research-audio contract is violated."""
 
 
+def _round_fraction(value: Fraction) -> int:
+    if value < 0:
+        raise CurrentMP3DDynamicAudioError("timeline duration cannot be negative")
+    quotient, remainder = divmod(value.numerator, value.denominator)
+    return quotient + int(remainder * 2 >= value.denominator)
+
+
+def _resolve_visual_clock(
+    *,
+    frame_count: object,
+    frame_rate_hz: object,
+    ticks_per_frame: object | None,
+    time_base_hz: object = DEFAULT_TIMELINE_TICK_RATE_HZ,
+) -> dict[str, int | float]:
+    if (
+        isinstance(frame_count, bool)
+        or not isinstance(frame_count, int)
+        or frame_count < 1
+    ):
+        raise CurrentMP3DDynamicAudioError(
+            "visual frame_count must be a positive integer"
+        )
+    if (
+        isinstance(frame_rate_hz, bool)
+        or not isinstance(frame_rate_hz, (int, float))
+        or not math.isfinite(float(frame_rate_hz))
+        or float(frame_rate_hz) <= 0.0
+    ):
+        raise CurrentMP3DDynamicAudioError(
+            "visual frame_rate_hz must be positive and finite"
+        )
+    if (
+        isinstance(time_base_hz, bool)
+        or not isinstance(time_base_hz, int)
+        or time_base_hz < 1
+    ):
+        raise CurrentMP3DDynamicAudioError(
+            "timeline time_base_hz must be a positive integer"
+        )
+    rate = float(frame_rate_hz)
+    if ticks_per_frame is None:
+        implied = float(time_base_hz) / rate
+        rounded = int(round(implied))
+        if not math.isclose(implied, rounded, rel_tol=0.0, abs_tol=1.0e-9):
+            raise CurrentMP3DDynamicAudioError(
+                "visual clock needs an explicit integer ticks_per_frame"
+            )
+        ticks = rounded
+    elif (
+        isinstance(ticks_per_frame, bool)
+        or not isinstance(ticks_per_frame, (int, float))
+        or not math.isfinite(float(ticks_per_frame))
+        or float(ticks_per_frame) < 1.0
+        or not float(ticks_per_frame).is_integer()
+    ):
+        raise CurrentMP3DDynamicAudioError(
+            "visual ticks_per_frame must be a positive integer"
+        )
+    else:
+        ticks = int(ticks_per_frame)
+    if not math.isclose(
+        rate * float(ticks),
+        float(time_base_hz),
+        rel_tol=0.0,
+        abs_tol=1.0e-6,
+    ):
+        raise CurrentMP3DDynamicAudioError(
+            "visual frame_rate_hz and ticks_per_frame disagree with time_base_hz"
+        )
+    rate_fraction = Fraction(str(rate))
+    sample_count = _round_fraction(
+        Fraction(
+            int(frame_count) * AUDIO_SAMPLE_RATE_HZ * rate_fraction.denominator,
+            rate_fraction.numerator,
+        )
+    )
+    if sample_count < 1:
+        raise CurrentMP3DDynamicAudioError(
+            "visual duration rounds to zero audio samples"
+        )
+    normalized_rate: int | float = int(rate) if rate.is_integer() else rate
+    return {
+        "frame_count": int(frame_count),
+        "frame_rate_hz": normalized_rate,
+        "ticks_per_frame": int(ticks),
+        "time_base_hz": int(time_base_hz),
+        "sample_rate_hz": AUDIO_SAMPLE_RATE_HZ,
+        "sample_count": sample_count,
+    }
+
+
+def _read_frame_records(
+    visual_capture_dir: str | Path,
+) -> tuple[dict[str, Any], list[Mapping[str, Any]]]:
+    records_path = Path(visual_capture_dir).resolve() / "frame_records.json"
+    if not records_path.is_file():
+        raise CurrentMP3DDynamicAudioError(
+            f"visual capture is missing frame_records.json: {records_path}"
+        )
+    try:
+        payload = json.loads(records_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as error:
+        raise CurrentMP3DDynamicAudioError(
+            f"cannot read visual frame_records.json: {error}"
+        ) from error
+    if not isinstance(payload, dict):
+        raise CurrentMP3DDynamicAudioError(
+            "frame_records.json must contain an object"
+        )
+    frames = payload.get("frames")
+    if not isinstance(frames, list) or not frames:
+        raise CurrentMP3DDynamicAudioError(
+            "frame_records must contain a non-empty frames list"
+        )
+    if not all(isinstance(frame, Mapping) for frame in frames):
+        raise CurrentMP3DDynamicAudioError(
+            "frame_records entries must be objects"
+        )
+    return payload, frames
+
+
+def load_captured_render_clock(
+    visual_capture_dir: str | Path,
+    *,
+    frame_count: int | None = None,
+    frame_rate_hz: int | float | None = None,
+    ticks_per_frame: int | None = None,
+) -> dict[str, int | float]:
+    """Resolve one capture clock from receipt/frame records or explicit values."""
+    payload, frames = _read_frame_records(visual_capture_dir)
+    declared: Mapping[str, Any] = {}
+    render = payload.get("render")
+    if isinstance(render, Mapping):
+        declared = render
+    clock = payload.get("clock")
+    if isinstance(clock, Mapping):
+        declared = {**dict(declared), **dict(clock)}
+    receipt_path = Path(visual_capture_dir).resolve() / "research_receipt.json"
+    if receipt_path.is_file():
+        try:
+            receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError) as error:
+            raise CurrentMP3DDynamicAudioError(
+                f"cannot read visual research receipt: {error}"
+            ) from error
+        if isinstance(receipt, Mapping):
+            receipt_capture = receipt.get("capture")
+            if isinstance(receipt_capture, Mapping):
+                declared = {**dict(declared), **dict(receipt_capture)}
+    resolved = _resolve_visual_clock(
+        frame_count=(
+            frame_count
+            if frame_count is not None
+            else declared.get("frame_count", len(frames))
+        ),
+        frame_rate_hz=(
+            frame_rate_hz
+            if frame_rate_hz is not None
+            else declared.get("frame_rate_hz", DEFAULT_VISUAL_FRAME_RATE_HZ)
+        ),
+        ticks_per_frame=(
+            ticks_per_frame
+            if ticks_per_frame is not None
+            else declared.get("ticks_per_frame", DEFAULT_TICKS_PER_FRAME)
+        ),
+        time_base_hz=declared.get(
+            "time_base_hz", DEFAULT_TIMELINE_TICK_RATE_HZ
+        ),
+    )
+    if len(frames) != resolved["frame_count"]:
+        raise CurrentMP3DDynamicAudioError(
+            f"frame_records must carry exactly {resolved['frame_count']} frames"
+        )
+    for index, frame in enumerate(frames):
+        if frame.get("frame_index") != index:
+            raise CurrentMP3DDynamicAudioError(
+                "frame_records indices must be contiguous from zero"
+            )
+        if "pts_ticks" in frame and frame.get("pts_ticks") != (
+            index * resolved["ticks_per_frame"]
+        ):
+            raise CurrentMP3DDynamicAudioError(
+                f"frame {index} PTS differs from the declared capture clock"
+            )
+    return resolved
+
+
 def _fresh_output(path: str | Path) -> Path:
     output = Path(path).resolve()
     if output.exists() or output.is_symlink():
@@ -62,47 +260,54 @@ def _fresh_output(path: str | Path) -> Path:
 
 
 def load_captured_source_paths(
-    visual_capture_dir: str | Path, source_ids: tuple[str, ...]
+    visual_capture_dir: str | Path,
+    source_ids: tuple[str, ...],
+    *,
+    frame_count: int | None = None,
+    frame_rate_hz: int | float | None = None,
+    ticks_per_frame: int | None = None,
 ) -> dict[str, list[list[float]]]:
-    """Read the per-frame emitter world positions captured by current-visual.
+    """Read per-frame source positions using the capture's declared clock.
 
-    Frame-record slot ``i`` maps to ``source_ids[i]``: the capture writes the
-    actor emitters in authoring order, which matches the byte-canonical
-    program candidates for the two-beagle route.
+    Frame-record slot i maps to source_ids[i]. The default clock keeps the
+    legacy 75-frame behavior; a current visual receipt or explicit clock may
+    declare a different duration such as 150 frames at 15 Hz.
     """
-
-    records_path = Path(visual_capture_dir).resolve() / "frame_records.json"
-    if not records_path.is_file():
-        raise CurrentMP3DDynamicAudioError(
-            f"visual capture is missing frame_records.json: {records_path}"
-        )
-    payload = json.loads(records_path.read_text(encoding="utf-8"))
-    frames = payload.get("frames")
-    if not isinstance(frames, list) or len(frames) != EPISODE_FRAME_COUNT:
-        raise CurrentMP3DDynamicAudioError(
-            "frame_records must carry exactly the 75 episode frames"
-        )
+    clock = load_captured_render_clock(
+        visual_capture_dir,
+        frame_count=frame_count,
+        frame_rate_hz=frame_rate_hz,
+        ticks_per_frame=ticks_per_frame,
+    )
+    _, frames = _read_frame_records(visual_capture_dir)
     trajectories: dict[str, list[list[float]]] = {
         source_id: [] for source_id in source_ids
     }
     for index, frame in enumerate(frames):
-        if not isinstance(frame, Mapping) or frame.get("frame_index") != index:
-            raise CurrentMP3DDynamicAudioError(
-                "frame_records indices must be contiguous from zero"
-            )
         positions = frame.get("source_positions_m")
         if not isinstance(positions, list) or len(positions) != len(source_ids):
             raise CurrentMP3DDynamicAudioError(
                 "each frame must record one source position per program candidate"
             )
         for slot, source_id in enumerate(source_ids):
-            point = [float(value) for value in positions[slot]]
+            try:
+                point = [float(value) for value in positions[slot]]
+            except (TypeError, ValueError, OverflowError) as error:
+                raise CurrentMP3DDynamicAudioError(
+                    "source positions must be finite 3-vectors"
+                ) from error
             if len(point) != 3 or not all(np.isfinite(point)):
                 raise CurrentMP3DDynamicAudioError(
                     "source positions must be finite 3-vectors"
                 )
             trajectories[source_id].append(point)
+    if any(len(points) != clock["frame_count"] for points in trajectories.values()):
+        raise CurrentMP3DDynamicAudioError(
+            "source trajectory length differs from the capture clock"
+        )
     return trajectories
+
+
 
 
 def listener_pose_from_m1_request(
@@ -163,6 +368,66 @@ def _input_record(path: str | Path) -> dict[str, str]:
     return {"path": str(resolved), "sha256": sha256_file(resolved)}
 
 
+def _expected_program_timeline_fields(
+    clock: Mapping[str, int | float],
+) -> dict[str, int | float]:
+    return {
+        "time_base_hz": clock["time_base_hz"],
+        "ticks_per_frame": clock["ticks_per_frame"],
+        "video_fps": int(clock["frame_rate_hz"]),
+        "frame_count": clock["frame_count"],
+        "sample_rate_hz": AUDIO_SAMPLE_RATE_HZ,
+        "ticks_per_sample": 3,
+        "sample_count": clock["sample_count"],
+    }
+
+
+def _program_clock_binding(
+    program: Mapping[str, Any],
+    clock: Mapping[str, int | float],
+) -> dict[str, Any]:
+    """Validate a declared AudioProgram clock without retiming it."""
+    timeline = program.get("timeline")
+    if not isinstance(timeline, Mapping):
+        raise CurrentMP3DDynamicAudioError(
+            "the AudioProgram must carry a timeline before clock binding"
+        )
+    expected = _expected_program_timeline_fields(clock)
+    missing = [field for field in expected if field not in timeline]
+    mismatches = [
+        (field, timeline[field], value)
+        for field, value in expected.items()
+        if field in timeline and timeline[field] != value
+    ]
+    if mismatches:
+        field, declared, visual = mismatches[0]
+        raise CurrentMP3DDynamicAudioError(
+            "AudioProgram timeline clock differs from the visual clock: "
+            f"{field} declares {declared!r}, visual requires {visual!r}"
+        )
+    return {
+        "mode": "legacy_default_fill" if missing else "validated_declared",
+        "filled_fields": missing,
+    }
+
+
+def _program_for_visual_clock(
+    program: Mapping[str, Any],
+    clock: Mapping[str, int | float],
+) -> dict[str, Any]:
+    """Bind only missing historical metadata; never retime declared values."""
+    binding = _program_clock_binding(program, clock)
+    if not binding["filled_fields"]:
+        return deepcopy(dict(program))
+    result = deepcopy(dict(program))
+    timeline = dict(result["timeline"])
+    timeline.update(_expected_program_timeline_fields(clock))
+    result["timeline"] = timeline
+    return bind_audio_program_hash(result)
+
+
+
+
 def render_dynamic_research_audio(
     *,
     source_trajectories_m: Mapping[str, Sequence[Sequence[float]]],
@@ -182,12 +447,18 @@ def render_dynamic_research_audio(
     variant_id: str = "A",
     hrtf_license_path: str | Path | None = None,
     extra_inputs: Mapping[str, Any] | None = None,
+    visual_frame_count: int | None = None,
+    visual_frame_rate_hz: int | float | None = None,
+    timeline_tick_rate_hz: int | None = None,
+    ticks_per_frame: int | None = None,
 ) -> dict[str, Any]:
     """Room-agnostic core: trajectories + program variant -> binaural episode."""
 
     output = _fresh_output(output_path)
     program_path = Path(audio_program_path).resolve()
     program = json.loads(program_path.read_text(encoding="utf-8"))
+    if not isinstance(program, Mapping):
+        raise CurrentMP3DDynamicAudioError("audio program must be a JSON object")
     endpoint_registry_path = Path(source_endpoint_registry_path).resolve()
     sound_registry_path = Path(sound_asset_registry_path).resolve()
     endpoints = load_source_endpoint_registry(endpoint_registry_path)
@@ -205,26 +476,67 @@ def render_dynamic_research_audio(
             "trajectory source IDs must equal the program candidates: "
             f"{sorted(source_trajectories_m)} != {sorted(source_ids)}"
         )
-    timeline = program.get("timeline") or {}
-    if (
-        timeline.get("frame_count") != EPISODE_FRAME_COUNT
-        or timeline.get("sample_rate_hz") != AUDIO_SAMPLE_RATE_HZ
-        or timeline.get("sample_count") != EPISODE_SAMPLE_COUNT
-    ):
+    timeline = program.get("timeline")
+    if not isinstance(timeline, Mapping):
         raise CurrentMP3DDynamicAudioError(
-            "the program timeline must match the 75-frame research episode"
+            "the AudioProgram must carry an explicit timeline"
         )
-
-    ordered_trajectories = {
-        source_id: [list(map(float, point)) for point in source_trajectories_m[source_id]]
-        for source_id in source_ids
-    }
+    trajectory_lengths = set()
+    ordered_trajectories = {}
+    for source_id in source_ids:
+        try:
+            points = [
+                [float(value) for value in point]
+                for point in source_trajectories_m[source_id]
+            ]
+        except (KeyError, TypeError, ValueError, OverflowError) as error:
+            raise CurrentMP3DDynamicAudioError(
+                f"source trajectory {source_id!r} is invalid"
+            ) from error
+        ordered_trajectories[source_id] = points
+        trajectory_lengths.add(len(points))
+    if len(trajectory_lengths) != 1 or not trajectory_lengths:
+        raise CurrentMP3DDynamicAudioError(
+            "all source trajectories must have one equal frame count"
+        )
+    trajectory_frame_count = next(iter(trajectory_lengths))
+    clock = _resolve_visual_clock(
+        frame_count=(
+            visual_frame_count
+            if visual_frame_count is not None
+            else trajectory_frame_count
+        ),
+        frame_rate_hz=(
+            visual_frame_rate_hz
+            if visual_frame_rate_hz is not None
+            else timeline.get("video_fps", DEFAULT_VISUAL_FRAME_RATE_HZ)
+        ),
+        ticks_per_frame=(
+            ticks_per_frame
+            if ticks_per_frame is not None
+            else timeline.get("ticks_per_frame", DEFAULT_TICKS_PER_FRAME)
+        ),
+        time_base_hz=(
+            timeline_tick_rate_hz
+            if timeline_tick_rate_hz is not None
+            else timeline.get("time_base_hz", DEFAULT_TIMELINE_TICK_RATE_HZ)
+        ),
+    )
+    if trajectory_frame_count != clock["frame_count"]:
+        raise CurrentMP3DDynamicAudioError(
+            "source trajectory length differs from the visual clock"
+        )
+    program_clock_binding = _program_clock_binding(program, clock)
+    program = _program_for_visual_clock(program, clock)
+    timeline = program["timeline"]
     grid = build_strided_review_keyframes(
         ordered_trajectories,
-        visual_frame_rate_hz=VISUAL_FRAME_RATE_HZ,
+        visual_frame_rate_hz=clock["frame_rate_hz"],
         rir_stride_frames=rir_stride_frames,
         listener_position_m=list(listener_position_m),
         listener_orientation_wxyz=list(listener_orientation_wxyz),
+        timeline_tick_rate_hz=clock["time_base_hz"],
+        sample_rate_hz=AUDIO_SAMPLE_RATE_HZ,
     )
     _, simulation = _load_simulation_request(Path(simulation_request_path).resolve())
     scene = load_compiled_acoustic_scene(
@@ -305,7 +617,7 @@ def render_dynamic_research_audio(
         "qualification_claim": False,
         "audio": {
             "sample_rate_hz": AUDIO_SAMPLE_RATE_HZ,
-            "sample_count": EPISODE_SAMPLE_COUNT,
+            "sample_count": clock["sample_count"],
             "layout_type": "binaural",
             "channel_labels": ["left", "right"],
         },
@@ -317,10 +629,14 @@ def render_dynamic_research_audio(
             "variant_id": variant_id,
             "program_content_sha256": materialized.get("program_content_sha256"),
             "event_count": len(program.get("events") or ()),
+            "timeline": dict(timeline),
         },
         "sources": {
             "source_ids": list(source_ids),
-            "frame_count": EPISODE_FRAME_COUNT,
+            "frame_count": clock["frame_count"],
+            "frame_rate_hz": clock["frame_rate_hz"],
+            "ticks_per_frame": clock["ticks_per_frame"],
+            "time_base_hz": clock["time_base_hz"],
             "position_authority": position_authority,
         },
         "listener": {
@@ -359,16 +675,33 @@ def render_current_mp3d_dynamic_audio(
     rir_stride_frames: int = 3,
     variant_id: str = "A",
     hrtf_license_path: str | Path | None = None,
+    frame_count: int | None = None,
+    frame_rate_hz: int | float | None = None,
+    ticks_per_frame: int | None = None,
 ) -> dict[str, Any]:
     """Render one motion-following binaural research episode for MP3D."""
 
     program = json.loads(
         Path(audio_program_path).resolve().read_text(encoding="utf-8")
     )
+    if not isinstance(program, Mapping):
+        raise CurrentMP3DDynamicAudioError("audio program must be a JSON object")
     source_ids = tuple(
         str(value) for value in program.get("candidate_source_endpoint_ids") or ()
     )
-    trajectories = load_captured_source_paths(visual_capture_dir, source_ids)
+    clock = load_captured_render_clock(
+        visual_capture_dir,
+        frame_count=frame_count,
+        frame_rate_hz=frame_rate_hz,
+        ticks_per_frame=ticks_per_frame,
+    )
+    trajectories = load_captured_source_paths(
+        visual_capture_dir,
+        source_ids,
+        frame_count=int(clock["frame_count"]),
+        frame_rate_hz=clock["frame_rate_hz"],
+        ticks_per_frame=int(clock["ticks_per_frame"]),
+    )
     m1_request = json.loads(
         Path(m1_request_path).resolve().read_text(encoding="utf-8")
     )
@@ -395,6 +728,10 @@ def render_current_mp3d_dynamic_audio(
         rir_stride_frames=rir_stride_frames,
         variant_id=variant_id,
         hrtf_license_path=hrtf_license_path,
+        visual_frame_count=int(clock["frame_count"]),
+        visual_frame_rate_hz=clock["frame_rate_hz"],
+        timeline_tick_rate_hz=int(clock["time_base_hz"]),
+        ticks_per_frame=int(clock["ticks_per_frame"]),
         extra_inputs={
             "visual_capture_frame_records": _input_record(
                 Path(visual_capture_dir).resolve() / "frame_records.json"

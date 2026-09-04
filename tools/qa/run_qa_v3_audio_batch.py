@@ -6,15 +6,16 @@
 主 program(必要时含 Gate A program,--variants main,gateA)。
 
 续跑语义与捕获调度器一致(b007 教训):
-  - 完成点 = receipt 存在且 audio/binaural/mixture.wav 在盘上 → 跳过;
+  - 完成点 = pass receipt 与每个实际 WAV 的格式、声道、采样率、帧数一致 → 跳过;
   - 半成品 → 拒绝清理,立即失败报人;
   - 任一点失败 → 停。
 输出根 fresh,续跑需显式 --resume。全链 research_candidate。
 
 config JSON 必备键:
   python, repo, m1_request, simulation_request, package_manifest,
-  source_endpoint_registry, sound_asset_registry, beagle_audio, hrtf,
-  runtime_prefix, rlr_sdk_root, magnum_python_site, source_asset_registry
+  source_endpoint_registry, sound_asset_registry, hrtf, runtime_prefix,
+  rlr_sdk_root, magnum_python_site, source_asset_registry
+可选 sound_asset_map、sound_asset_paths；beagle_audio 仅为旧版兼容绑定。
 """
 
 from __future__ import annotations
@@ -22,28 +23,214 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import struct
 import subprocess
 import sys
 from pathlib import Path
 
 REQUIRED_CONFIG_KEYS = (
     "python", "repo", "m1_request", "simulation_request", "package_manifest",
-    "source_endpoint_registry", "sound_asset_registry", "beagle_audio",
+    "source_endpoint_registry", "sound_asset_registry",
     "hrtf", "runtime_prefix", "rlr_sdk_root", "magnum_python_site",
     "source_asset_registry",
 )
+AVENGINE_REPOSITORY = Path(__file__).resolve().parents[2]
+
+
+def _read_float32_wav_metadata(path: Path) -> dict[str, int]:
+    """Read RIFF/WAVE metadata without decoding the sample payload."""
+    try:
+        payload = path.read_bytes()
+    except OSError as error:
+        raise ValueError(f"cannot read WAV {path}: {error}") from error
+    if len(payload) < 12 or payload[:4] != b"RIFF" or payload[8:12] != b"WAVE":
+        raise ValueError(f"{path} is not a RIFF/WAVE file")
+    fmt = None
+    data_size = None
+    fact_frames = None
+    offset = 12
+    while offset + 8 <= len(payload):
+        chunk_id = payload[offset:offset + 4]
+        size = struct.unpack_from("<I", payload, offset + 4)[0]
+        start = offset + 8
+        end = start + size
+        if end > len(payload):
+            raise ValueError(f"{path} contains a truncated WAVE chunk")
+        chunk = payload[start:end]
+        if chunk_id == b"fmt " and size >= 16:
+            fmt = struct.unpack_from("<HHIIHH", chunk, 0)
+        elif chunk_id == b"fact" and size >= 4:
+            fact_frames = struct.unpack_from("<I", chunk, 0)[0]
+        elif chunk_id == b"data":
+            data_size = int(size)
+        offset = end + (size & 1)
+    if fmt is None or data_size is None:
+        raise ValueError(f"{path} lacks WAVE fmt/data metadata")
+    format_tag, channels, sample_rate, byte_rate, block_align, bits = fmt
+    if (
+        format_tag != 3
+        or channels < 1
+        or sample_rate < 1
+        or bits != 32
+        or block_align != channels * 4
+        or byte_rate != sample_rate * block_align
+        or data_size % block_align != 0
+    ):
+        raise ValueError(f"{path} is not canonical IEEE-float32 WAVE")
+    frames = data_size // block_align
+    if fact_frames is not None and fact_frames != frames:
+        raise ValueError(f"{path} fact frame count differs from data chunk")
+    return {
+        "channel_count": int(channels),
+        "sample_rate_hz": int(sample_rate),
+        "frame_count": int(frames),
+    }
+
+
+def _receipt_audio_expectations(out_dir: Path) -> tuple[int, int] | None:
+    receipt_path = out_dir / "research_receipt.json"
+    mixture = out_dir / "audio" / "binaural" / "mixture.wav"
+    if not receipt_path.is_file() or not mixture.is_file():
+        return None
+    try:
+        receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return None
+    if not isinstance(receipt, dict) or receipt.get("status") != "pass":
+        return None
+    audio = receipt.get("audio")
+    if not isinstance(audio, dict):
+        return None
+    rate = audio.get("sample_rate_hz")
+    count = audio.get("sample_count")
+    if (
+        isinstance(rate, bool)
+        or not isinstance(rate, int)
+        or rate < 1
+        or isinstance(count, bool)
+        or not isinstance(count, int)
+        or count < 1
+    ):
+        return None
+    return rate, count
 
 
 def point_state(out_dir: Path) -> str:
     if not out_dir.exists():
         return "missing"
-    if (out_dir / "research_receipt.json").is_file() and \
-            (out_dir / "audio" / "binaural" / "mixture.wav").is_file():
-        return "complete"
-    return "partial"
+    expected = _receipt_audio_expectations(out_dir)
+    if expected is None:
+        return "partial"
+    expected_rate, expected_frames = expected
+    wav_files = sorted((out_dir / "audio").rglob("*.wav"))
+    if not wav_files:
+        return "partial"
+    for wav_path in wav_files:
+        try:
+            metadata = _read_float32_wav_metadata(wav_path)
+        except ValueError:
+            return "partial"
+        expected_channels = 2 if "binaural" in wav_path.parts else 1
+        if (
+            metadata["channel_count"] != expected_channels
+            or metadata["sample_rate_hz"] != expected_rate
+            or metadata["frame_count"] != expected_frames
+        ):
+            return "partial"
+    return "complete"
 
 
-def program_path(programs_dir: Path, pid: str, variant: str) -> Path:
+
+
+def _resolve_declared_path(value: str | Path, *, point_dir: Path, programs_dir: Path) -> Path:
+    path = Path(value).expanduser()
+    candidates = (
+        [path]
+        if path.is_absolute()
+        else [point_dir / path, programs_dir / path]
+    )
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate.resolve()
+    raise SystemExit(
+        f"FAIL: declared audio program is missing for {point_dir.name}: "
+        + " or ".join(str(candidate) for candidate in candidates)
+    )
+
+
+def program_path(
+    programs_dir: Path,
+    pid: str,
+    variant: str,
+    *,
+    inputs_root: Path | None = None,
+) -> Path:
+    """Resolve a point-local or fact-declared program before legacy names."""
+    point_dir = (
+        Path(inputs_root) / pid if inputs_root is not None else programs_dir.parent / pid
+    )
+    local_name = "audio_program.json" if variant == "main" else "audio_program_gateA.json"
+    local = point_dir / local_name
+    if local.is_file():
+        return local.resolve()
+
+    fact_path = point_dir / (
+        "fact_record.json" if variant == "main" else "fact_record_gateA.json"
+    )
+    if fact_path.is_file():
+        try:
+            fact = json.loads(fact_path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError) as error:
+            raise SystemExit(f"FAIL: cannot read {fact_path}: {error}") from error
+        if isinstance(fact, dict):
+            audio = fact.get("audio")
+            owners = [audio, fact] if isinstance(audio, dict) else [fact]
+            declared_keys = (
+                ("program", "program_path", "main_program", "audio_program")
+                if variant == "main" else
+                ("program", "program_path", "gatea_program", "gateA_program",
+                 "audio_program_gateA")
+            )
+            for owner in owners:
+                if not isinstance(owner, dict):
+                    continue
+                for key in declared_keys:
+                    declared = owner.get(key)
+                    if isinstance(declared, (str, Path)):
+                        return _resolve_declared_path(
+                            declared, point_dir=point_dir, programs_dir=programs_dir
+                        )
+                    if isinstance(declared, dict):
+                        declared_path = (
+                            declared.get("path")
+                            or declared.get("program_path")
+                            or declared.get("file")
+                        )
+                        if isinstance(declared_path, (str, Path)):
+                            return _resolve_declared_path(
+                                declared_path,
+                                point_dir=point_dir,
+                                programs_dir=programs_dir,
+                            )
+                        declared_id = declared.get("program_id") or declared.get("id")
+                        if isinstance(declared_id, str) and declared_id:
+                            by_id = programs_dir / f"{declared_id}.json"
+                            if by_id.is_file():
+                                return by_id.resolve()
+                            raise SystemExit(
+                                f"FAIL: declared audio program id is missing for "
+                                f"{point_dir.name}: {by_id}"
+                            )
+                program_id = owner.get("program_id")
+                if isinstance(program_id, str) and program_id:
+                    by_id = programs_dir / f"{program_id}.json"
+                    if by_id.is_file():
+                        return by_id.resolve()
+                    raise SystemExit(
+                        f"FAIL: declared audio program id is missing for "
+                        f"{point_dir.name}: {by_id}"
+                    )
+
     suffixes = {
         "main": "_rand_v1.json",
         "gateA": "_rand_gateA_v1.json",
@@ -53,8 +240,87 @@ def program_path(programs_dir: Path, pid: str, variant: str) -> Path:
     if len(matches) != 1:
         raise SystemExit(
             f"FAIL: expected exactly one {variant} program for {pid}, "
-            f"found {len(matches)} in {programs_dir}")
-    return matches[0]
+            f"found {len(matches)} in {programs_dir}"
+        )
+    return matches[0].resolve()
+
+
+def endpoint_registry_path(
+    inputs_root: Path,
+    pid: str,
+    configured: str | Path,
+) -> Path:
+    point_local = inputs_root / pid / "source_endpoints.json"
+    if point_local.is_file():
+        return point_local.resolve()
+    configured_path = Path(configured).expanduser()
+    if not configured_path.is_file():
+        raise SystemExit(
+            f"FAIL: source endpoint registry is missing for {pid}: {configured_path}"
+        )
+    return configured_path.resolve()
+
+
+def sound_asset_args(config: dict, *, config_path: Path) -> list[str]:
+    """Build renderer sound bindings from the optional map plus legacy fallback."""
+    result: list[str] = []
+    mapping = config.get("sound_asset_map")
+    if mapping is not None:
+        if not isinstance(mapping, (str, Path)):
+            raise SystemExit("FAIL: sound_asset_map must be a JSON file path")
+        mapping_path = Path(mapping).expanduser()
+        if not mapping_path.is_absolute():
+            mapping_path = config_path.parent / mapping_path
+        if not mapping_path.is_file():
+            raise SystemExit(f"FAIL: sound_asset_map is missing: {mapping_path}")
+        result.extend(["--sound-asset-map", str(mapping_path.resolve())])
+    assignments = config.get("sound_asset_paths", ())
+    if isinstance(assignments, dict):
+        if any(
+            not isinstance(sound_id, str) or not sound_id
+            or not isinstance(path, str) or not path
+            for sound_id, path in assignments.items()
+        ):
+            raise SystemExit(
+                "FAIL: sound_asset_paths must be SOUND_ASSET_ID=PATH strings"
+            )
+        assignments = [
+            f"{sound_id}={path}"
+            for sound_id, path in assignments.items()
+        ]
+    if assignments:
+        if not isinstance(assignments, list) or any(
+            not isinstance(value, str)
+            or not value.partition("=")[0]
+            or not value.partition("=")[1]
+            or not value.partition("=")[2]
+            for value in assignments
+        ):
+            raise SystemExit(
+                "FAIL: sound_asset_paths must be SOUND_ASSET_ID=PATH strings"
+            )
+        for assignment in assignments:
+            result.extend(["--sound-asset-path", assignment])
+    legacy = config.get("beagle_audio")
+    if legacy is not None:
+        result.extend(["--beagle-audio", str(legacy)])
+    return result
+
+
+def validate_config_repo(config: dict, *, config_path: Path) -> Path:
+    value = config.get("repo")
+    if not isinstance(value, str) or not value:
+        raise SystemExit("FAIL: config repo must be a nonempty path")
+    configured = Path(value).expanduser()
+    if not configured.is_absolute():
+        configured = config_path.parent / configured
+    configured = configured.resolve()
+    if configured != AVENGINE_REPOSITORY:
+        raise SystemExit(
+            "FAIL: config repo must point to the current AVEngine repository "
+            f"{AVENGINE_REPOSITORY}, got {configured}"
+        )
+    return AVENGINE_REPOSITORY
 
 
 def point_m1_request(inputs_root: Path, pid: str, configured: str) -> Path:
@@ -90,10 +356,17 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--resume", action="store_true")
     args = parser.parse_args(argv)
 
-    cfg = json.loads(args.config.read_text())
+    config_path = args.config.resolve()
+    cfg = json.loads(config_path.read_text(encoding="utf-8"))
     missing = [k for k in REQUIRED_CONFIG_KEYS if k not in cfg]
     if missing:
         print(f"config missing keys: {missing}", file=sys.stderr)
+        return 2
+    try:
+        repo = validate_config_repo(cfg, config_path=config_path)
+        sound_args = sound_asset_args(cfg, config_path=config_path)
+    except SystemExit as error:
+        print(str(error), file=sys.stderr)
         return 2
     if args.output_root.exists() and not args.resume:
         print(f"output root exists; pass --resume to continue: {args.output_root}",
@@ -101,27 +374,46 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     args.output_root.mkdir(parents=True, exist_ok=True)
 
+    inputs_root = args.inputs_root.resolve()
+    captures_root = args.captures_root.resolve()
     variants = [v.strip() for v in args.variants.split(",") if v.strip()]
     points = (args.points.split(",") if args.points else
-              sorted(d.name for d in args.inputs_root.iterdir()
+              sorted(d.name for d in inputs_root.iterdir()
                      if d.is_dir() and (d / "timeline.json").is_file()))
-    programs_dir = args.inputs_root / "programs"
-    repo = Path(cfg["repo"])
+    programs_dir = inputs_root / "programs"
     done = skipped = 0
     for pid in points:
-        cap_dir = args.captures_root / pid
-        if not (cap_dir / "research_receipt.json").is_file():
+        cap_dir = captures_root / pid
+        capture_receipt = cap_dir / "research_receipt.json"
+        if not capture_receipt.is_file():
             print(f"FAIL: capture for {pid} not complete at {cap_dir}",
                   file=sys.stderr)
+            return 1
+        try:
+            capture_value = json.loads(
+                capture_receipt.read_text(encoding="utf-8")
+            )
+        except (OSError, UnicodeError, json.JSONDecodeError) as error:
+            print(f"FAIL: capture receipt for {pid} is unreadable: {error}",
+                  file=sys.stderr)
+            return 1
+        if (
+            not isinstance(capture_value, dict)
+            or capture_value.get("status") not in {"research_only", "pass"}
+        ):
+            print(
+                f"FAIL: capture for {pid} has no successful receipt status",
+                file=sys.stderr,
+            )
             return 1
         # Gate B 孪生只渲 main(Gate A 换音频的对照对孪生无意义);
         # 孪生的 program 由 derive_twin_programs.py 预先派生(外观孪生
         # 的 endpoint 绑定随资产翻转,必须换绑重密封),每点用自己的。
-        spec_path = args.inputs_root / pid / "spec.json"
+        spec_path = inputs_root / pid / "spec.json"
         spec = json.loads(spec_path.read_text()) if spec_path.is_file() else {}
         point_variants = ["main"] if spec.get("twin_of") else variants
         m1_request = point_m1_request(
-            args.inputs_root, pid, cfg["m1_request"]
+            inputs_root, pid, cfg["m1_request"]
         )
         for variant in point_variants:
             out_dir = args.output_root / (pid if variant == "main"
@@ -135,7 +427,12 @@ def main(argv: list[str] | None = None) -> int:
                       f"or overwrite automatically; inspect and remove manually "
                       f"(b007-lesson guard)", file=sys.stderr)
                 return 1
-            prog = program_path(programs_dir, pid, variant)
+            prog = program_path(
+                programs_dir, pid, variant, inputs_root=inputs_root
+            )
+            endpoint_path = endpoint_registry_path(
+                inputs_root, pid, cfg["source_endpoint_registry"]
+            )
             cmd = [cfg["python"],
                    str(repo / "tools/dataset/render_current_apartment_dynamic_audio.py"),
                    "--visual-capture-dir", str(cap_dir),
@@ -143,17 +440,17 @@ def main(argv: list[str] | None = None) -> int:
                    "--simulation-request", cfg["simulation_request"],
                    "--package-manifest", cfg["package_manifest"],
                    "--audio-program", str(prog),
-                   "--source-endpoint-registry", cfg["source_endpoint_registry"],
+                   "--source-endpoint-registry", str(endpoint_path),
                    "--sound-asset-registry", cfg["sound_asset_registry"],
-                   "--beagle-audio", cfg["beagle_audio"],
                    "--hrtf", cfg["hrtf"],
                    "--runtime-prefix", cfg["runtime_prefix"],
                    "--rlr-sdk-root", cfg["rlr_sdk_root"],
                    "--magnum-python-site", cfg["magnum_python_site"],
-                   "--actor-selection", str(args.inputs_root / pid /
+                   "--actor-selection", str(inputs_root / pid /
                                             "actor_selection.json"),
                    "--source-asset-registry", cfg["source_asset_registry"],
                    "--output", str(out_dir)]
+            cmd.extend(sound_args)
             cmd.extend(canonical_emitter_args(cfg))
             log_path = args.output_root / f"{out_dir.name}.log"
             with open(log_path, "w") as log:

@@ -100,3 +100,93 @@ def test_static_camera_extraction_and_motion_rejection(tmp_path: Path) -> None:
         captured_static_camera_world_m(
             _synthetic_capture(moving_dir, move_camera=True)
         )
+
+
+def test_observed_emitter_retains_horizontal_offset_and_height(tmp_path):
+    capture = _synthetic_capture(tmp_path)
+    path = capture / "frame_records.json"
+    payload = json.loads(path.read_text())
+    for frame in payload["frames"]:
+        # Rotating an off-center source moves its emitter on both horizontal
+        # axes. These are UE readbacks, not the visual actor's root position.
+        frame["source_emitter_poses"] = {
+            "source1": {"location_cm": [125.0, 240.0, 85.0]},
+        }
+    path.write_text(json.dumps(payload))
+    result = load_ue_anchor_trajectories(
+        capture, slot_endpoints={"source1": "speaker", "source2": "dog"},
+        emitter_heights_m={"source2": 0.45},
+    )
+    assert result["speaker"][10] == pytest.approx([1.25, 0.85, 2.4])
+    assert result["dog"][10] == pytest.approx([0.1, 0.45, 1.0])
+    # Losing a required rigid readback must not silently return to root height.
+    del payload["frames"][12]["source_emitter_poses"]["source1"]
+    path.write_text(json.dumps(payload))
+    with pytest.raises(CurrentMP3DDynamicAudioError, match="frame 12.*required source1"):
+        load_ue_anchor_trajectories(
+            capture, slot_endpoints={"source1": "speaker", "source2": "dog"},
+            emitter_heights_m={"source2": 0.45},
+        )
+
+def test_150_frame_capture_clock_drives_apartment_audio_trajectories(
+    tmp_path: Path,
+) -> None:
+    frames = []
+    for index in range(150):
+        frames.append({
+            "frame_index": index,
+            "pts_ticks": index * 3200,
+            "camera_pose": {
+                "location_cm": [-70.0, 65.0, 147.1],
+                "rotation_deg": [0.0, 0.0, -145.0],
+            },
+            "actor_anchor_poses": {
+                "source1": {"location_cm": [float(index), 0.0, 27.1]},
+                "source2": {"location_cm": [float(index), 100.0, 27.1]},
+            },
+        })
+    (tmp_path / "frame_records.json").write_text(
+        json.dumps({"frames": frames}), encoding="utf-8"
+    )
+    (tmp_path / "research_receipt.json").write_text(
+        json.dumps({
+            "capture": {
+                "frame_count": 150,
+                "frame_rate_hz": 15,
+                "ticks_per_frame": 3200,
+                "time_base_hz": 48000,
+            }
+        }),
+        encoding="utf-8",
+    )
+    trajectories = load_ue_anchor_trajectories(tmp_path)
+    assert len(trajectories["m6x_human0_mouth"]) == 150
+    assert trajectories["m6x_dog0_muzzle"][-1] == pytest.approx(
+        [1.49, 0.45, 1.0]
+    )
+    world, yaw = captured_static_camera_world_m(tmp_path)
+    assert world == pytest.approx([-0.7, 1.471, 0.65])
+    assert yaw == -145.0
+
+
+def test_explicit_canonical_height_overrides_existing_emitter_readback(
+    tmp_path: Path,
+) -> None:
+    capture = _synthetic_capture(tmp_path)
+    payload = json.loads(
+        (capture / "frame_records.json").read_text(encoding="utf-8")
+    )
+    for frame in payload["frames"]:
+        frame["source_emitter_poses"] = {
+            "source1": {"location_cm": [125.0, 240.0, 85.0]},
+        }
+    (capture / "frame_records.json").write_text(
+        json.dumps(payload), encoding="utf-8"
+    )
+    result = load_ue_anchor_trajectories(
+        capture,
+        slot_endpoints={"source1": "speaker", "source2": "dog"},
+        emitter_heights_m={"source2": 0.45},
+        canonical_emitter_height_m=0.77,
+    )
+    assert result["speaker"][10] == pytest.approx([1.25, 0.77, 2.4])

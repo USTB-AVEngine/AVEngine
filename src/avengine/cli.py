@@ -1383,6 +1383,9 @@ def _m5_render_current_mp3d_dynamic_audio(args: argparse.Namespace) -> int:
                 output_path=output,
                 rir_stride_frames=args.rir_stride_frames,
                 variant_id=args.variant,
+                frame_count=args.frame_count,
+                frame_rate_hz=args.frame_rate_hz,
+                ticks_per_frame=args.ticks_per_frame,
             )
     except (CurrentMP3DDynamicAudioError, OSError, ValueError) as error:
         _print({"status": "fail", "error": str(error)})
@@ -1496,6 +1499,9 @@ def _m5_author_current_apartment_visual_timeline(
             width=args.width,
             height=args.height,
             hfov_degrees=args.hfov_degrees,
+            frame_count=args.frame_count,
+            frame_rate_hz=args.frame_rate_hz,
+            ticks_per_frame=args.ticks_per_frame,
         )
     except (CurrentApartmentVisualError, OSError, ValueError, RuntimeError) as error:
         _print({"status": "fail", "error": str(error)})
@@ -2287,6 +2293,9 @@ def build_parser() -> argparse.ArgumentParser:
     m5_dynamic_audio.add_argument("--rlr-sdk-root", required=True)
     m5_dynamic_audio.add_argument("--magnum-python-site")
     m5_dynamic_audio.add_argument("--rir-stride-frames", type=int, default=3)
+    m5_dynamic_audio.add_argument("--frame-count", type=int)
+    m5_dynamic_audio.add_argument("--frame-rate-hz", type=float)
+    m5_dynamic_audio.add_argument("--ticks-per-frame", type=int)
     m5_dynamic_audio.add_argument("--variant", default="A")
     m5_dynamic_audio.add_argument("--output", required=True)
     m5_dynamic_audio.set_defaults(handler=_m5_render_current_mp3d_dynamic_audio)
@@ -2340,7 +2349,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     m5_current_apartment_author = m5_commands.add_parser(
         "author-current-apartment-visual-timeline",
-        help="Author one free-design 75-frame current Apartment RGB research timeline",
+        help="Author one configurable current Apartment RGB research timeline",
     )
     m5_current_apartment_author.add_argument("--actor-selection", required=True)
     m5_current_apartment_author.add_argument("--source-asset-registry", required=True)
@@ -2353,6 +2362,9 @@ def build_parser() -> argparse.ArgumentParser:
     m5_current_apartment_author.add_argument("--width", type=int, default=1280)
     m5_current_apartment_author.add_argument("--height", type=int, default=720)
     m5_current_apartment_author.add_argument("--hfov-degrees", type=float, default=105.0)
+    m5_current_apartment_author.add_argument("--frame-count", type=int, default=75)
+    m5_current_apartment_author.add_argument("--frame-rate-hz", type=float, default=15)
+    m5_current_apartment_author.add_argument("--ticks-per-frame", type=int)
     m5_current_apartment_author.add_argument("--output", required=True)
     m5_current_apartment_author.set_defaults(
         handler=_m5_author_current_apartment_visual_timeline

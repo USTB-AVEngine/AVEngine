@@ -19,7 +19,7 @@ import numpy as np
 
 from avengine.timeline.current_mp3d_dynamic_audio import (
     CurrentMP3DDynamicAudioError,
-    EPISODE_FRAME_COUNT,
+    load_captured_render_clock,
 )
 
 # Mouth/muzzle probe heights declared by the fixed-apartment anchor library.
@@ -86,7 +86,7 @@ def derive_slot_bindings(
     for actor in actors:
         slot = actor.get("source_slot_id")
         asset_id = actor.get("asset_id")
-        instance_id = actor.get("legacy_timeline_actor_id")
+        instance_id = actor.get("entity_instance_id") or actor.get("legacy_timeline_actor_id")
         record = assets.get(asset_id)
         if record is None:
             raise CurrentMP3DDynamicAudioError(
@@ -118,6 +118,14 @@ def derive_slot_bindings(
                 f"{anchor_id}, found {len(matches)}"
             )
         slot_endpoints[slot] = str(matches[0]["source_endpoint_id"])
+        if record.get("entity_class") == "rigid_object":
+            if canonical_emitter_height_m is not None:
+                raise CurrentMP3DDynamicAudioError(
+                    "canonical height override cannot replace a rigid source's "
+                    "observed 3D emitter position")
+            # Omitting the fallback height requires the renderer's actual
+            # component world readback for this slot in every audio frame.
+            continue
         emitter_heights[slot] = (
             canonical_emitter_height_m
             if canonical_emitter_height_m is not None
@@ -135,17 +143,25 @@ def apartment_ue_point_to_world_m(point_ue_cm) -> list[float]:
     return [x / 100.0, z / 100.0, y / 100.0]
 
 
-def _frames(visual_capture_dir: str | Path) -> list:
+def _frames(
+    visual_capture_dir: str | Path,
+    *,
+    frame_count: int | None = None,
+    frame_rate_hz: int | float | None = None,
+    ticks_per_frame: int | None = None,
+) -> list:
+    clock = load_captured_render_clock(
+        visual_capture_dir,
+        frame_count=frame_count,
+        frame_rate_hz=frame_rate_hz,
+        ticks_per_frame=ticks_per_frame,
+    )
     records_path = Path(visual_capture_dir).resolve() / "frame_records.json"
-    if not records_path.is_file():
-        raise CurrentMP3DDynamicAudioError(
-            f"visual capture is missing frame_records.json: {records_path}"
-        )
     payload = json.loads(records_path.read_text(encoding="utf-8"))
-    frames = payload.get("frames")
-    if not isinstance(frames, list) or len(frames) != EPISODE_FRAME_COUNT:
+    frames = payload["frames"]
+    if len(frames) != clock["frame_count"]:
         raise CurrentMP3DDynamicAudioError(
-            "frame_records must carry exactly the 75 episode frames"
+            f"frame_records must carry exactly {clock['frame_count']} frames"
         )
     return frames
 
@@ -155,17 +171,41 @@ def load_ue_anchor_trajectories(
     *,
     slot_endpoints: Mapping[str, str] = APARTMENT_SLOT_ENDPOINTS,
     emitter_heights_m: Mapping[str, float] = APARTMENT_EMITTER_HEIGHTS_M,
+    frame_count: int | None = None,
+    frame_rate_hz: int | float | None = None,
+    ticks_per_frame: int | None = None,
+    canonical_emitter_height_m: float | None = None,
 ) -> dict[str, list[list[float]]]:
-    """World-meter emitter trajectories from the UE anchor pose records."""
+    """Use observed emitter world poses, with height fallback for legacy actors.
 
-    if set(slot_endpoints) != set(emitter_heights_m):
+    Omit a slot from ``emitter_heights_m`` when its renderer must supply a real
+    emitter component readback, as for rigid assets with a local 3D offset.
+    """
+
+    if not set(emitter_heights_m) <= set(slot_endpoints):
         raise CurrentMP3DDynamicAudioError(
-            "slot endpoints and emitter heights must cover the same slots"
+            "emitter heights contain slots without endpoints"
         )
+    if canonical_emitter_height_m is not None:
+        canonical_emitter_height_m = float(canonical_emitter_height_m)
+        if (
+            not np.isfinite(canonical_emitter_height_m)
+            or canonical_emitter_height_m <= 0.0
+        ):
+            raise CurrentMP3DDynamicAudioError(
+                "canonical emitter height must be finite and positive"
+            )
     trajectories: dict[str, list[list[float]]] = {
         endpoint: [] for endpoint in slot_endpoints.values()
     }
-    for index, frame in enumerate(_frames(visual_capture_dir)):
+    for index, frame in enumerate(
+        _frames(
+            visual_capture_dir,
+            frame_count=frame_count,
+            frame_rate_hz=frame_rate_hz,
+            ticks_per_frame=ticks_per_frame,
+        )
+    ):
         if not isinstance(frame, Mapping) or frame.get("frame_index") != index:
             raise CurrentMP3DDynamicAudioError(
                 "frame_records indices must be contiguous from zero"
@@ -175,24 +215,53 @@ def load_ue_anchor_trajectories(
             raise CurrentMP3DDynamicAudioError(
                 "each frame must record actor_anchor_poses"
             )
+        emitters = frame.get("source_emitter_poses", {})
+        if not isinstance(emitters, Mapping):
+            raise CurrentMP3DDynamicAudioError("source_emitter_poses must be a mapping")
         for slot, endpoint in slot_endpoints.items():
-            pose = anchors.get(slot)
-            if not isinstance(pose, Mapping) or "location_cm" not in pose:
-                raise CurrentMP3DDynamicAudioError(
-                    f"frame {index} is missing the {slot} anchor pose"
-                )
-            point = apartment_ue_point_to_world_m(pose["location_cm"])
-            point[1] = float(emitter_heights_m[slot])
+            if slot in emitters:
+                pose = emitters[slot]
+                if not isinstance(pose, Mapping) or "location_cm" not in pose:
+                    raise CurrentMP3DDynamicAudioError(
+                        f"frame {index} has an invalid {slot} emitter pose"
+                    )
+                point = apartment_ue_point_to_world_m(pose["location_cm"])
+                if canonical_emitter_height_m is not None:
+                    point[1] = canonical_emitter_height_m
+            else:
+                if slot not in emitter_heights_m:
+                    raise CurrentMP3DDynamicAudioError(
+                        f"frame {index} is missing the required {slot} emitter pose"
+                    )
+                pose = anchors.get(slot)
+                if not isinstance(pose, Mapping) or "location_cm" not in pose:
+                    raise CurrentMP3DDynamicAudioError(
+                        f"frame {index} is missing the {slot} anchor pose"
+                    )
+                point = apartment_ue_point_to_world_m(pose["location_cm"])
+                height = float(emitter_heights_m[slot])
+                if not np.isfinite(height):
+                    raise CurrentMP3DDynamicAudioError("emitter height must be finite")
+                point[1] = height
             trajectories[endpoint].append(point)
     return trajectories
 
 
 def captured_static_camera_world_m(
     visual_capture_dir: str | Path,
+    *,
+    frame_count: int | None = None,
+    frame_rate_hz: int | float | None = None,
+    ticks_per_frame: int | None = None,
 ) -> tuple[list[float], float]:
     """Return the static camera world position and its UE yaw in degrees."""
 
-    frames = _frames(visual_capture_dir)
+    frames = _frames(
+        visual_capture_dir,
+        frame_count=frame_count,
+        frame_rate_hz=frame_rate_hz,
+        ticks_per_frame=ticks_per_frame,
+    )
     first = frames[0].get("camera_pose")
     if not isinstance(first, Mapping):
         raise CurrentMP3DDynamicAudioError("frame 0 must record camera_pose")
