@@ -23,9 +23,21 @@ from avengine.assets.sound_harvest import speech_metadata_from_mapping
 
 SCHEMA = "avengine_sound_event_pool_v1"
 
+DEFAULT_SPEECH_SELECTION_STRATEGY = "bounded_random"
+DEFAULT_SPEECH_SELECTION_ATTEMPTS = 64
+DEFAULT_SPEECH_SELECTION_CANDIDATE_WINDOW = 8
+
 
 class SoundPoolError(ValueError):
     """The catalog or params cannot produce a clip."""
+
+
+class SpeechSelectionSearchExhausted(SoundPoolError):
+    """The bounded search ended without proving that the pool is infeasible."""
+
+    def __init__(self, message: str, *, attempts: int):
+        super().__init__(message)
+        self.attempts = attempts
 
 
 @dataclass(frozen=True)
@@ -126,19 +138,75 @@ class SoundEventPool:
         count: int = 4,
         *,
         split: str | None = "train",
+        max_total_duration_samples: int | None = None,
+        selection_attempts: int = DEFAULT_SPEECH_SELECTION_ATTEMPTS,
+        selection_candidate_window: int | None = DEFAULT_SPEECH_SELECTION_CANDIDATE_WINDOW,
+        selection_strategy: str = DEFAULT_SPEECH_SELECTION_STRATEGY,
+        selection_fallback_strategy: str | None = None,
+        distinct_transcripts: bool = False,
+        selection_details: dict[str, Any] | None = None,
     ) -> list[PoolClip]:
-        """Select a bounded set of complete speech clips with explicit identity.
+        """Select complete speech clips with bounded seeded variation.
 
-        The pool is sorted once by duration, with seeded tie order. A selected
-        clip must declare a split, speaker, utterance, and transcript, and neither
-        speaker nor utterance may repeat. This is a finite filter, not a
-        search over combinations.
+        A candidate is eligible only when it declares split, speaker, utterance,
+        and transcript metadata. Each bounded attempt builds one random speaker
+        to utterance matching and may be accepted only when its total duration
+        fits the supplied budget. The matching uses augmenting paths, so
+        constrained speakers are retained without enumerating combinations.
+        Duration-first remains available as an explicit deterministic
+        fallback/compatibility strategy.
         """
 
         if isinstance(count, bool) or not isinstance(count, int) or count <= 0:
             raise SoundPoolError("speech clip count must be a positive integer")
         if split is not None and (not isinstance(split, str) or not split.strip()):
             raise SoundPoolError("speech split must be a non-empty string or None")
+        if (
+            isinstance(max_total_duration_samples, bool)
+            or (
+                max_total_duration_samples is not None
+                and (
+                    not isinstance(max_total_duration_samples, int)
+                    or max_total_duration_samples < 0
+                )
+            )
+        ):
+            raise SoundPoolError(
+                "max_total_duration_samples must be a non-negative integer or None"
+            )
+        if (
+            isinstance(selection_attempts, bool)
+            or not isinstance(selection_attempts, int)
+            or selection_attempts <= 0
+        ):
+            raise SoundPoolError("selection_attempts must be a positive integer")
+        if (
+            isinstance(selection_candidate_window, bool)
+            or (
+                selection_candidate_window is not None
+                and (
+                    not isinstance(selection_candidate_window, int)
+                    or selection_candidate_window <= 0
+                )
+            )
+        ):
+            raise SoundPoolError(
+                "selection_candidate_window must be a positive integer or None"
+            )
+        if selection_strategy not in {
+            DEFAULT_SPEECH_SELECTION_STRATEGY,
+            "duration_first",
+        }:
+            raise SoundPoolError(
+                "selection_strategy must be 'bounded_random' or 'duration_first'"
+            )
+
+        if selection_fallback_strategy not in {None, "duration_first"}:
+            raise SoundPoolError("selection_fallback_strategy must be null or 'duration_first'")
+        if not isinstance(distinct_transcripts, bool):
+            raise SoundPoolError("distinct_transcripts must be boolean")
+        if selection_details is not None and not isinstance(selection_details, dict):
+            raise SoundPoolError("selection_details must be a dictionary")
         candidates = self.clips_for("speech_playback")
         eligible = [
             clip
@@ -148,88 +216,174 @@ class SoundEventPool:
             and clip.utterance_id
             and clip.transcript
         ]
-        # Duration-first ordering finds a feasible short set with one bounded
-        # pass; it never searches combinations across the full pool.
-        try:
-            permutation = rng.permutation(len(eligible))
-        except (AttributeError, TypeError, ValueError) as exc:
-            raise SoundPoolError(
-                "speech clip selection needs an RNG with permutation()"
-            ) from exc
-        tie_rank = {
-            int(index): rank for rank, index in enumerate(permutation)
-        }
-        eligible = [
-            clip
-            for index, clip in sorted(
-                enumerate(eligible),
-                key=lambda pair: (
-                    pair[1].duration_samples,
-                    tie_rank[pair[0]],
-                    pair[1].speaker_id,
-                    pair[1].utterance_id,
-                    pair[1].sound_asset_id,
-                ),
-            )
-        ]
-        edges: dict[str, list[tuple[str, PoolClip]]] = {}
-        clip_by_pair: dict[tuple[str, str], PoolClip] = {}
-        for clip in eligible:
-            pair = (clip.speaker_id, clip.utterance_id)
-            if pair in clip_by_pair:
-                continue
-            clip_by_pair[pair] = clip
-            edges.setdefault(clip.speaker_id, []).append(
-                (clip.utterance_id, clip)
-            )
-
-        # Match speakers to utterances with augmenting paths. Processing
-        # low-degree speakers first handles constrained speakers without
-        # enumerating candidate combinations.
-        speaker_order = sorted(
-            edges,
-            key=lambda speaker: (
-                len(edges[speaker]),
-                min(clip.duration_samples for _, clip in edges[speaker]),
-                speaker,
-            ),
-        )
-        matched_by_utterance: dict[str, str] = {}
-
-        def augment(speaker: str, seen: set[str]) -> bool:
-            for utterance, _ in edges[speaker]:
-                if utterance in seen:
-                    continue
-                seen.add(utterance)
-                owner = matched_by_utterance.get(utterance)
-                if owner is None or augment(owner, seen):
-                    matched_by_utterance[utterance] = speaker
-                    return True
-            return False
-
-        for speaker in speaker_order:
-            if len(matched_by_utterance) == count:
-                break
-            augment(speaker, set())
-
-        if len(matched_by_utterance) < count:
+        if not eligible:
             raise SoundPoolError(
                 f"speech pool has fewer than {count} distinct clips with explicit "
                 f"speaker/utterance/transcript metadata in split={split!r}"
             )
-        selected = [
-            clip_by_pair[(speaker, utterance)]
-            for utterance, speaker in matched_by_utterance.items()
-        ]
-        selected.sort(
-            key=lambda clip: (
-                clip.duration_samples,
-                clip.speaker_id,
-                clip.utterance_id,
-                clip.sound_asset_id,
-            )
-        )
-        return selected
+        def transcript_key(clip):
+            return " ".join(clip.transcript.split()).casefold()
+
+        if distinct_transcripts and len({transcript_key(clip) for clip in eligible}) < count:
+            raise SoundPoolError(f"speech pool has fewer than {count} distinct transcript texts")
+
+        if selection_details is not None:
+            selection_details.clear()
+            selection_details.update(eligible_clip_count=len(eligible), attempts_used=0,
+                                     strategy_used=None, fallback_used=False)
+
+        def finish(selected, *, strategy, attempts, fallback=False):
+            if selection_details is not None:
+                selection_details.update(strategy_used=strategy, attempts_used=attempts,
+                                         fallback_used=fallback,
+                                         selected_duration_samples=sum(c.duration_samples for c in selected))
+            return selected
+
+        randomized_candidate_indices = list(range(len(eligible)))
+        if selection_candidate_window is not None:
+            by_speaker: dict[str, list[int]] = {}
+            for index, clip in enumerate(eligible):
+                by_speaker.setdefault(clip.speaker_id, []).append(index)
+            randomized_candidate_indices = []
+            for speaker in sorted(by_speaker):
+                ranked = sorted(
+                    by_speaker[speaker],
+                    key=lambda index: (
+                        eligible[index].duration_samples,
+                        eligible[index].utterance_id,
+                        eligible[index].sound_asset_id,
+                    ),
+                )
+                randomized_candidate_indices.extend(
+                    ranked[:selection_candidate_window]
+                )
+
+        if selection_details is not None:
+            selection_details["random_candidate_count"] = len(randomized_candidate_indices)
+
+        def matching(order_indices: list[int], *, randomized: bool):
+            edges: dict[str, list[tuple[str, PoolClip]]] = {}
+            clip_by_pair: dict[tuple[str, str], PoolClip] = {}
+            order_rank: dict[tuple[str, str], int] = {}
+            for rank, index in enumerate(order_indices):
+                clip = eligible[index]
+                pair = (clip.speaker_id, clip.utterance_id)
+                if pair in clip_by_pair:
+                    continue
+                clip_by_pair[pair] = clip
+                order_rank[pair] = rank
+                edges.setdefault(clip.speaker_id, []).append(
+                    (clip.utterance_id, clip)
+                )
+            if randomized:
+                speakers = list(edges)
+                speaker_permutation = [
+                    int(index) for index in rng.permutation(len(speakers))
+                ]
+                speaker_rank = {
+                    speakers[index]: rank
+                    for rank, index in enumerate(speaker_permutation)
+                }
+                # Keep constrained-degree priority while making equal-degree
+                # speakers random.
+                speaker_order = sorted(
+                    edges,
+                    key=lambda speaker: (
+                        len(edges[speaker]),
+                        speaker_rank[speaker],
+                    ),
+                )
+            else:
+                speaker_order = sorted(
+                    edges,
+                    key=lambda speaker: (
+                        len(edges[speaker]),
+                        min(
+                            clip.duration_samples
+                            for _, clip in edges[speaker]
+                        ),
+                        speaker,
+                    ),
+                )
+
+            matched_by_utterance: dict[str, str] = {}
+
+            def augment(speaker: str, seen: set[str]) -> bool:
+                for utterance, _ in edges[speaker]:
+                    if utterance in seen:
+                        continue
+                    seen.add(utterance)
+                    owner = matched_by_utterance.get(utterance)
+                    if owner is None or augment(owner, seen):
+                        matched_by_utterance[utterance] = speaker
+                        return True
+                return False
+
+            for speaker in speaker_order:
+                if len(matched_by_utterance) == count:
+                    break
+                augment(speaker, set())
+            if len(matched_by_utterance) < count:
+                return None
+
+            selected = [
+                clip_by_pair[(speaker, utterance)]
+                for utterance, speaker in matched_by_utterance.items()
+            ]
+            if distinct_transcripts and len({transcript_key(clip) for clip in selected}) != count:
+                return None
+            total_duration = sum(clip.duration_samples for clip in selected)
+            if (
+                max_total_duration_samples is not None
+                and total_duration > max_total_duration_samples
+            ):
+                return None
+            if randomized:
+                selected.sort(
+                    key=lambda clip: order_rank[
+                        (clip.speaker_id, clip.utterance_id)
+                    ]
+                )
+            else:
+                selected.sort(
+                    key=lambda clip: (
+                        clip.duration_samples,
+                        clip.speaker_id,
+                        clip.utterance_id,
+                        clip.sound_asset_id,
+                    )
+                )
+            return selected
+
+        duration_order = sorted(
+            range(len(eligible)), key=lambda index: (
+                eligible[index].duration_samples, eligible[index].speaker_id,
+                eligible[index].utterance_id, eligible[index].sound_asset_id))
+        if selection_strategy == "duration_first":
+            selected = matching(duration_order, randomized=False)
+            if selected is not None:
+                return finish(selected, strategy="duration_first", attempts=1)
+        else:
+            for attempt in range(1, selection_attempts + 1):
+                order = [int(index) for index in rng.permutation(randomized_candidate_indices)]
+                if selection_details is not None:
+                    selection_details["attempts_used"] = attempt
+                selected = matching(order, randomized=True)
+                if selected is not None:
+                    return finish(selected, strategy="bounded_random", attempts=attempt)
+            if selection_fallback_strategy == "duration_first":
+                selected = matching(duration_order, randomized=False)
+                if selected is not None:
+                    return finish(selected, strategy="duration_first",
+                                  attempts=selection_attempts, fallback=True)
+            raise SpeechSelectionSearchExhausted(
+                f"no distinct-speech selection found in {selection_attempts} bounded attempts "
+                f"for count={count}, duration_budget_samples={max_total_duration_samples}; "
+                "this does not prove that the pool is infeasible",
+                attempts=selection_attempts)
+        raise SoundPoolError(
+            f"duration-ordered matching did not produce {count} distinct speech clips "
+            f"within duration_budget_samples={max_total_duration_samples}")
 
     def draw(self, rng: Any, event_class: str) -> PoolClip:
         clips = self.clips_for(event_class)
@@ -276,13 +430,29 @@ class ClassClipSource:
         count: int = 4,
         *,
         split: str | None = "train",
+        max_total_duration_samples: int | None = None,
+        selection_attempts: int = DEFAULT_SPEECH_SELECTION_ATTEMPTS,
+        selection_candidate_window: int | None = DEFAULT_SPEECH_SELECTION_CANDIDATE_WINDOW,
+        selection_strategy: str = DEFAULT_SPEECH_SELECTION_STRATEGY,
+        selection_fallback_strategy: str | None = None,
+        distinct_transcripts: bool = False,
+        selection_details: dict[str, Any] | None = None,
     ) -> list[PoolClip]:
         if self.event_class != "speech_playback":
             raise SoundPoolError(
                 "distinct speech selection requires event_class='speech_playback'"
             )
         return self.pool.select_distinct_speech_clips(
-            self.rng, count=count, split=split
+            self.rng,
+            count=count,
+            split=split,
+            max_total_duration_samples=max_total_duration_samples,
+            selection_attempts=selection_attempts,
+            selection_candidate_window=selection_candidate_window,
+            selection_strategy=selection_strategy,
+            selection_fallback_strategy=selection_fallback_strategy,
+            distinct_transcripts=distinct_transcripts,
+            selection_details=selection_details,
         )
 
     def bind_distinct_roles(self, roles: tuple[str, ...]) -> BoundRoleClipSource:

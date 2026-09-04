@@ -131,3 +131,11 @@ def test_written_questions_follow_request_without_exposing_internal_facts(tmp_pa
     assert rows[0]["answer"]["truth_value"] == 1.5
     assert "hidden_timeline_position" not in json.dumps(rows)
     assert "mcq" not in rows[0]
+
+
+def test_speech_selection_policy_is_relative_to_its_parameter_file(tmp_path):
+    import json
+    from qa_v3_request import read_qa_params
+    parameter_file = tmp_path / "params.json"
+    parameter_file.write_text(json.dumps({"SPEECH_SELECTION_POLICY": "policy.json"}))
+    assert read_qa_params(parameter_file)["SPEECH_SELECTION_POLICY"] == str(tmp_path / "policy.json")

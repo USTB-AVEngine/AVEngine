@@ -55,7 +55,7 @@ from scene_sampler import (  # noqa: E402
     require_camera_clearance,
 )
 from qa_v3_request import answer_forms_from_params, write_requested_questions
-from audio_profiles import schedule_speech_utterances  # noqa: E402
+from audio_profiles import AudioProfileSearchExhausted, schedule_speech_utterances  # noqa: E402
 from avengine.assets.sound_pool import clip_source_from_params  # noqa: E402
 import scene_sampler as SS  # noqa: E402
 from avengine.camera_pose import apply_camera_listener_pose_ue  # noqa: E402
@@ -420,7 +420,13 @@ def _speech_schedule(params, *, cell_index, seed):
     )
 
 
-def _speech_program_events(schedule, cell_index):
+def _speech_program_events(
+    schedule,
+    cell_index,
+    *,
+    target_rng=None,
+    option_rng=None,
+):
     role_to_slot = {role: role for role in schedule.declared["role_order"]}
     main = schedule.program_events(role_to_slot)
     shift = 1 + (cell_index % (len(main) - 1))
@@ -428,12 +434,50 @@ def _speech_program_events(schedule, cell_index):
         dict(row, slot=f"source{((index + shift) % len(main)) + 1}")
         for index, row in enumerate(main)
     ]
-    target_index = cell_index % len(main)
+    if target_rng is None:
+        target_index = cell_index % len(main)
+    else:
+        target_index = int(target_rng.permutation(len(main))[0])
+    if option_rng is None:
+        option_order = list(range(len(main)))
+    else:
+        option_order = [
+            int(index) for index in option_rng.permutation(len(main))
+        ]
     return main, gatea, {
         "target_index": target_index,
         "gatea_source_index": (target_index + shift) % len(main),
+        "option_order": option_order,
         "target_speech_asset_id": main[target_index]["sound_asset_id"],
         "target_speech_utterance_id": main[target_index]["utterance_id"],
+    }
+
+
+def _speech_question_context(main_events, colour_by_slot, truth):
+    target_index = int(truth["target_index"])
+    if not 0 <= target_index < len(main_events):
+        raise ValueError("speech target index is outside the main event list")
+    target = main_events[target_index]
+    option_order = list(truth.get("option_order", range(len(main_events))))
+    if sorted(option_order) != list(range(len(main_events))):
+        raise ValueError("speech question option order is not a permutation")
+    return {
+        "target_index": target_index,
+        "target_slot": target["slot"],
+        "target_colour": colour_by_slot[target["slot"]],
+        "target_transcript": str(target["transcript"]).strip(),
+        "target_identity": {
+            "sound_asset_id": target["sound_asset_id"],
+            "speaker_id": target.get("speaker_id"),
+            "utterance_id": target.get("utterance_id"),
+        },
+        "option_order": option_order,
+        "option_transcripts": [
+            str(row["transcript"]).strip() for row in main_events
+        ],
+        "option_colours": [
+            colour_by_slot[row["slot"]] for row in main_events
+        ],
     }
 
 
@@ -619,32 +663,81 @@ def _facts(
         if speech_events is not None:
             if colour_by_slot is None:
                 raise ValueError("speech facts need colour_by_slot")
-            target_index = int(truth["target_index"])
-            if not 0 <= target_index < len(speech_events):
-                raise ValueError(
-                    f"speech target index {target_index} is outside event list")
-            target = speech_events[target_index]
-            transcript = str(target["transcript"]).strip()
-            colour = colour_by_slot[target["slot"]]
-            bindings = _speech_bindings(speech_events, colour_by_slot)
+            question = truth.get("speech_question")
+            if question is None:
+                legacy_index = int(truth["target_index"])
+                question = _speech_question_context(
+                    speech_events, colour_by_slot,
+                    {"target_index": legacy_index},
+                )
+            option_order = list(
+                question.get("option_order", range(len(speech_events)))
+            )
+            if sorted(option_order) != list(range(len(speech_events))):
+                raise ValueError("speech question option order is not a permutation")
+
+            def text_key(text):
+                return " ".join(str(text).split()).casefold()
+
             if profile_id == "card13":
+                options = question["option_transcripts"]
+                if len({text_key(text) for text in options}) != len(options):
+                    raise ValueError("speech MCQ options contain duplicate transcript text")
+                matches = [
+                    (index, row)
+                    for index, row in enumerate(speech_events)
+                    if row["slot"] == question["target_slot"]
+                ]
+                if len(matches) != 1:
+                    raise ValueError(
+                        "card13 Gate A must have exactly one event for the "
+                        "questioned appearance slot"
+                    )
+                target_index, target = matches[0]
+                transcript = str(target["transcript"]).strip()
                 mcq = {
-                    "stem": f"What did the person in {colour} say?",
+                    "stem": (
+                        f"What did the person in "
+                        f"{question['target_colour']} say?"
+                    ),
                     "options_space": [
-                        str(row["transcript"]).strip() for row in speech_events
+                        question["option_transcripts"][index]
+                        for index in option_order
                     ],
                     "truth_option": transcript,
                 }
                 open_answer = transcript
                 scoring = "transcript_wer"
             else:
+                if sum(text_key(row["transcript"]) == text_key(question["target_transcript"])
+                       for row in speech_events) != 1:
+                    raise ValueError("queried transcript is not unique among speakers")
+                identity = question["target_identity"]
+                matches = [
+                    (index, row)
+                    for index, row in enumerate(speech_events)
+                    if (
+                        row.get("sound_asset_id") == identity["sound_asset_id"]
+                        and row.get("speaker_id") == identity["speaker_id"]
+                        and row.get("utterance_id") == identity["utterance_id"]
+                    )
+                ]
+                if len(matches) != 1:
+                    raise ValueError(
+                        "card14 Gate A must preserve exactly one questioned "
+                        "transcript identity"
+                    )
+                target_index, target = matches[0]
+                transcript = question["target_transcript"]
+                colour = colour_by_slot[target["slot"]]
                 mcq = {
                     "stem": (
-                        f"What colour was the person who said "
-                        f"'{transcript}'?"
+                        "What colour was the person who said "
+                        f"'{question['target_transcript']}'?"
                     ),
                     "options_space": [
-                        colour_by_slot[row["slot"]] for row in speech_events
+                        question["option_colours"][index]
+                        for index in option_order
                     ],
                     "truth_option": colour,
                 }
@@ -656,7 +749,14 @@ def _facts(
                 "target_slot": target["slot"],
                 "target_speaker_id": target["speaker_id"],
                 "target_utterance_id": target["utterance_id"],
-                "speech_bindings": bindings,
+                "question_target_index": question["target_index"],
+                "question_target_slot": question["target_slot"],
+                "question_target_colour": question["target_colour"],
+                "question_target_transcript": question["target_transcript"],
+                "question_option_order": option_order,
+                "speech_bindings": _speech_bindings(
+                    speech_events, colour_by_slot
+                ),
                 "mcq": mcq,
                 "open": {
                     "stem": mcq["stem"],
@@ -827,6 +927,10 @@ def _write_unavailable(out_root, profile, scene, missing, cells):
 def _realise_cell(out_root, profile, cell_index, scene, params, inventory,
                   by_id, registry_path, base_request, snapshot_content, seed):
     profile_id = profile["id"]
+    # Exhausted audio selection must not leave a renderable partial point.
+    speech_schedule = (
+        _speech_schedule(params, cell_index=cell_index, seed=seed)
+        if profile_id in {"card13", "card14"} else None)
     if profile_id in {"card13", "card14"}:
         appearance_rng = np.random.default_rng(
             seed_uint64(f"{seed}|appearance|{cell_index}"))
@@ -929,12 +1033,20 @@ def _realise_cell(out_root, profile, cell_index, scene, params, inventory,
             point, "timeline_segment2", selection_path, registry_path,
             scene, segment2_plan, params)
 
-    speech_schedule = None
     if profile_id in {"card13", "card14"}:
-        speech_schedule = _speech_schedule(
-            params, cell_index=cell_index, seed=seed)
+        target_rng = np.random.default_rng(
+            seed_uint64(f"{seed}|speech-target|{cell_index}"))
+        option_rng = np.random.default_rng(
+            seed_uint64(f"{seed}|speech-options|{cell_index}"))
         main_events, gatea_events, truth = _speech_program_events(
-            speech_schedule, cell_index)
+            speech_schedule,
+            cell_index,
+            target_rng=target_rng,
+            option_rng=option_rng,
+        )
+        truth["speech_question"] = _speech_question_context(
+            main_events, colour_by_slot, truth
+        )
         sound_assets = []
     else:
         sound_assets = (
@@ -1027,8 +1139,6 @@ def _realise_cell(out_root, profile, cell_index, scene, params, inventory,
                 (segment2_plan or {}).get("route_sources") or []),
         },
     })
-    if not all(facts["gatea_checks"].values()):
-        raise RuntimeError(f"Gate A structure check failed: {facts['gatea_checks']}")
     facts["answer_forms"] = answer_forms_from_params(params)
     if speech_schedule is not None:
         facts["audio"]["schedule"] = dict(speech_schedule.declared)
@@ -1048,6 +1158,11 @@ def _realise_cell(out_root, profile, cell_index, scene, params, inventory,
             "target_slot",
             "target_speaker_id",
             "target_utterance_id",
+            "question_target_index",
+            "question_target_slot",
+            "question_target_colour",
+            "question_target_transcript",
+            "question_option_order",
             "speech_bindings",
             "mcq",
             "open",
@@ -1055,6 +1170,26 @@ def _realise_cell(out_root, profile, cell_index, scene, params, inventory,
         ):
             if key in gatea_result:
                 gatea_facts[key] = gatea_result[key]
+        if speech_schedule is not None:
+            facts["gatea_checks"].update({
+                "question_stem_preserved": (
+                    facts["mcq"]["stem"] == gatea_result["mcq"]["stem"]
+                ),
+                "question_options_preserved": (
+                    facts["mcq"]["options_space"]
+                    == gatea_result["mcq"]["options_space"]
+                ),
+                "question_gold_changed": (
+                    facts["mcq"]["truth_option"]
+                    != gatea_result["mcq"]["truth_option"]
+                    or facts["open"]["truth_value"]
+                    != gatea_result["open"]["truth_value"]
+                ),
+            })
+        if not all(facts["gatea_checks"].values()):
+            raise RuntimeError(
+                f"Gate A structure check failed: {facts['gatea_checks']}"
+            )
         gatea_facts.update({
             "variant": "gateA",
             "gatea_of": point_id,
@@ -1225,6 +1360,15 @@ def main(argv=None):
                     args.snapshot_content, args.seed)
                 records.append(record)
                 attempts += record["search_attempts"]
+            except AudioProfileSearchExhausted as error:
+                reason = "speech_selection_budget_exhausted"
+                reasons[reason] += 1
+                rejected.append({
+                    "point_id": f"{profile_id}_{cell_index + 1:03d}",
+                    "reason": reason,
+                    "detail": str(error),
+                    "selection_attempts": error.attempts,
+                })
             except SearchExhausted as error:
                 reason = "not_found_within_budget"
                 reasons[reason] += 1
@@ -1273,7 +1417,8 @@ def main(argv=None):
         },
         "search": {
             "combinations_evaluated": attempts,
-            "budget_exhausted": reasons["not_found_within_budget"],
+            "budget_exhausted": (reasons["not_found_within_budget"]
+                                 + reasons["speech_selection_budget_exhausted"]),
             "by_reason": dict(reasons),
         },
         "records": records,

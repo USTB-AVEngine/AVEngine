@@ -311,3 +311,106 @@ def test_distinct_speech_selection_uses_augmenting_path_for_feasible_matching(
         ("speaker_a", "x"),
         ("speaker_b", "y"),
     }
+
+
+
+def test_distinct_speech_selection_varies_by_seed_with_duration_budget(
+    tmp_path: Path,
+):
+    path = tmp_path / "pool.json"
+    clips = []
+    for speaker_index in range(4):
+        for utterance_index, duration in enumerate((1000, 1100, 1200)):
+            utterance = f"u_{speaker_index}_{utterance_index}"
+            clips.append({
+                "sound_asset_id": f"{speaker_index}-{utterance_index}",
+                "event_class": "speech_playback",
+                "sample_rate_hz": 16000,
+                "duration_samples": duration,
+                "source_start_sample": 0,
+                "source_end_sample_exclusive": duration,
+                "speaker_id": f"speaker_{speaker_index}",
+                "utterance_id": utterance,
+                "transcript": f"sentence {speaker_index} {utterance_index}",
+                "split": "train",
+            })
+    _catalog(path, clips)
+    params = {
+        "SOUND_SOURCE_MODE": "event_pool",
+        "SOUND_EVENT_POOL": str(path),
+        "SOUND_EVENT_CLASS_BY_PAIR_KIND": {"human": "speech_playback"},
+        "SAMPLE_RATE_HZ": 16000,
+    }
+
+    def select(seed):
+        source = clip_source_from_params(
+            params, np.random.default_rng(seed), pair_kind="human"
+        )
+        return source.select_distinct_speech_clips(
+            4,
+            max_total_duration_samples=6000,
+            selection_attempts=4,
+            selection_candidate_window=3,
+        )
+
+    first = select(17)
+    repeat = select(17)
+    variants = {
+        tuple((clip.speaker_id, clip.utterance_id) for clip in select(seed))
+        for seed in range(17, 25)
+    }
+    assert [
+        (clip.speaker_id, clip.utterance_id) for clip in first
+    ] == [
+        (clip.speaker_id, clip.utterance_id) for clip in repeat
+    ]
+    assert len(variants) > 1
+    for selected in [first, repeat]:
+        assert len({clip.speaker_id for clip in selected}) == 4
+        assert len({clip.utterance_id for clip in selected}) == 4
+        assert sum(clip.duration_samples for clip in selected) <= 6000
+
+
+def test_speech_random_exhaustion_does_not_silently_return_shortest_clips(tmp_path):
+    from avengine.assets.sound_pool import SpeechSelectionSearchExhausted
+    rows = []
+    for speaker in ("A", "B"):
+        for label, duration in (("short", 8000), ("long", 32000)):
+            key = speaker + label
+            rows.append({"sound_asset_id": key, "event_class": "speech_playback",
+                "sample_rate_hz": 16000, "duration_samples": duration,
+                "source_start_sample": 0, "source_end_sample_exclusive": duration,
+                "speaker_id": speaker, "utterance_id": key,
+                "transcript": key, "split": "train"})
+    path = tmp_path / "pool.json"
+    _catalog(path, rows)
+    pool = SoundEventPool.from_catalog(path)
+    class Reverse:
+        def permutation(self, values):
+            return np.arange(values) if isinstance(values, int) else np.asarray(values)[::-1]
+    details = {}
+    kwargs = dict(count=2, max_total_duration_samples=16000, selection_attempts=1,
+                  selection_candidate_window=None, selection_details=details)
+    # The fixed RNG picks the long clip for both speakers on its only attempt.
+    with pytest.raises(SpeechSelectionSearchExhausted, match="does not prove"):
+        pool.select_distinct_speech_clips(Reverse(), **kwargs)
+    assert details["attempts_used"] == 1
+    selected = pool.select_distinct_speech_clips(
+        Reverse(), **kwargs, selection_fallback_strategy="duration_first")
+    assert sum(clip.duration_samples for clip in selected) == 16000
+    assert details["fallback_used"] is True
+    assert details["strategy_used"] == "duration_first"
+
+
+def test_speech_questions_can_require_distinct_transcript_text(tmp_path):
+    path = tmp_path / "pool.json"
+    _catalog(path, [{"sound_asset_id": str(i), "event_class": "speech_playback",
+        "sample_rate_hz": 16000, "duration_samples": 16000,
+        "source_start_sample": 0, "source_end_sample_exclusive": 16000,
+        "speaker_id": f"speaker{i}", "utterance_id": f"utterance{i}",
+        "transcript": text, "split": "train"}
+        for i, text in enumerate(("Yes.", " yes. "))])
+    pool = SoundEventPool.from_catalog(path)
+    with pytest.raises(SoundPoolError, match="distinct transcript"):
+        pool.select_distinct_speech_clips(np.random.default_rng(1), count=2,
+                                        distinct_transcripts=True)

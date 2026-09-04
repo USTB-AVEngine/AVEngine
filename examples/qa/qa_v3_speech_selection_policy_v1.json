@@ -1,0 +1,8 @@
+{
+  "strategy": "bounded_random",
+  "attempts": 64,
+  "candidate_window": 8,
+  "description": "Finite randomized speaker-to-utterance matching. The window is the duration-ranked candidate count per speaker; the scheduler also supplies the remaining total-duration budget.",
+  "fallback_strategy": null,
+  "distinct_transcripts": true
+}

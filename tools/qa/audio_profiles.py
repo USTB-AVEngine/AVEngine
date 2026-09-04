@@ -19,9 +19,11 @@ run01 的 card8 被压扁,是因为它继承了 card1 需要的片尾静默 —�
 
 from __future__ import annotations
 
+import json
 import math
 from collections.abc import Sequence
 from dataclasses import dataclass, field
+from pathlib import Path
 
 TARGET = "target_actor"
 OTHER = "non_target_actor"
@@ -29,6 +31,14 @@ OTHER = "non_target_actor"
 
 class AudioProfileError(ValueError):
     """A schedule cannot satisfy the profile's declared constraints."""
+
+class AudioProfileSearchExhausted(AudioProfileError):
+    """A finite audio selection budget ended without a candidate."""
+
+    def __init__(self, message, *, attempts):
+        super().__init__(message)
+        self.attempts = attempts
+
 
 
 @dataclass
@@ -648,6 +658,41 @@ def _speech_roles(roles: Sequence[str] | None, count: int) -> list[str]:
     return result
 
 
+DEFAULT_SPEECH_SELECTION_POLICY_PATH = (
+    Path(__file__).resolve().parents[2]
+    / "examples/qa/qa_v3_speech_selection_policy_v1.json"
+)
+
+
+def _load_speech_selection_policy(params):
+    configured = params.get("SPEECH_SELECTION_POLICY")
+    path = (
+        Path(configured).expanduser().resolve()
+        if configured is not None
+        else DEFAULT_SPEECH_SELECTION_POLICY_PATH
+    )
+    if not path.is_file():
+        raise AudioProfileError(
+            f"speech selection policy file is missing: {path}"
+        )
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise AudioProfileError(
+            f"speech selection policy is invalid: {path}: {exc}"
+        ) from exc
+    if not isinstance(value, dict):
+        raise AudioProfileError(
+            f"speech selection policy must be an object: {path}"
+        )
+    for key in ("strategy", "attempts", "candidate_window"):
+        if key not in value:
+            raise AudioProfileError(
+                f"speech selection policy missing {key}: {path}"
+            )
+    return value, path
+
+
 def schedule_speech_utterances(
     rng,
     *,
@@ -663,8 +708,8 @@ def schedule_speech_utterances(
 
     The clip source selects a bounded set of explicit train utterances. Their
     actual source lengths become the event lengths; no fixed speech duration
-    or bark-sized crop is applied. The existing sequential placement helper
-    then places the requested role order inside CLIP_SECONDS.
+    or bark-sized crop is applied. Selection uses a finite randomized matching
+    budget and an explicit total-duration budget before sequential placement.
     """
 
     if (
@@ -686,7 +731,9 @@ def schedule_speech_utterances(
         raise AudioProfileError("CLIP_SECONDS must be a finite positive number")
     episode_samples = _clip_samples(params)
     if tail_seconds is None:
-        tail_seconds = params.get("SPEECH_TAIL_SECONDS", params.get("TAIL_SILENCE_S", 0.0))
+        tail_seconds = params.get(
+            "SPEECH_TAIL_SECONDS", params.get("TAIL_SILENCE_S", 0.0)
+        )
     tail_seconds = float(tail_seconds)
     if not math.isfinite(tail_seconds) or tail_seconds < 0.0:
         raise AudioProfileError("speech tail_seconds must be finite and non-negative")
@@ -707,18 +754,86 @@ def schedule_speech_utterances(
     if not math.isfinite(gap_seconds) or gap_seconds < 0.0:
         raise AudioProfileError("speech gap_seconds must be finite and non-negative")
     gap_samples = int(round(gap_seconds * rate))
+    selection_budget_samples = (
+        usable_samples - max(0, utterance_count - 1) * gap_samples
+    )
+    if selection_budget_samples < 0:
+        raise AudioProfileError(
+            f"speech duration budget is negative after reserved tail "
+            f"({tail_samples / rate:.3f}s) and gaps "
+            f"({gap_samples / rate:.3f}s)"
+        )
     role_order = _speech_roles(roles, utterance_count)
 
-    from avengine.assets.sound_pool import SoundPoolError
+    from avengine.assets.sound_pool import SoundPoolError, SpeechSelectionSearchExhausted
 
-    try:
-        clips = clip_source.select_distinct_speech_clips(
-            utterance_count, split=split
-        )
-    except (AttributeError, SoundPoolError) as exc:
+    policy, policy_path = _load_speech_selection_policy(params)
+    selection_strategy = params.get(
+        "SPEECH_SELECTION_STRATEGY", policy["strategy"]
+    )
+    if not isinstance(selection_strategy, str) or not selection_strategy.strip():
+        raise AudioProfileError("SPEECH_SELECTION_STRATEGY must be a non-empty string")
+    selection_strategy = selection_strategy.strip()
+    if selection_strategy not in {"bounded_random", "duration_first"}:
         raise AudioProfileError(
-            f"cannot select complete speech utterances: {exc}"
-        ) from exc
+            "SPEECH_SELECTION_STRATEGY must be 'bounded_random' or "
+            "'duration_first'"
+        )
+    selection_attempts = params.get(
+        "SPEECH_SELECTION_ATTEMPTS", policy["attempts"]
+    )
+    if (
+        isinstance(selection_attempts, bool)
+        or not isinstance(selection_attempts, int)
+        or selection_attempts <= 0
+    ):
+        raise AudioProfileError("SPEECH_SELECTION_ATTEMPTS must be a positive integer")
+    selection_candidate_window = params.get(
+        "SPEECH_SELECTION_CANDIDATE_WINDOW",
+        policy["candidate_window"],
+    )
+    if (
+        selection_candidate_window is not None
+        and (
+            isinstance(selection_candidate_window, bool)
+            or not isinstance(selection_candidate_window, int)
+            or selection_candidate_window <= 0
+        )
+    ):
+        raise AudioProfileError(
+            "SPEECH_SELECTION_CANDIDATE_WINDOW must be a positive integer or None"
+        )
+    selection_config_source = (
+        "params"
+        if (
+            "SPEECH_SELECTION_STRATEGY" in params
+            or "SPEECH_SELECTION_ATTEMPTS" in params
+            or "SPEECH_SELECTION_CANDIDATE_WINDOW" in params
+        )
+        else f"config:{policy_path}"
+    )
+
+    fallback = params.get("SPEECH_SELECTION_FALLBACK_STRATEGY", policy.get("fallback_strategy"))
+    distinct_transcripts = params.get("SPEECH_DISTINCT_TRANSCRIPTS", policy.get("distinct_transcripts", True))
+    details = {}
+    selector = getattr(clip_source, "select_distinct_speech_clips", None)
+    if not callable(selector):
+        raise AudioProfileError("clip source lacks distinct speech selection")
+    try:
+        clips = selector(
+            utterance_count, split=split,
+            max_total_duration_samples=selection_budget_samples,
+            selection_attempts=selection_attempts,
+            selection_candidate_window=selection_candidate_window,
+            selection_strategy=selection_strategy,
+            selection_fallback_strategy=fallback,
+            distinct_transcripts=distinct_transcripts,
+            selection_details=details,
+        )
+    except SpeechSelectionSearchExhausted as exc:
+        raise AudioProfileSearchExhausted(str(exc), attempts=exc.attempts) from exc
+    except SoundPoolError as exc:
+        raise AudioProfileError(f"cannot select complete speech utterances: {exc}") from exc
     if len(clips) != utterance_count:
         raise AudioProfileError(
             f"speech source returned {len(clips)} clips, need {utterance_count}"
@@ -774,6 +889,12 @@ def schedule_speech_utterances(
             f"{gap_samples / rate:.3f}s, but episode CLIP_SECONDS="
             f"{episode_seconds:.3f}s with {tail_samples / rate:.3f}s reserved tail is too short"
         )
+    if sum(durations) > selection_budget_samples:
+        raise AudioProfileError(
+            f"selected complete speech utterances need {sum(durations) / rate:.3f}s "
+            f"before gaps, exceeding the available speech budget "
+            f"{selection_budget_samples / rate:.3f}s"
+        )
     starts = _place_sequential(rng, durations, gap_samples, 0, usable_samples)
     if starts is None:
         raise AudioProfileError(
@@ -796,6 +917,17 @@ def schedule_speech_utterances(
             "reserved_tail_seconds": tail_samples / rate,
             "gap_seconds": gap_samples / rate,
             "required_seconds": required_samples / rate,
+            "speech_selection_strategy": selection_strategy,
+            "speech_selection_attempts": selection_attempts,
+            "speech_selection_candidate_window": selection_candidate_window,
+            "speech_selection_attempts_source": selection_config_source,
+            "speech_selection_policy_path": str(policy_path),
+            "speech_selection_interface": "bounded_budget",
+            "speech_selection_fallback_strategy": fallback,
+            "speech_distinct_transcripts": distinct_transcripts,
+            "speech_selection_result": dict(details),
+            "speech_selection_budget_seconds": selection_budget_samples / rate,
+            "speech_selection_budget_samples": selection_budget_samples,
             "speaker_ids": [clip.speaker_id for clip in clips],
             "utterance_ids": [clip.utterance_id for clip in clips],
             "transcripts": [clip.transcript for clip in clips],

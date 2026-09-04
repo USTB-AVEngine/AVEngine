@@ -208,13 +208,15 @@ def read_qa_params(path: str | Path) -> dict[str, Any]:
     value = json.loads(source.read_text(encoding="utf-8"))
     if not isinstance(value, dict):
         raise QARequestError("params JSON must be an object")
-    if value.get("SOUND_EVENT_POOL") is not None:
-        raw = value["SOUND_EVENT_POOL"]
+    for field in ("SOUND_EVENT_POOL", "SPEECH_SELECTION_POLICY"):
+        if value.get(field) is None:
+            continue
+        raw = value[field]
         if not isinstance(raw, str) or not raw.strip():
-            raise QARequestError("SOUND_EVENT_POOL must be a non-empty path")
-        pool = Path(raw).expanduser()
-        value["SOUND_EVENT_POOL"] = str(
-            (pool if pool.is_absolute() else source.parent / pool).resolve())
+            raise QARequestError(f"{field} must be a non-empty path")
+        resource = Path(raw).expanduser()
+        value[field] = str(
+            (resource if resource.is_absolute() else source.parent / resource).resolve())
     return value
 
 

@@ -62,3 +62,28 @@ four warmup settings. The actual values and discarded-frame count are recorded i
 the output. The minimum settling period prevents an early low-change plateau from
 ending warmup before streamed textures arrive. It is a configurable render setting,
 not a claim that every scene is visually qualified.
+
+## Speech selection and counterfactual questions
+
+The default selection policy is in
+`examples/qa/qa_v3_speech_selection_policy_v1.json`. A request can set
+`SPEECH_SELECTION_POLICY` to another file (relative to the parameter file), or
+override the named selection settings in params. The candidate window limits
+how many duration-ranked clips per speaker enter the randomized matching; it
+can be null to consider the whole eligible pool. The available speech budget
+is the clip duration minus the declared gaps and tail.
+
+Random search has a finite attempt budget. Its default has no implicit
+shortest-clip fallback. An explicitly selected `duration_first` fallback is
+reported as such in `speech_selection_result`, together with actual attempts,
+candidate counts and selected duration. Search exhaustion is a rejected
+candidate, not proof that the corpus is infeasible. Speech questions use distinct
+transcript texts by default so different utterance IDs cannot create duplicate
+answer texts.
+
+Target and option order use seeded randomness. Card13 keeps the questioned
+appearance fixed when audio routes change; card14 keeps the quoted transcript
+fixed. Main and GateA therefore retain the same stem and option order while
+recomputing gold from the actual event-to-person binding. This repairs logical
+counterfactual consistency; native visibility, audibility and human calibration
+remain separate evidence.

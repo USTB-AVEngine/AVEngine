@@ -23,6 +23,7 @@ from design_qa_v3_extended_profile import (  # noqa: E402
     _program_events,
     _resource_inventory,
     _speech_program_events,
+    _speech_question_context,
     audio_program_mode,
 )
 
@@ -274,7 +275,7 @@ def test_speech_program_events_keep_full_windows_and_swap_gatea_slots():
     ]
 
     class Source:
-        def select_distinct_speech_clips(self, count=4, *, split="train"):
+        def select_distinct_speech_clips(self, count=4, *, split="train", **selection_options):
             assert split == "train"
             return clips[:count]
 
@@ -379,3 +380,138 @@ def test_speech_pool_inventory_uses_train_pool_rows():
     assert len(inventory["speech"]) == 4
     assert {row["split"] for row in inventory["speech"]} == {"train"}
     assert inventory["missing"] == []
+
+
+
+def _speech_test_schedule():
+    from audio_profiles import Schedule, ScheduledEvent
+
+    events = [
+        ScheduledEvent(
+            role=f"source{index + 1}",
+            start_sample=index * 20000,
+            end_sample_exclusive=index * 20000 + 8000,
+            purpose="answer_evidence",
+            sample_rate_hz=16000,
+            ticks_per_sample=3,
+            ticks_per_frame=3200,
+            frame_count=75,
+            sound_asset_id=f"speech_{index}",
+            source_start_sample=0,
+            source_end_sample_exclusive=8000,
+            speaker_id=f"p{index}",
+            utterance_id=f"{index:03d}",
+            transcript=f"sentence {index}",
+            split="train",
+        )
+        for index in range(4)
+    ]
+    return Schedule(
+        "speech_utterances",
+        events,
+        0,
+        {"role_order": [f"source{index + 1}" for index in range(4)]},
+    )
+
+
+def test_speech_gatea_preserves_question_and_recomputes_binding_gold():
+    colours = {
+        "source1": "red",
+        "source2": "blue",
+        "source3": "green",
+        "source4": "yellow",
+    }
+    inventory = {"humans": [], "speech": [], "dogs": [], "sound_types": []}
+    schedule = _speech_test_schedule()
+    observed = {}
+    for profile_id in ("card13", "card14"):
+        profile_observed = []
+        for seed in (11, 12):
+            target_rng = np.random.default_rng(seed)
+            option_rng = np.random.default_rng(seed + 100)
+            main, gatea, truth = _speech_program_events(
+                schedule,
+                0,
+                target_rng=target_rng,
+                option_rng=option_rng,
+            )
+            truth["speech_question"] = _speech_question_context(
+                main, colours, truth
+            )
+            main_fact = _facts(
+                {"id": profile_id},
+                inventory,
+                truth,
+                None,
+                None,
+                speech_events=main,
+                colour_by_slot=colours,
+            )
+            gatea_fact = _facts(
+                {"id": profile_id},
+                inventory,
+                truth,
+                None,
+                None,
+                speech_events=gatea,
+                colour_by_slot=colours,
+            )
+            assert main_fact["mcq"]["stem"] == gatea_fact["mcq"]["stem"]
+            assert (
+                main_fact["mcq"]["options_space"]
+                == gatea_fact["mcq"]["options_space"]
+            )
+            assert main_fact["mcq"]["truth_option"] != gatea_fact["mcq"]["truth_option"]
+            assert main_fact["open"]["truth_value"] != gatea_fact["open"]["truth_value"]
+            if profile_id == "card13":
+                assert main_fact["question_target_slot"] == gatea_fact["question_target_slot"]
+                assert main_fact["target_slot"] == gatea_fact["target_slot"]
+                assert main_fact["target_utterance_id"] != gatea_fact["target_utterance_id"]
+            else:
+                assert (
+                    main_fact["question_target_transcript"]
+                    == gatea_fact["question_target_transcript"]
+                )
+                assert (
+                    main_fact["target_utterance_id"]
+                    == gatea_fact["target_utterance_id"]
+                )
+                assert main_fact["target_slot"] != gatea_fact["target_slot"]
+            position = main_fact["mcq"]["options_space"].index(
+                main_fact["mcq"]["truth_option"]
+            )
+            profile_observed.append(
+                (
+                    truth["target_index"],
+                    tuple(main_fact["mcq"]["options_space"]),
+                    position,
+                )
+            )
+        assert len({row[0] for row in profile_observed}) > 1
+        assert len({row[2] for row in profile_observed}) > 1
+        observed[profile_id] = profile_observed
+    assert observed["card13"] != observed["card14"]
+
+
+def test_speech_fact_rejects_same_text_under_different_utterance_ids():
+    schedule = _speech_test_schedule()
+    main, _, truth = _speech_program_events(schedule, 0)
+    main[1]["transcript"] = main[0]["transcript"]
+    colours = {f"source{i+1}": f"colour{i}" for i in range(4)}
+    for profile, reason in (("card13", "duplicate transcript"),
+                            ("card14", "not unique among speakers")):
+        with pytest.raises(ValueError, match=reason):
+            _facts({"id": profile}, {}, truth, None, None,
+                   speech_events=main, colour_by_slot=colours)
+
+
+def test_audio_search_exhaustion_does_not_leave_partial_point(tmp_path, monkeypatch):
+    import design_qa_v3_extended_profile as module
+    from audio_profiles import AudioProfileSearchExhausted
+    def exhausted(*args, **kwargs):
+        raise AudioProfileSearchExhausted("bounded audio search ended", attempts=1)
+    monkeypatch.setattr(module, "_speech_schedule", exhausted)
+    with pytest.raises(AudioProfileSearchExhausted):
+        module._realise_cell(tmp_path, {"id": "card13"}, 0, None, {}, {}, {},
+                             tmp_path / "registry.json", {}, "unused", "seed")
+    assert not list(tmp_path.iterdir())

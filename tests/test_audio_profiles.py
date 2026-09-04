@@ -515,7 +515,7 @@ class _SpeechSource:
         self.clips = list(clips)
         self.calls = []
 
-    def select_distinct_speech_clips(self, count=4, *, split="train"):
+    def select_distinct_speech_clips(self, count=4, *, split="train", **selection_options):
         self.calls.append((count, split))
         return self.clips[:count]
 
@@ -615,3 +615,69 @@ def test_complete_speech_reserves_requested_receiver_tail():
         assert schedule.declared["reserved_tail_seconds"] == 0.5
     with pytest.raises(AudioProfileError, match="reserved tail"):
         schedule_speech_utterances(rng(0), params=dict(params, CLIP_SECONDS=5.0), clip_source=_SpeechSource(clips))
+
+
+
+class _BudgetSpeechSource:
+    def __init__(self, clips):
+        self.clips = list(clips)
+        self.calls = []
+
+    def select_distinct_speech_clips(
+        self,
+        count=4,
+        *,
+        split="train",
+        max_total_duration_samples=None,
+        selection_attempts=None,
+        selection_candidate_window=None,
+        selection_strategy=None,
+        **selection_options,
+    ):
+        self.calls.append({
+            "count": count,
+            "split": split,
+            "max_total_duration_samples": max_total_duration_samples,
+            "selection_attempts": selection_attempts,
+            "selection_candidate_window": selection_candidate_window,
+            "selection_strategy": selection_strategy,
+        })
+        return self.clips[:count]
+
+
+def test_speech_schedule_records_bounded_selection_policy_and_budget():
+    clips = [
+        _SpeechClip(16000 + index * 1000, f"speech_{index}", f"p{index}",
+                    str(index), f"utterance {index}")
+        for index in range(4)
+    ]
+    source = _BudgetSpeechSource(clips)
+    params = dict(
+        PARAMS,
+        CLIP_SECONDS=10.0,
+        SPEECH_TAIL_SECONDS=0.5,
+        SPEECH_GAP_SECONDS=0.3,
+        SPEECH_SELECTION_STRATEGY="bounded_random",
+        SPEECH_SELECTION_ATTEMPTS=7,
+        SPEECH_SELECTION_CANDIDATE_WINDOW=5,
+    )
+    schedule = schedule_speech_utterances(
+        rng(123), params=params, clip_source=source
+    )
+    assert source.calls == [{
+        "count": 4,
+        "split": "train",
+        "max_total_duration_samples": 137600,
+        "selection_attempts": 7,
+        "selection_candidate_window": 5,
+        "selection_strategy": "bounded_random",
+    }]
+    assert schedule.declared["speech_selection_strategy"] == "bounded_random"
+    assert schedule.declared["speech_selection_attempts"] == 7
+    assert schedule.declared["speech_selection_candidate_window"] == 5
+    assert schedule.declared["speech_selection_attempts_source"] == "params"
+    assert schedule.declared["speech_selection_policy_path"].endswith(
+        "examples/qa/qa_v3_speech_selection_policy_v1.json"
+    )
+    assert schedule.declared["speech_selection_budget_samples"] == 137600
+    assert schedule.declared["speech_selection_interface"] == "bounded_budget"
