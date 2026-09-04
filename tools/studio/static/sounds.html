@@ -27,6 +27,12 @@ display:flex;flex-direction:column;gap:.35rem;background:var(--card)}
 .clip .name{font-family:ui-monospace,monospace;font-size:.74rem;word-break:break-all;font-weight:600}
 .chip{display:inline-block;padding:.04rem .4rem;border-radius:3px;font-size:.7rem;background:#efede6;margin-right:.3rem}
 .chip.bad{background:var(--badbg);color:var(--bad)}
+.chip.ok{background:var(--okbg);color:var(--ok)}
+.chip.warn{background:var(--warnbg);color:#9a6b12}
+.qc{font-size:.73rem;line-height:1.5;display:flex;flex-direction:column;gap:.15rem}
+.qc .fail{background:var(--badbg);border-radius:4px;padding:.1rem .35rem}
+.qc .warn{background:var(--warnbg);border-radius:4px;padding:.1rem .35rem}
+.dupe{font-size:.72rem;color:#9a6b12}
 .facts{font-size:.74rem;color:var(--mut)}
 audio{width:100%;height:30px}
 #empty{font-size:.85rem;color:var(--mut);padding:1rem}
@@ -59,7 +65,11 @@ async function boot(){
   const payload = await (await fetch('/api/sound-library')).json();
   if (payload.error) { document.getElementById('req').textContent = payload.error; return; }
   document.getElementById('req').textContent = '库目录：' + payload.root + ' —— ' + payload.requirements;
-  document.getElementById('count').textContent = payload.clip_count + ' 条素材';
+  const qs = payload.qc_summary || {};
+  document.getElementById('count').textContent =
+    `${payload.clip_count} 个文件 / ${payload.distinct_audio_count} 段不同音频`
+    + ` · 合格 ${qs.pass || 0} · 有提醒 ${qs.warn || 0} · 不可用 ${qs.fail || 0}`
+    + (qs.unchecked ? ` · 未质检 ${qs.unchecked}` : '');
 
   const coverage = document.getElementById('coverage');
   coverage.innerHTML = (payload.coverage || []).map(row => {
@@ -83,10 +93,23 @@ async function boot(){
     const classes = (clip.event_classes || []).map(name => `<span class="chip">${name}</span>`).join('')
       || '<span class="chip bad">旁车未声明 event_classes</span>';
     const provenance = [clip.source, clip.license].filter(Boolean).join(' · ');
+    // 机器质检的结论就摆在这里：合格的只有一个绿章，有毛病的把话说出来。
+    const qc = clip.qc;
+    const stamp = !qc ? '<span class="chip">未质检</span>'
+      : qc.verdict === 'pass' ? '<span class="chip ok">机器质检 ✓</span>'
+      : qc.verdict === 'warn' ? '<span class="chip warn">有提醒</span>'
+      : '<span class="chip bad">不可用</span>';
+    const findings = (qc && qc.findings || [])
+      .map(f => `<div class="${f.severity}">${f.severity === 'fail' ? '✗' : '!'} ${f.reason_zh}</div>`).join('');
+    const dupes = (clip.duplicate_of || []).length
+      ? `<div class="dupe">这段音频和 ${clip.duplicate_of.join('、')} 是同一个文件的副本
+         —— 只留一份，在旁车的 event_classes 里写上它服务的所有类就行</div>` : '';
     return `<div class="clip">
       <div class="name">${clip.path}</div>
-      <div>${classes}${clip.dry === true ? '<span class="chip">干声 ✓</span>' : '<span class="chip bad">未声明干声</span>'}</div>
+      <div>${classes}${clip.dry === true ? '<span class="chip">干声 ✓</span>' : '<span class="chip bad">未声明干声</span>'}${stamp}</div>
       <div class="facts">${facts}${provenance ? ' · ' + provenance : ''}</div>
+      ${findings ? `<div class="qc">${findings}</div>` : ''}
+      ${dupes}
       <audio controls preload="none" src="${url}"></audio>
       <button class="copy" onclick="navigator.clipboard.writeText('${payload.root}/${clip.path}')">复制服务器路径</button>
     </div>`;

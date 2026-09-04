@@ -5,7 +5,7 @@
 
 自 2026-08-25 起，目录本身就是能力分组（阶段目录 m1…m7 已移除），
 本表按目录列出每个工具做什么。
-当前共 325 个工具脚本。
+当前共 330 个工具脚本。
 
 ## 资产生成与装配（`tools/assets/`）
 
@@ -28,6 +28,7 @@
 | `tools/assets/build_joint_mapping.py` | Emit the exact Habitat joint mapping bound to a rebase report |
 | `tools/assets/build_research_review_request.py` | Build an exact 75-state M2 request for research-only human review |
 | `tools/assets/build_sound_event_pool.py` | Build an avengine_sound_event_pool_v1 catalog from event_manifest.json |
+| `tools/assets/build_sound_harvest_map.py` | 生成事件类到 FSD50K 标签的对照表草案。 |
 | `tools/assets/capture_animal_variant_review.py` | Build and run one single-view animal-variant Habitat review capture |
 | `tools/assets/capture_canary.py` | Run one formal 75-state M2 canary capture in Habitat |
 | `tools/assets/capture_installed_research_review.py` | Run the current installed-prefix M2 Blender-room research review |
@@ -40,6 +41,8 @@
 | `tools/assets/gate_retopology.py` | Reject a mesh preparation that damaged the animal, before it is rigged |
 | `tools/assets/gate_rigged_asset.py` | Accept or reject a rigged animal from how its surface tears during the walk |
 | `tools/assets/generate_canonical_2d.py` | Generate one canonical 2D animal candidate from a clay pose guide |
+| `tools/assets/harvest_fsd50k_clips.py` | Fill the sound-effect classes from the FSD50K copy already on this machine |
+| `tools/assets/harvest_vctk_speech.py` | Pull English speech with transcripts from the VCTK copy on this machine |
 | `tools/assets/measure_deformation_stretch.py` | Measure how much of the surface a pose stretches |
 | `tools/assets/measure_mesh_topology.py` | Compare mesh structure after welding, without a glTF round trip in between |
 | `tools/assets/measure_static_resting_pose.py` | Measure the resting or mounting pose of a published rigid static asset |
@@ -48,12 +51,14 @@
 | `tools/assets/model_roots.py` | Where shared model weights live, resolved instead of hard-coded |
 | `tools/assets/normalize_materials.py` | Normalize GLB PBR materials without modifying geometry or animation data |
 | `tools/assets/plan_instance_variants.py` | Derive the instance-level variant plan for accepted source assets |
+| `tools/assets/prepare_sound_library.py` | Convert the collected dry clips into the form the pipeline consumes |
 | `tools/assets/preprocess_glb.py` | Select GLB actions and strip provably unweighted controller roots |
 | `tools/assets/probe_habitat_skin_rest.py` | Generate and exercise a temporary Habitat skinned-AO rest-pose descriptor |
 | `tools/assets/probe_heading_axis.py` |  |
 | `tools/assets/promote_canary.py` | Promote one hash-closed M2 research candidate to a new canary package |
 | `tools/assets/publish_animal_assets.py` | Publish accepted generated animals into the shared sound-source asset tree |
 | `tools/assets/publish_static_source_assets.py` | Publish admitted static sound sources into the shared asset tree |
+| `tools/assets/qc_sound_library.py` | Check every clip in the dry-sound library and say what is wrong, in words |
 | `tools/assets/rebase_skin_root.py` | Create a Habitat-native, root-local GLB research candidate |
 | `tools/assets/rebind_appearance_actions.py` | Reuse one validated M2 package action set on a compatible appearance rig |
 | `tools/assets/rebind_appearance_visual.py` | Preserve a source M2 package actor frame on one appearance realization |
