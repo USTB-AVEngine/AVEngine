@@ -1,0 +1,36 @@
+[
+  {
+    "schema": "avengine_qa_v3_observed_f2_direction_profile_v1",
+    "id": "f2_observed_full_circle_source1_event",
+    "answer_kind": "instant_azimuth_band",
+    "answer_domain": "full_circle",
+    "answer_shape": {
+      "equal_bands": 8
+    },
+    "query_event_index": 0,
+    "query_window": {
+      "kind": "audio_event",
+      "start_padding_samples": 0,
+      "end_padding_samples": 0
+    },
+    "convention": "listener_forward_minus_z_right_plus_x",
+    "direction_evidence": "observed_emitter_geometry",
+    "media_status": "pending_native_pixel_join"
+  },
+  {
+    "schema": "avengine_qa_v3_observed_f2_direction_profile_v1",
+    "id": "f2_observed_front_back_source1_event",
+    "answer_kind": "front_back",
+    "answer_domain": "front_back",
+    "front_back_split_deg": 90.0,
+    "query_event_index": 0,
+    "query_window": {
+      "kind": "audio_event",
+      "start_padding_samples": 0,
+      "end_padding_samples": 0
+    },
+    "convention": "listener_forward_minus_z_right_plus_x",
+    "direction_evidence": "observed_emitter_geometry",
+    "media_status": "pending_native_pixel_join"
+  }
+]
