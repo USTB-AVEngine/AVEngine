@@ -51,3 +51,14 @@ judge. The supplied policy uses Unicode normalization, case folding, punctuation
 separation and whitespace words. Select a suitable policy for the language and
 report it with the result. This diagnostic is not a spatial or modality-necessity
 certificate and does not replace human calibration.
+
+## Native capture warmup
+
+SceneCapture defaults live in
+`src/avengine/backends/spear_ue/capture_defaults.json` and are included with the
+installed Python package. Both current native RGB capture and the timeline pixel
+probe accept `--capture-warmup-config FILE.json`; that file may override any of the
+four warmup settings. The actual values and discarded-frame count are recorded in
+the output. The minimum settling period prevents an early low-change plateau from
+ending warmup before streamed textures arrive. It is a configurable render setting,
+not a claim that every scene is visually qualified.

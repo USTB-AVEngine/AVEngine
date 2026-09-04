@@ -31,8 +31,8 @@ def _readback(*, location: float = 0.0, rotation: float = 0.0) -> dict:
     }
 
 
-def test_default_selected_frames_cover_start_anchor_and_query() -> None:
-    assert TOOL._selected_indices(None) == [0, 40, 74]
+def test_default_selected_frames_cover_start_middle_and_end() -> None:
+    assert TOOL._selected_indices(None) == [0, 37, 74]
     assert TOOL._selected_indices([40, 74]) == [40, 74]
 
 
@@ -72,3 +72,19 @@ def test_target_replay_declared_pose_mismatch_fails_closed() -> None:
         TOOL._maximum_pass_drift(
             [_readback()], {"source1": [changed], "source2": [_readback()]}
         )
+
+
+def test_selected_frames_follow_ten_second_timeline() -> None:
+    assert TOOL._selected_indices(None, frame_count=150) == [0, 75, 149]
+    assert TOOL._selected_indices([80, 149], frame_count=150) == [80, 149]
+    with pytest.raises(RuntimeError, match="frame-index"):
+        TOOL._selected_indices([150], frame_count=150)
+    assert TOOL._selected_indices(None, frame_count=1) == [0]
+
+
+def test_pixel_camera_uses_the_authored_lens_and_resolution() -> None:
+    assert TOOL._camera_settings({
+        "resolution_hw": [480, 640], "hfov_degrees": 90,
+    }) == {"height": 480, "width": 640, "hfov_deg": 90.0}
+    with pytest.raises(RuntimeError, match="camera resolution"):
+        TOOL._camera_settings({"resolution_hw": [0, 640], "hfov_degrees": 90})

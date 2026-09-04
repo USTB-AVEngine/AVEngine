@@ -38,6 +38,7 @@ avengine = "avengine.cli:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
+"avengine.backends.spear_ue" = ["capture_defaults.json"]
 "avengine.backends.spear_ue.client" = ["config/*.yaml"]
 
 [tool.setuptools.data-files]

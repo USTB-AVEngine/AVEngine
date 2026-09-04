@@ -1533,6 +1533,7 @@ def _m5_capture_current_apartment_visual(args: argparse.Namespace) -> int:
             output_directory=output,
             rpc_port=args.rpc_port,
             graphics_adapter=args.graphics_adapter,
+            capture_warmup_config_path=args.capture_warmup_config,
         )
     except (CurrentApartmentVisualError, OSError, ValueError, RuntimeError) as error:
         _print({"status": "fail", "error": str(error)})
@@ -2382,6 +2383,8 @@ def build_parser() -> argparse.ArgumentParser:
     m5_current_apartment_capture.add_argument("--spear-executable", required=True)
     m5_current_apartment_capture.add_argument("--rpc-port", type=int, default=39511)
     m5_current_apartment_capture.add_argument("--graphics-adapter", type=int)
+    m5_current_apartment_capture.add_argument("--capture-warmup-config",
+        help="JSON warmup settings; defaults to the bundled capture_defaults.json")
     m5_current_apartment_capture.add_argument("--output", required=True)
     m5_current_apartment_capture.set_defaults(
         handler=_m5_capture_current_apartment_visual

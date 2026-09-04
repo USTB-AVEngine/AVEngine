@@ -1,0 +1,6 @@
+{
+  "maximum_frames": 120,
+  "minimum_frames": 40,
+  "required_consecutive_stable_frames": 3,
+  "mean_absolute_change_threshold": 0.8
+}

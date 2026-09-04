@@ -268,3 +268,20 @@ def test_attached_visual_actor_enables_skeletal_tick_and_shadow(
             "property_value": 1.0,
         },
     ) in events
+
+
+def test_warmup_config_waits_past_an_early_false_stable_plateau(tmp_path):
+    import json
+    policy = tmp_path / "warmup.json"
+    policy.write_text(json.dumps({"maximum_frames": 12, "minimum_frames": 9,
+        "required_consecutive_stable_frames": 2, "mean_absolute_change_threshold": 0.0}))
+    # Initial frames look stable, then the room texture arrives at frame 7.
+    frames = [np.full((2, 3, 4), v, dtype=np.uint8)
+              for v in [10] * 6 + [70] * 6]
+    class Capture:
+        def read_pixels(self):
+            return {"arrays": {"data": frames.pop(0)}}
+    result = warm_scene_capture_until_stable(_Instance([]), Capture(), config_path=policy)
+    assert result["discarded_frame_count"] == 10
+    assert result["minimum_frame_count"] == 9
+    assert result["configuration_source"] == str(policy)

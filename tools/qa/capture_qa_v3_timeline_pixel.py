@@ -12,7 +12,6 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import json
-import math
 from pathlib import Path
 import sys
 from typing import Any, Mapping, Sequence
@@ -56,16 +55,37 @@ def _write_json(path: Path, value: Mapping[str, Any]) -> None:
     )
 
 
-def _selected_indices(values: Sequence[int] | None) -> list[int]:
-    selected = [0, 40, 74] if values is None else [int(value) for value in values]
+def _selected_indices(
+    values: Sequence[int] | None, *, frame_count: int = VISUAL.FRAME_COUNT,
+) -> list[int]:
+    _require(
+        isinstance(frame_count, int) and not isinstance(frame_count, bool)
+        and frame_count > 0,
+        "timeline frame_count must be a positive integer",
+    )
+    if values is None:
+        selected = sorted({0, frame_count // 2, frame_count - 1})
+    else:
+        selected = [int(value) for value in values]
     _require(
         selected
         and len(selected) == len(set(selected))
         and selected == sorted(selected)
-        and all(0 <= value < VISUAL.FRAME_COUNT for value in selected),
-        "--frame-index values must be unique, increasing values in [0,74]",
+        and all(0 <= value < frame_count for value in selected),
+        f"--frame-index values must be unique, increasing values in [0,{frame_count - 1}]",
     )
     return selected
+
+
+def _camera_settings(render: Mapping[str, Any]) -> dict[str, Any]:
+    height, width = render["resolution_hw"]
+    hfov = float(render["hfov_degrees"])
+    _require(
+        all(isinstance(value, int) and not isinstance(value, bool) and value > 0
+            for value in (height, width)) and 0.0 < hfov < 180.0,
+        "timeline camera resolution and HFOV must be valid",
+    )
+    return {"height": height, "width": width, "hfov_deg": hfov}
 
 
 def _pose_id(frame: Mapping[str, Any]) -> str:
@@ -183,12 +203,9 @@ def run(args: argparse.Namespace) -> Path:
         asset_authorization=authorization,
     )
     _require(authorization == "verified_internal", "pixel probe requires verified assets")
+    frame_count, frame_rate_hz, _ticks = VISUAL._timeline_render_clock(timeline)
     render = timeline["render"]
-    _require(
-        render["resolution_hw"] == [SPIKE.RUNNER.HEIGHT, SPIKE.RUNNER.WIDTH]
-        and math.isclose(float(render["hfov_degrees"]), 105.0, abs_tol=1.0e-6),
-        "timeline dimensions/HFOV differ from the native pixel camera contract",
-    )
+    camera_settings = _camera_settings(render)
     native_map = VISUAL.resolve_native_map(timeline, args.native_map)
     closure_file, mappings = VISUAL._closure_mappings(
         closure_report_path=args.closure_report,
@@ -200,7 +217,7 @@ def run(args: argparse.Namespace) -> Path:
         spear_executable=args.spear_executable,
         closure_mappings=mappings,
     )
-    indices = _selected_indices(args.frame_index)
+    indices = _selected_indices(args.frame_index, frame_count=frame_count)
     frames = [timeline["frames"][index] for index in indices]
     output = VISUAL._new_external_output_directory(args.output, owner="pixel output")
     rgb_directory = output / "rgb_frames"
@@ -209,7 +226,7 @@ def run(args: argparse.Namespace) -> Path:
     instance = VISUAL.launch_external_game_instance(
         spear_executable=executable,
         native_map=native_map,
-        frame_rate_hz=VISUAL.FRAME_RATE_HZ,
+        frame_rate_hz=frame_rate_hz,
         rpc_port=args.rpc_port,
         graphics_adapter=args.graphics_adapter,
     )
@@ -226,7 +243,7 @@ def run(args: argparse.Namespace) -> Path:
     stable_names: dict[str, str] = {}
     try:
         with instance.begin_frame():
-            camera, components = SPIKE._spawn_multimodal_camera(game)
+            camera, components = SPIKE._spawn_multimodal_camera(game, **camera_settings)
             runtimes = VISUAL._spawn_runtime_actors(
                 game=game, bindings=bindings, initial_frame=timeline["frames"][0]
             )
@@ -241,6 +258,8 @@ def run(args: argparse.Namespace) -> Path:
         with instance.end_frame():
             pass
         instance.step(num_frames=args.warmup_frames)
+        capture_warmup = VISUAL.warm_scene_capture_until_stable(
+            instance, components["rgb"], config_path=args.capture_warmup_config)
 
         with instance.begin_frame():
             game.segmentation_service.initialize()
@@ -320,10 +339,14 @@ def run(args: argparse.Namespace) -> Path:
     context = {
         "renderer_backend": f"spear_unreal_native:{native_map}",
         "rgb_renderer_backend": f"spear_unreal_native:{native_map}",
-        "camera_contract_id": "qa_v3_bp_camera_sensor_1280x720_hfov105_v1",
+        "camera_contract_id": (
+            f"qa_v3_bp_camera_sensor_{camera_settings['width']}x"
+            f"{camera_settings['height']}_hfov{camera_settings['hfov_deg']:g}_v1"),
         "semantic_id_namespace": "qa_v3_same_camera_target_only_depth_instances_v1",
         "resolution_hw": list(render["resolution_hw"]),
         "frame_indices": indices,
+        "frame_rate_hz": float(render["frame_rate_hz"]),
+        "hfov_degrees": camera_settings["hfov_deg"],
         "camera_pose_ids": pose_ids,
     }
     semantic_ids = {slot: index for index, slot in enumerate(bindings, start=1)}
@@ -378,8 +401,10 @@ def run(args: argparse.Namespace) -> Path:
                 "spear_executable": str(executable),
             },
             "native_map": native_map,
+            "render": dict(render),
             "frame_indices": indices,
             "runtime_alignment": alignment,
+            "capture_warmup": capture_warmup,
             "pixel_visibility": truth,
             "artifacts": {
                 "rgb_frames": "rgb_frames",
@@ -407,6 +432,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--rpc-port", type=int, default=39541)
     parser.add_argument("--graphics-adapter", type=int, default=1)
     parser.add_argument("--warmup-frames", type=int, default=40)
+    parser.add_argument("--capture-warmup-config", type=Path)
     args = parser.parse_args(argv)
     if not 1024 <= args.rpc_port <= 65535:
         parser.error("--rpc-port must be in [1024,65535]")

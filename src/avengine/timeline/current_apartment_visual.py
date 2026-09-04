@@ -1953,6 +1953,7 @@ def capture_current_apartment_visual(
     rpc_port: int = 39511,
     graphics_adapter: int | None = None,
     native_map: str | None = None,
+    capture_warmup_config_path: str | Path | None = None,
 ) -> dict[str, Any]:
     """Run a preflighted native SPEAR RGB-only research capture."""
 
@@ -2067,7 +2068,11 @@ def capture_current_apartment_visual(
             )
         with instance.end_frame():
             pass
-        capture_warmup = warm_scene_capture_until_stable(instance, capture)
+        capture_warmup = warm_scene_capture_until_stable(
+            instance, capture,
+            **({"config_path": capture_warmup_config_path}
+               if capture_warmup_config_path is not None else {}),
+        )
         for frame_index, frame in enumerate(timeline["frames"]):
             animation_readbacks: dict[str, dict[str, Any]] = {}
 

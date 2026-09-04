@@ -9,6 +9,7 @@ audio, qualification, or media-composition layers.
 from __future__ import annotations
 
 import math
+import json
 from collections.abc import Mapping
 from numbers import Real
 from pathlib import Path
@@ -308,12 +309,34 @@ def warm_scene_capture_until_stable(
     instance: Any,
     capture: Any,
     *,
-    maximum_frames: int = 60,
-    minimum_frames: int = 4,
-    required_consecutive_stable_frames: int = 3,
-    mean_absolute_change_threshold: float = 0.8,
+    maximum_frames: int | None = None,
+    minimum_frames: int | None = None,
+    required_consecutive_stable_frames: int | None = None,
+    mean_absolute_change_threshold: float | None = None,
+    config_path: str | Path | None = None,
 ) -> dict[str, Any]:
-    """Discard real SceneCapture frames until exposure and streaming settle."""
+    """Discard real frames using bundled or explicitly configured warmup settings.
+
+    A short low-change plateau may precede streamed texture arrival. The minimum
+    settling period is therefore independent of the consecutive-stability test.
+    """
+    defaults_file = Path(__file__).with_name("capture_defaults.json")
+    settings = json.loads(defaults_file.read_text(encoding="utf-8"))
+    config_file = defaults_file
+    if config_path is not None:
+        config_file = Path(config_path).expanduser().resolve()
+        overrides = json.loads(config_file.read_text(encoding="utf-8"))
+        if not isinstance(overrides, Mapping) or set(overrides) - settings.keys():
+            raise SpearResearchRuntimeError("unknown SceneCapture warmup settings")
+        settings.update(overrides)
+    maximum_frames = settings["maximum_frames"] if maximum_frames is None else maximum_frames
+    minimum_frames = settings["minimum_frames"] if minimum_frames is None else minimum_frames
+    required_consecutive_stable_frames = (
+        settings["required_consecutive_stable_frames"]
+        if required_consecutive_stable_frames is None else required_consecutive_stable_frames)
+    mean_absolute_change_threshold = (
+        settings["mean_absolute_change_threshold"]
+        if mean_absolute_change_threshold is None else mean_absolute_change_threshold)
 
     counts = (maximum_frames, minimum_frames, required_consecutive_stable_frames)
     if any(
@@ -328,7 +351,9 @@ def warm_scene_capture_until_stable(
             "SceneCapture warmup minimum exceeds its maximum"
         )
     if (
-        not math.isfinite(mean_absolute_change_threshold)
+        isinstance(mean_absolute_change_threshold, bool)
+        or not isinstance(mean_absolute_change_threshold, Real)
+        or not math.isfinite(mean_absolute_change_threshold)
         or mean_absolute_change_threshold < 0.0
     ):
         raise SpearResearchRuntimeError(
@@ -371,6 +396,7 @@ def warm_scene_capture_until_stable(
                 return {
                     "status": "pass",
                     "discarded_frame_count": discarded_frame_count,
+                    "configuration_source": str(config_file),
                     "minimum_frame_count": minimum_frames,
                     "maximum_frame_count": maximum_frames,
                     "required_consecutive_stable_frames": (
