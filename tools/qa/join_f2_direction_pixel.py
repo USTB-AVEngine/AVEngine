@@ -350,6 +350,8 @@ def _visual_binding_checks(
     visual: Mapping[str, Any],
     *,
     visual_path: Path,
+    main_fact: Mapping[str, Any],
+    main_fact_path: Path,
     point_id: str,
 ) -> tuple[dict[str, Any], list[str]]:
     inputs = _mapping(visual.get("inputs"), owner="visual verification.inputs")
@@ -379,12 +381,47 @@ def _visual_binding_checks(
         if isinstance(item, Mapping) and item.get("point_id") == point_id
     ] if isinstance(points, list) else []
     point_dir = visual_root / point_id
+    receipt_path = point_dir / "research_receipt.json"
+    expected_actor_selection = _fact_artifact_path(
+        main_fact,
+        main_fact_path,
+        keys=("actor_selection", "selection"),
+        default_name="actor_selection.json",
+        owner="main fact actor selection",
+    )
+    expected_timeline = _fact_artifact_path(
+        main_fact,
+        main_fact_path,
+        keys=("timeline",),
+        default_name="timeline.json",
+        owner="main fact timeline",
+    )
+    receipt_inputs = None
+    receipt_paths_equal = {"actor_selection": False, "timeline": False}
+    if receipt_path.is_file():
+        receipt = _mapping(_read(receipt_path), owner="visual capture receipt")
+        receipt_inputs = _mapping(
+            receipt.get("inputs"), owner="visual capture receipt.inputs")
+        for field, expected in (
+            ("actor_selection", expected_actor_selection),
+            ("timeline", expected_timeline),
+        ):
+            actual = _resolve_declared_path(
+                receipt_inputs.get(field),
+                base=receipt_path.parent,
+                owner=f"visual capture receipt.inputs.{field}",
+            )
+            receipt_paths_equal[field] = actual == expected
     checks = {
         "selection_manifest": str(selection_path),
         "selected_point": point_id in selected_ids,
         "visual_root": str(visual_root),
         "point_directory": str(point_dir),
         "point_directory_exists": point_dir.is_dir(),
+        "capture_receipt": str(receipt_path),
+        "capture_receipt_exists": receipt_path.is_file(),
+        "capture_actor_selection_path_equal": receipt_paths_equal["actor_selection"],
+        "capture_timeline_path_equal": receipt_paths_equal["timeline"],
         "point_rows": len(point_rows),
         "point_status_pass": (
             len(point_rows) == 1 and point_rows[0].get("status") == "pass"
@@ -395,6 +432,12 @@ def _visual_binding_checks(
         reasons.append("visual_selection_manifest_missing_point")
     if not point_dir.is_dir():
         reasons.append("visual_root_missing_point")
+    if not receipt_path.is_file():
+        reasons.append("visual_capture_receipt_missing")
+    elif not receipt_paths_equal["actor_selection"]:
+        reasons.append("visual_capture_actor_selection_path_mismatch")
+    if receipt_path.is_file() and not receipt_paths_equal["timeline"]:
+        reasons.append("visual_capture_timeline_path_mismatch")
     if len(point_rows) != 1 or point_rows[0].get("status") != "pass":
         reasons.append("visual_report_missing_passing_point")
     return checks, reasons
@@ -711,7 +754,11 @@ def join(
     visual = _mapping(_read(visual_path), owner="visual verification")
     audio = _mapping(_read(audio_path), owner="audio verification")
     visual_binding, visual_binding_reasons = _visual_binding_checks(
-        visual, visual_path=visual_path, point_id=point_id
+        visual,
+        visual_path=visual_path,
+        main_fact=main,
+        main_fact_path=main_path,
+        point_id=point_id,
     )
     reasons.extend(visual_binding_reasons)
     verifier_checks, verifier_reasons = _verification_checks(visual, audio)

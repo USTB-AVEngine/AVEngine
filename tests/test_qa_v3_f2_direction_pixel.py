@@ -134,7 +134,15 @@ def _write_fixture(tmp_path: Path, *, states=None):
     gatea_path.write_text(json.dumps(gatea))
 
     visual_root = tmp_path / "visual_capture"
-    (visual_root / POINT_ID).mkdir(parents=True)
+    visual_point = visual_root / POINT_ID
+    visual_point.mkdir(parents=True)
+    (visual_point / "research_receipt.json").write_text(json.dumps({
+        "status": "research_only",
+        "inputs": {
+            "actor_selection": str(actor_selection),
+            "timeline": str(timeline),
+        },
+    }))
     selection_manifest = tmp_path / "visual_selection.json"
     selection_manifest.write_text(json.dumps({"selected": [{"point_id": POINT_ID}]}))
     visual = tmp_path / "visual.json"
@@ -292,6 +300,24 @@ def test_direction_join_rejects_variant_and_target_slot_mismatch(tmp_path):
     assert result["pixel_join_status"] == "pixel_rejected"
     assert "gateA_fact_variant_must_be_gateA" in result["rejection_reasons"]
     assert "main_gateA_target_slot_not_exchanged" in result["rejection_reasons"]
+
+
+
+
+def test_direction_join_rejects_visual_capture_timeline_mismatch(tmp_path):
+    paths = list(_write_fixture(tmp_path))
+    wrong_timeline = tmp_path / "wrong_visual_timeline.json"
+    wrong_timeline.write_text(json.dumps({"frame_count": 5}))
+    receipt_path = tmp_path / "visual_capture" / POINT_ID / "research_receipt.json"
+    receipt = json.loads(receipt_path.read_text())
+    receipt["inputs"]["timeline"] = str(wrong_timeline)
+    receipt_path.write_text(json.dumps(receipt))
+    result = binder.join(*paths)
+    assert result["pixel_join_status"] == "pixel_rejected"
+    assert (
+        "visual_capture_timeline_path_mismatch"
+        in result["rejection_reasons"]
+    )
 
 
 def test_direction_join_rejects_pixel_input_path_mismatch(tmp_path):
