@@ -138,3 +138,15 @@ def test_glb_rejects_missing_catalog_material(tmp_path: Path) -> None:
     }
     with pytest.raises(RuntimeError, match="materials differ"):
         IMPORTER._read_glb_contract(glb, contract)
+
+
+def test_import_manifest_is_readable_json_and_does_not_replace_existing(tmp_path):
+    manifest = tmp_path / "saved" / "ue_import_manifest.json"
+    payload = {"asset_id": "human_violet", "animations": ["idle", "walk"]}
+    IMPORTER._write_json_no_replace(manifest, payload)
+    assert json.loads(manifest.read_text()) == payload
+    assert manifest.read_bytes().endswith(b"\n")
+    original = manifest.read_bytes()
+    with pytest.raises(RuntimeError, match="refusing to replace"):
+        IMPORTER._write_json_no_replace(manifest, {"asset_id": "other"})
+    assert manifest.read_bytes() == original

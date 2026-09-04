@@ -800,7 +800,7 @@ def _write_json_no_replace(path: Path, payload: Mapping[str, Any]) -> None:
         with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
             descriptor = -1
             json.dump(payload, stream, indent=2, sort_keys=True)
-            stream.write("\\n")
+            stream.write("\n")
             stream.flush()
             os.fsync(stream.fileno())
         require(not path.exists() and not path.is_symlink(), f"refusing to replace UE manifest: {path}")
