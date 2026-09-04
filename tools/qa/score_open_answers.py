@@ -431,8 +431,26 @@ def score_closed(answer: str, truth_label: str, classes: dict[str, list[str]],
 
 
 def score_counts(answer: str, truth: list[int]) -> dict:
-    nums = [int(float(m.group(0))) for m in _NUM.finditer(answer)]
-    nums = [n for n in nums if n >= 0]
+    if not truth or any(isinstance(n, bool) or not isinstance(n, int) or n < 0
+                        for n in truth):
+        return {"status": "invalid", "reason": "count truth must contain nonnegative integers",
+                "score": 0.0}
+    # Keep numeric tokens whole: a fractional or negative answer is not a
+    # smaller integer, and exponent notation must not become two counts.
+    tokens = re.findall(r"[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?", answer)
+    nums = []
+    for token in tokens:
+        whole, _, fraction = token.partition(".")
+        if "e" in token.lower() or fraction.strip("0"):
+            return {"status": "invalid", "reason": "counts require nonnegative integer values in plain decimal notation",
+                    "score": 0.0}
+        try:
+            value = int(whole if whole not in {"", "+", "-"} else whole + "0")
+        except ValueError:
+            return {"status": "invalid", "reason": "invalid count value", "score": 0.0}
+        if value < 0:
+            return {"status": "invalid", "reason": "counts cannot be negative", "score": 0.0}
+        nums.append(value)
     if len(nums) != len(truth):
         return {"status": "invalid",
                 "reason": f"expected {len(truth)} number(s), found {len(nums)}: {nums}",
@@ -618,7 +636,7 @@ def score_item(item: dict, params: dict, vocab: dict) -> dict:
                             refusal_allowed=bool(item.get("refusal_truth", False)))
     if at == "count_pair" or at == "count_single":
         truth = item["truth"] if isinstance(item["truth"], list) else [item["truth"]]
-        return score_counts(ans, [int(x) for x in truth])
+        return score_counts(ans, truth)
     return {"status": "invalid", "reason": f"unknown answer_type {at!r}", "score": 0.0}
 
 

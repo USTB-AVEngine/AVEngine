@@ -463,3 +463,23 @@ def test_main_scores_transcripts_from_standalone_policy_file(tmp_path):
     payload = json.loads(out.read_text())
     assert payload["records"][0]["wer"] == 0
     assert payload["records"][0]["exact_match"] is True
+
+
+@pytest.mark.parametrize("answer,truth", [
+    ("2.9", [2]), ("-1 2", [2]), (".5", [5]),
+    ("2e0", [2, 0]), ("1.2.3", [1, 2, 3]),
+])
+def test_counts_never_truncate_or_drop_numeric_tokens(answer, truth):
+    assert score_counts(answer, truth)["status"] == "invalid"
+
+
+def test_counts_preserve_exact_integer_precision():
+    value = 9007199254740993
+    assert score_counts(str(value), [value])["score"] == 1
+    assert score_counts("2.0 0.00", [2, 0])["score"] == 1
+
+
+@pytest.mark.parametrize("truth", [2.9, True, -1])
+def test_count_item_never_coerces_invalid_truth(truth):
+    assert score_item({"answer_type": "count_single", "model_answer": "2",
+                       "truth": truth}, {}, {})["status"] == "invalid"
