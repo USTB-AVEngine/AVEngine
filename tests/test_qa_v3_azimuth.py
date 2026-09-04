@@ -36,6 +36,21 @@ def test_a_wedge_keeps_lo_le_x_lt_hi_after_publishing():
     assert lo < hi
 
 
+def test_explicit_engine_convention_does_not_apply_a_global_flip():
+    from qa_v3_arc import Arc
+
+    assert AZ.canonical_convention("right_positive") == AZ.ENGINE_CONVENTION
+    assert AZ.to_convention_deg(30.0, AZ.ENGINE_CONVENTION) == 30.0
+    arc = AZ.to_convention_arc(
+        Arc(start_deg=170.0, sweep_deg=20.0), AZ.ENGINE_CONVENTION)
+    assert arc.start_deg == 170.0
+    assert arc.sweep_deg == 20.0
+    block = AZ.convention_block(30.0, AZ.ENGINE_CONVENTION)
+    assert block["azimuth_deg"] == 30.0
+    assert block["convention"] == AZ.ENGINE_CONVENTION
+    assert "right" in AZ.landmark_sentence(47.5, AZ.ENGINE_CONVENTION)
+
+
 def test_side_words_follow_the_published_convention():
     # 发布侧左为正，所以正数是左。card3 的答案就靠这一条。
     assert AZ.side_word(30.0) == "left"
@@ -78,3 +93,16 @@ def test_a_wrapping_wedge_is_refused_not_published_as_its_complement():
         AZ.to_published_band((170.0, -170.0))
     # 不跨的照旧翻转
     assert AZ.to_published_band((17.5, 52.5)) == pytest.approx((-52.5, -17.5))
+
+
+@pytest.mark.parametrize("band, expected", [
+    ((135, 180), (-180, -135)),
+    ((170, 180), (-180, -170)),
+    ((-180, -135), (135, 180)),
+    ((-180, 180), (-180, 180)),
+])
+def test_published_band_preserves_width_at_antipodal_boundary(band, expected):
+    result = AZ.to_published_band(band)
+    assert result == expected
+    assert result[1] - result[0] == band[1] - band[0]
+    assert AZ.to_published_band(result) == band

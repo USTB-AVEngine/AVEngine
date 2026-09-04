@@ -1,0 +1,76 @@
+[
+  {
+    "id": "f2_full_circle_audio_only",
+    "temporal": "instant",
+    "answer_kind": "instant_azimuth_band",
+    "binding_frames": [
+      30
+    ],
+    "idle_choices": [
+      0
+    ],
+    "anchor_binding": "query_caller",
+    "answer_domain": "full_circle",
+    "answer_shape": {
+      "equal_bands": 8
+    },
+    "query_domain": "full_circle",
+    "query_requires_visibility": false,
+    "direction_evidence": "audio_only"
+  },
+  {
+    "id": "f2_rear_cone_audio_only",
+    "temporal": "instant",
+    "answer_kind": "instant_azimuth_band",
+    "binding_frames": [
+      30
+    ],
+    "idle_choices": [
+      0
+    ],
+    "anchor_binding": "query_caller",
+    "answer_domain": "rear_cone",
+    "answer_shape": {
+      "equal_bands": 5
+    },
+    "query_domain": "rear_cone",
+    "query_requires_visibility": false,
+    "direction_evidence": "audio_only"
+  },
+  {
+    "id": "f2_front_back_binary",
+    "temporal": "instant",
+    "answer_kind": "front_back",
+    "binding_frames": [
+      30
+    ],
+    "idle_choices": [
+      0
+    ],
+    "anchor_binding": "query_caller",
+    "answer_domain": "front_back",
+    "answer_shape": {
+      "binary_labels": [
+        "front",
+        "back"
+      ]
+    },
+    "query_geometry_by_answer": {
+      "front": {
+        "query_domain": "camera_cone",
+        "query_requires_visibility": true,
+        "secondary_query_bound_deg": 180.0,
+        "secondary_anchor_bound_deg": 180.0
+      },
+      "back": {
+        "query_domain": "rear_cone",
+        "query_requires_visibility": false
+      }
+    },
+    "convention": "dcase_foa_left_positive",
+    "direction_evidence": "front_back_binary",
+    "vocab_key": "front_back",
+    "enforce_target_moves_more": false,
+    "vocab_path": "qa_v3_front_back_vocab_v1.json"
+  }
+]

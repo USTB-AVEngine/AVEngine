@@ -14,7 +14,7 @@
 换算封在那里,调用方不重复实现。
 
 场景输入(SceneInputs)全部来自场景自身:
-  - routes:导航系统给的路线,每条自带 75 帧重采样位置;
+  - routes:导航系统给的路线,每条按请求时钟重采样位置;
   - stand_points:可站点(路线路点即导航可达点,去重后即可);
   - camera_points:相机候选位置(同上,取相机高度);
   - line_of_sight:可选的占用栅格视线筛查;没有就如实声明未筛,
@@ -25,7 +25,7 @@ from __future__ import annotations
 
 import json
 import math
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Callable, Iterable, Sequence
 
@@ -45,6 +45,7 @@ from route_synthesis import (  # noqa: E402
 )
 from walkable_grid import WalkableGrid, grid_from_config  # noqa: E402
 from score_open_answers import angle_credit_radius  # noqa: E402
+from qa_v3_arc import Arc, arc_overlap_width_deg  # noqa: E402
 from floor_reference import (
     MATCH_TOLERANCE_CM as FLOOR_MATCH_TOLERANCE_CM,
     FloorReference,
@@ -53,6 +54,140 @@ from floor_reference import (
 )
 
 FRAME_COUNT = 75
+DEFAULT_VIDEO_FPS = 15.0
+
+
+def _positive_integer(value, *, owner: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+        raise ValueError(f"{owner} must be a positive integer")
+    return value
+
+
+def _positive_frame_count(value, *, owner="FRAME_COUNT") -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 2:
+        raise ValueError(f"{owner} must be an integer >= 2")
+    return int(value)
+
+
+def _positive_fps(value, *, owner="VIDEO_FPS") -> float:
+    try:
+        value = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{owner} must be a finite positive number") from exc
+    if not math.isfinite(value) or value <= 0.0:
+        raise ValueError(f"{owner} must be a finite positive number")
+    return value
+
+
+def frame_count_from_params(params: dict | None, *, default: int = FRAME_COUNT) -> int:
+    """Read the requested visual clock while retaining old direct-call defaults."""
+    value = default if not params or "FRAME_COUNT" not in params else params["FRAME_COUNT"]
+    return _positive_frame_count(value)
+
+
+def video_fps_from_params(params: dict | None, *, default: float = DEFAULT_VIDEO_FPS) -> float:
+    value = default if not params or "VIDEO_FPS" not in params else params["VIDEO_FPS"]
+    return _positive_fps(value)
+
+
+def validate_frame_clock(params: dict | None, *, require_clip_seconds: bool = False) -> dict:
+    """Validate the frame/sample clock shared by geometry, audio and timeline.
+
+    A 150-frame @15fps point is a ten-second point; silently retaining a
+    five-second sample clock would change event placement and motion speed.
+    Legacy unit callers may omit the clock fields and use the 75/15 defaults.
+    """
+    params = params or {}
+    frame_count = frame_count_from_params(params)
+    frame_rate_hz = video_fps_from_params(params)
+    clip_raw = params.get("CLIP_SECONDS")
+    if clip_raw is None:
+        if require_clip_seconds:
+            raise ValueError("params missing CLIP_SECONDS")
+        clip_seconds = frame_count / frame_rate_hz
+    else:
+        try:
+            clip_seconds = float(clip_raw)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("CLIP_SECONDS must be a finite positive number") from exc
+        if not math.isfinite(clip_seconds) or clip_seconds <= 0.0:
+            raise ValueError("CLIP_SECONDS must be a finite positive number")
+        expected = frame_count / frame_rate_hz
+        if not math.isclose(clip_seconds, expected, rel_tol=0.0, abs_tol=1.0e-9):
+            raise ValueError(
+                f"FRAME_COUNT={frame_count} at VIDEO_FPS={frame_rate_hz:g} "
+                f"requires CLIP_SECONDS={expected:g}, got {clip_seconds:g}")
+    result = {"frame_count": frame_count, "frame_rate_hz": frame_rate_hz,
+              "clip_seconds": clip_seconds}
+    if "SAMPLE_RATE_HZ" in params:
+        sample_rate = _positive_integer(params["SAMPLE_RATE_HZ"], owner="SAMPLE_RATE_HZ")
+        result["sample_rate_hz"] = sample_rate
+        exact_samples = clip_seconds * sample_rate
+        sample_count = round(exact_samples)
+        if not math.isclose(exact_samples, sample_count, rel_tol=0.0, abs_tol=1.0e-7):
+            raise ValueError("CLIP_SECONDS*SAMPLE_RATE_HZ must be an integer sample count")
+        if "SAMPLE_COUNT" in params and _positive_integer(
+                params["SAMPLE_COUNT"], owner="SAMPLE_COUNT") != sample_count:
+            raise ValueError(
+                f"SAMPLE_COUNT={params['SAMPLE_COUNT']} disagrees with "
+                f"CLIP_SECONDS*SAMPLE_RATE_HZ={sample_count}")
+        result["sample_count"] = sample_count
+    if "TIME_BASE_HZ" in params and "TICKS_PER_FRAME" in params:
+        time_base = _positive_integer(params["TIME_BASE_HZ"], owner="TIME_BASE_HZ")
+        ticks_per_frame = _positive_integer(params["TICKS_PER_FRAME"], owner="TICKS_PER_FRAME")
+        expected_ticks = time_base / frame_rate_hz
+        if not math.isclose(expected_ticks, ticks_per_frame, rel_tol=0.0, abs_tol=1.0e-9):
+            raise ValueError(
+                f"TICKS_PER_FRAME={ticks_per_frame} disagrees with "
+                f"TIME_BASE_HZ/VIDEO_FPS={expected_ticks:g}")
+        result["time_base_hz"] = time_base
+        result["ticks_per_frame"] = ticks_per_frame
+    if "TIME_BASE_HZ" in params and "SAMPLE_RATE_HZ" in params and "TICKS_PER_SAMPLE" in params:
+        ticks_per_sample = _positive_integer(params["TICKS_PER_SAMPLE"], owner="TICKS_PER_SAMPLE")
+        expected_ticks = _positive_integer(params["TIME_BASE_HZ"], owner="TIME_BASE_HZ") / sample_rate
+        if ticks_per_sample <= 0 or not math.isclose(expected_ticks, ticks_per_sample,
+                                                       rel_tol=0.0, abs_tol=1.0e-9):
+            raise ValueError(
+                f"TICKS_PER_SAMPLE={ticks_per_sample} disagrees with "
+                f"TIME_BASE_HZ/SAMPLE_RATE_HZ={expected_ticks:g}")
+        result["ticks_per_sample"] = ticks_per_sample
+    return result
+
+
+def frame_time_seconds(frame: int, params: dict | None) -> float:
+    clock = validate_frame_clock(params)
+    frame = require_frame(frame, clock["frame_count"])
+    return frame / clock["frame_rate_hz"]
+
+
+def _resample_route_samples(samples, frame_count: int) -> list[tuple[float, float]]:
+    """Resample a bank route to the declared visual frame clock."""
+    frame_count = _positive_frame_count(frame_count)
+    source = list(samples)
+    if len(source) < 2:
+        raise ValueError("route samples must contain at least two points")
+    if any(len(point) < 2 for point in source):
+        raise ValueError("route samples must contain two-dimensional points")
+    if len(source) == frame_count:
+        return [(float(point[0]), float(point[1])) for point in source]
+    scale = (len(source) - 1) / float(frame_count - 1)
+    result = []
+    for index in range(frame_count):
+        position = index * scale
+        lower = min(int(math.floor(position)), len(source) - 1)
+        upper = min(lower + 1, len(source) - 1)
+        fraction = position - lower
+        result.append((
+            float(source[lower][0])
+            + (float(source[upper][0]) - float(source[lower][0])) * fraction,
+            float(source[lower][1])
+            + (float(source[upper][1]) - float(source[lower][1])) * fraction,
+        ))
+    return result
+
+
+def _route_path_length_m(samples) -> float:
+    return sum(math.dist(a, b) for a, b in zip(samples, samples[1:])) / 100.0
 
 
 def bearing_deg(origin: Sequence[float], point: Sequence[float]) -> float:
@@ -199,71 +334,226 @@ def effective_half_fov(scene, params) -> float:
     return half_fov - margin
 
 
-ANSWER_DOMAINS = ("camera_cone", "full_circle", "rear_cone")
+ANSWER_DOMAINS = ("camera_cone", "full_circle", "rear_cone", "front_back")
 
 
-def answer_domain_arcs(domain: str, scene, params) -> tuple[tuple[float, float], ...]:
+AngleBand = tuple[float, float] | Arc
+
+
+def answer_domain_arcs(domain: str, scene, params) -> tuple[AngleBand, ...]:
     """The arcs a declared answer domain covers, in engine-frame degrees.
 
-    Answer ranges used to be written into each profile as absolute degrees, which
-    silently assumed one camera: the card1 table ran to 52.5 because this rig's
-    HFOV is 105.  A room with a different lens made that table wrong without
-    anything noticing, and it already cost us the 5.0 deg dead zone at each
-    outer band's edge.  A domain is declared instead and the degrees come from
-    the scene's own camera, so the same profile means the right thing in every
-    room.
-
-    ``camera_cone``  what the camera can be trusted to show, ``[-H, +H]`` for
-                     ``H = effective_half_fov``.
-    ``full_circle``  the whole circle; the sound need never be visible.
-    ``rear_cone``    the rear region whose front mirror falls inside the trusted
-                     cone, ``|az| >= 180 - H``.  A front-back pair has the same
-                     interaural time difference to the microsecond, so telling
-                     them apart needs either pinna spectrum or the sight of an
-                     empty mirror bearing -- and the mirror is only observable
-                     while it lies inside the cone, which is what fixes this
-                     bound.  At H = 47.5 it is 132.5 deg; a wider lens lowers it
-                     on its own, with nobody re-deriving it by hand.
+    camera_cone keeps the historical numeric tuple.  The other domains carry
+    one explicit Arc, because the whole circle and the rear cone are connected
+    sets even when their canonical spelling crosses the seam.
     """
-
     if domain not in ANSWER_DOMAINS:
         raise ValueError(
             f"unknown answer_domain {domain!r}; expected one of {ANSWER_DOMAINS}")
-    if domain == "full_circle":
-        return ((-180.0, 180.0),)
-    half = effective_half_fov(scene, params)
+    if domain == "front_back":
+        half = effective_half_fov(scene, params)
+        return (
+            Arc(start_deg=-half, sweep_deg=2.0 * half),
+            Arc(start_deg=180.0 - half, sweep_deg=2.0 * half),
+        )
     if domain == "camera_cone":
+        half = effective_half_fov(scene, params)
         return ((-half, half),)
-    return ((-180.0, -(180.0 - half)), (180.0 - half, 180.0))
+    if domain == "full_circle":
+        # Anchor the public sector order at the signed -180 boundary. Arc
+        # normalizes that endpoint to +180, but the legacy serializer restores
+        # the unambiguous [-180, 180] spelling.
+        return (Arc(start_deg=180.0, sweep_deg=360.0),)
+    half = effective_half_fov(scene, params)
+    # In the canonical (-180, 180] representation the rear cone is split at
+    # the seam, but on the circle it is one directed arc.
+    return (Arc(start_deg=180.0 - half, sweep_deg=2.0 * half),)
 
 
-def derive_answer_bands(profile, scene, params) -> list[tuple[float, float]]:
-    """Equal-width bands across a profile's declared domain, for this scene.
+def front_back_labels(profile) -> tuple[str, str]:
+    """Return the two configured labels for the distinct front/back domains."""
+    shape = profile.get("answer_shape") or {}
+    if not isinstance(shape, dict):
+        raise ValueError(f"{profile.get('id')}: answer_shape must be an object")
+    labels = shape.get("binary_labels", shape.get("labels", ("front", "back")))
+    if (not isinstance(labels, (list, tuple)) or len(labels) != 2
+            or any(not isinstance(label, str) or not label.strip() for label in labels)
+            or len(set(labels)) != 2):
+        raise ValueError(
+            f"{profile.get('id')}: front/back binary labels must be two distinct non-empty strings")
+    return str(labels[0]), str(labels[1])
 
-    ``answer_shape.equal_bands`` says how many.  Because the edges are derived
-    from the same ``effective_half_fov`` the visibility gate uses, declared and
-    reachable width are equal by construction: the mismatch that produced the
-    dead zone cannot be expressed here.
+
+def front_back_domain_arcs(profile, scene, params) -> tuple[Arc, Arc]:
+    """Resolve distinct front and back answer regions from profile geometry."""
+    shape = profile.get("answer_shape") or {}
+    if not isinstance(shape, dict):
+        raise ValueError(f"{profile.get('id')}: answer_shape must be an object")
+    half = effective_half_fov(scene, params)
+    front = band_to_arc(shape.get("front_arc", (-half, half)))
+    back = band_to_arc(
+        shape.get("back_arc", Arc(start_deg=180.0 - half, sweep_deg=2.0 * half)))
+    if front.width_deg <= 0.0 or back.width_deg <= 0.0:
+        raise ValueError(f"{profile.get('id')}: front/back regions must have positive width")
+    if arc_overlap_width_deg(front, back) > 1.0e-9:
+        raise ValueError(f"{profile.get('id')}: front/back regions overlap")
+    return front, back
+
+
+def band_to_arc(band: AngleBand | dict) -> Arc:
+    """Resolve a band into the Arc that gives its direction and width.
+
+    Tuple/list bands are the existing JSON boundary representation.  Their
+    order is meaningful: (162, -162) is the short forward seam crossing, not
+    the 324-degree complement.  New callers may keep an Arc all the way
+    through solving when the signed sweep itself matters.
     """
+    if isinstance(band, Arc):
+        return band
+    if isinstance(band, dict):
+        return Arc.from_dict(band)
+    try:
+        lo, hi = (float(value) for value in band)
+    except (TypeError, ValueError):
+        raise ValueError(f"angle band must be an Arc or a two-value pair: {band!r}")
+    return Arc.from_forward_bounds(lo, hi)
 
+
+def band_to_bounds(band: AngleBand | dict) -> tuple[float, float]:
+    """Serialize an Arc band at the old [lo, hi) boundary.
+
+    The ordered pair preserves a seam crossing through hi < lo.  A full circle
+    retains the historical [-180, 180] spelling.
+    """
+    if isinstance(band, (list, tuple)) and len(band) == 2:
+        # Preserve already serialized endpoints, including an explicit -180.
+        return float(band[0]), float(band[1])
+    arc = band_to_arc(band)
+    if arc.width_deg >= 360.0:
+        return (-180.0, 180.0)
+    return (arc.start_deg, arc.end_deg)
+
+
+def band_width_deg(band: AngleBand | dict) -> float:
+    """Return the circular width of a tuple or Arc band."""
+    return band_to_arc(band).width_deg
+
+
+def bands_equivalent(first: AngleBand | dict, second: AngleBand | dict,
+                     *, tolerance: float = 1.0e-9) -> bool:
+    """Compare two directed bands without collapsing a seam crossing."""
+    first_arc, second_arc = band_to_arc(first), band_to_arc(second)
+    if first_arc.width_deg >= 360.0 or second_arc.width_deg >= 360.0:
+        return (first_arc.width_deg >= 360.0
+                and second_arc.width_deg >= 360.0)
+    return (circular_gap_deg(first_arc.start_deg, second_arc.start_deg)
+            <= tolerance
+            and abs(first_arc.sweep_deg - second_arc.sweep_deg) <= tolerance)
+
+
+def _angle_in_band(value: float, band: AngleBand | dict) -> bool:
+    """Containment for a directed band, including one crossing the seam."""
+    value = float(value)
+    if not math.isfinite(value):
+        return False
+    arc = band_to_arc(band)
+    if not arc.contains(value):
+        return False
+    # Preserve the historical half-open upper edge for non-full bands.
+    if arc.width_deg >= 360.0:
+        return True
+    return not math.isclose(circular_gap_deg(value, arc.end_deg), 0.0,
+                            abs_tol=1e-9)
+
+def band_contains(value: float, band: AngleBand | dict) -> bool:
+    """Public containment helper for generated facts and solver consumers."""
+    return _angle_in_band(value, band)
+
+
+def query_bound_for_domain(domain: str | None, scene, params) -> float:
+    """Return the maximum query bearing allowed by an answer domain.
+
+    ``None`` and ``camera_cone`` retain the old trusted visual cone.  The two
+    F2 domains deliberately allow the complete azimuth circle; their answer
+    bands still decide whether a candidate is front, side, or behind.  No room
+    geometry or hand-written rear angle enters this mapping.
+    """
+    if domain is None or domain == "camera_cone":
+        return effective_half_fov(scene, params)
+    if domain in ("full_circle", "rear_cone", "front_back"):
+        return 180.0
+    raise ValueError(
+        f"unknown query answer_domain {domain!r}; expected one of {ANSWER_DOMAINS}")
+
+
+def resolve_query_geometry(
+    scene,
+    params,
+    *,
+    query_domain: str | None = None,
+    answer_domain: str | None = None,
+    query_bound_deg: float | None = None,
+    query_requires_visibility: bool | None = None,
+) -> tuple[float, bool]:
+    """Resolve the declared query domain into a bearing bound and visibility rule.
+
+    ``answer_domain`` is accepted as a profile-shaped alias for callers that
+    forward the declaration directly.  Explicit ``query_bound_deg`` and
+    ``query_requires_visibility`` are useful for a profile whose answer space
+    and visual requirement are intentionally different.  Omitting everything
+    keeps the historical camera-cone, visible-query behavior.
+    """
+    if (query_domain is not None and answer_domain is not None
+            and query_domain != answer_domain):
+        raise ValueError(
+            f"query_domain {query_domain!r} conflicts with answer_domain "
+            f"{answer_domain!r}")
+    domain = query_domain if query_domain is not None else answer_domain
+    default_bound = query_bound_for_domain(domain, scene, params)
+    bound = default_bound if query_bound_deg is None else float(query_bound_deg)
+    if not math.isfinite(bound) or not 0.0 <= bound <= 180.0:
+        raise ValueError("query_bound_deg must be finite and lie in [0, 180]")
+    if query_requires_visibility is None:
+        requires_visibility = domain in (None, "camera_cone")
+    elif not isinstance(query_requires_visibility, bool):
+        raise ValueError("query_requires_visibility must be a boolean")
+    else:
+        requires_visibility = query_requires_visibility
+    return bound, requires_visibility
+
+
+def derive_answer_arcs(profile, scene, params) -> list[Arc]:
+    """Derive equal-width directed Arc bands for a declared answer domain.
+
+    The rear cone is connected on the circle even though its canonical numeric
+    spelling crosses the seam.  It therefore enters this calculation as one
+    Arc and is divided into one equal sweep per band.  A seam band such as
+    162 -> 198 remains an Arc; only the legacy serializer turns it into the
+    ordered pair (162, -162).
+    """
     domain = profile.get("answer_domain")
     if domain is None:
         raise ValueError(f"{profile.get('id')}: no answer_domain to derive from")
     shape = profile.get("answer_shape") or {}
     if not isinstance(shape, dict):
         raise ValueError(f"{profile.get('id')}: answer_shape must be an object")
+    if domain == "front_back":
+        return list(front_back_domain_arcs(profile, scene, params))
     count = shape.get("equal_bands", 0)
     if isinstance(count, bool) or not isinstance(count, int) or count < 1:
         raise ValueError(
             f"{profile.get('id')}: answer_shape.equal_bands must be >= 1 to "
             f"derive bands for domain {domain!r}")
-    bands: list[tuple[float, float]] = []
-    arcs = answer_domain_arcs(domain, scene, params)
-    total = sum(hi - lo for lo, hi in arcs)
-    for lo, hi in arcs:
-        share = max(1, round(count * (hi - lo) / total))
-        step = (hi - lo) / share
-        bands.extend((lo + i * step, lo + (i + 1) * step) for i in range(share))
+    domains = [band_to_arc(region) for region in answer_domain_arcs(
+        domain, scene, params)]
+    if len(domains) != 1:
+        raise ValueError(
+            f"{domain!r} must resolve to one connected Arc before equal-width "
+            "bands can be derived")
+    domain_arc = domains[0]
+    step = domain_arc.sweep_deg / count
+    bands = [Arc(start_deg=domain_arc.start_deg + i * step,
+                 sweep_deg=step) for i in range(count)]
     indices = shape.get("band_indices")
     if indices is not None:
         if (not isinstance(indices, list) or not indices
@@ -275,64 +565,79 @@ def derive_answer_bands(profile, scene, params) -> list[tuple[float, float]]:
     return bands
 
 
+def derive_answer_bands(profile, scene, params) -> list[AngleBand]:
+    """Derive bands with the existing numeric boundary where it is stable.
+
+    camera_cone and full_circle retain numeric ordered pairs for current
+    generator/extended callers.  rear_cone returns Arc objects because its
+    seam band cannot be represented safely by an ordinary increasing pair.
+    Use band_to_bounds at a JSON/publication boundary for the Arc form.
+    """
+    arcs = derive_answer_arcs(profile, scene, params)
+    domain = profile.get("answer_domain")
+    if domain in ("rear_cone", "front_back"):
+        return arcs
+    if domain == "full_circle":
+        count = len(arcs)
+        step = 360.0 / count
+        all_bands = [(-180.0 + i * step, -180.0 + (i + 1) * step)
+                     for i in range(count)]
+        indices = (profile.get("answer_shape") or {}).get("band_indices")
+        return (all_bands if indices is None
+                else [all_bands[i] for i in indices])
+    return [band_to_bounds(arc) for arc in arcs]
+
 def audit_answer_bands(scene, params, profiles) -> dict:
     """Reconcile every profile's answer bands against this scene's camera.
 
-    Two regimes, deliberately different:
-
-    A profile that declares ``answer_domain`` has its bands derived here, and a
-    hand-written ``answer_bands_deg`` alongside them must agree -- the floor
-    rule pointed at the camera (see ``load_scene``'s ``ground_z_ue_cm`` check,
-    written after a hand-written 0 put every rendered dog 27 cm under the
-    floor).  Disagreement is refused, not silently narrowed.
-
-    A legacy profile carrying only ``answer_bands_deg`` keeps working exactly as
-    before -- this audit does not reject it, because the 21 shipped profiles are
-    that shape and changing what they generate is a separate, visible decision.
-    What it does is *measure* the unreachable part of every band and return it,
-    so the manifest of every run carries the number instead of nobody holding
-    it. Unequal reachable widths do not by themselves determine the achieved
-    answer distribution: allocation and search success must be measured too.
+    A profile that declares answer_domain is derived from the room's camera and
+    compared as directed Arcs.  A seam pair and its Arc spelling therefore
+    describe the same wedge without silently becoming its complement.  Legacy
+    numeric profiles retain their old audit regime.
     """
-
     half = effective_half_fov(scene, params)
     derived, legacy = {}, {}
     for profile in profiles:
         pid = profile.get("id")
         declared = profile.get("answer_bands_deg")
         if profile.get("answer_domain") is not None:
-            bands = derive_answer_bands(profile, scene, params)
+            bands = derive_answer_arcs(profile, scene, params)
             if declared is not None:
                 same = (len(declared) == len(bands) and all(
-                    abs(float(a) - b) <= 1e-9
-                    for pair, band in zip(declared, bands, strict=True)
-                    for a, b in zip(pair, band, strict=True)))
+                    bands_equivalent(declared_band, derived_band)
+                    for declared_band, derived_band
+                    in zip(declared, bands, strict=True)))
                 if not same:
+                    declared_view = [list(band_to_bounds(b)) for b in declared]
+                    derived_view = [list(band_to_bounds(b)) for b in bands]
                     raise ValueError(
-                        f"{pid}: answer_bands_deg {[list(b) for b in declared]} "
+                        f"{pid}: answer_bands_deg {declared_view} "
                         f"disagrees with what domain "
                         f"{profile['answer_domain']!r} derives for this scene, "
-                        f"{[list(b) for b in bands]}. Drop the hand-written "
-                        f"table -- the domain is the input now")
-            derived[pid] = [list(b) for b in bands]
+                        f"{derived_view}. Drop the hand-written "
+                        "table -- the domain is the input now")
+            output_bands = derive_answer_bands(profile, scene, params)
+            derived[pid] = [list(band_to_bounds(band))
+                            for band in output_bands]
             continue
         if not declared:
             continue
+        camera_arc = Arc.from_bounds(-half, half)
+        declared_width = 0.0
         unreachable = 0.0
-        for lo, hi in declared:
-            lo, hi = float(lo), float(hi)
-            reach_lo, reach_hi = max(lo, -half), min(hi, half)
-            unreachable += (hi - lo) - max(0.0, reach_hi - reach_lo)
+        for band in declared:
+            arc = band_to_arc(band)
+            width = band_width_deg(arc)
+            declared_width += width
+            reachable = arc_overlap_width_deg(arc, camera_arc)
+            unreachable += max(0.0, width - reachable)
         legacy[pid] = {
-            "declared_total_deg": round(
-                sum(float(hi) - float(lo) for lo, hi in declared), 6),
+            "declared_total_deg": round(declared_width, 6),
             "unreachable_deg": round(unreachable, 6),
         }
     return {"usable_half_angle_deg": half,
             "derived_from_domain": derived,
             "legacy_declared_degrees": legacy}
-
-
 
 def materialize_answer_domains(scene, params, profiles):
     """Return executable profiles and the audit of their declared answer domains."""
@@ -349,25 +654,33 @@ def materialize_answer_domains(scene, params, profiles):
 
 def interior_answer_band(band_lo: float, band_hi: float, params):
     margin = float(params.get("ANSWER_BAND_INTERIOR_MARGIN_DEG", 0.0))
+    lo, hi = float(band_lo), float(band_hi)
+    width = hi - lo if hi >= lo else (hi - lo) % 360.0
     if (
         not math.isfinite(margin) or margin < 0.0
-        or 2.0 * margin >= float(band_hi) - float(band_lo)
+        or not math.isfinite(width) or 2.0 * margin >= width
     ):
         raise ValueError("ANSWER_BAND_INTERIOR_MARGIN_DEG does not fit the band")
-    return float(band_lo) + margin, float(band_hi) - margin
+    # Keep a directed seam-crossing band directed; yaw_interval_for_band and
+    # _angle_in_band both understand the resulting ordered pair.
+    return lo + margin, hi - margin
 
 
 @dataclass
 class Route:
     route_id: str
-    samples_xy: list[tuple[float, float]]      # 75 帧位置
+    samples_xy: list[tuple[float, float]]      # samples in the declared visual clock
     implied_speed_mps: float
     # None for a bank route; a synthesized route carries its design record so
     # the fact can say where the trajectory came from (see route_synthesis.py).
     provenance: dict | None = None
+    frame_rate_hz: float = DEFAULT_VIDEO_FPS
+    duration_seconds: float | None = None
 
     def at(self, frame: int) -> tuple[float, float]:
-        return self.samples_xy[max(0, min(FRAME_COUNT - 1, frame))]
+        if not self.samples_xy:
+            raise ValueError(f"route {self.route_id!r} has no samples")
+        return self.samples_xy[max(0, min(len(self.samples_xy) - 1, int(frame)))]
 
     @property
     def source(self) -> str:
@@ -383,19 +696,27 @@ class Route:
         """静→走:前 idle_frames 帧停在起点,其后沿用原速度(平移式)。"""
         if idle_frames <= 0:
             return self
+        frame_count = len(self.samples_xy)
+        if not 1 <= idle_frames <= frame_count - 2:
+            raise ValueError(
+                f"idle_frames must be in [1, {frame_count - 2}], got {idle_frames}")
         shifted = ([self.samples_xy[0]] * idle_frames
-                   + self.samples_xy[:FRAME_COUNT - idle_frames])
-        return Route(f"{self.route_id}+idle{idle_frames}", shifted,
-                     self.implied_speed_mps, provenance=self.provenance)
+                   + self.samples_xy[:frame_count - idle_frames])
+        return Route(
+            f"{self.route_id}+idle{idle_frames}", shifted,
+            self.implied_speed_mps, provenance=self.provenance,
+            frame_rate_hz=self.frame_rate_hz,
+            duration_seconds=self.duration_seconds)
 
     def paused(self, start_frame: int, end_frame: int) -> "Route":
         """Freeze one inclusive window, then resume the delayed route."""
-        if not 0 <= start_frame <= end_frame < FRAME_COUNT:
+        frame_count = len(self.samples_xy)
+        if not 0 <= start_frame <= end_frame < frame_count:
             raise ValueError(
                 f"invalid pause window {start_frame}..{end_frame}")
         delay = end_frame - start_frame
         samples = []
-        for frame in range(FRAME_COUNT):
+        for frame in range(frame_count):
             if frame < start_frame:
                 samples.append(self.samples_xy[frame])
             elif frame <= end_frame:
@@ -404,7 +725,9 @@ class Route:
                 samples.append(self.samples_xy[frame - delay])
         return Route(
             f"{self.route_id}+pause{start_frame}-{end_frame}",
-            samples, self.implied_speed_mps, provenance=self.provenance)
+            samples, self.implied_speed_mps, provenance=self.provenance,
+            frame_rate_hz=self.frame_rate_hz,
+            duration_seconds=self.duration_seconds)
 
     @property
     def displacement_cm(self) -> float:
@@ -449,22 +772,52 @@ BANK_ADAPTERS: dict[str, str] = {
 }
 
 
-def _routes_from_ue_route_bank(bank: dict, limit: int | None) -> list[Route]:
+def _routes_from_ue_route_bank(
+        bank: dict, limit: int | None, *, frame_count: int,
+        frame_rate_hz: float) -> list[Route]:
     routes: list[Route] = []
     for entry in bank.get("routes", []):
         samples = entry.get("samples_ue_cm")
-        if not samples or len(samples) != FRAME_COUNT:
+        if not samples or len(samples) < 2:
             continue
-        routes.append(Route(str(entry["route_id"]),
-                            [(float(p[0]), float(p[1])) for p in samples],
-                            float(entry.get("implied_speed_mps", 0.0))))
+        source_fps = _positive_fps(entry.get("frame_rate_hz", DEFAULT_VIDEO_FPS))
+        source_duration = float(entry.get(
+            "duration_seconds", bank.get("clip_seconds", len(samples) / source_fps)))
+        if not math.isfinite(source_duration) or source_duration <= 0.0:
+            continue
+        source_xy = [(float(point[0]), float(point[1])) for point in samples]
+        adapted = _resample_route_samples(source_xy, frame_count)
+        source_speed = float(entry.get("implied_speed_mps", 0.0))
+        if not math.isfinite(source_speed) or source_speed < 0.0:
+            continue
+        target_duration = frame_count / frame_rate_hz
+        target_speed = (source_speed * source_duration / target_duration
+                        if target_duration > 0.0 else source_speed)
+        routes.append(Route(
+            str(entry["route_id"]), adapted, target_speed,
+            provenance={
+                "source": "bank",
+                "clock_adapted": len(samples) != frame_count,
+                "source_frame_count": len(samples),
+                "target_frame_count": frame_count,
+                "source_frame_rate_hz": source_fps,
+                "target_frame_rate_hz": frame_rate_hz,
+                "source_duration_seconds": source_duration,
+                "target_duration_seconds": target_duration,
+                "source_camera_points": [
+                    list(source_xy[0]), list(source_xy[-1]),
+                    list(source_xy[len(source_xy) // 2])],
+            },
+            frame_rate_hz=frame_rate_hz,
+            duration_seconds=target_duration))
         if limit and len(routes) >= limit:
             break
     return routes
 
 
-def _routes_from_habitat_trajectory_bank(bank: dict,
-                                         limit: int | None) -> list[Route]:
+def _routes_from_habitat_trajectory_bank(
+        bank: dict, limit: int | None, *, frame_count: int,
+        frame_rate_hz: float) -> list[Route]:
     """habitat 逐槽位路径 → 统一 Route(米→厘米,取 (x, z) 水平面)。
 
     每个 episode 的每个槽位都是一条独立可用的路线:采样器只关心"一条
@@ -474,18 +827,51 @@ def _routes_from_habitat_trajectory_bank(bank: dict,
     for episode in bank.get("episodes", []):
         paths = episode.get("source_center_paths_m") or {}
         for slot, path in sorted(paths.items()):
-            if not path or len(path) != FRAME_COUNT:
+            if not path or len(path) < 2:
                 continue
-            xy = [(float(p[0]) * 100.0, float(p[2]) * 100.0) for p in path]
-            span = math.dist(xy[0], xy[-1]) / 100.0
-            routes.append(Route(f"{episode['episode_id']}:{slot}", xy,
-                                span / 5.0))
+            source_xy_m = [
+                (float(point[0]), float(point[2] if len(point) >= 3 else point[1]))
+                for point in path
+            ]
+            adapted_m = _resample_route_samples(source_xy_m, frame_count)
+            xy = [(float(point[0]) * 100.0, float(point[1]) * 100.0)
+                  for point in adapted_m]
+            source_duration = float(episode.get(
+                "duration_seconds", bank.get(
+                    "seconds_per_episode", len(path) / DEFAULT_VIDEO_FPS)))
+            if not math.isfinite(source_duration) or source_duration <= 0.0:
+                continue
+            span = _route_path_length_m(xy)
+            routes.append(Route(
+                f"{episode['episode_id']}:{slot}", xy,
+                span / (frame_count / frame_rate_hz),
+                provenance={
+                    "source": "bank",
+                    "clock_adapted": len(path) != frame_count,
+                    "source_frame_count": len(path),
+                    "target_frame_count": frame_count,
+                    "source_frame_rate_hz": DEFAULT_VIDEO_FPS,
+                    "target_frame_rate_hz": frame_rate_hz,
+                    "source_duration_seconds": source_duration,
+                    "target_duration_seconds": frame_count / frame_rate_hz,
+                    "source_camera_points": [
+                        [100.0 * source_xy_m[0][0], 100.0 * source_xy_m[0][1]],
+                        [100.0 * source_xy_m[-1][0], 100.0 * source_xy_m[-1][1]],
+                        [100.0 * source_xy_m[len(source_xy_m) // 2][0],
+                         100.0 * source_xy_m[len(source_xy_m) // 2][1]]],
+                },
+                frame_rate_hz=frame_rate_hz,
+                duration_seconds=frame_count / frame_rate_hz))
             if limit and len(routes) >= limit:
                 return routes
     return routes
 
 
-def routes_from_bank(bank: dict, limit: int | None = None) -> list[Route]:
+def routes_from_bank(
+        bank: dict, limit: int | None = None, *, frame_count: int = FRAME_COUNT,
+        frame_rate_hz: float = DEFAULT_VIDEO_FPS) -> list[Route]:
+    frame_count = _positive_frame_count(frame_count)
+    frame_rate_hz = _positive_fps(frame_rate_hz)
     schema = str(bank.get("schema", ""))
     adapter = BANK_ADAPTERS.get(schema)
     if adapter is None:
@@ -493,8 +879,106 @@ def routes_from_bank(bank: dict, limit: int | None = None) -> list[Route]:
             f"no route-bank adapter for schema {schema!r}; add one adapter "
             "keyed by the bank schema (never by a room id)")
     if adapter == "ue_route_bank":
-        return _routes_from_ue_route_bank(bank, limit)
-    return _routes_from_habitat_trajectory_bank(bank, limit)
+        return _routes_from_ue_route_bank(
+            bank, limit, frame_count=frame_count, frame_rate_hz=frame_rate_hz)
+    return _routes_from_habitat_trajectory_bank(
+        bank, limit, frame_count=frame_count, frame_rate_hz=frame_rate_hz)
+
+
+def adapt_scene_clock(scene: SceneInputs, params: dict) -> SceneInputs:
+    """Adapt route samples to the explicitly declared frame/sample clock.
+
+    Route-bank geometry is resampled over the whole declared clip.  The speed
+    metadata is scaled with the source and target durations, while all solver
+    geometry and later facts consume the resulting samples directly.
+    """
+    clock = validate_frame_clock(params, require_clip_seconds=True)
+    target_count = clock["frame_count"]
+    target_rate = clock["frame_rate_hz"]
+    target_duration = clock["clip_seconds"]
+    if not scene.routes:
+        raise ValueError(f"{scene.scene_id}: cannot adapt an empty route set")
+    adapted_routes = []
+    for route in scene.routes:
+        source_count = len(route.samples_xy)
+        if source_count < 2:
+            raise ValueError(f"route {route.route_id!r} has fewer than two samples")
+        samples = _resample_route_samples(route.samples_xy, target_count)
+        source_rate = _positive_fps(getattr(route, "frame_rate_hz", DEFAULT_VIDEO_FPS))
+        source_duration = getattr(route, "duration_seconds", None)
+        if source_duration is None:
+            source_duration = source_count / source_rate
+        source_duration = float(source_duration)
+        if not math.isfinite(source_duration) or source_duration <= 0.0:
+            raise ValueError(f"route {route.route_id!r} has invalid duration")
+        speed = float(route.implied_speed_mps)
+        if not math.isfinite(speed) or speed < 0.0:
+            raise ValueError(f"route {route.route_id!r} has invalid implied speed")
+        target_speed = speed * source_duration / target_duration
+        provenance = dict(route.provenance or {"source": "bank"})
+        provenance.update({
+            "clock_adapted": source_count != target_count,
+            "source_frame_count": source_count,
+            "target_frame_count": target_count,
+            "source_frame_rate_hz": source_rate,
+            "target_frame_rate_hz": target_rate,
+            "source_duration_seconds": source_duration,
+            "target_duration_seconds": target_duration,
+        })
+        adapted_routes.append(replace(
+            route, samples_xy=samples, implied_speed_mps=target_speed,
+            provenance=provenance, frame_rate_hz=target_rate,
+            duration_seconds=target_duration))
+    provenance = dict(scene.provenance)
+    provenance["frame_clock"] = clock
+    provenance["route_clock_adaptation"] = {
+        "source_frame_counts": sorted({len(route.samples_xy) for route in scene.routes}),
+        "target_frame_count": target_count,
+        "target_frame_rate_hz": target_rate,
+        "target_duration_seconds": target_duration,
+    }
+    return replace(scene, routes=adapted_routes, provenance=provenance)
+
+
+def ensure_scene_clock(scene: SceneInputs, params: dict) -> SceneInputs:
+    """Return a scene whose route samples match the params clock."""
+    clock = validate_frame_clock(params)
+    if scene.routes and all(
+            len(route.samples_xy) == clock["frame_count"]
+            and math.isclose(route.frame_rate_hz, clock["frame_rate_hz"],
+                             rel_tol=0.0, abs_tol=1.0e-9)
+            and (route.duration_seconds is None or math.isclose(
+                route.duration_seconds, clock["clip_seconds"],
+                rel_tol=0.0, abs_tol=1.0e-9))
+            for route in scene.routes):
+        return scene
+    return adapt_scene_clock(scene, dict(params, CLIP_SECONDS=clock["clip_seconds"]))
+
+
+def scene_frame_count(scene: SceneInputs, params: dict | None = None) -> int:
+    """Resolve and validate one frame count for all routes in a scene."""
+    default = (len(scene.routes[0].samples_xy)
+               if getattr(scene, "routes", None) else FRAME_COUNT)
+    target = frame_count_from_params(params, default=default)
+    lengths = {len(route.samples_xy) for route in scene.routes}
+    if lengths and lengths != {target}:
+        raise ValueError(
+            f"{scene.scene_id}: route sample counts {sorted(lengths)} do not "
+            f"match requested FRAME_COUNT={target}; call ensure_scene_clock")
+    return target
+
+
+def _require_frame(frame, frame_count: int, *, name="frame") -> int:
+    if isinstance(frame, bool) or not isinstance(frame, int):
+        raise ValueError(f"{name} must be an integer frame index")
+    if not 0 <= frame < frame_count:
+        raise ValueError(f"{name} {frame} outside 0..{frame_count - 1}")
+    return int(frame)
+
+
+def require_frame(frame, frame_count: int, *, name="frame") -> int:
+    """Public frame-index validation for sibling generators."""
+    return _require_frame(frame, frame_count, name=name)
 
 
 def line_of_sight_from_feasible_grid(config: dict):
@@ -555,7 +1039,9 @@ def line_of_sight_from_feasible_grid(config: dict):
     return line_of_sight
 
 
-def load_scene(config: dict, *, route_limit: int | None = None) -> SceneInputs:
+def load_scene(config: dict, *, route_limit: int | None = None,
+               frame_count: int = FRAME_COUNT,
+               frame_rate_hz: float = DEFAULT_VIDEO_FPS) -> SceneInputs:
     """从场景配置载入场景无关输入。
 
     config 只允许指向场景自身的产物(导航路线库、相机基准请求),不允许
@@ -565,18 +1051,26 @@ def load_scene(config: dict, *, route_limit: int | None = None) -> SceneInputs:
     missing = [k for k in required if k not in config]
     if missing:
         raise ValueError(f"scene config missing keys: {missing}")
+    frame_count = _positive_frame_count(frame_count)
+    frame_rate_hz = _positive_fps(frame_rate_hz)
     bank = json.loads(Path(config["route_bank"]).read_text())
-    routes = routes_from_bank(bank, route_limit)
+    routes = routes_from_bank(
+        bank, route_limit, frame_count=frame_count, frame_rate_hz=frame_rate_hz)
     if not routes:
-        raise ValueError(f"{config['scene_id']}: route bank yielded no usable "
-                         "75-frame routes")
+        raise ValueError(
+            f"{config['scene_id']}: route bank yielded no usable "
+            f"{frame_count}-frame routes")
     # 可站点与相机候选都取导航可达点(路线端点与路点),去重后使用:
     # 这些点由场景导航系统背书,不是手填坐标。
     points: set[tuple[float, float]] = set()
     for route in routes:
-        points.add(_round_xy(route.samples_xy[0]))
-        points.add(_round_xy(route.samples_xy[-1]))
-        points.add(_round_xy(route.samples_xy[FRAME_COUNT // 2]))
+        source_points = (route.provenance or {}).get("source_camera_points")
+        if isinstance(source_points, list) and len(source_points) == 3:
+            points.update(_round_xy(point) for point in source_points)
+        else:
+            points.add(_round_xy(route.samples_xy[0]))
+            points.add(_round_xy(route.samples_xy[-1]))
+            points.add(_round_xy(route.samples_xy[frame_count // 2]))
     ordered = sorted(points)
     base_request = json.loads(Path(config["camera_base_request"]).read_text())
     height = float(config.get("camera_height_m")
@@ -671,7 +1165,12 @@ def load_scene(config: dict, *, route_limit: int | None = None) -> SceneInputs:
                         walkable.identity if walkable is not None else None),
                     "floor_reference": (
                         floor.identity if floor is not None else None),
-                    "navigable_points": len(ordered)},
+                    "navigable_points": len(ordered),
+                    "frame_clock": {
+                        "frame_count": frame_count,
+                        "frame_rate_hz": frame_rate_hz,
+                        "duration_seconds": frame_count / frame_rate_hz,
+                    }},
         render_config=dict(render_config),
         clearance=clearance,
         walkable=walkable,
@@ -982,7 +1481,9 @@ def route_synthesizer(scene: SceneInputs, params: dict) -> RouteSynthesizer | No
         raise ValueError(
             f"{scene.scene_id}: {ROUTE_SYNTHESIS_ENABLED_KEY} but the scene config "
             "declares no walkable_grid")
-    return RouteSynthesizer(scene.walkable, settings)
+    return RouteSynthesizer(
+        scene.walkable, settings, frame_rate_hz=settings.frame_rate_hz,
+        frame_count=settings.frame_count)
 
 
 def attempt_budgets(synth: RouteSynthesizer | None, max_attempts: int) -> tuple[int, int]:
@@ -1024,31 +1525,33 @@ DESIGN_EDGE_MARGIN_DEG = 0.25   # keep designed azimuths off band and FOV edges
 
 def _design_band(band, half_fov: float, *,
                  bound_deg: float | None = None) -> tuple[float, float]:
-    """Interior of an azimuth band (or of the field of view) for a designed point.
+    """Interior of a band for a synthesized point.
 
-    ``bound_deg`` is the widest bearing a designed point may take.  It defaults
-    to ``half_fov`` because every question shipped before 2026-09-04 answers
-    about something the camera can see, so a drawn bearing outside the cone
-    would be a candidate the pixel join could never accept.
-
-    The off-screen family the owner opened on 2026-09-03 answers about a sound
-    whose source is never visible, and vision provably contributes nothing there
-    (the frames can be blanked without the family losing a point).  Those
-    profiles pass ``bound_deg=180`` so the draw covers the circle.  Passing
-    nothing keeps the old bound exactly, which is why no existing caller
-    changes behaviour.
+    A directed Arc is kept in an unwrapped linear form for PointSpec.  The
+    solver subsequently checks the generated point with band_to_arc, so a
+    design interval such as 162 -> 198 remains the rear seam band.
     """
-
     bound = float(half_fov) if bound_deg is None else float(bound_deg)
     if band is None:
         lo, hi = -bound, bound
+    elif isinstance(band, (Arc, dict)):
+        arc = band_to_arc(band)
+        if arc.width_deg >= 360.0:
+            lo, hi = -bound, bound
+        else:
+            endpoint = arc.start_deg + arc.sweep_deg
+            lo, hi = sorted((arc.start_deg, endpoint))
     else:
-        lo, hi = float(band[0]), float(band[1])
-    lo, hi = max(lo, -bound), min(hi, bound)
+        raw_lo, raw_hi = (float(value) for value in band)
+        if raw_hi < raw_lo:
+            arc = band_to_arc((raw_lo, raw_hi))
+            endpoint = arc.start_deg + arc.sweep_deg
+            lo, hi = sorted((arc.start_deg, endpoint))
+        else:
+            lo, hi = max(raw_lo, -bound), min(raw_hi, bound)
     if hi - lo <= 2.0 * DESIGN_EDGE_MARGIN_DEG:
         return lo, hi
     return lo + DESIGN_EDGE_MARGIN_DEG, hi - DESIGN_EDGE_MARGIN_DEG
-
 
 def _distance_floor_cm(params: dict) -> float:
     return float(params.get("MIN_CAMERA_DISTANCE_CM", 100.0))
@@ -1092,13 +1595,19 @@ def _route_sources(target_base: Route, other: Route) -> dict:
 
 
 def solve_forward_cross_time(scene: SceneInputs, params: dict, *,
-                             answer_band: tuple[float, float],
-                             answer_bands: Sequence[tuple[float, float]],
+                             answer_band: AngleBand,
+                             answer_bands: Sequence[AngleBand],
                              anchor_frame: int, idle_choices: Iterable[int],
                              rng, ledger: RejectionLedger,
                              anchor_band: tuple[float, float] | None = None,
                              target_moves_more: bool | None = None,
-                             max_attempts: int = 4000) -> PointPlan | Rejection:
+                             max_attempts: int = 4000,
+                             query_domain: str | None = None,
+                             answer_domain: str | None = None,
+                             query_bound_deg: float | None = None,
+                             query_requires_visibility: bool | None = None,
+                             secondary_anchor_bound_deg: float | None = None,
+                             secondary_query_bound_deg: float | None = None) -> PointPlan | Rejection:
     """①F 正向错时:音频锚在前,视觉查询在后(查询帧=片尾)。
 
     约束(全部由题型声明,与房间无关):
@@ -1110,11 +1619,17 @@ def solve_forward_cross_time(scene: SceneInputs, params: dict, *,
       - 另一角色不得与目标同答案带(否则选项无区分度);
       - 有视线筛查就用,没有就如实记未筛。
     """
+    frame_count = scene_frame_count(scene, params)
+    anchor_frame = _require_frame(anchor_frame, frame_count, name="anchor_frame")
+    query_bound, query_visible = resolve_query_geometry(
+        scene, params, query_domain=query_domain, answer_domain=answer_domain,
+        query_bound_deg=query_bound_deg,
+        query_requires_visibility=query_requires_visibility)
     half_fov = effective_half_fov(scene, params)
     theta_full = float(params["THETA_FULL"])
     theta_half = angle_credit_radius(params)
     min_sep = float(params["MIN_AZIMUTH_SEP"])
-    band_lo, band_hi = answer_band
+    band_lo, band_hi = band_to_bounds(answer_band)
     pool = target_route_pool(scene, params)
     n_routes, n_cams = len(pool), len(scene.camera_points)
     synth = route_synthesizer(scene, params)
@@ -1131,7 +1646,7 @@ def solve_forward_cross_time(scene: SceneInputs, params: dict, *,
                 ledger.add(Rejection("target_route_static_for_dual_motion"))
                 continue
             camera = scene.camera_points[int(rng.integers(n_cams))]
-            end_xy = moved.at(FRAME_COUNT - 1)
+            end_xy = moved.at(frame_count - 1)
             if _too_close(camera, end_xy, params):
                 ledger.add(Rejection("camera_too_close_to_target"))
                 continue
@@ -1155,7 +1670,10 @@ def solve_forward_cross_time(scene: SceneInputs, params: dict, *,
             route = _design_target(synth, rng, ledger, camera, yaw, [
                 PointSpec(anchor_frame, *_design_band(anchor_band, half_fov),
                           _anchor_min_distance_cm(params) or floor_cm, far_cm),
-                PointSpec(FRAME_COUNT - 1, solve_lo, solve_hi, floor_cm, far_cm)], idle,
+                PointSpec(frame_count - 1,
+                          *_design_band(answer_band, half_fov,
+                                        bound_deg=query_bound),
+                          floor_cm, far_cm)], idle,
                 min_gap_deg=(theta_half if anchor_band is not None else theta_full)
                 + DESIGN_EDGE_MARGIN_DEG)
             if route is None:
@@ -1164,16 +1682,16 @@ def solve_forward_cross_time(scene: SceneInputs, params: dict, *,
             if moved.displacement_cm <= 1.0e-6:
                 ledger.add(Rejection("target_route_static_for_dual_motion"))
                 continue
-            end_xy = moved.at(FRAME_COUNT - 1)
+            end_xy = moved.at(frame_count - 1)
             if _too_close(camera, end_xy, params):
                 ledger.add(Rejection("camera_too_close_to_target"))
                 continue
         az_end = relative_azimuth_deg(camera, yaw, end_xy)
-        if not (band_lo <= az_end < band_hi):
+        if not _angle_in_band(az_end, (band_lo, band_hi)):
             ledger.add(Rejection("band_solution_out_of_band",
                                  f"az={az_end:.2f} band={band_lo},{band_hi}"))
             continue
-        if abs(az_end) > half_fov:
+        if abs(az_end) > query_bound:
             ledger.add(Rejection("answer_band_outside_fov",
                                  "the declared band lies outside the camera "
                                  "field of view"))
@@ -1186,11 +1704,10 @@ def solve_forward_cross_time(scene: SceneInputs, params: dict, *,
         if abs(az_anchor) > half_fov:
             ledger.add(Rejection("target_outside_fov_at_anchor"))
             continue
-        if anchor_band is not None and not (
-                float(anchor_band[0]) <= az_anchor < float(anchor_band[1])):
+        if anchor_band is not None and not _angle_in_band(az_anchor, anchor_band):
             ledger.add(Rejection(
                 "anchor_outside_allocated_band",
-                f"az={az_anchor:.2f} band={anchor_band[0]},{anchor_band[1]}"))
+                f"az={az_anchor:.2f} band={band_to_bounds(anchor_band)}"))
             continue
         gap = circular_gap_deg(az_anchor, az_end)
         if anchor_band is not None:
@@ -1211,22 +1728,26 @@ def solve_forward_cross_time(scene: SceneInputs, params: dict, *,
         other_route = _pick_other_route(
             scene, moved, camera, yaw, az_anchor, az_end, band_lo, band_hi,
             answer_bands, min_sep, half_fov, theta_half, params,
-            anchor_frame, FRAME_COUNT - 1, rng, ledger,
-            target_moves_more=target_moves_more)
+            anchor_frame, frame_count - 1, rng, ledger,
+            target_moves_more=target_moves_more,
+            anchor_bound_deg=half_fov, query_bound_deg=query_bound,
+            other_anchor_bound_deg=secondary_anchor_bound_deg,
+            other_query_bound_deg=secondary_query_bound_deg)
         if other_route is None:
             continue
         other_anchor_xy = other_route.at(anchor_frame)
-        other_answer_xy = other_route.at(FRAME_COUNT - 1)
+        other_answer_xy = other_route.at(frame_count - 1)
         other_answer_az = relative_azimuth_deg(camera, yaw, other_answer_xy)
         if scene.line_of_sight is not None:
             if not scene.line_of_sight(camera, anchor_xy):
                 ledger.add(Rejection("target_occluded_at_anchor_frame"))
                 continue
-            if not scene.line_of_sight(camera, end_xy):
+            if query_visible and not scene.line_of_sight(camera, end_xy):
                 ledger.add(Rejection("target_occluded_at_query_frame"))
                 continue
-            if not scene.line_of_sight(camera, other_anchor_xy) or not \
-                    scene.line_of_sight(camera, other_answer_xy):
+            if (not scene.line_of_sight(camera, other_anchor_xy)
+                    or (query_visible
+                        and not scene.line_of_sight(camera, other_answer_xy))):
                 ledger.add(Rejection("other_actor_occluded"))
                 continue
         return PointPlan(
@@ -1234,7 +1755,7 @@ def solve_forward_cross_time(scene: SceneInputs, params: dict, *,
             camera_ue_yaw_deg=yaw, camera_height_m=clearance["camera_height_m"],
             camera_clearance=clearance, target_route=moved, base_route=route,
             other_route=other_route, idle_frames=idle, anchor_frame=anchor_frame,
-            query_frame=FRAME_COUNT - 1,
+            query_frame=frame_count - 1,
             answer_cell={"kind": "azimuth_band", "band": [band_lo, band_hi],
                          "value_deg": az_end},
             checks={"az_anchor_deg": az_anchor, "az_end_deg": az_end,
@@ -1257,6 +1778,8 @@ def solve_forward_cross_time(scene: SceneInputs, params: dict, *,
                     "gatea_open_min_separation_deg": 2.0 * theta_half,
                     "line_of_sight_screened": scene.line_of_sight_screened,
                     "route_sources": _route_sources(route, other_route),
+                    "query_bound_deg": query_bound,
+                    "query_requires_visibility": query_visible,
                     "search_attempts": attempt},
         )
     ledger.budget_exhausted += 1
@@ -1266,25 +1789,38 @@ def solve_forward_cross_time(scene: SceneInputs, params: dict, *,
 
 
 def solve_backward_cross_time(scene: SceneInputs, params: dict, *,
-                              answer_band: tuple[float, float],
-                              answer_bands: Sequence[tuple[float, float]],
+                              answer_band: AngleBand,
+                              answer_bands: Sequence[AngleBand],
                               anchor_frame: int, query_frame: int,
                               idle_choices: Iterable[int], rng,
                               ledger: RejectionLedger,
                               anchor_band: tuple[float, float] | None = None,
                               target_moves_more: bool | None = None,
-                              max_attempts: int = 4000) -> PointPlan | Rejection:
+                              max_attempts: int = 4000,
+                              query_domain: str | None = None,
+                              answer_domain: str | None = None,
+                              query_bound_deg: float | None = None,
+                              query_requires_visibility: bool | None = None,
+                              secondary_anchor_bound_deg: float | None = None,
+                              secondary_query_bound_deg: float | None = None) -> PointPlan | Rejection:
     """①B 反向错时:视觉查询在前,音频锚在后(末段发声确定身份)。
 
     与 ①F 的差别只在时间方向,几何约束同构:查询帧的目标状态必须可观察,
     锚定时刻两角色可分辨,且**查询时刻附近不得有直接泄露答案的音频**
     (由 AudioProgram profile 保证,这里只声明并记录该要求)。
     """
+    frame_count = scene_frame_count(scene, params)
+    anchor_frame = _require_frame(anchor_frame, frame_count, name="anchor_frame")
+    query_frame = _require_frame(query_frame, frame_count, name="query_frame")
+    query_bound, query_visible = resolve_query_geometry(
+        scene, params, query_domain=query_domain, answer_domain=answer_domain,
+        query_bound_deg=query_bound_deg,
+        query_requires_visibility=query_requires_visibility)
     half_fov = effective_half_fov(scene, params)
     theta_full = float(params["THETA_FULL"])
     theta_half = angle_credit_radius(params)
     min_sep = float(params["MIN_AZIMUTH_SEP"])
-    band_lo, band_hi = answer_band
+    band_lo, band_hi = band_to_bounds(answer_band)
     pool = target_route_pool(scene, params)
     n_routes, n_cams = len(pool), len(scene.camera_points)
     synth = route_synthesizer(scene, params)
@@ -1322,7 +1858,10 @@ def solve_backward_cross_time(scene: SceneInputs, params: dict, *,
             route = _design_target(synth, rng, ledger, camera, yaw, [
                 PointSpec(anchor_frame, *_design_band(anchor_band, half_fov),
                           _anchor_min_distance_cm(params) or floor_cm, far_cm),
-                PointSpec(query_frame, solve_lo, solve_hi, floor_cm, far_cm)], idle,
+                PointSpec(query_frame,
+                          *_design_band(answer_band, half_fov,
+                                        bound_deg=query_bound),
+                          floor_cm, far_cm)], idle,
                 min_gap_deg=(theta_half if anchor_band is not None else theta_full)
                 + DESIGN_EDGE_MARGIN_DEG)
             if route is None:
@@ -1336,7 +1875,8 @@ def solve_backward_cross_time(scene: SceneInputs, params: dict, *,
                 ledger.add(Rejection("camera_too_close_to_target"))
                 continue
         az_query = relative_azimuth_deg(camera, yaw, query_xy)
-        if not (band_lo <= az_query < band_hi) or abs(az_query) > half_fov:
+        if (not _angle_in_band(az_query, (band_lo, band_hi))
+                or abs(az_query) > query_bound):
             ledger.add(Rejection("answer_band_outside_fov"))
             continue
         anchor_xy = moved.at(anchor_frame)
@@ -1347,8 +1887,7 @@ def solve_backward_cross_time(scene: SceneInputs, params: dict, *,
         if abs(az_anchor) > half_fov:
             ledger.add(Rejection("target_outside_fov_at_anchor"))
             continue
-        if anchor_band is not None and not (
-                float(anchor_band[0]) <= az_anchor < float(anchor_band[1])):
+        if anchor_band is not None and not _angle_in_band(az_anchor, anchor_band):
             ledger.add(Rejection(
                 "anchor_outside_allocated_band",
                 f"az={az_anchor:.2f} band={anchor_band[0]},{anchor_band[1]}"))
@@ -1373,7 +1912,10 @@ def solve_backward_cross_time(scene: SceneInputs, params: dict, *,
             scene, moved, camera, yaw, az_anchor, az_query, band_lo, band_hi,
             answer_bands, min_sep, half_fov, theta_half, params,
             anchor_frame, query_frame, rng, ledger,
-            target_moves_more=target_moves_more)
+            target_moves_more=target_moves_more,
+            anchor_bound_deg=half_fov, query_bound_deg=query_bound,
+            other_anchor_bound_deg=secondary_anchor_bound_deg,
+            other_query_bound_deg=secondary_query_bound_deg)
         if other_route is None:
             continue
         other_anchor_xy = other_route.at(anchor_frame)
@@ -1383,11 +1925,12 @@ def solve_backward_cross_time(scene: SceneInputs, params: dict, *,
             if not scene.line_of_sight(camera, anchor_xy):
                 ledger.add(Rejection("target_occluded_at_anchor_frame"))
                 continue
-            if not scene.line_of_sight(camera, query_xy):
+            if query_visible and not scene.line_of_sight(camera, query_xy):
                 ledger.add(Rejection("target_occluded_at_query_frame"))
                 continue
-            if not scene.line_of_sight(camera, other_anchor_xy) or not \
-                    scene.line_of_sight(camera, other_answer_xy):
+            if (not scene.line_of_sight(camera, other_anchor_xy)
+                    or (query_visible
+                        and not scene.line_of_sight(camera, other_answer_xy))):
                 ledger.add(Rejection("other_actor_occluded"))
                 continue
         return PointPlan(
@@ -1416,6 +1959,8 @@ def solve_backward_cross_time(scene: SceneInputs, params: dict, *,
                     "line_of_sight_screened": scene.line_of_sight_screened,
                     "requires_silence_near_query": True,
                     "route_sources": _route_sources(route, other_route),
+                    "query_bound_deg": query_bound,
+                    "query_requires_visibility": query_visible,
                     "search_attempts": attempt},
         )
     ledger.budget_exhausted += 1
@@ -1455,12 +2000,29 @@ def _too_close_at_anchor(camera, point, params) -> bool:
 def _pick_other_route(scene, target_route, camera, yaw, az_anchor, az_answer,
                       band_lo, band_hi, answer_bands, min_sep, half_fov,
                       theta_half, params, anchor_frame, query_frame, rng,
-                      ledger, target_moves_more=None):
+                      ledger, target_moves_more=None, *,
+                      anchor_bound_deg=None, query_bound_deg=None,
+                      other_anchor_bound_deg=None, other_query_bound_deg=None):
     """Pick a moving Gate-A actor for both MCQ and Open card1 forms.
 
     Bank routes are tried first (64 random draws).  When the solver may
     synthesize routes, a designed second-actor route is tried next and held
     to exactly the same per-candidate checks (``acceptable``)."""
+    anchor_bound = half_fov if anchor_bound_deg is None else float(anchor_bound_deg)
+    query_bound = half_fov if query_bound_deg is None else float(query_bound_deg)
+    other_anchor_bound = (
+        anchor_bound if other_anchor_bound_deg is None
+        else float(other_anchor_bound_deg))
+    other_query_bound = (
+        query_bound if other_query_bound_deg is None
+        else float(other_query_bound_deg))
+    if (not math.isfinite(anchor_bound) or not 0.0 <= anchor_bound <= 180.0
+            or not math.isfinite(other_anchor_bound)
+            or not 0.0 <= other_anchor_bound <= 180.0
+            or not math.isfinite(query_bound) or not 0.0 <= query_bound <= 180.0
+            or not math.isfinite(other_query_bound)
+            or not 0.0 <= other_query_bound <= 180.0):
+        raise ValueError("actor bearing bounds must be finite and lie in [0, 180]")
     flags = {"open_overlap": False, "outside_answer_space": False,
              "motion_rank_mismatch": False, "static_route": False}
 
@@ -1481,14 +2043,16 @@ def _pick_other_route(scene, target_route, camera, yaw, az_anchor, az_answer,
         answer_xy = route.at(query_frame)
         az_other_anchor = relative_azimuth_deg(camera, yaw, anchor_xy)
         az_other_answer = relative_azimuth_deg(camera, yaw, answer_xy)
-        if abs(az_other_anchor) > half_fov or abs(az_other_answer) > half_fov:
+        if (abs(az_other_anchor) > other_anchor_bound
+                or abs(az_other_answer) > other_query_bound):
             return False
         if circular_gap_deg(az_other_anchor, az_anchor) < min_sep:
             return False
-        if not any(lo <= az_other_answer < hi for lo, hi in answer_bands):
+        if not any(_angle_in_band(az_other_answer, band)
+                   for band in answer_bands):
             flags["outside_answer_space"] = True
             return False
-        if band_lo <= az_other_answer < band_hi:
+        if _angle_in_band(az_other_answer, (band_lo, band_hi)):
             return False
         if not open_angle_gold_regions_disjoint(
                 az_answer, az_other_answer, theta_half):
@@ -1509,8 +2073,8 @@ def _pick_other_route(scene, target_route, camera, yaw, az_anchor, az_answer,
     if synth is not None:
         # 对照狗的答案带从声明的其他带里选一条,锚帧位置在视场内;分离、
         # 距离底线、Open 金标不重叠、运动量排序都由上面的 acceptable 复核。
-        other_bands = [(float(lo), float(hi)) for lo, hi in answer_bands
-                       if not (float(lo) == float(band_lo) and float(hi) == float(band_hi))]
+        other_bands = [band for band in answer_bands
+                       if not bands_equivalent(band, (band_lo, band_hi))]
         if other_bands:
             chosen = other_bands[int(rng.integers(len(other_bands)))]
             floor_cm = _distance_floor_cm(params)
@@ -1520,14 +2084,16 @@ def _pick_other_route(scene, target_route, camera, yaw, az_anchor, az_answer,
             # Open gold radius of the target's answer at the query instant
             separation = (az_anchor, min_sep + DESIGN_EDGE_MARGIN_DEG)
             gold = (az_answer, 2.0 * theta_half + DESIGN_EDGE_MARGIN_DEG)
-            answer_spec = PointSpec(query_frame, *_design_band(chosen, half_fov),
+            answer_spec = PointSpec(query_frame, *_design_band(
+                chosen, half_fov, bound_deg=other_query_bound),
                                     floor_cm, far_cm,
                                     exclusions=((gold, separation) if anchor_frame == query_frame
                                                 else (gold,)))
             if anchor_frame == query_frame:
                 specs = [answer_spec]
             else:
-                specs = [PointSpec(anchor_frame, *_design_band(None, half_fov),
+                specs = [PointSpec(anchor_frame, *_design_band(
+                    None, half_fov, bound_deg=other_anchor_bound),
                                    floor_cm, far_cm, exclusions=(separation,)), answer_spec]
             route = _synthesize_other(synth, rng, ledger, camera, yaw, specs, acceptable)
             if route is not None:
@@ -1566,17 +2132,29 @@ def _pick_other_route(scene, target_route, camera, yaw, az_anchor, az_answer,
 
 
 def solve_instant_azimuth(scene: SceneInputs, params: dict, *,
-                          answer_band: tuple[float, float],
-                          answer_bands: Sequence[tuple[float, float]],
+                          answer_band: AngleBand,
+                          answer_bands: Sequence[AngleBand],
                           query_frame: int, profile_id: str,
                           idle_choices: Iterable[int], rng,
                           ledger: RejectionLedger,
                           target_moves_more: bool | None = None,
                           max_attempts: int = 4000,
-                          open_half_width_deg: float | None = None):
+                          open_half_width_deg: float | None = None,
+                          query_domain: str | None = None,
+                          answer_domain: str | None = None,
+                          query_bound_deg: float | None = None,
+                          query_requires_visibility: bool | None = None,
+                          secondary_anchor_bound_deg: float | None = None,
+                          secondary_query_bound_deg: float | None = None):
     """Immediate-DoA control: bind the caller and its visual azimuth together."""
-    band_lo, band_hi = [float(value) for value in answer_band]
+    frame_count = scene_frame_count(scene, params)
+    query_frame = _require_frame(query_frame, frame_count, name="query_frame")
+    band_lo, band_hi = band_to_bounds(answer_band)
     solve_lo, solve_hi = interior_answer_band(band_lo, band_hi, params)
+    query_bound, query_visible = resolve_query_geometry(
+        scene, params, query_domain=query_domain, answer_domain=answer_domain,
+        query_bound_deg=query_bound_deg,
+        query_requires_visibility=query_requires_visibility)
     half_fov = effective_half_fov(scene, params)
     min_sep = float(params["MIN_AZIMUTH_SEP"])
     theta_half = (angle_credit_radius(params) if open_half_width_deg is None
@@ -1614,7 +2192,10 @@ def solve_instant_azimuth(scene: SceneInputs, params: dict, *,
             camera, yaw, clearance = pose
             idle = int(rng.choice(list(idle_choices)))
             route = _design_target(synth, rng, ledger, camera, yaw, [
-                PointSpec(query_frame, solve_lo, solve_hi, _distance_floor_cm(params),
+                PointSpec(query_frame,
+                          *_design_band(answer_band, half_fov,
+                                        bound_deg=query_bound),
+                          _distance_floor_cm(params),
                           synth.settings.max_camera_distance_cm)], idle)
             if route is None:
                 continue
@@ -1627,19 +2208,22 @@ def solve_instant_azimuth(scene: SceneInputs, params: dict, *,
                 ledger.add(Rejection("camera_too_close_to_target"))
                 continue
         azimuth = relative_azimuth_deg(camera, yaw, answer_xy)
-        if abs(azimuth) > half_fov:
+        if abs(azimuth) > query_bound:
             ledger.add(Rejection("answer_band_outside_fov"))
             continue
         other = _pick_other_route(
             scene, moved, camera, yaw, azimuth, azimuth,
             band_lo, band_hi, answer_bands, min_sep, half_fov,
             theta_half, params, query_frame, query_frame, rng, ledger,
-            target_moves_more=target_moves_more)
+            target_moves_more=target_moves_more,
+            anchor_bound_deg=query_bound, query_bound_deg=query_bound,
+            other_anchor_bound_deg=secondary_anchor_bound_deg,
+            other_query_bound_deg=secondary_query_bound_deg)
         if other is None:
             continue
         other_azimuth = relative_azimuth_deg(
             camera, yaw, other.at(query_frame))
-        if scene.line_of_sight is not None:
+        if scene.line_of_sight is not None and query_visible:
             if not scene.line_of_sight(camera, answer_xy):
                 ledger.add(Rejection("target_occluded_at_binding_instant"))
                 continue
@@ -1664,6 +2248,8 @@ def solve_instant_azimuth(scene: SceneInputs, params: dict, *,
                 "gatea_open_min_separation_deg": 2.0 * theta_half,
                 "line_of_sight_screened": scene.line_of_sight_screened,
                 "route_sources": _route_sources(route, other),
+                "query_bound_deg": query_bound,
+                "query_requires_visibility": query_visible,
                 "search_attempts": attempt,
             },
         )
@@ -1680,6 +2266,8 @@ def solve_instant_distance_order(scene: SceneInputs, params: dict, *,
                                  min_distance_gap_cm: float = 50.0,
                                  max_attempts: int = 4000):
     """Visual control: the allocated target is measurably closer at one frame."""
+    frame_count = scene_frame_count(scene, params)
+    query_frame = _require_frame(query_frame, frame_count, name="query_frame")
     half_fov = effective_half_fov(scene, params)
     min_sep = float(params["MIN_AZIMUTH_SEP"])
     min_gap = float(min_distance_gap_cm)
@@ -1827,7 +2415,8 @@ def solve_distance_change_pair(scene: SceneInputs, params: dict, *,
                                min_change_cm: float = 50.0,
                                max_attempts: int = 4000):
     """Find opposite target/distractor distance trends over one time window."""
-    if not 0 <= start_frame < end_frame < FRAME_COUNT:
+    frame_count = scene_frame_count(scene, params)
+    if not 0 <= start_frame < end_frame < frame_count:
         raise ValueError(
             f"invalid distance window {start_frame}..{end_frame}")
     if target_relation not in ("closer", "farther"):
@@ -2016,7 +2605,8 @@ def solve_motion_state_pair(scene: SceneInputs, params: dict, *,
                             min_motion_cm: float = 10.0,
                             max_attempts: int = 4000):
     """Find opposite moving/still roles over one declared frame window."""
-    if not 0 <= start_frame < end_frame < FRAME_COUNT:
+    frame_count = scene_frame_count(scene, params)
+    if not 0 <= start_frame < end_frame < frame_count:
         raise ValueError(f"invalid motion window {start_frame}..{end_frame}")
     if target_state not in ("moving", "still"):
         raise ValueError(f"unknown motion state {target_state!r}")
@@ -2196,6 +2786,11 @@ def solve_instant_binding(scene: SceneInputs, params: dict, *,
     绑到画面里的个体。刻意不施加锚后角位移那条约束:那是错时族的题眼,
     对即时绑定题是多余的限制。
     """
+    frame_count = scene_frame_count(scene, params)
+    instants = tuple(_require_frame(frame, frame_count, name="binding_frame")
+                     for frame in instants)
+    if not instants:
+        raise ValueError("binding instants must not be empty")
     half_fov = effective_half_fov(scene, params)
     min_sep = float(params["MIN_AZIMUTH_SEP"])
     pool = target_route_pool(scene, params)

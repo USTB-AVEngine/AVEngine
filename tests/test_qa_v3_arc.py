@@ -14,7 +14,7 @@ TOOLS = Path(__file__).resolve().parents[1] / "tools" / "qa"
 sys.path.insert(0, str(TOOLS))
 
 from qa_v3_arc import (  # noqa: E402
-    Arc, arcs_intersect, normalize_deg, signed_delta_deg,
+    Arc, arc_overlap_width_deg, arcs_intersect, normalize_deg, signed_delta_deg,
     wide_credit_regions_disjoint,
 )
 
@@ -82,6 +82,15 @@ def test_separation_across_the_wrap_is_measured_on_the_circle():
 def test_a_full_circle_arc_intersects_everything():
     everything = Arc(start_deg=0.0, sweep_deg=360.0)
     assert arcs_intersect(everything, Arc.from_bounds(10.0, 20.0))
+
+
+def test_arc_overlap_width_handles_a_seam_band():
+    rear = Arc(start_deg=90.0, sweep_deg=180.0)
+    seam = Arc(start_deg=162.0, sweep_deg=36.0)
+    assert arc_overlap_width_deg(rear, seam) == pytest.approx(36.0)
+    assert arc_overlap_width_deg(rear, Arc.from_bounds(-45.0, 45.0)) == pytest.approx(0.0)
+
+
 
 
 # ── 不变量 4：编码解码往返 ──────────────────────────────────────────────────

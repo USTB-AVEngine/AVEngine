@@ -34,20 +34,24 @@ def test_camera_cone_follows_the_scene_camera():
 
 
 def test_rear_cone_bound_is_derived_not_written_down():
-    """前后二元题的下界来自"前向镜像必须落在可信视锥内",即 |180-theta| <= H。
+    """前后二元题的下界来自"前向镜像必须落在可信视锥内",即 |180-theta| <= H。"""
+    arc = SS.answer_domain_arcs("rear_cone", scene(105), PARAMS)[0]
+    assert arc.start_deg == pytest.approx(132.5)
+    assert arc.sweep_deg == pytest.approx(95.0)
+    assert arc.end_deg == pytest.approx(-132.5)
+    arc = SS.answer_domain_arcs("rear_cone", scene(120), PARAMS)[0]
+    assert arc.start_deg == pytest.approx(125.0)
+    assert arc.sweep_deg == pytest.approx(110.0)
+    assert arc.end_deg == pytest.approx(-125.0)
 
-    2026-09-03 我是手算出 132.5 交给 owner 的;现在它是推导量,换镜头自己跟着动。
-    """
-    lo, hi = SS.answer_domain_arcs("rear_cone", scene(105), PARAMS)[1]
-    assert (lo, hi) == pytest.approx((132.5, 180.0))
-    lo, hi = SS.answer_domain_arcs("rear_cone", scene(120), PARAMS)[1]
-    assert (lo, hi) == pytest.approx((125.0, 180.0))
 
 
 def test_full_circle_ignores_the_camera():
     for hfov in (60, 105, 120):
-        assert SS.answer_domain_arcs("full_circle", scene(hfov), PARAMS) == \
-            pytest.approx([(-180.0, 180.0)])
+        arc = SS.answer_domain_arcs("full_circle", scene(hfov), PARAMS)[0]
+        assert arc.width_deg == pytest.approx(360.0)
+        assert arc.contains(-180.0) and arc.contains(179.999)
+
 
 
 def test_unknown_domain_is_refused():
@@ -71,7 +75,30 @@ def test_eight_sectors_across_the_full_circle():
                "answer_shape": {"equal_bands": 8}}
     bands = SS.derive_answer_bands(profile, scene(105), PARAMS)
     assert len(bands) == 8
-    assert [hi - lo for lo, hi in bands] == pytest.approx([45.0] * 8)
+    assert [SS.band_width_deg(band) for band in bands] == pytest.approx([45.0] * 8)
+
+
+def test_rear_cone_is_one_arc_with_equal_seam_band_and_count_one():
+    profile = {"id": "rear", "answer_domain": "rear_cone",
+               "answer_shape": {"equal_bands": 5}}
+    bands = SS.derive_answer_bands(
+        profile, scene(180), {"VISUAL_FOV_MARGIN_DEG": 0.0})
+    assert len(bands) == 5
+    assert all(SS.band_width_deg(band) == pytest.approx(36.0)
+               for band in bands)
+    seam = bands[2]
+    assert seam.start_deg == pytest.approx(162.0)
+    assert seam.sweep_deg == pytest.approx(36.0)
+    assert seam.end_deg == pytest.approx(-162.0)
+    assert SS.band_to_bounds(seam) == pytest.approx((162.0, -162.0))
+
+    single = SS.derive_answer_bands(
+        {"id": "rear_single", "answer_domain": "rear_cone",
+         "answer_shape": {"equal_bands": 1}},
+        scene(180), {"VISUAL_FOV_MARGIN_DEG": 0.0})
+    assert len(single) == 1
+    assert single[0].width_deg == pytest.approx(180.0)
+
 
 
 def test_a_hand_written_table_that_disagrees_with_its_domain_is_refused():
@@ -80,6 +107,21 @@ def test_a_hand_written_table_that_disagrees_with_its_domain_is_refused():
                "answer_bands_deg": [[-52.5, -17.5], [-17.5, 17.5], [17.5, 52.5]]}
     with pytest.raises(ValueError, match="disagrees with what domain"):
         SS.audit_answer_bands(scene(105), PARAMS, [profile])
+
+
+def test_full_circle_hand_written_legacy_edges_compare_as_the_same_arcs():
+    step = 45.0
+    profile = {
+        "id": "full",
+        "answer_domain": "full_circle",
+        "answer_shape": {"equal_bands": 8},
+        "answer_bands_deg": [
+            [-180.0 + i * step, -180.0 + (i + 1) * step]
+            for i in range(8)
+        ],
+    }
+    report = SS.audit_answer_bands(scene(105), PARAMS, [profile])
+    assert report["derived_from_domain"]["full"] == profile["answer_bands_deg"]
 
 
 def test_a_hand_written_table_that_agrees_is_accepted():
@@ -106,6 +148,18 @@ def test_legacy_profiles_keep_working_and_get_measured_instead_of_refused():
     assert row["declared_total_deg"] == pytest.approx(105.0)
     # 外侧两条带各有 52.5-47.5 = 5.0 度到不了
     assert row["unreachable_deg"] == pytest.approx(10.0)
+
+
+def test_legacy_audit_measures_a_wrapped_band_on_the_circle():
+    report = SS.audit_answer_bands(
+        scene(105), PARAMS,
+        [{"id": "legacy_wrap", "answer_bands_deg": [[170.0, -170.0]]}],
+    )
+    row = report["legacy_declared_degrees"]["legacy_wrap"]
+    assert row["declared_total_deg"] == pytest.approx(20.0)
+    assert row["unreachable_deg"] == pytest.approx(20.0)
+
+
 
 
 def test_a_profile_with_no_answer_bands_is_simply_absent():

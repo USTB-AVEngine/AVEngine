@@ -204,7 +204,7 @@ def _timeline_dimensions(params) -> tuple[int, float]:
     try:
         clip_seconds = float(params["CLIP_SECONDS"])
         frame_rate_hz = float(params["VIDEO_FPS"])
-        frame_count = int(params["FRAME_COUNT"])
+        frame_count = SS.frame_count_from_params(params)
     except (KeyError, TypeError, ValueError) as exc:
         raise ValueError(
             "speech timeline needs CLIP_SECONDS, VIDEO_FPS, and FRAME_COUNT"
@@ -1344,7 +1344,9 @@ def main(argv=None):
         require_dry_canvas_source_mode(
             params, owner="design_qa_v3_extended_profile")
     scene_config = SS.read_scene_config(args.scene_config)
-    scene = load_scene(scene_config)
+    clock = SS.validate_frame_clock(params, require_clip_seconds=True)
+    scene = load_scene(scene_config, frame_count=clock["frame_count"],
+                       frame_rate_hz=clock["frame_rate_hz"])
     resolve_scene_render_context(scene)
     require_camera_clearance(scene, params)
     registry_path = REPO / "examples/runtime/source_asset_runtime_profiles.json"

@@ -41,11 +41,15 @@ def test_a_sweep_that_stays_on_one_side_is_reported_linearly(monkeypatch):
     assert frames == (0, 4)
 
 
-def test_a_sweep_across_plus_minus_180_is_refused(monkeypatch):
-    # 真实扫角是 10 度（175 -> -175），线性 min/max 会读成 358 度。
+def test_a_sweep_across_plus_minus_180_keeps_an_ordered_arc(monkeypatch):
+    # 真实扫角是 10 度（175 -> -175），不能被线性 min/max 读成补集。
     azimuths = [175.0, 178.0, -179.0, -177.0, -175.0]
     _patch_recompute(monkeypatch, azimuths)
-    with pytest.raises(SB.GenerationConstraintError,
-                       match=r"crosses \+-180"):
-        SB.azimuth_sweep_engine_frame(
-            _timeline(azimuths), "source1", (0.0, 0.5), 8.0)
+    lo, hi, frames = SB.azimuth_sweep_engine_frame(
+        _timeline(azimuths), "source1", (0.0, 0.5), 8.0)
+    assert (lo, hi) == pytest.approx((175.0, -175.0))
+    assert frames == (0, 4)
+    arc, arc_frames = SB.azimuth_sweep_engine_arc(
+        _timeline(azimuths), "source1", (0.0, 0.5), 8.0)
+    assert arc.sweep_deg == pytest.approx(10.0)
+    assert arc_frames == frames

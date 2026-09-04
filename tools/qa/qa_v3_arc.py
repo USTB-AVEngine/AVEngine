@@ -65,6 +65,18 @@ class Arc:
         object.__setattr__(self, "start_deg", normalize_deg(self.start_deg))
         object.__setattr__(self, "sweep_deg", float(self.sweep_deg))
 
+    def __iter__(self):
+        """Compatibility iterator for the legacy ordered-pair boundary.
+
+        The Arc remains the authoritative representation. Iteration is only
+        for existing callers that immediately serialize a band as two numbers;
+        a seam arc yields (start_deg, end_deg) with end_deg < start_deg.
+        """
+        lo, hi = ((-180.0, 180.0) if self.width_deg >= 360.0
+                  else (self.start_deg, self.end_deg))
+        yield lo
+        yield hi
+
     # ── 构造 ────────────────────────────────────────────────────────────────
     @classmethod
     def from_samples(cls, samples) -> "Arc":
@@ -81,6 +93,24 @@ class Arc:
         for value in values[1:]:
             unwrapped.append(unwrapped[-1] + signed_delta_deg(unwrapped[-1], value))
         lo, hi = min(unwrapped), max(unwrapped)
+        deltas = [b - a for a, b in zip(unwrapped, unwrapped[1:])]
+        increasing = all(delta >= -1e-9 for delta in deltas)
+        decreasing = all(delta <= 1e-9 for delta in deltas)
+        if increasing:
+            # Keep the first endpoint and positive direction for a monotone
+            # sweep, including one that crosses the representation seam.
+            return cls(start_deg=unwrapped[0], sweep_deg=hi - lo)
+        if decreasing:
+            # The old min/max implementation silently changed a decreasing
+            # 200-degree sweep into a positive 200-degree arc.  Direction is
+            # part of the truth, so retain the negative sign here.
+            return cls(start_deg=unwrapped[0], sweep_deg=lo - hi)
+        # A route may turn inside the query window.  An Arc is a set plus one
+        # signed sweep, so use the direction of the net excursion and retain
+        # the complete visited extent rather than the wrong complement.
+        net = unwrapped[-1] - unwrapped[0]
+        if net < 0.0:
+            return cls(start_deg=hi, sweep_deg=lo - hi)
         return cls(start_deg=lo, sweep_deg=hi - lo)
 
     @classmethod
@@ -93,6 +123,21 @@ class Arc:
                 f"from_bounds({lo}, {hi}): hi < lo is ambiguous on a circle; "
                 "use Arc(start_deg=..., sweep_deg=...) and say which way it goes")
         return cls(start_deg=lo, sweep_deg=hi - lo)
+
+    @classmethod
+    def from_forward_bounds(cls, lo: float, hi: float) -> "Arc":
+        """Represent the ordered forward arc ``lo`` to ``hi`` on the circle.
+
+        ``from_bounds`` remains deliberately strict because an unordered pair
+        cannot say whether a seam crossing denotes the short wedge or its
+        complement.  Callers that have an ordered forward interval can state
+        that intent explicitly with this constructor.
+        """
+        lo, hi = float(lo), float(hi)
+        sweep = hi - lo
+        if sweep < 0.0:
+            sweep %= 360.0
+        return cls(start_deg=lo, sweep_deg=sweep)
 
     # ── 性质 ────────────────────────────────────────────────────────────────
     @property
@@ -169,6 +214,33 @@ def arcs_intersect(first: Arc, second: Arc, *, tolerance: float = 1e-9) -> bool:
             if min(a_hi, b_hi) - max(a_lo, b_lo) > -tolerance:
                 return True
     return False
+
+
+def _parts_on_circle(arc: Arc) -> list[tuple[float, float]]:
+    """Return the Arc's set as non-wrapping intervals on [0, 360]."""
+    if arc.width_deg >= 360.0:
+        return [(0.0, 360.0)]
+    start = arc.start_deg % 360.0
+    end = start + arc.sweep_deg
+    if arc.sweep_deg >= 0.0:
+        end %= 360.0
+        if end >= start:
+            return [(start, end)]
+        return [(start, 360.0), (0.0, end)]
+    end %= 360.0
+    if end <= start:
+        return [(end, start)]
+    return [(0.0, start), (end, 360.0)]
+
+
+def arc_overlap_width_deg(first: Arc, second: Arc) -> float:
+    """Return the measure of two Arc sets' intersection on the circle."""
+    overlap = 0.0
+    for first_lo, first_hi in _parts_on_circle(first):
+        for second_lo, second_hi in _parts_on_circle(second):
+            overlap += max(0.0, min(first_hi, second_hi)
+                           - max(first_lo, second_lo))
+    return overlap
 
 
 def wide_credit_regions_disjoint(first: Arc, second: Arc,

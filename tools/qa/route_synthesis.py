@@ -85,6 +85,8 @@ class SynthesisSettings:
     # a built target is the scarce outcome of an attempt; the second actor's
     # design may try harder before the attempt is given up
     other_design_tries: int = 32
+    frame_count: int = FRAME_COUNT
+    frame_rate_hz: float = FRAME_RATE_HZ
 
     @classmethod
     def from_params(cls, params: dict) -> "SynthesisSettings | None":
@@ -118,10 +120,26 @@ class SynthesisSettings:
         other_tries = int(params.get(OTHER_DESIGN_TRIES_KEY, 4 * tries))
         if other_tries < 1:
             raise ValueError(f"{OTHER_DESIGN_TRIES_KEY} must be at least one")
+        frame_count = params.get("FRAME_COUNT", FRAME_COUNT)
+        if isinstance(frame_count, bool) or not isinstance(frame_count, int) or frame_count < 2:
+            raise ValueError("FRAME_COUNT must be an integer >= 2")
+        frame_rate_hz = float(params.get("VIDEO_FPS", FRAME_RATE_HZ))
+        if not math.isfinite(frame_rate_hz) or frame_rate_hz <= 0.0:
+            raise ValueError("VIDEO_FPS must be a finite positive number")
+        if "CLIP_SECONDS" in params:
+            clip_seconds = float(params["CLIP_SECONDS"])
+            if not math.isfinite(clip_seconds) or clip_seconds <= 0.0:
+                raise ValueError("CLIP_SECONDS must be a finite positive number")
+            expected = frame_count / frame_rate_hz
+            if not math.isclose(clip_seconds, expected, rel_tol=0.0, abs_tol=1.0e-9):
+                raise ValueError(
+                    f"FRAME_COUNT={frame_count} at VIDEO_FPS={frame_rate_hz:g} "
+                    f"requires CLIP_SECONDS={expected:g}, got {clip_seconds:g}")
         return cls(speed_min_mps=float(speed[0]), speed_max_mps=float(speed[1]),
                    margin_cm=margin_m * 100.0, max_camera_distance_cm=max_distance,
                    synthesized_attempts=attempts, design_tries=tries, max_turn_deg=turn,
-                   other_design_tries=other_tries)
+                   other_design_tries=other_tries, frame_count=frame_count,
+                   frame_rate_hz=frame_rate_hz)
 
     def as_dict(self) -> dict:
         return {"speed_mps_range": [self.speed_min_mps, self.speed_max_mps],
@@ -130,7 +148,9 @@ class SynthesisSettings:
                 "synthesized_attempts_after_bank": self.synthesized_attempts,
                 "design_tries_per_attempt": self.design_tries,
                 "other_design_tries_per_attempt": self.other_design_tries,
-                "max_turn_deg": self.max_turn_deg}
+                "max_turn_deg": self.max_turn_deg,
+                "frame_count": self.frame_count,
+                "frame_rate_hz": self.frame_rate_hz}
 
 
 @dataclass(frozen=True)
@@ -147,8 +167,8 @@ class PointSpec:
     distance_hi_cm: float
     exclusions: tuple = ()
 
-    def feasible(self) -> bool:
-        return (0 <= self.frame < FRAME_COUNT
+    def feasible(self, frame_count: int = FRAME_COUNT) -> bool:
+        return (0 <= self.frame < frame_count
                 and self.azimuth_lo_deg < self.azimuth_hi_deg
                 and 0.0 < self.distance_lo_cm <= self.distance_hi_cm)
 
@@ -224,7 +244,7 @@ def leg_positions(anchor_frame: int, anchor_xy, heading_deg: float, step_cm: flo
 
 def polyline_positions(designed: Sequence[tuple[int, tuple[float, float]]], step_cm: float,
                        pre_heading_deg: float, post_heading_deg: float,
-                       idle_frames: int) -> list[tuple[float, float]]:
+                       idle_frames: int, *, frame_count: int = FRAME_COUNT) -> list[tuple[float, float]]:
     """Base-route samples: base[k] is the actor's position at clip time k + idle.
 
     Between two designed frames the actor walks the straight leg joining them;
@@ -235,7 +255,7 @@ def polyline_positions(designed: Sequence[tuple[int, tuple[float, float]]], step
     pre = _unit(pre_heading_deg)
     post = _unit(post_heading_deg)
     samples = []
-    for k in range(FRAME_COUNT):
+    for k in range(frame_count):
         t = k + int(idle_frames)
         if t <= first_frame:
             samples.append((first_xy[0] + step_cm * (t - first_frame) * pre[0],
@@ -261,10 +281,16 @@ class RouteSynthesizer:
     SPEED_DRAWS = 6          # speed draws per design before giving up on the solve
 
     def __init__(self, grid: WalkableGrid, settings: SynthesisSettings,
-                 frame_rate_hz: float = FRAME_RATE_HZ) -> None:
+                 frame_rate_hz: float | None = None,
+                 frame_count: int | None = None) -> None:
         self.grid = grid
         self.settings = settings
-        self.frame_rate_hz = float(frame_rate_hz)
+        self.frame_rate_hz = float(
+            settings.frame_rate_hz if frame_rate_hz is None else frame_rate_hz)
+        self.frame_count = int(
+            settings.frame_count if frame_count is None else frame_count)
+        if self.frame_count < 2 or not math.isfinite(self.frame_rate_hz) or self.frame_rate_hz <= 0.0:
+            raise ValueError("route synthesizer clock is invalid")
         self.counters: dict = {"designs": 0, "built": 0, "rejected": {}}
 
     # -- helpers -----------------------------------------------------------
@@ -299,7 +325,7 @@ class RouteSynthesizer:
 
         # only frames the actor occupies after the idle shift are checked:
         # base[k] for k <= 74 - idle (the shifted route holds base[0] earlier)
-        occupied = samples[:FRAME_COUNT - int(idle_frames)]
+        occupied = samples[:self.frame_count - int(idle_frames)]
         ok, detail = self.grid.route_ok(occupied, self.settings.margin_cm)
         if not ok:
             return self._reject(REASON_WALKABLE)
@@ -311,9 +337,13 @@ class RouteSynthesizer:
                       "grid": {"scene_id": self.grid.scene_id,
                                "arrays_sha256": self.grid.identity["arrays_sha256"]}}
         self.counters["built"] += 1
-        # bank identity: implied speed is the end-to-end span over the 5 s clip
-        route = Route(_route_id(design), samples, displacement_cm / 100.0 / 5.0,
-                      provenance=provenance)
+        # Implied speed is measured over the declared clip duration.
+        duration_seconds = self.frame_count / self.frame_rate_hz
+        route = Route(
+            _route_id(design), samples,
+            displacement_cm / 100.0 / duration_seconds,
+            provenance=provenance, frame_rate_hz=self.frame_rate_hz,
+            duration_seconds=duration_seconds)
         return route, None
 
     def _point_record(self, camera_xy, yaw, frame, azimuth, distance, solved):
@@ -326,7 +356,7 @@ class RouteSynthesizer:
         (first_frame, first_xy) = designed[0]
         (last_frame, last_xy) = designed[-1]
         pre_frames = list(range(int(idle_frames), first_frame))
-        post_frames = list(range(last_frame + 1, FRAME_COUNT))
+        post_frames = list(range(last_frame + 1, self.frame_count))
         turn_in = None
         for turn in self._turn_candidates(rng):
             if self._leg_ok(first_frame, first_xy, heading + turn, step_cm, pre_frames):
@@ -358,7 +388,7 @@ class RouteSynthesizer:
         that stays walkable."""
         self.counters["designs"] += 1
         specs = sorted(specs, key=lambda spec: spec.frame)
-        if not specs or len(specs) > 2 or not all(spec.feasible() for spec in specs):
+        if not specs or len(specs) > 2 or not all(spec.feasible(self.frame_count) for spec in specs):
             return self._reject(REASON_SPEC)
         if len(specs) == 2 and specs[0].frame == specs[1].frame:
             return self._reject(REASON_SPEC)
@@ -388,7 +418,7 @@ class RouteSynthesizer:
                                   heading_deg=round(heading, 4), turn_in_deg=round(turn_in, 4),
                                   turn_out_deg=round(turn_out, 4))
                     samples = polyline_positions([(spec.frame, tuple(point["xy_cm"]))], step_cm,
-                                                 heading + turn_in, heading + turn_out, idle_frames)
+                                                 heading + turn_in, heading + turn_out, idle_frames, frame_count=self.frame_count)
                     return self._finish(samples, design, role, idle_frames)
             return self._reject(REASON_WALKABLE)
         early, late = specs
@@ -458,8 +488,9 @@ class RouteSynthesizer:
                       heading_deg=round(heading, 4), turn_in_deg=round(turn_in, 4),
                       turn_out_deg=round(turn_out, 4),
                       min_gap_between_points_deg=gap if gap > 0.0 else None)
-        samples = polyline_positions(designed, step_cm, heading + turn_in, heading + turn_out,
-                                     idle_frames)
+        samples = polyline_positions(
+                    designed, step_cm, heading + turn_in, heading + turn_out,
+                    idle_frames, frame_count=self.frame_count)
         return self._finish(samples, design, role, idle_frames)
 
     def design_many(self, rng, camera_xy, camera_yaw_deg: float, specs: Sequence[PointSpec], *,

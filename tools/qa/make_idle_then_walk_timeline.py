@@ -75,19 +75,28 @@ def resample_route_samples(samples, frame_count: int) -> list[list[float]]:
     return result
 
 
-def transform_idle_then_walk(doc: dict, slot: str, idle_frames: int) -> dict:
-    if not 1 <= idle_frames <= FRAME_COUNT - 2:
-        raise ValueError(f"idle_frames must be in [1, {FRAME_COUNT - 2}], got {idle_frames}")
+def _timeline_frame_count(doc: dict) -> int:
     frames = doc.get("frames", [])
-    if len(frames) != FRAME_COUNT:
-        raise ValueError(f"expected the formal {FRAME_COUNT}-frame timeline, "
-                         f"got {len(frames)} frames")
+    if not isinstance(frames, list) or len(frames) < 2:
+        raise ValueError("timeline must contain at least two frames")
+    declared = (doc.get("render") or {}).get("frame_count")
+    if declared is not None and int(declared) != len(frames):
+        raise ValueError(
+            f"timeline render.frame_count={declared} differs from {len(frames)} frames")
+    return len(frames)
+
+
+def transform_idle_then_walk(doc: dict, slot: str, idle_frames: int) -> dict:
+    frame_count = _timeline_frame_count(doc)
+    if not 1 <= idle_frames <= frame_count - 2:
+        raise ValueError(
+            f"idle_frames must be in [1, {frame_count - 2}], got {idle_frames}")
     new_doc = copy.deepcopy(doc)
     src_states = _states(doc, slot)          # 原始(只读)
     dst_states = _states(new_doc, slot)      # 就地改写副本
     carried_keys = ("translation_ue_cm", "yaw_ue_deg", "action_phase",
                     "walk_phase_period_frames")
-    for i in range(FRAME_COUNT):
+    for i in range(frame_count):
         if i < idle_frames:
             ref = src_states[0]
             dst_states[i]["action_id"] = "idle"
@@ -109,7 +118,7 @@ def transform_idle_then_walk(doc: dict, slot: str, idle_frames: int) -> dict:
     render = new_doc.get("render")
     if isinstance(render, dict) and "walk_start_frame" in render:
         render["walk_start_frame"] = idle_frames
-    _verify(doc, new_doc, slot, idle_frames)
+    _verify(doc, new_doc, slot, idle_frames, frame_count)
     return new_doc
 
 
@@ -177,7 +186,9 @@ def _pos(state: dict) -> tuple:
     return tuple(float(v) for v in state["translation_ue_cm"])
 
 
-def _verify(old: dict, new: dict, slot: str, k: int) -> None:
+def _verify(old: dict, new: dict, slot: str, k: int,
+            frame_count: int | None = None) -> None:
+    frame_count = _timeline_frame_count(old) if frame_count is None else frame_count
     old_s, new_s = _states(old, slot), _states(new, slot)
     start = _pos(old_s[0])
     for i in range(k):
@@ -185,12 +196,12 @@ def _verify(old: dict, new: dict, slot: str, k: int) -> None:
             raise AssertionError(f"idle segment broken at frame {i}")
     if _pos(new_s[k]) != start:
         raise AssertionError("discontinuity at the idle->walk boundary")
-    for i in range(k, FRAME_COUNT):
+    for i in range(k, frame_count):
         ref = old_s[i - k]
         if _pos(new_s[i]) != _pos(ref):
             raise AssertionError(f"walk segment mismatch at frame {i}")
     # 速度不变:逐帧位移向量等于原前段位移
-    for i in range(k + 1, FRAME_COUNT):
+    for i in range(k + 1, frame_count):
         da = tuple(a - b for a, b in zip(_pos(new_s[i]), _pos(new_s[i - 1])))
         db = tuple(a - b for a, b in zip(_pos(old_s[i - k]), _pos(old_s[i - k - 1])))
         if any(abs(x - y) > 1e-9 for x, y in zip(da, db)):

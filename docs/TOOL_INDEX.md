@@ -5,7 +5,7 @@
 
 自 2026-08-25 起，目录本身就是能力分组（阶段目录 m1…m7 已移除），
 本表按目录列出每个工具做什么。
-当前共 335 个工具脚本。
+当前共 336 个工具脚本。
 
 ## 资产生成与装配（`tools/assets/`）
 
@@ -292,6 +292,7 @@
 | `tools/qa/publish_strict_two_human_review.py` | Publish a lightweight, server-linked review for the strict two-human gates |
 | `tools/qa/qa_v3_actor_selection.py` | Resolve selected articulated or rigid source assets to their UE content |
 | `tools/qa/qa_v3_arc.py` | 圆上的弧:起点加带符号扫角。有序的 [lo, hi] 表示不了它。 |
+| `tools/qa/qa_v3_asset_policy.py` | Explicit per-request asset-pair policy for QA-v3 scene design |
 | `tools/qa/qa_v3_azimuth.py` | The one place a camera-frame azimuth becomes a published azimuth |
 | `tools/qa/qa_v3_pixel_thresholds.py` | Explicit placeholder pixel-answerability thresholds for QA-v3 base cards |
 | `tools/qa/qa_v3_request.py` | Plan QA-v3 request budgets without hiding per-profile shortages |

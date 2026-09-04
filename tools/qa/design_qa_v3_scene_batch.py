@@ -45,7 +45,15 @@ from build_qa_v3_programs import (  # noqa: E402
     program_request_fields,
     validate_m6_audio_program,
 )
+from build_qa_v3_n_actor_canary import build_endpoint_registry  # noqa: E402
 from avengine.assets.sound_pool import clip_source_from_params  # noqa: E402
+from qa_v3_request import answer_forms_from_params, write_requested_questions
+from qa_v3_asset_policy import (  # noqa: E402
+    AssetPolicyError,
+    load_asset_policy,
+    resolve_asset_policy,
+    slot_context,
+)
 import qa_v3_arc as AR
 import qa_v3_azimuth as AZ  # noqa: E402
 from score_open_answers import angle_credit_radius, resolve_angle_policy, score_angle
@@ -66,7 +74,7 @@ from avengine.dataset.apartment_dynamic_audio import (  # noqa: E402
     apartment_ue_point_to_world_m,
 )
 from avengine.timeline.current_apartment_visual import (  # noqa: E402
-    author_current_apartment_visual_timeline,
+    author_current_n_actor_visual_timeline,
 )
 
 COAT_WORDS = {
@@ -110,8 +118,26 @@ def _pair_kind(params) -> str:
     return value
 
 
-def assert_assets_match_pair_kind(params, assets) -> None:
+def assert_assets_match_pair_kind(
+    params,
+    assets,
+    asset_context=None,
+) -> None:
+    """Check the audio pair kind without conflating it with visual class."""
     pair_kind = _pair_kind(params)
+    if asset_context is not None:
+        if pair_kind != asset_context["pair_kind"]:
+            raise ValueError(
+                f"PAIR_KIND={pair_kind!r} differs from asset policy "
+                f"{asset_context['pair_kind']!r}"
+            )
+        if set(assets) != set(asset_context["asset_ids"]):
+            raise ValueError(
+                "selected assets differ from the resolved asset policy pair"
+            )
+        return
+    # Legacy direct callers retain the old dog-pair check until they opt into
+    # an explicit asset policy context.
     for asset in assets:
         mapped = ASSET_PAIR_KIND.get(asset)
         if mapped is None:
@@ -122,14 +148,113 @@ def assert_assets_match_pair_kind(params, assets) -> None:
                 f"(mapped {mapped!r})")
 
 
+def answer_depends_on_source_displacement(profile) -> bool:
+    explicit = profile.get("answer_depends_on_source_displacement")
+    if explicit is not None:
+        return bool(explicit)
+    kind = profile.get("answer_kind", "azimuth_band")
+    return kind in {"distance_change", "motion_state"} or (
+        kind == "azimuth_band"
+        and profile.get("temporal") in {"forward", "backward"}
+    )
+
+
 class PredictedVisibilityRejection(GenerationConstraintError):
     """A profile declared a minimum predicted visibility and the plan misses it."""
+
+
+def _pair_label_context(pair_assets, asset_context=None):
+    """Return labels and the two-way label-to-asset mapping for one request."""
+    if asset_context is None:
+        labels = [COAT_OF[asset] for asset in pair_assets]
+        asset_by_label = {label: asset for label, asset in zip(labels, pair_assets)}
+        other_by_label = {
+            labels[0]: labels[1],
+            labels[1]: labels[0],
+        }
+        return labels, asset_by_label, other_by_label
+    if set(pair_assets) != set(asset_context["asset_ids"]):
+        raise ValueError("pair assets differ from the asset policy context")
+    labels = [
+        asset_context["asset_specs"][asset]["label"] for asset in pair_assets
+    ]
+    if len(set(labels)) != 2:
+        raise ValueError("asset policy pair referent labels must be distinct")
+    asset_by_label = {
+        asset_context["asset_specs"][asset]["label"]: asset
+        for asset in pair_assets
+    }
+    other_by_label = {
+        labels[0]: labels[1],
+        labels[1]: labels[0],
+    }
+    return labels, asset_by_label, other_by_label
 
 
 def sha_rng(*parts) -> np.random.Generator:
     tag = "|".join(str(p) for p in parts).encode()
     return np.random.default_rng(
         int.from_bytes(hashlib.sha256(tag).digest()[:8], "big") % 2**32)
+
+
+def endpoint_ids_by_slot(selection, endpoint_records):
+    """Join endpoint records by instance identity, never by sorted list order."""
+    endpoint_by_instance = {
+        endpoint["binding"]["entity_instance_id"]: endpoint
+        for endpoint in endpoint_records
+    }
+    result = {}
+    for actor in selection["actors"]:
+        instance_id = (
+            actor.get("entity_instance_id")
+            or actor.get("legacy_timeline_actor_id")
+        )
+        endpoint = endpoint_by_instance.get(instance_id)
+        if endpoint is None:
+            raise GenerationConstraintError(
+                f"{actor['source_slot_id']}: endpoint registry has no binding "
+                f"for instance {instance_id!r}"
+            )
+        result[actor["source_slot_id"]] = endpoint["source_endpoint_id"]
+    return result
+
+
+def apply_asset_facing_policy(
+    timeline,
+    *,
+    camera_position_ue_cm,
+    assets_by_slot,
+    asset_context,
+) -> dict[str, str]:
+    """Apply declared static-mesh facing to the authored timeline."""
+    facing_by_slot = {}
+    camera = [float(value) for value in camera_position_ue_cm]
+    for slot, asset_id in assets_by_slot.items():
+        facing = asset_context.get("facing_by_asset", {}).get(asset_id)
+        if facing is None:
+            continue
+        facing_by_slot[slot] = facing
+        spec = asset_context["asset_specs"][asset_id]
+        forward_yaw = float(spec.get("ue_static_forward_yaw_deg") or 0.0)
+        for frame in timeline["frames"]:
+            state = next(
+                item
+                for item in frame["actor_states"]
+                if item["source_slot_id"] == slot
+            )
+            if facing == "keep_mesh_forward":
+                state["yaw_ue_deg"] = 0.0
+                continue
+            position = state["translation_ue_cm"]
+            dx = camera[0] - float(position[0])
+            dy = camera[1] - float(position[1])
+            if math.hypot(dx, dy) <= 1.0e-9:
+                yaw = 0.0
+            else:
+                desired = math.degrees(math.atan2(dy, dx))
+                yaw = (desired - forward_yaw + 180.0) % 360.0 - 180.0
+            state["yaw_ue_deg"] = 0.0 if yaw == 0.0 else yaw
+    return facing_by_slot
 
 
 def balanced(values, n, *seed_parts):
@@ -232,7 +357,7 @@ def resolve_scene_render_context(scene):
 
 
 def recompute_azimuth(timeline, slot, frame):
-    """从**最终时间线**重算方位:相机姿态已经应用,不能沿用旋转前的角度。"""
+    """Compute the bearing from an actor root in the final timeline."""
     record = timeline["frames"][frame]
     camera = record["camera"]
     cam_xy = (float(camera["translation_ue_cm"][0]),
@@ -245,6 +370,128 @@ def recompute_azimuth(timeline, slot, frame):
             return SS.relative_azimuth_deg(cam_xy, yaw, xy)
     raise KeyError(f"slot {slot} missing at frame {frame}")
 
+
+def recompute_emitter_azimuth(timeline, slot, frame,
+                              emitter_paths_by_slot=None):
+    """Compute audio bearing from the runtime-bound emitter child if present."""
+    if emitter_paths_by_slot is None or slot not in emitter_paths_by_slot:
+        return recompute_azimuth(timeline, slot, frame)
+    record = timeline["frames"][frame]
+    camera = record["camera"]
+    cam_xy = (float(camera["translation_ue_cm"][0]),
+              float(camera["translation_ue_cm"][1]))
+    yaw = float(camera["yaw_ue_deg"])
+    point = emitter_paths_by_slot[slot][int(frame)]
+    return SS.relative_azimuth_deg(
+        cam_xy, yaw, (float(point[0]), float(point[1])))
+
+
+def materialize_emitter_paths(timeline, asset_registry, slot_assets):
+    """Materialize registry emitter-child paths in timeline UE cm.
+
+    Registry offsets use final_scaled_asset_root AVEngine basis
+    (X-forward, Y-up, Z-right). The Apartment runtime maps them to UE
+    (X-forward, Y-right, Z-up) and attaches them below the yawed timeline root.
+    Actor scale comes from the authored timeline when explicitly applied;
+    articulated runtime otherwise keeps the blueprint default scale.
+    """
+    if not isinstance(asset_registry, dict):
+        raise ValueError("asset registry must be an object")
+    assets = {
+        str(asset["asset_id"]): asset
+        for asset in asset_registry.get("assets", [])
+        if isinstance(asset, dict) and asset.get("asset_id")
+    }
+    actors = {
+        str(actor["source_slot_id"]): actor
+        for actor in timeline.get("actors", [])
+        if isinstance(actor, dict) and actor.get("source_slot_id")
+    }
+    paths = {}
+    metadata = {}
+    for slot, asset_id in slot_assets.items():
+        asset = assets.get(str(asset_id))
+        if asset is None:
+            raise GenerationConstraintError(
+                f"{slot}: asset {asset_id!r} is absent from the source registry")
+        anchor_id = asset.get("default_emitter_anchor_id")
+        anchors = [
+            anchor for anchor in asset.get("emitter_anchors", [])
+            if isinstance(anchor, dict) and anchor.get("anchor_id") == anchor_id
+        ]
+        if len(anchors) != 1:
+            raise GenerationConstraintError(
+                f"{slot}: registry has no unique default emitter anchor")
+        anchor = anchors[0]
+        if anchor.get("offset_space") != "final_scaled_asset_root":
+            raise GenerationConstraintError(
+                f"{slot}: unsupported emitter offset space "
+                f"{anchor.get('offset_space')!r}")
+        try:
+            offset = np.asarray(anchor["offset_m"], dtype=float)
+        except (TypeError, ValueError) as exc:
+            raise GenerationConstraintError(
+                f"{slot}: emitter offset must be numeric") from exc
+        if offset.shape != (3,) or not np.all(np.isfinite(offset)):
+            raise GenerationConstraintError(
+                f"{slot}: emitter offset must be a finite 3-vector")
+        actor_scale = 1.0
+        actor = actors.get(slot, {})
+        if actor.get("actor_scale") is not None:
+            actor_scale = float(actor["actor_scale"])
+            if not math.isfinite(actor_scale) or actor_scale <= 0.0:
+                raise GenerationConstraintError(
+                    f"{slot}: authored actor scale is invalid")
+        local_ue_cm = np.asarray(
+            [100.0 * offset[0], 100.0 * offset[2], 100.0 * offset[1]],
+            dtype=float,
+        ) * actor_scale
+        path = []
+        for frame in timeline.get("frames", []):
+            state = next(
+                state for state in frame["actor_states"]
+                if state["source_slot_id"] == slot
+            )
+            root = np.asarray(state["translation_ue_cm"], dtype=float)
+            yaw = math.radians(float(state["yaw_ue_deg"]))
+            rotated = np.asarray([
+                math.cos(yaw) * local_ue_cm[0] - math.sin(yaw) * local_ue_cm[1],
+                math.sin(yaw) * local_ue_cm[0] + math.cos(yaw) * local_ue_cm[1],
+                local_ue_cm[2],
+            ])
+            point = root + rotated
+            if not np.all(np.isfinite(point)):
+                raise GenerationConstraintError(
+                    f"{slot}: emitter path contains non-finite coordinates")
+            path.append([float(value) for value in point])
+        if len(path) != len(timeline.get("frames", [])):
+            raise GenerationConstraintError(
+                f"{slot}: emitter path has the wrong frame count")
+        runtime = asset.get("runtime_backends", {}).get("spear_unreal", {})
+        paths[slot] = path
+        metadata[slot] = {
+            "asset_id": str(asset_id),
+            "revision": asset.get("revision"),
+            "emitter_anchor_id": str(anchor_id),
+            "emitter_offset_m": [float(value) for value in offset],
+            "offset_space": anchor["offset_space"],
+            "applied_actor_scale": actor_scale,
+            "registry_actor_scale": runtime.get("actor_scale"),
+            "local_anatomical_forward_axis": (
+                asset.get("timeline", {}).get("local_anatomical_forward_axis")
+            ),
+            "ue_anatomical_forward_yaw_deg": runtime.get(
+                "ue_anatomical_forward_yaw_deg"),
+            "scale_source": (
+                "timeline_actor_declaration"
+                if actor.get("actor_scale") is not None
+                else "articulated_runtime_blueprint_default"),
+            "local_offset_ue_cm": [float(value) for value in local_ue_cm],
+            "frame_count": len(path),
+            "frame_rate_hz": timeline.get("render", {}).get("frame_rate_hz"),
+            "ticks_per_frame": timeline.get("render", {}).get("ticks_per_frame"),
+        }
+    return paths, metadata
 
 QUERY_WINDOW_S = 0.5
 
@@ -268,37 +515,47 @@ def query_window_seconds(query_frame: int, video_fps: float) -> tuple[float, flo
     return (round(lo, 3), round(lo + QUERY_WINDOW_S, 3))
 
 
-def azimuth_sweep_engine_frame(timeline, slot, window_s, video_fps):
-    """min and max engine-frame azimuth over the window, inclusive of its ends."""
-
-    lo_s, hi_s = window_s
-    frame_count = len(timeline["frames"])
-    lo_f = max(0, math.ceil(lo_s * float(video_fps)))
-    hi_f = min(frame_count - 1, math.floor(hi_s * float(video_fps)))
+def query_window_frame_bounds(window_s, video_fps, frame_count):
+    """Map the human half-second window to inclusive frame indices."""
+    lo_s, hi_s = (float(value) for value in window_s)
+    fps = float(video_fps)
+    count = int(frame_count)
+    if not math.isfinite(fps) or fps <= 0.0 or count < 1:
+        raise GenerationConstraintError(
+            "query window needs a positive frame rate and non-empty timeline")
+    lo_f = max(0, math.ceil(lo_s * fps))
+    hi_f = min(count - 1, math.floor(hi_s * fps))
     if hi_f < lo_f:
         raise GenerationConstraintError(
-            f"query window {window_s} covers no frame of {frame_count}")
-    values = [recompute_azimuth(timeline, slot, f) for f in range(lo_f, hi_f + 1)]
-    # min/max is a linear reading of a circular quantity. A sweep that crosses
-    # +-180 would come back as its complement -- samples 175, 179, -179, -175
-    # read as [-179, 179], a 358 degree interval instead of the true 10 -- and
-    # every downstream check (band containment, Gate A separation) would then be
-    # computed on the wrong interval without raising. Unwrap and compare: if the
-    # two readings disagree, refuse rather than report the complement.
-    unwrapped = [values[0]]
-    for value in values[1:]:
-        step = (value - unwrapped[-1] + 180.0) % 360.0 - 180.0
-        unwrapped.append(unwrapped[-1] + step)
-    if (max(unwrapped) - min(unwrapped)) - (max(values) - min(values)) < -1e-9:
-        raise GenerationConstraintError(
-            f"the query-window azimuth sweep of slot {slot} over {window_s} "
-            f"crosses +-180 (unwrapped extent "
-            f"{max(unwrapped) - min(unwrapped):.2f} deg vs linear "
-            f"{max(values) - min(values):.2f} deg); an ordered [lo, hi] pair "
-            "cannot express it. This is reachable only once answers leave the "
-            "camera cone; give the interval a wrap-aware representation first")
-    return min(values), max(values), (lo_f, hi_f)
+            f"query window {window_s} covers no frame of {count}")
+    return lo_f, hi_f
 
+
+def azimuth_sweep_engine_arc(timeline, slot, window_s, video_fps,
+                              emitter_paths_by_slot=None):
+    """Return the directed Arc swept over a query window and its frame bounds."""
+    frame_count = len(timeline["frames"])
+    lo_f, hi_f = query_window_frame_bounds(
+        window_s, video_fps, frame_count)
+    values = [recompute_emitter_azimuth(
+                  timeline, slot, f, emitter_paths_by_slot)
+              for f in range(lo_f, hi_f + 1)]
+    return AR.Arc.from_samples(values), (lo_f, hi_f)
+
+
+def azimuth_sweep_engine_frame(timeline, slot, window_s, video_fps,
+                                emitter_paths_by_slot=None):
+    """Compatibility numeric view of a directed query-window Arc.
+
+    The returned ordered endpoints may have hi < lo at the seam. Callers
+    that need exact direction or a sweep wider than 180 degrees should use
+    azimuth_sweep_engine_arc and persist its Arc dictionary.
+    """
+    arc, frames = azimuth_sweep_engine_arc(
+        timeline, slot, window_s, video_fps, emitter_paths_by_slot)
+    if arc.width_deg >= 360.0:
+        return -180.0, 180.0, frames
+    return arc.start_deg, arc.end_deg, frames
 
 def band_of(value, edges):
     for i in range(len(edges) - 1):
@@ -387,8 +644,15 @@ def audit_gatea_pair(profile, main_program, gatea_program, main_answer,
         #
         # 分离是圆上的集合性质,所以按集合算,而且记录的间隙也换成环形的——原来那个 344
         # 连证据本身都是错的。
-        main_arc = AR.Arc.from_bounds(*(float(v) for v in main_open["truth_interval_deg"]))
-        gate_arc = AR.Arc.from_bounds(*(float(v) for v in gatea_open["truth_interval_deg"]))
+        def answer_interval_arc(open_block):
+            record = open_block.get("truth_interval_arc")
+            if isinstance(record, dict):
+                return AR.Arc.from_dict(record)
+            lo, hi = (float(v) for v in open_block["truth_interval_deg"])
+            return AR.Arc.from_forward_bounds(lo, hi)
+
+        main_arc = answer_interval_arc(main_open)
+        gate_arc = answer_interval_arc(gatea_open)
         threshold = 2.0 * credit_radius
         separation = AR.circular_gap_deg(main_arc, gate_arc)
         open_separated = AR.wide_credit_regions_disjoint(
@@ -495,7 +759,8 @@ REALIZED_CARD1_GATES = (
 
 def realized_cross_time_checks(timeline, *, profile, cell, target_slot,
                                other_slot, anchor_frame, query_frame, params,
-                               plan_checks=None, query_window_s=None):
+                               plan_checks=None, query_window_s=None,
+                               emitter_paths_by_slot=None):
     """Fail-closed card1 acceptance on the **final** timeline.
 
     The solver plans angles on the pre-authoring route; idle-then-walk
@@ -511,32 +776,39 @@ def realized_cross_time_checks(timeline, *, profile, cell, target_slot,
     theta_half = float(params["THETA_HALF"])
     angle_policy = resolve_angle_policy(params)
     credit_radius = angle_credit_radius(params)
-    bands = [tuple(float(v) for v in band) for band in profile["answer_bands_deg"]]
+    bands = list(profile["answer_bands_deg"])
 
     def band_index(value):
-        return next((index for index, (lo, hi) in enumerate(bands)
-                     if lo <= value < hi), None)
+        return next((index for index, band in enumerate(bands)
+                     if SS.band_contains(value, band)), None)
 
     def side(slot):
-        anchor = recompute_azimuth(timeline, slot, anchor_frame)
-        query = recompute_azimuth(timeline, slot, query_frame)
+        anchor = recompute_emitter_azimuth(
+            timeline, slot, anchor_frame, emitter_paths_by_slot)
+        query = recompute_emitter_azimuth(
+            timeline, slot, query_frame, emitter_paths_by_slot)
         gap = SS.circular_gap_deg(anchor, query)
-        interval = None
+        interval_arc = None
         if query_window_s is not None:
-            lo, hi, _ = azimuth_sweep_engine_frame(
-                timeline, slot, query_window_s, float(params["VIDEO_FPS"]))
-            interval = [lo, hi]
+            interval_arc, _ = azimuth_sweep_engine_arc(
+                timeline, slot, query_window_s,
+                _timeline_video_fps(timeline, params),
+                emitter_paths_by_slot)
         scored = score_angle(
             f"{anchor} deg", query, theta_full, theta_half,
             certification_policy=angle_policy, convention="engine_right_positive",
-            truth_interval_deg=interval)
+            truth_interval_deg=(
+                interval_arc.as_dict() if interval_arc is not None else None))
         if scored["status"] != "scored":
             raise GenerationConstraintError(f"cannot score realized anchor angle: {scored}")
         return {
             "slot": slot,
             "anchor_azimuth_deg_engine_frame": anchor,
             "query_azimuth_deg_engine_frame": query,
-            "query_interval_engine_frame": interval or [query, query],
+            "query_interval_engine_frame": (
+                interval_arc.as_dict()
+                if interval_arc is not None
+                else AR.Arc(start_deg=query, sweep_deg=0.0).as_dict()),
             "anchor_query_gap_deg": gap,
             "anchor_band_index": band_index(anchor),
             "query_band_index": band_index(query),
@@ -547,11 +819,12 @@ def realized_cross_time_checks(timeline, *, profile, cell, target_slot,
 
     main = side(target_slot)
     gatea = side(other_slot)
-    main_arc = AR.Arc.from_bounds(*main["query_interval_engine_frame"])
-    gatea_arc = AR.Arc.from_bounds(*gatea["query_interval_engine_frame"])
+    main_arc = AR.Arc.from_dict(main["query_interval_engine_frame"])
+    gatea_arc = AR.Arc.from_dict(gatea["query_interval_engine_frame"])
     allocated = cell.get("anchor_band")
-    answer_band = tuple(float(v) for v in cell["answer_band"])
+    answer_band = cell["answer_band"]
     plan_checks = plan_checks or {}
+    resolved_geometry = _resolved_query_geometry(profile, cell)
     planned_anchor = plan_checks.get("az_anchor_deg")
     planned_query = plan_checks.get("az_end_deg", plan_checks.get("az_query_deg"))
     checks = {
@@ -562,18 +835,24 @@ def realized_cross_time_checks(timeline, *, profile, cell, target_slot,
         "theta_half_deg": theta_half,
         "angle_certification_policy": angle_policy,
         "credited_radius_deg": credit_radius,
+        "answer_domain": profile.get("answer_domain"),
+        "query_domain": resolved_geometry.get("query_domain"),
+        "query_requires_visibility": resolved_geometry.get(
+            "query_requires_visibility"),
+        "convention": _profile_convention(profile),
         "query_window_seconds": query_window_s,
         "main": main,
         "gatea": gatea,
-        "allocated_anchor_band": (list(allocated) if allocated is not None
-                                  else None),
-        "answer_band": list(answer_band),
+        "allocated_anchor_band": (
+            list(SS.band_to_bounds(allocated)) if allocated is not None
+            else None),
+        "answer_band": list(SS.band_to_bounds(answer_band)),
         "realized_anchor_in_allocated_band": (
             allocated is None
-            or float(allocated[0]) <= main["anchor_azimuth_deg_engine_frame"]
-            < float(allocated[1])),
-        "realized_query_in_answer_band": (
-            answer_band[0] <= main["query_azimuth_deg_engine_frame"] < answer_band[1]),
+            or SS.band_contains(
+                main["anchor_azimuth_deg_engine_frame"], allocated)),
+        "realized_query_in_answer_band": SS.band_contains(
+            main["query_azimuth_deg_engine_frame"], answer_band),
         "realized_anchor_answer_scores_zero": main["anchor_angle_open_score_as_answer"] == 0.0,
         "mcq_gold_flipped": (
             main["query_band_index"] is not None
@@ -649,28 +928,89 @@ def validate_anchor_binding(profile, schedule, slot_events, *, target_slot,
         f"{profile['id']}: unknown anchor_binding {binding!r}")
 
 
+def solver_target_moves_more(profile, cell):
+    """Return the motion-rank constraint only when the profile declares it."""
+    if profile.get("enforce_target_moves_more") is False:
+        return None
+    return cell.get("target_moves_more")
+
+
+def profile_query_geometry(profile, cell):
+    """Resolve query geometry from a profile, optionally per front/back answer."""
+    geometry = {
+        "query_domain": profile.get("query_domain"),
+        "answer_domain": profile.get("answer_domain"),
+        "query_bound_deg": profile.get("query_bound_deg"),
+        "query_requires_visibility": profile.get("query_requires_visibility"),
+        "secondary_anchor_bound_deg": profile.get("secondary_anchor_bound_deg"),
+        "secondary_query_bound_deg": profile.get("secondary_query_bound_deg"),
+    }
+    if profile.get("answer_kind") != "front_back":
+        return geometry
+    labels = SS.front_back_labels(profile)
+    bands = profile.get("answer_bands_deg")
+    if not isinstance(bands, list):
+        raise GenerationConstraintError(
+            f"{profile.get('id')}: front/back profile has no materialized answer bands")
+    index = next((i for i, band in enumerate(bands)
+                  if SS.bands_equivalent(band, cell["answer_band"])), None)
+    if index is None or index >= len(labels):
+        raise GenerationConstraintError(
+            f"{profile.get('id')}: allocated front/back answer band is invalid")
+    overrides = profile.get("query_geometry_by_answer") or {}
+    if not isinstance(overrides, dict):
+        raise ValueError(
+            f"{profile.get('id')}: query_geometry_by_answer must be an object")
+    override = overrides.get(labels[index])
+    if override is None:
+        return geometry
+    if not isinstance(override, dict):
+        raise ValueError(
+            f"{profile.get('id')}: query geometry for {labels[index]!r} must be an object")
+    geometry = dict(geometry)
+    if "query_domain" in override or "domain" in override:
+        geometry["query_domain"] = override.get(
+            "query_domain", override.get("domain"))
+        # A per-answer query domain is intentionally distinct from the
+        # front_back answer space; resolve_query_geometry must not treat it as
+        # a conflicting alias.
+        geometry["answer_domain"] = None
+    for key in ("query_bound_deg", "query_requires_visibility",
+                "secondary_anchor_bound_deg", "secondary_query_bound_deg"):
+        if key in override:
+            geometry[key] = override[key]
+    return geometry
+
 def solve_for_profile(profile, cell, scene, params, rng, ledger):
-    """时间关系决定用哪个求解器 —— 题型只声明关系,不写房间分支。"""
+    """Dispatch a declared temporal/question shape to the generic solver."""
     temporal = profile["temporal"]
     kind = profile.get("answer_kind", "azimuth_band")
+    geometry = profile_query_geometry(profile, cell)
+    # Preserve the per-cell resolution for the authored fact. In front/back
+    # profiles the front and back answers can intentionally use different
+    # query domains and visibility rules.
+    cell["_resolved_query_geometry"] = dict(geometry)
+
     if (temporal == "instant"
-            and kind in ("instant_azimuth_band", "first_sound_side")):
+            and kind in ("instant_azimuth_band", "first_sound_side",
+                         "front_back")):
         return SS.solve_instant_azimuth(
             scene, params, answer_band=cell["answer_band"],
             answer_bands=[tuple(b) for b in profile["answer_bands_deg"]],
             query_frame=profile["binding_frames"][0],
             profile_id=profile["id"],
             idle_choices=profile["idle_choices"], rng=rng, ledger=ledger,
-            target_moves_more=cell["target_moves_more"],
+            target_moves_more=solver_target_moves_more(profile, cell),
             max_attempts=profile.get("max_attempts", 3000),
-            open_half_width_deg=profile.get("open_half_width_deg"))
+            open_half_width_deg=profile.get("open_half_width_deg"),
+            **geometry)
 
     if temporal == "instant" and kind == "distance_at_query":
         return SS.solve_instant_distance_order(
             scene, params, query_frame=profile["binding_frames"][0],
             profile_id=profile["id"],
             idle_choices=profile["idle_choices"], rng=rng, ledger=ledger,
-            target_moves_more=cell["target_moves_more"],
+            target_moves_more=solver_target_moves_more(profile, cell),
             min_distance_gap_cm=profile.get("min_distance_gap_cm", 50.0),
             max_attempts=profile.get("max_attempts", 3000))
 
@@ -682,7 +1022,7 @@ def solve_for_profile(profile, cell, scene, params, rng, ledger):
             target_relation=str(cell["answer_value"]),
             profile_id=profile["id"],
             idle_choices=profile["idle_choices"], rng=rng, ledger=ledger,
-            target_moves_more=cell["target_moves_more"],
+            target_moves_more=solver_target_moves_more(profile, cell),
             min_change_cm=profile.get("min_distance_change_cm", 50.0),
             max_attempts=profile.get("max_attempts", 3000))
 
@@ -704,8 +1044,9 @@ def solve_for_profile(profile, cell, scene, params, rng, ledger):
             anchor_frame=profile["anchor_frame"],
             idle_choices=profile["idle_choices"], rng=rng, ledger=ledger,
             anchor_band=cell.get("anchor_band"),
-            target_moves_more=cell["target_moves_more"],
-            max_attempts=profile.get("max_attempts", 3000))
+            target_moves_more=solver_target_moves_more(profile, cell),
+            max_attempts=profile.get("max_attempts", 3000),
+            **geometry)
     if temporal == "backward":
         return SS.solve_backward_cross_time(
             scene, params, answer_band=cell["answer_band"],
@@ -714,17 +1055,17 @@ def solve_for_profile(profile, cell, scene, params, rng, ledger):
             query_frame=profile["query_frame"],
             idle_choices=profile["idle_choices"], rng=rng, ledger=ledger,
             anchor_band=cell.get("anchor_band"),
-            target_moves_more=cell["target_moves_more"],
-            max_attempts=profile.get("max_attempts", 3000))
+            target_moves_more=solver_target_moves_more(profile, cell),
+            max_attempts=profile.get("max_attempts", 3000),
+            **geometry)
     if temporal == "instant":
         return SS.solve_instant_binding(
             scene, params, instants=profile["binding_frames"],
             profile_id=profile["id"], idle_choices=profile["idle_choices"],
             rng=rng, ledger=ledger,
-            target_moves_more=cell["target_moves_more"],
+            target_moves_more=solver_target_moves_more(profile, cell),
             max_attempts=profile.get("max_attempts", 3000))
     raise ValueError(f"unknown temporal relation {temporal!r}")
-
 
 def validate_profiles(profiles):
     """Reject configuration mistakes before creating any batch output."""
@@ -737,6 +1078,7 @@ def validate_profiles(profiles):
     valid_binding = {"target", "query_caller", "first_caller", "none"}
     valid_answer = {
         "azimuth_band", "instant_azimuth_band", "first_sound_side",
+        "front_back",
         "coat_at_query", "distance_at_query", "time_band",
         "first_caller_coat", "event_count", "distance_change", "motion_state",
     }
@@ -764,7 +1106,7 @@ def validate_profiles(profiles):
             required |= {"anchor_frame", "query_frame", "answer_bands_deg"}
         else:
             required |= {"binding_frames"}
-            if kind in ("instant_azimuth_band", "first_sound_side"):
+            if kind in ("instant_azimuth_band", "first_sound_side", "front_back"):
                 required.add("answer_bands_deg")
             if kind == "event_count":
                 required.add("answer_values")
@@ -777,21 +1119,49 @@ def validate_profiles(profiles):
             required.add("answer_shape")
             if profile["answer_domain"] not in SS.ANSWER_DOMAINS:
                 raise ValueError(f"{pid}: unsupported answer_domain {profile['answer_domain']!r}")
+        if profile.get("query_domain") is not None:
+            if profile["query_domain"] not in SS.ANSWER_DOMAINS:
+                raise ValueError(f"{pid}: unsupported query_domain {profile['query_domain']!r}")
+        if kind == "front_back":
+            if profile.get("answer_domain") != "front_back":
+                raise ValueError(f"{pid}: front_back answer_kind requires answer_domain 'front_back'")
+            labels = SS.front_back_labels(profile)
+            vocab_key = profile.get("vocab_key")
+            if not isinstance(vocab_key, str) or not vocab_key.strip():
+                raise ValueError(
+                    f"{pid}: front_back requires a configured vocab_key for closed_set scoring")
+            overrides = profile.get("query_geometry_by_answer")
+            if not isinstance(overrides, dict) or any(label not in overrides for label in labels):
+                raise ValueError(
+                    f"{pid}: front_back requires query_geometry_by_answer for both labels")
+            for label in labels:
+                override = overrides[label]
+                if not isinstance(override, dict):
+                    raise ValueError(
+                        f"{pid}: query geometry for {label!r} must be an object")
+                domain = override.get("query_domain", override.get("domain"))
+                if domain is not None and domain not in SS.ANSWER_DOMAINS:
+                    raise ValueError(
+                        f"{pid}: unsupported query domain {domain!r} for {label!r}")
+        if profile.get("convention") is not None:
+            AZ.canonical_convention(profile["convention"])
         missing = sorted(key for key in required if key not in profile)
         if missing:
             raise ValueError(f"{pid}: missing required profile fields {missing}")
 
 
-def build_cell_plan(cells, profiles, pair_assets, params, seed):
+def build_cell_plan(cells, profiles, pair_assets, params, seed, asset_context=None):
     """先分配答案与角色,再求解 —— 不是先采样后看落在哪。"""
-    a1, a2 = pair_assets
+    labels, asset_by_label, other_by_label = _pair_label_context(
+        pair_assets, asset_context
+    )
     plan = []
     per_profile = {}
     for profile in profiles:
         # 答案格按题型的答案空间分配:方位带题分带,时间带题分有序带对,
         # 外观题分目标外观 —— 一律**先分配再求解**。
         kind = profile.get("answer_kind", "azimuth_band")
-        if kind in ("azimuth_band", "instant_azimuth_band", "first_sound_side"):
+        if kind in ("azimuth_band", "instant_azimuth_band", "first_sound_side", "front_back"):
             cellsets = [tuple(b) for b in profile["answer_bands_deg"]]
         elif kind in ("event_count", "distance_change", "motion_state"):
             cellsets = list(profile["answer_values"])
@@ -821,12 +1191,12 @@ def build_cell_plan(cells, profiles, pair_assets, params, seed):
                 True if band == 0 else False if band == n_bands - 1 else flag
                 for band, flag in zip(band_alloc, first_alloc)]
         slots = ["source1", "source2"]
-        coats = [COAT_OF[a1], COAT_OF[a2]]
+        coats = list(labels)
         if kind in ("azimuth_band", "instant_azimuth_band", "first_sound_side"):
             # Six cells cover the full slot x answer-band table once.  Coat
             # is then balanced within each slot so motion/audio slot cannot
             # deterministically recover appearance.
-            if profile["id"] in {"card1F", "card1B"}:
+            if profile.get("family_id", profile["id"]) in {"card1F", "card1B"}:
                 # Card1 exposes the audible anchor azimuth to A-only systems.
                 # Allocate slot x anchor-band x query-band jointly before
                 # search so every feasible conditional row can be reported
@@ -869,7 +1239,7 @@ def build_cell_plan(cells, profiles, pair_assets, params, seed):
                                 else "source1"))
                 target_slots.append(target_slot)
                 target_coats.append(
-                    answer_coat if target_first else OTHER_COAT[answer_coat])
+                    answer_coat if target_first else other_by_label[answer_coat])
         else:
             target_joint = balanced_binary_joint(
                 slots, coats, n, seed, profile["id"], "slot-coat")
@@ -903,8 +1273,8 @@ def build_cell_plan(cells, profiles, pair_assets, params, seed):
             }
             target_coat = alloc["target_coat"][index]
             entry["target_coat"] = target_coat
-            target_asset = ASSET_OF[target_coat]
-            other_asset = ASSET_OF[OTHER_COAT[target_coat]]
+            target_asset = asset_by_label[target_coat]
+            other_asset = asset_by_label[other_by_label[target_coat]]
             entry["pair_assets"] = ((target_asset, other_asset)
                                     if entry["target_slot"] == "source1"
                                     else (other_asset, target_asset))
@@ -956,14 +1326,20 @@ def main(argv=None) -> int:
         "--historical-reproduction", action="store_true",
         help="compatibility flag for replaying a recorded historical batch")
     parser.add_argument("--profiles", required=True, type=Path)
+    parser.add_argument(
+        "--asset-policy",
+        type=Path,
+        default=REPO / "examples/qa/qa_v3_asset_policy_v1.json",
+        help="per-request visual asset, sound-class and motion policy",
+    )
+    parser.add_argument("--pair-id", help="pair ID from --asset-policy")
     parser.add_argument("--params", required=True, type=Path)
     parser.add_argument("--out-root", required=True, type=Path)
     parser.add_argument("--cells", type=int, default=6)
     parser.add_argument("--seed", required=True)
     parser.add_argument("--snapshot-content", default=(
-        "/data/avengine_external/ue-assets/"
-        "actor_content_registry_v9_20260823T033709Z/cpp/unreal_projects/"
-        "SpearSim/Content"))
+        "/data/avengine_external/ue-package-stages/"
+        "qa_v3_controlled_humans_20260904_v1/SpearSim/Content"))
     args = parser.parse_args(argv)
     # Repository tmp may be a declared symlink to external output storage.
     args.out_root = args.out_root.resolve()
@@ -976,7 +1352,10 @@ def main(argv=None) -> int:
     from qa_v3_request import read_qa_params
     params = read_qa_params(args.params)
     validate_profiles(profiles)
-    scene = SS.load_scene(scene_cfg)
+    clock = SS.validate_frame_clock(params, require_clip_seconds=True)
+    scene = SS.load_scene(
+        scene_cfg, frame_count=clock["frame_count"],
+        frame_rate_hz=clock["frame_rate_hz"])
     # Validate all render facts before creating the fresh output directory.
     # Missing ground/map/transform is configuration failure, not a partially
     # realised candidate that should poison the no-clobber path.
@@ -1003,7 +1382,17 @@ def main(argv=None) -> int:
     registry = json.loads(
         (REPO / "examples/runtime/source_asset_runtime_profiles.json").read_text())
     by_id = {a["asset_id"]: a for a in registry["assets"]}
-    pair = (list(COAT_WORDS)[0], list(COAT_WORDS)[1])
+    try:
+        asset_policy = load_asset_policy(args.asset_policy)
+        asset_context = resolve_asset_policy(
+            asset_policy,
+            registry=registry,
+            pair_id=args.pair_id,
+            profiles=profiles,
+        )
+    except AssetPolicyError as error:
+        raise ValueError(str(error)) from error
+    pair = tuple(asset_context["asset_ids"])
 
     args.out_root.mkdir(parents=True)
     programs_dir = args.out_root / "programs"
@@ -1011,7 +1400,14 @@ def main(argv=None) -> int:
     ledger = SS.RejectionLedger()
     # 逐 profile 一本台账:总表看不出哪条约束在影响哪个题型
     per_profile_ledger = {p["id"]: SS.RejectionLedger() for p in profiles}
-    cells = build_cell_plan(args.cells, profiles, pair, params, args.seed)
+    cells = build_cell_plan(
+        args.cells,
+        profiles,
+        pair,
+        params,
+        args.seed,
+        asset_context=asset_context,
+    )
 
     made, rejected, records = [], [], []
     for cell in cells:
@@ -1026,8 +1422,19 @@ def main(argv=None) -> int:
                              "cell": cell_allocation(cell)})
             continue
         try:
-            record = realise_point(pid, cell, outcome, scene, base_request,
-                                   params, by_id, args, programs_dir, rng)
+            record = realise_point(
+                pid,
+                cell,
+                outcome,
+                scene,
+                base_request,
+                params,
+                by_id,
+                args,
+                programs_dir,
+                rng,
+                asset_context=asset_context,
+            )
         except PredictedVisibilityRejection as exc:
             rejected.append({"point_id": pid,
                              "reason": "predicted_visibility_below_declared_minimum",
@@ -1045,9 +1452,21 @@ def main(argv=None) -> int:
 
     for sub in per_profile_ledger.values():
         ledger.absorb(sub)
-    write_outputs(args, scene, scene_cfg, profiles, params, ledger, made,
-                  rejected, records, per_profile_ledger, cells=cells,
-                  answer_band_audit=answer_band_audit)
+    write_outputs(
+        args,
+        scene,
+        scene_cfg,
+        profiles,
+        params,
+        ledger,
+        made,
+        rejected,
+        records,
+        per_profile_ledger,
+        cells=cells,
+        answer_band_audit=answer_band_audit,
+        asset_context=asset_context,
+    )
     print(json.dumps({"out": str(args.out_root), "scene": scene.scene_id,
                       "geometry_candidates": len(made),
                       "cells_requested": len(cells),
@@ -1166,9 +1585,22 @@ def predicted_tier_distribution(records):
     return out
 
 
-def realise_point(pid, cell, plan, scene, base_request, params, by_id, args,
-                  programs_dir, rng):
+def realise_point(
+    pid,
+    cell,
+    plan,
+    scene,
+    base_request,
+    params,
+    by_id,
+    args,
+    programs_dir,
+    rng,
+    asset_context=None,
+):
     profile = cell["profile"]
+    clock = SS.validate_frame_clock(params, require_clip_seconds=True)
+    family_id = profile.get("family_id", profile["id"])
     pdir = args.out_root / pid
     pdir.mkdir()
     target_slot = cell["target_slot"]
@@ -1178,10 +1610,36 @@ def realise_point(pid, cell, plan, scene, base_request, params, by_id, args,
                                args.snapshot_content)
     (pdir / "actor_selection.json").write_text(
         json.dumps(selection, ensure_ascii=False, indent=2))
-    slot_asset = {a["source_slot_id"]: a["asset_id"] for a in selection["actors"]}
-    slot_coat = {s: COAT_WORDS[a] for s, a in slot_asset.items()}
+    slot_asset = {
+        a["source_slot_id"]: a["asset_id"] for a in selection["actors"]
+    }
+    if asset_context is None:
+        slot_coat = {s: COAT_WORDS[a] for s, a in slot_asset.items()}
+        slot_context_data = {
+            "labels_by_slot": dict(slot_coat),
+            "referent_phrases_by_slot": {
+                slot: f"the {label} dog"
+                for slot, label in slot_coat.items()
+            },
+            "sound_action_phrases_by_slot": {
+                slot: "bark" for slot in slot_asset
+            },
+            "allowed_sound_class_ids_by_slot": {
+                slot: ["animal_vocalization"] for slot in slot_asset
+            },
+            "motion_by_slot": {
+                slot: "must_move" for slot in slot_asset
+            },
+        }
+    else:
+        slot_context_data = slot_context(
+            asset_context,
+            assets_by_slot=slot_asset,
+            target_slot=target_slot,
+        )
+        slot_coat = dict(slot_context_data["labels_by_slot"])
     pair_kind = _pair_kind(params)
-    assert_assets_match_pair_kind(params, assets)
+    assert_assets_match_pair_kind(params, assets, asset_context)
     clip_source = clip_source_from_params(params, rng, pair_kind=pair_kind)
     if clip_source is not None:
         clip_source = clip_source.bind_distinct_roles((AP.TARGET, AP.OTHER))
@@ -1203,24 +1661,24 @@ def realise_point(pid, cell, plan, scene, base_request, params, by_id, args,
         json.dumps(m1_request, ensure_ascii=False, indent=2))
 
     # 题型专用音频调度:语义角色 → 槽位
-    if profile["id"] == "card1F":
+    if family_id == "card1F":
         schedule = AP.schedule_forward_anchor(
             rng, params=params, anchor_frame=plan.anchor_frame, clip_source=clip_source)
-    elif profile["id"] == "card1B":
+    elif family_id == "card1B":
         schedule = AP.schedule_backward_anchor(
             rng, params=params, anchor_frame=plan.anchor_frame,
             query_frame=plan.query_frame, clip_source=clip_source)
-    elif profile["id"] == "card5R":
+    elif family_id == "card5R":
         schedule = AP.schedule_forward_anchor(
             rng, params=params, anchor_frame=plan.anchor_frame, clip_source=clip_source)
-    elif profile["id"] == "card5":
+    elif family_id == "card5":
         schedule = AP.schedule_first_sound_at_frame(
             rng, params=params, query_frame=plan.anchor_frame, clip_source=clip_source)
-    elif profile["id"] in ("card6", "card6R"):
+    elif family_id in ("card6", "card6R"):
         schedule = AP.schedule_second_sound_at_frame(
             rng, params=params,
             query_frame=int(profile["second_sound_frame"]), clip_source=clip_source)
-    elif profile["id"] == "card10":
+    elif family_id == "card10":
         schedule = AP.schedule_first_sound_at_frame(
             rng, params=params, query_frame=plan.anchor_frame, clip_source=clip_source)
     elif profile.get("answer_kind") == "event_count":
@@ -1262,11 +1720,21 @@ def realise_point(pid, cell, plan, scene, base_request, params, by_id, args,
     gatea_role_to_slot = {AP.TARGET: other_slot, AP.OTHER: target_slot}
     slot_events = schedule.bind(main_role_to_slot)
     gatea_slot_events = schedule.bind(gatea_role_to_slot)
+    endpoint_registry_path = pdir / "source_endpoints.json"
+    _, endpoint_records = build_endpoint_registry(
+        selection,
+        by_id,
+        endpoint_registry_path,
+        allowed_sound_classes_by_slot=slot_context_data[
+            "allowed_sound_class_ids_by_slot"
+        ],
+        selection_path=pdir / "actor_selection.json",
+    )
+    slot_endpoints = endpoint_ids_by_slot(selection, endpoint_records)
     request = {
         "pair_kind": pair_kind,
         "point_id": pid,
-        "endpoint_1": EP_MAP[assets[0]][0],
-        "endpoint_2": EP_MAP[assets[1]][1],
+        "slot_endpoints": slot_endpoints,
         **program_request_fields(params),
     }
     if clip_source is None:
@@ -1287,54 +1755,127 @@ def realise_point(pid, cell, plan, scene, base_request, params, by_id, args,
         json.dumps(gatea_program, ensure_ascii=False, indent=1))
 
     # 时间线:相机与折线都来自求解结果
+    if (
+        answer_depends_on_source_displacement(profile)
+        and by_id[slot_asset[target_slot]].get("entity_class") == "rigid_object"
+    ):
+        raise GenerationConstraintError(
+            f"{pid}: a displacement-dependent answer cannot use a rigid target "
+            f"asset {slot_asset[target_slot]!r}"
+        )
     direct_routes = bool(profile.get("use_solved_routes_directly", False))
     base_route = (
         plan.target_route.samples_xy if direct_routes
         else plan.base_route.samples_xy)
     other_route = plan.other_route.samples_xy
     z = render_context["ground_z_ue_cm"]
-    routes = {target_slot: (base_route[0], base_route[-1], base_route),
-              other_slot: (other_route[0], other_route[-1], other_route)}
-    s1, s2 = routes["source1"], routes["source2"]
-    timeline = author_current_apartment_visual_timeline(
+    routes = {
+        target_slot: (base_route[0], base_route[-1], base_route),
+        other_slot: (other_route[0], other_route[-1], other_route),
+    }
+    route_samples_by_slot = {}
+    for slot, route in routes.items():
+        samples = [
+            [float(point[0]), float(point[1]), float(z)]
+            for point in route[2]
+        ]
+        if slot_context_data["motion_by_slot"].get(slot) == "must_be_still":
+            samples = [list(samples[0]) for _ in samples]
+        route_samples_by_slot[slot] = samples
+    timeline = author_current_n_actor_visual_timeline(
         actor_selection_path=pdir / "actor_selection.json",
         source_asset_registry_path=(
             REPO / "examples/runtime/source_asset_runtime_profiles.json"),
         output_path=pdir / "timeline_authored.json",
         camera_position_ue_cm=camera_ue_cm,
         camera_yaw_deg=plan.camera_ue_yaw_deg,
-        human_start_ue_cm=[s1[0][0], s1[0][1], z],
-        human_end_ue_cm=[s1[1][0], s1[1][1], z],
-        beagle_start_ue_cm=[s2[0][0], s2[0][1], z],
-        beagle_end_ue_cm=[s2[1][0], s2[1][1], z],
-        human_waypoints_ue_cm=([[p[0], p[1], z] for p in s1[2]]
-                               if s1[2] else None),
-        beagle_waypoints_ue_cm=([[p[0], p[1], z] for p in s2[2]]
-                                if s2[2] else None),
+        routes_by_slot_ue_cm=route_samples_by_slot,
         native_map=render_context["native_map"],
         room_profile_id=render_context["room_profile_id"],
         hfov_degrees=scene.hfov_deg,
+        frame_count=clock["frame_count"],
+        frame_rate_hz=clock["frame_rate_hz"],
+        ticks_per_frame=clock.get("ticks_per_frame"),
     )
-    if direct_routes:
-        timeline = transform_to_solved_routes(
+    moving_routes = {
+        slot: [(point[0], point[1]) for point in samples]
+        for slot, samples in route_samples_by_slot.items()
+        if slot_context_data["motion_by_slot"].get(slot) != "must_be_still"
+    }
+    facing_by_slot = (
+        apply_asset_facing_policy(
             timeline,
-            {target_slot: plan.target_route.samples_xy,
-             other_slot: plan.other_route.samples_xy})
-    elif plan.idle_frames:
+            camera_position_ue_cm=camera_ue_cm,
+            assets_by_slot=slot_asset,
+            asset_context=asset_context,
+        )
+        if asset_context is not None
+        else {}
+    )
+    if direct_routes and moving_routes:
+        timeline = transform_to_solved_routes(timeline, moving_routes)
+    elif (
+        plan.idle_frames
+        and slot_context_data["motion_by_slot"].get(target_slot)
+        != "must_be_still"
+    ):
         timeline = transform_idle_then_walk(timeline, target_slot,
                                             plan.idle_frames)
+    # Audio truth follows the registry-bound emitter child, while the actor
+    # root remains the visual/navigation coordinate. The helper uses the
+    # authored timeline yaw and scale rather than breed-specific constants.
+    emitter_paths_by_slot, emitter_metadata = materialize_emitter_paths(
+        timeline,
+        {"assets": list(by_id.values())},
+        slot_asset,
+    )
+    render_clock = timeline.get("render", {})
+    timeline_rate = float(render_clock.get("frame_rate_hz"))
+    parameter_rate = float(params["VIDEO_FPS"])
+    if not math.isclose(timeline_rate, parameter_rate, rel_tol=0.0, abs_tol=1.0e-9):
+        raise GenerationConstraintError(
+            f"{pid}: timeline frame rate {timeline_rate} differs from VIDEO_FPS "
+            f"{parameter_rate}")
+    timeline["emitter_bindings"] = {
+        "authority": "source_asset_registry_default_emitter_anchor",
+        "coordinate_space": "timeline_ue_cm",
+        "root_for_visual_navigation_only": True,
+        "frame_clock": {
+            "frame_count": len(timeline["frames"]),
+            "frame_rate_hz": timeline_rate,
+            "ticks_per_frame": render_clock.get("ticks_per_frame"),
+        },
+        "by_slot": emitter_metadata,
+    }
     (pdir / "timeline.json").write_text(
         json.dumps(timeline, ensure_ascii=False, indent=1))
 
-    # 在最终相机姿态下重算真值,并与分配的答案格核对
+    # Recompute audio truth from emitter paths after final timeline authoring.
     query_frame = plan.query_frame
     answer_kind = profile.get("answer_kind", "azimuth_band")
-    # 真值一律在**最终时间线**上重算(相机姿态已应用),不沿用求解器角度
-    truth_deg = recompute_azimuth(timeline, target_slot, query_frame)
-    other_deg = recompute_azimuth(timeline, other_slot, query_frame)
-    answer = build_answer(answer_kind, profile, cell, timeline, schedule,
-                          slot_events, target_slot, other_slot, slot_coat,
-                          truth_deg, query_frame, params)
+    root_truth_deg = recompute_azimuth(timeline, target_slot, query_frame)
+    root_other_deg = recompute_azimuth(timeline, other_slot, query_frame)
+    truth_deg = recompute_emitter_azimuth(
+        timeline, target_slot, query_frame, emitter_paths_by_slot)
+    other_deg = recompute_emitter_azimuth(
+        timeline, other_slot, query_frame, emitter_paths_by_slot)
+    answer = build_answer(
+        answer_kind,
+        profile,
+        cell,
+        timeline,
+        schedule,
+        slot_events,
+        target_slot,
+        other_slot,
+        slot_coat,
+        truth_deg,
+        query_frame,
+        params,
+        asset_context=asset_context,
+        slot_context_data=slot_context_data,
+        emitter_paths_by_slot=emitter_paths_by_slot,
+    )
 
     def displacement_cm(slot):
         states = []
@@ -1366,15 +1907,36 @@ def realise_point(pid, cell, plan, scene, base_request, params, by_id, args,
     motion["both_roles_move"] = (
         motion["source1_displacement_cm"] > 0.0
         and motion["source2_displacement_cm"] > 0.0)
+    motion_constraints = {
+        "target": slot_context_data["motion_by_slot"].get(target_slot, "any"),
+        "other": slot_context_data["motion_by_slot"].get(other_slot, "any"),
+    }
+    motion["constraints"] = motion_constraints
+    for role, slot in (("target", target_slot), ("other", other_slot)):
+        displacement = motion[f"{slot}_displacement_cm"]
+        constraint = motion_constraints[role]
+        if constraint == "must_move" and displacement <= 1.0e-6:
+            raise GenerationConstraintError(
+                f"{pid}: {role} asset is required to move but displacement is "
+                f"{displacement:.3f} cm")
+        if constraint == "must_be_still" and displacement > 1.0e-6:
+            raise GenerationConstraintError(
+                f"{pid}: {role} asset is required to stay still but displacement is "
+                f"{displacement:.3f} cm")
     observed_target_moves_more = (
         motion[f"{target_slot}_displacement_cm"]
         > motion[f"{other_slot}_displacement_cm"])
     motion["target_moves_more"] = observed_target_moves_more
+    default_motion_rank = (
+        True
+        if asset_context is None
+        else bool(asset_context["answer_depends_on_source_displacement"])
+    )
     enforce_motion_rank = bool(
-        profile.get("enforce_target_moves_more", True))
+        profile.get("enforce_target_moves_more", default_motion_rank))
     motion["allocated_target_moves_more"] = (
         bool(cell["target_moves_more"]) if enforce_motion_rank else None)
-    if not motion["both_roles_move"]:
+    if asset_context is None and not motion["both_roles_move"]:
         raise GenerationConstraintError(
             f"{pid}: dual-motion profile produced a static role: {motion}")
     if (enforce_motion_rank
@@ -1394,13 +1956,42 @@ def realise_point(pid, cell, plan, scene, base_request, params, by_id, args,
             else "anchor_after_query"),
         "anchor_frame": plan.anchor_frame, "query_frame": query_frame,
         "target_slot": target_slot, "target_coat": slot_coat[target_slot],
+        "target_referent_label": slot_coat[target_slot],
         "slot_coat": slot_coat,
+        "slot_assets": slot_asset,
+        "slot_referent_phrases": slot_context_data[
+            "referent_phrases_by_slot"
+        ],
+        "facing_by_slot": facing_by_slot,
+        "asset_policy": (
+            {
+                "policy_id": asset_context["policy_id"],
+                "pair_id": asset_context["pair_id"],
+                "family_rule": asset_context["family_rule"],
+                "pair_kind": asset_context["pair_kind"],
+                "motion_by_slot": slot_context_data["motion_by_slot"],
+                "answer_depends_on_source_displacement": asset_context[
+                    "answer_depends_on_source_displacement"
+                ],
+            }
+            if asset_context is not None
+            else None
+        ),
+        "frame_clock": clock,
         "camera": {"ue_cm": camera_ue_cm,
                    "ue_yaw_deg": plan.camera_ue_yaw_deg,
                    "height_m": camera_height_m,
                    "scene_camera_height_m": float(scene.camera_height_m),
                    "clearance": plan.camera_clearance,
                    "listener_from_same_pose_result": True},
+        "emitter": {
+            "authority": "source_asset_registry_default_emitter_anchor",
+            "root_role": "visual_navigation_only",
+            "audio_role": "RLR_source_position_and_azimuth_truth",
+            "frame_clock": timeline["emitter_bindings"]["frame_clock"],
+            "query_frame": int(query_frame),
+            "by_slot": emitter_metadata,
+        },
         "room": {
             "native_map": timeline["room"]["map_path"],
             "room_profile_id": timeline["room"]["room_profile_id"],
@@ -1410,14 +2001,39 @@ def realise_point(pid, cell, plan, scene, base_request, params, by_id, args,
         },
         "motion": motion,
         "answer_kind": answer_kind,
+        "answer_domain": profile.get("answer_domain"),
+        "query_domain": _resolved_query_geometry(profile, cell).get("query_domain"),
+        "query_requires_visibility": _resolved_query_geometry(profile, cell).get(
+            "query_requires_visibility"),
+        "secondary_anchor_bound_deg": _resolved_query_geometry(
+            profile, cell).get("secondary_anchor_bound_deg"),
+        "secondary_query_bound_deg": _resolved_query_geometry(
+            profile, cell).get("secondary_query_bound_deg"),
+        "answer_shape": copy.deepcopy(profile.get("answer_shape")),
+        "convention": (
+            answer.get("open", {}).get("convention")
+            or answer.get("truth", {}).get("convention")
+        ),
+        "direction_evidence": profile.get("direction_evidence"),
+        "vocab_key": answer.get("open", {}).get("vocab_key"),
+        "vocab_path": answer.get("open", {}).get("vocab_path"),
         "truth": dict(answer["truth"],
                       query_azimuth_deg_engine_frame=round(truth_deg, 3),
                       other_slot_azimuth_deg_engine_frame=round(
                           other_deg, 3),
+                      query_azimuth_deg_engine_frame_actor_root=round(
+                          root_truth_deg, 3),
+                      other_slot_azimuth_deg_engine_frame_actor_root=round(
+                          root_other_deg, 3),
+                      azimuth_truth_source="runtime_emitter_anchor",
                       recomputed_after_camera_pose=True),
+        "answer_forms": answer_forms_from_params(params),
         "mcq": answer["mcq"],
         "open": answer["open"],
+        "source_endpoint_registry": "source_endpoints.json",
         "audio": {"program_id": program["program_id"],
+                  "source_endpoint_registry": "source_endpoints.json",
+                  "slot_endpoints": slot_endpoints,
                   "anchor_role": schedule.anchor.role,
                   "anchor_slot": main_role_to_slot[schedule.anchor.role],
                   "declared": schedule.declared,
@@ -1450,8 +2066,16 @@ def realise_point(pid, cell, plan, scene, base_request, params, by_id, args,
     gatea_target_slot, gatea_other_slot, gatea_answer, gatea_truth_deg, \
         gatea_other_deg = build_gatea_answer(
             answer_kind, profile, cell, timeline, schedule,
-            gatea_slot_events, target_slot, other_slot, slot_coat,
-            query_frame, params)
+            gatea_slot_events,
+            target_slot,
+            other_slot,
+            slot_coat,
+            query_frame,
+            params,
+            asset_context=asset_context,
+            slot_context_data=slot_context_data,
+            emitter_paths_by_slot=emitter_paths_by_slot,
+        )
     gatea_checks = audit_gatea_pair(
         profile, program, gatea_program, answer, gatea_answer, params)
     gatea_binding_check = validate_anchor_binding(
@@ -1470,9 +2094,10 @@ def realise_point(pid, cell, plan, scene, base_request, params, by_id, args,
             timeline, profile=profile, cell=cell, target_slot=target_slot,
             other_slot=other_slot, anchor_frame=plan.anchor_frame,
             query_frame=query_frame, params=params, plan_checks=plan.checks,
-            query_window_s=answer.get("truth", {}).get("query_window_seconds"))
+            query_window_s=answer.get("truth", {}).get("query_window_seconds"),
+            emitter_paths_by_slot=emitter_paths_by_slot)
         fact["acceptance_authority"] = "realized_generation_checks"
-        if profile["id"] in ("card1F", "card1B"):
+        if family_id in ("card1F", "card1B"):
             fact["pixel_acceptance"] = card1_pixel_acceptance_block(
                 params, target_slot=target_slot, other_slot=other_slot,
                 anchor_frame=plan.anchor_frame, query_frame=query_frame)
@@ -1492,6 +2117,9 @@ def realise_point(pid, cell, plan, scene, base_request, params, by_id, args,
         "gatea_of": pid,
         "target_slot": gatea_target_slot,
         "target_coat": slot_coat[gatea_target_slot],
+        "query_domain": gatea_answer.get("open", {}).get("query_domain"),
+        "query_requires_visibility": gatea_answer.get("open", {}).get(
+            "query_requires_visibility"),
         "truth": dict(
             gatea_answer["truth"],
             query_azimuth_deg_engine_frame=round(gatea_truth_deg, 3),
@@ -1530,10 +2158,24 @@ def realise_point(pid, cell, plan, scene, base_request, params, by_id, args,
     return fact
 
 
-def build_gatea_answer(kind, profile, cell, timeline, schedule,
-                       gatea_slot_events, target_slot, other_slot, slot_coat,
-                       query_frame, params):
-    """Derive Gate A gold from the unchanged visual timeline.
+def build_gatea_answer(
+    kind,
+    profile,
+    cell,
+    timeline,
+    schedule,
+    gatea_slot_events,
+    target_slot,
+    other_slot,
+    slot_coat,
+    query_frame,
+    params,
+    *,
+    asset_context=None,
+    slot_context_data=None,
+    emitter_paths_by_slot=None,
+):
+    """Derive Gate A gold from the final timeline and bound emitters.
 
     Cross-time and query-caller cards select a different visual actor after
     the audio slot swap.  Card8 keeps the text-selected visual actor but
@@ -1541,13 +2183,13 @@ def build_gatea_answer(kind, profile, cell, timeline, schedule,
     first-caller relation simply reverses.
     """
     gatea_cell = dict(cell)
-    if kind in ("azimuth_band", "instant_azimuth_band", "first_sound_side"):
+    if kind in ("azimuth_band", "instant_azimuth_band", "first_sound_side", "front_back"):
         gatea_target_slot, gatea_other_slot = other_slot, target_slot
-        gatea_truth_deg = recompute_azimuth(
-            timeline, gatea_target_slot, query_frame)
-        bands = [tuple(b) for b in profile["answer_bands_deg"]]
+        gatea_truth_deg = recompute_emitter_azimuth(
+            timeline, gatea_target_slot, query_frame, emitter_paths_by_slot)
+        bands = list(profile["answer_bands_deg"])
         gatea_band = next((band for band in bands
-                           if band[0] <= gatea_truth_deg < band[1]), None)
+                           if SS.band_contains(gatea_truth_deg, band)), None)
         if gatea_band is None:
             raise GenerationConstraintError(
                 f"Gate A angular truth {gatea_truth_deg:.2f} is outside all "
@@ -1555,12 +2197,12 @@ def build_gatea_answer(kind, profile, cell, timeline, schedule,
         gatea_cell["answer_band"] = gatea_band
     elif kind == "coat_at_query":
         gatea_target_slot, gatea_other_slot = other_slot, target_slot
-        gatea_truth_deg = recompute_azimuth(
-            timeline, gatea_target_slot, query_frame)
+        gatea_truth_deg = recompute_emitter_azimuth(
+            timeline, gatea_target_slot, query_frame, emitter_paths_by_slot)
     elif kind == "time_band":
         gatea_target_slot, gatea_other_slot = target_slot, other_slot
-        gatea_truth_deg = recompute_azimuth(
-            timeline, gatea_target_slot, query_frame)
+        gatea_truth_deg = recompute_emitter_azimuth(
+            timeline, gatea_target_slot, query_frame, emitter_paths_by_slot)
         firsts = {}
         for slot, start in gatea_slot_events:
             firsts.setdefault(slot, start / _sample_rate_hz(params))
@@ -1571,42 +2213,173 @@ def build_gatea_answer(kind, profile, cell, timeline, schedule,
         gatea_cell["target_band"] = gatea_band
     elif kind == "first_caller_coat":
         gatea_target_slot, gatea_other_slot = target_slot, other_slot
-        gatea_truth_deg = recompute_azimuth(
-            timeline, gatea_target_slot, query_frame)
+        gatea_truth_deg = recompute_emitter_azimuth(
+            timeline, gatea_target_slot, query_frame, emitter_paths_by_slot)
         gatea_cell["target_first"] = not bool(cell["target_first"])
     elif kind == "motion_state":
         gatea_target_slot, gatea_other_slot = other_slot, target_slot
-        gatea_truth_deg = recompute_azimuth(
-            timeline, gatea_target_slot, query_frame)
+        gatea_truth_deg = recompute_emitter_azimuth(
+            timeline, gatea_target_slot, query_frame, emitter_paths_by_slot)
         gatea_cell["answer_value"] = (
             "still" if cell["answer_value"] == "moving" else "moving")
     elif kind == "distance_change":
         gatea_target_slot, gatea_other_slot = other_slot, target_slot
-        gatea_truth_deg = recompute_azimuth(
-            timeline, gatea_target_slot, query_frame)
+        gatea_truth_deg = recompute_emitter_azimuth(
+            timeline, gatea_target_slot, query_frame, emitter_paths_by_slot)
         gatea_cell["answer_value"] = (
             "farther" if cell["answer_value"] == "closer" else "closer")
     elif kind in ("event_count", "distance_at_query"):
         gatea_target_slot, gatea_other_slot = target_slot, other_slot
-        gatea_truth_deg = recompute_azimuth(
-            timeline, gatea_target_slot, query_frame)
+        gatea_truth_deg = recompute_emitter_azimuth(
+            timeline, gatea_target_slot, query_frame, emitter_paths_by_slot)
     else:
         raise ValueError(f"no Gate A answer derivation for {kind!r}")
-    gatea_other_deg = recompute_azimuth(
-        timeline, gatea_other_slot, query_frame)
+    if kind == "front_back":
+        gatea_cell["_resolved_query_geometry"] = profile_query_geometry(
+            profile, gatea_cell)
+    gatea_other_deg = recompute_emitter_azimuth(
+        timeline, gatea_other_slot, query_frame, emitter_paths_by_slot)
     gatea_answer = build_answer(
-        kind, profile, gatea_cell, timeline, schedule, gatea_slot_events,
-        gatea_target_slot, gatea_other_slot, slot_coat, gatea_truth_deg,
-        query_frame, params)
+        kind,
+        profile,
+        gatea_cell,
+        timeline,
+        schedule,
+        gatea_slot_events,
+        gatea_target_slot,
+        gatea_other_slot,
+        slot_coat,
+        gatea_truth_deg,
+        query_frame,
+        params,
+        asset_context=asset_context,
+        slot_context_data=slot_context_data,
+        emitter_paths_by_slot=emitter_paths_by_slot,
+    )
     return (gatea_target_slot, gatea_other_slot, gatea_answer,
             gatea_truth_deg, gatea_other_deg)
 
 
-def build_answer(kind, profile, cell, timeline, schedule, slot_events,
-                 target_slot, other_slot, slot_coat, truth_deg, query_frame,
-                 params):
+def _resolved_query_geometry(profile, cell) -> dict:
+    value = cell.get("_resolved_query_geometry")
+    if isinstance(value, dict):
+        return dict(value)
+    return {
+        "query_domain": profile.get("query_domain"),
+        "answer_domain": profile.get("answer_domain"),
+        "query_bound_deg": profile.get("query_bound_deg"),
+        "query_requires_visibility": profile.get("query_requires_visibility"),
+        "secondary_query_bound_deg": profile.get("secondary_query_bound_deg"),
+    }
+
+
+def _profile_convention(profile) -> str:
+    return AZ.canonical_convention(profile.get("convention", AZ.CONVENTION))
+
+
+def _display_angle(value) -> float:
+    """Fold an endpoint while retaining a signed 180-degree boundary."""
+    value = float(value)
+    folded = (value + 180.0) % 360.0 - 180.0
+    if math.isclose(folded, -180.0, abs_tol=1e-9):
+        return -180.0 if value < 0.0 else 180.0
+    return folded
+
+
+def _arc_option_label(engine_band, convention) -> str:
+    engine_arc = SS.band_to_arc(engine_band)
+    converted = AZ.to_convention_arc(engine_arc, convention)
+    if converted.width_deg >= 360.0:
+        return "full circle"
+    if converted.wraps:
+        return (f"{converted.start_deg:g} -> {converted.end_deg:g} "
+                f"(sweep {converted.sweep_deg:g} deg)")
+    if isinstance(engine_band, (list, tuple)) and len(engine_band) == 2:
+        raw_engine_start, raw_engine_end = (
+            float(engine_band[0]), float(engine_band[1]))
+    else:
+        raw_engine_start = engine_arc.start_deg
+        raw_engine_end = engine_arc.start_deg + engine_arc.sweep_deg
+    raw_start = (-raw_engine_start
+                 if convention == AZ.CONVENTION else raw_engine_start)
+    raw_end = (-raw_engine_end
+               if convention == AZ.CONVENTION else raw_engine_end)
+    lo, hi = sorted((_display_angle(raw_start), _display_angle(raw_end)))
+    return f"[{lo:g}, {hi:g})"
+
+
+def _arc_option_record(engine_band, convention) -> dict:
+    engine_arc = SS.band_to_arc(engine_band)
+    published_arc = AZ.to_convention_arc(engine_arc, convention)
+    return {
+        "engine_frame": engine_arc.as_dict(),
+        "published": published_arc.as_dict(),
+        "convention": convention,
+        "convention_note": AZ.convention_note(convention),
+    }
+
+
+def _arc_midpoint(arc) -> float:
+    return AR.normalize_deg(arc.start_deg + arc.sweep_deg / 2.0)
+
+
+def _timeline_video_fps(timeline, params) -> float:
+    """Use and verify the final timeline clock for human time windows."""
+    try:
+        rate = float(timeline["render"]["frame_rate_hz"])
+        configured = float(params["VIDEO_FPS"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise GenerationConstraintError(
+            "timeline and params must declare a numeric VIDEO_FPS") from exc
+    if not math.isfinite(rate) or rate <= 0.0:
+        raise GenerationConstraintError(
+            "timeline frame rate must be finite and positive")
+    if not math.isclose(rate, configured, rel_tol=0.0, abs_tol=1.0e-9):
+        raise GenerationConstraintError(
+            f"timeline frame rate {rate} differs from VIDEO_FPS {configured}")
+    return rate
+
+
+def _arc_interval_bounds(arc) -> tuple[float, float]:
+    """Return numeric interval bounds without losing a directed seam Arc."""
+    if arc.width_deg >= 360.0:
+        return -180.0, 180.0
+    if arc.wraps:
+        return arc.start_deg, arc.end_deg
+    return tuple(sorted((arc.start_deg, arc.end_deg)))
+
+
+def build_answer(
+    kind,
+    profile,
+    cell,
+    timeline,
+    schedule,
+    slot_events,
+    target_slot,
+    other_slot,
+    slot_coat,
+    truth_deg,
+    query_frame,
+    params,
+    *,
+    asset_context=None,
+    slot_context_data=None,
+    emitter_paths_by_slot=None,
+):
     """按题型的答案空间造真值;MCQ 与 Open 引用**同一条**事实。"""
+    family_id = profile.get("family_id", profile["id"])
     coat = slot_coat[target_slot]
+    target_phrase = (
+        slot_context_data["referent_phrases_by_slot"][target_slot]
+        if slot_context_data is not None
+        else f"the {coat} dog"
+    )
+    target_action = (
+        slot_context_data["sound_action_phrases_by_slot"][target_slot]
+        if slot_context_data is not None
+        else "barks"
+    )
     if kind == "event_count":
         actual = len(schedule.events)
         allocated = int(cell["answer_value"])
@@ -1651,8 +2424,9 @@ def build_answer(kind, profile, cell, timeline, schedule, slot_events,
                 f"distance gap {gap:.2f} cm is below {minimum:.2f} cm")
         truth = slot_coat[target_slot]
         options = ["black-and-white", "yellow"]
+        fps = _timeline_video_fps(timeline, params)
         moment = (f"At zero-based video frame index {query_frame} "
-                  f"({query_frame}/15 seconds)")
+                  f"({query_frame}/{fps:g} seconds)")
         return {
             "truth": {
                 "closer_coat": truth,
@@ -1698,7 +2472,7 @@ def build_answer(kind, profile, cell, timeline, schedule, slot_events,
             raise GenerationConstraintError(
                 f"distance relation {relation} from delta {delta:.2f} cm "
                 f"does not match allocated {allocated}")
-        if profile["id"] == "card5R":
+        if family_id == "card5R":
             stem = (
                 "After the dog that barked last stopped making sound, was it "
                 "closer to you or farther from you at the end of the video?")
@@ -1750,11 +2524,11 @@ def build_answer(kind, profile, cell, timeline, schedule, slot_events,
             raise GenerationConstraintError(
                 f"motion state {state} from displacement {displacement:.2f} "
                 f"does not match allocated {allocated}")
-        if profile["id"] == "card6R":
+        if family_id == "card6R":
             stem = (
                 "After the second sound ended, did the dog that made it move "
                 "during the remaining silent part of the video?")
-        elif profile["id"] == "card6":
+        elif family_id == "card6":
             stem = (
                 "Was the dog that made the second sound moving while that "
                 "sound was heard?")
@@ -1790,48 +2564,123 @@ def build_answer(kind, profile, cell, timeline, schedule, slot_events,
         if first_slot != target_slot:
             raise GenerationConstraintError(
                 f"first caller {first_slot} does not match target {target_slot}")
-        bands = [tuple(band) for band in profile["answer_bands_deg"]]
-        got = next((index for index, (lo, hi) in enumerate(bands)
-                    if lo <= truth_deg < hi), None)
-        want = bands.index(tuple(cell["answer_band"]))
+        bands = list(profile["answer_bands_deg"])
+        got = next((index for index, band in enumerate(bands)
+                    if SS.band_contains(truth_deg, band)), None)
+        want = next((index for index, band in enumerate(bands)
+                     if SS.bands_equivalent(band, cell["answer_band"])), None)
         if got != want:
             raise GenerationConstraintError(
                 f"first-sound azimuth {truth_deg:.2f} lands in band {got}, "
                 f"not allocated band {want}")
         # This answer is published, so left and right follow the
         # published convention rather than the engine frame.
-        published_deg = AZ.to_published_deg(truth_deg)
+        convention = _profile_convention(profile)
+        published_deg = AZ.to_convention_deg(truth_deg, convention)
         side = AZ.side_word(published_deg)
+        fps = _timeline_video_fps(timeline, params)
         moment = (f"At zero-based video frame index {query_frame} "
-                  f"({query_frame}/15 seconds)")
+                  f"({query_frame}/{fps:g} seconds)")
         return {
             "first_caller_slot": first_slot,
             "truth": {
                 "first_sound_side": side,
                 "first_sound_azimuth_deg_engine_frame": round(
                     truth_deg, 3),
-                **AZ.published_block(truth_deg),
+                **AZ.convention_block(truth_deg, convention),
             },
             "mcq": {
                 "stem": (f"{moment}, did the first sound come from the left "
                          "or right side relative to your facing direction?"),
                 "options_space": ["left", "right"],
                 "truth_option": side,
+                "convention": convention,
+                "convention_note": AZ.convention_note(convention),
             },
             "open": {
                 "stem": (f"{moment}, which side did the first sound come "
                          "from: left or right?"),
                 "truth_value": side,
                 "scoring": "closed_set",
+                "convention": convention,
+                "convention_note": AZ.convention_note(convention),
+            },
+        }
+    if kind == "front_back":
+        bands = list(profile["answer_bands_deg"])
+        labels = list(SS.front_back_labels(profile))
+        if len(bands) != 2:
+            raise GenerationConstraintError(
+                f"{profile.get('id')}: front/back answer needs exactly two bands")
+        got = next((i for i, band in enumerate(bands)
+                    if SS.band_contains(truth_deg, band)), None)
+        want = next((i for i, band in enumerate(bands)
+                     if SS.bands_equivalent(band, cell["answer_band"])), None)
+        if got is None or want is None or got != want:
+            raise GenerationConstraintError(
+                f"front/back truth {truth_deg:.2f} deg lands in band {got}, "
+                f"not allocated band {want}")
+        convention = _profile_convention(profile)
+        resolved_geometry = _resolved_query_geometry(profile, cell)
+        engine_arc = SS.band_to_arc(bands[got])
+        published_arc = AZ.to_convention_arc(engine_arc, convention)
+        fps = _timeline_video_fps(timeline, params)
+        window = query_window_seconds(query_frame, fps)
+        window_frames = query_window_frame_bounds(
+            window, fps, len(timeline["frames"]))
+        moment = f"Between {window[0]:g} and {window[1]:g} seconds"
+        stem = (f"{moment}, was the queried sound source in front of you "
+                f"or behind you? Choose {labels[0]} or {labels[1]}.")
+        truth = {
+            "answer_label": labels[got],
+            "answer_band_index": got,
+            "answer_domain": "front_back",
+            "query_domain": resolved_geometry.get("query_domain"),
+            "query_requires_visibility": resolved_geometry.get("query_requires_visibility"),
+            "query_window_seconds": list(window),
+            "query_window_frame_bounds": list(window_frames),
+            "azimuth_deg_engine_frame": round(truth_deg, 3),
+            "arc_engine_frame": engine_arc.as_dict(),
+            "arc_published": published_arc.as_dict(),
+            **AZ.convention_block(truth_deg, convention),
+        }
+        return {
+            "truth": truth,
+            "mcq": {
+                "stem": stem,
+                "options_space": labels,
+                "truth_option": labels[got],
+                "convention": convention,
+                "convention_note": AZ.convention_note(convention),
+                "direction_evidence": profile.get("direction_evidence"),
+                "option_arcs": [
+                    _arc_option_record(band, convention) for band in bands
+                ],
+            },
+            "open": {
+                "stem": stem,
+                "truth_value": labels[got],
+                "scoring": "closed_set",
+                "vocab_key": profile["vocab_key"],
+                "vocab_path": profile.get("vocab_path"),
+                "answer_domain": "front_back",
+                "query_domain": resolved_geometry.get("query_domain"),
+                "query_requires_visibility": resolved_geometry.get("query_requires_visibility"),
+                "convention": convention,
+                "convention_note": AZ.convention_note(convention),
+                "direction_evidence": profile.get("direction_evidence"),
+                "truth_arc": published_arc.as_dict(),
+                "truth_arc_engine_frame": engine_arc.as_dict(),
             },
         }
     if kind in ("azimuth_band", "instant_azimuth_band"):
         # Band matching stays in the engine frame: cell["answer_band"] is what
         # the solver allocated, so the frames have to agree.
-        bands = [tuple(b) for b in profile["answer_bands_deg"]]
-        got = next((i for i, (lo, hi) in enumerate(bands)
-                    if lo <= truth_deg < hi), None)
-        want = bands.index(tuple(cell["answer_band"]))
+        bands = list(profile["answer_bands_deg"])
+        got = next((i for i, band in enumerate(bands)
+                    if SS.band_contains(truth_deg, band)), None)
+        want = next((i for i, band in enumerate(bands)
+                     if SS.bands_equivalent(band, cell["answer_band"])), None)
         if got != want:
             raise GenerationConstraintError(
                 f"recomputed truth {truth_deg:.2f} deg lands in band {got}, "
@@ -1839,68 +2688,104 @@ def build_answer(kind, profile, cell, timeline, schedule, slot_events,
                 "with the solver's geometry")
         # The camera edge comes from its calibration, not the answer domain:
         # a safety margin or a full-circle answer space does not change the lens.
-        published = [AZ.to_published_band(band) for band in bands]
-        labels = [f"[{lo:g}, {hi:g})" for lo, hi in published]
+        convention = _profile_convention(profile)
+        resolved_geometry = _resolved_query_geometry(profile, cell)
+        labels = [_arc_option_label(band, convention) for band in bands]
+        option_arcs = [_arc_option_record(band, convention) for band in bands]
         try:
             frame_edge = float(timeline["render"]["hfov_degrees"]) / 2.0
         except (KeyError, TypeError, ValueError) as exc:
             raise GenerationConstraintError("angle questions need the timeline camera HFOV") from exc
-        convention = AZ.landmark_sentence(frame_edge)
-        video_fps = float(_require_param(params, "VIDEO_FPS"))
+        convention_text = AZ.landmark_sentence(frame_edge, convention)
+        video_fps = _timeline_video_fps(timeline, params)
         if profile["temporal"] == "forward":
             # 片尾是人能对齐的时刻，本来就不用窗口。
             moment = "At the end of the video"
             referent = "the dog that barked last"
             sweep_lo = sweep_hi = truth_deg
+            sweep_arc = AR.Arc(start_deg=truth_deg, sweep_deg=0.0)
             window = None
+            window_frames = None
         elif profile["temporal"] in ("backward", "instant"):
             window = query_window_seconds(query_frame, video_fps)
             moment = f"Between {window[0]:g} and {window[1]:g} seconds"
             referent = ("the dog that barked last"
                         if profile["temporal"] == "backward"
                         else "the dog barking in that window")
-            sweep_lo, sweep_hi, _ = azimuth_sweep_engine_frame(
-                timeline, target_slot, window, video_fps)
-            # 窗口内扫过的区间必须整段落在同一个带里，否则"在哪个带"没有唯一答案。
-            if not (bands[got][0] <= sweep_lo and sweep_hi < bands[got][1]):
+            sweep_arc, window_frames = azimuth_sweep_engine_arc(
+                timeline, target_slot, window, video_fps,
+                emitter_paths_by_slot)
+            # The whole query sweep must stay in one band for a unique answer.
+            if (not SS.band_contains(sweep_arc.start_deg, bands[got])
+                    or not SS.band_contains(sweep_arc.end_deg, bands[got])):
                 raise GenerationConstraintError(
-                    f"azimuth sweeps {sweep_lo:.2f}..{sweep_hi:.2f} deg across "
-                    f"band {got} edges {bands[got]} during the query window "
-                    f"{window}: the banded answer would not be unique")
+                    f"azimuth sweep {sweep_arc.as_dict()} crosses band "
+                    f"{got} edges {bands[got]} during query window {window}: "
+                    "the banded answer would not be unique")
         else:
             raise ValueError("azimuth-band profile must declare a time direction")
-        published_interval = sorted(
-            (AZ.to_published_deg(sweep_hi), AZ.to_published_deg(sweep_lo)))
-        return {"truth": {"band_index": got, **AZ.published_block(truth_deg),
-                          "azimuth_deg_engine_frame": round(truth_deg, 3),
-                          "engine_frame_note": AZ.ENGINE_FRAME_NOTE,
-                          "query_window_seconds": (
-                              list(window) if window else None),
-                          "azimuth_interval_deg": [round(v, 3)
-                                                   for v in published_interval],
-                          "azimuth_interval_engine_frame": [
-                              round(sweep_lo, 3), round(sweep_hi, 3)]},
-                "mcq": {"stem": (f"{convention} {moment}, which azimuth band "
+        if profile["temporal"] == "forward":
+            # sweep_arc was initialized above; keep the branch explicit for
+            # older callers that provide a forward point without a window.
+            sweep_arc = AR.Arc(start_deg=truth_deg, sweep_deg=0.0)
+        published_arc = AZ.to_convention_arc(sweep_arc, convention)
+        published_interval = _arc_interval_bounds(published_arc)
+        published_interval = [round(v, 3) for v in published_interval]
+        # A numeric pair is safe for a short non-wrapping set. Wrapped or
+        # longer sweeps must stay as the existing Arc object for the scorer.
+        interval_for_scorer = (
+            published_arc.as_dict()
+            if published_arc.wraps or published_arc.width_deg > 180.0
+            else published_interval
+        )
+        truth_block = {
+            "band_index": got,
+            **AZ.convention_block(truth_deg, convention),
+            "azimuth_deg_engine_frame": round(truth_deg, 3),
+            "engine_frame_note": AZ.ENGINE_FRAME_NOTE,
+            "query_window_seconds": list(window) if window else None,
+            "query_window_frame_bounds": (
+                list(window_frames) if window_frames is not None else None),
+            "azimuth_interval_deg": published_interval,
+            "azimuth_interval_engine_frame": list(_arc_interval_bounds(sweep_arc)),
+            "azimuth_interval_arc_engine_frame": sweep_arc.as_dict(),
+            "azimuth_interval_arc": published_arc.as_dict(),
+            "answer_domain": profile.get("answer_domain"),
+            "query_domain": resolved_geometry.get("query_domain"),
+            "query_requires_visibility": resolved_geometry.get("query_requires_visibility"),
+        }
+        if published_arc.width_deg >= 360.0:
+            midpoint = 0.0
+        else:
+            midpoint = _arc_midpoint(published_arc)
+        return {"truth": truth_block,
+                "mcq": {"stem": (f"{convention_text} {moment}, which azimuth band "
                                  f"contains {referent}?"),
                         "options_space": labels, "truth_option": labels[got],
-                        "convention": AZ.CONVENTION},
-                "open": {"stem": (f"{convention} {moment}, roughly what is the "
+                        "convention": convention,
+                        "convention_note": AZ.convention_note(convention),
+                        "direction_evidence": profile.get("direction_evidence"),
+                        "option_arcs": option_arcs},
+                "open": {"stem": (f"{convention_text} {moment}, roughly what is the "
                                   f"azimuth of {referent}? Report a numeric "
                                   "estimate in degrees rather than a category."),
-                         # 区间是权威：窗口内目标在动，落在区间里就算说对了。
-                         # truth_value 保留为区间中点，供只读单值的老消费方。
-                         "truth_interval_deg": [round(v, 3)
-                                                for v in published_interval],
-                         "truth_value": round(
-                             sum(published_interval) / 2.0, 3),
+                         "truth_interval_deg": interval_for_scorer,
+                         "truth_value": round(midpoint, 3),
                          "truth_value_note": (
                              "midpoint of truth_interval_deg; the interval is "
                              "authoritative"),
+                         "truth_interval_arc": published_arc.as_dict(),
+                         "truth_interval_arc_engine_frame": sweep_arc.as_dict(),
                          "unit": "deg", "scoring": "circular_deg_interval",
                          "certification_policy": resolve_angle_policy(params),
                          "wide_tolerance_role": ("diagnostic_only" if resolve_angle_policy(params)
                                                  == "strict_full_credit_only" else "graded"),
-                         "convention": AZ.CONVENTION}}
+                         "convention": convention,
+                         "convention_note": AZ.convention_note(convention),
+                         "direction_evidence": profile.get("direction_evidence"),
+                         "answer_domain": profile.get("answer_domain"),
+                         "query_domain": profile.get("query_domain"),
+                         "query_requires_visibility": profile.get("query_requires_visibility")}}
     if kind == "coat_at_query":
         calling = [slot for slot, event in zip(
             [s for s, _ in slot_events], schedule.events)
@@ -1961,12 +2846,13 @@ def build_answer(kind, profile, cell, timeline, schedule, slot_events,
                           "first_call_separation_above_minimum": True},
                 "mcq": {"stem": (
                     f"The clip is {clip_seconds:g} seconds long. In which "
-                    f"one-second interval does the {coat} dog bark for the "
-                    "FIRST time?"),
+                    f"one-second interval does {target_phrase} {target_action} "
+                    "for the FIRST time?"),
                         "options_space": labels, "truth_option": labels[got]},
                 "open": {"stem": (
                     f"The clip is {clip_seconds:g} seconds long. At how many "
-                    f"seconds does the {coat} dog bark for the first time?"),
+                    f"seconds does {target_phrase} {target_action} for the "
+                    "first time?"),
                          "truth_value": round(onset, 4), "unit": "s",
                          "scoring": "absolute_time",
                          "certification_policy": scoring_chain[
@@ -2163,9 +3049,21 @@ def card8_diagnostics(params, records):
     }
 
 
-def write_outputs(args, scene, scene_cfg, profiles, params, ledger, made,
-                  rejected, records, per_profile_ledger=None, cells=None,
-                  answer_band_audit=None):
+def write_outputs(
+    args,
+    scene,
+    scene_cfg,
+    profiles,
+    params,
+    ledger,
+    made,
+    rejected,
+    records,
+    per_profile_ledger=None,
+    cells=None,
+    answer_band_audit=None,
+    asset_context=None,
+):
     by_profile = Counter(r["profile_id"] for r in records)
     coat_of_slot1 = Counter(r["slot_coat"]["source1"] for r in records)
     target_slots = Counter(r["target_slot"] for r in records)
@@ -2200,6 +3098,13 @@ def write_outputs(args, scene, scene_cfg, profiles, params, ledger, made,
             "profile_ids": [profile["id"] for profile in profiles],
             "seed": args.seed,
             "cells_per_profile": args.cells,
+            "asset_policy": str(args.asset_policy.resolve()),
+            "asset_policy_pair_id": (
+                asset_context["pair_id"] if asset_context is not None else None
+            ),
+            "asset_policy_content": (
+                asset_context["raw"] if asset_context is not None else None
+            ),
         },
         "scene": {"scene_id": scene.scene_id, "backend": scene.backend,
                   "scene_asset_id": scene_cfg.get("scene_asset_id",
@@ -2281,6 +3186,14 @@ def write_outputs(args, scene, scene_cfg, profiles, params, ledger, made,
         "params": params,
         "status": "research_candidate", "qualification_claim": False,
     }
+    request_result = write_requested_questions(
+        args.out_root,
+        (args.out_root / record["point_id"] / "fact_record.json" for record in records),
+        params,
+    )
+    manifest["question_request"] = request_result
+    manifest["counts"]["designed_questions"] = request_result["designed_question_count"]
+    manifest["counts"]["counterfactual_questions"] = request_result["counterfactual_question_count"]
     (args.out_root / "batch_manifest.json").write_text(
         json.dumps(manifest, ensure_ascii=False, indent=1))
     with open(args.out_root / "facts.jsonl", "w") as handle:

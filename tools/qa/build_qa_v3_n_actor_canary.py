@@ -92,6 +92,8 @@ def find_n_route_plan(scene, params, *, actor_count: int, seed: str,
     pairwise separation is also pushed into the draw as an exclusion window so
     the synthesizer stops proposing routes the closure would reject anyway.
     """
+    scene = SS.ensure_scene_clock(scene, params)
+    frame_count = SS.scene_frame_count(scene, params)
     rng = np.random.default_rng(seed_uint64(seed))
     if "MIN_CAMERA_DISTANCE_CM" not in params:
         raise ValueError("params missing MIN_CAMERA_DISTANCE_CM")
@@ -106,7 +108,11 @@ def find_n_route_plan(scene, params, *, actor_count: int, seed: str,
     if synth is None and len(routes) < actor_count:
         raise ValueError(
             f"scene has fewer than {actor_count} moving routes")
-    designed_frames = tuple(int(frame) for frame in binding_frames)
+    designed_frames = tuple(
+        SS.require_frame(frame, frame_count, name="binding_frame")
+        for frame in binding_frames)
+    if not designed_frames:
+        raise ValueError("binding_frames must not be empty")
 
     def azimuths_of(camera, yaw, route):
         return [relative_azimuth_deg(camera, yaw, route.at(frame))
@@ -286,7 +292,10 @@ def main(argv=None) -> int:
     from qa_v3_request import read_qa_params
     params = read_qa_params(args.params)
     require_dry_canvas_source_mode(params, owner="build_qa_v3_n_actor_canary")
-    scene = load_scene(scene_config)
+    clock = SS.validate_frame_clock(params, require_clip_seconds=True)
+    scene = load_scene(
+        scene_config, frame_count=clock["frame_count"],
+        frame_rate_hz=clock["frame_rate_hz"])
     plan = find_four_route_plan(
         scene, params, seed=args.seed, max_attempts=args.max_attempts)
 
@@ -348,6 +357,9 @@ def main(argv=None) -> int:
         native_map=str(scene.render_config["native_map"]),
         room_profile_id=str(scene.render_config["room_profile_id"]),
         hfov_degrees=scene.hfov_deg,
+        frame_count=clock["frame_count"],
+        frame_rate_hz=clock["frame_rate_hz"],
+        ticks_per_frame=clock.get("ticks_per_frame"),
     )
     timeline = transform_to_solved_routes(
         timeline,
@@ -360,9 +372,13 @@ def main(argv=None) -> int:
         actor["source_slot_id"]: endpoint["source_endpoint_id"]
         for actor, endpoint in zip(selection["actors"], endpoint_records)
     }
-    starts = [8000, 24000, 40000, 56000]
-    events = [(f"source{index}", starts[index - 1])
-              for index in range(1, 5)]
+    sample_count = clock.get("sample_count")
+    if sample_count is None:
+        sample_count = int(round(clock["clip_seconds"] * int(params["SAMPLE_RATE_HZ"])))
+    starts = [int(round((index + 0.5) * sample_count / 5.0))
+              for index in range(4)]
+    events = [(f"source{index + 1}", starts[index])
+              for index in range(4)]
     program = build_program({
         "pair_kind": "n4",
         "point_id": "canary",
@@ -384,6 +400,7 @@ def main(argv=None) -> int:
         "source_endpoint_count": 4,
         "assets": assets,
         "binding_frames": [12, 40],
+        "frame_clock": clock,
         "binding_azimuths_deg": plan["binding_azimuths_deg"],
         "search_attempts": plan["search_attempts"],
         "line_of_sight_screened": plan["line_of_sight_screened"],

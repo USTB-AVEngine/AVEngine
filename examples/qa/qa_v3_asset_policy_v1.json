@@ -1,0 +1,99 @@
+{
+  "schema": "qa_v3_asset_policy_v1",
+  "policy_id": "qa_v3_dual_source_visual_audio_v1",
+  "default_pair_id": "dog_pair",
+  "assets": {
+    "generated_border_collie_black_white_medium_standard_adult_research_v1": {
+      "label": "black-and-white",
+      "referent_phrase": "the black-and-white dog",
+      "sound_action_phrase": "bark",
+      "visual_family": "dog",
+      "allowed_sound_class_ids": [
+        "animal_vocalization"
+      ]
+    },
+    "generated_labrador_yellow_medium_standard_adult_research_v1": {
+      "label": "yellow",
+      "referent_phrase": "the yellow dog",
+      "sound_action_phrase": "bark",
+      "visual_family": "dog",
+      "allowed_sound_class_ids": [
+        "animal_vocalization"
+      ]
+    },
+    "generated_bookshelf_speaker_compact_shelf_cabinet_black_ash_research_v1": {
+      "label": "black-ash speaker",
+      "referent_phrase": "the black-ash bookshelf speaker",
+      "sound_action_phrase": "play a dog bark",
+      "visual_family": "speaker",
+      "allowed_sound_class_ids": [
+        "animal_vocalization"
+      ]
+    },
+    "generated_bookshelf_speaker_compact_shelf_cabinet_walnut_veneer_research_v1": {
+      "label": "walnut speaker",
+      "referent_phrase": "the walnut bookshelf speaker",
+      "sound_action_phrase": "play a dog bark",
+      "visual_family": "speaker",
+      "allowed_sound_class_ids": [
+        "animal_vocalization"
+      ]
+    }
+  },
+  "pairs": {
+    "dog_pair": {
+      "asset_ids": [
+        "generated_border_collie_black_white_medium_standard_adult_research_v1",
+        "generated_labrador_yellow_medium_standard_adult_research_v1"
+      ],
+      "family_rule": "same_family_distinct_instances",
+      "pair_kind": "dog",
+      "motion_by_role": {
+        "target": "must_move",
+        "other": "must_move"
+      },
+      "answer_depends_on_source_displacement": true
+    },
+    "dog_and_black_ash_speaker": {
+      "asset_ids": [
+        "generated_border_collie_black_white_medium_standard_adult_research_v1",
+        "generated_bookshelf_speaker_compact_shelf_cabinet_black_ash_research_v1"
+      ],
+      "family_rule": "mixed_families_voice_decoupled",
+      "pair_kind": "dog",
+      "motion_by_asset": {
+        "generated_border_collie_black_white_medium_standard_adult_research_v1": "must_move",
+        "generated_bookshelf_speaker_compact_shelf_cabinet_black_ash_research_v1": "must_be_still"
+      },
+      "allowed_answer_kinds": [
+        "time_band",
+        "event_count"
+      ],
+      "answer_depends_on_source_displacement": false,
+      "facing_by_asset": {
+        "generated_bookshelf_speaker_compact_shelf_cabinet_black_ash_research_v1": "toward_camera"
+      }
+    },
+    "two_speakers": {
+      "asset_ids": [
+        "generated_bookshelf_speaker_compact_shelf_cabinet_black_ash_research_v1",
+        "generated_bookshelf_speaker_compact_shelf_cabinet_walnut_veneer_research_v1"
+      ],
+      "family_rule": "same_family_distinct_instances",
+      "pair_kind": "dog",
+      "motion_by_asset": {
+        "generated_bookshelf_speaker_compact_shelf_cabinet_black_ash_research_v1": "must_be_still",
+        "generated_bookshelf_speaker_compact_shelf_cabinet_walnut_veneer_research_v1": "must_be_still"
+      },
+      "allowed_answer_kinds": [
+        "time_band",
+        "event_count"
+      ],
+      "answer_depends_on_source_displacement": false,
+      "facing_by_asset": {
+        "generated_bookshelf_speaker_compact_shelf_cabinet_black_ash_research_v1": "toward_camera",
+        "generated_bookshelf_speaker_compact_shelf_cabinet_walnut_veneer_research_v1": "toward_camera"
+      }
+    }
+  }
+}

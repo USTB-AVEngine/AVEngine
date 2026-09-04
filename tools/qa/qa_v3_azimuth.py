@@ -32,6 +32,56 @@ CONVENTION_NOTE = (
     "[-180, 180] degrees, positive to the left"
 )
 ENGINE_FRAME_NOTE = "right-positive camera frame; internal only, never published"
+ENGINE_CONVENTION = "engine_right_positive"
+_CONVENTION_ALIASES = {
+    "dcase_foa_left_positive": CONVENTION,
+    "left_positive": CONVENTION,
+    "left_positive_deg": CONVENTION,
+    "engine_right_positive": ENGINE_CONVENTION,
+    "right_positive": ENGINE_CONVENTION,
+    "right_positive_deg": ENGINE_CONVENTION,
+}
+
+
+def canonical_convention(value=None) -> str:
+    """Resolve a profile convention without applying a global sign flip."""
+    if value is None:
+        return CONVENTION
+    key = str(value).strip().lower().replace("-", "_").replace(" ", "_")
+    try:
+        return _CONVENTION_ALIASES[key]
+    except KeyError as exc:
+        raise ValueError(f"unknown azimuth convention {value!r}") from exc
+
+
+def convention_note(convention=None) -> str:
+    resolved = canonical_convention(convention)
+    return CONVENTION_NOTE if resolved == CONVENTION else ENGINE_FRAME_NOTE
+
+
+def to_convention_deg(engine_frame_deg: float, convention=None) -> float:
+    resolved = canonical_convention(convention)
+    if resolved == CONVENTION:
+        return to_published_deg(engine_frame_deg)
+    return float(engine_frame_deg)
+
+
+def to_convention_arc(engine_arc, convention=None):
+    from qa_v3_arc import Arc
+
+    if not isinstance(engine_arc, Arc):
+        raise TypeError("engine_arc must be a qa_v3_arc.Arc")
+    resolved = canonical_convention(convention)
+    return to_published_arc(engine_arc) if resolved == CONVENTION else engine_arc
+
+
+def convention_block(engine_frame_deg: float, convention=None) -> dict:
+    resolved = canonical_convention(convention)
+    return {
+        "azimuth_deg": round(to_convention_deg(engine_frame_deg, resolved), 3),
+        "convention": resolved,
+        "convention_note": convention_note(resolved),
+    }
 
 
 def to_published_deg(engine_frame_deg: float) -> float:
@@ -79,8 +129,25 @@ def to_published_band(engine_band) -> tuple[float, float]:
             "[lo, hi) pair cannot express a wrapping wedge, and publishing it "
             "would return the complement. Give the wedge a wrap-aware "
             "representation before using it (see wrapping_band)")
-    lo, hi = (to_published_deg(v) for v in engine_band)
-    return (hi, lo) if hi < lo else (lo, hi)
+    # Interval endpoints must retain -180 and +180 as distinct boundaries.
+    # Point normalization maps -180 to +180, which would turn [135, 180]
+    # into its 315-degree complement if applied before sorting the bounds.
+    lo, hi = (float(v) for v in engine_band)
+    return (-hi, -lo)
+
+
+def to_published_arc(engine_arc):
+    """Convert a signed engine-frame :class:`qa_v3_arc.Arc` at the edge.
+
+    Negating both the start and sweep preserves a seam crossing and a sweep
+    wider than 180 degrees.  Converting the endpoints independently would
+    collapse those cases into the complementary wedge.
+    """
+    from qa_v3_arc import Arc
+
+    if not isinstance(engine_arc, Arc):
+        raise TypeError("engine_arc must be a qa_v3_arc.Arc")
+    return Arc(start_deg=-engine_arc.start_deg, sweep_deg=-engine_arc.sweep_deg)
 
 
 def side_word(published_deg: float) -> str:
@@ -89,7 +156,7 @@ def side_word(published_deg: float) -> str:
     return "left" if float(published_deg) > 0.0 else "right"
 
 
-def landmark_sentence(half_fov_deg: float) -> str:
+def landmark_sentence(half_fov_deg: float, convention=None) -> str:
     """The convention, spelled out, for the stem of every azimuth question.
 
     owner 2026-09-03 asked for the landmark angles to be named rather than
@@ -97,6 +164,15 @@ def landmark_sentence(half_fov_deg: float) -> str:
     """
 
     edge = abs(float(half_fov_deg))
+    resolved = canonical_convention(convention)
+    if resolved == ENGINE_CONVENTION:
+        return (
+            "Use the AVEngine camera coordinate system: 0 degrees is straight "
+            "ahead, positive values turn to your right, +90 is directly right, "
+            "-90 is directly left, and +/-180 is directly behind you. The left "
+            f"and right edges of the video frame are about -{edge:g} and "
+            f"+{edge:g} degrees."
+        )
     return (
         "Use the DCASE FOA coordinate system relative to the camera: +x front, "
         "+y left, +z up. Azimuth is in [-180, 180] degrees with positive "
@@ -108,10 +184,5 @@ def landmark_sentence(half_fov_deg: float) -> str:
 
 
 def published_block(engine_frame_deg: float) -> dict:
-    """The published number together with the convention it is expressed in."""
-
-    return {
-        "azimuth_deg": round(to_published_deg(engine_frame_deg), 3),
-        "convention": CONVENTION,
-        "convention_note": CONVENTION_NOTE,
-    }
+    """The published DCASE number together with its convention."""
+    return convention_block(engine_frame_deg, CONVENTION)

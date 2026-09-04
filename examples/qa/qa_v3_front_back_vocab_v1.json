@@ -1,0 +1,6 @@
+{
+  "front_back": {
+    "front": ["front", "in front", "ahead", "前方", "前面", "前"],
+    "back": ["back", "behind", "behind you", "rear", "后方", "后面", "后"]
+  }
+}

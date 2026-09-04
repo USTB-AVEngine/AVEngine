@@ -212,11 +212,64 @@ def _stamp(role: str, start: int, purpose: str, params, clip=None) -> ScheduledE
     return event
 
 
+def validate_frame_clock(params, *, require_video_fps: bool = False) -> dict:
+    """Validate that frame, fps and sample clocks describe one clip."""
+    frame_count = _frame_count(params)
+    raw_fps = params.get("VIDEO_FPS", 15.0)
+    try:
+        frame_rate_hz = float(raw_fps)
+    except (TypeError, ValueError) as exc:
+        raise AudioProfileError("VIDEO_FPS must be a finite positive number") from exc
+    if not math.isfinite(frame_rate_hz) or frame_rate_hz <= 0.0:
+        raise AudioProfileError("VIDEO_FPS must be a finite positive number")
+    if require_video_fps and "VIDEO_FPS" not in params:
+        raise AudioProfileError("params missing VIDEO_FPS")
+    try:
+        clip_seconds = float(_require(params, "CLIP_SECONDS"))
+    except (TypeError, ValueError) as exc:
+        raise AudioProfileError("CLIP_SECONDS must be a finite positive number") from exc
+    if not math.isfinite(clip_seconds) or clip_seconds <= 0.0:
+        raise AudioProfileError("CLIP_SECONDS must be a finite positive number")
+    expected = frame_count / frame_rate_hz
+    if not math.isclose(clip_seconds, expected, rel_tol=0.0, abs_tol=1.0e-9):
+        raise AudioProfileError(
+            f"FRAME_COUNT={frame_count} at VIDEO_FPS={frame_rate_hz:g} "
+            f"requires CLIP_SECONDS={expected:g}, got {clip_seconds:g}")
+    sample_rate = _sample_rate(params)
+    sample_count = int(round(clip_seconds * sample_rate))
+    if "SAMPLE_COUNT" in params and int(params["SAMPLE_COUNT"]) != sample_count:
+        raise AudioProfileError(
+            f"SAMPLE_COUNT={params['SAMPLE_COUNT']} disagrees with "
+            f"CLIP_SECONDS*SAMPLE_RATE_HZ={sample_count}")
+    if "TIME_BASE_HZ" in params and "TICKS_PER_FRAME" in params:
+        expected_ticks = int(params["TIME_BASE_HZ"]) / frame_rate_hz
+        if not math.isclose(expected_ticks, int(params["TICKS_PER_FRAME"]),
+                            rel_tol=0.0, abs_tol=1.0e-9):
+            raise AudioProfileError(
+                f"TICKS_PER_FRAME={params['TICKS_PER_FRAME']} disagrees with "
+                f"TIME_BASE_HZ/VIDEO_FPS={expected_ticks:g}")
+    if ("TIME_BASE_HZ" in params and "TICKS_PER_SAMPLE" in params):
+        expected_ticks = int(params["TIME_BASE_HZ"]) / sample_rate
+        if not math.isclose(expected_ticks, int(params["TICKS_PER_SAMPLE"]),
+                            rel_tol=0.0, abs_tol=1.0e-9):
+            raise AudioProfileError(
+                f"TICKS_PER_SAMPLE={params['TICKS_PER_SAMPLE']} disagrees with "
+                f"TIME_BASE_HZ/SAMPLE_RATE_HZ={expected_ticks:g}")
+    return {"frame_count": frame_count, "frame_rate_hz": frame_rate_hz,
+            "clip_seconds": clip_seconds, "sample_rate_hz": sample_rate,
+            "sample_count": sample_count}
+
+
 def _clip_samples(params) -> int:
     seconds = float(_require(params, "CLIP_SECONDS"))
     if seconds <= 0:
         raise AudioProfileError("CLIP_SECONDS must be positive")
     return int(round(seconds * _sample_rate(params)))
+
+
+def _validate_non_speech_clock(params) -> dict:
+    """Validate the shared clock for schedules that require a visual timeline."""
+    return validate_frame_clock(params)
 
 
 def _fraction_to_sample(params, fraction: float) -> int:
@@ -318,6 +371,7 @@ def schedule_forward_anchor(rng, *, params, anchor_frame: int,
     但目标全片只在锚发声一次:否则 A-only 可按目标此前的 DoA 轨迹猜
     查询时刻方位,绕过声后视觉追踪。
     """
+    _validate_non_speech_clock(params)
     tail_fraction = float(params["TAIL_SILENCE_FRACTION"])
     gap = int(float(params["GAP_MIN_S"]) * _sample_rate(params))
     first_min = int(float(params["FIRST_MIN_S"]) * _sample_rate(params))
@@ -370,6 +424,7 @@ def schedule_backward_anchor(rng, *, params, anchor_frame: int,
     要求(与正向相反):**查询时刻附近目标必须静**,否则听声即可定位,
     题退化成即时 DoA;锚在查询之后,由末段发声确定身份。
     """
+    _validate_non_speech_clock(params)
     if query_frame >= anchor_frame:
         raise AudioProfileError(
             "backward cross-time needs the visual query before the audio anchor")
@@ -434,6 +489,7 @@ def schedule_first_call_bands(rng, *, params, target_bands: tuple[int, int],
     正式 Open 按 strict T_FULL 判分,只查 T_HALF 会让 1.1 s 间隔的题在
     T_FULL=0.6 下被"报中点"拿满分。缺 T_FULL 直接拒绝调度。
     """
+    _validate_non_speech_clock(params)
     bands = ([float(b) for b in band_edges] if band_edges
              else [float(b) for b in params["BANDS_CARD8"]])
     b1, b2 = target_bands
@@ -484,6 +540,7 @@ def schedule_first_call_bands(rng, *, params, target_bands: tuple[int, int],
 def schedule_exactly_one_calling(rng, *, params, query_frame: int,
                                  clip_source=None) -> Schedule:
     """⑦ 指定时刻恰好一只在叫:围绕查询帧安排唯一发声者。"""
+    _validate_non_speech_clock(params)
     target_clip = _draw_clip(clip_source, TARGET)
     other_clip = _draw_clip(clip_source, OTHER)
     event_len = _event_len(params, target_clip)
@@ -513,6 +570,7 @@ def schedule_exactly_one_calling(rng, *, params, query_frame: int,
 def schedule_first_sound_at_frame(rng, *, params, query_frame: int,
                                   clip_source=None) -> Schedule:
     """Card3 control: the target makes the first sound at a declared frame."""
+    _validate_non_speech_clock(params)
     target_clip = _draw_clip(clip_source, TARGET)
     other_clip = _draw_clip(clip_source, OTHER)
     clips = [target_clip, other_clip, target_clip]
@@ -559,6 +617,7 @@ def _self_check_first_sound(schedule: Schedule, query_frame: int) -> None:
 def schedule_event_count(rng, *, params, event_count: int,
                          clip_source=None) -> Schedule:
     """Audio-count control with randomized, separated event times."""
+    _validate_non_speech_clock(params)
     if event_count < 2:
         raise AudioProfileError("event-count profile needs at least two events")
     target_clip = _draw_clip(clip_source, TARGET)
@@ -599,6 +658,7 @@ def schedule_second_sound_at_frame(rng, *, params,
                                    query_frame: int,
                                    clip_source=None) -> Schedule:
     """Card6 family: the target owns the second event at a declared frame."""
+    _validate_non_speech_clock(params)
     other_clip = _draw_clip(clip_source, OTHER)
     target_clip = _draw_clip(clip_source, TARGET)
     clips = [other_clip, target_clip, other_clip]
