@@ -5,7 +5,9 @@ This is an empirical lower-bound attack, not a proof that an untested optimal
 unimodal strategy fails.  Audio features are the existing publication-WAV-only
 physical probe.  Video features are computed only from decoded RGB frames.
 Text features use question/options character n-grams.  Classification and
-numeric Open forms are reported separately.
+numeric Open forms are reported separately.  transcript_wer uses explicit
+free-text predictions and the scorer's declared normalization policy; it is
+never reduced to classification accuracy.
 """
 
 from __future__ import annotations
@@ -24,7 +26,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from probe_physical_features import FEATURE_NAMES, extract_features, probe  # noqa: E402
 from score_open_answers import (  # noqa: E402
     DEFAULT_VOCAB, angle_credit_radius, resolve_angle_policy, score_item,
-    score_time,
+    score_time, score_transcript, scorer_params, transcript_normalization,
 )
 
 
@@ -141,34 +143,175 @@ def _numeric_score(predictions, truths, kind, params, items=None):
 SCORING_KEYS = ("THETA_FULL", "THETA_HALF", "T_FULL", "T_HALF")
 
 
-def scoring_snapshot(params):
-    """Parameters the probe's numeric scorers actually execute (fail closed)."""
-    missing = [key for key in SCORING_KEYS if key not in params]
-    if missing:
-        raise ValueError(f"params missing explicit scoring keys {missing}")
-    # Validate the angle tolerance relationship even for a classification-only
-    # probe.  The snapshot is the public record of the parameters the probe
-    # accepts, so malformed values must not survive merely because this run has
-    # no numeric-angle group.
-    angle_credit_radius(params)
-    snapshot = {key: float(params[key]) for key in SCORING_KEYS}
-    snapshot["T_FULL_status"] = str(params.get(
-        "T_FULL_status", "unspecified_treat_as_placeholder"))
-    snapshot["time_certification_policy"] = "strict_full_credit_only"
-    snapshot["time_wide_tolerance_role"] = "diagnostic_only"
-    snapshot["angle_policy"] = resolve_angle_policy(params)
-    snapshot["angle_policy_scope"] = "parameter default; explicit item policies are retained per group"
+def scoring_snapshot(params, task_types=None):
+    """Record exactly the scorer parameters used by this probe."""
+    if task_types is None:
+        # Preserve the historical snapshot for callers that do not provide
+        # task metadata.
+        missing = [key for key in SCORING_KEYS if key not in params]
+        if missing:
+            raise ValueError(f"params missing explicit scoring keys {missing}")
+        angle_credit_radius(params)
+        snapshot = {key: float(params[key]) for key in SCORING_KEYS}
+        kinds = set()
+    else:
+        kinds = {str(value) for value in task_types}
+        try:
+            snapshot = dict(scorer_params(params, answer_types=kinds))
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"invalid scorer parameters: {exc}") from exc
+        if "angle_deg" in kinds:
+            angle_credit_radius(params)
+    if "T_FULL" in snapshot:
+        snapshot["T_FULL_status"] = str(params.get(
+            "T_FULL_status", "unspecified_treat_as_placeholder"))
+        snapshot["time_certification_policy"] = "strict_full_credit_only"
+        snapshot["time_wide_tolerance_role"] = "diagnostic_only"
+    if "ANGLE_CERTIFICATION_POLICY" in params and (
+        task_types is None or "angle_deg" in kinds
+    ):
+        snapshot["ANGLE_CERTIFICATION_POLICY"] = resolve_angle_policy(params)
+    if "ANGLE_CERTIFICATION_POLICY" in snapshot:
+        snapshot["angle_policy"] = resolve_angle_policy(params)
+        snapshot["angle_policy_scope"] = (
+            "parameter default; explicit item policies are retained per group")
+    if "transcript_wer" in kinds:
+        snapshot["TRANSCRIPT_NORMALIZATION"] = transcript_normalization(params)
     return snapshot
 
 
-def run(items, modality, params, folds):
-    scoring = scoring_snapshot(params)
+def _prediction_map(predictions):
+    if predictions is None:
+        return None
+    if isinstance(predictions, dict):
+        rows = predictions.items()
+    elif isinstance(predictions, list):
+        prepared = []
+        for index, row in enumerate(predictions):
+            if not isinstance(row, dict):
+                raise ValueError(
+                    f"predictions[{index}] must be an object with question_id and text")
+            question_id = row.get("question_id")
+            text = row.get("prediction", row.get("model_answer", row.get("answer")))
+            prepared.append((question_id, text))
+        rows = prepared
+    else:
+        raise ValueError("predictions must be a question_id mapping or row list")
+    result = {}
+    for question_id, text in rows:
+        if not isinstance(question_id, str) or not question_id:
+            raise ValueError("prediction question_id must be a non-empty string")
+        if not isinstance(text, str):
+            raise ValueError(
+                f"prediction for {question_id!r} must be free-text")
+        if question_id in result:
+            raise ValueError(f"duplicate prediction for {question_id!r}")
+        result[question_id] = text
+    return result
+
+
+def _transcript_record(rows, predictions, params):
+    if predictions is None:
+        return {
+            "status": "pending_predictions",
+            "n": len(rows),
+            "detail": (
+                "transcript_wer requires explicit free-text predictions; "
+                "no model output was supplied"),
+        }
+    expected = {str(row["question_id"]) for row in rows}
+    actual = set(predictions)
+    missing = sorted(expected - actual)
+    extra = sorted(actual - expected)
+    if missing or extra:
+        raise ValueError(
+            f"transcript predictions do not match items: "
+            f"missing={missing}, extra={extra}")
+    scored_rows = []
+    for row in rows:
+        prediction = predictions[str(row["question_id"])]
+        result = score_transcript(prediction, row.get("truth"), params)
+        scored_rows.append({
+            "question_id": row["question_id"],
+            "truth": row.get("truth"),
+            "prediction": prediction,
+            "score": result,
+        })
+    valid = [row["score"] for row in scored_rows
+             if row["score"].get("status") == "scored"]
+    exact = [row for row in valid if row.get("exact_match") is True]
+    return {
+        "status": "research_probe_complete",
+        "n": len(rows),
+        "prediction_source": "explicit_free_text",
+        "mean_wer": (
+            float(np.mean([row["wer"] for row in valid])) if valid else None),
+        "mean_scorer_score": (
+            float(np.mean([row["score"] for row in valid])) if valid else None),
+        "exact_match_rate": (
+            len(exact) / len(valid) if valid else None),
+        "invalid_count": len(scored_rows) - len(valid),
+        "invalid_rate": (
+            (len(scored_rows) - len(valid)) / len(scored_rows)
+            if scored_rows else 0.0),
+        "predictions": scored_rows,
+    }
+
+
+def run(items, modality, params, folds, predictions=None):
+    if not isinstance(items, list):
+        raise ValueError("items must be a list")
     groups = {}
-    for item in items:
+    for index, item in enumerate(items):
+        if not isinstance(item, dict):
+            raise ValueError(f"items[{index}] must be an object")
         key = (item["profile_id"], item["form"], item["task_type"])
         groups.setdefault(key, []).append(item)
+    task_types = {key[2] for key in groups}
+    scoring = scoring_snapshot(params, task_types=task_types)
+    prediction_map = _prediction_map(predictions)
+    transcript_groups = [
+        rows for (profile, form, task), rows in groups.items()
+        if task == "transcript_wer"
+    ]
+    transcript_rows = [
+        row for rows in transcript_groups for row in rows
+    ]
+    transcript_ids = [str(row["question_id"]) for row in transcript_rows]
+    if len(transcript_ids) != len(set(transcript_ids)):
+        transcript_counts = Counter(transcript_ids)
+        duplicates = sorted(
+            question_id for question_id, count in transcript_counts.items()
+            if count > 1
+        )
+        raise ValueError(
+            f"transcript items contain duplicate question_id values: {duplicates}"
+        )
+    if prediction_map is not None:
+        expected = set(transcript_ids)
+        actual = set(prediction_map)
+        missing = sorted(expected - actual)
+        extra = sorted(actual - expected)
+        if missing or extra:
+            raise ValueError(
+                "transcript predictions do not match all transcript items: "
+                f"missing={missing}, extra={extra}"
+            )
     records = []
     for (profile, form, task), rows in sorted(groups.items()):
+        if task == "transcript_wer":
+            group_predictions = None
+            if prediction_map is not None:
+                group_ids = {str(row["question_id"]) for row in rows}
+                group_predictions = {
+                    question_id: prediction_map[question_id]
+                    for question_id in group_ids
+                }
+            records.append({
+                "profile_id": profile, "form": form, "task_type": task,
+                **_transcript_record(rows, group_predictions, params),
+            })
+            continue
         if len(rows) < 4:
             records.append({"profile_id": profile, "form": form,
                             "task_type": task, "status": "insufficient_n",
@@ -229,18 +372,35 @@ def main(argv=None):
                         required=True)
     parser.add_argument("--params", required=True)
     parser.add_argument("--folds", type=int, default=3)
+    parser.add_argument(
+        "--predictions",
+        help="optional JSON mapping/list of transcript question_id to free text",
+    )
     parser.add_argument("--output", required=True)
     args = parser.parse_args(argv)
     if os.path.exists(args.output):
         print(f"refusing to overwrite: {args.output}", file=sys.stderr)
         return 2
     try:
-        result = run(json.load(open(args.items)), args.modality,
-                     json.load(open(args.params)), args.folds)
-    except ValueError as exc:
+        items = json.load(open(args.items))
+        params = json.load(open(args.params))
+        predictions = (
+            json.load(open(args.predictions))
+            if args.predictions is not None else None
+        )
+        result = run(
+            items, args.modality, params, args.folds,
+            predictions=predictions,
+        )
+    except (OSError, json.JSONDecodeError, ValueError) as exc:
         print(f"probe refused: {exc}", file=sys.stderr)
         return 2
     result["params_source"] = {"path": os.path.abspath(args.params)}
+    if args.predictions is not None:
+        result["predictions_source"] = {
+            "path": os.path.abspath(args.predictions),
+            "kind": "explicit_free_text",
+        }
     with open(args.output, "w") as stream:
         json.dump(result, stream, ensure_ascii=False, indent=2)
         stream.write("\n")

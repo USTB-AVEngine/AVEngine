@@ -105,6 +105,107 @@ def test_numeric_time_probe_uses_strict_scorer():
     assert 0.0 <= record["empirical_constant_baseline"] <= 1.0
 
 
+def _transcript_items():
+    return [
+        {
+            "question_id": f"speech_{index}",
+            "group_id": f"speech_{index}",
+            "profile_id": "speech",
+            "form": "open",
+            "task_type": "transcript_wer",
+            "question": "What was said?",
+            "options": [],
+            "truth": truth,
+        }
+        for index, truth in enumerate(
+            ("Hello, world!", "One two", "Third sentence"))
+    ]
+
+
+def _transcript_params():
+    return {
+        "TRANSCRIPT_NORMALIZATION": {
+            "unicode_form": "NFKC",
+            "casefold": True,
+            "punctuation": "remove",
+        }
+    }
+
+
+def test_transcript_probe_scores_explicit_free_text_without_accuracy(tmp_path):
+    items = _transcript_items()
+    predictions = {
+        "speech_0": " hello world ",
+        "speech_1": "one two",
+        "speech_2": "third sentence",
+    }
+    result = run(
+        items, "text", _transcript_params(), folds=3,
+        predictions=predictions,
+    )
+    record = result["records"][0]
+    assert record["task_type"] == "transcript_wer"
+    assert record["status"] == "research_probe_complete"
+    assert record["n"] == 3
+    assert record["mean_wer"] == pytest.approx(0.0)
+    assert record["mean_scorer_score"] == pytest.approx(1.0)
+    assert record["exact_match_rate"] == pytest.approx(1.0)
+    assert "accuracy" not in record
+    assert result["scoring_params"]["TRANSCRIPT_NORMALIZATION"] ==         _transcript_params()["TRANSCRIPT_NORMALIZATION"]
+
+
+def test_transcript_probe_without_predictions_stays_pending():
+    result = run(_transcript_items(), "text", _transcript_params(), folds=3)
+    record = result["records"][0]
+    assert record["status"] == "pending_predictions"
+    assert "mean_wer" not in record
+
+
+def test_transcript_probe_cli_consumes_a_fixed_prediction_file(tmp_path):
+    items_path = tmp_path / "items.json"
+    params_path = tmp_path / "params.json"
+    predictions_path = tmp_path / "predictions.json"
+    output_path = tmp_path / "probe.json"
+    items = _transcript_items()
+    items_path.write_text(json.dumps(items), encoding="utf-8")
+    params_path.write_text(json.dumps(_transcript_params()), encoding="utf-8")
+    predictions_path.write_text(json.dumps({
+        "speech_0": "HELLO WORLD",
+        "speech_1": "one two",
+        "speech_2": "third sentence",
+    }), encoding="utf-8")
+    completed = subprocess.run(
+        [
+            sys.executable, str(TOOLS / "probe_released_modality_shortcuts.py"),
+            "--items", str(items_path),
+            "--modality", "text",
+            "--params", str(params_path),
+            "--predictions", str(predictions_path),
+            "--output", str(output_path),
+        ],
+        capture_output=True, text=True, check=True,
+    )
+    assert json.loads(completed.stdout)["groups"] == 1
+    result = json.loads(output_path.read_text(encoding="utf-8"))
+    assert result["records"][0]["task_type"] == "transcript_wer"
+    assert result["records"][0]["mean_scorer_score"] == pytest.approx(1.0)
+    assert result["predictions_source"]["kind"] == "explicit_free_text"
+
+
+def test_transcript_wer_is_not_emitted_as_classification(tmp_path):
+    selection, facts, audio, media, _ = _released_fixture(
+        tmp_path,
+        {
+            "stem": "What was said?",
+            "truth_value": "hello",
+            "scoring": "transcript_wer",
+        },
+    )
+    rows = build(selection, facts, audio, media)
+    open_row = next(row for row in rows if row["form"] == "open")
+    assert open_row["task_type"] == "transcript_wer"
+
+
 def test_item_builder_uses_only_released_paths_and_question_gold(tmp_path):
     selection, facts, audio, media, point = _released_fixture(
         tmp_path,
@@ -412,4 +513,101 @@ def test_released_clock_rejects_inconsistent_audio_duration(tmp_path):
         _validate_media_clock(
             {"frame_clock": {**clock, "frame_count": 45}},
             wav, video, owner="clock-test",
+        )
+
+
+def _transcript_group(profile, prefix):
+    truths = ("Hello, world!", "One two", "Third sentence")
+    return [
+        {
+            "question_id": f"{prefix}_{index}",
+            "group_id": f"{prefix}_{index}",
+            "profile_id": profile,
+            "form": "open",
+            "task_type": "transcript_wer",
+            "question": "What was said?",
+            "options": [],
+            "truth": truth,
+        }
+        for index, truth in enumerate(truths)
+    ]
+
+
+def test_transcript_predictions_are_validated_globally_then_sliced_per_group():
+    items = _transcript_group("speech_a", "a")
+    items += _transcript_group("speech_b", "b")
+    predictions = {
+        row["question_id"]: row["truth"].lower()
+        for row in items
+    }
+    result = run(
+        items, "text", _transcript_params(), folds=3,
+        predictions=predictions,
+    )
+    records = {
+        record["profile_id"]: record
+        for record in result["records"]
+    }
+    assert set(records) == {"speech_a", "speech_b"}
+    assert all(record["status"] == "research_probe_complete"
+               and record["n"] == 3
+               and record["mean_wer"] == pytest.approx(0.0)
+               for record in records.values())
+
+
+def test_transcript_prediction_missing_and_extra_ids_are_checked_across_groups():
+    items = _transcript_group("speech_a", "a")
+    items += _transcript_group("speech_b", "b")
+    predictions = {
+        row["question_id"]: row["truth"]
+        for row in items
+        if row["profile_id"] == "speech_a"
+    }
+    predictions["unexpected"] = "extra"
+    with pytest.raises(
+        ValueError,
+        match=r"missing=.*b_0.*extra=.*unexpected",
+    ):
+        run(
+            items, "text", _transcript_params(), folds=3,
+            predictions=predictions,
+        )
+
+
+def test_mixed_transcript_and_classification_only_consumes_transcript_predictions():
+    transcript = _transcript_group("speech", "speech")
+    classification = [
+        {
+            "question_id": f"class_{index}",
+            "group_id": f"class_{index}",
+            "profile_id": "visual",
+            "form": "mcq",
+            "task_type": "classification",
+            "question": f"token {label}",
+            "options": ["left", "right"],
+            "truth": label,
+        }
+        for index, label in enumerate(("left", "right", "left", "right"))
+    ]
+    predictions = {
+        row["question_id"]: row["truth"]
+        for row in transcript
+    }
+    result = run(
+        transcript + classification,
+        "text", _transcript_params(), folds=2,
+        predictions=predictions,
+    )
+    records = {
+        record["task_type"]: record
+        for record in result["records"]
+    }
+    assert records["transcript_wer"]["status"] == "research_probe_complete"
+    assert "accuracy" not in records["transcript_wer"]
+    assert records["classification"]["status"] == "research_probe_complete"
+    with pytest.raises(ValueError, match=r"extra=.*class_0"):
+        run(
+            transcript + classification,
+            "text", _transcript_params(), folds=2,
+            predictions={**predictions, "class_0": "left"},
         )

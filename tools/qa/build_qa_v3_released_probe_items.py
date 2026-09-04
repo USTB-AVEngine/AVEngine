@@ -374,6 +374,8 @@ def build(selection, facts_root=None, audio_root=None, media_root=None, *,
                 task_type = "numeric_angle"
             elif scoring == "absolute_time":
                 task_type = "numeric_time"
+            elif scoring == "transcript_wer":
+                task_type = "transcript_wer"
             else:
                 task_type = "classification"
             mcq_fact = fact.get("mcq")
