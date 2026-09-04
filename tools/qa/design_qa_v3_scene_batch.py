@@ -929,6 +929,11 @@ def materialize_derived_params(params, profiles=None):
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--scene-config", required=True, type=Path)
+    parser.add_argument(
+        "--historical-reproduction", action="store_true",
+        help="replay an old batch from a superseded scene config; "
+             "without it only the room's one config under "
+             "examples/qa/scenes is accepted")
     parser.add_argument("--profiles", required=True, type=Path)
     parser.add_argument("--params", required=True, type=Path)
     parser.add_argument("--out-root", required=True, type=Path)
@@ -943,7 +948,11 @@ def main(argv=None) -> int:
     if args.out_root.exists():
         print(f"refusing to overwrite: {args.out_root}", file=sys.stderr)
         return 2
-    scene_cfg = json.loads(args.scene_config.read_text())
+    scene_config_path = SS.resolve_production_scene_config(
+        args.scene_config,
+        historical_reproduction=bool(getattr(args, "historical_reproduction", False)))
+    scene_cfg = json.loads(scene_config_path.read_text())
+    SS.require_production_scene_config(scene_cfg, scene_config_path)
     profiles = json.loads(args.profiles.read_text())
     params = json.loads(args.params.read_text())
     validate_profiles(profiles)

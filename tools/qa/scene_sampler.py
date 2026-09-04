@@ -111,6 +111,42 @@ PRODUCTION_SCENE_REQUIRED = (
 PRODUCTION_SCENE_RENDER_REQUIRED = ("floor_reference", "camera_clearance_table")
 
 
+def resolve_production_scene_config(path, *, repo_root=None,
+                                    historical_reproduction=False):
+    """The scene config a production run may load: the room's one file, or nothing.
+
+    Marking the old copies superseded is not enough on its own, because a
+    superseded file still loads if someone points at it -- and on 2026-09-04 two
+    of the apartment's six copies carried a hand-written ground height of 0.0
+    against a measured floor of +27.11 cm.  Owner's ruling that day: one file per
+    room, and no new ones.  This is the half that makes it stick, by refusing a
+    path outside ``examples/qa/scenes`` instead of trusting everyone to pick
+    right.
+
+    ``historical_reproduction`` reopens the door for replaying an old batch,
+    which is the same escape the frozen card1 band table uses.  It has to be
+    asked for, so nobody arrives at an old config by accident.
+    """
+
+    path = Path(path).resolve()
+    root = Path(repo_root or Path(__file__).resolve().parents[2])
+    canonical = (root / PRODUCTION_SCENE_DIR).resolve()
+    if historical_reproduction:
+        return path
+    try:
+        path.relative_to(canonical)
+    except ValueError:
+        raise ValueError(
+            f"{path} is not under {canonical}. A room has one scene config and "
+            f"it lives there; pass --historical-reproduction only to replay an "
+            f"old batch. Copies elsewhere are superseded and at least two of "
+            f"them carry a hand-written floor height that is wrong."
+        ) from None
+    if not path.is_file():
+        raise ValueError(f"{path} does not exist under {canonical}")
+    return path
+
+
 def require_production_scene_config(config, path) -> None:
     """A room that questions ship from must be one file, and complete.
 

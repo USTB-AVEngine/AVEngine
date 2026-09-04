@@ -89,3 +89,38 @@ def test_render_facts_without_a_floor_reference_are_refused():
     doc = _good(); doc.pop("camera_clearance_table")
     with pytest.raises(ValueError, match="render facts"):
         SS.require_production_scene_config(doc, SCENES[0])
+
+
+# ── 一个房间一份，而且以后也不许有新的（owner 2026-09-04）──────────────────
+def test_the_canonical_config_is_accepted():
+    got = SS.resolve_production_scene_config(SCENES[0], repo_root=REPO)
+    assert got == SCENES[0].resolve()
+
+
+@pytest.mark.parametrize("stale", [
+    "/data/jzy/tmp/qa_v3_scene_apartment_codex_v3.json",
+    "/data/jzy/tmp/qa_v3_scene_configs_floor_20260903_v2/apartment_0000.json",
+    "/data/jzy/tmp/somewhere_else/apartment_0000.json",
+])
+def test_a_config_from_anywhere_else_is_refused(stale):
+    """标死旧文件不够:标死的文件照样能被指着加载。
+
+    floor_20260903_v2 也在这张表里,尽管仓库里那份的内容就是从它合来的——
+    内容合进来之后再从 /tmp 加载就是走回头路,这条要一并拦掉。
+    """
+    with pytest.raises(ValueError, match="one scene config|not under"):
+        SS.resolve_production_scene_config(stale, repo_root=REPO)
+
+
+def test_replaying_an_old_batch_still_has_a_door():
+    """历史复现要能走,但必须明说,不能是默认。"""
+    stale = "/data/jzy/tmp/qa_v3_scene_apartment_codex_v3.json"
+    got = SS.resolve_production_scene_config(
+        stale, repo_root=REPO, historical_reproduction=True)
+    assert got == Path(stale).resolve()
+
+
+def test_a_name_under_the_canonical_directory_that_does_not_exist_is_refused():
+    missing = REPO / SS.PRODUCTION_SCENE_DIR / "no_such_room.json"
+    with pytest.raises(ValueError, match="does not exist"):
+        SS.resolve_production_scene_config(missing, repo_root=REPO)
