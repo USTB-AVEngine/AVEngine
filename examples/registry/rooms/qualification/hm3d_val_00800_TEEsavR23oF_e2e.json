@@ -1,0 +1,158 @@
+{
+  "schema": "avengine_m6_room_qualification_report_v1",
+  "report_id": "hm3d_00800_e2e_research_audit_v1",
+  "subject": {
+    "room_id": "hm3d_val_00800_TEEsavR23oF",
+    "revision": "hm3d_e2e_wt_20260905_v1",
+    "qualification_scope": "acoustic_representation",
+    "acoustic_representation_id": "hm3d_00800_acoustic_package_v1",
+    "acoustic_representation_kind": "derived_proxy"
+  },
+  "evidence_basis": "verified_retained_evidence_materialization",
+  "evidence_artifacts": [],
+  "dimensions": {
+    "visual_runtime_status": {
+      "status": "pass",
+      "summary": "Retained current-worktree E2E evidence passed the video frame and deliverable mux checks.",
+      "evidence_refs": [
+        "${AVENGINE_HM3D_E2E_00800_ROOT}/execution_provenance.json",
+        "${AVENGINE_HM3D_E2E_00800_ROOT}/episode/machine_audition.json",
+        "${AVENGINE_HM3D_E2E_00800_ROOT}/episode/video/video_manifest.json"
+      ]
+    },
+    "navigation_status": {
+      "status": "pass",
+      "summary": "The selected R3 room produced valid navmesh routes on both examined floors.",
+      "evidence_refs": [
+        "${AVENGINE_HM3D_E2E_00800_ROOT}/rooms/hm3d_val_00800_TEEsavR23oF/room_manifest.json",
+        "${AVENGINE_HM3D_E2E_00800_ROOT}/routes_R3/route_report.json"
+      ]
+    },
+    "acoustic_geometry_status": {
+      "status": "fail",
+      "summary": "The compiled package is loadable, but its geometry report still records boundary and global non-manifold topology outside the declared zero-defect thresholds.",
+      "evidence_refs": [
+        "${AVENGINE_HM3D_E2E_00800_ROOT}/package/qa/geometry_report.json",
+        "${AVENGINE_HM3D_E2E_00800_ROOT}/package/manifest.json"
+      ],
+      "blocker_code": "hm3d_00800_geometry_thresholds_failed"
+    },
+    "material_binding_status": {
+      "status": "pass",
+      "summary": "All compiled triangles received a declared acoustic material assignment; the mapping remains a research placeholder.",
+      "evidence_refs": [
+        "${AVENGINE_HM3D_E2E_00800_ROOT}/package/qa/material_coverage.json",
+        "${AVENGINE_HM3D_E2E_00800_ROOT}/package/semantic_material_coverage.json"
+      ]
+    },
+    "ray_leakage_status": {
+      "status": "not_run",
+      "summary": "The retained package ray leakage report is not_run, so opening/enclosure behavior is not qualified.",
+      "evidence_refs": [
+        "${AVENGINE_HM3D_E2E_00800_ROOT}/package/qa/ray_leakage.json"
+      ],
+      "blocker_code": "hm3d_00800_ray_leakage_not_run"
+    },
+    "physical_material_truth_status": {
+      "status": "unqualified",
+      "summary": "Semantic-to-RLR assignments are research placeholders and do not establish physical HM3D material truth.",
+      "evidence_refs": [
+        "${AVENGINE_HM3D_E2E_00800_ROOT}/package/semantic_material_coverage.json",
+        "${AVENGINE_HM3D_E2E_00800_ROOT}/package/manifest.json"
+      ],
+      "blocker_code": "hm3d_00800_physical_material_truth_unqualified"
+    },
+    "episode_feasibility_status": {
+      "status": "pass",
+      "summary": "The retained E2E machine audition passed the current visual, FOA, binaural and mux checks.",
+      "evidence_refs": [
+        "${AVENGINE_HM3D_E2E_00800_ROOT}/end_to_end_receipt.json",
+        "${AVENGINE_HM3D_E2E_00800_ROOT}/episode/machine_audition.json",
+        "${AVENGINE_HM3D_E2E_00800_ROOT}/episode/receipt.json"
+      ]
+    }
+  },
+  "placement_feasibility": {
+    "status": "not_run",
+    "summary": "The E2E route bank is not the complete five-point placement and frustum leakage probe.",
+    "evidence_refs": [
+      "${AVENGINE_HM3D_E2E_00800_ROOT}/routes_R3/route_report.json"
+    ],
+    "blocker_code": "hm3d_00800_full_placement_probe_not_run",
+    "checks": [],
+    "failure_reasons": [
+      "full_placement_probe_not_run"
+    ]
+  },
+  "acoustic_diagnostics": {
+    "raw_source_identity": {
+      "status": "pass",
+      "summary": "Execution provenance and the retained room package identify the same HM3D scene source.",
+      "evidence_refs": [
+        "${AVENGINE_HM3D_E2E_00800_ROOT}/execution_provenance.json",
+        "${AVENGINE_HM3D_E2E_00800_ROOT}/rooms/hm3d_val_00800_TEEsavR23oF/room_manifest.json"
+      ]
+    },
+    "declared_derivation_integrity": {
+      "status": "pass",
+      "summary": "The compiled package records a reviewed source-to-canonical transform and retained source/package parity evidence.",
+      "evidence_refs": [
+        "${AVENGINE_HM3D_E2E_00800_ROOT}/package/frame_parity.json",
+        "${AVENGINE_HM3D_E2E_00800_ROOT}/package/qa/compiler_source_to_package_parity.json"
+      ]
+    },
+    "visual_to_acoustic_spatial_parity": {
+      "status": "pass",
+      "summary": "The retained frame parity and runtime audio reports use the same scene and route evidence.",
+      "evidence_refs": [
+        "${AVENGINE_HM3D_E2E_00800_ROOT}/package/frame_parity.json",
+        "${AVENGINE_HM3D_E2E_00800_ROOT}/episode/audio_binaural/render_report.json",
+        "${AVENGINE_HM3D_E2E_00800_ROOT}/episode/audio_foa/render_report.json"
+      ]
+    },
+    "solver_loadability": {
+      "status": "pass",
+      "summary": "The compiled acoustic package loaded in the retained binaural and FOA E2E renders.",
+      "evidence_refs": [
+        "${AVENGINE_HM3D_E2E_00800_ROOT}/package/manifest.json",
+        "${AVENGINE_HM3D_E2E_00800_ROOT}/episode/audio_binaural/render_report.json",
+        "${AVENGINE_HM3D_E2E_00800_ROOT}/episode/audio_foa/render_report.json"
+      ]
+    },
+    "topology_diagnostics": {
+      "status": "fail",
+      "summary": "The geometry report is not within its declared boundary/non-manifold thresholds.",
+      "evidence_refs": [
+        "${AVENGINE_HM3D_E2E_00800_ROOT}/package/qa/geometry_report.json"
+      ],
+      "blocker_code": "hm3d_00800_topology_thresholds_failed"
+    },
+    "opening_and_enclosure_checks": {
+      "status": "not_run",
+      "summary": "No retained room-specific opening/enclosure qualification was run.",
+      "evidence_refs": [
+        "${AVENGINE_HM3D_E2E_00800_ROOT}/package/qa/ray_leakage.json"
+      ],
+      "blocker_code": "hm3d_00800_opening_checks_not_run"
+    }
+  },
+  "dataset_admission": false,
+  "admission_blockers": [
+    "acoustic_geometry_status=fail",
+    "ray_leakage_status=not_run",
+    "physical_material_truth_status=unqualified",
+    "placement_feasibility=not_run",
+    "acoustic_diagnostics.topology_diagnostics=fail",
+    "acoustic_diagnostics.opening_and_enclosure_checks=not_run"
+  ],
+  "provenance": {
+    "source_records": [
+      "${AVENGINE_HM3D_E2E_00800_ROOT}/end_to_end_receipt.json",
+      "${AVENGINE_HM3D_E2E_00800_ROOT}/execution_provenance.json",
+      "${AVENGINE_HM3D_E2E_00800_ROOT}/rooms/hm3d_val_00800_TEEsavR23oF/room_manifest.json",
+      "${AVENGINE_HM3D_E2E_00800_ROOT}/package/manifest.json",
+      "${AVENGINE_HM3D_E2E_00800_ROOT}/episode/machine_audition.json"
+    ],
+    "notes": "This is a retained research evidence record. The machine-audition pass covers the executed chain and does not promote the room to formal dataset admission."
+  }
+}

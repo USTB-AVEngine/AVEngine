@@ -17,18 +17,18 @@ ROOM_EXAMPLES = REPOSITORY_ROOT / "examples/registry/rooms"
 REGISTRY_PATH = ROOM_EXAMPLES / "room_registry.json"
 
 
-def test_checked_in_registry_has_four_complementary_room_providers() -> None:
+def test_checked_in_registry_has_complementary_room_providers() -> None:
     registry = load_json(REGISTRY_PATH)
 
     assert validate_room_registry(registry) == []
-    assert len(registry["records"]) == 4
+    assert len(registry["records"]) == 5
     assert {record["provider_id"] for record in registry["records"]} == {
         "blender_custom",
         "replica_cad",
         "legacy_ue_apartment",
         "matterport3d",
     }
-    assert len(index_room_records(registry)) == 4
+    assert len(index_room_records(registry)) == 5
 
 
 def test_room_lineage_keeps_geometry_layout_acoustics_and_episode_separate() -> None:
@@ -93,7 +93,7 @@ def test_public_registry_contains_no_private_absolute_resource_paths() -> None:
 def test_all_checked_in_room_reports_validate_without_overall_status() -> None:
     report_paths = sorted((ROOM_EXAMPLES / "qualification").glob("*.json"))
 
-    assert len(report_paths) == 5
+    assert len(report_paths) == 6
     for path in report_paths:
         report = load_json(path)
         assert "overall_status" not in report
@@ -110,3 +110,24 @@ def test_room_report_cannot_hide_nonpass_dimension_behind_admission() -> None:
     errors = validate_qualification_report(report)
 
     assert any("dataset_admission=true" in error for error in errors)
+
+
+def test_hm3d_00800_is_a_research_record_with_retained_e2e_evidence():
+    registry = load_json(REGISTRY_PATH)
+    record = find_room_record(registry, "hm3d_val_00800_TEEsavR23oF")
+    assert record["provider_id"] == "matterport3d"
+    assert record["tier"] == "visual_research_only"
+    assert record["admission_state"] == "not_admitted"
+    resource_ids = {resource["resource_id"] for resource in record["resources"]}
+    assert {
+        "hm3d_00800_scene_dataset_config",
+        "hm3d_00800_render_surface",
+        "hm3d_00800_semantic_surface",
+        "hm3d_00800_semantic_descriptor",
+        "hm3d_00800_navmesh",
+        "hm3d_00800_acoustic_package",
+        "hm3d_00800_machine_audition",
+    } <= resource_ids
+    assert record["qualification_reports"][0]["path"].endswith(
+        "hm3d_val_00800_TEEsavR23oF_e2e.json"
+    )

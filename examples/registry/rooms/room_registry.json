@@ -699,6 +699,299 @@
         "rights": "Matterport3D terms apply; external asset",
         "notes": "Raw scan, historical research proxy and the SoundSpaces 2 public-material acoustic representation remain separately auditable."
       }
+    },
+    {
+      "room_id": "hm3d_val_00800_TEEsavR23oF",
+      "revision": "hm3d_e2e_wt_20260905_v1",
+      "provider_id": "matterport3d",
+      "lineage": {
+        "scene_lineage_id": "hm3d_val_00800_TEEsavR23oF",
+        "room_geometry_id": "hm3d_val_00800_TEEsavR23oF_real_surface_v1",
+        "layout_variant_id": "hm3d_val_00800_TEEsavR23oF_R3",
+        "acoustic_profile_id": "hm3d_val_00800_TEEsavR23oF_soundspaces_style_residential_v3_hm3d_vocabulary_seed20260905",
+        "episode_layout_id": "hm3d_00800_R3_source1_moving_source2_static_v1"
+      },
+      "tier": "visual_research_only",
+      "coordinate_system": {
+        "handedness": "right",
+        "up_axis": "+Y",
+        "forward_axis": "-Z",
+        "linear_unit": "meter"
+      },
+      "resources": [
+        {
+          "resource_id": "hm3d_00800_e2e_room_manifest",
+          "resource_type": "room_manifest",
+          "location": {
+            "kind": "environment_template",
+            "environment_variable": "AVENGINE_HM3D_E2E_00800_ROOT",
+            "path_template": "${AVENGINE_HM3D_E2E_00800_ROOT}/rooms/hm3d_val_00800_TEEsavR23oF/room_manifest.json"
+          },
+          "required_for": [
+            "visual_runtime",
+            "navigation",
+            "episode_feasibility"
+          ],
+          "redistribution": "external_required"
+        },
+        {
+          "resource_id": "hm3d_00800_scene_dataset_config",
+          "resource_type": "scene_dataset_config",
+          "location": {
+            "kind": "environment_template",
+            "environment_variable": "AVENGINE_HM3D_ROOT",
+            "path_template": "${AVENGINE_HM3D_ROOT}/hm3d_annotated_val_basis.scene_dataset_config.json"
+          },
+          "required_for": [
+            "visual_runtime"
+          ],
+          "redistribution": "external_required"
+        },
+        {
+          "resource_id": "hm3d_00800_render_surface",
+          "resource_type": "visual_scene",
+          "location": {
+            "kind": "environment_template",
+            "environment_variable": "AVENGINE_HM3D_ROOT",
+            "path_template": "${AVENGINE_HM3D_ROOT}/val/00800-TEEsavR23oF/TEEsavR23oF.glb"
+          },
+          "required_for": [
+            "visual_runtime",
+            "acoustic_geometry"
+          ],
+          "redistribution": "external_required",
+          "notes": "HM3D render surface; redistribution is governed by HM3D terms."
+        },
+        {
+          "resource_id": "hm3d_00800_semantic_surface",
+          "resource_type": "semantic_resource",
+          "location": {
+            "kind": "environment_template",
+            "environment_variable": "AVENGINE_HM3D_ROOT",
+            "path_template": "${AVENGINE_HM3D_ROOT}/val/00800-TEEsavR23oF/TEEsavR23oF.semantic.glb"
+          },
+          "required_for": [
+            "material_binding",
+            "ray_leakage"
+          ],
+          "redistribution": "external_required"
+        },
+        {
+          "resource_id": "hm3d_00800_semantic_descriptor",
+          "resource_type": "semantic_resource",
+          "location": {
+            "kind": "environment_template",
+            "environment_variable": "AVENGINE_HM3D_ROOT",
+            "path_template": "${AVENGINE_HM3D_ROOT}/val/00800-TEEsavR23oF/TEEsavR23oF.semantic.txt"
+          },
+          "required_for": [
+            "material_binding"
+          ],
+          "redistribution": "external_required"
+        },
+        {
+          "resource_id": "hm3d_00800_navmesh",
+          "resource_type": "navmesh",
+          "location": {
+            "kind": "environment_template",
+            "environment_variable": "AVENGINE_HM3D_ROOT",
+            "path_template": "${AVENGINE_HM3D_ROOT}/val/00800-TEEsavR23oF/TEEsavR23oF.basis.navmesh"
+          },
+          "required_for": [
+            "navigation",
+            "episode_feasibility"
+          ],
+          "redistribution": "external_required"
+        },
+        {
+          "resource_id": "hm3d_00800_room_inventory",
+          "resource_type": "semantic_resource",
+          "location": {
+            "kind": "environment_template",
+            "environment_variable": "AVENGINE_HM3D_E2E_00800_ROOT",
+            "path_template": "${AVENGINE_HM3D_E2E_00800_ROOT}/rooms/hm3d_val_00800_TEEsavR23oF/rooms.json"
+          },
+          "required_for": [
+            "navigation",
+            "episode_feasibility"
+          ],
+          "redistribution": "generated_local"
+        },
+        {
+          "resource_id": "hm3d_00800_route_bank_R3",
+          "resource_type": "route_manifest",
+          "location": {
+            "kind": "environment_template",
+            "environment_variable": "AVENGINE_HM3D_E2E_00800_ROOT",
+            "path_template": "${AVENGINE_HM3D_E2E_00800_ROOT}/routes_R3/bank/00800-TEEsavR23oF_y+3.163.bank.json"
+          },
+          "required_for": [
+            "navigation",
+            "episode_feasibility"
+          ],
+          "redistribution": "generated_local"
+        },
+        {
+          "resource_id": "hm3d_00800_acoustic_package",
+          "resource_type": "acoustic_package",
+          "location": {
+            "kind": "environment_template",
+            "environment_variable": "AVENGINE_HM3D_E2E_00800_ROOT",
+            "path_template": "${AVENGINE_HM3D_E2E_00800_ROOT}/package/manifest.json"
+          },
+          "required_for": [
+            "acoustic_geometry",
+            "material_binding",
+            "ray_leakage",
+            "episode_feasibility"
+          ],
+          "redistribution": "generated_local",
+          "notes": "Compiled research package used by the passing RLR render; geometry topology and material truth remain separately qualified."
+        },
+        {
+          "resource_id": "hm3d_00800_e2e_receipt",
+          "resource_type": "source_manifest",
+          "location": {
+            "kind": "environment_template",
+            "environment_variable": "AVENGINE_HM3D_E2E_00800_ROOT",
+            "path_template": "${AVENGINE_HM3D_E2E_00800_ROOT}/end_to_end_receipt.json"
+          },
+          "required_for": [
+            "visual_runtime",
+            "navigation",
+            "episode_feasibility"
+          ],
+          "redistribution": "generated_local"
+        },
+        {
+          "resource_id": "hm3d_00800_execution_provenance",
+          "resource_type": "source_manifest",
+          "location": {
+            "kind": "environment_template",
+            "environment_variable": "AVENGINE_HM3D_E2E_00800_ROOT",
+            "path_template": "${AVENGINE_HM3D_E2E_00800_ROOT}/execution_provenance.json"
+          },
+          "required_for": [
+            "visual_runtime",
+            "episode_feasibility"
+          ],
+          "redistribution": "generated_local"
+        },
+        {
+          "resource_id": "hm3d_00800_machine_audition",
+          "resource_type": "source_manifest",
+          "location": {
+            "kind": "environment_template",
+            "environment_variable": "AVENGINE_HM3D_E2E_00800_ROOT",
+            "path_template": "${AVENGINE_HM3D_E2E_00800_ROOT}/episode/machine_audition.json"
+          },
+          "required_for": [
+            "visual_runtime",
+            "episode_feasibility"
+          ],
+          "redistribution": "generated_local"
+        },
+        {
+          "resource_id": "hm3d_00800_episode_receipt",
+          "resource_type": "source_manifest",
+          "location": {
+            "kind": "environment_template",
+            "environment_variable": "AVENGINE_HM3D_E2E_00800_ROOT",
+            "path_template": "${AVENGINE_HM3D_E2E_00800_ROOT}/episode/receipt.json"
+          },
+          "required_for": [
+            "episode_feasibility"
+          ],
+          "redistribution": "generated_local"
+        },
+        {
+          "resource_id": "hm3d_00800_video_manifest",
+          "resource_type": "visual_scene",
+          "location": {
+            "kind": "environment_template",
+            "environment_variable": "AVENGINE_HM3D_E2E_00800_ROOT",
+            "path_template": "${AVENGINE_HM3D_E2E_00800_ROOT}/episode/video/video_manifest.json"
+          },
+          "required_for": [
+            "visual_runtime"
+          ],
+          "redistribution": "generated_local"
+        },
+        {
+          "resource_id": "hm3d_00800_binaural_report",
+          "resource_type": "source_manifest",
+          "location": {
+            "kind": "environment_template",
+            "environment_variable": "AVENGINE_HM3D_E2E_00800_ROOT",
+            "path_template": "${AVENGINE_HM3D_E2E_00800_ROOT}/episode/audio_binaural/render_report.json"
+          },
+          "required_for": [
+            "episode_feasibility"
+          ],
+          "redistribution": "generated_local"
+        },
+        {
+          "resource_id": "hm3d_00800_foa_report",
+          "resource_type": "source_manifest",
+          "location": {
+            "kind": "environment_template",
+            "environment_variable": "AVENGINE_HM3D_E2E_00800_ROOT",
+            "path_template": "${AVENGINE_HM3D_E2E_00800_ROOT}/episode/audio_foa/render_report.json"
+          },
+          "required_for": [
+            "episode_feasibility"
+          ],
+          "redistribution": "generated_local"
+        }
+      ],
+      "acoustic_representations": [
+        {
+          "representation_id": "hm3d_00800_raw_source_v1",
+          "role": "raw_source",
+          "geometry_kind": "real_surface_mesh",
+          "resource_id": "hm3d_00800_render_surface",
+          "build_mode": "reference",
+          "input_resource_ids": [
+            "hm3d_00800_render_surface"
+          ],
+          "immutable": true,
+          "derived_from": null,
+          "material_semantics": "unqualified",
+          "notes": "Immutable HM3D source identity; physical material truth is not claimed."
+        },
+        {
+          "representation_id": "hm3d_00800_acoustic_package_v1",
+          "role": "derived_proxy",
+          "geometry_kind": "declared_derived_surface",
+          "resource_id": "hm3d_00800_acoustic_package",
+          "build_mode": "compile",
+          "producer": "avengine.acoustics.compiler:compile_hm3d_soundspaces_research_scene",
+          "input_resource_ids": [
+            "hm3d_00800_render_surface",
+            "hm3d_00800_semantic_surface",
+            "hm3d_00800_semantic_descriptor"
+          ],
+          "immutable": false,
+          "derived_from": "hm3d_00800_raw_source_v1",
+          "material_semantics": "research_placeholder",
+          "notes": "Current E2E acoustic package; solver load and audio render passed, while topology and physical material truth remain blocked."
+        }
+      ],
+      "openings": [],
+      "qualification_reports": [
+        {
+          "report_id": "hm3d_00800_e2e_research_audit_v1",
+          "acoustic_representation_id": "hm3d_00800_acoustic_package_v1",
+          "path": "examples/registry/rooms/qualification/hm3d_val_00800_TEEsavR23oF_e2e.json"
+        }
+      ],
+      "admission_state": "not_admitted",
+      "provenance": {
+        "source_dataset": "Habitat-Matterport3D HM3D 1.0 validation scene 00800-TEEsavR23oF",
+        "source_revision": "hm3d-1.0 glb + semantic-annots-v0.2",
+        "rights": "Habitat-Matterport 3D Dataset Terms of Use; external asset",
+        "notes": "Research room record for the reviewed R3 room and retained current-worktree E2E evidence. No formal dataset admission is claimed."
+      }
     }
   ]
 }
