@@ -7,6 +7,8 @@ import sys
 from collections import Counter
 from pathlib import Path
 
+import pytest
+
 TOOLS = Path(__file__).resolve().parents[1] / "tools" / "qa"
 sys.path.insert(0, str(TOOLS))
 
@@ -14,6 +16,7 @@ from assemble_qa_v3_room_pilot import (  # noqa: E402
     STRATA,
     _balanced_choice,
     _interleave_by_height,
+    _point_signature,
     assemble,
 )
 from build_qa_v3_released_probe_items import build as build_released_items  # noqa: E402
@@ -252,3 +255,118 @@ def test_assembled_manifest_flows_to_released_adapter_by_pilot_id(tmp_path):
     assert len(rows) == manifest["question_count"] == 1
     assert rows[0]["form"] == "open"
     assert rows[0]["pilot_id"] == pilot_id
+
+
+def test_offscreen_manifest_declared_fact_enters_assembly_without_prefix_glob(tmp_path):
+    matrix, point = _write_room_candidate(
+        tmp_path,
+        scene_id="room_a",
+        profile_id="offscreen_profile",
+        point_id="room_a_f2_offscreen_identity_001",
+        forms=("mcq",),
+    )
+    batch_manifest = point.parent / "batch_manifest.json"
+    batch_manifest.write_text(json.dumps({
+        "schema": "avengine_qa_v3_offscreen_identity_batch_v1",
+        "status": "research_candidate",
+        "records": [{
+            "point_id": point.name,
+            "artifacts": {"fact": str((point / "fact_record.json").resolve())},
+        }],
+        "counts": {
+            "cells_requested": 1,
+            "candidates": 1,
+            "rejected": 0,
+        },
+    }))
+    manifest = assemble(
+        matrix_roots=[matrix.parent],
+        profiles=[{
+            "id": "offscreen_profile",
+            "execution_backend": "offscreen_identity",
+        }],
+    )
+    entry = manifest["rooms"]["room_a"]["profiles"]["offscreen_profile"]
+    assert entry["status"] == "selected"
+    assert entry["selected_count"] == 1
+    assert entry["question_count"] == 1
+    assert entry["candidates"][0]["source_point_id"] == point.name
+
+
+def _geometry_timeline(frame_count):
+    return {
+        "render": {"frame_count": frame_count},
+        "frames": [
+            {
+                "frame_index": index,
+                "pts_ticks": index * 7,
+                "camera": {
+                    "translation_ue_cm": [0.0, 0.0, 150.0],
+                    "yaw_ue_deg": 0.0,
+                },
+                "actor_states": [
+                    {
+                        "source_slot_id": "source1",
+                        "translation_ue_cm": [float(index), 0.0, 0.0],
+                        "yaw_ue_deg": 10.0,
+                    },
+                    {
+                        "source_slot_id": "source2",
+                        "translation_ue_cm": [0.0, float(index), 0.0],
+                        "yaw_ue_deg": 20.0,
+                    },
+                ],
+            }
+            for index in range(frame_count)
+        ],
+    }
+
+
+@pytest.mark.parametrize("frame_count", [1, 60, 90, 150])
+def test_point_signature_supports_declared_configurable_frame_counts(frame_count):
+    timeline = _geometry_timeline(frame_count)
+    signature = _point_signature(timeline)
+    assert len(signature) == frame_count
+
+
+def test_point_signature_observes_a_single_changed_middle_frame():
+    original = _geometry_timeline(150)
+    changed = json.loads(json.dumps(original))
+    changed["frames"][100]["actor_states"][0]["translation_ue_cm"][1] = 42.0
+    assert _point_signature(original) != _point_signature(changed)
+
+
+def test_empty_assembly_reports_partial_instead_of_research_candidate(tmp_path):
+    matrix = tmp_path / "scene_profile_matrix.json"
+    matrix.write_text(json.dumps({
+        "scenes": [{"scene_id": "room_a"}],
+        "question_request": {"answer_forms": ["open"]},
+        "matrix": [{
+            "scene_id": "room_a",
+            "profile_id": "card13",
+            "attempt_status": "not_found_within_budget",
+            "requested_cells": 1,
+        }],
+    }))
+    manifest = assemble(matrix_roots=[tmp_path], profiles=[{"id": "card13"}])
+    assert manifest["status"] == "partial"
+    assert manifest["selected_candidate_count"] == 0
+    assert manifest["rooms"]["room_a"]["status"] == "partial"
+
+
+def test_declared_candidate_must_remain_inside_its_batch_root(tmp_path):
+    matrix, point = _write_room_candidate(tmp_path / "matrix")
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    outside_fact = outside / "fact_record.json"
+    outside_fact.write_text((point / "fact_record.json").read_text())
+    batch_manifest = point.parent / "batch_manifest.json"
+    batch_manifest.write_text(json.dumps({
+        "records": [{
+            "point_id": point.name,
+            "artifacts": {"fact": str(outside_fact.resolve())},
+        }],
+        "question_request": {"answer_forms": ["open"]},
+    }))
+    with pytest.raises(RuntimeError, match="outside its batch root"):
+        assemble(matrix_roots=[matrix.parent], profiles=[{"id": "card12"}])

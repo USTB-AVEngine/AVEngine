@@ -106,23 +106,57 @@ def _write(path: Path, value):
 
 
 def _point_signature(timeline):
-    frames = timeline["frames"]
-    indices = [0, 40, 74]
-    camera = frames[0]["camera"]
-    actors = []
-    for frame_index in indices:
-        actors.append(tuple(
-            (
-                state["source_slot_id"],
-                tuple(float(value) for value in state["translation_ue_cm"]),
+    """Return the complete observed design geometry for duplicate detection.
+
+    Candidate clocks are configurable, so sampling fixed frame indices can
+    either crash on short clips or miss differences later in a longer clip.
+    Keep every declared frame's camera and actor pose instead.  The tuple is
+    an in-memory identity key only; it is not an admission hash or persisted
+    contract.
+    """
+
+    frames = timeline.get("frames")
+    if not isinstance(frames, list) or not frames:
+        raise RuntimeError("candidate timeline must contain at least one frame")
+    render = timeline.get("render")
+    if isinstance(render, Mapping) and render.get("frame_count") is not None:
+        frame_count = int(render["frame_count"])
+        if frame_count != len(frames):
+            raise RuntimeError(
+                f"timeline render.frame_count={frame_count} but contains "
+                f"{len(frames)} frames"
             )
-            for state in frames[frame_index]["actor_states"]
+    rows = []
+    for expected_index, frame in enumerate(frames):
+        if not isinstance(frame, Mapping):
+            raise RuntimeError(f"timeline frame {expected_index} is not an object")
+        frame_index = frame.get("frame_index", expected_index)
+        if frame_index != expected_index:
+            raise RuntimeError(
+                f"timeline frame index {frame_index!r} differs from "
+                f"sequence index {expected_index}"
+            )
+        camera = frame.get("camera")
+        states = frame.get("actor_states")
+        if not isinstance(camera, Mapping) or not isinstance(states, list):
+            raise RuntimeError(
+                f"timeline frame {expected_index} lacks camera or actor states"
+            )
+        rows.append((
+            expected_index,
+            frame.get("pts_ticks"),
+            tuple(float(value) for value in camera["translation_ue_cm"]),
+            float(camera["yaw_ue_deg"]),
+            tuple(
+                (
+                    str(state["source_slot_id"]),
+                    tuple(float(value) for value in state["translation_ue_cm"]),
+                    float(state.get("yaw_ue_deg", 0.0)),
+                )
+                for state in states
+            ),
         ))
-    return (
-        tuple(float(value) for value in camera["translation_ue_cm"]),
-        float(camera["yaw_ue_deg"]),
-        tuple(actors),
-    )
+    return tuple(rows)
 
 
 def _program_path(point, batch, fact, *, gatea=False):
@@ -263,6 +297,129 @@ def _matrix_answer_forms(matrix, row, batch=None):
     return _resolve_forms(sources)
 
 
+def _declared_point_dirs(batch: Path, batch_doc: Mapping | None,
+                         row: Mapping) -> list[Path]:
+    """Resolve candidate directories declared by a producer manifest.
+
+    New producers record each candidate's fact artifact.  Older ordinary
+    batches only expose facts.jsonl, so that file remains the first fallback;
+    the profile-prefix glob is retained solely for legacy fixtures that have
+    neither declaration.
+    """
+    declared: list[Path] = []
+    seen: set[Path] = set()
+
+    def add(path_value, *, owner: str) -> None:
+        if path_value is None:
+            return
+        path = Path(path_value).expanduser()
+        if not path.is_absolute():
+            path = batch / path
+        path = path.resolve()
+        batch_root = batch.resolve()
+        if path != batch_root and batch_root not in path.parents:
+            raise RuntimeError(
+                f"{owner} declares a candidate outside its batch root: {path}"
+            )
+        if path.name == "fact_record.json" or path.name == "fact_record_gateA.json":
+            path = path.parent
+        if path in seen:
+            return
+        if not path.is_dir() or not (path / "fact_record.json").is_file():
+            raise RuntimeError(
+                f"{owner} declares a missing candidate directory: {path}"
+            )
+        seen.add(path)
+        declared.append(path)
+
+    if isinstance(row, Mapping):
+        for field in ("candidate_dir", "candidate_path", "point_dir", "point_path"):
+            add(row.get(field), owner=f"matrix row {field}")
+        for field in ("candidate_dirs", "candidate_paths", "point_dirs", "point_paths"):
+            values = row.get(field)
+            if values is None:
+                continue
+            if not isinstance(values, list):
+                raise RuntimeError(f"matrix row {field} must be a list")
+            for index, value in enumerate(values):
+                add(value, owner=f"matrix row {field}[{index}]")
+
+    if isinstance(batch_doc, Mapping):
+        for field in ("candidate_dirs", "candidate_paths", "point_dirs", "point_paths"):
+            values = batch_doc.get(field)
+            if values is None:
+                continue
+            if not isinstance(values, list):
+                raise RuntimeError(f"batch manifest {field} must be a list")
+            for index, value in enumerate(values):
+                add(value, owner=f"batch manifest {field}[{index}]")
+        for field in ("records", "selected", "candidates"):
+            records = batch_doc.get(field)
+            if records is None:
+                continue
+            if not isinstance(records, list):
+                raise RuntimeError(f"batch manifest {field} must be a list")
+            for index, record in enumerate(records):
+                if isinstance(record, str):
+                    add(record, owner=f"batch manifest {field}[{index}]")
+                    continue
+                if not isinstance(record, Mapping):
+                    raise RuntimeError(
+                        f"batch manifest {field}[{index}] must be an object"
+                    )
+                if record.get("variant") not in (None, "main"):
+                    continue
+                artifacts = record.get("artifacts")
+                fact = artifacts.get("fact") if isinstance(artifacts, Mapping) else None
+                value = (
+                    fact
+                    or record.get("candidate_dir")
+                    or record.get("candidate_path")
+                    or record.get("point_dir")
+                    or record.get("point_path")
+                )
+                if value is None and record.get("point_id") is not None:
+                    value = record["point_id"]
+                add(value, owner=f"batch manifest {field}[{index}]")
+
+    if declared:
+        return sorted(declared)
+
+    facts_path = batch / "facts.jsonl"
+    if facts_path.is_file():
+        with facts_path.open(encoding="utf-8") as handle:
+            for line_no, raw in enumerate(handle, start=1):
+                if not raw.strip():
+                    continue
+                try:
+                    record = json.loads(raw)
+                except json.JSONDecodeError as exc:
+                    raise RuntimeError(
+                        f"invalid facts.jsonl row {facts_path}:{line_no}"
+                    ) from exc
+                if not isinstance(record, Mapping):
+                    raise RuntimeError(
+                        f"facts.jsonl row {facts_path}:{line_no} is not an object"
+                    )
+                if record.get("variant") not in (None, "main"):
+                    continue
+                point_id = record.get("point_id")
+                if point_id is None:
+                    raise RuntimeError(
+                        f"facts.jsonl row {facts_path}:{line_no} has no point_id"
+                    )
+                add(point_id, owner=f"facts.jsonl row {line_no}")
+        if declared:
+            return sorted(declared)
+
+    # Legacy fixtures and very old batches have no candidate declaration.
+    # Keep this bounded compatibility path after all manifest declarations.
+    return sorted(
+        point for point in batch.glob(f"{row['profile_id']}_*")
+        if point.is_dir() and (point / "fact_record.json").is_file()
+    )
+
+
 def collect_candidates(matrix_roots, *, include_requests=False):
     candidates = {}
     statuses = {}
@@ -292,9 +449,7 @@ def collect_candidates(matrix_roots, *, include_requests=False):
             if not batch_manifest:
                 continue
             batch = Path(batch_manifest).resolve().parent
-            for point in sorted(batch.glob(f"{row['profile_id']}_*")):
-                if not point.is_dir() or not (point / "fact_record.json").is_file():
-                    continue
+            for point in _declared_point_dirs(batch, batch_doc, row):
                 candidates.setdefault(key, []).append(
                     _candidate(
                         point, row["scene_id"], row["profile_id"],
@@ -525,7 +680,7 @@ def assemble(*, matrix_roots, profiles, per_profile=None):
         room_entries = list(selected_profiles.values())
         room_manifests[scene_id] = {
             "schema": "qa_v3_room_pilot_manifest_v1",
-            "status": "research_candidate",
+            "status": "research_candidate" if room_count else "partial",
             "qualification_claim": False,
             "scene": scene,
             "per_profile_quota": per_profile,
@@ -548,9 +703,12 @@ def assemble(*, matrix_roots, profiles, per_profile=None):
     ])
     manifest_forms = _common_forms(all_entries) or request_forms
     status_counts = Counter(entry["status"] for entry in all_entries)
+    selected_total = sum(
+        room["selected_candidate_count"] for room in room_manifests.values()
+    )
     return {
         "schema": "qa_v3_room_centric_pilot_manifest_v1",
-        "status": "research_candidate",
+        "status": "research_candidate" if selected_total else "partial",
         "qualification_claim": False,
         "boundary": (
             "Quota-complete geometry/timeline/AudioProgram pilot selection; "
@@ -571,9 +729,7 @@ def assemble(*, matrix_roots, profiles, per_profile=None):
         "scene_count": len(room_manifests),
         "runnable_profile_count": status_counts["selected"],
         "resource_profile_count": status_counts["resource_unavailable"],
-        "selected_candidate_count": sum(
-            room["selected_candidate_count"]
-            for room in room_manifests.values()),
+        "selected_candidate_count": selected_total,
         "per_scene_selected_counts": {
             scene_id: room["selected_candidate_count"]
             for scene_id, room in room_manifests.items()},
