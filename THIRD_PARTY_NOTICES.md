@@ -26,6 +26,9 @@ without changing the upstream terms.
 | PPK_ASSERT fragments in the SPEAR UE closure | source URL preserved in `native/spear/unreal/plugins/SpCore/Source/SpCore/Assert.{h,cpp}`: `https://github.com/gpakosz/PPK_ASSERT`; no separate source revision is asserted | WTFPLv2 | limited to the two retained Assert files; preserve Gregory Pakosz attribution and `LICENSES/PPK_ASSERT-WTFPLv2.txt` |
 | Microsoft compiler-warning helper in the SPEAR UE closure | Microsoft copyright/ MIT notice preserved in `native/spear/unreal/plugins/SpCore/Source/SpCore/SuppressCompilerWarnings.h`; no separate source revision is asserted | MIT | limited to that retained header; preserve the Microsoft attribution and `LICENSES/Microsoft-MIT.txt` |
 | Eastforward SPEAR S3d helper slice | reachable Eastforward fork commits `0a9ba3ded8ffa07a3bc3684279845da22dc123e0`, `c8ba04076a32060e35020deb8f706c4b13951cae`, `ff6e44736f68c72ce4140152e2dadb4b58dc0b28`, and `a5168b8c357afa494f6200dedb03b93c3a59be57`; selected bytes carried by local MIT transition snapshot `251bd5e0d3d1e7297ec072bb9b0df9ef63f864b7` (SPEAR-lead-b) | MIT | source for exactly three rig-query and two lighting helpers; retain `LICENSES/SPEAR-MIT.txt`. The local carrier is not a public fork ref, and this helper slice is not attributed to official `spear-sim/spear`; UE/project/assets remain external |
+| Generated-animal Blender helper closure | Retained Eastforward/SPEAR working-tree files; no source commit asserted because the carrier Git pointer was unavailable | SPEAR/Intel MIT | Six selected Blender/Python files now live under `tools/assets/`; retain `LICENSES/SPEAR-MIT.txt`. The chain no longer executes a SPEAR checkout for heading, support-plane leveling or quadruped retargeting. Donor GLB, Blender, model weights and UE/content remain external inputs. |
+| Pixal3D selected inference source closure | Retained Pixal3D working-tree files; no source commit asserted because the carrier Git pointer was unavailable | MIT plus upstream NOTICE | Selected local inference package under `src/avengine/assets/pixal3d/`; retain `LICENSES/PIXAL3D-MIT.txt` and `LICENSES/PIXAL3D-NOTICE.txt`. Training datasets, model weights, and installed CUDA extensions remain external. |
+| ValeoAI NAF selected feature-upsampler closure | Retained NAF cache source files; no source commit asserted | Apache-2.0 plus the DINOv3 License Agreement | Selected five source files under `src/avengine/assets/naf/` load the explicit external checkpoint; retain `LICENSES/NAF-APACHE-2.0.txt` and `LICENSES/DINOV3-LICENSE.md`, and do not use Torch Hub at runtime. |
 | rpclib external S3b build SDK | 2.3.0 | MIT | user-installed external C++ SDK used to build the optional S3b extension; its source, headers, archive, CMake export, and any compiled result are not imported into AVEngine Git |
 | three.js browser rendering library (Studio 3D editor) | npm `three@0.147.0` (`build/three.min.js`, `examples/js/controls/OrbitControls.js`, `examples/js/loaders/GLTFLoader.js`) | MIT | three unmodified vendored build files at `tools/studio/static/`; preserve the embedded Three.js Authors copyright and MIT notice; used only by the loopback Studio preview page, never by the render chain |
 | nanobind external S3b build dependency | 2.7.0 | BSD-3-Clause | user-installed external Python binding support used to build the optional S3b extension; no nanobind source, package, shared library, or wheel is imported into AVEngine Git |
@@ -199,3 +202,15 @@ decision.
 The model revisions above are the locally audited legacy pins recorded in
 `AGENTS.md` and `manifest.yaml`; they are not a declaration that those models or
 their outputs are admitted. Any pin change requires a fresh terms audit.
+
+## SkinTokens
+
+VAST-AI-Research/SkinTokens source at
+273b691d35989d71cd17ff2895fdc735097b92d1 is MIT-licensed; the retained text
+is LICENSES/SKINTOKENS-MIT.txt. AVEngine selectively adapts the TokenRig
+inference source under src/avengine/assets/skintokens and uses the local
+checkpoint/config roots named in examples/assets/model_roots_v1.json. The
+upstream model card describes training inputs from ArticulationXL 2.0, VRoid
+Hub, and ModelsResource; those dataset and model-output rights remain
+separate from the code license. Do not redistribute the checkpoint, Qwen
+files, source media, or generated assets without their own terms review.

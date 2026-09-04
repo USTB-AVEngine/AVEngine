@@ -14,6 +14,30 @@
   "isnet_general_use": {
    "path": "/data/models/rembg/isnet-general-use/isnet-general-use.onnx",
    "purpose": "matting the generated candidate before mesh reconstruction"
+  },
+  "pixal3d": {
+   "path": "/data/models/hub/models--TencentARC--Pixal3D/snapshots/0b31f9160aa400719af409098bff7936a932f726",
+   "purpose": "local Pixal3D image-to-3D inference pipeline and checkpoints"
+  },
+  "moge_2_vitl": {
+   "path": "/data/models/hub/models--Ruicheng--moge-2-vitl/snapshots/39c4d5e957afe587e04eec59dc2bcc3be5ecd968",
+   "purpose": "local MoGe-2 camera estimation checkpoint for Pixal3D"
+  },
+  "dinov3_vitl16": {
+   "path": "/data/models/hub/models--camenduru--dinov3-vitl16-pretrain-lvd1689m/snapshots/3c276edd87d6f6e569ff0c4400e086807d0f3881",
+   "purpose": "local DINOv3 projection features for Pixal3D"
+  },
+  "naf_upsampler": {
+   "path": "/data/jzy/.cache/torch/hub/checkpoints/naf_release.pth",
+   "purpose": "local NAF feature upsampler checkpoint for Pixal3D"
+  },
+  "skintokens": {
+   "path": "/data/models/hub/models--VAST-AI--SkinTokens/snapshots/79736cad0fd84de384d5eede659b4ebd24effe33",
+   "purpose": "local SkinTokens/TokenRig checkpoint bundle for target-native rig inference"
+  },
+  "qwen3_0_6b": {
+   "path": "/data/models/hub/models--Qwen--Qwen3-0.6B/snapshots/c1899de289a04d12100db370d81485cdf75e47ca",
+   "purpose": "local Qwen3-0.6B config used to construct the TokenRig transformer"
   }
  }
 }

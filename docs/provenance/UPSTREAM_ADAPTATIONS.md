@@ -430,6 +430,70 @@ The H1/S3 maps above supply the target path, original source path, treatment,
 and license boundary for the staged Habitat modules. Apply the same mapping
 discipline when other selected third-party source lands.
 
+## Generated-animal Blender helper closure (2026-09-04)
+
+The generated-animal post-TokenRig chain now carries a selective six-file
+Blender/Python helper closure under `tools/assets/`. The migration source was
+the retained Eastforward/SPEAR animal tooling working tree. Its Git pointer was
+unavailable during this migration, so no source commit is asserted for these
+six files and this section must not be read as a new revision pin.
+
+| AVEngine target | Retained source path | Treatment |
+| --- | --- | --- |
+| `tools/assets/blender_normalize_generated_animal_heading.py` | `tools/blender_normalize_generated_animal_heading.py` | Adapted entry point; local execution path |
+| `tools/assets/blender_level_generated_animal_support_plane.py` | `tools/blender_level_generated_animal_support_plane.py` | Adapted entry point; local support-plane imports |
+| `tools/assets/blender_retarget_quaternius_to_generated_quadruped.py` | `tools/blender_retarget_quaternius_to_generated_quadruped.py` | Adapted entry point; local semantic import |
+| `tools/assets/generated_animal_support_plane.py` | `tools/generated_animal_support_plane.py` | Selected NumPy support-plane implementation |
+| `tools/assets/generated_animal_support_plane_contract.py` | `tools/generated_animal_support_plane_contract.py` | Selected stdlib evidence validation closure |
+| `tools/assets/generated_quadruped_semantics.py` | `tools/generated_quadruped_semantics.py` | Selected stdlib semantic hierarchy closure |
+
+The source algorithms and their existing support-plane, semantic-rig,
+no-clobber, and readback checks are retained. `run_generated_animal_chain.sh`
+invokes these paths from AVEngine and accepts `--spear-root` only as a deprecated
+ignored compatibility argument. It does not execute a SPEAR checkout for this
+closure. The Quaternius donor GLB, installed Blender/NumPy, and the independent
+SkinTokens/Pixal3D model or asset inputs remain external runtime inputs under
+their own terms.
+
+The selected helper source is covered by the SPEAR/Intel MIT terms; retain
+`LICENSES/SPEAR-MIT.txt`. The full SPEAR checkout, UE project/content, donor
+assets, model weights and generated media are outside this source migration.
+
+## Pixal3D inference closure (2026-09-04)
+
+The Pixal3D image-to-3D entry point now uses a selective local inference
+closure under `src/avengine/assets/pixal3d`; it does not import a Pixal3D Git
+checkout or execute an external `inference.py`. The migration source was the
+retained Pixal3D working tree. Its Git pointer was unavailable during this
+migration, so no Pixal3D source commit is asserted here.
+
+The local closure includes the model registry, sparse model architectures,
+sparse/attention/transformer modules, Pixal3D pipeline and samplers, mesh and
+voxel representations, the projection DINOv3 extractor, and only the utility
+modules reached by those paths. It excludes training datasets, unused training
+modules, Trellis2 entry points, the rembg implementation, and data-toolkit
+files. Model checkpoints stay outside Git and are resolved from the AVEngine
+model-root registry.
+
+| AVEngine target | Retained source path | Treatment |
+| --- | --- | --- |
+| `tools/assets/run_pixal3d_mesh.py` | `inference.py` plus the Pixal3D package entry path | AVEngine runner; local-only model roots and fresh output checks |
+| `src/avengine/assets/pixal3d/` | selected `pixal3d/` inference package closure | Adapted package layout; missing local checkpoints fail instead of triggering network fallback |
+| `src/avengine/assets/naf/` | selected ValeoAI NAF `src/model/naf.py` and `src/layers/` files | Adapted local feature-upsampler closure; checkpoint remains an external model input |
+
+The runner resolves Pixal3D, MoGe, DINOv3, and NAF roots through
+`examples/assets/model_roots_v1.json` or explicit CLI overrides. The selected
+pipeline requires a non-opaque RGBA input and does not instantiate rembg.
+Missing local model files are errors; Hugging Face and Torch Hub downloads are
+disabled in the selected source.
+
+Pixal3D source is MIT with its upstream NOTICE; retain
+`LICENSES/PIXAL3D-MIT.txt` and `LICENSES/PIXAL3D-NOTICE.txt`. The NOTICE carries
+the DINOv2 Apache-2.0 and TRELLIS.2/Direct3D-S2/MoGe MIT attributions. The
+NAF source retains its Apache-2.0 text in `LICENSES/NAF-APACHE-2.0.txt` and
+the DINOv3 license in `LICENSES/DINOV3-LICENSE.md` and the license header in its rope implementation. Installed extensions
+and model weights remain external inputs under their own terms.
+
 ## Production role mapping
 
 | Room family | Visual role | Material/acoustic and task authority |
@@ -483,3 +547,24 @@ claim that AVEngine newly generated those assets. Existing declared artifact
 metadata may be checked, but adding an asset does not require editing a Python
 allow-list or a pinned catalog hash. Actual UE import and capture are recorded
 in the engine-completion checkpoint, separately from source/unit validation.
+
+## SkinTokens selected inference source
+
+The source is adapted from VAST-AI-Research/SkinTokens at
+273b691d35989d71cd17ff2895fdc735097b92d1. The selected MIT source closure
+under src/avengine/assets/skintokens contains the TokenRig model, tokenizer,
+prediction transform/sampler, and Blender asset parser needed by the local
+runner tools/assets/run_skintokens_rig.py. The runner reads checkpoint and
+Qwen roots from examples/assets/model_roots_v1.json, rewrites checkpoint
+relative paths to the local AVEngine skeleton/configuration, and rejects an
+upstream rigger checkout.
+
+The runner intentionally omits the upstream Gradio/training path and does not
+replace raw mesh generation with a pre-rigged GLB. Its Blender child is a
+per-job Unix socket service (0700 directory, 0600 socket; no TCP listener). Blender's missing scipy/trimesh dependencies
+are covered by NumPy normals and the built-in mathutils KDTree (with a fixed
+tile NumPy fallback when no spatial index is available); voxel postprocessing
+remains an explicit dependency-gated option. The checkpoint,
+Qwen files, source media, and generated outputs remain external model/data
+inputs. The model card's ArticulationXL 2.0, VRoid Hub, and ModelsResource
+training sources retain their separate rights questions.

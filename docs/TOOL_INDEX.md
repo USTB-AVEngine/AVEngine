@@ -5,7 +5,7 @@
 
 自 2026-08-25 起，目录本身就是能力分组（阶段目录 m1…m7 已移除），
 本表按目录列出每个工具做什么。
-当前共 336 个工具脚本。
+当前共 344 个工具脚本。
 
 ## 资产生成与装配（`tools/assets/`）
 
@@ -22,6 +22,9 @@
 | `tools/assets/bake_actions.py` | Bake the strict M2 Idle/Walking action artifact and hash-bound report |
 | `tools/assets/bake_local_tr_actions.py` | Bake deterministic research-only local-translation action poses from one GLB |
 | `tools/assets/bake_uniform_skin_scale.py` | Bake one positive uniform skin-ancestor scale into GLB payload data |
+| `tools/assets/blender_level_generated_animal_support_plane.py` | Level a generated quadruped from two independent visible-foot authorities |
+| `tools/assets/blender_normalize_generated_animal_heading.py` | Rigidly align a generated animal rig to a reviewed cardinal heading |
+| `tools/assets/blender_retarget_quaternius_to_generated_quadruped.py` | Transfer Quaternius Walk/Idle to a generated, skinned quadruped rig |
 | `tools/assets/build_appearance_variant_inputs.py` | Bind one realized appearance request into package spec and source lineage |
 | `tools/assets/build_canary_request.py` | Build one hash-bound formal M2 canary capture request |
 | `tools/assets/build_cross_species_appearance_lineage.py` | Build one diagnostic-only cross-species appearance lineage |
@@ -41,6 +44,9 @@
 | `tools/assets/gate_retopology.py` | Reject a mesh preparation that damaged the animal, before it is rigged |
 | `tools/assets/gate_rigged_asset.py` | Accept or reject a rigged animal from how its surface tears during the walk |
 | `tools/assets/generate_canonical_2d.py` | Generate one canonical 2D animal candidate from a clay pose guide |
+| `tools/assets/generated_animal_support_plane.py` | Pure NumPy support-plane authority for generated quadrupeds |
+| `tools/assets/generated_animal_support_plane_contract.py` | Stdlib-only validation contract for generated-animal support planes |
+| `tools/assets/generated_quadruped_semantics.py` | Bone-name-independent semantic decomposition for generated quadruped rigs |
 | `tools/assets/harvest_fsd50k_clips.py` | Fill the sound-effect classes from the FSD50K copy already on this machine |
 | `tools/assets/harvest_vctk_speech.py` | Pull English speech with transcripts from the VCTK copy on this machine |
 | `tools/assets/measure_deformation_stretch.py` | Measure how much of the surface a pose stretches |
@@ -71,8 +77,10 @@
 | `tools/assets/retopologize_for_rigging.py` | Rebuild a generated mesh as a manifold surface, then reduce it for rigging |
 | `tools/assets/rigger_loopback_bpy_server.py` | Loopback-only launcher for the vendored TokenRig bpy server |
 | `tools/assets/run_generated_animal_chain.sh` | Take one generated animal from a raw reconstruction to a reviewable rigged |
-| `tools/assets/run_pixal3d_mesh.py` | Run the vendored Pixal3D image-to-3D stage on an already-matted candidate |
+| `tools/assets/run_pixal3d_mesh.py` | Run the local AVEngine Pixal3D image-to-3D stage on an RGBA candidate |
+| `tools/assets/run_skintokens_rig.py` | Run local VAST-AI SkinTokens/TokenRig inference on one mesh |
 | `tools/assets/segment_canonical_2d.py` | Cut the canonical 2D candidate out of its background with the local ISNet model |
+| `tools/assets/skintokens_loopback_bpy_server.py` | Private Unix-socket Blender RPC endpoint for local SkinTokens inference |
 | `tools/assets/spike_habitat_local_tr.py` | Prove one bounded local-translation-plus-rotation Habitat AO encoding |
 | `tools/assets/split_sound_library_events.py` | Split a prepared sound library into one wav per sounding event |
 | `tools/assets/wrap_uniform_scene_scale.py` | Wrap every root of one GLB scene in an explicit uniform-scale node |
