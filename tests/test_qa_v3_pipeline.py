@@ -833,3 +833,15 @@ def test_verification_report_contracts_distinguish_visual_and_audio_statuses() -
         "audio", {**audio, "checked_renders": 0})
     assert not pipeline._verification_report_passed(
         "visual", {**visual, "status": "research_candidate"})
+
+
+def test_source_state_records_current_avengine_without_becoming_a_gate() -> None:
+    state = pipeline._source_state()
+    assert Path(state["repository"]) == pipeline.REPO.resolve()
+    assert Path(state["entrypoint"]) == Path(pipeline.__file__).resolve()
+    assert isinstance(state["git_commit"], str) and state["git_commit"]
+    assert state["git_branch"] is None or (
+        isinstance(state["git_branch"], str) and state["git_branch"]
+    )
+    assert isinstance(state["tracked_worktree_changes"], list)
+    assert Path(state["python_executable"]).is_file()

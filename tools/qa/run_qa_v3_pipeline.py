@@ -85,6 +85,44 @@ class PipelineError(ValueError):
     """A declared pipeline request or runtime input cannot be used safely."""
 
 
+def _source_state() -> dict[str, Any]:
+    """Record the Git and interpreter source used by this invocation.
+
+    This is provenance only.  A dirty documentation file does not block a
+    run, and this record is not used as a hash gate.
+    """
+
+    def git(*args: str, required: bool = True) -> str | None:
+        completed = subprocess.run(
+            ["git", *args],
+            cwd=str(REPO),
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        if completed.returncode != 0:
+            if required:
+                raise PipelineError(
+                    f"cannot inspect AVEngine Git source: "
+                    f"{completed.stderr.strip() or args}"
+                )
+            return None
+        return completed.stdout.strip()
+
+    repository = git("rev-parse", "--show-toplevel")
+    commit = git("rev-parse", "HEAD")
+    branch = git("symbolic-ref", "--quiet", "--short", "HEAD", required=False)
+    status = git("status", "--short", "--untracked-files=no") or ""
+    return {
+        "repository": str(Path(repository).resolve()),
+        "entrypoint": str(Path(__file__).resolve()),
+        "git_commit": commit,
+        "git_branch": branch,
+        "tracked_worktree_changes": status.splitlines(),
+        "python_executable": str(Path(sys.executable).resolve()),
+    }
+
+
 def _normalize_through_stage(value: Any) -> str:
     if value is None:
         return "questions"
@@ -2009,6 +2047,7 @@ def run_pipeline(request_path: str | Path, runtime_config_path: str | Path,
                  resume_only: bool = False,
                  through_stage: str = "questions") -> dict[str, Any]:
     through_stage = _normalize_through_stage(through_stage)
+    source_state = _source_state()
     request = _load_request(Path(request_path).expanduser().resolve())
     out_root = Path(out_root).expanduser().resolve()
     if out_root.exists() and not resume:
@@ -2122,6 +2161,7 @@ def run_pipeline(request_path: str | Path, runtime_config_path: str | Path,
         "kind": "qa_v3_pipeline_run",
         "status": status,
         "through_stage": through_stage,
+        "source": source_state,
         "run_control": {
             "mode": "resume_only" if resume_only else "execute",
             "resume": bool(resume),
