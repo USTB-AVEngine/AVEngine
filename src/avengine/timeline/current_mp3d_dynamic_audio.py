@@ -19,6 +19,7 @@ import json
 import math
 from pathlib import Path
 from typing import Any, Mapping, Sequence
+from urllib.parse import unquote, urlparse
 
 import numpy as np
 
@@ -340,6 +341,57 @@ def listener_pose_from_m1_request(
     return list(world_from_listener["translation_m"]), [w, x, y, z]
 
 
+def _resolve_registry_dry_audio_path(
+    uri: Any,
+    *,
+    sound_id: str,
+    repository_root: Path,
+    external_sound_asset_paths: Mapping[str, Path],
+) -> Path:
+    """Resolve one registry URI without treating URI text as a local path.
+
+    ``repo://`` keeps its existing repository-relative spelling.  ``file://``
+    is an absolute local URI and is decoded with the standard URI parser.
+    Other legacy schemes (currently ``artifact://``) remain usable only through
+    the caller's explicit per-asset deployment mapping.
+    """
+
+    if not isinstance(uri, str) or not uri:
+        raise CurrentMP3DDynamicAudioError(
+            f"registry dry audio URI is invalid for {sound_id}"
+        )
+    parsed = urlparse(uri)
+    scheme = parsed.scheme.lower()
+    if scheme == "repo":
+        if not uri.startswith("repo://"):
+            raise CurrentMP3DDynamicAudioError(
+                f"registry dry audio URI must use repo:// for {sound_id}"
+            )
+        return (repository_root / uri.removeprefix("repo://")).resolve()
+    if scheme == "file":
+        if parsed.netloc:
+            raise CurrentMP3DDynamicAudioError(
+                f"file URI for {sound_id} must not contain a host"
+            )
+        if parsed.query or parsed.fragment:
+            raise CurrentMP3DDynamicAudioError(
+                f"file URI for {sound_id} must not contain query or fragment"
+            )
+        decoded_path = unquote(parsed.path)
+        if not decoded_path.startswith("/"):
+            raise CurrentMP3DDynamicAudioError(
+                f"file URI for {sound_id} must contain an absolute path"
+            )
+        return Path(decoded_path).resolve()
+    path = external_sound_asset_paths.get(sound_id)
+    if path is None:
+        raise CurrentMP3DDynamicAudioError(
+            f"program sound {sound_id} requires an explicit external dry path "
+            f"for URI scheme {scheme or '<none>'!r}"
+        )
+    return Path(path).resolve()
+
+
 def _asset_bindings(
     sounds: Mapping[str, Any],
     *,
@@ -355,19 +407,20 @@ def _asset_bindings(
             raise CurrentMP3DDynamicAudioError(
                 f"program sound is not registered: {sound_id}"
             )
-        uri = str(record["dry_audio"]["uri"])
-        if uri.startswith("repo://"):
-            resolved = (repository_root / uri.removeprefix("repo://")).resolve()
-        else:
-            path = external_sound_asset_paths.get(sound_id)
-            if path is None:
-                raise CurrentMP3DDynamicAudioError(
-                    f"program sound {sound_id} requires an explicit external dry path"
-                )
-            resolved = Path(path).resolve()
+        dry_audio = record.get("dry_audio")
+        if not isinstance(dry_audio, Mapping):
+            raise CurrentMP3DDynamicAudioError(
+                f"registry sound has no dry_audio record: {sound_id}"
+            )
+        resolved = _resolve_registry_dry_audio_path(
+            dry_audio.get("uri"),
+            sound_id=sound_id,
+            repository_root=repository_root,
+            external_sound_asset_paths=external_sound_asset_paths,
+        )
         if not resolved.is_file():
             raise CurrentMP3DDynamicAudioError(f"dry audio is missing: {resolved}")
-        expected = str(record["dry_audio"]["sha256"])
+        expected = str(dry_audio["sha256"])
         if sha256_file(resolved) != expected:
             raise CurrentMP3DDynamicAudioError(
                 f"dry audio differs from the registry digest for {sound_id}"

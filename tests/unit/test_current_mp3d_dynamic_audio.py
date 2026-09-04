@@ -10,6 +10,7 @@ import pytest
 
 import avengine.cli as cli
 import avengine.timeline.current_mp3d_dynamic_audio as dynamic_audio
+from avengine.contracts.json_io import sha256_file
 from avengine.timeline.current_mp3d_dynamic_audio import (
     CurrentMP3DDynamicAudioError,
     _program_clock_binding,
@@ -526,3 +527,124 @@ def test_capture_endpoint_ids_cannot_silently_disagree(tmp_path):
                    for i in range(75)]}))
     with pytest.raises(CurrentMP3DDynamicAudioError, match="uniquely match"):
         load_captured_source_paths(tmp_path, ("a", "b"))
+
+
+@pytest.fixture(autouse=True)
+def _use_minimal_sound_index_for_binding_unit_tests(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        dynamic_audio,
+        "sound_index",
+        lambda registry: {
+            row["sound_asset_id"]: row
+            for row in registry.get("sound_assets", [])
+        },
+    )
+
+
+def _sound_registry_record(sound_id: str, uri: str, digest: str) -> dict:
+    return {
+        "sound_assets": [
+            {
+                "sound_asset_id": sound_id,
+                "dry_audio": {"uri": uri, "sha256": digest},
+            }
+        ]
+    }
+
+
+def test_asset_bindings_resolve_registry_declared_file_uri_and_percent_escape(
+    tmp_path: Path,
+) -> None:
+    audio = tmp_path / "speech sample.wav"
+    audio.write_bytes(b"file-uri-audio")
+    uri = audio.as_uri()
+    sounds = _sound_registry_record("speech", uri, sha256_file(audio))
+    bindings = dynamic_audio._asset_bindings(
+        sounds,
+        repository_root=tmp_path / "repo",
+        external_sound_asset_paths={},
+        required_sound_ids={"speech"},
+    )
+    assert bindings["speech"] == {
+        "path": str(audio.resolve()),
+        "sha256": sha256_file(audio),
+    }
+    assert "%20" in uri
+
+
+@pytest.mark.parametrize("uri", ["file:relative.wav", "file://host/tmp/speech.wav", "file://localhost/tmp/speech.wav"])
+def test_asset_bindings_reject_relative_or_host_file_uris(
+    tmp_path: Path, uri: str,
+) -> None:
+    audio = tmp_path / "speech.wav"
+    audio.write_bytes(b"file-uri-audio")
+    if uri.endswith("speech.wav") and "host" in uri:
+        uri = f"file://host{audio.resolve()}"
+    sounds = _sound_registry_record("speech", uri, sha256_file(audio))
+    with pytest.raises(CurrentMP3DDynamicAudioError, match="file URI.*(host|absolute path)"):
+        dynamic_audio._asset_bindings(
+            sounds,
+            repository_root=tmp_path / "repo",
+            external_sound_asset_paths={},
+            required_sound_ids={"speech"},
+        )
+
+
+def test_asset_bindings_keep_explicit_mapping_for_legacy_artifact_uri(
+    tmp_path: Path,
+) -> None:
+    audio = tmp_path / "mapped.wav"
+    audio.write_bytes(b"mapped-audio")
+    sounds = _sound_registry_record(
+        "legacy", "artifact://legacy/event.wav", sha256_file(audio)
+    )
+    bindings = dynamic_audio._asset_bindings(
+        sounds,
+        repository_root=tmp_path / "repo",
+        external_sound_asset_paths={"legacy": audio},
+        required_sound_ids={"legacy"},
+    )
+    assert bindings["legacy"]["path"] == str(audio.resolve())
+
+
+def test_asset_bindings_resolve_repo_uri_and_retain_digest_check(
+    tmp_path: Path,
+) -> None:
+    repository = tmp_path / "repo"
+    audio = repository / "examples" / "speech.wav"
+    audio.parent.mkdir(parents=True)
+    audio.write_bytes(b"repo-audio")
+    sounds = _sound_registry_record("repo", "repo://examples/speech.wav", sha256_file(audio))
+    bindings = dynamic_audio._asset_bindings(
+        sounds,
+        repository_root=repository,
+        external_sound_asset_paths={},
+        required_sound_ids={"repo"},
+    )
+    assert bindings["repo"]["path"] == str(audio.resolve())
+    bad = _sound_registry_record("repo", "repo://examples/speech.wav", "0" * 64)
+    with pytest.raises(CurrentMP3DDynamicAudioError, match="registry digest"):
+        dynamic_audio._asset_bindings(
+            bad,
+            repository_root=repository,
+            external_sound_asset_paths={},
+            required_sound_ids={"repo"},
+        )
+
+
+@pytest.mark.parametrize("uri", ["relative.wav", "https://example.invalid/speech.wav", "artifact://legacy/event.wav"])
+def test_asset_bindings_require_mapping_for_non_file_repo_uri(
+    tmp_path: Path, uri: str,
+) -> None:
+    audio = tmp_path / "speech.wav"
+    audio.write_bytes(b"mapped-audio")
+    sounds = _sound_registry_record("unmapped", uri, sha256_file(audio))
+    with pytest.raises(CurrentMP3DDynamicAudioError, match="explicit external dry path"):
+        dynamic_audio._asset_bindings(
+            sounds,
+            repository_root=tmp_path / "repo",
+            external_sound_asset_paths={},
+            required_sound_ids={"unmapped"},
+        )
