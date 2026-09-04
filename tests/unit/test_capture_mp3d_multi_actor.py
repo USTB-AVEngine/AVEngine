@@ -311,6 +311,8 @@ def test_public_entrypoint_reads_native_state_for_three_actors(tmp_path, monkeyp
     assert events.index("render-0") < events.index("emitter-0")
     records = json.loads((output / "frame_records.json").read_text(encoding="utf-8"))
     assert len(records["frames"]) == frame_count
+    assert records["source_endpoint_ids"] == [
+        f"endpoint{index + 1}" for index in range(actor_count)]
     first = records["frames"][0]
     assert len(first["actor_readbacks"]) == actor_count
     # Emitter positions are read from the fake Habitat link, while planned route
