@@ -207,3 +207,25 @@ def test_invalid_explicit_runtime_package_fails_closed(tmp_path: Path) -> None:
     args.extra_seed_package = ["/Engine/NotAnAuthorizedContentRoot"]
     with pytest.raises(tool.ClosureReportError, match="extra seed is not"):
         tool.build_report(args)
+
+
+def test_static_mesh_seeds_need_no_blueprint_or_animation():
+    registry = {"assets": [{"asset_id": "speaker", "entity_class": "rigid_object",
+        "runtime_backends": {"spear_unreal": {
+            "static_mesh_object_path": "/Game/Objects/Speaker.Speaker"}}}]}
+    seeds = tool.select_seed_records(registry, asset_ids=["speaker"],
+                                     room_map=MAP_PACKAGE, camera_package=CAMERA_PACKAGE)
+    assert seeds[-1]["package"] == "/Game/Objects/Speaker"
+    assert seeds[-1]["role"] == "static_mesh"
+    assert not any(seed["role"] in ("actor_blueprint", "idle_animation", "walking_animation") for seed in seeds)
+
+
+def test_explicit_content_mount_does_not_require_legacy_checkout_layout(tmp_path):
+    content = tmp_path / "content"
+    package = content / "Objects" / "Speaker.uasset"
+    package.parent.mkdir(parents=True)
+    package.write_bytes(b"speaker")
+    result = tool.map_package("/Game/Objects/Speaker", [], stage_root=None,
+                              content_mounts=[("/Game", content)])
+    assert result["source_file"] == str(package)
+    assert result["status"] == "unique_authorized_external_input"

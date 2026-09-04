@@ -20,8 +20,10 @@ from avengine.backends.spear_ue.research_runtime import (
     close_scene_capture,
     launch_external_game_instance,
     read_actor_pose,
+    read_scene_component_pose,
     read_rgb_bgr,
     run_frame_transaction,
+    spawn_attached_static_actor,
     spawn_attached_visual_actor,
     spawn_scene_capture,
     warm_scene_capture_until_stable,
@@ -32,19 +34,29 @@ from avengine.backends.spear_ue.launch import (
 )
 from avengine.optional_backends.spear_apartment import (
     ANIMATION_TOLERANCE_SECONDS,
+    POSITION_TOLERANCE_CM,
+    ROTATION_TOLERANCE_DEGREES,
     animation_position_seconds,
     apply_ue_component_frame_delta,
     summarize_root_readbacks,
 )
 from avengine.runtime_profiles import (
+    build_asset_emitter_binding,
     load_source_asset_runtime_registry,
     resolve_source_asset_runtime_profile,
 )
 
 
-FRAME_COUNT = 75
-FRAME_RATE_HZ = 15
-TICKS_PER_FRAME = 3_200
+DEFAULT_FRAME_COUNT = 75
+DEFAULT_FRAME_RATE_HZ = 15
+DEFAULT_TICKS_PER_FRAME = 3_200
+CLOCK_TICKS_PER_SECOND = 48_000
+
+# Backward-compatible names retained for callers that use the original
+# 75-frame, 15fps research timeline defaults.
+FRAME_COUNT = DEFAULT_FRAME_COUNT
+FRAME_RATE_HZ = DEFAULT_FRAME_RATE_HZ
+TICKS_PER_FRAME = DEFAULT_TICKS_PER_FRAME
 CAMERA_BLUEPRINT = "/SpContent/Blueprints/BP_CameraSensor.BP_CameraSensor_C"
 CAPTURE_COMPONENT_NAME = "DefaultSceneRoot.final_tone_curve_hdr_"
 NATIVE_APARTMENT_MAP = "/Game/SPEAR/Scenes/apartment_0000/Maps/apartment_0000"
@@ -84,6 +96,86 @@ def resolve_native_map(timeline, requested_map=None):
 
 class CurrentApartmentVisualError(RuntimeError):
     """A current Apartment visual-research request is incomplete or unsafe."""
+
+
+def _resolve_render_clock(
+    frame_count: object = FRAME_COUNT,
+    frame_rate_hz: object = FRAME_RATE_HZ,
+    ticks_per_frame: object | None = None,
+    *,
+    owner: str = "render clock",
+) -> tuple[int, int | float, int]:
+    """Validate and normalize one timeline clock."""
+    if (
+        isinstance(frame_count, bool)
+        or not isinstance(frame_count, int)
+        or frame_count < 2
+    ):
+        raise CurrentApartmentVisualError(
+            f"{owner} frame_count must be an integer >= 2"
+        )
+    if (
+        isinstance(frame_rate_hz, bool)
+        or not isinstance(frame_rate_hz, (int, float))
+        or not math.isfinite(float(frame_rate_hz))
+        or float(frame_rate_hz) <= 0.0
+    ):
+        raise CurrentApartmentVisualError(
+            f"{owner} frame_rate_hz must be positive and finite"
+        )
+    rate = float(frame_rate_hz)
+    if ticks_per_frame is None:
+        implied = float(CLOCK_TICKS_PER_SECOND) / rate
+        rounded = int(round(implied))
+        if not math.isclose(implied, rounded, rel_tol=0.0, abs_tol=1.0e-9):
+            raise CurrentApartmentVisualError(
+                f"{owner} needs an explicit integer ticks_per_frame for "
+                f"frame_rate_hz={rate:g}"
+            )
+        ticks = rounded
+    elif (
+        isinstance(ticks_per_frame, bool)
+        or not isinstance(ticks_per_frame, (int, float))
+        or not math.isfinite(float(ticks_per_frame))
+        or float(ticks_per_frame) < 1.0
+        or not float(ticks_per_frame).is_integer()
+    ):
+        raise CurrentApartmentVisualError(
+            f"{owner} ticks_per_frame must be a positive integer"
+        )
+    else:
+        ticks = int(ticks_per_frame)
+    if not math.isclose(
+        rate * float(ticks),
+        float(CLOCK_TICKS_PER_SECOND),
+        rel_tol=0.0,
+        abs_tol=1.0e-6,
+    ):
+        raise CurrentApartmentVisualError(
+            f"{owner} frame_rate_hz and ticks_per_frame disagree"
+        )
+    normalized_rate: int | float = (
+        int(rate) if rate.is_integer() else rate
+    )
+    return int(frame_count), normalized_rate, ticks
+
+
+def _timeline_render_clock(
+    timeline: Mapping[str, Any],
+) -> tuple[int, int | float, int]:
+    render = timeline.get("render")
+    if not isinstance(render, Mapping):
+        raise CurrentApartmentVisualError("timeline has no render clock")
+    return _resolve_render_clock(
+        render.get("frame_count", FRAME_COUNT),
+        render.get("frame_rate_hz", FRAME_RATE_HZ),
+        (
+            render["ticks_per_frame"]
+            if "ticks_per_frame" in render
+            else None
+        ),
+        owner="timeline render",
+    )
 
 
 def _checkout_ancestor(path: Path) -> Path | None:
@@ -279,6 +371,91 @@ def _selection_bindings(
             raise CurrentApartmentVisualError(
                 f"actor selection {slot} has no complete SPEAR binding"
             )
+
+        if record.get("entity_class") == "rigid_object":
+            if declared.get("static_mesh_binding") != raw_binding.get(
+                "static_mesh_binding"
+            ):
+                raise CurrentApartmentVisualError(
+                    f"actor selection {slot} static mesh binding differs from registry"
+                )
+            if declared.get("static_mesh_object_path") != raw_binding.get(
+                "static_mesh_object_path"
+            ):
+                raise CurrentApartmentVisualError(
+                    f"actor selection {slot} static mesh path differs from registry"
+                )
+            static_mesh_path = raw_binding.get("static_mesh_object_path")
+            if (
+                not isinstance(static_mesh_path, str)
+                or not static_mesh_path.startswith("/Game/")
+            ):
+                raise CurrentApartmentVisualError(
+                    f"actor selection {slot} static mesh path is invalid"
+                )
+            expected_static_mesh_package = _package_from_object_path(
+                static_mesh_path,
+                owner=f"actor selection {slot} static mesh",
+            )
+            if declared.get("static_mesh_package") != expected_static_mesh_package:
+                raise CurrentApartmentVisualError(
+                    f"actor selection {slot} static mesh package differs from path"
+                )
+            actor_scale = raw_binding.get("actor_scale")
+            static_forward_yaw = raw_binding.get("ue_static_forward_yaw_deg")
+            if (
+                isinstance(actor_scale, bool)
+                or not isinstance(actor_scale, (int, float))
+                or not math.isfinite(float(actor_scale))
+                or float(actor_scale) <= 0.0
+                or isinstance(static_forward_yaw, bool)
+                or not isinstance(static_forward_yaw, (int, float))
+                or not math.isfinite(float(static_forward_yaw))
+            ):
+                raise CurrentApartmentVisualError(
+                    f"actor selection {slot} static mesh transform is invalid"
+                )
+            anchor_id = record.get("default_emitter_anchor_id")
+            anchors = [
+                item
+                for item in record.get("emitter_anchors", [])
+                if isinstance(item, Mapping)
+                and item.get("anchor_id") == anchor_id
+            ]
+            if len(anchors) != 1:
+                raise CurrentApartmentVisualError(
+                    f"actor selection {slot} static emitter anchor is not unique"
+                )
+            anchor = anchors[0]
+            if (
+                anchor.get("anchor_type") != "object_speaker"
+                or anchor.get("offset_space") != "final_scaled_asset_root"
+            ):
+                raise CurrentApartmentVisualError(
+                    f"actor selection {slot} static emitter anchor is invalid"
+                )
+            emitter_offset = _finite_triplet(
+                anchor.get("offset_m"),
+                owner=f"actor selection {slot} emitter offset",
+            )
+            result[slot] = {
+                "source_slot_id": slot,
+                "actor_id": f"{slot}_actor",
+                "asset_id": asset_id,
+                "revision": revision,
+                "entity_class": "rigid_object",
+                "motion_model": "rigid_static",
+                "static_mesh_binding": "explicit_path",
+                "static_mesh_object_path": static_mesh_path,
+                "static_mesh_package": expected_static_mesh_package,
+                "actor_scale": float(actor_scale),
+                "ue_static_forward_yaw_deg": float(static_forward_yaw),
+                "emitter_anchor_id": str(anchor_id),
+                "emitter_offset_m": emitter_offset,
+                "emitter_offset_space": anchor["offset_space"],
+            }
+            continue
+
         required_equal = (
             ("blueprint_object_path", "blueprint_class_path"),
             ("profile_skeletal_mesh_binding", "skeletal_mesh_binding"),
@@ -333,11 +510,19 @@ def _selection_bindings(
             raise CurrentApartmentVisualError(
                 f"actor selection {slot} graph-derived mesh is invalid"
             )
+        emitter_binding = build_asset_emitter_binding(
+            source_registry, source_slot_id=slot, asset_id=asset_id, revision=revision,
+        )
+        if emitter_binding["offset_space"] != "final_scaled_asset_root":
+            raise CurrentApartmentVisualError(f"{slot}: unsupported emitter offset space")
         result[slot] = {
             "source_slot_id": slot,
             "actor_id": f"{slot}_actor",
             "asset_id": asset_id,
             "revision": revision,
+            "emitter_anchor_id": emitter_binding["semantic_anchor_id"],
+            "emitter_offset_m": list(emitter_binding["emitter_offset_m"]),
+            "emitter_offset_space": emitter_binding["offset_space"],
             "blueprint_class_path": str(raw_binding["blueprint_class_path"]),
             "idle_animation": str(raw_binding["idle_animation"]),
             "walking_animation": str(raw_binding["walking_animation"]),
@@ -361,6 +546,52 @@ def _selection_bindings(
     if authorization not in {"verified_internal", "unverified"}:
         authorization = "unverified"
     return selection_path, result, authorization
+
+
+def _is_static_binding(binding: Mapping[str, Any]) -> bool:
+    return (
+        binding.get("motion_model") == "rigid_static"
+        or binding.get("entity_class") == "rigid_object"
+    )
+
+
+def _timeline_actor_declaration(binding: Mapping[str, Any]) -> dict[str, Any]:
+    if _is_static_binding(binding):
+        return {
+            key: binding[key]
+            for key in (
+                "source_slot_id",
+                "actor_id",
+                "asset_id",
+                "revision",
+                "entity_class",
+                "motion_model",
+                "static_mesh_binding",
+                "static_mesh_object_path",
+                "static_mesh_package",
+                "actor_scale",
+                "ue_static_forward_yaw_deg",
+                "emitter_anchor_id",
+                "emitter_offset_m",
+                "emitter_offset_space",
+            )
+        }
+    return {
+        key: binding[key]
+        for key in (
+            "source_slot_id",
+            "actor_id",
+            "asset_id",
+            "revision",
+            "walk_phase_period_frames",
+            "ue_anatomical_forward_yaw_deg",
+            "blueprint_class_path",
+            "idle_animation",
+            "walking_animation",
+            "graph_mesh_package",
+            "graph_mesh_object_path",
+        )
+    }
 
 
 def _actor_yaw(
@@ -387,6 +618,22 @@ def _interpolate(
     ]
 
 
+def _spatial_cumulative(points: Sequence[Sequence[float]]) -> list[float]:
+    """Cumulative three-dimensional distance for rigid-mesh routes."""
+    cumulative = [0.0]
+    for first, second in zip(points[:-1], points[1:]):
+        cumulative.append(
+            cumulative[-1]
+            + math.sqrt(
+                sum(
+                    (float(second[axis]) - float(first[axis])) ** 2
+                    for axis in range(3)
+                )
+            )
+        )
+    return cumulative
+
+
 def _finite_waypoints(
     value: Any, *, owner: str
 ) -> list[list[float]] | None:
@@ -410,15 +657,74 @@ def _timeline_state(
     start: Sequence[float],
     end: Sequence[float],
     frame_index: int,
+    frame_count: int = FRAME_COUNT,
     walk_start_frame: int = 0,
     waypoints: Sequence[Sequence[float]] | None = None,
+    camera_position_ue_cm: Sequence[float] | None = None,
 ) -> dict[str, Any]:
+    if _is_static_binding(binding):
+        points = list(waypoints) if waypoints is not None else [list(start), list(end)]
+        if len(points) < 2:
+            raise CurrentApartmentVisualError(
+                f"static actor {binding['source_slot_id']} needs at least two route points"
+            )
+        cumulative = _spatial_cumulative(points)
+        total = cumulative[-1]
+        if total > 1.0e-9:
+            fraction = min(max(int(frame_index), 0), frame_count - 1) / float(
+                frame_count - 1
+            )
+            translation, segment = sample_polyline(
+                points, cumulative, total * fraction
+            )
+            segment_end = min(segment + 1, len(points) - 1)
+            static_yaw = _actor_yaw(
+                points[segment],
+                points[segment_end],
+                anatomical_forward_yaw_deg=float(
+                    binding.get("ue_static_forward_yaw_deg", 0.0)
+                ),
+            )
+        else:
+            translation = [float(value) for value in points[0]]
+            static_yaw = binding.get("static_yaw_ue_deg")
+            if static_yaw is None and camera_position_ue_cm is not None:
+                static_yaw = _actor_yaw(
+                    points[0],
+                    camera_position_ue_cm,
+                    anatomical_forward_yaw_deg=float(
+                        binding.get("ue_static_forward_yaw_deg", 0.0)
+                    ),
+                )
+            if static_yaw is None:
+                static_yaw = 0.0
+        if (
+            isinstance(static_yaw, bool)
+            or not isinstance(static_yaw, (int, float))
+            or not math.isfinite(float(static_yaw))
+        ):
+            raise CurrentApartmentVisualError(
+                f"static actor {binding['source_slot_id']} yaw is invalid"
+            )
+        return {
+            "actor_id": binding["actor_id"],
+            "source_slot_id": binding["source_slot_id"],
+            "asset_id": binding["asset_id"],
+            "revision": binding["revision"],
+            "entity_class": "rigid_object",
+            "motion_model": "rigid_static",
+            "translation_ue_cm": translation,
+            "yaw_ue_deg": float(static_yaw),
+            "action_id": None,
+            "action_phase": 0.0,
+        }
     route = list(waypoints) if waypoints is not None and len(waypoints) > 2 else None
     if route is not None:
         return _polyline_timeline_state(
             binding=binding,
             route=route,
             frame_index=frame_index,
+            frame_count=frame_count,
             walk_start_frame=walk_start_frame,
         )
     moving = any(
@@ -433,7 +739,7 @@ def _timeline_state(
         else 0.0
     )
     if moving and frame_index >= walk_start:
-        walk_end = FRAME_COUNT - 1
+        walk_end = frame_count - 1
         if frame_index == walk_end:
             translation = [float(value) for value in end]
         elif frame_index == walk_start:
@@ -465,6 +771,7 @@ def _polyline_timeline_state(
     binding: Mapping[str, Any],
     route: Sequence[Sequence[float]],
     frame_index: int,
+    frame_count: int,
     walk_start_frame: int,
 ) -> dict[str, Any]:
     """Per-frame state for a multi-waypoint route.
@@ -477,7 +784,7 @@ def _polyline_timeline_state(
     total = cumulative[-1]
     moving = total > 1.0e-9
     walk_start = walk_start_frame
-    walk_end = FRAME_COUNT - 1
+    walk_end = frame_count - 1
     action_id = "walk" if moving and frame_index >= walk_start else "idle"
     period = int(binding["walk_phase_period_frames"])
     phase = (
@@ -532,12 +839,25 @@ def author_current_apartment_visual_timeline(
     height: int = 720,
     hfov_degrees: float = 105.0,
     walk_start_frame: int = 0,
+    frame_count: int = FRAME_COUNT,
+    frame_rate_hz: float = FRAME_RATE_HZ,
+    ticks_per_frame: int | None = None,
 ) -> dict[str, Any]:
     """Write one freely designed current Apartment visual-only timeline."""
 
     selection_file, bindings, asset_authorization = _selection_bindings(
         actor_selection_path=actor_selection_path,
         source_asset_registry_path=source_asset_registry_path,
+    )
+    (
+        clock_frame_count,
+        clock_frame_rate_hz,
+        clock_ticks_per_frame,
+    ) = _resolve_render_clock(
+        frame_count,
+        frame_rate_hz,
+        ticks_per_frame,
+        owner="timeline render",
     )
     if set(bindings) != {"source1", "source2"}:
         raise CurrentApartmentVisualError(
@@ -558,10 +878,10 @@ def author_current_apartment_visual_timeline(
     if (
         isinstance(walk_start_frame, bool)
         or not isinstance(walk_start_frame, int)
-        or not 0 <= walk_start_frame < FRAME_COUNT - 1
+        or not 0 <= walk_start_frame < clock_frame_count - 1
     ):
         raise CurrentApartmentVisualError(
-            "walk_start_frame must be an integer in [0, 73]"
+            f"walk_start_frame must be an integer in [0, {clock_frame_count - 2}]"
         )
     camera_position = _finite_triplet(
         camera_position_ue_cm, owner="camera_position_ue_cm"
@@ -591,11 +911,11 @@ def author_current_apartment_visual_timeline(
                 f"{slot} waypoints must start at its start point and end at its end point"
             )
     frames = []
-    for frame_index in range(FRAME_COUNT):
+    for frame_index in range(clock_frame_count):
         frames.append(
             {
                 "frame_index": frame_index,
-                "pts_ticks": frame_index * TICKS_PER_FRAME,
+                "pts_ticks": frame_index * clock_ticks_per_frame,
                 "camera": {
                     "translation_ue_cm": list(camera_position),
                     "yaw_ue_deg": camera_yaw,
@@ -606,8 +926,10 @@ def author_current_apartment_visual_timeline(
                         start=starts[slot],
                         end=ends[slot],
                         frame_index=frame_index,
+                        frame_count=clock_frame_count,
                         walk_start_frame=walk_start_frame,
                         waypoints=routes[slot],
+                        camera_position_ue_cm=camera_position,
                     )
                     for slot in ("source1", "source2")
                 ],
@@ -629,30 +951,15 @@ def author_current_apartment_visual_timeline(
             "room_profile_id": room_profile_id,
         },
         "render": {
-            "frame_count": FRAME_COUNT,
-            "frame_rate_hz": FRAME_RATE_HZ,
-            "ticks_per_frame": TICKS_PER_FRAME,
+            "frame_count": clock_frame_count,
+            "frame_rate_hz": clock_frame_rate_hz,
+            "ticks_per_frame": clock_ticks_per_frame,
             "resolution_hw": [height, width],
             "hfov_degrees": float(hfov_degrees),
             "walk_start_frame": walk_start_frame,
         },
         "actors": [
-            {
-                key: binding[key]
-                for key in (
-                    "source_slot_id",
-                    "actor_id",
-                    "asset_id",
-                    "revision",
-                    "walk_phase_period_frames",
-                    "ue_anatomical_forward_yaw_deg",
-                    "blueprint_class_path",
-                    "idle_animation",
-                    "walking_animation",
-                    "graph_mesh_package",
-                    "graph_mesh_object_path",
-                )
-            }
+            _timeline_actor_declaration(binding)
             for binding in (bindings["source1"], bindings["source2"])
         ],
         "asset_authorization": asset_authorization,
@@ -682,11 +989,24 @@ def author_current_n_actor_visual_timeline(
     height: int = 720,
     hfov_degrees: float = 105.0,
     walk_start_frames: Mapping[str, int] | None = None,
+    frame_count: int = FRAME_COUNT,
+    frame_rate_hz: float = FRAME_RATE_HZ,
+    ticks_per_frame: int | None = None,
 ) -> dict[str, Any]:
     """Author a research-only visual timeline for contiguous source1..sourceN."""
     selection_file, bindings, asset_authorization = _selection_bindings(
         actor_selection_path=actor_selection_path,
         source_asset_registry_path=source_asset_registry_path,
+    )
+    (
+        clock_frame_count,
+        clock_frame_rate_hz,
+        clock_ticks_per_frame,
+    ) = _resolve_render_clock(
+        frame_count,
+        frame_rate_hz,
+        ticks_per_frame,
+        owner="timeline render",
     )
     slots = tuple(bindings)
     if set(routes_by_slot_ue_cm) != set(slots):
@@ -711,20 +1031,20 @@ def author_current_n_actor_visual_timeline(
     for slot in slots:
         route = _finite_waypoints(
             routes_by_slot_ue_cm[slot], owner=f"{slot}_waypoints_ue_cm")
-        if route is None or len(route) != FRAME_COUNT:
+        if route is None or len(route) != clock_frame_count:
             raise CurrentApartmentVisualError(
-                f"{slot} must declare exactly {FRAME_COUNT} route samples")
+                f"{slot} must declare exactly {clock_frame_count} route samples")
         walk_start = int(starts_at.get(slot, 0))
-        if not 0 <= walk_start < FRAME_COUNT - 1:
+        if not 0 <= walk_start < clock_frame_count - 1:
             raise CurrentApartmentVisualError(
-                f"{slot} walk_start_frame must be in [0, 73]")
+                f"{slot} walk_start_frame must be in [0, {clock_frame_count - 2}]")
         routes[slot] = (route, walk_start)
 
     frames = []
-    for frame_index in range(FRAME_COUNT):
+    for frame_index in range(clock_frame_count):
         frames.append({
             "frame_index": frame_index,
-            "pts_ticks": frame_index * TICKS_PER_FRAME,
+            "pts_ticks": frame_index * clock_ticks_per_frame,
             "camera": {
                 "translation_ue_cm": list(camera_position),
                 "yaw_ue_deg": camera_yaw,
@@ -735,8 +1055,10 @@ def author_current_n_actor_visual_timeline(
                     start=routes[slot][0][0],
                     end=routes[slot][0][-1],
                     frame_index=frame_index,
+                    frame_count=clock_frame_count,
                     walk_start_frame=routes[slot][1],
                     waypoints=routes[slot][0],
+                    camera_position_ue_cm=camera_position,
                 )
                 for slot in slots
             ],
@@ -756,26 +1078,16 @@ def author_current_n_actor_visual_timeline(
             "room_profile_id": room_profile_id,
         },
         "render": {
-            "frame_count": FRAME_COUNT,
-            "frame_rate_hz": FRAME_RATE_HZ,
-            "ticks_per_frame": TICKS_PER_FRAME,
+            "frame_count": clock_frame_count,
+            "frame_rate_hz": clock_frame_rate_hz,
+            "ticks_per_frame": clock_ticks_per_frame,
             "resolution_hw": [height, width],
             "hfov_degrees": float(hfov_degrees),
             "walk_start_frames": {
                 slot: routes[slot][1] for slot in slots},
         },
         "actors": [
-            {
-                key: bindings[slot][key]
-                for key in (
-                    "source_slot_id", "actor_id", "asset_id", "revision",
-                    "walk_phase_period_frames",
-                    "ue_anatomical_forward_yaw_deg",
-                    "blueprint_class_path", "idle_animation",
-                    "walking_animation", "graph_mesh_package",
-                    "graph_mesh_object_path",
-                )
-            }
+            _timeline_actor_declaration(bindings[slot])
             for slot in slots
         ],
         "asset_authorization": asset_authorization,
@@ -803,13 +1115,15 @@ def _load_timeline(
         or timeline.get("qualification_claim") is not False
         or timeline.get("asset_authorization") != asset_authorization
         or not isinstance(render, Mapping)
-        or render.get("frame_count") != FRAME_COUNT
-        or render.get("frame_rate_hz") != FRAME_RATE_HZ
-        or render.get("ticks_per_frame") != TICKS_PER_FRAME
     ):
         raise CurrentApartmentVisualError(
-            "timeline must be a 75-frame 15fps non-counted research record"
+            "timeline must be a non-counted research record with a render clock"
         )
+    (
+        clock_frame_count,
+        clock_frame_rate_hz,
+        clock_ticks_per_frame,
+    ) = _timeline_render_clock(timeline)
     actors = timeline.get("actors")
     if not isinstance(actors, list) or len(actors) != len(bindings):
         raise CurrentApartmentVisualError("timeline actor count differs from selection")
@@ -824,30 +1138,51 @@ def _load_timeline(
         )
     for slot, binding in bindings.items():
         actor = actor_by_slot[slot]
-        for field in (
-            "actor_id",
-            "asset_id",
-            "revision",
-            "walk_phase_period_frames",
-            "ue_anatomical_forward_yaw_deg",
-            "blueprint_class_path",
-            "idle_animation",
-            "walking_animation",
-            "graph_mesh_package",
-            "graph_mesh_object_path",
-        ):
+        fields = (
+            (
+                "actor_id",
+                "asset_id",
+                "revision",
+                "entity_class",
+                "motion_model",
+                "static_mesh_binding",
+                "static_mesh_object_path",
+                "static_mesh_package",
+                "actor_scale",
+                "ue_static_forward_yaw_deg",
+                "emitter_anchor_id",
+                "emitter_offset_m",
+                "emitter_offset_space",
+            )
+            if _is_static_binding(binding)
+            else (
+                "actor_id",
+                "asset_id",
+                "revision",
+                "walk_phase_period_frames",
+                "ue_anatomical_forward_yaw_deg",
+                "blueprint_class_path",
+                "idle_animation",
+                "walking_animation",
+                "graph_mesh_package",
+                "graph_mesh_object_path",
+            )
+        )
+        for field in fields:
             if actor.get(field) != binding[field]:
                 raise CurrentApartmentVisualError(
                     f"timeline {slot} {field} differs from actor selection"
                 )
     frames = timeline.get("frames")
-    if not isinstance(frames, list) or len(frames) != FRAME_COUNT:
-        raise CurrentApartmentVisualError("timeline must contain exactly 75 frames")
+    if not isinstance(frames, list) or len(frames) != clock_frame_count:
+        raise CurrentApartmentVisualError(
+            f"timeline must contain exactly {clock_frame_count} frames"
+        )
     for frame_index, frame in enumerate(frames):
         if (
             not isinstance(frame, Mapping)
             or frame.get("frame_index") != frame_index
-            or frame.get("pts_ticks") != frame_index * TICKS_PER_FRAME
+            or frame.get("pts_ticks") != frame_index * clock_ticks_per_frame
         ):
             raise CurrentApartmentVisualError(
                 f"timeline frame {frame_index} has an invalid clock"
@@ -882,36 +1217,61 @@ def _load_timeline(
             assert isinstance(state, Mapping)
             slot = state["source_slot_id"]
             binding = bindings[slot]
-            for field in (
-                "actor_id",
-                "asset_id",
-                "revision",
-                "walk_phase_period_frames",
-            ):
-                if state.get(field) != binding[field]:
+            if _is_static_binding(binding):
+                for field in ("actor_id", "asset_id", "revision", "entity_class", "motion_model"):
+                    if state.get(field) != (
+                        binding[field]
+                        if field in binding
+                        else "rigid_object"
+                        if field == "entity_class"
+                        else "rigid_static"
+                    ):
+                        raise CurrentApartmentVisualError(
+                            f"timeline frame {frame_index} {slot} {field} differs"
+                        )
+                if state.get("action_id") is not None:
                     raise CurrentApartmentVisualError(
-                        f"timeline frame {frame_index} {slot} {field} differs"
+                        f"timeline frame {frame_index} {slot} static actor has an action"
                     )
-            _finite_triplet(
+                phase = _finite_number(
+                    state.get("action_phase"),
+                    owner=f"timeline frame {frame_index} {slot} static action phase",
+                )
+                if phase != 0.0:
+                    raise CurrentApartmentVisualError(
+                        f"timeline frame {frame_index} {slot} static action phase is not zero"
+                    )
+            else:
+                for field in (
+                    "actor_id",
+                    "asset_id",
+                    "revision",
+                    "walk_phase_period_frames",
+                ):
+                    if state.get(field) != binding[field]:
+                        raise CurrentApartmentVisualError(
+                            f"timeline frame {frame_index} {slot} {field} differs"
+                        )
+                if state.get("action_id") not in {"idle", "walk"}:
+                    raise CurrentApartmentVisualError(
+                        f"timeline frame {frame_index} {slot} action is invalid"
+                    )
+                phase = _finite_number(
+                    state.get("action_phase"),
+                    owner=f"timeline frame {frame_index} {slot} action phase",
+                )
+                if not 0.0 <= phase < 1.0:
+                    raise CurrentApartmentVisualError(
+                        f"timeline frame {frame_index} {slot} action phase is invalid"
+                    )
+            position = _finite_triplet(
                 state.get("translation_ue_cm"),
                 owner=f"timeline frame {frame_index} {slot} position",
             )
-            _finite_number(
+            yaw = _finite_number(
                 state.get("yaw_ue_deg"),
                 owner=f"timeline frame {frame_index} {slot} yaw",
             )
-            if state.get("action_id") not in {"idle", "walk"}:
-                raise CurrentApartmentVisualError(
-                    f"timeline frame {frame_index} {slot} action is invalid"
-                )
-            phase = _finite_number(
-                state.get("action_phase"),
-                owner=f"timeline frame {frame_index} {slot} action phase",
-            )
-            if not 0.0 <= phase < 1.0:
-                raise CurrentApartmentVisualError(
-                    f"timeline frame {frame_index} {slot} action phase is invalid"
-                )
     return path, timeline
 
 
@@ -929,23 +1289,33 @@ def _closure_mappings(
     required = {
         native_map,
         "/SpContent/Blueprints/BP_CameraSensor",
-        *(
-            value
-            for binding in bindings.values()
-            for value in (
-                _package_from_object_path(
-                    binding["blueprint_class_path"], owner="selected blueprint"
-                ),
-                binding["graph_mesh_package"],
-                _package_from_object_path(
-                    binding["idle_animation"], owner="selected idle animation"
-                ),
-                _package_from_object_path(
-                    binding["walking_animation"], owner="selected walking animation"
-                ),
-            )
-        ),
     }
+    for binding in bindings.values():
+        if _is_static_binding(binding):
+            required.add(
+                _package_from_object_path(
+                    binding["static_mesh_object_path"],
+                    owner="selected static mesh",
+                )
+            )
+        else:
+            required.update(
+                {
+                    _package_from_object_path(
+                        binding["blueprint_class_path"],
+                        owner="selected blueprint",
+                    ),
+                    binding["graph_mesh_package"],
+                    _package_from_object_path(
+                        binding["idle_animation"],
+                        owner="selected idle animation",
+                    ),
+                    _package_from_object_path(
+                        binding["walking_animation"],
+                        owner="selected walking animation",
+                    ),
+                }
+            )
     candidates = []
     for name, raw in variants.items():
         if not isinstance(name, str) or not isinstance(raw, Mapping):
@@ -1071,6 +1441,16 @@ def _skeletal_mesh_handle(component: Any) -> int:
     return int(value)
 
 
+def _emitter_offset_ue_cm(binding: Mapping[str, Any]) -> list[float]:
+    offset_m = _finite_triplet(
+        binding.get("emitter_offset_m"),
+        owner=f"{binding['source_slot_id']} emitter offset",
+    )
+    # The AVEngine asset basis is X-forward/Y-up/Z-right in metres. The
+    # Apartment UE import basis is X-forward/Y-right/Z-up in centimetres.
+    return [100.0 * offset_m[0], 100.0 * offset_m[2], 100.0 * offset_m[1]]
+
+
 def _spawn_runtime_actors(
     *,
     game: Any,
@@ -1086,53 +1466,82 @@ def _spawn_runtime_actors(
     for slot in bindings:
         binding = bindings[slot]
         state = states[slot]
-        runtime = spawn_attached_visual_actor(
-            game,
-            actor_id=str(binding["actor_id"]),
-            blueprint_class_path=str(binding["blueprint_class_path"]),
-            position_ue_cm=list(state["translation_ue_cm"]),
-            yaw_ue_degrees=float(state["yaw_ue_deg"]),
-        )
-        declaration = {
-            "actor_id": binding["actor_id"],
-            "ue_component_frame_delta": binding["component_frame_delta"],
-        }
-        apply_ue_component_frame_delta(runtime["visual_root"], declaration)
-        expected_mesh = int(
-            game.unreal_service.load_object(
-                uclass="USkeletalMesh",
-                name=binding["graph_mesh_object_path"],
-                as_handle=True,
+        if _is_static_binding(binding):
+            runtime = spawn_attached_static_actor(
+                game,
+                actor_id=str(binding["actor_id"]),
+                static_mesh_object_path=str(binding["static_mesh_object_path"]),
+                position_ue_cm=list(state["translation_ue_cm"]),
+                yaw_ue_degrees=float(state["yaw_ue_deg"]),
+                actor_scale=float(binding["actor_scale"]),
+                emitter_local_ue_cm=_emitter_offset_ue_cm(binding),
             )
-        )
-        if _skeletal_mesh_handle(runtime["component"]) != expected_mesh:
-            raise CurrentApartmentVisualError(
-                f"{slot} spawned Blueprint does not use the selected graph mesh"
+            runtime.update(
+                {
+                    "binding": binding,
+                    "motion_model": "rigid_static",
+                    "animations": {},
+                    "lengths": {},
+                    "current_action": None,
+                }
             )
-        animations = {
-            "idle": game.unreal_service.load_object(
-                uclass="UAnimationAsset", name=binding["idle_animation"]
-            ),
-            "walk": game.unreal_service.load_object(
-                uclass="UAnimationAsset", name=binding["walking_animation"]
-            ),
-        }
-        lengths = {
-            key: float(value.GetPlayLength()) for key, value in animations.items()
-        }
-        if any(not math.isfinite(value) or value <= 0.0 for value in lengths.values()):
-            raise CurrentApartmentVisualError(f"{slot} animations are invalid")
-        runtime.update(
-            {
-                "binding": binding,
-                "animations": animations,
-                "lengths": lengths,
-                "current_action": None,
+        else:
+            runtime = spawn_attached_visual_actor(
+                game,
+                actor_id=str(binding["actor_id"]),
+                blueprint_class_path=str(binding["blueprint_class_path"]),
+                position_ue_cm=list(state["translation_ue_cm"]),
+                yaw_ue_degrees=float(state["yaw_ue_deg"]),
+                emitter_local_ue_cm=(
+                    [100.0 * binding["emitter_offset_m"][axis] for axis in (0, 2, 1)]
+                    if "emitter_offset_m" in binding else None
+                ),
+            )
+            declaration = {
+                "actor_id": binding["actor_id"],
+                "ue_component_frame_delta": binding["component_frame_delta"],
             }
-        )
+            apply_ue_component_frame_delta(runtime["visual_root"], declaration)
+            expected_mesh = int(
+                game.unreal_service.load_object(
+                    uclass="USkeletalMesh",
+                    name=binding["graph_mesh_object_path"],
+                    as_handle=True,
+                )
+            )
+            if _skeletal_mesh_handle(runtime["component"]) != expected_mesh:
+                raise CurrentApartmentVisualError(
+                    f"{slot} spawned Blueprint does not use the selected graph mesh"
+                )
+            animations = {
+                "idle": game.unreal_service.load_object(
+                    uclass="UAnimationAsset", name=binding["idle_animation"]
+                ),
+                "walk": game.unreal_service.load_object(
+                    uclass="UAnimationAsset", name=binding["walking_animation"]
+                ),
+            }
+            lengths = {
+                key: float(value.GetPlayLength()) for key, value in animations.items()
+            }
+            if any(
+                not math.isfinite(value) or value <= 0.0
+                for value in lengths.values()
+            ):
+                raise CurrentApartmentVisualError(f"{slot} animations are invalid")
+            runtime.update(
+                {
+                    "binding": binding,
+                    "motion_model": "articulated",
+                    "animations": animations,
+                    "lengths": lengths,
+                    "current_action": None,
+                }
+            )
         _apply_runtime_state(runtime, state=state, frame_index=0)
         runtimes[slot] = runtime
     return runtimes
+
 
 
 def _apply_runtime_state(
@@ -1140,7 +1549,32 @@ def _apply_runtime_state(
     *,
     state: Mapping[str, Any],
     frame_index: int,
-) -> dict[str, Any]:
+) -> dict[str, Any] | None:
+    binding = runtime.get("binding")
+    if not isinstance(binding, Mapping):
+        binding = runtime
+    if _is_static_binding(binding):
+        if state.get("action_id") is not None:
+            raise CurrentApartmentVisualError(
+                f"frame {frame_index} static actor has an animation action"
+            )
+        phase = _finite_number(
+            state.get("action_phase"),
+            owner=f"frame {frame_index} static action phase",
+        )
+        if phase != 0.0:
+            raise CurrentApartmentVisualError(
+                f"frame {frame_index} static action phase is not zero"
+            )
+        position = state["translation_ue_cm"]
+        runtime["anchor"].K2_SetActorLocationAndRotation(
+            NewLocation={"X": position[0], "Y": position[1], "Z": position[2]},
+            NewRotation={"Roll": 0.0, "Pitch": 0.0, "Yaw": state["yaw_ue_deg"]},
+            bSweep=False,
+            bTeleport=True,
+        )
+        return None
+
     action_id = str(state["action_id"])
     component = runtime["component"]
     if runtime["current_action"] != action_id:
@@ -1174,6 +1608,7 @@ def _apply_runtime_state(
         "observed_position_seconds": observed,
         "absolute_error_seconds": abs(observed - requested),
     }
+
 
 
 def _destroy_runtime_actors(
@@ -1215,6 +1650,178 @@ def _expected_root_readback_frames(
             }
         )
     return expected_frames
+
+
+def _frame_actor_state_record(
+    state: Mapping[str, Any],
+    binding: Mapping[str, Any],
+) -> dict[str, Any]:
+    result = {
+        "source_slot_id": state["source_slot_id"],
+        "actor_id": state["actor_id"],
+        "entity_class": binding.get("entity_class"),
+        "motion_model": (
+            "rigid_static" if _is_static_binding(binding) else "articulated"
+        ),
+        "action_id": state.get("action_id"),
+        "action_phase": state.get("action_phase"),
+        "translation_ue_cm": list(state["translation_ue_cm"]),
+        "yaw_ue_deg": state["yaw_ue_deg"],
+    }
+    if not _is_static_binding(binding):
+        result["walk_phase_period_frames"] = state["walk_phase_period_frames"]
+    return result
+
+
+def _wrap_angle_difference_degrees(observed: float, expected: float) -> float:
+    return (float(observed) - float(expected) + 180.0) % 360.0 - 180.0
+
+
+def _summarize_root_readbacks_for_clock(
+    *,
+    expected_frames: Sequence[Mapping[str, Any]],
+    actor_readbacks: Mapping[str, Sequence[Mapping[str, Any]]],
+    camera_readbacks: Sequence[Mapping[str, Any]],
+    frame_count: int,
+) -> dict[str, Any]:
+    """Validate root readback counts against the timeline's render clock."""
+    if frame_count == FRAME_COUNT:
+        return summarize_root_readbacks(
+            expected_frames=expected_frames,
+            actor_readbacks=actor_readbacks,
+            camera_readbacks=camera_readbacks,
+        )
+    if len(expected_frames) != frame_count or len(camera_readbacks) != frame_count:
+        raise CurrentApartmentVisualError(
+            "root readback requires the timeline frame_count for every frame"
+        )
+    expected_actor_ids = [
+        state["actor_id"] for state in expected_frames[0]["actor_states"]
+    ]
+    if set(actor_readbacks) != set(expected_actor_ids):
+        raise CurrentApartmentVisualError(
+            "actor readback closure differs from Timeline"
+        )
+    summaries: dict[str, Any] = {}
+    for actor_id in expected_actor_ids:
+        records = actor_readbacks[actor_id]
+        if len(records) != frame_count:
+            raise CurrentApartmentVisualError(
+                f"{actor_id} root readback lacks {frame_count} frames"
+            )
+        position_errors: list[float] = []
+        yaw_errors: list[float] = []
+        for frame_index, (frame, record) in enumerate(
+            zip(expected_frames, records, strict=True)
+        ):
+            expected = next(
+                item
+                for item in frame["actor_states"]
+                if item["actor_id"] == actor_id
+            )
+            expected_position = _finite_triplet(
+                expected.get("translation_ue_cm"),
+                owner=f"expected actor {actor_id} frame {frame_index} position",
+            )
+            expected_yaw = _finite_number(
+                expected.get("actor_yaw_ue_deg"),
+                owner=f"expected actor {actor_id} frame {frame_index} yaw",
+            )
+            location = _finite_triplet(
+                record.get("location_cm"),
+                owner=f"observed actor {actor_id} frame {frame_index} position",
+            )
+            rotation = _finite_triplet(
+                record.get("rotation_deg"),
+                owner=f"observed actor {actor_id} frame {frame_index} rotation",
+            )
+            if record.get("frame_index") != frame_index:
+                raise CurrentApartmentVisualError(
+                    f"{actor_id} readback frame order changed"
+                )
+            position_errors.append(
+                max(
+                    abs(location[axis] - expected_position[axis])
+                    for axis in range(3)
+                )
+            )
+            yaw_errors.append(
+                abs(
+                    _wrap_angle_difference_degrees(
+                        rotation[2], expected_yaw
+                    )
+                )
+            )
+        maximum_position = max(position_errors)
+        maximum_yaw = max(yaw_errors)
+        if (
+            maximum_position > POSITION_TOLERANCE_CM
+            or maximum_yaw > ROTATION_TOLERANCE_DEGREES
+        ):
+            raise CurrentApartmentVisualError(
+                f"{actor_id} UE root readback drifted"
+            )
+        summaries[actor_id] = {
+            "status": "pass",
+            "maximum_position_error_cm": maximum_position,
+            "maximum_yaw_error_deg": maximum_yaw,
+        }
+
+    camera_position_errors: list[float] = []
+    camera_yaw_errors: list[float] = []
+    for frame_index, (expected_frame, record) in enumerate(
+        zip(expected_frames, camera_readbacks, strict=True)
+    ):
+        expected_camera = expected_frame.get("camera_state")
+        if not isinstance(expected_camera, Mapping):
+            raise CurrentApartmentVisualError(
+                "timeline root readback lacks a per-frame camera state"
+            )
+        if record.get("frame_index") != frame_index:
+            raise CurrentApartmentVisualError(
+                "camera readback frame order changed"
+            )
+        expected_position = _finite_triplet(
+            expected_camera.get("ue_position_cm"),
+            owner=f"expected camera state {frame_index} position",
+        )
+        expected_yaw = _finite_number(
+            expected_camera.get("ue_yaw_deg"),
+            owner=f"expected camera state {frame_index} yaw",
+        )
+        location = _finite_triplet(
+            record.get("location_cm"),
+            owner=f"observed camera state {frame_index} position",
+        )
+        rotation = _finite_triplet(
+            record.get("rotation_deg"),
+            owner=f"observed camera state {frame_index} rotation",
+        )
+        camera_position_errors.append(
+            max(
+                abs(location[axis] - expected_position[axis])
+                for axis in range(3)
+            )
+        )
+        camera_yaw_errors.append(
+            abs(_wrap_angle_difference_degrees(rotation[2], expected_yaw))
+        )
+    maximum_camera_position = max(camera_position_errors)
+    maximum_camera_yaw = max(camera_yaw_errors)
+    if (
+        maximum_camera_position > POSITION_TOLERANCE_CM
+        or maximum_camera_yaw > ROTATION_TOLERANCE_DEGREES
+    ):
+        raise CurrentApartmentVisualError("UE camera root readback drifted")
+    summaries["camera"] = {
+        "status": "pass",
+        "maximum_position_error_cm": maximum_camera_position,
+        "maximum_yaw_error_deg": maximum_camera_yaw,
+        "per_frame_camera_state": True,
+        "checked_pose_hash_count": 0,
+        "unique_expected_pose_hash_count": 0,
+    }
+    return summaries
 
 
 def _animation_readback_summary(
@@ -1278,12 +1885,15 @@ def _partial_capture_receipt(
     animation_records_by_slot: Mapping[str, Sequence[Mapping[str, Any]]],
     root_readback_summary: Mapping[str, Any] | None,
     error: BaseException,
+    frame_count: int = FRAME_COUNT,
+    frame_rate_hz: float = FRAME_RATE_HZ,
+    ticks_per_frame: int = TICKS_PER_FRAME,
 ) -> dict[str, Any]:
     capture: dict[str, Any] = {
-        "frame_count": FRAME_COUNT,
+        "frame_count": frame_count,
         "completed_frame_count": len(frame_records),
-        "frame_rate_hz": FRAME_RATE_HZ,
-        "ticks_per_frame": TICKS_PER_FRAME,
+        "frame_rate_hz": frame_rate_hz,
+        "ticks_per_frame": ticks_per_frame,
         "modalities": ["rgb"],
         "audio_requested": False,
         "rlr_requested": False,
@@ -1355,6 +1965,11 @@ def capture_current_apartment_visual(
         bindings=bindings,
         asset_authorization=asset_authorization,
     )
+    (
+        clock_frame_count,
+        clock_frame_rate_hz,
+        clock_ticks_per_frame,
+    ) = _timeline_render_clock(timeline)
     if asset_authorization != "verified_internal":
         output = _new_external_output_directory(
             output_directory, owner="capture output"
@@ -1413,7 +2028,7 @@ def capture_current_apartment_visual(
         instance = launch_external_game_instance(
             spear_executable=executable,
             native_map=resolved_map,
-            frame_rate_hz=FRAME_RATE_HZ,
+            frame_rate_hz=clock_frame_rate_hz,
             rpc_port=rpc_port,
             graphics_adapter=graphics_adapter,
         )
@@ -1474,11 +2089,13 @@ def capture_current_apartment_visual(
                 )
                 for state in frame["actor_states"]:
                     slot = state["source_slot_id"]
-                    animation_readbacks[slot] = _apply_runtime_state(
+                    result = _apply_runtime_state(
                         runtimes[slot],
                         state=state,
                         frame_index=frame_index,
                     )
+                    if result is not None:
+                        animation_readbacks[slot] = result
 
             def readback() -> dict[str, Any]:
                 return {
@@ -1487,6 +2104,13 @@ def capture_current_apartment_visual(
                     "actor_anchor_poses": {
                         slot: read_actor_pose(runtimes[slot]["anchor"])
                         for slot in bindings
+                    },
+                    "source_emitter_poses": {
+                        slot: read_scene_component_pose(
+                            runtimes[slot]["emitter_component"]
+                        )
+                        for slot in bindings
+                        if "emitter_component" in runtimes[slot]
                     },
                     "animation_readbacks": dict(animation_readbacks),
                 }
@@ -1502,6 +2126,7 @@ def capture_current_apartment_visual(
             camera_pose = transaction["camera_pose"]
             actor_anchor_poses = transaction["actor_anchor_poses"]
             observed_animations = transaction["animation_readbacks"]
+            source_emitter_poses = transaction["source_emitter_poses"]
             camera_readbacks.append(
                 {
                     "frame_index": frame_index,
@@ -1514,14 +2139,17 @@ def capture_current_apartment_visual(
                 actor_id = str(state["actor_id"])
                 pose = actor_anchor_poses[slot]
                 actor_readbacks[actor_id].append({"frame_index": frame_index, **pose})
-                animation_record = observed_animations[slot]
-                animation_records_by_slot[slot].append(animation_record)
+                animation_record = observed_animations.get(slot)
+                if animation_record is not None:
+                    animation_records_by_slot[slot].append(animation_record)
                 observed_actor_poses[slot] = {
                     "actor_id": actor_id,
                     **pose,
                 }
             observed_animation_records = [
-                observed_animations[slot] for slot in bindings
+                observed_animations[slot]
+                for slot in bindings
+                if slot in observed_animations
             ]
             frame_record = {
                 "frame_index": frame_index,
@@ -1529,33 +2157,45 @@ def capture_current_apartment_visual(
                 "observation_calls": 1,
                 "camera_pose": camera_pose,
                 "actor_anchor_poses": observed_actor_poses,
+                "source_emitter_poses": source_emitter_poses,
                 "animation_readbacks": observed_animation_records,
                 "observed": {
                     "camera_pose": camera_pose,
                     "actor_anchor_poses": observed_actor_poses,
+                    "source_emitter_poses": source_emitter_poses,
                     "animation_readbacks": observed_animation_records,
                 },
                 "camera": dict(frame["camera"]),
                 "actor_states": [
-                    {
-                        "source_slot_id": state["source_slot_id"],
-                        "action_id": state["action_id"],
-                        "action_phase": state["action_phase"],
-                        "walk_phase_period_frames": state["walk_phase_period_frames"],
-                        "translation_ue_cm": list(state["translation_ue_cm"]),
-                        "yaw_ue_deg": state["yaw_ue_deg"],
-                    }
+                    _frame_actor_state_record(
+                        state,
+                        bindings[state["source_slot_id"]],
+                    )
                     for state in frame["actor_states"]
                 ],
             }
             rgb_frames.append(image)
             frame_records.append(frame_record)
-        root_readback_summary = summarize_root_readbacks(
+        root_readback_summary = _summarize_root_readbacks_for_clock(
             expected_frames=_expected_root_readback_frames(timeline),
             actor_readbacks=actor_readbacks,
             camera_readbacks=camera_readbacks,
+            frame_count=clock_frame_count,
         )
-        animation_summary = _animation_readback_summary(animation_records_by_slot)
+        animated_records = {
+            slot: records
+            for slot, records in animation_records_by_slot.items()
+            if records
+        }
+        animation_summary = (
+            _animation_readback_summary(animated_records)
+            if animated_records
+            else {
+                "status": "not_applicable",
+                "reason": "all selected actors are rigid_static",
+                "actors": {},
+            }
+        )
         arrays = output / "arrays"
         arrays.mkdir()
         np.save(arrays / "rgb.npy", np.ascontiguousarray(np.stack(rgb_frames)))
@@ -1578,10 +2218,10 @@ def capture_current_apartment_visual(
                 "spear_executable": str(executable),
             },
             "capture": {
-                "frame_count": FRAME_COUNT,
+                "frame_count": clock_frame_count,
                 "completed_frame_count": len(frame_records),
-                "frame_rate_hz": FRAME_RATE_HZ,
-                "ticks_per_frame": TICKS_PER_FRAME,
+                "frame_rate_hz": clock_frame_rate_hz,
+                "ticks_per_frame": clock_ticks_per_frame,
                 "modalities": ["rgb"],
                 "audio_requested": False,
                 "rlr_requested": False,
@@ -1665,6 +2305,9 @@ def capture_current_apartment_visual(
                     animation_records_by_slot=animation_records_by_slot,
                     root_readback_summary=root_readback_summary,
                     error=run_error,
+                    frame_count=clock_frame_count,
+                    frame_rate_hz=clock_frame_rate_hz,
+                    ticks_per_frame=clock_ticks_per_frame,
                 ),
             )
         except BaseException as receipt_error:
@@ -1695,6 +2338,9 @@ def capture_current_apartment_visual(
                     animation_records_by_slot=animation_records_by_slot,
                     root_readback_summary=root_readback_summary,
                     error=cleanup_error,
+                    frame_count=clock_frame_count,
+                    frame_rate_hz=clock_frame_rate_hz,
+                    ticks_per_frame=clock_ticks_per_frame,
                 ),
             )
         except BaseException as receipt_error:

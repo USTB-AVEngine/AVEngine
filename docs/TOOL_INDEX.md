@@ -5,7 +5,7 @@
 
 自 2026-08-25 起，目录本身就是能力分组（阶段目录 m1…m7 已移除），
 本表按目录列出每个工具做什么。
-当前共 332 个工具脚本。
+当前共 334 个工具脚本。
 
 ## 资产生成与装配（`tools/assets/`）
 
@@ -290,7 +290,7 @@
 | `tools/qa/probe_ue_capture_animation.py` | Probe a static-camera capture for scheduled-but-unrendered walk animation |
 | `tools/qa/publish_strict_two_human_full75_canary_summary.py` | Publish a reviewable four-row summary for strict two-human full75 canaries |
 | `tools/qa/publish_strict_two_human_review.py` | Publish a lightweight, server-linked review for the strict two-human gates |
-| `tools/qa/qa_v3_actor_selection.py` | Actor selection documents for QA v3 batches (neutral home for the helpers) |
+| `tools/qa/qa_v3_actor_selection.py` | Resolve selected articulated or rigid source assets to their UE content |
 | `tools/qa/qa_v3_arc.py` | 圆上的弧:起点加带符号扫角。有序的 [lo, hi] 表示不了它。 |
 | `tools/qa/qa_v3_azimuth.py` | The one place a camera-frame azimuth becomes a published azimuth |
 | `tools/qa/qa_v3_pixel_thresholds.py` | Explicit placeholder pixel-answerability thresholds for QA-v3 base cards |
@@ -423,11 +423,13 @@
 | `tools/ue/build_minimal_closure_report.py` | Build a minimal-closure report for the current Apartment visual stage |
 | `tools/ue/create_spear_kujiale_map_editor.py` | Create a UE map containing one external USD stage |
 | `tools/ue/export_apartment_gltf.py` | Export the legacy SPEAR apartment as real UE render-surface geometry |
+| `tools/ue/export_asset_dependencies_editor.py` | Export real Unreal package dependencies for declared mounted content roots |
 | `tools/ue/fix_spear_mp3d_materials_editor.py` | Repair and verify MP3D glTF color semantics inside an isolated UE project |
 | `tools/ue/import_controlled_humans_editor.py` | Import one catalog-described controlled human with generic Unreal APIs |
 | `tools/ue/import_spear_3d_front_sample_editor.py` | Import the local 3D-FRONT Toolbox sample proxy into a persistent UE map |
 | `tools/ue/import_spear_replicacad_editor.py` | Import and assemble the prepared ReplicaCAD apt_0 scene inside UE 5.5 |
 | `tools/ue/import_spear_skokloster_editor.py` | Import the prepared Skokloster GLB into one isolated SPEAR/UE content root |
+| `tools/ue/import_static_source_editor.py` | Import declared rigid source GLBs into fresh Unreal content directories |
 | `tools/ue/import_usd_stage_to_level_editor.py` | Import an external USD stage into ordinary Unreal assets and a saved level |
 | `tools/ue/prepare_spear_mp3d_execution.py` | Bind a compiled Timeline-v2 visual plan to the imported MP3D UE scene |
 | `tools/ue/prepare_spear_replicacad_scene.py` | Prepare the complete ReplicaCAD scene request for the optional UE backend |

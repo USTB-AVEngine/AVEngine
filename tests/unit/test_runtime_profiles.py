@@ -522,3 +522,164 @@ def test_registry_validation_is_remembered_per_content(monkeypatch):
     errors = RP.validate_source_asset_runtime_registry(broken)
     assert errors and RP.validate_source_asset_runtime_registry(broken) == errors
     assert passes["n"] == 3
+
+
+def _static_runtime_registry() -> dict:
+    registry = deepcopy(load_default_source_asset_runtime_registry())
+    registry["aliases"] = {}
+    registry["assets"] = [deepcopy(registry["assets"][0])]
+    asset = registry["assets"][0]
+    asset.update(
+        {
+            "asset_id": "generated_bookshelf_speaker_static_fixture",
+            "revision": "sound_source_assets_v1",
+            "display_label": "Static bookshelf speaker fixture",
+            "entity_class": "rigid_object",
+            "identity": {"object_type": "bookshelf_speaker", "category": "audio_playback"},
+            "realized_attributes": {
+                "object_type": "bookshelf_speaker",
+                "finish": "walnut_veneer",
+            },
+            "geometry": {
+                "mesh_authority": "rigid_or_environmental_asset",
+                "source_mesh_uri": (
+                    "artifact://sound_source_assets_v1/"
+                    "audio_playback/bookshelf_speaker/finalized.glb"
+                ),
+            },
+            "default_emitter_anchor_id": "woofer",
+            "emitter_anchors": [
+                {
+                    "anchor_id": "woofer",
+                    "anchor_type": "object_speaker",
+                    "offset_m": [0.105, 0.099, -0.006],
+                    "offset_space": "final_scaled_asset_root",
+                }
+            ],
+            "runtime_backends": {
+                "spear_unreal": {
+                    "static_mesh_binding": "explicit_path",
+                    "static_mesh_object_path": (
+                        "/Game/AVEngine/SoundSources/"
+                        "SM_bookshelf_speaker.SM_bookshelf_speaker"
+                    ),
+                    "actor_scale": 1.0,
+                    "ue_static_forward_yaw_deg": 90.0,
+                }
+            },
+            "admission_state": "research",
+        }
+    )
+    asset.pop("timeline", None)
+    asset.pop("asset_bound_lineage", None)
+    return registry
+
+
+def test_source_registry_keeps_articulated_records_compatible():
+    registry = load_default_source_asset_runtime_registry()
+    articulated_ids = {
+        record["asset_id"]
+        for record in registry["assets"]
+        if str(record.get("entity_class", "")).startswith("articulated_")
+    }
+    assert articulated_ids
+    assert validate_source_asset_runtime_registry(registry) == []
+    profiles = source_timeline_profiles(registry)
+    assert articulated_ids <= set(profiles)
+    assert all(
+        "motion_model" not in profiles[asset_id]
+        for asset_id in articulated_ids
+    )
+
+
+def test_rigid_static_source_has_explicit_mesh_and_full_emitter_binding():
+    registry = _static_runtime_registry()
+    assert validate_source_asset_runtime_registry(registry) == []
+    asset = registry["assets"][0]
+    asset_id = asset["asset_id"]
+
+    profiles = source_timeline_profiles(registry)
+    profile = profiles[asset_id]
+    assert profile["entity_class"] == "rigid_object"
+    assert profile["motion_model"] == "rigid_static"
+    assert profile["static_mesh_binding"]["static_mesh_object_path"].startswith("/Game/")
+    assert profile["emitter_anchors"][0]["offset_m"] == [0.105, 0.099, -0.006]
+    assert "idle_action_id" not in profile
+    assert "walking_action_id" not in profile
+
+    bindings = spear_actor_bindings(registry)
+    static_binding = bindings[asset_id]
+    assert static_binding["static_mesh_binding"] == "explicit_path"
+    assert "idle_animation" not in static_binding
+    assert "walking_animation" not in static_binding
+
+    emitter = build_asset_emitter_binding(
+        registry, source_slot_id="source2", asset_id=asset_id
+    )
+    assert emitter["entity_class"] == "rigid_object"
+    assert emitter["motion_model"] == "rigid_static"
+    assert emitter["emitter_offset_m"] == [0.105, 0.099, -0.006]
+    assert emitter["emitter_offset_space"] == "final_scaled_asset_root"
+    assert emitter["static_mesh_object_path"].startswith("/Game/")
+    assert emitter["ue_static_forward_yaw_deg"] == pytest.approx(90.0)
+
+    with pytest.raises(RuntimeProfileError, match="only to articulated"):
+        build_exact_asset_bound_runtime_binding(
+            registry, source_slot_id="source1", asset_id=asset_id
+        )
+
+
+@pytest.mark.parametrize(
+    ("mutation", "expected"),
+    [
+        (
+            lambda asset: asset["runtime_backends"]["spear_unreal"].update(
+                {"static_mesh_binding": "blueprint_component"}
+            ),
+            "static_mesh_binding",
+        ),
+        (
+            lambda asset: asset["runtime_backends"]["spear_unreal"].update(
+                {"static_mesh_object_path": "/tmp/speaker.uasset"}
+            ),
+            "static_mesh_object_path",
+        ),
+        (
+            lambda asset: asset["emitter_anchors"][0].update(
+                {"offset_m": [0.1, 0.2]}
+            ),
+            "offset_m",
+        ),
+        (
+            lambda asset: asset["emitter_anchors"][0].update(
+                {"offset_space": "height_only"}
+            ),
+            "offset_space",
+        ),
+        (
+            lambda asset: asset.update({"timeline": deepcopy(
+                load_default_source_asset_runtime_registry()["assets"][0]["timeline"]
+            )}),
+            "must not declare a Timeline",
+        ),
+    ],
+)
+def test_rigid_static_binding_rejects_articulated_or_incomplete_shapes(
+    mutation, expected
+):
+    registry = _static_runtime_registry()
+    mutation(registry["assets"][0])
+    errors = validate_source_asset_runtime_registry(registry)
+    assert any(expected in error for error in errors)
+
+
+def test_rigid_source_can_describe_multiple_named_emitter_anchors():
+    registry = _static_runtime_registry()
+    asset = registry["assets"][0]
+    tweeter = deepcopy(asset["emitter_anchors"][0])
+    tweeter.update(anchor_id="tweeter", offset_m=[0.105, 0.25, -0.006])
+    asset["emitter_anchors"].append(tweeter)
+    assert validate_source_asset_runtime_registry(registry) == []
+    binding = build_asset_emitter_binding(registry, source_slot_id="source4", asset_id=asset["asset_id"])
+    assert binding["semantic_anchor_id"] == "woofer"
+    assert binding["source_slot_id"] == "source4"

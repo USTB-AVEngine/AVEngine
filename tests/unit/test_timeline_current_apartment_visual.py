@@ -706,3 +706,417 @@ def test_n_actor_author_and_loader_accept_four_contiguous_slots(
         timeline_path=timeline_path, bindings=bindings,
         asset_authorization=authorization)
     assert len(loaded["actors"]) == 4
+
+
+def _static_registry_and_selection(tmp_path: Path) -> tuple[Path, Path]:
+    registry = json.loads(REGISTRY.read_text(encoding="utf-8"))
+    template = next(
+        record for record in registry["assets"]
+        if record["entity_class"] == "articulated_animal"
+    )
+    static = json.loads(json.dumps(template))
+    static.update({
+        "asset_id": "test_rigid_speaker_v1",
+        "revision": "test_rigid_speaker_revision",
+        "display_label": "Test rigid speaker",
+        "entity_class": "rigid_object",
+        "identity": {"object_type": "speaker", "category": "audio_playback"},
+        "realized_attributes": {},
+        "geometry": {
+            "mesh_authority": "rigid_or_environmental_asset",
+            "source_mesh_uri": "artifact://test/rigid-speaker.glb",
+        },
+        "default_emitter_anchor_id": "object_speaker",
+        "emitter_anchors": [{
+            "anchor_id": "object_speaker",
+            "anchor_type": "object_speaker",
+            "offset_m": [0.2, 0.3, 0.4],
+            "offset_space": "final_scaled_asset_root",
+        }],
+        "runtime_backends": {
+            "spear_unreal": {
+                "static_mesh_binding": "explicit_path",
+                "static_mesh_object_path": (
+                    "/Game/Test/RigidSpeaker.RigidSpeaker"
+                ),
+                "actor_scale": 1.25,
+                "ue_static_forward_yaw_deg": 0.0,
+            }
+        },
+        "admission_state": "research",
+    })
+    static.pop("timeline", None)
+    static.pop("generation_request_attributes", None)
+    static.pop("asset_bound_lineage", None)
+    registry["assets"].append(static)
+    registry_path = tmp_path / "static_registry.json"
+    registry_path.write_text(json.dumps(registry), encoding="utf-8")
+
+    selection_path = _profile_selection(tmp_path)
+    selection = json.loads(selection_path.read_text(encoding="utf-8"))
+    selection["actors"][0] = {
+        "source_slot_id": "source1",
+        "asset_id": static["asset_id"],
+        "revision": static["revision"],
+        "ue_binding": {
+            "static_mesh_binding": "explicit_path",
+            "static_mesh_object_path": (
+                "/Game/Test/RigidSpeaker.RigidSpeaker"
+            ),
+            "static_mesh_package": "/Game/Test/RigidSpeaker",
+        },
+    }
+    selection_path.write_text(json.dumps(selection), encoding="utf-8")
+    return registry_path, selection_path
+
+
+def test_static_selection_authoring_and_loading_is_animation_free(
+    tmp_path: Path,
+) -> None:
+    registry_path, selection_path = _static_registry_and_selection(tmp_path)
+    _, bindings, authorization = apartment_visual._selection_bindings(
+        actor_selection_path=selection_path,
+        source_asset_registry_path=registry_path,
+    )
+    static_binding = bindings["source1"]
+    assert static_binding["entity_class"] == "rigid_object"
+    assert static_binding["motion_model"] == "rigid_static"
+    assert static_binding["static_mesh_object_path"] == (
+        "/Game/Test/RigidSpeaker.RigidSpeaker"
+    )
+    assert static_binding["actor_scale"] == 1.25
+    assert static_binding["emitter_offset_m"] == [0.2, 0.3, 0.4]
+    assert "idle_animation" not in static_binding
+    assert "walking_animation" not in static_binding
+
+    routes = {
+        "source1": [[100.0, 20.0, 30.0]] * apartment_visual.FRAME_COUNT,
+        "source2": [
+            [float(frame * 10), 100.0, 0.0]
+            for frame in range(apartment_visual.FRAME_COUNT)
+        ],
+    }
+    timeline_path = tmp_path / "static_timeline.json"
+    timeline = apartment_visual.author_current_n_actor_visual_timeline(
+        actor_selection_path=selection_path,
+        source_asset_registry_path=registry_path,
+        output_path=timeline_path,
+        camera_position_ue_cm=(200.0, 20.0, 100.0),
+        camera_yaw_deg=0.0,
+        routes_by_slot_ue_cm=routes,
+        native_map=apartment_visual.NATIVE_APARTMENT_MAP,
+        room_profile_id=apartment_visual.APARTMENT_ROOM_PROFILE_ID,
+    )
+    declaration = next(
+        actor for actor in timeline["actors"]
+        if actor["source_slot_id"] == "source1"
+    )
+    assert declaration["motion_model"] == "rigid_static"
+    assert "idle_animation" not in declaration
+    static_states = [
+        frame["actor_states"][0] for frame in timeline["frames"]
+    ]
+    assert all(state["action_id"] is None for state in static_states)
+    assert all(state["action_phase"] == 0.0 for state in static_states)
+    assert all(
+        state["translation_ue_cm"] == [100.0, 20.0, 30.0]
+        for state in static_states
+    )
+    assert all(state["yaw_ue_deg"] == pytest.approx(0.0) for state in static_states)
+
+    _, loaded = apartment_visual._load_timeline(
+        timeline_path=timeline_path,
+        bindings=bindings,
+        asset_authorization=authorization,
+    )
+    assert loaded["frames"][0]["actor_states"][0]["motion_model"] == "rigid_static"
+
+
+def test_static_timeline_allows_rigid_motion_without_animation() -> None:
+    binding = {
+        "actor_id": "source1_actor",
+        "source_slot_id": "source1",
+        "asset_id": "static",
+        "revision": "v1",
+        "entity_class": "rigid_object",
+        "motion_model": "rigid_static",
+        "ue_static_forward_yaw_deg": 0.0,
+    }
+    state0 = apartment_visual._timeline_state(
+        binding=binding,
+        start=(0.0, 0.0, 0.0),
+        end=(740.0, 0.0, 0.0),
+        frame_index=0,
+    )
+    state74 = apartment_visual._timeline_state(
+        binding=binding,
+        start=(0.0, 0.0, 0.0),
+        end=(740.0, 0.0, 0.0),
+        frame_index=74,
+    )
+    assert state0["translation_ue_cm"] == [0.0, 0.0, 0.0]
+    assert state74["translation_ue_cm"] == [740.0, 0.0, 0.0]
+    assert state0["action_id"] is None
+    assert state74["action_id"] is None
+    assert state0["action_phase"] == state74["action_phase"] == 0.0
+
+
+def test_static_closure_requires_only_the_static_mesh_package(
+    tmp_path: Path,
+) -> None:
+    debug_map = "/Game/SPEAR/Scenes/debug_0000/Maps/debug_0000"
+    packages = {
+        debug_map: "/tmp/debug.umap",
+        "/SpContent/Blueprints/BP_CameraSensor": "/tmp/camera.uasset",
+        "/Game/Test/RigidSpeaker": "/tmp/rigid-speaker.uasset",
+    }
+    report = tmp_path / "closure.json"
+    report.write_text(json.dumps({
+        "variants": {"static": {
+            "mapping_complete": True,
+            "physical_mappings": [
+                {
+                    "package": package,
+                    "status": "unique_authorized_external_input",
+                    "source_file": source,
+                }
+                for package, source in packages.items()
+            ],
+        }},
+    }), encoding="utf-8")
+    bindings = {
+        "source1": {
+            "entity_class": "rigid_object",
+            "motion_model": "rigid_static",
+            "static_mesh_object_path": (
+                "/Game/Test/RigidSpeaker.RigidSpeaker"
+            ),
+        },
+    }
+    _, mappings = apartment_visual._closure_mappings(
+        closure_report_path=report,
+        bindings=bindings,
+        native_map=debug_map,
+    )
+    assert set(mappings) == {
+        (debug_map, ".umap"),
+        ("/SpContent/Blueprints/BP_CameraSensor", ".uasset"),
+        ("/Game/Test/RigidSpeaker", ".uasset"),
+    }
+
+
+def test_static_spawn_uses_three_dimensional_emitter_offset_without_animation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[dict[str, object]] = []
+
+    class _Anchor:
+        def K2_SetActorLocationAndRotation(self, **kwargs: object) -> None:
+            calls.append({"pose": kwargs})
+
+    class _VisualActor:
+        pass
+
+    def spawn(_game: object, **kwargs: object) -> dict[str, object]:
+        calls.append(dict(kwargs))
+        return {
+            "anchor": _Anchor(),
+            "visual_actor": _VisualActor(),
+            "visual_root": object(),
+            "anchor_root": object(),
+            "component": object(),
+            "emitter_component": object(),
+        }
+
+    monkeypatch.setattr(
+        apartment_visual, "spawn_attached_static_actor", spawn
+    )
+    binding = {
+        "source_slot_id": "source1",
+        "actor_id": "source1_actor",
+        "asset_id": "static",
+        "revision": "v1",
+        "entity_class": "rigid_object",
+        "motion_model": "rigid_static",
+        "static_mesh_object_path": (
+            "/Game/Test/RigidSpeaker.RigidSpeaker"
+        ),
+        "actor_scale": 1.25,
+        "ue_static_forward_yaw_deg": 0.0,
+        "emitter_offset_m": [0.2, 0.3, 0.4],
+    }
+    initial_frame = {"actor_states": [{
+        "source_slot_id": "source1",
+        "actor_id": "source1_actor",
+        "asset_id": "static",
+        "revision": "v1",
+        "entity_class": "rigid_object",
+        "motion_model": "rigid_static",
+        "translation_ue_cm": [10.0, 20.0, 30.0],
+        "yaw_ue_deg": 45.0,
+        "action_id": None,
+        "action_phase": 0.0,
+    }]}
+    runtimes = apartment_visual._spawn_runtime_actors(
+        game=object(),
+        bindings={"source1": binding},
+        initial_frame=initial_frame,
+    )
+    assert calls[0] == {
+        "actor_id": "source1_actor",
+        "static_mesh_object_path": (
+            "/Game/Test/RigidSpeaker.RigidSpeaker"
+        ),
+        "position_ue_cm": [10.0, 20.0, 30.0],
+        "yaw_ue_degrees": 45.0,
+        "actor_scale": 1.25,
+        "emitter_local_ue_cm": [20.0, 40.0, 30.0],
+    }
+    assert runtimes["source1"]["animations"] == {}
+    assert runtimes["source1"]["current_action"] is None
+    assert calls[-1]["pose"]["NewLocation"] == {
+        "X": 10.0, "Y": 20.0, "Z": 30.0
+    }
+    assert apartment_visual._apply_runtime_state(
+        runtimes["source1"],
+        state=initial_frame["actor_states"][0],
+        frame_index=0,
+    ) is None
+
+
+def test_n_actor_author_uses_explicit_150_frame_clock(
+    tmp_path: Path,
+) -> None:
+    selection = _profile_selection(tmp_path)
+    frame_count = 150
+    routes = {
+        "source1": [
+            [float(frame * 2), 40.0, 0.0]
+            for frame in range(frame_count)
+        ],
+        "source2": [
+            [float(300 - frame), -40.0, 0.0]
+            for frame in range(frame_count)
+        ],
+    }
+    timeline_path = tmp_path / "timeline_150.json"
+    timeline = apartment_visual.author_current_n_actor_visual_timeline(
+        actor_selection_path=selection,
+        source_asset_registry_path=REGISTRY,
+        output_path=timeline_path,
+        camera_position_ue_cm=(0.0, -600.0, 240.0),
+        camera_yaw_deg=0.0,
+        routes_by_slot_ue_cm=routes,
+        native_map=apartment_visual.NATIVE_APARTMENT_MAP,
+        room_profile_id=apartment_visual.APARTMENT_ROOM_PROFILE_ID,
+        frame_count=frame_count,
+        frame_rate_hz=15,
+    )
+    assert timeline["render"]["frame_count"] == frame_count
+    assert timeline["render"]["frame_rate_hz"] == 15.0
+    assert timeline["render"]["ticks_per_frame"] == 3200
+    assert len(timeline["frames"]) == frame_count
+    assert timeline["frames"][0]["pts_ticks"] == 0
+    assert timeline["frames"][-1]["pts_ticks"] == (frame_count - 1) * 3200
+    assert timeline["frames"][0]["actor_states"][0]["translation_ue_cm"] == [
+        0.0, 40.0, 0.0
+    ]
+    assert timeline["frames"][-1]["actor_states"][0]["translation_ue_cm"] == [
+        298.0, 40.0, 0.0
+    ]
+    assert timeline["frames"][-1]["actor_states"][0]["action_id"] == "walk"
+    _, bindings, authorization = apartment_visual._selection_bindings(
+        actor_selection_path=selection,
+        source_asset_registry_path=REGISTRY,
+    )
+    _, loaded = apartment_visual._load_timeline(
+        timeline_path=timeline_path,
+        bindings=bindings,
+        asset_authorization=authorization,
+    )
+    assert len(loaded["frames"]) == frame_count
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "match"),
+    [
+        ("frame_count", 150, "exactly 150 frames"),
+        ("ticks_per_frame", 1600, "disagree"),
+    ],
+)
+def test_loader_validates_the_declared_render_clock(
+    tmp_path: Path,
+    field: str,
+    value: int,
+    match: str,
+) -> None:
+    selection = _profile_selection(tmp_path)
+    timeline_path = _author_timeline(tmp_path)
+    timeline = json.loads(timeline_path.read_text(encoding="utf-8"))
+    timeline["render"][field] = value
+    timeline_path.write_text(json.dumps(timeline), encoding="utf-8")
+    _, bindings, authorization = apartment_visual._selection_bindings(
+        actor_selection_path=selection,
+        source_asset_registry_path=REGISTRY,
+    )
+    with pytest.raises(
+        apartment_visual.CurrentApartmentVisualError,
+        match=match,
+    ):
+        apartment_visual._load_timeline(
+            timeline_path=timeline_path,
+            bindings=bindings,
+            asset_authorization=authorization,
+        )
+
+
+def test_custom_clock_root_readback_summary_uses_all_150_frames() -> None:
+    frame_count = 150
+    expected_frames = []
+    actor_readbacks = {"source1_actor": [], "source2_actor": []}
+    camera_readbacks = []
+    for frame_index in range(frame_count):
+        state1 = {
+            "actor_id": "source1_actor",
+            "translation_ue_cm": [float(frame_index), 0.0, 0.0],
+            "yaw_ue_deg": 10.0,
+            "actor_yaw_ue_deg": 10.0,
+        }
+        state2 = {
+            "actor_id": "source2_actor",
+            "translation_ue_cm": [0.0, float(frame_index), 0.0],
+            "yaw_ue_deg": -20.0,
+            "actor_yaw_ue_deg": -20.0,
+        }
+        expected_frames.append({
+            "frame_index": frame_index,
+            "camera_state": {
+                "frame_index": frame_index,
+                "ue_position_cm": [0.0, 0.0, 100.0],
+                "ue_yaw_deg": 0.0,
+            },
+            "actor_states": [state1, state2],
+        })
+        actor_readbacks["source1_actor"].append({
+            "frame_index": frame_index,
+            "location_cm": list(state1["translation_ue_cm"]),
+            "rotation_deg": [0.0, 0.0, state1["yaw_ue_deg"]],
+        })
+        actor_readbacks["source2_actor"].append({
+            "frame_index": frame_index,
+            "location_cm": list(state2["translation_ue_cm"]),
+            "rotation_deg": [0.0, 0.0, state2["yaw_ue_deg"]],
+        })
+        camera_readbacks.append({
+            "frame_index": frame_index,
+            "location_cm": [0.0, 0.0, 100.0],
+            "rotation_deg": [0.0, 0.0, 0.0],
+        })
+    summary = apartment_visual._summarize_root_readbacks_for_clock(
+        expected_frames=expected_frames,
+        actor_readbacks=actor_readbacks,
+        camera_readbacks=camera_readbacks,
+        frame_count=frame_count,
+    )
+    assert summary["source1_actor"]["status"] == "pass"
+    assert summary["camera"]["status"] == "pass"

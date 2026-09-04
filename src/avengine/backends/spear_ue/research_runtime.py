@@ -388,16 +388,9 @@ def warm_scene_capture_until_stable(
     )
 
 
-def spawn_attached_visual_actor(
-    game: Any,
-    *,
-    actor_id: str,
-    blueprint_class_path: str,
-    position_ue_cm: list[float],
-    yaw_ue_degrees: float,
-) -> dict[str, Any]:
-    """Create the current safe Timeline-anchor / visual-child hierarchy."""
-
+def _spawn_timeline_anchor(
+    game: Any, *, actor_id: str, position_ue_cm: list[float], yaw_ue_degrees: float
+) -> tuple[Any, Any]:
     if len(position_ue_cm) != 3 or not all(
         math.isfinite(value) for value in position_ue_cm
     ):
@@ -427,6 +420,24 @@ def spawn_attached_visual_actor(
         NewRotation={"Roll": 0.0, "Pitch": 0.0, "Yaw": yaw_ue_degrees},
         bSweep=False,
         bTeleport=True,
+    )
+    return anchor, anchor_root
+
+
+def spawn_attached_visual_actor(
+    game: Any,
+    *,
+    actor_id: str,
+    blueprint_class_path: str,
+    position_ue_cm: list[float],
+    yaw_ue_degrees: float,
+    emitter_local_ue_cm: list[float] | None = None,
+) -> dict[str, Any]:
+    """Create the Timeline anchor, articulated visual and optional emitter child."""
+
+    anchor, anchor_root = _spawn_timeline_anchor(
+        game, actor_id=actor_id, position_ue_cm=position_ue_cm,
+        yaw_ue_degrees=yaw_ue_degrees,
     )
     blueprint = game.unreal_service.load_class(
         uclass="AActor", name=blueprint_class_path
@@ -471,13 +482,133 @@ def spawn_attached_visual_actor(
     component.set_property_value(
         property_name="GlobalAnimRateScale", property_value=1.0
     )
-    return {
+    runtime = {
         "anchor": anchor,
         "anchor_root": anchor_root,
         "visual_actor": visual_actor,
         "visual_root": visual_root,
         "component": component,
     }
+    if emitter_local_ue_cm is not None:
+        runtime["emitter_component"] = attach_emitter_component(
+            game, actor_id=actor_id, anchor_root=anchor_root,
+            emitter_local_ue_cm=emitter_local_ue_cm,
+        )
+    return runtime
+
+
+def read_scene_component_pose(component: Any) -> dict[str, list[float]]:
+    """Read a child component's world pose from UE, including parent transforms."""
+    return {
+        "location_cm": _read_unreal_pose_vector(
+            component.K2_GetComponentLocation(as_dict=True),
+            keys=("X", "Y", "Z"), owner="scene component location",
+        ),
+        "rotation_deg": _read_unreal_pose_vector(
+            component.K2_GetComponentRotation(as_dict=True),
+            keys=("Roll", "Pitch", "Yaw"), owner="scene component rotation",
+        ),
+    }
+
+
+def attach_emitter_component(game: Any, *, actor_id: str, anchor_root: Any,
+                             emitter_local_ue_cm: list[float]) -> Any:
+    """Attach a measured final-asset-root point; UE supplies the world transform."""
+    if len(emitter_local_ue_cm) != 3 or any(
+        isinstance(value, bool) or not isinstance(value, Real) or not math.isfinite(value)
+        for value in emitter_local_ue_cm
+    ):
+        raise SpearResearchRuntimeError("emitter offset must contain three finite values")
+    emitter = game.unreal_service.create_scene_component_for_scene_component(
+        owner=anchor_root, scene_component_name=f"{actor_id}_emitter", uclass="USceneComponent",
+    )
+    emitter.SetMobility(NewMobility="Movable")
+    emitter.K2_SetRelativeLocation(
+        NewLocation=dict(zip(("X", "Y", "Z"), emitter_local_ue_cm)),
+        bSweep=False, bTeleport=True,
+    )
+    if emitter.GetAttachParent(as_handle=True) != anchor_root.uobject:
+        raise SpearResearchRuntimeError("emitter did not attach to its timeline anchor")
+    return emitter
+
+
+def spawn_attached_static_actor(
+    game: Any,
+    *,
+    actor_id: str,
+    static_mesh_object_path: str,
+    position_ue_cm: list[float],
+    yaw_ue_degrees: float,
+    actor_scale: float,
+    emitter_local_ue_cm: list[float],
+) -> dict[str, Any]:
+    """Spawn a rigid visual child and an emitter in its final scaled root frame.
+
+    The emitter offset is supplied in UE centimeters after asset scaling. Its
+    child component inherits the timeline anchor's translation and rotation,
+    so capture reads its actual world pose rather than replacing root height.
+    """
+    if not isinstance(static_mesh_object_path, str) or not static_mesh_object_path.startswith("/Game/"):
+        raise SpearResearchRuntimeError("static mesh must use a /Game object path")
+    if isinstance(actor_scale, bool) or not isinstance(actor_scale, Real) or not math.isfinite(actor_scale) or actor_scale <= 0:
+        raise SpearResearchRuntimeError("static actor scale must be positive and finite")
+    if len(emitter_local_ue_cm) != 3 or any(
+        isinstance(v, bool) or not isinstance(v, Real) or not math.isfinite(v)
+        for v in emitter_local_ue_cm
+    ):
+        raise SpearResearchRuntimeError("emitter offset must contain three finite values")
+    anchor, anchor_root = _spawn_timeline_anchor(
+        game, actor_id=actor_id, position_ue_cm=position_ue_cm,
+        yaw_ue_degrees=yaw_ue_degrees,
+    )
+    visual_actor = None
+    try:
+        visual_actor = game.unreal_service.spawn_actor(
+            uclass="AStaticMeshActor",
+            spawn_parameters={"SpawnCollisionHandlingOverride": "AlwaysSpawn"},
+        )
+        visual_actor.SetActorEnableCollision(bNewActorEnableCollision=False)
+        visual_actor.SetActorTickEnabled(bEnabled=False)
+        component = game.unreal_service.get_component_by_class(
+            actor=visual_actor, uclass="UStaticMeshComponent",
+        )
+        component.SetMobility(NewMobility="Movable")
+        mesh = game.unreal_service.load_object(
+            uclass="UStaticMesh", name=static_mesh_object_path,
+        )
+        if component.SetStaticMesh(NewMesh=mesh) is not True:
+            raise SpearResearchRuntimeError("could not bind selected StaticMesh")
+        expected = game.unreal_service.load_object(
+            uclass="UStaticMesh", name=static_mesh_object_path, as_handle=True,
+        )
+        observed = component.get_property_value(property_name="StaticMesh", as_handle=True)
+        if not expected or int(observed) != int(expected):
+            raise SpearResearchRuntimeError("static mesh readback differs from selected mesh")
+        component.SetCollisionEnabled(NewType="NoCollision")
+        component.SetCastShadow(NewCastShadow=True)
+        component.SetComponentTickEnabled(bEnabled=False)
+        visual_root = visual_actor.K2_GetRootComponent()
+        attached = visual_root.K2_AttachToComponent(
+            Parent=anchor_root, SocketName="None", LocationRule="SnapToTarget",
+            RotationRule="SnapToTarget", ScaleRule="SnapToTarget", bWeldSimulatedBodies=False,
+        )
+        if attached is not True or visual_root.GetAttachParent(as_handle=True) != anchor_root.uobject:
+            raise SpearResearchRuntimeError("static visual did not attach to its timeline anchor")
+        visual_root.SetRelativeScale3D(NewScale3D={axis: float(actor_scale) for axis in ("X", "Y", "Z")})
+        emitter = attach_emitter_component(
+            game, actor_id=actor_id, anchor_root=anchor_root,
+            emitter_local_ue_cm=emitter_local_ue_cm,
+        )
+        return {
+            "anchor": anchor, "anchor_root": anchor_root,
+            "visual_actor": visual_actor, "visual_root": visual_root,
+            "component": component, "emitter_component": emitter,
+        }
+    except BaseException:
+        if visual_actor is not None:
+            visual_actor.K2_DestroyActor()
+        anchor.K2_DestroyActor()
+        raise
 
 
 __all__ = [
@@ -486,9 +617,11 @@ __all__ = [
     "close_scene_capture",
     "launch_external_game_instance",
     "read_actor_pose",
+    "read_scene_component_pose",
     "read_rgb_bgr",
     "run_frame_transaction",
     "spawn_attached_visual_actor",
+    "spawn_attached_static_actor",
     "spawn_scene_capture",
     "warm_scene_capture_until_stable",
 ]

@@ -69,9 +69,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--source-root",
         action="append",
-        required=True,
+        default=[],
         type=Path,
-        help="authorized external input root, repeatable, highest priority first",
+        help="legacy-layout external data root, repeatable, highest priority first",
+    )
+    parser.add_argument(
+        "--content-mount", action="append", default=[],
+        help="explicit mount=/absolute/content/path, e.g. /Game=/stage/SpearSim/Content",
     )
     parser.add_argument(
         "--stage-root",
@@ -142,6 +146,14 @@ def select_seed_records(
             if asset_ids is None:
                 continue
             raise ClosureReportError(f"asset has no spear_unreal backend: {asset_id}")
+        if asset.get("entity_class") == "rigid_object":
+            mesh = backend.get("static_mesh_object_path")
+            if not isinstance(mesh, str):
+                raise ClosureReportError(f"rigid asset has no static mesh path: {asset_id}")
+            seeds.append({"object_path": mesh, "origin": f"{asset_id} runtime profile",
+                          "package": _package_of_object_path(mesh, owner=asset_id),
+                          "role": "static_mesh"})
+            continue
         blueprint = backend.get("blueprint_class_path")
         if not isinstance(blueprint, str):
             raise ClosureReportError(f"asset has no blueprint_class_path: {asset_id}")
@@ -224,9 +236,17 @@ def _candidate_files(package: str, root: Path) -> list[Path]:
 
 
 def map_package(
-    package: str, source_roots: list[Path], *, stage_root: Path | None
+    package: str, source_roots: list[Path], *, stage_root: Path | None,
+    content_mounts: list[tuple[str, Path]] = (),
 ) -> dict[str, Any]:
     hits: list[Path] = []
+    for mount, root in content_mounts:
+        if package.startswith(mount + "/"):
+            base = root / package.removeprefix(mount + "/")
+            for suffix in PRIMARY_SUFFIXES:
+                candidate = base.with_suffix(suffix)
+                if candidate.is_file() and not candidate.is_symlink():
+                    hits.append(candidate)
     for root in source_roots:
         for candidate in _candidate_files(package, root):
             if candidate.is_file() and not candidate.is_symlink():
@@ -293,6 +313,18 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
         if not resolved.is_dir():
             raise ClosureReportError(f"--source-root is not a directory: {root}")
         source_roots.append(resolved)
+    content_mounts = []
+    for declaration in getattr(args, "content_mount", []):
+        mount, separator, raw_path = declaration.partition("=")
+        mount = mount.rstrip("/")
+        if not separator or mount + "/" not in CONTENT_ROOTS:
+            raise ClosureReportError(f"invalid content mount: {declaration}")
+        path = Path(raw_path).expanduser().resolve()
+        if not path.is_dir():
+            raise ClosureReportError(f"content mount is not a directory: {path}")
+        content_mounts.append((mount, path))
+    if not source_roots and not content_mounts:
+        raise ClosureReportError("declare at least one source root or content mount")
     stage_root = None
     if args.stage_root is not None:
         stage_root = args.stage_root.expanduser().resolve()
@@ -309,7 +341,8 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
     seed_packages = sorted({seed["package"] for seed in seeds})
     content, class_counts, non_content_count = reachable_closure(graph, seed_packages)
     mappings = [
-        map_package(package, source_roots, stage_root=stage_root) for package in content
+        map_package(package, source_roots, stage_root=stage_root,
+                    content_mounts=content_mounts) for package in content
     ]
     variant = {
         "absent_seed_packages": 0,
@@ -334,6 +367,7 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
             "dependency_graph": str(args.dependency_graph.resolve()),
             "source_asset_registry": str(args.source_asset_registry.resolve()),
             "source_roots": [str(root) for root in source_roots],
+            "content_mounts": [{"mount": mount, "path": str(path)} for mount, path in content_mounts],
             "stage_root": None if stage_root is None else str(stage_root),
         },
         "mapping_rule": {

@@ -1,12 +1,8 @@
-"""Actor selection documents for QA v3 batches (neutral home for the helpers).
+"""Resolve selected articulated or rigid source assets to their UE content.
 
-These helpers used to live in design_qa_v3_pilot_batch.py, the historical
-fixed-camera assembler.  The current room-centric generators (scene batch,
-extended profiles, n-actor planner) import them from here so that the
-historical CLI can be retired without dragging its production semantics
-along.  Behaviour is unchanged: given a registry record and the content
-snapshot, resolve the Blueprint, graph-derived skeletal mesh and animation
-packages to their physical authorised sources.
+Current QA generators share this helper. Explicit registry mesh paths take
+precedence; legacy articulated profiles may use one unambiguous mesh beside
+their animation assets. Actual capture verifies the spawned mesh binding.
 """
 
 from __future__ import annotations
@@ -17,31 +13,57 @@ from datetime import datetime, timezone
 
 def _mesh_package_for(asset, snap):
     su = asset["runtime_backends"]["spear_unreal"]
+    explicit = su.get("skeletal_mesh_path")
+    if explicit:
+        return explicit.split(".", 1)[0]
     mesh_dir_pkg = su["idle_animation"].split(".", 1)[0].rsplit("/", 1)[0]
-    gate = mesh_dir_pkg.rsplit("/", 1)[-1]
-    phys_dir = os.path.join(snap, "MyAssets/Audioset/Meshes", gate)
-    names = [f[:-7] for f in os.listdir(phys_dir) if f.endswith(".uasset")]
-    for n in names:
-        if n + "_Skeleton" in names:
-            return mesh_dir_pkg + "/" + n
-    if "runtime" in names:
+    if not mesh_dir_pkg.startswith("/Game/"):
+        raise RuntimeError(f"unsupported skeletal mesh package directory: {mesh_dir_pkg}")
+    phys_dir = os.path.join(snap, mesh_dir_pkg.removeprefix("/Game/"))
+    names = sorted(f[:-7] for f in os.listdir(phys_dir) if f.endswith(".uasset"))
+    candidates = [n for n in names if n + "_Skeleton" in names]
+    if len(candidates) == 1:
+        return mesh_dir_pkg + "/" + candidates[0]
+    if not candidates and "runtime" in names:
         return mesh_dir_pkg + "/runtime"
-    raise RuntimeError(f"cannot identify skeletal mesh in {phys_dir}: {names}")
+    raise RuntimeError(
+        f"cannot uniquely identify skeletal mesh in {phys_dir}; "
+        f"declare skeletal_mesh_path explicitly: {candidates or names}"
+    )
 
 
 def _actor_entry(slot, asset_id, by_id, snap):
     rec = by_id[asset_id]
     su = rec["runtime_backends"]["spear_unreal"]
+    def phys(package):
+        if not package.startswith("/Game/"):
+            raise RuntimeError(f"unsupported actor package: {package}")
+        p = os.path.join(snap, package.removeprefix("/Game/") + ".uasset")
+        if not os.path.isfile(p):
+            raise RuntimeError(f"missing physical source: {p}")
+        return p
+
+    if rec.get("entity_class") == "rigid_object":
+        mesh = su["static_mesh_object_path"]
+        package = mesh.split(".", 1)[0]
+        return {
+            "asset_id": asset_id,
+            "entity_class": "rigid_object",
+            "entity_instance_id": f"{slot}_actor",
+            "profile_alias": asset_id,
+            "revision": rec["revision"],
+            "source_slot_id": slot,
+            "physical_authorized_internal_sources": {"static_mesh": phys(package)},
+            "ue_binding": {
+                "static_mesh_binding": su["static_mesh_binding"],
+                "static_mesh_object_path": mesh,
+                "static_mesh_package": package,
+            },
+        }
     bp = su["blueprint_class_path"]
     bp_pkg = bp.split(".", 1)[0]
     mesh_pkg = _mesh_package_for(rec, snap)
     mesh_name = mesh_pkg.rsplit("/", 1)[-1]
-
-    def phys(package):
-        p = os.path.join(snap, package.split("/Game/", 1)[1] + ".uasset")
-        if not os.path.isfile(p):
-            raise RuntimeError(f"missing physical source: {p}")
-        return p
 
     return {
         "asset_id": asset_id,
@@ -59,7 +81,8 @@ def _actor_entry(slot, asset_id, by_id, snap):
             "blueprint_object_path": bp,
             "blueprint_package": bp_pkg,
             "graph_derived_mesh": {
-                "derivation": "direct graph dependency of the selected Blueprint; profile binds blueprint_component and declares no standalone mesh path",
+                "derivation": ("explicit registry mesh path" if su.get("skeletal_mesh_path")
+                               else "legacy unique sibling mesh; actual Blueprint mesh is checked at spawn"),
                 "object_path": f"{mesh_pkg}.{mesh_name}",
                 "package": mesh_pkg,
             },

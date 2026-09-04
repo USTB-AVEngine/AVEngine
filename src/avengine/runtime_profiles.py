@@ -12,6 +12,7 @@ from __future__ import annotations
 from copy import deepcopy
 from functools import lru_cache
 import math
+import re
 from pathlib import Path, PurePosixPath
 import sys
 from typing import Any, Mapping, Sequence
@@ -286,6 +287,84 @@ def validate_source_asset_runtime_registry(value: Any) -> list[str]:
     return errors
 
 
+def _validate_static_runtime_record(
+    record: Mapping[str, Any],
+    *,
+    prefix: str,
+    anchors: Sequence[Any],
+) -> list[str]:
+    """Validate the non-articulated branch of the source runtime registry."""
+
+    errors: list[str] = []
+    if record.get("timeline") is not None:
+        errors.append(f"{prefix}: rigid_object must not declare a Timeline")
+    for index, anchor in enumerate(anchors):
+        if not isinstance(anchor, Mapping) or anchor.get("anchor_type") != "object_speaker":
+            errors.append(
+                f"{prefix}: rigid_object anchor must have anchor_type object_speaker"
+            )
+        if isinstance(anchor, Mapping):
+            try:
+                _finite_vector(
+                    anchor.get("offset_m"),
+                    length=3,
+                    owner=f"{prefix}.emitter_anchors[{index}].offset_m",
+                )
+            except RuntimeProfileError as error:
+                errors.extend(error.errors)
+            if anchor.get("offset_space") != "final_scaled_asset_root":
+                errors.append(
+                    f"{prefix}: static emitter offset_space must be "
+                    "final_scaled_asset_root"
+                )
+            basis = anchor.get("local_basis")
+            if isinstance(basis, Mapping):
+                errors.extend(
+                    _validate_local_basis(
+                        basis,
+                        owner=f"{prefix}.emitter_anchors[{index}].local_basis",
+                    )
+                )
+
+    runtime_backends = record.get("runtime_backends")
+    spear = (
+        runtime_backends.get("spear_unreal")
+        if isinstance(runtime_backends, Mapping)
+        else None
+    )
+    if not isinstance(spear, Mapping):
+        errors.append(f"{prefix}: rigid_object lacks a SPEAR static-mesh binding")
+        return errors
+    if spear.get("static_mesh_binding") != "explicit_path":
+        errors.append(
+            f"{prefix}: rigid_object static_mesh_binding must be explicit_path"
+        )
+    static_mesh_path = spear.get("static_mesh_object_path")
+    if not isinstance(static_mesh_path, str) or not static_mesh_path.startswith("/Game/"):
+        errors.append(
+            f"{prefix}: static_mesh_object_path must be an explicit /Game/ path"
+        )
+    actor_scale = spear.get("actor_scale")
+    if (
+        isinstance(actor_scale, bool)
+        or not isinstance(actor_scale, (int, float))
+        or not math.isfinite(float(actor_scale))
+        or float(actor_scale) <= 0.0
+    ):
+        errors.append(f"{prefix}: static actor_scale must be positive and finite")
+    static_forward_yaw = spear.get("ue_static_forward_yaw_deg")
+    if (
+        isinstance(static_forward_yaw, bool)
+        or not isinstance(static_forward_yaw, (int, float))
+        or not math.isfinite(float(static_forward_yaw))
+    ):
+        errors.append(f"{prefix}: ue_static_forward_yaw_deg must be finite")
+    geometry = record.get("geometry")
+    if isinstance(geometry, Mapping) and geometry.get("rig_authority") is not None:
+        errors.append(f"{prefix}: rigid_object must not declare rig_authority")
+    return errors
+
+
 def _validate_source_asset_runtime_registry_uncached(value: Any) -> list[str]:
     errors = _schema_errors(value, _SOURCE_SCHEMA_FILE)
     if errors or not isinstance(value, Mapping):
@@ -319,6 +398,16 @@ def _validate_source_asset_runtime_registry_uncached(value: Any) -> list[str]:
             errors.append(f"{prefix}: emitter anchor IDs must be unique")
         if record.get("default_emitter_anchor_id") not in anchor_ids:
             errors.append(f"{prefix}: default emitter anchor does not resolve")
+
+        if record.get("entity_class") == "rigid_object":
+            errors.extend(
+                _validate_static_runtime_record(
+                    record,
+                    prefix=prefix,
+                    anchors=anchors,
+                )
+            )
+            continue
 
         identity = record.get("identity")
         attributes = record.get("realized_attributes")
@@ -698,6 +787,21 @@ def source_timeline_profiles(
 
     result: dict[str, dict[str, Any]] = {}
     for asset_id, record in source_asset_runtime_index(registry).items():
+        if record.get("entity_class") == "rigid_object":
+            spear = record["runtime_backends"]["spear_unreal"]
+            result[asset_id] = {
+                "revision": record["revision"],
+                "entity_class": "rigid_object",
+                "motion_model": "rigid_static",
+                "display_label": record["display_label"],
+                "identity": deepcopy(dict(record["identity"])),
+                "realized_attributes": deepcopy(dict(record["realized_attributes"])),
+                "geometry": deepcopy(dict(record["geometry"])),
+                "default_emitter_anchor_id": record["default_emitter_anchor_id"],
+                "emitter_anchors": deepcopy(list(record["emitter_anchors"])),
+                "static_mesh_binding": deepcopy(dict(spear)),
+            }
+            continue
         timeline = record["timeline"]
         result[asset_id] = {
             "revision": record["revision"],
@@ -746,8 +850,8 @@ def build_asset_emitter_binding(
 ) -> dict[str, Any]:
     """Materialize one source-slot binding from measured asset-local metadata."""
 
-    if source_slot_id not in {"source1", "source2"}:
-        raise RuntimeProfileError("source slot must be source1 or source2")
+    if not isinstance(source_slot_id, str) or not re.fullmatch(r"source[1-9][0-9]*", source_slot_id):
+        raise RuntimeProfileError("source slot must be a canonical sourceN identifier")
     record = resolve_source_asset_runtime_profile(registry, asset_id, revision)
     selected_anchor_id = anchor_id or str(record["default_emitter_anchor_id"])
     matches = [
@@ -760,17 +864,37 @@ def build_asset_emitter_binding(
             f"asset {asset_id!r} has no unique emitter anchor {selected_anchor_id!r}"
         )
     anchor = matches[0]
-    binding = {
-        "source_slot_id": source_slot_id,
-        "asset_id": asset_id,
-        "asset_revision": record["revision"],
-        "semantic_anchor_id": selected_anchor_id,
-        "emitter_offset_m": deepcopy(list(anchor["offset_m"])),
-        "local_anatomical_forward_axis": deepcopy(
-            list(record["timeline"]["local_anatomical_forward_axis"])
-        ),
-        "offset_space": anchor["offset_space"],
-    }
+    if record.get("entity_class") == "rigid_object":
+        spear = record["runtime_backends"]["spear_unreal"]
+        binding = {
+            "source_slot_id": source_slot_id,
+            "asset_id": asset_id,
+            "asset_revision": record["revision"],
+            "entity_class": "rigid_object",
+            "motion_model": "rigid_static",
+            "semantic_anchor_id": selected_anchor_id,
+            "emitter_offset_m": deepcopy(list(anchor["offset_m"])),
+            "emitter_offset_space": anchor["offset_space"],
+            "offset_space": anchor["offset_space"],
+            "static_mesh_binding": spear["static_mesh_binding"],
+            "static_mesh_object_path": spear["static_mesh_object_path"],
+            "actor_scale": float(spear["actor_scale"]),
+            "ue_static_forward_yaw_deg": float(
+                spear["ue_static_forward_yaw_deg"]
+            ),
+        }
+    else:
+        binding = {
+            "source_slot_id": source_slot_id,
+            "asset_id": asset_id,
+            "asset_revision": record["revision"],
+            "semantic_anchor_id": selected_anchor_id,
+            "emitter_offset_m": deepcopy(list(anchor["offset_m"])),
+            "local_anatomical_forward_axis": deepcopy(
+                list(record["timeline"]["local_anatomical_forward_axis"])
+            ),
+            "offset_space": anchor["offset_space"],
+        }
     if isinstance(anchor.get("local_basis"), Mapping):
         binding["local_basis"] = deepcopy(dict(anchor["local_basis"]))
     return binding
@@ -793,6 +917,10 @@ def build_exact_asset_bound_runtime_binding(
     """
 
     record = resolve_source_asset_runtime_profile(registry, asset_id, revision)
+    if record.get("entity_class") == "rigid_object":
+        raise RuntimeProfileError(
+            "exact asset-bound runtime binding applies only to articulated assets"
+        )
     lineage = record.get("asset_bound_lineage")
     if not isinstance(lineage, Mapping):
         raise RuntimeProfileError(

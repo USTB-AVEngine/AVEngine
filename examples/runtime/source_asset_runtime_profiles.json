@@ -60,7 +60,11 @@
       "timeline": {
         "template_id": "generated_abyssinian_target_native_v1",
         "body_plan_id": "quadruped_mammal_felid_v1",
-        "local_anatomical_forward_axis": [1.0, 0.0, 0.0],
+        "local_anatomical_forward_axis": [
+          1.0,
+          0.0,
+          0.0
+        ],
         "walk_phase_period_frames": 25,
         "idle_action_id": "idle",
         "walking_action_id": "walk"
@@ -70,7 +74,11 @@
         {
           "anchor_id": "muzzle",
           "anchor_type": "muzzle",
-          "offset_m": [0.38869346364905827, 0.16641961991328985, 0.0],
+          "offset_m": [
+            0.38869346364905827,
+            0.16641961991328985,
+            0.0
+          ],
           "offset_space": "final_scaled_asset_root"
         }
       ],
@@ -91,8 +99,16 @@
           },
           "ue_component_frame_delta": {
             "schema": "avengine_spear_component_frame_delta_v1",
-            "rotation_deg": [0.0, 0.0, 0.0],
-            "translation_cm": [0.0, 0.0, 42.25],
+            "rotation_deg": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "translation_cm": [
+              0.0,
+              0.0,
+              42.25
+            ],
             "composition": "add_relative_preserving_blueprint_transform",
             "reason": "generated_abyssinian_native_UE_bounds_floor_calibration"
           },
@@ -132,7 +148,11 @@
       "timeline": {
         "template_id": "generated_border_collie_target_native_v1",
         "body_plan_id": "quadruped_canine",
-        "local_anatomical_forward_axis": [1.0, 0.0, 0.0],
+        "local_anatomical_forward_axis": [
+          1.0,
+          0.0,
+          0.0
+        ],
         "walk_phase_period_frames": 25,
         "idle_action_id": "idle",
         "walking_action_id": "walk"
@@ -142,7 +162,11 @@
         {
           "anchor_id": "muzzle",
           "anchor_type": "muzzle",
-          "offset_m": [0.40465284499021825, 0.6465226403698251, 0.0],
+          "offset_m": [
+            0.40465284499021825,
+            0.6465226403698251,
+            0.0
+          ],
           "offset_space": "final_scaled_asset_root"
         }
       ],
@@ -163,8 +187,16 @@
           },
           "ue_component_frame_delta": {
             "schema": "avengine_spear_component_frame_delta_v1",
-            "rotation_deg": [0.0, 0.0, 0.0],
-            "translation_cm": [0.0, 0.0, 0.0],
+            "rotation_deg": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "translation_cm": [
+              0.0,
+              0.0,
+              0.0
+            ],
             "composition": "add_relative_preserving_blueprint_transform",
             "reason": "generated_target_native_heading_plus_x_and_support_plane_z0"
           },
@@ -380,7 +412,11 @@
       "timeline": {
         "template_id": "generated_pembroke_welsh_corgi_target_native_v1",
         "body_plan_id": "quadruped_canine",
-        "local_anatomical_forward_axis": [1.0, 0.0, 0.0],
+        "local_anatomical_forward_axis": [
+          1.0,
+          0.0,
+          0.0
+        ],
         "walk_phase_period_frames": 25,
         "idle_action_id": "idle",
         "walking_action_id": "walk"
@@ -390,13 +426,29 @@
         {
           "anchor_id": "muzzle",
           "anchor_type": "muzzle",
-          "offset_m": [0.2540588796012138, 0.30917552322485176, 0.0],
+          "offset_m": [
+            0.2540588796012138,
+            0.30917552322485176,
+            0.0
+          ],
           "offset_space": "final_scaled_asset_root",
           "local_basis": {
             "schema": "avengine_asset_local_basis_v1",
-            "forward_axis": [1.0, 0.0, 0.0],
-            "up_axis": [0.0, 1.0, 0.0],
-            "right_axis": [0.0, 0.0, 1.0],
+            "forward_axis": [
+              1.0,
+              0.0,
+              0.0
+            ],
+            "up_axis": [
+              0.0,
+              1.0,
+              0.0
+            ],
+            "right_axis": [
+              0.0,
+              0.0,
+              1.0
+            ],
             "handedness": "forward_cross_up_equals_right"
           }
         }
@@ -423,8 +475,16 @@
           },
           "ue_component_frame_delta": {
             "schema": "avengine_spear_component_frame_delta_v1",
-            "rotation_deg": [0.0, 0.0, 0.0],
-            "translation_cm": [0.0, 0.0, 0.0],
+            "rotation_deg": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "translation_cm": [
+              0.0,
+              0.0,
+              0.0
+            ],
             "composition": "add_relative_preserving_blueprint_transform",
             "reason": "scale_calibrated_v5_actor_identity_rotation_and_dynamic_ground_snap_readback_20260729"
           },
@@ -549,7 +609,11 @@
       "timeline": {
         "template_id": "generated_british_shorthair_target_native_v1",
         "body_plan_id": "quadruped_mammal_felid_v1",
-        "local_anatomical_forward_axis": [1.0, 0.0, 0.0],
+        "local_anatomical_forward_axis": [
+          1.0,
+          0.0,
+          0.0
+        ],
         "walk_phase_period_frames": 25,
         "idle_action_id": "idle",
         "walking_action_id": "walk"
@@ -559,13 +623,29 @@
         {
           "anchor_id": "muzzle",
           "anchor_type": "muzzle",
-          "offset_m": [0.2503672200051257, 0.23847342533548063, 0.0],
+          "offset_m": [
+            0.2503672200051257,
+            0.23847342533548063,
+            0.0
+          ],
           "offset_space": "final_scaled_asset_root",
           "local_basis": {
             "schema": "avengine_asset_local_basis_v1",
-            "forward_axis": [1.0, 0.0, 0.0],
-            "up_axis": [0.0, 1.0, 0.0],
-            "right_axis": [0.0, 0.0, 1.0],
+            "forward_axis": [
+              1.0,
+              0.0,
+              0.0
+            ],
+            "up_axis": [
+              0.0,
+              1.0,
+              0.0
+            ],
+            "right_axis": [
+              0.0,
+              0.0,
+              1.0
+            ],
             "handedness": "forward_cross_up_equals_right"
           }
         }
@@ -592,8 +672,16 @@
           },
           "ue_component_frame_delta": {
             "schema": "avengine_spear_component_frame_delta_v1",
-            "rotation_deg": [0.0, 0.0, 0.0],
-            "translation_cm": [0.0, 0.0, 0.0],
+            "rotation_deg": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "translation_cm": [
+              0.0,
+              0.0,
+              0.0
+            ],
             "composition": "add_relative_preserving_blueprint_transform",
             "reason": "scale_calibrated_v5_actor_identity_rotation_and_dynamic_ground_snap_readback_20260729"
           },
@@ -723,7 +811,11 @@
       "timeline": {
         "template_id": "generated_shiba_inu_target_native_v2",
         "body_plan_id": "quadruped_canine",
-        "local_anatomical_forward_axis": [1.0, 0.0, 0.0],
+        "local_anatomical_forward_axis": [
+          1.0,
+          0.0,
+          0.0
+        ],
         "walk_phase_period_frames": 25,
         "idle_action_id": "idle",
         "walking_action_id": "walk"
@@ -733,13 +825,29 @@
         {
           "anchor_id": "muzzle",
           "anchor_type": "muzzle",
-          "offset_m": [0.24717403409658225, 0.3450888046163496, 0.0],
+          "offset_m": [
+            0.24717403409658226,
+            0.3450888046163496,
+            0.0
+          ],
           "offset_space": "final_scaled_asset_root",
           "local_basis": {
             "schema": "avengine_asset_local_basis_v1",
-            "forward_axis": [1.0, 0.0, 0.0],
-            "up_axis": [0.0, 1.0, 0.0],
-            "right_axis": [0.0, 0.0, 1.0],
+            "forward_axis": [
+              1.0,
+              0.0,
+              0.0
+            ],
+            "up_axis": [
+              0.0,
+              1.0,
+              0.0
+            ],
+            "right_axis": [
+              0.0,
+              0.0,
+              1.0
+            ],
             "handedness": "forward_cross_up_equals_right"
           }
         }
@@ -766,8 +874,16 @@
           },
           "ue_component_frame_delta": {
             "schema": "avengine_spear_component_frame_delta_v1",
-            "rotation_deg": [0.0, 0.0, 0.0],
-            "translation_cm": [0.0, 0.0, 0.0],
+            "rotation_deg": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "translation_cm": [
+              0.0,
+              0.0,
+              0.0
+            ],
             "composition": "add_relative_preserving_blueprint_transform",
             "reason": "scale_calibrated_v5_actor_identity_rotation_and_dynamic_ground_snap_readback_20260729"
           },
@@ -892,7 +1008,11 @@
       "timeline": {
         "template_id": "rocketbox_dog_beagle_01",
         "body_plan_id": "quadruped_canine",
-        "local_anatomical_forward_axis": [1.0, 0.0, 0.0],
+        "local_anatomical_forward_axis": [
+          1.0,
+          0.0,
+          0.0
+        ],
         "walk_phase_period_frames": 25,
         "idle_action_id": "idle",
         "walking_action_id": "walk"
@@ -902,7 +1022,11 @@
         {
           "anchor_id": "muzzle",
           "anchor_type": "muzzle",
-          "offset_m": [0.34, 0.61, 0.0],
+          "offset_m": [
+            0.34,
+            0.61,
+            0.0
+          ],
           "offset_space": "final_scaled_asset_root"
         }
       ],
@@ -923,8 +1047,16 @@
           },
           "ue_component_frame_delta": {
             "schema": "avengine_spear_component_frame_delta_v1",
-            "rotation_deg": [0.0, 90.0, 0.0],
-            "translation_cm": [0.0, 0.0, 33.64],
+            "rotation_deg": [
+              0.0,
+              90.0,
+              0.0
+            ],
+            "translation_cm": [
+              0.0,
+              0.0,
+              33.64
+            ],
             "composition": "add_relative_preserving_blueprint_transform",
             "reason": "exact_M2_GLTF_to_UE_asset_local_axis_and_floor_calibration"
           },
@@ -954,7 +1086,11 @@
       "timeline": {
         "template_id": "rocketbox_human_male_adult_01",
         "body_plan_id": "biped_human",
-        "local_anatomical_forward_axis": [0.0, 0.0, 1.0],
+        "local_anatomical_forward_axis": [
+          0.0,
+          0.0,
+          1.0
+        ],
         "walk_phase_period_frames": 16,
         "idle_action_id": "idle",
         "walking_action_id": "walk"
@@ -964,7 +1100,11 @@
         {
           "anchor_id": "mouth",
           "anchor_type": "mouth",
-          "offset_m": [0.0, 1.61, 0.0],
+          "offset_m": [
+            0.0,
+            1.61,
+            0.0
+          ],
           "offset_space": "final_scaled_asset_root"
         }
       ],
@@ -985,8 +1125,16 @@
           "ue_anatomical_forward_yaw_deg": 90.0,
           "ue_component_frame_delta": {
             "schema": "avengine_spear_component_frame_delta_v1",
-            "rotation_deg": [0.0, 0.0, 0.0],
-            "translation_cm": [0.0, 0.0, 0.0],
+            "rotation_deg": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "translation_cm": [
+              0.0,
+              0.0,
+              0.0
+            ],
             "composition": "add_relative_preserving_blueprint_transform",
             "reason": "identity_delta_native_Rocketbox_UE_asset_frame"
           },
@@ -1016,7 +1164,11 @@
       "timeline": {
         "template_id": "rocketbox_adults_female_adult_01",
         "body_plan_id": "biped_human",
-        "local_anatomical_forward_axis": [0.0, 0.0, 1.0],
+        "local_anatomical_forward_axis": [
+          0.0,
+          0.0,
+          1.0
+        ],
         "walk_phase_period_frames": 19,
         "idle_action_id": "idle",
         "walking_action_id": "walk"
@@ -1026,7 +1178,11 @@
         {
           "anchor_id": "mouth",
           "anchor_type": "mouth",
-          "offset_m": [0.0, 1.569012451171875, 0.0],
+          "offset_m": [
+            0.0,
+            1.569012451171875,
+            0.0
+          ],
           "offset_space": "final_scaled_asset_root"
         }
       ],
@@ -1048,8 +1204,16 @@
           "ue_anatomical_forward_yaw_deg": 90.0,
           "ue_component_frame_delta": {
             "schema": "avengine_spear_component_frame_delta_v1",
-            "rotation_deg": [0.0, 0.0, 0.0],
-            "translation_cm": [0.0, 0.0, 0.0],
+            "rotation_deg": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "translation_cm": [
+              0.0,
+              0.0,
+              0.0
+            ],
             "composition": "add_relative_preserving_blueprint_transform",
             "reason": "identity_delta_native_Rocketbox_UE_asset_frame"
           },
@@ -1079,7 +1243,11 @@
       "timeline": {
         "template_id": "rocketbox_professions_construction_male_01",
         "body_plan_id": "biped_human",
-        "local_anatomical_forward_axis": [0.0, 0.0, 1.0],
+        "local_anatomical_forward_axis": [
+          0.0,
+          0.0,
+          1.0
+        ],
         "walk_phase_period_frames": 16,
         "idle_action_id": "idle",
         "walking_action_id": "walk"
@@ -1089,7 +1257,11 @@
         {
           "anchor_id": "mouth",
           "anchor_type": "mouth",
-          "offset_m": [0.0, 1.664033031463623, 0.0],
+          "offset_m": [
+            0.0,
+            1.664033031463623,
+            0.0
+          ],
           "offset_space": "final_scaled_asset_root"
         }
       ],
@@ -1111,8 +1283,16 @@
           "ue_anatomical_forward_yaw_deg": 90.0,
           "ue_component_frame_delta": {
             "schema": "avengine_spear_component_frame_delta_v1",
-            "rotation_deg": [0.0, 0.0, 0.0],
-            "translation_cm": [0.0, 0.0, 0.0],
+            "rotation_deg": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "translation_cm": [
+              0.0,
+              0.0,
+              0.0
+            ],
             "composition": "add_relative_preserving_blueprint_transform",
             "reason": "identity_delta_native_Rocketbox_UE_asset_frame"
           },
@@ -1143,7 +1323,11 @@
       "timeline": {
         "template_id": "rocketbox_human_male_adult_01",
         "body_plan_id": "biped_human",
-        "local_anatomical_forward_axis": [0.0, 0.0, 1.0],
+        "local_anatomical_forward_axis": [
+          0.0,
+          0.0,
+          1.0
+        ],
         "walk_phase_period_frames": 16,
         "idle_action_id": "idle",
         "walking_action_id": "walk"
@@ -1153,7 +1337,11 @@
         {
           "anchor_id": "mouth",
           "anchor_type": "mouth",
-          "offset_m": [0.0, 1.641311, 0.0],
+          "offset_m": [
+            0.0,
+            1.641311,
+            0.0
+          ],
           "offset_space": "final_scaled_asset_root"
         }
       ],
@@ -1174,8 +1362,16 @@
           "ue_anatomical_forward_yaw_deg": 90.0,
           "ue_component_frame_delta": {
             "schema": "avengine_spear_component_frame_delta_v1",
-            "rotation_deg": [0.0, 0.0, 0.0],
-            "translation_cm": [0.0, 0.0, 0.0],
+            "rotation_deg": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "translation_cm": [
+              0.0,
+              0.0,
+              0.0
+            ],
             "composition": "add_relative_preserving_blueprint_transform",
             "reason": "identity_delta_native_Rocketbox_UE_asset_frame"
           },
@@ -1206,7 +1402,11 @@
       "timeline": {
         "template_id": "rocketbox_human_male_adult_01",
         "body_plan_id": "biped_human",
-        "local_anatomical_forward_axis": [0.0, 0.0, 1.0],
+        "local_anatomical_forward_axis": [
+          0.0,
+          0.0,
+          1.0
+        ],
         "walk_phase_period_frames": 16,
         "idle_action_id": "idle",
         "walking_action_id": "walk"
@@ -1216,7 +1416,11 @@
         {
           "anchor_id": "mouth",
           "anchor_type": "mouth",
-          "offset_m": [0.0, 1.641311, 0.0],
+          "offset_m": [
+            0.0,
+            1.641311,
+            0.0
+          ],
           "offset_space": "final_scaled_asset_root"
         }
       ],
@@ -1237,8 +1441,16 @@
           "ue_anatomical_forward_yaw_deg": 90.0,
           "ue_component_frame_delta": {
             "schema": "avengine_spear_component_frame_delta_v1",
-            "rotation_deg": [0.0, 0.0, 0.0],
-            "translation_cm": [0.0, 0.0, 0.0],
+            "rotation_deg": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "translation_cm": [
+              0.0,
+              0.0,
+              0.0
+            ],
             "composition": "add_relative_preserving_blueprint_transform",
             "reason": "identity_delta_native_Rocketbox_UE_asset_frame"
           },
@@ -1269,7 +1481,11 @@
       "timeline": {
         "template_id": "rocketbox_human_male_adult_01",
         "body_plan_id": "biped_human",
-        "local_anatomical_forward_axis": [0.0, 0.0, 1.0],
+        "local_anatomical_forward_axis": [
+          0.0,
+          0.0,
+          1.0
+        ],
         "walk_phase_period_frames": 16,
         "idle_action_id": "idle",
         "walking_action_id": "walk"
@@ -1279,7 +1495,11 @@
         {
           "anchor_id": "mouth",
           "anchor_type": "mouth",
-          "offset_m": [0.0, 1.641311, 0.0],
+          "offset_m": [
+            0.0,
+            1.641311,
+            0.0
+          ],
           "offset_space": "final_scaled_asset_root"
         }
       ],
@@ -1300,12 +1520,183 @@
           "ue_anatomical_forward_yaw_deg": 90.0,
           "ue_component_frame_delta": {
             "schema": "avengine_spear_component_frame_delta_v1",
-            "rotation_deg": [0.0, 0.0, 0.0],
-            "translation_cm": [0.0, 0.0, 0.0],
+            "rotation_deg": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "translation_cm": [
+              0.0,
+              0.0,
+              0.0
+            ],
             "composition": "add_relative_preserving_blueprint_transform",
             "reason": "identity_delta_native_Rocketbox_UE_asset_frame"
           },
           "floor_contact_gate": false
+        }
+      },
+      "admission_state": "research"
+    },
+    {
+      "asset_id": "rocketbox_human_male_adult_01_top_yellow_research_v1",
+      "revision": "controlled_material_ue_v3",
+      "display_label": "Human with yellow top",
+      "entity_class": "articulated_human",
+      "identity": {
+        "species_id": "human",
+        "breed_id": null
+      },
+      "realized_attributes": {
+        "life_stage": "adult",
+        "sex_or_gender_label": "male",
+        "top_color": "yellow"
+      },
+      "geometry": {
+        "mesh_authority": "audited_library_asset",
+        "source_mesh_uri": "artifact://controlled_humans_20260904_v1/yellow/runtime.glb",
+        "rig_authority": "rocketbox_human_bip01_native_v3"
+      },
+      "timeline": {
+        "template_id": "rocketbox_human_male_adult_01",
+        "body_plan_id": "biped_human",
+        "local_anatomical_forward_axis": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "walk_phase_period_frames": 16,
+        "idle_action_id": "idle",
+        "walking_action_id": "walk"
+      },
+      "default_emitter_anchor_id": "mouth",
+      "emitter_anchors": [
+        {
+          "anchor_id": "mouth",
+          "anchor_type": "mouth",
+          "offset_m": [
+            0.0,
+            1.641311,
+            0.0
+          ],
+          "offset_space": "final_scaled_asset_root"
+        }
+      ],
+      "runtime_backends": {
+        "spear_unreal": {
+          "actor_scale": 1.0,
+          "ue_import_manifest_ref": {
+            "path": "/data/datasets/avengine_workspaces/qa_v3_engine_completion_20260904/ue_controlled_yellow_import_v2/ue_import_manifest.json",
+            "schema": "avengine_controlled_human_ue_import_v1",
+            "tag": "rocketbox_male_adult_01_controlled_material_ec958e7654fc_ue_v3",
+            "import_asset_id": "rocketbox_male_adult_01"
+          },
+          "blueprint_class_path": "/Game/AVEngine/ControlledHumans/yellow_v2/Blueprints/BP_controlled_yellow.BP_controlled_yellow_C",
+          "skeletal_mesh_binding": "explicit_path",
+          "skeletal_mesh_path": "/Game/AVEngine/ControlledHumans/yellow_v2/Meshes/runtime.runtime",
+          "idle_animation": "/Game/AVEngine/ControlledHumans/yellow_v2/Meshes/Standing_Idle.Standing_Idle",
+          "walking_animation": "/Game/AVEngine/ControlledHumans/yellow_v2/Meshes/Walking.Walking",
+          "ue_anatomical_forward_yaw_deg": 90.0,
+          "ue_component_frame_delta": {
+            "schema": "avengine_spear_component_frame_delta_v1",
+            "rotation_deg": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "translation_cm": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "composition": "add_relative_preserving_blueprint_transform",
+            "reason": "identity_delta_native_Rocketbox_UE_asset_frame"
+          },
+          "floor_contact_gate": false
+        }
+      },
+      "admission_state": "research"
+    },
+    {
+      "asset_id": "generated_bookshelf_speaker_compact_shelf_cabinet_black_ash_research_v1",
+      "revision": "sound_source_assets_v1",
+      "display_label": "bookshelf speaker (black ash)",
+      "entity_class": "rigid_object",
+      "identity": {
+        "object_type": "bookshelf_speaker",
+        "category": "audio_playback"
+      },
+      "realized_attributes": {
+        "form_factor": "compact_shelf_cabinet",
+        "material": "wood",
+        "finish": "black_ash",
+        "object_type": "bookshelf_speaker"
+      },
+      "geometry": {
+        "mesh_authority": "rigid_or_environmental_asset",
+        "source_mesh_uri": "artifact://sound_source_assets_v1/audio_playback/bookshelf_speaker/compact_shelf_cabinet_black_ash/finalized.glb"
+      },
+      "default_emitter_anchor_id": "woofer_cone_front_baffle",
+      "emitter_anchors": [
+        {
+          "anchor_id": "woofer_cone_front_baffle",
+          "anchor_type": "object_speaker",
+          "offset_m": [
+            0.07662985473871231,
+            0.10092175006866455,
+            0.011091106571257114
+          ],
+          "offset_space": "final_scaled_asset_root"
+        }
+      ],
+      "runtime_backends": {
+        "spear_unreal": {
+          "static_mesh_binding": "explicit_path",
+          "static_mesh_object_path": "/Game/AVEngine/StaticSources/bookshelf_black_ash/finalized.finalized",
+          "actor_scale": 1.0,
+          "ue_static_forward_yaw_deg": 0.0
+        }
+      },
+      "admission_state": "research"
+    },
+    {
+      "asset_id": "generated_bookshelf_speaker_compact_shelf_cabinet_walnut_veneer_research_v1",
+      "revision": "sound_source_assets_v1",
+      "display_label": "bookshelf speaker (walnut veneer)",
+      "entity_class": "rigid_object",
+      "identity": {
+        "object_type": "bookshelf_speaker",
+        "category": "audio_playback"
+      },
+      "realized_attributes": {
+        "form_factor": "compact_shelf_cabinet",
+        "material": "wood",
+        "finish": "walnut_veneer",
+        "object_type": "bookshelf_speaker"
+      },
+      "geometry": {
+        "mesh_authority": "rigid_or_environmental_asset",
+        "source_mesh_uri": "artifact://sound_source_assets_v1/audio_playback/bookshelf_speaker/compact_shelf_cabinet_walnut_veneer/finalized.glb"
+      },
+      "default_emitter_anchor_id": "woofer_cone_front_baffle",
+      "emitter_anchors": [
+        {
+          "anchor_id": "woofer_cone_front_baffle",
+          "anchor_type": "object_speaker",
+          "offset_m": [
+            0.10497590154409409,
+            0.09910234808921814,
+            -0.006040635518729687
+          ],
+          "offset_space": "final_scaled_asset_root"
+        }
+      ],
+      "runtime_backends": {
+        "spear_unreal": {
+          "static_mesh_binding": "explicit_path",
+          "static_mesh_object_path": "/Game/AVEngine/StaticSources/bookshelf_walnut_veneer/finalized.finalized",
+          "actor_scale": 1.0,
+          "ue_static_forward_yaw_deg": 0.0
         }
       },
       "admission_state": "research"
