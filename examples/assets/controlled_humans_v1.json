@@ -1,0 +1,312 @@
+{
+  "artifact_root_env": "AVENGINE_CONTROLLED_HUMAN_DATA_ROOT",
+  "catalog_revision": "2026-09-04-controlled-humans-v1",
+  "entries": [
+    {
+      "actor_scale": 1.0,
+      "animation_names": [
+        "Standing_Idle",
+        "Walking"
+      ],
+      "asset_id": "rocketbox_male_adult_01",
+      "authored_height_cm": 182.36783742904663,
+      "base_avatar_id": "rocketbox_male_adult_01",
+      "bottom_range_cm": [
+        -5.0,
+        5.0
+      ],
+      "expected_bone_count": 80,
+      "expected_primitive_count": 3,
+      "expected_texture_count": 7,
+      "height_range_cm": [
+        165.0,
+        200.0
+      ],
+      "image_names": [
+        "m002_body_color",
+        "m002_body_normal",
+        "m002_body_specular",
+        "m002_head_color",
+        "m002_head_normal",
+        "m002_head_specular",
+        "m002_opacity_color"
+      ],
+      "material_names": [
+        "m002_body",
+        "m002_head",
+        "m002_opacity"
+      ],
+      "normalization_manifest": {
+        "path": "normalization_manifest.json",
+        "sha256": "9d82eebe0400981a5a54396da3d4f0b6df8bc3dd96870bcb8c2648edd2e59e7a",
+        "size_bytes": 5633
+      },
+      "normalization_schema": "rocketbox_ue_in_place_grounded_metric_skeleton_normalization_v1",
+      "preview_animation_name": "Walking",
+      "producer_root": "blue",
+      "required_primitive_attributes": [
+        "JOINTS_0",
+        "NORMAL",
+        "POSITION",
+        "TEXCOORD_0",
+        "WEIGHTS_0"
+      ],
+      "requires_in_place_actions": true,
+      "rgb": [
+        36,
+        88,
+        207
+      ],
+      "runtime_glb": {
+        "path": "runtime.glb",
+        "sha256": "745a0493574bf98e69caef7aca97e205f281ecaf01c5a62bb85ce0877aafc366",
+        "size_bytes": 29373360
+      },
+      "skeleton_family": "Bip01",
+      "source_asset": {
+        "path": "source_asset.json",
+        "sha256": "3db8fe7afe817920272efee50d407243bcf9c5283565e758cde60641be1c83c8",
+        "size_bytes": 1981
+      },
+      "source_asset_id": "rocketbox_adults_male_adult_01_material_377f35d6d606",
+      "source_manifest_schema": "rocketbox_native_ue_runtime_v3",
+      "source_tag": "rocketbox_male_adult_01_controlled_material_f0c379dd868d",
+      "tag": "rocketbox_male_adult_01_controlled_material_f0c379dd868d_ue_v3",
+      "top_color": "blue",
+      "ue_manifest_relative_path": "tmp/controlled_humans_ue_import_v1/rocketbox_male_adult_01_controlled_material_f0c379dd868d_ue_v3/ue_import_manifest.json",
+      "ue_manifest_schema": "avengine_controlled_human_ue_import_v1",
+      "usage_scope": "research_candidate",
+      "variant_id": "controlled_material_f0c379dd868d"
+    },
+    {
+      "actor_scale": 1.0,
+      "animation_names": [
+        "Standing_Idle",
+        "Walking"
+      ],
+      "asset_id": "rocketbox_male_adult_01",
+      "authored_height_cm": 182.36783742904663,
+      "base_avatar_id": "rocketbox_male_adult_01",
+      "bottom_range_cm": [
+        -5.0,
+        5.0
+      ],
+      "expected_bone_count": 80,
+      "expected_primitive_count": 3,
+      "expected_texture_count": 7,
+      "height_range_cm": [
+        165.0,
+        200.0
+      ],
+      "image_names": [
+        "m002_body_color",
+        "m002_body_normal",
+        "m002_body_specular",
+        "m002_head_color",
+        "m002_head_normal",
+        "m002_head_specular",
+        "m002_opacity_color"
+      ],
+      "material_names": [
+        "m002_body",
+        "m002_head",
+        "m002_opacity"
+      ],
+      "normalization_manifest": {
+        "path": "normalization_manifest.json",
+        "sha256": "fcf45eb299d75550419c091d98245ce4bd568db67b71c15d3e8a834e1d141d33",
+        "size_bytes": 5633
+      },
+      "normalization_schema": "rocketbox_ue_in_place_grounded_metric_skeleton_normalization_v1",
+      "preview_animation_name": "Walking",
+      "producer_root": "green",
+      "required_primitive_attributes": [
+        "JOINTS_0",
+        "NORMAL",
+        "POSITION",
+        "TEXCOORD_0",
+        "WEIGHTS_0"
+      ],
+      "requires_in_place_actions": true,
+      "rgb": [
+        47,
+        107,
+        69
+      ],
+      "runtime_glb": {
+        "path": "runtime.glb",
+        "sha256": "10b55c1afe0f896097abac4810f79209ef75d1f48e2e0a69c72fa4f0028c9e28",
+        "size_bytes": 29269068
+      },
+      "skeleton_family": "Bip01",
+      "source_asset": {
+        "path": "source_asset.json",
+        "sha256": "1f244b7ecf535f0f7665cf4af3f504960698eb2299351eff6ca0bf38fdb9be3a",
+        "size_bytes": 1983
+      },
+      "source_asset_id": "rocketbox_adults_male_adult_01_material_3545531baa29",
+      "source_manifest_schema": "rocketbox_native_ue_runtime_v3",
+      "source_tag": "rocketbox_male_adult_01_controlled_material_cdd6afc5b879",
+      "tag": "rocketbox_male_adult_01_controlled_material_cdd6afc5b879_ue_v3",
+      "top_color": "green",
+      "ue_manifest_relative_path": "tmp/controlled_humans_ue_import_v1/rocketbox_male_adult_01_controlled_material_cdd6afc5b879_ue_v3/ue_import_manifest.json",
+      "ue_manifest_schema": "avengine_controlled_human_ue_import_v1",
+      "usage_scope": "research_candidate",
+      "variant_id": "controlled_material_cdd6afc5b879"
+    },
+    {
+      "actor_scale": 1.0,
+      "animation_names": [
+        "Standing_Idle",
+        "Walking"
+      ],
+      "asset_id": "rocketbox_male_adult_01",
+      "authored_height_cm": 182.36783742904663,
+      "base_avatar_id": "rocketbox_male_adult_01",
+      "bottom_range_cm": [
+        -5.0,
+        5.0
+      ],
+      "expected_bone_count": 80,
+      "expected_primitive_count": 3,
+      "expected_texture_count": 7,
+      "height_range_cm": [
+        165.0,
+        200.0
+      ],
+      "image_names": [
+        "m002_body_color",
+        "m002_body_normal",
+        "m002_body_specular",
+        "m002_head_color",
+        "m002_head_normal",
+        "m002_head_specular",
+        "m002_opacity_color"
+      ],
+      "material_names": [
+        "m002_body",
+        "m002_head",
+        "m002_opacity"
+      ],
+      "normalization_manifest": {
+        "path": "normalization_manifest.json",
+        "sha256": "17d4f3ef3d7e227eb399a25be6f3837d8bcae24b6d562dc5649348167df90036",
+        "size_bytes": 5633
+      },
+      "normalization_schema": "rocketbox_ue_in_place_grounded_metric_skeleton_normalization_v1",
+      "preview_animation_name": "Walking",
+      "producer_root": "burgundy",
+      "required_primitive_attributes": [
+        "JOINTS_0",
+        "NORMAL",
+        "POSITION",
+        "TEXCOORD_0",
+        "WEIGHTS_0"
+      ],
+      "requires_in_place_actions": true,
+      "rgb": [
+        122,
+        48,
+        69
+      ],
+      "runtime_glb": {
+        "path": "runtime.glb",
+        "sha256": "1e785308055758da696d40b4076cd250b77de7e6cb489fa9d5e019f1176fc958",
+        "size_bytes": 29267236
+      },
+      "skeleton_family": "Bip01",
+      "source_asset": {
+        "path": "source_asset.json",
+        "sha256": "74c2b60bed42455303035d6d4da20e27acd83bcfb48a34bb0e9a9398a6035296",
+        "size_bytes": 1989
+      },
+      "source_asset_id": "rocketbox_adults_male_adult_01_material_1bb56ccf860c",
+      "source_manifest_schema": "rocketbox_native_ue_runtime_v3",
+      "source_tag": "rocketbox_male_adult_01_controlled_material_45e3dec20372",
+      "tag": "rocketbox_male_adult_01_controlled_material_45e3dec20372_ue_v3",
+      "top_color": "burgundy",
+      "ue_manifest_relative_path": "tmp/controlled_humans_ue_import_v1/rocketbox_male_adult_01_controlled_material_45e3dec20372_ue_v3/ue_import_manifest.json",
+      "ue_manifest_schema": "avengine_controlled_human_ue_import_v1",
+      "usage_scope": "research_candidate",
+      "variant_id": "controlled_material_45e3dec20372"
+    },
+    {
+      "actor_scale": 1.0,
+      "animation_names": [
+        "Standing_Idle",
+        "Walking"
+      ],
+      "asset_id": "rocketbox_male_adult_01",
+      "authored_height_cm": 182.36783742904663,
+      "base_avatar_id": "rocketbox_male_adult_01",
+      "bottom_range_cm": [
+        -5.0,
+        5.0
+      ],
+      "expected_bone_count": 80,
+      "expected_primitive_count": 3,
+      "expected_texture_count": 7,
+      "height_range_cm": [
+        165.0,
+        200.0
+      ],
+      "image_names": [
+        "m002_body_color",
+        "m002_body_normal",
+        "m002_body_specular",
+        "m002_head_color",
+        "m002_head_normal",
+        "m002_head_specular",
+        "m002_opacity_color"
+      ],
+      "material_names": [
+        "m002_body",
+        "m002_head",
+        "m002_opacity"
+      ],
+      "normalization_manifest": {
+        "path": "normalization_manifest.json",
+        "sha256": "006d839e45423a4dc70d7a9f40c7834e723921c58044dc01cb453040e545a996",
+        "size_bytes": 5633
+      },
+      "normalization_schema": "rocketbox_ue_in_place_grounded_metric_skeleton_normalization_v1",
+      "preview_animation_name": "Walking",
+      "producer_root": "yellow",
+      "required_primitive_attributes": [
+        "JOINTS_0",
+        "NORMAL",
+        "POSITION",
+        "TEXCOORD_0",
+        "WEIGHTS_0"
+      ],
+      "requires_in_place_actions": true,
+      "rgb": [
+        222,
+        176,
+        40
+      ],
+      "runtime_glb": {
+        "path": "runtime.glb",
+        "sha256": "bcebbfc9fa37e98619117ac7bfc5e7e9d3077de044c4dd59915ea83095483085",
+        "size_bytes": 29371880
+      },
+      "skeleton_family": "Bip01",
+      "source_asset": {
+        "path": "source_asset.json",
+        "sha256": "11dae41f3acf1915b6c6fa14cc8c310bd5a913478417145040dc6575123e8a7c",
+        "size_bytes": 1995
+      },
+      "source_asset_id": "rocketbox_adults_male_adult_01_material_v1_yellow_bcde004603f4",
+      "source_manifest_schema": "rocketbox_native_ue_runtime_v3",
+      "source_tag": "rocketbox_male_adult_01_controlled_material_ec958e7654fc",
+      "tag": "rocketbox_male_adult_01_controlled_material_ec958e7654fc_ue_v3",
+      "top_color": "yellow",
+      "ue_manifest_relative_path": "tmp/controlled_humans_ue_import_v1/rocketbox_male_adult_01_controlled_material_ec958e7654fc_ue_v3/ue_import_manifest.json",
+      "ue_manifest_schema": "avengine_controlled_human_ue_import_v1",
+      "usage_scope": "research_candidate",
+      "variant_id": "controlled_material_ec958e7654fc"
+    }
+  ],
+  "schema": "avengine_controlled_humans_catalog_v1",
+  "source_note": "Four catalog entries were derived from the retained normalized UE runtime records. The external artifact root is selected at runtime through AVENGINE_CONTROLLED_HUMAN_DATA_ROOT; no private checkout path is part of this catalog."
+}

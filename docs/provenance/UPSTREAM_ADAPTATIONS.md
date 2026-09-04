@@ -459,3 +459,27 @@ The following are intentionally not migration candidates:
 Historical release manifests continue to name the repositories that actually
 produced them. Do not rewrite historical provenance to look like the future
 single-source layout.
+
+
+## Controlled-human asset tools (2026-09-04)
+
+These AVEngine tools selectively adapt the asset-import work retained in the
+Eastforward/SPEAR repository (`git@github.com:Eastforward/spear.git`), local
+snapshot `7b4d2cd3`. That snapshot includes the owner-authorized descriptive
+catalog changes in `81c6a505` and `7b4d2cd3`. The retained source license is
+MIT (`LICENSE.txt`, already retained here as `LICENSES/SPEAR-MIT.txt`).
+The source repository is migration provenance, not an execution dependency.
+
+| AVEngine path | Retained source path | Treatment |
+| --- | --- | --- |
+| `src/avengine/assets/controlled_humans.py` | `tools/lead_b_controlled_material_ue_contract.py` | Adapted catalog/artifact resolution; asset-specific expectations live in JSON, external roots are explicit, obsolete fixed-tag/hash admission locks and unused compatibility attributes are excluded. |
+| `tools/ue/import_controlled_humans_editor.py` | `tools/import_gate_rocketbox_native_editor.py` | Adapted GLB, skeletal/animation/material readback and Blueprint import. Uses generic Unreal Python APIs and the AVEngine catalog, with no SPEAR Python import or external-checkout bootstrap. Failed imports retain partial outputs. |
+| `examples/assets/controlled_humans_v1.json` | `data/controlled_source_attributes_v1/contracts/lead_b_controlled_material_ue_tags_v1.json` and retained runtime manifests | Descriptive data for the existing four material variants; runtime files are separately supplied under `AVENGINE_CONTROLLED_HUMAN_DATA_ROOT`. |
+
+No UE Content, Rocketbox meshes/textures, compiled binaries or model data is
+copied into AVEngine Git. The original artifacts and their historical records
+are retained outside Git; preparing a relocatable input description does not
+claim that AVEngine newly generated those assets. Existing declared artifact
+metadata may be checked, but adding an asset does not require editing a Python
+allow-list or a pinned catalog hash. Actual UE import and capture are recorded
+in the engine-completion checkpoint, separately from source/unit validation.
