@@ -65,6 +65,29 @@ class CurrentMP3DDynamicAudioError(RuntimeError):
     """Raised when the dynamic research-audio contract is violated."""
 
 
+def _validate_execution_variant(value: Any) -> str | None:
+    """Validate an external execution label without constraining its vocabulary.
+
+    variant_id belongs to AudioProgram materialization and remains A for
+    pre-materialized QA-v3 programs. execution_variant labels the surrounding
+    batch artifact, such as main or gateA.
+    """
+
+    if value is None:
+        return None
+    if (
+        not isinstance(value, str)
+        or not value
+        or value != value.strip()
+        or any(ord(character) < 32 or ord(character) == 127 for character in value)
+    ):
+        raise CurrentMP3DDynamicAudioError(
+            "execution_variant must be a nonempty string without surrounding "
+            "whitespace or control characters"
+        )
+    return value
+
+
 def _round_fraction(value: Fraction) -> int:
     if value < 0:
         raise CurrentMP3DDynamicAudioError("timeline duration cannot be negative")
@@ -576,6 +599,7 @@ def render_dynamic_research_audio(
     listener_authority: str,
     rir_stride_frames: int = 3,
     variant_id: str = "A",
+    execution_variant: str | None = None,
     hrtf_license_path: str | Path | None = None,
     extra_inputs: Mapping[str, Any] | None = None,
     visual_frame_count: int | None = None,
@@ -585,6 +609,7 @@ def render_dynamic_research_audio(
 ) -> dict[str, Any]:
     """Room-agnostic core: trajectories + program variant -> binaural episode."""
 
+    execution_label = _validate_execution_variant(execution_variant)
     output = _fresh_output(output_path)
     program_path = Path(audio_program_path).resolve()
     program = json.loads(program_path.read_text(encoding="utf-8"))
@@ -816,6 +841,8 @@ def render_dynamic_research_audio(
         "inputs": inputs,
         "outputs": outputs,
     }
+    if execution_label is not None:
+        receipt["execution_variant"] = execution_label
     (output / "research_receipt.json").write_text(
         json.dumps(receipt, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
@@ -837,6 +864,7 @@ def render_current_mp3d_dynamic_audio(
     output_path: str | Path,
     rir_stride_frames: int = 3,
     variant_id: str = "A",
+    execution_variant: str | None = None,
     hrtf_license_path: str | Path | None = None,
     frame_count: int | None = None,
     frame_rate_hz: int | float | None = None,
@@ -890,6 +918,7 @@ def render_current_mp3d_dynamic_audio(
         ),
         rir_stride_frames=rir_stride_frames,
         variant_id=variant_id,
+        execution_variant=execution_variant,
         hrtf_license_path=hrtf_license_path,
         visual_frame_count=int(clock["frame_count"]),
         visual_frame_rate_hz=clock["frame_rate_hz"],

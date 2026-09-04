@@ -394,9 +394,12 @@ def test_dynamic_runtime_serializes_exact_clock_length_waves(
         output_path=output,
         position_authority="test",
         listener_authority="test",
+        execution_variant="gateA",
     )
 
     assert receipt["audio"]["sample_count"] == sample_count
+    assert receipt["audio_program"]["variant_id"] == "A"
+    assert receipt["execution_variant"] == "gateA"
     wave_paths = sorted(output.rglob("*.wav"))
     assert len(wave_paths) == 5
     for wave_path in wave_paths:

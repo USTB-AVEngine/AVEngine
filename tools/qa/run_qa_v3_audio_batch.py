@@ -485,6 +485,8 @@ def main(argv: list[str] | None = None) -> int:
                    "--actor-selection", str(inputs_root / pid /
                                             "actor_selection.json"),
                    "--source-asset-registry", cfg["source_asset_registry"],
+                   "--variant", "A",
+                   "--execution-variant", variant,
                    "--output", str(out_dir)]
             cmd.extend(sound_args)
             cmd.extend(canonical_emitter_args(cfg))

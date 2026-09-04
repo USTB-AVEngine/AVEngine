@@ -37,7 +37,8 @@ def good_wav(seed: int = 0) -> np.ndarray:
 
 def build_batch(tmp_path: Path, wav_main: np.ndarray,
                 wav_gatea: np.ndarray | None = None,
-                registry_ok: bool = True) -> tuple[Path, Path]:
+                registry_ok: bool = True,
+                include_execution_variant: bool = True) -> tuple[Path, Path]:
     design = tmp_path / "design"
     programs = design / "programs"
     programs.mkdir(parents=True)
@@ -57,11 +58,18 @@ def build_batch(tmp_path: Path, wav_main: np.ndarray,
         d = audio / name / "audio" / "binaural"
         d.mkdir(parents=True)
         sf.write(d / "mixture.wav", wav, 16000)
-        (audio / name / "research_receipt.json").write_text(json.dumps({
+        receipt = {
             "qualification_claim": False,
             "inputs": {"source_endpoint_registry": {"path": f"/x/{reg}"}},
             "audio_program": {"path": f"/x/programs/{prog_name}"},
-        }))
+        }
+        if include_execution_variant:
+            receipt["execution_variant"] = (
+                "gateA" if name.endswith("_gateA") else "main"
+            )
+        (audio / name / "research_receipt.json").write_text(
+            json.dumps(receipt)
+        )
 
     emit("v3b_001", wav_main, "qa_v3_dog_v3b_001_rand_v1.json")
     if wav_gatea is not None:
@@ -84,6 +92,7 @@ def test_clean_batch_passes(tmp_path):
     rc, rep = run(tmp_path, design, audio)
     assert rc == 0 and rep["failures"] == []
     assert rep["audio_variant_waveform_nonidentity_pairs"] == 1
+    assert rep["execution_variant_verification"]["status"] == "verified"
     # 这一层只说明音频变体非同一;Gate A 语义要另行逐题核验
     assert "not established by this tool" in rep["gatea_semantic_flip"]
 
@@ -254,3 +263,29 @@ def test_gatea_semantics_reject_unchanged_assignment_and_gold():
     )
     assert "audio_assignment_changed" in failures
     assert "question_gold_changed" in failures
+
+
+def test_execution_variant_mismatch_is_caught(tmp_path):
+    design, audio = build_batch(
+        tmp_path, good_wav(), wav_gatea=good_wav(seed=7)
+    )
+    gate_receipt = audio / "v3b_001_gateA" / "research_receipt.json"
+    payload = json.loads(gate_receipt.read_text())
+    payload["execution_variant"] = "main"
+    gate_receipt.write_text(json.dumps(payload))
+    rc, rep = run(tmp_path, design, audio)
+    assert rc == 1
+    assert rep["execution_variant_verification"]["status"] == "failed"
+    assert any("wrong execution variant" in failure for failure in rep["failures"])
+
+
+def test_legacy_execution_variant_receipt_is_compatible_but_unverified(tmp_path):
+    design, audio = build_batch(
+        tmp_path, good_wav(), include_execution_variant=False
+    )
+    rc, rep = run(tmp_path, design, audio)
+    assert rc == 0
+    verification = rep["execution_variant_verification"]
+    assert verification["status"] == "unverified"
+    assert verification["verified_renders"] == []
+    assert verification["unverified_renders"] == ["v3b_001"]

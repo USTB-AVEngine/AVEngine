@@ -34,6 +34,29 @@ GATEA_MAX_DIFF_MIN = 1e-4     # main vs gateA 最大逐样本差下限
 SR = 16000
 
 
+def execution_variant_status(
+    receipt: dict,
+    expected_execution_variant: str | None,
+) -> str:
+    """Classify the external execution label without conflating AudioProgram A."""
+
+    if expected_execution_variant is None:
+        return "not_requested"
+    value = receipt.get("execution_variant")
+    if value is None:
+        return "unverified"
+    if (
+        not isinstance(value, str)
+        or not value
+        or value != value.strip()
+        or any(ord(character) < 32 or ord(character) == 127 for character in value)
+    ):
+        return "invalid"
+    if value != expected_execution_variant:
+        return "mismatch"
+    return "verified"
+
+
 def check_stereo(wav: np.ndarray) -> str | None:
     if wav.ndim != 2 or wav.shape[1] != 2:
         return f"not stereo: shape={wav.shape}"
@@ -45,7 +68,8 @@ def check_stereo(wav: np.ndarray) -> str | None:
 
 
 def check_receipt(receipt: dict, expect_program: Path,
-                  expected_endpoint: Path | None = None) -> str | None:
+                  expected_endpoint: Path | None = None,
+                  expected_execution_variant: str | None = None) -> str | None:
     if receipt.get("qualification_claim") is not False:
         return "qualification_claim is not false"
     try:
@@ -67,6 +91,18 @@ def check_receipt(receipt: dict, expect_program: Path,
         return "receipt has no audio program"
     if Path(prog).name != expect_program.name:
         return f"program mismatch: {Path(prog).name} != {expect_program.name}"
+    variant_state = execution_variant_status(
+        receipt, expected_execution_variant
+    )
+    if variant_state == "mismatch":
+        return (
+            "wrong execution variant: "
+            f"{receipt.get('execution_variant')!r} != {expected_execution_variant!r}"
+        )
+    if variant_state == "invalid":
+        return "execution_variant is invalid"
+    # A missing field is a legacy receipt. Keep it readable but do not claim
+    # that the main/Gate-A execution identity was verified.
     return None
 
 
@@ -263,6 +299,9 @@ def main(argv: list[str] | None = None) -> int:
     point_dirs = sorted(d for d in args.audio_root.iterdir()
                         if d.is_dir() and (d / "research_receipt.json").is_file())
     failures: list[str] = []
+    execution_variant_verified: list[str] = []
+    execution_variant_unverified: list[str] = []
+    execution_variant_failed: list[str] = []
     checked = gatea_pairs = gatea_semantic_pairs = 0
     for d in point_dirs:
         name = d.name
@@ -289,6 +328,13 @@ def main(argv: list[str] | None = None) -> int:
         except (OSError, json.JSONDecodeError) as exc:
             failures.append(f"{name}: load failed: {exc}")
             continue
+        execution_state = execution_variant_status(receipt, variant)
+        if execution_state == "verified":
+            execution_variant_verified.append(name)
+        elif execution_state == "unverified":
+            execution_variant_unverified.append(name)
+        elif execution_state in {"invalid", "mismatch"}:
+            execution_variant_failed.append(name)
         timeline = (program.get("timeline") or {}) if isinstance(program, dict) else {}
         receipt_audio = (receipt.get("audio") or {}) if isinstance(receipt, dict) else {}
         expected_sr = timeline.get("sample_rate_hz", receipt_audio.get("sample_rate_hz", SR))
@@ -312,7 +358,12 @@ def main(argv: list[str] | None = None) -> int:
         expected_endpoint = (expected_endpoint_path
                              if expected_endpoint_path.is_file() else None)
         for err in filter(None, [check_stereo(wav),
-                                 check_receipt(receipt, prog_path, expected_endpoint)]):
+                                 check_receipt(
+                                     receipt,
+                                     prog_path,
+                                     expected_endpoint,
+                                     expected_execution_variant=variant,
+                                 )]):
             failures.append(f"{name}: {err}")
         if variant == "main":
             authority = fact if fact is not None else plan
@@ -371,6 +422,19 @@ def main(argv: list[str] | None = None) -> int:
         ),
         "onset_rms_ratio_min": ONSET_RMS_RATIO_MIN,
         "gatea_max_diff_min": GATEA_MAX_DIFF_MIN,
+        "execution_variant_verification": {
+            "field": "execution_variant",
+            "status": (
+                "failed"
+                if execution_variant_failed
+                else "unverified"
+                if execution_variant_unverified
+                else "verified"
+            ),
+            "verified_renders": execution_variant_verified,
+            "unverified_renders": execution_variant_unverified,
+            "failed_renders": execution_variant_failed,
+        },
         "failures": failures,
         "status": "research_candidate",
         "qualification_claim": False,

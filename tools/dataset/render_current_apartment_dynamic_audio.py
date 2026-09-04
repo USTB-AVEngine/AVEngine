@@ -78,7 +78,13 @@ def main() -> int:
     parser.add_argument("--frame-count", type=int)
     parser.add_argument("--frame-rate-hz", type=float)
     parser.add_argument("--ticks-per-frame", type=int)
-    parser.add_argument("--variant", default="A")
+    parser.add_argument("--variant", default="A",
+                        help="internal AudioProgram materialization variant")
+    parser.add_argument(
+        "--execution-variant",
+        default=None,
+        help="optional external batch execution label recorded separately from AudioProgram variant_id",
+    )
     parser.add_argument(
         "--actor-selection",
         type=Path,
@@ -214,6 +220,7 @@ def main() -> int:
             ),
             rir_stride_frames=args.rir_stride_frames,
             variant_id=args.variant,
+            execution_variant=args.execution_variant,
             visual_frame_count=int(clock["frame_count"]),
             visual_frame_rate_hz=clock["frame_rate_hz"],
             timeline_tick_rate_hz=int(clock["time_base_hz"]),

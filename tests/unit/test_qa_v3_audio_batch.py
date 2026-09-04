@@ -104,17 +104,19 @@ def _write_audio_receipt(
     status: str = "pass",
     sample_rate_hz: int = 16_000,
     sample_count: int = 4,
+    execution_variant: str | None = None,
 ) -> None:
     (output / "audio" / "binaural").mkdir(parents=True, exist_ok=True)
-    (output / "research_receipt.json").write_text(
-        json.dumps({
-            "status": status,
-            "audio": {
-                "sample_rate_hz": sample_rate_hz,
-                "sample_count": sample_count,
-            },
-        })
-    )
+    receipt = {
+        "status": status,
+        "audio": {
+            "sample_rate_hz": sample_rate_hz,
+            "sample_count": sample_count,
+        },
+    }
+    if execution_variant is not None:
+        receipt["execution_variant"] = execution_variant
+    (output / "research_receipt.json").write_text(json.dumps(receipt))
 
 
 def test_point_state_requires_success_receipt_and_matching_wav_metadata(
@@ -275,6 +277,8 @@ def test_main_uses_current_repo_point_bindings_and_sound_map(
     (point / "timeline.json").write_text("{}")
     local_program = point / "audio_program.json"
     local_program.write_text("{}")
+    local_gatea = point / "audio_program_gateA.json"
+    local_gatea.write_text("{}")
     local_endpoints = point / "source_endpoints.json"
     local_endpoints.write_text("{}")
     (point / "actor_selection.json").write_text("{}")
@@ -312,7 +316,8 @@ def test_main_uses_current_repo_point_bindings_and_sound_map(
     def fake_run(cmd, *, stdout, stderr, cwd):
         calls.append({"cmd": cmd, "cwd": cwd})
         output = Path(cmd[cmd.index("--output") + 1])
-        _write_audio_receipt(output)
+        execution_variant = cmd[cmd.index("--execution-variant") + 1]
+        _write_audio_receipt(output, execution_variant=execution_variant)
         _write_float32_wav(output / "audio" / "binaural" / "mixture.wav")
         return type("Result", (), {"returncode": 0})()
 
@@ -323,9 +328,10 @@ def test_main_uses_current_repo_point_bindings_and_sound_map(
         "--output-root", str(output_root),
         "--config", str(config_path),
         "--points", point.name,
+        "--variants", "main,gateA",
     ])
     assert result == 0
-    assert len(calls) == 1
+    assert len(calls) == 2
     command = calls[0]["cmd"]
     assert calls[0]["cwd"] == str(TOOL.AVENGINE_REPOSITORY)
     assert command[1] == str(
@@ -336,8 +342,15 @@ def test_main_uses_current_repo_point_bindings_and_sound_map(
     assert command[command.index("--source-endpoint-registry") + 1] == str(
         local_endpoints
     )
+    assert command[command.index("--variant") + 1] == "A"
+    assert command[command.index("--execution-variant") + 1] == "main"
     assert command[command.index("--sound-asset-map") + 1] == str(sound_map)
     assert "--beagle-audio" not in command
+
+    gate_command = calls[1]["cmd"]
+    assert gate_command[gate_command.index("--audio-program") + 1] == str(local_gatea)
+    assert gate_command[gate_command.index("--variant") + 1] == "A"
+    assert gate_command[gate_command.index("--execution-variant") + 1] == "gateA"
 
 
 def test_point_local_m1_and_endpoints_need_no_batch_fallback(tmp_path: Path) -> None:
