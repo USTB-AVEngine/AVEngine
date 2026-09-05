@@ -550,6 +550,111 @@ def test_dynamic_runtime_rejects_wrong_episode_sample_shape() -> None:
         )
 
 
+def test_cli_merges_explicit_mp3d_sound_asset_bindings_and_legacy_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    nested = tmp_path / "nested"
+    nested.mkdir()
+    bark = nested / "bark.wav"
+    chirp = tmp_path / "chirp.wav"
+    legacy = tmp_path / "legacy.wav"
+    for path in (bark, chirp, legacy):
+        path.write_bytes(b"RIFF")
+    mapping = tmp_path / "sound_asset_map.json"
+    mapping.write_text(
+        json.dumps({"bark": "nested/bark.wav"}), encoding="utf-8"
+    )
+    monkeypatch.chdir(tmp_path)
+
+    bindings = cli._resolve_mp3d_sound_asset_bindings(
+        mapping,
+        ["chirp=chirp.wav"],
+        legacy,
+    )
+    assert bindings == {
+        "bark": bark.resolve(),
+        "chirp": chirp.resolve(),
+        cli.MP3D_LEGACY_BEAGLE_SOUND_ASSET_ID: legacy.resolve(),
+    }
+
+    with pytest.raises(ValueError, match="duplicate sound asset ID"):
+        cli._resolve_mp3d_sound_asset_bindings(
+            mapping, [f"bark={chirp}"], None
+        )
+
+    duplicate_map = tmp_path / "duplicate.json"
+    duplicate_map.write_text(
+        '{"voice":"chirp.wav","voice":"legacy.wav"}', encoding="utf-8"
+    )
+    with pytest.raises(ValueError, match="sound asset map contains duplicate"):
+        cli._resolve_mp3d_sound_asset_bindings(duplicate_map)
+
+    with pytest.raises(ValueError, match="duplicate sound asset ID"):
+        cli._resolve_mp3d_sound_asset_bindings(
+            None, ["chirp=chirp.wav", "chirp=chirp.wav"]
+        )
+
+    with pytest.raises(ValueError, match="missing"):
+        cli._resolve_mp3d_sound_asset_bindings(
+            None, ["missing=does-not-exist.wav"]
+        )
+
+
+def test_mp3d_dynamic_cli_passes_configured_bindings_without_legacy_beagle(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    first = tmp_path / "first.wav"
+    second = tmp_path / "second.wav"
+    first.write_bytes(b"RIFF")
+    second.write_bytes(b"RIFF")
+    mapping = tmp_path / "sound_asset_map.json"
+    mapping.write_text(json.dumps({"first": str(first)}), encoding="utf-8")
+    args = cli.build_parser().parse_args([
+        "m5",
+        "render-current-mp3d-dynamic-audio",
+        "--visual-capture-dir", "capture",
+        "--m1-request", "m1.json",
+        "--simulation-request", "simulation.json",
+        "--package-manifest", "package.json",
+        "--audio-program", "program.json",
+        "--source-endpoint-registry", "endpoints.json",
+        "--sound-asset-registry", "sounds.json",
+        "--sound-asset-map", str(mapping),
+        "--sound-asset-path", f"second={second}",
+        "--hrtf", "hrtf.sofa",
+        "--runtime-prefix", "runtime",
+        "--rlr-sdk-root", "rlr",
+        "--output", str(tmp_path / "output"),
+    ])
+    assert args.beagle_audio is None
+    assert args.sound_asset_path == [f"second={second}"]
+
+    captured: dict[str, object] = {}
+
+    def fake_render(**kwargs):
+        captured.update(kwargs)
+        return {
+            "status": "pass",
+            "research_only": True,
+            "rir": {"keyframe_count": 1},
+            "audio_program": {"event_count": 1},
+            "audio": {"layouts": ["binaural"]},
+            "execution_variant": None,
+        }
+
+    monkeypatch.setattr(cli, "render_current_mp3d_dynamic_audio", fake_render)
+    monkeypatch.setattr(
+        cli,
+        "_require_ignored_or_external_output",
+        lambda path: Path(path).resolve(),
+    )
+    assert cli._m5_render_current_mp3d_dynamic_audio(args) == 0
+    assert captured["external_sound_asset_paths"] == {
+        "first": first.resolve(),
+        "second": second.resolve(),
+    }
+
+
 def test_cli_propagates_explicit_dynamic_clock_options() -> None:
     parser = cli.build_parser()
     args = parser.parse_args([

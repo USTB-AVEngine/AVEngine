@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+from collections.abc import Mapping
 from contextlib import contextmanager
 import json
 import os
@@ -120,6 +121,141 @@ def _parse_mp3d_audio_layouts(value: str) -> tuple[str, ...]:
             "layouts must contain only binaural or ambisonics"
         )
     return values
+
+
+MP3D_LEGACY_BEAGLE_SOUND_ASSET_ID = "dog_beagle_v2_scheduled_dry"
+
+
+def _validate_mp3d_sound_asset_id(value: object, *, owner: str) -> str:
+    if (
+        not isinstance(value, str)
+        or not value
+        or value != value.strip()
+        or any(ord(character) < 32 or ord(character) == 127 for character in value)
+    ):
+        raise ValueError(
+            f"{owner} must be non-empty text without surrounding whitespace "
+            "or control characters"
+        )
+    return value
+
+
+def _resolve_existing_mp3d_sound_asset_path(
+    value: object,
+    *,
+    owner: str,
+    base: Path,
+) -> Path:
+    if not isinstance(value, (str, Path)) or not str(value).strip():
+        raise ValueError(f"{owner} must be a non-empty path")
+    path = Path(value).expanduser()
+    if not path.is_absolute():
+        path = base / path
+    resolved = path.resolve()
+    if not resolved.is_file():
+        raise ValueError(f"{owner} is missing or not a regular file: {resolved}")
+    return resolved
+
+
+def _reject_duplicate_sound_asset_map_keys(
+    pairs: list[tuple[str, object]],
+) -> dict[str, object]:
+    result: dict[str, object] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError(
+                f"sound asset map contains duplicate sound asset ID: {key!r}"
+            )
+        result[key] = value
+    return result
+
+
+def _resolve_mp3d_sound_asset_bindings(
+    sound_asset_map: str | Path | None = None,
+    sound_asset_paths: Sequence[str] | None = None,
+    beagle_audio: str | Path | None = None,
+) -> dict[str, Path]:
+    """Merge explicit dry-audio bindings for the MP3D renderer.
+
+    Map values are resolved relative to the map file.  Repeated CLI values are
+    resolved relative to the invoking directory.  A binding is never silently
+    replaced: duplicate IDs are rejected even when their paths happen to be
+    equal, which keeps a typo in a layered configuration visible.
+    """
+
+    bindings: dict[str, Path] = {}
+    invoking_directory = Path.cwd().resolve()
+
+    def add_binding(
+        sound_id: object,
+        path_value: object,
+        *,
+        owner: str,
+        base: Path,
+    ) -> None:
+        ident = _validate_mp3d_sound_asset_id(sound_id, owner=f"{owner} ID")
+        if ident in bindings:
+            raise ValueError(
+                f"duplicate sound asset ID {ident!r} while merging {owner}; "
+                "refusing to replace an existing binding"
+            )
+        bindings[ident] = _resolve_existing_mp3d_sound_asset_path(
+            path_value, owner=f"{owner} path", base=base
+        )
+
+    if sound_asset_map is not None:
+        map_path = _resolve_existing_mp3d_sound_asset_path(
+            sound_asset_map,
+            owner="sound asset map",
+            base=invoking_directory,
+        )
+        try:
+            payload = json.loads(
+                map_path.read_text(encoding="utf-8"),
+                object_pairs_hook=_reject_duplicate_sound_asset_map_keys,
+            )
+        except (OSError, UnicodeError, json.JSONDecodeError, ValueError) as error:
+            raise ValueError(f"cannot read sound asset map {map_path}: {error}") from error
+        if not isinstance(payload, Mapping):
+            raise ValueError("sound asset map must contain a JSON object")
+        for sound_id, path_value in payload.items():
+            add_binding(
+                sound_id,
+                path_value,
+                owner=f"sound asset map {map_path}",
+                base=map_path.parent,
+            )
+
+    if sound_asset_paths is not None:
+        if isinstance(sound_asset_paths, (str, bytes)):
+            raise ValueError("sound_asset_paths must be repeated SOUND_ID=PATH values")
+        for index, assignment in enumerate(sound_asset_paths):
+            if not isinstance(assignment, str):
+                raise ValueError(
+                    f"sound asset path {index} must be a SOUND_ID=PATH string"
+                )
+            sound_id, separator, path_value = assignment.partition("=")
+            if not separator or not sound_id or not path_value:
+                raise ValueError(
+                    f"sound asset path {index} must use SOUND_ID=PATH"
+                )
+            add_binding(
+                sound_id,
+                path_value,
+                owner=f"sound asset path {index}",
+                base=invoking_directory,
+            )
+
+    if beagle_audio is not None:
+        add_binding(
+            MP3D_LEGACY_BEAGLE_SOUND_ASSET_ID,
+            beagle_audio,
+            owner="legacy --beagle-audio",
+            base=invoking_directory,
+        )
+    return bindings
+
+
 from avengine.timeline.current_visual_review import (
     CurrentVisualReviewError,
     generate_current_visual_review,
@@ -1377,6 +1513,11 @@ def _m5_render_current_mp3d_dynamic_audio(args: argparse.Namespace) -> int:
 
     try:
         output = _require_ignored_or_external_output(args.output)
+        sound_asset_bindings = _resolve_mp3d_sound_asset_bindings(
+            getattr(args, "sound_asset_map", None),
+            getattr(args, "sound_asset_path", None),
+            getattr(args, "beagle_audio", None),
+        )
         with _temporary_native_audio_environment(
             runtime_prefix=args.runtime_prefix,
             rlr_sdk_root=args.rlr_sdk_root,
@@ -1392,9 +1533,7 @@ def _m5_render_current_mp3d_dynamic_audio(args: argparse.Namespace) -> int:
                 audio_program_path=args.audio_program,
                 source_endpoint_registry_path=args.source_endpoint_registry,
                 sound_asset_registry_path=args.sound_asset_registry,
-                external_sound_asset_paths={
-                    "dog_beagle_v2_scheduled_dry": args.beagle_audio
-                },
+                external_sound_asset_paths=sound_asset_bindings,
                 hrtf_file_path=args.hrtf,
                 hrtf_license_path=args.hrtf_license,
                 output_path=output,
@@ -2314,9 +2453,26 @@ def build_parser() -> argparse.ArgumentParser:
     m5_dynamic_audio.add_argument("--source-endpoint-registry", required=True)
     m5_dynamic_audio.add_argument("--sound-asset-registry", required=True)
     m5_dynamic_audio.add_argument(
+        "--sound-asset-map",
+        type=Path,
+        help=(
+            "JSON object mapping sound asset IDs to explicit external dry-audio paths"
+        ),
+    )
+    m5_dynamic_audio.add_argument(
+        "--sound-asset-path",
+        action="append",
+        default=[],
+        metavar="SOUND_ID=PATH",
+        help="explicit external dry-audio binding; may be repeated",
+    )
+    m5_dynamic_audio.add_argument(
         "--beagle-audio",
-        required=True,
-        help="external dry wav for dog_beagle_v2_scheduled_dry",
+        type=Path,
+        help=(
+            "legacy external dry wav binding for "
+            f"{MP3D_LEGACY_BEAGLE_SOUND_ASSET_ID}"
+        ),
     )
     m5_dynamic_audio.add_argument("--hrtf")
     m5_dynamic_audio.add_argument("--hrtf-license")
