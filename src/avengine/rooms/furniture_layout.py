@@ -866,6 +866,7 @@ def _pose_binding_records(pose_bindings: Any) -> list[dict[str, Any]]:
                     "reference_chair_yaw_degrees",
                     seat_reference.get("reference_chair_yaw_degrees"),
                 )
+                item.setdefault("pose_seat_top_m", seat_reference.get("seat_top_m"))
             item.setdefault("actor_id", item.get("asset_id") or f"actor{index}")
             item.setdefault("ue_animation", item.get("animation") or item.get("animation_name"))
             item.setdefault("blueprint_class_path", item.get("blueprint"))
@@ -999,6 +1000,15 @@ def build_seat_placements(
                 offset[0] * math.sin(placement_yaw) + offset[1] * math.cos(placement_yaw),
                 offset[2],
             ]
+            pose_seat_top = raw.get("pose_seat_top_m")
+            if pose_seat_top is not None:
+                # Room metadata exposes the seat surface; the pose request
+                # offset's Z is relative to its floor/root reference.  Remove
+                # the calibrated seat-top height before adding it to the room
+                # seat point, otherwise the actor would float by ~0.53 m.
+                root_from_seat[2] -= _finite(
+                    pose_seat_top, owner=f"pose binding {actor_id}.pose_seat_top_m"
+                )
         root_authoring: list[float] | None = None
         root_habitat: list[float] | None = None
         rotation = raw.get("rotation_xyzw")
@@ -1029,6 +1039,7 @@ def build_seat_placements(
                     "reference_is_not_actor_root": True,
                 },
                 "root_from_seat_m": list(root_from_seat) if root_from_seat is not None else None,
+                "pose_seat_top_m": raw.get("pose_seat_top_m"),
                 "root_position_authoring_m": root_authoring,
                 "root_position_habitat_m": root_habitat,
                 "rotation_xyzw": rotation,
