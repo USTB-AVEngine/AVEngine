@@ -185,3 +185,69 @@ def test_visibility_condition_defers_only_card13_card14(tmp_path: Path) -> None:
     assert result["status"] == "research_only"
     assert any(item["card"] == "speaker_order" for item in result["samples"])
     assert {item["card"] for item in result["deferred_samples"]} == {"card13", "card14"}
+
+
+def test_all_speaking_targets_binds_each_color_to_its_own_sentence(
+    tmp_path: Path,
+) -> None:
+    readback, binding, audio, report = _inputs(tmp_path)
+    result = build(
+        frame_readbacks=readback,
+        voice_binding=binding,
+        audio_program=audio,
+        research_report=report,
+        output=tmp_path / "out",
+        require_all_speaker_visible=False,
+        all_speaking_targets=True,
+    )
+    assert len(result["samples"]) == 9
+    pairs = {
+        (item["card"], item.get("target_actor_id")): item
+        for item in result["samples"]
+        if item["card"] != "speaker_order"
+    }
+    for actor, color, sound, transcript in ACTORS:
+        assert pairs[("card13", actor)]["evaluation"]["answer"]["value"] == transcript
+        assert pairs[("card14", actor)]["evaluation"]["answer"]["value"] == color
+        assert pairs[("card14", actor)]["question_spec"]["selectors"]["sound_asset_id"] == sound
+
+
+def test_all_speaking_targets_defers_only_target_without_visible_pixels(
+    tmp_path: Path,
+) -> None:
+    readback, binding, audio, report = _inputs(tmp_path)
+    target_frames = dict(zip((actor for actor, *_ in ACTORS), (0, 1, 3, 4)))
+    truth = {
+        "per_instance": {
+            actor: {
+                "frames": [
+                    {
+                        "frame_index": target_frames[actor],
+                        "state": "out_of_view" if color == "green" else "visible_occluded",
+                    }
+                ]
+            }
+            for actor, color, *_ in ACTORS
+        }
+    }
+    truth_path = tmp_path / "pixel_visibility_truth.json"
+    truth_path.write_text(json.dumps(truth), encoding="utf-8")
+    result = build(
+        frame_readbacks=readback,
+        voice_binding=binding,
+        audio_program=audio,
+        research_report=report,
+        pixel_visibility_truth=truth_path,
+        output=tmp_path / "out",
+        all_speaking_targets=True,
+    )
+    assert len(result["samples"]) == 7
+    assert len(result["deferred_samples"]) == 2
+    assert {
+        item["target_actor_id"] for item in result["deferred_samples"]
+    } == {"speaker_green"}
+    assert {
+        item["target_actor_id"]
+        for item in result["samples"]
+        if item["card"] != "speaker_order"
+    } == {"speaker_blue", "speaker_pink", "speaker_white"}
