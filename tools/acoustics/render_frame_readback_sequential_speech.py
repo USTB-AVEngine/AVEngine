@@ -176,6 +176,18 @@ def _verify_static_interval(
     }
 
 
+def _nonzero_interval(values: np.ndarray, *, threshold: float, offset: int) -> list[int] | None:
+    array = np.asarray(values)
+    if array.ndim == 1:
+        mask = np.abs(array) > threshold
+    else:
+        mask = np.any(np.abs(array) > threshold, axis=0)
+    indices = np.flatnonzero(mask)
+    if len(indices) == 0:
+        return None
+    return [int(offset + indices[0]), int(offset + indices[-1] + 1)]
+
+
 def _place_wet_event(
     mixture: np.ndarray,
     dry: np.ndarray,
@@ -458,6 +470,7 @@ def render(
         stem = np.zeros_like(mixture)
         stem[:, start_sample:end_sample] = placed_wet
         _write_wav(stem_path, stem)
+        pcm_values = np.rint(np.clip(placed_wet, -1.0, 1.0) * 32767.0).astype("<i2")
         records.append(
             {
                 "event_id": event["event_id"],
@@ -477,7 +490,13 @@ def render(
                 "rir_shape": list(ir.shape),
                 "rir_sample_count": int(ir.shape[-1]),
                 "rir_max_abs": float(np.max(np.abs(ir))),
-                "wet_nonzero_interval": [start_sample, end_sample],
+                "planned_event_interval": [start_sample, end_sample],
+                "wet_float_nonzero_interval": _nonzero_interval(
+                    placed_wet, threshold=1.0e-12, offset=start_sample
+                ),
+                "pcm_output_nonzero_interval": _nonzero_interval(
+                    pcm_values, threshold=0.0, offset=start_sample
+                ),
                 "output_stem": str(stem_path),
                 "native_readback_obj": str(readback_obj),
             }
