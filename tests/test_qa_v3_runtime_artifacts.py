@@ -207,5 +207,8 @@ def test_extended_descriptor_generation_uses_profile_capabilities(tmp_path: Path
     assert [row["id"] for row in result["segments"]] == ["segment1", "segment2"]
     assert [row["segment"] for row in result["release_media"]] == ["segment1", "segment2"]
     assert all(row["release"] is True for row in result["release_media"])
+    assert result["release_media"][0]["audio_variant"] == "main"
+    assert result["release_media"][1]["audio_variant"] is None
+    assert result["release_media"][1]["status"] == "pending_audio_consumer"
     assert result["pixel_evidence"][0]["kind"] == "qa_v3_extended_pixel"
     assert result["runtime_consumer_status"] == "pending_cross_segment_consumer"

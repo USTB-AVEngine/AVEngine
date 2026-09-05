@@ -894,3 +894,450 @@ def test_source_state_records_current_avengine_without_becoming_a_gate() -> None
     )
     assert isinstance(state["tracked_worktree_changes"], list)
     assert Path(state["python_executable"]).is_file()
+
+
+
+def _make_runtime_artifact_point(
+    root: Path,
+    fact: dict,
+    *,
+    extra_files: tuple[str, ...] = (),
+) -> tuple[Path, Path]:
+    """Create the smallest real candidate directory understood by the resolver."""
+
+    batch = root / "batch"
+    point = batch / "point_001"
+    point.mkdir(parents=True)
+    _write(point / "actor_selection.json", {"actors": []})
+    _write(point / "timeline.json", {"frames": []})
+    for name in extra_files:
+        _write(point / name, {"frames": []})
+    _write(point / "fact_record.json", fact)
+    return batch, point
+
+
+def _capture_runtime_for_test(tmp_path: Path) -> dict[str, object]:
+    """Use existing files so _stage_config exercises normal path handling."""
+
+    spear_ext = tmp_path / "spear_ext"
+    spear_ext.mkdir()
+    closure = _write(tmp_path / "closure.json", {})
+    stage_root = tmp_path / "stage"
+    stage_root.mkdir()
+    executable = _write(tmp_path / "spear", "#!/bin/sh\n")
+    return {
+        "capture": {
+            "python": sys.executable,
+            "spear_ext": str(spear_ext),
+            "closure_report": str(closure),
+            "stage_root": str(stage_root),
+            "spear_executable": str(executable),
+        }
+    }
+
+
+def test_legacy_candidate_without_descriptors_keeps_main_capture_behavior(
+    monkeypatch, tmp_path: Path,
+) -> None:
+    batch, _ = _make_runtime_artifact_point(
+        tmp_path,
+        {"profile_id": "legacy_profile"},
+    )
+    pair_root = tmp_path / "pair"
+    monkeypatch.setattr(
+        pipeline,
+        "_run_logged",
+        lambda *args, **kwargs: pytest.fail(
+            "legacy candidate must not launch a second capture"
+        ),
+    )
+
+    result = pipeline._run_declared_captures(
+        _capture_runtime_for_test(tmp_path),
+        "room_a",
+        "legacy_profile",
+        batch,
+        pair_root,
+        ["point_001"],
+        resume_only=False,
+    )
+
+    assert result["status"] == "complete"
+    assert result["records"] == []
+    assert not (pair_root / "declared_visuals").exists()
+
+
+def test_declared_capture_forwards_descriptor_identity_to_registered_runner(
+    monkeypatch, tmp_path: Path,
+) -> None:
+    fact = {
+        "visual_variants": [
+            {
+                "id": "main",
+                "kind": "qa_v3_current_apartment_visual",
+                "actor_selection": "actor_selection.json",
+                "timeline": "timeline.json",
+            },
+            {
+                "id": "gateB",
+                "kind": "qa_v3_current_apartment_visual",
+                "actor_selection": "actor_selection_gateB.json",
+                "timeline": "timeline_gateB.json",
+            },
+        ]
+    }
+    batch, _ = _make_runtime_artifact_point(
+        tmp_path,
+        fact,
+        extra_files=("actor_selection_gateB.json", "timeline_gateB.json"),
+    )
+    pair_root = tmp_path / "pair"
+    calls = []
+    states = iter(("missing", "complete"))
+    monkeypatch.setattr(
+        pipeline,
+        "_declared_capture_state",
+        lambda *args, **kwargs: next(states),
+    )
+
+    def fake_run(label, command, log_path, *, timeout, env=None):
+        del log_path, timeout, env
+        calls.append((label, list(command)))
+        return {"status": "complete", "label": label}
+
+    monkeypatch.setattr(pipeline, "_run_logged", fake_run)
+    result = pipeline._run_declared_captures(
+        _capture_runtime_for_test(tmp_path),
+        "room_a",
+        "profile_a",
+        batch,
+        pair_root,
+        ["point_001"],
+        resume_only=False,
+    )
+
+    assert result["status"] == "complete"
+    assert len(calls) == 1
+    label, command = calls[0]
+    assert label.endswith("/point_001/visual_variant/gateB")
+    assert command[command.index("--points") + 1] == "point_001"
+    assert command[command.index("--descriptor-id") + 1] == "gateB"
+    assert command[command.index("--descriptor-kind") + 1] == "visual_variant"
+
+
+def test_declared_media_with_no_audio_consumer_stays_pending_without_reuse(
+    monkeypatch, tmp_path: Path,
+) -> None:
+    fact = {
+        "visual_variants": [{
+            "id": "main",
+            "kind": "qa_v3_current_apartment_visual",
+            "actor_selection": "actor_selection.json",
+            "timeline": "timeline.json",
+        }],
+        "segments": [
+            {"id": "segment1", "variant": "main"},
+            {
+                "id": "segment2",
+                "variant": "main",
+                "timeline": "timeline_segment2.json",
+            },
+        ],
+        "release_media": [{
+            "id": "segment2_release",
+            "variant": "main",
+            "segment": "segment2",
+            "kind": "qa_v3_review_clip",
+            "release": True,
+            "audio_variant": None,
+        }],
+    }
+    batch, _ = _make_runtime_artifact_point(
+        tmp_path, fact, extra_files=("timeline_segment2.json",),
+    )
+    pair_root = tmp_path / "pair"
+    # A main audio file exists to prove that its presence cannot satisfy the
+    # later segment whose descriptor has no audio consumer.
+    main_audio = pair_root / "audio" / "point_001" / "audio" / "binaural" / "mixture.wav"
+    main_audio.parent.mkdir(parents=True)
+    main_audio.write_bytes(b"segment1-audio")
+    monkeypatch.setattr(
+        pipeline,
+        "_run_logged",
+        lambda *args, **kwargs: pytest.fail(
+            "segment2 without an audio consumer must not launch media"
+        ),
+    )
+
+    result = pipeline._run_declared_media(
+        {},
+        "room_a",
+        "profile_a",
+        batch,
+        pair_root,
+        ["point_001"],
+        resume_only=False,
+    )
+
+    assert result["status"] == "partial"
+    assert len(result["records"]) == 1
+    record = result["records"][0]
+    assert record["release_id"] == "segment2_release"
+    assert record["audio_variant"] is None
+    assert record["status"] == "pending"
+    assert "no declared audio consumer" in record["detail"]
+    assert not (pair_root / "declared_media").exists()
+
+
+def test_missing_native_pixel_truth_stays_pending(monkeypatch, tmp_path: Path) -> None:
+    fact = {"pixel_evidence": [{"id": "front", "kind": "qa_v3_extended_pixel"}]}
+    batch, _ = _make_runtime_artifact_point(tmp_path, fact)
+    params = _write(tmp_path / "params.json", {})
+    monkeypatch.setattr(
+        pipeline,
+        "_run_logged",
+        lambda *args, **kwargs: pytest.fail(
+            "missing native pixel truth must not invoke the joiner"
+        ),
+    )
+
+    result = pipeline._run_declared_pixels(
+        {},
+        "room_a",
+        "profile_a",
+        batch,
+        tmp_path / "pair",
+        ["point_001"],
+        params_path=params,
+        resume_only=False,
+    )
+
+    assert result["status"] == "partial"
+    assert result["records"][0]["status"] == "pending"
+    assert "pixel truth" in result["records"][0]["detail"]
+
+
+def test_runtime_pixel_paths_invoke_only_the_registered_joiner(
+    monkeypatch, tmp_path: Path,
+) -> None:
+    fact = {"pixel_evidence": [{"id": "front", "kind": "qa_v3_extended_pixel"}]}
+    batch, point = _make_runtime_artifact_point(tmp_path, fact)
+    params = _write(tmp_path / "params.json", {})
+    truth = _write(tmp_path / "pixel_truth.json", {"truth": []})
+    output = tmp_path / "pixel_result.json"
+    runtime = {
+        "python": sys.executable,
+        "_path": str(tmp_path / "runtime.json"),
+        "pixel": {
+            "by_point": {
+                "point_001": {
+                    "front": {
+                        "pixel_truth": str(truth),
+                        "params": str(params),
+                        "output": str(output),
+                    }
+                }
+            }
+        },
+    }
+    calls = []
+
+    def fake_run(label, command, log_path, *, timeout, env=None):
+        del log_path, timeout, env
+        calls.append((label, list(command)))
+        output_path = Path(command[command.index("--output") + 1])
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(json.dumps({"status": "pass"}), encoding="utf-8")
+        return {"status": "complete", "label": label}
+
+    monkeypatch.setattr(pipeline, "_run_logged", fake_run)
+    result = pipeline._run_declared_pixels(
+        runtime,
+        "room_a",
+        "profile_a",
+        batch,
+        tmp_path / "pair",
+        [point.name],
+        params_path=params,
+        resume_only=False,
+    )
+
+    assert result["status"] == "complete"
+    assert len(calls) == 1
+    _, command = calls[0]
+    registered = pipeline.registered_pixel_consumer("qa_v3_extended_pixel")
+    assert registered is not None
+    assert Path(command[1]).resolve() == registered.resolve()
+    assert command[command.index("--pixel-truth") + 1] == str(truth.resolve())
+    assert command[command.index("--params") + 1] == str(params.resolve())
+
+
+def test_unknown_pixel_kind_stays_pending_without_execution(
+    monkeypatch, tmp_path: Path,
+) -> None:
+    fact = {"pixel_evidence": [{"id": "future", "kind": "future_pixel_consumer"}]}
+    batch, _ = _make_runtime_artifact_point(tmp_path, fact)
+    monkeypatch.setattr(
+        pipeline,
+        "_run_logged",
+        lambda *args, **kwargs: pytest.fail(
+            "unknown pixel kinds must not be executable"
+        ),
+    )
+
+    result = pipeline._run_declared_pixels(
+        {},
+        "room_a",
+        "profile_a",
+        batch,
+        tmp_path / "pair",
+        ["point_001"],
+        params_path=tmp_path / "params.json",
+        resume_only=False,
+    )
+
+    assert result["status"] == "partial"
+    assert result["records"][0]["status"] == "pending"
+    assert "no registered consumer" in result["records"][0]["detail"]
+
+
+def test_pair_status_remains_partial_when_declared_artifact_is_pending(
+    monkeypatch, tmp_path: Path,
+) -> None:
+    batch = tmp_path / "batch"
+    batch.mkdir()
+    manifest = _write(batch / "batch_manifest.json", {})
+    monkeypatch.setattr(pipeline, "batch_point_ids", lambda root: ["point_001"])
+    monkeypatch.setattr(
+        pipeline,
+        "_run_capture",
+        lambda *args, **kwargs: {"status": "complete", "root": "capture"},
+    )
+    monkeypatch.setattr(
+        pipeline,
+        "_run_declared_captures",
+        lambda *args, **kwargs: {"status": "complete", "root": "visuals"},
+    )
+    monkeypatch.setattr(
+        pipeline,
+        "_run_audio",
+        lambda *args, **kwargs: {"status": "complete", "root": "audio"},
+    )
+    monkeypatch.setattr(
+        pipeline,
+        "_run_media",
+        lambda *args, **kwargs: {"status": "complete", "root": "media"},
+    )
+    monkeypatch.setattr(
+        pipeline,
+        "_run_declared_media",
+        lambda *args, **kwargs: {"status": "complete", "root": "declared_media"},
+    )
+    monkeypatch.setattr(
+        pipeline,
+        "_run_verifications",
+        lambda *args, **kwargs: {"status": "complete", "root": "verification"},
+    )
+    monkeypatch.setattr(
+        pipeline,
+        "_run_declared_pixels",
+        lambda *args, **kwargs: {
+            "status": "partial",
+            "root": "declared_pixels",
+            "records": [{"status": "pending", "evidence_id": "front"}],
+        },
+    )
+
+    pair = pipeline._pair_record(
+        {"audio_variants": ["main"]},
+        {},
+        {
+            "scene_id": "room_a",
+            "profile_id": "profile_a",
+            "attempt_status": "generated",
+            "batch_manifest": str(manifest),
+        },
+        tmp_path,
+        tmp_path / "output",
+        params_path=tmp_path / "params.json",
+        resume_only=False,
+        through_stage="questions",
+    )
+
+    assert pair["status"] == "partial"
+    assert pair["declared_pixels"]["status"] == "partial"
+
+
+def test_questions_wait_for_pending_declared_artifact_before_release(
+    monkeypatch, tmp_path: Path,
+) -> None:
+    point_id = "point_001"
+    audio_root = tmp_path / "audio"
+    media_root = tmp_path / "media"
+    mixture = audio_root / point_id / "audio" / "binaural" / "mixture.wav"
+    mixture.parent.mkdir(parents=True)
+    mixture.write_bytes(b"audio")
+    base_video = media_root / f"{point_id}.base.mp4"
+    media_root.mkdir(parents=True)
+    base_video.write_bytes(b"video")
+    params = _write(tmp_path / "params.json", {})
+    pilot_path = _write(tmp_path / "pilot.json", {})
+    pilot = {
+        "question_count": 1,
+        "rooms": {
+            "room_a": {
+                "profiles": {
+                    "profile_a": {
+                        "status": "selected",
+                        "candidates": [{
+                            "source_point_id": point_id,
+                            "pilot_id": "pilot_001",
+                        }],
+                    }
+                }
+            }
+        },
+    }
+    pair = {
+        "scene_id": "room_a",
+        "profile_id": "profile_a",
+        "status": "partial",
+        "capture": {"status": "complete"},
+        "audio": {"status": "complete", "root": str(audio_root)},
+        "media": {"status": "complete", "root": str(media_root)},
+        "declared_capture": {"status": "complete"},
+        "declared_media": {"status": "complete"},
+        "declared_pixels": {"status": "pending"},
+    }
+    released_path = (
+        tmp_path / "pipeline" / "questions" / "released_items.json"
+    )
+    released_path.parent.mkdir(parents=True)
+    released_path.write_text(
+        json.dumps([{"task_type": "stale"}]), encoding="utf-8"
+    )
+    launched = []
+
+    def fake_run(label, command, log_path, *, timeout, env=None):
+        del label, log_path, timeout, env
+        launched.append(list(command))
+        released = Path(command[command.index("--output") + 1])
+        released.parent.mkdir(parents=True, exist_ok=True)
+        released.write_text(json.dumps([{"task_type": "open"}]), encoding="utf-8")
+        return {"status": "complete"}
+
+    monkeypatch.setattr(pipeline, "_run_logged", fake_run)
+    result = pipeline._run_questions(
+        {"params": str(params)},
+        {},
+        {"pilot": pilot, "pilot_path": str(pilot_path)},
+        {("room_a", "profile_a"): pair},
+        tmp_path / "pipeline",
+        resume_only=False,
+        through_stage="questions",
+    )
+
+    assert result["status"] == "pending"
+    assert "runtime artifacts" in result["detail"]
+    assert launched == []
+    assert json.loads(released_path.read_text()) == [{"task_type": "stale"}]

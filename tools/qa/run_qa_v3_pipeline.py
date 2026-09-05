@@ -54,6 +54,13 @@ from run_qa_v3_capture_batch import (
     point_state as capture_point_state,
     resolve_capture_inputs,
 )
+from avengine.qa.runtime_artifacts import (
+    MEDIA_CONSUMER_KINDS,
+    VISUAL_CAPTURE_KINDS,
+    RuntimeArtifactError,
+    load_runtime_artifacts,
+    registered_pixel_consumer,
+)
 
 
 SCHEDULER = HERE / "run_qa_v3_room_profile_scheduler.py"
@@ -1364,8 +1371,16 @@ def _capture_states(batch_root: Path, capture_root: Path,
     return raw_status, raw_states, None
 
 
-def _capture_command(cfg: Mapping[str, Any], batch_root: Path,
-                     capture_root: Path, *, resume: bool) -> list[str]:
+def _capture_command(
+    cfg: Mapping[str, Any],
+    batch_root: Path,
+    capture_root: Path,
+    *,
+    resume: bool,
+    points: Sequence[str] | None = None,
+    descriptor_id: str | None = None,
+    descriptor_kind: str | None = None,
+) -> list[str]:
     required = ("python", "spear_ext", "closure_report", "stage_root", "spear_executable")
     missing = [key for key in required if not cfg.get(key)]
     if missing:
@@ -1389,6 +1404,17 @@ def _capture_command(cfg: Mapping[str, Any], batch_root: Path,
     for key, flag in optional:
         if cfg.get(key) is not None:
             command.extend([flag, str(cfg[key])])
+    if points:
+        command.extend(["--points", ",".join(str(point) for point in points)])
+    if descriptor_id is not None or descriptor_kind is not None:
+        if descriptor_id is None or descriptor_kind is None:
+            raise PipelineError(
+                "declared capture needs both descriptor id and kind"
+            )
+        command.extend([
+            "--descriptor-id", str(descriptor_id),
+            "--descriptor-kind", str(descriptor_kind),
+        ])
     if resume:
         command.append("--resume")
     return command
@@ -1424,6 +1450,187 @@ def _run_capture(request: Mapping[str, Any], runtime: Mapping[str, Any],
     return {"status": "complete", "root": str(capture_root.resolve()),
             "points": states, "run": run}
 
+
+
+def _declared_capture_root(
+    pair_root: Path, point_id: str, descriptor_kind: str, descriptor_id: str
+) -> Path:
+    return (
+        pair_root
+        / "declared_visuals"
+        / _safe_component(point_id, owner="declared point_id")
+        / _safe_component(descriptor_kind, owner="descriptor kind")
+        / _safe_component(descriptor_id, owner="descriptor id")
+        / "capture"
+    )
+
+
+def _runtime_artifacts_by_point(
+    batch_root: Path, point_ids: Sequence[str]
+) -> dict[str, dict[str, Any]]:
+    result = {}
+    for point_id in point_ids:
+        try:
+            result[point_id] = load_runtime_artifacts(batch_root / point_id)
+        except RuntimeArtifactError as error:
+            raise PipelineError(
+                f"{point_id} runtime artifact description is invalid: {error}"
+            ) from error
+    return result
+
+
+def _declared_capture_entries(
+    artifacts: Mapping[str, Any], point_dir: Path
+) -> list[dict[str, Any]]:
+    main_selection, main_timeline, _ = resolve_capture_inputs(point_dir)
+    result = []
+    for descriptor_kind, field in (
+        ("visual_variant", "visual_variants"),
+        ("segment", "segments"),
+    ):
+        for row in artifacts.get(field) or []:
+            selection = Path(row["actor_selection"]).resolve()
+            timeline = Path(row["timeline"]).resolve()
+            if (
+                selection == main_selection.resolve()
+                and timeline == main_timeline.resolve()
+            ):
+                continue
+            result.append({
+                "descriptor_kind": descriptor_kind,
+                "descriptor_id": str(row["id"]),
+                "capture_kind": str(row.get("kind", "")),
+                "selection": selection,
+                "timeline": timeline,
+            })
+    return result
+
+
+def _declared_capture_state(
+    output_root: Path,
+    point_id: str,
+    *,
+    selection: Path,
+    timeline: Path,
+) -> str:
+    point_root = output_root / point_id
+    if not point_root.exists():
+        return "missing"
+    return capture_point_state(
+        point_root,
+        timeline_path=timeline,
+        selection_path=selection,
+    )
+
+
+def _run_declared_captures(
+    runtime: Mapping[str, Any],
+    scene_id: str,
+    profile_id: str,
+    batch_root: Path,
+    pair_root: Path,
+    point_ids: Sequence[str],
+    *,
+    resume_only: bool,
+) -> dict[str, Any]:
+    plans = _runtime_artifacts_by_point(batch_root, point_ids)
+    cfg = _stage_config(runtime, "capture", scene_id, profile_id)
+    if not cfg.get("python") and runtime.get("python"):
+        cfg["python"] = runtime["python"]
+    records = []
+    for point_id in point_ids:
+        point_dir = batch_root / point_id
+        for entry in _declared_capture_entries(plans[point_id], point_dir):
+            descriptor_id = entry["descriptor_id"]
+            descriptor_kind = entry["descriptor_kind"]
+            output_root = _declared_capture_root(
+                pair_root, point_id, descriptor_kind, descriptor_id
+            )
+            state = _declared_capture_state(
+                output_root,
+                point_id,
+                selection=entry["selection"],
+                timeline=entry["timeline"],
+            )
+            record = {
+                "point_id": point_id,
+                "descriptor_id": descriptor_id,
+                "descriptor_kind": descriptor_kind,
+                "capture_kind": entry["capture_kind"],
+                "root": str(output_root.resolve()),
+                "state_before": state,
+            }
+            if entry["capture_kind"] not in VISUAL_CAPTURE_KINDS:
+                record.update({
+                    "status": "pending",
+                    "detail": (
+                        "visual capture kind has no registered runner: "
+                        f"{entry['capture_kind']}"
+                    ),
+                })
+                records.append(record)
+                continue
+            if state == "complete":
+                record.update({"status": "complete", "run": {"status": "reused_existing"}})
+                records.append(record)
+                continue
+            if state == "partial":
+                record.update({
+                    "status": "failed",
+                    "detail": "declared visual capture is partial; refusing overwrite",
+                })
+                records.append(record)
+                continue
+            if resume_only:
+                record.update({
+                    "status": "pending",
+                    "detail": "resume-only mode did not launch declared capture",
+                })
+                records.append(record)
+                continue
+            command = _capture_command(
+                cfg,
+                batch_root,
+                output_root,
+                resume=output_root.exists(),
+                points=[point_id],
+                descriptor_id=descriptor_id,
+                descriptor_kind=descriptor_kind,
+            )
+            run = _run_logged(
+                f"declared-capture:{scene_id}/{profile_id}/{point_id}/"
+                f"{descriptor_kind}/{descriptor_id}",
+                command,
+                output_root.parent / "capture.log",
+                timeout=_timeout(runtime, "capture"),
+            )
+            final_state = _declared_capture_state(
+                output_root,
+                point_id,
+                selection=entry["selection"],
+                timeline=entry["timeline"],
+            )
+            record.update({
+                "status": (
+                    "complete"
+                    if run["status"] == "complete" and final_state == "complete"
+                    else "failed"
+                ),
+                "state_after": final_state,
+                "run": run,
+            })
+            records.append(record)
+    statuses = [record["status"] for record in records]
+    status = (
+        "failed" if "failed" in statuses
+        else "partial" if "pending" in statuses
+        else "complete"
+    )
+    return {
+        "status": status,
+        "root": str((pair_root / "declared_visuals").resolve()),
+        "records": records,
+    }
 
 def _configured_audio_layouts(cfg: Mapping[str, Any]) -> tuple[str, ...]:
     try:
@@ -1644,6 +1851,205 @@ def _run_media(runtime: Mapping[str, Any], scene_id: str, profile_id: str,
             "points": statuses, "runs": run_records}
 
 
+
+def _declared_capture_directory_for_segment(
+    batch_root: Path,
+    pair_root: Path,
+    point_id: str,
+    segment: Mapping[str, Any],
+) -> Path:
+    main_selection, main_timeline, _ = resolve_capture_inputs(batch_root / point_id)
+    if (
+        Path(segment["actor_selection"]).resolve() == main_selection.resolve()
+        and Path(segment["timeline"]).resolve() == main_timeline.resolve()
+    ):
+        return pair_root / "capture" / point_id
+    return (
+        _declared_capture_root(
+            pair_root, point_id, "segment", str(segment["id"])
+        )
+        / point_id
+    )
+
+
+def _declared_media_state(
+    output: Path,
+    capture_dir: Path,
+    mixture: Path,
+) -> tuple[str, str | None]:
+    if not output.is_file():
+        return "missing", None
+    receipt_path = capture_dir / "research_receipt.json"
+    if not receipt_path.is_file():
+        return "failed", "declared media capture receipt is missing"
+    try:
+        receipt = receipt_summary(_read_json(receipt_path))
+        valid = _clip_matches_receipt(output, receipt)
+    except (OSError, ValueError, RuntimeError, TypeError, KeyError, json.JSONDecodeError) as error:
+        return "failed", f"cannot inspect declared media: {error}"
+    if not valid:
+        return "failed", "declared media clock differs from capture receipt"
+    if not mixture.is_file():
+        return "failed", "declared media audio mixture is missing"
+    return "complete", None
+
+
+def _run_declared_media(
+    runtime: Mapping[str, Any],
+    scene_id: str,
+    profile_id: str,
+    batch_root: Path,
+    pair_root: Path,
+    point_ids: Sequence[str],
+    *,
+    resume_only: bool,
+) -> dict[str, Any]:
+    plans = _runtime_artifacts_by_point(batch_root, point_ids)
+    media_cfg = _stage_config(runtime, "media", scene_id, profile_id)
+    media_python = media_cfg.get("python") or _python_for_runtime(runtime)
+    records = []
+    for point_id in point_ids:
+        plan = plans[point_id]
+        segments = {row["id"]: row for row in plan["segments"]}
+        for release in plan["release_media"]:
+            if not release.get("release"):
+                continue
+            release_id = str(release["id"])
+            record = {
+                "point_id": point_id,
+                "release_id": release_id,
+                "segment": release.get("segment"),
+                "variant": release.get("variant"),
+                "audio_variant": release.get("audio_variant", "main"),
+            }
+            if release.get("kind") not in MEDIA_CONSUMER_KINDS:
+                record.update({
+                    "status": "pending",
+                    "detail": (
+                        "media kind has no registered runner: "
+                        f"{release.get('kind')}"
+                    ),
+                })
+                records.append(record)
+                continue
+            segment_id = release.get("segment")
+            segment = segments.get(segment_id)
+            if segment is None:
+                record.update({
+                    "status": "failed",
+                    "detail": f"release references unknown segment {segment_id!r}",
+                })
+                records.append(record)
+                continue
+            audio_variant = release.get("audio_variant", "main")
+            if audio_variant is None:
+                record.update({
+                    "status": "pending",
+                    "detail": "release segment has no declared audio consumer",
+                })
+                records.append(record)
+                continue
+            audio_name = (
+                point_id
+                if audio_variant == "main"
+                else f"{point_id}_{_safe_component(audio_variant, owner='audio variant')}"
+            )
+            mixture = (
+                pair_root / "audio" / audio_name
+                / "audio" / "binaural" / "mixture.wav"
+            )
+            capture_dir = _declared_capture_directory_for_segment(
+                batch_root, pair_root, point_id, segment
+            )
+            main_capture = pair_root / "capture" / point_id
+            if capture_dir == main_capture and audio_variant == "main":
+                state, detail = _media_state(
+                    pair_root / "media", pair_root / "capture",
+                    pair_root / "audio", point_id,
+                )
+                record.update({
+                    "status": state if state != "missing" else "pending",
+                    "root": str((pair_root / "media" / f"{point_id}.mp4").resolve()),
+                    "detail": detail,
+                    "run": {"status": "reused_main_media"},
+                })
+                records.append(record)
+                continue
+            output = (
+                pair_root / "declared_media"
+                / _safe_component(point_id, owner="declared media point")
+                / f"{_safe_component(release_id, owner='release id')}.mp4"
+            )
+            state, detail = _declared_media_state(output, capture_dir, mixture)
+            record["root"] = str(output.resolve())
+            if state == "complete":
+                record.update({"status": "complete", "run": {"status": "reused_existing"}})
+                records.append(record)
+                continue
+            if state == "failed":
+                record.update({"status": "failed", "detail": detail})
+                records.append(record)
+                continue
+            if not capture_dir.is_dir() or not mixture.is_file():
+                record.update({
+                    "status": "pending",
+                    "detail": "declared capture or audio is incomplete",
+                })
+                records.append(record)
+                continue
+            if resume_only:
+                record.update({
+                    "status": "pending",
+                    "detail": "resume-only mode did not launch declared media",
+                })
+                records.append(record)
+                continue
+            channel_order, channel_error = _channel_order(
+                media_cfg, capture_dir.parent, capture_dir.name
+            )
+            if channel_error:
+                record.update({"status": "failed", "detail": channel_error})
+                records.append(record)
+                continue
+            output.parent.mkdir(parents=True, exist_ok=True)
+            command = [
+                str(media_python), str(REVIEW_CLIP),
+                "--visual-capture-dir", str(capture_dir),
+                "--mixture-wav", str(mixture),
+                "--channel-order", str(channel_order),
+                "--output", str(output),
+            ]
+            run = _run_logged(
+                f"declared-media:{scene_id}/{profile_id}/{point_id}/{release_id}",
+                command,
+                output.with_suffix(".log"),
+                timeout=_timeout(runtime, "media"),
+            )
+            final_state, final_detail = _declared_media_state(
+                output, capture_dir, mixture
+            )
+            record.update({
+                "status": (
+                    "complete"
+                    if run["status"] == "complete" and final_state == "complete"
+                    else "failed"
+                ),
+                "detail": final_detail,
+                "run": run,
+            })
+            records.append(record)
+    statuses = [record["status"] for record in records]
+    status = (
+        "failed" if "failed" in statuses
+        else "partial" if "pending" in statuses
+        else "complete"
+    )
+    return {
+        "status": status,
+        "root": str((pair_root / "declared_media").resolve()),
+        "records": records,
+    }
+
 def _verification_selection(path: Path, point_ids: Sequence[str]) -> dict[str, Any]:
     selected = {"selected": [{"point_id": pid} for pid in point_ids]}
     if path.is_file():
@@ -1814,6 +2220,185 @@ def _run_verifications(runtime: Mapping[str, Any], request: Mapping[str, Any],
             "reports": records, "runs": runs}
 
 
+
+def _pixel_runtime_override(
+    runtime: Mapping[str, Any],
+    scene_id: str,
+    profile_id: str,
+    point_id: str,
+    evidence_id: str,
+) -> dict[str, Any]:
+    cfg = _stage_config(runtime, "pixel", scene_id, profile_id)
+    by_point = cfg.get("by_point")
+    if not isinstance(by_point, Mapping):
+        return {}
+    point = by_point.get(point_id)
+    if not isinstance(point, Mapping):
+        return {}
+    value = point.get(evidence_id, point)
+    if not isinstance(value, Mapping):
+        raise PipelineError(
+            f"pixel runtime override {point_id}/{evidence_id} must be an object"
+        )
+    result = dict(value)
+    base = Path(runtime.get("_path", REPO)).parent
+    for key in ("fact", "pixel_truth", "pixel_arrays", "params", "output"):
+        if result.get(key) is None:
+            continue
+        result[key] = _resolve_path(
+            result[key],
+            base=base,
+            owner=f"runtime.pixel.{point_id}.{evidence_id}.{key}",
+            must_exist=key != "output",
+        )
+    return result
+
+
+def _pixel_result_state(path: Path) -> tuple[str, str | None]:
+    if not path.is_file():
+        return "missing", None
+    try:
+        value = _read_json(path)
+    except PipelineError as error:
+        return "failed", str(error)
+    status = value.get("status") if isinstance(value, Mapping) else None
+    if status == "pass":
+        return "complete", None
+    if status == "pixel_rejected":
+        return "rejected", "native pixel evidence rejected the candidate"
+    return "failed", f"unexpected pixel join status {status!r}"
+
+
+def _run_declared_pixels(
+    runtime: Mapping[str, Any],
+    scene_id: str,
+    profile_id: str,
+    batch_root: Path,
+    pair_root: Path,
+    point_ids: Sequence[str],
+    *,
+    params_path: Path,
+    resume_only: bool,
+) -> dict[str, Any]:
+    plans = _runtime_artifacts_by_point(batch_root, point_ids)
+    records = []
+    for point_id in point_ids:
+        for evidence in plans[point_id]["pixel_evidence"]:
+            evidence_id = str(evidence["id"])
+            kind = str(evidence.get("kind", ""))
+            record = {
+                "point_id": point_id,
+                "evidence_id": evidence_id,
+                "kind": kind,
+            }
+            consumer = registered_pixel_consumer(kind)
+            if consumer is None:
+                record.update({
+                    "status": "pending",
+                    "detail": f"pixel evidence kind has no registered consumer: {kind}",
+                })
+                records.append(record)
+                continue
+            override = _pixel_runtime_override(
+                runtime, scene_id, profile_id, point_id, evidence_id
+            )
+            fact = Path(override.get("fact", evidence.get("fact"))).resolve()
+            pixel_truth = override.get("pixel_truth", evidence.get("pixel_truth"))
+            pixel_arrays = override.get("pixel_arrays", evidence.get("pixel_arrays"))
+            selected_params = Path(
+                override.get("params", evidence.get("params", params_path))
+            ).resolve()
+            output = Path(
+                override.get(
+                    "output",
+                    pair_root / "declared_pixels"
+                    / _safe_component(point_id, owner="pixel point")
+                    / f"{_safe_component(evidence_id, owner='pixel evidence id')}.json",
+                )
+            ).resolve()
+            record.update({
+                "fact": str(fact),
+                "pixel_truth": (
+                    None if pixel_truth is None else str(Path(pixel_truth).resolve())
+                ),
+                "pixel_arrays": (
+                    None if pixel_arrays is None else str(Path(pixel_arrays).resolve())
+                ),
+                "params": str(selected_params),
+                "output": str(output),
+            })
+            state, detail = _pixel_result_state(output)
+            if state in {"complete", "rejected", "failed"}:
+                record.update({"status": state, "detail": detail})
+                records.append(record)
+                continue
+            if pixel_truth is None:
+                record.update({
+                    "status": "pending",
+                    "detail": "native pixel truth has not been supplied",
+                })
+                records.append(record)
+                continue
+            pixel_truth = Path(pixel_truth).resolve()
+            if not fact.is_file() or not pixel_truth.is_file() or not selected_params.is_file():
+                record.update({
+                    "status": "failed",
+                    "detail": "declared pixel fact/truth/params input is missing",
+                })
+                records.append(record)
+                continue
+            if pixel_arrays is not None and not Path(pixel_arrays).resolve().is_file():
+                record.update({
+                    "status": "failed",
+                    "detail": "declared pixel arrays input is missing",
+                })
+                records.append(record)
+                continue
+            if resume_only:
+                record.update({
+                    "status": "pending",
+                    "detail": "resume-only mode did not launch pixel consumer",
+                })
+                records.append(record)
+                continue
+            command = [
+                _python_for_runtime(runtime), str(consumer),
+                "--fact", str(fact),
+                "--pixel-truth", str(pixel_truth),
+                "--params", str(selected_params),
+                "--output", str(output),
+            ]
+            if pixel_arrays is not None:
+                command.extend(["--pixel-arrays", str(Path(pixel_arrays).resolve())])
+            run = _run_logged(
+                f"pixel:{scene_id}/{profile_id}/{point_id}/{evidence_id}",
+                command,
+                output.with_suffix(".log"),
+                timeout=_timeout(runtime, "verification"),
+            )
+            final_state, final_detail = _pixel_result_state(output)
+            record.update({
+                "status": (
+                    final_state
+                    if run["status"] == "complete"
+                    else "failed"
+                ),
+                "detail": final_detail,
+                "run": run,
+            })
+            records.append(record)
+    statuses = [record["status"] for record in records]
+    status = (
+        "failed" if "failed" in statuses
+        else "partial" if any(value in {"pending", "rejected"} for value in statuses)
+        else "complete"
+    )
+    return {
+        "status": status,
+        "root": str((pair_root / "declared_pixels").resolve()),
+        "records": records,
+    }
+
 def _link_no_replace(alias: Path, target: Path) -> None:
     target = target.resolve()
     if not target.is_file():
@@ -1854,6 +2439,30 @@ def _run_questions(request: Mapping[str, Any], runtime: Mapping[str, Any],
         return {"status": "pending", "root": str(questions_root.resolve()),
                 "detail": "assembly manifest is unavailable"}
     candidates = _pilot_candidates(pilot)
+    if not candidates:
+        return {"status": "pending", "root": str(questions_root.resolve()),
+                "detail": "assembly has no selected candidates"}
+    for entry in candidates:
+        key = (entry["scene_id"], entry["profile_id"])
+        pair = pairs.get(key)
+        if pair is None:
+            return {
+                "status": "failed",
+                "root": str(questions_root.resolve()),
+                "detail": (
+                    "no pipeline pair for assembled "
+                    f"{entry['scene_id']}/{entry['profile_id']}"
+                ),
+            }
+        if pair.get("status") != "complete":
+            return {
+                "status": "pending",
+                "root": str(questions_root.resolve()),
+                "detail": (
+                    "required runtime artifacts are incomplete for "
+                    f"{entry['scene_id']}/{entry['profile_id']}"
+                ),
+            }
     if released_path.is_file():
         items = _read_json(released_path)
         if not isinstance(items, list):
@@ -1869,9 +2478,6 @@ def _run_questions(request: Mapping[str, Any], runtime: Mapping[str, Any],
             "detail": None if len(items) == expected else f"expected {expected}, got {len(items)}",
             "run": {"status": "reused_existing"},
         }
-    if not candidates:
-        return {"status": "pending", "root": str(questions_root.resolve()),
-                "detail": "assembly has no selected candidates"}
     aliases_root = out_root / "released"
     audio_root = aliases_root / "audio"
     media_root = aliases_root / "media"
@@ -2008,6 +2614,27 @@ def _pair_record(request: Mapping[str, Any], runtime: Mapping[str, Any],
         capture = _deferred_stage(
             "capture", pair_root / "capture", through_stage)
     if capture.get("status") == "failed":
+        declared_capture = _blocked_stage_after_failure(
+            "declared capture", pair_root / "declared_visuals", "capture"
+        )
+    elif _stage_enabled(through_stage, "capture"):
+        try:
+            declared_capture = _run_declared_captures(
+                runtime, scene_id, profile_id, batch_root, pair_root, point_ids,
+                resume_only=resume_only,
+            )
+        except PipelineError as exc:
+            declared_capture = {
+                "status": "failed",
+                "root": str((pair_root / "declared_visuals").resolve()),
+                "detail": str(exc),
+            }
+    else:
+        declared_capture = _deferred_stage(
+            "declared capture", pair_root / "declared_visuals", through_stage
+        )
+
+    if capture.get("status") == "failed":
         audio = _blocked_stage_after_failure(
             "audio", pair_root / "audio", "capture")
     elif _stage_enabled(through_stage, "audio"):
@@ -2040,6 +2667,32 @@ def _pair_record(request: Mapping[str, Any], runtime: Mapping[str, Any],
     else:
         media = _deferred_stage("media", pair_root / "media", through_stage)
     if media.get("status") == "failed":
+        declared_media = _blocked_stage_after_failure(
+            "declared media", pair_root / "declared_media", "media"
+        )
+    elif declared_capture.get("status") == "failed":
+        declared_media = _blocked_stage_after_failure(
+            "declared media", pair_root / "declared_media",
+            "declared capture",
+        )
+    elif _stage_enabled(through_stage, "media"):
+        try:
+            declared_media = _run_declared_media(
+                runtime, scene_id, profile_id, batch_root, pair_root, point_ids,
+                resume_only=resume_only,
+            )
+        except PipelineError as exc:
+            declared_media = {
+                "status": "failed",
+                "root": str((pair_root / "declared_media").resolve()),
+                "detail": str(exc),
+            }
+    else:
+        declared_media = _deferred_stage(
+            "declared media", pair_root / "declared_media", through_stage
+        )
+
+    if media.get("status") == "failed":
         verifications = _blocked_stage_after_failure(
             "verification", pair_root / "verification", "media")
     elif _stage_enabled(through_stage, "verify"):
@@ -2056,9 +2709,32 @@ def _pair_record(request: Mapping[str, Any], runtime: Mapping[str, Any],
     else:
         verifications = _deferred_stage(
             "verify", pair_root / "verification", through_stage)
+    if verifications.get("status") == "failed":
+        declared_pixels = _blocked_stage_after_failure(
+            "declared pixels", pair_root / "declared_pixels", "verification"
+        )
+    elif _stage_enabled(through_stage, "verify"):
+        try:
+            declared_pixels = _run_declared_pixels(
+                runtime, scene_id, profile_id, batch_root, pair_root, point_ids,
+                params_path=params_path, resume_only=resume_only,
+            )
+        except PipelineError as exc:
+            declared_pixels = {
+                "status": "failed",
+                "root": str((pair_root / "declared_pixels").resolve()),
+                "detail": str(exc),
+            }
+    else:
+        declared_pixels = _deferred_stage(
+            "declared pixels", pair_root / "declared_pixels", through_stage
+        )
     stage_values = [
         stage.get("status")
-        for stage in (capture, audio, media, verifications)
+        for stage in (
+            capture, declared_capture, audio, media, declared_media,
+            verifications, declared_pixels
+        )
     ]
     pair_status = (
         "failed" if "failed" in stage_values
@@ -2073,9 +2749,12 @@ def _pair_record(request: Mapping[str, Any], runtime: Mapping[str, Any],
         "batch_root": str(batch_root),
         "points": point_ids,
         "capture": capture,
+        "declared_capture": declared_capture,
         "audio": audio,
         "media": media,
+        "declared_media": declared_media,
         "verification": verifications,
+        "declared_pixels": declared_pixels,
     }
 
 
@@ -2106,7 +2785,15 @@ def _overall_status(design: Mapping[str, Any], assembly: Mapping[str, Any],
                 "attempt_status": row.get("attempt_status"),
                 "quota_shortfall": row.get("quota_shortfall"),
             })
-        for stage in ("capture", "audio", "media", "verification"):
+        for stage in (
+            "capture",
+            "declared_capture",
+            "audio",
+            "media",
+            "declared_media",
+            "verification",
+            "declared_pixels",
+        ):
             value = pair.get(stage) or {}
             if value.get("status") == "failed":
                 failures.append({

@@ -19,6 +19,7 @@ import sys
 
 import numpy as np
 from collections import Counter
+from collections.abc import Mapping
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -991,13 +992,22 @@ def _runtime_descriptions(
             ),
             "variant": "main",
         })
+        segment_audio = profile.get("segment_audio_variants")
+        if isinstance(segment_audio, Mapping):
+            audio_variant = segment_audio.get(segment_id)
+        else:
+            audio_variant = "main" if index == 1 else None
         release_media.append({
             "id": segment_id,
             "variant": "main",
             "segment": segment_id,
+            "audio_variant": audio_variant,
             "kind": "qa_v3_review_clip",
             "release": True,
-            "status": "pending",
+            "status": (
+                "pending" if audio_variant is not None
+                else "pending_audio_consumer"
+            ),
         })
     pixel_evidence = []
     pixel_kind = profile.get("pixel_consumer_kind")
