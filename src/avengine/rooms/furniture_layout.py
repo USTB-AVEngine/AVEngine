@@ -703,6 +703,32 @@ def _ground_blocker(item: Mapping[str, Any]) -> bool:
     }
 
 
+def camera_obstacle_bounds(
+    layout: Mapping[str, Any],
+    *,
+    camera_height_m: float = DEFAULT_CAMERA_HEIGHT_M,
+    clearance_m: float = 0.35,
+) -> list[Any]:
+    """Return static XY blockers for camera stand-point clearance.
+
+    Floor and rug meshes are surfaces, not obstacles around a camera's XY
+    stand point. Low furniture remains a blocker: an eye-height sensor point
+    does not make a body or walkable camera rig valid inside a table or chair.
+    Overhead meshes are filtered using the actual lens height so a ceiling or
+    light fixture cannot force a zero horizontal clearance.
+    """
+
+    result: list[Any] = []
+    for item in layout.get("objects", []):
+        if not _ground_blocker(item):
+            continue
+        bounds = item["bounds_xyz_m"]
+        if bounds[0][2] > camera_height_m + clearance_m or bounds[1][2] < -clearance_m:
+            continue
+        result.append(bounds)
+    return result
+
+
 def _free_camera_point(
     x: float,
     y: float,
