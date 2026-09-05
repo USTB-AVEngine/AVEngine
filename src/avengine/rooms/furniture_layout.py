@@ -588,8 +588,14 @@ def load_room_layout(
 
 
 def authoring_to_habitat(position_m: Sequence[float]) -> list[float]:
+    """Map Blender-style +Z-up authoring to AVEngine Habitat coordinates.
+
+    The shared SPEAR room convention is Habitat ``(X,Y,Z) = Blender
+    (X,Z,-Y)``; the sign on Blender Y is part of the contract.
+    """
+
     point = _vector(position_m, 3, owner="authoring position")
-    return [point[0], point[2], point[1]]
+    return [point[0], point[2], -point[1]]
 
 
 def habitat_to_ue_cm(position_m: Sequence[float]) -> list[float]:
@@ -689,6 +695,28 @@ def generate_camera_candidates(
                 candidate_id = (
                     f"grid_{point_index:03d}_yaw_{yaw:g}_pitch_{pitch:g}"
                 )
+                yaw_rad = math.radians(yaw)
+                pitch_rad = math.radians(pitch)
+                forward_blender = [
+                    math.cos(pitch_rad) * math.cos(yaw_rad),
+                    math.cos(pitch_rad) * math.sin(yaw_rad),
+                    math.sin(pitch_rad),
+                ]
+                # UE uses +X optical forward and the authored Blender Y axis
+                # is mirrored when entering the UE world.  Keep this explicit
+                # instead of reusing the actor/ Habitat yaw shortcut.
+                forward_ue = [
+                    forward_blender[0],
+                    -forward_blender[1],
+                    forward_blender[2],
+                ]
+                forward_horizontal = math.hypot(forward_ue[0], forward_ue[1])
+                ue_yaw = math.degrees(
+                    math.atan2(forward_ue[1], forward_ue[0])
+                )
+                ue_pitch = math.degrees(
+                    math.atan2(forward_ue[2], forward_horizontal)
+                )
                 candidates.append(
                     {
                         "candidate_id": candidate_id,
@@ -699,10 +727,14 @@ def generate_camera_candidates(
                         "ue_position_cm": list(ue_position),
                         "yaw_deg": yaw,
                         "pitch_deg": pitch,
+                        "yaw_blender_deg": yaw,
+                        "pitch_blender_deg": pitch,
+                        "forward_blender": forward_blender,
+                        "forward_ue": forward_ue,
                         "roll_deg": 0.0,
                         "habitat_yaw_deg": yaw,
-                        "ue_yaw_deg": (-90.0 - yaw + 180.0) % 360.0 - 180.0,
-                        "ue_pitch_deg": pitch,
+                        "ue_yaw_deg": ue_yaw,
+                        "ue_pitch_deg": ue_pitch,
                         "horizontal_fov_deg": fov,
                         "target_independent": True,
                         "target_los_status": "not_evaluated",
