@@ -324,6 +324,7 @@
   {
     "id": "card11",
     "execution_backend": "extended",
+    "pixel_consumer_kind": "qa_v3_extended_pixel",
     "temporal": "instant",
     "answer_kind": "source_identity_or_none",
     "binding_frames": [
@@ -393,6 +394,7 @@
   {
     "id": "card15a",
     "execution_backend": "extended",
+    "pixel_consumer_kind": "qa_v3_extended_pixel",
     "temporal": "instant",
     "answer_kind": "presence_and_distinct_callers",
     "binding_frames": [
@@ -409,6 +411,7 @@
   {
     "id": "card16",
     "execution_backend": "extended",
+    "pixel_consumer_kind": "qa_v3_extended_pixel",
     "temporal": "forward",
     "answer_kind": "first_caller_final_visibility",
     "binding_frames": [
@@ -426,6 +429,7 @@
   {
     "id": "card17",
     "execution_backend": "extended",
+    "runtime_consumer_status": "pending_cross_segment_identity_location",
     "temporal": "multisegment",
     "answer_kind": "cross_segment_identity_location",
     "binding_frames": [

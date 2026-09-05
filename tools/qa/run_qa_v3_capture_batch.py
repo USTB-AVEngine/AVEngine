@@ -32,6 +32,7 @@ REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(REPO / "src"))
 from verify_qa_v3_visual_batch import verify_point
+from avengine.qa.runtime_artifacts import load_runtime_artifacts  # noqa: E402
 from qa_v3_request import batch_point_ids
 
 
@@ -50,7 +51,40 @@ def _resolve_description_path(raw: object, *, description_path: Path,
     return path
 
 
-def resolve_capture_inputs(point_dir: Path, intervention_file: str | Path | None = None):
+def _runtime_descriptor_inputs(
+    point_dir: Path,
+    descriptor_id: str,
+    descriptor_kind: str,
+) -> tuple[Path, Path, Path]:
+    artifacts = load_runtime_artifacts(point_dir)
+    if descriptor_kind == "visual_variant":
+        rows = artifacts["visual_variants"]
+    elif descriptor_kind == "segment":
+        rows = artifacts["segments"]
+    else:
+        raise ValueError(
+            f"descriptor kind must be visual_variant or segment, got {descriptor_kind!r}"
+        )
+    matches = [row for row in rows if row.get("id") == descriptor_id]
+    if len(matches) != 1:
+        raise ValueError(
+            f"{descriptor_kind} {descriptor_id!r} must resolve to exactly one descriptor"
+        )
+    row = matches[0]
+    return (
+        Path(row["actor_selection"]).resolve(),
+        Path(row["timeline"]).resolve(),
+        point_dir / "fact_record.json",
+    )
+
+
+def resolve_capture_inputs(
+    point_dir: Path,
+    intervention_file: str | Path | None = None,
+    *,
+    descriptor_id: str | None = None,
+    descriptor_kind: str | None = None,
+):
     """Resolve the selection/timeline for one point.
 
     With no description the historical main inputs are used.  When a
@@ -59,6 +93,18 @@ def resolve_capture_inputs(point_dir: Path, intervention_file: str | Path | None
     capture any declared visual intervention without knowing its profile name.
     """
     point_dir = Path(point_dir).resolve()
+    if descriptor_id is not None or descriptor_kind is not None:
+        if descriptor_id is None or descriptor_kind is None:
+            raise ValueError(
+                "descriptor_id and descriptor_kind must be supplied together"
+            )
+        if intervention_file is not None:
+            raise ValueError(
+                "descriptor selection and intervention_file are mutually exclusive"
+            )
+        return _runtime_descriptor_inputs(
+            point_dir, descriptor_id, descriptor_kind
+        )
     if intervention_file is None:
         return point_dir / "actor_selection.json", point_dir / "timeline.json", None
     description = Path(intervention_file).expanduser()
@@ -139,6 +185,10 @@ def main(argv: list[str] | None = None) -> int:
         help=("逐点干预描述相对路径; description 的 actor_selection 和 "
               "timeline 相对 description 文件解析"),
     )
+    parser.add_argument("--descriptor-id")
+    parser.add_argument(
+        "--descriptor-kind", choices=("visual_variant", "segment")
+    )
     parser.add_argument("--python", required=True)
     parser.add_argument("--spear-ext", required=True)
     parser.add_argument("--source-asset-registry", default=str(REPO / "examples/runtime/source_asset_runtime_profiles.json"))
@@ -169,7 +219,10 @@ def main(argv: list[str] | None = None) -> int:
         pdir = args.inputs_root / pid
         try:
             selection_path, timeline_path, _ = resolve_capture_inputs(
-                pdir, args.intervention_file)
+                pdir, args.intervention_file,
+                descriptor_id=args.descriptor_id,
+                descriptor_kind=args.descriptor_kind,
+            )
         except (OSError, ValueError, TypeError, json.JSONDecodeError) as exc:
             print(f"FAIL: {pid} capture input resolution failed: {exc}",
                   file=sys.stderr)

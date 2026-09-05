@@ -941,6 +941,86 @@ def _write_unavailable(out_root, profile, scene, missing, cells):
     return manifest
 
 
+def _runtime_visual_descriptor(
+    identifier: str,
+    actor_selection: str,
+    timeline: str,
+    *,
+    release: bool,
+) -> dict[str, object]:
+    return {
+        "id": identifier,
+        "kind": "qa_v3_current_apartment_visual",
+        "actor_selection": actor_selection,
+        "timeline": timeline,
+        "capture": {"status": "pending"},
+        "media": {"status": "pending"},
+        "release": bool(release),
+    }
+
+
+def _runtime_descriptions(
+    profile: Mapping[str, Any], point: Path
+) -> dict[str, object]:
+    variants = [
+        _runtime_visual_descriptor(
+            "main", "actor_selection.json", "timeline.json", release=True),
+        _runtime_visual_descriptor(
+            "gateB", "actor_selection_gateB.json", "timeline_gateB.json",
+            release=False),
+    ]
+    raw_segment_count = profile.get("segment_count", 1)
+    if (
+        isinstance(raw_segment_count, bool)
+        or not isinstance(raw_segment_count, int)
+        or raw_segment_count < 1
+    ):
+        raise ValueError("profile segment_count must be a positive integer")
+    segments = []
+    release_media = []
+    for index in range(1, raw_segment_count + 1):
+        segment_id = f"segment{index}"
+        timeline = "timeline.json" if index == 1 else f"timeline_{segment_id}.json"
+        if not (point / timeline).is_file():
+            raise ValueError(
+                f"declared {segment_id} timeline is missing: {point / timeline}"
+            )
+        segments.append({
+            **_runtime_visual_descriptor(
+                segment_id, "actor_selection.json", timeline, release=True
+            ),
+            "variant": "main",
+        })
+        release_media.append({
+            "id": segment_id,
+            "variant": "main",
+            "segment": segment_id,
+            "kind": "qa_v3_review_clip",
+            "release": True,
+            "status": "pending",
+        })
+    pixel_evidence = []
+    pixel_kind = profile.get("pixel_consumer_kind")
+    if pixel_kind is not None:
+        if not isinstance(pixel_kind, str) or not pixel_kind.strip():
+            raise ValueError("profile pixel_consumer_kind must be non-empty text")
+        pixel_evidence.append({
+            "id": "main",
+            "kind": pixel_kind.strip(),
+            "fact": "fact_record.json",
+            "pixel_truth": None,
+            "status": "pending",
+        })
+    return {
+        "runtime_consumer_status": profile.get(
+            "runtime_consumer_status", "declared_pending_execution"
+        ),
+        "visual_variants": variants,
+        "segments": segments,
+        "pixel_evidence": pixel_evidence,
+        "release_media": release_media,
+    }
+
 def _realise_cell(out_root, profile, cell_index, scene, params, inventory,
                   by_id, registry_path, base_request, snapshot_content, seed):
     profile_id = profile["id"]
@@ -1228,7 +1308,6 @@ def _realise_cell(out_root, profile, cell_index, scene, params, inventory,
             "checks": dict(facts["gatea_checks"]),
         }
         _write(point / "fact_record_gateA.json", gatea_facts)
-    _write(point / "fact_record.json", facts)
 
     gateb_assets = list(actor_assets)
     gateb_plan = copy.deepcopy(
@@ -1284,6 +1363,8 @@ def _realise_cell(out_root, profile, cell_index, scene, params, inventory,
         "qualification_claim": False,
     }
     _write(point / "gateB_intervention.json", gateb)
+    facts.update(_runtime_descriptions(profile, point))
+    _write(point / "fact_record.json", facts)
     total_search_attempts = (
         int(plan["search_attempts"])
         + int(segment2_search_attempts)

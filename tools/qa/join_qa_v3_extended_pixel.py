@@ -29,6 +29,9 @@ from pathlib import Path
 
 import numpy as np
 
+REPOSITORY = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(REPOSITORY / "src"))
+
 from avengine.contracts.json_io import sha256_file
 from design_qa_v3_extended_profile import CARD11_BINDING_FRAME
 from qa_v3_pixel_thresholds import (
