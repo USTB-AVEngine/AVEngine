@@ -572,62 +572,122 @@ def add_detail_materials(
     )
 
     scanned: dict[str, bpy.types.Image] = {}
+    scanned_detail: dict[str, dict[str, bpy.types.Image]] = {}
+    source_kind = "none"
     if source_texture_root is not None:
         source_texture_root = source_texture_root.expanduser().resolve(strict=True)
-        wood_root = source_texture_root / "lacquered_cherry_wood"
-        scanned["wood_base"] = register_image(
-            load_source_image(
-                wood_root / "lacquered_cherry_wood_diff_4k.jpg",
-                texture_root / "room_b_scanned_wood_diff.jpg",
-            ),
-            "textures/room_b_scanned_wood_diff.jpg",
-            "scanned_pbr_base_color",
-        )
-        scanned["wood_rough"] = register_image(
-            load_source_image(
-                wood_root / "lacquered_cherry_wood_rough_4k.exr",
-                texture_root / "room_b_scanned_wood_rough.png",
-                noncolor=True,
-            ),
-            "textures/room_b_scanned_wood_rough.png",
-            "scanned_pbr_roughness",
-        )
-        scanned["wood_normal"] = register_image(
-            load_source_image(
-                wood_root / "lacquered_cherry_wood_nor_gl_4k.exr",
-                texture_root / "room_b_scanned_wood_normal.png",
-                noncolor=True,
-            ),
-            "textures/room_b_scanned_wood_normal.png",
-            "scanned_pbr_normal",
-        )
         details["source_texture_root"] = str(source_texture_root)
 
-    if scanned:
+        def load_set(label: str, directory: Path, prefix: str) -> dict[str, bpy.types.Image]:
+            base = register_image(
+                load_source_image(
+                    directory / "basecolor.jpg",
+                    texture_root / f"{prefix}_basecolor.jpg",
+                ),
+                f"textures/{prefix}_basecolor.jpg",
+                "scanned_pbr_base_color",
+            )
+            rough = register_image(
+                load_source_image(
+                    directory / "roughness.exr",
+                    texture_root / f"{prefix}_roughness.png",
+                    noncolor=True,
+                ),
+                f"textures/{prefix}_roughness.png",
+                "scanned_pbr_roughness",
+            )
+            normal = register_image(
+                load_source_image(
+                    directory / "normal_gl.exr",
+                    texture_root / f"{prefix}_normal.png",
+                    noncolor=True,
+                ),
+                f"textures/{prefix}_normal.png",
+                "scanned_pbr_normal",
+            )
+            return {"base": base, "rough": rough, "normal": normal}
+
+        if (source_texture_root / "walnut_veneer_02_2k").is_dir():
+            source_kind = "detail_materials"
+            scanned_detail["walnut"] = load_set(
+                "walnut_veneer_02_2k",
+                source_texture_root / "walnut_veneer_02_2k",
+                "room_b_walnut_2k",
+            )
+            scanned_detail["oak"] = load_set(
+                "oak_wood_planks_2k",
+                source_texture_root / "oak_wood_planks_2k",
+                "room_b_oak_2k",
+            )
+            scanned_detail["fabric"] = load_set(
+                "terlenka_2k",
+                source_texture_root / "terlenka_2k",
+                "room_b_terlenka_2k",
+            )
+            details["source_material_manifest"] = str(source_texture_root / "manifest.json")
+        else:
+            source_kind = "lacquered_cherry_wood"
+            wood_root = source_texture_root / "lacquered_cherry_wood"
+            scanned["wood_base"] = register_image(
+                load_source_image(
+                    wood_root / "lacquered_cherry_wood_diff_4k.jpg",
+                    texture_root / "room_b_scanned_wood_diff.jpg",
+                ),
+                "textures/room_b_scanned_wood_diff.jpg",
+                "scanned_pbr_base_color",
+            )
+            scanned["wood_rough"] = register_image(
+                load_source_image(
+                    wood_root / "lacquered_cherry_wood_rough_4k.exr",
+                    texture_root / "room_b_scanned_wood_rough.png",
+                    noncolor=True,
+                ),
+                "textures/room_b_scanned_wood_rough.png",
+                "scanned_pbr_roughness",
+            )
+            scanned["wood_normal"] = register_image(
+                load_source_image(
+                    wood_root / "lacquered_cherry_wood_nor_gl_4k.exr",
+                    texture_root / "room_b_scanned_wood_normal.png",
+                    noncolor=True,
+                ),
+                "textures/room_b_scanned_wood_normal.png",
+                "scanned_pbr_normal",
+            )
+
+    if source_kind == "detail_materials":
         wood_specs = {
-            "RoomB_Walnut": (scanned["wood_base"], scanned["wood_rough"], scanned["wood_normal"], 0.50, 0.0, 0.42, None),
-            "RoomB_OakFloor": (scanned["wood_base"], scanned["wood_rough"], scanned["wood_normal"], 0.62, 0.0, 0.75, None),
-            "RoomB_SageCabinet": (scanned["wood_base"], scanned["wood_rough"], scanned["wood_normal"], 0.58, 0.0, 0.42, (0.40, 0.72, 0.46, 1.0)),
+            "RoomB_Walnut": (scanned_detail["walnut"], 0.50, 0.0, 1.0, None, "polyhaven_walnut_veneer_02_cc0"),
+            "RoomB_OakFloor": (scanned_detail["oak"], 0.62, 0.0, 1.2, None, "polyhaven_oak_wood_planks_cc0"),
+            "RoomB_SageCabinet": (scanned_detail["walnut"], 0.58, 0.0, 1.0, (0.40, 0.72, 0.46, 1.0), "polyhaven_walnut_veneer_02_cc0_tinted"),
+        }
+    elif source_kind == "lacquered_cherry_wood":
+        cherry = {"base": scanned["wood_base"], "rough": scanned["wood_rough"], "normal": scanned["wood_normal"]}
+        wood_specs = {
+            "RoomB_Walnut": (cherry, 0.50, 0.0, 0.42, None, "scanned_lacquered_cherry_wood"),
+            "RoomB_OakFloor": (cherry, 0.62, 0.0, 0.75, None, "scanned_lacquered_cherry_wood"),
+            "RoomB_SageCabinet": (cherry, 0.58, 0.0, 0.42, (0.40, 0.72, 0.46, 1.0), "scanned_lacquered_cherry_wood_tinted"),
         }
     else:
         wood_specs = {
-            "RoomB_Walnut": (walnut, walnut_rough, None, 0.50, 0.0, 0.38, None),
-            "RoomB_OakFloor": (oak, walnut_rough, None, 0.64, 0.0, 0.30, None),
-            "RoomB_SageCabinet": (sage, walnut_rough, None, 0.58, 0.0, 0.18, None),
+            "RoomB_Walnut": ({"base": walnut, "rough": walnut_rough, "normal": None}, 0.50, 0.0, 0.38, None, "baked_fallback"),
+            "RoomB_OakFloor": ({"base": oak, "rough": walnut_rough, "normal": None}, 0.64, 0.0, 0.30, None, "baked_fallback"),
+            "RoomB_SageCabinet": ({"base": sage, "rough": walnut_rough, "normal": None}, 0.58, 0.0, 0.18, None, "baked_fallback"),
         }
-    for name, (image, rough, normal, value, metallic, tile, tint) in wood_specs.items():
+
+    for name, (maps, value, metallic, tile, tint, provenance) in wood_specs.items():
         mat = bpy.data.materials.get(name)
         if mat is None:
             continue
-        if scanned:
-            connect_pbr_texture(
-                mat, image, rough, normal,
-                roughness=value, metallic=metallic, tint=tint,
+        if provenance == "baked_fallback":
+            connect_baked_texture(
+                mat, maps["base"], roughness=value,
+                roughness_image=maps["rough"], metallic=metallic,
             )
         else:
-            connect_baked_texture(
-                mat, image, roughness=value,
-                roughness_image=rough, metallic=metallic,
+            connect_pbr_texture(
+                mat, maps["base"], maps["rough"], maps["normal"],
+                roughness=value, metallic=metallic, tint=tint,
             )
         for obj in bpy.data.objects:
             if obj.type == "MESH" and any(
@@ -636,10 +696,10 @@ def add_detail_materials(
             ):
                 projected_uvs(obj, tile)
         details["materials"][name] = {
-            "base_color_texture": str(image.filepath_raw),
-            "roughness_texture": str(rough.filepath_raw),
-            "normal_texture": str(normal.filepath_raw) if normal is not None else None,
-            "texture_provenance": "scanned_lacquered_cherry_wood" if scanned else "baked_fallback",
+            "base_color_texture": str(maps["base"].filepath_raw),
+            "roughness_texture": str(maps["rough"].filepath_raw),
+            "normal_texture": str(maps["normal"].filepath_raw) if maps["normal"] is not None else None,
+            "texture_provenance": provenance,
             "uv_tile_m": tile,
             "roughness_default": value,
             "metallic": metallic,
@@ -656,21 +716,35 @@ def add_detail_materials(
         mat = bpy.data.materials.get(name)
         if mat is None:
             continue
-        connect_baked_texture(mat, fabric, roughness=value, roughness_image=fabric_rough)
+        if source_kind == "detail_materials":
+            maps = scanned_detail["fabric"]
+            connect_pbr_texture(
+                mat, maps["base"], maps["rough"], maps["normal"],
+                roughness=value, metallic=0.0,
+            )
+            base_image, rough_image, normal_image = maps["base"], maps["rough"], maps["normal"]
+            tile = 0.30
+            provenance = "polyhaven_terlenka_cc0"
+        else:
+            connect_baked_texture(mat, fabric, roughness=value, roughness_image=fabric_rough)
+            base_image, rough_image, normal_image = fabric, fabric_rough, None
+            tile = 0.12
+            provenance = "baked_fallback"
         for obj in bpy.data.objects:
             if obj.type == "MESH" and any(
                 slot.material and slot.material.name == name
                 for slot in obj.material_slots
             ):
-                projected_uvs(obj, 0.12)
+                projected_uvs(obj, tile)
         details["materials"][name] = {
-            "base_color_texture": str(fabric.filepath_raw),
-            "roughness_texture": str(fabric_rough.filepath_raw),
-            "uv_tile_m": 0.12,
+            "base_color_texture": str(base_image.filepath_raw),
+            "roughness_texture": str(rough_image.filepath_raw),
+            "normal_texture": str(normal_image.filepath_raw) if normal_image is not None else None,
+            "uv_tile_m": tile,
             "roughness_default": value,
             "metallic": 0.0,
+            "texture_provenance": provenance,
         }
-
     for name, rough, metallic in (
         ("RoomB_BrushedSteel", 0.28, 0.86),
         ("RoomB_DarkMetal", 0.34, 0.78),
@@ -915,7 +989,7 @@ def plate_mesh(
             vertices.append((
                 center[0] + radius * math.cos(angle),
                 center[1] + radius * math.sin(angle),
-                z,
+                center[2] + z,
             ))
     faces: list[tuple[int, ...]] = []
     for ring in range(len(rings) - 1):
@@ -927,9 +1001,9 @@ def plate_mesh(
             d = (ring + 1) * segments + index
             faces.append((a, b, c, d))
     center_top = len(vertices)
-    vertices.append((center[0], center[1], rings[-1][1]))
+    vertices.append((center[0], center[1], center[2] + rings[-1][1]))
     center_bottom = len(vertices)
-    vertices.append((center[0], center[1], base_z))
+    vertices.append((center[0], center[1], center[2] + base_z))
     for index in range(segments):
         nxt = (index + 1) % segments
         faces.append((center_top, 3 * segments + index, 3 * segments + nxt))
@@ -1057,15 +1131,19 @@ def add_rect_basin(
     ]
     faces = [
         (0, 1, 5, 4), (1, 2, 6, 5), (2, 3, 7, 6), (3, 0, 4, 7),
-        (0, 4, 8, 9, 1), (1, 9, 10, 2), (2, 10, 11, 3), (3, 11, 8, 0),
-        (8, 11, 10, 9),
+        (0, 1, 9, 8), (1, 2, 10, 9), (2, 3, 11, 10), (3, 0, 8, 11),
+        # The sink top is intentionally open.  Connect the inner rim to the
+        # recessed inner bottom so the shell has no accidental nonmanifold
+        # edge; only the opening and underside remain intentional boundaries.
+        (8, 9, 13, 12), (9, 10, 14, 13),
+        (10, 11, 15, 14), (11, 8, 12, 15),
         (12, 13, 14, 15),
     ]
+    # Keep the basin's intentional open top as a clean boundary.  A bevel
+    # modifier on an open shell creates a nonmanifold corner at the rim;
+    # the countertop ring supplies the visible rounded perimeter instead.
     obj = create_mesh(name, vertices, faces, mat, coll)
-    bevel = obj.modifiers.new("SinkRoundedEdges", "BEVEL")
-    bevel.width = 0.018
-    bevel.segments = 3
-    bevel.limit_method = "ANGLE"
+    obj.data.validate(verbose=True)
     return obj
 
 
@@ -1081,46 +1159,58 @@ def create_countertop_frame(
     mat: bpy.types.Material,
     coll: bpy.types.Collection,
 ) -> bpy.types.Object:
-    """Build a four-piece countertop frame as one valid mesh, no boolean ngons."""
+    """Build one continuous closed rectangular ring mesh around the sink."""
     ox, oy = outer_size
     hx, hy = hole_size
-    outer_min_x = outer_center.x - ox * 0.5
-    outer_max_x = outer_center.x + ox * 0.5
-    outer_min_y = outer_center.y - oy * 0.5
-    outer_max_y = outer_center.y + oy * 0.5
-    hole_min_x = hole_center.x - hx * 0.5
-    hole_max_x = hole_center.x + hx * 0.5
-    hole_min_y = hole_center.y - hy * 0.5
-    hole_max_y = hole_center.y + hy * 0.5
-    pieces = [
-        (outer_min_x, outer_min_y, hole_min_x - outer_min_x, oy),
-        (hole_max_x, outer_min_y, outer_max_x - hole_max_x, oy),
-        (hole_min_x, outer_min_y, hole_max_x - hole_min_x, hole_min_y - outer_min_y),
-        (hole_min_x, hole_max_y, hole_max_x - hole_min_x, outer_max_y - hole_max_y),
+    outer = [
+        (outer_center.x - ox * 0.5, outer_center.y - oy * 0.5),
+        (outer_center.x + ox * 0.5, outer_center.y - oy * 0.5),
+        (outer_center.x + ox * 0.5, outer_center.y + oy * 0.5),
+        (outer_center.x - ox * 0.5, outer_center.y + oy * 0.5),
     ]
-    mesh = bpy.data.meshes.new(name + "_Mesh")
-    builder = bmesh.new()
-    for cx, cy, sx, sy in pieces:
-        if sx <= 0.0 or sy <= 0.0:
-            continue
-        made = bmesh.ops.create_cube(builder, size=1.0)
-        for vertex in made["verts"]:
-            vertex.co.x = (vertex.co.x * sx) + cx
-            vertex.co.y = (vertex.co.y * sy) + cy
-            vertex.co.z = vertex.co.z * thickness + z_center
-    builder.to_mesh(mesh)
-    builder.free()
-    mesh.validate(verbose=True)
-    mesh.update()
-    obj = bpy.data.objects.new(name, mesh)
-    coll.objects.link(obj)
-    obj.data.materials.append(mat)
+    inner = [
+        (hole_center.x - hx * 0.5, hole_center.y - hy * 0.5),
+        (hole_center.x + hx * 0.5, hole_center.y - hy * 0.5),
+        (hole_center.x + hx * 0.5, hole_center.y + hy * 0.5),
+        (hole_center.x - hx * 0.5, hole_center.y + hy * 0.5),
+    ]
+    z_top = z_center + thickness * 0.5
+    z_bottom = z_center - thickness * 0.5
+    vertices = [
+        *( (x, y, z_top) for x, y in outer ),
+        *( (x, y, z_top) for x, y in inner ),
+        *( (x, y, z_bottom) for x, y in outer ),
+        *( (x, y, z_bottom) for x, y in inner ),
+    ]
+    faces = [
+        # top ring, four connected quads
+        (0, 1, 5, 4),
+        (1, 2, 6, 5),
+        (2, 3, 7, 6),
+        (3, 0, 4, 7),
+        # bottom ring
+        (8, 12, 13, 9),
+        (9, 13, 14, 10),
+        (10, 14, 15, 11),
+        (11, 15, 12, 8),
+        # outer wall
+        (0, 8, 9, 1),
+        (1, 9, 10, 2),
+        (2, 10, 11, 3),
+        (3, 11, 8, 0),
+        # inner opening wall
+        (4, 5, 13, 12),
+        (5, 6, 14, 13),
+        (6, 7, 15, 14),
+        (7, 4, 12, 15),
+    ]
+    obj = create_mesh(name, vertices, faces, mat, coll)
+    obj.data.validate(verbose=True)
     bevel = obj.modifiers.new("RoomB_CountertopRoundover", "BEVEL")
-    bevel.width = 0.022
+    bevel.width = 0.018
     bevel.segments = 4
     bevel.limit_method = "ANGLE"
     return obj
-
 
 def apply_countertop_sink_cutout(
     furniture: bpy.types.Collection,
@@ -1129,11 +1219,28 @@ def apply_countertop_sink_cutout(
     changes: list[str],
 ) -> dict[str, Any]:
     top = bpy.data.objects.get("kitchen_counter_run_top")
+    body = bpy.data.objects.get("kitchen_counter_run_body")
     require(top is not None and top.type == "MESH", "missing kitchen countertop")
-    outer_center = top.location.copy()
-    outer_w, outer_d, _ = local_dimensions(top)
-    outer_size = (outer_w, outer_d)
-    z_center = float(top.location.z)
+    require(body is not None and body.type == "MESH", "missing kitchen counter body")
+    body_eval = body.evaluated_get(bpy.context.evaluated_depsgraph_get())
+    body_corners = [body_eval.matrix_world @ Vector(corner) for corner in body_eval.bound_box]
+    body_min = Vector((
+        min(float(corner.x) for corner in body_corners),
+        min(float(corner.y) for corner in body_corners),
+        min(float(corner.z) for corner in body_corners),
+    ))
+    body_max = Vector((
+        max(float(corner.x) for corner in body_corners),
+        max(float(corner.y) for corner in body_corners),
+        max(float(corner.z) for corner in body_corners),
+    ))
+    outer_size = (float(body_max.x - body_min.x) + 0.05, float(body_max.y - body_min.y) + 0.06)
+    outer_center = Vector((
+        (body_min.x + body_max.x) * 0.5,
+        (body_min.y + body_max.y) * 0.5,
+        body_max.z + 0.04,
+    ))
+    z_center = float(outer_center.z)
     hole_center = Vector((4.10, 3.25, z_center))
     hole_size = (0.82, 0.48)
     remove_object(top)
@@ -1334,9 +1441,9 @@ def add_review_cameras(cameras_coll: bpy.types.Collection) -> list[dict[str, Any
         },
         {
             "camera_id": "REVIEW_CLOSE_KITCHEN_DETAIL",
-            "position_m": [5.30, 2.00, 1.72],
-            "target_m": [4.10, 3.20, 1.24],
-            "focal_length_mm": 50.0,
+            "position_m": [5.80, 1.40, 2.00],
+            "target_m": [4.10, 3.20, 1.15],
+            "focal_length_mm": 42.0,
         },
         {
             "camera_id": "REVIEW_CLOSE_LIVING_DETAIL",
