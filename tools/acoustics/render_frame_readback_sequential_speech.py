@@ -557,12 +557,19 @@ def render(
             magnum_python_site=magnum_python_site,
         )
         ir = np.asarray(result.samples, dtype=np.float64)
+        # The engine bus already applies the declared gain and fades. Consume
+        # those samples rather than independently replaying the original WAV.
+        emitted_dry = np.asarray(dry_assembly.buses[endpoint_id])[
+            event["start_sample"]:event["end_sample_exclusive"]
+        ]
+        if emitted_dry.shape != dry.shape:
+            raise ValueError("assembled speech interval differs from complete source clip")
         start_sample, end_sample, placed_wet = _place_wet_event(
             mixture,
-            dry,
+            emitted_dry,
             ir,
             start_sample=event["start_sample"],
-            gain=event["linear_gain"],
+            gain=1.0,
         )
         stem_path = stems / f"{index:02d}_{actor_ids[index]}_rir.wav"
         stem = np.zeros_like(mixture)
@@ -574,6 +581,10 @@ def render(
                 "event_id": event["event_id"],
                 "actor_id": actor_ids[index],
                 "endpoint_id": endpoint_id,
+                "sound_asset_id": str(item["sound_asset_id"]),
+                "source_start_sample": 0,
+                "source_end_sample_exclusive": len(dry),
+                "dry_waveform_authority": "assemble_dry_audio_buses",
                 "speaker_id": item.get("speaker_id"),
                 "transcript": item.get("transcript"),
                 "clip_path": str(Path(str(item["path"])).expanduser().resolve()),
@@ -591,7 +602,8 @@ def render(
                 "rir_shape": list(ir.shape),
                 "rir_sample_count": int(ir.shape[-1]),
                 "rir_max_abs": float(np.max(np.abs(ir))),
-                "planned_event_interval": [start_sample, end_sample],
+                "planned_event_interval": [event["start_sample"], event["end_sample_exclusive"]],
+                "wet_render_interval": [start_sample, end_sample],
                 "wet_float_nonzero_interval": _nonzero_interval(
                     placed_wet, threshold=1.0e-12, offset=start_sample
                 ),
@@ -624,6 +636,8 @@ def render(
             "sequential_nonoverlap": {
                 "status": "pass",
                 "event_count": len(records),
+                "scope": "dry speech emission intervals",
+                "reverberation_tails_may_overlap": True,
             },
             "actual_emitter_readback": {
                 "status": "pass",
