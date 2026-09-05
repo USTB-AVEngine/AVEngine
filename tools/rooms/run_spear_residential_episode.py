@@ -28,7 +28,8 @@ if "--spear-ext-dir" in sys.argv:
     sys.path.insert(0, _spear_ext_dir)
 from avengine.episode_clock import EpisodeClock
 from avengine.backends.spear_ue.research_runtime import (
-    apply_capture_exposure, attach_emitter_component, read_scene_component_pose,
+    apply_capture_exposure, attach_emitter_component, close_scene_capture,
+    read_scene_component_pose,
 )
 from avengine.qa.pixel_visibility import compile_depth_pixel_visibility_truth  # noqa: E402
 from avengine.optional_backends.residential_episode import TICKS_PER_FRAME  # noqa: E402
@@ -939,6 +940,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     target_depths_by_actor: dict[str, list[np.ndarray]] = {}
     target_readbacks: dict[str, list[Mapping[str, Any]]] = {}
     components: dict[str, Any] | None = None
+    camera: Any | None = None
+    capture: Any | None = None
     try:
         with instance.begin_frame():
             if native_multimodal:
@@ -1111,7 +1114,23 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                 _destroy_runtime_actors(instance, runtimes)
             except Exception as exc:
                 print(f"warning: actor cleanup failed: {exc}", file=sys.stderr)
-        instance.close(force=True)
+        try:
+            if components is not None:
+                for component in components.values():
+                    close_scene_capture(
+                        instance=instance, game=game, camera=None, capture=component
+                    )
+                close_scene_capture(
+                    instance=instance, game=game, camera=camera, capture=None
+                )
+            else:
+                close_scene_capture(
+                    instance=instance, game=game, camera=camera, capture=capture
+                )
+        except Exception as exc:
+            print(f"warning: camera cleanup failed: {exc}", file=sys.stderr)
+        finally:
+            instance.close(force=True)
 
     native_pixel: dict[str, Any] | None = None
     if native_multimodal:
