@@ -66,14 +66,27 @@ def main() -> int:
     parser.add_argument("--audio-program", required=True, type=Path)
     parser.add_argument("--source-endpoint-registry", required=True, type=Path)
     parser.add_argument("--sound-asset-registry", required=True, type=Path)
-    parser.add_argument("--beagle-audio", required=True, type=Path)
-    parser.add_argument("--hrtf", required=True, type=Path)
+    parser.add_argument("--sound-asset-map", type=Path)
+    parser.add_argument(
+        "--sound-asset-path",
+        action="append",
+        default=[],
+        metavar="SOUND_ID=PATH",
+    )
+    parser.add_argument("--beagle-audio", type=Path)
+    parser.add_argument("--hrtf", type=Path)
     parser.add_argument("--hrtf-license", type=Path)
     parser.add_argument("--runtime-prefix", required=True, type=Path)
     parser.add_argument("--mp3d-root", required=True, type=Path)
     parser.add_argument("--magnum-python-site", required=True, type=Path)
     parser.add_argument("--rlr-sdk-root", required=True, type=Path)
     parser.add_argument("--rir-stride-frames", type=int, default=3)
+    parser.add_argument(
+        "--layouts",
+        default="binaural",
+        help="comma-separated output layouts; end-to-end review requires binaural",
+    )
+    parser.add_argument("--execution-variant")
     parser.add_argument("--variant", default="A")
     parser.add_argument("--author-only", action="store_true",
                         help="stop after route authoring (fast preview for the canvas)")
@@ -86,6 +99,20 @@ def main() -> int:
     )
     parser.add_argument("--output", required=True, type=Path)
     args = parser.parse_args()
+
+    layouts = tuple(
+        item.strip() for item in args.layouts.split(",") if item.strip()
+    )
+    if (
+        not layouts
+        or len(layouts) != len(set(layouts))
+        or any(item not in {"binaural", "ambisonics"} for item in layouts)
+    ):
+        parser.error("--layouts must contain unique binaural/ambisonics values")
+    if "binaural" not in layouts and not args.author_only:
+        parser.error("end-to-end review requires binaural in --layouts")
+    if not args.author_only and args.hrtf is None:
+        parser.error("end-to-end binaural audio requires --hrtf")
 
     output = args.output.resolve()
     if output.exists() or output.is_symlink():
@@ -164,8 +191,7 @@ def main() -> int:
         "--audio-program", args.audio_program,
         "--source-endpoint-registry", args.source_endpoint_registry,
         "--sound-asset-registry", args.sound_asset_registry,
-        "--beagle-audio", args.beagle_audio,
-        "--hrtf", args.hrtf,
+        "--layouts", ",".join(layouts),
         "--runtime-prefix", args.runtime_prefix,
         "--rlr-sdk-root", args.rlr_sdk_root,
         "--magnum-python-site", args.magnum_python_site,
@@ -173,8 +199,18 @@ def main() -> int:
         "--variant", args.variant,
         "--output", audio_dir,
     ]
+    if args.hrtf is not None:
+        audio_argv += ["--hrtf", args.hrtf]
+    if args.sound_asset_map is not None:
+        audio_argv += ["--sound-asset-map", args.sound_asset_map]
+    for assignment in args.sound_asset_path:
+        audio_argv += ["--sound-asset-path", assignment]
+    if args.beagle_audio is not None:
+        audio_argv += ["--beagle-audio", args.beagle_audio]
     if args.hrtf_license is not None:
         audio_argv += ["--hrtf-license", args.hrtf_license]
+    if args.execution_variant is not None:
+        audio_argv += ["--execution-variant", args.execution_variant]
     run_step("dynamic_audio", audio_argv, steps, steps_path)
 
     clip_path = output / "clip" / "mp3d_dynamic_binaural.mp4"

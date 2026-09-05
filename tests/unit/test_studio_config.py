@@ -26,6 +26,8 @@ def test_repository_root_is_relative_to_config_file_not_cwd(
         path.write_text("{}", encoding="utf-8")
         registries[name] = str(path.relative_to(repository))
 
+    sound = repository / "voice.wav"
+    sound.write_bytes(b"RIFF")
     config_path = config_dir / "studio_config.json"
     config_path.write_text(
         json.dumps(
@@ -37,6 +39,9 @@ def test_repository_root_is_relative_to_config_file_not_cwd(
                 "tasks_root": "tasks",
                 "room_registry": str(room_registry.relative_to(repository)),
                 "registries": registries,
+                "external_sound_assets": {
+                    "voice": str(sound.relative_to(repository))
+                },
                 "task_templates": {},
             }
         ),
@@ -52,3 +57,6 @@ def test_repository_root_is_relative_to_config_file_not_cwd(
     assert config.review_root == (repository / "review").resolve()
     assert config.tasks_root == (repository / "tasks").resolve()
     assert config.room_registry_path == room_registry.resolve()
+    assert config.external_sound_assets == {
+        "voice": str(sound.resolve())
+    }

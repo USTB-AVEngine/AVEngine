@@ -102,3 +102,57 @@ def test_hm3d_e2e_children_prefer_current_avengine_source_and_cwd(
     provenance = module._source_provenance()
     assert Path(provenance["cwd"]).resolve() == REPOSITORY.resolve()
     assert Path(provenance["avengine_source"]).resolve() == expected_source
+
+
+
+def test_mp3d_e2e_forwards_generic_sound_bindings_without_legacy_beagle(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _module("run_mp3d_end_to_end.py")
+    output = tmp_path / "output"
+    review = tmp_path / "review"
+    review.mkdir()
+    voice = tmp_path / "voice.wav"
+    voice.write_bytes(b"RIFF")
+    captured: list[tuple[str, list[str]]] = []
+
+    def fake_run_step(name, argv, steps, steps_path):
+        del steps, steps_path
+        captured.append((name, [str(value) for value in argv]))
+
+    monkeypatch.setattr(module, "run_step", fake_run_step)
+    common = tmp_path / "input"
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "run_mp3d_end_to_end.py",
+            "--seed", "7",
+            "--source-animal-manifest", str(common),
+            "--source-m2-request", str(common),
+            "--room-manifest", str(common),
+            "--simulation-request", str(common),
+            "--package-manifest", str(common),
+            "--audio-program", str(common),
+            "--source-endpoint-registry", str(common),
+            "--sound-asset-registry", str(common),
+            "--sound-asset-path", f"voice={voice}",
+            "--hrtf", str(common),
+            "--runtime-prefix", str(common),
+            "--mp3d-root", str(common),
+            "--magnum-python-site", str(common),
+            "--rlr-sdk-root", str(common),
+            "--layouts", "binaural,ambisonics",
+            "--execution-variant", "main",
+            "--review-root", str(review),
+            "--output", str(output),
+        ],
+    )
+
+    assert module.main() == 0
+    audio = dict(captured)["dynamic_audio"]
+    assert "--beagle-audio" not in audio
+    assert audio[audio.index("--sound-asset-path") + 1] == f"voice={voice}"
+    assert audio[audio.index("--layouts") + 1] == "binaural,ambisonics"
+    assert audio[audio.index("--execution-variant") + 1] == "main"

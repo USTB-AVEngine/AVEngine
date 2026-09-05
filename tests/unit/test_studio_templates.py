@@ -20,7 +20,12 @@ from avengine.studio.templates import StudioTemplateError, build_template_argv
 REPOSITORY = Path(__file__).resolve().parents[2]
 
 
-def _config(tmp_path: Path, task_templates: dict) -> object:
+def _config(
+    tmp_path: Path,
+    task_templates: dict,
+    *,
+    external_sound_assets: dict[str, str] | None = None,
+) -> object:
     for name in ("review", "tasks", "scenes"):
         (tmp_path / name).mkdir(exist_ok=True)
     room_registry = tmp_path / "room_registry.json"
@@ -45,6 +50,7 @@ def _config(tmp_path: Path, task_templates: dict) -> object:
                 "main_branch": "main",
                 "room_registry": str(room_registry),
                 "registries": registries,
+                "external_sound_assets": external_sound_assets,
                 "task_templates": task_templates,
             }
         )
@@ -312,3 +318,83 @@ def test_hm3d_clock_overrides_propagate_and_reject_mismatched_duration(
             {"frame_count": 150, "frame_rate_hz": 15, "clip_seconds": 5},
             tmp_path / "out_bad",
         )
+
+
+
+def test_mp3d_template_uses_generic_sound_bindings_and_layouts(
+    tmp_path: Path,
+) -> None:
+    inputs = tmp_path / "mp3d"
+    inputs.mkdir()
+    defaults: dict[str, str | list[str]] = {}
+    directory_keys = {
+        "visual_capture_dir",
+        "runtime_prefix",
+        "rlr_sdk_root",
+    }
+    for key in (
+        "visual_capture_dir",
+        "m1_request",
+        "simulation_request",
+        "package_manifest",
+        "audio_program",
+        "source_endpoint_registry",
+        "sound_asset_registry",
+        "hrtf",
+        "runtime_prefix",
+        "rlr_sdk_root",
+    ):
+        target = inputs / key
+        if key in directory_keys:
+            target.mkdir()
+        else:
+            target.write_text("{}")
+        defaults[key] = str(target)
+    defaults["layouts"] = ["binaural", "ambisonics"]
+    defaults["execution_variant"] = "main"
+    voice = inputs / "voice.wav"
+    bell = inputs / "bell.wav"
+    voice.write_bytes(b"RIFF")
+    bell.write_bytes(b"RIFF")
+    config = _config(
+        tmp_path,
+        {"mp3d_dynamic_audio": defaults},
+        external_sound_assets={
+            "voice_primary": str(voice),
+            "bell_secondary": str(bell),
+        },
+    )
+
+    argv = build_template_argv(
+        config, "mp3d_dynamic_audio", {}, tmp_path / "output"
+    )
+
+    assignments = [
+        argv[index + 1]
+        for index, value in enumerate(argv)
+        if value == "--sound-asset-path"
+    ]
+    assert assignments == [
+        f"bell_secondary={bell.resolve()}",
+        f"voice_primary={voice.resolve()}",
+    ]
+    assert "--beagle-audio" not in argv
+    assert argv[argv.index("--layouts") + 1] == "binaural,ambisonics"
+    assert argv[argv.index("--execution-variant") + 1] == "main"
+
+    ambisonics_defaults = dict(defaults)
+    ambisonics_defaults.pop("hrtf")
+    ambisonics_defaults["layouts"] = ["ambisonics"]
+    ambisonics_config = _config(
+        tmp_path,
+        {"mp3d_dynamic_audio": ambisonics_defaults},
+        external_sound_assets={"voice_primary": str(voice)},
+    )
+    ambisonics = build_template_argv(
+        ambisonics_config,
+        "mp3d_dynamic_audio",
+        {},
+        tmp_path / "ambisonics-output",
+    )
+    assert ambisonics[ambisonics.index("--layouts") + 1] == "ambisonics"
+    assert "--hrtf" not in ambisonics

@@ -70,12 +70,14 @@ _MP3D_AUDIO_PATH_KEYS = (
     "audio_program",
     "source_endpoint_registry",
     "sound_asset_registry",
-    "beagle_audio",
-    "hrtf",
     "runtime_prefix",
     "rlr_sdk_root",
 )
-_MP3D_AUDIO_OPTIONAL_PATH_KEYS = ("hrtf_license", "magnum_python_site")
+_MP3D_AUDIO_OPTIONAL_PATH_KEYS = (
+    "hrtf",
+    "hrtf_license",
+    "magnum_python_site",
+)
 
 _MP3D_E2E_PATH_KEYS = (
     "source_animal_manifest",
@@ -86,8 +88,6 @@ _MP3D_E2E_PATH_KEYS = (
     "audio_program",
     "source_endpoint_registry",
     "sound_asset_registry",
-    "beagle_audio",
-    "hrtf",
     "runtime_prefix",
     "mp3d_root",
     "magnum_python_site",
@@ -135,6 +135,11 @@ TEMPLATE_OVERRIDABLE_KEYS: dict[str, frozenset[str]] = {
             "rir_stride_frames",
             "m1_request",
             "package_manifest",
+            "sound_asset_map",
+            "sound_asset_paths",
+            "beagle_audio",
+            "layouts",
+            "execution_variant",
         }
     ),
     MP3D_END_TO_END_TEMPLATE: frozenset(
@@ -149,6 +154,11 @@ TEMPLATE_OVERRIDABLE_KEYS: dict[str, frozenset[str]] = {
             "mp3d_root",
             "source_m2_request",
             "source_animal_manifest",
+            "sound_asset_map",
+            "sound_asset_paths",
+            "beagle_audio",
+            "layouts",
+            "execution_variant",
         }
     ),
     MP3D_ROUTE_AUTHOR_TEMPLATE: frozenset(
@@ -160,6 +170,11 @@ TEMPLATE_OVERRIDABLE_KEYS: dict[str, frozenset[str]] = {
             "mp3d_root",
             "source_m2_request",
             "source_animal_manifest",
+            "sound_asset_map",
+            "sound_asset_paths",
+            "beagle_audio",
+            "layouts",
+            "execution_variant",
         }
     ),
     HM3D_ROOM_PREPARE_TEMPLATE: frozenset(
@@ -376,6 +391,151 @@ def _append_paths(
             argv += [f"--{key.replace('_', '-')}", str(path)]
 
 
+_LEGACY_BEAGLE_SOUND_ASSET_ID = "dog_beagle_v2_scheduled_dry"
+
+
+def _append_sound_asset_bindings(
+    argv: list[str],
+    config: StudioConfig,
+    merged: dict[str, object],
+    template_name: str,
+) -> None:
+    repository_root = config.repository_root
+    map_value = merged.get("sound_asset_map")
+    if map_value is not None:
+        map_path = _input_path(
+            "sound_asset_map", map_value, repository_root
+        )
+        if not map_path.is_file():
+            raise StudioTemplateError(
+                f"template input 'sound_asset_map' is not a file: {map_path}"
+            )
+        argv += ["--sound-asset-map", str(map_path)]
+
+    bindings: dict[str, Path] = {}
+    sources = []
+    if config.external_sound_assets:
+        sources.append(("studio external_sound_assets", config.external_sound_assets))
+    configured = merged.get("sound_asset_paths")
+    if configured is not None:
+        if not isinstance(configured, dict):
+            raise StudioTemplateError(
+                f"{template_name}.sound_asset_paths must be an object"
+            )
+        sources.append((f"{template_name}.sound_asset_paths", configured))
+    for owner, values in sources:
+        for raw_id, raw_path in values.items():
+            sound_id = str(raw_id)
+            if (
+                not sound_id
+                or sound_id != sound_id.strip()
+                or "=" in sound_id
+                or any(
+                    ord(character) < 32 or ord(character) == 127
+                    for character in sound_id
+                )
+            ):
+                raise StudioTemplateError(
+                    f"{owner} contains an invalid sound asset ID: {sound_id!r}"
+                )
+            sound_path = _input_path(
+                f"{owner}.{sound_id}", raw_path, repository_root
+            )
+            if not sound_path.is_file():
+                raise StudioTemplateError(
+                    f"{owner}.{sound_id} is not a file: {sound_path}"
+                )
+            previous = bindings.get(sound_id)
+            if previous is not None and previous != sound_path:
+                raise StudioTemplateError(
+                    f"sound asset {sound_id!r} has conflicting configured paths"
+                )
+            bindings[sound_id] = sound_path
+    for sound_id in sorted(bindings):
+        argv += [
+            "--sound-asset-path",
+            f"{sound_id}={bindings[sound_id]}",
+        ]
+
+    legacy = merged.get("beagle_audio")
+    if legacy is None:
+        return
+    legacy_path = _input_path("beagle_audio", legacy, repository_root)
+    if not legacy_path.is_file():
+        raise StudioTemplateError(
+            f"template input 'beagle_audio' is not a file: {legacy_path}"
+        )
+    current = bindings.get(_LEGACY_BEAGLE_SOUND_ASSET_ID)
+    if current is not None:
+        if current != legacy_path:
+            raise StudioTemplateError(
+                "legacy beagle_audio conflicts with external sound asset mapping"
+            )
+        return
+    argv += ["--beagle-audio", str(legacy_path)]
+
+
+def _append_mp3d_audio_options(
+    argv: list[str],
+    merged: dict[str, object],
+    template_name: str,
+    *,
+    require_binaural: bool,
+) -> None:
+    raw_layouts = merged.get("layouts")
+    if raw_layouts is not None:
+        if isinstance(raw_layouts, str):
+            layouts = [
+                item.strip() for item in raw_layouts.split(",") if item.strip()
+            ]
+        elif isinstance(raw_layouts, (list, tuple)):
+            layouts = list(raw_layouts)
+        else:
+            raise StudioTemplateError(
+                f"{template_name}.layouts must be a string or list"
+            )
+        if (
+            not layouts
+            or any(
+                not isinstance(item, str)
+                or item not in {"binaural", "ambisonics"}
+                for item in layouts
+            )
+            or len(layouts) != len(set(layouts))
+        ):
+            raise StudioTemplateError(
+                f"{template_name}.layouts must contain unique "
+                "binaural/ambisonics values"
+            )
+        if require_binaural and "binaural" not in layouts:
+            raise StudioTemplateError(
+                f"{template_name} review output requires binaural audio"
+            )
+        argv += ["--layouts", ",".join(layouts)]
+    else:
+        layouts = ["binaural"]
+    if (
+        template_name != MP3D_ROUTE_AUTHOR_TEMPLATE
+        and "binaural" in layouts
+        and merged.get("hrtf") is None
+    ):
+        raise StudioTemplateError(
+            f"{template_name} binaural audio requires hrtf"
+        )
+    execution_variant = merged.get("execution_variant")
+    if execution_variant is not None:
+        value = str(execution_variant)
+        if (
+            not value
+            or value != value.strip()
+            or any(ord(character) < 32 or ord(character) == 127 for character in value)
+        ):
+            raise StudioTemplateError(
+                f"{template_name}.execution_variant must be non-empty text"
+            )
+        argv += ["--execution-variant", value]
+
+
 def build_template_argv(
     config: StudioConfig,
     template_name: str,
@@ -396,6 +556,12 @@ def build_template_argv(
             repo,
             optional=_MP3D_AUDIO_OPTIONAL_PATH_KEYS,
         )
+        _append_sound_asset_bindings(
+            argv, config, merged, template_name
+        )
+        _append_mp3d_audio_options(
+            argv, merged, template_name, require_binaural=False
+        )
         argv += ["--rir-stride-frames", _stride(merged)]
         argv += ["--variant", str(merged.get("variant", "A"))]
         argv += ["--output", _fresh_output(output_path)]
@@ -411,7 +577,16 @@ def build_template_argv(
         ]
         _append_paths(
             argv, merged, template_name, _MP3D_E2E_PATH_KEYS, repo,
-            optional=("hrtf_license",),
+            optional=("hrtf", "hrtf_license"),
+        )
+        _append_sound_asset_bindings(
+            argv, config, merged, template_name
+        )
+        _append_mp3d_audio_options(
+            argv,
+            merged,
+            template_name,
+            require_binaural=template_name == MP3D_END_TO_END_TEMPLATE,
         )
         argv += ["--rir-stride-frames", _stride(merged)]
         argv += ["--variant", str(merged.get("variant", "A"))]

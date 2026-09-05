@@ -34,14 +34,18 @@
       "audio_program": "examples/timeline/current_mp3d/audio_programs/current_mp3d_two_beagle_turn_taking_v1.json",
       "source_endpoint_registry": "examples/registry/registries/source_endpoints_v1.json",
       "sound_asset_registry": "examples/registry/registries/sound_assets_v1.json",
-      "beagle_audio": "/data/avengine_external/m6x-canary-inputs/fixed_apartment_inputs_v1_20260821T131842Z/audio/animal_audio_event_audit_v1/dog_beagle_v2_scheduled_dry.wav",
       "hrtf": "/data/avengine_external/rlr-sdk/hrtf/mit_kemar_normal_pinna_16k_v2_sofar_20260820T2200Z/mit_kemar_normal_pinna_16k.sofa",
       "hrtf_license": "/data/avengine_external/rlr-sdk/hrtf/mit_kemar_normal_pinna_16k_v2_sofar_20260820T2200Z/LICENSE.txt",
       "runtime_prefix": "/data/avengine_external/runtime-prefixes/avengine-habitat-pbr-ibl-c78db29-20260821T0111Z",
       "rlr_sdk_root": "/data/avengine_external/rlr-sdk/RLRAudioPropagationPkg-runtime-b-20260820T2010Z",
       "magnum_python_site": "/data/avengine_external/runtime-prefixes/magnum-python-cp312-45811bb-20260820T1845Z/lib/python3.12/site-packages",
       "rir_stride_frames": 3,
-      "variant": "A"
+      "variant": "A",
+      "layouts": [
+        "binaural",
+        "ambisonics"
+      ],
+      "execution_variant": "main"
     },
     "mp3d_route_author": {
       "seed": 20260820,
@@ -54,7 +58,6 @@
       "audio_program": "examples/timeline/current_mp3d/audio_programs/current_mp3d_two_beagle_turn_taking_v1.json",
       "source_endpoint_registry": "examples/registry/registries/source_endpoints_v1.json",
       "sound_asset_registry": "examples/registry/registries/sound_assets_v1.json",
-      "beagle_audio": "/data/avengine_external/m6x-canary-inputs/fixed_apartment_inputs_v1_20260821T131842Z/audio/animal_audio_event_audit_v1/dog_beagle_v2_scheduled_dry.wav",
       "hrtf": "/data/avengine_external/rlr-sdk/hrtf/mit_kemar_normal_pinna_16k_v2_sofar_20260820T2200Z/mit_kemar_normal_pinna_16k.sofa",
       "hrtf_license": "/data/avengine_external/rlr-sdk/hrtf/mit_kemar_normal_pinna_16k_v2_sofar_20260820T2200Z/LICENSE.txt",
       "runtime_prefix": "/data/avengine_external/runtime-prefixes/avengine-habitat-pbr-ibl-c78db29-20260821T0111Z",
@@ -73,7 +76,6 @@
       "audio_program": "examples/timeline/current_mp3d/audio_programs/current_mp3d_two_beagle_turn_taking_v1.json",
       "source_endpoint_registry": "examples/registry/registries/source_endpoints_v1.json",
       "sound_asset_registry": "examples/registry/registries/sound_assets_v1.json",
-      "beagle_audio": "/data/avengine_external/m6x-canary-inputs/fixed_apartment_inputs_v1_20260821T131842Z/audio/animal_audio_event_audit_v1/dog_beagle_v2_scheduled_dry.wav",
       "hrtf": "/data/avengine_external/rlr-sdk/hrtf/mit_kemar_normal_pinna_16k_v2_sofar_20260820T2200Z/mit_kemar_normal_pinna_16k.sofa",
       "hrtf_license": "/data/avengine_external/rlr-sdk/hrtf/mit_kemar_normal_pinna_16k_v2_sofar_20260820T2200Z/LICENSE.txt",
       "runtime_prefix": "/data/avengine_external/runtime-prefixes/avengine-habitat-pbr-ibl-c78db29-20260821T0111Z",
@@ -81,7 +83,12 @@
       "magnum_python_site": "/data/avengine_external/runtime-prefixes/magnum-python-cp312-45811bb-20260820T1845Z/lib/python3.12/site-packages",
       "rlr_sdk_root": "/data/avengine_external/rlr-sdk/RLRAudioPropagationPkg-runtime-b-20260820T2010Z",
       "rir_stride_frames": 3,
-      "variant": "A"
+      "variant": "A",
+      "layouts": [
+        "binaural",
+        "ambisonics"
+      ],
+      "execution_variant": "main"
     },
     "paired_ablation": {},
     "apartment_author": {

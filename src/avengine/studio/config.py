@@ -53,6 +53,21 @@ class StudioConfig:
     sound_library_root: Path | None = None
 
 
+def _sound_asset_id(value: object) -> str:
+    if (
+        not isinstance(value, str)
+        or not value
+        or value != value.strip()
+        or "=" in value
+        or any(ord(character) < 32 or ord(character) == 127 for character in value)
+    ):
+        raise StudioConfigError(
+            "external sound asset IDs must be non-empty text without '=', "
+            "surrounding whitespace, or control characters"
+        )
+    return value
+
+
 def _resolved_path(value: object, base_dir: Path) -> Path:
     path = Path(str(value)).expanduser()
     if not path.is_absolute():
@@ -148,10 +163,19 @@ def load_studio_config(config_path: str | Path) -> StudioConfig:
         scenes_root = _resolved_path(payload["scenes_root"], repository_root)
 
     external_sound_assets = None
-    if isinstance(payload.get("external_sound_assets"), dict):
-        external_sound_assets = {
-            str(k): str(v) for k, v in payload["external_sound_assets"].items()
-        }
+    if payload.get("external_sound_assets") is not None:
+        raw_sound_assets = payload["external_sound_assets"]
+        if not isinstance(raw_sound_assets, dict):
+            raise StudioConfigError("external_sound_assets must be an object")
+        external_sound_assets = {}
+        for raw_id, raw_path in raw_sound_assets.items():
+            sound_id = _sound_asset_id(raw_id)
+            sound_path = _resolved_path(raw_path, repository_root)
+            if not sound_path.is_file():
+                raise StudioConfigError(
+                    f"external sound asset {sound_id!r} not found: {sound_path}"
+                )
+            external_sound_assets[sound_id] = str(sound_path)
 
     sound_asset_index: Path | None = None
     if payload.get("sound_asset_index") is not None:
