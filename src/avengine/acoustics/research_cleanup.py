@@ -31,9 +31,11 @@ from avengine.contracts.json_io import (
 from avengine.acoustics.contracts import load_and_validate_acoustic_scene_package
 from avengine.acoustics.qa import (
     array_sha256,
+    automatic_mesh_leakage_report,
     debug_obj_array_parity_bytes,
     geometry_report,
     material_coverage_report,
+    ray_leakage_report,
     triangle_areas,
     write_debug_obj,
 )
@@ -346,6 +348,106 @@ def _derived_parity_report(
     return report
 
 
+def _recompute_derived_ray_leakage(
+    vertices: np.ndarray,
+    triangles: np.ndarray,
+    source_report: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Re-run replayable CPU ray QA against filtered geometry."""
+
+    automatic_source = source_report.get("automatic_enclosure_probe")
+    provenance = {
+        "schema": source_report.get("schema"),
+        "status": source_report.get("status"),
+        "declared_check_count": source_report.get("declared_check_count"),
+        "automatic_status": (
+            automatic_source.get("status")
+            if isinstance(automatic_source, Mapping)
+            else None
+        ),
+        "use": "source declarations only; measured results were not reused",
+    }
+    raw_checks = source_report.get("checks")
+    expected_count = source_report.get("declared_check_count")
+    declarations: list[dict[str, Any]] = []
+    if isinstance(raw_checks, list) and isinstance(expected_count, int):
+        for item in raw_checks:
+            if not isinstance(item, Mapping):
+                declarations = []
+                break
+            required = (
+                "check_id", "origin_m", "direction",
+                "maximum_distance_m", "expectation",
+            )
+            if any(key not in item for key in required):
+                declarations = []
+                break
+            declarations.append(
+                {
+                    "check_id": item["check_id"],
+                    "origin_m": item["origin_m"],
+                    "direction": item["direction"],
+                    "distance_m": item["maximum_distance_m"],
+                    "expectation": item["expectation"],
+                }
+            )
+    if not isinstance(expected_count, int) or len(declarations) != expected_count:
+        return {
+            "schema": "avengine_m3_ray_leakage_v1",
+            "status": "not_run",
+            "rlr_runtime_ray_check_status": "not_run",
+            "reason": "source ray report lacks replayable declared-check metadata",
+            "source_report_provenance": provenance,
+        }
+
+    result = ray_leakage_report(
+        vertices, triangles, declarations, automatic_origins=None
+    )
+    if (
+        isinstance(automatic_source, Mapping)
+        and automatic_source.get("status") == "diagnostic_complete"
+    ):
+        directions = automatic_source.get("directions")
+        origins = automatic_source.get("origins")
+        origin_values = (
+            [item.get("origin_m") for item in origins if isinstance(item, Mapping)]
+            if isinstance(origins, list)
+            else None
+        )
+        try:
+            if (
+                not isinstance(directions, list)
+                or not directions
+                or not origin_values
+                or len(origin_values) != len(origins)
+            ):
+                raise ValueError("missing origins or directions")
+            result["automatic_enclosure_probe"] = automatic_mesh_leakage_report(
+                vertices,
+                triangles,
+                origins=origin_values,
+                directions=np.asarray(directions, dtype=np.float64),
+                maximum_distance_m=float(automatic_source["maximum_distance_m"]),
+                minimum_probe_clearance_m=float(
+                    automatic_source["minimum_probe_clearance_m"]
+                ),
+            )
+        except (KeyError, TypeError, ValueError):
+            result["status"] = "not_run"
+            result["reason"] = (
+                "source automatic enclosure probe lacks replayable inputs"
+            )
+            result["automatic_enclosure_probe"] = {
+                "schema": "avengine_m3_automatic_mesh_leakage_diagnostic_v1",
+                "status": "not_run",
+                "admission_claim": False,
+                "reason": "source automatic probe could not be replayed",
+            }
+    result["source_report_provenance"] = provenance
+    result["derived_geometry_recomputed"] = True
+    return result
+
+
 def derive_rlr_compatible_research_package(
     source_manifest_path: str | Path,
     output_dir: str | Path,
@@ -455,7 +557,11 @@ def derive_rlr_compatible_research_package(
             geometry=filtered,
             debug_obj_payload=debug_path.read_bytes(),
         )
-        leakage_qa = deepcopy(validated.qa_reports["ray_leakage"])
+        leakage_qa = _recompute_derived_ray_leakage(
+            filtered.vertices,
+            filtered.triangles,
+            validated.qa_reports["ray_leakage"],
+        )
         qa_values = {
             "geometry_report": geometry_qa,
             "material_coverage": coverage_qa,
