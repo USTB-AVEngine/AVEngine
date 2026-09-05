@@ -849,21 +849,27 @@ def score_camera_candidates(
             horizontal = math.hypot(dx, dy)
             distance = math.sqrt(dx * dx + dy * dy + dz * dz)
             desired_yaw = math.degrees(math.atan2(dy, dx))
-            target_forward_blender = [dx / distance, dy / distance, dz / distance]
-            target_forward_ue = [
-                target_forward_blender[0],
-                -target_forward_blender[1],
-                target_forward_blender[2],
-            ]
-            target_ue_yaw = math.degrees(
-                math.atan2(target_forward_ue[1], target_forward_ue[0])
-            )
-            target_ue_pitch = math.degrees(
-                math.atan2(
-                    target_forward_ue[2],
-                    math.hypot(target_forward_ue[0], target_forward_ue[1]),
+            if distance <= 1.0e-9:
+                target_forward_blender = [0.0, 0.0, 0.0]
+                target_forward_ue = [0.0, 0.0, 0.0]
+                target_ue_yaw = float(candidate["ue_yaw_deg"])
+                target_ue_pitch = float(candidate["ue_pitch_deg"])
+            else:
+                target_forward_blender = [dx / distance, dy / distance, dz / distance]
+                target_forward_ue = [
+                    target_forward_blender[0],
+                    -target_forward_blender[1],
+                    target_forward_blender[2],
+                ]
+                target_ue_yaw = math.degrees(
+                    math.atan2(target_forward_ue[1], target_forward_ue[0])
                 )
-            )
+                target_ue_pitch = math.degrees(
+                    math.atan2(
+                        target_forward_ue[2],
+                        math.hypot(target_forward_ue[0], target_forward_ue[1]),
+                    )
+                )
             candidate["target_forward_blender"] = target_forward_blender
             candidate["target_forward_ue"] = target_forward_ue
             candidate["target_ue_yaw_deg"] = target_ue_yaw
@@ -891,10 +897,14 @@ def select_seats(layout: Mapping[str, Any], count: int = DEFAULT_SEAT_COUNT) -> 
         category = str(item.get("semantic_class") or "").lower()
         if any(token in category for token in ("chair", "stool")):
             priority = 0
-        elif "bench" in category:
+        elif "dining" in str(item.get("affordance_id") or "").lower() and "breakfast" not in str(item.get("affordance_id") or "").lower():
+            # Some static room sidecars expose dining seat points on the
+            # table rather than separate chair objects.
             priority = 1
-        elif "table" in category:
+        elif "bench" in category:
             priority = 2
+        elif "table" in category:
+            priority = 3
         elif "sofa" in category or "couch" in category:
             priority = 3
         else:
@@ -965,7 +975,11 @@ def _pose_binding_records(pose_bindings: Any) -> list[dict[str, Any]]:
                 item.setdefault("pose_seat_top_m", seat_reference.get("seat_top_m"))
             item.setdefault("actor_id", item.get("asset_id") or f"actor{index}")
             item.setdefault("ue_animation", item.get("animation") or item.get("animation_name"))
-            blueprint_value = item.get("blueprint_class") or item.get("blueprint")
+            blueprint_value = (
+                item.get("blueprint_class_path")
+                or item.get("blueprint_class")
+                or item.get("blueprint")
+            )
             item["blueprint_class_path"] = _normalize_blueprint_class_path(blueprint_value)
             item.setdefault("skeletal_mesh_path", item.get("skeletal_mesh"))
             item.setdefault(
@@ -1022,6 +1036,15 @@ def _resolve_seat_id(requested: str, available: Mapping[str, Mapping[str, Any]])
         return requested
     alias = _seat_alias_key(requested)
     matches = [seat_id for seat_id in available if _seat_alias_key(seat_id) == alias]
+    if not matches and alias:
+        # A generated room may add a semantic prefix such as ``main_`` while
+        # preserving the dining-seat index.  Match only a unique token suffix.
+        matches = [
+            seat_id
+            for seat_id in available
+            if _seat_alias_key(seat_id)[-len(alias):] == alias
+            or alias[-len(_seat_alias_key(seat_id)):] == _seat_alias_key(seat_id)
+        ]
     if len(matches) == 1:
         return matches[0]
     if len(matches) > 1:
