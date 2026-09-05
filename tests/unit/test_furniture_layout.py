@@ -170,6 +170,7 @@ def test_pose_binding_offsets_from_seat_reference_and_150_clock(tmp_path: Path) 
                         "seat_anchor_id": "seat_0",
                         "reference_chair_yaw_degrees": 180.0,
                         "reference_actor_yaw_degrees": 170.0,
+                        "seat_top_m": 0.53,
                         "root_offset_from_seat_anchor_blender_m": [0.0, 0.18, -0.01],
                     },
                 }
@@ -182,6 +183,7 @@ def test_pose_binding_offsets_from_seat_reference_and_150_clock(tmp_path: Path) 
     assert request_actor["skeletal_mesh_path"] == "/Game/Pose/pose.pose"
     assert request_actor["emitter_local_ue_cm"] == pytest.approx([10.0, -20.0, 120.0])
     assert request_actor["root_position_authoring_m"][0] == pytest.approx(-2.38)
+    assert request_actor["root_position_authoring_m"][2] == pytest.approx(-0.08)
     assert request_actor["pose_orientation_policy"].endswith(
         "reference_actor_yaw_ignored"
     )
