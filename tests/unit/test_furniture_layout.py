@@ -161,6 +161,10 @@ def test_pose_binding_offsets_from_seat_reference_and_150_clock(tmp_path: Path) 
             "assets": [
                 {
                     "asset_id": "pose_pool_asset",
+                    "animation": "/Game/Pose/Seated_Idle.Seated_Idle",
+                    "blueprint": "/Game/Pose/BP_pose.BP_pose_C",
+                    "skeletal_mesh": "/Game/Pose/pose.pose",
+                    "emitter_offset_avengine_m": [0.1, 1.2, -0.2],
                     "animation_name": "Seated_Idle",
                     "seat_reference": {
                         "seat_anchor_id": "seat_0",
@@ -172,9 +176,19 @@ def test_pose_binding_offsets_from_seat_reference_and_150_clock(tmp_path: Path) 
             ]
         },
     )
-    assert request_style["actor_placements"][0]["ue_animation"] == "Seated_Idle"
-    assert request_style["actor_placements"][0]["pose_orientation_policy"].endswith(
+    request_actor = request_style["actor_placements"][0]
+    assert request_actor["ue_animation"] == "/Game/Pose/Seated_Idle.Seated_Idle"
+    assert request_actor["blueprint_class_path"] == "/Game/Pose/BP_pose.BP_pose_C"
+    assert request_actor["skeletal_mesh_path"] == "/Game/Pose/pose.pose"
+    assert request_actor["emitter_local_ue_cm"] == pytest.approx([10.0, -20.0, 120.0])
+    assert request_actor["root_position_authoring_m"][0] == pytest.approx(-2.38)
+    assert request_actor["pose_orientation_policy"].endswith(
         "reference_actor_yaw_ignored"
+    )
+
+    candidate_set = generate_camera_candidates(layout)
+    assert candidate_set["generation"]["yaw_candidates_deg"] == pytest.approx(
+        list(range(0, 360, 30))
     )
 
     assert clock_config(frame_count=150)["ticks_per_frame"] == 3200
