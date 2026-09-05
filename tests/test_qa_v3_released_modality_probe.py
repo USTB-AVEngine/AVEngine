@@ -222,6 +222,9 @@ def test_item_builder_uses_only_released_paths_and_question_gold(tmp_path):
     assert rows[1]["question_id"] == f"{point}__open"
     assert rows[0]["question_id"] != rows[1]["question_id"]
     assert rows[0]["group_id"] == rows[1]["group_id"] == f"episode-{point}"
+    assert rows[0]["point_id"] == rows[1]["point_id"] == point
+    assert rows[0]["episode_id"] == rows[1]["episode_id"] == f"episode-{point}"
+    assert "scene_id" not in rows[0]
     assert rows[1]["task_type"] == "numeric_time"
     assert rows[1]["certification_policy"] == "strict_full_credit_only"
     forbidden = {
@@ -471,6 +474,9 @@ def test_item_builder_consumes_assembler_candidates_and_pilot_media(tmp_path):
     assert len(rows) == 1
     assert rows[0]["form"] == "open"
     assert rows[0]["pilot_id"] == pilot_id
+    assert rows[0]["scene_id"] == "room_a"
+    assert rows[0]["point_id"] == "card12_001"
+    assert rows[0]["episode_id"] == "episode_1"
     assert rows[0]["audio"].endswith(
         f"/{pilot_id}/audio/binaural/mixture.wav")
     assert rows[0]["video"].endswith(f"/{pilot_id}/video_only.mp4")

@@ -339,10 +339,14 @@ def build(selection, facts_root=None, audio_root=None, media_root=None, *,
         episode = str(fact.get("episode_id", point_id))
         common = {
             "group_id": _group_id(scene_id, episode),
+            "point_id": point_id,
+            "episode_id": episode,
             "profile_id": str(fact["profile_id"]),
             "audio": str(wav.resolve()),
             "video": str(video.resolve()),
         }
+        if scene_id is not None and str(scene_id):
+            common["scene_id"] = str(scene_id)
         if media_clock is not None:
             common["media_clock"] = media_clock
         if entry.get("pilot_id") is not None:
