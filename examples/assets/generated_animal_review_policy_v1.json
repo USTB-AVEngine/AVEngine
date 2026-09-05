@@ -1,0 +1,127 @@
+{
+  "schema": "avengine_generated_animal_review_policy_v1",
+  "policy_id": "generated_animal_review_v1",
+  "default_strategy": "visual_review",
+  "common": {
+    "ladder": [
+      {
+        "id": "plain_25000",
+        "mode": "plain",
+        "target_faces": 25000,
+        "voxel_divisor": 0,
+        "relief_smooth_iterations": 0
+      },
+      {
+        "id": "plain_80000",
+        "mode": "plain",
+        "target_faces": 80000,
+        "voxel_divisor": 0,
+        "relief_smooth_iterations": 0
+      },
+      {
+        "id": "remesh_80000_800",
+        "mode": "remesh",
+        "target_faces": 80000,
+        "voxel_divisor": 800,
+        "relief_smooth_iterations": -1
+      },
+      {
+        "id": "remesh_80000_700",
+        "mode": "remesh",
+        "target_faces": 80000,
+        "voxel_divisor": 700,
+        "relief_smooth_iterations": -1
+      },
+      {
+        "id": "remesh_120000_800",
+        "mode": "remesh",
+        "target_faces": 120000,
+        "voxel_divisor": 800,
+        "relief_smooth_iterations": -1
+      }
+    ],
+    "runner": {
+      "pick": "first",
+      "retry_band": 0.8,
+      "rig_retries": 1,
+      "relief_smooth": -1
+    },
+    "render": {
+      "walking_action": "Walking",
+      "walking_frames": 16,
+      "walking_zoom": 1.15,
+      "walking_dir": "walk",
+      "turntable_action": "Walking",
+      "turntable_frames": 36,
+      "turntable_pose_ratio": 0.0,
+      "turntable_dir": "turntable",
+      "view_distance": "ordinary"
+    },
+    "measurement": {
+      "deformation_action": "Walking",
+      "sample_count": 16,
+      "shard_edge_growth_threshold": 3.0,
+      "underside_height_fraction": 0.45
+    },
+    "retarget": {
+      "target_front_axis": "positive-x",
+      "motion_basis_yaw_deg": 0,
+      "side_chain_mode": "matched"
+    },
+    "closure": {
+      "required_actions": [
+        "Walking",
+        "Idle"
+      ],
+      "weight_tolerance": 0.001,
+      "minimum_pose_translation_delta": 1.0e-7,
+      "minimum_pose_rotation_delta_deg": 1.0e-5,
+      "maximum_cycle_translation_delta": 0.001,
+      "maximum_cycle_rotation_delta_deg": 0.1,
+      "maximum_abs_position": 1000000.0,
+      "maximum_abs_scale": 10000.0
+    },
+    "metrics": {
+      "retopology": {
+        "min_head_survival": 0.7,
+        "face_tolerance": 0.05
+      },
+      "rigged": {
+        "max_shard_share": 0.025,
+        "max_share_over_10x": null
+      }
+    }
+  },
+  "strategies": {
+    "visual_review": {
+      "gate_metrics": false,
+      "require_closed_cycle": false,
+      "expected_bone_count": null,
+      "expected_vertex_group_count": null,
+      "advisory_metrics": [
+        "face_target",
+        "head_survival",
+        "nonmanifold",
+        "watertight",
+        "shard_share",
+        "stretch_share",
+        "worst_triangle",
+        "fixed_bone_count",
+        "faceting",
+        "fidelity"
+      ]
+    },
+    "strict_metrics": {
+      "gate_metrics": true,
+      "require_closed_cycle": true,
+      "expected_bone_count": null,
+      "expected_vertex_group_count": null,
+      "advisory_metrics": []
+    }
+  },
+  "decision": {
+    "accept_value": "accept",
+    "reject_value": "reject",
+    "notes_required": false
+  }
+}

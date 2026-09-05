@@ -36,6 +36,14 @@ try:  # Blender supplies bpy; ordinary unit tests deliberately do not.
 except ModuleNotFoundError:  # pragma: no cover - exercised by normal Python tests
     bpy = None  # type: ignore[assignment]
 
+try:
+    from animal_review_policy import STRATEGY_NAMES, load_review_policy
+except ModuleNotFoundError:  # imported as tools.assets.validate_animated_animal_closure
+    from tools.assets.animal_review_policy import (  # type: ignore[no-redef]
+        STRATEGY_NAMES,
+        load_review_policy,
+    )
+
 
 REPORT_SCHEMA = "avengine_animal_chain_cpu_closure_validation_v1"
 DEFAULT_REQUIRED_ACTIONS = ("Walking", "Idle")
@@ -44,6 +52,8 @@ DEFAULT_MIN_POSE_TRANSLATION_DELTA = 1.0e-7
 DEFAULT_MIN_POSE_ROTATION_DELTA_DEG = 1.0e-5
 DEFAULT_MAX_CYCLE_TRANSLATION_DELTA = 1.0e-3
 DEFAULT_MAX_CYCLE_ROTATION_DELTA_DEG = 0.1
+DEFAULT_MAXIMUM_ABS_POSITION = 1.0e6
+DEFAULT_MAXIMUM_ABS_SCALE = 1.0e4
 
 
 class AnimatedAnimalClosureError(ValueError):
@@ -331,6 +341,8 @@ def summarize_action_samples(
     maximum_cycle_translation_delta: float = DEFAULT_MAX_CYCLE_TRANSLATION_DELTA,
     maximum_cycle_rotation_delta_deg: float = DEFAULT_MAX_CYCLE_ROTATION_DELTA_DEG,
     require_closed_cycle: bool = True,
+    maximum_abs_position: float = DEFAULT_MAXIMUM_ABS_POSITION,
+    maximum_abs_scale: float = DEFAULT_MAXIMUM_ABS_SCALE,
 ) -> dict[str, Any]:
     """Summarize first/middle/last pose changes and cyclic closure."""
 
@@ -461,6 +473,90 @@ def _blender_pose_snapshot(armature: Any, bone_names: Sequence[str]) -> dict[str
     return result
 
 
+def _matrix_finite(matrix: Any, *, owner: str) -> None:
+    for row in matrix:
+        for value in row:
+            number = float(value)
+            if not math.isfinite(number):
+                raise AnimatedAnimalClosureError(
+                    f"{owner} transform contains NaN or Inf"
+                )
+
+
+def _animation_numeric_bounds(
+    objects: Sequence[Any],
+    skinned: Sequence[Any],
+    *,
+    maximum_abs_position: float,
+    maximum_abs_scale: float,
+) -> dict[str, Any]:
+    """Read finite world-space transforms and evaluated mesh positions."""
+
+    position = 0.0
+    scale = 0.0
+    for obj in objects:
+        _matrix_finite(obj.matrix_world, owner=obj.name)
+        location = obj.matrix_world.to_translation()
+        object_scale = obj.matrix_world.to_scale()
+        position = max(position, *(abs(float(value)) for value in location))
+        scale = max(scale, *(abs(float(value)) for value in object_scale))
+    for armature in (obj for obj in objects if obj.type == "ARMATURE"):
+        for pose_bone in armature.pose.bones:
+            _matrix_finite(pose_bone.matrix, owner=pose_bone.name)
+            scale = max(
+                scale,
+                *(abs(float(value)) for value in pose_bone.matrix.to_scale()),
+            )
+    graph = bpy.context.evaluated_depsgraph_get()
+    for obj in skinned:
+        evaluated = obj.evaluated_get(graph)
+        mesh = evaluated.to_mesh()
+        try:
+            if len(mesh.vertices) <= 0:
+                raise AnimatedAnimalClosureError(
+                    f"evaluated mesh {obj.name!r} is empty"
+                )
+            for vertex in mesh.vertices:
+                world = obj.matrix_world @ vertex.co
+                values = [float(value) for value in world]
+                if any(not math.isfinite(value) for value in values):
+                    raise AnimatedAnimalClosureError(
+                        f"evaluated mesh {obj.name!r} contains NaN or Inf"
+                    )
+                position = max(position, *(abs(value) for value in values))
+        finally:
+            evaluated.to_mesh_clear()
+    maximum_abs_position = _nonnegative_number(
+        maximum_abs_position,
+        owner="maximum_abs_position",
+    )
+    maximum_abs_scale = _nonnegative_number(
+        maximum_abs_scale,
+        owner="maximum_abs_scale",
+    )
+    if maximum_abs_position <= 0.0 or maximum_abs_scale <= 0.0:
+        raise AnimatedAnimalClosureError(
+            "animation numeric limits must be positive"
+        )
+    if position > maximum_abs_position:
+        raise AnimatedAnimalClosureError(
+            f"animation position {position} exceeds {maximum_abs_position}"
+        )
+    if scale > maximum_abs_scale:
+        raise AnimatedAnimalClosureError(
+            f"animation scale {scale} exceeds {maximum_abs_scale}"
+        )
+    return {
+        "max_abs_position": position,
+        "max_abs_scale": scale,
+        "limits": {
+            "maximum_abs_position": maximum_abs_position,
+            "maximum_abs_scale": maximum_abs_scale,
+        },
+        "exploded": False,
+    }
+
+
 def _validate_imported_glb(
     animated_path: Path,
     *,
@@ -474,10 +570,15 @@ def _validate_imported_glb(
     maximum_cycle_translation_delta: float,
     maximum_cycle_rotation_delta_deg: float,
     require_closed_cycle: bool,
+    maximum_abs_position: float,
+    maximum_abs_scale: float,
 ) -> dict[str, Any]:
     blender = _require_blender()
     blender.ops.wm.read_factory_settings(use_empty=True)
-    result = blender.ops.import_scene.gltf(filepath=str(animated_path))
+    try:
+        result = blender.ops.import_scene.gltf(filepath=str(animated_path))
+    except Exception as error:
+        raise AnimatedAnimalClosureError(f"GLB import failed: {error}") from error
     if "FINISHED" not in result:
         raise AnimatedAnimalClosureError(f"GLB import did not finish: {result}")
 
@@ -497,14 +598,28 @@ def _validate_imported_glb(
             for modifier in obj.modifiers
         )
     ]
-    if len(skinned) != 1:
+    if not skinned:
         raise AnimatedAnimalClosureError(
-            f"expected exactly one mesh skinned to the armature, got "
-            f"{[obj.name for obj in skinned]}"
+            "no mesh is skinned to the imported armature"
         )
+    skinned.sort(key=lambda obj: len(obj.data.vertices), reverse=True)
     mesh = skinned[0]
+    for candidate in skinned:
+        if not candidate.data.vertices or not candidate.data.polygons:
+            raise AnimatedAnimalClosureError(
+                f"skinned mesh {candidate.name!r} has no valid faces or vertices"
+            )
+        for vertex in candidate.data.vertices:
+            if any(not math.isfinite(float(value)) for value in vertex.co):
+                raise AnimatedAnimalClosureError(
+                    f"skinned mesh {candidate.name!r} has NaN or Inf coordinates"
+                )
+        _matrix_finite(candidate.matrix_world, owner=candidate.name)
+    _matrix_finite(armature.matrix_world, owner=armature.name)
     bone_count = len(armature.data.bones)
-    vertex_group_count = len(mesh.vertex_groups)
+    if bone_count <= 0:
+        raise AnimatedAnimalClosureError("imported armature has no bones")
+    vertex_group_count = sum(len(candidate.vertex_groups) for candidate in skinned)
     if expected_bone_count is not None and bone_count != expected_bone_count:
         raise AnimatedAnimalClosureError(
             f"bone count {bone_count} differs from expected {expected_bone_count}"
@@ -519,12 +634,28 @@ def _validate_imported_glb(
         )
 
     tolerance = _nonnegative_number(weight_tolerance, owner="weight_tolerance")
-    weight_sums = [
-        sum(float(group.weight) for group in vertex.groups)
-        for vertex in mesh.data.vertices
-    ]
-    if not weight_sums or any(not math.isfinite(value) for value in weight_sums):
-        raise AnimatedAnimalClosureError("skinned mesh has no finite vertex weights")
+    weight_sums = []
+    for candidate in skinned:
+        for vertex in candidate.data.vertices:
+            if not vertex.groups:
+                raise AnimatedAnimalClosureError(
+                    f"vertex {candidate.name}:{vertex.index} has no skinning weights"
+                )
+            total = 0.0
+            for group in vertex.groups:
+                weight = float(group.weight)
+                if not math.isfinite(weight) or weight < 0.0:
+                    raise AnimatedAnimalClosureError(
+                        f"vertex {candidate.name}:{vertex.index} has an invalid skinning weight"
+                    )
+                total += weight
+            if not math.isfinite(total):
+                raise AnimatedAnimalClosureError(
+                    "skinned mesh has no finite vertex weights"
+                )
+            weight_sums.append(total)
+    if not weight_sums:
+        raise AnimatedAnimalClosureError("skinned mesh has no vertices")
     if min(weight_sums) < 1.0 - tolerance or max(weight_sums) > 1.0 + tolerance:
         raise AnimatedAnimalClosureError(
             f"vertex weights fall outside 1 +/- {tolerance}: "
@@ -545,6 +676,15 @@ def _validate_imported_glb(
     if not bone_names:
         raise AnimatedAnimalClosureError("imported armature has no pose bones to sample")
 
+    rest_numeric = _animation_numeric_bounds(
+        objects,
+        skinned,
+        maximum_abs_position=maximum_abs_position,
+        maximum_abs_scale=maximum_abs_scale,
+    )
+    maximum_position = rest_numeric["max_abs_position"]
+    maximum_scale = rest_numeric["max_abs_scale"]
+
     action_reports: dict[str, Any] = {}
     for name in names:
         action = resolved_actions[name]
@@ -563,8 +703,21 @@ def _validate_imported_glb(
         samples = []
         for frame in sample_frames:
             integer_frame, subframe = blender_frame_components(frame)
-            blender.context.scene.frame_set(integer_frame, subframe=subframe)
-            blender.context.view_layer.update()
+            try:
+                blender.context.scene.frame_set(integer_frame, subframe=subframe)
+                blender.context.view_layer.update()
+            except Exception as error:
+                raise AnimatedAnimalClosureError(
+                    f"action {name!r} cannot be sampled at frame {frame}: {error}"
+                ) from error
+            numeric = _animation_numeric_bounds(
+                objects,
+                skinned,
+                maximum_abs_position=maximum_abs_position,
+                maximum_abs_scale=maximum_abs_scale,
+            )
+            maximum_position = max(maximum_position, numeric["max_abs_position"])
+            maximum_scale = max(maximum_scale, numeric["max_abs_scale"])
             samples.append(_blender_pose_snapshot(armature, bone_names))
         report = summarize_action_samples(
             name,
@@ -582,10 +735,21 @@ def _validate_imported_glb(
         action_reports[name] = report
 
     return {
+        "numeric_bounds": {
+            "max_abs_position": maximum_position,
+            "max_abs_scale": maximum_scale,
+            "limits": {
+                "maximum_abs_position": maximum_abs_position,
+                "maximum_abs_scale": maximum_abs_scale,
+            },
+            "exploded": False,
+        },
         "target": {
             "mesh_object": mesh.name,
-            "vertices": len(mesh.data.vertices),
-            "faces": len(mesh.data.polygons),
+            "mesh_objects": [candidate.name for candidate in skinned],
+            "mesh_count": len(skinned),
+            "vertices": sum(len(candidate.data.vertices) for candidate in skinned),
+            "faces": sum(len(candidate.data.polygons) for candidate in skinned),
             "bones": bone_count,
             "vertex_groups": vertex_group_count,
             "weight_sum_range": [min(weight_sums), max(weight_sums)],
@@ -609,6 +773,8 @@ def validate_animated_animal_closure(
     maximum_cycle_translation_delta: float = DEFAULT_MAX_CYCLE_TRANSLATION_DELTA,
     maximum_cycle_rotation_delta_deg: float = DEFAULT_MAX_CYCLE_ROTATION_DELTA_DEG,
     require_closed_cycle: bool = True,
+    maximum_abs_position: float = DEFAULT_MAXIMUM_ABS_POSITION,
+    maximum_abs_scale: float = DEFAULT_MAXIMUM_ABS_SCALE,
 ) -> dict[str, Any]:
     """Validate manifests and a Blender-imported GLB, returning a report."""
 
@@ -658,6 +824,8 @@ def validate_animated_animal_closure(
         maximum_cycle_translation_delta=maximum_cycle_translation_delta,
         maximum_cycle_rotation_delta_deg=maximum_cycle_rotation_delta_deg,
         require_closed_cycle=require_closed_cycle,
+        maximum_abs_position=maximum_abs_position,
+        maximum_abs_scale=maximum_abs_scale,
     )
     return {
         "schema": REPORT_SCHEMA,
@@ -667,6 +835,7 @@ def validate_animated_animal_closure(
         "required_actions": list(actions),
         "target": blender_summary["target"],
         "actions": blender_summary["actions"],
+        "animation_numeric_bounds": blender_summary["numeric_bounds"],
         "support_plane": {
             key: value
             for key, value in level_summary.items()
@@ -740,61 +909,134 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--required-actions",
         nargs="+",
-        default=list(DEFAULT_REQUIRED_ACTIONS),
+        default=None,
         metavar="ACTION",
     )
     parser.add_argument("--expected-bone-count", type=_positive_int)
     parser.add_argument("--expected-vertex-group-count", type=_positive_int)
     parser.add_argument("--sample-bones", nargs="+", metavar="BONE")
     parser.add_argument(
-        "--weight-tolerance", type=_nonnegative_float, default=DEFAULT_WEIGHT_TOLERANCE
+        "--weight-tolerance", type=_nonnegative_float, default=None
     )
     parser.add_argument(
         "--minimum-pose-translation-delta",
         type=_nonnegative_float,
-        default=DEFAULT_MIN_POSE_TRANSLATION_DELTA,
+        default=None,
     )
     parser.add_argument(
         "--minimum-pose-rotation-delta-deg",
         type=_nonnegative_float,
-        default=DEFAULT_MIN_POSE_ROTATION_DELTA_DEG,
+        default=None,
     )
     parser.add_argument(
         "--maximum-cycle-translation-delta",
         type=_nonnegative_float,
-        default=DEFAULT_MAX_CYCLE_TRANSLATION_DELTA,
+        default=None,
     )
     parser.add_argument(
         "--maximum-cycle-rotation-delta-deg",
         type=_nonnegative_float,
-        default=DEFAULT_MAX_CYCLE_ROTATION_DELTA_DEG,
+        default=None,
     )
     parser.add_argument(
         "--allow-open-cycle",
         action="store_true",
         help="report cycle_closed=false instead of failing an open action",
     )
+    parser.add_argument("--policy-config", "--config", dest="policy_config", type=Path)
+    parser.add_argument("--strategy", choices=STRATEGY_NAMES)
+    parser.add_argument("--maximum-abs-position", type=_nonnegative_float)
+    parser.add_argument("--maximum-abs-scale", type=_nonnegative_float)
     return parser.parse_args(list(argv))
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = parse_args(argv)
     try:
+        policy = load_review_policy(args.policy_config, strategy=args.strategy)
+        closure = policy["closure"]
+        required_actions = (
+            args.required_actions
+            if args.required_actions is not None
+            else closure["required_actions"]
+        )
+        # A fixed bone/group count is reviewer evidence in visual_review.
+        # It remains an assertion only for the explicit strict strategy.
+        expected_bones = (
+            args.expected_bone_count
+            if policy["gate_metrics"] and args.expected_bone_count is not None
+            else policy["expected_bone_count"]
+            if policy["gate_metrics"]
+            else None
+        )
+        expected_groups = (
+            args.expected_vertex_group_count
+            if policy["gate_metrics"] and args.expected_vertex_group_count is not None
+            else policy["expected_vertex_group_count"]
+            if policy["gate_metrics"]
+            else None
+        )
         report = validate_animated_animal_closure(
             args.animated_glb,
             args.level_manifest,
             args.retarget_manifest,
-            required_actions=args.required_actions,
-            expected_bone_count=args.expected_bone_count,
-            expected_vertex_group_count=args.expected_vertex_group_count,
+            required_actions=required_actions,
+            expected_bone_count=expected_bones,
+            expected_vertex_group_count=expected_groups,
             sample_bones=args.sample_bones,
-            weight_tolerance=args.weight_tolerance,
-            minimum_pose_translation_delta=args.minimum_pose_translation_delta,
-            minimum_pose_rotation_delta_deg=args.minimum_pose_rotation_delta_deg,
-            maximum_cycle_translation_delta=args.maximum_cycle_translation_delta,
-            maximum_cycle_rotation_delta_deg=args.maximum_cycle_rotation_delta_deg,
-            require_closed_cycle=not args.allow_open_cycle,
+            weight_tolerance=(
+                args.weight_tolerance
+                if args.weight_tolerance is not None
+                else closure["weight_tolerance"]
+            ),
+            minimum_pose_translation_delta=(
+                args.minimum_pose_translation_delta
+                if args.minimum_pose_translation_delta is not None
+                else closure["minimum_pose_translation_delta"]
+            ),
+            minimum_pose_rotation_delta_deg=(
+                args.minimum_pose_rotation_delta_deg
+                if args.minimum_pose_rotation_delta_deg is not None
+                else closure["minimum_pose_rotation_delta_deg"]
+            ),
+            maximum_cycle_translation_delta=(
+                args.maximum_cycle_translation_delta
+                if args.maximum_cycle_translation_delta is not None
+                else closure["maximum_cycle_translation_delta"]
+            ),
+            maximum_cycle_rotation_delta_deg=(
+                args.maximum_cycle_rotation_delta_deg
+                if args.maximum_cycle_rotation_delta_deg is not None
+                else closure["maximum_cycle_rotation_delta_deg"]
+            ),
+            require_closed_cycle=(
+                False
+                if args.allow_open_cycle
+                else policy["require_closed_cycle"]
+            ),
+            maximum_abs_position=(
+                args.maximum_abs_position
+                if args.maximum_abs_position is not None
+                else closure["maximum_abs_position"]
+            ),
+            maximum_abs_scale=(
+                args.maximum_abs_scale
+                if args.maximum_abs_scale is not None
+                else closure["maximum_abs_scale"]
+            ),
         )
+        report["review_policy"] = {
+            "policy_id": policy["policy_id"],
+            "strategy": policy["strategy"],
+            "fixed_bone_count_advisory": {
+                "requested": args.expected_bone_count,
+                "actual": report["target"]["bones"],
+            },
+            "fixed_vertex_group_count_advisory": {
+                "requested": args.expected_vertex_group_count,
+                "actual": report["target"]["vertex_groups"],
+            },
+        }
         report_path = write_report(args.report, report)
     except AnimatedAnimalClosureError as error:
         print(f"animated animal closure validation failed: {error}", file=sys.stderr)

@@ -250,15 +250,45 @@ def survival(before, after):
             for key, value in sorted(before.items())}
 
 
+def validate_mesh(obj, label):
+    """Return finite mesh dimensions and fail before a malformed mesh is routed."""
+    vertices = len(obj.data.vertices)
+    faces = len(obj.data.polygons)
+    if vertices <= 0 or faces <= 0:
+        raise SystemExit(f"{label} has no valid mesh faces or vertices")
+    coords = np.empty(vertices * 3, dtype=np.float64)
+    obj.data.vertices.foreach_get("co", coords)
+    if not np.isfinite(coords).all():
+        raise SystemExit(f"{label} contains NaN or Inf coordinates")
+    if any(
+        not math.isfinite(float(value))
+        for row in obj.matrix_world
+        for value in row
+    ):
+        raise SystemExit(f"{label} transform contains NaN or Inf")
+    return {
+        "valid": True,
+        "vertices": vertices,
+        "faces": faces,
+        "finite_coordinates": True,
+    }
+
+
 def load_single_mesh(path):
     bpy.ops.wm.read_factory_settings(use_empty=True)
-    bpy.ops.import_scene.gltf(filepath=str(path))
+    try:
+        result = bpy.ops.import_scene.gltf(filepath=str(path))
+    except Exception as error:
+        raise SystemExit(f"Blender could not import input mesh: {error}") from error
+    if "FINISHED" not in result:
+        raise SystemExit(f"Blender could not import input mesh: {result}")
     meshes = [obj for obj in bpy.data.objects if obj.type == "MESH"]
     if not meshes:
         raise SystemExit("no mesh in the input file")
     meshes.sort(key=lambda obj: len(obj.data.vertices), reverse=True)
     for extra in meshes[1:]:
         bpy.data.objects.remove(extra, do_unlink=True)
+    validate_mesh(meshes[0], "input mesh")
     return meshes[0]
 
 
@@ -333,7 +363,9 @@ def bake_albedo(source, target, diagonal, ray_fraction):
     source.select_set(True)
     target.select_set(True)
     bpy.context.view_layer.objects.active = target
-    bpy.ops.object.bake(type="DIFFUSE", pass_filter={"COLOR"}, use_clear=True)
+    result = bpy.ops.object.bake(type="DIFFUSE", pass_filter={"COLOR"}, use_clear=True)
+    if "FINISHED" not in result:
+        raise SystemExit(f"albedo bake did not finish: {result}")
 
 
 def main():
@@ -428,6 +460,7 @@ def main():
         if len(target.data.polygons) >= current:
             break
     report["stages"]["decimated"] = welded_topology(target.data, weld)
+    report["mesh"] = validate_mesh(target, "prepared mesh")
 
     octant_survival = survival(octants_before, octant_census(target.data, centre))
     report["octant_survival"] = octant_survival
@@ -476,8 +509,15 @@ def main():
     image.pack()
     bpy.ops.object.select_all(action="DESELECT")
     target.select_set(True)
-    bpy.ops.export_scene.gltf(filepath=args.output, export_format="GLB", use_selection=True)
-    report["output"] = args.output
+    try:
+        result = bpy.ops.export_scene.gltf(
+            filepath=args.output, export_format="GLB", use_selection=True
+        )
+    except Exception as error:
+        raise SystemExit(f"Blender could not export prepared mesh: {error}") from error
+    if "FINISHED" not in result or not os.path.isfile(args.output):
+        raise SystemExit(f"Blender did not export prepared mesh: {result}")
+    report["output"] = os.path.abspath(args.output)
     report["output_bytes"] = os.path.getsize(args.output)
     with open(args.report, "w", encoding="utf-8") as handle:
         json.dump(report, handle, ensure_ascii=False, indent=1)
