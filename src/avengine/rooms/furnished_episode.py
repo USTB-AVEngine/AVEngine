@@ -14,7 +14,6 @@ import math
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
-from avengine.camera_pose import yaw_rotation_xyzw  # noqa: E402
 from avengine.rooms.furniture_layout import (  # noqa: E402
     DEFAULT_ACTOR_COUNT,
     DEFAULT_SEAT_COUNT,
@@ -146,6 +145,10 @@ def _actor_state(
     frame_index: int,
     pts_ticks: int,
 ) -> dict[str, Any]:
+    # camera_pose itself imports rooms.contracts. Import at call time so
+    # importing that public module does not recurse through rooms.__init__.
+    from avengine.camera_pose import yaw_rotation_xyzw
+
     root_habitat = placement.get("root_position_habitat_m")
     rotation = placement.get("rotation_xyzw")
     root_transform = None

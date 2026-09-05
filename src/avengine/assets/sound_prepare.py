@@ -151,6 +151,7 @@ def prepare_samples(
     *,
     target_rate_hz: int = TARGET_RATE_HZ,
     target_peak_dbfs: float = TARGET_PEAK_DBFS,
+    normalize_peak: bool = True,
 ) -> tuple[np.ndarray, dict[str, Any]]:
     """DC removal, anti-aliased resample, trim, normalise - with a record."""
 
@@ -181,7 +182,8 @@ def prepare_samples(
     peak = float(np.abs(work).max())
     if peak <= 0.0:
         raise PrepareError("clip is digital silence")
-    gain = (10 ** (target_peak_dbfs / 20)) / peak
+    gain = (10 ** (target_peak_dbfs / 20)) / peak if normalize_peak else 1.0
+    facts["peak_normalization"] = bool(normalize_peak)
     facts["applied_gain_db"] = round(20 * np.log10(gain), 2)
     work = work * gain
 

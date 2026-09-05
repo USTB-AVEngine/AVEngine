@@ -459,6 +459,7 @@ def load_room_layout(
     manifest_path: str | Path,
     *,
     asset_root: str | Path | None = None,
+    require_seats: bool = True,
 ) -> dict[str, Any]:
     """Load A/B/C-style room metadata into one object/seat representation.
 
@@ -611,7 +612,7 @@ def load_room_layout(
                     if item.get("facing_source") == "inferred_default":
                         item["facing_yaw_deg"] = derived_yaw
                         item["facing_source"] = "furniture_center_geometry_candidate"
-    if not seats:
+    if require_seats and not seats:
         raise FurnitureLayoutError("room metadata declares no seated affordances")
 
     bounds_xy_m, bounds_source = _geometry_bounds(
@@ -652,7 +653,7 @@ def load_room_layout(
         "manifest_path": str(manifest_file),
         "coordinate_contract": {
             "authoring": "room-local +Z-up metres",
-            "habitat": "[authoring_x, authoring_z, authoring_y]",
+            "habitat": "[authoring_x, authoring_z, -authoring_y]",
         },
         "geometry": {
             "bounds_xy_m": bounds_xy_m,

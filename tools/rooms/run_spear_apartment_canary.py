@@ -560,10 +560,15 @@ def _spawn_runtime_actors(
                 "walk": declaration["walking_animation"],
             }
         )
-        animations = {
-            path: game.unreal_service.load_object(uclass="UAnimationAsset", name=path)
-            for path in animation_paths.values()
-        }
+        animations = {}
+        for path in dict.fromkeys(animation_paths.values()):
+            animation = game.unreal_service.load_object(uclass="UAnimationAsset", name=path)
+            # Python RPC handles are not UObject references seen by UE's GC.
+            # An inactive walk/idle asset can otherwise be collected before a
+            # later transition or target-depth replay uses its cached handle.
+            # Hold only this scenario's animation assets until actor teardown.
+            game.unreal_service.add_object_to_root(uobject=animation)
+            animations[path] = animation
         lengths = {
             path: float(asset.GetPlayLength()) for path, asset in animations.items()
         }
@@ -576,6 +581,7 @@ def _spawn_runtime_actors(
             "visual_root": visual_root,
             "component": component,
             "animations": animations,
+            "animation_asset_owner_service": game.unreal_service,
             "lengths": lengths,
             "current_animation": None,
             "component_frame_correction": component_frame_correction,
@@ -1445,6 +1451,16 @@ def _destroy_runtime_actors(
             runtime["visual_actor"].K2_DestroyActor()
         for runtime in runtimes.values():
             runtime["anchor"].K2_DestroyActor()
+        released = set()
+        for runtime in runtimes.values():
+            service = runtime.get("animation_asset_owner_service")
+            if service is None:
+                continue
+            for animation in runtime.get("animations", {}).values():
+                handle = int(animation.uobject)
+                if handle not in released:
+                    service.remove_object_from_root(uobject=animation)
+                    released.add(handle)
     with instance.end_frame():
         pass
 

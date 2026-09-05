@@ -34,6 +34,7 @@ HM3D_END_TO_END_TEMPLATE = "hm3d_end_to_end"
 KUJIALE_ROUTE_BANK_TEMPLATE = "kujiale_route_bank"
 KUJIALE_VISUAL_EPISODE_TEMPLATE = "kujiale_visual_episode"
 FURNISHED_SEATED_VISUAL_EPISODE_TEMPLATE = "furnished_seated_visual_episode"
+QA_EPISODE_TEMPLATE = "qa_episode"
 KUJIALE_ACOUSTIC_PACKAGE_TEMPLATE = "kujiale_acoustic_package"
 
 # The Habitat runtime activation triplet every headless HM3D tool needs.
@@ -123,6 +124,7 @@ _APARTMENT_E2E_PATH_KEYS = (
 )
 
 TEMPLATE_OVERRIDABLE_KEYS: dict[str, frozenset[str]] = {
+    QA_EPISODE_TEMPLATE: frozenset({"request"}),
     # The MP3D templates accept the room-identity paths as overrides so a
     # submission can target any MP3D room on disk, not only the configured
     # default. Identity travels together: a room manifest from one room with
@@ -713,6 +715,12 @@ def build_template_argv(
             str(_required(merged, template_name, "source_license")),
         ]
         argv += ["--seed", str(int(merged.get("seed", 20260827)))]
+        argv += ["--output", _fresh_output(output_path)]
+        return argv
+
+    if template_name == QA_EPISODE_TEMPLATE:
+        argv = [python, str(repo / "tools/studio/run_qa_episode.py")]
+        _append_paths(argv, merged, template_name, ("request",), repo)
         argv += ["--output", _fresh_output(output_path)]
         return argv
 

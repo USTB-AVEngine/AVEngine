@@ -1,0 +1,585 @@
+"""Deterministic scoring for the unified QA-01..QA-24 question forms.
+
+The scorer accepts one generated question item and a model answer. It never
+reads the hidden engine evidence from the input bundle. MCQ answers are exact
+option matches; open answers use explicit numeric tolerances, closed-set
+normalization, integer count equality, or word-error rate for transcripts.
+Ambiguous answers are invalid and do not silently become wrong answers.
+Refusal terms are tracked as abstained with zero score.
+"""
+
+from __future__ import annotations
+
+import math
+import re
+import unicodedata
+from collections.abc import Mapping, Sequence
+from typing import Any
+
+
+UNIFIED_SCORE_SCHEMA = "avengine_qa_unified_score_v1"
+_NUMBER = re.compile(r"[-+]?(?:\d+(?:\.\d*)?|\.\d+)")
+_ANGLE_MARK = re.compile(
+    r"([-+]?\d+(?:\.\d+)?)\s*(?:°|度|deg(?:ree)?s?)",
+    re.IGNORECASE,
+)
+_TIME_MARK = re.compile(
+    r"([-+]?\d+(?:\.\d+)?)\s*(?:秒|s\b|sec(?:ond)?s?)",
+    re.IGNORECASE,
+)
+_ABSTAIN = (
+    "无法判断",
+    "无法确定",
+    "不知道",
+    "说不准",
+    "不确定",
+    "cannot tell",
+    "can't tell",
+    "not sure",
+    "unable to determine",
+)
+
+
+class UnifiedScoreError(ValueError):
+    """A scoring request is malformed."""
+
+
+def circular_distance_deg(first: float, second: float) -> float:
+    distance = abs(float(first) - float(second)) % 360.0
+    return min(distance, 360.0 - distance)
+
+
+def _number(
+    text: str,
+    *,
+    marked: re.Pattern[str],
+) -> tuple[float | None, str | None]:
+    marked_values = [float(match.group(1)) for match in marked.finditer(text)]
+    if len(marked_values) == 1:
+        return marked_values[0], None
+    if len(marked_values) > 1:
+        return None, f"multiple marked numbers: {marked_values}"
+    bare = [float(match.group(0)) for match in _NUMBER.finditer(text)]
+    if len(bare) == 1:
+        return bare[0], None
+    if not bare:
+        return None, "no number found"
+    return None, f"multiple numbers: {bare}"
+
+
+def _finite_tolerance(value: Any, *, name: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise UnifiedScoreError(f"{name} must be finite and non-negative")
+    number = float(value)
+    if not math.isfinite(number) or number < 0.0:
+        raise UnifiedScoreError(f"{name} must be finite and non-negative")
+    return number
+
+
+def _has_abstention(text: str) -> bool:
+    lowered = unicodedata.normalize("NFKC", text).casefold()
+    return any(term.casefold() in lowered for term in _ABSTAIN)
+
+
+def _canonical_text(text: Any) -> str:
+    if not isinstance(text, str):
+        raise UnifiedScoreError("model answer must be text")
+    return unicodedata.normalize("NFKC", text).casefold().strip()
+
+
+def _closed_match(
+    answer: str,
+    classes: Mapping[str, Sequence[str]],
+) -> tuple[str | None, str | None]:
+    text = _canonical_text(answer)
+    hits: dict[str, str] = {}
+    for label, terms in classes.items():
+        if not isinstance(label, str) or not isinstance(terms, Sequence):
+            continue
+        matches = [
+            _canonical_text(term)
+            for term in terms
+            if isinstance(term, str) and _canonical_text(term)
+        ]
+        best = max((term for term in matches if term in text), key=len, default="")
+        if best:
+            hits[label] = best
+    if not hits:
+        return None, "no vocabulary hit"
+    if len(hits) == 1:
+        return next(iter(hits)), None
+    ordered = sorted(hits, key=lambda label: (-len(hits[label]), label))
+    longest_label = ordered[0]
+    longest_term = hits[longest_label]
+    survivors = [
+        label for label in ordered
+        if not (hits[label] != longest_term and hits[label] in longest_term)
+    ]
+    if len(survivors) == 1:
+        return survivors[0], None
+    return None, f"conflicting vocabulary hits: { {label: hits[label] for label in survivors} }"
+
+
+def score_closed(
+    answer: str,
+    truth: str,
+    classes: Mapping[str, Sequence[str]],
+    *,
+    refusal_allowed: bool = False,
+) -> dict[str, Any]:
+    if _has_abstention(answer):
+        return {
+            "status": "abstained",
+            "score": 0.0,
+            "abstention": True,
+            "refusal_allowed": bool(refusal_allowed),
+        }
+    label, reason = _closed_match(answer, classes)
+    if label is None:
+        return {"status": "invalid", "reason": reason, "score": 0.0}
+    return {
+        "status": "scored",
+        "parsed": label,
+        "score": 1.0 if label == str(truth) else 0.0,
+        "abstention": False,
+    }
+
+
+def _count_tokens(answer: str) -> tuple[list[int] | None, str | None]:
+    tokens = re.findall(
+        r"[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?",
+        answer,
+    )
+    values: list[int] = []
+    for token in tokens:
+        if "e" in token.casefold():
+            return None, "counts require plain decimal integers"
+        signless = token[1:] if token[:1] in "+-" else token
+        if "." in signless and signless.rstrip("0").rstrip(".") != signless.split(".", 1)[0]:
+            return None, "counts require integer values"
+        try:
+            value = int(token)
+        except ValueError:
+            return None, "invalid count value"
+        if value < 0:
+            return None, "counts cannot be negative"
+        values.append(value)
+    return values, None
+
+
+def score_counts(answer: str, truth: Sequence[int]) -> dict[str, Any]:
+    if not truth or any(
+        isinstance(value, bool) or not isinstance(value, int) or value < 0
+        for value in truth
+    ):
+        return {"status": "invalid", "reason": "count truth must be nonnegative integers", "score": 0.0}
+    values, reason = _count_tokens(answer)
+    if values is None:
+        return {"status": "invalid", "reason": reason, "score": 0.0}
+    if len(values) != len(truth):
+        return {
+            "status": "invalid",
+            "reason": f"expected {len(truth)} number(s), found {len(values)}",
+            "score": 0.0,
+        }
+    return {
+        "status": "scored",
+        "parsed": values,
+        "score": 1.0 if list(values) == [int(value) for value in truth] else 0.0,
+    }
+
+
+def _normalization(form: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, Any]:
+    value = form.get("normalization") or params.get("TRANSCRIPT_NORMALIZATION")
+    if value is None:
+        value = {
+            "unicode_form": "NFKC",
+            "casefold": True,
+            "punctuation": "space",
+        }
+    if not isinstance(value, Mapping):
+        raise UnifiedScoreError("transcript normalization must be an object")
+    required = {"unicode_form", "casefold", "punctuation"}
+    if set(value) != required:
+        raise UnifiedScoreError(
+            f"transcript normalization requires exactly {sorted(required)}"
+        )
+    if value["unicode_form"] not in {"NFC", "NFKC", "none"}:
+        raise UnifiedScoreError("transcript unicode_form must be NFC, NFKC, or none")
+    if not isinstance(value["casefold"], bool):
+        raise UnifiedScoreError("transcript casefold must be boolean")
+    if value["punctuation"] not in {"keep", "space", "remove"}:
+        raise UnifiedScoreError("transcript punctuation must be keep, space, or remove")
+    return dict(value)
+
+
+def _words(text: str, policy: Mapping[str, Any]) -> list[str]:
+    if policy["unicode_form"] != "none":
+        text = unicodedata.normalize(policy["unicode_form"], text)
+    if policy["casefold"]:
+        text = text.casefold()
+    punctuation = policy["punctuation"]
+    if punctuation != "keep":
+        replacement = " " if punctuation == "space" else ""
+        text = "".join(
+            replacement if unicodedata.category(char).startswith("P") else char
+            for char in text
+        )
+    return text.split()
+
+
+def score_transcript(
+    answer: str,
+    truth: Any,
+    *,
+    form: Mapping[str, Any],
+    params: Mapping[str, Any],
+) -> dict[str, Any]:
+    if not isinstance(truth, str):
+        return {"status": "invalid", "reason": "transcript truth must be text", "score": 0.0}
+    if form.get("reject_multiple_statements", False):
+        normalized_answer = _canonical_text(answer)
+        classes = form.get("classes")
+        matched_candidates = 0
+        if isinstance(classes, Mapping):
+            for terms in classes.values():
+                if isinstance(terms, Sequence) and any(
+                    isinstance(term, str)
+                    and _canonical_text(term)
+                    and _canonical_text(term) in normalized_answer
+                    for term in terms
+                ):
+                    matched_candidates += 1
+        if matched_candidates > 1 or re.search(r"[;；\n\r]", answer):
+            return {
+                "status": "invalid",
+                "reason": "multiple candidate statements in transcript answer",
+                "score": 0.0,
+            }
+    policy = _normalization(form, params)
+    reference = _words(truth, policy)
+    hypothesis = _words(answer, policy)
+    if not reference:
+        return {"status": "invalid", "reason": "transcript truth is empty", "score": 0.0}
+    previous = list(range(len(hypothesis) + 1))
+    for row, reference_word in enumerate(reference, start=1):
+        current = [row]
+        for column, hypothesis_word in enumerate(hypothesis, start=1):
+            current.append(
+                min(
+                    current[-1] + 1,
+                    previous[column] + 1,
+                    previous[column - 1] + (reference_word != hypothesis_word),
+                )
+            )
+        previous = current
+    edits = previous[-1]
+    wer = edits / len(reference)
+    return {
+        "status": "scored",
+        "metric": "word_error_rate",
+        "word_edits": edits,
+        "reference_word_count": len(reference),
+        "hypothesis_word_count": len(hypothesis),
+        "wer": wer,
+        "score": max(0.0, 1.0 - wer),
+        "exact_match": edits == 0,
+        "normalization": policy,
+    }
+
+
+def score_angle(
+    answer: str,
+    truth: Any,
+    *,
+    full_tolerance_deg: float,
+    half_tolerance_deg: float,
+    convention: str = "right_positive",
+    strict: bool = False,
+) -> dict[str, Any]:
+    value, reason = _number(answer, marked=_ANGLE_MARK)
+    if value is None:
+        return {"status": "invalid", "reason": reason, "score": 0.0}
+    lowered = answer.casefold()
+    has_left = "左" in lowered or "left" in lowered
+    has_right = "右" in lowered or "right" in lowered
+    if has_left and has_right:
+        return {"status": "invalid", "reason": "both left and right are present", "score": 0.0}
+    if (has_left or has_right) and value < 0:
+        return {"status": "invalid", "reason": "direction word conflicts with negative angle", "score": 0.0}
+    if convention == "left_positive":
+        if has_left:
+            parsed = value
+        elif has_right:
+            parsed = -value
+        else:
+            parsed = value
+    elif convention == "right_positive":
+        if has_left:
+            parsed = -value
+        elif has_right:
+            parsed = value
+        else:
+            parsed = value
+    else:
+        return {"status": "invalid", "reason": f"unknown angle convention {convention!r}", "score": 0.0}
+    if isinstance(truth, Mapping):
+        truth = truth.get("azimuth_deg", truth.get("value"))
+    try:
+        target = float(truth)
+    except (TypeError, ValueError):
+        return {"status": "invalid", "reason": "angle truth is not numeric", "score": 0.0}
+    full = _finite_tolerance(full_tolerance_deg, name="full_tolerance_deg")
+    half = _finite_tolerance(half_tolerance_deg, name="half_tolerance_deg")
+    if full > half:
+        raise UnifiedScoreError("full angle tolerance cannot exceed half tolerance")
+    error = circular_distance_deg(parsed, target)
+    diagnostic = 1.0 if error <= full else 0.5 if error <= half else 0.0
+    return {
+        "status": "scored",
+        "parsed": parsed,
+        "circular_error_deg": error,
+        "score": 1.0 if error <= full else 0.0 if strict else diagnostic,
+        "diagnostic_two_tier_score": diagnostic,
+        "angle_convention": convention,
+    }
+
+
+def score_time(
+    answer: str,
+    truth: Any,
+    *,
+    full_tolerance_s: float,
+    half_tolerance_s: float,
+    strict: bool = False,
+) -> dict[str, Any]:
+    value, reason = _number(answer, marked=_TIME_MARK)
+    if value is None:
+        return {"status": "invalid", "reason": reason, "score": 0.0}
+    try:
+        target = float(truth)
+    except (TypeError, ValueError):
+        return {"status": "invalid", "reason": "time truth is not numeric", "score": 0.0}
+    full = _finite_tolerance(full_tolerance_s, name="full_tolerance_s")
+    half = _finite_tolerance(half_tolerance_s, name="half_tolerance_s")
+    if full > half:
+        raise UnifiedScoreError("full time tolerance cannot exceed half tolerance")
+    error = abs(value - target)
+    diagnostic = 1.0 if error <= full else 0.5 if error <= half else 0.0
+    return {
+        "status": "scored",
+        "parsed": value,
+        "absolute_error_s": error,
+        "score": 1.0 if error <= full else 0.0 if strict else diagnostic,
+        "diagnostic_two_tier_score": diagnostic,
+    }
+
+
+def score_mcq(form: Mapping[str, Any], answer: str) -> dict[str, Any]:
+    options = form.get("options")
+    gold = form.get("gold")
+    if not isinstance(options, Sequence) or not options or not isinstance(gold, Mapping):
+        return {"status": "invalid", "reason": "MCQ form is missing options or gold", "score": 0.0}
+    correct_index = gold.get("correct_index")
+    if isinstance(correct_index, bool) or not isinstance(correct_index, int):
+        return {"status": "invalid", "reason": "MCQ correct index is invalid", "score": 0.0}
+    raw = _canonical_text(answer)
+    parsed_indices: set[int] = set()
+    if re.fullmatch(r"[a-z]", raw):
+        parsed_indices.add(ord(raw) - ord("a"))
+    elif re.fullmatch(r"[1-9]\d*", raw):
+        number = int(raw)
+        if 1 <= number <= len(options):
+            parsed_indices.add(number - 1)
+    elif raw == "0":
+        parsed_indices.add(0)
+    for index, option in enumerate(options):
+        if not isinstance(option, Mapping):
+            continue
+        terms = {
+            _canonical_text(option.get("label_en", "")),
+            _canonical_text(option.get("label_zh", "")),
+        }
+        if bool(option.get("allow_value", True)):
+            terms.add(_canonical_text(option.get("value", "")))
+        if raw in terms and raw:
+            parsed_indices.add(index)
+    if len(parsed_indices) != 1:
+        return {
+            "status": "invalid",
+            "reason": "MCQ answer does not identify exactly one option",
+            "score": 0.0,
+        }
+    parsed = next(iter(parsed_indices))
+    return {
+        "status": "scored",
+        "parsed_index": parsed,
+        "correct_index": correct_index,
+        "score": 1.0 if parsed == correct_index else 0.0,
+    }
+
+
+def score_open_form(
+    form: Mapping[str, Any],
+    answer: str,
+    *,
+    params: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    params = params or {}
+    answer_type = form.get("answer_type")
+    truth = form.get("truth")
+    if answer_type == "closed_set":
+        classes = form.get("classes")
+        if not isinstance(classes, Mapping):
+            return {"status": "invalid", "reason": "closed-set form has no classes", "score": 0.0}
+        return score_closed(
+            answer,
+            str(truth),
+            classes,
+            refusal_allowed=bool(form.get("refusal_truth", False)),
+        )
+    if answer_type == "transcript_wer":
+        return score_transcript(answer, truth, form=form, params=params)
+    if answer_type == "angle_deg":
+        full = form.get("theta_full_deg", params.get("THETA_FULL", 15.0))
+        half = form.get("theta_half_deg", params.get("THETA_HALF", 30.0))
+        return score_angle(
+            answer,
+            truth,
+            full_tolerance_deg=full,
+            half_tolerance_deg=half,
+            convention=str(form.get("convention", "right_positive")),
+            strict=bool(form.get("strict_certification", False)),
+        )
+    if answer_type == "time_s":
+        full = form.get("t_full_s", params.get("T_FULL", 0.3))
+        half = form.get("t_half_s", params.get("T_HALF", 1.0))
+        return score_time(
+            answer,
+            truth,
+            full_tolerance_s=full,
+            half_tolerance_s=half,
+            strict=bool(form.get("strict_certification", False)),
+        )
+    if answer_type in {"count_pair", "count_single"}:
+        values = truth if isinstance(truth, Sequence) and not isinstance(truth, (str, bytes)) else [truth]
+        return score_counts(answer, values)
+    return {"status": "invalid", "reason": f"unknown open answer type {answer_type!r}", "score": 0.0}
+
+
+def score_unified_item(
+    item: Mapping[str, Any],
+    answer: Any,
+    *,
+    form: str = "open",
+    params: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    if not isinstance(item, Mapping) or item.get("status") != "pass":
+        return {
+            "status": "invalid",
+            "reason": "question item is not a valid candidate",
+            "score": 0.0,
+        }
+    forms = item.get("forms")
+    if not isinstance(forms, Mapping) or form not in forms:
+        return {
+            "status": "invalid",
+            "reason": f"question item has no {form} form",
+            "score": 0.0,
+        }
+    text = str(answer)
+    result = (
+        score_mcq(forms[form], text)
+        if form == "mcq"
+        else score_open_form(forms[form], text, params=params)
+    )
+    result["question_id"] = item.get("question_id")
+    result["qa_id"] = item.get("qa_id")
+    result["form"] = form
+    return result
+
+
+def score_unified_question_set(
+    question_set: Mapping[str, Any],
+    answers: Mapping[str, Any] | Sequence[Mapping[str, Any]],
+    *,
+    form: str = "open",
+    params: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    items = question_set.get("items") if isinstance(question_set, Mapping) else None
+    if not isinstance(items, Sequence):
+        raise UnifiedScoreError("question set has no items")
+    answer_map: dict[str, Any] = {}
+    if isinstance(answers, Mapping):
+        for key, value in answers.items():
+            answer_map[str(key)] = value
+    elif isinstance(answers, Sequence) and not isinstance(answers, (str, bytes)):
+        for record in answers:
+            if not isinstance(record, Mapping) or not isinstance(record.get("question_id"), str):
+                raise UnifiedScoreError("answer records need question_id")
+            answer_map[record["question_id"]] = record.get(
+                "answer", record.get("model_answer", "")
+            )
+    else:
+        raise UnifiedScoreError("answers must be a mapping or records")
+    records: list[dict[str, Any]] = []
+    for item in items:
+        if not isinstance(item, Mapping):
+            continue
+        question_id = item.get("question_id")
+        if not isinstance(question_id, str):
+            continue
+        if question_id not in answer_map:
+            records.append(
+                {
+                    "status": "invalid",
+                    "reason": "model answer is missing",
+                    "score": 0.0,
+                    "question_id": question_id,
+                    "qa_id": item.get("qa_id"),
+                    "form": form,
+                }
+            )
+            continue
+        records.append(
+            score_unified_item(item, answer_map[question_id], form=form, params=params)
+        )
+    scored = [record for record in records if record.get("status") == "scored"]
+    return {
+        "schema": UNIFIED_SCORE_SCHEMA,
+        "status": "research_candidate",
+        "qualification_claim": False,
+        "form": form,
+        "counts": {
+            "total": len(records),
+            "scored": len(scored),
+            "invalid": sum(record.get("status") == "invalid" for record in records),
+            "abstained": sum(record.get("status") == "abstained" for record in records),
+        },
+        "mean_score_over_all": (
+            sum(float(record.get("score", 0.0)) for record in records) / len(records)
+            if records
+            else None
+        ),
+        "records": records,
+        "claim_boundary": (
+            "Scores describe supplied model answers against research candidate "
+            "golds; they do not certify data validity or modality necessity."
+        ),
+    }
+
+
+__all__ = [
+    "UNIFIED_SCORE_SCHEMA",
+    "UnifiedScoreError",
+    "circular_distance_deg",
+    "score_angle",
+    "score_closed",
+    "score_counts",
+    "score_mcq",
+    "score_open_form",
+    "score_time",
+    "score_transcript",
+    "score_unified_item",
+    "score_unified_question_set",
+]

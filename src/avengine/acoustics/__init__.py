@@ -5,6 +5,12 @@ from avengine.acoustics.calibration import (
     BroadbandEDTCalibrationResult,
     calibrate_broadband_edt_seconds,
 )
+from avengine.acoustics.dynamic_cache import (
+    DYNAMIC_RIR_CACHE_SCHEMA,
+    DynamicRIRCacheError,
+    DynamicRIRCachePayload,
+    load_dynamic_rir_cache,
+)
 
 from avengine.acoustics.compiler import (
     AcousticSceneCompileError,
@@ -75,6 +81,10 @@ __all__ = [
     "validate_material_profile",
     "verify_compile_evidence",
     "verify_soundspaces2_real_rir_reference",
+    "DYNAMIC_RIR_CACHE_SCHEMA",
+    "DynamicRIRCacheError",
+    "DynamicRIRCachePayload",
+    "load_dynamic_rir_cache",
     "build_rlr_material_import_report",
     "compile_rlr_semantic_material_documents",
     "import_rlr_material_database",

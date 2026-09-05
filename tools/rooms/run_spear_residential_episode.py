@@ -222,6 +222,58 @@ def _spawn_multimodal_camera(
     return camera, components
 
 
+
+def _validate_native_route_replay(instance: Any, game: Any, episode: Mapping[str, Any]) -> dict[str, Any]:
+    """Re-query the loaded UE Recast mesh for retained bank path segments."""
+    if episode.get("activity_plan", {}).get("authority") != "native_spear_ue_recast_route_bank":
+        return {"status": "not_requested"}
+    from avengine.backends.spear_ue.research_runtime import run_frame_transaction
+    import importlib.util
+    helper_path = REPOSITORY / "tools/routes/build_apartment_route_bank.py"
+    spec = importlib.util.spec_from_file_location("avengine_native_route_bank_reader", helper_path)
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+    navigation_data, navigation_system, data_name = module._navigation_handles(instance, game)
+    frames = episode["visual_plan"]["frames"]
+    pairs = []
+    for actor in episode["visual_plan"]["actors"]:
+        aid = actor["actor_id"]
+        path = np.array([next(x for x in f["actor_states"] if x["actor_id"] == aid)["translation_ue_cm"]
+                         for f in frames], dtype=np.float64)
+        for first in range(0, len(path) - 1, 5):
+            last = min(first + 5, len(path) - 1)
+            length = float(np.linalg.norm(np.diff(path[first:last + 1], axis=0), axis=1).sum())
+            if length > 0.01:
+                pairs.append((aid, first, last, path[first], path[last], length))
+    _require(bool(pairs), "native route replay contains no moving segments")
+    starts = np.ascontiguousarray([x[3] for x in pairs], dtype=np.float64)
+    ends = np.ascontiguousarray([x[4] for x in pairs], dtype=np.float64)
+    paths = run_frame_transaction(
+        instance, apply=lambda: None,
+        readback=lambda: game.navigation_service.find_paths(
+            navigation_system=navigation_system, navigation_data=navigation_data,
+            num_paths=len(pairs), start_points=starts, end_points=ends,
+            require_navigable_end_locations=np.ones(len(pairs), dtype=np.uint8)))
+    _require(len(paths) == len(pairs), "native Recast path count mismatch")
+    records = []
+    for pair, raw in zip(pairs, paths, strict=True):
+        aid, first, last, start, end, intended_length = pair
+        points = np.asarray(raw, dtype=np.float64)
+        _require(points.ndim == 2 and len(points) >= 2 and points.shape[1] == 3,
+                 f"native Recast rejected {aid} frames {first}:{last}")
+        endpoint_error = max(float(np.linalg.norm(points[0] - start)),
+                             float(np.linalg.norm(points[-1] - end)))
+        actual_length = float(np.linalg.norm(np.diff(points, axis=0), axis=1).sum())
+        _require(endpoint_error <= 5.0 and actual_length <= intended_length + 5.0,
+                 f"retained path differs from current native navigation: {aid} {first}:{last}")
+        records.append({"actor_id": aid, "start_frame": first, "end_frame": last,
+                        "endpoint_error_cm": endpoint_error,
+                        "native_path_length_cm": actual_length, "planned_segment_length_cm": intended_length})
+    return {"status": "pass", "authority": "current_loaded_UE_Recast",
+            "navigation_actor": data_name, "segments": records,
+            "claim_boundary": "current native source-center navigation; body-envelope review is separate"}
+
 def _derive_native_pixel_masks(
     *,
     normal_depths: list[np.ndarray],
@@ -928,6 +980,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     runtimes: dict[str, dict[str, Any]] = {}
     light_records: list[dict[str, Any]] = []
     stage_actor_count = 0
+    level_readback = {"status": "not_run"}
     actor_readbacks = {actor_id: [] for actor_id in actor_ids}
     animation_readbacks = {actor_id: [] for actor_id in actor_ids}
     actor_bounds = {actor_id: [] for actor_id in actor_ids}
@@ -1003,6 +1056,13 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             instance.step(num_frames=2)
 
         with instance.begin_frame():
+            actual_level = str(game.get_unreal_object(uclass="UGameplayStatics").GetCurrentLevelName(
+                bRemovePrefixString=True))
+            expected_level = str(episode["scene"]["map_path"]).rsplit("/", 1)[-1]
+            _require(actual_level == expected_level,
+                     f"loaded UE map differs from plan: {actual_level!r} != {expected_level!r}")
+            level_readback = {"status": "pass", "expected": expected_level,
+                              "observed": actual_level, "method": "UGameplayStatics.GetCurrentLevelName"}
             stage_actor_count = len(
                 game.unreal_service.find_actors_by_class(uclass="AUsdStageActor")
             )
@@ -1012,6 +1072,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             raise RuntimeError(
                 f"expected {args.expected_stage_actor_count} UsdStageActor(s), got {stage_actor_count}"
             )
+        navigation_readback = _validate_native_route_replay(instance, game, episode)
+        _write(output / "native_navigation_readback.json", navigation_readback)
 
         for frame_index, frame in enumerate(plan["frames"]):
             native_frame_readback: dict[str, Any] | None = None
@@ -1070,7 +1132,14 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
 
         if native_multimodal:
             _require(components is not None, "native multimodal components are missing")
+            _write(output / "normal_pass_readbacks.json", {
+                "clock": clock.to_dict(), "camera": camera_readbacks,
+                "actors": actor_readbacks, "animations": animation_readbacks,
+                "bounds": actor_bounds, "emitters": emitter_readbacks,
+                "status": "normal_pass_complete_target_depth_pending",
+            })
             for target_actor_id in actor_ids:
+                print(f"[residential] target-only depth: {target_actor_id}", flush=True)
                 target_depths_by_actor[target_actor_id] = []
                 target_readbacks[target_actor_id] = []
                 with instance.begin_frame():
@@ -1108,6 +1177,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                         target_depth = _depth_native(components["depth"])
                     target_depths_by_actor[target_actor_id].append(target_depth)
                     target_readbacks[target_actor_id].append(target_frame_readback)
+                print(f"[residential] target-only complete: {target_actor_id}, {len(target_readbacks[target_actor_id])} frames", flush=True)
+            print("[residential] all native passes complete; closing UE before evidence compression", flush=True)
     finally:
         if runtimes:
             try:
@@ -1134,6 +1205,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
 
     native_pixel: dict[str, Any] | None = None
     if native_multimodal:
+        print("[residential] compressing complete native pixel evidence", flush=True)
         native_pixel = _finalize_native_pixel_artifacts(
             output=output,
             episode=episode,
@@ -1217,6 +1289,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             "backend_role": episode["visual_plan"]["backend_role"],
             "scene": episode["scene"],
             "stage_actor_count": stage_actor_count,
+            "native_level_readback": level_readback,
             "runtime_review_lights": light_records,
             "capture_exposure_readback": exposure_readback,
             "visual_lighting": episode["visual_lighting"],
@@ -1318,6 +1391,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--rpc-port", type=int, default=39379)
     parser.add_argument("--graphics-adapter", type=int, default=0)
+    parser.add_argument("--ddc-profile", help="optional installed UE derived-data cache profile")
+    parser.add_argument("--ddc-directory", type=Path, help="task-owned reusable UE derived-data cache")
     parser.add_argument("--width", type=int, default=WIDTH)
     parser.add_argument("--height", type=int, default=HEIGHT)
     parser.add_argument("--exposure-bias-ev", type=float,
