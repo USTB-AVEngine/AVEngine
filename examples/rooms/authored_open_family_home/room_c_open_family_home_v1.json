@@ -1,0 +1,299 @@
+{
+  "status": "research_candidate_spec",
+  "qualification_claim": false,
+  "formal_dataset_count": 0,
+  "room_spec_id": "authored_open_family_home_room_c_v1",
+  "room_family_id": "authored_open_family_home_v1",
+  "topology_family": "open_family_great_room_v1",
+  "style_id": "warm_scandinavian",
+  "seed": 20260905,
+  "coordinate_system": {
+    "authoring_up": "+Z",
+    "export_up": "+Y",
+    "linear_unit": "meter"
+  },
+  "envelope": {
+    "bounds_xy_m": [-7.2, -5.2, 7.2, 5.2],
+    "wall_height_m": 3.10,
+    "exterior_wall_thickness_m": 0.24,
+    "interior_wall_thickness_m": 0.14
+  },
+  "zones": [
+    {"zone_id":"entry_gallery","bounds_xy_m":[-7.2,-5.2,-5.05,5.2],"floor_material":"stone","role":"arrival"},
+    {"zone_id":"great_room","bounds_xy_m":[-5.05,-5.2,2.05,5.2],"floor_material":"wood","role":"open_family_social"},
+    {"zone_id":"kitchen","bounds_xy_m":[2.05,0.75,7.2,5.2],"floor_material":"wood","role":"food_work"},
+    {"zone_id":"study_lounge","bounds_xy_m":[2.05,-5.2,7.2,0.75],"floor_material":"wood","role":"quiet_work_rest"}
+  ],
+  "links": [
+    {"link_id":"gallery_to_great_room","zones":["entry_gallery","great_room"],"kind":"wide_opening","center_xy_m":[-5.05,0.0],"width_m":3.80,"head_m":2.65},
+    {"link_id":"great_room_to_kitchen","zones":["great_room","kitchen"],"kind":"wide_opening","center_xy_m":[2.05,3.05],"width_m":3.20,"head_m":2.65},
+    {"link_id":"great_room_to_study_lounge","zones":["great_room","study_lounge"],"kind":"wide_opening","center_xy_m":[2.05,-2.10],"width_m":3.70,"head_m":2.65},
+    {"link_id":"kitchen_to_study_lounge","zones":["kitchen","study_lounge"],"kind":"open_shelving","center_xy_m":[4.55,0.75],"width_m":3.15,"head_m":2.55}
+  ],
+  "exterior_openings": [
+    {"opening_id":"main_entry","zone":"entry_gallery","side":"W","kind":"doorway","center_xy_m":[-7.2,0.0],"width_m":1.25,"sill_m":0.0,"head_m":2.35},
+    {"opening_id":"great_room_south_glazing","zone":"great_room","side":"S","kind":"window","center_xy_m":[-1.25,-5.2],"width_m":3.40,"sill_m":0.52,"head_m":2.58},
+    {"opening_id":"great_room_north_glazing","zone":"great_room","side":"N","kind":"window","center_xy_m":[-1.40,5.2],"width_m":3.20,"sill_m":0.62,"head_m":2.60},
+    {"opening_id":"kitchen_east_window","zone":"kitchen","side":"E","kind":"window","center_xy_m":[7.2,3.20],"width_m":2.60,"sill_m":1.02,"head_m":2.55},
+    {"opening_id":"study_east_window","zone":"study_lounge","side":"E","kind":"window","center_xy_m":[7.2,-2.35],"width_m":2.35,"sill_m":0.72,"head_m":2.50},
+    {"opening_id":"gallery_north_window","zone":"entry_gallery","side":"N","kind":"window","center_xy_m":[-6.1,5.2],"width_m":1.35,"sill_m":1.00,"head_m":2.42}
+  ],
+  "furnishing_assemblies": [
+    {
+      "kind":"entry",
+      "bench_center_xy_m":[-6.10,2.70],
+      "slat_center_xy_m":[-6.65,2.70],
+      "mirror_center_xy_m":[-6.62,1.00],
+      "drop_shelf_center_xy_m":[-6.25,3.65],
+      "yaw_deg":90.0,
+      "mirror_yaw_deg":90.0
+    },
+    {
+      "kind":"kitchen",
+      "run_center_xy_m":[5.35,4.62],
+      "run_length_m":3.30,
+      "fridge_local_x_m":-1.12,
+      "sink_local_x_m":0.98,
+      "cooktop_local_x_m":0.40,
+      "microwave_local_x_m":-0.46,
+      "kettle_local_x_m":0.30,
+      "trash_local_x_m":1.40,
+      "island_center_xy_m":[3.45,2.05],
+      "island_length_m":2.65,
+      "island_width_m":1.05,
+      "island_yaw_deg":0.0,
+      "panel_count":4,
+      "yaw_deg":180.0
+    },
+    {
+      "kind":"dining",
+      "center_xy_m":[0.05,-1.80],
+      "length_m":2.60,
+      "width_m":1.15,
+      "chair_count":4,
+      "yaw_deg":0.0
+    },
+    {
+      "kind":"dining",
+      "center_xy_m":[3.95,0.55],
+      "length_m":1.65,
+      "width_m":0.78,
+      "chair_count":2,
+      "yaw_deg":90.0
+    },
+    {
+      "kind":"living",
+      "sofa_center_xy_m":[-2.35,2.55],
+      "sofa_width_m":3.85,
+      "sofa_yaw_deg":0.0,
+      "rug_center_xy_m":[-2.35,0.95],
+      "rug_dimensions_m":[4.40,2.55,0.035],
+      "rug_yaw_deg":0.0,
+      "dog_bed_center_xy_m":[0.65,3.65],
+      "dog_bed_dimensions_m":[1.10,0.82,0.27],
+      "plant_center_xy_m":[0.55,1.65],
+      "tv_center_xy_m":[-4.25,2.60],
+      "tv_yaw_deg":90.0,
+      "tv_console_width_m":1.85,
+      "tv_width_m":1.55
+    },
+    {
+      "kind":"living",
+      "sofa_center_xy_m":[4.00,-2.90],
+      "sofa_width_m":2.45,
+      "sofa_yaw_deg":90.0,
+      "rug_center_xy_m":[4.35,-2.75],
+      "rug_dimensions_m":[2.55,2.15,0.035],
+      "rug_yaw_deg":90.0,
+      "dog_bed_center_xy_m":[6.10,-3.75],
+      "dog_bed_dimensions_m":[0.95,0.72,0.24],
+      "plant_center_xy_m":[3.00,-4.15],
+      "tv_center_xy_m":[6.15,-1.05],
+      "tv_yaw_deg":90.0,
+      "tv_console_width_m":1.35,
+      "tv_width_m":1.15
+    },
+    {
+      "kind":"study",
+      "desk_center_xy_m":[5.25,-0.05],
+      "desk_width_m":1.85,
+      "desk_depth_m":0.72,
+      "chair_local_y_m":-0.82,
+      "bookcase_center_xy_m":[6.35,0.45],
+      "bookcase_yaw_deg":90.0,
+      "yaw_deg":90.0
+    }
+  ],
+  "anchors": {
+    "entry_threshold":[-6.55,0.0,0.0],
+    "gallery_turn_north":[-5.70,3.80,0.0],
+    "gallery_turn_south":[-5.70,-3.80,0.0],
+    "great_room_center":[-1.55,0.0,0.0],
+    "great_room_south_view":[-1.55,-4.30,1.60],
+    "great_room_north_view":[-1.55,4.30,1.60],
+    "main_dining_table_edge":[0.05,-1.05,0.0],
+    "main_dining_seat_0":[-0.95,-1.80,0.0],
+    "main_dining_seat_1":[0.95,-1.80,0.0],
+    "main_dining_seat_2":[-0.95,-2.75,0.0],
+    "main_dining_seat_3":[0.95,-2.75,0.0],
+    "breakfast_table_edge":[3.95,0.15,0.0],
+    "breakfast_seat_0":[3.95,-0.15,0.0],
+    "breakfast_seat_1":[3.95,1.25,0.0],
+    "kitchen_work_zone":[5.30,3.85,0.0],
+    "kitchen_island_edge":[3.45,1.45,0.0],
+    "study_desk":[5.25,-0.05,0.0],
+    "study_lounge_center":[4.00,-2.90,0.0],
+    "study_rest_view":[2.70,-3.95,1.60],
+    "open_room_crossing_a":[-3.80,0.0,0.0],
+    "open_room_crossing_b":[2.80,0.0,0.0]
+  },
+  "semantic_objects": [
+    {
+      "object_id":"main_dining_table",
+      "category":"table",
+      "zone_id":"great_room",
+      "center_xy_m":[0.05,-1.80],
+      "size_xyz_m":[2.60,1.15,0.78],
+      "navigation_role":"ground_blocker",
+      "static":true,
+      "seat_points":[
+        {"anchor_id":"main_dining_seat_0","position_m":[-0.95,-1.80,0.0],"facing_yaw_deg":0.0,"support_height_m":0.46},
+        {"anchor_id":"main_dining_seat_1","position_m":[0.95,-1.80,0.0],"facing_yaw_deg":180.0,"support_height_m":0.46},
+        {"anchor_id":"main_dining_seat_2","position_m":[-0.95,-2.75,0.0],"facing_yaw_deg":90.0,"support_height_m":0.46},
+        {"anchor_id":"main_dining_seat_3","position_m":[0.95,-2.75,0.0],"facing_yaw_deg":-90.0,"support_height_m":0.46}
+      ]
+    },
+    {
+      "object_id":"breakfast_table",
+      "category":"table",
+      "zone_id":"kitchen",
+      "center_xy_m":[3.95,0.55],
+      "size_xyz_m":[1.65,0.78,0.78],
+      "navigation_role":"ground_blocker",
+      "static":true,
+      "seat_points":[
+        {"anchor_id":"breakfast_seat_0","position_m":[3.95,-0.15,0.0],"facing_yaw_deg":90.0,"support_height_m":0.46},
+        {"anchor_id":"breakfast_seat_1","position_m":[3.95,1.25,0.0],"facing_yaw_deg":-90.0,"support_height_m":0.46}
+      ]
+    },
+    {
+      "object_id":"main_sectional",
+      "category":"sofa",
+      "zone_id":"great_room",
+      "center_xy_m":[-2.35,2.55],
+      "size_xyz_m":[3.85,1.02,0.86],
+      "navigation_role":"ground_blocker",
+      "static":true,
+      "seat_points":[
+        {"anchor_id":"sectional_seat_0","position_m":[-3.35,2.05,0.0],"facing_yaw_deg":180.0,"support_height_m":0.45},
+        {"anchor_id":"sectional_seat_1","position_m":[-2.35,2.05,0.0],"facing_yaw_deg":180.0,"support_height_m":0.45},
+        {"anchor_id":"sectional_seat_2","position_m":[-1.35,2.05,0.0],"facing_yaw_deg":180.0,"support_height_m":0.45}
+      ]
+    },
+    {
+      "object_id":"study_lounge_section",
+      "category":"sofa",
+      "zone_id":"study_lounge",
+      "center_xy_m":[4.00,-2.90],
+      "size_xyz_m":[2.45,1.02,0.86],
+      "navigation_role":"ground_blocker",
+      "static":true,
+      "seat_points":[
+        {"anchor_id":"study_lounge_seat_0","position_m":[3.55,-2.90,0.0],"facing_yaw_deg":90.0,"support_height_m":0.45},
+        {"anchor_id":"study_lounge_seat_1","position_m":[4.45,-2.90,0.0],"facing_yaw_deg":90.0,"support_height_m":0.45}
+      ]
+    },
+    {
+      "object_id":"kitchen_island",
+      "category":"island",
+      "zone_id":"kitchen",
+      "center_xy_m":[3.45,2.05],
+      "size_xyz_m":[2.65,1.05,0.98],
+      "navigation_role":"ground_blocker",
+      "static":true,
+      "seat_points":[]
+    },
+    {
+      "object_id":"study_desk",
+      "category":"desk",
+      "zone_id":"study_lounge",
+      "center_xy_m":[5.25,-0.05],
+      "size_xyz_m":[1.85,0.72,0.76],
+      "navigation_role":"ground_blocker",
+      "static":true,
+      "seat_points":[
+        {"anchor_id":"study_desk_seat","position_m":[5.25,-0.87,0.0],"facing_yaw_deg":90.0,"support_height_m":0.46}
+      ]
+    },
+    {
+      "object_id":"kitchen_counter",
+      "category":"counter",
+      "zone_id":"kitchen",
+      "center_xy_m":[5.35,4.62],
+      "size_xyz_m":[3.30,0.72,0.96],
+      "navigation_role":"ground_blocker",
+      "static":true,
+      "seat_points":[]
+    }
+  ],
+  "lights": [
+    {"light_id":"GalleryLight","position_xyz_m":[-6.0,0.0,2.72],"target_xyz_m":[-5.5,0.0,0.0],"energy":520,"ceiling_fill_energy":320,"size_m":2.0,"color_rgb":[0.93,0.96,1.0]},
+    {"light_id":"GreatRoomLight","position_xyz_m":[-1.5,0.5,2.82],"target_xyz_m":[-1.5,0.0,0.0],"energy":920,"ceiling_fill_energy":420,"size_m":4.0,"color_rgb":[1.0,0.84,0.70]},
+    {"light_id":"KitchenLight","position_xyz_m":[4.60,3.0,2.82],"target_xyz_m":[4.60,3.0,0.0],"energy":820,"ceiling_fill_energy":380,"size_m":3.0,"color_rgb":[0.92,0.97,1.0]},
+    {"light_id":"StudyLoungeLight","position_xyz_m":[4.40,-2.5,2.82],"target_xyz_m":[4.40,-2.5,0.0],"energy":700,"ceiling_fill_energy":360,"size_m":3.0,"color_rgb":[0.96,0.88,0.76]}
+  ],
+  "sun": {"energy":1.65,"color_rgb":[0.76,0.84,1.0],"rotation_deg":[34.0,-18.0,-28.0]},
+  "review_cameras": [
+    {"camera_id":"CAM_C_GreatRoom_South","hfov_deg":90.0,"position_xyz_m":[-1.8,-4.25,1.62],"target_xyz_m":[-1.0,0.0,1.0]},
+    {"camera_id":"CAM_C_GreatRoom_North","hfov_deg":88.0,"position_xyz_m":[-1.5,4.30,1.62],"target_xyz_m":[-1.4,0.5,1.0]},
+    {"camera_id":"CAM_C_Kitchen","hfov_deg":86.0,"position_xyz_m":[6.25,2.65,1.62],"target_xyz_m":[4.3,2.4,1.0]},
+    {"camera_id":"CAM_C_StudyLounge","hfov_deg":88.0,"position_xyz_m":[6.10,-3.55,1.62],"target_xyz_m":[4.2,-2.5,1.0]},
+    {"camera_id":"CAM_C_Gallery","hfov_deg":86.0,"position_xyz_m":[-6.45,3.55,1.62],"target_xyz_m":[-4.8,0.5,1.0]},
+    {"camera_id":"CAM_C_CrossRoom","hfov_deg":92.0,"position_xyz_m":[-4.0,0.0,1.62],"target_xyz_m":[3.5,0.0,1.0]},
+    {"camera_id":"CAM_C_Reverse","hfov_deg":90.0,"position_xyz_m":[3.85,4.20,1.62],"target_xyz_m":[-1.4,0.4,1.0]}
+  ],
+  "scene_capacity": {
+    "controlled_speech_slots": 4,
+    "max_actor_slots": 4,
+    "max_audio_source_slots": 4,
+    "max_simultaneous_sources": 2,
+    "status": "planned_capacity_not_runtime_admission"
+  },
+  "m1_canary": {
+    "camera_id":"CAM_C_GreatRoom_South",
+    "source_anchor_ids":["main_dining_table_edge","great_room_center"],
+    "source_height_m":1.20,
+    "connectivity_pairs":[
+      {"pair_id":"gallery_to_great_room","start_xyz_m":[-4.3,0.0,0.05],"end_xyz_m":[-2.5,0.0,0.05]},
+      {"pair_id":"great_room_to_kitchen","start_xyz_m":[1.0,2.8,0.05],"end_xyz_m":[3.0,2.8,0.05]},
+      {"pair_id":"great_room_to_study_lounge","start_xyz_m":[1.0,-2.0,0.05],"end_xyz_m":[3.0,-2.0,0.05]}
+    ],
+    "solid_control":{"origin_xyz_m":[5.5,3.0,1.4],"direction_xyz":[-1.0,0.0,0.0],"distance_m":1.0}
+  },
+  "scene_templates": [
+    {
+      "template_id":"c_open_family_dinner",
+      "activity":"four-person dinner in the open great room",
+      "capability_intents":["appearance_to_spoken_content","speaker_side","overlapping_speech"]
+    },
+    {
+      "template_id":"c_kitchen_to_study_crossing",
+      "activity":"person crosses from kitchen past study lounge while another remains seated",
+      "capability_intents":["speaker_side","speaking_while_moving","occlusion_while_speaking"]
+    },
+    {
+      "template_id":"c_great_room_reappearance",
+      "activity":"actor crosses the wide room and reappears at the study edge",
+      "capability_intents":["offscreen_to_onscreen","reappeared_after_occlusion","occluder_identity"]
+    }
+  ],
+  "semantic_boundary": {
+    "static_furniture_semantics": true,
+    "static_seat_points": true,
+    "dynamic_object_interaction": false,
+    "grasp_release": false,
+    "door_drawer_interaction": false,
+    "production_camera_listener": "planned_by_avengine",
+    "production_actor_routes": "planned_by_avengine"
+  }
+}
