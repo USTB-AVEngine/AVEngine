@@ -186,7 +186,7 @@ def test_pose_binding_offsets_from_seat_reference_and_150_clock(tmp_path: Path) 
                 {
                     "asset_id": "pose_pool_asset",
                     "animation": "/Game/Pose/Seated_Idle.Seated_Idle",
-                    "blueprint": "/Game/Pose/BP_pose.BP_pose_C",
+                    "blueprint": "/Game/Pose/BP_pose.BP_pose",
                     "skeletal_mesh": "/Game/Pose/pose.pose",
                     "emitter_offset_avengine_m": [0.1, 1.2, -0.2],
                     "animation_name": "Seated_Idle",
