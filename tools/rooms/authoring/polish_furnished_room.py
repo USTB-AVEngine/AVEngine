@@ -13,6 +13,7 @@ import argparse
 import importlib.util
 import json
 import math
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -27,7 +28,8 @@ def cli() -> argparse.Namespace:
     parser.add_argument("--spec", type=Path)
     parser.add_argument("--output-root", type=Path, required=True)
     parser.add_argument("--room-id")
-    return parser.parse_args()
+    argv = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else sys.argv[1:]
+    return parser.parse_args(argv)
 
 
 def write_json(path: Path, value: Any) -> None:
@@ -129,23 +131,48 @@ def soften_materials() -> list[str]:
             )
         if "Specular IOR Level" in bsdf.inputs:
             bsdf.inputs["Specular IOR Level"].default_value = 0.28
+        rough_links = [
+            link for link in value.node_tree.links
+            if link.to_node == bsdf and link.to_socket.name == "Roughness"
+        ]
+        if rough_links:
+            ramp = value.node_tree.nodes.get("PolishFloorRoughnessRemap")
+            if ramp is None:
+                ramp = value.node_tree.nodes.new("ShaderNodeValToRGB")
+                ramp.name = "PolishFloorRoughnessRemap"
+            ramp.color_ramp.elements[0].position = 0.0
+            ramp.color_ramp.elements[0].color = (0.48, 0.48, 0.48, 1.0)
+            ramp.color_ramp.elements[1].position = 1.0
+            ramp.color_ramp.elements[1].color = (0.86, 0.86, 0.86, 1.0)
+            source = rough_links[0].from_socket
+            for link in rough_links:
+                value.node_tree.links.remove(link)
+            value.node_tree.links.new(source, ramp.inputs["Fac"])
+            value.node_tree.links.new(ramp.outputs["Color"], bsdf.inputs["Roughness"])
         changed.append(value.name)
     return sorted(set(changed))
 
 
 def polish_sofas(furniture, props, changes: list[str]) -> None:
     pillow_mat = material("Polish_Muted_Pillow", (0.42, 0.53, 0.51, 1.0), 0.88)
-    pillow_alt = material("Polish_Warm_Pillow", (0.67, 0.43, 0.28, 1.0), 0.88)
+    pillow_alt = material("Polish_Warm_Pillow", (0.46, 0.28, 0.18, 1.0), 0.88)
+    seat_mat = material("Polish_Sofa_Seat", (0.37, 0.47, 0.44, 1.0), 0.92)
+    back_mat = material("Polish_Sofa_Back", (0.33, 0.42, 0.40, 1.0), 0.94)
     leg_mat = material("Polish_Sofa_Leg", (0.07, 0.055, 0.045, 1.0), 0.48, 0.15)
-    back_objects = [obj for obj in furniture.objects if obj.type == "MESH"
-                    and obj.name.casefold().startswith("sofaback")]
-    # The source names are stable in the shared builder; tolerate the Unicode
-    # typo guard above by also matching the ordinary ASCII prefix.
-    back_objects = [obj for obj in furniture.objects if obj.type == "MESH"
-                    and obj.name.casefold().startswith("sofaback".replace("​​", ""))]
-    bases = [obj for obj in furniture.objects if obj.type == "MESH"
-             and obj.name.casefold().startswith("sofabase".replace("​​", ""))]
+    def is_sofa_part(obj: bpy.types.Object, part: str) -> bool:
+        name = obj.name.casefold()
+        return obj.type == "MESH" and "sofa" in name and part in name
+
+    back_objects = [obj for obj in furniture.objects if is_sofa_part(obj, "back")]
+    bases = [obj for obj in furniture.objects if is_sofa_part(obj, "base")]
     for index, base in enumerate(sorted(bases, key=lambda obj: obj.name)):
+        base.data.materials.clear()
+        base.data.materials.append(back_mat)
+        if not any(mod.name == "PolishSofaBodyRoundover" for mod in base.modifiers):
+            modifier = base.modifiers.new("PolishSofaBodyRoundover", "BEVEL")
+            modifier.width = 0.085
+            modifier.segments = 6
+            modifier.limit_method = "ANGLE"
         dims = base.dimensions
         for leg_index, (dx, dy) in enumerate((
             (-0.38 * dims.x, -0.28 * dims.y),
@@ -160,13 +187,20 @@ def polish_sofas(furniture, props, changes: list[str]) -> None:
                  bevel=0.018, yaw=float(base.rotation_euler.z))
         changes.append(f"softened_sofa_{base.name}")
     for index, back in enumerate(sorted(back_objects, key=lambda obj: obj.name)):
+        back.data.materials.clear()
+        back.data.materials.append(back_mat)
+        if not any(mod.name == "PolishSofaBodyRoundover" for mod in back.modifiers):
+            modifier = back.modifiers.new("PolishSofaBodyRoundover", "BEVEL")
+            modifier.width = 0.075
+            modifier.segments = 6
+            modifier.limit_method = "ANGLE"
         dims = back.dimensions
         for pillow_index, dx in enumerate((-0.31 * dims.x, 0.31 * dims.x)):
             point = local_point(back, dx, -0.16, 0.08)
             cube(
                 f"PolishSofaPillow_{index}_{pillow_index}",
                 (point.x, point.y, point.z + 0.18),
-                (0.52, 0.18, 0.34),
+                (0.46, 0.20, 0.40),
                 pillow_mat if pillow_index == 0 else pillow_alt,
                 furniture,
                 bevel=0.10,
@@ -176,12 +210,27 @@ def polish_sofas(furniture, props, changes: list[str]) -> None:
     for obj in furniture.objects:
         if obj.type != "MESH" or "cushion" not in obj.name.casefold():
             continue
-        obj.scale.z *= 1.28
+        obj.data.materials.clear()
+        obj.data.materials.append(seat_mat)
+        obj.scale.z *= 1.45
         modifier = obj.modifiers.new("PolishCushionRoundover", "BEVEL")
-        modifier.width = 0.065
-        modifier.segments = 4
+        modifier.width = 0.085
+        modifier.segments = 6
         modifier.limit_method = "ANGLE"
         changes.append(f"rounded_cushion_{obj.name}")
+    for index, base in enumerate(sorted(bases, key=lambda obj: obj.name)):
+        for back_index, dx in enumerate((-0.78, 0.0, 0.78)):
+            point = local_point(base, dx, 0.34, 0.55)
+            cube(
+                f"PolishSofaBackCushion_{index}_{back_index}",
+                (point.x, point.y + 0.02, point.z + 0.31),
+                (0.70, 0.20, 0.60),
+                back_mat,
+                furniture,
+                bevel=0.14,
+                yaw=float(base.rotation_euler.z),
+            )
+        changes.append(f"segmented_sofa_back_{base.name}")
 
 
 def polish_plants(furniture, props, changes: list[str]) -> None:
@@ -249,8 +298,10 @@ def add_wall_art_and_decor(furniture, props, changes: list[str]) -> None:
         material("Polish_Art_Sage", (0.25, 0.40, 0.32, 1.0), 0.76),
         material("Polish_Art_Ochre", (0.70, 0.46, 0.16, 1.0), 0.76),
     ]
-    backs = [obj for obj in furniture.objects if obj.type == "MESH"
-             and obj.name.casefold().startswith("sofaback".replace("​​", ""))]
+    backs = [obj for obj in furniture.objects
+             if obj.type == "MESH"
+             and "sofa" in obj.name.casefold()
+             and "back" in obj.name.casefold()]
     for index, back in enumerate(sorted(backs, key=lambda obj: obj.name)):
         point = local_point(back, 0.0, 0.55, 1.08)
         yaw = float(back.rotation_euler.z)
