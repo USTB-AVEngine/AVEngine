@@ -8,6 +8,7 @@ from avengine.acoustics.research_cleanup import (
     DERIVED_PACKAGE_SUFFIX,
     ResearchCleanupError,
     _derived_package_id,
+    _recompute_derived_ray_leakage,
     filter_research_geometry,
 )
 
@@ -141,3 +142,69 @@ def test_filter_matches_native_rlr_near_zero_cross_product_rule() -> None:
             "reason": "all_triangles_geometry_qa_or_native_rlr_incompatible",
         }
     ]
+
+
+def test_derived_ray_report_recomputes_changed_geometry_instead_of_copying_pass() -> None:
+    vertices = np.asarray(
+        [[-1.0, -1.0, 1.0], [1.0, -1.0, 1.0], [0.0, 1.0, 1.0]],
+        dtype="<f4",
+    )
+    source = {
+        "schema": "avengine_m3_ray_leakage_v1",
+        "status": "pass",
+        "declared_check_count": 1,
+        "checks": [{
+            "check_id": "wall",
+            "status": "pass",
+            "origin_m": [0.0, 0.0, 0.0],
+            "direction": [0.0, 0.0, 1.0],
+            "maximum_distance_m": 2.0,
+            "expectation": "hit_within_m",
+            "measured_hit": True,
+        }],
+        "automatic_enclosure_probe": {"status": "not_run"},
+    }
+    report = _recompute_derived_ray_leakage(
+        vertices, np.empty((0, 3), dtype="<u4"), source
+    )
+    assert report["status"] == "fail"
+    assert report["checks"][0]["measured_hit"] is False
+    assert report["derived_geometry_recomputed"] is True
+    assert report["source_report_provenance"]["status"] == "pass"
+
+
+def test_derived_ray_report_marks_unreplayable_legacy_pass_not_run() -> None:
+    report = _recompute_derived_ray_leakage(
+        np.asarray([[0.0, 0.0, 0.0]], dtype="<f4"),
+        np.empty((0, 3), dtype="<u4"),
+        {"schema": "legacy", "status": "pass"},
+    )
+    assert report["status"] == "not_run"
+    assert "replayable" in report["reason"]
+    assert report["source_report_provenance"]["status"] == "pass"
+
+
+def test_derived_ray_report_replays_automatic_probe_inputs() -> None:
+    source = {
+        "schema": "avengine_m3_ray_leakage_v1",
+        "status": "not_run",
+        "declared_check_count": 0,
+        "checks": [],
+        "automatic_enclosure_probe": {
+            "status": "diagnostic_complete",
+            "directions": [[0.0, 0.0, 1.0]],
+            "origins": [{"origin_index": 0, "origin_m": [0.0, 0.0, 0.0]}],
+            "maximum_distance_m": 2.0,
+            "minimum_probe_clearance_m": 0.05,
+        },
+    }
+    report = _recompute_derived_ray_leakage(
+        np.asarray([[0.0, 0.0, 0.0]], dtype="<f4"),
+        np.empty((0, 3), dtype="<u4"),
+        source,
+    )
+    automatic = report["automatic_enclosure_probe"]
+    assert automatic["status"] == "diagnostic_complete"
+    assert automatic["ray_count"] == 1
+    assert automatic["escaped_ray_count"] == 1
+    assert automatic["escape_fraction"] == 1.0
