@@ -460,7 +460,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--scene-id")
     parser.add_argument("--seat-count", type=int, default=DEFAULT_SEAT_COUNT)
     parser.add_argument("--actor-count", type=int, default=DEFAULT_ACTOR_COUNT)
-    parser.add_argument("--frame-count", type=int, choices=(75, 150), default=75)
+    parser.add_argument("--frame-count", type=int, default=75)
     parser.add_argument("--frame-rate-hz", type=float, default=15.0)
     parser.add_argument("--sample-rate-hz", type=int, default=16_000)
     parser.add_argument("--grid-step-m", type=float, default=2.0)

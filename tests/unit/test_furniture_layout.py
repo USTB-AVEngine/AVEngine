@@ -284,7 +284,8 @@ def test_pose_binding_offsets_from_seat_reference_and_150_clock(tmp_path: Path) 
     assert request_actor["blueprint_class_path"] == "/Game/Pose/BP_pose.BP_pose_C"
     assert request_actor["skeletal_mesh_path"] == "/Game/Pose/pose.pose"
     assert request_actor["emitter_local_ue_cm"] == pytest.approx([10.0, -20.0, 120.0])
-    assert request_actor["root_position_authoring_m"][0] == pytest.approx(-2.38)
+    assert request_actor["root_position_authoring_m"][0] == pytest.approx(-2.2)
+    assert request_actor["root_position_authoring_m"][1] == pytest.approx(-1.58)
     assert request_actor["root_position_authoring_m"][2] == pytest.approx(-0.08)
     assert request_actor["pose_orientation_policy"].endswith(
         "reference_actor_yaw_ignored"
