@@ -164,6 +164,37 @@ def _actor_state(
     }
 
 
+def _overview_target_bounds(layout: Mapping[str, Any]) -> list[dict[str, list[float]]]:
+    """Build small static-furniture targets for a room-wide overview score."""
+
+    targets: list[dict[str, list[float]]] = []
+    for item in layout.get("objects", []):
+        if str(item.get("navigation_role") or "ground_blocker") in {
+            "walkable_surface",
+            "walkable_floor_covering",
+            "elevated_object",
+        }:
+            continue
+        center = item.get("center_authoring_m")
+        if not isinstance(center, Sequence) or len(center) != 3:
+            continue
+        x, y, z = [float(value) for value in center]
+        # A compact target represents visible furniture/architecture without
+        # requiring one impossible frame to contain every full AABB.
+        targets.append(
+            {
+                "minimum_m": [x - 0.16, y - 0.16, max(0.25, min(z, 1.05) - 0.25)],
+                "maximum_m": [x + 0.16, y + 0.16, min(1.75, max(z, 0.95) + 0.25)],
+            }
+        )
+    if not targets:
+        bounds = layout["geometry"]["bounds_xy_m"]
+        x = (bounds[0] + bounds[2]) * 0.5
+        y = (bounds[1] + bounds[3]) * 0.5
+        targets.append({"minimum_m": [x - 0.16, y - 0.16, 0.25], "maximum_m": [x + 0.16, y + 0.16, 1.75]})
+    return targets
+
+
 def build_episode_plan(
     layout: Mapping[str, Any],
     *,
@@ -218,13 +249,44 @@ def build_episode_plan(
         for item in placements
         if item.get("root_position_authoring_m") is not None
     ]
+    target_bounds: list[dict[str, list[float]]] = []
+    for placement in placements:
+        seat_position = placement["seat_reference"]["position_authoring_m"]
+        target_bounds.append(
+            {
+                "minimum_m": [
+                    seat_position[0] - 0.35,
+                    seat_position[1] - 0.35,
+                    max(0.0, seat_position[2] - 0.15),
+                ],
+                "maximum_m": [
+                    seat_position[0] + 0.35,
+                    seat_position[1] + 0.35,
+                    seat_position[2] + 1.20,
+                ],
+            }
+        )
+    obstacle_bounds = [
+        item["bounds_xyz_m"]
+        for item in layout.get("objects", [])
+        if str(item.get("navigation_role") or "ground_blocker")
+        not in {"walkable_surface", "walkable_floor_covering", "elevated_object"}
+    ]
+    scoring_target_bounds = (
+        target_bounds
+        if bound_actor_positions
+        else (_overview_target_bounds(layout) if overview_only else None)
+    )
     scored_camera_pool = score_camera_candidates(
         camera_pool,
         actor_positions_m=bound_actor_positions or None,
+        target_bounds_m=scoring_target_bounds,
+        obstacle_bounds_m=obstacle_bounds if (bound_actor_positions or overview_only) else None,
+        room_bounds_xy_m=layout["geometry"].get("bounds_xy_m") if (bound_actor_positions or overview_only) else None,
     )
     selected_source = (
         scored_camera_pool["candidates"][0]
-        if bound_actor_positions
+        if bound_actor_positions or overview_only
         else camera_pool["candidates"][0]
     )
     selected_camera = _camera_for_runtime(selected_source)
@@ -246,6 +308,12 @@ def build_episode_plan(
         "target_los_status": "not_evaluated",
         "native_validation_status": "not_run",
         "clearance_basis": "authoring_geometry_grid_clearance",
+        "target_count": selected_source.get("target_count", 0),
+        "fully_framed_target_count": selected_source.get("fully_framed_target_count", 0),
+        "target_frame_margin": selected_source.get("target_frame_margin"),
+        "target_occluded_count": selected_source.get("target_occluded_count", 0),
+        "target_geometry_visibility": selected_source.get("target_geometry_visibility", "not_evaluated"),
+        "geometry_clearance_m": selected_source.get("geometry_clearance_m"),
     }
     frames: list[dict[str, Any]] = []
     for frame_index in range(clock["frame_count"]):
@@ -289,7 +357,9 @@ def build_episode_plan(
         },
         "camera": selected_camera,
         "camera_candidates": deepcopy(
-            scored_camera_pool["candidates"] if bound_actor_positions else camera_pool["candidates"]
+            scored_camera_pool["candidates"]
+            if (bound_actor_positions or overview_only)
+            else camera_pool["candidates"]
         ),
         "camera_generation": deepcopy(camera_pool["generation"]),
         "camera_selection": camera_selection,
@@ -329,7 +399,9 @@ def build_episode_plan(
         "planning_boundary": {
             "overview_only": overview_only,
             "target_independent_candidates": True,
-            "target_scoring": "post_actor_question_join",
+            "target_scoring": (
+                "post_geometry_overview" if overview_only else "post_actor_question_join"
+            ),
             "target_los": "not_evaluated",
             "native_spear_ue": "not_run",
             "action_engine": "not_created",
