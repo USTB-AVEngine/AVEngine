@@ -131,6 +131,78 @@ def test_multimodal_readback_drift_requires_normal_and_target_pose_identity() ->
         TOOL._maximum_multimodal_readback_drift(normal, target)
 
 
+def _overview_episode(frame_count: int = 3) -> dict[str, object]:
+    return {
+        "clock": {
+            "frame_count": frame_count,
+            "frame_rate_hz": 15,
+            "sample_rate_hz": 16000,
+            "sample_count": frame_count * 16000 // 15,
+        },
+        "planning_boundary": {"overview_only": True},
+        "visual_plan": {
+            "actors": [],
+            "camera_selection": {"selection_mode": "overview_geometry_only"},
+            "frames": [
+                {
+                    "frame_index": index,
+                    "pts_ticks": index * 3200,
+                    "actor_states": [],
+                }
+                for index in range(frame_count)
+            ],
+        },
+    }
+
+
+def test_zero_actor_clock_is_allowed_only_for_explicit_overview() -> None:
+    episode = _overview_episode()
+    clock = TOOL._resolve_plan_clock(episode)
+    assert clock.frame_count == 3
+
+    ordinary = json.loads(json.dumps(episode))
+    ordinary["planning_boundary"]["overview_only"] = False
+    ordinary["visual_plan"]["camera_selection"]["selection_mode"] = (
+        "geometry_first_pending_actor_join"
+    )
+    with pytest.raises(RuntimeError, match="visual actor IDs"):
+        TOOL._resolve_plan_clock(ordinary)
+
+
+def test_overview_native_pixel_finalizer_persists_normal_scene_only(
+    tmp_path: Path,
+) -> None:
+    normal_depths = [
+        np.asarray([[1.0, 2.0]], dtype=np.float32) for _ in range(3)
+    ]
+    normal_object_ids = [
+        np.asarray([[0, 1]], dtype=np.uint32) for _ in range(3)
+    ]
+    readbacks = [{"frame_index": index, "camera": {}} for index in range(3)]
+
+    result = TOOL._finalize_native_pixel_artifacts(
+        output=tmp_path,
+        episode=_overview_episode(),
+        normal_depths=normal_depths,
+        normal_object_ids=normal_object_ids,
+        target_depths_by_actor={},
+        normal_readbacks=readbacks,
+        target_readbacks={},
+        frame_count=3,
+    )
+
+    assert result["status"] == "pass"
+    assert result["overview_only"] is True
+    assert result["actor_ids"] == []
+    assert (tmp_path / "metric_depth_native.npz").is_file()
+    assert (tmp_path / "normal_object_ids_uint32.npz").is_file()
+    persisted = json.loads(
+        (tmp_path / "native_pixel_runtime_readbacks.json").read_text(encoding="utf-8")
+    )
+    assert persisted["target_only"] == {}
+    assert persisted["overview_only"] is True
+
+
 def _episode_authority() -> dict[str, object]:
     return {
         "visual_plan": {
