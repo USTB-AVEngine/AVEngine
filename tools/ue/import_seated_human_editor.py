@@ -47,6 +47,10 @@ def _component_from_blueprint(blueprint: Any) -> Any:
     raise RuntimeError("Blueprint has no SkeletalMeshComponent")
 
 
+def _vector3_values(value: Any) -> list[float]:
+    return [float(getattr(value, axis)) for axis in ("x", "y", "z")]
+
+
 def _configure_component(component: Any, mesh: Any, animation: Any) -> None:
     component.set_animation_mode(animation_mode=unreal.AnimationMode.ANIMATION_SINGLE_NODE)
     component.set_skeletal_mesh_asset(new_mesh=mesh)
