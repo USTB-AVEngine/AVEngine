@@ -201,10 +201,12 @@ rig_and_animate() {  # rung_dir
     > "$dir/rig.log" 2>&1 || return 1
   [ -s "$dir/rig.glb" ] || return 1
 
+  TRANSFORM_PROFILE="$AVENGINE_ROOT/examples/assets/pixal3d_transform_profile_v1.json"
   "$BLENDER" --background --python-exit-code 1 --python \
     "$AVENGINE_ROOT/tools/assets/blender_normalize_generated_animal_heading.py" -- \
     --input "$dir/rig.glb" --output "$dir/normalized.glb" --manifest "$dir/heading.json" \
     --reviewed-source-front-yaw-deg "$YAW" --target-front-axis "$TARGET_FRONT_AXIS" \
+    --transform-profile "$TRANSFORM_PROFILE" --body-class quadruped \
     --review-evidence "$dir/prepared.json" > "$dir/heading.log" 2>&1 || return 1
   grep -q "NORMALIZATION_OK" "$dir/heading.log" || return 1
   [ -s "$dir/normalized.glb" ] && [ -s "$dir/heading.json" ] || return 1

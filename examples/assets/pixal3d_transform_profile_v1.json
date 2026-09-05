@@ -1,0 +1,145 @@
+{
+  "schema": "avengine_pixal3d_transform_profile_v1",
+  "profile_id": "pixal3d_gltf_import_and_root_v1",
+  "revision": "v1",
+  "claim_boundary": "Class-level Pixal3D mesh-export, Blender glTF import, skeleton root, and canonical-front transforms. Quadruped source-front yaw stays reviewed per mesh. Nothing here is keyed by asset id.",
+  "provenance": {
+    "mesh_export": "src/avengine/assets/pixal3d/inference.py glb.apply_transform as migrated in c659d1e; same 4x4 as /data/jzy/code/Pixal3D-lead-b/inference.py",
+    "quadruped_heading": "New Siamese/Jack Russell SkinTokens imports both faced -X, matching historical reviewed yaws near 180 deg. extra_root is STATIC_AXIS_MATRIX_4X4 (Z pi), class-level, not per asset id. Remaining small yaw is still reviewed per mesh.",
+    "biped_heading": "SPEAR blender_tokenrig_human_static_audit.py applies exactly one Blender-world Z yaw of pi after glTF import: source_front positive-y to canonical_front negative-y, canonical_up positive-z. STATIC_AXIS_MATRIX_4X4 recovered from blender_retarget_rocketbox_to_tokenrig.py."
+  },
+  "mesh_export": {
+    "space": "pixal3d_o_voxel_glb_before_file_write",
+    "apply_transform_4x4_row_major": [
+      [
+        -1.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      [
+        0.0,
+        0.0,
+        -1.0,
+        0.0
+      ],
+      [
+        0.0,
+        -1.0,
+        0.0,
+        0.0
+      ],
+      [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    ]
+  },
+  "blender_import": {
+    "operator": "bpy.ops.import_scene.gltf",
+    "gltf_up": "+Y",
+    "blender_up_after_import": "+Z",
+    "import_pack_images": false,
+    "extra_object_rotation_euler_deg": [
+      0.0,
+      0.0,
+      0.0
+    ]
+  },
+  "canonical_frames": {
+    "gltf_file": {
+      "id": "avengine_local_x_forward_y_up_z_right_m",
+      "forward_axis": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "up_axis": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "right_axis": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "handedness": "right_handed"
+    },
+    "blender_after_gltf_import": {
+      "up_axis_name": "positive-z",
+      "up_axis": [
+        0.0,
+        0.0,
+        1.0
+      ]
+    }
+  },
+  "body_classes": {
+    "quadruped": {
+      "source_front": "reviewed_per_mesh",
+      "target_front_axis": "positive-x",
+      "root_policy": "exactly_once_world_z_yaw_from_observed_pixal_minus_x",
+      "extra_root_transform_4x4_row_major": [
+        [
+          -1.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          -1.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          1.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ]
+    },
+    "biped": {
+      "source_front": "positive-y",
+      "target_front_axis": "negative-y",
+      "root_policy": "exactly_once_world_z_yaw",
+      "yaw_radians": 3.141592653589793,
+      "extra_root_transform_4x4_row_major": [
+        [
+          -1.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          -1.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          1.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ]
+    }
+  }
+}

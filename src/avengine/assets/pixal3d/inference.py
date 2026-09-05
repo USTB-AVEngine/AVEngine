@@ -285,6 +285,7 @@ def run_inference(
     low_vram: bool = False,
     resolution: int = -1,
     pipeline=None,
+    export_transform=None,
 ):
     # Batch workers may pass an already loaded pipeline so multiple assets can
     # share the same model residency. Standalone callers retain the original
@@ -389,13 +390,25 @@ def run_inference(
         remesh=True, remesh_band=1, remesh_project=0, use_tqdm=True,
     )
 
-    # Apply rotation
-    rot = np.array([
+    # Apply the class-level Pixal3D mesh-export transform. The default 4x4 is
+    # the historical upstream rotation; production calls pass the same matrix
+    # from examples/assets/pixal3d_transform_profile_v1.json.
+    HISTORICAL_PIXAL3D_MESH_EXPORT_TRANSFORM = np.array([
         [-1,  0,  0,  0],
         [ 0,  0, -1,  0],
         [ 0, -1,  0,  0],
         [ 0,  0,  0,  1],
     ], dtype=np.float64)
+    rot = np.asarray(
+        HISTORICAL_PIXAL3D_MESH_EXPORT_TRANSFORM
+        if export_transform is None
+        else export_transform,
+        dtype=np.float64,
+    )
+    if rot.shape != (4, 4) or not np.isfinite(rot).all():
+        raise Pixal3DLocalModelError(
+            f"Pixal3D mesh export transform must be a finite 4x4 matrix, got {rot.shape}"
+        )
     glb.apply_transform(rot)
 
     # Export

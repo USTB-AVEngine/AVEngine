@@ -5,7 +5,7 @@
 
 自 2026-08-25 起，目录本身就是能力分组（阶段目录 m1…m7 已移除），
 本表按目录列出每个工具做什么。
-当前共 372 个工具脚本。
+当前共 381 个工具脚本。
 
 ## 资产生成与装配（`tools/assets/`）
 
@@ -23,12 +23,18 @@
 | `tools/assets/bake_actions.py` | Bake the strict M2 Idle/Walking action artifact and hash-bound report |
 | `tools/assets/bake_local_tr_actions.py` | Bake deterministic research-only local-translation action poses from one GLB |
 | `tools/assets/bake_uniform_skin_scale.py` | Bake one positive uniform skin-ancestor scale into GLB payload data |
+| `tools/assets/blender_apply_pixal3d_import_transform.py` | Apply the class-level Pixal3D Blender import/root transform after glTF import |
 | `tools/assets/blender_level_generated_animal_support_plane.py` | Level a generated quadruped from two independent visible-foot authorities |
 | `tools/assets/blender_normalize_generated_animal_heading.py` | Rigidly align a generated animal rig to a reviewed cardinal heading |
+| `tools/assets/blender_probe_skin_action.py` | Add a short in-place bone rotation so a SkinTokens rig can play one action |
+| `tools/assets/blender_record_emitter_anchors.py` | Record research-only emitter anchors from a reviewed GLB bounding box |
+| `tools/assets/blender_render_generated_asset_review.py` | Render front/side/back stills, a turntable, and a short action clip |
 | `tools/assets/blender_retarget_quaternius_to_generated_quadruped.py` | Transfer Quaternius Walk/Idle to a generated, skinned quadruped rig |
 | `tools/assets/build_appearance_variant_inputs.py` | Bind one realized appearance request into package spec and source lineage |
 | `tools/assets/build_canary_request.py` | Build one hash-bound formal M2 canary capture request |
 | `tools/assets/build_cross_species_appearance_lineage.py` | Build one diagnostic-only cross-species appearance lineage |
+| `tools/assets/build_generated_asset_run_manifest.py` | Write an AVEngine-readable generated-asset run index |
+| `tools/assets/build_generated_asset_visual_review_page.py` | Build a standalone HTML visual-review page for generated Pixal3D assets |
 | `tools/assets/build_joint_mapping.py` | Emit the exact Habitat joint mapping bound to a rebase report |
 | `tools/assets/build_research_review_request.py` | Build an exact 75-state M2 request for research-only human review |
 | `tools/assets/build_seated_human_batch.py` | Run the AVEngine-owned Blender seated-human builder for four assets |
@@ -61,6 +67,7 @@
 | `tools/assets/measure_walk_deformation.py` | How badly a rigged animal's surface tears, over the whole walk cycle |
 | `tools/assets/model_roots.py` | Where shared model weights live, resolved instead of hard-coded |
 | `tools/assets/normalize_materials.py` | Normalize GLB PBR materials without modifying geometry or animation data |
+| `tools/assets/pixal3d_transform_profile.py` | Load the class-level Pixal3D / SkinTokens transform profile |
 | `tools/assets/plan_instance_variants.py` | Derive the instance-level variant plan for accepted source assets |
 | `tools/assets/prepare_sound_library.py` | Convert the collected dry clips into the form the pipeline consumes |
 | `tools/assets/preprocess_glb.py` | Select GLB actions and strip provably unweighted controller roots |
@@ -326,6 +333,8 @@
 | `tools/qa/qa_v3_arc.py` | 圆上的弧:起点加带符号扫角。有序的 [lo, hi] 表示不了它。 |
 | `tools/qa/qa_v3_asset_policy.py` | Explicit per-request asset-pair policy for QA-v3 scene design |
 | `tools/qa/qa_v3_azimuth.py` | The one place a camera-frame azimuth becomes a published azimuth |
+| `tools/qa/qa_v3_clocks.py` | Derive QA-v3 event and binding clocks from params |
+| `tools/qa/qa_v3_event_pool.py` | Load a task-configured sound event pool and require each audio file to exist |
 | `tools/qa/qa_v3_pixel_thresholds.py` | Explicit placeholder pixel-answerability thresholds for QA-v3 base cards |
 | `tools/qa/qa_v3_request.py` | Plan QA-v3 request budgets without hiding per-profile shortages |
 | `tools/qa/recompile_native_pixel_truth.py` | Recompile retained metric-depth truth with the current lossless fields |

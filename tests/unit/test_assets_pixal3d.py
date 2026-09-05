@@ -113,6 +113,12 @@ def test_runner_uses_local_inference_module_without_model_execution(
     assert calls[0]["moge_model_path"] == roots["moge"]
     assert calls[0]["dinov3_model_path"] == roots["dinov3"]
     assert calls[0]["naf_model_path"] == roots["naf"]
+    assert calls[0]["export_transform"] == [
+        [-1.0, 0.0, 0.0, 0.0],
+        [0.0, 0.0, -1.0, 0.0],
+        [0.0, -1.0, 0.0, 0.0],
+        [0.0, 0.0, 0.0, 1.0],
+    ]
 
 
 def test_local_pixal_source_has_no_external_loader_or_runner() -> None:

@@ -29,6 +29,11 @@ for path in (ASSET_ROOT, SOURCE_ROOT, TOOLS_ROOT):
         sys.path.insert(0, str(path))
 
 from model_roots import resolve as resolve_model_root  # noqa: E402
+from pixal3d_transform_profile import (  # noqa: E402
+    DEFAULT_PROFILE,
+    load_profile,
+    mesh_export_matrix,
+)
 
 MODEL_ROOT_NAMES = {
     "pixal3d": "pixal3d",
@@ -75,6 +80,12 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--resolution", type=int)
     parser.add_argument("--fov", type=float)
+    parser.add_argument(
+        "--transform-profile",
+        type=Path,
+        default=DEFAULT_PROFILE,
+        help="class-level Pixal3D transform profile; never keyed by asset id",
+    )
     return parser
 
 
@@ -160,6 +171,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         roots = _resolve_model_roots(args)
         from pixal3d.inference import run_inference
 
+        profile = load_profile(args.transform_profile)
         args.output.parent.mkdir(parents=True, exist_ok=True)
         run_inference(
             image_path=str(args.image.resolve()),
@@ -171,6 +183,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             dinov3_model_path=roots["dinov3"],
             naf_model_path=roots["naf"],
             resolution=-1 if args.resolution is None else args.resolution,
+            export_transform=mesh_export_matrix(profile),
         )
     except (OSError, ImportError, ValueError, RuntimeError) as error:
         print(f"mesh refused: {error}", file=sys.stderr)

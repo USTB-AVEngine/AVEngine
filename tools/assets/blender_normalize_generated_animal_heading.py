@@ -46,9 +46,20 @@ def parse_argv():
     parser.add_argument(
         "--target-front-axis",
         choices=tuple(CARDINAL_YAWS),
-        default="positive-x",
+        default=None,
     )
     parser.add_argument("--review-evidence", type=Path, required=True)
+    parser.add_argument(
+        "--transform-profile",
+        type=Path,
+        default=None,
+        help="class-level Pixal3D transform profile; extra root is not per-asset",
+    )
+    parser.add_argument(
+        "--body-class",
+        choices=("quadruped", "biped"),
+        default="quadruped",
+    )
     return parser.parse_args(argv)
 
 
@@ -107,8 +118,30 @@ def main():
     if not math.isfinite(args.reviewed_source_front_yaw_deg):
         raise SystemExit("--reviewed-source-front-yaw-deg must be finite")
 
+    extra_root = None
+    target_front_axis = args.target_front_axis
+    if args.transform_profile is not None:
+        tools_dir = Path(__file__).resolve().parent
+        if str(tools_dir) not in sys.path:
+            sys.path.insert(0, str(tools_dir))
+        from pixal3d_transform_profile import (
+            body_class_root_matrix,
+            body_class_target_front_axis,
+            blender_import_kwargs,
+            load_profile,
+        )
+        profile = load_profile(args.transform_profile)
+        if target_front_axis is None:
+            target_front_axis = body_class_target_front_axis(profile, args.body_class)
+        extra_root = body_class_root_matrix(profile, args.body_class)
+        import_kwargs = blender_import_kwargs(profile)
+    else:
+        if target_front_axis is None:
+            target_front_axis = "positive-x"
+        import_kwargs = {"import_pack_images": False}
+
     bpy.ops.wm.read_factory_settings(use_empty=True)
-    bpy.ops.import_scene.gltf(filepath=str(source))
+    bpy.ops.import_scene.gltf(filepath=str(source), **import_kwargs)
     before = scene_summary()
     if before["skinned_mesh_count"] != 1 or before["armature_count"] != 1:
         raise RuntimeError(
@@ -118,9 +151,19 @@ def main():
     if before["action_count"] != 0:
         raise RuntimeError("heading normalization must run before animation")
 
-    target_yaw = CARDINAL_YAWS[args.target_front_axis]
-    delta_yaw = target_yaw - args.reviewed_source_front_yaw_deg
-    rotation = Matrix.Rotation(math.radians(delta_yaw), 4, "Z")
+    # Biped Pixal3D/TokenRig uses the recovered exactly-once Z yaw from the
+    # class-level extra_root matrix. Combining it with the quadruped reviewed
+    # yaw would apply 180 degrees twice. Quadruped extra_root is identity.
+    target_yaw = CARDINAL_YAWS[target_front_axis]
+    if args.body_class == "biped" and extra_root is not None:
+        rotation = Matrix([tuple(row) for row in extra_root])
+        delta_yaw = math.degrees(math.atan2(rotation[1][0], rotation[0][0]))
+    else:
+        delta_yaw = target_yaw - args.reviewed_source_front_yaw_deg
+        rotation = Matrix.Rotation(math.radians(delta_yaw), 4, "Z")
+        if extra_root is not None:
+            extra = Matrix([tuple(row) for row in extra_root])
+            rotation = rotation @ extra
     roots = [obj for obj in bpy.context.scene.objects if obj.parent is None]
     if not roots:
         raise RuntimeError("imported scene has no root objects")
@@ -168,7 +211,9 @@ def main():
         },
         "heading": {
             "reviewed_source_front_yaw_deg": args.reviewed_source_front_yaw_deg,
-            "target_front_axis": args.target_front_axis,
+            "target_front_axis": target_front_axis,
+            "body_class": args.body_class,
+            "transform_profile": None if args.transform_profile is None else str(args.transform_profile),
             "target_front_yaw_deg": target_yaw,
             "applied_world_z_yaw_deg": delta_yaw,
             "policy": "single_rigid_world_rotation_for_every_scene_root",
