@@ -9,6 +9,9 @@ from tools.acoustics.prepare_authored_room_acoustics import (
     _classify_material,
     _connectivity_pairs,
     _material_documents,
+    _metadata_path,
+    _metadata_seat_points,
+    _room_id,
 )
 
 
@@ -60,3 +63,37 @@ def test_connectivity_pairs_are_derived_from_declared_anchors():
     assert pairs
     assert pairs[0]["start_m"] == [-1.0, 0.0, 0.0]
     assert pairs[0]["end_m"] == [1.0, 0.0, 2.0]
+
+
+def test_polished_root_uses_polish_report_as_build_metadata(tmp_path):
+    report = tmp_path / "polish_report.json"
+    report.write_text("{}", encoding="utf-8")
+    assert _metadata_path(tmp_path) == report
+
+
+def test_polished_report_derives_room_id_from_source_blend(tmp_path):
+    metadata = {
+        "source_blend": "/external/authored_compact_home_room_b_v1.blend"
+    }
+    assert _room_id(metadata, tmp_path) == "authored_compact_home_room_b_v1"
+
+
+def test_polished_report_seat_points_are_preserved_in_canonical_frame():
+    points = _metadata_seat_points(
+        {
+            "furniture_semantics": [
+                {
+                    "seat_points": [
+                        {
+                            "anchor_id": "dining_seat_0",
+                            "position_m": [1.0, -2.0, 0.0],
+                            "facing_yaw_deg": 0.0,
+                            "support_height_m": 0.46,
+                        }
+                    ]
+                }
+            ]
+        },
+        "Blender +Z up metres; exported GLB +Y up",
+    )
+    assert points[0]["position_canonical_m"] == [1.0, 0.0, 2.0]
