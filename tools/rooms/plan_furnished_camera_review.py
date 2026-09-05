@@ -21,6 +21,7 @@ sys.path.insert(0, str(REPOSITORY / "src"))
 sys.path.insert(0, str(REPOSITORY / "tools/rooms"))
 
 from avengine.rooms.furniture_layout import (  # noqa: E402
+    camera_obstacle_bounds,
     clock_config,
     generate_camera_candidates,
     load_room_layout,
@@ -45,7 +46,13 @@ def _load_episode(path: Path) -> dict[str, Any]:
     return dict(value)
 
 
-def _target_bounds_from_episode(episode: Mapping[str, Any]) -> list[dict[str, list[float]]]:
+def _target_bounds_from_episode(
+    episode: Mapping[str, Any],
+    *,
+    target_profile: str = "upper_body",
+) -> list[dict[str, list[float]]]:
+    if target_profile not in {"upper_body", "full_actor"}:
+        raise ValueError("target_profile must be upper_body or full_actor")
     layout = episode.get("seat_layout")
     placements = layout.get("actor_placements") if isinstance(layout, Mapping) else None
     if not isinstance(placements, list):
@@ -59,10 +66,24 @@ def _target_bounds_from_episode(episode: Mapping[str, Any]) -> list[dict[str, li
         if not isinstance(position, Sequence) or len(position) != 3:
             continue
         x, y, z = [float(value) for value in position]
+        if target_profile == "upper_body":
+            minimum_z = z + 0.45
+            horizontal_half_extent = 0.30
+        else:
+            minimum_z = max(0.0, z - 0.15)
+            horizontal_half_extent = 0.35
         bounds.append(
             {
-                "minimum_m": [x - 0.35, y - 0.35, max(0.0, z - 0.15)],
-                "maximum_m": [x + 0.35, y + 0.35, z + 1.20],
+                "minimum_m": [
+                    x - horizontal_half_extent,
+                    y - horizontal_half_extent,
+                    minimum_z,
+                ],
+                "maximum_m": [
+                    x + horizontal_half_extent,
+                    y + horizontal_half_extent,
+                    z + 1.20,
+                ],
             }
         )
     if not bounds:
@@ -70,19 +91,25 @@ def _target_bounds_from_episode(episode: Mapping[str, Any]) -> list[dict[str, li
     return bounds
 
 
-def _obstacle_bounds(layout: Mapping[str, Any]) -> list[Any]:
-    return [
-        item["bounds_xyz_m"]
-        for item in layout.get("objects", [])
-        if str(item.get("navigation_role") or "ground_blocker")
-        not in {"walkable_surface", "walkable_floor_covering", "elevated_object"}
-    ]
+def _obstacle_bounds(
+    layout: Mapping[str, Any],
+    *,
+    camera_height_m: float = 1.55,
+    clearance_m: float = 0.25,
+) -> list[Any]:
+    return camera_obstacle_bounds(
+        layout,
+        camera_height_m=camera_height_m,
+        clearance_m=clearance_m,
+    )
 
 
 def _select_review_candidates(
     scored: Mapping[str, Any],
     *,
     candidate_count: int,
+    target_position_m: Sequence[float] | None = None,
+    near_target_count: int = 2,
 ) -> list[dict[str, Any]]:
     raw = scored.get("candidates")
     if not isinstance(raw, list):
@@ -96,6 +123,34 @@ def _select_review_candidates(
     )
     selected: list[dict[str, Any]] = []
     used_points: set[str] = set()
+    if target_position_m is not None and near_target_count > 0:
+        target_xy = [float(target_position_m[0]), float(target_position_m[1])]
+        best_by_point: dict[str, dict[str, Any]] = {}
+        for item in ranked:
+            point = str(item.get("geometry_point_id"))
+            current = best_by_point.get(point)
+            item_score = float(item.get("review_score", item.get("post_join_score", 0.0)))
+            current_score = (
+                float(current.get("review_score", current.get("post_join_score", 0.0)))
+                if current is not None
+                else float("-inf")
+            )
+            if current is None or item_score > current_score:
+                best_by_point[point] = item
+        nearby = sorted(
+            best_by_point.values(),
+            key=lambda item: (
+                sum(
+                    (float(item["position_authoring_m"][axis]) - target_xy[axis]) ** 2
+                    for axis in range(2)
+                ),
+                -float(item.get("review_score", item.get("post_join_score", 0.0))),
+                str(item.get("candidate_id")),
+            ),
+        )
+        for item in nearby[: min(near_target_count, candidate_count)]:
+            selected.append(item)
+            used_points.add(str(item.get("geometry_point_id")))
     for item in ranked:
         point = str(item.get("geometry_point_id"))
         if point in used_points:
@@ -125,6 +180,11 @@ def build_camera_review_plan(
     hold_frames: int = 6,
     grid_step_m: float = 0.75,
     camera_height_m: float = 1.55,
+    clearance_m: float = 0.25,
+    horizontal_fov_deg: float = 105.0,
+    pitch_candidates_deg: Sequence[float] = (-15.0, -7.5, 0.0, 7.5, 15.0),
+    target_profile: str = "upper_body",
+    near_target_count: int = 2,
 ) -> dict[str, Any]:
     if isinstance(candidate_count, bool) or not isinstance(candidate_count, int) or candidate_count < 1:
         raise ValueError("candidate_count must be a positive integer")
@@ -135,7 +195,10 @@ def build_camera_review_plan(
         raise ValueError("input episode clock is missing")
     frame_rate = float(raw_clock["frame_rate_hz"])
     sample_rate = int(raw_clock["sample_rate_hz"])
-    target_bounds = _target_bounds_from_episode(episode)
+    target_bounds = _target_bounds_from_episode(
+        episode,
+        target_profile=target_profile,
+    )
     actor_positions = [
         [
             (item["minimum_m"][axis] + item["maximum_m"][axis]) * 0.5
@@ -147,13 +210,20 @@ def build_camera_review_plan(
         layout,
         grid_step_m=grid_step_m,
         camera_height_m=camera_height_m,
+        clearance_m=clearance_m,
+        horizontal_fov_deg=horizontal_fov_deg,
+        pitch_candidates_deg=pitch_candidates_deg,
     )
     triangle_geometry = _load_static_triangle_geometry(layout)
     scored = score_camera_candidates(
         pool,
         actor_positions_m=actor_positions,
         target_bounds_m=target_bounds,
-        obstacle_bounds_m=_obstacle_bounds(layout),
+        obstacle_bounds_m=_obstacle_bounds(
+            layout,
+            camera_height_m=camera_height_m,
+            clearance_m=clearance_m,
+        ),
         room_bounds_xy_m=layout["geometry"].get("bounds_xy_m"),
         triangle_vertices_m=triangle_geometry["vertices"] if triangle_geometry else None,
         triangle_indices=triangle_geometry["triangles"] if triangle_geometry else None,
@@ -176,7 +246,16 @@ def build_camera_review_plan(
         candidate["review_visibility_status"] = (
             "geometry_candidate" if full == total and mesh_occlusion == 0 else "geometry_warning"
         )
-    selected = _select_review_candidates(scored, candidate_count=candidate_count)
+    target_position_m = [
+        sum(position[axis] for position in actor_positions) / len(actor_positions)
+        for axis in range(3)
+    ]
+    selected = _select_review_candidates(
+        scored,
+        candidate_count=candidate_count,
+        target_position_m=target_position_m,
+        near_target_count=near_target_count,
+    )
     selected = [
         _camera_for_runtime(candidate)
         for candidate in selected
@@ -234,6 +313,11 @@ def build_camera_review_plan(
         "candidate_count": candidate_count,
         "hold_frames": hold_frames,
         "grid_step_m": grid_step_m,
+        "clearance_m": clearance_m,
+        "horizontal_fov_deg": horizontal_fov_deg,
+        "near_target_count": near_target_count,
+        "pitch_candidates_deg": list(pitch_candidates_deg),
+        "target_profile": target_profile,
         "segments": segments,
         "native_selection_pending": True,
         "static_triangle_geometry_used": triangle_geometry is not None,
@@ -282,6 +366,20 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--hold-frames", type=int, default=6)
     parser.add_argument("--grid-step-m", type=float, default=0.75)
     parser.add_argument("--camera-height-m", type=float, default=1.55)
+    parser.add_argument("--clearance-m", type=float, default=0.25)
+    parser.add_argument("--horizontal-fov-deg", type=float, default=105.0)
+    parser.add_argument(
+        "--pitch-candidates-deg",
+        type=float,
+        nargs="+",
+        default=(-15.0, -7.5, 0.0, 7.5, 15.0),
+    )
+    parser.add_argument(
+        "--target-profile",
+        choices=("upper_body", "full_actor"),
+        default="upper_body",
+    )
+    parser.add_argument("--near-target-count", type=int, default=2)
     return parser.parse_args()
 
 
@@ -302,6 +400,11 @@ def main() -> int:
         hold_frames=args.hold_frames,
         grid_step_m=args.grid_step_m,
         camera_height_m=args.camera_height_m,
+        clearance_m=args.clearance_m,
+        horizontal_fov_deg=args.horizontal_fov_deg,
+        pitch_candidates_deg=args.pitch_candidates_deg,
+        target_profile=args.target_profile,
+        near_target_count=args.near_target_count,
     )
     output.mkdir(parents=True)
     _write_json(output / "episode_plan.json", result)

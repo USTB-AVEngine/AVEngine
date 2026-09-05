@@ -25,6 +25,7 @@ from avengine.rooms.furniture_layout import (  # noqa: E402
     FurnitureLayoutError,
     authoring_to_habitat,
     build_seat_placements,
+    camera_obstacle_bounds,
     clock_config,
     generate_camera_candidates,
     habitat_to_ue_cm,
@@ -318,12 +319,7 @@ def build_episode_plan(
                 ],
             }
         )
-    obstacle_bounds = [
-        item["bounds_xyz_m"]
-        for item in layout.get("objects", [])
-        if str(item.get("navigation_role") or "ground_blocker")
-        not in {"walkable_surface", "walkable_floor_covering", "elevated_object"}
-    ]
+    obstacle_bounds = camera_obstacle_bounds(layout, camera_height_m=camera_height_m)
     scoring_target_bounds = (
         target_bounds
         if bound_actor_positions

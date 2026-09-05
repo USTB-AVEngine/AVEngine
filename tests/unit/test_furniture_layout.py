@@ -10,6 +10,7 @@ from avengine.rooms.furniture_layout import (
     SeatCapacityError,
     authoring_to_habitat,
     build_seat_placements,
+    camera_obstacle_bounds,
     clock_config,
     generate_camera_candidates,
     load_room_layout,
@@ -205,6 +206,32 @@ def test_overview_only_contains_camera_and_no_actor_states(tmp_path: Path) -> No
     assert plan["visual_plan"]["actors"] == []
     assert all(frame["actor_states"] == [] for frame in plan["visual_plan"]["frames"])
     assert plan["visual_plan"]["camera_selection"]["selection_mode"] == "overview_geometry_only"
+
+
+def test_camera_obstacle_bounds_excludes_floor_but_keeps_low_furniture(
+    tmp_path: Path,
+) -> None:
+    layout = load_room_layout(_fixture(tmp_path / "room"))
+    layout["objects"].extend(
+        [
+            {
+                "object_id": "floor",
+                "semantic_class": "floor",
+                "navigation_role": "ground_blocker",
+                "bounds_xyz_m": [[-4.0, -3.0, 0.0], [4.0, 3.0, 0.1]],
+            },
+            {
+                "object_id": "ceiling",
+                "semantic_class": "ceiling",
+                "navigation_role": "ground_blocker",
+                "bounds_xyz_m": [[-4.0, -3.0, 2.9], [4.0, 3.0, 3.0]],
+            },
+        ]
+    )
+    obstacles = camera_obstacle_bounds(layout)
+    assert len(obstacles) == 1
+    assert obstacles[0][0] == pytest.approx([-0.8, -0.6, 0.0])
+    assert obstacles[0][1] == pytest.approx([0.8, 0.6, 0.8])
 
 
 def test_camera_scoring_reports_multi_target_framing_and_geometry_clearance(

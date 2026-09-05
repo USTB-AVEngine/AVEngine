@@ -3,7 +3,10 @@ from __future__ import annotations
 from pathlib import Path
 
 from tools.rooms.plan_furnished_residential_episode import build_episode_plan
-from tools.rooms.plan_furnished_camera_review import build_camera_review_plan
+from tools.rooms.plan_furnished_camera_review import (
+    _select_review_candidates,
+    build_camera_review_plan,
+)
 from tests.unit.test_furniture_layout import _fixture
 from avengine.rooms.furniture_layout import load_room_layout
 
@@ -61,3 +64,41 @@ def test_camera_review_uses_native_candidate_pool_metadata_and_fov_fields(tmp_pa
         == review["visual_plan"]["camera_review"]["segments"][frame["frame_index"] // 6]["candidate_id"]
         for frame in review["visual_plan"]["frames"]
     )
+    assert review["visual_plan"]["camera_review"]["horizontal_fov_deg"] == 105.0
+    assert review["visual_plan"]["camera_review"]["target_profile"] == "upper_body"
+    assert all(
+        candidate["horizontal_fov_deg"] == 105.0
+        for candidate in review["visual_plan"]["camera_candidates"]
+    )
+
+
+def test_camera_review_keeps_a_near_target_geometry_point() -> None:
+    scored = {
+        "candidates": [
+            {
+                "candidate_id": "far",
+                "geometry_point_id": "far",
+                "position_authoring_m": [5.0, 5.0, 1.55],
+                "review_score": 100.0,
+            },
+            {
+                "candidate_id": "near",
+                "geometry_point_id": "near",
+                "position_authoring_m": [0.25, 0.25, 1.55],
+                "review_score": -100.0,
+            },
+            {
+                "candidate_id": "middle",
+                "geometry_point_id": "middle",
+                "position_authoring_m": [2.0, 2.0, 1.55],
+                "review_score": 50.0,
+            },
+        ]
+    }
+    selected = _select_review_candidates(
+        scored,
+        candidate_count=2,
+        target_position_m=[0.0, 0.0, 1.0],
+        near_target_count=1,
+    )
+    assert {item["candidate_id"] for item in selected} == {"near", "far"}
