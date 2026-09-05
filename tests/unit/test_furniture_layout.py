@@ -146,7 +146,10 @@ def test_camera_pool_is_target_independent_and_scored_after_join(tmp_path: Path)
     zero_distance = score_camera_candidates(
         raw, target_position_m=raw["candidates"][0]["position_authoring_m"]
     )
-    assert zero_distance["candidates"][0]["target_forward_ue"] == [0.0, 0.0, 0.0]
+    assert any(
+        item["target_forward_ue"] == [0.0, 0.0, 0.0]
+        for item in zero_distance["candidates"]
+    )
     assert [
         (item["candidate_id"], item["position_authoring_m"], item["yaw_deg"], item["pitch_deg"])
         for item in raw["candidates"]
@@ -163,6 +166,31 @@ def test_overview_only_contains_camera_and_no_actor_states(tmp_path: Path) -> No
     assert plan["visual_plan"]["actors"] == []
     assert all(frame["actor_states"] == [] for frame in plan["visual_plan"]["frames"])
     assert plan["visual_plan"]["camera_selection"]["selection_mode"] == "overview_geometry_only"
+
+
+def test_camera_scoring_reports_multi_target_framing_and_geometry_clearance(
+    tmp_path: Path,
+) -> None:
+    layout = load_room_layout(_fixture(tmp_path / "room"))
+    candidate_set = generate_camera_candidates(layout)
+    targets = [[-2.0, -1.0, 0.5], [2.0, -1.0, 0.5]]
+    bounds = [
+        {"minimum_m": [x - 0.3, y - 0.3, 0.3], "maximum_m": [x + 0.3, y + 0.3, 1.7]}
+        for x, y, _ in targets
+    ]
+    scored = score_camera_candidates(
+        candidate_set,
+        actor_positions_m=targets,
+        target_bounds_m=bounds,
+        obstacle_bounds_m=[item["bounds_xyz_m"] for item in layout["objects"]],
+        room_bounds_xy_m=layout["geometry"]["bounds_xy_m"],
+    )
+    selected = scored["candidates"][0]
+    assert scored["generation"]["target_geometry_framing_evaluated"] is True
+    assert selected["target_count"] == 2
+    assert "fully_framed_target_count" in selected
+    assert "geometry_clearance_m" in selected
+    assert scored["generation"]["target_los_evaluated"] is False
 
 
 def test_pose_binding_offsets_from_seat_reference_and_150_clock(tmp_path: Path) -> None:

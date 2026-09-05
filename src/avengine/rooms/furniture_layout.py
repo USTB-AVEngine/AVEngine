@@ -808,18 +808,153 @@ def _target_position(
     return None
 
 
+def _aabb_corners(bounds: Sequence[Sequence[float]]) -> list[list[float]]:
+    minimum = _vector(bounds[0], 3, owner="target bounds minimum")
+    maximum = _vector(bounds[1], 3, owner="target bounds maximum")
+    if any(maximum[index] < minimum[index] for index in range(3)):
+        raise FurnitureLayoutError("target bounds minimum exceeds maximum")
+    return [
+        [x, y, z]
+        for x in (minimum[0], maximum[0])
+        for y in (minimum[1], maximum[1])
+        for z in (minimum[2], maximum[2])
+    ]
+
+
+def _normalise_bounds_list(value: Any, *, owner: str) -> list[list[list[float]]]:
+    if value is None:
+        return []
+    if isinstance(value, (str, bytes)) or not isinstance(value, Sequence):
+        raise FurnitureLayoutError(f"{owner} must be a list")
+    result: list[list[list[float]]] = []
+    for index, raw in enumerate(value):
+        if isinstance(raw, Mapping):
+            raw = [raw.get("minimum_m", raw.get("min_m")), raw.get("maximum_m", raw.get("max_m"))]
+        if (
+            isinstance(raw, (str, bytes))
+            or not isinstance(raw, Sequence)
+            or len(raw) != 2
+        ):
+            raise FurnitureLayoutError(f"{owner}[{index}] must be [minimum, maximum]")
+        result.append([_vector(raw[0], 3, owner=f"{owner}[{index}].minimum"), _vector(raw[1], 3, owner=f"{owner}[{index}].maximum")])
+    return result
+
+
+def _point_to_rect_distance(x: float, y: float, bounds: Sequence[Sequence[float]]) -> float:
+    minimum = bounds[0]
+    maximum = bounds[1]
+    dx = max(minimum[0] - x, 0.0, x - maximum[0])
+    dy = max(minimum[1] - y, 0.0, y - maximum[1])
+    return math.hypot(dx, dy)
+
+
+def _segment_hits_rect(
+    start: Sequence[float],
+    end: Sequence[float],
+    bounds: Sequence[Sequence[float]],
+) -> bool:
+    """Conservative 3D segment/AABB test for authored target visibility."""
+
+    direction = [float(end[index]) - float(start[index]) for index in range(3)]
+    lower = bounds[0]
+    upper = bounds[1]
+    t_min, t_max = 0.0, 1.0
+    for axis in range(3):
+        origin = float(start[axis])
+        delta = direction[axis]
+        if abs(delta) <= 1.0e-12:
+            if origin < lower[axis] or origin > upper[axis]:
+                return False
+            continue
+        a = (lower[axis] - origin) / delta
+        b = (upper[axis] - origin) / delta
+        if a > b:
+            a, b = b, a
+        t_min = max(t_min, a)
+        t_max = min(t_max, b)
+        if t_min > t_max:
+            return False
+    return 0.0 < t_min < 1.0
+
+
+def _target_frame_metrics(
+    candidate: Mapping[str, Any],
+    target_bounds: Sequence[Sequence[float]],
+    *,
+    obstacles: Sequence[Sequence[Sequence[float]]],
+    fov_deg: float,
+    aspect_ratio: float = 16.0 / 9.0,
+) -> dict[str, Any]:
+    position = _vector(candidate.get("position_authoring_m"), 3, owner="camera candidate position")
+    forward = _vector(candidate.get("forward_blender"), 3, owner="camera forward_blender")
+    horizontal_norm = math.hypot(forward[0], forward[1])
+    if horizontal_norm <= 1.0e-9:
+        raise FurnitureLayoutError("camera forward vector has no horizontal component")
+    forward_norm = math.sqrt(sum(value * value for value in forward))
+    forward = [value / forward_norm for value in forward]
+    right = [-forward[1] / horizontal_norm, forward[0] / horizontal_norm, 0.0]
+    up = [
+        forward[2] * right[1] - forward[1] * 0.0,
+        0.0 * forward[0] - forward[2] * right[0],
+        forward[0] * right[1] - forward[1] * right[0],
+    ]
+    up_norm = math.sqrt(sum(value * value for value in up))
+    up = [value / up_norm for value in up]
+    tan_horizontal = math.tan(math.radians(fov_deg) * 0.5)
+    tan_vertical = tan_horizontal / aspect_ratio
+    corners = _aabb_corners(target_bounds)
+    ratios: list[float] = []
+    positive_corners = 0
+    for corner in corners:
+        delta = [corner[index] - position[index] for index in range(3)]
+        depth = sum(delta[index] * forward[index] for index in range(3))
+        if depth <= 1.0e-6:
+            ratios.append(float("inf"))
+            continue
+        positive_corners += 1
+        horizontal = abs(sum(delta[index] * right[index] for index in range(3))) / (depth * tan_horizontal)
+        vertical = abs(sum(delta[index] * up[index] for index in range(3))) / (depth * tan_vertical)
+        ratios.append(max(horizontal, vertical))
+    frame_margin = 1.0 - max(ratios)
+    fully_framed = positive_corners == len(corners) and frame_margin >= 0.0
+    center = [
+        (target_bounds[0][index] + target_bounds[1][index]) * 0.5
+        for index in range(3)
+    ]
+    head = [center[0], center[1], target_bounds[1][2] - 0.12]
+    occluded = any(
+        not (
+            obstacle[0][0] <= center[0] <= obstacle[1][0]
+            and obstacle[0][1] <= center[1] <= obstacle[1][1]
+            and obstacle[0][2] <= center[2] <= obstacle[1][2]
+        )
+        and _segment_hits_rect(position, head, obstacle)
+        for obstacle in obstacles
+    )
+    return {
+        "fully_framed": fully_framed,
+        "frame_margin": frame_margin,
+        "occluded": occluded,
+        "positive_corner_count": positive_corners,
+    }
+
+
 def score_camera_candidates(
     candidate_set: Mapping[str, Any] | Sequence[Mapping[str, Any]],
     *,
     target_position_m: Sequence[float] | None = None,
     actor_positions_m: Sequence[Sequence[float]] | None = None,
+    target_bounds_m: Sequence[Any] | None = None,
+    obstacle_bounds_m: Sequence[Any] | None = None,
+    room_bounds_xy_m: Sequence[float] | None = None,
     question_context: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Score an already generated set after actor/question selection.
 
-    Scoring annotates copies and never adds/removes geometry candidates.  It is
-    deliberately a small hook for a later task/question policy, not a LOS
-    gate.  Candidate legality remains the geometry/native validation boundary.
+    Candidate generation remains target-independent.  When target AABBs are
+    supplied, scoring rewards full multi-target framing, penalizes authored
+    obstacle rays, and prefers camera points with useful room/furniture
+    clearance.  This is a geometry/FOV clue, not native LOS proof.
     """
 
     if isinstance(candidate_set, Mapping):
@@ -831,6 +966,12 @@ def score_camera_candidates(
     if not isinstance(raw_candidates, Sequence):
         raise FurnitureLayoutError("camera candidate set must contain candidates")
     target = _target_position(target_position_m, actor_positions_m, question_context)
+    bounds = _normalise_bounds_list(target_bounds_m, owner="target_bounds_m")
+    obstacles = _normalise_bounds_list(obstacle_bounds_m, owner="obstacle_bounds_m")
+    room_bounds = _vector(room_bounds_xy_m, 4, owner="room_bounds_xy_m") if room_bounds_xy_m is not None else None
+    if target is None and bounds:
+        centers = [[(item[0][axis] + item[1][axis]) * 0.5 for axis in range(3)] for item in bounds]
+        target = [sum(center[axis] for center in centers) / len(centers) for axis in range(3)]
     scored: list[dict[str, Any]] = []
     for raw in raw_candidates:
         if not isinstance(raw, Mapping):
@@ -838,11 +979,7 @@ def score_camera_candidates(
         candidate = deepcopy(dict(raw))
         score = 0.0
         if target is not None:
-            position = _vector(
-                candidate.get("position_authoring_m"),
-                3,
-                owner="camera candidate position_authoring_m",
-            )
+            position = _vector(candidate.get("position_authoring_m"), 3, owner="camera candidate position_authoring_m")
             dx = target[0] - position[0]
             dy = target[1] - position[1]
             dz = target[2] - position[2]
@@ -856,20 +993,9 @@ def score_camera_candidates(
                 target_ue_pitch = float(candidate["ue_pitch_deg"])
             else:
                 target_forward_blender = [dx / distance, dy / distance, dz / distance]
-                target_forward_ue = [
-                    target_forward_blender[0],
-                    -target_forward_blender[1],
-                    target_forward_blender[2],
-                ]
-                target_ue_yaw = math.degrees(
-                    math.atan2(target_forward_ue[1], target_forward_ue[0])
-                )
-                target_ue_pitch = math.degrees(
-                    math.atan2(
-                        target_forward_ue[2],
-                        math.hypot(target_forward_ue[0], target_forward_ue[1]),
-                    )
-                )
+                target_forward_ue = [target_forward_blender[0], -target_forward_blender[1], target_forward_blender[2]]
+                target_ue_yaw = math.degrees(math.atan2(target_forward_ue[1], target_forward_ue[0]))
+                target_ue_pitch = math.degrees(math.atan2(target_forward_ue[2], math.hypot(target_forward_ue[0], target_forward_ue[1])))
             candidate["target_forward_blender"] = target_forward_blender
             candidate["target_forward_ue"] = target_forward_ue
             candidate["target_ue_yaw_deg"] = target_ue_yaw
@@ -877,15 +1003,52 @@ def score_camera_candidates(
             yaw_error = abs((desired_yaw - float(candidate["yaw_deg"]) + 180.0) % 360.0 - 180.0)
             desired_pitch = math.degrees(math.atan2(dz, horizontal)) if horizontal else 0.0
             pitch_error = abs(desired_pitch - float(candidate["pitch_deg"]))
-            score = -(distance + yaw_error / 90.0 + pitch_error / 45.0)
+            score = -(yaw_error / 90.0 + pitch_error / 45.0) + min(distance / 4.0, 1.5)
+            candidate["target_count"] = len(bounds)
+            if bounds:
+                metrics = [
+                    _target_frame_metrics(
+                        candidate,
+                        target_bounds,
+                        obstacles=obstacles,
+                        fov_deg=float(candidate["horizontal_fov_deg"]),
+                    )
+                    for target_bounds in bounds
+                ]
+                full_count = sum(item["fully_framed"] for item in metrics)
+                occluded_count = sum(item["occluded"] for item in metrics)
+                frame_margin = min(item["frame_margin"] for item in metrics)
+                candidate["fully_framed_target_count"] = full_count
+                candidate["target_frame_margin"] = frame_margin
+                candidate["target_occluded_count"] = occluded_count
+                candidate["target_geometry_visibility"] = "pass" if full_count == len(bounds) and occluded_count == 0 else "fail"
+                score += full_count * 10.0 + frame_margin * 4.0 - (len(bounds) - full_count) * 20.0 - occluded_count * 14.0
+            if room_bounds is not None:
+                edge_clearance = min(
+                    position[0] - room_bounds[0],
+                    position[1] - room_bounds[1],
+                    room_bounds[2] - position[0],
+                    room_bounds[3] - position[1],
+                )
+            else:
+                edge_clearance = float("inf")
+            obstacle_clearance = min(
+                (_point_to_rect_distance(position[0], position[1], obstacle) for obstacle in obstacles),
+                default=float("inf"),
+            )
+            geometry_clearance = min(edge_clearance, obstacle_clearance)
+            candidate["geometry_clearance_m"] = geometry_clearance
+            score += min(max(geometry_clearance, 0.0), 2.0) * 1.5
+            if geometry_clearance < 0.8:
+                score -= 100.0 + (0.8 - max(geometry_clearance, 0.0)) * 40.0
         candidate["post_join_score"] = score
         candidate["score_context"] = "actor_question_join" if target is not None else "none"
         scored.append(candidate)
     scored.sort(key=lambda item: (-float(item["post_join_score"]), str(item["candidate_id"])))
     generation["scoring_applied_after_target_join"] = target is not None
+    generation["target_geometry_framing_evaluated"] = bool(bounds)
     generation["target_los_evaluated"] = False
     return {"generation": generation, "candidates": scored}
-
 
 def select_seats(layout: Mapping[str, Any], count: int = DEFAULT_SEAT_COUNT) -> list[dict[str, Any]]:
     if isinstance(count, bool) or not isinstance(count, int) or count <= 0:
