@@ -244,6 +244,34 @@ def _object_records(value: Mapping[str, Any] | None) -> list[Mapping[str, Any]]:
     raise FurnitureLayoutError("object metadata must contain an objects/furniture list")
 
 
+def _furniture_assembly_records(
+    value: Mapping[str, Any],
+) -> list[dict[str, Any]]:
+    raw = value.get("furniture_assemblies")
+    if raw is None:
+        return []
+    if not isinstance(raw, list):
+        raise FurnitureLayoutError(
+            "furniture_assemblies must be a list"
+        )
+    result: list[dict[str, Any]] = []
+    for index, item in enumerate(raw):
+        if not isinstance(item, Mapping):
+            raise FurnitureLayoutError(
+                f"furniture_assemblies[{index}] must be an object"
+            )
+        record = deepcopy(dict(item))
+        center = record.get("center_xy_m")
+        if center is not None:
+            record["center_xy_m"] = _vector(
+                center,
+                2,
+                owner=f"furniture_assemblies[{index}].center_xy_m",
+            )
+        result.append(record)
+    return result
+
+
 def _seat_position(raw: Mapping[str, Any], *, owner: str) -> list[float]:
     raw_position = _first_present(
         raw, ("position_blender_m", "position_xyz_m", "position_m", "center_xyz_m")
@@ -522,11 +550,13 @@ def load_room_layout(
     except FurnitureLayoutError:
         if fallback_object_sidecar is None:
             raise
-        raw_objects, objects = normalize_objects(fallback_object_sidecar[0])
+        object_source = fallback_object_sidecar[0]
+        raw_objects, objects = normalize_objects(object_source)
         object_sidecar = fallback_object_sidecar
     if not _seat_records(seat_sidecar[0] if seat_sidecar is not None else None) and fallback_seat_sidecar is not None:
         seat_sidecar = fallback_seat_sidecar
     object_by_id = {item["object_id"]: item for item in objects}
+    furniture_assemblies = _furniture_assembly_records(object_source)
 
     raw_seats: list[tuple[Mapping[str, Any], str | None, str | None]] = []
     for item in _seat_records(seat_sidecar[0] if seat_sidecar is not None else None):
@@ -664,6 +694,7 @@ def load_room_layout(
             ),
         },
         "objects": objects,
+        "furniture_assemblies": furniture_assemblies,
         "seats": seats,
         "resources": _resource_refs(manifest_file, manifest, asset_root=root),
         "visual_lighting": deepcopy(dict(lighting)),

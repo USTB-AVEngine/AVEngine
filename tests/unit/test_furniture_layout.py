@@ -15,7 +15,10 @@ from avengine.rooms.furniture_layout import (
     load_room_layout,
     score_camera_candidates,
 )
-from tools.rooms.plan_furnished_residential_episode import build_episode_plan
+from tools.rooms.plan_furnished_residential_episode import (
+    _overview_target_bounds,
+    build_episode_plan,
+)
 
 
 def _fixture(
@@ -25,6 +28,7 @@ def _fixture(
     bounds: tuple[float, float, float, float] = (-4.0, -3.0, 4.0, 3.0),
     seat_count: int = 4,
     bad_objects: bool = False,
+    furniture_assemblies: list[dict] | None = None,
 ) -> Path:
     root.mkdir(parents=True, exist_ok=True)
     object_path = root / "object_semantics.json"
@@ -54,7 +58,10 @@ def _fixture(
         }
         for index in range(seat_count)
     ]
-    object_path.write_text(json.dumps({"objects": objects}), encoding="utf-8")
+    object_payload = {"objects": objects}
+    if furniture_assemblies is not None:
+        object_payload["furniture_assemblies"] = furniture_assemblies
+    object_path.write_text(json.dumps(object_payload), encoding="utf-8")
     anchors_path.write_text(json.dumps({"seat_points": seats}), encoding="utf-8")
     manifest = {
         "kind": "fixture_room_handoff",
@@ -303,3 +310,65 @@ def test_pose_binding_offsets_from_seat_reference_and_150_clock(tmp_path: Path) 
     assert plan["clock"]["frame_count"] == 150
     assert len(plan["visual_plan"]["frames"]) == 150
     assert plan["visual_plan"]["frames"][149]["frame_index"] == 149
+
+
+
+def test_v3_furniture_assemblies_drive_overview_targets(
+    tmp_path: Path,
+) -> None:
+    assemblies = [
+        {
+            "object_id": "living_sofa_group",
+            "kind": "living_group",
+            "center_xy_m": [-1.5, 0.25],
+        },
+        {
+            "object_id": "dining_table_group",
+            "kind": "dining_group",
+            "center_xy_m": [1.25, -0.5],
+        },
+    ]
+    layout = load_room_layout(
+        _fixture(
+            tmp_path / "room",
+            furniture_assemblies=assemblies,
+        )
+    )
+
+    assert layout["furniture_assemblies"] == assemblies
+    targets = _overview_target_bounds(layout)
+    assert len(targets) == 2
+    assert targets[0]["minimum_m"] == pytest.approx(
+        [-1.8, -0.05, 0.35]
+    )
+    assert targets[0]["maximum_m"] == pytest.approx(
+        [-1.2, 0.55, 1.70]
+    )
+    assert targets[1]["minimum_m"] == pytest.approx(
+        [0.95, -0.8, 0.35]
+    )
+    assert targets[1]["maximum_m"] == pytest.approx(
+        [1.55, -0.2, 1.70]
+    )
+    plan = build_episode_plan(
+        layout, frame_count=75, overview_only=True
+    )
+    assert plan["visual_plan"]["camera_selection"]["target_count"] == 2
+
+
+def test_furniture_assembly_center_must_be_finite_xy(
+    tmp_path: Path,
+) -> None:
+    with pytest.raises(
+        FurnitureLayoutError,
+        match="furniture_assemblies.*center_xy_m",
+    ):
+        load_room_layout(
+            _fixture(
+                tmp_path / "bad-assembly",
+                furniture_assemblies=[{
+                    "object_id": "living_group",
+                    "center_xy_m": [0.0, float("nan")],
+                }],
+            )
+        )
