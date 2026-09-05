@@ -5,7 +5,7 @@
 
 自 2026-08-25 起，目录本身就是能力分组（阶段目录 m1…m7 已移除），
 本表按目录列出每个工具做什么。
-当前共 372 个工具脚本。
+当前共 373 个工具脚本。
 
 ## 资产生成与装配（`tools/assets/`）
 
@@ -107,7 +107,7 @@
 | `tools/rooms/emit_hm3d_room_manifest.py` | Emit an AVEngine room manifest for an HM3D scene directory |
 | `tools/rooms/extract_interioragent_scene_metadata.py` | Extract a room polygon and navigation footprints from InteriorAgent USD |
 | `tools/rooms/plan_furnished_camera_review.py` | Build a short multi-view camera review plan for one furnished room |
-| `tools/rooms/plan_furnished_residential_episode.py` | Plan a static furnished residential episode without starting UE/SPEAR |
+| `tools/rooms/plan_furnished_residential_episode.py` | Plan a static furnished residential episode through the AVEngine room API |
 | `tools/rooms/prepare_3d_front_toolbox_sample_proxy.py` | Build a clearly labelled 3D-FRONT Toolbox sample review proxy in USD |
 | `tools/rooms/prepare_interioragent_kujiale_adapter.py` | Prepare an external InteriorAgent USD stage for UE's runtime USD importer |
 | `tools/rooms/prepare_legacy_apartment.py` | Prepare the real-surface UE apartment export as an M1 Habitat room package |
@@ -442,6 +442,7 @@
 | `tools/studio/feed_hm3d_fleet.py` | Keep the studio queue fed with the next un-attempted HM3D houses |
 | `tools/studio/make_paired_ablation.py` | Paired ablation variants for a rendered dynamic-audio bundle |
 | `tools/studio/run_apartment_end_to_end.py` | Studio end-to-end Apartment chain: author timeline → UE capture → audio → clip |
+| `tools/studio/run_furnished_seated_episode.py` | Plan and render one static-seated furnished room as a Studio research task |
 | `tools/studio/run_hm3d_end_to_end.py` | One HM3D house, start to finish, in a single task |
 | `tools/studio/run_hm3d_episode.py` | Render one HM3D moving-source episode: pose, FOA, first-person video, binaural |
 | `tools/studio/run_kujiale_acoustic_package.py` | Compile a Kujiale USD room into an RLR-loadable research acoustic package |

@@ -33,6 +33,7 @@ HM3D_EPISODE_TEMPLATE = "hm3d_episode"
 HM3D_END_TO_END_TEMPLATE = "hm3d_end_to_end"
 KUJIALE_ROUTE_BANK_TEMPLATE = "kujiale_route_bank"
 KUJIALE_VISUAL_EPISODE_TEMPLATE = "kujiale_visual_episode"
+FURNISHED_SEATED_VISUAL_EPISODE_TEMPLATE = "furnished_seated_visual_episode"
 KUJIALE_ACOUSTIC_PACKAGE_TEMPLATE = "kujiale_acoustic_package"
 
 # The Habitat runtime activation triplet every headless HM3D tool needs.
@@ -231,6 +232,17 @@ TEMPLATE_OVERRIDABLE_KEYS: dict[str, frozenset[str]] = {
     ),
     KUJIALE_VISUAL_EPISODE_TEMPLATE: frozenset(
         {"episode_root", "rpc_port", "graphics_adapter", "visual_only_research"}
+    ),
+    FURNISHED_SEATED_VISUAL_EPISODE_TEMPLATE: frozenset(
+        {
+            "room", "asset_root", "pose_bindings", "pose_request", "activity",
+            "map_path", "camera_source_plan", "seat_count", "actor_count",
+            "frame_count", "frame_rate_hz", "sample_rate_hz", "grid_step_m",
+            "camera_height_m", "spear_ext_dir", "uproject", "unreal_editor",
+            "rpc_port", "graphics_adapter", "width", "height",
+            "exposure_bias_ev", "streaming_warmup_frames", "native_multimodal",
+            "keep_frames",
+        }
     ),
     KUJIALE_ACOUSTIC_PACKAGE_TEMPLATE: frozenset(
         {
@@ -701,6 +713,46 @@ def build_template_argv(
             str(_required(merged, template_name, "source_license")),
         ]
         argv += ["--seed", str(int(merged.get("seed", 20260827)))]
+        argv += ["--output", _fresh_output(output_path)]
+        return argv
+
+    if template_name == FURNISHED_SEATED_VISUAL_EPISODE_TEMPLATE:
+        activity = str(_required(merged, template_name, "activity"))
+        if activity != "seated":
+            raise StudioTemplateError(
+                "furnished_seated_visual_episode requires activity='seated'"
+            )
+        argv = [
+            python,
+            str(repo / "tools/studio/run_furnished_seated_episode.py"),
+        ]
+        _append_paths(
+            argv,
+            merged,
+            template_name,
+            ("room", "pose_bindings", "uproject", "unreal_editor"),
+            repo,
+            optional=(
+                "asset_root", "pose_request", "camera_source_plan", "spear_ext_dir"
+            ),
+        )
+        argv += ["--activity", activity]
+        argv += ["--map-path", str(_required(merged, template_name, "map_path"))]
+        for key, fallback in (
+            ("seat_count", 4), ("actor_count", 4), ("frame_count", 75),
+            ("frame_rate_hz", 15), ("sample_rate_hz", 16000),
+            ("grid_step_m", 2.0), ("camera_height_m", 1.55),
+            ("rpc_port", 39379), ("graphics_adapter", 0),
+            ("width", 1280), ("height", 720),
+            ("streaming_warmup_frames", 180),
+        ):
+            argv += [f"--{key.replace('_', '-')}", str(merged.get(key, fallback))]
+        if merged.get("exposure_bias_ev") is not None:
+            argv += ["--exposure-bias-ev", str(float(merged["exposure_bias_ev"]))]
+        if merged.get("native_multimodal"):
+            argv.append("--native-multimodal")
+        if merged.get("keep_frames"):
+            argv.append("--keep-frames")
         argv += ["--output", _fresh_output(output_path)]
         return argv
 
