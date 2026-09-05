@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Render one AVEngine residential human+Beagle episode through SPEAR/UE."""
+"""Render one AVEngine residential visual episode through SPEAR/UE."""
 
 from __future__ import annotations
 
@@ -74,6 +74,20 @@ def _require(condition: bool, message: str) -> None:
         raise RuntimeError(message)
 
 
+def _is_overview_plan(episode: Mapping[str, Any]) -> bool:
+    """Return true only for the explicit zero-actor room overview mode."""
+
+    plan = episode.get("visual_plan")
+    boundary = episode.get("planning_boundary")
+    selection = plan.get("camera_selection") if isinstance(plan, Mapping) else None
+    return (
+        isinstance(boundary, Mapping)
+        and boundary.get("overview_only") is True
+        and isinstance(selection, Mapping)
+        and selection.get("selection_mode") == "overview_geometry_only"
+    )
+
+
 def _resolve_plan_clock(episode: Mapping[str, Any]) -> EpisodeClock:
     """Use a declared clock; retained plans keep the original 75/15/16k default."""
     plan = episode["visual_plan"]
@@ -88,10 +102,17 @@ def _resolve_plan_clock(episode: Mapping[str, Any]) -> EpisodeClock:
     _require(isinstance(frames, list) and len(frames) == clock.frame_count,
              "visual frames differ from the declared clock")
     declarations = plan.get("actors")
-    _require(isinstance(declarations, list) and bool(declarations), "visual actors are missing")
+    overview_only = _is_overview_plan(episode)
+    _require(isinstance(declarations, list), "visual actors are missing")
     ids = [x.get("actor_id") if isinstance(x, Mapping) else None for x in declarations]
-    _require(all(isinstance(x, str) and bool(x) for x in ids) and len(set(ids)) == len(ids),
-             "visual actor IDs must be distinct nonempty strings")
+    _require(
+        all(isinstance(x, str) and bool(x) for x in ids)
+        and len(set(ids)) == len(ids)
+        and (overview_only or bool(ids)),
+        "visual actor IDs must be distinct nonempty strings",
+    )
+    if overview_only:
+        _require(not ids, "overview geometry plans must have zero actors")
     ticks_per_frame = 48000 // int(clock.frame_rate_hz)
     for index, frame in enumerate(frames):
         _require(isinstance(frame, Mapping) and frame.get("frame_index") == index,
@@ -100,9 +121,12 @@ def _resolve_plan_clock(episode: Mapping[str, Any]) -> EpisodeClock:
             _require(frame.get("pts_ticks") == index * ticks_per_frame,
                      "visual frame ticks differ from the clock")
         states = frame.get("actor_states", [])
+        _require(isinstance(states, list), "per-frame actor states must be a list")
         state_ids = [x.get("actor_id") for x in states if isinstance(x, Mapping)]
         _require(len(state_ids) == len(ids) and set(state_ids) == set(ids),
                  "per-frame actor closure differs from declarations")
+        if overview_only:
+            _require(not state_ids, "overview geometry frames must have zero actor states")
     return clock
 
 
@@ -304,6 +328,67 @@ def _maximum_multimodal_readback_drift(
     }
 
 
+def _finalize_overview_native_pixel_artifacts(
+    *,
+    output: Path,
+    normal_depths: list[np.ndarray],
+    normal_object_ids: list[np.ndarray],
+    normal_readbacks: list[Mapping[str, Any]],
+    frame_count: int,
+) -> dict[str, Any]:
+    """Persist normal scene depth/readbacks for a zero-actor room overview."""
+
+    _require(
+        len(normal_depths) == len(normal_object_ids) == len(normal_readbacks) == frame_count,
+        "overview native-pixel frame count drift",
+    )
+    _require(normal_depths, "overview native-pixel capture has no frames")
+    height, width = normal_depths[0].shape
+    _require(
+        all(
+            array.shape == (height, width)
+            and np.issubdtype(array.dtype, np.floating)
+            and np.isfinite(array).all()
+            and (array > 0.0).all()
+            for array in normal_depths
+        ),
+        "overview metric-depth arrays are invalid",
+    )
+    _require(
+        all(array.shape == (height, width) and array.dtype == np.uint32 for array in normal_object_ids),
+        "overview object-ID arrays are invalid",
+    )
+    depth_path = output / "metric_depth_native.npz"
+    object_ids_path = output / "normal_object_ids_uint32.npz"
+    readbacks_path = output / "native_pixel_runtime_readbacks.json"
+    np.savez_compressed(depth_path, normal_depth_m=np.stack(normal_depths))
+    np.savez_compressed(object_ids_path, normal_object_ids=np.stack(normal_object_ids))
+    _write(
+        readbacks_path,
+        {
+            "schema": "avengine_overview_native_metric_runtime_readbacks_v1",
+            "status": "pass",
+            "overview_only": True,
+            "normal": normal_readbacks,
+            "target_only": {},
+            "actor_ids": [],
+        },
+    )
+    return {
+        "status": "pass",
+        "overview_only": True,
+        "actor_ids": [],
+        "frame_count": frame_count,
+        "resolution_hw": [height, width],
+        "normal_object_id_dtype": str(np.stack(normal_object_ids).dtype),
+        "artifacts": {
+            "metric_depth": str(depth_path),
+            "normal_object_ids": str(object_ids_path),
+            "runtime_readbacks": str(readbacks_path),
+        },
+    }
+
+
 def _finalize_native_pixel_artifacts(
     *,
     output: Path,
@@ -329,8 +414,17 @@ def _finalize_native_pixel_artifacts(
     actor_ids = [
         str(actor.get("actor_id")) for actor in actors if isinstance(actor, Mapping)
     ]
+    if not actor_ids:
+        _require(_is_overview_plan(episode), "empty native-pixel actor closure is overview-only")
+        return _finalize_overview_native_pixel_artifacts(
+            output=output,
+            normal_depths=normal_depths,
+            normal_object_ids=normal_object_ids,
+            normal_readbacks=normal_readbacks,
+            frame_count=frame_count,
+        )
     _require(
-        bool(actor_ids) and len(actor_ids) == len(actors) and len(set(actor_ids)) == len(actor_ids),
+        len(actor_ids) == len(actors) and len(set(actor_ids)) == len(actor_ids),
         "native-pixel capture requires distinct actor IDs",
     )
     _require(
@@ -782,12 +876,21 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     actor_ids = [
         str(actor.get("actor_id")) for actor in raw_actors if isinstance(actor, Mapping)
     ]
+    overview_only = _is_overview_plan(episode)
     _require(
-        bool(actor_ids) and len(set(actor_ids)) == len(actor_ids),
+        len(set(actor_ids)) == len(actor_ids)
+        and (overview_only or bool(actor_ids)),
         "residential capture requires distinct plan actor IDs",
     )
+    if overview_only:
+        _require(not actor_ids, "overview geometry plans must have zero actors")
     native_multimodal = bool(getattr(args, "native_multimodal", False))
     visual_only_research = bool(getattr(args, "visual_only_research", False))
+    if overview_only:
+        _require(
+            visual_only_research,
+            "overview geometry capture requires --visual-only-research",
+        )
     capture_width = int(getattr(args, "width", WIDTH))
     capture_height = int(getattr(args, "height", HEIGHT))
     _require(
@@ -862,18 +965,19 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             if abs(observed_fov - float(plan["camera"]["horizontal_fov_deg"])) > 1.0e-4:
                 raise RuntimeError(f"camera HFOV readback failed: {observed_fov}")
             _apply_camera(camera, plan["camera"])
-            runtimes = _spawn_runtime_actors(game, {"plan": plan})
-            for declaration in plan["actors"]:
-                offset = declaration.get("emitter_local_ue_cm")
-                if offset is not None:
-                    actor_id = declaration["actor_id"]
-                    emitter_components[actor_id] = attach_emitter_component(
-                        game, actor_id=actor_id,
-                        anchor_root=runtimes[actor_id]["anchor"].K2_GetRootComponent(),
-                        emitter_local_ue_cm=offset)
-                    emitter_readbacks[actor_id] = []
-            for state in plan["frames"][0]["actor_states"]:
-                _apply_actor_state(runtimes[state["actor_id"]], state, 0)
+            if actor_ids:
+                runtimes = _spawn_runtime_actors(game, {"plan": plan})
+                for declaration in plan["actors"]:
+                    offset = declaration.get("emitter_local_ue_cm")
+                    if offset is not None:
+                        actor_id = declaration["actor_id"]
+                        emitter_components[actor_id] = attach_emitter_component(
+                            game, actor_id=actor_id,
+                            anchor_root=runtimes[actor_id]["anchor"].K2_GetRootComponent(),
+                            emitter_local_ue_cm=offset)
+                        emitter_readbacks[actor_id] = []
+                for state in plan["frames"][0]["actor_states"]:
+                    _apply_actor_state(runtimes[state["actor_id"]], state, 0)
             light_records = _spawn_review_lights(game, _light_plan(episode))
             game.get_unreal_object(uclass="UGameplayStatics").SetGamePaused(
                 bPaused=False
