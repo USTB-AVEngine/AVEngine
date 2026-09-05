@@ -1,5 +1,7 @@
 # Four-speaker research QA adapter
 
+Reader-facing question organization is maintained in [the unified QA catalog](QA_UNIFIED_CATALOG_20260905.md). Card numbers below are historical mappings, not separate implemented types.
+
 This helper consumes existing four-speaker SPEAR/audio research inputs and
 reuses the current QuestionSpec/Facts evaluator. It does not add a QuestionSpec
 type, alter the protocol catalog, schedule audio, or infer positions from a
@@ -14,8 +16,10 @@ It verifies:
   windows and clip boundaries agree;
 - each report output_stem is read as actual stereo int16 16 kHz PCM. RLR wet tails
   may extend beyond a dry speech window, but must remain inside the stem;
-- optional pixel visibility is consulted only for the concrete all-speaker
-  condition of the card-13/card-14 examples.
+- optional pixel visibility is consulted for the selected question targets.
+  The default legacy mode retains its original all-speaker condition; explicit
+  `--all-speaking-targets` checks each speaker at that speaker's utterance frame
+  and defers only that target's question pair when evidence is missing.
 
 The mapping reuses existing types:
 
@@ -31,6 +35,8 @@ them. If native audio or pixel truth is absent, affected samples are
 not_run/deferred. An out-of-view non-target actor is not a room-level failure.
 No formal conditional baseline, human admission, or new frozen contract is
 claimed.
+
+With `--all-speaking-targets`, four unique speaking targets produce at most nine question instances: one order question and two existing question forms per speaker. Default behavior remains the original three instances. Native masks support visibility only; shirt colors are author-controlled metadata, not pixel color-recognition evidence.
 
 Example:
 
