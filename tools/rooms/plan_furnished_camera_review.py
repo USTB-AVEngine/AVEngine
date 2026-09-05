@@ -233,15 +233,21 @@ def build_camera_review_plan(
         total = int(candidate.get("target_count", len(target_bounds)))
         margin = float(candidate.get("target_frame_margin", -1.0))
         mesh_occlusion = int(candidate.get("target_mesh_occluded_count", 0))
-        # Keep all-target framing as a strong preference, then prefer useful
-        # on-screen occupancy and low inter-object/mesh obstruction. Native
-        # pixel visibility remains the final review authority.
+        # Framing and mesh visibility are diagnostics for native review, not
+        # an all-actor acceptance rule. Remove the core scorer's full-target
+        # and occlusion terms before ranking so a natural near-table view can
+        # remain in the review set even when a chair or actor is off-screen.
         occupancy = max(-1.0, min(1.0, 1.0 - margin))
-        candidate["review_score"] = (
+        target_occluded = int(candidate.get("target_occluded_count", 0))
+        coverage_neutral_score = (
             float(candidate.get("post_join_score", 0.0))
-            + (30.0 if full == total else -30.0 * (total - full))
-            + 4.0 * occupancy
-            - 14.0 * mesh_occlusion
+            + 20.0 * total
+            - 30.0 * full
+            + 14.0 * target_occluded
+        )
+        candidate["review_score"] = coverage_neutral_score + 4.0 * occupancy
+        candidate["review_score_policy"] = (
+            "geometry_orientation_clearance; target framing and occlusion are diagnostics"
         )
         candidate["review_visibility_status"] = (
             "geometry_candidate" if full == total and mesh_occlusion == 0 else "geometry_warning"
