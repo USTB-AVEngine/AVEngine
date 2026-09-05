@@ -19,6 +19,10 @@ from typing import Any
 
 DEFAULT_BACKEND_ID = "ue_spear"
 HABITAT_NATIVE_BACKEND_ID = "habitat_native"
+_BACKEND_ALIASES = {
+    # The room runtime registry predates the QA scene spelling.
+    "spear_unreal": DEFAULT_BACKEND_ID,
+}
 
 
 class BackendHandlerError(ValueError):
@@ -26,6 +30,7 @@ class BackendHandlerError(ValueError):
 
 
 CandidateAdapter = Callable[..., Mapping[str, Any]]
+AudioRenderer = Callable[..., Mapping[str, Any]]
 VisualVerifier = Callable[..., Mapping[str, Any]]
 
 
@@ -43,6 +48,7 @@ class BackendHandler:
     backend_id: str
     description: str
     capture: Callable[..., Any] | None = None
+    audio_renderer: AudioRenderer | None = None
     candidate_adapter: CandidateAdapter | None = None
     visual_verifier: VisualVerifier | None = None
 
@@ -78,8 +84,16 @@ def _lazy_mp3d_capture(*args: Any, **kwargs: Any) -> Any:
     return capture_mp3d_multi_actor(*args, **kwargs)
 
 
+def _lazy_mp3d_audio_renderer(*args: Any, **kwargs: Any) -> Mapping[str, Any]:
+    from avengine.timeline.current_mp3d_dynamic_audio import (
+        render_current_mp3d_dynamic_audio,
+    )
+
+    return render_current_mp3d_dynamic_audio(*args, **kwargs)
+
+
 def _lazy_mp3d_visual_verifier(*args: Any, **kwargs: Any) -> Mapping[str, Any]:
-    from tools.qa.verify_mp3d_visual_batch import verify_batch
+    from avengine.qa.mp3d_visual_verification import verify_batch
 
     return verify_batch(*args, **kwargs)
 
@@ -93,6 +107,7 @@ def register_backend_handler(
     backend_id: str | None = None,
     description: str | None = None,
     capture: Callable[..., Any] | None = None,
+    audio_renderer: AudioRenderer | None = None,
     candidate_adapter: CandidateAdapter | None = None,
     visual_verifier: VisualVerifier | None = None,
     replace: bool = False,
@@ -108,7 +123,14 @@ def register_backend_handler(
     if handler is not None:
         if any(
             value is not None
-            for value in (backend_id, description, capture, candidate_adapter, visual_verifier)
+            for value in (
+                backend_id,
+                description,
+                capture,
+                audio_renderer,
+                candidate_adapter,
+                visual_verifier,
+            )
         ):
             raise BackendHandlerError(
                 "handler object cannot be combined with handler fields"
@@ -123,6 +145,7 @@ def register_backend_handler(
             backend_id=backend_id,
             description=description,
             capture=capture,
+            audio_renderer=audio_renderer,
             candidate_adapter=candidate_adapter,
             visual_verifier=visual_verifier,
         )
@@ -159,14 +182,31 @@ def resolve_backend_id(
         return _validate_backend_id(config)
     if not isinstance(config, Mapping):
         raise BackendHandlerError("backend configuration must be an object or string")
-    value: Any = config.get("backend_id")
-    if value is None:
-        value = config.get("backend")
-    if isinstance(value, Mapping):
-        value = value.get("backend_id", value.get("id"))
+    primary: Any = config.get("backend_id")
+    compatibility: Any = config.get("backend")
+    if isinstance(primary, Mapping):
+        primary = primary.get("backend_id", primary.get("id"))
+    if isinstance(compatibility, Mapping):
+        compatibility = compatibility.get(
+            "backend_id", compatibility.get("id")
+        )
+    if primary is not None and compatibility is not None:
+        primary_id = _validate_backend_id(primary)
+        primary_id = _BACKEND_ALIASES.get(primary_id, primary_id)
+        compatibility_id = _validate_backend_id(compatibility)
+        compatibility_id = _BACKEND_ALIASES.get(
+            compatibility_id, compatibility_id
+        )
+        if primary_id != compatibility_id:
+            raise BackendHandlerError(
+                "backend_id and backend declare different handlers"
+            )
+        return primary_id
+    value = primary if primary is not None else compatibility
     if value is None:
         return default
-    return _validate_backend_id(value)
+    backend_id = _validate_backend_id(value)
+    return _BACKEND_ALIASES.get(backend_id, backend_id)
 
 
 def get_backend_handler(
@@ -204,6 +244,7 @@ register_backend_handler(
         backend_id=HABITAT_NATIVE_BACKEND_ID,
         description="Native Habitat-Sim MP3D visual execution",
         capture=_lazy_mp3d_capture,
+        audio_renderer=_lazy_mp3d_audio_renderer,
         candidate_adapter=_lazy_mp3d_candidate_adapter,
         visual_verifier=_lazy_mp3d_visual_verifier,
     )

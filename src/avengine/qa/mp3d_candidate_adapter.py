@@ -28,8 +28,11 @@ def _document(value: Any, *, owner: str) -> tuple[dict[str, Any], Path | None]:
         return deepcopy(dict(value)), None
     if value is None:
         raise MP3DCandidateAdapterError(f"{owner} is required")
-    path = Path(value).expanduser().resolve()
-    if path.is_symlink() or not path.is_file():
+    raw_path = Path(value).expanduser()
+    if raw_path.is_symlink():
+        raise MP3DCandidateAdapterError(f"{owner} must not be a symlink: {raw_path}")
+    path = raw_path.resolve()
+    if not path.is_file():
         raise MP3DCandidateAdapterError(f"{owner} must be a regular file: {path}")
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
@@ -61,9 +64,21 @@ def _path_from_case(case_path: Path | None, raw: Any, *, owner: str) -> Path:
     if not isinstance(raw, str) or not raw.strip():
         raise MP3DCandidateAdapterError(f"{owner} must be a nonempty path")
     path = Path(raw).expanduser()
-    if not path.is_absolute() and case_path is not None:
+    relative_to_case = not path.is_absolute() and case_path is not None
+    if relative_to_case:
         path = case_path.parent / path
-    return path.resolve()
+    if path.is_symlink():
+        raise MP3DCandidateAdapterError(f"{owner} must not be a symlink: {path}")
+    resolved = path.resolve()
+    if relative_to_case:
+        case_root = case_path.parent.resolve()
+        try:
+            resolved.relative_to(case_root)
+        except ValueError as error:
+            raise MP3DCandidateAdapterError(
+                f"{owner} escapes the case directory: {resolved}"
+            ) from error
+    return resolved
 
 
 def _track_inputs(
@@ -290,10 +305,12 @@ def _timeline(
 def _fact(
     *,
     case: Mapping[str, Any],
+    case_path: Path | None,
     room: Mapping[str, Any],
     room_path: Path | None,
     m1: Mapping[str, Any] | None,
     m1_path: Path | None,
+    audio_program_path: Path | None,
     clock: Mapping[str, Any] | None,
     actors: Sequence[Mapping[str, Any]],
     frames_by_slot: Mapping[str, Sequence[Mapping[str, Any]]],
@@ -341,6 +358,17 @@ def _fact(
         "episode_counted": False,
         "qualification_claim": False,
         "backend_id": MP3D_BACKEND_ID,
+        "runtime_consumer_status": "pending_question_facts",
+        "backend_inputs": {
+            "case_manifest": None if case_path is None else str(case_path),
+            "room_manifest": None if room_path is None else str(room_path),
+            "m1_request": None if m1_path is None else str(m1_path),
+            "audio_program": (
+                None
+                if audio_program_path is None
+                else str(audio_program_path)
+            ),
+        },
         "scene_id": scene.get("scene_id") if isinstance(scene, Mapping) else None,
         "room": {
             "room_id": room.get("room_id"),
@@ -539,10 +567,12 @@ def adapt_mp3d_candidate(
 
     fact = _fact(
         case=case,
+        case_path=case_file,
         room=room,
         room_path=room_file,
         m1=m1,
         m1_path=m1_file,
+        audio_program_path=program_file,
         clock=clock,
         actors=actors,
         frames_by_slot=frames_by_slot,

@@ -153,3 +153,38 @@ def test_verifier_accepts_one_configured_actor(tmp_path: Path):
     result = verify_point("point", point)
     assert result["status"] == "pass"
     assert result["actor_count"] == 1
+
+
+
+def test_verifier_binds_each_frame_actor_to_receipt_endpoint(tmp_path: Path):
+    point = tmp_path / "point"
+    _capture(point)
+    records_path = point / "frame_records.json"
+    records = json.loads(records_path.read_text())
+    for frame in records["frames"]:
+        first, second = frame["actor_readbacks"]
+        first["source_endpoint_id"], second["source_endpoint_id"] = (
+            second["source_endpoint_id"],
+            first["source_endpoint_id"],
+        )
+    records_path.write_text(json.dumps(records))
+
+    with pytest.raises(
+        MP3DVisualVerificationError,
+        match="source_endpoint_id differs from the receipt",
+    ):
+        verify_point("point", point)
+
+
+
+def test_verifier_rejects_symlinked_capture_root(tmp_path: Path):
+    point = tmp_path / "point"
+    _capture(point)
+    alias = tmp_path / "point-link"
+    alias.symlink_to(point, target_is_directory=True)
+
+    with pytest.raises(
+        MP3DVisualVerificationError,
+        match="root must not be a symlink",
+    ):
+        verify_point("point", alias)
