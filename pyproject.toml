@@ -19,6 +19,7 @@ dependencies = [
 [project.optional-dependencies]
 rlr = ["sofar>=1.2.3"]
 native = [
+  "soundfile>=0.12",
   "numpy-quaternion>=2022.4",
   "sofar>=1.2.3",
   "attrs>=22",
@@ -29,7 +30,7 @@ native = [
   "tqdm>=4.64",
   "GitPython>=3.1",
 ]
-test = ["pytest>=8"]
+test = ["pytest>=8", "soundfile>=0.12"]
 
 [project.scripts]
 avengine = "avengine.cli:main"

@@ -149,7 +149,7 @@ def _configure_spear(args: argparse.Namespace, plan: dict[str, Any]) -> Any:
     config.SPEAR.INSTANCE.CLIENT_INTERNAL_TIMEOUT_SECONDS = 180.0
     config.SP_SERVICES.INITIALIZE_ENGINE_SERVICE.OVERRIDE_GAME_DEFAULT_MAP = True
     config.SP_SERVICES.INITIALIZE_ENGINE_SERVICE.GAME_DEFAULT_MAP = plan["map_path"]
-    config.SP_SERVICES.INITIALIZE_ENGINE_SERVICE.FIXED_DELTA_TIME = 1.0 / 15.0
+    config.SP_SERVICES.INITIALIZE_ENGINE_SERVICE.FIXED_DELTA_TIME = 1.0 / float(getattr(args, "frame_rate_hz", 15))
     config.SP_SERVICES.RPC_SERVICE.RPC_SERVER_PORT = settings["rpc_port"]
     config.SPEAR.INSTANCE.TEMP_DIR = settings["temp_dir"]
     config.SPEAR.INSTANCE.COMMAND_LINE_ARGS.log = settings["log"]

@@ -30,6 +30,41 @@ def _readback(
     }
 
 
+def test_camera_full_rotation_readback_checks_residential_pitch() -> None:
+    frames = [
+        {
+            "frame_index": frame_index,
+            "camera_state": {
+                "ue_position_cm": [0.0, 0.0, 175.0],
+                "ue_roll_deg": 0.0,
+                "ue_pitch_deg": -17.0,
+                "ue_yaw_deg": 75.0,
+            },
+        }
+        for frame_index in range(75)
+    ]
+    readbacks = [
+        {
+            "frame_index": frame_index,
+            "location_cm": [0.0, 0.0, 175.0],
+            "rotation_deg": [0.0, -17.0, 75.0],
+        }
+        for frame_index in range(75)
+    ]
+
+    assert TOOL._summarize_camera_full_rotation(
+        plan={"frames": frames, "camera": frames[0]["camera_state"]},
+        readbacks=readbacks,
+    )["maximum_pitch_error_deg"] == 0.0
+
+    readbacks[20]["rotation_deg"][1] = 0.0
+    with pytest.raises(RuntimeError, match="camera full rotation readback drifted"):
+        TOOL._summarize_camera_full_rotation(
+            plan={"frames": frames, "camera": frames[0]["camera_state"]},
+            readbacks=readbacks,
+        )
+
+
 def test_derive_native_pixel_masks_keeps_per_actor_target_footprints() -> None:
     normal = [np.asarray([[1.0, 2.0, 65504.0], [1.0, 65504.0, 3.0]], dtype=np.float32)]
     target = {
@@ -94,6 +129,78 @@ def test_multimodal_readback_drift_requires_normal_and_target_pose_identity() ->
     target["human0"][0]["actors"]["human0"]["location_cm"][0] = 0.001
     with pytest.raises(RuntimeError, match="target pass location drift"):
         TOOL._maximum_multimodal_readback_drift(normal, target)
+
+
+def _overview_episode(frame_count: int = 3) -> dict[str, object]:
+    return {
+        "clock": {
+            "frame_count": frame_count,
+            "frame_rate_hz": 15,
+            "sample_rate_hz": 16000,
+            "sample_count": frame_count * 16000 // 15,
+        },
+        "planning_boundary": {"overview_only": True},
+        "visual_plan": {
+            "actors": [],
+            "camera_selection": {"selection_mode": "overview_geometry_only"},
+            "frames": [
+                {
+                    "frame_index": index,
+                    "pts_ticks": index * 3200,
+                    "actor_states": [],
+                }
+                for index in range(frame_count)
+            ],
+        },
+    }
+
+
+def test_zero_actor_clock_is_allowed_only_for_explicit_overview() -> None:
+    episode = _overview_episode()
+    clock = TOOL._resolve_plan_clock(episode)
+    assert clock.frame_count == 3
+
+    ordinary = json.loads(json.dumps(episode))
+    ordinary["planning_boundary"]["overview_only"] = False
+    ordinary["visual_plan"]["camera_selection"]["selection_mode"] = (
+        "geometry_first_pending_actor_join"
+    )
+    with pytest.raises(RuntimeError, match="visual actor IDs"):
+        TOOL._resolve_plan_clock(ordinary)
+
+
+def test_overview_native_pixel_finalizer_persists_normal_scene_only(
+    tmp_path: Path,
+) -> None:
+    normal_depths = [
+        np.asarray([[1.0, 2.0]], dtype=np.float32) for _ in range(3)
+    ]
+    normal_object_ids = [
+        np.asarray([[0, 1]], dtype=np.uint32) for _ in range(3)
+    ]
+    readbacks = [{"frame_index": index, "camera": {}} for index in range(3)]
+
+    result = TOOL._finalize_native_pixel_artifacts(
+        output=tmp_path,
+        episode=_overview_episode(),
+        normal_depths=normal_depths,
+        normal_object_ids=normal_object_ids,
+        target_depths_by_actor={},
+        normal_readbacks=readbacks,
+        target_readbacks={},
+        frame_count=3,
+    )
+
+    assert result["status"] == "pass"
+    assert result["overview_only"] is True
+    assert result["actor_ids"] == []
+    assert (tmp_path / "metric_depth_native.npz").is_file()
+    assert (tmp_path / "normal_object_ids_uint32.npz").is_file()
+    persisted = json.loads(
+        (tmp_path / "native_pixel_runtime_readbacks.json").read_text(encoding="utf-8")
+    )
+    assert persisted["target_only"] == {}
+    assert persisted["overview_only"] is True
 
 
 def _episode_authority() -> dict[str, object]:
@@ -433,8 +540,8 @@ def test_run_native_multimodal_replays_two_dynamic_actor_target_passes(
     monkeypatch.setattr(
         TOOL, "summarize_actor_bounds", lambda **_kwargs: {"status": "pass"}
     )
-    monkeypatch.setattr(TOOL, "_mux_clean", lambda *_args: None)
-    monkeypatch.setattr(TOOL, "_mux_topdown", lambda *_args: None)
+    monkeypatch.setattr(TOOL, "_mux_clean", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(TOOL, "_mux_topdown", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(TOOL, "_probe", lambda *_args, **_kwargs: {"status": "pass"})
     monkeypatch.setattr(TOOL, "build_png_encode_command", lambda **_kwargs: ["fake"])
     monkeypatch.setattr(TOOL.subprocess, "run", lambda *_args, **_kwargs: None)
@@ -723,6 +830,34 @@ def test_parse_args_exposes_visual_only_research_flag(
     assert not hasattr(parsed, "runtime_root")
 
 
+def test_parse_args_accepts_native_capture_resolution(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "run_spear_residential_episode.py",
+            "--episode-root",
+            "/tmp/episode",
+            "--uproject",
+            "/tmp/project.uproject",
+            "--unreal-editor",
+            "/tmp/UnrealEditor",
+            "--output",
+            "/tmp/output",
+            "--width",
+            "1920",
+            "--height",
+            "1080",
+        ],
+    )
+
+    parsed = TOOL.parse_args()
+
+    assert (parsed.width, parsed.height) == (1920, 1080)
+
+
 def test_run_legacy_mode_keeps_native_multimodal_path_unreached(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -740,7 +875,9 @@ def test_run_legacy_mode_keeps_native_multimodal_path_unreached(
     rendered = {"count": 0}
 
     monkeypatch.setattr(TOOL, "_configure_spear", lambda *_: instance)
-    monkeypatch.setattr(TOOL, "_spawn_camera", lambda *_args: (camera, capture))
+    monkeypatch.setattr(
+        TOOL, "_spawn_camera", lambda *_args, **_kwargs: (camera, capture)
+    )
     monkeypatch.setattr(
         TOOL,
         "_spawn_multimodal_camera",
@@ -799,8 +936,8 @@ def test_run_legacy_mode_keeps_native_multimodal_path_unreached(
             np.zeros((TOOL.HEIGHT, TOOL.WIDTH, 3), dtype=np.uint8),
         )[1],
     )
-    monkeypatch.setattr(TOOL, "_mux_clean", lambda *_args: None)
-    monkeypatch.setattr(TOOL, "_mux_topdown", lambda *_args: None)
+    monkeypatch.setattr(TOOL, "_mux_clean", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(TOOL, "_mux_topdown", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(TOOL, "_probe", lambda *_args, **_kwargs: {"status": "pass"})
     monkeypatch.setattr(TOOL, "build_png_encode_command", lambda **_kwargs: ["fake"])
     monkeypatch.setattr(TOOL.subprocess, "run", lambda *_args, **_kwargs: None)
@@ -912,3 +1049,48 @@ def test_audio_claim_boundary_rejects_unknown_explicit_mode(
 
     with pytest.raises(RuntimeError, match="unsupported audio_mode"):
         TOOL._audio_claim_boundary(episode_root, {"acoustic_proxy": {}})
+
+
+def _configured_episode(frame_count=150, actor_count=4):
+    ids = [f"person{index}" for index in range(actor_count)]
+    return {"visual_plan": {
+        "clock": {"frame_count": frame_count, "frame_rate_hz": 15, "sample_rate_hz": 16000},
+        "actors": [{"actor_id": value} for value in ids],
+        "frames": [{"frame_index": index, "pts_ticks": index * 3200,
+                    "actor_states": [{"actor_id": value} for value in ids]}
+                   for index in range(frame_count)],
+    }}
+
+
+def test_residential_four_people_use_declared_ten_second_clock():
+    clock = TOOL._resolve_plan_clock(_configured_episode())
+    assert clock.frame_count == 150
+    assert clock.sample_count == 160000
+
+
+def test_residential_clock_rejects_missing_actor_and_shifted_ticks():
+    episode = _configured_episode()
+    episode["visual_plan"]["frames"][17]["actor_states"].pop()
+    with pytest.raises(RuntimeError, match="actor closure"):
+        TOOL._resolve_plan_clock(episode)
+    episode = _configured_episode()
+    episode["visual_plan"]["frames"][17]["pts_ticks"] += 1
+    with pytest.raises(RuntimeError, match="frame ticks"):
+        TOOL._resolve_plan_clock(episode)
+
+
+def test_residential_legacy_does_not_infer_a_clock_from_partial_frames():
+    episode = _configured_episode(frame_count=74)
+    del episode["visual_plan"]["clock"]
+    with pytest.raises(RuntimeError, match="declared clock"):
+        TOOL._resolve_plan_clock(episode)
+
+
+def test_residential_configured_camera_rotation_checks_all_150_frames():
+    camera = {"ue_position_cm": [0., 0., 160.], "ue_yaw_deg": 0., "ue_pitch_deg": -10.}
+    plan = {"frames": [{"camera_state": camera} for _ in range(150)]}
+    readbacks = [{"location_cm": [0., 0., 160.], "rotation_deg": [0., -10., 0.]} for _ in range(150)]
+    TOOL._summarize_camera_full_rotation(plan=plan, readbacks=readbacks, frame_count=150)
+    readbacks[149]["rotation_deg"][1] = 0.
+    with pytest.raises(RuntimeError, match="rotation readback drifted"):
+        TOOL._summarize_camera_full_rotation(plan=plan, readbacks=readbacks, frame_count=150)

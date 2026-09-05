@@ -1,0 +1,100 @@
+{
+  "room_spec_version": "v1",
+  "status": "research_candidate",
+  "qualification_claim": false,
+  "room_spec_id": "authored_compact_home_room_b_v1",
+  "room_family_id": "authored_compact_home_separated_v1",
+  "backend_intent": "spear_unreal",
+  "coordinate_system": {
+    "authoring_up": "+Z",
+    "export_up": "+Y",
+    "linear_unit": "meter"
+  },
+  "envelope": {
+    "bounds_xy_m": [-5.8, -4.2, 5.8, 4.2],
+    "wall_height_m": 2.85,
+    "exterior_wall_thickness_m": 0.22,
+    "interior_wall_thickness_m": 0.16,
+    "floor_slab_thickness_m": 0.12
+  },
+  "zones": [
+    {"zone_id":"living_room","bounds_xy_m":[-5.55,-4.0,-0.35,0.14],"floor_material":"oak","role":"rest_social"},
+    {"zone_id":"dining_room","bounds_xy_m":[-0.15,-4.0,5.55,0.14],"floor_material":"oak","role":"food_social"},
+    {"zone_id":"kitchen","bounds_xy_m":[-0.15,0.30,5.55,4.0],"floor_material":"terrazzo","role":"food_work"},
+    {"zone_id":"corner_hall","bounds_xy_m":[-5.55,0.30,-0.35,4.0],"floor_material":"terrazzo","role":"circulation"}
+  ],
+  "links": [
+    {"link_id":"living_to_dining","zones":["living_room","dining_room"],"kind":"wide_opening","center_xy_m":[-0.25,-1.85],"width_m":1.65,"head_m":2.45},
+    {"link_id":"dining_to_kitchen","zones":["dining_room","kitchen"],"kind":"doorway","center_xy_m":[2.30,0.22],"width_m":1.45,"head_m":2.25},
+    {"link_id":"hall_to_living","zones":["corner_hall","living_room"],"kind":"doorway","center_xy_m":[-1.65,0.22],"width_m":1.25,"head_m":2.25},
+    {"link_id":"hall_to_kitchen","zones":["corner_hall","kitchen"],"kind":"doorway","center_xy_m":[-0.25,1.75],"width_m":1.20,"head_m":2.25}
+  ],
+  "exterior_openings": [
+    {"opening_id":"main_entry","zone":"corner_hall","side":"N","kind":"doorway","center_xy_m":[-4.25,4.2],"width_m":1.05,"sill_m":0.0,"head_m":2.25},
+    {"opening_id":"living_picture_window","zone":"living_room","side":"S","kind":"window","center_xy_m":[-3.25,-4.2],"width_m":2.45,"sill_m":0.65,"head_m":2.35},
+    {"opening_id":"dining_window","zone":"dining_room","side":"S","kind":"window","center_xy_m":[2.55,-4.2],"width_m":2.20,"sill_m":0.75,"head_m":2.35},
+    {"opening_id":"kitchen_window","zone":"kitchen","side":"E","kind":"window","center_xy_m":[5.8,2.35],"width_m":2.05,"sill_m":1.05,"head_m":2.40},
+    {"opening_id":"hall_window","zone":"corner_hall","side":"W","kind":"window","center_xy_m":[-5.8,1.85],"width_m":1.35,"sill_m":0.95,"head_m":2.35}
+  ],
+  "furniture": [
+    {
+      "object_id":"living_sofa","category":"sofa","zone_id":"living_room","center_xy_m":[-3.65,-2.65],"size_xyz_m":[2.85,0.92,0.86],"navigation_role":"ground_blocker","static":true,
+      "seat_points":[
+        {"anchor_id":"sofa_seat_0","position_m":[-4.20,-2.02,0.0],"facing_yaw_deg":180.0,"support_height_m":0.45},
+        {"anchor_id":"sofa_seat_1","position_m":[-3.15,-2.02,0.0],"facing_yaw_deg":180.0,"support_height_m":0.45}
+      ]
+    },
+    {"object_id":"living_coffee_table","category":"table","zone_id":"living_room","center_xy_m":[-2.10,-1.45],"size_xyz_m":[1.65,0.80,0.44],"navigation_role":"ground_blocker","static":true,"seat_points":[]},
+    {
+      "object_id":"dining_table","category":"table","zone_id":"dining_room","center_xy_m":[2.70,-2.00],"size_xyz_m":[2.35,1.15,0.78],"navigation_role":"ground_blocker","static":true,
+      "seat_points":[
+        {"anchor_id":"dining_seat_0","position_m":[1.35,-2.00,0.0],"facing_yaw_deg":0.0,"support_height_m":0.46},
+        {"anchor_id":"dining_seat_1","position_m":[4.05,-2.00,0.0],"facing_yaw_deg":180.0,"support_height_m":0.46},
+        {"anchor_id":"dining_seat_2","position_m":[2.70,-2.80,0.0],"facing_yaw_deg":90.0,"support_height_m":0.46},
+        {"anchor_id":"dining_seat_3","position_m":[2.70,-1.20,0.0],"facing_yaw_deg":-90.0,"support_height_m":0.46}
+      ]
+    },
+    {"object_id":"kitchen_counter_run","category":"counter","zone_id":"kitchen","center_xy_m":[3.90,3.35],"size_xyz_m":[2.95,0.72,0.96],"navigation_role":"ground_blocker","static":true,"seat_points":[]},
+    {"object_id":"kitchen_island","category":"table","zone_id":"kitchen","center_xy_m":[1.50,1.75],"size_xyz_m":[2.55,0.92,0.98],"navigation_role":"ground_blocker","static":true,"seat_points":[]},
+    {"object_id":"hall_console","category":"console","zone_id":"corner_hall","center_xy_m":[-4.95,2.95],"size_xyz_m":[0.46,1.55,0.84],"navigation_role":"ground_blocker","static":true,"seat_points":[]},
+    {
+      "object_id":"hall_bench","category":"bench","zone_id":"corner_hall","center_xy_m":[-4.65,0.75],"size_xyz_m":[0.52,1.18,0.52],"navigation_role":"ground_blocker","static":true,
+      "seat_points":[{"anchor_id":"hall_bench_seat","position_m":[-4.28,0.75,0.0],"facing_yaw_deg":90.0,"support_height_m":0.46}]
+    }
+  ],
+  "anchors": {
+    "entry_threshold":[-4.25,3.70,0.0],
+    "hall_turn_a":[-4.20,1.75,0.0],
+    "hall_turn_b":[-1.65,0.85,0.0],
+    "living_center":[-2.60,-2.65,0.0],
+    "living_viewpoint":[-4.75,-0.70,1.55],
+    "sofa_seat_0":[-4.20,-2.02,0.0],
+    "sofa_seat_1":[-3.15,-2.02,0.0],
+    "dining_table_edge":[2.70,-1.35,0.0],
+    "dining_seat_0":[1.35,-2.00,0.0],
+    "dining_seat_1":[4.05,-2.00,0.0],
+    "dining_seat_2":[2.70,-2.80,0.0],
+    "dining_seat_3":[2.70,-1.20,0.0],
+    "kitchen_work_zone":[3.90,2.88,0.0],
+    "kitchen_island_edge":[1.50,1.16,0.0],
+    "kitchen_viewpoint":[4.75,0.75,1.55],
+    "hall_viewpoint":[-3.95,3.30,1.55],
+    "corner_viewpoint":[-1.55,0.90,1.55],
+    "dining_viewpoint":[4.90,-3.35,1.55]
+  },
+  "capabilities": {
+    "static_furniture_semantics": true,
+    "static_seat_points": true,
+    "navigation": "pending_native_readback",
+    "native_spear_ue": "pending_root_execution",
+    "acoustic_proxy": "pending_root_execution",
+    "dynamic_object_interaction": "not_implemented",
+    "door_drawer_interaction": "not_implemented",
+    "grasp_release": "not_implemented"
+  },
+  "scenario_notes": [
+    "Static furniture and seat-point semantics are available for AVEngine planning.",
+    "Characters may be placed or routed by AVEngine after native clearance/readback.",
+    "This room does not claim grasp, carry, door, drawer or object-release execution."
+  ]
+}

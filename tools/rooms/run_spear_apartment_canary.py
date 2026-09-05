@@ -186,14 +186,20 @@ def _actor_bounds_readback(actor: Any, frame_index: int) -> dict[str, Any]:
     }
 
 
-def _spawn_camera(game: Any) -> tuple[Any, Any]:
+def _spawn_camera(
+    game: Any,
+    *,
+    width: int = WIDTH,
+    height: int = HEIGHT,
+    hfov_degrees: float = 105.0,
+) -> tuple[Any, Any]:
     return spawn_scene_capture(
         game,
         camera_blueprint=CAMERA_BLUEPRINT,
         component_name=CAPTURE_COMPONENT_NAME,
-        width=WIDTH,
-        height=HEIGHT,
-        hfov_degrees=105.0,
+        width=width,
+        height=height,
+        hfov_degrees=hfov_degrees,
     )
 
 
@@ -736,8 +742,8 @@ def _apply_camera(camera: Any, camera_plan: Mapping[str, Any]) -> None:
     camera.K2_SetActorLocationAndRotation(
         NewLocation={"X": position[0], "Y": position[1], "Z": position[2]},
         NewRotation={
-            "Roll": 0.0,
-            "Pitch": 0.0,
+            "Roll": float(camera_plan.get("ue_roll_deg", 0.0)),
+            "Pitch": float(camera_plan.get("ue_pitch_deg", 0.0)),
             "Yaw": camera_plan["ue_yaw_deg"],
         },
         bSweep=False,

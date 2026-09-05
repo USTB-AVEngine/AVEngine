@@ -5,7 +5,7 @@
 
 自 2026-08-25 起，目录本身就是能力分组（阶段目录 m1…m7 已移除），
 本表按目录列出每个工具做什么。
-当前共 360 个工具脚本。
+当前共 372 个工具脚本。
 
 ## 资产生成与装配（`tools/assets/`）
 
@@ -31,6 +31,9 @@
 | `tools/assets/build_cross_species_appearance_lineage.py` | Build one diagnostic-only cross-species appearance lineage |
 | `tools/assets/build_joint_mapping.py` | Emit the exact Habitat joint mapping bound to a rebase report |
 | `tools/assets/build_research_review_request.py` | Build an exact 75-state M2 request for research-only human review |
+| `tools/assets/build_seated_human_batch.py` | Run the AVEngine-owned Blender seated-human builder for four assets |
+| `tools/assets/build_seated_human_import_request.py` | Create a no-clobber SPEAR/UE seated-human skeletal import request |
+| `tools/assets/build_seated_human_skeletal.py` | Build a seated Rocketbox human skeletal asset for AVEngine SPEAR research runs |
 | `tools/assets/build_sound_event_pool.py` | Build an avengine_sound_event_pool_v1 catalog from event_manifest.json |
 | `tools/assets/build_sound_harvest_map.py` | 生成事件类到 FSD50K 标签的对照表草案。 |
 | `tools/assets/capture_animal_variant_review.py` | Build and run one single-view animal-variant Habitat review capture |
@@ -103,6 +106,8 @@
 | `tools/rooms/build_residential_source_episode.py` | Build AVEngine Timeline, Topdown and binaural audio for a residential room |
 | `tools/rooms/emit_hm3d_room_manifest.py` | Emit an AVEngine room manifest for an HM3D scene directory |
 | `tools/rooms/extract_interioragent_scene_metadata.py` | Extract a room polygon and navigation footprints from InteriorAgent USD |
+| `tools/rooms/plan_furnished_camera_review.py` | Build a short multi-view camera review plan for one furnished room |
+| `tools/rooms/plan_furnished_residential_episode.py` | Plan a static furnished residential episode without starting UE/SPEAR |
 | `tools/rooms/prepare_3d_front_toolbox_sample_proxy.py` | Build a clearly labelled 3D-FRONT Toolbox sample review proxy in USD |
 | `tools/rooms/prepare_interioragent_kujiale_adapter.py` | Prepare an external InteriorAgent USD stage for UE's runtime USD importer |
 | `tools/rooms/prepare_legacy_apartment.py` | Prepare the real-surface UE apartment export as an M1 Habitat room package |
@@ -115,7 +120,8 @@
 | `tools/rooms/run_spear_kujiale_canary.py` | Capture an external InteriorAgent/Kujiale room through SPEAR and UE |
 | `tools/rooms/run_spear_mp3d_canary.py` | Render the retained 270-frame MP3D route through packaged SPEAR |
 | `tools/rooms/run_spear_replicacad_canary.py` | Render the retained 270-frame ReplicaCAD route in an isolated SPEAR editor |
-| `tools/rooms/run_spear_residential_episode.py` | Render one AVEngine residential human+Beagle episode through SPEAR/UE |
+| `tools/rooms/run_spear_residential_episode.py` | Render one AVEngine residential visual episode through SPEAR/UE |
+| `tools/rooms/select_furnished_camera_review.py` | Choose a furnished-room camera from actual SPEAR per-person visibility masks |
 
 ## 场景放置（`tools/scene/`）
 
@@ -136,10 +142,14 @@
 | `tools/acoustics/audit_skokloster_cleanup_inventory.py` | Emit the exact face inventory for a Skokloster research cleanup |
 | `tools/acoustics/build_asset_bound_rir_plan.py` | Bind concrete assets to generic root routes and plan on-demand RIR work |
 | `tools/acoustics/compile_semantic_research_package.py` | Compile one room's semantic mesh into an M3/RLR research acoustic package |
+| `tools/acoustics/derive_authored_geometry_proxy.py` | Locate authored-GLB topology roots and optionally derive a fresh acoustic proxy |
 | `tools/acoustics/derive_research_rlr_package.py` | Derive an RLR-loadable research package by removing QA-degenerate faces |
 | `tools/acoustics/derive_skokloster_two_face_research_package.py` | Derive the bounded Skokloster package by removing exactly two QA faces |
 | `tools/acoustics/extract_usd_acoustic_snapshot.py` | Expand a static USD room into one auditable M3 acoustic snapshot |
+| `tools/acoustics/plan_vctk_four_speaker_program.py` | Plan four distinct complete VCTK sentences on an AVEngine clock |
+| `tools/acoustics/prepare_authored_room_acoustics.py` | Prepare a real-surface authored room for the existing AVEngine M3/RLR compiler |
 | `tools/acoustics/probe_room_front_back_pairs.py` | Measure whether one room supports front/back mirrored source pairs |
+| `tools/acoustics/render_frame_readback_sequential_speech.py` | Render a research four-speaker sequential speech program from SPEAR readbacks |
 | `tools/acoustics/render_rir_cache.py` | Render a resumable native-RLR RIR cache from an M6.x job plan |
 | `tools/acoustics/run_material_canary.py` | Run the hash-bound repeated M3 RLR material activation canary |
 | `tools/acoustics/verify_material_canary.py` | Verify M3 canary schema, lineage, raw IRs and recomputed gates |
@@ -446,12 +456,14 @@
 | 工具 | 做什么 |
 |---|---|
 | `tools/ue/assemble_package_stage.py` | Assemble a fresh UE package stage for the current Apartment visual route |
+| `tools/ue/assemble_research_editor_stage.py` | Create an isolated SPEAR Editor stage using current source and installed binaries |
 | `tools/ue/build_minimal_closure_report.py` | Build a minimal-closure report for the current Apartment visual stage |
 | `tools/ue/create_spear_kujiale_map_editor.py` | Create a UE map containing one external USD stage |
 | `tools/ue/export_apartment_gltf.py` | Export the legacy SPEAR apartment as real UE render-surface geometry |
 | `tools/ue/export_asset_dependencies_editor.py` | Export real Unreal package dependencies for declared mounted content roots |
 | `tools/ue/fix_spear_mp3d_materials_editor.py` | Repair and verify MP3D glTF color semantics inside an isolated UE project |
 | `tools/ue/import_controlled_humans_editor.py` | Import one catalog-described controlled human with generic Unreal APIs |
+| `tools/ue/import_seated_human_editor.py` | Import four seated skeletal GLBs and create independent UE Blueprints |
 | `tools/ue/import_spear_3d_front_sample_editor.py` | Import the local 3D-FRONT Toolbox sample proxy into a persistent UE map |
 | `tools/ue/import_spear_replicacad_editor.py` | Import and assemble the prepared ReplicaCAD apt_0 scene inside UE 5.5 |
 | `tools/ue/import_spear_skokloster_editor.py` | Import the prepared Skokloster GLB into one isolated SPEAR/UE content root |
