@@ -1,0 +1,29 @@
+{
+  "room_id": "aea_loc3_social_rebuild_v1",
+  "status": "research_candidate",
+  "backend_route": "spear_unreal",
+  "assets": {
+    "editable_blend": "tmp/aea_loc3_social_rebuild_v1.blend",
+    "visual_glb": "tmp/visual/aea_loc3_social_rebuild_v1.glb",
+    "collision_glb": "tmp/visual/aea_loc3_social_rebuild_v1_collision.glb",
+    "objects": "tmp/metadata/objects.json",
+    "seated_affordances": "tmp/metadata/seated_affordances.json",
+    "preview": "tmp/renders/CAM_L_Living.png",
+    "reference_provenance": "tmp/metadata/reference_provenance.json",
+    "usd": "tmp/usd/aea_loc3_social_rebuild_v1.usda",
+    "usd_export_report": "tmp/usd/aea_loc3_social_rebuild_v1.export.json"
+  },
+  "scope": "static architecture/furniture and seating affordances; no dynamic furniture or manipulation",
+  "production_camera": "root_AVEngine_planner",
+  "ue_import": {
+    "stage_geometry": "assets.visual_glb",
+    "collision_geometry": "assets.collision_glb",
+    "coordinate_mapping": "Habitat (X,Y,Z) = Blender (X,Z,-Y)",
+    "object_metadata": "assets.objects",
+    "seated_affordance_metadata": "assets.seated_affordances",
+    "import_mode": "single_static_stage_with_static_furniture_collision",
+    "production_map_and_camera": "deferred_to_root_AVEngine_SPEAR_adapter",
+    "usd_stage": "assets.usd",
+    "usd_export_scope": "static geometry + materials/textures + lights; Cameras and Anchors excluded"
+  }
+}
