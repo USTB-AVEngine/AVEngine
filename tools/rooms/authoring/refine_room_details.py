@@ -29,7 +29,7 @@ def cli() -> argparse.Namespace:
     parser.add_argument("--input-root", type=Path, required=True)
     parser.add_argument("--blend", type=Path)
     parser.add_argument("--output-root", type=Path, required=True)
-    parser.add_argument("--profile", default="room_b_detail_v7_materialfix")
+    parser.add_argument("--profile", default="room_b_detail_v8_linear_materialfix")
     parser.add_argument("--room-id")
     parser.add_argument("--texture-root", type=Path)
     argv = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else sys.argv[1:]
@@ -466,12 +466,23 @@ def connect_pbr_texture(
     if tint is not None:
         # USD PreviewSurface/glTF do not preserve an arbitrary Blender MixRGB
         # chain. Bake its actual scene-linear multiplication into an sRGB PNG.
-        # Image.pixels exposes linear RGB for a loaded sRGB base-color image.
+        # Blender 4.5 byte-buffer Image.pixels exposes encoded sRGB for loaded
+        # JPEG/PNG images. Decode and encode explicitly; a same-buffer check
+        # alone would miss multiplication in the wrong color space.
         import numpy as np
         rgba = np.empty(len(base_image.pixels), dtype=np.float32)
         base_image.pixels.foreach_get(rgba)
         rgba = rgba.reshape((-1, 4))
-        rgba[:, :3] *= np.asarray(tint[:3], dtype=np.float32)
+        require(base_image.colorspace_settings.name == "sRGB" and not base_image.is_float,
+                "tint baking expects a loaded sRGB byte-buffer base-color image")
+        encoded_source = rgba[:, :3].copy()
+        linear_source = np.where(encoded_source <= 0.04045,
+                                 encoded_source / 12.92,
+                                 ((encoded_source + 0.055) / 1.055) ** 2.4)
+        expected_linear = linear_source * np.asarray(tint[:3], dtype=np.float32)
+        rgba[:, :3] = np.where(expected_linear <= 0.0031308,
+                              expected_linear * 12.92,
+                              1.055 * expected_linear ** (1.0 / 2.4) - 0.055)
         baked_path = Path(base_image.filepath_raw).parent / (
             re.sub(r"[^A-Za-z0-9_]+", "_", mat.name or "material").lower()
             + "_tinted_basecolor.png"
@@ -491,7 +502,11 @@ def connect_pbr_texture(
         decoded.colorspace_settings.name = "sRGB"
         check = np.empty(len(decoded.pixels), dtype=np.float32)
         decoded.pixels.foreach_get(check)
-        error = float(np.max(np.abs(check.reshape((-1,4))[:, :3]-rgba[:, :3])))
+        encoded_check = check.reshape((-1,4))[:, :3]
+        linear_check = np.where(encoded_check <= 0.04045,
+                                encoded_check / 12.92,
+                                ((encoded_check + 0.055) / 1.055) ** 2.4)
+        error = float(np.max(np.abs(linear_check - expected_linear)))
         require(error < 0.006, f"baked linear RGB roundtrip differs: {error}")
         mat["tint_linear_rgb"] = list(tint[:3])
         mat["tint_bake_roundtrip_max_linear_error"] = error
@@ -1743,7 +1758,7 @@ def main() -> int:
 
     room_id = args.room_id or source_semantics.get("room_spec_id") or source_semantics.get("room_id") or output.name
     room_id = str(room_id).replace(" ", "_")
-    out_blend = output / f"{room_id}_detailed_v7.blend"
+    out_blend = output / f"{room_id}_detailed_v8.blend"
 
     # External PNGs are intentionally kept beside the output package.  GLB
     # embeds their image payload; USD receives relative texture copies.
@@ -1755,7 +1770,7 @@ def main() -> int:
     )
     glb = helper.export_selection(output)
     usd_module = helper.load_usd_exporter()
-    usd = output / "usd" / f"{room_id}_detailed_v7.usda"
+    usd = output / "usd" / f"{room_id}_detailed_v8.usda"
     usd_record = usd_module.export_static_usd(bpy.context.scene, usd)
 
     source_assemblies = source_semantics.get("furniture_assemblies", [])
