@@ -11,6 +11,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from avengine.episode_clock import (
+    EpisodeClock,
+    EpisodeClockError,
+    LEGACY_FRAME_COUNT,
+    LEGACY_FRAME_RATE_HZ,
+    LEGACY_SAMPLE_RATE_HZ,
+)
 from avengine.studio.config import StudioConfig
 
 MP3D_DYNAMIC_AUDIO_TEMPLATE = "mp3d_dynamic_audio"
@@ -173,6 +180,10 @@ TEMPLATE_OVERRIDABLE_KEYS: dict[str, frozenset[str]] = {
             "maximum_route_distance_m",
             "source1_height_m",
             "source2_height_m",
+            "frame_count",
+            "frame_rate_hz",
+            "sample_rate_hz",
+            "clip_seconds",
         }
     ),
     HM3D_EPISODE_TEMPLATE: frozenset(
@@ -191,9 +202,23 @@ TEMPLATE_OVERRIDABLE_KEYS: dict[str, frozenset[str]] = {
             "place_at_emitter",
             "width",
             "height",
+            "frame_count",
+            "frame_rate_hz",
+            "sample_rate_hz",
+            "clip_seconds",
         }
     ),
-    HM3D_END_TO_END_TEMPLATE: frozenset({"scene_dir", "split", "seed"}),
+    HM3D_END_TO_END_TEMPLATE: frozenset(
+        {
+            "scene_dir",
+            "split",
+            "seed",
+            "frame_count",
+            "frame_rate_hz",
+            "sample_rate_hz",
+            "clip_seconds",
+        }
+    ),
     KUJIALE_ROUTE_BANK_TEMPLATE: frozenset(
         {
             "scene_metadata",
@@ -300,6 +325,35 @@ def _point_cm(merged: dict[str, object], template_name: str, key: str) -> list[s
     if not isinstance(value, (list, tuple)) or len(value) != 3:
         raise StudioTemplateError(f"{key} must be a [x, y, z] triple in UE cm")
     return [str(float(item)) for item in value]
+
+
+def _append_hm3d_clock(
+    argv: list[str], merged: dict[str, object], template_name: str
+) -> None:
+    values = {
+        "frame_count": merged.get("frame_count", LEGACY_FRAME_COUNT),
+        "frame_rate_hz": merged.get("frame_rate_hz", LEGACY_FRAME_RATE_HZ),
+        "sample_rate_hz": merged.get("sample_rate_hz", LEGACY_SAMPLE_RATE_HZ),
+        "clip_seconds": merged.get("clip_seconds"),
+    }
+    try:
+        EpisodeClock.from_values(
+            frame_count=values["frame_count"],
+            frame_rate_hz=values["frame_rate_hz"],
+            sample_rate_hz=values["sample_rate_hz"],
+            clip_seconds=values["clip_seconds"],
+            compatibility="configured",
+        )
+    except EpisodeClockError as error:
+        raise StudioTemplateError(f"invalid HM3D episode clock: {error}") from error
+    for key, flag in (
+        ("frame_count", "--frame-count"),
+        ("frame_rate_hz", "--frame-rate-hz"),
+        ("sample_rate_hz", "--sample-rate"),
+        ("clip_seconds", "--clip-seconds"),
+    ):
+        if merged.get(key) is not None:
+            argv += [flag, str(merged[key])]
 
 
 def _append_paths(
@@ -495,6 +549,7 @@ def build_template_argv(
             (*_HM3D_RUNTIME_KEYS, "scene", "navmesh"),
             repo,
         )
+        _append_hm3d_clock(argv, merged, template_name)
         for key, fallback in (
             ("seed", 20260826),
             ("episodes_per_motion_case", 8),
@@ -538,6 +593,7 @@ def build_template_argv(
             argv += ["--episode-index", str(int(merged.get("episode_index", 0)))]
         argv += ["--motion-case", str(merged.get("motion_case", "source1_moving_source2_static"))]
         argv += ["--slot", str(merged.get("slot", "source1"))]
+        _append_hm3d_clock(argv, merged, template_name)
         for key, fallback in (
             ("seed", 20260826),
             ("frame_stride", 1),
@@ -572,6 +628,7 @@ def build_template_argv(
                 merged["dataset_config"] = split_dataset_config
         argv = [python, str(repo / "tools/studio/run_hm3d_end_to_end.py")]
         _append_paths(argv, merged, template_name, _HM3D_E2E_PATH_KEYS, repo)
+        _append_hm3d_clock(argv, merged, template_name)
         argv += ["--split", split]
         argv += ["--seed", str(int(merged.get("seed", 20260826)))]
         argv += [

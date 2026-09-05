@@ -620,9 +620,11 @@ def load_hm3d_semantic_scene(
     does not learn a second geometry contract.  What differs is where identity
     comes from: HM3D's semantic GLB is the render mesh repainted, and the paint
     is the annotation.  Measured on 00800-TEEsavR23oF the two meshes agree to
-    the last digit on all six bounding-box coordinates and carry the same
-    395018 triangles, which is why no source-to-canonical rotation belongs
-    here - the mesh is already in Habitat's frame.
+    the last digit on all six raw bounding-box coordinates and carry the same
+    395018 triangles.  The raw GLB remains in the dataset source frame;
+    Habitat's dataset configuration applies the reviewed Z-up to Y-up
+    canonicalization at runtime, and the HM3D compiler records that same
+    transform in its package.
     """
 
     glb_path = Path(semantic_glb).resolve()

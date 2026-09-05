@@ -49,8 +49,20 @@ from dataclasses import replace
 import json
 from collections import Counter
 from pathlib import Path
+import sys
 
 import numpy as np
+
+REPOSITORY = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(REPOSITORY / "src"))
+
+from avengine.episode_clock import (  # noqa: E402
+    EpisodeClock,
+    EpisodeClockError,
+    LEGACY_FRAME_COUNT,
+    LEGACY_FRAME_RATE_HZ,
+    LEGACY_SAMPLE_RATE_HZ,
+)
 
 
 def _route_outside_room(paths_by_slot, bounds) -> bool:
@@ -222,6 +234,22 @@ def main() -> int:
     parser.add_argument("--floor-minimum-share", type=float, default=0.05)
     parser.add_argument("--seed", type=int, default=20260826)
     parser.add_argument(
+        "--frame-count", type=int, default=LEGACY_FRAME_COUNT,
+        help="visual frames in every generated route",
+    )
+    parser.add_argument(
+        "--frame-rate-hz", type=float, default=float(LEGACY_FRAME_RATE_HZ),
+        help="visual frame rate used by the shared episode clock",
+    )
+    parser.add_argument(
+        "--sample-rate", type=int, default=LEGACY_SAMPLE_RATE_HZ,
+        help="audio sample rate recorded in the shared episode clock",
+    )
+    parser.add_argument(
+        "--clip-seconds", type=float,
+        help="optional explicit duration; it must equal frame_count/frame_rate_hz",
+    )
+    parser.add_argument(
         "--horizontal-snap-limit-m",
         type=float,
         default=0.25,
@@ -232,6 +260,28 @@ def main() -> int:
         ),
     )
     args = parser.parse_args()
+    try:
+        clock = EpisodeClock.from_values(
+            frame_count=args.frame_count,
+            frame_rate_hz=args.frame_rate_hz,
+            sample_rate_hz=args.sample_rate,
+            clip_seconds=args.clip_seconds,
+            compatibility=(
+                "legacy_default"
+                if args.frame_count == LEGACY_FRAME_COUNT
+                and args.frame_rate_hz == float(LEGACY_FRAME_RATE_HZ)
+                and args.sample_rate == LEGACY_SAMPLE_RATE_HZ
+                and args.clip_seconds is None
+                else "configured"
+            ),
+        )
+    except EpisodeClockError as error:
+        raise SystemExit(f"invalid episode clock: {error}") from error
+    if clock.frame_rate_hz.denominator != 1:
+        raise SystemExit(
+            "HM3D route banks require an integer frame_rate_hz; "
+            f"got {clock.frame_rate_float:g}"
+        )
 
     for scene in args.scene:
         if Path(scene).name.endswith(".basis.glb"):
@@ -287,6 +337,12 @@ def main() -> int:
             "source1": args.source1_height_m,
             "source2": args.source2_height_m,
         },
+        "clock": clock.to_dict(),
+        "frame_count": clock.frame_count,
+        "frame_rate_hz": clock.frame_rate_float,
+        "sample_rate_hz": clock.sample_rate_hz,
+        "sample_count": clock.sample_count,
+        "clip_seconds": clock.clip_seconds_float,
         "route_distance_band_m": [
             args.minimum_route_distance_m,
             args.maximum_route_distance_m,
@@ -497,6 +553,8 @@ def main() -> int:
                     seed=args.seed,
                     minimum_route_distance_m=args.minimum_route_distance_m,
                     maximum_route_distance_m=args.maximum_route_distance_m,
+                    frame_count=clock.frame_count,
+                    frame_rate_hz=int(clock.frame_rate_hz),
                 )
             except RoomFeasibilityError as error:
                 entry["verdict"] = "no_routes"
@@ -705,6 +763,10 @@ def main() -> int:
                 payload["navmesh"] = navmesh_path
                 payload["floor_height_m"] = floor["height_m"]
                 payload["source_body_radius_m"] = args.source_body_radius_m
+                payload["clock"] = clock.to_dict()
+                payload["sample_rate_hz"] = clock.sample_rate_hz
+                payload["sample_count"] = clock.sample_count
+                payload["clip_seconds"] = clock.clip_seconds_float
                 payload["source_center_heights_m"] = {
                     "source1": args.source1_height_m,
                     "source2": args.source2_height_m,

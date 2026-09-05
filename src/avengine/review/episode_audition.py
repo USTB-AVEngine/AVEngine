@@ -277,10 +277,26 @@ def audit_episode(
             return None
         return path
 
+    def optional_recorded(key: str) -> Path | None:
+        value = receipt.get(key)
+        if value is None:
+            return None
+        path = Path(str(value))
+        if not path.is_file():
+            checks.append(
+                _check("artifacts", False, f"收据登记的 {key} 不存在：{path}")
+            )
+            return None
+        return path
+
     pose_path = recorded("listener_pose")
     foa_path = recorded("foa_report")
     foa_wav_path = recorded("foa_wav")
     binaural_wav_path = recorded("binaural_wav")
+    full_tail_foa_wav_path = optional_recorded("foa_wav_full_tail")
+    full_tail_binaural_wav_path = optional_recorded("binaural_wav_full_tail")
+    aligned_foa_wav_path = optional_recorded("foa_wav_aligned")
+    aligned_binaural_wav_path = optional_recorded("binaural_wav_aligned")
     manifest_path = recorded("video_manifest")
     mp4_path = recorded("deliverable_mp4")
     if any(
@@ -401,9 +417,13 @@ def audit_episode(
     # --- the shipped wavs: audible, unclipped, the right length ------------
     frame_rate = float(receipt.get("frame_rate_hz") or 0.0) or None
     nominal_s = (
-        rendered / frame_rate
-        if isinstance(rendered, int) and frame_rate
-        else None
+        float(receipt.get("clip_seconds"))
+        if receipt.get("clip_seconds") is not None
+        else (
+            rendered / frame_rate
+            if isinstance(rendered, int) and frame_rate
+            else None
+        )
     )
     binaural_levels = read_wav_levels(binaural_wav_path)
     levels_ok = (
@@ -455,6 +475,136 @@ def audit_episode(
             **foa_levels,
         )
     )
+
+    # --- the configured clock and aligned audio window ---------------------
+    raw_clock = receipt.get("clock")
+    if isinstance(raw_clock, Mapping):
+        try:
+            clock_frames = int(raw_clock["frame_count"])
+            clock_rate = float(raw_clock["frame_rate_hz"])
+            clock_samples_rate = int(raw_clock["sample_rate_hz"])
+            clock_clip = float(raw_clock["clip_seconds"])
+            clock_sample_count = int(raw_clock["sample_count"])
+            clock_ok = (
+                clock_frames > 0
+                and math.isfinite(clock_rate)
+                and clock_rate > 0.0
+                and math.isfinite(clock_clip)
+                and abs(clock_clip - clock_frames / clock_rate) <= 1.0e-9
+                and clock_samples_rate > 0
+                and clock_sample_count == round(clock_clip * clock_samples_rate)
+                and manifest.get("frame_count") == clock_frames
+                and manifest.get("sample_count") == clock_sample_count
+                and manifest.get("sample_rate_hz") == clock_samples_rate
+            )
+        except (KeyError, TypeError, ValueError, OverflowError):
+            clock_ok = False
+            clock_frames = clock_rate = clock_samples_rate = clock_clip = clock_sample_count = None
+        checks.append(
+            _check(
+                "episode_clock",
+                clock_ok,
+                (
+                    f"声画共用时钟：{clock_frames} 帧 @ {clock_rate:g} Hz，"
+                    f"{clock_sample_count} samples @ {clock_samples_rate} Hz，"
+                    f"aligned 窗口 {clock_clip:g} s"
+                    if clock_ok
+                    else "收据中的 frame/rate/sample/clip 时钟不一致，无法证明声画对齐"
+                ),
+                frame_count=clock_frames,
+                frame_rate_hz=clock_rate,
+                sample_rate_hz=clock_samples_rate,
+                sample_count=clock_sample_count,
+                clip_seconds=clock_clip,
+            )
+        )
+        aligned_checks = []
+        for path, channels in (
+            (aligned_foa_wav_path, 4),
+            (aligned_binaural_wav_path, 2),
+        ):
+            if path is None:
+                aligned_checks.append(False)
+                continue
+            try:
+                levels = read_wav_levels(path)
+                aligned_checks.append(
+                    levels["channel_count"] == channels
+                    and levels["sample_rate_hz"] == clock_samples_rate
+                    and levels["sample_count"] == clock_sample_count
+                )
+            except (OSError, AuditionError):
+                aligned_checks.append(False)
+        aligned_ok = all(aligned_checks)
+        checks.append(
+            _check(
+                "aligned_audio_window",
+                aligned_ok,
+                (
+                    f"aligned FOA/双耳文件均为 {clock_sample_count} samples；"
+                    "full-tail 文件单独保留，mux 使用 aligned 窗口"
+                    if aligned_ok
+                    else "aligned 音频窗口缺失或 sample_count/sample_rate 不符"
+                ),
+                expected_sample_count=clock_sample_count,
+                foa_present=aligned_foa_wav_path is not None,
+                binaural_present=aligned_binaural_wav_path is not None,
+            )
+        )
+        full_tail_checks = []
+        full_tail_details = {}
+        for name, registered, legacy, aligned, channels, levels, report in (
+            (
+                "foa", full_tail_foa_wav_path, foa_wav_path,
+                aligned_foa_wav_path, 4, foa_levels, foa,
+            ),
+            (
+                "binaural", full_tail_binaural_wav_path, binaural_wav_path,
+                aligned_binaural_wav_path, 2, binaural_levels, binaural,
+            ),
+        ):
+            path_identity_ok = (
+                registered is not None
+                and registered.resolve() == legacy.resolve()
+                and aligned is not None
+                and registered.resolve() != aligned.resolve()
+            )
+            content_ok = (
+                levels["channel_count"] == channels
+                and levels["sample_rate_hz"] == clock_samples_rate
+                and levels["sample_count"] >= clock_sample_count
+                and report.get("full_tail_sample_count")
+                == levels["sample_count"]
+            )
+            full_tail_checks.append(path_identity_ok and content_ok)
+            full_tail_details[name] = {
+                "registered": str(registered) if registered is not None else None,
+                "aligned": str(aligned) if aligned is not None else None,
+                "sample_count": levels["sample_count"],
+                "report_sample_count": report.get("full_tail_sample_count"),
+                "path_identity_ok": path_identity_ok,
+            }
+        full_tail_ok = all(full_tail_checks)
+        checks.append(
+            _check(
+                "full_tail_audio",
+                full_tail_ok,
+                (
+                    "FOA/双耳 full-tail 文件与 aligned 文件分别登记，"
+                    "报告和实际 sample count 一致"
+                    if full_tail_ok
+                    else "full-tail 文件缺失、与 aligned 共用路径，或报告 sample count 不符"
+                ),
+                files=full_tail_details,
+            )
+        )
+    else:
+        checks.append(
+            _info(
+                "episode_clock",
+                "历史收据没有显式共享时钟；按 legacy frame_rate_hz 审核",
+            )
+        )
 
     # --- the shipped wav carries the spatialization the report measured ----
     ild = binaural.get("interaural_level_difference_db") or {}

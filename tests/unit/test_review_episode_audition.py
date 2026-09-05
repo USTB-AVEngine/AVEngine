@@ -284,3 +284,78 @@ def test_wav_and_png_readers_measure_what_was_written(tmp_path: Path) -> None:
     _, _, moved = read_png_first_channel(tmp_path / "probe2.png")
     assert changed_fraction(plane, plane) == 0.0
     assert changed_fraction(plane, moved) > 0.01
+
+
+def _add_explicit_clock(root: Path, *, alias_full_tail: bool = False) -> None:
+    aligned_samples = int(RATE * (FRAMES / FRAME_RATE))
+    tone = [1.0 if (i // 8) % 2 == 0 else -1.0 for i in range(aligned_samples)]
+    foa_aligned = root / "audio_foa/moving_source.ambisonic.aligned.wav"
+    binaural_aligned = root / "audio_binaural/moving_source.binaural.aligned.wav"
+    _write_wav(foa_aligned, [[0.2 * value for value in tone] for _ in range(4)], RATE)
+    _write_wav(
+        binaural_aligned,
+        [[0.3 * value for value in tone], [0.15 * value for value in tone]],
+        RATE,
+    )
+    clock = {
+        "frame_count": FRAMES,
+        "frame_rate_hz": FRAME_RATE,
+        "sample_rate_hz": RATE,
+        "clip_seconds": FRAMES / FRAME_RATE,
+        "sample_count": aligned_samples,
+        "compatibility": "configured",
+    }
+    manifest_path = root / "video/video_manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest.update({
+        "frame_count": FRAMES,
+        "sample_rate_hz": RATE,
+        "sample_count": aligned_samples,
+        "clock": clock,
+    })
+    manifest_path.write_text(json.dumps(manifest))
+    for report_path, full_path in (
+        (root / "audio_foa/render_report.json", root / "audio_foa/moving_source.ambisonic.wav"),
+        (root / "audio_binaural/render_report.json", root / "audio_binaural/moving_source.binaural.wav"),
+    ):
+        report = json.loads(report_path.read_text())
+        report["full_tail_sample_count"] = read_wav_levels(full_path)["sample_count"]
+        report_path.write_text(json.dumps(report))
+    receipt_path = root / "receipt.json"
+    receipt = json.loads(receipt_path.read_text())
+    receipt.update({
+        "clock": clock,
+        "frame_count": FRAMES,
+        "frame_rate_hz": FRAME_RATE,
+        "sample_rate_hz": RATE,
+        "sample_count": aligned_samples,
+        "clip_seconds": FRAMES / FRAME_RATE,
+        "foa_wav_full_tail": str(
+            foa_aligned if alias_full_tail else root / "audio_foa/moving_source.ambisonic.wav"
+        ),
+        "binaural_wav_full_tail": str(
+            binaural_aligned if alias_full_tail else root / "audio_binaural/moving_source.binaural.wav"
+        ),
+        "foa_wav_aligned": str(foa_aligned),
+        "binaural_wav_aligned": str(binaural_aligned),
+    })
+    receipt_path.write_text(json.dumps(receipt))
+
+
+def test_explicit_clock_proves_separate_full_tail_and_aligned_files(tmp_path: Path) -> None:
+    root = _episode(tmp_path)
+    _add_explicit_clock(root)
+    document = audit_episode(root, ffprobe=None)
+    checks = _by_name(document)
+    assert checks["episode_clock"]["status"] == "pass"
+    assert checks["aligned_audio_window"]["status"] == "pass"
+    assert checks["full_tail_audio"]["status"] == "pass"
+    assert document["verdict"] == "pass"
+
+
+def test_full_tail_aliasing_aligned_file_is_rejected(tmp_path: Path) -> None:
+    root = _episode(tmp_path)
+    _add_explicit_clock(root, alias_full_tail=True)
+    document = audit_episode(root, ffprobe=None)
+    assert _by_name(document)["full_tail_audio"]["status"] == "fail"
+    assert document["verdict"] == "fail"

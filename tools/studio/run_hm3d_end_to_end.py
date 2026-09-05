@@ -37,6 +37,15 @@ import sys
 from pathlib import Path
 
 REPOSITORY = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(REPOSITORY / "src"))
+
+from avengine.episode_clock import (  # noqa: E402
+    EpisodeClock,
+    EpisodeClockError,
+    LEGACY_FRAME_COUNT,
+    LEGACY_FRAME_RATE_HZ,
+    LEGACY_SAMPLE_RATE_HZ,
+)
 
 
 def _source_provenance() -> dict[str, object]:
@@ -190,8 +199,10 @@ def _build_receipt(
     rooms_dir: Path,
     routes_dir: Path,
     output: Path,
+    clock: EpisodeClock | None = None,
+    runtime_ray_report: Path | None = None,
 ) -> dict:
-    return {
+    receipt = {
         "schema": "avengine_hm3d_end_to_end_receipt_v1",
         "scene_dir": str(scene_dir),
         "scene_id": scene_id,
@@ -215,6 +226,26 @@ def _build_receipt(
         "episode_receipt": str(output / "episode" / "receipt.json"),
         "machine_audition": str(output / "episode" / "machine_audition.json"),
     }
+    if runtime_ray_report is not None:
+        ray_value = json.loads(runtime_ray_report.read_text(encoding="utf-8"))
+        receipt["runtime_ray_leakage"] = {
+            "path": str(runtime_ray_report.resolve()),
+            "status": ray_value.get("rlr_runtime_ray_check_status"),
+            "check_count": ray_value.get("rlr_runtime_ray_check_count"),
+            "backend": ray_value.get("rlr_runtime_backend"),
+        }
+    if clock is not None:
+        receipt["clock"] = clock.to_dict()
+        receipt.update(
+            {
+                "frame_count": clock.frame_count,
+                "frame_rate_hz": clock.frame_rate_float,
+                "sample_rate_hz": clock.sample_rate_hz,
+                "sample_count": clock.sample_count,
+                "clip_seconds": clock.clip_seconds_float,
+            }
+        )
+    return receipt
 
 
 def main() -> int:
@@ -232,6 +263,10 @@ def main() -> int:
     parser.add_argument("--materials-json", required=True, type=Path)
     parser.add_argument("--hrtf", required=True, type=Path)
     parser.add_argument("--seed", type=int, default=20260826)
+    parser.add_argument("--frame-count", type=int)
+    parser.add_argument("--frame-rate-hz", type=float)
+    parser.add_argument("--sample-rate", type=int)
+    parser.add_argument("--clip-seconds", type=float)
     parser.add_argument("--connectivity-samples", type=int, default=64)
     parser.add_argument("--episodes-per-motion-case", type=int, default=8)
     parser.add_argument("--minimum-room-area-m2", type=float,
@@ -240,6 +275,40 @@ def main() -> int:
                         default=_MAXIMUM_AREA_M2)
     parser.add_argument("--output", required=True, type=Path)
     args = parser.parse_args()
+    try:
+        clock = EpisodeClock.from_values(
+            frame_count=(
+                args.frame_count
+                if args.frame_count is not None
+                else LEGACY_FRAME_COUNT
+            ),
+            frame_rate_hz=(
+                args.frame_rate_hz
+                if args.frame_rate_hz is not None
+                else LEGACY_FRAME_RATE_HZ
+            ),
+            sample_rate_hz=(
+                args.sample_rate
+                if args.sample_rate is not None
+                else LEGACY_SAMPLE_RATE_HZ
+            ),
+            clip_seconds=args.clip_seconds,
+            compatibility=(
+                "legacy_default"
+                if args.frame_count is None
+                and args.frame_rate_hz is None
+                and args.sample_rate is None
+                and args.clip_seconds is None
+                else "configured"
+            ),
+        )
+    except EpisodeClockError as error:
+        raise SystemExit(f"invalid episode clock: {error}") from error
+    if clock.frame_rate_hz.denominator != 1:
+        raise SystemExit(
+            "HM3D route banks require an integer frame_rate_hz; "
+            f"got {clock.frame_rate_float:g}"
+        )
 
     scene_dir = args.scene_dir.resolve()
     scene_id = scene_dir.name.split("-", 1)[1] if "-" in scene_dir.name else None
@@ -298,11 +367,26 @@ def main() -> int:
             "--hm3d-root", str(args.hm3d_root),
             *runtime,
             "--verify-frame-parity",
+            "--verify-ray-leakage",
             "--seed", str(args.seed),
             "--output", str(output / "package"),
         ],
         logs,
     )
+
+    runtime_ray_report = output / "package/qa/ray_leakage_runtime.json"
+    if not runtime_ray_report.is_file():
+        raise SystemExit(
+            "package stage passed without a retained RLR TraceRay report"
+        )
+    runtime_ray_value = json.loads(
+        runtime_ray_report.read_text(encoding="utf-8")
+    )
+    if runtime_ray_value.get("rlr_runtime_ray_check_status") != "pass":
+        raise SystemExit(
+            "package RLR TraceRay verification did not pass: "
+            f"{runtime_ray_value.get('rlr_runtime_ray_check_status')}"
+        )
 
     # --- stage 3: pick a room, plan routes in it ----------------------------
     candidates = rank_rooms(
@@ -334,6 +418,10 @@ def main() -> int:
                 "--navmesh", str(navmesh),
                 "--seed", str(args.seed),
                 "--episodes-per-motion-case", str(args.episodes_per_motion_case),
+                "--frame-count", str(clock.frame_count),
+                "--frame-rate-hz", str(clock.frame_rate_float),
+                "--sample-rate", str(clock.sample_rate_hz),
+                "--clip-seconds", str(clock.clip_seconds_float),
                 "--minimum-route-distance-m", str(minimum),
                 "--maximum-route-distance-m", str(maximum),
                 "--source1-height-m", "1.2",
@@ -397,6 +485,10 @@ def main() -> int:
             "--scene-id", scene_id,
             "--materials-json", str(args.materials_json),
             "--hrtf", str(args.hrtf),
+            "--frame-count", str(clock.frame_count),
+            "--frame-rate-hz", str(clock.frame_rate_float),
+            "--sample-rate", str(clock.sample_rate_hz),
+            "--clip-seconds", str(clock.clip_seconds_float),
             "--seed", str(args.seed),
             "--output", str(output / "episode"),
         ],
@@ -412,6 +504,8 @@ def main() -> int:
         rooms_dir=rooms_dir,
         routes_dir=routes_dir,
         output=output,
+        clock=clock,
+        runtime_ray_report=runtime_ray_report,
     )
     (output / "end_to_end_receipt.json").write_text(
         json.dumps(receipt, ensure_ascii=False, indent=2, sort_keys=True) + "\n",

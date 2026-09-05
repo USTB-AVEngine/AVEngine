@@ -20,6 +20,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import subprocess
 import sys
 from pathlib import Path
 
@@ -84,6 +85,15 @@ def main() -> int:
     parser.add_argument("--runtime-prefix")
     parser.add_argument("--magnum-site")
     parser.add_argument("--rlr-sdk-root")
+    parser.add_argument(
+        "--verify-ray-leakage",
+        action="store_true",
+        help=(
+            "replay compiler interior probes through the modern RLR TraceRay "
+            "binding; unavailable dependencies are recorded explicitly"
+        ),
+    )
+    parser.add_argument("--simulation-request", type=Path)
     args = parser.parse_args()
     if args.verify_frame_parity and not (
         args.runtime_prefix and args.magnum_site and args.rlr_sdk_root
@@ -160,6 +170,58 @@ def main() -> int:
             )
         parity_summary = json.loads(parity_report.read_text(encoding="utf-8"))
 
+    ray_runtime_report = None
+    ray_report_path = None
+    if args.verify_ray_leakage:
+        ray_report_path = manifest_path.parent / "qa" / "ray_leakage_runtime.json"
+        command = [
+            sys.executable,
+            str(REPOSITORY / "tools/acoustics/verify_package_ray_leakage.py"),
+            "--package-manifest",
+            str(manifest_path),
+            "--room-manifest",
+            str(args.room_manifest.resolve()),
+            "--runtime-prefix",
+            str(args.runtime_prefix) if args.runtime_prefix else "",
+            "--magnum-site",
+            str(args.magnum_site) if args.magnum_site else "",
+            "--rlr-sdk-root",
+            str(args.rlr_sdk_root) if args.rlr_sdk_root else "",
+            "--output",
+            str(ray_report_path),
+        ]
+        if args.simulation_request is not None:
+            command += ["--simulation-request", str(args.simulation_request.resolve())]
+        completed = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if completed.stdout:
+            sys.stdout.write(completed.stdout)
+        if not ray_report_path.is_file():
+            base = {
+                "kind": "runtime_ray_leakage_verification",
+                "status": "error",
+                "rlr_runtime_ray_check_status": "error",
+                "rlr_runtime_ray_check_count": 0,
+                "rlr_runtime_error": (
+                    "ray leakage verifier did not produce a report: "
+                    + (completed.stderr.strip() or str(completed.returncode))
+                ),
+            }
+            with ray_report_path.open("x", encoding="utf-8") as handle:
+                json.dump(base, handle, ensure_ascii=False, indent=2)
+                handle.write("\n")
+        ray_runtime_report = json.loads(ray_report_path.read_text(encoding="utf-8"))
+        if completed.returncode != 0:
+            print(
+                "ray leakage runtime did not pass; report retained with status "
+                f"{ray_runtime_report.get('status')}",
+                file=sys.stderr,
+            )
+
     report = json.loads(report_path.read_text(encoding="utf-8"))
     counts = report.get("category_triangle_counts", {})
     total = sum(counts.values()) or 1
@@ -209,6 +271,14 @@ def main() -> int:
                 ),
                 "qa_geometry_status": geometry_status,
                 "qa_worst_probe_escape_fraction": worst_escape,
+                "qa_ray_leakage_runtime_status": (
+                    None
+                    if ray_runtime_report is None
+                    else ray_runtime_report.get("rlr_runtime_ray_check_status")
+                ),
+                "qa_ray_leakage_runtime_report": (
+                    None if ray_report_path is None else str(ray_report_path)
+                ),
                 "qa_note": (
                     "scan meshes fail the watertight bar by design; an escape "
                     "fraction near 1 means the leakage probes are outside the "
@@ -231,6 +301,14 @@ def main() -> int:
             sort_keys=True,
         )
     )
+    if (
+        args.verify_ray_leakage
+        and (
+            ray_runtime_report is None
+            or ray_runtime_report.get("status") != "pass"
+        )
+    ):
+        return 2
     return 0
 
 

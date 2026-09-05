@@ -29,8 +29,48 @@ import argparse
 import json
 import math
 from pathlib import Path
+import sys
 
 import numpy as np
+
+REPOSITORY = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(REPOSITORY / "src"))
+
+from avengine.episode_clock import (  # noqa: E402
+    EpisodeClock,
+    EpisodeClockError,
+    LEGACY_FRAME_RATE_HZ,
+    LEGACY_SAMPLE_RATE_HZ,
+)
+
+
+def _clock_compatibility(base: EpisodeClock, args: argparse.Namespace) -> str:
+    values = (
+        args.frame_count,
+        args.frame_rate_hz,
+        args.sample_rate,
+        args.clip_seconds,
+    )
+    same_as_base = (
+        (args.frame_count is None or args.frame_count == base.frame_count)
+        and (
+            args.frame_rate_hz is None
+            or float(args.frame_rate_hz) == base.frame_rate_float
+        )
+        and (
+            args.sample_rate is None
+            or args.sample_rate == base.sample_rate_hz
+        )
+        and (
+            args.clip_seconds is None
+            or float(args.clip_seconds) == base.clip_seconds_float
+        )
+    )
+    return (
+        base.compatibility
+        if not any(value is not None for value in values) or same_as_base
+        else "configured"
+    )
 
 
 def look_at(direction, np_quaternion):
@@ -63,6 +103,10 @@ def main() -> int:
     parser.add_argument("--output-dir", required=True, type=Path)
     parser.add_argument("--width", type=int, default=960)
     parser.add_argument("--height", type=int, default=540)
+    parser.add_argument("--frame-count", type=int)
+    parser.add_argument("--frame-rate-hz", type=float)
+    parser.add_argument("--sample-rate", type=int)
+    parser.add_argument("--clip-seconds", type=float)
     parser.add_argument(
         "--hfov-deg",
         type=float,
@@ -118,6 +162,49 @@ def main() -> int:
     episode = next(
         e for e in bank["episodes"] if e["episode_id"] == report["episode_id"]
     )
+    route_frame_count = len(episode["source_center_paths_m"][report["slot"]])
+    raw_clock = report.get("clock") or bank.get("clock")
+    try:
+        if raw_clock is not None:
+            base_clock = EpisodeClock.from_mapping(raw_clock)
+        else:
+            base_clock = EpisodeClock.from_values(
+                frame_count=report.get("frame_count", route_frame_count),
+                frame_rate_hz=report.get(
+                    "frame_rate_hz",
+                    bank.get("frame_rate_hz", LEGACY_FRAME_RATE_HZ),
+                ),
+                sample_rate_hz=(
+                    report.get("sample_rate_hz", LEGACY_SAMPLE_RATE_HZ)
+                ),
+                compatibility="legacy_inferred",
+            )
+        clock = EpisodeClock.from_values(
+            frame_count=(
+                args.frame_count
+                if args.frame_count is not None
+                else base_clock.frame_count
+            ),
+            frame_rate_hz=(
+                args.frame_rate_hz
+                if args.frame_rate_hz is not None
+                else base_clock.frame_rate_hz
+            ),
+            sample_rate_hz=(
+                args.sample_rate
+                if args.sample_rate is not None
+                else base_clock.sample_rate_hz
+            ),
+            clip_seconds=args.clip_seconds,
+            compatibility=_clock_compatibility(base_clock, args),
+        )
+    except EpisodeClockError as error:
+        raise SystemExit(f"invalid episode clock: {error}") from error
+    if clock.frame_count != route_frame_count:
+        raise SystemExit(
+            "video clock frame_count differs from the bank route: "
+            f"clock={clock.frame_count}, route={route_frame_count}"
+        )
     asset = json.loads((args.asset_dir / "asset.json").read_text(encoding="utf-8"))
     offset = np.asarray(asset["emitter"]["offset_m"], dtype=float)
 
@@ -330,7 +417,11 @@ def main() -> int:
             return ("above" if elevation > 0 else "below") + " the frame", azimuth
         return f"{abs(azimuth) - half_h:.0f} deg off {side}", azimuth
 
-    args.output_dir.mkdir(parents=True, exist_ok=True)
+    if args.output_dir.exists() or args.output_dir.is_symlink():
+        raise SystemExit(
+            f"output directory already exists (fresh/no-clobber): {args.output_dir}"
+        )
+    args.output_dir.mkdir(parents=True)
     from PIL import Image, ImageDraw
 
     for index, frame in enumerate(frames):
@@ -397,7 +488,14 @@ def main() -> int:
         "emitter_offset_m": [round(float(v), 4) for v in offset],
         "emitter_height_used_m": report["source_center_height_m"],
         "frames": len(frames),
-        "frame_rate_hz": bank["frame_rate_hz"] / max(report["frame_stride"], 1),
+        "frame_count": clock.frame_count,
+        "rendered_frame_count": len(frames),
+        "frame_rate_hz": clock.frame_rate_float / max(report["frame_stride"], 1),
+        "sample_rate_hz": clock.sample_rate_hz,
+        "clip_seconds": clock.clip_seconds_float,
+        "sample_count": clock.sample_count,
+        "clock": clock.to_dict(),
+        "clock_compatibility": clock.compatibility,
         "camera_aim_world": [round(float(x), 6) for x in aim],
         "camera_hfov_deg": round(hfov, 3),
         "camera_aim_note": (

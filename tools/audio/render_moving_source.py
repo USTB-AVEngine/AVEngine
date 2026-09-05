@@ -51,8 +51,20 @@ import json
 import math
 import wave
 from pathlib import Path
+import sys
 
 import numpy as np
+
+REPOSITORY = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(REPOSITORY / "src"))
+
+from avengine.episode_clock import (  # noqa: E402
+    EpisodeClock,
+    EpisodeClockError,
+    LEGACY_FRAME_COUNT,
+    LEGACY_FRAME_RATE_HZ,
+    LEGACY_SAMPLE_RATE_HZ,
+)
 import quaternion  # noqa: F401  before habitat_sim, per the SoundSpaces issue
 import habitat_sim
 from habitat_sim.sensor import AudioSensorSpec, RLRAudioPropagationChannelLayoutType
@@ -81,6 +93,35 @@ def rotation_matrix(quat):
             [2 * (x * y + z * w), 1 - 2 * (x * x + z * z), 2 * (y * z - x * w)],
             [2 * (x * z - y * w), 2 * (y * z + x * w), 1 - 2 * (x * x + y * y)],
         ]
+    )
+
+
+def _clock_compatibility(base: EpisodeClock, args: argparse.Namespace) -> str:
+    values = (
+        args.frame_count,
+        args.frame_rate_hz,
+        args.sample_rate,
+        args.clip_seconds,
+    )
+    same_as_base = (
+        (args.frame_count is None or args.frame_count == base.frame_count)
+        and (
+            args.frame_rate_hz is None
+            or float(args.frame_rate_hz) == base.frame_rate_float
+        )
+        and (
+            args.sample_rate is None
+            or args.sample_rate == base.sample_rate_hz
+        )
+        and (
+            args.clip_seconds is None
+            or float(args.clip_seconds) == base.clip_seconds_float
+        )
+    )
+    return (
+        base.compatibility
+        if not any(value is not None for value in values) or same_as_base
+        else "configured"
     )
 
 
@@ -215,6 +256,8 @@ def write_wave(path, channels, sample_rate):
 
 
 def convolve_route(responses, hop, sample_rate, seed, channels):
+    """Legacy fixed-hop convolution retained for old direct callers."""
+
     total = hop * len(responses)
     dry = dry_signal(total, seed, sample_rate)
     tail = max(ir.shape[1] for ir in responses)
@@ -226,6 +269,49 @@ def convolve_route(responses, hop, sample_rate, seed, channels):
         for channel in range(channels):
             piece = np.convolve(block, ir[channel])
             wet[channel, position * hop : position * hop + piece.size] += piece
+    return wet
+
+
+def convolve_route_with_clock(
+    responses, frame_indices, clock, seed, channels
+):
+    """Convolve blocks at exact rounded frame boundaries.
+
+    A rounded constant hop accumulates a sample of error on almost every
+    frame-rate/sample-rate pair.  The clock owns each half-open boundary, so
+    the final aligned window is exactly clock.sample_count samples while the
+    last response still contributes its full tail.
+    """
+
+    if not responses:
+        raise ValueError("at least one response is required")
+    indices = [int(index) for index in frame_indices]
+    if len(indices) != len(responses) or indices != sorted(set(indices)):
+        raise ValueError("frame indices must be unique and increasing")
+    if any(index < 0 or index >= clock.frame_count for index in indices):
+        raise ValueError("frame index escapes the episode clock")
+    boundaries = clock.frame_boundaries()
+    blocks = []
+    for position, frame_index in enumerate(indices):
+        start = boundaries[frame_index]
+        end = (
+            boundaries[indices[position + 1]]
+            if position + 1 < len(indices)
+            else clock.sample_count
+        )
+        if end < start:
+            raise ValueError("clock sample boundaries are not monotonic")
+        blocks.append((start, end))
+    dry = dry_signal(clock.sample_count, seed, clock.sample_rate_hz)
+    tail = max(ir.shape[1] for ir in responses)
+    wet = np.zeros((channels, clock.sample_count + tail), dtype=float)
+    for (start, end), ir in zip(blocks, responses, strict=True):
+        block = dry[start:end]
+        if not block.size:
+            continue
+        for channel in range(channels):
+            piece = np.convolve(block, ir[channel])
+            wet[channel, start : start + piece.size] += piece
     return wet
 
 
@@ -241,7 +327,10 @@ def main() -> int:
     parser.add_argument("--episode-index", type=int, default=0)
     parser.add_argument("--episode-id")
     parser.add_argument("--frame-stride", type=int, default=1)
-    parser.add_argument("--sample-rate", type=int, default=16000)
+    parser.add_argument("--frame-count", type=int)
+    parser.add_argument("--frame-rate-hz", type=float)
+    parser.add_argument("--sample-rate", type=int)
+    parser.add_argument("--clip-seconds", type=float)
     parser.add_argument("--emitter-height-m", type=float)
     parser.add_argument(
         "--listener-pose",
@@ -281,7 +370,6 @@ def main() -> int:
     args = parser.parse_args()
 
     bank = json.loads(args.bank.read_text(encoding="utf-8"))
-    sample_rate = args.sample_rate
     earlier = (
         json.loads(args.from_report.read_text(encoding="utf-8"))
         if args.from_report
@@ -301,7 +389,61 @@ def main() -> int:
         episode = matching[args.episode_index]
 
     slot = earlier["slot"] if earlier else args.slot
-    floor_path = np.asarray(episode["source_center_paths_m"][slot], dtype=float)
+    route_path = episode["source_center_paths_m"][slot]
+    route_frame_count = len(route_path)
+    bank_clock = bank.get("clock")
+    if bank_clock is not None:
+        try:
+            base_clock = EpisodeClock.from_mapping(bank_clock)
+        except EpisodeClockError as error:
+            raise SystemExit(f"invalid bank clock: {error}") from error
+    else:
+        base_clock = EpisodeClock.from_values(
+            frame_count=bank.get("frame_count", route_frame_count),
+            frame_rate_hz=bank.get("frame_rate_hz", LEGACY_FRAME_RATE_HZ),
+            sample_rate_hz=(
+                earlier.get("sample_rate_hz", LEGACY_SAMPLE_RATE_HZ)
+                if earlier
+                else LEGACY_SAMPLE_RATE_HZ
+            ),
+            compatibility="legacy_inferred",
+        )
+    source_clock = earlier.get("clock") if earlier else None
+    if source_clock is not None:
+        try:
+            base_clock = EpisodeClock.from_mapping(source_clock)
+        except EpisodeClockError as error:
+            raise SystemExit(f"invalid reused report clock: {error}") from error
+    try:
+        clock = EpisodeClock.from_values(
+            frame_count=(
+                args.frame_count
+                if args.frame_count is not None
+                else base_clock.frame_count
+            ),
+            frame_rate_hz=(
+                args.frame_rate_hz
+                if args.frame_rate_hz is not None
+                else base_clock.frame_rate_hz
+            ),
+            sample_rate_hz=(
+                args.sample_rate
+                if args.sample_rate is not None
+                else base_clock.sample_rate_hz
+            ),
+            clip_seconds=args.clip_seconds,
+            compatibility=_clock_compatibility(base_clock, args),
+        )
+    except EpisodeClockError as error:
+        raise SystemExit(f"invalid episode clock: {error}") from error
+    if clock.frame_count != route_frame_count:
+        raise SystemExit(
+            "episode clock frame_count differs from the bank route: "
+            f"clock={clock.frame_count}, route={route_frame_count}; "
+            "regenerate the bank with the requested clock"
+        )
+    sample_rate = clock.sample_rate_hz
+    floor_path = np.asarray(route_path, dtype=float)
     height = (
         float(args.emitter_height_m)
         if args.emitter_height_m is not None
@@ -317,10 +459,18 @@ def main() -> int:
     frames = (
         [f["frame"] for f in earlier["per_frame"]]
         if earlier
-        else list(range(0, len(emitters), stride))
+        else list(range(0, clock.frame_count, stride))
     )
+    if frames != sorted(set(frames)) or any(
+        frame < 0 or frame >= clock.frame_count for frame in frames
+    ):
+        raise SystemExit("render frame indices do not fit the shared episode clock")
 
-    args.output_dir.mkdir(parents=True, exist_ok=True)
+    if args.output_dir.exists() or args.output_dir.is_symlink():
+        raise SystemExit(
+            f"output directory already exists (fresh/no-clobber): {args.output_dir}"
+        )
+    args.output_dir.mkdir(parents=True)
     sim, sensor, materials_on = build_simulator(args, bank, sample_rate)
     agent = sim.get_agent(0)
     np_quaternion = np.quaternion
@@ -583,10 +733,14 @@ def main() -> int:
         per_frame.append(entry)
 
     channels = 4 if args.layout == "ambisonics" else 2
-    hop = int(round(sample_rate / float(bank["frame_rate_hz"]))) * max(stride, 1)
-    wet = convolve_route(responses, hop, sample_rate, args.seed, channels)
+    wet = convolve_route_with_clock(
+        responses, frames, clock, args.seed, channels
+    )
     stem = "ambisonic" if args.layout == "ambisonics" else "binaural"
-    write_wave(args.output_dir / f"moving_source.{stem}.wav", wet, sample_rate)
+    full_tail_path = args.output_dir / f"moving_source.{stem}.wav"
+    aligned_path = args.output_dir / f"moving_source.{stem}.aligned.wav"
+    write_wave(full_tail_path, wet, sample_rate)
+    write_wave(aligned_path, wet[:, : clock.sample_count], sample_rate)
     if args.layout == "ambisonics":
         # A cardioid pair on the left-right axis: audible anywhere, and lossy in
         # exactly the dimension ambisonics exists for, so front and back
@@ -672,7 +826,20 @@ def main() -> int:
         "source_center_height_m": height,
         "frames_rendered": len(frames),
         "frame_stride": stride,
-        "seconds": round(hop * len(frames) / sample_rate, 3),
+        "frame_count": clock.frame_count,
+        "frame_rate_hz": clock.frame_rate_float,
+        "sample_rate_hz": clock.sample_rate_hz,
+        "clip_seconds": clock.clip_seconds_float,
+        "sample_count": clock.sample_count,
+        "clock": clock.to_dict(),
+        "seconds": clock.clip_seconds_float,
+        "full_tail_sample_count": int(wet.shape[1]),
+        "full_tail_seconds": round(wet.shape[1] / sample_rate, 6),
+        "full_tail_wav": str(full_tail_path.resolve()),
+        "aligned_wav": str(aligned_path.resolve()),
+        "audio_window_policy": (
+            "retain_full_tail_and_explicit_aligned_window_v1"
+        ),
         "acoustic_materials": materials_on,
         "indirect": not args.direct_only,
         "reverberation": reverberation,

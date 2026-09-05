@@ -272,3 +272,43 @@ def test_hm3d_end_to_end_leaves_only_the_house_to_choose(tmp_path: Path) -> None
     assert train_argv[train_argv.index("--dataset-config") + 1] == str(
         train_dataset_config.resolve()
     )
+
+
+
+def test_hm3d_clock_overrides_propagate_and_reject_mismatched_duration(
+    tmp_path: Path,
+) -> None:
+    values = _hm3d_inputs(tmp_path)
+    defaults = {
+        key: values[key]
+        for key in (
+            "scene_dir", "hm3d_root", "runtime_prefix", "magnum_site",
+            "rlr_sdk_root", "material_rules", "audio_python", "asset_dir",
+            "dataset_config", "materials_json", "hrtf",
+        )
+    }
+    defaults["split"] = "val"
+    config = _config(tmp_path, {"hm3d_end_to_end": defaults})
+    argv = build_template_argv(
+        config,
+        "hm3d_end_to_end",
+        {
+            "frame_count": 150,
+            "frame_rate_hz": 15,
+            "sample_rate_hz": 16_000,
+            "clip_seconds": 10,
+        },
+        tmp_path / "out",
+    )
+    assert argv[argv.index("--frame-count") + 1] == "150"
+    assert argv[argv.index("--frame-rate-hz") + 1] == "15"
+    assert argv[argv.index("--sample-rate") + 1] == "16000"
+    assert argv[argv.index("--clip-seconds") + 1] == "10"
+
+    with pytest.raises(StudioTemplateError, match="clip_seconds"):
+        build_template_argv(
+            config,
+            "hm3d_end_to_end",
+            {"frame_count": 150, "frame_rate_hz": 15, "clip_seconds": 5},
+            tmp_path / "out_bad",
+        )

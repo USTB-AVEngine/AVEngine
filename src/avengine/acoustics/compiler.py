@@ -810,7 +810,7 @@ _KNOWN_SOURCE_TRANSFORMS: dict[str, tuple[list[float], str]] = {
             0.0,
             1.0,
         ],
-        "Reviewed MP3D dataset-config stage frame: source +Z up/+Y front -> canonical +Y up/-Z front",
+        "Reviewed Habitat dataset-config canonicalization: source +Z up/+Y front -> canonical +Y up/-Z front",
     ),
 }
 
