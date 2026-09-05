@@ -75,6 +75,28 @@ def _require(condition: bool, message: str) -> None:
         raise RuntimeError(message)
 
 
+def _runtime_scene_receipt(
+    episode: Mapping[str, Any], *, stage_actor_count: int
+) -> dict[str, Any]:
+    """Describe the launched UE/SPEAR stage without copying planner placeholders."""
+
+    declared = episode.get("scene")
+    _require(isinstance(declared, Mapping), "episode scene is missing")
+    map_path = declared.get("map_path")
+    launched = isinstance(map_path, str) and bool(map_path.strip())
+    return {
+        "scene_id": declared.get("scene_id"),
+        "room_id": declared.get("room_id"),
+        "map_path": map_path if launched else None,
+        "map_path_status": "launched" if launched else "not_declared",
+        "usd_stage_actor_count": int(stage_actor_count),
+        "claim_boundary": (
+            "UE/SPEAR stage launched; map_path is the loaded level request; "
+            "camera/actor/emitter values are native readbacks"
+        ),
+    }
+
+
 def _is_overview_plan(episode: Mapping[str, Any]) -> bool:
     """Return true only for the explicit zero-actor room overview mode."""
 
@@ -1215,7 +1237,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                 "ticks_per_frame": ticks_per_frame,
             },
             "backend_role": episode["visual_plan"]["backend_role"],
-            "scene": episode["scene"],
+            "scene": _runtime_scene_receipt(episode, stage_actor_count=stage_actor_count),
             "stage_actor_count": stage_actor_count,
             "runtime_review_lights": light_records,
             "capture_exposure_readback": exposure_readback,
@@ -1266,7 +1288,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "schema": "avengine_optional_spear_residential_episode_evidence_v1",
         "status": "pass",
         "backend_role": episode["visual_plan"]["backend_role"],
-        "scene": episode["scene"],
+        "scene": _runtime_scene_receipt(episode, stage_actor_count=stage_actor_count),
         "stage_actor_count": stage_actor_count,
         "runtime_review_lights": light_records,
             "capture_exposure_readback": exposure_readback,

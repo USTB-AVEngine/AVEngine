@@ -364,6 +364,24 @@ def _scene_node_instances(glb: GlbDocument) -> list[tuple[int, np.ndarray]]:
     return result
 
 
+
+def _nonzero_area_triangle_mask(
+    vertices: np.ndarray, triangles: np.ndarray
+) -> np.ndarray:
+    """Keep triangles whose quantized vertices still span a nonzero parallelogram."""
+
+    if len(triangles) == 0:
+        return np.zeros((0,), dtype=bool)
+    points = np.asarray(vertices, dtype=np.float64)
+    corners = triangles.astype(np.int64, copy=False)
+    v0 = points[corners[:, 0]]
+    v1 = points[corners[:, 1]]
+    v2 = points[corners[:, 2]]
+    cross = np.cross(v1 - v0, v2 - v0)
+    area_sq = np.einsum("ij,ij->i", cross, cross)
+    return area_sq > 1.0e-24
+
+
 def _extract_triangle_scene_from_document(glb: GlbDocument) -> ExpandedGltfScene:
     document = glb.document
     nodes = _required_array(document, "nodes")
@@ -443,13 +461,18 @@ def _extract_triangle_scene_from_document(glb: GlbDocument) -> ExpandedGltfScene
             adjusted = local_triangles.copy()
             if float(np.linalg.det(world[:3, :3])) < 0:
                 adjusted[:, [1, 2]] = adjusted[:, [2, 1]]
-            adjusted = (adjusted + vertex_offset).astype("<u4", copy=False)
             with np.errstate(over="ignore", invalid="ignore"):
                 world_vertices = world_positions.astype("<f4", copy=False)
             if not np.isfinite(world_vertices).all():
                 raise GltfError(
                     f"{prefix} vertices overflow float32 after canonical encoding"
                 )
+            keep = _nonzero_area_triangle_mask(world_vertices, adjusted)
+            if not bool(np.any(keep)):
+                continue
+            adjusted = np.ascontiguousarray(
+                adjusted[keep] + vertex_offset, dtype="<u4"
+            )
             vertex_parts.append(world_vertices)
             triangle_parts.append(adjusted)
             triangle_material_names.extend([material_name] * len(adjusted))
