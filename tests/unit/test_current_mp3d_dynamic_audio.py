@@ -569,11 +569,15 @@ def test_cli_propagates_explicit_dynamic_clock_options() -> None:
         "--frame-count", "150",
         "--frame-rate-hz", "15",
         "--ticks-per-frame", "3200",
+        "--layouts", "binaural,ambisonics",
+        "--execution-variant", "main",
         "--output", "out",
     ])
     assert args.frame_count == 150
     assert args.frame_rate_hz == 15.0
     assert args.ticks_per_frame == 3200
+    assert args.layouts == ("binaural", "ambisonics")
+    assert args.execution_variant == "main"
 
     author = parser.parse_args([
         "m5",

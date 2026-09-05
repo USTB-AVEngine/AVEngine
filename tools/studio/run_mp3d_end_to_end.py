@@ -28,7 +28,20 @@ def run_step(name: str, argv: list[str], steps: list[dict], steps_path: Path) ->
         encoding="utf-8",
     )
     print(f"[studio-e2e] step {name}: {' '.join(str(item) for item in argv)}", flush=True)
-    completed = subprocess.run([str(item) for item in argv], check=False)
+    launch_env = dict(os.environ)
+    current_source = str(REPOSITORY / "src")
+    existing = launch_env.get("PYTHONPATH", "")
+    launch_env["PYTHONPATH"] = (
+        current_source + (os.pathsep + existing if existing else "")
+    )
+    record["cwd"] = str(REPOSITORY)
+    record["avengine_source"] = current_source
+    completed = subprocess.run(
+        [str(item) for item in argv],
+        check=False,
+        cwd=str(REPOSITORY),
+        env=launch_env,
+    )
     record["status"] = "pass" if completed.returncode == 0 else "fail"
     record["returncode"] = completed.returncode
     steps_path.write_text(
@@ -75,7 +88,9 @@ def main() -> int:
     args = parser.parse_args()
 
     output = args.output.resolve()
-    output.mkdir(parents=True, exist_ok=True)
+    if output.exists() or output.is_symlink():
+        raise SystemExit(f"output already exists (fresh/no-clobber): {output}")
+    output.mkdir(parents=True)
     steps: list[dict] = []
     steps_path = output / "steps.json"
     python = sys.executable

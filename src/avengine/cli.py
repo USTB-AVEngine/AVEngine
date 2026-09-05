@@ -105,6 +105,21 @@ from avengine.timeline.current_mp3d_dynamic_audio import (
     CurrentMP3DDynamicAudioError,
     render_current_mp3d_dynamic_audio,
 )
+
+def _parse_mp3d_audio_layouts(value: str) -> tuple[str, ...]:
+    if not isinstance(value, str):
+        raise argparse.ArgumentTypeError("layouts must be comma-separated")
+    values = tuple(item.strip() for item in value.split(","))
+    if not values or any(not item for item in values):
+        raise argparse.ArgumentTypeError("layouts must contain at least one name")
+    if len(set(values)) != len(values):
+        raise argparse.ArgumentTypeError("layouts must not contain duplicates")
+    supported = {"binaural", "ambisonics"}
+    if any(item not in supported for item in values):
+        raise argparse.ArgumentTypeError(
+            "layouts must contain only binaural or ambisonics"
+        )
+    return values
 from avengine.timeline.current_visual_review import (
     CurrentVisualReviewError,
     generate_current_visual_review,
@@ -1371,6 +1386,8 @@ def _m5_render_current_mp3d_dynamic_audio(args: argparse.Namespace) -> int:
                 visual_capture_dir=args.visual_capture_dir,
                 m1_request_path=args.m1_request,
                 simulation_request_path=args.simulation_request,
+                layouts=args.layouts,
+                execution_variant=args.execution_variant,
                 package_manifest_path=args.package_manifest,
                 audio_program_path=args.audio_program,
                 source_endpoint_registry_path=args.source_endpoint_registry,
@@ -1397,6 +1414,8 @@ def _m5_render_current_mp3d_dynamic_audio(args: argparse.Namespace) -> int:
             "keyframe_count": receipt["rir"]["keyframe_count"],
             "event_count": receipt["audio_program"]["event_count"],
             "output": str(output),
+            "layouts": receipt["audio"]["layouts"],
+            "execution_variant": receipt.get("execution_variant"),
             "receipt": str(Path(output) / "research_receipt.json"),
         }
     )
@@ -2279,6 +2298,17 @@ def build_parser() -> argparse.ArgumentParser:
     m5_dynamic_audio.add_argument("--visual-capture-dir", required=True)
     m5_dynamic_audio.add_argument("--m1-request", required=True)
     m5_dynamic_audio.add_argument("--simulation-request", required=True)
+    m5_dynamic_audio.add_argument(
+        "--layouts",
+        type=_parse_mp3d_audio_layouts,
+        default=("binaural",),
+        help="comma-separated output layouts: binaural, ambisonics",
+    )
+    m5_dynamic_audio.add_argument(
+        "--execution-variant",
+        default=None,
+        help="external batch execution label, for example main or gateA",
+    )
     m5_dynamic_audio.add_argument("--package-manifest", required=True)
     m5_dynamic_audio.add_argument("--audio-program", required=True)
     m5_dynamic_audio.add_argument("--source-endpoint-registry", required=True)
@@ -2288,7 +2318,7 @@ def build_parser() -> argparse.ArgumentParser:
         required=True,
         help="external dry wav for dog_beagle_v2_scheduled_dry",
     )
-    m5_dynamic_audio.add_argument("--hrtf", required=True)
+    m5_dynamic_audio.add_argument("--hrtf")
     m5_dynamic_audio.add_argument("--hrtf-license")
     m5_dynamic_audio.add_argument("--runtime-prefix", required=True)
     m5_dynamic_audio.add_argument("--rlr-sdk-root", required=True)
