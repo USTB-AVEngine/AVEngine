@@ -13,7 +13,11 @@ import soundfile as sf
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools" / "qa"))
 
-from verify_qa_v3_audio_batch import check_onsets, main  # noqa: E402
+from verify_qa_v3_audio_batch import (  # noqa: E402
+    _load_source_endpoint_map,
+    check_onsets,
+    main,
+)
 
 EP1, EP2 = "qa_v2_dog_1_collie_muzzle", "qa_v2_dog_2_labrador_muzzle"
 EVENTS = [
@@ -161,7 +165,14 @@ def build_batch(tmp_path: Path, wav_main: np.ndarray,
 
 
 def run(
-    tmp_path, design, audio, out_name="report.json", variants=None, layouts=None
+    tmp_path,
+    design,
+    audio,
+    out_name="report.json",
+    variants=None,
+    layouts=None,
+    source_endpoint_registry=None,
+    source_endpoints=None,
 ):
     out = tmp_path / out_name
     argv = [
@@ -172,6 +183,10 @@ def run(
         argv.extend(["--variants", variants])
     if layouts is not None:
         argv.extend(["--layouts", layouts])
+    if source_endpoint_registry is not None:
+        argv.extend(["--source-endpoint-registry", str(source_endpoint_registry)])
+    for source_endpoint in source_endpoints or ():
+        argv.extend(["--source-endpoint", source_endpoint])
     argv.extend(["--out", str(out)])
     rc = main(argv)
     return rc, json.loads(out.read_text())
@@ -186,6 +201,65 @@ def test_clean_batch_passes(tmp_path):
     assert rep["execution_variant_verification"]["status"] == "verified"
     assert rep["gatea_semantic_flip_pairs"] == 1
     assert "established from current paired fact records" in rep["gatea_semantic_flip"]
+
+
+def test_alternate_variant_uses_variant_local_files_and_point_coverage(tmp_path):
+    design = tmp_path / "design"
+    point = design / "point_with_under"
+    programs = design / "programs"
+    point.mkdir(parents=True)
+    programs.mkdir()
+    (point / "fact_record.json").write_text(
+        json.dumps({"profile_id": "fixture"})
+    )
+    main_program = point / "audio_program.json"
+    alternate_program = point / "audio_program_alternate.json"
+    for program_path in (main_program, alternate_program):
+        program_path.write_text(json.dumps({"events": EVENTS}))
+
+    audio = tmp_path / "audio"
+    endpoint = "/x/examples/qa_v2/source_endpoints_qa_v2_v1.json"
+    for name, wav, program_path, variant in (
+        ("point_with_under", good_wav(), main_program, "main"),
+        (
+            "point_with_under_alternate",
+            good_wav(seed=7),
+            alternate_program,
+            "alternate",
+        ),
+    ):
+        render = audio / name / "audio" / "binaural"
+        render.mkdir(parents=True)
+        sf.write(render / "mixture.wav", wav, 16000)
+        (audio / name / "research_receipt.json").write_text(
+            json.dumps({
+                "qualification_claim": False,
+                "inputs": {
+                    "source_endpoint_registry": {"path": endpoint}
+                },
+                "audio_program": {"path": str(program_path)},
+                "execution_variant": variant,
+            })
+        )
+    (tmp_path / "params.json").write_text(json.dumps(PARAMS))
+
+    rc, report = run(
+        tmp_path,
+        design,
+        audio,
+        variants="main,alternate",
+    )
+    assert rc == 0
+    assert report["failures"] == []
+    assert report["complete_render_point_ids"]["main"] == [
+        "point_with_under"
+    ]
+    assert report["complete_render_point_ids"]["alternate"] == [
+        "point_with_under"
+    ]
+    assert report["execution_variant_verification"]["status"] == "verified"
+    assert report["audio_variant_waveform_nonidentity_pairs"] == 0
+    assert report["gatea_semantic_flip_pairs"] == 0
 
 
 def test_foa_layout_passes_and_uses_energy_for_gatea(tmp_path):
@@ -352,6 +426,114 @@ def test_wrong_registry_caught(tmp_path):
     rc, rep = run(tmp_path, design, audio)
     assert rc == 1
     assert any("wrong endpoint registry" in f for f in rep["failures"])
+
+
+def test_endpoint_expectation_precedence_and_exact_receipt_match(tmp_path):
+    def set_receipt_endpoint(audio_dir: Path, endpoint: Path) -> None:
+        receipt_path = audio_dir / "research_receipt.json"
+        receipt = json.loads(receipt_path.read_text())
+        receipt["inputs"]["source_endpoint_registry"]["path"] = str(
+            endpoint.resolve()
+        )
+        receipt_path.write_text(json.dumps(receipt))
+
+    shared_root = tmp_path / "shared"
+    shared_design, shared_audio = build_batch(
+        shared_root, good_wav(), include_execution_variant=False
+    )
+    shared = shared_root / "shared_endpoints.json"
+    shared.write_text("{}")
+    set_receipt_endpoint(shared_audio / "v3b_001", shared)
+    rc, report = run(
+        shared_root,
+        shared_design,
+        shared_audio,
+        variants="main",
+        source_endpoint_registry=shared,
+    )
+    assert rc == 0
+    assert report["failures"] == []
+
+    override_root = tmp_path / "override"
+    override_design, override_audio = build_batch(
+        override_root, good_wav(), include_execution_variant=False
+    )
+    override_shared = override_root / "shared_endpoints.json"
+    override_point = override_root / "point_endpoints.json"
+    override_shared.write_text("{}")
+    override_point.write_text("{}")
+    set_receipt_endpoint(override_audio / "v3b_001", override_point)
+    rc, report = run(
+        override_root,
+        override_design,
+        override_audio,
+        variants="main",
+        source_endpoint_registry=override_shared,
+        source_endpoints=[f"v3b_001={override_point}"],
+    )
+    assert rc == 0
+    assert report["failures"] == []
+
+    local = override_design / "v3b_001" / "source_endpoints.json"
+    local.write_text("{}")
+    set_receipt_endpoint(override_audio / "v3b_001", local)
+    rc, report = run(
+        override_root,
+        override_design,
+        override_audio,
+        out_name="local-report.json",
+        variants="main",
+        source_endpoint_registry=override_shared,
+        source_endpoints=[f"v3b_001={override_point}"],
+    )
+    assert rc == 0
+    assert report["failures"] == []
+
+    other = override_root / "other_endpoints.json"
+    other.write_text("{}")
+    set_receipt_endpoint(override_audio / "v3b_001", other)
+    rc, report = run(
+        override_root,
+        override_design,
+        override_audio,
+        out_name="mismatch-report.json",
+        variants="main",
+        source_endpoint_registry=override_shared,
+        source_endpoints=[f"v3b_001={override_point}"],
+    )
+    assert rc == 1
+    assert any("wrong endpoint registry" in failure for failure in report["failures"])
+
+
+def test_endpoint_configuration_paths_must_exist(tmp_path):
+    design, audio = build_batch(tmp_path, good_wav(), include_execution_variant=False)
+    missing = tmp_path / "does-not-exist.json"
+    out = tmp_path / "missing-config-report.json"
+    rc = main([
+        "--design-root", str(design),
+        "--audio-root", str(audio),
+        "--params", str(tmp_path / "params.json"),
+        "--variants", "main",
+        "--source-endpoint-registry", str(missing),
+        "--out", str(out),
+    ])
+    assert rc == 2
+    assert not out.exists()
+
+    valid = tmp_path / "valid-endpoints.json"
+    valid.write_text("{}")
+    point_out = tmp_path / "missing-point-config-report.json"
+    rc = main([
+        "--design-root", str(design),
+        "--audio-root", str(audio),
+        "--params", str(tmp_path / "params.json"),
+        "--variants", "main",
+        "--source-endpoint-registry", str(valid),
+        "--source-endpoint", f"v3b_001={missing}",
+        "--out", str(point_out),
+    ])
+    assert rc == 2
+    assert not point_out.exists()
 
 
 def test_silent_event_caught(tmp_path):
@@ -569,3 +751,37 @@ def test_gatea_semantic_pair_count_is_required(tmp_path):
     rc, rep = run(tmp_path, design, audio, variants="main,gateA")
     assert rc == 1
     assert any("Gate A semantic pair count" in failure for failure in rep["failures"])
+
+
+
+def test_source_endpoint_map_supports_point_ids_with_equals(tmp_path):
+    endpoint = tmp_path / "endpoint.json"
+    endpoint.write_text("{}")
+    mapping = tmp_path / "endpoint-map.json"
+    mapping.write_text(json.dumps({"point=variant": str(endpoint)}))
+
+    result = _load_source_endpoint_map(mapping)
+
+    assert result == {"point=variant": endpoint.resolve()}
+
+
+
+def test_unknown_audio_directory_without_receipt_is_rejected(tmp_path):
+    design, audio = build_batch(
+        tmp_path, good_wav(), include_execution_variant=False
+    )
+    (audio / "unknown_extra").mkdir()
+
+    rc, report = run(
+        tmp_path,
+        design,
+        audio,
+        variants="main",
+    )
+
+    assert rc == 1
+    assert any(
+        "missing research receipts" in failure
+        and "unknown_extra" in failure
+        for failure in report["failures"]
+    )

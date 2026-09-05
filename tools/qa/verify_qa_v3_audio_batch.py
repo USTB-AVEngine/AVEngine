@@ -20,6 +20,7 @@
 from __future__ import annotations
 
 import argparse
+from collections.abc import Mapping, Sequence
 import json
 import sys
 from pathlib import Path
@@ -287,6 +288,23 @@ def execution_variant_status(
     return "verified"
 
 
+def _safe_variant_name(value: object, *, owner: str) -> str:
+    if (
+        not isinstance(value, str)
+        or not value
+        or value != value.strip()
+        or value in {".", ".."}
+        or "/" in value
+        or "\\" in value
+        or any(ord(character) < 32 or ord(character) == 127 for character in value)
+    ):
+        raise ValueError(
+            f"{owner} must be a single non-empty variant without path separators "
+            "or control characters"
+        )
+    return value
+
+
 def _normalize_expected_variants(value: object, *, owner: str) -> tuple[str, ...]:
     if isinstance(value, str):
         raw = [item.strip() for item in value.split(",") if item.strip()]
@@ -298,13 +316,7 @@ def _normalize_expected_variants(value: object, *, owner: str) -> tuple[str, ...
         raise ValueError(f"{owner} must not be empty")
     result: list[str] = []
     for item in raw:
-        if (
-            not isinstance(item, str)
-            or not item
-            or item != item.strip()
-            or any(ord(character) < 32 or ord(character) == 127 for character in item)
-        ):
-            raise ValueError(f"{owner} contains an invalid execution variant")
+        item = _safe_variant_name(item, owner=owner)
         if item in result:
             raise ValueError(f"{owner} contains duplicate execution variant {item!r}")
         result.append(item)
@@ -380,6 +392,73 @@ def _expected_variants(
     return ("main",), "legacy_single_main_default"
 
 
+def _design_point_ids(design_root: Path) -> tuple[str, ...]:
+    """Discover real design point IDs without splitting names on underscores."""
+    result: list[str] = []
+    for path in sorted(design_root.iterdir()):
+        if (
+            not path.is_dir()
+            or path.is_symlink()
+            or path.name in {"programs", "logs"}
+        ):
+            continue
+        has_marker = any(
+            (
+                (path / name).is_file()
+                for name in ("timeline.json", "fact_record.json", "source_endpoints.json")
+            )
+        ) or any(path.glob("fact_record_*.json")) or any(
+            path.glob("audio_program*.json")
+        )
+        if has_marker:
+            result.append(path.name)
+    return tuple(result)
+
+
+def _render_directory_identity(
+    name: str,
+    expected_variants: Sequence[str],
+    design_point_ids: Sequence[str],
+) -> tuple[str, str]:
+    """Resolve one output directory from known point IDs and variants.
+
+    Matching complete design point names first is what keeps an ID such as
+    ``candidate_alternate`` from being mistaken for point ``candidate``'s
+    alternate output.  If both interpretations exist, fail explicitly.
+    """
+    candidates: list[tuple[str, str]] = []
+    for point_id in design_point_ids:
+        if name == point_id:
+            candidates.append((point_id, "main"))
+        for variant in expected_variants:
+            if variant != "main" and name == f"{point_id}_{variant}":
+                candidates.append((point_id, variant))
+    if len(candidates) == 1:
+        return candidates[0]
+    if len(candidates) > 1:
+        raise ValueError(
+            f"audio render directory {name!r} is ambiguous: "
+            + ", ".join(f"{point}/{variant}" for point, variant in candidates)
+        )
+    if design_point_ids:
+        raise ValueError(
+            f"audio render directory {name!r} does not match a design point "
+            f"or requested variant {list(expected_variants)}"
+        )
+    # Retained legacy batches may have no point marker files.  Use only the
+    # explicitly requested variant suffixes, longest first; never split a
+    # point ID merely because it contains an underscore.
+    for variant in sorted(
+        (item for item in expected_variants if item != "main"),
+        key=len,
+        reverse=True,
+    ):
+        suffix = f"_{variant}"
+        if name.endswith(suffix) and len(name) > len(suffix):
+            return name[: -len(suffix)], variant
+    return name, "main"
+
+
 def _split_render_directory(name: str) -> tuple[str, str]:
     if name.endswith("_gateA"):
         return name[:-6], "gateA"
@@ -396,6 +475,134 @@ def check_stereo(wav: np.ndarray) -> str | None:
     return None
 
 
+def _validate_source_endpoint_point_id(value: object, *, owner: str) -> str:
+    if (
+        not isinstance(value, str)
+        or not value
+        or value != value.strip()
+        or value in {".", ".."}
+        or "/" in value
+        or "\\" in value
+        or any(ord(character) < 32 or ord(character) == 127 for character in value)
+    ):
+        raise ValueError(
+            f"{owner} must be a single non-empty point ID without path separators "
+            "or control characters"
+        )
+    return value
+
+
+def _resolve_existing_source_endpoint_path(
+    value: object,
+    *,
+    owner: str,
+    base: Path,
+) -> Path:
+    if not isinstance(value, (str, Path)) or not str(value).strip():
+        raise ValueError(f"{owner} must be a non-empty path")
+    path = Path(value).expanduser()
+    if not path.is_absolute():
+        path = base / path
+    resolved = path.resolve()
+    if not resolved.is_file():
+        raise ValueError(f"{owner} is missing or not a regular file: {resolved}")
+    return resolved
+
+
+def _parse_source_endpoint_overrides(
+    values: Sequence[str] | None,
+    *,
+    base: Path,
+) -> dict[str, Path]:
+    if values is None:
+        return {}
+    if isinstance(values, (str, bytes)):
+        raise ValueError("--source-endpoint must be repeated POINT_ID=PATH values")
+    result: dict[str, Path] = {}
+    for index, assignment in enumerate(values):
+        if not isinstance(assignment, str):
+            raise ValueError(
+                f"source endpoint {index} must be a POINT_ID=PATH string"
+            )
+        point_id, separator, path_value = assignment.partition("=")
+        if not separator or not point_id or not path_value:
+            raise ValueError(
+                f"source endpoint {index} must use POINT_ID=PATH"
+            )
+        point_id = _validate_source_endpoint_point_id(
+            point_id, owner=f"source endpoint {index} point ID"
+        )
+        if point_id in result:
+            raise ValueError(
+                f"duplicate source endpoint point ID: {point_id!r}"
+            )
+        result[point_id] = _resolve_existing_source_endpoint_path(
+            path_value,
+            owner=f"source endpoint {index} path",
+            base=base,
+        )
+    return result
+
+
+def _reject_duplicate_endpoint_map_keys(
+    pairs: list[tuple[str, object]],
+) -> dict[str, object]:
+    result: dict[str, object] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError(
+                f"source endpoint map contains duplicate point ID: {key!r}"
+            )
+        result[key] = value
+    return result
+
+
+def _load_source_endpoint_map(path: Path | None) -> dict[str, Path]:
+    if path is None:
+        return {}
+    resolved = path.expanduser().resolve()
+    if not resolved.is_file():
+        raise ValueError(
+            f"--source-endpoint-map is missing or not a regular file: {resolved}"
+        )
+    try:
+        value = json.loads(
+            resolved.read_text(encoding="utf-8"),
+            object_pairs_hook=_reject_duplicate_endpoint_map_keys,
+        )
+    except (OSError, UnicodeError, json.JSONDecodeError, ValueError) as error:
+        raise ValueError(
+            f"cannot read source endpoint map {resolved}: {error}"
+        ) from error
+    if not isinstance(value, Mapping):
+        raise ValueError("source endpoint map must contain a JSON object")
+    result: dict[str, Path] = {}
+    for point_id, endpoint in value.items():
+        point_id = _validate_source_endpoint_point_id(
+            point_id, owner="source endpoint map point ID"
+        )
+        result[point_id] = _resolve_existing_source_endpoint_path(
+            endpoint,
+            owner=f"source endpoint map {point_id}",
+            base=resolved.parent,
+        )
+    return result
+
+
+def _expected_source_endpoint_path(
+    design_root: Path,
+    base: str,
+    render_name: str,
+    *,
+    per_point: Mapping[str, Path],
+    shared: Path | None,
+) -> Path | None:
+    local = (design_root / base / "source_endpoints.json").resolve()
+    if local.is_file():
+        return local
+    return per_point.get(render_name) or per_point.get(base) or shared
+
+
 def check_receipt(receipt: dict, expect_program: Path,
                   expected_endpoint: Path | None = None,
                   expected_execution_variant: str | None = None) -> str | None:
@@ -405,15 +612,20 @@ def check_receipt(receipt: dict, expect_program: Path,
         reg = receipt["inputs"]["source_endpoint_registry"]["path"]
     except (KeyError, TypeError):
         return "receipt has no source endpoint registry"
+    if not isinstance(reg, str) or not reg.strip():
+        return "receipt source endpoint registry path is invalid"
     if expected_endpoint is None:
         # Retain the historical positive control for old QA v2 fixture batches;
         # current QA-v3 points pass their point-local registry explicitly.
         if "qa_v2/source_endpoints_qa_v2_v1.json" not in reg:
             return f"wrong endpoint registry: {reg}"
     else:
-        actual_endpoint = Path(reg).expanduser()
-        if actual_endpoint.resolve() != Path(expected_endpoint).resolve():
-            return f"wrong endpoint registry: {actual_endpoint} != {expected_endpoint}"
+        expected_path = Path(expected_endpoint).expanduser().resolve()
+        if not expected_path.is_file():
+            return f"expected endpoint registry is missing: {expected_path}"
+        actual_endpoint = Path(reg).expanduser().resolve()
+        if actual_endpoint != expected_path:
+            return f"wrong endpoint registry: {actual_endpoint} != {expected_path}"
     try:
         prog = receipt["audio_program"]["path"]
     except (KeyError, TypeError):
@@ -435,28 +647,190 @@ def check_receipt(receipt: dict, expect_program: Path,
     return None
 
 
-def find_program(programs_dir: Path, base: str, variant: str,
-                  *, design_root: Path | None = None) -> Path | None:
-    # Current QA-v3 points keep the main/Gate-A program beside their fact and
-    # endpoint registry.  Resolve that authoritative point-local input first;
-    # retain the shared-program glob for older pilot batches.
-    if design_root is not None:
-        local_name = (
-            "audio_program.json" if variant == "main"
-            else "audio_program_gateA.json"
-        )
-        local = Path(design_root) / base / local_name
-        if local.is_file():
-            return local.resolve()
-    suffixes = (
-        ["_rand_v1.json"] if variant == "main" else
-        ["_rand_gateA_v1.json", "_gateA_rand_v1.json"]
+def _variant_program_filename(variant: str) -> str:
+    variant = _safe_variant_name(variant, owner="audio variant")
+    return (
+        "audio_program.json"
+        if variant == "main"
+        else f"audio_program_{variant}.json"
     )
-    matches = []
-    for suffix in suffixes:
-        matches.extend(programs_dir.glob(f"qa_v3_*_{base}{suffix}"))
-    unique = sorted(set(matches))
-    return unique[0] if len(unique) == 1 else None
+
+
+def _variant_fact_paths(
+    design_root: Path, base: str, variant: str
+) -> tuple[tuple[Path, bool], ...]:
+    variant = _safe_variant_name(variant, owner="audio variant")
+    point_dir = design_root / base
+    specific = point_dir / (
+        "fact_record.json"
+        if variant == "main"
+        else f"fact_record_{variant}.json"
+    )
+    if variant == "main":
+        return ((specific, True),)
+    return ((specific, True), (point_dir / "fact_record.json", False))
+
+
+def _fact_program_declarations(
+    fact: Mapping[str, object],
+    variant: str,
+    *,
+    allow_legacy_direct_keys: bool,
+    allow_program_id: bool,
+) -> list[object]:
+    variant = _safe_variant_name(variant, owner="audio variant")
+    owners: list[Mapping[str, object]] = []
+    audio = fact.get("audio")
+    if isinstance(audio, Mapping):
+        owners.append(audio)
+    owners.append(fact)
+    result: list[object] = []
+    mapping_keys = (
+        "programs",
+        "audio_programs",
+        "program_by_variant",
+        "program_paths",
+        "audio_program_by_variant",
+    )
+    for owner in owners:
+        for key in mapping_keys:
+            declared = owner.get(key)
+            if isinstance(declared, Mapping) and variant in declared:
+                result.append(declared[variant])
+        for key in ("program", "program_path", "audio_program"):
+            declared = owner.get(key)
+            if isinstance(declared, Mapping) and variant in declared:
+                result.append(declared[variant])
+        if allow_legacy_direct_keys:
+            if variant == "main":
+                keys = ("program", "program_path", "main_program", "audio_program")
+            elif variant == "gateA":
+                keys = (
+                    "program",
+                    "program_path",
+                    "gatea_program",
+                    "gateA_program",
+                    "audio_program_gateA",
+                )
+            else:
+                keys = (
+                    "program",
+                    "program_path",
+                    "audio_program",
+                    f"program_{variant}",
+                    f"program_path_{variant}",
+                    f"audio_program_{variant}",
+                    f"{variant}_program",
+                )
+            for key in keys:
+                declared = owner.get(key)
+                if declared is not None:
+                    result.append(declared)
+        if allow_program_id:
+            program_id = owner.get("program_id")
+            if isinstance(program_id, str) and program_id:
+                result.append({"program_id": program_id})
+    return result
+
+
+def _declared_program_path(
+    declared: object,
+    *,
+    point_dir: Path,
+    programs_dir: Path,
+) -> Path | None:
+    if isinstance(declared, (str, Path)):
+        path = Path(declared).expanduser()
+        candidates = (
+            [path]
+            if path.is_absolute()
+            else [point_dir / path, programs_dir / path]
+        )
+        for candidate in candidates:
+            if candidate.is_file():
+                return candidate.resolve()
+        return None
+    if not isinstance(declared, Mapping):
+        return None
+    declared_path = (
+        declared.get("path")
+        or declared.get("program_path")
+        or declared.get("file")
+    )
+    if isinstance(declared_path, (str, Path)):
+        return _declared_program_path(
+            declared_path, point_dir=point_dir, programs_dir=programs_dir
+        )
+    declared_id = declared.get("program_id") or declared.get("id")
+    if isinstance(declared_id, str) and declared_id:
+        path = programs_dir / f"{declared_id}.json"
+        return path.resolve() if path.is_file() else None
+    return None
+
+
+def _load_fact_for_variant(
+    design_root: Path, base: str, variant: str
+) -> tuple[dict | None, Path | None]:
+    for path, _specific in _variant_fact_paths(design_root, base, variant):
+        if not path.is_file():
+            continue
+        try:
+            value = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError):
+            return None, path
+        if isinstance(value, Mapping):
+            return dict(value), path
+        return None, path
+    return None, None
+
+
+def find_program(programs_dir: Path, base: str, variant: str,
+                 *, design_root: Path | None = None) -> Path | None:
+    """Resolve one variant's point-local, fact-declared or shared program."""
+    variant = _safe_variant_name(variant, owner="audio variant")
+    root = Path(design_root) if design_root is not None else programs_dir.parent
+    point_dir = root / base
+    local = point_dir / _variant_program_filename(variant)
+    if local.is_file():
+        return local.resolve()
+
+    for fact_path, variant_specific in _variant_fact_paths(root, base, variant):
+        if not fact_path.is_file():
+            continue
+        try:
+            value = json.loads(fact_path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError):
+            continue
+        if not isinstance(value, Mapping):
+            continue
+        for declared in _fact_program_declarations(
+            value,
+            variant,
+            allow_legacy_direct_keys=variant_specific or variant == "main",
+            allow_program_id=variant_specific or variant == "main",
+        ):
+            resolved = _declared_program_path(
+                declared, point_dir=point_dir, programs_dir=programs_dir
+            )
+            if resolved is not None:
+                return resolved
+
+    if variant == "main":
+        suffixes = ("_rand_v1.json",)
+    elif variant == "gateA":
+        suffixes = ("_rand_gateA_v1.json", "_gateA_rand_v1.json")
+    else:
+        suffixes = (
+            f"_rand_{variant}_v1.json",
+            f"_{variant}_rand_v1.json",
+            f"_{variant}.json",
+        )
+    matches = sorted({
+        match
+        for suffix in suffixes
+        for match in programs_dir.glob(f"qa_v3_*_{base}{suffix}")
+    })
+    return matches[0].resolve() if len(matches) == 1 else None
 
 
 def check_onsets(wav: np.ndarray, program: dict, authority: dict,
@@ -626,11 +1000,57 @@ def main(argv: list[str] | None = None) -> int:
         help="expected audio layouts, comma-separated: binaural[,ambisonics]; "
              "defaults to the receipt declaration or binaural",
     )
+    parser.add_argument(
+        "--source-endpoint-registry",
+        type=Path,
+        help="shared fallback source endpoint registry for points without a local file",
+    )
+    parser.add_argument(
+        "--source-endpoint-map",
+        type=Path,
+        help="JSON object mapping point IDs to endpoint registry paths",
+    )
+    parser.add_argument(
+        "--source-endpoint",
+        action="append",
+        default=[],
+        metavar="POINT_ID=PATH",
+        help="per-point source endpoint registry override; may be repeated",
+    )
     parser.add_argument("--out", required=True, type=Path)
     args = parser.parse_args(argv)
 
     if args.out.exists():
         print(f"refusing to overwrite: {args.out}", file=sys.stderr)
+        return 2
+    try:
+        source_endpoint_shared = (
+            _resolve_existing_source_endpoint_path(
+                args.source_endpoint_registry,
+                owner="--source-endpoint-registry",
+                base=Path.cwd().resolve(),
+            )
+            if args.source_endpoint_registry is not None
+            else None
+        )
+        source_endpoint_overrides = _load_source_endpoint_map(
+            args.source_endpoint_map
+        )
+        repeated_source_endpoints = _parse_source_endpoint_overrides(
+            args.source_endpoint,
+            base=Path.cwd().resolve(),
+        )
+        duplicates = set(source_endpoint_overrides) & set(
+            repeated_source_endpoints
+        )
+        if duplicates:
+            raise ValueError(
+                "source endpoint point IDs were declared more than once: "
+                + ", ".join(sorted(duplicates))
+            )
+        source_endpoint_overrides.update(repeated_source_endpoints)
+    except ValueError as error:
+        print(f"invalid source endpoint configuration: {error}", file=sys.stderr)
         return 2
     try:
         expected_layouts = (
@@ -657,10 +1077,29 @@ def main(argv: list[str] | None = None) -> int:
         d for d in audio_directories
         if (d / "research_receipt.json").is_file()
     )
-    observed_directory_variants = {
-        _split_render_directory(path.name)[1] for path in audio_directories
-    }
     failures: list[str] = []
+    missing_receipt_directories = sorted(
+        path.name
+        for path in audio_directories
+        if not (path / "research_receipt.json").is_file()
+    )
+    if missing_receipt_directories:
+        failures.append(
+            "audio render directories are missing research receipts: "
+            + ", ".join(missing_receipt_directories)
+        )
+    design_point_ids = _design_point_ids(args.design_root.resolve())
+    render_entries: list[tuple[Path, str, str, str]] = []
+    for path in point_dirs:
+        try:
+            base, variant = _render_directory_identity(
+                path.name, expected_variants, design_point_ids
+            )
+        except ValueError as error:
+            failures.append(str(error))
+            continue
+        render_entries.append((path, path.name, base, variant))
+    observed_directory_variants = {variant for _, _, _, variant in render_entries}
     if not audio_directories:
         failures.append("audio root contains no render directories")
     unexpected_variants = observed_directory_variants - expected_variant_set
@@ -673,33 +1112,43 @@ def main(argv: list[str] | None = None) -> int:
     execution_variant_unverified: list[str] = []
     execution_variant_failed: list[str] = []
     validated_render_ids: dict[str, set[str]] = {
-        "main": set(),
-        "gateA": set(),
+        variant: set() for variant in expected_variants
     }
+    # Keep the historical report key readable for consumers that only know
+    # main/Gate-A, while actual requested variants are all reported below.
+    validated_render_ids.setdefault("main", set())
+    validated_render_ids.setdefault("gateA", set())
     checked = gatea_pairs = gatea_semantic_pairs = 0
     reference_layout = (
         "binaural" if "binaural" in expected_layouts else expected_layouts[0]
     )
-    for d in point_dirs:
-        name = d.name
-        base = name[:-6] if name.endswith("_gateA") else name
-        variant = "gateA" if name.endswith("_gateA") else "main"
+    for d, name, base, variant in render_entries:
+        if variant not in expected_variant_set:
+            continue
         prog_path = find_program(
             programs_dir, base, variant, design_root=args.design_root
         )
         if prog_path is None:
             failures.append(f"{name}: program lookup was not unique")
             continue
-        program = json.loads(prog_path.read_text())
-        fact_name = "fact_record_gateA.json" if variant == "gateA" else "fact_record.json"
-        fact_path = args.design_root / base / fact_name
-        fact = json.loads(fact_path.read_text()) if fact_path.is_file() else None
-        plan_path = programs_dir / (
-            prog_path.name.replace("_gateA_rand_v1.json", "_rand_v1.plan.json")
-            .replace("_rand_gateA_v1.json", "_rand_v1.plan.json")
-            if variant == "gateA" else prog_path.stem + ".plan.json"
+        try:
+            program = json.loads(prog_path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError) as error:
+            failures.append(f"{name}: audio program load failed: {error}")
+            continue
+        fact, _fact_path = _load_fact_for_variant(
+            args.design_root.resolve(), base, variant
         )
-        plan = json.loads(plan_path.read_text()) if plan_path.is_file() else None
+        plan_path = (
+            programs_dir / f"{prog_path.stem}.plan.json"
+            if variant == "main" else None
+        )
+        plan = None
+        if plan_path is not None and plan_path.is_file():
+            try:
+                plan = json.loads(plan_path.read_text(encoding="utf-8"))
+            except (OSError, UnicodeError, json.JSONDecodeError):
+                plan = None
         try:
             receipt = json.loads((d / "research_receipt.json").read_text())
         except (OSError, UnicodeError, json.JSONDecodeError) as exc:
@@ -725,6 +1174,11 @@ def main(argv: list[str] | None = None) -> int:
             execution_variant_verified.append(name)
         elif execution_state == "unverified":
             execution_variant_unverified.append(name)
+            if variant != "main":
+                failures.append(
+                    f"{name}: execution_variant is unverified for requested {variant}"
+                )
+                render_valid = False
         elif execution_state in {"invalid", "mismatch"}:
             execution_variant_failed.append(name)
 
@@ -775,17 +1229,20 @@ def main(argv: list[str] | None = None) -> int:
                 if wav_path == mixture_path:
                     layout_wavs[layout] = wav
 
+        expected_endpoint = _expected_source_endpoint_path(
+            args.design_root.resolve(),
+            base,
+            name,
+            per_point=source_endpoint_overrides,
+            shared=source_endpoint_shared,
+        )
         for err in filter(
             None,
             [
                 check_receipt(
                     receipt,
                     prog_path,
-                    (
-                        args.design_root / base / "source_endpoints.json"
-                        if (args.design_root / base / "source_endpoints.json").is_file()
-                        else None
-                    ),
+                    expected_endpoint,
                     expected_execution_variant=variant,
                 )
             ],
@@ -883,18 +1340,24 @@ def main(argv: list[str] | None = None) -> int:
                     f"{name}: main {reference_layout} mixture is missing for comparison"
                 )
 
-            main_fact_path = args.design_root / base / "fact_record.json"
-            gate_fact_path = args.design_root / base / "fact_record_gateA.json"
-            if main_fact_path.is_file() and gate_fact_path.is_file():
-                main_fact = json.loads(main_fact_path.read_text())
-                gate_fact = json.loads(gate_fact_path.read_text())
+            main_fact, _main_fact_path = _load_fact_for_variant(
+                args.design_root.resolve(), base, "main"
+            )
+            gate_fact, _gate_fact_path = _load_fact_for_variant(
+                args.design_root.resolve(), base, "gateA"
+            )
+            if main_fact is not None and gate_fact is not None:
                 main_program_path = find_program(
                     programs_dir, base, "main", design_root=args.design_root
                 )
-                main_program = (
-                    json.loads(main_program_path.read_text())
-                    if main_program_path is not None else None
-                )
+                main_program = None
+                if main_program_path is not None:
+                    try:
+                        main_program = json.loads(
+                            main_program_path.read_text(encoding="utf-8")
+                        )
+                    except (OSError, UnicodeError, json.JSONDecodeError):
+                        main_program = None
                 missing = _gatea_semantic_failures(
                     main_fact,
                     gate_fact,
@@ -906,20 +1369,32 @@ def main(argv: list[str] | None = None) -> int:
                 else:
                     gatea_semantic_pairs += 1
 
-    complete_main_ids = validated_render_ids["main"]
-    complete_gatea_ids = validated_render_ids["gateA"]
+    complete_main_ids = validated_render_ids.get("main", set())
+    complete_gatea_ids = validated_render_ids.get("gateA", set())
     complete_pair_ids = complete_main_ids & complete_gatea_ids
-    if "main" not in expected_variant_set or not complete_main_ids:
+    if not complete_main_ids:
         failures.append("missing complete main render")
+    for requested_variant in expected_variants:
+        if requested_variant == "main":
+            continue
+        complete_variant_ids = validated_render_ids.get(requested_variant, set())
+        if not complete_variant_ids:
+            failures.append(f"missing complete {requested_variant} render")
+        if complete_variant_ids != complete_main_ids:
+            if requested_variant == "gateA":
+                failures.append(
+                    "main and gateA render point IDs do not form complete pairs: "
+                    f"main_only={sorted(complete_main_ids - complete_variant_ids)} "
+                    f"gateA_only={sorted(complete_variant_ids - complete_main_ids)}"
+                )
+            else:
+                failures.append(
+                    f"main and {requested_variant} render point IDs do not form "
+                    "complete pairs: "
+                    f"main_only={sorted(complete_main_ids - complete_variant_ids)} "
+                    f"{requested_variant}_only={sorted(complete_variant_ids - complete_main_ids)}"
+                )
     if "gateA" in expected_variant_set:
-        if not complete_gatea_ids:
-            failures.append("missing complete gateA render")
-        if complete_main_ids != complete_gatea_ids:
-            failures.append(
-                "main and gateA render point IDs do not form complete pairs: "
-                f"main_only={sorted(complete_main_ids - complete_gatea_ids)} "
-                f"gateA_only={sorted(complete_gatea_ids - complete_main_ids)}"
-            )
         if not complete_pair_ids:
             failures.append("no complete main/gateA render pair")
         complete_pair_count = len(complete_pair_ids)
@@ -945,6 +1420,10 @@ def main(argv: list[str] | None = None) -> int:
         "expected_variants": list(expected_variants),
         "expected_variants_source": expected_variants_source,
         "complete_render_point_ids": {
+            **{
+                variant: sorted(validated_render_ids.get(variant, set()))
+                for variant in expected_variants
+            },
             "main": sorted(complete_main_ids),
             "gateA": sorted(complete_gatea_ids),
         },

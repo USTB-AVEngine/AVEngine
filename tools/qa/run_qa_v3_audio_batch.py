@@ -23,6 +23,7 @@ config JSON 必备键:
 from __future__ import annotations
 
 import argparse
+from collections.abc import Mapping, Sequence
 import json
 import math
 import struct
@@ -275,6 +276,89 @@ def point_state(out_dir: Path, *, layouts: object | None = None) -> str:
 
 
 
+def _safe_variant_name(value: object, *, owner: str) -> str:
+    if (
+        not isinstance(value, str)
+        or not value
+        or value != value.strip()
+        or value in {".", ".."}
+        or "/" in value
+        or "\\" in value
+        or any(ord(character) < 32 or ord(character) == 127 for character in value)
+    ):
+        raise ValueError(
+            f"{owner} must be a single non-empty variant without path separators "
+            "or control characters"
+        )
+    return value
+
+
+def normalize_variants(
+    value: object, *, owner: str = "variants"
+) -> tuple[str, ...]:
+    """Normalize requested execution variants while keeping names data-driven."""
+    if isinstance(value, str):
+        raw = [item.strip() for item in value.split(",") if item.strip()]
+    elif isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
+        raw = list(value)
+    else:
+        raise ValueError(f"{owner} must be a comma-separated string or list")
+    if not raw:
+        raise ValueError(f"{owner} must contain at least one variant")
+    result: list[str] = []
+    for index, item in enumerate(raw):
+        variant = _safe_variant_name(item, owner=f"{owner}[{index}]")
+        if variant in result:
+            raise ValueError(f"{owner} contains duplicate variant {variant!r}")
+        result.append(variant)
+    if "main" not in result:
+        raise ValueError(f"{owner} must include main")
+    return tuple(result)
+
+
+def _variant_program_filename(variant: str) -> str:
+    variant = _safe_variant_name(variant, owner="audio variant")
+    return (
+        "audio_program.json"
+        if variant == "main"
+        else f"audio_program_{variant}.json"
+    )
+
+
+def _variant_fact_filename(variant: str) -> str:
+    variant = _safe_variant_name(variant, owner="audio variant")
+    return (
+        "fact_record.json"
+        if variant == "main"
+        else f"fact_record_{variant}.json"
+    )
+
+
+def _output_directory_name(point_id: str, variant: str) -> str:
+    variant = _safe_variant_name(variant, owner="audio variant")
+    return point_id if variant == "main" else f"{point_id}_{variant}"
+
+
+def _validate_output_directory_names(
+    point_variants: Mapping[str, Sequence[str]],
+) -> None:
+    """Reject point/variant output-name collisions before launching a render."""
+    owners: dict[str, tuple[str, str]] = {}
+    for point_id, variants in point_variants.items():
+        if not isinstance(point_id, str) or not point_id or Path(point_id).name != point_id:
+            raise ValueError(f"invalid point ID for audio output: {point_id!r}")
+        for variant in variants:
+            output_name = _output_directory_name(point_id, variant)
+            previous = owners.get(output_name)
+            if previous is not None:
+                raise ValueError(
+                    "audio output directory collision: "
+                    f"{output_name!r} is produced by "
+                    f"{previous[0]}/{previous[1]} and {point_id}/{variant}"
+                )
+            owners[output_name] = (point_id, variant)
+
+
 def _resolve_declared_path(value: str | Path, *, point_dir: Path, programs_dir: Path) -> Path:
     path = Path(value).expanduser()
     candidates = (
@@ -291,6 +375,111 @@ def _resolve_declared_path(value: str | Path, *, point_dir: Path, programs_dir: 
     )
 
 
+def _fact_variant_paths(point_dir: Path, variant: str) -> tuple[tuple[Path, bool], ...]:
+    variant = _safe_variant_name(variant, owner="audio variant")
+    specific = point_dir / _variant_fact_filename(variant)
+    if variant == "main":
+        return ((specific, True),)
+    # A shared main fact remains a compatibility fallback for variants whose
+    # program is declared through audio.programs[variant].
+    return ((specific, True), (point_dir / "fact_record.json", False))
+
+
+def _fact_program_declarations(
+    fact: Mapping[str, object],
+    variant: str,
+    *,
+    allow_legacy_direct_keys: bool,
+    allow_program_id: bool,
+) -> list[object]:
+    variant = _safe_variant_name(variant, owner="audio variant")
+    owners: list[Mapping[str, object]] = []
+    audio = fact.get("audio")
+    if isinstance(audio, Mapping):
+        owners.append(audio)
+    owners.append(fact)
+    result: list[object] = []
+    mapping_keys = (
+        "programs",
+        "audio_programs",
+        "program_by_variant",
+        "program_paths",
+        "audio_program_by_variant",
+    )
+    for owner in owners:
+        for key in mapping_keys:
+            declared = owner.get(key)
+            if isinstance(declared, Mapping) and variant in declared:
+                result.append(declared[variant])
+        for key in ("program", "program_path", "audio_program"):
+            declared = owner.get(key)
+            if isinstance(declared, Mapping) and variant in declared:
+                result.append(declared[variant])
+        if allow_legacy_direct_keys:
+            if variant == "main":
+                keys = ("program", "program_path", "main_program", "audio_program")
+            elif variant == "gateA":
+                keys = (
+                    "program",
+                    "program_path",
+                    "gatea_program",
+                    "gateA_program",
+                    "audio_program_gateA",
+                )
+            else:
+                keys = (
+                    "program",
+                    "program_path",
+                    "audio_program",
+                    f"program_{variant}",
+                    f"program_path_{variant}",
+                    f"audio_program_{variant}",
+                    f"{variant}_program",
+                )
+            for key in keys:
+                declared = owner.get(key)
+                if declared is not None:
+                    result.append(declared)
+        if allow_program_id:
+            program_id = owner.get("program_id")
+            if isinstance(program_id, str) and program_id:
+                result.append({"program_id": program_id})
+    return result
+
+
+def _declared_program_path(
+    declared: object,
+    *,
+    point_dir: Path,
+    programs_dir: Path,
+) -> Path | None:
+    if isinstance(declared, (str, Path)):
+        return _resolve_declared_path(
+            declared, point_dir=point_dir, programs_dir=programs_dir
+        )
+    if not isinstance(declared, Mapping):
+        return None
+    declared_path = (
+        declared.get("path")
+        or declared.get("program_path")
+        or declared.get("file")
+    )
+    if isinstance(declared_path, (str, Path)):
+        return _resolve_declared_path(
+            declared_path, point_dir=point_dir, programs_dir=programs_dir
+        )
+    declared_id = declared.get("program_id") or declared.get("id")
+    if isinstance(declared_id, str) and declared_id:
+        by_id = programs_dir / f"{declared_id}.json"
+        if by_id.is_file():
+            return by_id.resolve()
+        raise SystemExit(
+            f"FAIL: declared audio program id is missing for "
+            f"{point_dir.name}: {by_id}"
+        )
+    return None
+
+
 def program_path(
     programs_dir: Path,
     pid: str,
@@ -298,78 +487,51 @@ def program_path(
     *,
     inputs_root: Path | None = None,
 ) -> Path:
-    """Resolve a point-local or fact-declared program before legacy names."""
+    """Resolve a point-local or fact-declared program before shared fallbacks."""
+    variant = _safe_variant_name(variant, owner="audio variant")
     point_dir = (
         Path(inputs_root) / pid if inputs_root is not None else programs_dir.parent / pid
     )
-    local_name = "audio_program.json" if variant == "main" else "audio_program_gateA.json"
-    local = point_dir / local_name
+    local = point_dir / _variant_program_filename(variant)
     if local.is_file():
         return local.resolve()
 
-    fact_path = point_dir / (
-        "fact_record.json" if variant == "main" else "fact_record_gateA.json"
-    )
-    if fact_path.is_file():
+    for fact_path, variant_specific in _fact_variant_paths(point_dir, variant):
+        if not fact_path.is_file():
+            continue
         try:
             fact = json.loads(fact_path.read_text(encoding="utf-8"))
         except (OSError, UnicodeError, json.JSONDecodeError) as error:
             raise SystemExit(f"FAIL: cannot read {fact_path}: {error}") from error
-        if isinstance(fact, dict):
-            audio = fact.get("audio")
-            owners = [audio, fact] if isinstance(audio, dict) else [fact]
-            declared_keys = (
-                ("program", "program_path", "main_program", "audio_program")
-                if variant == "main" else
-                ("program", "program_path", "gatea_program", "gateA_program",
-                 "audio_program_gateA")
+        if not isinstance(fact, Mapping):
+            continue
+        for declared in _fact_program_declarations(
+            fact,
+            variant,
+            allow_legacy_direct_keys=variant_specific or variant == "main",
+            allow_program_id=variant_specific or variant == "main",
+        ):
+            resolved = _declared_program_path(
+                declared, point_dir=point_dir, programs_dir=programs_dir
             )
-            for owner in owners:
-                if not isinstance(owner, dict):
-                    continue
-                for key in declared_keys:
-                    declared = owner.get(key)
-                    if isinstance(declared, (str, Path)):
-                        return _resolve_declared_path(
-                            declared, point_dir=point_dir, programs_dir=programs_dir
-                        )
-                    if isinstance(declared, dict):
-                        declared_path = (
-                            declared.get("path")
-                            or declared.get("program_path")
-                            or declared.get("file")
-                        )
-                        if isinstance(declared_path, (str, Path)):
-                            return _resolve_declared_path(
-                                declared_path,
-                                point_dir=point_dir,
-                                programs_dir=programs_dir,
-                            )
-                        declared_id = declared.get("program_id") or declared.get("id")
-                        if isinstance(declared_id, str) and declared_id:
-                            by_id = programs_dir / f"{declared_id}.json"
-                            if by_id.is_file():
-                                return by_id.resolve()
-                            raise SystemExit(
-                                f"FAIL: declared audio program id is missing for "
-                                f"{point_dir.name}: {by_id}"
-                            )
-                program_id = owner.get("program_id")
-                if isinstance(program_id, str) and program_id:
-                    by_id = programs_dir / f"{program_id}.json"
-                    if by_id.is_file():
-                        return by_id.resolve()
-                    raise SystemExit(
-                        f"FAIL: declared audio program id is missing for "
-                        f"{point_dir.name}: {by_id}"
-                    )
+            if resolved is not None:
+                return resolved
 
-    suffixes = {
-        "main": "_rand_v1.json",
-        "gateA": "_rand_gateA_v1.json",
-    }
-    suffix = suffixes.get(variant, f"_rand_{variant}_v1.json")
-    matches = sorted(programs_dir.glob(f"qa_v3_*_{pid}{suffix}"))
+    if variant == "main":
+        suffixes = ("_rand_v1.json",)
+    elif variant == "gateA":
+        suffixes = ("_rand_gateA_v1.json", "_gateA_rand_v1.json")
+    else:
+        suffixes = (
+            f"_rand_{variant}_v1.json",
+            f"_{variant}_rand_v1.json",
+            f"_{variant}.json",
+        )
+    matches = sorted({
+        match
+        for suffix in suffixes
+        for match in programs_dir.glob(f"qa_v3_*_{pid}{suffix}")
+    })
     if len(matches) != 1:
         raise SystemExit(
             f"FAIL: expected exactly one {variant} program for {pid}, "
@@ -525,7 +687,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--output-root", required=True, type=Path)
     parser.add_argument("--config", required=True, type=Path)
     parser.add_argument("--variants", default="main",
-                        help="逗号分隔:main[,gateA]")
+                        help="逗号分隔执行变体（必须包含 main）")
     parser.add_argument(
         "--layouts",
         default=None,
@@ -554,7 +716,11 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     inputs_root = args.inputs_root.resolve()
     captures_root = args.captures_root.resolve()
-    variants = [v.strip() for v in args.variants.split(",") if v.strip()]
+    try:
+        variants = normalize_variants(args.variants)
+    except ValueError as error:
+        print(f"FAIL: {error}", file=sys.stderr)
+        return 2
     try:
         layouts = normalize_layouts(
             args.layouts if args.layouts is not None
@@ -568,6 +734,20 @@ def main(argv: list[str] | None = None) -> int:
             inputs_root, args.points.split(",") if args.points else None)
     except (OSError, ValueError, TypeError) as error:
         print(f"FAIL: cannot select design batch points: {error}", file=sys.stderr)
+        return 2
+    point_variants_by_id: dict[str, tuple[str, ...]] = {}
+    point_specs: dict[str, dict] = {}
+    for pid in points:
+        spec_path = inputs_root / pid / "spec.json"
+        spec = json.loads(spec_path.read_text()) if spec_path.is_file() else {}
+        if not isinstance(spec, dict):
+            raise ValueError(f"spec for {pid} must be a JSON object")
+        point_specs[pid] = spec
+        point_variants_by_id[pid] = ("main",) if spec.get("twin_of") else variants
+    try:
+        _validate_output_directory_names(point_variants_by_id)
+    except ValueError as error:
+        print(f"FAIL: {error}", file=sys.stderr)
         return 2
     args.output_root.mkdir(parents=True, exist_ok=True)
     programs_dir = inputs_root / "programs"
@@ -599,16 +779,13 @@ def main(argv: list[str] | None = None) -> int:
         # Gate B 孪生只渲 main(Gate A 换音频的对照对孪生无意义);
         # 孪生的 program 由 derive_twin_programs.py 预先派生(外观孪生
         # 的 endpoint 绑定随资产翻转,必须换绑重密封),每点用自己的。
-        spec_path = inputs_root / pid / "spec.json"
-        spec = json.loads(spec_path.read_text()) if spec_path.is_file() else {}
-        point_variants = ["main"] if spec.get("twin_of") else variants
+        point_variants = point_variants_by_id[pid]
         m1_request = point_m1_request(
             inputs_root, pid, cfg.get("m1_request"),
             config_base=config_path.parent,
         )
         for variant in point_variants:
-            out_dir = args.output_root / (pid if variant == "main"
-                                          else f"{pid}_{variant}")
+            out_dir = args.output_root / _output_directory_name(pid, variant)
             state = point_state(out_dir, layouts=layouts)
             if state == "complete":
                 skipped += 1

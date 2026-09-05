@@ -46,15 +46,56 @@ def test_missing_point_and_fallback_m1_request_fails(tmp_path: Path) -> None:
         TOOL.point_m1_request(inputs, "card1F_001", str(tmp_path / "absent.json"))
 
 
-def test_program_path_matches_generator_main_and_gatea_names(tmp_path: Path) -> None:
+def test_program_path_matches_generator_and_arbitrary_variant_names(tmp_path: Path) -> None:
     programs = tmp_path / "programs"
     programs.mkdir()
     main = programs / "qa_v3_dog_card1F_001_rand_v1.json"
     gatea = programs / "qa_v3_dog_card1F_001_rand_gateA_v1.json"
+    alternate = programs / "qa_v3_dog_card1F_001_rand_alternate_v1.json"
     main.write_text("{}")
     gatea.write_text("{}")
+    alternate.write_text("{}")
     assert TOOL.program_path(programs, "card1F_001", "main") == main
     assert TOOL.program_path(programs, "card1F_001", "gateA") == gatea
+    assert TOOL.program_path(programs, "card1F_001", "alternate") == alternate
+
+
+def test_output_variant_name_collision_is_rejected_before_render(tmp_path, monkeypatch):
+    inputs = tmp_path / "inputs"
+    for point_id in ("candidate_alternate", "candidate"):
+        point = inputs / point_id
+        point.mkdir(parents=True)
+        (point / "timeline.json").write_text("{}")
+    config_path = tmp_path / "config.json"
+    config_path.write_text(json.dumps({
+        "python": sys.executable,
+        "repo": str(TOOL.AVENGINE_REPOSITORY),
+        "simulation_request": "simulation.json",
+        "package_manifest": "package.json",
+        "sound_asset_registry": "sounds.json",
+        "runtime_prefix": "runtime",
+        "rlr_sdk_root": "rlr",
+        "magnum_python_site": "magnum",
+        "source_asset_registry": "assets.json",
+        "layouts": ["ambisonics"],
+    }))
+    output = tmp_path / "output"
+    monkeypatch.setattr(
+        TOOL.subprocess,
+        "run",
+        lambda *args, **kwargs: pytest.fail(
+            "output-name collision must be rejected before a render subprocess"
+        ),
+    )
+    result = TOOL.main([
+        "--inputs-root", str(inputs),
+        "--captures-root", str(tmp_path / "captures"),
+        "--output-root", str(output),
+        "--config", str(config_path),
+        "--variants", "main,alternate",
+    ])
+    assert result == 2
+    assert not output.exists()
 
 
 def test_hrtf_is_required_only_for_binaural_layout() -> None:
@@ -241,26 +282,40 @@ def test_program_path_prefers_point_local_and_fact_declared_programs(
     point.mkdir()
     local_main = point / "audio_program.json"
     local_gatea = point / "audio_program_gateA.json"
+    local_alternate = point / "audio_program_alternate.json"
     local_main.write_text("{}")
     local_gatea.write_text("{}")
+    local_alternate.write_text("{}")
     assert TOOL.program_path(
         programs, point.name, "main", inputs_root=inputs
     ) == local_main
     assert TOOL.program_path(
         programs, point.name, "gateA", inputs_root=inputs
     ) == local_gatea
+    assert TOOL.program_path(
+        programs, point.name, "alternate", inputs_root=inputs
+    ) == local_alternate
 
     local_main.unlink()
     local_gatea.unlink()
+    local_alternate.unlink()
     declared_main = point / "declared_main.json"
     declared_gatea = point / "declared_gatea.json"
+    declared_alternate = point / "declared_alternate.json"
     declared_main.write_text("{}")
     declared_gatea.write_text("{}")
+    declared_alternate.write_text("{}")
     (point / "fact_record.json").write_text(json.dumps({
         "audio": {"main_program": declared_main.name}
     }))
     (point / "fact_record_gateA.json").write_text(json.dumps({
         "audio": {"program": declared_gatea.name}
+    }))
+    (point / "fact_record.json").write_text(json.dumps({
+        "audio": {
+            "main_program": declared_main.name,
+            "programs": {"alternate": declared_alternate.name},
+        }
     }))
     assert TOOL.program_path(
         programs, point.name, "main", inputs_root=inputs
@@ -268,6 +323,9 @@ def test_program_path_prefers_point_local_and_fact_declared_programs(
     assert TOOL.program_path(
         programs, point.name, "gateA", inputs_root=inputs
     ) == declared_gatea
+    assert TOOL.program_path(
+        programs, point.name, "alternate", inputs_root=inputs
+    ) == declared_alternate
 
 
 def test_missing_fact_declared_program_fails_before_render(tmp_path: Path) -> None:
