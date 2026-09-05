@@ -514,7 +514,12 @@ def build(
         sound_registry=sound_registry,
         event_sound_bindings=event_bindings,
     )
-    samples.append({"card": "speaker_order", "question_spec": order_spec, "evaluation": order_eval})
+    samples.append({
+        "card": "speaker_order",
+        "catalog_id": "QA-03",
+        "question_spec": order_spec,
+        "evaluation": order_eval,
+    })
     for index, target in enumerate(targets):
         target_event = next(
             event
@@ -559,9 +564,11 @@ def build(
             },
         }
         pair = [
-            {"card": "card13", "target_actor_id": target["actor_id"],
+            {"card": "card13", "catalog_id": "QA-12",
+             "target_actor_id": target["actor_id"],
              "question_spec": card13_spec, "visibility": visibility},
-            {"card": "card14", "target_actor_id": target["actor_id"],
+            {"card": "card14", "catalog_id": "QA-02",
+             "target_actor_id": target["actor_id"],
              "question_spec": card14_spec, "visibility": visibility},
         ]
         if visibility["status"] == "pass" or not require_all_speaker_visible:
