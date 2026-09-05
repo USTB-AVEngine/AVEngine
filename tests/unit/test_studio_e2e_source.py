@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import importlib.util
+import json
+import os
 from pathlib import Path
 import sys
 
@@ -43,3 +45,60 @@ def test_studio_e2e_children_prefer_current_avengine_source(
     )
     source = Path(result.read_text()).resolve()
     assert source == (REPOSITORY / "src/avengine/__init__.py").resolve()
+
+
+@pytest.mark.parametrize(
+    ("script", "runner"),
+    (
+        ("run_hm3d_end_to_end.py", "run"),
+        ("run_hm3d_end_to_end.py", "attempt"),
+        ("run_hm3d_episode.py", "run"),
+    ),
+)
+def test_hm3d_e2e_children_prefer_current_avengine_source_and_cwd(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    script: str,
+    runner: str,
+) -> None:
+    module = _module(script)
+    result = tmp_path / f"{script}.source.json"
+    log_dir = tmp_path / "logs"
+    log_dir.mkdir()
+    stale_source = "/data/jzy/code/AVEngine-lead-a/src"
+    third_party = tmp_path / "third-party-runtime"
+    third_party.mkdir()
+    monkeypatch.setenv(
+        "PYTHONPATH",
+        os.pathsep.join((stale_source, str(third_party))),
+    )
+    probe = (
+        "import avengine,json,os,pathlib,sys; "
+        "pathlib.Path(sys.argv[1]).write_text(json.dumps({"
+        "'source': avengine.__file__, "
+        "'cwd': os.getcwd(), "
+        "'pythonpath': os.environ.get('PYTHONPATH', '')"
+        "}))"
+    )
+
+    stage_runner = getattr(module, runner)
+    return_code = stage_runner(
+        "source_probe",
+        [sys.executable, "-c", probe, str(result)],
+        log_dir,
+    )
+    if runner == "attempt":
+        assert return_code == 0
+
+    payload = json.loads(result.read_text(encoding="utf-8"))
+    expected_source = (REPOSITORY / "src").resolve()
+    assert Path(payload["source"]).resolve() == (
+        expected_source / "avengine" / "__init__.py"
+    )
+    assert Path(payload["cwd"]).resolve() == REPOSITORY.resolve()
+    pythonpath = payload["pythonpath"].split(os.pathsep)
+    assert Path(pythonpath[0]).resolve() == expected_source
+    assert str(third_party) in pythonpath
+    provenance = module._source_provenance()
+    assert Path(provenance["cwd"]).resolve() == REPOSITORY.resolve()
+    assert Path(provenance["avengine_source"]).resolve() == expected_source

@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -47,6 +48,18 @@ from avengine.episode_clock import (  # noqa: E402
 )
 
 
+def _child_environment() -> dict[str, str]:
+    """Run every stage with this worktree's source ahead of inherited paths."""
+
+    environment = dict(os.environ)
+    source = str((REPOSITORY / "src").resolve())
+    existing = environment.get("PYTHONPATH", "")
+    environment["PYTHONPATH"] = (
+        source + (os.pathsep + existing if existing else "")
+    )
+    return environment
+
+
 def _source_provenance() -> dict[str, object]:
     record: dict[str, object] = {
         "repository": str(REPOSITORY.resolve()),
@@ -54,6 +67,9 @@ def _source_provenance() -> dict[str, object]:
         "git_branch": None,
         "entrypoint": str(Path(__file__).resolve()),
         "python_executable": str(Path(sys.executable).resolve()),
+        # These are the cwd and source used for every AVEngine child stage.
+        "cwd": str(REPOSITORY.resolve()),
+        "avengine_source": str((REPOSITORY / "src").resolve()),
     }
     errors: list[str] = []
     for name, argv, optional in (
@@ -170,7 +186,12 @@ def run(step: str, argv: list[str], log_dir: Path) -> None:
     print(f"=== {step}: {' '.join(argv)}", flush=True)
     with log_path.open("wb") as log_file:
         completed = subprocess.run(
-            argv, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=False
+            argv,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            check=False,
+            cwd=str(REPOSITORY),
+            env=_child_environment(),
         )
         log_file.write(completed.stdout)
     sys.stdout.buffer.write(completed.stdout)

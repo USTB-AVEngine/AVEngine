@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import subprocess
 import sys
@@ -48,6 +49,18 @@ from avengine.episode_clock import (  # noqa: E402
 )
 
 
+def _child_environment() -> dict[str, str]:
+    """Run every stage with this worktree's source ahead of inherited paths."""
+
+    environment = dict(os.environ)
+    source = str((REPOSITORY / "src").resolve())
+    existing = environment.get("PYTHONPATH", "")
+    environment["PYTHONPATH"] = (
+        source + (os.pathsep + existing if existing else "")
+    )
+    return environment
+
+
 def _source_provenance() -> dict[str, object]:
     """Record the source and interpreter without making provenance a gate."""
 
@@ -57,6 +70,9 @@ def _source_provenance() -> dict[str, object]:
         "git_branch": None,
         "entrypoint": str(Path(__file__).resolve()),
         "python_executable": str(Path(sys.executable).resolve()),
+        # These are the cwd and source used for every AVEngine child stage.
+        "cwd": str(REPOSITORY.resolve()),
+        "avengine_source": str((REPOSITORY / "src").resolve()),
     }
     errors: list[str] = []
 
@@ -116,7 +132,12 @@ def run(step: str, argv: list[str], log_dir: Path) -> None:
     log_path = log_dir / f"{step}.log"
     print(f"=== {step}: {' '.join(argv)}", flush=True)
     completed = subprocess.run(
-        argv, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=False
+        argv,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        check=False,
+        cwd=str(REPOSITORY),
+        env=_child_environment(),
     )
     log_path.write_bytes(completed.stdout)
     sys.stdout.buffer.write(completed.stdout)
@@ -131,7 +152,12 @@ def attempt(step: str, argv: list[str], log_dir: Path) -> int:
     log_path = log_dir / f"{step}.log"
     print(f"=== {step}: {' '.join(argv)}", flush=True)
     completed = subprocess.run(
-        argv, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=False
+        argv,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        check=False,
+        cwd=str(REPOSITORY),
+        env=_child_environment(),
     )
     log_path.write_bytes(completed.stdout)
     sys.stdout.buffer.write(completed.stdout)
