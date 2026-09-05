@@ -5,7 +5,7 @@
 
 自 2026-08-25 起，目录本身就是能力分组（阶段目录 m1…m7 已移除），
 本表按目录列出每个工具做什么。
-当前共 359 个工具脚本。
+当前共 360 个工具脚本。
 
 ## 资产生成与装配（`tools/assets/`）
 
@@ -362,6 +362,7 @@
 | `tools/qa/validate_strict_two_human_native_rate_dynamic_candidates.py` | Validate a fail-closed native-rate full75 dynamic candidate pair |
 | `tools/qa/validate_strict_two_human_publication_plan.py` | Fail-closed validation for the strict two-human publication plan |
 | `tools/qa/validate_visibility_prediction.py` | Positive control for the visibility predictor: table prediction vs pixel truth |
+| `tools/qa/verify_mp3d_visual_batch.py` | CLI wrapper for AVEngine's native MP3D visual batch verifier |
 | `tools/qa/verify_qa_v3_audio_batch.py` | Batch-level verification of qa-v3 pilot audio renders (post-render gate) |
 | `tools/qa/verify_qa_v3_visual_batch.py` | Verify a materialized QA-v3 visual batch against its runtime readbacks |
 | `tools/qa/visibility_prediction.py` | Predict actor visibility from the camera clearance table, before rendering |
