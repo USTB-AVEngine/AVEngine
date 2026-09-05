@@ -1,0 +1,87 @@
+{
+  "kind": "avengine_seated_human_batch_v1",
+  "status": "research_only",
+  "source_package": "/data/jzy/blender_projects/avengine_life_rooms_v1/outputs/compact_household_dining_m1_package_v4",
+  "static_pose_method": "/data/jzy/blender_projects/avengine_life_rooms_v1/scripts/render_seated_pose_candidate.py",
+  "seat_top_m": 0.53,
+  "chair_center_blender_m": [
+    0.0,
+    0.18,
+    0.0
+  ],
+  "floor_correction_m": -0.01,
+  "assets": [
+    {
+      "asset_id": "seated_rocketbox_male_adult_01_blue_v1",
+      "display_label": "Rocketbox male adult 01 seated blue",
+      "color_name": "blue",
+      "source_glb": "/data/avengine_external/datasets/m5_1/rocketbox_male_adult_01_original_ue_v3_20260820T235905Z/runtime.glb",
+      "static_candidate_glb": "/data/jzy/blender_projects/avengine_life_rooms_v1/outputs/seated_human_blue_v3/asset/seated_human_blue.glb",
+      "shirt_color_rgb": [
+        0.22,
+        0.46,
+        0.76
+      ],
+      "emitter_offset_blender_m": [
+        -0.000163,
+        0.143839,
+        1.391552
+      ],
+      "seat_anchor_id": "dining_seat_0",
+      "reference_actor_yaw_degrees": 170.0,
+      "reference_chair_yaw_degrees": 180.0
+    },
+    {
+      "asset_id": "seated_rocketbox_female_adult_01_pink_v1",
+      "display_label": "Rocketbox female adult 01 seated pink",
+      "color_name": "pink",
+      "source_glb": "/data/datasets/avengine_workspaces/AVEngine/external/SPEAR/tmp/rocketbox_batch_native_runtime_ue_v1/rocketbox_adults_female_adult_01_original_ue_v1/runtime.glb",
+      "static_candidate_glb": "/data/jzy/blender_projects/avengine_life_rooms_v1/outputs/seated_female01_native_v1/asset/seated_human_female01_native.glb",
+      "shirt_color_rgb": null,
+      "emitter_offset_blender_m": [
+        0.031161,
+        0.218617,
+        1.314836
+      ],
+      "seat_anchor_id": "dining_seat_1",
+      "reference_actor_yaw_degrees": 190.0,
+      "reference_chair_yaw_degrees": 180.0
+    },
+    {
+      "asset_id": "seated_rocketbox_male_adult_02_green_v1",
+      "display_label": "Rocketbox male adult 02 seated green",
+      "color_name": "green",
+      "source_glb": "/data/datasets/avengine_workspaces/AVEngine/external/SPEAR/tmp/rocketbox_batch_native_runtime_ue_v1/rocketbox_adults_male_adult_02_original_ue_v1/runtime.glb",
+      "static_candidate_glb": "/data/jzy/blender_projects/avengine_life_rooms_v1/outputs/seated_male02_green_v1/asset/seated_human_male02_green.glb",
+      "shirt_color_rgb": [
+        0.24,
+        0.54,
+        0.32
+      ],
+      "emitter_offset_blender_m": [
+        -0.000163,
+        0.143839,
+        1.391552
+      ],
+      "seat_anchor_id": "dining_seat_2",
+      "reference_actor_yaw_degrees": 10.0,
+      "reference_chair_yaw_degrees": 0.0
+    },
+    {
+      "asset_id": "seated_rocketbox_female_adult_02_white_v1",
+      "display_label": "Rocketbox female adult 02 seated white",
+      "color_name": "white",
+      "source_glb": "/data/datasets/avengine_workspaces/AVEngine/external/SPEAR/tmp/rocketbox_batch_native_runtime_ue_v1/rocketbox_adults_female_adult_02_original_ue_v1/runtime.glb",
+      "static_candidate_glb": "/data/jzy/blender_projects/avengine_life_rooms_v1/outputs/seated_female02_native_v1/asset/seated_human_female02_native.glb",
+      "shirt_color_rgb": null,
+      "emitter_offset_blender_m": [
+        0.031161,
+        0.218617,
+        1.314836
+      ],
+      "seat_anchor_id": "dining_seat_3",
+      "reference_actor_yaw_degrees": -10.0,
+      "reference_chair_yaw_degrees": 0.0
+    }
+  ]
+}
