@@ -19,6 +19,7 @@ from typing import Any, Mapping, Sequence
 REPOSITORY = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPOSITORY / "src"))
 
+from avengine.camera_pose import yaw_rotation_xyzw  # noqa: E402
 from avengine.rooms.furniture_layout import (  # noqa: E402
     DEFAULT_ACTOR_COUNT,
     DEFAULT_SEAT_COUNT,
@@ -155,13 +156,8 @@ def _actor_state(
     root_transform = None
     translation_ue_cm = None
     actor_yaw_ue_deg = None
+    actor_yaw_blender_deg = placement.get("pose_actor_yaw_blender_deg")
     if root_habitat is not None:
-        root_transform = {
-            "translation_m": list(root_habitat),
-            "rotation_xyzw": list(rotation or [0.0, 0.0, 0.0, 1.0]),
-            "scale": [1.0, 1.0, 1.0],
-        }
-        translation_ue_cm = habitat_to_ue_cm(root_habitat)
         seat_yaw = float(placement["seat_reference"]["facing_yaw_deg"])
         anatomical_yaw = placement.get("ue_anatomical_forward_yaw_deg")
         if anatomical_yaw is None:
@@ -173,6 +169,18 @@ def _actor_state(
             actor_yaw_ue_deg = (
                 -seat_yaw - float(anatomical_yaw) + 180.0
             ) % 360.0 - 180.0
+        if actor_yaw_blender_deg is None and actor_yaw_ue_deg is not None:
+            # Authoring Blender +Z yaw maps to Habitat +Y yaw under the
+            # room's (X,Z,-Y) basis; the UE actor yaw is its mirrored value.
+            actor_yaw_blender_deg = -float(actor_yaw_ue_deg)
+        if rotation is None and actor_yaw_blender_deg is not None:
+            rotation = yaw_rotation_xyzw(float(actor_yaw_blender_deg))
+        root_transform = {
+            "translation_m": list(root_habitat),
+            "rotation_xyzw": list(rotation or [0.0, 0.0, 0.0, 1.0]),
+            "scale": [1.0, 1.0, 1.0],
+        }
+        translation_ue_cm = habitat_to_ue_cm(root_habitat)
     return {
         "actor_id": placement["actor_id"],
         "root_transform": root_transform,
@@ -180,6 +188,7 @@ def _actor_state(
         "translation_ue_cm": translation_ue_cm,
         "rotation_xyzw": list(rotation) if rotation is not None else None,
         "actor_yaw_ue_deg": actor_yaw_ue_deg,
+        "actor_yaw_blender_deg": actor_yaw_blender_deg,
         "action_id": "seated_idle",
         "action_phase": 0.0,
         "action_time_ticks": pts_ticks,
@@ -191,7 +200,6 @@ def _actor_state(
         "placement_status": placement["placement_status"],
         "frame_index": frame_index,
     }
-
 
 def _overview_target_bounds(layout: Mapping[str, Any]) -> list[dict[str, list[float]]]:
     """Build compact living/dining targets for a room-wide overview score."""

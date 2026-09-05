@@ -16,7 +16,11 @@ from avengine.rooms.furniture_layout import (
     load_room_layout,
     score_camera_candidates,
 )
-from tools.rooms.plan_furnished_residential_episode import build_episode_plan
+from avengine.camera_pose import yaw_rotation_xyzw
+from tools.rooms.plan_furnished_residential_episode import (
+    _actor_state,
+    build_episode_plan,
+)
 
 
 def _fixture(
@@ -155,6 +159,17 @@ def test_pose_root_closure_follows_actor_anatomical_forward(tmp_path: Path) -> N
         )
         assert actor["pose_seat_anchor_closure_error_m"] == pytest.approx(
             [0.0, 0.0, 0.0]
+        )
+        state = _actor_state(actor, frame_index=0, pts_ticks=0)
+        assert state["actor_yaw_blender_deg"] == pytest.approx(theta + 90.0)
+        assert state["actor_yaw_ue_deg"] == pytest.approx(
+            ((-theta - 90.0 + 180.0) % 360.0) - 180.0
+        )
+        assert state["root_transform"]["rotation_xyzw"] == pytest.approx(
+            yaw_rotation_xyzw(theta + 90.0)
+        )
+        assert state["rotation_xyzw"] == pytest.approx(
+            yaw_rotation_xyzw(theta + 90.0)
         )
 
 
