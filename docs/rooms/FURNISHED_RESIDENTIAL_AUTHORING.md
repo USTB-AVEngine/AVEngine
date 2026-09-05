@@ -195,3 +195,26 @@ and `research_only` explicit when a native layer or rights-qualified input is
 not available. Only after native scene, camera, actor, emitter and media
 readbacks pass may an owner decide whether the room is eligible for a later
 formal episode route.
+
+## Native camera review
+
+A single geometry score is only a candidate ranking. To compare real
+occlusion, body overlap and exposure, build a short review plan from the
+four-person plan:
+
+```bash
+REVIEW_PLAN_ROOT=<EXTERNAL_OUTPUT_ROOT>/my_room_camera_review_150
+PYTHONPATH=src "$PYTHON" tools/rooms/plan_furnished_camera_review.py \
+  --episode-root "$PLAN_ROOT" \
+  --output "$REVIEW_PLAN_ROOT" \
+  --candidate-count 8 \
+  --hold-frames 6 \
+  --grid-step-m 0.75
+```
+
+Each selected candidate occupies six consecutive frames while actor states
+remain fixed. The review plan is intended for the existing runner with
+`--native-multimodal --visual-only-research`; compare the per-target depth and
+object-ID readback for those frame ranges before choosing a production camera.
+A review plan is research evidence and does not promote a camera or claim that
+all chairs, walls or doorframes have passed native visibility review.
