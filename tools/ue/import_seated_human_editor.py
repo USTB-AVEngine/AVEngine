@@ -139,8 +139,8 @@ def main() -> None:
                 "animation": animation_path,
                 "blueprint": blueprint_path,
                 "bounds_cm": {
-                    "origin": [float(value) for value in bounds.origin],
-                    "box_extent": [float(value) for value in bounds.box_extent],
+                    "origin": _vector3_values(bounds.origin),
+                    "box_extent": _vector3_values(bounds.box_extent),
                 },
                 "emitter_offset_avengine_m": item["emitter_offset_avengine_m"],
                 "seat_reference": item["seat_reference"],
