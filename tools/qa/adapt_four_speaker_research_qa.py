@@ -97,6 +97,8 @@ def actor_color(actor_id: str, record: Mapping[str, Any]) -> str:
 
 def validate_voice_binding(path: Path) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     raw = load_json(path)
+    if isinstance(raw, Mapping) and isinstance(raw.get("bindings"), list):
+        raw = raw["bindings"]
     if not isinstance(raw, list) or len(raw) != 4:
         raise AdapterError("voice_binding must contain exactly four records")
     records: list[dict[str, Any]] = []
@@ -237,24 +239,40 @@ def validate_audio_artifacts(
     by_actor = {item["actor_id"]: item for item in bindings}
     by_sound = {item["sound_asset_id"]: item for item in bindings}
     report_by_actor: dict[str, Mapping[str, Any]] = {}
+    report_by_event: dict[str, Mapping[str, Any]] = {}
     for item in report_events:
         actor_id = item.get("actor_id")
         sound_id = item.get("sound_asset_id")
         transcript = item.get("transcript")
         if actor_id not in by_actor or sound_id not in by_sound:
             raise AdapterError("research_report event does not resolve to voice_binding")
-        if actor_id in report_by_actor:
-            raise AdapterError("research_report repeats an actor")
+        event_id = item.get("event_id")
+        if actor_id in report_by_actor or event_id in report_by_event:
+            raise AdapterError("research_report repeats an actor or event")
         if transcript != by_actor[actor_id]["transcript"]:
             raise AdapterError(f"transcript mismatch for {actor_id}")
         pcm_interval = item.get("pcm_output_nonzero_interval")
         if not isinstance(pcm_interval, list) or len(pcm_interval) != 2:
             raise AdapterError(f"PCM output nonzero interval missing for {actor_id}")
         start, end = _event_sample_bounds(item)
+        if end > int(clock.get("sample_count", 0)):
+            raise AdapterError(f"research_report event exceeds frame-readback clock for {actor_id}")
         if int(pcm_interval[0]) < start or int(pcm_interval[1]) > end:
             raise AdapterError(f"PCM nonzero interval escapes event for {actor_id}")
+        clip_count = by_actor[actor_id]["pcm"]["sample_count"]
+        source_end = item.get("source_end_sample_exclusive")
+        if source_end is not None and int(source_end) != clip_count:
+            raise AdapterError(f"research_report clip boundary differs from voice binding for {actor_id}")
         report_by_actor[actor_id] = item
+        report_by_event[str(event_id)] = item
+    ordered_report = sorted(
+        (_event_sample_bounds(item) for item in report_events),
+        key=lambda value: value[0],
+    )
+    if any(left[1] > right[0] for left, right in zip(ordered_report, ordered_report[1:])):
+        raise AdapterError("research_report speech events overlap")
     program_by_sound = {item.get("sound_asset_id"): item for item in events}
+    program_by_event = {item.get("event_id"): item for item in events}
     if set(program_by_sound) != set(by_sound):
         raise AdapterError("audio_program sound IDs differ from voice_binding")
     for actor_id, binding in by_actor.items():
@@ -265,6 +283,13 @@ def validate_audio_artifacts(
         endpoint = program_event.get("source_endpoint_id")
         if endpoint not in {actor_id, f"{actor_id}_mouth"}:
             raise AdapterError(f"audio_program endpoint mismatch for {actor_id}")
+        report_event = report_by_actor[actor_id]
+        paired_program = program_by_event.get(report_event.get("event_id"))
+        if paired_program is None:
+            raise AdapterError(f"audio_program has no event for {actor_id}")
+        for field in ("start_sample", "end_sample_exclusive", "sound_asset_id"):
+            if paired_program.get(field) != report_event.get(field):
+                raise AdapterError(f"audio_program/research_report mismatch for {actor_id}: {field}")
     return program, report, {
         "status": "pass",
         "audio_program": str(audio_program_path),
