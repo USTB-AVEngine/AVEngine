@@ -177,6 +177,7 @@ def build_episode_plan(
     camera_height_m: float = 1.55,
     map_path: str | None = None,
     scene_id: str | None = None,
+    overview_only: bool = False,
 ) -> dict[str, Any]:
     """Build one path-free plan from a normalized room layout."""
 
@@ -192,12 +193,25 @@ def build_episode_plan(
     )
     if not camera_pool["candidates"]:
         raise FurnitureLayoutError("camera candidate generation returned no candidates")
-    seat_layout = build_seat_placements(
-        layout,
-        seat_count=seat_count,
-        actor_count=actor_count,
-        pose_bindings=pose_bindings,
-    )
+    if overview_only:
+        seat_layout = {
+            "requested_seat_count": 0,
+            "available_seat_count": len(layout.get("seats", [])),
+            "selected_seat_ids": [],
+            "selected_seats": [],
+            "actor_placements": [],
+            "placement_policy": "overview_no_actor_placement",
+            "authoring_geometry_status": "candidate",
+            "native_validation_status": "not_run",
+            "claim_boundary": "overview excludes actors and seat placement",
+        }
+    else:
+        seat_layout = build_seat_placements(
+            layout,
+            seat_count=seat_count,
+            actor_count=actor_count,
+            pose_bindings=pose_bindings,
+        )
     placements = seat_layout["actor_placements"]
     bound_actor_positions = [
         item["root_position_authoring_m"]
@@ -217,9 +231,13 @@ def build_episode_plan(
     actors = [_actor_record(item) for item in placements]
     camera_selection = {
         "selection_mode": (
-            "post_actor_question_scoring"
-            if bound_actor_positions
-            else "geometry_first_pending_actor_join"
+            "overview_geometry_only"
+            if overview_only
+            else (
+                "post_actor_question_scoring"
+                if bound_actor_positions
+                else "geometry_first_pending_actor_join"
+            )
         ),
         "actor_count": len(placements),
         "actor_positions_used": len(bound_actor_positions),
@@ -260,7 +278,7 @@ def build_episode_plan(
         "authority": {
             "room_identity_and_layout": "normalized_room_metadata",
             "camera_candidate_generation": "authoring_geometry_grid",
-            "actor_state": "pose_binding_or_pending",
+            "actor_state": "overview_none" if overview_only else "pose_binding_or_pending",
             "backend_may_replan": False,
         },
         "room": {
@@ -309,6 +327,7 @@ def build_episode_plan(
             "native_validation_status": "not_run",
         },
         "planning_boundary": {
+            "overview_only": overview_only,
             "target_independent_candidates": True,
             "target_scoring": "post_actor_question_join",
             "target_los": "not_evaluated",
@@ -341,6 +360,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--sample-rate-hz", type=int, default=16_000)
     parser.add_argument("--grid-step-m", type=float, default=2.0)
     parser.add_argument("--camera-height-m", type=float, default=1.55)
+    parser.add_argument(
+        "--overview-only",
+        action="store_true",
+        help="emit geometry/camera overview with no actor declarations or placement",
+    )
     return parser.parse_args()
 
 
@@ -363,12 +387,26 @@ def main() -> int:
         camera_height_m=args.camera_height_m,
         map_path=args.map_path,
         scene_id=args.scene_id,
+        overview_only=args.overview_only,
     )
     output.mkdir(parents=True)
     _write_json(output / "room_layout.json", layout)
     _write_json(output / "camera_candidates.json", plan["camera_candidates"])
     _write_json(output / "seat_layout.json", plan["seat_layout"])
     _write_json(output / "episode_plan.json", plan)
+    if args.overview_only:
+        _write_json(
+            output / "room_overview.json",
+            {
+                "kind": "furnished_room_overview",
+                "scene": plan["scene"],
+                "room_layout": plan["room_layout"],
+                "camera": plan["visual_plan"]["camera"],
+                "camera_candidates": plan["camera_candidates"],
+                "actors": [],
+                "native_validation_status": "not_run",
+            },
+        )
     print(json.dumps({"output": str(output), "room_id": layout["room_id"], "camera_candidates": len(plan["camera_candidates"]["candidates"]), "seats": plan["seat_layout"]["selected_seat_ids"], "native_validation_status": "not_run"}, ensure_ascii=False))
     return 0
 
