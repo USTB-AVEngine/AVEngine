@@ -6,7 +6,15 @@ import os
 from pathlib import Path
 import posixpath
 import re
+import sys
 from typing import Any
+
+# UnrealEditor does not guarantee that the directory containing this startup
+# script is on sys.path. Keep the controlled importer import explicit and
+# local to this repository tool directory.
+_TOOL_DIR = Path(__file__).resolve().parent
+if str(_TOOL_DIR) not in sys.path:
+    sys.path.insert(0, str(_TOOL_DIR))
 
 import unreal
 
@@ -87,14 +95,19 @@ def main() -> None:
     content_root = str(request["content_root"])
     _require(re.fullmatch(r"/Game/(?:[A-Za-z0-9_]+/)*[A-Za-z0-9_]+", content_root) is not None, "unsafe content root")
     assets = request.get("assets")
-    _require(isinstance(assets, list) and len(assets) == 4, "request must contain four seated assets")
+    _require(isinstance(assets, list) and bool(assets), "request must contain at least one seated asset")
     output = request_path.with_name("seated_human_ue_import_manifest.json")
     _require(not output.exists() and not output.is_symlink(), f"refusing to replace manifest: {output}")
     records = []
     seen = set()
     for item in assets:
         _require(isinstance(item, dict), "asset request must be an object")
-        asset_id = str(item["asset_id"])
+        asset_id_value = item.get("asset_id")
+        _require(
+            isinstance(asset_id_value, str) and bool(asset_id_value.strip()),
+            "asset request requires a non-empty string asset_id",
+        )
+        asset_id = asset_id_value
         _require(asset_id not in seen, f"duplicate asset ID: {asset_id}")
         seen.add(asset_id)
         source = Path(str(item["source_glb"])).expanduser().resolve()
