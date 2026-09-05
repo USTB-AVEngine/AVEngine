@@ -305,6 +305,7 @@ def _normalize_seat(
         "position_authoring_m": position,
         "position_habitat_m": [position[0], position[2], position[1]],
         "facing_yaw_deg": facing,
+        "facing_source": "declared_metadata",
         "seat_surface_height_m": height,
         "approach_clearance_radius_m": clearance_m,
         "status": str(raw.get("status") or "authoring_candidate"),
@@ -554,6 +555,19 @@ def load_room_layout(
             item["semantic_class"] = category_by_seat[seat_id]
         elif item.get("semantic_class") == "seat" and item.get("furniture_id") in object_by_id:
             item["semantic_class"] = object_by_id[item["furniture_id"]]["semantic_class"]
+        parent = object_by_id.get(item.get("furniture_id"))
+        if parent is not None:
+            center = parent["center_authoring_m"]
+            position = item["position_authoring_m"]
+            dx = center[0] - position[0]
+            dy = center[1] - position[1]
+            if math.hypot(dx, dy) > 0.25:
+                derived_yaw = math.degrees(math.atan2(dy, dx))
+                declared_yaw = float(item["facing_yaw_deg"])
+                angular_error = abs((derived_yaw - declared_yaw + 180.0) % 360.0 - 180.0)
+                if angular_error > 90.0:
+                    item["facing_yaw_deg"] = derived_yaw
+                    item["facing_source"] = "furniture_center_geometry_correction"
     if not seats:
         raise FurnitureLayoutError("room metadata declares no seated affordances")
 
@@ -877,12 +891,45 @@ def _segment_hits_rect(
     return 0.0 < t_min < 1.0
 
 
+def _mesh_ray_occluded(
+    start: Sequence[float],
+    end: Sequence[float],
+    vertices: Any,
+    triangles: Any,
+) -> bool:
+    """Ray-test one authored target using AVEngine's existing GLB query."""
+
+    try:
+        import numpy as np
+        from avengine.acoustics.qa import _trace_first_hit
+    except ImportError:
+        return False
+    origin = np.asarray(start, dtype=np.float64)
+    destination = np.asarray(end, dtype=np.float64)
+    direction = destination - origin
+    distance = float(np.linalg.norm(direction))
+    if distance <= 1.0e-9:
+        return False
+    direction /= distance
+    hit, _distance, _triangle = _trace_first_hit(
+        np.asarray(vertices, dtype=np.float64),
+        np.asarray(triangles, dtype=np.int64),
+        origin,
+        direction,
+        distance - 1.0e-3,
+    )
+    return bool(hit)
+
+
+
 def _target_frame_metrics(
     candidate: Mapping[str, Any],
     target_bounds: Sequence[Sequence[float]],
     *,
     obstacles: Sequence[Sequence[Sequence[float]]],
     fov_deg: float,
+    triangle_vertices: Any = None,
+    triangle_indices: Any = None,
     aspect_ratio: float = 16.0 / 9.0,
 ) -> dict[str, Any]:
     position = _vector(candidate.get("position_authoring_m"), 3, owner="camera candidate position")
@@ -931,10 +978,16 @@ def _target_frame_metrics(
         and _segment_hits_rect(position, head, obstacle)
         for obstacle in obstacles
     )
+    mesh_occluded = False
+    if triangle_vertices is not None and triangle_indices is not None:
+        mesh_occluded = _mesh_ray_occluded(
+            position, head, triangle_vertices, triangle_indices
+        )
     return {
         "fully_framed": fully_framed,
         "frame_margin": frame_margin,
-        "occluded": occluded,
+        "occluded": occluded or mesh_occluded,
+        "mesh_occluded": mesh_occluded,
         "positive_corner_count": positive_corners,
     }
 
@@ -947,6 +1000,8 @@ def score_camera_candidates(
     target_bounds_m: Sequence[Any] | None = None,
     obstacle_bounds_m: Sequence[Any] | None = None,
     room_bounds_xy_m: Sequence[float] | None = None,
+    triangle_vertices_m: Any = None,
+    triangle_indices: Any = None,
     question_context: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Score an already generated set after actor/question selection.
@@ -1015,12 +1070,33 @@ def score_camera_candidates(
                     )
                     for target_bounds in bounds
                 ]
+                # Run expensive static-mesh rays only after the cheap FOV
+                # framing check identifies a plausible multi-target view.
+                if (
+                    triangle_vertices_m is not None
+                    and triangle_indices is not None
+                    and len(bounds) <= 4
+                    and all(item["fully_framed"] for item in metrics)
+                ):
+                    metrics = [
+                        _target_frame_metrics(
+                            candidate,
+                            target_bounds,
+                            obstacles=obstacles,
+                            fov_deg=float(candidate["horizontal_fov_deg"]),
+                            triangle_vertices=triangle_vertices_m,
+                            triangle_indices=triangle_indices,
+                        )
+                        for target_bounds in bounds
+                    ]
                 full_count = sum(item["fully_framed"] for item in metrics)
                 occluded_count = sum(item["occluded"] for item in metrics)
+                mesh_occluded_count = sum(item["mesh_occluded"] for item in metrics)
                 frame_margin = min(item["frame_margin"] for item in metrics)
                 candidate["fully_framed_target_count"] = full_count
                 candidate["target_frame_margin"] = frame_margin
                 candidate["target_occluded_count"] = occluded_count
+                candidate["target_mesh_occluded_count"] = mesh_occluded_count
                 candidate["target_geometry_visibility"] = "pass" if full_count == len(bounds) and occluded_count == 0 else "fail"
                 score += full_count * 10.0 + frame_margin * 4.0 - (len(bounds) - full_count) * 20.0 - occluded_count * 14.0
             if room_bounds is not None:
@@ -1047,6 +1123,9 @@ def score_camera_candidates(
     scored.sort(key=lambda item: (-float(item["post_join_score"]), str(item["candidate_id"])))
     generation["scoring_applied_after_target_join"] = target is not None
     generation["target_geometry_framing_evaluated"] = bool(bounds)
+    generation["static_triangle_geometry_used"] = (
+        triangle_vertices_m is not None and triangle_indices is not None
+    )
     generation["target_los_evaluated"] = False
     return {"generation": generation, "candidates": scored}
 
@@ -1319,6 +1398,7 @@ def build_seat_placements(
                     "position_habitat_m": deepcopy(seat["position_habitat_m"]),
                     "seat_surface_height_m": seat["seat_surface_height_m"],
                     "facing_yaw_deg": seat["facing_yaw_deg"],
+                    "facing_source": seat.get("facing_source", "declared_metadata"),
                     "reference_is_not_actor_root": True,
                 },
                 "root_from_seat_m": list(root_from_seat) if root_from_seat is not None else None,
