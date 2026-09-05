@@ -18,7 +18,7 @@ from typing import Any, Mapping, Sequence
 TIME_BASE_HZ = 48_000
 DEFAULT_CAMERA_HEIGHT_M = 1.55
 DEFAULT_CAMERA_FOV_DEG = 90.0
-DEFAULT_YAW_CANDIDATES_DEG = (0.0, 90.0, 180.0, 270.0)
+DEFAULT_YAW_CANDIDATES_DEG = tuple(float(value) for value in range(0, 360, 30))
 DEFAULT_PITCH_CANDIDATES_DEG = (-15.0, 0.0, 15.0)
 DEFAULT_SEAT_COUNT = 4
 DEFAULT_ACTOR_COUNT = 2
@@ -701,7 +701,7 @@ def generate_camera_candidates(
                         "pitch_deg": pitch,
                         "roll_deg": 0.0,
                         "habitat_yaw_deg": yaw,
-                        "ue_yaw_deg": -90.0 - yaw,
+                        "ue_yaw_deg": (-90.0 - yaw + 180.0) % 360.0 - 180.0,
                         "ue_pitch_deg": pitch,
                         "horizontal_fov_deg": fov,
                         "target_independent": True,
@@ -808,9 +808,23 @@ def select_seats(layout: Mapping[str, Any], count: int = DEFAULT_SEAT_COUNT) -> 
     raw_seats = layout.get("seats")
     if not isinstance(raw_seats, Sequence):
         raise FurnitureLayoutError("layout.seats must be a list")
+    def seat_priority(item: Mapping[str, Any]) -> tuple[int, str]:
+        category = str(item.get("semantic_class") or "").lower()
+        if any(token in category for token in ("chair", "stool")):
+            priority = 0
+        elif "bench" in category:
+            priority = 1
+        elif "table" in category:
+            priority = 2
+        elif "sofa" in category or "couch" in category:
+            priority = 3
+        else:
+            priority = 4
+        return priority, str(item.get("affordance_id"))
+
     seats = sorted(
         (deepcopy(dict(item)) for item in raw_seats if isinstance(item, Mapping)),
-        key=lambda item: str(item.get("affordance_id")),
+        key=seat_priority,
     )
     if len(seats) < count:
         raise SeatCapacityError(count, len(seats))
@@ -853,11 +867,72 @@ def _pose_binding_records(pose_bindings: Any) -> list[dict[str, Any]]:
                     seat_reference.get("reference_chair_yaw_degrees"),
                 )
             item.setdefault("actor_id", item.get("asset_id") or f"actor{index}")
-            item.setdefault("ue_animation", item.get("animation_name"))
+            item.setdefault("ue_animation", item.get("animation") or item.get("animation_name"))
+            item.setdefault("blueprint_class_path", item.get("blueprint"))
+            item.setdefault("skeletal_mesh_path", item.get("skeletal_mesh"))
+            item.setdefault(
+                "ue_anatomical_forward_yaw_deg",
+                item.get("ue_anatomical_forward_yaw_deg", 90.0),
+            )
+            emitter = item.get("emitter_offset_avengine_m")
+            if emitter is not None and item.get("emitter_local_ue_cm") is None:
+                emitter_m = _vector(
+                    emitter,
+                    3,
+                    owner=f"pose binding {item['actor_id']}.emitter_offset_avengine_m",
+                )
+                # AVEngine asset basis X-forward/Y-up/Z-right metres -> UE
+                # X-forward/Y-right/Z-up centimetres.
+                item["emitter_local_ue_cm"] = [
+                    100.0 * emitter_m[0],
+                    100.0 * emitter_m[2],
+                    100.0 * emitter_m[1],
+                ]
+            if item.get("blueprint_class_path") and item.get("skeletal_mesh_path"):
+                item.setdefault("actor_scale", 1.0)
+                item.setdefault(
+                    "animation_paths_by_action_id",
+                    {"seated_idle": item.get("ue_animation")},
+                )
+                item.setdefault(
+                    "exact_runtime_binding",
+                    {"source": "seated_human_ue_import_manifest", "status": "declared"},
+                )
+                item.setdefault(
+                    "ue_component_frame_delta",
+                    {
+                        "rotation_deg": [0.0, 0.0, 0.0],
+                        "translation_cm": [0.0, 0.0, 0.0],
+                        "composition": "add_relative_preserving_blueprint_transform",
+                        "reason": "pose import manifest supplies the Blueprint frame; no additional correction declared",
+                    },
+                )
             records.append(item)
     else:
         raise FurnitureLayoutError("pose bindings must be a list or actor mapping")
     return records
+
+
+def _seat_alias_key(value: str) -> tuple[str, ...]:
+    tokens = [token for token in value.lower().replace("-", "_").split("_") if token]
+    ignored = {"seat", "sit", "affordance", "anchor", "chair", "stool"}
+    return tuple(token for token in tokens if token not in ignored)
+
+
+def _resolve_seat_id(requested: str, available: Mapping[str, Mapping[str, Any]]) -> str:
+    if requested in available:
+        return requested
+    alias = _seat_alias_key(requested)
+    matches = [seat_id for seat_id in available if _seat_alias_key(seat_id) == alias]
+    if len(matches) == 1:
+        return matches[0]
+    if len(matches) > 1:
+        raise FurnitureLayoutError(
+            f"pose seat reference {requested!r} is ambiguous: {sorted(matches)}"
+        )
+    raise FurnitureLayoutError(
+        f"pose binding selects unavailable seat {requested!r}; available={sorted(available)}"
+    )
 
 
 def build_seat_placements(
@@ -900,10 +975,7 @@ def build_seat_placements(
                 raise SeatCapacityError(index + 1, len(selected))
             seat_id = selected[index]["affordance_id"]
         seat_id = _nonempty(seat_id, owner=f"pose binding {actor_id}.seat_affordance_id")
-        if seat_id not in by_id:
-            raise FurnitureLayoutError(
-                f"pose binding {actor_id!r} selects unavailable seat {seat_id!r}"
-            )
+        seat_id = _resolve_seat_id(seat_id, by_id)
         if seat_id in used_seats:
             raise FurnitureLayoutError(f"seat {seat_id!r} is assigned to multiple actors")
         used_seats.add(seat_id)
@@ -911,25 +983,20 @@ def build_seat_placements(
         root_from_seat = raw.get("root_from_seat_m")
         if root_from_seat is None:
             root_from_seat = raw.get("root_offset_from_seat_anchor_blender_m")
-        if root_from_seat is not None and raw.get("reference_chair_yaw_degrees") is not None:
-            # Pose request offsets are in the reference chair's Blender frame.
-            # Rotate the offset by the room seat's facing; the pose request's
-            # reference_actor_yaw_degrees is intentionally never consumed.
+        if root_from_seat is not None:
+            # The pose request offset is actor-local Blender XYZ.  The room
+            # seat yaw is chair-to-table; the seated asset's local frame is
+            # placed at seat_theta + 90 degrees.  Reference chair/actor yaw
+            # values are calibration context only and never drive a new room.
             offset = _vector(
                 root_from_seat,
                 3,
                 owner=f"pose binding {actor_id}.root_from_seat_m",
             )
-            delta = math.radians(
-                float(seat["facing_yaw_deg"])
-                - _finite(
-                    raw["reference_chair_yaw_degrees"],
-                    owner=f"pose binding {actor_id}.reference_chair_yaw_degrees",
-                )
-            )
+            placement_yaw = math.radians(float(seat["facing_yaw_deg"]) + 90.0)
             root_from_seat = [
-                offset[0] * math.cos(delta) - offset[1] * math.sin(delta),
-                offset[0] * math.sin(delta) + offset[1] * math.cos(delta),
+                offset[0] * math.cos(placement_yaw) - offset[1] * math.sin(placement_yaw),
+                offset[0] * math.sin(placement_yaw) + offset[1] * math.cos(placement_yaw),
                 offset[2],
             ]
         root_authoring: list[float] | None = None
@@ -971,9 +1038,16 @@ def build_seat_placements(
                 "template_id": raw.get("template_id"),
                 "body_plan_id": raw.get("body_plan_id"),
                 "blueprint_class_path": raw.get("blueprint_class_path"),
+                "skeletal_mesh_path": raw.get("skeletal_mesh_path"),
                 "ue_animation": raw.get("ue_animation"),
+                "animation_paths_by_action_id": deepcopy(raw.get("animation_paths_by_action_id")),
+                "exact_runtime_binding": deepcopy(raw.get("exact_runtime_binding")),
+                "ue_component_frame_delta": deepcopy(raw.get("ue_component_frame_delta")),
+                "emitter_local_ue_cm": deepcopy(raw.get("emitter_local_ue_cm")),
+                "ue_anatomical_forward_yaw_deg": raw.get("ue_anatomical_forward_yaw_deg"),
+                "actor_scale": raw.get("actor_scale", 1.0),
                 "ue_asset_destination": raw.get("destination"),
-                "pose_orientation_policy": "room_seat_facing; reference_actor_yaw_ignored",
+                "pose_orientation_policy": "seat_theta_plus_90_local_offset; reference_actor_yaw_ignored",
             }
         )
     return {

@@ -41,12 +41,47 @@ def _load_json(path: Path, *, owner: str) -> Any:
     return value
 
 
-def _pose_bindings(path: str | Path | None) -> Any:
-    if path is None:
+def _pose_bindings(
+    path: str | Path | None,
+    request_path: str | Path | None = None,
+) -> Any:
+    if path is None and request_path is None:
         return None
-    value = _load_json(Path(path).expanduser().resolve(), owner="pose bindings")
+    value = (
+        _load_json(Path(path).expanduser().resolve(), owner="pose bindings")
+        if path is not None
+        else {"assets": []}
+    )
     if not isinstance(value, (Mapping, list)):
         raise FurnitureLayoutError("pose bindings JSON must be an object or list")
+    if request_path is None:
+        return value
+    request = _load_json(
+        Path(request_path).expanduser().resolve(), owner="pose binding request"
+    )
+    if not isinstance(request, Mapping) or not isinstance(request.get("assets"), list):
+        raise FurnitureLayoutError("pose binding request must contain an assets list")
+    request_by_asset = {
+        str(item.get("asset_id")): item
+        for item in request["assets"]
+        if isinstance(item, Mapping) and item.get("asset_id")
+    }
+    if isinstance(value, Mapping) and isinstance(value.get("assets"), list):
+        merged_assets = []
+        for raw in value["assets"]:
+            if not isinstance(raw, Mapping):
+                raise FurnitureLayoutError("pose binding assets must be objects")
+            asset_id = str(raw.get("asset_id"))
+            merged = dict(request_by_asset.get(asset_id, {}))
+            merged.update(raw)
+            request_ref = request_by_asset.get(asset_id, {}).get("seat_reference")
+            manifest_ref = raw.get("seat_reference")
+            if isinstance(request_ref, Mapping) or isinstance(manifest_ref, Mapping):
+                seat_ref = dict(request_ref or {})
+                seat_ref.update(manifest_ref or {})
+                merged["seat_reference"] = seat_ref
+            merged_assets.append(merged)
+        return {**dict(value), "assets": merged_assets}
     return value
 
 
@@ -64,6 +99,15 @@ def _actor_record(placement: Mapping[str, Any]) -> dict[str, Any]:
         "template_id": placement.get("template_id"),
         "body_plan_id": placement.get("body_plan_id"),
         "blueprint_class_path": placement.get("blueprint_class_path"),
+        "skeletal_mesh_path": placement.get("skeletal_mesh_path"),
+        "animation_paths_by_action_id": deepcopy(placement.get("animation_paths_by_action_id")),
+        "idle_animation": placement.get("ue_animation"),
+        "walking_animation": placement.get("ue_animation"),
+        "ue_component_frame_delta": deepcopy(placement.get("ue_component_frame_delta")),
+        "exact_runtime_binding": deepcopy(placement.get("exact_runtime_binding")),
+        "actor_scale": placement.get("actor_scale", 1.0),
+        "emitter_local_ue_cm": deepcopy(placement.get("emitter_local_ue_cm")),
+        "ue_anatomical_forward_yaw_deg": placement.get("ue_anatomical_forward_yaw_deg"),
         "ue_animation": placement.get("ue_animation"),
         "seat_affordance_id": placement["seat_affordance_id"],
         "placement_status": placement["placement_status"],
@@ -89,7 +133,17 @@ def _actor_state(
             "scale": [1.0, 1.0, 1.0],
         }
         translation_ue_cm = habitat_to_ue_cm(root_habitat)
-        actor_yaw_ue_deg = float(placement["seat_reference"]["facing_yaw_deg"])
+        seat_yaw = float(placement["seat_reference"]["facing_yaw_deg"])
+        anatomical_yaw = placement.get("ue_anatomical_forward_yaw_deg")
+        if anatomical_yaw is None:
+            actor_yaw_ue_deg = seat_yaw
+        else:
+            # Seat theta is chair-to-table in authoring XY.  The imported
+            # asset's anatomical UE forward yaw is applied; reference actor
+            # yaw from the pose request is deliberately ignored.
+            actor_yaw_ue_deg = (
+                -seat_yaw - float(anatomical_yaw) + 180.0
+            ) % 360.0 - 180.0
     return {
         "actor_id": placement["actor_id"],
         "root_transform": root_transform,
@@ -131,12 +185,12 @@ def build_episode_plan(
         frame_rate_hz=frame_rate_hz,
         sample_rate_hz=sample_rate_hz,
     )
-    camera_set = generate_camera_candidates(
+    camera_pool = generate_camera_candidates(
         layout,
         grid_step_m=grid_step_m,
         camera_height_m=camera_height_m,
     )
-    if not camera_set["candidates"]:
+    if not camera_pool["candidates"]:
         raise FurnitureLayoutError("camera candidate generation returned no candidates")
     seat_layout = build_seat_placements(
         layout,
@@ -144,9 +198,37 @@ def build_episode_plan(
         actor_count=actor_count,
         pose_bindings=pose_bindings,
     )
-    selected_camera = _camera_for_runtime(camera_set["candidates"][0])
     placements = seat_layout["actor_placements"]
+    bound_actor_positions = [
+        item["root_position_authoring_m"]
+        for item in placements
+        if item.get("root_position_authoring_m") is not None
+    ]
+    scored_camera_pool = score_camera_candidates(
+        camera_pool,
+        actor_positions_m=bound_actor_positions or None,
+    )
+    selected_source = (
+        scored_camera_pool["candidates"][0]
+        if bound_actor_positions
+        else camera_pool["candidates"][0]
+    )
+    selected_camera = _camera_for_runtime(selected_source)
     actors = [_actor_record(item) for item in placements]
+    camera_selection = {
+        "selection_mode": (
+            "post_actor_question_scoring"
+            if bound_actor_positions
+            else "geometry_first_pending_actor_join"
+        ),
+        "actor_count": len(placements),
+        "actor_positions_used": len(bound_actor_positions),
+        "coverage_target": "all_bound_actor_seat_references",
+        "selected_candidate_id": selected_source["candidate_id"],
+        "target_los_status": "not_evaluated",
+        "native_validation_status": "not_run",
+        "clearance_basis": "authoring_geometry_grid_clearance",
+    }
     frames: list[dict[str, Any]] = []
     for frame_index in range(clock["frame_count"]):
         pts_ticks = frame_index * clock["ticks_per_frame"]
@@ -188,8 +270,11 @@ def build_episode_plan(
             "native_validation_status": "not_run",
         },
         "camera": selected_camera,
-        "camera_candidates": deepcopy(camera_set["candidates"]),
-        "camera_generation": deepcopy(camera_set["generation"]),
+        "camera_candidates": deepcopy(
+            scored_camera_pool["candidates"] if bound_actor_positions else camera_pool["candidates"]
+        ),
+        "camera_generation": deepcopy(camera_pool["generation"]),
+        "camera_selection": camera_selection,
         "actors": actors,
         "render": {
             "frame_count": clock["frame_count"],
@@ -209,7 +294,11 @@ def build_episode_plan(
         "clock": clock,
         "visual_lighting": deepcopy(layout.get("visual_lighting", {})),
         "visual_plan": visual_plan,
-        "camera_candidates": deepcopy(camera_set),
+        "camera_candidates": {
+            **deepcopy(camera_pool),
+            "post_join_selection": camera_selection,
+            "post_join_scored_candidates": deepcopy(scored_camera_pool["candidates"]),
+        },
         "seat_layout": seat_layout,
         "room_layout": {
             "room_id": layout["room_id"],
@@ -242,6 +331,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--asset-root", type=Path)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--pose-bindings", type=Path)
+    parser.add_argument("--pose-request", type=Path)
     parser.add_argument("--map-path")
     parser.add_argument("--scene-id")
     parser.add_argument("--seat-count", type=int, default=DEFAULT_SEAT_COUNT)
@@ -260,7 +350,7 @@ def main() -> int:
     if output.exists():
         raise SystemExit(f"refusing to replace existing output: {output}")
     layout = load_room_layout(args.room, asset_root=args.asset_root)
-    bindings = _pose_bindings(args.pose_bindings)
+    bindings = _pose_bindings(args.pose_bindings, args.pose_request)
     plan = build_episode_plan(
         layout,
         seat_count=args.seat_count,
