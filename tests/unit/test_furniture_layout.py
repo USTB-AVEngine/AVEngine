@@ -25,6 +25,7 @@ def _fixture(
     room_id: str = "fixture_room",
     bounds: tuple[float, float, float, float] = (-4.0, -3.0, 4.0, 3.0),
     seat_count: int = 4,
+    seat_facings: tuple[float, ...] | None = None,
     bad_objects: bool = False,
 ) -> Path:
     root.mkdir(parents=True, exist_ok=True)
@@ -50,7 +51,11 @@ def _fixture(
                 -1.4,
                 0.0,
             ],
-            "facing_yaw_deg": 0.0,
+            "facing_yaw_deg": (
+                seat_facings[index]
+                if seat_facings is not None and index < len(seat_facings)
+                else 0.0
+            ),
             "support_height_m": 0.46,
         }
         for index in range(seat_count)
@@ -103,6 +108,54 @@ def test_bad_object_metadata_fails_before_camera_generation(tmp_path: Path) -> N
     manifest = _fixture(tmp_path / "bad", bad_objects=True)
     with pytest.raises(FurnitureLayoutError, match="bounds_xyz_m|bounds_xy_m"):
         load_room_layout(manifest)
+
+
+def test_pose_root_closure_follows_actor_anatomical_forward(tmp_path: Path) -> None:
+    manifest = _fixture(
+        tmp_path / "closure",
+        seat_facings=(0.0, 180.0, 90.0, -90.0),
+    )
+    layout = load_room_layout(manifest)
+    placement = build_seat_placements(
+        layout,
+        seat_count=4,
+        actor_count=4,
+        pose_bindings={
+            "assets": [
+                {
+                    "asset_id": f"pose_{index}",
+                    "blueprint": f"/Game/Pose/BP_{index}.BP_{index}",
+                    "skeletal_mesh": f"/Game/Pose/pose_{index}.pose_{index}",
+                    "animation": "/Game/Pose/Seated_Idle.Seated_Idle",
+                    "ue_anatomical_forward_yaw_deg": 90.0,
+                    "seat_reference": {
+                        "seat_anchor_id": f"seat_{index}",
+                        "reference_chair_yaw_degrees": 0.0,
+                        "seat_top_m": 0.46,
+                        "root_offset_from_seat_anchor_blender_m": [0.0, -0.18, -0.01],
+                    },
+                }
+                for index in range(4)
+            ]
+        },
+    )
+    for actor in placement["actor_placements"]:
+        seat = actor["seat_reference"]["position_authoring_m"]
+        root = actor["root_position_authoring_m"]
+        theta = actor["seat_reference"]["facing_yaw_deg"]
+        import math
+        yaw = math.radians(theta + 90.0)
+        anchor = [0.0, 0.18]
+        world_anchor = [
+            anchor[0] * math.cos(yaw) - anchor[1] * math.sin(yaw),
+            anchor[0] * math.sin(yaw) + anchor[1] * math.cos(yaw),
+        ]
+        assert [root[0] + world_anchor[0], root[1] + world_anchor[1]] == pytest.approx(
+            seat[:2]
+        )
+        assert actor["pose_seat_anchor_closure_error_m"] == pytest.approx(
+            [0.0, 0.0, 0.0]
+        )
 
 
 def test_camera_forward_conversion_matches_spear_blender_to_ue_convention(
@@ -313,11 +366,15 @@ def test_pose_binding_offsets_from_seat_reference_and_150_clock(tmp_path: Path) 
     assert request_actor["blueprint_class_path"] == "/Game/Pose/BP_pose.BP_pose_C"
     assert request_actor["skeletal_mesh_path"] == "/Game/Pose/pose.pose"
     assert request_actor["emitter_local_ue_cm"] == pytest.approx([10.0, -20.0, 120.0])
-    assert request_actor["root_position_authoring_m"][0] == pytest.approx(-2.2)
-    assert request_actor["root_position_authoring_m"][1] == pytest.approx(-1.58)
+    assert request_actor["root_position_authoring_m"][0] == pytest.approx(-2.02)
+    assert request_actor["root_position_authoring_m"][1] == pytest.approx(-1.4)
     assert request_actor["root_position_authoring_m"][2] == pytest.approx(-0.08)
     assert request_actor["pose_orientation_policy"].endswith(
         "reference_actor_yaw_ignored"
+    )
+    assert request_actor["pose_actor_yaw_blender_deg"] == pytest.approx(90.0)
+    assert request_actor["pose_seat_anchor_closure_error_m"] == pytest.approx(
+        [0.0, 0.0, 0.0]
     )
 
     candidate_set = generate_camera_candidates(layout)
