@@ -65,6 +65,7 @@ def _metadata_path(build_dir: Path) -> Path | None:
         (
             build_dir / "room_manifest.json",
             build_dir / "room_handoff.json",
+            build_dir / "polish_report.json",
             build_dir / "qa" / "build_report.json",
         )
     )
@@ -123,7 +124,17 @@ def _room_id(metadata: Mapping[str, Any], build_dir: Path) -> str:
     value = metadata.get("room_id") or metadata.get("room_spec_id")
     if isinstance(value, str) and value:
         return value
-    raise ValueError(f"room metadata has no room_id/room_spec_id: {build_dir}")
+    source_blend = metadata.get("source_blend")
+    if isinstance(source_blend, str) and source_blend:
+        return Path(source_blend).stem
+    artifacts = metadata.get("artifacts")
+    if isinstance(artifacts, Mapping):
+        blend = artifacts.get("blend")
+        if isinstance(blend, str) and blend:
+            return Path(blend).stem
+    raise ValueError(
+        f"room metadata has no room_id/room_spec_id/source_blend: {build_dir}"
+    )
 
 
 def _source_revision(metadata: Mapping[str, Any], build_dir: Path) -> str:
@@ -149,7 +160,12 @@ def _load_anchor_data(
     if path is None:
         return {}, [], "no functional anchor file supplied"
     raw = _load_json(path)
-    coordinate_note = str(raw.get("coordinate_system", ""))
+    coordinate_note = str(
+        raw.get(
+            "coordinate_system",
+            "Blender +Z up metres; exported GLB +Y up",
+        )
+    )
     anchors_raw = raw.get("anchors", {})
     anchors: dict[str, list[float]] = {}
     if isinstance(anchors_raw, Mapping):
@@ -176,6 +192,40 @@ def _load_anchor_data(
             seat["position_canonical_m"] = _canonical_anchor(position, coordinate_note)
             seats.append(seat)
     return anchors, seats, coordinate_note
+
+
+def _metadata_seat_points(
+    metadata: Mapping[str, Any],
+    coordinate_note: str,
+) -> list[dict[str, Any]]:
+    seats: list[dict[str, Any]] = []
+    furniture = metadata.get("furniture_semantics", [])
+    if not isinstance(furniture, list):
+        return seats
+    for item in furniture:
+        if not isinstance(item, Mapping):
+            continue
+        raw_seats = item.get("seat_points", [])
+        if not isinstance(raw_seats, list):
+            continue
+        for raw in raw_seats:
+            if not isinstance(raw, Mapping):
+                continue
+            anchor_id = raw.get("anchor_id")
+            position = raw.get("position_m")
+            if (
+                not isinstance(anchor_id, str)
+                or not isinstance(position, list)
+                or len(position) != 3
+            ):
+                continue
+            seat = dict(raw)
+            seat["position_source_m"] = [float(value) for value in position]
+            seat["position_canonical_m"] = _canonical_anchor(
+                position, coordinate_note
+            )
+            seats.append(seat)
+    return seats
 
 
 def _connectivity_pairs(anchors: Mapping[str, Sequence[float]]) -> list[dict[str, Any]]:
@@ -500,6 +550,15 @@ def prepare(
     usd_path = _source_usd(build, source_usd)
     anchor_path = _anchor_path(build)
     anchor_map, seat_points, coordinate_note = _load_anchor_data(anchor_path)
+    known_seat_ids = {
+        str(item.get("anchor_id"))
+        for item in seat_points
+        if isinstance(item, Mapping)
+    }
+    for item in _metadata_seat_points(metadata, coordinate_note):
+        if item["anchor_id"] not in known_seat_ids:
+            seat_points.append(item)
+            known_seat_ids.add(item["anchor_id"])
     scene = extract_triangle_scene(geometry_path)
     profile_path = (
         Path(material_profile).expanduser().resolve()
