@@ -34,6 +34,236 @@ GATEA_MAX_DIFF_MIN = 1e-4     # main vs gateA 最大逐样本差下限
 SR = 16000
 
 
+AUDIO_LAYOUTS = {
+    "binaural": {
+        "directory": "binaural",
+        "channel_count": 2,
+        "channel_labels": ("left", "right"),
+    },
+    "ambisonics": {
+        "directory": "foa",
+        "channel_count": 4,
+        "channel_labels": ("W", "Y", "Z", "X"),
+    },
+}
+DEFAULT_LAYOUTS = ("binaural",)
+
+
+def normalize_layouts(value: object, *, owner: str = "layouts") -> tuple[str, ...]:
+    """Normalize canonical renderer layouts without accepting aliases."""
+    if isinstance(value, str):
+        raw = [item.strip() for item in value.split(",") if item.strip()]
+    elif isinstance(value, (list, tuple)):
+        raw = list(value)
+    else:
+        raise ValueError(f"{owner} must be a comma-separated string or list")
+    if not raw:
+        raise ValueError(f"{owner} must contain at least one layout")
+    result: list[str] = []
+    for item in raw:
+        if not isinstance(item, str) or not item or item != item.strip():
+            raise ValueError(f"{owner} contains an invalid layout")
+        if item not in AUDIO_LAYOUTS:
+            raise ValueError(
+                f"{owner} contains unsupported layout {item!r}; "
+                f"expected one of {sorted(AUDIO_LAYOUTS)}"
+            )
+        if item in result:
+            raise ValueError(f"{owner} contains duplicate layout {item!r}")
+        result.append(item)
+    return tuple(result)
+
+
+def check_ambisonics(wav: np.ndarray) -> str | None:
+    """Validate a raw FOA array with an explicit channel-energy check."""
+    if wav.ndim != 2 or wav.shape[1] != AUDIO_LAYOUTS["ambisonics"]["channel_count"]:
+        return f"not 4-channel FOA: shape={wav.shape}"
+    if not np.all(np.isfinite(wav)):
+        return "FOA contains non-finite samples"
+    channel_energy = np.mean(np.square(wav.astype(np.float64)), axis=0)
+    if not np.all(np.isfinite(channel_energy)):
+        return "FOA channel energy is non-finite"
+    if not np.any(channel_energy > AMP_EPSILON ** 2):
+        return "FOA channels are silent"
+    return None
+
+
+def check_layout_audio(wav: np.ndarray, layout: str) -> str | None:
+    if layout == "binaural":
+        return check_stereo(wav)
+    if layout == "ambisonics":
+        return check_ambisonics(wav)
+    raise ValueError(f"unsupported audio layout {layout!r}")
+
+
+def _clock_values(value: object) -> list[tuple[int, int]]:
+    if not isinstance(value, dict):
+        return []
+    result: list[tuple[int, int]] = []
+    rate = value.get("sample_rate_hz")
+    count = value.get("sample_count")
+    if "sample_rate_hz" in value or "sample_count" in value:
+        if not (
+            isinstance(rate, int) and not isinstance(rate, bool) and rate > 0
+            and isinstance(count, int) and not isinstance(count, bool) and count > 0
+        ):
+            raise ValueError(
+                "receipt audio clock must contain positive integer "
+                "sample_rate_hz and sample_count"
+            )
+        result.append((rate, count))
+    for key in ("binaural", "ambisonics", "foa"):
+        nested = value.get(key)
+        if isinstance(nested, dict):
+            result.extend(_clock_values(nested))
+    layouts = value.get("layouts")
+    if isinstance(layouts, dict):
+        for nested in layouts.values():
+            result.extend(_clock_values(nested))
+    elif isinstance(layouts, list):
+        for nested in layouts:
+            result.extend(_clock_values(nested))
+    return result
+
+
+def _declared_audio_clock(
+    program: object, receipt: object
+) -> tuple[tuple[int, int] | None, bool]:
+    values: list[tuple[int, int]] = []
+    if isinstance(program, dict):
+        values.extend(_clock_values(program.get("timeline")))
+    if isinstance(receipt, dict):
+        try:
+            values.extend(_clock_values(receipt.get("audio")))
+            audio_program = receipt.get("audio_program")
+            if isinstance(audio_program, dict):
+                values.extend(_clock_values(audio_program.get("timeline")))
+            if not values:
+                values.extend(_clock_values(receipt))
+        except ValueError:
+            return None, True
+    unique = set(values)
+    if len(unique) > 1:
+        return None, True
+    return (values[0] if values else None), False
+
+
+def _layout_mixture_path(render_dir: Path, layout: str) -> Path:
+    return (
+        render_dir / "audio" / AUDIO_LAYOUTS[layout]["directory"] / "mixture.wav"
+    )
+
+
+def _declared_layouts(receipt: object) -> tuple[str, ...] | None:
+    if not isinstance(receipt, dict):
+        return None
+    for key in ("expected_layouts", "layouts", "audio_layouts"):
+        value = receipt.get(key)
+        if value is not None:
+            return normalize_layouts(value, owner=f"receipt.{key}")
+    audio = receipt.get("audio")
+    if isinstance(audio, dict):
+        declared = audio.get("layouts")
+        if declared is not None:
+            return normalize_layouts(
+                declared, owner="receipt.audio.layouts"
+            )
+        layout_type = audio.get("layout_type")
+        if layout_type == "binaural":
+            return ("binaural",)
+        if layout_type in {"ambisonics", "foa"}:
+            return ("ambisonics",)
+        present = tuple(
+            name for name in ("binaural", "ambisonics")
+            if isinstance(audio.get(name), dict)
+        )
+        if present:
+            return present
+    return None
+
+
+def check_receipt_layouts(
+    receipt: object,
+    expected_layouts: tuple[str, ...],
+    expected_sr: int,
+    expected_count: int,
+) -> list[str]:
+    """Check declared per-layout paths, labels and clocks against the contract."""
+    if not isinstance(receipt, dict):
+        return ["receipt is not an object"]
+    audio = receipt.get("audio")
+    if not isinstance(audio, dict):
+        # Old QA-v2 receipts have no audio block. Keep binary-only legacy
+        # verification readable; FOA still requires the explicit declaration.
+        if "ambisonics" in expected_layouts:
+            return ["receipt audio.by_layout is required for ambisonics"]
+        return []
+    by_layout = audio.get("by_layout")
+    if by_layout is None:
+        # Older binaural receipts predate the per-layout contract. They remain
+        # readable; a newly requested FOA output must carry its labels because
+        # WAV itself has no channel-order metadata.
+        if "ambisonics" in expected_layouts:
+            return ["receipt audio.by_layout is required for ambisonics"]
+        return []
+    if not isinstance(by_layout, dict):
+        return ["receipt audio.by_layout must be an object"]
+    failures: list[str] = []
+    for layout in expected_layouts:
+        entry = by_layout.get(layout)
+        if not isinstance(entry, dict):
+            failures.append(f"receipt audio.by_layout is missing {layout}")
+            continue
+        spec = AUDIO_LAYOUTS[layout]
+        expected = {
+            "layout_type": layout,
+            "output_directory": spec["directory"],
+            "channel_count": spec["channel_count"],
+            "channel_labels": list(spec["channel_labels"]),
+            "sample_rate_hz": expected_sr,
+            "sample_count": expected_count,
+        }
+        for field, value in expected.items():
+            if entry.get(field) != value:
+                failures.append(
+                    f"receipt {layout} {field}={entry.get(field)!r} "
+                    f"does not match {value!r}"
+                )
+    return failures
+
+
+def _inferred_layouts(audio_root: Path) -> tuple[str, ...]:
+    declarations: list[tuple[str, ...]] = []
+    if audio_root.is_dir():
+        for render_dir in sorted(audio_root.iterdir()):
+            if not render_dir.is_dir():
+                continue
+            receipt_path = render_dir / "research_receipt.json"
+            if not receipt_path.is_file():
+                continue
+            try:
+                receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+            except (OSError, UnicodeError, json.JSONDecodeError):
+                continue
+            try:
+                declared = _declared_layouts(receipt)
+            except ValueError as error:
+                raise ValueError(
+                    f"{receipt_path}: invalid declared audio layouts: {error}"
+                ) from error
+            if declared is not None:
+                declarations.append(declared)
+    if not declarations:
+        return DEFAULT_LAYOUTS
+    first = declarations[0]
+    if any(item != first for item in declarations[1:]):
+        raise ValueError(
+            "audio receipts declare conflicting expected layouts: "
+            + ", ".join(str(list(item)) for item in declarations)
+        )
+    return first
+
+
 def execution_variant_status(
     receipt: dict,
     expected_execution_variant: str | None,
@@ -390,11 +620,26 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help="expected execution variants, comma-separated; defaults to design/request declaration",
     )
+    parser.add_argument(
+        "--layouts",
+        default=None,
+        help="expected audio layouts, comma-separated: binaural[,ambisonics]; "
+             "defaults to the receipt declaration or binaural",
+    )
     parser.add_argument("--out", required=True, type=Path)
     args = parser.parse_args(argv)
 
     if args.out.exists():
         print(f"refusing to overwrite: {args.out}", file=sys.stderr)
+        return 2
+    try:
+        expected_layouts = (
+            normalize_layouts(args.layouts, owner="--layouts")
+            if args.layouts is not None
+            else _inferred_layouts(args.audio_root.resolve())
+        )
+    except ValueError as error:
+        print(f"invalid layouts: {error}", file=sys.stderr)
         return 2
     params = json.loads(args.params.read_text())
     tail_min_s = float(params["TAIL_MIN_S"])
@@ -432,12 +677,16 @@ def main(argv: list[str] | None = None) -> int:
         "gateA": set(),
     }
     checked = gatea_pairs = gatea_semantic_pairs = 0
+    reference_layout = (
+        "binaural" if "binaural" in expected_layouts else expected_layouts[0]
+    )
     for d in point_dirs:
         name = d.name
         base = name[:-6] if name.endswith("_gateA") else name
         variant = "gateA" if name.endswith("_gateA") else "main"
         prog_path = find_program(
-            programs_dir, base, variant, design_root=args.design_root)
+            programs_dir, base, variant, design_root=args.design_root
+        )
         if prog_path is None:
             failures.append(f"{name}: program lookup was not unique")
             continue
@@ -452,11 +701,25 @@ def main(argv: list[str] | None = None) -> int:
         )
         plan = json.loads(plan_path.read_text()) if plan_path.is_file() else None
         try:
-            wav, sr = sf.read(d / "audio" / "binaural" / "mixture.wav")
             receipt = json.loads((d / "research_receipt.json").read_text())
-        except (OSError, json.JSONDecodeError) as exc:
-            failures.append(f"{name}: load failed: {exc}")
+        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+            failures.append(f"{name}: receipt load failed: {exc}")
             continue
+
+        render_valid = True
+        try:
+            declared_layouts = _declared_layouts(receipt)
+        except ValueError as error:
+            failures.append(f"{name}: invalid declared audio layouts: {error}")
+            declared_layouts = None
+            render_valid = False
+        if declared_layouts is not None and declared_layouts != expected_layouts:
+            failures.append(
+                f"{name}: receipt layouts {list(declared_layouts)} differ from "
+                f"expected {list(expected_layouts)}"
+            )
+            render_valid = False
+
         execution_state = execution_variant_status(receipt, variant)
         if execution_state == "verified":
             execution_variant_verified.append(name)
@@ -464,74 +727,162 @@ def main(argv: list[str] | None = None) -> int:
             execution_variant_unverified.append(name)
         elif execution_state in {"invalid", "mismatch"}:
             execution_variant_failed.append(name)
-        timeline = (program.get("timeline") or {}) if isinstance(program, dict) else {}
-        receipt_audio = (receipt.get("audio") or {}) if isinstance(receipt, dict) else {}
-        expected_sr = timeline.get("sample_rate_hz", receipt_audio.get("sample_rate_hz", SR))
-        expected_count = timeline.get("sample_count", receipt_audio.get("sample_count", 80000))
-        if (isinstance(expected_sr, bool) or not isinstance(expected_sr, int)
-                or expected_sr < 1 or isinstance(expected_count, bool)
-                or not isinstance(expected_count, int) or expected_count < 1):
-            failures.append(f"{name}: invalid program/receipt audio clock")
-            continue
-        if sr != expected_sr or len(wav) != expected_count:
-            failures.append(
-                f"{name}: wav {sr}Hz {len(wav)} samples; expected "
-                f"{expected_sr}Hz {expected_count}")
-            continue
-        receipt_audio = (receipt.get("audio") or {}) if isinstance(receipt, dict) else {}
-        if isinstance(receipt_audio, dict) and (
-                receipt_audio.get("sample_rate_hz") not in (None, expected_sr)
-                or receipt_audio.get("sample_count") not in (None, expected_count)):
-            failures.append(f"{name}: receipt audio clock disagrees with program")
-        expected_endpoint_path = args.design_root / base / "source_endpoints.json"
-        expected_endpoint = (expected_endpoint_path
-                             if expected_endpoint_path.is_file() else None)
-        for err in filter(None, [check_stereo(wav),
-                                 check_receipt(
-                                     receipt,
-                                     prog_path,
-                                     expected_endpoint,
-                                     expected_execution_variant=variant,
-                                 )]):
+
+        declared_clock, clock_conflict = _declared_audio_clock(program, receipt)
+        render_valid = render_valid and not clock_conflict
+        if clock_conflict:
+            failures.append(f"{name}: program/receipt audio clocks disagree")
+        expected_sr, expected_count = declared_clock or (SR, 80000)
+        for error in check_receipt_layouts(
+            receipt, expected_layouts, expected_sr, expected_count
+        ):
+            failures.append(f"{name}: {error}")
+            render_valid = False
+        layout_wavs: dict[str, np.ndarray] = {}
+        for layout in expected_layouts:
+            layout_root = d / "audio" / AUDIO_LAYOUTS[layout]["directory"]
+            mixture_path = layout_root / "mixture.wav"
+            files = sorted(layout_root.rglob("*.wav")) if layout_root.is_dir() else []
+            if not mixture_path.is_file():
+                failures.append(
+                    f"{name}: missing requested {layout} mixture: {mixture_path}"
+                )
+                render_valid = False
+                continue
+            if not files:
+                failures.append(f"{name}: requested {layout} layout has no WAV files")
+                render_valid = False
+                continue
+            for wav_path in files:
+                try:
+                    wav, sr = sf.read(wav_path, always_2d=True)
+                except (OSError, RuntimeError) as exc:
+                    failures.append(f"{name}: {layout} load failed: {exc}")
+                    render_valid = False
+                    continue
+                if sr != expected_sr or wav.shape[0] != expected_count:
+                    failures.append(
+                        f"{name}: {layout} {wav_path.name} has {sr}Hz "
+                        f"{wav.shape[0]} samples; expected "
+                        f"{expected_sr}Hz {expected_count}"
+                    )
+                    render_valid = False
+                    continue
+                layout_error = check_layout_audio(wav, layout)
+                if layout_error:
+                    failures.append(f"{name}: {layout} {layout_error}")
+                    render_valid = False
+                if wav_path == mixture_path:
+                    layout_wavs[layout] = wav
+
+        for err in filter(
+            None,
+            [
+                check_receipt(
+                    receipt,
+                    prog_path,
+                    (
+                        args.design_root / base / "source_endpoints.json"
+                        if (args.design_root / base / "source_endpoints.json").is_file()
+                        else None
+                    ),
+                    expected_execution_variant=variant,
+                )
+            ],
+        ):
             failures.append(f"{name}: {err}")
+            render_valid = False
+
+        reference_wav = layout_wavs.get(reference_layout)
         if variant == "main":
             authority = fact if fact is not None else plan
             if authority is None:
                 failures.append(f"{name}: no fact or retained plan authority")
                 authority = {}
-            for err in check_onsets(
-                wav, program, authority,
-                fact.get("profile_id") if fact else None, tail_min_s,
-                sample_rate_hz=expected_sr,
-            ):
-                failures.append(f"{name}: {err}")
+                render_valid = False
+            if reference_wav is None:
+                failures.append(
+                    f"{name}: reference {reference_layout} mixture is unavailable"
+                )
+                render_valid = False
+            else:
+                for err in check_onsets(
+                    reference_wav,
+                    program,
+                    authority,
+                    fact.get("profile_id") if fact else None,
+                    tail_min_s,
+                    sample_rate_hz=expected_sr,
+                ):
+                    failures.append(f"{name}: {err}")
+                    render_valid = False
+
         checked += 1
-        if variant in validated_render_ids:
+        if render_valid:
             validated_render_ids[variant].add(base)
+
         if variant == "gateA":
-            main_wav_path = args.audio_root / base / "audio" / "binaural" / "mixture.wav"
-            if main_wav_path.is_file():
+            main_render_dir = args.audio_root / base
+            main_wav_path = _layout_mixture_path(main_render_dir, reference_layout)
+            if main_wav_path.is_file() and reference_wav is not None:
                 try:
-                    main_wav, _ = sf.read(main_wav_path)
+                    main_wav, main_sr = sf.read(main_wav_path, always_2d=True)
                 except (OSError, RuntimeError) as exc:
                     failures.append(f"{name}: main waveform could not be read: {exc}")
                 else:
-                    if main_wav.shape != wav.shape:
+                    if main_sr != expected_sr or main_wav.shape != reference_wav.shape:
                         failures.append(
-                            f"{name}: main/gateA waveform shapes differ: "
-                            f"{main_wav.shape} != {wav.shape}"
+                            f"{name}: main/gateA {reference_layout} clocks/shapes differ: "
+                            f"{main_sr}Hz {main_wav.shape} != "
+                            f"{expected_sr}Hz {reference_wav.shape}"
                         )
                     else:
-                        max_diff = float(np.abs(wav - main_wav).max())
-                        if not np.isfinite(max_diff):
+                        layout_error = check_layout_audio(main_wav, reference_layout)
+                        if layout_error:
                             failures.append(
-                                f"{name}: main/gateA waveform difference is non-finite"
+                                f"{name}: main {reference_layout} {layout_error}"
                             )
-                        elif max_diff < GATEA_MAX_DIFF_MIN:
-                            failures.append(f"{name}: gateA identical to main "
-                                            f"(max diff {max_diff:.2e})")
+                        elif reference_layout == "binaural":
+                            max_diff = float(
+                                np.abs(reference_wav - main_wav).max()
+                            )
+                            if not np.isfinite(max_diff):
+                                failures.append(
+                                    f"{name}: main/gateA waveform difference is non-finite"
+                                )
+                            elif max_diff < GATEA_MAX_DIFF_MIN:
+                                failures.append(
+                                    f"{name}: gateA identical to main "
+                                    f"(max diff {max_diff:.2e})"
+                                )
+                            else:
+                                gatea_pairs += 1
                         else:
-                            gatea_pairs += 1
+                            main_energy = np.mean(
+                                np.square(main_wav.astype(np.float64)), axis=0
+                            )
+                            gate_energy = np.mean(
+                                np.square(reference_wav.astype(np.float64)), axis=0
+                            )
+                            energy_diff = float(
+                                np.abs(main_energy - gate_energy).max()
+                            )
+                            if not np.isfinite(energy_diff):
+                                failures.append(
+                                    f"{name}: main/gateA FOA channel energy is non-finite"
+                                )
+                            elif energy_diff < GATEA_MAX_DIFF_MIN ** 2:
+                                failures.append(
+                                    f"{name}: gateA FOA channel energies are identical "
+                                    f"(max diff {energy_diff:.2e})"
+                                )
+                            else:
+                                gatea_pairs += 1
+            else:
+                failures.append(
+                    f"{name}: main {reference_layout} mixture is missing for comparison"
+                )
+
             main_fact_path = args.design_root / base / "fact_record.json"
             gate_fact_path = args.design_root / base / "fact_record_gateA.json"
             if main_fact_path.is_file() and gate_fact_path.is_file():
@@ -590,6 +941,7 @@ def main(argv: list[str] | None = None) -> int:
     payload = {
         "schema": "qa_v3_audio_batch_verification_v1",
         "audio_root": str(args.audio_root),
+        "expected_layouts": list(expected_layouts),
         "expected_variants": list(expected_variants),
         "expected_variants_source": expected_variants_source,
         "complete_render_point_ids": {

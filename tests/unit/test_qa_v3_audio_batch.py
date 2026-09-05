@@ -57,6 +57,16 @@ def test_program_path_matches_generator_main_and_gatea_names(tmp_path: Path) -> 
     assert TOOL.program_path(programs, "card1F_001", "gateA") == gatea
 
 
+def test_hrtf_is_required_only_for_binaural_layout() -> None:
+    assert TOOL.hrtf_args({}, ("ambisonics",)) == []
+    assert TOOL.hrtf_args({"hrtf": "/tmp/hrtf.sofa"}, ("binaural",)) == [
+        "--hrtf",
+        "/tmp/hrtf.sofa",
+    ]
+    with pytest.raises(SystemExit, match="required when layouts include binaural"):
+        TOOL.hrtf_args({}, ("binaural",))
+
+
 def test_canonical_emitter_policy_is_explicit_and_validated() -> None:
     assert TOOL.canonical_emitter_args({}) == []
     assert TOOL.canonical_emitter_args({
@@ -167,6 +177,59 @@ def test_point_state_rejects_non_float_or_inconsistent_fact_metadata(
     )
     assert TOOL.point_state(pcm) == "partial"
 
+
+
+
+def test_point_state_requires_requested_layout_and_shared_clock(
+    tmp_path: Path,
+) -> None:
+    output = tmp_path / "layouts"
+    _write_audio_receipt(output)
+    _write_float32_wav(output / "audio" / "binaural" / "mixture.wav")
+    assert TOOL.point_state(output, layouts="binaural,ambisonics") == "partial"
+
+    _write_float32_wav(
+        output / "audio" / "foa" / "mixture.wav", channels=4
+    )
+    assert TOOL.point_state(output, layouts=("binaural", "ambisonics")) == "complete"
+
+    mismatched = tmp_path / "cross_layout_clock"
+    _write_audio_receipt(mismatched)
+    _write_float32_wav(mismatched / "audio" / "binaural" / "mixture.wav")
+    _write_float32_wav(
+        mismatched / "audio" / "foa" / "mixture.wav",
+        channels=4,
+        frame_count=3,
+    )
+    assert TOOL.point_state(
+        mismatched, layouts=("binaural", "ambisonics")
+    ) == "partial"
+
+
+def test_point_state_uses_multi_layout_receipt_declaration_by_default(
+    tmp_path: Path,
+) -> None:
+    output = tmp_path / "declared-layouts"
+    _write_audio_receipt(output)
+    receipt = json.loads((output / "research_receipt.json").read_text())
+    receipt["audio"]["layouts"] = ["binaural", "ambisonics"]
+    receipt["audio"]["layout_type"] = "binaural"
+    (output / "research_receipt.json").write_text(json.dumps(receipt))
+    _write_float32_wav(output / "audio" / "binaural" / "mixture.wav")
+    assert TOOL.point_state(output) == "partial"
+    _write_float32_wav(output / "audio" / "foa" / "mixture.wav", channels=4)
+    assert TOOL.point_state(output) == "complete"
+
+
+def test_layout_normalization_rejects_unknown_and_duplicate_values() -> None:
+    assert TOOL.normalize_layouts("binaural,ambisonics") == (
+        "binaural",
+        "ambisonics",
+    )
+    with pytest.raises(ValueError, match="unsupported layout"):
+        TOOL.normalize_layouts("binaural,foa")
+    with pytest.raises(ValueError, match="duplicate layout"):
+        TOOL.normalize_layouts(["binaural", "binaural"])
 
 def test_program_path_prefers_point_local_and_fact_declared_programs(
     tmp_path: Path,
@@ -308,6 +371,7 @@ def test_main_uses_current_repo_point_bindings_and_sound_map(
         "magnum_python_site": "magnum",
         "source_asset_registry": "assets.json",
         "sound_asset_map": sound_map.name,
+        "layouts": ["binaural", "ambisonics"],
     }
     config_path.write_text(json.dumps(config))
     output_root = tmp_path / "outputs"
@@ -318,7 +382,13 @@ def test_main_uses_current_repo_point_bindings_and_sound_map(
         output = Path(cmd[cmd.index("--output") + 1])
         execution_variant = cmd[cmd.index("--execution-variant") + 1]
         _write_audio_receipt(output, execution_variant=execution_variant)
-        _write_float32_wav(output / "audio" / "binaural" / "mixture.wav")
+        layout_text = cmd[cmd.index("--layouts") + 1]
+        for layout in layout_text.split(","):
+            _write_float32_wav(
+                output / "audio" / ("foa" if layout == "ambisonics" else layout)
+                / "mixture.wav",
+                channels=4 if layout == "ambisonics" else 2,
+            )
         return type("Result", (), {"returncode": 0})()
 
     monkeypatch.setattr(TOOL.subprocess, "run", fake_run)
@@ -344,6 +414,8 @@ def test_main_uses_current_repo_point_bindings_and_sound_map(
     )
     assert command[command.index("--variant") + 1] == "A"
     assert command[command.index("--execution-variant") + 1] == "main"
+    assert command[command.index("--layouts") + 1] == "binaural,ambisonics"
+    assert command[command.index("--hrtf") + 1] == "hrtf.bin"
     assert command[command.index("--sound-asset-map") + 1] == str(sound_map)
     assert "--beagle-audio" not in command
 
@@ -351,6 +423,27 @@ def test_main_uses_current_repo_point_bindings_and_sound_map(
     assert gate_command[gate_command.index("--audio-program") + 1] == str(local_gatea)
     assert gate_command[gate_command.index("--variant") + 1] == "A"
     assert gate_command[gate_command.index("--execution-variant") + 1] == "gateA"
+
+    # Ambisonics-only output does not require HRTF and must not pass it to the
+    # renderer, even when the prior config carried a stale HRTF value.
+    config.pop("hrtf")
+    config["layouts"] = ["ambisonics"]
+    config_path.write_text(json.dumps(config))
+    calls.clear()
+    ambisonics_root = tmp_path / "ambisonics-only"
+    result = TOOL.main([
+        "--inputs-root", str(inputs),
+        "--captures-root", str(captures.parent),
+        "--output-root", str(ambisonics_root),
+        "--config", str(config_path),
+        "--points", point.name,
+        "--variants", "main",
+    ])
+    assert result == 0
+    assert len(calls) == 1
+    ambisonics_command = calls[0]["cmd"]
+    assert ambisonics_command[ambisonics_command.index("--layouts") + 1] == "ambisonics"
+    assert "--hrtf" not in ambisonics_command
 
 
 def test_point_local_m1_and_endpoints_need_no_batch_fallback(tmp_path: Path) -> None:

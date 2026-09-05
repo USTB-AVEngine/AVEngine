@@ -32,12 +32,118 @@ from pathlib import Path
 
 REQUIRED_CONFIG_KEYS = (
     "python", "repo", "simulation_request", "package_manifest",
-    "sound_asset_registry", "hrtf", "runtime_prefix", "rlr_sdk_root",
+    "sound_asset_registry", "runtime_prefix", "rlr_sdk_root",
     "magnum_python_site", "source_asset_registry",
 )
 AVENGINE_REPOSITORY = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from qa_v3_request import batch_point_ids  # noqa: E402
+
+AUDIO_LAYOUTS = {
+    "binaural": {
+        "directory": "binaural",
+        "channel_count": 2,
+        "channel_labels": ("left", "right"),
+    },
+    "ambisonics": {
+        "directory": "foa",
+        "channel_count": 4,
+        "channel_labels": ("W", "Y", "Z", "X"),
+    },
+}
+DEFAULT_LAYOUTS = ("binaural",)
+AUXILIARY_AUDIO_CHANNELS = {"dry": 1}
+
+
+def normalize_layouts(value: object, *, owner: str = "layouts") -> tuple[str, ...]:
+    """Normalize the explicit output-layout list used by the renderer."""
+    if isinstance(value, str):
+        raw = [item.strip() for item in value.split(",") if item.strip()]
+    elif isinstance(value, (list, tuple)):
+        raw = list(value)
+    else:
+        raise ValueError(f"{owner} must be a comma-separated string or list")
+    if not raw:
+        raise ValueError(f"{owner} must contain at least one layout")
+    result: list[str] = []
+    for item in raw:
+        if not isinstance(item, str) or not item or item != item.strip():
+            raise ValueError(f"{owner} contains an invalid layout")
+        if item not in AUDIO_LAYOUTS:
+            raise ValueError(
+                f"{owner} contains unsupported layout {item!r}; "
+                f"expected one of {sorted(AUDIO_LAYOUTS)}"
+            )
+        if item in result:
+            raise ValueError(f"{owner} contains duplicate layout {item!r}")
+        result.append(item)
+    return tuple(result)
+
+
+def _load_audio_receipt(out_dir: Path) -> dict | None:
+    receipt_path = out_dir / "research_receipt.json"
+    try:
+        receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return None
+    return receipt if isinstance(receipt, dict) else None
+
+
+def _clock_values(value: object) -> list[tuple[int, int]]:
+    """Collect direct and per-layout sample clocks from a receipt object."""
+    if not isinstance(value, dict):
+        return []
+    values: list[tuple[int, int]] = []
+    rate = value.get("sample_rate_hz")
+    count = value.get("sample_count")
+    if "sample_rate_hz" in value or "sample_count" in value:
+        if not (
+            isinstance(rate, int) and not isinstance(rate, bool) and rate > 0
+            and isinstance(count, int) and not isinstance(count, bool) and count > 0
+        ):
+            raise ValueError("receipt audio clock must contain positive integer sample_rate_hz and sample_count")
+        values.append((rate, count))
+    for key in ("binaural", "ambisonics", "foa"):
+        nested = value.get(key)
+        if isinstance(nested, dict):
+            values.extend(_clock_values(nested))
+    layouts = value.get("layouts")
+    if isinstance(layouts, dict):
+        for nested in layouts.values():
+            values.extend(_clock_values(nested))
+    elif isinstance(layouts, list):
+        for nested in layouts:
+            values.extend(_clock_values(nested))
+    return values
+
+
+def _declared_layouts(receipt: dict | None) -> tuple[str, ...] | None:
+    if not isinstance(receipt, dict):
+        return None
+    for key in ("expected_layouts", "layouts", "audio_layouts"):
+        value = receipt.get(key)
+        if value is not None:
+            return normalize_layouts(value, owner=f"receipt.{key}")
+    audio = receipt.get("audio")
+    if isinstance(audio, dict):
+        # New multi-layout receipts put the authoritative list under
+        # audio.layouts while retaining layout_type for old readers.
+        declared = audio.get("layouts")
+        if declared is not None:
+            return normalize_layouts(declared, owner="receipt.audio.layouts")
+        layout_type = audio.get("layout_type")
+        if layout_type == "binaural":
+            return ("binaural",)
+        if layout_type in {"ambisonics", "foa"}:
+            return ("ambisonics",)
+        present = tuple(
+            name for name in ("binaural", "ambisonics")
+            if isinstance(audio.get(name), dict)
+        )
+        if present:
+            return present
+    return None
+
 
 
 def _read_float32_wav_metadata(path: Path) -> dict[str, int]:
@@ -91,41 +197,52 @@ def _read_float32_wav_metadata(path: Path) -> dict[str, int]:
 
 
 def _receipt_audio_expectations(out_dir: Path) -> tuple[int, int] | None:
-    receipt_path = out_dir / "research_receipt.json"
-    mixture = out_dir / "audio" / "binaural" / "mixture.wav"
-    if not receipt_path.is_file() or not mixture.is_file():
+    receipt = _load_audio_receipt(out_dir)
+    if receipt is None or receipt.get("status") != "pass":
         return None
-    try:
-        receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeError, json.JSONDecodeError):
+    values = _clock_values(receipt.get("audio"))
+    program = receipt.get("audio_program")
+    if isinstance(program, dict):
+        values.extend(_clock_values(program.get("timeline")))
+    if not values:
+        values = _clock_values(receipt)
+    if not values or len(set(values)) != 1:
         return None
-    if not isinstance(receipt, dict) or receipt.get("status") != "pass":
-        return None
-    audio = receipt.get("audio")
-    if not isinstance(audio, dict):
-        return None
-    rate = audio.get("sample_rate_hz")
-    count = audio.get("sample_count")
-    if (
-        isinstance(rate, bool)
-        or not isinstance(rate, int)
-        or rate < 1
-        or isinstance(count, bool)
-        or not isinstance(count, int)
-        or count < 1
-    ):
-        return None
-    return rate, count
+    return values[0]
 
 
-def point_state(out_dir: Path) -> str:
+def point_state(out_dir: Path, *, layouts: object | None = None) -> str:
     if not out_dir.exists():
         return "missing"
-    expected = _receipt_audio_expectations(out_dir)
+    receipt = _load_audio_receipt(out_dir)
+    try:
+        declared_layouts = _declared_layouts(receipt)
+        requested_layouts = layouts
+        if requested_layouts is None:
+            requested_layouts = declared_layouts or DEFAULT_LAYOUTS
+        expected_layouts = normalize_layouts(requested_layouts)
+        if (
+            layouts is not None
+            and declared_layouts is not None
+            and declared_layouts != expected_layouts
+        ):
+            return "partial"
+        expected = _receipt_audio_expectations(out_dir)
+    except ValueError:
+        return "partial"
     if expected is None:
         return "partial"
     expected_rate, expected_frames = expected
-    wav_files = sorted((out_dir / "audio").rglob("*.wav"))
+    audio_root = out_dir / "audio"
+    if not audio_root.is_dir():
+        return "partial"
+    for layout in expected_layouts:
+        layout_root = audio_root / AUDIO_LAYOUTS[layout]["directory"]
+        if not (layout_root / "mixture.wav").is_file():
+            return "partial"
+        if not any(layout_root.rglob("*.wav")):
+            return "partial"
+    wav_files = sorted(audio_root.rglob("*.wav"))
     if not wav_files:
         return "partial"
     for wav_path in wav_files:
@@ -133,7 +250,20 @@ def point_state(out_dir: Path) -> str:
             metadata = _read_float32_wav_metadata(wav_path)
         except ValueError:
             return "partial"
-        expected_channels = 2 if "binaural" in wav_path.parts else 1
+        relative_parts = wav_path.relative_to(audio_root).parts
+        layout_name = next(
+            (
+                name for name, spec in AUDIO_LAYOUTS.items()
+                if spec["directory"] in relative_parts
+            ),
+            None,
+        )
+        if layout_name is not None:
+            expected_channels = AUDIO_LAYOUTS[layout_name]["channel_count"]
+        else:
+            if not relative_parts or relative_parts[0] not in AUXILIARY_AUDIO_CHANNELS:
+                return "partial"
+            expected_channels = AUXILIARY_AUDIO_CHANNELS[relative_parts[0]]
         if (
             metadata["channel_count"] != expected_channels
             or metadata["sample_rate_hz"] != expected_rate
@@ -363,6 +493,18 @@ def point_m1_request(
     return configured_path
 
 
+def hrtf_args(config: dict, layouts: tuple[str, ...]) -> list[str]:
+    """Pass HRTF only for a requested binaural render."""
+    if "binaural" not in layouts:
+        return []
+    value = config.get("hrtf")
+    if not isinstance(value, str) or not value.strip():
+        raise SystemExit(
+            "FAIL: config hrtf is required when layouts include binaural"
+        )
+    return ["--hrtf", value]
+
+
 def canonical_emitter_args(config: dict) -> list[str]:
     """Translate one explicit QA semantic-anchor policy into renderer args."""
     value = config.get("canonical_emitter_height_m")
@@ -384,6 +526,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--config", required=True, type=Path)
     parser.add_argument("--variants", default="main",
                         help="逗号分隔:main[,gateA]")
+    parser.add_argument(
+        "--layouts",
+        default=None,
+        help="逗号分隔输出布局: binaural[,ambisonics]；默认 binaural，"
+             "也可在 config.layouts 中声明",
+    )
     parser.add_argument("--points", default=None)
     parser.add_argument("--resume", action="store_true")
     args = parser.parse_args(argv)
@@ -407,6 +555,14 @@ def main(argv: list[str] | None = None) -> int:
     inputs_root = args.inputs_root.resolve()
     captures_root = args.captures_root.resolve()
     variants = [v.strip() for v in args.variants.split(",") if v.strip()]
+    try:
+        layouts = normalize_layouts(
+            args.layouts if args.layouts is not None
+            else cfg.get("layouts", DEFAULT_LAYOUTS)
+        )
+    except ValueError as error:
+        print(f"FAIL: {error}", file=sys.stderr)
+        return 2
     try:
         points = batch_point_ids(
             inputs_root, args.points.split(",") if args.points else None)
@@ -453,7 +609,7 @@ def main(argv: list[str] | None = None) -> int:
         for variant in point_variants:
             out_dir = args.output_root / (pid if variant == "main"
                                           else f"{pid}_{variant}")
-            state = point_state(out_dir)
+            state = point_state(out_dir, layouts=layouts)
             if state == "complete":
                 skipped += 1
                 continue
@@ -478,7 +634,6 @@ def main(argv: list[str] | None = None) -> int:
                    "--audio-program", str(prog),
                    "--source-endpoint-registry", str(endpoint_path),
                    "--sound-asset-registry", cfg["sound_asset_registry"],
-                   "--hrtf", cfg["hrtf"],
                    "--runtime-prefix", cfg["runtime_prefix"],
                    "--rlr-sdk-root", cfg["rlr_sdk_root"],
                    "--magnum-python-site", cfg["magnum_python_site"],
@@ -487,14 +642,20 @@ def main(argv: list[str] | None = None) -> int:
                    "--source-asset-registry", cfg["source_asset_registry"],
                    "--variant", "A",
                    "--execution-variant", variant,
+                   "--layouts", ",".join(layouts),
                    "--output", str(out_dir)]
+            try:
+                cmd.extend(hrtf_args(cfg, layouts))
+            except SystemExit as error:
+                print(str(error), file=sys.stderr)
+                return 2
             cmd.extend(sound_args)
             cmd.extend(canonical_emitter_args(cfg))
             log_path = args.output_root / f"{out_dir.name}.log"
             with open(log_path, "w") as log:
                 proc = subprocess.run(cmd, stdout=log, stderr=subprocess.STDOUT,
                                       cwd=str(repo))
-            if proc.returncode != 0 or point_state(out_dir) != "complete":
+            if proc.returncode != 0 or point_state(out_dir, layouts=layouts) != "complete":
                 print(f"FAIL: audio render {out_dir.name} failed "
                       f"(exit {proc.returncode}); log: {log_path}",
                       file=sys.stderr)
@@ -502,7 +663,7 @@ def main(argv: list[str] | None = None) -> int:
             done += 1
             print(f"ok {out_dir.name} log={log_path.name}")
     print(f"rendered={done} skipped_complete={skipped} "
-          f"points={len(points)} variants={variants}")
+          f"points={len(points)} variants={variants} layouts={list(layouts)}")
     return 0
 
 

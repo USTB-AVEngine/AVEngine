@@ -36,6 +36,59 @@ def good_wav(seed: int = 0) -> np.ndarray:
     return wav
 
 
+def good_foa_wav(seed: int = 0) -> np.ndarray:
+    rng = np.random.default_rng(seed)
+    wav = np.zeros((80000, 4), dtype=np.float32)
+    scales = np.asarray([1.0, 0.6, 0.35, 0.2], dtype=np.float32)
+    for e in EVENTS:
+        s0, s1 = e["start_sample"], e["end_sample_exclusive"]
+        burst = rng.normal(0, 0.1, (s1 - s0, 4)).astype(np.float32)
+        wav[s0:s1] = burst * scales
+    return wav
+
+
+def add_foa_layout(
+    audio_root: Path,
+    main_wav: np.ndarray,
+    gatea_wav: np.ndarray | None = None,
+    declared_layouts: tuple[str, ...] = ("binaural", "ambisonics"),
+) -> None:
+    for name, wav in (
+        ("v3b_001", main_wav),
+        ("v3b_001_gateA", gatea_wav),
+    ):
+        if wav is None:
+            continue
+        target = audio_root / name / "audio" / "foa" / "mixture.wav"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        sf.write(target, wav, 16000)
+        receipt_path = audio_root / name / "research_receipt.json"
+        receipt = json.loads(receipt_path.read_text())
+        audio = receipt.setdefault("audio", {})
+        audio["layouts"] = list(declared_layouts)
+        audio["by_layout"] = {}
+        for layout in declared_layouts:
+            if layout == "binaural":
+                output_directory = "binaural"
+                channel_count = 2
+                labels = ["left", "right"]
+            elif layout == "ambisonics":
+                output_directory = "foa"
+                channel_count = 4
+                labels = ["W", "Y", "Z", "X"]
+            else:
+                raise AssertionError(layout)
+            audio["by_layout"][layout] = {
+                "layout_type": layout,
+                "output_directory": output_directory,
+                "channel_count": channel_count,
+                "channel_labels": labels,
+                "sample_rate_hz": 16000,
+                "sample_count": 80000,
+            }
+        receipt_path.write_text(json.dumps(receipt))
+
+
 def build_batch(tmp_path: Path, wav_main: np.ndarray,
                 wav_gatea: np.ndarray | None = None,
                 registry_ok: bool = True,
@@ -107,7 +160,9 @@ def build_batch(tmp_path: Path, wav_main: np.ndarray,
     return design, audio
 
 
-def run(tmp_path, design, audio, out_name="report.json", variants=None):
+def run(
+    tmp_path, design, audio, out_name="report.json", variants=None, layouts=None
+):
     out = tmp_path / out_name
     argv = [
         "--design-root", str(design), "--audio-root", str(audio),
@@ -115,6 +170,8 @@ def run(tmp_path, design, audio, out_name="report.json", variants=None):
     ]
     if variants is not None:
         argv.extend(["--variants", variants])
+    if layouts is not None:
+        argv.extend(["--layouts", layouts])
     argv.extend(["--out", str(out)])
     rc = main(argv)
     return rc, json.loads(out.read_text())
@@ -129,6 +186,156 @@ def test_clean_batch_passes(tmp_path):
     assert rep["execution_variant_verification"]["status"] == "verified"
     assert rep["gatea_semantic_flip_pairs"] == 1
     assert "established from current paired fact records" in rep["gatea_semantic_flip"]
+
+
+def test_foa_layout_passes_and_uses_energy_for_gatea(tmp_path):
+    design, audio = build_batch(
+        tmp_path, good_wav(), wav_gatea=good_wav(seed=7)
+    )
+    add_foa_layout(
+        audio,
+        good_foa_wav(),
+        good_foa_wav(seed=7),
+        declared_layouts=("ambisonics",),
+    )
+    rc, report = run(
+        tmp_path,
+        design,
+        audio,
+        out_name="foa-report.json",
+        layouts="ambisonics",
+    )
+    assert rc == 0
+    assert report["failures"] == []
+    assert report["expected_layouts"] == ["ambisonics"]
+    assert report["complete_pair_count"] == 1
+    assert report["audio_variant_waveform_nonidentity_pairs"] == 1
+
+
+def test_both_layouts_are_required_and_clock_checked(tmp_path):
+    design, audio = build_batch(
+        tmp_path, good_wav(), wav_gatea=good_wav(seed=7)
+    )
+    add_foa_layout(
+        audio,
+        good_foa_wav(),
+        good_foa_wav(seed=7),
+        declared_layouts=("binaural", "ambisonics"),
+    )
+    rc, report = run(
+        tmp_path,
+        design,
+        audio,
+        out_name="both-layout-report.json",
+        layouts="binaural,ambisonics",
+    )
+    assert rc == 0
+    assert report["expected_layouts"] == ["binaural", "ambisonics"]
+    assert report["checked_renders"] == 2
+
+    missing = tmp_path / "missing-foa"
+    design2, audio2 = build_batch(
+        missing, good_wav(), wav_gatea=good_wav(seed=7)
+    )
+    rc, report = run(
+        missing,
+        design2,
+        audio2,
+        out_name="missing-foa-report.json",
+        layouts="binaural,ambisonics",
+    )
+    assert rc == 1
+    assert any("missing requested ambisonics" in failure for failure in report["failures"])
+
+
+def test_foa_clock_mismatch_and_silence_are_rejected(tmp_path):
+    design, audio = build_batch(
+        tmp_path, good_wav(), wav_gatea=good_wav(seed=7)
+    )
+    add_foa_layout(
+        audio,
+        good_foa_wav(),
+        good_foa_wav(seed=7),
+        declared_layouts=("ambisonics",),
+    )
+    short = audio / "v3b_001_gateA" / "audio" / "foa" / "mixture.wav"
+    sf.write(short, good_foa_wav(seed=7)[:-1], 16000)
+    rc, report = run(
+        tmp_path,
+        design,
+        audio,
+        out_name="foa-clock-report.json",
+        layouts="ambisonics",
+    )
+    assert rc == 1
+    assert any("expected 16000Hz 80000" in failure for failure in report["failures"])
+
+    silent_root = tmp_path / "silent"
+    design2, audio2 = build_batch(
+        silent_root, good_wav(), wav_gatea=good_wav(seed=7)
+    )
+    add_foa_layout(
+        audio2,
+        np.zeros((80000, 4), dtype=np.float32),
+        good_foa_wav(seed=7),
+        declared_layouts=("ambisonics",),
+    )
+    rc, report = run(
+        silent_root,
+        design2,
+        audio2,
+        out_name="foa-silent-report.json",
+        layouts="ambisonics",
+    )
+    assert rc == 1
+    assert any("FOA channels are silent" in failure for failure in report["failures"])
+
+
+def test_receipt_declared_layouts_are_used_without_cli_override(tmp_path):
+    design, audio = build_batch(
+        tmp_path, good_wav(), wav_gatea=good_wav(seed=7)
+    )
+    add_foa_layout(
+        audio,
+        good_foa_wav(),
+        good_foa_wav(seed=7),
+        declared_layouts=("binaural", "ambisonics"),
+    )
+    rc, report = run(
+        tmp_path,
+        design,
+        audio,
+        out_name="declared-layout-report.json",
+    )
+    assert rc == 0
+    assert report["expected_layouts"] == ["binaural", "ambisonics"]
+
+
+def test_receipt_foa_layout_contract_rejects_wrong_labels(tmp_path):
+    design, audio = build_batch(
+        tmp_path, good_wav(), wav_gatea=good_wav(seed=7)
+    )
+    add_foa_layout(
+        audio,
+        good_foa_wav(),
+        good_foa_wav(seed=7),
+        declared_layouts=("ambisonics",),
+    )
+    receipt_path = audio / "v3b_001" / "research_receipt.json"
+    receipt = json.loads(receipt_path.read_text())
+    receipt["audio"]["by_layout"]["ambisonics"]["channel_labels"] = [
+        "W", "X", "Z", "Y"
+    ]
+    receipt_path.write_text(json.dumps(receipt))
+    rc, report = run(
+        tmp_path,
+        design,
+        audio,
+        out_name="foa-label-report.json",
+        layouts="ambisonics",
+    )
+    assert rc == 1
+    assert any("channel_labels" in failure for failure in report["failures"])
 
 
 def test_mono_fold_caught(tmp_path):
