@@ -15,6 +15,7 @@ import importlib.util
 import json
 import math
 import re
+import shutil
 import sys
 from pathlib import Path
 from typing import Any, Callable
@@ -31,6 +32,7 @@ def cli() -> argparse.Namespace:
     parser.add_argument("--output-root", type=Path, required=True)
     parser.add_argument("--profile", default="room_b_detail_v4")
     parser.add_argument("--room-id")
+    parser.add_argument("--texture-root", type=Path)
     argv = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else sys.argv[1:]
     return parser.parse_args(argv)
 
@@ -404,7 +406,100 @@ def connect_baked_texture(
     links.new(shader.outputs["BSDF"], output.inputs["Surface"])
 
 
-def add_detail_materials(output: Path) -> dict[str, Any]:
+def load_source_image(
+    source: Path,
+    destination: Path,
+    *,
+    noncolor: bool = False,
+) -> bpy.types.Image:
+    require(source.is_file(), f"missing authored PBR texture: {source}")
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    if source.suffix.casefold() in {".exr", ".hdr"}:
+        image = bpy.data.images.load(str(source), check_existing=False)
+        # Blender lazily decodes EXR/HDR.  Changing colorspace can invalidate
+        # the transient buffer, so reload from the source before scaling and
+        # saving an ordinary exportable PNG.
+        _ = image.pixels[0]
+        if noncolor:
+            image.colorspace_settings.name = "Non-Color"
+            image.filepath = str(source)
+            image.reload()
+        image.scale(2048, 2048)
+        image.filepath_raw = str(destination)
+        image.file_format = "PNG"
+        image.save()
+    else:
+        shutil.copy2(source, destination)
+        image = bpy.data.images.load(str(destination), check_existing=False)
+        if noncolor:
+            image.colorspace_settings.name = "Non-Color"
+    return image
+
+
+def connect_pbr_texture(
+    mat: bpy.types.Material,
+    base_image: bpy.types.Image,
+    rough_image: bpy.types.Image | None,
+    normal_image: bpy.types.Image | None,
+    *,
+    roughness: float,
+    metallic: float = 0.0,
+    tint: tuple[float, float, float, float] | None = None,
+) -> None:
+    mat.use_nodes = True
+    nodes = mat.node_tree.nodes
+    links = mat.node_tree.links
+    nodes.clear()
+    output = nodes.new("ShaderNodeOutputMaterial")
+    output.name = "Material Output"
+    shader = nodes.new("ShaderNodeBsdfPrincipled")
+    shader.name = "Principled BSDF"
+    shader.inputs["Roughness"].default_value = roughness
+    shader.inputs["Metallic"].default_value = metallic
+    texcoord = nodes.new("ShaderNodeTexCoord")
+    base = nodes.new("ShaderNodeTexImage")
+    base.name = "ScannedBaseColor"
+    base.image = base_image
+    base.extension = "REPEAT"
+    base.interpolation = "Linear"
+    links.new(texcoord.outputs["UV"], base.inputs["Vector"])
+    base_output = base.outputs["Color"]
+    if tint is not None:
+        mix = nodes.new("ShaderNodeMixRGB")
+        mix.name = "AuthoredWoodTint"
+        mix.blend_type = "MULTIPLY"
+        mix.inputs["Fac"].default_value = 1.0
+        mix.inputs[2].default_value = tint
+        links.new(base_output, mix.inputs[1])
+        base_output = mix.outputs["Color"]
+    links.new(base_output, shader.inputs["Base Color"])
+    if rough_image is not None:
+        rough = nodes.new("ShaderNodeTexImage")
+        rough.name = "ScannedRoughness"
+        rough.image = rough_image
+        rough.image.colorspace_settings.name = "Non-Color"
+        rough.extension = "REPEAT"
+        links.new(texcoord.outputs["UV"], rough.inputs["Vector"])
+        links.new(rough.outputs["Color"], shader.inputs["Roughness"])
+    if normal_image is not None:
+        normal = nodes.new("ShaderNodeTexImage")
+        normal.name = "ScannedNormal"
+        normal.image = normal_image
+        normal.image.colorspace_settings.name = "Non-Color"
+        normal.extension = "REPEAT"
+        normal_map = nodes.new("ShaderNodeNormalMap")
+        normal_map.name = "ScannedNormalMap"
+        normal_map.inputs["Strength"].default_value = 0.42
+        links.new(texcoord.outputs["UV"], normal.inputs["Vector"])
+        links.new(normal.outputs["Color"], normal_map.inputs["Color"])
+        links.new(normal_map.outputs["Normal"], shader.inputs["Normal"])
+    links.new(shader.outputs["BSDF"], output.inputs["Surface"])
+
+
+def add_detail_materials(
+    output: Path,
+    source_texture_root: Path | None = None,
+) -> dict[str, Any]:
     texture_root = output / "textures"
     texture_root.mkdir(parents=True, exist_ok=True)
     details: dict[str, Any] = {"textures": [], "materials": {}}
@@ -414,7 +509,11 @@ def add_detail_materials(output: Path) -> dict[str, Any]:
         relative: str,
         kind: str,
     ) -> bpy.types.Image:
-        details["textures"].append({"path": relative, "kind": kind, "exists": Path(image.filepath_raw).is_file()})
+        details["textures"].append({
+            "path": relative,
+            "kind": kind,
+            "exists": Path(image.filepath_raw).is_file(),
+        })
         return image
 
     walnut = register_image(
@@ -424,7 +523,7 @@ def add_detail_materials(output: Path) -> dict[str, Any]:
             lambda u, v: wood_pattern(u, v, (0.30, 0.14, 0.055), 0.42),
         ),
         "textures/room_b_walnut_grain.png",
-        "wood_grain",
+        "wood_grain_fallback",
     )
     oak = register_image(
         make_textured_image(
@@ -433,7 +532,7 @@ def add_detail_materials(output: Path) -> dict[str, Any]:
             lambda u, v: wood_pattern(u, v, (0.57, 0.34, 0.16), 0.30),
         ),
         "textures/room_b_oak_grain.png",
-        "wood_grain",
+        "wood_grain_fallback",
     )
     sage = register_image(
         make_textured_image(
@@ -442,7 +541,7 @@ def add_detail_materials(output: Path) -> dict[str, Any]:
             lambda u, v: wood_pattern(u, v, (0.22, 0.34, 0.26), 0.18),
         ),
         "textures/room_b_sage_grain.png",
-        "painted_wood_grain",
+        "painted_wood_grain_fallback",
     )
     fabric = register_image(
         make_textured_image(
@@ -460,7 +559,7 @@ def add_detail_materials(output: Path) -> dict[str, Any]:
             lambda u, v: roughness_pattern(u, v, 0.52),
         ),
         "textures/room_b_wood_roughness.png",
-        "roughness_noncolor",
+        "roughness_noncolor_fallback",
     )
     fabric_rough = register_image(
         make_textured_image(
@@ -472,22 +571,75 @@ def add_detail_materials(output: Path) -> dict[str, Any]:
         "roughness_noncolor",
     )
 
-    wood_specs = {
-        "RoomB_Walnut": (walnut, walnut_rough, 0.50, 0.0, 0.38),
-        "RoomB_OakFloor": (oak, walnut_rough, 0.64, 0.0, 0.30),
-        "RoomB_SageCabinet": (sage, walnut_rough, 0.58, 0.0, 0.18),
-    }
-    for name, (image, rough, value, metallic, tile) in wood_specs.items():
+    scanned: dict[str, bpy.types.Image] = {}
+    if source_texture_root is not None:
+        source_texture_root = source_texture_root.expanduser().resolve(strict=True)
+        wood_root = source_texture_root / "lacquered_cherry_wood"
+        scanned["wood_base"] = register_image(
+            load_source_image(
+                wood_root / "lacquered_cherry_wood_diff_4k.jpg",
+                texture_root / "room_b_scanned_wood_diff.jpg",
+            ),
+            "textures/room_b_scanned_wood_diff.jpg",
+            "scanned_pbr_base_color",
+        )
+        scanned["wood_rough"] = register_image(
+            load_source_image(
+                wood_root / "lacquered_cherry_wood_rough_4k.exr",
+                texture_root / "room_b_scanned_wood_rough.png",
+                noncolor=True,
+            ),
+            "textures/room_b_scanned_wood_rough.png",
+            "scanned_pbr_roughness",
+        )
+        scanned["wood_normal"] = register_image(
+            load_source_image(
+                wood_root / "lacquered_cherry_wood_nor_gl_4k.exr",
+                texture_root / "room_b_scanned_wood_normal.png",
+                noncolor=True,
+            ),
+            "textures/room_b_scanned_wood_normal.png",
+            "scanned_pbr_normal",
+        )
+        details["source_texture_root"] = str(source_texture_root)
+
+    if scanned:
+        wood_specs = {
+            "RoomB_Walnut": (scanned["wood_base"], scanned["wood_rough"], scanned["wood_normal"], 0.50, 0.0, 0.42, None),
+            "RoomB_OakFloor": (scanned["wood_base"], scanned["wood_rough"], scanned["wood_normal"], 0.62, 0.0, 0.75, None),
+            "RoomB_SageCabinet": (scanned["wood_base"], scanned["wood_rough"], scanned["wood_normal"], 0.58, 0.0, 0.42, (0.40, 0.72, 0.46, 1.0)),
+        }
+    else:
+        wood_specs = {
+            "RoomB_Walnut": (walnut, walnut_rough, None, 0.50, 0.0, 0.38, None),
+            "RoomB_OakFloor": (oak, walnut_rough, None, 0.64, 0.0, 0.30, None),
+            "RoomB_SageCabinet": (sage, walnut_rough, None, 0.58, 0.0, 0.18, None),
+        }
+    for name, (image, rough, normal, value, metallic, tile, tint) in wood_specs.items():
         mat = bpy.data.materials.get(name)
         if mat is None:
             continue
-        connect_baked_texture(mat, image, roughness=value, roughness_image=rough, metallic=metallic)
+        if scanned:
+            connect_pbr_texture(
+                mat, image, rough, normal,
+                roughness=value, metallic=metallic, tint=tint,
+            )
+        else:
+            connect_baked_texture(
+                mat, image, roughness=value,
+                roughness_image=rough, metallic=metallic,
+            )
         for obj in bpy.data.objects:
-            if obj.type == "MESH" and any(slot.material and slot.material.name == name for slot in obj.material_slots):
+            if obj.type == "MESH" and any(
+                slot.material and slot.material.name == name
+                for slot in obj.material_slots
+            ):
                 projected_uvs(obj, tile)
         details["materials"][name] = {
             "base_color_texture": str(image.filepath_raw),
             "roughness_texture": str(rough.filepath_raw),
+            "normal_texture": str(normal.filepath_raw) if normal is not None else None,
+            "texture_provenance": "scanned_lacquered_cherry_wood" if scanned else "baked_fallback",
             "uv_tile_m": tile,
             "roughness_default": value,
             "metallic": metallic,
@@ -506,7 +658,10 @@ def add_detail_materials(output: Path) -> dict[str, Any]:
             continue
         connect_baked_texture(mat, fabric, roughness=value, roughness_image=fabric_rough)
         for obj in bpy.data.objects:
-            if obj.type == "MESH" and any(slot.material and slot.material.name == name for slot in obj.material_slots):
+            if obj.type == "MESH" and any(
+                slot.material and slot.material.name == name
+                for slot in obj.material_slots
+            ):
                 projected_uvs(obj, 0.12)
         details["materials"][name] = {
             "base_color_texture": str(fabric.filepath_raw),
@@ -530,6 +685,8 @@ def add_detail_materials(output: Path) -> dict[str, Any]:
         if shader is not None:
             shader.inputs["Roughness"].default_value = rough
             shader.inputs["Metallic"].default_value = metallic
+            if name == "RoomB_BrushedSteel":
+                shader.inputs["Base Color"].default_value = (0.58, 0.62, 0.65, 1.0)
         details["materials"].setdefault(name, {
             "base_color_texture": None,
             "roughness_texture": None,
@@ -539,11 +696,36 @@ def add_detail_materials(output: Path) -> dict[str, Any]:
         })
     return details
 
-
 def remove_object(obj: bpy.types.Object) -> None:
     bpy.data.objects.remove(obj, do_unlink=True)
 
 
+
+def smooth_soft_furniture(changes: list[str]) -> None:
+    """Use evaluated smooth shading and weighted normals for rounded upholstery."""
+    changed = 0
+    for obj in bpy.data.objects:
+        if obj.type != "MESH":
+            continue
+        name = obj.name.casefold()
+        if not any(token in name for token in (
+            "sofa", "cushion", "pillow", "dining_table_chair",
+        )):
+            continue
+        for polygon in obj.data.polygons:
+            polygon.use_smooth = True
+        for modifier in obj.modifiers:
+            if modifier.type == "BEVEL":
+                modifier.segments = max(int(modifier.segments), 8)
+                if hasattr(modifier, "harden_normals"):
+                    modifier.harden_normals = True
+        if not any(modifier.type == "WEIGHTED_NORMAL" for modifier in obj.modifiers):
+            normal = obj.modifiers.new("DetailWeightedNormals", "WEIGHTED_NORMAL")
+            normal.keep_sharp = True
+            normal.weight = 50
+        changed += 1
+    if changed:
+        changes.append(f"smooth_weighted_normals_soft_furniture_{changed}")
 def add_curved_chair_details(
     furniture: bpy.types.Collection,
     fabric: bpy.types.Material,
@@ -591,7 +773,7 @@ def add_curved_chair_details(
             seat,
             (0.0, -seat_d * 0.35, -0.23),
             (seat_w * 0.78, 0.035, 0.045),
-            metal,
+            frame,
             furniture,
             bevel=0.008,
         )
@@ -600,15 +782,19 @@ def add_curved_chair_details(
             seat,
             (seat_w * 0.36, 0.0, -0.23),
             (0.035, seat_d * 0.68, 0.045),
-            metal,
+            frame,
             furniture,
             bevel=0.008,
         )
+        for leg in bpy.data.objects:
+            if leg.type == "MESH" and leg.name.startswith(prefix + "_leg_"):
+                leg.data.materials.clear()
+                leg.data.materials.append(frame)
 
         # Slightly bowed backboard: front/back surfaces are closed and the
         # curve is visible without changing the measured source back object.
-        half_w = min(back_w * 0.47, 0.27)
-        half_h = min(back_h * 0.45, 0.31)
+        half_w = min(back_w * 0.44, 0.24)
+        half_h = min(back_h * 0.36, 0.25)
         thickness = min(back_d * 0.45, 0.035)
         segments = 8
         vertices: list[tuple[float, float, float]] = []
@@ -651,14 +837,22 @@ def add_curved_chair_details(
             fabric,
             furniture,
         )
-        panel.location = panel_center
-        panel.rotation_euler.z = float(back.rotation_euler.z)
+        old_mesh = back.data
+        back.data = panel.data
+        back.data.name = back.name + "_Mesh"
+        back.location = panel_center
+        back.data.materials.clear()
+        back.data.materials.append(frame)
+        remove_object(panel)
+        if old_mesh.users == 0:
+            bpy.data.meshes.remove(old_mesh)
         # Pipe the front silhouette; this is a separate evaluated mesh in
-        # both GLB and USD rather than a Blender-only bevel.
+        # both GLB and USD rather than a Blender-only bevel.  The old thick
+        # slab has been replaced in-place under the stable backrest object ID.
         front_y = -thickness * 0.5 + 0.024
         create_pipe_loop(
             f"RoomB_Detail_BackboardPiping_{index}",
-            panel,
+            back,
             [
                 (-half_w, front_y, -half_h),
                 (half_w, front_y, -half_h),
@@ -682,7 +876,7 @@ def add_curved_chair_details(
                 bevel=0.007,
             )
         changes.extend([
-            f"curved_backboard_{seat.name}",
+            f"replaced_thick_backboard_with_curved_panel_{seat.name}",
             f"seat_piping_{seat.name}",
             f"chair_joinery_rails_{seat.name}",
         ])
@@ -691,7 +885,7 @@ def add_curved_chair_details(
             "back_object_id": back.name,
             "seat_top_m": round(seat_top, 6),
             "source_front_preserved": True,
-            "backboard_object_id": panel.name,
+            "backboard_object_id": back.name,
         })
     return references
 
@@ -875,65 +1069,150 @@ def add_rect_basin(
     return obj
 
 
+def create_countertop_frame(
+    name: str,
+    *,
+    outer_center: Vector,
+    outer_size: tuple[float, float],
+    hole_center: Vector,
+    hole_size: tuple[float, float],
+    z_center: float,
+    thickness: float,
+    mat: bpy.types.Material,
+    coll: bpy.types.Collection,
+) -> bpy.types.Object:
+    """Build a four-piece countertop frame as one valid mesh, no boolean ngons."""
+    ox, oy = outer_size
+    hx, hy = hole_size
+    outer_min_x = outer_center.x - ox * 0.5
+    outer_max_x = outer_center.x + ox * 0.5
+    outer_min_y = outer_center.y - oy * 0.5
+    outer_max_y = outer_center.y + oy * 0.5
+    hole_min_x = hole_center.x - hx * 0.5
+    hole_max_x = hole_center.x + hx * 0.5
+    hole_min_y = hole_center.y - hy * 0.5
+    hole_max_y = hole_center.y + hy * 0.5
+    pieces = [
+        (outer_min_x, outer_min_y, hole_min_x - outer_min_x, oy),
+        (hole_max_x, outer_min_y, outer_max_x - hole_max_x, oy),
+        (hole_min_x, outer_min_y, hole_max_x - hole_min_x, hole_min_y - outer_min_y),
+        (hole_min_x, hole_max_y, hole_max_x - hole_min_x, outer_max_y - hole_max_y),
+    ]
+    mesh = bpy.data.meshes.new(name + "_Mesh")
+    builder = bmesh.new()
+    for cx, cy, sx, sy in pieces:
+        if sx <= 0.0 or sy <= 0.0:
+            continue
+        made = bmesh.ops.create_cube(builder, size=1.0)
+        for vertex in made["verts"]:
+            vertex.co.x = (vertex.co.x * sx) + cx
+            vertex.co.y = (vertex.co.y * sy) + cy
+            vertex.co.z = vertex.co.z * thickness + z_center
+    builder.to_mesh(mesh)
+    builder.free()
+    mesh.validate(verbose=True)
+    mesh.update()
+    obj = bpy.data.objects.new(name, mesh)
+    coll.objects.link(obj)
+    obj.data.materials.append(mat)
+    bevel = obj.modifiers.new("RoomB_CountertopRoundover", "BEVEL")
+    bevel.width = 0.022
+    bevel.segments = 4
+    bevel.limit_method = "ANGLE"
+    return obj
+
+
 def apply_countertop_sink_cutout(
     furniture: bpy.types.Collection,
     stone: bpy.types.Material,
-    metal: bpy.types.Material,
+    steel: bpy.types.Material,
     changes: list[str],
 ) -> dict[str, Any]:
     top = bpy.data.objects.get("kitchen_counter_run_top")
     require(top is not None and top.type == "MESH", "missing kitchen countertop")
-    center = Vector((4.10, 3.22, 1.03))
-    cutter = create_box(
-        "RoomB_TemporarySinkCutter",
-        center,
-        (0.82, 0.48, 0.30),
-        stone,
-        furniture,
-        bevel=0.035,
+    outer_center = top.location.copy()
+    outer_w, outer_d, _ = local_dimensions(top)
+    outer_size = (outer_w, outer_d)
+    z_center = float(top.location.z)
+    hole_center = Vector((4.10, 3.25, z_center))
+    hole_size = (0.82, 0.48)
+    remove_object(top)
+    top = create_countertop_frame(
+        "kitchen_counter_run_top",
+        outer_center=outer_center,
+        outer_size=outer_size,
+        hole_center=hole_center,
+        hole_size=hole_size,
+        z_center=z_center,
+        thickness=0.08,
+        mat=stone,
+        coll=furniture,
     )
-    bpy.context.view_layer.objects.active = cutter
-    cutter.select_set(True)
-    bpy.context.view_layer.objects.active = top
-    top.select_set(True)
-    modifier = top.modifiers.new("RoomB_ActualSinkOpening", "BOOLEAN")
-    modifier.operation = "DIFFERENCE"
-    modifier.solver = "EXACT"
-    modifier.object = cutter
-    modifier_index = top.modifiers.find(modifier.name)
-    if modifier_index > 0:
-        top.modifiers.move(modifier_index, 0)
-    bpy.context.view_layer.objects.active = top
-    try:
-        bpy.ops.object.modifier_apply(modifier=modifier.name)
-    except RuntimeError as exc:
-        remove_object(cutter)
-        raise RuntimeError(f"countertop sink cutout failed: {exc}") from exc
-    remove_object(cutter)
     old_basin = bpy.data.objects.get("kitchen_sink_basin")
     if old_basin is not None:
         remove_object(old_basin)
     basin = add_rect_basin(
         "kitchen_sink_basin",
-        (center.x, center.y, 1.005),
-        (0.82, 0.48),
-        metal,
+        (hole_center.x, hole_center.y, z_center + 0.005),
+        hole_size,
+        steel,
         ensure_collection("Props"),
         depth=0.15,
     )
+    props = ensure_collection("Props")
+    old_faucet = bpy.data.objects.get("kitchen_faucet")
+    if old_faucet is not None:
+        remove_object(old_faucet)
+    stem = create_cylinder(
+        "kitchen_faucet",
+        (4.35, 3.08, 1.28),
+        0.023,
+        0.32,
+        steel,
+        props,
+        vertices=32,
+    )
+    spout = create_curve_mesh(
+        "RoomB_SinkFaucetSpout",
+        [
+            (4.35, 3.08, 1.40),
+            (4.35, 3.08, 1.52),
+            (4.32, 3.08, 1.59),
+            (4.25, 3.08, 1.63),
+            (4.17, 3.08, 1.62),
+            (4.11, 3.08, 1.56),
+            (4.11, 3.08, 1.48),
+        ],
+        steel,
+        props,
+        bevel_depth=0.020,
+    )
+    outlet = create_cylinder(
+        "RoomB_SinkFaucetOutlet",
+        (4.11, 3.08, 1.47),
+        0.023,
+        0.075,
+        steel,
+        props,
+        vertices=24,
+    )
+    for obj in (stem, spout, outlet):
+        for polygon in obj.data.polygons:
+            polygon.use_smooth = True
     changes.extend([
-        "rounded_kitchen_countertop",
-        "cut_real_sink_opening",
-        "added_hollow_sink_basin",
+        "replaced_boolean_countertop_with_valid_four_piece_sink_frame",
+        "added_hollow_sink_basin_without_boolean_ngon",
+        "replaced_sink_column_with_complete_curved_faucet",
     ])
     return {
         "countertop_object_id": top.name,
-        "opening_center_m": [round(float(v), 6) for v in center],
-        "opening_size_m": [0.82, 0.48, 0.30],
+        "opening_center_m": [round(float(v), 6) for v in hole_center],
+        "opening_size_m": [hole_size[0], hole_size[1], 0.30],
         "basin_object_id": basin.name,
-        "cavity_status": "geometry_opening_with_hollow_basin",
+        "faucet_object_ids": [stem.name, spout.name, outlet.name],
+        "cavity_status": "four_piece_countertop_opening_with_hollow_basin",
+        "topology_status": "explicit_quads_no_boolean_ngon",
     }
-
 
 def add_cabinet_panels(
     furniture: bpy.types.Collection,
@@ -1055,9 +1334,9 @@ def add_review_cameras(cameras_coll: bpy.types.Collection) -> list[dict[str, Any
         },
         {
             "camera_id": "REVIEW_CLOSE_KITCHEN_DETAIL",
-            "position_m": [5.05, 2.18, 1.38],
-            "target_m": [4.10, 3.20, 1.04],
-            "focal_length_mm": 55.0,
+            "position_m": [5.30, 2.00, 1.72],
+            "target_m": [4.10, 3.20, 1.24],
+            "focal_length_mm": 50.0,
         },
         {
             "camera_id": "REVIEW_CLOSE_LIVING_DETAIL",
@@ -1210,10 +1489,12 @@ def main() -> int:
     _ = architectural
 
     changes: list[str] = []
-    material_report = add_detail_materials(output)
+    material_report = add_detail_materials(output, args.texture_root)
     fabric = bpy.data.materials.get("RoomB_WarmFabric") or create_material("RoomB_WarmFabric", (0.35, 0.46, 0.42, 1.0), roughness=0.84)
     piping = create_material("RoomB_FabricPiping", (0.11, 0.16, 0.14, 1.0), roughness=0.74)
-    frame = create_material("RoomB_ChairFrame", (0.19, 0.10, 0.045, 1.0), roughness=0.46)
+    frame = bpy.data.materials.get("RoomB_Walnut") or create_material(
+        "RoomB_ChairFrame", (0.19, 0.10, 0.045, 1.0), roughness=0.46
+    )
     metal = create_material("RoomB_ChairMetal", (0.08, 0.09, 0.085, 1.0), roughness=0.34, metallic=0.78)
     ceramic = bpy.data.materials.get("RoomB_Ceramic") or create_material(
         "RoomB_Ceramic", (0.84, 0.86, 0.83, 1.0), roughness=0.30
@@ -1236,7 +1517,8 @@ def main() -> int:
     )
     tableware_ids = add_hollow_tableware(props, ceramic, metal, changes)
     cabinet_ids = add_cabinet_panels(furniture, props, cabinet, handle, dark, changes)
-    sink_ref = apply_countertop_sink_cutout(furniture, stone, metal, changes)
+    sink_ref = apply_countertop_sink_cutout(furniture, stone, handle, changes)
+    smooth_soft_furniture(changes)
     review_cameras = add_review_cameras(cameras_coll)
 
     # Generate all preview images after all evaluated geometry and materials are
@@ -1354,7 +1636,8 @@ def main() -> int:
             "cabinet_detail_objects": len(cabinet_ids),
         },
         "seat_reference_policy": "seat_top_m_and_front_world_preserved_from_v3_sidecar",
-        "material_export_policy": "procedural_looking_patterns_baked_to_png",
+        "material_export_policy": "scanned_pbr_where_available_plus_baked_fabric_fallback",
+        "source_texture_root": str(args.texture_root) if args.texture_root is not None else None,
         "materials": material_report,
         "sink": sink_ref,
         "review_cameras": review_cameras,
