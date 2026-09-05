@@ -162,11 +162,17 @@ def _normalize_object(raw: Mapping[str, Any], index: int) -> dict[str, Any]:
         _first_present(raw, ("object_id", "id", "name")), owner=f"{owner}.object_id"
     )
     category = str(
-        _first_present(raw, ("semantic_class", "category", "class")) or "unknown"
+        _first_present(raw, ("semantic_class", "category", "class", "kind")) or "unknown"
     )
     role = str(raw.get("navigation_role") or "ground_blocker")
 
     raw_bounds = raw.get("bounds_xyz_m")
+    if raw_bounds is None and isinstance(raw.get("world_bounds_m"), Mapping):
+        world_bounds = raw["world_bounds_m"]
+        raw_bounds = [
+            world_bounds.get("min_m", world_bounds.get("minimum_m")),
+            world_bounds.get("max_m", world_bounds.get("maximum_m")),
+        ]
     if raw_bounds is not None:
         if (
             isinstance(raw_bounds, (str, bytes))
@@ -195,7 +201,7 @@ def _normalize_object(raw: Mapping[str, Any], index: int) -> dict[str, Any]:
         if any(value <= 0.0 for value in dimensions):
             raise FurnitureLayoutError(f"{owner}.dimensions_m must be positive")
         center_value = _first_present(
-            raw, ("position_blender_m", "center_xyz_m", "position_xyz_m")
+            raw, ("position_blender_m", "center_xyz_m", "position_xyz_m", "location_m")
         )
         if center_value is not None:
             center = _vector(center_value, 3, owner=f"{owner}.center")
@@ -223,14 +229,15 @@ def _normalize_object(raw: Mapping[str, Any], index: int) -> dict[str, Any]:
         "center_authoring_m": center,
         "dimensions_m": dimensions,
         "bounds_xyz_m": bounds,
-        "source": raw.get("source", "room_metadata"),
+        "source": raw.get("source", raw.get("geometry_scope", "room_metadata")),
+        "geometry_ref": deepcopy(raw.get("geometry_ref")),
     }
 
 
 def _object_records(value: Mapping[str, Any] | None) -> list[Mapping[str, Any]]:
     if value is None:
         return []
-    for key in ("objects", "furniture", "items"):
+    for key in ("objects", "furniture_objects", "furniture", "items", "furniture_assemblies"):
         entries = value.get(key)
         if isinstance(entries, list):
             return [item for item in entries if isinstance(item, Mapping)]
@@ -281,11 +288,14 @@ def _normalize_seat(
             "furniture_forward_yaw_deg",
             "native_forward_yaw_deg",
             "forward_yaw_deg",
+            "facing_yaw_world_deg",
         ),
     )
     declared_forward_vector = _first_present(
-        raw, ("chair_forward_xy", "furniture_forward_xy", "forward_vector_xy")
+        raw, ("chair_forward_xy", "furniture_forward_xy", "forward_vector_xy", "facing_vector_world")
     )
+    if isinstance(declared_forward_vector, Sequence) and len(declared_forward_vector) == 3:
+        declared_forward_vector = list(declared_forward_vector[:2])
     if declared_forward is not None:
         facing = _finite(declared_forward, owner=f"{owner}.chair_forward_yaw_deg")
         facing_source = "native_chair_forward"
@@ -308,10 +318,13 @@ def _normalize_seat(
         else position[2],
         owner=f"{owner}.seat_surface_height_m",
     )
-    parent = _first_present(raw, ("furniture_id", "parent_object_id", "object_id"))
+    parent = _first_present(
+        raw, ("furniture_id", "parent_object_id", "object_id", "assembly_id", "table_group_id")
+    )
     resolved_parent = str(parent or furniture_id) if (parent or furniture_id) else None
     category = str(
         _first_present(raw, ("semantic_class", "category"))
+        or _first_present(raw, ("assembly_kind", "kind"))
         or furniture_category
         or "seat"
     )
@@ -325,6 +338,7 @@ def _normalize_seat(
     return {
         "affordance_id": seat_id,
         "furniture_id": resolved_parent,
+        "table_group_id": raw.get("table_group_id"),
         "semantic_class": category,
         "position_authoring_m": position,
         "position_habitat_m": [position[0], position[2], position[1]],
@@ -343,7 +357,7 @@ def _normalize_seat(
 def _seat_records(value: Mapping[str, Any] | None) -> list[Mapping[str, Any]]:
     if value is None:
         return []
-    for key in ("affordances", "seat_points", "seats"):
+    for key in ("seat_points", "affordances", "seats"):
         entries = value.get(key)
         if isinstance(entries, list):
             return [item for item in entries if isinstance(item, Mapping)]
@@ -690,11 +704,16 @@ def _free_camera_point(
     objects: Sequence[Mapping[str, Any]],
     *,
     clearance_m: float,
+    camera_height_m: float,
 ) -> bool:
     for item in objects:
         if not _ground_blocker(item):
             continue
         bounds = item["bounds_xyz_m"]
+        # A ceiling, hanging light or other elevated mesh can cover the same
+        # XY cell without occupying the camera's walkable height.
+        if bounds[0][2] > camera_height_m + clearance_m or bounds[1][2] < -clearance_m:
+            continue
         if (
             bounds[0][0] - clearance_m <= x <= bounds[1][0] + clearance_m
             and bounds[0][1] - clearance_m <= y <= bounds[1][1] + clearance_m
@@ -751,7 +770,13 @@ def generate_camera_candidates(
     positions: list[tuple[float, float]] = []
     for x in x_values:
         for y in y_values:
-            if _free_camera_point(x, y, layout.get("objects", []), clearance_m=clearance):
+            if _free_camera_point(
+                x,
+                y,
+                layout.get("objects", []),
+                clearance_m=clearance,
+                camera_height_m=height,
+            ):
                 positions.append((x, y))
     if not positions:
         raise FurnitureLayoutError("geometry grid has no camera point after clearance")
@@ -1438,6 +1463,9 @@ def build_seat_placements(
                     "facing_source": seat.get("facing_source", "declared_metadata"),
                     "facing_candidate_yaw_deg": seat.get("facing_candidate_yaw_deg"),
                     "facing_candidate_source": seat.get("facing_candidate_source"),
+                    "table_group_id": seat.get("table_group_id"),
+                    "geometry_source": seat.get("geometry_source"),
+                    "backrest_object_id": seat.get("backrest_object_id"),
                     "reference_is_not_actor_root": True,
                 },
                 "root_from_seat_m": list(root_from_seat) if root_from_seat is not None else None,
