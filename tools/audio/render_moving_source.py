@@ -305,7 +305,7 @@ def convolve_route_with_clock(
     dry = dry_signal(clock.sample_count, seed, clock.sample_rate_hz)
     tail = max(ir.shape[1] for ir in responses)
     wet = np.zeros((channels, clock.sample_count + tail), dtype=float)
-    for (start, end), ir in zip(blocks, responses, strict=True):
+    for (start, end), ir in zip(blocks, responses):
         block = dry[start:end]
         if not block.size:
             continue
