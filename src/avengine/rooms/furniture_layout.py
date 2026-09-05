@@ -1347,16 +1347,24 @@ def build_seat_placements(
         if root_from_seat is None:
             root_from_seat = raw.get("root_offset_from_seat_anchor_blender_m")
         if root_from_seat is not None:
-            # The pose request offset is actor-local Blender XYZ.  The room
-            # seat yaw is chair-to-table; the seated asset's local frame is
-            # placed at seat_theta + 90 degrees.  Reference chair/actor yaw
-            # values are calibration context only and never drive a new room.
+            # The pose producer has already rotated its request offset by
+            # reference_chair_yaw_degrees (see seat_root_offset_blender_m).
+            # Undo that reference rotation, then apply the room seat yaw once.
+            # reference_actor_yaw_degrees is calibration context only.
             offset = _vector(
                 root_from_seat,
                 3,
                 owner=f"pose binding {actor_id}.root_from_seat_m",
             )
-            placement_yaw = math.radians(float(seat["facing_yaw_deg"]) + 90.0)
+            reference_yaw = raw.get("reference_chair_yaw_degrees")
+            if reference_yaw is not None:
+                reference_rad = math.radians(
+                    _finite(reference_yaw, owner=f"pose binding {actor_id}.reference_chair_yaw_degrees")
+                )
+                canonical_x = offset[0] * math.cos(-reference_rad) - offset[1] * math.sin(-reference_rad)
+                canonical_y = offset[0] * math.sin(-reference_rad) + offset[1] * math.cos(-reference_rad)
+                offset = [canonical_x, canonical_y, offset[2]]
+            placement_yaw = math.radians(float(seat["facing_yaw_deg"]))
             root_from_seat = [
                 offset[0] * math.cos(placement_yaw) - offset[1] * math.sin(placement_yaw),
                 offset[0] * math.sin(placement_yaw) + offset[1] * math.cos(placement_yaw),
@@ -1421,7 +1429,7 @@ def build_seat_placements(
                 "ue_anatomical_forward_yaw_deg": raw.get("ue_anatomical_forward_yaw_deg"),
                 "actor_scale": raw.get("actor_scale", 1.0),
                 "ue_asset_destination": raw.get("destination"),
-                "pose_orientation_policy": "seat_theta_plus_90_local_offset; reference_actor_yaw_ignored",
+                "pose_orientation_policy": "inverse_reference_chair_then_room_seat_yaw; reference_actor_yaw_ignored",
             }
         )
     return {
@@ -1445,24 +1453,49 @@ def clock_config(
     frame_rate_hz: float = 15.0,
     sample_rate_hz: int = 16_000,
 ) -> dict[str, Any]:
-    if isinstance(frame_count, bool) or frame_count not in (75, 150):
-        raise FurnitureLayoutError("frame_count must be 75 or 150")
-    fps = _finite(frame_rate_hz, owner="frame_rate_hz")
-    if fps <= 0.0:
-        raise FurnitureLayoutError("frame_rate_hz must be positive")
-    if isinstance(sample_rate_hz, bool) or not isinstance(sample_rate_hz, int) or sample_rate_hz <= 0:
-        raise FurnitureLayoutError("sample_rate_hz must be a positive integer")
-    ticks_per_frame = TIME_BASE_HZ / fps
-    if abs(ticks_per_frame - round(ticks_per_frame)) > 1.0e-9:
-        raise FurnitureLayoutError("frame_rate_hz must divide the AVEngine time base")
-    ticks = int(round(ticks_per_frame))
-    sample_count = int(round(frame_count * sample_rate_hz / fps))
-    return {
-        "frame_count": frame_count,
-        "frame_rate_hz": fps,
-        "sample_rate_hz": sample_rate_hz,
-        "time_base_hz": TIME_BASE_HZ,
-        "ticks_per_frame": ticks,
-        "sample_count": sample_count,
-        "duration_seconds": frame_count / fps,
-    }
+    """Return the shared AVEngine clock for any positive frame count."""
+
+    if isinstance(frame_count, bool) or not isinstance(frame_count, int) or frame_count < 1:
+        raise FurnitureLayoutError("frame_count must be a positive integer")
+    try:
+        from avengine.episode_clock import EpisodeClock
+
+        clock = EpisodeClock.from_values(
+            frame_count=frame_count,
+            frame_rate_hz=frame_rate_hz,
+            sample_rate_hz=sample_rate_hz,
+        )
+        rate = clock.frame_rate_hz
+        if rate.denominator != 1 or TIME_BASE_HZ % int(rate) != 0:
+            raise FurnitureLayoutError(
+                "frame_rate_hz must be integral and divide the AVEngine time base"
+            )
+        result = clock.to_dict()
+        result.update(
+            {
+                "time_base_hz": TIME_BASE_HZ,
+                "ticks_per_frame": TIME_BASE_HZ // int(rate),
+                "duration_seconds": clock.clip_seconds_float,
+            }
+        )
+        return result
+    except ImportError:
+        # Keep the pure room module useful in a minimal authoring interpreter;
+        # the repository runtime takes the EpisodeClock path above.
+        fps = _finite(frame_rate_hz, owner="frame_rate_hz")
+        if fps <= 0.0:
+            raise FurnitureLayoutError("frame_rate_hz must be positive")
+        if isinstance(sample_rate_hz, bool) or not isinstance(sample_rate_hz, int) or sample_rate_hz <= 0:
+            raise FurnitureLayoutError("sample_rate_hz must be a positive integer")
+        ticks_per_frame = TIME_BASE_HZ / fps
+        if abs(ticks_per_frame - round(ticks_per_frame)) > 1.0e-9:
+            raise FurnitureLayoutError("frame_rate_hz must divide the AVEngine time base")
+        return {
+            "frame_count": frame_count,
+            "frame_rate_hz": fps,
+            "sample_rate_hz": sample_rate_hz,
+            "time_base_hz": TIME_BASE_HZ,
+            "ticks_per_frame": int(round(ticks_per_frame)),
+            "sample_count": int(round(frame_count * sample_rate_hz / fps)),
+            "duration_seconds": frame_count / fps,
+        }
