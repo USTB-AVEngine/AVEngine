@@ -29,7 +29,7 @@ def cli() -> argparse.Namespace:
     parser.add_argument("--input-root", type=Path, required=True)
     parser.add_argument("--blend", type=Path)
     parser.add_argument("--output-root", type=Path, required=True)
-    parser.add_argument("--profile", default="room_b_detail_v6")
+    parser.add_argument("--profile", default="room_b_detail_v7_materialfix")
     parser.add_argument("--room-id")
     parser.add_argument("--texture-root", type=Path)
     argv = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else sys.argv[1:]
@@ -464,13 +464,39 @@ def connect_pbr_texture(
     links.new(texcoord.outputs["UV"], base.inputs["Vector"])
     base_output = base.outputs["Color"]
     if tint is not None:
-        mix = nodes.new("ShaderNodeMixRGB")
-        mix.name = "AuthoredWoodTint"
-        mix.blend_type = "MULTIPLY"
-        mix.inputs["Fac"].default_value = 1.0
-        mix.inputs[2].default_value = tint
-        links.new(base_output, mix.inputs[1])
-        base_output = mix.outputs["Color"]
+        # USD PreviewSurface/glTF do not preserve an arbitrary Blender MixRGB
+        # chain. Bake its actual scene-linear multiplication into an sRGB PNG.
+        # Image.pixels exposes linear RGB for a loaded sRGB base-color image.
+        import numpy as np
+        rgba = np.empty(len(base_image.pixels), dtype=np.float32)
+        base_image.pixels.foreach_get(rgba)
+        rgba = rgba.reshape((-1, 4))
+        rgba[:, :3] *= np.asarray(tint[:3], dtype=np.float32)
+        baked_path = Path(base_image.filepath_raw).parent / (
+            re.sub(r"[^A-Za-z0-9_]+", "_", mat.name or "material").lower()
+            + "_tinted_basecolor.png"
+        )
+        require(not baked_path.exists(), f"refusing to replace baked base color: {baked_path}")
+        baked = bpy.data.images.new(mat.name + "_TintedBaseColor",
+                                    width=base_image.size[0], height=base_image.size[1],
+                                    alpha=True, float_buffer=False)
+        baked.colorspace_settings.name = "sRGB"
+        baked.pixels.foreach_set(rgba.reshape(-1))
+        baked.filepath_raw = str(baked_path)
+        baked.file_format = "PNG"
+        baked.save()
+        # Decode the actual saved PNG before export, proving one sRGB encode
+        # rather than multiplying encoded bytes or retaining only a RAM image.
+        decoded = bpy.data.images.load(str(baked_path), check_existing=False)
+        decoded.colorspace_settings.name = "sRGB"
+        check = np.empty(len(decoded.pixels), dtype=np.float32)
+        decoded.pixels.foreach_get(check)
+        error = float(np.max(np.abs(check.reshape((-1,4))[:, :3]-rgba[:, :3])))
+        require(error < 0.006, f"baked linear RGB roundtrip differs: {error}")
+        mat["tint_linear_rgb"] = list(tint[:3])
+        mat["tint_bake_roundtrip_max_linear_error"] = error
+        mat["tint_export_policy"] = "linear_multiply_saved_srgb_png_direct_basecolor"
+        base.image = decoded
     links.new(base_output, shader.inputs["Base Color"])
     if rough_image is not None:
         rough = nodes.new("ShaderNodeTexImage")
@@ -675,6 +701,7 @@ def add_detail_materials(
         }
 
     for name, (maps, value, metallic, tile, tint, provenance) in wood_specs.items():
+        maps = dict(maps)
         mat = bpy.data.materials.get(name)
         if mat is None:
             continue
@@ -688,6 +715,10 @@ def add_detail_materials(
                 mat, maps["base"], maps["rough"], maps["normal"],
                 roughness=value, metallic=metallic, tint=tint,
             )
+            if tint is not None:
+                maps["base"] = mat.node_tree.nodes["ScannedBaseColor"].image
+                relative = "textures/" + Path(maps["base"].filepath_raw).name
+                register_image(maps["base"], relative, "linear_tint_baked_srgb_basecolor")
         for obj in bpy.data.objects:
             if obj.type == "MESH" and any(
                 slot.material and slot.material.name == name
@@ -1712,7 +1743,7 @@ def main() -> int:
 
     room_id = args.room_id or source_semantics.get("room_spec_id") or source_semantics.get("room_id") or output.name
     room_id = str(room_id).replace(" ", "_")
-    out_blend = output / f"{room_id}_detailed_v6.blend"
+    out_blend = output / f"{room_id}_detailed_v7.blend"
 
     # External PNGs are intentionally kept beside the output package.  GLB
     # embeds their image payload; USD receives relative texture copies.
@@ -1724,7 +1755,7 @@ def main() -> int:
     )
     glb = helper.export_selection(output)
     usd_module = helper.load_usd_exporter()
-    usd = output / "usd" / f"{room_id}_detailed_v6.usda"
+    usd = output / "usd" / f"{room_id}_detailed_v7.usda"
     usd_record = usd_module.export_static_usd(bpy.context.scene, usd)
 
     source_assemblies = source_semantics.get("furniture_assemblies", [])
