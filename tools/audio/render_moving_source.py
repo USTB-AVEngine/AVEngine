@@ -103,27 +103,11 @@ def _clock_compatibility(base: EpisodeClock, args: argparse.Namespace) -> str:
         args.sample_rate,
         args.clip_seconds,
     )
-    same_as_base = (
-        (args.frame_count is None or args.frame_count == base.frame_count)
-        and (
-            args.frame_rate_hz is None
-            or float(args.frame_rate_hz) == base.frame_rate_float
-        )
-        and (
-            args.sample_rate is None
-            or args.sample_rate == base.sample_rate_hz
-        )
-        and (
-            args.clip_seconds is None
-            or float(args.clip_seconds) == base.clip_seconds_float
-        )
-    )
     return (
         base.compatibility
-        if not any(value is not None for value in values) or same_as_base
+        if not any(value is not None for value in values)
         else "configured"
     )
-
 
 def build_simulator(args, bank, sample_rate):
     scene = bank["scene"]
