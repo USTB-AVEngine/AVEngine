@@ -1251,6 +1251,15 @@ def test_pair_status_remains_partial_when_declared_artifact_is_pending(
     )
     monkeypatch.setattr(
         pipeline,
+        "_run_declared_pixel_producers",
+        lambda *args, **kwargs: {
+            "status": "complete",
+            "root": "declared_pixels_producers",
+            "records": [],
+        },
+    )
+    monkeypatch.setattr(
+        pipeline,
         "_run_declared_pixels",
         lambda *args, **kwargs: {
             "status": "partial",
@@ -1394,6 +1403,9 @@ def test_pair_dispatches_runtime_stages_from_backend_metadata(
     )
     monkeypatch.setattr(pipeline, "_run_verifications", stage("verification"))
     monkeypatch.setattr(
+        pipeline, "_run_declared_pixel_producers", stage("declared_pixel_producers")
+    )
+    monkeypatch.setattr(
         pipeline, "_run_declared_pixels", stage("declared_pixels")
     )
     row = {
@@ -1465,6 +1477,8 @@ def _mp3d_pipeline_runtime_fixture(
     point = batch / "candidate_a"
     point.mkdir(parents=True)
     _write(point / "fact_record.json", {"backend_id": "habitat_native"})
+    _write(point / "actor_selection.json", {"actors": []})
+    _write(point / "timeline.json", {"render": {"frame_count": 75}, "frames": [{}] * 75})
     _write(point / "case_manifest.json", {"clock": {"frame_count": 150}})
     _write(point / "m1_capture_request.json", {"room_id": "room"})
     room = _write(tmp_path / "room.json", {"room_id": "room"})

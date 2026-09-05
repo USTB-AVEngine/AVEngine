@@ -69,10 +69,12 @@ from avengine.qa.pixel_visibility import (
     PIXEL_VISIBILITY_AUTHORITIES,
     PIXEL_VISIBILITY_SCHEMA,
 )
+from avengine.contracts.json_io import sha256_file
 from avengine.qa.runtime_artifacts import (
     MEDIA_CONSUMER_KINDS,
     VISUAL_CAPTURE_KINDS,
     RuntimeArtifactError,
+    declared_audio_variants,
     load_runtime_artifacts,
     registered_pixel_consumer,
     registered_pixel_producer,
@@ -2179,22 +2181,20 @@ def _audio_variants_for_pair(
     batch_root: Path,
     point_ids: Sequence[str],
 ) -> list[str]:
-    """Union request variants with audio variants declared on release media."""
+    """Union request variants with normalized release_media audio variants."""
     variants = list(request["audio_variants"])
     extra: list[str] = []
     for point_id in point_ids:
         fact_path = batch_root / point_id / "fact_record.json"
         if not fact_path.is_file():
             continue
-        fact = _read_json(fact_path)
-        if not isinstance(fact, Mapping):
-            raise PipelineError(f"fact record is not an object: {fact_path}")
-        for release in fact.get("release_media") or []:
-            if not isinstance(release, Mapping):
-                continue
-            value = release.get("audio_variant")
-            if not isinstance(value, str) or not value.strip():
-                continue
+        try:
+            plan = load_runtime_artifacts(batch_root / point_id)
+        except RuntimeArtifactError as error:
+            raise PipelineError(
+                f"{point_id} runtime artifact description is invalid: {error}"
+            ) from error
+        for value in declared_audio_variants(plan):
             name = _safe_component(value, owner="declared audio variant")
             if name not in variants and name not in extra:
                 extra.append(name)
@@ -3534,6 +3534,71 @@ def _pixel_runtime_override(
     return result
 
 
+def _pixel_input_binding(path: Path) -> dict[str, str]:
+    resolved = Path(path).resolve()
+    return {"path": str(resolved), "sha256": sha256_file(resolved)}
+
+
+def _pixel_consumer_reuse_error(
+    output: Path,
+    *,
+    fact: Path,
+    pixel_truth: Path,
+    params: Path,
+    pixel_arrays: Path | None,
+) -> str | None:
+    """Fail closed unless an existing joiner output binds the current inputs.
+
+    Compares the path/sha256 records the joiner already writes. This is not a
+    new hash contract.
+    """
+
+    if not output.is_file():
+        return None
+    try:
+        value = _read_json(output)
+    except PipelineError as exc:
+        return f"declared pixel output is unreadable: {exc}"
+    if not isinstance(value, Mapping):
+        return "declared pixel output must be a JSON object"
+    inputs = value.get("inputs")
+    if not isinstance(inputs, Mapping):
+        return "declared pixel output is missing inputs; write a fresh output"
+    expected: dict[str, Path] = {
+        "fact": Path(fact).resolve(),
+        "pixel_truth": Path(pixel_truth).resolve(),
+        "params": Path(params).resolve(),
+    }
+    if pixel_arrays is not None:
+        expected["pixel_arrays"] = Path(pixel_arrays).resolve()
+    elif inputs.get("pixel_arrays") is not None:
+        return (
+            "declared pixel output records pixel_arrays the current run does not use; "
+            "write a fresh output"
+        )
+    for key, path in expected.items():
+        declared = inputs.get(key)
+        if not isinstance(declared, Mapping):
+            return (
+                f"declared pixel output inputs.{key} is missing; write a fresh output"
+            )
+        try:
+            declared_path = Path(str(declared.get("path"))).expanduser().resolve()
+        except (TypeError, ValueError, OSError) as exc:
+            return f"declared pixel output inputs.{key} path is invalid: {exc}"
+        if declared_path != path:
+            return (
+                f"declared pixel output {key} path does not match current input; "
+                "write a fresh output"
+            )
+        if declared.get("sha256") != sha256_file(path):
+            return (
+                f"declared pixel output {key} sha256 does not match current input; "
+                "write a fresh output"
+            )
+    return None
+
+
 def _pixel_result_state(path: Path) -> tuple[str, str | None]:
     if not path.is_file():
         return "missing", None
@@ -3579,6 +3644,65 @@ def _timeline_frame_count_for_producer(timeline_path: Path, *, owner: str) -> in
     if isinstance(count, bool) or not isinstance(count, int) or count < 1:
         raise PipelineError(f"{owner} timeline frame_count must be a positive integer")
     return count
+
+
+def _pixel_producer_npz_error(
+    arrays_path: Path,
+    truth: Mapping[str, Any],
+    frame_indices: Sequence[int],
+) -> str | None:
+    """Inspect native depth arrays as structured fields, not a zip magic number."""
+
+    if not arrays_path.is_file() or arrays_path.stat().st_size < 4:
+        return "pixel producer native depth arrays are missing"
+    try:
+        import numpy as np
+    except ImportError as exc:
+        return f"pixel producer NPZ cannot be inspected: {exc}"
+    try:
+        payload = np.load(arrays_path, allow_pickle=False)
+    except (OSError, ValueError, TypeError) as exc:
+        return f"pixel producer NPZ is unreadable: {exc}"
+    try:
+        names = set(payload.files)
+        required = ("normal_depth_m", "normal_object_ids_uint32")
+        missing = [name for name in required if name not in names]
+        if missing:
+            return f"pixel producer NPZ is missing {missing}"
+        expected_count = len(frame_indices)
+        normal = np.asarray(payload["normal_depth_m"])
+        object_ids = np.asarray(payload["normal_object_ids_uint32"])
+        if normal.shape[0] != expected_count:
+            return (
+                "pixel producer NPZ normal_depth_m frame axis is "
+                f"{normal.shape[0]}, expected {expected_count}"
+            )
+        if object_ids.shape[0] != expected_count:
+            return (
+                "pixel producer NPZ normal_object_ids_uint32 frame axis is "
+                f"{object_ids.shape[0]}, expected {expected_count}"
+            )
+        spatial = normal.shape[1:]
+        if object_ids.shape[1:] != spatial:
+            return "pixel producer NPZ spatial dimensions do not match"
+        per_instance = truth.get("per_instance")
+        if not isinstance(per_instance, Mapping):
+            return "pixel producer truth has no per_instance object"
+        for slot in per_instance:
+            name = f"target_only_{slot}_depth_m"
+            if name not in names:
+                return f"pixel producer NPZ is missing {name}"
+            array = np.asarray(payload[name])
+            if array.shape[0] != expected_count:
+                return (
+                    f"pixel producer NPZ {name} frame axis is {array.shape[0]}, "
+                    f"expected {expected_count}"
+                )
+            if array.shape[1:] != spatial:
+                return f"pixel producer NPZ {name} spatial dimensions do not match"
+    finally:
+        payload.close()
+    return None
 
 
 def _pixel_producer_resume_error(
@@ -3646,11 +3770,6 @@ def _pixel_producer_resume_error(
         rgb_path = rgb_dir / f"frame_{int(frame):06d}.png"
         if not rgb_path.is_file() or rgb_path.stat().st_size < 1:
             return f"pixel producer RGB frame is missing: {rgb_path.name}"
-    if not arrays_path.is_file() or arrays_path.stat().st_size < 4:
-        return "pixel producer native depth arrays are missing"
-    header = arrays_path.read_bytes()[:2]
-    if header != b"PK":
-        return "pixel producer native depth arrays are not an NPZ archive"
     if not truth_path.is_file():
         return "pixel producer truth is missing"
     try:
@@ -3668,6 +3787,11 @@ def _pixel_producer_resume_error(
     truth_frames = truth.get("frame_indices")
     if truth_frames != frame_indices:
         return "pixel producer truth frame_indices do not match evidence"
+    npz_error = _pixel_producer_npz_error(
+        arrays_path, truth, frame_indices
+    )
+    if npz_error is not None:
+        return npz_error
     artifacts = evidence.get("artifacts")
     if not isinstance(artifacts, Mapping):
         return "pixel producer evidence has no artifacts object"
@@ -3697,12 +3821,29 @@ def _run_declared_pixel_producers(
     for point_id in point_ids:
         fact_path = batch_root / point_id / "fact_record.json"
         if not fact_path.is_file():
+            records.append({
+                "point_id": point_id,
+                "status": "failed",
+                "detail": f"candidate fact is missing: {fact_path}",
+            })
             continue
         try:
             fact = _read_json(fact_path)
-        except PipelineError:
+        except PipelineError as error:
+            records.append({
+                "point_id": point_id,
+                "status": "failed",
+                "detail": f"candidate fact is unreadable: {error}",
+            })
             continue
-        if not isinstance(fact, Mapping) or not fact.get("pixel_producers"):
+        if not isinstance(fact, Mapping):
+            records.append({
+                "point_id": point_id,
+                "status": "failed",
+                "detail": f"candidate fact is not an object: {fact_path}",
+            })
+            continue
+        if not fact.get("pixel_producers"):
             continue
         try:
             plan = load_runtime_artifacts(batch_root / point_id, fact)
@@ -3818,14 +3959,22 @@ def _run_declared_pixel_producers(
                 output.parent / f"{producer_id}.producer.log",
                 timeout=_timeout(runtime, "capture"),
             )
+            post_error = _pixel_producer_resume_error(
+                output, producer, frame_count=frame_count
+            )
+            complete = (
+                run["status"] == "complete"
+                and post_error is None
+                and (output / "evidence.json").is_file()
+            )
             record.update({
-                "status": (
-                    "complete"
-                    if run["status"] == "complete" and truth.is_file()
-                    else "failed"
-                ),
+                "status": "complete" if complete else "failed",
                 "run": run,
-                "detail": None if truth.is_file() else "pixel producer did not write native truth",
+                "frame_count": frame_count,
+                "detail": (
+                    None if complete
+                    else post_error or "pixel producer did not write complete native products"
+                ),
             })
             records.append(record)
     statuses = [record["status"] for record in records]
@@ -3888,6 +4037,16 @@ def _run_declared_pixels(
                     / f"{_safe_component(evidence_id, owner='pixel evidence id')}.json",
                 )
             ).resolve()
+            if pixel_truth is None:
+                produced = _pixel_producer_output(
+                    pair_root, point_id, evidence_id
+                )
+                produced_truth = produced / "pixel_visibility_truth.json"
+                produced_arrays = produced / "native_depth_and_object_ids.npz"
+                if produced_truth.is_file():
+                    pixel_truth = produced_truth
+                    if pixel_arrays is None and produced_arrays.is_file():
+                        pixel_arrays = produced_arrays
             record.update({
                 "fact": str(fact),
                 "pixel_truth": (
@@ -3899,30 +4058,43 @@ def _run_declared_pixels(
                 "params": str(selected_params),
                 "output": str(output),
             })
-            state, detail = _pixel_result_state(output)
-            if state in {"complete", "rejected", "failed"}:
-                record.update({"status": state, "detail": detail})
-                records.append(record)
-                continue
-            if pixel_truth is None:
-                produced = _pixel_producer_output(
-                    pair_root, point_id, evidence_id
-                )
-                produced_truth = produced / "pixel_visibility_truth.json"
-                produced_arrays = produced / "native_depth_and_object_ids.npz"
-                if produced_truth.is_file():
-                    pixel_truth = produced_truth
-                    record["pixel_truth"] = str(produced_truth.resolve())
-                    if pixel_arrays is None and produced_arrays.is_file():
-                        pixel_arrays = produced_arrays
-                        record["pixel_arrays"] = str(produced_arrays.resolve())
-                else:
+            if output.is_file():
+                if pixel_truth is None:
                     record.update({
-                        "status": "pending",
-                        "detail": "native pixel truth has not been supplied",
+                        "status": "failed",
+                        "detail": (
+                            "declared pixel output exists but native pixel truth "
+                            "has not been supplied; write a fresh output"
+                        ),
                     })
                     records.append(record)
                     continue
+                reuse_error = _pixel_consumer_reuse_error(
+                    output,
+                    fact=fact,
+                    pixel_truth=Path(pixel_truth),
+                    params=selected_params,
+                    pixel_arrays=(
+                        None if pixel_arrays is None else Path(pixel_arrays)
+                    ),
+                )
+                if reuse_error:
+                    record.update({"status": "failed", "detail": reuse_error})
+                    records.append(record)
+                    continue
+                state, detail = _pixel_result_state(output)
+                record.update({"status": state, "detail": detail})
+                if state == "complete":
+                    record["run"] = {"status": "reused_existing"}
+                records.append(record)
+                continue
+            if pixel_truth is None:
+                record.update({
+                    "status": "pending",
+                    "detail": "native pixel truth has not been supplied",
+                })
+                records.append(record)
+                continue
             pixel_truth = Path(pixel_truth).resolve()
             if not fact.is_file() or not pixel_truth.is_file() or not selected_params.is_file():
                 record.update({

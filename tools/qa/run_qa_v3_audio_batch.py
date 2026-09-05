@@ -480,13 +480,33 @@ def _declared_program_path(
     return None
 
 
+def load_json_rejecting_duplicate_keys(text: str) -> object:
+    """Parse JSON and reject duplicate object keys that json.loads would collapse."""
+
+    def object_pairs(pairs: list[tuple[str, object]]) -> dict[str, object]:
+        result: dict[str, object] = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError(f"duplicate JSON key {key!r}")
+            result[key] = value
+        return result
+
+    return json.loads(text, object_pairs_hook=object_pairs)
+
+
 def load_capture_by_variant_map(
     raw: object,
     *,
     point_ids: Sequence[str],
     variants: Sequence[str],
 ) -> dict[str, dict[str, str]]:
-    """Load {point: {variant: capture_dir}} and reject unknown/missing/duplicates."""
+    """Load {point: {variant: capture_dir}} and reject unknown or missing names.
+
+    Duplicate JSON keys are rejected by ``load_json_rejecting_duplicate_keys``
+    before this function runs. Conflicting capture directories that come from
+    multiple release_media declarations are rejected by the pipeline mapper,
+    not here: an ordinary dict cannot see collapsed JSON keys.
+    """
 
     if not isinstance(raw, Mapping):
         raise ValueError("--capture-by-variant must be a JSON object")
@@ -519,22 +539,15 @@ def load_capture_by_variant_map(
                 f"capture-by-variant[{point_id}] is missing variant(s): "
                 f"{missing_variants}"
             )
-        seen: dict[str, str] = {}
+        resolved: dict[str, str] = {}
         for variant, path in variants_map.items():
             if not isinstance(path, (str, Path)) or not str(path).strip():
                 raise ValueError(
                     f"capture-by-variant[{point_id}][{variant}] must be a path"
                 )
-            text_path = str(Path(path).expanduser())
-            previous = seen.get(str(variant))
-            if previous is not None and previous != text_path:
-                raise ValueError(
-                    f"capture-by-variant[{point_id}] has duplicate mappings "
-                    f"for {variant!r}"
-                )
-            seen[str(variant)] = text_path
+            resolved[str(variant)] = str(Path(path).expanduser())
         mapping[str(point_id)] = {
-            variant: seen[variant] for variant in variant_set
+            variant: resolved[variant] for variant in variant_set
         }
     return mapping
 
@@ -824,8 +837,10 @@ def main(argv: list[str] | None = None) -> int:
     capture_by_variant: dict[str, dict[str, str]] = {}
     if args.capture_by_variant is not None:
         try:
-            raw_map = json.loads(args.capture_by_variant.read_text(encoding="utf-8"))
-        except (OSError, UnicodeError, json.JSONDecodeError) as error:
+            raw_map = load_json_rejecting_duplicate_keys(
+                args.capture_by_variant.read_text(encoding="utf-8")
+            )
+        except (OSError, UnicodeError, json.JSONDecodeError, ValueError) as error:
             print(f"FAIL: cannot read --capture-by-variant: {error}", file=sys.stderr)
             return 2
         try:

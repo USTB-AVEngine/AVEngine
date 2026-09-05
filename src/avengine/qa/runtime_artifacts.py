@@ -381,6 +381,25 @@ def _release_media(point_dir: Path, fact: Mapping[str, Any]) -> tuple[list[dict[
     return _unique(normalized, owner="release_media"), legacy
 
 
+def declared_audio_variants(plan: Mapping[str, Any]) -> list[str]:
+    """Unique audio variants from normalized release_media, in declaration order.
+
+    Callers must pass the mapping returned by ``load_runtime_artifacts`` so
+    list and mapping source forms yield the same variants.
+    """
+
+    result: list[str] = []
+    for release in plan.get("release_media") or []:
+        if not isinstance(release, Mapping):
+            continue
+        value = release.get("audio_variant")
+        if not isinstance(value, str) or not value.strip():
+            continue
+        if value not in result:
+            result.append(value)
+    return result
+
+
 def load_runtime_artifacts(point_dir: str | Path, fact: Mapping[str, Any] | None = None) -> dict[str, Any]:
     """Load and normalize one candidate's declarative runtime descriptions.
 

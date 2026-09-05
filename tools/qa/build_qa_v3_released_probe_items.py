@@ -19,9 +19,30 @@ from pathlib import Path
 
 from qa_v3_request import normalize_answer_forms
 
+_REPO = Path(__file__).resolve().parents[2]
+if str(_REPO / "src") not in sys.path:
+    sys.path.insert(0, str(_REPO / "src"))
+from avengine.qa.runtime_artifacts import (  # noqa: E402
+    declared_audio_variants,
+    load_runtime_artifacts,
+)
+
 
 _PUBLIC_OPEN_FIELDS = ("truth_interval_deg", "convention", "certification_policy")
 _DEFAULT_ANSWER_FORMS = ("mcq", "open")
+
+
+def extra_audio_variants_from_fact(fact, *, point_dir: Path) -> list[str]:
+    """Non-main audio variants from normalized release_media.
+
+    Question-only facts omit release_media; there is nothing to normalize.
+    Declared list or mapping forms go through load_runtime_artifacts().
+    """
+
+    if not isinstance(fact, Mapping) or fact.get("release_media") is None:
+        return []
+    plan = load_runtime_artifacts(point_dir, fact)
+    return [name for name in declared_audio_variants(plan) if name != "main"]
 
 
 def _read(path):
@@ -329,13 +350,9 @@ def build(selection, facts_root=None, audio_root=None, media_root=None, *,
         if not wav.is_file() or not video.is_file():
             raise FileNotFoundError(f"{media_id}: released audio/video missing")
         audio_by_variant = {"main": str(wav.resolve())}
-        releases = fact.get("release_media") if isinstance(fact.get("release_media"), list) else []
-        for release in releases:
-            if not isinstance(release, dict):
-                continue
-            variant = release.get("audio_variant")
-            if not isinstance(variant, str) or not variant.strip() or variant == "main":
-                continue
+        for variant in extra_audio_variants_from_fact(
+            fact, point_dir=entry["fact_path"].parent
+        ):
             extra = (
                 Path(audio_root) / f"{media_id}_{variant}" / "audio" / "binaural" / "mixture.wav"
             )
