@@ -49,7 +49,7 @@ def _inputs(tmp_path: Path, *, with_audio: bool = True) -> tuple[Path, Path, Pat
             "frame_count": frame_count,
             "frame_rate_hz": 15.0,
             "sample_rate_hz": 16000,
-            "sample_count": 16000,
+            "sample_count": 32000,
         },
         "camera": [
             {"location_cm": [0.0, 120.0, 0.0], "rotation_deg": [0.0, 0.0, 0.0]}
@@ -85,6 +85,12 @@ def _inputs(tmp_path: Path, *, with_audio: bool = True) -> tuple[Path, Path, Pat
                 "end_sample_exclusive": end,
             }
         )
+        stem = tmp_path / f"{sound}_stem.wav"
+        with wave.open(str(stem), "wb") as handle:
+            handle.setnchannels(2)
+            handle.setsampwidth(2)
+            handle.setframerate(16000)
+            handle.writeframes((b"\x01\x00\x02\x00") * 8000)
         report_events.append(
             {
                 "event_id": event_id,
@@ -93,7 +99,9 @@ def _inputs(tmp_path: Path, *, with_audio: bool = True) -> tuple[Path, Path, Pat
                 "transcript": transcript,
                 "start_sample": start,
                 "end_sample_exclusive": end,
-                "pcm_output_nonzero_interval": [start, end],
+                "pcm_output_nonzero_interval": [start, end + 20],
+                "output_stem": str(stem),
+                "source_end_sample_exclusive": 1600,
             }
         )
         cursor = end + 100
