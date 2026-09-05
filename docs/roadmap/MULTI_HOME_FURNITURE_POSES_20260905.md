@@ -27,4 +27,27 @@ Root will extend the existing SPEAR editor residential runner and add room-seman
 
 ## Status
 
-Workspace preparation complete. Room authoring, seated native binding, generalized planning, source integration and actual multi-room SPEAR/UE delivery remain in progress.
+As of 2026-09-05, root branch includes room A/B/C builders, the shared furniture layout planner, four seated asset preparation/import tools, generalized N-actor/explicit-clock SPEAR residential capture, isolated UE stage assembly, polished room export, and per-room acoustic packaging. Latest integrated implementation commit: a35bed1. Focused source tests: 86 passed.
+
+### Completed evidence
+
+- Three independent editable rooms with GLB/USD and furniture/seat metadata. Current second visual revision: /data/avengine_external/workspaces/multi_home_activity_20260905/polished_v2/{room_a,room_b,room_c}.
+- Four Rocketbox seated assets imported into the private UE stage; actual mesh/animation/material binding readback passed. Manifest: /data/avengine_external/workspaces/multi_home_activity_20260905/poses/import_runs/b492d6b_retry2/seated_human_ue_import_manifest.json.
+- Private stage: /data/avengine_external/workspaces/multi_home_activity_20260905/ue_stage/SpearSim/SpearSim.uproject. Original room A USD map import passed (tmp/room_a_ue_import_v1/result.json).
+- General camera/placement planner has explicit Blender -> Habitat (X,Z,-Y) -> UE (100X,-100Y,100Z) conversion; camera UE orientation derives from the forward vector. Blueprint asset paths normalize to generated _C classes.
+- Original A/B/C acoustic packages compiled. One real native RLR impulse response passed for A. A/C geometry QA is not passing, so these remain explicit research candidates, not formal acoustic admission. Polished-room packages are being prepared separately.
+
+### Current work
+
+- Sequential second-revision UE map imports: tmp/polished_v2_map_import, coordinator PID 1465813. Verify result.json AND process_result.json; do not infer completion from launch.
+- First corrected seated capture input: /data/datasets/avengine_workspaces/multi_home_activity_20260905/planning/room_a_polished_ue_plan_150_v1/episode_plan.json; map /Game/AVEngine/MultiHome/room_a_polished_v2. Four dining seats, 150 frames at 15 Hz. No successful seated-in-room native pixels yet.
+- Blender previews inspected: second revision improves A but upholstery remains simplified; B author preview is too close to sofa; C shows a dark horizontal wall band. Worker is preparing a fresh third revision and complete sidecars. Author preview cameras are not production camera plans.
+- Remaining delivery: verify actual seating/camera/lighting in SPEAR/UE, produce all three final room outputs, connect actual emitter/listener paths to audio and example questions, run appropriate regression, and document limitations.
+
+### Preserved failed attempts
+
+- tmp/native_editor_transport_smoke_v1: retained map absent from fresh private project; not a successful capture.
+- tmp/transport_map_import_v1: null-RHI actor creation crashed without a viewport. Subsequent map creation uses RenderOffscreen and GPU 2.
+- tmp/room_a_seated_ue_check_v1: Blueprint asset path lacked generated-class _C and native actor spawn failed before frames. Fixed in integrated ba2408f. Old planning room_a_ue_plan_150_v1/v2/v3 are superseded; only the polished plan above includes the current class-path correction.
+
+All output attempts are preserved. Active Studio, old worktrees, original assets and other GPU jobs remain untouched. No push, main merge, formal admission or service cutover has been performed.
