@@ -31,8 +31,8 @@ from avengine.spatial_audio.audio import write_float32_wav
 from avengine.spatial_audio.current_request_pair_ir import _load_simulation_request
 from avengine.capture.acoustics import (
     build_strided_review_keyframes,
-    render_research_review_binaural_audio,
-    render_research_review_binaural_rir_sequence,
+    render_research_review_audio,
+    render_research_review_rir_sequence,
 )
 from avengine.timeline.audio_program import bind_audio_program_hash
 from avengine.timeline.audio_render import assemble_audio_program_dry_buses
@@ -49,6 +49,13 @@ DEFAULT_TIMELINE_TICK_RATE_HZ = 48_000
 DEFAULT_TICKS_PER_FRAME = 3_200
 AUDIO_SAMPLE_RATE_HZ = 16_000
 DEFAULT_EPISODE_SAMPLE_COUNT = 80_000
+SUPPORTED_LAYOUTS = ("binaural", "ambisonics")
+_LAYOUT_CHANNEL_COUNTS = {"binaural": 2, "ambisonics": 4}
+_LAYOUT_CHANNEL_LABELS = {
+    "binaural": ("left", "right"),
+    "ambisonics": ("W", "Y", "Z", "X"),
+}
+_LAYOUT_OUTPUT_DIRS = {"binaural": "binaural", "ambisonics": "foa"}
 
 # Backward-compatible names retained for the original current-MP3D route.
 VISUAL_FRAME_RATE_HZ = DEFAULT_VISUAL_FRAME_RATE_HZ
@@ -56,8 +63,9 @@ EPISODE_FRAME_COUNT = DEFAULT_EPISODE_FRAME_COUNT
 EPISODE_SAMPLE_COUNT = DEFAULT_EPISODE_SAMPLE_COUNT
 CLAIM_BOUNDARY = (
     "Research review audio only. Captured per-frame source positions and one "
-    "AudioProgram routing variant drive strided per-state binaural RIRs; no "
-    "dataset admission, qualification, or new gate is claimed."
+    "AudioProgram routing variant drive strided per-state RIRs for the "
+    "requested binaural or ambisonics layouts; no dataset admission, "
+    "qualification, or new gate is claimed."
 )
 
 
@@ -582,6 +590,122 @@ def _require_exact_episode_samples(
     return array
 
 
+def _normalize_layouts(layouts: Sequence[str] | None) -> tuple[str, ...]:
+    """Validate the requested output layouts while retaining request order."""
+    if layouts is None:
+        values = ("binaural",)
+    elif isinstance(layouts, (str, bytes)):
+        raise CurrentMP3DDynamicAudioError(
+            "layouts must be a sequence of canonical layout names"
+        )
+    else:
+        try:
+            values = tuple(layouts)
+        except TypeError as error:
+            raise CurrentMP3DDynamicAudioError(
+                "layouts must be a sequence of canonical layout names"
+            ) from error
+    if not values:
+        raise CurrentMP3DDynamicAudioError("layouts must contain at least one layout")
+    if any(value not in SUPPORTED_LAYOUTS for value in values):
+        raise CurrentMP3DDynamicAudioError(
+            "layouts must contain only " + ", ".join(SUPPORTED_LAYOUTS)
+        )
+    if len(set(values)) != len(values):
+        raise CurrentMP3DDynamicAudioError("layouts must not contain duplicates")
+    return values
+
+
+def _render_layout_rir_sequence(
+    scene: Any,
+    simulation: Any,
+    *,
+    grid: Any,
+    layout: str,
+    hrtf_file_path: Path | None,
+) -> Any:
+    """Render one declared layout through the capture-acoustics API."""
+    return render_research_review_rir_sequence(
+        scene,
+        simulation,
+        grid=grid,
+        layout_type=layout,
+        hrtf_file_path=(
+            str(hrtf_file_path) if layout == "binaural" else None
+        ),
+    )
+
+
+def _render_layout_audio(
+    dry_buses: Mapping[str, Any],
+    sequence: Any,
+    *,
+    grid: Any,
+    layout: str,
+) -> tuple[Mapping[str, Any], Any]:
+    """Render one layout from the shared dry buses and RIR sequence."""
+    return render_research_review_audio(dry_buses, sequence, grid=grid)
+
+
+def _layout_sequence_record(sequence: Any, layout: str) -> dict[str, Any]:
+    expected_labels = _LAYOUT_CHANNEL_LABELS[layout]
+    if getattr(sequence, "layout_type", None) != layout:
+        raise CurrentMP3DDynamicAudioError(
+            f"RIR sequence layout differs from requested {layout!r}"
+        )
+    labels = tuple(getattr(sequence, "channel_labels", ()))
+    if labels != expected_labels:
+        raise CurrentMP3DDynamicAudioError(
+            f"{layout} RIR sequence channel labels differ from its layout contract"
+        )
+    layout_id = getattr(sequence, "layout_id", None)
+    if not isinstance(layout_id, str) or not layout_id:
+        raise CurrentMP3DDynamicAudioError(
+            f"{layout} RIR sequence has no layout_id"
+        )
+    keyframe_samples = getattr(sequence, "keyframe_samples", None)
+    if keyframe_samples is None:
+        raise CurrentMP3DDynamicAudioError(
+            f"{layout} RIR sequence has no keyframe samples"
+        )
+    trajectory_sha256 = getattr(sequence, "trajectory_sha256", None)
+    if not isinstance(trajectory_sha256, str) or not trajectory_sha256:
+        raise CurrentMP3DDynamicAudioError(
+            f"{layout} RIR sequence has no trajectory identity"
+        )
+    return {
+        "layout_type": layout,
+        "layout_id": layout_id,
+        "channel_count": _LAYOUT_CHANNEL_COUNTS[layout],
+        "channel_labels": list(labels),
+        "keyframe_count": len(keyframe_samples),
+        "keyframe_samples": list(keyframe_samples),
+        "trajectory_sha256": trajectory_sha256,
+        "output_directory": _LAYOUT_OUTPUT_DIRS[layout],
+    }
+
+
+def _require_layout_episode_samples(
+    samples: Any,
+    *,
+    expected: int,
+    expected_channels: int,
+    owner: str,
+) -> np.ndarray:
+    array = _require_exact_episode_samples(
+        samples,
+        expected=expected,
+        owner=owner,
+        channel_major=True,
+    )
+    if int(array.shape[0]) != expected_channels:
+        raise CurrentMP3DDynamicAudioError(
+            f"{owner} has {array.shape[0]} channels; "
+            f"{expected_channels} are required for this layout"
+        )
+    return array
+
+
 def render_dynamic_research_audio(
     *,
     source_trajectories_m: Mapping[str, Sequence[Sequence[float]]],
@@ -593,7 +717,7 @@ def render_dynamic_research_audio(
     source_endpoint_registry_path: str | Path,
     sound_asset_registry_path: str | Path,
     external_sound_asset_paths: Mapping[str, str | Path],
-    hrtf_file_path: str | Path,
+    hrtf_file_path: str | Path | None = None,
     output_path: str | Path,
     position_authority: str,
     listener_authority: str,
@@ -606,10 +730,23 @@ def render_dynamic_research_audio(
     visual_frame_rate_hz: int | float | None = None,
     timeline_tick_rate_hz: int | None = None,
     ticks_per_frame: int | None = None,
+    layouts: Sequence[str] | None = None,
 ) -> dict[str, Any]:
-    """Room-agnostic core: trajectories + program variant -> binaural episode."""
+    """Room-agnostic core: shared dry/grid/clock rendered per requested layout."""
 
     execution_label = _validate_execution_variant(execution_variant)
+    selected_layouts = _normalize_layouts(layouts)
+    hrtf = None
+    if "binaural" in selected_layouts:
+        if hrtf_file_path is None:
+            raise CurrentMP3DDynamicAudioError(
+                "binaural output requires an explicit HRTF file"
+            )
+        hrtf = Path(hrtf_file_path).resolve()
+        if not hrtf.is_file():
+            raise CurrentMP3DDynamicAudioError(
+                f"binaural output requires a readable HRTF: {hrtf}"
+            )
     output = _fresh_output(output_path)
     program_path = Path(audio_program_path).resolve()
     program = json.loads(program_path.read_text(encoding="utf-8"))
@@ -727,37 +864,57 @@ def render_dynamic_research_audio(
     scene = load_compiled_acoustic_scene(
         package_manifest_path, allow_nonpassing_research_qa=True
     )
-    hrtf = Path(hrtf_file_path).resolve()
-    sequence = render_research_review_binaural_rir_sequence(
-        scene, simulation, grid=grid, hrtf_file_path=str(hrtf)
-    )
 
-    stems, mixture = render_research_review_binaural_audio(
-        dry_buses, sequence, grid=grid
-    )
-    if int(grid.episode_sample_count) != expected_sample_count:
-        raise CurrentMP3DDynamicAudioError(
-            "dynamic acoustic grid sample boundary differs from the visual "
-            "AudioProgram clock"
+    rendered: dict[str, dict[str, Any]] = {}
+    for layout in selected_layouts:
+        sequence = _render_layout_rir_sequence(
+            scene,
+            simulation,
+            grid=grid,
+            layout=layout,
+            hrtf_file_path=hrtf,
         )
-    for source_id in source_ids:
-        stem = stems.get(source_id)
-        if stem is None:
+        layout_record = _layout_sequence_record(sequence, layout)
+        stems, mixture = _render_layout_audio(
+            dry_buses,
+            sequence,
+            grid=grid,
+            layout=layout,
+        )
+        if int(grid.episode_sample_count) != expected_sample_count:
             raise CurrentMP3DDynamicAudioError(
-                f"dynamic renderer omitted source stem {source_id!r}"
+                "dynamic acoustic grid sample boundary differs from the visual "
+                "AudioProgram clock"
             )
-        _require_exact_episode_samples(
-            stem.episode,
+        expected_channels = _LAYOUT_CHANNEL_COUNTS[layout]
+        if not isinstance(stems, Mapping):
+            raise CurrentMP3DDynamicAudioError(
+                f"{layout} renderer must return a mapping of source stems"
+            )
+        for source_id in source_ids:
+            stem = stems.get(source_id)
+            if stem is None:
+                raise CurrentMP3DDynamicAudioError(
+                    f"{layout} renderer omitted source stem {source_id!r}"
+                )
+            _require_layout_episode_samples(
+                stem.episode,
+                expected=expected_sample_count,
+                expected_channels=expected_channels,
+                owner=f"{layout} stem {source_id!r}",
+            )
+        mixture = _require_layout_episode_samples(
+            mixture,
             expected=expected_sample_count,
-            owner=f"binaural stem {source_id!r}",
-            channel_major=True,
+            expected_channels=expected_channels,
+            owner=f"{layout} mixture",
         )
-    mixture = _require_exact_episode_samples(
-        mixture,
-        expected=expected_sample_count,
-        owner="binaural mixture",
-        channel_major=True,
-    )
+        rendered[layout] = {
+            "sequence": sequence,
+            "record": layout_record,
+            "stems": stems,
+            "mixture": mixture,
+        }
 
     audio_root = output / "audio"
     outputs: dict[str, str] = {}
@@ -770,11 +927,18 @@ def render_dynamic_research_audio(
     for source_id in source_ids:
         dry = np.asarray(dry_buses[source_id], dtype=np.float64)[None, :]
         _write(audio_root / "dry" / f"{source_id}.wav", dry)
+    for layout in selected_layouts:
+        layout_output_dir = _LAYOUT_OUTPUT_DIRS[layout]
+        stems = rendered[layout]["stems"]
+        for source_id in source_ids:
+            _write(
+                audio_root / layout_output_dir / f"{source_id}_stem.wav",
+                stems[source_id].episode,
+            )
         _write(
-            audio_root / "binaural" / f"{source_id}_stem.wav",
-            stems[source_id].episode,
+            audio_root / layout_output_dir / "mixture.wav",
+            rendered[layout]["mixture"],
         )
-    _write(audio_root / "binaural" / "mixture.wav", np.asarray(mixture))
 
     materialized = assembly.materialized_program
     inputs: dict[str, Any] = {
@@ -782,19 +946,27 @@ def render_dynamic_research_audio(
         "package_manifest": _input_record(package_manifest_path),
         "source_endpoint_registry": _input_record(endpoint_registry_path),
         "sound_asset_registry": _input_record(sound_registry_path),
-        "hrtf": {
-            **_input_record(hrtf),
-            "license_path": (
-                str(Path(hrtf_license_path).resolve())
-                if hrtf_license_path is not None
-                else None
-            ),
-        },
+        "hrtf": (
+            {
+                **_input_record(hrtf),
+                "license_path": (
+                    str(Path(hrtf_license_path).resolve())
+                    if hrtf_license_path is not None
+                    else None
+                ),
+            }
+            if hrtf is not None
+            else None
+        ),
         "dry_assets": bindings,
     }
     if extra_inputs:
         inputs.update({key: value for key, value in extra_inputs.items()})
 
+    compatibility_layout = (
+        "binaural" if "binaural" in selected_layouts else selected_layouts[0]
+    )
+    compatibility_record = rendered[compatibility_layout]["record"]
     receipt: dict[str, Any] = {
         "schema": CURRENT_MP3D_DYNAMIC_AUDIO_SCHEMA,
         "status": "pass",
@@ -806,8 +978,26 @@ def render_dynamic_research_audio(
         "audio": {
             "sample_rate_hz": AUDIO_SAMPLE_RATE_HZ,
             "sample_count": clock["sample_count"],
-            "layout_type": "binaural",
-            "channel_labels": ["left", "right"],
+            "layouts": list(selected_layouts),
+            "layout_type": compatibility_layout,
+            "channel_labels": list(
+                _LAYOUT_CHANNEL_LABELS[compatibility_layout]
+            ),
+            "by_layout": {
+                layout: {
+                    "layout_type": layout,
+                    "output_directory": rendered[layout]["record"][
+                        "output_directory"
+                    ],
+                    "channel_count": _LAYOUT_CHANNEL_COUNTS[layout],
+                    "channel_labels": list(
+                        _LAYOUT_CHANNEL_LABELS[layout]
+                    ),
+                    "sample_rate_hz": AUDIO_SAMPLE_RATE_HZ,
+                    "sample_count": clock["sample_count"],
+                }
+                for layout in selected_layouts
+            },
         },
         "audio_program": {
             "path": str(program_path),
@@ -834,9 +1024,15 @@ def render_dynamic_research_audio(
         },
         "rir": {
             "stride_frames": rir_stride_frames,
-            "keyframe_count": len(sequence.keyframe_samples),
-            "keyframe_samples": list(sequence.keyframe_samples),
-            "trajectory_sha256": sequence.trajectory_sha256,
+            "layout_type": compatibility_record["layout_type"],
+            "layout_id": compatibility_record["layout_id"],
+            "channel_labels": compatibility_record["channel_labels"],
+            "keyframe_count": compatibility_record["keyframe_count"],
+            "keyframe_samples": compatibility_record["keyframe_samples"],
+            "trajectory_sha256": compatibility_record["trajectory_sha256"],
+            "by_layout": {
+                layout: rendered[layout]["record"] for layout in selected_layouts
+            },
         },
         "inputs": inputs,
         "outputs": outputs,
@@ -860,7 +1056,7 @@ def render_current_mp3d_dynamic_audio(
     source_endpoint_registry_path: str | Path,
     sound_asset_registry_path: str | Path,
     external_sound_asset_paths: Mapping[str, str | Path],
-    hrtf_file_path: str | Path,
+    hrtf_file_path: str | Path | None = None,
     output_path: str | Path,
     rir_stride_frames: int = 3,
     variant_id: str = "A",
@@ -869,8 +1065,9 @@ def render_current_mp3d_dynamic_audio(
     frame_count: int | None = None,
     frame_rate_hz: int | float | None = None,
     ticks_per_frame: int | None = None,
+    layouts: Sequence[str] | None = None,
 ) -> dict[str, Any]:
-    """Render one motion-following binaural research episode for MP3D."""
+    """Render one motion-following research episode for MP3D."""
 
     program = json.loads(
         Path(audio_program_path).resolve().read_text(encoding="utf-8")
@@ -909,6 +1106,7 @@ def render_current_mp3d_dynamic_audio(
         external_sound_asset_paths=external_sound_asset_paths,
         hrtf_file_path=hrtf_file_path,
         output_path=output_path,
+        layouts=layouts,
         position_authority=(
             "current-visual frame_records per-frame source_positions_m"
         ),

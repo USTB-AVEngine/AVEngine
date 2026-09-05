@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 from copy import deepcopy
 import json
 from pathlib import Path
@@ -239,7 +240,8 @@ def test_dynamic_renderer_rejects_visual_program_duration_mismatch_before_runtim
                 REPOSITORY / "examples/registry/registries/sound_assets_v1.json"
             ),
             external_sound_asset_paths={},
-            hrtf_file_path=tmp_path / "unused.sofa",
+            hrtf_file_path=None,
+            layouts=("ambisonics",),
             output_path=tmp_path / "out",
             position_authority="test",
             listener_authority="test",
@@ -327,12 +329,26 @@ def test_dynamic_runtime_serializes_exact_clock_length_waves(
     )
     rir_calls = []
 
-    def fake_rir(*_args, **_kwargs):
-        rir_calls.append(True)
-        return SimpleNamespace(keyframe_samples=(0,), trajectory_sha256="test-trajectory")
+    def fake_rir(
+        _scene, _simulation, *, grid, layout_type, hrtf_file_path=None
+    ):
+        labels = (
+            ("left", "right")
+            if layout_type == "binaural"
+            else ("W", "Y", "Z", "X")
+        )
+        rir_calls.append((layout_type, hrtf_file_path))
+        return SimpleNamespace(
+            layout_type=layout_type,
+            layout_id=f"test-{layout_type}",
+            channel_labels=labels,
+            keyframe_samples=(0,),
+            trajectory_sha256="test-trajectory",
+        )
 
     monkeypatch.setattr(
-        dynamic_audio, "render_research_review_binaural_rir_sequence", fake_rir)
+        dynamic_audio, "render_research_review_rir_sequence", fake_rir
+    )
 
     monkeypatch.setattr(
         dynamic_audio,
@@ -360,20 +376,21 @@ def test_dynamic_runtime_serializes_exact_clock_length_waves(
         fake_assembly,
     )
 
-    def fake_binaural_audio(dry_buses, _sequence, *, grid):
+    def fake_layout_audio(dry_buses, sequence, *, grid):
         expected = int(grid.episode_sample_count)
+        channels = 2 if sequence.layout_type == "binaural" else 4
         stems = {
             source_id: SimpleNamespace(
-                episode=np.zeros((2, expected), dtype=np.float32)
+                episode=np.zeros((channels, expected), dtype=np.float32)
             )
             for source_id in dry_buses
         }
-        return stems, np.zeros((2, expected), dtype=np.float32)
+        return stems, np.zeros((channels, expected), dtype=np.float32)
 
     monkeypatch.setattr(
         dynamic_audio,
-        "render_research_review_binaural_audio",
-        fake_binaural_audio,
+        "render_research_review_audio",
+        fake_layout_audio,
     )
     output = tmp_path / "rendered"
     receipt = render_dynamic_research_audio(
@@ -398,6 +415,12 @@ def test_dynamic_runtime_serializes_exact_clock_length_waves(
     )
 
     assert receipt["audio"]["sample_count"] == sample_count
+    assert receipt["audio"]["layouts"] == ["binaural"]
+    assert receipt["audio"]["layout_type"] == "binaural"
+    assert receipt["audio"]["channel_labels"] == ["left", "right"]
+    assert receipt["rir"]["by_layout"]["binaural"]["channel_labels"] == [
+        "left", "right"
+    ]
     assert receipt["audio_program"]["variant_id"] == "A"
     assert receipt["execution_variant"] == "gateA"
     wave_paths = sorted(output.rglob("*.wav"))
@@ -407,6 +430,79 @@ def test_dynamic_runtime_serializes_exact_clock_length_waves(
         assert wave.sample_rate_hz == 16000
         assert wave.frame_count == sample_count
     assert len(rir_calls) == 1
+    assert rir_calls[0][0] == "binaural"
+
+    multi_output = tmp_path / "rendered_multi"
+    multi = render_dynamic_research_audio(
+        source_trajectories_m=trajectories,
+        listener_position_m=[0.0, 0.0, 0.0],
+        listener_orientation_wxyz=[0.0, 0.0, 0.0, 1.0],
+        simulation_request_path=simulation_path,
+        package_manifest_path=package_path,
+        audio_program_path=program_path,
+        source_endpoint_registry_path=(
+            REPOSITORY / "examples/registry/registries/source_endpoints_v1.json"
+        ),
+        sound_asset_registry_path=(
+            REPOSITORY / "examples/registry/registries/sound_assets_v1.json"
+        ),
+        external_sound_asset_paths={},
+        hrtf_file_path=hrtf_path,
+        output_path=multi_output,
+        position_authority="test",
+        listener_authority="test",
+        layouts=("binaural", "ambisonics"),
+    )
+    assert multi["audio"]["layouts"] == ["binaural", "ambisonics"]
+    assert set(multi["audio"]["by_layout"]) == {"binaural", "ambisonics"}
+    assert multi["audio"]["by_layout"]["ambisonics"] == {
+        "layout_type": "ambisonics",
+        "output_directory": "foa",
+        "channel_count": 4,
+        "channel_labels": ["W", "Y", "Z", "X"],
+        "sample_rate_hz": 16000,
+        "sample_count": sample_count,
+    }
+    assert set(multi["rir"]["by_layout"]) == {"binaural", "ambisonics"}
+    assert multi["rir"]["layout_type"] == "binaural"
+    assert multi["rir"]["channel_labels"] == ["left", "right"]
+    assert len(list(multi_output.rglob("*.wav"))) == 8
+    assert (multi_output / "audio" / "binaural" / "mixture.wav").is_file()
+    assert (multi_output / "audio" / "foa" / "mixture.wav").is_file()
+    assert [item[0] for item in rir_calls] == [
+        "binaural", "binaural", "ambisonics"
+    ]
+
+    foa_output = tmp_path / "rendered_foa"
+    foa_only = render_dynamic_research_audio(
+        source_trajectories_m=trajectories,
+        listener_position_m=[0.0, 0.0, 0.0],
+        listener_orientation_wxyz=[0.0, 0.0, 0.0, 1.0],
+        simulation_request_path=simulation_path,
+        package_manifest_path=package_path,
+        audio_program_path=program_path,
+        source_endpoint_registry_path=(
+            REPOSITORY / "examples/registry/registries/source_endpoints_v1.json"
+        ),
+        sound_asset_registry_path=(
+            REPOSITORY / "examples/registry/registries/sound_assets_v1.json"
+        ),
+        external_sound_asset_paths={},
+        hrtf_file_path=None,
+        output_path=foa_output,
+        position_authority="test",
+        listener_authority="test",
+        layouts=("ambisonics",),
+    )
+    assert foa_only["audio"]["layouts"] == ["ambisonics"]
+    assert foa_only["audio"]["layout_type"] == "ambisonics"
+    assert foa_only["audio"]["channel_labels"] == ["W", "Y", "Z", "X"]
+    assert foa_only["inputs"]["hrtf"] is None
+    assert len(list(foa_output.rglob("*.wav"))) == 5
+    assert (foa_output / "audio" / "foa" / "mixture.wav").is_file()
+    assert rir_calls[-1][0] == "ambisonics"
+    assert rir_calls[-1][1] is None
+
     with pytest.raises(RuntimeError, match="invalid variant"):
         render_dynamic_research_audio(
             source_trajectories_m=trajectories,
@@ -420,7 +516,7 @@ def test_dynamic_runtime_serializes_exact_clock_length_waves(
             external_sound_asset_paths={}, hrtf_file_path=hrtf_path,
             output_path=tmp_path / "invalid_variant", position_authority="test",
             listener_authority="test", variant_id="invalid")
-    assert len(rir_calls) == 1
+    assert len(rir_calls) == 4
 
 
 def test_dynamic_runtime_rejects_cropped_complete_utterance() -> None:
@@ -651,3 +747,33 @@ def test_asset_bindings_require_mapping_for_non_file_repo_uri(
             external_sound_asset_paths={},
             required_sound_ids={"unmapped"},
         )
+
+
+def test_layout_validation_uses_only_canonical_unique_values():
+    assert dynamic_audio._normalize_layouts(None) == ("binaural",)
+    assert dynamic_audio._normalize_layouts(
+        ("ambisonics", "binaural")
+    ) == ("ambisonics", "binaural")
+    with pytest.raises(CurrentMP3DDynamicAudioError, match="only binaural, ambisonics"):
+        dynamic_audio._normalize_layouts(("foa",))
+    with pytest.raises(CurrentMP3DDynamicAudioError, match="must not contain duplicates"):
+        dynamic_audio._normalize_layouts(("binaural", "binaural"))
+    with pytest.raises(CurrentMP3DDynamicAudioError, match="sequence"):
+        dynamic_audio._normalize_layouts("binaural")
+
+
+def test_dataset_renderer_cli_parses_layouts_without_defaulting_to_foa():
+    import importlib.util
+
+    tool_path = REPOSITORY / "tools" / "dataset" / (
+        "render_current_apartment_dynamic_audio.py"
+    )
+    spec = importlib.util.spec_from_file_location("dataset_dynamic_audio", tool_path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    assert module.parse_layouts("binaural, ambisonics") == (
+        "binaural", "ambisonics"
+    )
+    with pytest.raises(argparse.ArgumentTypeError):
+        module.parse_layouts("binaural,foa")

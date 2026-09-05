@@ -46,6 +46,24 @@ def external_sound_paths(*, beagle_audio=None, assignments=(), mapping_path=None
     return paths
 
 
+def parse_layouts(value: str) -> tuple[str, ...]:
+    """Parse the comma-separated canonical output layouts."""
+    if not isinstance(value, str):
+        raise argparse.ArgumentTypeError("layouts must be a comma-separated string")
+    values = tuple(item.strip() for item in value.split(","))
+    if not values or any(not item for item in values):
+        raise argparse.ArgumentTypeError("layouts must contain at least one name")
+    if len(set(values)) != len(values):
+        raise argparse.ArgumentTypeError("layouts must not contain duplicates")
+    allowed = {"binaural", "ambisonics"}
+    unknown = [item for item in values if item not in allowed]
+    if unknown:
+        raise argparse.ArgumentTypeError(
+            "layouts must contain only binaural or ambisonics"
+        )
+    return values
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--visual-capture-dir", required=True, type=Path)
@@ -69,7 +87,11 @@ def main() -> int:
                         help="explicit SOUND_ASSET_ID=PATH binding; repeat for each external sound")
     parser.add_argument("--sound-asset-map", type=Path,
                         help="JSON mapping of sound IDs to paths, relative to this JSON file")
-    parser.add_argument("--hrtf", required=True, type=Path)
+    parser.add_argument("--hrtf", type=Path)
+    parser.add_argument(
+        "--layouts", type=parse_layouts, default=("binaural",),
+        help="comma-separated output layouts: binaural, ambisonics",
+    )
     parser.add_argument("--hrtf-license", type=Path)
     parser.add_argument("--runtime-prefix", required=True, type=Path)
     parser.add_argument("--rlr-sdk-root", required=True, type=Path)
@@ -204,6 +226,7 @@ def main() -> int:
             external_sound_asset_paths=sound_paths,
             hrtf_file_path=args.hrtf,
             hrtf_license_path=args.hrtf_license,
+            layouts=args.layouts,
             output_path=args.output,
             position_authority=(
                 "current UE source_emitter_poses (legacy glTF-import "
@@ -246,6 +269,7 @@ def main() -> int:
                 "research_only": receipt["research_only"],
                 "keyframe_count": receipt["rir"]["keyframe_count"],
                 "event_count": receipt["audio_program"]["event_count"],
+                "layouts": receipt["audio"]["layouts"],
                 "output": str(Path(args.output).resolve()),
             },
             ensure_ascii=False,
