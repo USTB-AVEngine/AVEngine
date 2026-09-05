@@ -1431,10 +1431,15 @@ def build_seat_placements(
         root_from_seat = raw.get("root_from_seat_m")
         if root_from_seat is None:
             root_from_seat = raw.get("root_offset_from_seat_anchor_blender_m")
+        canonical_root_offset: list[float] | None = None
+        actor_yaw_blender_deg: float | None = None
+        closure_error_m: list[float] | None = None
         if root_from_seat is not None:
             # The pose producer has already rotated its request offset by
             # reference_chair_yaw_degrees (see seat_root_offset_blender_m).
-            # Undo that reference rotation, then apply the room seat yaw once.
+            # Undo that reference rotation first.  The canonical offset is in
+            # the actor's authoring frame, so it must then follow the actual
+            # actor yaw, which includes the declared anatomical-forward yaw.
             # reference_actor_yaw_degrees is calibration context only.
             offset = _vector(
                 root_from_seat,
@@ -1449,7 +1454,16 @@ def build_seat_placements(
                 canonical_x = offset[0] * math.cos(-reference_rad) - offset[1] * math.sin(-reference_rad)
                 canonical_y = offset[0] * math.sin(-reference_rad) + offset[1] * math.cos(-reference_rad)
                 offset = [canonical_x, canonical_y, offset[2]]
-            placement_yaw = math.radians(float(seat["facing_yaw_deg"]))
+            canonical_root_offset = list(offset)
+            anatomical_yaw = raw.get("authoring_anatomical_forward_yaw_deg")
+            if anatomical_yaw is None:
+                anatomical_yaw = raw.get("ue_anatomical_forward_yaw_deg", 90.0)
+            anatomical_yaw = _finite(
+                anatomical_yaw,
+                owner=f"pose binding {actor_id}.anatomical_forward_yaw_deg",
+            )
+            actor_yaw_blender_deg = float(seat["facing_yaw_deg"]) + anatomical_yaw
+            placement_yaw = math.radians(actor_yaw_blender_deg)
             root_from_seat = [
                 offset[0] * math.cos(placement_yaw) - offset[1] * math.sin(placement_yaw),
                 offset[0] * math.sin(placement_yaw) + offset[1] * math.cos(placement_yaw),
@@ -1464,6 +1478,25 @@ def build_seat_placements(
                 root_from_seat[2] -= _finite(
                     pose_seat_top, owner=f"pose binding {actor_id}.pose_seat_top_m"
                 )
+            if canonical_root_offset is not None and actor_yaw_blender_deg is not None:
+                # The canonical seat anchor is the inverse of the producer's
+                # root-from-seat offset.  This closes the independent geometry
+                # relation before converting to Habitat/UE coordinates.
+                anchor = [
+                    -canonical_root_offset[0],
+                    -canonical_root_offset[1],
+                    -root_from_seat[2],
+                ]
+                yaw = math.radians(actor_yaw_blender_deg)
+                world_anchor = [
+                    anchor[0] * math.cos(yaw) - anchor[1] * math.sin(yaw),
+                    anchor[0] * math.sin(yaw) + anchor[1] * math.cos(yaw),
+                    anchor[2],
+                ]
+                closure_error_m = [
+                    root_from_seat[axis] + world_anchor[axis]
+                    for axis in range(3)
+                ]
         root_authoring: list[float] | None = None
         root_habitat: list[float] | None = None
         rotation = raw.get("rotation_xyzw")
@@ -1500,6 +1533,9 @@ def build_seat_placements(
                     "reference_is_not_actor_root": True,
                 },
                 "root_from_seat_m": list(root_from_seat) if root_from_seat is not None else None,
+                "pose_canonical_root_offset_blender_m": canonical_root_offset,
+                "pose_actor_yaw_blender_deg": actor_yaw_blender_deg,
+                "pose_seat_anchor_closure_error_m": closure_error_m,
                 "pose_seat_top_m": raw.get("pose_seat_top_m"),
                 "root_position_authoring_m": root_authoring,
                 "root_position_habitat_m": root_habitat,
@@ -1519,7 +1555,7 @@ def build_seat_placements(
                 "ue_anatomical_forward_yaw_deg": raw.get("ue_anatomical_forward_yaw_deg"),
                 "actor_scale": raw.get("actor_scale", 1.0),
                 "ue_asset_destination": raw.get("destination"),
-                "pose_orientation_policy": "inverse_reference_chair_then_room_seat_yaw; reference_actor_yaw_ignored",
+                "pose_orientation_policy": "inverse_reference_chair_then_actor_canonical_yaw; reference_actor_yaw_ignored",
             }
         )
     return {
