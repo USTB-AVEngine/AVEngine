@@ -1,0 +1,22 @@
+{
+  "kind": "avengine_authored_room_builder_config",
+  "status": "research_candidate",
+  "room_spec_id": "authored_compact_home_room_b_v1",
+  "builder": "tools/rooms/authoring/build_compact_separated_home_b.py",
+  "input_spec": "examples/rooms/authored_compact_home/room_b_compact_separated_home_v1.json",
+  "output_contract": [
+    "blend",
+    "visual_glb",
+    "room_manifest",
+    "functional_anchors",
+    "object_semantics",
+    "ue_import_manifest",
+    "preview_stills"
+  ],
+  "interaction_boundary": {
+    "static_furniture_semantics": true,
+    "seat_points": true,
+    "grasp_release": false,
+    "door_drawer_interaction": false
+  }
+}
