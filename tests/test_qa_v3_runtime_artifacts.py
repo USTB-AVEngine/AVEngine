@@ -47,6 +47,7 @@ def test_legacy_candidate_gets_main_segment_and_release_compatibility(tmp_path: 
     assert result["visual_variants"][0]["actor_selection"] == point / "actor_selection.json"
     assert result["segments"][0]["timeline"] == point / "timeline.json"
     assert result["release_media"][0]["release"] is True
+    assert result["release_media"][0]["audio_variant"] == "main"
 
 
 def test_extended_descriptions_keep_extra_fields_and_resolve_segment2(tmp_path: Path) -> None:
@@ -212,3 +213,54 @@ def test_extended_descriptor_generation_uses_profile_capabilities(tmp_path: Path
     assert result["release_media"][1]["status"] == "pending_audio_consumer"
     assert result["pixel_evidence"][0]["kind"] == "qa_v3_extended_pixel"
     assert result["runtime_consumer_status"] == "pending_cross_segment_consumer"
+
+
+
+def test_release_media_rejects_malformed_audio_variant(tmp_path: Path):
+    point = _point(tmp_path)
+    fact = {
+        "release_media": [{
+            "id": "segment1",
+            "variant": "main",
+            "segment": "segment1",
+            "kind": "qa_v3_review_clip",
+            "release": True,
+            "audio_variant": {"unexpected": "mapping"},
+        }]
+    }
+    with pytest.raises(RuntimeArtifactError, match="audio_variant"):
+        load_runtime_artifacts(point, fact)
+
+
+
+def test_declared_release_without_audio_variant_does_not_infer_main(
+    tmp_path: Path,
+) -> None:
+    point = _point(tmp_path)
+    fact = {
+        "visual_variants": [{
+            "id": "main",
+            "kind": "qa_v3_current_apartment_visual",
+            "actor_selection": "actor_selection.json",
+            "timeline": "timeline.json",
+        }],
+        "segments": [
+            {"id": "segment1", "variant": "main"},
+            {
+                "id": "segment2",
+                "variant": "main",
+                "timeline": "timeline_segment2.json",
+            },
+        ],
+        "release_media": [{
+            "id": "segment2",
+            "variant": "main",
+            "segment": "segment2",
+            "kind": "qa_v3_review_clip",
+            "release": True,
+        }],
+    }
+
+    result = load_runtime_artifacts(point, fact)
+
+    assert result["release_media"][0]["audio_variant"] is None

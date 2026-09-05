@@ -273,6 +273,15 @@ def _release_media(point_dir: Path, fact: Mapping[str, Any]) -> tuple[list[dict[
         row["id"] = ident
         row["kind"] = _kind(row, owner=f"release_media[{ident}]", default="qa_v3_review_clip")
         row["variant"] = _safe_id(row.get("variant", "main"), owner=f"release_media[{ident}].variant")
+        audio_variant = row.get("audio_variant")
+        row["audio_variant"] = (
+            None
+            if audio_variant is None
+            else _safe_id(
+                audio_variant,
+                owner=f"release_media[{ident}].audio_variant",
+            )
+        )
         if row.get("segment") is not None:
             row["segment"] = _safe_id(row["segment"], owner=f"release_media[{ident}].segment")
         row["release"] = bool(row.get("release", False))
@@ -307,6 +316,7 @@ def load_runtime_artifacts(point_dir: str | Path, fact: Mapping[str, Any] | None
     if legacy_release and releases and segments:
         releases[0]["segment"] = segments[0]["id"]
         releases[0]["variant"] = segments[0]["variant"]
+        releases[0]["audio_variant"] = "main"
     for row in releases:
         if row["variant"] not in variant_ids:
             raise RuntimeArtifactError(

@@ -53,8 +53,14 @@ def receipt_summary(receipt: dict) -> dict:
     cap = receipt.get("capture", {})
     root = cap.get("root_readback_summary", {})
     anim = cap.get("animation_readback_summary", {})
+    completed_frames = cap.get("completed_frame_count")
+    frames = (
+        cap.get("frame_count")
+        if completed_frames is None
+        else completed_frames
+    )
     return {
-        "frames": cap.get("completed_frame_count"),
+        "frames": frames,
         "frame_rate_hz": cap.get("frame_rate_hz"),
         "max_pos_err_cm": max(
             (v.get("maximum_position_error_cm", 0.0) for v in root.values()), default=None

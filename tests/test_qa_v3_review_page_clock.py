@@ -37,3 +37,17 @@ def test_review_page_rejects_a_stale_or_shortened_clip_clock(tmp_path):
     receipt = {"frames": 30, "frame_rate_hz": 15.0}
     assert TOOL._clip_matches_receipt(good, receipt) is True
     assert TOOL._clip_matches_receipt(shortened_audio, receipt) is False
+
+
+def test_review_receipt_summary_accepts_native_mp3d_frame_count():
+    result = TOOL.receipt_summary({
+        "capture": {
+            "completed_frame_count": None,
+            "frame_count": 150,
+            "frame_rate_hz": 15,
+        },
+        "research_only": True,
+        "episode_counted": False,
+    })
+    assert result["frames"] == 150
+    assert result["frame_rate_hz"] == 15
