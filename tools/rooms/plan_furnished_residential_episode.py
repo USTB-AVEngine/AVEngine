@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 from copy import deepcopy
 import json
+import math
 from pathlib import Path
 import sys
 from typing import Any, Mapping, Sequence
@@ -471,6 +472,73 @@ def build_episode_plan(
     }
 
 
+def reuse_camera_from_plan(
+    plan: dict[str, Any],
+    source_path: Path,
+) -> dict[str, Any]:
+    """Reuse one already selected production camera without reusing actor state."""
+
+    source = _load_json(source_path, owner="camera source plan")
+    if not isinstance(source, Mapping):
+        raise FurnitureLayoutError("camera source plan must be an object")
+    source_visual = source.get("visual_plan")
+    if not isinstance(source_visual, Mapping):
+        raise FurnitureLayoutError("camera source plan has no visual_plan")
+    source_camera = source_visual.get("camera")
+    if not isinstance(source_camera, Mapping):
+        raise FurnitureLayoutError("camera source plan has no visual_plan.camera")
+    camera = deepcopy(dict(source_camera))
+    for field in ("position_authoring_m", "position_habitat_m", "position_ue_cm"):
+        value = camera.get(field)
+        if (
+            not isinstance(value, Sequence)
+            or isinstance(value, (str, bytes))
+            or len(value) != 3
+            or any(
+                isinstance(item, bool)
+                or not isinstance(item, (int, float))
+                or not math.isfinite(float(item))
+                for item in value
+            )
+        ):
+            raise FurnitureLayoutError(f"camera source plan has invalid {field}")
+    source_frames = source_visual.get("frames")
+    if source_frames is not None:
+        if not isinstance(source_frames, list) or not source_frames:
+            raise FurnitureLayoutError("camera source plan frames must be a non-empty list")
+        for frame in source_frames:
+            state = frame.get("camera_state") if isinstance(frame, Mapping) else None
+            if not isinstance(state, Mapping):
+                raise FurnitureLayoutError("camera source plan frame has no camera_state")
+            fixed_state = {key: value for key, value in state.items() if key != "frame_index"}
+            if fixed_state != dict(source_camera):
+                raise FurnitureLayoutError(
+                    "camera source plan is dynamic; only fixed cameras can be reused"
+                )
+    plan["visual_plan"]["camera"] = camera
+    for frame in plan["visual_plan"]["frames"]:
+        frame["camera_state"] = {**deepcopy(camera), "frame_index": frame["frame_index"]}
+    source_reuse = source.get("camera_reuse")
+    plan["camera_reuse"] = {
+        "source_plan_path": str(source_path),
+        "source_candidate_id": camera.get("candidate_id"),
+        "camera_pose_only": True,
+        "source_camera_reuse": deepcopy(source_reuse) if isinstance(source_reuse, Mapping) else None,
+        "claim_boundary": "camera pose reused; room metadata and actor states come from this fresh plan",
+    }
+    selection = {
+        **plan["visual_plan"].get("camera_selection", {}),
+        "selected_candidate_id": camera.get("candidate_id"),
+        "source_plan_path": str(source_path),
+    }
+    if not plan.get("planning_boundary", {}).get("overview_only"):
+        selection["selection_mode"] = "reused_existing_native_selected_camera"
+    plan["visual_plan"]["camera_selection"] = selection
+    plan["planning_boundary"]["camera_reused_from_existing_plan"] = True
+    plan["planning_boundary"]["camera_source_plan"] = str(source_path)
+    return plan
+
+
 def _write_json(path: Path, value: Any) -> None:
     path.write_text(
         json.dumps(value, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
@@ -493,6 +561,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--sample-rate-hz", type=int, default=16_000)
     parser.add_argument("--grid-step-m", type=float, default=2.0)
     parser.add_argument("--camera-height-m", type=float, default=1.55)
+    parser.add_argument("--camera-source-plan", type=Path)
     parser.add_argument(
         "--overview-only",
         action="store_true",
@@ -522,6 +591,10 @@ def main() -> int:
         scene_id=args.scene_id,
         overview_only=args.overview_only,
     )
+    if args.camera_source_plan is not None:
+        plan = reuse_camera_from_plan(
+            plan, args.camera_source_plan.expanduser().resolve()
+        )
     output.mkdir(parents=True)
     _write_json(output / "room_layout.json", layout)
     _write_json(output / "camera_candidates.json", plan["camera_candidates"])

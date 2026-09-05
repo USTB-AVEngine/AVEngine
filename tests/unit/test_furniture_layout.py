@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import json
 from pathlib import Path
 
@@ -20,6 +21,7 @@ from avengine.camera_pose import yaw_rotation_xyzw
 from tools.rooms.plan_furnished_residential_episode import (
     _actor_state,
     build_episode_plan,
+    reuse_camera_from_plan,
 )
 
 
@@ -402,3 +404,95 @@ def test_pose_binding_offsets_from_seat_reference_and_150_clock(tmp_path: Path) 
     assert plan["clock"]["frame_count"] == 150
     assert len(plan["visual_plan"]["frames"]) == 150
     assert plan["visual_plan"]["frames"][149]["frame_index"] == 149
+
+
+def test_reuse_camera_from_plan_preserves_new_actor_states(tmp_path: Path) -> None:
+    layout = load_room_layout(_fixture(tmp_path / "room"))
+    plan = build_episode_plan(layout, frame_count=3)
+    actor_states = copy.deepcopy(
+        [frame["actor_states"] for frame in plan["visual_plan"]["frames"]]
+    )
+    source = tmp_path / "source_plan.json"
+    source.write_text(
+        json.dumps(
+            {
+                "visual_plan": {
+                    "camera": {
+                        "candidate_id": "native_selected_camera",
+                        "position_authoring_m": [1.0, 2.0, 1.55],
+                        "position_habitat_m": [1.0, 1.55, -2.0],
+                        "position_ue_cm": [100.0, -200.0, 155.0],
+                    }
+                }
+            }
+        )
+    )
+    reused = reuse_camera_from_plan(plan, source.resolve())
+    assert reused["visual_plan"]["camera"]["candidate_id"] == "native_selected_camera"
+    assert reused["camera_reuse"]["camera_pose_only"] is True
+    assert [frame["actor_states"] for frame in reused["visual_plan"]["frames"]] == actor_states
+    assert all(
+        frame["camera_state"]["frame_index"] == index
+        for index, frame in enumerate(reused["visual_plan"]["frames"])
+    )
+
+
+def _camera_source(path: Path, camera: dict, frames=None) -> Path:
+    visual = {"camera": camera}
+    if frames is not None:
+        visual["frames"] = frames
+    path.write_text(json.dumps({"visual_plan": visual}))
+    return path
+
+
+def test_reuse_camera_rejects_dynamic_source_frames(tmp_path: Path) -> None:
+    plan = build_episode_plan(load_room_layout(_fixture(tmp_path / "room")), frame_count=3)
+    camera = {
+        "position_authoring_m": [1.0, 2.0, 1.55],
+        "position_habitat_m": [1.0, 1.55, -2.0],
+        "position_ue_cm": [100.0, -200.0, 155.0],
+    }
+    moved = {**camera, "position_ue_cm": [101.0, -200.0, 155.0], "frame_index": 1}
+    source = _camera_source(
+        tmp_path / "dynamic.json",
+        camera,
+        [{"camera_state": {**camera, "frame_index": 0}}, {"camera_state": moved}],
+    )
+    with pytest.raises(FurnitureLayoutError, match="dynamic"):
+        reuse_camera_from_plan(plan, source)
+
+
+def test_reuse_camera_keeps_overview_selection_mode(tmp_path: Path) -> None:
+    plan = build_episode_plan(
+        load_room_layout(_fixture(tmp_path / "room")),
+        frame_count=3,
+        overview_only=True,
+    )
+    camera = {
+        "position_authoring_m": [1.0, 2.0, 1.55],
+        "position_habitat_m": [1.0, 1.55, -2.0],
+        "position_ue_cm": [100.0, -200.0, 155.0],
+    }
+    source = _camera_source(tmp_path / "fixed.json", camera)
+    reused = reuse_camera_from_plan(plan, source)
+    assert reused["visual_plan"]["camera_selection"]["selection_mode"] == "overview_geometry_only"
+    assert reused["camera_reuse"]["source_plan_path"] == str(source)
+
+
+@pytest.mark.parametrize(
+    "value",
+    ([1.0, "2.0", 1.55], [1.0, float("nan"), 1.55], [1.0, True, 1.55]),
+)
+def test_reuse_camera_rejects_nonfinite_or_nonnumeric_positions(
+    tmp_path: Path,
+    value,
+) -> None:
+    plan = build_episode_plan(load_room_layout(_fixture(tmp_path / "room")), frame_count=3)
+    camera = {
+        "position_authoring_m": value,
+        "position_habitat_m": [1.0, 1.55, -2.0],
+        "position_ue_cm": [100.0, -200.0, 155.0],
+    }
+    source = _camera_source(tmp_path / "bad.json", camera)
+    with pytest.raises(FurnitureLayoutError, match="invalid position_authoring_m"):
+        reuse_camera_from_plan(plan, source)
