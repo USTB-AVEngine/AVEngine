@@ -46,7 +46,10 @@ from qa_v3_request import (
     plan_room_questions,
     read_qa_params,
 )
-from run_qa_v3_audio_batch import point_state as audio_point_state
+from run_qa_v3_audio_batch import (
+    normalize_layouts as normalize_audio_layouts,
+    point_state as audio_point_state,
+)
 from run_qa_v3_capture_batch import (
     point_state as capture_point_state,
     resolve_capture_inputs,
@@ -1422,15 +1425,24 @@ def _run_capture(request: Mapping[str, Any], runtime: Mapping[str, Any],
             "points": states, "run": run}
 
 
+def _configured_audio_layouts(cfg: Mapping[str, Any]) -> tuple[str, ...]:
+    try:
+        return normalize_audio_layouts(cfg.get("layouts", ("binaural",)))
+    except ValueError as error:
+        raise PipelineError(f"invalid audio layouts: {error}") from error
+
+
 def _audio_states(audio_root: Path, point_ids: Sequence[str],
-                  variants: Sequence[str]) -> tuple[str, dict[str, str]]:
+                  variants: Sequence[str], layouts: Sequence[str],
+                  ) -> tuple[str, dict[str, str]]:
     states = {}
     for pid in point_ids:
         for variant in variants:
             name = pid if variant == "main" else f"{pid}_{variant}"
             path = audio_root / name
             states[f"{pid}:{variant}"] = (
-                "missing" if not path.exists() else audio_point_state(path))
+                "missing" if not path.exists()
+                else audio_point_state(path, layouts=layouts))
     raw, compact = _point_state_summary(list(states), lambda key: states[key])
     return raw, states
 
@@ -1439,13 +1451,16 @@ def _audio_command(cfg: Mapping[str, Any], batch_root: Path,
                    capture_root: Path, audio_root: Path,
                    variants: Sequence[str], point_ids: Sequence[str],
                    *, resume: bool) -> list[str]:
+    layouts = _configured_audio_layouts(cfg)
     required = (
         "python", "repo", "simulation_request",
         "package_manifest", "sound_asset_registry",
-        "hrtf", "runtime_prefix", "rlr_sdk_root", "magnum_python_site",
+        "runtime_prefix", "rlr_sdk_root", "magnum_python_site",
         "source_asset_registry",
     )
     missing = [key for key in required if not cfg.get(key)]
+    if "binaural" in layouts and not cfg.get("hrtf"):
+        missing.append("hrtf")
     if missing:
         raise PipelineError(f"audio runtime config missing {missing}")
     command = [
@@ -1455,6 +1470,7 @@ def _audio_command(cfg: Mapping[str, Any], batch_root: Path,
         "--output-root", str(audio_root),
         "--config", str(cfg["_snapshot_path"]),
         "--variants", ",".join(variants),
+        "--layouts", ",".join(layouts),
         "--points", ",".join(point_ids),
     ]
     if resume:
@@ -1468,7 +1484,10 @@ def _run_audio(request: Mapping[str, Any], runtime: Mapping[str, Any],
                *, resume_only: bool) -> dict[str, Any]:
     capture_root = pair_root / "capture"
     audio_root = pair_root / "audio"
-    status, states = _audio_states(audio_root, point_ids, request["audio_variants"])
+    cfg = _stage_config(runtime, "audio", scene_id, profile_id)
+    layouts = _configured_audio_layouts(cfg)
+    status, states = _audio_states(
+        audio_root, point_ids, request["audio_variants"], layouts)
     if status == "complete":
         return {"status": "complete", "root": str(audio_root.resolve()),
                 "points": states, "run": {"status": "reused_existing"}}
@@ -1482,7 +1501,6 @@ def _run_audio(request: Mapping[str, Any], runtime: Mapping[str, Any],
     if resume_only:
         return {"status": "pending", "root": str(audio_root.resolve()),
                 "points": states, "detail": "resume-only mode did not launch audio"}
-    cfg = _stage_config(runtime, "audio", scene_id, profile_id)
     if not cfg.get("python") and runtime.get("python"):
         cfg["python"] = runtime["python"]
     if not cfg.get("repo"):
@@ -1497,7 +1515,8 @@ def _run_audio(request: Mapping[str, Any], runtime: Mapping[str, Any],
     run = _run_logged(
         f"audio:{scene_id}/{profile_id}", command,
         pair_root / "audio.log", timeout=_timeout(runtime, "audio"))
-    status, states = _audio_states(audio_root, point_ids, request["audio_variants"])
+    status, states = _audio_states(
+        audio_root, point_ids, request["audio_variants"], layouts)
     if status != "complete":
         return {"status": "failed", "root": str(audio_root.resolve()),
                 "points": states, "run": run,
@@ -1559,6 +1578,8 @@ def _run_media(runtime: Mapping[str, Any], scene_id: str, profile_id: str,
     capture_root = pair_root / "capture"
     audio_root = pair_root / "audio"
     media_root = pair_root / "media"
+    audio_cfg = _stage_config(runtime, "audio", scene_id, profile_id)
+    layouts = _configured_audio_layouts(audio_cfg)
     statuses = {}
     for pid in point_ids:
         state, detail = _media_state(media_root, capture_root, audio_root, pid)
@@ -1569,7 +1590,15 @@ def _run_media(runtime: Mapping[str, Any], scene_id: str, profile_id: str,
     if any(value.startswith("failed") for value in statuses.values()):
         return {"status": "failed", "root": str(media_root.resolve()),
                 "points": statuses}
-    audio_status, _ = _audio_states(audio_root, point_ids, ["main"])
+    if "binaural" not in layouts:
+        return {
+            "status": "failed",
+            "root": str(media_root.resolve()),
+            "points": statuses,
+            "detail": "review media requires requested binaural audio",
+        }
+    audio_status, _ = _audio_states(
+        audio_root, point_ids, ["main"], layouts)
     capture_status, _, _ = _capture_states(batch_root=batch_root,
                                            capture_root=capture_root,
                                            point_ids=point_ids)
@@ -1631,6 +1660,7 @@ def _verification_report_passed(
     value: Any,
     *,
     expected_audio_variants: Sequence[str] | None = None,
+    expected_audio_layouts: Sequence[str] | None = None,
 ) -> bool:
     """Interpret the declared result contract of each maintained verifier."""
 
@@ -1656,6 +1686,12 @@ def _verification_report_passed(
             return False
         expected = list(expected_audio_variants or reported)
         if reported != expected or "main" not in expected:
+            return False
+        reported_layouts = value.get("expected_layouts")
+        if not isinstance(reported_layouts, list) or not reported_layouts:
+            return False
+        expected_layouts = list(expected_audio_layouts or reported_layouts)
+        if reported_layouts != expected_layouts:
             return False
         complete = value.get("complete_render_point_ids")
         if not isinstance(complete, Mapping):
@@ -1694,6 +1730,8 @@ def _run_verifications(runtime: Mapping[str, Any], request: Mapping[str, Any],
     visual_path = verification_root / "visual.json"
     audio_path = verification_root / "audio.json"
     selection_path = verification_root / "selection.json"
+    audio_cfg = _stage_config(runtime, "audio", scene_id, profile_id)
+    layouts = _configured_audio_layouts(audio_cfg)
     records = {}
     if visual_path.is_file():
         records["visual"] = _read_json(visual_path)
@@ -1705,6 +1743,7 @@ def _run_verifications(runtime: Mapping[str, Any], request: Mapping[str, Any],
             name,
             value,
             expected_audio_variants=request["audio_variants"],
+            expected_audio_layouts=layouts,
         )
     ]
     if invalid_existing:
@@ -1718,7 +1757,8 @@ def _run_verifications(runtime: Mapping[str, Any], request: Mapping[str, Any],
         return {"status": "complete", "root": str(verification_root.resolve()),
                 "reports": records, "run": {"status": "reused_existing"}}
     capture_status, _, _ = _capture_states(batch_root, capture_root, point_ids)
-    audio_status, _ = _audio_states(audio_root, point_ids, request["audio_variants"])
+    audio_status, _ = _audio_states(
+        audio_root, point_ids, request["audio_variants"], layouts)
     if capture_status != "complete" or audio_status != "complete":
         return {"status": "pending", "root": str(verification_root.resolve()),
                 "reports": records, "detail": "capture or audio is not complete"}
@@ -1743,6 +1783,7 @@ def _run_verifications(runtime: Mapping[str, Any], request: Mapping[str, Any],
             "--audio-root", str(audio_root),
             "--params", str(params_path.resolve()),
             "--variants", ",".join(request["audio_variants"]),
+            "--layouts", ",".join(layouts),
             "--out", str(audio_path),
         ]))
     runs = {}
@@ -1759,7 +1800,12 @@ def _run_verifications(runtime: Mapping[str, Any], request: Mapping[str, Any],
         records[name] = _read_json(Path(visual_path if name == "visual" else audio_path))
         if (
             run["status"] != "complete"
-            or not _verification_report_passed(name, records[name])
+            or not _verification_report_passed(
+                name,
+                records[name],
+                expected_audio_variants=request["audio_variants"],
+                expected_audio_layouts=layouts,
+            )
         ):
             return {"status": "failed", "root": str(verification_root.resolve()),
                     "reports": records, "runs": runs,

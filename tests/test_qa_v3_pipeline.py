@@ -486,7 +486,7 @@ def test_verifiers_receive_each_pair_effective_params(monkeypatch, tmp_path: Pat
     monkeypatch.setattr(
         pipeline,
         "_audio_states",
-        lambda audio_root, point_ids, variants: ("complete", {}),
+        lambda audio_root, point_ids, variants, layouts: ("complete", {}),
     )
 
     def fake_run(label, command, log_path, *, timeout, env=None):
@@ -499,6 +499,7 @@ def test_verifiers_receive_each_pair_effective_params(monkeypatch, tmp_path: Pat
                 "schema": "qa_v3_audio_batch_verification_v1",
                 "status": "research_candidate",
                 "expected_variants": ["main"],
+                "expected_layouts": ["binaural"],
                 "complete_render_point_ids": {
                     "main": ["point_001"], "gateA": []},
                 "complete_pair_count": 0,
@@ -544,6 +545,7 @@ def test_verifiers_receive_each_pair_effective_params(monkeypatch, tmp_path: Pat
         command = audio_commands[profile_id]
         assert command[command.index("--params") + 1] == str(params.resolve())
         assert command[command.index("--variants") + 1] == "main"
+        assert command[command.index("--layouts") + 1] == "binaural"
 
 
 def test_resume_extends_stage_scope_and_rejects_backward_scope(tmp_path: Path) -> None:
@@ -682,8 +684,22 @@ def test_audio_command_uses_point_local_bindings_without_batch_fallbacks(
         resume=False,
     )
     assert "--config" in command
+    assert command[command.index("--layouts") + 1] == "binaural"
     assert "m1_request" not in cfg
     assert "source_endpoint_registry" not in cfg
+
+    foa_cfg = dict(cfg, layouts=["ambisonics"])
+    foa_cfg.pop("hrtf")
+    foa_command = pipeline._audio_command(
+        foa_cfg,
+        tmp_path / "batch",
+        tmp_path / "capture",
+        tmp_path / "audio_foa",
+        ["main"],
+        ["point_001"],
+        resume=False,
+    )
+    assert foa_command[foa_command.index("--layouts") + 1] == "ambisonics"
 
 
 def test_pair_failure_stops_later_stages(monkeypatch, tmp_path: Path) -> None:
@@ -828,6 +844,7 @@ def test_verification_report_contracts_distinguish_visual_and_audio_statuses() -
         "schema": "qa_v3_audio_batch_verification_v1",
         "status": "research_candidate",
         "expected_variants": ["main"],
+        "expected_layouts": ["binaural"],
         "complete_render_point_ids": {"main": ["p1"], "gateA": []},
         "complete_pair_count": 0,
         "checked_renders": 1,
@@ -845,11 +862,17 @@ def test_verification_report_contracts_distinguish_visual_and_audio_statuses() -
     }
     assert pipeline._verification_report_passed("visual", visual)
     assert pipeline._verification_report_passed(
-        "audio", audio, expected_audio_variants=["main"])
+        "audio", audio, expected_audio_variants=["main"],
+        expected_audio_layouts=["binaural"])
     assert pipeline._verification_report_passed(
-        "audio", pair_audio, expected_audio_variants=["main", "gateA"])
+        "audio", pair_audio, expected_audio_variants=["main", "gateA"],
+        expected_audio_layouts=["binaural"])
     assert not pipeline._verification_report_passed(
-        "audio", pair_audio, expected_audio_variants=["main"])
+        "audio", pair_audio, expected_audio_variants=["main"],
+        expected_audio_layouts=["binaural"])
+    assert not pipeline._verification_report_passed(
+        "audio", pair_audio, expected_audio_variants=["main", "gateA"],
+        expected_audio_layouts=["ambisonics"])
     assert not pipeline._verification_report_passed(
         "audio", {**audio, "failures": ["bad onset"]})
     assert not pipeline._verification_report_passed(
