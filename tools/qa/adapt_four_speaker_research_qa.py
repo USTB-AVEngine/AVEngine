@@ -18,7 +18,6 @@ non-target actor never rejects the room.
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import math
 import re
@@ -49,41 +48,48 @@ def write_json(path: Path, value: Mapping[str, Any]) -> None:
     path.write_text(json.dumps(value, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
-def sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
-
+def _pcm_nonzero_interval(payload: bytes, *, channels: int) -> list[int] | None:
+    if channels == 1:
+        values = struct.iter_unpack('<h', payload)
+        nonzero = [index for index, (value,) in enumerate(values) if value != 0]
+    else:
+        values = struct.iter_unpack('<' + ('h' * channels), payload)
+        nonzero = [index for index, values_at_frame in enumerate(values) if any(value != 0 for value in values_at_frame)]
+    if not nonzero:
+        return None
+    return [int(nonzero[0]), int(nonzero[-1] + 1)]
 
 def pcm_evidence(path: Path) -> dict[str, Any]:
     if not path.is_file():
-        raise AdapterError(f"PCM clip is missing: {path}")
-    with wave.open(str(path), "rb") as handle:
+        raise AdapterError(f'PCM clip is missing: {path}')
+    with wave.open(str(path), 'rb') as handle:
         channels = handle.getnchannels()
         width = handle.getsampwidth()
         rate = handle.getframerate()
         frames = handle.getnframes()
         payload = handle.readframes(frames)
     if channels != 1 or width != 2 or rate != 16_000:
-        raise AdapterError(
-            f"PCM must be mono int16 16 kHz: {path} "
-            f"(channels={channels}, width={width}, rate={rate})"
-        )
-    values = struct.iter_unpack("<h", payload)
-    nonzero = sum(1 for (value,) in values if value != 0)
-    if frames <= 0 or nonzero <= 0:
-        raise AdapterError(f"PCM is empty or silent: {path}")
-    return {
-        "path": str(path),
-        "sha256": sha256(path),
-        "sample_rate_hz": rate,
-        "sample_count": frames,
-        "nonzero_sample_count": nonzero,
-        "duration_seconds": frames / rate,
-    }
+        raise AdapterError(f'PCM must be mono int16 16 kHz: {path}')
+    interval = _pcm_nonzero_interval(payload, channels=channels)
+    if frames <= 0 or interval is None:
+        raise AdapterError(f'PCM is empty or silent: {path}')
+    return {'path': str(path), 'sample_rate_hz': rate, 'sample_count': frames, 'nonzero_sample_count': interval[1]-interval[0], 'nonzero_interval': interval, 'duration_seconds': frames/rate}
 
+def rendered_stem_evidence(path: Path) -> dict[str, Any]:
+    if not path.is_file():
+        raise AdapterError(f'rendered PCM stem is missing: {path}')
+    with wave.open(str(path), 'rb') as handle:
+        channels = handle.getnchannels()
+        width = handle.getsampwidth()
+        rate = handle.getframerate()
+        frames = handle.getnframes()
+        payload = handle.readframes(frames)
+    if channels != 2 or width != 2 or rate != 16_000:
+        raise AdapterError(f'rendered PCM stem must be stereo int16 16 kHz: {path}')
+    interval = _pcm_nonzero_interval(payload, channels=channels)
+    if frames <= 0 or interval is None:
+        raise AdapterError(f'rendered PCM stem is empty or silent: {path}')
+    return {'path': str(path), 'channels': channels, 'sample_rate_hz': rate, 'sample_count': frames, 'nonzero_interval': interval, 'nonzero_sample_count': interval[1]-interval[0]}
 
 def actor_color(actor_id: str, record: Mapping[str, Any]) -> str:
     value = record.get("color") or record.get("color_name")
@@ -141,61 +147,34 @@ def validate_voice_binding(path: Path) -> tuple[list[dict[str, Any]], dict[str, 
     }
 
 
-def validate_frame_readbacks(
-    path: Path, actor_ids: set[str]
-) -> tuple[dict[str, Any], dict[str, Any]]:
-    raw = load_json(path)
-    if not isinstance(raw, Mapping):
-        raise AdapterError("frame_readbacks root must be an object")
-    clock = raw.get("clock")
-    camera = raw.get("camera")
-    emitters = raw.get("emitters")
-    if not isinstance(clock, Mapping) or not isinstance(camera, list):
-        raise AdapterError("frame_readbacks needs clock and camera")
-    frame_count = clock.get("frame_count")
-    frame_rate = clock.get("frame_rate_hz")
-    sample_rate = clock.get("sample_rate_hz")
-    sample_count = clock.get("sample_count")
-    if not all(
-        isinstance(value, (int, float)) and not isinstance(value, bool)
-        for value in (frame_count, frame_rate, sample_rate, sample_count)
-    ):
-        raise AdapterError("frame_readbacks clock has invalid numeric fields")
-    frame_count = int(frame_count)
-    if frame_count <= 0 or len(camera) != frame_count:
-        raise AdapterError("camera readback length disagrees with clock.frame_count")
-    if int(sample_rate) != 16_000 or float(frame_rate) <= 0:
-        raise AdapterError("current adapter requires positive frame rate and 16 kHz clock")
-    if not isinstance(emitters, Mapping) or set(emitters) != actor_ids:
-        raise AdapterError("emitter readbacks must exactly cover the four bound actors")
-    for actor_id in actor_ids:
-        records = emitters[actor_id]
-        if not isinstance(records, list) or len(records) != frame_count:
-            raise AdapterError(f"emitter readback length mismatch for {actor_id}")
-        for record in records:
-            if not isinstance(record, Mapping):
-                raise AdapterError(f"invalid emitter frame for {actor_id}")
-            if not isinstance(record.get("location_cm"), list) or len(record["location_cm"]) != 3:
-                raise AdapterError(f"emitter frame lacks location_cm for {actor_id}")
-    for record in camera:
-        if not isinstance(record, Mapping):
-            raise AdapterError("camera readback frame must be an object")
-        if not isinstance(record.get("location_cm"), list) or len(record["location_cm"]) != 3:
-            raise AdapterError("camera frame lacks location_cm")
-    return raw, {
-        "status": "pass",
-        "path": str(path),
-        "frame_count": frame_count,
-        "frame_rate_hz": float(frame_rate),
-        "sample_rate_hz": int(sample_rate),
-        "sample_count": int(sample_count),
-        "actor_ids": sorted(actor_ids),
-        "camera_frame_count": len(camera),
-        "emitter_frame_counts": {
-            actor_id: len(emitters[actor_id]) for actor_id in sorted(actor_ids)
-        },
-    }
+def _finite_vec(value: Any, *, label: str) -> None:
+    if not isinstance(value, list) or len(value) != 3:
+        raise AdapterError(f'{label} must be a three-vector')
+    if not all(isinstance(item, (int, float)) and math.isfinite(float(item)) for item in value):
+        raise AdapterError(f'{label} contains non-finite values')
 
+def validate_frame_readbacks(path: Path, actor_ids: set[str]) -> tuple[dict[str, Any], dict[str, Any]]:
+    raw=load_json(path)
+    if not isinstance(raw, Mapping): raise AdapterError('frame_readbacks root must be an object')
+    clock=raw.get('clock'); camera=raw.get('camera'); emitters=raw.get('emitters')
+    if not isinstance(clock, Mapping) or not isinstance(camera, list): raise AdapterError('frame_readbacks needs clock and camera')
+    frame_count=clock.get('frame_count'); frame_rate=clock.get('frame_rate_hz'); sample_rate=clock.get('sample_rate_hz'); sample_count=clock.get('sample_count')
+    if not all(isinstance(value,(int,float)) and not isinstance(value,bool) for value in (frame_count,frame_rate,sample_rate,sample_count)): raise AdapterError('frame_readbacks clock has invalid numeric fields')
+    frame_count=int(frame_count); frame_rate=float(frame_rate); sample_rate=int(sample_rate); sample_count=int(sample_count)
+    if frame_count<=0 or len(camera)!=frame_count: raise AdapterError('camera readback length disagrees with clock.frame_count')
+    if sample_rate!=16000 or frame_rate<=0: raise AdapterError('current adapter requires positive frame rate and 16 kHz clock')
+    if not math.isclose(frame_count/frame_rate, sample_count/sample_rate, rel_tol=0.0, abs_tol=1.0e-6): raise AdapterError('frame_readbacks clock is internally inconsistent')
+    if not isinstance(emitters, Mapping) or set(emitters)!=actor_ids: raise AdapterError('emitter readbacks must exactly cover the four bound actors')
+    for actor_id in actor_ids:
+        records=emitters[actor_id]
+        if not isinstance(records,list) or len(records)!=frame_count: raise AdapterError(f'emitter readback length mismatch for {actor_id}')
+        for record in records:
+            if not isinstance(record,Mapping): raise AdapterError(f'invalid emitter frame for {actor_id}')
+            _finite_vec(record.get('location_cm'),label=f'{actor_id}.location_cm'); _finite_vec(record.get('rotation_deg'),label=f'{actor_id}.rotation_deg')
+    for record in camera:
+        if not isinstance(record,Mapping): raise AdapterError('camera readback frame must be an object')
+        _finite_vec(record.get('location_cm'),label='camera.location_cm'); _finite_vec(record.get('rotation_deg'),label='camera.rotation_deg')
+    return raw, {'status':'pass','path':str(path),'frame_count':frame_count,'frame_rate_hz':frame_rate,'sample_rate_hz':sample_rate,'sample_count':sample_count,'actor_ids':sorted(actor_ids),'camera_frame_count':len(camera),'emitter_frame_counts':{actor_id:len(emitters[actor_id]) for actor_id in sorted(actor_ids)}}
 
 def _event_sample_bounds(event: Mapping[str, Any]) -> tuple[int, int]:
     start = event.get("start_sample")
@@ -205,119 +184,55 @@ def _event_sample_bounds(event: Mapping[str, Any]) -> tuple[int, int]:
     return start, end
 
 
-def validate_audio_artifacts(
-    audio_program_path: Path | None,
-    research_report_path: Path | None,
-    bindings: list[dict[str, Any]],
-    clock: Mapping[str, Any],
-) -> tuple[dict[str, Any] | None, dict[str, Any] | None, dict[str, Any]]:
+def validate_audio_artifacts(audio_program_path: Path | None, research_report_path: Path | None, bindings: list[dict[str, Any]], clock: Mapping[str, Any]) -> tuple[dict[str, Any] | None, dict[str, Any] | None, dict[str, Any]]:
     if audio_program_path is None or research_report_path is None:
-        missing = []
-        if audio_program_path is None:
-            missing.append("audio_program")
-        if research_report_path is None:
-            missing.append("research_report")
-        reason = "required native/audio artifact is not supplied"
-        details: dict[str, Any] = {}
-        if audio_program_path is not None and audio_program_path.is_file():
-            program = load_json(audio_program_path)
-            events = program.get("events") if isinstance(program, Mapping) else None
-            clock_samples = int(clock.get("sample_count", 0))
-            ends = [
-                int(item.get("end_sample_exclusive"))
-                for item in events
-                if isinstance(item, Mapping)
-                and isinstance(item.get("end_sample_exclusive"), int)
-            ] if isinstance(events, list) else []
-            if ends and max(ends) > clock_samples:
-                reason = "audio_program_exceeds_frame_readback_clock"
-                details = {
-                    "audio_program_max_end_sample": max(ends),
-                    "frame_readback_sample_count": clock_samples,
-                }
-        return None, None, {
-            "status": "not_run",
-            "reason": reason,
-            "missing": missing,
-            **details,
-        }
-    if not audio_program_path.is_file() or not research_report_path.is_file():
-        raise AdapterError("audio_program and research_report paths must exist together")
-    program = load_json(audio_program_path)
-    report = load_json(research_report_path)
-    events = program.get("events") if isinstance(program, Mapping) else None
-    report_events = report.get("events") if isinstance(report, Mapping) else None
-    if not isinstance(events, list) or len(events) != 4:
-        raise AdapterError("audio_program must contain four events")
-    if not isinstance(report, Mapping) or report.get("status") not in {"research", "pass"}:
-        raise AdapterError("research_report must be a research/pass report")
-    if report.get("complete_sentences_preserved") is not True:
-        raise AdapterError("research_report must assert complete_sentences_preserved")
-    if not isinstance(report_events, list) or len(report_events) != 4:
-        raise AdapterError("research_report must contain four events")
-    by_actor = {item["actor_id"]: item for item in bindings}
-    by_sound = {item["sound_asset_id"]: item for item in bindings}
-    report_by_actor: dict[str, Mapping[str, Any]] = {}
-    report_by_event: dict[str, Mapping[str, Any]] = {}
+        missing=[]
+        if audio_program_path is None: missing.append('audio_program')
+        if research_report_path is None: missing.append('research_report')
+        return None,None,{'status':'not_run','reason':'required native/audio artifact is not supplied','missing':missing}
+    if not audio_program_path.is_file() or not research_report_path.is_file(): raise AdapterError('audio_program and research_report paths must exist together')
+    program=load_json(audio_program_path); report=load_json(research_report_path)
+    events=program.get('events') if isinstance(program,Mapping) else None; report_events=report.get('events') if isinstance(report,Mapping) else None
+    if not isinstance(events,list) or len(events)!=4: raise AdapterError('audio_program must contain four events')
+    if not isinstance(report,Mapping) or report.get('status') not in {'research','pass'}: raise AdapterError('research_report must be a research/pass report')
+    if report.get('complete_sentences_preserved') is not True: raise AdapterError('research_report must assert complete_sentences_preserved')
+    if not isinstance(report_events,list) or len(report_events)!=4: raise AdapterError('research_report must contain four events')
+    by_actor={item['actor_id']:item for item in bindings}; by_sound={item['sound_asset_id']:item for item in bindings}
+    program_by_sound={item.get('sound_asset_id'):item for item in events}; program_by_event={item.get('event_id'):item for item in events}
+    if set(program_by_sound)!=set(by_sound): raise AdapterError('audio_program sound IDs differ from voice_binding')
+    report_by_actor={}; report_by_event={}; rendered_stems={}
     for item in report_events:
-        actor_id = item.get("actor_id")
-        sound_id = item.get("sound_asset_id")
-        transcript = item.get("transcript")
-        if actor_id not in by_actor or sound_id not in by_sound:
-            raise AdapterError("research_report event does not resolve to voice_binding")
-        event_id = item.get("event_id")
-        if actor_id in report_by_actor or event_id in report_by_event:
-            raise AdapterError("research_report repeats an actor or event")
-        if transcript != by_actor[actor_id]["transcript"]:
-            raise AdapterError(f"transcript mismatch for {actor_id}")
-        pcm_interval = item.get("pcm_output_nonzero_interval")
-        if not isinstance(pcm_interval, list) or len(pcm_interval) != 2:
-            raise AdapterError(f"PCM output nonzero interval missing for {actor_id}")
-        start, end = _event_sample_bounds(item)
-        if end > int(clock.get("sample_count", 0)):
-            raise AdapterError(f"research_report event exceeds frame-readback clock for {actor_id}")
-        if int(pcm_interval[0]) < start or int(pcm_interval[1]) > end:
-            raise AdapterError(f"PCM nonzero interval escapes event for {actor_id}")
-        clip_count = by_actor[actor_id]["pcm"]["sample_count"]
-        source_end = item.get("source_end_sample_exclusive")
-        if source_end is not None and int(source_end) != clip_count:
-            raise AdapterError(f"research_report clip boundary differs from voice binding for {actor_id}")
-        report_by_actor[actor_id] = item
-        report_by_event[str(event_id)] = item
-    ordered_report = sorted(
-        (_event_sample_bounds(item) for item in report_events),
-        key=lambda value: value[0],
-    )
-    if any(left[1] > right[0] for left, right in zip(ordered_report, ordered_report[1:])):
-        raise AdapterError("research_report speech events overlap")
-    program_by_sound = {item.get("sound_asset_id"): item for item in events}
-    program_by_event = {item.get("event_id"): item for item in events}
-    if set(program_by_sound) != set(by_sound):
-        raise AdapterError("audio_program sound IDs differ from voice_binding")
-    for actor_id, binding in by_actor.items():
-        event = report_by_actor.get(actor_id)
-        if event is None:
-            raise AdapterError(f"research_report has no event for {actor_id}")
-        program_event = program_by_sound[binding["sound_asset_id"]]
-        endpoint = program_event.get("source_endpoint_id")
-        if endpoint not in {actor_id, f"{actor_id}_mouth"}:
-            raise AdapterError(f"audio_program endpoint mismatch for {actor_id}")
-        report_event = report_by_actor[actor_id]
-        paired_program = program_by_event.get(report_event.get("event_id"))
-        if paired_program is None:
-            raise AdapterError(f"audio_program has no event for {actor_id}")
-        for field in ("start_sample", "end_sample_exclusive", "sound_asset_id"):
-            if paired_program.get(field) != report_event.get(field):
-                raise AdapterError(f"audio_program/research_report mismatch for {actor_id}: {field}")
-    return program, report, {
-        "status": "pass",
-        "audio_program": str(audio_program_path),
-        "research_report": str(research_report_path),
-        "event_count": 4,
-        "complete_sentences_preserved": True,
-        "nonzero_pcm_events": 4,
-    }
-
+        actor_id=item.get('actor_id'); event_id=item.get('event_id'); program_event=program_by_event.get(event_id); sound_id=item.get('sound_asset_id')
+        if sound_id is None and program_event is not None: sound_id=program_event.get('sound_asset_id')
+        transcript=item.get('transcript')
+        if actor_id not in by_actor or sound_id not in by_sound: raise AdapterError('research_report event does not resolve to voice_binding')
+        if actor_id in report_by_actor or event_id in report_by_event: raise AdapterError('research_report repeats an actor or event')
+        if transcript!=by_actor[actor_id]['transcript']: raise AdapterError(f'transcript mismatch for {actor_id}')
+        start_raw=item.get('start_sample'); end_raw=item.get('end_sample_exclusive')
+        if not isinstance(start_raw,int) and program_event is not None: start_raw=program_event.get('start_sample')
+        if not isinstance(end_raw,int) and program_event is not None: end_raw=program_event.get('end_sample_exclusive')
+        normalized=dict(item); normalized['sound_asset_id']=sound_id; normalized['start_sample']=start_raw; normalized['end_sample_exclusive']=end_raw
+        start,end=_event_sample_bounds(normalized)
+        if end>int(clock.get('sample_count',0)): raise AdapterError(f'research_report event exceeds frame-readback clock for {actor_id}')
+        if program_event is None: raise AdapterError(f'audio_program has no event for {actor_id}')
+        for field in ('start_sample','end_sample_exclusive','sound_asset_id'):
+            if program_event.get(field)!=normalized.get(field): raise AdapterError(f'audio_program/research_report mismatch for {actor_id}: {field}')
+        source_end=item.get('source_end_sample_exclusive')
+        if source_end is None: source_end=program_event.get('source_end_sample_exclusive')
+        if source_end is not None and int(source_end)!=by_actor[actor_id]['pcm']['sample_count']: raise AdapterError(f'dry clip boundary differs from voice binding for {actor_id}')
+        output_stem=item.get('output_stem')
+        if not isinstance(output_stem,str) or not output_stem: raise AdapterError(f'rendered output stem missing for {actor_id}')
+        stem=rendered_stem_evidence(Path(output_stem).expanduser().resolve())
+        if stem['sample_count']<end: raise AdapterError(f'rendered PCM stem ends before dry event window for {actor_id}')
+        normalized['rendered_stem']=stem; report_by_actor[actor_id]=normalized; report_by_event[str(event_id)]=normalized; rendered_stems[actor_id]=stem
+    ordered_report=sorted((_event_sample_bounds(item) for item in report_by_event.values()),key=lambda value:value[0])
+    if any(left[1]>right[0] for left,right in zip(ordered_report,ordered_report[1:])): raise AdapterError('dry speech event windows overlap')
+    for actor_id,binding in by_actor.items():
+        event=report_by_actor.get(actor_id)
+        if event is None: raise AdapterError(f'research_report has no event for {actor_id}')
+        endpoint=program_by_sound[binding['sound_asset_id']].get('source_endpoint_id')
+        if endpoint not in {actor_id,f'{actor_id}_mouth'}: raise AdapterError(f'audio_program endpoint mismatch for {actor_id}')
+    return program,report,{'status':'pass','audio_program':str(audio_program_path),'research_report':str(research_report_path),'event_count':4,'complete_sentences_preserved':True,'nonzero_pcm_events':4,'rendered_stems':rendered_stems}
 
 def visibility_at(truth: Mapping[str, Any] | None, actor_id: str, frame: int) -> str | None:
     if not isinstance(truth, Mapping):
@@ -434,7 +349,6 @@ def _build_facts(
             {
                 "sound_asset_id": item["sound_asset_id"],
                 "path": item["pcm"]["path"],
-                "sha256": item["pcm"]["sha256"],
                 "species": "human",
                 "content": {
                     "species": "human",
@@ -471,23 +385,9 @@ def _build_facts(
                 "end_sample": end,
                 "dry_variant": {
                     "input_path": item["pcm"]["path"],
-                    "input_sha256": item["pcm"]["sha256"],
                 },
             }
         )
-    moving = [False] * frame_count
-    tracks = {
-        "instances": {
-            item["actor_id"]: {
-                "moving": list(moving),
-                "doa": {
-                    "azimuth_deg": [0.0] * frame_count,
-                    "distance_m": [1.0] * frame_count,
-                },
-            }
-            for item in bindings
-        }
-    }
     facts = {
         "schema": "avengine_qa_fact_table_v1",
         "status": "pass",
@@ -501,7 +401,6 @@ def _build_facts(
         },
         "instances": instances,
         "sound_events": events,
-        "tracks": tracks,
         "visibility": {"pixel_truth": truth},
     }
     asset_registry = {
