@@ -641,7 +641,13 @@ def point_m1_request(
     configured: str | Path | None = None,
     *,
     config_base: Path | None = None,
+    variant: str = "main",
 ) -> Path:
+    variant = _safe_variant_name(variant, owner="audio variant")
+    if variant != "main":
+        specific = inputs_root / pid / f"m1_capture_request_{variant}.json"
+        if specific.is_file():
+            return specific.resolve()
     per_point = inputs_root / pid / "m1_capture_request.json"
     if per_point.is_file():
         return per_point.resolve()
@@ -695,6 +701,11 @@ def main(argv: list[str] | None = None) -> int:
              "也可在 config.layouts 中声明",
     )
     parser.add_argument("--points", default=None)
+    parser.add_argument(
+        "--capture-by-variant",
+        type=Path,
+        help="JSON object {point_id: {variant: capture_dir}} for non-main segments",
+    )
     parser.add_argument("--resume", action="store_true")
     args = parser.parse_args(argv)
 
@@ -751,9 +762,29 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     args.output_root.mkdir(parents=True, exist_ok=True)
     programs_dir = inputs_root / "programs"
+    capture_by_variant: dict[str, dict[str, str]] = {}
+    if args.capture_by_variant is not None:
+        raw_map = json.loads(args.capture_by_variant.read_text(encoding="utf-8"))
+        if not isinstance(raw_map, dict):
+            print("FAIL: --capture-by-variant must be a JSON object", file=sys.stderr)
+            return 2
+        for point_id, variants_map in raw_map.items():
+            if not isinstance(variants_map, dict):
+                print(
+                    f"FAIL: capture-by-variant[{point_id}] must be an object",
+                    file=sys.stderr,
+                )
+                return 2
+            capture_by_variant[str(point_id)] = {
+                str(variant): str(path) for variant, path in variants_map.items()
+            }
     done = skipped = 0
     for pid in points:
-        cap_dir = captures_root / pid
+        default_cap_dir = captures_root / pid
+        first_variant = point_variants_by_id[pid][0]
+        cap_dir = Path(
+            capture_by_variant.get(pid, {}).get(first_variant, default_cap_dir)
+        )
         capture_receipt = cap_dir / "research_receipt.json"
         if not capture_receipt.is_file():
             print(f"FAIL: capture for {pid} not complete at {cap_dir}",
@@ -780,11 +811,22 @@ def main(argv: list[str] | None = None) -> int:
         # 孪生的 program 由 derive_twin_programs.py 预先派生(外观孪生
         # 的 endpoint 绑定随资产翻转,必须换绑重密封),每点用自己的。
         point_variants = point_variants_by_id[pid]
-        m1_request = point_m1_request(
-            inputs_root, pid, cfg.get("m1_request"),
-            config_base=config_path.parent,
-        )
         for variant in point_variants:
+            cap_dir = Path(
+                capture_by_variant.get(pid, {}).get(variant, default_cap_dir)
+            ).resolve()
+            capture_receipt = cap_dir / "research_receipt.json"
+            if not capture_receipt.is_file():
+                print(
+                    f"FAIL: capture for {pid}/{variant} not complete at {cap_dir}",
+                    file=sys.stderr,
+                )
+                return 1
+            m1_request = point_m1_request(
+                inputs_root, pid, cfg.get("m1_request"),
+                config_base=config_path.parent,
+                variant=variant,
+            )
             out_dir = args.output_root / _output_directory_name(pid, variant)
             state = point_state(out_dir, layouts=layouts)
             if state == "complete":

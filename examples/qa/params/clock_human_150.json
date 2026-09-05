@@ -1,0 +1,106 @@
+{
+  "ANGLE_CERTIFICATION_POLICY": "strict_full_credit_only",
+  "ANSWER_BAND_INTERIOR_MARGIN_DEG": 0.25,
+  "ANSWER_FORMS_DEFAULT": [
+    "mcq",
+    "open"
+  ],
+  "AZ_BANDS_CARD1": [
+    -52.5,
+    -29.17,
+    -5.83,
+    17.5
+  ],
+  "BANDS": [
+    0.35,
+    1.1,
+    1.85,
+    2.6
+  ],
+  "BANDS_CARD8": [
+    0.35,
+    1.1,
+    1.85,
+    2.6
+  ],
+  "CAMERA_CLEARANCE_BLOCKED_FRACTION_MAX": 0.2,
+  "CAMERA_CLEARANCE_NEAR_M": 1.5,
+  "CAMERA_CLEARANCE_REQUIRED": true,
+  "CAMERA_CLEARANCE_TARGET_HEIGHT_M": 0.5,
+  "CAMERA_HEIGHT_FALLBACK_M": [
+    1.8
+  ],
+  "CLIP_SECONDS": 10.0,
+  "DRY_CANVAS_SOURCE_END_SAMPLE_EXCLUSIVE": 8000,
+  "DRY_CANVAS_SOURCE_START_SAMPLE": 3200,
+  "END_GAP_MIN": 25.0,
+  "EVENT_SECONDS": 0.3,
+  "FIRST_MIN_S": 0.35,
+  "FRAME_COUNT": 150,
+  "GAP_MIN_S": 0.3,
+  "ITEMS_PER_ROOM_DEFAULT": 2,
+  "MIN_AZIMUTH_SEP": 25.0,
+  "MIN_CAMERA_DISTANCE_ANCHOR_CM": 250.0,
+  "MIN_CAMERA_DISTANCE_CM": 250.0,
+  "MIN_CARD7_FRAMES": 8,
+  "MIN_DIST_CHANGE_CM": 50.0,
+  "PAIR_KIND": "human",
+  "PIXEL_ACCEPTANCE_POLICY": "camera_blockage_reject_then_tier",
+  "PIXEL_BBOX_MUST_NOT_TOUCH_FRAME_EDGE": true,
+  "PIXEL_CAMERA_BLOCKAGE_MAX_DISTANCE_M": 1.5,
+  "PIXEL_MIN_VISIBLE_FRACTION": 0.5,
+  "PIXEL_MIN_VISIBLE_PIXELS": 1000,
+  "PIXEL_THRESHOLD_STATUS": "placeholder_research_not_human_calibrated",
+  "PIXEL_TIER_REJECT_TIERS": [],
+  "PIXEL_TIER_VISIBLE_FRACTION_EDGES": [
+    0.5,
+    0.2
+  ],
+  "PREDICTION_BODY_M": {
+    "height_m": 0.5,
+    "length_m": 0.8,
+    "status": "placeholder_dog_body"
+  },
+  "PROGRAM_ADMISSION_STATE": "research",
+  "PROGRAM_FADE_SAMPLES": 80,
+  "PROGRAM_LINEAR_GAIN": 1.0,
+  "PROGRAM_MODE": "sequential_sources",
+  "PROGRAM_NORMALIZATION_POLICY": "use_sound_asset_policy",
+  "PROGRAM_RENDER_SOURCE_STEM": true,
+  "PROGRAM_SOURCE_SPECIFIC_STEMS": true,
+  "QUERY_SILENCE_FRACTION": 0.12,
+  "ROUTE_MIN_DISPLACEMENT_CM": 1e-06,
+  "ROUTE_PREFILTER_STATIC_TARGETS": true,
+  "ROUTE_SYNTHESIS_ATTEMPTS": 3000,
+  "ROUTE_SYNTHESIS_DESIGN_TRIES": 8,
+  "ROUTE_SYNTHESIS_ENABLED": true,
+  "ROUTE_SYNTHESIS_MAX_CAMERA_DISTANCE_CM": 900.0,
+  "ROUTE_SYNTHESIS_MAX_TURN_DEG": 90.0,
+  "ROUTE_SYNTHESIS_SPEED_MPS_RANGE": [
+    0.6,
+    1.5
+  ],
+  "ROUTE_SYNTHESIS_WALKABLE_MARGIN_M": 0.2,
+  "SAMPLE_RATE_HZ": 16000,
+  "SOUND_EVENT_CLASS_BY_PAIR_KIND": {
+    "cat": "cat_meow",
+    "dog": "dog_bark",
+    "human": "speech_playback"
+  },
+  "SOUND_SOURCE_MODE": "event_pool",
+  "TAIL_MIN_S": 1.5,
+  "TAIL_SILENCE_FRACTION": 0.3,
+  "THETA_FULL": 15.0,
+  "THETA_HALF": 30.0,
+  "TICKS_PER_FRAME": 3200,
+  "TICKS_PER_SAMPLE": 3,
+  "TIME_BASE_HZ": 48000,
+  "T_FULL": 0.5,
+  "T_HALF": 1.0,
+  "VIDEO_FPS": 15,
+  "VISUAL_FOV_MARGIN_DEG": 5.0,
+  "SPEECH_TAIL_SECONDS": 0.5,
+  "SPEECH_GAP_SECONDS": 0.3,
+  "SOUND_EVENT_POOL": "/data/avengine_external/assets/qa10_speech_event_pool_meta_20260904_v1.json",
+  "SAMPLE_COUNT": 160000
+}
