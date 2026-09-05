@@ -6,7 +6,9 @@ import json
 import sys
 from pathlib import Path
 
-from avengine.studio.config import load_studio_config
+import pytest
+
+from avengine.studio.config import StudioConfigError, load_studio_config
 
 
 def test_repository_root_is_relative_to_config_file_not_cwd(
@@ -60,3 +62,13 @@ def test_repository_root_is_relative_to_config_file_not_cwd(
     assert config.external_sound_assets == {
         "voice": str(sound.resolve())
     }
+
+    duplicate_config = config_dir / "duplicate.json"
+    duplicate_text = config_path.read_text(encoding="utf-8").replace(
+        '"voice": "voice.wav"',
+        '"voice": "voice.wav", "voice": "voice.wav"',
+    )
+    assert duplicate_text != config_path.read_text(encoding="utf-8")
+    duplicate_config.write_text(duplicate_text, encoding="utf-8")
+    with pytest.raises(StudioConfigError, match="duplicate key 'voice'"):
+        load_studio_config(duplicate_config)

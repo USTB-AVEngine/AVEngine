@@ -228,9 +228,12 @@ def test_mp3d_room_identity_is_overridable_for_other_rooms(tmp_path: Path) -> No
 
     from avengine.studio.templates import TEMPLATE_OVERRIDABLE_KEYS
 
-    for template in ("mp3d_route_author", "mp3d_end_to_end"):
-        keys = TEMPLATE_OVERRIDABLE_KEYS[template]
-        assert {"room_manifest", "package_manifest", "mp3d_root"} <= keys
+    assert {
+        "room_manifest", "package_manifest", "mp3d_root"
+    } <= TEMPLATE_OVERRIDABLE_KEYS["mp3d_end_to_end"]
+    route_keys = TEMPLATE_OVERRIDABLE_KEYS["mp3d_route_author"]
+    assert "mp3d_root" in route_keys
+    assert {"room_manifest", "package_manifest"}.isdisjoint(route_keys)
     assert {"m1_request", "package_manifest"} <= TEMPLATE_OVERRIDABLE_KEYS[
         "mp3d_dynamic_audio"
     ]
@@ -398,3 +401,140 @@ def test_mp3d_template_uses_generic_sound_bindings_and_layouts(
     )
     assert ambisonics[ambisonics.index("--layouts") + 1] == "ambisonics"
     assert "--hrtf" not in ambisonics
+
+
+
+def test_mp3d_sound_map_conflicts_and_missing_files_fail_at_submit(
+    tmp_path: Path,
+) -> None:
+    inputs = tmp_path / "mp3d-map"
+    inputs.mkdir()
+    defaults = {}
+    for key in (
+        "visual_capture_dir",
+        "m1_request",
+        "simulation_request",
+        "package_manifest",
+        "audio_program",
+        "source_endpoint_registry",
+        "sound_asset_registry",
+        "hrtf",
+        "runtime_prefix",
+        "rlr_sdk_root",
+    ):
+        target = inputs / key
+        if key in {"visual_capture_dir", "runtime_prefix", "rlr_sdk_root"}:
+            target.mkdir()
+        else:
+            target.write_text("{}")
+        defaults[key] = str(target)
+    first = inputs / "first.wav"
+    second = inputs / "second.wav"
+    first.write_bytes(b"RIFF")
+    second.write_bytes(b"RIFF")
+    conflict_map = inputs / "conflict.json"
+    conflict_map.write_text(json.dumps({"voice": str(second)}))
+    config = _config(
+        tmp_path,
+        {"mp3d_dynamic_audio": defaults},
+        external_sound_assets={"voice": str(first)},
+    )
+    with pytest.raises(StudioTemplateError, match="conflicts with sound_asset_map"):
+        build_template_argv(
+            config,
+            "mp3d_dynamic_audio",
+            {"sound_asset_map": str(conflict_map)},
+            tmp_path / "conflict-output",
+        )
+
+    missing_map = inputs / "missing.json"
+    missing_map.write_text(json.dumps({"other": "absent.wav"}))
+    with pytest.raises(
+        StudioTemplateError, match="does not exist|not a file"
+    ):
+        build_template_argv(
+            config,
+            "mp3d_dynamic_audio",
+            {"sound_asset_map": str(missing_map)},
+            tmp_path / "missing-output",
+        )
+
+    duplicate_map = inputs / "duplicate.json"
+    duplicate_map.write_text(
+        '{"voice":"first.wav","voice":"second.wav"}'
+    )
+    with pytest.raises(StudioTemplateError, match="duplicate ID"):
+        build_template_argv(
+            config,
+            "mp3d_dynamic_audio",
+            {"sound_asset_map": str(duplicate_map)},
+            tmp_path / "duplicate-output",
+        )
+
+
+def test_mp3d_route_author_has_no_audio_dependencies(
+    tmp_path: Path,
+) -> None:
+    inputs = tmp_path / "mp3d-route"
+    inputs.mkdir()
+    defaults = {"seed": 7}
+    for key in (
+        "source_animal_manifest",
+        "source_m2_request",
+        "runtime_prefix",
+        "mp3d_root",
+        "magnum_python_site",
+        "rlr_sdk_root",
+    ):
+        target = inputs / key
+        target.mkdir()
+        defaults[key] = str(target)
+    config = _config(
+        tmp_path,
+        {"mp3d_route_author": defaults},
+    )
+
+    argv = build_template_argv(
+        config, "mp3d_route_author", {}, tmp_path / "route-output"
+    )
+
+    assert "--author-only" in argv
+    for flag in (
+        "--room-manifest",
+        "--audio-program",
+        "--sound-asset-registry",
+        "--sound-asset-path",
+        "--layouts",
+        "--hrtf",
+    ):
+        assert flag not in argv
+
+
+def test_mp3d_hrtf_must_be_a_regular_file(tmp_path: Path) -> None:
+    inputs = tmp_path / "mp3d-hrtf"
+    inputs.mkdir()
+    defaults = {}
+    for key in (
+        "visual_capture_dir",
+        "m1_request",
+        "simulation_request",
+        "package_manifest",
+        "audio_program",
+        "source_endpoint_registry",
+        "sound_asset_registry",
+        "runtime_prefix",
+        "rlr_sdk_root",
+    ):
+        target = inputs / key
+        if key in {"visual_capture_dir", "runtime_prefix", "rlr_sdk_root"}:
+            target.mkdir()
+        else:
+            target.write_text("{}")
+        defaults[key] = str(target)
+    defaults["hrtf"] = str(tmp_path)
+    config = _config(tmp_path, {"mp3d_dynamic_audio": defaults})
+
+    with pytest.raises(StudioTemplateError, match="hrtf.*not a file"):
+        build_template_argv(
+            config, "mp3d_dynamic_audio", {}, tmp_path / "output"
+        )

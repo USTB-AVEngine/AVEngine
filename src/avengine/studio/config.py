@@ -81,11 +81,27 @@ def _required(payload: dict, key: str) -> object:
     return payload[key]
 
 
+def _config_object(
+    pairs: list[tuple[str, object]],
+) -> dict[str, object]:
+    result: dict[str, object] = {}
+    for key, value in pairs:
+        if key in result:
+            raise StudioConfigError(
+                f"studio config contains duplicate key {key!r}"
+            )
+        result[key] = value
+    return result
+
+
 def load_studio_config(config_path: str | Path) -> StudioConfig:
     config_file = Path(config_path).resolve()
     if not config_file.is_file():
         raise StudioConfigError(f"studio config not found: {config_file}")
-    payload = json.loads(config_file.read_text(encoding="utf-8"))
+    payload = json.loads(
+        config_file.read_text(encoding="utf-8"),
+        object_pairs_hook=_config_object,
+    )
     if payload.get("schema") != STUDIO_CONFIG_SCHEMA:
         raise StudioConfigError(
             f"studio config schema must be {STUDIO_CONFIG_SCHEMA!r}, "

@@ -60,12 +60,12 @@ def main() -> int:
     )
     parser.add_argument("--source-animal-manifest", required=True, type=Path)
     parser.add_argument("--source-m2-request", required=True, type=Path)
-    parser.add_argument("--room-manifest", required=True, type=Path)
-    parser.add_argument("--simulation-request", required=True, type=Path)
-    parser.add_argument("--package-manifest", required=True, type=Path)
-    parser.add_argument("--audio-program", required=True, type=Path)
-    parser.add_argument("--source-endpoint-registry", required=True, type=Path)
-    parser.add_argument("--sound-asset-registry", required=True, type=Path)
+    parser.add_argument("--room-manifest", type=Path)
+    parser.add_argument("--simulation-request", type=Path)
+    parser.add_argument("--package-manifest", type=Path)
+    parser.add_argument("--audio-program", type=Path)
+    parser.add_argument("--source-endpoint-registry", type=Path)
+    parser.add_argument("--sound-asset-registry", type=Path)
     parser.add_argument("--sound-asset-map", type=Path)
     parser.add_argument(
         "--sound-asset-path",
@@ -100,19 +100,41 @@ def main() -> int:
     parser.add_argument("--output", required=True, type=Path)
     args = parser.parse_args()
 
-    layouts = tuple(
-        item.strip() for item in args.layouts.split(",") if item.strip()
-    )
-    if (
-        not layouts
-        or len(layouts) != len(set(layouts))
-        or any(item not in {"binaural", "ambisonics"} for item in layouts)
-    ):
-        parser.error("--layouts must contain unique binaural/ambisonics values")
-    if "binaural" not in layouts and not args.author_only:
-        parser.error("end-to-end review requires binaural in --layouts")
-    if not args.author_only and args.hrtf is None:
-        parser.error("end-to-end binaural audio requires --hrtf")
+    if not args.author_only:
+        required_audio = {
+            "room_manifest": args.room_manifest,
+            "simulation_request": args.simulation_request,
+            "package_manifest": args.package_manifest,
+            "audio_program": args.audio_program,
+            "source_endpoint_registry": args.source_endpoint_registry,
+            "sound_asset_registry": args.sound_asset_registry,
+        }
+        missing = [
+            name for name, value in required_audio.items() if value is None
+        ]
+        if missing:
+            parser.error(
+                "end-to-end mode requires: " + ", ".join(missing)
+            )
+
+    if args.author_only:
+        layouts = ("binaural",)
+    else:
+        layouts = tuple(
+            item.strip() for item in args.layouts.split(",") if item.strip()
+        )
+        if (
+            not layouts
+            or len(layouts) != len(set(layouts))
+            or any(item not in {"binaural", "ambisonics"} for item in layouts)
+        ):
+            parser.error(
+                "--layouts must contain unique binaural/ambisonics values"
+            )
+        if "binaural" not in layouts:
+            parser.error("end-to-end review requires binaural in --layouts")
+        if args.hrtf is None:
+            parser.error("end-to-end binaural audio requires --hrtf")
 
     output = args.output.resolve()
     if output.exists() or output.is_symlink():

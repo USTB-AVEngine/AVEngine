@@ -156,3 +156,42 @@ def test_mp3d_e2e_forwards_generic_sound_bindings_without_legacy_beagle(
     assert audio[audio.index("--sound-asset-path") + 1] == f"voice={voice}"
     assert audio[audio.index("--layouts") + 1] == "binaural,ambisonics"
     assert audio[audio.index("--execution-variant") + 1] == "main"
+
+
+
+def test_mp3d_author_only_does_not_parse_or_require_audio_inputs(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _module("run_mp3d_end_to_end.py")
+    review = tmp_path / "review"
+    review.mkdir()
+    captured = []
+
+    def fake_run_step(name, argv, steps, steps_path):
+        del steps, steps_path
+        captured.append((name, [str(value) for value in argv]))
+
+    monkeypatch.setattr(module, "run_step", fake_run_step)
+    common = tmp_path / "input"
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "run_mp3d_end_to_end.py",
+            "--seed", "7",
+            "--source-animal-manifest", str(common),
+            "--source-m2-request", str(common),
+            "--runtime-prefix", str(common),
+            "--mp3d-root", str(common),
+            "--magnum-python-site", str(common),
+            "--rlr-sdk-root", str(common),
+            "--layouts", "irrelevant-in-author-only",
+            "--author-only",
+            "--review-root", str(review),
+            "--output", str(tmp_path / "output"),
+        ],
+    )
+
+    assert module.main() == 0
+    assert [name for name, _ in captured] == ["author_route"]
