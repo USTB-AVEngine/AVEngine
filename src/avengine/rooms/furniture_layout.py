@@ -664,6 +664,11 @@ def load_room_layout(
             ),
         },
         "objects": objects,
+        "furniture_assemblies": [
+            deepcopy(dict(item))
+            for item in object_source.get("furniture_assemblies", [])
+            if isinstance(item, Mapping)
+        ],
         "seats": seats,
         "resources": _resource_refs(manifest_file, manifest, asset_root=root),
         "visual_lighting": deepcopy(dict(lighting)),
