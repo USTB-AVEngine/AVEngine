@@ -311,6 +311,9 @@ def test_pose_binding_offsets_from_seat_reference_and_150_clock(tmp_path: Path) 
     assert len(plan["visual_plan"]["frames"]) == 150
     assert plan["visual_plan"]["frames"][149]["frame_index"] == 149
 
+    assert plan["scene"]["map_path_status"] == "not_declared"
+    assert "no UE stage was launched" in plan["scene"]["claim_boundary"]
+
 
 
 def test_v3_furniture_assemblies_drive_overview_targets(

@@ -25,6 +25,7 @@ def _glb_bytes(
     node_extension: bool = False,
     sparse_position: bool = False,
     positions: np.ndarray | None = None,
+    indices: np.ndarray | None = None,
 ) -> bytes:
     if positions is None:
         positions = np.asarray(
@@ -32,7 +33,10 @@ def _glb_bytes(
             dtype="<f4",
         )
     positions = np.ascontiguousarray(positions, dtype="<f4")
-    indices = np.asarray([0, 1, 2], dtype=_INDEX_DTYPE[index_component_type])
+    if indices is None:
+        indices = np.asarray([0, 1, 2], dtype=_INDEX_DTYPE[index_component_type])
+    else:
+        indices = np.ascontiguousarray(indices, dtype=_INDEX_DTYPE[index_component_type])
     position_bytes = positions.tobytes()
     index_offset = (len(position_bytes) + 3) & ~3
     binary = position_bytes + b"\x00" * (index_offset - len(position_bytes))
@@ -76,7 +80,7 @@ def _glb_bytes(
             {
                 "bufferView": 1,
                 "componentType": index_component_type,
-                "count": 3,
+                "count": int(len(indices)),
                 "type": "SCALAR",
             },
         ],
@@ -190,3 +194,22 @@ def test_triangle_extractor_rejects_float32_overflow_after_transform(
         extract_triangle_scene(
             _write_glb(tmp_path, _glb_bytes(nodes=nodes, positions=positions))
         )
+
+def test_triangle_extractor_drops_zero_area_triangles(tmp_path: Path) -> None:
+    positions = np.asarray(
+        [
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0],
+            [0.5, 0.0, 0.0],
+        ],
+        dtype="<f4",
+    )
+    indices = np.asarray([0, 1, 2, 0, 1, 3], dtype="<u2")
+    scene = extract_triangle_scene(
+        _write_glb(tmp_path, _glb_bytes(positions=positions, indices=indices))
+    )
+    assert len(scene.triangles) == 1
+    assert scene.objects[0]["triangle_count"] == 1
+    kept = scene.vertices[scene.triangles[0]]
+    assert not np.allclose(np.cross(kept[1] - kept[0], kept[2] - kept[0]), 0.0)

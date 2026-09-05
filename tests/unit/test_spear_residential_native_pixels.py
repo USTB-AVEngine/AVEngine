@@ -761,6 +761,10 @@ def test_run_visual_only_native_multimodal_needs_no_audio_and_keeps_frames(
     assert receipt["runtime_review_lights"] == [light_record]
     assert receipt["visual_lighting"] == episode["visual_lighting"]
     assert receipt["native_pixel"]["frame_count"] == 75
+    assert receipt["scene"]["map_path"] == "/Game/Test/Kujiale"
+    assert receipt["scene"]["map_path_status"] == "launched"
+    assert receipt["scene"]["usd_stage_actor_count"] == 1
+    assert "no UE stage was launched" not in receipt["scene"]["claim_boundary"]
     truth = json.loads(
         (tmp_path / "output/pixel_visibility_truth.json").read_text(encoding="utf-8")
     )
@@ -1094,3 +1098,23 @@ def test_residential_configured_camera_rotation_checks_all_150_frames():
     readbacks[149]["rotation_deg"][1] = 0.
     with pytest.raises(RuntimeError, match="rotation readback drifted"):
         TOOL._summarize_camera_full_rotation(plan=plan, readbacks=readbacks, frame_count=150)
+
+def test_runtime_scene_receipt_replaces_planner_not_launched_claim() -> None:
+    scene = TOOL._runtime_scene_receipt(
+        {
+            "scene": {
+                "scene_id": "room",
+                "room_id": "room",
+                "map_path": "/Game/AVEngine/MultiHome/room",
+                "map_path_status": "declared",
+                "claim_boundary": (
+                    "map path is an input declaration; no UE stage was launched"
+                ),
+            }
+        },
+        stage_actor_count=0,
+    )
+    assert scene["map_path"] == "/Game/AVEngine/MultiHome/room"
+    assert scene["map_path_status"] == "launched"
+    assert scene["usd_stage_actor_count"] == 0
+    assert "no UE stage was launched" not in scene["claim_boundary"]
