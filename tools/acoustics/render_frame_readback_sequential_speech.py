@@ -83,63 +83,95 @@ def _cm_to_m(value: Any) -> tuple[float, float, float]:
     return (x, ue_z, ue_y)
 
 
-def _ue_rotator_to_m3_orientation_wxyz(value: Any) -> tuple[float, float, float, float]:
+def _ue_rotator_to_m3_basis(
+    value: Any,
+) -> tuple[tuple[float, float, float], tuple[float, float, float], tuple[float, float, float]]:
     if not isinstance(value, list) or len(value) != 3:
         raise ValueError(f"rotation_deg must be [roll,pitch,yaw]: {value!r}")
     import math
-    roll, pitch, yaw = (math.radians(float(item)) / 2.0 for item in value)
-    sr, cr = math.sin(roll), math.cos(roll)
-    sp, cp = math.sin(pitch), math.cos(pitch)
-    sy, cy = math.sin(yaw), math.cos(yaw)
-    x = sr * cp * cy - cr * sp * sy
-    y = cr * sp * cy + sr * cp * sy
-    z = cr * cp * sy - sr * sp * cy
-    w = cr * cp * cy + sr * sp * sy
-    # UE quaternion is xyzw. Conjugate its rotation through the axis exchange
-    # P=(x,z,y), then convert the resulting matrix back to wxyz for RLR.
-    r = np.asarray(
-        [
-            [1 - 2 * (y * y + z * z), 2 * (x * y - w * z), 2 * (x * z + w * y)],
-            [2 * (x * y + w * z), 1 - 2 * (x * x + z * z), 2 * (y * z - w * x)],
-            [2 * (x * z - w * y), 2 * (y * z + w * x), 1 - 2 * (x * x + y * y)],
-        ],
+    roll, pitch, yaw = (math.radians(float(item)) for item in value)
+    # Unreal SceneCapture optical axes: local +X forward, +Y right, +Z up.
+    # Positive UE pitch raises +X toward +Z; positive yaw rotates +X toward +Y.
+    cp, sp = math.cos(pitch), math.sin(pitch)
+    cy, sy = math.cos(yaw), math.sin(yaw)
+    forward_ue = np.asarray([cp * cy, cp * sy, sp], dtype=np.float64)
+    right0_ue = np.asarray([-sy, cy, 0.0], dtype=np.float64)
+    up0_ue = np.asarray([-sp * cy, -sp * sy, cp], dtype=np.float64)
+    cr, sr = math.cos(roll), math.sin(roll)
+    right_ue = right0_ue * cr + up0_ue * sr
+    up_ue = -right0_ue * sr + up0_ue * cr
+    axis_exchange = np.asarray(
+        [[1.0, 0.0, 0.0], [0.0, 0.0, 1.0], [0.0, 1.0, 0.0]],
         dtype=np.float64,
     )
-    p = np.asarray([[1.0, 0.0, 0.0], [0.0, 0.0, 1.0], [0.0, 1.0, 0.0]])
-    m = p @ r @ p.T
-    trace = float(np.trace(m))
+    forward = axis_exchange @ forward_ue
+    right = axis_exchange @ right_ue
+    up = axis_exchange @ up_ue
+    right = np.cross(forward, up)
+    right /= np.linalg.norm(right)
+    forward /= np.linalg.norm(forward)
+    up = np.cross(right, forward)
+    up /= np.linalg.norm(up)
+    return (
+        tuple(float(item) for item in forward),
+        tuple(float(item) for item in right),
+        tuple(float(item) for item in up),
+    )
+
+
+def _ue_rotator_to_m3_orientation_wxyz(value: Any) -> tuple[float, float, float, float]:
+    forward, right, up = _ue_rotator_to_m3_basis(value)
+    # M5.1 listener local axes are +X right, +Y up, -Z forward.
+    rotation = np.column_stack(
+        (np.asarray(right), np.asarray(up), -np.asarray(forward))
+    )
+    trace = float(np.trace(rotation))
     if trace > 0.0:
-        w2 = np.sqrt(trace + 1.0) / 2.0
-        x2 = (m[2, 1] - m[1, 2]) / (4.0 * w2)
-        y2 = (m[0, 2] - m[2, 0]) / (4.0 * w2)
-        z2 = (m[1, 0] - m[0, 1]) / (4.0 * w2)
+        w = np.sqrt(trace + 1.0) / 2.0
+        x = (rotation[2, 1] - rotation[1, 2]) / (4.0 * w)
+        y = (rotation[0, 2] - rotation[2, 0]) / (4.0 * w)
+        z = (rotation[1, 0] - rotation[0, 1]) / (4.0 * w)
     else:
-        diagonal = int(np.argmax(np.diag(m)))
+        diagonal = int(np.argmax(np.diag(rotation)))
         if diagonal == 0:
-            x2 = np.sqrt(max(0.0, 1.0 + m[0, 0] - m[1, 1] - m[2, 2])) / 2.0
-            y2 = (m[0, 1] + m[1, 0]) / max(1.0e-12, 4.0 * x2)
-            z2 = (m[0, 2] + m[2, 0]) / max(1.0e-12, 4.0 * x2)
-            w2 = (m[2, 1] - m[1, 2]) / max(1.0e-12, 4.0 * x2)
+            x = np.sqrt(max(0.0, 1.0 + rotation[0, 0] - rotation[1, 1] - rotation[2, 2])) / 2.0
+            y = (rotation[0, 1] + rotation[1, 0]) / max(1.0e-12, 4.0 * x)
+            z = (rotation[0, 2] + rotation[2, 0]) / max(1.0e-12, 4.0 * x)
+            w = (rotation[2, 1] - rotation[1, 2]) / max(1.0e-12, 4.0 * x)
         elif diagonal == 1:
-            y2 = np.sqrt(max(0.0, 1.0 + m[1, 1] - m[0, 0] - m[2, 2])) / 2.0
-            x2 = (m[0, 1] + m[1, 0]) / max(1.0e-12, 4.0 * y2)
-            z2 = (m[1, 2] + m[2, 1]) / max(1.0e-12, 4.0 * y2)
-            w2 = (m[0, 2] - m[2, 0]) / max(1.0e-12, 4.0 * y2)
+            y = np.sqrt(max(0.0, 1.0 + rotation[1, 1] - rotation[0, 0] - rotation[2, 2])) / 2.0
+            x = (rotation[0, 1] + rotation[1, 0]) / max(1.0e-12, 4.0 * y)
+            z = (rotation[1, 2] + rotation[2, 1]) / max(1.0e-12, 4.0 * y)
+            w = (rotation[0, 2] - rotation[2, 0]) / max(1.0e-12, 4.0 * y)
         else:
-            z2 = np.sqrt(max(0.0, 1.0 + m[2, 2] - m[0, 0] - m[1, 1])) / 2.0
-            x2 = (m[0, 2] + m[2, 0]) / max(1.0e-12, 4.0 * z2)
-            y2 = (m[1, 2] + m[2, 1]) / max(1.0e-12, 4.0 * z2)
-            w2 = (m[1, 0] - m[0, 1]) / max(1.0e-12, 4.0 * z2)
-    q = np.asarray([w2, x2, y2, z2], dtype=np.float64)
-    q /= np.linalg.norm(q)
-    return tuple(float(item) for item in q)
+            z = np.sqrt(max(0.0, 1.0 + rotation[2, 2] - rotation[0, 0] - rotation[1, 1])) / 2.0
+            x = (rotation[0, 2] + rotation[2, 0]) / max(1.0e-12, 4.0 * z)
+            y = (rotation[1, 2] + rotation[2, 1]) / max(1.0e-12, 4.0 * z)
+            w = (rotation[1, 0] - rotation[0, 1]) / max(1.0e-12, 4.0 * z)
+    quaternion = np.asarray([w, x, y, z], dtype=np.float64)
+    quaternion /= np.linalg.norm(quaternion)
+    return tuple(float(item) for item in quaternion)
 
-
-def _frame_listener(records: list[Mapping[str, Any]], frame_index: int) -> tuple[tuple[float, float, float], tuple[float, float, float, float]]:
+def _frame_listener(
+    records: list[Mapping[str, Any]], frame_index: int
+) -> tuple[
+    tuple[float, float, float],
+    tuple[float, float, float, float],
+    dict[str, tuple[float, float, float]],
+]:
     if not records:
         raise ValueError("listener readback list is empty")
-    record = records[min(max(frame_index, 0), len(records) - 1)]
-    return _cm_to_m(record["location_cm"]), _ue_rotator_to_m3_orientation_wxyz(record["rotation_deg"])
+    if not 0 <= frame_index < len(records):
+        raise ValueError(
+            f"listener frame {frame_index} is unavailable (count={len(records)})"
+        )
+    record = records[frame_index]
+    basis = _ue_rotator_to_m3_basis(record["rotation_deg"])
+    return (
+        _cm_to_m(record["location_cm"]),
+        _ue_rotator_to_m3_orientation_wxyz(record["rotation_deg"]),
+        {"forward": basis[0], "right": basis[1], "up": basis[2]},
+    )
 
 
 def _rotation_distance_deg(left: tuple[float, float, float, float], right: tuple[float, float, float, float]) -> float:
@@ -154,13 +186,13 @@ def _verify_static_interval(
     end_frame: int,
 ) -> dict[str, float]:
     source = np.asarray(_cm_to_m(emitter_records[start_frame]["location_cm"]))
-    listener, orientation = _frame_listener(listener_records, start_frame)
+    listener, orientation, _ = _frame_listener(listener_records, start_frame)
     max_source = 0.0
     max_listener = 0.0
     max_rotation = 0.0
     for frame_index in range(start_frame, min(end_frame + 1, len(emitter_records))):
         source_now = np.asarray(_cm_to_m(emitter_records[frame_index]["location_cm"]))
-        listener_now, orientation_now = _frame_listener(listener_records, frame_index)
+        listener_now, orientation_now, _ = _frame_listener(listener_records, frame_index)
         max_source = max(max_source, float(np.linalg.norm(source_now - source)))
         max_listener = max(max_listener, float(np.linalg.norm(np.asarray(listener_now) - np.asarray(listener))))
         max_rotation = max(max_rotation, _rotation_distance_deg(orientation, orientation_now))
@@ -212,8 +244,67 @@ def _place_wet_event(
 def _frame_position(records: list[Mapping[str, Any]], frame_index: int, key: str) -> tuple[float, float, float]:
     if not records:
         raise ValueError("readback list is empty")
-    selected = records[min(max(frame_index, 0), len(records) - 1)]
+    if not 0 <= frame_index < len(records):
+        raise ValueError(
+            f"readback frame {frame_index} is unavailable (count={len(records)})"
+        )
+    selected = records[frame_index]
     return _cm_to_m(selected[key])
+
+
+def _validate_readback_lengths(
+    readback: Mapping[str, Any], frame_count: int, actor_ids: list[str]
+) -> None:
+    camera = readback.get("camera")
+    if not isinstance(camera, list) or len(camera) != frame_count:
+        raise ValueError(
+            f"camera readback must contain exactly {frame_count} frames"
+        )
+    emitters = readback.get("emitters")
+    if not isinstance(emitters, Mapping):
+        raise ValueError("emitter readbacks are missing")
+    for actor_id in actor_ids:
+        records = emitters.get(actor_id)
+        if not isinstance(records, list) or len(records) != frame_count:
+            raise ValueError(
+                f"emitter readback for {actor_id} must contain exactly "
+                f"{frame_count} frames"
+            )
+
+
+def _animation_readback_qa(
+    readback: Mapping[str, Any], actor_ids: list[str], frame_count: int
+) -> dict[str, Any]:
+    raw = readback.get("animations")
+    if not isinstance(raw, Mapping):
+        return {"status": "not_run", "reason": "animations readback is absent"}
+    failures: list[str] = []
+    maximum_error = 0.0
+    for actor_id in actor_ids:
+        records = raw.get(actor_id)
+        if not isinstance(records, list) or len(records) != frame_count:
+            failures.append(f"{actor_id}: incomplete animation readback")
+            continue
+        for index, record in enumerate(records):
+            if not isinstance(record, Mapping) or record.get("frame_index") != index:
+                failures.append(f"{actor_id}: frame index mismatch at {index}")
+                continue
+            error = record.get("absolute_error_seconds")
+            if (
+                isinstance(error, bool)
+                or not isinstance(error, (int, float))
+                or not np.isfinite(float(error))
+            ):
+                failures.append(f"{actor_id}: invalid animation phase at {index}")
+                continue
+            maximum_error = max(maximum_error, float(error))
+            if float(error) > 1.0e-4:
+                failures.append(f"{actor_id}: animation phase error at {index}")
+    return {
+        "status": "pass" if not failures else "fail",
+        "maximum_absolute_error_seconds": maximum_error,
+        "failures": failures,
+    }
 
 
 def _simulation(
@@ -325,9 +416,16 @@ def render(
         raise ValueError("current research bridge requires 16 kHz readbacks")
     camera = readback["camera"]
     emitters = readback["emitters"]
-    actor_ids = [str(item["actor_id"]) if isinstance(item, Mapping) else str(item) for item in bindings]
-    if len(set(actor_ids)) != 4 or not all(actor_id in emitters for actor_id in actor_ids):
+    actor_ids = [
+        str(item["actor_id"]) if isinstance(item, Mapping) else str(item)
+        for item in bindings
+    ]
+    if len(set(actor_ids)) != 4 or not all(
+        actor_id in emitters for actor_id in actor_ids
+    ):
         raise ValueError("voice bindings must name four actor IDs present in emitter readbacks")
+    _validate_readback_lengths(readback, frame_count, actor_ids)
+    animation_qa = _animation_readback_qa(readback, actor_ids, frame_count)
 
     clips: list[tuple[np.ndarray, int]] = []
     for item in bindings:
@@ -441,7 +539,7 @@ def render(
         source_position = _cm_to_m(
             emitters[actor_ids[index]][frame_index]["location_cm"]
         )
-        listener_position, listener_orientation = _frame_listener(camera, frame_index)
+        listener_position, listener_orientation, listener_basis = _frame_listener(camera, frame_index)
         readback_obj = root / f"rir_{index:02d}_{actor_ids[index]}.obj"
         result = simulate_compiled_acoustic_scene(
             scene,
@@ -485,7 +583,10 @@ def render(
                 "emitter_readback_m": list(source_position),
                 "listener_readback_m": list(listener_position),
                 "listener_orientation_wxyz": list(listener_orientation),
-                "coordinate_transform_profile": "ue_z_up_cm_to_avengine_y_up_m_xyz_exchange",
+                "listener_basis_m3": {
+                    key: list(value) for key, value in listener_basis.items()
+                },
+                "coordinate_transform_profile": "ue_scene_capture_x_forward_z_up_to_m3_minus_z_forward_y_up",
                 "stationary_interval": static_interval,
                 "rir_shape": list(ir.shape),
                 "rir_sample_count": int(ir.shape[-1]),
@@ -534,7 +635,7 @@ def render(
                 "source": "frame_readbacks.camera[].location_cm",
             },
             "animation_phase_readback": {
-                "status": "pass" if "animations" in readback else "not_run",
+                **animation_qa,
                 "source": "frame_readbacks.animations",
             },
             "pixel_visibility": {
