@@ -193,22 +193,47 @@ def _actor_state(
 
 
 def _overview_target_bounds(layout: Mapping[str, Any]) -> list[dict[str, list[float]]]:
-    """Build small static-furniture targets for a room-wide overview score."""
+    """Build compact living/dining targets for a room-wide overview score."""
 
+    assemblies = layout.get("furniture_assemblies")
+    assembly_targets: list[Mapping[str, Any]] = []
+    if isinstance(assemblies, list):
+        for item in assemblies:
+            if not isinstance(item, Mapping):
+                continue
+            text = f"{item.get('kind', '')} {item.get('object_id', '')}".lower()
+            center = item.get("center_xy_m")
+            if isinstance(center, Sequence) and len(center) == 2 and any(
+                token in text for token in ("dining", "living", "sofa", "table")
+            ):
+                assembly_targets.append(item)
     targets: list[dict[str, list[float]]] = []
+    if assembly_targets:
+        for item in assembly_targets:
+            x, y = [float(value) for value in item["center_xy_m"]]
+            targets.append(
+                {
+                    "minimum_m": [x - 0.30, y - 0.30, 0.35],
+                    "maximum_m": [x + 0.30, y + 0.30, 1.70],
+                }
+            )
+        return targets
+
+    preferred: list[Mapping[str, Any]] = []
+    fallback: list[Mapping[str, Any]] = []
     for item in layout.get("objects", []):
         if str(item.get("navigation_role") or "ground_blocker") in {
-            "walkable_surface",
-            "walkable_floor_covering",
-            "elevated_object",
+            "walkable_surface", "walkable_floor_covering", "elevated_object"
         }:
             continue
         center = item.get("center_authoring_m")
         if not isinstance(center, Sequence) or len(center) != 3:
             continue
-        x, y, z = [float(value) for value in center]
-        # A compact target represents visible furniture/architecture without
-        # requiring one impossible frame to contain every full AABB.
+        text = f"{item.get('semantic_class', '')} {item.get('object_id', '')}".lower()
+        (preferred if any(token in text for token in ("dining", "chair", "sofa", "cushion", "coffee", "table")) else fallback).append(item)
+    source_items = preferred if len(preferred) >= 2 else fallback + preferred
+    for item in source_items:
+        x, y, z = [float(value) for value in item["center_authoring_m"]]
         targets.append(
             {
                 "minimum_m": [x - 0.16, y - 0.16, max(0.25, min(z, 1.05) - 0.25)],
@@ -221,7 +246,6 @@ def _overview_target_bounds(layout: Mapping[str, Any]) -> list[dict[str, list[fl
         y = (bounds[1] + bounds[3]) * 0.5
         targets.append({"minimum_m": [x - 0.16, y - 0.16, 0.25], "maximum_m": [x + 0.16, y + 0.16, 1.75]})
     return targets
-
 
 def build_episode_plan(
     layout: Mapping[str, Any],
