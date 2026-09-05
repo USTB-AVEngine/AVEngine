@@ -11,8 +11,9 @@ QuestionSpec types already present in the repository:
 * speaking order -> who_spoke_first.
 
 The output remains research_only. Pixel visibility is applied only to the
-specific card-13/card-14 all-speaker condition when supplied; an out-of-view
-non-target actor never rejects the room.
+specific card-13/card-14 target condition when supplied; an out-of-view
+non-target actor never rejects the room. Shirt color is author-controlled
+registry metadata, while native masks prove only target visibility.
 """
 
 from __future__ import annotations
@@ -423,6 +424,7 @@ def build(
     research_report: Path | None = None,
     pixel_visibility_truth: Path | None = None,
     require_all_speaker_visible: bool = True,
+    all_speaking_targets: bool = False,
 ) -> dict[str, Any]:
     if output.exists():
         raise FileExistsError(f"fresh output required: {output}")
@@ -454,7 +456,9 @@ def build(
         "status": "not_run" if audio_report["status"] != "pass" else "research_only",
         "claim_boundary": (
             "Reuses existing QuestionSpec/Facts evaluation. This is a research "
-            "example adapter, not formal QA admission or a new question protocol."
+            "example adapter, not formal QA admission or a new question protocol. "
+            "Shirt color is author-controlled registry metadata; native masks "
+            "prove target visibility, not RGB color recognition."
         ),
         "input_validation_report": str(output / "input_validation_report.json"),
         "question_type_mapping": {
@@ -463,9 +467,15 @@ def build(
             "speaker_order": "who_spoke_first",
         },
         "visibility_policy": {
-            "card13_card14_target_condition": "all four speakers visible at target utterance frame",
+            "card13_card14_target_condition": (
+                "selected target visible at its utterance frame"
+                if all_speaking_targets
+                else "all four speakers visible at target utterance frame"
+            ),
             "required": require_all_speaker_visible,
+            "all_speaking_targets": all_speaking_targets,
             "out_of_view_non_target_is_not_room_failure": True,
+            "native_mask_scope": "target visibility only; shirt color is author-controlled metadata",
         },
         "samples": [],
         "deferred_samples": [],
@@ -484,20 +494,10 @@ def build(
     write_json(output / "sound_registry.json", sound_registry)
     write_json(output / "event_sound_bindings.json", event_bindings)
     by_color = {item["color"]: item for item in bindings}
-    target = by_color.get("blue", bindings[0])
-    target_event = next(event for event in research["events"] if event["actor_id"] == target["actor_id"])
-    target_frame = int(
-        math.floor(
-            int(target_event["start_sample"])
-            / float(readbacks["clock"]["sample_rate_hz"])
-            * float(readbacks["clock"]["frame_rate_hz"])
-        )
-    )
-    visibility = card_visibility(
-        truth,
-        [item["actor_id"] for item in bindings],
-        target_frame,
-        required=require_all_speaker_visible,
+    targets = (
+        list(bindings)
+        if all_speaking_targets
+        else [by_color.get("blue", bindings[0])]
     )
     samples: list[dict[str, Any]] = []
     deferred: list[dict[str, Any]] = []
@@ -515,44 +515,67 @@ def build(
         event_sound_bindings=event_bindings,
     )
     samples.append({"card": "speaker_order", "question_spec": order_spec, "evaluation": order_eval})
-    card13_spec = {
-        "schema": "avengine_qa_question_spec_v1",
-        "spec_id": "QS-013",
-        "question_type": "appearance_to_spoken_content",
-        "selectors": {"appearance_field": "coat_value", "appearance_value": target["color"]},
-    }
-    card14_spec = {
-        "schema": "avengine_qa_question_spec_v1",
-        "spec_id": "QS-014",
-        "question_type": "sound_to_appearance",
-        "selectors": {"sound_asset_id": target["sound_asset_id"], "appearance_field": "coat_value"},
-    }
-    if visibility["status"] == "pass" or not require_all_speaker_visible:
-        samples.extend([
-            {"card": "card13", "question_spec": card13_spec,
-             "visibility": visibility,
-             "evaluation": evaluate_question_spec(
-                 card13_spec,
-                 facts=facts,
-                 asset_registry=asset_registry,
-                 sound_registry=sound_registry,
-                 event_sound_bindings=event_bindings,
-             )},
-            {"card": "card14", "question_spec": card14_spec,
-             "visibility": visibility,
-             "evaluation": evaluate_question_spec(
-                 card14_spec,
-                 facts=facts,
-                 asset_registry=asset_registry,
-                 sound_registry=sound_registry,
-                 event_sound_bindings=event_bindings,
-             )},
-        ])
-    else:
-        deferred.extend([
-            {"card": "card13", "question_spec": card13_spec, "visibility": visibility},
-            {"card": "card14", "question_spec": card14_spec, "visibility": visibility},
-        ])
+    for index, target in enumerate(targets):
+        target_event = next(
+            event
+            for event in research["events"]
+            if event["actor_id"] == target["actor_id"]
+        )
+        target_frame = int(
+            math.floor(
+                int(target_event["start_sample"])
+                / float(readbacks["clock"]["sample_rate_hz"])
+                * float(readbacks["clock"]["frame_rate_hz"])
+            )
+        )
+        visibility_actor_ids = (
+            [target["actor_id"]]
+            if all_speaking_targets
+            else [item["actor_id"] for item in bindings]
+        )
+        visibility = card_visibility(
+            truth,
+            visibility_actor_ids,
+            target_frame,
+            required=require_all_speaker_visible,
+        )
+        first_spec_id = 101 + index * 2 if all_speaking_targets else 13
+        card13_spec = {
+            "schema": "avengine_qa_question_spec_v1",
+            "spec_id": f"QS-{first_spec_id:03d}",
+            "question_type": "appearance_to_spoken_content",
+            "selectors": {
+                "appearance_field": "coat_value",
+                "appearance_value": target["color"],
+            },
+        }
+        card14_spec = {
+            "schema": "avengine_qa_question_spec_v1",
+            "spec_id": f"QS-{first_spec_id + 1:03d}",
+            "question_type": "sound_to_appearance",
+            "selectors": {
+                "sound_asset_id": target["sound_asset_id"],
+                "appearance_field": "coat_value",
+            },
+        }
+        pair = [
+            {"card": "card13", "target_actor_id": target["actor_id"],
+             "question_spec": card13_spec, "visibility": visibility},
+            {"card": "card14", "target_actor_id": target["actor_id"],
+             "question_spec": card14_spec, "visibility": visibility},
+        ]
+        if visibility["status"] == "pass" or not require_all_speaker_visible:
+            for item in pair:
+                item["evaluation"] = evaluate_question_spec(
+                    item["question_spec"],
+                    facts=facts,
+                    asset_registry=asset_registry,
+                    sound_registry=sound_registry,
+                    event_sound_bindings=event_bindings,
+                )
+            samples.extend(pair)
+        else:
+            deferred.extend(pair)
     result["status"] = "research_only"
     result["samples"] = samples
     result["deferred_samples"] = deferred
@@ -573,6 +596,11 @@ def main() -> None:
     parser.add_argument("--pixel-visibility-truth", type=Path)
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument(
+        "--all-speaking-targets",
+        action="store_true",
+        help="emit both existing cross-modal QuestionSpecs for every speaker",
+    )
+    parser.add_argument(
         "--allow-partial-speaker-visibility",
         action="store_true",
         help="emit card13/card14 research rows without the all-four visible condition",
@@ -586,6 +614,7 @@ def main() -> None:
         pixel_visibility_truth=args.pixel_visibility_truth,
         output=args.output,
         require_all_speaker_visible=not args.allow_partial_speaker_visibility,
+        all_speaking_targets=args.all_speaking_targets,
     )
     print(json.dumps({
         "status": result["status"],
