@@ -59,6 +59,7 @@ def test_camera_review_uses_native_candidate_pool_metadata_and_fov_fields(tmp_pa
         assert "forward_ue" in candidate
         assert "review_score" in candidate
         assert "review_visibility_status" in candidate
+        assert candidate["review_score_policy"].startswith("geometry_orientation_clearance")
     assert all(
         frame["camera_state"]["candidate_id"]
         == review["visual_plan"]["camera_review"]["segments"][frame["frame_index"] // 6]["candidate_id"]
