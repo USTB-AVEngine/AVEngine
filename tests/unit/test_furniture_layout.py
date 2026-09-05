@@ -192,8 +192,10 @@ def test_seat_facing_corrects_an_opposite_declared_table_direction(
     path.write_text(json.dumps(manifest), encoding="utf-8")
     layout = load_room_layout(path)
     seat = layout["seats"][0]
-    assert seat["facing_yaw_deg"] == pytest.approx(135.0)
-    assert seat["facing_source"] == "furniture_center_geometry_correction"
+    assert seat["facing_yaw_deg"] == pytest.approx(-90.0)
+    assert seat["facing_source"] == "declared_metadata"
+    assert seat["facing_candidate_yaw_deg"] == pytest.approx(135.0)
+    assert seat["facing_candidate_source"] == "furniture_center_geometry_candidate"
 
 
 def test_overview_only_contains_camera_and_no_actor_states(tmp_path: Path) -> None:

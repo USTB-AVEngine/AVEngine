@@ -274,10 +274,34 @@ def _normalize_seat(
         owner=f"{owner}.affordance_id",
     )
     position = _seat_position(raw, owner=owner)
-    facing = _finite(
-        _first_present(raw, ("facing_yaw_deg", "yaw_deg")) or 0.0,
-        owner=f"{owner}.facing_yaw_deg",
+    declared_forward = _first_present(
+        raw,
+        (
+            "chair_forward_yaw_deg",
+            "furniture_forward_yaw_deg",
+            "native_forward_yaw_deg",
+            "forward_yaw_deg",
+        ),
     )
+    declared_forward_vector = _first_present(
+        raw, ("chair_forward_xy", "furniture_forward_xy", "forward_vector_xy")
+    )
+    if declared_forward is not None:
+        facing = _finite(declared_forward, owner=f"{owner}.chair_forward_yaw_deg")
+        facing_source = "native_chair_forward"
+    elif declared_forward_vector is not None:
+        vector = _vector(declared_forward_vector, 2, owner=f"{owner}.chair_forward_xy")
+        if math.hypot(vector[0], vector[1]) <= 1.0e-9:
+            raise FurnitureLayoutError(f"{owner}.chair_forward_xy cannot be zero")
+        facing = math.degrees(math.atan2(vector[1], vector[0]))
+        facing_source = "native_chair_forward"
+    else:
+        declared_facing = _first_present(raw, ("facing_yaw_deg", "yaw_deg"))
+        facing = _finite(
+            declared_facing if declared_facing is not None else 0.0,
+            owner=f"{owner}.facing_yaw_deg",
+        )
+        facing_source = "declared_metadata" if declared_facing is not None else "inferred_default"
     height = _finite(
         _first_present(raw, ("seat_surface_height_m", "support_height_m"))
         if _first_present(raw, ("seat_surface_height_m", "support_height_m")) is not None
@@ -305,7 +329,9 @@ def _normalize_seat(
         "position_authoring_m": position,
         "position_habitat_m": [position[0], position[2], position[1]],
         "facing_yaw_deg": facing,
-        "facing_source": "declared_metadata",
+        "facing_source": facing_source,
+        "facing_candidate_yaw_deg": None,
+        "facing_candidate_source": None,
         "seat_surface_height_m": height,
         "approach_clearance_radius_m": clearance_m,
         "status": str(raw.get("status") or "authoring_candidate"),
@@ -566,8 +592,11 @@ def load_room_layout(
                 declared_yaw = float(item["facing_yaw_deg"])
                 angular_error = abs((derived_yaw - declared_yaw + 180.0) % 360.0 - 180.0)
                 if angular_error > 90.0:
-                    item["facing_yaw_deg"] = derived_yaw
-                    item["facing_source"] = "furniture_center_geometry_correction"
+                    item["facing_candidate_yaw_deg"] = derived_yaw
+                    item["facing_candidate_source"] = "furniture_center_geometry_candidate"
+                    if item.get("facing_source") == "inferred_default":
+                        item["facing_yaw_deg"] = derived_yaw
+                        item["facing_source"] = "furniture_center_geometry_candidate"
     if not seats:
         raise FurnitureLayoutError("room metadata declares no seated affordances")
 
@@ -1407,6 +1436,8 @@ def build_seat_placements(
                     "seat_surface_height_m": seat["seat_surface_height_m"],
                     "facing_yaw_deg": seat["facing_yaw_deg"],
                     "facing_source": seat.get("facing_source", "declared_metadata"),
+                    "facing_candidate_yaw_deg": seat.get("facing_candidate_yaw_deg"),
+                    "facing_candidate_source": seat.get("facing_candidate_source"),
                     "reference_is_not_actor_root": True,
                 },
                 "root_from_seat_m": list(root_from_seat) if root_from_seat is not None else None,
