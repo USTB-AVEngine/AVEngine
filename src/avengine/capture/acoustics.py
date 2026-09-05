@@ -1,4 +1,4 @@
-"""Variable-duration dynamic binaural acoustics for M5.1 research review.
+"""Variable-duration dynamic acoustics for M5.1 research review.
 
 This module is intentionally separate from :mod:`avengine.timeline.acoustics`'s
 formal 75-keyframe validator.  M5.1 review clips may have any positive visual
@@ -453,25 +453,72 @@ def research_review_trajectory_record(
     }
 
 
-def render_research_review_binaural_rir_sequence(
+_RESEARCH_REVIEW_LAYOUT_CHANNELS: dict[str, int] = {
+    "binaural": 2,
+    "ambisonics": 4,
+}
+
+
+def _review_layout_contract(layout_type: str) -> tuple[int, dict[str, Any]]:
+    """Return the two canonical M5.1 research-review output layouts."""
+
+    if not isinstance(layout_type, str):
+        raise RuntimeContractError("review layout_type must be a string")
+    try:
+        channel_count = _RESEARCH_REVIEW_LAYOUT_CHANNELS[layout_type]
+    except KeyError as exc:
+        raise RuntimeContractError(
+            "M5.1 review supports only binaural or ambisonics output"
+        ) from exc
+    return channel_count, _layout_contract(layout_type, channel_count)
+
+
+def _review_hrtf_path(
+    layout_type: str,
+    hrtf_file_path: str | Path | None,
+) -> str:
+    """Resolve the required binaural HRTF or the absent FOA HRTF."""
+
+    if layout_type == "ambisonics":
+        if hrtf_file_path is not None:
+            raise RuntimeContractError(
+                "M5.1 ambisonics research review does not accept an HRTF"
+            )
+        return ""
+    if hrtf_file_path is None or not isinstance(hrtf_file_path, (str, Path)):
+        raise RuntimeContractError(
+            "M5.1 binaural research review requires an explicit readable HRTF"
+        )
+    resolved_hrtf = Path(hrtf_file_path).resolve()
+    if not resolved_hrtf.is_file():
+        raise RuntimeContractError(
+            "M5.1 binaural research review requires an explicit readable HRTF"
+        )
+    return str(resolved_hrtf)
+
+
+def render_research_review_rir_sequence(
     scene: CompiledAcousticScene,
     simulation: M4SimulationConfig,
     *,
     grid: ResearchReviewKeyframeGrid,
-    hrtf_file_path: str,
+    layout_type: str,
+    hrtf_file_path: str | Path | None = None,
     source_radius_m: float = 0.0,
     listener_id: str = "listener0",
     listener_radius_m: float = 0.0,
 ) -> DynamicRIRSequence:
-    """Render a variable M5.1 grid through one persistent binaural RLR context."""
+    """Render one variable grid through one persistent RLR context."""
 
     if not isinstance(scene, CompiledAcousticScene):
         raise RuntimeContractError("scene must be a validated CompiledAcousticScene")
     if not isinstance(simulation, M4SimulationConfig):
         raise RuntimeContractError("simulation must be an M4SimulationConfig")
     grid = validate_research_review_grid(grid)
+    channel_count, contract = _review_layout_contract(layout_type)
+    resolved_hrtf = _review_hrtf_path(layout_type, hrtf_file_path)
     selected = simulation_with_layout(
-        simulation, layout_type="binaural", channel_count=2
+        simulation, layout_type=layout_type, channel_count=channel_count
     )
     if selected.temporal_coherence:
         raise RuntimeContractError(
@@ -484,13 +531,6 @@ def render_research_review_binaural_rir_sequence(
         abs_tol=1.0e-6,
     ):
         raise RuntimeContractError("review grid sample rate differs from RLR request")
-    resolved_hrtf = Path(hrtf_file_path).resolve()
-    if not resolved_hrtf.is_file():
-        raise RuntimeContractError(
-            "M5.1 binaural research review requires an explicit readable HRTF"
-        )
-    hrtf_file_path = str(resolved_hrtf)
-    contract = _layout_contract("binaural", 2)
     trajectory = research_review_trajectory_record(grid)
     trajectory_sha256 = canonical_json_sha256(trajectory)
 
@@ -501,8 +541,8 @@ def render_research_review_binaural_rir_sequence(
     runtime_report["configuration_readback"] = config_readback
     runtime_report["output_contract"] = {
         **contract,
-        "layout_type": "binaural",
-        "channel_count": 2,
+        "layout_type": layout_type,
+        "channel_count": channel_count,
     }
     raw_by_keyframe: list[list[np.ndarray]] = []
     receipts: list[dict[str, Any]] = []
@@ -531,10 +571,10 @@ def render_research_review_binaural_rir_sequence(
             listener_id,
             first.listener_position_m,
             first.listener_orientation_wxyz,
-            _native_layout(habitat_module, "binaural"),
-            2,
+            _native_layout(habitat_module, layout_type),
+            channel_count,
             listener_radius_m,
-            hrtf_file_path,
+            resolved_hrtf,
         )
         for keyframe_index, (visual_frame_index, frame) in enumerate(
             zip(grid.visual_frame_indices, grid.keyframes, strict=True)
@@ -569,9 +609,9 @@ def render_research_review_binaural_rir_sequence(
                 current_sources,
                 listener,
                 canonical_order=grid.source_ids,
-                layout_type="binaural",
-                channel_count=2,
-                hrtf_file_path=hrtf_file_path,
+                layout_type=layout_type,
+                channel_count=channel_count,
+                hrtf_file_path=resolved_hrtf,
             )
             by_source: dict[str, np.ndarray] = {}
             hashes: dict[str, str] = {}
@@ -580,7 +620,7 @@ def render_research_review_binaural_rir_sequence(
                     raw_ir,
                     expected_listener_id=listener_id,
                     expected_source_ids=grid.source_ids,
-                    channel_count=2,
+                    channel_count=channel_count,
                     sample_rate_hz=grid.sample_rate_hz,
                 )
                 if source_id in by_source:
@@ -594,7 +634,11 @@ def render_research_review_binaural_rir_sequence(
             raw_by_keyframe.append(
                 [by_source[source_id] for source_id in grid.source_ids]
             )
-            retained_receipt = _portable_hrtf_references(receipt, hrtf_file_path)
+            retained_receipt = (
+                _portable_hrtf_references(receipt, resolved_hrtf)
+                if resolved_hrtf
+                else receipt
+            )
             receipts.append(
                 {
                     "keyframe_index": keyframe_index,
@@ -624,7 +668,7 @@ def render_research_review_binaural_rir_sequence(
         for samples in keyframe_values
     )
     padded = np.zeros(
-        (len(grid.keyframes), len(grid.source_ids), 2, maximum_length),
+        (len(grid.keyframes), len(grid.source_ids), channel_count, maximum_length),
         dtype="<f4",
     )
     lengths = np.empty(
@@ -643,7 +687,7 @@ def render_research_review_binaural_rir_sequence(
         "trajectory": trajectory,
         "source_ids": list(grid.source_ids),
         "listener_id": listener_id,
-        "layout_type": "binaural",
+        "layout_type": layout_type,
         "layout_id": contract["layout_id"],
         "channel_labels": list(contract["channel_labels"]),
         "normalization": contract["normalization"],
@@ -674,10 +718,14 @@ def render_research_review_binaural_rir_sequence(
         "endpoint_receipts": receipts,
         "ir_sha256_by_keyframe_source": ir_hashes,
         "indirect_ray_efficiency": efficiencies,
-        "hrtf": {
-            "input_role": "hrtf",
-            "sha256": sha256_file(hrtf_file_path),
-        },
+        "hrtf": (
+            {
+                "input_role": "hrtf",
+                "sha256": sha256_file(resolved_hrtf),
+            }
+            if resolved_hrtf
+            else None
+        ),
     }
     return DynamicRIRSequence(
         samples=np.ascontiguousarray(padded),
@@ -686,7 +734,7 @@ def render_research_review_binaural_rir_sequence(
         keyframe_ticks=tuple(frame.tick for frame in grid.keyframes),
         keyframe_samples=tuple(frame.sample_index for frame in grid.keyframes),
         sample_rate_hz=grid.sample_rate_hz,
-        layout_type="binaural",
+        layout_type=layout_type,
         layout_id=str(contract["layout_id"]),
         channel_labels=tuple(contract["channel_labels"]),
         trajectory_sha256=trajectory_sha256,
@@ -694,13 +742,61 @@ def render_research_review_binaural_rir_sequence(
     )
 
 
-def render_research_review_binaural_audio(
+def render_research_review_binaural_rir_sequence(
+    scene: CompiledAcousticScene,
+    simulation: M4SimulationConfig,
+    *,
+    grid: ResearchReviewKeyframeGrid,
+    hrtf_file_path: str,
+    source_radius_m: float = 0.0,
+    listener_id: str = "listener0",
+    listener_radius_m: float = 0.0,
+) -> DynamicRIRSequence:
+    """Compatibility wrapper for the original binaural entry point."""
+
+    return render_research_review_rir_sequence(
+        scene,
+        simulation,
+        grid=grid,
+        layout_type="binaural",
+        hrtf_file_path=hrtf_file_path,
+        source_radius_m=source_radius_m,
+        listener_id=listener_id,
+        listener_radius_m=listener_radius_m,
+    )
+
+
+def _validate_review_audio_sequence(
+    sequence: DynamicRIRSequence,
+    *,
+    grid: ResearchReviewKeyframeGrid,
+) -> None:
+    channel_count, contract = _review_layout_contract(sequence.layout_type)
+    if sequence.layout_id != contract["layout_id"]:
+        raise RuntimeContractError("RIR sequence layout ID differs from review layout")
+    if sequence.channel_labels != tuple(contract["channel_labels"]):
+        raise RuntimeContractError("RIR sequence channel labels differ from review layout")
+    samples = np.asarray(sequence.samples)
+    if (
+        samples.ndim != 4
+        or samples.shape[:3]
+        != (len(grid.keyframes), len(grid.source_ids), channel_count)
+    ):
+        raise RuntimeContractError(
+            "RIR sequence samples have an invalid layout/channel shape"
+        )
+    lengths = np.asarray(sequence.lengths)
+    if lengths.shape != (len(grid.keyframes), len(grid.source_ids)):
+        raise RuntimeContractError("RIR sequence lengths have an invalid shape")
+
+
+def render_research_review_audio(
     dry_by_source: Mapping[str, Any],
     sequence: DynamicRIRSequence,
     *,
     grid: ResearchReviewKeyframeGrid,
 ) -> tuple[dict[str, DynamicStemResult], np.ndarray]:
-    """Apply M5's deterministic convolution to one variable M5.1 episode."""
+    """Apply the deterministic convolution to one variable research episode."""
 
     grid = validate_research_review_grid(grid)
     if not isinstance(sequence, DynamicRIRSequence):
@@ -719,11 +815,7 @@ def render_research_review_binaural_audio(
         raise RuntimeContractError("RIR sequence samples differ from review grid")
     if sequence.sample_rate_hz != grid.sample_rate_hz:
         raise RuntimeContractError("RIR sequence sample rate differs from review grid")
-    if sequence.layout_type != "binaural" or sequence.channel_labels != (
-        "left",
-        "right",
-    ):
-        raise RuntimeContractError("M5.1 review audio requires binaural left/right RIRs")
+    _validate_review_audio_sequence(sequence, grid=grid)
     return render_dynamic_stems_and_mix(
         dry_by_source,
         sequence.samples,
@@ -734,14 +826,31 @@ def render_research_review_binaural_audio(
     )
 
 
+def render_research_review_binaural_audio(
+    dry_by_source: Mapping[str, Any],
+    sequence: DynamicRIRSequence,
+    *,
+    grid: ResearchReviewKeyframeGrid,
+) -> tuple[dict[str, DynamicStemResult], np.ndarray]:
+    """Compatibility wrapper for the original binaural audio entry point."""
+
+    if not isinstance(sequence, DynamicRIRSequence):
+        raise RuntimeContractError("sequence must be DynamicRIRSequence")
+    if sequence.layout_type != "binaural":
+        raise RuntimeContractError("M5.1 binaural audio requires a binaural RIR sequence")
+    return render_research_review_audio(dry_by_source, sequence, grid=grid)
+
+
 __all__ = [
     "RESEARCH_REVIEW_PROFILE",
     "RESEARCH_REVIEW_RIR_SCHEMA",
     "RESEARCH_REVIEW_TRAJECTORY_SCHEMA",
     "ResearchReviewKeyframeGrid",
     "build_strided_review_keyframes",
+    "render_research_review_audio",
     "render_research_review_binaural_audio",
     "render_research_review_binaural_rir_sequence",
+    "render_research_review_rir_sequence",
     "research_review_trajectory_record",
     "validate_research_review_grid",
 ]

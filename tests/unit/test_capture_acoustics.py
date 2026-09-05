@@ -339,7 +339,8 @@ def test_grid_rejects_listener_motion_and_non_stride_boundaries() -> None:
 
 
 class _FakeConfiguration:
-    pass
+    def __init__(self, channel_count: int = 2):
+        self.channel_count = channel_count
 
 
 class _FakeContext:
@@ -363,6 +364,8 @@ class _FakeContext:
         self.listener_id = listener_id
         self.listener_position = tuple(position)
         self.listener_orientation = tuple(orientation)
+        self.layout = layout
+        self.channel_count = channel_count
         self.hrtf = hrtf
 
     def set_source_position(self, source_id, position):
@@ -388,10 +391,10 @@ class _FakeContext:
                     listener_id=self.listener_id,
                     source_id=source_id,
                     sample_rate=16_000.0,
-                    channel_count=2,
+                    channel_count=self.channel_count,
                     sample_count=length,
                     samples=np.full(
-                        (2, length),
+                        (self.channel_count, length),
                         self.simulate_count + source_index,
                         dtype=np.float32,
                     ),
@@ -405,6 +408,7 @@ class _FakeContext:
 
 class _FakeLayout:
     Binaural = "binaural"
+    Ambisonics = "ambisonics"
 
 
 def _install_fake_runtime(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -421,7 +425,7 @@ def _install_fake_runtime(monkeypatch: pytest.MonkeyPatch) -> None:
         acoustics,
         "_native_configuration",
         lambda habitat_module, simulation: (
-            _FakeConfiguration(),
+            _FakeConfiguration(int(simulation.channel_layout.channel_count)),
             simulation.to_dict(),
         ),
     )
@@ -501,6 +505,96 @@ def test_mock_native_render_retains_receipts_ir_hashes_and_trajectory(
     receipt_text = repr(result.metadata["endpoint_receipts"])
     assert str(hrtf.resolve()) not in receipt_text
     assert "input-role:hrtf" in receipt_text
+
+
+def test_mock_native_render_supports_ambisonics_layout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install_fake_runtime(monkeypatch)
+    grid = _grid(9, frame_rate_hz=9, stride=3)
+
+    result = acoustics.render_research_review_rir_sequence(
+        _scene(),
+        _simulation(),
+        grid=grid,
+        layout_type="ambisonics",
+    )
+
+    assert isinstance(result, DynamicRIRSequence)
+    assert len(_FakeContext.instances) == 1
+    assert _FakeContext.instances[0].simulate_count == 3
+    assert _FakeContext.instances[0].channel_count == 4
+    assert _FakeContext.instances[0].hrtf == ""
+    assert result.samples.shape == (3, 2, 4, 5)
+    assert result.lengths.tolist() == [[4, 5], [3, 4], [4, 5]]
+    assert result.layout_type == "ambisonics"
+    assert result.layout_id == "rlr_foa_acn_n3d_world_v1"
+    assert result.channel_labels == ("W", "Y", "Z", "X")
+    assert result.metadata["normalization"] == "N3D"
+    assert result.metadata["coordinate_frame"] == "avengine_world"
+    assert result.metadata["hrtf"] is None
+
+
+def test_ambisonics_rejects_an_hrtf(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _install_fake_runtime(monkeypatch)
+    hrtf = tmp_path / "review.sofa"
+    hrtf.write_bytes(b"mock-hrtf")
+
+    with pytest.raises(RuntimeContractError, match="does not accept an HRTF"):
+        acoustics.render_research_review_rir_sequence(
+            _scene(),
+            _simulation(),
+            grid=_grid(9, frame_rate_hz=9, stride=3),
+            layout_type="ambisonics",
+            hrtf_file_path=hrtf,
+        )
+
+
+def test_variable_episode_supports_foa_convolution() -> None:
+    grid = _grid(
+        6,
+        frame_rate_hz=6,
+        stride=2,
+        tick_rate_hz=60,
+        sample_rate_hz=12,
+    )
+    trajectory = acoustics.research_review_trajectory_record(grid)
+    rirs = np.zeros((3, 2, 4, 1), dtype=np.float32)
+    rirs[:, :, 0, 0] = 1.0
+    rirs[:, :, 1, 0] = 2.0
+    rirs[:, :, 2, 0] = 3.0
+    rirs[:, :, 3, 0] = 4.0
+    sequence = DynamicRIRSequence(
+        samples=rirs,
+        lengths=np.ones((3, 2), dtype=np.uint32),
+        source_ids=grid.source_ids,
+        keyframe_ticks=tuple(frame.tick for frame in grid.keyframes),
+        keyframe_samples=tuple(frame.sample_index for frame in grid.keyframes),
+        sample_rate_hz=12,
+        layout_type="ambisonics",
+        layout_id="rlr_foa_acn_n3d_world_v1",
+        channel_labels=("W", "Y", "Z", "X"),
+        trajectory_sha256=canonical_json_sha256(trajectory),
+        metadata={"trajectory": deepcopy(trajectory)},
+    )
+    dry = {
+        "dog_source": np.ones(12, dtype=np.float64),
+        "human_source": -np.ones(12, dtype=np.float64) * 0.25,
+    }
+
+    stems, mixture = acoustics.render_research_review_audio(
+        dry, sequence, grid=grid
+    )
+
+    assert set(stems) == set(grid.source_ids)
+    assert all(stem.episode.shape == (4, 12) for stem in stems.values())
+    assert mixture.shape == (4, 12)
+    assert np.allclose(mixture[0], 0.75, rtol=0.0, atol=1.0e-12)
+    assert np.allclose(mixture[1], 1.5, rtol=0.0, atol=1.0e-12)
+    assert np.allclose(mixture[2], 2.25, rtol=0.0, atol=1.0e-12)
+    assert np.allclose(mixture[3], 3.0, rtol=0.0, atol=1.0e-12)
 
 
 def test_variable_episode_reuses_m5_dynamic_convolution() -> None:
