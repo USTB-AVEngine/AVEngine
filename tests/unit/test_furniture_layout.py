@@ -8,6 +8,7 @@ import pytest
 from avengine.rooms.furniture_layout import (
     FurnitureLayoutError,
     SeatCapacityError,
+    authoring_to_habitat,
     build_seat_placements,
     clock_config,
     generate_camera_candidates,
@@ -101,6 +102,29 @@ def test_bad_object_metadata_fails_before_camera_generation(tmp_path: Path) -> N
     manifest = _fixture(tmp_path / "bad", bad_objects=True)
     with pytest.raises(FurnitureLayoutError, match="bounds_xyz_m|bounds_xy_m"):
         load_room_layout(manifest)
+
+
+def test_camera_forward_conversion_matches_spear_blender_to_ue_convention(
+    tmp_path: Path,
+) -> None:
+    layout = load_room_layout(_fixture(tmp_path / "room"))
+    candidate_set = generate_camera_candidates(layout)
+    candidate = next(
+        item
+        for item in candidate_set["candidates"]
+        if item["yaw_deg"] == 300.0 and item["pitch_deg"] == 0.0
+    )
+    assert authoring_to_habitat([2.35, 0.65, 1.55]) == pytest.approx(
+        [2.35, 1.55, -0.65]
+    )
+    assert candidate["forward_blender"] == pytest.approx(
+        [0.5, -0.8660254037844386, 0.0]
+    )
+    assert candidate["forward_ue"] == pytest.approx(
+        [0.5, 0.8660254037844386, 0.0]
+    )
+    assert candidate["ue_yaw_deg"] == pytest.approx(60.0)
+    assert candidate["ue_pitch_deg"] == pytest.approx(0.0)
 
 
 def test_camera_pool_is_target_independent_and_scored_after_join(tmp_path: Path) -> None:
