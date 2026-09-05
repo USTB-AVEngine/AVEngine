@@ -505,12 +505,24 @@ def test_verifiers_receive_each_pair_effective_params(monkeypatch, tmp_path: Pat
                 "complete_pair_count": 0,
                 "checked_renders": 1,
                 "failures": [],
+                "audio_root": command[
+                    command.index("--audio-root") + 1
+                ],
             }
             if label.endswith("/audio")
             else {
                 "schema": "qa_v3_visual_batch_verification_v1",
                 "status": "pass",
                 "counts": {"failures": 0},
+                "inputs": {
+                    "selection_manifest": command[
+                        command.index("--selection-manifest") + 1
+                    ],
+                    "visual_root": command[
+                        command.index("--visual-root") + 1
+                    ],
+                },
+                "points": [{"point_id": "point_001"}],
             }
         )
         output.write_text(json.dumps(report), encoding="utf-8")
@@ -1025,7 +1037,7 @@ def test_declared_capture_forwards_descriptor_identity_to_registered_runner(
     assert command[command.index("--descriptor-kind") + 1] == "visual_variant"
 
 
-def test_declared_media_with_no_audio_consumer_stays_pending_without_reuse(
+def test_declared_media_without_audio_variant_stays_pending_without_reuse(
     monkeypatch, tmp_path: Path,
 ) -> None:
     fact = {
@@ -1049,7 +1061,6 @@ def test_declared_media_with_no_audio_consumer_stays_pending_without_reuse(
             "segment": "segment2",
             "kind": "qa_v3_review_clip",
             "release": True,
-            "audio_variant": None,
         }],
     }
     batch, _ = _make_runtime_artifact_point(
@@ -1341,3 +1352,697 @@ def test_questions_wait_for_pending_declared_artifact_before_release(
     assert "runtime artifacts" in result["detail"]
     assert launched == []
     assert json.loads(released_path.read_text()) == [{"task_type": "stale"}]
+
+
+
+@pytest.mark.parametrize(
+    ("backend", "expected_capture", "expected_audio"),
+    [
+        (None, "ue_capture", "ue_audio"),
+        ("habitat_native", "mp3d_capture", "mp3d_audio"),
+    ],
+)
+def test_pair_dispatches_runtime_stages_from_backend_metadata(
+    monkeypatch,
+    tmp_path: Path,
+    backend: str | None,
+    expected_capture: str,
+    expected_audio: str,
+) -> None:
+    batch = tmp_path / "batch"
+    batch.mkdir()
+    manifest = _write(batch / "batch_manifest.json", {})
+    calls: list[tuple[str, str | None]] = []
+    monkeypatch.setattr(pipeline, "batch_point_ids", lambda root: ["point_001"])
+
+    def stage(name):
+        def run(*args, **kwargs):
+            calls.append((name, kwargs.get("backend_id")))
+            return {"status": "complete", "root": name}
+        return run
+
+    monkeypatch.setattr(pipeline, "_run_capture", stage("ue_capture"))
+    monkeypatch.setattr(pipeline, "_run_mp3d_capture", stage("mp3d_capture"))
+    monkeypatch.setattr(pipeline, "_run_audio", stage("ue_audio"))
+    monkeypatch.setattr(pipeline, "_run_mp3d_audio", stage("mp3d_audio"))
+    monkeypatch.setattr(
+        pipeline, "_run_declared_captures", stage("declared_capture")
+    )
+    monkeypatch.setattr(pipeline, "_run_media", stage("media"))
+    monkeypatch.setattr(
+        pipeline, "_run_declared_media", stage("declared_media")
+    )
+    monkeypatch.setattr(pipeline, "_run_verifications", stage("verification"))
+    monkeypatch.setattr(
+        pipeline, "_run_declared_pixels", stage("declared_pixels")
+    )
+    row = {
+        "scene_id": "room_a",
+        "profile_id": "profile_a",
+        "attempt_status": "generated",
+        "batch_manifest": str(manifest),
+    }
+    if backend is not None:
+        row["backend"] = backend
+
+    pair = pipeline._pair_record(
+        {"audio_variants": ["main"]},
+        {},
+        row,
+        tmp_path,
+        tmp_path / "output",
+        params_path=tmp_path / "params.json",
+        resume_only=False,
+        through_stage="questions",
+    )
+
+    expected_backend = backend or "ue_spear"
+    assert pair["status"] == "complete"
+    assert pair["backend_id"] == expected_backend
+    names = [name for name, _ in calls]
+    assert expected_capture in names
+    assert expected_audio in names
+    assert ("media", expected_backend) in calls
+    assert ("verification", expected_backend) in calls
+    assert ("ue_capture" if backend else "mp3d_capture") not in names
+    assert ("ue_audio" if backend else "mp3d_audio") not in names
+
+
+def test_unknown_backend_fails_before_any_runtime_stage(
+    monkeypatch, tmp_path: Path,
+) -> None:
+    launched = []
+    monkeypatch.setattr(
+        pipeline,
+        "_run_capture",
+        lambda *args, **kwargs: launched.append("capture"),
+    )
+    pair = pipeline._pair_record(
+        {"audio_variants": ["main"]},
+        {},
+        {
+            "scene_id": "room_a",
+            "profile_id": "profile_a",
+            "backend": "unregistered_backend",
+            "attempt_status": "generated",
+            "batch_manifest": str(tmp_path / "missing.json"),
+        },
+        tmp_path,
+        tmp_path / "output",
+        params_path=tmp_path / "params.json",
+        resume_only=False,
+        through_stage="questions",
+    )
+    assert pair["status"] == "failed"
+    assert "unknown backend_id" in pair["detail"]
+    assert launched == []
+
+
+def _mp3d_pipeline_runtime_fixture(
+    tmp_path: Path,
+) -> tuple[Path, dict[str, object]]:
+    batch = tmp_path / "batch"
+    point = batch / "candidate_a"
+    point.mkdir(parents=True)
+    _write(point / "fact_record.json", {"backend_id": "habitat_native"})
+    _write(point / "case_manifest.json", {"clock": {"frame_count": 150}})
+    _write(point / "m1_capture_request.json", {"room_id": "room"})
+    room = _write(tmp_path / "room.json", {"room_id": "room"})
+    runtime_prefix = tmp_path / "runtime_prefix"
+    runtime_prefix.mkdir()
+    mp3d_root = tmp_path / "mp3d"
+    mp3d_root.mkdir()
+    magnum = tmp_path / "magnum"
+    magnum.mkdir()
+    runtime = {
+        "_path": str(tmp_path / "runtime.json"),
+        "python": sys.executable,
+        "capture": {
+            "python": sys.executable,
+            "room_manifest": str(room),
+            "runtime_prefix": str(runtime_prefix),
+            "mp3d_root": str(mp3d_root),
+            "magnum_python_site": str(magnum),
+            "gpu_device_id": 2,
+        },
+    }
+    return batch, runtime
+
+
+@pytest.mark.parametrize("frame_count", [75, 150])
+def test_mp3d_capture_plan_uses_point_owned_case_and_m1(
+    tmp_path: Path,
+    frame_count: int,
+) -> None:
+    batch, runtime = _mp3d_pipeline_runtime_fixture(tmp_path)
+    case_path = batch / "candidate_a" / "case_manifest.json"
+    case_path.write_text(
+        json.dumps({"clock": {"frame_count": frame_count}}),
+        encoding="utf-8",
+    )
+    plan = pipeline._mp3d_capture_plan(
+        runtime,
+        "any_scene_name",
+        "any_profile_name",
+        batch,
+        "candidate_a",
+    )
+    assert plan["case_manifest"] == (
+        batch / "candidate_a" / "case_manifest.json"
+    ).resolve()
+    assert plan["m1_request"] == (
+        batch / "candidate_a" / "m1_capture_request.json"
+    ).resolve()
+    assert plan["expected_frames"] == frame_count
+    assert plan["gpu_device_id"] == 2
+
+
+def test_mp3d_capture_does_not_reuse_shared_case_for_missing_point_input(
+    tmp_path: Path,
+) -> None:
+    batch, runtime = _mp3d_pipeline_runtime_fixture(tmp_path)
+    local_case = batch / "candidate_a" / "case_manifest.json"
+    shared_case = _write(tmp_path / "shared_case.json", {
+        "clock": {"frame_count": 150}
+    })
+    local_case.unlink()
+    runtime["capture"]["case_manifest"] = str(shared_case)
+
+    with pytest.raises(pipeline.PipelineError, match="case_manifest is not declared"):
+        pipeline._mp3d_capture_plan(
+            runtime,
+            "scene",
+            "profile",
+            batch,
+            "candidate_a",
+        )
+
+
+def test_mp3d_capture_runner_uses_current_repo_wrapper_and_point_inputs(
+    monkeypatch, tmp_path: Path,
+) -> None:
+    batch, runtime = _mp3d_pipeline_runtime_fixture(tmp_path)
+    states = iter([("missing", None), ("complete", None)])
+    monkeypatch.setattr(
+        pipeline,
+        "_mp3d_capture_point_state",
+        lambda *args, **kwargs: next(states),
+    )
+    calls = []
+
+    def fake_run(label, command, log_path, *, timeout, env=None):
+        del log_path, timeout, env
+        calls.append((label, list(command)))
+        return {"status": "complete"}
+
+    monkeypatch.setattr(pipeline, "_run_logged", fake_run)
+    result = pipeline._run_mp3d_capture(
+        {"audio_variants": ["main"]},
+        runtime,
+        "scene",
+        "profile",
+        batch,
+        tmp_path / "pair",
+        ["candidate_a"],
+        resume_only=False,
+    )
+
+    assert result["status"] == "complete"
+    assert len(calls) == 1
+    label, command = calls[0]
+    assert label.endswith(":habitat_native")
+    assert Path(command[1]).resolve() == pipeline.MP3D_CAPTURE.resolve()
+    assert command[command.index("--case-manifest") + 1] == str(
+        (batch / "candidate_a" / "case_manifest.json").resolve()
+    )
+    assert command[command.index("--gpu-device-id") + 1] == "2"
+
+
+
+def _add_mp3d_audio_runtime(
+    tmp_path: Path,
+    batch: Path,
+    runtime: dict[str, object],
+) -> tuple[Path, Path]:
+    point = batch / "candidate_a"
+    program = _write(point / "audio_program.json", {
+        "program_id": "program-a",
+        "events": [],
+    })
+    _write(point / "source_endpoints.json", {"endpoints": []})
+    simulation = _write(tmp_path / "simulation.json", {})
+    package = _write(tmp_path / "package.json", {})
+    sounds = _write(tmp_path / "sounds.json", {})
+    hrtf = tmp_path / "hrtf.sofa"
+    hrtf.write_bytes(b"hrtf")
+    rlr = tmp_path / "rlr"
+    rlr.mkdir()
+    dry = tmp_path / "voice.wav"
+    dry.write_bytes(b"RIFF")
+    runtime["audio"] = {
+        "python": sys.executable,
+        "simulation_request": str(simulation),
+        "package_manifest": str(package),
+        "sound_asset_registry": str(sounds),
+        "runtime_prefix": runtime["capture"]["runtime_prefix"],
+        "rlr_sdk_root": str(rlr),
+        "magnum_python_site": runtime["capture"]["magnum_python_site"],
+        "layouts": ["binaural", "ambisonics"],
+        "hrtf": str(hrtf),
+        "sound_asset_paths": {"voice": str(dry)},
+    }
+    return program, dry
+
+
+def test_mp3d_audio_runner_uses_configured_program_layouts_and_sound_map(
+    monkeypatch, tmp_path: Path,
+) -> None:
+    batch, runtime = _mp3d_pipeline_runtime_fixture(tmp_path)
+    program, dry = _add_mp3d_audio_runtime(tmp_path, batch, runtime)
+    states = iter([("missing", None), ("complete", None)])
+    monkeypatch.setattr(
+        pipeline,
+        "_mp3d_audio_point_state",
+        lambda *args, **kwargs: next(states),
+    )
+    calls = []
+
+    def fake_run(label, command, log_path, *, timeout, env=None):
+        del log_path, timeout, env
+        calls.append((label, list(command)))
+        return {"status": "complete"}
+
+    monkeypatch.setattr(pipeline, "_run_logged", fake_run)
+    result = pipeline._run_mp3d_audio(
+        {"audio_variants": ["main"]},
+        runtime,
+        "scene",
+        "profile",
+        batch,
+        tmp_path / "pair",
+        ["candidate_a"],
+        resume_only=False,
+    )
+
+    assert result["status"] == "complete"
+    assert len(calls) == 1
+    label, command = calls[0]
+    assert label.endswith("candidate_a:main:habitat_native")
+    assert Path(command[0]).resolve() == Path(sys.executable).resolve()
+    assert command[1:5] == [
+        "-m",
+        "avengine.cli",
+        "m5",
+        "render-current-mp3d-dynamic-audio",
+    ]
+    assert command[command.index("--audio-program") + 1] == str(
+        program.resolve()
+    )
+    assert command[command.index("--layouts") + 1] == "binaural,ambisonics"
+    assert command[command.index("--execution-variant") + 1] == "main"
+    assert command[command.index("--sound-asset-path") + 1] == (
+        f"voice={dry.resolve()}"
+    )
+    assert "--beagle-audio" not in command
+
+
+def test_mp3d_audio_does_not_reuse_shared_program_for_missing_point_input(
+    tmp_path: Path,
+) -> None:
+    batch, runtime = _mp3d_pipeline_runtime_fixture(tmp_path)
+    program, _ = _add_mp3d_audio_runtime(tmp_path, batch, runtime)
+    program.unlink()
+    shared = _write(tmp_path / "shared_program.json", {"events": []})
+    runtime["audio"]["audio_program"] = str(shared)
+
+    with pytest.raises(pipeline.PipelineError, match="audio_program is not declared"):
+        pipeline._mp3d_audio_plan(
+            runtime,
+            "scene",
+            "profile",
+            batch,
+            tmp_path / "pair",
+            "candidate_a",
+            "main",
+        )
+
+
+def test_mp3d_audio_state_rejects_wrong_execution_identity(
+    monkeypatch, tmp_path: Path,
+) -> None:
+    output = tmp_path / "audio"
+    output.mkdir()
+    program = _write(tmp_path / "program.json", {})
+    m1 = _write(tmp_path / "m1.json", {})
+    capture = tmp_path / "capture"
+    capture.mkdir()
+    _write(capture / "frame_records.json", {})
+    endpoint = _write(tmp_path / "endpoints.json", {})
+    _write(output / "research_receipt.json", {
+        "execution_variant": "different",
+        "audio_program": {"path": str(program)},
+        "inputs": {
+            "m1_request": {"path": str(m1)},
+            "visual_capture_frame_records": {
+                "path": str(capture / "frame_records.json")
+            },
+            "source_endpoint_registry": {"path": str(endpoint)},
+        },
+    })
+    monkeypatch.setattr(
+        pipeline, "audio_point_state", lambda *args, **kwargs: "complete"
+    )
+    state, detail = pipeline._mp3d_audio_point_state({
+        "output": output,
+        "layouts": ("binaural",),
+        "variant": "main",
+        "audio_program": program,
+        "m1_request": m1,
+        "capture": capture,
+        "source_endpoint_registry": endpoint,
+    })
+    assert state == "partial"
+    assert "execution_variant" in detail
+
+
+
+def test_mp3d_verifier_receives_point_endpoint_map_without_id_encoding(
+    monkeypatch, tmp_path: Path,
+) -> None:
+    point_ids = ["candidate=one", "candidate_two"]
+    endpoints = {}
+    for point_id in point_ids:
+        endpoint = _write(tmp_path / f"{point_id}.json", {})
+        endpoints[point_id] = endpoint
+    monkeypatch.setattr(
+        pipeline,
+        "_capture_states_for_backend",
+        lambda *args, **kwargs: (
+            "complete",
+            {point_id: "complete" for point_id in point_ids},
+            None,
+        ),
+    )
+    monkeypatch.setattr(
+        pipeline,
+        "_audio_states",
+        lambda *args, **kwargs: (
+            "complete",
+            {point_id: "complete" for point_id in point_ids},
+        ),
+    )
+    program = _write(tmp_path / "program.json", {})
+    m1 = _write(tmp_path / "m1.json", {})
+    case = _write(tmp_path / "case.json", {})
+    room = _write(tmp_path / "room.json", {})
+    simulation = _write(tmp_path / "simulation.json", {})
+    package = _write(tmp_path / "package.json", {})
+    sounds = _write(tmp_path / "sounds.json", {})
+    runtime_prefix = tmp_path / "runtime"
+    runtime_prefix.mkdir()
+    rlr = tmp_path / "rlr"
+    rlr.mkdir()
+    monkeypatch.setattr(
+        pipeline,
+        "_mp3d_audio_plan",
+        lambda runtime, scene, profile, batch, pair, point_id, variant: {
+            "source_endpoint_registry": endpoints[point_id],
+            "audio_program": program,
+            "program_variant": "A",
+            "case_manifest": case,
+            "room_manifest": room,
+            "m1_request": m1,
+            "expected_frames": 150,
+            "simulation_request": simulation,
+            "package_manifest": package,
+            "sound_asset_registry": sounds,
+            "runtime_prefix": runtime_prefix,
+            "rlr_sdk_root": rlr,
+        },
+    )
+    commands = []
+
+    def fake_run(label, command, log_path, *, timeout, env=None):
+        del log_path, timeout, env
+        commands.append(list(command))
+        output = Path(command[command.index("--out") + 1])
+        if label.endswith("/visual"):
+            payload = {
+                "schema": "qa_v3_visual_batch_verification_v1",
+                "status": "pass",
+                "counts": {"failures": 0},
+                "inputs": {
+                    "selection_manifest": command[
+                        command.index("--selection-manifest") + 1
+                    ],
+                    "visual_root": command[
+                        command.index("--visual-root") + 1
+                    ],
+                },
+                "points": [
+                    {"point_id": point_id} for point_id in point_ids
+                ],
+            }
+        else:
+            payload = {
+                "schema": "qa_v3_audio_batch_verification_v1",
+                "status": "research_candidate",
+                "failures": [],
+                "expected_variants": ["main"],
+                "expected_layouts": ["binaural"],
+                "complete_render_point_ids": {"main": point_ids, "gateA": []},
+                "checked_renders": len(point_ids),
+                "complete_pair_count": 0,
+                "audio_root": command[
+                    command.index("--audio-root") + 1
+                ],
+            }
+        output.write_text(json.dumps(payload), encoding="utf-8")
+        return {"status": "complete"}
+
+    monkeypatch.setattr(pipeline, "_run_logged", fake_run)
+    params = _write(tmp_path / "params.json", {})
+    result = pipeline._run_verifications(
+        {
+            "_path": str(tmp_path / "runtime.json"),
+            "python": sys.executable,
+            "audio": {"layouts": ["binaural"]},
+        },
+        {"audio_variants": ["main"]},
+        "scene",
+        "profile",
+        tmp_path / "batch",
+        tmp_path / "pair",
+        point_ids,
+        backend_id="habitat_native",
+        params_path=params,
+        resume_only=False,
+    )
+
+    assert result["status"] == "complete"
+    audio_command = next(
+        command for command in commands
+        if Path(command[1]).name == "verify_qa_v3_audio_batch.py"
+    )
+    endpoint_map = Path(
+        audio_command[audio_command.index("--source-endpoint-map") + 1]
+    )
+    assert json.loads(endpoint_map.read_text()) == {
+        point_id: str(path.resolve())
+        for point_id, path in endpoints.items()
+    }
+
+
+
+def test_audio_output_names_reject_point_variant_collision():
+    with pytest.raises(pipeline.PipelineError, match="output name collision"):
+        pipeline._validate_audio_output_names(
+            ["candidate", "candidate_alternate"],
+            ["main", "alternate"],
+        )
+
+
+
+def test_media_state_rejects_receipt_without_verifiable_clock(
+    tmp_path: Path,
+) -> None:
+    media = tmp_path / "media"
+    capture = tmp_path / "capture"
+    audio = tmp_path / "audio"
+    media.mkdir()
+    (media / "point.mp4").write_bytes(b"uninspected")
+    point_capture = capture / "point"
+    point_capture.mkdir(parents=True)
+    _write(point_capture / "research_receipt.json", {
+        "capture": {"frame_rate_hz": 15}
+    })
+    mixture = audio / "point" / "audio" / "binaural" / "mixture.wav"
+    mixture.parent.mkdir(parents=True)
+    mixture.write_bytes(b"audio")
+
+    state, detail = pipeline._media_state(
+        media, capture, audio, "point"
+    )
+
+    assert state == "failed"
+    assert "cannot be verified" in detail
+
+
+
+def test_mp3d_audio_state_rejects_wrong_program_variant(
+    monkeypatch, tmp_path: Path,
+) -> None:
+    output = tmp_path / "audio"
+    output.mkdir()
+    program = _write(tmp_path / "program.json", {})
+    m1 = _write(tmp_path / "m1.json", {})
+    capture = tmp_path / "capture"
+    capture.mkdir()
+    _write(capture / "frame_records.json", {})
+    endpoint = _write(tmp_path / "endpoints.json", {})
+    _write(output / "research_receipt.json", {
+        "execution_variant": "main",
+        "audio_program": {
+            "path": str(program),
+            "variant_id": "B",
+        },
+        "inputs": {
+            "m1_request": {"path": str(m1)},
+            "visual_capture_frame_records": {
+                "path": str(capture / "frame_records.json")
+            },
+            "source_endpoint_registry": {"path": str(endpoint)},
+        },
+    })
+    monkeypatch.setattr(
+        pipeline, "audio_point_state", lambda *args, **kwargs: "complete"
+    )
+    state, detail = pipeline._mp3d_audio_point_state({
+        "output": output,
+        "layouts": ("binaural",),
+        "variant": "main",
+        "program_variant": "A",
+        "audio_program": program,
+        "m1_request": m1,
+        "capture": capture,
+        "source_endpoint_registry": endpoint,
+    })
+    assert state == "partial"
+    assert "AudioProgram variant" in detail
+
+
+
+def test_verification_resume_rejects_reports_without_matching_context(
+    tmp_path: Path,
+) -> None:
+    pair = tmp_path / "pair"
+    verification = pair / "verification"
+    verification.mkdir(parents=True)
+    point_ids = ["point_001"]
+    _write(verification / "visual.json", {
+        "schema": "qa_v3_visual_batch_verification_v1",
+        "status": "pass",
+        "counts": {"failures": 0},
+        "inputs": {
+            "selection_manifest": str(verification / "selection.json"),
+            "visual_root": str(pair / "capture"),
+        },
+        "points": [{"point_id": "point_001"}],
+    })
+    _write(verification / "audio.json", {
+        "schema": "qa_v3_audio_batch_verification_v1",
+        "status": "research_candidate",
+        "failures": [],
+        "expected_variants": ["main"],
+        "expected_layouts": ["binaural"],
+        "complete_render_point_ids": {"main": point_ids},
+        "checked_renders": 1,
+        "audio_root": str(pair / "audio"),
+    })
+
+    result = pipeline._run_verifications(
+        {
+            "_path": str(tmp_path / "runtime.json"),
+            "python": sys.executable,
+            "audio": {"layouts": ["binaural"]},
+        },
+        {"audio_variants": ["main"]},
+        "scene",
+        "profile",
+        tmp_path / "batch",
+        pair,
+        point_ids,
+        params_path=tmp_path / "params.json",
+        resume_only=False,
+    )
+
+    assert result["status"] == "failed"
+    assert "no runtime context" in result["detail"]
+
+
+
+def test_registered_backend_without_pipeline_adapter_fails_explicitly(
+    monkeypatch,
+):
+    class Handler:
+        backend_id = "future_backend"
+
+    monkeypatch.setattr(
+        pipeline, "get_backend_handler", lambda row: Handler()
+    )
+    with pytest.raises(
+        pipeline.PipelineError, match="no QA pipeline adapter"
+    ):
+        pipeline._backend_id({"backend": "future_backend"})
+
+
+
+def test_assembly_keeps_runtime_only_candidate_pending_without_failure(
+    monkeypatch, tmp_path: Path,
+) -> None:
+    design_root = tmp_path / "design"
+    batch = design_root / "batch"
+    point = batch / "point_001"
+    point.mkdir(parents=True)
+    _write(point / "fact_record.json", {
+        "runtime_consumer_status": "pending_question_facts"
+    })
+    _write(point / "timeline.json", {"frames": []})
+    batch_manifest = _write(batch / "batch_manifest.json", {
+        "status": "research_candidate",
+        "records": [{"point_id": "point_001"}],
+    })
+    matrix = {
+        "matrix": [{
+            "scene_id": "room",
+            "profile_id": "profile",
+            "attempt_status": "generated",
+            "batch_manifest": str(batch_manifest),
+        }]
+    }
+    _write(design_root / "scene_profile_matrix.json", matrix)
+    monkeypatch.setattr(
+        pipeline,
+        "_run_logged",
+        lambda *args, **kwargs: pytest.fail(
+            "question assembler must not run for pending runtime facts"
+        ),
+    )
+
+    result = pipeline._assemble(
+        {"profiles": tmp_path / "profiles.json"},
+        {},
+        {
+            "status": "complete",
+            "root": str(design_root),
+            "matrix": matrix,
+        },
+        tmp_path / "output",
+        resume_only=False,
+        through_stage="questions",
+    )
+
+    assert result["status"] == "pending"
+    assert result["pending_question_facts"] == [
+        "room/profile/point_001"
+    ]

@@ -54,6 +54,16 @@ from run_qa_v3_capture_batch import (
     point_state as capture_point_state,
     resolve_capture_inputs,
 )
+from avengine.qa.backend_handlers import (
+    BackendHandlerError,
+    DEFAULT_BACKEND_ID,
+    HABITAT_NATIVE_BACKEND_ID,
+    get_backend_handler,
+)
+from avengine.qa.mp3d_visual_verification import (
+    MP3DVisualVerificationError,
+    verify_point as verify_mp3d_capture_point,
+)
 from avengine.qa.runtime_artifacts import (
     MEDIA_CONSUMER_KINDS,
     VISUAL_CAPTURE_KINDS,
@@ -66,8 +76,10 @@ from avengine.qa.runtime_artifacts import (
 SCHEDULER = HERE / "run_qa_v3_room_profile_scheduler.py"
 ASSEMBLER = HERE / "assemble_qa_v3_room_pilot.py"
 CAPTURE_BATCH = HERE / "run_qa_v3_capture_batch.py"
+MP3D_CAPTURE = REPO / "tools/capture/capture_mp3d_multi_actor.py"
 AUDIO_BATCH = HERE / "run_qa_v3_audio_batch.py"
 VISUAL_VERIFY = HERE / "verify_qa_v3_visual_batch.py"
+MP3D_VISUAL_VERIFY = HERE / "verify_mp3d_visual_batch.py"
 AUDIO_VERIFY = HERE / "verify_qa_v3_audio_batch.py"
 RELEASED_ITEMS = HERE / "build_qa_v3_released_probe_items.py"
 REVIEW_CLIP = REPO / "tools/review/build_current_mp3d_dynamic_review_clip.py"
@@ -387,9 +399,12 @@ def _load_runtime(path: Path, *, resume_only: bool) -> dict[str, Any]:
     capture = _resolve_config_paths(
         _mapping(top.get("capture"), owner="runtime.capture"),
         base=base,
-        path_fields=("python", "spear_ext", "closure_report", "stage_root",
-                     "spear_executable", "source_asset_registry",
-                     "capture_warmup_config"),
+        path_fields=(
+            "python", "spear_ext", "closure_report", "stage_root",
+            "spear_executable", "source_asset_registry",
+            "capture_warmup_config", "runtime_prefix", "mp3d_root",
+            "magnum_python_site", "rlr_sdk_root", "room_manifest",
+        ),
         required=False,
         owner="runtime.capture",
     )
@@ -400,7 +415,7 @@ def _load_runtime(path: Path, *, resume_only: bool) -> dict[str, Any]:
                      "package_manifest", "source_endpoint_registry",
                      "sound_asset_registry", "hrtf", "runtime_prefix",
                      "rlr_sdk_root", "magnum_python_site", "source_asset_registry",
-                     "sound_asset_map"),
+                     "sound_asset_map", "beagle_audio"),
         required=False,
         owner="runtime.audio",
     )
@@ -433,14 +448,15 @@ def _stage_config(runtime: Mapping[str, Any], section: str,
         "capture": (
             "python", "spear_ext", "closure_report", "stage_root",
             "spear_executable", "source_asset_registry",
-            "capture_warmup_config",
+            "capture_warmup_config", "runtime_prefix", "mp3d_root",
+            "magnum_python_site", "rlr_sdk_root", "room_manifest",
         ),
         "audio": (
             "python", "repo", "m1_request", "simulation_request",
             "package_manifest", "source_endpoint_registry",
             "sound_asset_registry", "hrtf", "runtime_prefix",
             "rlr_sdk_root", "magnum_python_site", "source_asset_registry",
-            "sound_asset_map",
+            "sound_asset_map", "beagle_audio",
         ),
         "media": ("python",),
     }.get(section, ())
@@ -1247,6 +1263,45 @@ def _design_rows(matrix: Mapping[str, Any]) -> list[dict[str, Any]]:
     return result
 
 
+def _pending_question_fact_points(
+    design_roots: Sequence[Path],
+) -> list[str]:
+    pending: list[str] = []
+    for design_root in design_roots:
+        matrix_path = design_root / "scene_profile_matrix.json"
+        if not matrix_path.is_file():
+            continue
+        matrix = _read_json(matrix_path)
+        for row in _design_rows(matrix):
+            if row.get("attempt_status") != "generated":
+                continue
+            batch_raw = row.get("batch_manifest")
+            if not isinstance(batch_raw, str) or not batch_raw:
+                continue
+            batch_path = Path(batch_raw).expanduser()
+            if not batch_path.is_absolute():
+                batch_path = design_root / batch_path
+            batch_root = batch_path.resolve().parent
+            try:
+                point_ids = batch_point_ids(batch_root)
+            except (OSError, ValueError, TypeError, json.JSONDecodeError):
+                continue
+            for point_id in point_ids:
+                fact_path = batch_root / point_id / "fact_record.json"
+                if not fact_path.is_file():
+                    continue
+                fact = _read_json(fact_path)
+                if (
+                    isinstance(fact, Mapping)
+                    and fact.get("runtime_consumer_status")
+                    == "pending_question_facts"
+                ):
+                    pending.append(
+                        f"{row.get('scene_id')}/{row.get('profile_id')}/{point_id}"
+                    )
+    return pending
+
+
 def _assemble(request: Mapping[str, Any], runtime: Mapping[str, Any],
               design: Mapping[str, Any], out_root: Path,
               *, resume_only: bool, through_stage: str) -> dict[str, Any]:
@@ -1295,6 +1350,17 @@ def _assemble(request: Mapping[str, Any], runtime: Mapping[str, Any],
             "status": "pending",
             "root": str(assembly_root.resolve()),
             "detail": "design matrix is unavailable",
+        }
+    pending_question_facts = _pending_question_fact_points(design_roots)
+    if pending_question_facts:
+        return {
+            "status": "pending",
+            "root": str(assembly_root.resolve()),
+            "detail": (
+                "runtime candidates still need question facts: "
+                + ", ".join(pending_question_facts)
+            ),
+            "pending_question_facts": pending_question_facts,
         }
     profiles_path = _normalized_profiles_path(request, out_root)
     assembly_root.parent.mkdir(parents=True, exist_ok=True)
@@ -1450,6 +1516,377 @@ def _run_capture(request: Mapping[str, Any], runtime: Mapping[str, Any],
     return {"status": "complete", "root": str(capture_root.resolve()),
             "points": states, "run": run}
 
+
+
+
+
+def _backend_id(row: Mapping[str, Any]) -> str:
+    """Select the runtime backend from explicit matrix metadata."""
+
+    try:
+        backend_id = get_backend_handler(row).backend_id
+    except BackendHandlerError as error:
+        raise PipelineError(f"cannot select runtime backend: {error}") from error
+    if backend_id not in {DEFAULT_BACKEND_ID, HABITAT_NATIVE_BACKEND_ID}:
+        raise PipelineError(
+            f"backend {backend_id!r} is registered but has no QA pipeline adapter"
+        )
+    return backend_id
+
+
+def _runtime_config_base(runtime: Mapping[str, Any]) -> Path:
+    return Path(runtime.get("_path", REPO / "runtime.json")).resolve().parent
+
+
+def _point_stage_override(
+    config: Mapping[str, Any], point_id: str, *, owner: str
+) -> dict[str, Any]:
+    by_point = config.get("by_point")
+    if by_point is None:
+        return {}
+    if not isinstance(by_point, Mapping):
+        raise PipelineError(f"{owner}.by_point must be an object")
+    value = by_point.get(point_id)
+    if value is None:
+        return {}
+    if not isinstance(value, Mapping):
+        raise PipelineError(f"{owner}.by_point.{point_id} must be an object")
+    return dict(value)
+
+
+def _candidate_fact(point_dir: Path) -> dict[str, Any]:
+    path = point_dir / "fact_record.json"
+    value = _read_json(path)
+    if not isinstance(value, Mapping):
+        raise PipelineError(f"candidate fact must be an object: {path}")
+    return dict(value)
+
+
+def _nested_mapping(value: Any, key: str) -> Mapping[str, Any]:
+    if not isinstance(value, Mapping):
+        return {}
+    nested = value.get(key)
+    if nested is None:
+        return {}
+    if not isinstance(nested, Mapping):
+        raise PipelineError(f"candidate field {key!r} must be an object")
+    return nested
+
+
+def _candidate_path(
+    *,
+    point_dir: Path,
+    runtime: Mapping[str, Any],
+    owner: str,
+    declared: Any = None,
+    fact_declared: Any = None,
+    local_names: Sequence[str] = (),
+    shared: Any = None,
+    allow_shared: bool = False,
+) -> Path:
+    candidates: list[tuple[Any, Path]] = []
+    for name in local_names:
+        local = point_dir / name
+        if local.is_file():
+            candidates.append((local, point_dir))
+            break
+    if declared is not None:
+        candidates.append((declared, _runtime_config_base(runtime)))
+    if fact_declared is not None:
+        candidates.append((fact_declared, point_dir))
+    if allow_shared and shared is not None:
+        candidates.append((shared, _runtime_config_base(runtime)))
+    if not candidates:
+        raise PipelineError(
+            f"{owner} is not declared for candidate {point_dir.name}"
+        )
+    value, base = candidates[0]
+    return _resolve_path(value, base=base, owner=owner)
+
+
+def _mp3d_capture_plan(
+    runtime: Mapping[str, Any],
+    scene_id: str,
+    profile_id: str,
+    batch_root: Path,
+    point_id: str,
+) -> dict[str, Any]:
+    point_dir = batch_root / point_id
+    fact = _candidate_fact(point_dir)
+    try:
+        fact_backend = get_backend_handler(fact).backend_id
+    except BackendHandlerError as error:
+        raise PipelineError(
+            f"{point_id} candidate backend is invalid: {error}"
+        ) from error
+    if fact_backend != HABITAT_NATIVE_BACKEND_ID:
+        raise PipelineError(
+            f"{point_id} candidate backend {fact_backend!r} differs from "
+            f"{HABITAT_NATIVE_BACKEND_ID!r}"
+        )
+
+    config = _stage_config(runtime, "capture", scene_id, profile_id)
+    override = _point_stage_override(
+        config, point_id, owner="runtime.capture"
+    )
+    merged = {key: value for key, value in config.items() if key != "by_point"}
+    merged.update(override)
+    backend_inputs = _nested_mapping(fact, "backend_inputs")
+    room_fact = _nested_mapping(fact, "room")
+    listener_fact = _nested_mapping(fact, "listener")
+
+    case_manifest = _candidate_path(
+        point_dir=point_dir,
+        runtime=runtime,
+        owner=f"runtime.capture.{point_id}.case_manifest",
+        declared=override.get("case_manifest"),
+        fact_declared=backend_inputs.get("case_manifest"),
+        local_names=("case_manifest.json",),
+    )
+    room_manifest = _candidate_path(
+        point_dir=point_dir,
+        runtime=runtime,
+        owner=f"runtime.capture.{point_id}.room_manifest",
+        declared=override.get("room_manifest"),
+        fact_declared=(
+            backend_inputs.get("room_manifest")
+            or room_fact.get("room_manifest_path")
+        ),
+        local_names=("room_manifest.json",),
+        shared=config.get("room_manifest"),
+        allow_shared=True,
+    )
+    m1_request = _candidate_path(
+        point_dir=point_dir,
+        runtime=runtime,
+        owner=f"runtime.capture.{point_id}.m1_request",
+        declared=override.get("m1_request"),
+        fact_declared=(
+            backend_inputs.get("m1_request")
+            or listener_fact.get("m1_request_path")
+        ),
+        local_names=("m1_capture_request.json",),
+    )
+
+    python_value = merged.get("python") or runtime.get("python")
+    if python_value is None:
+        raise PipelineError("Habitat capture runtime has no python")
+    required = ("runtime_prefix", "mp3d_root", "magnum_python_site")
+    missing = [key for key in required if merged.get(key) is None]
+    if missing:
+        raise PipelineError(
+            f"Habitat capture runtime config missing {missing}"
+        )
+    resolved = {
+        key: _resolve_path(
+            merged[key],
+            base=_runtime_config_base(runtime),
+            owner=f"runtime.capture.{point_id}.{key}",
+        )
+        for key in required
+    }
+    rlr_sdk_root = merged.get("rlr_sdk_root")
+    if rlr_sdk_root is not None:
+        rlr_sdk_root = _resolve_path(
+            rlr_sdk_root,
+            base=_runtime_config_base(runtime),
+            owner=f"runtime.capture.{point_id}.rlr_sdk_root",
+        )
+    gpu_device_id = merged.get("gpu_device_id", 0)
+    if (
+        isinstance(gpu_device_id, bool)
+        or not isinstance(gpu_device_id, int)
+        or gpu_device_id < 0
+    ):
+        raise PipelineError(
+            f"runtime.capture.{point_id}.gpu_device_id must be a "
+            "nonnegative integer"
+        )
+    case = _read_json(case_manifest)
+    clock = case.get("clock") if isinstance(case, Mapping) else None
+    expected_frames = clock.get("frame_count") if isinstance(clock, Mapping) else None
+    if (
+        isinstance(expected_frames, bool)
+        or not isinstance(expected_frames, int)
+        or expected_frames < 1
+    ):
+        raise PipelineError(
+            f"{point_id} case manifest has no positive frame_count"
+        )
+    return {
+        "point_id": point_id,
+        "python": str(_resolve_path(
+            python_value,
+            base=_runtime_config_base(runtime),
+            owner=f"runtime.capture.{point_id}.python",
+        )),
+        "case_manifest": case_manifest,
+        "room_manifest": room_manifest,
+        "m1_request": m1_request,
+        "runtime_prefix": resolved["runtime_prefix"],
+        "mp3d_root": resolved["mp3d_root"],
+        "magnum_python_site": resolved["magnum_python_site"],
+        "rlr_sdk_root": rlr_sdk_root,
+        "gpu_device_id": gpu_device_id,
+        "expected_frames": expected_frames,
+    }
+
+
+def _receipt_path_value(
+    value: Any, *, receipt_path: Path
+) -> Path | None:
+    if not isinstance(value, str) or not value:
+        return None
+    path = Path(value).expanduser()
+    if not path.is_absolute():
+        path = receipt_path.parent / path
+    return path.resolve()
+
+
+def _mp3d_capture_point_state(
+    output: Path, plan: Mapping[str, Any]
+) -> tuple[str, str | None]:
+    if not output.exists():
+        return "missing", None
+    receipt_path = output / "research_receipt.json"
+    try:
+        verify_mp3d_capture_point(
+            str(plan["point_id"]),
+            output,
+            int(plan["expected_frames"]),
+            case_manifest=Path(plan["case_manifest"]),
+            m1_request=Path(plan["m1_request"]),
+        )
+        receipt = _read_json(receipt_path)
+        inputs = receipt.get("inputs")
+        if not isinstance(inputs, Mapping):
+            raise PipelineError("native capture receipt has no inputs object")
+        expected = {
+            "case_manifest": Path(plan["case_manifest"]).resolve(),
+            "room_manifest": Path(plan["room_manifest"]).resolve(),
+            "m1_request": Path(plan["m1_request"]).resolve(),
+        }
+        for key, wanted in expected.items():
+            actual = _receipt_path_value(
+                inputs.get(key), receipt_path=receipt_path
+            )
+            if actual != wanted:
+                raise PipelineError(
+                    f"native capture receipt {key} differs from requested input"
+                )
+    except (
+        MP3DVisualVerificationError,
+        OSError,
+        ValueError,
+        TypeError,
+        KeyError,
+        json.JSONDecodeError,
+        PipelineError,
+    ) as error:
+        return "partial", f"{type(error).__name__}: {error}"
+    return "complete", None
+
+
+def _run_mp3d_capture(
+    request: Mapping[str, Any],
+    runtime: Mapping[str, Any],
+    scene_id: str,
+    profile_id: str,
+    batch_root: Path,
+    pair_root: Path,
+    point_ids: Sequence[str],
+    *,
+    resume_only: bool,
+) -> dict[str, Any]:
+    del request
+    capture_root = pair_root / "capture"
+    plans = {
+        point_id: _mp3d_capture_plan(
+            runtime, scene_id, profile_id, batch_root, point_id
+        )
+        for point_id in point_ids
+    }
+    inspected = {
+        point_id: _mp3d_capture_point_state(
+            capture_root / point_id, plan
+        )
+        for point_id, plan in plans.items()
+    }
+    states = {point_id: value[0] for point_id, value in inspected.items()}
+    partial = [
+        f"{point_id}: {detail}"
+        for point_id, (state, detail) in inspected.items()
+        if state == "partial"
+    ]
+    if partial:
+        return {
+            "status": "failed",
+            "root": str(capture_root.resolve()),
+            "points": states,
+            "detail": (
+                "native Habitat capture is partial; refusing overwrite: "
+                + "; ".join(partial)
+            ),
+        }
+    if states and all(value == "complete" for value in states.values()):
+        return {
+            "status": "complete",
+            "root": str(capture_root.resolve()),
+            "points": states,
+            "run": {"status": "reused_existing"},
+        }
+    if resume_only:
+        return {
+            "status": "pending",
+            "root": str(capture_root.resolve()),
+            "points": states,
+            "detail": "resume-only mode did not launch native Habitat capture",
+        }
+
+    runs = []
+    for point_id, plan in plans.items():
+        if states[point_id] == "complete":
+            continue
+        output = capture_root / point_id
+        command = [
+            str(plan["python"]),
+            str(MP3D_CAPTURE),
+            "--case-manifest", str(plan["case_manifest"]),
+            "--room-manifest", str(plan["room_manifest"]),
+            "--m1-request", str(plan["m1_request"]),
+            "--runtime-prefix", str(plan["runtime_prefix"]),
+            "--mp3d-root", str(plan["mp3d_root"]),
+            "--magnum-python-site", str(plan["magnum_python_site"]),
+            "--gpu-device-id", str(plan["gpu_device_id"]),
+            "--output", str(output),
+        ]
+        if plan["rlr_sdk_root"] is not None:
+            command.extend([
+                "--rlr-sdk-root", str(plan["rlr_sdk_root"])
+            ])
+        run = _run_logged(
+            f"capture:{scene_id}/{profile_id}/{point_id}:habitat_native",
+            command,
+            capture_root / f"{point_id}.log",
+            timeout=_timeout(runtime, "capture"),
+        )
+        runs.append(run)
+        state, detail = _mp3d_capture_point_state(output, plan)
+        states[point_id] = state
+        if run.get("status") != "complete" or state != "complete":
+            return {
+                "status": "failed",
+                "root": str(capture_root.resolve()),
+                "points": states,
+                "runs": runs,
+                "detail": detail or "native Habitat capture did not complete",
+            }
+    return {
+        "status": "complete",
+        "root": str(capture_root.resolve()),
+        "points": states,
+        "runs": runs,
+    }
 
 
 def _declared_capture_root(
@@ -1639,13 +2076,35 @@ def _configured_audio_layouts(cfg: Mapping[str, Any]) -> tuple[str, ...]:
         raise PipelineError(f"invalid audio layouts: {error}") from error
 
 
+def _audio_output_name(point_id: str, variant: str) -> str:
+    return point_id if variant == "main" else f"{point_id}_{variant}"
+
+
+def _validate_audio_output_names(
+    point_ids: Sequence[str], variants: Sequence[str]
+) -> None:
+    owners: dict[str, tuple[str, str]] = {}
+    for point_id in point_ids:
+        for variant in variants:
+            output_name = _audio_output_name(point_id, variant)
+            owner = (point_id, variant)
+            previous = owners.get(output_name)
+            if previous is not None and previous != owner:
+                raise PipelineError(
+                    "audio output name collision between "
+                    f"{previous!r} and {owner!r}: {output_name!r}"
+                )
+            owners[output_name] = owner
+
+
 def _audio_states(audio_root: Path, point_ids: Sequence[str],
                   variants: Sequence[str], layouts: Sequence[str],
                   ) -> tuple[str, dict[str, str]]:
+    _validate_audio_output_names(point_ids, variants)
     states = {}
     for pid in point_ids:
         for variant in variants:
-            name = pid if variant == "main" else f"{pid}_{variant}"
+            name = _audio_output_name(pid, variant)
             path = audio_root / name
             states[f"{pid}:{variant}"] = (
                 "missing" if not path.exists()
@@ -1733,6 +2192,449 @@ def _run_audio(request: Mapping[str, Any], runtime: Mapping[str, Any],
             "points": states, "run": run, "config": snapshot}
 
 
+
+
+def _mp3d_program_path(
+    runtime: Mapping[str, Any],
+    point_dir: Path,
+    point_override: Mapping[str, Any],
+    fact: Mapping[str, Any],
+    variant: str,
+) -> Path:
+    programs = point_override.get("audio_programs")
+    declared = None
+    if programs is not None:
+        if not isinstance(programs, Mapping):
+            raise PipelineError(
+                f"runtime.audio.by_point.{point_dir.name}.audio_programs "
+                "must be an object"
+            )
+        declared = programs.get(variant)
+    if declared is None and variant == "main":
+        declared = point_override.get("audio_program")
+    audio = _nested_mapping(fact, "audio")
+    fact_programs = audio.get("programs")
+    if fact_programs is not None and not isinstance(
+        fact_programs, Mapping
+    ):
+        raise PipelineError("candidate audio.programs must be an object")
+    if declared is None and isinstance(fact_programs, Mapping):
+        declared = fact_programs.get(variant)
+    if declared is None and variant == "main":
+        declared = audio.get("program_path")
+    if declared is None and variant == "main":
+        declared = _nested_mapping(fact, "backend_inputs").get(
+            "audio_program"
+        )
+    local_name = (
+        "audio_program.json"
+        if variant == "main"
+        else f"audio_program_{_safe_component(variant, owner='audio variant')}.json"
+    )
+    return _candidate_path(
+        point_dir=point_dir,
+        runtime=runtime,
+        owner=f"runtime.audio.{point_dir.name}.{variant}.audio_program",
+        declared=declared,
+        local_names=(local_name,),
+    )
+
+
+def _sound_asset_arguments(
+    runtime: Mapping[str, Any],
+    config: Mapping[str, Any],
+) -> list[str]:
+    result: list[str] = []
+    mapping = config.get("sound_asset_map")
+    if mapping is not None:
+        map_path = _resolve_path(
+            mapping,
+            base=_runtime_config_base(runtime),
+            owner="runtime.audio.sound_asset_map",
+        )
+        result.extend(["--sound-asset-map", str(map_path)])
+    assignments = config.get("sound_asset_paths")
+    if assignments is None:
+        assignments = {}
+    if isinstance(assignments, Mapping):
+        rows = list(assignments.items())
+    elif isinstance(assignments, Sequence) and not isinstance(
+        assignments, (str, bytes)
+    ):
+        rows = []
+        for index, value in enumerate(assignments):
+            if not isinstance(value, str):
+                raise PipelineError(
+                    f"runtime.audio.sound_asset_paths[{index}] must be "
+                    "SOUND_ID=PATH"
+                )
+            sound_id, separator, raw_path = value.partition("=")
+            if not separator:
+                raise PipelineError(
+                    f"runtime.audio.sound_asset_paths[{index}] must be "
+                    "SOUND_ID=PATH"
+                )
+            rows.append((sound_id, raw_path))
+    else:
+        raise PipelineError(
+            "runtime.audio.sound_asset_paths must be an object or list"
+        )
+    seen: dict[str, Path] = {}
+    for sound_id, raw_path in rows:
+        sound_id = _safe_component(
+            sound_id, owner="runtime.audio sound asset id"
+        )
+        resolved = _resolve_path(
+            raw_path,
+            base=_runtime_config_base(runtime),
+            owner=f"runtime.audio.sound_asset_paths.{sound_id}",
+        )
+        if sound_id in seen:
+            raise PipelineError(
+                f"runtime.audio sound asset {sound_id!r} is declared more than once"
+            )
+        seen[sound_id] = resolved
+    for sound_id, resolved in seen.items():
+        result.extend([
+            "--sound-asset-path", f"{sound_id}={resolved}"
+        ])
+    legacy = config.get("beagle_audio")
+    if legacy is not None:
+        path_value = _resolve_path(
+            legacy,
+            base=_runtime_config_base(runtime),
+            owner="runtime.audio.beagle_audio",
+        )
+        result.extend(["--beagle-audio", str(path_value)])
+    return result
+
+
+def _mp3d_audio_plan(
+    runtime: Mapping[str, Any],
+    scene_id: str,
+    profile_id: str,
+    batch_root: Path,
+    pair_root: Path,
+    point_id: str,
+    variant: str,
+) -> dict[str, Any]:
+    point_dir = batch_root / point_id
+    fact = _candidate_fact(point_dir)
+    capture_plan = _mp3d_capture_plan(
+        runtime, scene_id, profile_id, batch_root, point_id
+    )
+    config = _stage_config(runtime, "audio", scene_id, profile_id)
+    override = _point_stage_override(
+        config, point_id, owner="runtime.audio"
+    )
+    merged = {key: value for key, value in config.items() if key != "by_point"}
+    merged.update({
+        key: value
+        for key, value in override.items()
+        if key not in {"audio_program", "audio_programs"}
+    })
+    layouts = _configured_audio_layouts(merged)
+    program = _mp3d_program_path(
+        runtime, point_dir, override, fact, variant
+    )
+    endpoint = _candidate_path(
+        point_dir=point_dir,
+        runtime=runtime,
+        owner=f"runtime.audio.{point_id}.source_endpoint_registry",
+        declared=override.get("source_endpoint_registry"),
+        fact_declared=_nested_mapping(fact, "backend_inputs").get(
+            "source_endpoint_registry"
+        ),
+        local_names=("source_endpoints.json",),
+        shared=config.get("source_endpoint_registry"),
+        allow_shared=True,
+    )
+    required = (
+        "simulation_request",
+        "package_manifest",
+        "sound_asset_registry",
+        "runtime_prefix",
+        "rlr_sdk_root",
+    )
+    missing = [key for key in required if merged.get(key) is None]
+    if missing:
+        raise PipelineError(
+            f"Habitat audio runtime config missing {missing}"
+        )
+    resolved = {
+        key: _resolve_path(
+            merged[key],
+            base=_runtime_config_base(runtime),
+            owner=f"runtime.audio.{point_id}.{key}",
+        )
+        for key in required
+    }
+    magnum = merged.get("magnum_python_site")
+    if magnum is not None:
+        magnum = _resolve_path(
+            magnum,
+            base=_runtime_config_base(runtime),
+            owner=f"runtime.audio.{point_id}.magnum_python_site",
+        )
+    python_value = merged.get("python") or runtime.get("python")
+    if python_value is None:
+        raise PipelineError("Habitat audio runtime has no python")
+    python_path = _resolve_path(
+        python_value,
+        base=_runtime_config_base(runtime),
+        owner=f"runtime.audio.{point_id}.python",
+    )
+    hrtf = merged.get("hrtf")
+    if "binaural" in layouts and hrtf is None:
+        raise PipelineError("Habitat binaural audio requires runtime.audio.hrtf")
+    if hrtf is not None:
+        hrtf = _resolve_path(
+            hrtf,
+            base=_runtime_config_base(runtime),
+            owner=f"runtime.audio.{point_id}.hrtf",
+        )
+    hrtf_license = merged.get("hrtf_license")
+    if hrtf_license is not None:
+        hrtf_license = _resolve_path(
+            hrtf_license,
+            base=_runtime_config_base(runtime),
+            owner=f"runtime.audio.{point_id}.hrtf_license",
+        )
+    internal = merged.get("program_variant_by_execution", {})
+    if not isinstance(internal, Mapping):
+        raise PipelineError(
+            "runtime.audio.program_variant_by_execution must be an object"
+        )
+    program_variant = internal.get(
+        variant, merged.get("program_variant", "A")
+    )
+    if program_variant not in {"A", "B"}:
+        raise PipelineError(
+            f"runtime.audio program variant for {variant!r} must be A or B"
+        )
+    output_name = _audio_output_name(point_id, variant)
+    return {
+        "point_id": point_id,
+        "variant": variant,
+        "layouts": layouts,
+        "python": python_path,
+        "capture": pair_root / "capture" / point_id,
+        "case_manifest": Path(capture_plan["case_manifest"]),
+        "room_manifest": Path(capture_plan["room_manifest"]),
+        "m1_request": Path(capture_plan["m1_request"]),
+        "expected_frames": capture_plan["expected_frames"],
+        "simulation_request": resolved["simulation_request"],
+        "package_manifest": resolved["package_manifest"],
+        "audio_program": program,
+        "source_endpoint_registry": endpoint,
+        "sound_asset_registry": resolved["sound_asset_registry"],
+        "runtime_prefix": resolved["runtime_prefix"],
+        "rlr_sdk_root": resolved["rlr_sdk_root"],
+        "magnum_python_site": magnum,
+        "hrtf": hrtf,
+        "hrtf_license": hrtf_license,
+        "rir_stride_frames": merged.get("rir_stride_frames", 3),
+        "program_variant": program_variant,
+        "sound_args": _sound_asset_arguments(runtime, merged),
+        "output": pair_root / "audio" / output_name,
+    }
+
+
+def _receipt_declared_path(
+    receipt: Mapping[str, Any],
+    fields: Sequence[str],
+    *,
+    receipt_path: Path,
+) -> Path | None:
+    value: Any = receipt
+    for field in fields:
+        if not isinstance(value, Mapping):
+            return None
+        value = value.get(field)
+    return _receipt_path_value(value, receipt_path=receipt_path)
+
+
+def _mp3d_audio_point_state(
+    plan: Mapping[str, Any],
+) -> tuple[str, str | None]:
+    output = Path(plan["output"])
+    state = audio_point_state(output, layouts=plan["layouts"])
+    if state != "complete":
+        return state, None if state == "missing" else "audio structure is partial"
+    receipt_path = output / "research_receipt.json"
+    try:
+        receipt = _read_json(receipt_path)
+        if receipt.get("execution_variant") != plan["variant"]:
+            raise PipelineError(
+                "audio receipt execution_variant differs from requested variant"
+            )
+        audio_program = receipt.get("audio_program")
+        if (
+            not isinstance(audio_program, Mapping)
+            or audio_program.get("variant_id") != plan["program_variant"]
+        ):
+            raise PipelineError(
+                "audio receipt AudioProgram variant differs from requested variant"
+            )
+        expected = {
+            ("audio_program", "path"): Path(plan["audio_program"]).resolve(),
+            ("inputs", "m1_request", "path"): Path(plan["m1_request"]).resolve(),
+            ("inputs", "visual_capture_frame_records", "path"): (
+                Path(plan["capture"]) / "frame_records.json"
+            ).resolve(),
+            ("inputs", "source_endpoint_registry", "path"): Path(
+                plan["source_endpoint_registry"]
+            ).resolve(),
+        }
+        for fields, wanted in expected.items():
+            actual = _receipt_declared_path(
+                receipt, fields, receipt_path=receipt_path
+            )
+            if actual != wanted:
+                raise PipelineError(
+                    "audio receipt "
+                    + ".".join(fields)
+                    + " differs from requested input"
+                )
+    except (
+        OSError,
+        ValueError,
+        TypeError,
+        KeyError,
+        json.JSONDecodeError,
+        PipelineError,
+    ) as error:
+        return "partial", f"{type(error).__name__}: {error}"
+    return "complete", None
+
+
+def _run_mp3d_audio(
+    request: Mapping[str, Any],
+    runtime: Mapping[str, Any],
+    scene_id: str,
+    profile_id: str,
+    batch_root: Path,
+    pair_root: Path,
+    point_ids: Sequence[str],
+    *,
+    resume_only: bool,
+) -> dict[str, Any]:
+    _validate_audio_output_names(point_ids, request["audio_variants"])
+    plans = [
+        _mp3d_audio_plan(
+            runtime,
+            scene_id,
+            profile_id,
+            batch_root,
+            pair_root,
+            point_id,
+            variant,
+        )
+        for point_id in point_ids
+        for variant in request["audio_variants"]
+    ]
+    inspected = {
+        f"{plan['point_id']}:{plan['variant']}": _mp3d_audio_point_state(plan)
+        for plan in plans
+    }
+    states = {key: value[0] for key, value in inspected.items()}
+    partial = [
+        f"{key}: {detail}"
+        for key, (state, detail) in inspected.items()
+        if state == "partial"
+    ]
+    audio_root = pair_root / "audio"
+    if partial:
+        return {
+            "status": "failed",
+            "root": str(audio_root.resolve()),
+            "points": states,
+            "detail": (
+                "native MP3D audio is partial; refusing overwrite: "
+                + "; ".join(partial)
+            ),
+        }
+    if states and all(value == "complete" for value in states.values()):
+        return {
+            "status": "complete",
+            "root": str(audio_root.resolve()),
+            "points": states,
+            "run": {"status": "reused_existing"},
+        }
+    if resume_only:
+        return {
+            "status": "pending",
+            "root": str(audio_root.resolve()),
+            "points": states,
+            "detail": "resume-only mode did not launch native MP3D audio",
+        }
+    runs = []
+    for plan in plans:
+        key = f"{plan['point_id']}:{plan['variant']}"
+        if states[key] == "complete":
+            continue
+        stride = plan["rir_stride_frames"]
+        if isinstance(stride, bool) or not isinstance(stride, int) or stride < 1:
+            raise PipelineError(
+                "runtime.audio.rir_stride_frames must be a positive integer"
+            )
+        command = [
+            str(plan["python"]),
+            "-m",
+            "avengine.cli",
+            "m5",
+            "render-current-mp3d-dynamic-audio",
+            "--visual-capture-dir", str(plan["capture"]),
+            "--m1-request", str(plan["m1_request"]),
+            "--simulation-request", str(plan["simulation_request"]),
+            "--layouts", ",".join(plan["layouts"]),
+            "--execution-variant", str(plan["variant"]),
+            "--package-manifest", str(plan["package_manifest"]),
+            "--audio-program", str(plan["audio_program"]),
+            "--source-endpoint-registry", str(plan["source_endpoint_registry"]),
+            "--sound-asset-registry", str(plan["sound_asset_registry"]),
+            "--runtime-prefix", str(plan["runtime_prefix"]),
+            "--rlr-sdk-root", str(plan["rlr_sdk_root"]),
+            "--rir-stride-frames", str(stride),
+            "--variant", str(plan["program_variant"]),
+            "--output", str(plan["output"]),
+        ]
+        if plan["magnum_python_site"] is not None:
+            command.extend([
+                "--magnum-python-site", str(plan["magnum_python_site"])
+            ])
+        if plan["hrtf"] is not None:
+            command.extend(["--hrtf", str(plan["hrtf"])])
+        if plan["hrtf_license"] is not None:
+            command.extend([
+                "--hrtf-license", str(plan["hrtf_license"])
+            ])
+        command.extend(plan["sound_args"])
+        run = _run_logged(
+            f"audio:{scene_id}/{profile_id}/{key}:habitat_native",
+            command,
+            audio_root / f"{Path(plan['output']).name}.log",
+            timeout=_timeout(runtime, "audio"),
+        )
+        runs.append(run)
+        state, detail = _mp3d_audio_point_state(plan)
+        states[key] = state
+        if run.get("status") != "complete" or state != "complete":
+            return {
+                "status": "failed",
+                "root": str(audio_root.resolve()),
+                "points": states,
+                "runs": runs,
+                "detail": detail or "native MP3D audio did not complete",
+            }
+    return {
+        "status": "complete",
+        "root": str(audio_root.resolve()),
+        "points": states,
+        "runs": runs,
+    }
+
+
 def _capture_receipt(capture_root: Path, pid: str) -> dict[str, Any] | None:
     path = capture_root / pid / "research_receipt.json"
     if not path.is_file():
@@ -1771,17 +2673,60 @@ def _media_state(media_root: Path, capture_root: Path,
         valid = _clip_matches_receipt(output, receipt)
     except (OSError, ValueError, RuntimeError, TypeError, KeyError, json.JSONDecodeError) as exc:
         return "failed", f"cannot inspect existing review clip: {exc}"
-    if valid is False:
-        return "failed", "existing review clip clock differs from capture receipt"
+    if valid is not True:
+        return (
+            "failed",
+            "existing review clip clock cannot be verified from capture receipt",
+        )
     mixture = audio_root / pid / "audio" / "binaural" / "mixture.wav"
     if not mixture.is_file():
         return "failed", "review clip exists but main mixture is missing"
     return "complete", None
 
 
+def _capture_states_for_backend(
+    backend_id: str,
+    runtime: Mapping[str, Any],
+    scene_id: str,
+    profile_id: str,
+    batch_root: Path,
+    capture_root: Path,
+    point_ids: Sequence[str],
+) -> tuple[str, dict[str, str], str | None]:
+    if backend_id == DEFAULT_BACKEND_ID:
+        return _capture_states(batch_root, capture_root, point_ids)
+    if backend_id != HABITAT_NATIVE_BACKEND_ID:
+        raise PipelineError(
+            f"pipeline has no capture state adapter for backend {backend_id!r}"
+        )
+    plans = {
+        point_id: _mp3d_capture_plan(
+            runtime, scene_id, profile_id, batch_root, point_id
+        )
+        for point_id in point_ids
+    }
+    inspected = {
+        point_id: _mp3d_capture_point_state(
+            capture_root / point_id, plan
+        )
+        for point_id, plan in plans.items()
+    }
+    states = {point_id: value[0] for point_id, value in inspected.items()}
+    status, _ = _point_state_summary(
+        point_ids, lambda point_id: states[point_id]
+    )
+    details = [
+        f"{point_id}: {detail}"
+        for point_id, (state, detail) in inspected.items()
+        if state == "partial" and detail
+    ]
+    return status, states, "; ".join(details) or None
+
+
 def _run_media(runtime: Mapping[str, Any], scene_id: str, profile_id: str,
                batch_root: Path, pair_root: Path, point_ids: Sequence[str],
-               *, resume_only: bool) -> dict[str, Any]:
+               *, backend_id: str = DEFAULT_BACKEND_ID,
+               resume_only: bool) -> dict[str, Any]:
     capture_root = pair_root / "capture"
     audio_root = pair_root / "audio"
     media_root = pair_root / "media"
@@ -1806,9 +2751,15 @@ def _run_media(runtime: Mapping[str, Any], scene_id: str, profile_id: str,
         }
     audio_status, _ = _audio_states(
         audio_root, point_ids, ["main"], layouts)
-    capture_status, _, _ = _capture_states(batch_root=batch_root,
-                                           capture_root=capture_root,
-                                           point_ids=point_ids)
+    capture_status, _, _ = _capture_states_for_backend(
+        backend_id,
+        runtime,
+        scene_id,
+        profile_id,
+        batch_root,
+        capture_root,
+        point_ids,
+    )
     if audio_status != "complete" or capture_status != "complete":
         return {"status": "pending", "root": str(media_root.resolve()),
                 "points": statuses, "detail": "capture or main audio is not complete"}
@@ -1920,7 +2871,7 @@ def _run_declared_media(
                 "release_id": release_id,
                 "segment": release.get("segment"),
                 "variant": release.get("variant"),
-                "audio_variant": release.get("audio_variant", "main"),
+                "audio_variant": release.get("audio_variant"),
             }
             if release.get("kind") not in MEDIA_CONSUMER_KINDS:
                 record.update({
@@ -1941,7 +2892,7 @@ def _run_declared_media(
                 })
                 records.append(record)
                 continue
-            audio_variant = release.get("audio_variant", "main")
+            audio_variant = release.get("audio_variant")
             if audio_variant is None:
                 record.update({
                     "status": "pending",
@@ -2126,43 +3077,223 @@ def _verification_report_passed(
     raise PipelineError(f"unknown verification report kind: {name}")
 
 
+def _verification_context(
+    runtime: Mapping[str, Any],
+    request: Mapping[str, Any],
+    scene_id: str,
+    profile_id: str,
+    backend_id: str,
+    batch_root: Path,
+    pair_root: Path,
+    point_ids: Sequence[str],
+    layouts: Sequence[str],
+) -> dict[str, Any]:
+    context: dict[str, Any] = {
+        "backend_id": backend_id,
+        "batch_root": str(batch_root.resolve()),
+        "capture_root": str((pair_root / "capture").resolve()),
+        "audio_root": str((pair_root / "audio").resolve()),
+        "point_ids": sorted(point_ids),
+        "audio_variants": list(request["audio_variants"]),
+        "audio_layouts": list(layouts),
+    }
+    if backend_id == HABITAT_NATIVE_BACKEND_ID:
+        plans = {
+            f"{point_id}:{variant}": _mp3d_audio_plan(
+                runtime,
+                scene_id,
+                profile_id,
+                batch_root,
+                pair_root,
+                point_id,
+                variant,
+            )
+            for point_id in point_ids
+            for variant in request["audio_variants"]
+        }
+        context["capture_inputs"] = {
+            point_id: {
+                "case_manifest": str(Path(
+                    plans[f"{point_id}:main"]["case_manifest"]
+                ).resolve()),
+                "room_manifest": str(Path(
+                    plans[f"{point_id}:main"]["room_manifest"]
+                ).resolve()),
+                "m1_request": str(Path(
+                    plans[f"{point_id}:main"]["m1_request"]
+                ).resolve()),
+                "expected_frames": plans[
+                    f"{point_id}:main"
+                ]["expected_frames"],
+            }
+            for point_id in point_ids
+        }
+        context["audio_inputs"] = {
+            key: {
+                "program": str(Path(plan["audio_program"]).resolve()),
+                "program_variant": plan["program_variant"],
+                "m1_request": str(Path(plan["m1_request"]).resolve()),
+                "simulation_request": str(
+                    Path(plan["simulation_request"]).resolve()
+                ),
+                "package_manifest": str(
+                    Path(plan["package_manifest"]).resolve()
+                ),
+                "sound_asset_registry": str(
+                    Path(plan["sound_asset_registry"]).resolve()
+                ),
+                "runtime_prefix": str(
+                    Path(plan["runtime_prefix"]).resolve()
+                ),
+                "rlr_sdk_root": str(
+                    Path(plan["rlr_sdk_root"]).resolve()
+                ),
+                "source_endpoint_registry": str(
+                    Path(plan["source_endpoint_registry"]).resolve()
+                ),
+            }
+            for key, plan in plans.items()
+        }
+    return context
+
+
+def _verification_report_matches_context(
+    name: str,
+    value: Mapping[str, Any],
+    context: Mapping[str, Any],
+    *,
+    selection_path: Path,
+) -> bool:
+    point_ids = list(context["point_ids"])
+
+    def same_point_ids(value: Any) -> bool:
+        return (
+            isinstance(value, list)
+            and all(isinstance(item, str) for item in value)
+            and len(value) == len(set(value))
+            and set(value) == set(point_ids)
+        )
+
+    if name == "visual":
+        inputs = value.get("inputs")
+        points = value.get("points")
+        if not isinstance(inputs, Mapping) or not isinstance(points, list):
+            return False
+        actual_root = _receipt_path_value(
+            inputs.get("visual_root"),
+            receipt_path=selection_path,
+        )
+        actual_selection = _receipt_path_value(
+            inputs.get("selection_manifest"),
+            receipt_path=selection_path,
+        )
+        report_ids = [
+            point.get("point_id")
+            for point in points
+            if isinstance(point, Mapping)
+        ]
+        return (
+            actual_root == Path(context["capture_root"]).resolve()
+            and actual_selection == selection_path.resolve()
+            and same_point_ids(report_ids)
+        )
+    if name == "audio":
+        actual_root = _receipt_path_value(
+            value.get("audio_root"),
+            receipt_path=selection_path,
+        )
+        complete = value.get("complete_render_point_ids")
+        if actual_root != Path(context["audio_root"]).resolve():
+            return False
+        if not isinstance(complete, Mapping):
+            return False
+        return all(
+            same_point_ids(complete.get(variant))
+            for variant in context["audio_variants"]
+        )
+    raise PipelineError(f"unknown verification report kind: {name}")
+
+
 def _run_verifications(runtime: Mapping[str, Any], request: Mapping[str, Any],
                        scene_id: str, profile_id: str, batch_root: Path,
                        pair_root: Path, point_ids: Sequence[str],
-                       *, params_path: Path, resume_only: bool) -> dict[str, Any]:
+                       *, backend_id: str = DEFAULT_BACKEND_ID,
+                       params_path: Path, resume_only: bool) -> dict[str, Any]:
     capture_root = pair_root / "capture"
     audio_root = pair_root / "audio"
     verification_root = pair_root / "verification"
     visual_path = verification_root / "visual.json"
     audio_path = verification_root / "audio.json"
     selection_path = verification_root / "selection.json"
+    context_path = verification_root / "context.json"
     audio_cfg = _stage_config(runtime, "audio", scene_id, profile_id)
     layouts = _configured_audio_layouts(audio_cfg)
+    expected_context = _verification_context(
+        runtime,
+        request,
+        scene_id,
+        profile_id,
+        backend_id,
+        batch_root,
+        pair_root,
+        point_ids,
+        layouts,
+    )
     records = {}
     if visual_path.is_file():
         records["visual"] = _read_json(visual_path)
     if audio_path.is_file():
         records["audio"] = _read_json(audio_path)
+    context_error = None
+    if records:
+        if not context_path.is_file():
+            context_error = "existing verifier reports have no runtime context"
+        else:
+            existing_context = _read_json(context_path)
+            if existing_context != expected_context:
+                context_error = (
+                    "existing verifier reports belong to different runtime inputs"
+                )
     invalid_existing = [
         name for name, value in records.items()
-        if not _verification_report_passed(
-            name,
-            value,
-            expected_audio_variants=request["audio_variants"],
-            expected_audio_layouts=layouts,
+        if (
+            not _verification_report_passed(
+                name,
+                value,
+                expected_audio_variants=request["audio_variants"],
+                expected_audio_layouts=layouts,
+            )
+            or not _verification_report_matches_context(
+                name,
+                value,
+                expected_context,
+                selection_path=selection_path,
+            )
         )
     ]
-    if invalid_existing:
+    if context_error or invalid_existing:
+        detail = context_error or (
+            f"existing verifier reports failed or do not match inputs: "
+            f"{invalid_existing}"
+        )
         return {
             "status": "failed",
             "root": str(verification_root.resolve()),
             "reports": records,
-            "detail": f"existing verifier reports failed: {invalid_existing}",
+            "detail": detail,
         }
     if set(records) == {"visual", "audio"}:
         return {"status": "complete", "root": str(verification_root.resolve()),
                 "reports": records, "run": {"status": "reused_existing"}}
-    capture_status, _, _ = _capture_states(batch_root, capture_root, point_ids)
+    capture_status, _, _ = _capture_states_for_backend(
+        backend_id,
+        runtime,
+        scene_id,
+        profile_id,
+        batch_root,
+        capture_root,
+        point_ids,
+    )
     audio_status, _ = _audio_states(
         audio_root, point_ids, request["audio_variants"], layouts)
     if capture_status != "complete" or audio_status != "complete":
@@ -2173,17 +3304,23 @@ def _run_verifications(runtime: Mapping[str, Any], request: Mapping[str, Any],
     if resume_only:
         return {"status": "pending", "root": str(verification_root.resolve()),
                 "reports": records, "detail": "resume-only mode did not launch verifiers"}
+    _snapshot(context_path, expected_context)
     python_value = _python_for_runtime(runtime)
     commands = []
     if "visual" not in records:
+        visual_tool = (
+            MP3D_VISUAL_VERIFY
+            if backend_id == HABITAT_NATIVE_BACKEND_ID
+            else VISUAL_VERIFY
+        )
         commands.append(("visual", [
-            str(python_value), str(VISUAL_VERIFY),
+            str(python_value), str(visual_tool),
             "--selection-manifest", str(selection_path),
             "--visual-root", str(capture_root),
             "--out", str(visual_path),
         ]))
     if "audio" not in records:
-        commands.append(("audio", [
+        audio_command = [
             str(python_value), str(AUDIO_VERIFY),
             "--design-root", str(batch_root),
             "--audio-root", str(audio_root),
@@ -2191,7 +3328,22 @@ def _run_verifications(runtime: Mapping[str, Any], request: Mapping[str, Any],
             "--variants", ",".join(request["audio_variants"]),
             "--layouts", ",".join(layouts),
             "--out", str(audio_path),
-        ]))
+        ]
+        if backend_id == HABITAT_NATIVE_BACKEND_ID:
+            endpoint_map_path = (
+                verification_root / "source_endpoint_map.json"
+            )
+            endpoint_map = {
+                point_id: expected_context["audio_inputs"][
+                    f"{point_id}:main"
+                ]["source_endpoint_registry"]
+                for point_id in point_ids
+            }
+            _snapshot(endpoint_map_path, endpoint_map)
+            audio_command.extend([
+                "--source-endpoint-map", str(endpoint_map_path),
+            ])
+        commands.append(("audio", audio_command))
     runs = {}
     for name, command in commands:
         run = _run_logged(
@@ -2211,6 +3363,12 @@ def _run_verifications(runtime: Mapping[str, Any], request: Mapping[str, Any],
                 records[name],
                 expected_audio_variants=request["audio_variants"],
                 expected_audio_layouts=layouts,
+            )
+            or not _verification_report_matches_context(
+                name,
+                records[name],
+                expected_context,
+                selection_path=selection_path,
             )
         ):
             return {"status": "failed", "root": str(verification_root.resolve()),
@@ -2565,6 +3723,16 @@ def _pair_record(request: Mapping[str, Any], runtime: Mapping[str, Any],
                  through_stage: str) -> dict[str, Any]:
     scene_id, profile_id = _pair_key(row.get("scene_id"), row.get("profile_id"))
     pair_root = _pair_root(out_root, scene_id, profile_id)
+    try:
+        backend_id = _backend_id(row)
+    except PipelineError as error:
+        return {
+            "scene_id": scene_id,
+            "profile_id": profile_id,
+            "status": "failed",
+            "design": dict(row),
+            "detail": str(error),
+        }
     batch_raw = row.get("batch_manifest")
     if not batch_raw:
         return {
@@ -2601,7 +3769,12 @@ def _pair_record(request: Mapping[str, Any], runtime: Mapping[str, Any],
     pair_root.mkdir(parents=True, exist_ok=True)
     if _stage_enabled(through_stage, "capture"):
         try:
-            capture = _run_capture(
+            capture_runner = (
+                _run_mp3d_capture
+                if backend_id == HABITAT_NATIVE_BACKEND_ID
+                else _run_capture
+            )
+            capture = capture_runner(
                 request, runtime, scene_id, profile_id, batch_root, pair_root, point_ids,
                 resume_only=resume_only)
         except PipelineError as exc:
@@ -2639,7 +3812,12 @@ def _pair_record(request: Mapping[str, Any], runtime: Mapping[str, Any],
             "audio", pair_root / "audio", "capture")
     elif _stage_enabled(through_stage, "audio"):
         try:
-            audio = _run_audio(
+            audio_runner = (
+                _run_mp3d_audio
+                if backend_id == HABITAT_NATIVE_BACKEND_ID
+                else _run_audio
+            )
+            audio = audio_runner(
                 request, runtime, scene_id, profile_id, batch_root, pair_root, point_ids,
                 resume_only=resume_only)
         except PipelineError as exc:
@@ -2657,7 +3835,7 @@ def _pair_record(request: Mapping[str, Any], runtime: Mapping[str, Any],
         try:
             media = _run_media(
                 runtime, scene_id, profile_id, batch_root, pair_root, point_ids,
-                resume_only=resume_only)
+                backend_id=backend_id, resume_only=resume_only)
         except PipelineError as exc:
             media = {
                 "status": "failed",
@@ -2699,6 +3877,7 @@ def _pair_record(request: Mapping[str, Any], runtime: Mapping[str, Any],
         try:
             verifications = _run_verifications(
                 runtime, request, scene_id, profile_id, batch_root, pair_root, point_ids,
+                backend_id=backend_id,
                 params_path=params_path, resume_only=resume_only)
         except PipelineError as exc:
             verifications = {
@@ -2743,6 +3922,7 @@ def _pair_record(request: Mapping[str, Any], runtime: Mapping[str, Any],
     )
     return {
         "scene_id": scene_id, "profile_id": profile_id,
+        "backend_id": backend_id,
         "status": pair_status,
         "design": dict(row),
         "params_path": str(params_path.resolve()),
@@ -2947,7 +4127,9 @@ def run_pipeline(request_path: str | Path, runtime_config_path: str | Path,
             "path": str(Path(runtime_config_path).expanduser().resolve()),
             "configured_sections": sorted(
                 key for key, value in runtime.items()
-                if key in {"capture", "audio", "media", "scene_profiles"}
+                if key in {
+                    "capture", "audio", "media", "pixel", "scene_profiles"
+                }
                 and value),
         },
         "stages": {
