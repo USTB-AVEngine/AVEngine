@@ -5,7 +5,7 @@
 
 自 2026-08-25 起，目录本身就是能力分组（阶段目录 m1…m7 已移除），
 本表按目录列出每个工具做什么。
-当前共 356 个工具脚本。
+当前共 359 个工具脚本。
 
 ## 资产生成与装配（`tools/assets/`）
 
@@ -14,6 +14,7 @@
 | 工具 | 做什么 |
 |---|---|
 | `tools/assets/add_missing_uv0.py` | Add deterministic zero UV0 accessors when a GLB safely omits them |
+| `tools/assets/animal_review_policy.py` | Load the generated-animal review policy and record human decisions |
 | `tools/assets/append_loop_closure.py` | Append one 15 Hz return-to-start sample to each GLB action channel |
 | `tools/assets/assemble_variant_package.py` | Assemble a generic M2 animal research package from real QA evidence |
 | `tools/assets/audit_candidate.py` | Write bounded automatic QA reports for an M2 research candidate |
@@ -143,6 +144,7 @@
 | `tools/acoustics/run_material_canary.py` | Run the hash-bound repeated M3 RLR material activation canary |
 | `tools/acoustics/verify_material_canary.py` | Verify M3 canary schema, lineage, raw IRs and recomputed gates |
 | `tools/acoustics/verify_package_frame_parity.py` | Cross-system frame parity: the same rays in Habitat and in the package |
+| `tools/acoustics/verify_package_ray_leakage.py` | Run the modern RLR TraceRay checks for a compiled acoustic package |
 
 ## 相机与路径（`tools/routes/`）
 
@@ -275,6 +277,7 @@
 | `tools/qa/design_qa_v3_pilot_batch.py` | Design one qa-v3 dual-source pilot batch (stage two assembler) |
 | `tools/qa/design_qa_v3_scene_batch.py` | Integrated qa-v3 batch: generic scene solver + per-type audio + facts |
 | `tools/qa/evaluate_question_specs.py` | Evaluate registry-bound QuestionSpecs and render a standalone review page |
+| `tools/qa/export_qa_v3_dataset.py` | Export one completed QA-v3 pipeline run without model-specific fields |
 | `tools/qa/filter_cross_time_points.py` | Cross-time sampling filter (pilot work order item 1.7) |
 | `tools/qa/finalize_batch_visuals.py` | Retire raw rgb.npy arrays for a finished QA v2 batch (owner policy |
 | `tools/qa/finalize_native_full_occlusion_reappearance_episode.py` | Compile Facts and finalize the native full-occlusion suite after audio render |
