@@ -19,6 +19,7 @@ dependencies = [
 [project.optional-dependencies]
 rlr = ["sofar>=1.2.3"]
 native = [
+  "soundfile>=0.12",
   "numpy-quaternion>=2022.4",
   "sofar>=1.2.3",
   "attrs>=22",
