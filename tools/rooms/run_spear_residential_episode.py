@@ -26,6 +26,10 @@ sys.path.insert(0, str(REPOSITORY / "tools/rooms"))
 if "--spear-ext-dir" in sys.argv:
     _spear_ext_dir = sys.argv[sys.argv.index("--spear-ext-dir") + 1]
     sys.path.insert(0, _spear_ext_dir)
+from avengine.episode_clock import EpisodeClock
+from avengine.backends.spear_ue.research_runtime import (
+    attach_emitter_component, read_scene_component_pose,
+)
 from avengine.qa.pixel_visibility import compile_depth_pixel_visibility_truth  # noqa: E402
 from avengine.optional_backends.residential_episode import TICKS_PER_FRAME  # noqa: E402
 
@@ -68,6 +72,38 @@ DEPTH_RELATIVE_TOLERANCE = 0.002
 def _require(condition: bool, message: str) -> None:
     if not condition:
         raise RuntimeError(message)
+
+
+def _resolve_plan_clock(episode: Mapping[str, Any]) -> EpisodeClock:
+    """Use a declared clock; retained plans keep the original 75/15/16k default."""
+    plan = episode["visual_plan"]
+    raw = plan.get("clock", episode.get("clock"))
+    clock = (EpisodeClock.from_mapping(raw) if raw is not None else
+             EpisodeClock.from_values(frame_count=FRAME_COUNT, frame_rate_hz=FPS,
+                                      sample_rate_hz=16000, compatibility="legacy_residential"))
+    _require(clock.frame_rate_hz.denominator == 1 and 48000 % int(clock.frame_rate_hz) == 0,
+             "residential clock must have an integral frame rate and 48k ticks per frame")
+    _require(clock.sample_rate_hz == 16000, "residential audio route currently requires 16 kHz")
+    frames = plan.get("frames")
+    _require(isinstance(frames, list) and len(frames) == clock.frame_count,
+             "visual frames differ from the declared clock")
+    declarations = plan.get("actors")
+    _require(isinstance(declarations, list) and bool(declarations), "visual actors are missing")
+    ids = [x.get("actor_id") if isinstance(x, Mapping) else None for x in declarations]
+    _require(all(isinstance(x, str) and bool(x) for x in ids) and len(set(ids)) == len(ids),
+             "visual actor IDs must be distinct nonempty strings")
+    ticks_per_frame = 48000 // int(clock.frame_rate_hz)
+    for index, frame in enumerate(frames):
+        _require(isinstance(frame, Mapping) and frame.get("frame_index") == index,
+                 "visual frame order differs from the clock")
+        if raw is not None or "pts_ticks" in frame:
+            _require(frame.get("pts_ticks") == index * ticks_per_frame,
+                     "visual frame ticks differ from the clock")
+        states = frame.get("actor_states", [])
+        state_ids = [x.get("actor_id") for x in states if isinstance(x, Mapping)]
+        _require(len(state_ids) == len(ids) and set(state_ids) == set(ids),
+                 "per-frame actor closure differs from declarations")
+    return clock
 
 
 def _apply_camera_for_frame(
@@ -278,6 +314,7 @@ def _finalize_native_pixel_artifacts(
     normal_readbacks: list[Mapping[str, Any]],
     target_readbacks: Mapping[str, list[Mapping[str, Any]]],
     camera_pose_ids: list[str] | None = None,
+    frame_count: int = FRAME_COUNT,
 ) -> dict[str, Any]:
     """Persist one completed same-camera native-pixel capture without hashes."""
 
@@ -293,18 +330,18 @@ def _finalize_native_pixel_artifacts(
         str(actor.get("actor_id")) for actor in actors if isinstance(actor, Mapping)
     ]
     _require(
-        len(actor_ids) == 2 and len(set(actor_ids)) == 2,
-        "native-pixel capture requires exactly two distinct actor IDs",
+        bool(actor_ids) and len(actor_ids) == len(actors) and len(set(actor_ids)) == len(actor_ids),
+        "native-pixel capture requires distinct actor IDs",
     )
     _require(
-        len(frames) == FRAME_COUNT,
-        "native-pixel visual-plan frame authority is not full75",
+        len(frames) == frame_count,
+        "native-pixel visual-plan frame authority differs from the declared clock",
     )
     _require(
         len(normal_depths)
         == len(normal_object_ids)
         == len(normal_readbacks)
-        == FRAME_COUNT,
+        == frame_count,
         "normal native-pixel frame count drift",
     )
     _require(
@@ -325,7 +362,7 @@ def _finalize_native_pixel_artifacts(
     )
     _require(
         all(
-            len(arrays) == FRAME_COUNT
+            len(arrays) == frame_count
             and all(
                 array.shape == (height, width)
                 and np.issubdtype(array.dtype, np.floating)
@@ -349,8 +386,8 @@ def _finalize_native_pixel_artifacts(
         _require(isinstance(timeline, Mapping), "episode timeline is missing")
         timeline_frames = timeline.get("frames")
         _require(
-            isinstance(timeline_frames, list) and len(timeline_frames) == FRAME_COUNT,
-            "native-pixel timeline frame authority is not full75",
+            isinstance(timeline_frames, list) and len(timeline_frames) == frame_count,
+            "native-pixel timeline frame authority differs from the declared clock",
         )
         camera_pose_ids = []
         for frame_index, frame in enumerate(timeline_frames):
@@ -363,18 +400,18 @@ def _finalize_native_pixel_artifacts(
             camera_pose_ids.append(poses["view0"])
     else:
         _require(
-            len(camera_pose_ids) == FRAME_COUNT
+            len(camera_pose_ids) == frame_count
             and all(isinstance(value, str) and value for value in camera_pose_ids),
             "explicit camera pose IDs must contain 75 non-empty strings",
         )
         camera_pose_ids = list(camera_pose_ids)
     common_context = {
-        "renderer_backend": "spear_unreal_native_kujiale",
-        "rgb_renderer_backend": "spear_unreal_native_kujiale",
+        "renderer_backend": str(episode.get("renderer_backend", "spear_unreal_native_kujiale")),
+        "rgb_renderer_backend": str(episode.get("renderer_backend", "spear_unreal_native_kujiale")),
         "camera_contract_id": "avengine_kujiale_native_spear_bp_camera_sensor_v1",
         "semantic_id_namespace": "avengine_kujiale_native_metric_depth_instances_v1",
         "resolution_hw": [height, width],
-        "frame_indices": list(range(FRAME_COUNT)),
+        "frame_indices": list(range(frame_count)),
         "camera_pose_ids": camera_pose_ids,
     }
     truth = compile_depth_pixel_visibility_truth(
@@ -443,7 +480,7 @@ def _finalize_native_pixel_artifacts(
         "status": "pass",
         "authority": truth["authority"],
         "semantic_ids_by_actor": semantic_ids,
-        "frame_count": FRAME_COUNT,
+        "frame_count": frame_count,
         "resolution_hw": [height, width],
         "normal_object_id_dtype": str(normal_object_ids_array.dtype),
         "alignment": alignment,
@@ -520,6 +557,7 @@ def _summarize_camera_full_rotation(
     plan: Mapping[str, Any],
     readbacks: list[Mapping[str, Any]],
     tolerance_deg: float = 1.0e-4,
+    frame_count: int = FRAME_COUNT,
 ) -> dict[str, Any]:
     """Check optional roll/pitch as well as yaw against UE readback.
 
@@ -531,8 +569,8 @@ def _summarize_camera_full_rotation(
 
     frames = plan.get("frames")
     _require(
-        isinstance(frames, list) and len(frames) == len(readbacks) == FRAME_COUNT,
-        "full camera rotation readback requires 75 plan and runtime frames",
+        isinstance(frames, list) and len(frames) == len(readbacks) == frame_count,
+        "full camera rotation readback requires complete plan and runtime frames",
     )
     maximum = {"roll": 0.0, "pitch": 0.0, "yaw": 0.0}
     per_frame_states = all(
@@ -597,7 +635,8 @@ def _light_plan(episode: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def _probe(
-    path: Path, *, width: int, height: int, expect_audio: bool
+    path: Path, *, width: int, height: int, expect_audio: bool,
+    frame_count: int = FRAME_COUNT, frame_rate_hz: int = FPS,
 ) -> dict[str, Any]:
     result = subprocess.run(
         [
@@ -624,8 +663,8 @@ def _probe(
     if (
         int(v["width"]) != width
         or int(v["height"]) != height
-        or v["avg_frame_rate"] != f"{FPS}/1"
-        or int(v["nb_read_frames"]) != FRAME_COUNT
+        or v["avg_frame_rate"] != f"{frame_rate_hz}/1"
+        or int(v["nb_read_frames"]) != frame_count
     ):
         raise RuntimeError(f"video readback failed: {v}")
     if expect_audio and (
@@ -633,21 +672,21 @@ def _probe(
     ):
         raise RuntimeError(f"audio readback failed: {audio[0]}")
     duration = float(value["format"]["duration"])
-    if not math.isfinite(duration) or abs(duration - 5.0) > 1.0 / FPS:
+    if not math.isfinite(duration) or abs(duration - frame_count / frame_rate_hz) > 1.0 / frame_rate_hz:
         raise RuntimeError(f"duration readback failed: {duration}")
     return {
         "status": "pass",
         "path": str(path),
         "width": width,
         "height": height,
-        "frame_count": FRAME_COUNT,
-        "frame_rate_hz": FPS,
+        "frame_count": frame_count,
+        "frame_rate_hz": frame_rate_hz,
         "duration_seconds": duration,
         "audio": "binaural_left_right" if expect_audio else None,
     }
 
 
-def _mux_clean(video: Path, audio: Path, output: Path) -> None:
+def _mux_clean(video: Path, audio: Path, output: Path, *, frame_count: int = FRAME_COUNT) -> None:
     subprocess.run(
         [
             "ffmpeg",
@@ -665,7 +704,7 @@ def _mux_clean(video: Path, audio: Path, output: Path) -> None:
             "-map",
             "1:a:0",
             "-frames:v",
-            str(FRAME_COUNT),
+            str(frame_count),
             "-c:v",
             "copy",
             "-c:a",
@@ -680,7 +719,7 @@ def _mux_clean(video: Path, audio: Path, output: Path) -> None:
     )
 
 
-def _mux_topdown(video: Path, topdown: Path, audio: Path, output: Path) -> None:
+def _mux_topdown(video: Path, topdown: Path, audio: Path, output: Path, *, frame_count: int = FRAME_COUNT) -> None:
     graph = (
         "[0:v]scale=640:360:flags=lanczos,pad=640:480:0:60:color=black[ue];"
         "[1:v]scale=640:480:flags=lanczos[top];"
@@ -707,7 +746,7 @@ def _mux_topdown(video: Path, topdown: Path, audio: Path, output: Path) -> None:
             "-map",
             "2:a:0",
             "-frames:v",
-            str(FRAME_COUNT),
+            str(frame_count),
             "-c:v",
             "libx264",
             "-preset",
@@ -734,14 +773,18 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     episode_root = args.episode_root.expanduser().resolve()
     episode = _load(episode_root / "episode_plan.json")
     plan = episode["visual_plan"]
+    clock = _resolve_plan_clock(episode)
+    frame_count = clock.frame_count
+    frame_rate_hz = int(clock.frame_rate_hz)
+    ticks_per_frame = 48000 // frame_rate_hz
     raw_actors = plan.get("actors")
     _require(isinstance(raw_actors, list), "visual plan actors are missing")
     actor_ids = [
         str(actor.get("actor_id")) for actor in raw_actors if isinstance(actor, Mapping)
     ]
     _require(
-        len(actor_ids) == 2 and len(set(actor_ids)) == 2,
-        "residential capture requires exactly two distinct plan actor IDs",
+        bool(actor_ids) and len(set(actor_ids)) == len(actor_ids),
+        "residential capture requires distinct plan actor IDs",
     )
     native_multimodal = bool(getattr(args, "native_multimodal", False))
     visual_only_research = bool(getattr(args, "visual_only_research", False))
@@ -763,6 +806,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     _write(output / "visual_plan.json", plan)
 
     config_args = argparse.Namespace(**vars(args))
+    config_args.frame_rate_hz = frame_rate_hz
     config_plan = {"map_path": episode["scene"]["map_path"]}
     instance = _configure_spear(config_args, config_plan)
     game = instance.get_game()
@@ -773,6 +817,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     animation_readbacks = {actor_id: [] for actor_id in actor_ids}
     actor_bounds = {actor_id: [] for actor_id in actor_ids}
     camera_readbacks: list[dict[str, Any]] = []
+    emitter_components: dict[str, Any] = {}
+    emitter_readbacks: dict[str, list[dict[str, Any]]] = {}
     normal_depths: list[np.ndarray] = []
     normal_object_ids: list[np.ndarray] = []
     normal_multimodal_readbacks: list[Mapping[str, Any]] = []
@@ -805,6 +851,15 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                 raise RuntimeError(f"camera HFOV readback failed: {observed_fov}")
             _apply_camera(camera, plan["camera"])
             runtimes = _spawn_runtime_actors(game, {"plan": plan})
+            for declaration in plan["actors"]:
+                offset = declaration.get("emitter_local_ue_cm")
+                if offset is not None:
+                    actor_id = declaration["actor_id"]
+                    emitter_components[actor_id] = attach_emitter_component(
+                        game, actor_id=actor_id,
+                        anchor_root=runtimes[actor_id]["anchor"].K2_GetRootComponent(),
+                        emitter_local_ue_cm=offset)
+                    emitter_readbacks[actor_id] = []
             for state in plan["frames"][0]["actor_states"]:
                 _apply_actor_state(runtimes[state["actor_id"]], state, 0)
             light_records = _spawn_review_lights(game, _light_plan(episode))
@@ -857,6 +912,9 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                 )
                 assert camera_readback is not None
                 camera_readbacks.append(camera_readback)
+                for actor_id, component in emitter_components.items():
+                    emitter_readbacks[actor_id].append({
+                        "frame_index": frame_index, **read_scene_component_pose(component)})
                 if native_multimodal:
                     native_frame_readback = {
                         "camera": camera_readback,
@@ -885,9 +943,9 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                 str(frame_path), image
             ):
                 raise RuntimeError(f"could not write frame: {frame_path}")
-            if frame_index % FPS == 0:
+            if frame_index % frame_rate_hz == 0:
                 print(
-                    f"[residential:{episode['scene']['scene_id']}] frame {frame_index:02d}/74",
+                    f"[residential:{episode['scene']['scene_id']}] frame {frame_index:02d}/{frame_count - 1}",
                     flush=True,
                 )
 
@@ -944,13 +1002,14 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         native_pixel = _finalize_native_pixel_artifacts(
             output=output,
             episode=episode,
+            frame_count=frame_count,
             normal_depths=normal_depths,
             normal_object_ids=normal_object_ids,
             target_depths_by_actor=target_depths_by_actor,
             normal_readbacks=normal_multimodal_readbacks,
             target_readbacks=target_readbacks,
             camera_pose_ids=(
-                [f"current_visual_frame_{index:04d}" for index in range(FRAME_COUNT)]
+                [f"current_visual_frame_{index:04d}" for index in range(frame_count)]
                 if visual_only_research
                 else None
             ),
@@ -962,6 +1021,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         camera_readbacks=camera_readbacks,
         camera_position_cm=plan["camera"]["ue_position_cm"],
         camera_yaw_deg=plan["camera"]["ue_yaw_deg"],
+        frame_count=frame_count,
     )
     bounds_gate = summarize_actor_bounds(
         expected_frames=plan["frames"],
@@ -981,12 +1041,19 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     camera_rotation_gate = _summarize_camera_full_rotation(
         plan=plan,
         readbacks=camera_readbacks,
+        frame_count=frame_count,
     )
 
+    _write(output / "frame_readbacks.json", {
+        "clock": clock.to_dict(), "camera": camera_readbacks,
+        "actors": actor_readbacks, "animations": animation_readbacks,
+        "bounds": actor_bounds, "emitters": emitter_readbacks,
+    })
     visual = output / "ue_visual_only.mp4"
     subprocess.run(
         build_png_encode_command(
-            frames_pattern=frames_dir / "frame_%04d.png", output_path=visual
+            frames_pattern=frames_dir / "frame_%04d.png", output_path=visual,
+            frame_count=frame_count, frame_rate_hz=frame_rate_hz,
         ),
         check=True,
     )
@@ -996,6 +1063,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             width=capture_width,
             height=capture_height,
             expect_audio=False,
+            frame_count=frame_count, frame_rate_hz=frame_rate_hz,
         )
         if not args.keep_frames:
             shutil.rmtree(frames_dir)
@@ -1007,9 +1075,9 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             "qualification": False,
             "qualification_claim": False,
             "clock": {
-                "frame_count": FRAME_COUNT,
-                "frame_rate_hz": FPS,
-                "ticks_per_frame": TICKS_PER_FRAME,
+                "frame_count": frame_count,
+                "frame_rate_hz": frame_rate_hz,
+                "ticks_per_frame": ticks_per_frame,
             },
             "backend_role": episode["visual_plan"]["backend_role"],
             "scene": episode["scene"],
@@ -1034,23 +1102,26 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     topdown = episode_root / "topdown_only.mp4"
     clean = output / "ue_clean_binaural.mp4"
     combined = output / "ue_topdown_binaural.mp4"
-    _mux_clean(visual, audio, clean)
-    _mux_topdown(visual, topdown, audio, combined)
+    _mux_clean(visual, audio, clean, frame_count=frame_count)
+    _mux_topdown(visual, topdown, audio, combined, frame_count=frame_count)
     media = {
         "ue_visual_only": _probe(
             visual,
             width=capture_width,
             height=capture_height,
             expect_audio=False,
+            frame_count=frame_count, frame_rate_hz=frame_rate_hz,
         ),
         "ue_clean_binaural": _probe(
             clean,
             width=capture_width,
             height=capture_height,
             expect_audio=True,
+            frame_count=frame_count, frame_rate_hz=frame_rate_hz,
         ),
         "ue_topdown_binaural": _probe(
-            combined, width=1280, height=480, expect_audio=True
+            combined, width=1280, height=480, expect_audio=True,
+            frame_count=frame_count, frame_rate_hz=frame_rate_hz
         ),
     }
     if not args.keep_frames:

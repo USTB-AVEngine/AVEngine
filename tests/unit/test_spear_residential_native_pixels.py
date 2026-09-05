@@ -468,8 +468,8 @@ def test_run_native_multimodal_replays_two_dynamic_actor_target_passes(
     monkeypatch.setattr(
         TOOL, "summarize_actor_bounds", lambda **_kwargs: {"status": "pass"}
     )
-    monkeypatch.setattr(TOOL, "_mux_clean", lambda *_args: None)
-    monkeypatch.setattr(TOOL, "_mux_topdown", lambda *_args: None)
+    monkeypatch.setattr(TOOL, "_mux_clean", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(TOOL, "_mux_topdown", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(TOOL, "_probe", lambda *_args, **_kwargs: {"status": "pass"})
     monkeypatch.setattr(TOOL, "build_png_encode_command", lambda **_kwargs: ["fake"])
     monkeypatch.setattr(TOOL.subprocess, "run", lambda *_args, **_kwargs: None)
@@ -864,8 +864,8 @@ def test_run_legacy_mode_keeps_native_multimodal_path_unreached(
             np.zeros((TOOL.HEIGHT, TOOL.WIDTH, 3), dtype=np.uint8),
         )[1],
     )
-    monkeypatch.setattr(TOOL, "_mux_clean", lambda *_args: None)
-    monkeypatch.setattr(TOOL, "_mux_topdown", lambda *_args: None)
+    monkeypatch.setattr(TOOL, "_mux_clean", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(TOOL, "_mux_topdown", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(TOOL, "_probe", lambda *_args, **_kwargs: {"status": "pass"})
     monkeypatch.setattr(TOOL, "build_png_encode_command", lambda **_kwargs: ["fake"])
     monkeypatch.setattr(TOOL.subprocess, "run", lambda *_args, **_kwargs: None)
@@ -977,3 +977,48 @@ def test_audio_claim_boundary_rejects_unknown_explicit_mode(
 
     with pytest.raises(RuntimeError, match="unsupported audio_mode"):
         TOOL._audio_claim_boundary(episode_root, {"acoustic_proxy": {}})
+
+
+def _configured_episode(frame_count=150, actor_count=4):
+    ids = [f"person{index}" for index in range(actor_count)]
+    return {"visual_plan": {
+        "clock": {"frame_count": frame_count, "frame_rate_hz": 15, "sample_rate_hz": 16000},
+        "actors": [{"actor_id": value} for value in ids],
+        "frames": [{"frame_index": index, "pts_ticks": index * 3200,
+                    "actor_states": [{"actor_id": value} for value in ids]}
+                   for index in range(frame_count)],
+    }}
+
+
+def test_residential_four_people_use_declared_ten_second_clock():
+    clock = TOOL._resolve_plan_clock(_configured_episode())
+    assert clock.frame_count == 150
+    assert clock.sample_count == 160000
+
+
+def test_residential_clock_rejects_missing_actor_and_shifted_ticks():
+    episode = _configured_episode()
+    episode["visual_plan"]["frames"][17]["actor_states"].pop()
+    with pytest.raises(RuntimeError, match="actor closure"):
+        TOOL._resolve_plan_clock(episode)
+    episode = _configured_episode()
+    episode["visual_plan"]["frames"][17]["pts_ticks"] += 1
+    with pytest.raises(RuntimeError, match="frame ticks"):
+        TOOL._resolve_plan_clock(episode)
+
+
+def test_residential_legacy_does_not_infer_a_clock_from_partial_frames():
+    episode = _configured_episode(frame_count=74)
+    del episode["visual_plan"]["clock"]
+    with pytest.raises(RuntimeError, match="declared clock"):
+        TOOL._resolve_plan_clock(episode)
+
+
+def test_residential_configured_camera_rotation_checks_all_150_frames():
+    camera = {"ue_position_cm": [0., 0., 160.], "ue_yaw_deg": 0., "ue_pitch_deg": -10.}
+    plan = {"frames": [{"camera_state": camera} for _ in range(150)]}
+    readbacks = [{"location_cm": [0., 0., 160.], "rotation_deg": [0., -10., 0.]} for _ in range(150)]
+    TOOL._summarize_camera_full_rotation(plan=plan, readbacks=readbacks, frame_count=150)
+    readbacks[149]["rotation_deg"][1] = 0.
+    with pytest.raises(RuntimeError, match="rotation readback drifted"):
+        TOOL._summarize_camera_full_rotation(plan=plan, readbacks=readbacks, frame_count=150)

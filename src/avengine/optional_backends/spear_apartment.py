@@ -1810,11 +1810,14 @@ def summarize_root_readbacks(
     camera_readbacks: Sequence[Mapping[str, Any]],
     camera_position_cm: Sequence[float] | None = None,
     camera_yaw_deg: float | None = None,
+    frame_count: int = FRAME_COUNT,
 ) -> dict[str, Any]:
     """Fail closed on UE actor/camera root drift without inventing new QA."""
 
-    if len(expected_frames) != FRAME_COUNT or len(camera_readbacks) != FRAME_COUNT:
-        raise SpearApartmentError("root readback requires exactly 75 frames")
+    if isinstance(frame_count, bool) or not isinstance(frame_count, int) or frame_count < 1:
+        raise SpearApartmentError("readback frame_count must be a positive integer")
+    if len(expected_frames) != frame_count or len(camera_readbacks) != frame_count:
+        raise SpearApartmentError(f"root readback requires exactly {frame_count} frames")
     expected_actor_ids = [
         state["actor_id"] for state in expected_frames[0]["actor_states"]
     ]
@@ -1824,8 +1827,8 @@ def summarize_root_readbacks(
     summaries: dict[str, Any] = {}
     for actor_id in expected_actor_ids:
         records = actor_readbacks[actor_id]
-        if len(records) != FRAME_COUNT:
-            raise SpearApartmentError(f"{actor_id} root readback lacks 75 frames")
+        if len(records) != frame_count:
+            raise SpearApartmentError(f"{actor_id} root readback lacks {frame_count} frames")
         position_errors = []
         yaw_errors = []
         for frame_index, (frame, record) in enumerate(zip(expected_frames, records)):
@@ -1895,7 +1898,7 @@ def summarize_root_readbacks(
                 "ue_position_cm": fixed_position,
                 "ue_yaw_deg": float(camera_yaw_deg),
             }
-            for frame_index in range(FRAME_COUNT)
+            for frame_index in range(frame_count)
         ]
         per_frame_camera_state = False
 
@@ -2236,7 +2239,12 @@ def build_png_encode_command(
     output_path: str | Path,
     video_encoder: str = "libx264",
     encoder_gpu: int | None = None,
+    frame_count: int = FRAME_COUNT,
+    frame_rate_hz: int = FPS,
 ) -> list[str]:
+    if any(isinstance(v, bool) or not isinstance(v, int) or v < 1
+           for v in (frame_count, frame_rate_hz)):
+        raise SpearApartmentError("encoding clock must use positive integers")
     return [
         "ffmpeg",
         "-nostdin",
@@ -2245,11 +2253,11 @@ def build_png_encode_command(
         "error",
         "-y",
         "-framerate",
-        str(FPS),
+        str(frame_rate_hz),
         "-i",
         str(frames_pattern),
         "-frames:v",
-        str(FRAME_COUNT),
+        str(frame_count),
         "-an",
         *_h264_encoder_arguments(video_encoder, encoder_gpu=encoder_gpu),
         "-pix_fmt",
