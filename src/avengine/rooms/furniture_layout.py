@@ -432,11 +432,22 @@ def load_room_layout(
     auxiliary = _auxiliary_room_spec(manifest_file, manifest)
     resources = _artifacts(manifest)
 
+    fallback_resources = (
+        manifest.get("fallback_artifacts")
+        if isinstance(manifest.get("fallback_artifacts"), Mapping)
+        else {}
+    )
     object_sidecar = _load_sidecar(
         manifest_file,
         _first_present(resources, ("objects", "object_semantics")),
         asset_root=root,
         owner="object metadata",
+    )
+    fallback_object_sidecar = _load_sidecar(
+        manifest_file,
+        _first_present(fallback_resources, ("objects", "object_semantics")),
+        asset_root=root,
+        owner="fallback object metadata",
     )
     seat_sidecar = _load_sidecar(
         manifest_file,
@@ -444,19 +455,36 @@ def load_room_layout(
         asset_root=root,
         owner="seat metadata",
     )
+    fallback_seat_sidecar = _load_sidecar(
+        manifest_file,
+        _first_present(fallback_resources, ("seated_affordances", "functional_anchors")),
+        asset_root=root,
+        owner="fallback seat metadata",
+    )
+
+    def normalize_objects(source: Mapping[str, Any]) -> tuple[list[Mapping[str, Any]], list[dict[str, Any]]]:
+        raw = _object_records(source)
+        # B/C semantic sidecars append functional anchors as object-shaped records.
+        # They are references, not geometry blockers; physical objects still need
+        # complete bounds and therefore cannot silently take this path.
+        raw = [
+            item
+            for item in raw
+            if str(item.get("category") or item.get("semantic_class") or "").lower()
+            not in {"anchor", "functional_anchor", "waypoint", "viewpoint"}
+        ]
+        return raw, [_normalize_object(item, index) for index, item in enumerate(raw)]
 
     object_source = object_sidecar[0] if object_sidecar is not None else manifest
-    raw_objects = _object_records(object_source)
-    # B/C semantic sidecars append functional anchors as object-shaped records.
-    # They are references, not geometry blockers; physical objects still need
-    # complete bounds and therefore cannot silently take this path.
-    raw_objects = [
-        item
-        for item in raw_objects
-        if str(item.get("category") or item.get("semantic_class") or "").lower()
-        not in {"anchor", "functional_anchor", "waypoint", "viewpoint"}
-    ]
-    objects = [_normalize_object(item, index) for index, item in enumerate(raw_objects)]
+    try:
+        raw_objects, objects = normalize_objects(object_source)
+    except FurnitureLayoutError:
+        if fallback_object_sidecar is None:
+            raise
+        raw_objects, objects = normalize_objects(fallback_object_sidecar[0])
+        object_sidecar = fallback_object_sidecar
+    if not _seat_records(seat_sidecar[0] if seat_sidecar is not None else None) and fallback_seat_sidecar is not None:
+        seat_sidecar = fallback_seat_sidecar
     object_by_id = {item["object_id"]: item for item in objects}
 
     raw_seats: list[tuple[Mapping[str, Any], str | None, str | None]] = []
@@ -821,6 +849,25 @@ def score_camera_candidates(
             horizontal = math.hypot(dx, dy)
             distance = math.sqrt(dx * dx + dy * dy + dz * dz)
             desired_yaw = math.degrees(math.atan2(dy, dx))
+            target_forward_blender = [dx / distance, dy / distance, dz / distance]
+            target_forward_ue = [
+                target_forward_blender[0],
+                -target_forward_blender[1],
+                target_forward_blender[2],
+            ]
+            target_ue_yaw = math.degrees(
+                math.atan2(target_forward_ue[1], target_forward_ue[0])
+            )
+            target_ue_pitch = math.degrees(
+                math.atan2(
+                    target_forward_ue[2],
+                    math.hypot(target_forward_ue[0], target_forward_ue[1]),
+                )
+            )
+            candidate["target_forward_blender"] = target_forward_blender
+            candidate["target_forward_ue"] = target_forward_ue
+            candidate["target_ue_yaw_deg"] = target_ue_yaw
+            candidate["target_ue_pitch_deg"] = target_ue_pitch
             yaw_error = abs((desired_yaw - float(candidate["yaw_deg"]) + 180.0) % 360.0 - 180.0)
             desired_pitch = math.degrees(math.atan2(dz, horizontal)) if horizontal else 0.0
             pitch_error = abs(desired_pitch - float(candidate["pitch_deg"]))
@@ -863,6 +910,23 @@ def select_seats(layout: Mapping[str, Any], count: int = DEFAULT_SEAT_COUNT) -> 
     return seats[:count]
 
 
+def _normalize_blueprint_class_path(value: Any) -> str | None:
+    if value is None:
+        return None
+    if not isinstance(value, str) or not value.strip():
+        raise FurnitureLayoutError("pose binding blueprint class must be a non-empty string")
+    path = value.strip()
+    if path.endswith("_C"):
+        return path
+    if "." in path:
+        package, object_name = path.rsplit(".", 1)
+        return f"{package}.{object_name}_C"
+    object_name = path.rsplit("/", 1)[-1]
+    if not object_name:
+        raise FurnitureLayoutError("pose binding blueprint class path is invalid")
+    return f"{path}.{object_name}_C"
+
+
 def _pose_binding_records(pose_bindings: Any) -> list[dict[str, Any]]:
     if pose_bindings is None:
         return []
@@ -901,7 +965,8 @@ def _pose_binding_records(pose_bindings: Any) -> list[dict[str, Any]]:
                 item.setdefault("pose_seat_top_m", seat_reference.get("seat_top_m"))
             item.setdefault("actor_id", item.get("asset_id") or f"actor{index}")
             item.setdefault("ue_animation", item.get("animation") or item.get("animation_name"))
-            item.setdefault("blueprint_class_path", item.get("blueprint"))
+            blueprint_value = item.get("blueprint_class") or item.get("blueprint")
+            item["blueprint_class_path"] = _normalize_blueprint_class_path(blueprint_value)
             item.setdefault("skeletal_mesh_path", item.get("skeletal_mesh"))
             item.setdefault(
                 "ue_anatomical_forward_yaw_deg",
