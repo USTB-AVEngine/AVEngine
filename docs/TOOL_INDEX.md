@@ -5,7 +5,7 @@
 
 自 2026-08-25 起，目录本身就是能力分组（阶段目录 m1…m7 已移除），
 本表按目录列出每个工具做什么。
-当前共 366 个工具脚本。
+当前共 372 个工具脚本。
 
 ## 资产生成与装配（`tools/assets/`）
 
@@ -106,6 +106,7 @@
 | `tools/rooms/build_residential_source_episode.py` | Build AVEngine Timeline, Topdown and binaural audio for a residential room |
 | `tools/rooms/emit_hm3d_room_manifest.py` | Emit an AVEngine room manifest for an HM3D scene directory |
 | `tools/rooms/extract_interioragent_scene_metadata.py` | Extract a room polygon and navigation footprints from InteriorAgent USD |
+| `tools/rooms/plan_furnished_camera_review.py` | Build a short multi-view camera review plan for one furnished room |
 | `tools/rooms/plan_furnished_residential_episode.py` | Plan a static furnished residential episode without starting UE/SPEAR |
 | `tools/rooms/prepare_3d_front_toolbox_sample_proxy.py` | Build a clearly labelled 3D-FRONT Toolbox sample review proxy in USD |
 | `tools/rooms/prepare_interioragent_kujiale_adapter.py` | Prepare an external InteriorAgent USD stage for UE's runtime USD importer |
@@ -120,6 +121,7 @@
 | `tools/rooms/run_spear_mp3d_canary.py` | Render the retained 270-frame MP3D route through packaged SPEAR |
 | `tools/rooms/run_spear_replicacad_canary.py` | Render the retained 270-frame ReplicaCAD route in an isolated SPEAR editor |
 | `tools/rooms/run_spear_residential_episode.py` | Render one AVEngine residential visual episode through SPEAR/UE |
+| `tools/rooms/select_furnished_camera_review.py` | Choose a furnished-room camera from actual SPEAR per-person visibility masks |
 
 ## 场景放置（`tools/scene/`）
 
@@ -140,11 +142,14 @@
 | `tools/acoustics/audit_skokloster_cleanup_inventory.py` | Emit the exact face inventory for a Skokloster research cleanup |
 | `tools/acoustics/build_asset_bound_rir_plan.py` | Bind concrete assets to generic root routes and plan on-demand RIR work |
 | `tools/acoustics/compile_semantic_research_package.py` | Compile one room's semantic mesh into an M3/RLR research acoustic package |
+| `tools/acoustics/derive_authored_geometry_proxy.py` | Locate authored-GLB topology roots and optionally derive a fresh acoustic proxy |
 | `tools/acoustics/derive_research_rlr_package.py` | Derive an RLR-loadable research package by removing QA-degenerate faces |
 | `tools/acoustics/derive_skokloster_two_face_research_package.py` | Derive the bounded Skokloster package by removing exactly two QA faces |
 | `tools/acoustics/extract_usd_acoustic_snapshot.py` | Expand a static USD room into one auditable M3 acoustic snapshot |
+| `tools/acoustics/plan_vctk_four_speaker_program.py` | Plan four distinct complete VCTK sentences on an AVEngine clock |
 | `tools/acoustics/prepare_authored_room_acoustics.py` | Prepare a real-surface authored room for the existing AVEngine M3/RLR compiler |
 | `tools/acoustics/probe_room_front_back_pairs.py` | Measure whether one room supports front/back mirrored source pairs |
+| `tools/acoustics/render_frame_readback_sequential_speech.py` | Render a research four-speaker sequential speech program from SPEAR readbacks |
 | `tools/acoustics/render_rir_cache.py` | Render a resumable native-RLR RIR cache from an M6.x job plan |
 | `tools/acoustics/run_material_canary.py` | Run the hash-bound repeated M3 RLR material activation canary |
 | `tools/acoustics/verify_material_canary.py` | Verify M3 canary schema, lineage, raw IRs and recomputed gates |
@@ -221,6 +226,7 @@
 
 | 工具 | 做什么 |
 |---|---|
+| `tools/qa/adapt_four_speaker_research_qa.py` | Adapt four-speaker SPEAR/audio research inputs to existing QuestionSpec Facts |
 | `tools/qa/adapt_strict_two_human_both_move_v1_preflight.py` | Bind the reviewed both-move geometry handoff to A's materializer contract |
 | `tools/qa/assemble_qa_v3_room_pilot.py` | Assemble one quota-complete room-centric QA-v3 research pilot manifest |
 | `tools/qa/audio_profiles.py` | Question-type audio profiles: one schedule per question type, not one for all |
