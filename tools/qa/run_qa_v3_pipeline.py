@@ -70,6 +70,7 @@ from avengine.qa.runtime_artifacts import (
     RuntimeArtifactError,
     load_runtime_artifacts,
     registered_pixel_consumer,
+    registered_pixel_producer,
 )
 
 
@@ -2144,6 +2145,61 @@ def _audio_command(cfg: Mapping[str, Any], batch_root: Path,
     return command
 
 
+def _audio_variants_for_pair(
+    request: Mapping[str, Any],
+    batch_root: Path,
+    point_ids: Sequence[str],
+) -> list[str]:
+    """Union request variants with audio variants declared on release media."""
+    variants = list(request["audio_variants"])
+    extra: list[str] = []
+    for point_id in point_ids:
+        fact_path = batch_root / point_id / "fact_record.json"
+        if not fact_path.is_file():
+            continue
+        try:
+            fact = _read_json(fact_path)
+        except PipelineError:
+            continue
+        if not isinstance(fact, Mapping):
+            continue
+        for release in fact.get("release_media") or []:
+            if not isinstance(release, Mapping):
+                continue
+            value = release.get("audio_variant")
+            if not isinstance(value, str) or not value.strip():
+                continue
+            name = _safe_component(value, owner="declared audio variant")
+            if name not in variants and name not in extra:
+                extra.append(name)
+    return variants + extra
+
+
+def _audio_capture_by_variant(
+    batch_root: Path,
+    pair_root: Path,
+    point_ids: Sequence[str],
+) -> dict[str, dict[str, str]]:
+    """Map point/variant to the capture that actually belongs to that audio."""
+    plans = _runtime_artifacts_by_point(batch_root, point_ids)
+    mapping: dict[str, dict[str, str]] = {}
+    for point_id in point_ids:
+        segments = {row["id"]: row for row in plans[point_id].get("segments") or []}
+        by_variant: dict[str, str] = {}
+        for release in plans[point_id].get("release_media") or []:
+            variant = release.get("audio_variant")
+            segment = segments.get(release.get("segment"))
+            if not isinstance(variant, str) or not variant.strip() or segment is None:
+                continue
+            capture_dir = _declared_capture_directory_for_segment(
+                batch_root, pair_root, point_id, segment
+            )
+            by_variant[variant] = str(capture_dir.resolve())
+        if by_variant:
+            mapping[point_id] = by_variant
+    return mapping
+
+
 def _run_audio(request: Mapping[str, Any], runtime: Mapping[str, Any],
                scene_id: str, profile_id: str, batch_root: Path,
                pair_root: Path, point_ids: Sequence[str],
@@ -2152,8 +2208,9 @@ def _run_audio(request: Mapping[str, Any], runtime: Mapping[str, Any],
     audio_root = pair_root / "audio"
     cfg = _stage_config(runtime, "audio", scene_id, profile_id)
     layouts = _configured_audio_layouts(cfg)
+    variants = _audio_variants_for_pair(request, batch_root, point_ids)
     status, states = _audio_states(
-        audio_root, point_ids, request["audio_variants"], layouts)
+        audio_root, point_ids, variants, layouts)
     if status == "complete":
         return {"status": "complete", "root": str(audio_root.resolve()),
                 "points": states, "run": {"status": "reused_existing"}}
@@ -2175,21 +2232,32 @@ def _run_audio(request: Mapping[str, Any], runtime: Mapping[str, Any],
     cfg["_snapshot_path"] = str(snapshot_path.resolve())
     snapshot_value = {key: value for key, value in cfg.items() if key != "_snapshot_path"}
     snapshot = _snapshot(snapshot_path, snapshot_value)
+    capture_map = _audio_capture_by_variant(batch_root, pair_root, point_ids)
+    capture_map_path = pair_root / "audio_capture_by_variant.json"
+    if capture_map_path.exists():
+        existing = _read_json(capture_map_path)
+        if existing != capture_map:
+            raise PipelineError("audio capture-by-variant map would clobber a different mapping")
+    else:
+        _write_json(capture_map_path, capture_map)
     command = _audio_command(
         cfg, batch_root, capture_root, audio_root,
-        request["audio_variants"], point_ids, resume=audio_root.exists())
+        variants, point_ids, resume=audio_root.exists())
+    if capture_map:
+        command.extend(["--capture-by-variant", str(capture_map_path.resolve())])
     run = _run_logged(
         f"audio:{scene_id}/{profile_id}", command,
         pair_root / "audio.log", timeout=_timeout(runtime, "audio"))
     status, states = _audio_states(
-        audio_root, point_ids, request["audio_variants"], layouts)
+        audio_root, point_ids, variants, layouts)
     if status != "complete":
         return {"status": "failed", "root": str(audio_root.resolve()),
                 "points": states, "run": run,
                 "detail": "audio did not complete every requested variant",
                 "config": snapshot}
     return {"status": "complete", "root": str(audio_root.resolve()),
-            "points": states, "run": run, "config": snapshot}
+            "points": states, "run": run, "config": snapshot,
+            "audio_variants": variants}
 
 
 
@@ -2519,7 +2587,8 @@ def _run_mp3d_audio(
     *,
     resume_only: bool,
 ) -> dict[str, Any]:
-    _validate_audio_output_names(point_ids, request["audio_variants"])
+    variants = _audio_variants_for_pair(request, batch_root, point_ids)
+    _validate_audio_output_names(point_ids, variants)
     plans = [
         _mp3d_audio_plan(
             runtime,
@@ -2531,7 +2600,7 @@ def _run_mp3d_audio(
             variant,
         )
         for point_id in point_ids
-        for variant in request["audio_variants"]
+        for variant in variants
     ]
     inspected = {
         f"{plan['point_id']}:{plan['variant']}": _mp3d_audio_point_state(plan)
@@ -3427,6 +3496,148 @@ def _pixel_result_state(path: Path) -> tuple[str, str | None]:
     return "failed", f"unexpected pixel join status {status!r}"
 
 
+
+def _pixel_producer_output(pair_root: Path, point_id: str, producer_id: str) -> Path:
+    return (
+        pair_root
+        / "declared_pixels"
+        / _safe_component(point_id, owner="pixel producer point")
+        / _safe_component(producer_id, owner="pixel producer id")
+    )
+
+
+def _run_declared_pixel_producers(
+    runtime: Mapping[str, Any],
+    scene_id: str,
+    profile_id: str,
+    batch_root: Path,
+    pair_root: Path,
+    point_ids: Sequence[str],
+    *,
+    resume_only: bool,
+) -> dict[str, Any]:
+    cfg = _stage_config(runtime, "capture", scene_id, profile_id)
+    records = []
+    for point_id in point_ids:
+        fact_path = batch_root / point_id / "fact_record.json"
+        if not fact_path.is_file():
+            continue
+        try:
+            fact = _read_json(fact_path)
+        except PipelineError:
+            continue
+        if not isinstance(fact, Mapping) or not fact.get("pixel_producers"):
+            continue
+        try:
+            plan = load_runtime_artifacts(batch_root / point_id, fact)
+        except RuntimeArtifactError as error:
+            records.append({
+                "point_id": point_id,
+                "status": "failed",
+                "detail": f"pixel producer description is invalid: {error}",
+            })
+            continue
+        for producer in plan.get("pixel_producers") or []:
+            producer_id = str(producer["id"])
+            kind = str(producer.get("kind", ""))
+            output = _pixel_producer_output(pair_root, point_id, producer_id)
+            truth = output / "pixel_visibility_truth.json"
+            arrays = output / "native_depth_and_object_ids.npz"
+            extra_video = output / "rgb_frames"
+            record = {
+                "point_id": point_id,
+                "producer_id": producer_id,
+                "kind": kind,
+                "output": str(output.resolve()),
+                "pixel_truth": str(truth.resolve()),
+                "pixel_arrays": str(arrays.resolve()),
+                "extra_video": str(extra_video.resolve()),
+            }
+            tool = registered_pixel_producer(kind)
+            if tool is None:
+                record.update({
+                    "status": "pending",
+                    "detail": f"pixel producer kind has no registered runner: {kind}",
+                })
+                records.append(record)
+                continue
+            if truth.is_file() and extra_video.is_dir():
+                record.update({"status": "complete", "run": {"status": "reused_existing"}})
+                records.append(record)
+                continue
+            required = (
+                "python", "spear_ext", "closure_report", "stage_root",
+                "spear_executable", "source_asset_registry",
+            )
+            missing = [key for key in required if not cfg.get(key)]
+            if missing:
+                record.update({
+                    "status": "pending",
+                    "detail": (
+                        "native extra-video producer is waiting for capture "
+                        f"runtime fields {missing}"
+                    ),
+                })
+                records.append(record)
+                continue
+            if resume_only:
+                record.update({
+                    "status": "pending",
+                    "detail": "resume-only mode did not launch pixel producer",
+                })
+                records.append(record)
+                continue
+            command = [
+                str(cfg.get("python") or _python_for_runtime(runtime)),
+                str(tool),
+                "--actor-selection", str(producer["actor_selection"]),
+                "--source-asset-registry", str(cfg["source_asset_registry"]),
+                "--timeline", str(producer["timeline"]),
+                "--closure-report", str(cfg["closure_report"]),
+                "--stage-root", str(cfg["stage_root"]),
+                "--spear-executable", str(cfg["spear_executable"]),
+                "--spear-ext", str(cfg["spear_ext"]),
+                "--output", str(output),
+            ]
+            for frame in producer.get("binding_frames") or []:
+                command.extend(["--frame-index", str(int(frame))])
+            if cfg.get("graphics_adapter") is not None:
+                command.extend(["--graphics-adapter", str(cfg["graphics_adapter"])])
+            if cfg.get("rpc_port") is not None:
+                command.extend(["--rpc-port", str(cfg["rpc_port"])])
+            if cfg.get("capture_warmup_config") is not None:
+                command.extend([
+                    "--capture-warmup-config", str(cfg["capture_warmup_config"]),
+                ])
+            run = _run_logged(
+                f"pixel-producer:{scene_id}/{profile_id}/{point_id}/{producer_id}",
+                command,
+                output.parent / f"{producer_id}.producer.log",
+                timeout=_timeout(runtime, "capture"),
+            )
+            record.update({
+                "status": (
+                    "complete"
+                    if run["status"] == "complete" and truth.is_file()
+                    else "failed"
+                ),
+                "run": run,
+                "detail": None if truth.is_file() else "pixel producer did not write native truth",
+            })
+            records.append(record)
+    statuses = [record["status"] for record in records]
+    status = (
+        "failed" if "failed" in statuses
+        else "partial" if "pending" in statuses
+        else "complete"
+    )
+    return {
+        "status": status,
+        "root": str((pair_root / "declared_pixels").resolve()),
+        "records": records,
+    }
+
+
 def _run_declared_pixels(
     runtime: Mapping[str, Any],
     scene_id: str,
@@ -3491,12 +3702,24 @@ def _run_declared_pixels(
                 records.append(record)
                 continue
             if pixel_truth is None:
-                record.update({
-                    "status": "pending",
-                    "detail": "native pixel truth has not been supplied",
-                })
-                records.append(record)
-                continue
+                produced = _pixel_producer_output(
+                    pair_root, point_id, evidence_id
+                )
+                produced_truth = produced / "pixel_visibility_truth.json"
+                produced_arrays = produced / "native_depth_and_object_ids.npz"
+                if produced_truth.is_file():
+                    pixel_truth = produced_truth
+                    record["pixel_truth"] = str(produced_truth.resolve())
+                    if pixel_arrays is None and produced_arrays.is_file():
+                        pixel_arrays = produced_arrays
+                        record["pixel_arrays"] = str(produced_arrays.resolve())
+                else:
+                    record.update({
+                        "status": "pending",
+                        "detail": "native pixel truth has not been supplied",
+                    })
+                    records.append(record)
+                    continue
             pixel_truth = Path(pixel_truth).resolve()
             if not fact.is_file() or not pixel_truth.is_file() or not selected_params.is_file():
                 record.update({
@@ -3894,10 +4117,23 @@ def _pair_record(request: Mapping[str, Any], runtime: Mapping[str, Any],
         )
     elif _stage_enabled(through_stage, "verify"):
         try:
+            pixel_producers = _run_declared_pixel_producers(
+                runtime, scene_id, profile_id, batch_root, pair_root, point_ids,
+                resume_only=resume_only,
+            )
             declared_pixels = _run_declared_pixels(
                 runtime, scene_id, profile_id, batch_root, pair_root, point_ids,
                 params_path=params_path, resume_only=resume_only,
             )
+            if isinstance(declared_pixels, dict):
+                declared_pixels["producers"] = pixel_producers
+                if pixel_producers.get("status") == "failed":
+                    declared_pixels["status"] = "failed"
+                elif (
+                    pixel_producers.get("status") in {"pending", "partial"}
+                    and declared_pixels.get("status") == "complete"
+                ):
+                    declared_pixels["status"] = "partial"
         except PipelineError as exc:
             declared_pixels = {
                 "status": "failed",

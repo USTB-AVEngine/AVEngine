@@ -63,6 +63,8 @@ from avengine.camera_pose import apply_camera_listener_pose_ue  # noqa: E402
 from avengine.timeline.current_apartment_visual import (  # noqa: E402
     author_current_n_actor_visual_timeline,
 )
+import qa_v3_clocks as CLOCKS  # noqa: E402
+import qa_v3_event_pool as EVENT_POOL  # noqa: E402
 
 
 SUPPORTED = {"card11", "card12", "card13", "card14", "card15a", "card16", "card17"}
@@ -335,10 +337,46 @@ def audio_program_mode(events) -> str:
     return "one_active_of_n" if len(active) == 1 else "sequential_sources"
 
 
-def _program_events(profile_id, cell_index, sound_assets):
+
+def _pool_events_from_tuples(events, sound_assets, params):
+    """Turn (slot, start, sound_id) tuples into pool events with real clip windows."""
+    if events and isinstance(events[0], dict):
+        return events
+    by_id = {item["sound_asset_id"]: item for item in sound_assets}
+    rate = int(params["SAMPLE_RATE_HZ"])
+    event_len = int(round(float(params["EVENT_SECONDS"]) * rate))
+    if event_len <= 0:
+        raise ValueError("EVENT_SECONDS must yield a positive sample duration")
+    converted = []
+    for slot, start, sound_id in events:
+        item = by_id.get(sound_id)
+        if item is None:
+            raise ValueError(f"event-pool event uses unknown sound {sound_id!r}")
+        dry = item.get("dry_audio") if isinstance(item.get("dry_audio"), dict) else {}
+        total = item.get("duration_samples") or dry.get("sample_count")
+        if total is None:
+            raise ValueError(f"event-pool sound {sound_id!r} has no duration")
+        total = int(total)
+        duration = min(event_len, total)
+        if duration <= 0:
+            raise ValueError(f"event-pool sound {sound_id!r} is empty")
+        converted.append({
+            "slot": slot,
+            "start_sample": int(start),
+            "duration_samples": duration,
+            "sound_asset_id": sound_id,
+            "source_start_sample": 0,
+            "source_end_sample_exclusive": duration,
+        })
+    return converted
+
+
+def _program_events(profile_id, cell_index, sound_assets, params=None):
     sounds = [item["sound_asset_id"] for item in sound_assets]
     bark = "dog_beagle_v2_scheduled_dry"
     slots = [f"source{index}" for index in range(1, 5)]
+    starts = CLOCKS.event_start_samples(params)
+    card11_start = CLOCKS.card11_event_start_sample(params)
     if profile_id == "card11":
         positive = cell_index % 2 == 0
         target_index = (cell_index // 2) % 3
@@ -346,8 +384,8 @@ def _program_events(profile_id, cell_index, sound_assets):
         main_slot = target_slot if positive else "source4"
         gatea_slot = "source4" if positive else target_slot
         return (
-            [(main_slot, CARD11_EVENT_START_SAMPLE, bark)],
-            [(gatea_slot, CARD11_EVENT_START_SAMPLE, bark)],
+            [(main_slot, card11_start, bark)],
+            [(gatea_slot, card11_start, bark)],
             {
                 "target_slot": target_slot,
                 "desired_answer": target_slot if positive else "none",
@@ -359,7 +397,7 @@ def _program_events(profile_id, cell_index, sound_assets):
         swap_index = (target_index + 1) % 4
         main = [
             (slot, start, sound)
-            for slot, start, sound in zip(slots, EVENT_STARTS, sounds[:4])
+            for slot, start, sound in zip(slots, starts, sounds[:4])
         ]
         gatea = list(main)
         target_event = main[target_index]
@@ -380,11 +418,11 @@ def _program_events(profile_id, cell_index, sound_assets):
         gatea_distinct = 5 - distinct
         main = [
             (slots[index % distinct], start, bark)
-            for index, start in enumerate(EVENT_STARTS)
+            for index, start in enumerate(starts)
         ]
         gatea = [
             (slots[index % gatea_distinct], start, bark)
-            for index, start in enumerate(EVENT_STARTS)
+            for index, start in enumerate(starts)
         ]
         return main, gatea, {
             "in_scene_count": 4,
@@ -392,12 +430,12 @@ def _program_events(profile_id, cell_index, sound_assets):
             "gatea_distinct_callers": gatea_distinct,
         }
     main = [
-        ("source1", EVENT_STARTS[0], bark),
-        ("source2", EVENT_STARTS[1], bark),
+        ("source1", starts[0], bark),
+        ("source2", starts[1], bark),
     ]
     gatea = [
-        ("source2", EVENT_STARTS[0], bark),
-        ("source1", EVENT_STARTS[1], bark),
+        ("source2", starts[0], bark),
+        ("source1", starts[1], bark),
     ]
     return main, gatea, {"first_caller_slot": "source1",
                          "gatea_first_caller_slot": "source2"}
@@ -524,15 +562,21 @@ def _find_card16_plan(scene, params, *, seed, max_attempts):
             plan = find_n_route_plan(
                 scene, params, actor_count=2,
                 seed=f"{seed}|final-state-split|{outer}",
-                binding_frames=(12,), max_attempts=max_attempts)
+                binding_frames=CLOCKS.scaled_binding_frames(
+                    {"binding_frames": [12], "clock_reference": {"frame_count": 75}},
+                    params,
+                    default=(12,),
+                ),
+                max_attempts=max_attempts)
         except NRouteSearchExhausted as error:
             evaluated += error.evaluated_combinations
             continue
         evaluated += int(plan["search_attempts"])
+        final_frame = CLOCKS.last_frame_index(params)
         final_inside = [
             abs(relative_azimuth_deg(
                 plan["camera_xy"], float(plan["camera_yaw_deg"]),
-                route.at(74))) <= half_fov
+                route.at(final_frame))) <= half_fov
             for route in plan["routes"]
         ]
         if sum(final_inside) == 1:
@@ -961,7 +1005,7 @@ def _runtime_visual_descriptor(
 
 
 def _runtime_descriptions(
-    profile: Mapping[str, Any], point: Path
+    profile: Mapping[str, Any], point: Path, params=None,
 ) -> dict[str, object]:
     variants = [
         _runtime_visual_descriptor(
@@ -1021,6 +1065,21 @@ def _runtime_descriptions(
             "pixel_truth": None,
             "status": "pending",
         })
+    pixel_producers = []
+    producer_kind = profile.get("pixel_producer_kind")
+    if producer_kind is not None:
+        if not isinstance(producer_kind, str) or not producer_kind.strip():
+            raise ValueError("profile pixel_producer_kind must be non-empty text")
+        pixel_producers.append({
+            "id": "main",
+            "kind": producer_kind.strip(),
+            "actor_selection": "actor_selection.json",
+            "timeline": "timeline.json",
+            "binding_frames": list(
+                CLOCKS.scaled_binding_frames(profile, params)
+            ),
+            "status": "pending",
+        })
     return {
         "runtime_consumer_status": profile.get(
             "runtime_consumer_status", "declared_pending_execution"
@@ -1028,6 +1087,7 @@ def _runtime_descriptions(
         "visual_variants": variants,
         "segments": segments,
         "pixel_evidence": pixel_evidence,
+        "pixel_producers": pixel_producers,
         "release_media": release_media,
     }
 
@@ -1076,9 +1136,17 @@ def _realise_cell(out_root, profile, cell_index, scene, params, inventory,
         for actor in selection["actors"]
     }
     actor_count = len(actor_assets)
-    binding_frames = (
-        (12,) if profile_id == "card16"
-        else tuple(profile.get("binding_frames", [12, 40])))
+    binding_frames = CLOCKS.scaled_binding_frames(
+        profile if profile_id != "card16" else {
+            **profile,
+            "binding_frames": [12],
+            "clock_reference": profile.get("clock_reference") or {"frame_count": 75},
+        },
+        params,
+        default=(12, 40),
+    )
+    if profile_id == "card16":
+        binding_frames = binding_frames[:1]
     max_attempts = int(profile.get("max_attempts", 20000))
     try:
         plan = (
@@ -1118,7 +1186,8 @@ def _realise_cell(out_root, profile, cell_index, scene, params, inventory,
                 candidate = find_n_route_plan(
                     scene, params, actor_count=2,
                     seed=f"{seed}|{point_id}|segment2|{attempt}",
-                    binding_frames=(12, 40),
+                    binding_frames=CLOCKS.scaled_binding_frames(
+                        profile, params, default=(12, 40)),
                     max_attempts=max_attempts)
             except NRouteSearchExhausted as error:
                 segment2_search_attempts += error.evaluated_combinations
@@ -1140,9 +1209,19 @@ def _realise_cell(out_root, profile, cell_index, scene, params, inventory,
             raise SearchExhausted(
                 "segment2 never differs from segment1 with distinct answer bands",
                 evaluated_combinations=segment2_search_attempts)
-        _, segment2_timeline, _ = _author_timeline(
+        _, segment2_timeline, segment2_camera_ue = _author_timeline(
             point, "timeline_segment2", selection_path, registry_path,
             scene, segment2_plan, params)
+        _write(
+            point / "m1_capture_request_segment2.json",
+            apply_camera_listener_pose_ue(
+                base_request,
+                request_id=f"qa_v3_{scene.scene_id}_{point_id}_segment2",
+                position_m=render["world_transform"](segment2_camera_ue),
+                ue_yaw_degrees=float(segment2_plan["camera_yaw_deg"]),
+                horizontal_fov_deg=scene.hfov_deg,
+            ),
+        )
 
     if profile_id in {"card13", "card14"}:
         target_rng = np.random.default_rng(
@@ -1164,7 +1243,7 @@ def _realise_cell(out_root, profile, cell_index, scene, params, inventory,
             inventory["sound_types"] if profile_id == "card12"
             else [{"sound_asset_id": "dog_beagle_v2_scheduled_dry"}])
         main_events, gatea_events, truth = _program_events(
-            profile_id, cell_index, sound_assets)
+            profile_id, cell_index, sound_assets, params=params)
     slot_endpoints = {
         actor["source_slot_id"]: endpoint["source_endpoint_id"]
         for actor, endpoint in zip(selection["actors"], endpoint_records)
@@ -1176,13 +1255,17 @@ def _realise_cell(out_root, profile, cell_index, scene, params, inventory,
         "slot_endpoints": slot_endpoints,
         **program_request_fields(params, include_mode=False),
     }
-    if speech_schedule is None:
+    source_mode = str(params.get("SOUND_SOURCE_MODE") or "")
+    if speech_schedule is None and source_mode != "event_pool":
         require_dry_canvas_source_mode(
             params, owner="design_qa_v3_extended_profile")
         request.update(
             dry_canvas_window_fields(params),
             sound_asset_id=sound_assets[0]["sound_asset_id"],
         )
+    if speech_schedule is None and source_mode == "event_pool":
+        main_events = _pool_events_from_tuples(main_events, sound_assets, params)
+        gatea_events = _pool_events_from_tuples(gatea_events, sound_assets, params)
     main_request = dict(request, mode=audio_program_mode(main_events))
     gatea_request = dict(request, mode=audio_program_mode(gatea_events))
     main_program = build_program(main_request, main_events, revision="v1")
@@ -1193,6 +1276,23 @@ def _realise_cell(out_root, profile, cell_index, scene, params, inventory,
         validate_m6_audio_program(gatea_program)
     _write(point / "audio_program.json", main_program)
     _write(point / "audio_program_gateA.json", gatea_program)
+    segment2_program = None
+    if profile_id == "card17":
+        segment2_events, _, _ = _program_events(
+            profile_id, cell_index, sound_assets, params=params)
+        if source_mode == "event_pool":
+            segment2_events = _pool_events_from_tuples(
+                segment2_events, sound_assets, params)
+        segment2_request = dict(
+            request,
+            mode=audio_program_mode(segment2_events),
+            point_id=f"{point_id}_segment2",
+        )
+        segment2_program = build_program(
+            segment2_request, segment2_events, revision="segment2_v1")
+        _write(point / "audio_program_segment2.json", segment2_program)
+        if segment2_program == main_program:
+            raise RuntimeError("segment2 audio program must not reuse segment1")
 
     facts = _facts(
         profile, inventory, truth, scene, plan,
@@ -1218,6 +1318,21 @@ def _realise_cell(out_root, profile, cell_index, scene, params, inventory,
         "audio": {
             "main_program": "audio_program.json",
             "gatea_program": "audio_program_gateA.json",
+            "programs": {
+                "main": "audio_program.json",
+                "gateA": "audio_program_gateA.json",
+                **(
+                    {"segment2": "audio_program_segment2.json"}
+                    if segment2_program is not None else {}
+                ),
+            },
+            **(
+                {
+                    "segment2_program": "audio_program_segment2.json",
+                    "segment2_m1_request": "m1_capture_request_segment2.json",
+                }
+                if segment2_program is not None else {}
+            ),
         },
         "gatea_checks": {
             "event_count_preserved": (
@@ -1328,7 +1443,10 @@ def _realise_cell(out_root, profile, cell_index, scene, params, inventory,
         segment2_timeline if profile_id == "card17" else timeline)
     if profile_id == "card15a":
         outside_route, gateb_search_attempts = _find_gateb_out_of_view_route(
-            scene, params, plan, frame=30)
+            scene, params, plan,
+            frame=CLOCKS.scaled_binding_frames(
+                {"binding_frames": [30], "clock_reference": {"frame_count": 75}},
+                params, default=(30,))[0])
         gateb_plan["routes"][-1] = outside_route
         changed_visual_fact = "in_scene_visibility_count"
     elif profile_id == "card16":
@@ -1373,7 +1491,7 @@ def _realise_cell(out_root, profile, cell_index, scene, params, inventory,
         "qualification_claim": False,
     }
     _write(point / "gateB_intervention.json", gateb)
-    facts.update(_runtime_descriptions(profile, point))
+    facts.update(_runtime_descriptions(profile, point, params=params))
     _write(point / "fact_record.json", facts)
     total_search_attempts = (
         int(plan["search_attempts"])
@@ -1432,8 +1550,9 @@ def main(argv=None):
                 "card13/card14 require SOUND_EVENT_POOL with speech clips")
     else:
         speech_pool = None
-        require_dry_canvas_source_mode(
-            params, owner="design_qa_v3_extended_profile")
+        if str(params.get("SOUND_SOURCE_MODE")) != "event_pool":
+            require_dry_canvas_source_mode(
+                params, owner="design_qa_v3_extended_profile")
     scene_config = SS.read_scene_config(args.scene_config)
     clock = SS.validate_frame_clock(params, require_clip_seconds=True)
     scene = load_scene(scene_config, frame_count=clock["frame_count"],
@@ -1451,6 +1570,22 @@ def main(argv=None):
         speech_pool=speech_pool,
         profile=profile,
     )
+    if profile_id == "card12" and (
+        params.get("SOUND_EVENT_POOL") or params.get("SOUND_EVENT_REGISTRY")
+        or params.get("TASK_SOUND_ASSET_REGISTRY")
+    ):
+        required = int(profile.get("required_sound_types", 4))
+        try:
+            configured = EVENT_POOL.configured_sound_types(
+                params, required=required)
+        except EVENT_POOL.EventPoolError as error:
+            inventory["missing"] = list(inventory["missing"]) + [str(error)]
+        else:
+            inventory["sound_types"] = configured
+            inventory["missing"] = [
+                item for item in inventory["missing"]
+                if item != "four_registered_semantic_sound_types"
+            ]
     if inventory["missing"]:
         _write_unavailable(
             args.out_root, profile, scene, inventory["missing"], args.cells)

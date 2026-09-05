@@ -336,7 +336,13 @@
     ],
     "actor_count": 4,
     "anchor_binding": "query_caller",
-    "max_attempts": 20000
+    "max_attempts": 20000,
+    "clock_reference": {
+      "frame_count": 75,
+      "clip_seconds": 5.0,
+      "video_fps": 15
+    },
+    "pixel_producer_kind": "qa_v3_timeline_native_pixel"
   },
   {
     "id": "card12",
@@ -353,7 +359,12 @@
     "actor_count": 4,
     "anchor_binding": "none",
     "required_sound_types": 4,
-    "max_attempts": 20000
+    "max_attempts": 20000,
+    "clock_reference": {
+      "frame_count": 75,
+      "clip_seconds": 5.0,
+      "video_fps": 15
+    }
   },
   {
     "id": "card13",
@@ -371,7 +382,12 @@
     "anchor_binding": "none",
     "required_controlled_colours": 4,
     "required_transcripts": 4,
-    "max_attempts": 20000
+    "max_attempts": 20000,
+    "clock_reference": {
+      "frame_count": 75,
+      "clip_seconds": 5.0,
+      "video_fps": 15
+    }
   },
   {
     "id": "card14",
@@ -389,7 +405,12 @@
     "anchor_binding": "none",
     "required_controlled_colours": 4,
     "required_transcripts": 4,
-    "max_attempts": 20000
+    "max_attempts": 20000,
+    "clock_reference": {
+      "frame_count": 75,
+      "clip_seconds": 5.0,
+      "video_fps": 15
+    }
   },
   {
     "id": "card15a",
@@ -406,7 +427,13 @@
     ],
     "actor_count": 4,
     "anchor_binding": "none",
-    "max_attempts": 20000
+    "max_attempts": 20000,
+    "clock_reference": {
+      "frame_count": 75,
+      "clip_seconds": 5.0,
+      "video_fps": 15
+    },
+    "pixel_producer_kind": "qa_v3_timeline_native_pixel"
   },
   {
     "id": "card16",
@@ -424,12 +451,18 @@
     ],
     "actor_count": 2,
     "anchor_binding": "first_caller",
-    "max_attempts": 20000
+    "max_attempts": 20000,
+    "clock_reference": {
+      "frame_count": 75,
+      "clip_seconds": 5.0,
+      "video_fps": 15
+    },
+    "pixel_producer_kind": "qa_v3_timeline_native_pixel"
   },
   {
     "id": "card17",
     "execution_backend": "extended",
-    "runtime_consumer_status": "pending_cross_segment_identity_location",
+    "runtime_consumer_status": "declared_cross_segment_identity_location",
     "temporal": "multisegment",
     "answer_kind": "cross_segment_identity_location",
     "binding_frames": [
@@ -462,6 +495,15 @@
     "actor_count": 2,
     "segment_count": 2,
     "anchor_binding": "first_caller",
-    "max_attempts": 20000
+    "max_attempts": 20000,
+    "clock_reference": {
+      "frame_count": 75,
+      "clip_seconds": 5.0,
+      "video_fps": 15
+    },
+    "segment_audio_variants": {
+      "segment1": "main",
+      "segment2": "segment2"
+    }
   }
 ]

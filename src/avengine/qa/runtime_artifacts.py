@@ -31,6 +31,7 @@ VISUAL_CAPTURE_KINDS = frozenset({
     "qa_v3_current_apartment_visual",
     "capture_current_apartment_visual",
 })
+PIXEL_PRODUCER_KINDS = frozenset({"qa_v3_timeline_native_pixel"})
 PIXEL_CONSUMER_KINDS = frozenset({"qa_v3_extended_pixel"})
 MEDIA_CONSUMER_KINDS = frozenset({"qa_v3_review_clip"})
 
@@ -253,6 +254,50 @@ def _pixel_evidence(point_dir: Path, fact: Mapping[str, Any]) -> list[dict[str, 
     return _unique(normalized, owner="pixel_evidence")
 
 
+def _pixel_producers(point_dir: Path, fact: Mapping[str, Any]) -> list[dict[str, Any]]:
+    rows = _entries(fact.get("pixel_producers"), owner="pixel_producers")
+    normalized = []
+    for index, source in enumerate(rows):
+        row = dict(source)
+        ident = _entry_id(
+            row, owner=f"pixel_producers[{index}]", default=f"pixel_{index + 1}"
+        )
+        row["id"] = ident
+        row["kind"] = _kind(
+            row,
+            owner=f"pixel_producers[{ident}]",
+            default="qa_v3_timeline_native_pixel",
+        )
+        for field in ("actor_selection", "timeline"):
+            if row.get(field) is None:
+                row[field] = (
+                    "actor_selection.json"
+                    if field == "actor_selection"
+                    else "timeline.json"
+                )
+            row[field] = _path(
+                row[field],
+                base=point_dir,
+                owner=f"pixel_producers[{ident}].{field}",
+                within_base=True,
+            )
+        frames = row.get("binding_frames") or []
+        if frames and (
+            not isinstance(frames, list)
+            or any(
+                isinstance(value, bool) or not isinstance(value, int)
+                for value in frames
+            )
+        ):
+            raise RuntimeArtifactError(
+                f"pixel_producers[{ident}].binding_frames must be integers"
+            )
+        row["binding_frames"] = list(frames)
+        row["status"] = str(row.get("status", "pending"))
+        normalized.append(row)
+    return _unique(normalized, owner="pixel_producers")
+
+
 def _release_media(point_dir: Path, fact: Mapping[str, Any]) -> tuple[list[dict[str, Any]], bool]:
     raw = fact.get("release_media")
     legacy = raw is None
@@ -310,6 +355,7 @@ def load_runtime_artifacts(point_dir: str | Path, fact: Mapping[str, Any] | None
     variants, legacy_visual = _visual_variants(root, fact)
     segments = _segments(root, fact, variants)
     pixels = _pixel_evidence(root, fact)
+    producers = _pixel_producers(root, fact)
     releases, legacy_release = _release_media(root, fact)
     variant_ids = {row["id"] for row in variants}
     segment_ids = {row["id"] for row in segments}
@@ -340,6 +386,7 @@ def load_runtime_artifacts(point_dir: str | Path, fact: Mapping[str, Any] | None
         "visual_variants": variants,
         "segments": segments,
         "pixel_evidence": pixels,
+        "pixel_producers": producers,
         "release_media": releases,
         "legacy_visual_compatibility": legacy_visual,
         "legacy_release_compatibility": legacy_release,
@@ -360,4 +407,14 @@ def registered_pixel_consumer(kind: str) -> Path | None:
     return (
         Path(__file__).resolve().parents[3]
         / "tools" / "qa" / "join_qa_v3_extended_pixel.py"
+    )
+
+
+def registered_pixel_producer(kind: str) -> Path | None:
+    """Return the fixed in-repository extra-video/pixel producer for a kind."""
+    if kind not in PIXEL_PRODUCER_KINDS:
+        return None
+    return (
+        Path(__file__).resolve().parents[3]
+        / "tools" / "qa" / "capture_qa_v3_timeline_pixel.py"
     )
