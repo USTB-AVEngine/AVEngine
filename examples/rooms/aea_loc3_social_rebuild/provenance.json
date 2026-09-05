@@ -1,0 +1,30 @@
+{
+  "room_id": "aea_loc3_social_rebuild_v1",
+  "status": "research_candidate",
+  "reference_scope": {
+    "source": "AEA loc3 only",
+    "selected_reference": "loc3_script2_seq5_rec1",
+    "preview_rgb": "/data/datasets/aea/loc3_script2_seq5_rec1/AriaEverydayActivities_1.0.0_loc3_script2_seq5_rec1_preview_rgb.mp4",
+    "mps_slam_points": "/data/datasets/aea/loc3_script2_seq5_rec1/AriaEverydayActivities_1.0.0_loc3_script2_seq5_rec1_mps_slam_points.zip",
+    "used_for": [
+      "coarse open-plan dining/living adjacency",
+      "scale and circulation review"
+    ],
+    "excluded_sources": [
+      "AEA loc1 kitchen and other location families"
+    ]
+  },
+  "source_project": "/data/jzy/blender_projects/avengine_life_rooms_v1",
+  "source_code_reused": [
+    "scripts/build_semantic_household.py",
+    "scripts/build_compact_household.py",
+    "scripts/refine_compact_household_realism.py",
+    "scripts/package_semantic_household.py"
+  ],
+  "avengine_copied_authoring_code": "tools/rooms/authoring/",
+  "production_dependency_boundary": "The copied AVEngine authoring scripts are the production build entry; the source Blender project is provenance/reference only.",
+  "coordinate_mapping": "Habitat (X,Y,Z) = Blender (X,Z,-Y)",
+  "production_camera": "deferred_to_root_AVEngine_planner",
+  "scope": "static architecture and furniture, four dining seats plus sofa seating, semantic/functional anchors; no dynamic furniture, grab, door or appliance interaction",
+  "authoring_texture_policy": "Textures are explicit external runtime inputs via AVENGINE_AUTHORING_TEXTURE_ROOT; the source project code path is not imported at runtime."
+}

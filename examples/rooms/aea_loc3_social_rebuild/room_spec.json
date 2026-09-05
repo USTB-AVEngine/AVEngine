@@ -1,0 +1,795 @@
+{
+  "anchors": {
+    "coat_zone": [
+      -5.6,
+      -1.5,
+      1.2
+    ],
+    "corridor_a": [
+      -4.8,
+      -0.5,
+      0.0
+    ],
+    "corridor_b": [
+      -0.5,
+      0.7,
+      0.0
+    ],
+    "counter_work_zone": [
+      0.2,
+      -4.25,
+      0.0
+    ],
+    "dining_table_edge": [
+      2.8,
+      -2.2,
+      0.0
+    ],
+    "dog_bed": [
+      -0.2,
+      4.0,
+      0.0
+    ],
+    "entry_bench": [
+      -5.35,
+      -2.3,
+      0.0
+    ],
+    "entry_threshold": [
+      -4.8,
+      -4.35,
+      0.0
+    ],
+    "fridge_zone": [
+      -2.2,
+      -4.25,
+      0.0
+    ],
+    "kitchen_pass": [
+      -0.5,
+      -1.45,
+      0.0
+    ],
+    "living_center": [
+      -2.7,
+      1.8,
+      0.0
+    ],
+    "rug_center": [
+      -2.8,
+      2.2,
+      0.0
+    ],
+    "sink_zone": [
+      2.5,
+      -4.25,
+      0.0
+    ],
+    "sofa_center": [
+      -4.7,
+      3.6,
+      0.0
+    ],
+    "study_desk": [
+      3.0,
+      1.2,
+      0.0
+    ],
+    "study_door_inside": [
+      1.0,
+      0.4,
+      0.0
+    ],
+    "study_door_outside": [
+      0.0,
+      0.4,
+      0.0
+    ]
+  },
+  "coordinate_system": {
+    "authoring_up": "+Z",
+    "export_up": "+Y",
+    "linear_unit": "meter"
+  },
+  "envelope": {
+    "bounds_xy_m": [
+      -6.0,
+      -5.0,
+      4.0,
+      5.0
+    ],
+    "exterior_wall_thickness_m": 0.24,
+    "interior_wall_thickness_m": 0.12,
+    "wall_height_m": 2.9
+  },
+  "exterior_openings": [
+    {
+      "center_xy_m": [
+        -4.8,
+        -5.0
+      ],
+      "head_m": 2.3,
+      "kind": "doorway",
+      "opening_id": "main_entry",
+      "side": "S",
+      "sill_m": 0.0,
+      "width_m": 1.2,
+      "zone": "entry"
+    },
+    {
+      "center_xy_m": [
+        0.4,
+        -5.0
+      ],
+      "head_m": 2.42,
+      "kind": "window",
+      "opening_id": "kitchen_window",
+      "side": "S",
+      "sill_m": 1.0,
+      "width_m": 2.4,
+      "zone": "kitchen_dining"
+    },
+    {
+      "center_xy_m": [
+        -6.0,
+        2.0
+      ],
+      "head_m": 2.5,
+      "kind": "window",
+      "opening_id": "living_window",
+      "side": "W",
+      "sill_m": 0.55,
+      "width_m": 2.8,
+      "zone": "living"
+    },
+    {
+      "center_xy_m": [
+        0.5,
+        3.2
+      ],
+      "head_m": 2.5,
+      "kind": "window",
+      "opening_id": "courtyard_window_living",
+      "side": "E",
+      "sill_m": 0.45,
+      "width_m": 2.1,
+      "zone": "living"
+    },
+    {
+      "center_xy_m": [
+        2.2,
+        2.0
+      ],
+      "head_m": 2.45,
+      "kind": "window",
+      "opening_id": "courtyard_window_study",
+      "side": "N",
+      "sill_m": 0.65,
+      "width_m": 2.0,
+      "zone": "study"
+    }
+  ],
+  "formal_dataset_count": 0,
+  "furnishing_assemblies": [
+    {
+      "bench_center_xy_m": [
+        -5.35,
+        -2.3
+      ],
+      "kind": "entry",
+      "slat_center_xy_m": [
+        -5.65,
+        -1.35
+      ],
+      "yaw_deg": 90.0
+    },
+    {
+      "fridge_local_x_m": -2.35,
+      "island_center_xy_m": [
+        0.1,
+        -2.6
+      ],
+      "island_length_m": 2.7,
+      "island_width_m": 1.0,
+      "island_yaw_deg": 0.0,
+      "kind": "kitchen",
+      "panel_count": 6,
+      "run_center_xy_m": [
+        0.35,
+        -4.42
+      ],
+      "run_length_m": 5.8,
+      "sink_local_x_m": 2.05,
+      "yaw_deg": 0.0
+    },
+    {
+      "center_xy_m": [
+        2.8,
+        -2.05
+      ],
+      "kind": "dining",
+      "length_m": 1.9,
+      "width_m": 0.95,
+      "yaw_deg": 90.0
+    },
+    {
+      "dog_bed_center_xy_m": [
+        -0.35,
+        4.05
+      ],
+      "kind": "living",
+      "plant_center_xy_m": [
+        -0.2,
+        2.3
+      ],
+      "rug_center_xy_m": [
+        -2.75,
+        2.1
+      ],
+      "rug_dimensions_m": [
+        3.2,
+        2.15,
+        0.035
+      ],
+      "rug_yaw_deg": 15.0,
+      "sofa_center_xy_m": [
+        -4.55,
+        3.65
+      ],
+      "sofa_width_m": 2.7,
+      "sofa_yaw_deg": 0.0
+    },
+    {
+      "bookcase_center_xy_m": [
+        3.65,
+        -0.15
+      ],
+      "bookcase_yaw_deg": 90.0,
+      "desk_center_xy_m": [
+        3.05,
+        1.25
+      ],
+      "kind": "study",
+      "yaw_deg": 90.0
+    }
+  ],
+  "lights": [
+    {
+      "color_rgb": [
+        1.0,
+        0.8,
+        0.62
+      ],
+      "energy": 480,
+      "light_id": "EntryLight",
+      "position_xyz_m": [
+        -4.7,
+        -2.8,
+        2.55
+      ],
+      "size_m": 1.8,
+      "target_xyz_m": [
+        -4.7,
+        -2.8,
+        0.0
+      ]
+    },
+    {
+      "color_rgb": [
+        1.0,
+        0.88,
+        0.72
+      ],
+      "energy": 760,
+      "light_id": "KitchenLight",
+      "position_xyz_m": [
+        0.4,
+        -2.8,
+        2.65
+      ],
+      "size_m": 2.8,
+      "target_xyz_m": [
+        0.4,
+        -2.8,
+        0.0
+      ]
+    },
+    {
+      "color_rgb": [
+        1.0,
+        0.84,
+        0.66
+      ],
+      "energy": 620,
+      "light_id": "LivingLight",
+      "position_xyz_m": [
+        -2.7,
+        2.0,
+        2.65
+      ],
+      "size_m": 3.0,
+      "target_xyz_m": [
+        -2.7,
+        2.0,
+        0.0
+      ]
+    },
+    {
+      "color_rgb": [
+        0.82,
+        0.9,
+        1.0
+      ],
+      "energy": 450,
+      "light_id": "StudyLight",
+      "position_xyz_m": [
+        2.5,
+        0.6,
+        2.55
+      ],
+      "size_m": 1.8,
+      "target_xyz_m": [
+        2.5,
+        0.6,
+        0.0
+      ]
+    }
+  ],
+  "links": [
+    {
+      "center_xy_m": [
+        -3.0,
+        -3.0
+      ],
+      "head_m": 2.2,
+      "kind": "doorway",
+      "link_id": "entry_to_kitchen",
+      "width_m": 1.2,
+      "zones": [
+        "entry",
+        "kitchen_dining"
+      ]
+    },
+    {
+      "center_xy_m": [
+        -4.5,
+        -1.0
+      ],
+      "head_m": 2.2,
+      "kind": "doorway",
+      "link_id": "entry_to_living",
+      "width_m": 1.2,
+      "zones": [
+        "entry",
+        "living"
+      ]
+    },
+    {
+      "center_xy_m": [
+        -1.1,
+        -1.0
+      ],
+      "head_m": 2.5,
+      "kind": "opening",
+      "link_id": "kitchen_to_living",
+      "width_m": 2.7,
+      "zones": [
+        "kitchen_dining",
+        "living"
+      ]
+    },
+    {
+      "center_xy_m": [
+        2.2,
+        -1.0
+      ],
+      "head_m": 2.2,
+      "kind": "doorway",
+      "link_id": "kitchen_to_study",
+      "width_m": 1.0,
+      "zones": [
+        "kitchen_dining",
+        "study"
+      ]
+    },
+    {
+      "center_xy_m": [
+        0.5,
+        0.4
+      ],
+      "head_m": 2.2,
+      "kind": "doorway",
+      "link_id": "living_to_study",
+      "width_m": 1.0,
+      "zones": [
+        "living",
+        "study"
+      ]
+    }
+  ],
+  "m1_canary": {
+    "camera_id": "CAM_L_M1_Kitchen",
+    "connectivity_pairs": [
+      {
+        "end_xyz_m": [
+          -2.35,
+          -3.0,
+          0.05
+        ],
+        "pair_id": "entry_to_kitchen",
+        "start_xyz_m": [
+          -3.45,
+          -3.0,
+          0.05
+        ]
+      },
+      {
+        "end_xyz_m": [
+          -4.5,
+          -0.45,
+          0.05
+        ],
+        "pair_id": "entry_to_living",
+        "start_xyz_m": [
+          -4.5,
+          -1.55,
+          0.05
+        ]
+      },
+      {
+        "end_xyz_m": [
+          -1.1,
+          -0.45,
+          0.05
+        ],
+        "pair_id": "kitchen_to_living",
+        "start_xyz_m": [
+          -1.1,
+          -1.55,
+          0.05
+        ]
+      },
+      {
+        "end_xyz_m": [
+          2.2,
+          -0.45,
+          0.05
+        ],
+        "pair_id": "kitchen_to_study",
+        "start_xyz_m": [
+          2.15,
+          -1.05,
+          0.05
+        ]
+      },
+      {
+        "end_xyz_m": [
+          1.05,
+          0.4,
+          0.05
+        ],
+        "pair_id": "living_to_study",
+        "start_xyz_m": [
+          -0.05,
+          0.4,
+          0.05
+        ]
+      }
+    ],
+    "solid_control": {
+      "direction_xyz": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "distance_m": 1.0,
+      "origin_xyz_m": [
+        3.15,
+        -3.0,
+        1.4
+      ]
+    },
+    "source_anchor_ids": [
+      "kitchen_pass",
+      "dining_table_edge"
+    ],
+    "source_height_m": 1.2
+  },
+  "motion_paths": [
+    {
+      "path_id": "entry_return",
+      "waypoint_anchors": [
+        "entry_threshold",
+        "entry_bench"
+      ]
+    },
+    {
+      "path_id": "kitchen_cross",
+      "waypoint_anchors": [
+        "fridge_zone",
+        "kitchen_pass",
+        "dining_table_edge"
+      ]
+    },
+    {
+      "path_id": "study_entry",
+      "waypoint_anchors": [
+        "study_door_outside",
+        "study_door_inside",
+        "study_desk"
+      ]
+    },
+    {
+      "path_id": "living_cross",
+      "waypoint_anchors": [
+        "corridor_a",
+        "living_center",
+        "corridor_b"
+      ]
+    }
+  ],
+  "no_qa_generation": true,
+  "occlusion_opportunities": [
+    {
+      "camera_id": "CAM_L_Courtyard",
+      "occluder_role": "interior_wall_panel",
+      "opportunity_id": "l_inner_corner",
+      "planned_native_object_identity": true
+    },
+    {
+      "camera_id": "CAM_L_Living",
+      "occluder_role": "CoffeeTable",
+      "opportunity_id": "living_coffee_table",
+      "planned_native_object_identity": true
+    }
+  ],
+  "qualification_claim": false,
+  "review_cameras": [
+    {
+      "camera_id": "CAM_L_Entry",
+      "hfov_deg": 84.0,
+      "position_xyz_m": [
+        -5.6,
+        -4.0,
+        1.6
+      ],
+      "target_xyz_m": [
+        -4.8,
+        -2.2,
+        0.95
+      ]
+    },
+    {
+      "camera_id": "CAM_L_Kitchen",
+      "hfov_deg": 88.0,
+      "position_xyz_m": [
+        -2.4,
+        -1.1,
+        1.65
+      ],
+      "target_xyz_m": [
+        0.4,
+        -3.8,
+        1.0
+      ]
+    },
+    {
+      "camera_id": "CAM_L_Living",
+      "hfov_deg": 90.0,
+      "position_xyz_m": [
+        -5.45,
+        -0.2,
+        1.62
+      ],
+      "target_xyz_m": [
+        -2.6,
+        2.4,
+        0.9
+      ]
+    },
+    {
+      "camera_id": "CAM_L_Courtyard",
+      "hfov_deg": 86.0,
+      "position_xyz_m": [
+        -0.5,
+        4.4,
+        1.62
+      ],
+      "target_xyz_m": [
+        -2.6,
+        2.2,
+        0.9
+      ]
+    },
+    {
+      "camera_id": "CAM_L_Study",
+      "hfov_deg": 80.0,
+      "position_xyz_m": [
+        1.05,
+        1.72,
+        1.62
+      ],
+      "target_xyz_m": [
+        2.9,
+        0.85,
+        1.0
+      ]
+    },
+    {
+      "camera_id": "CAM_L_M1_Kitchen",
+      "hfov_deg": 88.0,
+      "position_xyz_m": [
+        0.4,
+        -0.65,
+        1.55
+      ],
+      "target_xyz_m": [
+        0.4,
+        -3.8,
+        1.0
+      ]
+    }
+  ],
+  "room_spec_id": "aea_loc3_social_rebuild_v1",
+  "scene_capacity": {
+    "controlled_speech_slots": 4,
+    "max_actor_slots": 4,
+    "max_audio_source_slots": 4,
+    "max_simultaneous_sources": 2,
+    "status": "planned_capacity_not_runtime_admission"
+  },
+  "scene_templates": [
+    {
+      "activity": "person returns around an L-shaped entry and dog greets",
+      "capability_intents": [
+        "appearance_to_speaking",
+        "who_spoke_first",
+        "speaker_side",
+        "speaking_while_moving"
+      ],
+      "template_id": "l_entry_return"
+    },
+    {
+      "activity": "dog crosses a compact kitchen while person stays",
+      "capability_intents": [
+        "sound_to_appearance",
+        "speaker_side",
+        "speaking_while_moving"
+      ],
+      "template_id": "l_kitchen_cross"
+    },
+    {
+      "activity": "dog enters study from around the inner corner",
+      "capability_intents": [
+        "offscreen_to_onscreen",
+        "occlusion_while_speaking"
+      ],
+      "template_id": "l_study_entry"
+    },
+    {
+      "activity": "person disappears around inner corner and reappears",
+      "capability_intents": [
+        "reappeared_after_occlusion",
+        "occluder_identity",
+        "became_clear_after_partial_occlusion"
+      ],
+      "template_id": "l_corner_reappearance"
+    },
+    {
+      "activity": "controlled four-person dinner",
+      "capability_intents": [
+        "overlapping_speech",
+        "appearance_to_spoken_content"
+      ],
+      "template_id": "l_dinner"
+    }
+  ],
+  "seed": 20260912,
+  "source_candidate_anchors": [
+    {
+      "anchor_id": "fridge_zone",
+      "camera_id": "CAM_L_Kitchen"
+    },
+    {
+      "anchor_id": "sink_zone",
+      "camera_id": "CAM_L_Kitchen"
+    },
+    {
+      "anchor_id": "sofa_center",
+      "camera_id": "CAM_L_Living"
+    },
+    {
+      "anchor_id": "dog_bed",
+      "camera_id": "CAM_L_Living"
+    }
+  ],
+  "status": "research_candidate_spec",
+  "style_id": "soft_contemporary",
+  "sun": {
+    "color_rgb": [
+      0.76,
+      0.84,
+      1.0
+    ],
+    "energy": 1.2,
+    "rotation_deg": [
+      34.0,
+      -18.0,
+      -32.0
+    ]
+  },
+  "topology_family": "aea_loc3_open_dining_living_v1",
+  "transition_paths": [
+    {
+      "camera_id": "CAM_L_Study",
+      "path_id": "study_offscreen_entry",
+      "potential_patterns": [
+        "out_of_view_to_visible"
+      ],
+      "waypoint_anchors": [
+        "study_door_outside",
+        "study_door_inside",
+        "study_desk"
+      ]
+    },
+    {
+      "camera_id": "CAM_L_Courtyard",
+      "path_id": "l_corner_reappearance",
+      "potential_patterns": [
+        "fully_occluded_to_visible",
+        "visible_occluded_to_visible_clear"
+      ],
+      "waypoint_anchors": [
+        "corridor_a",
+        "living_center",
+        "corridor_b"
+      ]
+    }
+  ],
+  "zones": [
+    {
+      "bounds_xy_m": [
+        -6.0,
+        -5.0,
+        -3.0,
+        -1.0
+      ],
+      "floor_material": "stone",
+      "role": "arrival",
+      "zone_id": "entry"
+    },
+    {
+      "bounds_xy_m": [
+        -3.0,
+        -5.0,
+        4.0,
+        -1.0
+      ],
+      "floor_material": "wood",
+      "role": "food_social",
+      "zone_id": "kitchen_dining"
+    },
+    {
+      "bounds_xy_m": [
+        -6.0,
+        -1.0,
+        0.5,
+        5.0
+      ],
+      "floor_material": "wood",
+      "role": "rest_social",
+      "zone_id": "living"
+    },
+    {
+      "bounds_xy_m": [
+        0.5,
+        -1.0,
+        4.0,
+        2.0
+      ],
+      "floor_material": "wood",
+      "role": "quiet_work",
+      "zone_id": "study"
+    }
+  ]
+}
