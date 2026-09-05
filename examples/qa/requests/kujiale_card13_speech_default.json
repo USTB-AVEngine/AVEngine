@@ -1,9 +1,9 @@
 {
   "scene_configs": [
-    "/data/jzy/tmp/wt-qa-v3-engine-completion/examples/qa/scenes/interioragent_kujiale_0020_livingroom_491.json"
+    "examples/qa/scenes/interioragent_kujiale_0020_livingroom_491.json"
   ],
-  "profiles": "/data/jzy/tmp/wt-qa-v3-engine-completion/examples/qa/qa_v3_current_profiles_v1.json",
-  "params": "/data/jzy/tmp/wt-qa-v3-engine-completion/examples/qa/params/clock_human_150.json",
+  "profiles": "examples/qa/qa_v3_current_profiles_v1.json",
+  "params": "examples/qa/params/clock_human_150.json",
   "requested_profiles": [
     "card13"
   ],
@@ -20,7 +20,7 @@
   "seed": "qa-v3-default-kujiale_card13_speech_default",
   "profile_params": {
     "card13": {
-      "params": "/data/jzy/tmp/wt-qa-v3-engine-completion/examples/qa/params/clock_human_150.json"
+      "params": "examples/qa/params/clock_human_150.json"
     }
   }
 }

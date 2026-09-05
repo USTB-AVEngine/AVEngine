@@ -45,6 +45,7 @@ from qa_v3_request import (
     normalize_answer_forms,
     plan_room_questions,
     read_qa_params,
+    resolve_request_resource,
 )
 from run_qa_v3_audio_batch import (
     normalize_layouts as normalize_audio_layouts,
@@ -63,6 +64,10 @@ from avengine.qa.backend_handlers import (
 from avengine.qa.mp3d_visual_verification import (
     MP3DVisualVerificationError,
     verify_point as verify_mp3d_capture_point,
+)
+from avengine.qa.pixel_visibility import (
+    PIXEL_VISIBILITY_AUTHORITIES,
+    PIXEL_VISIBILITY_SCHEMA,
 )
 from avengine.qa.runtime_artifacts import (
     MEDIA_CONSUMER_KINDS,
@@ -196,6 +201,25 @@ def _write_json(path: Path, value: Any, *, replace: bool = False) -> None:
     temporary.replace(path)
 
 
+def _request_resource(
+    value: Any,
+    *,
+    request_file: Path,
+    owner: str,
+    must_exist: bool = True,
+) -> Path:
+    try:
+        return resolve_request_resource(
+            value,
+            request_file=request_file,
+            owner=owner,
+            repo_root=REPO,
+            must_exist=must_exist,
+        )
+    except Exception as exc:
+        raise PipelineError(str(exc)) from exc
+
+
 def _resolve_path(value: Any, *, base: Path, owner: str, must_exist: bool = True) -> Path:
     if not isinstance(value, (str, Path)) or not str(value).strip():
         raise PipelineError(f"{owner} must be a non-empty path")
@@ -245,7 +269,7 @@ def _mapping(value: Any, *, owner: str) -> dict[str, Any]:
     return dict(value)
 
 
-def _resolve_scene_entries(request: Mapping[str, Any], base: Path) -> list[Path]:
+def _resolve_scene_entries(request: Mapping[str, Any], request_file: Path) -> list[Path]:
     raw = request.get("scene_configs", request.get("scenes"))
     if not isinstance(raw, Sequence) or isinstance(raw, (str, bytes)) or not raw:
         raise PipelineError("request.scene_configs must be a non-empty list")
@@ -253,7 +277,8 @@ def _resolve_scene_entries(request: Mapping[str, Any], base: Path) -> list[Path]
     seen = set()
     for index, item in enumerate(raw):
         value = item.get("path", item.get("config")) if isinstance(item, Mapping) else item
-        path = _resolve_path(value, base=base, owner=f"scene_configs[{index}]")
+        path = _request_resource(
+            value, request_file=request_file, owner=f"scene_configs[{index}]")
         if path in seen:
             raise PipelineError(f"duplicate scene config: {path}")
         seen.add(path)
@@ -266,9 +291,11 @@ def _load_request(path: Path) -> dict[str, Any]:
     if not isinstance(raw, Mapping):
         raise PipelineError("request must be a JSON object")
     base = path.parent
-    scenes = _resolve_scene_entries(raw, base)
-    profiles = _resolve_path(raw.get("profiles"), base=base, owner="request.profiles")
-    params = _resolve_path(raw.get("params"), base=base, owner="request.params")
+    scenes = _resolve_scene_entries(raw, path)
+    profiles = _request_resource(
+        raw.get("profiles"), request_file=path, owner="request.profiles")
+    params = _request_resource(
+        raw.get("params"), request_file=path, owner="request.params")
     profile_params_raw = raw.get("profile_params", raw.get("params_by_profile", {}))
     if profile_params_raw is None:
         profile_params_raw = {}
@@ -278,13 +305,14 @@ def _load_request(path: Path) -> dict[str, Any]:
     for profile_id, spec in profile_params_raw.items():
         profile_id = _safe_component(profile_id, owner="request.profile_params")
         if isinstance(spec, (str, Path)):
-            source = _resolve_path(
-                spec, base=base, owner=f"request.profile_params.{profile_id}")
+            source = _request_resource(
+                spec, request_file=path,
+                owner=f"request.profile_params.{profile_id}")
             overrides = {}
         elif isinstance(spec, Mapping):
             source_value = spec.get("params", params)
-            source = _resolve_path(
-                source_value, base=base,
+            source = _request_resource(
+                source_value, request_file=path,
                 owner=f"request.profile_params.{profile_id}.params")
             overrides = spec.get("overrides", {})
             if not isinstance(overrides, Mapping):
@@ -336,7 +364,8 @@ def _load_request(path: Path) -> dict[str, Any]:
             existing_design, base=base, owner="request.existing_design_root")
     weights = raw.get("profile_weights")
     if isinstance(weights, (str, Path)):
-        weights = _resolve_path(weights, base=base, owner="request.profile_weights")
+        weights = _request_resource(
+            weights, request_file=path, owner="request.profile_weights")
     elif weights is not None and not isinstance(weights, Mapping):
         raise PipelineError("request.profile_weights must be a path or object")
     return {
@@ -2157,12 +2186,9 @@ def _audio_variants_for_pair(
         fact_path = batch_root / point_id / "fact_record.json"
         if not fact_path.is_file():
             continue
-        try:
-            fact = _read_json(fact_path)
-        except PipelineError:
-            continue
+        fact = _read_json(fact_path)
         if not isinstance(fact, Mapping):
-            continue
+            raise PipelineError(f"fact record is not an object: {fact_path}")
         for release in fact.get("release_media") or []:
             if not isinstance(release, Mapping):
                 continue
@@ -2179,24 +2205,49 @@ def _audio_capture_by_variant(
     batch_root: Path,
     pair_root: Path,
     point_ids: Sequence[str],
+    variants: Sequence[str],
 ) -> dict[str, dict[str, str]]:
-    """Map point/variant to the capture that actually belongs to that audio."""
+    """Map every point/variant to the capture that actually belongs to that audio."""
     plans = _runtime_artifacts_by_point(batch_root, point_ids)
     mapping: dict[str, dict[str, str]] = {}
+    variant_list = [_safe_component(value, owner="audio_variants") for value in variants]
     for point_id in point_ids:
+        default_capture = str((pair_root / "capture" / point_id).resolve())
+        by_variant = {variant: default_capture for variant in variant_list}
+        assigned: dict[str, str] = {}
         segments = {row["id"]: row for row in plans[point_id].get("segments") or []}
-        by_variant: dict[str, str] = {}
         for release in plans[point_id].get("release_media") or []:
             variant = release.get("audio_variant")
-            segment = segments.get(release.get("segment"))
-            if not isinstance(variant, str) or not variant.strip() or segment is None:
+            if variant is None:
                 continue
-            capture_dir = _declared_capture_directory_for_segment(
+            if not isinstance(variant, str) or not variant.strip():
+                raise PipelineError(
+                    f"capture-by-variant {point_id} has a blank audio_variant"
+                )
+            name = _safe_component(variant, owner="declared audio variant")
+            if name not in by_variant:
+                raise PipelineError(
+                    f"capture-by-variant {point_id} has unknown variant {name!r}"
+                )
+            segment_id = release.get("segment")
+            segment = segments.get(segment_id)
+            if segment is None:
+                raise PipelineError(
+                    f"capture-by-variant {point_id}/{name} references unknown "
+                    f"segment {segment_id!r}"
+                )
+            capture_dir = str(_declared_capture_directory_for_segment(
                 batch_root, pair_root, point_id, segment
-            )
-            by_variant[variant] = str(capture_dir.resolve())
-        if by_variant:
-            mapping[point_id] = by_variant
+            ).resolve())
+            previous = assigned.get(name)
+            if previous is not None and previous != capture_dir:
+                raise PipelineError(
+                    f"capture-by-variant {point_id} has duplicate mappings for "
+                    f"{name!r}"
+                )
+            assigned[name] = capture_dir
+            by_variant[name] = capture_dir
+        mapping[point_id] = by_variant
     return mapping
 
 
@@ -2232,7 +2283,8 @@ def _run_audio(request: Mapping[str, Any], runtime: Mapping[str, Any],
     cfg["_snapshot_path"] = str(snapshot_path.resolve())
     snapshot_value = {key: value for key, value in cfg.items() if key != "_snapshot_path"}
     snapshot = _snapshot(snapshot_path, snapshot_value)
-    capture_map = _audio_capture_by_variant(batch_root, pair_root, point_ids)
+    capture_map = _audio_capture_by_variant(
+        batch_root, pair_root, point_ids, variants)
     capture_map_path = pair_root / "audio_capture_by_variant.json"
     if capture_map_path.exists():
         existing = _read_json(capture_map_path)
@@ -3157,13 +3209,14 @@ def _verification_context(
     point_ids: Sequence[str],
     layouts: Sequence[str],
 ) -> dict[str, Any]:
+    variants = _audio_variants_for_pair(request, batch_root, point_ids)
     context: dict[str, Any] = {
         "backend_id": backend_id,
         "batch_root": str(batch_root.resolve()),
         "capture_root": str((pair_root / "capture").resolve()),
         "audio_root": str((pair_root / "audio").resolve()),
         "point_ids": sorted(point_ids),
-        "audio_variants": list(request["audio_variants"]),
+        "audio_variants": list(variants),
         "audio_layouts": list(layouts),
     }
     if backend_id == HABITAT_NATIVE_BACKEND_ID:
@@ -3178,7 +3231,7 @@ def _verification_context(
                 variant,
             )
             for point_id in point_ids
-            for variant in request["audio_variants"]
+            for variant in variants
         }
         context["capture_inputs"] = {
             point_id: {
@@ -3329,7 +3382,7 @@ def _run_verifications(runtime: Mapping[str, Any], request: Mapping[str, Any],
             not _verification_report_passed(
                 name,
                 value,
-                expected_audio_variants=request["audio_variants"],
+                expected_audio_variants=expected_context["audio_variants"],
                 expected_audio_layouts=layouts,
             )
             or not _verification_report_matches_context(
@@ -3364,7 +3417,7 @@ def _run_verifications(runtime: Mapping[str, Any], request: Mapping[str, Any],
         point_ids,
     )
     audio_status, _ = _audio_states(
-        audio_root, point_ids, request["audio_variants"], layouts)
+        audio_root, point_ids, expected_context["audio_variants"], layouts)
     if capture_status != "complete" or audio_status != "complete":
         return {"status": "pending", "root": str(verification_root.resolve()),
                 "reports": records, "detail": "capture or audio is not complete"}
@@ -3394,7 +3447,7 @@ def _run_verifications(runtime: Mapping[str, Any], request: Mapping[str, Any],
             "--design-root", str(batch_root),
             "--audio-root", str(audio_root),
             "--params", str(params_path.resolve()),
-            "--variants", ",".join(request["audio_variants"]),
+            "--variants", ",".join(expected_context["audio_variants"]),
             "--layouts", ",".join(layouts),
             "--out", str(audio_path),
         ]
@@ -3430,7 +3483,7 @@ def _run_verifications(runtime: Mapping[str, Any], request: Mapping[str, Any],
             or not _verification_report_passed(
                 name,
                 records[name],
-                expected_audio_variants=request["audio_variants"],
+                expected_audio_variants=expected_context["audio_variants"],
                 expected_audio_layouts=layouts,
             )
             or not _verification_report_matches_context(
@@ -3506,6 +3559,129 @@ def _pixel_producer_output(pair_root: Path, point_id: str, producer_id: str) -> 
     )
 
 
+def _timeline_frame_count_for_producer(timeline_path: Path, *, owner: str) -> int:
+    try:
+        document = _read_json(timeline_path)
+    except PipelineError as exc:
+        raise PipelineError(f"{owner}: {exc}") from exc
+    if not isinstance(document, Mapping):
+        raise PipelineError(f"{owner} timeline must be a JSON object")
+    render = document.get("render") if isinstance(document.get("render"), Mapping) else {}
+    frames = document.get("frames")
+    if isinstance(frames, list) and frames:
+        count: object = len(frames)
+    elif isinstance(render, Mapping) and render.get("frame_count") is not None:
+        count = render.get("frame_count")
+    elif document.get("frame_count") is not None:
+        count = document.get("frame_count")
+    else:
+        raise PipelineError(f"{owner} timeline has no frame_count")
+    if isinstance(count, bool) or not isinstance(count, int) or count < 1:
+        raise PipelineError(f"{owner} timeline frame_count must be a positive integer")
+    return count
+
+
+def _pixel_producer_resume_error(
+    output: Path,
+    producer: Mapping[str, Any],
+    *,
+    frame_count: int,
+) -> str | None:
+    """Return a fail-closed reason when retained pixel products cannot be reused.
+
+    Uses declared schema, type, version-like status, paths and ordinary
+    structured fields. It does not hash media bytes.
+    """
+
+    evidence_path = output / "evidence.json"
+    truth_path = output / "pixel_visibility_truth.json"
+    arrays_path = output / "native_depth_and_object_ids.npz"
+    rgb_dir = output / "rgb_frames"
+    present = any(path.exists() for path in (evidence_path, truth_path, arrays_path, rgb_dir))
+    if not present:
+        return None
+    if not evidence_path.is_file():
+        return "pixel producer evidence.json is missing"
+    try:
+        evidence = _read_json(evidence_path)
+    except PipelineError as exc:
+        return f"pixel producer evidence is unreadable: {exc}"
+    if not isinstance(evidence, Mapping):
+        return "pixel producer evidence must be a JSON object"
+    if evidence.get("schema") != "qa_v3_current_timeline_native_pixel_probe_v1":
+        return "pixel producer evidence has an unexpected schema"
+    if evidence.get("status") != "pass":
+        return "pixel producer evidence is not a passing native probe"
+    inputs = evidence.get("inputs")
+    if not isinstance(inputs, Mapping):
+        return "pixel producer evidence has no inputs object"
+    try:
+        declared_actor = Path(producer["actor_selection"]).resolve()
+        declared_timeline = Path(producer["timeline"]).resolve()
+        evidence_actor = Path(str(inputs.get("actor_selection"))).expanduser().resolve()
+        evidence_timeline = Path(str(inputs.get("timeline"))).expanduser().resolve()
+    except (TypeError, ValueError, OSError) as exc:
+        return f"pixel producer evidence paths are invalid: {exc}"
+    if evidence_actor != declared_actor:
+        return "pixel producer actor_selection does not match the current producer"
+    if evidence_timeline != declared_timeline:
+        return "pixel producer timeline does not match the current producer"
+    frame_indices = evidence.get("frame_indices")
+    binding = list(producer.get("binding_frames") or [])
+    if (
+        not isinstance(frame_indices, list)
+        or not frame_indices
+        or any(isinstance(value, bool) or not isinstance(value, int) for value in frame_indices)
+    ):
+        return "pixel producer evidence frame_indices must be integers"
+    if any(not 0 <= int(value) < frame_count for value in frame_indices):
+        return (
+            f"pixel producer frame_indices must satisfy 0 <= frame < frame_count={frame_count}"
+        )
+    if binding and [int(value) for value in frame_indices] != [int(value) for value in binding]:
+        return "pixel producer binding_frames do not match retained evidence"
+    if not rgb_dir.is_dir():
+        return "pixel producer rgb_frames directory is missing"
+    for frame in frame_indices:
+        rgb_path = rgb_dir / f"frame_{int(frame):06d}.png"
+        if not rgb_path.is_file() or rgb_path.stat().st_size < 1:
+            return f"pixel producer RGB frame is missing: {rgb_path.name}"
+    if not arrays_path.is_file() or arrays_path.stat().st_size < 4:
+        return "pixel producer native depth arrays are missing"
+    header = arrays_path.read_bytes()[:2]
+    if header != b"PK":
+        return "pixel producer native depth arrays are not an NPZ archive"
+    if not truth_path.is_file():
+        return "pixel producer truth is missing"
+    try:
+        truth = _read_json(truth_path)
+    except PipelineError as exc:
+        return f"pixel producer truth is unreadable: {exc}"
+    if not isinstance(truth, Mapping):
+        return "pixel producer truth must be a JSON object"
+    if truth.get("schema") != PIXEL_VISIBILITY_SCHEMA:
+        return "pixel producer truth has an unexpected schema"
+    if truth.get("status") != "computed_modal_target_only_v1":
+        return "pixel producer truth is not computed"
+    if truth.get("authority") not in PIXEL_VISIBILITY_AUTHORITIES:
+        return "pixel producer truth has an unexpected authority"
+    truth_frames = truth.get("frame_indices")
+    if truth_frames != frame_indices:
+        return "pixel producer truth frame_indices do not match evidence"
+    artifacts = evidence.get("artifacts")
+    if not isinstance(artifacts, Mapping):
+        return "pixel producer evidence has no artifacts object"
+    for field, expected in (
+        ("rgb_frames", "rgb_frames"),
+        ("arrays", "native_depth_and_object_ids.npz"),
+        ("truth", "pixel_visibility_truth.json"),
+    ):
+        declared = artifacts.get(field)
+        if declared != expected:
+            return f"pixel producer evidence artifact {field!r} is not {expected!r}"
+    return None
+
+
 def _run_declared_pixel_producers(
     runtime: Mapping[str, Any],
     scene_id: str,
@@ -3561,8 +3737,35 @@ def _run_declared_pixel_producers(
                 })
                 records.append(record)
                 continue
-            if truth.is_file() and extra_video.is_dir():
-                record.update({"status": "complete", "run": {"status": "reused_existing"}})
+            try:
+                frame_count = int(producer.get("frame_count") or 0) or _timeline_frame_count_for_producer(
+                    Path(producer["timeline"]),
+                    owner=f"pixel producer {point_id}/{producer_id}",
+                )
+            except PipelineError as error:
+                record.update({"status": "failed", "detail": str(error)})
+                records.append(record)
+                continue
+            resume_error = _pixel_producer_resume_error(
+                output, producer, frame_count=frame_count
+            )
+            if resume_error is None and truth.is_file() and extra_video.is_dir():
+                # Only reuse when the structured resume check found a complete
+                # product. A missing output is a fresh run, not a reuse.
+                if (output / "evidence.json").is_file():
+                    record.update({
+                        "status": "complete",
+                        "run": {"status": "reused_existing"},
+                        "frame_count": frame_count,
+                    })
+                    records.append(record)
+                    continue
+            elif resume_error is not None:
+                record.update({
+                    "status": "failed",
+                    "detail": resume_error,
+                    "frame_count": frame_count,
+                })
                 records.append(record)
                 continue
             required = (
@@ -3891,6 +4094,25 @@ def _run_questions(request: Mapping[str, Any], runtime: Mapping[str, Any],
                 media_root / pilot_id / "video_only.mp4",
                 source_base,
             )
+            extra_variants = [
+                value
+                for value in _audio_variants_for_pair(
+                    request, Path(pair["batch_root"]), [pid]
+                )
+                if value != "main"
+            ]
+            for variant in extra_variants:
+                extra_name = f"{pid}_{_safe_component(variant, owner='audio variant')}"
+                extra_wav = (
+                    Path(audio["root"]) / extra_name / "audio" / "binaural" / "mixture.wav"
+                )
+                if extra_wav.is_file():
+                    _link_no_replace(
+                        audio_root
+                        / f"{pilot_id}_{_safe_component(variant, owner='audio variant')}"
+                        / "audio" / "binaural" / "mixture.wav",
+                        extra_wav,
+                    )
     except PipelineError as exc:
         return {"status": "failed", "root": str(questions_root.resolve()),
                 "detail": str(exc)}

@@ -328,6 +328,22 @@ def build(selection, facts_root=None, audio_root=None, media_root=None, *,
         video = Path(media_root) / media_id / "video_only.mp4"
         if not wav.is_file() or not video.is_file():
             raise FileNotFoundError(f"{media_id}: released audio/video missing")
+        audio_by_variant = {"main": str(wav.resolve())}
+        releases = fact.get("release_media") if isinstance(fact.get("release_media"), list) else []
+        for release in releases:
+            if not isinstance(release, dict):
+                continue
+            variant = release.get("audio_variant")
+            if not isinstance(variant, str) or not variant.strip() or variant == "main":
+                continue
+            extra = (
+                Path(audio_root) / f"{media_id}_{variant}" / "audio" / "binaural" / "mixture.wav"
+            )
+            if not extra.is_file():
+                raise FileNotFoundError(
+                    f"{media_id}: declared audio variant {variant!r} is missing at {extra}"
+                )
+            audio_by_variant[variant] = str(extra.resolve())
         media_clock = _validate_media_clock(
             fact, wav, video, owner=f"{media_id} released media",
             point_dir=entry["fact_path"].parent)
@@ -344,6 +360,8 @@ def build(selection, facts_root=None, audio_root=None, media_root=None, *,
             "profile_id": str(fact["profile_id"]),
             "audio": str(wav.resolve()),
             "video": str(video.resolve()),
+            "audio_variants": list(audio_by_variant),
+            "audio_by_variant": dict(audio_by_variant),
         }
         if scene_id is not None and str(scene_id):
             common["scene_id"] = str(scene_id)

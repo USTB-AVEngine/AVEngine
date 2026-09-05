@@ -228,7 +228,9 @@ def test_pipeline_unions_declared_segment2_audio_and_does_not_infer_it_from_main
     request = {"audio_variants": ["main", "gateA"]}
     variants = pipeline._audio_variants_for_pair(request, tmp_path, ["card17_001"])
     assert variants == ["main", "gateA", "segment2"]
-    mapping = pipeline._audio_capture_by_variant(tmp_path, tmp_path / "pair", ["card17_001"])
+    mapping = pipeline._audio_capture_by_variant(
+        tmp_path, tmp_path / "pair", ["card17_001"], ["main", "gateA", "segment2"]
+    )
     assert mapping["card17_001"]["main"].endswith("capture/card17_001")
     assert "segment/segment2" in mapping["card17_001"]["segment2"]
     assert mapping["card17_001"]["segment2"] != mapping["card17_001"]["main"]
@@ -243,7 +245,10 @@ def test_produced_native_pixel_truth_is_consumed_without_runtime_override(
     point = tmp_path / "card11_001"
     point.mkdir()
     (point / "actor_selection.json").write_text("{}", encoding="utf-8")
-    (point / "timeline.json").write_text("{}", encoding="utf-8")
+    (point / "timeline.json").write_text(
+        json.dumps({"render": {"frame_count": 75}, "frames": [{} for _ in range(75)]}),
+        encoding="utf-8",
+    )
     fact = {
         "pixel_evidence": [{"id": "main", "kind": "qa_v3_extended_pixel"}],
         "pixel_producers": [{

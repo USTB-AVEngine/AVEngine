@@ -254,6 +254,35 @@ def _pixel_evidence(point_dir: Path, fact: Mapping[str, Any]) -> list[dict[str, 
     return _unique(normalized, owner="pixel_evidence")
 
 
+def _timeline_frame_count(path: Path, *, owner: str) -> int:
+    """Read a live frame_count from a candidate timeline without hashing it."""
+
+    try:
+        document = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise RuntimeArtifactError(f"{owner} cannot read timeline {path}: {exc}") from exc
+    if not isinstance(document, Mapping):
+        raise RuntimeArtifactError(f"{owner} timeline must be a JSON object: {path}")
+    render = document.get("render")
+    render = render if isinstance(render, Mapping) else {}
+    frames = document.get("frames")
+    if isinstance(frames, list) and frames:
+        count: object = len(frames)
+    elif "frame_count" in render:
+        count = render.get("frame_count")
+    elif "frame_count" in document:
+        count = document.get("frame_count")
+    else:
+        raise RuntimeArtifactError(
+            f"{owner} timeline has no frame_count: {path}"
+        )
+    if isinstance(count, bool) or not isinstance(count, int) or count < 1:
+        raise RuntimeArtifactError(
+            f"{owner} timeline frame_count must be a positive integer: {path}"
+        )
+    return count
+
+
 def _pixel_producers(point_dir: Path, fact: Mapping[str, Any]) -> list[dict[str, Any]]:
     rows = _entries(fact.get("pixel_producers"), owner="pixel_producers")
     normalized = []
@@ -292,7 +321,24 @@ def _pixel_producers(point_dir: Path, fact: Mapping[str, Any]) -> list[dict[str,
             raise RuntimeArtifactError(
                 f"pixel_producers[{ident}].binding_frames must be integers"
             )
-        row["binding_frames"] = list(frames)
+        frame_count = _timeline_frame_count(
+            Path(row["timeline"]),
+            owner=f"pixel_producers[{ident}]",
+        )
+        normalized_frames = []
+        for value in list(frames):
+            if isinstance(value, bool) or not isinstance(value, int):
+                raise RuntimeArtifactError(
+                    f"pixel_producers[{ident}].binding_frames must be integers"
+                )
+            if not 0 <= value < frame_count:
+                raise RuntimeArtifactError(
+                    f"pixel_producers[{ident}].binding_frames must satisfy "
+                    f"0 <= frame < frame_count={frame_count}"
+                )
+            normalized_frames.append(value)
+        row["binding_frames"] = normalized_frames
+        row["frame_count"] = frame_count
         row["status"] = str(row.get("status", "pending"))
         normalized.append(row)
     return _unique(normalized, owner="pixel_producers")

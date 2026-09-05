@@ -1,9 +1,9 @@
 {
   "scene_configs": [
-    "/data/jzy/tmp/wt-qa-v3-engine-completion/examples/qa/scenes/apartment_0000.json"
+    "examples/qa/scenes/apartment_0000.json"
   ],
-  "profiles": "/data/jzy/tmp/wt-qa-v3-engine-completion/examples/qa/qa_v3_current_profiles_v1.json",
-  "params": "/data/jzy/tmp/wt-qa-v3-engine-completion/examples/qa/params/clock_animal_75.json",
+  "profiles": "examples/qa/qa_v3_current_profiles_v1.json",
+  "params": "examples/qa/params/clock_animal_75.json",
   "requested_profiles": [
     "card17"
   ],
@@ -14,7 +14,8 @@
   ],
   "audio_variants": [
     "main",
-    "gateA"
+    "gateA",
+    "segment2"
   ],
   "snapshot_content": "/data/avengine_external/ue-package-stages/qa_v3_two_room_combined_20260904_v1/SpearSim/Content",
   "seed": "qa-v3-default-card17_segment2_default"

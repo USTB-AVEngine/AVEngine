@@ -36,6 +36,50 @@ def _file(path: Path) -> dict[str, Any] | None:
     }
 
 
+def _nonempty_png_dir(path: Path) -> str | None:
+    if path.is_dir() and any(path.glob("*.png")):
+        return str(path)
+    return None
+
+
+def visual_review_artifacts(review: Path) -> dict[str, Any]:
+    """Describe stills, turntable and action clips actually written under review/."""
+
+    review = Path(review)
+    manifest_path = review / "review_manifest.json"
+    if manifest_path.is_file():
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+            raise SystemExit(f"cannot read review manifest {manifest_path}: {exc}") from exc
+        if not isinstance(manifest, dict):
+            raise SystemExit(f"review manifest must be an object: {manifest_path}")
+        action_dir = manifest.get("action_dir")
+        turntable_dir = manifest.get("turntable_dir")
+        return {
+            "front": str(review / "front.png") if (review / "front.png").is_file() else None,
+            "side": str(review / "side.png") if (review / "side.png").is_file() else None,
+            "back": str(review / "back.png") if (review / "back.png").is_file() else None,
+            "turntable_dir": (
+                str(Path(turntable_dir))
+                if isinstance(turntable_dir, str) and Path(turntable_dir).is_dir()
+                else _nonempty_png_dir(review / "turntable")
+            ),
+            "action_dir": (
+                str(Path(action_dir))
+                if isinstance(action_dir, str) and Path(action_dir).is_dir() and any(Path(action_dir).glob("*.png"))
+                else _nonempty_png_dir(review / "action")
+            ),
+        }
+    return {
+        "front": str(review / "front.png") if (review / "front.png").is_file() else None,
+        "side": str(review / "side.png") if (review / "side.png").is_file() else None,
+        "back": str(review / "back.png") if (review / "back.png").is_file() else None,
+        "turntable_dir": _nonempty_png_dir(review / "turntable"),
+        "action_dir": _nonempty_png_dir(review / "action"),
+    }
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--run-root", type=Path, required=True)
@@ -77,13 +121,7 @@ def main() -> int:
             "oriented_rig": oriented,
             "animated": animated,
             "emitter_anchors": _file(root / "anchors" / f"{name}_emitter.json"),
-            "visual_review": {
-                "front": str(review / "front.png") if (review / "front.png").is_file() else None,
-                "side": str(review / "side.png") if (review / "side.png").is_file() else None,
-                "back": str(review / "back.png") if (review / "back.png").is_file() else None,
-                "turntable_dir": str(review / "turntable") if (review / "turntable").is_dir() else None,
-                "action_dir": str(review / "action") if (review / "action").is_dir() else None,
-            },
+            "visual_review": visual_review_artifacts(review),
         })
     payload = {
         "schema": SCHEMA,

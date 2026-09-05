@@ -98,6 +98,31 @@ def _render(path: Path) -> None:
     bpy.ops.render.render(write_still=True)
 
 
+def _playable_actions():
+    """Collect clip names from bpy.data.actions and NLA strips after glTF import."""
+
+    names = []
+    seen = set()
+    for action in list(bpy.data.actions):
+        if action.name not in seen:
+            seen.add(action.name)
+            names.append(action.name)
+    for obj in bpy.context.scene.objects:
+        animation = getattr(obj, "animation_data", None)
+        if animation is None:
+            continue
+        if animation.action is not None and animation.action.name not in seen:
+            seen.add(animation.action.name)
+            names.append(animation.action.name)
+        for track in list(getattr(animation, "nla_tracks", []) or []):
+            for strip in list(getattr(track, "strips", []) or []):
+                action = getattr(strip, "action", None)
+                if action is not None and action.name not in seen:
+                    seen.add(action.name)
+                    names.append(action.name)
+    return names
+
+
 def main() -> None:
     args = parse_argv()
     source = args.input.resolve()
@@ -171,14 +196,21 @@ def main() -> None:
 
     armatures = [obj for obj in bpy.context.scene.objects if obj.type == "ARMATURE"]
     action_name = args.action
-    actions = list(bpy.data.actions)
+    actions = _playable_actions()
     if not action_name and actions:
-        preferred = [item for item in actions if item.name.lower() in {"walking", "walk", "standing_idle", "idle"}]
-        action_name = (preferred[0] if preferred else actions[0]).name
+        preferred = [item for item in actions if item.lower() in {"walking", "walk", "standing_idle", "idle"}]
+        action_name = preferred[0] if preferred else actions[0]
     played = None
+    clip = output / "action"
     if armatures and action_name:
         armature = armatures[0]
         action = bpy.data.actions.get(action_name)
+        if action is None:
+            for name in actions:
+                action = bpy.data.actions.get(name)
+                if action is not None:
+                    action_name = name
+                    break
         if action is not None:
             armature.animation_data_create()
             armature.animation_data.action = action
@@ -186,7 +218,6 @@ def main() -> None:
             start = int(action.frame_range[0])
             end = int(action.frame_range[1])
             count = max(2, args.action_frames)
-            clip = output / "action"
             clip.mkdir()
             _look_at(camera, center, Vector((distance * 0.75, -distance, span * 0.18)))
             for index in range(count):
@@ -194,6 +225,22 @@ def main() -> None:
                 scene.frame_set(int(round(frame)))
                 _render(clip / f"{index:03d}.png")
             played = action.name
+        elif armatures:
+            played = None
+
+    import json as _json
+    manifest = {
+        "schema": "avengine_generated_asset_visual_review_v1",
+        "front": str(output / "front.png") if (output / "front.png").is_file() else None,
+        "side": str(output / "side.png") if (output / "side.png").is_file() else None,
+        "back": str(output / "back.png") if (output / "back.png").is_file() else None,
+        "turntable_dir": str(output / "turntable") if any((output / "turntable").glob("*.png")) else None,
+        "action_dir": str(clip) if clip.is_dir() and any(clip.glob("*.png")) else None,
+        "action_name": played,
+    }
+    (output / "review_manifest.json").write_text(
+        _json.dumps(manifest, indent=2) + "\n", encoding="utf-8"
+    )
 
     print(
         "GENERATED_ASSET_REVIEW_RENDER_OK "

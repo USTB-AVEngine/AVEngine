@@ -399,6 +399,30 @@ def build_dataset_records(
             for key in ("group_id", "pilot_id")
             if isinstance(row.get(key), str) and row[key].strip()
         }
+        extra_variants = row.get("audio_by_variant")
+        audio_by_variant = None
+        if extra_variants is not None:
+            if not isinstance(extra_variants, Mapping) or not extra_variants:
+                raise DatasetExportError(
+                    f"released item {question_id!r} audio_by_variant must be an object"
+                )
+            audio_by_variant = {}
+            for variant, extra_path in extra_variants.items():
+                if not isinstance(variant, str) or not variant.strip():
+                    raise DatasetExportError(
+                        f"released item {question_id!r} has a blank audio variant"
+                    )
+                extra = Path(str(extra_path)).expanduser().resolve()
+                if not extra.is_file():
+                    raise DatasetExportError(
+                        f"released item {question_id!r} audio variant "
+                        f"{variant!r} is missing: {extra}"
+                    )
+                audio_by_variant[variant] = str(extra)
+            if "main" not in audio_by_variant:
+                raise DatasetExportError(
+                    f"released item {question_id!r} audio_by_variant must include main"
+                )
         public = {
             **common,
             **optional_ids,
@@ -408,6 +432,9 @@ def build_dataset_records(
             "media_clock": clock,
             "audio_by_layout": audio_by_layout,
         }
+        if audio_by_variant is not None:
+            public["audio_variants"] = list(audio_by_variant)
+            public["audio_by_variant"] = audio_by_variant
         if "truth" not in row:
             raise DatasetExportError(f"released item {question_id!r} has no truth")
         scoring = {

@@ -1,9 +1,9 @@
 {
   "scene_configs": [
-    "/data/jzy/tmp/wt-qa-v3-engine-completion/examples/qa/scenes/apartment_0000.json"
+    "examples/qa/scenes/apartment_0000.json"
   ],
-  "profiles": "/data/jzy/tmp/wt-qa-v3-engine-completion/examples/qa/qa_v3_current_profiles_v1.json",
-  "params": "/data/jzy/tmp/wt-qa-v3-engine-completion/examples/qa/params/clock_card12_event_pool_75.json",
+  "profiles": "examples/qa/qa_v3_current_profiles_v1.json",
+  "params": "examples/qa/params/clock_card12_event_pool_75.json",
   "requested_profiles": [
     "card12"
   ],

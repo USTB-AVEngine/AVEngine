@@ -264,3 +264,29 @@ def test_declared_release_without_audio_variant_does_not_infer_main(
     result = load_runtime_artifacts(point, fact)
 
     assert result["release_media"][0]["audio_variant"] is None
+
+
+def test_pixel_producer_binding_frames_must_be_inside_timeline_count(tmp_path: Path) -> None:
+    point = _point(tmp_path)
+    _write(point / "timeline.json", {"render": {"frame_count": 75}, "frames": [{}] * 75})
+    with pytest.raises(RuntimeArtifactError, match="0 <= frame < frame_count"):
+        load_runtime_artifacts(point, {
+            "pixel_producers": [{
+                "id": "main",
+                "kind": "qa_v3_timeline_native_pixel",
+                "actor_selection": "actor_selection.json",
+                "timeline": "timeline.json",
+                "binding_frames": [75],
+            }]
+        })
+    result = load_runtime_artifacts(point, {
+        "pixel_producers": [{
+            "id": "main",
+            "kind": "qa_v3_timeline_native_pixel",
+            "actor_selection": "actor_selection.json",
+            "timeline": "timeline.json",
+            "binding_frames": [0, 74],
+        }]
+    })
+    assert result["pixel_producers"][0]["binding_frames"] == [0, 74]
+    assert result["pixel_producers"][0]["frame_count"] == 75

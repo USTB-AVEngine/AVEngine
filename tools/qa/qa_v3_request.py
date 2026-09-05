@@ -202,6 +202,59 @@ def plan_room_questions(
 
 
 
+
+REPOSITORY = Path(__file__).resolve().parents[2]
+
+
+def resolve_request_resource(
+    value: Any,
+    *,
+    request_file: Path,
+    owner: str,
+    repo_root: Path | None = None,
+    must_exist: bool = True,
+) -> Path:
+    """Resolve a request path from the request file or the repository root.
+
+    Absolute paths stay absolute so external asset registries and staged data
+    roots remain configurable. Relative paths are tried against the request
+    file directory first, then the repository root. Two different existing
+    hits are rejected as ambiguous rather than silently picking one.
+    """
+
+    if not isinstance(value, (str, Path)) or not str(value).strip():
+        raise QARequestError(f"{owner} must be a non-empty path")
+    path = Path(value).expanduser()
+    repo = Path(repo_root) if repo_root is not None else REPOSITORY
+    if path.is_absolute():
+        resolved = path.resolve()
+        if must_exist and not resolved.exists():
+            raise QARequestError(f"{owner} is missing: {resolved}")
+        return resolved
+    request_parent = Path(request_file).expanduser().resolve().parent
+    from_request = request_parent / path
+    from_repo = repo.resolve() / path
+    request_exists = from_request.exists()
+    repo_exists = from_repo.exists()
+    if request_exists and repo_exists:
+        if from_request.resolve() != from_repo.resolve():
+            raise QARequestError(
+                f"{owner} is ambiguous between request-relative "
+                f"{from_request.resolve()} and repository-relative "
+                f"{from_repo.resolve()}"
+            )
+        return from_request.resolve()
+    if request_exists:
+        return from_request.resolve()
+    if repo_exists:
+        return from_repo.resolve()
+    if not must_exist:
+        return from_request.resolve()
+    raise QARequestError(
+        f"{owner} is missing; looked at {from_request} and {from_repo}"
+    )
+
+
 def read_qa_params(path: str | Path) -> dict[str, Any]:
     """Read QA parameters, resolving data references before recording a copy."""
     source = Path(path).expanduser().resolve()

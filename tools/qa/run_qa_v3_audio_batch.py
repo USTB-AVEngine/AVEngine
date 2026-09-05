@@ -480,6 +480,65 @@ def _declared_program_path(
     return None
 
 
+def load_capture_by_variant_map(
+    raw: object,
+    *,
+    point_ids: Sequence[str],
+    variants: Sequence[str],
+) -> dict[str, dict[str, str]]:
+    """Load {point: {variant: capture_dir}} and reject unknown/missing/duplicates."""
+
+    if not isinstance(raw, Mapping):
+        raise ValueError("--capture-by-variant must be a JSON object")
+    point_set = [str(item) for item in point_ids]
+    variant_set = [str(item) for item in variants]
+    unknown_points = sorted(set(raw) - set(point_set))
+    missing_points = sorted(set(point_set) - set(raw))
+    if unknown_points:
+        raise ValueError(
+            f"capture-by-variant has unknown point(s): {unknown_points}"
+        )
+    if missing_points:
+        raise ValueError(
+            f"capture-by-variant is missing point(s): {missing_points}"
+        )
+    mapping: dict[str, dict[str, str]] = {}
+    for point_id in point_set:
+        variants_map = raw.get(point_id)
+        if not isinstance(variants_map, Mapping):
+            raise ValueError(f"capture-by-variant[{point_id}] must be an object")
+        unknown_variants = sorted(set(variants_map) - set(variant_set))
+        missing_variants = sorted(set(variant_set) - set(variants_map))
+        if unknown_variants:
+            raise ValueError(
+                f"capture-by-variant[{point_id}] has unknown variant(s): "
+                f"{unknown_variants}"
+            )
+        if missing_variants:
+            raise ValueError(
+                f"capture-by-variant[{point_id}] is missing variant(s): "
+                f"{missing_variants}"
+            )
+        seen: dict[str, str] = {}
+        for variant, path in variants_map.items():
+            if not isinstance(path, (str, Path)) or not str(path).strip():
+                raise ValueError(
+                    f"capture-by-variant[{point_id}][{variant}] must be a path"
+                )
+            text_path = str(Path(path).expanduser())
+            previous = seen.get(str(variant))
+            if previous is not None and previous != text_path:
+                raise ValueError(
+                    f"capture-by-variant[{point_id}] has duplicate mappings "
+                    f"for {variant!r}"
+                )
+            seen[str(variant)] = text_path
+        mapping[str(point_id)] = {
+            variant: seen[variant] for variant in variant_set
+        }
+    return mapping
+
+
 def program_path(
     programs_dir: Path,
     pid: str,
@@ -764,27 +823,32 @@ def main(argv: list[str] | None = None) -> int:
     programs_dir = inputs_root / "programs"
     capture_by_variant: dict[str, dict[str, str]] = {}
     if args.capture_by_variant is not None:
-        raw_map = json.loads(args.capture_by_variant.read_text(encoding="utf-8"))
-        if not isinstance(raw_map, dict):
-            print("FAIL: --capture-by-variant must be a JSON object", file=sys.stderr)
+        try:
+            raw_map = json.loads(args.capture_by_variant.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError) as error:
+            print(f"FAIL: cannot read --capture-by-variant: {error}", file=sys.stderr)
             return 2
-        for point_id, variants_map in raw_map.items():
-            if not isinstance(variants_map, dict):
-                print(
-                    f"FAIL: capture-by-variant[{point_id}] must be an object",
-                    file=sys.stderr,
-                )
-                return 2
-            capture_by_variant[str(point_id)] = {
-                str(variant): str(path) for variant, path in variants_map.items()
-            }
+        try:
+            capture_by_variant = load_capture_by_variant_map(
+                raw_map, point_ids=points, variants=variants
+            )
+        except ValueError as error:
+            print(f"FAIL: {error}", file=sys.stderr)
+            return 2
     done = skipped = 0
     for pid in points:
         default_cap_dir = captures_root / pid
         first_variant = point_variants_by_id[pid][0]
-        cap_dir = Path(
-            capture_by_variant.get(pid, {}).get(first_variant, default_cap_dir)
-        )
+        if capture_by_variant:
+            if pid not in capture_by_variant or first_variant not in capture_by_variant[pid]:
+                print(
+                    f"FAIL: capture-by-variant is missing {pid}/{first_variant}",
+                    file=sys.stderr,
+                )
+                return 1
+            cap_dir = Path(capture_by_variant[pid][first_variant])
+        else:
+            cap_dir = Path(default_cap_dir)
         capture_receipt = cap_dir / "research_receipt.json"
         if not capture_receipt.is_file():
             print(f"FAIL: capture for {pid} not complete at {cap_dir}",
@@ -812,9 +876,16 @@ def main(argv: list[str] | None = None) -> int:
         # 的 endpoint 绑定随资产翻转,必须换绑重密封),每点用自己的。
         point_variants = point_variants_by_id[pid]
         for variant in point_variants:
-            cap_dir = Path(
-                capture_by_variant.get(pid, {}).get(variant, default_cap_dir)
-            ).resolve()
+            if capture_by_variant:
+                if pid not in capture_by_variant or variant not in capture_by_variant[pid]:
+                    print(
+                        f"FAIL: capture-by-variant is missing {pid}/{variant}",
+                        file=sys.stderr,
+                    )
+                    return 1
+                cap_dir = Path(capture_by_variant[pid][variant]).resolve()
+            else:
+                cap_dir = Path(default_cap_dir).resolve()
             capture_receipt = cap_dir / "research_receipt.json"
             if not capture_receipt.is_file():
                 print(

@@ -1550,7 +1550,16 @@ def main(argv=None):
                 "card13/card14 require SOUND_EVENT_POOL with speech clips")
     else:
         speech_pool = None
-        if str(params.get("SOUND_SOURCE_MODE")) != "event_pool":
+        required_types = profile.get("required_sound_types")
+        allows_event_pool = (
+            isinstance(required_types, int)
+            and not isinstance(required_types, bool)
+            and required_types >= 1
+        )
+        if not (
+            str(params.get("SOUND_SOURCE_MODE")) == "event_pool"
+            and allows_event_pool
+        ):
             require_dry_canvas_source_mode(
                 params, owner="design_qa_v3_extended_profile")
     scene_config = SS.read_scene_config(args.scene_config)
