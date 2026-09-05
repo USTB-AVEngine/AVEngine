@@ -33,6 +33,36 @@ class SpearResearchRuntimeError(RuntimeError):
     """A minimal external SPEAR visual transaction cannot proceed safely."""
 
 
+def apply_capture_exposure(capture: Any, *, bias_ev: float | None) -> dict[str, Any]:
+    """Apply an optional native RGB exposure compensation and read it back.
+
+    This changes the SceneCapture postprocess exposure, never room materials
+    or RGB files. Omitted values preserve existing capture behavior.
+    """
+    if bias_ev is None:
+        return {"status": "not_requested"}
+    if isinstance(bias_ev, bool) or not isinstance(bias_ev, Real) or not math.isfinite(float(bias_ev)):
+        raise SpearResearchRuntimeError("capture exposure bias must be finite")
+    bias = float(bias_ev)
+    capture.set_property_value(
+        property_name="PostProcessSettings.bOverride_AutoExposureBias",
+        property_value=True,
+    )
+    capture.set_property_value(
+        property_name="PostProcessSettings.AutoExposureBias",
+        property_value=bias,
+    )
+    observed = float(capture.get_property_value(
+        property_name="PostProcessSettings.AutoExposureBias"
+    ))
+    override = bool(capture.get_property_value(
+        property_name="PostProcessSettings.bOverride_AutoExposureBias"
+    ))
+    if not override or abs(observed - bias) > 1.0e-5:
+        raise SpearResearchRuntimeError("native capture exposure readback differs")
+    return {"status": "pass", "bias_ev": observed, "override": override}
+
+
 def cleanup_failed_constructor(*, executable: Path, temporary_directory: Path) -> None:
     """Terminate only the process tree configured for this failed launch."""
 

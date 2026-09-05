@@ -28,7 +28,7 @@ if "--spear-ext-dir" in sys.argv:
     sys.path.insert(0, _spear_ext_dir)
 from avengine.episode_clock import EpisodeClock
 from avengine.backends.spear_ue.research_runtime import (
-    attach_emitter_component, read_scene_component_pose,
+    apply_capture_exposure, attach_emitter_component, read_scene_component_pose,
 )
 from avengine.qa.pixel_visibility import compile_depth_pixel_visibility_truth  # noqa: E402
 from avengine.optional_backends.residential_episode import TICKS_PER_FRAME  # noqa: E402
@@ -797,6 +797,17 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         and capture_height % 2 == 0,
         "capture width and height must be positive even integers",
     )
+    exposure_bias_ev = getattr(args, "exposure_bias_ev", None)
+    if exposure_bias_ev is None:
+        exposure_bias_ev = plan["camera"].get("exposure_bias_ev")
+    if exposure_bias_ev is not None:
+        _require(
+            not isinstance(exposure_bias_ev, bool)
+            and isinstance(exposure_bias_ev, (int, float))
+            and math.isfinite(exposure_bias_ev),
+            "camera exposure bias must be finite",
+        )
+    exposure_readback: dict[str, Any] = {"status": "not_requested"}
     output = args.output.expanduser().resolve()
     if output.exists():
         raise FileExistsError(f"refusing to replace output: {output}")
@@ -842,6 +853,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                     height=capture_height,
                     hfov_degrees=float(plan["camera"]["horizontal_fov_deg"]),
                 )
+            exposure_readback = apply_capture_exposure(capture, bias_ev=exposure_bias_ev)
             capture.set_property_value(
                 property_name="FOVAngle",
                 property_value=float(plan["camera"]["horizontal_fov_deg"]),
@@ -1083,6 +1095,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             "scene": episode["scene"],
             "stage_actor_count": stage_actor_count,
             "runtime_review_lights": light_records,
+            "capture_exposure_readback": exposure_readback,
             "visual_lighting": episode["visual_lighting"],
             "root_readback": _research_root_readback_summary(root_gate),
             "camera_full_rotation_readback": camera_rotation_gate,
@@ -1133,6 +1146,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "scene": episode["scene"],
         "stage_actor_count": stage_actor_count,
         "runtime_review_lights": light_records,
+            "capture_exposure_readback": exposure_readback,
         "visual_lighting": episode["visual_lighting"],
         "root_readback": root_gate,
         "camera_full_rotation_readback": camera_rotation_gate,
@@ -1183,6 +1197,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--graphics-adapter", type=int, default=0)
     parser.add_argument("--width", type=int, default=WIDTH)
     parser.add_argument("--height", type=int, default=HEIGHT)
+    parser.add_argument("--exposure-bias-ev", type=float,
+                        help="optional native RGB exposure compensation in stops")
     parser.add_argument("--streaming-warmup-frames", type=int, default=180)
     parser.add_argument("--expected-stage-actor-count", type=int, default=1)
     parser.add_argument("--keep-frames", action="store_true")
