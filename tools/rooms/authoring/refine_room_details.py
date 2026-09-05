@@ -2,8 +2,7 @@
 """Refine a furnished room with exportable, static close-inspection details.
 
 This is an authoring-only pass.  It opens an existing Blender room, adds
-small-scale furniture, cabinet, sink and tableware geometry, bakes the few
-procedural-looking appearance patterns to ordinary PNG images, and emits a
+small-scale furniture, cabinet, sink and tableware geometry, assigns scanned PBR maps at physical scale, and emits a
 fresh GLB/USD/Blend package plus review-only previews.  AVEngine still owns
 production cameras, actors, routes and episode semantics.
 """
@@ -30,7 +29,7 @@ def cli() -> argparse.Namespace:
     parser.add_argument("--input-root", type=Path, required=True)
     parser.add_argument("--blend", type=Path)
     parser.add_argument("--output-root", type=Path, required=True)
-    parser.add_argument("--profile", default="room_b_detail_v4")
+    parser.add_argument("--profile", default="room_b_detail_v6")
     parser.add_argument("--room-id")
     parser.add_argument("--texture-root", type=Path)
     argv = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else sys.argv[1:]
@@ -775,6 +774,47 @@ def remove_object(obj: bpy.types.Object) -> None:
 
 
 
+def refine_sofa_structure(furniture: bpy.types.Collection, changes: list[str]) -> None:
+    """Seat meshes stay fixed; lower only decorative cushions onto their support."""
+    base = bpy.data.objects.get("living_sofa_base")
+    if base is None:
+        return
+    upholstery = bpy.data.materials.get("Polish_Sofa_Seat") or base.data.materials[0]
+    seam = create_material("RoomB_UpholsterySeam", (0.20,0.16,0.12,1.0), roughness=0.9)
+    for obj in list(bpy.data.objects):
+        if obj.name.startswith("PolishSofaBackCushion"):
+            obj.location.z = 0.91
+            obj.location.y = -2.45
+            obj.rotation_euler.x = math.radians(-7)
+        elif obj.name.startswith("PolishSofaPillow"):
+            obj.location.z = 0.79
+            obj.location.y = -2.70
+            obj.rotation_euler.x = math.radians(-10)
+            obj.rotation_euler.y = math.radians(10 if obj.location.x < -3.65 else -10)
+    for side in (-1,1):
+        create_box("RoomB_SofaArm_" + ("L" if side < 0 else "R"),
+                   (-3.65 + side*1.345,-2.66,0.61),
+                   (0.16,0.88,0.30),upholstery,furniture,bevel=0.065)
+    # Fine seams follow rounded cushion corners at the perimeter, leaving the
+    # measured upper seating surface untouched.
+    for obj in list(bpy.data.objects):
+        if not obj.name.startswith("living_sofa_cushion_"):
+            continue
+        w,d,h = local_dimensions(obj)
+        points = []
+        radius = 0.055
+        for cx,cy,a0 in [(w/2-radius,d/2-radius,0),
+                         (-w/2+radius,d/2-radius,90),
+                         (-w/2+radius,-d/2+radius,180),
+                         (w/2-radius,-d/2+radius,270)]:
+            for j in range(9):
+                a=math.radians(a0+j*90/8)
+                points.append((cx+radius*math.cos(a),cy+radius*math.sin(a),h*0.16))
+        create_pipe_loop("RoomB_SofaSeatSeam_"+obj.name.rsplit("_",1)[-1],
+                         obj,points,seam,furniture,bevel_depth=0.0014)
+    changes.append("sofa_decorative_cushions_supported_and_added_rounded_arms_seams")
+
+
 def smooth_soft_furniture(changes: list[str]) -> None:
     """Use evaluated smooth shading and weighted normals for rounded upholstery."""
     changed = 0
@@ -973,42 +1013,46 @@ def plate_mesh(
     outer_radius: float = 0.115,
     inner_radius: float = 0.087,
     base_z: float = 0.0,
-    rim_z: float = 0.032,
+    rim_z: float = 0.010,
 ) -> bpy.types.Object:
-    segments = 48
+    # A 3 mm ceramic section: flat underside, shallow well, 7 mm wide lip.
+    # The profile travels from underside to rim and back down the inner face.
+    segments = 96
     rings = [
-        (outer_radius, base_z),
-        (outer_radius, base_z + rim_z * 0.80),
-        (inner_radius, base_z + rim_z),
-        (inner_radius * 0.84, base_z + rim_z * 0.27),
+        (0.067, base_z),
+        (0.079, base_z + 0.001),
+        (outer_radius - 0.008, base_z + 0.006),
+        (outer_radius - 0.001, base_z + 0.007),
+        (outer_radius, base_z + 0.0085),
+        (outer_radius - 0.001, base_z + 0.010),
+        (outer_radius - 0.008, base_z + 0.010),
+        (0.079, base_z + 0.004),
+        (0.067, base_z + 0.003),
     ]
-    vertices: list[tuple[float, float, float]] = []
+    vertices = []
     for radius, z in rings:
         for index in range(segments):
             angle = 2.0 * math.pi * index / segments
-            vertices.append((
-                center[0] + radius * math.cos(angle),
-                center[1] + radius * math.sin(angle),
-                center[2] + z,
-            ))
-    faces: list[tuple[int, ...]] = []
+            vertices.append((center[0] + radius * math.cos(angle),
+                             center[1] + radius * math.sin(angle), center[2] + z))
+    faces = []
     for ring in range(len(rings) - 1):
         for index in range(segments):
             nxt = (index + 1) % segments
-            a = ring * segments + index
-            b = ring * segments + nxt
-            c = (ring + 1) * segments + nxt
-            d = (ring + 1) * segments + index
-            faces.append((a, b, c, d))
-    center_top = len(vertices)
-    vertices.append((center[0], center[1], center[2] + rings[-1][1]))
-    center_bottom = len(vertices)
+            faces.append((ring * segments + index, ring * segments + nxt,
+                          (ring + 1) * segments + nxt, (ring + 1) * segments + index))
+    bottom = len(vertices)
     vertices.append((center[0], center[1], center[2] + base_z))
+    top = len(vertices)
+    vertices.append((center[0], center[1], center[2] + base_z + 0.003))
     for index in range(segments):
         nxt = (index + 1) % segments
-        faces.append((center_top, 3 * segments + index, 3 * segments + nxt))
-        faces.append((center_bottom, nxt, index))
-    return create_mesh(name, vertices, faces, mat, coll)
+        faces.extend([(bottom, nxt, index),
+                      (top, (len(rings)-1)*segments+index, (len(rings)-1)*segments+nxt)])
+    obj = create_mesh(name, vertices, faces, mat, coll)
+    for polygon in obj.data.polygons:
+        polygon.use_smooth = len(polygon.vertices) == 4
+    return obj
 
 
 def cup_mesh(
@@ -1018,17 +1062,17 @@ def cup_mesh(
     coll: bpy.types.Collection,
     *,
     outer_radius: float = 0.045,
-    inner_radius: float = 0.036,
+    inner_radius: float = 0.041,
     height: float = 0.095,
 ) -> bpy.types.Object:
-    segments = 32
+    segments = 96
     z0 = center[2]
     z1 = z0 + height
     rings = [
         (outer_radius, z0),
         (outer_radius, z1),
         (inner_radius, z1),
-        (inner_radius, z0 + 0.012),
+        (inner_radius, z0 + 0.004),
     ]
     vertices: list[tuple[float, float, float]] = []
     for radius, z in rings:
@@ -1048,12 +1092,19 @@ def cup_mesh(
             c = (ring + 1) * segments + nxt
             d = (ring + 1) * segments + index
             faces.append((a, b, c, d))
-    # Close the base annulus only; the top remains open and the inner wall is
-    # visible in close-up.
+    # Close both bottom faces: the cavity ends on ceramic, not the saucer.
+    bottom = len(vertices)
+    vertices.append((center[0], center[1], z0))
+    inside = len(vertices)
+    vertices.append((center[0], center[1], z0 + 0.004))
     for index in range(segments):
         nxt = (index + 1) % segments
-        faces.append((index, nxt, 3 * segments + nxt, 3 * segments + index))
-    return create_mesh(name, vertices, faces, mat, coll)
+        faces.extend([(bottom, nxt, index),
+                      (inside, 3 * segments + index, 3 * segments + nxt)])
+    obj = create_mesh(name, vertices, faces, mat, coll)
+    for polygon in obj.data.polygons:
+        polygon.use_smooth = len(polygon.vertices) == 4
+    return obj
 
 
 def add_hollow_tableware(
@@ -1073,23 +1124,26 @@ def add_hollow_tableware(
     ]
     for obj in old_props:
         remove_object(obj)
+    table = bpy.data.objects["dining_table_top"]
+    evaluated = table.evaluated_get(bpy.context.evaluated_depsgraph_get())
+    tabletop_z = max((evaluated.matrix_world @ Vector(corner)).z for corner in evaluated.bound_box)
     ids: list[str] = []
     for index, (x, y) in enumerate(positions):
         plate = plate_mesh(
             f"RoomB_Tableware_Plate_{index}",
-            (x, y, 0.835),
+            (x, y, tabletop_z),
             ceramic,
             props,
         )
         cup = cup_mesh(
             f"RoomB_Tableware_Cup_{index}",
-            (x + 0.018, y + 0.012, 0.866),
+            (x + 0.018, y + 0.012, tabletop_z + 0.003),
             ceramic,
             props,
         )
         create_torus(
             f"RoomB_Tableware_CupHandle_{index}",
-            Vector((x + 0.066, y + 0.012, 0.912)),
+            Vector((x + 0.070, y + 0.012, tabletop_z + 0.053)),
             0.030,
             0.006,
             ceramic,
@@ -1111,39 +1165,43 @@ def add_rect_basin(
     wall: float = 0.055,
 ) -> bpy.types.Object:
     w, d = outer
-    iw, id_ = w - 2.0 * wall, d - 2.0 * wall
-    z_top = center[2]
-    z_bottom = z_top - depth
-    z_inner = z_bottom + 0.018
+    # Closed stainless section: outside bottom, outside lip, inside lip,
+    # inside bowl floor. Corner samples remove the boxlike basin silhouette.
+    def rounded_loop(width, length, radius, z):
+        points = []
+        for cx, cy, a0 in [
+            (width/2-radius, length/2-radius, 0),
+            (-width/2+radius, length/2-radius, 90),
+            (-width/2+radius, -length/2+radius, 180),
+            (width/2-radius, -length/2+radius, 270),
+        ]:
+            for j in range(13):
+                a = math.radians(a0 + j * 90 / 12)
+                points.append((center[0]+cx+radius*math.cos(a),
+                               center[1]+cy+radius*math.sin(a), z))
+        return points
     loops = [
-        [(-w / 2, -d / 2, z_top), (w / 2, -d / 2, z_top),
-         (w / 2, d / 2, z_top), (-w / 2, d / 2, z_top)],
-        [(-w / 2, -d / 2, z_bottom), (w / 2, -d / 2, z_bottom),
-         (w / 2, d / 2, z_bottom), (-w / 2, d / 2, z_bottom)],
-        [(-iw / 2, -id_ / 2, z_top), (iw / 2, -id_ / 2, z_top),
-         (iw / 2, id_ / 2, z_top), (-iw / 2, id_ / 2, z_top)],
-        [(-iw / 2, -id_ / 2, z_inner), (iw / 2, -id_ / 2, z_inner),
-         (iw / 2, id_ / 2, z_inner), (-iw / 2, id_ / 2, z_inner)],
+        rounded_loop(w-0.090, d-0.090, 0.045, center[2]-depth),
+        rounded_loop(w, d, 0.004, center[2]),
+        rounded_loop(w-0.006, d-0.006, 0.040, center[2]),
+        rounded_loop(w-0.094, d-0.094, 0.043, center[2]-depth+0.002),
     ]
-    vertices = [
-        (center[0] + x, center[1] + y, z)
-        for loop in loops for x, y, z in loop
-    ]
-    faces = [
-        (0, 1, 5, 4), (1, 2, 6, 5), (2, 3, 7, 6), (3, 0, 4, 7),
-        (0, 1, 9, 8), (1, 2, 10, 9), (2, 3, 11, 10), (3, 0, 8, 11),
-        # The sink top is intentionally open.  Connect the inner rim to the
-        # recessed inner bottom so the shell has no accidental nonmanifold
-        # edge; only the opening and underside remain intentional boundaries.
-        (8, 9, 13, 12), (9, 10, 14, 13),
-        (10, 11, 15, 14), (11, 8, 12, 15),
-        (12, 13, 14, 15),
-    ]
-    # Keep the basin's intentional open top as a clean boundary.  A bevel
-    # modifier on an open shell creates a nonmanifold corner at the rim;
-    # the countertop ring supplies the visible rounded perimeter instead.
+    n = len(loops[0])
+    vertices = [point for loop in loops for point in loop]
+    faces = []
+    for k in range(3):
+        for j in range(n):
+            nxt = (j+1) % n
+            faces.append((k*n+j, k*n+nxt, (k+1)*n+nxt, (k+1)*n+j))
+    faces.extend([tuple(reversed(range(n))), tuple(range(3*n,4*n))])
     obj = create_mesh(name, vertices, faces, mat, coll)
-    obj.data.validate(verbose=True)
+    bm = bmesh.new()
+    bm.from_mesh(obj.data)
+    bmesh.ops.recalc_face_normals(bm, faces=list(bm.faces))
+    bm.to_mesh(obj.data)
+    bm.free()
+    for polygon in obj.data.polygons:
+        polygon.use_smooth = len(polygon.vertices) == 4
     return obj
 
 
@@ -1266,60 +1324,74 @@ def apply_countertop_sink_cutout(
         ensure_collection("Props"),
         depth=0.15,
     )
+    # The source carcass is a solid cuboid. Remove its volume around the
+    # entire basin, otherwise a valid open basin still renders a wooden floor.
+    cutter = create_box("RoomB_TemporarySinkVoid",
+                        (hole_center.x, hole_center.y, z_center - 0.03),
+                        (hole_size[0] + 0.025, hole_size[1] + 0.025, 0.44),
+                        steel, furniture)
+    bpy.context.view_layer.update()
+    boolean = body.modifiers.new("SinkCarcassVoid", "BOOLEAN")
+    boolean.operation = "DIFFERENCE"
+    boolean.solver = "EXACT"
+    boolean.object = cutter
+    bpy.context.view_layer.objects.active = body
+    bpy.ops.object.modifier_apply(modifier=boolean.name)
+    remove_object(cutter)
     props = ensure_collection("Props")
     old_faucet = bpy.data.objects.get("kitchen_faucet")
     if old_faucet is not None:
         remove_object(old_faucet)
-    stem = create_cylinder(
-        "kitchen_faucet",
-        (4.35, 3.08, 1.28),
-        0.023,
-        0.32,
-        steel,
-        props,
-        vertices=32,
-    )
-    spout = create_curve_mesh(
-        "RoomB_SinkFaucetSpout",
-        [
-            (4.35, 3.08, 1.40),
-            (4.35, 3.08, 1.52),
-            (4.32, 3.08, 1.59),
-            (4.25, 3.08, 1.63),
-            (4.17, 3.08, 1.62),
-            (4.11, 3.08, 1.56),
-            (4.11, 3.08, 1.48),
-        ],
-        steel,
-        props,
-        bevel_depth=0.020,
-    )
-    outlet = create_cylinder(
-        "RoomB_SinkFaucetOutlet",
-        (4.11, 3.08, 1.47),
-        0.023,
-        0.075,
-        steel,
-        props,
-        vertices=24,
-    )
-    for obj in (stem, spout, outlet):
+    # One densely sampled bent tube, with the mounting stem outside the bowl.
+    # The 120 mm radius bend is tangent to both vertical legs.
+    fx, fy = 4.10, 3.58
+    mount_z = z_center + 0.04
+    bend_z, radius = mount_z + 0.28, 0.12
+    points = [(fx, fy, mount_z), (fx, fy, bend_z)]
+    points += [(fx, fy-radius+radius*math.cos(math.pi*j/96),
+                bend_z+radius*math.sin(math.pi*j/96)) for j in range(1,97)]
+    points.append((fx, fy-2*radius, bend_z-0.045))
+    stem = create_curve_mesh("kitchen_faucet", points, steel, props, bevel_depth=0.012)
+    base = create_cylinder("RoomB_SinkFaucetBase", (fx, fy, mount_z+0.008),
+                           0.025, 0.016, steel, props, vertices=64)
+    outlet = create_cylinder("RoomB_SinkFaucetOutlet",
+                             (fx, fy-2*radius, bend_z-0.042),
+                             0.013, 0.018, steel, props, vertices=64)
+    lever = create_curve_mesh("RoomB_SinkFaucetLever",
+                              [(fx+0.022,fy,mount_z+0.040),(fx+0.057,fy,mount_z+0.09)],
+                              steel, props, bevel_depth=0.005)
+    for obj in (stem, base, outlet, lever):
         for polygon in obj.data.polygons:
             polygon.use_smooth = True
-    changes.extend([
-        "replaced_boolean_countertop_with_valid_four_piece_sink_frame",
-        "added_hollow_sink_basin_without_boolean_ngon",
-        "replaced_sink_column_with_complete_curved_faucet",
-    ])
+    drain = create_cylinder("RoomB_SinkDrain",
+                             (hole_center.x,hole_center.y,z_center+0.005-0.15+0.003),
+                             0.027, 0.002, steel, props, vertices=64)
+    # Cast through the assembled scene, not the basin in isolation.
+    bpy.context.view_layer.update()
+    depsgraph = bpy.context.evaluated_depsgraph_get()
+    ray_hits = []
+    for dx in (-0.23, 0.0, 0.23):
+        for dy in (-0.11, 0.0, 0.11):
+            origin = Vector((hole_center.x+dx, hole_center.y+dy, z_center-0.003))
+            hit, location, normal, face_index, obj, matrix = bpy.context.scene.ray_cast(
+                depsgraph, origin, Vector((0,0,-1)), distance=0.30)
+            require(hit and obj.name in {basin.name,drain.name},
+                    f"basin cavity obstructed at {tuple(origin)}: {obj.name if hit else 'no hit'}")
+            ray_hits.append({"origin_m": list(origin), "first_object": obj.name,
+                             "hit_m": list(location)})
+    changes.extend(["continuous_countertop_ring", "carcass_recess_clears_real_basin",
+                    "closed_2mm_rounded_steel_basin", "96_segment_tangent_faucet_bend"])
     return {
         "countertop_object_id": top.name,
-        "opening_center_m": [round(float(v), 6) for v in hole_center],
+        "opening_center_m": list(hole_center),
         "opening_size_m": [hole_size[0], hole_size[1], 0.30],
         "basin_object_id": basin.name,
-        "faucet_object_ids": [stem.name, spout.name, outlet.name],
-        "cavity_status": "four_piece_countertop_opening_with_hollow_basin",
-        "topology_status": "explicit_quads_no_boolean_ngon",
+        "faucet_object_ids": [stem.name,base.name,outlet.name,lever.name],
+        "cavity_status": "assembled_scene_rays_hit_metal_basin",
+        "cavity_scene_rays": ray_hits,
+        "topology_status": "closed_sheet_basin_and_evaluated_carcass_recess",
     }
+
 
 def add_cabinet_panels(
     furniture: bpy.types.Collection,
@@ -1429,9 +1501,9 @@ def add_review_cameras(cameras_coll: bpy.types.Collection) -> list[dict[str, Any
     specs = [
         {
             "camera_id": "REVIEW_OVERALL_ROOM_B",
-            "position_m": [0.0, 0.0, 7.50],
-            "target_m": [0.0, 0.0, 0.0],
-            "focal_length_mm": 22.0,
+            "position_m": [5.50, -3.80, 1.72],
+            "target_m": [2.30, 0.40, 1.0],
+            "focal_length_mm": 21.0,
         },
         {
             "camera_id": "REVIEW_CLOSE_DINING_DETAIL",
@@ -1447,9 +1519,9 @@ def add_review_cameras(cameras_coll: bpy.types.Collection) -> list[dict[str, Any
         },
         {
             "camera_id": "REVIEW_CLOSE_LIVING_DETAIL",
-            "position_m": [-1.20, -3.65, 1.34],
-            "target_m": [-3.65, -2.55, 1.02],
-            "focal_length_mm": 55.0,
+            "position_m": [-0.80, -3.65, 1.48],
+            "target_m": [-3.65, -2.45, 0.85],
+            "focal_length_mm": 38.0,
         },
     ]
     result: list[dict[str, Any]] = []
@@ -1472,14 +1544,19 @@ def add_review_cameras(cameras_coll: bpy.types.Collection) -> list[dict[str, Any
             "sensor_width_mm": round(float(data.sensor_width), 6),
             "fov_horizontal_deg": round(math.degrees(float(data.angle)), 6),
             "purpose": "review_only_asset_closeup" if "CLOSE" in raw["camera_id"] else "review_only_overall",
-            "visibility_note": "ceiling_hidden_for_topdown_authoring_preview_only" if "CLOSE" not in raw["camera_id"] else "production_geometry_visible",
+            "visibility_note": "production_geometry_visible",
             "production_camera": False,
         })
     return result
 
 
 def render_review_cameras(scene: bpy.types.Scene, cameras: list[dict[str, Any]], output: Path) -> None:
-    scene.render.engine = "BLENDER_EEVEE_NEXT"
+    scene.render.engine = "CYCLES"
+    scene.cycles.device = "CPU"
+    scene.cycles.samples = 40
+    scene.cycles.use_denoising = True
+    original_exposure = scene.view_settings.exposure
+    scene.view_settings.exposure = original_exposure - 1.5
     scene.render.resolution_x = 1024
     scene.render.resolution_y = 576
     scene.render.resolution_percentage = 100
@@ -1489,16 +1566,15 @@ def render_review_cameras(scene: bpy.types.Scene, cameras: list[dict[str, Any]],
     for record in cameras:
         camera = bpy.data.objects.get(record["camera_id"])
         require(camera is not None, "review camera missing: " + record["camera_id"])
-        # The overall authoring preview is a high view.  Hide the ceiling only
-        # while that one review frame is rendered; the source object is
-        # restored before Blend/GLB/USD export so production geometry is intact.
+        # Natural-height authoring views retain the complete room shell.
         if ceiling is not None:
-            ceiling.hide_render = record["purpose"] == "review_only_overall"
+            ceiling.hide_render = original_ceiling_visibility
         scene.camera = camera
         scene.render.filepath = str(output / "renders" / (record["camera_id"] + ".png"))
         bpy.ops.render.render(write_still=True)
     if ceiling is not None and original_ceiling_visibility is not None:
         ceiling.hide_render = original_ceiling_visibility
+    scene.view_settings.exposure = original_exposure
 
 
 def load_source(input_root: Path, blend_arg: Path | None) -> tuple[Path, dict[str, Any], dict[str, Any], dict[str, Any]]:
@@ -1596,7 +1672,6 @@ def main() -> int:
     _ = architectural
 
     changes: list[str] = []
-    material_report = add_detail_materials(output, args.texture_root)
     fabric = bpy.data.materials.get("RoomB_WarmFabric") or create_material("RoomB_WarmFabric", (0.35, 0.46, 0.42, 1.0), roughness=0.84)
     piping = create_material("RoomB_FabricPiping", (0.11, 0.16, 0.14, 1.0), roughness=0.74)
     frame = bpy.data.materials.get("RoomB_Walnut") or create_material(
@@ -1625,7 +1700,9 @@ def main() -> int:
     tableware_ids = add_hollow_tableware(props, ceramic, metal, changes)
     cabinet_ids = add_cabinet_panels(furniture, props, cabinet, handle, dark, changes)
     sink_ref = apply_countertop_sink_cutout(furniture, stone, handle, changes)
+    refine_sofa_structure(furniture, changes)
     smooth_soft_furniture(changes)
+    material_report = add_detail_materials(output, args.texture_root)
     review_cameras = add_review_cameras(cameras_coll)
 
     # Generate all preview images after all evaluated geometry and materials are
@@ -1635,7 +1712,7 @@ def main() -> int:
 
     room_id = args.room_id or source_semantics.get("room_spec_id") or source_semantics.get("room_id") or output.name
     room_id = str(room_id).replace(" ", "_")
-    out_blend = output / f"{room_id}_detailed_v4.blend"
+    out_blend = output / f"{room_id}_detailed_v6.blend"
 
     # External PNGs are intentionally kept beside the output package.  GLB
     # embeds their image payload; USD receives relative texture copies.
@@ -1647,7 +1724,7 @@ def main() -> int:
     )
     glb = helper.export_selection(output)
     usd_module = helper.load_usd_exporter()
-    usd = output / "usd" / f"{room_id}_detailed_v4.usda"
+    usd = output / "usd" / f"{room_id}_detailed_v6.usda"
     usd_record = usd_module.export_static_usd(bpy.context.scene, usd)
 
     source_assemblies = source_semantics.get("furniture_assemblies", [])
@@ -1743,11 +1820,12 @@ def main() -> int:
             "cabinet_detail_objects": len(cabinet_ids),
         },
         "seat_reference_policy": "seat_top_m_and_front_world_preserved_from_v3_sidecar",
-        "material_export_policy": "scanned_pbr_where_available_plus_baked_fabric_fallback",
+        "material_export_policy": "physical_scale_scanned_pbr_when_texture_root_supplied",
         "source_texture_root": str(args.texture_root) if args.texture_root is not None else None,
         "materials": material_report,
         "sink": sink_ref,
         "review_cameras": review_cameras,
+        "review_render": {"engine": "Cycles CPU", "samples": 40, "exposure_offset_stops": -1.5, "production_settings_preserved": True},
         "artifacts": {
             "blend": str(out_blend),
             "visual_glb": str(glb),
