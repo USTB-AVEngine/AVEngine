@@ -334,6 +334,7 @@ def main():
     out.mkdir(parents=True);[(out/x).mkdir() for x in ["textures","renders","visual","usd"]]
     bpy.ops.wm.open_mainfile(filepath=str(blend))
     d.ensure_collection("ArchitecturalDetails")
+    shutil.copy2(a.texture_root/"manifest.json",out/"material_provenance.json")
     m=materials(a.texture_root,out);soft_furniture(m);chair_ids=chairs(m);tabletop(m);wall_decor(a.room)
     for o in bpy.data.objects:
         if o.type=="MESH" and o.data.materials and o.data.materials[0]==m["wood"]:d.projected_uvs(o,1.)
