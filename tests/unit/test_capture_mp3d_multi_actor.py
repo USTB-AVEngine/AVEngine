@@ -205,8 +205,10 @@ def _tracks(actor_count: int, frame_count: int) -> tuple[dict[str, Any], ...]:
     return tuple(tracks)
 
 
-def test_public_entrypoint_reads_native_state_for_three_actors(tmp_path, monkeypatch):
-    actor_count = 3
+@pytest.mark.parametrize("actor_count", [1, 3])
+def test_public_entrypoint_reads_native_state_for_configured_actor_count(
+    tmp_path, monkeypatch, actor_count
+):
     frame_count = 2
     events: list[str] = []
     tracks = _tracks(actor_count, frame_count)
@@ -327,7 +329,10 @@ def test_public_entrypoint_reads_native_state_for_three_actors(tmp_path, monkeyp
         assert np.load(output / f"actor_joint_readbacks_source{actor_index + 1}.npy").shape == (frame_count, 4)
     assert receipt["inputs"]["case_manifest"] == str(case_path.resolve())
     assert receipt["object_id"]["status"] == "pending"
-    assert receipt["artifacts"]["actor_joint_readbacks_by_slot"]["source3"] == "actor_joint_readbacks_source3.npy"
+    last_slot = f"source{actor_count}"
+    assert receipt["artifacts"]["actor_joint_readbacks_by_slot"][last_slot] == (
+        f"actor_joint_readbacks_{last_slot}.npy"
+    )
     assert receipt["capture"]["native_habitat_started"] is True
     assert receipt["capture"]["rgb_channel_order"] == "rgb"
 
@@ -427,3 +432,65 @@ def test_nonzero_anchor_offset_is_composed_with_observed_joint_rotation():
     local = np.eye(4)
     local[0, 3] = 0.4
     assert capture._emitter_position(actor, 41, local) == pytest.approx([1, 2.4, 3])
+
+
+def _write_planned_track(
+    path: Path,
+    *,
+    slot: str,
+    endpoint: str = "endpoint-a",
+    semantic_id: int = 101,
+) -> None:
+    track = dict(_tracks(1, 2)[0])
+    track.update({
+        "schema": capture.ACTOR_TRACK_SCHEMA,
+        "artifact_role": "planned_habitat_actor_apply_track",
+        "native_observed": False,
+        "research_only": True,
+        "episode_counted": False,
+        "clock": _clock(2),
+        "source_slot_id": slot,
+        "source_endpoint_id": endpoint,
+        "semantic_id": semantic_id,
+    })
+    path.write_text(json.dumps(track), encoding="utf-8")
+
+
+def test_case_loader_accepts_one_actor_with_arbitrary_safe_slot(tmp_path: Path):
+    track_path = tmp_path / "track.json"
+    _write_planned_track(track_path, slot="lead_voice")
+    case_path = tmp_path / "case.json"
+    case = {
+        "schema": capture.CASE_SCHEMA,
+        "artifact_role": "planned_habitat_actor_apply_case",
+        "native_observed": False,
+        "research_only": True,
+        "episode_counted": False,
+        "clock": _clock(2),
+        "actor_tracks": [{"track_path": track_path.name}],
+    }
+
+    _, tracks = capture._resolve_case_track_paths(case_path, case)
+
+    assert len(tracks) == 1
+    assert tracks[0]["value"]["source_slot_id"] == "lead_voice"
+
+
+def test_case_loader_rejects_slot_that_would_escape_output_name(tmp_path: Path):
+    track_path = tmp_path / "track.json"
+    _write_planned_track(track_path, slot="../escape")
+    case_path = tmp_path / "case.json"
+    case = {
+        "schema": capture.CASE_SCHEMA,
+        "artifact_role": "planned_habitat_actor_apply_case",
+        "native_observed": False,
+        "research_only": True,
+        "episode_counted": False,
+        "clock": _clock(2),
+        "actor_tracks": [{"track_path": track_path.name}],
+    }
+
+    with pytest.raises(
+        capture.MP3DMultiActorCaptureError, match="safe identifiers"
+    ):
+        capture._resolve_case_track_paths(case_path, case)

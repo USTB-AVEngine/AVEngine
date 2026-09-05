@@ -157,9 +157,9 @@ def _resolve_case_track_paths(
             "case manifest must be an explicitly planned, non-native actor case"
         )
     records = case.get("actor_tracks")
-    if not isinstance(records, list) or len(records) < 2:
+    if not isinstance(records, list) or not records:
         raise MP3DMultiActorCaptureError(
-            "case manifest must contain at least two actor tracks"
+            "case manifest must contain at least one actor track"
         )
     clock = case.get("clock")
     if not isinstance(clock, Mapping):
@@ -234,8 +234,18 @@ def _resolve_case_track_paths(
         slot = track.get("source_slot_id")
         endpoint = track.get("source_endpoint_id")
         semantic = track.get("semantic_id")
-        if not isinstance(slot, str) or not slot or slot in slots:
-            raise MP3DMultiActorCaptureError("actor track source slots must be unique")
+        if (
+            not isinstance(slot, str)
+            or not slot
+            or slot != slot.strip()
+            or slot in {".", ".."}
+            or Path(slot).name != slot
+            or any(ord(character) < 32 or ord(character) == 127 for character in slot)
+            or slot in slots
+        ):
+            raise MP3DMultiActorCaptureError(
+                "actor track source slots must be unique safe identifiers"
+            )
         if not isinstance(endpoint, str) or not endpoint or endpoint in endpoints:
             raise MP3DMultiActorCaptureError("actor track source endpoints must be unique")
         if isinstance(semantic, bool) or not isinstance(semantic, int) or semantic < 0 or semantic in semantics:
@@ -244,12 +254,6 @@ def _resolve_case_track_paths(
         endpoints.add(endpoint)
         semantics.add(semantic)
         track_values.append({"path": str(track_path), "value": track})
-    track_values.sort(key=lambda item: int(str(item["value"]["source_slot_id"]).removeprefix("source")))
-    expected_slots = tuple(f"source{index}" for index in range(1, len(track_values) + 1))
-    if tuple(item["value"]["source_slot_id"] for item in track_values) != expected_slots:
-        raise MP3DMultiActorCaptureError(
-            "actor track slots must be contiguous source1..sourceN"
-        )
     return {**dict(case), "clock": resolved_clock}, tuple(track_values)
 
 

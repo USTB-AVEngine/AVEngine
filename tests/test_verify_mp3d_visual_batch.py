@@ -132,3 +132,24 @@ def test_receipt_m1_is_checked_and_world_time_may_advance(tmp_path: Path):
     records_path.write_text(json.dumps(records))
     with pytest.raises(MP3DVisualVerificationError, match="declared M1 rig"):
         verify_point("point", point)
+
+
+def test_verifier_accepts_one_configured_actor(tmp_path: Path):
+    point = tmp_path / "point"
+    _capture(point)
+    records_path = point / "frame_records.json"
+    records = json.loads(records_path.read_text())
+    records["source_endpoint_ids"] = ["e1"]
+    for frame in records["frames"]:
+        frame["actor_readbacks"] = frame["actor_readbacks"][:1]
+        frame["source_positions_m"] = frame["source_positions_m"][:1]
+    records_path.write_text(json.dumps(records))
+
+    receipt_path = point / "research_receipt.json"
+    receipt = json.loads(receipt_path.read_text())
+    receipt["actors"] = receipt["actors"][:1]
+    receipt_path.write_text(json.dumps(receipt))
+
+    result = verify_point("point", point)
+    assert result["status"] == "pass"
+    assert result["actor_count"] == 1

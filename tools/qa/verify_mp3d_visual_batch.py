@@ -216,9 +216,9 @@ def _validate_observed_arrays(
 
 def _receipt_actor_order(receipt: Mapping[str, Any]) -> tuple[str, ...]:
     actors = receipt.get("actors")
-    if not isinstance(actors, list) or len(actors) < 2:
+    if not isinstance(actors, list) or not actors:
         raise MP3DVisualVerificationError(
-            "native MP3D receipt must declare at least two actors"
+            "native MP3D receipt must declare at least one actor"
         )
     slots: list[str] = []
     endpoints: set[str] = set()
