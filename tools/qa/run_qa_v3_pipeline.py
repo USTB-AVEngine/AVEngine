@@ -74,7 +74,7 @@ from avengine.qa.runtime_artifacts import (
     MEDIA_CONSUMER_KINDS,
     VISUAL_CAPTURE_KINDS,
     RuntimeArtifactError,
-    declared_audio_variants,
+    declared_audio_variants_from_fact,
     load_runtime_artifacts,
     registered_pixel_consumer,
     registered_pixel_producer,
@@ -2189,12 +2189,15 @@ def _audio_variants_for_pair(
         if not fact_path.is_file():
             continue
         try:
-            plan = load_runtime_artifacts(batch_root / point_id)
-        except RuntimeArtifactError as error:
+            fact = _read_json(fact_path)
+            declared = declared_audio_variants_from_fact(
+                fact, point_dir=batch_root / point_id
+            )
+        except (PipelineError, RuntimeArtifactError) as error:
             raise PipelineError(
                 f"{point_id} runtime artifact description is invalid: {error}"
             ) from error
-        for value in declared_audio_variants(plan):
+        for value in declared:
             name = _safe_component(value, owner="declared audio variant")
             if name not in variants and name not in extra:
                 extra.append(name)
@@ -3646,6 +3649,71 @@ def _timeline_frame_count_for_producer(timeline_path: Path, *, owner: str) -> in
     return count
 
 
+def _npz_named_array_error(
+    payload: Any,
+    name: str,
+    *,
+    expected_count: int,
+    expected_shape: tuple[int, int, int] | None,
+    kind: str,
+) -> tuple[str | None, tuple[int, int, int] | None]:
+    """Return a structural error for one NPZ array, never an IndexError."""
+
+    import numpy as np
+
+    names = set(payload.files)
+    if name not in names:
+        return f"pixel producer NPZ is missing {name}", None
+    try:
+        array = np.asarray(payload[name])
+    except (OSError, ValueError, TypeError) as exc:
+        return f"pixel producer NPZ {name} is unreadable: {exc}", None
+    if array.ndim != 3:
+        return (
+            "pixel producer NPZ "
+            f"{name} must have ndim 3 [frames, height, width], "
+            f"got ndim={array.ndim} shape={array.shape}",
+            None,
+        )
+    frames = int(array.shape[0])
+    height = int(array.shape[1])
+    width = int(array.shape[2])
+    if frames != expected_count:
+        return (
+            f"pixel producer NPZ {name} frame axis is {frames}, "
+            f"expected {expected_count}",
+            None,
+        )
+    if height < 1 or width < 1:
+        return (
+            f"pixel producer NPZ {name} height and width must be > 0, "
+            f"got shape={array.shape}",
+            None,
+        )
+    shape = (frames, height, width)
+    if expected_shape is not None and shape != expected_shape:
+        return (
+            f"pixel producer NPZ {name} shape is {shape}, expected {expected_shape}",
+            None,
+        )
+    if kind == "depth":
+        if not np.issubdtype(array.dtype, np.floating):
+            return (
+                f"pixel producer NPZ {name} must be floating-point, "
+                f"got dtype={array.dtype}",
+                None,
+            )
+    elif kind == "ids":
+        if array.dtype != np.dtype(np.uint32):
+            return (
+                f"pixel producer NPZ {name} must be uint32, got dtype={array.dtype}",
+                None,
+            )
+    else:
+        return f"pixel producer NPZ {name} has an unknown array kind {kind!r}", None
+    return None, shape
+
+
 def _pixel_producer_npz_error(
     arrays_path: Path,
     truth: Mapping[str, Any],
@@ -3664,42 +3732,40 @@ def _pixel_producer_npz_error(
     except (OSError, ValueError, TypeError) as exc:
         return f"pixel producer NPZ is unreadable: {exc}"
     try:
-        names = set(payload.files)
-        required = ("normal_depth_m", "normal_object_ids_uint32")
-        missing = [name for name in required if name not in names]
-        if missing:
-            return f"pixel producer NPZ is missing {missing}"
         expected_count = len(frame_indices)
-        normal = np.asarray(payload["normal_depth_m"])
-        object_ids = np.asarray(payload["normal_object_ids_uint32"])
-        if normal.shape[0] != expected_count:
-            return (
-                "pixel producer NPZ normal_depth_m frame axis is "
-                f"{normal.shape[0]}, expected {expected_count}"
-            )
-        if object_ids.shape[0] != expected_count:
-            return (
-                "pixel producer NPZ normal_object_ids_uint32 frame axis is "
-                f"{object_ids.shape[0]}, expected {expected_count}"
-            )
-        spatial = normal.shape[1:]
-        if object_ids.shape[1:] != spatial:
-            return "pixel producer NPZ spatial dimensions do not match"
+        error, shape = _npz_named_array_error(
+            payload,
+            "normal_depth_m",
+            expected_count=expected_count,
+            expected_shape=None,
+            kind="depth",
+        )
+        if error:
+            return error
+        error, _ = _npz_named_array_error(
+            payload,
+            "normal_object_ids_uint32",
+            expected_count=expected_count,
+            expected_shape=shape,
+            kind="ids",
+        )
+        if error:
+            return error
         per_instance = truth.get("per_instance")
         if not isinstance(per_instance, Mapping):
             return "pixel producer truth has no per_instance object"
         for slot in per_instance:
-            name = f"target_only_{slot}_depth_m"
-            if name not in names:
-                return f"pixel producer NPZ is missing {name}"
-            array = np.asarray(payload[name])
-            if array.shape[0] != expected_count:
-                return (
-                    f"pixel producer NPZ {name} frame axis is {array.shape[0]}, "
-                    f"expected {expected_count}"
-                )
-            if array.shape[1:] != spatial:
-                return f"pixel producer NPZ {name} spatial dimensions do not match"
+            error, _ = _npz_named_array_error(
+                payload,
+                f"target_only_{slot}_depth_m",
+                expected_count=expected_count,
+                expected_shape=shape,
+                kind="depth",
+            )
+            if error:
+                return error
+    except (IndexError, KeyError, TypeError, ValueError) as exc:
+        return f"pixel producer NPZ structure is invalid: {exc}"
     finally:
         payload.close()
     return None

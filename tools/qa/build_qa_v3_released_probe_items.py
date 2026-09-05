@@ -23,8 +23,7 @@ _REPO = Path(__file__).resolve().parents[2]
 if str(_REPO / "src") not in sys.path:
     sys.path.insert(0, str(_REPO / "src"))
 from avengine.qa.runtime_artifacts import (  # noqa: E402
-    declared_audio_variants,
-    load_runtime_artifacts,
+    declared_audio_variants_from_fact,
 )
 
 
@@ -35,14 +34,15 @@ _DEFAULT_ANSWER_FORMS = ("mcq", "open")
 def extra_audio_variants_from_fact(fact, *, point_dir: Path) -> list[str]:
     """Non-main audio variants from normalized release_media.
 
-    Question-only facts omit release_media; there is nothing to normalize.
-    Declared list or mapping forms go through load_runtime_artifacts().
+    Uses the shared fact helper so question-only facts skip visual files,
+    and list/mapping release_media forms stay equivalent.
     """
 
-    if not isinstance(fact, Mapping) or fact.get("release_media") is None:
-        return []
-    plan = load_runtime_artifacts(point_dir, fact)
-    return [name for name in declared_audio_variants(plan) if name != "main"]
+    return [
+        name
+        for name in declared_audio_variants_from_fact(fact, point_dir=point_dir)
+        if name != "main"
+    ]
 
 
 def _read(path):

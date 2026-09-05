@@ -400,6 +400,25 @@ def declared_audio_variants(plan: Mapping[str, Any]) -> list[str]:
     return result
 
 
+def declared_audio_variants_from_fact(
+    fact: Any,
+    *,
+    point_dir: str | Path,
+) -> list[str]:
+    """Declared audio variants from one candidate fact.
+
+    ``fact`` must be an object. Missing or JSON-null ``release_media`` is a
+    question-only fact: return no variants and do not load visual files.
+    Declared list or mapping forms go through ``load_runtime_artifacts``.
+    """
+
+    if not isinstance(fact, Mapping):
+        raise RuntimeArtifactError("fact_record must be an object")
+    if fact.get("release_media") is None:
+        return []
+    return declared_audio_variants(load_runtime_artifacts(point_dir, fact))
+
+
 def load_runtime_artifacts(point_dir: str | Path, fact: Mapping[str, Any] | None = None) -> dict[str, Any]:
     """Load and normalize one candidate's declarative runtime descriptions.
 

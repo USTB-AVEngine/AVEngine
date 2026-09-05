@@ -19,7 +19,11 @@ from avengine.qa.pixel_visibility import (  # noqa: E402
     PIXEL_VISIBILITY_DEPTH_AUTHORITY,
     PIXEL_VISIBILITY_SCHEMA,
 )
-from avengine.qa.runtime_artifacts import declared_audio_variants, load_runtime_artifacts  # noqa: E402
+from avengine.qa.runtime_artifacts import (  # noqa: E402
+    declared_audio_variants,
+    declared_audio_variants_from_fact,
+    load_runtime_artifacts,
+)
 from qa_v3_request import QARequestError, resolve_request_resource  # noqa: E402
 import build_qa_v3_released_probe_items as released  # noqa: E402
 import run_qa_v3_audio_batch as audio_batch  # noqa: E402
@@ -215,6 +219,33 @@ def test_list_and_mapping_release_media_yield_the_same_segment2_variants(
     ) == ["segment2"]
 
 
+def test_question_only_fact_keeps_request_variants_without_visual_files(
+    tmp_path: Path,
+) -> None:
+    point = tmp_path / "card8_001"
+    point.mkdir()
+    fact = {
+        "profile_id": "card8",
+        "question": "which source is louder?",
+        "truth": "a",
+    }
+    _write(point / "fact_record.json", fact)
+    assert not (point / "actor_selection.json").exists()
+    assert not (point / "timeline.json").exists()
+    request = {"audio_variants": ["main", "gateA"]}
+    assert pipeline._audio_variants_for_pair(
+        request, tmp_path, ["card8_001"]
+    ) == ["main", "gateA"]
+    assert declared_audio_variants_from_fact(fact, point_dir=point) == []
+    assert released.extra_audio_variants_from_fact(fact, point_dir=point) == []
+    null_fact = dict(fact)
+    null_fact["release_media"] = None
+    _write(point / "fact_record.json", null_fact)
+    assert pipeline._audio_variants_for_pair(
+        request, tmp_path, ["card8_001"]
+    ) == ["main", "gateA"]
+
+
 def test_raw_mapping_release_media_is_not_silently_dropped(tmp_path: Path) -> None:
     point = tmp_path / "card17_001"
     _card17_files(point)
@@ -320,6 +351,20 @@ def _complete_pixel_output(
         arrays.pop(f"target_only_{slot}_depth_m")
     if drop == "frame_axis":
         arrays["normal_depth_m"] = np.zeros((count + 1, height, width), dtype=np.float32)
+    if drop == "onedim":
+        arrays["normal_depth_m"] = np.zeros((count,), dtype=np.float32)
+    if drop == "scalar":
+        arrays["normal_depth_m"] = np.array(0.5, dtype=np.float32)
+    if drop == "string":
+        arrays["normal_depth_m"] = np.array(["not-depth"] * max(count, 1))
+    if drop == "int_depth":
+        arrays["normal_depth_m"] = np.zeros((count, height, width), dtype=np.int32)
+    if drop == "ids_float":
+        arrays["normal_object_ids_uint32"] = np.zeros(
+            (count, height, width), dtype=np.float32
+        )
+    if drop == "zero_height":
+        arrays["normal_depth_m"] = np.zeros((count, 0, width), dtype=np.float32)
     np.savez_compressed(output / "native_depth_and_object_ids.npz", **arrays)
     truth = {
         "schema": PIXEL_VISIBILITY_SCHEMA,
@@ -484,6 +529,49 @@ def test_pixel_producer_npz_requires_named_arrays_and_matching_frame_axis(
     )
     assert result["status"] == "failed"
     assert "frame axis" in result["records"][0]["detail"]
+
+
+def test_pixel_producer_npz_rejects_1d_scalar_and_string_arrays(
+    tmp_path: Path, monkeypatch
+) -> None:
+    _pixel_producer_point(tmp_path)
+    actor = tmp_path / "card11_001" / "actor_selection.json"
+    timeline = tmp_path / "card11_001" / "timeline.json"
+    output = tmp_path / "pair" / "declared_pixels" / "card11_001" / "main"
+    monkeypatch.setattr(
+        pipeline,
+        "_run_logged",
+        lambda *args, **kwargs: pytest.fail("invalid NPZ must not relaunch"),
+    )
+    cases = (
+        ("onedim", "ndim 3"),
+        ("scalar", "ndim 3"),
+        ("string", "ndim 3"),
+        ("int_depth", "floating-point"),
+        ("ids_float", "uint32"),
+        ("zero_height", "height and width must be > 0"),
+    )
+    for drop, needle in cases:
+        _complete_pixel_output(
+            output, actor=actor, timeline=timeline, frames=[30], drop=drop
+        )
+        error = pipeline._pixel_producer_npz_error(
+            output / "native_depth_and_object_ids.npz",
+            {
+                "per_instance": {"source1": {"semantic_id": 1}},
+            },
+            [30],
+        )
+        assert error is not None, drop
+        assert needle in error, (drop, error)
+        result = pipeline._run_declared_pixel_producers(
+            {}, "apartment_0000", "card11", tmp_path, tmp_path / "pair",
+            ["card11_001"], resume_only=True,
+        )
+        assert result["status"] == "failed", drop
+        assert needle in result["records"][0]["detail"], (
+            drop, result["records"][0]["detail"]
+        )
 
 
 def test_missing_or_unreadable_fact_records_pixel_producer_failed(
