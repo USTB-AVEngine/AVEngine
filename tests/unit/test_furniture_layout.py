@@ -18,9 +18,10 @@ from avengine.rooms.furniture_layout import (
     score_camera_candidates,
 )
 from avengine.camera_pose import yaw_rotation_xyzw
-from tools.rooms.plan_furnished_residential_episode import (
+from avengine.rooms.furnished_episode import (
     _actor_state,
     build_episode_plan,
+    plan_furnished_residential_episode,
     reuse_camera_from_plan,
 )
 
@@ -496,3 +497,38 @@ def test_reuse_camera_rejects_nonfinite_or_nonnumeric_positions(
     source = _camera_source(tmp_path / "bad.json", camera)
     with pytest.raises(FurnitureLayoutError, match="invalid position_authoring_m"):
         reuse_camera_from_plan(plan, source)
+
+
+def test_public_furnished_api_propagates_changed_seat_semantics(
+    tmp_path: Path,
+) -> None:
+    room_path = _fixture(tmp_path / "room", seat_count=4)
+    manifest = json.loads(room_path.read_text())
+    anchors_path = room_path.parent / "functional_anchors.json"
+    anchors = json.loads(anchors_path.read_text())
+    anchors["seat_points"][0]["position_m"] = [-1.8, -1.4, 0.0]
+    anchors["seat_points"][0]["support_height_m"] = 0.61
+    anchors["seat_points"][0]["facing_yaw_deg"] = 45.0
+    anchors_path.write_text(json.dumps(anchors))
+    pose = tmp_path / "pose.json"
+    pose.write_text(json.dumps({"bindings": [{
+        "actor_id": "person0",
+        "seat_affordance_id": "seat_0",
+        "root_from_seat_m": [0.0, 0.2, -0.61],
+        "ue_anatomical_forward_yaw_deg": 90.0,
+    }]}))
+    plan = plan_furnished_residential_episode(
+        room=room_path,
+        pose_bindings=pose,
+        output=tmp_path / "plan",
+        activity="seated",
+        map_path="/Game/Rooms/Test",
+        seat_count=1,
+        actor_count=1,
+        frame_count=3,
+    )
+    placement = plan["seat_layout"]["actor_placements"][0]
+    assert placement["seat_reference"]["seat_surface_height_m"] == pytest.approx(0.61)
+    assert placement["seat_reference"]["facing_yaw_deg"] == pytest.approx(45.0)
+    assert plan["visual_plan"]["frames"][0]["actor_states"][0]["translation_ue_cm"] != [0, 0, 0]
+    assert plan["visual_plan"]["frames"][0]["actor_states"][0]["actor_yaw_ue_deg"] == pytest.approx(-135.0)

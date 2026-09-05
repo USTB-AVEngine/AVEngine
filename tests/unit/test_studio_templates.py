@@ -312,3 +312,66 @@ def test_hm3d_clock_overrides_propagate_and_reject_mismatched_duration(
             {"frame_count": 150, "frame_rate_hz": 15, "clip_seconds": 5},
             tmp_path / "out_bad",
         )
+
+
+def test_furnished_seated_template_plans_and_runs_without_episode_root(
+    tmp_path: Path,
+) -> None:
+    values = _hm3d_inputs(tmp_path)
+    room = tmp_path / "room.json"
+    pose = tmp_path / "pose.json"
+    room.write_text("{}")
+    pose.write_text("{}")
+    config = _config(
+        tmp_path,
+        {
+            "furnished_seated_visual_episode": {
+                "room": str(room),
+                "pose_bindings": str(pose),
+                "activity": "seated",
+                "map_path": "/Game/Rooms/Test",
+                "uproject": values["uproject"],
+                "unreal_editor": values["unreal_editor"],
+            }
+        },
+    )
+    argv = build_template_argv(
+        config,
+        "furnished_seated_visual_episode",
+        {"actor_count": 4, "frame_count": 15},
+        tmp_path / "output",
+    )
+    assert argv[1].endswith("tools/studio/run_furnished_seated_episode.py")
+    assert "--episode-root" not in argv
+    assert argv[argv.index("--activity") + 1] == "seated"
+    assert argv[argv.index("--actor-count") + 1] == "4"
+    assert argv[argv.index("--frame-count") + 1] == "15"
+    assert argv[argv.index("--room") + 1] == str(room.resolve())
+
+
+def test_furnished_seated_template_rejects_other_activity(tmp_path: Path) -> None:
+    values = _hm3d_inputs(tmp_path)
+    room = tmp_path / "room.json"
+    pose = tmp_path / "pose.json"
+    room.write_text("{}")
+    pose.write_text("{}")
+    config = _config(
+        tmp_path,
+        {
+            "furnished_seated_visual_episode": {
+                "room": str(room),
+                "pose_bindings": str(pose),
+                "activity": "seated",
+                "map_path": "/Game/Rooms/Test",
+                "uproject": values["uproject"],
+                "unreal_editor": values["unreal_editor"],
+            }
+        },
+    )
+    with pytest.raises(StudioTemplateError, match="activity='seated'"):
+        build_template_argv(
+            config,
+            "furnished_seated_visual_episode",
+            {"activity": "walk"},
+            tmp_path / "output",
+        )
