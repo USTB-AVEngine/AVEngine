@@ -41,6 +41,34 @@ def _load_json(path: Path, *, owner: str) -> Any:
     return value
 
 
+def _load_static_triangle_geometry(layout: Mapping[str, Any]) -> dict[str, Any] | None:
+    """Read an available visual GLB for CPU authored-ray scoring."""
+
+    resources = layout.get("resources")
+    visual = resources.get("visual_geometry") if isinstance(resources, Mapping) else None
+    path = visual.get("resolved") if isinstance(visual, Mapping) else None
+    if not isinstance(path, str) or not path:
+        return None
+    try:
+        import numpy as np
+        from avengine.acoustics.gltf import extract_triangle_scene
+
+        scene = extract_triangle_scene(path)
+        vertices = np.asarray(scene.vertices, dtype=np.float64)
+        # Room GLBs are exported Y-up from Blender: GLB (X,Y,Z) maps to
+        # authoring Blender (X,-Z,Y).
+        authoring_vertices = np.column_stack(
+            (vertices[:, 0], -vertices[:, 2], vertices[:, 1])
+        )
+        return {
+            "vertices": authoring_vertices,
+            "triangles": np.asarray(scene.triangles, dtype=np.int64),
+            "source": path,
+        }
+    except (ImportError, OSError, ValueError, RuntimeError):
+        return None
+
+
 def _pose_bindings(
     path: str | Path | None,
     request_path: str | Path | None = None,
@@ -277,12 +305,15 @@ def build_episode_plan(
         if bound_actor_positions
         else (_overview_target_bounds(layout) if overview_only else None)
     )
+    triangle_geometry = _load_static_triangle_geometry(layout) if (bound_actor_positions or overview_only) else None
     scored_camera_pool = score_camera_candidates(
         camera_pool,
         actor_positions_m=bound_actor_positions or None,
         target_bounds_m=scoring_target_bounds,
         obstacle_bounds_m=obstacle_bounds if (bound_actor_positions or overview_only) else None,
         room_bounds_xy_m=layout["geometry"].get("bounds_xy_m") if (bound_actor_positions or overview_only) else None,
+        triangle_vertices_m=triangle_geometry["vertices"] if triangle_geometry else None,
+        triangle_indices=triangle_geometry["triangles"] if triangle_geometry else None,
     )
     selected_source = (
         scored_camera_pool["candidates"][0]
@@ -314,6 +345,8 @@ def build_episode_plan(
         "target_occluded_count": selected_source.get("target_occluded_count", 0),
         "target_geometry_visibility": selected_source.get("target_geometry_visibility", "not_evaluated"),
         "geometry_clearance_m": selected_source.get("geometry_clearance_m"),
+        "static_triangle_geometry_used": triangle_geometry is not None,
+        "static_triangle_geometry_source": triangle_geometry.get("source") if triangle_geometry else None,
     }
     frames: list[dict[str, Any]] = []
     for frame_index in range(clock["frame_count"]):

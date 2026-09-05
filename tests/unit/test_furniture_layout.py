@@ -159,6 +159,43 @@ def test_camera_pool_is_target_independent_and_scored_after_join(tmp_path: Path)
     ]
 
 
+def test_seat_facing_corrects_an_opposite_declared_table_direction(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "orientation"
+    root.mkdir()
+    objects = {
+        "objects": [
+            {
+                "object_id": "table",
+                "category": "table",
+                "center_xy_m": [0.0, 0.0],
+                "size_xyz_m": [2.0, 1.0, 0.8],
+                "seat_points": [
+                    {
+                        "anchor_id": "main_dining_seat_3",
+                        "position_m": [1.0, -1.0, 0.0],
+                        "facing_yaw_deg": -90.0,
+                        "support_height_m": 0.46,
+                    }
+                ],
+            }
+        ]
+    }
+    (root / "objects.json").write_text(json.dumps(objects), encoding="utf-8")
+    manifest = {
+        "room_id": "orientation_fixture",
+        "envelope": {"bounds_xy_m": [-2.0, -2.0, 2.0, 2.0]},
+        "artifacts": {"objects": "objects.json"},
+    }
+    path = root / "room.json"
+    path.write_text(json.dumps(manifest), encoding="utf-8")
+    layout = load_room_layout(path)
+    seat = layout["seats"][0]
+    assert seat["facing_yaw_deg"] == pytest.approx(135.0)
+    assert seat["facing_source"] == "furniture_center_geometry_correction"
+
+
 def test_overview_only_contains_camera_and_no_actor_states(tmp_path: Path) -> None:
     layout = load_room_layout(_fixture(tmp_path / "room"))
     plan = build_episode_plan(layout, frame_count=75, overview_only=True)
