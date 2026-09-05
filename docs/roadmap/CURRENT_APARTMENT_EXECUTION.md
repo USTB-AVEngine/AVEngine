@@ -1,11 +1,28 @@
 # Current Apartment execution
 
-Last updated: 2026-09-01
+Last updated: 2026-09-06
 
 This is the short operational checkpoint for the active Apartment training
 dataset work. Durable project rules live in the repository `AGENTS.md`; this
 file prevents a later session from reconstructing current state from chat
 history or choosing an easier but incorrect substitute.
+
+## 2026-09-06: unified real-room QA integration
+
+The owner-requested continuation landed on the server integration branch
+`codex/multi-home-activity-integration`, implementation commit `48afe5b`.
+Five SPEAR Episodes across three retained authored rooms and native
+`apartment_0000` produced 74 valid QA instances covering QA-01..24.
+Native Apartment uses two registered human bindings, current-map readback,
+30 current Recast path checks, complete 240-frame RGB/depth capture and
+16 kHz binaural audio. The 32 local geometry controls pass CPU/native replay.
+The detailed [delivery and runbook](../qa/QA_REAL_ROOMS_DELIVERY_20260906.md)
+records the exact final outputs, model results, cache cleanup and limits.
+
+The research output root is
+`tmp/qa_real_rooms_20260906`; the final reference export is `final_export_v1`.
+This checkpoint carries no formal-admission or service-switch claim. The
+retained animal training-data baseline and its ownership rules continue below.
 
 ## Target deliverable
 
