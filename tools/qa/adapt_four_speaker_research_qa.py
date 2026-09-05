@@ -217,10 +217,29 @@ def validate_audio_artifacts(
             missing.append("audio_program")
         if research_report_path is None:
             missing.append("research_report")
+        reason = "required native/audio artifact is not supplied"
+        details: dict[str, Any] = {}
+        if audio_program_path is not None and audio_program_path.is_file():
+            program = load_json(audio_program_path)
+            events = program.get("events") if isinstance(program, Mapping) else None
+            clock_samples = int(clock.get("sample_count", 0))
+            ends = [
+                int(item.get("end_sample_exclusive"))
+                for item in events
+                if isinstance(item, Mapping)
+                and isinstance(item.get("end_sample_exclusive"), int)
+            ] if isinstance(events, list) else []
+            if ends and max(ends) > clock_samples:
+                reason = "audio_program_exceeds_frame_readback_clock"
+                details = {
+                    "audio_program_max_end_sample": max(ends),
+                    "frame_readback_sample_count": clock_samples,
+                }
         return None, None, {
             "status": "not_run",
-            "reason": "required native/audio artifact is not supplied",
+            "reason": reason,
             "missing": missing,
+            **details,
         }
     if not audio_program_path.is_file() or not research_report_path.is_file():
         raise AdapterError("audio_program and research_report paths must exist together")
