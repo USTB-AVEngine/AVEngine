@@ -1224,3 +1224,48 @@ Output PCM is highpass-only; the speech band is used only for activity detection
 Fifteen preparation tests and all 296 WAV readbacks passed. Ten human listening
 records remain pending, so P7 is not yet fully accepted. Report:
 `docs/roadmap/codex_reports_20260906/P7_prepared_audio.md`.
+
+
+## Checkpoint 20260907: shared planning, assets, questions and native closure
+
+Authoritative tree remains 48g-jump:/data/jzy/tmp/wt-multi-home-activity-integration,
+branch codex/multi-home-activity-integration. No push/main merge or Studio switch.
+
+Completed implementation reports and commits: P3 178868d (seven measured room
+packages); P4 8ac2ea1 (Habitat native masks/rigid bindings); P12 5e2002f plus
+0b391a9 (fourteen human/generated-animal packages and readable mixed capture);
+P5 f15bca8 (one fixed-profile neutral sampler); P6 93a14e7 plus 9fd5097/f2f7a7d
+(shared audio and actual neutral-only input); P8 055c054 (candidate sampling,
+per-form rules/scoring). P9 is included with this checkpoint update.
+
+P5 produced real 240-frame native A, MP3D and HM3D captures; its 2400-trial
+plan-only matrix keeps all failed cells and distinguishes one-attempt yield
+from the production 200-retry budget. P12 registry currently contains 55 assets,
+55 Habitat bindings and 17 original SPEAR bindings; all original revisions and
+SPEAR bindings were preserved. Remaining external asset/UE-binding gaps retain
+the full 59-ID union as denominator, pending P11 inventory integration.
+
+P8 final evidence is tmp/p8_parent_final_20260907_v3: five retained episodes
+keep 21 valid question types collectively and every deferred row; three
+explicitly traced native supplements bring the sample union to QA01-24.
+The 17-second QA09 prefix is a derived diagnostic of unchanged original
+observations, not a new native capture or a pilot episode.
+
+P9 consumes actual P1/P4/P6 contracts. Final evidence:
+tmp/p9_finalize_20260907/a_same_input_v5 (old A semantic facts unchanged),
+mp3d_final_v7 (actual RGB-derived video and audio, beagle coat stays unobserved),
+mp3d_auto_p5_common_v5 (automatic neutral endpoint/audio path),
+p4_hm3d_final_p9_v1 (16-second beagle plus speaker, native audio/appearance),
+and tmp/matrix_kujiale_humans_20260907_v1/delivery_v2 (16-second two humans).
+Native color checks retain the original human shirt criterion and mark new
+animal/device color predicates as coarse placeholder evidence. Final P9
+related tests: 28 passed, no failures/skips. All outputs remain research-only.
+
+Next: finish P11 UE static/animal runtime and native combinations, merge the
+verified full-asset binding inventory, then implement P10 batch/coverage/
+permutations last. P7 still requires ten actual human listening records.
+The owner-facing review pack is under local artifacts/p7-listening-20260907
+and server tmp/p7_human_review_transfer_20260907_v1; it contains unchanged
+prepared/source WAV pairs and unfilled records. The authorized 46-episode
+pilot has NOT started and remains conditional on all prerequisite acceptance,
+including those human records. No dataset/formal admission is claimed.
