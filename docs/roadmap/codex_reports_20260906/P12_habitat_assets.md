@@ -47,6 +47,12 @@ contact_order 改为包声明，双足 foot_left/foot_right，四足保留四个
 
 最终 actor root 取原生 MP3D floor y=0.07244700193405151 m。tmp/p12_parent_contact_vertex_audit_20260907_v1.json 精确 skin 顶点检查中，actor-root-zero 最低 y 为 human -0.0019656 m、British +0.0000454 m。旧 human+Border v4 曾错误用踝部/paw link 原点校地，将 human 下移约 10.7 cm；旧结果仅保留诊断，禁止作为最终 grounding 验收。Border actor-root-zero 精确最低 y=-0.012195 m，物理支撑仍未校准；没有用保守 AABB 宣称精确穿地量。
 
+### 补充：更可读的同资产原生捕获
+
+tmp/p12_native_capture_human_british_20260907_v2/native_capture_readable_v1 是后续 fresh 30 帧（15 Hz、32000 samples）验证，使用 P5 合法静止机位 grid_00024_yaw_210、原包/正式登记、同样15 Idle+15 Walking，未改源文件、包或 registry。原生 root 最大误差约3.22e-7 m、joint约3.22e-8，target-only alignment pass；human最低可见率约95.3%，British约99.9%。
+
+父 Agent 直接从 rgb.npy 用 Pillow 按 RGB 导出并查看 parent_rgb_review_contact_sheet.png：蓝衣人全身可辨，British 在四个抽查帧中可见，Idle时部分身体触及画面下边界。子代理初版 rgb_review_contact_sheet.png 出现 RGB/BGR 通道互换，属于审阅副本问题，禁止用其橙色上衣作外观结论；原始 rgb.npy 未受影响。后续 v3/v4 墙柱遮挡、v5 猫太小的试图均保留，不替代该输出。
+
 ## 4. 未完成和证据边界
 
 本项包实现及上述原生加载/动作/像素/发声点验收完成。所有包保留 research_candidate、qualification_claim=false、episode_counted=false。本项不含 RLR、人工可答性、collision/support-contact 正式资格、全四家族数据集验收。若干四足 gait contact 使用包内明确标注的 allow_unobserved_contact 低置信 fallback，不是人工接触校准；资产不从分母删除。Mixed 猫完整外观受遮挡，记 evidence_missing_or_unsampled，不补造像素证明。
