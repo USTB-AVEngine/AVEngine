@@ -1,0 +1,86 @@
+{
+  "acoustic_package": "${AVENGINE_MP3D_ACOUSTIC_ROOT}/manifest.json",
+  "acoustic_package_template": "${AVENGINE_MP3D_ACOUSTIC_ROOT}/manifest.json",
+  "coordinate_frame": {
+    "handedness": "right",
+    "linear_unit": "meter",
+    "up_axis": "+Y",
+    "world_transform": "identity_habitat_y_up_right_v1"
+  },
+  "family": "mp3d",
+  "floor_reference": {
+    "measurement_kind": "habitat_pathfinder_snap_point_v1",
+    "path": "tmp/p3_room_packages_20260907_v3/habitat_floor_measurement/mp3d_floor_reference.json",
+    "status": "measured"
+  },
+  "planning_inputs": {
+    "dataset_config": "${AVENGINE_MP3D_ROOT}/scene_datasets/mp3d_example/mp3d.scene_dataset_config.json",
+    "dataset_config_template": "${AVENGINE_MP3D_ROOT}/scene_datasets/mp3d_example/mp3d.scene_dataset_config.json",
+    "navmesh": "${AVENGINE_MP3D_ROOT}/scene_datasets/mp3d_example/17DRP5sb8fy/17DRP5sb8fy.navmesh",
+    "navmesh_template": "${AVENGINE_MP3D_ROOT}/scene_datasets/mp3d_example/17DRP5sb8fy/17DRP5sb8fy.navmesh",
+    "room_manifest": "examples/rooms/habitat_mp3d_example/room_manifest.json",
+    "scene_glb": "${AVENGINE_MP3D_ROOT}/scene_datasets/mp3d_example/17DRP5sb8fy/17DRP5sb8fy.glb",
+    "scene_glb_template": "${AVENGINE_MP3D_ROOT}/scene_datasets/mp3d_example/17DRP5sb8fy/17DRP5sb8fy.glb"
+  },
+  "provenance": {
+    "native_floor_measurement": "tmp/p3_room_packages_20260907_v3/habitat_floor_measurement/mp3d_floor_reference.json",
+    "qualification_claim": false,
+    "runtime_route": "Habitat native",
+    "source": "examples/rooms/habitat_mp3d_example/room_manifest.json",
+    "source_revision": "official Habitat MP3D example package 17DRP5sb8fy"
+  },
+  "qualification_claim": false,
+  "renderer": "habitat",
+  "room_id": "habitat_mp3d_example_17DRP5sb8fy",
+  "schema": "avengine_qa_room_package_v1",
+  "semantics": {
+    "descriptor": "${AVENGINE_MP3D_ROOT}/scene_datasets/mp3d_example/17DRP5sb8fy/17DRP5sb8fy.house",
+    "descriptor_template": "${AVENGINE_MP3D_ROOT}/scene_datasets/mp3d_example/17DRP5sb8fy/17DRP5sb8fy.house",
+    "interpretation": "MP3D semantic PLY IDs resolved with the paired house descriptor",
+    "source": "${AVENGINE_MP3D_ROOT}/scene_datasets/mp3d_example/17DRP5sb8fy/17DRP5sb8fy_semantic.ply",
+    "source_coordinate_frame": {
+      "forward_axis": "+Y",
+      "handedness": "right",
+      "linear_unit": "meter",
+      "up_axis": "+Z"
+    },
+    "source_template": "${AVENGINE_MP3D_ROOT}/scene_datasets/mp3d_example/17DRP5sb8fy/17DRP5sb8fy_semantic.ply",
+    "source_to_common_frame": "x_y_z_to_x_z_-y_v1"
+  },
+  "static_geometry": {
+    "coordinate_frame": {
+      "forward_axis": "-Z",
+      "handedness": "right",
+      "linear_unit": "meter",
+      "up_axis": "+Y"
+    },
+    "representation": "real_surface_mesh",
+    "source": "acoustic_package_arrays",
+    "source_manifest": "${AVENGINE_MP3D_ACOUSTIC_ROOT}/manifest.json",
+    "source_manifest_template": "${AVENGINE_MP3D_ACOUSTIC_ROOT}/manifest.json",
+    "triangle_material_ids": "${AVENGINE_MP3D_ACOUSTIC_ROOT}/acoustic/triangle_material_ids.npy",
+    "triangle_material_ids_template": "${AVENGINE_MP3D_ACOUSTIC_ROOT}/acoustic/triangle_material_ids.npy",
+    "triangles": "${AVENGINE_MP3D_ACOUSTIC_ROOT}/acoustic/triangles.npy",
+    "triangles_template": "${AVENGINE_MP3D_ACOUSTIC_ROOT}/acoustic/triangles.npy",
+    "vertices": "${AVENGINE_MP3D_ACOUSTIC_ROOT}/acoustic/vertices.npy",
+    "vertices_template": "${AVENGINE_MP3D_ACOUSTIC_ROOT}/acoustic/vertices.npy"
+  },
+  "status": "research_candidate",
+  "subrooms": [
+    {
+      "subroom_id": "mp3d_example_17DRP5sb8fy_scene"
+    }
+  ],
+  "visual_scene": {
+    "dataset_config": "${AVENGINE_MP3D_ROOT}/scene_datasets/mp3d_example/mp3d.scene_dataset_config.json",
+    "dataset_config_template": "${AVENGINE_MP3D_ROOT}/scene_datasets/mp3d_example/mp3d.scene_dataset_config.json",
+    "navmesh": "${AVENGINE_MP3D_ROOT}/scene_datasets/mp3d_example/17DRP5sb8fy/17DRP5sb8fy.navmesh",
+    "navmesh_template": "${AVENGINE_MP3D_ROOT}/scene_datasets/mp3d_example/17DRP5sb8fy/17DRP5sb8fy.navmesh",
+    "scene_glb": "${AVENGINE_MP3D_ROOT}/scene_datasets/mp3d_example/17DRP5sb8fy/17DRP5sb8fy.glb",
+    "scene_glb_template": "${AVENGINE_MP3D_ROOT}/scene_datasets/mp3d_example/17DRP5sb8fy/17DRP5sb8fy.glb"
+  },
+  "walkable_space": {
+    "kind": "habitat_navmesh",
+    "path": "${AVENGINE_MP3D_ROOT}/scene_datasets/mp3d_example/17DRP5sb8fy/17DRP5sb8fy.navmesh"
+  }
+}

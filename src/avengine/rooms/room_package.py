@@ -4,6 +4,8 @@ from __future__ import annotations
 from copy import deepcopy
 import json
 import os
+import re
+from string import Template
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -80,6 +82,28 @@ def _load_json(path: str | Path) -> dict:
     return json.loads(Path(os.path.expandvars(str(path))).expanduser().read_text())
 
 
+def resolve_room_package_paths(package: Mapping[str, Any], *, runtime: Mapping[str, Any] | None = None) -> dict:
+    """Expand configured package roots once, retaining original template metadata."""
+    runtime = runtime or {}
+    bindings = dict(os.environ)
+    if runtime.get("mp3d_root"):
+        bindings["AVENGINE_MP3D_ROOT"] = str(runtime["mp3d_root"])
+    bindings.update({str(k): str(v) for k, v in runtime.get("path_bindings", {}).items()})
+    def expand(value, key=""):
+        if isinstance(value, Mapping):
+            return {k: expand(v, str(k)) for k, v in value.items()}
+        if isinstance(value, list):
+            return [expand(v, key) for v in value]
+        if isinstance(value, str) and not key.endswith("_template"):
+            result = Template(value).safe_substitute(bindings)
+            missing = re.findall(r"\$\{([A-Za-z_][A-Za-z_0-9]*)\}", result)
+            if missing:
+                raise ValueError("RoomPackage missing configured path roots: " + ", ".join(sorted(set(missing))))
+            return result
+        return deepcopy(value)
+    return expand(package)
+
+
 def package_from_catalog_entry(entry: Mapping[str, Any], *,
                                 runtime: Mapping[str, Any] | None = None) -> dict:
     """Wrap old catalog metadata, preserving any unmeasured fields as missing.
@@ -91,9 +115,9 @@ def package_from_catalog_entry(entry: Mapping[str, Any], *,
     declared = entry.get("room_package")
     if declared is not None:
         package = _load_json(declared) if isinstance(declared, (str, Path)) else declared
-        return validate_room_package(package)
+        return resolve_room_package_paths(validate_room_package(package), runtime=runtime)
     if entry.get("schema") == SCHEMA:
-        return validate_room_package(entry)
+        return resolve_room_package_paths(validate_room_package(entry), runtime=runtime)
     native = entry.get("native_room_adapter") == "avengine_native_spear_apartment_qa_room_v1"
     family = entry.get("family", "apartment" if native else "authored")
     renderer = entry.get("renderer", RENDERERS.get(family))

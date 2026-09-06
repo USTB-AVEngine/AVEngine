@@ -57,6 +57,9 @@ def plan_request(request: dict, output: Path) -> dict:
     registry = load_source_asset_runtime_registry(
         request.get("source_registry", REPOSITORY / "examples/runtime/source_asset_runtime_profiles.json"))
     rooms = read_json(request["room_catalog"])
+    catalog_bindings = rooms.get("path_bindings", {}) if isinstance(rooms, dict) else {}
+    package_runtime = {**request.get("runtime", {}), "path_bindings": {
+        **catalog_bindings, **request.get("runtime", {}).get("path_bindings", {})}}
     rooms = rooms.get("rooms", rooms) if isinstance(rooms, dict) else rooms
     sounds = read_json(request["sound_pool"])
     sounds = sounds.get("sounds", sounds) if isinstance(sounds, dict) else sounds
@@ -71,7 +74,7 @@ def plan_request(request: dict, output: Path) -> dict:
         if request.get("room_id") and request["room_id"] != room["room_id"]:
             continue
         try:
-            package = package_from_catalog_entry(room, runtime=request.get("runtime"))
+            package = package_from_catalog_entry(room, runtime=package_runtime)
             renderer = renderer_for_room(package)
             if "room_package" in room or room.get("schema") == package["schema"]:
                 room = {**package.get("legacy_catalog_entry", package.get("planning_inputs", {})),

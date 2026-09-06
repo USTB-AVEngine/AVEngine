@@ -1,0 +1,194 @@
+{
+  "assets": [
+    {
+      "actor_id": "seated_rocketbox_male_adult_01_blue_v1",
+      "actor_scale": 1.0,
+      "animation_paths_by_action_id": {
+        "seated_idle": "/Game/AVEngine/SeatedHumans/b492d6b_retry2/seated_rocketbox_male_adult_01_blue_v1/Seated_Idle.Seated_Idle"
+      },
+      "asset_id": "seated_rocketbox_male_adult_01_blue_v1",
+      "blueprint_class_path": "/Game/AVEngine/SeatedHumans/b492d6b_retry2/seated_rocketbox_male_adult_01_blue_v1/Blueprints/BP_seated_rocketbox_male_adult_01_blue_v1.BP_seated_rocketbox_male_adult_01_blue_v1_C",
+      "emitter_local_ue_cm": [
+        -0.016300000000000002,
+        -14.383899999999999,
+        139.15519999999998
+      ],
+      "exact_runtime_binding": {
+        "source": "seated_human_ue_import_manifest",
+        "status": "declared"
+      },
+      "placement_mode": "route_root_selected_by_room_walkable_space",
+      "pose_claim": "exact imported native asset transform and emitter binding; no Kujiale seat placement",
+      "pose_seat_top_m": 0.53,
+      "root_from_seat_m": [
+        0.0,
+        -0.18,
+        -0.01
+      ],
+      "skeletal_mesh_path": "/Game/AVEngine/SeatedHumans/b492d6b_retry2/seated_rocketbox_male_adult_01_blue_v1/seated_rocketbox_male_adult_01_blue_v1.seated_rocketbox_male_adult_01_blue_v1",
+      "ue_anatomical_forward_yaw_deg": 90.0,
+      "ue_animation": "/Game/AVEngine/SeatedHumans/b492d6b_retry2/seated_rocketbox_male_adult_01_blue_v1/Seated_Idle.Seated_Idle",
+      "ue_component_frame_delta": {
+        "composition": "add_relative_preserving_blueprint_transform",
+        "reason": "pose import manifest supplies the Blueprint frame; no additional correction declared",
+        "rotation_deg": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "translation_cm": [
+          0.0,
+          0.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "actor_id": "seated_rocketbox_female_adult_01_pink_v1",
+      "actor_scale": 1.0,
+      "animation_paths_by_action_id": {
+        "seated_idle": "/Game/AVEngine/SeatedHumans/b492d6b_retry2/seated_rocketbox_female_adult_01_pink_v1/Seated_Idle.Seated_Idle"
+      },
+      "asset_id": "seated_rocketbox_female_adult_01_pink_v1",
+      "blueprint_class_path": "/Game/AVEngine/SeatedHumans/b492d6b_retry2/seated_rocketbox_female_adult_01_pink_v1/Blueprints/BP_seated_rocketbox_female_adult_01_pink_v1.BP_seated_rocketbox_female_adult_01_pink_v1_C",
+      "emitter_local_ue_cm": [
+        3.1161000000000003,
+        -21.8617,
+        131.4836
+      ],
+      "exact_runtime_binding": {
+        "source": "seated_human_ue_import_manifest",
+        "status": "declared"
+      },
+      "placement_mode": "route_root_selected_by_room_walkable_space",
+      "pose_claim": "exact imported native asset transform and emitter binding; no Kujiale seat placement",
+      "pose_seat_top_m": 0.53,
+      "root_from_seat_m": [
+        0.0,
+        -0.18,
+        -0.01
+      ],
+      "skeletal_mesh_path": "/Game/AVEngine/SeatedHumans/b492d6b_retry2/seated_rocketbox_female_adult_01_pink_v1/seated_rocketbox_female_adult_01_pink_v1.seated_rocketbox_female_adult_01_pink_v1",
+      "ue_anatomical_forward_yaw_deg": 90.0,
+      "ue_animation": "/Game/AVEngine/SeatedHumans/b492d6b_retry2/seated_rocketbox_female_adult_01_pink_v1/Seated_Idle.Seated_Idle",
+      "ue_component_frame_delta": {
+        "composition": "add_relative_preserving_blueprint_transform",
+        "reason": "pose import manifest supplies the Blueprint frame; no additional correction declared",
+        "rotation_deg": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "translation_cm": [
+          0.0,
+          0.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "actor_id": "seated_rocketbox_male_adult_02_green_v1",
+      "actor_scale": 1.0,
+      "animation_paths_by_action_id": {
+        "seated_idle": "/Game/AVEngine/SeatedHumans/b492d6b_retry2/seated_rocketbox_male_adult_02_green_v1/Seated_Idle.Seated_Idle"
+      },
+      "asset_id": "seated_rocketbox_male_adult_02_green_v1",
+      "blueprint_class_path": "/Game/AVEngine/SeatedHumans/b492d6b_retry2/seated_rocketbox_male_adult_02_green_v1/Blueprints/BP_seated_rocketbox_male_adult_02_green_v1.BP_seated_rocketbox_male_adult_02_green_v1_C",
+      "emitter_local_ue_cm": [
+        -0.016300000000000002,
+        -14.383899999999999,
+        139.15519999999998
+      ],
+      "exact_runtime_binding": {
+        "source": "seated_human_ue_import_manifest",
+        "status": "declared"
+      },
+      "placement_mode": "route_root_selected_by_room_walkable_space",
+      "pose_claim": "exact imported native asset transform and emitter binding; no Kujiale seat placement",
+      "pose_seat_top_m": 0.53,
+      "root_from_seat_m": [
+        -0.0,
+        -0.18,
+        -0.01
+      ],
+      "skeletal_mesh_path": "/Game/AVEngine/SeatedHumans/b492d6b_retry2/seated_rocketbox_male_adult_02_green_v1/seated_rocketbox_male_adult_02_green_v1.seated_rocketbox_male_adult_02_green_v1",
+      "ue_anatomical_forward_yaw_deg": 90.0,
+      "ue_animation": "/Game/AVEngine/SeatedHumans/b492d6b_retry2/seated_rocketbox_male_adult_02_green_v1/Seated_Idle.Seated_Idle",
+      "ue_component_frame_delta": {
+        "composition": "add_relative_preserving_blueprint_transform",
+        "reason": "pose import manifest supplies the Blueprint frame; no additional correction declared",
+        "rotation_deg": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "translation_cm": [
+          0.0,
+          0.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "actor_id": "seated_rocketbox_female_adult_02_white_v1",
+      "actor_scale": 1.0,
+      "animation_paths_by_action_id": {
+        "seated_idle": "/Game/AVEngine/SeatedHumans/b492d6b_retry2/seated_rocketbox_female_adult_02_white_v1/Seated_Idle.Seated_Idle"
+      },
+      "asset_id": "seated_rocketbox_female_adult_02_white_v1",
+      "blueprint_class_path": "/Game/AVEngine/SeatedHumans/b492d6b_retry2/seated_rocketbox_female_adult_02_white_v1/Blueprints/BP_seated_rocketbox_female_adult_02_white_v1.BP_seated_rocketbox_female_adult_02_white_v1_C",
+      "emitter_local_ue_cm": [
+        3.1161000000000003,
+        -21.8617,
+        131.4836
+      ],
+      "exact_runtime_binding": {
+        "source": "seated_human_ue_import_manifest",
+        "status": "declared"
+      },
+      "placement_mode": "route_root_selected_by_room_walkable_space",
+      "pose_claim": "exact imported native asset transform and emitter binding; no Kujiale seat placement",
+      "pose_seat_top_m": 0.53,
+      "root_from_seat_m": [
+        -0.0,
+        -0.18,
+        -0.01
+      ],
+      "skeletal_mesh_path": "/Game/AVEngine/SeatedHumans/b492d6b_retry2/seated_rocketbox_female_adult_02_white_v1/seated_rocketbox_female_adult_02_white_v1.seated_rocketbox_female_adult_02_white_v1",
+      "ue_anatomical_forward_yaw_deg": 90.0,
+      "ue_animation": "/Game/AVEngine/SeatedHumans/b492d6b_retry2/seated_rocketbox_female_adult_02_white_v1/Seated_Idle.Seated_Idle",
+      "ue_component_frame_delta": {
+        "composition": "add_relative_preserving_blueprint_transform",
+        "reason": "pose import manifest supplies the Blueprint frame; no additional correction declared",
+        "rotation_deg": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "translation_cm": [
+          0.0,
+          0.0,
+          0.0
+        ]
+      }
+    }
+  ],
+  "claim_boundary": "Asset/runtime pose bindings only. This file does not assert seated furniture, actor positions, route feasibility or native episode admission.",
+  "generation": {
+    "method": "copy exact imported UE asset class, skeletal mesh, animation, emitter and frame-delta bindings; remove A-room seat IDs because Kujiale supplies no furniture object semantics",
+    "selected_scene": "/Game/AVEngine/Optional/Kujiale/kujiale_0020_full_home_v1",
+    "source_pose_bindings": "${AVENGINE_MULTI_HOME_ROOT}/integration_sol_v6/plan_inputs_v1/room_a_pose_bindings.json",
+    "source_stage": "${AVENGINE_MULTI_HOME_UE_ROOT}/SpearSim/SpearSim.uproject"
+  },
+  "placement_policy": {
+    "floor_reference": "tmp/p3_room_packages_20260907_v3/floor_reference/kujiale_0020_full_home_v1/floor_reference.json",
+    "mode": "route_root_from_walkable_grid",
+    "route_position_authority": "conditioned_room_sampler",
+    "seat_affordances": "none_declared_for_this_scene",
+    "walkable_space": "${AVENGINE_QA_V3_ROOT}/qa_v3_walkable_grid_kujiale_20260903_v2"
+  },
+  "renderer": "ue_spear",
+  "room_id": "kujiale_0020_full_home_v1",
+  "schema": "avengine_qa_room_pose_bindings_v1",
+  "status": "declared_asset_bindings"
+}

@@ -1,0 +1,105 @@
+{
+  "acoustic_package": "${AVENGINE_HM3D_ACOUSTIC_ROOT}/manifest.json",
+  "acoustic_package_template": "${AVENGINE_HM3D_ACOUSTIC_ROOT}/manifest.json",
+  "coordinate_frame": {
+    "handedness": "right",
+    "linear_unit": "meter",
+    "up_axis": "+Y",
+    "world_transform": "identity_habitat_y_up_right_v1"
+  },
+  "family": "hm3d",
+  "floor_reference": {
+    "measurement_kind": "habitat_pathfinder_snap_point_v1",
+    "path": "tmp/p3_room_packages_20260907_v5/hm3d_floor_measurement/floor_reference.json",
+    "status": "measured"
+  },
+  "planning_inputs": {
+    "dataset_config": "tmp/p3_room_packages_20260907_v5/hm3d_annotated_val_nonbasis.scene_dataset_config.json",
+    "navmesh": "${AVENGINE_HM3D_ROOT}/versioned_data/hm3d-1.0/hm3d/val/00800-TEEsavR23oF/TEEsavR23oF.basis.navmesh",
+    "navmesh_template": "${AVENGINE_HM3D_ROOT}/versioned_data/hm3d-1.0/hm3d/val/00800-TEEsavR23oF/TEEsavR23oF.basis.navmesh",
+    "room_manifest": "${AVENGINE_HM3D_REVIEW_ROOT}/rooms/hm3d_val_00800_TEEsavR23oF/room_manifest.json",
+    "room_manifest_template": "${AVENGINE_HM3D_REVIEW_ROOT}/rooms/hm3d_val_00800_TEEsavR23oF/room_manifest.json",
+    "route_bank": "${AVENGINE_HM3D_ROUTE_ROOT}/routes_R3",
+    "route_bank_template": "${AVENGINE_HM3D_ROUTE_ROOT}/routes_R3",
+    "scene_glb": "${AVENGINE_HM3D_ROOT}/versioned_data/hm3d-1.0/hm3d/val/00800-TEEsavR23oF/TEEsavR23oF.glb",
+    "scene_glb_template": "${AVENGINE_HM3D_ROOT}/versioned_data/hm3d-1.0/hm3d/val/00800-TEEsavR23oF/TEEsavR23oF.glb"
+  },
+  "provenance": {
+    "native_floor_measurement": "tmp/p3_room_packages_20260907_v5/hm3d_floor_measurement/floor_reference.json",
+    "qualification_claim": false,
+    "runtime_route": "Habitat native",
+    "source": "${AVENGINE_HM3D_REVIEW_ROOT}/rooms/hm3d_val_00800_TEEsavR23oF/room_manifest.json",
+    "source_revision": "HM3D 1.0 val 00800-TEEsavR23oF annotated semantic-annots-v0.2",
+    "source_template": "${AVENGINE_HM3D_REVIEW_ROOT}/rooms/hm3d_val_00800_TEEsavR23oF/room_manifest.json",
+    "z_up_to_y_up_evidence": "static_geometry.raw_visual_semantic_frame and semantics.source_to_common_frame"
+  },
+  "qualification_claim": false,
+  "renderer": "habitat",
+  "room_id": "hm3d_val_00800_TEEsavR23oF",
+  "schema": "avengine_qa_room_package_v1",
+  "semantics": {
+    "color_encoding": "COLOR_0 linear; semantic.txt colours are sRGB",
+    "descriptor": "${AVENGINE_HM3D_ROOT}/versioned_data/hm3d-1.0/hm3d/val/00800-TEEsavR23oF/TEEsavR23oF.semantic.txt",
+    "descriptor_template": "${AVENGINE_HM3D_ROOT}/versioned_data/hm3d-1.0/hm3d/val/00800-TEEsavR23oF/TEEsavR23oF.semantic.txt",
+    "interpretation": "HM3D semantic instance IDs come from semantic.glb COLOR_0 with semantic.txt labels; raw semantic GLB is Z-up and is transformed before common-layer use",
+    "source": "${AVENGINE_HM3D_ROOT}/versioned_data/hm3d-1.0/hm3d/val/00800-TEEsavR23oF/TEEsavR23oF.semantic.glb",
+    "source_coordinate_frame": {
+      "forward_axis": "+Y",
+      "handedness": "right",
+      "linear_unit": "meter",
+      "up_axis": "+Z"
+    },
+    "source_template": "${AVENGINE_HM3D_ROOT}/versioned_data/hm3d-1.0/hm3d/val/00800-TEEsavR23oF/TEEsavR23oF.semantic.glb",
+    "source_to_common_frame": "x_y_z_to_x_z_-y_v1"
+  },
+  "static_geometry": {
+    "coordinate_frame": {
+      "forward_axis": "-Z",
+      "handedness": "right",
+      "linear_unit": "meter",
+      "up_axis": "+Y"
+    },
+    "raw_visual_semantic_frame": {
+      "forward_axis": "+Y",
+      "handedness": "right",
+      "linear_unit": "meter",
+      "up_axis": "+Z"
+    },
+    "representation": "real_surface_mesh",
+    "source": "acoustic_package_arrays",
+    "source_manifest": "${AVENGINE_HM3D_ACOUSTIC_ROOT}/manifest.json",
+    "source_manifest_template": "${AVENGINE_HM3D_ACOUSTIC_ROOT}/manifest.json",
+    "source_to_common_frame": "x_y_z_to_x_z_-y_v1",
+    "triangle_material_ids": "${AVENGINE_HM3D_ACOUSTIC_ROOT}/acoustic/triangle_material_ids.npy",
+    "triangle_material_ids_template": "${AVENGINE_HM3D_ACOUSTIC_ROOT}/acoustic/triangle_material_ids.npy",
+    "triangles": "${AVENGINE_HM3D_ACOUSTIC_ROOT}/acoustic/triangles.npy",
+    "triangles_template": "${AVENGINE_HM3D_ACOUSTIC_ROOT}/acoustic/triangles.npy",
+    "vertices": "${AVENGINE_HM3D_ACOUSTIC_ROOT}/acoustic/vertices.npy",
+    "vertices_template": "${AVENGINE_HM3D_ACOUSTIC_ROOT}/acoustic/vertices.npy"
+  },
+  "status": "research_candidate",
+  "subrooms": [
+    {
+      "subroom_id": "R3_floor_0.1634"
+    },
+    {
+      "subroom_id": "R3_floor_3.1634"
+    }
+  ],
+  "visual_scene": {
+    "dataset_config": "tmp/p3_room_packages_20260907_v5/hm3d_annotated_val_nonbasis.scene_dataset_config.json",
+    "dataset_config_template": "${AVENGINE_P3_ROOM_PACKAGE_ROOT}/p3_room_packages_20260907_v5/hm3d_annotated_val_nonbasis.scene_dataset_config.json",
+    "navmesh": "${AVENGINE_HM3D_ROOT}/versioned_data/hm3d-1.0/hm3d/val/00800-TEEsavR23oF/TEEsavR23oF.basis.navmesh",
+    "navmesh_template": "${AVENGINE_HM3D_ROOT}/versioned_data/hm3d-1.0/hm3d/val/00800-TEEsavR23oF/TEEsavR23oF.basis.navmesh",
+    "scene_glb": "${AVENGINE_HM3D_ROOT}/versioned_data/hm3d-1.0/hm3d/val/00800-TEEsavR23oF/TEEsavR23oF.glb",
+    "scene_glb_template": "${AVENGINE_HM3D_ROOT}/versioned_data/hm3d-1.0/hm3d/val/00800-TEEsavR23oF/TEEsavR23oF.glb",
+    "source_dataset_config": "${AVENGINE_HM3D_ROOT}/versioned_data/hm3d-1.0/hm3d/hm3d_annotated_val_basis.scene_dataset_config.json",
+    "source_dataset_config_template": "${AVENGINE_HM3D_ROOT}/versioned_data/hm3d-1.0/hm3d/hm3d_annotated_val_basis.scene_dataset_config.json"
+  },
+  "walkable_space": {
+    "kind": "habitat_navmesh",
+    "path": "${AVENGINE_HM3D_ROOT}/versioned_data/hm3d-1.0/hm3d/val/00800-TEEsavR23oF/TEEsavR23oF.basis.navmesh",
+    "route_bank": "${AVENGINE_HM3D_ROUTE_ROOT}/routes_R3",
+    "route_bank_template": "${AVENGINE_HM3D_ROUTE_ROOT}/routes_R3"
+  }
+}

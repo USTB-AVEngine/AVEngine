@@ -224,3 +224,14 @@ def test_short_canary_clock_preserves_declared_sample_rounding():
     assert validate_clock(clock) == clock
     with pytest.raises(ValueError, match="sample counts"):
         validate_clock({**clock, "sample_count": 5334})
+
+
+def test_room_path_configuration_overrides_environment_and_keeps_template(monkeypatch):
+    from avengine.rooms.room_package import resolve_room_package_paths
+    monkeypatch.setenv('AVENGINE_TEST_ROOT', '/environment')
+    package={'scene': '${AVENGINE_TEST_ROOT}/scene.glb', 'scene_template': '${AVENGINE_TEST_ROOT}/scene.glb'}
+    result=resolve_room_package_paths(package,runtime={'path_bindings':{'AVENGINE_TEST_ROOT':'/request'}})
+    assert result['scene']=='/request/scene.glb'
+    assert result['scene_template']=='${AVENGINE_TEST_ROOT}/scene.glb'
+    with pytest.raises(ValueError,match='AVENGINE_MISSING_TEST_ROOT'):
+        resolve_room_package_paths({'scene':'${AVENGINE_MISSING_TEST_ROOT}/scene.glb'})
