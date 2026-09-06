@@ -39,6 +39,11 @@ CONTACT_ORDER: tuple[str, str, str, str] = (
     "paw_hind_left",
     "paw_hind_right",
 )
+BIPED_CONTACT_ORDER: tuple[str, str] = ("foot_left", "foot_right")
+SUPPORTED_CONTACT_ORDERS: tuple[tuple[str, ...], ...] = (
+    CONTACT_ORDER,
+    BIPED_CONTACT_ORDER,
+)
 
 _MINIMUM_CONTACT_SAMPLE_COUNT = 3
 _QUATERNION_TOLERANCE = 1.0e-9
@@ -758,7 +763,8 @@ class ContactFrame:
     sample_index: int
     sample_tick: int
     source_time_seconds: float
-    in_contact: tuple[bool, bool, bool, bool]
+    in_contact: tuple[bool, ...]
+    contact_order: tuple[str, ...] = CONTACT_ORDER
 
     def to_json_data(self) -> dict[str, Any]:
         return {
@@ -768,7 +774,7 @@ class ContactFrame:
             "contacts": [
                 {"contact_id": contact_id, "in_contact": state}
                 for contact_id, state in zip(
-                    CONTACT_ORDER, self.in_contact, strict=True
+                    self.contact_order, self.in_contact, strict=True
                 )
             ],
         }
@@ -802,7 +808,7 @@ class ContactPhaseReport:
     source_glb_sha256: str
     baked_actions_sha256: str
     runtime_joint_order: tuple[str, ...]
-    contact_order: tuple[str, str, str, str]
+    contact_order: tuple[str, ...]
     sample_rate_hz: int
     time_base_hz: int
     anchor_definitions: tuple[AnchorDefinition, ...]
@@ -913,6 +919,7 @@ def _anchor_trajectories(
     mapping: HabitatAssetMapping,
     actions: BakedActionSet,
     anchors: tuple[AnchorDefinition, ...],
+    contact_order: tuple[str, ...],
 ) -> dict[str, np.ndarray]:
     result: dict[str, np.ndarray] = {}
     for action in actions.actions:
@@ -922,11 +929,11 @@ def _anchor_trajectories(
             frames.append(
                 [
                     resolved.anchor_transform(contact_id).translation_m
-                    for contact_id in CONTACT_ORDER
+                    for contact_id in contact_order
                 ]
             )
         trajectory = np.asarray(frames, dtype=np.float64)
-        expected_shape = (action.sample_count, len(CONTACT_ORDER), 3)
+        expected_shape = (action.sample_count, len(contact_order), 3)
         if trajectory.shape != expected_shape:
             raise KinematicsError(
                 f"{action.semantic_action_id} anchor trajectory has invalid shape "
@@ -943,8 +950,10 @@ def derive_contact_phases(
     actions: BakedActionSet,
     contact_anchors: tuple[AnchorDefinition, ...],
     thresholds: ContactInferenceThresholds | None = None,
+    *,
+    allow_unobserved_contact: bool = False,
 ) -> ContactPhaseReport:
-    """Infer deterministic Idle/Walk contact evidence for four declared paws."""
+    """Infer deterministic Idle/Walk contact evidence for the declared feet."""
 
     _validate_mapping(mapping)
     if not isinstance(actions, BakedActionSet):
@@ -965,26 +974,30 @@ def derive_contact_phases(
             "Idle and Walk contact inference requires at least three samples each"
         )
     definitions = _validate_anchors(mapping.joint_order, contact_anchors)
-    if tuple(anchor.anchor_id for anchor in definitions) != CONTACT_ORDER:
+    contact_order = tuple(anchor.anchor_id for anchor in definitions)
+    if contact_order not in SUPPORTED_CONTACT_ORDERS:
         raise KinematicsError(
-            f"contact anchor definitions must follow fixed CONTACT_ORDER {CONTACT_ORDER}"
+            "contact anchor definitions must use one supported CONTACT_ORDER: "
+            f"{SUPPORTED_CONTACT_ORDERS}"
         )
     if thresholds is None:
         thresholds = ContactInferenceThresholds()
     elif not isinstance(thresholds, ContactInferenceThresholds):
         raise KinematicsError("thresholds must be ContactInferenceThresholds")
 
-    trajectories = _anchor_trajectories(mapping, actions, definitions)
+    trajectories = _anchor_trajectories(
+        mapping, actions, definitions, contact_order
+    )
     idle_positions = trajectories["idle"]
     walk_positions = trajectories["walk"]
     idle_reference_heights = tuple(
         _canonical_float(float(np.median(idle_positions[:, index, 1])))
-        for index in range(len(CONTACT_ORDER))
+        for index in range(len(contact_order))
     )
     warnings: list[ContactWarning] = []
     idle_states_by_contact: list[tuple[bool, ...]] = []
     idle_metrics: list[ContactTrajectoryMetric] = []
-    for contact_index, contact_id in enumerate(CONTACT_ORDER):
+    for contact_index, contact_id in enumerate(contact_order):
         positions = idle_positions[:, contact_index]
         states = (True,) * len(positions)
         preliminary = _trajectory_metric(
@@ -1031,7 +1044,7 @@ def derive_contact_phases(
 
     walk_states_by_contact: list[tuple[bool, ...]] = []
     walk_metrics: list[ContactTrajectoryMetric] = []
-    for contact_index, contact_id in enumerate(CONTACT_ORDER):
+    for contact_index, contact_id in enumerate(contact_order):
         positions = walk_positions[:, contact_index]
         heights = positions[:, 1]
         vertical_range = float(np.ptp(heights))
@@ -1040,7 +1053,7 @@ def derive_contact_phases(
             thresholds.contact_height_fraction * vertical_range
         )
         if vertical_range < thresholds.minimum_dynamic_vertical_range_m:
-            if contact_index < 2:
+            if len(contact_order) == 4 and contact_index < 2 and not allow_unobserved_contact:
                 raise KinematicsError(
                     f"front paw {contact_id!r} vertical excursion "
                     f"{vertical_range:.9g} m is below the required dynamic threshold"
@@ -1063,11 +1076,29 @@ def derive_contact_phases(
         else:
             states = tuple(bool(height <= height_threshold) for height in heights)
             if not any(states):
-                raise KinematicsError(
-                    f"paw {contact_id!r} has no contact frame near its Idle height"
+                if not allow_unobserved_contact:
+                    raise KinematicsError(
+                        f"paw {contact_id!r} has no contact frame near its Idle height"
+                    )
+                nearest = int(np.argmin(np.abs(heights - reference)))
+                mutable_states = [False] * len(states)
+                mutable_states[nearest] = True
+                states = tuple(mutable_states)
+                inference_mode = "nearest_idle_frame_contact"
+                confidence = "low"
+                warnings.append(
+                    ContactWarning(
+                        code="no_idle_height_frame_nearest_contact",
+                        semantic_action_id="walk",
+                        contact_id=contact_id,
+                        message=(
+                            "No Walk sample reached the Idle contact-height band; "
+                            f"nearest sample {nearest} retained as low-confidence contact."
+                        ),
+                    )
                 )
-            if all(states):
-                if contact_index < 2:
+            elif all(states):
+                if len(contact_order) == 4 and contact_index < 2:
                     raise KinematicsError(
                         f"front paw {contact_id!r} has no supported swing frame"
                     )
@@ -1134,8 +1165,9 @@ def derive_contact_phases(
                 source_time_seconds=action.source_times_seconds[index],
                 in_contact=tuple(
                     states_by_contact[contact_index][index]
-                    for contact_index in range(len(CONTACT_ORDER))
+                    for contact_index in range(len(contact_order))
                 ),  # type: ignore[arg-type]
+                contact_order=contact_order,
             )
             for index in range(action.sample_count)
         )
@@ -1150,7 +1182,7 @@ def derive_contact_phases(
         source_glb_sha256=mapping.source_glb_sha256,
         baked_actions_sha256=baked_actions_content_sha256(actions),
         runtime_joint_order=mapping.runtime_joint_order,
-        contact_order=CONTACT_ORDER,
+        contact_order=contact_order,
         sample_rate_hz=SAMPLE_RATE_HZ,
         time_base_hz=TIME_BASE_HZ,
         anchor_definitions=definitions,
@@ -1165,6 +1197,8 @@ def derive_contact_phases(
 
 __all__ = [
     "CONTACT_ORDER",
+    "BIPED_CONTACT_ORDER",
+    "SUPPORTED_CONTACT_ORDERS",
     "AnchorDefinition",
     "AnchorFrame",
     "ContactActionPhases",

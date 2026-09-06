@@ -33,6 +33,7 @@ from avengine.assets.contracts import (
     ANIMAL_SCHEMA,
     CONTACT_ORDER,
     REQUIRED_FILE_ROLES,
+    SUPPORTED_CONTACT_ORDERS,
     validate_animal_asset_package,
 )
 from avengine.assets.glb import GlbDocument, decode_accessor, load_glb
@@ -1122,30 +1123,35 @@ def _validate_animation_qa(
         mouth.get("rotation_excursion_degrees_by_action"),
         owner="animation_qa.mouth.rotation_excursion_degrees_by_action",
     )
-    if (
-        mouth.get("joint_id") != muzzle_joint_id
-        or mouth.get("open_ratio_policy") != "exactly_zero"
-        or set(excursions) != {"idle", "walk"}
-        or any(
-            _finite_number(
-                excursions[action_id],
-                owner=f"animation_qa.mouth.{action_id}",
-            )
-            != 0.0
-            for action_id in ("idle", "walk")
-        )
-        or _finite_number(
-            mouth.get("maximum_rotation_excursion_degrees"),
-            owner="animation_qa.mouth.maximum_rotation_excursion_degrees",
-        )
-        != 0.0
-        or _positive_threshold(
-            mouth.get("threshold_degrees"),
-            owner="animation_qa.mouth.threshold_degrees",
-        )
-        <= 0.0
-    ):
+    if mouth.get("joint_id") != muzzle_joint_id or set(excursions) != {"idle", "walk"}:
         raise PackageCompileError("animation_qa does not prove the M2 mouth=0 policy")
+    policy = mouth.get("open_ratio_policy")
+    measured_excursions = {
+        action_id: _finite_number(
+            excursions[action_id], owner=f"animation_qa.mouth.{action_id}"
+        )
+        for action_id in ("idle", "walk")
+    }
+    maximum_excursion = _finite_number(
+        mouth.get("maximum_rotation_excursion_degrees"),
+        owner="animation_qa.mouth.maximum_rotation_excursion_degrees",
+    )
+    threshold_excursion = _positive_threshold(
+        mouth.get("threshold_degrees"),
+        owner="animation_qa.mouth.threshold_degrees",
+    )
+    if policy == "exactly_zero":
+        if any(value != 0.0 for value in measured_excursions.values()) or maximum_excursion != 0.0:
+            raise PackageCompileError("animation_qa does not prove the M2 mouth=0 policy")
+    elif policy == "joint_transform":
+        if maximum_excursion < max(measured_excursions.values()) or maximum_excursion > threshold_excursion:
+            raise PackageCompileError(
+                "animation_qa mouth joint excursion exceeds its declared threshold"
+            )
+    else:
+        raise PackageCompileError(
+            "animation_qa mouth.open_ratio_policy must be exactly_zero or joint_transform"
+        )
     limitations = _sequence(
         value.get("known_limitations"), owner="animation_qa.known_limitations"
     )
@@ -1218,7 +1224,14 @@ def _validate_contacts(
     actions_sha256: str,
     actions: BakedActionSet,
     anchors: Sequence[Mapping[str, Any]],
+    contact_order: Sequence[str] = CONTACT_ORDER,
 ) -> None:
+    contact_order = tuple(contact_order)
+    if contact_order not in SUPPORTED_CONTACT_ORDERS:
+        raise PackageCompileError(
+            "contacts contact_order must use one supported order: "
+            f"{SUPPORTED_CONTACT_ORDERS}"
+        )
     value = report.value
     schema = value.get("schema", value.get("schema_version"))
     if schema != CONTACT_PHASES_SCHEMA:
@@ -1246,9 +1259,9 @@ def _validate_contacts(
         or value.get("time_base_hz") != actions.time_base_hz
     ):
         raise PackageCompileError("contacts clock differs from baked actions")
-    if value.get("contact_order") != CONTACT_ORDER:
+    if value.get("contact_order") != list(contact_order):
         raise PackageCompileError(
-            f"contacts contact_order must be exactly {CONTACT_ORDER}"
+            f"contacts contact_order must be exactly {list(contact_order)}"
         )
     coordinate_system = _mapping(
         value.get("coordinate_system"), owner="contacts.coordinate_system"
@@ -1263,7 +1276,7 @@ def _validate_contacts(
         raise PackageCompileError("contacts coordinate_system is not canonical M2")
     expected_contact_anchors = [
         anchor
-        for contact_id in CONTACT_ORDER
+        for contact_id in contact_order
         for anchor in anchors
         if anchor.get("anchor_id") == contact_id
     ]
@@ -1330,12 +1343,12 @@ def _validate_contacts(
                 frame.get("contacts"),
                 owner=(f"contacts.actions[{index}].frames[{frame_index}].contacts"),
             )
-            if len(states) != len(CONTACT_ORDER):
+            if len(states) != len(contact_order):
                 raise PackageCompileError(
                     f"contacts {action_id} frame {frame_index} state count is invalid"
                 )
             for contact_index, (state_value, contact_id) in enumerate(
-                zip(states, CONTACT_ORDER, strict=True)
+                zip(states, contact_order, strict=True)
             ):
                 state = _mapping(
                     state_value,
@@ -1724,7 +1737,10 @@ def _canonical_anchor(value: Any, *, index: int) -> dict[str, Any]:
 
 
 def _anchors(
-    definitions: Sequence[Any], *, mapping: HabitatAssetMapping
+    definitions: Sequence[Any],
+    *,
+    mapping: HabitatAssetMapping,
+    contact_order: Sequence[str] = CONTACT_ORDER,
 ) -> list[dict[str, Any]]:
     if isinstance(definitions, (str, bytes)):
         raise PackageCompileError("anchor_definitions must be an explicit sequence")
@@ -1734,7 +1750,13 @@ def _anchors(
     ids = [value["anchor_id"] for value in values]
     if len(ids) != len(set(ids)):
         raise PackageCompileError("anchor_definitions contains duplicate anchor IDs")
-    required = {"body", "head", "muzzle", *CONTACT_ORDER}
+    contact_order = tuple(contact_order)
+    if contact_order not in SUPPORTED_CONTACT_ORDERS:
+        raise PackageCompileError(
+            "anchor contact order must use one supported order: "
+            f"{SUPPORTED_CONTACT_ORDERS}"
+        )
+    required = {"body", "head", "muzzle", *contact_order}
     missing = sorted(required - set(ids))
     if missing:
         raise PackageCompileError(f"anchor_definitions is missing {missing}")
@@ -1746,7 +1768,7 @@ def _anchors(
         raise PackageCompileError(f"anchor_definitions uses unknown joints: {unknown}")
     order = {
         name: index
-        for index, name in enumerate(("body", "head", "muzzle", *CONTACT_ORDER))
+        for index, name in enumerate(("body", "head", "muzzle", *contact_order))
     }
     return sorted(
         values,
@@ -2209,6 +2231,17 @@ def compile_research_candidate_animal_package(
     if action_set.source_glb_sha256 != visual_sha256:
         raise PackageCompileError("baked_actions source GLB hash does not match visual")
 
+    raw_contact_order = contact.value.get("contact_order")
+    if (
+        not isinstance(raw_contact_order, list)
+        or tuple(raw_contact_order) not in SUPPORTED_CONTACT_ORDERS
+    ):
+        raise PackageCompileError(
+            "contacts contact_order must use one supported order: "
+            f"{SUPPORTED_CONTACT_ORDERS}"
+        )
+    contact_order = tuple(raw_contact_order)
+
     _validate_rebase_report(
         rebase, visual_sha256=visual_sha256, visual_size=len(visual_payload)
     )
@@ -2222,7 +2255,11 @@ def compile_research_candidate_animal_package(
         raise PackageCompileError(
             "baked_actions runtime_joint_order differs from the GLB skeleton"
         )
-    anchors = _anchors(anchor_definitions, mapping=habitat_mapping)
+    anchors = _anchors(
+        anchor_definitions,
+        mapping=habitat_mapping,
+        contact_order=contact_order,
+    )
     _validate_rebase_deformation_report(
         rebase_deformation,
         visual_sha256=visual_sha256,
@@ -2289,6 +2326,7 @@ def compile_research_candidate_animal_package(
         actions_sha256=actions_sha256,
         actions=action_set,
         anchors=anchors,
+        contact_order=contact_order,
     )
     _validate_source_and_license(source, license_value, identity=identity)
 
@@ -2462,7 +2500,7 @@ def compile_research_candidate_animal_package(
             "runtime_joint_order": list(habitat_mapping.runtime_joint_order),
             "joint_pose_encoding": "ordered_local_rotation_xyzw_float64",
         },
-        "contacts": {"contact_order": CONTACT_ORDER},
+        "contacts": {"contact_order": list(contact_order)},
         "anchors": anchors,
         "actions": [
             {

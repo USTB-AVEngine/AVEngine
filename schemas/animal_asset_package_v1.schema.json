@@ -91,7 +91,7 @@
       "properties": {
         "contact_order": {
           "type": "array",
-          "minItems": 4,
+          "minItems": 2,
           "maxItems": 4,
           "uniqueItems": true,
           "items": {"type": "string", "minLength": 1}
@@ -100,7 +100,7 @@
     },
     "anchors": {
       "type": "array",
-      "minItems": 7,
+      "minItems": 5,
       "items": {
         "type": "object",
         "additionalProperties": false,

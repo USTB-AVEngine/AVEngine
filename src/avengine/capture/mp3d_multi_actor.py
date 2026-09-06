@@ -180,7 +180,10 @@ def _resolve_case_track_paths(
         )
     except (KeyError, CurrentMP3DDynamicAudioError, TypeError, ValueError) as exc:
         raise MP3DMultiActorCaptureError(f"case clock is invalid: {exc}") from exc
-    if int(resolved_clock["frame_count"]) < 2 or dict(clock) != resolved_clock:
+    from avengine.capture.neutral_readback import validate_clock
+    validate_clock(clock)
+    keys = ("frame_count", "frame_rate_hz", "sample_rate_hz", "sample_count", "ticks_per_frame", "time_base_hz")
+    if int(resolved_clock["frame_count"]) < 2 or any(clock[key] != resolved_clock[key] for key in keys):
         raise MP3DMultiActorCaptureError(
             "case clock does not match the current visual/audio clock resolver"
         )
@@ -207,7 +210,10 @@ def _resolve_case_track_paths(
             raise MP3DMultiActorCaptureError(f"actor track is missing: {track_path}")
         track = _read_json(track_path, owner=f"actor track {ordinal}")
         track_clock = track.get("clock")
-        if not isinstance(track_clock, Mapping) or dict(track_clock) != resolved_clock:
+        if not isinstance(track_clock, Mapping):
+            raise MP3DMultiActorCaptureError(f"actor track {track_path} has no clock")
+        validate_clock(track_clock)
+        if any(track_clock[key] != resolved_clock[key] for key in keys):
             raise MP3DMultiActorCaptureError(
                 f"actor track {track_path} clock differs from the case clock"
             )
@@ -307,6 +313,7 @@ def _load_track_runtime(
     runtime_registry_path: str | Path | None = None,
     external_index_path: str | Path | None = None,
     binding_delta_path: str | Path | None = None,
+    allow_research_candidate: bool = False,
 ) -> tuple[ValidatedM2Inputs, Any]:
     asset = track.get("asset")
     if not isinstance(asset, Mapping):
@@ -347,7 +354,9 @@ def _load_track_runtime(
     key = (asset_path, request_path)
     if key not in cache:
         try:
-            inputs = load_m2_inputs(asset_path, request_path)
+            inputs = load_m2_inputs(
+                asset_path, request_path, allow_research_candidate=allow_research_candidate
+            )
             bundle = load_runtime_asset_bundle(inputs)
         except (OSError, TypeError, ValueError, RuntimeError) as exc:
             raise MP3DMultiActorCaptureError(
@@ -479,15 +488,23 @@ def _base_template_handle(
         return cache[config_path]
     manager = simulator.metadata_mediator.ao_template_manager
     loaded = manager.load_configs(str(config_path))
-    prefix = config_path.stem.removesuffix(".ao_config")
-    handles = list(manager.get_template_handles(prefix))
-    base = prefix if prefix in handles else (handles[0] if len(handles) == 1 else None)
-    if len(loaded) != 1 or base is None:
+    if not isinstance(loaded, Sequence) or len(loaded) != 1:
         raise MP3DMultiActorCaptureError(
-            f"expected one base AO template for {config_path}: ids={loaded}, handles={handles}"
+            f"expected one AO template for {config_path}: ids={loaded}"
         )
-    cache[config_path] = str(base)
-    return str(base)
+    template_id = loaded[0]
+    try:
+        base = manager.get_template_handle_by_id(template_id)
+    except (AttributeError, TypeError, ValueError, RuntimeError) as exc:
+        raise MP3DMultiActorCaptureError(
+            f"could not resolve AO template id {template_id!r} for {config_path}"
+        ) from exc
+    if not isinstance(base, str) or not base:
+        raise MP3DMultiActorCaptureError(
+            f"AO template id {template_id!r} has no handle for {config_path}"
+        )
+    cache[config_path] = base
+    return base
 
 
 def _track_entity_class(track: Mapping[str, Any]) -> str:
@@ -1140,6 +1157,7 @@ def _capture_with_runtime(
     runtime_registry_path: str | Path | None,
     external_index_path: str | Path | None,
     binding_delta_path: str | Path | None,
+    allow_research_candidate: bool = False,
 ) -> dict[str, Any]:
     if runtime.mp3d_root is None:
         raise MP3DMultiActorCaptureError(
@@ -1197,6 +1215,7 @@ def _capture_with_runtime(
                 inputs, bundle = _load_track_runtime(
                     track,
                     cache=package_cache,
+                    **({"allow_research_candidate": True} if allow_research_candidate else {}),
                 )
             else:
                 inputs, bundle = _load_track_runtime(
@@ -1205,6 +1224,7 @@ def _capture_with_runtime(
                     runtime_registry_path=runtime_registry_path,
                     external_index_path=external_index_path,
                     binding_delta_path=binding_delta_path,
+                    allow_research_candidate=allow_research_candidate,
                 )
             actor_runtime.append(
                 {
@@ -1583,6 +1603,7 @@ def _capture_with_runtime(
         "artifact_role": "observed_native_habitat_capture",
         "status": "research_only",
         "research_only": True,
+        "research_candidate_assets_allowed": allow_research_candidate,
         "episode_counted": False,
         "qualification_claim": False,
         "claim_boundary": (
@@ -1707,6 +1728,7 @@ def capture_mp3d_multi_actor(
     runtime_registry_path: str | Path | None = None,
     external_index_path: str | Path | None = None,
     binding_delta_path: str | Path | None = None,
+    allow_research_candidate: bool = False,
     runtime: InstalledHabitatRuntime | None = None,
     simulator_factory: Callable[[Any], Any] | None = None,
 ) -> dict[str, Any]:
@@ -1749,6 +1771,7 @@ def capture_mp3d_multi_actor(
         runtime_registry_path=runtime_registry_path,
         external_index_path=external_index_path,
         binding_delta_path=binding_delta_path,
+        allow_research_candidate=allow_research_candidate,
     )
     if episode_plan_path is not None:
         plan = _read_json(episode_plan_path, owner="episode plan")

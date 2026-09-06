@@ -1,7 +1,7 @@
 {
   "schema": "avengine_source_asset_runtime_registry_v1",
   "registry_id": "avengine_source_asset_runtime_profiles_v1",
-  "revision": "20260906_habitat_bindings_v1",
+  "revision": "20260907_habitat_full_articulated_v1",
   "aliases": {
     "current_generated_cat": {
       "asset_id": "generated_british_shorthair_blue_medium_stocky_adult_research_v1",
@@ -113,6 +113,64 @@
             "reason": "generated_abyssinian_native_UE_bounds_floor_calibration"
           },
           "floor_contact_gate": true
+        },
+        "habitat": {
+          "asset_kind": "articulated_m2_package",
+          "asset_manifest_path": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/p12_package_abyssinian_20260906_v1/package/asset_manifest.json",
+          "base_m2_request_path": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/p12_package_abyssinian_20260906_v1/base_m2_request.json",
+          "category": "animal",
+          "emitter": {
+            "anchor_id": "muzzle",
+            "anchor_type": "mouth",
+            "joint_id": "bone_4",
+            "offset_m": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "offset_space": "joint_local",
+            "semantic_anchor_id": "muzzle",
+            "joint_from_anchor": {
+              "rotation_xyzw": [
+                0.0,
+                0.0,
+                0.0,
+                1.0
+              ],
+              "translation_m": [
+                0.0,
+                0.0,
+                0.0
+              ]
+            },
+            "root_offset_m": [
+              0.38869346364905827,
+              0.16641961991328985,
+              0.0
+            ]
+          },
+          "entity_class": "articulated_animal",
+          "glb_path": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/p12_package_abyssinian_20260906_v1/package/visual.glb",
+          "glb_relative_path": "package/visual.glb",
+          "resting_pose": {
+            "attachment_surface": "floor",
+            "base_plane_offset_m": 0.0,
+            "measured_from": "P12 Habitat native skin-rest probe",
+            "probe_path": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/p12_package_abyssinian_20260906_v1/habitat_static_probe/probe.json"
+          },
+          "semantic_template": {
+            "semantic_id_source": "episode_binding",
+            "template_id": "generated_abyssinian_target_native_v1",
+            "template_kind": "articulated_m2"
+          },
+          "package_revisions": {
+            "action_revision": "target-native-reviewed-idle-walk-v1",
+            "collision_revision": "m2-kinematic-rest-bbox-proxy-v1",
+            "skeleton_revision": "target_native_tokenrig_seed42",
+            "topology_sha256": "29dd9a345dbbc08374a84b0d505321962b8d30ab51f59696c21c55ee1ad47375",
+            "uv_sha256": "fa4d82353ea6c8de59bfb5300532c4b8c5ee9975a957bbe6157b3aaadd9ebb8a",
+            "weights_revision": "target_native_tokenrig_seed42"
+          }
         }
       },
       "admission_state": "research"
@@ -201,6 +259,64 @@
             "reason": "generated_target_native_heading_plus_x_and_support_plane_z0"
           },
           "floor_contact_gate": true
+        },
+        "habitat": {
+          "asset_kind": "articulated_m2_package",
+          "asset_manifest_path": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/p12_package_border_20260906_v1/package/asset_manifest.json",
+          "base_m2_request_path": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/p12_package_border_20260906_v1/base_m2_request.json",
+          "category": "animal",
+          "emitter": {
+            "anchor_id": "muzzle",
+            "anchor_type": "mouth",
+            "joint_id": "bone_4",
+            "offset_m": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "offset_space": "joint_local",
+            "semantic_anchor_id": "muzzle",
+            "joint_from_anchor": {
+              "rotation_xyzw": [
+                0.0,
+                0.0,
+                0.0,
+                1.0
+              ],
+              "translation_m": [
+                0.0,
+                0.0,
+                0.0
+              ]
+            },
+            "root_offset_m": [
+              0.40465284499021825,
+              0.6465226403698251,
+              0.0
+            ]
+          },
+          "entity_class": "articulated_animal",
+          "glb_path": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/p12_package_border_20260906_v1/package/visual.glb",
+          "glb_relative_path": "package/visual.glb",
+          "resting_pose": {
+            "attachment_surface": "floor",
+            "base_plane_offset_m": 0.0,
+            "measured_from": "P12 Habitat native skin-rest probe",
+            "probe_path": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/p12_package_border_20260906_v1/habitat_static_probe/probe.json"
+          },
+          "semantic_template": {
+            "semantic_id_source": "episode_binding",
+            "template_id": "generated_border_collie_target_native_v1",
+            "template_kind": "articulated_m2"
+          },
+          "package_revisions": {
+            "action_revision": "target-native-reviewed-idle-walk-v1",
+            "collision_revision": "m2-kinematic-rest-bbox-proxy-v1",
+            "skeleton_revision": "target_native_tokenrig_seed42",
+            "topology_sha256": "465e7f964a381c37406d0d8170feb9718a93a62c4811de68fbea9ee0f568767c",
+            "uv_sha256": "6c3806ed38d443ebc8c9bd05fb3bab4583144f7c9a794bceb668d71bfe57e4aa",
+            "weights_revision": "target_native_tokenrig_seed42"
+          }
         }
       },
       "admission_state": "research"
@@ -289,6 +405,64 @@
             "reason": "generated_labrador_native_rest_mesh_support_plane_calibration"
           },
           "floor_contact_gate": true
+        },
+        "habitat": {
+          "asset_kind": "articulated_m2_package",
+          "asset_manifest_path": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/p12_package_labrador_20260906_v3/package/asset_manifest.json",
+          "base_m2_request_path": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/p12_package_labrador_20260906_v3/base_m2_request.json",
+          "category": "animal",
+          "emitter": {
+            "anchor_id": "muzzle",
+            "anchor_type": "mouth",
+            "joint_id": "bone_4",
+            "offset_m": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "offset_space": "joint_local",
+            "semantic_anchor_id": "muzzle",
+            "joint_from_anchor": {
+              "rotation_xyzw": [
+                0.0,
+                0.0,
+                0.0,
+                1.0
+              ],
+              "translation_m": [
+                0.0,
+                0.0,
+                0.0
+              ]
+            },
+            "root_offset_m": [
+              0.454,
+              0.585,
+              0
+            ]
+          },
+          "entity_class": "articulated_animal",
+          "glb_path": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/p12_package_labrador_20260906_v3/package/visual.glb",
+          "glb_relative_path": "package/visual.glb",
+          "resting_pose": {
+            "attachment_surface": "floor",
+            "base_plane_offset_m": 0.0,
+            "measured_from": "P12 Habitat native skin-rest probe",
+            "probe_path": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/p12_package_labrador_20260906_v3/habitat_static_probe/probe.json"
+          },
+          "semantic_template": {
+            "semantic_id_source": "episode_binding",
+            "template_id": "generated_labrador_target_native_v1",
+            "template_kind": "articulated_m2"
+          },
+          "package_revisions": {
+            "action_revision": "target-native-reviewed-idle-walk-v1",
+            "collision_revision": "m2-kinematic-rest-bbox-proxy-v1",
+            "skeleton_revision": "target_native_tokenrig_seed42",
+            "topology_sha256": "6a05071170654baa3f294cb7df6e0d4b2f194952af98bb80f4ee320339785451",
+            "uv_sha256": "586bbe42419a05d596979c4bac55c3ef2ebb12101c749a9037165a9ec1fef3c9",
+            "weights_revision": "target_native_tokenrig_seed42"
+          }
         }
       },
       "admission_state": "research"
@@ -377,6 +551,64 @@
             "reason": "generated_shiba_mesh_foot_bottom_leveling_rest_residual_minus_0p12cm_orbit_walking_readback_plus_1p18cm_scale1_20260727"
           },
           "floor_contact_gate": true
+        },
+        "habitat": {
+          "asset_kind": "articulated_m2_package",
+          "asset_manifest_path": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/p12_package_shiba1_20260906_v1/package/asset_manifest.json",
+          "base_m2_request_path": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/p12_package_shiba1_20260906_v1/base_m2_request.json",
+          "category": "animal",
+          "emitter": {
+            "anchor_id": "muzzle",
+            "anchor_type": "mouth",
+            "joint_id": "bone_4",
+            "offset_m": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "offset_space": "joint_local",
+            "semantic_anchor_id": "muzzle",
+            "joint_from_anchor": {
+              "rotation_xyzw": [
+                0.0,
+                0.0,
+                0.0,
+                1.0
+              ],
+              "translation_m": [
+                0.0,
+                0.0,
+                0.0
+              ]
+            },
+            "root_offset_m": [
+              0.3727,
+              0.4866,
+              0
+            ]
+          },
+          "entity_class": "articulated_animal",
+          "glb_path": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/p12_package_shiba1_20260906_v1/package/visual.glb",
+          "glb_relative_path": "package/visual.glb",
+          "resting_pose": {
+            "attachment_surface": "floor",
+            "base_plane_offset_m": 0.0,
+            "measured_from": "P12 Habitat native skin-rest probe",
+            "probe_path": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/p12_package_shiba1_20260906_v1/habitat_static_probe/probe.json"
+          },
+          "semantic_template": {
+            "semantic_id_source": "episode_binding",
+            "template_id": "generated_shiba_inu_target_native_v1",
+            "template_kind": "articulated_m2"
+          },
+          "package_revisions": {
+            "action_revision": "target-native-reviewed-idle-walk-v1",
+            "collision_revision": "m2-kinematic-rest-bbox-proxy-v1",
+            "skeleton_revision": "target_native_tokenrig_seed42",
+            "topology_sha256": "f8fabef0a7d03e15613d4b96b047c371710f1b73cdec4c1267be5f8ab38d1305",
+            "uv_sha256": "1f888ebd51c36eb2e8114aefc22c36f0f63cb7cb6b7ae8658d5fc69a39bf56af",
+            "weights_revision": "target_native_tokenrig_seed42"
+          }
         }
       },
       "admission_state": "research"
@@ -489,6 +721,64 @@
             "reason": "scale_calibrated_v5_actor_identity_rotation_and_dynamic_ground_snap_readback_20260729"
           },
           "floor_contact_gate": true
+        },
+        "habitat": {
+          "asset_kind": "articulated_m2_package",
+          "asset_manifest_path": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/p12_package_corgi_20260906_v1/package/asset_manifest.json",
+          "base_m2_request_path": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/p12_package_corgi_20260906_v1/base_m2_request.json",
+          "category": "animal",
+          "emitter": {
+            "anchor_id": "muzzle",
+            "anchor_type": "mouth",
+            "joint_id": "bone_5",
+            "offset_m": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "offset_space": "joint_local",
+            "semantic_anchor_id": "muzzle",
+            "joint_from_anchor": {
+              "rotation_xyzw": [
+                0.0,
+                0.0,
+                0.0,
+                1.0
+              ],
+              "translation_m": [
+                0.0,
+                0.0,
+                0.0
+              ]
+            },
+            "root_offset_m": [
+              0.2540588796012138,
+              0.30917552322485176,
+              0.0
+            ]
+          },
+          "entity_class": "articulated_animal",
+          "glb_path": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/p12_package_corgi_20260906_v1/package/visual.glb",
+          "glb_relative_path": "package/visual.glb",
+          "resting_pose": {
+            "attachment_surface": "floor",
+            "base_plane_offset_m": 0.0,
+            "measured_from": "P12 Habitat native skin-rest probe",
+            "probe_path": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/p12_package_corgi_20260906_v1/habitat_static_probe/probe.json"
+          },
+          "semantic_template": {
+            "semantic_id_source": "episode_binding",
+            "template_id": "generated_pembroke_welsh_corgi_target_native_v1",
+            "template_kind": "articulated_m2"
+          },
+          "package_revisions": {
+            "action_revision": "target-native-reviewed-idle-walk-v1",
+            "collision_revision": "m2-kinematic-rest-bbox-proxy-v1",
+            "skeleton_revision": "target_native_tokenrig_seed42",
+            "topology_sha256": "5b5745f1554a40fbb217cf5265cf548456600558fbd56f2d80b538751ba78b17",
+            "uv_sha256": "f1db1faa29c41f1a806ec634d5b51561c121b73e693d7f4cdd4543193e01b65c",
+            "weights_revision": "target_native_tokenrig_seed42"
+          }
         }
       },
       "asset_bound_lineage": {
@@ -686,6 +976,64 @@
             "reason": "scale_calibrated_v5_actor_identity_rotation_and_dynamic_ground_snap_readback_20260729"
           },
           "floor_contact_gate": true
+        },
+        "habitat": {
+          "asset_kind": "articulated_m2_package",
+          "asset_manifest_path": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/p12_package_british_20260906_v1/package/asset_manifest.json",
+          "base_m2_request_path": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/p12_package_british_20260906_v1/base_m2_request.json",
+          "category": "animal",
+          "emitter": {
+            "anchor_id": "muzzle",
+            "anchor_type": "mouth",
+            "joint_id": "bone_3",
+            "offset_m": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "offset_space": "joint_local",
+            "semantic_anchor_id": "muzzle",
+            "joint_from_anchor": {
+              "rotation_xyzw": [
+                0.0,
+                0.0,
+                0.0,
+                1.0
+              ],
+              "translation_m": [
+                0.0,
+                0.0,
+                0.0
+              ]
+            },
+            "root_offset_m": [
+              0.2503672200051257,
+              0.23847342533548063,
+              0.0
+            ]
+          },
+          "entity_class": "articulated_animal",
+          "glb_path": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/p12_package_british_20260906_v1/package/visual.glb",
+          "glb_relative_path": "package/visual.glb",
+          "resting_pose": {
+            "attachment_surface": "floor",
+            "base_plane_offset_m": 0.0,
+            "measured_from": "P12 Habitat native skin-rest probe",
+            "probe_path": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/p12_package_british_20260906_v1/habitat_static_probe/probe.json"
+          },
+          "semantic_template": {
+            "semantic_id_source": "episode_binding",
+            "template_id": "generated_british_shorthair_target_native_v1",
+            "template_kind": "articulated_m2"
+          },
+          "package_revisions": {
+            "action_revision": "target-native-reviewed-idle-walk-v1",
+            "collision_revision": "m2-kinematic-rest-bbox-proxy-v1",
+            "skeleton_revision": "target_native_tokenrig_seed42",
+            "topology_sha256": "a49a496ab0db5a1a79dcacdf1bd8c216fb73b7297ba2b27c6293747cff383c2b",
+            "uv_sha256": "0acbe761b9a30922921cb8dbf7d845ad22d8f3d64c52b2aa07a6ffab5d89643c",
+            "weights_revision": "target_native_tokenrig_seed42"
+          }
         }
       },
       "asset_bound_lineage": {
@@ -888,6 +1236,64 @@
             "reason": "scale_calibrated_v5_actor_identity_rotation_and_dynamic_ground_snap_readback_20260729"
           },
           "floor_contact_gate": true
+        },
+        "habitat": {
+          "asset_kind": "articulated_m2_package",
+          "asset_manifest_path": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/p12_package_shiba2_20260906_v1/package/asset_manifest.json",
+          "base_m2_request_path": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/p12_package_shiba2_20260906_v1/base_m2_request.json",
+          "category": "animal",
+          "emitter": {
+            "anchor_id": "muzzle",
+            "anchor_type": "mouth",
+            "joint_id": "bone_2",
+            "offset_m": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "offset_space": "joint_local",
+            "semantic_anchor_id": "muzzle",
+            "joint_from_anchor": {
+              "rotation_xyzw": [
+                0.0,
+                0.0,
+                0.0,
+                1.0
+              ],
+              "translation_m": [
+                0.0,
+                0.0,
+                0.0
+              ]
+            },
+            "root_offset_m": [
+              0.24717403409658226,
+              0.3450888046163496,
+              0.0
+            ]
+          },
+          "entity_class": "articulated_animal",
+          "glb_path": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/p12_package_shiba2_20260906_v1/package/visual.glb",
+          "glb_relative_path": "package/visual.glb",
+          "resting_pose": {
+            "attachment_surface": "floor",
+            "base_plane_offset_m": 0.0,
+            "measured_from": "P12 Habitat native skin-rest probe",
+            "probe_path": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/p12_package_shiba2_20260906_v1/habitat_static_probe/probe.json"
+          },
+          "semantic_template": {
+            "semantic_id_source": "episode_binding",
+            "template_id": "generated_shiba_inu_target_native_v2",
+            "template_kind": "articulated_m2"
+          },
+          "package_revisions": {
+            "action_revision": "target-native-reviewed-idle-walk-v1",
+            "collision_revision": "m2-kinematic-rest-bbox-proxy-v1",
+            "skeleton_revision": "target_native_tokenrig_seed42",
+            "topology_sha256": "b84c06f53088f6430c0c2d60106ce35c30b9e6593ea8c698fc59fcbee9dbfc97",
+            "uv_sha256": "f3b68e73100162f2b23380611f62e60719226919c2c6dd6c0e79d489484a93ff",
+            "weights_revision": "target_native_tokenrig_seed42"
+          }
         }
       },
       "asset_bound_lineage": {
@@ -1169,6 +1575,64 @@
             "reason": "identity_delta_native_Rocketbox_UE_asset_frame"
           },
           "floor_contact_gate": false
+        },
+        "habitat": {
+          "asset_kind": "articulated_m2_package",
+          "asset_manifest_path": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/p12_package_human_male_base_20260906_v1/package/asset_manifest.json",
+          "base_m2_request_path": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/p12_package_human_male_base_20260906_v1/base_m2_request.json",
+          "category": "human",
+          "emitter": {
+            "anchor_id": "muzzle",
+            "anchor_type": "mouth",
+            "joint_id": "Bip01 MJaw",
+            "offset_m": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "offset_space": "joint_local",
+            "semantic_anchor_id": "mouth",
+            "joint_from_anchor": {
+              "rotation_xyzw": [
+                0.0,
+                0.0,
+                0.0,
+                1.0
+              ],
+              "translation_m": [
+                0.0,
+                0.0,
+                0.0
+              ]
+            },
+            "root_offset_m": [
+              0.0,
+              1.61,
+              0.0
+            ]
+          },
+          "entity_class": "articulated_human",
+          "glb_path": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/p12_package_human_male_base_20260906_v1/package/visual.glb",
+          "glb_relative_path": "package/visual.glb",
+          "resting_pose": {
+            "attachment_surface": "floor",
+            "base_plane_offset_m": 0.0,
+            "measured_from": "P12 Habitat native skin-rest probe",
+            "probe_path": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/p12_package_human_male_base_20260906_v1/habitat_static_probe/probe.json"
+          },
+          "semantic_template": {
+            "semantic_id_source": "episode_binding",
+            "template_id": "rocketbox_human_adult_target_native_v1",
+            "template_kind": "articulated_m2"
+          },
+          "package_revisions": {
+            "action_revision": "rocketbox-human-idle-walk-baked-v1",
+            "collision_revision": "m2-kinematic-rest-bbox-proxy-v1",
+            "skeleton_revision": "rocketbox-human-skeleton-m2-v1",
+            "topology_sha256": "ec300cd46d6386b0a05d66787efb488015d7ec798052827ff67cc894f33cc36c",
+            "uv_sha256": "f9f04a4c48141d9079cfdeac3ec18865eb390baec62150803e7046f5b0c17720",
+            "weights_revision": "rocketbox-human-weights-m2-v1"
+          }
         }
       },
       "admission_state": "research"
@@ -1248,6 +1712,64 @@
             "reason": "identity_delta_native_Rocketbox_UE_asset_frame"
           },
           "floor_contact_gate": false
+        },
+        "habitat": {
+          "asset_kind": "articulated_m2_package",
+          "asset_manifest_path": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/p12_package_human_female_20260906_v3/package/asset_manifest.json",
+          "base_m2_request_path": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/p12_package_human_female_20260906_v3/base_m2_request.json",
+          "category": "human",
+          "emitter": {
+            "anchor_id": "muzzle",
+            "anchor_type": "mouth",
+            "joint_id": "Bip01 MJaw",
+            "offset_m": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "offset_space": "joint_local",
+            "semantic_anchor_id": "mouth",
+            "joint_from_anchor": {
+              "rotation_xyzw": [
+                0.0,
+                0.0,
+                0.0,
+                1.0
+              ],
+              "translation_m": [
+                0.0,
+                0.0,
+                0.0
+              ]
+            },
+            "root_offset_m": [
+              0.0,
+              1.569012451171875,
+              0.0
+            ]
+          },
+          "entity_class": "articulated_human",
+          "glb_path": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/p12_package_human_female_20260906_v3/package/visual.glb",
+          "glb_relative_path": "package/visual.glb",
+          "resting_pose": {
+            "attachment_surface": "floor",
+            "base_plane_offset_m": 0.0,
+            "measured_from": "P12 Habitat native skin-rest probe",
+            "probe_path": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/p12_package_human_female_20260906_v3/habitat_static_probe/probe.json"
+          },
+          "semantic_template": {
+            "semantic_id_source": "episode_binding",
+            "template_id": "rocketbox_human_adult_target_native_v1",
+            "template_kind": "articulated_m2"
+          },
+          "package_revisions": {
+            "action_revision": "rocketbox-human-idle-walk-baked-v1",
+            "collision_revision": "m2-kinematic-rest-bbox-proxy-v1",
+            "skeleton_revision": "rocketbox-human-skeleton-m2-v1",
+            "topology_sha256": "a787e5480fc18d670ed6fc8567c5224227a1a49cf41c5254b53426aaff70a701",
+            "uv_sha256": "e5ac6c6b849e2b9fd090ccf455b51e6f6b61cc0019f8f7eff45d27df1b45f6c8",
+            "weights_revision": "rocketbox-human-weights-m2-v1"
+          }
         }
       },
       "admission_state": "research"
@@ -1327,6 +1849,64 @@
             "reason": "identity_delta_native_Rocketbox_UE_asset_frame"
           },
           "floor_contact_gate": false
+        },
+        "habitat": {
+          "asset_kind": "articulated_m2_package",
+          "asset_manifest_path": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/p12_package_human_construction_male_20260906_v2/package/asset_manifest.json",
+          "base_m2_request_path": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/p12_package_human_construction_male_20260906_v2/base_m2_request.json",
+          "category": "human",
+          "emitter": {
+            "anchor_id": "muzzle",
+            "anchor_type": "mouth",
+            "joint_id": "Bip01 MJaw",
+            "offset_m": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "offset_space": "joint_local",
+            "semantic_anchor_id": "mouth",
+            "joint_from_anchor": {
+              "rotation_xyzw": [
+                0.0,
+                0.0,
+                0.0,
+                1.0
+              ],
+              "translation_m": [
+                0.0,
+                0.0,
+                0.0
+              ]
+            },
+            "root_offset_m": [
+              0.0,
+              1.664033031463623,
+              0.0
+            ]
+          },
+          "entity_class": "articulated_human",
+          "glb_path": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/p12_package_human_construction_male_20260906_v2/package/visual.glb",
+          "glb_relative_path": "package/visual.glb",
+          "resting_pose": {
+            "attachment_surface": "floor",
+            "base_plane_offset_m": 0.0,
+            "measured_from": "P12 Habitat native skin-rest probe",
+            "probe_path": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/p12_package_human_construction_male_20260906_v2/habitat_static_probe/probe.json"
+          },
+          "semantic_template": {
+            "semantic_id_source": "episode_binding",
+            "template_id": "rocketbox_human_adult_target_native_v1",
+            "template_kind": "articulated_m2"
+          },
+          "package_revisions": {
+            "action_revision": "rocketbox-human-idle-walk-baked-v1",
+            "collision_revision": "m2-kinematic-rest-bbox-proxy-v1",
+            "skeleton_revision": "rocketbox-human-skeleton-m2-v1",
+            "topology_sha256": "ae0688569971dfce23d95f7876cb6659886af177738d9ce4bdffde82f5455e4f",
+            "uv_sha256": "285f8942e0ba1671b7e5f5d8d2935ecfae4adb0eaa464567dbf8a403859d02f2",
+            "weights_revision": "rocketbox-human-weights-m2-v1"
+          }
         }
       },
       "admission_state": "research"
@@ -1406,6 +1986,64 @@
             "reason": "identity_delta_native_Rocketbox_UE_asset_frame"
           },
           "floor_contact_gate": false
+        },
+        "habitat": {
+          "asset_kind": "articulated_m2_package",
+          "asset_manifest_path": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/p12_package_human_burgundy_20260906_v1/package/asset_manifest.json",
+          "base_m2_request_path": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/p12_package_human_burgundy_20260906_v1/base_m2_request.json",
+          "category": "human",
+          "emitter": {
+            "anchor_id": "muzzle",
+            "anchor_type": "mouth",
+            "joint_id": "Bip01 MJaw",
+            "offset_m": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "offset_space": "joint_local",
+            "semantic_anchor_id": "mouth",
+            "joint_from_anchor": {
+              "rotation_xyzw": [
+                0.0,
+                0.0,
+                0.0,
+                1.0
+              ],
+              "translation_m": [
+                0.0,
+                0.0,
+                0.0
+              ]
+            },
+            "root_offset_m": [
+              0.0,
+              1.641311,
+              0.0
+            ]
+          },
+          "entity_class": "articulated_human",
+          "glb_path": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/p12_package_human_burgundy_20260906_v1/package/visual.glb",
+          "glb_relative_path": "package/visual.glb",
+          "resting_pose": {
+            "attachment_surface": "floor",
+            "base_plane_offset_m": 0.0,
+            "measured_from": "P12 Habitat native skin-rest probe",
+            "probe_path": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/p12_package_human_burgundy_20260906_v1/habitat_static_probe/probe.json"
+          },
+          "semantic_template": {
+            "semantic_id_source": "episode_binding",
+            "template_id": "rocketbox_human_adult_target_native_v1",
+            "template_kind": "articulated_m2"
+          },
+          "package_revisions": {
+            "action_revision": "rocketbox-human-idle-walk-baked-v1",
+            "collision_revision": "m2-kinematic-rest-bbox-proxy-v1",
+            "skeleton_revision": "rocketbox-human-skeleton-m2-v1",
+            "topology_sha256": "ec300cd46d6386b0a05d66787efb488015d7ec798052827ff67cc894f33cc36c",
+            "uv_sha256": "f9f04a4c48141d9079cfdeac3ec18865eb390baec62150803e7046f5b0c17720",
+            "weights_revision": "rocketbox-human-weights-m2-v1"
+          }
         }
       },
       "admission_state": "research"
@@ -1485,6 +2123,64 @@
             "reason": "identity_delta_native_Rocketbox_UE_asset_frame"
           },
           "floor_contact_gate": false
+        },
+        "habitat": {
+          "asset_kind": "articulated_m2_package",
+          "asset_manifest_path": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/p12_package_human_green_20260906_v1/package/asset_manifest.json",
+          "base_m2_request_path": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/p12_package_human_green_20260906_v1/base_m2_request.json",
+          "category": "human",
+          "emitter": {
+            "anchor_id": "muzzle",
+            "anchor_type": "mouth",
+            "joint_id": "Bip01 MJaw",
+            "offset_m": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "offset_space": "joint_local",
+            "semantic_anchor_id": "mouth",
+            "joint_from_anchor": {
+              "rotation_xyzw": [
+                0.0,
+                0.0,
+                0.0,
+                1.0
+              ],
+              "translation_m": [
+                0.0,
+                0.0,
+                0.0
+              ]
+            },
+            "root_offset_m": [
+              0.0,
+              1.641311,
+              0.0
+            ]
+          },
+          "entity_class": "articulated_human",
+          "glb_path": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/p12_package_human_green_20260906_v1/package/visual.glb",
+          "glb_relative_path": "package/visual.glb",
+          "resting_pose": {
+            "attachment_surface": "floor",
+            "base_plane_offset_m": 0.0,
+            "measured_from": "P12 Habitat native skin-rest probe",
+            "probe_path": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/p12_package_human_green_20260906_v1/habitat_static_probe/probe.json"
+          },
+          "semantic_template": {
+            "semantic_id_source": "episode_binding",
+            "template_id": "rocketbox_human_adult_target_native_v1",
+            "template_kind": "articulated_m2"
+          },
+          "package_revisions": {
+            "action_revision": "rocketbox-human-idle-walk-baked-v1",
+            "collision_revision": "m2-kinematic-rest-bbox-proxy-v1",
+            "skeleton_revision": "rocketbox-human-skeleton-m2-v1",
+            "topology_sha256": "ec300cd46d6386b0a05d66787efb488015d7ec798052827ff67cc894f33cc36c",
+            "uv_sha256": "f9f04a4c48141d9079cfdeac3ec18865eb390baec62150803e7046f5b0c17720",
+            "weights_revision": "rocketbox-human-weights-m2-v1"
+          }
         }
       },
       "admission_state": "research"
@@ -1564,6 +2260,64 @@
             "reason": "identity_delta_native_Rocketbox_UE_asset_frame"
           },
           "floor_contact_gate": false
+        },
+        "habitat": {
+          "asset_kind": "articulated_m2_package",
+          "asset_manifest_path": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/p12_package_human_blue_20260906_v5/package/asset_manifest.json",
+          "base_m2_request_path": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/p12_package_human_blue_20260906_v5/base_m2_request.json",
+          "category": "human",
+          "emitter": {
+            "anchor_id": "muzzle",
+            "anchor_type": "mouth",
+            "joint_id": "Bip01 MJaw",
+            "offset_m": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "offset_space": "joint_local",
+            "semantic_anchor_id": "mouth",
+            "joint_from_anchor": {
+              "rotation_xyzw": [
+                0.0,
+                0.0,
+                0.0,
+                1.0
+              ],
+              "translation_m": [
+                0.0,
+                0.0,
+                0.0
+              ]
+            },
+            "root_offset_m": [
+              0.0,
+              1.641311,
+              0.0
+            ]
+          },
+          "entity_class": "articulated_human",
+          "glb_path": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/p12_package_human_blue_20260906_v5/package/visual.glb",
+          "glb_relative_path": "package/visual.glb",
+          "resting_pose": {
+            "attachment_surface": "floor",
+            "base_plane_offset_m": 0.0,
+            "measured_from": "P12 Habitat native skin-rest probe",
+            "probe_path": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/p12_package_human_blue_20260906_v5/habitat_static_probe/probe.json"
+          },
+          "semantic_template": {
+            "semantic_id_source": "episode_binding",
+            "template_id": "rocketbox_human_adult_target_native_v1",
+            "template_kind": "articulated_m2"
+          },
+          "package_revisions": {
+            "action_revision": "rocketbox-human-idle-walk-baked-v1",
+            "collision_revision": "m2-kinematic-rest-bbox-proxy-v1",
+            "skeleton_revision": "rocketbox-human-skeleton-m2-v1",
+            "topology_sha256": "ec300cd46d6386b0a05d66787efb488015d7ec798052827ff67cc894f33cc36c",
+            "uv_sha256": "f9f04a4c48141d9079cfdeac3ec18865eb390baec62150803e7046f5b0c17720",
+            "weights_revision": "rocketbox-human-weights-m2-v1"
+          }
         }
       },
       "admission_state": "research"
@@ -1643,6 +2397,64 @@
             "reason": "identity_delta_native_Rocketbox_UE_asset_frame"
           },
           "floor_contact_gate": false
+        },
+        "habitat": {
+          "asset_kind": "articulated_m2_package",
+          "asset_manifest_path": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/p12_package_human_yellow_20260906_v1/package/asset_manifest.json",
+          "base_m2_request_path": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/p12_package_human_yellow_20260906_v1/base_m2_request.json",
+          "category": "human",
+          "emitter": {
+            "anchor_id": "muzzle",
+            "anchor_type": "mouth",
+            "joint_id": "Bip01 MJaw",
+            "offset_m": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "offset_space": "joint_local",
+            "semantic_anchor_id": "mouth",
+            "joint_from_anchor": {
+              "rotation_xyzw": [
+                0.0,
+                0.0,
+                0.0,
+                1.0
+              ],
+              "translation_m": [
+                0.0,
+                0.0,
+                0.0
+              ]
+            },
+            "root_offset_m": [
+              0.0,
+              1.641311,
+              0.0
+            ]
+          },
+          "entity_class": "articulated_human",
+          "glb_path": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/p12_package_human_yellow_20260906_v1/package/visual.glb",
+          "glb_relative_path": "package/visual.glb",
+          "resting_pose": {
+            "attachment_surface": "floor",
+            "base_plane_offset_m": 0.0,
+            "measured_from": "P12 Habitat native skin-rest probe",
+            "probe_path": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/p12_package_human_yellow_20260906_v1/habitat_static_probe/probe.json"
+          },
+          "semantic_template": {
+            "semantic_id_source": "episode_binding",
+            "template_id": "rocketbox_human_adult_target_native_v1",
+            "template_kind": "articulated_m2"
+          },
+          "package_revisions": {
+            "action_revision": "rocketbox-human-idle-walk-baked-v1",
+            "collision_revision": "m2-kinematic-rest-bbox-proxy-v1",
+            "skeleton_revision": "rocketbox-human-skeleton-m2-v1",
+            "topology_sha256": "ec300cd46d6386b0a05d66787efb488015d7ec798052827ff67cc894f33cc36c",
+            "uv_sha256": "f9f04a4c48141d9079cfdeac3ec18865eb390baec62150803e7046f5b0c17720",
+            "weights_revision": "rocketbox-human-weights-m2-v1"
+          }
         }
       },
       "admission_state": "research"

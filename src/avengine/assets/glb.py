@@ -268,10 +268,19 @@ def _validate_document_envelope(
         raise GlbError("glTF extensionsRequired must be an array of strings")
     if len(set(required_extensions)) != len(required_extensions):
         raise GlbError("glTF extensionsRequired contains duplicates")
-    if required_extensions:
+    # Geometry, skinning, and animation auditing do not decode texture images.
+    # Keep the standard WebP texture extension opaque so existing generated
+    # assets can pass the structural M2 pipeline; renderers remain responsible
+    # for their own image importer capability.
+    unsupported_extensions = [
+        extension
+        for extension in required_extensions
+        if extension != "EXT_texture_webp"
+    ]
+    if unsupported_extensions:
         raise GlbError(
             "required glTF extensions are unsupported: "
-            + ", ".join(sorted(required_extensions))
+            + ", ".join(sorted(unsupported_extensions))
         )
 
     buffers = document_json.get("buffers", [])

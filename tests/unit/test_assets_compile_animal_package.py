@@ -6,7 +6,13 @@ from pathlib import Path
 
 import pytest
 
-from tools.assets.compile_animal_package import _validate_motion_evidence
+from tools.assets.compile_animal_package import (
+    _anchors,
+    _parse_anchor_map,
+    _parse_contact_order,
+    _source_artifacts,
+    _validate_motion_evidence,
+)
 
 
 def _write_json(path: Path, value: object) -> None:
@@ -116,3 +122,43 @@ def test_motion_evidence_rejects_malformed_nested_binding(tmp_path: Path) -> Non
             retarget_report=retarget,
             motion_qa_report=motion_qa,
         )
+
+
+def test_generic_source_helpers_require_explicit_biped_anchors(tmp_path: Path) -> None:
+    checkout = tmp_path / "checkout"
+    checkout.mkdir()
+    source = checkout / "female_runtime.glb"
+    source.write_bytes(b"source")
+    contacts = _parse_contact_order("foot_left,foot_right")
+    anchor_map = _parse_anchor_map(
+        [
+            "body=Pelvis",
+            "head=Head",
+            "muzzle=Jaw",
+            "foot_left=L Foot",
+            "foot_right=R Foot",
+        ]
+    )
+    records = _source_artifacts(checkout, ["female_runtime.glb"])
+    anchors = _anchors(anchor_map, contacts)
+
+    assert records[0]["path"] == "female_runtime.glb"
+    assert tuple(anchor.anchor_id for anchor in anchors) == (
+        "body",
+        "head",
+        "muzzle",
+        "foot_left",
+        "foot_right",
+    )
+    assert tuple(anchor.joint_id for anchor in anchors) == (
+        "Pelvis",
+        "Head",
+        "Jaw",
+        "L Foot",
+        "R Foot",
+    )
+
+
+def test_generic_source_helpers_reject_unbound_contact_order() -> None:
+    with pytest.raises(ValueError, match="contact order"):
+        _parse_contact_order("foot_left,paw_front_right")

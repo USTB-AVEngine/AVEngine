@@ -442,3 +442,37 @@ def test_nonzero_anchor_offset_is_composed_with_observed_joint_rotation():
     local = np.eye(4)
     local[0, 3] = 0.4
     assert capture._emitter_position(actor, 41, local) == pytest.approx([1, 2.4, 3])
+
+
+def test_base_template_handle_uses_exact_manager_load_id_without_basename_prefix(
+    tmp_path: Path,
+) -> None:
+    config_path = tmp_path / "animal.ao_config.json"
+    config_path.write_text("{}\n", encoding="utf-8")
+
+    class _Manager:
+        def __init__(self) -> None:
+            self.loaded: list[str] = []
+
+        def load_configs(self, path: str) -> list[int]:
+            self.loaded.append(path)
+            return [73]
+
+        def get_template_handle_by_id(self, template_id: int) -> str:
+            assert template_id == 73
+            return "/tmp/other/package/animal.ao_config.json"
+
+        def get_template_handles(self, *_args: Any) -> list[str]:
+            raise AssertionError("basename prefix lookup must not be used")
+
+    manager = _Manager()
+    simulator = SimpleNamespace(
+        metadata_mediator=SimpleNamespace(ao_template_manager=manager)
+    )
+    bundle = SimpleNamespace(paths_by_role={"habitat_ao_config": str(config_path)})
+    cache: dict[Path, str] = {}
+
+    assert capture._base_template_handle(simulator, bundle, cache=cache) == (
+        "/tmp/other/package/animal.ao_config.json"
+    )
+    assert cache[config_path.resolve()] == "/tmp/other/package/animal.ao_config.json"

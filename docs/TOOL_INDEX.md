@@ -5,7 +5,7 @@
 
 自 2026-08-25 起，目录本身就是能力分组（阶段目录 m1…m7 已移除），
 本表按目录列出每个工具做什么。
-当前共 393 个工具脚本。
+当前共 396 个工具脚本。
 
 ## 资产生成与装配（`tools/assets/`）
 
@@ -29,6 +29,7 @@
 | `tools/assets/build_appearance_variant_inputs.py` | Bind one realized appearance request into package spec and source lineage |
 | `tools/assets/build_canary_request.py` | Build one hash-bound formal M2 canary capture request |
 | `tools/assets/build_cross_species_appearance_lineage.py` | Build one diagnostic-only cross-species appearance lineage |
+| `tools/assets/build_habitat_asset_package.py` | Build one real, research-only P12 Habitat asset package |
 | `tools/assets/build_joint_mapping.py` | Emit the exact Habitat joint mapping bound to a rebase report |
 | `tools/assets/build_research_review_request.py` | Build an exact 75-state M2 request for research-only human review |
 | `tools/assets/build_seated_human_batch.py` | Run the AVEngine-owned Blender seated-human builder for four assets |
@@ -41,7 +42,7 @@
 | `tools/assets/capture_installed_research_review.py` | Run the current installed-prefix M2 Blender-room research review |
 | `tools/assets/capture_research_review.py` | Run the 75-state single-view M2 research-review capture in Habitat |
 | `tools/assets/check_prompt_token_budget.py` | Fail closed when a candidate profile's effective prompt cannot fit the model window |
-| `tools/assets/compile_animal_package.py` | Compile a pinned Rocketbox Beagle M2 research-candidate package |
+| `tools/assets/compile_animal_package.py` | Compile a bounded M2 research-candidate package |
 | `tools/assets/compose_topdown_review.py` | Derive synchronized RGB + navmesh/descriptor top-down QA review media |
 | `tools/assets/derive_variant_contacts.py` | Derive generic package anchors and actor-space four-paw contacts |
 | `tools/assets/force_matte_materials.py` | Force a complete opaque matte-dielectric GLB material policy |
@@ -91,6 +92,7 @@
 | `tools/assets/spike_habitat_local_tr.py` | Prove one bounded local-translation-plus-rotation Habitat AO encoding |
 | `tools/assets/split_sound_library_events.py` | Split a prepared sound library into one wav per sounding event |
 | `tools/assets/validate_animated_animal_closure.py` | Validate an animated animal GLB and write one fresh closure report |
+| `tools/assets/verify_habitat_asset_runtime_readback.py` | Read back Habitat native root, contact-link and emitter transforms |
 | `tools/assets/wrap_uniform_scene_scale.py` | Wrap every root of one GLB scene in an explicit uniform-scale node |
 
 ## 房间（`tools/rooms/`）
@@ -198,6 +200,7 @@
 | `tools/capture/capture_human_beagle_replicacad.py` | Run the real ReplicaCAD apt_0 human + Beagle visual/placement review |
 | `tools/capture/capture_mp3d_multi_actor.py` | Capture one explicit N-actor MP3D case through the installed Habitat runtime |
 | `tools/capture/capture_two_human_mp3d.py` | Run the Habitat-native MP3D two-human production visual capture |
+| `tools/capture/materialize_common_plan_habitat.py` | Materialize one common renderer-neutral plan into a Habitat case |
 | `tools/capture/run_apartment_four_motion_pilot.py` | Run one shared Apartment capture for the four human/dog motion cases |
 | `tools/capture/write_neutral_readback.py` | Convert retained native UE or Habitat capture into a fresh neutral readback |
 

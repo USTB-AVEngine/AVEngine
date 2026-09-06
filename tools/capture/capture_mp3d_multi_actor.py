@@ -64,6 +64,8 @@ def _parser() -> argparse.ArgumentParser:
         help="P4 binding delta produced from the external index",
     )
     parser.add_argument("--gpu-device-id", type=int, default=0)
+    parser.add_argument("--allow-research-candidate", action="store_true",
+        help="allow explicitly non-counted checks of structurally valid research-candidate M2 assets")
     return parser
 
 
@@ -82,6 +84,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             runtime_registry_path=args.runtime_registry,
             external_index_path=args.external_asset_index,
             binding_delta_path=args.habitat_binding_delta,
+            allow_research_candidate=args.allow_research_candidate,
             output_directory=args.output,
             gpu_device_id=args.gpu_device_id,
         )
