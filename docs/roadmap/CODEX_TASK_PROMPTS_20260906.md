@@ -6,7 +6,7 @@
 
 ## 总前提（每次开工前先读）
 
-你在服务器 `48g-jump` 的仓库工作树 `/data/jzy/tmp/wt-multi-home-activity-integration` 里工作，分支 `codex/multi-home-activity-integration`，当前最新提交是 02df947。项目 Python 是 `/data/jzy/miniconda3/envs/avengine-habitat-runtime/bin/python`，跑测试和工具时带 `PYTHONPATH=src`。你直接在这个工作树里改源码、跑测试、提交；这个树是和 Claude 共用的，所以每完成一个任务就提交，不要长期留着未提交的改动。
+你在服务器 `48g-jump` 的仓库工作树 `/data/jzy/tmp/wt-multi-home-activity-integration` 里工作，分支 `codex/multi-home-activity-integration`，当前最新提交是 ea50b7c（本文件在 d090318，审计器 v2 在 02df947）。项目 Python 是 `/data/jzy/miniconda3/envs/avengine-habitat-runtime/bin/python`，跑测试和工具时带 `PYTHONPATH=src`。你直接在这个工作树里改源码、跑测试、提交；这个树是和 Claude 共用的，所以每完成一个任务就提交，不要长期留着未提交的改动。
 
 先读这四份文档，再动手：`docs/roadmap/QA_PRODUCTION_ARCHITECTURE_20260906.md`（分层、五个接口、任务表）、`docs/roadmap/QA_GENERALIZED_SAMPLER_PLAN_V2_20260906.md`（条款与拒出规则）、`docs/roadmap/QA_FOUR_FAMILY_GAP_LIST_20260906.md`（各家族缺口与路径）、以及你自己写的 `docs/roadmap/QA_GENERALIZED_SAMPLER_PLAN_REVIEW_CODEX_20260906.md`（行号引用）。
 
@@ -114,7 +114,7 @@
 - 外部索引 44 个静态资产每条都有 `geometry/finalized_glb`。
 
 要做的事：
-1. H2：每帧对每个实体单独渲一遍语义（其他实体隐藏）得到 target-only 掩膜，与模态掩膜一起写成 `native_pixel_masks_depth_authority_v1.npz`，再派生 `pixel_visibility_truth.json`（状态、分辩率、相机位姿 id，与链一同 schema）。运行时激活要点：runtime prefix `/data/avengine_external/runtime-prefixes/avengine-habitat-object-id-732f264-20260824T1041Z`，magnum site `/data/avengine_external/runtime-prefixes/magnum-python-cp312-45811bb-20260820T1845Z/lib/python3.12/site-packages`，mp3d_root `/data/datasets/habitat_data`，必须传 `rlr_sdk_root=/data/avengine_external/rlr-sdk/RLRAudioPropagationPkg`；不要喂 `*.basis.glb`，会段错误。
+1. H2：每帧对每个实体单独渲一遍语义（其他实体隐藏）得到 target-only 掩膜，与模态掩膜一起写成 `native_pixel_masks_depth_authority_v1.npz`，再派生 `pixel_visibility_truth.json`（状态、分辨率、相机位姿 id，与链一同 schema）。运行时激活要点：runtime prefix `/data/avengine_external/runtime-prefixes/avengine-habitat-object-id-732f264-20260824T1041Z`，magnum site `/data/avengine_external/runtime-prefixes/magnum-python-cp312-45811bb-20260820T1845Z/lib/python3.12/site-packages`，mp3d_root `/data/datasets/habitat_data`，必须传 `rlr_sdk_root=/data/avengine_external/rlr-sdk/RLRAudioPropagationPkg`；不要喂 `*.basis.glb`，会段错误。
 2. H3：把 GLB 静态资产当 Habitat 刚体加载并分配 semantic id，摆放用资产登记里的 resting_pose，先放地上。
 3. A1：给 44 加 2 个刚体资产在登记表加 `runtime_backends.habitat` 绑定（字段你定，至少要有资产种类、GLB 路径、语义模板、放置姿态），能被 `bind_assets` 解析。
 4. A2：把 beagle 的 M2 包登记为 `runtime_backends.habitat` 绑定，不再靠外部参数传包路径。
