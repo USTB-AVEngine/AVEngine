@@ -1,6 +1,6 @@
 # AVEngine 统一 QA 目录
 
-2026-09-06 补充核验：[各房间家族同口径比例](QA_FAMILY_VALIDATION_20260906.md)；[当前题面模态依赖分类](QA_MODALITY_DEPENDENCY_20260906.md)。候选生成通过不等于双模态必要性已认证。
+2026-09-06 补充核验：[各房间家族同口径比例](QA_FAMILY_VALIDATION_20260906.md)；[当前题面模态依赖分类](QA_MODALITY_DEPENDENCY_20260906.md)。候选生成通过不等于双模态必要性已认证。逐题难度画像与可绑定性审计工具见 [QA_BINDING_FEASIBILITY_AUDIT_20260906.md](QA_BINDING_FEASIBILITY_AUDIT_20260906.md)。
 
 2026-09-06。根据用户要求补充连续编号、完整题目表和当前实现/真实房间覆盖状态。
 

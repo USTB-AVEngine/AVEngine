@@ -266,6 +266,7 @@ light；MP3D 的实际 light count 仍为 0。通用 Habitat adapter 仍支持�
 - [时间线与 episode 合同](docs/architecture/EPISODE_AND_TIMELINE.md)
 - [文件系统信任模型](docs/security/FILESYSTEM_TRUST_MODEL.md)
 - [故障排查](docs/troubleshooting.md)
+- [QA 绑定可行性与难度画像审计工具](docs/qa/QA_BINDING_FEASIBILITY_AUDIT_20260906.md)
 
 数据结构位于 [`schemas/`](schemas/)，可执行示例位于
 [`examples/`](examples/)，里程碑复现命令位于
