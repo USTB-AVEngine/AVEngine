@@ -87,6 +87,21 @@ def _canonical_text(text: Any) -> str:
     return unicodedata.normalize("NFKC", text).casefold().strip()
 
 
+def _term_is_negated(text: str, term: str, start: int) -> bool:
+    """Avoid turning a negated short alias into a positive direction."""
+
+    if term not in {
+        "远", "更远", "近", "更近", "far", "farther", "further",
+        "near", "nearer", "closer",
+    }:
+        return False
+    prefix = text[:start].rstrip()
+    return any(
+        prefix.endswith(marker)
+        for marker in ("不", "并不", "不是", "没有", "没", "无", "not", "no")
+    )
+
+
 def _closed_match(
     answer: str,
     classes: Mapping[str, Sequence[str]],
@@ -96,12 +111,17 @@ def _closed_match(
     for label, terms in classes.items():
         if not isinstance(label, str) or not isinstance(terms, Sequence):
             continue
-        matches = [
-            _canonical_text(term)
-            for term in terms
-            if isinstance(term, str) and _canonical_text(term)
-        ]
-        best = max((term for term in matches if term in text), key=len, default="")
+        matches: list[str] = []
+        for term in terms:
+            if not isinstance(term, str):
+                continue
+            normalized = _canonical_text(term)
+            if not normalized:
+                continue
+            start = text.find(normalized)
+            if start >= 0 and not _term_is_negated(text, normalized, start):
+                matches.append(normalized)
+        best = max(matches, key=len, default="")
         if best:
             hits[label] = best
     if not hits:
@@ -305,24 +325,28 @@ def score_angle(
     has_right = "右" in lowered or "right" in lowered
     if has_left and has_right:
         return {"status": "invalid", "reason": "both left and right are present", "score": 0.0}
-    if (has_left or has_right) and value < 0:
-        return {"status": "invalid", "reason": "direction word conflicts with negative angle", "score": 0.0}
-    if convention == "left_positive":
-        if has_left:
-            parsed = value
-        elif has_right:
-            parsed = -value
-        else:
-            parsed = value
-    elif convention == "right_positive":
-        if has_left:
-            parsed = -value
-        elif has_right:
-            parsed = value
-        else:
-            parsed = value
+    if convention not in {"left_positive", "right_positive"}:
+        return {
+            "status": "invalid",
+            "reason": f"unknown angle convention {convention!r}",
+            "score": 0.0,
+        }
+    if has_left or has_right:
+        expected_sign = (
+            -1.0
+            if (has_left and convention == "right_positive")
+            or (has_right and convention == "left_positive")
+            else 1.0
+        )
+        if value < 0.0 and expected_sign > 0.0:
+            return {
+                "status": "invalid",
+                "reason": "direction word conflicts with negative angle",
+                "score": 0.0,
+            }
+        parsed = value if value < 0.0 else expected_sign * value
     else:
-        return {"status": "invalid", "reason": f"unknown angle convention {convention!r}", "score": 0.0}
+        parsed = value
     if isinstance(truth, Mapping):
         truth = truth.get("azimuth_deg", truth.get("value"))
     try:
@@ -439,7 +463,24 @@ def score_open_form(
             refusal_allowed=bool(form.get("refusal_truth", False)),
         )
     if answer_type == "transcript_wer":
-        return score_transcript(answer, truth, form=form, params=params)
+        result = score_transcript(answer, truth, form=form, params=params)
+        classes = form.get("classes")
+        attribution_matches: list[str] = []
+        if isinstance(classes, Mapping):
+            answer_words = _words(answer, _normalization(form, params))
+            for label in classes:
+                if not isinstance(label, str):
+                    continue
+                if answer_words == _words(label, _normalization(form, params)):
+                    attribution_matches.append(label)
+        result["attribution_match_count"] = len(attribution_matches)
+        result["attribution_matches"] = attribution_matches
+        result["attribution_match"] = len(attribution_matches) == 1
+        if len(attribution_matches) > 1:
+            result["status"] = "invalid"
+            result["reason"] = "transcript attribution is ambiguous"
+            result["score"] = 0.0
+        return result
     if answer_type == "angle_deg":
         full = form.get("theta_full_deg", params.get("THETA_FULL", 15.0))
         half = form.get("theta_half_deg", params.get("THETA_HALF", 30.0))

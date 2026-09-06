@@ -4,6 +4,7 @@ from avengine.qa.unified_scoring import (
     circular_distance_deg,
     score_closed,
     score_counts,
+    score_angle,
     score_unified_item,
 )
 
@@ -82,3 +83,35 @@ def test_transcript_scorer_rejects_multi_statement_sweep() -> None:
     )
     result = score_unified_item(item, "hello world; goodbye", form="open")
     assert result["status"] == "invalid"
+
+
+def test_negative_angle_with_matching_direction_word_is_accepted() -> None:
+    result = score_angle(
+        "-30 degrees, on the left",
+        -30.0,
+        full_tolerance_deg=1.0,
+        half_tolerance_deg=2.0,
+        convention="right_positive",
+    )
+    assert result["status"] == "scored"
+    assert result["parsed"] == -30.0
+    assert result["score"] == 1.0
+
+    conflict = score_angle(
+        "-30 degrees, on the right",
+        -30.0,
+        full_tolerance_deg=1.0,
+        half_tolerance_deg=2.0,
+        convention="right_positive",
+    )
+    assert conflict["status"] == "invalid"
+
+
+def test_negated_chinese_direction_alias_is_not_positive_farther() -> None:
+    classes = {
+        "nearer": ["nearer", "更近", "近"],
+        "farther": ["farther", "更远", "远"],
+    }
+    result = score_closed("并不远", "farther", classes)
+    assert result["status"] == "invalid"
+    assert result["score"] == 0.0

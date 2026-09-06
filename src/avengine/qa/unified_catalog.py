@@ -32,7 +32,7 @@ import math
 import random
 import re
 import wave
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping, MutableMapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -1386,6 +1386,120 @@ def _validate_audio_readback(
     }
 
 
+def _source_activity_index(
+    values: Sequence[Any],
+    *,
+    sample_count: int,
+) -> tuple[dict[str, list[dict[str, int]]], bool]:
+    """Normalize P6 episode-sample source activity without inferring it."""
+
+    result: dict[str, list[dict[str, int]]] = {}
+    present = False
+    known_keys = {
+        "event_id",
+        "id",
+        "source_activity_intervals_samples",
+        "intervals",
+        "source_activity",
+        "start_sample",
+        "start_sample_index",
+        "end_sample_exclusive",
+        "end_sample",
+        "end_sample_index",
+    }
+
+    def integer(value: Any) -> int | None:
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            return None
+        number = float(value)
+        if not math.isfinite(number) or not number.is_integer():
+            return None
+        return int(number)
+
+    def add(event_id: Any, start: Any, end: Any) -> None:
+        if not isinstance(event_id, str) or not event_id.strip():
+            return
+        start_i, end_i = integer(start), integer(end)
+        if start_i is None or end_i is None:
+            return
+        start_i = max(0, start_i)
+        end_i = min(sample_count, end_i)
+        if end_i <= start_i:
+            return
+        result.setdefault(event_id.strip(), []).append(
+            {
+                "start_sample": start_i,
+                "end_sample_exclusive": end_i,
+            }
+        )
+
+    def visit(value: Any, event_id: str | None = None) -> None:
+        nonlocal present
+        if value is None:
+            return
+        if isinstance(value, Mapping):
+            local_event = _first(value, "event_id", "id")
+            if not isinstance(local_event, str) or not local_event.strip():
+                local_event = event_id
+            nested = _first(
+                value,
+                "source_activity_intervals_samples",
+                "intervals",
+                "source_activity",
+            )
+            if nested is not None:
+                present = True
+                if isinstance(nested, Mapping):
+                    nested_intervals = _first(
+                        nested,
+                        "source_activity_intervals_samples",
+                        "intervals",
+                    )
+                    if nested_intervals is not None:
+                        visit(nested_intervals, local_event)
+                    else:
+                        visit(nested, local_event)
+                else:
+                    visit(nested, local_event)
+                return
+            start = _first(value, "start_sample", "start_sample_index")
+            end = _first(value, "end_sample_exclusive", "end_sample", "end_sample_index")
+            if start is not None or end is not None:
+                present = True
+                add(local_event, start, end)
+                return
+            for key, nested_value in value.items():
+                if key in known_keys:
+                    continue
+                if isinstance(key, str):
+                    visit(nested_value, key)
+            return
+        if _is_sequence(value):
+            if len(value) == 2:
+                start, end = value
+                if integer(start) is not None and integer(end) is not None:
+                    present = True
+                    add(event_id, start, end)
+                    return
+            for nested_value in value:
+                visit(nested_value, event_id)
+
+    for value in values:
+        visit(value)
+    for event_id, rows in result.items():
+        result[event_id] = list(
+            dict.fromkeys(
+                (row["start_sample"], row["end_sample_exclusive"])
+                for row in rows
+            )
+        )
+        result[event_id] = [
+            {"start_sample": start, "end_sample_exclusive": end}
+            for start, end in result[event_id]
+        ]
+    return result, present
+
+
 def _visibility_index(
     value: Any,
     *,
@@ -1793,10 +1907,55 @@ def normalize_episode_bundle(raw: Mapping[str, Any]) -> dict[str, Any]:
                     "event_segmentation", value.get("event_segmentation_status")
                 ),
                 "source_qc": copy.deepcopy(value.get("source_qc")),
+                "source_activity_intervals_samples": copy.deepcopy(
+                    value.get("source_activity_intervals_samples")
+                ),
                 "source_record": "audio_program",
             }
         )
     events.sort(key=lambda item: (item["start_s"], item["event_id"]))
+
+    activity_values: list[Any] = [
+        root.get("source_activity_intervals_samples"),
+        audio_program.get("source_activity_intervals_samples"),
+        audio_readback.get("source_activity_intervals_samples")
+        if isinstance(audio_readback, Mapping)
+        else None,
+    ]
+    activity_values.extend(
+        {
+            "event_id": event["event_id"],
+            "source_activity_intervals_samples": event.get(
+                "source_activity_intervals_samples"
+            ),
+        }
+        for event in events
+        if event.get("source_activity_intervals_samples") is not None
+    )
+    for report_value in (
+        root.get("audio_readback"),
+        root.get("research_report"),
+        root.get("audio_report"),
+    ):
+        if isinstance(report_value, Mapping):
+            activity_values.append(
+                report_value.get("source_activity_intervals_samples")
+            )
+            report_events = report_value.get("events")
+            if _is_sequence(report_events):
+                activity_values.extend(report_events)
+    source_activity_by_event, source_activity_present = _source_activity_index(
+        activity_values,
+        sample_count=sample_count,
+    )
+    for event in events:
+        event_id = event["event_id"]
+        if source_activity_present:
+            event["source_activity_intervals_samples"] = copy.deepcopy(
+                source_activity_by_event.get(event_id, [])
+            )
+        else:
+            event.pop("source_activity_intervals_samples", None)
 
     visibility_value = root.get("pixel_visibility_truth") or root.get("pixel_truth")
     visibility = _visibility_index(
@@ -1897,7 +2056,25 @@ def normalize_episode_bundle(raw: Mapping[str, Any]) -> dict[str, Any]:
         "actors": actors,
         "events": events,
         "listener": listener,
-        "audio": audio,
+        "audio": {
+            **audio,
+            **(
+                {
+                    "source_activity_intervals_samples": copy.deepcopy(
+                        source_activity_by_event
+                    ),
+                    "source_activity_coordinate_space": "episode_sample_clock",
+                }
+                if source_activity_present
+                else {}
+            ),
+        },
+        "source_activity_intervals_samples": (
+            copy.deepcopy(source_activity_by_event)
+            if source_activity_present
+            else None
+        ),
+        "source_activity_evidence_present": source_activity_present,
         "visibility": visibility,
         "visibility_meta": visibility_meta,
         "appearance_review": appearance_review,
@@ -1906,6 +2083,7 @@ def normalize_episode_bundle(raw: Mapping[str, Any]) -> dict[str, Any]:
             "frame_readbacks_present": bool(frame_readbacks),
             "pixel_visibility_truth_present": isinstance(visibility_value, Mapping),
             "audio_program_present": bool(audio_program),
+            "source_activity_intervals_samples_present": source_activity_present,
             "unresolved_event_ids": unresolved_event_ids,
         },
         "source_paths": {
@@ -1922,6 +2100,7 @@ def normalize_episode_bundle(raw: Mapping[str, Any]) -> dict[str, Any]:
             "occluder_registry": _first(root, "occluder_registry_path"),
         },
         "sampling": root.get("sampling") or root.get("qa_sampling") or {},
+        "sampling_policy": _first(root, "sampling_policy") or _first(plan_meta, "sampling_policy"),
         "occluder_registry": root.get("occluder_registry") or {},
         "occluder_evidence": root.get("occluder_evidence") or {},
     }
@@ -1995,14 +2174,37 @@ def _event_for_actor(
             if isinstance(event.get("transcript"), str)
             and bool(event.get("transcript", "").strip())
         ]
-    return sorted(events, key=lambda event: (float(event["start_s"]), event["event_id"]))
+    ordered = sorted(
+        events,
+        key=lambda event: (float(event["start_s"]), event["event_id"]),
+    )
+    candidate = facts.get("_p8_candidate")
+    preferred_id = (
+        candidate.get("event_id")
+        if isinstance(candidate, Mapping)
+        else None
+    )
+    if preferred_id is not None:
+        ordered = [
+            *[
+                event
+                for event in ordered
+                if event.get("event_id") == preferred_id
+            ],
+            *[
+                event
+                for event in ordered
+                if event.get("event_id") != preferred_id
+            ],
+        ]
+    return ordered
 
 
 def _first_event(facts: Mapping[str, Any], actor_id: str) -> Mapping[str, Any]:
     events = _event_for_actor(facts, actor_id)
     if not events:
         _defer("target_has_no_event", f"actor {actor_id!r} has no bound sound event")
-    return events[0]
+    return min(events, key=lambda event: (float(event["start_s"]), event["event_id"]))
 
 
 def _earliest_event(facts: Mapping[str, Any]) -> Mapping[str, Any]:
@@ -2241,12 +2443,78 @@ def _state(facts: Mapping[str, Any], actor_id: str, frame: int) -> Mapping[str, 
     return value
 
 
-def _active_at(facts: Mapping[str, Any], frame: int) -> list[Mapping[str, Any]]:
+def _source_activity_for_event(
+    facts: Mapping[str, Any],
+    event_id: str,
+) -> list[Mapping[str, Any]]:
+    events = facts.get("events")
+    if _is_sequence(events):
+        for event in events:
+            if (
+                isinstance(event, Mapping)
+                and event.get("event_id") == event_id
+                and _is_sequence(event.get("source_activity_intervals_samples"))
+            ):
+                return [
+                    row
+                    for row in event["source_activity_intervals_samples"]
+                    if isinstance(row, Mapping)
+                ]
+    value = facts.get("source_activity_intervals_samples")
+    if not isinstance(value, Mapping):
+        audio = facts.get("audio")
+        value = (
+            audio.get("source_activity_intervals_samples")
+            if isinstance(audio, Mapping)
+            else None
+        )
+    rows = value.get(event_id) if isinstance(value, Mapping) else None
     return [
-        event
-        for event in _bound_events(facts)
-        if _event_frame(event, "start_frame") <= frame < _event_frame(event, "end_frame")
-    ]
+        row
+        for row in rows
+        if isinstance(row, Mapping)
+    ] if _is_sequence(rows) else []
+
+
+def _source_activity_present(facts: Mapping[str, Any]) -> bool:
+    if facts.get("source_activity_evidence_present") is True:
+        return True
+    if facts.get("source_activity_intervals_samples") is not None:
+        return True
+    audio = facts.get("audio")
+    return isinstance(audio, Mapping) and (
+        audio.get("source_activity_intervals_samples") is not None
+    )
+
+
+def _active_at(
+    facts: Mapping[str, Any],
+    frame: int,
+    *,
+    require_source_activity: bool = False,
+) -> list[Mapping[str, Any]]:
+    if require_source_activity and not _source_activity_present(facts):
+        _defer(
+            "missing_source_activity_readback",
+            "QA-18 requires episode source_activity_intervals_samples",
+        )
+    sample = int(
+        round(
+            float(frame)
+            * float(facts["time"]["sample_rate_hz"])
+            / float(facts["time"]["frame_rate_hz"])
+        )
+    )
+    active: list[Mapping[str, Any]] = []
+    for event in _bound_events(facts):
+        rows = _source_activity_for_event(facts, str(event["event_id"]))
+        if any(
+            int(row.get("start_sample", 0)) <= sample
+            < int(row.get("end_sample_exclusive", 0))
+            for row in rows
+        ):
+            active.append(event)
+    return active
 
 
 def _sampling_value(
@@ -2257,21 +2525,34 @@ def _sampling_value(
     sampling = facts.get("sampling")
     if not isinstance(sampling, Mapping):
         return None
+    nested_sampling = sampling.get("qa_sampling")
+    if isinstance(nested_sampling, Mapping):
+        sampling = {**sampling, **nested_sampling}
+    qa_keys = (
+        qa_id,
+        qa_id.lower(),
+        qa_id.replace("-", "_"),
+        qa_id.lower().replace("-", "_"),
+    )
     for key in keys:
         value = sampling.get(key)
         if isinstance(value, Mapping):
-            candidate = value.get(qa_id) or value.get(qa_id.lower())
-            if candidate is None:
-                candidate = value.get(qa_id.replace("-", "_"))
-            if candidate is not None:
-                return candidate
+            for candidate_key in qa_keys:
+                if candidate_key in value:
+                    return value[candidate_key]
         elif value is not None:
             return value
     queries = sampling.get("queries")
     if isinstance(queries, Mapping):
-        query = queries.get(qa_id) or queries.get(qa_id.lower())
+        query = None
+        for candidate_key in qa_keys:
+            if candidate_key in queries:
+                query = queries[candidate_key]
+                break
         if isinstance(query, Mapping):
-            return _first(query, *keys)
+            for key in keys:
+                if key in query:
+                    return query[key]
     return None
 
 
@@ -2283,6 +2564,9 @@ def _query_frame(
     after_event: bool = False,
     require_declared: bool = False,
 ) -> tuple[int, str]:
+    frame_count = int(facts["time"]["frame_count"])
+    if frame_count <= 0:
+        _defer("invalid_frame_clock", "frame_count must be positive")
     fields = (
         ("post_sound_query_frame", "query_frame")
         if after_event
@@ -2290,17 +2574,44 @@ def _query_frame(
     )
     if event is not None:
         for field in fields:
-            value = event.get(field)
-            if isinstance(value, int) and not isinstance(value, bool):
-                return value, f"event.{field}"
+            if field in event and event[field] is not None:
+                frame = _resolve_query_frame_spec(
+                    facts, qa_id, event[field], source=f"event.{field}"
+                )
+                return frame, f"event.{field}"
     value = _sampling_value(
         facts, qa_id, "query_frame_by_qa", "query_frames", *fields
     )
-    if isinstance(value, int) and not isinstance(value, bool):
-        return value, "sampling"
+    if value is not None:
+        frame = _resolve_query_frame_spec(
+            facts, qa_id, value, source="sampling"
+        )
+        return frame, "sampling"
+    sampling = facts.get("sampling")
+    if isinstance(sampling, Mapping):
+        nested = sampling.get("qa_sampling")
+        if isinstance(nested, Mapping):
+            sampling = {**sampling, **nested}
+        policy = sampling.get("query_time_policy") or sampling.get("policy")
+        if policy == "uniform_in_legal_window":
+            window = _sampling_value(
+                facts, qa_id, "legal_window_by_qa", "legal_windows",
+                "query_windows",
+            )
+            if window is None:
+                _defer(
+                    "sampling_window_missing",
+                    f"{qa_id} uses uniform_in_legal_window without a legal window",
+                )
+            frame = _resolve_query_frame_spec(
+                facts,
+                qa_id,
+                {"policy": policy, "window": window},
+                source="uniform_in_legal_window",
+            )
+            return frame, "uniform_in_legal_window"
     if require_declared:
         _defer("missing_query_frame", f"{qa_id} requires an explicit query frame")
-    frame_count = int(facts["time"]["frame_count"])
     if after_event and event is not None:
         end_frame = _event_frame(event, "end_frame")
         return min(frame_count - 1, max(end_frame, end_frame + 1)), "derived_after_event"
@@ -2314,8 +2625,38 @@ def _query_time(
     event: Mapping[str, Any] | None = None,
 ) -> tuple[float, str]:
     value = _sampling_value(facts, qa_id, "query_time_s_by_qa", "query_times_s")
-    if isinstance(value, (int, float)) and not isinstance(value, bool):
-        return _finite_number(value, name="query_time_s"), "sampling"
+    if value is not None:
+        return (
+            _resolve_query_time_spec(
+                facts, qa_id, value, source="sampling"
+            ),
+            "sampling",
+        )
+    sampling = facts.get("sampling")
+    if isinstance(sampling, Mapping):
+        nested = sampling.get("qa_sampling")
+        if isinstance(nested, Mapping):
+            sampling = {**sampling, **nested}
+        policy = sampling.get("query_time_policy") or sampling.get("policy")
+        if policy == "uniform_in_legal_window":
+            window = _sampling_value(
+                facts, qa_id, "legal_window_by_qa", "legal_windows",
+                "query_windows",
+            )
+            if window is None:
+                _defer(
+                    "sampling_window_missing",
+                    f"{qa_id} uses uniform_in_legal_window without a legal window",
+                )
+            return (
+                _resolve_query_time_spec(
+                    facts,
+                    qa_id,
+                    {"policy": policy, "window": window},
+                    source="uniform_in_legal_window",
+                ),
+                "uniform_in_legal_window",
+            )
     if event is not None:
         return (float(event["start_s"]) + float(event["end_s"])) / 2.0, "event_midpoint"
     duration = float(facts["time"]["duration_seconds"])
@@ -2548,12 +2889,15 @@ def _question_item(
     open_extra: Mapping[str, Any] | None = None,
     mcq_optional: bool = False,
     mcq_deferred_reason: Mapping[str, Any] | None = None,
+    open_deferred_reason: Mapping[str, Any] | None = None,
     slug: str,
 ) -> dict[str, Any]:
     canonical = _canonical_qa_id(qa_id)
-    question_id = (
-        f"{canonical.lower().replace('-', '_')}__"
-        f"{_safe_slug(str(facts['episode_id']))}__{_safe_slug(slug)}"
+    question_id = _question_id_for(
+        canonical,
+        facts,
+        slug,
+        evidence,
     )
     option_values: list[dict[str, str]] = []
     for option in options or []:
@@ -2625,9 +2969,7 @@ def _question_item(
         }
     if open_answer_type == "transcript_wer":
         open_form.setdefault("reject_multiple_statements", True)
-    forms: dict[str, Any] = {
-        "open": open_form,
-    }
+    forms: dict[str, Any] = {} if open_deferred_reason else {"open": open_form}
     mcq_text_en = mcq_question_en if mcq_question_en is not None else question_en
     mcq_text_zh = mcq_question_zh if mcq_question_zh is not None else question_zh
     if order:
@@ -2641,16 +2983,16 @@ def _question_item(
     elif not mcq_optional and mcq_deferred is None:
         _defer("mcq_options_missing", f"{canonical} cannot construct an MCQ option set")
     form_status = {
-        "open": {"status": "pass"},
+        "open": ({**copy.deepcopy(dict(open_deferred_reason)), "status": "deferred"}
+                 if open_deferred_reason else {"status": "pass"}),
         "mcq": (
             mcq_deferred
             if mcq_deferred is not None
             else {"status": "pass"}
         ),
     }
-    model_input: dict[str, Any] = {
-        "open": {"question_en": question_en, "question_zh": question_zh},
-    }
+    model_input: dict[str, Any] = {} if open_deferred_reason else {
+        "open": {"question_en": question_en, "question_zh": question_zh}}
     if order:
         model_input["mcq"] = {
             "question_en": mcq_text_en,
@@ -2671,7 +3013,8 @@ def _question_item(
         "qa_id": canonical,
         "question_id": question_id,
         "episode_id": facts["episode_id"],
-        "question": {"en": question_en, "zh": question_zh},
+        "question": {"en": mcq_text_en if open_deferred_reason else question_en,
+                     "zh": mcq_text_zh if open_deferred_reason else question_zh},
         "model_input": model_input,
         "forms": forms,
         "form_status": form_status,
@@ -2830,6 +3173,13 @@ def _event_pair(facts: Mapping[str, Any]) -> tuple[Mapping[str, Any], Mapping[st
     events = sorted(_bound_events(facts), key=lambda event: (float(event["start_s"]), event["event_id"]))
     if len(events) < 2:
         _defer("insufficient_events", "this question requires at least two bound events")
+    candidate = facts.get("_p8_candidate", {})
+    ids = candidate.get("event_ids") if isinstance(candidate, Mapping) else None
+    if ids is not None:
+        selected = [event for event in events if event["event_id"] in ids]
+        if len(ids) != 2 or len(selected) != 2:
+            _defer("event_pair_missing", "selected event pair does not resolve uniquely")
+        return selected[0], selected[1]
     return events[0], events[1]
 
 
@@ -2838,7 +3188,18 @@ def _after_event_candidates(
     *,
     qa_id: str,
 ) -> Any:
-    events = sorted(_bound_events(facts), key=lambda event: (float(event["end_s"]), event["event_id"]))
+    events = sorted(
+        _bound_events(facts),
+        key=lambda event: (float(event["end_s"]), event["event_id"]),
+    )
+    candidate = facts.get("_p8_candidate")
+    preferred_id = (
+        candidate.get("event_id")
+        if isinstance(candidate, Mapping)
+        else None
+    )
+    if preferred_id is not None:
+        events = [event for event in events if event.get("event_id") == preferred_id]
     for event in events:
         try:
             pre_silence = _anchor_pre_silence(facts, event)
@@ -3131,8 +3492,21 @@ def _generate_qa_07(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
     center = (width - 1.0) / 2.0
     dead_zone = max(1.0, width * 0.02)
     reviewed = _reviewed_appearances(facts)
+    preferred = facts.get("_p8_candidate")
+    preferred_actor = (
+        preferred.get("actor_id")
+        if isinstance(preferred, Mapping)
+        else None
+    )
+    preferred_frame = (
+        preferred.get("query_frame")
+        if isinstance(preferred, Mapping)
+        else None
+    )
     for actor_id, frames in facts.get("visibility", {}).items():
-        if actor_id not in reviewed:
+        if actor_id not in reviewed or (
+            preferred_actor is not None and actor_id != preferred_actor
+        ):
             continue
         if not isinstance(frames, Mapping):
             continue
@@ -3149,6 +3523,8 @@ def _generate_qa_07(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
             if abs(offset) <= dead_zone:
                 continue
             side = "right" if offset > 0 else "left"
+            if preferred_frame is not None and int(current.get("frame_index", -1)) != int(preferred_frame):
+                continue
             appearance_en, appearance_zh = _appearance_phrases(reviewed[actor_id])
             return _question_item(
                 qa_id="QA-07",
@@ -3156,9 +3532,9 @@ def _generate_qa_07(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
                 seed=seed,
                 question_en=(
                     f"Did the {appearance_en} enter from the "
-                    "left or right side of the frame during the clip?"
+                    f"left or right side of the frame at video frame {current['frame_index']}?"
                 ),
-                question_zh=f"{appearance_zh}从画面左侧还是右侧入画？",
+                question_zh=f"在视频第{current['frame_index']}帧入画时，{appearance_zh}是从左侧还是右侧进入的？",
                 open_answer_type="closed_set",
                 open_truth=side,
                 truth_label=side,
@@ -3166,10 +3542,11 @@ def _generate_qa_07(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
                 evidence={
                     "target_actor_id": actor_id,
                     "entry_frame": current.get("frame_index"),
+                    "query_frame": current.get("frame_index"),
                     "centroid_xy_px": list(centroid),
                     "side_dead_zone_px": dead_zone,
                 },
-                slug=f"{actor_id}_entry",
+                slug=f"{actor_id}_entry_{current.get('frame_index')}",
             )
     _defer("no_entry_transition", "no out_of_view to visible transition with an unambiguous side")
 
@@ -3183,12 +3560,16 @@ def _generate_qa_08(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
         except _Deferred:
             continue
         anchor_en, anchor_zh = _event_anchor(facts, event)
+        start_time = float(event["start_s"])
         return _question_item(
             qa_id="QA-08",
             facts=facts,
             seed=seed,
-            question_en=f"What was the source's visibility state during {anchor_en}?",
-            question_zh=f"{anchor_zh}期间，声源处于什么可见状态？",
+            question_en=(
+                f"At the onset of {anchor_en} ({start_time:.3f} seconds), "
+                "what was the source's visibility state?"
+            ),
+            question_zh=f"{anchor_zh}\u5728\u7b2c{start_time:.3f}\u79d2\u8d77\u70b9\u65f6\u5904\u4e8e\u4ec0\u4e48\u53ef\u89c1\u72b6\u6001\uff1f",
             open_answer_type="closed_set",
             open_truth=state,
             truth_label=state,
@@ -3201,18 +3582,46 @@ def _generate_qa_08(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
 
 def _generate_qa_09(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
     reviewed = _reviewed_appearances(facts)
+    preferred = facts.get("_p8_candidate")
+    preferred_actor = (
+        preferred.get("actor_id")
+        if isinstance(preferred, Mapping)
+        else None
+    )
+    preferred_frame = (
+        preferred.get("query_frame")
+        if isinstance(preferred, Mapping)
+        else None
+    )
+    preferred_occluded = (
+        preferred.get("occluded_frame")
+        if isinstance(preferred, Mapping)
+        else None
+    )
     incomplete_negative = False
     for actor_id, frames in facts.get("visibility", {}).items():
-        if actor_id not in reviewed:
+        if actor_id not in reviewed or (
+            preferred_actor is not None and actor_id != preferred_actor
+        ):
             continue
         ordered = [frames[index] for index in sorted(frames)] if isinstance(frames, Mapping) else []
         fully = [frame.get("frame_index") for frame in ordered if frame.get("state") == "fully_occluded"]
+        if preferred_occluded is not None:
+            fully = [
+                frame for frame in fully
+                if int(frame) == int(preferred_occluded)
+            ]
         visible_after = [
             frame.get("frame_index")
             for frame in ordered
             if frame.get("state") in VISIBLE_STATES
             and any(int(previous) < int(frame.get("frame_index", 0)) for previous in fully)
         ]
+        if preferred_frame is not None:
+            visible_after = [
+                frame for frame in visible_after
+                if int(frame) == int(preferred_frame)
+            ]
         if fully:
             truth = "yes" if visible_after else "no"
             if not visible_after and not _visibility_is_complete(facts, actor_id):
@@ -3228,7 +3637,7 @@ def _generate_qa_09(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
                     "after being fully occluded before the end of the clip?"
                 ),
                 question_zh=(
-                    f"{appearance_zh}完全遮挡后又重新出现了吗？"
+                    f"整段视频中，{appearance_zh}完全遮挡后又重新出现了吗？"
                 ),
                 open_answer_type="closed_set",
                 open_truth=truth,
@@ -3238,9 +3647,13 @@ def _generate_qa_09(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
                     "target_actor_id": actor_id,
                     "fully_occluded_frames": fully,
                     "reappeared_frames": visible_after,
+                    "query_frame": visible_after[0] if visible_after else None,
                     "observation_window": [0, int(facts["time"]["frame_count"]) - 1],
                 },
-                slug=f"{actor_id}_reappearance",
+                slug=(
+                    f"{actor_id}_reappearance_"
+                    f"{visible_after[0] if visible_after else 'none'}"
+                ),
             )
     if incomplete_negative:
         _defer(
@@ -3284,12 +3697,27 @@ def _occluder_label(facts: Mapping[str, Any], occluder_id: str) -> str:
 
 def _generate_qa_10(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
     reviewed = _reviewed_appearances(facts)
+    preferred = facts.get("_p8_candidate")
+    preferred_actor = (
+        preferred.get("actor_id")
+        if isinstance(preferred, Mapping)
+        else None
+    )
+    preferred_frame = (
+        preferred.get("query_frame")
+        if isinstance(preferred, Mapping)
+        else None
+    )
     for actor_id, frames in facts.get("visibility", {}).items():
-        if actor_id not in reviewed:
+        if actor_id not in reviewed or (
+            preferred_actor is not None and actor_id != preferred_actor
+        ):
             continue
         if not isinstance(frames, Mapping):
             continue
         for frame, value in frames.items():
+            if preferred_frame is not None and int(frame) != int(preferred_frame):
+                continue
             if value.get("state") not in {"visible_occluded", "fully_occluded"}:
                 continue
             ids = _occluder_ids(facts, actor_id, int(frame))
@@ -3371,9 +3799,27 @@ def _generate_qa_10(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
 
 def _generate_qa_11(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
     reviewed = _reviewed_appearances(facts)
+    preferred = facts.get("_p8_candidate")
+    preferred_actor = (
+        preferred.get("actor_id")
+        if isinstance(preferred, Mapping)
+        else None
+    )
+    preferred_frame = (
+        preferred.get("query_frame")
+        if isinstance(preferred, Mapping)
+        else None
+    )
+    preferred_partial = (
+        preferred.get("partial_frame")
+        if isinstance(preferred, Mapping)
+        else None
+    )
     incomplete_negative = False
     for actor_id, frames in facts.get("visibility", {}).items():
-        if actor_id not in reviewed:
+        if actor_id not in reviewed or (
+            preferred_actor is not None and actor_id != preferred_actor
+        ):
             continue
         if not isinstance(frames, Mapping):
             continue
@@ -3383,6 +3829,14 @@ def _generate_qa_11(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
             for previous, current in zip(ordered, ordered[1:])
             if previous.get("state") == "visible_occluded"
             and current.get("state") == "visible_clear"
+            and (
+                preferred_frame is None
+                or int(current.get("frame_index", -1)) == int(preferred_frame)
+            )
+            and (
+                preferred_partial is None
+                or int(previous.get("frame_index", -1)) == int(preferred_partial)
+            )
         ]
         partial_frames = [
             frame.get("frame_index")
@@ -3404,7 +3858,7 @@ def _generate_qa_11(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
                     "clearly visible after partial occlusion before the end of the clip?"
                 ),
                 question_zh=(
-                    f"{appearance_zh}是否从部分遮挡变为清晰可见？"
+                    f"整段视频中，{appearance_zh}是否曾从部分遮挡变为清晰可见？"
                 ),
                 open_answer_type="closed_set",
                 open_truth=truth,
@@ -3414,9 +3868,13 @@ def _generate_qa_11(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
                     "target_actor_id": actor_id,
                     "partial_occlusion_frames": partial_frames,
                     "transition_frames": transitions,
+                    "query_frame": transitions[0] if transitions else None,
                     "observation_window": [0, int(facts["time"]["frame_count"]) - 1],
                 },
-                slug=f"{actor_id}_clear",
+                slug=(
+                    f"{actor_id}_clear_"
+                    f"{transitions[0] if transitions else 'none'}"
+                ),
             )
     if incomplete_negative:
         _defer(
@@ -3424,6 +3882,16 @@ def _generate_qa_11(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
             "cannot emit a negative partial-to-clear answer without complete visibility coverage",
         )
     _defer("no_partial_to_clear_transition", "no adjacent partial-occlusion to clear transition is present")
+
+
+def _statement_ordinal(facts: Mapping[str, Any], event: Mapping[str, Any]) -> int:
+    statements = sorted(
+        [row for row in facts.get("events", [])
+         if row.get("actor_id") == event.get("actor_id")
+         and isinstance(row.get("transcript"), str) and row["transcript"].strip()],
+        key=lambda row: (float(row["start_s"]), str(row["event_id"])))
+    return next(index + 1 for index, row in enumerate(statements)
+                if row["event_id"] == event["event_id"])
 
 
 def _generate_qa_12(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
@@ -3452,15 +3920,29 @@ def _generate_qa_12(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
         qa_id="QA-12",
         facts=facts,
         seed=seed,
-        question_en=f"What did the {actor['appearance']['value']} actor say?",
-        question_zh=f"{actor['appearance']['value']}的个体说了什么？",
+        question_en=f"What did the {actor['appearance']['value']} actor say in their spoken statement {_statement_ordinal(facts, event)}?",
+        question_zh=f"{actor['appearance']['value']}的个体在其第{_statement_ordinal(facts, event)}次说话时说了什么？",
         open_answer_type="transcript_wer",
         open_truth=event["transcript"],
         truth_label=str(event["transcript"]),
         options=[_option(text, text) for text in transcripts],
+        open_extra={
+            "transcript_attribution_policy": "candidate_match_reported_separately",
+            "wer_metric": "word_error_rate",
+        },
         evidence={
             "target_actor_id": actor_id,
             "appearance": dict(actor["appearance"]),
+            "transcript_attribution": {
+                "target_event_id": event.get("event_id"),
+                "candidate_transcripts": transcripts,
+                "match_required": True,
+                "ambiguity_policy": "defer_if_no_unique_candidate",
+            },
+            "wer": {
+                "metric": "word_error_rate",
+                "reference": event["transcript"],
+            },
             "appearance_review": _appearance_review_for(facts, actor_id),
             "event": _event_evidence(event),
             "statement_id": event.get("statement_id"),
@@ -3471,159 +3953,69 @@ def _generate_qa_12(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
 
 def _generate_qa_13(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
     _require_stereo(facts)
-    candidate_seen = False
-    first_open_candidate: dict[str, Any] | None = None
-    for event, query_frame, silence in _after_event_candidates(
-        facts, qa_id="QA-13"
-    ):
-        candidate_seen = True
+    _require_actor_count(facts, 2)
+    saw_window = False
+    saw_unobservable = False
+    last_reasons = {}
+    for event, query_frame, silence in _after_event_candidates(facts, qa_id="QA-13"):
+        saw_window = True
         try:
-            query_visibility = _require_visibility(
-                facts, event["actor_id"], query_frame
-            )
-            if query_visibility.get("state") not in VISIBLE_STATES:
-                continue
+            visibility = _require_visibility(facts, event["actor_id"], query_frame)
             angle = _azimuth(facts, event["actor_id"], query_frame)
-            distractor_angles = {
-                actor_id: _azimuth(facts, actor_id, query_frame)
-                for actor_id in facts["actors"]
-                if actor_id != event["actor_id"]
-            }
+            band = _fov_band(angle)
+            if visibility.get("state") not in VISIBLE_STATES or band is None:
+                saw_unobservable = True
+                continue
+            other_angles = {actor_id: _azimuth(facts, actor_id, query_frame)
+                            for actor_id in facts["actors"] if actor_id != event["actor_id"]}
         except _Deferred:
             continue
-        others = list(distractor_angles.values())
-        if others and min(
-            abs(((angle - other + 180.0) % 360.0) - 180.0)
-            for other in others
-        ) <= 60.0:
+        gaps = [abs((angle - value + 180.0) % 360.0 - 180.0) for value in other_angles.values()]
+        # Preserve the existing numerical scoring separation only for Open.
+        # The MCQ uses its own three-band domain and never inherits the old 90-degree sectors.
+        open_reason = None if gaps and min(gaps) > 60.0 else {
+            "code": "open_numeric_candidate_gap_too_small", "detail": "Open candidates overlap the existing 30-degree partial-credit tolerance",
+            "minimum_gap_deg": min(gaps) if gaps else None, "minimum_required_gap_deg": 60.0, "calibration": "placeholder"}
+        other_bands = {actor_id: _fov_band(value) for actor_id, value in other_angles.items()}
+        missing = [actor_id for actor_id, value in other_bands.items() if value is None]
+        equal = [actor_id for actor_id, value in other_bands.items() if value == band]
+        boundary_distance = min(abs(angle - boundary) for boundary in _FOV_BAND_BOUNDARIES_DEG)
+        mcq_reason = None
+        available = [value for value in other_bands.values() if value is not None]
+        if not available:
+            mcq_reason = {"code": "candidate_value_missing", "detail": "offscreen competitors have no in-view band and are not counted as different", "actor_ids": missing}
+        elif len(equal) == len(available):
+            mcq_reason = {"code": "distractors_equal_gold", "detail": "all available competitors occupy the same MCQ band as gold", "actor_ids": equal}
+        elif boundary_distance < 5.0:
+            mcq_reason = {"code": "mcq_band_boundary_margin", "detail": "target is within the placeholder 5-degree band-boundary margin",
+                          "distance_to_boundary_deg": boundary_distance, "required_margin_deg": 5.0, "calibration": "placeholder"}
+        if open_reason is not None and mcq_reason is not None:
+            last_reasons = {"open": open_reason, "mcq": mcq_reason}
             continue
         anchor_en, anchor_zh = _event_anchor(facts, event)
-        sector = _sector_of(angle)
-        query_time = query_frame / float(facts["time"]["frame_rate_hz"])
-        distractor_sectors = {
-            actor_id: _sector_of(other_angle)
-            for actor_id, other_angle in distractor_angles.items()
-        }
-        same_sector = {
-            actor_id: distractor_sectors[actor_id]
-            for actor_id in distractor_sectors
-            if distractor_sectors[actor_id] == sector
-        }
-        options = _sector_options()
-        candidate = {
-            "question_en": (
-                f"After {anchor_en} ended, what was the source's numeric "
-                f"azimuth at {query_time:.3f} seconds (video frame {query_frame})? "
-                "Report one angle in degrees: front is 0°, right is positive, "
-                "and the range is [-180°, 180°)."
-            ),
-            "question_zh": (
-                f"{anchor_zh}结束后，在第{query_time:.3f}秒（视频帧{query_frame}）"
-                "声源的数值方位角是多少？请用度数回答：正前方为0°，右侧为正，"
-                "范围为[-180°，180°）。"
-            ),
-            "mcq_question_en": (
-                f"After {anchor_en} ended, which 90-degree sector contains the "
-                f"source at {query_time:.3f} seconds (video frame {query_frame})? "
-                "Choose one: front [-45°, 45°), right [45°, 135°), "
-                "left [-135°, -45°), or back [135°, 180°) ∪ [-180°, -135°)."
-            ),
-            "mcq_question_zh": (
-                f"{anchor_zh}结束后，在第{query_time:.3f}秒（视频帧{query_frame}）"
-                "声源属于哪个90°扇区？请选择：前方[-45°，45°)、右方[45°，135°)、"
-                "左方[-135°，-45°)，或后方[135°，180°) ∪ [-180°，-135°)。"
-            ),
-            "open_truth": angle,
-            "truth_label": sector,
-            "evidence": {
-                **_event_evidence(event),
-                "post_sound": silence,
-                "query_frame": query_frame,
-                "query_time_s": query_time,
-                "query_visibility_state": query_visibility.get("state"),
-                "azimuth_deg": angle,
-                "distractor_azimuths_deg": distractor_angles,
-                "target_sector": sector,
-                "distractor_sectors": distractor_sectors,
-                "sector_boundary_convention": (
-                    "equal_width_half_open: front[-45,45), right[45,135), "
-                    "back[135,180)U[-180,-135), left[-135,-45)"
-                ),
-            },
-            "slug": f"{event['event_id']}_post_direction",
-            "same_sector": same_sector,
-        }
-        if not same_sector:
-            return _question_item(
-                qa_id="QA-13",
-                facts=facts,
-                seed=seed,
-                question_en=candidate["question_en"],
-                question_zh=candidate["question_zh"],
-                open_answer_type="angle_deg",
-                open_truth=candidate["open_truth"],
-                truth_label=candidate["truth_label"],
-                options=options,
-                mcq_truth=sector,
-                mcq_question_en=candidate["mcq_question_en"],
-                mcq_question_zh=candidate["mcq_question_zh"],
-                open_extra={
-                    "convention": "right_positive",
-                    "convention_description": (
-                        "azimuth_deg; front=0°, right_positive, range=[-180°,180°)"
-                    ),
-                    "theta_full_deg": 15.0,
-                    "theta_half_deg": 30.0,
-                },
-                evidence=candidate["evidence"],
-                slug=candidate["slug"],
-            )
-        if first_open_candidate is None:
-            first_open_candidate = candidate
-    if first_open_candidate is not None:
-        same_sector = first_open_candidate["same_sector"]
-        return _question_item(
-            qa_id="QA-13",
-            facts=facts,
-            seed=seed,
-            question_en=first_open_candidate["question_en"],
-            question_zh=first_open_candidate["question_zh"],
-            open_answer_type="angle_deg",
-            open_truth=first_open_candidate["open_truth"],
-            truth_label=first_open_candidate["truth_label"],
-            options=_sector_options(),
-            mcq_truth=first_open_candidate["truth_label"],
-            mcq_question_en=first_open_candidate["mcq_question_en"],
-            mcq_question_zh=first_open_candidate["mcq_question_zh"],
-            open_extra={
-                "convention": "right_positive",
-                "convention_description": (
-                    "azimuth_deg; front=0°, right_positive, range=[-180°,180°)"
-                ),
-                "theta_full_deg": 15.0,
-                "theta_half_deg": 30.0,
-            },
-            evidence=first_open_candidate["evidence"],
-            mcq_deferred_reason={
-                "code": "mcq_same_sector",
-                "detail": (
-                    "MCQ requires every distractor to occupy a different "
-                    "equal-width half-open sector"
-                ),
-                "target_sector": first_open_candidate["truth_label"],
-                "conflicting_distractors": same_sector,
-            },
-            slug=first_open_candidate["slug"],
-        )
-    if not candidate_seen:
-        _defer(
-            "no_valid_post_sound_window",
-            "no bound event has a later silent query frame",
-        )
-    _defer(
-        "post_sound_angle_not_separated",
-        "no legal post-sound query has target and distractor angles separated by more than 2x the 30 degree placeholder band",
-    )
+        time_s = query_frame / float(facts["time"]["frame_rate_hz"])
+        evidence = {**_event_evidence(event), "post_sound": silence, "query_frame": query_frame,
+                    "query_time_s": time_s, "query_visibility_state": visibility.get("state"),
+                    "azimuth_deg": angle, "distractor_azimuths_deg": other_angles,
+                    "target_fov_band": band, "distractor_fov_bands": other_bands,
+                    "fov_half_angle_deg": _FOV_HALF_DEG, "fov_band_boundaries_deg": list(_FOV_BAND_BOUNDARIES_DEG),
+                    "fov_band_calibration": "placeholder", "band_boundary_margin_deg": 5.0,
+                    "target_unobservable_at_query": False}
+        return _question_item(qa_id="QA-13", facts=facts, seed=seed,
+            question_en=f"After {anchor_en} ended, what was the source's numeric azimuth at {time_s:.3f} seconds (video frame {query_frame})? Report degrees: front is 0°, right is positive, range [-180°, 180°).",
+            question_zh=f"{anchor_zh}结束后，第{time_s:.3f}秒（视频帧{query_frame}）声源的数值方位角是多少？正前方为0°，右侧为正，范围[-180°，180°）。",
+            mcq_question_en=f"After {anchor_en} ended, which in-view horizontal band contains the source at {time_s:.3f} seconds (video frame {query_frame})?",
+            mcq_question_zh=f"{anchor_zh}结束后，第{time_s:.3f}秒（视频帧{query_frame}）声源位于哪个视野内水平角带？",
+            open_answer_type="angle_deg", open_truth=angle, truth_label=str(angle), mcq_truth=band,
+            open_extra={"convention": "right_positive", "convention_description": "azimuth_deg; front=0°, right_positive, range=[-180°,180°)",
+                        "theta_full_deg": 15.0, "theta_half_deg": 30.0},
+            open_deferred_reason=open_reason, mcq_deferred_reason=mcq_reason, options=_fov_band_options(),
+            evidence=evidence, slug=f"{event['event_id']}_post_direction")
+    if saw_unobservable:
+        _defer("target_unobservable_at_query", "the target is not observable in the declared query view", open_and_mcq_deferred=True)
+    if not saw_window:
+        _defer("no_valid_post_sound_window", "no bound event has a measured silent query window")
+    _defer("post_sound_angle_not_separated", "no query candidate supports either answer form", form_reasons=last_reasons)
 
 
 def _generate_qa_14(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
@@ -3639,19 +4031,23 @@ def _generate_qa_14(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
     sampled_time = _sampling_value(
         facts, "QA-14", "query_time_s_by_qa", "query_times_s"
     )
-    if isinstance(sampled_frame, int) and not isinstance(sampled_frame, bool):
+    if sampled_frame is not None:
         frame_candidates = [
-            max(0, min(frame_count - 1, int(sampled_frame)))
+            _resolve_query_frame_spec(
+                facts, "QA-14", sampled_frame, source="sampling_frame"
+            )
         ]
         query_source = "sampling_frame"
-    elif isinstance(sampled_time, (int, float)) and not isinstance(sampled_time, bool):
+    elif sampled_time is not None:
+        time_s = _resolve_query_time_spec(
+            facts, "QA-14", sampled_time, source="sampling_time"
+        )
         frame_candidates = [
-            max(
-                0,
-                min(
-                    frame_count - 1,
-                    int(round(float(sampled_time) * frame_rate)),
-                ),
+            _resolve_query_frame_spec(
+                facts,
+                "QA-14",
+                int(round(time_s * frame_rate)),
+                source="sampling_time",
             )
         ]
         query_source = "sampling_time"
@@ -3802,12 +4198,13 @@ def _generate_qa_16(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
             facts=facts,
             seed=seed,
             question_en=(
-                f"After {anchor_en} ended, was the source nearer or farther "
-                f"at {query_time:.3f} seconds (video frame {query_frame})?"
+                f"Compared with the source position at the end of {anchor_en}, "
+                f"was it nearer or farther at {query_time:.3f} seconds "
+                f"(video frame {query_frame})?"
             ),
             question_zh=(
-                f"{anchor_zh}结束后，在第{query_time:.3f}秒（视频帧{query_frame}）"
-                "比发声时更近还是更远？"
+                f"与{anchor_zh}结束时的声源位置相比，在第{query_time:.3f}秒"
+                f"（视频帧{query_frame}）时更近还是更远？"
             ),
             open_answer_type="closed_set",
             open_truth=truth,
@@ -3861,13 +4258,20 @@ def _generate_qa_17(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
     event, query_frame, silence, values = first_valid
     anchor_en, anchor_zh = _event_anchor(facts, event)
     end_frame = min(query_frame, _event_frame(event, "end_frame"))
+    query_time = query_frame / float(facts["time"]["frame_rate_hz"])
     truth = "yes" if any(values) else "no"
     return _question_item(
         qa_id="QA-17",
         facts=facts,
         seed=seed,
-        question_en=f"Did the source move after {anchor_en} ended?",
-        question_zh=f"{anchor_zh}结束后声源还移动过吗？",
+        question_en=(
+            f"Between the end of {anchor_en} and {query_time:.3f} seconds "
+            f"(video frame {query_frame}), did the source move?"
+        ),
+        question_zh=(
+            f"{anchor_zh}结束后到第{query_time:.3f}秒（视频帧{query_frame}）之间"
+            "声源还移动过吗？"
+        ),
         open_answer_type="closed_set",
         open_truth=truth,
         truth_label=truth,
@@ -3885,17 +4289,52 @@ def _generate_qa_17(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
 def _generate_qa_18(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
     _require_actor_count(facts, 2)
     _require_stereo(facts)
-    reviewed = _reviewed_appearances(facts)
+    try:
+        reviewed = _reviewed_appearances(facts)
+    except _Deferred:
+        # A known all-silent query has the closed-set answer "none" without
+        # selecting a visual actor. Require appearance review only when an
+        # active source must be named.
+        reviewed = {}
     query_time, query_source = _query_time(facts, "QA-18")
-    frame = max(
-        0,
-        min(
-            int(facts["time"]["frame_count"]) - 1,
-            int(round(query_time * float(facts["time"]["frame_rate_hz"]))),
-        ),
+    frame = _resolve_query_frame_spec(
+        facts,
+        "QA-18",
+        int(round(query_time * float(facts["time"]["frame_rate_hz"]))),
+        source="query_time",
     )
-    active = _active_at(facts, frame)
-    active_actor_ids = list(dict.fromkeys(event["actor_id"] for event in active if event.get("actor_id")))
+    active = _active_at(
+        facts,
+        frame,
+        require_source_activity=True,
+    )
+    wet_tails = (
+        facts.get("audio", {}).get("wet_tail_intervals", [])
+        if isinstance(facts.get("audio"), Mapping)
+        else []
+    )
+    wet_tail_events = [
+        interval.get("event_id")
+        for interval in wet_tails
+        if isinstance(interval, Mapping)
+        and interval.get("event_id") is not None
+        and float(interval.get("start_s", 0.0)) <= query_time
+        < float(interval.get("end_s", 0.0))
+    ]
+    if wet_tail_events:
+        _defer(
+            "query_inside_wet_tail",
+            "QA-18 query is inside a measured listener-side wet-tail interval",
+            query_time_s=query_time,
+            event_ids=wet_tail_events,
+        )
+    active_actor_ids = list(
+        dict.fromkeys(
+            event["actor_id"]
+            for event in active
+            if event.get("actor_id")
+        )
+    )
     if any(actor_id not in reviewed for actor_id in active_actor_ids):
         _defer(
             "speaker_appearance_review_missing",
@@ -3915,8 +4354,14 @@ def _generate_qa_18(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
         qa_id="QA-18",
         facts=facts,
         seed=seed,
-        question_en=f"At {query_time:.3f} seconds, who is making a sound?",
-        question_zh=f"第{query_time:.3f}秒时谁在发声？",
+        question_en=(
+            f"At {query_time:.3f} seconds (video frame {frame}), who is "
+            "currently making a sound?"
+        ),
+        question_zh=(
+            f"第{query_time:.3f}秒（视频帧{frame}）"
+            "时，正在发声的是谁？"
+        ),
         open_answer_type="closed_set",
         open_truth=truth,
         truth_label=(
@@ -3935,6 +4380,12 @@ def _generate_qa_18(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
             "query_time_s": query_time,
             "query_source": query_source,
             "query_frame": frame,
+            "source_activity_coordinate_space": "episode_sample_clock",
+            "source_activity_event_ids": [
+                event["event_id"] for event in active
+            ],
+            "wet_tail_event_ids": wet_tail_events,
+            "wet_tail_boundary_policy": "measured_interval_only",
             "active_event_ids": [event["event_id"] for event in active],
             "active_actor_ids": active_actor_ids,
             "appearance_reviews": {
@@ -3944,7 +4395,6 @@ def _generate_qa_18(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
         },
         slug=f"frame_{frame}",
     )
-
 
 def _time_bands(facts: Mapping[str, Any]) -> list[tuple[float, float]]:
     duration = float(facts["time"]["duration_seconds"])
@@ -4162,23 +4612,17 @@ def _generate_qa_22(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
     entity_count = len(visible_actor_ids)
     speaking_count = len(speaking_actor_ids)
     truth = [entity_count, speaking_count]
-    candidates = {(entity_count, speaking_count)}
-    for entity_delta, speaker_delta in (
-        (0, -1), (0, 1), (-1, 0), (1, 0), (-1, 1), (1, -1)
-    ):
-        pair = (entity_count + entity_delta, speaking_count + speaker_delta)
-        if pair[0] >= 0 and 0 <= pair[1] <= pair[0]:
-            candidates.add(pair)
-    pairs = sorted(candidates)
-    while len(pairs) < 4:
-        pair = (entity_count, max(0, min(entity_count, speaking_count + len(pairs))))
-        if pair not in candidates:
-            candidates.add(pair)
-            pairs = sorted(candidates)
-        else:
-            break
+    # With the observed entity count fixed, the legal speaking count domain is
+    # exactly 0..entity_count. Do not fabricate extra count pairs.
+    pairs = [
+        (entity_count, candidate_speaking_count)
+        for candidate_speaking_count in range(entity_count + 1)
+    ]
     if len(pairs) < 2:
-        _defer("count_option_domain_too_small", "QA-22 cannot construct distinct count options")
+        _defer(
+            "count_option_domain_too_small",
+            "QA-22 cannot construct distinct count options",
+        )
     options = [
         {
             **_option(
@@ -4348,113 +4792,6 @@ def _restore_normalized_frame_keys(facts: Mapping[str, Any]) -> dict[str, Any]:
     return result
 
 
-def generate_unified_questions(
-    raw_or_facts: Mapping[str, Any],
-    *,
-    qa_ids: Sequence[str] | None = None,
-    seed: str = "avengine-qa-20260906",
-) -> dict[str, Any]:
-    """Generate valid rows and per-QA deferred records from one Episode.
-
-    Passing the output of normalize_episode_bundle is supported for callers
-    that want to retain the normalized facts. Raw native input is preferred.
-    """
-
-    if not isinstance(raw_or_facts, Mapping):
-        raise UnifiedQAError("episode input must be an object")
-    facts = (
-        _restore_normalized_frame_keys(raw_or_facts)
-        if raw_or_facts.get("schema") == UNIFIED_FACT_SCHEMA
-        else normalize_episode_bundle(raw_or_facts)
-    )
-    requested = (
-        [_canonical_qa_id(value) for value in qa_ids]
-        if qa_ids is not None
-        else [item["qa_id"] for item in CATALOG]
-    )
-    if len(requested) != len(set(requested)):
-        raise UnifiedQAError("qa_ids must be unique")
-    items: list[dict[str, Any]] = []
-    deferred: list[dict[str, Any]] = []
-    for qa_id in requested:
-        generator = _GENERATORS[qa_id]
-        try:
-            item = generator(facts, seed)
-        except _Deferred as error:
-            deferred.append(
-                {
-                    "qa_id": qa_id,
-                    "status": "deferred",
-                    "code": error.code,
-                    "detail": error.detail,
-                    **error.extra,
-                    "requirements": get_requirements(qa_id),
-                }
-            )
-            continue
-        items.append(item)
-    coverage: list[dict[str, Any]] = []
-    item_by_qa = {item["qa_id"]: item for item in items}
-    deferred_by_qa = {item["qa_id"]: item for item in deferred}
-    for qa_id in requested:
-        if qa_id in item_by_qa:
-            coverage.append(
-                {
-                    "qa_id": qa_id,
-                    "status": "pass",
-                    "question_id": item_by_qa[qa_id]["question_id"],
-                    "requirements": get_requirements(qa_id),
-                }
-            )
-        else:
-            coverage.append(dict(deferred_by_qa[qa_id]))
-    return {
-        "schema": UNIFIED_OUTPUT_SCHEMA,
-        "status": "research_candidate",
-        "qualification_claim": False,
-        "catalog_version": CATALOG_VERSION,
-        "episode_id": facts["episode_id"],
-        "seed": seed,
-        "input_facts": facts,
-        "counts": {
-            "requested": len(requested),
-            "valid": len(items),
-            "deferred": len(deferred),
-        },
-        "actual_evidence_summary": {
-            "actor_count": len(facts.get("actors", {})),
-            "event_count": len(facts.get("events", [])),
-            "bound_event_count": sum(
-                1
-                for event in facts.get("events", [])
-                if isinstance(event, Mapping) and isinstance(event.get("actor_id"), str)
-            ),
-            "unresolved_event_ids": list(
-                facts.get("input_summary", {}).get("unresolved_event_ids", [])
-            ),
-            "reviewed_appearance_actor_count": len(
-                facts.get("appearance_review", {})
-            ),
-            "pixel_visibility_actor_count": len(facts.get("visibility", {})),
-            "audio_validation_status": facts.get("audio", {}).get("status"),
-            "moving_actor_count": sum(
-                1
-                for actor in facts.get("actors", {}).values()
-                if isinstance(actor, Mapping)
-                and any(value is True for value in actor.get("moving", []) or [])
-            ),
-        },
-        "coverage": coverage,
-        "items": items,
-        "deferred": deferred,
-        "claim_boundary": (
-            "Rows are deterministic research candidates derived from native "
-            "readbacks. They are not model outcomes, formal admission or "
-            "modality-necessity certificates."
-        ),
-    }
-
-
 __all__ = [
     "CATALOG",
     "CATALOG_VERSION",
@@ -4478,4 +4815,1717 @@ __all__ = [
 QUESTION_CATALOG = CATALOG
 get_question_requirements = get_requirements
 build_unified_episode_facts = normalize_episode_bundle
+def _sampling_window_bounds(value: Any) -> tuple[int, int] | None:
+    if isinstance(value, Mapping):
+        pairs = (
+            ("start_frame", "end_frame_exclusive"),
+            ("start", "end"),
+            ("lo", "hi"),
+        )
+        for start_key, end_key in pairs:
+            if start_key in value and end_key in value:
+                value = (value[start_key], value[end_key])
+                break
+    if (
+        isinstance(value, Sequence)
+        and not isinstance(value, (str, bytes))
+        and len(value) == 2
+    ):
+        start, end = value
+        if (
+            isinstance(start, int)
+            and not isinstance(start, bool)
+            and isinstance(end, int)
+            and not isinstance(end, bool)
+        ):
+            return int(start), int(end)
+    return None
+
+
+def _resolve_query_frame_spec(
+    facts: Mapping[str, Any],
+    qa_id: str,
+    value: Any,
+    *,
+    source: str,
+) -> int:
+    frame_count = int(facts["time"]["frame_count"])
+    if isinstance(value, int) and not isinstance(value, bool):
+        frame = int(value)
+    elif isinstance(value, Mapping):
+        policy = value.get("policy") or value.get("query_time_policy")
+        if policy == "uniform_in_legal_window":
+            window = (
+                value.get("window_frames")
+                or value.get("frame_window")
+                or value.get("legal_window")
+                or value.get("window")
+            )
+            bounds = _sampling_window_bounds(window)
+            if bounds is None:
+                _defer(
+                    "sampling_window_invalid",
+                    f"{qa_id} legal window must be [start_frame, end_frame_exclusive]",
+                )
+            start, end = bounds
+            if start < 0 or end > frame_count or start >= end:
+                _defer(
+                    "sampling_window_invalid",
+                    f"{qa_id} legal frame window {bounds} is outside the frame clock",
+                    window=list(bounds),
+                )
+            generation_seed = str(facts.get("_generation_seed", ""))
+            frame = random.Random(
+                f"{generation_seed}\\0{qa_id}\\0{start}\\0{end}"
+            ).randrange(start, end)
+        else:
+            nested = next(
+                (
+                    value[key]
+                    for key in ("frame", "query_frame", "at_frame")
+                    if key in value
+                ),
+                None,
+            )
+            if nested is None:
+                _defer(
+                    "invalid_query_frame",
+                    f"{qa_id} has an unrecognized query frame specification",
+                    source=source,
+                )
+            return _resolve_query_frame_spec(
+                facts, qa_id, nested, source=source
+            )
+    else:
+        _defer(
+            "invalid_query_frame",
+            f"{qa_id} has an unrecognized query frame specification",
+            source=source,
+        )
+    if frame < 0 or frame >= frame_count:
+        _defer(
+            "query_frame_out_of_range",
+            f"{qa_id} query frame {frame} is outside [0, {frame_count})",
+            frame=frame,
+            source=source,
+        )
+    return frame
+
+
+def _resolve_query_time_spec(
+    facts: Mapping[str, Any],
+    qa_id: str,
+    value: Any,
+    *,
+    source: str,
+) -> float:
+    duration = float(facts["time"]["duration_seconds"])
+    if isinstance(value, Mapping):
+        policy = value.get("policy") or value.get("query_time_policy")
+        if policy == "uniform_in_legal_window":
+            frame = _resolve_query_frame_spec(
+                facts, qa_id, value, source=source
+            )
+            return frame / float(facts["time"]["frame_rate_hz"])
+        nested = next(
+            (
+                value[key]
+                for key in ("time_s", "query_time_s", "seconds")
+                if key in value
+            ),
+            None,
+        )
+        if nested is None:
+            _defer(
+                "invalid_query_time",
+                f"{qa_id} has an unrecognized query time specification",
+                source=source,
+            )
+        value = nested
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        _defer(
+            "invalid_query_time",
+            f"{qa_id} query time is not numeric",
+            source=source,
+        )
+    time_s = _finite_number(value, name="query_time_s")
+    if time_s < 0.0 or time_s > duration:
+        _defer(
+            "query_time_out_of_range",
+            f"{qa_id} query time {time_s} is outside [0, {duration}]",
+            query_time_s=time_s,
+            source=source,
+        )
+    return time_s
+
+
+def _nested_evidence_value(
+    evidence: Mapping[str, Any],
+    *keys: str,
+) -> Any:
+    for key in keys:
+        if key in evidence and evidence[key] is not None:
+            return evidence[key]
+    for parent in ("event", "first_event", "anchor_event", "post_sound"):
+        nested = evidence.get(parent)
+        if isinstance(nested, Mapping):
+            for key in keys:
+                if key in nested and nested[key] is not None:
+                    return nested[key]
+    return None
+
+
+def _question_id_for(
+    canonical: str,
+    facts: Mapping[str, Any],
+    slug: str,
+    evidence: Mapping[str, Any],
+) -> str:
+    """Include every fact that can distinguish a sampled question."""
+
+    parts = [
+        canonical.lower().replace("-", "_"),
+        _safe_slug(str(facts["episode_id"])),
+    ]
+    target = _nested_evidence_value(
+        evidence,
+        "target_actor_id",
+        "actor_id",
+        "candidate_actor_id",
+    )
+    event = _nested_evidence_value(evidence, "event_id")
+    if event is None:
+        event_ids = _nested_evidence_value(evidence, "event_ids")
+        if isinstance(event_ids, Sequence) and not isinstance(event_ids, (str, bytes)):
+            event = ",".join(str(value) for value in event_ids)
+    frame = _nested_evidence_value(evidence, "query_frame", "frame")
+    query_time = _nested_evidence_value(evidence, "query_time_s")
+    query_window = _nested_evidence_value(
+        evidence,
+        "query_window",
+        "window",
+        "motion_frames",
+        "statistics_window",
+        "observation_window",
+    )
+    if target is not None:
+        parts.append(f"target_{_safe_slug(str(target))}")
+    if event is not None:
+        parts.append(f"event_{_safe_slug(str(event))}")
+    if frame is not None:
+        parts.append(f"frame_{_safe_slug(str(frame))}")
+    if query_time is not None:
+        parts.append(f"time_{_safe_slug(str(query_time))}")
+    if query_window is not None:
+        parts.append(f"window_{_safe_slug(str(query_window))}")
+    parts.append(_safe_slug(str(slug)))
+    return "__".join(parts)
+
+
+def structural_baselines(candidate_values: Mapping[str, Any] | Sequence[Any],
+                         gold_actor: str | None, *, answer_domain_size: int | None = None) -> dict[str, Any]:
+    from avengine.qa.answerability import structural_baselines as shared_baselines
+    values = candidate_values if isinstance(candidate_values, Mapping) else {str(i): v for i, v in enumerate(candidate_values)}
+    return shared_baselines(values, gold_actor, answer_domain_size=answer_domain_size)
+
+
+def distractors_equal_gold(
+    candidate_values: Mapping[str, Any],
+    gold_actor: str,
+) -> bool:
+    """Return the diagnostic only; this function never rejects a question."""
+
+    gold = candidate_values.get(gold_actor)
+    if gold is None:
+        return False
+    distractors = [
+        value
+        for actor_id, value in candidate_values.items()
+        if actor_id != gold_actor and value is not None
+    ]
+    return bool(distractors) and all(value == gold for value in distractors)
+
+
+def _candidate_actor_values(
+    facts: Mapping[str, Any],
+) -> dict[str, Any]:
+    values: dict[str, Any] = {}
+    actors = facts.get("actors")
+    if not isinstance(actors, Mapping):
+        return values
+    for actor_id, actor in actors.items():
+        if not isinstance(actor, Mapping):
+            continue
+        appearance = actor.get("appearance")
+        if isinstance(appearance, Mapping):
+            value = appearance.get("value", appearance.get("label"))
+        else:
+            value = actor.get("display_label")
+        values[str(actor_id)] = value if value is not None and str(value).strip() else None
+    return values
+
+
+def _p8_actor_ids(facts: Mapping[str, Any]) -> list[str]:
+    actors = facts.get("actors")
+    return [
+        str(actor_id)
+        for actor_id, actor in actors.items()
+        if isinstance(actor, Mapping)
+    ] if isinstance(actors, Mapping) else []
+
+
+def _p8_ordered_visibility(
+    facts: Mapping[str, Any],
+    actor_id: str,
+) -> list[Mapping[str, Any]]:
+    frames = facts.get("visibility", {}).get(actor_id)
+    if not isinstance(frames, Mapping):
+        return []
+    return [
+        value
+        for index, value in sorted(frames.items(), key=lambda pair: int(pair[0]))
+        if isinstance(value, Mapping)
+    ]
+
+
+def _p8_entry_transition_candidates(
+    facts: Mapping[str, Any],
+) -> list[dict[str, Any]]:
+    reviewed = _reviewed_appearances(facts)
+    result: list[dict[str, Any]] = []
+    resolution = facts.get("visibility_meta", {}).get("resolution_hw")
+    if not _is_sequence(resolution) or len(resolution) != 2:
+        return result
+    center = (float(resolution[1]) - 1.0) / 2.0
+    dead_zone = max(1.0, float(resolution[1]) * 0.02)
+    for actor_id in _p8_actor_ids(facts):
+        if actor_id not in reviewed:
+            continue
+        ordered = _p8_ordered_visibility(facts, actor_id)
+        for previous, current in zip(ordered, ordered[1:]):
+            previous_index = previous.get("frame_index")
+            current_index = current.get("frame_index")
+            centroid = current.get("target_centroid_xy_px")
+            if (
+                not isinstance(previous_index, int)
+                or not isinstance(current_index, int)
+                or current_index != previous_index + 1
+                or previous.get("state") != "out_of_view"
+                or current.get("state") not in VISIBLE_STATES
+                or not _is_sequence(centroid)
+                or len(centroid) != 2
+            ):
+                continue
+            offset = float(centroid[0]) - center
+            if abs(offset) <= dead_zone:
+                continue
+            result.append(
+                {
+                    "candidate_id": f"QA-07:actor:{actor_id}:frame:{current_index}",
+                    "kind": "entry_transition",
+                    "actor_id": actor_id,
+                    "query_frame": current_index,
+                    "entry_frame": current_index,
+                    "entry_side": "right" if offset > 0 else "left",
+                }
+            )
+    return result
+
+
+def _p8_reappearance_candidates(facts: Mapping[str, Any]) -> list[dict[str, Any]]:
+    # The question asks an existential property of the whole clip. Each actor
+    # contributes one candidate, regardless of how long it stays occluded.
+    reviewed = _reviewed_appearances(facts)
+    result = []
+    for actor_id in _p8_actor_ids(facts):
+        if actor_id not in reviewed:
+            continue
+        rows = _p8_ordered_visibility(facts, actor_id)
+        fully = [int(row["frame_index"]) for row in rows
+                 if row.get("state") == "fully_occluded"]
+        if not fully:
+            continue
+        positive = any(row.get("state") in VISIBLE_STATES
+                       and int(row["frame_index"]) > min(fully) for row in rows)
+        if positive or _visibility_is_complete(facts, actor_id):
+            result.append({"candidate_id": f"QA-09:actor:{actor_id}:whole-clip",
+                           "kind": "whole_clip_reappearance", "actor_id": actor_id})
+    return result
+
+
+def _p8_partial_clear_candidates(facts: Mapping[str, Any]) -> list[dict[str, Any]]:
+    reviewed = _reviewed_appearances(facts)
+    result = []
+    for actor_id in _p8_actor_ids(facts):
+        if actor_id not in reviewed:
+            continue
+        rows = _p8_ordered_visibility(facts, actor_id)
+        if not any(row.get("state") == "visible_occluded" for row in rows):
+            continue
+        positive = any(previous.get("state") == "visible_occluded"
+                       and current.get("state") == "visible_clear"
+                       and int(current["frame_index"]) == int(previous["frame_index"]) + 1
+                       for previous, current in zip(rows, rows[1:]))
+        if positive or _visibility_is_complete(facts, actor_id):
+            result.append({"candidate_id": f"QA-11:actor:{actor_id}:whole-clip",
+                           "kind": "whole_clip_partial_clear", "actor_id": actor_id})
+    return result
+
+
+def _p8_occlusion_candidates(
+    facts: Mapping[str, Any],
+) -> list[dict[str, Any]]:
+    reviewed = _reviewed_appearances(facts)
+    result: list[dict[str, Any]] = []
+    for actor_id in _p8_actor_ids(facts):
+        if actor_id not in reviewed:
+            continue
+        for row in _p8_ordered_visibility(facts, actor_id):
+            frame = row.get("frame_index")
+            if (
+                not isinstance(frame, int)
+                or row.get("state") not in {"visible_occluded", "fully_occluded"}
+            ):
+                continue
+            ids = _occluder_ids(facts, actor_id, frame)
+            if len(ids) != 1:
+                continue
+            result.append(
+                {
+                    "candidate_id": (
+                        f"QA-10:actor:{actor_id}:frame:{frame}:"
+                        f"occluder:{ids[0]}"
+                    ),
+                    "kind": "occlusion_instance",
+                    "actor_id": actor_id,
+                    "query_frame": frame,
+                    "occlusion_frame": frame,
+                    "occluder_id": ids[0],
+                }
+            )
+    return result
+
+
+def _p8_window_frames(
+    facts: Mapping[str, Any],
+    qa_id: str,
+    value: Any,
+) -> list[int] | None:
+    if isinstance(value, Mapping):
+        policy = value.get("policy") or value.get("query_time_policy")
+        if policy == "uniform_in_legal_window":
+            value = _first(
+                value,
+                "window_frames",
+                "frame_window",
+                "legal_window",
+                "window",
+            )
+    if isinstance(value, Mapping):
+        bounds = _sampling_window_bounds(value)
+        if bounds is None:
+            return None
+        windows: list[tuple[int, int]] = [bounds]
+    elif _is_sequence(value) and len(value) == 2:
+        if all(isinstance(part, int) and not isinstance(part, bool) for part in value):
+            windows = [(int(value[0]), int(value[1]))]
+        else:
+            windows = []
+            for part in value:
+                bounds = _sampling_window_bounds(part)
+                if bounds is None:
+                    return None
+                windows.append(bounds)
+    else:
+        return None
+    frame_count = int(facts["time"]["frame_count"])
+    if any(start < 0 or start >= end or end > frame_count for start, end in windows):
+        _defer(
+            "sampling_window_invalid",
+            f"{qa_id} legal frame window is outside the frame clock",
+            windows=[list(window) for window in windows],
+        )
+    return sorted({frame for start, end in windows for frame in range(start, end)})
+
+
+def _p8_qa14_frames(facts: Mapping[str, Any]) -> list[int]:
+    value = _sampling_value(
+        facts,
+        "QA-14",
+        "query_frame_by_qa",
+        "query_frames",
+        "query_frame",
+        "at_frame",
+    )
+    time_value = _sampling_value(
+        facts,
+        "QA-14",
+        "query_time_s_by_qa",
+        "query_times_s",
+    )
+    if value is not None:
+        if isinstance(value, Mapping) and (
+            value.get("policy") or value.get("query_time_policy")
+        ) == "uniform_in_legal_window":
+            frames = _p8_window_frames(facts, "QA-14", value)
+            if frames is None:
+                _defer("sampling_window_invalid", "QA-14 legal frame window is invalid")
+            return frames
+        return [_resolve_query_frame_spec(facts, "QA-14", value, source="sampling")]
+    if time_value is not None:
+        if isinstance(time_value, Mapping) and (
+            time_value.get("policy") or time_value.get("query_time_policy")
+        ) == "uniform_in_legal_window":
+            frames = _p8_window_frames(facts, "QA-14", time_value)
+            if frames is None:
+                _defer("sampling_window_invalid", "QA-14 legal frame window is invalid")
+            return frames
+        time_s = _resolve_query_time_spec(
+            facts, "QA-14", time_value, source="sampling_time"
+        )
+        return [
+            _resolve_query_frame_spec(
+                facts,
+                "QA-14",
+                int(round(time_s * float(facts["time"]["frame_rate_hz"]))),
+                source="sampling_time",
+            )
+        ]
+    window = _sampling_value(
+        facts,
+        "QA-14",
+        "legal_window_by_qa",
+        "legal_windows",
+        "query_windows",
+    )
+    if window is not None:
+        frames = _p8_window_frames(facts, "QA-14", window)
+        if frames is None:
+            _defer("sampling_window_invalid", "QA-14 legal frame window is invalid")
+        return frames
+    return list(range(int(facts["time"]["frame_count"])))
+
+
+def _p8_candidate_pool(
+    facts: Mapping[str, Any],
+    qa_id: str,
+) -> list[dict[str, Any]]:
+    """Enumerate cheap legal actor/event candidates before the expensive emit."""
+
+    actors = facts.get("actors")
+    actor_ids = [
+        str(actor_id)
+        for actor_id, actor in actors.items()
+        if isinstance(actor, Mapping)
+    ] if isinstance(actors, Mapping) else []
+    events = facts.get("events")
+    event_rows = [
+        event
+        for event in events
+        if isinstance(event, Mapping) and isinstance(event.get("actor_id"), str)
+    ] if isinstance(events, Sequence) and not isinstance(events, (str, bytes)) else []
+    values = _candidate_actor_values(facts)
+    fixed = {"QA-03", "QA-22", "QA-23", "QA-24"}
+    if qa_id in fixed:
+        if qa_id == "QA-03" and len(event_rows) < 2:
+            return []
+        if qa_id == "QA-22" and len(actor_ids) < 2:
+            return []
+        if qa_id in {"QA-23", "QA-24"} and not event_rows:
+            return []
+        return [
+            {
+                "candidate_id": f"{qa_id}:semantic_fixed",
+                "kind": "semantic_fixed",
+                "candidate_values": values,
+            }
+        ]
+    if qa_id == "QA-05":
+        return [{"candidate_id": f"{qa_id}:pair:{a['event_id']}:{b['event_id']}",
+                 "kind": "event_pair", "event_ids": [a["event_id"], b["event_id"]]}
+                for index, a in enumerate(event_rows) for b in event_rows[index + 1:]]
+    if qa_id == "QA-14":
+        candidates = _appearance_candidates(facts)
+        if len(candidates) < 2:
+            return []
+        result: list[dict[str, Any]] = []
+        for frame in _p8_qa14_frames(facts):
+            for first_index, (first_id, _first_actor, _first_appearance) in enumerate(candidates):
+                for second_id, _second_actor, _second_appearance in candidates[first_index + 1:]:
+                    try:
+                        first_state = _require_visibility(facts, first_id, frame)
+                        second_state = _require_visibility(facts, second_id, frame)
+                        first_distance = _distance_at(facts, first_id, frame)
+                        second_distance = _distance_at(facts, second_id, frame)
+                    except _Deferred:
+                        continue
+                    if (
+                        first_state.get("state") in VISIBLE_STATES
+                        and second_state.get("state") in VISIBLE_STATES
+                        and abs(first_distance - second_distance) >= 0.5
+                    ):
+                        result.append(
+                            {
+                                "candidate_id": (
+                                    f"{qa_id}:pair:{first_id}:{second_id}:"
+                                    f"frame:{frame}"
+                                ),
+                                "kind": "actor_pair",
+                                "actor_ids": [first_id, second_id],
+                                "actor_id": first_id,
+                                "query_frame": frame,
+                                "candidate_values": values,
+                            }
+                        )
+        return result
+    if qa_id in {"QA-07", "QA-09", "QA-10", "QA-11"}:
+        return {
+            "QA-07": _p8_entry_transition_candidates,
+            "QA-09": _p8_reappearance_candidates,
+            "QA-10": _p8_occlusion_candidates,
+            "QA-11": _p8_partial_clear_candidates,
+        }[qa_id](facts)
+    if qa_id in {"QA-13", "QA-16", "QA-17"}:
+        return _post_sound_candidates(facts, qa_id, event_rows)
+    if qa_id == "QA-18":
+        return _query_time_candidates(facts, qa_id)
+    if qa_id in {"QA-19", "QA-21"}:
+        return [{"candidate_id": f"{qa_id}:actor:{actor_id}", "kind": "actor",
+                 "actor_id": actor_id, "candidate_values": values}
+                for actor_id in actor_ids if any(e["actor_id"] == actor_id for e in event_rows)]
+    actor_qas = {"QA-01"}
+    if qa_id in actor_qas:
+        return [
+            {
+                "candidate_id": f"{qa_id}:actor:{actor_id}",
+                "kind": "actor",
+                "actor_id": actor_id,
+                "candidate_values": values,
+            }
+            for actor_id in actor_ids
+        ]
+    if qa_id == "QA-02":
+        event_rows = [
+            event
+            for event in event_rows
+            if isinstance(event.get("transcript"), str)
+            and bool(event.get("transcript", "").strip())
+        ]
+    if qa_id == "QA-12":
+        event_rows = [
+            event
+            for event in event_rows
+            if (
+                isinstance(event.get("transcript"), str)
+                and bool(event.get("transcript", "").strip())
+            )
+            or _p8_actor_kind(
+                facts["actors"].get(event.get("actor_id"), {})
+            ) == "articulated_animal"
+        ]
+    if qa_id == "QA-21":
+        event_rows = [
+            event
+            for event in event_rows
+            if event.get("sound_class")
+            and event.get("sound_class_explicit")
+        ]
+    if qa_id == "QA-06":
+        legal_events = []
+        for event in event_rows:
+            try:
+                _stable_motion_window(
+                    facts,
+                    str(event["actor_id"]),
+                    max(0, _event_frame(event, "start_frame")),
+                    min(
+                        int(facts["time"]["frame_count"]),
+                        _event_frame(event, "end_frame"),
+                    ),
+                )
+            except _Deferred:
+                continue
+            legal_events.append(event)
+        event_rows = legal_events
+    if qa_id == "QA-15":
+        legal_events = []
+        for event in event_rows:
+            try:
+                start_frame = max(0, _event_frame(event, "start_frame"))
+                end_frame = min(
+                    int(facts["time"]["frame_count"]) - 1,
+                    max(start_frame + 1, _event_frame(event, "end_frame") - 1),
+                )
+                delta = _distance_at(facts, str(event["actor_id"]), end_frame) - _distance_at(
+                    facts, str(event["actor_id"]), start_frame
+                )
+            except _Deferred:
+                continue
+            if abs(delta) >= 0.2:
+                legal_events.append(event)
+        event_rows = legal_events
+    return [
+        {
+            "candidate_id": (
+                f"{qa_id}:event:{event.get('event_id', index)}:"
+                f"{event.get('actor_id')}"
+            ),
+            "kind": "event",
+            "event_id": event.get("event_id"),
+            "actor_id": str(event["actor_id"]),
+            "candidate_values": values,
+        }
+        for index, event in enumerate(event_rows)
+    ]
+
+def _p8_facts_for_candidate(
+    facts: Mapping[str, Any],
+    candidate: Mapping[str, Any],
+    seed: str,
+) -> dict[str, Any]:
+    result = copy.deepcopy(dict(facts))
+    result["_generation_seed"] = str(seed)
+    result["_p8_candidate"] = copy.deepcopy(dict(candidate))
+    if candidate.get("kind") == "query_time":
+        sampling = copy.deepcopy(result.get("sampling", {}))
+        sampling.setdefault("query_time_s_by_qa", {})["QA-18"] = float(candidate["query_time_s"])
+        result["sampling"] = sampling
+    if candidate.get("kind") == "actor_pair" and candidate.get("query_frame") is not None:
+        sampling = copy.deepcopy(result.get("sampling", {}))
+        sampling.setdefault("query_frame_by_qa", {})["QA-14"] = int(
+            candidate["query_frame"]
+        )
+        result["sampling"] = sampling
+    actor_ids = candidate.get("actor_ids")
+    if not isinstance(actor_ids, Sequence) or isinstance(actor_ids, (str, bytes)):
+        actor_ids = [candidate.get("actor_id")]
+    actor_ids = [
+        actor_id for actor_id in actor_ids if actor_id is not None
+    ]
+    actors = result.get("actors")
+    if isinstance(actors, Mapping) and actor_ids:
+        selected = {
+            actor_id: actors[actor_id]
+            for actor_id in actor_ids
+            if actor_id in actors
+        }
+        result["actors"] = {
+            **selected,
+            **{
+                key: value
+                for key, value in actors.items()
+                if key not in selected
+            },
+        }
+    actor_id = actor_ids[0] if actor_ids else None
+    visibility = result.get("visibility")
+    if isinstance(visibility, Mapping) and actor_ids:
+        selected_visibility = {
+            actor_id: visibility[actor_id]
+            for actor_id in actor_ids
+            if actor_id in visibility
+        }
+        result["visibility"] = {
+            **selected_visibility,
+            **{
+                key: value
+                for key, value in visibility.items()
+                if key not in selected_visibility
+            },
+        }
+    event_id = candidate.get("event_id")
+    event_rows = result.get("events")
+    if candidate.get("kind") == "post_event_query" and isinstance(event_rows, list):
+        for event in event_rows:
+            if event.get("event_id") == event_id:
+                event["post_sound_query_frame"] = int(candidate["query_frame"])
+    if event_id is not None and isinstance(event_rows, list):
+        result["events"] = [
+            *[
+                event
+                for event in event_rows
+                if isinstance(event, Mapping)
+                and event.get("event_id") == event_id
+            ],
+            *[
+                event
+                for event in event_rows
+                if not (
+                    isinstance(event, Mapping)
+                    and event.get("event_id") == event_id
+                )
+            ],
+        ]
+    return result
+
+
+def _p8_form_candidate_values(
+    qa_id: str,
+    item: Mapping[str, Any],
+    facts: Mapping[str, Any],
+) -> dict[str, dict[str, Any]]:
+    """Return per-entity values in each form's actual answer domain."""
+
+    actor_ids = _p8_actor_ids(facts)
+    open_values: dict[str, Any] = {actor_id: None for actor_id in actor_ids}
+    mcq_values: dict[str, Any] = {actor_id: None for actor_id in actor_ids}
+    forms = item.get("forms")
+    mcq_form = forms.get("mcq") if isinstance(forms, Mapping) else None
+    options = mcq_form.get("options", []) if isinstance(mcq_form, Mapping) else []
+    option_values = {
+        str(option.get("value"))
+        for option in options
+        if isinstance(option, Mapping) and option.get("value") is not None
+    }
+    has_mcq_form = isinstance(mcq_form, Mapping) and bool(mcq_form)
+    evidence = item.get("evidence")
+    evidence = evidence if isinstance(evidence, Mapping) else {}
+    candidate = facts.get("_p8_candidate")
+    candidate = candidate if isinstance(candidate, Mapping) else {}
+    selected_event_id = candidate.get("event_id") or _nested_evidence_value(
+        evidence, "event_id"
+    )
+    target_actor_id = _nested_evidence_value(
+        evidence,
+        "target_actor_id",
+        "actor_id",
+        "candidate_actor_id",
+    )
+    query_frame = _nested_evidence_value(
+        evidence,
+        "query_frame",
+        "frame",
+        "entry_frame",
+        "transition_frame",
+        "final_frame",
+    )
+    if query_frame is None:
+        query_frame = candidate.get("query_frame")
+    if isinstance(query_frame, bool) or not isinstance(query_frame, int):
+        query_frame = None
+    final_frame = _nested_evidence_value(evidence, "final_frame")
+    if isinstance(final_frame, bool) or not isinstance(final_frame, int):
+        final_frame = int(facts["time"]["frame_count"]) - 1
+
+    events = facts.get("events")
+    event_rows = [
+        event
+        for event in events
+        if isinstance(event, Mapping) and isinstance(event.get("actor_id"), str)
+    ] if _is_sequence(events) else []
+
+    anchor_event = next((row for row in event_rows
+                         if row.get("event_id") == selected_event_id), None)
+
+    def actor_events(actor_id: str) -> list[Mapping[str, Any]]:
+        rows = [
+            event for event in event_rows
+            if str(event.get("actor_id")) == actor_id
+        ]
+        rows.sort(key=lambda event: (float(event.get("start_s", 0.0)), str(event.get("event_id", ""))))
+        if selected_event_id is not None:
+            rows = [
+                *[
+                    event for event in rows
+                    if event.get("event_id") == selected_event_id
+                ],
+                *[
+                    event for event in rows
+                    if event.get("event_id") != selected_event_id
+                ],
+            ]
+        return rows
+
+    def set_value(actor_id: str, open_value: Any, mcq_value: Any = None) -> None:
+        if actor_id not in open_values or open_value is None:
+            return
+        open_values[actor_id] = open_value
+        value = open_value if mcq_value is None else mcq_value
+        if (
+            has_mcq_form
+            and value is not None
+            and (not option_values or str(value) in option_values)
+        ):
+            mcq_values[actor_id] = value
+
+    def set_closed(actor_id: str, value: Any) -> None:
+        set_value(actor_id, value, value)
+
+    def visibility_state(actor_id: str, frame: int) -> str | None:
+        try:
+            return str(_state(facts, actor_id, frame).get("state"))
+        except _Deferred:
+            return None
+
+    def event_motion(actor_id: str, event: Mapping[str, Any]) -> str | None:
+        try:
+            moving = _stable_motion_window(
+                facts,
+                actor_id,
+                max(0, _event_frame(event, "start_frame")),
+                min(
+                    int(facts["time"]["frame_count"]),
+                    _event_frame(event, "end_frame"),
+                ),
+            )
+        except _Deferred:
+            return None
+        return "moving" if moving else "still"
+
+    def event_distance_trend(actor_id: str, event: Mapping[str, Any]) -> str | None:
+        try:
+            start_frame = max(0, _event_frame(event, "start_frame"))
+            end_frame = min(
+                int(facts["time"]["frame_count"]) - 1,
+                max(start_frame + 1, _event_frame(event, "end_frame") - 1),
+            )
+            delta = _distance_at(facts, actor_id, end_frame) - _distance_at(
+                facts, actor_id, start_frame
+            )
+        except _Deferred:
+            return None
+        if abs(delta) < 0.2:
+            return None
+        return "nearer" if delta < 0 else "farther"
+
+    def post_distance_trend(actor_id: str, event: Mapping[str, Any]) -> str | None:
+        if query_frame is None:
+            return None
+        post_sound = evidence.get("post_sound")
+        anchor_frame = (
+            post_sound.get("anchor_end_frame")
+            if isinstance(post_sound, Mapping)
+            else _event_frame(event, "end_frame")
+        )
+        if isinstance(anchor_frame, bool) or not isinstance(anchor_frame, int):
+            return None
+        try:
+            delta = _distance_at(facts, actor_id, anchor_frame) - _distance_at(
+                facts, actor_id, query_frame
+            )
+        except _Deferred:
+            return None
+        delta = -delta
+        if abs(delta) < 0.2:
+            return None
+        return "nearer" if delta < 0 else "farther"
+
+    def post_motion(actor_id: str, event: Mapping[str, Any]) -> str | None:
+        if query_frame is None:
+            return None
+        end_frame = min(query_frame, _event_frame(event, "end_frame"))
+        if query_frame < end_frame:
+            return None
+        try:
+            values = [
+                _motion_at(facts, actor_id, frame)
+                for frame in range(max(0, end_frame), query_frame + 1)
+            ]
+        except _Deferred:
+            return None
+        return "yes" if any(values) else "no"
+
+    def entry_side_at_query(actor_id: str) -> str | None:
+        for candidate_row in _p8_entry_transition_candidates(facts):
+            if (candidate_row.get("actor_id") == actor_id
+                    and candidate_row.get("query_frame") == query_frame):
+                return str(candidate_row["entry_side"])
+        return None
+
+    def reappeared(actor_id: str) -> str | None:
+        rows = _p8_ordered_visibility(facts, actor_id)
+        full_frames = [
+            int(row["frame_index"])
+            for row in rows
+            if isinstance(row.get("frame_index"), int)
+            and row.get("state") == "fully_occluded"
+        ]
+        if not full_frames:
+            return None
+        visible_after = [
+            int(row["frame_index"])
+            for row in rows
+            if isinstance(row.get("frame_index"), int)
+            and row.get("state") in VISIBLE_STATES
+            and any(full < int(row["frame_index"]) for full in full_frames)
+        ]
+        if visible_after:
+            return "yes"
+        return "no" if _visibility_is_complete(facts, actor_id) else None
+
+    def partial_clear(actor_id: str) -> str | None:
+        rows = _p8_ordered_visibility(facts, actor_id)
+        partial = any(row.get("state") == "visible_occluded" for row in rows)
+        if not partial:
+            return None
+        transition = any(
+            previous.get("state") == "visible_occluded"
+            and current.get("state") == "visible_clear"
+            and isinstance(previous.get("frame_index"), int)
+            and isinstance(current.get("frame_index"), int)
+            and current["frame_index"] == previous["frame_index"] + 1
+            for previous, current in zip(rows, rows[1:])
+        )
+        if transition:
+            return "yes"
+        return "no" if _visibility_is_complete(facts, actor_id) else None
+
+    def occluder_at(actor_id: str) -> str | None:
+        if query_frame is None:
+            return None
+        ids = _occluder_ids(facts, actor_id, query_frame)
+        return ids[0] if len(ids) == 1 else None
+
+    def transcript_value(actor_id: str) -> str | None:
+        if anchor_event is None:
+            return None
+        ordinal = _statement_ordinal(facts, anchor_event)
+        rows = sorted([row for row in actor_events(actor_id)
+                       if isinstance(row.get("transcript"), str) and row["transcript"].strip()],
+                      key=lambda row: (float(row["start_s"]), str(row["event_id"])))
+        return str(rows[ordinal - 1]["transcript"]).strip() if len(rows) >= ordinal else None
+
+    def sound_class_value(actor_id: str) -> str | None:
+        values = {
+            str(event["sound_class"])
+            for event in actor_events(actor_id)
+            if event.get("sound_class") and event.get("sound_class_explicit")
+        }
+        return next(iter(values)) if len(values) == 1 else None
+
+    def time_value(actor_id: str) -> tuple[float | None, str | None]:
+        rows = actor_events(actor_id)
+        if not rows:
+            return None, None
+        value = float(rows[0]["start_s"])
+        bands = _time_bands(facts)
+        index = next(
+            (index for index, (lo, hi) in enumerate(bands) if lo <= value < hi),
+            len(bands) - 1,
+        )
+        return value, f"band_{index}"
+
+    if qa_id == "QA-01":
+        for actor_id in actor_ids:
+            set_closed(actor_id, "yes" if actor_events(actor_id) else "no")
+    elif qa_id == "QA-02":
+        for actor_id, value in _candidate_actor_values(facts).items():
+            set_closed(actor_id, value)
+    elif qa_id == "QA-03":
+        candidate_ids = evidence.get("candidate_actor_ids")
+        candidate_ids = (
+            [str(value) for value in candidate_ids]
+            if _is_sequence(candidate_ids)
+            else []
+        )
+        for actor_id in candidate_ids:
+            set_closed(actor_id, actor_id)
+    elif qa_id == "QA-04":
+        if anchor_event is not None:
+            for actor_id in actor_ids:
+                try:
+                    angle = _azimuth(facts, actor_id, _event_frame(anchor_event, "start_frame"))
+                except _Deferred:
+                    continue
+                set_closed(actor_id, "right" if angle > 0 else "left")
+    elif qa_id in {"QA-06", "QA-15"}:
+        if anchor_event is not None:
+            for actor_id in actor_ids:
+                value = (event_motion(actor_id, anchor_event) if qa_id == "QA-06"
+                         else event_distance_trend(actor_id, anchor_event))
+                if value is not None:
+                    set_closed(actor_id, value)
+    elif qa_id == "QA-07":
+        for actor_id in actor_ids:
+            set_closed(actor_id, entry_side_at_query(actor_id))
+    elif qa_id == "QA-08":
+        if anchor_event is not None:
+            for actor_id in actor_ids:
+                set_closed(actor_id, visibility_state(actor_id, _event_frame(anchor_event, "start_frame")))
+    elif qa_id == "QA-09":
+        for actor_id in actor_ids:
+            set_closed(actor_id, reappeared(actor_id))
+    elif qa_id == "QA-10":
+        for actor_id in actor_ids:
+            set_closed(actor_id, occluder_at(actor_id))
+    elif qa_id == "QA-11":
+        for actor_id in actor_ids:
+            set_closed(actor_id, partial_clear(actor_id))
+    elif qa_id == "QA-12":
+        for actor_id in actor_ids:
+            set_closed(actor_id, transcript_value(actor_id))
+    elif qa_id == "QA-13":
+        for actor_id in actor_ids:
+            if query_frame is None:
+                continue
+            try:
+                angle = _azimuth(facts, actor_id, query_frame)
+            except _Deferred:
+                continue
+            set_value(actor_id, angle, _fov_band(angle))
+    elif qa_id == "QA-14":
+        pair = evidence.get("distances_m")
+        pair_ids = (
+            {str(actor_id) for actor_id in pair}
+            if isinstance(pair, Mapping)
+            else set()
+        )
+        for actor_id in actor_ids:
+            if actor_id in pair_ids:
+                set_closed(actor_id, actor_id)
+    elif qa_id == "QA-16":
+        if anchor_event is not None:
+            for actor_id in actor_ids:
+                set_closed(actor_id, post_distance_trend(actor_id, anchor_event))
+    elif qa_id == "QA-17":
+        if anchor_event is not None:
+            for actor_id in actor_ids:
+                set_closed(actor_id, post_motion(actor_id, anchor_event))
+    elif qa_id == "QA-18":
+        active_ids = {
+            str(value)
+            for value in evidence.get("active_actor_ids", [])
+            if value is not None
+        }
+        answer = (
+            "multiple"
+            if len(active_ids) > 1
+            else next(iter(active_ids), "none")
+        )
+        for actor_id in actor_ids:
+            set_closed(
+                actor_id,
+                answer if actor_id in active_ids else (
+                    "multiple" if len(active_ids) > 1 else "none"
+                ),
+            )
+    elif qa_id == "QA-19":
+        for actor_id in actor_ids:
+            value, band = time_value(actor_id)
+            if value is not None:
+                set_value(actor_id, value, band)
+    elif qa_id == "QA-20":
+        visible_ids = {
+            str(value)
+            for value in evidence.get("visible_candidate_actor_ids", [])
+            if value is not None
+        }
+        for actor_id in actor_ids:
+            if actor_id in visible_ids:
+                set_closed(actor_id, actor_id)
+    elif qa_id == "QA-21":
+        for actor_id in actor_ids:
+            set_closed(actor_id, sound_class_value(actor_id))
+    elif qa_id == "QA-24":
+        if event_rows:
+            for actor_id in actor_ids:
+                if actor_events(actor_id):
+                    set_closed(actor_id, visibility_state(actor_id, final_frame))
+    # QA-05, QA-22 and QA-23 have whole-episode answers, not an entity
+    # counterfactual domain. Keep their entity maps empty.
+    if qa_id in {"QA-05", "QA-22", "QA-23"}:
+        return {"open": {}, "mcq": {}}
+    return {"open": open_values, "mcq": mcq_values}
+
+
+def _attach_p8_structure(
+    item: dict[str, Any],
+    candidate: Mapping[str, Any],
+) -> dict[str, Any]:
+    form_candidate_values = candidate.get("form_candidate_values")
+    if isinstance(form_candidate_values, Mapping):
+        open_values = form_candidate_values.get("open", {})
+        mcq_values = form_candidate_values.get("mcq", {})
+    else:
+        open_values = candidate.get("candidate_values", {})
+        mcq_values = {}
+    if not isinstance(open_values, Mapping):
+        open_values = {}
+    if not isinstance(mcq_values, Mapping):
+        mcq_values = {}
+    gold_actor = candidate.get("gold_actor")
+    open_baseline = structural_baselines(open_values, gold_actor)
+    mcq_form = item.get("forms", {}).get("mcq", {})
+    mcq_baseline = structural_baselines(mcq_values, gold_actor,
+        answer_domain_size=len(mcq_form.get("options", [])) if mcq_form else None)
+    structure = {
+        "open": open_baseline,
+        "mcq": mcq_baseline,
+        "distractors_equal_gold_open": (
+            distractors_equal_gold(open_values, str(gold_actor))
+            if gold_actor is not None
+            else False
+        ),
+        "majority_refusal_applied": False,
+    }
+    item["structure"] = structure
+    item["candidate_id"] = candidate.get("candidate_id")
+    item["candidate_value_multiplicity"] = {
+        "open": open_baseline["candidate_value_multiplicity"],
+        "mcq": mcq_baseline["candidate_value_multiplicity"],
+    }
+    item["gold_is_majority"] = {
+        "open": open_baseline["gold_is_majority"],
+        "mcq": mcq_baseline["gold_is_majority"],
+    }
+    item["gold_is_unique_minority"] = {
+        "open": open_baseline["gold_is_unique_minority"],
+        "mcq": mcq_baseline["gold_is_unique_minority"],
+    }
+    return item
+
+
+_P8_BASE_GENERATORS = dict(_GENERATORS)
+
+
+def _p8_candidates_for(qa_id: str):
+    def candidates(facts: Mapping[str, Any]) -> list[dict[str, Any]]:
+        return _p8_candidate_pool(facts, qa_id)
+    candidates.__name__ = f"_candidates_{qa_id.lower().replace('-', '_')}"
+    return candidates
+
+
+_P8_DISTRACTOR_GATE_EXEMPT = {
+    "QA-05",
+    "QA-18",
+    "QA-22",
+    "QA-23",
+}
+
+
+def _p8_apply_distractor_gate(
+    qa_id: str,
+    item: dict[str, Any],
+    candidate: MutableMapping[str, Any],
+) -> None:
+    """Defer only the form whose real actor values collapse onto its gold."""
+
+    if qa_id in _P8_DISTRACTOR_GATE_EXEMPT:
+        return
+    gold_actor = candidate.get("gold_actor")
+    if gold_actor is None:
+        return
+    values = candidate.get("form_candidate_values")
+    if not isinstance(values, MutableMapping):
+        return
+    rejected: list[str] = []
+    for form in ("open", "mcq"):
+        form_values = values.get(form)
+        if not isinstance(form_values, Mapping):
+            continue
+        if form not in item.get("forms", {}):
+            continue
+        # QA-01 negative rows have no target event by definition, so the
+        # absence answer is a legal whole-clip negative even when other
+        # entities also remain silent. Positive QA-01 rows use the normal
+        # target/event separation check.
+        if qa_id == "QA-01" and str(form_values.get(str(gold_actor))) == "no":
+            continue
+        if not distractors_equal_gold(
+            {str(actor_id): value for actor_id, value in form_values.items()},
+            str(gold_actor),
+        ):
+            continue
+        reason = {
+            "status": "deferred",
+            "code": "distractors_equal_gold",
+            "detail": "all available real distractors have the same answer value as gold",
+            "form": form,
+            "gold_actor": str(gold_actor),
+        }
+        item.setdefault("form_status", {})[form] = reason
+        item.setdefault("forms", {}).pop(form, None)
+        item.setdefault("model_input", {}).pop(form, None)
+        values[form] = {}
+        rejected.append(form)
+    if rejected and not item.get("forms"):
+        _defer(
+            "distractors_equal_gold",
+            f"{qa_id} has no answer form with a distinct real distractor value",
+            forms=rejected,
+        )
+
+
+def _p8_emit_for(qa_id: str):
+    def emit(
+        facts: Mapping[str, Any],
+        candidate: Mapping[str, Any],
+        seed: str,
+    ) -> dict[str, Any]:
+        candidate_facts = _p8_facts_for_candidate(facts, candidate, seed)
+        applicability = _p8_applicability_reason(
+            candidate_facts, qa_id, candidate
+        )
+        if applicability is not None:
+            code, detail = applicability
+            raise _Deferred(code, detail)
+        item = _P8_BASE_GENERATORS[qa_id](candidate_facts, seed)
+        if not _p8_candidate_matches_item(item, candidate):
+            raise _Deferred(
+                "candidate_not_emitted",
+                "the selected candidate did not produce the emitted target/event",
+            )
+        metadata_candidate = _p8_metadata_candidate(qa_id, item, candidate)
+        metadata_candidate["form_candidate_values"] = _p8_form_candidate_values(
+            qa_id, item, candidate_facts
+        )
+        _p8_apply_distractor_gate(
+            qa_id,
+            item,
+            metadata_candidate,
+        )
+        return _attach_p8_structure(item, metadata_candidate)
+    emit.__name__ = f"_emit_{qa_id.lower().replace('-', '_')}"
+    return emit
+
+
+_P8_CANDIDATES = {
+    qa_id: _p8_candidates_for(qa_id)
+    for qa_id in _P8_BASE_GENERATORS
+}
+_P8_EMITTERS = {
+    qa_id: _p8_emit_for(qa_id)
+    for qa_id in _P8_BASE_GENERATORS
+}
+for _qa_id, _candidate_fn in _P8_CANDIDATES.items():
+    globals()[_candidate_fn.__name__] = _candidate_fn
+for _qa_id, _emit_fn in _P8_EMITTERS.items():
+    globals()[_emit_fn.__name__] = _emit_fn
+
+
+def generate_unified_questions(
+    raw_or_facts: Mapping[str, Any],
+    *,
+    qa_ids: Sequence[str] | None = None,
+    seed: str = "avengine-qa-20260906",
+    items_per_type: int = 1,
+) -> dict[str, Any]:
+    """Enumerate legal candidates, sample without replacement, then emit."""
+
+    if not isinstance(raw_or_facts, Mapping):
+        raise UnifiedQAError("episode input must be an object")
+    if isinstance(items_per_type, bool) or items_per_type <= 0:
+        raise UnifiedQAError("items_per_type must be a positive integer")
+    facts = (
+        _restore_normalized_frame_keys(raw_or_facts)
+        if raw_or_facts.get("schema") == UNIFIED_FACT_SCHEMA
+        else normalize_episode_bundle(raw_or_facts)
+    )
+    requested = (
+        [_canonical_qa_id(value) for value in qa_ids]
+        if qa_ids is not None
+        else [item["qa_id"] for item in CATALOG]
+    )
+    if len(requested) != len(set(requested)):
+        raise UnifiedQAError("qa_ids must be unique")
+    items: list[dict[str, Any]] = []
+    deferred: list[dict[str, Any]] = []
+    item_groups: dict[str, list[dict[str, Any]]] = {}
+    deferred_groups: dict[str, list[dict[str, Any]]] = {}
+    for qa_id in requested:
+        try:
+            candidates = _P8_CANDIDATES[qa_id](facts)
+        except _Deferred as error:
+            row = {"qa_id": qa_id, "status": "deferred", "code": error.code,
+                   "detail": error.detail, **error.extra, "requirements": get_requirements(qa_id)}
+            deferred.append(row)
+            deferred_groups.setdefault(qa_id, []).append(row)
+            continue
+        quota = 1 if qa_id in {"QA-03", "QA-22", "QA-23", "QA-24"} else int(items_per_type)
+        if not candidates:
+            try:
+                item = _P8_BASE_GENERATORS[qa_id](facts, seed)
+            except _Deferred as error:
+                row = {
+                    "qa_id": qa_id,
+                    "status": "deferred",
+                    "code": error.code,
+                    "detail": error.detail,
+                    **error.extra,
+                    "requirements": get_requirements(qa_id),
+                }
+                deferred.append(row)
+                deferred_groups.setdefault(qa_id, []).append(row)
+            else:
+                row = {"qa_id": qa_id, "status": "deferred", "code": "insufficient_candidates",
+                       "detail": "no legal candidate can be enumerated", "requirements": get_requirements(qa_id)}
+                deferred.append(row)
+                deferred_groups.setdefault(qa_id, []).append(row)
+            continue
+        rng = random.Random(f"{seed}\\0{qa_id}")
+        order = list(candidates)
+        rng.shuffle(order)
+        emitted: list[dict[str, Any]] = []
+        last_error: _Deferred | None = None
+        for candidate in order:
+            try:
+                item = _P8_EMITTERS[qa_id](facts, candidate, seed)
+            except _Deferred as error:
+                last_error = error
+                continue
+            if any(previous["question_id"] == item["question_id"] for previous in emitted):
+                continue
+            emitted.append(item)
+            items.append(item)
+            if len(emitted) >= quota:
+                break
+        if emitted:
+            item_groups[qa_id] = emitted
+        elif last_error is not None:
+            row = {
+                "qa_id": qa_id,
+                "status": "deferred",
+                "code": last_error.code,
+                "detail": last_error.detail,
+                **last_error.extra,
+                "requirements": get_requirements(qa_id),
+            }
+            deferred.append(row)
+            deferred_groups.setdefault(qa_id, []).append(row)
+        else:
+            try:
+                _P8_BASE_GENERATORS[qa_id](facts, seed)
+            except _Deferred as error:
+                row = {
+                    "qa_id": qa_id,
+                    "status": "deferred",
+                    "code": error.code,
+                    "detail": error.detail,
+                    **error.extra,
+                    "requirements": get_requirements(qa_id),
+                }
+                deferred.append(row)
+                deferred_groups.setdefault(qa_id, []).append(row)
+    unmet_quota = {}
+    for qa_id in requested:
+        quota = 1 if qa_id in {"QA-03", "QA-22", "QA-23", "QA-24"} else int(items_per_type)
+        available = len(item_groups.get(qa_id, []))
+        if available < quota:
+            unmet_quota[qa_id] = {"requested": quota, "valid": available, "missing": quota - available,
+                                 "code": "insufficient_candidates"}
+            if available:
+                deferred_groups.setdefault(qa_id, []).append({"qa_id": qa_id, "status": "insufficient_candidates",
+                    "code": "insufficient_candidates", **unmet_quota[qa_id]})
+    coverage: list[dict[str, Any]] = []
+    coverage_by_qa: dict[str, list[dict[str, Any]]] = {}
+    for qa_id in requested:
+        records: list[dict[str, Any]] = []
+        for item in item_groups.get(qa_id, []):
+            record = {
+                "qa_id": qa_id,
+                "status": "pass",
+                "question_id": item["question_id"],
+                "candidate_id": item.get("candidate_id"),
+                "requirements": get_requirements(qa_id),
+            }
+            records.append(record)
+            coverage.append(record)
+        for row in deferred_groups.get(qa_id, []):
+            records.append(dict(row))
+            coverage.append(dict(row))
+        coverage_by_qa[qa_id] = records
+    return {
+        "schema": UNIFIED_OUTPUT_SCHEMA,
+        "status": "research_candidate",
+        "qualification_claim": False,
+        "catalog_version": CATALOG_VERSION,
+        "episode_id": facts["episode_id"],
+        "seed": seed,
+        "items_per_type": int(items_per_type),
+        "unmet_quota_by_qa": unmet_quota,
+        "coverage_summary": {"requested_type_count": len(requested), "covered_type_count": len(item_groups),
+                             "valid_item_count": len(items), "unmet_item_count": sum(x["missing"] for x in unmet_quota.values())},
+        "candidate_counts": {
+            qa_id: _safe_candidate_count(facts, qa_id)
+            for qa_id in requested
+        },
+        "input_facts": facts,
+        "counts": {
+            "requested": len(requested),
+            "valid": len(items),
+            "deferred": len(deferred),
+        },
+        "coverage": coverage,
+        "coverage_by_qa": coverage_by_qa,
+        "items": items,
+        "deferred": deferred,
+        "actual_evidence_summary": {
+            "actor_count": len(facts.get("actors", {})),
+            "event_count": len(facts.get("events", [])),
+            "bound_event_count": sum(
+                1
+                for event in facts.get("events", [])
+                if isinstance(event, Mapping)
+                and isinstance(event.get("actor_id"), str)
+            ),
+            "unresolved_event_ids": list(
+                facts.get("input_summary", {}).get("unresolved_event_ids", [])
+            ),
+            "reviewed_appearance_actor_count": len(
+                facts.get("appearance_review", {})
+            ),
+            "pixel_visibility_actor_count": len(facts.get("visibility", {})),
+            "audio_validation_status": facts.get("audio", {}).get("status"),
+        },
+        "claim_boundary": (
+            "Rows are deterministic research candidates derived from native "
+            "readbacks. They are not model outcomes, formal admission or "
+            "modality-necessity certificates."
+        ),
+    }
+
+
 generate_questions = generate_unified_questions
+
+
+
+
+_FOV_HALF_DEG = 40.44
+_FOV_BAND_BOUNDARIES_DEG = (-40.44, -13.5, 13.5, 40.44)
+
+
+def _fov_band(angle: float) -> str | None:
+    value = float(angle)
+    if value < _FOV_HALF_DEG * -1.0 or value > _FOV_HALF_DEG:
+        return None
+    if value < _FOV_BAND_BOUNDARIES_DEG[1]:
+        return "fov_band_0"
+    if value < _FOV_BAND_BOUNDARIES_DEG[2]:
+        return "fov_band_1"
+    return "fov_band_2"
+
+
+def _fov_band_options() -> list[dict[str, Any]]:
+    labels = (
+        ("fov_band_0", "in-view left band [-40.44°, -13.5°)", "视野内左带[-40.44°，-13.5°)"),
+        ("fov_band_1", "in-view center band [-13.5°, 13.5°)", "视野内中带[-13.5°，13.5°)"),
+        ("fov_band_2", "in-view right band [13.5°, 40.44°]", "视野内右带[13.5°，40.44°]"),
+    )
+    return [
+        {
+            "value": value,
+            "label_en": label,
+            "label_zh": label_zh,
+            "allow_value": False,
+        }
+        for value, label, label_zh in labels
+    ]
+
+
+def _p8_candidate_matches_item(
+    item: Mapping[str, Any],
+    candidate: Mapping[str, Any],
+) -> bool:
+    evidence = item.get("evidence")
+    if not isinstance(evidence, Mapping):
+        return True
+    candidate_actor = candidate.get("actor_id")
+    actual_actor = _nested_evidence_value(
+        evidence,
+        "target_actor_id",
+        "actor_id",
+        "candidate_actor_id",
+    )
+    if candidate_actor is not None and candidate.get("kind") != "actor_pair":
+        if actual_actor is not None and str(actual_actor) != str(candidate_actor):
+            return False
+    if candidate.get("kind") == "event_pair":
+        if set(evidence.get("event_ids", [])) != set(candidate.get("event_ids", [])):
+            return False
+    if candidate.get("query_frame") is not None:
+        actual_frame = _nested_evidence_value(evidence, "query_frame", "frame")
+        if actual_frame != candidate.get("query_frame"):
+            return False
+    candidate_event = candidate.get("event_id")
+    if candidate_event is not None:
+        actual_event = _nested_evidence_value(evidence, "event_id")
+        if actual_event is None:
+            event_ids = _nested_evidence_value(evidence, "event_ids")
+            if isinstance(event_ids, Sequence) and not isinstance(
+                event_ids, (str, bytes)
+            ):
+                if candidate_event not in event_ids:
+                    return False
+        elif str(actual_event) != str(candidate_event):
+            return False
+    if candidate.get("kind") == "actor_pair":
+        distances = evidence.get("distances_m")
+        pair = candidate.get("actor_ids")
+        if isinstance(distances, Mapping) and isinstance(pair, Sequence):
+            return set(str(value) for value in distances) == set(
+                str(value) for value in pair
+            )
+    return True
+
+def _p8_metadata_candidate(
+    qa_id: str,
+    item: Mapping[str, Any],
+    candidate: Mapping[str, Any],
+) -> dict[str, Any]:
+    evidence = item.get("evidence")
+    if not isinstance(evidence, Mapping):
+        return dict(candidate)
+    actual_target = _nested_evidence_value(
+        evidence,
+        "target_actor_id",
+        "actor_id",
+        "candidate_actor_id",
+    )
+    actual_event = _nested_evidence_value(evidence, "event_id")
+    if actual_event is None:
+        nested_event = _nested_evidence_value(evidence, "event")
+        if isinstance(nested_event, Mapping):
+            actual_event = nested_event.get("event_id")
+    actual_frame = _nested_evidence_value(evidence, "query_frame", "frame")
+    if actual_target is None and qa_id == "QA-14":
+        truth = item.get("truth")
+        if isinstance(truth, Mapping):
+            value = truth.get("value")
+            if isinstance(value, str):
+                actual_target = value
+    if actual_target is None and actual_event is None and actual_frame is None:
+        return dict(candidate)
+    metadata_candidate = dict(candidate)
+    parts = [qa_id]
+    if actual_target is not None:
+        parts.append(f"target:{actual_target}")
+        metadata_candidate["gold_actor"] = str(actual_target)
+    if candidate.get("kind") == "actor_pair":
+        pair = candidate.get("actor_ids")
+        if isinstance(pair, Sequence) and not isinstance(pair, (str, bytes)):
+            parts.append("pair:" + ",".join(str(value) for value in pair))
+    if actual_event is not None:
+        parts.append(f"event:{actual_event}")
+    if actual_frame is not None:
+        parts.append(f"frame:{actual_frame}")
+    metadata_candidate["candidate_id"] = ":".join(parts)
+    return metadata_candidate
+
+def _p8_actor_kind(actor: Mapping[str, Any]) -> str:
+    raw = " ".join(
+        str(actor.get(key) or "")
+        for key in ("entity_class", "source_class", "class", "species_id", "asset_type")
+    ).casefold()
+    if any(token in raw for token in ("rigid", "static", "device", "object")):
+        return "rigid_static_object"
+    if any(token in raw for token in ("animal", "dog", "cat", "beagle")):
+        return "articulated_animal"
+    if any(token in raw for token in ("human", "person", "adult")):
+        return "articulated_human"
+    return "unknown"
+
+
+def _p8_applicability_reason(
+    facts: Mapping[str, Any],
+    qa_id: str,
+    candidate: Mapping[str, Any],
+) -> tuple[str, str] | None:
+    actor_id = candidate.get("actor_id")
+    actors = facts.get("actors")
+    actor = actors.get(actor_id) if isinstance(actors, Mapping) else None
+    if not isinstance(actor, Mapping):
+        return None
+    kind = _p8_actor_kind(actor)
+    if qa_id == "QA-12" and kind == "articulated_animal":
+        return (
+            "not_applicable_by_definition",
+            "animal vocalizations do not have a transcript question target",
+        )
+    if qa_id in {"QA-06", "QA-15", "QA-16", "QA-17"} and kind == "rigid_static_object":
+        return (
+            "not_applicable_by_definition",
+            "a static device is not a movement-question target",
+        )
+    return None
+
+
+__all__ = list(dict.fromkeys([
+    *__all__,
+    "structural_baselines",
+    "distractors_equal_gold",
+    "resolve_query_frame",
+    *[
+        f"_candidates_qa_{index:02d}"
+        for index in range(1, 25)
+    ],
+    *[
+        f"_emit_qa_{index:02d}"
+        for index in range(1, 25)
+    ],
+]))
+
+resolve_query_frame = _resolve_query_frame_spec
+
+
+def _query_time_candidates(facts: Mapping[str, Any], qa_id: str) -> list[dict[str, Any]]:
+    """Enumerate query instants, not one duplicate per unrelated sound event."""
+    count = int(facts['time']['frame_count'])
+    fps = float(facts['time']['frame_rate_hz'])
+    declared_time = _sampling_value(facts, qa_id, 'query_time_s_by_qa', 'query_times_s')
+    declared_frame = _sampling_value(facts, qa_id, 'query_frame_by_qa', 'query_frames', 'query_frame', 'at_frame')
+    window = None
+    if isinstance(declared_time, Mapping) or isinstance(declared_frame, Mapping):
+        spec = declared_time if isinstance(declared_time, Mapping) else declared_frame
+        if spec.get('policy', spec.get('query_time_policy')) == 'uniform_in_legal_window':
+            window = _first(spec, 'window_frames', 'frame_window', 'legal_window', 'window')
+    if declared_time is not None and window is None:
+        time_s = _resolve_query_time_spec(facts, qa_id, declared_time, source='sampling')
+        frame = _resolve_query_frame_spec(facts, qa_id, int(round(time_s * fps)), source='sampling')
+        candidates = [(frame, time_s)]
+    elif declared_frame is not None and window is None:
+        frame = _resolve_query_frame_spec(facts, qa_id, declared_frame, source='sampling')
+        candidates = [(frame, frame / fps)]
+    else:
+        sampling = facts.get('sampling', {})
+        nested = sampling.get('qa_sampling', {}) if isinstance(sampling, Mapping) else {}
+        policy = _first(nested, 'query_time_policy', 'policy') or _first(sampling, 'query_time_policy', 'policy')
+        if window is None:
+            window = _sampling_value(facts, qa_id, 'legal_window_by_qa', 'legal_windows', 'query_windows')
+        if policy == 'uniform_in_legal_window' and window is None:
+            _defer('sampling_window_missing', f'{qa_id} needs concrete legal query windows')
+        if window is None:
+            frames = range(count)
+        else:
+            bounds = _sampling_window_bounds(window)
+            windows = [bounds] if bounds is not None else [_sampling_window_bounds(x) for x in window] if _is_sequence(window) else []
+            if not windows or any(b is None or not 0 <= b[0] < b[1] <= count for b in windows):
+                _defer('sampling_window_invalid', f'{qa_id} legal windows must be half-open frame intervals')
+            frames = sorted({f for start, end in windows for f in range(start, end)})
+        candidates = [(frame, frame / fps) for frame in frames]
+    return [{'candidate_id': f'{qa_id}:frame:{frame}:time:{time_s:.9f}', 'kind': 'query_time',
+             'query_frame': frame, 'query_time_s': time_s} for frame, time_s in candidates]
+
+
+def _safe_candidate_count(facts: Mapping[str, Any], qa_id: str) -> int:
+    try:
+        return len(_P8_CANDIDATES[qa_id](facts))
+    except _Deferred:
+        return 0
+
+
+def _post_sound_candidates(facts: Mapping[str, Any], qa_id: str, events: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    """Enumerate real silent query frames; do not always choose the earliest one."""
+    result = []
+    for event in events:
+        try:
+            _anchor_pre_silence(facts, event)
+        except _Deferred:
+            continue
+        specific = dict(facts)
+        declared = _first(event, 'post_sound_query_frame', 'query_frame')
+        if declared is None:
+            declared = _sampling_value(facts, qa_id, 'post_sound_query_frame')
+        if declared is not None:
+            sampling = copy.deepcopy(facts.get('sampling', {}))
+            sampling.setdefault('query_frame_by_qa', {})[qa_id] = declared
+            specific['sampling'] = sampling
+        for query in _query_time_candidates(specific, qa_id):
+            frame = query['query_frame']
+            try:
+                _silent_after(facts, event, frame)
+            except _Deferred:
+                continue
+            result.append({'candidate_id': f"{qa_id}:event:{event['event_id']}:frame:{frame}",
+                           'kind': 'post_event_query', 'actor_id': event['actor_id'], 'event_id': event['event_id'],
+                           'query_frame': frame, 'query_time_s': query['query_time_s']})
+    return result
