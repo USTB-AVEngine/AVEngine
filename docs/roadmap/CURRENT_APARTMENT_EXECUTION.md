@@ -1191,3 +1191,15 @@ manifests are retained at
 
 
 Gate-B precert recomputed all 216 selected twins: 180 fact/geometry rows pass and 36 pixel-dependent rows remain pixel_pending. The augmented manifest backfills every Gate-B pointer and gold status. Appearance twins must reuse main audio; route twins must rerender audio consistently. See `docs/roadmap/QA_V3_GATEB_PRECERT_REPORT_20260901.md`.
+
+
+## Checkpoint 20260906: unified QA P1 contracts and renderer dispatch
+
+On `codex/multi-home-activity-integration`, P1 adds strict room/neutral-readback/
+evidence interfaces and UE/Habitat capture dispatch. Retained A (240 frames) and
+MP3D (150 frames) readbacks pass conversion; A root round-trip error is 0 cm.
+Related tests: 32 passed, no failures/skips with the existing native Python addons.
+No new native render or dataset batch was run for this step. Complete room inputs,
+Habitat common planning/materialization, pixels, audio and finalization remain
+P3/P5/P4/P6/P9 work; next is P2. Report:
+`docs/roadmap/codex_reports_20260906/P1_contracts_dispatch.md`.

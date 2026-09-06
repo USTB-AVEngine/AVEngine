@@ -55,9 +55,13 @@ owner 2026-09-06 晚定的原则：引擎有一个最高层控制；每类房间
 
 给共用的声学渲染和 facts 用：`clock`（帧数、帧率、采样率、tick 基）、逐帧 `camera`（位置、基向量）、逐帧每个实体的 `root`、`emitter` 位置和 `moving` 标志，全部米、Y 向上。现有链一的 `frame_readbacks.json` 已经是这个内容但在 UE 坐标里；Habitat 的 `frame_records.json` 加 `emitter_positions_m.npy` 加 `actor_root_readbacks.npy` 也是这个内容。两边各写一个"读回写出器"落到同一格式，声学渲染就只需要读一种。
 
+P1 实现位置：`src/avengine/capture/neutral_readback.py` 只校验共用米制读回；UE 坐标转换与写出器在 `src/avengine/capture/ue_neutral_readback.py`，Habitat 写出器在 `src/avengine/capture/habitat_neutral_readback.py`。输出 `neutral_readback.json` 的 `camera` 是逐帧 `position_m`、`basis.{forward,right,up}`；`entities[slot]` 是逐帧 `root`、`emitter`、`moving`。每条都有 `frame_index`、`pts_ticks`；`producer.source_readbacks` 保留真实输入路径。`moving` 沿用生成器的实际 root 前向差分 > 0.05 m/s 口径，不抄计划动作。时钟严格校验计划已有的六个时间字段。
+
 ### 2.5 证据契约 EvidenceContract
 
 直接采用链一现有文件与键名：`pixel_visibility_truth.json`（每帧每实体状态、分辨率、相机位姿 id）、`native_pixel_masks_depth_authority_v1.npz`（`modal` 与 `target_only_<actor>`）、`appearance_review.json`（每实体外观值、审阅帧、状态）、`actor_occluders.json`、音频 `research_report.json`（含每源 stem 路径、湿声尾音区间、峰值）。Habitat 执行器按同名同键产出。`qa_evidence.py` 的外观检查从"上身 HSV 对上衣色"扩成"掩膜内颜色对登记的外观值"，登记值来源为人的 `top_color`、动物的 `coat_profile.value`、设备的 `finish`。
+
+P1 校验器为 `src/avengine/rooms/evidence_contract.py`，仅检查格式与跨文件一致性，不作可答性或人工审核判断。当前链一 NPZ 的真实模态键是 `depth_derived_modal_semantic`；本文件早先写的 `modal` 是简写。旧键继续兼容，双键同存必须逐元素一致。房间包校验器为 `src/avengine/rooms/room_package.py`；旧目录包装保留缺字段报告，不为通过校验补假地板值。新式包严格校验，既有目录的旧请求保留原规划行为；P3 负责补测与提供完整包。可在包的 `planning_inputs`（或保留旧条目的 `legacy_catalog_entry`）中声明当前执行器所需的路径。
 
 ## 3. 退役与保留
 

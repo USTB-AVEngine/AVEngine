@@ -1256,6 +1256,9 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "actors": actor_readbacks, "animations": animation_readbacks,
         "bounds": actor_bounds, "emitters": emitter_readbacks,
     })
+    if episode.get("kind") == "avengine_question_driven_episode":
+        from avengine.capture.ue_neutral_readback import write_ue_neutral_readback
+        write_ue_neutral_readback(output, episode)
     visual = output / "ue_visual_only.mp4"
     subprocess.run(
         build_png_encode_command(

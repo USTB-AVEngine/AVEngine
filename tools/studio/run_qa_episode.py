@@ -20,6 +20,7 @@ from avengine.rooms.qa_episode import (
     QAPlanningError, build_qa_episode_plan, read_json, write_json,
 )
 from avengine.runtime_profiles import load_source_asset_runtime_registry
+from avengine.rooms.room_package import package_from_catalog_entry, renderer_for_room
 
 
 def plan_request(request: dict, output: Path) -> dict:
@@ -58,7 +59,18 @@ def plan_request(request: dict, output: Path) -> dict:
         if request.get("room_id") and request["room_id"] != room["room_id"]:
             continue
         try:
-            if room.get("native_room_adapter") == "avengine_native_spear_apartment_qa_room_v1":
+            package = package_from_catalog_entry(room, runtime=request.get("runtime"))
+            renderer = renderer_for_room(package)
+            if "room_package" in room or room.get("schema") == package["schema"]:
+                room = {**package.get("legacy_catalog_entry", package.get("planning_inputs", {})),
+                        "room_id": package["room_id"], "room_package": package}
+            write_json(output / "renderer_dispatch.json", {
+                "room_id": room["room_id"], "renderer": renderer,
+                "capture_entrypoint": str(renderer_capture_entrypoint(renderer)),
+                "package_validation_errors": package.get("validation_errors", []),
+                "status": "dispatched", "native_execution": "not_run",
+            })
+            if renderer == "ue_spear" and room.get("native_room_adapter") == "avengine_native_spear_apartment_qa_room_v1":
                 from avengine.rooms.native_qa_room import (
                     build_native_apartment_qa_plan, discover_native_apartment_resources,
                 )
@@ -79,8 +91,10 @@ def plan_request(request: dict, output: Path) -> dict:
                 plan["resources"]["expected_stage_actor_count"] = 0
                 plan["renderer_backend"] = "spear_unreal_native"
                 plan["request"] = deepcopy(request)
-            elif room.get("native_room_adapter"):
-                raise QAPlanningError(f"unsupported native room adapter: {room['native_room_adapter']}")
+            elif renderer == "habitat":
+                plan, layout, pf = build_qa_episode_plan(
+                    room={**room, "room_package": package, "backend": "habitat"},
+                    request=request, source_registry=registry, sounds=sounds)
             else:
                 plan, layout, pf = build_qa_episode_plan(
                     room=room, request=request, source_registry=registry, sounds=sounds)
@@ -94,6 +108,7 @@ def plan_request(request: dict, output: Path) -> dict:
         plan_root = output / "plan"
         plan_root.mkdir()
         write_json(plan_root / "episode_plan.json", plan)
+        write_json(plan_root / "room_package.json", package)
         write_json(plan_root / "room_layout.json", layout)
         write_json(plan_root / "voice_bindings.json", plan["voice_bindings"])
         write_json(plan_root / "audio_events.json", plan["audio_events"])
@@ -112,9 +127,46 @@ def plan_request(request: dict, output: Path) -> dict:
     raise QAPlanningError(f"no existing room could realize the request: {attempts}")
 
 
+def renderer_capture_entrypoint(renderer: str) -> Path:
+    entries = {"ue_spear": "tools/rooms/run_spear_residential_episode.py",
+               "habitat": "tools/capture/capture_mp3d_multi_actor.py"}
+    if renderer not in entries:
+        raise QAPlanningError(f"unsupported renderer: {renderer}")
+    return REPOSITORY / entries[renderer]
+
+
 def capture_command(request: dict, output: Path) -> list[str]:
     runtime = request["runtime"]
-    command = [sys.executable, str(REPOSITORY / "tools/rooms/run_spear_residential_episode.py"),
+    plan_path = output / "plan/episode_plan.json"
+    saved_plan = read_json(plan_path)
+    package_path = output / "plan/room_package.json"
+    package = (read_json(package_path) if package_path.is_file() else
+               package_from_catalog_entry(saved_plan["resources"], runtime=runtime))
+    renderer = renderer_for_room(package)
+    if renderer == "habitat":
+        # P5 materializes these from the shared plan, preserving its clock.
+        inputs = saved_plan.get("resources", {})
+        case = Path(inputs.get("case_manifest", output / "plan/case_manifest.json"))
+        sensor_request = Path(inputs.get("m1_request", output / "plan/m1_capture_request.json"))
+        room_manifest = inputs.get("room_manifest")
+        if not room_manifest or not case.is_file() or not sensor_request.is_file():
+            raise QAPlanningError("Habitat capture requires materialized case_manifest, m1_request and room_manifest")
+        case_clock = read_json(case)["clock"]
+        from avengine.capture.neutral_readback import validate_clock
+        validate_clock(case_clock)
+        for key in ("frame_count", "frame_rate_hz", "sample_rate_hz", "sample_count",
+                    "time_base_hz", "ticks_per_frame"):
+            if case_clock[key] != saved_plan["clock"][key]:
+                raise QAPlanningError(f"materialized Habitat clock differs: {key}")
+        command = [sys.executable, str(renderer_capture_entrypoint(renderer)),
+                   "--case-manifest", str(case), "--room-manifest", str(room_manifest),
+                   "--m1-request", str(sensor_request), "--output", str(output / "capture"),
+                   "--gpu-device-id", str(runtime.get("graphics_adapter", 0))]
+        for key in ("runtime_prefix", "mp3d_root", "magnum_python_site", "rlr_sdk_root"):
+            if runtime.get(key):
+                command += ["--" + key.replace("_", "-"), str(runtime[key])]
+        return command
+    command = [sys.executable, str(renderer_capture_entrypoint(renderer)),
                "--episode-root", str(output / "plan"), "--output", str(output / "capture"),
                "--uproject", runtime["uproject"], "--unreal-editor", runtime["unreal_editor"],
                "--spear-ext-dir", runtime["spear_ext_dir"],
@@ -145,6 +197,15 @@ def run(request: dict, output: Path, *, plan_only: bool = False,
     write_json(output / "execution_commands.json", {"capture": command})
     with (output / "capture.log").open("x") as log:
         subprocess.run(command, cwd=REPOSITORY, stdout=log, stderr=subprocess.STDOUT, check=True)
+    package = read_json(output / "plan/room_package.json")
+    if renderer_for_room(package) == "habitat":
+        from avengine.capture.habitat_neutral_readback import write_habitat_neutral_readback
+        neutral_path = output / "capture/neutral_readback.json"
+        if neutral_path.exists():
+            from avengine.capture.neutral_readback import validate_neutral_readback
+            validate_neutral_readback(read_json(neutral_path), plan=plan)
+        else:
+            write_habitat_neutral_readback(output / "capture", plan)
     result = {
         "status": "research_only", "episode_id": plan["episode_id"],
         "output": str(output), "elapsed_seconds": time.monotonic() - started,
