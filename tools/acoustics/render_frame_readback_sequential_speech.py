@@ -25,6 +25,8 @@ from avengine.capture.dry_audio import (
     DryAudioClipSpec,
     assemble_dry_audio_buses,
 )
+from avengine.capture.neutral_readback import validate_neutral_readback
+from avengine.capture.ue_neutral_readback import neutral_from_ue_readbacks
 from avengine.contracts.json_io import canonical_json_sha256, sha256_file
 from avengine.acoustics.dynamic_cache import (
     DynamicRIRCacheError,
@@ -43,6 +45,7 @@ from avengine.acoustics.runtime import (
 )
 from avengine.timeline.audio import render_dynamic_stems_and_mix, time_varying_convolve
 from avengine.timeline.audio_program import bind_audio_program_hash, validate_audio_program
+from avengine.timeline.current_mp3d_dynamic_audio import render_neutral_readback_audio
 
 TIME_BASE_HZ = 48_000
 TICKS_PER_SAMPLE = 3
@@ -328,6 +331,8 @@ def _simulation(
     source_ray_count: int = 500,
     indirect_ray_depth: int = 64,
     source_ray_depth: int = 16,
+    diffraction: bool = False,
+    max_diffraction_order: int = 0,
 ) -> RLRSimulationConfig:
     return RLRSimulationConfig.from_mapping(
         {
@@ -339,7 +344,7 @@ def _simulation(
             "indirect_ray_depth": indirect_ray_depth,
             "source_ray_count": source_ray_count,
             "source_ray_depth": source_ray_depth,
-            "max_diffraction_order": 0,
+            "max_diffraction_order": max_diffraction_order,
             "thread_count": 1,
             "sample_rate_hz": 16000.0,
             "max_ir_seconds": 0.25,
@@ -348,7 +353,7 @@ def _simulation(
             "speed_of_sound_m_s": 343.0,
             "direct": True,
             "indirect": True,
-            "diffraction": False,
+            "diffraction": diffraction,
             "transmission": False,
             "mesh_simplification": False,
             "temporal_coherence": False,
@@ -554,19 +559,33 @@ def _normalize_plan_events(
             endpoint_id = f"{actor_id}_mouth"
         if not isinstance(endpoint_id, str) or not endpoint_id:
             raise ValueError(f"audio_events[{index}] lacks actor_id/source_endpoint_id")
-        binding = by_actor.get(str(actor_id)) if actor_id is not None else None
-        binding = binding or by_endpoint.get(endpoint_id)
-        if binding is None:
+        actor_binding = by_actor.get(str(actor_id)) if actor_id is not None else None
+        actor_binding = actor_binding or by_endpoint.get(endpoint_id)
+        event_binding = raw.get("voice_binding", raw.get("binding"))
+        if event_binding is not None and not isinstance(event_binding, Mapping):
+            raise ValueError(f"audio_events[{index}].voice_binding must be an object")
+        if actor_binding is None and event_binding is None:
             raise ValueError(f"audio_events[{index}] has no voice binding for {endpoint_id!r}")
-        actor_id = str(binding["actor_id"])
+        # Event-level binding and explicit event values are authoritative. The
+        # actor-level record is only a fallback, which lets one actor speak
+        # different prepared clips in different events.
+        binding = {
+            **(dict(actor_binding) if isinstance(actor_binding, Mapping) else {}),
+            **(dict(event_binding) if isinstance(event_binding, Mapping) else {}),
+        }
+        actor_id = str(binding.get("actor_id") or actor_id)
         planned_path = raw.get("path")
         planned_sound_asset_id = raw.get("sound_asset_id")
-        # The binding is the independent actor-to-voice assignment.  If a
-        # planner kept the pre-randomization path on the event, do not let it
-        # silently defeat that assignment; retain the planned values below as
-        # provenance for the report.
-        path_value = binding.get("path") or planned_path
-        sound_asset_id = binding.get("sound_asset_id") or planned_sound_asset_id
+        path_value = (
+            planned_path
+            or binding.get("path")
+            or binding.get("audio_path")
+        )
+        sound_asset_id = (
+            planned_sound_asset_id
+            or binding.get("sound_asset_id")
+            or binding.get("prepared_audio_id")
+        )
         if not isinstance(path_value, str) or not path_value:
             raise ValueError(f"audio_events[{index}] lacks a PCM path")
         if not isinstance(sound_asset_id, str) or not sound_asset_id:
@@ -631,6 +650,7 @@ def _normalize_plan_events(
                 "transcript": raw.get("transcript", binding.get("transcript")),
                 "speaker_id": raw.get("speaker_id", binding.get("speaker_id")),
                 "sound_class": raw.get("sound_class", binding.get("sound_class")),
+                "event_voice_binding": dict(event_binding) if isinstance(event_binding, Mapping) else None,
                 "voice_binding_actor_id": actor_id,
                 "planned_path": planned_path,
                 "planned_sound_asset_id": planned_sound_asset_id,
@@ -1360,7 +1380,7 @@ def _dynamic_rir_sequence(
         },
     )
 
-def _render_plan_audio(
+def _render_plan_audio_legacy_dynamic(
     *,
     frame_readbacks: str | Path,
     package_manifest: str | Path,
@@ -1378,6 +1398,8 @@ def _render_plan_audio(
     source_ray_count: int,
     indirect_ray_depth: int,
     source_ray_depth: int,
+    diffraction: bool | None = None,
+    max_diffraction_order: int | None = None,
 ) -> dict[str, Any]:
     readback_path = Path(frame_readbacks).expanduser().resolve()
     package_path = Path(package_manifest).expanduser().resolve()
@@ -1464,6 +1486,8 @@ def _render_plan_audio(
         source_ray_count=source_ray_count,
         indirect_ray_depth=indirect_ray_depth,
         source_ray_depth=source_ray_depth,
+        diffraction=(False if diffraction is None else diffraction),
+        max_diffraction_order=(0 if max_diffraction_order is None else max_diffraction_order),
     )
     scene = load_compiled_acoustic_scene(
         package_path,
@@ -1724,6 +1748,272 @@ def _render_plan_audio(
     return report
 
 
+
+def _plan_camera_has_motion(readback: Mapping[str, Any]) -> bool:
+    """Return whether the supplied per-frame listener pose actually moves."""
+    camera = readback.get("camera")
+    if not isinstance(camera, list) or len(camera) < 2:
+        return False
+    first = camera[0]
+    if not isinstance(first, Mapping):
+        raise ValueError("camera readback rows must be objects")
+
+    def pose(row: Mapping[str, Any]) -> tuple[np.ndarray, np.ndarray]:
+        if "location_cm" in row and "rotation_deg" in row:
+            position, orientation, _ = _frame_listener([row], 0)
+            return np.asarray(position, dtype=np.float64), np.asarray(orientation, dtype=np.float64)
+        position = np.asarray(row.get("position_m"), dtype=np.float64)
+        basis = row.get("basis")
+        if position.shape != (3,) or not np.all(np.isfinite(position)):
+            raise ValueError("camera readback position is malformed")
+        if not isinstance(basis, Mapping):
+            raise ValueError("camera readback basis is missing")
+        vectors = [
+            np.asarray(basis.get(key), dtype=np.float64)
+            for key in ("forward", "right", "up")
+        ]
+        if any(vector.shape != (3,) or not np.all(np.isfinite(vector)) for vector in vectors):
+            raise ValueError("camera readback basis is malformed")
+        return position, np.column_stack(vectors)
+
+    first_position, first_pose = pose(first)
+    for row in camera[1:]:
+        if not isinstance(row, Mapping):
+            raise ValueError("camera readback rows must be objects")
+        position, current_pose = pose(row)
+        if float(np.linalg.norm(position - first_position)) > 1.0e-4:
+            return True
+        if current_pose.shape == (4,) and first_pose.shape == (4,):
+            if _rotation_distance_deg(tuple(first_pose), tuple(current_pose)) > 1.0e-4:
+                return True
+        elif not np.allclose(current_pose, first_pose, atol=1.0e-4, rtol=0.0):
+            return True
+    return False
+
+
+def _plan_is_conditioned_static(plan: Mapping[str, Any]) -> bool:
+    """Recognize the owner-defined conditioned static planning strategy."""
+    if plan.get("sampling_policy") == "conditioned_static_v2":
+        return True
+    request = plan.get("request")
+    return isinstance(request, Mapping) and request.get("sampling_policy") == "conditioned_static_v2"
+
+
+def _render_plan_audio(
+    *,
+    frame_readbacks: str | Path,
+    package_manifest: str | Path,
+    voice_binding: str | Path,
+    audio_plan: str | Path,
+    output: str | Path,
+    runtime_prefix: str | Path,
+    rlr_sdk_root: str | Path,
+    magnum_python_site: str | Path,
+    hrtf_file: str | Path,
+    rir_cache: str | Path | None,
+    rir_stride_frames: int,
+    direct_ray_count: int,
+    indirect_ray_count: int,
+    source_ray_count: int,
+    indirect_ray_depth: int,
+    source_ray_depth: int,
+    neutral_readback: str | Path | None = None,
+    prepared_manifest: str | Path | None = None,
+    diffraction: bool | None = None,
+    max_diffraction_order: int | None = None,
+) -> dict[str, Any]:
+    """Adapt the historical UE readbacks to the shared neutral renderer."""
+    readback_path = Path(frame_readbacks).expanduser().resolve()
+    package_path = Path(package_manifest).expanduser().resolve()
+    plan_path = Path(audio_plan).expanduser().resolve()
+    binding_path = Path(voice_binding).expanduser().resolve()
+    readback = _load(readback_path)
+    plan = _load(plan_path)
+    if not isinstance(readback, Mapping) or not isinstance(plan, Mapping):
+        raise ValueError("frame readbacks and audio plan must contain JSON objects")
+    capture_failure_path = readback_path.parent.parent / "failure.json"
+    input_capture_status = (
+        "visual_failed" if capture_failure_path.is_file() else "native_readback_supplied"
+    )
+    bindings = _load_voice_binding_records(binding_path)
+    clock = _resolve_plan_clock(plan, readback)
+    frame_count = int(clock["frame_count"])
+    sample_rate = int(clock["sample_rate_hz"])
+    events, _, _ = _normalize_plan_events(plan, bindings, clock=clock)
+    actor_by_endpoint = _plan_source_endpoints(plan, events)
+    endpoint_ids = sorted(actor_by_endpoint)
+    if len(endpoint_ids) < 2:
+        raise ValueError("dynamic multi-source audio requires at least two source endpoints")
+    actor_ids = [str(item["actor_id"]) for item in actor_by_endpoint.values()]
+    if len(set(actor_ids)) != len(actor_ids):
+        raise ValueError("one actor cannot bind multiple dynamic source endpoints")
+    _validate_readback_lengths(readback, frame_count, actor_ids)
+    camera_motion = _plan_camera_has_motion(readback)
+    if neutral_readback is not None:
+        candidate = _load(Path(neutral_readback).expanduser().resolve())
+        if not isinstance(candidate, Mapping):
+            raise ValueError("neutral_readback must contain a JSON object")
+        camera_motion = camera_motion or _plan_camera_has_motion(candidate)
+    if camera_motion:
+        if _plan_is_conditioned_static(plan):
+            raise ValueError(
+                "conditioned_static_v2 audio rendering requires a static listener; "
+                "per-frame camera motion was observed"
+            )
+        return _render_plan_audio_legacy_dynamic(
+            frame_readbacks=frame_readbacks,
+            package_manifest=package_manifest,
+            voice_binding=voice_binding,
+            audio_plan=audio_plan,
+            output=output,
+            runtime_prefix=runtime_prefix,
+            rlr_sdk_root=rlr_sdk_root,
+            magnum_python_site=magnum_python_site,
+            hrtf_file=hrtf_file,
+            rir_cache=rir_cache,
+            rir_stride_frames=rir_stride_frames,
+            direct_ray_count=direct_ray_count,
+            indirect_ray_count=indirect_ray_count,
+            source_ray_count=source_ray_count,
+            indirect_ray_depth=indirect_ray_depth,
+            source_ray_depth=source_ray_depth,
+            diffraction=diffraction,
+            max_diffraction_order=max_diffraction_order,
+        )
+    if neutral_readback is None:
+        neutral_source = readback
+        # Historical unit and four-source fixtures carried only emitter
+        # locations. Preserve that request path by using the same observed
+        # emitter as a root when no actor track was supplied; native captures
+        # always take the strict actor/root path.
+        if "actors" not in readback and isinstance(readback.get("emitters"), Mapping):
+            neutral_source = dict(readback)
+            neutral_source["actors"] = {
+                actor_id: [dict(row) for row in records]
+                for actor_id, records in readback["emitters"].items()
+            }
+            for records in neutral_source["actors"].values():
+                for row in records:
+                    row["location_cm"] = list(row["location_cm"])
+        neutral = neutral_from_ue_readbacks(
+            neutral_source,
+            plan,
+            source_readbacks=str(readback_path),
+        )
+        neutral_input: Mapping[str, Any] | str | Path = neutral
+    else:
+        neutral_path = Path(neutral_readback).expanduser().resolve()
+        neutral = _load(neutral_path)
+        if not isinstance(neutral, Mapping):
+            raise ValueError("neutral_readback must contain a JSON object")
+        validate_neutral_readback(neutral, plan=plan)
+        neutral_input = neutral_path
+    program = _program_from_plan_events(plan, events, clock)
+    simulation = _simulation(
+        direct_ray_count=direct_ray_count,
+        indirect_ray_count=indirect_ray_count,
+        source_ray_count=source_ray_count,
+        indirect_ray_depth=indirect_ray_depth,
+        source_ray_depth=source_ray_depth,
+        diffraction=(False if diffraction is None else diffraction),
+        max_diffraction_order=(0 if max_diffraction_order is None else max_diffraction_order),
+    )
+    rir_sequence_override = None
+    scene_override = None
+    if rir_cache is not None:
+        # Keep the historical two-slot cache adapter as a read/write input for
+        # the transition entry. The shared renderer consumes the resulting
+        # named sequence, so no second cache format or second convolution path
+        # is introduced.
+        legacy_keyframes, _ = _readback_keyframes(
+            readback,
+            actor_by_endpoint=actor_by_endpoint,
+            frame_count=frame_count,
+            frame_rate_hz=clock["frame_rate_hz"],
+            ticks_per_frame=int(clock["ticks_per_frame"]),
+            time_base_hz=int(clock["time_base_hz"]),
+            sample_rate_hz=sample_rate,
+            rir_stride_frames=rir_stride_frames,
+        )
+        scene_override = load_compiled_acoustic_scene(
+            package_path,
+            allow_nonpassing_research_qa=True,
+        )
+        rir_samples, rir_lengths, rir_metadata, cache_record = _dynamic_rir_sequence(
+            scene=scene_override,
+            simulation=simulation,
+            source_ids=endpoint_ids,
+            keyframes=legacy_keyframes,
+            clock=clock,
+            package_path=package_path,
+            hrtf_path=Path(hrtf_file).expanduser().resolve(),
+            runtime_prefix=runtime_prefix,
+            rlr_sdk_root=rlr_sdk_root,
+            magnum_python_site=magnum_python_site,
+            cache_path=Path(rir_cache).expanduser().resolve(),
+            episode_id=str(plan.get("episode_id", "frame_readback_dynamic_episode")),
+        )
+        rir_sequence_override = {
+            "binaural": {
+                "samples": rir_samples,
+                "lengths": rir_lengths,
+                "metadata": rir_metadata,
+                "cache": cache_record,
+                "layout_id": "rlr_binaural_lr_v1",
+            }
+        }
+    result = render_neutral_readback_audio(
+        neutral_input,
+        audio_program=program,
+        source_endpoint_by_entity={
+            str(value["actor_id"]): endpoint_id
+            for endpoint_id, value in actor_by_endpoint.items()
+        },
+        simulation_mapping=simulation.to_dict(),
+        package_manifest_path=package_path,
+        event_asset_bindings={
+            str(event["sound_asset_id"]): str(event["path"])
+            for event in events
+        },
+        event_metadata=events,
+        prepared_manifest_path=prepared_manifest,
+        hrtf_file_path=hrtf_file,
+        output_path=output,
+        position_authority="UE neutral_from_ue_readbacks.entities[].emitter",
+        listener_authority="UE neutral_from_ue_readbacks.camera[0]",
+        rir_stride_frames=rir_stride_frames,
+        hrtf_license_path=None,
+        extra_inputs={
+            "frame_readbacks": {
+                "path": str(readback_path),
+                "sha256": sha256_file(readback_path),
+            },
+            "audio_plan": {
+                "path": str(plan_path),
+                "sha256": sha256_file(plan_path),
+            },
+            "voice_binding": {
+                "path": str(binding_path),
+                "sha256": sha256_file(binding_path),
+            },
+            "input_capture_status": input_capture_status,
+        },
+        diffraction=diffraction,
+        max_diffraction_order=max_diffraction_order,
+        rir_sequence_override=rir_sequence_override,
+        scene_override=scene_override,
+        runtime_prefix=runtime_prefix,
+        rlr_sdk_root=rlr_sdk_root,
+        magnum_python_site=magnum_python_site,
+    )
+    result["input_capture_status"] = input_capture_status
+    result["frame_readbacks"] = str(readback_path)
+    result["audio_plan"] = str(plan_path)
+    result["voice_binding"] = str(binding_path)
+    result["acoustic_package"] = str(package_path)
+    result["clock"] = dict(clock)
+    return result
+
 def render(
     *,
     frame_readbacks: str | Path,
@@ -1742,6 +2032,10 @@ def render(
     hrtf_file: str | Path = "/usr/share/libmysofa/MIT_KEMAR_normal_pinna.sofa",
     rir_cache: str | Path | None = None,
     rir_stride_frames: int = 3,
+    neutral_readback: str | Path | None = None,
+    prepared_manifest: str | Path | None = None,
+    diffraction: bool | None = None,
+    max_diffraction_order: int | None = None,
 ) -> dict[str, Any]:
     if audio_plan is not None:
         return _render_plan_audio(
@@ -1761,6 +2055,10 @@ def render(
             source_ray_count=source_ray_count,
             indirect_ray_depth=indirect_ray_depth,
             source_ray_depth=source_ray_depth,
+            neutral_readback=neutral_readback,
+            prepared_manifest=prepared_manifest,
+            diffraction=diffraction,
+            max_diffraction_order=max_diffraction_order,
         )
     readback_path = Path(frame_readbacks).expanduser().resolve()
     package_path = Path(package_manifest).expanduser().resolve()
@@ -2076,6 +2374,27 @@ def main() -> None:
         default=3,
         help="sample one dynamic RIR every N visual frames (default: 3)",
     )
+    parser.add_argument(
+        "--neutral-readback",
+        type=Path,
+        help="optional P1 NeutralReadback JSON; otherwise adapt UE frame readbacks",
+    )
+    parser.add_argument(
+        "--prepared-manifest",
+        type=Path,
+        help="optional P7 prepared audio manifest for source activity intervals",
+    )
+    parser.add_argument(
+        "--diffraction",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="override the RLR diffraction flag for this research render",
+    )
+    parser.add_argument(
+        "--max-diffraction-order",
+        type=int,
+        help="override the RLR maximum diffraction order",
+    )
     args = parser.parse_args()
     report = render(
         frame_readbacks=args.frame_readbacks,
@@ -2094,6 +2413,10 @@ def main() -> None:
         hrtf_file=args.hrtf_file,
         rir_cache=args.rir_cache,
         rir_stride_frames=args.rir_stride,
+        neutral_readback=args.neutral_readback,
+        prepared_manifest=args.prepared_manifest,
+        diffraction=args.diffraction,
+        max_diffraction_order=args.max_diffraction_order,
     )
     output = report.get("mixture_path")
     if output is None:

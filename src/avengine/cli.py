@@ -1357,6 +1357,21 @@ def _m5_render_current_m1_research_audio(args: argparse.Namespace) -> int:
 
 
 
+def _parse_m5_external_audio_bindings(values: Sequence[str] | None) -> dict[str, str]:
+    """Parse explicit sound_asset_id=path bindings without asset-name policy."""
+    result: dict[str, str] = {}
+    for value in values or ():
+        if not isinstance(value, str) or "=" not in value:
+            raise ValueError("--asset-binding must be sound_asset_id=path")
+        sound_id, path = value.split("=", 1)
+        if not sound_id or not path:
+            raise ValueError("--asset-binding must be sound_asset_id=path")
+        if sound_id in result and result[sound_id] != path:
+            raise ValueError(f"duplicate --asset-binding for {sound_id!r}")
+        result[sound_id] = path
+    return result
+
+
 def _m5_render_current_mp3d_dynamic_audio(args: argparse.Namespace) -> int:
     """Render per-state MP3D research audio on the installed native runtime."""
 
@@ -1376,7 +1391,16 @@ def _m5_render_current_mp3d_dynamic_audio(args: argparse.Namespace) -> int:
                 source_endpoint_registry_path=args.source_endpoint_registry,
                 sound_asset_registry_path=args.sound_asset_registry,
                 external_sound_asset_paths={
-                    "dog_beagle_v2_scheduled_dry": args.beagle_audio
+                    "dog_beagle_v2_scheduled_dry": args.beagle_audio,
+                    **_parse_m5_external_audio_bindings(
+                        getattr(args, "asset_binding", None)
+                    ),
+                },
+                event_asset_bindings={
+                    "dog_beagle_v2_scheduled_dry": args.beagle_audio,
+                    **_parse_m5_external_audio_bindings(
+                        getattr(args, "asset_binding", None)
+                    ),
                 },
                 hrtf_file_path=args.hrtf,
                 hrtf_license_path=args.hrtf_license,
@@ -1386,6 +1410,10 @@ def _m5_render_current_mp3d_dynamic_audio(args: argparse.Namespace) -> int:
                 frame_count=args.frame_count,
                 frame_rate_hz=args.frame_rate_hz,
                 ticks_per_frame=args.ticks_per_frame,
+                neutral_readback_path=getattr(args, "neutral_readback", None),
+                prepared_manifest_path=getattr(args, "prepared_manifest", None),
+                diffraction=getattr(args, "diffraction", None),
+                max_diffraction_order=getattr(args, "max_diffraction_order", None),
             )
     except (CurrentMP3DDynamicAudioError, OSError, ValueError) as error:
         _print({"status": "fail", "error": str(error)})
@@ -2281,8 +2309,8 @@ def build_parser() -> argparse.ArgumentParser:
     m5_dynamic_audio.add_argument("--simulation-request", required=True)
     m5_dynamic_audio.add_argument("--package-manifest", required=True)
     m5_dynamic_audio.add_argument("--audio-program", required=True)
-    m5_dynamic_audio.add_argument("--source-endpoint-registry", required=True)
-    m5_dynamic_audio.add_argument("--sound-asset-registry", required=True)
+    m5_dynamic_audio.add_argument("--source-endpoint-registry")
+    m5_dynamic_audio.add_argument("--sound-asset-registry")
     m5_dynamic_audio.add_argument(
         "--beagle-audio",
         required=True,
@@ -2294,6 +2322,32 @@ def build_parser() -> argparse.ArgumentParser:
     m5_dynamic_audio.add_argument("--rlr-sdk-root", required=True)
     m5_dynamic_audio.add_argument("--magnum-python-site")
     m5_dynamic_audio.add_argument("--rir-stride-frames", type=int, default=3)
+    m5_dynamic_audio.add_argument(
+        "--neutral-readback",
+        help="optional P1 NeutralReadback JSON; otherwise use the legacy frame capture",
+    )
+    m5_dynamic_audio.add_argument(
+        "--asset-binding",
+        action="append",
+        default=[],
+        metavar="SOUND_ASSET_ID=PATH",
+        help="explicit external dry binding for a non-registry sound asset",
+    )
+    m5_dynamic_audio.add_argument(
+        "--prepared-manifest",
+        help="optional P7 prepared audio manifest for source activity intervals",
+    )
+    m5_dynamic_audio.add_argument(
+        "--diffraction",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="override the RLR diffraction flag",
+    )
+    m5_dynamic_audio.add_argument(
+        "--max-diffraction-order",
+        type=int,
+        help="override the RLR maximum diffraction order",
+    )
     m5_dynamic_audio.add_argument("--frame-count", type=int)
     m5_dynamic_audio.add_argument("--frame-rate-hz", type=float)
     m5_dynamic_audio.add_argument("--ticks-per-frame", type=int)

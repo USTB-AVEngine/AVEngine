@@ -35,6 +35,32 @@ def build_audio_command(
     ]
     if runtime.get("hrtf"):
         command += ["--hrtf", str(runtime["hrtf"])]
+    neutral = (
+        request.get("neutral_readback")
+        or runtime.get("neutral_readback")
+        or plan.get("neutral_readback")
+    )
+    if neutral:
+        command += ["--neutral-readback", str(neutral)]
+    prepared_manifest = (
+        request.get("prepared_manifest")
+        or runtime.get("prepared_manifest")
+        or plan.get("prepared_manifest")
+    )
+    if prepared_manifest:
+        command += ["--prepared-manifest", str(prepared_manifest)]
+    if "diffraction" in request:
+        command += [("--diffraction" if request["diffraction"] else "--no-diffraction")]
+    elif "diffraction" in runtime:
+        command += [("--diffraction" if runtime["diffraction"] else "--no-diffraction")]
+    elif "diffraction" in plan:
+        command += [("--diffraction" if plan["diffraction"] else "--no-diffraction")]
+    max_order = request.get(
+        "max_diffraction_order",
+        runtime.get("max_diffraction_order", plan.get("max_diffraction_order")),
+    )
+    if max_order is not None:
+        command += ["--max-diffraction-order", str(max_order)]
     return command
 
 
