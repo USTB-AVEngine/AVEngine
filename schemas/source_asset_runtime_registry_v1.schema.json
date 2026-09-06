@@ -530,6 +530,9 @@
               "$ref": "#/$defs/static_spear_unreal_binding"
             }
           ]
+        },
+        "habitat": {
+          "$ref": "#/$defs/habitat_binding"
         }
       }
     },
@@ -836,14 +839,23 @@
                 ]
               },
               "runtime_backends": {
-                "required": [
-                  "spear_unreal"
-                ],
                 "properties": {
                   "spear_unreal": {
                     "$ref": "#/$defs/static_spear_unreal_binding"
                   }
-                }
+                },
+                "anyOf": [
+                  {
+                    "required": [
+                      "spear_unreal"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "habitat"
+                    ]
+                  }
+                ]
               },
               "emitter_anchors": {
                 "contains": {
@@ -956,6 +968,99 @@
           "$ref": "#/$defs/stable_id"
         }
       }
+    },
+    "habitat_binding": {
+      "type": "object",
+      "required": [
+        "asset_kind",
+        "glb_path",
+        "semantic_template",
+        "resting_pose",
+        "emitter"
+      ],
+      "properties": {
+        "asset_kind": {
+          "enum": [
+            "rigid_static_object",
+            "articulated_asset",
+            "articulated_m2_package"
+          ]
+        },
+        "glb_path": {
+          "$ref": "#/$defs/nonempty_string"
+        },
+        "semantic_template": {
+          "type": "object",
+          "required": [
+            "semantic_id_source"
+          ]
+        },
+        "resting_pose": {
+          "type": "object",
+          "required": [
+            "attachment_surface",
+            "base_plane_offset_m"
+          ],
+          "properties": {
+            "attachment_surface": {
+              "enum": [
+                "floor",
+                "wall",
+                "ceiling"
+              ]
+            },
+            "base_plane_offset_m": {
+              "type": "number"
+            }
+          }
+        },
+        "emitter": {
+          "type": "object",
+          "required": [
+            "anchor_id",
+            "offset_m"
+          ],
+          "properties": {
+            "anchor_id": {
+              "$ref": "#/$defs/nonempty_string"
+            },
+            "offset_m": {
+              "type": "array",
+              "minItems": 3,
+              "maxItems": 3,
+              "items": {
+                "type": "number"
+              }
+            }
+          }
+        },
+        "asset_manifest_path": {
+          "$ref": "#/$defs/nonempty_string"
+        },
+        "base_m2_request_path": {
+          "$ref": "#/$defs/nonempty_string"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "asset_kind": {
+                "enum": [
+                  "articulated_asset",
+                  "articulated_m2_package"
+                ]
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "asset_manifest_path",
+              "base_m2_request_path"
+            ]
+          }
+        }
+      ]
     }
   }
 }

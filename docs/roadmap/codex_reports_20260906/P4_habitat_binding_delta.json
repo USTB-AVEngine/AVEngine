@@ -1,0 +1,2710 @@
+{
+  "bindings": [
+    {
+      "asset_id": "generated_air_conditioner_portable_floor_white_research_v2",
+      "runtime_backend": {
+        "asset_kind": "rigid_static_object",
+        "category": "climate_control",
+        "emitter": {
+          "anchor_id": "upper_front_discharge_outlet",
+          "anchor_type": "object_speaker",
+          "authority_sha256": "262d0b6657e0884ff0e0ee469ea61a3ee87743a80518284499c3842a362007f2",
+          "marker_review": {
+            "decision": "approved_after_full_resolution_review",
+            "front_sha256": "974949b8f09e393d776c4895aaf3be90b29a2070de9b91ba19c399abf84aeddf",
+            "render_manifest_sha256": "f55a07eb77edd0e3dd9ffadd5151e53978a7f629c8d0a5c6c45556ff1cd86cfe",
+            "side_sha256": "f5170e0f1e3555a788f950dce72b19e101f4777e48de18d6579b00f057058a37",
+            "top_sha256": "6509555ed9ce22008d0dd5c0d0eaa2420b0ace3e405768053a6e2306a5848027"
+          },
+          "offset_m": [
+            0.16687293350696564,
+            0.5764427781105042,
+            -0.012067001312971115
+          ],
+          "offset_space": "final_scaled_asset_root",
+          "physical_rationale": "fan noise radiates through the broad upper-front discharge grille",
+          "reviewed_target_fraction_xyz": [
+            1.0,
+            0.82,
+            0.5
+          ],
+          "selection_method": "reviewed_bbox_fraction_nearest_surface_v1",
+          "semantic_role": "primary_sound_source",
+          "target_to_surface_distance_m": 0.021137122064828873
+        },
+        "entity_class": "rigid_static_object",
+        "glb_relative_path": "climate_control/air_conditioner/portable_floor_white/finalized.glb",
+        "resting_pose": {
+          "attachment_surface": "floor",
+          "attachment_surface_assumed": true,
+          "attachment_surface_note": "placement.attachment_surface was not declared; measured under the floor assumption",
+          "base_area_share": 0.0031,
+          "base_normal_tilt_deg": 2.86,
+          "base_plane_offset_m": -0.0,
+          "contact_extent_m": [
+            0.0102,
+            0.0078
+          ],
+          "footprint_extent_m": [
+            0.3609,
+            0.3305
+          ],
+          "height_m": 0.7,
+          "how_to_place": "put the asset origin at floor height and apply yaw only; the base offset above is already zero for assets the finalizer grounded, so no room needs to re-derive this",
+          "measured_from": "finalized.glb",
+          "measured_plane": "floor_base",
+          "mounting_plane_normal_tilt_deg": null,
+          "tolerance": {
+            "acceptable_deg": 8.0,
+            "level_deg": 3.0,
+            "note": "loose on purpose; reconstructed geometry is noisy and a degree or two of lean, or a few millimetres of float, is fine"
+          },
+          "verdict": "level"
+        },
+        "semantic_template": {
+          "semantic_id_source": "episode_binding",
+          "template_kind": "rigid_object"
+        }
+      }
+    },
+    {
+      "asset_id": "generated_air_conditioner_wall_split_white_research_v1",
+      "runtime_backend": {
+        "asset_kind": "rigid_static_object",
+        "category": "climate_control",
+        "emitter": {
+          "anchor_id": "lower_front_discharge_louver",
+          "anchor_type": "object_speaker",
+          "authority_sha256": "bf321d58bed6d7e3aa744e2e98cf0677365b69eca1bfdbd4220fbca139bcabef",
+          "marker_review": {
+            "decision": "approved_after_full_resolution_review",
+            "front_sha256": "0677dc8e535c90b23490f2951aa2b728176ac905c5d0c69412dfba3c142408c2",
+            "render_manifest_sha256": "bd489fe78efea485f488d2b511c2d770e0c32f61bdaca883f5e70a30e16d6ec2",
+            "side_sha256": "f635786ff6758db4746e4c23058495efccfacdb9779ac46ab4e5abdb7693085b",
+            "top_sha256": "bfaa2243fb326bb14734175416924d966aaef2d18cd44679746fb05bcb552a1a"
+          },
+          "offset_m": [
+            0.13913479447364807,
+            0.07918704301118851,
+            -0.051445093005895615
+          ],
+          "offset_space": "final_scaled_asset_root",
+          "physical_rationale": "The lower-front adjustable discharge louver is the visible outlet for fan and airflow noise.",
+          "reviewed_target_fraction_xyz": [
+            1.0,
+            0.22,
+            0.5
+          ],
+          "selection_method": "reviewed_bbox_fraction_nearest_surface_v1",
+          "semantic_role": "primary_sound_source",
+          "target_to_surface_distance_m": 0.07936684042215347
+        },
+        "entity_class": "rigid_static_object",
+        "glb_relative_path": "climate_control/air_conditioner/wall_split_white/finalized.glb",
+        "resting_pose": {
+          "attachment_surface": "wall",
+          "attachment_surface_assumed": false,
+          "attachment_surface_note": "measured from the declared placement.attachment_surface",
+          "base_normal_tilt_deg": null,
+          "base_plane_offset_m": 0.0,
+          "height_m": 0.3,
+          "how_to_place": "place the measured back toward the wall and apply translation and yaw only; wall-connected geometry without a back plane is reported as no_mounting_plane_found",
+          "measured_from": "finalized.glb",
+          "measured_plane": "wall_back",
+          "mounting_plane_area_share": 0.035779,
+          "mounting_plane_candidate_faces": 1373,
+          "mounting_plane_detection": {
+            "maximum_plane_rms_fraction": 0.02,
+            "minimum_area_share": 0.003,
+            "minimum_projected_bbox_share": 0.025,
+            "note": "these are existence checks for a recoverable mounting plane, not resting-pose strictness or a contact-area acceptance gate",
+            "slice_fraction": 0.05
+          },
+          "mounting_plane_normal_tilt_deg": 1.52,
+          "mounting_plane_projected_bbox_share": 0.158683,
+          "mounting_plane_rms_fraction": 0.01764,
+          "mounting_plane_rms_m": 0.006012,
+          "tolerance": {
+            "acceptable_deg": 8.0,
+            "level_deg": 3.0,
+            "note": "loose on purpose; reconstructed geometry is noisy and a degree or two of lean, or a few millimetres of float, is fine"
+          },
+          "verdict": "level"
+        },
+        "semantic_template": {
+          "semantic_id_source": "episode_binding",
+          "template_kind": "rigid_object"
+        }
+      }
+    },
+    {
+      "asset_id": "generated_air_conditioner_window_unit_white_research_v2",
+      "runtime_backend": {
+        "asset_kind": "rigid_static_object",
+        "category": "climate_control",
+        "emitter": {
+          "anchor_id": "front_discharge_louver",
+          "anchor_type": "object_speaker",
+          "authority_sha256": "39c615bd3447fe81180afa9fcdbcf960fac24c3736b4454a1c66d56376a71640",
+          "marker_review": {
+            "decision": "approved_after_full_resolution_review",
+            "front_sha256": "a4dc2d8f85a43027480e76bd5494a2356159d354c004fd9a084437ed53ae1d56",
+            "render_manifest_sha256": "442d177ae7ea69b88f41a7513a1b43fbc110c1c42ba8ff223295bad67a82c6b7",
+            "side_sha256": "6e45184c062f768c146a3498ddc4f9f2e007c4e6745d30b6f8df9807fafefa21",
+            "top_sha256": "d83eb3c3c4caef6da470aa2ccf365ad190326209cae44409e890800f3edaf76c"
+          },
+          "offset_m": [
+            0.14302825927734375,
+            0.3623600900173187,
+            0.15553312003612518
+          ],
+          "offset_space": "final_scaled_asset_root",
+          "physical_rationale": "fan noise radiates through the visible upper-front discharge louvers",
+          "reviewed_target_fraction_xyz": [
+            1.0,
+            0.95,
+            1.0
+          ],
+          "selection_method": "reviewed_bbox_fraction_nearest_surface_v1",
+          "semantic_role": "primary_sound_source",
+          "target_to_surface_distance_m": 0.14790450036525726
+        },
+        "entity_class": "rigid_static_object",
+        "glb_relative_path": "climate_control/air_conditioner/window_unit_white/finalized.glb",
+        "resting_pose": {
+          "attachment_surface": "wall",
+          "attachment_surface_assumed": false,
+          "attachment_surface_note": "measured from the declared placement.attachment_surface",
+          "base_normal_tilt_deg": null,
+          "base_plane_offset_m": 0.0,
+          "height_m": 0.38,
+          "how_to_place": "place the measured back toward the wall and apply translation and yaw only; wall-connected geometry without a back plane is reported as no_mounting_plane_found",
+          "measured_from": "finalized.glb",
+          "measured_plane": "wall_back",
+          "mounting_plane_area_share": 0.027169,
+          "mounting_plane_candidate_faces": 1477,
+          "mounting_plane_detection": {
+            "maximum_plane_rms_fraction": 0.02,
+            "minimum_area_share": 0.003,
+            "minimum_projected_bbox_share": 0.025,
+            "note": "these are existence checks for a recoverable mounting plane, not resting-pose strictness or a contact-area acceptance gate",
+            "slice_fraction": 0.05
+          },
+          "mounting_plane_normal_tilt_deg": null,
+          "mounting_plane_projected_bbox_share": 0.173829,
+          "mounting_plane_rms_fraction": 0.021733,
+          "mounting_plane_rms_m": 0.011421,
+          "tolerance": {
+            "acceptable_deg": 8.0,
+            "level_deg": 3.0,
+            "note": "loose on purpose; reconstructed geometry is noisy and a degree or two of lean, or a few millimetres of float, is fine"
+          },
+          "verdict": "no_mounting_plane_found",
+          "verdict_reason": "candidate surface is not planar enough"
+        },
+        "semantic_template": {
+          "semantic_id_source": "episode_binding",
+          "template_kind": "rigid_object"
+        }
+      }
+    },
+    {
+      "asset_id": "generated_alarm_clock_digital_cube_black_research_v2",
+      "runtime_backend": {
+        "asset_kind": "rigid_static_object",
+        "category": "household_clock",
+        "emitter": {
+          "anchor_id": "top_buzzer_perforation_field",
+          "anchor_type": "object_speaker",
+          "authority_sha256": "c3984d24f7710aaae9d833178789b84f2308adffc96b7816d57c0a31775db120",
+          "marker_review": {
+            "decision": "approved_after_full_resolution_review",
+            "front_sha256": "239e7009ad4db3a7bfa65c32ba1f6dd17026d588d330f8b17c55ce2b6b26b925",
+            "render_manifest_sha256": "de14a26b001deba241c6d36b54f8f539535f68c330418f93732a7bb4c054de1c",
+            "side_sha256": "7baf04c89970c3f93edd9c12c12519b7cddb4d72fbed24e27c9ef059543c4448",
+            "top_sha256": "7c70882578f985663bba19a84a3b7b115b29ca930e338c4166cc2710acf446e9"
+          },
+          "offset_m": [
+            0.00024956680135801435,
+            0.07288502901792526,
+            0.0008651246898807585
+          ],
+          "offset_space": "final_scaled_asset_root",
+          "physical_rationale": "alarm sound radiates through the visible perforated buzzer field",
+          "reviewed_target_fraction_xyz": [
+            0.5,
+            1.0,
+            0.5
+          ],
+          "selection_method": "reviewed_bbox_fraction_nearest_surface_v1",
+          "semantic_role": "primary_sound_source",
+          "target_to_surface_distance_m": 0.007152244448661804
+        },
+        "entity_class": "rigid_static_object",
+        "glb_relative_path": "household_clock/alarm_clock/digital_cube_black/finalized.glb",
+        "resting_pose": {
+          "attachment_surface": "floor",
+          "attachment_surface_assumed": true,
+          "attachment_surface_note": "placement.attachment_surface was not declared; measured under the floor assumption",
+          "base_area_share": 0.0112,
+          "base_normal_tilt_deg": 0.88,
+          "base_plane_offset_m": 0.0,
+          "contact_extent_m": [
+            0.0705,
+            0.0727
+          ],
+          "footprint_extent_m": [
+            0.0886,
+            0.0884
+          ],
+          "height_m": 0.08,
+          "how_to_place": "put the asset origin at floor height and apply yaw only; the base offset above is already zero for assets the finalizer grounded, so no room needs to re-derive this",
+          "measured_from": "finalized.glb",
+          "measured_plane": "floor_base",
+          "mounting_plane_normal_tilt_deg": null,
+          "tolerance": {
+            "acceptable_deg": 8.0,
+            "level_deg": 3.0,
+            "note": "loose on purpose; reconstructed geometry is noisy and a degree or two of lean, or a few millimetres of float, is fine"
+          },
+          "verdict": "level"
+        },
+        "semantic_template": {
+          "semantic_id_source": "episode_binding",
+          "template_kind": "rigid_object"
+        }
+      }
+    },
+    {
+      "asset_id": "generated_alarm_clock_twin_bell_analog_white_research_v1",
+      "runtime_backend": {
+        "asset_kind": "rigid_static_object",
+        "category": "household_clock",
+        "emitter": {
+          "anchor_id": "twin_alarm_bells",
+          "anchor_type": "object_speaker",
+          "authority_sha256": "ff94ebd1ab19151547bba7fc89e81bb9eb3dd2edb22b90269bc07dcbd0db9cc2",
+          "marker_review": {
+            "decision": "approved_after_full_resolution_review",
+            "front_sha256": "28edab39bde6ead4cd595ad42fd1fc2f73bf300b108043c50efbf6564dd9cd03",
+            "render_manifest_sha256": "7004bcb2d230c3fc13b080c44ff7615c9db8e1f3c331829125981b6f01d0795a",
+            "side_sha256": "17a85557078425091dd256e1838b605592efcca0f78169863b765d7d762585b6",
+            "top_sha256": "ce86f215db35b68cfa015302e20193ffd92c361bdbef3fbc46f8065136218b13"
+          },
+          "offset_m": [
+            0.02704257145524025,
+            0.11272881925106049,
+            0.009409605525434017
+          ],
+          "offset_space": "final_scaled_asset_root",
+          "physical_rationale": "The two exposed metal bells are the physical alarm radiators.",
+          "reviewed_target_fraction_xyz": [
+            1.0,
+            0.84,
+            0.5
+          ],
+          "selection_method": "reviewed_bbox_fraction_nearest_surface_v1",
+          "semantic_role": "primary_sound_source",
+          "target_to_surface_distance_m": 0.013227899558842182
+        },
+        "entity_class": "rigid_static_object",
+        "glb_relative_path": "household_clock/alarm_clock/twin_bell_analog_white/finalized.glb",
+        "resting_pose": {
+          "attachment_surface": "floor",
+          "attachment_surface_assumed": true,
+          "attachment_surface_note": "placement.attachment_surface was not declared; measured under the floor assumption",
+          "base_area_share": 0.0195,
+          "base_normal_tilt_deg": 2.24,
+          "base_plane_offset_m": 0.0,
+          "contact_extent_m": [
+            0.0058,
+            0.0059
+          ],
+          "footprint_extent_m": [
+            0.0734,
+            0.0976
+          ],
+          "height_m": 0.14,
+          "how_to_place": "put the asset origin at floor height and apply yaw only; the base offset above is already zero for assets the finalizer grounded, so no room needs to re-derive this",
+          "measured_from": "finalized.glb",
+          "measured_plane": "floor_base",
+          "mounting_plane_normal_tilt_deg": null,
+          "tolerance": {
+            "acceptable_deg": 8.0,
+            "level_deg": 3.0,
+            "note": "loose on purpose; reconstructed geometry is noisy and a degree or two of lean, or a few millimetres of float, is fine"
+          },
+          "verdict": "level"
+        },
+        "semantic_template": {
+          "semantic_id_source": "episode_binding",
+          "template_kind": "rigid_object"
+        }
+      }
+    },
+    {
+      "asset_id": "generated_bathtub_built_in_alcove_white_research_v2",
+      "runtime_backend": {
+        "asset_kind": "rigid_static_object",
+        "category": "plumbing_fixture",
+        "emitter": {
+          "anchor_id": "rim_filler_spout_outlet",
+          "anchor_type": "object_speaker",
+          "authority_sha256": "c941194af077844bece84a5c531fdd45037b4d3be0db635261f519a398f28052",
+          "marker_review": {
+            "decision": "approved_after_full_resolution_review",
+            "front_sha256": "1e9635c825f964b5c1cd2fffed8dc644b4b4551b007efbb1168d716623915c95",
+            "render_manifest_sha256": "c84d6f3d402f0b4675a7326b82696ada0418a21497e685bc10f70e7f4f0c097a",
+            "side_sha256": "fe5c36acc31baf1ef7795c1950f5b93c9d3fcea467a3714dfaffa1c7ceede0d3",
+            "top_sha256": "ff06a4d67437842586aed7b5a327e29561e30a6b22d955f9bd0711a5eb2f0176"
+          },
+          "offset_m": [
+            -0.05848895385861397,
+            0.4940558671951294,
+            0.015072328969836235
+          ],
+          "offset_space": "final_scaled_asset_root",
+          "physical_rationale": "filling sound originates at the visible rim-mounted filler outlet",
+          "reviewed_target_fraction_xyz": [
+            0.45,
+            0.9,
+            0.57
+          ],
+          "selection_method": "reviewed_bbox_fraction_nearest_surface_v1",
+          "semantic_role": "primary_sound_source",
+          "target_to_surface_distance_m": 0.0388595275580883
+        },
+        "entity_class": "rigid_static_object",
+        "glb_relative_path": "plumbing_fixture/bathtub/built_in_alcove_white/finalized.glb",
+        "resting_pose": {
+          "attachment_surface": "floor",
+          "attachment_surface_assumed": false,
+          "attachment_surface_note": "measured from the declared placement.attachment_surface",
+          "base_area_share": 0.1487,
+          "base_normal_tilt_deg": 1.23,
+          "base_plane_offset_m": 0.0,
+          "contact_extent_m": [
+            0.0165,
+            0.016
+          ],
+          "footprint_extent_m": [
+            1.0156,
+            1.0187
+          ],
+          "height_m": 0.55,
+          "how_to_place": "put the asset origin at floor height and apply yaw only; the base offset above is already zero for assets the finalizer grounded, so no room needs to re-derive this",
+          "measured_from": "finalized.glb",
+          "measured_plane": "floor_base",
+          "mounting_plane_normal_tilt_deg": null,
+          "tolerance": {
+            "acceptable_deg": 8.0,
+            "level_deg": 3.0,
+            "note": "loose on purpose; reconstructed geometry is noisy and a degree or two of lean, or a few millimetres of float, is fine"
+          },
+          "verdict": "level"
+        },
+        "semantic_template": {
+          "semantic_id_source": "episode_binding",
+          "template_kind": "rigid_object"
+        }
+      }
+    },
+    {
+      "asset_id": "generated_bathtub_freestanding_white_research_v1",
+      "runtime_backend": {
+        "asset_kind": "rigid_static_object",
+        "category": "plumbing_fixture",
+        "emitter": {
+          "anchor_id": "rim_filler_spout_outlet",
+          "anchor_type": "object_speaker",
+          "authority_sha256": "c60faaac2ef73fbec2b4c869e9bbe1002c081e8da46549a1c69c875f53c6a231",
+          "marker_review": {
+            "decision": "approved_after_full_resolution_review",
+            "front_sha256": "a494a14d160232595e8778e8f985df41f4911bca1bafbf40e665ec8e6e073257",
+            "render_manifest_sha256": "7c59d820ab5a22fe66850b48eedfc2a23ca616e413bc09c9692cb8c104d845e2",
+            "side_sha256": "1f97c2c57e6fbb9a840930a0fba50fc9b94b1d9ca62fff0782c7f9a9614196a5",
+            "top_sha256": "c98ff40a5657a69afe27ad8a6182ad6708f726ac3f9f43f8100381ac61778998"
+          },
+          "offset_m": [
+            -0.0884697288274765,
+            0.49545642733573914,
+            0.2180911749601364
+          ],
+          "offset_space": "final_scaled_asset_root",
+          "physical_rationale": "Filling sound originates at the visible short filler spout physically fused to the tub rim.",
+          "reviewed_target_fraction_xyz": [
+            0.25,
+            0.95,
+            0.85
+          ],
+          "selection_method": "reviewed_bbox_fraction_nearest_surface_v1",
+          "semantic_role": "primary_sound_source",
+          "target_to_surface_distance_m": 0.10933472961187363
+        },
+        "entity_class": "rigid_static_object",
+        "glb_relative_path": "plumbing_fixture/bathtub/freestanding_white/finalized.glb",
+        "resting_pose": {
+          "attachment_surface": "floor",
+          "attachment_surface_assumed": false,
+          "attachment_surface_note": "measured from the declared placement.attachment_surface",
+          "base_area_share": 0.0186,
+          "base_normal_tilt_deg": 0.43,
+          "base_plane_offset_m": 0.0,
+          "contact_extent_m": [
+            0.024,
+            0.0539
+          ],
+          "footprint_extent_m": [
+            0.8051,
+            0.8437
+          ],
+          "height_m": 0.6,
+          "how_to_place": "put the asset origin at floor height and apply yaw only; the base offset above is already zero for assets the finalizer grounded, so no room needs to re-derive this",
+          "measured_from": "finalized.glb",
+          "measured_plane": "floor_base",
+          "mounting_plane_normal_tilt_deg": null,
+          "tolerance": {
+            "acceptable_deg": 8.0,
+            "level_deg": 3.0,
+            "note": "loose on purpose; reconstructed geometry is noisy and a degree or two of lean, or a few millimetres of float, is fine"
+          },
+          "verdict": "level"
+        },
+        "semantic_template": {
+          "semantic_id_source": "episode_binding",
+          "template_kind": "rigid_object"
+        }
+      }
+    },
+    {
+      "asset_id": "generated_blender_bullet_blender_silver_research_v1",
+      "runtime_backend": {
+        "asset_kind": "rigid_static_object",
+        "category": "kitchen_appliance",
+        "emitter": {
+          "anchor_id": "motor_base_vent_ring",
+          "anchor_type": "object_speaker",
+          "authority_sha256": "4c904e92ef6e8e36ff69b45c503ecd2b5cb67788b649dee03655d7d6d30eb9d2",
+          "marker_review": {
+            "decision": "approved_after_full_resolution_review",
+            "front_sha256": "e9b99cb9b1fc1bfac139280c8bffbda232e6fa6053a6ea6513e54a5d90868cee",
+            "render_manifest_sha256": "4fcce0f1d143e51b88fd9dbdce16b799642557e24844b74b284f3d973f088c40",
+            "side_sha256": "581555a6faf0cf438640db2262fe7b3fc7b5f19878619a2a59e3a836274d36b3",
+            "top_sha256": "aebeae032efeda77e0ef21f9a0419752b7810da0eb0e11d8b0bdb1b812032592"
+          },
+          "offset_m": [
+            0.05742863193154335,
+            0.032724134624004364,
+            -0.00010933168232440948
+          ],
+          "offset_space": "final_scaled_asset_root",
+          "physical_rationale": "The motor and airflow noise radiate through the visible vent ring at the base.",
+          "reviewed_target_fraction_xyz": [
+            1.0,
+            0.08,
+            0.5
+          ],
+          "selection_method": "reviewed_bbox_fraction_nearest_surface_v1",
+          "semantic_role": "primary_sound_source",
+          "target_to_surface_distance_m": 0.04335085675120354
+        },
+        "entity_class": "rigid_static_object",
+        "glb_relative_path": "kitchen_appliance/blender/bullet_blender_silver/finalized.glb",
+        "resting_pose": {
+          "attachment_surface": "floor",
+          "attachment_surface_assumed": true,
+          "attachment_surface_note": "placement.attachment_surface was not declared; measured under the floor assumption",
+          "base_area_share": 0.053,
+          "base_normal_tilt_deg": 4.65,
+          "base_plane_offset_m": -0.0,
+          "contact_extent_m": [
+            0.044,
+            0.1223
+          ],
+          "footprint_extent_m": [
+            0.2086,
+            0.1679
+          ],
+          "height_m": 0.35,
+          "how_to_place": "put the asset origin at floor height and apply yaw only; the base offset above is already zero for assets the finalizer grounded, so no room needs to re-derive this",
+          "measured_from": "finalized.glb",
+          "measured_plane": "floor_base",
+          "mounting_plane_normal_tilt_deg": null,
+          "tolerance": {
+            "acceptable_deg": 8.0,
+            "level_deg": 3.0,
+            "note": "loose on purpose; reconstructed geometry is noisy and a degree or two of lean, or a few millimetres of float, is fine"
+          },
+          "verdict": "acceptable"
+        },
+        "semantic_template": {
+          "semantic_id_source": "episode_binding",
+          "template_kind": "rigid_object"
+        }
+      }
+    },
+    {
+      "asset_id": "generated_blender_jug_blender_black_research_v2",
+      "runtime_backend": {
+        "asset_kind": "rigid_static_object",
+        "category": "kitchen_appliance",
+        "emitter": {
+          "anchor_id": "motor_base_front_vents",
+          "anchor_type": "object_speaker",
+          "authority_sha256": "25b6698fce266c6bcb16620feb05d7e2da70c554178d7b56d81b1de887990100",
+          "marker_review": {
+            "decision": "approved_after_full_resolution_review",
+            "front_sha256": "6491c6ec6bea6526da643df610fe88625063b5f62426d896e5d9dc1a1cb2b12b",
+            "render_manifest_sha256": "000d294bc7e9ff3691d9e4220b107e79c143389560cd97c2027ce812b1e8ed42",
+            "side_sha256": "3933e6f050c7bc7d3d0aa838cf19f962f69dcafe0642af452f4af3aacb226413",
+            "top_sha256": "c06655468ff9530dcba8d8bb9f26ea7d2690696c67cd32a2682e487b0cdcf791"
+          },
+          "offset_m": [
+            0.03621522709727287,
+            0.06620028614997864,
+            0.047361914068460464
+          ],
+          "offset_space": "final_scaled_asset_root",
+          "physical_rationale": "motor and blade noise radiates through the visible lower-front base vents",
+          "reviewed_target_fraction_xyz": [
+            1.0,
+            0.12,
+            1.0
+          ],
+          "selection_method": "reviewed_bbox_fraction_nearest_surface_v1",
+          "semantic_role": "primary_sound_source",
+          "target_to_surface_distance_m": 0.09647297114133835
+        },
+        "entity_class": "rigid_static_object",
+        "glb_relative_path": "kitchen_appliance/blender/jug_blender_black/finalized.glb",
+        "resting_pose": {
+          "attachment_surface": "floor",
+          "attachment_surface_assumed": true,
+          "attachment_surface_note": "placement.attachment_surface was not declared; measured under the floor assumption",
+          "base_area_share": 0.0201,
+          "base_normal_tilt_deg": 2.95,
+          "base_plane_offset_m": -0.0,
+          "contact_extent_m": [
+            0.0105,
+            0.0126
+          ],
+          "footprint_extent_m": [
+            0.2595,
+            0.2113
+          ],
+          "height_m": 0.4,
+          "how_to_place": "put the asset origin at floor height and apply yaw only; the base offset above is already zero for assets the finalizer grounded, so no room needs to re-derive this",
+          "measured_from": "finalized.glb",
+          "measured_plane": "floor_base",
+          "mounting_plane_normal_tilt_deg": null,
+          "tolerance": {
+            "acceptable_deg": 8.0,
+            "level_deg": 3.0,
+            "note": "loose on purpose; reconstructed geometry is noisy and a degree or two of lean, or a few millimetres of float, is fine"
+          },
+          "verdict": "level"
+        },
+        "semantic_template": {
+          "semantic_id_source": "episode_binding",
+          "template_kind": "rigid_object"
+        }
+      }
+    },
+    {
+      "asset_id": "generated_bookshelf_speaker_compact_shelf_cabinet_black_ash_research_v1",
+      "runtime_backend": {
+        "asset_kind": "rigid_static_object",
+        "category": "audio_playback",
+        "emitter": {
+          "anchor_id": "woofer_cone_front_baffle",
+          "anchor_type": "object_speaker",
+          "authority_sha256": "677aade949b0e8e987af8b319ba4596eccd7a1ea2fe2fabb6b1cbe5a7cfac2a2",
+          "offset_m": [
+            0.07662985473871231,
+            0.10092175006866455,
+            0.011091106571257114
+          ],
+          "offset_space": "final_scaled_asset_root",
+          "reviewed_target_fraction_xyz": [
+            1.0,
+            0.3,
+            0.5
+          ],
+          "selection_method": "reviewed_bbox_fraction_nearest_surface_v1",
+          "semantic_role": "primary_sound_source",
+          "target_to_surface_distance_m": 0.02697690948843956
+        },
+        "entity_class": "rigid_static_object",
+        "glb_relative_path": "audio_playback/bookshelf_speaker/compact_shelf_cabinet_black_ash/finalized.glb",
+        "resting_pose": {
+          "attachment_surface": "floor",
+          "attachment_surface_assumed": true,
+          "attachment_surface_note": "placement.attachment_surface was not declared; measured under the floor assumption",
+          "base_area_share": 0.0461,
+          "base_normal_tilt_deg": 5.66,
+          "base_plane_offset_m": 0.0,
+          "contact_extent_m": [
+            0.0194,
+            0.043
+          ],
+          "footprint_extent_m": [
+            0.224,
+            0.2005
+          ],
+          "height_m": 0.33,
+          "how_to_place": "put the asset origin at floor height and apply yaw only; the base offset above is already zero for assets the finalizer grounded, so no room needs to re-derive this",
+          "measured_from": "finalized.glb",
+          "measured_plane": "floor_base",
+          "mounting_plane_normal_tilt_deg": null,
+          "tolerance": {
+            "acceptable_deg": 8.0,
+            "level_deg": 3.0,
+            "note": "loose on purpose; reconstructed geometry is noisy and a degree or two of lean, or a few millimetres of float, is fine"
+          },
+          "verdict": "acceptable"
+        },
+        "semantic_template": {
+          "semantic_id_source": "episode_binding",
+          "template_kind": "rigid_object"
+        }
+      }
+    },
+    {
+      "asset_id": "generated_bookshelf_speaker_compact_shelf_cabinet_walnut_veneer_research_v1",
+      "runtime_backend": {
+        "asset_kind": "rigid_static_object",
+        "category": "audio_playback",
+        "emitter": {
+          "anchor_id": "woofer_cone_front_baffle",
+          "anchor_type": "object_speaker",
+          "authority_sha256": "2640e9beacd4539b40ea213855f65dac3fa237b23fd503c9ce0999dbeb18cfcb",
+          "offset_m": [
+            0.10497590154409409,
+            0.09910234808921814,
+            -0.006040635518729687
+          ],
+          "offset_space": "final_scaled_asset_root",
+          "reviewed_target_fraction_xyz": [
+            1.0,
+            0.3,
+            0.5
+          ],
+          "selection_method": "reviewed_bbox_fraction_nearest_surface_v1",
+          "semantic_role": "primary_sound_source",
+          "target_to_surface_distance_m": 0.019436508417129517
+        },
+        "entity_class": "rigid_static_object",
+        "glb_relative_path": "audio_playback/bookshelf_speaker/compact_shelf_cabinet_walnut_veneer/finalized.glb",
+        "resting_pose": {
+          "attachment_surface": "floor",
+          "attachment_surface_assumed": true,
+          "attachment_surface_note": "placement.attachment_surface was not declared; measured under the floor assumption",
+          "base_area_share": 0.0612,
+          "base_normal_tilt_deg": 0.22,
+          "base_plane_offset_m": 0.0,
+          "contact_extent_m": [
+            0.2592,
+            0.2446
+          ],
+          "footprint_extent_m": [
+            0.2682,
+            0.2536
+          ],
+          "height_m": 0.33,
+          "how_to_place": "put the asset origin at floor height and apply yaw only; the base offset above is already zero for assets the finalizer grounded, so no room needs to re-derive this",
+          "measured_from": "finalized.glb",
+          "measured_plane": "floor_base",
+          "mounting_plane_normal_tilt_deg": null,
+          "tolerance": {
+            "acceptable_deg": 8.0,
+            "level_deg": 3.0,
+            "note": "loose on purpose; reconstructed geometry is noisy and a degree or two of lean, or a few millimetres of float, is fine"
+          },
+          "verdict": "level"
+        },
+        "semantic_template": {
+          "semantic_id_source": "episode_binding",
+          "template_kind": "rigid_object"
+        }
+      }
+    },
+    {
+      "asset_id": "generated_bookshelf_speaker_compact_shelf_cabinet_white_satin_research_v1",
+      "runtime_backend": {
+        "asset_kind": "rigid_static_object",
+        "category": "audio_playback",
+        "emitter": {
+          "anchor_id": "woofer_cone_front_baffle",
+          "anchor_type": "object_speaker",
+          "authority_sha256": "16f24677106e53571a1e0d808b5d080cf423986a57cd5b2968cd557e2f482075",
+          "offset_m": [
+            0.04637990891933441,
+            0.09888918697834015,
+            -0.018586300313472748
+          ],
+          "offset_space": "final_scaled_asset_root",
+          "reviewed_target_fraction_xyz": [
+            1.0,
+            0.3,
+            0.5
+          ],
+          "selection_method": "reviewed_bbox_fraction_nearest_surface_v1",
+          "semantic_role": "primary_sound_source",
+          "target_to_surface_distance_m": 0.026467567309737206
+        },
+        "entity_class": "rigid_static_object",
+        "glb_relative_path": "audio_playback/bookshelf_speaker/compact_shelf_cabinet_white_satin/finalized.glb",
+        "resting_pose": {
+          "attachment_surface": "floor",
+          "attachment_surface_assumed": true,
+          "attachment_surface_note": "placement.attachment_surface was not declared; measured under the floor assumption",
+          "base_area_share": 0.077,
+          "base_normal_tilt_deg": 0.73,
+          "base_plane_offset_m": 0.0,
+          "contact_extent_m": [
+            0.223,
+            0.1557
+          ],
+          "footprint_extent_m": [
+            0.228,
+            0.2124
+          ],
+          "height_m": 0.33,
+          "how_to_place": "put the asset origin at floor height and apply yaw only; the base offset above is already zero for assets the finalizer grounded, so no room needs to re-derive this",
+          "measured_from": "finalized.glb",
+          "measured_plane": "floor_base",
+          "mounting_plane_normal_tilt_deg": null,
+          "tolerance": {
+            "acceptable_deg": 8.0,
+            "level_deg": 3.0,
+            "note": "loose on purpose; reconstructed geometry is noisy and a degree or two of lean, or a few millimetres of float, is fine"
+          },
+          "verdict": "level"
+        },
+        "semantic_template": {
+          "semantic_id_source": "episode_binding",
+          "template_kind": "rigid_object"
+        }
+      }
+    },
+    {
+      "asset_id": "generated_cellphone_bar_smartphone_black_research_v1",
+      "runtime_backend": {
+        "asset_kind": "rigid_static_object",
+        "category": "communication_device",
+        "emitter": {
+          "anchor_id": "front_earpiece_speaker_slit",
+          "anchor_type": "object_speaker",
+          "authority_sha256": "c42aec3b41c5f9e685d9576ea85c3678124c0d0b7a82594d9c9aa960a642785b",
+          "marker_review": {
+            "decision": "approved_after_full_resolution_review",
+            "front_sha256": "b3b5382b7b55eff0f0ba8de78a809e899e51dbff54fd5e1bb7a4d0622e087905",
+            "render_manifest_sha256": "0aa358d81c3962b314e04f2adacad65ce90464a733986ba2461266f5875f5e50",
+            "side_sha256": "2b99c329bef0eb88da0988bfd8f5b1689c93f8e2ddcdecfd718ca0ddc424dcd0",
+            "top_sha256": "9d3445ee133f0b91d110efbd0bbf3b29178384e1d380f0edcef7367d1ee2350a"
+          },
+          "offset_m": [
+            0.02917535975575447,
+            0.14476440846920013,
+            -0.005492668133229017
+          ],
+          "offset_space": "final_scaled_asset_root",
+          "physical_rationale": "The narrow earpiece slit above the blank screen is a real visible speaker aperture.",
+          "reviewed_target_fraction_xyz": [
+            1.0,
+            0.92,
+            0.5
+          ],
+          "selection_method": "reviewed_bbox_fraction_nearest_surface_v1",
+          "semantic_role": "primary_sound_source",
+          "target_to_surface_distance_m": 0.012831366620957851
+        },
+        "entity_class": "rigid_static_object",
+        "glb_relative_path": "communication_device/cellphone/bar_smartphone_black/finalized.glb",
+        "resting_pose": {
+          "attachment_surface": "floor",
+          "attachment_surface_assumed": true,
+          "attachment_surface_note": "placement.attachment_surface was not declared; measured under the floor assumption",
+          "base_area_share": 0.0322,
+          "base_normal_tilt_deg": 1.24,
+          "base_plane_offset_m": 0.0,
+          "contact_extent_m": [
+            0.0166,
+            0.0242
+          ],
+          "footprint_extent_m": [
+            0.0775,
+            0.0678
+          ],
+          "height_m": 0.155,
+          "how_to_place": "put the asset origin at floor height and apply yaw only; the base offset above is already zero for assets the finalizer grounded, so no room needs to re-derive this",
+          "measured_from": "finalized.glb",
+          "measured_plane": "floor_base",
+          "mounting_plane_normal_tilt_deg": null,
+          "tolerance": {
+            "acceptable_deg": 8.0,
+            "level_deg": 3.0,
+            "note": "loose on purpose; reconstructed geometry is noisy and a degree or two of lean, or a few millimetres of float, is fine"
+          },
+          "verdict": "level"
+        },
+        "semantic_template": {
+          "semantic_id_source": "episode_binding",
+          "template_kind": "rigid_object"
+        }
+      }
+    },
+    {
+      "asset_id": "generated_desk_telephone_corded_desk_unit_black_research_v1",
+      "runtime_backend": {
+        "asset_kind": "rigid_static_object",
+        "category": "communication_device",
+        "emitter": {
+          "anchor_id": "handset_earpiece",
+          "anchor_type": "object_speaker",
+          "authority_sha256": "05b79f310f252aa9c8cd042d783340be37ee0aa1146a92ff868056b7161e423b",
+          "marker_review": {
+            "decision": "approved_after_full_resolution_review",
+            "front_sha256": "dae4c1fd0d2f2259bd7622ae32620130282bd3f1ab9f4f55f4f91bc280fd82b4",
+            "render_manifest_sha256": "52cf401bd5f10d727c03ea807c7b8d875abff5a194efd9b3b43d2e8fe683accf",
+            "side_sha256": "3800a38b8a984016f381e56e678be29a4b41af49eb15dfd01f8aa732c23900e1",
+            "top_sha256": "0e338bafb06f1bb23b43eda8025314785be1a82637a1ca6f67467105d10c1b1a"
+          },
+          "offset_m": [
+            0.010076613165438175,
+            0.10648069530725479,
+            -0.03492400050163269
+          ],
+          "offset_space": "final_scaled_asset_root",
+          "physical_rationale": "The visible handset earpiece is the primary outlet for dial tone, busy signal and call audio; the base ringer slots remain secondary evidence for bell events.",
+          "reviewed_target_fraction_xyz": [
+            1.0,
+            0.92,
+            0.5
+          ],
+          "selection_method": "reviewed_bbox_fraction_nearest_surface_v1",
+          "semantic_role": "primary_sound_source",
+          "target_to_surface_distance_m": 0.05345961079001427
+        },
+        "entity_class": "rigid_static_object",
+        "glb_relative_path": "communication_device/desk_telephone/corded_desk_unit_black/finalized.glb",
+        "resting_pose": {
+          "attachment_surface": "floor",
+          "attachment_surface_assumed": true,
+          "attachment_surface_note": "placement.attachment_surface was not declared; measured under the floor assumption",
+          "base_area_share": 0.0129,
+          "base_normal_tilt_deg": 7.27,
+          "base_plane_offset_m": 0.0,
+          "contact_extent_m": [
+            0.023,
+            0.0127
+          ],
+          "footprint_extent_m": [
+            0.1381,
+            0.1648
+          ],
+          "height_m": 0.13,
+          "how_to_place": "put the asset origin at floor height and apply yaw only; the base offset above is already zero for assets the finalizer grounded, so no room needs to re-derive this",
+          "measured_from": "finalized.glb",
+          "measured_plane": "floor_base",
+          "mounting_plane_normal_tilt_deg": null,
+          "tolerance": {
+            "acceptable_deg": 8.0,
+            "level_deg": 3.0,
+            "note": "loose on purpose; reconstructed geometry is noisy and a degree or two of lean, or a few millimetres of float, is fine"
+          },
+          "verdict": "acceptable"
+        },
+        "semantic_template": {
+          "semantic_id_source": "episode_binding",
+          "template_kind": "rigid_object"
+        }
+      }
+    },
+    {
+      "asset_id": "generated_doorbell_chime_unit_video_doorbell_black_research_v1",
+      "runtime_backend": {
+        "asset_kind": "rigid_static_object",
+        "category": "door_hardware",
+        "emitter": {
+          "anchor_id": "front_speaker_hole_cluster",
+          "anchor_type": "object_speaker",
+          "authority_sha256": "ead19016bdb5eeacb0f71afc249702566d5d0759a5a16f72c5ead9d198eb6cad",
+          "marker_review": {
+            "decision": "approved_after_full_resolution_review",
+            "front_sha256": "006d384926539d07e6bfe058677e95785bfb433ccf89c3b76fed5066774278d4",
+            "render_manifest_sha256": "7f66ee911ca27382d04e7586cdaa673a502dea6caadc561b141d7c029eb494f8",
+            "side_sha256": "34284187087158451b2cb5c56e8eb0a01ffccf09a1a3e839a7bc2d381759e7c8",
+            "top_sha256": "b652e19d0333ae009e971244895ab7f61f524237e4119ea44aeac43f24f20cb0"
+          },
+          "offset_m": [
+            0.021489359438419342,
+            0.06413363665342331,
+            0.0056402492336928844
+          ],
+          "offset_space": "final_scaled_asset_root",
+          "physical_rationale": "The small front speaker holes between the camera and button carry the doorbell chime and intercom audio.",
+          "reviewed_target_fraction_xyz": [
+            1.0,
+            0.48,
+            0.5
+          ],
+          "selection_method": "reviewed_bbox_fraction_nearest_surface_v1",
+          "semantic_role": "primary_sound_source",
+          "target_to_surface_distance_m": 0.01195408497005701
+        },
+        "entity_class": "rigid_static_object",
+        "glb_relative_path": "door_hardware/doorbell_chime_unit/video_doorbell_black/finalized.glb",
+        "resting_pose": {
+          "attachment_surface": "wall",
+          "attachment_surface_assumed": false,
+          "attachment_surface_note": "measured from the declared placement.attachment_surface",
+          "base_normal_tilt_deg": null,
+          "base_plane_offset_m": 0.0,
+          "height_m": 0.13,
+          "how_to_place": "place the measured back toward the wall and apply translation and yaw only; wall-connected geometry without a back plane is reported as no_mounting_plane_found",
+          "measured_from": "finalized.glb",
+          "measured_plane": "wall_back",
+          "mounting_plane_area_share": 0.01051,
+          "mounting_plane_candidate_faces": 937,
+          "mounting_plane_detection": {
+            "maximum_plane_rms_fraction": 0.02,
+            "minimum_area_share": 0.003,
+            "minimum_projected_bbox_share": 0.025,
+            "note": "these are existence checks for a recoverable mounting plane, not resting-pose strictness or a contact-area acceptance gate",
+            "slice_fraction": 0.05
+          },
+          "mounting_plane_normal_tilt_deg": 3.3,
+          "mounting_plane_projected_bbox_share": 0.045083,
+          "mounting_plane_rms_fraction": 0.007461,
+          "mounting_plane_rms_m": 0.00097,
+          "tolerance": {
+            "acceptable_deg": 8.0,
+            "level_deg": 3.0,
+            "note": "loose on purpose; reconstructed geometry is noisy and a degree or two of lean, or a few millimetres of float, is fine"
+          },
+          "verdict": "acceptable"
+        },
+        "semantic_template": {
+          "semantic_id_source": "episode_binding",
+          "template_kind": "rigid_object"
+        }
+      }
+    },
+    {
+      "asset_id": "generated_doorbell_chime_unit_wall_mounted_box_black_research_v1",
+      "runtime_backend": {
+        "asset_kind": "rigid_static_object",
+        "category": "door_hardware",
+        "emitter": {
+          "anchor_id": "lower_front_chime_grille",
+          "anchor_type": "object_speaker",
+          "authority_sha256": "2205d507d02a8df7cf07daf5483dc7502088f0dfb20bd1a23f8702cbf39046cb",
+          "marker_review": {
+            "decision": "approved_after_full_resolution_review",
+            "front_sha256": "34caf1c8e5e5c417765786155e9a2ff2516fecba796c82676be726f8236f138f",
+            "render_manifest_sha256": "c8d363fa2da142e793a34eea44214c17a4fd108ec772d5df5162b87746b32fe9",
+            "side_sha256": "80d9b20640fa3beafd3a382114754747a0af450554253ff6e38923f7c6c62566",
+            "top_sha256": "61ac064ccc5a94d4e6653190ddfdd232614352db712e6e6f0ec48e67498ce30c"
+          },
+          "offset_m": [
+            0.0490681529045105,
+            0.04975143074989319,
+            -0.01777118444442749
+          ],
+          "offset_space": "final_scaled_asset_root",
+          "physical_rationale": "The broad lower-front grille is the chime unit's visible acoustic outlet.",
+          "reviewed_target_fraction_xyz": [
+            1.0,
+            0.22,
+            0.5
+          ],
+          "selection_method": "reviewed_bbox_fraction_nearest_surface_v1",
+          "semantic_role": "primary_sound_source",
+          "target_to_surface_distance_m": 0.03231652081012726
+        },
+        "entity_class": "rigid_static_object",
+        "glb_relative_path": "door_hardware/doorbell_chime_unit/wall_mounted_box_black/finalized.glb",
+        "resting_pose": {
+          "attachment_surface": "wall",
+          "attachment_surface_assumed": false,
+          "attachment_surface_note": "measured from the declared placement.attachment_surface",
+          "base_normal_tilt_deg": null,
+          "base_plane_offset_m": 0.0,
+          "height_m": 0.2,
+          "how_to_place": "place the measured back toward the wall and apply translation and yaw only; wall-connected geometry without a back plane is reported as no_mounting_plane_found",
+          "measured_from": "finalized.glb",
+          "measured_plane": "wall_back",
+          "mounting_plane_area_share": 0.010901,
+          "mounting_plane_candidate_faces": 594,
+          "mounting_plane_detection": {
+            "maximum_plane_rms_fraction": 0.02,
+            "minimum_area_share": 0.003,
+            "minimum_projected_bbox_share": 0.025,
+            "note": "these are existence checks for a recoverable mounting plane, not resting-pose strictness or a contact-area acceptance gate",
+            "slice_fraction": 0.05
+          },
+          "mounting_plane_normal_tilt_deg": 4.89,
+          "mounting_plane_projected_bbox_share": 0.073665,
+          "mounting_plane_rms_fraction": 0.017793,
+          "mounting_plane_rms_m": 0.003559,
+          "tolerance": {
+            "acceptable_deg": 8.0,
+            "level_deg": 3.0,
+            "note": "loose on purpose; reconstructed geometry is noisy and a degree or two of lean, or a few millimetres of float, is fine"
+          },
+          "verdict": "acceptable"
+        },
+        "semantic_template": {
+          "semantic_id_source": "episode_binding",
+          "template_kind": "rigid_object"
+        }
+      }
+    },
+    {
+      "asset_id": "generated_fireplace_masonry_open_warm_gray_research_v1",
+      "runtime_backend": {
+        "asset_kind": "rigid_static_object",
+        "category": "heating_fixture",
+        "emitter": {
+          "anchor_id": "open_firebox_mouth",
+          "anchor_type": "object_speaker",
+          "authority_sha256": "4ef20938c4b961f32bcb064f3abd535a8891e3f42358fea3a8af7c1473e0247c",
+          "marker_review": {
+            "decision": "approved_after_full_resolution_review",
+            "front_sha256": "ec1dfdcd88df117fd423d55c5b082b698feec181d6d19c24fa703e6b3e89ee71",
+            "render_manifest_sha256": "3f19da14b248cbe426fd2dd440329ddb0a67153ab5ed2f67e434ede11b02be4b",
+            "side_sha256": "0d2fff7cd8b7840a14fcbe2ae27e5f9b965b62f1c03cc899f419e72f29d98621",
+            "top_sha256": "f888616d078f79d4af35d96994e5ac9a5cfb83ef09b18b14f198dcc7befd647f"
+          },
+          "offset_m": [
+            0.2809404134750366,
+            0.29107171297073364,
+            -0.0042366343550384045
+          ],
+          "offset_space": "final_scaled_asset_root",
+          "physical_rationale": "Fire and crackle radiate through the unobstructed open firebox mouth.",
+          "reviewed_target_fraction_xyz": [
+            0.75,
+            0.55,
+            0.5
+          ],
+          "selection_method": "reviewed_bbox_fraction_nearest_surface_v1",
+          "semantic_role": "primary_sound_source",
+          "target_to_surface_distance_m": 0.31765905022621155
+        },
+        "entity_class": "rigid_static_object",
+        "glb_relative_path": "heating_fixture/fireplace/masonry_open_warm_gray/finalized.glb",
+        "resting_pose": {
+          "attachment_surface": "floor",
+          "attachment_surface_assumed": false,
+          "attachment_surface_note": "measured from the declared placement.attachment_surface",
+          "base_area_share": 0.0135,
+          "base_normal_tilt_deg": 6.69,
+          "base_plane_offset_m": 0.0,
+          "contact_extent_m": [
+            0.0,
+            0.0
+          ],
+          "footprint_extent_m": [
+            1.4971,
+            1.4895
+          ],
+          "height_m": 1.1,
+          "how_to_place": "put the asset origin at floor height and apply yaw only; the base offset above is already zero for assets the finalizer grounded, so no room needs to re-derive this",
+          "measured_from": "finalized.glb",
+          "measured_plane": "floor_base",
+          "mounting_plane_normal_tilt_deg": null,
+          "tolerance": {
+            "acceptable_deg": 8.0,
+            "level_deg": 3.0,
+            "note": "loose on purpose; reconstructed geometry is noisy and a degree or two of lean, or a few millimetres of float, is fine"
+          },
+          "verdict": "acceptable"
+        },
+        "semantic_template": {
+          "semantic_id_source": "episode_binding",
+          "template_kind": "rigid_object"
+        }
+      }
+    },
+    {
+      "asset_id": "generated_fireplace_wood_stove_matte_black_research_v1",
+      "runtime_backend": {
+        "asset_kind": "rigid_static_object",
+        "category": "heating_fixture",
+        "emitter": {
+          "anchor_id": "front_firebox_air_vent",
+          "anchor_type": "object_speaker",
+          "authority_sha256": "bacd1f4083b0e3b68baa5e39b686215b0b442226b3e327bc1134a81b4560fd70",
+          "marker_review": {
+            "decision": "approved_after_full_resolution_review",
+            "front_sha256": "72c4365549360852f860779704261a64dd9850f8d23952e35b67178abbcdf8c8",
+            "render_manifest_sha256": "9a8a7c8cc6fd000c6cda60f25be373611980761ee83596ddb9ffaadb552d40d6",
+            "side_sha256": "2d88e7345378a74a33b26c2940da04584e6fcff49f84dce281eae8ab0581314e",
+            "top_sha256": "ab6aff756af2cf10066ebee40006f954b47d74ad0ba554209b95417bf1deb364"
+          },
+          "offset_m": [
+            0.18925774097442627,
+            0.23135006427764893,
+            -0.029294127598404884
+          ],
+          "offset_space": "final_scaled_asset_root",
+          "physical_rationale": "The front firebox and lower combustion-air slots are the visible outlet for fire crackle.",
+          "reviewed_target_fraction_xyz": [
+            1.0,
+            0.3,
+            0.5
+          ],
+          "selection_method": "reviewed_bbox_fraction_nearest_surface_v1",
+          "semantic_role": "primary_sound_source",
+          "target_to_surface_distance_m": 0.07092265784740448
+        },
+        "entity_class": "rigid_static_object",
+        "glb_relative_path": "heating_fixture/fireplace/wood_stove_matte_black/finalized.glb",
+        "resting_pose": {
+          "attachment_surface": "floor",
+          "attachment_surface_assumed": false,
+          "attachment_surface_note": "measured from the declared placement.attachment_surface",
+          "base_area_share": 0.0002,
+          "base_normal_tilt_deg": 3.56,
+          "base_plane_offset_m": 0.0,
+          "contact_extent_m": [
+            0.0165,
+            0.0242
+          ],
+          "footprint_extent_m": [
+            0.6694,
+            0.5873
+          ],
+          "height_m": 0.75,
+          "how_to_place": "put the asset origin at floor height and apply yaw only; the base offset above is already zero for assets the finalizer grounded, so no room needs to re-derive this",
+          "measured_from": "finalized.glb",
+          "measured_plane": "floor_base",
+          "mounting_plane_normal_tilt_deg": null,
+          "tolerance": {
+            "acceptable_deg": 8.0,
+            "level_deg": 3.0,
+            "note": "loose on purpose; reconstructed geometry is noisy and a degree or two of lean, or a few millimetres of float, is fine"
+          },
+          "verdict": "acceptable"
+        },
+        "semantic_template": {
+          "semantic_id_source": "episode_binding",
+          "template_kind": "rigid_object"
+        }
+      }
+    },
+    {
+      "asset_id": "generated_floor_drain_exposed_bottle_trap_silver_research_v1",
+      "runtime_backend": {
+        "asset_kind": "rigid_static_object",
+        "category": "plumbing_fixture",
+        "emitter": {
+          "anchor_id": "top_drain_inlet",
+          "anchor_type": "object_speaker",
+          "authority_sha256": "005f9126eb71730ecabeb45e75a65dc7cbc46201a7a4b97832c24c6fe182aa52",
+          "marker_review": {
+            "decision": "approved_after_full_resolution_review",
+            "front_sha256": "d74cab31c335118b6299ae83ba34baaa962b533fdb21dcb5c161b0246a7b22dd",
+            "render_manifest_sha256": "0464de36456b9994cc8246c307efb1179f0382446789076797dbb63ad8c6808e",
+            "side_sha256": "4977d1d246c76c838fc471de31489ae08031b7c29a6c4cd3eb0025fd11fb48c8",
+            "top_sha256": "b1278f4bbd566e3a0c8095bb479a92d950228279b0354e487070a491b0bc922a"
+          },
+          "offset_m": [
+            -0.003368719480931759,
+            0.23931483924388885,
+            0.005187517963349819
+          ],
+          "offset_space": "final_scaled_asset_root",
+          "physical_rationale": "Drip and gurgling radiate through the clearly visible circular top inlet of the bottle trap.",
+          "reviewed_target_fraction_xyz": [
+            0.5,
+            1.0,
+            0.5
+          ],
+          "selection_method": "reviewed_bbox_fraction_nearest_surface_v1",
+          "semantic_role": "primary_sound_source",
+          "target_to_surface_distance_m": 0.023492401465773582
+        },
+        "entity_class": "rigid_static_object",
+        "glb_relative_path": "plumbing_fixture/floor_drain/exposed_bottle_trap_silver/finalized.glb",
+        "resting_pose": {
+          "attachment_surface": "wall",
+          "attachment_surface_assumed": false,
+          "attachment_surface_note": "measured from the declared placement.attachment_surface",
+          "base_normal_tilt_deg": null,
+          "base_plane_offset_m": 0.0,
+          "height_m": 0.25,
+          "how_to_place": "place the measured back toward the wall and apply translation and yaw only; wall-connected geometry without a back plane is reported as no_mounting_plane_found",
+          "measured_from": "finalized.glb",
+          "measured_plane": "wall_back",
+          "mounting_plane_area_share": 0.00239,
+          "mounting_plane_candidate_faces": 166,
+          "mounting_plane_detection": {
+            "maximum_plane_rms_fraction": 0.02,
+            "minimum_area_share": 0.003,
+            "minimum_projected_bbox_share": 0.025,
+            "note": "these are existence checks for a recoverable mounting plane, not resting-pose strictness or a contact-area acceptance gate",
+            "slice_fraction": 0.05
+          },
+          "mounting_plane_normal_tilt_deg": null,
+          "mounting_plane_projected_bbox_share": 0.016676,
+          "mounting_plane_rms_fraction": 0.006665,
+          "mounting_plane_rms_m": 0.001666,
+          "tolerance": {
+            "acceptable_deg": 8.0,
+            "level_deg": 3.0,
+            "note": "loose on purpose; reconstructed geometry is noisy and a degree or two of lean, or a few millimetres of float, is fine"
+          },
+          "verdict": "no_mounting_plane_found",
+          "verdict_reason": "candidate area share is too small; candidate projected coverage is too small"
+        },
+        "semantic_template": {
+          "semantic_id_source": "episode_binding",
+          "template_kind": "rigid_object"
+        }
+      }
+    },
+    {
+      "asset_id": "generated_floor_drain_floor_drain_silver_research_v1",
+      "runtime_backend": {
+        "asset_kind": "rigid_static_object",
+        "category": "plumbing_fixture",
+        "emitter": {
+          "anchor_id": "top_drain_throat",
+          "anchor_type": "object_speaker",
+          "authority_sha256": "99a9d46854dc0f1a96da34765f510a74772792c5f36680f29902782c0b5a58ec",
+          "marker_review": {
+            "decision": "approved_after_full_resolution_review",
+            "front_sha256": "3785e5cf845700556f1a6f28818e1bb6da26ccfe0518b0d7eb7e274862d5f036",
+            "render_manifest_sha256": "c9c910e1690718ec35c823242bbe45e7a7f1b108fd1c0a3b749d7eec0dcd9da0",
+            "side_sha256": "0894acbf019ea554e964f727750be0a81ab54d5844ad2dd77399f9e72caf868d",
+            "top_sha256": "eb33077c4caaa90d5548d082f14bd1417c8932d862ba757e9bde07ade9e45479"
+          },
+          "offset_m": [
+            -0.002709887456148863,
+            0.025756090879440308,
+            0.00014077615924179554
+          ],
+          "offset_space": "final_scaled_asset_root",
+          "physical_rationale": "Drip and gurgling radiate through the dark drain throat beneath the top grate.",
+          "reviewed_target_fraction_xyz": [
+            0.5,
+            1.0,
+            0.5
+          ],
+          "selection_method": "reviewed_bbox_fraction_nearest_surface_v1",
+          "semantic_role": "primary_sound_source",
+          "target_to_surface_distance_m": 0.00628972752019763
+        },
+        "entity_class": "rigid_static_object",
+        "glb_relative_path": "plumbing_fixture/floor_drain/floor_drain_silver/finalized.glb",
+        "resting_pose": {
+          "attachment_surface": "floor",
+          "attachment_surface_assumed": false,
+          "attachment_surface_note": "measured from the declared placement.attachment_surface",
+          "base_area_share": 0.0243,
+          "base_normal_tilt_deg": 1.21,
+          "base_plane_offset_m": 0.0,
+          "contact_extent_m": [
+            0.0052,
+            0.0129
+          ],
+          "footprint_extent_m": [
+            0.0313,
+            0.0316
+          ],
+          "height_m": 0.03,
+          "how_to_place": "put the asset origin at floor height and apply yaw only; the base offset above is already zero for assets the finalizer grounded, so no room needs to re-derive this",
+          "measured_from": "finalized.glb",
+          "measured_plane": "floor_base",
+          "mounting_plane_normal_tilt_deg": null,
+          "tolerance": {
+            "acceptable_deg": 8.0,
+            "level_deg": 3.0,
+            "note": "loose on purpose; reconstructed geometry is noisy and a degree or two of lean, or a few millimetres of float, is fine"
+          },
+          "verdict": "level"
+        },
+        "semantic_template": {
+          "semantic_id_source": "episode_binding",
+          "template_kind": "rigid_object"
+        }
+      }
+    },
+    {
+      "asset_id": "generated_floorstanding_speaker_floor_standing_tower_walnut_veneer_research_v1",
+      "runtime_backend": {
+        "asset_kind": "rigid_static_object",
+        "category": "audio_playback",
+        "emitter": {
+          "anchor_id": "driver_array_front_baffle",
+          "anchor_type": "object_speaker",
+          "authority_sha256": "889109776187f3d8c585577e13c623da6eff53aa8f137e837e38ab8f8c86868d",
+          "offset_m": [
+            0.0708146020770073,
+            0.6512117981910706,
+            -0.003151856129989028
+          ],
+          "offset_space": "final_scaled_asset_root",
+          "reviewed_target_fraction_xyz": [
+            1.0,
+            0.65,
+            0.5
+          ],
+          "selection_method": "reviewed_bbox_fraction_nearest_surface_v1",
+          "semantic_role": "primary_sound_source",
+          "target_to_surface_distance_m": 0.08729419112205505
+        },
+        "entity_class": "rigid_static_object",
+        "glb_relative_path": "audio_playback/floorstanding_speaker/floor_standing_tower_walnut_veneer/finalized.glb",
+        "resting_pose": {
+          "attachment_surface": "floor",
+          "attachment_surface_assumed": true,
+          "attachment_surface_note": "placement.attachment_surface was not declared; measured under the floor assumption",
+          "base_area_share": 0.1198,
+          "base_normal_tilt_deg": 0.24,
+          "base_plane_offset_m": 0.0,
+          "contact_extent_m": [
+            0.2722,
+            0.4561
+          ],
+          "footprint_extent_m": [
+            0.4585,
+            0.4893
+          ],
+          "height_m": 1.0,
+          "how_to_place": "put the asset origin at floor height and apply yaw only; the base offset above is already zero for assets the finalizer grounded, so no room needs to re-derive this",
+          "measured_from": "finalized.glb",
+          "measured_plane": "floor_base",
+          "mounting_plane_normal_tilt_deg": null,
+          "tolerance": {
+            "acceptable_deg": 8.0,
+            "level_deg": 3.0,
+            "note": "loose on purpose; reconstructed geometry is noisy and a degree or two of lean, or a few millimetres of float, is fine"
+          },
+          "verdict": "level"
+        },
+        "semantic_template": {
+          "semantic_id_source": "episode_binding",
+          "template_kind": "rigid_object"
+        }
+      }
+    },
+    {
+      "asset_id": "generated_landline_phone_wall_mounted_beige_research_v1",
+      "runtime_backend": {
+        "asset_kind": "rigid_static_object",
+        "category": "communication_device",
+        "emitter": {
+          "anchor_id": "lower_front_ringer_grille",
+          "anchor_type": "object_speaker",
+          "authority_sha256": "c9c7ce067d7ae7a97ec6b3ca8d263d9c2dd6c75576a9f25c64c983c1f666d79b",
+          "marker_review": {
+            "decision": "approved_after_full_resolution_review",
+            "front_sha256": "cfed7bc0a15e44b54fdbdcd4aae09e0bb2de110b56fe2c96c89aaf1c9cfea20b",
+            "render_manifest_sha256": "a8f845bc0b4cca74696a980781e9678eb9e01813ee940973d900add4a0085686",
+            "side_sha256": "4c3cff1f68a5f4ecc20e57979e6ffe52c8a14581e986ad7d278fd41b3ed12543",
+            "top_sha256": "6ef1716742c826ffe89e19093aaf36042c2b98c862d99053f62de7252f33f05b"
+          },
+          "offset_m": [
+            0.046182408928871155,
+            0.05526597052812576,
+            -0.03096727468073368
+          ],
+          "offset_space": "final_scaled_asset_root",
+          "physical_rationale": "The lower-front grille on the wall telephone base is the visible ringer outlet.",
+          "reviewed_target_fraction_xyz": [
+            1.0,
+            0.22,
+            0.5
+          ],
+          "selection_method": "reviewed_bbox_fraction_nearest_surface_v1",
+          "semantic_role": "primary_sound_source",
+          "target_to_surface_distance_m": 0.04869667440652847
+        },
+        "entity_class": "rigid_static_object",
+        "glb_relative_path": "communication_device/landline_phone/wall_mounted_beige/finalized.glb",
+        "resting_pose": {
+          "attachment_surface": "wall",
+          "attachment_surface_assumed": false,
+          "attachment_surface_note": "measured from the declared placement.attachment_surface",
+          "base_normal_tilt_deg": null,
+          "base_plane_offset_m": 0.0,
+          "height_m": 0.23,
+          "how_to_place": "place the measured back toward the wall and apply translation and yaw only; wall-connected geometry without a back plane is reported as no_mounting_plane_found",
+          "measured_from": "finalized.glb",
+          "measured_plane": "wall_back",
+          "mounting_plane_area_share": 0.004764,
+          "mounting_plane_candidate_faces": 638,
+          "mounting_plane_detection": {
+            "maximum_plane_rms_fraction": 0.02,
+            "minimum_area_share": 0.003,
+            "minimum_projected_bbox_share": 0.025,
+            "note": "these are existence checks for a recoverable mounting plane, not resting-pose strictness or a contact-area acceptance gate",
+            "slice_fraction": 0.05
+          },
+          "mounting_plane_normal_tilt_deg": 1.01,
+          "mounting_plane_projected_bbox_share": 0.029715,
+          "mounting_plane_rms_fraction": 0.008853,
+          "mounting_plane_rms_m": 0.002036,
+          "tolerance": {
+            "acceptable_deg": 8.0,
+            "level_deg": 3.0,
+            "note": "loose on purpose; reconstructed geometry is noisy and a degree or two of lean, or a few millimetres of float, is fine"
+          },
+          "verdict": "level"
+        },
+        "semantic_template": {
+          "semantic_id_source": "episode_binding",
+          "template_kind": "rigid_object"
+        }
+      }
+    },
+    {
+      "asset_id": "generated_microwave_oven_countertop_black_research_v1",
+      "runtime_backend": {
+        "asset_kind": "rigid_static_object",
+        "category": "kitchen_appliance",
+        "emitter": {
+          "anchor_id": "front_door_seam",
+          "anchor_type": "object_speaker",
+          "authority_sha256": "0186c2910111bc2873bee22330d4f643de4abd443f3750c42e1d1f1037ac20d8",
+          "marker_review": {
+            "decision": "approved_after_full_resolution_review",
+            "front_sha256": "f7d702a4fc3b6c8321ec0821ac5e06bbfb344681f331dc5b730f18fa0ca7f028",
+            "render_manifest_sha256": "eb324f638fc95739b85a0c15c8ee4c92cd24cab2c29cd3b9d94ff65aa723e33a",
+            "side_sha256": "747f7de99fb3ec9d9165fc31d677169bd16e27fe48428338362ca216f37e4fc2",
+            "top_sha256": "4b560eb7ce53515ec0a69fe3e976c8cbf65677a40aac63090781e32c30cf012f"
+          },
+          "offset_m": [
+            0.16033299267292023,
+            0.1072002574801445,
+            0.0022802657913416624
+          ],
+          "offset_space": "final_scaled_asset_root",
+          "physical_rationale": "Microwave hum and beeps escape at the front door seam; the side vent is supporting visible evidence.",
+          "reviewed_target_fraction_xyz": [
+            1.0,
+            0.36,
+            0.45
+          ],
+          "selection_method": "reviewed_bbox_fraction_nearest_surface_v1",
+          "semantic_role": "primary_sound_source",
+          "target_to_surface_distance_m": 0.03209977596998215
+        },
+        "entity_class": "rigid_static_object",
+        "glb_relative_path": "kitchen_appliance/microwave_oven/countertop_black/finalized.glb",
+        "resting_pose": {
+          "attachment_surface": "floor",
+          "attachment_surface_assumed": true,
+          "attachment_surface_note": "placement.attachment_surface was not declared; measured under the floor assumption",
+          "base_area_share": 0.0047,
+          "base_normal_tilt_deg": 6.59,
+          "base_plane_offset_m": 0.0,
+          "contact_extent_m": [
+            0.0059,
+            0.017
+          ],
+          "footprint_extent_m": [
+            0.3748,
+            0.3482
+          ],
+          "height_m": 0.28,
+          "how_to_place": "put the asset origin at floor height and apply yaw only; the base offset above is already zero for assets the finalizer grounded, so no room needs to re-derive this",
+          "measured_from": "finalized.glb",
+          "measured_plane": "floor_base",
+          "mounting_plane_normal_tilt_deg": null,
+          "tolerance": {
+            "acceptable_deg": 8.0,
+            "level_deg": 3.0,
+            "note": "loose on purpose; reconstructed geometry is noisy and a degree or two of lean, or a few millimetres of float, is fine"
+          },
+          "verdict": "acceptable"
+        },
+        "semantic_template": {
+          "semantic_id_source": "episode_binding",
+          "template_kind": "rigid_object"
+        }
+      }
+    },
+    {
+      "asset_id": "generated_microwave_oven_over_range_silver_research_v1",
+      "runtime_backend": {
+        "asset_kind": "rigid_static_object",
+        "category": "kitchen_appliance",
+        "emitter": {
+          "anchor_id": "lower_front_vent_strip",
+          "anchor_type": "object_speaker",
+          "authority_sha256": "8eaf3b7db5987add14d2b81322636f6762a5e15fdffb71f9058f3990b7df8e19",
+          "marker_review": {
+            "decision": "approved_after_full_resolution_review",
+            "front_sha256": "3ccaca8524f87d4c0d9fe77c1b85415458d6d07108446ac688258eaeffb13b2e",
+            "render_manifest_sha256": "5b08e7c133e575c133a648601be70950e9d9cf44201a1ddd82301abfcadedcf3",
+            "side_sha256": "cf7acee8ee07745c66def3aeab8308a2348868bbde1ea5996fc1b60d14910918",
+            "top_sha256": "eb9bc01dc9e1c3c72c814d1975229ef8c49c7ac996ec24a1d60ea6ebc444a26f"
+          },
+          "offset_m": [
+            0.19848769903182983,
+            0.04062338545918465,
+            -0.042069993913173676
+          ],
+          "offset_space": "final_scaled_asset_root",
+          "physical_rationale": "The lower-front perforated ventilation strip is the visible outlet for fan and cavity sound.",
+          "reviewed_target_fraction_xyz": [
+            1.0,
+            0.08,
+            0.5
+          ],
+          "selection_method": "reviewed_bbox_fraction_nearest_surface_v1",
+          "semantic_role": "primary_sound_source",
+          "target_to_surface_distance_m": 0.0802668109536171
+        },
+        "entity_class": "rigid_static_object",
+        "glb_relative_path": "kitchen_appliance/microwave_oven/over_range_silver/finalized.glb",
+        "resting_pose": {
+          "attachment_surface": "wall",
+          "attachment_surface_assumed": false,
+          "attachment_surface_note": "measured from the declared placement.attachment_surface",
+          "base_normal_tilt_deg": null,
+          "base_plane_offset_m": 0.0,
+          "height_m": 0.43,
+          "how_to_place": "place the measured back toward the wall and apply translation and yaw only; wall-connected geometry without a back plane is reported as no_mounting_plane_found",
+          "measured_from": "finalized.glb",
+          "measured_plane": "wall_back",
+          "mounting_plane_area_share": 0.014201,
+          "mounting_plane_candidate_faces": 388,
+          "mounting_plane_detection": {
+            "maximum_plane_rms_fraction": 0.02,
+            "minimum_area_share": 0.003,
+            "minimum_projected_bbox_share": 0.025,
+            "note": "these are existence checks for a recoverable mounting plane, not resting-pose strictness or a contact-area acceptance gate",
+            "slice_fraction": 0.05
+          },
+          "mounting_plane_normal_tilt_deg": 4.54,
+          "mounting_plane_projected_bbox_share": 0.112342,
+          "mounting_plane_rms_fraction": 0.005615,
+          "mounting_plane_rms_m": 0.002976,
+          "tolerance": {
+            "acceptable_deg": 8.0,
+            "level_deg": 3.0,
+            "note": "loose on purpose; reconstructed geometry is noisy and a degree or two of lean, or a few millimetres of float, is fine"
+          },
+          "verdict": "acceptable"
+        },
+        "semantic_template": {
+          "semantic_id_source": "episode_binding",
+          "template_kind": "rigid_object"
+        }
+      }
+    },
+    {
+      "asset_id": "generated_printer_desktop_inkjet_matte_black_research_v1",
+      "runtime_backend": {
+        "asset_kind": "rigid_static_object",
+        "category": "office_device",
+        "emitter": {
+          "anchor_id": "front_paper_output_slot",
+          "anchor_type": "object_speaker",
+          "authority_sha256": "6e723b8f20bf183b2ec334d0a4b7ebda5689f7f28ed8ac8bd95c7357f0603b56",
+          "marker_review": {
+            "decision": "approved_after_full_resolution_review",
+            "front_sha256": "f6c958b0c83f46e3ecf9d63592f03cc9330d322101cb61ae59e283f5faa8945c",
+            "render_manifest_sha256": "decf8ddbeadb1742d1f0f01d3883467a2a22fb7be4ac256048a10b7f39710765",
+            "side_sha256": "a842d09804dae8e8d8a3613e7d783688d45798432729eee1ca0c9646374af2c3",
+            "top_sha256": "23823e6bfaf83e8469fda63c526324fd5fc9cd4ce6d1229f168ef077b756aff2"
+          },
+          "offset_m": [
+            0.13923226296901703,
+            0.0709492564201355,
+            -0.0027270440477877855
+          ],
+          "offset_space": "final_scaled_asset_root",
+          "physical_rationale": "The print mechanism and rollers are directly behind the visible front paper-output slot.",
+          "reviewed_target_fraction_xyz": [
+            1.0,
+            0.34,
+            0.5
+          ],
+          "selection_method": "reviewed_bbox_fraction_nearest_surface_v1",
+          "semantic_role": "primary_sound_source",
+          "target_to_surface_distance_m": 0.008898429572582245
+        },
+        "entity_class": "rigid_static_object",
+        "glb_relative_path": "office_device/printer/desktop_inkjet_matte_black/finalized.glb",
+        "resting_pose": {
+          "attachment_surface": "floor",
+          "attachment_surface_assumed": true,
+          "attachment_surface_note": "placement.attachment_surface was not declared; measured under the floor assumption",
+          "base_area_share": 0.0129,
+          "base_normal_tilt_deg": 4.03,
+          "base_plane_offset_m": 0.0,
+          "contact_extent_m": [
+            0.0119,
+            0.0172
+          ],
+          "footprint_extent_m": [
+            0.2833,
+            0.2673
+          ],
+          "height_m": 0.2,
+          "how_to_place": "put the asset origin at floor height and apply yaw only; the base offset above is already zero for assets the finalizer grounded, so no room needs to re-derive this",
+          "measured_from": "finalized.glb",
+          "measured_plane": "floor_base",
+          "mounting_plane_normal_tilt_deg": null,
+          "tolerance": {
+            "acceptable_deg": 8.0,
+            "level_deg": 3.0,
+            "note": "loose on purpose; reconstructed geometry is noisy and a degree or two of lean, or a few millimetres of float, is fine"
+          },
+          "verdict": "acceptable"
+        },
+        "semantic_template": {
+          "semantic_id_source": "episode_binding",
+          "template_kind": "rigid_object"
+        }
+      }
+    },
+    {
+      "asset_id": "generated_printer_office_laser_mfp_white_research_v1",
+      "runtime_backend": {
+        "asset_kind": "rigid_static_object",
+        "category": "office_device",
+        "emitter": {
+          "anchor_id": "central_paper_output_bay",
+          "anchor_type": "object_speaker",
+          "authority_sha256": "087e4ffe2ed2f9c1b573f0567f4cdef54424967c14984f447e62e441b93a5bd5",
+          "marker_review": {
+            "decision": "approved_after_full_resolution_review",
+            "front_sha256": "d6aaf28e5e3856f4e8202b1c1a7cc9f64fb1606d2654fb401b9f3a8cae7fa062",
+            "render_manifest_sha256": "37c7384090a9d7dde39b8535d921ac5e25539f33e25e02c5afacccd42c7bd089",
+            "side_sha256": "f99e196f88ee349b82d751a7f3d5f683509e2d4e5287027775f0b4b6fc0680ec",
+            "top_sha256": "044039dbf2d5074720f7e80d750bceab8832969cf24a1c382fa7d8fe4afe7b25"
+          },
+          "offset_m": [
+            0.21007005870342255,
+            0.32619690895080566,
+            -0.02186906524002552
+          ],
+          "offset_space": "final_scaled_asset_root",
+          "physical_rationale": "The central output bay is the visible opening nearest the rollers and print mechanism.",
+          "reviewed_target_fraction_xyz": [
+            1.0,
+            0.58,
+            0.5
+          ],
+          "selection_method": "reviewed_bbox_fraction_nearest_surface_v1",
+          "semantic_role": "primary_sound_source",
+          "target_to_surface_distance_m": 0.035409845411777496
+        },
+        "entity_class": "rigid_static_object",
+        "glb_relative_path": "office_device/printer/office_laser_mfp_white/finalized.glb",
+        "resting_pose": {
+          "attachment_surface": "floor",
+          "attachment_surface_assumed": true,
+          "attachment_surface_note": "placement.attachment_surface was not declared; measured under the floor assumption",
+          "base_area_share": 0.0167,
+          "base_normal_tilt_deg": 7.46,
+          "base_plane_offset_m": -0.0,
+          "contact_extent_m": [
+            0.011,
+            0.0406
+          ],
+          "footprint_extent_m": [
+            0.484,
+            0.4009
+          ],
+          "height_m": 0.55,
+          "how_to_place": "put the asset origin at floor height and apply yaw only; the base offset above is already zero for assets the finalizer grounded, so no room needs to re-derive this",
+          "measured_from": "finalized.glb",
+          "measured_plane": "floor_base",
+          "mounting_plane_normal_tilt_deg": null,
+          "tolerance": {
+            "acceptable_deg": 8.0,
+            "level_deg": 3.0,
+            "note": "loose on purpose; reconstructed geometry is noisy and a degree or two of lean, or a few millimetres of float, is fine"
+          },
+          "verdict": "acceptable"
+        },
+        "semantic_template": {
+          "semantic_id_source": "episode_binding",
+          "template_kind": "rigid_object"
+        }
+      }
+    },
+    {
+      "asset_id": "generated_sink_with_tap_counter_vanity_white_research_v2",
+      "runtime_backend": {
+        "asset_kind": "rigid_static_object",
+        "category": "plumbing_fixture",
+        "emitter": {
+          "anchor_id": "faucet_aerator_outlet",
+          "anchor_type": "object_speaker",
+          "authority_sha256": "c4f69400fa455cf615b199b5344d3736ac0a738c50589ccfa084ed6993c5ce9a",
+          "marker_review": {
+            "decision": "approved_after_full_resolution_review",
+            "front_sha256": "fa46c2cbb7eb81b2bf1e117fde3c5986b068d93c34d5b1410fff4c54963ea816",
+            "render_manifest_sha256": "5db04df7f454b98a7b09fd8c90ccbe9013c5c21191b0ff647d3138e5190dcf16",
+            "side_sha256": "f516baad58a1a1cd6b6d334122e5fd2215ea20b9a9f2892e0a08c3b2347509bc",
+            "top_sha256": "c0bd2235aac939d014e7b899993c5fc2ffe8d0db8d4946be7e41ccddbac81cf1"
+          },
+          "offset_m": [
+            -0.0722072422504425,
+            0.7845823764801025,
+            -0.035046905279159546
+          ],
+          "offset_space": "final_scaled_asset_root",
+          "physical_rationale": "tap and filling sound originates at the visible faucet aerator outlet",
+          "reviewed_target_fraction_xyz": [
+            0.6,
+            0.92,
+            0.5
+          ],
+          "selection_method": "reviewed_bbox_fraction_nearest_surface_v1",
+          "semantic_role": "primary_sound_source",
+          "target_to_surface_distance_m": 0.08788776397705078
+        },
+        "entity_class": "rigid_static_object",
+        "glb_relative_path": "plumbing_fixture/sink_with_tap/counter_vanity_white/finalized.glb",
+        "resting_pose": {
+          "attachment_surface": "floor",
+          "attachment_surface_assumed": false,
+          "attachment_surface_note": "measured from the declared placement.attachment_surface",
+          "base_area_share": 0.0138,
+          "base_normal_tilt_deg": 0.15,
+          "base_plane_offset_m": -0.0,
+          "contact_extent_m": [
+            0.0524,
+            0.0456
+          ],
+          "footprint_extent_m": [
+            0.5773,
+            0.6393
+          ],
+          "height_m": 0.85,
+          "how_to_place": "put the asset origin at floor height and apply yaw only; the base offset above is already zero for assets the finalizer grounded, so no room needs to re-derive this",
+          "measured_from": "finalized.glb",
+          "measured_plane": "floor_base",
+          "mounting_plane_normal_tilt_deg": null,
+          "tolerance": {
+            "acceptable_deg": 8.0,
+            "level_deg": 3.0,
+            "note": "loose on purpose; reconstructed geometry is noisy and a degree or two of lean, or a few millimetres of float, is fine"
+          },
+          "verdict": "level"
+        },
+        "semantic_template": {
+          "semantic_id_source": "episode_binding",
+          "template_kind": "rigid_object"
+        }
+      }
+    },
+    {
+      "asset_id": "generated_sink_with_tap_pedestal_basin_white_research_v2",
+      "runtime_backend": {
+        "asset_kind": "rigid_static_object",
+        "category": "plumbing_fixture",
+        "emitter": {
+          "anchor_id": "faucet_aerator_outlet",
+          "anchor_type": "object_speaker",
+          "authority_sha256": "587f2ff50a6f0a103656d7bfcc2be64bd76bc9734347535513d66f49b5f49ab4",
+          "marker_review": {
+            "decision": "approved_after_full_resolution_review",
+            "front_sha256": "3ba5c9cd6bc3a1a4d746ae354953ccad60248f2b51b31c67d2223dce83e836a7",
+            "render_manifest_sha256": "49c687f512896665f076f3fb0f89393b8ba292072cd6bbc79ae84c9d96ea42bd",
+            "side_sha256": "bbbaf582f75564870a3662932b5f3e0cbb97d60e218c890f3c40f899f04619bf",
+            "top_sha256": "145bd04ea3d1381fb4a1041df6ce962bc2fa73c7fe35a3c30b58c0c050fc580f"
+          },
+          "offset_m": [
+            -0.08260495960712433,
+            0.7817906141281128,
+            -0.02202308364212513
+          ],
+          "offset_space": "final_scaled_asset_root",
+          "physical_rationale": "tap and filling sound originates at the visible faucet aerator outlet",
+          "reviewed_target_fraction_xyz": [
+            0.6,
+            0.92,
+            0.5
+          ],
+          "selection_method": "reviewed_bbox_fraction_nearest_surface_v1",
+          "semantic_role": "primary_sound_source",
+          "target_to_surface_distance_m": 0.1378200203180313
+        },
+        "entity_class": "rigid_static_object",
+        "glb_relative_path": "plumbing_fixture/sink_with_tap/pedestal_basin_white/finalized.glb",
+        "resting_pose": {
+          "attachment_surface": "floor",
+          "attachment_surface_assumed": false,
+          "attachment_surface_note": "measured from the declared placement.attachment_surface",
+          "base_area_share": 0.0664,
+          "base_normal_tilt_deg": 0.7,
+          "base_plane_offset_m": -0.0,
+          "contact_extent_m": [
+            0.2878,
+            0.2866
+          ],
+          "footprint_extent_m": [
+            0.612,
+            0.6227
+          ],
+          "height_m": 0.85,
+          "how_to_place": "put the asset origin at floor height and apply yaw only; the base offset above is already zero for assets the finalizer grounded, so no room needs to re-derive this",
+          "measured_from": "finalized.glb",
+          "measured_plane": "floor_base",
+          "mounting_plane_normal_tilt_deg": null,
+          "tolerance": {
+            "acceptable_deg": 8.0,
+            "level_deg": 3.0,
+            "note": "loose on purpose; reconstructed geometry is noisy and a degree or two of lean, or a few millimetres of float, is fine"
+          },
+          "verdict": "level"
+        },
+        "semantic_template": {
+          "semantic_id_source": "episode_binding",
+          "template_kind": "rigid_object"
+        }
+      }
+    },
+    {
+      "asset_id": "generated_smart_speaker_fabric_wrapped_cylinder_charcoal_research_v1",
+      "runtime_backend": {
+        "asset_kind": "rigid_static_object",
+        "category": "audio_playback",
+        "emitter": {
+          "anchor_id": "fabric_wrap_radiating_band",
+          "anchor_type": "object_speaker",
+          "authority_sha256": "777ed38aee2e890541e3b43a63a755d8de7a23af25aa4a402e22da53daf9111e",
+          "offset_m": [
+            0.06617872416973114,
+            0.08500175178050995,
+            -0.0005171276861801744
+          ],
+          "offset_space": "final_scaled_asset_root",
+          "reviewed_target_fraction_xyz": [
+            1.0,
+            0.5,
+            0.5
+          ],
+          "selection_method": "reviewed_bbox_fraction_nearest_surface_v1",
+          "semantic_role": "primary_sound_source",
+          "target_to_surface_distance_m": 0.0005819436628371477
+        },
+        "entity_class": "rigid_static_object",
+        "glb_relative_path": "audio_playback/smart_speaker/fabric_wrapped_cylinder_charcoal/finalized.glb",
+        "resting_pose": {
+          "attachment_surface": "floor",
+          "attachment_surface_assumed": true,
+          "attachment_surface_note": "placement.attachment_surface was not declared; measured under the floor assumption",
+          "base_area_share": 0.1195,
+          "base_normal_tilt_deg": 0.12,
+          "base_plane_offset_m": -0.0,
+          "contact_extent_m": [
+            0.098,
+            0.0982
+          ],
+          "footprint_extent_m": [
+            0.1343,
+            0.1364
+          ],
+          "height_m": 0.17,
+          "how_to_place": "put the asset origin at floor height and apply yaw only; the base offset above is already zero for assets the finalizer grounded, so no room needs to re-derive this",
+          "measured_from": "finalized.glb",
+          "measured_plane": "floor_base",
+          "mounting_plane_normal_tilt_deg": null,
+          "tolerance": {
+            "acceptable_deg": 8.0,
+            "level_deg": 3.0,
+            "note": "loose on purpose; reconstructed geometry is noisy and a degree or two of lean, or a few millimetres of float, is fine"
+          },
+          "verdict": "level"
+        },
+        "semantic_template": {
+          "semantic_id_source": "episode_binding",
+          "template_kind": "rigid_object"
+        }
+      }
+    },
+    {
+      "asset_id": "generated_smart_speaker_fabric_wrapped_cylinder_light_gray_research_v1",
+      "runtime_backend": {
+        "asset_kind": "rigid_static_object",
+        "category": "audio_playback",
+        "emitter": {
+          "anchor_id": "fabric_wrap_radiating_band",
+          "anchor_type": "object_speaker",
+          "authority_sha256": "c4905997d6da4a168bb702632b711d3fe50e664cb56f281e01a55ece595a5d49",
+          "offset_m": [
+            0.0467618964612484,
+            0.08498721569776535,
+            -0.0005178045248612761
+          ],
+          "offset_space": "final_scaled_asset_root",
+          "reviewed_target_fraction_xyz": [
+            1.0,
+            0.5,
+            0.5
+          ],
+          "selection_method": "reviewed_bbox_fraction_nearest_surface_v1",
+          "semantic_role": "primary_sound_source",
+          "target_to_surface_distance_m": 0.00042857430526055396
+        },
+        "entity_class": "rigid_static_object",
+        "glb_relative_path": "audio_playback/smart_speaker/fabric_wrapped_cylinder_light_gray/finalized.glb",
+        "resting_pose": {
+          "attachment_surface": "floor",
+          "attachment_surface_assumed": true,
+          "attachment_surface_note": "placement.attachment_surface was not declared; measured under the floor assumption",
+          "base_area_share": 0.1029,
+          "base_normal_tilt_deg": 0.12,
+          "base_plane_offset_m": -0.0,
+          "contact_extent_m": [
+            0.069,
+            0.0735
+          ],
+          "footprint_extent_m": [
+            0.0946,
+            0.0959
+          ],
+          "height_m": 0.17,
+          "how_to_place": "put the asset origin at floor height and apply yaw only; the base offset above is already zero for assets the finalizer grounded, so no room needs to re-derive this",
+          "measured_from": "finalized.glb",
+          "measured_plane": "floor_base",
+          "mounting_plane_normal_tilt_deg": null,
+          "tolerance": {
+            "acceptable_deg": 8.0,
+            "level_deg": 3.0,
+            "note": "loose on purpose; reconstructed geometry is noisy and a degree or two of lean, or a few millimetres of float, is fine"
+          },
+          "verdict": "level"
+        },
+        "semantic_template": {
+          "semantic_id_source": "episode_binding",
+          "template_kind": "rigid_object"
+        }
+      }
+    },
+    {
+      "asset_id": "generated_smart_speaker_fabric_wrapped_cylinder_sandstone_research_v1",
+      "runtime_backend": {
+        "asset_kind": "rigid_static_object",
+        "category": "audio_playback",
+        "emitter": {
+          "anchor_id": "fabric_wrap_radiating_band",
+          "anchor_type": "object_speaker",
+          "authority_sha256": "6f5ae1d4767787283465c8469286b9c81a39841aafb419c31b0f4b255871dea6",
+          "offset_m": [
+            0.04524066299200058,
+            0.08536072075366974,
+            -0.0005167719791643322
+          ],
+          "offset_space": "final_scaled_asset_root",
+          "reviewed_target_fraction_xyz": [
+            1.0,
+            0.5,
+            0.5
+          ],
+          "selection_method": "reviewed_bbox_fraction_nearest_surface_v1",
+          "semantic_role": "primary_sound_source",
+          "target_to_surface_distance_m": 0.0009871897054836154
+        },
+        "entity_class": "rigid_static_object",
+        "glb_relative_path": "audio_playback/smart_speaker/fabric_wrapped_cylinder_sandstone/finalized.glb",
+        "resting_pose": {
+          "attachment_surface": "floor",
+          "attachment_surface_assumed": true,
+          "attachment_surface_note": "placement.attachment_surface was not declared; measured under the floor assumption",
+          "base_area_share": 0.0799,
+          "base_normal_tilt_deg": 1.76,
+          "base_plane_offset_m": -0.0,
+          "contact_extent_m": [
+            0.0424,
+            0.0274
+          ],
+          "footprint_extent_m": [
+            0.0932,
+            0.1195
+          ],
+          "height_m": 0.17,
+          "how_to_place": "put the asset origin at floor height and apply yaw only; the base offset above is already zero for assets the finalizer grounded, so no room needs to re-derive this",
+          "measured_from": "finalized.glb",
+          "measured_plane": "floor_base",
+          "mounting_plane_normal_tilt_deg": null,
+          "tolerance": {
+            "acceptable_deg": 8.0,
+            "level_deg": 3.0,
+            "note": "loose on purpose; reconstructed geometry is noisy and a degree or two of lean, or a few millimetres of float, is fine"
+          },
+          "verdict": "level"
+        },
+        "semantic_template": {
+          "semantic_id_source": "episode_binding",
+          "template_kind": "rigid_object"
+        }
+      }
+    },
+    {
+      "asset_id": "generated_smoke_detector_ceiling_disc_white_research_v1",
+      "runtime_backend": {
+        "asset_kind": "rigid_static_object",
+        "category": "safety_device",
+        "emitter": {
+          "anchor_id": "front_alarm_slot_ring",
+          "anchor_type": "object_speaker",
+          "authority_sha256": "d5f364acf70b90b031cc2ad68759a9c95a7bb2f0ad8c7b7ffe3a196c58d637e7",
+          "marker_review": {
+            "decision": "approved_after_full_resolution_review",
+            "front_sha256": "18bb39e181c016b9569fc64f3517dd859b5daf3fb29e7ac1bf1abc6111e0902c",
+            "render_manifest_sha256": "653305e359a2b68a4110bdc3629304ac9e98beed6bf6dd83c1352de9efcae103",
+            "side_sha256": "4dfb1a3651681ff77a6ba90735bb702c8e41d6c6078d64cb8a5e926d51c0c06d",
+            "top_sha256": "8030f26d5a96409b27eeb9b95f754676a7464cdf840cff0af1843674c9222b71"
+          },
+          "offset_m": [
+            0.021446870639920235,
+            0.02322508580982685,
+            -9.332154877483845e-05
+          ],
+          "offset_space": "final_scaled_asset_root",
+          "physical_rationale": "The alarm sound radiates through the visible ring of slots on the room-facing detector surface.",
+          "reviewed_target_fraction_xyz": [
+            0.95,
+            0.55,
+            0.5
+          ],
+          "selection_method": "reviewed_bbox_fraction_nearest_surface_v1",
+          "semantic_role": "primary_sound_source",
+          "target_to_surface_distance_m": 0.005739911459386349
+        },
+        "entity_class": "rigid_static_object",
+        "glb_relative_path": "safety_device/smoke_detector/ceiling_disc_white/finalized.glb",
+        "resting_pose": {
+          "attachment_surface": "ceiling",
+          "attachment_surface_assumed": false,
+          "attachment_surface_note": "measured from the declared placement.attachment_surface",
+          "base_normal_tilt_deg": null,
+          "base_plane_offset_m": 0.0,
+          "height_m": 0.05,
+          "how_to_place": "place the measured top against the ceiling and apply translation and yaw only",
+          "measured_from": "finalized.glb",
+          "measured_plane": "ceiling_top",
+          "mounting_plane_area_share": 0.021166,
+          "mounting_plane_candidate_faces": 794,
+          "mounting_plane_detection": {
+            "maximum_plane_rms_fraction": 0.02,
+            "minimum_area_share": 0.003,
+            "minimum_projected_bbox_share": 0.025,
+            "note": "these are existence checks for a recoverable mounting plane, not resting-pose strictness or a contact-area acceptance gate",
+            "slice_fraction": 0.05
+          },
+          "mounting_plane_normal_tilt_deg": 0.38,
+          "mounting_plane_projected_bbox_share": 0.11007,
+          "mounting_plane_rms_fraction": 0.012472,
+          "mounting_plane_rms_m": 0.000829,
+          "tolerance": {
+            "acceptable_deg": 8.0,
+            "level_deg": 3.0,
+            "note": "loose on purpose; reconstructed geometry is noisy and a degree or two of lean, or a few millimetres of float, is fine"
+          },
+          "verdict": "level"
+        },
+        "semantic_template": {
+          "semantic_id_source": "episode_binding",
+          "template_kind": "rigid_object"
+        }
+      }
+    },
+    {
+      "asset_id": "generated_smoke_detector_wall_square_white_research_v1",
+      "runtime_backend": {
+        "asset_kind": "rigid_static_object",
+        "category": "safety_device",
+        "emitter": {
+          "anchor_id": "upper_front_alarm_grille",
+          "anchor_type": "object_speaker",
+          "authority_sha256": "de8b4609b6c55373c0be63bb0990ae840d883e9fae8766e63692e01ee37a0a31",
+          "marker_review": {
+            "decision": "approved_after_full_resolution_review",
+            "front_sha256": "59ed789cae23802aa9fa0d1378e4ad403ed77216e30e5c0d4f161a376d3d86d2",
+            "render_manifest_sha256": "5f069778d5a8ed94bede97eb489906c9984cb3538f8d7bfc78ba680a5b6a0046",
+            "side_sha256": "0e360cf84f170f418e731fab61a44cb57f9f1353a145da3c78855a53f07de669",
+            "top_sha256": "16e5afb5cdb78a32ef1b35e4d02b55d285777126d49825e4b4bbb55f92deb543"
+          },
+          "offset_m": [
+            0.05653642117977142,
+            0.10898703336715698,
+            -0.00855293869972229
+          ],
+          "offset_space": "final_scaled_asset_root",
+          "physical_rationale": "The upper front slot field is the wall alarm's visible sounder outlet.",
+          "reviewed_target_fraction_xyz": [
+            1.0,
+            0.72,
+            0.5
+          ],
+          "selection_method": "reviewed_bbox_fraction_nearest_surface_v1",
+          "semantic_role": "primary_sound_source",
+          "target_to_surface_distance_m": 0.015797128900885582
+        },
+        "entity_class": "rigid_static_object",
+        "glb_relative_path": "safety_device/smoke_detector/wall_square_white/finalized.glb",
+        "resting_pose": {
+          "attachment_surface": "wall",
+          "attachment_surface_assumed": false,
+          "attachment_surface_note": "measured from the declared placement.attachment_surface",
+          "base_normal_tilt_deg": null,
+          "base_plane_offset_m": 0.0,
+          "height_m": 0.15,
+          "how_to_place": "place the measured back toward the wall and apply translation and yaw only; wall-connected geometry without a back plane is reported as no_mounting_plane_found",
+          "measured_from": "finalized.glb",
+          "measured_plane": "wall_back",
+          "mounting_plane_area_share": 0.021611,
+          "mounting_plane_candidate_faces": 991,
+          "mounting_plane_detection": {
+            "maximum_plane_rms_fraction": 0.02,
+            "minimum_area_share": 0.003,
+            "minimum_projected_bbox_share": 0.025,
+            "note": "these are existence checks for a recoverable mounting plane, not resting-pose strictness or a contact-area acceptance gate",
+            "slice_fraction": 0.05
+          },
+          "mounting_plane_normal_tilt_deg": 3.01,
+          "mounting_plane_projected_bbox_share": 0.183867,
+          "mounting_plane_rms_fraction": 0.018239,
+          "mounting_plane_rms_m": 0.002736,
+          "tolerance": {
+            "acceptable_deg": 8.0,
+            "level_deg": 3.0,
+            "note": "loose on purpose; reconstructed geometry is noisy and a degree or two of lean, or a few millimetres of float, is fine"
+          },
+          "verdict": "acceptable"
+        },
+        "semantic_template": {
+          "semantic_id_source": "episode_binding",
+          "template_kind": "rigid_object"
+        }
+      }
+    },
+    {
+      "asset_id": "generated_soundbar_wide_low_bar_light_gray_fabric_research_v1",
+      "runtime_backend": {
+        "asset_kind": "rigid_static_object",
+        "category": "audio_playback",
+        "emitter": {
+          "anchor_id": "front_grille_centre",
+          "anchor_type": "object_speaker",
+          "authority_sha256": "adf46c1c87368f47aaef8ec5ac83109c351434d1d8b67f9194b02614a7c2cdcc",
+          "offset_m": [
+            0.029974937438964844,
+            0.034633368253707886,
+            0.0011931736953556538
+          ],
+          "offset_space": "final_scaled_asset_root",
+          "reviewed_target_fraction_xyz": [
+            1.0,
+            0.5,
+            0.5
+          ],
+          "selection_method": "reviewed_bbox_fraction_nearest_surface_v1",
+          "semantic_role": "primary_sound_source",
+          "target_to_surface_distance_m": 0.0026857147458940744
+        },
+        "entity_class": "rigid_static_object",
+        "glb_relative_path": "audio_playback/soundbar/wide_low_bar_light_gray_fabric/finalized.glb",
+        "resting_pose": {
+          "attachment_surface": "floor",
+          "attachment_surface_assumed": true,
+          "attachment_surface_note": "placement.attachment_surface was not declared; measured under the floor assumption",
+          "base_area_share": 0.0063,
+          "base_normal_tilt_deg": 0.96,
+          "base_plane_offset_m": -0.0,
+          "contact_extent_m": [
+            0.0346,
+            0.0111
+          ],
+          "footprint_extent_m": [
+            0.0634,
+            0.2248
+          ],
+          "height_m": 0.07,
+          "how_to_place": "put the asset origin at floor height and apply yaw only; the base offset above is already zero for assets the finalizer grounded, so no room needs to re-derive this",
+          "measured_from": "finalized.glb",
+          "measured_plane": "floor_base",
+          "mounting_plane_normal_tilt_deg": null,
+          "tolerance": {
+            "acceptable_deg": 8.0,
+            "level_deg": 3.0,
+            "note": "loose on purpose; reconstructed geometry is noisy and a degree or two of lean, or a few millimetres of float, is fine"
+          },
+          "verdict": "level"
+        },
+        "semantic_template": {
+          "semantic_id_source": "episode_binding",
+          "template_kind": "rigid_object"
+        }
+      }
+    },
+    {
+      "asset_id": "generated_soundbar_wide_low_bar_matte_black_research_v1",
+      "runtime_backend": {
+        "asset_kind": "rigid_static_object",
+        "category": "audio_playback",
+        "emitter": {
+          "anchor_id": "front_grille_centre",
+          "anchor_type": "object_speaker",
+          "authority_sha256": "9841318a01567a4f5a1c6b8e7c45e76c1b87ad228e994e1a441964e3ad365007",
+          "offset_m": [
+            0.029816733673214912,
+            0.03475790470838547,
+            -0.006690672133117914
+          ],
+          "offset_space": "final_scaled_asset_root",
+          "reviewed_target_fraction_xyz": [
+            1.0,
+            0.5,
+            0.5
+          ],
+          "selection_method": "reviewed_bbox_fraction_nearest_surface_v1",
+          "semantic_role": "primary_sound_source",
+          "target_to_surface_distance_m": 0.006891137454658747
+        },
+        "entity_class": "rigid_static_object",
+        "glb_relative_path": "audio_playback/soundbar/wide_low_bar_matte_black/finalized.glb",
+        "resting_pose": {
+          "attachment_surface": "floor",
+          "attachment_surface_assumed": true,
+          "attachment_surface_note": "placement.attachment_surface was not declared; measured under the floor assumption",
+          "base_area_share": 0.0026,
+          "base_normal_tilt_deg": 0.41,
+          "base_plane_offset_m": 0.0,
+          "contact_extent_m": [
+            0.0148,
+            0.015
+          ],
+          "footprint_extent_m": [
+            0.0613,
+            0.3784
+          ],
+          "height_m": 0.07,
+          "how_to_place": "put the asset origin at floor height and apply yaw only; the base offset above is already zero for assets the finalizer grounded, so no room needs to re-derive this",
+          "measured_from": "finalized.glb",
+          "measured_plane": "floor_base",
+          "mounting_plane_normal_tilt_deg": null,
+          "tolerance": {
+            "acceptable_deg": 8.0,
+            "level_deg": 3.0,
+            "note": "loose on purpose; reconstructed geometry is noisy and a degree or two of lean, or a few millimetres of float, is fine"
+          },
+          "verdict": "level"
+        },
+        "semantic_template": {
+          "semantic_id_source": "episode_binding",
+          "template_kind": "rigid_object"
+        }
+      }
+    },
+    {
+      "asset_id": "generated_soundbar_wide_low_bar_white_satin_research_v1",
+      "runtime_backend": {
+        "asset_kind": "rigid_static_object",
+        "category": "audio_playback",
+        "emitter": {
+          "anchor_id": "front_grille_centre",
+          "anchor_type": "object_speaker",
+          "authority_sha256": "c981ab28bff6753dc4e10280abed12869275ac8baf37b5aee2319dfc5f91e35f",
+          "offset_m": [
+            0.031598128378391266,
+            0.03459823504090309,
+            -0.007798270788043737
+          ],
+          "offset_space": "final_scaled_asset_root",
+          "reviewed_target_fraction_xyz": [
+            1.0,
+            0.5,
+            0.5
+          ],
+          "selection_method": "reviewed_bbox_fraction_nearest_surface_v1",
+          "semantic_role": "primary_sound_source",
+          "target_to_surface_distance_m": 0.0012870125938206911
+        },
+        "entity_class": "rigid_static_object",
+        "glb_relative_path": "audio_playback/soundbar/wide_low_bar_white_satin/finalized.glb",
+        "resting_pose": {
+          "attachment_surface": "floor",
+          "attachment_surface_assumed": true,
+          "attachment_surface_note": "placement.attachment_surface was not declared; measured under the floor assumption",
+          "base_area_share": 0.0019,
+          "base_normal_tilt_deg": 4.1,
+          "base_plane_offset_m": -0.0,
+          "contact_extent_m": [
+            0.0167,
+            0.0163
+          ],
+          "footprint_extent_m": [
+            0.0669,
+            0.3253
+          ],
+          "height_m": 0.07,
+          "how_to_place": "put the asset origin at floor height and apply yaw only; the base offset above is already zero for assets the finalizer grounded, so no room needs to re-derive this",
+          "measured_from": "finalized.glb",
+          "measured_plane": "floor_base",
+          "mounting_plane_normal_tilt_deg": null,
+          "tolerance": {
+            "acceptable_deg": 8.0,
+            "level_deg": 3.0,
+            "note": "loose on purpose; reconstructed geometry is noisy and a degree or two of lean, or a few millimetres of float, is fine"
+          },
+          "verdict": "acceptable"
+        },
+        "semantic_template": {
+          "semantic_id_source": "episode_binding",
+          "template_kind": "rigid_object"
+        }
+      }
+    },
+    {
+      "asset_id": "generated_television_flat_panel_16_9_central_pedestal_research_v1",
+      "runtime_backend": {
+        "asset_kind": "rigid_static_object",
+        "category": "audio_playback",
+        "emitter": {
+          "anchor_id": "bottom_bezel_grille_strip",
+          "anchor_type": "object_speaker",
+          "authority_sha256": "cb168461691ea615e21a6339304f6e35ec248443a7a3c4dc50f6acbcdbf304c0",
+          "offset_m": [
+            0.18423718214035034,
+            0.06073107570409775,
+            0.013506430201232433
+          ],
+          "offset_space": "final_scaled_asset_root",
+          "reviewed_target_fraction_xyz": [
+            1.0,
+            0.08,
+            0.5
+          ],
+          "selection_method": "reviewed_bbox_fraction_nearest_surface_v1",
+          "semantic_role": "primary_sound_source",
+          "target_to_surface_distance_m": 0.041121285408735275
+        },
+        "entity_class": "rigid_static_object",
+        "glb_relative_path": "audio_playback/television/flat_panel_16_9_central_pedestal/finalized.glb",
+        "resting_pose": {
+          "attachment_surface": "floor",
+          "attachment_surface_assumed": true,
+          "attachment_surface_note": "placement.attachment_surface was not declared; measured under the floor assumption",
+          "base_area_share": 0.2138,
+          "base_normal_tilt_deg": 1.6,
+          "base_plane_offset_m": -0.0,
+          "contact_extent_m": [
+            0.1053,
+            0.9543
+          ],
+          "footprint_extent_m": [
+            0.4665,
+            1.1135
+          ],
+          "height_m": 0.72,
+          "how_to_place": "put the asset origin at floor height and apply yaw only; the base offset above is already zero for assets the finalizer grounded, so no room needs to re-derive this",
+          "measured_from": "finalized.glb",
+          "measured_plane": "floor_base",
+          "mounting_plane_normal_tilt_deg": null,
+          "tolerance": {
+            "acceptable_deg": 8.0,
+            "level_deg": 3.0,
+            "note": "loose on purpose; reconstructed geometry is noisy and a degree or two of lean, or a few millimetres of float, is fine"
+          },
+          "verdict": "level"
+        },
+        "semantic_template": {
+          "semantic_id_source": "episode_binding",
+          "template_kind": "rigid_object"
+        }
+      }
+    },
+    {
+      "asset_id": "generated_television_flat_panel_16_9_two_splayed_feet_research_v1",
+      "runtime_backend": {
+        "asset_kind": "rigid_static_object",
+        "category": "audio_playback",
+        "emitter": {
+          "anchor_id": "bottom_bezel_grille_strip",
+          "anchor_type": "object_speaker",
+          "authority_sha256": "57b09110091701a5586770b97263f90c398ad16e169b9d0f4469c3014725a83d",
+          "offset_m": [
+            0.04925185814499855,
+            0.11561199277639389,
+            -0.00508282333612442
+          ],
+          "offset_space": "final_scaled_asset_root",
+          "reviewed_target_fraction_xyz": [
+            1.0,
+            0.08,
+            0.5
+          ],
+          "selection_method": "reviewed_bbox_fraction_nearest_surface_v1",
+          "semantic_role": "primary_sound_source",
+          "target_to_surface_distance_m": 0.0944320410490036
+        },
+        "entity_class": "rigid_static_object",
+        "glb_relative_path": "audio_playback/television/flat_panel_16_9_two_splayed_feet/finalized.glb",
+        "resting_pose": {
+          "attachment_surface": "floor",
+          "attachment_surface_assumed": true,
+          "attachment_surface_note": "placement.attachment_surface was not declared; measured under the floor assumption",
+          "base_area_share": 0.002,
+          "base_normal_tilt_deg": 29.61,
+          "base_plane_offset_m": 0.0,
+          "contact_extent_m": [
+            0.0136,
+            0.0305
+          ],
+          "footprint_extent_m": [
+            0.2428,
+            1.0882
+          ],
+          "height_m": 0.72,
+          "how_to_place": "put the asset origin at floor height and apply yaw only; the base offset above is already zero for assets the finalizer grounded, so no room needs to re-derive this",
+          "measured_from": "finalized.glb",
+          "measured_plane": "floor_base",
+          "mounting_plane_normal_tilt_deg": null,
+          "tolerance": {
+            "acceptable_deg": 8.0,
+            "level_deg": 3.0,
+            "note": "loose on purpose; reconstructed geometry is noisy and a degree or two of lean, or a few millimetres of float, is fine"
+          },
+          "verdict": "leaning"
+        },
+        "semantic_template": {
+          "semantic_id_source": "episode_binding",
+          "template_kind": "rigid_object"
+        }
+      }
+    },
+    {
+      "asset_id": "generated_toilet_elevated_tank_exposed_pipe_white_research_v2",
+      "runtime_backend": {
+        "asset_kind": "rigid_static_object",
+        "category": "plumbing_fixture",
+        "emitter": {
+          "anchor_id": "exposed_downpipe_to_bowl_path",
+          "anchor_type": "object_speaker",
+          "authority_sha256": "d77ef15794a537d1d2d224c016911f85f4ea7229bd27706a4dd7fbd37ea51b9a",
+          "marker_review": {
+            "decision": "approved_after_full_resolution_review",
+            "front_sha256": "61ceda14bc9f11c283487eaca313a25740a17916f1333450d6cc25070be15712",
+            "render_manifest_sha256": "d74d7f13142f272107057b84a4174774dec47215f5e08bee11b7c362229c2c0f",
+            "side_sha256": "b1bac94fe8f87bfc7031fde5a284a3c1ccb02d63520f300d77119a69bfcc1143",
+            "top_sha256": "52eace92d04507070cfdfe4d4b2b4b78ae184a6069eedf58d94a2b0a13066c71"
+          },
+          "offset_m": [
+            -0.2925029993057251,
+            0.8772827386856079,
+            -0.014431742951273918
+          ],
+          "offset_space": "final_scaled_asset_root",
+          "physical_rationale": "flush sound follows the visible chrome downpipe from tank to bowl inlet",
+          "reviewed_target_fraction_xyz": [
+            0.3,
+            0.58,
+            0.5
+          ],
+          "selection_method": "reviewed_bbox_fraction_nearest_surface_v1",
+          "semantic_role": "primary_sound_source",
+          "target_to_surface_distance_m": 0.01985294185578823
+        },
+        "entity_class": "rigid_static_object",
+        "glb_relative_path": "plumbing_fixture/toilet/elevated_tank_exposed_pipe_white/finalized.glb",
+        "resting_pose": {
+          "attachment_surface": "floor",
+          "attachment_surface_assumed": false,
+          "attachment_surface_note": "measured from the declared placement.attachment_surface",
+          "base_area_share": 0.051,
+          "base_normal_tilt_deg": 1.2,
+          "base_plane_offset_m": 0.0,
+          "contact_extent_m": [
+            0.1671,
+            0.1158
+          ],
+          "footprint_extent_m": [
+            0.9827,
+            0.8726
+          ],
+          "height_m": 1.5,
+          "how_to_place": "put the asset origin at floor height and apply yaw only; the base offset above is already zero for assets the finalizer grounded, so no room needs to re-derive this",
+          "measured_from": "finalized.glb",
+          "measured_plane": "floor_base",
+          "mounting_plane_normal_tilt_deg": null,
+          "tolerance": {
+            "acceptable_deg": 8.0,
+            "level_deg": 3.0,
+            "note": "loose on purpose; reconstructed geometry is noisy and a degree or two of lean, or a few millimetres of float, is fine"
+          },
+          "verdict": "level"
+        },
+        "semantic_template": {
+          "semantic_id_source": "episode_binding",
+          "template_kind": "rigid_object"
+        }
+      }
+    },
+    {
+      "asset_id": "generated_toilet_exposed_flush_pipe_tank_white_research_v1",
+      "runtime_backend": {
+        "asset_kind": "rigid_static_object",
+        "category": "plumbing_fixture",
+        "emitter": {
+          "anchor_id": "rear_pipe_to_bowl_inlet",
+          "anchor_type": "object_speaker",
+          "authority_sha256": "8b6cef2cef882384779d8ce177b7b27f53785a1f92d4530cc14dd0c0303a4bcc",
+          "marker_review": {
+            "decision": "approved_after_full_resolution_review",
+            "front_sha256": "8f2a7bb375b4ac293aeec6f0cf75bade8dae473c22e655c834dfa499df62fa36",
+            "render_manifest_sha256": "30fbec237c7c566426e08832b4e9960898bdfa9e872946700ac1ede12061e959",
+            "side_sha256": "53e0d3931f22e8a97de81969f282e037bbed8289be20bfaaf748f692f46ddedc",
+            "top_sha256": "f96ac338ccae3910985a0bd5d73493f55856ab44c762b1dc0110be0a296aba1b"
+          },
+          "offset_m": [
+            -0.2541379928588867,
+            0.561794638633728,
+            -0.01240946538746357
+          ],
+          "offset_space": "final_scaled_asset_root",
+          "physical_rationale": "Flush sound enters through the visible rear interface where the curved tank pipe connects into the bowl.",
+          "reviewed_target_fraction_xyz": [
+            0.3,
+            0.55,
+            0.5
+          ],
+          "selection_method": "reviewed_bbox_fraction_nearest_surface_v1",
+          "semantic_role": "primary_sound_source",
+          "target_to_surface_distance_m": 0.01235091220587492
+        },
+        "entity_class": "rigid_static_object",
+        "glb_relative_path": "plumbing_fixture/toilet/exposed_flush_pipe_tank_white/finalized.glb",
+        "resting_pose": {
+          "attachment_surface": "floor",
+          "attachment_surface_assumed": false,
+          "attachment_surface_note": "measured from the declared placement.attachment_surface",
+          "base_area_share": 0.003,
+          "base_normal_tilt_deg": 1.83,
+          "base_plane_offset_m": -0.0,
+          "contact_extent_m": [
+            0.0109,
+            0.0832
+          ],
+          "footprint_extent_m": [
+            0.9387,
+            0.8123
+          ],
+          "height_m": 1.0,
+          "how_to_place": "put the asset origin at floor height and apply yaw only; the base offset above is already zero for assets the finalizer grounded, so no room needs to re-derive this",
+          "measured_from": "finalized.glb",
+          "measured_plane": "floor_base",
+          "mounting_plane_normal_tilt_deg": null,
+          "tolerance": {
+            "acceptable_deg": 8.0,
+            "level_deg": 3.0,
+            "note": "loose on purpose; reconstructed geometry is noisy and a degree or two of lean, or a few millimetres of float, is fine"
+          },
+          "verdict": "level"
+        },
+        "semantic_template": {
+          "semantic_id_source": "episode_binding",
+          "template_kind": "rigid_object"
+        }
+      }
+    },
+    {
+      "asset_id": "rocketbox_dog_beagle_01_m2_v7_world_contact_candidate",
+      "runtime_backend": {
+        "asset_kind": "articulated_m2_package",
+        "asset_manifest_path": "/data/avengine_external/datasets/m2/rocketbox_beagle_m2_canary_v7_world_contact_r5/asset_manifest.json",
+        "base_m2_request_path": "/data/avengine_external/review/current_mp3d_two_beagle_route_lateral_seed22_grounded/primary_m2_request.json",
+        "category": "dog",
+        "emitter": {
+          "anchor_id": "muzzle",
+          "anchor_type": "muzzle",
+          "offset_m": [
+            0.34,
+            0.61,
+            0.0
+          ],
+          "offset_space": "final_scaled_asset_root"
+        },
+        "entity_class": "articulated_animal",
+        "glb_path": "/data/avengine_external/datasets/m2/rocketbox_beagle_m2_canary_v7_world_contact_r5/visual.glb",
+        "glb_relative_path": "visual.glb",
+        "resting_pose": {
+          "attachment_surface": "floor",
+          "base_plane_offset_m": 0.0,
+          "measured_from": "M2 package contact/rest calibration",
+          "source_manifest": "/data/avengine_external/datasets/m2/rocketbox_beagle_m2_canary_v7_world_contact_r5/asset_manifest.json"
+        },
+        "semantic_template": {
+          "asset_manifest_path": "/data/avengine_external/datasets/m2/rocketbox_beagle_m2_canary_v7_world_contact_r5/asset_manifest.json",
+          "semantic_id_source": "episode_binding",
+          "template_kind": "articulated_m2"
+        }
+      }
+    }
+  ],
+  "claim_boundary": "Bindings are parsed from the existing registries and external finalized GLBs. They do not claim native load, collision or pixel qualification; articulated external animals remain P12 inputs.",
+  "excluded": [
+    {
+      "asset_id": "generated_burmese_dark_sable_research_v1",
+      "category": "cat",
+      "entity_class": "articulated_animal",
+      "reason": "articulated_asset_requires_P12_habitat_package"
+    },
+    {
+      "asset_id": "generated_burmese_standard_sable_research_v1",
+      "category": "cat",
+      "entity_class": "articulated_animal",
+      "reason": "articulated_asset_requires_P12_habitat_package"
+    },
+    {
+      "asset_id": "generated_jack_russell_terrier_standard_white_tan_research_v1",
+      "category": "dog",
+      "entity_class": "articulated_animal",
+      "reason": "articulated_asset_requires_P12_habitat_package"
+    },
+    {
+      "asset_id": "generated_siamese_standard_seal_point_research_v1",
+      "category": "cat",
+      "entity_class": "articulated_animal",
+      "reason": "articulated_asset_requires_P12_habitat_package"
+    }
+  ],
+  "inventory": {
+    "external_articulated_animal_count": 4,
+    "external_by_entity_class": {
+      "articulated_animal": 4,
+      "rigid_object": 40
+    },
+    "external_rigid_count": 40,
+    "external_total": 44,
+    "overlap_asset_ids": [
+      "generated_bookshelf_speaker_compact_shelf_cabinet_black_ash_research_v1",
+      "generated_bookshelf_speaker_compact_shelf_cabinet_walnut_veneer_research_v1"
+    ],
+    "overlap_count": 2,
+    "runtime_by_entity_class": {
+      "articulated_animal": 8,
+      "articulated_human": 7,
+      "rigid_object": 2
+    },
+    "runtime_rigid_overlap_count": 2,
+    "runtime_total": 17,
+    "union_by_entity_class": {
+      "articulated_animal": 12,
+      "articulated_human": 7,
+      "rigid_object": 40
+    },
+    "union_total": 59
+  },
+  "renderer": "habitat",
+  "schema": "avengine_habitat_runtime_binding_delta_v1",
+  "source": {
+    "external_index": "/data/avengine_external/assets/sound_source_assets_v1/index.json",
+    "runtime_registry": "/data/jzy/tmp/wt-multi-home-activity-integration/examples/runtime/source_asset_runtime_profiles.json"
+  }
+}

@@ -829,6 +829,204 @@ def _transform_record(matrix: np.ndarray) -> dict[str, list[float]]:
     }
 
 
+def _transform_matrix(value: Any, *, owner: str) -> np.ndarray:
+    if not isinstance(value, Mapping):
+        raise MP3DRegionActorTrackError(f"{owner} must be a transform object")
+    translation = _finite_vector(
+        value.get("translation_m"), owner=f"{owner}.translation_m"
+    )
+    try:
+        rotation = np.asarray(
+            normalized_quaternion_xyzw(value.get("rotation_xyzw")), dtype=np.float64
+        )
+    except (TypeError, ValueError) as exc:
+        raise MP3DRegionActorTrackError(f"{owner}.rotation_xyzw is invalid") from exc
+    matrix = np.eye(4, dtype=np.float64)
+    matrix[:3, :3] = _quaternion_to_matrix(rotation)
+    matrix[:3, 3] = translation
+    return matrix
+
+
+def materialize_habitat_rigid_track(
+    *,
+    actor: Mapping[str, Any],
+    m1_request: Mapping[str, Any],
+    clock: Mapping[str, int | float],
+    habitat_binding: Mapping[str, Any],
+    floor_height_m: float | None = None,
+) -> dict[str, Any]:
+    """Materialize a static GLB source with a declared resting pose.
+
+    A rigid source has no route or action samples. Its source endpoint denotes
+    the registered emitter position; when world_from_object is omitted the
+    object origin is reconstructed from that endpoint and the registered
+    emitter offset. The resulting track still uses the current case schema so
+    the Habitat capture can keep actor and object readback in one aligned
+    stream.
+    """
+
+    entity_class = actor.get("entity_class", "rigid_object")
+    if entity_class not in {"rigid_object", "rigid_static_object"}:
+        raise MP3DRegionActorTrackError(
+            "materialize_habitat_rigid_track requires a rigid_object actor"
+        )
+    for key in (
+        "actor_id",
+        "source_slot_id",
+        "source_endpoint_id",
+        "semantic_id",
+        "asset_id",
+    ):
+        if key not in actor or not isinstance(actor[key], (str, int)):
+            raise MP3DRegionActorTrackError(f"rigid actor {key} is required")
+    if isinstance(actor["semantic_id"], bool) or not isinstance(actor["semantic_id"], int):
+        raise MP3DRegionActorTrackError("rigid actor semantic_id must be an integer")
+    if not isinstance(habitat_binding, Mapping):
+        raise MP3DRegionActorTrackError("rigid actor Habitat binding is required")
+    glb_path = habitat_binding.get("glb_path") or habitat_binding.get("glb_relative_path")
+    if not isinstance(glb_path, str) or not glb_path:
+        raise MP3DRegionActorTrackError("rigid actor Habitat binding has no GLB path")
+    emitter = habitat_binding.get("emitter")
+    if not isinstance(emitter, Mapping):
+        raise MP3DRegionActorTrackError("rigid actor Habitat binding has no emitter")
+    emitter_offset = _finite_vector(
+        emitter.get("offset_m", emitter.get("translation_m", [0.0, 0.0, 0.0])),
+        owner="rigid actor Habitat emitter offset",
+    )
+    resting = habitat_binding.get("resting_pose")
+    if not isinstance(resting, Mapping):
+        raise MP3DRegionActorTrackError("rigid actor Habitat binding has no resting_pose")
+    attachment = resting.get("attachment_surface")
+    if attachment != "floor":
+        raise MP3DRegionActorTrackError(
+            "P4 rigid materialization currently supports floor resting_pose only"
+        )
+    base_plane_offset = resting.get("base_plane_offset_m", 0.0)
+    try:
+        base_plane_offset = float(base_plane_offset)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise MP3DRegionActorTrackError(
+            "rigid actor resting_pose.base_plane_offset_m is invalid"
+        ) from exc
+    if not np.isfinite(base_plane_offset):
+        raise MP3DRegionActorTrackError(
+            "rigid actor resting_pose.base_plane_offset_m is invalid"
+        )
+    source_records = m1_request.get("sources")
+    if not isinstance(source_records, list):
+        raise MP3DRegionActorTrackError("M1 request has no sources")
+    source_matches = [
+        item
+        for item in source_records
+        if isinstance(item, Mapping)
+        and item.get("source_id") == actor["source_endpoint_id"]
+    ]
+    if len(source_matches) != 1:
+        raise MP3DRegionActorTrackError(
+            f"rigid actor source endpoint {actor['source_endpoint_id']!r} is not unique"
+        )
+    source_transform = _transform_matrix(
+        source_matches[0].get("world_from_source"),
+        owner=f"rigid actor {actor['actor_id']} source transform",
+    )
+    world_from_object_raw = actor.get("world_from_object")
+    if world_from_object_raw is None:
+        world_from_object = source_transform.copy()
+        world_from_object[:3, 3] = source_transform[:3, 3] - (
+            source_transform[:3, :3] @ emitter_offset
+        )
+    else:
+        world_from_object = _transform_matrix(
+            world_from_object_raw,
+            owner=f"rigid actor {actor['actor_id']} object transform",
+        )
+    if floor_height_m is not None:
+        try:
+            floor_height = float(floor_height_m)
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise MP3DRegionActorTrackError("floor_height_m is invalid") from exc
+        if not np.isfinite(floor_height):
+            raise MP3DRegionActorTrackError("floor_height_m is invalid")
+        world_from_object[1, 3] = floor_height - base_plane_offset
+    transform = _transform_record(world_from_object)
+    frames: list[dict[str, Any]] = []
+    frame_count = clock.get("frame_count")
+    ticks_per_frame = clock.get("ticks_per_frame")
+    if (
+        isinstance(frame_count, bool)
+        or not isinstance(frame_count, int)
+        or frame_count < 2
+        or isinstance(ticks_per_frame, bool)
+        or not isinstance(ticks_per_frame, int)
+        or ticks_per_frame <= 0
+    ):
+        raise MP3DRegionActorTrackError("rigid actor clock is invalid")
+    for index in range(frame_count):
+        frames.append(
+            {
+                "frame_index": index,
+                "pts_ticks": index * ticks_per_frame,
+                "action_id": "static",
+                "action_time_ticks": 0,
+                "effective_action_tick": 0,
+                "action_sample_index": 0,
+                "planned_route_center_m": None,
+                "planned_object_origin_m": transform["translation_m"],
+                "planned_world_from_object": transform,
+                "planned_world_from_skin_root": transform,
+                "root_rotation_source": "habitat_rigid_binding_resting_pose",
+                "joint_targets": [],
+                "native_pending": {
+                    "emitter_world_position_m": None,
+                    "support_contact": None,
+                    "object_id": None,
+                },
+            }
+        )
+    return {
+        "schema": ACTOR_TRACK_SCHEMA,
+        "artifact_role": "planned_habitat_actor_apply_track",
+        "research_only": True,
+        "episode_counted": False,
+        "qualification_claim": False,
+        "native_observed": False,
+        "entity_class": "rigid_object",
+        "actor_id": actor["actor_id"],
+        "source_slot_id": actor["source_slot_id"],
+        "source_endpoint_id": actor["source_endpoint_id"],
+        "semantic_id": actor["semantic_id"],
+        "asset": {
+            "asset_id": actor["asset_id"],
+            "revision": actor.get("asset_revision"),
+            "entity_class": "rigid_object",
+            "habitat_binding": deepcopy(dict(habitat_binding)),
+        },
+        "emitter": {
+            "anchor_id": emitter.get("anchor_id"),
+            "offset_m": emitter_offset.tolist(),
+            "offset_space": emitter.get(
+                "offset_space", "final_scaled_asset_root"
+            ),
+            "position_authority": "pending_native_object_readback",
+            "planned_route_center_is_not_emitter_position": True,
+        },
+        "clock": dict(clock),
+        "route_source_center_plan": {
+            "authority": "static object binding",
+            "source_id": actor["source_endpoint_id"],
+            "positions_m": None,
+            "position_semantics": "static object origin; emitter is read back from binding offset",
+        },
+        "native_pending": {
+            "emitter_world_position_m": None,
+            "support_contact": None,
+            "articulated_collision": None,
+            "object_id": None,
+            "native_execution": None,
+            "rlr": None,
+        },
+        "frames": frames,
+    }
 def materialize_region_actor_tracks(
     *,
     region_plan_path: str | Path,
@@ -1011,5 +1209,6 @@ __all__ = [
     "CASE_SCHEMA",
     "MP3DRegionActorTrackError",
     "RECEIPT_SCHEMA",
+    "materialize_habitat_rigid_track",
     "materialize_region_actor_tracks",
 ]

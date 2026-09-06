@@ -683,3 +683,21 @@ def test_rigid_source_can_describe_multiple_named_emitter_anchors():
     binding = build_asset_emitter_binding(registry, source_slot_id="source4", asset_id=asset["asset_id"])
     assert binding["semantic_anchor_id"] == "woofer"
     assert binding["source_slot_id"] == "source4"
+
+
+def test_habitat_only_rigid_binding_has_neutral_emitter_and_no_spear_claim():
+    registry = _static_runtime_registry()
+    asset = registry['assets'][0]
+    asset['runtime_backends'] = {'habitat': {
+        'asset_kind': 'rigid_static_object', 'glb_path': '/retained/speaker.glb',
+        'semantic_template': {'semantic_id_source': 'episode_binding'},
+        'resting_pose': {'attachment_surface': 'floor', 'base_plane_offset_m': 0.},
+        'emitter': {'anchor_id': 'woofer', 'offset_m': [.105, .099, -.006]}}}
+    assert validate_source_asset_runtime_registry(registry) == []
+    assert spear_actor_bindings(registry) == {}
+    emitter = build_asset_emitter_binding(registry, source_slot_id='source1', asset_id=asset['asset_id'])
+    assert emitter['emitter_offset_m'] == [.105, .099, -.006]
+    assert 'static_mesh_object_path' not in emitter
+    assert source_timeline_profiles(registry)[asset['asset_id']]['motion_model'] == 'rigid_static'
+    del asset['runtime_backends']['habitat']['resting_pose']
+    assert any('resting_pose' in e for e in validate_source_asset_runtime_registry(registry))

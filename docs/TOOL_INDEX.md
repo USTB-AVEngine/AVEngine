@@ -5,7 +5,7 @@
 
 自 2026-08-25 起，目录本身就是能力分组（阶段目录 m1…m7 已移除），
 本表按目录列出每个工具做什么。
-当前共 389 个工具脚本。
+当前共 391 个工具脚本。
 
 ## 资产生成与装配（`tools/assets/`）
 
@@ -189,6 +189,8 @@
 
 | 工具 | 做什么 |
 |---|---|
+| `tools/capture/build_habitat_binding_delta.py` | Build a reviewable Habitat binding delta from the two source registries |
+| `tools/capture/build_mp3d_beagle_rigid_case.py` | Prepare one fresh beagle plus rigid-object Habitat capture case |
 | `tools/capture/capture_human_beagle_legacy.py` | Capture the committed 270-frame Rocketbox-human + Beagle legacy route |
 | `tools/capture/capture_human_beagle_mp3d.py` | Run the real-navmesh 270-frame MP3D human + Beagle visual canary |
 | `tools/capture/capture_human_beagle_replicacad.py` | Run the real ReplicaCAD apt_0 human + Beagle visual/placement review |

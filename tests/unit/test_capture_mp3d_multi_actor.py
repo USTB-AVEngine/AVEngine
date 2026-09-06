@@ -327,6 +327,21 @@ def test_public_entrypoint_reads_native_state_for_three_actors(tmp_path, monkeyp
         assert np.load(output / f"actor_joint_readbacks_source{actor_index + 1}.npy").shape == (frame_count, 4)
     assert receipt["inputs"]["case_manifest"] == str(case_path.resolve())
     assert receipt["object_id"]["status"] == "pending"
+    with np.load(output / "native_pixel_masks_depth_authority_v1.npz") as masks:
+        assert np.array_equal(masks["modal"], masks["depth_derived_modal_semantic"])
+        assert masks["modal"].shape == (frame_count, 2, 2)
+        assert set(masks.files) == {
+            "depth_derived_modal_semantic",
+            "modal",
+            "target_only_source1",
+            "target_only_source2",
+            "target_only_source3",
+        }
+    truth = json.loads(
+        (output / "pixel_visibility_truth.json").read_text(encoding="utf-8")
+    )
+    assert truth["status"] == "computed_modal_target_only_v1"
+    assert set(truth["per_instance"]) == {"source1", "source2", "source3"}
     assert receipt["artifacts"]["actor_joint_readbacks_by_slot"]["source3"] == "actor_joint_readbacks_source3.npy"
     assert receipt["capture"]["native_habitat_started"] is True
     assert receipt["capture"]["rgb_channel_order"] == "rgb"

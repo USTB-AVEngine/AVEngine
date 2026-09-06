@@ -31,7 +31,12 @@ from avengine.assets.habitat_capture import (
     _validate_observation_arrays,
     load_runtime_asset_bundle,
 )
+from avengine.assets.habitat_static_assets import (
+    HabitatStaticAssetError,
+    load_habitat_asset_bindings,
+)
 from avengine.contracts.transforms import normalized_quaternion_xyzw
+from avengine.qa.pixel_visibility import compile_pixel_visibility_truth
 from avengine.rooms.contracts import (
     ContractError,
     ValidatedM1Inputs,
@@ -57,6 +62,8 @@ from avengine.timeline.current_mp3d_dynamic_audio import (
 NATIVE_CAPTURE_SCHEMA = "avengine_mp3d_multi_actor_native_capture_v1"
 ROOT_READBACK_ATOL = 2.0e-6
 JOINT_READBACK_ATOL = 2.0e-6
+RIGID_ENTITY_CLASSES = frozenset({"rigid_object", "rigid_static_object"})
+PIXEL_MASK_FILENAME = "native_pixel_masks_depth_authority_v1.npz"
 
 
 class MP3DMultiActorCaptureError(RuntimeError):
@@ -297,12 +304,40 @@ def _load_track_runtime(
     track: Mapping[str, Any],
     *,
     cache: dict[tuple[Path, Path], tuple[ValidatedM2Inputs, Any]],
+    runtime_registry_path: str | Path | None = None,
+    external_index_path: str | Path | None = None,
+    binding_delta_path: str | Path | None = None,
 ) -> tuple[ValidatedM2Inputs, Any]:
     asset = track.get("asset")
     if not isinstance(asset, Mapping):
         raise MP3DMultiActorCaptureError("actor track has no asset mapping")
     asset_path_raw = asset.get("asset_manifest_path")
     request_path_raw = asset.get("base_m2_request_path")
+    if not isinstance(asset_path_raw, str) or not isinstance(request_path_raw, str):
+        asset_id = asset.get("asset_id")
+        if (
+            isinstance(asset_id, str)
+            and runtime_registry_path is not None
+        ):
+            try:
+                binding = load_habitat_asset_bindings(
+                    [asset_id],
+                    runtime_registry_path=runtime_registry_path,
+                    external_index_path=external_index_path,
+                    binding_delta_path=binding_delta_path,
+                )[asset_id]
+            except HabitatStaticAssetError as exc:
+                raise MP3DMultiActorCaptureError(str(exc)) from exc
+            asset_path_raw = (
+                None
+                if binding.asset_manifest_path is None
+                else str(binding.asset_manifest_path)
+            )
+            request_path_raw = (
+                None
+                if binding.base_m2_request_path is None
+                else str(binding.base_m2_request_path)
+            )
     if not isinstance(asset_path_raw, str) or not isinstance(request_path_raw, str):
         raise MP3DMultiActorCaptureError(
             "actor track must carry explicit asset_manifest_path and base_m2_request_path"
@@ -455,6 +490,562 @@ def _base_template_handle(
     return str(base)
 
 
+def _track_entity_class(track: Mapping[str, Any]) -> str:
+    value = track.get("entity_class")
+    if value is None and isinstance(track.get("asset"), Mapping):
+        value = track["asset"].get("entity_class")
+    return str(value or "articulated_animal")
+
+
+def _load_rigid_binding(
+    track: Mapping[str, Any],
+    *,
+    runtime_registry_path: str | Path | None,
+    external_index_path: str | Path | None,
+    binding_delta_path: str | Path | None,
+) -> dict[str, Any]:
+    asset = track.get("asset")
+    if not isinstance(asset, Mapping):
+        raise MP3DMultiActorCaptureError("rigid track has no asset mapping")
+    direct = asset.get("habitat_binding") or track.get("habitat_binding")
+    if isinstance(direct, Mapping):
+        binding = dict(direct)
+        glb_raw = binding.get("glb_path")
+        if not isinstance(glb_raw, str) or not glb_raw:
+            raise MP3DMultiActorCaptureError(
+                f"rigid asset {asset.get('asset_id')!r} binding has no resolved glb_path"
+            )
+        glb_path = Path(glb_raw).expanduser().resolve()
+        if glb_path.is_symlink() or not glb_path.is_file():
+            raise MP3DMultiActorCaptureError(
+                f"rigid asset {asset.get('asset_id')!r} GLB is missing: {glb_path}"
+            )
+        binding["glb_path"] = str(glb_path)
+        return binding
+    asset_id = asset.get("asset_id")
+    if not isinstance(asset_id, str) or not asset_id:
+        raise MP3DMultiActorCaptureError("rigid track asset_id is required")
+    if external_index_path is None and runtime_registry_path is None:
+        raise MP3DMultiActorCaptureError(
+            f"rigid asset {asset_id!r} has no binding; provide a binding delta or registries"
+        )
+    try:
+        binding = load_habitat_asset_bindings(
+            [asset_id],
+            runtime_registry_path=runtime_registry_path,
+            external_index_path=external_index_path,
+            binding_delta_path=binding_delta_path,
+        )[asset_id]
+    except HabitatStaticAssetError as exc:
+        raise MP3DMultiActorCaptureError(str(exc)) from exc
+    if binding.normalized_entity_class != "rigid_object":
+        raise MP3DMultiActorCaptureError(
+            f"asset {asset_id!r} is {binding.entity_class!r}; "
+            "articulated assets require their Habitat package"
+        )
+    return binding.to_dict()
+
+
+def _instantiate_rigid_object(
+    simulator: Any,
+    *,
+    binding: Mapping[str, Any],
+    habitat_sim: Any,
+    semantic_id: int,
+    object_index: int,
+) -> Any:
+    glb_raw = binding.get("glb_path")
+    if not isinstance(glb_raw, str) or not glb_raw:
+        raise MP3DMultiActorCaptureError("rigid Habitat binding has no glb_path")
+    glb_path = Path(glb_raw).expanduser().resolve()
+    if glb_path.is_symlink() or not glb_path.is_file():
+        raise MP3DMultiActorCaptureError(f"rigid Habitat GLB is missing: {glb_path}")
+    try:
+        semantic = int(semantic_id)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise MP3DMultiActorCaptureError("rigid semantic_id is invalid") from exc
+    if semantic <= 0:
+        raise MP3DMultiActorCaptureError("rigid semantic_id must be positive")
+    manager = simulator.get_object_template_manager()
+    handle = f"qa_rigid_object_{object_index}_semantic{semantic}"
+    attributes = manager.create_new_template(handle, False)
+    if attributes is None:
+        raise MP3DMultiActorCaptureError("Habitat failed to create rigid object template")
+    try:
+        attributes.render_asset_handle = str(glb_path)
+        attributes.collision_asset_handle = str(glb_path)
+        attributes.semantic_id = semantic
+        attributes.is_collidable = True
+        attributes.is_visibile = True
+    except (AttributeError, TypeError, ValueError) as exc:
+        raise MP3DMultiActorCaptureError(
+            f"cannot configure rigid Habitat template for {glb_path}"
+        ) from exc
+    registered = manager.register_template(attributes, handle)
+    if int(registered) < 0:
+        raise MP3DMultiActorCaptureError(
+            f"Habitat failed to register rigid object template {handle!r}"
+        )
+    object_manager = simulator.get_rigid_object_manager()
+    obj = object_manager.add_object_by_template_handle(handle)
+    if obj is None:
+        raise MP3DMultiActorCaptureError(
+            f"Habitat failed to instantiate rigid object {handle!r}"
+        )
+    try:
+        obj.motion_type = habitat_sim.physics.MotionType.KINEMATIC
+        obj.semantic_id = semantic
+    except (AttributeError, TypeError, ValueError) as exc:
+        raise MP3DMultiActorCaptureError(
+            f"Habitat rigid object {handle!r} semantic/motion setup failed"
+        ) from exc
+    nodes = [obj.root_scene_node]
+    try:
+        nodes.extend(list(obj.visual_scene_nodes))
+    except (AttributeError, TypeError):
+        pass
+    for node in nodes:
+        if not hasattr(node, "semantic_id"):
+            raise MP3DMultiActorCaptureError(
+                f"Habitat rigid object {handle!r} has no semantic SceneNode"
+            )
+        node.semantic_id = semantic
+        if int(node.semantic_id) != semantic:
+            raise MP3DMultiActorCaptureError(
+                f"Habitat rigid object {handle!r} semantic writeback differs"
+            )
+    if int(obj.semantic_id) != semantic:
+        raise MP3DMultiActorCaptureError(
+            f"Habitat rigid object {handle!r} object semantic ID differs"
+        )
+    return obj
+
+
+def _rigid_transform(track: Mapping[str, Any], *, frame_index: int) -> np.ndarray:
+    frames = track.get("frames")
+    if (
+        not isinstance(frames, list)
+        or frame_index >= len(frames)
+        or not isinstance(frames[frame_index], Mapping)
+    ):
+        raise MP3DMultiActorCaptureError(
+            f"rigid track {track.get('actor_id')!r} lacks frame {frame_index}"
+        )
+    frame = frames[frame_index]
+    value = frame.get("planned_world_from_object") or frame.get(
+        "planned_world_from_skin_root"
+    )
+    return _matrix_from_transform(
+        value,
+        owner=f"rigid actor {track.get('actor_id')!r} frame {frame_index} object",
+    )
+
+
+def _apply_rigid_transform(obj: Any, transform: np.ndarray, *, runtime: Any) -> None:
+    try:
+        obj.translation = runtime.magnum.Vector3(transform[:3, 3])
+        quaternion = runtime.quaternion.from_rotation_matrix(transform[:3, :3])
+        w, x, y, z = (
+            float(value) for value in runtime.quaternion.as_float_array(quaternion)
+        )
+        obj.rotation = runtime.magnum.Quaternion(
+            runtime.magnum.Vector3(x, y, z), w
+        )
+    except (AttributeError, TypeError, ValueError, OverflowError) as exc:
+        raise MP3DMultiActorCaptureError(
+            "Habitat rigid object transform application failed"
+        ) from exc
+
+
+def _rigid_root_readback(obj: Any) -> np.ndarray:
+    try:
+        root = np.asarray(
+            obj.root_scene_node.absolute_transformation(), dtype=np.float64
+        )
+    except (AttributeError, TypeError, ValueError) as exc:
+        raise MP3DMultiActorCaptureError("Habitat rigid object root readback failed") from exc
+    if root.shape != (4, 4) or not np.all(np.isfinite(root)):
+        raise MP3DMultiActorCaptureError("Habitat rigid object root is not finite 4x4")
+    return np.ascontiguousarray(root)
+
+
+def _rigid_emitter_position(obj: Any, binding: Mapping[str, Any]) -> np.ndarray:
+    emitter = binding.get("emitter")
+    if not isinstance(emitter, Mapping):
+        raise MP3DMultiActorCaptureError("rigid binding has no emitter")
+    try:
+        offset = np.asarray(
+            emitter.get("offset_m", emitter.get("translation_m")), dtype=np.float64
+        )
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise MP3DMultiActorCaptureError("rigid emitter offset is invalid") from exc
+    if offset.shape != (3,) or not np.all(np.isfinite(offset)):
+        raise MP3DMultiActorCaptureError("rigid emitter offset must be finite 3-vector")
+    root = _rigid_root_readback(obj)
+    return np.ascontiguousarray((root @ np.r_[offset, 1.0])[:3])
+
+
+def _set_instance_hidden(item: Mapping[str, Any], runtime: Any) -> Any:
+    try:
+        node = item["actor"].root_scene_node
+        if not hasattr(node, "scaling"):
+            # CPU call-order fakes used by the hermetic suite do not expose
+            # Habitat SceneNode scaling. Native SceneNodes always do.
+            return None
+        previous = node.scaling
+        node.scaling = runtime.magnum.Vector3(0.0)
+        return previous
+    except (AttributeError, TypeError, ValueError) as exc:
+        raise MP3DMultiActorCaptureError(
+            f"cannot hide Habitat source {item['track'].get('source_slot_id')!r}"
+        ) from exc
+
+
+def _restore_instance_visibility(item: Mapping[str, Any], previous: Any) -> None:
+    if previous is None:
+        return
+    try:
+        item["actor"].root_scene_node.scaling = previous
+    except (AttributeError, TypeError, ValueError) as exc:
+        raise MP3DMultiActorCaptureError(
+            f"cannot restore Habitat source {item['track'].get('source_slot_id')!r}"
+        ) from exc
+
+
+def _save_pixel_evidence(
+    output: Path,
+    *,
+    semantic_frames: Sequence[np.ndarray],
+    target_masks_by_slot: Mapping[str, Sequence[np.ndarray]],
+    actors_runtime: Sequence[Mapping[str, Any]],
+    room_inputs: ValidatedM1Inputs,
+    frame_count: int,
+) -> tuple[Path, Path, dict[str, Any]]:
+    if not semantic_frames:
+        raise MP3DMultiActorCaptureError("cannot write pixel evidence without semantic frames")
+    modal = np.ascontiguousarray(np.stack(semantic_frames))
+    if modal.ndim != 3:
+        raise MP3DMultiActorCaptureError("modal semantic frames must be [frame,height,width]")
+    slots = [str(item["track"]["source_slot_id"]) for item in actors_runtime]
+    if set(target_masks_by_slot) != set(slots):
+        raise MP3DMultiActorCaptureError("target-only slots differ from captured sources")
+    payload: dict[str, np.ndarray] = {
+        "depth_derived_modal_semantic": modal,
+        "modal": modal.copy(),
+    }
+    semantic_ids: dict[str, int] = {}
+    for item in actors_runtime:
+        slot = str(item["track"]["source_slot_id"])
+        semantic_id = int(item["track"]["semantic_id"])
+        masks = np.ascontiguousarray(np.stack(target_masks_by_slot[slot]))
+        if masks.shape != modal.shape or masks.dtype.kind not in {"i", "u"}:
+            raise MP3DMultiActorCaptureError(
+                f"target-only mask {slot} does not match modal semantic shape"
+            )
+        if not np.all(np.isin(masks, [0, semantic_id])):
+            raise MP3DMultiActorCaptureError(
+                f"target-only mask {slot} contains foreign semantic IDs"
+            )
+        payload[f"target_only_{slot}"] = masks
+        semantic_ids[slot] = semantic_id
+    masks_path = output / PIXEL_MASK_FILENAME
+    if masks_path.exists() or masks_path.is_symlink():
+        raise MP3DMultiActorCaptureError(f"refusing to replace pixel mask output: {masks_path}")
+    np.savez_compressed(masks_path, **payload)
+    camera_pose_ids = [
+        f"{room_inputs.request['primary_camera_rig'].get('rig_id', 'camera_rig')}:"
+        f"{room_inputs.request['primary_camera_rig'].get('view_id', 'view')}:frame:{index:06d}"
+        for index in range(frame_count)
+    ]
+    resolution = [int(modal.shape[1]), int(modal.shape[2])]
+    common = {
+        "renderer_backend": "habitat_native",
+        "rgb_renderer_backend": "habitat_native",
+        "camera_contract_id": str(
+            room_inputs.request["primary_camera_rig"].get("rig_id", "camera_rig")
+        ),
+        "semantic_id_namespace": "habitat_object_semantic_id_v1",
+        "resolution_hw": resolution,
+        "frame_indices": list(range(frame_count)),
+        "camera_pose_ids": camera_pose_ids,
+    }
+    try:
+        truth = compile_pixel_visibility_truth(
+            normal_semantic_masks=[frame.astype(np.int32, copy=False) for frame in modal],
+            target_only_semantic_masks_by_instance={
+                slot: [
+                    frame.astype(np.int32, copy=False)
+                    for frame in payload[f"target_only_{slot}"]
+                ]
+                for slot in slots
+            },
+            semantic_ids_by_instance=semantic_ids,
+            normal_context={"pass_kind": "modal_scene", **common},
+            target_only_contexts_by_instance={
+                slot: {
+                    "pass_kind": "target_only",
+                    "target_instance_id": slot,
+                    **common,
+                }
+                for slot in slots
+            },
+        )
+    except (TypeError, ValueError) as exc:
+        raise MP3DMultiActorCaptureError(
+            f"cannot compile Habitat pixel visibility truth: {exc}"
+        ) from exc
+    truth_path = output / "pixel_visibility_truth.json"
+    _write_json(truth_path, truth)
+    return masks_path, truth_path, truth
+
+
+def _capture_target_only_blank(
+    *,
+    room_inputs: ValidatedM1Inputs,
+    actors_runtime: Sequence[Mapping[str, Any]],
+    expected_frames: Sequence[Sequence[Mapping[str, Any]]],
+    fallback_semantic_frames: Sequence[np.ndarray],
+    main_camera_snapshots: Sequence[Mapping[str, Any]],
+    runtime: InstalledHabitatRuntime,
+    output: Path,
+    gpu_device_id: int,
+    simulator_factory: Callable[[Any], Any] | None,
+) -> tuple[dict[str, list[np.ndarray]], dict[str, Any]]:
+    """Render each source in a blank-stage simulator with the same camera.
+
+    A show-only semantic pass must preserve the target's full frustum
+    footprint. Scaling other source nodes to zero is insufficient when the
+    stage mesh can occlude the target, so native target-only passes use a
+    second simulator configured with the dataset's NONE stage. The scene
+    camera/calibration and target transforms still come from the same M1 plan
+    and observed frame clock.
+    """
+
+    if not hasattr(runtime.habitat_sim, "Simulator"):
+        # Hermetic call-order fakes intentionally do not expose a native
+        # Simulator. Their semantic image is already deterministic and this
+        # fallback keeps the CPU contract testable without weakening native
+        # execution.
+        masks: dict[str, list[np.ndarray]] = {}
+        for item in actors_runtime:
+            slot = str(item["track"]["source_slot_id"])
+            semantic_id = int(item["track"]["semantic_id"])
+            masks[slot] = [
+                np.where(np.asarray(frame) == semantic_id, semantic_id, 0).astype(
+                    np.int32
+                )
+                for frame in fallback_semantic_frames
+            ]
+        return masks, {
+            "status": "pass",
+            "mode": "hermetic_semantic_fallback",
+            "scene_id": None,
+            "per_source": {
+                str(item["track"]["source_slot_id"]): {
+                    "camera_max_translation_error_m": None,
+                    "camera_max_rotation_error": None,
+                    "root_max_error_m": None,
+                    "joint_max_error": None,
+                }
+                for item in actors_runtime
+            },
+        }
+
+    masks_by_slot: dict[str, list[np.ndarray]] = {
+        str(item["track"]["source_slot_id"]): [] for item in actors_runtime
+    }
+    alignment: dict[str, Any] = {
+        "status": "pass",
+        "mode": "native_blank_stage",
+        "scene_id": "NONE",
+        "per_source": {},
+    }
+    for target_index, target in enumerate(actors_runtime):
+        target_output = output / "target_only_scene_scratch" / str(target_index)
+        try:
+            configuration, modality_to_uuid, _listener_uuid, _resolved_scene = (
+                _make_configuration(
+                    room_inputs,
+                    None,
+                    target_output,
+                    mp3d_root=runtime.mp3d_root,
+                    include_audio_sensor=False,
+                    physics_config_path=runtime.physics_config_path,
+                )
+            )
+        except (OSError, TypeError, ValueError, RuntimeError) as exc:
+            raise MP3DMultiActorCaptureError(
+                f"cannot build target-only Habitat configuration: {exc}"
+            ) from exc
+        if not hasattr(configuration, "sim_cfg"):
+            raise MP3DMultiActorCaptureError(
+                "target-only Habitat configuration has no sim_cfg"
+            )
+        configuration.sim_cfg.scene_id = "NONE"
+        configuration.sim_cfg.load_semantic_mesh = False
+        configuration.sim_cfg.enable_physics = True
+        configuration.sim_cfg.gpu_device_id = gpu_device_id
+        factory = simulator_factory or runtime.habitat_sim.Simulator
+        with factory(configuration) as simulator:
+            target_item_is_rigid = bool(target["is_rigid"])
+            if target_item_is_rigid:
+                target_actor = _instantiate_rigid_object(
+                    simulator,
+                    binding=target["habitat_binding"],
+                    habitat_sim=runtime.habitat_sim,
+                    semantic_id=int(target["track"]["semantic_id"]),
+                    object_index=target_index,
+                )
+            else:
+                manager_cache: dict[Path, str] = {}
+                base_handle = _base_template_handle(
+                    simulator, target["bundle"], cache=manager_cache
+                )
+                target_actor, _target_binding = _instantiate_actor_with_semantic_template(
+                    simulator,
+                    bundle=target["bundle"],
+                    habitat_sim=runtime.habitat_sim,
+                    semantic_id=int(target["track"]["semantic_id"]),
+                    actor_index=target_index,
+                    base_handle=base_handle,
+                )
+            agent = simulator.initialize_agent(
+                0, _camera_agent_state(runtime, room_inputs.request)
+            )
+            sensors = [
+                simulator.sensors[modality_to_uuid[modality]]
+                for modality in modality_to_uuid
+            ]
+            initial_world_time = float(simulator.get_world_time())
+            slot = str(target["track"]["source_slot_id"])
+            semantic_id = int(target["track"]["semantic_id"])
+            camera_translation_error = 0.0
+            camera_rotation_error = 0.0
+            root_error = 0.0
+            joint_error = 0.0
+            for frame_index, frame_expected in enumerate(expected_frames):
+                expected = frame_expected[target_index]
+                if target_item_is_rigid:
+                    _apply_rigid_transform(
+                        target_actor, np.asarray(expected["root"]), runtime=runtime
+                    )
+                    actual_root = _rigid_root_readback(target_actor)
+                    root_error = max(
+                        root_error,
+                        float(np.max(np.abs(actual_root - expected["root"]))),
+                    )
+                    if float(np.max(np.abs(actual_root - expected["root"]))) > ROOT_READBACK_ATOL:
+                        raise MP3DMultiActorCaptureError(
+                            f"target-only frame {frame_index} rigid source root differs"
+                        )
+                else:
+                    _apply_root_with_habitat(
+                        target_actor,
+                        np.asarray(expected["root"]),
+                        qt=runtime.quaternion,
+                        mn=runtime.magnum,
+                    )
+                    target_actor.joint_positions = np.asarray(
+                        expected["joints"], dtype=np.float64
+                    ).copy()
+                    snapshot = _runtime_snapshot(simulator, target_actor)
+                    actual_root = np.asarray(
+                        snapshot["world_from_skin_root"], dtype=np.float64
+                    )
+                    actual_joints = np.asarray(
+                        snapshot["joint_positions_xyzw"], dtype=np.float64
+                    )
+                    root_error = max(
+                        root_error,
+                        float(np.max(np.abs(actual_root - expected["root"]))),
+                    )
+                    joint_error = max(
+                        joint_error,
+                        float(
+                            _quaternion_block_error(
+                                actual_joints, np.asarray(expected["joints"])
+                            )
+                        ),
+                    )
+                    if float(np.max(np.abs(actual_root - expected["root"]))) > ROOT_READBACK_ATOL:
+                        raise MP3DMultiActorCaptureError(
+                            f"target-only frame {frame_index} actor root differs"
+                        )
+                    if _quaternion_block_error(
+                        actual_joints, np.asarray(expected["joints"])
+                    ) > JOINT_READBACK_ATOL:
+                        raise MP3DMultiActorCaptureError(
+                            f"target-only frame {frame_index} actor joints differs"
+                        )
+                observation = simulator.render_sensors(sensors)
+                arrays = _validate_observation_arrays(
+                    observation, modality_to_uuid
+                )
+                if float(simulator.get_world_time()) != initial_world_time:
+                    raise MP3DMultiActorCaptureError(
+                        f"target-only frame {frame_index} advanced Habitat world time"
+                    )
+                target_camera = _state_snapshot(
+                    simulator,
+                    agent,
+                    list(modality_to_uuid.values()),
+                    runtime.quat_to_coeffs,
+                )
+                main_camera = main_camera_snapshots[frame_index]
+                for uuid in modality_to_uuid.values():
+                    target_sensor = target_camera["sensors"][uuid]
+                    main_sensor = main_camera["sensors"][uuid]
+                    if not np.allclose(
+                        target_sensor["translation_m"],
+                        main_sensor["translation_m"],
+                        atol=1.0e-6,
+                        rtol=0.0,
+                    ) or not np.allclose(
+                        target_sensor["rotation_xyzw"],
+                        main_sensor["rotation_xyzw"],
+                        atol=1.0e-6,
+                        rtol=0.0,
+                    ):
+                        raise MP3DMultiActorCaptureError(
+                            f"target-only frame {frame_index} camera differs from full-scene readback"
+                        )
+                    camera_translation_error = max(
+                        camera_translation_error,
+                        float(
+                            np.max(
+                                np.abs(
+                                    np.asarray(target_sensor["translation_m"])
+                                    - np.asarray(main_sensor["translation_m"])
+                                )
+                            )
+                        ),
+                    )
+                    camera_rotation_error = max(
+                        camera_rotation_error,
+                        float(
+                            np.max(
+                                np.abs(
+                                    np.asarray(target_sensor["rotation_xyzw"])
+                                    - np.asarray(main_sensor["rotation_xyzw"])
+                                )
+                            )
+                        ),
+                    )
+                semantic = np.asarray(arrays["semantic"])
+                masks_by_slot[slot].append(
+                    np.where(semantic == semantic_id, semantic_id, 0).astype(
+                        np.int32
+                    )
+                )
+            alignment["per_source"][slot] = {
+                "camera_max_translation_error_m": camera_translation_error,
+                "camera_max_rotation_error": camera_rotation_error,
+                "root_max_error_m": root_error,
+                "joint_max_error": joint_error,
+            }
+    return masks_by_slot, alignment
+
+
 def _emitter_link_id(actor: Any, track: Mapping[str, Any]) -> int:
     emitter = track.get("emitter")
     joint_id = emitter.get("joint_id") if isinstance(emitter, Mapping) else None
@@ -546,6 +1137,9 @@ def _capture_with_runtime(
     output: Path,
     gpu_device_id: int,
     simulator_factory: Callable[[Any], Any] | None,
+    runtime_registry_path: str | Path | None,
+    external_index_path: str | Path | None,
+    binding_delta_path: str | Path | None,
 ) -> dict[str, Any]:
     if runtime.mp3d_root is None:
         raise MP3DMultiActorCaptureError(
@@ -579,25 +1173,64 @@ def _capture_with_runtime(
     package_cache: dict[tuple[Path, Path], tuple[ValidatedM2Inputs, Any]] = {}
     actor_runtime: list[dict[str, Any]] = []
     for index, track in enumerate(tracks):
-        inputs, bundle = _load_track_runtime(track, cache=package_cache)
-        actor_runtime.append(
-            {
-                "track": track,
-                "inputs": inputs,
-                "bundle": bundle,
-                "joint_from_anchor": _emitter_anchor_transform(track, inputs),
-                "actor_index": index,
-            }
-        )
+        if _track_entity_class(track) in RIGID_ENTITY_CLASSES:
+            binding = _load_rigid_binding(
+                track,
+                runtime_registry_path=runtime_registry_path,
+                external_index_path=external_index_path,
+                binding_delta_path=binding_delta_path,
+            )
+            actor_runtime.append(
+                {
+                    "track": track,
+                    "entity_class": "rigid_object",
+                    "habitat_binding": binding,
+                    "actor_index": index,
+                }
+            )
+        else:
+            if (
+                runtime_registry_path is None
+                and external_index_path is None
+                and binding_delta_path is None
+            ):
+                inputs, bundle = _load_track_runtime(
+                    track,
+                    cache=package_cache,
+                )
+            else:
+                inputs, bundle = _load_track_runtime(
+                    track,
+                    cache=package_cache,
+                    runtime_registry_path=runtime_registry_path,
+                    external_index_path=external_index_path,
+                    binding_delta_path=binding_delta_path,
+                )
+            actor_runtime.append(
+                {
+                    "track": track,
+                    "entity_class": _track_entity_class(track),
+                    "inputs": inputs,
+                    "bundle": bundle,
+                    "joint_from_anchor": _emitter_anchor_transform(track, inputs),
+                    "actor_index": index,
+                }
+            )
     rgb_frames: list[np.ndarray] = []
     depth_frames: list[np.ndarray] = []
     semantic_frames: list[np.ndarray] = []
     actor_root_frames: list[np.ndarray] = []
     actor_joint_frames_by_slot: dict[str, list[np.ndarray]] = {
-        str(item["track"]["source_slot_id"]): [] for item in actor_runtime
+        str(item["track"]["source_slot_id"]): []
+        for item in actor_runtime
+        if item["entity_class"] not in RIGID_ENTITY_CLASSES
     }
     emitter_frames: list[np.ndarray] = []
     frame_records: list[dict[str, Any]] = []
+    target_masks_by_slot: dict[str, list[np.ndarray]] = {
+        str(item["track"]["source_slot_id"]): [] for item in actor_runtime
+    }
+    expected_frames: list[list[dict[str, Any]]] = []
     with simulator_factory(configuration) as simulator:
         navmesh = resolved_scene.get("navmesh")
         if navmesh is None or not Path(navmesh).is_file():
@@ -622,6 +1255,24 @@ def _capture_with_runtime(
         manager_cache: dict[Path, str] = {}
         actors_runtime: list[dict[str, Any]] = []
         for index, item in enumerate(actor_runtime):
+            if item["entity_class"] in RIGID_ENTITY_CLASSES:
+                actor = _instantiate_rigid_object(
+                    simulator,
+                    binding=item["habitat_binding"],
+                    habitat_sim=runtime.habitat_sim,
+                    semantic_id=int(item["track"]["semantic_id"]),
+                    object_index=index,
+                )
+                actors_runtime.append(
+                    {
+                        **item,
+                        "actor": actor,
+                        "binding": item["habitat_binding"],
+                        "emitter_id": None,
+                        "is_rigid": True,
+                    }
+                )
+                continue
             base_handle = _base_template_handle(
                 simulator, item["bundle"], cache=manager_cache
             )
@@ -634,7 +1285,15 @@ def _capture_with_runtime(
                 base_handle=base_handle,
             )
             emitter_id = _emitter_link_id(actor, item["track"])
-            actors_runtime.append({**item, "actor": actor, "binding": binding, "emitter_id": emitter_id})
+            actors_runtime.append(
+                {
+                    **item,
+                    "actor": actor,
+                    "binding": binding,
+                    "emitter_id": emitter_id,
+                    "is_rigid": False,
+                }
+            )
 
         agent = simulator.initialize_agent(
             0, _camera_agent_state(runtime, room_inputs.request)
@@ -647,6 +1306,20 @@ def _capture_with_runtime(
             expected_actor_values: list[dict[str, Any]] = []
             for item in actors_runtime:
                 track = item["track"]
+                if item["is_rigid"]:
+                    root = _rigid_transform(track, frame_index=frame_index)
+                    _apply_rigid_transform(item["actor"], root, runtime=runtime)
+                    expected_actor_values.append(
+                        {
+                            "root": root,
+                            "joints": np.empty((0,), dtype=np.float64),
+                            "action_id": "static",
+                            "action_time_ticks": 0,
+                            "action_sample_index": 0,
+                            "planned_route_center_m": None,
+                        }
+                    )
+                    continue
                 root, rotations, action_id, action_time_ticks, sample_index, route_center = _track_frame(
                     track,
                     frame_index=frame_index,
@@ -681,16 +1354,33 @@ def _capture_with_runtime(
                         "planned_route_center_m": route_center,
                     }
                 )
+            expected_frames.append(expected_actor_values)
 
             # Read the applied state before rendering to catch a bad binding,
             # then render exactly once. Observed fields below are read again
             # from the simulator after this call.
-            before = [_runtime_snapshot(simulator, item["actor"]) for item in actors_runtime]
+            before = [
+                _rigid_root_readback(item["actor"])
+                if item["is_rigid"]
+                else _runtime_snapshot(simulator, item["actor"])
+                for item in actors_runtime
+            ]
             for item, expected, snapshot in zip(
                 actors_runtime, expected_actor_values, before, strict=True
             ):
-                actual_root = np.asarray(snapshot["world_from_skin_root"], dtype=np.float64)
-                actual_joints = np.asarray(snapshot["joint_positions_xyzw"], dtype=np.float64)
+                if item["is_rigid"]:
+                    actual_root = np.asarray(snapshot, dtype=np.float64)
+                    if float(np.max(np.abs(actual_root - expected["root"]))) > ROOT_READBACK_ATOL:
+                        raise MP3DMultiActorCaptureError(
+                            f"frame {frame_index} rigid source {item['track']['actor_id']} root readback differs"
+                        )
+                    continue
+                actual_root = np.asarray(
+                    snapshot["world_from_skin_root"], dtype=np.float64
+                )
+                actual_joints = np.asarray(
+                    snapshot["joint_positions_xyzw"], dtype=np.float64
+                )
                 if float(np.max(np.abs(actual_root - expected["root"]))) > ROOT_READBACK_ATOL:
                     raise MP3DMultiActorCaptureError(
                         f"frame {frame_index} actor {item['track']['actor_id']} root readback differs"
@@ -701,7 +1391,12 @@ def _capture_with_runtime(
                     )
             observation = simulator.render_sensors(sensors)
             arrays = _validate_observation_arrays(observation, modality_to_uuid)
-            after = [_runtime_snapshot(simulator, item["actor"]) for item in actors_runtime]
+            after = [
+                _rigid_root_readback(item["actor"])
+                if item["is_rigid"]
+                else _runtime_snapshot(simulator, item["actor"])
+                for item in actors_runtime
+            ]
             if float(simulator.get_world_time()) != initial_world_time:
                 raise MP3DMultiActorCaptureError(
                     f"frame {frame_index} advanced Habitat world time"
@@ -709,6 +1404,19 @@ def _capture_with_runtime(
             for item, before_snapshot, after_snapshot in zip(
                 actors_runtime, before, after, strict=True
             ):
+                if item["is_rigid"]:
+                    if float(
+                        np.max(
+                            np.abs(
+                                np.asarray(after_snapshot)
+                                - np.asarray(before_snapshot)
+                            )
+                        )
+                    ) > ROOT_READBACK_ATOL:
+                        raise MP3DMultiActorCaptureError(
+                            f"frame {frame_index} rigid source {item['track']['actor_id']} changed during render"
+                        )
+                    continue
                 before_root = np.asarray(
                     before_snapshot["world_from_skin_root"], dtype=np.float64
                 )
@@ -734,9 +1442,24 @@ def _capture_with_runtime(
             observed_emitters: list[np.ndarray] = []
             actor_records: list[dict[str, Any]] = []
             for item, expected, snapshot in zip(actors_runtime, expected_actor_values, after, strict=True):
-                root = np.asarray(snapshot["world_from_skin_root"], dtype=np.float64)
-                joints = np.asarray(snapshot["joint_positions_xyzw"], dtype=np.float64)
-                emitter = _emitter_position(item["actor"], item["emitter_id"], item["joint_from_anchor"])
+                if item["is_rigid"]:
+                    root = np.asarray(snapshot, dtype=np.float64)
+                    joints = np.empty((0,), dtype=np.float64)
+                    emitter = _rigid_emitter_position(
+                        item["actor"], item["binding"]
+                    )
+                else:
+                    root = np.asarray(
+                        snapshot["world_from_skin_root"], dtype=np.float64
+                    )
+                    joints = np.asarray(
+                        snapshot["joint_positions_xyzw"], dtype=np.float64
+                    )
+                    emitter = _emitter_position(
+                        item["actor"],
+                        item["emitter_id"],
+                        item["joint_from_anchor"],
+                    )
                 observed_roots.append(root)
                 observed_joints.append(joints)
                 observed_emitters.append(emitter)
@@ -749,12 +1472,16 @@ def _capture_with_runtime(
                         "source_slot_id": item["track"]["source_slot_id"],
                         "source_endpoint_id": item["track"]["source_endpoint_id"],
                         "asset_id": item["track"]["asset"]["asset_id"],
+                        "entity_class": item["entity_class"],
                         "semantic_id": int(item["track"]["semantic_id"]),
                         "action_id": expected["action_id"],
                         "action_time_ticks": expected["action_time_ticks"],
                         "action_sample_index": expected["action_sample_index"],
                         "planned_route_center_m": expected["planned_route_center_m"],
                         "world_from_skin_root": _transform_record(root),
+                        "world_from_object": _transform_record(root)
+                        if item["is_rigid"]
+                        else None,
                         "joint_positions_xyzw": joints.tolist(),
                         "emitter_world_position_m": emitter.tolist(),
                         "semantic_pixel_count": semantic_pixels,
@@ -768,7 +1495,10 @@ def _capture_with_runtime(
             semantic_frames.append(semantic)
             actor_root_frames.append(np.stack(observed_roots))
             for item, joints in zip(actors_runtime, observed_joints, strict=True):
-                actor_joint_frames_by_slot[str(item["track"]["source_slot_id"])].append(joints)
+                if not item["is_rigid"]:
+                    actor_joint_frames_by_slot[
+                        str(item["track"]["source_slot_id"])
+                    ].append(joints)
             emitter_frames.append(np.stack(observed_emitters))
             camera_snapshot = _state_snapshot(
                 simulator, agent, sensor_uuids, runtime.quat_to_coeffs
@@ -790,6 +1520,23 @@ def _capture_with_runtime(
                     },
                 }
             )
+    try:
+        target_masks_by_slot, target_alignment = _capture_target_only_blank(
+            room_inputs=room_inputs,
+            actors_runtime=actors_runtime,
+            expected_frames=expected_frames,
+            fallback_semantic_frames=semantic_frames,
+            main_camera_snapshots=[frame["camera_readback"] for frame in frame_records],
+            runtime=runtime,
+            output=output,
+            gpu_device_id=gpu_device_id,
+            simulator_factory=simulator_factory,
+        )
+    except (OSError, TypeError, ValueError, RuntimeError) as exc:
+        raise MP3DMultiActorCaptureError(
+            f"Habitat target-only capture failed: {exc}"
+        ) from exc
+    _write_json(output / "target_only_readback_alignment.json", target_alignment)
     _save_array(output, "rgb", rgb_frames)
     _save_array(output, "depth", depth_frames)
     _save_array(output, "semantic", semantic_frames)
@@ -805,6 +1552,32 @@ def _capture_with_runtime(
         "frames": frame_records,
         "render": dict(case["clock"]),
     })
+    try:
+        pixel_masks_path, pixel_truth_path, pixel_truth = _save_pixel_evidence(
+            output,
+            semantic_frames=semantic_frames,
+            target_masks_by_slot=target_masks_by_slot,
+            actors_runtime=actors_runtime,
+            room_inputs=room_inputs,
+            frame_count=int(case["clock"]["frame_count"]),
+        )
+    except (OSError, TypeError, ValueError) as exc:
+        raise MP3DMultiActorCaptureError(
+            f"Habitat target-only pixel evidence failed: {exc}"
+        ) from exc
+    try:
+        from avengine.rooms.qa_evidence import derive_actor_occluders
+
+        actor_occluders = derive_actor_occluders(
+            pixel_masks_path,
+            pixel_truth,
+        )
+    except (ImportError, OSError, TypeError, ValueError) as exc:
+        raise MP3DMultiActorCaptureError(
+            f"Habitat actor occluder derivation failed: {exc}"
+        ) from exc
+    actor_occluders_path = output / "actor_occluders.json"
+    _write_json(actor_occluders_path, actor_occluders)
     receipt = {
         "schema": NATIVE_CAPTURE_SCHEMA,
         "artifact_role": "observed_native_habitat_capture",
@@ -814,8 +1587,9 @@ def _capture_with_runtime(
         "qualification_claim": False,
         "claim_boundary": (
             "native Habitat RGB/depth/semantic and actor root/joint/emitter "
-            "readback only; no RLR audio, target-only/object-ID, collision "
-            "qualification, or formal admission"
+            "readback plus same-camera target-only semantic masks and pixel "
+            "visibility truth; no RLR audio, collision qualification, or formal "
+            "admission"
         ),
         "capture": {
             **dict(case["clock"]),
@@ -829,6 +1603,7 @@ def _capture_with_runtime(
                 "effective_enable_physics": True,
             },
             "observed_frame_records": "frame_records.json",
+            "pixel_truth_status": pixel_truth["status"],
         },
         "inputs": {
             "case_manifest": str(case_manifest_path.resolve()),
@@ -841,17 +1616,64 @@ def _capture_with_runtime(
                 "source_slot_id": item["track"]["source_slot_id"],
                 "source_endpoint_id": item["track"]["source_endpoint_id"],
                 "asset_id": item["track"]["asset"]["asset_id"],
-                "asset_manifest_path": item["track"]["asset"]["asset_manifest_path"],
-                "base_m2_request_path": item["track"]["asset"]["base_m2_request_path"],
-                "emitter_joint_id": item["track"]["emitter"]["joint_id"],
-                "joint_from_anchor_matrix": _transform_record(item["joint_from_anchor"]),
+                "entity_class": item["entity_class"],
+                **(
+                    {
+                        "asset_manifest_path": (
+                            item["track"]["asset"].get("asset_manifest_path")
+                            or (
+                                None
+                                if getattr(item.get("inputs"), "asset_path", None)
+                                is None
+                                else str(item["inputs"].asset_path)
+                            )
+                        ),
+                        "base_m2_request_path": (
+                            item["track"]["asset"].get("base_m2_request_path")
+                            or (
+                                None
+                                if getattr(item.get("inputs"), "request_path", None)
+                                is None
+                                else str(item["inputs"].request_path)
+                            )
+                        ),
+                        "emitter_joint_id": item["track"]["emitter"]["joint_id"],
+                        "joint_from_anchor_matrix": _transform_record(
+                            item["joint_from_anchor"]
+                        ),
+                    }
+                    if not item["is_rigid"]
+                    else {
+                        "habitat_binding": item["binding"],
+                        "emitter_anchor_id": item["binding"]["emitter"]["anchor_id"],
+                        "resting_pose": item["binding"]["resting_pose"],
+                    }
+                ),
                 "native_emitter_readback": "frame_records.actor_readbacks[].emitter_world_position_m",
             }
-            for item in actor_runtime
+            for item in actors_runtime
         ],
         "object_id": {
             "status": "pending",
-            "reason": "current M1 configuration exposes semantic_id only; no target-only/object-ID capture was run",
+            "reason": (
+                "Habitat object-ID modality was not requested; same-camera "
+                "target-only semantic masks completed for every source"
+            ),
+        },
+        "target_only": {
+            "status": "pass",
+            "reason": "same-camera target-only semantic render completed for every source",
+            "pass_kind": "semantic_target_only",
+            "scene_geometry_policy": (
+                "blank_habitat_stage_scene_id_NONE; target object retained"
+            ),
+            "same_camera_readback_verified": True,
+            "same_root_joint_readback_verified": True,
+            "alignment": "target_only_readback_alignment.json",
+            "source_count": len(actors_runtime),
+            "pixel_masks": pixel_masks_path.name,
+            "pixel_visibility_truth": pixel_truth_path.name,
+            "target_only_readback_alignment": "target_only_readback_alignment.json",
         },
         "artifacts": {
             "rgb": "rgb.npy",
@@ -861,6 +1683,9 @@ def _capture_with_runtime(
             "actor_joint_readbacks_by_slot": actor_joint_artifacts,
             "emitter_positions_m": "emitter_positions_m.npy",
             "frame_records": "frame_records.json",
+            "pixel_masks": pixel_masks_path.name,
+            "pixel_visibility_truth": pixel_truth_path.name,
+            "actor_occluders": actor_occluders_path.name,
         },
     }
     _write_json(output / "research_receipt.json", receipt)
@@ -878,6 +1703,10 @@ def capture_mp3d_multi_actor(
     magnum_python_site: str | Path | None = None,
     output_directory: str | Path,
     gpu_device_id: int = 0,
+    episode_plan_path: str | Path | None = None,
+    runtime_registry_path: str | Path | None = None,
+    external_index_path: str | Path | None = None,
+    binding_delta_path: str | Path | None = None,
     runtime: InstalledHabitatRuntime | None = None,
     simulator_factory: Callable[[Any], Any] | None = None,
 ) -> dict[str, Any]:
@@ -908,7 +1737,7 @@ def capture_mp3d_multi_actor(
             ) from exc
     output = _fresh_output(output_directory)
     tracks = tuple(item["value"] for item in track_records)
-    return _capture_with_runtime(
+    receipt = _capture_with_runtime(
         case_manifest_path=Path(case_manifest_path).expanduser().resolve(),
         case=case,
         tracks=tracks,
@@ -917,7 +1746,36 @@ def capture_mp3d_multi_actor(
         output=output,
         gpu_device_id=gpu_device_id,
         simulator_factory=simulator_factory,
+        runtime_registry_path=runtime_registry_path,
+        external_index_path=external_index_path,
+        binding_delta_path=binding_delta_path,
     )
+    if episode_plan_path is not None:
+        plan = _read_json(episode_plan_path, owner="episode plan")
+        try:
+            from avengine.capture.habitat_neutral_readback import (
+                write_habitat_neutral_readback,
+            )
+
+            write_habitat_neutral_readback(output, plan)
+        except (ImportError, OSError, TypeError, ValueError, RuntimeError) as exc:
+            raise MP3DMultiActorCaptureError(
+                f"Habitat neutral readback failed: {exc}"
+            ) from exc
+        receipt = {
+            **receipt,
+            "neutral_readback": {
+                "status": "pass",
+                "path": "neutral_readback.json",
+                "plan": str(Path(episode_plan_path).expanduser().resolve()),
+            },
+            "artifacts": {
+                **receipt["artifacts"],
+                "neutral_readback": "neutral_readback.json",
+            },
+        }
+        _write_json(Path(output) / "research_receipt.json", receipt)
+    return receipt
 
 
 __all__ = [

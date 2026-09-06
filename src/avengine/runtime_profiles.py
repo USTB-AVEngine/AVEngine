@@ -332,8 +332,12 @@ def _validate_static_runtime_record(
         if isinstance(runtime_backends, Mapping)
         else None
     )
+    habitat = runtime_backends.get("habitat") if isinstance(runtime_backends, Mapping) else None
+    if not isinstance(spear, Mapping) and not isinstance(habitat, Mapping):
+        errors.append(f"{prefix}: rigid_object lacks a renderer binding")
+    if isinstance(record.get("geometry"), Mapping) and record["geometry"].get("rig_authority") is not None:
+        errors.append(f"{prefix}: rigid_object must not declare rig_authority")
     if not isinstance(spear, Mapping):
-        errors.append(f"{prefix}: rigid_object lacks a SPEAR static-mesh binding")
         return errors
     if spear.get("static_mesh_binding") != "explicit_path":
         errors.append(
@@ -788,7 +792,7 @@ def source_timeline_profiles(
     result: dict[str, dict[str, Any]] = {}
     for asset_id, record in source_asset_runtime_index(registry).items():
         if record.get("entity_class") == "rigid_object":
-            spear = record["runtime_backends"]["spear_unreal"]
+            spear = record["runtime_backends"].get("spear_unreal")
             result[asset_id] = {
                 "revision": record["revision"],
                 "entity_class": "rigid_object",
@@ -799,7 +803,7 @@ def source_timeline_profiles(
                 "geometry": deepcopy(dict(record["geometry"])),
                 "default_emitter_anchor_id": record["default_emitter_anchor_id"],
                 "emitter_anchors": deepcopy(list(record["emitter_anchors"])),
-                "static_mesh_binding": deepcopy(dict(spear)),
+                **({"static_mesh_binding": deepcopy(dict(spear))} if spear else {}),
             }
             continue
         timeline = record["timeline"]
@@ -865,7 +869,7 @@ def build_asset_emitter_binding(
         )
     anchor = matches[0]
     if record.get("entity_class") == "rigid_object":
-        spear = record["runtime_backends"]["spear_unreal"]
+        spear = record["runtime_backends"].get("spear_unreal")
         binding = {
             "source_slot_id": source_slot_id,
             "asset_id": asset_id,
@@ -876,12 +880,10 @@ def build_asset_emitter_binding(
             "emitter_offset_m": deepcopy(list(anchor["offset_m"])),
             "emitter_offset_space": anchor["offset_space"],
             "offset_space": anchor["offset_space"],
-            "static_mesh_binding": spear["static_mesh_binding"],
-            "static_mesh_object_path": spear["static_mesh_object_path"],
-            "actor_scale": float(spear["actor_scale"]),
-            "ue_static_forward_yaw_deg": float(
-                spear["ue_static_forward_yaw_deg"]
-            ),
+            **({"static_mesh_binding": spear["static_mesh_binding"],
+                "static_mesh_object_path": spear["static_mesh_object_path"],
+                "actor_scale": float(spear["actor_scale"]),
+                "ue_static_forward_yaw_deg": float(spear["ue_static_forward_yaw_deg"])} if spear else {}),
         }
     else:
         binding = {
