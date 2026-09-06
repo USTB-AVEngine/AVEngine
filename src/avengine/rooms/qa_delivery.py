@@ -22,14 +22,17 @@ from avengine.rooms.qa_evidence import (
 def build_audio_command(
     request: Mapping[str, Any], plan: Mapping[str, Any], episode_root: Path,
     audio_root: Path, *, repository: Path,
+    capture_root: Path | None = None, plan_root: Path | None = None,
 ) -> list[str]:
     runtime = request["runtime"]
+    selected_capture = Path(capture_root) if capture_root is not None else episode_root / "capture"
+    selected_plan = Path(plan_root) if plan_root is not None else episode_root / "plan"
     command = [
         sys.executable, str(repository / "tools/acoustics/render_frame_readback_sequential_speech.py"),
-        "--frame-readbacks", str(episode_root / "capture/frame_readbacks.json"),
+        "--frame-readbacks", str(selected_capture / "frame_readbacks.json"),
         "--package-manifest", str(plan["resources"]["acoustic_package"]),
-        "--voice-binding", str(episode_root / "plan/voice_bindings.json"),
-        "--audio-plan", str(episode_root / "plan/episode_plan.json"),
+        "--voice-binding", str(selected_plan / "voice_bindings.json"),
+        "--audio-plan", str(selected_plan / "episode_plan.json"),
         "--output", str(audio_root),
         "--runtime-prefix", str(runtime["runtime_prefix"]),
         "--rlr-sdk-root", str(runtime["rlr_sdk_root"]),
@@ -43,6 +46,7 @@ def build_audio_command(
         request.get("neutral_readback")
         or runtime.get("neutral_readback")
         or plan.get("neutral_readback")
+        or (selected_capture / "neutral_readback.json" if (selected_capture / "neutral_readback.json").is_file() else None)
     )
     if neutral:
         command += ["--neutral-readback", str(neutral)]
@@ -127,12 +131,18 @@ def _is_habitat_plan(plan: Mapping[str, Any]) -> bool:
     resources = plan.get("resources")
     resources = resources if isinstance(resources, Mapping) else {}
     package = resources.get("room_package")
-    return bool(
-        plan.get("plan_coordinates") == "renderer_neutral"
-        or plan.get("renderer_backend") == "habitat"
-        or resources.get("backend") == "habitat"
-        or (isinstance(package, Mapping) and package.get("renderer") == "habitat")
+    renderer = (
+        (package.get("renderer") if isinstance(package, Mapping) else None)
+        or plan.get("renderer_backend")
+        or resources.get("backend")
     )
+    if renderer == "habitat":
+        return True
+    if renderer in {"ue_spear", "spear_unreal", "spear_unreal_native"}:
+        return False
+    if plan.get("plan_coordinates") == "renderer_neutral":
+        raise ValueError("neutral plan has no declared room renderer for automatic audio")
+    return False  # Retained UE plans predate renderer-neutral room packages.
 
 
 def _authoritative_endpoint_bindings(
@@ -999,7 +1009,8 @@ def finalize_qa_episode(
         else:
             command_root = root if (root / "capture").is_dir() else plan_path.parent.parent
             command = build_audio_command(
-                request_value, plan, command_root, audio_root, repository=repository_path
+                request_value, plan, command_root, audio_root, repository=repository_path,
+                capture_root=capture_root, plan_root=plan_path.parent,
             )
         commands["audio"] = command
         write_json(derived / "commands.json", commands)

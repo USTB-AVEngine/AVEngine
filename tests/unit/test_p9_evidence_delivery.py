@@ -378,3 +378,35 @@ def test_gray_blue_coat_does_not_mean_saturated_blue_and_unknown_value_is_explic
     assert row["status"] == "not_observable"
     unknown = inspect_registered_appearance(rgb, mask, "unregistered_pattern", entity_kind="animal")
     assert unknown["gap_category"] == "interface_not_implemented"
+
+
+def test_automatic_ue_audio_uses_selected_contract_capture_and_plan(tmp_path):
+    from avengine.rooms.qa_delivery import build_audio_command
+
+    root = tmp_path / "episode"
+    failed = root / "capture"
+    failed.mkdir(parents=True)
+    selected = root / "capture_retry_v3"
+    selected.mkdir()
+    (selected / "neutral_readback.json").write_text("{}")
+    plan_root = root / "plan"
+    command = build_audio_command(
+        {"runtime": {"runtime_prefix": "runtime", "rlr_sdk_root": "rlr", "magnum_python_site": "magnum"}},
+        {"resources": {"acoustic_package": "actual-room.json"}},
+        root, tmp_path / "audio", repository=Path(__file__).resolve().parents[2],
+        capture_root=selected, plan_root=plan_root,
+    )
+    assert command[command.index("--frame-readbacks") + 1] == str(selected / "frame_readbacks.json")
+    assert command[command.index("--neutral-readback") + 1] == str(selected / "neutral_readback.json")
+    assert command[command.index("--audio-plan") + 1] == str(plan_root / "episode_plan.json")
+    assert str(failed / "frame_readbacks.json") not in command
+
+
+def test_neutral_coordinates_do_not_select_habitat_renderer():
+    from avengine.rooms.qa_delivery import _is_habitat_plan
+
+    common = {"plan_coordinates": "renderer_neutral"}
+    assert not _is_habitat_plan({**common, "resources": {"room_package": {"renderer": "ue_spear"}}})
+    assert _is_habitat_plan({**common, "resources": {"room_package": {"renderer": "habitat"}}})
+    with pytest.raises(ValueError, match="no declared room renderer"):
+        _is_habitat_plan(common)

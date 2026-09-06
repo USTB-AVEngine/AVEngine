@@ -1284,3 +1284,17 @@ audio is reused only after exact actual camera/clock/emitter equality. Old COM
 centred captures are diagnostic. Related origin/binding tests: 11 passed.
 P11 UE integration, P10 and the actual human listening records remain pending;
 the 46-episode pilot has not started.
+
+## Checkpoint 20260907: automatic UE neutral audio closure
+
+Kujiale animal/device path is complete in
+tmp/matrix_kujiale_beagle_speaker_20260907_v2/delivery_v3: native 240 frames,
+16-second two-channel automatic P6 audio, P9 contract and export passed.
+Fixes select audio renderer from RoomPackage, carry the actual retry capture
+into audio, and adapt explicit NeutralReadback to the unchanged old RIR cache
+format. P6/P9/legacy audio tests: 35 passed; native PCM readback is finite
+[256000,2] at 16kHz. Beagle remains pixel-appearance not_observable at the image
+edge; speaker is reviewed. The independent stage preserves shared map/Content.
+P11 imported 38 additional UE rigid meshes and is completing actor/emitter
+readback plus four extra animated animal bindings. P10 remains last; no pilot
+production or human-listening completion is claimed.

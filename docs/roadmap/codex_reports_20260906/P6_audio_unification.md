@@ -89,6 +89,26 @@ Gain acceptance：
 - 在同一 neutral、同一 AudioProgram 时序、同一 RIR 序列下，mixture、两个 stems 和两个 dry buses 的中位逐样本比例均为 `6.6666666667`；最大相对比例误差约 `9.93e-8`。
 - 输出为 IEEE float32 WAVE；本批记录的最大绝对 float64→float32 编码误差约 `7.19e-9`。五份最终可用更正 JSON 均通过 validator；原始回执和 PCM/媒体保持不变。
 
+### 20260907 中立输入与旧缓存组合的真实回归
+
+酷家乐动物/设备自动收口暴露了 explicit neutral + `--rir-cache` 的适配错误：
+旧 cache helper 仍按 UE `emitters` 表读取中立输入，报
+`ValueError: frame readbacks must contain camera and emitters`。新增局部
+`_neutral_cache_keyframes`，复用现有 neutral camera/source readers 和 shared
+strided keyframe grid，将实际米制姿态送入原有缓存行格式。无策略的旧 UE
+动态相机路径、双槽缓存文件格式与卷积/gain 行为不变。
+
+真实验证：`tmp/matrix_kujiale_beagle_speaker_20260907_v2/delivery_v3/`，P9
+自动调用P6，输入是 `capture_retry_v3/neutral_readback.json`，无手工 audio
+report 或伪 UE 占位文件。实际输出 `[256000,2]` / 16kHz / 16秒，全部有限，
+peak_abs=0.101615034；统一回执 require_files 校验通过。父代理 readback 见
+`parent_validation.json`；旧失败 delivery_v1/v2 保留。
+
+P6/P9 与旧 dynamic/speech 回归共 35 passed / 0 failed / 0 skipped，5.43秒，
+`tmp/p6_neutral_cache_tests_20260907_v2.log`。首轮28通过/1失败是新增测试误把
+已知的 emitter 向量当字典索引（`TypeError: list indices must be integers or
+slices, not str`）；修正测试后通过。工具索引已重生成并验证。
+
 ## 4. 没做完的部分和原因
 
 - `evidence_missing_or_unsampled`：没有把 source activity 说成 listener audibility；听者实际可听性仍需基于 wet stem/人工听音单独核对。

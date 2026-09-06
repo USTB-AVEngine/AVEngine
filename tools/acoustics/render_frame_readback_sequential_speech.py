@@ -45,7 +45,10 @@ from avengine.acoustics.runtime import (
 )
 from avengine.timeline.audio import render_dynamic_stems_and_mix, time_varying_convolve
 from avengine.timeline.audio_program import bind_audio_program_hash, validate_audio_program
-from avengine.timeline.current_mp3d_dynamic_audio import render_neutral_readback_audio
+from avengine.timeline.current_mp3d_dynamic_audio import (
+    render_neutral_readback_audio, _neutral_camera_pose, _neutral_source_trajectories,
+)
+from avengine.capture.acoustics import build_strided_review_keyframes
 
 TIME_BASE_HZ = 48_000
 TICKS_PER_SAMPLE = 3
@@ -850,6 +853,40 @@ def _readback_keyframes(
     if not keyframes or keyframes[0]["sample_index"] != 0:
         raise ValueError("dynamic RIR keyframe grid must start at sample zero")
     return keyframes, trajectories
+
+
+
+def _neutral_cache_keyframes(
+    neutral: Mapping[str, Any],
+    *,
+    actor_by_endpoint: Mapping[str, Mapping[str, Any]],
+    clock: Mapping[str, Any],
+    rir_stride_frames: int,
+) -> list[dict[str, Any]]:
+    """Adapt actual neutral poses to the unchanged historical cache rows."""
+    trajectories = _neutral_source_trajectories(
+        neutral, sorted(actor_by_endpoint),
+        source_endpoint_by_entity={str(row["actor_id"]): endpoint for endpoint, row in actor_by_endpoint.items()},
+    )
+    position, orientation = _neutral_camera_pose(neutral)
+    grid = build_strided_review_keyframes(
+        trajectories, visual_frame_rate_hz=clock["frame_rate_hz"],
+        rir_stride_frames=rir_stride_frames, listener_position_m=position,
+        listener_orientation_wxyz=orientation,
+        timeline_tick_rate_hz=clock["time_base_hz"], sample_rate_hz=clock["sample_rate_hz"],
+    )
+    return [
+        {
+            "keyframe_index": index, "visual_frame_index": frame_index,
+            "time_seconds": frame.tick / clock["time_base_hz"],
+            "tick": frame.tick, "sample_index": frame.sample_index,
+            "source_positions_m": {key: list(value) for key, value in frame.source_positions_m.items()},
+            "listener_position_m": list(frame.listener_position_m),
+            "listener_orientation_wxyz": list(frame.listener_orientation_wxyz),
+            "listener_basis_m3": {key: list(neutral["camera"][frame_index]["basis"][key]) for key in ("forward", "right", "up")},
+        }
+        for index, (frame_index, frame) in enumerate(zip(grid.visual_frame_indices, grid.keyframes, strict=True))
+    ]
 
 
 def _dynamic_cache_request_metadata(
@@ -1927,16 +1964,22 @@ def _render_plan_audio(
         # the transition entry. The shared renderer consumes the resulting
         # named sequence, so no second cache format or second convolution path
         # is introduced.
-        legacy_keyframes, _ = _readback_keyframes(
-            readback,
-            actor_by_endpoint=actor_by_endpoint,
-            frame_count=frame_count,
-            frame_rate_hz=clock["frame_rate_hz"],
-            ticks_per_frame=int(clock["ticks_per_frame"]),
-            time_base_hz=int(clock["time_base_hz"]),
-            sample_rate_hz=sample_rate,
-            rir_stride_frames=rir_stride_frames,
-        )
+        if neutral_readback is not None:
+            legacy_keyframes = _neutral_cache_keyframes(
+                neutral, actor_by_endpoint=actor_by_endpoint, clock=clock,
+                rir_stride_frames=rir_stride_frames,
+            )
+        else:
+            legacy_keyframes, _ = _readback_keyframes(
+                readback,
+                actor_by_endpoint=actor_by_endpoint,
+                frame_count=frame_count,
+                frame_rate_hz=clock["frame_rate_hz"],
+                ticks_per_frame=int(clock["ticks_per_frame"]),
+                time_base_hz=int(clock["time_base_hz"]),
+                sample_rate_hz=sample_rate,
+                rir_stride_frames=rir_stride_frames,
+            )
         scene_override = load_compiled_acoustic_scene(
             package_path,
             allow_nonpassing_research_qa=True,

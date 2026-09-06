@@ -84,6 +84,35 @@ P4 HM3D animal/speaker 实跑收口使用同一 capture tmp/p4_hm3d_animal_speak
 
 实际补充：tmp/p12_native_capture_human_british_20260907_v2/native_capture_readable_v1/parent_registered_color_review_v1.json 直接用该capture neutral里观测到的asset/slot identity和正式registry作外观声明，读取真实rgb.npy与mask。Blue human和British standard_blue均在3个所查帧reviewed：首帧蓝衣968像素（旧512门槛），猫灰蓝成分366/434像素。父 Agent查看了按正确RGB顺序导出的原生contact sheet；猫仍触及下边界，不宣称完整体型或人工接触认证。
 
+### 20260907 酷家乐动物/设备自动收口
+
+`finalize` 自动音频现在依据 RoomPackage 的实际 renderer 分派；
+`plan_coordinates=renderer_neutral` 仅是共用坐标声明，不能当作 Habitat。
+中立计划缺 renderer 会明确失败。`build_audio_command` 新增可选
+`capture_root`、`plan_root`，由 finalizer 传入实际选中的契约与计划目录，
+并读取其中真实 NeutralReadback，避免把重捕获重新指向旧失败 capture。
+P6 同时修复了 explicit neutral + 旧 cache 的输入适配，格式不变。
+
+真实新路径：`tmp/matrix_kujiale_beagle_speaker_20260907_v2/`，当前酷家乐包、
+measured floor、新建可逆 stage、240帧/15Hz/85°静止相机。原 stage 缺书架
+音箱 Content，复制 task stage 并只补入已 NativeLoadObject 验证的 speaker
+subtree；未改共享 Content 或 map。首次 clone 缺外部 `../plugins`，启动
+报 `Unable to load plugin 'SpCore'.`，补原有插件引用后新 `capture_retry_v3`
+通过。该 capture 包含真实 beagle/音箱根和 emitter、完整像素证据。
+
+最终 `delivery_v3/` 不传 audio_report，自动P6双声道、P9合同/preview/export
+均 pass；音画均16秒，8 valid/16 deferred，原始24类分母保留。父查看实际
+0/120/239帧：音箱可见；beagle靠画面下右边缘，故像素毛色检查仍
+not_observable，未当作完整外观验收。两次自动音频失败分别为
+`ValueError: Habitat actor 'source1' has no authoritative source endpoint (plan, materialized track, or neutral entity_identities)`（错误renderer路由）
+和 `frame readbacks must contain camera and emitters`（neutral/cache适配），
+旧 delivery_v1/v2 保留，最后使用正确源目录完整运行。
+
+相关35单测通过，实际PCM/契约核对在 `delivery_v3/parent_validation.json`。
+P4原点修复后的最新HM3D/MP3D收口另见
+`tmp/p4_rigid_origin_captures_20260907_v1/{hm3d,mp3d}/delivery_v1`，旧COM居中
+素材保留诊断；经实际camera/clock/emitter逐值相等后复用原P6音频。
+
 ## 4. 未完成与边界
 
 - P4 MP3D 原始 capture 没有 native video master，但提供了完整真实 `rgb.npy`；P9 已按真实 clock 生成 derived `visual_rgb.mp4` 并独立 mux 音频，因此当前 MP3D preview/export 已通过。native video master 本身仍不存在。

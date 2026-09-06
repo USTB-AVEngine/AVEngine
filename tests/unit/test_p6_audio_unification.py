@@ -567,7 +567,8 @@ def test_old_moving_listener_dispatches_to_real_dynamic_renderer_and_preserves_k
         )
 
 
-def test_explicit_neutral_input_needs_no_legacy_readback_placeholder(tmp_path, monkeypatch):
+@pytest.mark.parametrize("cache_enabled", [False, True])
+def test_explicit_neutral_input_needs_no_legacy_readback_placeholder(tmp_path, monkeypatch, cache_enabled):
     from avengine.capture.ue_neutral_readback import neutral_from_ue_readbacks
     readback, plan_path, binding, package = _moving_legacy_plan_fixture(tmp_path)
     raw = json.loads(readback.read_text())
@@ -585,8 +586,15 @@ def test_explicit_neutral_input_needs_no_legacy_readback_placeholder(tmp_path, m
         Path(kwargs["output_path"]).mkdir()
         return {"schema": "test-receipt", "input_neutral_readback": {"path": str(actual)}}
     monkeypatch.setattr(speech, "render_neutral_readback_audio", fake_shared)
+    if cache_enabled:
+        def fake_cache(**kwargs):
+            seen["cache_keyframes"] = kwargs["keyframes"]
+            return np.zeros((len(kwargs["keyframes"]), 2, 2, 1)), np.ones((len(kwargs["keyframes"]), 2), dtype=int), {}, {"status": "test_cache"}
+        monkeypatch.setattr(speech, "load_compiled_acoustic_scene", lambda *args, **kwargs: object())
+        monkeypatch.setattr(speech, "_dynamic_rir_sequence", fake_cache)
     report = speech.render(
         neutral_readback=path, audio_plan=plan_path,
+        rir_cache=tmp_path / "cache" if cache_enabled else None,
         package_manifest=package, voice_binding=binding, output=tmp_path / "output",
         runtime_prefix="runtime", rlr_sdk_root="rlr", magnum_python_site="magnum")
     assert Path(seen["actual"]) == path
@@ -594,3 +602,10 @@ def test_explicit_neutral_input_needs_no_legacy_readback_placeholder(tmp_path, m
     assert "frame_readbacks" not in report
     assert seen["listener_authority"] == "P1 NeutralReadback.camera[0]"
     assert seen["position_authority"] == "P1 NeutralReadback entities[].emitter"
+
+    if cache_enabled:
+        first = seen["cache_keyframes"][0]
+        assert first["sample_index"] == first["visual_frame_index"] == 0
+        assert first["listener_position_m"] == neutral["camera"][0]["position_m"]
+        assert sorted(first["source_positions_m"].values()) == sorted(rows[0]["emitter"] for rows in neutral["entities"].values())
+        assert seen["rir_sequence_override"]["binaural"]["cache"]["status"] == "test_cache"
