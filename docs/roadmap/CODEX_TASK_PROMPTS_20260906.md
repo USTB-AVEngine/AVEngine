@@ -4,6 +4,18 @@
 
 ---
 
+## 启动提示词（owner 一次性交给 Codex 的话）
+
+这是整个改造的总任务书。你在服务器 48g-jump 的仓库工作树 /data/jzy/tmp/wt-multi-home-activity-integration 里工作，分支 codex/multi-home-activity-integration，开工前先 git log -1 确认最新提交不早于 18b082d。
+
+先完整读本文件的"总前提"（十五条硬规矩，一条都不能绕），再读它引用的四份文档：docs/roadmap/QA_PRODUCTION_ARCHITECTURE_20260906.md、docs/roadmap/QA_GENERALIZED_SAMPLER_PLAN_V2_20260906.md、docs/roadmap/QA_FOUR_FAMILY_GAP_LIST_20260906.md、docs/roadmap/QA_PILOT_DATASET_AND_WORK_SPLIT_20260906.md。
+
+要做的是本文件里 P1 到 P12 的全部十二项，目标是架构文档第 6 节定义的全矩阵：四个房间家族乘人、动物、设备三类声源，每一格至少一条经过验证的原生路径，所有资产都进两个渲染器，不分梯队。你自己安排子代理和先后顺序，但要遵守文件占用规则：P1、P2、P4、P7、P12 互不重叠可以同时开；P2、P5、P11 都改 qa_episode.py，按这个顺序串行；P3 和 P9 等 P1 的校验器提交后再开；P6 独立；P8 独立；P10 最后。每一项做完就提交到当前分支，并把报告按文末"报告格式"写成 docs/roadmap/codex_reports_20260906/<P 编号>_<简短名>.md 一起提交，Claude 会从分支上读报告做独立复核。
+
+十二项全部验收通过后，按 QA_PILOT_DATASET_AND_WORK_SPLIT_20260906.md 第 1 节跑 46 段小数据集（owner 已授权这一批，更大规模仍要等 owner 另说），把五态覆盖表和每格卡点写进报告。不 push、不合并 main、不切换正在运行的 Studio 服务、不改 Claude 名下的审计器及其测试。凡是与总前提冲突、需要 owner 拍板的事，单独列在报告里，不要自行决定。
+
+---
+
 ## 总前提（每次开工前先读）
 
 你在服务器 `48g-jump` 的仓库工作树 `/data/jzy/tmp/wt-multi-home-activity-integration` 里工作，分支 `codex/multi-home-activity-integration`，当前最新提交是 ea50b7c（本文件在 d090318，审计器 v2 在 02df947）。项目 Python 是 `/data/jzy/miniconda3/envs/avengine-habitat-runtime/bin/python`，跑测试和工具时带 `PYTHONPATH=src`。你直接在这个工作树里改源码、跑测试、提交；这个树是和 Claude 共用的，所以每完成一个任务就提交，不要长期留着未提交的改动。
