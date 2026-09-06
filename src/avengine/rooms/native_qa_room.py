@@ -401,6 +401,7 @@ def select_native_walking_routes(
     seed: int = DEFAULT_SEED,
     minimum_separation_m: float = 0.95,
     start_hold_frames: int = 0,
+    sampling_policy: str | None = None,
 ) -> tuple[dict[str, np.ndarray], dict[str, Any]]:
     """Select two moving paths from the native UE Recast route bank."""
 
@@ -481,7 +482,10 @@ def select_native_walking_routes(
     if len(candidates) < 2:
         raise NativeQAResourceError("native route bank has fewer than two walking candidates")
     rng = np.random.default_rng(seed)
-    order = rng.permutation(len(candidates))[: min(512, len(candidates))]
+    conditioned = sampling_policy == "conditioned_static_v2"
+    order = (np.arange(len(candidates)) if conditioned else
+             rng.permutation(len(candidates))[: min(512, len(candidates))])
+    legal_pairs = []
     expanded_paths = {
         index: _hold_endpoint_path(
             candidate[1], frame_count, start_hold_frames=start_hold_frames
@@ -504,10 +508,15 @@ def select_native_walking_routes(
             # case.
             if endpoint_separation > 3.5:
                 continue
-            score = abs(separation - 1.5) + 0.25 * endpoint_separation
-            value = (score, int(first_index), int(second_index), separation)
-            if best is None or value < best:
-                best = value
+            if conditioned:
+                legal_pairs.append((0.0, int(first_index), int(second_index), separation))
+            else:
+                score = abs(separation - 1.5) + 0.25 * endpoint_separation
+                value = (score, int(first_index), int(second_index), separation)
+                if best is None or value < best:
+                    best = value
+    if conditioned and legal_pairs:
+        best = legal_pairs[int(rng.integers(len(legal_pairs)))]
     if best is None:
         raise NativeQAResourceError("native route bank has no separated two-person walking pair")
     _, first_index, second_index, bank_separation = best
@@ -526,6 +535,8 @@ def select_native_walking_routes(
         "bank_frame_rate_source": bank_rate_source,
         "bank_clip_seconds": bank_seconds,
         "selected_route_ids": {"source1": first[0], "source2": second[0]},
+        **({"route_pair_selection": "uniform_over_legal", "legal_route_pair_count": len(legal_pairs)}
+           if conditioned else {}),
         "selected_route_speeds_mps": {"source1": first[3], "source2": second[3]},
         "selected_route_lengths_m": {"source1": first[2], "source2": second[2]},
         "bank_minimum_pair_separation_m": bank_separation,
@@ -668,12 +679,24 @@ def build_native_apartment_qa_plan(
     frame_count: int = DEFAULT_FRAME_COUNT,
     frame_rate_hz: int = DEFAULT_FRAME_RATE_HZ,
     sample_rate_hz: int = DEFAULT_SAMPLE_RATE_HZ,
-    camera_motion: str = "follow_group",
+    camera_motion: str | None = None,
     audio_mode: str = "sequential",
     start_hold_frames: int = 0,
+    camera_fov_deg: float | None = None,
+    silent_actor_count: int = 0,
+    sampling_policy: str | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any], Any, dict[str, np.ndarray]]:
     """Build one common-plan Episode using native routes and room geometry."""
 
+    conditioned = sampling_policy == "conditioned_static_v2"
+    if sampling_policy not in (None, "conditioned_static_v2"):
+        raise NativeQAResourceError(f"unknown sampling_policy: {sampling_policy}")
+    camera_motion = camera_motion or ("static" if conditioned else "follow_group")
+    if conditioned and camera_motion != "static":
+        raise NativeQAResourceError("conditioned_static_v2 requires a static camera")
+    effective_fov = float(camera_fov_deg if camera_fov_deg is not None else (85.0 if conditioned else 105.0))
+    if not math.isfinite(effective_fov) or not 0 < effective_fov < 180:
+        raise NativeQAResourceError("camera_fov_deg must be finite and between 0 and 180")
     if not isinstance(episode_id, str) or not episode_id.strip():
         raise NativeQAResourceError("episode_id must be a nonempty string")
     if frame_rate_hz <= 0 or sample_rate_hz <= 0:
@@ -688,6 +711,7 @@ def build_native_apartment_qa_plan(
         frame_rate_hz=frame_rate_hz,
         seed=seed,
         start_hold_frames=start_hold_frames,
+        sampling_policy=sampling_policy,
     )
     # This raster is only the common camera candidate adapter.  Actor routes
     # and their legality stay owned by the native UE route bank above.
@@ -717,7 +741,8 @@ def build_native_apartment_qa_plan(
         rng=np.random.default_rng(seed),
         camera_motion=camera_motion,
         qa_ids=ids,
-        camera_fov_deg=105.0,
+        camera_fov_deg=effective_fov,
+        sampling_policy=sampling_policy,
     )
     ticks_per_frame = 48_000 // int(frame_rate_hz)
     clock = {
@@ -746,6 +771,8 @@ def build_native_apartment_qa_plan(
         clock=clock,
         rng=np.random.default_rng(seed + 1),
         mode=audio_mode,
+        silent_actor_count=silent_actor_count,
+        sampling_policy=sampling_policy,
     )
     room_entry = native_apartment_room_entry(resources)
     plan = {
@@ -777,6 +804,8 @@ def build_native_apartment_qa_plan(
             "frame_rate_hz": frame_rate_hz,
             "sample_rate_hz": sample_rate_hz,
             "native_room_adapter": SCHEMA,
+            **({"sampling_policy": sampling_policy, "camera_fov_deg": effective_fov,
+                "silent_actor_count": silent_actor_count} if conditioned else {}),
         },
         "room_capabilities": capability,
         "question_condition_match": matching,

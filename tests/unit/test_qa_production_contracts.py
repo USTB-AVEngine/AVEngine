@@ -216,3 +216,11 @@ def test_controller_selects_native_capture_entrypoint(tmp_path, clock, package):
     (plan_dir / "case_manifest.json").write_text(json.dumps({"clock": bad_clock}))
     with pytest.raises(ValueError, match="materialized Habitat clock differs"):
         controller.capture_command(request, tmp_path)
+
+
+def test_short_canary_clock_preserves_declared_sample_rounding():
+    clock = dict(frame_count=5, frame_rate_hz=15, sample_rate_hz=16000,
+                 sample_count=5333, time_base_hz=48000, ticks_per_frame=3200)
+    assert validate_clock(clock) == clock
+    with pytest.raises(ValueError, match="sample counts"):
+        validate_clock({**clock, "sample_count": 5334})

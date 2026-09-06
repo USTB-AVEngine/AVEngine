@@ -23,6 +23,18 @@ from avengine.runtime_profiles import load_source_asset_runtime_registry
 from avengine.rooms.room_package import package_from_catalog_entry, renderer_for_room
 
 
+def _native_sampling_arguments(request: dict) -> dict:
+    if request.get("sampling_policy") not in (None, "conditioned_static_v2"):
+        raise QAPlanningError(f"unknown sampling_policy: {request['sampling_policy']}")
+    if request.get("sampling_policy") != "conditioned_static_v2":
+        return {"camera_motion": request.get("camera_motion", "follow_group")}
+    camera = request.get("camera", {})
+    return {"sampling_policy": "conditioned_static_v2",
+            "camera_motion": camera.get("motion", request.get("camera_motion", "static")),
+            "camera_fov_deg": camera.get("fov_deg", request.get("camera_fov_deg", 85.0)),
+            "silent_actor_count": int(request.get("silent_actor_count", 0))}
+
+
 def plan_request(request: dict, output: Path) -> dict:
     """Select from a resource pool; request authors supply no room coordinates."""
     started = time.monotonic()
@@ -84,9 +96,9 @@ def plan_request(request: dict, output: Path) -> dict:
                     frame_count=int(request.get("frame_count", 240)),
                     frame_rate_hz=int(request.get("frame_rate_hz", 15)),
                     sample_rate_hz=int(request.get("sample_rate_hz", 16000)),
-                    camera_motion=request.get("camera_motion", "follow_group"),
                     audio_mode=request.get("audio_mode", "sequential"),
-                    start_hold_frames=int(request.get("start_hold_frames", 0)))
+                    start_hold_frames=int(request.get("start_hold_frames", 0)),
+                    **_native_sampling_arguments(request))
                 plan["resources"].update(room)
                 plan["resources"]["expected_stage_actor_count"] = 0
                 plan["renderer_backend"] = "spear_unreal_native"

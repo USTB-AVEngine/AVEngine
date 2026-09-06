@@ -397,7 +397,13 @@ def select_question_camera(
     layout: Mapping[str, Any], pf: RasterPathfinder, routes: Mapping[str, np.ndarray],
     actors: Sequence[Mapping[str, Any]], *, rng: np.random.Generator,
     camera_motion: str, qa_ids: Sequence[str], camera_fov_deg: float = 85.0,
+    sampling_policy: str | None = None,
 ) -> tuple[dict[str, Any], list[dict[str, Any]], dict[str, Any]]:
+    conditioned = sampling_policy == "conditioned_static_v2"
+    if sampling_policy not in (None, "conditioned_static_v2"):
+        raise QAPlanningError(f"unknown sampling_policy: {sampling_policy}")
+    if conditioned and camera_motion != "static":
+        raise QAPlanningError("conditioned_static_v2 requires a static camera")
     floor = float(next(iter(routes.values()))[0, 1])
     pool = generate_camera_candidates(
         layout, grid_step_m=0.55, camera_height_m=floor + 1.55,
@@ -414,9 +420,10 @@ def select_question_camera(
     target = np.mean(centers, axis=0)
     candidates = [_look_camera(x, target) for x in candidates]
     # Candidate points have already passed the existing room clearance logic.
-    candidates.sort(key=lambda c: -sum(
-        3 * int(_projected_visible(c, np.asarray(p))) - max(0, np.linalg.norm(
-            np.asarray(p) - c["position_authoring_m"]) - 4.5) for p in centers))
+    if not conditioned:
+        candidates.sort(key=lambda c: -sum(
+            3 * int(_projected_visible(c, np.asarray(p))) - max(0, np.linalg.norm(
+                np.asarray(p) - c["position_authoring_m"]) - 4.5) for p in centers))
     geometry = _load_static_triangle_geometry(layout)
     if geometry is None:
         raise QAPlanningError("visual triangle geometry unavailable for camera/path condition sampling")
@@ -433,7 +440,7 @@ def select_question_camera(
             [routes[a["actor_id"]][frame, 0], -routes[a["actor_id"]][frame, 2],
              floor + max(0.35, float(a["emitter_local_ue_cm"][2]) / 100 - 0.25)]
             for a in actors], axis=0)
-    for candidate in candidates[:40]:
+    for candidate in (candidates if conditioned else candidates[:40]):
         vis = {}
         total = 0.0
         for actor in actors:
@@ -483,11 +490,18 @@ def select_question_camera(
             total += (100 if both_late_visible and both_initial_visible and separation > 64 else -100)
             total += min(separation, 90) * 0.2
         candidate["planned_late_azimuth_separation_deg"] = separation
-        ranked.append((total, float(rng.random()), candidate, vis))
+        if conditioned:
+            if any("geometry_visible" in values for values in vis.values()):
+                ranked.append((0.0, 0.0, candidate, vis))
+        else:
+            ranked.append((total, float(rng.random()), candidate, vis))
     if not ranked:
         raise QAPlanningError("no camera with route clearance")
-    ranked.sort(key=lambda x: (-x[0], x[1]))
-    _, _, camera, states = ranked[0]
+    if conditioned:
+        _, _, camera, states = ranked[int(rng.integers(len(ranked)))]
+    else:
+        ranked.sort(key=lambda x: (-x[0], x[1]))
+        _, _, camera, states = ranked[0]
     if not any("geometry_visible" in x for x in states.values()):
         raise QAPlanningError("no camera can observe any target through existing geometry")
     camera_frames = []
@@ -506,6 +520,9 @@ def select_question_camera(
         "camera_motion": camera_motion,
         "planned_late_azimuth_separation_deg": camera["planned_late_azimuth_separation_deg"],
         "native_observability": "not_run",
+        **({"selection": "uniform_over_legal", "checked_candidate_count": len(candidates),
+            "legal_candidate_ids": [item[2]["candidate_id"] for item in ranked]}
+           if conditioned else {}),
         "claim_boundary": "torso ray/FOV estimates select candidates; only native RGB and pixel evidence validate questions",
     }
 
@@ -513,11 +530,13 @@ def select_question_camera(
 def schedule_audio(
     actors: Sequence[Mapping[str, Any]], sounds: Sequence[Mapping[str, Any]], *,
     clock: Mapping[str, Any], rng: np.random.Generator, mode: str = "sequential",
-    silent_actor_count: int = 0,
+    silent_actor_count: int = 0, sampling_policy: str | None = None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     import soundfile as sf
 
     sr, duration = int(clock["sample_rate_hz"]), float(clock["duration_seconds"])
+    if sampling_policy not in (None, "conditioned_static_v2"):
+        raise QAPlanningError(f"unknown sampling_policy: {sampling_policy}")
     if mode not in {"sequential", "overlap", "repeat"}:
         raise QAPlanningError("audio mode must be sequential, overlap or repeat")
     if silent_actor_count < 0 or silent_actor_count >= len(actors):
@@ -567,9 +586,14 @@ def schedule_audio(
             "event_unit": "independent_source_playback_onset",
         })
     if mode == "repeat":
-        first = min(events, key=lambda e: e["sample_count"])
-        begin = max(x["end_sample"] for x in events) + int(sr * rng.uniform(0.25, 0.65))
-        if begin + first["sample_count"] < (duration - reserve) * sr:
+        if sampling_policy == "conditioned_static_v2":
+            begin = max(x["end_sample"] for x in events) + int(sr * rng.uniform(0.25, 0.65))
+            legal = [e for e in events if begin + e["sample_count"] < (duration - reserve) * sr]
+            first = legal[int(rng.integers(len(legal)))] if legal else None
+        else:
+            first = min(events, key=lambda e: e["sample_count"])
+            begin = max(x["end_sample"] for x in events) + int(sr * rng.uniform(0.25, 0.65))
+        if first is not None and begin + first["sample_count"] < (duration - reserve) * sr:
             event = deepcopy(first)
             event.update(event_id=f"event_{len(events) + 1:03d}", start_sample=begin,
                          end_sample=begin + first["sample_count"], start_tick=begin * 3,
@@ -583,6 +607,14 @@ def build_qa_episode_plan(
     source_registry: Mapping[str, Any], sounds: Sequence[Mapping[str, Any]],
 ) -> tuple[dict[str, Any], dict[str, Any], RasterPathfinder]:
     seed = int(request.get("seed", 0))
+    sampling_policy = request.get("sampling_policy")
+    if sampling_policy not in (None, "conditioned_static_v2"):
+        raise QAPlanningError(f"unknown sampling_policy: {sampling_policy}")
+    if sampling_policy == "conditioned_static_v2":
+        camera_request = request.get("camera", {})
+        motion = camera_request.get("motion", request.get("camera_motion", "static"))
+        if motion != "static":
+            raise QAPlanningError("conditioned_static_v2 requires a static camera")
     rng = np.random.default_rng(seed)
     qa_ids = list(request.get("qa_ids", [f"QA-{i:02d}" for i in range(1, 25)]))
     from avengine.qa.unified_catalog import get_requirements
@@ -654,8 +686,10 @@ def build_qa_episode_plan(
         raise QAPlanningError(f"room has no requested potential: {matching}")
     camera, cameras, camera_record = select_question_camera(
         layout, pf, routes, actors, rng=rng,
-        camera_motion=str(request.get("camera_motion", "static")), qa_ids=qa_ids,
-        camera_fov_deg=float(request.get("camera_fov_deg", 85.0)))
+        camera_motion=motion if sampling_policy else str(request.get("camera_motion", "static")), qa_ids=qa_ids,
+        camera_fov_deg=float(request.get("camera", {}).get("fov_deg", request.get("camera_fov_deg", 85.0))
+                             if sampling_policy else request.get("camera_fov_deg", 85.0)),
+        sampling_policy=sampling_policy)
     if room.get("exposure_bias_ev") is not None:
         for c in cameras:
             c["exposure_bias_ev"] = float(room["exposure_bias_ev"])
@@ -701,7 +735,7 @@ def build_qa_episode_plan(
     events, bindings = schedule_audio(
         actors, sounds, clock=clock, rng=rng,
         mode=str(request.get("audio_mode", "sequential")),
-        silent_actor_count=int(request.get("silent_actor_count", 0)))
+        silent_actor_count=int(request.get("silent_actor_count", 0)), sampling_policy=sampling_policy)
     plan = {
         "kind": "avengine_question_driven_episode", "status": "research_candidate",
         "renderer_backend": "spear_unreal_native",

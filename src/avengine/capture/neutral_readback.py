@@ -29,7 +29,9 @@ def validate_clock(clock: Mapping[str, Any]) -> dict[str, Any]:
     if fps * int(clock["ticks_per_frame"]) != int(clock["time_base_hz"]):
         raise ValueError("clock tick and frame rates disagree")
     duration = Fraction(int(clock["frame_count"]), 1) / fps
-    if duration * int(clock["sample_rate_hz"]) != int(clock["sample_count"]):
+    # Short native canaries can end between sample boundaries. The existing
+    # plan clock rounds once to the nearest sample; retain that declared count.
+    if abs(duration * int(clock["sample_rate_hz"]) - int(clock["sample_count"])) > Fraction(1, 2):
         raise ValueError("clock frame and sample counts disagree")
     for name in ("clip_seconds", "duration_seconds"):
         if name in clock and abs(float(clock[name]) - float(duration)) > 1e-9:

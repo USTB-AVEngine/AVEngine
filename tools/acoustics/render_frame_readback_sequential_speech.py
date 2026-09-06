@@ -641,10 +641,48 @@ def _normalize_plan_events(
     return normalized, clips_by_path, by_actor
 
 
+def _plan_source_endpoints(
+    plan: Mapping[str, Any], events: list[dict[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    """Real scene entities remain acoustic candidates even when they are silent."""
+    active = {}
+    for event in events:
+        actor, endpoint = str(event["actor_id"]), str(event["source_endpoint_id"])
+        if actor in active and active[actor]["source_endpoint_id"] != endpoint:
+            raise ValueError("one actor cannot bind multiple dynamic source endpoints")
+        active.setdefault(actor, {"source_endpoint_id": endpoint, "path": str(event["path"])})
+    declarations = plan.get("visual_plan", {}).get("actors")
+    if declarations is None:
+        declarations = plan.get("actors")
+    if declarations is None:
+        # Historical audio-only plans have no scene-entity declaration.
+        declarations = [{"actor_id": actor} for actor in active]
+    if not isinstance(declarations, list) or not declarations:
+        raise ValueError("plan scene entities must be a nonempty list")
+    endpoints, actor_ids = {}, set()
+    for actor in declarations:
+        aid = actor.get("actor_id") if isinstance(actor, Mapping) else None
+        if not isinstance(aid, str) or not aid or aid in actor_ids:
+            raise ValueError("plan scene entities must have unique actor IDs")
+        actor_ids.add(aid)
+        binding = actor.get("emitter_binding", {})
+        declared = actor.get("source_endpoint_id") or binding.get("source_endpoint_id")
+        actual = active.get(aid, {})
+        if declared and actual and declared != actual["source_endpoint_id"]:
+            raise ValueError(f"event endpoint differs from the declared emitter: {aid}")
+        endpoint = str(declared or actual.get("source_endpoint_id") or f"{aid}_mouth")
+        if endpoint in endpoints:
+            raise ValueError("scene entities cannot share a source endpoint")
+        endpoints[endpoint] = {"actor_id": aid, "path": actual.get("path")}
+    if not set(active).issubset(actor_ids):
+        raise ValueError("audio event refers to an actor absent from the plan")
+    return endpoints
+
+
 def _program_from_plan_events(
     plan: Mapping[str, Any], events: list[dict[str, Any]], clock: Mapping[str, Any]
 ) -> dict[str, Any]:
-    candidate_ids = {str(item["source_endpoint_id"]) for item in events}
+    candidate_ids = set(_plan_source_endpoints(plan, events))
     declared_candidates = plan.get("candidate_source_endpoint_ids")
     if isinstance(declared_candidates, list):
         candidate_ids.update(
@@ -1363,15 +1401,7 @@ def _render_plan_audio(
     events, clips_by_path, bindings_by_actor = _normalize_plan_events(
         plan, bindings, clock=clock
     )
-    actor_by_endpoint: dict[str, dict[str, Any]] = {}
-    for event in events:
-        actor_by_endpoint.setdefault(
-            str(event["source_endpoint_id"]),
-            {
-                "actor_id": str(event["actor_id"]),
-                "path": str(event["path"]),
-            },
-        )
+    actor_by_endpoint = _plan_source_endpoints(plan, events)
     endpoint_ids = sorted(actor_by_endpoint)
     if len(endpoint_ids) < 2:
         raise ValueError("dynamic multi-source audio requires at least two source endpoints")

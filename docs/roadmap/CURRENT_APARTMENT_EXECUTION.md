@@ -1203,3 +1203,13 @@ No new native render or dataset batch was run for this step. Complete room input
 Habitat common planning/materialization, pixels, audio and finalization remain
 P3/P5/P4/P6/P9 work; next is P2. Report:
 `docs/roadmap/codex_reports_20260906/P1_contracts_dispatch.md`.
+
+
+## Checkpoint 20260906: P2 native forwarding and one-active source
+
+New-policy native planning now preserves requested 85-degree/static camera and
+a silent entity. Real RLR replay on retained A capture produced a zero silent
+stem and a stereo mixture; a two-active control reused the same RIR cache.
+Ten camera seeds selected nine distinct legal cameras without top-40 truncation.
+Related P1/P2 tests: 52 passed; next shared-planner work is P5 after this commit.
+See `docs/roadmap/codex_reports_20260906/P2_native_silent_random.md`.
