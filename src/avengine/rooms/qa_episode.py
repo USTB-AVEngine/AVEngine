@@ -605,7 +605,23 @@ def schedule_audio(
 def build_qa_episode_plan(
     *, room: Mapping[str, Any], request: Mapping[str, Any],
     source_registry: Mapping[str, Any], sounds: Sequence[Mapping[str, Any]],
+    condition_profile: Mapping[str, Any] | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any], RasterPathfinder]:
+    if request.get("sampling_policy") == "conditioned_static_v2":
+        from avengine.capture.qa_plan_adapters import load_planning_resources
+        from avengine.rooms.conditioned_sampler import build_conditioned_plan
+        space, mesh, layout = load_planning_resources(room, request)
+        clock = clock_config(frame_count=int(request.get("frame_count", 240)),
+                             frame_rate_hz=float(request.get("frame_rate_hz", 15)),
+                             sample_rate_hz=int(request.get("sample_rate_hz", 16000)))
+        effective_request = deepcopy(dict(request))
+        camera_config = effective_request.setdefault("camera", {})
+        camera_config.setdefault("resolution_hw", layout.get("capture_resolution_hw", [720, 1280]))
+        plan = build_conditioned_plan(room=room, request=effective_request, source_registry=source_registry,
+                sounds=sounds, space=space, mesh=mesh, clock=clock, condition_profile=condition_profile,
+                region=request.get("planning_region_m"))
+        plan["visual_lighting"] = deepcopy(layout.get("visual_lighting", {}))
+        return plan, layout, space.pathfinder
     seed = int(request.get("seed", 0))
     sampling_policy = request.get("sampling_policy")
     if sampling_policy not in (None, "conditioned_static_v2"):

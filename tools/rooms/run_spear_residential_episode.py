@@ -246,6 +246,8 @@ def _validate_native_route_replay(instance: Any, game: Any, episode: Mapping[str
             length = float(np.linalg.norm(np.diff(path[first:last + 1], axis=0), axis=1).sum())
             if length > 0.01:
                 pairs.append((aid, first, last, path[first], path[last], length))
+    if not pairs and episode.get("plan_coordinates") == "renderer_neutral":
+        return {"status": "stationary_retained_native_endpoints", "moving_segments": 0}
     _require(bool(pairs), "native route replay contains no moving segments")
     starts = np.ascontiguousarray([x[3] for x in pairs], dtype=np.float64)
     ends = np.ascontiguousarray([x[4] for x in pairs], dtype=np.float64)
@@ -919,6 +921,12 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
 
     episode_root = args.episode_root.expanduser().resolve()
     episode = _load(episode_root / "episode_plan.json")
+    if episode.get("plan_coordinates") == "renderer_neutral":
+        from avengine.capture.qa_plan_adapters import materialize_ue_episode_plan
+        from avengine.runtime_profiles import load_source_asset_runtime_registry
+        registry = load_source_asset_runtime_registry(episode.get("request", {}).get(
+            "source_registry", REPOSITORY / "examples/runtime/source_asset_runtime_profiles.json"))
+        episode = materialize_ue_episode_plan(episode, registry)
     plan = episode["visual_plan"]
     clock = _resolve_plan_clock(episode)
     frame_count = clock.frame_count
@@ -971,6 +979,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     frames_dir = output / "frames"
     frames_dir.mkdir()
     _write(output / "visual_plan.json", plan)
+    if episode.get("execution_coordinates") == "ue_spear":
+        _write(output / "ue_materialized_episode_plan.json", episode)
 
     config_args = argparse.Namespace(**vars(args))
     config_args.frame_rate_hz = frame_rate_hz

@@ -140,6 +140,21 @@ def test_habitat_uses_actual_arrays_and_sensor_basis(clock):
                                           source_readbacks=["native.json", "roots.npy", "emitters.npy"])
     assert validate_neutral_readback(data)["status"] == "pass"
     assert data["camera"][0]["basis"]["forward"] == [0, 0, -1]
+    # A yaw change moves an offset skin root while the asset origin stays still.
+    actor_from_skin = np.eye(4)
+    actor_from_skin[0, 3] = 1.0
+    observed_actor = np.tile(np.eye(4), (2, 1, 1))
+    observed_actor[1, :3, :3] = [[0, 0, 1], [0, 1, 0], [-1, 0, 0]]
+    rotated_skin = (observed_actor @ actor_from_skin)[:, None]
+    rotated_records = deepcopy(records)
+    for i in range(2):
+        rotated_records["frames"][i]["actor_readbacks"][0]["world_from_skin_root"] = rotated_skin[i, 0].tolist()
+    canonical = neutral_from_habitat_readbacks(
+        rotated_records, rotated_skin, emitters, {"clock": clock},
+        source_readbacks=["native.json"],
+        actor_from_skin_root_by_slot={"source1": actor_from_skin})
+    assert all(np.allclose(frame["root"], [0, 0, 0]) and not frame["moving"]
+               for frame in canonical["entities"]["source1"])
     bad = emitters.copy()
     bad[0, 0, 0] += 0.01
     with pytest.raises(ValueError, match="emitter JSON"):

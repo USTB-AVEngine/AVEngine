@@ -5,7 +5,7 @@
 
 自 2026-08-25 起，目录本身就是能力分组（阶段目录 m1…m7 已移除），
 本表按目录列出每个工具做什么。
-当前共 396 个工具脚本。
+当前共 397 个工具脚本。
 
 ## 资产生成与装配（`tools/assets/`）
 
@@ -323,6 +323,7 @@
 | `tools/qa/make_idle_then_walk_timeline.py` | Idle-then-walk timeline transform (pilot work order items 1.2/1.7 支撑件) |
 | `tools/qa/materialize_qa_v3_dual_gateb.py` | Materialize renderable Gate-B twins for selected dual-source QA-v3 points |
 | `tools/qa/materialize_strict_two_human_dynamic_canary.py` | Materialize one true-motion strict two-human full75 CPU closure |
+| `tools/qa/measure_conditioned_plan_matrix.py` | Measure fixed-profile plan feasibility without rendering or replacing quotas |
 | `tools/qa/measure_qa_v3_floor_z.py` | Measure a room's floor height in the engine and write its floor reference |
 | `tools/qa/mine_simple_questions.py` | Mine simple (A-group) questions from compiled QA fact tables |
 | `tools/qa/mine_temporal_questions.py` | Mine temporal (B-group) and numeric questions over intermittent fact tables |

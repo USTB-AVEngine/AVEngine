@@ -61,8 +61,17 @@ def plan_request(request: dict, output: Path) -> dict:
     package_runtime = {**request.get("runtime", {}), "path_bindings": {
         **catalog_bindings, **request.get("runtime", {}).get("path_bindings", {})}}
     rooms = rooms.get("rooms", rooms) if isinstance(rooms, dict) else rooms
-    sounds = read_json(request["sound_pool"])
-    sounds = sounds.get("sounds", sounds) if isinstance(sounds, dict) else sounds
+    conditioned = request.get("sampling_policy") == "conditioned_static_v2"
+    sound_path = request.get("sound_selection", {}).get("prepared_set", request.get("sound_pool")) if conditioned else request["sound_pool"]
+    sounds = read_json(sound_path)
+    condition_profile = None
+    if conditioned:
+        from avengine.rooms.conditioned_sampler import load_conditioned_sound_pool, resolve_condition_profile
+        sounds = load_conditioned_sound_pool(sounds, source_path=sound_path)
+        condition_profile = resolve_condition_profile(request, registry)
+        write_json(output / "condition_profile.json", condition_profile)
+    else:
+        sounds = sounds.get("sounds", sounds) if isinstance(sounds, dict) else sounds
     if not isinstance(rooms, list) or not rooms or not isinstance(sounds, list) or not sounds:
         raise QAPlanningError("nonempty room catalog and sound pool are required")
     rng = np.random.default_rng(int(request.get("seed", 0)))
@@ -85,7 +94,14 @@ def plan_request(request: dict, output: Path) -> dict:
                 "package_validation_errors": package.get("validation_errors", []),
                 "status": "dispatched", "native_execution": "not_run",
             })
-            if renderer == "ue_spear" and room.get("native_room_adapter") == "avengine_native_spear_apartment_qa_room_v1":
+            if conditioned:
+                plan, layout, pf = build_qa_episode_plan(
+                    room={**room, "room_package": package, "backend": renderer},
+                    request=request, source_registry=registry, sounds=sounds,
+                    condition_profile=condition_profile)
+                if room.get("native_room_adapter") == "avengine_native_spear_apartment_qa_room_v1":
+                    plan["resources"]["expected_stage_actor_count"] = 0
+            elif renderer == "ue_spear" and room.get("native_room_adapter") == "avengine_native_spear_apartment_qa_room_v1":
                 from avengine.rooms.native_qa_room import (
                     build_native_apartment_qa_plan, discover_native_apartment_resources,
                 )
@@ -114,6 +130,8 @@ def plan_request(request: dict, output: Path) -> dict:
                 plan, layout, pf = build_qa_episode_plan(
                     room=room, request=request, source_registry=registry, sounds=sounds)
         except (QAPlanningError, ValueError, OSError) as exc:
+            if hasattr(exc, "result"):
+                write_json(output / "planning_result.json", exc.result)
             attempts.append({"room_id": room.get("room_id"), "status": "not_selected",
                              "reason": f"{type(exc).__name__}: {exc}"})
             write_json(output / "room_selection.json", {"attempts": attempts})
@@ -124,6 +142,16 @@ def plan_request(request: dict, output: Path) -> dict:
         plan_root.mkdir()
         write_json(plan_root / "episode_plan.json", plan)
         write_json(plan_root / "room_package.json", package)
+        if renderer == "habitat" and conditioned:
+            from avengine.capture.qa_plan_adapters import materialize_habitat_room_manifest
+            from avengine.assets.mp3d_region_actor_tracks import materialize_common_plan_habitat
+            native_manifest = plan_root / "habitat_room_manifest.json"
+            materialize_habitat_room_manifest(package, room["room_manifest"], native_manifest)
+            materialize_common_plan_habitat(plan=plan, room_manifest=native_manifest,
+                runtime_registry=request.get("source_registry", REPOSITORY / "examples/runtime/source_asset_runtime_profiles.json"),
+                output=plan_root / "habitat_execution", base_m1_request=room.get("m1_request"),
+                habitat_binding_delta=request.get("habitat_binding_delta"),
+                allow_research_candidate=bool(request.get("allow_research_candidate_assets", False)))
         write_json(plan_root / "room_layout.json", layout)
         write_json(plan_root / "voice_bindings.json", plan["voice_bindings"])
         write_json(plan_root / "audio_events.json", plan["audio_events"])
@@ -133,12 +161,16 @@ def plan_request(request: dict, output: Path) -> dict:
                             bounds_m=pf.get_bounds())
         write_json(output / "room_selection.json", {"attempts": attempts})
         write_json(output / "planning_result.json", {
+            **plan.get("planning_result", {}),
             "status": "research_candidate", "episode_id": plan["episode_id"],
             "elapsed_seconds": time.monotonic() - started,
             "native_execution": "not_run",
             "selected_room_id": room["room_id"], "plan": str(plan_root / "episode_plan.json"),
         })
         return plan
+    if not (output / "planning_result.json").is_file():
+        write_json(output / "planning_result.json", {"status": "failed", "condition_profile": condition_profile,
+                    "room_attempts": attempts, "gap_category": "evidence_missing_or_unsampled"})
     raise QAPlanningError(f"no existing room could realize the request: {attempts}")
 
 
@@ -161,9 +193,11 @@ def capture_command(request: dict, output: Path) -> list[str]:
     if renderer == "habitat":
         # P5 materializes these from the shared plan, preserving its clock.
         inputs = saved_plan.get("resources", {})
-        case = Path(inputs.get("case_manifest", output / "plan/case_manifest.json"))
-        sensor_request = Path(inputs.get("m1_request", output / "plan/m1_capture_request.json"))
-        room_manifest = inputs.get("room_manifest")
+        neutral = saved_plan.get("plan_coordinates") == "renderer_neutral"
+        root = output / "plan/habitat_execution" if neutral else output / "plan"
+        case = Path(inputs.get("case_manifest", root / "case_manifest.json"))
+        sensor_request = Path(inputs.get("m1_request", root / "m1_capture_request.json"))
+        room_manifest = str(output / "plan/habitat_room_manifest.json") if neutral else inputs.get("room_manifest")
         if not room_manifest or not case.is_file() or not sensor_request.is_file():
             raise QAPlanningError("Habitat capture requires materialized case_manifest, m1_request and room_manifest")
         case_clock = read_json(case)["clock"]
@@ -176,19 +210,28 @@ def capture_command(request: dict, output: Path) -> list[str]:
         command = [sys.executable, str(renderer_capture_entrypoint(renderer)),
                    "--case-manifest", str(case), "--room-manifest", str(room_manifest),
                    "--m1-request", str(sensor_request), "--output", str(output / "capture"),
-                   "--gpu-device-id", str(runtime.get("graphics_adapter", 0))]
+                   "--gpu-device-id", str(runtime.get("graphics_adapter", 0)),
+                   "--episode-plan", str(plan_path),
+                   "--runtime-registry", str(request.get("source_registry", REPOSITORY / "examples/runtime/source_asset_runtime_profiles.json"))]
+        if request.get("allow_research_candidate_assets"):
+            command += ["--allow-research-candidate"]
+        if request.get("habitat_binding_delta"):
+            command += ["--habitat-binding-delta", str(request["habitat_binding_delta"])]
         for key in ("runtime_prefix", "mp3d_root", "magnum_python_site", "rlr_sdk_root"):
             if runtime.get(key):
                 command += ["--" + key.replace("_", "-"), str(runtime[key])]
         return command
+    dimensions = (saved_plan["visual_plan"]["camera"].get("resolution_hw", [720, 1280])
+                  if saved_plan.get("plan_coordinates") == "renderer_neutral" else
+                  [request.get("height", 720), request.get("width", 1280)])
     command = [sys.executable, str(renderer_capture_entrypoint(renderer)),
                "--episode-root", str(output / "plan"), "--output", str(output / "capture"),
                "--uproject", runtime["uproject"], "--unreal-editor", runtime["unreal_editor"],
                "--spear-ext-dir", runtime["spear_ext_dir"],
                "--graphics-adapter", str(runtime.get("graphics_adapter", 0)),
                "--rpc-port", str(runtime.get("rpc_port", 39379)),
-               "--width", str(request.get("width", 1280)),
-               "--height", str(request.get("height", 720)),
+               "--width", str(dimensions[1]),
+               "--height", str(dimensions[0]),
                "--streaming-warmup-frames", str(runtime.get("streaming_warmup_frames", 180)),
                "--native-multimodal", "--visual-only-research", "--keep-frames"]
     saved_plan = read_json(output / "plan/episode_plan.json")

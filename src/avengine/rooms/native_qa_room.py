@@ -702,6 +702,24 @@ def build_native_apartment_qa_plan(
     if frame_rate_hz <= 0 or sample_rate_hz <= 0:
         raise NativeQAResourceError("episode clock rates must be positive")
     selected = list(source_asset_ids)
+    if conditioned:
+        from avengine.rooms.qa_episode import build_qa_episode_plan
+        request = {"episode_id": episode_id, "source_asset_ids": selected,
+                   "qa_ids": list(qa_ids or [f"QA-{i:02d}" for i in range(1, 25)]),
+                   "seed": seed, "frame_count": frame_count, "frame_rate_hz": frame_rate_hz,
+                   "sample_rate_hz": sample_rate_hz, "sampling_policy": sampling_policy,
+                   "camera": {"motion": camera_motion, "fov_deg": effective_fov},
+                   "silent_actor_count": silent_actor_count, "audio_mode": audio_mode,
+                   "start_hold_frames": start_hold_frames,
+                   "profile": {"speech_motion": "speaker_moving", "event_relation": audio_mode}}
+        plan, layout, pathfinder = build_qa_episode_plan(
+            room=native_apartment_room_entry(resources), request=request,
+            source_registry=source_registry, sounds=sounds)
+        routes = {actor["actor_id"]: np.asarray([next(s for s in f["actor_states"]
+                    if s["actor_id"] == actor["actor_id"])["root_transform"]["translation_m"]
+                    for f in plan["visual_plan"]["frames"]]) for actor in plan["visual_plan"]["actors"]}
+        plan["resources"]["expected_stage_actor_count"] = 0
+        return plan, layout, pathfinder, routes
     if len(selected) != 2 or len(set(selected)) != 2:
         raise NativeQAResourceError("exactly two distinct human source assets are required")
     layout = build_native_apartment_layout(resources)
