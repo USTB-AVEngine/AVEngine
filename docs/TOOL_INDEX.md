@@ -5,7 +5,7 @@
 
 自 2026-08-25 起，目录本身就是能力分组（阶段目录 m1…m7 已移除），
 本表按目录列出每个工具做什么。
-当前共 388 个工具脚本。
+当前共 389 个工具脚本。
 
 ## 资产生成与装配（`tools/assets/`）
 
@@ -63,6 +63,7 @@
 | `tools/assets/normalize_materials.py` | Normalize GLB PBR materials without modifying geometry or animation data |
 | `tools/assets/plan_instance_variants.py` | Derive the instance-level variant plan for accepted source assets |
 | `tools/assets/prepare_sound_library.py` | Convert the collected dry clips into the form the pipeline consumes |
+| `tools/assets/prepare_speech_audio.py` | Build the P7 speech-band prepared set and review manifests |
 | `tools/assets/preprocess_glb.py` | Select GLB actions and strip provably unweighted controller roots |
 | `tools/assets/probe_habitat_skin_rest.py` | Generate and exercise a temporary Habitat skinned-AO rest-pose descriptor |
 | `tools/assets/probe_heading_axis.py` |  |

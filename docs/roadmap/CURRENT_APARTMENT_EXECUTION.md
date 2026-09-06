@@ -1213,3 +1213,14 @@ stem and a stereo mixture; a two-active control reused the same RIR cache.
 Ten camera seeds selected nine distinct legal cameras without top-40 truncation.
 Related P1/P2 tests: 52 passed; next shared-planner work is P5 after this commit.
 See `docs/roadmap/codex_reports_20260906/P2_native_silent_random.md`.
+
+
+## Checkpoint 20260906: P7 prepared speech machine evidence
+
+P7 produces 296 encoding-safe mono/16 kHz speech clips from 307 detector
+candidates; 11 highpass full-scale overflows remain explicit failed rows rather
+than being silently clipped. All 613 registry rows remain in the manifest.
+Output PCM is highpass-only; the speech band is used only for activity detection.
+Fifteen preparation tests and all 296 WAV readbacks passed. Ten human listening
+records remain pending, so P7 is not yet fully accepted. Report:
+`docs/roadmap/codex_reports_20260906/P7_prepared_audio.md`.
