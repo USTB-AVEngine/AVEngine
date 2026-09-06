@@ -5,7 +5,7 @@
 
 自 2026-08-25 起，目录本身就是能力分组（阶段目录 m1…m7 已移除），
 本表按目录列出每个工具做什么。
-当前共 386 个工具脚本。
+当前共 387 个工具脚本。
 
 ## 资产生成与装配（`tools/assets/`）
 
@@ -233,6 +233,7 @@
 | `tools/qa/adapt_strict_two_human_both_move_v1_preflight.py` | Bind the reviewed both-move geometry handoff to A's materializer contract |
 | `tools/qa/assemble_qa_v3_room_pilot.py` | Assemble one quota-complete room-centric QA-v3 research pilot manifest |
 | `tools/qa/audio_profiles.py` | Question-type audio profiles: one schedule per question type, not one for all |
+| `tools/qa/audit_binding_feasibility.py` | 绑定可行性与逐题难度画像审计（research_only）。 |
 | `tools/qa/audit_gatea_by_form.py` |  |
 | `tools/qa/audit_gatea_semantics.py` |  |
 | `tools/qa/audit_qa_v3_prescale_candidates.py` | Revalidate an existing room-pilot manifest against prescale QA-v3 rules |

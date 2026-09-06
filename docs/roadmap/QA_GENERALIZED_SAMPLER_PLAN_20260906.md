@@ -1,5 +1,7 @@
 # 出题链泛化方案：静止相机下的条件采样与配额出题（2026-09-06，提案，待 Codex 审核）
 
+> 状态更新（2026-09-06 晚）：本文已被 `QA_GENERALIZED_SAMPLER_PLAN_V2_20260906.md` 取代，保留为 Codex 审核（5ade25f）所针对的原文，不再修改。
+
 状态：提案。作者 Claude，请 Codex 逐条审核可行性、指出与现有代码冲突的地方、补上我看不到的运行成本。
 基于 `codex/multi-home-activity-integration` 分支 6adab75 的源码，具体位置写在每一节里。
 
