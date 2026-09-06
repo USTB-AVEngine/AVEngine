@@ -1,6 +1,6 @@
 # 给 Codex 的逐任务提示词（Claude，2026-09-06 晚）
 
-这份文件里的每一段提示词都可以整段复制给 Codex。开头的"总前提"每次开工前先给一遍，然后按顺序给 P1 到 P11。任务编号 S、U、H、A 与 `docs/roadmap/QA_PRODUCTION_ARCHITECTURE_20260906.md` 第 7 节的任务表一致；条款细节在 `docs/roadmap/QA_GENERALIZED_SAMPLER_PLAN_V2_20260906.md`，各家族的真实路径在 `docs/roadmap/QA_FOUR_FAMILY_GAP_LIST_20260906.md`。这三份文档已提交在分支上（a7856e3），审计器 v2 在 02df947。
+这份文件里的每一段提示词都可以整段复制给 Codex。开头的"总前提"每次开工前先给一遍，然后按顺序给 P1 到 P12（P12 是人形与生成动物进 Habitat 的资产包任务，与 P1、P4 同一天并行开工）。任务编号 S、U、H、A 与 `docs/roadmap/QA_PRODUCTION_ARCHITECTURE_20260906.md` 第 7 节的任务表一致；条款细节在 `docs/roadmap/QA_GENERALIZED_SAMPLER_PLAN_V2_20260906.md`，各家族的真实路径在 `docs/roadmap/QA_FOUR_FAMILY_GAP_LIST_20260906.md`。这三份文档已提交在分支上（a7856e3），审计器 v2 在 02df947。
 
 ---
 
@@ -26,6 +26,7 @@
 12. 提交前跑与改动相关的单测；碰了 `tools/` 下的脚本就重生成 `docs/TOOL_INDEX.md`（`PYTHONPATH=src python tools/build_tool_index.py`）并跑 `tests/unit/test_tool_index_current.py`。提交信息用仓库现有风格，例如 `feat(qa): ...`、`fix(audio): ...`、`docs(qa): ...`，正文写清改了什么、怎么验的。
 13. 不 push、不合并 main、不切换正在运行的 Studio 服务、不启动数据集生产。原生 UE 或 Habitat 的单段验证可以跑，批量生产要等 owner 明确说开。
 14. 每个任务做完按文末"报告格式"回一份简短报告。没做完的如实写没做完，不要把测试变绿说成验收通过。
+15. 所有声源资产（人、动物、设备）都要尝试进两个渲染器，不分梯队。某个资产暂时进不了某个渲染器，报告里写清卡在哪一步（导出、蒙皮、URDF、烘焙、加载、读回），覆盖表记"接口未实现"，不写"不适用"，也不从分母里去掉。
 
 ---
 
@@ -124,7 +125,7 @@
 
 验收产物：MP3D 房间里 beagle 加一个音箱的一段捕获（可以只捕 30 帧），含 rgb、depth、模态与 target-only 掩膜、像素真值文件；登记表 diff。
 
-不要做：不要为人形角色造 Habitat 资产，那是另立的资产管线任务（A3）；不要用语义掩膜的"像素大于零"冒充 target-only。
+不要做：不要用语义掩膜的"像素大于零"冒充 target-only。人形与生成动物的 Habitat 包在 P12 里做，和本任务并行，本任务的验收不等它。
 
 完成后报告：捕获产物路径；掩膜格式核对结果；登记表新增绑定的数量；哪些资产的 GLB 加载失败及原因。
 
@@ -297,6 +298,32 @@ H4：`mp3d_region_actor_tracks.py` 现在把"规划路线"和"把路线烘成逐
 不要做：不要为了让设备进来放宽像素或音频的证据要求。
 
 完成后报告：声明路径改动；两段读回路径；发声点高度与像素证据核对结果。
+
+---
+
+## P12 人形与生成动物的 Habitat 资产包（A3）
+
+目标：让 Rocketbox 的人形角色和 FLUX 生成的 7 个动物能像 beagle 一样在 Habitat 里被加载、驱动走停动作、读回发声点，并登记为 `runtime_backends.habitat` 绑定。owner 的裁定是所有声源资产都要进四个家族，不分梯队，所以这一项是主线任务，和 P1、P4 同一天并行开工，它是最长的一条。
+
+你拥有的文件：`tools/assets/` 下的 M2 包工具（`compile_animal_package.py`、`bake_actions.py`、`build_joint_mapping.py`、`probe_habitat_skin_rest.py`、`rebase_skin_root.py`、`publish_animal_assets.py`、`blender_retarget_quaternius_to_generated_quadruped.py`）、`src/avengine/assets/contracts.py`、`src/avengine/assets/package.py`、`src/avengine/assets/actions.py`、`src/avengine/assets/habitat.py`、`src/avengine/assets/kinematics.py`、登记表 `examples/runtime/source_asset_runtime_profiles.json`。
+
+模板：beagle 的包在 `/data/avengine_external/datasets/m2/rocketbox_beagle_m2_canary_v7_world_contact_r5/`，里面有 `visual.glb`（带蒙皮）、`collision_proxy.glb`、`skeleton.json`、`skinning_manifest.json`、`habitat/`（URDF 与关节映射）、`actions/`（烘好的 Idle 与 Walking 关节目标）、`contacts/`、`emitter_anchors.json`、`admission/`、`qa/`、`provenance_manifest.json`；对应请求 `/data/avengine_external/datasets/m2/rocketbox_beagle_m2_formal_request_v7_world_contact_r5.json`。`compile_animal_package.py` 现在钉死的是 beagle 的 Rocketbox 源文件哈希，要泛化成按请求指定源；`src/avengine/assets/contracts.py` 第 37 到 40 行的接触锚点写死为四只爪子（paw_front_left 等），这是四足假设，人形要改成按体型声明的接触集合（双足），改法是把接触锚点作为包声明的一部分而不是常量。
+
+要做的事：
+1. 先用 `probe_habitat_skin_rest.py` 一类的探针确认这个 Habitat 运行时能加载带蒙皮的关节人形（运行时前缀、magnum site、mp3d_root、rlr_sdk_root 见 P4），不能就把卡点写清。
+2. 人形：从 Rocketbox 男女成人的 FBX 出蒙皮 GLB、URDF、关节映射，烘 Idle 与 Walking，发声点锚在嘴部关节，接触集合改双足，编成通过 `validate_animal_asset_package`（或它的泛化版）的包。上衣色变体（burgundy、green、blue、yellow）要和 UE 侧同一条登记记录对应：同一个 asset_id，两个渲染器各一份绑定，这就是"资产是资产"。
+3. 生成动物：7 个 FLUX 动物已经有 UE 骨骼网格与 Quaternius 重定向动作，沿用同一条烘焙路线出 Habitat 包。
+4. 每个资产在登记表加 `runtime_backends.habitat`，`bind_assets` 能解析。
+
+约束：不为静态设备造动画；性别字段照登记不伪填；包的 provenance 写清源文件与哈希；进不了 Habitat 的资产不从覆盖表分母里去掉。
+
+单测：接触集合改成按体型声明后，beagle 包仍通过校验；一个人形包通过校验；一个生成动物包通过校验；登记表校验通过且旧的 spear_unreal 绑定不变。
+
+验收产物：MP3D 或 HM3D 一段含一个人形和一个生成动物的原生捕获（含 rgb、depth、模态与 target-only 掩膜、发声点读回），每个新包的校验报告。哪个资产进不了，报告写明卡在哪一步（导出、蒙皮、URDF、烘焙、加载、读回）。
+
+不要做：不要用 UE 导入的 MP3D 场景替代 Habitat；不要用静态摆放的人形冒充有走停动作的人形。
+
+完成后报告：成功进 Habitat 的资产清单与包路径；失败资产及卡点；接触集合契约的改动；一段捕获的路径。
 
 ---
 

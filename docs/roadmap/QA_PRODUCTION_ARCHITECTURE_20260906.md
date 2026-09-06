@@ -75,7 +75,7 @@ owner 2026-09-06 晚定的原则：引擎有一个最高层控制；每类房间
 
 **阶段四，合并音频与收口**：一个吃中立读回的声学渲染器替掉两条入口；`finalize` 只认契约。
 
-**阶段五，资产双绑定**：见第 6 节，与前四阶段并行。
+**阶段五，资产双绑定**：见第 6 节，与前四阶段并行；A3 人形包是最长的一条，第一天就开。
 
 四个家族"现在都能出"的最短路径是阶段一加阶段二做完，采样器先用现有 `qa_episode.py` 加 T2a 的三处随机化过渡（机位合法候选内随机、不截前 40、repeat 随机），阶段三再换成完整采样器。
 
@@ -86,13 +86,15 @@ owner 2026-09-06 晚定的原则：引擎有一个最高层控制；每类房间
 
 ## 6. 资产双绑定
 
-登记表 `runtime_backends` 是按渲染器分键的字典，今天 17 条全部只有 `spear_unreal`。补法分三个梯队：
+owner 2026-09-06 晚裁定：**所有声源资产都要尝试进四个家族，不分梯队。**"房间是房间、资产是资产"的落地形式就是同一个 asset_id 在登记表 `runtime_backends` 里有 `spear_unreal` 和 `habitat` 两份绑定。今天 17 条全部只有 `spear_unreal`，所以下面三项都是主线任务，并行开工，人形包最长，最先开：
 
-1. **刚体 GLB，立刻**：外部索引 44 个静态资产加 2 个运行时音箱，每个都有 `geometry/finalized_glb`；给每条加 `runtime_backends.habitat = {kind: rigid_glb, path, semantic_template}`。Habitat 侧用现有 `_instantiate_actor_with_semantic_template` 一类的对象模板加载。
-2. **beagle，登记即可**：M2 包 `rocketbox_dog_beagle_01_m2_v7_world_contact_candidate` 已经能在 Habitat 跑，只是绑定写在包清单里而不在登记表；把它登记成 `runtime_backends.habitat = {kind: m2_articulated_package, manifest}`。
-3. **其他动物与人形，资产管线任务**：FLUX 生成的 7 个动物和 Rocketbox 的人要走 beagle 那条烘焙路线（把走停动作烘成逐帧关节目标打成 M2 式包）。这是资产管线的活，不阻塞首批；首批 Habitat 家族用"beagle 加设备"或"设备加设备"，人声由设备播放。
+1. **A1 刚体 GLB**：外部索引 44 个静态资产加 2 个运行时音箱，每个都有 `geometry/finalized_glb`；给每条加 `runtime_backends.habitat`（资产种类、GLB 路径、语义模板、放置姿态）。Habitat 侧用现有对象模板加载。
+2. **A2 beagle**：M2 包 `/data/avengine_external/datasets/m2/rocketbox_beagle_m2_canary_v7_world_contact_r5` 已经能在 Habitat 跑，只是绑定写在包清单里而不在登记表；登记成 `runtime_backends.habitat`。
+3. **A3 人形与生成动物**：走 beagle 那条 M2 包路线（蒙皮 GLB、URDF、关节映射、烘好的 Idle 与 Walking 关节目标、接触锚点、发声点锚点），工具都在 `tools/assets/`（`compile_animal_package.py`、`bake_actions.py`、`build_joint_mapping.py`、`probe_habitat_skin_rest.py`、`rebase_skin_root.py`、`publish_animal_assets.py`），契约在 `src/avengine/assets/contracts.py`。已知要改的一处：契约第 37 到 40 行的接触锚点写死为四只爪子，人形要改成按体型声明的接触集合。Rocketbox 男女成人与 7 个 FLUX 生成动物都要出包。设备播人声是额外的声源组合，不是人形的替代。
 
-规则：一个资产在某个渲染器没有绑定，覆盖表记 `interface_not_implemented`，写明缺的是哪个渲染器的绑定，不写"不适用"。
+**最终目标的定义**：每个房间家族 × 每类声源资产（人、动物、设备）至少有一条经过验证的原生路径；覆盖表里不再有因"该渲染器无绑定"而记 `interface_not_implemented` 的格子；剩下的空格只能是题义不适用或证据与采样缺口。首批的完成按这个全矩阵定，接口没打开之前已能出的格子先跑，但不算首批完成。
+
+规则不变：一个资产在某个渲染器暂时没有绑定，覆盖表记 `interface_not_implemented` 并写明缺的是哪个渲染器的绑定、卡在哪一步，不写"不适用"，也不从分母里去掉。
 
 ## 7. 任务表 v2.1（取代 v2 第 4 节）
 
@@ -124,7 +126,7 @@ owner 2026-09-06 晚定的原则：引擎有一个最高层控制；每类房间
 | H5 | 房间包：MP3D、HM3D，含地板参照与 Z-up 核对 | 新房间包文件 | Codex | 两份包过校验；HM3D 多角色捕获干跑 5 帧 |
 | A1 | 44 加 2 个刚体的 Habitat 绑定登记 | `examples/runtime/source_asset_runtime_profiles.json`、外部索引 | Codex | 登记通过 `bind_assets` |
 | A2 | beagle M2 包登记为 Habitat 绑定 | 同上 | Codex | 同上 |
-| A3 | 其他动物与人形的 Habitat 烘焙包 | 资产管线 | 另立任务 | 不阻塞首批 |
+| A3 | Rocketbox 人形与 7 个生成动物的 Habitat M2 式包并登记绑定 | `tools/assets/{compile_animal_package.py, bake_actions.py, build_joint_mapping.py, probe_habitat_skin_rest.py, rebase_skin_root.py, publish_animal_assets.py}`、`src/avengine/assets/{contracts.py, package.py, actions.py}`、登记表 | Codex | 每个资产一份过校验的包与 `runtime_backends.habitat`；一段含人形与生成动物的 Habitat 原生捕获 |
 | C1 | 审计器七项修复与测试 | `tools/qa/audit_binding_feasibility.py`、`tests/test_audit_binding_feasibility.py` | Claude | 五段重审字段报告 |
 | C2 | Habitat 方位公式对账测试 | `tests/test_audit_binding_feasibility.py` | Claude | 逐帧差为 0 |
 | C3 | 人工校准包 | `~/Documents/Claude`、`docs/qa` | Claude | 校准包 v1 |
@@ -132,7 +134,7 @@ owner 2026-09-06 晚定的原则：引擎有一个最高层控制；每类房间
 
 ## 8. 现在谁做什么
 
-Codex：从 S0、S1、U1、H1 开始（契约与两个读回写出器），这四项不动渲染，一天内能暴露四个家族各缺哪个字段；然后 U2、S4a、S2a、U4、H2、H3、H5、A1、A2。
+Codex：从 S0、S1、U1、H1 开始（契约与两个读回写出器），这四项不动渲染，一天内能暴露四个家族各缺哪个字段；A3 人形与生成动物的 Habitat 包同一天并行开工；然后 U2、S4a、S2a、U4、H2、H3、H5、A1、A2。
 Claude：C1 立刻开始（我的文件），C2 等 H1 有一段中立读回就写，C3、C4 并行。
 首个干跑目标：同一份请求、两个 room_id（A 房与 MP3D），都能走完控制器到 `finalize`，各出一份 facts 与 questions，即便 Habitat 那份大部分题还是 `interface_not_implemented`。
 

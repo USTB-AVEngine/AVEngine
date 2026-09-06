@@ -51,7 +51,7 @@ owner 的两条新前提：四个家族（Apartment、酷家乐、HM3D、MP3D）
 
 链二已经把 MP3D 跑通到媒体：设计（`design_qa_v3_scene_batch.py` 出 `actor_selection.json`、`audio_program.json`、`timeline.json`）→ `mp3d_region_actor_tracks.py` 出 `case_manifest.json` 和逐帧轨迹 → `tools/capture/capture_mp3d_multi_actor.py` 出 `rgb.npy`、`depth.npy`、`semantic.npy`、`frame_records.json`、`actor_root_readbacks.npy`、`emitter_positions_m.npy` → `avengine.cli m5 render-current-mp3d-dynamic-audio` 出双耳 stem 与 mixture。缺的是下面六件：
 
-1. **可区分的两个声源资产。**这是 Habitat 家族最硬的缺口。17 个运行时资产（8 动物、7 人、2 音箱）全部只有 `spear_unreal` 后端；Habitat 里唯一能站进去的关节角色是 M2 包的那只 beagle（`rocketbox_dog_beagle_01_m2_v7_world_contact_candidate`，靠 `asset_manifest_path` 单独加载）。MP3D 那段就是两只一样的 beagle，所以 QA-01/02/03/09/10/11/12/14/18/19/20/21 全部因 `appearance_review_missing` 拒出。最快的补法：外部索引 `/data/avengine_external/assets/sound_source_assets_v1/index.json` 里 44 个静态资产每个都有 `geometry/finalized_glb`，Habitat 可以把 GLB 当刚体对象加载并给 semantic id。这样 Habitat 里的两声源组合可以是"beagle 加设备"或"两个不同外观的设备"。人形角色在 Habitat 里没有资产（Rocketbox 是 UE 骨骼网格），近期只能靠"设备播人声"覆盖人声题，包括 QA-12 台词。需要 owner 拍板这一点。
+1. **可区分的两个声源资产。**这是 Habitat 家族最硬的缺口。17 个运行时资产（8 动物、7 人、2 音箱）全部只有 `spear_unreal` 后端；Habitat 里唯一能站进去的关节角色是 M2 包的那只 beagle（`rocketbox_dog_beagle_01_m2_v7_world_contact_candidate`，靠 `asset_manifest_path` 单独加载）。MP3D 那段就是两只一样的 beagle，所以 QA-01/02/03/09/10/11/12/14/18/19/20/21 全部因 `appearance_review_missing` 拒出。最快的补法：外部索引 `/data/avengine_external/assets/sound_source_assets_v1/index.json` 里 44 个静态资产每个都有 `geometry/finalized_glb`，Habitat 可以把 GLB 当刚体对象加载并给 semantic id。这样 Habitat 里的两声源组合可以是"beagle 加设备"或"两个不同外观的设备"。人形角色在 Habitat 里还没有资产（Rocketbox 是 UE 骨骼网格）。owner 已裁定所有资产都要进：人形和 7 个生成动物按 beagle 的 M2 包路线进 Habitat（架构文档任务 A3，提示词 P12），设备播人声只是额外的声源组合，不是替代。
 2. **像素可见性真值。**现在只有 `semantic.npy` 的模态掩膜（角色 semantic id 210/211），没有 target-only 掩膜，所以 `pixel_visibility_truth.json` 和 `native_pixel_masks_depth_authority_v1.npz` 都没有，QA-07/08/24 因此拒出，`derive_actor_occluders` 也没法用。补法：每帧对每个角色单独渲一遍语义（其他角色隐藏）得到 target-only 掩膜，按链一的 npz 键名（`modal`、`target_only_<actor>`）和 `pixel_visibility_truth.json` schema 写出，链一的 `derive_actor_occluders` 就能直接复用。
 3. **外观审阅。**`qa_evidence.build_pixel_appearance_review` 只认 `top_color`/`coat_value` 和上身 HSV。beagle 在登记里有 `coat_profile.value = standard_tricolor`，设备有 `finish`（black_ash、walnut_veneer）；要把这两类值接成可核的外观值，并把颜色检查从"上身"改成"掩膜内"。
 4. **收口产品化。**`tmp/qa_family_validation_20260906/adapt_mp3d_habitat_candidate.py` 已经把捕获目录加音频目录拼成了 `normalize_episode_bundle` 要的 raw bundle，并从 float32 stem 读出湿声尾音。要把它变成 `qa_delivery` 的 Habitat 版（建议 `src/avengine/rooms/qa_delivery_habitat.py`），输入捕获目录、音频目录、上面第 2、3 条的派生文件。
@@ -81,17 +81,17 @@ owner 的两条新前提：四个家族（Apartment、酷家乐、HM3D、MP3D）
 
 ## 3. "两个声源同时在场"在各家族今天能落地的组合
 
-| 家族 | 今天就能 | 修完 T9a（刚体声明）后 | 修完 Habitat 刚体加载后 | 近期做不到 |
+| 家族 | 今天就能 | 修完 T9a（刚体声明）后 | 修完 Habitat 刚体加载后 | 修完 A3（人形与生成动物的 Habitat 包）后 |
 |---|---|---|---|---|
 | Apartment、A/B/C | 人加人 | 人加音箱、动物加音箱、人加动物（动物需一段原生读回证明） | 不涉及 | 无 |
 | 酷家乐 | 链二：人加人 | 挂进链一后与上行相同 | 不涉及 | 无 |
-| MP3D | beagle 加 beagle（同貌，只能出不靠外观的题） | 不涉及 | beagle 加设备、设备加设备（设备可播人声） | 人形角色 |
-| HM3D | 无 | 不涉及 | 同 MP3D | 人形角色 |
+| MP3D | beagle 加 beagle（同貌，只能出不靠外观的题） | 不涉及 | beagle 加设备、设备加设备（设备可播人声） | 人加人、人加动物、人加设备、其他动物的全部组合 |
+| HM3D | 无 | 不涉及 | 同 MP3D | 同 MP3D |
 
 ## 4. 需要 owner 拍板的两件
 
 1. 酷家乐走路线甲，挂进链一的房间目录（要写一个可行区栅格到 PathFinder 的适配和一份 pose_bindings）。
-2. Habitat 两个家族的首批用"beagle 加设备"或"设备加设备"，人声由设备播放；人形角色进 Habitat 另立任务，不阻塞首批。
+2. 已由 owner 裁定：所有声源资产都进四个家族，不分梯队；人形与生成动物进 Habitat 是主线任务 A3，Habitat 家族的首批完成定义包含它们；设备播人声只是额外组合。
 
 ## 5. 在 v2 任务表上增补的任务
 
