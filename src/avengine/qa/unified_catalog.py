@@ -1403,12 +1403,17 @@ def _visibility_index(
     for actor_id in actor_ids:
         entry = per_instance.get(actor_id)
         frames = entry.get("frames") if isinstance(entry, Mapping) else None
-        if not _is_sequence(frames) or len(frames) != frame_count:
+        if not _is_sequence(frames) or not frames:
             continue
         by_frame: dict[int, Mapping[str, Any]] = {}
         valid = True
         for ordinal, frame in enumerate(frames):
             if not isinstance(frame, Mapping):
+                valid = False
+                break
+            # A complete legacy array has an implicit ordinal frame clock.
+            # Sparse probes need explicit indices; never infer or fill gaps.
+            if len(frames) != frame_count and "frame_index" not in frame:
                 valid = False
                 break
             index = frame.get("frame_index", ordinal)
@@ -1419,15 +1424,32 @@ def _visibility_index(
                 or index < 0
                 or index >= frame_count
                 or state not in VISIBILITY_STATES
+                or index in by_frame
             ):
                 valid = False
                 break
             normalized_frame = dict(frame)
-            normalized_frame.setdefault("frame_index", index)
             by_frame[index] = normalized_frame
-        if valid and set(by_frame) == set(range(frame_count)):
+        if valid:
             result[actor_id] = by_frame
     return result
+
+
+def _visibility_is_complete(facts: Mapping[str, Any], actor_id: str) -> bool:
+    """Return whether one actor has explicit visibility for every frame."""
+
+    frames = facts.get("visibility", {}).get(actor_id)
+    time = facts.get("time")
+    if not isinstance(frames, Mapping) or not isinstance(time, Mapping):
+        return False
+    frame_count = time.get("frame_count")
+    if isinstance(frame_count, bool) or not isinstance(frame_count, int) or frame_count <= 0:
+        return False
+    try:
+        indices = {int(frame) for frame in frames}
+    except (TypeError, ValueError):
+        return False
+    return indices == set(range(frame_count))
 
 
 def _motion_series(
@@ -3116,6 +3138,8 @@ def _generate_qa_07(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
             continue
         ordered = [frames[index] for index in sorted(frames)]
         for previous, current in zip(ordered, ordered[1:]):
+            if int(current.get("frame_index", -1)) != int(previous.get("frame_index", -2)) + 1:
+                continue
             if previous.get("state") != "out_of_view" or current.get("state") not in VISIBLE_STATES:
                 continue
             centroid = current.get("target_centroid_xy_px")
@@ -3177,6 +3201,7 @@ def _generate_qa_08(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
 
 def _generate_qa_09(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
     reviewed = _reviewed_appearances(facts)
+    incomplete_negative = False
     for actor_id, frames in facts.get("visibility", {}).items():
         if actor_id not in reviewed:
             continue
@@ -3190,6 +3215,9 @@ def _generate_qa_09(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
         ]
         if fully:
             truth = "yes" if visible_after else "no"
+            if not visible_after and not _visibility_is_complete(facts, actor_id):
+                incomplete_negative = True
+                continue
             appearance_en, appearance_zh = _appearance_phrases(reviewed[actor_id])
             return _question_item(
                 qa_id="QA-09",
@@ -3214,6 +3242,11 @@ def _generate_qa_09(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
                 },
                 slug=f"{actor_id}_reappearance",
             )
+    if incomplete_negative:
+        _defer(
+            "incomplete_visibility_for_negative",
+            "cannot emit a negative reappearance answer without complete visibility coverage",
+        )
     _defer("no_reappearance_transition", "no fully_occluded to visible transition is present")
 
 
@@ -3338,6 +3371,7 @@ def _generate_qa_10(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
 
 def _generate_qa_11(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
     reviewed = _reviewed_appearances(facts)
+    incomplete_negative = False
     for actor_id, frames in facts.get("visibility", {}).items():
         if actor_id not in reviewed:
             continue
@@ -3356,6 +3390,9 @@ def _generate_qa_11(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
             if frame.get("state") == "visible_occluded"
         ]
         if partial_frames:
+            if not transitions and not _visibility_is_complete(facts, actor_id):
+                incomplete_negative = True
+                continue
             truth = "yes" if transitions else "no"
             appearance_en, appearance_zh = _appearance_phrases(reviewed[actor_id])
             return _question_item(
@@ -3381,6 +3418,11 @@ def _generate_qa_11(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
                 },
                 slug=f"{actor_id}_clear",
             )
+    if incomplete_negative:
+        _defer(
+            "incomplete_visibility_for_negative",
+            "cannot emit a negative partial-to-clear answer without complete visibility coverage",
+        )
     _defer("no_partial_to_clear_transition", "no adjacent partial-occlusion to clear transition is present")
 
 
@@ -4083,8 +4125,42 @@ def _generate_qa_22(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
         _defer("missing_events", "QA-22 needs a whole-clip event table")
     if any(event.get("actor_id") is None for event in events if isinstance(event, Mapping)):
         _defer("unresolved_event_attribution", "QA-22 cannot count speaking individuals while an event source is unresolved")
-    entity_count = len(facts["actors"])
-    speaking_count = len({event["actor_id"] for event in events})
+    actors = facts.get("actors")
+    visibility = facts.get("visibility")
+    if not isinstance(actors, Mapping) or not isinstance(visibility, Mapping) or not visibility:
+        _defer(
+            "missing_visibility_for_entity_count",
+            "QA-22 needs explicit pixel visibility to count entities that appear",
+        )
+    visible_actor_ids: set[str] = set()
+    unknown_actor_ids: list[str] = []
+    for actor_id in actors:
+        frames = visibility.get(actor_id)
+        if not isinstance(frames, Mapping) or not frames:
+            unknown_actor_ids.append(str(actor_id))
+            continue
+        states = [
+            frame.get("state")
+            for frame in frames.values()
+            if isinstance(frame, Mapping)
+        ]
+        if any(state in VISIBLE_STATES for state in states):
+            visible_actor_ids.add(str(actor_id))
+        elif not _visibility_is_complete(facts, str(actor_id)):
+            unknown_actor_ids.append(str(actor_id))
+    if unknown_actor_ids:
+        _defer(
+            "incomplete_visibility_for_entity_count",
+            "cannot count entities that may appear in unobserved frames",
+            actor_ids=sorted(unknown_actor_ids),
+        )
+    speaking_actor_ids = {
+        str(event["actor_id"])
+        for event in events
+        if str(event["actor_id"]) in visible_actor_ids
+    }
+    entity_count = len(visible_actor_ids)
+    speaking_count = len(speaking_actor_ids)
     truth = [entity_count, speaking_count]
     candidates = {(entity_count, speaking_count)}
     for entity_delta, speaker_delta in (
@@ -4127,7 +4203,8 @@ def _generate_qa_22(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
         evidence={
             "statistics_window": [0.0, float(facts["time"]["duration_seconds"])],
             "entity_count": entity_count,
-            "speaking_actor_ids": sorted({event["actor_id"] for event in events}),
+            "appeared_actor_ids": sorted(visible_actor_ids),
+            "speaking_actor_ids": sorted(speaking_actor_ids),
             "speaking_count": speaking_count,
         },
         slug="whole_clip",

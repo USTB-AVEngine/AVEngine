@@ -234,6 +234,48 @@ def test_normalize_accepts_native_shapes_without_old_fact_wrapper() -> None:
     assert facts["events"][0]["start_frame"] == 2
 
 
+def test_normalize_retains_explicit_sparse_pixel_frames_without_filling_gaps() -> None:
+    raw = _fixture()
+    for entry in raw["pixel_visibility_truth"]["per_instance"].values():
+        entry["frames"] = [entry["frames"][0], entry["frames"][2]]
+    facts = normalize_episode_bundle(raw)
+    assert set(facts["visibility"]["a0"]) == {0, 2}
+    assert set(facts["visibility"]["a3"]) == {0, 2}
+
+
+def test_normalize_rejects_sparse_pixel_rows_without_explicit_frame_index() -> None:
+    raw = _fixture()
+    entry = raw["pixel_visibility_truth"]["per_instance"]["a0"]
+    entry["frames"] = [entry["frames"][0], entry["frames"][2]]
+    entry["frames"][0].pop("frame_index")
+    facts = normalize_episode_bundle(raw)
+    assert "a0" not in facts["visibility"]
+
+
+def test_normalize_preserves_complete_legacy_ordinal_pixel_arrays() -> None:
+    raw = _fixture()
+    for entry in raw["pixel_visibility_truth"]["per_instance"].values():
+        for row in entry["frames"]:
+            row.pop("frame_index")
+    facts = normalize_episode_bundle(raw)
+    assert set(facts["visibility"]["a0"]) == set(range(40))
+
+
+def test_qa07_does_not_treat_sparse_nonadjacent_frames_as_an_entry_transition() -> None:
+    raw = _fixture()
+    raw["pixel_visibility_truth"]["per_instance"]["a3"]["frames"] = [
+        {"frame_index": 0, "state": "out_of_view"},
+        {
+            "frame_index": 2,
+            "state": "visible_clear",
+            "target_centroid_xy_px": [90.0, 50.0],
+        },
+    ]
+    result = generate_unified_questions(raw, qa_ids=["QA-07"])
+    assert result["counts"] == {"requested": 1, "valid": 0, "deferred": 1}
+    assert result["deferred"][0]["code"] == "no_entry_transition"
+
+
 def test_generation_restores_visibility_frame_keys_after_json_round_trip() -> None:
     normalized = normalize_episode_bundle(_fixture())
     round_tripped = json.loads(json.dumps(normalized))
@@ -408,6 +450,64 @@ def test_occlusion_questions_emit_no_only_when_the_trigger_exists() -> None:
     by_id = {item["qa_id"]: item for item in result["items"]}
     assert by_id["QA-09"]["truth"]["value"] == "no"
     assert by_id["QA-11"]["truth"]["value"] == "no"
+
+
+def test_occlusion_negative_answers_require_complete_visibility_coverage() -> None:
+    raw = _fixture()
+    raw["pixel_visibility_truth"]["per_instance"]["a0"]["frames"] = [
+        {"frame_index": 8, "state": "fully_occluded"}
+    ]
+    qa09 = generate_unified_questions(raw, qa_ids=["QA-09"])
+    assert qa09["counts"] == {"requested": 1, "valid": 0, "deferred": 1}
+    assert qa09["deferred"][0]["code"] == "incomplete_visibility_for_negative"
+
+    for actor_id, entry in raw["pixel_visibility_truth"]["per_instance"].items():
+        if actor_id != "a0":
+            for frame in entry["frames"]:
+                frame["state"] = "visible_clear"
+    raw["pixel_visibility_truth"]["per_instance"]["a0"]["frames"] = [
+        {"frame_index": 10, "state": "visible_occluded"}
+    ]
+    qa11 = generate_unified_questions(raw, qa_ids=["QA-11"])
+    assert qa11["counts"] == {"requested": 1, "valid": 0, "deferred": 1}
+    assert qa11["deferred"][0]["code"] == "incomplete_visibility_for_negative"
+
+
+def test_qa22_counts_observed_visible_entities_and_speakers_only() -> None:
+    raw = _fixture()
+    for actor_id, entry in raw["pixel_visibility_truth"]["per_instance"].items():
+        if actor_id == "a0":
+            entry["frames"] = [{"frame_index": 0, "state": "visible_clear"}]
+        else:
+            entry["frames"] = [
+                {"frame_index": frame, "state": "out_of_view"}
+                for frame in range(40)
+            ]
+    result = generate_unified_questions(raw, qa_ids=["QA-22"])
+    assert result["counts"] == {"requested": 1, "valid": 1, "deferred": 0}
+    item = result["items"][0]
+    assert item["truth"]["value"] == [1, 1]
+    assert item["evidence"]["appeared_actor_ids"] == ["a0"]
+    assert item["evidence"]["speaking_actor_ids"] == ["a0"]
+
+
+def test_qa22_defers_when_an_actor_has_unobserved_frames() -> None:
+    raw = _fixture()
+    raw["pixel_visibility_truth"]["per_instance"]["a1"]["frames"] = [
+        {"frame_index": 0, "state": "out_of_view"}
+    ]
+    result = generate_unified_questions(raw, qa_ids=["QA-22"])
+    assert result["counts"] == {"requested": 1, "valid": 0, "deferred": 1}
+    assert result["deferred"][0]["code"] == "incomplete_visibility_for_entity_count"
+    assert result["deferred"][0]["actor_ids"] == ["a1"]
+
+
+def test_qa22_does_not_use_actor_roster_without_pixel_visibility() -> None:
+    raw = _fixture()
+    raw.pop("pixel_visibility_truth")
+    result = generate_unified_questions(raw, qa_ids=["QA-22"])
+    assert result["counts"] == {"requested": 1, "valid": 0, "deferred": 1}
+    assert result["deferred"][0]["code"] == "missing_visibility_for_entity_count"
 
 
 def test_qa10_keeps_open_form_when_only_one_real_occluder_is_registered() -> None:
