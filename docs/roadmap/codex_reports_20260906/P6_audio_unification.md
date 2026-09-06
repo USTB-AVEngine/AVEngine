@@ -114,3 +114,8 @@ Gain acceptance：
 - 本次真实 MP3D speaker 音频使用显式 direct binding，未把它写成按 asset 名字的生产覆盖；是否将该声音/endpoint 进入正式 registry 由 owner 后续决定。
 - HRTF 使用现有 `mit_kemar_normal_pinna_16k.sofa`，绕射验收使用显式 false/order 0；是否启用绕射及采用哪个 max order 仍由 owner/校准任务决定。
 - 生成的内容保持 `research_only`、`qualification_claim=false`；正式 admission 和人工可答性不由 P6 决定。
+
+
+Parent integration follow-up (HM3D native validation): the explicit NeutralReadback branch no longer labels position_authority as UE when the supplied readback came from Habitat. It reports P1 NeutralReadback entities[].emitter; producer and input_neutral_readback retain the actual source. Corrected metadata is in tmp/p4_hm3d_animal_speaker_20260907_v5/audio_endpoint_bound/research_report_metadata_corrected_v1.json, alongside untouched receipt and PCM. This is a label correction, not an audio re-render; the common validator with require_files=True passes.
+
+Metadata follow-up validation: test_p6_audio_unification plus test_tool_index_current — 6 passed, 0 failed, 0 skipped, 2.27 seconds; tool index regenerated.

@@ -1979,7 +1979,7 @@ def _render_plan_audio(
         prepared_manifest_path=prepared_manifest,
         hrtf_file_path=hrtf_file,
         output_path=output,
-        position_authority="UE neutral_from_ue_readbacks.entities[].emitter",
+        position_authority="P1 NeutralReadback entities[].emitter",
         listener_authority="UE neutral_from_ue_readbacks.camera[0]",
         rir_stride_frames=rir_stride_frames,
         hrtf_license_path=None,
