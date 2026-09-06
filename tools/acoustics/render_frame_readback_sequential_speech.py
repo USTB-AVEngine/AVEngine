@@ -1801,7 +1801,7 @@ def _plan_is_conditioned_static(plan: Mapping[str, Any]) -> bool:
 
 def _render_plan_audio(
     *,
-    frame_readbacks: str | Path,
+    frame_readbacks: str | Path | None = None,
     package_manifest: str | Path,
     voice_binding: str | Path,
     audio_plan: str | Path,
@@ -1823,7 +1823,9 @@ def _render_plan_audio(
     max_diffraction_order: int | None = None,
 ) -> dict[str, Any]:
     """Adapt the historical UE readbacks to the shared neutral renderer."""
-    readback_path = Path(frame_readbacks).expanduser().resolve()
+    if frame_readbacks is None and neutral_readback is None:
+        raise ValueError("an actual frame_readbacks or neutral_readback input is required")
+    readback_path = Path(neutral_readback if neutral_readback is not None else frame_readbacks).expanduser().resolve()
     package_path = Path(package_manifest).expanduser().resolve()
     plan_path = Path(audio_plan).expanduser().resolve()
     binding_path = Path(voice_binding).expanduser().resolve()
@@ -1847,19 +1849,19 @@ def _render_plan_audio(
     actor_ids = [str(item["actor_id"]) for item in actor_by_endpoint.values()]
     if len(set(actor_ids)) != len(actor_ids):
         raise ValueError("one actor cannot bind multiple dynamic source endpoints")
-    _validate_readback_lengths(readback, frame_count, actor_ids)
+    if neutral_readback is None:
+        _validate_readback_lengths(readback, frame_count, actor_ids)
+    else:
+        validate_neutral_readback(readback, plan=plan)
     camera_motion = _plan_camera_has_motion(readback)
-    if neutral_readback is not None:
-        candidate = _load(Path(neutral_readback).expanduser().resolve())
-        if not isinstance(candidate, Mapping):
-            raise ValueError("neutral_readback must contain a JSON object")
-        camera_motion = camera_motion or _plan_camera_has_motion(candidate)
     if camera_motion:
         if _plan_is_conditioned_static(plan):
             raise ValueError(
                 "conditioned_static_v2 audio rendering requires a static listener; "
                 "per-frame camera motion was observed"
             )
+        if neutral_readback is not None:
+            raise ValueError("the explicit neutral audio renderer currently requires a static listener")
         return _render_plan_audio_legacy_dynamic(
             frame_readbacks=frame_readbacks,
             package_manifest=package_manifest,
@@ -1980,11 +1982,11 @@ def _render_plan_audio(
         hrtf_file_path=hrtf_file,
         output_path=output,
         position_authority="P1 NeutralReadback entities[].emitter",
-        listener_authority="UE neutral_from_ue_readbacks.camera[0]",
+        listener_authority="P1 NeutralReadback.camera[0]",
         rir_stride_frames=rir_stride_frames,
         hrtf_license_path=None,
         extra_inputs={
-            "frame_readbacks": {
+            ("neutral_readback" if neutral_readback is not None else "frame_readbacks"): {
                 "path": str(readback_path),
                 "sha256": sha256_file(readback_path),
             },
@@ -2007,7 +2009,8 @@ def _render_plan_audio(
         magnum_python_site=magnum_python_site,
     )
     result["input_capture_status"] = input_capture_status
-    result["frame_readbacks"] = str(readback_path)
+    if neutral_readback is None:
+        result["frame_readbacks"] = str(readback_path)
     result["audio_plan"] = str(plan_path)
     result["voice_binding"] = str(binding_path)
     result["acoustic_package"] = str(package_path)
@@ -2016,7 +2019,7 @@ def _render_plan_audio(
 
 def render(
     *,
-    frame_readbacks: str | Path,
+    frame_readbacks: str | Path | None = None,
     package_manifest: str | Path,
     voice_binding: str | Path,
     output: str | Path,
@@ -2060,6 +2063,8 @@ def render(
             diffraction=diffraction,
             max_diffraction_order=max_diffraction_order,
         )
+    if frame_readbacks is None:
+        raise ValueError("neutral_readback requires audio_plan; the legacy four-clip route requires frame_readbacks")
     readback_path = Path(frame_readbacks).expanduser().resolve()
     package_path = Path(package_manifest).expanduser().resolve()
     bindings = _load(Path(voice_binding).expanduser().resolve())
@@ -2339,7 +2344,7 @@ def render(
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--frame-readbacks", required=True, type=Path)
+    parser.add_argument("--frame-readbacks", type=Path, help="native UE readbacks; optional with --neutral-readback and --audio-plan")
     parser.add_argument("--package-manifest", required=True, type=Path)
     parser.add_argument("--voice-binding", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)

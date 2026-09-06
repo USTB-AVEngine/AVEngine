@@ -565,3 +565,32 @@ def test_old_moving_listener_dispatches_to_real_dynamic_renderer_and_preserves_k
             hrtf_file=hrtf,
             rir_stride_frames=1,
         )
+
+
+def test_explicit_neutral_input_needs_no_legacy_readback_placeholder(tmp_path, monkeypatch):
+    from avengine.capture.ue_neutral_readback import neutral_from_ue_readbacks
+    readback, plan_path, binding, package = _moving_legacy_plan_fixture(tmp_path)
+    raw = json.loads(readback.read_text())
+    for row in raw["camera"]:
+        row["location_cm"] = [0., 0., 150.]
+    raw["actors"] = raw["emitters"]
+    plan = json.loads(plan_path.read_text())
+    neutral = neutral_from_ue_readbacks(raw, plan, source_readbacks=str(readback))
+    path = tmp_path / "actual-neutral.json"
+    path.write_text(json.dumps(neutral))
+    seen = {}
+    def fake_shared(actual, **kwargs):
+        seen["actual"] = actual
+        seen.update(kwargs)
+        Path(kwargs["output_path"]).mkdir()
+        return {"schema": "test-receipt", "input_neutral_readback": {"path": str(actual)}}
+    monkeypatch.setattr(speech, "render_neutral_readback_audio", fake_shared)
+    report = speech.render(
+        neutral_readback=path, audio_plan=plan_path,
+        package_manifest=package, voice_binding=binding, output=tmp_path / "output",
+        runtime_prefix="runtime", rlr_sdk_root="rlr", magnum_python_site="magnum")
+    assert Path(seen["actual"]) == path
+    assert "frame_readbacks" not in seen["extra_inputs"]
+    assert "frame_readbacks" not in report
+    assert seen["listener_authority"] == "P1 NeutralReadback.camera[0]"
+    assert seen["position_authority"] == "P1 NeutralReadback entities[].emitter"
