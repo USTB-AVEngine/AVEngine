@@ -57,13 +57,43 @@ GPU2 启动前占用 19 MiB / 49,140 MiB；30 帧原生捕获正常退出。
 - 第一帧中 beagle 被床遮挡很多，此段证明捕获/掩膜接口可执行，不能当成
   已通过动物外观或题目可答性审阅。
 
+### 20260907 原点修复与全量原生加载补验
+
+P11 库存复查时，父代理发现 Habitat ObjectAttributes 默认把视觉原点移到
+包围盒中心；旧黑灰音箱的 native visual bbox 最低点为 root 下 0.165 m，
+即使计划与实际 root 一致仍不能证明正确落地。`_instantiate_rigid_object`
+现显式设置 `com=(0,0,0)`、`compute_COM_from_shape=False`，保留 finalized
+GLB、resting_pose 和 emitter 共用的原点，不改变资产文件或中立根轨道。
+
+`tmp/p11_habitat_static_native_probe_20260907_v2/` 中 40/40 正式刚体均实际
+加载、读取有限根/发声点/包围盒，并生成有目标语义像素的 RGB；native
+creation_attributes 均读回 zero COM / no automatic recentering。父代理已看
+`native_contact_sheet.png`。31 个 floor 资产的原始 GLB 经过全部 node
+transform 后，精确顶点底面相对登记 base plane 的最大误差为 3.63e-8 m。
+`source_vertex_origin_crosscheck.json` 明确区分这一源顶点测量与旋转层级的
+保守 native cumulative AABB；未按保守 AABB 额外抬高任何资产。
+
+修复后原生重捕获在 `tmp/p4_rigid_origin_captures_20260907_v1/`：HM3D 240帧，
+MP3D 30帧，各自 `capture/` 与 `delivery_v1/`。target-only alignment 均 pass；
+HM3D 两源均 240 帧 visible_clear、两种外观 reviewed；MP3D 音箱 30 帧 clear，
+beagle 仍受床遮挡且毛色 not_observable。父代理查看了三时刻实际 RGB 拼图。
+两段各自新旧实际 camera、clock、两源 emitter 逐值完全一致，故经
+`actual_acoustic_inputs_comparison.json` 核对后复用对应的未修改 P6 双耳音频。
+新片分别 16秒/2秒、2声道；P9 合同和导出通过，题目 11 valid/13 deferred、
+9 valid/15 deferred。旧有 COM 居中捕获保留为诊断，不再作为摆放验收。
+
+本次受影响的 capture/static-binding 单测 11 passed / 0 failed / 0 skipped
+（10.41秒，`tmp/p4_rigid_origin_tests_20260907_v1.log`）。本节、源码和回归测试
+随原点修复提交；源码仍来自指定服务器权威工作树。
+
 ## 4. 尚缺与证据边界
 
 P4 已交付捕获和登记接口；该段保持 research_candidate。音频回执、外观
 审阅和完整 EvidenceContract 由 P6/P9 补齐，不能据此宣布全链验收。
 wall/ceiling 的挂装执行尚未完成，当前刚体捕获只接受 floor resting_pose；
-相关资产留在覆盖分母并记 interface_not_implemented。40 条绑定的加载引用
-已解析，原生 GLB 捕获本次验证了一个音箱，其余的真实加载矩阵仍待 P11。
+相关资产留在覆盖分母并记 interface_not_implemented。40 条绑定现已有逐资产
+原生加载/语义像素记录，其中 8 个 wall、1 个 ceiling 仅通过加载，挂装执行
+仍未实现；不以 blank-scene 加载声明任何房间接触、碰撞或声音验收。
 
 任务书的 /data/datasets/habitat_data 未包含此 MP3D 场景；实际采用服务器
 已有的 /data/avengine_external/datasets/mp3d_example_scene_1.1，scene 是同一

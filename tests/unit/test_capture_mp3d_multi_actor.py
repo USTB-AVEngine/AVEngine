@@ -476,3 +476,31 @@ def test_base_template_handle_uses_exact_manager_load_id_without_basename_prefix
         "/tmp/other/package/animal.ao_config.json"
     )
     assert cache[config_path.resolve()] == "/tmp/other/package/animal.ao_config.json"
+
+
+def test_rigid_instantiation_preserves_authored_origin(tmp_path):
+    from types import SimpleNamespace
+    from avengine.capture.mp3d_multi_actor import _instantiate_rigid_object
+
+    glb = tmp_path / "grounded.glb"
+    glb.write_bytes(b"source-path-only; native geometry is covered by the retained probe")
+    attributes = SimpleNamespace(com=(1.0, 2.0, 3.0), compute_COM_from_shape=True)
+    obj = SimpleNamespace(root_scene_node=SimpleNamespace(semantic_id=0), visual_scene_nodes=[])
+    def instantiate(handle):
+        assert attributes.compute_COM_from_shape is False
+        assert attributes.com == (0.0, 0.0, 0.0)
+        return obj
+    templates = SimpleNamespace(
+        create_new_template=lambda handle, register: attributes,
+        register_template=lambda attributes, handle: 0,
+    )
+    simulator = SimpleNamespace(
+        get_object_template_manager=lambda: templates,
+        get_rigid_object_manager=lambda: SimpleNamespace(add_object_by_template_handle=instantiate),
+    )
+    runtime = SimpleNamespace(physics=SimpleNamespace(MotionType=SimpleNamespace(KINEMATIC=1)))
+    result = _instantiate_rigid_object(
+        simulator, binding={"glb_path": str(glb)}, habitat_sim=runtime,
+        semantic_id=7, object_index=0,
+    )
+    assert result.semantic_id == result.root_scene_node.semantic_id == 7

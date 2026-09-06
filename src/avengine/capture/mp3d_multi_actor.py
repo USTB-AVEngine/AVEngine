@@ -591,6 +591,11 @@ def _instantiate_rigid_object(
     try:
         attributes.render_asset_handle = str(glb_path)
         attributes.collision_asset_handle = str(glb_path)
+        # finalized.glb and its registered emitter/resting_pose share the
+        # authored asset origin. Habitat otherwise shifts the visual mesh to
+        # its bounding-box centre while root readbacks still look correct.
+        attributes.com = (0.0, 0.0, 0.0)
+        attributes.compute_COM_from_shape = False
         attributes.semantic_id = semantic
         attributes.is_collidable = True
         attributes.is_visibile = True

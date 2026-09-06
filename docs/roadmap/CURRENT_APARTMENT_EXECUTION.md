@@ -1269,3 +1269,18 @@ and server tmp/p7_human_review_transfer_20260907_v1; it contains unchanged
 prepared/source WAV pairs and unfilled records. The authorized 46-episode
 pilot has NOT started and remains conditional on all prerequisite acceptance,
 including those human records. No dataset/formal admission is claimed.
+
+## Checkpoint 20260907: preserve Habitat static asset origins
+
+All 40 registered rigid GLBs now have native object/root/emitter/bounds and
+semantic-RGB load evidence in tmp/p11_habitat_static_native_probe_20260907_v2.
+The actual probe exposed Habitat's default bounding-box COM recentering; capture
+now keeps the finalized GLB origin explicitly. Exact source-vertex floor bases
+remain within 3.63e-8 m of registered base planes; conservative node AABBs are
+not used to raise objects. Wall/ceiling mounting remains an explicit interface gap.
+Corrected HM3D and MP3D captures plus P9 exports are in
+tmp/p4_rigid_origin_captures_20260907_v1/{hm3d,mp3d}/delivery_v1. Unchanged P6
+audio is reused only after exact actual camera/clock/emitter equality. Old COM
+centred captures are diagnostic. Related origin/binding tests: 11 passed.
+P11 UE integration, P10 and the actual human listening records remain pending;
+the 46-episode pilot has not started.
