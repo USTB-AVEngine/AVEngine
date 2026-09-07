@@ -536,8 +536,53 @@ def _failed_episode_index(payload: Mapping[str, Any]) -> dict[tuple[str, str], d
     return index
 
 
+APPEARANCE_CLASSIFIER_GAP_REASON = (
+    "registered_appearance_value_classifier_not_implemented"
+)
+APPEARANCE_DEFER_CODES = frozenset(
+    {
+        "appearance_review_missing",
+        "appearance_not_unique",
+        "missing_appearance",
+        APPEARANCE_CLASSIFIER_GAP_REASON,
+    }
+)
+
+
+def _appearance_classifier_gap_reason(
+    contexts: Sequence[Mapping[str, Any]],
+    asset_id: str,
+) -> str | None:
+    """Return the classifier-gap reason if this asset's appearance review recorded one."""
+    for context in contexts:
+        actors = context.get("actors") if isinstance(context.get("actors"), Mapping) else {}
+        facts = context.get("facts") if isinstance(context.get("facts"), Mapping) else {}
+        review = facts.get("appearance_review") if isinstance(facts, Mapping) else None
+        review = review if isinstance(review, Mapping) else {}
+        for actor_id, actor in actors.items():
+            if not isinstance(actor, Mapping) or actor.get("asset_id") != asset_id:
+                continue
+            row = review.get(actor_id)
+            if not isinstance(row, Mapping):
+                continue
+            if row.get("reason") == APPEARANCE_CLASSIFIER_GAP_REASON:
+                return APPEARANCE_CLASSIFIER_GAP_REASON
+            checks = row.get("checks")
+            if not isinstance(checks, list):
+                continue
+            for check in checks:
+                if (
+                    isinstance(check, Mapping)
+                    and check.get("reason") == APPEARANCE_CLASSIFIER_GAP_REASON
+                ):
+                    return APPEARANCE_CLASSIFIER_GAP_REASON
+    return None
+
+
 def _deferred_state(reason_code: Any) -> str:
     code = str(reason_code or "deferred_by_rule")
+    if code in {APPEARANCE_CLASSIFIER_GAP_REASON, "interface_not_implemented"}:
+        return "interface_not_implemented"
     if code.startswith("missing_") or code == "event_segmentation_not_reviewed":
         return "evidence_missing_or_unsampled"
     return "deferred_by_rule"
@@ -1387,7 +1432,16 @@ def build_batch_coverage(
                     )
                 elif deferred:
                     first = deferred[0]
-                    deferred_state = _deferred_state(first.get("code"))
+                    reason_code = first.get("code", "deferred_by_rule")
+                    deferred_state = _deferred_state(reason_code)
+                    classifier_reason = None
+                    if str(reason_code) in APPEARANCE_DEFER_CODES:
+                        classifier_reason = _appearance_classifier_gap_reason(
+                            room_contexts, asset_id
+                        )
+                        if classifier_reason:
+                            deferred_state = "interface_not_implemented"
+                            reason_code = classifier_reason
                     rows.append(
                         {
                             "asset_id": asset_id,
@@ -1398,8 +1452,12 @@ def build_batch_coverage(
                             "renderer": room.get("renderer"),
                             "qa_id": qa_id,
                             "state": deferred_state,
-                            "reason_code": first.get("code", "deferred_by_rule"),
-                            "reason": first.get("detail", "question was legally deferred"),
+                            "reason_code": reason_code,
+                            "reason": (
+                                classifier_reason
+                                if classifier_reason
+                                else first.get("detail", "question was legally deferred")
+                            ),
                             "scope": "target",
                             "target_asset_ids": [asset_id],
                             "reference_asset_ids": [],

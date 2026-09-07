@@ -6251,6 +6251,7 @@
         "category": "audio_playback"
       },
       "realized_attributes": {
+        "body_color": "black",
         "form_factor": "flat_panel_16_9",
         "material": "plastic",
         "stand_type": "central_pedestal"
@@ -6349,6 +6350,7 @@
         "category": "audio_playback"
       },
       "realized_attributes": {
+        "body_color": "black",
         "form_factor": "flat_panel_16_9",
         "material": "plastic",
         "stand_type": "two_splayed_feet"

@@ -336,3 +336,79 @@ def test_annotate_pixel_truth_and_achieved_conditions_keep_in_fov_meaning() -> N
     assert row["visible_pixel_frames"] == 1
     assert row["bbox_touches_frame_edge_frames"] == 1
     assert "visible_pixels > 0" in row["in_fov_definition"]
+
+
+def test_unsupported_registered_values_use_classifier_gap_reason() -> None:
+    rgb = np.full((48, 48, 3), 180, dtype=np.uint8)
+    mask = np.ones((48, 48), dtype=bool)
+    unsupported = (
+        ("silver", "device"),
+        ("white_satin", "device"),
+        ("warm_gray", "device"),
+        ("beige", "device"),
+        ("light_gray", "device"),
+        ("sandstone", "device"),
+        ("light_gray_fabric", "device"),
+        ("dark_sable", "animal"),
+        ("standard_sable", "animal"),
+        ("standard_seal_point", "animal"),
+    )
+    for value, kind in unsupported:
+        row = inspect_registered_appearance(rgb, mask, value, entity_kind=kind)
+        assert row["status"] == "not_observable", value
+        assert row["reason"] == "registered_appearance_value_classifier_not_implemented", value
+        assert row["gap_category"] == "interface_not_implemented", value
+    implemented = inspect_registered_appearance(rgb, mask, "white", entity_kind="device")
+    assert implemented.get("reason") != "registered_appearance_value_classifier_not_implemented"
+
+
+def test_actor_reason_is_classifier_gap_when_value_has_no_classifier(tmp_path: Path) -> None:
+    height, width = 32, 32
+    truth = {
+        "schema": "avengine_qa_pixel_visibility_truth_v1",
+        "status": "computed_modal_target_only_v1",
+        "resolution_hw": [height, width],
+        "frame_indices": [0],
+        "per_instance": {
+            "source1": {
+                "semantic_id": 11,
+                "frames": [
+                    {
+                        "frame_index": 0,
+                        "state": "visible_clear",
+                        "target_bbox_xyxy_px": [0, 0, width, height],
+                        "target_pixels": height * width,
+                        "visible_pixels": height * width,
+                    }
+                ],
+            }
+        },
+    }
+    (tmp_path / "pixel_visibility_truth.json").write_text(json.dumps(truth), encoding="utf-8")
+    modal = np.full((1, height, width), 11, dtype=np.uint32)
+    np.savez(
+        tmp_path / "native_pixel_masks_depth_authority_v1.npz",
+        modal=modal,
+        target_only_source1=modal,
+    )
+    np.save(tmp_path / "rgb.npy", np.full((1, height, width, 3), 180, dtype=np.uint8))
+    plan = {
+        "visual_plan": {
+            "actors": [
+                {
+                    "actor_id": "source1",
+                    "asset_id": "blender_silver",
+                    "entity_class": "rigid_object",
+                    "realized_attributes": {"body_color": "silver", "form_factor": "jug"},
+                }
+            ]
+        }
+    }
+    result = build_pixel_appearance_review(tmp_path, plan, frame_stride=1)
+    actor = result["actors"]["source1"]
+    assert actor["status"] == "not_observable"
+    assert actor["value"] == "silver"
+    assert actor["reason"] == "registered_appearance_value_classifier_not_implemented"
+    assert actor["gap_category"] == "interface_not_implemented"
+    assert actor["checks"]
+    assert actor["checks"][0]["reason"] == "registered_appearance_value_classifier_not_implemented"

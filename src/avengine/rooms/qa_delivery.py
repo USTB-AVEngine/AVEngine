@@ -14,6 +14,7 @@ from avengine.qa.unified_catalog import generate_unified_questions, normalize_ep
 from avengine.rooms.evidence_contract import validate_evidence_contract
 from avengine.rooms.qa_episode import read_json, write_json
 from avengine.rooms.qa_evidence import (
+    annotate_pixel_visibility_semantics,
     audit_native_structural_clearance, build_pixel_appearance_review, derive_actor_occluders,
     review_imported_pose_clearance,
 )
@@ -501,6 +502,18 @@ def _decorate_actor(
             value["appearance"] = {
                 "field": "finish",
                 "value": attrs["finish"],
+                "label": value.get("display_label", asset_id or "device"),
+            }
+        elif isinstance(attrs.get("surface_finish"), str):
+            value["appearance"] = {
+                "field": "surface_finish",
+                "value": attrs["surface_finish"],
+                "label": value.get("display_label", asset_id or "device"),
+            }
+        elif isinstance(attrs.get("body_color"), str):
+            value["appearance"] = {
+                "field": "body_color",
+                "value": attrs["body_color"],
                 "label": value.get("display_label", asset_id or "device"),
             }
         elif isinstance(attrs.get("top_color"), str):
@@ -1100,6 +1113,7 @@ def finalize_qa_episode(
     truth = read_json(truth_path)
     if not isinstance(truth, Mapping):
         raise ValueError("pixel visibility truth must be an object")
+    truth = annotate_pixel_visibility_semantics(truth)
     registry = _asset_registry(Path(repository).resolve())
     if plan is None:
         plan = _build_habitat_plan(capture_root, capture_receipt, truth, report, registry)
