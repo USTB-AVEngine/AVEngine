@@ -4,7 +4,7 @@
 
 ## 1. 改了哪些文件（路径），提交号
 
-实现提交见本分支随后的 `fix(qa): ...` 提交。本项改动：
+实现提交 `cf2c8d5`。本项改动：
 
 - `src/avengine/rooms/qa_delivery.py`：`select_habitat_audio_program_mode`（按重叠/活跃端点数选模式，不用 `plan.audio_mode`）；契约与双耳 WAV 验过再写 facts/questions；`--beagle-audio` 只在真有 beagle 绑定时传。
 - `src/avengine/cli.py`：`--beagle-audio` 改为可选。
