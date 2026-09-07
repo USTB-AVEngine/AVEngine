@@ -4,7 +4,7 @@
 
 ## 1. 改了哪些文件（路径），提交号
 
-提交见本报告落盘后的 `git rev-parse HEAD`（文末 `H-5 DONE commit=`）。本项改动：
+提交 `a219ae4`（本报告随后的 stamp 提交只改这一行）。本项改动：
 
 - `src/avengine/rooms/qa_evidence.py`：actor 级 reason 从逐帧 check 上提为 `registered_appearance_value_classifier_not_implemented`（`gap_category=interface_not_implemented`）。未改像素/颜色门槛。
 - `src/avengine/qa/batch_delivery.py`：`finalize_batch_episode` 在 `achieved_from_facts` 之后只加 `attach_visibility_semantics`（调用 `annotate_pixel_visibility_semantics` / `annotate_achieved_conditions_visibility`）。不碰 H-4 的曝光闸门 `try/except`。
