@@ -69,6 +69,32 @@ def build_audio_command(
     )
     if max_order is not None:
         command += ["--max-diffraction-order", str(max_order)]
+    simulation_request = (
+        request.get("simulation_request")
+        or runtime.get("simulation_request")
+        or plan.get("simulation_request")
+    )
+    if simulation_request:
+        command += ["--simulation-request", str(simulation_request)]
+    simulation: dict[str, Any] = {}
+    for block in (plan.get("simulation"), runtime.get("simulation"), request.get("simulation")):
+        if isinstance(block, Mapping):
+            for key in (
+                "direct_sh_order",
+                "indirect_sh_order",
+                "indirect_ray_depth",
+                "max_ir_seconds",
+            ):
+                if key in block and block[key] is not None:
+                    simulation[key] = block[key]
+    if "direct_sh_order" in simulation:
+        command += ["--direct-sh-order", str(simulation["direct_sh_order"])]
+    if "indirect_sh_order" in simulation:
+        command += ["--indirect-sh-order", str(simulation["indirect_sh_order"])]
+    if "indirect_ray_depth" in simulation:
+        command += ["--indirect-depth", str(simulation["indirect_ray_depth"])]
+    if "max_ir_seconds" in simulation:
+        command += ["--max-ir-seconds", str(simulation["max_ir_seconds"])]
     return command
 
 

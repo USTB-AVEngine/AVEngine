@@ -327,21 +327,73 @@ def _animation_readback_qa(
     }
 
 
+# Habitat-path orders/depth/IR length from
+# examples/runtime/rir_cache_simulation_request_v2.json. UE stays binaural and
+# does not copy Habitat diffraction/transmission/ambisonics from that file.
+DEFAULT_DIRECT_SH_ORDER = 3
+DEFAULT_INDIRECT_SH_ORDER = 1
+DEFAULT_INDIRECT_RAY_DEPTH = 200
+DEFAULT_MAX_IR_SECONDS = 4.0
+_SIMULATION_OVERLAY_KEYS = (
+    "direct_sh_order",
+    "indirect_sh_order",
+    "indirect_ray_depth",
+    "max_ir_seconds",
+)
+
+
+def simulation_overlay_from_mapping(value: Mapping[str, Any] | None) -> dict[str, Any]:
+    """Copy only SH order / ray depth / IR length from a request or package."""
+
+    if not isinstance(value, Mapping):
+        return {}
+    source = value.get("simulation") if isinstance(value.get("simulation"), Mapping) else value
+    if not isinstance(source, Mapping):
+        return {}
+    overlay: dict[str, Any] = {}
+    if "direct_sh_order" in source and source["direct_sh_order"] is not None:
+        overlay["direct_sh_order"] = int(source["direct_sh_order"])
+    if "indirect_sh_order" in source and source["indirect_sh_order"] is not None:
+        overlay["indirect_sh_order"] = int(source["indirect_sh_order"])
+    if "indirect_ray_depth" in source and source["indirect_ray_depth"] is not None:
+        overlay["indirect_ray_depth"] = int(source["indirect_ray_depth"])
+    if "max_ir_seconds" in source and source["max_ir_seconds"] is not None:
+        overlay["max_ir_seconds"] = float(source["max_ir_seconds"])
+    return overlay
+
+
+def existing_rir_cache_simulation_matches(
+    request: Mapping[str, Any], simulation: RLRSimulationConfig
+) -> bool:
+    """True when an on-disk RIR cache was produced with this simulation."""
+
+    block = request.get("simulation")
+    if not isinstance(block, Mapping):
+        return False
+    effective = block.get("effective") if isinstance(block.get("effective"), Mapping) else block
+    if not isinstance(effective, Mapping):
+        return False
+    return dict(effective) == simulation.to_dict()
+
+
 def _simulation(
     *,
     direct_ray_count: int = 500,
     indirect_ray_count: int = 5000,
     source_ray_count: int = 500,
-    indirect_ray_depth: int = 64,
+    indirect_ray_depth: int = DEFAULT_INDIRECT_RAY_DEPTH,
     source_ray_depth: int = 16,
     diffraction: bool = False,
     max_diffraction_order: int = 0,
+    direct_sh_order: int = DEFAULT_DIRECT_SH_ORDER,
+    indirect_sh_order: int = DEFAULT_INDIRECT_SH_ORDER,
+    max_ir_seconds: float = DEFAULT_MAX_IR_SECONDS,
 ) -> RLRSimulationConfig:
     return RLRSimulationConfig.from_mapping(
         {
             "frequency_bands": 4,
-            "direct_sh_order": 0,
-            "indirect_sh_order": 0,
+            "direct_sh_order": int(direct_sh_order),
+            "indirect_sh_order": int(indirect_sh_order),
             "direct_ray_count": direct_ray_count,
             "indirect_ray_count": indirect_ray_count,
             "indirect_ray_depth": indirect_ray_depth,
@@ -350,7 +402,7 @@ def _simulation(
             "max_diffraction_order": max_diffraction_order,
             "thread_count": 1,
             "sample_rate_hz": 16000.0,
-            "max_ir_seconds": 0.25,
+            "max_ir_seconds": float(max_ir_seconds),
             "unit_scale": 1.0,
             "global_volume": 1.0,
             "speed_of_sound_m_s": 343.0,
@@ -1078,6 +1130,15 @@ def _existing_rir_cache_sequence(
     if cache_path.exists():
         try:
             request = _load(cache_path / "request.json")
+            if not isinstance(request, Mapping):
+                raise ValueError("existing RIR cache request.json is not an object")
+            if not existing_rir_cache_simulation_matches(request, simulation):
+                raise ValueError(
+                    "existing established RIR cache simulation does not match this "
+                    "request (direct_sh_order/indirect_sh_order/indirect_ray_depth/"
+                    "max_ir_seconds); refusing to reuse a different-order cache: "
+                    f"{cache_path}"
+                )
             selected_plan_path = Path(str(request["plan"]["path"])).resolve()
             selected_simulation_path = Path(
                 str(request["simulation"]["request_path"])
@@ -1437,6 +1498,9 @@ def _render_plan_audio_legacy_dynamic(
     source_ray_depth: int,
     diffraction: bool | None = None,
     max_diffraction_order: int | None = None,
+    direct_sh_order: int = DEFAULT_DIRECT_SH_ORDER,
+    indirect_sh_order: int = DEFAULT_INDIRECT_SH_ORDER,
+    max_ir_seconds: float = DEFAULT_MAX_IR_SECONDS,
 ) -> dict[str, Any]:
     readback_path = Path(frame_readbacks).expanduser().resolve()
     package_path = Path(package_manifest).expanduser().resolve()
@@ -1525,6 +1589,9 @@ def _render_plan_audio_legacy_dynamic(
         source_ray_depth=source_ray_depth,
         diffraction=(False if diffraction is None else diffraction),
         max_diffraction_order=(0 if max_diffraction_order is None else max_diffraction_order),
+        direct_sh_order=direct_sh_order,
+        indirect_sh_order=indirect_sh_order,
+        max_ir_seconds=max_ir_seconds,
     )
     scene = load_compiled_acoustic_scene(
         package_path,
@@ -1872,6 +1939,9 @@ def _render_plan_audio(
     prepared_manifest: str | Path | None = None,
     diffraction: bool | None = None,
     max_diffraction_order: int | None = None,
+    direct_sh_order: int = DEFAULT_DIRECT_SH_ORDER,
+    indirect_sh_order: int = DEFAULT_INDIRECT_SH_ORDER,
+    max_ir_seconds: float = DEFAULT_MAX_IR_SECONDS,
 ) -> dict[str, Any]:
     """Adapt the historical UE readbacks to the shared neutral renderer."""
     if frame_readbacks is None and neutral_readback is None:
@@ -1932,6 +2002,9 @@ def _render_plan_audio(
             source_ray_depth=source_ray_depth,
             diffraction=diffraction,
             max_diffraction_order=max_diffraction_order,
+            direct_sh_order=direct_sh_order,
+            indirect_sh_order=indirect_sh_order,
+            max_ir_seconds=max_ir_seconds,
         )
     if neutral_readback is None:
         neutral_source = readback
@@ -1970,6 +2043,9 @@ def _render_plan_audio(
         source_ray_depth=source_ray_depth,
         diffraction=(False if diffraction is None else diffraction),
         max_diffraction_order=(0 if max_diffraction_order is None else max_diffraction_order),
+        direct_sh_order=direct_sh_order,
+        indirect_sh_order=indirect_sh_order,
+        max_ir_seconds=max_ir_seconds,
     )
     rir_sequence_override = None
     scene_override = None
@@ -2086,7 +2162,7 @@ def render(
     direct_ray_count: int = 500,
     indirect_ray_count: int = 5000,
     source_ray_count: int = 500,
-    indirect_ray_depth: int = 64,
+    indirect_ray_depth: int = DEFAULT_INDIRECT_RAY_DEPTH,
     source_ray_depth: int = 16,
     audio_plan: str | Path | None = None,
     hrtf_file: str | Path = "/usr/share/libmysofa/MIT_KEMAR_normal_pinna.sofa",
@@ -2096,7 +2172,35 @@ def render(
     prepared_manifest: str | Path | None = None,
     diffraction: bool | None = None,
     max_diffraction_order: int | None = None,
+    direct_sh_order: int | None = None,
+    indirect_sh_order: int | None = None,
+    max_ir_seconds: float | None = None,
+    simulation_request: str | Path | None = None,
 ) -> dict[str, Any]:
+    overlay = simulation_overlay_from_mapping(
+        _load(Path(simulation_request).expanduser().resolve())
+        if simulation_request is not None
+        else None
+    )
+    resolved_direct_sh = (
+        DEFAULT_DIRECT_SH_ORDER if direct_sh_order is None else int(direct_sh_order)
+    )
+    resolved_indirect_sh = (
+        DEFAULT_INDIRECT_SH_ORDER if indirect_sh_order is None else int(indirect_sh_order)
+    )
+    resolved_max_ir = (
+        DEFAULT_MAX_IR_SECONDS if max_ir_seconds is None else float(max_ir_seconds)
+    )
+    if direct_sh_order is None and "direct_sh_order" in overlay:
+        resolved_direct_sh = int(overlay["direct_sh_order"])
+    if indirect_sh_order is None and "indirect_sh_order" in overlay:
+        resolved_indirect_sh = int(overlay["indirect_sh_order"])
+    if max_ir_seconds is None and "max_ir_seconds" in overlay:
+        resolved_max_ir = float(overlay["max_ir_seconds"])
+    resolved_depth = int(indirect_ray_depth)
+    if indirect_ray_depth == DEFAULT_INDIRECT_RAY_DEPTH and "indirect_ray_depth" in overlay:
+        # CLI/render default: allow the request file to select depth.
+        resolved_depth = int(overlay["indirect_ray_depth"])
     if audio_plan is not None:
         return _render_plan_audio(
             frame_readbacks=frame_readbacks,
@@ -2113,13 +2217,20 @@ def render(
             direct_ray_count=direct_ray_count,
             indirect_ray_count=indirect_ray_count,
             source_ray_count=source_ray_count,
-            indirect_ray_depth=indirect_ray_depth,
+            indirect_ray_depth=resolved_depth,
             source_ray_depth=source_ray_depth,
             neutral_readback=neutral_readback,
             prepared_manifest=prepared_manifest,
             diffraction=diffraction,
             max_diffraction_order=max_diffraction_order,
+            direct_sh_order=resolved_direct_sh,
+            indirect_sh_order=resolved_indirect_sh,
+            max_ir_seconds=resolved_max_ir,
         )
+    indirect_ray_depth = resolved_depth
+    direct_sh_order = resolved_direct_sh
+    indirect_sh_order = resolved_indirect_sh
+    max_ir_seconds = resolved_max_ir
     if frame_readbacks is None:
         raise ValueError("neutral_readback requires audio_plan; the legacy four-clip route requires frame_readbacks")
     readback_path = Path(frame_readbacks).expanduser().resolve()
@@ -2243,6 +2354,9 @@ def render(
         source_ray_count=source_ray_count,
         indirect_ray_depth=indirect_ray_depth,
         source_ray_depth=source_ray_depth,
+        direct_sh_order=direct_sh_order,
+        indirect_sh_order=indirect_sh_order,
+        max_ir_seconds=max_ir_seconds,
     )
     mixture = np.zeros((2, sample_count), dtype=np.float64)
     records: list[dict[str, Any]] = []
@@ -2411,8 +2525,16 @@ def main() -> None:
     parser.add_argument("--direct-rays", type=int, default=500)
     parser.add_argument("--indirect-rays", type=int, default=5000)
     parser.add_argument("--source-rays", type=int, default=500)
-    parser.add_argument("--indirect-depth", type=int, default=64)
+    parser.add_argument("--indirect-depth", type=int, default=DEFAULT_INDIRECT_RAY_DEPTH)
     parser.add_argument("--source-depth", type=int, default=16)
+    parser.add_argument("--direct-sh-order", type=int, default=None)
+    parser.add_argument("--indirect-sh-order", type=int, default=None)
+    parser.add_argument("--max-ir-seconds", type=float, default=None)
+    parser.add_argument(
+        "--simulation-request",
+        type=Path,
+        help="optional RLR simulation JSON; only SH order / depth / IR length are applied",
+    )
     parser.add_argument(
         "--audio-plan",
         type=Path,
@@ -2479,6 +2601,10 @@ def main() -> None:
         prepared_manifest=args.prepared_manifest,
         diffraction=args.diffraction,
         max_diffraction_order=args.max_diffraction_order,
+        direct_sh_order=args.direct_sh_order,
+        indirect_sh_order=args.indirect_sh_order,
+        max_ir_seconds=args.max_ir_seconds,
+        simulation_request=args.simulation_request,
     )
     output = report.get("mixture_path")
     if output is None:
