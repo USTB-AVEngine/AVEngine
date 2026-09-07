@@ -9,7 +9,7 @@
 
 ## 1. 改了哪些文件（路径），提交号
 
-实现与本报告同提交（分支最新一次；短号见 git log）。
+实现与本报告同提交 `619d1fd69c8734029a51463f082cb5ff1c117134`（短号 `619d1fd`）。本句哈希由后续 docs 提交写入，避免 amend 自指。
 
 - `src/avengine/rooms/room_package.py`：生产装载改为
   `validate_room_package(resolve_room_package_paths(...))`，存在性检查在模板
