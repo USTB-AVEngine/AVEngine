@@ -23,6 +23,15 @@ from avengine.appearance.contracts import CANONICAL_DOMAINS, COAT_PROFILE_DOMAIN
 from avengine.contracts.json_io import canonical_json_sha256, load_json
 
 
+# These source-library coats have observed research instances, not reviewed
+# three-level L9 generation domains. Keep them out of COAT_PROFILE_DOMAINS.
+_OBSERVED_RESEARCH_COAT_PROFILES = {
+    ("cat", "burmese", "cat_burmese_coat_v1"): ("dark_sable", "standard_sable"),
+    ("dog", "jack_russell_terrier", "dog_jack_russell_coat_v1"): ("standard_white_tan",),
+    ("cat", "siamese", "cat_siamese_coat_v1"): ("standard_seal_point",),
+}
+
+
 SOURCE_ASSET_RUNTIME_REGISTRY_SCHEMA = (
     "avengine_source_asset_runtime_registry_v1"
 )
@@ -369,6 +378,51 @@ def _validate_static_runtime_record(
     return errors
 
 
+def _validate_spear_emitter_attachment(
+    value: Any,
+    *,
+    owner: str,
+) -> list[str]:
+    """Validate an optional native UE bone or socket emitter attachment."""
+
+    errors: list[str] = []
+    if not isinstance(value, Mapping):
+        return [f"{owner} must be an object"]
+    attachment_type = value.get("attachment_type")
+    if attachment_type not in {"bone", "socket"}:
+        errors.append(
+            f"{owner}.attachment_type must be bone or socket"
+        )
+    name = value.get("name")
+    if not isinstance(name, str) or not name.strip():
+        errors.append(f"{owner}.name must be a non-empty string")
+    try:
+        _finite_vector(
+            value.get("local_offset_cm"),
+            length=3,
+            owner=f"{owner}.local_offset_cm",
+        )
+    except RuntimeProfileError as error:
+        errors.extend(error.errors)
+    probe_source = value.get("probe_source")
+    if not isinstance(probe_source, Mapping):
+        errors.append(f"{owner}.probe_source must be an artifact reference")
+    else:
+        root_id = probe_source.get("root_id")
+        if not isinstance(root_id, str) or not root_id.strip():
+            errors.append(f"{owner}.probe_source.root_id must be non-empty")
+        path = probe_source.get("path")
+        if not isinstance(path, str) or not path.strip():
+            errors.append(f"{owner}.probe_source.path must be non-empty")
+        else:
+            probe_path = PurePosixPath(path)
+            if probe_path.is_absolute() or ".." in probe_path.parts:
+                errors.append(
+                    f"{owner}.probe_source.path must be repository-relative"
+                )
+    return errors
+
+
 def _validate_source_asset_runtime_registry_uncached(value: Any) -> list[str]:
     errors = _schema_errors(value, _SOURCE_SCHEMA_FILE)
     if errors or not isinstance(value, Mapping):
@@ -424,6 +478,8 @@ def _validate_source_asset_runtime_registry_uncached(value: Any) -> list[str]:
                     str(coat.get("profile_id")),
                 )
                 domain = COAT_PROFILE_DOMAINS.get(registry_key)
+                if domain is None and record.get("admission_state") == "research":
+                    domain = _OBSERVED_RESEARCH_COAT_PROFILES.get(registry_key)
                 if domain is None:
                     errors.append(
                         f"{prefix}: coat profile {registry_key!r} is not "
@@ -494,6 +550,17 @@ def _validate_source_asset_runtime_registry_uncached(value: Any) -> list[str]:
 
         spear = record.get("runtime_backends", {}).get("spear_unreal")
         if isinstance(spear, Mapping):
+            emitter_attachment = spear.get("ue_emitter_attachment")
+            if emitter_attachment is not None:
+                errors.extend(
+                    _validate_spear_emitter_attachment(
+                        emitter_attachment,
+                        owner=(
+                            f"{prefix}.runtime_backends.spear_unreal."
+                            "ue_emitter_attachment"
+                        ),
+                    )
+                )
             actor_scale = spear.get("actor_scale")
             if actor_scale is not None and (
                 isinstance(actor_scale, bool)
@@ -899,6 +966,15 @@ def build_asset_emitter_binding(
         }
     if isinstance(anchor.get("local_basis"), Mapping):
         binding["local_basis"] = deepcopy(dict(anchor["local_basis"]))
+    if record.get("entity_class") not in {"rigid_object", "rigid_static_object"}:
+        spear = record["runtime_backends"].get("spear_unreal")
+        attachment = (
+            spear.get("ue_emitter_attachment")
+            if isinstance(spear, Mapping)
+            else None
+        )
+        if isinstance(attachment, Mapping):
+            binding["ue_emitter_attachment"] = deepcopy(dict(attachment))
     return binding
 
 

@@ -701,3 +701,130 @@ def test_habitat_only_rigid_binding_has_neutral_emitter_and_no_spear_claim():
     assert source_timeline_profiles(registry)[asset['asset_id']]['motion_model'] == 'rigid_static'
     del asset['runtime_backends']['habitat']['resting_pose']
     assert any('resting_pose' in e for e in validate_source_asset_runtime_registry(registry))
+
+
+def _beagle_probe_emitter_attachment() -> dict:
+    return {
+        "attachment_type": "bone",
+        "name": "beagle-Xtra-Mouth",
+        "local_offset_cm": [0.0, 0.0, 0.0],
+        "probe_source": {
+            "root_id": "spear_repo",
+            "path": (
+                "tmp/p11_ue_asset_captures_20260907_v9/"
+                "beagle_anatomy_probe_v4/result.json"
+            ),
+            "sha256": (
+                "e0d80ef833f15093aaf6b81deba3676593e09cec9afaad85b2608a58c716cb5f"
+            ),
+            "size_bytes": 5119,
+        },
+    }
+
+
+def _beagle_registry_copy() -> dict:
+    registry = deepcopy(load_default_source_asset_runtime_registry())
+    beagle = next(
+        record
+        for record in registry["assets"]
+        if record["asset_id"]
+        == "rocketbox_dog_beagle_01_m2_v7_world_contact_candidate"
+    )
+    beagle["runtime_backends"]["spear_unreal"]["ue_emitter_attachment"] = (
+        _beagle_probe_emitter_attachment()
+    )
+    return registry
+
+
+def test_optional_spear_bone_emitter_attachment_round_trips_to_runtime_binding():
+    registry = _beagle_registry_copy()
+    assert validate_source_asset_runtime_registry(registry) == []
+    beagle_id = "rocketbox_dog_beagle_01_m2_v7_world_contact_candidate"
+    binding = build_asset_emitter_binding(
+        registry,
+        source_slot_id="source1",
+        asset_id=beagle_id,
+    )
+    assert binding["ue_emitter_attachment"] == _beagle_probe_emitter_attachment()
+    assert (
+        spear_actor_bindings(registry)[beagle_id]["ue_emitter_attachment"]
+        == _beagle_probe_emitter_attachment()
+    )
+
+
+def test_legacy_spear_binding_without_attachment_keeps_root_local_emitter():
+    registry = load_default_source_asset_runtime_registry()
+    human_id = "rocketbox_human_male_adult_01_m5_1_candidate"
+    binding = build_asset_emitter_binding(
+        registry,
+        source_slot_id="source1",
+        asset_id=human_id,
+    )
+    assert "ue_emitter_attachment" not in binding
+
+
+@pytest.mark.parametrize(
+    ("mutation", "expected"),
+    [
+        (
+            lambda attachment: attachment.update({"attachment_type": "marker"}),
+            "attachment_type",
+        ),
+        (
+            lambda attachment: attachment.update({"local_offset_cm": [0.0, 0.0]}),
+            "local_offset_cm",
+        ),
+        (
+            lambda attachment: attachment.update(
+                {"probe_source": {**attachment["probe_source"], "path": "/tmp/probe.json"}}
+            ),
+            "repository-relative",
+        ),
+        (
+            lambda attachment: attachment["probe_source"].pop("sha256"),
+            "probe_source",
+        ),
+    ],
+)
+def test_spear_emitter_attachment_rejects_invalid_shape_or_probe(
+    mutation, expected
+):
+    registry = _beagle_registry_copy()
+    attachment = registry["assets"][
+        next(
+            index
+            for index, record in enumerate(registry["assets"])
+            if record["asset_id"]
+            == "rocketbox_dog_beagle_01_m2_v7_world_contact_candidate"
+        )
+    ]["runtime_backends"]["spear_unreal"]["ue_emitter_attachment"]
+    mutation(attachment)
+    errors = validate_source_asset_runtime_registry(registry)
+    assert any(expected in error for error in errors)
+
+
+def test_observed_research_animal_coat_does_not_create_generation_domain():
+    from avengine.appearance.contracts import COAT_PROFILE_DOMAINS
+    registry = deepcopy(load_default_source_asset_runtime_registry())
+    asset = registry['assets'][0]
+    asset['identity'] = {'species_id': 'cat', 'breed_id': 'burmese'}
+    asset['realized_attributes'].update(body_build='unknown', life_stage='unknown',
+        coat_profile={'profile_id': 'cat_burmese_coat_v1', 'value': 'dark_sable'})
+    asset['admission_state'] = 'research'
+    assert validate_source_asset_runtime_registry(registry) == []
+    assert ('cat', 'burmese', 'cat_burmese_coat_v1') not in COAT_PROFILE_DOMAINS
+    asset['realized_attributes']['coat_profile']['value'] = 'unobserved_light_sable'
+    assert any('outside' in e for e in validate_source_asset_runtime_registry(registry))
+    asset['realized_attributes']['coat_profile']['value'] = 'dark_sable'
+    asset['admission_state'] = 'qualified'
+    assert validate_source_asset_runtime_registry(registry)
+
+
+def test_unknown_body_build_remains_research_only():
+    registry = deepcopy(load_default_source_asset_runtime_registry())
+    asset = registry['assets'][0]
+    asset['realized_attributes']['body_build'] = 'unknown'
+    asset['admission_state'] = 'research'
+    assert validate_source_asset_runtime_registry(registry) == []
+    asset['admission_state'] = 'qualified'
+    assert any('body_build' in e for e in validate_source_asset_runtime_registry(registry))

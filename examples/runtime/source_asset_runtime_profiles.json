@@ -1,7 +1,7 @@
 {
   "schema": "avengine_source_asset_runtime_registry_v1",
   "registry_id": "avengine_source_asset_runtime_profiles_v1",
-  "revision": "20260907_habitat_full_articulated_v1",
+  "revision": "20260907_dual_renderer_source_assets_v1",
   "aliases": {
     "current_generated_cat": {
       "asset_id": "generated_british_shorthair_blue_medium_stocky_adult_research_v1",
@@ -1466,7 +1466,22 @@
             "composition": "add_relative_preserving_blueprint_transform",
             "reason": "exact_M2_GLTF_to_UE_asset_local_axis_and_floor_calibration"
           },
-          "floor_contact_gate": true
+          "floor_contact_gate": true,
+          "ue_emitter_attachment": {
+            "attachment_type": "bone",
+            "name": "beagle-Xtra-Mouth",
+            "local_offset_cm": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "probe_source": {
+              "root_id": "spear_repo",
+              "path": "tmp/p11_ue_asset_captures_20260907_v9/beagle_anatomy_probe_v4/result.json",
+              "sha256": "e0d80ef833f15093aaf6b81deba3676593e09cec9afaad85b2608a58c716cb5f",
+              "size_bytes": 5119
+            }
+          }
         },
         "habitat": {
           "asset_kind": "articulated_m2_package",
@@ -2666,7 +2681,11 @@
         "object_type": "air_conditioner",
         "category": "climate_control"
       },
-      "realized_attributes": {},
+      "realized_attributes": {
+        "body_color": "white",
+        "form_factor": "portable_floor",
+        "material": "plastic"
+      },
       "geometry": {
         "mesh_authority": "rigid_or_environmental_asset",
         "source_mesh_uri": "artifact://sound_source_assets_v1/climate_control/air_conditioner/portable_floor_white/finalized.glb"
@@ -2749,6 +2768,12 @@
             "template_kind": "rigid_object"
           },
           "glb_path": "/data/avengine_external/assets/sound_source_assets_v1/climate_control/air_conditioner/portable_floor_white/finalized.glb"
+        },
+        "spear_unreal": {
+          "static_mesh_binding": "explicit_path",
+          "static_mesh_object_path": "/Game/AVEngine/P11RigidSources/generated_air_conditioner_portable_floor_white_research_v2/finalized.finalized",
+          "actor_scale": 1.0,
+          "ue_static_forward_yaw_deg": 0.0
         }
       },
       "admission_state": "research"
@@ -2762,7 +2787,11 @@
         "object_type": "air_conditioner",
         "category": "climate_control"
       },
-      "realized_attributes": {},
+      "realized_attributes": {
+        "body_color": "white",
+        "form_factor": "wall_split",
+        "material": "plastic"
+      },
       "geometry": {
         "mesh_authority": "rigid_or_environmental_asset",
         "source_mesh_uri": "artifact://sound_source_assets_v1/climate_control/air_conditioner/wall_split_white/finalized.glb"
@@ -2848,6 +2877,12 @@
             "template_kind": "rigid_object"
           },
           "glb_path": "/data/avengine_external/assets/sound_source_assets_v1/climate_control/air_conditioner/wall_split_white/finalized.glb"
+        },
+        "spear_unreal": {
+          "static_mesh_binding": "explicit_path",
+          "static_mesh_object_path": "/Game/AVEngine/P11RigidSources/generated_air_conditioner_wall_split_white_research_v1/finalized.finalized",
+          "actor_scale": 1.0,
+          "ue_static_forward_yaw_deg": 0.0
         }
       },
       "admission_state": "research"
@@ -2861,7 +2896,11 @@
         "object_type": "air_conditioner",
         "category": "climate_control"
       },
-      "realized_attributes": {},
+      "realized_attributes": {
+        "body_color": "white",
+        "form_factor": "window_unit",
+        "material": "steel"
+      },
       "geometry": {
         "mesh_authority": "rigid_or_environmental_asset",
         "source_mesh_uri": "artifact://sound_source_assets_v1/climate_control/air_conditioner/window_unit_white/finalized.glb"
@@ -2948,6 +2987,12 @@
             "template_kind": "rigid_object"
           },
           "glb_path": "/data/avengine_external/assets/sound_source_assets_v1/climate_control/air_conditioner/window_unit_white/finalized.glb"
+        },
+        "spear_unreal": {
+          "static_mesh_binding": "explicit_path",
+          "static_mesh_object_path": "/Game/AVEngine/P11RigidSources/generated_air_conditioner_window_unit_white_research_v2/finalized.finalized",
+          "actor_scale": 1.0,
+          "ue_static_forward_yaw_deg": 0.0
         }
       },
       "admission_state": "research"
@@ -2961,7 +3006,11 @@
         "object_type": "alarm_clock",
         "category": "household_clock"
       },
-      "realized_attributes": {},
+      "realized_attributes": {
+        "body_color": "black",
+        "form_factor": "digital_cube",
+        "material": "plastic"
+      },
       "geometry": {
         "mesh_authority": "rigid_or_environmental_asset",
         "source_mesh_uri": "artifact://sound_source_assets_v1/household_clock/alarm_clock/digital_cube_black/finalized.glb"
@@ -3044,6 +3093,12 @@
             "template_kind": "rigid_object"
           },
           "glb_path": "/data/avengine_external/assets/sound_source_assets_v1/household_clock/alarm_clock/digital_cube_black/finalized.glb"
+        },
+        "spear_unreal": {
+          "static_mesh_binding": "explicit_path",
+          "static_mesh_object_path": "/Game/AVEngine/P11RigidSources/generated_alarm_clock_digital_cube_black_research_v2/finalized.finalized",
+          "actor_scale": 1.0,
+          "ue_static_forward_yaw_deg": 0.0
         }
       },
       "admission_state": "research"
@@ -3057,7 +3112,11 @@
         "object_type": "alarm_clock",
         "category": "household_clock"
       },
-      "realized_attributes": {},
+      "realized_attributes": {
+        "body_color": "white",
+        "form_factor": "twin_bell_analog",
+        "material": "metal"
+      },
       "geometry": {
         "mesh_authority": "rigid_or_environmental_asset",
         "source_mesh_uri": "artifact://sound_source_assets_v1/household_clock/alarm_clock/twin_bell_analog_white/finalized.glb"
@@ -3140,6 +3199,12 @@
             "template_kind": "rigid_object"
           },
           "glb_path": "/data/avengine_external/assets/sound_source_assets_v1/household_clock/alarm_clock/twin_bell_analog_white/finalized.glb"
+        },
+        "spear_unreal": {
+          "static_mesh_binding": "explicit_path",
+          "static_mesh_object_path": "/Game/AVEngine/P11RigidSources/generated_alarm_clock_twin_bell_analog_white_research_v1/finalized.finalized",
+          "actor_scale": 1.0,
+          "ue_static_forward_yaw_deg": 0.0
         }
       },
       "admission_state": "research"
@@ -3153,7 +3218,11 @@
         "object_type": "bathtub",
         "category": "plumbing_fixture"
       },
-      "realized_attributes": {},
+      "realized_attributes": {
+        "body_color": "white",
+        "form_factor": "built_in_alcove",
+        "material": "acrylic"
+      },
       "geometry": {
         "mesh_authority": "rigid_or_environmental_asset",
         "source_mesh_uri": "artifact://sound_source_assets_v1/plumbing_fixture/bathtub/built_in_alcove_white/finalized.glb"
@@ -3236,6 +3305,12 @@
             "template_kind": "rigid_object"
           },
           "glb_path": "/data/avengine_external/assets/sound_source_assets_v1/plumbing_fixture/bathtub/built_in_alcove_white/finalized.glb"
+        },
+        "spear_unreal": {
+          "static_mesh_binding": "explicit_path",
+          "static_mesh_object_path": "/Game/AVEngine/P11RigidSources/generated_bathtub_built_in_alcove_white_research_v2/finalized.finalized",
+          "actor_scale": 1.0,
+          "ue_static_forward_yaw_deg": 0.0
         }
       },
       "admission_state": "research"
@@ -3249,7 +3324,11 @@
         "object_type": "bathtub",
         "category": "plumbing_fixture"
       },
-      "realized_attributes": {},
+      "realized_attributes": {
+        "body_color": "white",
+        "form_factor": "freestanding",
+        "material": "acrylic"
+      },
       "geometry": {
         "mesh_authority": "rigid_or_environmental_asset",
         "source_mesh_uri": "artifact://sound_source_assets_v1/plumbing_fixture/bathtub/freestanding_white/finalized.glb"
@@ -3332,6 +3411,12 @@
             "template_kind": "rigid_object"
           },
           "glb_path": "/data/avengine_external/assets/sound_source_assets_v1/plumbing_fixture/bathtub/freestanding_white/finalized.glb"
+        },
+        "spear_unreal": {
+          "static_mesh_binding": "explicit_path",
+          "static_mesh_object_path": "/Game/AVEngine/P11RigidSources/generated_bathtub_freestanding_white_research_v1/finalized.finalized",
+          "actor_scale": 1.0,
+          "ue_static_forward_yaw_deg": 0.0
         }
       },
       "admission_state": "research"
@@ -3345,7 +3430,11 @@
         "object_type": "blender",
         "category": "kitchen_appliance"
       },
-      "realized_attributes": {},
+      "realized_attributes": {
+        "body_color": "silver",
+        "form_factor": "bullet_blender",
+        "material": "plastic_and_steel"
+      },
       "geometry": {
         "mesh_authority": "rigid_or_environmental_asset",
         "source_mesh_uri": "artifact://sound_source_assets_v1/kitchen_appliance/blender/bullet_blender_silver/finalized.glb"
@@ -3428,6 +3517,12 @@
             "template_kind": "rigid_object"
           },
           "glb_path": "/data/avengine_external/assets/sound_source_assets_v1/kitchen_appliance/blender/bullet_blender_silver/finalized.glb"
+        },
+        "spear_unreal": {
+          "static_mesh_binding": "explicit_path",
+          "static_mesh_object_path": "/Game/AVEngine/P11RigidSources/generated_blender_bullet_blender_silver_research_v1/finalized.finalized",
+          "actor_scale": 1.0,
+          "ue_static_forward_yaw_deg": 0.0
         }
       },
       "admission_state": "research"
@@ -3441,7 +3536,11 @@
         "object_type": "blender",
         "category": "kitchen_appliance"
       },
-      "realized_attributes": {},
+      "realized_attributes": {
+        "body_color": "black",
+        "form_factor": "jug_blender",
+        "material": "plastic_and_glass"
+      },
       "geometry": {
         "mesh_authority": "rigid_or_environmental_asset",
         "source_mesh_uri": "artifact://sound_source_assets_v1/kitchen_appliance/blender/jug_blender_black/finalized.glb"
@@ -3524,6 +3623,12 @@
             "template_kind": "rigid_object"
           },
           "glb_path": "/data/avengine_external/assets/sound_source_assets_v1/kitchen_appliance/blender/jug_blender_black/finalized.glb"
+        },
+        "spear_unreal": {
+          "static_mesh_binding": "explicit_path",
+          "static_mesh_object_path": "/Game/AVEngine/P11RigidSources/generated_blender_jug_blender_black_research_v2/finalized.finalized",
+          "actor_scale": 1.0,
+          "ue_static_forward_yaw_deg": 0.0
         }
       },
       "admission_state": "research"
@@ -3537,7 +3642,11 @@
         "object_type": "bookshelf_speaker",
         "category": "audio_playback"
       },
-      "realized_attributes": {},
+      "realized_attributes": {
+        "finish": "white_satin",
+        "form_factor": "compact_shelf_cabinet",
+        "material": "wood"
+      },
       "geometry": {
         "mesh_authority": "rigid_or_environmental_asset",
         "source_mesh_uri": "artifact://sound_source_assets_v1/audio_playback/bookshelf_speaker/compact_shelf_cabinet_white_satin/finalized.glb"
@@ -3612,6 +3721,12 @@
             "template_kind": "rigid_object"
           },
           "glb_path": "/data/avengine_external/assets/sound_source_assets_v1/audio_playback/bookshelf_speaker/compact_shelf_cabinet_white_satin/finalized.glb"
+        },
+        "spear_unreal": {
+          "static_mesh_binding": "explicit_path",
+          "static_mesh_object_path": "/Game/AVEngine/P11RigidSources/generated_bookshelf_speaker_compact_shelf_cabinet_white_satin_research_v1/finalized.finalized",
+          "actor_scale": 1.0,
+          "ue_static_forward_yaw_deg": 0.0
         }
       },
       "admission_state": "research"
@@ -3625,7 +3740,11 @@
         "object_type": "cellphone",
         "category": "communication_device"
       },
-      "realized_attributes": {},
+      "realized_attributes": {
+        "body_color": "black",
+        "form_factor": "bar_smartphone",
+        "material": "glass_and_metal"
+      },
       "geometry": {
         "mesh_authority": "rigid_or_environmental_asset",
         "source_mesh_uri": "artifact://sound_source_assets_v1/communication_device/cellphone/bar_smartphone_black/finalized.glb"
@@ -3708,6 +3827,12 @@
             "template_kind": "rigid_object"
           },
           "glb_path": "/data/avengine_external/assets/sound_source_assets_v1/communication_device/cellphone/bar_smartphone_black/finalized.glb"
+        },
+        "spear_unreal": {
+          "static_mesh_binding": "explicit_path",
+          "static_mesh_object_path": "/Game/AVEngine/P11RigidSources/generated_cellphone_bar_smartphone_black_research_v1/finalized.finalized",
+          "actor_scale": 1.0,
+          "ue_static_forward_yaw_deg": 0.0
         }
       },
       "admission_state": "research"
@@ -3721,7 +3846,11 @@
         "object_type": "desk_telephone",
         "category": "communication_device"
       },
-      "realized_attributes": {},
+      "realized_attributes": {
+        "body_color": "black",
+        "form_factor": "corded_desk_unit",
+        "material": "plastic"
+      },
       "geometry": {
         "mesh_authority": "rigid_or_environmental_asset",
         "source_mesh_uri": "artifact://sound_source_assets_v1/communication_device/desk_telephone/corded_desk_unit_black/finalized.glb"
@@ -3804,6 +3933,12 @@
             "template_kind": "rigid_object"
           },
           "glb_path": "/data/avengine_external/assets/sound_source_assets_v1/communication_device/desk_telephone/corded_desk_unit_black/finalized.glb"
+        },
+        "spear_unreal": {
+          "static_mesh_binding": "explicit_path",
+          "static_mesh_object_path": "/Game/AVEngine/P11RigidSources/generated_desk_telephone_corded_desk_unit_black_research_v1/finalized.finalized",
+          "actor_scale": 1.0,
+          "ue_static_forward_yaw_deg": 0.0
         }
       },
       "admission_state": "research"
@@ -3817,7 +3952,11 @@
         "object_type": "doorbell_chime_unit",
         "category": "door_hardware"
       },
-      "realized_attributes": {},
+      "realized_attributes": {
+        "body_color": "black",
+        "form_factor": "video_doorbell",
+        "material": "plastic"
+      },
       "geometry": {
         "mesh_authority": "rigid_or_environmental_asset",
         "source_mesh_uri": "artifact://sound_source_assets_v1/door_hardware/doorbell_chime_unit/video_doorbell_black/finalized.glb"
@@ -3903,6 +4042,12 @@
             "template_kind": "rigid_object"
           },
           "glb_path": "/data/avengine_external/assets/sound_source_assets_v1/door_hardware/doorbell_chime_unit/video_doorbell_black/finalized.glb"
+        },
+        "spear_unreal": {
+          "static_mesh_binding": "explicit_path",
+          "static_mesh_object_path": "/Game/AVEngine/P11RigidSources/generated_doorbell_chime_unit_video_doorbell_black_research_v1/finalized.finalized",
+          "actor_scale": 1.0,
+          "ue_static_forward_yaw_deg": 0.0
         }
       },
       "admission_state": "research"
@@ -3916,7 +4061,11 @@
         "object_type": "doorbell_chime_unit",
         "category": "door_hardware"
       },
-      "realized_attributes": {},
+      "realized_attributes": {
+        "body_color": "black",
+        "form_factor": "wall_mounted_box",
+        "material": "plastic"
+      },
       "geometry": {
         "mesh_authority": "rigid_or_environmental_asset",
         "source_mesh_uri": "artifact://sound_source_assets_v1/door_hardware/doorbell_chime_unit/wall_mounted_box_black/finalized.glb"
@@ -4002,6 +4151,12 @@
             "template_kind": "rigid_object"
           },
           "glb_path": "/data/avengine_external/assets/sound_source_assets_v1/door_hardware/doorbell_chime_unit/wall_mounted_box_black/finalized.glb"
+        },
+        "spear_unreal": {
+          "static_mesh_binding": "explicit_path",
+          "static_mesh_object_path": "/Game/AVEngine/P11RigidSources/generated_doorbell_chime_unit_wall_mounted_box_black_research_v1/finalized.finalized",
+          "actor_scale": 1.0,
+          "ue_static_forward_yaw_deg": 0.0
         }
       },
       "admission_state": "research"
@@ -4015,7 +4170,11 @@
         "object_type": "fireplace",
         "category": "heating_fixture"
       },
-      "realized_attributes": {},
+      "realized_attributes": {
+        "body_color": "warm_gray",
+        "form_factor": "masonry_open",
+        "material": "masonry"
+      },
       "geometry": {
         "mesh_authority": "rigid_or_environmental_asset",
         "source_mesh_uri": "artifact://sound_source_assets_v1/heating_fixture/fireplace/masonry_open_warm_gray/finalized.glb"
@@ -4098,6 +4257,12 @@
             "template_kind": "rigid_object"
           },
           "glb_path": "/data/avengine_external/assets/sound_source_assets_v1/heating_fixture/fireplace/masonry_open_warm_gray/finalized.glb"
+        },
+        "spear_unreal": {
+          "static_mesh_binding": "explicit_path",
+          "static_mesh_object_path": "/Game/AVEngine/P11RigidSources/generated_fireplace_masonry_open_warm_gray_research_v1/finalized.finalized",
+          "actor_scale": 1.0,
+          "ue_static_forward_yaw_deg": 0.0
         }
       },
       "admission_state": "research"
@@ -4111,7 +4276,11 @@
         "object_type": "fireplace",
         "category": "heating_fixture"
       },
-      "realized_attributes": {},
+      "realized_attributes": {
+        "body_color": "matte_black",
+        "form_factor": "wood_stove",
+        "material": "cast_iron"
+      },
       "geometry": {
         "mesh_authority": "rigid_or_environmental_asset",
         "source_mesh_uri": "artifact://sound_source_assets_v1/heating_fixture/fireplace/wood_stove_matte_black/finalized.glb"
@@ -4194,6 +4363,12 @@
             "template_kind": "rigid_object"
           },
           "glb_path": "/data/avengine_external/assets/sound_source_assets_v1/heating_fixture/fireplace/wood_stove_matte_black/finalized.glb"
+        },
+        "spear_unreal": {
+          "static_mesh_binding": "explicit_path",
+          "static_mesh_object_path": "/Game/AVEngine/P11RigidSources/generated_fireplace_wood_stove_matte_black_research_v1/finalized.finalized",
+          "actor_scale": 1.0,
+          "ue_static_forward_yaw_deg": 0.0
         }
       },
       "admission_state": "research"
@@ -4207,7 +4382,11 @@
         "object_type": "floor_drain",
         "category": "plumbing_fixture"
       },
-      "realized_attributes": {},
+      "realized_attributes": {
+        "body_color": "silver",
+        "form_factor": "exposed_bottle_trap",
+        "material": "brass"
+      },
       "geometry": {
         "mesh_authority": "rigid_or_environmental_asset",
         "source_mesh_uri": "artifact://sound_source_assets_v1/plumbing_fixture/floor_drain/exposed_bottle_trap_silver/finalized.glb"
@@ -4294,6 +4473,12 @@
             "template_kind": "rigid_object"
           },
           "glb_path": "/data/avengine_external/assets/sound_source_assets_v1/plumbing_fixture/floor_drain/exposed_bottle_trap_silver/finalized.glb"
+        },
+        "spear_unreal": {
+          "static_mesh_binding": "explicit_path",
+          "static_mesh_object_path": "/Game/AVEngine/P11RigidSources/generated_floor_drain_exposed_bottle_trap_silver_research_v1/finalized.finalized",
+          "actor_scale": 1.0,
+          "ue_static_forward_yaw_deg": 0.0
         }
       },
       "admission_state": "research"
@@ -4307,7 +4492,11 @@
         "object_type": "floor_drain",
         "category": "plumbing_fixture"
       },
-      "realized_attributes": {},
+      "realized_attributes": {
+        "body_color": "silver",
+        "form_factor": "floor_drain",
+        "material": "steel"
+      },
       "geometry": {
         "mesh_authority": "rigid_or_environmental_asset",
         "source_mesh_uri": "artifact://sound_source_assets_v1/plumbing_fixture/floor_drain/floor_drain_silver/finalized.glb"
@@ -4390,6 +4579,12 @@
             "template_kind": "rigid_object"
           },
           "glb_path": "/data/avengine_external/assets/sound_source_assets_v1/plumbing_fixture/floor_drain/floor_drain_silver/finalized.glb"
+        },
+        "spear_unreal": {
+          "static_mesh_binding": "explicit_path",
+          "static_mesh_object_path": "/Game/AVEngine/P11RigidSources/generated_floor_drain_floor_drain_silver_research_v1/finalized.finalized",
+          "actor_scale": 1.0,
+          "ue_static_forward_yaw_deg": 0.0
         }
       },
       "admission_state": "research"
@@ -4403,7 +4598,11 @@
         "object_type": "floorstanding_speaker",
         "category": "audio_playback"
       },
-      "realized_attributes": {},
+      "realized_attributes": {
+        "finish": "walnut_veneer",
+        "form_factor": "floor_standing_tower",
+        "material": "wood"
+      },
       "geometry": {
         "mesh_authority": "rigid_or_environmental_asset",
         "source_mesh_uri": "artifact://sound_source_assets_v1/audio_playback/floorstanding_speaker/floor_standing_tower_walnut_veneer/finalized.glb"
@@ -4478,6 +4677,12 @@
             "template_kind": "rigid_object"
           },
           "glb_path": "/data/avengine_external/assets/sound_source_assets_v1/audio_playback/floorstanding_speaker/floor_standing_tower_walnut_veneer/finalized.glb"
+        },
+        "spear_unreal": {
+          "static_mesh_binding": "explicit_path",
+          "static_mesh_object_path": "/Game/AVEngine/P11RigidSources/generated_floorstanding_speaker_floor_standing_tower_walnut_veneer_research_v1/finalized.finalized",
+          "actor_scale": 1.0,
+          "ue_static_forward_yaw_deg": 0.0
         }
       },
       "admission_state": "research"
@@ -4491,7 +4696,11 @@
         "object_type": "landline_phone",
         "category": "communication_device"
       },
-      "realized_attributes": {},
+      "realized_attributes": {
+        "body_color": "beige",
+        "form_factor": "wall_mounted",
+        "material": "plastic"
+      },
       "geometry": {
         "mesh_authority": "rigid_or_environmental_asset",
         "source_mesh_uri": "artifact://sound_source_assets_v1/communication_device/landline_phone/wall_mounted_beige/finalized.glb"
@@ -4577,6 +4786,12 @@
             "template_kind": "rigid_object"
           },
           "glb_path": "/data/avengine_external/assets/sound_source_assets_v1/communication_device/landline_phone/wall_mounted_beige/finalized.glb"
+        },
+        "spear_unreal": {
+          "static_mesh_binding": "explicit_path",
+          "static_mesh_object_path": "/Game/AVEngine/P11RigidSources/generated_landline_phone_wall_mounted_beige_research_v1/finalized.finalized",
+          "actor_scale": 1.0,
+          "ue_static_forward_yaw_deg": 0.0
         }
       },
       "admission_state": "research"
@@ -4590,7 +4805,11 @@
         "object_type": "microwave_oven",
         "category": "kitchen_appliance"
       },
-      "realized_attributes": {},
+      "realized_attributes": {
+        "body_color": "black",
+        "form_factor": "countertop",
+        "material": "steel"
+      },
       "geometry": {
         "mesh_authority": "rigid_or_environmental_asset",
         "source_mesh_uri": "artifact://sound_source_assets_v1/kitchen_appliance/microwave_oven/countertop_black/finalized.glb"
@@ -4673,6 +4892,12 @@
             "template_kind": "rigid_object"
           },
           "glb_path": "/data/avengine_external/assets/sound_source_assets_v1/kitchen_appliance/microwave_oven/countertop_black/finalized.glb"
+        },
+        "spear_unreal": {
+          "static_mesh_binding": "explicit_path",
+          "static_mesh_object_path": "/Game/AVEngine/P11RigidSources/generated_microwave_oven_countertop_black_research_v1/finalized.finalized",
+          "actor_scale": 1.0,
+          "ue_static_forward_yaw_deg": 0.0
         }
       },
       "admission_state": "research"
@@ -4686,7 +4911,11 @@
         "object_type": "microwave_oven",
         "category": "kitchen_appliance"
       },
-      "realized_attributes": {},
+      "realized_attributes": {
+        "body_color": "silver",
+        "form_factor": "over_range",
+        "material": "steel"
+      },
       "geometry": {
         "mesh_authority": "rigid_or_environmental_asset",
         "source_mesh_uri": "artifact://sound_source_assets_v1/kitchen_appliance/microwave_oven/over_range_silver/finalized.glb"
@@ -4772,6 +5001,12 @@
             "template_kind": "rigid_object"
           },
           "glb_path": "/data/avengine_external/assets/sound_source_assets_v1/kitchen_appliance/microwave_oven/over_range_silver/finalized.glb"
+        },
+        "spear_unreal": {
+          "static_mesh_binding": "explicit_path",
+          "static_mesh_object_path": "/Game/AVEngine/P11RigidSources/generated_microwave_oven_over_range_silver_research_v1/finalized.finalized",
+          "actor_scale": 1.0,
+          "ue_static_forward_yaw_deg": 0.0
         }
       },
       "admission_state": "research"
@@ -4785,7 +5020,11 @@
         "object_type": "printer",
         "category": "office_device"
       },
-      "realized_attributes": {},
+      "realized_attributes": {
+        "body_color": "matte_black",
+        "form_factor": "desktop_inkjet",
+        "material": "plastic"
+      },
       "geometry": {
         "mesh_authority": "rigid_or_environmental_asset",
         "source_mesh_uri": "artifact://sound_source_assets_v1/office_device/printer/desktop_inkjet_matte_black/finalized.glb"
@@ -4868,6 +5107,12 @@
             "template_kind": "rigid_object"
           },
           "glb_path": "/data/avengine_external/assets/sound_source_assets_v1/office_device/printer/desktop_inkjet_matte_black/finalized.glb"
+        },
+        "spear_unreal": {
+          "static_mesh_binding": "explicit_path",
+          "static_mesh_object_path": "/Game/AVEngine/P11RigidSources/generated_printer_desktop_inkjet_matte_black_research_v1/finalized.finalized",
+          "actor_scale": 1.0,
+          "ue_static_forward_yaw_deg": 0.0
         }
       },
       "admission_state": "research"
@@ -4881,7 +5126,11 @@
         "object_type": "printer",
         "category": "office_device"
       },
-      "realized_attributes": {},
+      "realized_attributes": {
+        "body_color": "white",
+        "form_factor": "office_laser_mfp",
+        "material": "plastic"
+      },
       "geometry": {
         "mesh_authority": "rigid_or_environmental_asset",
         "source_mesh_uri": "artifact://sound_source_assets_v1/office_device/printer/office_laser_mfp_white/finalized.glb"
@@ -4964,6 +5213,12 @@
             "template_kind": "rigid_object"
           },
           "glb_path": "/data/avengine_external/assets/sound_source_assets_v1/office_device/printer/office_laser_mfp_white/finalized.glb"
+        },
+        "spear_unreal": {
+          "static_mesh_binding": "explicit_path",
+          "static_mesh_object_path": "/Game/AVEngine/P11RigidSources/generated_printer_office_laser_mfp_white_research_v1/finalized.finalized",
+          "actor_scale": 1.0,
+          "ue_static_forward_yaw_deg": 0.0
         }
       },
       "admission_state": "research"
@@ -4977,7 +5232,11 @@
         "object_type": "sink_with_tap",
         "category": "plumbing_fixture"
       },
-      "realized_attributes": {},
+      "realized_attributes": {
+        "body_color": "white",
+        "form_factor": "counter_vanity",
+        "material": "ceramic_and_wood"
+      },
       "geometry": {
         "mesh_authority": "rigid_or_environmental_asset",
         "source_mesh_uri": "artifact://sound_source_assets_v1/plumbing_fixture/sink_with_tap/counter_vanity_white/finalized.glb"
@@ -5060,6 +5319,12 @@
             "template_kind": "rigid_object"
           },
           "glb_path": "/data/avengine_external/assets/sound_source_assets_v1/plumbing_fixture/sink_with_tap/counter_vanity_white/finalized.glb"
+        },
+        "spear_unreal": {
+          "static_mesh_binding": "explicit_path",
+          "static_mesh_object_path": "/Game/AVEngine/P11RigidSources/generated_sink_with_tap_counter_vanity_white_research_v2/finalized.finalized",
+          "actor_scale": 1.0,
+          "ue_static_forward_yaw_deg": 0.0
         }
       },
       "admission_state": "research"
@@ -5073,7 +5338,11 @@
         "object_type": "sink_with_tap",
         "category": "plumbing_fixture"
       },
-      "realized_attributes": {},
+      "realized_attributes": {
+        "body_color": "white",
+        "form_factor": "pedestal_basin",
+        "material": "ceramic"
+      },
       "geometry": {
         "mesh_authority": "rigid_or_environmental_asset",
         "source_mesh_uri": "artifact://sound_source_assets_v1/plumbing_fixture/sink_with_tap/pedestal_basin_white/finalized.glb"
@@ -5156,6 +5425,12 @@
             "template_kind": "rigid_object"
           },
           "glb_path": "/data/avengine_external/assets/sound_source_assets_v1/plumbing_fixture/sink_with_tap/pedestal_basin_white/finalized.glb"
+        },
+        "spear_unreal": {
+          "static_mesh_binding": "explicit_path",
+          "static_mesh_object_path": "/Game/AVEngine/P11RigidSources/generated_sink_with_tap_pedestal_basin_white_research_v2/finalized.finalized",
+          "actor_scale": 1.0,
+          "ue_static_forward_yaw_deg": 0.0
         }
       },
       "admission_state": "research"
@@ -5169,7 +5444,11 @@
         "object_type": "smart_speaker",
         "category": "audio_playback"
       },
-      "realized_attributes": {},
+      "realized_attributes": {
+        "finish": "charcoal",
+        "form_factor": "fabric_wrapped_cylinder",
+        "material": "textile"
+      },
       "geometry": {
         "mesh_authority": "rigid_or_environmental_asset",
         "source_mesh_uri": "artifact://sound_source_assets_v1/audio_playback/smart_speaker/fabric_wrapped_cylinder_charcoal/finalized.glb"
@@ -5244,6 +5523,12 @@
             "template_kind": "rigid_object"
           },
           "glb_path": "/data/avengine_external/assets/sound_source_assets_v1/audio_playback/smart_speaker/fabric_wrapped_cylinder_charcoal/finalized.glb"
+        },
+        "spear_unreal": {
+          "static_mesh_binding": "explicit_path",
+          "static_mesh_object_path": "/Game/AVEngine/P11RigidSources/generated_smart_speaker_fabric_wrapped_cylinder_charcoal_research_v1/finalized.finalized",
+          "actor_scale": 1.0,
+          "ue_static_forward_yaw_deg": 0.0
         }
       },
       "admission_state": "research"
@@ -5257,7 +5542,11 @@
         "object_type": "smart_speaker",
         "category": "audio_playback"
       },
-      "realized_attributes": {},
+      "realized_attributes": {
+        "finish": "light_gray",
+        "form_factor": "fabric_wrapped_cylinder",
+        "material": "textile"
+      },
       "geometry": {
         "mesh_authority": "rigid_or_environmental_asset",
         "source_mesh_uri": "artifact://sound_source_assets_v1/audio_playback/smart_speaker/fabric_wrapped_cylinder_light_gray/finalized.glb"
@@ -5332,6 +5621,12 @@
             "template_kind": "rigid_object"
           },
           "glb_path": "/data/avengine_external/assets/sound_source_assets_v1/audio_playback/smart_speaker/fabric_wrapped_cylinder_light_gray/finalized.glb"
+        },
+        "spear_unreal": {
+          "static_mesh_binding": "explicit_path",
+          "static_mesh_object_path": "/Game/AVEngine/P11RigidSources/generated_smart_speaker_fabric_wrapped_cylinder_light_gray_research_v1/finalized.finalized",
+          "actor_scale": 1.0,
+          "ue_static_forward_yaw_deg": 0.0
         }
       },
       "admission_state": "research"
@@ -5345,7 +5640,11 @@
         "object_type": "smart_speaker",
         "category": "audio_playback"
       },
-      "realized_attributes": {},
+      "realized_attributes": {
+        "finish": "sandstone",
+        "form_factor": "fabric_wrapped_cylinder",
+        "material": "textile"
+      },
       "geometry": {
         "mesh_authority": "rigid_or_environmental_asset",
         "source_mesh_uri": "artifact://sound_source_assets_v1/audio_playback/smart_speaker/fabric_wrapped_cylinder_sandstone/finalized.glb"
@@ -5420,6 +5719,12 @@
             "template_kind": "rigid_object"
           },
           "glb_path": "/data/avengine_external/assets/sound_source_assets_v1/audio_playback/smart_speaker/fabric_wrapped_cylinder_sandstone/finalized.glb"
+        },
+        "spear_unreal": {
+          "static_mesh_binding": "explicit_path",
+          "static_mesh_object_path": "/Game/AVEngine/P11RigidSources/generated_smart_speaker_fabric_wrapped_cylinder_sandstone_research_v1/finalized.finalized",
+          "actor_scale": 1.0,
+          "ue_static_forward_yaw_deg": 0.0
         }
       },
       "admission_state": "research"
@@ -5433,7 +5738,11 @@
         "object_type": "smoke_detector",
         "category": "safety_device"
       },
-      "realized_attributes": {},
+      "realized_attributes": {
+        "body_color": "white",
+        "form_factor": "ceiling_disc",
+        "material": "plastic"
+      },
       "geometry": {
         "mesh_authority": "rigid_or_environmental_asset",
         "source_mesh_uri": "artifact://sound_source_assets_v1/safety_device/smoke_detector/ceiling_disc_white/finalized.glb"
@@ -5519,6 +5828,12 @@
             "template_kind": "rigid_object"
           },
           "glb_path": "/data/avengine_external/assets/sound_source_assets_v1/safety_device/smoke_detector/ceiling_disc_white/finalized.glb"
+        },
+        "spear_unreal": {
+          "static_mesh_binding": "explicit_path",
+          "static_mesh_object_path": "/Game/AVEngine/P11RigidSources/generated_smoke_detector_ceiling_disc_white_research_v1/finalized.finalized",
+          "actor_scale": 1.0,
+          "ue_static_forward_yaw_deg": 0.0
         }
       },
       "admission_state": "research"
@@ -5532,7 +5847,11 @@
         "object_type": "smoke_detector",
         "category": "safety_device"
       },
-      "realized_attributes": {},
+      "realized_attributes": {
+        "body_color": "white",
+        "form_factor": "wall_square",
+        "material": "plastic"
+      },
       "geometry": {
         "mesh_authority": "rigid_or_environmental_asset",
         "source_mesh_uri": "artifact://sound_source_assets_v1/safety_device/smoke_detector/wall_square_white/finalized.glb"
@@ -5618,6 +5937,12 @@
             "template_kind": "rigid_object"
           },
           "glb_path": "/data/avengine_external/assets/sound_source_assets_v1/safety_device/smoke_detector/wall_square_white/finalized.glb"
+        },
+        "spear_unreal": {
+          "static_mesh_binding": "explicit_path",
+          "static_mesh_object_path": "/Game/AVEngine/P11RigidSources/generated_smoke_detector_wall_square_white_research_v1/finalized.finalized",
+          "actor_scale": 1.0,
+          "ue_static_forward_yaw_deg": 0.0
         }
       },
       "admission_state": "research"
@@ -5631,7 +5956,11 @@
         "object_type": "soundbar",
         "category": "audio_playback"
       },
-      "realized_attributes": {},
+      "realized_attributes": {
+        "finish": "light_gray_fabric",
+        "form_factor": "wide_low_bar",
+        "material": "plastic"
+      },
       "geometry": {
         "mesh_authority": "rigid_or_environmental_asset",
         "source_mesh_uri": "artifact://sound_source_assets_v1/audio_playback/soundbar/wide_low_bar_light_gray_fabric/finalized.glb"
@@ -5706,6 +6035,12 @@
             "template_kind": "rigid_object"
           },
           "glb_path": "/data/avengine_external/assets/sound_source_assets_v1/audio_playback/soundbar/wide_low_bar_light_gray_fabric/finalized.glb"
+        },
+        "spear_unreal": {
+          "static_mesh_binding": "explicit_path",
+          "static_mesh_object_path": "/Game/AVEngine/P11RigidSources/generated_soundbar_wide_low_bar_light_gray_fabric_research_v1/finalized.finalized",
+          "actor_scale": 1.0,
+          "ue_static_forward_yaw_deg": 0.0
         }
       },
       "admission_state": "research"
@@ -5719,7 +6054,11 @@
         "object_type": "soundbar",
         "category": "audio_playback"
       },
-      "realized_attributes": {},
+      "realized_attributes": {
+        "finish": "matte_black",
+        "form_factor": "wide_low_bar",
+        "material": "plastic"
+      },
       "geometry": {
         "mesh_authority": "rigid_or_environmental_asset",
         "source_mesh_uri": "artifact://sound_source_assets_v1/audio_playback/soundbar/wide_low_bar_matte_black/finalized.glb"
@@ -5794,6 +6133,12 @@
             "template_kind": "rigid_object"
           },
           "glb_path": "/data/avengine_external/assets/sound_source_assets_v1/audio_playback/soundbar/wide_low_bar_matte_black/finalized.glb"
+        },
+        "spear_unreal": {
+          "static_mesh_binding": "explicit_path",
+          "static_mesh_object_path": "/Game/AVEngine/P11RigidSources/generated_soundbar_wide_low_bar_matte_black_research_v1/finalized.finalized",
+          "actor_scale": 1.0,
+          "ue_static_forward_yaw_deg": 0.0
         }
       },
       "admission_state": "research"
@@ -5807,7 +6152,11 @@
         "object_type": "soundbar",
         "category": "audio_playback"
       },
-      "realized_attributes": {},
+      "realized_attributes": {
+        "finish": "white_satin",
+        "form_factor": "wide_low_bar",
+        "material": "plastic"
+      },
       "geometry": {
         "mesh_authority": "rigid_or_environmental_asset",
         "source_mesh_uri": "artifact://sound_source_assets_v1/audio_playback/soundbar/wide_low_bar_white_satin/finalized.glb"
@@ -5882,6 +6231,12 @@
             "template_kind": "rigid_object"
           },
           "glb_path": "/data/avengine_external/assets/sound_source_assets_v1/audio_playback/soundbar/wide_low_bar_white_satin/finalized.glb"
+        },
+        "spear_unreal": {
+          "static_mesh_binding": "explicit_path",
+          "static_mesh_object_path": "/Game/AVEngine/P11RigidSources/generated_soundbar_wide_low_bar_white_satin_research_v1/finalized.finalized",
+          "actor_scale": 1.0,
+          "ue_static_forward_yaw_deg": 0.0
         }
       },
       "admission_state": "research"
@@ -5895,7 +6250,11 @@
         "object_type": "television",
         "category": "audio_playback"
       },
-      "realized_attributes": {},
+      "realized_attributes": {
+        "form_factor": "flat_panel_16_9",
+        "material": "plastic",
+        "stand_type": "central_pedestal"
+      },
       "geometry": {
         "mesh_authority": "rigid_or_environmental_asset",
         "source_mesh_uri": "artifact://sound_source_assets_v1/audio_playback/television/flat_panel_16_9_central_pedestal/finalized.glb"
@@ -5970,6 +6329,12 @@
             "template_kind": "rigid_object"
           },
           "glb_path": "/data/avengine_external/assets/sound_source_assets_v1/audio_playback/television/flat_panel_16_9_central_pedestal/finalized.glb"
+        },
+        "spear_unreal": {
+          "static_mesh_binding": "explicit_path",
+          "static_mesh_object_path": "/Game/AVEngine/P11RigidSources/generated_television_flat_panel_16_9_central_pedestal_research_v1/finalized.finalized",
+          "actor_scale": 1.0,
+          "ue_static_forward_yaw_deg": 0.0
         }
       },
       "admission_state": "research"
@@ -5983,7 +6348,11 @@
         "object_type": "television",
         "category": "audio_playback"
       },
-      "realized_attributes": {},
+      "realized_attributes": {
+        "form_factor": "flat_panel_16_9",
+        "material": "plastic",
+        "stand_type": "two_splayed_feet"
+      },
       "geometry": {
         "mesh_authority": "rigid_or_environmental_asset",
         "source_mesh_uri": "artifact://sound_source_assets_v1/audio_playback/television/flat_panel_16_9_two_splayed_feet/finalized.glb"
@@ -6058,6 +6427,12 @@
             "template_kind": "rigid_object"
           },
           "glb_path": "/data/avengine_external/assets/sound_source_assets_v1/audio_playback/television/flat_panel_16_9_two_splayed_feet/finalized.glb"
+        },
+        "spear_unreal": {
+          "static_mesh_binding": "explicit_path",
+          "static_mesh_object_path": "/Game/AVEngine/P11RigidSources/generated_television_flat_panel_16_9_two_splayed_feet_research_v1/finalized.finalized",
+          "actor_scale": 1.0,
+          "ue_static_forward_yaw_deg": 0.0
         }
       },
       "admission_state": "research"
@@ -6071,7 +6446,11 @@
         "object_type": "toilet",
         "category": "plumbing_fixture"
       },
-      "realized_attributes": {},
+      "realized_attributes": {
+        "body_color": "white",
+        "form_factor": "elevated_tank_exposed_pipe",
+        "material": "ceramic"
+      },
       "geometry": {
         "mesh_authority": "rigid_or_environmental_asset",
         "source_mesh_uri": "artifact://sound_source_assets_v1/plumbing_fixture/toilet/elevated_tank_exposed_pipe_white/finalized.glb"
@@ -6154,6 +6533,12 @@
             "template_kind": "rigid_object"
           },
           "glb_path": "/data/avengine_external/assets/sound_source_assets_v1/plumbing_fixture/toilet/elevated_tank_exposed_pipe_white/finalized.glb"
+        },
+        "spear_unreal": {
+          "static_mesh_binding": "explicit_path",
+          "static_mesh_object_path": "/Game/AVEngine/P11RigidSources/generated_toilet_elevated_tank_exposed_pipe_white_research_v2/finalized.finalized",
+          "actor_scale": 1.0,
+          "ue_static_forward_yaw_deg": 0.0
         }
       },
       "admission_state": "research"
@@ -6167,7 +6552,11 @@
         "object_type": "toilet",
         "category": "plumbing_fixture"
       },
-      "realized_attributes": {},
+      "realized_attributes": {
+        "body_color": "white",
+        "form_factor": "exposed_flush_pipe_tank",
+        "material": "ceramic"
+      },
       "geometry": {
         "mesh_authority": "rigid_or_environmental_asset",
         "source_mesh_uri": "artifact://sound_source_assets_v1/plumbing_fixture/toilet/exposed_flush_pipe_tank_white/finalized.glb"
@@ -6250,6 +6639,1244 @@
             "template_kind": "rigid_object"
           },
           "glb_path": "/data/avengine_external/assets/sound_source_assets_v1/plumbing_fixture/toilet/exposed_flush_pipe_tank_white/finalized.glb"
+        },
+        "spear_unreal": {
+          "static_mesh_binding": "explicit_path",
+          "static_mesh_object_path": "/Game/AVEngine/P11RigidSources/generated_toilet_exposed_flush_pipe_tank_white_research_v1/finalized.finalized",
+          "actor_scale": 1.0,
+          "ue_static_forward_yaw_deg": 0.0
+        }
+      },
+      "admission_state": "research"
+    },
+    {
+      "asset_id": "generated_burmese_dark_sable_research_v1",
+      "revision": "external_animated_v1",
+      "display_label": "burmese cat",
+      "entity_class": "articulated_animal",
+      "identity": {
+        "species_id": "cat",
+        "breed_id": "burmese"
+      },
+      "realized_attributes": {
+        "finalized_at_size": "medium",
+        "size_is_runtime_scale": true,
+        "coat_profile": {
+          "profile_id": "cat_burmese_coat_v1",
+          "value": "dark_sable"
+        },
+        "size": "medium",
+        "body_build": "unknown",
+        "life_stage": "unknown"
+      },
+      "geometry": {
+        "mesh_authority": "audited_library_asset",
+        "source_mesh_uri": "artifact://sound_source_assets_v1/cat/burmese/dark_sable/animated.glb",
+        "rig_authority": "source animated GLB skin and Idle/Walking, native Habitat and UE readbacks"
+      },
+      "timeline": {
+        "template_id": "generated_burmese_dark_sable_target_native_v1",
+        "body_plan_id": "quadruped_mammal_felid_v1",
+        "local_anatomical_forward_axis": [
+          -0.9831314840332549,
+          0.0,
+          0.18290020531035478
+        ],
+        "walk_phase_period_frames": 25,
+        "idle_action_id": "idle",
+        "walking_action_id": "walk"
+      },
+      "default_emitter_anchor_id": "muzzle",
+      "emitter_anchors": [
+        {
+          "anchor_id": "muzzle",
+          "anchor_type": "muzzle",
+          "offset_m": [
+            -0.4316473856802082,
+            0.6319686265859705,
+            0.028546204110772345
+          ],
+          "offset_space": "final_scaled_asset_root"
+        }
+      ],
+      "runtime_backends": {
+        "spear_unreal": {
+          "blueprint_class_path": "/Game/AVEngine/P11ExtraAnimalSourcesV1/BlueprintsV2/BP_generated_burmese_dark_sable_research_v1.BP_generated_burmese_dark_sable_research_v1_C",
+          "skeletal_mesh_path": "/Game/AVEngine/P11ExtraAnimalSourcesV1/generated_burmese_dark_sable_research_v1/animated.animated",
+          "idle_animation": "/Game/AVEngine/P11ExtraAnimalSourcesV1/generated_burmese_dark_sable_research_v1/Idle.Idle",
+          "walking_animation": "/Game/AVEngine/P11ExtraAnimalSourcesV1/generated_burmese_dark_sable_research_v1/Walking.Walking",
+          "animation_paths_by_action_id": {
+            "idle": "/Game/AVEngine/P11ExtraAnimalSourcesV1/generated_burmese_dark_sable_research_v1/Idle.Idle",
+            "walk": "/Game/AVEngine/P11ExtraAnimalSourcesV1/generated_burmese_dark_sable_research_v1/Walking.Walking"
+          },
+          "ue_anatomical_forward_yaw_deg": 169.46387099086198,
+          "ue_component_frame_delta": {
+            "composition": "add_relative_preserving_blueprint_transform",
+            "reason": "source animated.glb imported into UE without an unmeasured frame correction; anatomical yaw is carried explicitly",
+            "rotation_deg": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "schema": "avengine_spear_component_frame_delta_v1",
+            "translation_cm": [
+              0.0,
+              0.0,
+              0.0
+            ]
+          },
+          "skeletal_mesh_binding": "explicit_path",
+          "actor_scale": 1.0,
+          "floor_contact_gate": true,
+          "ue_anatomical_basis_bones": {
+            "rear": "bone_0",
+            "front": "bone_4",
+            "body": "bone_0",
+            "left_foot": "bone_22",
+            "right_foot": "bone_17"
+          },
+          "ue_emitter_attachment": {
+            "attachment_type": "bone",
+            "name": "bone_4",
+            "local_offset_cm": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "probe_source": {
+              "root_id": "spear_repo",
+              "path": "tmp/p11_parent_external_animal_registry_20260907_v2/ue_native_probe_v5.json",
+              "sha256": "00f792afb37a5b57542565dcc6700936caaefb42355f0881c9ea1a83b8ccf01a",
+              "size_bytes": 28942
+            }
+          }
+        },
+        "habitat": {
+          "asset_kind": "articulated_m2_package",
+          "asset_manifest_path": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/p12_package_burmese_dark_sable_20260907_v2/package/asset_manifest.json",
+          "base_m2_request_path": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/p12_package_burmese_dark_sable_20260907_v2/base_m2_request.json",
+          "category": "cat",
+          "emitter": {
+            "anchor_id": "muzzle",
+            "anchor_type": "mouth",
+            "joint_from_anchor": {
+              "rotation_xyzw": [
+                0.0,
+                0.0,
+                0.0,
+                1.0
+              ],
+              "translation_m": [
+                0.0,
+                0.0,
+                0.0
+              ]
+            },
+            "joint_id": "bone_4",
+            "native_anchor_id": "muzzle",
+            "native_offset_m": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "native_offset_space": "joint_local",
+            "offset_m": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "offset_space": "joint_local",
+            "root_offset_m": [
+              -0.4316473856802082,
+              0.6319686265859705,
+              0.028546204110772345
+            ],
+            "root_offset_source": {
+              "action_id": "idle",
+              "actor_from_skin_root": [
+                [
+                  -0.9997603951581864,
+                  0.005844895209219153,
+                  -0.021094773597752206,
+                  -0.27178303816652394
+                ],
+                [
+                  0.003516954597265255,
+                  0.9940627839456764,
+                  0.10875114989981581,
+                  0.3589171850105266
+                ],
+                [
+                  0.021605168444331815,
+                  0.10865090323676413,
+                  -0.9938451579206529,
+                  -0.0011947074338700193
+                ],
+                [
+                  0.0,
+                  0.0,
+                  0.0,
+                  1.0
+                ]
+              ],
+              "coordinate_system": {
+                "handedness": "right",
+                "linear_unit": "meter",
+                "source_forward_basis": "actor_from_skin_root_composed_source_mesh",
+                "up_axis": "+Y"
+              },
+              "derived_world_from_actor": [
+                [
+                  1.0000001133334526,
+                  -1.2029618290447708e-09,
+                  -3.1741395860700376e-09,
+                  4.532395853074078e-08
+                ],
+                [
+                  8.752032960343328e-10,
+                  0.9999999963828683,
+                  9.008554816402537e-09,
+                  -6.740167701746458e-09
+                ],
+                [
+                  2.2916992156523384e-09,
+                  -1.0027306411239753e-08,
+                  1.0000000657255468,
+                  4.266989654840014e-09
+                ],
+                [
+                  0.0,
+                  0.0,
+                  0.0,
+                  1.0
+                ]
+              ],
+              "derived_world_from_actor_max_abs_error": 1.1333345262265482e-07,
+              "evidence_scope": "native Idle0 kinematic readback and explicit actor_from_skin_root composition; planning approximation only",
+              "formula": "world_from_actor = native_world_from_skin_root @ inverse(actor_from_skin_root); root_offset_m = inverse(world_from_actor) @ native_emitter_position_m",
+              "frame_index": 0,
+              "joint_mapping": {
+                "byte_size": 18508,
+                "path": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/p12_package_burmese_dark_sable_20260907_v2/package/habitat/joint_mapping.json",
+                "sha256": "3a5f88bf4c79ab816084581b3ab2d31c8b9edf61afe111185bd08f1214321d26"
+              },
+              "local_anatomical_forward_axis": [
+                -0.9831314840332549,
+                0.0,
+                0.18290020531035478
+              ],
+              "local_anatomical_forward_axis_source": "native_idle0_actor_root_body_to_muzzle_horizontal_projection",
+              "native_actor_root_position_m": [
+                -0.2717830240726471,
+                0.3589171767234802,
+                -0.0011947074672207236
+              ],
+              "native_emitter_position_m": [
+                -0.431647390127182,
+                0.63196861743927,
+                0.028546202927827835
+              ],
+              "native_readback": {
+                "byte_size": 6477,
+                "path": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/p12_package_burmese_dark_sable_20260907_v2/native_readback.json",
+                "sha256": "4ebeb6ed54cb137a460b1ac9d73392fe47aff819e4a52ea45f89423007199d41"
+              },
+              "native_world_from_skin_root": [
+                [
+                  -0.9997605085372925,
+                  0.005844894330948591,
+                  -0.021094772964715958,
+                  -0.2717830240726471
+                ],
+                [
+                  0.003516953904181719,
+                  0.9940627813339233,
+                  0.10875114053487778,
+                  0.3589171767234802
+                ],
+                [
+                  0.021605167537927628,
+                  0.10865090042352676,
+                  -0.9938452243804932,
+                  -0.0011947074672207236
+                ],
+                [
+                  0.0,
+                  0.0,
+                  0.0,
+                  1.0
+                ]
+              ],
+              "qualification_claim": false,
+              "qualification_state": "research_candidate",
+              "reference_frame": "canonical_actor_root",
+              "root_offset_m": [
+                -0.4316473856802082,
+                0.6319686265859705,
+                0.028546204110772345
+              ],
+              "root_offset_space": "final_scaled_asset_root",
+              "schema": "avengine_habitat_native_idle0_actor_root_muzzle_reference_v1",
+              "source_body_to_muzzle_horizontal_axis_after_actor_from_skin_root": [
+                -0.9831314840332549,
+                0.0,
+                0.18290020531035478
+              ],
+              "source_body_to_muzzle_vector_m": [
+                -0.1598643660545349,
+                0.2730514407157898,
+                0.02974091039504856
+              ]
+            },
+            "root_offset_space": "final_scaled_asset_root",
+            "semantic_anchor_id": "muzzle"
+          },
+          "entity_class": "articulated_animal",
+          "glb_path": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/p12_package_burmese_dark_sable_20260907_v2/package/visual.glb",
+          "glb_relative_path": "package/visual.glb",
+          "resting_pose": {
+            "attachment_surface": "floor",
+            "base_plane_offset_m": 0.0,
+            "measured_from": "P12 Habitat native skin-rest probe",
+            "probe_path": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/p12_package_burmese_dark_sable_20260907_v2/habitat_static_probe/probe.json"
+          },
+          "semantic_template": {
+            "semantic_id_source": "episode_binding",
+            "template_id": "generated_burmese_dark_sable_target_native_v1",
+            "template_kind": "articulated_m2"
+          },
+          "package_revisions": {
+            "action_revision": "external-animated-glb-idle-walking-sha256-3f03169a6b89b0ed54e3823e2d3a844a97a8ef3d8f67ece67b0476d68ccf3376",
+            "collision_revision": "m2-kinematic-rest-bbox-proxy-v1",
+            "skeleton_revision": "external-animated-glb-skin-sha256-3f03169a6b89b0ed54e3823e2d3a844a97a8ef3d8f67ece67b0476d68ccf3376",
+            "topology_sha256": "54383c152a41342625e288c3e62845f03b391c7ced8e7277dfaf087e14f19c95",
+            "uv_sha256": "fe28d4ee08fcf51508dd6f0fc681bfd74ba4c9e653f69c8a11fa76e5589df958",
+            "weights_revision": "external-animated-glb-weights-sha256-3f03169a6b89b0ed54e3823e2d3a844a97a8ef3d8f67ece67b0476d68ccf3376"
+          }
+        }
+      },
+      "admission_state": "research"
+    },
+    {
+      "asset_id": "generated_burmese_standard_sable_research_v1",
+      "revision": "external_animated_v1",
+      "display_label": "burmese cat",
+      "entity_class": "articulated_animal",
+      "identity": {
+        "species_id": "cat",
+        "breed_id": "burmese"
+      },
+      "realized_attributes": {
+        "finalized_at_size": "medium",
+        "size_is_runtime_scale": true,
+        "coat_profile": {
+          "profile_id": "cat_burmese_coat_v1",
+          "value": "standard_sable"
+        },
+        "size": "medium",
+        "body_build": "unknown",
+        "life_stage": "unknown"
+      },
+      "geometry": {
+        "mesh_authority": "audited_library_asset",
+        "source_mesh_uri": "artifact://sound_source_assets_v1/cat/burmese/standard_sable/animated.glb",
+        "rig_authority": "source animated GLB skin and Idle/Walking, native Habitat and UE readbacks"
+      },
+      "timeline": {
+        "template_id": "generated_burmese_standard_sable_target_native_v1",
+        "body_plan_id": "quadruped_mammal_felid_v1",
+        "local_anatomical_forward_axis": [
+          -0.9891386524974061,
+          0.0,
+          0.14698546232745624
+        ],
+        "walk_phase_period_frames": 25,
+        "idle_action_id": "idle",
+        "walking_action_id": "walk"
+      },
+      "default_emitter_anchor_id": "muzzle",
+      "emitter_anchors": [
+        {
+          "anchor_id": "muzzle",
+          "anchor_type": "muzzle",
+          "offset_m": [
+            -0.4260328447825447,
+            0.6568871809730176,
+            0.020020775734274836
+          ],
+          "offset_space": "final_scaled_asset_root"
+        }
+      ],
+      "runtime_backends": {
+        "spear_unreal": {
+          "blueprint_class_path": "/Game/AVEngine/P11ExtraAnimalSourcesV1/BlueprintsV2/BP_generated_burmese_standard_sable_research_v1.BP_generated_burmese_standard_sable_research_v1_C",
+          "skeletal_mesh_path": "/Game/AVEngine/P11ExtraAnimalSourcesV1/generated_burmese_standard_sable_research_v1/animated.animated",
+          "idle_animation": "/Game/AVEngine/P11ExtraAnimalSourcesV1/generated_burmese_standard_sable_research_v1/Idle.Idle",
+          "walking_animation": "/Game/AVEngine/P11ExtraAnimalSourcesV1/generated_burmese_standard_sable_research_v1/Walking.Walking",
+          "animation_paths_by_action_id": {
+            "idle": "/Game/AVEngine/P11ExtraAnimalSourcesV1/generated_burmese_standard_sable_research_v1/Idle.Idle",
+            "walk": "/Game/AVEngine/P11ExtraAnimalSourcesV1/generated_burmese_standard_sable_research_v1/Walking.Walking"
+          },
+          "ue_anatomical_forward_yaw_deg": 171.54785073814367,
+          "ue_component_frame_delta": {
+            "composition": "add_relative_preserving_blueprint_transform",
+            "reason": "source animated.glb imported into UE without an unmeasured frame correction; anatomical yaw is carried explicitly",
+            "rotation_deg": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "schema": "avengine_spear_component_frame_delta_v1",
+            "translation_cm": [
+              0.0,
+              0.0,
+              0.0
+            ]
+          },
+          "skeletal_mesh_binding": "explicit_path",
+          "actor_scale": 1.0,
+          "floor_contact_gate": true,
+          "ue_anatomical_basis_bones": {
+            "rear": "bone_0",
+            "front": "bone_37",
+            "body": "bone_0",
+            "left_foot": "bone_23",
+            "right_foot": "bone_18"
+          },
+          "ue_emitter_attachment": {
+            "attachment_type": "bone",
+            "name": "bone_37",
+            "local_offset_cm": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "probe_source": {
+              "root_id": "spear_repo",
+              "path": "tmp/p11_parent_external_animal_registry_20260907_v2/ue_native_probe_v5.json",
+              "sha256": "00f792afb37a5b57542565dcc6700936caaefb42355f0881c9ea1a83b8ccf01a",
+              "size_bytes": 28942
+            }
+          }
+        },
+        "habitat": {
+          "asset_kind": "articulated_m2_package",
+          "asset_manifest_path": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/p12_package_burmese_standard_sable_20260907_v1/package/asset_manifest.json",
+          "base_m2_request_path": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/p12_package_burmese_standard_sable_20260907_v1/base_m2_request.json",
+          "category": "cat",
+          "emitter": {
+            "anchor_id": "muzzle",
+            "anchor_type": "mouth",
+            "joint_from_anchor": {
+              "rotation_xyzw": [
+                0.0,
+                0.0,
+                0.0,
+                1.0
+              ],
+              "translation_m": [
+                0.0,
+                0.0,
+                0.0
+              ]
+            },
+            "joint_id": "bone_37",
+            "native_anchor_id": "muzzle",
+            "native_offset_m": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "native_offset_space": "joint_local",
+            "offset_m": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "offset_space": "joint_local",
+            "root_offset_m": [
+              -0.4260328447825447,
+              0.6568871809730176,
+              0.020020775734274836
+            ],
+            "root_offset_source": {
+              "action_id": "idle",
+              "actor_from_skin_root": [
+                [
+                  -0.9999851081823898,
+                  -0.0021717642983193706,
+                  0.005006680865268563,
+                  -0.26716426234092405
+                ],
+                [
+                  -0.0015862058070588282,
+                  0.9934650780215485,
+                  0.11412546912401592,
+                  0.3519659078951899
+                ],
+                [
+                  -0.005221816215815513,
+                  0.11411582796208247,
+                  -0.9934537283859459,
+                  -0.0035870067420113922
+                ],
+                [
+                  0.0,
+                  0.0,
+                  0.0,
+                  1.0
+                ]
+              ],
+              "coordinate_system": {
+                "handedness": "right",
+                "linear_unit": "meter",
+                "source_forward_basis": "actor_from_skin_root_composed_source_mesh",
+                "up_axis": "+Y"
+              },
+              "derived_world_from_actor": [
+                [
+                  0.9999999906589031,
+                  -2.925595565581479e-10,
+                  -4.139894958323702e-10,
+                  -2.021993128487054e-10
+                ],
+                [
+                  2.7451214289583296e-10,
+                  0.9999999887171622,
+                  -7.498795447009178e-09,
+                  3.5826586142206907e-10
+                ],
+                [
+                  4.1815600782966165e-10,
+                  4.7858622868273255e-09,
+                  1.000000013323162,
+                  -1.6070334277716591e-09
+                ],
+                [
+                  0.0,
+                  0.0,
+                  0.0,
+                  1.0
+                ]
+              ],
+              "derived_world_from_actor_max_abs_error": 1.332316190705285e-08,
+              "evidence_scope": "native Idle0 kinematic readback and explicit actor_from_skin_root composition; planning approximation only",
+              "formula": "world_from_actor = native_world_from_skin_root @ inverse(actor_from_skin_root); root_offset_m = inverse(world_from_actor) @ native_emitter_position_m",
+              "frame_index": 0,
+              "joint_mapping": {
+                "byte_size": 20571,
+                "path": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/p12_package_burmese_standard_sable_20260907_v1/package/habitat/joint_mapping.json",
+                "sha256": "7ffcce180a296f7e208ac90c629ac59d260bc8d11e9f539511ce8acc7799f110"
+              },
+              "local_anatomical_forward_axis": [
+                -0.9891386524974061,
+                0.0,
+                0.14698546232745624
+              ],
+              "local_anatomical_forward_axis_source": "native_idle0_actor_root_body_to_muzzle_horizontal_projection",
+              "native_actor_root_position_m": [
+                -0.2671642601490021,
+                0.35196590423583984,
+                -0.003587006824091077
+              ],
+              "native_emitter_position_m": [
+                -0.4260328412055969,
+                0.6568871736526489,
+                0.020020777359604836
+              ],
+              "native_readback": {
+                "byte_size": 6576,
+                "path": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/p12_package_burmese_standard_sable_20260907_v1/native_readback.json",
+                "sha256": "c0dadeedef7c705b815ba34e2f0c4e6d6531134a1f695bfdf6106db84133d800"
+              },
+              "native_world_from_skin_root": [
+                [
+                  -0.9999850988388062,
+                  -0.0021717646159231663,
+                  0.0050066811963915825,
+                  -0.2671642601490021
+                ],
+                [
+                  -0.0015862060245126486,
+                  0.9934650659561157,
+                  0.11412547528743744,
+                  0.35196590423583984
+                ],
+                [
+                  -0.005221816711127758,
+                  0.11411583423614502,
+                  -0.9934537410736084,
+                  -0.003587006824091077
+                ],
+                [
+                  0.0,
+                  0.0,
+                  0.0,
+                  1.0
+                ]
+              ],
+              "qualification_claim": false,
+              "qualification_state": "research_candidate",
+              "reference_frame": "canonical_actor_root",
+              "root_offset_m": [
+                -0.4260328447825447,
+                0.6568871809730176,
+                0.020020775734274836
+              ],
+              "root_offset_space": "final_scaled_asset_root",
+              "schema": "avengine_habitat_native_idle0_actor_root_muzzle_reference_v1",
+              "source_body_to_muzzle_horizontal_axis_after_actor_from_skin_root": [
+                -0.9891386524974061,
+                0.0,
+                0.14698546232745624
+              ],
+              "source_body_to_muzzle_vector_m": [
+                -0.15886858105659485,
+                0.3049212694168091,
+                0.023607784183695912
+              ]
+            },
+            "root_offset_space": "final_scaled_asset_root",
+            "semantic_anchor_id": "muzzle"
+          },
+          "entity_class": "articulated_animal",
+          "glb_path": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/p12_package_burmese_standard_sable_20260907_v1/package/visual.glb",
+          "glb_relative_path": "package/visual.glb",
+          "resting_pose": {
+            "attachment_surface": "floor",
+            "base_plane_offset_m": 0.0,
+            "measured_from": "P12 Habitat native skin-rest probe",
+            "probe_path": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/p12_package_burmese_standard_sable_20260907_v1/habitat_static_probe/probe.json"
+          },
+          "semantic_template": {
+            "semantic_id_source": "episode_binding",
+            "template_id": "generated_burmese_standard_sable_target_native_v1",
+            "template_kind": "articulated_m2"
+          },
+          "package_revisions": {
+            "action_revision": "external-animated-glb-idle-walking-sha256-69746a585562f01843cb7ac5244287a1f5918e82190d041fdcd81ecba9226268",
+            "collision_revision": "m2-kinematic-rest-bbox-proxy-v1",
+            "skeleton_revision": "external-animated-glb-skin-sha256-69746a585562f01843cb7ac5244287a1f5918e82190d041fdcd81ecba9226268",
+            "topology_sha256": "2c05174643aa266fa24242630828c1a5adf26c8992bf1e188853c6cd2d208e89",
+            "uv_sha256": "3c5f6eaf3ca17f277de7565045503ee191a543294f196c898d489d0084c85304",
+            "weights_revision": "external-animated-glb-weights-sha256-69746a585562f01843cb7ac5244287a1f5918e82190d041fdcd81ecba9226268"
+          }
+        }
+      },
+      "admission_state": "research"
+    },
+    {
+      "asset_id": "generated_jack_russell_terrier_standard_white_tan_research_v1",
+      "revision": "external_animated_v1",
+      "display_label": "jack russell terrier dog",
+      "entity_class": "articulated_animal",
+      "identity": {
+        "species_id": "dog",
+        "breed_id": "jack_russell_terrier"
+      },
+      "realized_attributes": {
+        "finalized_at_size": "small",
+        "size_is_runtime_scale": true,
+        "coat_profile": {
+          "profile_id": "dog_jack_russell_coat_v1",
+          "value": "standard_white_tan"
+        },
+        "size": "small",
+        "body_build": "unknown",
+        "life_stage": "unknown"
+      },
+      "geometry": {
+        "mesh_authority": "audited_library_asset",
+        "source_mesh_uri": "artifact://sound_source_assets_v1/dog/jack_russell_terrier/standard_white_tan/animated.glb",
+        "rig_authority": "source animated GLB skin and Idle/Walking, native Habitat and UE readbacks"
+      },
+      "timeline": {
+        "template_id": "generated_jack_russell_terrier_standard_white_tan_target_native_v1",
+        "body_plan_id": "quadruped_mammal_canid_v1",
+        "local_anatomical_forward_axis": [
+          -0.9139522857097594,
+          0.0,
+          -0.4058216596559461
+        ],
+        "walk_phase_period_frames": 25,
+        "idle_action_id": "idle",
+        "walking_action_id": "walk"
+      },
+      "default_emitter_anchor_id": "muzzle",
+      "emitter_anchors": [
+        {
+          "anchor_id": "muzzle",
+          "anchor_type": "muzzle",
+          "offset_m": [
+            -0.45534876994992063,
+            0.4350701317407967,
+            -0.1395308393227317
+          ],
+          "offset_space": "final_scaled_asset_root"
+        }
+      ],
+      "runtime_backends": {
+        "spear_unreal": {
+          "blueprint_class_path": "/Game/AVEngine/P11ExtraAnimalSourcesV1/BlueprintsV2/BP_generated_jack_russell_terrier_standard_white_tan_research_v1.BP_generated_jack_russell_terrier_standard_white_tan_research_v1_C",
+          "skeletal_mesh_path": "/Game/AVEngine/P11ExtraAnimalSourcesV1/generated_jack_russell_terrier_standard_white_tan_research_v1/animated.animated",
+          "idle_animation": "/Game/AVEngine/P11ExtraAnimalSourcesV1/generated_jack_russell_terrier_standard_white_tan_research_v1/Idle.Idle",
+          "walking_animation": "/Game/AVEngine/P11ExtraAnimalSourcesV1/generated_jack_russell_terrier_standard_white_tan_research_v1/Walking.Walking",
+          "animation_paths_by_action_id": {
+            "idle": "/Game/AVEngine/P11ExtraAnimalSourcesV1/generated_jack_russell_terrier_standard_white_tan_research_v1/Idle.Idle",
+            "walk": "/Game/AVEngine/P11ExtraAnimalSourcesV1/generated_jack_russell_terrier_standard_white_tan_research_v1/Walking.Walking"
+          },
+          "ue_anatomical_forward_yaw_deg": -156.05991826675083,
+          "ue_component_frame_delta": {
+            "composition": "add_relative_preserving_blueprint_transform",
+            "reason": "source animated.glb imported into UE without an unmeasured frame correction; anatomical yaw is carried explicitly",
+            "rotation_deg": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "schema": "avengine_spear_component_frame_delta_v1",
+            "translation_cm": [
+              0.0,
+              0.0,
+              0.0
+            ]
+          },
+          "skeletal_mesh_binding": "explicit_path",
+          "actor_scale": 1.0,
+          "floor_contact_gate": true,
+          "ue_anatomical_basis_bones": {
+            "rear": "bone_0",
+            "front": "bone_4",
+            "body": "bone_0",
+            "left_foot": "bone_21",
+            "right_foot": "bone_16"
+          },
+          "ue_emitter_attachment": {
+            "attachment_type": "bone",
+            "name": "bone_4",
+            "local_offset_cm": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "probe_source": {
+              "root_id": "spear_repo",
+              "path": "tmp/p11_parent_external_animal_registry_20260907_v2/ue_native_probe_v5.json",
+              "sha256": "00f792afb37a5b57542565dcc6700936caaefb42355f0881c9ea1a83b8ccf01a",
+              "size_bytes": 28942
+            }
+          }
+        },
+        "habitat": {
+          "asset_kind": "articulated_m2_package",
+          "asset_manifest_path": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/p12_package_jack_russell_terrier_20260907_v1/package/asset_manifest.json",
+          "base_m2_request_path": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/p12_package_jack_russell_terrier_20260907_v1/base_m2_request.json",
+          "category": "dog",
+          "emitter": {
+            "anchor_id": "muzzle",
+            "anchor_type": "mouth",
+            "joint_from_anchor": {
+              "rotation_xyzw": [
+                0.0,
+                0.0,
+                0.0,
+                1.0
+              ],
+              "translation_m": [
+                0.0,
+                0.0,
+                0.0
+              ]
+            },
+            "joint_id": "bone_4",
+            "native_anchor_id": "muzzle",
+            "native_offset_m": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "native_offset_space": "joint_local",
+            "offset_m": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "offset_space": "joint_local",
+            "root_offset_m": [
+              -0.45534876994992063,
+              0.4350701317407967,
+              -0.1395308393227317
+            ],
+            "root_offset_source": {
+              "action_id": "idle",
+              "actor_from_skin_root": [
+                [
+                  -0.9999261387222187,
+                  0.012037281478424497,
+                  0.0016795697911756021,
+                  -0.22215328782792143
+                ],
+                [
+                  0.012018162722939381,
+                  0.9998676762420834,
+                  -0.010963291979194538,
+                  0.3772857535584928
+                ],
+                [
+                  -0.0018113157756728692,
+                  -0.010942296873385528,
+                  -0.9999384907454535,
+                  -0.03598520053874692
+                ],
+                [
+                  0.0,
+                  0.0,
+                  0.0,
+                  1.0
+                ]
+              ],
+              "coordinate_system": {
+                "handedness": "right",
+                "linear_unit": "meter",
+                "source_forward_basis": "actor_from_skin_root_composed_source_mesh",
+                "up_axis": "+Y"
+              },
+              "derived_world_from_actor": [
+                [
+                  1.0000000707386134,
+                  4.792748886252822e-10,
+                  -4.373571232031799e-11,
+                  1.2254115527854381e-08
+                ],
+                [
+                  -1.8822419544345088e-09,
+                  1.0000000014882469,
+                  1.7251961706859407e-09,
+                  -5.755882825919656e-09
+                ],
+                [
+                  1.9300415142334042e-11,
+                  1.6004802199543607e-10,
+                  1.0000001164758698,
+                  3.0768445152817847e-09
+                ],
+                [
+                  0.0,
+                  0.0,
+                  0.0,
+                  1.0
+                ]
+              ],
+              "derived_world_from_actor_max_abs_error": 1.1647586983798419e-07,
+              "evidence_scope": "native Idle0 kinematic readback and explicit actor_from_skin_root composition; planning approximation only",
+              "formula": "world_from_actor = native_world_from_skin_root @ inverse(actor_from_skin_root); root_offset_m = inverse(world_from_actor) @ native_emitter_position_m",
+              "frame_index": 0,
+              "joint_mapping": {
+                "byte_size": 18476,
+                "path": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/p12_package_jack_russell_terrier_20260907_v1/package/habitat/joint_mapping.json",
+                "sha256": "56abb8ad9af39616573fb15f65f4bd64c153c9ef75413048908c2e56333e72aa"
+              },
+              "local_anatomical_forward_axis": [
+                -0.9139522857097594,
+                0.0,
+                -0.4058216596559461
+              ],
+              "local_anatomical_forward_axis_source": "native_idle0_actor_root_body_to_muzzle_horizontal_projection",
+              "native_actor_root_position_m": [
+                -0.22215329110622406,
+                0.37728574872016907,
+                -0.035985201597213745
+              ],
+              "native_emitter_position_m": [
+                -0.45534878969192505,
+                0.43507012724876404,
+                -0.13953085243701935
+              ],
+              "native_readback": {
+                "byte_size": 6533,
+                "path": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/p12_package_jack_russell_terrier_20260907_v1/native_readback.json",
+                "sha256": "8a016962d5c3cc58597d457c700045c52325db5255cf5cc5a360151f4ccd2d9b"
+              },
+              "native_world_from_skin_root": [
+                [
+                  -0.9999262094497681,
+                  0.012037282809615135,
+                  0.001679569948464632,
+                  -0.22215329110622406
+                ],
+                [
+                  0.012018164619803429,
+                  0.9998676776885986,
+                  -0.010963293723762035,
+                  0.37728574872016907
+                ],
+                [
+                  -0.001811316004022956,
+                  -0.010942297987639904,
+                  -0.9999386072158813,
+                  -0.035985201597213745
+                ],
+                [
+                  0.0,
+                  0.0,
+                  0.0,
+                  1.0
+                ]
+              ],
+              "qualification_claim": false,
+              "qualification_state": "research_candidate",
+              "reference_frame": "canonical_actor_root",
+              "root_offset_m": [
+                -0.45534876994992063,
+                0.4350701317407967,
+                -0.1395308393227317
+              ],
+              "root_offset_space": "final_scaled_asset_root",
+              "schema": "avengine_habitat_native_idle0_actor_root_muzzle_reference_v1",
+              "source_body_to_muzzle_horizontal_axis_after_actor_from_skin_root": [
+                -0.9139522857097594,
+                0.0,
+                -0.4058216596559461
+              ],
+              "source_body_to_muzzle_vector_m": [
+                -0.233195498585701,
+                0.05778437852859497,
+                -0.1035456508398056
+              ]
+            },
+            "root_offset_space": "final_scaled_asset_root",
+            "semantic_anchor_id": "muzzle"
+          },
+          "entity_class": "articulated_animal",
+          "glb_path": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/p12_package_jack_russell_terrier_20260907_v1/package/visual.glb",
+          "glb_relative_path": "package/visual.glb",
+          "resting_pose": {
+            "attachment_surface": "floor",
+            "base_plane_offset_m": 0.0,
+            "measured_from": "P12 Habitat native skin-rest probe",
+            "probe_path": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/p12_package_jack_russell_terrier_20260907_v1/habitat_static_probe/probe.json"
+          },
+          "semantic_template": {
+            "semantic_id_source": "episode_binding",
+            "template_id": "generated_jack_russell_terrier_standard_white_tan_target_native_v1",
+            "template_kind": "articulated_m2"
+          },
+          "package_revisions": {
+            "action_revision": "external-animated-glb-idle-walking-sha256-7b6e0606a3a93256c0f4be0c25e2af9487726d0764dff83a3f5d2a1091b686a9",
+            "collision_revision": "m2-kinematic-rest-bbox-proxy-v1",
+            "skeleton_revision": "external-animated-glb-skin-sha256-7b6e0606a3a93256c0f4be0c25e2af9487726d0764dff83a3f5d2a1091b686a9",
+            "topology_sha256": "2ab3cc5d0d0d08d025a865a5b9757214319d02aeeb0e07a7d89a099d7df6f97a",
+            "uv_sha256": "3479d563867f104ca94f53cfd8ff3c3db45820f74cc5610cb249f2a7959f51f1",
+            "weights_revision": "external-animated-glb-weights-sha256-7b6e0606a3a93256c0f4be0c25e2af9487726d0764dff83a3f5d2a1091b686a9"
+          }
+        }
+      },
+      "admission_state": "research"
+    },
+    {
+      "asset_id": "generated_siamese_standard_seal_point_research_v1",
+      "revision": "external_animated_v1",
+      "display_label": "siamese cat",
+      "entity_class": "articulated_animal",
+      "identity": {
+        "species_id": "cat",
+        "breed_id": "siamese"
+      },
+      "realized_attributes": {
+        "finalized_at_size": "medium",
+        "size_is_runtime_scale": true,
+        "coat_profile": {
+          "profile_id": "cat_siamese_coat_v1",
+          "value": "standard_seal_point"
+        },
+        "size": "medium",
+        "body_build": "unknown",
+        "life_stage": "unknown"
+      },
+      "geometry": {
+        "mesh_authority": "audited_library_asset",
+        "source_mesh_uri": "artifact://sound_source_assets_v1/cat/siamese/standard_seal_point/animated.glb",
+        "rig_authority": "source animated GLB skin and Idle/Walking, native Habitat and UE readbacks"
+      },
+      "timeline": {
+        "template_id": "generated_siamese_standard_seal_point_target_native_v1",
+        "body_plan_id": "quadruped_mammal_felid_v1",
+        "local_anatomical_forward_axis": [
+          0.9999375698706934,
+          0.0,
+          0.011173914313802373
+        ],
+        "walk_phase_period_frames": 25,
+        "idle_action_id": "idle",
+        "walking_action_id": "walk"
+      },
+      "default_emitter_anchor_id": "muzzle",
+      "emitter_anchors": [
+        {
+          "anchor_id": "muzzle",
+          "anchor_type": "muzzle",
+          "offset_m": [
+            0.26435134488785383,
+            0.43503992108006584,
+            -0.047489048455774376
+          ],
+          "offset_space": "final_scaled_asset_root"
+        }
+      ],
+      "runtime_backends": {
+        "spear_unreal": {
+          "blueprint_class_path": "/Game/AVEngine/P11ExtraAnimalSourcesV1/BlueprintsV2/BP_generated_siamese_standard_seal_point_research_v1.BP_generated_siamese_standard_seal_point_research_v1_C",
+          "skeletal_mesh_path": "/Game/AVEngine/P11ExtraAnimalSourcesV1/generated_siamese_standard_seal_point_research_v1/animated.animated",
+          "idle_animation": "/Game/AVEngine/P11ExtraAnimalSourcesV1/generated_siamese_standard_seal_point_research_v1/Idle.Idle",
+          "walking_animation": "/Game/AVEngine/P11ExtraAnimalSourcesV1/generated_siamese_standard_seal_point_research_v1/Walking.Walking",
+          "animation_paths_by_action_id": {
+            "idle": "/Game/AVEngine/P11ExtraAnimalSourcesV1/generated_siamese_standard_seal_point_research_v1/Idle.Idle",
+            "walk": "/Game/AVEngine/P11ExtraAnimalSourcesV1/generated_siamese_standard_seal_point_research_v1/Walking.Walking"
+          },
+          "ue_anatomical_forward_yaw_deg": 0.64066874303223,
+          "ue_component_frame_delta": {
+            "composition": "add_relative_preserving_blueprint_transform",
+            "reason": "source animated.glb imported into UE without an unmeasured frame correction; anatomical yaw is carried explicitly",
+            "rotation_deg": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "schema": "avengine_spear_component_frame_delta_v1",
+            "translation_cm": [
+              0.0,
+              0.0,
+              0.0
+            ]
+          },
+          "skeletal_mesh_binding": "explicit_path",
+          "actor_scale": 1.0,
+          "floor_contact_gate": true,
+          "ue_anatomical_basis_bones": {
+            "rear": "bone_0",
+            "front": "bone_4",
+            "body": "bone_0",
+            "left_foot": "bone_22",
+            "right_foot": "bone_18"
+          },
+          "ue_emitter_attachment": {
+            "attachment_type": "bone",
+            "name": "bone_4",
+            "local_offset_cm": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "probe_source": {
+              "root_id": "spear_repo",
+              "path": "tmp/p11_parent_external_animal_registry_20260907_v2/ue_native_probe_v5.json",
+              "sha256": "00f792afb37a5b57542565dcc6700936caaefb42355f0881c9ea1a83b8ccf01a",
+              "size_bytes": 28942
+            }
+          }
+        },
+        "habitat": {
+          "asset_kind": "articulated_m2_package",
+          "asset_manifest_path": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/p12_package_siamese_standard_seal_point_20260907_v1/package/asset_manifest.json",
+          "base_m2_request_path": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/p12_package_siamese_standard_seal_point_20260907_v1/base_m2_request.json",
+          "category": "cat",
+          "emitter": {
+            "anchor_id": "muzzle",
+            "anchor_type": "mouth",
+            "joint_from_anchor": {
+              "rotation_xyzw": [
+                0.0,
+                0.0,
+                0.0,
+                1.0
+              ],
+              "translation_m": [
+                0.0,
+                0.0,
+                0.0
+              ]
+            },
+            "joint_id": "bone_4",
+            "native_anchor_id": "muzzle",
+            "native_offset_m": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "native_offset_space": "joint_local",
+            "offset_m": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "offset_space": "joint_local",
+            "root_offset_m": [
+              0.26435134488785383,
+              0.43503992108006584,
+              -0.047489048455774376
+            ],
+            "root_offset_source": {
+              "action_id": "idle",
+              "actor_from_skin_root": [
+                [
+                  -0.9875039538732366,
+                  -0.04048419307332772,
+                  0.15230551925628255,
+                  -0.2771559591971477
+                ],
+                [
+                  -0.018017158332619864,
+                  0.9891064001323812,
+                  0.14609555510959174,
+                  0.37631724855208554
+                ],
+                [
+                  -0.1565609245320863,
+                  0.14152582565865482,
+                  -0.9774758910486208,
+                  -0.05354016794180175
+                ],
+                [
+                  0.0,
+                  0.0,
+                  0.0,
+                  1.0
+                ]
+              ],
+              "coordinate_system": {
+                "handedness": "right",
+                "linear_unit": "meter",
+                "source_forward_basis": "actor_from_skin_root_composed_source_mesh",
+                "up_axis": "+Y"
+              },
+              "derived_world_from_actor": [
+                [
+                  1.0000000549227945,
+                  -3.5420488084489454e-09,
+                  -1.6694886710500608e-08,
+                  9.291779401454647e-09
+                ],
+                [
+                  8.728380227934853e-09,
+                  0.9999999645259673,
+                  -5.3656646947182253e-08,
+                  2.6993277668641014e-08
+                ],
+                [
+                  2.327656983092923e-08,
+                  3.1786871328059276e-08,
+                  1.000000059665546,
+                  -8.418310354363356e-10
+                ],
+                [
+                  0.0,
+                  0.0,
+                  0.0,
+                  1.0
+                ]
+              ],
+              "derived_world_from_actor_max_abs_error": 5.966554605940644e-08,
+              "evidence_scope": "native Idle0 kinematic readback and explicit actor_from_skin_root composition; planning approximation only",
+              "formula": "world_from_actor = native_world_from_skin_root @ inverse(actor_from_skin_root); root_offset_m = inverse(world_from_actor) @ native_emitter_position_m",
+              "frame_index": 0,
+              "joint_mapping": {
+                "byte_size": 15922,
+                "path": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/p12_package_siamese_standard_seal_point_20260907_v1/package/habitat/joint_mapping.json",
+                "sha256": "45c5a98a9a165e5c1444397c18641900be96ef4d9a45b47b65bcb54a23931399"
+              },
+              "local_anatomical_forward_axis": [
+                0.9999375698706934,
+                0.0,
+                0.011173914313802373
+              ],
+              "local_anatomical_forward_axis_source": "native_idle0_actor_root_body_to_muzzle_horizontal_projection",
+              "native_actor_root_position_m": [
+                -0.27715596556663513,
+                0.37631726264953613,
+                -0.05354016646742821
+              ],
+              "native_emitter_position_m": [
+                0.26435136795043945,
+                0.4350399374961853,
+                -0.04748903214931488
+              ],
+              "native_readback": {
+                "byte_size": 6429,
+                "path": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/p12_package_siamese_standard_seal_point_20260907_v1/native_readback.json",
+                "sha256": "afdf228f4841046df0c03dd8cbfa2956e4f63bc91f1bf1fa938f38c4dc872e46"
+              },
+              "native_world_from_skin_root": [
+                [
+                  -0.9875040054321289,
+                  -0.04048420116305351,
+                  0.15230554342269897,
+                  -0.27715596556663513
+                ],
+                [
+                  -0.018017157912254333,
+                  0.9891063570976257,
+                  0.14609560370445251,
+                  0.37631726264953613
+                ],
+                [
+                  -0.1565609574317932,
+                  0.14152586460113525,
+                  -0.9774759411811829,
+                  -0.05354016646742821
+                ],
+                [
+                  0.0,
+                  0.0,
+                  0.0,
+                  1.0
+                ]
+              ],
+              "qualification_claim": false,
+              "qualification_state": "research_candidate",
+              "reference_frame": "canonical_actor_root",
+              "root_offset_m": [
+                0.26435134488785383,
+                0.43503992108006584,
+                -0.047489048455774376
+              ],
+              "root_offset_space": "final_scaled_asset_root",
+              "schema": "avengine_habitat_native_idle0_actor_root_muzzle_reference_v1",
+              "source_body_to_muzzle_horizontal_axis_after_actor_from_skin_root": [
+                0.9999375698706934,
+                0.0,
+                0.011173914313802373
+              ],
+              "source_body_to_muzzle_vector_m": [
+                0.5415073335170746,
+                0.05872267484664917,
+                0.006051134318113327
+              ]
+            },
+            "root_offset_space": "final_scaled_asset_root",
+            "semantic_anchor_id": "muzzle"
+          },
+          "entity_class": "articulated_animal",
+          "glb_path": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/p12_package_siamese_standard_seal_point_20260907_v1/package/visual.glb",
+          "glb_relative_path": "package/visual.glb",
+          "resting_pose": {
+            "attachment_surface": "floor",
+            "base_plane_offset_m": 0.0,
+            "measured_from": "P12 Habitat native skin-rest probe",
+            "probe_path": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/p12_package_siamese_standard_seal_point_20260907_v1/habitat_static_probe/probe.json"
+          },
+          "semantic_template": {
+            "semantic_id_source": "episode_binding",
+            "template_id": "generated_siamese_standard_seal_point_target_native_v1",
+            "template_kind": "articulated_m2"
+          },
+          "package_revisions": {
+            "action_revision": "external-animated-glb-idle-walking-sha256-3c1716627ec5dfda9e1bb45e3b23b11743a787ebce0e89a4c5e6fbae4cdd885d",
+            "collision_revision": "m2-kinematic-rest-bbox-proxy-v1",
+            "skeleton_revision": "external-animated-glb-skin-sha256-3c1716627ec5dfda9e1bb45e3b23b11743a787ebce0e89a4c5e6fbae4cdd885d",
+            "topology_sha256": "8c06441ec5808faa50bd51698876b4323f7f5c840f27a520d17db89eec30e21b",
+            "uv_sha256": "bae608d4b1882eb350212830e27f6af7f356368f86b238225e7cb0cd6dae5331",
+            "weights_revision": "external-animated-glb-weights-sha256-3c1716627ec5dfda9e1bb45e3b23b11743a787ebce0e89a4c5e6fbae4cdd885d"
+          }
         }
       },
       "admission_state": "research"

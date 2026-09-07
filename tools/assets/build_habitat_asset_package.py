@@ -200,8 +200,20 @@ def _needs_webp(source: Path) -> bool:
     return "EXT_texture_webp" in load_glb(source).json.get("extensionsRequired", [])
 
 
-def _package_emitter(package_value: Mapping[str, Any]) -> dict[str, Any]:
-    """Return the package's explicit mouth anchor as a Habitat emitter record."""
+def _package_emitter(
+    package_value: Mapping[str, Any],
+    *,
+    root_offset_m: Sequence[float] | None = None,
+    root_offset_source: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Return a source-bound emitter with separate joint/root offset frames.
+
+    ``joint_from_anchor`` and ``offset_m`` describe the native M2 joint-local
+    anchor. ``root_offset_m`` is an optional, separately measured actor-root
+    planning approximation (normally from a native Idle frame). When it is
+    absent, the native joint-local binding remains valid and is marked
+    ``not_measured``; an actual measured zero is also valid.
+    """
 
     anchors = package_value.get("anchors")
     if not isinstance(anchors, list):
@@ -214,13 +226,48 @@ def _package_emitter(package_value: Mapping[str, Any]) -> dict[str, Any]:
             offset = transform.get("translation_m")
             if not isinstance(offset, list) or len(offset) != 3:
                 raise P12BuildError("muzzle anchor translation must be a 3-vector")
-            return {
-                "anchor_id": "muzzle",
+            if (root_offset_m is None) != (root_offset_source is None):
+                raise P12BuildError(
+                    "root_offset_m and root_offset_source must be supplied together"
+                )
+            root_offset: list[float] | None = None
+            if root_offset_m is not None:
+                try:
+                    root_offset = [float(value) for value in root_offset_m]
+                except (TypeError, ValueError):
+                    raise P12BuildError("root_offset_m must be a finite 3-vector") from None
+                if len(root_offset) != 3 or not all(math.isfinite(value) for value in root_offset):
+                    raise P12BuildError("root_offset_m must be a finite 3-vector")
+                if not isinstance(root_offset_source, Mapping) or not root_offset_source:
+                    raise P12BuildError("root_offset_source must identify native evidence")
+            anchor_id = str(item["anchor_id"])
+            joint_id = item.get("joint_id")
+            if not isinstance(joint_id, str) or not joint_id:
+                raise P12BuildError("muzzle anchor joint_id must be non-empty")
+            emitter = {
+                "anchor_id": anchor_id,
+                "semantic_anchor_id": anchor_id,
+                "native_anchor_id": anchor_id,
                 "anchor_type": "mouth",
-                "joint_id": item.get("joint_id"),
+                "joint_id": joint_id,
+                "joint_from_anchor": dict(transform),
                 "offset_m": [float(value) for value in offset],
-                "offset_space": "final_scaled_asset_root",
+                "offset_space": "joint_local",
+                "native_offset_m": [float(value) for value in offset],
+                "native_offset_space": "joint_local",
             }
+            if root_offset is None:
+                emitter["root_offset_status"] = "not_measured"
+            else:
+                emitter.update(
+                    {
+                        "root_offset_m": root_offset,
+                        "root_offset_space": "final_scaled_asset_root",
+                        "root_offset_source": dict(root_offset_source),
+                        "root_offset_status": "measured_native_reference",
+                    }
+                )
+            return emitter
     raise P12BuildError("compiled package has no explicit muzzle anchor")
 
 
@@ -336,6 +383,8 @@ def _runtime_backend(
     base_request: Path,
     package: Path,
     static_probe: Path,
+    root_offset_m: Sequence[float] | None = None,
+    root_offset_source: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     kind = str(spec.get("kind", "animal"))
     entity_class = "articulated_human" if kind == "human" else "articulated_animal"
@@ -359,7 +408,11 @@ def _runtime_backend(
             "measured_from": "P12 Habitat native skin-rest probe",
             "probe_path": str((static_probe / "probe.json").resolve()),
         },
-        "emitter": _package_emitter(package_value),
+        "emitter": _package_emitter(
+            package_value,
+            root_offset_m=root_offset_m,
+            root_offset_source=root_offset_source,
+        ),
     }
 
 
@@ -601,6 +654,37 @@ def build(spec_path: Path, output_root: Path, *, gpu_device_id: int) -> Path:
     root = output_root.expanduser().resolve()
     if root.exists() or root.is_symlink():
         raise P12BuildError(f"output root already exists: {root}")
+    raw_root_offset = spec.get("root_offset_m")
+    raw_root_offset_source = spec.get("root_offset_source")
+    if (raw_root_offset is None) != (raw_root_offset_source is None):
+        raise P12BuildError(
+            "spec.root_offset_m and spec.root_offset_source must be supplied together"
+        )
+    root_offset_m: tuple[float, float, float] | None = None
+    root_offset_source: dict[str, Any] | None = None
+    if raw_root_offset is not None:
+        if (
+            isinstance(raw_root_offset, (str, bytes))
+            or not isinstance(raw_root_offset, Sequence)
+            or len(raw_root_offset) != 3
+        ):
+            raise P12BuildError(
+                "spec.root_offset_m must be an explicit finite 3-vector"
+            )
+        try:
+            parsed_root_offset = tuple(float(value) for value in raw_root_offset)
+        except (TypeError, ValueError):
+            raise P12BuildError(
+                "spec.root_offset_m must be an explicit finite 3-vector"
+            ) from None
+        if any(not math.isfinite(value) for value in parsed_root_offset):
+            raise P12BuildError("spec.root_offset_m must be an explicit finite 3-vector")
+        if not isinstance(raw_root_offset_source, Mapping) or not raw_root_offset_source:
+            raise P12BuildError(
+                "spec.root_offset_source must identify native actor-root evidence"
+            )
+        root_offset_m = parsed_root_offset  # type: ignore[assignment]
+        root_offset_source = dict(raw_root_offset_source)
     root.mkdir(parents=True)
     anchors, anchor_defs, contact_order = _anchor_definitions(spec)
     stage: dict[str, Any] = {"asset_id": asset_id, "stages": []}
@@ -788,6 +872,8 @@ def build(spec_path: Path, output_root: Path, *, gpu_device_id: int) -> Path:
             base_request=base_request,
             package=package,
             static_probe=static_probe,
+            root_offset_m=root_offset_m,
+            root_offset_source=root_offset_source,
         )
         increment = {
             "schema": "avengine_p12_habitat_binding_increment_v1",

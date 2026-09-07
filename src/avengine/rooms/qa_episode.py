@@ -146,13 +146,101 @@ def navigation_points(pf: RasterPathfinder, nav: Mapping[str, Any]) -> np.ndarra
 def source_declaration(registry: Mapping[str, Any], asset_id: str, actor_id: str) -> dict[str, Any]:
     record = resolve_source_asset_runtime_profile(registry, asset_id)
     backend = deepcopy(record.get("runtime_backends", {}).get("spear_unreal"))
-    if not isinstance(backend, dict) or record.get("entity_class") == "rigid_object":
+    entity_class = record.get("entity_class")
+    if entity_class in {"rigid_object", "rigid_static_object"}:
+        if not isinstance(backend, dict):
+            raise QAPlanningError(f"{asset_id} has no exact UE static mesh binding")
+        if backend.get("static_mesh_binding") != "explicit_path":
+            raise QAPlanningError(
+                f"{asset_id} static mesh binding is not an explicit UE path"
+            )
+        static_mesh = backend.get("static_mesh_object_path")
+        if not isinstance(static_mesh, str) or not static_mesh.startswith("/Game/"):
+            raise QAPlanningError(f"{asset_id} lacks an exact UE static mesh path")
+        actor_scale = backend.get("actor_scale")
+        static_forward_yaw = backend.get("ue_static_forward_yaw_deg")
+        if (
+            isinstance(actor_scale, bool)
+            or not isinstance(actor_scale, (int, float))
+            or not math.isfinite(float(actor_scale))
+            or float(actor_scale) <= 0.0
+            or isinstance(static_forward_yaw, bool)
+            or not isinstance(static_forward_yaw, (int, float))
+            or not math.isfinite(float(static_forward_yaw))
+        ):
+            raise QAPlanningError(f"{asset_id} has an invalid static mesh transform")
+        emitter = build_asset_emitter_binding(
+            registry, source_slot_id=actor_id, asset_id=asset_id
+        )
+        offset = emitter["emitter_offset_m"]
+        habitat = record.get("runtime_backends", {}).get("habitat", {})
+        resting_pose = (
+            deepcopy(habitat.get("resting_pose"))
+            if isinstance(habitat, Mapping)
+            else None
+        )
+        if not isinstance(resting_pose, Mapping):
+            raise QAPlanningError(
+                f"{asset_id} static placement interface_not_implemented: "
+                "a measured resting_pose is required"
+            )
+        if resting_pose.get("attachment_surface") != "floor":
+            raise QAPlanningError(
+                f"{asset_id} static placement interface_not_implemented: "
+                "only floor attachment_surface is supported"
+            )
+        base_offset = resting_pose.get("base_plane_offset_m")
+        if (
+            isinstance(base_offset, bool)
+            or not isinstance(base_offset, (int, float))
+            or not math.isfinite(float(base_offset))
+        ):
+            raise QAPlanningError(
+                f"{asset_id} static placement interface_not_implemented: "
+                "resting_pose.base_plane_offset_m must be finite"
+            )
+        if abs(float(base_offset)) > 1.0e-9:
+            raise QAPlanningError(
+                f"{asset_id} static placement interface_not_implemented: "
+                "non-zero base_plane_offset_m is unsupported by root-at-floor "
+                "placement"
+            )
+        return {
+            **backend,
+            "actor_id": actor_id,
+            "asset_id": asset_id,
+            "asset_revision": record["revision"],
+            "entity_class": "rigid_object",
+            "motion_model": "rigid_static",
+            "identity": deepcopy(record["identity"]),
+            "realized_attributes": deepcopy(record["realized_attributes"]),
+            "display_label": record["display_label"],
+            "static_mesh_binding": "explicit_path",
+            "static_mesh_object_path": static_mesh,
+            "actor_scale": float(actor_scale),
+            "ue_static_forward_yaw_deg": float(static_forward_yaw),
+            "resting_pose": resting_pose,
+            "emitter_local_ue_cm": [
+                float(offset[0]) * 100.0,
+                float(offset[2]) * 100.0,
+                float(offset[1]) * 100.0,
+            ],
+            "emitter_binding": emitter,
+            "exact_runtime_binding": {
+                "source": "source_asset_runtime_registry_and_static_mesh_binding",
+                "asset_id": asset_id,
+                "revision": record["revision"],
+                "static_mesh_object_path": static_mesh,
+                "status": "declared_pending_native_readback",
+            },
+        }
+    if not isinstance(backend, dict):
         raise QAPlanningError(f"{asset_id} has no articulated SPEAR runtime")
     mesh = backend.get("skeletal_mesh_path")
     import_ref = backend.get("ue_import_manifest_ref", {})
     if not mesh and import_ref.get("path"):
         mesh = read_json(import_ref["path"]).get("content", {}).get("skeletal_mesh")
-    if not mesh:
+    if not mesh and backend.get("skeletal_mesh_binding") != "blueprint_component":
         raise QAPlanningError(f"{asset_id} lacks an exact imported mesh reference")
     timeline = record["timeline"]
     idle = timeline["idle_action_id"]
@@ -171,7 +259,8 @@ def source_declaration(registry: Mapping[str, Any], asset_id: str, actor_id: str
         attributes["coat_value"] = attributes["coat_profile"]["value"]
     result = {
         **backend, "actor_id": actor_id, "asset_id": asset_id,
-        "asset_revision": record["revision"], "template_id": timeline["template_id"],
+        "asset_revision": record["revision"], "entity_class": entity_class,
+        "template_id": timeline["template_id"],
         "body_plan_id": timeline["body_plan_id"], "identity": deepcopy(record["identity"]),
         "realized_attributes": attributes, "display_label": record["display_label"],
         "skeletal_mesh_path": mesh, "animation_paths_by_action_id": animations,
@@ -180,13 +269,17 @@ def source_declaration(registry: Mapping[str, Any], asset_id: str, actor_id: str
         "walk_phase_period_frames": timeline["walk_phase_period_frames"],
         "emitter_local_ue_cm": [offset[0] * 100, offset[2] * 100, offset[1] * 100],
         "emitter_binding": emitter,
-        "exact_runtime_binding": {
-            "source": "source_asset_runtime_registry_and_native_import",
-            "asset_id": asset_id, "revision": record["revision"],
-            "import_manifest_ref": deepcopy(import_ref),
-            "asset_bound_lineage": deepcopy(record.get("asset_bound_lineage")),
-            "status": "declared_pending_native_readback",
-        },
+        "exact_runtime_binding": (
+            {
+                "source": "source_asset_runtime_registry_and_native_import",
+                "asset_id": asset_id, "revision": record["revision"],
+                "import_manifest_ref": deepcopy(import_ref),
+                "asset_bound_lineage": deepcopy(record.get("asset_bound_lineage")),
+                "status": "declared_pending_native_readback",
+            }
+            if mesh
+            else None
+        ),
     }
     return result
 
@@ -278,6 +371,7 @@ def _path(pf: RasterPathfinder, start: np.ndarray, end: np.ndarray) -> np.ndarra
 def sample_activity_routes(
     pf: RasterPathfinder, nav: Mapping[str, Any], *, actor_count: int,
     frame_count: int, fps: int, rng: np.random.Generator, activity: str,
+    rigid_actor_indices: Sequence[int] = (),
 ) -> tuple[dict[str, np.ndarray], dict[str, Any]]:
     points = navigation_points(pf, nav)
     if len(points) > 1600:
@@ -304,7 +398,10 @@ def sample_activity_routes(
             pattern = "stand" if activity == "standing" else patterns[index % len(patterns)]
             route = np.repeat(start[None, :], frame_count, axis=0)
             polyline = None
-            if pattern != "stand":
+            intervals = []
+            if index in set(rigid_actor_indices):
+                pattern = "static_rigid"
+            elif pattern != "stand":
                 ends = near[(np.linalg.norm(near - start, axis=1) >= 1.5)
                             & (np.linalg.norm(near - start, axis=1) < 4.5)]
                 for end in ends[rng.permutation(len(ends))[:48]]:
@@ -695,7 +792,12 @@ def build_qa_episode_plan(
     else:
         routes, route_record = sample_activity_routes(
             pf, nav, actor_count=len(actors), frame_count=clock["frame_count"],
-            fps=int(clock["frame_rate_hz"]), rng=rng, activity=activity)
+            fps=int(clock["frame_rate_hz"]), rng=rng, activity=activity,
+            rigid_actor_indices=[
+                index for index, actor in enumerate(actors)
+                if actor.get("entity_class") in {"rigid_object", "rigid_static_object"}
+                or actor.get("motion_model") == "rigid_static"
+            ])
     capability = room_capabilities(layout, nav, actors, sounds)
     matching = match_question_conditions(qa_ids, capability)
     if matching["status"] == "unsupported":
@@ -730,9 +832,14 @@ def build_qa_episode_plan(
                 moving = float(np.linalg.norm(delta)) > 1e-5
                 if moving:
                     headings[aid] = math.degrees(math.atan2(delta[2], delta[0]))
-                yaw = (headings[aid] - float(actor["ue_anatomical_forward_yaw_deg"]) + 180) % 360 - 180
-                action = actor["walking_action_id"] if moving else actor["idle_action_id"]
-                phases[aid] = (phases[aid] + (1 / actor["walk_phase_period_frames"] if moving else 0)) % 1
+                if timeline:
+                    yaw = (headings[aid] - float(actor["ue_anatomical_forward_yaw_deg"]) + 180) % 360 - 180
+                    action = actor["walking_action_id"] if moving else actor["idle_action_id"]
+                    phases[aid] = (phases[aid] + (1 / actor["walk_phase_period_frames"] if moving else 0)) % 1
+                else:
+                    yaw = (headings[aid] - float(actor.get("ue_static_forward_yaw_deg", 0.0)) + 180) % 360 - 180
+                    action = "static"
+                    phases[aid] = 0.0
                 point = path[f].tolist()
                 rotation = yaw_rotation_xyzw(-yaw)
                 state = {
@@ -742,9 +849,10 @@ def build_qa_episode_plan(
                     "root_transform": {"translation_m": point, "rotation_xyzw": list(rotation), "scale": [1, 1, 1]},
                     "action_id": action, "action_phase": phases[aid],
                     "action_time_ticks": f * clock["ticks_per_frame"],
-                    "ue_animation": actor["animation_paths_by_action_id"][action],
                     "moving": moving, "frame_index": f,
                 }
+                if timeline:
+                    state["ue_animation"] = actor["animation_paths_by_action_id"][action]
             states.append(state)
         frames.append({"frame_index": f, "pts_ticks": f * clock["ticks_per_frame"],
                        "actor_states": states, "camera_state": cameras[f]})

@@ -38,7 +38,7 @@ def test_inventory_preserves_external_animal_and_runtime_overlap() -> None:
         "articulated_animal": 4,
         "rigid_object": 40,
     }
-    assert summary["overlap_count"] == 40
+    assert summary["overlap_count"] == 44
     assert summary["union_total"] == 59
     assert summary["union_by_entity_class"] == {
         "articulated_animal": 12,
@@ -63,11 +63,21 @@ def test_speaker_binding_resolves_glb_resting_pose_and_emitter() -> None:
 
 
 @pytest.mark.skipif(not EXTERNAL_INDEX.is_file(), reason="external sound-source index unavailable")
-def test_external_animal_is_not_silently_treated_as_rigid() -> None:
+def test_external_animal_uses_p12_binding_and_never_falls_back_to_rigid() -> None:
+    animal_id = "generated_burmese_dark_sable_research_v1"
+    binding = load_habitat_asset_bindings(
+        [animal_id],
+        runtime_registry_path=RUNTIME_REGISTRY,
+        external_index_path=EXTERNAL_INDEX,
+    )[animal_id]
+    assert binding.normalized_entity_class == "articulated_animal"
+    assert binding.asset_kind == "articulated_m2_package"
+    assert binding.asset_manifest_path.is_file()
+    assert binding.base_m2_request_path.is_file()
+    # With no P12 registry, the external animal is still rejected as a static source.
     with pytest.raises(HabitatStaticAssetError, match="articulated assets require P12"):
         load_habitat_asset_bindings(
-            ["generated_burmese_dark_sable_research_v1"],
-            runtime_registry_path=RUNTIME_REGISTRY,
+            [animal_id],
             external_index_path=EXTERNAL_INDEX,
         )
 

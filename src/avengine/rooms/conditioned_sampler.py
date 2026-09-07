@@ -484,6 +484,14 @@ def select_camera_and_schedule(space, mesh, paths, moving, emitters, bodies, act
                 dest=emitters[i,frame];key=(pi,tuple(dest))
                 if key not in ray_cache:ray_cache[key]=line_of_sight(mesh,origin,dest)
                 los[i,frame]=ray_cache[key]==desired
+                if los[i,frame] and desired=='clear':
+                    # A clear emitter alone can sit above or outside an
+                    # occluded body. The existing visual body proxy must
+                    # also be clear for a requested clear visual source.
+                    body_key=(pi,tuple(bodies[i,frame]))
+                    if body_key not in ray_cache:
+                        ray_cache[body_key]=line_of_sight(mesh,origin,bodies[i,frame])
+                    los[i,frame]=ray_cache[body_key]=='clear'
         mask&=los[None]
         for yi in before:
             starts={key:legal_start_ranges(mask[yi,actor_index[e['actor_id']]],e,clock,profile) for key,e in events.items()}
@@ -510,7 +518,7 @@ def select_camera_and_schedule(space, mesh, paths, moving, emitters, bodies, act
                          'legal_candidate_ids':[f'grid_{p:05d}_yaw_{y*15:03d}' for p,y,_,_ in legal],
                          'legal_event_start_ranges_samples':starts,'nearest_competitor_separation_deg':nearest.tolist(),
                          'line_of_sight_source':deepcopy(getattr(mesh,'source',None)),
-                         'anchor_indices':profile['anchor_indices'],'pixel_observability':'not_run'}
+                         'anchor_indices':profile['anchor_indices'],'clear_los_requires':['emitter','body_proxy'],'pixel_observability':'not_run'}
 
 
 def build_conditioned_plan(*, room, request, source_registry, sounds, space, mesh,

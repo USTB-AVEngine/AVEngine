@@ -5,7 +5,7 @@
 
 自 2026-08-25 起，目录本身就是能力分组（阶段目录 m1…m7 已移除），
 本表按目录列出每个工具做什么。
-当前共 397 个工具脚本。
+当前共 401 个工具脚本。
 
 ## 资产生成与装配（`tools/assets/`）
 
@@ -18,6 +18,7 @@
 | `tools/assets/append_loop_closure.py` | Append one 15 Hz return-to-start sample to each GLB action channel |
 | `tools/assets/assemble_variant_package.py` | Assemble a generic M2 animal research package from real QA evidence |
 | `tools/assets/audit_candidate.py` | Write bounded automatic QA reports for an M2 research candidate |
+| `tools/assets/audit_habitat_mesh_grounding.py` | Audit exact skinned-vertex grounding and declared source anchors |
 | `tools/assets/audit_variant_candidate.py` | Run body-plan-neutral automatic M2 QA using explicit variant anchors |
 | `tools/assets/audit_world_contacts.py` | Fit M2 root cadence and emit hash-bound world-contact artifacts |
 | `tools/assets/bake_actions.py` | Bake the strict M2 Idle/Walking action artifact and hash-bound report |
@@ -483,11 +484,13 @@
 | `tools/ue/assemble_package_stage.py` | Assemble a fresh UE package stage for the current Apartment visual route |
 | `tools/ue/assemble_research_editor_stage.py` | Create an isolated SPEAR Editor stage using current source and installed binaries |
 | `tools/ue/build_minimal_closure_report.py` | Build a minimal-closure report for the current Apartment visual stage |
+| `tools/ue/create_extra_animals_blueprints_editor.py` |  |
 | `tools/ue/create_spear_kujiale_map_editor.py` | Create a UE map containing one external USD stage |
 | `tools/ue/export_apartment_gltf.py` | Export the legacy SPEAR apartment as real UE render-surface geometry |
 | `tools/ue/export_asset_dependencies_editor.py` | Export real Unreal package dependencies for declared mounted content roots |
 | `tools/ue/fix_spear_mp3d_materials_editor.py` | Repair and verify MP3D glTF color semantics inside an isolated UE project |
 | `tools/ue/import_controlled_humans_editor.py` | Import one catalog-described controlled human with generic Unreal APIs |
+| `tools/ue/import_extra_animals_editor.py` | Import research-only animated animal GLBs into isolated UE SkeletalMesh roots |
 | `tools/ue/import_seated_human_editor.py` | Import four seated skeletal GLBs and create independent UE Blueprints |
 | `tools/ue/import_spear_3d_front_sample_editor.py` | Import the local 3D-FRONT Toolbox sample proxy into a persistent UE map |
 | `tools/ue/import_spear_replicacad_editor.py` | Import and assemble the prepared ReplicaCAD apt_0 scene inside UE 5.5 |
@@ -498,6 +501,7 @@
 | `tools/ue/prepare_spear_replicacad_scene.py` | Prepare the complete ReplicaCAD scene request for the optional UE backend |
 | `tools/ue/probe_spear_replicacad_environment.py` | Probe whether ReplicaCAD can be imported/cooked without touching old SPEAR |
 | `tools/ue/unreal_export_approaching_storm.py` | Unreal Editor-side exporter for the stock approaching_storm TextureCube |
+| `tools/ue/verify_extra_animals_editor.py` |  |
 
 ## Blender 工程（`tools/blender/`）
 

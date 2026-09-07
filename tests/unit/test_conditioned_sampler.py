@@ -147,6 +147,9 @@ def test_full_plan_same_seed_bytes_and_camera_membership(monkeypatch):
     from avengine.rooms import qa_episode
     monkeypatch.setattr(qa_episode, 'source_declaration',
                         lambda _registry, asset_id, actor_id: {'asset_id': asset_id, 'actor_id': actor_id})
+    from avengine import runtime_profiles
+    monkeypatch.setattr(runtime_profiles, 'resolve_source_asset_runtime_profile',
+                        lambda reg, asset_id: next(row for row in reg['assets'] if row['asset_id']==asset_id))
     native = materialize_ue_episode_plan(a, registry())
     assert [f['camera_state']['frame_index'] for f in native['visual_plan']['frames']] == list(range(clock()['frame_count']))
     assert all('frame_index' not in f['camera_state'] for f in a['visual_plan']['frames'])
@@ -184,3 +187,23 @@ def test_structure_reports_majority_shortcut_without_refusing():
     r=structural_baselines({'a':'blue','b':'blue','c':'red'},'c')
     assert r['unique_minority_hits']==1 and r['majority_hits']==0 and r['random_hits']==pytest.approx(1/3)
     assert structural_baselines({'a':None,'b':1},'b')['status']=='unmeasured'
+
+
+def test_clear_camera_rejects_occluded_body_even_with_clear_emitter(monkeypatch):
+    r=request();profile=cs.resolve_condition_profile(r,registry());n=clock()['frame_count']
+    actors=[cs.neutral_source_declaration(record,f'source{i+1}') for i,record in enumerate(registry()['assets'][:2])]
+    paths=np.repeat(np.array([[[-1.,0.,-3.]],[[1.,0.,-3.]]]),n,axis=1)
+    emitters=paths+np.array([0.,1.6,0.]);bodies=paths+np.array([0.,1.28,0.])
+    selected={i:{**sounds()[i],'actor_id':actor['actor_id']} for i,actor in enumerate(actors)}
+    monkeypatch.setattr(cs,'camera_grid',lambda *args,**kwargs:[[0.,1.55,0.]])
+    def trace(_mesh,_origin,target):
+        return 'clear' if target[1]>1.5 else 'blocked'
+    monkeypatch.setattr(cs,'line_of_sight',trace)
+    with pytest.raises(cs.CandidateFailure,match='no_joint_geometry_activity_schedule'):
+        cs.select_camera_and_schedule(space(),object(),paths,np.zeros((2,n),dtype=bool),emitters,bodies,
+                                      actors,selected,profile,clock(),r,np.random.default_rng(0))
+    monkeypatch.setattr(cs,'line_of_sight',lambda *args:'clear')
+    camera,events,conditions=cs.select_camera_and_schedule(space(),object(),paths,np.zeros((2,n),dtype=bool),
+        emitters,bodies,actors,selected,profile,clock(),r,np.random.default_rng(0))
+    assert camera['candidate_id'] in conditions['legal_candidate_ids']
+    assert len(events)==2

@@ -188,7 +188,8 @@
           "enum": [
             "slim",
             "standard",
-            "stocky"
+            "stocky",
+            "unknown"
           ]
         },
         "life_stage": {
@@ -465,6 +466,9 @@
         "ue_anatomical_basis_bones": {
           "$ref": "#/$defs/anatomical_basis_bones"
         },
+        "ue_emitter_attachment": {
+          "$ref": "#/$defs/ue_emitter_attachment"
+        },
         "ue_component_frame_delta": {
           "$ref": "#/$defs/component_frame_delta"
         },
@@ -490,6 +494,33 @@
           }
         }
       ]
+    },
+    "ue_emitter_attachment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "attachment_type",
+        "name",
+        "local_offset_cm",
+        "probe_source"
+      ],
+      "properties": {
+        "attachment_type": {
+          "enum": [
+            "bone",
+            "socket"
+          ]
+        },
+        "name": {
+          "$ref": "#/$defs/nonempty_string"
+        },
+        "local_offset_cm": {
+          "$ref": "#/$defs/vec3"
+        },
+        "probe_source": {
+          "$ref": "#/$defs/artifact_ref"
+        }
+      }
     },
     "static_spear_unreal_binding": {
       "type": "object",
@@ -949,6 +980,32 @@
             "required": [
               "asset_bound_lineage"
             ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "admission_state": {
+                "not": {
+                  "const": "research"
+                }
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "realized_attributes": {
+                "properties": {
+                  "body_build": {
+                    "enum": [
+                      "slim",
+                      "standard",
+                      "stocky"
+                    ]
+                  }
+                }
+              }
+            }
           }
         }
       ]

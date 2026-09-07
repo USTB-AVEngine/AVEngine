@@ -1298,3 +1298,46 @@ edge; speaker is reviewed. The independent stage preserves shared map/Content.
 P11 imported 38 additional UE rigid meshes and is completing actor/emitter
 readback plus four extra animated animal bindings. P10 remains last; no pilot
 production or human-listening completion is claimed.
+
+## Checkpoint 20260907: full source bindings and native matrix closure
+
+Registry now contains the full 59-ID union: 40 rigid, 12 animal and 7 human,
+with 59 Habitat and 59 SPEAR bindings. The four external animated animals
+have source-specific packages, native actions/joints and measured emitter/
+anatomical references; unknown body build/life stage remain explicit research
+metadata. New runtime-only coat observations do not change the L9 generation
+vocabulary or qualified/formal requirements. P12 emitter offsets are joint-local;
+optional measured actor-root references remain separate, preserving old specs.
+
+The shared task UE stage is
+/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_full_asset_ue_stage_20260907_v1.
+Catalog AVENGINE_MULTI_HOME_UE_ROOT selects it. Its stage_manifest v3 has actual
+target-stage disjoint native load/readbacks for 40+4+15=59 IDs, five unchanged
+P3 maps, readable external USD and preserved plugins. It includes the legacy
+articulated Content that the initial clone lacked. No old stage/map was changed.
+
+Native Apartment final: tmp/matrix_native_apartment_beagle_speaker_sampled_20260907_v2/delivery_v1
+(240 frames/16 seconds, real bone emitter, 2ch audio, 13 valid/11 deferred).
+Kujiale final: tmp/matrix_kujiale_beagle_speaker_native_bone_20260907_v1/delivery
+(240 frames/16 seconds, both targets clear, 2ch audio, 8 valid/16 deferred;
+beagle coarse coat remains unobserved under warm illumination). Corrected
+MP3D/HM3D static origins use the P4 follow-up paths recorded above. Together
+with retained native human paths, all four families have human/animal/device
+native paths; pixel/appearance gaps and 9 mounting interfaces remain explicit.
+
+P5 now tests both existing emitter and body proxies for a requested clear LOS.
+The same 2400-seed one-route-attempt matrix was rerun, still 34/2400, all
+failures retained; no production-yield inference. Parent integrated tests
+currently87 passed. P11 A human+speaker and human+BorderCollie now also have
+independent P6 audio and P9 finalize_p9_v2 artifacts. See P11/P12 reports.
+
+Next implementation task is P10 (last): batch preallocation, five-state coverage,
+option permutations and grouped split metadata. P7 still lacks ten actual human
+listening records; the 46-episode pilot has NOT started. All results remain
+research-only; no formal admission, model evaluation or human review is claimed.
+
+
+P11最终提交检查：tmp/p11_parent_full_related_tests_20260907_v2.log记录181 passed、
+0 failed、0 skipped（12.46s）；两项旧库存测试已随四动物登记更新，并保留无P12绑定
+不得静态回退的反例。P11/P12/P5后续修复与59资产登记、共同UE目标本次一并收口。
+下一项为任务书指定最后执行的P10；P7十条真实人工试听仍pending，46段未启动。

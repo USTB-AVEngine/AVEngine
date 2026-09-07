@@ -48,7 +48,7 @@ def test_p3_catalog_covers_exactly_seven_packages():
     catalog = json.loads(CATALOG.read_text(encoding="utf-8"))
     assert catalog["schema"] == "avengine_qa_room_package_catalog_v1"
     assert catalog["path_bindings"]["AVENGINE_MULTI_HOME_ROOT"] == "/data/datasets/avengine_workspaces/multi_home_activity_20260905"
-    assert catalog["path_bindings"]["AVENGINE_MULTI_HOME_UE_ROOT"].endswith("/ue_stage")
+    assert catalog["path_bindings"]["AVENGINE_MULTI_HOME_UE_ROOT"].endswith("/qa_full_asset_ue_stage_20260907_v1")
     assert catalog["path_bindings"]["AVENGINE_MP3D_ROOT"].endswith("mp3d_example_scene_1.1")
     assert catalog["path_bindings"]["AVENGINE_HM3D_ROOT"] == "/data/datasets/habitat_data"
     entries = catalog["rooms"]

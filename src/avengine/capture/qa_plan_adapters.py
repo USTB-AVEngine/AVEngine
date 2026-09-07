@@ -139,6 +139,9 @@ def load_planning_resources(room, request):
     return space,mesh,layout
 
 
+NEUTRAL_UE_RUNTIME_BINDING_MODE = "renderer_neutral_asset_frame_v2"
+
+
 def materialize_ue_episode_plan(plan, registry):
     """Add UE driving fields in the UE executor, without changing the neutral plan."""
     if plan.get('plan_coordinates')!='renderer_neutral':return deepcopy(plan)
@@ -146,18 +149,53 @@ def materialize_ue_episode_plan(plan, registry):
     from avengine.rooms.furniture_layout import habitat_to_ue_cm
     from avengine.runtime_profiles import resolve_source_asset_runtime_profile
     result=deepcopy(plan);result['execution_coordinates']='ue_spear';result['renderer_backend']='spear_unreal_native'
+    result['visual_plan']['ue_neutral_runtime_binding'] = {
+        'schema': 'avengine_spear_neutral_runtime_binding_v1',
+        'mode': NEUTRAL_UE_RUNTIME_BINDING_MODE,
+        'source': 'materialize_ue_episode_plan',
+        'actor_root_preserved': True,
+    }
     package=result['resources'].get('room_package',{})
     result['scene']['map_path']=package.get('visual_scene',{}).get('map_path',result['resources'].get('map_path'))
     result['scene']['backend']='spear_unreal'
     actors=[]
     for neutral in plan['visual_plan']['actors']:
-        if neutral['entity_class']=='rigid_object':
-            record=resolve_source_asset_runtime_profile(registry,neutral['asset_id']);backend=record.get('runtime_backends',{}).get('spear_unreal')
-            if not backend:raise ValueError(neutral['asset_id']+' has no UE renderer binding')
-            actor={**deepcopy(neutral),**deepcopy(backend)}
-            offset=neutral['emitter_binding']['emitter_offset_m'];actor['emitter_local_ue_cm']=[100*offset[0],100*offset[2],100*offset[1]]
-        else:
-            actor=source_declaration(registry,neutral['asset_id'],neutral['actor_id']);actor.update(entity_class=neutral['entity_class'])
+        actor=source_declaration(registry,neutral['asset_id'],neutral['actor_id'])
+        actor.update(entity_class=neutral['entity_class'])
+        timeline = resolve_source_asset_runtime_profile(
+            registry, neutral['asset_id']
+        ).get('timeline')
+        if isinstance(timeline, dict) and actor.get(
+            'ue_anatomical_forward_yaw_deg'
+        ) is not None:
+            axis = timeline.get('local_anatomical_forward_axis')
+            if (
+                isinstance(axis, (list, tuple))
+                and len(axis) == 3
+                and all(isinstance(value, (int, float)) for value in axis)
+                and math.isfinite(float(axis[0]))
+                and math.isfinite(float(axis[2]))
+                and math.hypot(float(axis[0]), float(axis[2])) > 1.0e-12
+            ):
+                timeline_yaw = math.degrees(
+                    math.atan2(float(axis[2]), float(axis[0]))
+                )
+                ue_yaw = float(actor['ue_anatomical_forward_yaw_deg'])
+                correction_yaw = (
+                    (timeline_yaw - ue_yaw + 180.0) % 360.0
+                ) - 180.0
+                actor['ue_neutral_visual_frame_correction'] = {
+                    'schema': 'avengine_spear_component_frame_delta_v1',
+                    'rotation_deg': [0.0, 0.0, correction_yaw],
+                    'translation_cm': [0.0, 0.0, 0.0],
+                    'composition': 'add_relative_preserving_blueprint_transform',
+                    'reason': (
+                        'renderer_neutral_timeline_axis_to_'
+                        'ue_anatomical_forward'
+                    ),
+                    'timeline_forward_yaw_deg': timeline_yaw,
+                    'ue_anatomical_forward_yaw_deg': ue_yaw,
+                }
         actors.append(actor)
     result['visual_plan']['actors']=actors;by_id={a['actor_id']:a for a in actors}
     def camera(native):
@@ -176,6 +214,15 @@ def materialize_ue_episode_plan(plan, registry):
             actor=by_id[state['actor_id']];transform=state['root_transform'];q=transform['rotation_xyzw'];yaw=-math.degrees(2*math.atan2(q[1],q[3]))
             state.update(translation_m=deepcopy(transform['translation_m']),translation_ue_cm=habitat_to_ue_cm(transform['translation_m']),
                          rotation_xyzw=deepcopy(q),actor_yaw_ue_deg=yaw)
+            correction = actor.get('ue_neutral_visual_frame_correction')
+            if isinstance(correction, dict):
+                timeline_yaw = float(correction.get('timeline_forward_yaw_deg', 0.0))
+                expected_yaw = math.radians(yaw + timeline_yaw)
+                state['anatomical_forward_ue_world'] = [
+                    math.cos(expected_yaw),
+                    math.sin(expected_yaw),
+                    0.0,
+                ]
             if actor.get('animation_paths_by_action_id'):state['ue_animation']=actor['animation_paths_by_action_id'][state['action_id']]
     result.setdefault('visual_lighting',{})
     if result['resources'].get('review_lights'):

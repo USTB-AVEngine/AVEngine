@@ -59,6 +59,24 @@ Plan-only 矩阵：tmp/p5_sampler_20260906_v1/matrix_50/{measurement_config.json
 - routes:sampled_path_left_existing_navigation: 6
 - sounds:clip_budget_or_transcript_candidates_exhausted: 1
 
+### P11真实反馈后的body LOS修正
+
+Native Apartment sampled v1中beagle240帧fully_occluded；同一原始静态mesh复算
+显示registered emitter射线clear，但既有body proxy和实际body中心都blocked。
+clear画像现在同时检查emitter与body proxy，仍仅新conditioned策略生效，仍在
+全部合法候选内均匀抽样；pixel_observability继续not_run，不把几何代理当像素认证。
+诊断：tmp/matrix_native_apartment_beagle_speaker_sampled_20260907_v1/los_*diagnostic.json。
+
+同seed202609071401重规划输出sampled_20260907_v2，attempt6、7个合法机位；
+原失败机位不再进入该结果的候选池。最终与P11骨骼emitter执行器完成native
+240帧/16秒、P6/P9收口（13 valid/11 deferred）；实际局部桌沿遮挡如实保留。
+
+受影响sampler/P2测试21 passed，后续完整P11整合集合见P11报告。相同种子/
+输入/一轮路线尝试口径的2400次矩阵已重跑：
+ tmp/p5_sampler_20260906_v1/matrix_50_body_los_v2/summary.json，188.72秒，
+34/2400成功，各格计数和失败直方图与原matrix_50一致；这是plan-only单次尝试
+产出率，仍不是默认200次预算的生产成功率或原生可答性。
+
 ## 4. 未完成与边界
 
 四类可行空间和两种计划执行器已接通；上述验收完成。矩阵中的零格保留 evidence_missing_or_unsampled，未缩角距或补容易样本。计划只含 condition_profile 与 planned_conditions；achieved_conditions 留给 native readback 后重算。P9最终收口、P11 UE混合资产、P10批级覆盖以及46段仍有独立要求，本项不声称其完成。P7候选池已机器重测，真实人工试听仍缺失。

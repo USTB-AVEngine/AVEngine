@@ -10,7 +10,7 @@
     "AVENGINE_MP3D_ACOUSTIC_ROOT": "/data/avengine_external/review/m3_current_mp3d_semantic_20260820T1630Z",
     "AVENGINE_MP3D_ROOT": "/data/avengine_external/datasets/mp3d_example_scene_1.1",
     "AVENGINE_MULTI_HOME_ROOT": "/data/datasets/avengine_workspaces/multi_home_activity_20260905",
-    "AVENGINE_MULTI_HOME_UE_ROOT": "/data/avengine_external/workspaces/multi_home_activity_20260905/ue_stage",
+    "AVENGINE_MULTI_HOME_UE_ROOT": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_full_asset_ue_stage_20260907_v1",
     "AVENGINE_NATIVE_APARTMENT_ROUTE_ROOT": "/data/avengine_external/review/apartment_route_bank_20260825T0700Z",
     "AVENGINE_P3_ROOM_PACKAGE_ROOT": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root",
     "AVENGINE_QA_V3_ROOT": "/data/jzy/tmp",
