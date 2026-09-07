@@ -6,7 +6,7 @@
 - `tools/assets/prepare_speech_audio.py`: P7-only entry point.
 - `tests/unit/test_assets_sound_prepare.py`: 9 focused P7 tests; the original 6 tests remain.
 - `docs/roadmap/codex_reports_20260906/P7_prepared_audio.md`: this report.
-- Implementation baseline: `ca70486`; this report is committed with P7 implementation. Resolve its commit with `git log -1 --format=%H -- docs/roadmap/codex_reports_20260906/P7_prepared_audio.md`. The machine preparation is complete; required human listening remains pending.
+- Implementation baseline: `ca70486`; this report is committed with P7 implementation. Resolve its commit with `git log -1 --format=%H -- docs/roadmap/codex_reports_20260906/P7_prepared_audio.md`. Machine preparation is complete. On 2026-09-07 owner explicitly accepted the current processing result; P7 is accepted under that decision (see section 6).
 
 2. 跑了哪些测试，各自的通过、失败、跳过计数；有失败就贴错误原文。
 
@@ -30,6 +30,8 @@
 
 4. 没做完的部分和原因，分清是题义不适用、接口未实现还是证据缺失。
 
+The evidence gaps below remain factual; owner accepted the current P7 processing on 2026-09-07, so ten individual listening records no longer block this task's P7 acceptance.
+
 - Evidence missing / unsampled: the ten required human listening records remain `pending_human`; reviewer, heard, consonant preservation, and notes are null.
 - Evidence missing / calibration pending: non-speech thresholds remain explicit placeholders. Animal profiles use full-band energy with a 0.5 s placeholder minimum; device continuous profiles use full-band energy relative to a placeholder noise floor and require source activity to cover the query window; short prompts are repeatable and counted per event.
 - Encoding failures: 11 detector candidates are retained with explicit full-scale overflow reasons; no clipped or normalized substitute is used.
@@ -50,7 +52,8 @@
 6. 任何与总前提冲突、需要 owner 拍板的地方，单独列出，不要自行决定。
 
 - The default `vctk_only=True` reproduces the measured 600-row VCTK candidate scope. All 13 non-VCTK rows remain explicitly recorded; `--include-non-vctk` is a normal configuration option, not a new approval requirement. Unknown metadata is never invented or paired as known gender.
-- No other owner decision was taken. Normalization is disabled for this derived speech-band set so the operation records filtering/cropping without adding an unrequested gain stage.
+- Owner 2026-09-07 explicitly decided: “这个处理应该是没有问题的，可以直接通过了”. After providing all ten original/prepared pairs and an inline pair, the current processing result is accepted. This satisfies P7 acceptance for the task without inventing ten per-clip listening results. Record: tmp/p7_prepared_audio_v3/owner_acceptance_20260907T020953Z.json. The decision does not claim full-library human calibration or formal dataset admission.
+- Normalization remains disabled; output records filtering/cropping without an additional gain stage.
 
 
 Parent integration review:
@@ -58,8 +61,8 @@ Parent integration review:
 - Corrected a substantive first-version issue: the 300--3400 Hz bandpass now measures activity only. Delivered PCM receives the requested 80 Hz highpass and crop; high-frequency consonant content is retained. `filter_parameters` records output filtering; `activity_filter_parameters` records the detector band. Derived IDs change with this operation.
 - Rebuilt all candidates without changing source PCM in fresh `tmp/p7_prepared_audio_v3` and directly read all 296 final WAVs, checking mono/16 kHz/sample count, <=5 s, finite values, metadata and output-filter scope. See `tmp/p7_prepared_audio_v3/parent_readback_check.json`. No original or v1 data was overwritten.
 - The new entry point requires explicit registry/source/output/nonverbal paths; no private-server input path is hard-coded as an execution default. Reproduce with `tools/assets/prepare_speech_audio.py --registry /data/avengine_external/assets/sound_event_library_v1_20260903/sound_asset_registry_v1.json --source-library-root /data/avengine_external/assets/sound_library_v1 --output-root <fresh-output> --nonverbal-csv /data/datasets/omniaudio/tse_data/single_label_output.csv --prepared-set-id <new-set-id>`.
-- No human or model listening record has been signed. P7 must not be marked fully accepted until its required ten real human records are available. Other implementation tasks continue.
+- Individual human/model listening records remain unsigned. The later explicit owner acceptance in section 6 supersedes the earlier requirement to await ten individual records for P7 task completion.
 
 Final encoding correction: the integer-PCM writer would clip 11 highpassed waveforms by up to a small positive dBFS margin. P7 now rejects these unrepresentable outputs before writing, with the actual peak in each reason; it applies no normalization or extra gain. See retained diagnostic `tmp/p7_prepared_audio_v2/full_scale_encoding_defect.json`. The final pool is 296, while the 307 detector-candidate denominator is retained. This is an explicit encoding failure, not a human acceptance decision or a claim that the source category is inapplicable.
 
-The parent asked owner who will complete the ten real listening records. The report remains machine-complete/human-evidence-pending; independent P8 implementation is proceeding.
+Current task status: P7 accepted by the explicit owner decision above; its 296 prepared PCM files and individual listening fields remain unchanged. Complete P10 next, then run the already authorized 46-Episode pilot. Five final-clip listening records and formal research/admission claims remain separate from this processing decision.

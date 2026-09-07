@@ -1341,3 +1341,10 @@ P11最终提交检查：tmp/p11_parent_full_related_tests_20260907_v2.log记录1
 0 failed、0 skipped（12.46s）；两项旧库存测试已随四动物登记更新，并保留无P12绑定
 不得静态回退的反例。P11/P12/P5后续修复与59资产登记、共同UE目标本次一并收口。
 下一项为任务书指定最后执行的P10；P7十条真实人工试听仍pending，46段未启动。
+
+
+2026-09-07 owner明确裁定P7：“这个处理应该是没有问题的，可以直接通过了”。
+已提供本机10条original/prepared试听包及第01条直接播放器。P7按owner接受当前处理结果
+通过；逐条heard/consonant字段未伪填，prepared v3字节不改。记录
+tmp/p7_prepared_audio_v3/owner_acceptance_20260907T020953Z.json。
+当前剩P10工程收口，之后继续既有授权的46段；这不是整库人工校准或正式准入声明。
