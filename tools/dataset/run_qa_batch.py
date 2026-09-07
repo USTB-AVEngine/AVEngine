@@ -928,22 +928,34 @@ class BatchExecutor:
         return summary
 
 
-def _build_jobs(manifest_path: Path, manifest: Mapping[str, Any], selected: Sequence[tuple[dict[str, Any], dict[str, Any]]], output_root: Path) -> list[Job]:
+def _build_jobs(manifest_path: Path, manifest: Mapping[str, Any], selected: Sequence[tuple[dict[str, Any], dict[str, Any]]], output_root: Path, *, attempt_name: str = "attempt_01", force_gpu: int | None = None) -> list[Job]:
     episodes_root = output_root / "episodes"
     jobs = []
+    if not isinstance(attempt_name, str) or not attempt_name or "/" in attempt_name or "\\" in attempt_name:
+        raise ValueError("attempt_name must be a single path component")
     for entry, request in selected:
         episode_id = _safe_episode_id(entry["episode_id"])
-        try:
-            gpu = _gpu_from_request(request)
-        except ResourceBlocked:
-            # Preserve the row so the executor records a diagnostic rather than
-            # silently dropping it.  A sentinel lets the worker fail closed.
-            runtime = request.get("runtime")
-            value = runtime.get("graphics_adapter") if isinstance(runtime, Mapping) else None
-            gpu = value if isinstance(value, int) and not isinstance(value, bool) and value >= 0 else -1
+        copied = deepcopy(request)
+        if force_gpu is not None:
+            if not isinstance(force_gpu, int) or isinstance(force_gpu, bool) or force_gpu < 0:
+                raise ValueError("force_gpu must be a nonnegative integer")
+            runtime = copied.get("runtime")
+            runtime = dict(runtime) if isinstance(runtime, Mapping) else {}
+            runtime["graphics_adapter"] = force_gpu
+            copied["runtime"] = runtime
+            gpu = force_gpu
+        else:
+            try:
+                gpu = _gpu_from_request(copied)
+            except ResourceBlocked:
+                # Preserve the row so the executor records a diagnostic rather than
+                # silently dropping it.  A sentinel lets the worker fail closed.
+                runtime = copied.get("runtime")
+                value = runtime.get("graphics_adapter") if isinstance(runtime, Mapping) else None
+                gpu = value if isinstance(value, int) and not isinstance(value, bool) and value >= 0 else -1
         episode_root = episodes_root / episode_id
-        attempt_root = episode_root / "attempt_01"
-        jobs.append(Job(episode_id=episode_id, entry=deepcopy(entry), request=deepcopy(request),
+        attempt_root = episode_root / attempt_name
+        jobs.append(Job(episode_id=episode_id, entry=deepcopy(entry), request=copied,
                         episode_root=episode_root, attempt_root=attempt_root,
                         episode_output_root=attempt_root / "episode",
                         request_path=episode_root / "request.json", gpu=gpu))
@@ -953,10 +965,13 @@ def _build_jobs(manifest_path: Path, manifest: Mapping[str, Any], selected: Sequ
 def execute_batch(manifest_path: Path, output_root: Path, *, max_parallel: int = DEFAULT_MAX_PARALLEL,
                   min_free_gpu_mb: int | None = DEFAULT_MIN_FREE_GPU_MB,
                   episode_ids: Sequence[str] | None = None,
-                  repository: Path = REPOSITORY) -> dict[str, Any]:
+                  repository: Path = REPOSITORY,
+                  attempt_name: str = "attempt_01",
+                  force_gpu: int | None = None) -> dict[str, Any]:
     manifest, selected = load_manifest(Path(manifest_path), episode_ids=episode_ids)
     output_root = Path(output_root).expanduser().resolve()
-    jobs = _build_jobs(Path(manifest_path).expanduser().resolve(), manifest, selected, output_root)
+    jobs = _build_jobs(Path(manifest_path).expanduser().resolve(), manifest, selected, output_root,
+                       attempt_name=attempt_name, force_gpu=force_gpu)
     return BatchExecutor(manifest_path=Path(manifest_path), manifest=manifest, jobs=jobs,
                          output_root=output_root, max_parallel=max_parallel,
                          min_free_gpu_mb=min_free_gpu_mb, repository=repository).execute()
@@ -970,10 +985,15 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--min-free-gpu-mb", type=int, default=DEFAULT_MIN_FREE_GPU_MB)
     parser.add_argument("--episode-id", action="append", default=None,
                         help="run a selected original manifest row; repeat for multiple IDs")
+    parser.add_argument("--attempt-name", default="attempt_01",
+                        help="attempt directory name under each episode; G-E reruns use attempt_02")
+    parser.add_argument("--force-gpu", type=int, default=None,
+                        help="override request.runtime.graphics_adapter for every selected row")
     args = parser.parse_args(argv)
     try:
         summary = execute_batch(args.manifest, args.output, max_parallel=args.max_parallel,
-                                min_free_gpu_mb=args.min_free_gpu_mb, episode_ids=args.episode_id)
+                                min_free_gpu_mb=args.min_free_gpu_mb, episode_ids=args.episode_id,
+                                attempt_name=args.attempt_name, force_gpu=args.force_gpu)
     except (ManifestError, FileExistsError, OSError, ValueError) as exc:
         print(f"FAIL: {exc}", file=sys.stderr)
         return 2
