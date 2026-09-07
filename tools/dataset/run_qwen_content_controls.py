@@ -17,7 +17,12 @@ import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
+
+REPOSITORY = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(REPOSITORY / "src"))
+
+from avengine.qa.evaluation_permutations import validate_public_document
 
 
 SYSTEM_PROMPT = (
@@ -38,6 +43,14 @@ FORBIDDEN_BLIND_FIELDS = {
     "fact_path",
     "source_question_id",
     "selection_bucket",
+    "profile",
+    "profile_id",
+    "condition_profile",
+    "gold_mapping",
+    "gold_original_index",
+    "gold_permuted_index",
+    "permuted_to_original",
+    "original_to_permuted",
 }
 
 
@@ -60,6 +73,15 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--seed", type=int, default=20260808)
     parser.add_argument("--resume", action="store_true")
     parser.add_argument(
+        "--permutation-map",
+        type=Path,
+        help="Optional public pre-evaluation permutation document.",
+    )
+    parser.add_argument(
+        "--permutation-id",
+        help="Optional single permutation_id to consume from a permutation map.",
+    )
+    parser.add_argument(
         "--attn-implementation",
         choices=("flash_attention_2", "sdpa", "eager"),
         default="flash_attention_2",
@@ -80,11 +102,11 @@ def atomic_write_json(path: Path, value: dict[str, Any]) -> None:
 
 
 def build_question_text(question: dict[str, Any]) -> str:
-    labels = "ABCD"
+    labels = "ABCDEF"
     options = question["options"]
-    if not 2 <= len(options) <= 4:
+    if not 2 <= len(options) <= 6:
         raise RuntimeError(
-            f"{question['question_id']}: expected 2-4 options, got {len(options)}"
+            f"{question['question_id']}: expected 2-6 options, got {len(options)}"
         )
     lines = [f"Question: {question['question_en']}", "Options:"]
     lines.extend(f"{labels[index]}. {option}" for index, option in enumerate(options))
@@ -170,7 +192,7 @@ def normalize_text(value: str) -> str:
 
 def parse_answer(raw: str, options: list[str]) -> tuple[str, str | None, int | None]:
     text = raw.strip()
-    exact = re.fullmatch(r"\s*\(?([A-Da-d])\)?[.。:]?\s*", text)
+    exact = re.fullmatch(r"\s*\(?([A-Fa-f])\)?[.。:]?\s*", text)
     if exact:
         letter = exact.group(1).upper()
         index = ord(letter) - ord("A")
@@ -178,7 +200,7 @@ def parse_answer(raw: str, options: list[str]) -> tuple[str, str | None, int | N
             return "parsed_letter", letter, index
 
     explicit = re.findall(
-        r"(?:answer|choice|option|答案|选项)\s*(?:is|为|是|:)?\s*\(?([A-Da-d])\)?",
+        r"(?:answer|choice|option|答案|选项)\s*(?:is|为|是|:)?\s*\(?([A-Fa-f])\)?(?![A-Za-z])",
         text,
         flags=re.IGNORECASE,
     )
@@ -201,7 +223,7 @@ def parse_answer(raw: str, options: list[str]) -> tuple[str, str | None, int | N
 
     standalone = {
         value.upper()
-        for value in re.findall(r"(?<![A-Za-z])([A-Da-d])(?![A-Za-z])", text)
+        for value in re.findall(r"(?<![A-Za-z])([A-Fa-f])(?![A-Za-z])", text)
         if ord(value.upper()) - ord("A") < len(options)
     }
     if len(standalone) == 1:
@@ -232,8 +254,103 @@ def assert_answer_free(value: Any, location: str = "model_inputs") -> None:
             assert_answer_free(child, f"{location}[{index}]")
 
 
+def load_permutation_map(
+    path: Path,
+    *,
+    permutation_id: str | None = None,
+) -> dict[str, list[dict[str, Any]]]:
+    document = json.loads(path.read_text(encoding="utf-8"))
+    validate_public_document(document)
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    seen_permutation_ids: set[str] = set()
+    for item in document["items"]:
+        pid = str(item["permutation_id"])
+        if pid in seen_permutation_ids:
+            raise RuntimeError(f"duplicate permutation_id in public map: {pid}")
+        seen_permutation_ids.add(pid)
+        if permutation_id is not None and pid != permutation_id:
+            continue
+        question_id = str(item["question_id"])
+        grouped.setdefault(question_id, []).append(dict(item))
+    if permutation_id is not None and not any(grouped.values()):
+        raise RuntimeError(f"permutation_id not found in public map: {permutation_id}")
+    if not grouped:
+        raise RuntimeError(f"permutation map contains no selected items: {path}")
+    return grouped
+
+
+def apply_permutation_map(
+    questions: list[dict[str, Any]],
+    permutation_map: Mapping[str, list[dict[str, Any]]],
+) -> list[dict[str, Any]]:
+    expanded: list[dict[str, Any]] = []
+    for question in questions:
+        semantic_id = str(question.get("question_id") or question.get("sample_id") or "")
+        rows = permutation_map.get(semantic_id)
+        if rows is None:
+            # Some answer-free exports call the semantic identifier sample_id.
+            rows = permutation_map.get(str(question.get("sample_id") or ""))
+        if not rows:
+            raise RuntimeError(
+                f"permutation map has no row for semantic question_id {semantic_id!r}"
+            )
+        base_question_en = str(question.get("question_en") or "")
+        base_question_zh = question.get("question_zh")
+        base_options = question.get("options")
+        if not isinstance(base_options, list):
+            raise RuntimeError(f"base question {semantic_id!r} has no option list")
+        base_labels = [
+            str(option.get("label_en") or option.get("label") or option)
+            if isinstance(option, dict)
+            else str(option)
+            for option in base_options
+        ]
+        for row in rows:
+            if str(row["question_id"]) != semantic_id:
+                raise RuntimeError(
+                    f"permutation {row['permutation_id']} semantic question_id mismatch"
+                )
+            if str(row["question_en"]) != base_question_en:
+                raise RuntimeError(
+                    f"permutation {row['permutation_id']} replaces the base question text"
+                )
+            if base_question_zh is not None and row.get("question_zh") is not None:
+                if str(row["question_zh"]) != str(base_question_zh):
+                    raise RuntimeError(
+                        f"permutation {row['permutation_id']} replaces the base question_zh"
+                    )
+            labels = [str(option["label_en"]) for option in row["options"]]
+            if len(labels) != len(base_labels) or sorted(labels) != sorted(base_labels):
+                raise RuntimeError(
+                    f"permutation {row['permutation_id']} option multiset differs from base"
+                )
+            expected_prompt = build_question_text(
+                {"question_id": row["question_id"], "question_en": row["question_en"], "options": labels}
+            )
+            if expected_prompt != row["actual_model_prompt"]:
+                raise RuntimeError(
+                    f"permutation {row['permutation_id']} actual_model_prompt/options mismatch"
+                )
+            item = dict(question)
+            item["semantic_question_id"] = semantic_id
+            item["question_id"] = semantic_id
+            item["input_id"] = f"{question['input_id']}__{row['permutation_id']}"
+            item["permutation_id"] = row["permutation_id"]
+            item["question_en"] = row["question_en"]
+            item["question_zh"] = row.get("question_zh", row["question_en"])
+            item["options"] = labels
+            item["actual_model_prompt"] = row["actual_model_prompt"]
+            item["permutation_qa_id"] = row.get("qa_id")
+            expanded.append(item)
+    return expanded
+
+
 def model_questions(
-    document: dict[str, Any], inputs_path: Path, setting: str
+    document: dict[str, Any],
+    inputs_path: Path,
+    setting: str,
+    *,
+    permutation_map: Mapping[str, list[dict[str, Any]]] | None = None,
 ) -> list[dict[str, Any]]:
     assert_answer_free(document)
     schema = document.get("schema")
@@ -244,7 +361,7 @@ def model_questions(
             normalized["input_id"] = f"{item['question_id']}__{setting}"
             normalized["sample_id"] = item["question_id"]
             questions.append(normalized)
-        return questions
+        return apply_permutation_map(questions, permutation_map) if permutation_map else questions
     if schema != "avengine_pilot_model_inputs_v1":
         raise RuntimeError(f"unsupported model-input schema: {schema}")
 
@@ -282,8 +399,8 @@ def model_questions(
         if not media_path.is_file() or media_path.stat().st_size <= 0:
             raise RuntimeError(f"item {item_number}: missing or empty media")
         options = item.get("options")
-        if not isinstance(options, list) or not 2 <= len(options) <= 4:
-            raise RuntimeError(f"item {item_number}: expected 2-4 options")
+        if not isinstance(options, list) or not 2 <= len(options) <= 6:
+            raise RuntimeError(f"item {item_number}: expected 2-6 options")
         labels = []
         for option_index, option in enumerate(options):
             expected_letter = chr(ord("A") + option_index)
@@ -332,7 +449,7 @@ def model_questions(
                 "media": media,
             }
         )
-    return questions
+    return apply_permutation_map(questions, permutation_map) if permutation_map else questions
 
 
 
@@ -470,7 +587,33 @@ def load_completed(path: Path) -> set[str]:
                 raise RuntimeError(
                     f"invalid JSONL at {path}:{line_number}: {exc}"
                 ) from exc
-            completed.add(record["question_id"])
+            if record.get("permutation_id") and not record.get("input_id"):
+                # An old permutation row without its unique input_id cannot be
+                # safely resumed as a semantic question.
+                continue
+            completed.add(str(record.get("input_id") or record["question_id"]))
+    return completed
+
+
+def load_legacy_unpermuted_question_ids(path: Path) -> set[str]:
+    """Return only legacy rows that lack input_id and are unpermuted."""
+    completed: set[str] = set()
+    if not path.exists():
+        return completed
+    with path.open(encoding="utf-8") as handle:
+        for line_number, line in enumerate(handle, start=1):
+            if not line.strip():
+                continue
+            try:
+                record = json.loads(line)
+            except json.JSONDecodeError as exc:
+                raise RuntimeError(
+                    f"invalid JSONL at {path}:{line_number}: {exc}"
+                ) from exc
+            if record.get("permutation_id") or record.get("input_id"):
+                continue
+            if record.get("question_id"):
+                completed.add(str(record["question_id"]))
     return completed
 
 
@@ -480,7 +623,17 @@ def main() -> int:
         raise RuntimeError("--start-index must be nonnegative and --limit must be positive")
 
     document = json.loads(args.inputs.read_text(encoding="utf-8"))
-    questions = model_questions(document, args.inputs.resolve(), args.setting)[
+    permutation_map = (
+        load_permutation_map(args.permutation_map, permutation_id=args.permutation_id)
+        if args.permutation_map
+        else None
+    )
+    questions = model_questions(
+        document,
+        args.inputs.resolve(),
+        args.setting,
+        permutation_map=permutation_map,
+    )[
         args.start_index :
     ]
     if args.limit is not None:
@@ -492,7 +645,17 @@ def main() -> int:
     if args.output.exists() and not args.resume:
         raise RuntimeError(f"output exists; pass --resume to continue: {args.output}")
     completed = load_completed(args.output) if args.resume else set()
-    pending = [q for q in questions if q["question_id"] not in completed]
+    legacy_completed = (
+        load_legacy_unpermuted_question_ids(args.output)
+        if args.resume and permutation_map is None
+        else set()
+    )
+    pending = [
+        q
+        for q in questions
+        if q["input_id"] not in completed
+        and q["question_id"] not in legacy_completed
+    ]
     dual_cache: dict[tuple[int, int], dict[str, Any]] = {}
     if args.setting == "dual_mono":
         dual_media_root = args.output.parent / "dual_mono_media"
@@ -538,7 +701,9 @@ def main() -> int:
         "inputs_path": str(args.inputs),
         "predictions_path": str(args.output),
         "selected_question_count": len(questions),
-        "already_completed_count": len(completed & {q['question_id'] for q in questions}),
+        "already_completed_count": len(
+            completed & {q["input_id"] for q in questions}
+        ) + len(legacy_completed & {q["question_id"] for q in questions}),
         "pending_at_start_count": len(pending),
         "seed": args.seed,
         "fps": args.fps,
@@ -550,6 +715,9 @@ def main() -> int:
         "cuda_visible_devices": os.environ.get("CUDA_VISIBLE_DEVICES"),
         "video_reader": os.environ.get("FORCE_QWENVL_VIDEO_READER"),
         "dual_mono_research_adapter": args.setting == "dual_mono",
+        "permutation_map": str(args.permutation_map.resolve()) if args.permutation_map else None,
+        "permutation_id_filter": args.permutation_id,
+        "permuted_question_count": len(questions) if permutation_map else 0,
         "spatial_conclusion_allowed": False,
         "started_at": started_at,
     }
@@ -593,6 +761,16 @@ def main() -> int:
                 "run_status": "preliminary_unreviewed",
                 "attempt_count": 0,
             }
+            if "permutation_id" in question:
+                record.update(
+                    {
+                        "semantic_question_id": question["semantic_question_id"],
+                        "permutation_id": question["permutation_id"],
+                        "permutation_qa_id": question.get("permutation_qa_id"),
+                        "actual_model_prompt": question["actual_model_prompt"],
+                        "model_options": list(question["options"]),
+                    }
+                )
             if args.setting == "dual_mono":
                 record["dual_mono_source"] = question.get("_dual_mono_info")
                 record["dual_mono_video_path"] = question["media"]["video_only"]
@@ -604,6 +782,10 @@ def main() -> int:
                     prompt = processor.apply_chat_template(
                         conversation, add_generation_prompt=True, tokenize=False
                     )
+                    if "permutation_id" in question:
+                        record["rendered_model_prompt"] = (
+                            prompt if isinstance(prompt, str) else str(prompt)
+                        )
                     audios, images, videos = process_mm_info(
                         conversation, use_audio_in_video=use_audio_in_video
                     )
@@ -697,7 +879,7 @@ def main() -> int:
             )
 
     final_records = load_completed(args.output)
-    selected_ids = {question["question_id"] for question in questions}
+    selected_ids = {question["input_id"] for question in questions}
     meta.update(
         {
             "run_status": "preliminary_unreviewed_complete",

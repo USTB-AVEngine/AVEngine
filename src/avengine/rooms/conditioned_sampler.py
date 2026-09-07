@@ -182,9 +182,22 @@ def select_sounds(actors, sounds, profile, clock, request, rng):
     max_samples = int(round(float(config.get('max_clip_s', 5.)) * sr))
     deadline = int(clock['sample_count']) - int(round(profile['reserve_tail_s'] * sr))
     speakers = profile['speaking_indices']; order = list(speakers); rng.shuffle(order)
+    preallocated = config.get('preallocated_sound_asset_ids_by_actor')
+    if preallocated is not None:
+        if not isinstance(preallocated, Mapping):
+            raise ValueError('preallocated sounds must be an actor-to-sound-ID mapping')
+        actor_ids = {actor['actor_id'] for actor in actors}
+        if set(preallocated) - actor_ids:
+            raise ValueError('preallocated sounds contain an unknown actor')
+        for i in speakers:
+            allowed = preallocated.get(actors[i]['actor_id'])
+            if not isinstance(allowed, list) or any(not isinstance(value, str) or not value for value in allowed):
+                raise ValueError('preallocated sounds must explicitly cover every speaking actor')
     pools = {}
     for i in speakers:
-        pool = [s for s in sounds if sound_matches(actors[i], s) and 0 < int(s['sample_count']) <= max_samples
+        allowed = None if preallocated is None else preallocated[actors[i]['actor_id']]
+        pool = [s for s in sounds if (allowed is None or s.get('sound_asset_id') in allowed)
+                and sound_matches(actors[i], s) and 0 < int(s['sample_count']) <= max_samples
                 and int(s.get('sample_rate_hz', sr)) == sr
                 and (s.get('sound_class') not in {'speech','speech_playback'} or float(s.get('active_duration_s', 0)) >= float(config.get('min_audible_s', 1.5)))]
         if not pool:

@@ -1,0 +1,2302 @@
+{
+  "batch_id": "qa_pilot46_20260907",
+  "seed": 202609071500,
+  "base_request": {
+    "schema": "avengine_native_qa_room_request_v1",
+    "frame_count": 240,
+    "frame_rate_hz": 15,
+    "sample_rate_hz": 16000,
+    "allow_research_candidate_assets": true,
+    "rir_stride": 5,
+    "diffraction": false,
+    "max_diffraction_order": 0,
+    "room_catalog": "/data/jzy/tmp/wt-multi-home-activity-integration/examples/rooms/packages/catalog.json",
+    "source_registry": "/data/jzy/tmp/wt-multi-home-activity-integration/examples/runtime/source_asset_runtime_profiles.json",
+    "runtime": {
+      "uproject": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_full_asset_ue_stage_20260907_v1/SpearSim/SpearSim.uproject",
+      "unreal_editor": "/data/UE_5.5/Engine/Binaries/Linux/UnrealEditor",
+      "spear_ext_dir": "/data/avengine_external/spear-host-sdk/avengine-spear-ext-cp312-8a36d4d-20260821T0030Z",
+      "graphics_adapter": 3,
+      "rpc_port": 39451,
+      "streaming_warmup_frames": 180,
+      "ddc_profile": "InstalledNoZenLocalFallback",
+      "ddc_directory": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_real_rooms_20260906_ddc",
+      "runtime_prefix": "/data/avengine_external/runtime-prefixes/avengine-habitat-object-id-732f264-20260824T1041Z",
+      "rlr_sdk_root": "/data/avengine_external/rlr-sdk/RLRAudioPropagationPkg",
+      "magnum_python_site": "/data/avengine_external/runtime-prefixes/magnum-python-cp312-45811bb-20260820T1845Z/lib/python3.12/site-packages",
+      "hrtf": "/data/avengine_external/rlr-sdk/hrtf/mit_kemar_normal_pinna_16k_v2_sofar_20260820T2200Z/mit_kemar_normal_pinna_16k.sofa",
+      "mp3d_root": "/data/datasets/habitat_data"
+    },
+    "camera": {
+      "motion": "static",
+      "fov_deg": 85,
+      "height_above_floor_m": 1.55,
+      "resolution_hw": [
+        720,
+        1280
+      ]
+    },
+    "sound_selection": {
+      "max_clip_s": 5.0,
+      "min_audible_s": 1.5,
+      "unique_first_utterance_transcripts": true
+    },
+    "sampling_policy": "conditioned_static_v2",
+    "qa_sampling": {
+      "items_per_type": 1,
+      "candidate_policy": "uniform_over_legal",
+      "query_time_policy": "uniform_in_legal_window"
+    }
+  },
+  "sound_sources": {
+    "prepared_speech_manifest": "/data/jzy/tmp/wt-multi-home-activity-integration/tmp/p7_prepared_audio_v3/prepared_manifest.json",
+    "sound_event_registry": "/data/avengine_external/assets/sound_event_library_v1_20260903/sound_asset_registry_v1.json",
+    "sound_event_manifest": "/data/avengine_external/assets/sound_event_library_v1_20260903/event_manifest.json",
+    "max_clip_s": 5,
+    "minimum_animal_activity_s": 0.5,
+    "species_sound_classes": {
+      "dog": [
+        "dog_bark"
+      ],
+      "cat": [
+        "cat_meow"
+      ]
+    },
+    "object_sound_classes": {
+      "air_conditioner": [
+        "air_conditioning"
+      ],
+      "alarm_clock": [
+        "alarm_clock",
+        "alarm_beep",
+        "alarm_bell",
+        "clock_tick"
+      ],
+      "bathtub": [
+        "bathtub_filling_washing"
+      ],
+      "blender": [
+        "blender"
+      ],
+      "cellphone": [
+        "cellphone_vibration_alert",
+        "ringtone",
+        "phone_ring"
+      ],
+      "desk_telephone": [
+        "telephone_bell_ringing",
+        "telephone_dialing_dtmf",
+        "busy_signal",
+        "phone_ring"
+      ],
+      "landline_phone": [
+        "telephone_bell_ringing",
+        "telephone_dialing_dtmf",
+        "busy_signal",
+        "phone_ring"
+      ],
+      "doorbell_chime_unit": [
+        "doorbell",
+        "doorbell_chime",
+        "ding_dong",
+        "chime"
+      ],
+      "fireplace": [
+        "fire",
+        "crackle"
+      ],
+      "floor_drain": [
+        "drip",
+        "gurgling"
+      ],
+      "microwave_oven": [
+        "microwave_beep",
+        "microwave_hum"
+      ],
+      "printer": [
+        "printer"
+      ],
+      "sink_with_tap": [
+        "sink_filling_washing",
+        "water_tap_faucet"
+      ],
+      "smoke_detector": [
+        "smoke_alarm",
+        "fire_alarm"
+      ],
+      "toilet": [
+        "toilet_flush"
+      ],
+      "bookshelf_speaker": [
+        "speech_playback",
+        "music_playback",
+        "any_audioset_class_playback"
+      ],
+      "floorstanding_speaker": [
+        "speech_playback",
+        "music_playback",
+        "any_audioset_class_playback"
+      ],
+      "smart_speaker": [
+        "speech_playback",
+        "music_playback",
+        "any_audioset_class_playback"
+      ],
+      "soundbar": [
+        "speech_playback",
+        "music_playback",
+        "any_audioset_class_playback"
+      ],
+      "television": [
+        "speech_playback",
+        "music_playback",
+        "any_audioset_class_playback"
+      ]
+    },
+    "speech_playback_categories": [
+      "audio_playback"
+    ]
+  },
+  "slots": [
+    {
+      "episode_id": "qa_pilot46_20260907_apartment_human_human",
+      "room_id": "legacy_ue_apartment_0000_v1",
+      "source_classes": [
+        "articulated_human",
+        "articulated_human"
+      ],
+      "condition_group": "identity_binding",
+      "silent_count": 0,
+      "profile": {
+        "separation_floor_deg": 15,
+        "anchor_visibility": "in_fov",
+        "anchor_line_of_sight": "clear",
+        "competitor_set": "all_other_entities_including_offscreen",
+        "separation_window": "whole_audible_window_of_anchor",
+        "min_gap_between_audible_windows_s": 0.5,
+        "reserve_tail_s": 3.0,
+        "minimum_overlap_s": 0.3,
+        "retry_budget_within_profile": 200,
+        "anchor_count": 1,
+        "separation_bin_deg": [
+          30,
+          60
+        ],
+        "speech_motion": "all_still",
+        "event_relation": "sequential"
+      },
+      "request_overrides": {
+        "runtime": {
+          "uproject": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_full_asset_ue_stage_20260907_v1/SpearSim/SpearSim.uproject",
+          "unreal_editor": "/data/UE_5.5/Engine/Binaries/Linux/UnrealEditor",
+          "spear_ext_dir": "/data/avengine_external/spear-host-sdk/avengine-spear-ext-cp312-8a36d4d-20260821T0030Z",
+          "graphics_adapter": 0,
+          "rpc_port": 39600,
+          "streaming_warmup_frames": 180,
+          "ddc_profile": "InstalledNoZenLocalFallback",
+          "ddc_directory": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_real_rooms_20260906_ddc",
+          "runtime_prefix": "/data/avengine_external/runtime-prefixes/avengine-habitat-object-id-732f264-20260824T1041Z",
+          "rlr_sdk_root": "/data/avengine_external/rlr-sdk/RLRAudioPropagationPkg",
+          "magnum_python_site": "/data/avengine_external/runtime-prefixes/magnum-python-cp312-45811bb-20260820T1845Z/lib/python3.12/site-packages",
+          "hrtf": "/data/avengine_external/rlr-sdk/hrtf/mit_kemar_normal_pinna_16k_v2_sofar_20260820T2200Z/mit_kemar_normal_pinna_16k.sofa",
+          "mp3d_root": "/data/datasets/habitat_data"
+        }
+      }
+    },
+    {
+      "episode_id": "qa_pilot46_20260907_apartment_human_animal",
+      "room_id": "legacy_ue_apartment_0000_v1",
+      "source_classes": [
+        "articulated_human",
+        "articulated_animal"
+      ],
+      "condition_group": "audio_event_relations",
+      "silent_count": 0,
+      "profile": {
+        "separation_floor_deg": 15,
+        "anchor_visibility": "in_fov",
+        "anchor_line_of_sight": "clear",
+        "competitor_set": "all_other_entities_including_offscreen",
+        "separation_window": "whole_audible_window_of_anchor",
+        "min_gap_between_audible_windows_s": 0.5,
+        "reserve_tail_s": 3.0,
+        "minimum_overlap_s": 0.3,
+        "retry_budget_within_profile": 200,
+        "anchor_count": 2,
+        "separation_bin_deg": [
+          30,
+          60
+        ],
+        "speech_motion": "all_still",
+        "event_relation": "overlap"
+      },
+      "request_overrides": {
+        "runtime": {
+          "uproject": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_full_asset_ue_stage_20260907_v1/SpearSim/SpearSim.uproject",
+          "unreal_editor": "/data/UE_5.5/Engine/Binaries/Linux/UnrealEditor",
+          "spear_ext_dir": "/data/avengine_external/spear-host-sdk/avengine-spear-ext-cp312-8a36d4d-20260821T0030Z",
+          "graphics_adapter": 1,
+          "rpc_port": 39601,
+          "streaming_warmup_frames": 180,
+          "ddc_profile": "InstalledNoZenLocalFallback",
+          "ddc_directory": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_real_rooms_20260906_ddc",
+          "runtime_prefix": "/data/avengine_external/runtime-prefixes/avengine-habitat-object-id-732f264-20260824T1041Z",
+          "rlr_sdk_root": "/data/avengine_external/rlr-sdk/RLRAudioPropagationPkg",
+          "magnum_python_site": "/data/avengine_external/runtime-prefixes/magnum-python-cp312-45811bb-20260820T1845Z/lib/python3.12/site-packages",
+          "hrtf": "/data/avengine_external/rlr-sdk/hrtf/mit_kemar_normal_pinna_16k_v2_sofar_20260820T2200Z/mit_kemar_normal_pinna_16k.sofa",
+          "mp3d_root": "/data/datasets/habitat_data"
+        }
+      }
+    },
+    {
+      "episode_id": "qa_pilot46_20260907_apartment_human_device",
+      "room_id": "legacy_ue_apartment_0000_v1",
+      "source_classes": [
+        "articulated_human",
+        "rigid_static_object"
+      ],
+      "condition_group": "visibility_occlusion",
+      "silent_count": 0,
+      "profile": {
+        "separation_floor_deg": 15,
+        "anchor_visibility": "in_fov",
+        "anchor_line_of_sight": "occluded",
+        "competitor_set": "all_other_entities_including_offscreen",
+        "separation_window": "whole_audible_window_of_anchor",
+        "min_gap_between_audible_windows_s": 0.5,
+        "reserve_tail_s": 3.0,
+        "minimum_overlap_s": 0.3,
+        "retry_budget_within_profile": 200,
+        "anchor_count": 1,
+        "separation_bin_deg": [
+          15,
+          30
+        ],
+        "speech_motion": "all_still",
+        "event_relation": "sequential"
+      },
+      "request_overrides": {
+        "runtime": {
+          "uproject": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_full_asset_ue_stage_20260907_v1/SpearSim/SpearSim.uproject",
+          "unreal_editor": "/data/UE_5.5/Engine/Binaries/Linux/UnrealEditor",
+          "spear_ext_dir": "/data/avengine_external/spear-host-sdk/avengine-spear-ext-cp312-8a36d4d-20260821T0030Z",
+          "graphics_adapter": 2,
+          "rpc_port": 39602,
+          "streaming_warmup_frames": 180,
+          "ddc_profile": "InstalledNoZenLocalFallback",
+          "ddc_directory": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_real_rooms_20260906_ddc",
+          "runtime_prefix": "/data/avengine_external/runtime-prefixes/avengine-habitat-object-id-732f264-20260824T1041Z",
+          "rlr_sdk_root": "/data/avengine_external/rlr-sdk/RLRAudioPropagationPkg",
+          "magnum_python_site": "/data/avengine_external/runtime-prefixes/magnum-python-cp312-45811bb-20260820T1845Z/lib/python3.12/site-packages",
+          "hrtf": "/data/avengine_external/rlr-sdk/hrtf/mit_kemar_normal_pinna_16k_v2_sofar_20260820T2200Z/mit_kemar_normal_pinna_16k.sofa",
+          "mp3d_root": "/data/datasets/habitat_data"
+        }
+      }
+    },
+    {
+      "episode_id": "qa_pilot46_20260907_apartment_animal_animal",
+      "room_id": "legacy_ue_apartment_0000_v1",
+      "source_classes": [
+        "articulated_animal",
+        "articulated_animal"
+      ],
+      "condition_group": "motion_distance",
+      "silent_count": 0,
+      "profile": {
+        "separation_floor_deg": 15,
+        "anchor_visibility": "in_fov",
+        "anchor_line_of_sight": "clear",
+        "competitor_set": "all_other_entities_including_offscreen",
+        "separation_window": "whole_audible_window_of_anchor",
+        "min_gap_between_audible_windows_s": 0.5,
+        "reserve_tail_s": 3.0,
+        "minimum_overlap_s": 0.3,
+        "retry_budget_within_profile": 200,
+        "anchor_count": 1,
+        "separation_bin_deg": [
+          30,
+          60
+        ],
+        "speech_motion": "speaker_moving",
+        "event_relation": "sequential"
+      },
+      "request_overrides": {
+        "runtime": {
+          "uproject": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_full_asset_ue_stage_20260907_v1/SpearSim/SpearSim.uproject",
+          "unreal_editor": "/data/UE_5.5/Engine/Binaries/Linux/UnrealEditor",
+          "spear_ext_dir": "/data/avengine_external/spear-host-sdk/avengine-spear-ext-cp312-8a36d4d-20260821T0030Z",
+          "graphics_adapter": 3,
+          "rpc_port": 39603,
+          "streaming_warmup_frames": 180,
+          "ddc_profile": "InstalledNoZenLocalFallback",
+          "ddc_directory": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_real_rooms_20260906_ddc",
+          "runtime_prefix": "/data/avengine_external/runtime-prefixes/avengine-habitat-object-id-732f264-20260824T1041Z",
+          "rlr_sdk_root": "/data/avengine_external/rlr-sdk/RLRAudioPropagationPkg",
+          "magnum_python_site": "/data/avengine_external/runtime-prefixes/magnum-python-cp312-45811bb-20260820T1845Z/lib/python3.12/site-packages",
+          "hrtf": "/data/avengine_external/rlr-sdk/hrtf/mit_kemar_normal_pinna_16k_v2_sofar_20260820T2200Z/mit_kemar_normal_pinna_16k.sofa",
+          "mp3d_root": "/data/datasets/habitat_data"
+        }
+      }
+    },
+    {
+      "episode_id": "qa_pilot46_20260907_apartment_animal_device",
+      "room_id": "legacy_ue_apartment_0000_v1",
+      "source_classes": [
+        "articulated_animal",
+        "rigid_static_object"
+      ],
+      "condition_group": "post_sound_state",
+      "silent_count": 0,
+      "profile": {
+        "separation_floor_deg": 15,
+        "anchor_visibility": "in_fov",
+        "anchor_line_of_sight": "clear",
+        "competitor_set": "all_other_entities_including_offscreen",
+        "separation_window": "whole_audible_window_of_anchor",
+        "min_gap_between_audible_windows_s": 0.5,
+        "reserve_tail_s": 3.0,
+        "minimum_overlap_s": 0.3,
+        "retry_budget_within_profile": 200,
+        "anchor_count": 1,
+        "separation_bin_deg": [
+          60,
+          90
+        ],
+        "speech_motion": "all_still",
+        "event_relation": "sequential"
+      },
+      "request_overrides": {
+        "runtime": {
+          "uproject": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_full_asset_ue_stage_20260907_v1/SpearSim/SpearSim.uproject",
+          "unreal_editor": "/data/UE_5.5/Engine/Binaries/Linux/UnrealEditor",
+          "spear_ext_dir": "/data/avengine_external/spear-host-sdk/avengine-spear-ext-cp312-8a36d4d-20260821T0030Z",
+          "graphics_adapter": 0,
+          "rpc_port": 39604,
+          "streaming_warmup_frames": 180,
+          "ddc_profile": "InstalledNoZenLocalFallback",
+          "ddc_directory": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_real_rooms_20260906_ddc",
+          "runtime_prefix": "/data/avengine_external/runtime-prefixes/avengine-habitat-object-id-732f264-20260824T1041Z",
+          "rlr_sdk_root": "/data/avengine_external/rlr-sdk/RLRAudioPropagationPkg",
+          "magnum_python_site": "/data/avengine_external/runtime-prefixes/magnum-python-cp312-45811bb-20260820T1845Z/lib/python3.12/site-packages",
+          "hrtf": "/data/avengine_external/rlr-sdk/hrtf/mit_kemar_normal_pinna_16k_v2_sofar_20260820T2200Z/mit_kemar_normal_pinna_16k.sofa",
+          "mp3d_root": "/data/datasets/habitat_data"
+        }
+      }
+    },
+    {
+      "episode_id": "qa_pilot46_20260907_apartment_device_device",
+      "room_id": "legacy_ue_apartment_0000_v1",
+      "source_classes": [
+        "rigid_static_object",
+        "rigid_static_object"
+      ],
+      "condition_group": "identity_binding",
+      "silent_count": 0,
+      "profile": {
+        "separation_floor_deg": 15,
+        "anchor_visibility": "in_fov",
+        "anchor_line_of_sight": "clear",
+        "competitor_set": "all_other_entities_including_offscreen",
+        "separation_window": "whole_audible_window_of_anchor",
+        "min_gap_between_audible_windows_s": 0.5,
+        "reserve_tail_s": 3.0,
+        "minimum_overlap_s": 0.3,
+        "retry_budget_within_profile": 200,
+        "anchor_count": 1,
+        "separation_bin_deg": [
+          30,
+          60
+        ],
+        "speech_motion": "all_still",
+        "event_relation": "repeat"
+      },
+      "request_overrides": {
+        "runtime": {
+          "uproject": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_full_asset_ue_stage_20260907_v1/SpearSim/SpearSim.uproject",
+          "unreal_editor": "/data/UE_5.5/Engine/Binaries/Linux/UnrealEditor",
+          "spear_ext_dir": "/data/avengine_external/spear-host-sdk/avengine-spear-ext-cp312-8a36d4d-20260821T0030Z",
+          "graphics_adapter": 1,
+          "rpc_port": 39605,
+          "streaming_warmup_frames": 180,
+          "ddc_profile": "InstalledNoZenLocalFallback",
+          "ddc_directory": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_real_rooms_20260906_ddc",
+          "runtime_prefix": "/data/avengine_external/runtime-prefixes/avengine-habitat-object-id-732f264-20260824T1041Z",
+          "rlr_sdk_root": "/data/avengine_external/rlr-sdk/RLRAudioPropagationPkg",
+          "magnum_python_site": "/data/avengine_external/runtime-prefixes/magnum-python-cp312-45811bb-20260820T1845Z/lib/python3.12/site-packages",
+          "hrtf": "/data/avengine_external/rlr-sdk/hrtf/mit_kemar_normal_pinna_16k_v2_sofar_20260820T2200Z/mit_kemar_normal_pinna_16k.sofa",
+          "mp3d_root": "/data/datasets/habitat_data"
+        }
+      }
+    },
+    {
+      "episode_id": "qa_pilot46_20260907_apartment_single_active",
+      "room_id": "legacy_ue_apartment_0000_v1",
+      "source_classes": [
+        "articulated_human",
+        "articulated_human"
+      ],
+      "condition_group": "identity_binding",
+      "silent_count": 1,
+      "profile": {
+        "separation_floor_deg": 15,
+        "anchor_visibility": "in_fov",
+        "anchor_line_of_sight": "clear",
+        "competitor_set": "all_other_entities_including_offscreen",
+        "separation_window": "whole_audible_window_of_anchor",
+        "min_gap_between_audible_windows_s": 0.5,
+        "reserve_tail_s": 3.0,
+        "minimum_overlap_s": 0.3,
+        "retry_budget_within_profile": 200,
+        "anchor_count": 1,
+        "separation_bin_deg": [
+          30,
+          60
+        ],
+        "speech_motion": "all_still",
+        "event_relation": "sequential"
+      },
+      "request_overrides": {
+        "runtime": {
+          "uproject": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_full_asset_ue_stage_20260907_v1/SpearSim/SpearSim.uproject",
+          "unreal_editor": "/data/UE_5.5/Engine/Binaries/Linux/UnrealEditor",
+          "spear_ext_dir": "/data/avengine_external/spear-host-sdk/avengine-spear-ext-cp312-8a36d4d-20260821T0030Z",
+          "graphics_adapter": 2,
+          "rpc_port": 39606,
+          "streaming_warmup_frames": 180,
+          "ddc_profile": "InstalledNoZenLocalFallback",
+          "ddc_directory": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_real_rooms_20260906_ddc",
+          "runtime_prefix": "/data/avengine_external/runtime-prefixes/avengine-habitat-object-id-732f264-20260824T1041Z",
+          "rlr_sdk_root": "/data/avengine_external/rlr-sdk/RLRAudioPropagationPkg",
+          "magnum_python_site": "/data/avengine_external/runtime-prefixes/magnum-python-cp312-45811bb-20260820T1845Z/lib/python3.12/site-packages",
+          "hrtf": "/data/avengine_external/rlr-sdk/hrtf/mit_kemar_normal_pinna_16k_v2_sofar_20260820T2200Z/mit_kemar_normal_pinna_16k.sofa",
+          "mp3d_root": "/data/datasets/habitat_data"
+        }
+      }
+    },
+    {
+      "episode_id": "qa_pilot46_20260907_authored_a_human_human",
+      "room_id": "aea_loc3_social_rebuild_v1",
+      "source_classes": [
+        "articulated_human",
+        "articulated_human"
+      ],
+      "condition_group": "identity_binding",
+      "silent_count": 0,
+      "profile": {
+        "separation_floor_deg": 15,
+        "anchor_visibility": "in_fov",
+        "anchor_line_of_sight": "clear",
+        "competitor_set": "all_other_entities_including_offscreen",
+        "separation_window": "whole_audible_window_of_anchor",
+        "min_gap_between_audible_windows_s": 0.5,
+        "reserve_tail_s": 3.0,
+        "minimum_overlap_s": 0.3,
+        "retry_budget_within_profile": 200,
+        "anchor_count": 1,
+        "separation_bin_deg": [
+          30,
+          60
+        ],
+        "speech_motion": "all_still",
+        "event_relation": "sequential"
+      },
+      "request_overrides": {
+        "runtime": {
+          "uproject": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_full_asset_ue_stage_20260907_v1/SpearSim/SpearSim.uproject",
+          "unreal_editor": "/data/UE_5.5/Engine/Binaries/Linux/UnrealEditor",
+          "spear_ext_dir": "/data/avengine_external/spear-host-sdk/avengine-spear-ext-cp312-8a36d4d-20260821T0030Z",
+          "graphics_adapter": 3,
+          "rpc_port": 39607,
+          "streaming_warmup_frames": 180,
+          "ddc_profile": "InstalledNoZenLocalFallback",
+          "ddc_directory": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_real_rooms_20260906_ddc",
+          "runtime_prefix": "/data/avengine_external/runtime-prefixes/avengine-habitat-object-id-732f264-20260824T1041Z",
+          "rlr_sdk_root": "/data/avengine_external/rlr-sdk/RLRAudioPropagationPkg",
+          "magnum_python_site": "/data/avengine_external/runtime-prefixes/magnum-python-cp312-45811bb-20260820T1845Z/lib/python3.12/site-packages",
+          "hrtf": "/data/avengine_external/rlr-sdk/hrtf/mit_kemar_normal_pinna_16k_v2_sofar_20260820T2200Z/mit_kemar_normal_pinna_16k.sofa",
+          "mp3d_root": "/data/datasets/habitat_data"
+        }
+      }
+    },
+    {
+      "episode_id": "qa_pilot46_20260907_authored_a_human_animal",
+      "room_id": "aea_loc3_social_rebuild_v1",
+      "source_classes": [
+        "articulated_human",
+        "articulated_animal"
+      ],
+      "condition_group": "audio_event_relations",
+      "silent_count": 0,
+      "profile": {
+        "separation_floor_deg": 15,
+        "anchor_visibility": "in_fov",
+        "anchor_line_of_sight": "clear",
+        "competitor_set": "all_other_entities_including_offscreen",
+        "separation_window": "whole_audible_window_of_anchor",
+        "min_gap_between_audible_windows_s": 0.5,
+        "reserve_tail_s": 3.0,
+        "minimum_overlap_s": 0.3,
+        "retry_budget_within_profile": 200,
+        "anchor_count": 2,
+        "separation_bin_deg": [
+          30,
+          60
+        ],
+        "speech_motion": "all_still",
+        "event_relation": "overlap"
+      },
+      "request_overrides": {
+        "runtime": {
+          "uproject": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_full_asset_ue_stage_20260907_v1/SpearSim/SpearSim.uproject",
+          "unreal_editor": "/data/UE_5.5/Engine/Binaries/Linux/UnrealEditor",
+          "spear_ext_dir": "/data/avengine_external/spear-host-sdk/avengine-spear-ext-cp312-8a36d4d-20260821T0030Z",
+          "graphics_adapter": 0,
+          "rpc_port": 39608,
+          "streaming_warmup_frames": 180,
+          "ddc_profile": "InstalledNoZenLocalFallback",
+          "ddc_directory": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_real_rooms_20260906_ddc",
+          "runtime_prefix": "/data/avengine_external/runtime-prefixes/avengine-habitat-object-id-732f264-20260824T1041Z",
+          "rlr_sdk_root": "/data/avengine_external/rlr-sdk/RLRAudioPropagationPkg",
+          "magnum_python_site": "/data/avengine_external/runtime-prefixes/magnum-python-cp312-45811bb-20260820T1845Z/lib/python3.12/site-packages",
+          "hrtf": "/data/avengine_external/rlr-sdk/hrtf/mit_kemar_normal_pinna_16k_v2_sofar_20260820T2200Z/mit_kemar_normal_pinna_16k.sofa",
+          "mp3d_root": "/data/datasets/habitat_data"
+        }
+      }
+    },
+    {
+      "episode_id": "qa_pilot46_20260907_authored_a_human_device",
+      "room_id": "aea_loc3_social_rebuild_v1",
+      "source_classes": [
+        "articulated_human",
+        "rigid_static_object"
+      ],
+      "condition_group": "visibility_occlusion",
+      "silent_count": 0,
+      "profile": {
+        "separation_floor_deg": 15,
+        "anchor_visibility": "in_fov",
+        "anchor_line_of_sight": "occluded",
+        "competitor_set": "all_other_entities_including_offscreen",
+        "separation_window": "whole_audible_window_of_anchor",
+        "min_gap_between_audible_windows_s": 0.5,
+        "reserve_tail_s": 3.0,
+        "minimum_overlap_s": 0.3,
+        "retry_budget_within_profile": 200,
+        "anchor_count": 1,
+        "separation_bin_deg": [
+          15,
+          30
+        ],
+        "speech_motion": "all_still",
+        "event_relation": "sequential"
+      },
+      "request_overrides": {
+        "runtime": {
+          "uproject": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_full_asset_ue_stage_20260907_v1/SpearSim/SpearSim.uproject",
+          "unreal_editor": "/data/UE_5.5/Engine/Binaries/Linux/UnrealEditor",
+          "spear_ext_dir": "/data/avengine_external/spear-host-sdk/avengine-spear-ext-cp312-8a36d4d-20260821T0030Z",
+          "graphics_adapter": 1,
+          "rpc_port": 39609,
+          "streaming_warmup_frames": 180,
+          "ddc_profile": "InstalledNoZenLocalFallback",
+          "ddc_directory": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_real_rooms_20260906_ddc",
+          "runtime_prefix": "/data/avengine_external/runtime-prefixes/avengine-habitat-object-id-732f264-20260824T1041Z",
+          "rlr_sdk_root": "/data/avengine_external/rlr-sdk/RLRAudioPropagationPkg",
+          "magnum_python_site": "/data/avengine_external/runtime-prefixes/magnum-python-cp312-45811bb-20260820T1845Z/lib/python3.12/site-packages",
+          "hrtf": "/data/avengine_external/rlr-sdk/hrtf/mit_kemar_normal_pinna_16k_v2_sofar_20260820T2200Z/mit_kemar_normal_pinna_16k.sofa",
+          "mp3d_root": "/data/datasets/habitat_data"
+        }
+      }
+    },
+    {
+      "episode_id": "qa_pilot46_20260907_authored_a_animal_animal",
+      "room_id": "aea_loc3_social_rebuild_v1",
+      "source_classes": [
+        "articulated_animal",
+        "articulated_animal"
+      ],
+      "condition_group": "motion_distance",
+      "silent_count": 0,
+      "profile": {
+        "separation_floor_deg": 15,
+        "anchor_visibility": "in_fov",
+        "anchor_line_of_sight": "clear",
+        "competitor_set": "all_other_entities_including_offscreen",
+        "separation_window": "whole_audible_window_of_anchor",
+        "min_gap_between_audible_windows_s": 0.5,
+        "reserve_tail_s": 3.0,
+        "minimum_overlap_s": 0.3,
+        "retry_budget_within_profile": 200,
+        "anchor_count": 1,
+        "separation_bin_deg": [
+          30,
+          60
+        ],
+        "speech_motion": "speaker_moving",
+        "event_relation": "sequential"
+      },
+      "request_overrides": {
+        "runtime": {
+          "uproject": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_full_asset_ue_stage_20260907_v1/SpearSim/SpearSim.uproject",
+          "unreal_editor": "/data/UE_5.5/Engine/Binaries/Linux/UnrealEditor",
+          "spear_ext_dir": "/data/avengine_external/spear-host-sdk/avengine-spear-ext-cp312-8a36d4d-20260821T0030Z",
+          "graphics_adapter": 2,
+          "rpc_port": 39610,
+          "streaming_warmup_frames": 180,
+          "ddc_profile": "InstalledNoZenLocalFallback",
+          "ddc_directory": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_real_rooms_20260906_ddc",
+          "runtime_prefix": "/data/avengine_external/runtime-prefixes/avengine-habitat-object-id-732f264-20260824T1041Z",
+          "rlr_sdk_root": "/data/avengine_external/rlr-sdk/RLRAudioPropagationPkg",
+          "magnum_python_site": "/data/avengine_external/runtime-prefixes/magnum-python-cp312-45811bb-20260820T1845Z/lib/python3.12/site-packages",
+          "hrtf": "/data/avengine_external/rlr-sdk/hrtf/mit_kemar_normal_pinna_16k_v2_sofar_20260820T2200Z/mit_kemar_normal_pinna_16k.sofa",
+          "mp3d_root": "/data/datasets/habitat_data"
+        }
+      }
+    },
+    {
+      "episode_id": "qa_pilot46_20260907_authored_a_animal_device",
+      "room_id": "aea_loc3_social_rebuild_v1",
+      "source_classes": [
+        "articulated_animal",
+        "rigid_static_object"
+      ],
+      "condition_group": "post_sound_state",
+      "silent_count": 0,
+      "profile": {
+        "separation_floor_deg": 15,
+        "anchor_visibility": "in_fov",
+        "anchor_line_of_sight": "clear",
+        "competitor_set": "all_other_entities_including_offscreen",
+        "separation_window": "whole_audible_window_of_anchor",
+        "min_gap_between_audible_windows_s": 0.5,
+        "reserve_tail_s": 3.0,
+        "minimum_overlap_s": 0.3,
+        "retry_budget_within_profile": 200,
+        "anchor_count": 1,
+        "separation_bin_deg": [
+          60,
+          90
+        ],
+        "speech_motion": "all_still",
+        "event_relation": "sequential"
+      },
+      "request_overrides": {
+        "runtime": {
+          "uproject": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_full_asset_ue_stage_20260907_v1/SpearSim/SpearSim.uproject",
+          "unreal_editor": "/data/UE_5.5/Engine/Binaries/Linux/UnrealEditor",
+          "spear_ext_dir": "/data/avengine_external/spear-host-sdk/avengine-spear-ext-cp312-8a36d4d-20260821T0030Z",
+          "graphics_adapter": 3,
+          "rpc_port": 39611,
+          "streaming_warmup_frames": 180,
+          "ddc_profile": "InstalledNoZenLocalFallback",
+          "ddc_directory": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_real_rooms_20260906_ddc",
+          "runtime_prefix": "/data/avengine_external/runtime-prefixes/avengine-habitat-object-id-732f264-20260824T1041Z",
+          "rlr_sdk_root": "/data/avengine_external/rlr-sdk/RLRAudioPropagationPkg",
+          "magnum_python_site": "/data/avengine_external/runtime-prefixes/magnum-python-cp312-45811bb-20260820T1845Z/lib/python3.12/site-packages",
+          "hrtf": "/data/avengine_external/rlr-sdk/hrtf/mit_kemar_normal_pinna_16k_v2_sofar_20260820T2200Z/mit_kemar_normal_pinna_16k.sofa",
+          "mp3d_root": "/data/datasets/habitat_data"
+        }
+      }
+    },
+    {
+      "episode_id": "qa_pilot46_20260907_authored_a_device_device",
+      "room_id": "aea_loc3_social_rebuild_v1",
+      "source_classes": [
+        "rigid_static_object",
+        "rigid_static_object"
+      ],
+      "condition_group": "identity_binding",
+      "silent_count": 0,
+      "profile": {
+        "separation_floor_deg": 15,
+        "anchor_visibility": "in_fov",
+        "anchor_line_of_sight": "clear",
+        "competitor_set": "all_other_entities_including_offscreen",
+        "separation_window": "whole_audible_window_of_anchor",
+        "min_gap_between_audible_windows_s": 0.5,
+        "reserve_tail_s": 3.0,
+        "minimum_overlap_s": 0.3,
+        "retry_budget_within_profile": 200,
+        "anchor_count": 1,
+        "separation_bin_deg": [
+          30,
+          60
+        ],
+        "speech_motion": "all_still",
+        "event_relation": "repeat"
+      },
+      "request_overrides": {
+        "runtime": {
+          "uproject": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_full_asset_ue_stage_20260907_v1/SpearSim/SpearSim.uproject",
+          "unreal_editor": "/data/UE_5.5/Engine/Binaries/Linux/UnrealEditor",
+          "spear_ext_dir": "/data/avengine_external/spear-host-sdk/avengine-spear-ext-cp312-8a36d4d-20260821T0030Z",
+          "graphics_adapter": 0,
+          "rpc_port": 39612,
+          "streaming_warmup_frames": 180,
+          "ddc_profile": "InstalledNoZenLocalFallback",
+          "ddc_directory": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_real_rooms_20260906_ddc",
+          "runtime_prefix": "/data/avengine_external/runtime-prefixes/avengine-habitat-object-id-732f264-20260824T1041Z",
+          "rlr_sdk_root": "/data/avengine_external/rlr-sdk/RLRAudioPropagationPkg",
+          "magnum_python_site": "/data/avengine_external/runtime-prefixes/magnum-python-cp312-45811bb-20260820T1845Z/lib/python3.12/site-packages",
+          "hrtf": "/data/avengine_external/rlr-sdk/hrtf/mit_kemar_normal_pinna_16k_v2_sofar_20260820T2200Z/mit_kemar_normal_pinna_16k.sofa",
+          "mp3d_root": "/data/datasets/habitat_data"
+        }
+      }
+    },
+    {
+      "episode_id": "qa_pilot46_20260907_authored_b_human_human",
+      "room_id": "authored_compact_home_room_b_v1",
+      "source_classes": [
+        "articulated_human",
+        "articulated_human"
+      ],
+      "condition_group": "identity_binding",
+      "silent_count": 0,
+      "profile": {
+        "separation_floor_deg": 15,
+        "anchor_visibility": "in_fov",
+        "anchor_line_of_sight": "clear",
+        "competitor_set": "all_other_entities_including_offscreen",
+        "separation_window": "whole_audible_window_of_anchor",
+        "min_gap_between_audible_windows_s": 0.5,
+        "reserve_tail_s": 3.0,
+        "minimum_overlap_s": 0.3,
+        "retry_budget_within_profile": 200,
+        "anchor_count": 1,
+        "separation_bin_deg": [
+          30,
+          60
+        ],
+        "speech_motion": "all_still",
+        "event_relation": "sequential"
+      },
+      "request_overrides": {
+        "runtime": {
+          "uproject": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_full_asset_ue_stage_20260907_v1/SpearSim/SpearSim.uproject",
+          "unreal_editor": "/data/UE_5.5/Engine/Binaries/Linux/UnrealEditor",
+          "spear_ext_dir": "/data/avengine_external/spear-host-sdk/avengine-spear-ext-cp312-8a36d4d-20260821T0030Z",
+          "graphics_adapter": 1,
+          "rpc_port": 39613,
+          "streaming_warmup_frames": 180,
+          "ddc_profile": "InstalledNoZenLocalFallback",
+          "ddc_directory": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_real_rooms_20260906_ddc",
+          "runtime_prefix": "/data/avengine_external/runtime-prefixes/avengine-habitat-object-id-732f264-20260824T1041Z",
+          "rlr_sdk_root": "/data/avengine_external/rlr-sdk/RLRAudioPropagationPkg",
+          "magnum_python_site": "/data/avengine_external/runtime-prefixes/magnum-python-cp312-45811bb-20260820T1845Z/lib/python3.12/site-packages",
+          "hrtf": "/data/avengine_external/rlr-sdk/hrtf/mit_kemar_normal_pinna_16k_v2_sofar_20260820T2200Z/mit_kemar_normal_pinna_16k.sofa",
+          "mp3d_root": "/data/datasets/habitat_data"
+        }
+      }
+    },
+    {
+      "episode_id": "qa_pilot46_20260907_authored_b_human_animal",
+      "room_id": "authored_compact_home_room_b_v1",
+      "source_classes": [
+        "articulated_human",
+        "articulated_animal"
+      ],
+      "condition_group": "audio_event_relations",
+      "silent_count": 0,
+      "profile": {
+        "separation_floor_deg": 15,
+        "anchor_visibility": "in_fov",
+        "anchor_line_of_sight": "clear",
+        "competitor_set": "all_other_entities_including_offscreen",
+        "separation_window": "whole_audible_window_of_anchor",
+        "min_gap_between_audible_windows_s": 0.5,
+        "reserve_tail_s": 3.0,
+        "minimum_overlap_s": 0.3,
+        "retry_budget_within_profile": 200,
+        "anchor_count": 2,
+        "separation_bin_deg": [
+          30,
+          60
+        ],
+        "speech_motion": "all_still",
+        "event_relation": "overlap"
+      },
+      "request_overrides": {
+        "runtime": {
+          "uproject": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_full_asset_ue_stage_20260907_v1/SpearSim/SpearSim.uproject",
+          "unreal_editor": "/data/UE_5.5/Engine/Binaries/Linux/UnrealEditor",
+          "spear_ext_dir": "/data/avengine_external/spear-host-sdk/avengine-spear-ext-cp312-8a36d4d-20260821T0030Z",
+          "graphics_adapter": 2,
+          "rpc_port": 39614,
+          "streaming_warmup_frames": 180,
+          "ddc_profile": "InstalledNoZenLocalFallback",
+          "ddc_directory": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_real_rooms_20260906_ddc",
+          "runtime_prefix": "/data/avengine_external/runtime-prefixes/avengine-habitat-object-id-732f264-20260824T1041Z",
+          "rlr_sdk_root": "/data/avengine_external/rlr-sdk/RLRAudioPropagationPkg",
+          "magnum_python_site": "/data/avengine_external/runtime-prefixes/magnum-python-cp312-45811bb-20260820T1845Z/lib/python3.12/site-packages",
+          "hrtf": "/data/avengine_external/rlr-sdk/hrtf/mit_kemar_normal_pinna_16k_v2_sofar_20260820T2200Z/mit_kemar_normal_pinna_16k.sofa",
+          "mp3d_root": "/data/datasets/habitat_data"
+        }
+      }
+    },
+    {
+      "episode_id": "qa_pilot46_20260907_authored_b_human_device",
+      "room_id": "authored_compact_home_room_b_v1",
+      "source_classes": [
+        "articulated_human",
+        "rigid_static_object"
+      ],
+      "condition_group": "visibility_occlusion",
+      "silent_count": 0,
+      "profile": {
+        "separation_floor_deg": 15,
+        "anchor_visibility": "in_fov",
+        "anchor_line_of_sight": "occluded",
+        "competitor_set": "all_other_entities_including_offscreen",
+        "separation_window": "whole_audible_window_of_anchor",
+        "min_gap_between_audible_windows_s": 0.5,
+        "reserve_tail_s": 3.0,
+        "minimum_overlap_s": 0.3,
+        "retry_budget_within_profile": 200,
+        "anchor_count": 1,
+        "separation_bin_deg": [
+          15,
+          30
+        ],
+        "speech_motion": "all_still",
+        "event_relation": "sequential"
+      },
+      "request_overrides": {
+        "runtime": {
+          "uproject": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_full_asset_ue_stage_20260907_v1/SpearSim/SpearSim.uproject",
+          "unreal_editor": "/data/UE_5.5/Engine/Binaries/Linux/UnrealEditor",
+          "spear_ext_dir": "/data/avengine_external/spear-host-sdk/avengine-spear-ext-cp312-8a36d4d-20260821T0030Z",
+          "graphics_adapter": 3,
+          "rpc_port": 39615,
+          "streaming_warmup_frames": 180,
+          "ddc_profile": "InstalledNoZenLocalFallback",
+          "ddc_directory": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_real_rooms_20260906_ddc",
+          "runtime_prefix": "/data/avengine_external/runtime-prefixes/avengine-habitat-object-id-732f264-20260824T1041Z",
+          "rlr_sdk_root": "/data/avengine_external/rlr-sdk/RLRAudioPropagationPkg",
+          "magnum_python_site": "/data/avengine_external/runtime-prefixes/magnum-python-cp312-45811bb-20260820T1845Z/lib/python3.12/site-packages",
+          "hrtf": "/data/avengine_external/rlr-sdk/hrtf/mit_kemar_normal_pinna_16k_v2_sofar_20260820T2200Z/mit_kemar_normal_pinna_16k.sofa",
+          "mp3d_root": "/data/datasets/habitat_data"
+        }
+      }
+    },
+    {
+      "episode_id": "qa_pilot46_20260907_authored_b_animal_animal",
+      "room_id": "authored_compact_home_room_b_v1",
+      "source_classes": [
+        "articulated_animal",
+        "articulated_animal"
+      ],
+      "condition_group": "motion_distance",
+      "silent_count": 0,
+      "profile": {
+        "separation_floor_deg": 15,
+        "anchor_visibility": "in_fov",
+        "anchor_line_of_sight": "clear",
+        "competitor_set": "all_other_entities_including_offscreen",
+        "separation_window": "whole_audible_window_of_anchor",
+        "min_gap_between_audible_windows_s": 0.5,
+        "reserve_tail_s": 3.0,
+        "minimum_overlap_s": 0.3,
+        "retry_budget_within_profile": 200,
+        "anchor_count": 1,
+        "separation_bin_deg": [
+          30,
+          60
+        ],
+        "speech_motion": "speaker_moving",
+        "event_relation": "sequential"
+      },
+      "request_overrides": {
+        "runtime": {
+          "uproject": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_full_asset_ue_stage_20260907_v1/SpearSim/SpearSim.uproject",
+          "unreal_editor": "/data/UE_5.5/Engine/Binaries/Linux/UnrealEditor",
+          "spear_ext_dir": "/data/avengine_external/spear-host-sdk/avengine-spear-ext-cp312-8a36d4d-20260821T0030Z",
+          "graphics_adapter": 0,
+          "rpc_port": 39616,
+          "streaming_warmup_frames": 180,
+          "ddc_profile": "InstalledNoZenLocalFallback",
+          "ddc_directory": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_real_rooms_20260906_ddc",
+          "runtime_prefix": "/data/avengine_external/runtime-prefixes/avengine-habitat-object-id-732f264-20260824T1041Z",
+          "rlr_sdk_root": "/data/avengine_external/rlr-sdk/RLRAudioPropagationPkg",
+          "magnum_python_site": "/data/avengine_external/runtime-prefixes/magnum-python-cp312-45811bb-20260820T1845Z/lib/python3.12/site-packages",
+          "hrtf": "/data/avengine_external/rlr-sdk/hrtf/mit_kemar_normal_pinna_16k_v2_sofar_20260820T2200Z/mit_kemar_normal_pinna_16k.sofa",
+          "mp3d_root": "/data/datasets/habitat_data"
+        }
+      }
+    },
+    {
+      "episode_id": "qa_pilot46_20260907_authored_b_animal_device",
+      "room_id": "authored_compact_home_room_b_v1",
+      "source_classes": [
+        "articulated_animal",
+        "rigid_static_object"
+      ],
+      "condition_group": "post_sound_state",
+      "silent_count": 0,
+      "profile": {
+        "separation_floor_deg": 15,
+        "anchor_visibility": "in_fov",
+        "anchor_line_of_sight": "clear",
+        "competitor_set": "all_other_entities_including_offscreen",
+        "separation_window": "whole_audible_window_of_anchor",
+        "min_gap_between_audible_windows_s": 0.5,
+        "reserve_tail_s": 3.0,
+        "minimum_overlap_s": 0.3,
+        "retry_budget_within_profile": 200,
+        "anchor_count": 1,
+        "separation_bin_deg": [
+          60,
+          90
+        ],
+        "speech_motion": "all_still",
+        "event_relation": "sequential"
+      },
+      "request_overrides": {
+        "runtime": {
+          "uproject": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_full_asset_ue_stage_20260907_v1/SpearSim/SpearSim.uproject",
+          "unreal_editor": "/data/UE_5.5/Engine/Binaries/Linux/UnrealEditor",
+          "spear_ext_dir": "/data/avengine_external/spear-host-sdk/avengine-spear-ext-cp312-8a36d4d-20260821T0030Z",
+          "graphics_adapter": 1,
+          "rpc_port": 39617,
+          "streaming_warmup_frames": 180,
+          "ddc_profile": "InstalledNoZenLocalFallback",
+          "ddc_directory": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_real_rooms_20260906_ddc",
+          "runtime_prefix": "/data/avengine_external/runtime-prefixes/avengine-habitat-object-id-732f264-20260824T1041Z",
+          "rlr_sdk_root": "/data/avengine_external/rlr-sdk/RLRAudioPropagationPkg",
+          "magnum_python_site": "/data/avengine_external/runtime-prefixes/magnum-python-cp312-45811bb-20260820T1845Z/lib/python3.12/site-packages",
+          "hrtf": "/data/avengine_external/rlr-sdk/hrtf/mit_kemar_normal_pinna_16k_v2_sofar_20260820T2200Z/mit_kemar_normal_pinna_16k.sofa",
+          "mp3d_root": "/data/datasets/habitat_data"
+        }
+      }
+    },
+    {
+      "episode_id": "qa_pilot46_20260907_authored_b_device_device",
+      "room_id": "authored_compact_home_room_b_v1",
+      "source_classes": [
+        "rigid_static_object",
+        "rigid_static_object"
+      ],
+      "condition_group": "identity_binding",
+      "silent_count": 0,
+      "profile": {
+        "separation_floor_deg": 15,
+        "anchor_visibility": "in_fov",
+        "anchor_line_of_sight": "clear",
+        "competitor_set": "all_other_entities_including_offscreen",
+        "separation_window": "whole_audible_window_of_anchor",
+        "min_gap_between_audible_windows_s": 0.5,
+        "reserve_tail_s": 3.0,
+        "minimum_overlap_s": 0.3,
+        "retry_budget_within_profile": 200,
+        "anchor_count": 1,
+        "separation_bin_deg": [
+          30,
+          60
+        ],
+        "speech_motion": "all_still",
+        "event_relation": "repeat"
+      },
+      "request_overrides": {
+        "runtime": {
+          "uproject": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_full_asset_ue_stage_20260907_v1/SpearSim/SpearSim.uproject",
+          "unreal_editor": "/data/UE_5.5/Engine/Binaries/Linux/UnrealEditor",
+          "spear_ext_dir": "/data/avengine_external/spear-host-sdk/avengine-spear-ext-cp312-8a36d4d-20260821T0030Z",
+          "graphics_adapter": 2,
+          "rpc_port": 39618,
+          "streaming_warmup_frames": 180,
+          "ddc_profile": "InstalledNoZenLocalFallback",
+          "ddc_directory": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_real_rooms_20260906_ddc",
+          "runtime_prefix": "/data/avengine_external/runtime-prefixes/avengine-habitat-object-id-732f264-20260824T1041Z",
+          "rlr_sdk_root": "/data/avengine_external/rlr-sdk/RLRAudioPropagationPkg",
+          "magnum_python_site": "/data/avengine_external/runtime-prefixes/magnum-python-cp312-45811bb-20260820T1845Z/lib/python3.12/site-packages",
+          "hrtf": "/data/avengine_external/rlr-sdk/hrtf/mit_kemar_normal_pinna_16k_v2_sofar_20260820T2200Z/mit_kemar_normal_pinna_16k.sofa",
+          "mp3d_root": "/data/datasets/habitat_data"
+        }
+      }
+    },
+    {
+      "episode_id": "qa_pilot46_20260907_authored_c_human_human",
+      "room_id": "authored_open_family_home_room_c_v1",
+      "source_classes": [
+        "articulated_human",
+        "articulated_human"
+      ],
+      "condition_group": "identity_binding",
+      "silent_count": 0,
+      "profile": {
+        "separation_floor_deg": 15,
+        "anchor_visibility": "in_fov",
+        "anchor_line_of_sight": "clear",
+        "competitor_set": "all_other_entities_including_offscreen",
+        "separation_window": "whole_audible_window_of_anchor",
+        "min_gap_between_audible_windows_s": 0.5,
+        "reserve_tail_s": 3.0,
+        "minimum_overlap_s": 0.3,
+        "retry_budget_within_profile": 200,
+        "anchor_count": 1,
+        "separation_bin_deg": [
+          30,
+          60
+        ],
+        "speech_motion": "all_still",
+        "event_relation": "sequential"
+      },
+      "request_overrides": {
+        "runtime": {
+          "uproject": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_full_asset_ue_stage_20260907_v1/SpearSim/SpearSim.uproject",
+          "unreal_editor": "/data/UE_5.5/Engine/Binaries/Linux/UnrealEditor",
+          "spear_ext_dir": "/data/avengine_external/spear-host-sdk/avengine-spear-ext-cp312-8a36d4d-20260821T0030Z",
+          "graphics_adapter": 3,
+          "rpc_port": 39619,
+          "streaming_warmup_frames": 180,
+          "ddc_profile": "InstalledNoZenLocalFallback",
+          "ddc_directory": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_real_rooms_20260906_ddc",
+          "runtime_prefix": "/data/avengine_external/runtime-prefixes/avengine-habitat-object-id-732f264-20260824T1041Z",
+          "rlr_sdk_root": "/data/avengine_external/rlr-sdk/RLRAudioPropagationPkg",
+          "magnum_python_site": "/data/avengine_external/runtime-prefixes/magnum-python-cp312-45811bb-20260820T1845Z/lib/python3.12/site-packages",
+          "hrtf": "/data/avengine_external/rlr-sdk/hrtf/mit_kemar_normal_pinna_16k_v2_sofar_20260820T2200Z/mit_kemar_normal_pinna_16k.sofa",
+          "mp3d_root": "/data/datasets/habitat_data"
+        }
+      }
+    },
+    {
+      "episode_id": "qa_pilot46_20260907_authored_c_human_animal",
+      "room_id": "authored_open_family_home_room_c_v1",
+      "source_classes": [
+        "articulated_human",
+        "articulated_animal"
+      ],
+      "condition_group": "audio_event_relations",
+      "silent_count": 0,
+      "profile": {
+        "separation_floor_deg": 15,
+        "anchor_visibility": "in_fov",
+        "anchor_line_of_sight": "clear",
+        "competitor_set": "all_other_entities_including_offscreen",
+        "separation_window": "whole_audible_window_of_anchor",
+        "min_gap_between_audible_windows_s": 0.5,
+        "reserve_tail_s": 3.0,
+        "minimum_overlap_s": 0.3,
+        "retry_budget_within_profile": 200,
+        "anchor_count": 2,
+        "separation_bin_deg": [
+          30,
+          60
+        ],
+        "speech_motion": "all_still",
+        "event_relation": "overlap"
+      },
+      "request_overrides": {
+        "runtime": {
+          "uproject": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_full_asset_ue_stage_20260907_v1/SpearSim/SpearSim.uproject",
+          "unreal_editor": "/data/UE_5.5/Engine/Binaries/Linux/UnrealEditor",
+          "spear_ext_dir": "/data/avengine_external/spear-host-sdk/avengine-spear-ext-cp312-8a36d4d-20260821T0030Z",
+          "graphics_adapter": 0,
+          "rpc_port": 39620,
+          "streaming_warmup_frames": 180,
+          "ddc_profile": "InstalledNoZenLocalFallback",
+          "ddc_directory": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_real_rooms_20260906_ddc",
+          "runtime_prefix": "/data/avengine_external/runtime-prefixes/avengine-habitat-object-id-732f264-20260824T1041Z",
+          "rlr_sdk_root": "/data/avengine_external/rlr-sdk/RLRAudioPropagationPkg",
+          "magnum_python_site": "/data/avengine_external/runtime-prefixes/magnum-python-cp312-45811bb-20260820T1845Z/lib/python3.12/site-packages",
+          "hrtf": "/data/avengine_external/rlr-sdk/hrtf/mit_kemar_normal_pinna_16k_v2_sofar_20260820T2200Z/mit_kemar_normal_pinna_16k.sofa",
+          "mp3d_root": "/data/datasets/habitat_data"
+        }
+      }
+    },
+    {
+      "episode_id": "qa_pilot46_20260907_authored_c_human_device",
+      "room_id": "authored_open_family_home_room_c_v1",
+      "source_classes": [
+        "articulated_human",
+        "rigid_static_object"
+      ],
+      "condition_group": "visibility_occlusion",
+      "silent_count": 0,
+      "profile": {
+        "separation_floor_deg": 15,
+        "anchor_visibility": "in_fov",
+        "anchor_line_of_sight": "occluded",
+        "competitor_set": "all_other_entities_including_offscreen",
+        "separation_window": "whole_audible_window_of_anchor",
+        "min_gap_between_audible_windows_s": 0.5,
+        "reserve_tail_s": 3.0,
+        "minimum_overlap_s": 0.3,
+        "retry_budget_within_profile": 200,
+        "anchor_count": 1,
+        "separation_bin_deg": [
+          15,
+          30
+        ],
+        "speech_motion": "all_still",
+        "event_relation": "sequential"
+      },
+      "request_overrides": {
+        "runtime": {
+          "uproject": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_full_asset_ue_stage_20260907_v1/SpearSim/SpearSim.uproject",
+          "unreal_editor": "/data/UE_5.5/Engine/Binaries/Linux/UnrealEditor",
+          "spear_ext_dir": "/data/avengine_external/spear-host-sdk/avengine-spear-ext-cp312-8a36d4d-20260821T0030Z",
+          "graphics_adapter": 1,
+          "rpc_port": 39621,
+          "streaming_warmup_frames": 180,
+          "ddc_profile": "InstalledNoZenLocalFallback",
+          "ddc_directory": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_real_rooms_20260906_ddc",
+          "runtime_prefix": "/data/avengine_external/runtime-prefixes/avengine-habitat-object-id-732f264-20260824T1041Z",
+          "rlr_sdk_root": "/data/avengine_external/rlr-sdk/RLRAudioPropagationPkg",
+          "magnum_python_site": "/data/avengine_external/runtime-prefixes/magnum-python-cp312-45811bb-20260820T1845Z/lib/python3.12/site-packages",
+          "hrtf": "/data/avengine_external/rlr-sdk/hrtf/mit_kemar_normal_pinna_16k_v2_sofar_20260820T2200Z/mit_kemar_normal_pinna_16k.sofa",
+          "mp3d_root": "/data/datasets/habitat_data"
+        }
+      }
+    },
+    {
+      "episode_id": "qa_pilot46_20260907_authored_c_animal_animal",
+      "room_id": "authored_open_family_home_room_c_v1",
+      "source_classes": [
+        "articulated_animal",
+        "articulated_animal"
+      ],
+      "condition_group": "motion_distance",
+      "silent_count": 0,
+      "profile": {
+        "separation_floor_deg": 15,
+        "anchor_visibility": "in_fov",
+        "anchor_line_of_sight": "clear",
+        "competitor_set": "all_other_entities_including_offscreen",
+        "separation_window": "whole_audible_window_of_anchor",
+        "min_gap_between_audible_windows_s": 0.5,
+        "reserve_tail_s": 3.0,
+        "minimum_overlap_s": 0.3,
+        "retry_budget_within_profile": 200,
+        "anchor_count": 1,
+        "separation_bin_deg": [
+          30,
+          60
+        ],
+        "speech_motion": "speaker_moving",
+        "event_relation": "sequential"
+      },
+      "request_overrides": {
+        "runtime": {
+          "uproject": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_full_asset_ue_stage_20260907_v1/SpearSim/SpearSim.uproject",
+          "unreal_editor": "/data/UE_5.5/Engine/Binaries/Linux/UnrealEditor",
+          "spear_ext_dir": "/data/avengine_external/spear-host-sdk/avengine-spear-ext-cp312-8a36d4d-20260821T0030Z",
+          "graphics_adapter": 2,
+          "rpc_port": 39622,
+          "streaming_warmup_frames": 180,
+          "ddc_profile": "InstalledNoZenLocalFallback",
+          "ddc_directory": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_real_rooms_20260906_ddc",
+          "runtime_prefix": "/data/avengine_external/runtime-prefixes/avengine-habitat-object-id-732f264-20260824T1041Z",
+          "rlr_sdk_root": "/data/avengine_external/rlr-sdk/RLRAudioPropagationPkg",
+          "magnum_python_site": "/data/avengine_external/runtime-prefixes/magnum-python-cp312-45811bb-20260820T1845Z/lib/python3.12/site-packages",
+          "hrtf": "/data/avengine_external/rlr-sdk/hrtf/mit_kemar_normal_pinna_16k_v2_sofar_20260820T2200Z/mit_kemar_normal_pinna_16k.sofa",
+          "mp3d_root": "/data/datasets/habitat_data"
+        }
+      }
+    },
+    {
+      "episode_id": "qa_pilot46_20260907_authored_c_animal_device",
+      "room_id": "authored_open_family_home_room_c_v1",
+      "source_classes": [
+        "articulated_animal",
+        "rigid_static_object"
+      ],
+      "condition_group": "post_sound_state",
+      "silent_count": 0,
+      "profile": {
+        "separation_floor_deg": 15,
+        "anchor_visibility": "in_fov",
+        "anchor_line_of_sight": "clear",
+        "competitor_set": "all_other_entities_including_offscreen",
+        "separation_window": "whole_audible_window_of_anchor",
+        "min_gap_between_audible_windows_s": 0.5,
+        "reserve_tail_s": 3.0,
+        "minimum_overlap_s": 0.3,
+        "retry_budget_within_profile": 200,
+        "anchor_count": 1,
+        "separation_bin_deg": [
+          60,
+          90
+        ],
+        "speech_motion": "all_still",
+        "event_relation": "sequential"
+      },
+      "request_overrides": {
+        "runtime": {
+          "uproject": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_full_asset_ue_stage_20260907_v1/SpearSim/SpearSim.uproject",
+          "unreal_editor": "/data/UE_5.5/Engine/Binaries/Linux/UnrealEditor",
+          "spear_ext_dir": "/data/avengine_external/spear-host-sdk/avengine-spear-ext-cp312-8a36d4d-20260821T0030Z",
+          "graphics_adapter": 3,
+          "rpc_port": 39623,
+          "streaming_warmup_frames": 180,
+          "ddc_profile": "InstalledNoZenLocalFallback",
+          "ddc_directory": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_real_rooms_20260906_ddc",
+          "runtime_prefix": "/data/avengine_external/runtime-prefixes/avengine-habitat-object-id-732f264-20260824T1041Z",
+          "rlr_sdk_root": "/data/avengine_external/rlr-sdk/RLRAudioPropagationPkg",
+          "magnum_python_site": "/data/avengine_external/runtime-prefixes/magnum-python-cp312-45811bb-20260820T1845Z/lib/python3.12/site-packages",
+          "hrtf": "/data/avengine_external/rlr-sdk/hrtf/mit_kemar_normal_pinna_16k_v2_sofar_20260820T2200Z/mit_kemar_normal_pinna_16k.sofa",
+          "mp3d_root": "/data/datasets/habitat_data"
+        }
+      }
+    },
+    {
+      "episode_id": "qa_pilot46_20260907_authored_c_device_device",
+      "room_id": "authored_open_family_home_room_c_v1",
+      "source_classes": [
+        "rigid_static_object",
+        "rigid_static_object"
+      ],
+      "condition_group": "identity_binding",
+      "silent_count": 0,
+      "profile": {
+        "separation_floor_deg": 15,
+        "anchor_visibility": "in_fov",
+        "anchor_line_of_sight": "clear",
+        "competitor_set": "all_other_entities_including_offscreen",
+        "separation_window": "whole_audible_window_of_anchor",
+        "min_gap_between_audible_windows_s": 0.5,
+        "reserve_tail_s": 3.0,
+        "minimum_overlap_s": 0.3,
+        "retry_budget_within_profile": 200,
+        "anchor_count": 1,
+        "separation_bin_deg": [
+          30,
+          60
+        ],
+        "speech_motion": "all_still",
+        "event_relation": "repeat"
+      },
+      "request_overrides": {
+        "runtime": {
+          "uproject": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_full_asset_ue_stage_20260907_v1/SpearSim/SpearSim.uproject",
+          "unreal_editor": "/data/UE_5.5/Engine/Binaries/Linux/UnrealEditor",
+          "spear_ext_dir": "/data/avengine_external/spear-host-sdk/avengine-spear-ext-cp312-8a36d4d-20260821T0030Z",
+          "graphics_adapter": 0,
+          "rpc_port": 39624,
+          "streaming_warmup_frames": 180,
+          "ddc_profile": "InstalledNoZenLocalFallback",
+          "ddc_directory": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_real_rooms_20260906_ddc",
+          "runtime_prefix": "/data/avengine_external/runtime-prefixes/avengine-habitat-object-id-732f264-20260824T1041Z",
+          "rlr_sdk_root": "/data/avengine_external/rlr-sdk/RLRAudioPropagationPkg",
+          "magnum_python_site": "/data/avengine_external/runtime-prefixes/magnum-python-cp312-45811bb-20260820T1845Z/lib/python3.12/site-packages",
+          "hrtf": "/data/avengine_external/rlr-sdk/hrtf/mit_kemar_normal_pinna_16k_v2_sofar_20260820T2200Z/mit_kemar_normal_pinna_16k.sofa",
+          "mp3d_root": "/data/datasets/habitat_data"
+        }
+      }
+    },
+    {
+      "episode_id": "qa_pilot46_20260907_kujiale_human_human",
+      "room_id": "kujiale_0020_full_home_v1",
+      "source_classes": [
+        "articulated_human",
+        "articulated_human"
+      ],
+      "condition_group": "identity_binding",
+      "silent_count": 0,
+      "profile": {
+        "separation_floor_deg": 15,
+        "anchor_visibility": "in_fov",
+        "anchor_line_of_sight": "clear",
+        "competitor_set": "all_other_entities_including_offscreen",
+        "separation_window": "whole_audible_window_of_anchor",
+        "min_gap_between_audible_windows_s": 0.5,
+        "reserve_tail_s": 3.0,
+        "minimum_overlap_s": 0.3,
+        "retry_budget_within_profile": 200,
+        "anchor_count": 1,
+        "separation_bin_deg": [
+          30,
+          60
+        ],
+        "speech_motion": "all_still",
+        "event_relation": "sequential"
+      },
+      "request_overrides": {
+        "runtime": {
+          "uproject": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_full_asset_ue_stage_20260907_v1/SpearSim/SpearSim.uproject",
+          "unreal_editor": "/data/UE_5.5/Engine/Binaries/Linux/UnrealEditor",
+          "spear_ext_dir": "/data/avengine_external/spear-host-sdk/avengine-spear-ext-cp312-8a36d4d-20260821T0030Z",
+          "graphics_adapter": 1,
+          "rpc_port": 39625,
+          "streaming_warmup_frames": 180,
+          "ddc_profile": "InstalledNoZenLocalFallback",
+          "ddc_directory": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_real_rooms_20260906_ddc",
+          "runtime_prefix": "/data/avengine_external/runtime-prefixes/avengine-habitat-object-id-732f264-20260824T1041Z",
+          "rlr_sdk_root": "/data/avengine_external/rlr-sdk/RLRAudioPropagationPkg",
+          "magnum_python_site": "/data/avengine_external/runtime-prefixes/magnum-python-cp312-45811bb-20260820T1845Z/lib/python3.12/site-packages",
+          "hrtf": "/data/avengine_external/rlr-sdk/hrtf/mit_kemar_normal_pinna_16k_v2_sofar_20260820T2200Z/mit_kemar_normal_pinna_16k.sofa",
+          "mp3d_root": "/data/datasets/habitat_data"
+        }
+      }
+    },
+    {
+      "episode_id": "qa_pilot46_20260907_kujiale_human_animal",
+      "room_id": "kujiale_0020_full_home_v1",
+      "source_classes": [
+        "articulated_human",
+        "articulated_animal"
+      ],
+      "condition_group": "audio_event_relations",
+      "silent_count": 0,
+      "profile": {
+        "separation_floor_deg": 15,
+        "anchor_visibility": "in_fov",
+        "anchor_line_of_sight": "clear",
+        "competitor_set": "all_other_entities_including_offscreen",
+        "separation_window": "whole_audible_window_of_anchor",
+        "min_gap_between_audible_windows_s": 0.5,
+        "reserve_tail_s": 3.0,
+        "minimum_overlap_s": 0.3,
+        "retry_budget_within_profile": 200,
+        "anchor_count": 2,
+        "separation_bin_deg": [
+          30,
+          60
+        ],
+        "speech_motion": "all_still",
+        "event_relation": "overlap"
+      },
+      "request_overrides": {
+        "runtime": {
+          "uproject": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_full_asset_ue_stage_20260907_v1/SpearSim/SpearSim.uproject",
+          "unreal_editor": "/data/UE_5.5/Engine/Binaries/Linux/UnrealEditor",
+          "spear_ext_dir": "/data/avengine_external/spear-host-sdk/avengine-spear-ext-cp312-8a36d4d-20260821T0030Z",
+          "graphics_adapter": 2,
+          "rpc_port": 39626,
+          "streaming_warmup_frames": 180,
+          "ddc_profile": "InstalledNoZenLocalFallback",
+          "ddc_directory": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_real_rooms_20260906_ddc",
+          "runtime_prefix": "/data/avengine_external/runtime-prefixes/avengine-habitat-object-id-732f264-20260824T1041Z",
+          "rlr_sdk_root": "/data/avengine_external/rlr-sdk/RLRAudioPropagationPkg",
+          "magnum_python_site": "/data/avengine_external/runtime-prefixes/magnum-python-cp312-45811bb-20260820T1845Z/lib/python3.12/site-packages",
+          "hrtf": "/data/avengine_external/rlr-sdk/hrtf/mit_kemar_normal_pinna_16k_v2_sofar_20260820T2200Z/mit_kemar_normal_pinna_16k.sofa",
+          "mp3d_root": "/data/datasets/habitat_data"
+        }
+      }
+    },
+    {
+      "episode_id": "qa_pilot46_20260907_kujiale_human_device",
+      "room_id": "kujiale_0020_full_home_v1",
+      "source_classes": [
+        "articulated_human",
+        "rigid_static_object"
+      ],
+      "condition_group": "visibility_occlusion",
+      "silent_count": 0,
+      "profile": {
+        "separation_floor_deg": 15,
+        "anchor_visibility": "in_fov",
+        "anchor_line_of_sight": "occluded",
+        "competitor_set": "all_other_entities_including_offscreen",
+        "separation_window": "whole_audible_window_of_anchor",
+        "min_gap_between_audible_windows_s": 0.5,
+        "reserve_tail_s": 3.0,
+        "minimum_overlap_s": 0.3,
+        "retry_budget_within_profile": 200,
+        "anchor_count": 1,
+        "separation_bin_deg": [
+          15,
+          30
+        ],
+        "speech_motion": "all_still",
+        "event_relation": "sequential"
+      },
+      "request_overrides": {
+        "runtime": {
+          "uproject": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_full_asset_ue_stage_20260907_v1/SpearSim/SpearSim.uproject",
+          "unreal_editor": "/data/UE_5.5/Engine/Binaries/Linux/UnrealEditor",
+          "spear_ext_dir": "/data/avengine_external/spear-host-sdk/avengine-spear-ext-cp312-8a36d4d-20260821T0030Z",
+          "graphics_adapter": 3,
+          "rpc_port": 39627,
+          "streaming_warmup_frames": 180,
+          "ddc_profile": "InstalledNoZenLocalFallback",
+          "ddc_directory": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_real_rooms_20260906_ddc",
+          "runtime_prefix": "/data/avengine_external/runtime-prefixes/avengine-habitat-object-id-732f264-20260824T1041Z",
+          "rlr_sdk_root": "/data/avengine_external/rlr-sdk/RLRAudioPropagationPkg",
+          "magnum_python_site": "/data/avengine_external/runtime-prefixes/magnum-python-cp312-45811bb-20260820T1845Z/lib/python3.12/site-packages",
+          "hrtf": "/data/avengine_external/rlr-sdk/hrtf/mit_kemar_normal_pinna_16k_v2_sofar_20260820T2200Z/mit_kemar_normal_pinna_16k.sofa",
+          "mp3d_root": "/data/datasets/habitat_data"
+        }
+      }
+    },
+    {
+      "episode_id": "qa_pilot46_20260907_kujiale_animal_animal",
+      "room_id": "kujiale_0020_full_home_v1",
+      "source_classes": [
+        "articulated_animal",
+        "articulated_animal"
+      ],
+      "condition_group": "motion_distance",
+      "silent_count": 0,
+      "profile": {
+        "separation_floor_deg": 15,
+        "anchor_visibility": "in_fov",
+        "anchor_line_of_sight": "clear",
+        "competitor_set": "all_other_entities_including_offscreen",
+        "separation_window": "whole_audible_window_of_anchor",
+        "min_gap_between_audible_windows_s": 0.5,
+        "reserve_tail_s": 3.0,
+        "minimum_overlap_s": 0.3,
+        "retry_budget_within_profile": 200,
+        "anchor_count": 1,
+        "separation_bin_deg": [
+          30,
+          60
+        ],
+        "speech_motion": "speaker_moving",
+        "event_relation": "sequential"
+      },
+      "request_overrides": {
+        "runtime": {
+          "uproject": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_full_asset_ue_stage_20260907_v1/SpearSim/SpearSim.uproject",
+          "unreal_editor": "/data/UE_5.5/Engine/Binaries/Linux/UnrealEditor",
+          "spear_ext_dir": "/data/avengine_external/spear-host-sdk/avengine-spear-ext-cp312-8a36d4d-20260821T0030Z",
+          "graphics_adapter": 0,
+          "rpc_port": 39628,
+          "streaming_warmup_frames": 180,
+          "ddc_profile": "InstalledNoZenLocalFallback",
+          "ddc_directory": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_real_rooms_20260906_ddc",
+          "runtime_prefix": "/data/avengine_external/runtime-prefixes/avengine-habitat-object-id-732f264-20260824T1041Z",
+          "rlr_sdk_root": "/data/avengine_external/rlr-sdk/RLRAudioPropagationPkg",
+          "magnum_python_site": "/data/avengine_external/runtime-prefixes/magnum-python-cp312-45811bb-20260820T1845Z/lib/python3.12/site-packages",
+          "hrtf": "/data/avengine_external/rlr-sdk/hrtf/mit_kemar_normal_pinna_16k_v2_sofar_20260820T2200Z/mit_kemar_normal_pinna_16k.sofa",
+          "mp3d_root": "/data/datasets/habitat_data"
+        }
+      }
+    },
+    {
+      "episode_id": "qa_pilot46_20260907_kujiale_animal_device",
+      "room_id": "kujiale_0020_full_home_v1",
+      "source_classes": [
+        "articulated_animal",
+        "rigid_static_object"
+      ],
+      "condition_group": "post_sound_state",
+      "silent_count": 0,
+      "profile": {
+        "separation_floor_deg": 15,
+        "anchor_visibility": "in_fov",
+        "anchor_line_of_sight": "clear",
+        "competitor_set": "all_other_entities_including_offscreen",
+        "separation_window": "whole_audible_window_of_anchor",
+        "min_gap_between_audible_windows_s": 0.5,
+        "reserve_tail_s": 3.0,
+        "minimum_overlap_s": 0.3,
+        "retry_budget_within_profile": 200,
+        "anchor_count": 1,
+        "separation_bin_deg": [
+          60,
+          90
+        ],
+        "speech_motion": "all_still",
+        "event_relation": "sequential"
+      },
+      "request_overrides": {
+        "runtime": {
+          "uproject": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_full_asset_ue_stage_20260907_v1/SpearSim/SpearSim.uproject",
+          "unreal_editor": "/data/UE_5.5/Engine/Binaries/Linux/UnrealEditor",
+          "spear_ext_dir": "/data/avengine_external/spear-host-sdk/avengine-spear-ext-cp312-8a36d4d-20260821T0030Z",
+          "graphics_adapter": 1,
+          "rpc_port": 39629,
+          "streaming_warmup_frames": 180,
+          "ddc_profile": "InstalledNoZenLocalFallback",
+          "ddc_directory": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_real_rooms_20260906_ddc",
+          "runtime_prefix": "/data/avengine_external/runtime-prefixes/avengine-habitat-object-id-732f264-20260824T1041Z",
+          "rlr_sdk_root": "/data/avengine_external/rlr-sdk/RLRAudioPropagationPkg",
+          "magnum_python_site": "/data/avengine_external/runtime-prefixes/magnum-python-cp312-45811bb-20260820T1845Z/lib/python3.12/site-packages",
+          "hrtf": "/data/avengine_external/rlr-sdk/hrtf/mit_kemar_normal_pinna_16k_v2_sofar_20260820T2200Z/mit_kemar_normal_pinna_16k.sofa",
+          "mp3d_root": "/data/datasets/habitat_data"
+        }
+      }
+    },
+    {
+      "episode_id": "qa_pilot46_20260907_kujiale_device_device",
+      "room_id": "kujiale_0020_full_home_v1",
+      "source_classes": [
+        "rigid_static_object",
+        "rigid_static_object"
+      ],
+      "condition_group": "identity_binding",
+      "silent_count": 0,
+      "profile": {
+        "separation_floor_deg": 15,
+        "anchor_visibility": "in_fov",
+        "anchor_line_of_sight": "clear",
+        "competitor_set": "all_other_entities_including_offscreen",
+        "separation_window": "whole_audible_window_of_anchor",
+        "min_gap_between_audible_windows_s": 0.5,
+        "reserve_tail_s": 3.0,
+        "minimum_overlap_s": 0.3,
+        "retry_budget_within_profile": 200,
+        "anchor_count": 1,
+        "separation_bin_deg": [
+          30,
+          60
+        ],
+        "speech_motion": "all_still",
+        "event_relation": "repeat"
+      },
+      "request_overrides": {
+        "runtime": {
+          "uproject": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_full_asset_ue_stage_20260907_v1/SpearSim/SpearSim.uproject",
+          "unreal_editor": "/data/UE_5.5/Engine/Binaries/Linux/UnrealEditor",
+          "spear_ext_dir": "/data/avengine_external/spear-host-sdk/avengine-spear-ext-cp312-8a36d4d-20260821T0030Z",
+          "graphics_adapter": 2,
+          "rpc_port": 39630,
+          "streaming_warmup_frames": 180,
+          "ddc_profile": "InstalledNoZenLocalFallback",
+          "ddc_directory": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_real_rooms_20260906_ddc",
+          "runtime_prefix": "/data/avengine_external/runtime-prefixes/avengine-habitat-object-id-732f264-20260824T1041Z",
+          "rlr_sdk_root": "/data/avengine_external/rlr-sdk/RLRAudioPropagationPkg",
+          "magnum_python_site": "/data/avengine_external/runtime-prefixes/magnum-python-cp312-45811bb-20260820T1845Z/lib/python3.12/site-packages",
+          "hrtf": "/data/avengine_external/rlr-sdk/hrtf/mit_kemar_normal_pinna_16k_v2_sofar_20260820T2200Z/mit_kemar_normal_pinna_16k.sofa",
+          "mp3d_root": "/data/datasets/habitat_data"
+        }
+      }
+    },
+    {
+      "episode_id": "qa_pilot46_20260907_kujiale_single_active",
+      "room_id": "kujiale_0020_full_home_v1",
+      "source_classes": [
+        "articulated_human",
+        "articulated_human"
+      ],
+      "condition_group": "identity_binding",
+      "silent_count": 1,
+      "profile": {
+        "separation_floor_deg": 15,
+        "anchor_visibility": "in_fov",
+        "anchor_line_of_sight": "clear",
+        "competitor_set": "all_other_entities_including_offscreen",
+        "separation_window": "whole_audible_window_of_anchor",
+        "min_gap_between_audible_windows_s": 0.5,
+        "reserve_tail_s": 3.0,
+        "minimum_overlap_s": 0.3,
+        "retry_budget_within_profile": 200,
+        "anchor_count": 1,
+        "separation_bin_deg": [
+          30,
+          60
+        ],
+        "speech_motion": "all_still",
+        "event_relation": "sequential"
+      },
+      "request_overrides": {
+        "runtime": {
+          "uproject": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_full_asset_ue_stage_20260907_v1/SpearSim/SpearSim.uproject",
+          "unreal_editor": "/data/UE_5.5/Engine/Binaries/Linux/UnrealEditor",
+          "spear_ext_dir": "/data/avengine_external/spear-host-sdk/avengine-spear-ext-cp312-8a36d4d-20260821T0030Z",
+          "graphics_adapter": 3,
+          "rpc_port": 39631,
+          "streaming_warmup_frames": 180,
+          "ddc_profile": "InstalledNoZenLocalFallback",
+          "ddc_directory": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_real_rooms_20260906_ddc",
+          "runtime_prefix": "/data/avengine_external/runtime-prefixes/avengine-habitat-object-id-732f264-20260824T1041Z",
+          "rlr_sdk_root": "/data/avengine_external/rlr-sdk/RLRAudioPropagationPkg",
+          "magnum_python_site": "/data/avengine_external/runtime-prefixes/magnum-python-cp312-45811bb-20260820T1845Z/lib/python3.12/site-packages",
+          "hrtf": "/data/avengine_external/rlr-sdk/hrtf/mit_kemar_normal_pinna_16k_v2_sofar_20260820T2200Z/mit_kemar_normal_pinna_16k.sofa",
+          "mp3d_root": "/data/datasets/habitat_data"
+        }
+      }
+    },
+    {
+      "episode_id": "qa_pilot46_20260907_mp3d_human_human",
+      "room_id": "habitat_mp3d_example_17DRP5sb8fy",
+      "source_classes": [
+        "articulated_human",
+        "articulated_human"
+      ],
+      "condition_group": "identity_binding",
+      "silent_count": 0,
+      "profile": {
+        "separation_floor_deg": 15,
+        "anchor_visibility": "in_fov",
+        "anchor_line_of_sight": "clear",
+        "competitor_set": "all_other_entities_including_offscreen",
+        "separation_window": "whole_audible_window_of_anchor",
+        "min_gap_between_audible_windows_s": 0.5,
+        "reserve_tail_s": 3.0,
+        "minimum_overlap_s": 0.3,
+        "retry_budget_within_profile": 200,
+        "anchor_count": 1,
+        "separation_bin_deg": [
+          30,
+          60
+        ],
+        "speech_motion": "all_still",
+        "event_relation": "sequential"
+      },
+      "request_overrides": {
+        "runtime": {
+          "uproject": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_full_asset_ue_stage_20260907_v1/SpearSim/SpearSim.uproject",
+          "unreal_editor": "/data/UE_5.5/Engine/Binaries/Linux/UnrealEditor",
+          "spear_ext_dir": "/data/avengine_external/spear-host-sdk/avengine-spear-ext-cp312-8a36d4d-20260821T0030Z",
+          "graphics_adapter": 0,
+          "rpc_port": 39632,
+          "streaming_warmup_frames": 180,
+          "ddc_profile": "InstalledNoZenLocalFallback",
+          "ddc_directory": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_real_rooms_20260906_ddc",
+          "runtime_prefix": "/data/avengine_external/runtime-prefixes/avengine-habitat-object-id-732f264-20260824T1041Z",
+          "rlr_sdk_root": "/data/avengine_external/rlr-sdk/RLRAudioPropagationPkg",
+          "magnum_python_site": "/data/avengine_external/runtime-prefixes/magnum-python-cp312-45811bb-20260820T1845Z/lib/python3.12/site-packages",
+          "hrtf": "/data/avengine_external/rlr-sdk/hrtf/mit_kemar_normal_pinna_16k_v2_sofar_20260820T2200Z/mit_kemar_normal_pinna_16k.sofa",
+          "mp3d_root": "/data/datasets/habitat_data"
+        }
+      }
+    },
+    {
+      "episode_id": "qa_pilot46_20260907_mp3d_human_animal",
+      "room_id": "habitat_mp3d_example_17DRP5sb8fy",
+      "source_classes": [
+        "articulated_human",
+        "articulated_animal"
+      ],
+      "condition_group": "audio_event_relations",
+      "silent_count": 0,
+      "profile": {
+        "separation_floor_deg": 15,
+        "anchor_visibility": "in_fov",
+        "anchor_line_of_sight": "clear",
+        "competitor_set": "all_other_entities_including_offscreen",
+        "separation_window": "whole_audible_window_of_anchor",
+        "min_gap_between_audible_windows_s": 0.5,
+        "reserve_tail_s": 3.0,
+        "minimum_overlap_s": 0.3,
+        "retry_budget_within_profile": 200,
+        "anchor_count": 2,
+        "separation_bin_deg": [
+          30,
+          60
+        ],
+        "speech_motion": "all_still",
+        "event_relation": "overlap"
+      },
+      "request_overrides": {
+        "runtime": {
+          "uproject": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_full_asset_ue_stage_20260907_v1/SpearSim/SpearSim.uproject",
+          "unreal_editor": "/data/UE_5.5/Engine/Binaries/Linux/UnrealEditor",
+          "spear_ext_dir": "/data/avengine_external/spear-host-sdk/avengine-spear-ext-cp312-8a36d4d-20260821T0030Z",
+          "graphics_adapter": 1,
+          "rpc_port": 39633,
+          "streaming_warmup_frames": 180,
+          "ddc_profile": "InstalledNoZenLocalFallback",
+          "ddc_directory": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_real_rooms_20260906_ddc",
+          "runtime_prefix": "/data/avengine_external/runtime-prefixes/avengine-habitat-object-id-732f264-20260824T1041Z",
+          "rlr_sdk_root": "/data/avengine_external/rlr-sdk/RLRAudioPropagationPkg",
+          "magnum_python_site": "/data/avengine_external/runtime-prefixes/magnum-python-cp312-45811bb-20260820T1845Z/lib/python3.12/site-packages",
+          "hrtf": "/data/avengine_external/rlr-sdk/hrtf/mit_kemar_normal_pinna_16k_v2_sofar_20260820T2200Z/mit_kemar_normal_pinna_16k.sofa",
+          "mp3d_root": "/data/datasets/habitat_data"
+        }
+      }
+    },
+    {
+      "episode_id": "qa_pilot46_20260907_mp3d_human_device",
+      "room_id": "habitat_mp3d_example_17DRP5sb8fy",
+      "source_classes": [
+        "articulated_human",
+        "rigid_static_object"
+      ],
+      "condition_group": "visibility_occlusion",
+      "silent_count": 0,
+      "profile": {
+        "separation_floor_deg": 15,
+        "anchor_visibility": "in_fov",
+        "anchor_line_of_sight": "occluded",
+        "competitor_set": "all_other_entities_including_offscreen",
+        "separation_window": "whole_audible_window_of_anchor",
+        "min_gap_between_audible_windows_s": 0.5,
+        "reserve_tail_s": 3.0,
+        "minimum_overlap_s": 0.3,
+        "retry_budget_within_profile": 200,
+        "anchor_count": 1,
+        "separation_bin_deg": [
+          15,
+          30
+        ],
+        "speech_motion": "all_still",
+        "event_relation": "sequential"
+      },
+      "request_overrides": {
+        "runtime": {
+          "uproject": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_full_asset_ue_stage_20260907_v1/SpearSim/SpearSim.uproject",
+          "unreal_editor": "/data/UE_5.5/Engine/Binaries/Linux/UnrealEditor",
+          "spear_ext_dir": "/data/avengine_external/spear-host-sdk/avengine-spear-ext-cp312-8a36d4d-20260821T0030Z",
+          "graphics_adapter": 2,
+          "rpc_port": 39634,
+          "streaming_warmup_frames": 180,
+          "ddc_profile": "InstalledNoZenLocalFallback",
+          "ddc_directory": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_real_rooms_20260906_ddc",
+          "runtime_prefix": "/data/avengine_external/runtime-prefixes/avengine-habitat-object-id-732f264-20260824T1041Z",
+          "rlr_sdk_root": "/data/avengine_external/rlr-sdk/RLRAudioPropagationPkg",
+          "magnum_python_site": "/data/avengine_external/runtime-prefixes/magnum-python-cp312-45811bb-20260820T1845Z/lib/python3.12/site-packages",
+          "hrtf": "/data/avengine_external/rlr-sdk/hrtf/mit_kemar_normal_pinna_16k_v2_sofar_20260820T2200Z/mit_kemar_normal_pinna_16k.sofa",
+          "mp3d_root": "/data/datasets/habitat_data"
+        }
+      }
+    },
+    {
+      "episode_id": "qa_pilot46_20260907_mp3d_animal_animal",
+      "room_id": "habitat_mp3d_example_17DRP5sb8fy",
+      "source_classes": [
+        "articulated_animal",
+        "articulated_animal"
+      ],
+      "condition_group": "motion_distance",
+      "silent_count": 0,
+      "profile": {
+        "separation_floor_deg": 15,
+        "anchor_visibility": "in_fov",
+        "anchor_line_of_sight": "clear",
+        "competitor_set": "all_other_entities_including_offscreen",
+        "separation_window": "whole_audible_window_of_anchor",
+        "min_gap_between_audible_windows_s": 0.5,
+        "reserve_tail_s": 3.0,
+        "minimum_overlap_s": 0.3,
+        "retry_budget_within_profile": 200,
+        "anchor_count": 1,
+        "separation_bin_deg": [
+          30,
+          60
+        ],
+        "speech_motion": "speaker_moving",
+        "event_relation": "sequential"
+      },
+      "request_overrides": {
+        "runtime": {
+          "uproject": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_full_asset_ue_stage_20260907_v1/SpearSim/SpearSim.uproject",
+          "unreal_editor": "/data/UE_5.5/Engine/Binaries/Linux/UnrealEditor",
+          "spear_ext_dir": "/data/avengine_external/spear-host-sdk/avengine-spear-ext-cp312-8a36d4d-20260821T0030Z",
+          "graphics_adapter": 3,
+          "rpc_port": 39635,
+          "streaming_warmup_frames": 180,
+          "ddc_profile": "InstalledNoZenLocalFallback",
+          "ddc_directory": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_real_rooms_20260906_ddc",
+          "runtime_prefix": "/data/avengine_external/runtime-prefixes/avengine-habitat-object-id-732f264-20260824T1041Z",
+          "rlr_sdk_root": "/data/avengine_external/rlr-sdk/RLRAudioPropagationPkg",
+          "magnum_python_site": "/data/avengine_external/runtime-prefixes/magnum-python-cp312-45811bb-20260820T1845Z/lib/python3.12/site-packages",
+          "hrtf": "/data/avengine_external/rlr-sdk/hrtf/mit_kemar_normal_pinna_16k_v2_sofar_20260820T2200Z/mit_kemar_normal_pinna_16k.sofa",
+          "mp3d_root": "/data/datasets/habitat_data"
+        }
+      }
+    },
+    {
+      "episode_id": "qa_pilot46_20260907_mp3d_animal_device",
+      "room_id": "habitat_mp3d_example_17DRP5sb8fy",
+      "source_classes": [
+        "articulated_animal",
+        "rigid_static_object"
+      ],
+      "condition_group": "post_sound_state",
+      "silent_count": 0,
+      "profile": {
+        "separation_floor_deg": 15,
+        "anchor_visibility": "in_fov",
+        "anchor_line_of_sight": "clear",
+        "competitor_set": "all_other_entities_including_offscreen",
+        "separation_window": "whole_audible_window_of_anchor",
+        "min_gap_between_audible_windows_s": 0.5,
+        "reserve_tail_s": 3.0,
+        "minimum_overlap_s": 0.3,
+        "retry_budget_within_profile": 200,
+        "anchor_count": 1,
+        "separation_bin_deg": [
+          60,
+          90
+        ],
+        "speech_motion": "all_still",
+        "event_relation": "sequential"
+      },
+      "request_overrides": {
+        "runtime": {
+          "uproject": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_full_asset_ue_stage_20260907_v1/SpearSim/SpearSim.uproject",
+          "unreal_editor": "/data/UE_5.5/Engine/Binaries/Linux/UnrealEditor",
+          "spear_ext_dir": "/data/avengine_external/spear-host-sdk/avengine-spear-ext-cp312-8a36d4d-20260821T0030Z",
+          "graphics_adapter": 0,
+          "rpc_port": 39636,
+          "streaming_warmup_frames": 180,
+          "ddc_profile": "InstalledNoZenLocalFallback",
+          "ddc_directory": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_real_rooms_20260906_ddc",
+          "runtime_prefix": "/data/avengine_external/runtime-prefixes/avengine-habitat-object-id-732f264-20260824T1041Z",
+          "rlr_sdk_root": "/data/avengine_external/rlr-sdk/RLRAudioPropagationPkg",
+          "magnum_python_site": "/data/avengine_external/runtime-prefixes/magnum-python-cp312-45811bb-20260820T1845Z/lib/python3.12/site-packages",
+          "hrtf": "/data/avengine_external/rlr-sdk/hrtf/mit_kemar_normal_pinna_16k_v2_sofar_20260820T2200Z/mit_kemar_normal_pinna_16k.sofa",
+          "mp3d_root": "/data/datasets/habitat_data"
+        }
+      }
+    },
+    {
+      "episode_id": "qa_pilot46_20260907_mp3d_device_device",
+      "room_id": "habitat_mp3d_example_17DRP5sb8fy",
+      "source_classes": [
+        "rigid_static_object",
+        "rigid_static_object"
+      ],
+      "condition_group": "identity_binding",
+      "silent_count": 0,
+      "profile": {
+        "separation_floor_deg": 15,
+        "anchor_visibility": "in_fov",
+        "anchor_line_of_sight": "clear",
+        "competitor_set": "all_other_entities_including_offscreen",
+        "separation_window": "whole_audible_window_of_anchor",
+        "min_gap_between_audible_windows_s": 0.5,
+        "reserve_tail_s": 3.0,
+        "minimum_overlap_s": 0.3,
+        "retry_budget_within_profile": 200,
+        "anchor_count": 1,
+        "separation_bin_deg": [
+          30,
+          60
+        ],
+        "speech_motion": "all_still",
+        "event_relation": "repeat"
+      },
+      "request_overrides": {
+        "runtime": {
+          "uproject": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_full_asset_ue_stage_20260907_v1/SpearSim/SpearSim.uproject",
+          "unreal_editor": "/data/UE_5.5/Engine/Binaries/Linux/UnrealEditor",
+          "spear_ext_dir": "/data/avengine_external/spear-host-sdk/avengine-spear-ext-cp312-8a36d4d-20260821T0030Z",
+          "graphics_adapter": 1,
+          "rpc_port": 39637,
+          "streaming_warmup_frames": 180,
+          "ddc_profile": "InstalledNoZenLocalFallback",
+          "ddc_directory": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_real_rooms_20260906_ddc",
+          "runtime_prefix": "/data/avengine_external/runtime-prefixes/avengine-habitat-object-id-732f264-20260824T1041Z",
+          "rlr_sdk_root": "/data/avengine_external/rlr-sdk/RLRAudioPropagationPkg",
+          "magnum_python_site": "/data/avengine_external/runtime-prefixes/magnum-python-cp312-45811bb-20260820T1845Z/lib/python3.12/site-packages",
+          "hrtf": "/data/avengine_external/rlr-sdk/hrtf/mit_kemar_normal_pinna_16k_v2_sofar_20260820T2200Z/mit_kemar_normal_pinna_16k.sofa",
+          "mp3d_root": "/data/datasets/habitat_data"
+        }
+      }
+    },
+    {
+      "episode_id": "qa_pilot46_20260907_mp3d_single_active",
+      "room_id": "habitat_mp3d_example_17DRP5sb8fy",
+      "source_classes": [
+        "articulated_human",
+        "articulated_human"
+      ],
+      "condition_group": "identity_binding",
+      "silent_count": 1,
+      "profile": {
+        "separation_floor_deg": 15,
+        "anchor_visibility": "in_fov",
+        "anchor_line_of_sight": "clear",
+        "competitor_set": "all_other_entities_including_offscreen",
+        "separation_window": "whole_audible_window_of_anchor",
+        "min_gap_between_audible_windows_s": 0.5,
+        "reserve_tail_s": 3.0,
+        "minimum_overlap_s": 0.3,
+        "retry_budget_within_profile": 200,
+        "anchor_count": 1,
+        "separation_bin_deg": [
+          30,
+          60
+        ],
+        "speech_motion": "all_still",
+        "event_relation": "sequential"
+      },
+      "request_overrides": {
+        "runtime": {
+          "uproject": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_full_asset_ue_stage_20260907_v1/SpearSim/SpearSim.uproject",
+          "unreal_editor": "/data/UE_5.5/Engine/Binaries/Linux/UnrealEditor",
+          "spear_ext_dir": "/data/avengine_external/spear-host-sdk/avengine-spear-ext-cp312-8a36d4d-20260821T0030Z",
+          "graphics_adapter": 2,
+          "rpc_port": 39638,
+          "streaming_warmup_frames": 180,
+          "ddc_profile": "InstalledNoZenLocalFallback",
+          "ddc_directory": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_real_rooms_20260906_ddc",
+          "runtime_prefix": "/data/avengine_external/runtime-prefixes/avengine-habitat-object-id-732f264-20260824T1041Z",
+          "rlr_sdk_root": "/data/avengine_external/rlr-sdk/RLRAudioPropagationPkg",
+          "magnum_python_site": "/data/avengine_external/runtime-prefixes/magnum-python-cp312-45811bb-20260820T1845Z/lib/python3.12/site-packages",
+          "hrtf": "/data/avengine_external/rlr-sdk/hrtf/mit_kemar_normal_pinna_16k_v2_sofar_20260820T2200Z/mit_kemar_normal_pinna_16k.sofa",
+          "mp3d_root": "/data/datasets/habitat_data"
+        }
+      }
+    },
+    {
+      "episode_id": "qa_pilot46_20260907_hm3d_human_human",
+      "room_id": "hm3d_val_00800_TEEsavR23oF",
+      "source_classes": [
+        "articulated_human",
+        "articulated_human"
+      ],
+      "condition_group": "identity_binding",
+      "silent_count": 0,
+      "profile": {
+        "separation_floor_deg": 15,
+        "anchor_visibility": "in_fov",
+        "anchor_line_of_sight": "clear",
+        "competitor_set": "all_other_entities_including_offscreen",
+        "separation_window": "whole_audible_window_of_anchor",
+        "min_gap_between_audible_windows_s": 0.5,
+        "reserve_tail_s": 3.0,
+        "minimum_overlap_s": 0.3,
+        "retry_budget_within_profile": 200,
+        "anchor_count": 1,
+        "separation_bin_deg": [
+          30,
+          60
+        ],
+        "speech_motion": "all_still",
+        "event_relation": "sequential"
+      },
+      "request_overrides": {
+        "runtime": {
+          "uproject": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_full_asset_ue_stage_20260907_v1/SpearSim/SpearSim.uproject",
+          "unreal_editor": "/data/UE_5.5/Engine/Binaries/Linux/UnrealEditor",
+          "spear_ext_dir": "/data/avengine_external/spear-host-sdk/avengine-spear-ext-cp312-8a36d4d-20260821T0030Z",
+          "graphics_adapter": 3,
+          "rpc_port": 39639,
+          "streaming_warmup_frames": 180,
+          "ddc_profile": "InstalledNoZenLocalFallback",
+          "ddc_directory": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_real_rooms_20260906_ddc",
+          "runtime_prefix": "/data/avengine_external/runtime-prefixes/avengine-habitat-object-id-732f264-20260824T1041Z",
+          "rlr_sdk_root": "/data/avengine_external/rlr-sdk/RLRAudioPropagationPkg",
+          "magnum_python_site": "/data/avengine_external/runtime-prefixes/magnum-python-cp312-45811bb-20260820T1845Z/lib/python3.12/site-packages",
+          "hrtf": "/data/avengine_external/rlr-sdk/hrtf/mit_kemar_normal_pinna_16k_v2_sofar_20260820T2200Z/mit_kemar_normal_pinna_16k.sofa",
+          "mp3d_root": "/data/datasets/habitat_data"
+        }
+      }
+    },
+    {
+      "episode_id": "qa_pilot46_20260907_hm3d_human_animal",
+      "room_id": "hm3d_val_00800_TEEsavR23oF",
+      "source_classes": [
+        "articulated_human",
+        "articulated_animal"
+      ],
+      "condition_group": "audio_event_relations",
+      "silent_count": 0,
+      "profile": {
+        "separation_floor_deg": 15,
+        "anchor_visibility": "in_fov",
+        "anchor_line_of_sight": "clear",
+        "competitor_set": "all_other_entities_including_offscreen",
+        "separation_window": "whole_audible_window_of_anchor",
+        "min_gap_between_audible_windows_s": 0.5,
+        "reserve_tail_s": 3.0,
+        "minimum_overlap_s": 0.3,
+        "retry_budget_within_profile": 200,
+        "anchor_count": 2,
+        "separation_bin_deg": [
+          30,
+          60
+        ],
+        "speech_motion": "all_still",
+        "event_relation": "overlap"
+      },
+      "request_overrides": {
+        "runtime": {
+          "uproject": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_full_asset_ue_stage_20260907_v1/SpearSim/SpearSim.uproject",
+          "unreal_editor": "/data/UE_5.5/Engine/Binaries/Linux/UnrealEditor",
+          "spear_ext_dir": "/data/avengine_external/spear-host-sdk/avengine-spear-ext-cp312-8a36d4d-20260821T0030Z",
+          "graphics_adapter": 0,
+          "rpc_port": 39640,
+          "streaming_warmup_frames": 180,
+          "ddc_profile": "InstalledNoZenLocalFallback",
+          "ddc_directory": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_real_rooms_20260906_ddc",
+          "runtime_prefix": "/data/avengine_external/runtime-prefixes/avengine-habitat-object-id-732f264-20260824T1041Z",
+          "rlr_sdk_root": "/data/avengine_external/rlr-sdk/RLRAudioPropagationPkg",
+          "magnum_python_site": "/data/avengine_external/runtime-prefixes/magnum-python-cp312-45811bb-20260820T1845Z/lib/python3.12/site-packages",
+          "hrtf": "/data/avengine_external/rlr-sdk/hrtf/mit_kemar_normal_pinna_16k_v2_sofar_20260820T2200Z/mit_kemar_normal_pinna_16k.sofa",
+          "mp3d_root": "/data/datasets/habitat_data"
+        }
+      }
+    },
+    {
+      "episode_id": "qa_pilot46_20260907_hm3d_human_device",
+      "room_id": "hm3d_val_00800_TEEsavR23oF",
+      "source_classes": [
+        "articulated_human",
+        "rigid_static_object"
+      ],
+      "condition_group": "visibility_occlusion",
+      "silent_count": 0,
+      "profile": {
+        "separation_floor_deg": 15,
+        "anchor_visibility": "in_fov",
+        "anchor_line_of_sight": "occluded",
+        "competitor_set": "all_other_entities_including_offscreen",
+        "separation_window": "whole_audible_window_of_anchor",
+        "min_gap_between_audible_windows_s": 0.5,
+        "reserve_tail_s": 3.0,
+        "minimum_overlap_s": 0.3,
+        "retry_budget_within_profile": 200,
+        "anchor_count": 1,
+        "separation_bin_deg": [
+          15,
+          30
+        ],
+        "speech_motion": "all_still",
+        "event_relation": "sequential"
+      },
+      "request_overrides": {
+        "runtime": {
+          "uproject": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_full_asset_ue_stage_20260907_v1/SpearSim/SpearSim.uproject",
+          "unreal_editor": "/data/UE_5.5/Engine/Binaries/Linux/UnrealEditor",
+          "spear_ext_dir": "/data/avengine_external/spear-host-sdk/avengine-spear-ext-cp312-8a36d4d-20260821T0030Z",
+          "graphics_adapter": 1,
+          "rpc_port": 39641,
+          "streaming_warmup_frames": 180,
+          "ddc_profile": "InstalledNoZenLocalFallback",
+          "ddc_directory": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_real_rooms_20260906_ddc",
+          "runtime_prefix": "/data/avengine_external/runtime-prefixes/avengine-habitat-object-id-732f264-20260824T1041Z",
+          "rlr_sdk_root": "/data/avengine_external/rlr-sdk/RLRAudioPropagationPkg",
+          "magnum_python_site": "/data/avengine_external/runtime-prefixes/magnum-python-cp312-45811bb-20260820T1845Z/lib/python3.12/site-packages",
+          "hrtf": "/data/avengine_external/rlr-sdk/hrtf/mit_kemar_normal_pinna_16k_v2_sofar_20260820T2200Z/mit_kemar_normal_pinna_16k.sofa",
+          "mp3d_root": "/data/datasets/habitat_data"
+        }
+      }
+    },
+    {
+      "episode_id": "qa_pilot46_20260907_hm3d_animal_animal",
+      "room_id": "hm3d_val_00800_TEEsavR23oF",
+      "source_classes": [
+        "articulated_animal",
+        "articulated_animal"
+      ],
+      "condition_group": "motion_distance",
+      "silent_count": 0,
+      "profile": {
+        "separation_floor_deg": 15,
+        "anchor_visibility": "in_fov",
+        "anchor_line_of_sight": "clear",
+        "competitor_set": "all_other_entities_including_offscreen",
+        "separation_window": "whole_audible_window_of_anchor",
+        "min_gap_between_audible_windows_s": 0.5,
+        "reserve_tail_s": 3.0,
+        "minimum_overlap_s": 0.3,
+        "retry_budget_within_profile": 200,
+        "anchor_count": 1,
+        "separation_bin_deg": [
+          30,
+          60
+        ],
+        "speech_motion": "speaker_moving",
+        "event_relation": "sequential"
+      },
+      "request_overrides": {
+        "runtime": {
+          "uproject": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_full_asset_ue_stage_20260907_v1/SpearSim/SpearSim.uproject",
+          "unreal_editor": "/data/UE_5.5/Engine/Binaries/Linux/UnrealEditor",
+          "spear_ext_dir": "/data/avengine_external/spear-host-sdk/avengine-spear-ext-cp312-8a36d4d-20260821T0030Z",
+          "graphics_adapter": 2,
+          "rpc_port": 39642,
+          "streaming_warmup_frames": 180,
+          "ddc_profile": "InstalledNoZenLocalFallback",
+          "ddc_directory": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_real_rooms_20260906_ddc",
+          "runtime_prefix": "/data/avengine_external/runtime-prefixes/avengine-habitat-object-id-732f264-20260824T1041Z",
+          "rlr_sdk_root": "/data/avengine_external/rlr-sdk/RLRAudioPropagationPkg",
+          "magnum_python_site": "/data/avengine_external/runtime-prefixes/magnum-python-cp312-45811bb-20260820T1845Z/lib/python3.12/site-packages",
+          "hrtf": "/data/avengine_external/rlr-sdk/hrtf/mit_kemar_normal_pinna_16k_v2_sofar_20260820T2200Z/mit_kemar_normal_pinna_16k.sofa",
+          "mp3d_root": "/data/datasets/habitat_data"
+        }
+      }
+    },
+    {
+      "episode_id": "qa_pilot46_20260907_hm3d_animal_device",
+      "room_id": "hm3d_val_00800_TEEsavR23oF",
+      "source_classes": [
+        "articulated_animal",
+        "rigid_static_object"
+      ],
+      "condition_group": "post_sound_state",
+      "silent_count": 0,
+      "profile": {
+        "separation_floor_deg": 15,
+        "anchor_visibility": "in_fov",
+        "anchor_line_of_sight": "clear",
+        "competitor_set": "all_other_entities_including_offscreen",
+        "separation_window": "whole_audible_window_of_anchor",
+        "min_gap_between_audible_windows_s": 0.5,
+        "reserve_tail_s": 3.0,
+        "minimum_overlap_s": 0.3,
+        "retry_budget_within_profile": 200,
+        "anchor_count": 1,
+        "separation_bin_deg": [
+          60,
+          90
+        ],
+        "speech_motion": "all_still",
+        "event_relation": "sequential"
+      },
+      "request_overrides": {
+        "runtime": {
+          "uproject": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_full_asset_ue_stage_20260907_v1/SpearSim/SpearSim.uproject",
+          "unreal_editor": "/data/UE_5.5/Engine/Binaries/Linux/UnrealEditor",
+          "spear_ext_dir": "/data/avengine_external/spear-host-sdk/avengine-spear-ext-cp312-8a36d4d-20260821T0030Z",
+          "graphics_adapter": 3,
+          "rpc_port": 39643,
+          "streaming_warmup_frames": 180,
+          "ddc_profile": "InstalledNoZenLocalFallback",
+          "ddc_directory": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_real_rooms_20260906_ddc",
+          "runtime_prefix": "/data/avengine_external/runtime-prefixes/avengine-habitat-object-id-732f264-20260824T1041Z",
+          "rlr_sdk_root": "/data/avengine_external/rlr-sdk/RLRAudioPropagationPkg",
+          "magnum_python_site": "/data/avengine_external/runtime-prefixes/magnum-python-cp312-45811bb-20260820T1845Z/lib/python3.12/site-packages",
+          "hrtf": "/data/avengine_external/rlr-sdk/hrtf/mit_kemar_normal_pinna_16k_v2_sofar_20260820T2200Z/mit_kemar_normal_pinna_16k.sofa",
+          "mp3d_root": "/data/datasets/habitat_data"
+        }
+      }
+    },
+    {
+      "episode_id": "qa_pilot46_20260907_hm3d_device_device",
+      "room_id": "hm3d_val_00800_TEEsavR23oF",
+      "source_classes": [
+        "rigid_static_object",
+        "rigid_static_object"
+      ],
+      "condition_group": "identity_binding",
+      "silent_count": 0,
+      "profile": {
+        "separation_floor_deg": 15,
+        "anchor_visibility": "in_fov",
+        "anchor_line_of_sight": "clear",
+        "competitor_set": "all_other_entities_including_offscreen",
+        "separation_window": "whole_audible_window_of_anchor",
+        "min_gap_between_audible_windows_s": 0.5,
+        "reserve_tail_s": 3.0,
+        "minimum_overlap_s": 0.3,
+        "retry_budget_within_profile": 200,
+        "anchor_count": 1,
+        "separation_bin_deg": [
+          30,
+          60
+        ],
+        "speech_motion": "all_still",
+        "event_relation": "repeat"
+      },
+      "request_overrides": {
+        "runtime": {
+          "uproject": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_full_asset_ue_stage_20260907_v1/SpearSim/SpearSim.uproject",
+          "unreal_editor": "/data/UE_5.5/Engine/Binaries/Linux/UnrealEditor",
+          "spear_ext_dir": "/data/avengine_external/spear-host-sdk/avengine-spear-ext-cp312-8a36d4d-20260821T0030Z",
+          "graphics_adapter": 0,
+          "rpc_port": 39644,
+          "streaming_warmup_frames": 180,
+          "ddc_profile": "InstalledNoZenLocalFallback",
+          "ddc_directory": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_real_rooms_20260906_ddc",
+          "runtime_prefix": "/data/avengine_external/runtime-prefixes/avengine-habitat-object-id-732f264-20260824T1041Z",
+          "rlr_sdk_root": "/data/avengine_external/rlr-sdk/RLRAudioPropagationPkg",
+          "magnum_python_site": "/data/avengine_external/runtime-prefixes/magnum-python-cp312-45811bb-20260820T1845Z/lib/python3.12/site-packages",
+          "hrtf": "/data/avengine_external/rlr-sdk/hrtf/mit_kemar_normal_pinna_16k_v2_sofar_20260820T2200Z/mit_kemar_normal_pinna_16k.sofa",
+          "mp3d_root": "/data/datasets/habitat_data"
+        }
+      }
+    },
+    {
+      "episode_id": "qa_pilot46_20260907_hm3d_single_active",
+      "room_id": "hm3d_val_00800_TEEsavR23oF",
+      "source_classes": [
+        "articulated_human",
+        "articulated_human"
+      ],
+      "condition_group": "identity_binding",
+      "silent_count": 1,
+      "profile": {
+        "separation_floor_deg": 15,
+        "anchor_visibility": "in_fov",
+        "anchor_line_of_sight": "clear",
+        "competitor_set": "all_other_entities_including_offscreen",
+        "separation_window": "whole_audible_window_of_anchor",
+        "min_gap_between_audible_windows_s": 0.5,
+        "reserve_tail_s": 3.0,
+        "minimum_overlap_s": 0.3,
+        "retry_budget_within_profile": 200,
+        "anchor_count": 1,
+        "separation_bin_deg": [
+          30,
+          60
+        ],
+        "speech_motion": "all_still",
+        "event_relation": "sequential"
+      },
+      "request_overrides": {
+        "runtime": {
+          "uproject": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_full_asset_ue_stage_20260907_v1/SpearSim/SpearSim.uproject",
+          "unreal_editor": "/data/UE_5.5/Engine/Binaries/Linux/UnrealEditor",
+          "spear_ext_dir": "/data/avengine_external/spear-host-sdk/avengine-spear-ext-cp312-8a36d4d-20260821T0030Z",
+          "graphics_adapter": 1,
+          "rpc_port": 39645,
+          "streaming_warmup_frames": 180,
+          "ddc_profile": "InstalledNoZenLocalFallback",
+          "ddc_directory": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_real_rooms_20260906_ddc",
+          "runtime_prefix": "/data/avengine_external/runtime-prefixes/avengine-habitat-object-id-732f264-20260824T1041Z",
+          "rlr_sdk_root": "/data/avengine_external/rlr-sdk/RLRAudioPropagationPkg",
+          "magnum_python_site": "/data/avengine_external/runtime-prefixes/magnum-python-cp312-45811bb-20260820T1845Z/lib/python3.12/site-packages",
+          "hrtf": "/data/avengine_external/rlr-sdk/hrtf/mit_kemar_normal_pinna_16k_v2_sofar_20260820T2200Z/mit_kemar_normal_pinna_16k.sofa",
+          "mp3d_root": "/data/datasets/habitat_data"
+        }
+      }
+    }
+  ],
+  "policy_source": "docs/roadmap/QA_PILOT_DATASET_AND_WORK_SPLIT_20260906.md section 1",
+  "source_semantic_mapping_note": "Explicit object/species to existing registered sound classes; no unknown class inference or PCM modification.",
+  "runtime_assignment_note": "Per-request GPU/port assignments may be adjusted at launch after checking live resources. Profiles, assets and sound identities remain fixed.",
+  "execution_authorization": "46 research Episodes only, after P1-P12 acceptance; no expansion or formal admission",
+  "candidate_asset_ids_by_class": {
+    "articulated_human": [
+      "lead_b_rocketbox_adults_female_adult_01_original_v1",
+      "lead_b_rocketbox_professions_construction_male_01_original_v1",
+      "rocketbox_human_male_adult_01_m5_1_candidate",
+      "rocketbox_human_male_adult_01_top_blue_research_v1",
+      "rocketbox_human_male_adult_01_top_burgundy_research_v1",
+      "rocketbox_human_male_adult_01_top_green_research_v1",
+      "rocketbox_human_male_adult_01_top_yellow_research_v1"
+    ],
+    "articulated_animal": [
+      "generated_abyssinian_ruddy_medium_standard_adult_research_v1",
+      "generated_border_collie_black_white_medium_standard_adult_research_v1",
+      "generated_british_shorthair_blue_medium_stocky_adult_research_v1",
+      "generated_burmese_dark_sable_research_v1",
+      "generated_burmese_standard_sable_research_v1",
+      "generated_jack_russell_terrier_standard_white_tan_research_v1",
+      "generated_labrador_yellow_medium_standard_adult_research_v1",
+      "generated_pembroke_welsh_corgi_red_white_medium_standard_adult_research_v1",
+      "generated_shiba_inu_red_medium_standard_adult_research_v1",
+      "generated_shiba_inu_red_medium_standard_adult_research_v2",
+      "generated_siamese_standard_seal_point_research_v1",
+      "rocketbox_dog_beagle_01_m2_v7_world_contact_candidate"
+    ],
+    "rigid_static_object": [
+      "generated_air_conditioner_portable_floor_white_research_v2",
+      "generated_alarm_clock_digital_cube_black_research_v2",
+      "generated_alarm_clock_twin_bell_analog_white_research_v1",
+      "generated_bathtub_built_in_alcove_white_research_v2",
+      "generated_bathtub_freestanding_white_research_v1",
+      "generated_blender_bullet_blender_silver_research_v1",
+      "generated_blender_jug_blender_black_research_v2",
+      "generated_bookshelf_speaker_compact_shelf_cabinet_black_ash_research_v1",
+      "generated_bookshelf_speaker_compact_shelf_cabinet_walnut_veneer_research_v1",
+      "generated_bookshelf_speaker_compact_shelf_cabinet_white_satin_research_v1",
+      "generated_cellphone_bar_smartphone_black_research_v1",
+      "generated_desk_telephone_corded_desk_unit_black_research_v1",
+      "generated_fireplace_masonry_open_warm_gray_research_v1",
+      "generated_fireplace_wood_stove_matte_black_research_v1",
+      "generated_floor_drain_floor_drain_silver_research_v1",
+      "generated_floorstanding_speaker_floor_standing_tower_walnut_veneer_research_v1",
+      "generated_microwave_oven_countertop_black_research_v1",
+      "generated_printer_desktop_inkjet_matte_black_research_v1",
+      "generated_printer_office_laser_mfp_white_research_v1",
+      "generated_sink_with_tap_counter_vanity_white_research_v2",
+      "generated_sink_with_tap_pedestal_basin_white_research_v2",
+      "generated_smart_speaker_fabric_wrapped_cylinder_charcoal_research_v1",
+      "generated_smart_speaker_fabric_wrapped_cylinder_light_gray_research_v1",
+      "generated_smart_speaker_fabric_wrapped_cylinder_sandstone_research_v1",
+      "generated_soundbar_wide_low_bar_light_gray_fabric_research_v1",
+      "generated_soundbar_wide_low_bar_matte_black_research_v1",
+      "generated_soundbar_wide_low_bar_white_satin_research_v1",
+      "generated_television_flat_panel_16_9_central_pedestal_research_v1",
+      "generated_television_flat_panel_16_9_two_splayed_feet_research_v1",
+      "generated_toilet_elevated_tank_exposed_pipe_white_research_v2",
+      "generated_toilet_exposed_flush_pipe_tank_white_research_v1"
+    ]
+  },
+  "candidate_scope": {
+    "rule": "P4/P11 first batch uses floor placement",
+    "source": "docs/roadmap/CODEX_TASK_PROMPTS_20260906.md P4 and P11",
+    "full_asset_denominator": 59,
+    "eligible_floor_assets": 50,
+    "wall_and_ceiling_assets_remain_in_coverage_as": "interface_not_implemented",
+    "prelaunch_correction": "v1 preallocation accidentally included unsupported wall/ceiling placements; diagnostic manifest retained. No Episode was executed and condition quotas were not changed."
+  }
+}

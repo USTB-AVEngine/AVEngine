@@ -5,7 +5,7 @@
 
 自 2026-08-25 起，目录本身就是能力分组（阶段目录 m1…m7 已移除），
 本表按目录列出每个工具做什么。
-当前共 401 个工具脚本。
+当前共 405 个工具脚本。
 
 ## 资产生成与装配（`tools/assets/`）
 
@@ -406,6 +406,9 @@
 | `tools/dataset/build_asset_bound_visual_reviews.py` | Build Habitat-only internal visual QA reviews for the M7 throughput batch |
 | `tools/dataset/build_cached_apartment_dataset_examples.py` | Build four cache-bound Apartment dataset examples for UE review |
 | `tools/dataset/build_mp3d_room_evaluation_review.py` | Build one hash-bound MP3D room-evaluation listening review |
+| `tools/dataset/build_qa_batch_coverage.py` | Build full-scope five-state QA coverage and structural baselines |
+| `tools/dataset/build_qa_batch_manifest.py` | Prepare independent QA batch requests, collect outcomes, or group splits |
+| `tools/dataset/build_qa_evaluation_permutations.py` | Build deterministic pre-evaluation option permutations and private mappings |
 | `tools/dataset/build_room_evaluation_plan.py` | Select balanced generic source trajectories for one room evaluation |
 | `tools/dataset/build_spear_apartment_review.py` | Bind one exact SPEAR Apartment RGB render to Habitat Topdown v3 and audio |
 | `tools/dataset/compare_rir_cache_metrics.py` | Compare EDT/DRR/late-energy between two retained RIR caches on matched jobs |
@@ -421,6 +424,7 @@
 | `tools/dataset/render_current_apartment_dynamic_audio.py` | Render motion-following binaural audio for a current UE research capture |
 | `tools/dataset/render_room_evaluation_binaural.py` | Mix generic room-evaluation sound classes through a completed RIR cache |
 | `tools/dataset/run_habitat_room_batch.py` | Batch Habitat-native RGB rendering for registry-selected rooms |
+| `tools/dataset/run_qa_batch.py` | Execute a fresh QA batch with bounded independent controller processes |
 | `tools/dataset/run_qwen_content_controls.py` | Run a resumable Qwen2.5-Omni content/visual control on sanitized Episode inputs |
 | `tools/dataset/score_qwen_content_controls.py` | Score Qwen2.5-Omni content/visual control predictions without hiding missing/invalid outputs |
 | `tools/dataset/verify_asset_bound_batch.py` | Verify the complete M7 asset-bound binaural throughput batch |
