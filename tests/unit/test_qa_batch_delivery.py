@@ -112,3 +112,19 @@ def test_delivery_call_sites_wire_visibility_annotators() -> None:
     assert "annotate_pixel_visibility_semantics" in inspect.getsource(attach_visibility_semantics)
     qa_src = inspect.getsource(finalize_qa_episode)
     assert "annotate_pixel_visibility_semantics" in qa_src
+
+def test_exposure_gate_import_error_fails_review(monkeypatch, tmp_path):
+    from avengine.qa import batch_delivery as module
+
+    def _boom():
+        raise ImportError("simulated missing avengine.qa.exposure_gate")
+
+    monkeypatch.setattr(module, "_import_apply_exposure_gate", _boom)
+    result = module.apply_review_exposure_gate(
+        {"status": "delivered", "episode_id": "x"}, tmp_path
+    )
+    assert result["status"] == "review_failed"
+    assert result["exposure_gate"]["status"] == "unavailable"
+    assert "unavailable" in result["reason"]
+    assert result["frame_source"]["kind"] == "unavailable"
+

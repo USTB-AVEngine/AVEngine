@@ -241,6 +241,37 @@ def _failed_episode_room_id(episode_root: Path, entry: Mapping[str, Any]) -> str
     return None
 
 
+def _import_apply_exposure_gate():
+    from avengine.qa.exposure_gate import apply_exposure_gate
+    return apply_exposure_gate
+
+
+def apply_review_exposure_gate(review: Mapping[str, Any], episode_root: Path) -> dict:
+    """Run the exposure gate; ImportError is review_failed, not a silent skip."""
+    try:
+        apply_exposure_gate = _import_apply_exposure_gate()
+    except ImportError as exc:
+        result = deepcopy(dict(review))
+        result["status"] = "review_failed"
+        result["reason"] = f"exposure_gate.status=unavailable: cannot import avengine.qa.exposure_gate ({exc})"
+        result["exposure_gate"] = {
+            "status": "unavailable",
+            "threshold_kind": "placeholder",
+            "frames": [],
+            "frame_source": {"kind": "unavailable", "path": None, "note": "import_error"},
+        }
+        result["frame_source"] = result["exposure_gate"]["frame_source"]
+        return result
+    gated = apply_exposure_gate(review, episode_root)
+    if not isinstance(gated, Mapping):
+        raise TypeError("apply_exposure_gate must return a mapping")
+    result = dict(gated)
+    block = result.get("exposure_gate")
+    source = block.get("frame_source") if isinstance(block, Mapping) else None
+    result["frame_source"] = source
+    return result
+
+
 def finalize_batch_episode(episode_root: Path, manifest_entry: Mapping[str, Any], *,
                            repository: Path, review_root: Path | None = None) -> dict[str, Any]:
     """Validate one completed P9 delivery, run the existing auditor, save review frames."""
@@ -351,14 +382,7 @@ def finalize_batch_episode(episode_root: Path, manifest_entry: Mapping[str, Any]
                                       "route_ids": [], "sound_identity_ids": sorted(source_identity_keys)},
               "human_listening": {"status": "pending_human", "reviewer": None, "notes": None},
               "qualification_claim": False}
-    try:
-        from avengine.qa.exposure_gate import apply_exposure_gate
-    except ImportError:
-        pass
-    else:
-        gated = apply_exposure_gate(result, episode_root)
-        if isinstance(gated, Mapping):
-            result = dict(gated)
+    result = apply_review_exposure_gate(result, episode_root)
     _write(root / "review.json", result)
     return result
 

@@ -66,12 +66,21 @@ def test_relative_room_package_path_is_cwd_independent(tmp_path, monkeypatch):
     decoy_dir = tmp_path / "decoy"
     catalog_dir.mkdir()
     decoy_dir.mkdir()
+    bound = tmp_path / "bound"
+    (bound / "acoustic").mkdir(parents=True)
+    (bound / "stage.uproject").write_text("", encoding="utf-8")
+    (bound / "acoustic" / "manifest.json").write_text("{}\n", encoding="utf-8")
+    (bound / "routes.json").write_text("{}\n", encoding="utf-8")
     package = _package(room_id="cwd_room")
     package_path = catalog_dir / "room.json"
     package_path.write_text(json.dumps(package) + "\n", encoding="utf-8")
+    for name in ("measured_floor.json", "vertices.npy", "triangles.npy", "room.json"):
+        if name == "room.json":
+            continue
+        (catalog_dir / name).write_bytes(b"")
     catalog_path = catalog_dir / "catalog.json"
     catalog_path.write_text(json.dumps({
-        "path_bindings": {"AVENGINE_TEST_ROOT": "/bound"},
+        "path_bindings": {"AVENGINE_TEST_ROOT": str(bound)},
         "rooms": [{"room_id": "cwd_room", "family": "apartment", "renderer": "ue_spear",
                    "room_package": "room.json"}],
     }) + "\n", encoding="utf-8")
@@ -79,16 +88,16 @@ def test_relative_room_package_path_is_cwd_independent(tmp_path, monkeypatch):
     decoy.write_text(json.dumps(_package(room_id="decoy_room")) + "\n", encoding="utf-8")
     entry = {"room_id": "cwd_room", "family": "apartment", "renderer": "ue_spear",
              "room_package": "room.json"}
-    runtime = {"path_bindings": {"AVENGINE_TEST_ROOT": "/bound"}}
+    runtime = {"path_bindings": {"AVENGINE_TEST_ROOT": str(bound)}}
     monkeypatch.chdir(decoy_dir)
     first = package_from_catalog_entry(entry, runtime=runtime, catalog_path=catalog_path)
     monkeypatch.chdir(tmp_path)
     second = package_from_catalog_entry(entry, runtime=runtime, catalog_path=catalog_path)
     assert first == second
     assert first["room_id"] == "cwd_room"
-    assert first["acoustic_package"] == "/bound/acoustic/manifest.json"
+    assert first["acoustic_package"] == str(bound / "acoustic" / "manifest.json")
     assert first["acoustic_package_template"] == "${AVENGINE_TEST_ROOT}/acoustic/manifest.json"
-    assert first["visual_scene"]["uproject"] == "/bound/stage.uproject"
+    assert first["visual_scene"]["uproject"] == str(bound / "stage.uproject")
 
 
 def test_repo_style_relative_path_resolves_next_to_catalog(tmp_path, monkeypatch):

@@ -9,6 +9,13 @@ from avengine.rooms.room_package import validate_room_package
 
 ROOT = Path(__file__).resolve().parents[2]
 
+_UE_FALLBACK_FILES = (
+    ROOT / "examples/rooms/packages/floor_reference/room_a/floor_reference.json",
+    ROOT / "examples/rooms/packages/floor_reference/room_b/floor_reference.json",
+    ROOT / "examples/rooms/packages/floor_reference/room_c/floor_reference.json",
+    ROOT / "examples/rooms/packages/floor_reference/kujiale_0020/floor_reference.json",
+)
+
 
 def _classify():
     import importlib.util
@@ -60,4 +67,17 @@ def test_authored_packages_declare_depth_fallback_kind():
         reference = package["floor_reference"]
         assert reference["measurement_kind"] == "depth_readback_fallback"
         assert reference["precision_m"] == 0.00025
+        assert reference["status"] == "depth_readback_fallback"
         assert validate_room_package(package)["room_id"] == package["room_id"]
+
+
+def test_ue_floor_files_status_is_depth_readback_fallback_not_measured():
+    for path in _UE_FALLBACK_FILES:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        assert data["status"] == "depth_readback_fallback"
+        assert data["measurement_kind"] == "depth_readback_fallback"
+        assert data["summary"]["hit_count"] != 64
+        assert data["summary"]["hit_count"] == data["method"]["line_trace"]["hit_count"] == 0
+        assert data["method"]["depth_capture"]["hit_count"] == 64
+        assert data["summary"]["depth_readback_hit_count"] == 64
+        assert data["summary"]["line_trace_hit_count"] == 0
