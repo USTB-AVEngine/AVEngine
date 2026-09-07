@@ -501,6 +501,41 @@ def _episode_context(
 
 
 
+
+def _failed_episode_index(payload: Mapping[str, Any]) -> dict[tuple[str, str], dict[str, Any]]:
+    """Index failed episode gap_state by (room_id, asset_id)."""
+    index: dict[tuple[str, str], dict[str, Any]] = {}
+    raw = payload.get("failed_episodes")
+    if not isinstance(raw, list):
+        return index
+    rank = {"interface_not_implemented": 2, "evidence_missing_or_unsampled": 1}
+    for item in raw:
+        if not isinstance(item, Mapping):
+            continue
+        room_id = item.get("room_id")
+        gap_state = item.get("gap_state")
+        if not isinstance(room_id, str) or gap_state not in rank:
+            continue
+        asset_ids = item.get("asset_ids")
+        if not isinstance(asset_ids, list) or not asset_ids:
+            continue
+        record = {
+            "episode_id": item.get("episode_id"),
+            "room_id": room_id,
+            "gap_state": gap_state,
+            "failure_stage": item.get("failure_stage") or "unknown",
+            "failure_reason": item.get("failure_reason") or item.get("reason") or gap_state,
+        }
+        for asset_id in asset_ids:
+            if not isinstance(asset_id, str) or not asset_id:
+                continue
+            key = (room_id, asset_id)
+            current = index.get(key)
+            if current is None or rank[gap_state] > rank[current["gap_state"]]:
+                index[key] = record
+    return index
+
+
 def _deferred_state(reason_code: Any) -> str:
     code = str(reason_code or "deferred_by_rule")
     if code.startswith("missing_") or code == "event_segmentation_not_reviewed":
@@ -1107,6 +1142,7 @@ def build_batch_coverage(
         _episode_context(episode, asset_by_id=asset_by_id)
         for episode in episodes
     ]
+    failed_index = _failed_episode_index(payload)
     episodes_by_room: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for context in contexts:
         episodes_by_room[context["episode"]["room_id"]].append(context)
@@ -1357,39 +1393,69 @@ def build_batch_coverage(
                         }
                     )
                 else:
-                    rows.append(
-                        {
-                            "asset_id": asset_id,
-                            "asset_class": asset.get("entity_class"),
-                            "asset_category": asset.get("category"),
-                            "room_id": room_id,
-                            "room_family": room["family"],
-                            "renderer": room.get("renderer"),
-                            "qa_id": qa_id,
-                            "state": "evidence_missing_or_unsampled",
-                            "reason_code": missing_reason,
-                            "reason": (
-                                "No target-scoped generated item and supporting "
-                                f"evidence for {asset_id} in {room_id}/{qa_id}"
-                            ),
-                            "scope": "none",
-                            "target_asset_ids": [],
-                            "reference_asset_ids": [],
-                            "episode_ids": sorted(
-                                {
-                                    context["episode"]["episode_id"]
-                                    for context in room_contexts
-                                    if asset_id in set(context["actor_assets"].values())
-                                }
-                            ),
-                            "question_ids": [],
-                            "evidence_refs": [],
-                            "sound_origins": [],
-                            "context_sound_origins": room_sound_origins,
-                            "interface_gap": None,
-                            "source_refs": source_refs,
-                        }
-                    )
+                    failed = failed_index.get((room_id, asset_id))
+                    if failed is not None:
+                        stage = str(failed.get("failure_stage") or "unknown")
+                        reason_text = str(failed.get("failure_reason") or failed["gap_state"])
+                        rows.append(
+                            {
+                                "asset_id": asset_id,
+                                "asset_class": asset.get("entity_class"),
+                                "asset_category": asset.get("category"),
+                                "room_id": room_id,
+                                "room_family": room["family"],
+                                "renderer": room.get("renderer"),
+                                "qa_id": qa_id,
+                                "state": failed["gap_state"],
+                                "reason_code": f"episode_{stage}_failed",
+                                "reason": f"{stage}: {reason_text}",
+                                "scope": "none",
+                                "target_asset_ids": [asset_id],
+                                "reference_asset_ids": [],
+                                "episode_ids": [failed["episode_id"]] if failed.get("episode_id") else [],
+                                "question_ids": [],
+                                "evidence_refs": [],
+                                "sound_origins": [],
+                                "context_sound_origins": room_sound_origins,
+                                "interface_gap": None,
+                                "source_refs": source_refs,
+                                "failed_episode": deepcopy(failed),
+                            }
+                        )
+                    else:
+                        rows.append(
+                            {
+                                "asset_id": asset_id,
+                                "asset_class": asset.get("entity_class"),
+                                "asset_category": asset.get("category"),
+                                "room_id": room_id,
+                                "room_family": room["family"],
+                                "renderer": room.get("renderer"),
+                                "qa_id": qa_id,
+                                "state": "evidence_missing_or_unsampled",
+                                "reason_code": missing_reason,
+                                "reason": (
+                                    "No target-scoped generated item and supporting "
+                                    f"evidence for {asset_id} in {room_id}/{qa_id}"
+                                ),
+                                "scope": "none",
+                                "target_asset_ids": [],
+                                "reference_asset_ids": [],
+                                "episode_ids": sorted(
+                                    {
+                                        context["episode"]["episode_id"]
+                                        for context in room_contexts
+                                        if asset_id in set(context["actor_assets"].values())
+                                    }
+                                ),
+                                "question_ids": [],
+                                "evidence_refs": [],
+                                "sound_origins": [],
+                                "context_sound_origins": room_sound_origins,
+                                "interface_gap": None,
+                                "source_refs": source_refs,
+                            }
+                        )
     denominator = {
         "asset_count": len(assets),
         "room_count": len(rooms),

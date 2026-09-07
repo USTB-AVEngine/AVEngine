@@ -1372,6 +1372,16 @@ def _parse_m5_external_audio_bindings(values: Sequence[str] | None) -> dict[str,
     return result
 
 
+
+def _m5_dynamic_audio_bindings(args: argparse.Namespace) -> dict[str, str]:
+    """Bind explicit dry assets; omit beagle unless --beagle-audio was provided."""
+    bindings = _parse_m5_external_audio_bindings(getattr(args, "asset_binding", None))
+    beagle = getattr(args, "beagle_audio", None)
+    if isinstance(beagle, str) and beagle:
+        bindings = {"dog_beagle_v2_scheduled_dry": beagle, **bindings}
+    return bindings
+
+
 def _m5_render_current_mp3d_dynamic_audio(args: argparse.Namespace) -> int:
     """Render per-state MP3D research audio on the installed native runtime."""
 
@@ -1390,18 +1400,8 @@ def _m5_render_current_mp3d_dynamic_audio(args: argparse.Namespace) -> int:
                 audio_program_path=args.audio_program,
                 source_endpoint_registry_path=args.source_endpoint_registry,
                 sound_asset_registry_path=args.sound_asset_registry,
-                external_sound_asset_paths={
-                    "dog_beagle_v2_scheduled_dry": args.beagle_audio,
-                    **_parse_m5_external_audio_bindings(
-                        getattr(args, "asset_binding", None)
-                    ),
-                },
-                event_asset_bindings={
-                    "dog_beagle_v2_scheduled_dry": args.beagle_audio,
-                    **_parse_m5_external_audio_bindings(
-                        getattr(args, "asset_binding", None)
-                    ),
-                },
+                external_sound_asset_paths=_m5_dynamic_audio_bindings(args),
+                event_asset_bindings=_m5_dynamic_audio_bindings(args),
                 hrtf_file_path=args.hrtf,
                 hrtf_license_path=args.hrtf_license,
                 output_path=output,
@@ -2313,8 +2313,7 @@ def build_parser() -> argparse.ArgumentParser:
     m5_dynamic_audio.add_argument("--sound-asset-registry")
     m5_dynamic_audio.add_argument(
         "--beagle-audio",
-        required=True,
-        help="external dry wav for dog_beagle_v2_scheduled_dry",
+        help="optional external dry wav for dog_beagle_v2_scheduled_dry; omit unless that asset is bound",
     )
     m5_dynamic_audio.add_argument("--hrtf", required=True)
     m5_dynamic_audio.add_argument("--hrtf-license")

@@ -171,9 +171,7 @@ def validate_unified_audio_receipt(
                     )
                 start = _required_nonnegative_int(start_value, "interval.start_sample")
                 end = _required_positive_int(end_value, "interval.end_sample_exclusive")
-                if end <= start or (
-                    end > sample_count and interval_key == "source_activity_intervals_samples"
-                ):
+                if end <= start or end > sample_count:
                     raise UnifiedAudioReceiptError(f"events[{index}] interval escapes the episode clock")
         gain = _required_mapping(row["gain_application"], f"events[{index}].gain_application")
         if gain.get("application_count") != 1 or gain.get("post_assembly_convolution_gain") != 1.0:
@@ -181,6 +179,15 @@ def validate_unified_audio_receipt(
     wet = receipt["wet_tail_intervals"]
     if not isinstance(wet, list) or {row.get("event_id") for row in wet if isinstance(row, Mapping)} != event_ids:
         raise UnifiedAudioReceiptError("top-level wet_tail_intervals do not cover events exactly")
+    for wet_index, row in enumerate(wet):
+        if not isinstance(row, Mapping):
+            raise UnifiedAudioReceiptError(f"wet_tail_intervals[{wet_index}] must be an object")
+        start = _required_nonnegative_int(row.get("start_sample"), "wet_tail.start_sample")
+        end = _required_positive_int(row.get("end_sample_exclusive"), "wet_tail.end_sample_exclusive")
+        if end <= start or end > sample_count:
+            raise UnifiedAudioReceiptError(
+                f"wet_tail_intervals[{wet_index}] escapes the episode clock"
+            )
     propagation = _required_mapping(receipt["propagation"], "propagation")
     if not isinstance(propagation.get("diffraction"), bool):
         raise UnifiedAudioReceiptError("propagation.diffraction must be boolean")

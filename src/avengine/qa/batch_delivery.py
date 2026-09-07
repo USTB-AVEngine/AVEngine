@@ -169,6 +169,60 @@ def _review_frames(questions: Mapping[str, Any], facts: Mapping[str, Any]) -> di
     return {frame: sorted(set(reasons)) for frame, reasons in sorted(selected.items())}
 
 
+
+def _failed_episode_asset_ids(episode_root: Path, entry: Mapping[str, Any], raw: Mapping[str, Any]) -> list[str]:
+    """Collect intended asset IDs from the manifest row, request, or written plan."""
+    seen: set[str] = set()
+    ids: list[str] = []
+
+    def add(value: Any) -> None:
+        if isinstance(value, str) and value and value not in seen:
+            seen.add(value)
+            ids.append(value)
+
+    for row in entry.get("source_assignments") or []:
+        if isinstance(row, Mapping):
+            add(row.get("asset_id"))
+    request = entry.get("request")
+    if not isinstance(request, Mapping):
+        request = raw.get("request")
+    if isinstance(request, Mapping):
+        for item in request.get("source_asset_ids") or []:
+            add(item)
+    plan_path = Path(episode_root) / "plan" / "episode_plan.json"
+    if plan_path.is_file():
+        try:
+            plan = _read(plan_path)
+        except (OSError, json.JSONDecodeError, TypeError, ValueError):
+            plan = {}
+        actors = plan.get("actors") if isinstance(plan, Mapping) else None
+        if isinstance(actors, Mapping):
+            actors = list(actors.values())
+        visual = plan.get("visual_plan") if isinstance(plan, Mapping) else None
+        if not actors and isinstance(visual, Mapping):
+            actors = visual.get("actors")
+        if isinstance(actors, list):
+            for actor in actors:
+                if isinstance(actor, Mapping):
+                    add(actor.get("asset_id"))
+    return ids
+
+
+def _failed_episode_room_id(episode_root: Path, entry: Mapping[str, Any]) -> str | None:
+    room_id = entry.get("room_id")
+    if isinstance(room_id, str) and room_id:
+        return room_id
+    package_path = Path(episode_root) / "plan" / "room_package.json"
+    if package_path.is_file():
+        try:
+            package = _read(package_path)
+        except (OSError, json.JSONDecodeError, TypeError, ValueError):
+            package = {}
+        if isinstance(package, Mapping) and isinstance(package.get("room_id"), str):
+            return package["room_id"]
+    return None
+
+
 def finalize_batch_episode(episode_root: Path, manifest_entry: Mapping[str, Any], *,
                            repository: Path, review_root: Path | None = None) -> dict[str, Any]:
     """Validate one completed P9 delivery, run the existing auditor, save review frames."""
@@ -274,6 +328,14 @@ def finalize_batch_episode(episode_root: Path, manifest_entry: Mapping[str, Any]
                                       "route_ids": [], "sound_identity_ids": sorted(source_identity_keys)},
               "human_listening": {"status": "pending_human", "reviewer": None, "notes": None},
               "qualification_claim": False}
+    try:
+        from avengine.qa.exposure_gate import apply_exposure_gate
+    except ImportError:
+        pass
+    else:
+        gated = apply_exposure_gate(result, episode_root)
+        if isinstance(gated, Mapping):
+            result = dict(gated)
     _write(root / "review.json", result)
     return result
 
@@ -317,9 +379,14 @@ def finalize_batch_outputs(output_root: Path, manifest: Mapping[str, Any],
             else:
                 status = "delivery_failed"
             record = {"episode_id": episode_id, "status": status,
-                      "failure_reason": raw.get("reason"), "failure_code": raw.get("reason_code"),
+                      "failure_reason": raw.get("failure_reason") or raw.get("reason"),
+                      "failure_code": raw.get("reason_code"),
+                      "failure_stage": raw.get("failure_stage"),
+                      "gap_state": raw.get("gap_state"),
                       "failure_path": raw.get("stderr_log"), "executor_outcome": deepcopy(dict(raw)),
-                      "stage_classification": "from_executor_result_and_existing_stage_artifacts"}
+                      "stage_classification": "from_executor_result_and_existing_stage_artifacts",
+                      "room_id": _failed_episode_room_id(episode_root, entry),
+                      "asset_ids": _failed_episode_asset_ids(episode_root, entry, raw)}
             plan_path = episode_root / "plan/episode_plan.json"
             if plan_path.is_file():
                 record["condition_profile"] = _read(plan_path).get("condition_profile")
@@ -361,10 +428,29 @@ def finalize_batch_outputs(output_root: Path, manifest: Mapping[str, Any],
             previews.append({"episode_id": episode_id, "room_family": package["family"],
                              "preview_path": str(preview), "audio_path": facts["audio"].get("path")})
     request = manifest["episodes"][0]["request"]
+    failed_coverage = []
+    for record in failures:
+        if not isinstance(record, Mapping):
+            continue
+        gap_state = record.get("gap_state")
+        if gap_state not in {"interface_not_implemented", "evidence_missing_or_unsampled"}:
+            continue
+        room_id = record.get("room_id")
+        if not isinstance(room_id, str) or not room_id:
+            continue
+        failed_coverage.append({
+            "episode_id": record.get("episode_id"),
+            "room_id": room_id,
+            "asset_ids": list(record.get("asset_ids") or []),
+            "gap_state": gap_state,
+            "failure_stage": record.get("failure_stage"),
+            "failure_reason": record.get("failure_reason") or record.get("failure_code"),
+        })
     coverage_manifest = {"schema": "avengine_qa_batch_episode_input_manifest_v1",
                          "asset_inventory": request["source_registry"],
                          "runtime_registry": request["source_registry"],
-                         "room_catalog": request["room_catalog"], "episodes": contexts}
+                         "room_catalog": request["room_catalog"], "episodes": contexts,
+                         "failed_episodes": failed_coverage}
     _write(summary_root / "coverage_inputs.json", coverage_manifest)
     coverage = build_batch_coverage(coverage_manifest, repository=repository)
     coverage_paths = write_batch_coverage(coverage, summary_root / "coverage")

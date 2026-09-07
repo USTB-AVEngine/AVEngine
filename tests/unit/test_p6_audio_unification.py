@@ -609,3 +609,63 @@ def test_explicit_neutral_input_needs_no_legacy_readback_placeholder(tmp_path, m
         assert first["listener_position_m"] == neutral["camera"][0]["position_m"]
         assert sorted(first["source_positions_m"].values()) == sorted(rows[0]["emitter"] for rows in neutral["entities"].values())
         assert seen["rir_sequence_override"]["binaural"]["cache"]["status"] == "test_cache"
+
+def test_unified_receipt_rejects_wet_tail_past_clock() -> None:
+    from avengine.timeline.unified_audio_receipt import (
+        UNIFIED_AUDIO_RECEIPT_SCHEMA,
+        UnifiedAudioReceiptError,
+        validate_unified_audio_receipt,
+    )
+
+    receipt = {
+        "schema": UNIFIED_AUDIO_RECEIPT_SCHEMA,
+        "clock": {
+            "time_base_hz": 48000,
+            "ticks_per_frame": 3200,
+            "frame_rate_hz": 15,
+            "frame_count": 15,
+            "sample_rate_hz": 16000,
+            "sample_count": 16000,
+            "duration_seconds": 1.0,
+            "ticks_per_sample": 3,
+        },
+        "audio": {
+            "sample_rate_hz": 16000,
+            "sample_count": 16000,
+            "layouts": ["binaural"],
+            "layout_type": "binaural",
+            "channel_labels": ["left", "right"],
+            "mixture_path": "mixture.wav",
+            "stems": {"source1_mouth": "stem.wav"},
+            "by_layout": {
+                "binaural": {
+                    "channel_count": 2,
+                    "channel_labels": ["left", "right"],
+                    "sample_rate_hz": 16000,
+                    "sample_count": 16000,
+                }
+            },
+        },
+        "outputs_by_layout": {
+            "binaural": {"mixture": "mixture.wav", "stems": {"source1_mouth": "stem.wav"}}
+        },
+        "events": [
+            {
+                "event_id": "e1",
+                "source_activity_intervals_samples": [{"start_sample": 1000, "end_sample_exclusive": 2000}],
+                "wet_tail_intervals": [{"start_sample": 1000, "end_sample_exclusive": 20000}],
+                "gain_application": {"application_count": 1, "post_assembly_convolution_gain": 1.0},
+            }
+        ],
+        "wet_tail_intervals": [
+            {"event_id": "e1", "start_sample": 1000, "end_sample_exclusive": 20000}
+        ],
+        "peak_dbfs": {"mixture": -12.0},
+        "gain_application": {"applied_once_per_event": True, "normalization": False},
+        "propagation": {"diffraction": False, "max_diffraction_order": 0},
+        "hrtf": {"id": "test"},
+        "input_neutral_readback": {"path": "neutral.json"},
+    }
+    with pytest.raises(UnifiedAudioReceiptError, match="escapes the episode clock"):
+        validate_unified_audio_receipt(receipt, require_files=False)
+

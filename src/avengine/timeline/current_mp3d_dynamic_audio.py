@@ -103,6 +103,26 @@ def _nonzero_interval(
     return [int(offset + indices[0]), int(offset + indices[-1] + 1)]
 
 
+
+def _clamp_wet_tail_interval(interval: Sequence[int], sample_count: int) -> tuple[list[int], bool, int]:
+    """Clip a measured wet-tail interval onto the episode sample clock."""
+    start = int(interval[0])
+    end = int(interval[1])
+    original_end = end
+    clamped = end > sample_count or start > sample_count or start < 0
+    if start < 0:
+        start = 0
+    if start > sample_count:
+        start = sample_count
+    if end > sample_count:
+        end = sample_count
+    if end <= start and sample_count > 0:
+        start = max(0, sample_count - 1)
+        end = sample_count
+        clamped = True
+    return [start, end], clamped, original_end
+
+
 def _peak_dbfs(value: Any) -> float | None:
     array = np.asarray(value)
     peak = float(np.max(np.abs(array))) if array.size else 0.0
@@ -1899,6 +1919,9 @@ def render_dynamic_research_audio(
                 },
             }
         event_peak = float(np.max(np.abs(event_stem))) if event_stem.size else 0.0
+        wet_tail, wet_tail_clamped, wet_tail_end_original = _clamp_wet_tail_interval(
+            wet_tail, expected_sample_count
+        )
         event_record = {
             **dict(event),
             "source_endpoint_id": source_id,
@@ -1907,6 +1930,8 @@ def render_dynamic_research_audio(
             "wet_tail_interval": wet_tail,
             "wet_tail_intervals": [wet_tail],
             "wet_tail_end_sample": wet_tail[1],
+            "wet_tail_clamped": wet_tail_clamped,
+            "wet_tail_end_sample_original": wet_tail_end_original,
             "wet_tail_coordinate_space": "episode_sample_clock",
             "wet_tail_peak_abs": wet_peak_abs,
             "wet_tail_peak_dbfs": wet_peak_dbfs,
@@ -1938,6 +1963,8 @@ def render_dynamic_research_audio(
                 "source_endpoint_id": source_id,
                 "start_sample": wet_tail[0],
                 "end_sample_exclusive": wet_tail[1],
+                "wet_tail_clamped": wet_tail_clamped,
+                "wet_tail_end_sample_original": wet_tail_end_original,
             }
         )
 

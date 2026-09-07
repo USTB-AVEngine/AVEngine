@@ -631,3 +631,45 @@ def test_original_sound_paths_are_scoped_to_observed_assets(tmp_path: Path) -> N
     assert rows["unused"]["sound_origins"] == []
     assert rows["unused"]["context_sound_origins"][0]["asset_id"] == "human"
     assert rows["unused"]["context_sound_origins"][0]["speaker_id"] == "speaker_fixture"
+
+def test_failed_episode_gap_state_is_used_instead_of_asset_not_in_episode(tmp_path: Path) -> None:
+    assets = [
+        _asset("human", "articulated_human"),
+        _asset("cat", "articulated_animal"),
+        _asset("lamp", "rigid_static_object"),
+    ]
+    rooms = [{"room_id": "mp3d_room", "family": "mp3d", "renderer": "habitat"}]
+    runtime = [_runtime("human"), _runtime("cat"), _runtime("lamp")]
+    manifest = _manifest(
+        tmp_path,
+        assets=assets,
+        rooms=rooms,
+        runtime=runtime,
+        episodes=[],
+    )
+    manifest["failed_episodes"] = [
+        {
+            "episode_id": "qa_pilot46_20260907_mp3d_human_animal",
+            "room_id": "mp3d_room",
+            "asset_ids": ["human", "cat"],
+            "gap_state": "interface_not_implemented",
+            "failure_stage": "audio",
+            "failure_reason": "AudioProgram validation failed: sequential_sources events must not overlap",
+        }
+    ]
+    result = build_batch_coverage(manifest)
+    validate_batch_coverage(result)
+    human_row = next(
+        row for row in result["rows"]
+        if row["asset_id"] == "human" and row["qa_id"] == "QA-02"
+    )
+    lamp_row = next(
+        row for row in result["rows"]
+        if row["asset_id"] == "lamp" and row["qa_id"] == "QA-02"
+    )
+    assert human_row["state"] == "interface_not_implemented"
+    assert human_row["reason"].startswith("audio:")
+    assert "AudioProgram validation failed" in human_row["reason"]
+    assert lamp_row["state"] == "evidence_missing_or_unsampled"
+    assert lamp_row["reason_code"] == "no_episode_input_for_room"
+

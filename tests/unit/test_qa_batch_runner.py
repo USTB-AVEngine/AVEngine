@@ -319,3 +319,77 @@ def test_aggregate_failure_preserves_all_episode_outcomes(monkeypatch, runner, t
     progress = json.loads((output / "progress.json").read_text())
     assert progress["status"] == "aggregate_failed"
     assert progress["episodes"]["episode_aggregate_failure"]["status"] == "delivered"
+
+def _failing_process(writer):
+    class Process(FakeProcess):
+        def wait(self):
+            self.output_root.mkdir(parents=True, exist_ok=True)
+            writer(self.output_root)
+            self.returncode = 1
+            return 1
+    return Process
+
+
+def test_failure_accounting_planning_exhausted(monkeypatch, runner, tmp_path):
+    _patch_success(monkeypatch, runner)
+
+    def write(root: Path) -> None:
+        (root / "planning_result.json").write_text(json.dumps({
+            "status": "failed",
+            "failure_histogram": {
+                "camera:no_joint_geometry_activity_schedule": 169,
+                "routes:initial_source_separation_below_0.95_m": 31,
+            },
+            "gap_category": "evidence_missing_or_unsampled",
+        }), encoding="utf-8")
+
+    monkeypatch.setattr(runner.subprocess, "Popen", _failing_process(write))
+    summary = runner.execute_batch(_manifest(tmp_path, [_row("episode_plan_fail")]),
+                                   tmp_path / "execution", min_free_gpu_mb=0)
+    outcome = json.loads((tmp_path / "execution/episodes/episode_plan_fail/attempt_01/outcome.json").read_text())
+    assert summary["outcome_counts"] == {"failed": 1}
+    assert outcome["failure_stage"] == "planning"
+    assert outcome["gap_state"] == "evidence_missing_or_unsampled"
+    assert "169" in outcome["failure_reason"]
+    assert "fixed condition profile exhausted" in outcome["failure_reason"]
+
+
+def test_failure_accounting_audio_interface_defect(monkeypatch, runner, tmp_path):
+    _patch_success(monkeypatch, runner)
+
+    def write(root: Path) -> None:
+        (root / "execution_commands.json").write_text("{}", encoding="utf-8")
+        (root / "capture").mkdir()
+        (root / "capture" / "neutral_readback.json").write_text("{}", encoding="utf-8")
+        delivery = root / "delivery"
+        delivery.mkdir()
+        (delivery / "audio.log").write_text(json.dumps({
+            "status": "fail",
+            "error": "AudioProgram validation failed: sequential_sources events must not overlap",
+        }), encoding="utf-8")
+
+    monkeypatch.setattr(runner.subprocess, "Popen", _failing_process(write))
+    runner.execute_batch(_manifest(tmp_path, [_row("episode_audio_fail")]),
+                         tmp_path / "execution", min_free_gpu_mb=0)
+    outcome = json.loads((tmp_path / "execution/episodes/episode_audio_fail/attempt_01/outcome.json").read_text())
+    assert outcome["failure_stage"] == "audio"
+    assert outcome["gap_state"] == "interface_not_implemented"
+    assert "AudioProgram validation failed" in outcome["failure_reason"]
+
+
+def test_failure_accounting_capture_or_finalize(monkeypatch, runner, tmp_path):
+    _patch_success(monkeypatch, runner)
+
+    def write(root: Path) -> None:
+        (root / "execution_commands.json").write_text("{}", encoding="utf-8")
+        (root / "capture.log").write_text(
+            "CalledProcessError: capture renderer exited with 2\n", encoding="utf-8")
+
+    monkeypatch.setattr(runner.subprocess, "Popen", _failing_process(write))
+    runner.execute_batch(_manifest(tmp_path, [_row("episode_capture_fail")]),
+                         tmp_path / "execution", min_free_gpu_mb=0)
+    outcome = json.loads((tmp_path / "execution/episodes/episode_capture_fail/attempt_01/outcome.json").read_text())
+    assert outcome["failure_stage"] == "capture"
+    assert outcome["gap_state"] == "interface_not_implemented"
+    assert "CalledProcessError" in outcome["failure_reason"]
+

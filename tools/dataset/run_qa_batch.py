@@ -339,6 +339,175 @@ def _captured_delivery_status(result: Mapping[str, Any] | None) -> Any:
     return result.get("status")
 
 
+
+def _read_text_tail(path: Path | None, limit: int = 400_000) -> str:
+    if path is None:
+        return ""
+    try:
+        return Path(path).read_text(encoding="utf-8", errors="replace")[-limit:]
+    except OSError:
+        return ""
+
+
+def _first_useful_error_line(text: str) -> str | None:
+    """Pick a reader-facing error without requiring a traceback grep."""
+    if not isinstance(text, str) or not text.strip():
+        return None
+    stripped = text.strip()
+    try:
+        payload = json.loads(stripped)
+    except json.JSONDecodeError:
+        payload = None
+    if isinstance(payload, Mapping):
+        for key in ("error", "message", "reason", "failure_reason"):
+            value = payload.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()[:2000]
+    useful: list[str] = []
+    for raw in stripped.splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        lower = line.lower()
+        if lower.startswith("traceback") or lower.startswith("file "):
+            continue
+        if line.startswith("^") or re.fullmatch(r"~+", line):
+            continue
+        useful.append(line)
+    for line in reversed(useful):
+        lower = line.lower()
+        if any(token in lower for token in ("error", "exception", "failed", "exhausted", "refused")):
+            return line[:2000]
+    return useful[-1][:2000] if useful else None
+
+
+def _looks_like_interface_defect(reason: str) -> bool:
+    lower = reason.lower()
+    needles = (
+        "audioprogram validation",
+        "unrecognized arguments",
+        "the following arguments are required",
+        "no such option",
+        "modulenotfounderror",
+        "importerror",
+        "not implemented",
+        "interface_not_implemented",
+        "validate_evidence_contract",
+        "evidencecontract",
+        "unifiedaudioreceipterror",
+        "calledprocesserror",
+        "missing cli",
+    )
+    return any(needle in lower for needle in needles)
+
+
+def classify_controller_failure(
+    *,
+    episode_output_root: Path,
+    stderr_path: Path | None = None,
+    stdout_path: Path | None = None,
+    process_error: str | None = None,
+    returncode: int | None = None,
+) -> dict[str, str]:
+    """Map controller artifacts onto failure_stage / gap_state / a useful reason."""
+    if process_error:
+        return {
+            "failure_stage": "launch",
+            "failure_reason": process_error,
+            "gap_state": "interface_not_implemented",
+            "reason_code": "controller_launch_failed",
+        }
+    root = Path(episode_output_root)
+    planning: dict[str, Any] = {}
+    planning_path = root / "planning_result.json"
+    if planning_path.is_file():
+        try:
+            value = json.loads(planning_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            value = None
+        if isinstance(value, Mapping):
+            planning = dict(value)
+    stderr = _read_text_tail(stderr_path)
+    stdout = _read_text_tail(stdout_path)
+    audio_log = _read_text_tail(root / "delivery" / "audio.log")
+    capture_log = _read_text_tail(root / "capture.log")
+    has_execution = (root / "execution_commands.json").is_file()
+    has_capture = (root / "capture" / "neutral_readback.json").is_file()
+    has_audio_report = (
+        (root / "delivery" / "audio" / "research_report.json").is_file()
+        or (root / "delivery" / "audio" / "research_receipt.json").is_file()
+        or (root / "delivery" / "research_report.json").is_file()
+    )
+    histogram = planning.get("failure_histogram") if isinstance(planning.get("failure_histogram"), Mapping) else None
+    planning_failed = (
+        planning.get("status") == "failed"
+        or not has_execution
+    )
+    combined = "\n".join(part for part in (audio_log, capture_log, stderr, stdout) if part)
+
+    if planning_failed and not has_execution:
+        if isinstance(histogram, Mapping) and histogram:
+            reason = (
+                "ConditionedPlanningFailure: fixed condition profile exhausted "
+                + json.dumps(dict(histogram), ensure_ascii=False, sort_keys=True)
+            )
+            return {
+                "failure_stage": "planning",
+                "failure_reason": reason,
+                "gap_state": "evidence_missing_or_unsampled",
+                "reason_code": "planning_exhausted",
+            }
+        reason = (
+            _first_useful_error_line(stderr)
+            or _first_useful_error_line(stdout)
+            or f"planning failed (exit {returncode})"
+        )
+        exhausted = "conditionedplanningfailure" in reason.lower() or "fixed condition profile exhausted" in reason.lower()
+        return {
+            "failure_stage": "planning",
+            "failure_reason": reason,
+            "gap_state": "evidence_missing_or_unsampled" if exhausted else (
+                "interface_not_implemented" if _looks_like_interface_defect(reason) else "evidence_missing_or_unsampled"
+            ),
+            "reason_code": "planning_exhausted" if exhausted else "planning_failed",
+        }
+
+    audio_reason = _first_useful_error_line(audio_log)
+    if audio_reason or (has_capture and not has_audio_report and (root / "delivery" / "audio.log").is_file()):
+        reason = audio_reason or _first_useful_error_line(stderr) or f"audio render failed (exit {returncode})"
+        return {
+            "failure_stage": "audio",
+            "failure_reason": reason,
+            "gap_state": "interface_not_implemented",
+            "reason_code": "audio_failed",
+        }
+
+    if has_execution and not has_capture:
+        reason = (
+            _first_useful_error_line(capture_log)
+            or _first_useful_error_line(stderr)
+            or f"capture failed (exit {returncode})"
+        )
+        return {
+            "failure_stage": "capture",
+            "failure_reason": reason,
+            "gap_state": "interface_not_implemented" if _looks_like_interface_defect(reason) else "evidence_missing_or_unsampled",
+            "reason_code": "capture_failed",
+        }
+
+    reason = (
+        _first_useful_error_line(stderr)
+        or _first_useful_error_line(combined)
+        or f"finalize failed (exit {returncode})"
+    )
+    return {
+        "failure_stage": "finalize",
+        "failure_reason": reason,
+        "gap_state": "interface_not_implemented" if _looks_like_interface_defect(reason) else "evidence_missing_or_unsampled",
+        "reason_code": "finalize_failed",
+    }
+
+
 def _finalize_delivery(attempt_root: Path, manifest_entry: Mapping[str, Any], *, repository: Path) -> dict[str, Any]:
     """Lazy import so unit tests and manifest preparation need no delivery deps."""
     from avengine.qa.batch_delivery import finalize_batch_episode
@@ -455,9 +624,13 @@ class BatchExecutor:
                  details: Mapping[str, Any] | None = None,
                  preserve_logs: bool = False) -> dict[str, Any]:
         now = _utc_now()
+        preallocation = code == "preallocation_gap"
         outcome = {
             "schema": "avengine_qa_batch_episode_outcome_v1", "episode_id": job.episode_id,
             "status": "blocked", "reason_code": code, "reason": message,
+            "failure_stage": "planning" if preallocation else "launch",
+            "failure_reason": message,
+            "gap_state": "evidence_missing_or_unsampled" if preallocation else "interface_not_implemented",
             "diagnostic": deepcopy(dict(details or {})), "pid": None,
             "started_at": None, "finished_at": now, "duration_seconds": 0.0,
             "request_path": str(job.request_path), "attempt_root": str(job.attempt_root),
@@ -550,8 +723,21 @@ class BatchExecutor:
                 "gpu_resources": resources,
             }
             if process_error is not None or returncode != 0:
-                base.update(status="failed", reason_code="controller_exit",
-                            reason=process_error or f"controller exited with {returncode}")
+                classified = classify_controller_failure(
+                    episode_output_root=job.episode_output_root,
+                    stderr_path=stderr_path,
+                    stdout_path=stdout_path,
+                    process_error=process_error,
+                    returncode=returncode,
+                )
+                base.update(
+                    status="failed",
+                    reason_code=classified["reason_code"],
+                    reason=classified["failure_reason"],
+                    failure_stage=classified["failure_stage"],
+                    failure_reason=classified["failure_reason"],
+                    gap_state=classified["gap_state"],
+                )
                 base["finished_at"] = _utc_now()
                 base["duration_seconds"] = time.monotonic() - overall_started
                 self._write_outcome(job, base)
@@ -563,8 +749,14 @@ class BatchExecutor:
                                  outcome_path=str(job.attempt_root / "outcome.json"))
                 return base
             if isinstance(controller_result, Mapping) and controller_result.get("episode_id") not in {None, job.episode_id}:
-                base.update(status="failed", reason_code="controller_episode_mismatch",
-                            reason="controller result episode_id differs from manifest")
+                base.update(
+                    status="failed",
+                    reason_code="controller_episode_mismatch",
+                    reason="controller result episode_id differs from manifest",
+                    failure_stage="finalize",
+                    failure_reason="controller result episode_id differs from manifest",
+                    gap_state="interface_not_implemented",
+                )
                 base["finished_at"] = _utc_now()
                 base["duration_seconds"] = time.monotonic() - overall_started
                 self._write_outcome(job, base)
@@ -590,11 +782,17 @@ class BatchExecutor:
                     base["status"] = "review_failed"
                     base["reason_code"] = "review_failed"
                     base["reason"] = "batch delivery review did not pass"
+                    base["failure_stage"] = "finalize"
+                    base["failure_reason"] = "batch delivery review did not pass"
+                    base["gap_state"] = "evidence_missing_or_unsampled"
                     transition = "review_failed"
             except Exception as exc:  # preserve captured delivery and continue siblings
+                review_reason = f"{type(exc).__name__}: {exc}"
                 base.update(status="review_failed", review_status="review_failed",
-                            reason_code="review_failed", reason=f"{type(exc).__name__}: {exc}",
-                            review_error=f"{type(exc).__name__}: {exc}")
+                            reason_code="review_failed", reason=review_reason,
+                            review_error=review_reason,
+                            failure_stage="finalize", failure_reason=review_reason,
+                            gap_state="interface_not_implemented" if _looks_like_interface_defect(review_reason) else "evidence_missing_or_unsampled")
                 transition = "review_failed"
             finally:
                 review_finished_at = _utc_now()

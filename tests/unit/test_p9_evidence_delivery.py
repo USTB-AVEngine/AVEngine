@@ -11,7 +11,9 @@ from avengine.rooms.qa_delivery import (
     _build_habitat_audio_command,
     _write_habitat_audio_program,
     finalize_qa_episode,
+    select_habitat_audio_program_mode,
 )
+from avengine.timeline.audio_program import validate_audio_program
 from avengine.rooms.qa_evidence import build_pixel_appearance_review, derive_actor_occluders
 from avengine.spatial_audio.audio import write_float32_wav
 
@@ -410,3 +412,125 @@ def test_neutral_coordinates_do_not_select_habitat_renderer():
     assert _is_habitat_plan({**common, "resources": {"room_package": {"renderer": "habitat"}}})
     with pytest.raises(ValueError, match="no declared room renderer"):
         _is_habitat_plan(common)
+
+def _habitat_mode_plan(*, events, actors, audio_mode="overlap"):
+    clock = {
+        "time_base_hz": 48000,
+        "ticks_per_frame": 3200,
+        "frame_rate_hz": 15,
+        "frame_count": 30,
+        "sample_rate_hz": 16000,
+        "sample_count": 32000,
+    }
+    return {
+        "episode_id": "habitat-mode-test",
+        "seed": 1,
+        "audio_mode": audio_mode,
+        "clock": clock,
+        "actors": actors,
+        "audio_events": events,
+        "resources": {"room_package": {"renderer": "habitat"}},
+    }
+
+
+def _mode_actors():
+    return [
+        {"actor_id": "source1", "source_endpoint_id": "source1_emitter", "asset_id": "human_a"},
+        {"actor_id": "source2", "source_endpoint_id": "source2_emitter", "asset_id": "animal_a"},
+    ]
+
+
+def _mode_event(event_id, actor_id, endpoint, start, end):
+    return {
+        "event_id": event_id,
+        "actor_id": actor_id,
+        "source_endpoint_id": endpoint,
+        "sound_asset_id": f"sound_{event_id}",
+        "start_sample": start,
+        "end_sample_exclusive": end,
+        "source_start_sample": 0,
+        "source_end_sample_exclusive": end - start,
+    }
+
+
+def test_habitat_overlap_selects_simultaneous_subset_and_validates(tmp_path: Path) -> None:
+    plan = _habitat_mode_plan(
+        audio_mode="overlap",
+        actors=_mode_actors(),
+        events=[
+            _mode_event("e1", "source1", "source1_emitter", 1000, 8000),
+            _mode_event("e2", "source2", "source2_emitter", 5000, 12000),
+        ],
+    )
+    assert select_habitat_audio_program_mode(plan["audio_events"], ["source1_emitter", "source2_emitter"]) == "simultaneous_subset"
+    program = json.loads(_write_habitat_audio_program(plan, tmp_path / "overlap.json").read_text())
+    assert program["mode"] == "simultaneous_subset"
+    assert program["mode"] != plan["audio_mode"]
+    assert validate_audio_program(program) == []
+
+
+def test_habitat_nonoverlap_selects_sequential_sources_and_validates(tmp_path: Path) -> None:
+    plan = _habitat_mode_plan(
+        audio_mode="overlap",
+        actors=_mode_actors(),
+        events=[
+            _mode_event("e1", "source1", "source1_emitter", 1000, 5000),
+            _mode_event("e2", "source2", "source2_emitter", 6000, 9000),
+        ],
+    )
+    program = json.loads(_write_habitat_audio_program(plan, tmp_path / "sequential.json").read_text())
+    assert program["mode"] == "sequential_sources"
+    assert validate_audio_program(program) == []
+
+
+def test_habitat_command_omits_beagle_audio_without_historical_binding(tmp_path: Path) -> None:
+    repository = Path(__file__).resolve().parents[2]
+    plan = _habitat_mode_plan(
+        actors=_mode_actors(),
+        events=[_mode_event("e1", "source1", "source1_emitter", 1000, 5000),
+                _mode_event("e2", "source2", "source2_emitter", 6000, 9000)],
+    )
+    plan["resources"]["acoustic_package"] = str(tmp_path / "package.json")
+    plan["voice_bindings"] = [
+        {
+            "actor_id": "source1",
+            "sound_asset_id": "prepared_speech_band_test_v1",
+            "path": str(tmp_path / "speech.wav"),
+        }
+    ]
+    (tmp_path / "speech.wav").write_bytes(b"RIFF")
+    (tmp_path / "package.json").write_text("{}")
+    program_path = tmp_path / "program.json"
+    program_path.write_text("{}")
+    command = _build_habitat_audio_command(
+        {"runtime": {"runtime_prefix": "runtime", "rlr_sdk_root": "rlr"}},
+        plan,
+        tmp_path,
+        tmp_path / "capture",
+        tmp_path / "audio",
+        program_path,
+        repository=repository,
+    )
+    assert "--beagle-audio" not in command
+    assert any(item.startswith("prepared_speech_band_test_v1=") for item in command)
+
+
+def test_contract_failure_does_not_leave_facts_or_questions(tmp_path: Path, monkeypatch) -> None:
+    root = tmp_path / "episode"
+    report = _write_finalize_fixture(root, source_name="frame_readbacks.json")
+
+    def boom(*args, **kwargs):
+        raise ValueError("synthetic EvidenceContract failure")
+
+    monkeypatch.setattr("avengine.rooms.qa_delivery.validate_evidence_contract", boom)
+    derived = tmp_path / "derived"
+    with pytest.raises(ValueError, match="synthetic EvidenceContract failure"):
+        finalize_qa_episode(
+            root,
+            derived,
+            repository=Path(__file__).resolve().parents[2],
+            audio_report=report,
+        )
+    assert not (derived / "facts.json").exists()
+    assert not (derived / "questions.json").exists()
+

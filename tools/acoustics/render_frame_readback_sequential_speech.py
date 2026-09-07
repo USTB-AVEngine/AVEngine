@@ -1612,6 +1612,18 @@ def _render_plan_audio_legacy_dynamic(
         if tail_interval is None:
             raise ValueError(f"{event['event_id']} produced a silent wet tail")
         tail_end = int(tail_interval[1])
+        sample_count = int(clock["sample_count"])
+        clamped = tail_end > sample_count
+        clamped_end = min(tail_end, sample_count)
+        clamped_start = int(tail_interval[0])
+        if clamped_start > sample_count:
+            clamped_start = sample_count
+            clamped = True
+        if clamped_end <= clamped_start and sample_count > 0:
+            clamped_start = max(0, sample_count - 1)
+            clamped_end = sample_count
+            clamped = True
+        clamped_interval = [clamped_start, clamped_end]
         event_records.append(
             {
                 **event,
@@ -1624,14 +1636,16 @@ def _render_plan_audio_legacy_dynamic(
                 "scheduled_event_interval": [event["start_sample"], event["end_sample_exclusive"]],
                 "planned_event_interval": [event["start_sample"], event["end_sample_exclusive"]],
                 "actual_dry_active_interval": [actual_start, actual_end],
-                "wet_tail_interval": tail_interval,
+                "wet_tail_interval": clamped_interval,
                 "wet_render_interval": [
                     int(event["start_sample"]),
-                    min(tail_end, int(clock["sample_count"])),
+                    clamped_end,
                 ],
-                "wet_tail_end_sample": tail_end,
-                "wet_tail_truncated_at_episode": tail_end > int(clock["sample_count"]),
-                "wet_tail_end_sample_in_episode": min(tail_end, int(clock["sample_count"])),
+                "wet_tail_end_sample": clamped_end,
+                "wet_tail_truncated_at_episode": clamped,
+                "wet_tail_end_sample_in_episode": clamped_end,
+                "wet_tail_clamped": clamped,
+                "wet_tail_end_sample_original": tail_end,
                 "wet_float_nonzero_interval": tail_interval,
                 "pcm_output_nonzero_interval": _nonzero_interval(
                     event_stem.episode, threshold=1.0 / 32767.0, offset=0

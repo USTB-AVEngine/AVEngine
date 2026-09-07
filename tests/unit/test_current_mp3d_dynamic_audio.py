@@ -777,3 +777,21 @@ def test_dataset_renderer_cli_parses_layouts_without_defaulting_to_foa():
     )
     with pytest.raises(argparse.ArgumentTypeError):
         module.parse_layouts("binaural,foa")
+
+def test_cli_beagle_audio_is_optional() -> None:
+    parser = cli.build_parser()
+    args = parser.parse_args([
+        "m5",
+        "render-current-mp3d-dynamic-audio",
+        "--visual-capture-dir", "capture",
+        "--m1-request", "m1.json",
+        "--simulation-request", "simulation.json",
+        "--package-manifest", "package.json",
+        "--audio-program", "program.json",
+        "--hrtf", "hrtf.sofa",
+        "--runtime-prefix", "runtime",
+        "--rlr-sdk-root", "rlr",
+        "--output", "out",
+    ])
+    assert args.beagle_audio is None
+

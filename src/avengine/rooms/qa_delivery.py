@@ -189,6 +189,47 @@ def _authoritative_endpoint_bindings(
     return endpoint_by_actor
 
 
+
+def select_habitat_audio_program_mode(
+    events: Sequence[Mapping[str, Any]],
+    candidate_ids: Sequence[str],
+) -> str:
+    """Select an AudioProgram mode from event overlap, not plan.audio_mode.
+
+    ``plan["audio_mode"]`` is an event_relation (sequential/overlap/repeat).
+    Habitat must use the same mode rules as the UE program writer.
+    """
+    records = [event for event in events if isinstance(event, Mapping)]
+    if not records:
+        raise ValueError("Habitat audio plan has no audio_events")
+    overlaps = any(
+        str(left.get("source_endpoint_id")) != str(right.get("source_endpoint_id"))
+        and max(int(left["start_sample"]), int(right["start_sample"]))
+        < min(int(left["end_sample_exclusive"]), int(right["end_sample_exclusive"]))
+        for left_index, left in enumerate(records)
+        for right in records[left_index + 1 :]
+    )
+    active_count = len({str(item["source_endpoint_id"]) for item in records})
+    if active_count == 1:
+        if len(list(candidate_ids)) >= 2:
+            return "one_active_of_n"
+        ordered = sorted(
+            records,
+            key=lambda item: (
+                int(item["start_sample"]),
+                str(item.get("source_endpoint_id")),
+                str(item.get("event_id")),
+            ),
+        )
+        if len(ordered) > 1 and any(
+            int(right["start_sample"]) > int(left["end_sample_exclusive"])
+            for left, right in zip(ordered, ordered[1:])
+        ):
+            return "intermittent_events"
+        raise ValueError("a one-event plan must declare at least two candidate endpoints")
+    return "simultaneous_subset" if overlaps else "sequential_sources"
+
+
 def _write_habitat_audio_program(
     plan: Mapping[str, Any],
     output_path: Path,
@@ -196,7 +237,7 @@ def _write_habitat_audio_program(
     neutral_readback: Mapping[str, Any] | None = None,
 ) -> Path:
     """Materialize common-plan events using authoritative endpoint bindings."""
-    from avengine.timeline.audio_program import bind_audio_program_hash
+    from avengine.timeline.audio_program import bind_audio_program_hash, validate_audio_program
 
     clock = plan.get("clock")
     if not isinstance(clock, Mapping):
@@ -267,6 +308,7 @@ def _write_habitat_audio_program(
         if not event["sound_asset_id"]:
             raise ValueError(f"Habitat audio event {event['event_id']} has no sound asset")
         events.append(event)
+    candidate_ids = sorted(set(endpoints))
     timeline = {
         "time_base_hz": int(clock["time_base_hz"]),
         "ticks_per_frame": int(clock["ticks_per_frame"]),
@@ -280,13 +322,16 @@ def _write_habitat_audio_program(
         "schema": "avengine_m6_audio_program_v1",
         "program_id": str(plan.get("program_id", f"{plan.get('episode_id', 'habitat')}_audio_program")),
         "revision": str(plan.get("revision", "v1")),
-        "mode": str(plan.get("audio_mode", "sequential_sources")),
+        "mode": select_habitat_audio_program_mode(events, candidate_ids),
         "timeline": timeline,
-        "candidate_source_endpoint_ids": sorted(set(endpoints)),
+        "candidate_source_endpoint_ids": candidate_ids,
         "events": events,
         "source_specific_stems": True,
         "admission_state": "research",
     })
+    errors = validate_audio_program(program)
+    if errors:
+        raise ValueError("AudioProgram validation failed: " + "; ".join(errors))
     output_path.parent.mkdir(parents=True, exist_ok=True)
     write_json(output_path, program)
     return output_path.resolve()
@@ -335,7 +380,6 @@ def _build_habitat_audio_command(
             sound_paths.setdefault(sound_id, str(Path(path).expanduser().resolve()))
     if not sound_paths:
         raise ValueError("Habitat audio plan lacks explicit dry asset bindings")
-    beagle = sound_paths.get("dog_beagle_v2_scheduled_dry") or next(iter(sound_paths.values()))
     hrtf = runtime.get("hrtf") or "/usr/share/libmysofa/MIT_KEMAR_normal_pinna.sofa"
     # Invoke the installed AVEngine CLI directly; ``python -m`` is represented
     # as separate argv entries below so no shell path assumptions are needed.
@@ -350,7 +394,6 @@ def _build_habitat_audio_command(
         "--simulation-request", str(Path(simulation_value).expanduser().resolve()),
         "--package-manifest", str(Path(package_value).expanduser().resolve()),
         "--audio-program", str(audio_program_path.resolve()),
-        "--beagle-audio", beagle,
         "--hrtf", str(hrtf),
         "--runtime-prefix", str(runtime.get("runtime_prefix", "")),
         "--rlr-sdk-root", str(runtime.get("rlr_sdk_root", "")),
@@ -364,6 +407,9 @@ def _build_habitat_audio_command(
     prepared = request.get("prepared_manifest") or runtime.get("prepared_manifest") or plan.get("prepared_manifest")
     if isinstance(prepared, str) and prepared:
         command += ["--prepared-manifest", str(Path(prepared).expanduser().resolve())]
+    beagle_path = sound_paths.get("dog_beagle_v2_scheduled_dry")
+    if isinstance(beagle_path, str) and beagle_path:
+        command += ["--beagle-audio", beagle_path]
     for sound_id, path in sorted(sound_paths.items()):
         if sound_id != "dog_beagle_v2_scheduled_dry":
             command += ["--asset-binding", f"{sound_id}={path}"]
@@ -1250,41 +1296,6 @@ def finalize_qa_episode(
             "reason": "native video master is unavailable; facts/questions use actual frame readback and RGB evidence",
         }
     raw["video_path"] = str(final_video) if final_video is not None else None
-    facts_path = derived / "facts.json"
-    facts = normalize_episode_bundle(raw)
-    facts.setdefault("audio", {})["path"] = str(mixture)
-    facts["audio"]["actual_path"] = str(mixture)
-    facts.setdefault("source_paths", {})["neutral_readback"] = str(neutral_value.resolve())
-    facts["source_paths"]["mixture_audio"] = str(mixture)
-    facts["source_paths"]["audio_readback"] = str(mixture)
-    facts["source_paths"]["research_report"] = str(contract_report_path.resolve())
-    facts["source_paths"]["appearance_review"] = str(appearance_path.resolve())
-    facts["source_paths"]["occluder_evidence"] = str(occluder_path.resolve())
-    facts["source_paths"]["occluder_registry"] = str(occluder_registry_path.resolve())
-    if final_video is not None:
-        facts["source_paths"]["video"] = str(final_video)
-    write_json(facts_path, facts)
-    qa_ids = request_value.get("qa_ids") if isinstance(request_value, Mapping) else None
-    questions = generate_unified_questions(
-        facts, qa_ids=qa_ids, seed=str(plan.get("seed", capture_root.name))
-    )
-    questions.pop("input_facts", None)
-    questions["normalized_facts_path"] = str(facts_path.resolve())
-    questions_path = derived / "questions.json"
-    write_json(questions_path, questions)
-    evidence: list[dict[str, Any]] = [
-        {"path": str(neutral_value.resolve()), "role": "p1_neutral_readback", "required": True},
-        {"path": str(frame_source.resolve()), "role": "native_frame_readback_source", "required": True},
-        {"path": str(truth_path.resolve()), "role": "question_pixel_evidence", "required": True},
-        {"path": str(masks_path.resolve()), "role": "native_pixel_masks_depth_authority_v1", "required": True},
-        {"path": str(contract_report_path.resolve()), "role": "audio_render_report", "required": True},
-        {"path": str(program_path), "role": "actual_audio_program", "required": True},
-        {"path": str(appearance_path.resolve()), "role": "registered_appearance_review", "required": True},
-        {"path": str(occluder_path.resolve()), "role": "actor_occluder_evidence", "required": True},
-        {"path": str(occluder_registry_path.resolve()), "role": "actor_occluder_display_registry", "required": True},
-        {"path": str(facts_path.resolve()), "role": "private_normalized_facts", "required": True},
-        {"path": str(questions_path.resolve()), "role": "question_output", "required": True},
-    ]
     contract_files = {
         "pixel_visibility_truth.json": truth_path,
         "native_pixel_masks_depth_authority_v1.npz": masks_path,
@@ -1300,6 +1311,46 @@ def finalize_qa_episode(
         require_complete=declared_frames == full_frame_indices,
     )
     write_json(derived / "evidence_contract_validation.json", contract_validation)
+    facts_path = derived / "facts.json"
+    questions_path = derived / "questions.json"
+    facts = normalize_episode_bundle(raw)
+    facts.setdefault("audio", {})["path"] = str(mixture)
+    facts["audio"]["actual_path"] = str(mixture)
+    facts.setdefault("source_paths", {})["neutral_readback"] = str(neutral_value.resolve())
+    facts["source_paths"]["mixture_audio"] = str(mixture)
+    facts["source_paths"]["audio_readback"] = str(mixture)
+    facts["source_paths"]["research_report"] = str(contract_report_path.resolve())
+    facts["source_paths"]["appearance_review"] = str(appearance_path.resolve())
+    facts["source_paths"]["occluder_evidence"] = str(occluder_path.resolve())
+    facts["source_paths"]["occluder_registry"] = str(occluder_registry_path.resolve())
+    if final_video is not None:
+        facts["source_paths"]["video"] = str(final_video)
+    qa_ids = request_value.get("qa_ids") if isinstance(request_value, Mapping) else None
+    questions = generate_unified_questions(
+        facts, qa_ids=qa_ids, seed=str(plan.get("seed", capture_root.name))
+    )
+    questions.pop("input_facts", None)
+    questions["normalized_facts_path"] = str(facts_path.resolve())
+    try:
+        write_json(facts_path, facts)
+        write_json(questions_path, questions)
+    except Exception:
+        facts_path.unlink(missing_ok=True)
+        questions_path.unlink(missing_ok=True)
+        raise
+    evidence: list[dict[str, Any]] = [
+        {"path": str(neutral_value.resolve()), "role": "p1_neutral_readback", "required": True},
+        {"path": str(frame_source.resolve()), "role": "native_frame_readback_source", "required": True},
+        {"path": str(truth_path.resolve()), "role": "question_pixel_evidence", "required": True},
+        {"path": str(masks_path.resolve()), "role": "native_pixel_masks_depth_authority_v1", "required": True},
+        {"path": str(contract_report_path.resolve()), "role": "audio_render_report", "required": True},
+        {"path": str(program_path), "role": "actual_audio_program", "required": True},
+        {"path": str(appearance_path.resolve()), "role": "registered_appearance_review", "required": True},
+        {"path": str(occluder_path.resolve()), "role": "actor_occluder_evidence", "required": True},
+        {"path": str(occluder_registry_path.resolve()), "role": "actor_occluder_display_registry", "required": True},
+        {"path": str(facts_path.resolve()), "role": "private_normalized_facts", "required": True},
+        {"path": str(questions_path.resolve()), "role": "question_output", "required": True},
+    ]
     evidence.append({"path": str((derived / "evidence_contract_validation.json").resolve()), "role": "evidence_contract_validation", "required": True})
     if visual_video is not None:
         evidence.append({"path": str(visual_video.resolve()), "role": "native_visual_video_or_rgb_encode", "required": True})
