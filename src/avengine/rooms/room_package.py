@@ -7,7 +7,7 @@ import os
 import re
 from string import Template
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 
 SCHEMA = "avengine_qa_room_package_v1"
 RENDERERS = {"apartment": "ue_spear", "kujiale": "ue_spear", "authored": "ue_spear",
@@ -15,9 +15,22 @@ RENDERERS = {"apartment": "ue_spear", "kujiale": "ue_spear", "authored": "ue_spe
 REQUIRED = ("room_id", "family", "renderer", "visual_scene", "acoustic_package",
             "walkable_space", "floor_reference", "static_geometry", "semantics",
             "coordinate_frame", "subrooms")
+REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
+_REPO_RELATIVE_PREFIXES = (
+    "tmp/", "examples/", "assets/", "tools/", "src/", "external/", "envs/", "docs/",
+)
+_PATH_SUFFIXES = {
+    ".json", ".npy", ".npz", ".glb", ".gltf", ".usd", ".usda", ".usdc", ".usdz",
+    ".uproject", ".umap", ".png", ".jpg", ".jpeg", ".wav", ".mp4", ".txt",
+    ".navmesh", ".ply", ".obj", ".ini", ".cfg", ".xml", ".yaml", ".yml",
+}
 
 
-def room_package_errors(package: Mapping[str, Any]) -> list[str]:
+def room_package_errors(
+    package: Mapping[str, Any],
+    *,
+    relative_roots: Sequence[str | Path] | None = None,
+) -> list[str]:
     """Report missing facts without fabricating defaults or judging feasibility."""
     errors = []
     if package.get("schema") != SCHEMA:
@@ -60,7 +73,7 @@ def room_package_errors(package: Mapping[str, Any]) -> list[str]:
         errors.append("floor_reference must reference a measured artifact")
     if not isinstance(package.get("subrooms"), list):
         errors.append("subrooms must be a list (empty when the map has no subdivisions)")
-    for field, path in missing_filesystem_paths(package):
+    for field, path in missing_filesystem_paths(package, relative_roots=relative_roots):
         errors.append(f"missing path {field}: {path}")
     return errors
 
@@ -69,17 +82,91 @@ def _is_ue_or_usd_virtual_path(value: str) -> bool:
     return value.startswith("/Game") or value.startswith("/Root")
 
 
+def _is_unexpanded_template(value: str) -> bool:
+    return isinstance(value, str) and "${" in value
+
+
 def _is_absolute_filesystem_path(value: str) -> bool:
     if not isinstance(value, str) or not value.startswith("/") or _is_ue_or_usd_virtual_path(value):
         return False
-    if value.startswith("${"):
+    if _is_unexpanded_template(value):
         return False
     return True
 
 
-def missing_filesystem_paths(package: Mapping[str, Any]) -> list[tuple[str, str]]:
-    """Return (field, path) for absolute non-/Game non-/Root paths that are missing."""
+def _normalized_relative(value: str) -> str:
+    return value.replace("\\", "/")
+
+
+def _is_repo_relative_path(value: str) -> bool:
+    if not isinstance(value, str) or not value or value.startswith("/") or _is_ue_or_usd_virtual_path(value):
+        return False
+    if _is_unexpanded_template(value):
+        return False
+    return _normalized_relative(value).startswith(_REPO_RELATIVE_PREFIXES)
+
+
+def _looks_like_relative_filesystem_path(value: str) -> bool:
+    if _is_repo_relative_path(value):
+        return True
+    if not isinstance(value, str) or not value or value.startswith("/") or _is_ue_or_usd_virtual_path(value):
+        return False
+    if _is_unexpanded_template(value):
+        return False
+    normalized = _normalized_relative(value)
+    name = Path(value).name.lower()
+    if name.endswith(".scene_dataset_config.json"):
+        return True
+    suffix = Path(value).suffix.lower()
+    return suffix in _PATH_SUFFIXES and "/" in normalized
+
+
+def _relative_roots(
+    relative_roots: Sequence[str | Path] | None,
+    *,
+    declared: str | Path | None = None,
+) -> list[Path]:
+    roots: list[Path] = [REPOSITORY_ROOT]
+    seen = {REPOSITORY_ROOT.resolve()}
+    extra: list[Path] = []
+    if relative_roots:
+        extra.extend(Path(item) for item in relative_roots)
+    if declared is not None:
+        path = Path(declared)
+        extra.append(path.parent if path.is_absolute() else (REPOSITORY_ROOT / path).parent)
+    for item in extra:
+        resolved = item.resolve()
+        if resolved not in seen:
+            seen.add(resolved)
+            roots.append(item)
+    return roots
+
+
+def _relative_roots_for_declared(declared: Any) -> list[Path]:
+    if isinstance(declared, (str, Path)):
+        return _relative_roots(None, declared=declared)
+    return _relative_roots(None)
+
+
+def missing_filesystem_paths(
+    package: Mapping[str, Any],
+    *,
+    relative_roots: Sequence[str | Path] | None = None,
+) -> list[tuple[str, str]]:
+    """Return (field, path) for filesystem paths that do not exist.
+
+    Call this after ``resolve_room_package_paths``. Unexpanded ``${VAR}``
+    templates are not filesystem paths. Absolute non-/Game non-/Root paths are
+    always checked. Relative ``tmp/`` / ``examples/`` paths are resolved against
+    the repository root; other relative path-like strings are checked when
+    extra roots (catalog directory) are supplied.
+    """
+    check_all_relative = relative_roots is not None
+    roots = _relative_roots(relative_roots)
     missing: list[tuple[str, str]] = []
+
+    def exists_relative(value: str) -> bool:
+        return any((Path(root) / value).exists() for root in roots)
 
     def walk(value: Any, prefix: str) -> None:
         if isinstance(value, Mapping):
@@ -93,16 +180,28 @@ def missing_filesystem_paths(package: Mapping[str, Any]) -> list[tuple[str, str]
             for index, item in enumerate(value):
                 walk(item, f"{prefix}[{index}]")
             return
-        if isinstance(value, str) and _is_absolute_filesystem_path(value):
+        if not isinstance(value, str):
+            return
+        if _is_absolute_filesystem_path(value):
             if not Path(value).exists():
                 missing.append((prefix, value))
+            return
+        should_check = _is_repo_relative_path(value)
+        if check_all_relative:
+            should_check = should_check or _looks_like_relative_filesystem_path(value)
+        if should_check and not exists_relative(value):
+            missing.append((prefix, value))
 
     walk(package, "")
     return missing
 
 
-def validate_room_package(package: Mapping[str, Any]) -> dict:
-    errors = room_package_errors(package)
+def validate_room_package(
+    package: Mapping[str, Any],
+    *,
+    relative_roots: Sequence[str | Path] | None = None,
+) -> dict:
+    errors = room_package_errors(package, relative_roots=relative_roots)
     if errors:
         raise ValueError("RoomPackage: " + "; ".join(errors))
     return deepcopy(dict(package))
@@ -149,13 +248,24 @@ def package_from_catalog_entry(entry: Mapping[str, Any], *,
     Explicit packages are strict. Legacy drafts do not retroactively invalidate
     old requests; their validation errors remain visible until P3 supplies the
     measured package. The old entry itself is retained unchanged.
+
+    Path existence runs after template expansion so ``${AVENGINE_...}`` values
+    are real filesystem paths. Relative paths resolve against the repository
+    root and the directory of ``entry["room_package"]``.
     """
     declared = entry.get("room_package")
     if declared is not None:
         package = _load_json(declared) if isinstance(declared, (str, Path)) else declared
-        return resolve_room_package_paths(validate_room_package(package), runtime=runtime)
+        # Validate after resolve so expanded absolute/relative paths are checked.
+        return validate_room_package(
+            resolve_room_package_paths(package, runtime=runtime),
+            relative_roots=_relative_roots_for_declared(declared),
+        )
     if entry.get("schema") == SCHEMA:
-        return resolve_room_package_paths(validate_room_package(entry), runtime=runtime)
+        return validate_room_package(
+            resolve_room_package_paths(entry, runtime=runtime),
+            relative_roots=_relative_roots_for_declared(None),
+        )
     native = entry.get("native_room_adapter") == "avengine_native_spear_apartment_qa_room_v1"
     family = entry.get("family", "apartment" if native else "authored")
     renderer = entry.get("renderer", RENDERERS.get(family))

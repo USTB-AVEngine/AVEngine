@@ -1,4 +1,4 @@
-"""Exposure gate rejects blown-out frames and accepts a normal interior."""
+"""Exposure gate rejects blown-out frames and records the frame source."""
 from __future__ import annotations
 
 from pathlib import Path
@@ -6,7 +6,10 @@ from pathlib import Path
 import numpy as np
 
 from avengine.qa.exposure_gate import (
+    CAPTURE_FRAMES_KIND,
     PLACEHOLDER_EXPOSURE_GATE_CONFIG,
+    REVIEW_FRAMES_KIND,
+    RGB_NPY_KIND,
     apply_exposure_gate,
     compute_exposure_stats,
 )
@@ -51,8 +54,55 @@ def test_all_white_frame_fails_and_normal_frame_passes(tmp_path):
     assert "mean_gray" in failed["reason"]
     assert failed["exposure_gate"]["threshold_kind"] == "placeholder"
     assert failed["exposure_gate"]["status"] == "failed"
+    assert failed["frame_source"]["kind"] == CAPTURE_FRAMES_KIND
+    assert failed["exposure_gate"]["frame_source"]["kind"] == CAPTURE_FRAMES_KIND
 
     passed = apply_exposure_gate({"status": "delivered", "episode_id": "normal"}, normal_root)
     assert passed["status"] == "delivered"
     assert passed["exposure_gate"]["status"] == "pass"
     assert "reason" not in passed
+    assert passed["frame_source"]["kind"] == CAPTURE_FRAMES_KIND
+
+
+def test_habitat_rgb_npy_first_mid_last_when_no_png_dir(tmp_path):
+    first = np.full((8, 12, 3), 80, dtype=np.uint8)
+    mid = np.full((8, 12, 3), 90, dtype=np.uint8)
+    last = np.full((8, 12, 3), 100, dtype=np.uint8)
+    stack = np.stack([first, np.full((8, 12, 3), 85, dtype=np.uint8), mid, last], axis=0)
+    npy = tmp_path / "capture" / "rgb.npy"
+    npy.parent.mkdir(parents=True)
+    np.save(npy, stack)
+    review_dir = tmp_path / "batch_review" / "frames"
+    for index in range(3):
+        _write_png(review_dir / f"frame_{index:03d}.png", np.full((8, 12, 3), 255, dtype=np.uint8))
+
+    result = apply_exposure_gate({"status": "delivered", "episode_id": "habitat"}, tmp_path)
+    assert result["status"] == "delivered"
+    assert result["frame_source"]["kind"] == RGB_NPY_KIND
+    assert result["exposure_gate"]["frame_source"]["kind"] == RGB_NPY_KIND
+    indices = [row["index"] for row in result["exposure_gate"]["frames"]]
+    assert indices == [0, 2, 3]
+    means = [row["mean_gray"] for row in result["exposure_gate"]["frames"]]
+    assert abs(means[0] - 80.0) < 1e-6
+    assert abs(means[1] - 90.0) < 1e-6
+    assert abs(means[2] - 100.0) < 1e-6
+
+
+def test_capture_png_is_preferred_over_rgb_npy_and_review_extracts(tmp_path):
+    capture = np.full((8, 12, 3), 110, dtype=np.uint8)
+    _write_png(tmp_path / "capture" / "frames" / "frame_0000.png", capture)
+    np.save(tmp_path / "capture" / "rgb.npy", np.full((4, 8, 12, 3), 255, dtype=np.uint8))
+    _write_png(tmp_path / "batch_review" / "frames" / "frame_000.png", np.full((8, 12, 3), 255, dtype=np.uint8))
+    result = apply_exposure_gate({"status": "delivered", "episode_id": "ue"}, tmp_path)
+    assert result["frame_source"]["kind"] == CAPTURE_FRAMES_KIND
+    assert result["exposure_gate"]["status"] == "pass"
+
+
+def test_review_extracts_are_used_only_without_capture_or_rgb_npy(tmp_path):
+    normal = np.full((8, 12, 3), 130, dtype=np.uint8)
+    for index in range(3):
+        _write_png(tmp_path / "batch_review" / "frames" / f"frame_{index:03d}.png", normal)
+    result = apply_exposure_gate({"status": "delivered", "episode_id": "review_only"}, tmp_path)
+    assert result["frame_source"]["kind"] == REVIEW_FRAMES_KIND
+    assert result["exposure_gate"]["status"] == "pass"
+    assert "review extract" in result["frame_source"]["note"]

@@ -56,3 +56,19 @@ def test_review_frames_keep_frame_zero_and_the_actual_query_endpoint():
     assert "q2:query_frame" in result[8]
     with pytest.raises(ValueError, match="query frame"):
         _review_frames({"items": [{"question_id": "bad", "evidence": {"query_frame": 10}}]}, facts_fixture())
+
+def test_exposure_gate_import_error_fails_review(monkeypatch, tmp_path):
+    from avengine.qa import batch_delivery as module
+
+    def _boom():
+        raise ImportError("simulated missing avengine.qa.exposure_gate")
+
+    monkeypatch.setattr(module, "_import_apply_exposure_gate", _boom)
+    result = module.apply_review_exposure_gate(
+        {"status": "delivered", "episode_id": "x"}, tmp_path
+    )
+    assert result["status"] == "review_failed"
+    assert result["exposure_gate"]["status"] == "unavailable"
+    assert "unavailable" in result["reason"]
+    assert result["frame_source"]["kind"] == "unavailable"
+

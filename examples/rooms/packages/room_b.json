@@ -11,15 +11,15 @@
   "family": "authored",
   "floor_reference": {
     "measurement_kind": "depth_readback_fallback",
-    "path": "tmp/gb_floor_reference_20260907/room_b/floor_reference.json",
+    "path": "examples/rooms/packages/floor_reference/room_b/floor_reference.json",
     "precision_m": 0.00025,
-    "status": "measured"
+    "status": "depth_readback_fallback"
   },
   "planning_inputs": {
     "acoustic_package": "${AVENGINE_MULTI_HOME_ROOT}/integration_sol_v6/room_b_final_v8_rlr_research_v1/manifest.json",
     "acoustic_package_template": "${AVENGINE_MULTI_HOME_ROOT}/integration_sol_v6/room_b_final_v8_rlr_research_v1/manifest.json",
     "exposure_bias_ev": -4.0,
-    "floor_reference": "tmp/gb_floor_reference_20260907/room_b/floor_reference.json",
+    "floor_reference": "examples/rooms/packages/floor_reference/room_b/floor_reference.json",
     "manifest": "${AVENGINE_MULTI_HOME_ROOT}/integration_sol_v6/final_plan_inputs_v1/room_b_final_v8_handoff.json",
     "manifest_template": "${AVENGINE_MULTI_HOME_ROOT}/integration_sol_v6/final_plan_inputs_v1/room_b_final_v8_handoff.json",
     "map_path": "/Game/AVEngine/MultiHome/room_b_detailed_v8_linear_materialfix",
@@ -30,7 +30,7 @@
   "pose_bindings": "${AVENGINE_MULTI_HOME_ROOT}/integration_sol_v6/plan_inputs_v1/room_b_pose_bindings.json",
   "provenance": {
     "native_execution": "pending_root_execution",
-    "native_floor_measurement": "tmp/gb_floor_reference_20260907/room_b/floor_reference.json",
+    "native_floor_measurement": "examples/rooms/packages/floor_reference/room_b/floor_reference.json",
     "qualification_claim": false,
     "runtime_route": "native UE/SPEAR",
     "source": "${AVENGINE_MULTI_HOME_ROOT}/integration_sol_v6/final_plan_inputs_v1/room_b_final_v8_handoff.json",

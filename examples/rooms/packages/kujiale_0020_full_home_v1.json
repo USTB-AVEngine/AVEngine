@@ -10,14 +10,14 @@
   "family": "kujiale",
   "floor_reference": {
     "measurement_kind": "depth_readback_fallback",
-    "path": "tmp/gb_floor_reference_20260907/kujiale/floor_reference.json",
+    "path": "examples/rooms/packages/floor_reference/kujiale_0020/floor_reference.json",
     "precision_m": 0.00025,
-    "status": "measured"
+    "status": "depth_readback_fallback"
   },
   "planning_inputs": {
     "acoustic_package": "${AVENGINE_KUJIALE_ACOUSTIC_ROOT}/manifest.json",
     "acoustic_package_template": "${AVENGINE_KUJIALE_ACOUSTIC_ROOT}/manifest.json",
-    "floor_reference": "tmp/gb_floor_reference_20260907/kujiale/floor_reference.json",
+    "floor_reference": "examples/rooms/packages/floor_reference/kujiale_0020/floor_reference.json",
     "map_path": "/Game/AVEngine/Optional/Kujiale/kujiale_0020_full_home_v1",
     "pose_bindings": "examples/rooms/packages/kujiale_0020_pose_bindings.json",
     "review_lights": [
@@ -107,7 +107,7 @@
     "native_canary_display_review": "tmp/p3_room_packages_20260907_v11/parent_visual_verification.json",
     "native_canary_visual_validation": "clearance-table camera point [-112.5,-227.5] cm at 1.47 m, yaw 150 deg; assistant-verified readable RGB",
     "native_execution": "pending_root_execution",
-    "native_floor_measurement": "tmp/gb_floor_reference_20260907/kujiale/floor_reference.json",
+    "native_floor_measurement": "examples/rooms/packages/floor_reference/kujiale_0020/floor_reference.json",
     "qualification_claim": false,
     "runtime_route": "native UE/SPEAR",
     "source": "examples/qa/scenes/interioragent_kujiale_0020_livingroom_491.json",

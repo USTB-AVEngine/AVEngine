@@ -70,15 +70,25 @@ def test_kujiale_pose_bindings_do_not_invent_furniture_seats():
 
 def test_current_ue_floor_references_are_bound_to_native_measurement_outputs():
     expected = {
-        "native_apartment.json": "tmp/p3_room_packages_20260907_v3/floor_reference/",
-        "room_a.json": "tmp/gb_floor_reference_20260907/room_a/",
-        "room_b.json": "tmp/gb_floor_reference_20260907/room_b/",
-        "room_c.json": "tmp/gb_floor_reference_20260907/room_c/",
-        "kujiale_0020_full_home_v1.json": "tmp/gb_floor_reference_20260907/kujiale/",
+        "native_apartment.json": (
+            "tmp/p3_room_packages_20260907_v3/floor_reference/", "measured"
+        ),
+        "room_a.json": (
+            "examples/rooms/packages/floor_reference/room_a/", "depth_readback_fallback"
+        ),
+        "room_b.json": (
+            "examples/rooms/packages/floor_reference/room_b/", "depth_readback_fallback"
+        ),
+        "room_c.json": (
+            "examples/rooms/packages/floor_reference/room_c/", "depth_readback_fallback"
+        ),
+        "kujiale_0020_full_home_v1.json": (
+            "examples/rooms/packages/floor_reference/kujiale_0020/", "depth_readback_fallback"
+        ),
     }
-    for filename, prefix in expected.items():
+    for filename, (prefix, status) in expected.items():
         package = json.loads((PACKAGE_ROOT / filename).read_text(encoding="utf-8"))
         reference = package["floor_reference"]
         assert isinstance(reference, dict)
-        assert reference["status"] == "measured"
+        assert reference["status"] == status
         assert reference["path"].startswith(prefix)
