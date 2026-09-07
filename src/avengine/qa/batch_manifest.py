@@ -725,6 +725,45 @@ def prepare_batch_manifest(
             "preallocation_gap_counts": dict(Counter(gap["code"] for row in rows for gap in row["preallocation_gaps"]))}
 
 
+def _outcome_failure_fields(outcome: Mapping[str, Any] | None) -> tuple[str | None, str | None]:
+    """Fill failure_stage / gap_state from the outcome, using status only when those keys are absent."""
+    if not isinstance(outcome, Mapping) or outcome.get("status") == "delivered":
+        return None, None
+    stage = outcome.get("failure_stage")
+    gap = outcome.get("gap_state")
+    status = outcome.get("status")
+    code = outcome.get("failure_code") or outcome.get("reason_code")
+    reason = str(outcome.get("failure_reason") or outcome.get("reason") or "")
+    histogram = outcome.get("failure_histogram")
+    if not isinstance(stage, str) or not stage:
+        stage = {
+            "preallocation_blocked": "planning",
+            "planning_failed": "planning",
+            "capture_failed": "capture",
+            "audio_failed": "audio",
+            "delivery_failed": "finalize",
+            "review_failed": "finalize",
+            "resource_failed": "launch",
+        }.get(status)
+        if code == "preallocation_gap":
+            stage = "planning"
+    if not isinstance(gap, str) or not gap:
+        exhausted = (
+            isinstance(histogram, Mapping) and bool(histogram)
+            or "fixed condition profile exhausted" in reason.lower()
+            or "conditionedplanningfailure" in reason.lower()
+        )
+        if status == "preallocation_blocked" or code == "preallocation_gap" or status == "planning_failed" or exhausted:
+            gap = "evidence_missing_or_unsampled"
+        elif status in {"audio_failed", "resource_failed"}:
+            gap = "interface_not_implemented"
+    if not isinstance(stage, str) or not stage:
+        stage = None
+    if not isinstance(gap, str) or not gap:
+        gap = None
+    return stage, gap
+
+
 def collect_batch_outcomes(manifest: Mapping[str, Any], outcomes: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     """Left-join outcomes to every requested slot, retaining failures and deficits."""
     declared = {row["episode_id"]: row for row in manifest["episodes"]}
@@ -750,11 +789,18 @@ def collect_batch_outcomes(manifest: Mapping[str, Any], outcomes: Sequence[Mappi
         # promote planned_conditions to achieved_conditions.
         if achieved is not None and not outcome.get("achieved_conditions_source"):
             raise ValueError("achieved_conditions require an actual evidence source")
+        failure_stage, gap_state = _outcome_failure_fields(outcome)
+        if isinstance(outcome, dict):
+            if failure_stage and not outcome.get("failure_stage"):
+                outcome["failure_stage"] = failure_stage
+            if gap_state and not outcome.get("gap_state"):
+                outcome["gap_state"] = gap_state
         rows.append({"episode_id": requested["episode_id"], "room_id": requested["room_id"],
                      "room_family": requested["room_family"], "condition_group": requested["condition_group"],
                      "requested_profile": deepcopy(requested["requested_profile"]),
                      "requested_source_assignments": deepcopy(requested["source_assignments"]),
                      "outcome": outcome, "status": "not_run" if outcome is None else outcome["status"],
+                     "failure_stage": failure_stage, "gap_state": gap_state,
                      "profile_matches_request": None if observed_profile is None else not mismatch,
                      "achieved_conditions": deepcopy(achieved),
                      "achieved_conditions_source": outcome.get("achieved_conditions_source") if outcome else None,

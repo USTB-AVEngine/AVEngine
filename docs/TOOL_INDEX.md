@@ -5,7 +5,7 @@
 
 自 2026-08-25 起，目录本身就是能力分组（阶段目录 m1…m7 已移除），
 本表按目录列出每个工具做什么。
-当前共 405 个工具脚本。
+当前共 406 个工具脚本。
 
 ## 资产生成与装配（`tools/assets/`）
 
@@ -413,6 +413,7 @@
 | `tools/dataset/build_spear_apartment_review.py` | Bind one exact SPEAR Apartment RGB render to Habitat Topdown v3 and audio |
 | `tools/dataset/compare_rir_cache_metrics.py` | Compare EDT/DRR/late-energy between two retained RIR caches on matched jobs |
 | `tools/dataset/export_episode_bundle.py` | Publish a shared-room Episode/QA reference bundle |
+| `tools/dataset/merge_qa_batch_attempts.py` | Merge original QA batch attempts with a later rerun and rebuild coverage including failed-episode accounting |
 | `tools/dataset/merge_spear_apartment_render_shards.py` | Merge independently rendered SPEAR Apartment shards without copying media |
 | `tools/dataset/prepare_qwen25_omni_gold.py` | Build the private gold sidecar for the existing Qwen2.5-Omni pilot scorer |
 | `tools/dataset/prepare_qwen25_omni_pilot.py` | Prepare answer-free stereo inputs for the installed Qwen2.5-Omni pilot |
