@@ -4,7 +4,7 @@
 
 ## 1. 改了哪些文件（路径），提交号
 
-提交 。本项改动：
+提交 `9f54d14`（本报告随后的 stamp 提交只改这一行）。本项改动：
 
 - `src/avengine/rooms/qa_evidence.py`：非人类最少像素提到与人类同量级（512，placeholder）；颜色成分改比例阈值；设备 `finish` 优先、其次 `body_color`；`build_pixel_appearance_review` 显式传参；新增 `visible_pixel_frames` 与 `bbox_touches_frame_edge_frames`。
 - `tests/unit/test_qa_evidence_appearance.py`：8 像素假阳性、body_color 设备、出画截断计数。
