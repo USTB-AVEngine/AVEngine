@@ -67,6 +67,49 @@ from run_spear_kujiale_canary import (  # noqa: E402
 )
 
 
+
+# Catalog-calibrated SceneCapture bias for authored USD rooms. Autoexposure is
+# forced off; Blender-exported DiskLights otherwise clip 8-bit RGB. Values are
+# the production calibration from qa_real_rooms_20260906 (A/C -3 EV, B -4 EV).
+AUTHORED_USD_EXPOSURE_BIAS_EV = {
+    "/Game/AVEngine/MultiHome/room_a_living_props_v7": -3.0,
+    "/Game/AVEngine/MultiHome/room_b_detailed_v8_linear_materialfix": -4.0,
+    "/Game/AVEngine/MultiHome/room_c_living_props_v7": -3.0,
+}
+
+
+def _finite_bias(value: Any) -> float | None:
+    if value is None or isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    bias = float(value)
+    return bias if math.isfinite(bias) else None
+
+
+def _resolve_capture_exposure_bias(
+    args: argparse.Namespace, episode: Mapping[str, Any], plan: Mapping[str, Any]
+) -> tuple[float | None, str]:
+    cli = _finite_bias(getattr(args, "exposure_bias_ev", None))
+    if cli is not None:
+        return cli, "cli"
+    camera = plan.get("camera") if isinstance(plan.get("camera"), Mapping) else {}
+    camera_bias = _finite_bias(camera.get("exposure_bias_ev"))
+    if camera_bias is not None:
+        return camera_bias, "visual_plan.camera"
+    resources = episode.get("resources") if isinstance(episode.get("resources"), Mapping) else {}
+    resource_bias = _finite_bias(resources.get("exposure_bias_ev"))
+    if resource_bias is not None:
+        return resource_bias, "episode.resources"
+    package = resources.get("room_package") if isinstance(resources.get("room_package"), Mapping) else {}
+    planning = package.get("planning_inputs") if isinstance(package.get("planning_inputs"), Mapping) else {}
+    for owner, mapping in (("room_package", package), ("planning_inputs", planning)):
+        bias = _finite_bias(mapping.get("exposure_bias_ev"))
+        if bias is not None:
+            return bias, owner
+    map_path = str(episode.get("scene", {}).get("map_path") or resources.get("map_path") or "")
+    if map_path in AUTHORED_USD_EXPOSURE_BIAS_EV:
+        return float(AUTHORED_USD_EXPOSURE_BIAS_EV[map_path]), "authored_usd_map_default"
+    return None, "not_requested"
+
 OBJECT_IDS_COMPONENT = "DefaultSceneRoot.sp_object_ids_uint8_"
 DEPTH_COMPONENT = "DefaultSceneRoot.sp_depth_meters_"
 TARGET_ONLY_BACKGROUND_DEPTH_M = 65504.0
@@ -973,9 +1016,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         and capture_height % 2 == 0,
         "capture width and height must be positive even integers",
     )
-    exposure_bias_ev = getattr(args, "exposure_bias_ev", None)
-    if exposure_bias_ev is None:
-        exposure_bias_ev = plan["camera"].get("exposure_bias_ev")
+    exposure_bias_ev, exposure_source = _resolve_capture_exposure_bias(args, episode, plan)
     if exposure_bias_ev is not None:
         _require(
             not isinstance(exposure_bias_ev, bool)
@@ -983,7 +1024,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             and math.isfinite(exposure_bias_ev),
             "camera exposure bias must be finite",
         )
-    exposure_readback: dict[str, Any] = {"status": "not_requested"}
+    exposure_readback: dict[str, Any] = {"status": "not_requested", "source": exposure_source}
     output = args.output.expanduser().resolve()
     if output.exists():
         raise FileExistsError(f"refusing to replace output: {output}")
@@ -1036,6 +1077,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                     hfov_degrees=float(plan["camera"]["horizontal_fov_deg"]),
                 )
             exposure_readback = apply_capture_exposure(capture, bias_ev=exposure_bias_ev)
+            if isinstance(exposure_readback, dict):
+                exposure_readback = {**exposure_readback, "source": exposure_source}
             capture.set_property_value(
                 property_name="FOVAngle",
                 property_value=float(plan["camera"]["horizontal_fov_deg"]),

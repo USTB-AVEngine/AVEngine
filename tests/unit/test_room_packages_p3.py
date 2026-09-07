@@ -71,10 +71,10 @@ def test_kujiale_pose_bindings_do_not_invent_furniture_seats():
 def test_current_ue_floor_references_are_bound_to_native_measurement_outputs():
     expected = {
         "native_apartment.json": "tmp/p3_room_packages_20260907_v3/floor_reference/",
-        "room_a.json": "tmp/p3_room_packages_20260907_v6/ue_floor_measurements/room_a/",
-        "room_b.json": "tmp/p3_room_packages_20260907_v6/ue_floor_measurements/room_b/",
-        "room_c.json": "tmp/p3_room_packages_20260907_v6/ue_floor_measurements/room_c/",
-        "kujiale_0020_full_home_v1.json": "tmp/p3_room_packages_20260907_v6/ue_floor_measurements/kujiale/",
+        "room_a.json": "tmp/gb_floor_reference_20260907/room_a/",
+        "room_b.json": "tmp/gb_floor_reference_20260907/room_b/",
+        "room_c.json": "tmp/gb_floor_reference_20260907/room_c/",
+        "kujiale_0020_full_home_v1.json": "tmp/gb_floor_reference_20260907/kujiale/",
     }
     for filename, prefix in expected.items():
         package = json.loads((PACKAGE_ROOT / filename).read_text(encoding="utf-8"))

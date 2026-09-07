@@ -7,16 +7,19 @@
     "up_axis": "+Z",
     "world_transform": "ue_xyz_cm_to_xzy_m_v1"
   },
+  "exposure_bias_ev": -3.0,
   "family": "authored",
   "floor_reference": {
-    "measurement_kind": "ue_line_trace_down_blockall_complex_v1_or_native_depth_capture_v1",
-    "path": "tmp/p3_room_packages_20260907_v6/ue_floor_measurements/room_c/floor_reference.json",
+    "measurement_kind": "depth_readback_fallback",
+    "path": "tmp/gb_floor_reference_20260907/room_c/floor_reference.json",
+    "precision_m": 0.00025,
     "status": "measured"
   },
   "planning_inputs": {
     "acoustic_package": "${AVENGINE_MULTI_HOME_ROOT}/integration_sol_v6/room_c_final_rlr_research_v1/manifest.json",
     "acoustic_package_template": "${AVENGINE_MULTI_HOME_ROOT}/integration_sol_v6/room_c_final_rlr_research_v1/manifest.json",
-    "floor_reference": "tmp/p3_room_packages_20260907_v6/ue_floor_measurements/room_c/floor_reference.json",
+    "exposure_bias_ev": -3.0,
+    "floor_reference": "tmp/gb_floor_reference_20260907/room_c/floor_reference.json",
     "manifest": "${AVENGINE_MULTI_HOME_ROOT}/integration_sol_v6/final_plan_inputs_v1/room_c_final_handoff.json",
     "manifest_template": "${AVENGINE_MULTI_HOME_ROOT}/integration_sol_v6/final_plan_inputs_v1/room_c_final_handoff.json",
     "map_path": "/Game/AVEngine/MultiHome/room_c_living_props_v7",
@@ -27,7 +30,7 @@
   "pose_bindings": "${AVENGINE_MULTI_HOME_ROOT}/integration_sol_v6/plan_inputs_v1/room_c_pose_bindings.json",
   "provenance": {
     "native_execution": "pending_root_execution",
-    "native_floor_measurement": "tmp/p3_room_packages_20260907_v6/ue_floor_measurements/room_c/floor_reference.json",
+    "native_floor_measurement": "tmp/gb_floor_reference_20260907/room_c/floor_reference.json",
     "qualification_claim": false,
     "runtime_route": "native UE/SPEAR",
     "source": "${AVENGINE_MULTI_HOME_ROOT}/integration_sol_v6/final_plan_inputs_v1/room_c_final_handoff.json",
@@ -40,27 +43,27 @@
   "room_label": "room_c",
   "schema": "avengine_qa_room_package_v1",
   "semantics": {
-    "functional_anchors": "${AVENGINE_MULTI_HOME_ROOT}/living_props_v7_candidate/room_c/functional_anchors.json",
-    "functional_anchors_template": "${AVENGINE_MULTI_HOME_ROOT}/living_props_v7_candidate/room_c/functional_anchors.json",
+    "functional_anchors": "${AVENGINE_MULTI_HOME_AUTHORING_ROOT}/living_props_v7_candidate/room_c/functional_anchors.json",
+    "functional_anchors_template": "${AVENGINE_MULTI_HOME_AUTHORING_ROOT}/living_props_v7_candidate/room_c/functional_anchors.json",
     "interpretation": "Explicit authored furniture object and functional-anchor semantics; actor slots are injected by the UE executor.",
-    "source": "${AVENGINE_MULTI_HOME_ROOT}/living_props_v7_candidate/room_c/object_semantics.json",
-    "source_template": "${AVENGINE_MULTI_HOME_ROOT}/living_props_v7_candidate/room_c/object_semantics.json",
-    "usd": "${AVENGINE_MULTI_HOME_ROOT}/living_props_v7_candidate/room_c/usd/room_c_living_props_v7.usda",
-    "usd_template": "${AVENGINE_MULTI_HOME_ROOT}/living_props_v7_candidate/room_c/usd/room_c_living_props_v7.usda",
-    "visual_glb": "${AVENGINE_MULTI_HOME_ROOT}/living_props_v7_candidate/room_c/visual/room_c.glb",
-    "visual_glb_template": "${AVENGINE_MULTI_HOME_ROOT}/living_props_v7_candidate/room_c/visual/room_c.glb"
+    "source": "${AVENGINE_MULTI_HOME_AUTHORING_ROOT}/living_props_v7_candidate/room_c/object_semantics.json",
+    "source_template": "${AVENGINE_MULTI_HOME_AUTHORING_ROOT}/living_props_v7_candidate/room_c/object_semantics.json",
+    "usd": "${AVENGINE_MULTI_HOME_AUTHORING_ROOT}/living_props_v7_candidate/room_c/usd/room_c_living_props_v7.usda",
+    "usd_template": "${AVENGINE_MULTI_HOME_AUTHORING_ROOT}/living_props_v7_candidate/room_c/usd/room_c_living_props_v7.usda",
+    "visual_glb": "${AVENGINE_MULTI_HOME_AUTHORING_ROOT}/living_props_v7_candidate/room_c/visual/room_c.glb",
+    "visual_glb_template": "${AVENGINE_MULTI_HOME_AUTHORING_ROOT}/living_props_v7_candidate/room_c/visual/room_c.glb"
   },
   "source_assets": {
-    "functional_anchors": "${AVENGINE_MULTI_HOME_ROOT}/living_props_v7_candidate/room_c/functional_anchors.json",
-    "functional_anchors_template": "${AVENGINE_MULTI_HOME_ROOT}/living_props_v7_candidate/room_c/functional_anchors.json",
-    "lighting": "${AVENGINE_MULTI_HOME_ROOT}/polished_v3_final/room_c/lighting.json",
-    "lighting_template": "${AVENGINE_MULTI_HOME_ROOT}/polished_v3_final/room_c/lighting.json",
-    "objects": "${AVENGINE_MULTI_HOME_ROOT}/living_props_v7_candidate/room_c/object_semantics.json",
-    "objects_template": "${AVENGINE_MULTI_HOME_ROOT}/living_props_v7_candidate/room_c/object_semantics.json",
-    "usd": "${AVENGINE_MULTI_HOME_ROOT}/living_props_v7_candidate/room_c/usd/room_c_living_props_v7.usda",
-    "usd_template": "${AVENGINE_MULTI_HOME_ROOT}/living_props_v7_candidate/room_c/usd/room_c_living_props_v7.usda",
-    "visual_glb": "${AVENGINE_MULTI_HOME_ROOT}/living_props_v7_candidate/room_c/visual/room_c.glb",
-    "visual_glb_template": "${AVENGINE_MULTI_HOME_ROOT}/living_props_v7_candidate/room_c/visual/room_c.glb"
+    "functional_anchors": "${AVENGINE_MULTI_HOME_AUTHORING_ROOT}/living_props_v7_candidate/room_c/functional_anchors.json",
+    "functional_anchors_template": "${AVENGINE_MULTI_HOME_AUTHORING_ROOT}/living_props_v7_candidate/room_c/functional_anchors.json",
+    "lighting": "${AVENGINE_MULTI_HOME_AUTHORING_ROOT}/polished_v3_final/room_c/lighting.json",
+    "lighting_template": "${AVENGINE_MULTI_HOME_AUTHORING_ROOT}/polished_v3_final/room_c/lighting.json",
+    "objects": "${AVENGINE_MULTI_HOME_AUTHORING_ROOT}/living_props_v7_candidate/room_c/object_semantics.json",
+    "objects_template": "${AVENGINE_MULTI_HOME_AUTHORING_ROOT}/living_props_v7_candidate/room_c/object_semantics.json",
+    "usd": "${AVENGINE_MULTI_HOME_AUTHORING_ROOT}/living_props_v7_candidate/room_c/usd/room_c_living_props_v7.usda",
+    "usd_template": "${AVENGINE_MULTI_HOME_AUTHORING_ROOT}/living_props_v7_candidate/room_c/usd/room_c_living_props_v7.usda",
+    "visual_glb": "${AVENGINE_MULTI_HOME_AUTHORING_ROOT}/living_props_v7_candidate/room_c/visual/room_c.glb",
+    "visual_glb_template": "${AVENGINE_MULTI_HOME_AUTHORING_ROOT}/living_props_v7_candidate/room_c/visual/room_c.glb"
   },
   "static_geometry": {
     "coordinate_frame": {

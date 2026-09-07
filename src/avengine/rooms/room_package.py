@@ -60,7 +60,45 @@ def room_package_errors(package: Mapping[str, Any]) -> list[str]:
         errors.append("floor_reference must reference a measured artifact")
     if not isinstance(package.get("subrooms"), list):
         errors.append("subrooms must be a list (empty when the map has no subdivisions)")
+    for field, path in missing_filesystem_paths(package):
+        errors.append(f"missing path {field}: {path}")
     return errors
+
+
+def _is_ue_or_usd_virtual_path(value: str) -> bool:
+    return value.startswith("/Game") or value.startswith("/Root")
+
+
+def _is_absolute_filesystem_path(value: str) -> bool:
+    if not isinstance(value, str) or not value.startswith("/") or _is_ue_or_usd_virtual_path(value):
+        return False
+    if value.startswith("${"):
+        return False
+    return True
+
+
+def missing_filesystem_paths(package: Mapping[str, Any]) -> list[tuple[str, str]]:
+    """Return (field, path) for absolute non-/Game non-/Root paths that are missing."""
+    missing: list[tuple[str, str]] = []
+
+    def walk(value: Any, prefix: str) -> None:
+        if isinstance(value, Mapping):
+            for key, item in value.items():
+                if str(key).endswith("_template"):
+                    continue
+                name = f"{prefix}.{key}" if prefix else str(key)
+                walk(item, name)
+            return
+        if isinstance(value, list):
+            for index, item in enumerate(value):
+                walk(item, f"{prefix}[{index}]")
+            return
+        if isinstance(value, str) and _is_absolute_filesystem_path(value):
+            if not Path(value).exists():
+                missing.append((prefix, value))
+
+    walk(package, "")
+    return missing
 
 
 def validate_room_package(package: Mapping[str, Any]) -> dict:
