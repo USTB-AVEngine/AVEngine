@@ -200,23 +200,35 @@ def main(argv=None):
         catalog_path = resolve_request_room_catalog(base.get("room_catalog"), explicit=args.catalog)
         catalog = read(catalog_path)
         stamp_request_catalog(base, catalog_path=catalog_path, path_bindings=catalog_path_bindings(catalog))
-        base["source_registry"] = str(_existing(
+        base["source_registry"] = str(Path(_existing(
             base.get("source_registry", REPOSITORY / "examples/runtime/source_asset_runtime_profiles.json"),
-            REPOSITORY / "examples/runtime/source_asset_runtime_profiles.json"))
+            REPOSITORY / "examples/runtime/source_asset_runtime_profiles.json")).resolve())
         registry = load_source_asset_runtime_registry(base["source_registry"])
         if args.sounds is not None:
-            payload = read(args.sounds)
+            sounds_path = Path(args.sounds).expanduser().resolve()
+            payload = read(sounds_path)
             sounds = payload.get("sounds", payload) if isinstance(payload, dict) else payload
             pool = None
+            base["sound_pool"] = str(sounds_path)
+            base.setdefault("sound_selection", {}).pop("prepared_set", None)
         else:
             registry, catalog, sounds, pool, pool_path, catalog_path = _load_sounds(config, output)
+            stamp_request_catalog(base, catalog_path=catalog_path, path_bindings=catalog_path_bindings(catalog))
         packed = prepare_scaleup_dry_run(
             config, registry, catalog, sounds, seed=args.seed,
             episodes_per_room=args.episodes_per_room, batch_id=args.batch_id)
         result = packed["manifest"]
+        bindings = catalog_path_bindings(catalog)
+        sound_pool = base.get("sound_pool")
+        for row in result["episodes"]:
+            req = row["request"]
+            stamp_request_catalog(req, catalog_path=catalog_path, path_bindings=bindings)
+            req["source_registry"] = base["source_registry"]
+            if sound_pool:
+                req["sound_pool"] = sound_pool
         result = _annotate_prepare(
             result, output, args.config, catalog_path=catalog_path,
-            path_bindings=catalog_path_bindings(catalog))
+            path_bindings=bindings)
         if pool is not None:
             write(output / "batch_sounds.json", pool)
         write(output / "scaleup_config.json", packed["config"])

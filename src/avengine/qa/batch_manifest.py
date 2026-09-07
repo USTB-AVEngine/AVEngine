@@ -71,6 +71,32 @@ GROUP_PROFILE = {
 
 
 
+
+def _config_distance_range_m(config: Mapping[str, Any]) -> Sequence[float] | None:
+    """Read distance_range_m from the config root or scaleup block."""
+    value = config.get("distance_range_m")
+    if value is None and isinstance(config.get("scaleup"), Mapping):
+        value = config["scaleup"].get("distance_range_m")
+    return value
+
+
+def _profile_for_match(profile: Mapping[str, Any] | None) -> Any:
+    """Fill portrait keys omitted by old manifests with sampler defaults."""
+    if not isinstance(profile, Mapping):
+        return profile
+    filled = deepcopy(dict(profile))
+    for key, default in (
+        ("competitor_visibility", COMMON_PROFILE["competitor_visibility"]),
+        ("distance_range_m", list(COMMON_PROFILE["distance_range_m"])),
+        ("separation_target_policy", COMMON_PROFILE["separation_target_policy"]),
+    ):
+        filled.setdefault(key, deepcopy(default))
+    distance = filled.get("distance_range_m")
+    if isinstance(distance, (list, tuple)) and len(distance) == 2:
+        filled["distance_range_m"] = [float(distance[0]), float(distance[1])]
+    return filled
+
+
 def class_pair_label(classes: Sequence[str]) -> str:
     labels = sorted(SOURCE_CLASS_LABEL[value] for value in classes)
     return "-".join(labels)
@@ -221,11 +247,14 @@ def scatter_condition_groups(
             used = {assigned[index] for index in indexes}
     for slot, item, group in zip(slots, items, assigned):
         event_relation = "repeat" if item["keep_repeat"] else None
+        slot_distance = distance_range_m
+        if slot_distance is None:
+            slot_distance = (slot.get("profile") or {}).get("distance_range_m")
         slot["condition_group"] = group
         slot["profile"] = profile_for_condition_group(
             group, slot["source_classes"], silent_count=int(slot.get("silent_count", 0)),
             event_relation=event_relation, off_screen=slot.get("off_screen"),
-            distance_range_m=distance_range_m)
+            distance_range_m=slot_distance)
         slot["class_pair"] = item["pair"]
     return slots
 
@@ -493,7 +522,7 @@ def prepare_batch_manifest(
     if config.get("scatter_condition_groups"):
         slots = scatter_condition_groups(
             slots, rooms_by_id=rooms, seed=seed,
-            distance_range_m=config.get("distance_range_m"),
+            distance_range_m=_config_distance_range_m(config),
             keep_existing_repeat=bool(config.get("keep_repeat_on_device_device", False)))
     rows, ids = [], set()
     for index, slot in enumerate(slots):
@@ -563,16 +592,19 @@ def prepare_batch_manifest(
                     continue
                 actor = neutral_source_declaration(assets[assignment["asset_id"]], actor_id)
                 groups = defaultdict(list)
+                compatible_sound_count = 0
                 for sound in sounds:
                     allowed = sound.get("compatible_asset_ids")
                     if allowed is not None and assignment["asset_id"] not in allowed:
                         continue
                     if not sound_matches(actor, sound):
                         continue
+                    compatible_sound_count += 1
                     identity = sound_identity(sound)
                     if identity is not None:
                         groups[identity].append(sound)
                 speaker_rows.append({"assignment": assignment, "groups": groups,
+                                     "compatible_sound_count": compatible_sound_count,
                                      "appearance_key": json.dumps(assignment["appearance"], sort_keys=True),
                                      "kind": assignment["source_class"]})
             used_identities = set()
@@ -583,9 +615,15 @@ def prepare_batch_manifest(
                 if not row["distinct"]:
                     assignment["sound_status"] = "evidence_missing_or_unsampled"
                     allowlists[actor_id] = []
-                    gaps.append({"state": "evidence_missing_or_unsampled",
-                                 "code": "no_distinct_compatible_sound_identity",
-                                 "asset_id": assignment["asset_id"], "actor_id": actor_id})
+                    if int(row.get("compatible_sound_count") or 0) <= 0:
+                        gaps.append({"state": "evidence_missing_or_unsampled",
+                                     "code": "no_compatible_sounds",
+                                     "asset_id": assignment["asset_id"], "actor_id": actor_id,
+                                     "compatible_sound_count": 0})
+                    else:
+                        gaps.append({"state": "evidence_missing_or_unsampled",
+                                     "code": "no_distinct_compatible_sound_identity",
+                                     "asset_id": assignment["asset_id"], "actor_id": actor_id})
             ready = [row for row in speaker_rows if row["assignment"].get("sound_status") != "evidence_missing_or_unsampled"]
             substitution = False
             repeat_actor_id = None
@@ -744,14 +782,23 @@ def collect_batch_outcomes(manifest: Mapping[str, Any], outcomes: Sequence[Mappi
     for requested in manifest["episodes"]:
         outcome = by_id.get(requested["episode_id"])
         observed_profile = outcome.get("condition_profile") if outcome else None
-        mismatch = observed_profile is not None and observed_profile != requested["requested_profile"]
+        mismatch = (
+            observed_profile is not None
+            and _profile_for_match(observed_profile) != _profile_for_match(requested.get("requested_profile"))
+        )
         achieved = outcome.get("achieved_conditions") if outcome else None
         # Copy only a native/PCM evidence result supplied by the caller. Never
         # promote planned_conditions to achieved_conditions.
         if achieved is not None and not outcome.get("achieved_conditions_source"):
             raise ValueError("achieved_conditions require an actual evidence source")
+        requested_classes = requested.get("requested_source_classes")
+        if requested_classes is None:
+            requested_classes = [
+                actor.get("source_class") for actor in requested.get("source_assignments") or []
+            ]
         rows.append({"episode_id": requested["episode_id"], "room_id": requested["room_id"],
                      "room_family": requested["room_family"], "condition_group": requested["condition_group"],
+                     "requested_source_classes": deepcopy(requested_classes),
                      "requested_profile": deepcopy(requested["requested_profile"]),
                      "requested_source_assignments": deepcopy(requested["source_assignments"]),
                      "outcome": outcome, "status": "not_run" if outcome is None else outcome["status"],
