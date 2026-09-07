@@ -20,6 +20,12 @@ from avengine.routes.trajectory import resample_polyline_by_arc_length
 
 POLICY = 'conditioned_static_v2'
 RIGID = {'rigid_object', 'rigid_static_object'}
+SAME_FLOOR_Y_TOLERANCE_M = 0.3
+DEFAULT_DISTANCE_RANGE_M = (1.5, 4.5)
+CLIP_SPAN_FIT_POLICY = 'filter_to_remaining_budget_then_uniform'
+SEPARATION_TARGET_ANY_LEGAL = 'any_legal_in_bin'
+SEPARATION_TARGET_UNIFORM_IN_BIN = 'uniform_in_bin'
+SEPARATION_TARGET_POLICIES = {SEPARATION_TARGET_ANY_LEGAL, SEPARATION_TARGET_UNIFORM_IN_BIN}
 
 
 class ConditionedPlanningFailure(ValueError):
@@ -47,6 +53,122 @@ def _draw(value, rng):
             raise ValueError('invalid explicit condition weights')
         weights = weights / weights.sum()
     return deepcopy(choices[int(rng.choice(len(choices), p=weights))])
+
+
+def histogram_separation_5deg(angles):
+    """Histogram achieved (not requested) separation in closed-open 5 degree bins."""
+    counts = Counter()
+    values = []
+    for raw in angles:
+        if raw is None:
+            continue
+        angle = float(raw)
+        if not math.isfinite(angle):
+            continue
+        values.append(angle)
+        start = 175 if angle >= 180 else int(min(max(angle, 0.0), 179.999999) // 5) * 5
+        counts[start] += 1
+    bins = [{'lo_deg': lo, 'hi_deg': lo + 5, 'count': int(counts.get(lo, 0))} for lo in range(0, 180, 5)]
+    return {'bin_width_deg': 5, 'unit': 'achieved_separation_deg',
+            'requested_bin_is_not_coverage': True, 'count': len(values),
+            'occupied_bins': [row for row in bins if row['count']], 'bins': bins}
+
+
+def _parse_floor_height_token(token):
+    if isinstance(token, Mapping):
+        for key in ('floor_height_m', 'floor_y_m', 'height_m'):
+            if token.get(key) is not None:
+                return float(token[key])
+        token = token.get('subroom_id') or token.get('floor_id') or token.get('id')
+    if token is None:
+        return None
+    if isinstance(token, (int, float)) and not isinstance(token, bool):
+        return float(token)
+    text = str(token)
+    if '_floor_' in text:
+        tail = text.rsplit('_floor_', 1)[1]
+        try:
+            return float(tail)
+        except ValueError:
+            return None
+    try:
+        return float(text)
+    except ValueError:
+        return None
+
+
+def declared_floor_heights_m(room, space=None):
+    """Unique navigable floors declared by the room package or space metadata."""
+    floors = []
+    package = {}
+    if isinstance(room, Mapping):
+        raw_package = room.get('room_package')
+        package = raw_package if isinstance(raw_package, Mapping) else {}
+        for collection in (package.get('subrooms'), room.get('subrooms'),
+                           package.get('floor_heights_m'), room.get('floor_heights_m'),
+                           package.get('planning_floors_m'), room.get('planning_floors_m')):
+            if isinstance(collection, (list, tuple)):
+                for item in collection:
+                    height = _parse_floor_height_token(item)
+                    if height is not None and math.isfinite(height):
+                        floors.append(float(height))
+    meta = getattr(space, 'metadata', None) or {}
+    if isinstance(meta, Mapping):
+        extra = meta.get('floor_heights_m') or meta.get('planning_floors_m')
+        if isinstance(extra, (list, tuple)):
+            floors.extend(float(v) for v in extra if v is not None and math.isfinite(float(v)))
+    unique = []
+    for height in sorted(floors):
+        if not unique or abs(height - unique[-1]) > SAME_FLOOR_Y_TOLERANCE_M:
+            unique.append(height)
+    return unique
+
+
+def lock_same_floor_region(space, rng, region=None, room=None):
+    """Sample a floor first in multi-floor scenes, then lock |Delta y| to 0.3 m."""
+    bounds = space.bounds().copy() if region is None else np.asarray(region, dtype=float).copy()
+    floors = declared_floor_heights_m(room, space)
+    if len(floors) > 1:
+        floor_y = float(floors[int(rng.integers(len(floors)))])
+    elif floors:
+        floor_y = float(floors[0])
+    else:
+        hub = space.sample_navigable(rng, region)
+        floor_y = float(hub[1])
+    bounds[0, 1] = floor_y - SAME_FLOOR_Y_TOLERANCE_M
+    bounds[1, 1] = floor_y + SAME_FLOOR_Y_TOLERANCE_M
+    return bounds, floor_y
+
+
+def _points_same_floor(points, floor_y=None, tolerance=SAME_FLOOR_Y_TOLERANCE_M):
+    pts = np.asarray(points, dtype=float).reshape(-1, 3)
+    if not len(pts):
+        return True, 0.0 if floor_y is None else float(floor_y)
+    ys = pts[:, 1]
+    if floor_y is None:
+        floor_y = float(np.median(ys))
+    return bool(np.all(np.abs(ys - floor_y) <= tolerance)), float(floor_y)
+
+
+def _camera_grid_on_floor(space, *, height, region, floor_y):
+    saved = None
+    had = isinstance(getattr(space, 'metadata', None), dict) and 'floor_height_m' in space.metadata
+    if isinstance(getattr(space, 'metadata', None), dict):
+        saved = space.metadata.get('floor_height_m')
+        space.metadata['floor_height_m'] = float(floor_y)
+    try:
+        positions = camera_grid(space, step_m=.55, height_above_floor_m=height, region=region)
+    finally:
+        if isinstance(getattr(space, 'metadata', None), dict):
+            if had:
+                space.metadata['floor_height_m'] = saved
+            else:
+                space.metadata.pop('floor_height_m', None)
+    kept = []
+    for pos in positions:
+        if abs(float(pos[1]) - float(height) - float(floor_y)) <= SAME_FLOOR_Y_TOLERANCE_M:
+            kept.append(pos)
+    return kept
 
 
 def resolve_condition_profile(request, registry):
@@ -103,21 +225,36 @@ def resolve_condition_profile(request, registry):
         raise ValueError('competitor_set must include every other entity')
     if profile.get('separation_window','whole_audible_window_of_anchor')!='whole_audible_window_of_anchor':
         raise ValueError('separation must hold over the whole anchor audible window')
+    distance = profile.get('distance_range_m', list(DEFAULT_DISTANCE_RANGE_M))
+    if not isinstance(distance, (list, tuple)) or len(distance) != 2:
+        raise ValueError('distance_range_m must be [min, max] meters')
+    distance = [float(distance[0]), float(distance[1])]
+    if not 0 <= distance[0] < distance[1] or not all(math.isfinite(v) for v in distance):
+        raise ValueError('invalid distance_range_m')
+    sep_policy = profile.get('separation_target_policy', SEPARATION_TARGET_ANY_LEGAL)
+    if sep_policy not in SEPARATION_TARGET_POLICIES:
+        raise ValueError('unsupported separation_target_policy')
     result = {'total_count': n, 'speaking_count': n-silent, 'silent_count': silent,
               'source_classes': classes, 'anchor_count': anchor_count, 'separation_bin_deg': list(map(float, sep)),
               'separation_floor_deg': floor, 'speaking_indices': speakers, 'anchor_indices': anchors,
               'competitor_set': 'all_other_entities_including_offscreen',
               'native_start_hold_frames': request.get('start_hold_frames',0),
               'anchor_visibility': _draw(profile.get('anchor_visibility', 'in_fov'), rng),
+              'competitor_visibility': _draw(profile.get('competitor_visibility', 'in_fov'), rng),
               'anchor_line_of_sight': _draw(profile.get('anchor_line_of_sight', 'clear'), rng),
               'speech_motion': _draw(profile.get('speech_motion', 'all_still'), rng),
               'event_relation': _draw(profile.get('event_relation', request.get('audio_mode', 'sequential')), rng),
               'min_gap_between_audible_windows_s': float(profile.get('min_gap_between_audible_windows_s', .5)),
               'reserve_tail_s': float(profile.get('reserve_tail_s', 3.)),
               'minimum_overlap_s': float(profile.get('minimum_overlap_s', .3)),
-              'retry_budget_within_profile': int(profile.get('retry_budget_within_profile', 200))}
-    for key, valid in [('anchor_visibility', {'in_fov','off_screen'}), ('anchor_line_of_sight', {'clear','occluded'}),
-                       ('speech_motion', {'speaker_moving','competitor_moving','all_still'}), ('event_relation', {'sequential','overlap','repeat'})]:
+              'retry_budget_within_profile': int(profile.get('retry_budget_within_profile', 200)),
+              'distance_range_m': distance,
+              'separation_target_policy': sep_policy}
+    for key, valid in [('anchor_visibility', {'in_fov','off_screen'}),
+                       ('competitor_visibility', {'in_fov','off_screen'}),
+                       ('anchor_line_of_sight', {'clear','occluded'}),
+                       ('speech_motion', {'speaker_moving','competitor_moving','all_still'}),
+                       ('event_relation', {'sequential','overlap','repeat'})]:
         if result[key] not in valid:
             raise ValueError('unsupported '+key)
     if not 1 <= result['retry_budget_within_profile'] <= 200:
@@ -179,6 +316,9 @@ def sound_matches(actor, sound):
 
 def select_sounds(actors, sounds, profile, clock, request, rng):
     sr = int(clock['sample_rate_hz']); config = request.get('sound_selection', {})
+    clip_policy = str(config.get('clip_span_fit_policy', CLIP_SPAN_FIT_POLICY) or CLIP_SPAN_FIT_POLICY)
+    if clip_policy != CLIP_SPAN_FIT_POLICY:
+        raise ValueError('unsupported clip_span_fit_policy: ' + clip_policy)
     max_samples = int(round(float(config.get('max_clip_s', 5.)) * sr))
     deadline = int(clock['sample_count']) - int(round(profile['reserve_tail_s'] * sr))
     speakers = profile['speaking_indices']; order = list(speakers); rng.shuffle(order)
@@ -203,7 +343,16 @@ def select_sounds(actors, sounds, profile, clock, request, rng):
         if not pool:
             raise CandidateFailure('sounds', 'no_compatible_prepared_sound_'+actors[i]['actor_id'])
         pools[i] = pool
-    repeated = speakers[int(rng.integers(len(speakers)))] if profile['event_relation']=='repeat' else None
+    repeated = None
+    if profile['event_relation']=='repeat':
+        requested_repeat = config.get('repeat_actor_id')
+        if requested_repeat:
+            matching = [i for i in speakers if actors[i]['actor_id'] == requested_repeat]
+            if len(matching) != 1:
+                raise ValueError('repeat_actor_id must name exactly one speaking actor')
+            repeated = matching[0]
+        else:
+            repeated = speakers[int(rng.integers(len(speakers)))]
     selected = {}; transcripts = set(); remaining = deadline
     gap = int(round(profile['min_gap_between_audible_windows_s'] * sr))
     for pos, i in enumerate(order):
@@ -291,25 +440,39 @@ def _native_routes(space, flags, frames, fps, rng, *, start_hold_frames=None):
                    'selection':'uniform_over_all_legal_native_groups','legal_native_group_count':len(groups),'minimum_separation_m':.95}
 
 
-def sample_routes(space, actors, profile, clock, rng, region=None, *, required_windows=None):
+def sample_routes(space, actors, profile, clock, rng, region=None, *, required_windows=None, room=None):
     frames, fps = int(clock['frame_count']), float(clock['frame_rate_hz'])
     flags = _moving_flags(profile, actors, rng)
     required_windows=required_windows or {}
     required_frames=max([1]+[int(math.ceil((b-a)*fps/clock['sample_rate_hz']))+1 for a,b in required_windows.values()])
     if space.route_bank() is not None:
         paths, metadata = _native_routes(space, flags, frames, fps, rng, start_hold_frames=profile.get('native_start_hold_frames'))
+        ok, floor_y = _points_same_floor([p[0] for p in paths] + [p[-1] for p in paths])
+        if not ok:
+            raise CandidateFailure('routes', 'native_routes_not_on_same_floor')
+        metadata = {**metadata, 'selected_floor_height_m': floor_y,
+                    'same_floor_tolerance_m': SAME_FLOOR_Y_TOLERANCE_M}
     else:
-        paths=[]; records=[]; hub=space.sample_navigable(rng, region)
-        bounds=space.bounds().copy() if region is None else np.asarray(region, dtype=float).copy()
+        floor_region, floor_y = lock_same_floor_region(space, rng, region, room)
+        paths=[]; records=[]; hub=space.sample_navigable(rng, floor_region)
+        if abs(float(hub[1]) - floor_y) > SAME_FLOOR_Y_TOLERANCE_M:
+            raise CandidateFailure('routes', 'hub_left_selected_floor')
+        bounds=floor_region.copy()
         bounds[0,[0,2]]=np.maximum(bounds[0,[0,2]],hub[[0,2]]-3.1)
         bounds[1,[0,2]]=np.minimum(bounds[1,[0,2]],hub[[0,2]]+3.1)
+        bounds[0,1]=floor_region[0,1]; bounds[1,1]=floor_region[1,1]
         for i, required_motion in enumerate(flags):
             start=space.sample_navigable(rng, bounds)
+            if abs(float(start[1]) - floor_y) > SAME_FLOOR_Y_TOLERANCE_M:
+                raise CandidateFailure('routes', 'placement_left_selected_floor')
             if any(np.linalg.norm(start-p[0]) < .95 for p in paths):
                 raise CandidateFailure('routes','initial_source_separation_below_0.95_m')
             route=np.repeat(start[None], frames, axis=0); record={'motion':'static','route_points_m':None}
             if required_motion:
-                end=space.sample_navigable(rng,bounds); poly=space.shortest_path(start,end)
+                end=space.sample_navigable(rng,bounds)
+                if abs(float(end[1]) - floor_y) > SAME_FLOOR_Y_TOLERANCE_M:
+                    raise CandidateFailure('routes', 'placement_left_selected_floor')
+                poly=space.shortest_path(start,end)
                 if poly is None or len(poly)<2:
                     raise CandidateFailure('routes','no_existing_navigation_path')
                 length=float(np.linalg.norm(np.diff(poly,axis=0),axis=1).sum())
@@ -333,8 +496,12 @@ def sample_routes(space, actors, profile, clock, rng, region=None, *, required_w
                 raise CandidateFailure('routes','sampled_path_left_existing_navigation')
             if any(np.linalg.norm(route-p,axis=1).min()<.95 for p in paths):
                 raise CandidateFailure('routes','all_frame_source_separation_below_0.95_m')
+            ok, _ = _points_same_floor(route, floor_y)
+            if not ok:
+                raise CandidateFailure('routes', 'sampled_path_left_selected_floor')
             paths.append(route);records.append(record)
-        metadata={'authority':space.metadata['authority'],'actors':records,'minimum_separation_m':.95}
+        metadata={'authority':space.metadata['authority'],'actors':records,'minimum_separation_m':.95,
+                  'selected_floor_height_m': floor_y, 'same_floor_tolerance_m': SAME_FLOOR_Y_TOLERANCE_M}
     moving=[]; rotations=[]; emitters=[]; bodies=[]
     for actor,path in zip(actors,paths):
         delta=np.diff(path,axis=0); delta=np.concatenate([delta,delta[-1:]],axis=0)
@@ -349,7 +516,13 @@ def sample_routes(space, actors, profile, clock, rng, region=None, *, required_w
             qs.append([0.,math.sin(heading/2),0.,math.cos(heading/2)])
             ep.append(p+rot@offset);bp.append(p+rot@np.array([0.,max(.05,float(offset[1])*.8),0.]))
         rotations.append(qs);emitters.append(ep);bodies.append(bp)
-    return np.asarray(paths),np.asarray(rotations),np.asarray(moving),np.asarray(emitters),np.asarray(bodies),metadata
+    stacked = np.asarray(paths)
+    ok, floor_y = _points_same_floor(stacked, metadata.get('selected_floor_height_m'))
+    if not ok:
+        raise CandidateFailure('routes', 'sources_not_on_same_floor')
+    metadata['selected_floor_height_m'] = floor_y
+    metadata['same_floor_tolerance_m'] = SAME_FLOOR_Y_TOLERANCE_M
+    return stacked,np.asarray(rotations),np.asarray(moving),np.asarray(emitters),np.asarray(bodies),metadata
 
 
 def _merge(ranges):
@@ -459,12 +632,20 @@ def select_camera_and_schedule(space, mesh, paths, moving, emitters, bodies, act
     if len(resolution)!=2 or any(isinstance(v,bool) or not isinstance(v,int) or v<=0 for v in resolution):raise ValueError('camera resolution must be positive integer [height,width]')
     aspect=resolution[1]/resolution[0]
     if not 0<fov<180 or height<=0:raise ValueError('invalid static camera FOV/height')
-    positions=camera_grid(space,step_m=.55,height_above_floor_m=height,region=region)
+    floor_ok, floor_y = _points_same_floor(paths)
+    if not floor_ok:
+        raise CandidateFailure('camera', 'sources_not_on_same_floor')
+    cam_region = space.bounds().copy() if region is None else np.asarray(region, dtype=float).copy()
+    cam_region[0, 1] = floor_y - SAME_FLOOR_Y_TOLERANCE_M
+    cam_region[1, 1] = floor_y + SAME_FLOOR_Y_TOLERANCE_M
+    positions=_camera_grid_on_floor(space, height=height, region=cam_region, floor_y=floor_y)
     yaws=np.deg2rad(np.arange(0,360,15)); forwards=np.c_[np.sin(yaws),np.zeros(24),-np.cos(yaws)]
     rights=np.c_[np.cos(yaws),np.zeros(24),np.sin(yaws)];tangent=math.tan(math.radians(fov)/2)
     events=_event_bindings(sounds,profile,rng); actor_index={a['actor_id']:i for i,a in enumerate(actors)}
     anchors=set(profile['anchor_indices']); legal=[]; stages=Counter();ray_cache={}
-    distance_range=request.get('profile',{}).get('distance_range_m',[1.5,4.5])
+    distance_range=profile.get('distance_range_m') or request.get('profile',{}).get('distance_range_m') or DEFAULT_DISTANCE_RANGE_M
+    distance_range=[float(distance_range[0]), float(distance_range[1])]
+    competitor_visibility=profile.get('competitor_visibility', 'in_fov')
     for pi,position in enumerate(positions):
         origin=np.asarray(position);floor=origin-np.array([0,height,0])
         if any(np.linalg.norm(path-floor,axis=1).min()<.8 for path in paths):continue
@@ -476,8 +657,17 @@ def select_camera_and_schedule(space, mesh, paths, moving, emitters, bodies, act
         for i in range(len(actors)):separation[i,i]=np.inf
         nearest=separation.min(axis=1);mask=np.ones_like(fov_mask,dtype=bool)
         low,high=profile['separation_bin_deg']
+        if competitor_visibility=='off_screen':
+            silent_in_fov=np.zeros(24, dtype=bool)
+            for i in range(len(actors)):
+                if i not in anchors:
+                    silent_in_fov |= np.any(fov_mask[:, i], axis=1)
+            mask[silent_in_fov]=False
         for i in profile['speaking_indices']:
-            visible=fov_mask[:,i] if i not in anchors or profile['anchor_visibility']=='in_fov' else ~fov_mask[:,i]
+            if i in anchors:
+                visible=fov_mask[:,i] if profile['anchor_visibility']=='in_fov' else ~fov_mask[:,i]
+            else:
+                visible=fov_mask[:,i] if competitor_visibility=='in_fov' else ~fov_mask[:,i]
             mask[:,i]&=visible&in_range[i][None]
             if i in anchors:
                 mask[:,i]&=(nearest[i]>=low)[None]&((nearest[i]<high) | ((high==180)&np.isclose(nearest[i],180)))[None]
@@ -513,7 +703,24 @@ def select_camera_and_schedule(space, mesh, paths, moving, emitters, bodies, act
     if not legal:
         reason='no_joint_geometry_activity_schedule' if mesh is not None else 'static_geometry_unmeasured'
         raise CandidateFailure('camera',reason)
+    def _anchor_sep(nearest_deg):
+        seps=[]
+        for i in profile['anchor_indices']:
+            vals=np.asarray(nearest_deg[i], dtype=float)
+            finite=vals[np.isfinite(vals)]
+            if len(finite):
+                seps.append(float(np.median(finite)))
+        return float(np.median(seps)) if seps else float('nan')
+    sep_policy=profile.get('separation_target_policy', SEPARATION_TARGET_ANY_LEGAL)
+    target_deg=None
+    if sep_policy==SEPARATION_TARGET_UNIFORM_IN_BIN:
+        target_deg=float(rng.uniform(float(low), float(high)))
+        matched=[row for row in legal if abs(_anchor_sep(row[3])-target_deg)<=2.0]
+        if not matched:
+            raise CandidateFailure('camera', 'no_pose_within_uniform_in_bin_tolerance')
+        legal=matched
     pi,yi,starts,nearest=legal[int(rng.integers(len(legal)))];schedule=schedule_legal_events(events,starts,clock,profile,rng)
+    achieved_sep=_anchor_sep(nearest)
     camera={'candidate_id':f'grid_{pi:05d}_yaw_{yi*15:03d}','position_m':positions[pi],
             'basis':{'forward':forwards[yi].tolist(),'right':rights[yi].tolist(),'up':[0.,1.,0.]},
             'horizontal_fov_deg':fov,'resolution_hw':resolution,'height_above_floor_m':height,'motion':'static','yaw_deg':int(yi*15)}
@@ -531,7 +738,17 @@ def select_camera_and_schedule(space, mesh, paths, moving, emitters, bodies, act
                          'legal_candidate_ids':[f'grid_{p:05d}_yaw_{y*15:03d}' for p,y,_,_ in legal],
                          'legal_event_start_ranges_samples':starts,'nearest_competitor_separation_deg':nearest.tolist(),
                          'line_of_sight_source':deepcopy(getattr(mesh,'source',None)),
-                         'anchor_indices':profile['anchor_indices'],'clear_los_requires':['emitter','body_proxy'],'pixel_observability':'not_run'}
+                         'anchor_indices':profile['anchor_indices'],'clear_los_requires':['emitter','body_proxy'],'pixel_observability':'not_run',
+                         'requested_separation_bin_deg': list(map(float, profile['separation_bin_deg'])),
+                         'planned_anchor_nearest_competitor_separation_deg': achieved_sep,
+                         'separation_target_policy': sep_policy, 'separation_target_deg': target_deg,
+                         'separation_coverage_unit': 'achieved_angle_5deg_bins',
+                         'planned_separation_histogram_5deg': histogram_separation_5deg([achieved_sep]),
+                         'selected_floor_height_m': floor_y, 'same_floor_tolerance_m': SAME_FLOOR_Y_TOLERANCE_M,
+                         'distance_range_m': list(distance_range),
+                         'anchor_visibility': profile.get('anchor_visibility'),
+                         'competitor_visibility': competitor_visibility,
+                         'clip_span_fit_policy': CLIP_SPAN_FIT_POLICY}
 
 
 def build_conditioned_plan(*, room, request, source_registry, sounds, space, mesh,
@@ -546,7 +763,8 @@ def build_conditioned_plan(*, room, request, source_registry, sounds, space, mes
             selected_sounds=select_sounds(actors,sounds,profile,clock,request,rng)
             try:
                 paths,rotations,moving,emitters,bodies,route_record=sample_routes(space,actors,profile,clock,rng,region,
-                    required_windows={i:[selected_sounds[i]['audible_start_sample'],selected_sounds[i]['audible_end_sample_exclusive']] for i in profile['anchor_indices']})
+                    required_windows={i:[selected_sounds[i]['audible_start_sample'],selected_sounds[i]['audible_end_sample_exclusive']] for i in profile['anchor_indices']},
+                    room=room)
             except CandidateFailure:
                 raise
             except ValueError as exc:

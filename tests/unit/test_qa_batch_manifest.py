@@ -7,8 +7,11 @@ import numpy as np
 import pytest
 
 from avengine.qa.batch_manifest import (
-    collect_batch_outcomes, grouped_splits, prepare_batch_manifest, sound_identity,
+    CLASS_PAIRS, CONDITION_GROUPS, build_scaleup_slots, class_pair_condition_group_crosstab,
+    collect_batch_outcomes, format_class_pair_condition_group_crosstab, grouped_splits,
+    prepare_batch_manifest, program_seconds_for_durations, scatter_condition_groups, sound_identity,
 )
+from avengine.rooms.conditioned_sampler import histogram_separation_5deg
 from avengine.rooms.conditioned_sampler import (
     CandidateFailure, neutral_source_declaration, resolve_condition_profile, select_sounds,
 )
@@ -206,3 +209,88 @@ def test_fixed_repeat_identities_keep_their_unmet_budget_instead_of_substitution
     assert gap["minimum_program_seconds_under_sampler_clip_budget"] > 13
     assert gap["identity_substitution_applied"] is False
     assert len(episode["requested_quota_by_qa"]) == 24
+
+
+def test_repeat_legal_pair_is_accepted_without_deficit(inputs):
+    config, registry, rooms, _ = deepcopy(inputs)
+    config["slots"] = [config["slots"][0]]
+    config["slots"][0]["profile"] = {"event_relation": "repeat"}
+    sounds = [sound("short_one", "speaker1", count=32000), sound("short_two", "speaker2", count=32000)]
+    result = prepare_batch_manifest(config, registry, rooms, sounds)
+    episode = result["episodes"][0]
+    assert episode["requested_profile"]["event_relation"] == "repeat"
+    assert not any(gap["code"] == "fixed_sound_identities_exceed_profile_clip_budget"
+                   for gap in episode["preallocation_gaps"])
+    assert {row["sound_identity_id"] for row in episode["source_assignments"]} == {"speaker1", "speaker2"}
+    assert episode["request"]["sound_selection"].get("repeat_actor_id") in {"source1", "source2"}
+
+
+def test_repeat_over_budget_pair_is_replaced_by_legal_identities(inputs):
+    config, registry, rooms, _ = deepcopy(inputs)
+    registry["assets"].append(asset("yellow", "yellow"))
+    config["slots"] = [
+        {"room_id": "a", "source_classes": ["articulated_human"] * 2, "condition_group": "identity_binding"},
+        {"room_id": "a", "source_classes": ["articulated_human"] * 2, "condition_group": "identity_binding",
+         "profile": {"event_relation": "repeat"}},
+    ]
+    sounds = [
+        sound("short_a", "speaker_short_a", count=32000),
+        sound("short_b", "speaker_short_b", count=32000),
+        sound("long_red", "speaker_long_red", count=72000),
+        sound("long_blue", "speaker_long_blue", count=72000),
+    ]
+    sounds[2]["compatible_asset_ids"] = ["red"]
+    sounds[3]["compatible_asset_ids"] = ["blue"]
+    config["slots"][0]["source_asset_ids"] = ["green", "yellow"]
+    config["slots"][1]["source_asset_ids"] = ["red", "blue"]
+    result = prepare_batch_manifest(config, registry, rooms, sounds)
+    first, second = result["episodes"]
+    assert first["requested_profile"]["event_relation"] != "repeat"
+    assert {row["sound_identity_id"] for row in first["source_assignments"]} == {
+        "speaker_short_a", "speaker_short_b"}
+    assert second["requested_profile"]["event_relation"] == "repeat"
+    assert not any(gap["code"] == "fixed_sound_identities_exceed_profile_clip_budget"
+                   for gap in second["preallocation_gaps"])
+    assigned = [row["sound_identity_id"] for row in second["source_assignments"]]
+    assert set(assigned) != {"speaker_long_red", "speaker_long_blue"}
+    assert second["request"]["sound_selection"].get("identity_substitution_applied") is True
+    duration = {"speaker_short_a": 2.0, "speaker_short_b": 2.0,
+                "speaker_long_red": 4.5, "speaker_long_blue": 4.5}
+    durs = [duration[name] for name in assigned]
+    legal = [program_seconds_for_durations(durs, gap_s=0.5, relation="repeat", repeat_index=i) <= 13 + 1e-9
+             for i in range(len(durs))]
+    assert any(legal)
+
+
+def test_class_pair_crosstab_covers_at_least_three_groups():
+    rooms = [{"room_id": f"room_{i}", "family": fam}
+             for i, fam in enumerate(("authored", "apartment", "hm3d", "mp3d"))]
+    slots = build_scaleup_slots(rooms, seed=20260907, episodes_per_room=20)
+    table = class_pair_condition_group_crosstab(slots)
+    assert set(table["class_pairs"]) >= {
+        "human-human", "animal-human", "device-human", "animal-animal", "animal-device", "device-device"}
+    assert table["min_distinct_groups_per_class_pair"] >= 3
+    assert table["meets_acceptance"] is True
+    text = format_class_pair_condition_group_crosstab(table)
+    assert "human-human" in text and "identity_binding" in text
+
+
+def test_collect_outcomes_histograms_achieved_5deg_not_requested_bin(inputs):
+    manifest = prepare_batch_manifest(*inputs)
+    row = manifest["episodes"][0]
+    outcome = {
+        "episode_id": row["episode_id"], "status": "delivered",
+        "facts_path": "/facts.json", "questions_path": "/questions.json",
+        "condition_profile": deepcopy(row["requested_profile"]),
+        "achieved_conditions_source": "native_pixel_and_pcm",
+        "achieved_conditions": {"separation": {"status": "measured", "min": 60.7}},
+        "produced_count_by_qa": {qa: 1 for qa in row["requested_quota_by_qa"]},
+    }
+    result = collect_batch_outcomes(manifest, [outcome])
+    hist = result["achieved_separation_histogram_5deg"]
+    assert hist["requested_bin_is_not_coverage"] is True
+    assert result["separation_coverage_unit"] == "achieved_angle_5deg_bins"
+    occupied = {item["lo_deg"]: item["count"] for item in hist["occupied_bins"]}
+    assert occupied == {60: 1}
+    assert 60.7 not in [row["requested_profile"]["separation_bin_deg"][0]
+                        for row in manifest["episodes"]]

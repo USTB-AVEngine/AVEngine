@@ -407,7 +407,7 @@
 | `tools/dataset/build_cached_apartment_dataset_examples.py` | Build four cache-bound Apartment dataset examples for UE review |
 | `tools/dataset/build_mp3d_room_evaluation_review.py` | Build one hash-bound MP3D room-evaluation listening review |
 | `tools/dataset/build_qa_batch_coverage.py` | Build full-scope five-state QA coverage and structural baselines |
-| `tools/dataset/build_qa_batch_manifest.py` | Prepare independent QA batch requests, collect outcomes, or group splits |
+| `tools/dataset/build_qa_batch_manifest.py` | Prepare independent QA batch requests, collect outcomes, group splits, or dry-run a scattered scale-up manifest |
 | `tools/dataset/build_qa_evaluation_permutations.py` | Build deterministic pre-evaluation option permutations and private mappings |
 | `tools/dataset/build_room_evaluation_plan.py` | Select balanced generic source trajectories for one room evaluation |
 | `tools/dataset/build_spear_apartment_review.py` | Bind one exact SPEAR Apartment RGB render to Habitat Topdown v3 and audio |
