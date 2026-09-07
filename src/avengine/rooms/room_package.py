@@ -120,13 +120,27 @@ def _load_json(path: str | Path) -> dict:
     return json.loads(Path(os.path.expandvars(str(path))).expanduser().read_text())
 
 
-def resolve_room_package_paths(package: Mapping[str, Any], *, runtime: Mapping[str, Any] | None = None) -> dict:
-    """Expand configured package roots once, retaining original template metadata."""
+def configured_path_bindings(runtime: Mapping[str, Any] | None = None) -> dict[str, str]:
+    """Return the explicit path roots used to expand a package.
+
+    Shell ``AVENGINE_*`` variables are not a source. Callers must pass
+    ``runtime.path_bindings`` (and optional ``mp3d_root``).
+    """
     runtime = runtime or {}
-    bindings = dict(os.environ)
+    bindings: dict[str, str] = {}
     if runtime.get("mp3d_root"):
         bindings["AVENGINE_MP3D_ROOT"] = str(runtime["mp3d_root"])
-    bindings.update({str(k): str(v) for k, v in runtime.get("path_bindings", {}).items()})
+    raw = runtime.get("path_bindings") or {}
+    if not isinstance(raw, Mapping):
+        raise ValueError("runtime.path_bindings must be a mapping")
+    bindings.update({str(key): str(value) for key, value in raw.items()})
+    return bindings
+
+
+def resolve_room_package_paths(package: Mapping[str, Any], *, runtime: Mapping[str, Any] | None = None) -> dict:
+    """Expand configured package roots once, retaining original template metadata."""
+    bindings = configured_path_bindings(runtime)
+
     def expand(value, key=""):
         if isinstance(value, Mapping):
             return {k: expand(v, str(k)) for k, v in value.items()}
@@ -142,17 +156,76 @@ def resolve_room_package_paths(package: Mapping[str, Any], *, runtime: Mapping[s
     return expand(package)
 
 
+def resolve_catalog_room_package_path(
+    declared: str | Path,
+    *,
+    catalog_path: str | Path | None = None,
+) -> Path:
+    """Resolve a catalog ``room_package`` path without using the process cwd.
+
+    Relative paths are joined to the catalog file's directory. Production
+    catalog rows store repo-relative paths such as
+    ``examples/rooms/packages/room_a.json``; those files live next to the
+    catalog, so a matching basename in the catalog directory is accepted.
+    """
+    text = os.path.expandvars(os.path.expanduser(str(declared)))
+    path = Path(text)
+    if path.is_absolute():
+        return path
+    if catalog_path is None:
+        raise ValueError(f"relative room_package path requires catalog_path: {declared!r}")
+    catalog_dir = Path(catalog_path).expanduser().resolve().parent
+    joined = catalog_dir / path
+    if joined.exists():
+        return joined.resolve()
+    sibling = catalog_dir / path.name
+    if path.name and sibling.exists():
+        return sibling.resolve()
+    return joined.resolve()
+
+
+def write_room_package_plan_snapshot(
+    plan_dir: str | Path,
+    package: Mapping[str, Any],
+    *,
+    path_bindings: Mapping[str, Any],
+    catalog_path: str | Path | None = None,
+) -> dict[str, Path]:
+    """Write the expanded room package and the bindings used to expand it."""
+    plan_dir = Path(plan_dir)
+    plan_dir.mkdir(parents=True, exist_ok=True)
+    package_path = plan_dir / "room_package.json"
+    bindings_path = plan_dir / "path_bindings.json"
+    bindings = {str(key): str(value) for key, value in dict(path_bindings).items()}
+    record: dict[str, Any] = {"path_bindings": bindings}
+    if catalog_path is not None:
+        record["catalog_path"] = str(Path(catalog_path))
+    package_path.write_text(
+        json.dumps(dict(package), ensure_ascii=False, indent=2, allow_nan=False) + "\n")
+    bindings_path.write_text(
+        json.dumps(record, ensure_ascii=False, indent=2, allow_nan=False) + "\n")
+    return {"room_package": package_path, "path_bindings": bindings_path}
+
+
 def package_from_catalog_entry(entry: Mapping[str, Any], *,
-                                runtime: Mapping[str, Any] | None = None) -> dict:
+                                runtime: Mapping[str, Any] | None = None,
+                                catalog_path: str | Path | None = None) -> dict:
     """Wrap old catalog metadata, preserving any unmeasured fields as missing.
 
     Explicit packages are strict. Legacy drafts do not retroactively invalidate
     old requests; their validation errors remain visible until P3 supplies the
     measured package. The old entry itself is retained unchanged.
+
+    Relative ``room_package`` paths are resolved against the catalog file
+    directory, not the process cwd.
     """
     declared = entry.get("room_package")
     if declared is not None:
-        package = _load_json(declared) if isinstance(declared, (str, Path)) else declared
+        if isinstance(declared, (str, Path)):
+            package = _load_json(resolve_catalog_room_package_path(
+                declared, catalog_path=catalog_path))
+        else:
+            package = declared
         return resolve_room_package_paths(validate_room_package(package), runtime=runtime)
     if entry.get("schema") == SCHEMA:
         return resolve_room_package_paths(validate_room_package(entry), runtime=runtime)
@@ -176,7 +249,10 @@ def package_from_catalog_entry(entry: Mapping[str, Any], *,
         "legacy_catalog_entry": deepcopy(dict(entry)),
     }
     if renderer == "habitat":
-        source = _load_json(entry["room_manifest"]) if entry.get("room_manifest") else {}
+        source = {}
+        if entry.get("room_manifest"):
+            source = _load_json(resolve_catalog_room_package_path(
+                entry["room_manifest"], catalog_path=catalog_path))
         scene = source.get("scene", {})
         package.update(
             visual_scene={"scene_glb": scene.get("scene_id"),
