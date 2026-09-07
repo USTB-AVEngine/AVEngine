@@ -14,6 +14,10 @@ import numpy as np
 import soundfile as sf
 
 from avengine.capture.neutral_readback import validate_neutral_readback
+from avengine.rooms.qa_evidence import (
+    annotate_achieved_conditions_visibility,
+    annotate_pixel_visibility_semantics,
+)
 from avengine.qa.answerability import (
     MeshHandle, line_of_sight, listener_azimuth_deg,
     max_concurrent_entities, separation_stats,
@@ -28,6 +32,20 @@ def _write(path: Path, value):
     with path.open("x", encoding="utf-8") as stream:
         json.dump(value, stream, ensure_ascii=False, indent=2, sort_keys=True)
         stream.write("\n")
+
+
+def attach_visibility_semantics(
+    achieved: Mapping[str, Any],
+    pixel_truth: Mapping[str, Any] | None,
+) -> tuple[dict[str, Any], dict[str, Any] | None]:
+    """Run pixel-visibility annotators after achieved_from_facts / compiled truth."""
+    if not isinstance(pixel_truth, Mapping):
+        return deepcopy(dict(achieved)), None
+    annotated_truth = annotate_pixel_visibility_semantics(pixel_truth)
+    annotated_achieved = annotate_achieved_conditions_visibility(
+        achieved, annotated_truth
+    )
+    return annotated_achieved, annotated_truth
 
 
 def achieved_from_facts(facts: Mapping[str, Any], profile: Mapping[str, Any] | None,
@@ -263,6 +281,11 @@ def finalize_batch_episode(episode_root: Path, manifest_entry: Mapping[str, Any]
     root.mkdir(parents=True, exist_ok=False)
     profile = manifest_entry.get("requested_profile")
     achieved = achieved_from_facts(facts, profile, package)
+    pixel_truth_path = Path(refs["pixel_visibility_truth"]) if isinstance(
+        refs.get("pixel_visibility_truth"), str
+    ) else (episode_root / "capture/pixel_visibility_truth.json")
+    pixel_truth = _read(pixel_truth_path) if pixel_truth_path.is_file() else None
+    achieved, _annotated_truth = attach_visibility_semantics(achieved, pixel_truth)
     achieved_path = root / "achieved_conditions.json"
     _write(achieved_path, achieved)
     produced = Counter(item["qa_id"] for item in questions["items"])

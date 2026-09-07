@@ -8,8 +8,10 @@ import pytest
 
 from avengine.qa.answerability import structural_baselines
 from avengine.qa.batch_coverage import (
+    APPEARANCE_CLASSIFIER_GAP_REASON,
     COVERAGE_STATES,
     BatchCoverageError,
+    _deferred_state,
     build_batch_coverage,
     validate_batch_coverage,
 )
@@ -673,3 +675,126 @@ def test_failed_episode_gap_state_is_used_instead_of_asset_not_in_episode(tmp_pa
     assert lamp_row["state"] == "evidence_missing_or_unsampled"
     assert lamp_row["reason_code"] == "no_episode_input_for_room"
 
+
+
+
+def test_deferred_state_maps_classifier_gap_to_interface_not_implemented() -> None:
+    assert _deferred_state(APPEARANCE_CLASSIFIER_GAP_REASON) == "interface_not_implemented"
+    assert _deferred_state("missing_source_activity_readback") == "evidence_missing_or_unsampled"
+    assert _deferred_state("appearance_review_missing") == "deferred_by_rule"
+
+
+def test_classifier_gap_appearance_defer_is_interface_not_implemented(tmp_path: Path) -> None:
+    assets = [_asset("silver_device", "rigid_static_object")]
+    rooms = [{"room_id": "room_a", "family": "authored", "renderer": "ue_spear"}]
+    facts = _facts(
+        {
+            "source1": {
+                "actor_id": "source1",
+                "asset_id": "silver_device",
+                "appearance": {"field": "body_color", "value": "silver"},
+            }
+        },
+        episode_id="classifier_gap",
+    )
+    facts["appearance_review"] = {
+        "source1": {
+            "status": "not_observable",
+            "value": "silver",
+            "reason": APPEARANCE_CLASSIFIER_GAP_REASON,
+            "gap_category": "interface_not_implemented",
+            "checks": [
+                {
+                    "status": "not_observable",
+                    "reason": APPEARANCE_CLASSIFIER_GAP_REASON,
+                    "frame_index": 0,
+                }
+            ],
+        }
+    }
+    questions = _questions(
+        "classifier_gap",
+        coverage=[
+            {
+                "qa_id": "QA-01",
+                "status": "deferred",
+                "code": "appearance_review_missing",
+                "detail": "no actor has a matching reviewed appearance value",
+            },
+            {
+                "qa_id": "QA-18",
+                "status": "deferred",
+                "code": "no_distance_trend_during_event",
+                "detail": "no event has a measurable distance trend",
+            },
+        ],
+    )
+    result = build_batch_coverage(
+        _manifest(
+            tmp_path,
+            assets=assets,
+            rooms=rooms,
+            runtime=[_runtime("silver_device")],
+            episodes=[("classifier_gap", "room_a", "authored", facts, questions)],
+        )
+    )
+    validate_batch_coverage(result)
+    rows = {row["qa_id"]: row for row in result["rows"] if row["asset_id"] == "silver_device"}
+    assert rows["QA-01"]["state"] == "interface_not_implemented"
+    assert rows["QA-01"]["reason_code"] == APPEARANCE_CLASSIFIER_GAP_REASON
+    assert rows["QA-18"]["state"] == "deferred_by_rule"
+
+
+def test_appearance_review_missing_without_classifier_gap_stays_deferred(tmp_path: Path) -> None:
+    assets = [_asset("white_device", "rigid_static_object")]
+    rooms = [{"room_id": "room_a", "family": "authored", "renderer": "ue_spear"}]
+    facts = _facts(
+        {
+            "source1": {
+                "actor_id": "source1",
+                "asset_id": "white_device",
+                "appearance": {"field": "body_color", "value": "white"},
+            }
+        },
+        episode_id="pixel_gap",
+    )
+    facts["appearance_review"] = {
+        "source1": {
+            "status": "not_observable",
+            "value": "white",
+            "reason": "no visible native RGB pixels in the target mask",
+            "checks": [
+                {
+                    "status": "not_observable",
+                    "reason": "no visible native RGB pixels in the target mask",
+                    "frame_index": 0,
+                }
+            ],
+        }
+    }
+    questions = _questions(
+        "pixel_gap",
+        coverage=[
+            {
+                "qa_id": "QA-01",
+                "status": "deferred",
+                "code": "appearance_review_missing",
+                "detail": "no actor has a matching reviewed appearance value",
+            }
+        ],
+    )
+    result = build_batch_coverage(
+        _manifest(
+            tmp_path,
+            assets=assets,
+            rooms=rooms,
+            runtime=[_runtime("white_device")],
+            episodes=[("pixel_gap", "room_a", "authored", facts, questions)],
+        )
+    )
+    row = next(
+        item for item in result["rows"]
+        if item["asset_id"] == "white_device" and item["qa_id"] == "QA-01"
+    )
+    assert row["state"] == "deferred_by_rule"
+    assert row["reason_code"] == "appearance_review_missing"

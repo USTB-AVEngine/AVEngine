@@ -1,6 +1,13 @@
 from copy import deepcopy
 import pytest
-from avengine.qa.batch_delivery import achieved_from_facts, _review_frames
+import inspect
+from avengine.qa.batch_delivery import (
+    achieved_from_facts,
+    attach_visibility_semantics,
+    finalize_batch_episode,
+    _review_frames,
+)
+from avengine.rooms.qa_delivery import finalize_qa_episode
 
 
 def facts_fixture():
@@ -56,3 +63,52 @@ def test_review_frames_keep_frame_zero_and_the_actual_query_endpoint():
     assert "q2:query_frame" in result[8]
     with pytest.raises(ValueError, match="query frame"):
         _review_frames({"items": [{"question_id": "bad", "evidence": {"query_frame": 10}}]}, facts_fixture())
+
+
+
+def test_attach_visibility_semantics_writes_pixel_and_achieved_fields() -> None:
+    facts = facts_fixture()
+    achieved = achieved_from_facts(facts, PROFILE, {})
+    assert "visible_pixel_frames" not in achieved["anchor_event_measurements"][0]
+    truth = {
+        "schema": "avengine_qa_pixel_visibility_truth_v1",
+        "resolution_hw": [20, 20],
+        "per_instance": {
+            "source1": {
+                "semantic_id": 11,
+                "frames": [
+                    {
+                        "frame_index": 0,
+                        "target_pixels": 8,
+                        "visible_pixels": 8,
+                        "target_bbox_xyxy_px": [0, 0, 4, 4],
+                        "state": "visible_clear",
+                    },
+                    {
+                        "frame_index": 1,
+                        "target_pixels": 8,
+                        "visible_pixels": 0,
+                        "target_bbox_xyxy_px": [0, 0, 4, 4],
+                        "state": "fully_occluded",
+                    },
+                ],
+            }
+        },
+    }
+    annotated_achieved, annotated_truth = attach_visibility_semantics(achieved, truth)
+    source = annotated_truth["per_instance"]["source1"]
+    assert source["visible_pixel_frames"] == 1
+    assert source["bbox_touches_frame_edge_frames"] == 2
+    assert source["in_fov_frame_count"] == 2
+    row = annotated_achieved["anchor_event_measurements"][0]
+    assert row["visible_pixel_frames"] == 1
+    assert row["bbox_touches_frame_edge_frames"] == 2
+    assert row["in_fov_frame_count"] == 2
+
+
+def test_delivery_call_sites_wire_visibility_annotators() -> None:
+    batch_src = inspect.getsource(finalize_batch_episode)
+    assert "attach_visibility_semantics" in batch_src
+    assert "annotate_pixel_visibility_semantics" in inspect.getsource(attach_visibility_semantics)
+    qa_src = inspect.getsource(finalize_qa_episode)
+    assert "annotate_pixel_visibility_semantics" in qa_src

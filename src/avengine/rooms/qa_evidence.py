@@ -13,6 +13,9 @@ IN_FOV_DEFINITION = (
     "target_pixels > 0 from the native target-only footprint, including fully_occluded; "
     "this is not visible_pixels > 0 and does not mean the instance is unoccluded or fully inside the frame"
 )
+REGISTERED_APPEARANCE_CLASSIFIER_GAP_REASON = (
+    "registered_appearance_value_classifier_not_implemented"
+)
 
 PLACEHOLDER_NONHUMAN_MINIMUM_COLOR_PIXELS = 512
 PLACEHOLDER_NONHUMAN_DOMINANCE_RATIO = 1.25
@@ -643,11 +646,25 @@ def inspect_registered_appearance(
         "coarse_color_predicate": coarse,
         "appearance_thresholds": thresholds,
         "placeholder": True,
-        **({"reason": "registered_appearance_value_classifier_not_implemented",
+        **({"reason": REGISTERED_APPEARANCE_CLASSIFIER_GAP_REASON,
             "gap_category": "interface_not_implemented"} if unsupported else {}),
         "calibration": "placeholder_coarse_color_only",
         "claim_boundary": thresholds["claim_boundary"],
     }
+
+
+def classifier_gap_fields(checks: Sequence[Any]) -> dict[str, Any]:
+    """Actor-level reason when a registered appearance value has no classifier."""
+    for check in checks:
+        if (
+            isinstance(check, Mapping)
+            and check.get("reason") == REGISTERED_APPEARANCE_CLASSIFIER_GAP_REASON
+        ):
+            return {
+                "reason": REGISTERED_APPEARANCE_CLASSIFIER_GAP_REASON,
+                "gap_category": "interface_not_implemented",
+            }
+    return {}
 
 
 def build_pixel_appearance_review(
@@ -792,6 +809,7 @@ def build_pixel_appearance_review(
                 "placeholder": True,
                 "calibration": thresholds["calibration"],
                 "claim_boundary": "automatic coarse appearance evidence; native RGB frames remain available for human review",
+                **(classifier_gap_fields(checks) if not accepted else {}),
             }
     return {
         "schema": "avengine_qa_appearance_review_v2",
