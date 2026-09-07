@@ -207,3 +207,229 @@ def test_clear_camera_rejects_occluded_body_even_with_clear_emitter(monkeypatch)
         emitters,bodies,actors,selected,profile,clock(),r,np.random.default_rng(0))
     assert camera['candidate_id'] in conditions['legal_candidate_ids']
     assert len(events)==2
+
+
+class TwoFloorWalkableSpace:
+    """Constructed two-floor nav mesh; cells exist at y=0 and y=3 only."""
+
+    def __init__(self, floors=(0.0, 3.0), size=8.0, step=0.5):
+        self.floors = [float(v) for v in floors]
+        self.size = float(size)
+        self.step = float(step)
+        self.metadata = {
+            "floor_height_m": self.floors[0],
+            "authority": "fixture_two_floor_navmesh",
+            "floor_heights_m": list(self.floors),
+            "resolution_m": self.step,
+        }
+        xs = np.arange(self.step / 2, self.size, self.step)
+        zs = np.arange(self.step / 2, self.size, self.step)
+        pts = []
+        for y in self.floors:
+            for x in xs:
+                for z in zs:
+                    pts.append([float(x), float(y), float(z)])
+        self._points = np.asarray(pts, dtype=float)
+
+    def bounds(self):
+        return np.array([[0.0, min(self.floors) - 0.5, 0.0],
+                         [self.size, max(self.floors) + 0.5, self.size]], dtype=float)
+
+    def route_bank(self):
+        return None
+
+    def is_navigable(self, point):
+        p = np.asarray(point, dtype=float)
+        if not (0.0 <= p[0] <= self.size and 0.0 <= p[2] <= self.size):
+            return False
+        return min(abs(p[1] - y) for y in self.floors) <= cs.SAME_FLOOR_Y_TOLERANCE_M
+
+    def floor_height(self, point):
+        p = np.asarray(point, dtype=float)
+        return float(min(self.floors, key=lambda y: abs(p[1] - y)))
+
+    def points(self, region=None):
+        pts = self._points
+        if region is not None:
+            bounds = np.asarray(region, dtype=float)
+            pts = pts[np.all((pts >= bounds[0]) & (pts <= bounds[1]), axis=1)]
+        return pts
+
+    def sample_navigable(self, rng, region=None):
+        pts = self.points(region)
+        if not len(pts):
+            raise ValueError("requested region has no navigable cells")
+        return pts[int(rng.integers(len(pts)))].copy()
+
+    def shortest_path(self, start, end):
+        start = np.asarray(start, dtype=float)
+        end = np.asarray(end, dtype=float)
+        if abs(start[1] - end[1]) > cs.SAME_FLOOR_Y_TOLERANCE_M:
+            return None
+        return np.stack([start, end])
+
+
+def _actors():
+    return [cs.neutral_source_declaration(record, f"source{i+1}")
+            for i, record in enumerate(registry()["assets"][:2])]
+
+
+def test_declared_floor_tokens_and_same_floor_lock():
+    room = {"subrooms": [{"subroom_id": "R3_floor_0.1634"}, {"subroom_id": "R3_floor_3.1634"}]}
+    assert cs.declared_floor_heights_m(room) == [0.1634, 3.1634]
+    space = TwoFloorWalkableSpace()
+    space.metadata.pop("floor_heights_m", None)
+    seen = set()
+    for seed in range(20):
+        bounds, floor_y = cs.lock_same_floor_region(space, np.random.default_rng(seed), room=room)
+        seen.add(round(floor_y, 4))
+        assert abs(bounds[0, 1] - (floor_y - cs.SAME_FLOOR_Y_TOLERANCE_M)) < 1e-9
+        assert abs(bounds[1, 1] - (floor_y + cs.SAME_FLOOR_Y_TOLERANCE_M)) < 1e-9
+    assert seen == {0.1634, 3.1634}
+
+
+def test_two_floor_navmesh_keeps_sources_within_0_3m():
+    space = TwoFloorWalkableSpace()
+    room = {"room_id": "two_floor", "subrooms": ["L_floor_0.0", "L_floor_3.0"]}
+    profile = cs.resolve_condition_profile(request(), registry())
+    actors = _actors()
+    clk = clock()
+    kept = 0
+    floors_seen = set()
+    for seed in range(40):
+        rng = np.random.default_rng(seed)
+        try:
+            paths, _rot, _moving, _emit, _bodies, meta = cs.sample_routes(
+                space, actors, profile, clk, rng, room=room)
+        except cs.CandidateFailure:
+            continue
+        ys = np.asarray(paths)[:, :, 1]
+        floor_y = float(meta["selected_floor_height_m"])
+        assert floor_y in space.floors
+        assert np.all(np.abs(ys - floor_y) <= cs.SAME_FLOOR_Y_TOLERANCE_M)
+        assert float(np.max(ys) - np.min(ys)) <= cs.SAME_FLOOR_Y_TOLERANCE_M
+        floors_seen.add(floor_y)
+        kept += 1
+        if kept >= 8:
+            break
+    assert kept >= 8
+
+
+def test_cross_floor_pair_is_rejected():
+    ok, _ = cs._points_same_floor([[0.0, 0.16, 0.0], [1.0, 2.02, 1.0]])
+    assert ok is False
+    ok, floor_y = cs._points_same_floor([[0.0, 0.16, 0.0], [1.0, 0.40, 1.0]])
+    assert ok is True
+    assert abs(floor_y - 0.28) < 1e-9 or abs(floor_y - 0.16) <= 0.3
+
+
+def test_histogram_reports_achieved_5deg_bins_not_requested_box():
+    report = cs.histogram_separation_5deg([60.5, 61.9, 89.0, 180.0])
+    assert report["requested_bin_is_not_coverage"] is True
+    assert report["bin_width_deg"] == 5
+    by_lo = {row["lo_deg"]: row["count"] for row in report["bins"]}
+    assert by_lo[60] == 2
+    assert by_lo[85] == 1
+    assert by_lo[175] == 1
+    assert by_lo[90] == 0
+    occupied = {row["lo_deg"] for row in report["occupied_bins"]}
+    assert occupied == {60, 85, 175}
+
+
+def test_clip_span_fit_policy_is_wired_and_rejects_unknown():
+    r = request()
+    r["sound_selection"] = {"clip_span_fit_policy": "not_a_policy"}
+    profile = cs.resolve_condition_profile(r, registry())
+    actors = _actors()
+    with pytest.raises(ValueError, match="unsupported clip_span_fit_policy"):
+        cs.select_sounds(actors, sounds(), profile, clock(), r, np.random.default_rng(0))
+    r["sound_selection"] = {"clip_span_fit_policy": cs.CLIP_SPAN_FIT_POLICY, "max_clip_s": 5.0}
+    selected = cs.select_sounds(actors, sounds(), profile, clock(), r, np.random.default_rng(0))
+    assert len(selected) == 2
+
+
+def test_speaker_moving_does_not_require_competitors_still():
+    r = request()
+    r["profile"]["speech_motion"] = "speaker_moving"
+    profile = cs.resolve_condition_profile(r, registry())
+    actors = _actors()
+    flags = [cs._moving_flags(profile, actors, np.random.default_rng(seed)) for seed in range(40)]
+    assert all(row[profile["anchor_indices"][0]] for row in flags)
+    other = [i for i in range(len(actors)) if i not in profile["anchor_indices"]]
+    assert other
+    seen = {bool(row[other[0]]) for row in flags}
+    assert seen == {False, True}
+
+
+def test_off_screen_anchor_portrait_is_legal(monkeypatch):
+    r = request()
+    r["profile"].update(anchor_visibility="off_screen", competitor_visibility="in_fov",
+                        separation_bin_deg=[90, 180], distance_range_m=[1.5, 6.0])
+    profile = cs.resolve_condition_profile(r, registry())
+    assert profile["anchor_visibility"] == "off_screen"
+    n = clock()["frame_count"]
+    actors = _actors()
+    paths = np.repeat(np.array([[[0.0, 0.0, 2.8]], [[0.0, 0.0, -3.0]]]), n, axis=1)
+    emitters = paths + np.array([0.0, 1.6, 0.0])
+    bodies = paths + np.array([0.0, 1.28, 0.0])
+    selected = {i: {**sounds()[i], "actor_id": actor["actor_id"]} for i, actor in enumerate(actors)}
+    monkeypatch.setattr(cs, "camera_grid", lambda *args, **kwargs: [[0.0, 1.55, 0.0]])
+    monkeypatch.setattr(cs, "line_of_sight", lambda *args: "clear")
+    camera, events, conditions = cs.select_camera_and_schedule(
+        space(), object(), paths, np.zeros((2, n), dtype=bool), emitters, bodies,
+        actors, selected, profile, clock(), r, np.random.default_rng(0))
+    assert conditions["anchor_visibility"] == "off_screen"
+    assert camera["candidate_id"] in conditions["legal_candidate_ids"]
+    assert len(events) == 2
+    origin = np.asarray(camera["position_m"], dtype=float)
+    forward = np.asarray(camera["basis"]["forward"], dtype=float)
+    anchor_i = profile["anchor_indices"][0]
+    depth = float(np.dot(bodies[anchor_i, 0] - origin, forward))
+    assert depth <= 0.1
+
+
+def test_off_screen_competitor_portrait_is_legal(monkeypatch):
+    r = request()
+    r["profile"].update(anchor_visibility="in_fov", competitor_visibility="off_screen",
+                        separation_bin_deg=[90, 180], distance_range_m=[1.5, 6.0])
+    profile = cs.resolve_condition_profile(r, registry())
+    n = clock()["frame_count"]
+    actors = _actors()
+    paths = np.repeat(np.array([[[-0.2, 0.0, -3.0]], [[0.0, 0.0, 2.8]]]), n, axis=1)
+    emitters = paths + np.array([0.0, 1.6, 0.0])
+    bodies = paths + np.array([0.0, 1.28, 0.0])
+    selected = {i: {**sounds()[i], "actor_id": actor["actor_id"]} for i, actor in enumerate(actors)}
+    monkeypatch.setattr(cs, "camera_grid", lambda *args, **kwargs: [[0.0, 1.55, 0.0]])
+    monkeypatch.setattr(cs, "line_of_sight", lambda *args: "clear")
+    camera, events, conditions = cs.select_camera_and_schedule(
+        space(), object(), paths, np.zeros((2, n), dtype=bool), emitters, bodies,
+        actors, selected, profile, clock(), r, np.random.default_rng(0))
+    assert conditions["competitor_visibility"] == "off_screen"
+    assert len(events) == 2
+    origin = np.asarray(camera["position_m"], dtype=float)
+    forward = np.asarray(camera["basis"]["forward"], dtype=float)
+    competitor = [i for i in range(2) if i not in profile["anchor_indices"]][0]
+    depth = float(np.dot(bodies[competitor, 0] - origin, forward))
+    assert depth <= 0.1
+
+
+def test_two_floor_full_plan_stays_on_one_floor():
+    room = {"room_id": "two_floor", "subrooms": ["L_floor_0.0", "L_floor_3.0"]}
+    kwargs = {
+        "room": room, "request": request(), "source_registry": registry(), "sounds": sounds(),
+        "space": TwoFloorWalkableSpace(),
+        "mesh": MeshHandle(np.zeros((0, 3)), np.zeros((0, 3), dtype=int)),
+        "clock": clock(),
+    }
+    plan = cs.build_conditioned_plan(**kwargs)
+    translations = [np.asarray(state["root_transform"]["translation_m"])
+                    for frame in plan["visual_plan"]["frames"] for state in frame["actor_states"]]
+    ys = np.asarray(translations)[:, 1]
+    floor_y = plan["planned_conditions"]["selected_floor_height_m"]
+    assert float(np.max(ys) - np.min(ys)) <= cs.SAME_FLOOR_Y_TOLERANCE_M
+    assert np.all(np.abs(ys - floor_y) <= cs.SAME_FLOOR_Y_TOLERANCE_M)
+    cam_y = float(plan["visual_plan"]["camera"]["position_m"][1])
+    assert abs(cam_y - 1.55 - floor_y) <= cs.SAME_FLOOR_Y_TOLERANCE_M
+    hist = plan["planned_conditions"]["planned_separation_histogram_5deg"]
+    assert hist["requested_bin_is_not_coverage"] is True
+    assert hist["count"] == 1

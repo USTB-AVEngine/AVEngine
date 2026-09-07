@@ -7,12 +7,15 @@ from __future__ import annotations
 
 from collections import Counter, defaultdict
 from copy import deepcopy
+from itertools import product
 import json
 import math
 import random
 from typing import Any, Mapping, Sequence
 
 from avengine.rooms.conditioned_sampler import (
+    CLIP_SPAN_FIT_POLICY,
+    histogram_separation_5deg,
     neutral_source_declaration,
     resolve_condition_profile,
     sound_matches,
@@ -20,6 +23,369 @@ from avengine.rooms.conditioned_sampler import (
 
 SOURCE_CLASSES = ("articulated_human", "articulated_animal", "rigid_static_object")
 QA_IDS = tuple(f"QA-{index:02d}" for index in range(1, 25))
+SOURCE_CLASS_LABEL = {
+    "articulated_human": "human",
+    "articulated_animal": "animal",
+    "rigid_static_object": "device",
+}
+CLASS_PAIRS = (
+    ("articulated_human", "articulated_human"),
+    ("articulated_human", "articulated_animal"),
+    ("articulated_human", "rigid_static_object"),
+    ("articulated_animal", "articulated_animal"),
+    ("articulated_animal", "rigid_static_object"),
+    ("rigid_static_object", "rigid_static_object"),
+)
+CONDITION_GROUPS = (
+    "identity_binding",
+    "audio_event_relations",
+    "visibility_occlusion",
+    "motion_distance",
+    "post_sound_state",
+)
+COMMON_PROFILE = {
+    "separation_floor_deg": 15,
+    "anchor_visibility": "in_fov",
+    "competitor_visibility": "in_fov",
+    "anchor_line_of_sight": "clear",
+    "competitor_set": "all_other_entities_including_offscreen",
+    "separation_window": "whole_audible_window_of_anchor",
+    "min_gap_between_audible_windows_s": 0.5,
+    "reserve_tail_s": 3.0,
+    "minimum_overlap_s": 0.3,
+    "retry_budget_within_profile": 200,
+    "anchor_count": 1,
+    "separation_bin_deg": [30, 60],
+    "speech_motion": "all_still",
+    "event_relation": "sequential",
+    "distance_range_m": [1.5, 4.5],
+    "separation_target_policy": "any_legal_in_bin",
+}
+GROUP_PROFILE = {
+    "identity_binding": {},
+    "audio_event_relations": {"event_relation": "overlap", "anchor_count": 2},
+    "visibility_occlusion": {"anchor_line_of_sight": "occluded", "separation_bin_deg": [15, 30]},
+    "motion_distance": {"speech_motion": "speaker_moving"},
+    "post_sound_state": {"separation_bin_deg": [60, 90]},
+}
+
+
+
+def class_pair_label(classes: Sequence[str]) -> str:
+    labels = sorted(SOURCE_CLASS_LABEL[value] for value in classes)
+    return "-".join(labels)
+
+
+def legal_condition_groups(classes: Sequence[str], *, silent_count: int = 0) -> list[str]:
+    groups = list(CONDITION_GROUPS)
+    speaking = len(classes) - int(silent_count)
+    if not any(value != "rigid_static_object" for value in classes):
+        groups = [group for group in groups if group != "motion_distance"]
+    if speaking < 2:
+        groups = [group for group in groups if group != "audio_event_relations"]
+    return groups
+
+
+def profile_for_condition_group(
+    group: str,
+    classes: Sequence[str],
+    *,
+    silent_count: int = 0,
+    event_relation: str | None = None,
+    off_screen: str | None = None,
+    distance_range_m: Sequence[float] | None = None,
+) -> dict[str, Any]:
+    if group not in GROUP_PROFILE:
+        raise ValueError(f"unknown condition_group: {group}")
+    profile = deepcopy(COMMON_PROFILE)
+    profile.update(deepcopy(GROUP_PROFILE[group]))
+    speaking = len(classes) - int(silent_count)
+    if int(profile.get("anchor_count", 1)) > max(1, speaking):
+        profile["anchor_count"] = max(1, speaking)
+    if event_relation is not None:
+        profile["event_relation"] = event_relation
+    if group == "identity_binding" and class_pair_label(classes) == "device-device" and event_relation is None:
+        profile["event_relation"] = "repeat"
+    if off_screen == "anchor":
+        profile["anchor_visibility"] = "off_screen"
+    elif off_screen == "competitor":
+        profile["competitor_visibility"] = "off_screen"
+    if distance_range_m is not None:
+        profile["distance_range_m"] = [float(distance_range_m[0]), float(distance_range_m[1])]
+    return profile
+
+
+def format_class_pair_condition_group_crosstab(table: Mapping[str, Any]) -> str:
+    """Printable class-pair x condition-group counts for dry-run reports."""
+    groups = list(table.get("condition_groups") or CONDITION_GROUPS)
+    pairs = list(table.get("class_pairs") or [])
+    counts = table.get("counts") or {}
+    distinct = table.get("distinct_condition_groups_per_class_pair") or {}
+    header = ["class_pair", *groups, "n_groups"]
+    lines = ["\t".join(header)]
+    for pair in pairs:
+        row = [pair]
+        for group in groups:
+            row.append(str(int((counts.get(pair) or {}).get(group, 0))))
+        row.append(str(int(distinct.get(pair, 0))))
+        lines.append("\t".join(row))
+    lines.append(
+        "meets_acceptance=%s min_distinct=%s required=%s"
+        % (table.get("meets_acceptance"), table.get("min_distinct_groups_per_class_pair"),
+           table.get("acceptance_min_distinct_groups"))
+    )
+    return "\n".join(lines)
+
+
+def class_pair_condition_group_crosstab(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+    table = defaultdict(Counter)
+    for row in rows:
+        classes = row.get("requested_source_classes") or row.get("source_classes") or []
+        pair = class_pair_label(classes)
+        table[pair][row["condition_group"]] += 1
+    pairs = sorted(table)
+    distinct = {pair: sum(1 for group in CONDITION_GROUPS if table[pair][group]) for pair in pairs}
+    return {
+        "class_pairs": pairs,
+        "condition_groups": list(CONDITION_GROUPS),
+        "counts": {pair: {group: int(table[pair][group]) for group in CONDITION_GROUPS} for pair in pairs},
+        "distinct_condition_groups_per_class_pair": distinct,
+        "min_distinct_groups_per_class_pair": min(distinct.values()) if distinct else 0,
+        "acceptance_min_distinct_groups": 3,
+        "meets_acceptance": bool(distinct) and all(value >= 3 for value in distinct.values()),
+    }
+
+
+def scatter_condition_groups(
+    slots: Sequence[Mapping[str, Any]],
+    *,
+    rooms_by_id: Mapping[str, Mapping[str, Any]],
+    seed: int,
+    min_groups_per_class_pair: int = 3,
+    distance_range_m: Sequence[float] | None = None,
+    keep_existing_repeat: bool = False,
+) -> list[dict[str, Any]]:
+    """Assign condition groups by seed so class pairs are not collinear with groups."""
+    rng = random.Random(seed)
+    slots = [deepcopy(dict(slot)) for slot in slots]
+    items = []
+    for index, slot in enumerate(slots):
+        classes = list(slot["source_classes"])
+        items.append({
+            "index": index,
+            "pair": class_pair_label(classes),
+            "family": rooms_by_id[slot["room_id"]]["family"],
+            "legal": legal_condition_groups(classes, silent_count=int(slot.get("silent_count", 0))),
+            "keep_repeat": bool(keep_existing_repeat and (slot.get("profile") or {}).get("event_relation") == "repeat"),
+        })
+    assigned = [None] * len(slots)
+    by_pair = defaultdict(list)
+    for item in items:
+        by_pair[item["pair"]].append(item["index"])
+    for pair, indexes in by_pair.items():
+        legal = items[indexes[0]]["legal"]
+        need = min(min_groups_per_class_pair, len(legal), len(indexes))
+        groups = list(legal)
+        rng.shuffle(groups)
+        chosen = groups[:need]
+        order = list(indexes)
+        rng.shuffle(order)
+        for group, index in zip(chosen, order):
+            assigned[index] = group
+    families = sorted({item["family"] for item in items})
+    for family in families:
+        family_indexes = [item["index"] for item in items if item["family"] == family]
+        have = {assigned[index] for index in family_indexes if assigned[index]}
+        missing = [group for group in CONDITION_GROUPS if group not in have]
+        rng.shuffle(family_indexes)
+        for group in missing:
+            candidates = [index for index in family_indexes
+                          if group in items[index]["legal"] and assigned[index] is None]
+            if not candidates:
+                candidates = [index for index in family_indexes if group in items[index]["legal"]]
+            if candidates:
+                assigned[candidates[0]] = group
+    for item in items:
+        if assigned[item["index"]] is None:
+            assigned[item["index"]] = rng.choice(item["legal"])
+    for pair, indexes in by_pair.items():
+        legal = items[indexes[0]]["legal"]
+        used = {assigned[index] for index in indexes}
+        while len(used) < min(min_groups_per_class_pair, len(legal), len(indexes)):
+            missing = [group for group in legal if group not in used]
+            counts = Counter(assigned[index] for index in indexes)
+            donors = [index for index in indexes if counts[assigned[index]] > 1]
+            if not missing or not donors:
+                break
+            assigned[donors[0]] = missing[0]
+            used = {assigned[index] for index in indexes}
+    for slot, item, group in zip(slots, items, assigned):
+        event_relation = "repeat" if item["keep_repeat"] else None
+        slot["condition_group"] = group
+        slot["profile"] = profile_for_condition_group(
+            group, slot["source_classes"], silent_count=int(slot.get("silent_count", 0)),
+            event_relation=event_relation, off_screen=slot.get("off_screen"),
+            distance_range_m=distance_range_m)
+        slot["class_pair"] = item["pair"]
+    return slots
+
+
+def build_scaleup_slots(
+    rooms: Sequence[Mapping[str, Any]],
+    *,
+    seed: int,
+    episodes_per_room: int = 50,
+    include_off_screen: bool = True,
+    distance_range_m: Sequence[float] = (1.5, 6.0),
+    batch_id: str = "qa_scaleup",
+) -> list[dict[str, Any]]:
+    if episodes_per_room < len(CLASS_PAIRS) + 1:
+        raise ValueError("episodes_per_room must fit every class pair plus a silent cell")
+    rng = random.Random(seed)
+    slots = []
+    for room in rooms:
+        room_slots = []
+        for classes in CLASS_PAIRS:
+            room_slots.append({"room_id": room["room_id"], "source_classes": list(classes), "silent_count": 0})
+        room_slots.append({"room_id": room["room_id"],
+                           "source_classes": ["articulated_human", "articulated_human"], "silent_count": 1})
+        while len(room_slots) < episodes_per_room:
+            room_slots.append({"room_id": room["room_id"], "source_classes": list(rng.choice(CLASS_PAIRS)),
+                               "silent_count": 0})
+        if include_off_screen:
+            room_slots[0]["off_screen"] = "anchor"
+            competitor = next((slot for slot in room_slots
+                               if class_pair_label(slot["source_classes"]) != "device-device"
+                               and slot.get("silent_count", 0) == 0 and slot is not room_slots[0]), room_slots[1])
+            competitor["off_screen"] = "competitor"
+        slots.extend(room_slots[:episodes_per_room])
+    rooms_by_id = {room["room_id"]: room for room in rooms}
+    slots = scatter_condition_groups(slots, rooms_by_id=rooms_by_id, seed=seed,
+                                     distance_range_m=distance_range_m)
+    for index, slot in enumerate(slots):
+        pair = slot.get("class_pair") or class_pair_label(slot["source_classes"])
+        family = rooms_by_id[slot["room_id"]]["family"]
+        slot["episode_id"] = f"{batch_id}_{index + 1:03d}_{family}_{pair.replace('-', '_')}"
+        slot["seed"] = seed + index
+        if slot.get("off_screen"):
+            key = "anchor_visibility" if slot["off_screen"] == "anchor" else "competitor_visibility"
+            slot["profile"][key] = "off_screen"
+            slot["profile"]["distance_range_m"] = [float(distance_range_m[0]), float(distance_range_m[1])]
+    return slots
+
+
+def build_scaleup_batch_config(
+    template: Mapping[str, Any],
+    catalog: Mapping[str, Any],
+    *,
+    seed: int = 20260907,
+    episodes_per_room: int = 50,
+    batch_id: str | None = None,
+    include_off_screen: bool = True,
+    distance_range_m: Sequence[float] = (1.5, 6.0),
+) -> dict[str, Any]:
+    """Deterministic 7-room scale-up config. Does not execute GPU episodes."""
+    config = deepcopy(dict(template))
+    batch_id = batch_id or f"qa_scaleup_7x{episodes_per_room}_{seed}"
+    rooms = catalog["rooms"]
+    config["batch_id"] = batch_id
+    config["seed"] = int(seed)
+    config["scatter_condition_groups"] = True
+    config["slots"] = build_scaleup_slots(
+        rooms, seed=int(seed), episodes_per_room=int(episodes_per_room),
+        include_off_screen=include_off_screen, distance_range_m=distance_range_m, batch_id=batch_id)
+    config["scaleup"] = {
+        "episodes_per_room": int(episodes_per_room),
+        "room_count": len(rooms),
+        "include_off_screen_portraits": include_off_screen,
+        "distance_range_m": [float(distance_range_m[0]), float(distance_range_m[1])],
+        "repeat_feasibility_formula": "2 * duration(repeat_sound) + duration(other_source_sound) + 2 * gap_s <= available_s",
+        "gpu_execution": False,
+    }
+    sound_selection = config.setdefault("base_request", {}).setdefault("sound_selection", {})
+    sound_selection.setdefault("clip_span_fit_policy", CLIP_SPAN_FIT_POLICY)
+    sound_selection.setdefault("max_clip_s", 5.0)
+    return config
+
+
+def prepare_scaleup_dry_run(
+    template: Mapping[str, Any],
+    registry: Mapping[str, Any],
+    catalog: Mapping[str, Any],
+    sounds: Sequence[Mapping[str, Any]],
+    *,
+    seed: int = 20260907,
+    episodes_per_room: int = 50,
+    batch_id: str | None = None,
+) -> dict[str, Any]:
+    """Generate a scattered scale-up manifest without native execution."""
+    config = build_scaleup_batch_config(
+        template, catalog, seed=seed, episodes_per_room=episodes_per_room, batch_id=batch_id)
+    manifest = prepare_batch_manifest(config, registry, catalog, sounds)
+    return {"config": config, "manifest": manifest,
+            "repeat_deficit_count": int(manifest.get("preallocation_gap_counts", {}).get(
+                "fixed_sound_identities_exceed_profile_clip_budget", 0)),
+            "class_pair_condition_group_crosstab": manifest["class_pair_condition_group_crosstab"]}
+
+
+def _clip_duration_s(sound: Mapping[str, Any]) -> float:
+    return float(sound["sample_count"]) / float(sound["sample_rate_hz"])
+
+
+def program_seconds_for_durations(
+    durations: Sequence[float], *, gap_s: float, relation: str, repeat_index: int | None = None,
+) -> float:
+    """Owner rule 1: 2 * repeat + other + 2 * gap for a two-source repeat program."""
+    values = [float(value) for value in durations]
+    if not values:
+        return 0.0
+    if relation == "overlap":
+        return max(values)
+    total = sum(values) + gap_s * max(0, len(values) - 1)
+    if relation == "repeat":
+        if repeat_index is None:
+            raise ValueError("repeat_index is required for a repeat program")
+        total += values[repeat_index] + gap_s
+    return total
+
+
+def available_program_seconds(request: Mapping[str, Any], profile: Mapping[str, Any]) -> float:
+    return (float(request.get("frame_count", 240)) / float(request.get("frame_rate_hz", 15))) - float(
+        profile["reserve_tail_s"])
+
+
+def iter_achieved_separation_deg(row: Mapping[str, Any]):
+    """Yield measured separation angles; never the requested bin label."""
+    achieved = row.get("achieved_conditions") or {}
+    if not isinstance(achieved, Mapping):
+        return
+    measurements = achieved.get("anchor_event_measurements")
+    if isinstance(measurements, list):
+        for item in measurements:
+            sep = (item or {}).get("separation") or {}
+            if sep.get("status") == "measured" and sep.get("min") is not None:
+                yield float(sep["min"])
+        return
+    sep = achieved.get("separation")
+    if isinstance(sep, Mapping) and sep.get("min") is not None:
+        yield float(sep["min"])
+        return
+    planned = row.get("planned_conditions") or achieved.get("planned_conditions") or {}
+    value = planned.get("planned_anchor_nearest_competitor_separation_deg") if isinstance(planned, Mapping) else None
+    if value is not None:
+        yield float(value)
+
+
+def _bind_identity(assignment, identity, groups):
+    entries = sorted(groups[identity], key=lambda sound: sound["sound_asset_id"])
+    assignment.update(
+        sound_status="preallocated", sound_identity_id=identity,
+        sound_asset_ids=[sound["sound_asset_id"] for sound in entries],
+        sound_origins=sorted({str(sound.get("source_pcm_path") or sound.get("source_origin")
+                                  or sound.get("original_source_uri")) for sound in entries
+                              if sound.get("source_pcm_path") or sound.get("source_origin")
+                              or sound.get("original_source_uri")}))
+    return assignment["sound_asset_ids"]
 
 
 def _text(value: Any, owner: str) -> str:
@@ -124,6 +490,11 @@ def prepare_batch_manifest(
         raise ValueError("preallocation sound_asset_id values must be nonempty and unique")
     appearance_counts, asset_counts, identity_counts, cross_counts = Counter(), Counter(), Counter(), Counter()
     rng = random.Random(seed)
+    if config.get("scatter_condition_groups"):
+        slots = scatter_condition_groups(
+            slots, rooms_by_id=rooms, seed=seed,
+            distance_range_m=config.get("distance_range_m"),
+            keep_existing_repeat=bool(config.get("keep_repeat_on_device_device", False)))
     rows, ids = [], set()
     for index, slot in enumerate(slots):
         episode_id = _text(slot.get("episode_id", f"{batch_id}_{index + 1:03d}"), "episode_id")
@@ -183,7 +554,7 @@ def prepare_batch_manifest(
         if len(selected) == len(classes):
             condition = resolve_condition_profile(request, registry)
             allowlists = {}
-            used_identities = set()
+            speaker_rows = []
             for actor_index, assignment in enumerate(assignments):
                 actor_id = assignment["actor_id"]
                 assignment["speaking"] = actor_index in condition["speaking_indices"]
@@ -193,7 +564,6 @@ def prepare_batch_manifest(
                 actor = neutral_source_declaration(assets[assignment["asset_id"]], actor_id)
                 groups = defaultdict(list)
                 for sound in sounds:
-                    # Respect an explicit asset allowlist for every source class.
                     allowed = sound.get("compatible_asset_ids")
                     if allowed is not None and assignment["asset_id"] not in allowed:
                         continue
@@ -202,66 +572,144 @@ def prepare_batch_manifest(
                     identity = sound_identity(sound)
                     if identity is not None:
                         groups[identity].append(sound)
-                distinct = [identity for identity in sorted(groups) if identity not in used_identities]
-                if not distinct:
+                speaker_rows.append({"assignment": assignment, "groups": groups,
+                                     "appearance_key": json.dumps(assignment["appearance"], sort_keys=True),
+                                     "kind": assignment["source_class"]})
+            used_identities = set()
+            for row in speaker_rows:
+                assignment = row["assignment"]
+                actor_id = assignment["actor_id"]
+                row["distinct"] = sorted(row["groups"])
+                if not row["distinct"]:
                     assignment["sound_status"] = "evidence_missing_or_unsampled"
                     allowlists[actor_id] = []
                     gaps.append({"state": "evidence_missing_or_unsampled",
                                  "code": "no_distinct_compatible_sound_identity",
                                  "asset_id": assignment["asset_id"], "actor_id": actor_id})
-                    continue
-                appearance_key = json.dumps(assignment["appearance"], sort_keys=True)
-                kind = assignment["source_class"]
-                identity = _minimum_choice(distinct,
-                    lambda value: (cross_counts[(kind, appearance_key, value)], identity_counts[(kind, value)]), rng)
-                used_identities.add(identity)
-                identity_counts[(kind, identity)] += 1
-                cross_counts[(kind, appearance_key, identity)] += 1
-                entries = sorted(groups[identity], key=lambda sound: sound["sound_asset_id"])
-                allowed_ids = [sound["sound_asset_id"] for sound in entries]
-                assignment.update(sound_status="preallocated", sound_identity_id=identity,
-                                  sound_asset_ids=allowed_ids,
-                                  sound_origins=sorted({str(sound.get("source_pcm_path") or sound.get("source_origin")
-                                                         or sound.get("original_source_uri")) for sound in entries
-                                                        if sound.get("source_pcm_path") or sound.get("source_origin")
-                                                        or sound.get("original_source_uri")}))
-                allowlists[actor_id] = allowed_ids
-            request["sound_selection"] = {**request.get("sound_selection", {}),
-                                          "preallocated_sound_asset_ids_by_actor": allowlists}
-            if all(assignment.get("sound_status") == "preallocated" for assignment in assignments
-                   if assignment.get("speaking")):
-                by_sound_id = {sound["sound_asset_id"]: sound for sound in sounds}
-                minimum_seconds = [
-                    min(by_sound_id[value]["sample_count"] / by_sound_id[value]["sample_rate_hz"]
-                        for value in assignment["sound_asset_ids"])
-                    for assignment in assignments if assignment.get("speaking")]
+            ready = [row for row in speaker_rows if row["assignment"].get("sound_status") != "evidence_missing_or_unsampled"]
+            substitution = False
+            repeat_actor_id = None
+            all_speaking_have_groups = len(ready) == len(speaker_rows) and bool(ready)
+            if ready:
                 relation = condition["event_relation"]
                 gap = condition["min_gap_between_audible_windows_s"]
-                if relation == "overlap":
-                    lower_bound = max(minimum_seconds)
-                else:
-                    lower_bound = sum(minimum_seconds) + gap * (len(minimum_seconds) - 1)
+                available = available_program_seconds(request, condition)
+
+                def usage(row, identity):
+                    return (cross_counts[(row["kind"], row["appearance_key"], identity)],
+                            identity_counts[(row["kind"], identity)])
+
+                greedy = []
+                taken = set()
+                unique_ok = True
+                for row in ready:
+                    candidates = [identity for identity in row["distinct"] if identity not in taken]
+                    if not candidates:
+                        row["assignment"]["sound_status"] = "evidence_missing_or_unsampled"
+                        allowlists[row["assignment"]["actor_id"]] = []
+                        gaps.append({"state": "evidence_missing_or_unsampled",
+                                     "code": "no_distinct_compatible_sound_identity",
+                                     "asset_id": row["assignment"]["asset_id"],
+                                     "actor_id": row["assignment"]["actor_id"]})
+                        unique_ok = False
+                        break
+                    identity = _minimum_choice(candidates, lambda value, row=row: usage(row, value), rng)
+                    greedy.append(identity)
+                    taken.add(identity)
+                if (not unique_ok) or (not all_speaking_have_groups):
+                    for row, identity in zip(ready, greedy):
+                        identity_counts[(row["kind"], identity)] += 1
+                        cross_counts[(row["kind"], row["appearance_key"], identity)] += 1
+                        allowlists[row["assignment"]["actor_id"]] = _bind_identity(
+                            row["assignment"], identity, row["groups"])
+                        used_identities.add(identity)
+                if unique_ok and all_speaking_have_groups:
+                    greedy_durs = [min(_clip_duration_s(sound) for sound in row["groups"][identity])
+                                   for row, identity in zip(ready, greedy)]
+                    chosen = list(greedy)
+                    repeat_index = None
                     if relation == "repeat":
-                        lower_bound += min(minimum_seconds) + gap
-                available = (float(request.get("frame_count", 240)) /
-                             float(request.get("frame_rate_hz", 15))) - condition["reserve_tail_s"]
-                if lower_bound > available + 1e-9:
-                    gaps.append({
-                        "state": "evidence_missing_or_unsampled",
-                        "code": "fixed_sound_identities_exceed_profile_clip_budget",
-                        "minimum_program_seconds_under_sampler_clip_budget": lower_bound,
-                        "available_seconds_before_reserved_tail": available,
-                        "identity_substitution_applied": False})
+                        legal_repeats = [index for index in range(len(chosen))
+                                         if program_seconds_for_durations(
+                                             greedy_durs, gap_s=gap, relation=relation, repeat_index=index)
+                                         <= available + 1e-9]
+                        if legal_repeats:
+                            shortest = min(greedy_durs[index] for index in legal_repeats)
+                            repeat_index = rng.choice([index for index in legal_repeats if greedy_durs[index] == shortest])
+                        else:
+                            substitution = True
+                            legal = []
+                            lists = [row["distinct"] for row in ready]
+                            if math.prod(max(1, len(values)) for values in lists) <= 40000:
+                                for combo in product(*lists):
+                                    if len(set(combo)) != len(combo):
+                                        continue
+                                    durs = [min(_clip_duration_s(sound) for sound in row["groups"][identity])
+                                            for row, identity in zip(ready, combo)]
+                                    score = tuple(usage(row, identity) for row, identity in zip(ready, combo))
+                                    for index in range(len(combo)):
+                                        seconds = program_seconds_for_durations(
+                                            durs, gap_s=gap, relation=relation, repeat_index=index)
+                                        if seconds <= available + 1e-9:
+                                            legal.append((score, combo, index, seconds))
+                            if legal:
+                                minimum = min(item[0] for item in legal)
+                                score, combo, repeat_index, _seconds = rng.choice(
+                                    [item for item in legal if item[0] == minimum])
+                                chosen = list(combo)
+                            else:
+                                chosen = None
+                    elif program_seconds_for_durations(greedy_durs, gap_s=gap, relation=relation) > available + 1e-9:
+                        chosen = None
+                    if chosen is None:
+                        for row, identity in zip(ready, greedy):
+                            allowlists[row["assignment"]["actor_id"]] = _bind_identity(
+                                row["assignment"], identity, row["groups"])
+                            used_identities.add(identity)
+                        seconds = program_seconds_for_durations(
+                            greedy_durs, gap_s=gap, relation=relation,
+                            repeat_index=0 if relation == "repeat" else None)
+                        gaps.append({
+                            "state": "evidence_missing_or_unsampled",
+                            "code": "fixed_sound_identities_exceed_profile_clip_budget",
+                            "minimum_program_seconds_under_sampler_clip_budget": seconds,
+                            "available_seconds_before_reserved_tail": available,
+                            "identity_substitution_applied": False,
+                            "identity_substitution_attempted": bool(substitution),
+                            "repeat_feasibility_formula": "2 * duration(repeat_sound) + duration(other_source_sound) + 2 * gap_s",
+                        })
+                    else:
+                        for row, identity in zip(ready, chosen):
+                            used_identities.add(identity)
+                            identity_counts[(row["kind"], identity)] += 1
+                            cross_counts[(row["kind"], row["appearance_key"], identity)] += 1
+                            allowlists[row["assignment"]["actor_id"]] = _bind_identity(
+                                row["assignment"], identity, row["groups"])
+                        if relation == "repeat" and repeat_index is not None:
+                            repeat_actor_id = ready[repeat_index]["assignment"]["actor_id"]
+            selection = {**request.get("sound_selection", {}),
+                         "preallocated_sound_asset_ids_by_actor": allowlists,
+                         "clip_span_fit_policy": request.get("sound_selection", {}).get(
+                             "clip_span_fit_policy", CLIP_SPAN_FIT_POLICY)}
+            if repeat_actor_id is not None:
+                selection["repeat_actor_id"] = repeat_actor_id
+                selection["identity_substitution_applied"] = substitution
+            request["sound_selection"] = selection
         rows.append({"episode_id": episode_id, "room_id": room_id, "room_family": room["family"],
                      "renderer": room["renderer"], "condition_group": _text(slot.get("condition_group"), "condition_group"),
+                     "class_pair": class_pair_label(classes),
                      "requested_source_classes": deepcopy(classes), "requested_profile": deepcopy(condition),
                      "requested_quota_by_qa": {qa: 1 for qa in QA_IDS}, "source_assignments": assignments,
                      "preallocation_gaps": gaps, "request": request, "execution_status": "not_run",
                      "achieved_conditions": None})
     group_quota = Counter((row["room_family"], row["room_id"], row["condition_group"]) for row in rows)
+    crosstab = class_pair_condition_group_crosstab(rows)
     return {"schema": "avengine_qa_batch_manifest_v1", "batch_id": batch_id, "seed": seed,
             "claim_boundary": "Preallocated requests only; no native execution, achieved quota or admission claim.",
-            "allocation_policy": "offline_least_used_appearance_asset_and_sound_identity_with_seeded_ties",
+            "allocation_policy": "offline_least_used_appearance_asset_and_sound_identity_with_repeat_feasibility_substitution",
+            "class_pair_condition_group_crosstab": crosstab,
+            "achieved_separation_histogram_5deg": histogram_separation_5deg([]),
+            "separation_coverage_unit": "achieved_angle_5deg_bins",
             "runtime_shared_counters": False, "asset_inventory": sorted(assets),
             "candidate_asset_ids_by_class": {kind: [record["asset_id"] for record in by_class[kind]]
                                              for kind in SOURCE_CLASSES},
@@ -319,9 +767,13 @@ def collect_batch_outcomes(manifest: Mapping[str, Any], outcomes: Sequence[Mappi
     groups = defaultdict(list)
     for row in rows:
         groups[(row["room_family"], row["room_id"], row["condition_group"])].append(row)
+    angles = [angle for row in rows for angle in iter_achieved_separation_deg(row)]
     return {"schema": "avengine_qa_batch_outcomes_v1", "batch_id": manifest["batch_id"],
             "episode_denominator": len(rows), "episodes": rows,
             "outcome_counts": dict(Counter(row["status"] for row in rows)),
+            "class_pair_condition_group_crosstab": class_pair_condition_group_crosstab(rows),
+            "achieved_separation_histogram_5deg": histogram_separation_5deg(angles),
+            "separation_coverage_unit": "achieved_angle_5deg_bins",
             "quota_by_condition_group": [
                 {"room_family": family, "room_id": room, "condition_group": group,
                  "requested": len(values),
