@@ -4,7 +4,7 @@
 
 权威树：48g-jump:/data/jzy/tmp/wt-multi-home-activity-integration，
 分支 codex/multi-home-activity-integration。本报告随P10实现提交；
-提交后会补充干净提交上的整合验证记录。没有修改Claude审计器或其测试。
+实现提交24ea774a223414a2a20c874e9f64a19cc5abb39b已完成干净提交验证。没有修改Claude审计器或其测试。
 
 - src/avengine/qa/batch_manifest.py：运行前分配资产、登记外观、声音身份和固定画像；请求逐集独立，失败配额左连接保留；Episode/视觉变体/房间/路线/声音身份的连通分组切分。
 - src/avengine/qa/batch_sound_pool.py：读取现有P7派生集与已登记事件PCM，按配置中的物种/对象语义关联。复用现有sound_events检测器，仅生成元数据，不裁剪、归一化或改写PCM。
@@ -33,7 +33,7 @@
   tmp/p10_batch_budget_runner_tests_20260907_v1.log。
 - tool index 1 passed / 0 failed：
   tmp/p10_tool_index_tests_20260907_v1.log。
-- 分项有重叠，不把这些计数相加当唯一测试总数。完整提交上的唯一计数另记。
+- 分项有重叠，不把这些计数相加当唯一测试总数。干净提交24ea774上的完整相关套件为144 passed / 0 failed / 0 skipped（7.04s），运行前后HEAD相同且工作树干净。记录tmp/p10_committed_verification_20260907_v1/{verification.json,pytest.log}。
 
 关键修复与原始失败边界：
 
@@ -88,7 +88,7 @@ tmp/p10_grouped_splits_20260907_v1/。
 tmp/p10_pilot46_manifest_20260907_v2/；
 tmp/p10_pilot46_preallocation_replay_20260907_v1.json；
 tmp/p10_pilot46_repeat_budget_diagnostic_20260907_v1.json。
-最终后台输入会在P10提交后的干净代码上重新生成。495条可用声音元数据来自
+最终后台输入已在干净24ea774上生成：tmp/p10_pilot46_manifest_20260907_v3/batch_manifest.json。46个画像与声音/外观分配逐条对账至v2相同；新增的预算检查明确记录2个超时长缺额。495条可用声音元数据来自
 296条P7语音及199条现有非语音事件；原始登记分母与1175条事件排除原因保留。
 原PCM未改。动物和设备检测阈值仍是既有研究占位参数。
 
@@ -134,3 +134,8 @@ owner已于2026-09-07接受P7当前处理结果，记录见
 tmp/p7_prepared_audio_v3/owner_acceptance_20260907T020953Z.json。
 随后明确授权：完成P10、推送当前分支，再后台运行已授权46段并提供日志和预计耗时。
 本次据此推送当前codex分支；main合并、Studio切换和超出46段扩量仍不在范围内。
+
+
+后台运行位置约定：tmp/qa_pilot46_background_20260907_v1/。总进度progress.json、
+事件日志events.jsonl，后台进程外层日志为相邻的qa_pilot46_background_20260907_v1.launch.log。
+启动与实际PID会在本次执行记录追加；本文的P10验收不冒充已启动或已完成46段。

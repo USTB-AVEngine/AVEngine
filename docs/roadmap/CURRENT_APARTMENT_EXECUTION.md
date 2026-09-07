@@ -1350,3 +1350,10 @@ tmp/p7_prepared_audio_v3/owner_acceptance_20260907T020953Z.json。
 当前剩P10工程收口，之后继续既有授权的46段；这不是整库人工校准或正式准入声明。
 
 P10实现收口：批预分配/五态覆盖/评测排列/连通切分/后台执行与自动汇总已完成，报告P10_batch_coverage_evaluation.md。原五段73有效+47延期，9912详细分母、504联合轴，70MCQ/202排列且未运行模型。真实保留Kuja片的审计/条件/截图/整批汇总已验证。46条预分配中2条固定repeat声音身份确定超13s预算，保留失败配额不换身份。接下来在干净P10提交上做整合验证，生成最终清单，按owner最新授权推送当前分支并后台启动46逻辑格。
+
+
+P10代码提交24ea774已在干净HEAD上完成144 passed/0 failed/0 skipped（7.04s），
+前后HEAD/status一致；tmp/p10_committed_verification_20260907_v1记录实际来源。
+最终46格清单tmp/p10_pilot46_manifest_20260907_v3/batch_manifest.json，producer为
+committed24ea774；固定画像与v2逐条相同，两个重复设备声音组合的预算缺额明确保留。
+本次owner明确授权推送当前分支并后台执行，覆盖原始任务中的不push限制。
