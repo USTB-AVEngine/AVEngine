@@ -2,7 +2,11 @@
 
 分支：`grok/pilot46-fixes-20260907`（HEAD 在提交本报告时更新）。  
 对照任务书 `docs/roadmap/GROK_FIX_TASKS_20260907.md` 第 2 节 G-E、第 3 节验收、第 4 节就绪门。  
-**结论：还不能写「可以开大规模生产」。** 代码修复与 20 段重跑已经证明 Habitat 音频模式和 A/B/C 曝光可修；先导 46 格仍有冻结缺额、规划用尽、挂装接口和人工试听空着。
+**结论（2026-09-07 当晚，owner 裁定后）：机器路径已经验证，owner 接受先导缺额、挂装未实现、无独立 eval、以及五段/十条试听「听着没问题」。可以按这个口径开大规模生产。**
+
+「正式准入」（24 类题人能否答、是否必须同时靠视听）仍然没做；那是另一层实验，不是这五段成片好不好看。Owner 未要求现在做。缺额细节仍列在下面，不当成放行阻塞。
+
+owner 原文与试听接受见同目录 `OWNER_LISTENING_AND_GAP_RULINGS_20260907.md`。逐条 `heard` 表仍空，不代填。
 
 ## 合并后的 46 格
 
@@ -44,11 +48,11 @@ Habitat 四段失败已由 `attempt_02` 交出 facts/questions 与 16 s 双耳�
 | G-D 非人类门槛 / body_color / in_fov 字段 | 通过 | `G-D_appearance_pixel_evidence.md` |
 | G-E 重跑 4 Habitat + 16 A/B/C | 19/20 delivered；B animal_device 规划用尽 | 本文件 + merged 表 |
 | G-E 放量干跑 | repeat 0；2 条其它身份缺额 | dry-run summary |
-| 人工试听 | 未做（禁止代填） | pending_human |
+| 人工试听 | owner 接受五段成片与十条语音「没有问题」；逐条 JSON 不代填 | `OWNER_LISTENING_AND_GAP_RULINGS_20260907.md` |
 
 ## 测试
 
-合并树上 `import avengine` 指向本 worktree。相关 12 个 unit 文件 **122 passed / 0 failed / 0 skipped**。
+合并树上 `import avengine` 指向 `/data/jzy/tmp/wt-grok-pilot46-fixes/src/avengine`。相关 unit 文件计数写在提交后的 stamp 里；跑的时候以 pytest 摘要为准。
 
 ## 没做完（三分）
 
@@ -64,4 +68,4 @@ Habitat 四段失败已由 `attempt_02` 交出 facts/questions 与 16 s 双耳�
 - 挂墙/吊顶 9 个资产继续留在分母，还是从放量范围拿掉。
 - 在人工试听仍空时，是否允许「机器闸门通过即可开大规模生产」。
 
-在以上五条未裁定前，**不能**把本报告读成生产放行。
+以上条目 owner 已于 2026-09-07 接受（缺额不必每房每题、挂装不急、eval 连通、试听以这次为准）。正式准入/缺失模态实验未做，也不再当作本报告的放行条件。
