@@ -1046,6 +1046,31 @@ def validate_batch_coverage(result: Mapping[str, Any]) -> dict[str, Any]:
     return dict(result)
 
 
+CODEX_WORKTREE_PREFIX = "/data/jzy/tmp/wt-multi-home-activity-integration"
+
+
+def rewrite_codex_worktree_path(
+    value: Any,
+    *,
+    repository: Path,
+    fallback: Path | None = None,
+) -> Any:
+    """Point Codex worktree inventory/catalog paths at the production repository."""
+    if isinstance(value, Path):
+        value = str(value)
+    if not isinstance(value, str) or not value:
+        return str(fallback) if fallback is not None else value
+    if CODEX_WORKTREE_PREFIX not in value:
+        return value
+    suffix = value.split(CODEX_WORKTREE_PREFIX, 1)[1].lstrip("/")
+    rewritten = (Path(repository) / suffix).resolve()
+    if rewritten.exists():
+        return str(rewritten)
+    if fallback is not None:
+        return str(Path(fallback).resolve())
+    return str(rewritten)
+
+
 def build_batch_coverage(
     manifest: str | Path | Mapping[str, Any],
     *,
@@ -1075,17 +1100,23 @@ def build_batch_coverage(
     else:
         raise BatchCoverageError("manifest must be a path or object")
     repository_path = Path(repository or manifest_path.parent).expanduser().resolve()
-    inventory_value = payload.get(
-        "asset_inventory",
-        repository_path / "tmp/qa_generalized_sampler_review_20260906_v1/full_source_scope_inventory.json",
+    default_inventory = repository_path / "tmp/qa_generalized_sampler_review_20260906_v1/full_source_scope_inventory.json"
+    default_catalog = repository_path / "examples/rooms/packages/catalog.json"
+    default_registry = repository_path / "examples/runtime/source_asset_runtime_profiles.json"
+    inventory_value = rewrite_codex_worktree_path(
+        payload.get("asset_inventory", default_inventory),
+        repository=repository_path,
+        fallback=default_inventory,
     )
-    catalog_value = payload.get(
-        "room_catalog",
-        repository_path / "examples/rooms/packages/catalog.json",
+    catalog_value = rewrite_codex_worktree_path(
+        payload.get("room_catalog", default_catalog),
+        repository=repository_path,
+        fallback=default_catalog,
     )
-    registry_value = payload.get(
-        "runtime_registry",
-        repository_path / "examples/runtime/source_asset_runtime_profiles.json",
+    registry_value = rewrite_codex_worktree_path(
+        payload.get("runtime_registry", default_registry),
+        repository=repository_path,
+        fallback=default_registry,
     )
     assets, inventory_source = _asset_inventory(inventory_value, base=manifest_path.parent)
     rooms, catalog_source = _room_catalog(catalog_value, base=manifest_path.parent)
@@ -1626,12 +1657,14 @@ def write_batch_coverage(result: Mapping[str, Any], output_dir: str | Path) -> d
 
 __all__ = [
     "BatchCoverageError",
+    "CODEX_WORKTREE_PREFIX",
     "COVERAGE_SCHEMA",
     "COVERAGE_STATES",
     "INPUT_MANIFEST_SCHEMA",
     "QA_IDS",
     "build_batch_coverage",
     "load_batch_input_manifest",
+    "rewrite_codex_worktree_path",
     "validate_batch_coverage",
     "write_batch_coverage",
 ]

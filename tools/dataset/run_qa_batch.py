@@ -389,24 +389,127 @@ def _first_useful_error_line(text: str) -> str | None:
     return useful[-1][:2000] if useful else None
 
 
-def _looks_like_interface_defect(reason: str) -> bool:
-    lower = reason.lower()
-    needles = (
-        "audioprogram validation",
-        "unrecognized arguments",
-        "the following arguments are required",
-        "no such option",
-        "modulenotfounderror",
-        "importerror",
-        "not implemented",
-        "interface_not_implemented",
-        "validate_evidence_contract",
-        "evidencecontract",
-        "unifiedaudioreceipterror",
-        "calledprocesserror",
-        "missing cli",
+_INTERFACE_EXCEPTION_TYPES = frozenset({
+    "ModuleNotFoundError",
+    "ImportError",
+    "NotImplementedError",
+    "CalledProcessError",
+    "UnifiedAudioReceiptError",
+    "EvidenceContractError",
+    "TypeError",
+    "AttributeError",
+    "FileNotFoundError",
+    "RuntimeError",
+    "SystemExit",
+    "AssertionError",
+    "KeyError",
+    "ValueError",
+    "OSError",
+    "JSONDecodeError",
+    "AudioProgramError",
+    "SubprocessError",
+})
+_PLANNING_EXHAUSTION_MARKERS = (
+    "conditionedplanningfailure",
+    "fixed condition profile exhausted",
+)
+
+
+def _exception_type(reason: str) -> str | None:
+    """Return the last TypeError-style token in ``Type: message`` form."""
+    if not isinstance(reason, str) or not reason.strip():
+        return None
+    match = None
+    for match in re.finditer(
+        r"(?:^|\n|[^A-Za-z0-9_.])(?:[A-Za-z_][\w]*\.)*([A-Za-z_][A-Za-z0-9_]*(?:Error|Exception|Failure))\s*:",
+        reason,
+    ):
+        pass
+    return match.group(1) if match else None
+
+
+def _is_planning_exhaustion(
+    reason: str,
+    *,
+    histogram: Mapping[str, Any] | None = None,
+    reason_code: str | None = None,
+) -> bool:
+    if reason_code == "planning_exhausted":
+        return True
+    if isinstance(histogram, Mapping) and histogram:
+        return True
+    lower = (reason or "").lower()
+    return any(marker in lower for marker in _PLANNING_EXHAUSTION_MARKERS)
+
+
+def _is_preallocation_deficit(reason: str, *, reason_code: str | None = None) -> bool:
+    if reason_code == "preallocation_gap":
+        return True
+    lower = (reason or "").lower()
+    return "preallocation_gap" in lower or "preallocation gap" in lower
+
+
+def _is_cli_interface_error(reason: str) -> bool:
+    lower = (reason or "").lower()
+    return (
+        "unrecognized arguments" in lower
+        or "the following arguments are required" in lower
+        or "no such option" in lower
+        or "missing cli" in lower
+        or lower.lstrip().startswith("error: argument")
     )
-    return any(needle in lower for needle in needles)
+
+
+def _is_code_exception(reason: str) -> bool:
+    """True when the reason names a code exception or an audio/contract interface fault."""
+    if _exception_type(reason) in _INTERFACE_EXCEPTION_TYPES:
+        return True
+    if _is_cli_interface_error(reason):
+        return True
+    lower = (reason or "").lower()
+    return (
+        "audioprogram validation" in lower
+        or "unifiedaudioreceipt" in lower
+        or "validate_evidence_contract" in lower
+        or "evidencecontracterror" in lower
+        or "not implemented" in lower
+        or "interface_not_implemented" in lower
+    )
+
+
+def gap_state_for_failure(
+    *,
+    failure_stage: str,
+    reason: str = "",
+    reason_code: str | None = None,
+    histogram: Mapping[str, Any] | None = None,
+) -> str:
+    """Owner rule 4: planning exhaustion / preallocation → evidence; code exceptions → interface."""
+    if _is_preallocation_deficit(reason, reason_code=reason_code):
+        return "evidence_missing_or_unsampled"
+    if _is_planning_exhaustion(reason, histogram=histogram, reason_code=reason_code):
+        return "evidence_missing_or_unsampled"
+    stage = failure_stage or "unknown"
+    if stage == "planning":
+        if _is_code_exception(reason):
+            return "interface_not_implemented"
+        return "evidence_missing_or_unsampled"
+    if stage == "audio":
+        return "interface_not_implemented"
+    if stage in {"capture", "finalize"}:
+        if _is_code_exception(reason):
+            return "interface_not_implemented"
+        return "evidence_missing_or_unsampled"
+    if stage == "launch":
+        return "interface_not_implemented"
+    if _is_code_exception(reason):
+        return "interface_not_implemented"
+    return "evidence_missing_or_unsampled"
+
+
+def _looks_like_interface_defect(reason: str, *, failure_stage: str = "finalize") -> bool:
+    """Backward-compatible wrapper around the stage/exception-type classifier."""
+    return gap_state_for_failure(failure_stage=failure_stage, reason=reason) == "interface_not_implemented"
 
 
 def classify_controller_failure(
@@ -422,7 +525,7 @@ def classify_controller_failure(
         return {
             "failure_stage": "launch",
             "failure_reason": process_error,
-            "gap_state": "interface_not_implemented",
+            "gap_state": gap_state_for_failure(failure_stage="launch", reason=process_error),
             "reason_code": "controller_launch_failed",
         }
     root = Path(episode_output_root)
@@ -470,13 +573,11 @@ def classify_controller_failure(
             or _first_useful_error_line(stdout)
             or f"planning failed (exit {returncode})"
         )
-        exhausted = "conditionedplanningfailure" in reason.lower() or "fixed condition profile exhausted" in reason.lower()
+        exhausted = _is_planning_exhaustion(reason)
         return {
             "failure_stage": "planning",
             "failure_reason": reason,
-            "gap_state": "evidence_missing_or_unsampled" if exhausted else (
-                "interface_not_implemented" if _looks_like_interface_defect(reason) else "evidence_missing_or_unsampled"
-            ),
+            "gap_state": gap_state_for_failure(failure_stage="planning", reason=reason),
             "reason_code": "planning_exhausted" if exhausted else "planning_failed",
         }
 
@@ -486,7 +587,7 @@ def classify_controller_failure(
         return {
             "failure_stage": "audio",
             "failure_reason": reason,
-            "gap_state": "interface_not_implemented",
+            "gap_state": gap_state_for_failure(failure_stage="audio", reason=reason),
             "reason_code": "audio_failed",
         }
 
@@ -499,7 +600,7 @@ def classify_controller_failure(
         return {
             "failure_stage": "capture",
             "failure_reason": reason,
-            "gap_state": "interface_not_implemented" if _looks_like_interface_defect(reason) else "evidence_missing_or_unsampled",
+            "gap_state": gap_state_for_failure(failure_stage="capture", reason=reason),
             "reason_code": "capture_failed",
         }
 
@@ -511,7 +612,7 @@ def classify_controller_failure(
     return {
         "failure_stage": "finalize",
         "failure_reason": reason,
-        "gap_state": "interface_not_implemented" if _looks_like_interface_defect(reason) else "evidence_missing_or_unsampled",
+        "gap_state": gap_state_for_failure(failure_stage="finalize", reason=reason),
         "reason_code": "finalize_failed",
     }
 
@@ -802,7 +903,7 @@ class BatchExecutor:
                             reason_code="review_failed", reason=review_reason,
                             review_error=review_reason,
                             failure_stage="finalize", failure_reason=review_reason,
-                            gap_state="interface_not_implemented" if _looks_like_interface_defect(review_reason) else "evidence_missing_or_unsampled")
+                            gap_state=gap_state_for_failure(failure_stage="finalize", reason=review_reason))
                 transition = "review_failed"
             finally:
                 review_finished_at = _utc_now()

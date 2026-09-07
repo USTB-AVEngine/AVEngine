@@ -190,6 +190,8 @@ def test_known_preallocation_gap_is_blocked_without_controller(monkeypatch, runn
     outcome = json.loads((tmp_path / "execution/episodes/episode_gap/attempt_01/outcome.json").read_text())
     assert outcome["status"] == "blocked"
     assert outcome["reason_code"] == "preallocation_gap"
+    assert outcome["failure_stage"] == "planning"
+    assert outcome["gap_state"] == "evidence_missing_or_unsampled"
 
 
 def test_per_gpu_lock_serializes_same_gpu(monkeypatch, runner, tmp_path):

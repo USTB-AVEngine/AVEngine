@@ -673,3 +673,29 @@ def test_failed_episode_gap_state_is_used_instead_of_asset_not_in_episode(tmp_pa
     assert lamp_row["state"] == "evidence_missing_or_unsampled"
     assert lamp_row["reason_code"] == "no_episode_input_for_room"
 
+
+
+def test_codex_worktree_paths_are_rewritten_in_provenance(tmp_path: Path) -> None:
+    from avengine.qa.batch_coverage import CODEX_WORKTREE_PREFIX, build_batch_coverage, validate_batch_coverage
+
+    assets = [_asset("human", "articulated_human"), _asset("lamp", "rigid_static_object")]
+    rooms = [{"room_id": "room_a", "family": "authored", "renderer": "ue_spear"}]
+    runtime = [_runtime("human"), _runtime("lamp")]
+    manifest = _manifest(tmp_path, assets=assets, rooms=rooms, runtime=runtime, episodes=[])
+    repo = tmp_path / "prod"
+    mapping = {
+        "asset_inventory": "assets.json",
+        "room_catalog": "rooms.json",
+        "runtime_registry": "runtime.json",
+    }
+    for key, name in mapping.items():
+        dest = repo / name
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(Path(manifest[key]).read_bytes())
+        manifest[key] = f"{CODEX_WORKTREE_PREFIX}/{name}"
+    result = build_batch_coverage(manifest, repository=repo)
+    validate_batch_coverage(result)
+    for key, name in mapping.items():
+        value = str(result["provenance"][key])
+        assert CODEX_WORKTREE_PREFIX not in value
+        assert str((repo / name).resolve()) == value
