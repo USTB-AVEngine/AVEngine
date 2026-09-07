@@ -16,14 +16,14 @@ from avengine.rooms.qa_evidence import build_pixel_appearance_review, derive_act
 from avengine.spatial_audio.audio import write_float32_wav
 
 
-def _write_truth(root: Path, *, frame_indices: list[int], actor_ids=("source1", "source2")) -> None:
+def _write_truth(root: Path, *, frame_indices: list[int], actor_ids=("source1", "source2"), height: int = 4, width: int = 4) -> None:
     semantic = {actor_ids[0]: 11, actor_ids[1]: 22}
     truth = {
         "schema": "avengine_qa_pixel_visibility_truth_v1",
         "status": "computed_modal_target_only_v1",
         "renderer_backend": "test",
         "rgb_renderer_backend": "test",
-        "resolution_hw": [4, 4],
+        "resolution_hw": [height, width],
         "frame_indices": frame_indices,
         "camera_pose_ids": [f"camera:{index}" for index in frame_indices],
         "semantic_id_namespace": "test",
@@ -34,9 +34,9 @@ def _write_truth(root: Path, *, frame_indices: list[int], actor_ids=("source1", 
                     {
                         "frame_index": index,
                         "state": "visible_clear",
-                        "target_bbox_xyxy_px": [0, 0, 4, 4],
-                        "target_pixels": 8,
-                        "visible_pixels": 8,
+                        "target_bbox_xyxy_px": [0, 0, width, height],
+                        "target_pixels": height * max(1, width // 2),
+                        "visible_pixels": height * max(1, width // 2),
                         "visible_fraction": 1.0,
                         "occlusion_fraction": 0.0,
                     }
@@ -48,9 +48,10 @@ def _write_truth(root: Path, *, frame_indices: list[int], actor_ids=("source1", 
     }
     (root / "pixel_visibility_truth.json").write_text(json.dumps(truth), encoding="utf-8")
     frames = len(frame_indices)
-    modal = np.zeros((frames, 4, 4), dtype=np.uint32)
-    modal[:, :, :2] = semantic[actor_ids[0]]
-    modal[:, :, 2:] = semantic[actor_ids[1]]
+    split = max(1, width // 2)
+    modal = np.zeros((frames, height, width), dtype=np.uint32)
+    modal[:, :, :split] = semantic[actor_ids[0]]
+    modal[:, :, split:] = semantic[actor_ids[1]]
     np.savez(
         root / "native_pixel_masks_depth_authority_v1.npz",
         depth_derived_modal_semantic=modal,
@@ -137,14 +138,12 @@ def test_occluders_support_sparse_contract_frames_without_filling_gaps(tmp_path:
 
 
 def test_appearance_review_uses_actual_masked_rgb_for_animal_and_device(tmp_path: Path) -> None:
-    _write_truth(tmp_path, frame_indices=[0, 1])
-    rgb = np.zeros((2, 4, 4, 3), dtype=np.uint8)
-    rgb[:, :, :2] = [25, 25, 25]
-    rgb[:, 0, 0] = [230, 230, 230]
-    rgb[:, 0, 1] = [220, 220, 220]
-    rgb[:, 1, 0] = [120, 70, 40]
-    rgb[:, 1, 1] = [110, 65, 35]
-    rgb[:, :, 2:] = [28, 18, 10]
+    _write_truth(tmp_path, frame_indices=[0, 1], height=32, width=32)
+    rgb = np.zeros((2, 32, 32, 3), dtype=np.uint8)
+    rgb[:, :, :16] = [25, 25, 25]
+    rgb[:, :, :4] = [230, 230, 230]
+    rgb[:, :, 4:8] = [120, 70, 40]
+    rgb[:, :, 16:] = [28, 18, 10]
     np.save(tmp_path / "rgb.npy", rgb)
     plan = {
         "clock": {"frame_count": 2, "frame_rate_hz": 2, "sample_rate_hz": 4, "sample_count": 4},
@@ -361,10 +360,10 @@ def test_human_shirt_palette_does_not_compete_with_bare_arm_skin_color():
 ])
 def test_declared_animal_coat_values_use_coat_color_components(value, colors):
     from avengine.rooms.qa_evidence import inspect_registered_appearance
-    rgb = np.zeros((20, 20, 3), dtype=np.uint8)
+    rgb = np.zeros((48, 48, 3), dtype=np.uint8)
     for index, color in enumerate(colors):
-        rgb[:, index * 20 // len(colors):(index + 1) * 20 // len(colors)] = color
-    row = inspect_registered_appearance(rgb, np.ones((20, 20), dtype=bool),
+        rgb[:, index * 48 // len(colors):(index + 1) * 48 // len(colors)] = color
+    row = inspect_registered_appearance(rgb, np.ones((48, 48), dtype=bool),
                                        value, entity_kind="animal")
     assert row["status"] == "pass" and row["observed_value"] == value
     assert row["calibration"] == "placeholder_coarse_color_only"
@@ -372,8 +371,8 @@ def test_declared_animal_coat_values_use_coat_color_components(value, colors):
 
 def test_gray_blue_coat_does_not_mean_saturated_blue_and_unknown_value_is_explicit():
     from avengine.rooms.qa_evidence import inspect_registered_appearance
-    rgb = np.full((20, 20, 3), [10, 30, 230], dtype=np.uint8)
-    mask = np.ones((20, 20), dtype=bool)
+    rgb = np.full((48, 48, 3), [10, 30, 230], dtype=np.uint8)
+    mask = np.ones((48, 48), dtype=bool)
     row = inspect_registered_appearance(rgb, mask, "standard_blue", entity_kind="animal")
     assert row["status"] == "not_observable"
     unknown = inspect_registered_appearance(rgb, mask, "unregistered_pattern", entity_kind="animal")
