@@ -96,11 +96,11 @@ class FakeProcess:
 
 def _patch_success(monkeypatch, runner, *, review_status="delivered"):
     monkeypatch.setattr(runner, "_producer_metadata",
-                        lambda manifest_path, repository: {"manifest_path": str(manifest_path),
-                                                           "repository": str(repository),
-                                                           "cwd": str(repository),
-                                                           "git_commit": "test-head",
-                                                           "python_executable": "test-python"})
+                        lambda manifest_path, repository, **_kwargs: {"manifest_path": str(manifest_path),
+                                                                      "repository": str(repository),
+                                                                      "cwd": str(repository),
+                                                                      "git_commit": "test-head",
+                                                                      "python_executable": "test-python"})
     monkeypatch.setattr(runner, "_check_resources",
                         lambda request, min_free_gpu_mb, require_rpc_port=True: {"gpu": {"free_memory_mb": 32000},
                                                           "rpc_port": None})
@@ -392,4 +392,39 @@ def test_failure_accounting_capture_or_finalize(monkeypatch, runner, tmp_path):
     assert outcome["failure_stage"] == "capture"
     assert outcome["gap_state"] == "interface_not_implemented"
     assert "CalledProcessError" in outcome["failure_reason"]
+
+
+def test_producer_metadata_records_avengine_env_and_argv(monkeypatch, runner, tmp_path):
+    monkeypatch.setenv("AVENGINE_H3_TEST", "/h3-value")
+    monkeypatch.delenv("AVENGINE_H3_ABSENT", raising=False)
+    argv = ["tools/dataset/run_qa_batch.py", "--manifest", "m.json", "--output", "out",
+            "--attempt-name", "attempt_02"]
+    meta = runner._producer_metadata(manifest_path=tmp_path / "m.json", repository=tmp_path, argv=argv)
+    assert meta["argv"] == argv
+    assert meta["avengine_environ"]["AVENGINE_H3_TEST"] == "/h3-value"
+    assert all(key.startswith("AVENGINE_") for key in meta["avengine_environ"])
+    assert "AVENGINE_H3_ABSENT" not in meta["avengine_environ"]
+
+
+def test_execute_batch_writes_producer_argv_and_avengine_env(monkeypatch, runner, tmp_path):
+    _patch_success(monkeypatch, runner)
+    recorded = {}
+
+    def capture(*, manifest_path, repository, argv=None):
+        recorded["argv"] = list(argv) if argv is not None else None
+        recorded["env"] = runner._avengine_environ()
+        return {"manifest_path": str(manifest_path), "repository": str(repository),
+                "cwd": str(repository), "git_commit": "test-head",
+                "python_executable": "test-python", "argv": recorded["argv"],
+                "avengine_environ": recorded["env"]}
+
+    monkeypatch.setenv("AVENGINE_H3_TEST", "/from-execute")
+    monkeypatch.setattr(runner, "_producer_metadata", capture)
+    manifest = _manifest(tmp_path, [_row("episode_producer")])
+    output = tmp_path / "execution"
+    argv = ["tools/dataset/run_qa_batch.py", "--manifest", str(manifest), "--output", str(output)]
+    runner.execute_batch(manifest, output, max_parallel=1, min_free_gpu_mb=0, argv=argv)
+    producer = json.loads((output / "producer.json").read_text())
+    assert producer["argv"] == argv
+    assert producer["avengine_environ"]["AVENGINE_H3_TEST"] == "/from-execute"
 

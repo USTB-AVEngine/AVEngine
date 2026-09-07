@@ -210,7 +210,12 @@ def load_manifest(path: Path, episode_ids: Sequence[str] | None = None) -> tuple
     return manifest, selected
 
 
-def _producer_metadata(*, manifest_path: Path, repository: Path) -> dict[str, Any]:
+def _avengine_environ() -> dict[str, str]:
+    return {key: value for key, value in sorted(os.environ.items()) if key.startswith("AVENGINE_")}
+
+
+def _producer_metadata(*, manifest_path: Path, repository: Path,
+                       argv: Sequence[str] | None = None) -> dict[str, Any]:
     def git(args: list[str]) -> str | None:
         try:
             result = subprocess.run(["git", *args], cwd=repository,
@@ -220,6 +225,7 @@ def _producer_metadata(*, manifest_path: Path, repository: Path) -> dict[str, An
         return result.stdout.strip() if result.returncode == 0 else None
 
     status = git(["status", "--porcelain"])
+    recorded_argv = [str(item) for item in (argv if argv is not None else sys.argv)]
     return {
         "repository": str(repository),
         "cwd": str(repository),
@@ -231,6 +237,8 @@ def _producer_metadata(*, manifest_path: Path, repository: Path) -> dict[str, An
         "pythonpath": os.environ.get("PYTHONPATH", ""),
         "manifest_path": str(manifest_path),
         "executor_pid": os.getpid(),
+        "argv": recorded_argv,
+        "avengine_environ": _avengine_environ(),
     }
 
 
@@ -533,7 +541,7 @@ def _summary_paths(batch_summary: Mapping[str, Any] | None) -> dict[str, Any]:
 class BatchExecutor:
     def __init__(self, *, manifest_path: Path, manifest: Mapping[str, Any], jobs: Sequence[Job],
                  output_root: Path, max_parallel: int, min_free_gpu_mb: int | None,
-                 repository: Path = REPOSITORY):
+                 repository: Path = REPOSITORY, argv: Sequence[str] | None = None):
         if max_parallel <= 0:
             raise ValueError("max_parallel must be positive")
         if min_free_gpu_mb is not None and min_free_gpu_mb < 0:
@@ -545,6 +553,7 @@ class BatchExecutor:
         self.max_parallel = max_parallel
         self.min_free_gpu_mb = min_free_gpu_mb
         self.repository = Path(repository).resolve()
+        self.argv = [str(item) for item in (argv if argv is not None else sys.argv)]
         self.progress_path = self.output_root / "progress.json"
         self.events_path = self.output_root / "events.jsonl"
         self.outcomes_path = self.output_root / "outcomes.json"
@@ -584,7 +593,8 @@ class BatchExecutor:
             "selected_episode_ids": [job.episode_id for job in self.jobs],
         })
         _json_write_new(self.output_root / "producer.json",
-                        _producer_metadata(manifest_path=self.manifest_path, repository=self.repository))
+                        _producer_metadata(manifest_path=self.manifest_path, repository=self.repository,
+                                           argv=self.argv))
         self.events_path.touch(exist_ok=False)
         episodes: dict[str, Any] = {}
         for job in self.jobs:
@@ -967,14 +977,16 @@ def execute_batch(manifest_path: Path, output_root: Path, *, max_parallel: int =
                   episode_ids: Sequence[str] | None = None,
                   repository: Path = REPOSITORY,
                   attempt_name: str = "attempt_01",
-                  force_gpu: int | None = None) -> dict[str, Any]:
+                  force_gpu: int | None = None,
+                  argv: Sequence[str] | None = None) -> dict[str, Any]:
     manifest, selected = load_manifest(Path(manifest_path), episode_ids=episode_ids)
     output_root = Path(output_root).expanduser().resolve()
     jobs = _build_jobs(Path(manifest_path).expanduser().resolve(), manifest, selected, output_root,
                        attempt_name=attempt_name, force_gpu=force_gpu)
     return BatchExecutor(manifest_path=Path(manifest_path), manifest=manifest, jobs=jobs,
                          output_root=output_root, max_parallel=max_parallel,
-                         min_free_gpu_mb=min_free_gpu_mb, repository=repository).execute()
+                         min_free_gpu_mb=min_free_gpu_mb, repository=repository,
+                         argv=argv).execute()
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -990,10 +1002,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--force-gpu", type=int, default=None,
                         help="override request.runtime.graphics_adapter for every selected row")
     args = parser.parse_args(argv)
+    recorded_argv = [sys.argv[0], *(argv if argv is not None else sys.argv[1:])]
     try:
         summary = execute_batch(args.manifest, args.output, max_parallel=args.max_parallel,
                                 min_free_gpu_mb=args.min_free_gpu_mb, episode_ids=args.episode_id,
-                                attempt_name=args.attempt_name, force_gpu=args.force_gpu)
+                                attempt_name=args.attempt_name, force_gpu=args.force_gpu,
+                                argv=recorded_argv)
     except (ManifestError, FileExistsError, OSError, ValueError) as exc:
         print(f"FAIL: {exc}", file=sys.stderr)
         return 2

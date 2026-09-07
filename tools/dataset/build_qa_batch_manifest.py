@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import argparse
-from copy import deepcopy
 import json
 from pathlib import Path
 import subprocess
 import sys
+from typing import Any, Mapping
 
 REPOSITORY = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPOSITORY / "src"))
@@ -22,6 +22,9 @@ from avengine.qa.batch_manifest import (
 from avengine.qa.batch_sound_pool import build_batch_sound_pool
 from avengine.rooms.conditioned_sampler import load_conditioned_sound_pool
 from avengine.runtime_profiles import load_source_asset_runtime_registry
+
+PRODUCTION_ROOM_CATALOG = REPOSITORY / "examples/rooms/packages/catalog.json"
+CODEX_CATALOG_MARKERS = ("wt-multi-home-activity-integration",)
 
 
 def read(path):
@@ -45,12 +48,70 @@ def _existing(path, fallback):
     return path
 
 
+def production_room_catalog_path() -> Path:
+    return PRODUCTION_ROOM_CATALOG.resolve()
+
+
+def resolve_request_room_catalog(configured: Any = None, *, explicit: Path | None = None) -> Path:
+    """Choose the catalog path written into each request.
+
+    Default is this worktree's production catalog. Codex integration-tree
+    paths are replaced. Relative paths resolve against the repository, not cwd.
+    ``explicit`` (``--catalog``) is used as given after becoming absolute.
+    """
+    production = production_room_catalog_path()
+    if explicit is not None:
+        return Path(explicit).expanduser().resolve()
+    if configured is None or str(configured).strip() == "":
+        return production
+    raw = Path(str(configured)).expanduser()
+    text = str(raw)
+    if any(marker in text for marker in CODEX_CATALOG_MARKERS):
+        return production
+    if not raw.is_absolute():
+        repo_relative = (REPOSITORY / raw).resolve()
+        return repo_relative if repo_relative.exists() else production
+    if raw.exists():
+        return raw.resolve()
+    return production
+
+
+def catalog_path_bindings(catalog: Any) -> dict[str, str]:
+    if not isinstance(catalog, Mapping):
+        return {}
+    raw = catalog.get("path_bindings") or {}
+    if not isinstance(raw, Mapping):
+        return {}
+    return {str(key): str(value) for key, value in raw.items()}
+
+
+def stamp_request_catalog(
+    request: dict[str, Any],
+    *,
+    catalog_path: Path,
+    path_bindings: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Write an absolute catalog path and full path_bindings onto a request."""
+    request["room_catalog"] = str(Path(catalog_path).resolve())
+    runtime = request.get("runtime")
+    runtime = dict(runtime) if isinstance(runtime, dict) else {}
+    existing = runtime.get("path_bindings")
+    existing = dict(existing) if isinstance(existing, dict) else {}
+    runtime["path_bindings"] = {
+        **{str(key): str(value) for key, value in dict(path_bindings).items()},
+        **existing,
+    }
+    request["runtime"] = runtime
+    return request
+
+
 def _load_sounds(config, output):
     base = config["base_request"]
     registry = load_source_asset_runtime_registry(
         _existing(base["source_registry"], REPOSITORY / "examples/runtime/source_asset_runtime_profiles.json"))
-    catalog_path = _existing(base["room_catalog"], REPOSITORY / "examples/rooms/packages/catalog.json")
+    catalog_path = resolve_request_room_catalog(base.get("room_catalog"))
     catalog = read(catalog_path)
+    stamp_request_catalog(base, catalog_path=catalog_path, path_bindings=catalog_path_bindings(catalog))
     if config.get("sound_sources") is not None:
         pool = build_batch_sound_pool(config["sound_sources"], registry)
         pool_path = output / "batch_sounds.json"
@@ -61,14 +122,17 @@ def _load_sounds(config, output):
         pool = None
         pool_path = base.get("sound_selection", {}).get("prepared_set") or base["sound_pool"]
         sounds = load_conditioned_sound_pool(read(pool_path), source_path=pool_path)
-    return registry, catalog, sounds, pool, pool_path
+    return registry, catalog, sounds, pool, pool_path, catalog_path
 
 
-def _annotate_prepare(result, output, config_path):
+def _annotate_prepare(result, output, config_path, *, catalog_path, path_bindings):
+    catalog_path = Path(catalog_path).resolve()
+    bindings = {str(key): str(value) for key, value in dict(path_bindings).items()}
     for row in result["episodes"]:
         name = row["episode_id"] + ".json"
         if Path(name).name != name:
             raise ValueError("episode_id cannot contain path separators")
+        stamp_request_catalog(row["request"], catalog_path=catalog_path, path_bindings=bindings)
         request_path = output / "requests" / name
         write(request_path, row["request"])
         row["request_path"] = str(request_path)
@@ -80,7 +144,8 @@ def _annotate_prepare(result, output, config_path):
                                                                 cwd=REPOSITORY, text=True).strip(),
                           "working_tree_changes": dirty,
                           "code_state": "working_tree" if dirty else "committed",
-                          "python": sys.executable}
+                          "python": sys.executable,
+                          "room_catalog": str(catalog_path)}
     return result
 
 
@@ -116,11 +181,13 @@ def main(argv=None):
         raise FileExistsError(f"refusing existing output: {output}")
     if args.command == "prepare":
         config = read(args.config)
-        registry, catalog, sounds, pool, pool_path = _load_sounds(config, output)
+        registry, catalog, sounds, pool, pool_path, catalog_path = _load_sounds(config, output)
         result = prepare_batch_manifest(config, registry, catalog, sounds)
         if pool is not None:
             write(Path(pool_path), pool)
-        result = _annotate_prepare(result, output, args.config)
+        result = _annotate_prepare(
+            result, output, args.config, catalog_path=catalog_path,
+            path_bindings=catalog_path_bindings(catalog))
         write(output / "batch_manifest.json", result)
     elif args.command == "outcomes":
         result = collect_batch_outcomes(read(args.manifest), read(args.records))
@@ -128,29 +195,28 @@ def main(argv=None):
     elif args.command == "scaleup-dry-run":
         config = read(args.config)
         base = config.setdefault("base_request", {})
-        if args.catalog is not None:
-            base["room_catalog"] = str(args.catalog)
         if args.registry is not None:
             base["source_registry"] = str(args.registry)
-        base["room_catalog"] = str(_existing(
-            base.get("room_catalog", REPOSITORY / "examples/rooms/packages/catalog.json"),
-            REPOSITORY / "examples/rooms/packages/catalog.json"))
+        catalog_path = resolve_request_room_catalog(base.get("room_catalog"), explicit=args.catalog)
+        catalog = read(catalog_path)
+        stamp_request_catalog(base, catalog_path=catalog_path, path_bindings=catalog_path_bindings(catalog))
         base["source_registry"] = str(_existing(
             base.get("source_registry", REPOSITORY / "examples/runtime/source_asset_runtime_profiles.json"),
             REPOSITORY / "examples/runtime/source_asset_runtime_profiles.json"))
         registry = load_source_asset_runtime_registry(base["source_registry"])
-        catalog = read(base["room_catalog"])
         if args.sounds is not None:
             payload = read(args.sounds)
             sounds = payload.get("sounds", payload) if isinstance(payload, dict) else payload
             pool = None
         else:
-            registry, catalog, sounds, pool, pool_path = _load_sounds(config, output)
+            registry, catalog, sounds, pool, pool_path, catalog_path = _load_sounds(config, output)
         packed = prepare_scaleup_dry_run(
             config, registry, catalog, sounds, seed=args.seed,
             episodes_per_room=args.episodes_per_room, batch_id=args.batch_id)
         result = packed["manifest"]
-        result = _annotate_prepare(result, output, args.config)
+        result = _annotate_prepare(
+            result, output, args.config, catalog_path=catalog_path,
+            path_bindings=catalog_path_bindings(catalog))
         if pool is not None:
             write(output / "batch_sounds.json", pool)
         write(output / "scaleup_config.json", packed["config"])

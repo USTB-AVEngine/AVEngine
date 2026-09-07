@@ -20,7 +20,23 @@ from avengine.rooms.qa_episode import (
     QAPlanningError, build_qa_episode_plan, read_json, write_json,
 )
 from avengine.runtime_profiles import load_source_asset_runtime_registry
-from avengine.rooms.room_package import package_from_catalog_entry, renderer_for_room
+from avengine.rooms.room_package import (
+    package_from_catalog_entry, renderer_for_room, write_room_package_plan_snapshot,
+)
+
+
+def request_package_runtime(request: dict, catalog) -> dict:
+    """Merge catalog path_bindings under request.runtime.path_bindings.
+
+    Request bindings win. Catalog fills keys omitted by older requests so a
+    request without runtime.path_bindings still expands from the catalog file.
+    Shell environment variables are not consulted here.
+    """
+    catalog_bindings = catalog.get("path_bindings", {}) if isinstance(catalog, dict) else {}
+    request_runtime = dict(request.get("runtime") or {})
+    request_bindings = dict(request_runtime.get("path_bindings") or {})
+    used_bindings = {**dict(catalog_bindings or {}), **request_bindings}
+    return {**request_runtime, "path_bindings": used_bindings}
 
 
 def _native_sampling_arguments(request: dict) -> dict:
@@ -56,11 +72,10 @@ def plan_request(request: dict, output: Path) -> dict:
     })
     registry = load_source_asset_runtime_registry(
         request.get("source_registry", REPOSITORY / "examples/runtime/source_asset_runtime_profiles.json"))
-    rooms = read_json(request["room_catalog"])
-    catalog_bindings = rooms.get("path_bindings", {}) if isinstance(rooms, dict) else {}
-    package_runtime = {**request.get("runtime", {}), "path_bindings": {
-        **catalog_bindings, **request.get("runtime", {}).get("path_bindings", {})}}
-    rooms = rooms.get("rooms", rooms) if isinstance(rooms, dict) else rooms
+    catalog_path = request["room_catalog"]
+    catalog = read_json(catalog_path)
+    package_runtime = request_package_runtime(request, catalog)
+    rooms = catalog.get("rooms", catalog) if isinstance(catalog, dict) else catalog
     conditioned = request.get("sampling_policy") == "conditioned_static_v2"
     sound_path = request.get("sound_selection", {}).get("prepared_set", request.get("sound_pool")) if conditioned else request["sound_pool"]
     sounds = read_json(sound_path)
@@ -83,7 +98,8 @@ def plan_request(request: dict, output: Path) -> dict:
         if request.get("room_id") and request["room_id"] != room["room_id"]:
             continue
         try:
-            package = package_from_catalog_entry(room, runtime=package_runtime)
+            package = package_from_catalog_entry(
+                room, runtime=package_runtime, catalog_path=catalog_path)
             renderer = renderer_for_room(package)
             if "room_package" in room or room.get("schema") == package["schema"]:
                 room = {**package.get("legacy_catalog_entry", package.get("planning_inputs", {})),
@@ -141,7 +157,10 @@ def plan_request(request: dict, output: Path) -> dict:
         plan_root = output / "plan"
         plan_root.mkdir()
         write_json(plan_root / "episode_plan.json", plan)
-        write_json(plan_root / "room_package.json", package)
+        write_room_package_plan_snapshot(
+            plan_root, package,
+            path_bindings=package_runtime.get("path_bindings") or {},
+            catalog_path=catalog_path)
         if renderer == "habitat" and conditioned:
             from avengine.capture.qa_plan_adapters import materialize_habitat_room_manifest
             from avengine.assets.mp3d_region_actor_tracks import materialize_common_plan_habitat
@@ -188,7 +207,9 @@ def capture_command(request: dict, output: Path) -> list[str]:
     saved_plan = read_json(plan_path)
     package_path = output / "plan/room_package.json"
     package = (read_json(package_path) if package_path.is_file() else
-               package_from_catalog_entry(saved_plan["resources"], runtime=runtime))
+               package_from_catalog_entry(
+                   saved_plan["resources"], runtime=runtime,
+                   catalog_path=request.get("room_catalog")))
     renderer = renderer_for_room(package)
     if renderer == "habitat":
         # P5 materializes these from the shared plan, preserving its clock.
