@@ -1,16 +1,16 @@
 # 放量就绪报告（round-2 / H-6，2026-09-07）
 
-工作树：`/data/jzy/tmp/wt-grok-pilot46-H6`。
-分支：`grok/pilot46-fixes-round2-20260907-h6`。
-本文件写入时 HEAD：`789bc64`（与 round-1 合并树 `ba0150e` 同内容，另叠 Claude 审核与第二轮任务书）。
+工作树：`/data/jzy/tmp/wt-grok-pilot46-round2`。
+分支：`grok/pilot46-fixes-round2-20260907`。
+H-6 起草于 `789bc64`；parent 合入 H-1～H-7 后在同一文件填数字，不改 owner 原话。
 对照：`docs/roadmap/GROK_FIX_TASKS_ROUND2_20260907.md` 第 2 节 H-6、第 3 节就绪门；审核 `docs/roadmap/AUDIT_GROK_FIXES_20260907.md` K2/K3/K4/K5/K8 与 §3.3。
 第一轮原文 `docs/roadmap/grok_reports_20260907/READINESS_20260907.md`、`G-B_ue_visual_packages.md`、`G-D_appearance_pixel_evidence.md` **只读，不改**。更正在本文件。
 
-H-1～H-7 代码与重渲在写入本文件时均未合入本分支（各 H-* worktree 仍停在 `789bc64`）。第二轮数字一律留 TODO，不编造。
+H-1～H-7 已合入本分支。数字来自各 H 报告与 parent 亲自核对的产物路径，不编造。
 
 ## 1. 结论（只写事实）
 
-截至 `789bc64`，第二轮就绪门第 1–4 条的产物与计数尚未从提交状态复现：H-1 音频重渲、H-2 合并记账、H-3 复现性、H-4 校验顺序与闸门、H-5 外观字段接线、H-7 干跑请求都未合入。
+截至 parent 合入后的 round2 树：H-2 合并脚本在仓库内，`tmp/qa_pilot46_merged_round2_20260907_v1/` 46 格为 42 delivered / 2 blocked / 2 failed；`authored_c_animal_device` 为 `evidence_missing_or_unsampled`（规划 200 次用尽）。H-1 对 28 段已交付 UE 音频重渲到 `tmp/qa_pilot46_audio_v2_20260907/.../attempt_03/`：27 段写出成片，1 段（`authored_b_device_device`）因 peak=1.14 被渲染器 fail-closed；56/56 条 RIR 作业 2 ms 起 L/R 相关 <0.9；Habitat 段未动。H-7 干跑 `tmp/h7_scaleup_dryrun_7x50_20260907/` 350 个 request 均有 `sound_pool`，`distance_range_m` 为 [1.5, 6.0]，repeat 缺额 0，便携空调 `no_compatible_sounds=2`（owner 已接受）。合入后相关单测 16 个文件 **130 passed / 0 failed / 0 skipped**（4.69 s）——这是计数，不是放行条件。
 
 Round-1 合并树 `ba0150e` 上，Claude 独立审核复跑相关单测 **283 passed / 0 failed / 0 skipped**（23 个文件，14.28 s，日志 `/data/jzy/tmp/claude_audit_20260907_v2/pytest_grok_related.log`）；该计数是 pre-round-2 baseline，不是第二轮合入后的计数。同一次审核重算：合并表 46 条、status 42 delivered / 2 failed / 2 blocked；42 段 delivered 的 facts/questions/preview.mp4/mixture.wav 都在盘上；曝光闸门 42 段 × 3 帧 = 126 帧均为 pass（placeholder 阈值 `mean_gray_fail_above=235` / `sat_share_fail_above=0.20`）；Habitat 四段 attempt_02 的 AudioProgram 为 `simultaneous_subset` / `one_active_of_n`，双耳 WAV 256000×2 @16 kHz = 16.000 s。契约前验对 19 段 attempt_02 成立；23 段 attempt_01 仍是旧代码「写完再验」，审核 R7 已标明。
 
@@ -18,10 +18,10 @@ Owner 对先导四格缺额的书面原话是「不要求每个房间跑出每�
 
 第二轮合入后的闸门、契约、覆盖、干跑、单测数字：
 
-- **TODO(parent): fill after H-1 re-render and H-2..H-7 merge** — 46 格合并表是否能从提交状态复现；四个未交付格子的 `failure_stage` 与五态。
-- **TODO(parent): fill after H-1 re-render** — UE 家族 32 段音频重渲验收（RIR 尾部 L/R 相关、侧向事件 ITD/ILD 比例、混音峰值、题数变化）；Habitat 段是否未动；42 段闸门与契约。
-- **TODO(parent): fill after H-3/H-7 merge** — 放量干跑 `room_catalog`/`path_bindings`、缺额（除已接受的便携空调两条）。
-- **TODO(parent): fill after merge** — 相关单测 passed/failed/skipped 与 `docs/TOOL_INDEX.md`。
+- 46 格：H-2 `tools/dataset/merge_qa_batch_attempts.py` 从提交状态复现；覆盖 9912 行中 166 行 `failed_episode`；两个 blocked 预分配、两个 failed 规划用尽，五态符合 owner 第 4 条。产物 `tmp/qa_pilot46_merged_round2_20260907_v1/`。
+- H-1：任务书「32 段」对应已交付 28 段；27 段 attempt_03 成片；56/56 RIR 尾部相关 <0.9；侧向 stem 可用线索 24/28；混音 −6～−25 dBFS 为 24/28；`authored_b_device_device` 削波未写出。Habitat 未重渲。细节 `H-1_binaural_sh_order.md`。42 段 round-1 闸门/契约事实仍见 Claude 审核，不把 attempt_03 的 27 段说成 42 段已重新闸门。
+- 放量干跑：`tmp/h7_scaleup_dryrun_7x50_20260907/`，catalog 为生产树绝对路径并带 `path_bindings`，350/350 有 `sound_pool`，距离 [1.5, 6.0]，repeat 缺额 0，空调两条另计。6 段 `--plan-only` rc=0。
+- 单测：16 个文件 130 passed / 0 failed / 0 skipped。清单见 §4 合入后段。
 
 本结论句不以听感、不以「测试变绿」作为放行条件。
 
@@ -68,10 +68,10 @@ OWNER 文档：「Owner 判断：这五段视频和十条音频没有问题。�
 
 | # | 门 | 本分支状态（`789bc64`） |
 | --- | --- | --- |
-| 1 | 46 格合并表能从提交状态复现；四个未交付格子带阶段与五态，分类符合 owner 第 4 条 | **未满足。** 合并脚本仍在 `/tmp/ge_merge_final.py`，未进仓库（审核 R7）。合并覆盖 9912 行 `failed_episode` 为真 0 行（R2）。`authored_c_animal_device` 在合并 `summary.json` / `merged_episodes.json` 记 `interface_not_implemented`，stderr 是规划 200 次用尽，按 owner 第 4 条应为 `evidence_missing_or_unsampled`（R3/K1）。**TODO(parent): fill after H-2 merge** |
-| 2 | UE 家族 32 段音频重渲完成并通过 H-1 验收；Habitat 段不变；全部 42 段闸门与契约通过 | **未满足。** H-1 未做。Round-1 闸门/契约事实见 §1，不代替 H-1 重渲后的验收。**TODO(parent): fill after H-1 re-render** |
-| 3 | 放量清单干跑用 H-3 后的生成器重出一份，`room_catalog`/`path_bindings` 完整、缺额 0（除已接受的便携空调两条） | **未满足。** Round-1 干跑 350 个 request 缺 `sound_pool`，`distance_range_m` 全是 [1.5, 4.5] 而非配置 [1.5, 6.0]（R8）。**TODO(parent): fill after H-3/H-7 merge** |
-| 4 | 相关单测 0 failed / 0 skipped，`docs/TOOL_INDEX.md` 一致 | pre-round-2 baseline 见 §4。合入后计数 **TODO(parent): fill after merge** |
+| 1 | 46 格合并表能从提交状态复现；四个未交付格子带阶段与五态，分类符合 owner 第 4 条 | **产物已有。** 脚本 `tools/dataset/merge_qa_batch_attempts.py`。`tmp/qa_pilot46_merged_round2_20260907_v1/`：42/2/2；`authored_c_animal_device` = `evidence_missing_or_unsampled`；覆盖 166 行 failed_episode。 |
+| 2 | UE 家族 32 段音频重渲完成并通过 H-1 验收；Habitat 段不变；全部 42 段闸门与契约通过 | **部分完成。** 已交付 UE 28 段重渲 27 成片 / 1 削波 fail-closed；56/56 RIR 尾部相关 <0.9；4 段峰值高于 −6 dBFS；Habitat 未动。attempt_03 的 27 段未宣称等于 42 段闸门重跑。见 `H-1_binaural_sh_order.md`。 |
+| 3 | 放量清单干跑用 H-3 后的生成器重出一份，`room_catalog`/`path_bindings` 完整、缺额 0（除已接受的便携空调两条） | **产物已有。** `tmp/h7_scaleup_dryrun_7x50_20260907/`：350 `sound_pool`，距离 [1.5, 6.0]，repeat 缺额 0，空调 2 条另计。 |
+| 4 | 相关单测 0 failed / 0 skipped，`docs/TOOL_INDEX.md` 一致 | 合入后 16 个文件 **130 passed / 0 failed / 0 skipped**。这是计数。pre-round-2 baseline 283/0/0 仍见下。 |
 | 5 | 就绪报告按 H-6 口径重写，列出仍空着的项（挂装、人工校准、逐条试听、正式准入） | 本文件。仍空项见 §7 |
 
 ## 4. 单测（pre-round-2 baseline，不是合入后计数）
@@ -127,7 +127,28 @@ OWNER 文档：「Owner 判断：这五段视频和十条音频没有问题。�
 
 子代理分组复跑（审核原文，供对照，不是另一套放行数字）：G-A 六文件 89（Grok 报 92，差在合并后 `test_p9_evidence_delivery.py`）；G-B 19；G-C 42；G-D 26；G-D/G-E 八文件并集 76。
 
-**TODO(parent): fill after H-1..H-7 merge** — 合入后的文件清单、pytest 摘要、failed/skipped 原文。本文件不发明新计数。
+合入后 parent 在 `/data/jzy/tmp/wt-grok-pilot46-round2` 跑：
+
+```
+pytest -q tests/unit/test_frame_readback_binaural_sh_order.py \
+  tests/unit/test_frame_readback_dynamic_audio.py \
+  tests/unit/test_render_frame_readback_speech.py \
+  tests/unit/test_merge_qa_batch_attempts.py \
+  tests/unit/test_qa_batch_manifest.py \
+  tests/unit/test_qa_batch_runner.py \
+  tests/unit/test_qa_batch_coverage.py \
+  tests/unit/test_qa_batch_delivery.py \
+  tests/unit/test_build_qa_batch_manifest.py \
+  tests/unit/test_room_package_reproducibility.py \
+  tests/unit/test_room_package_path_existence.py \
+  tests/unit/test_floor_reference_measurement_kind.py \
+  tests/unit/test_exposure_gate.py \
+  tests/unit/test_authored_exposure_bias_source.py \
+  tests/unit/test_qa_evidence_appearance.py \
+  tests/unit/test_tool_index_current.py
+```
+
+**130 passed / 0 failed / 0 skipped**（4.69 s）。无失败原文。
 
 ## 5. 五段试听清单
 
@@ -150,7 +171,7 @@ Owner 本机包 `Documents/pilot46_listening_20260907` 实际是五段 **human_h
 
 两份逐条 JSON 的 `heard` / `reviewer` / `notes` 仍为 null，`status`/`review_status` 仍为 `pending_human`（原批与重跑的 `five_clip_listening_pending.json`；P7 `p7_prepared_audio_v3/listening_samples_pending.json` 十条同样为空）。**不代填。**
 
-H-1 重渲 UE 家族音频之后，建议重新出一包，至少含一段动物、一段设备（owner 决定要不要听）。新包路径与是否试听：**TODO(parent): fill after H-1 re-render**。
+H-1 重渲后的 UE 成片在 `tmp/qa_pilot46_audio_v2_20260907/episodes/<id>/attempt_03/`。建议新包至少含一段动物、一段设备（例如 `authored_a_animal_animal` 与 `apartment_human_device` 的 attempt_03；`authored_b_device_device` 因削波没有成片）。Owner 决定要不要听。本轮未打包到 Mac，未代填 heard/reviewer。
 
 ## 6. 第一轮报告口径更正（写在本文件，不改 G-B / G-D 原文）
 
