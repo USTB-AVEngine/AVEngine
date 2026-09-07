@@ -20,6 +20,49 @@ import numpy as np
 
 REPOSITORY = Path(__file__).resolve().parents[2]
 
+LINE_TRACE_KIND = "ue_line_trace_down_blockall_complex_v1"
+DEPTH_FALLBACK_KIND = "depth_readback_fallback"
+DEPTH_FALLBACK_PRECISION_M = 0.00025
+PLAUSIBLE_ABS_FLOOR_HEIGHT_M = 10.0
+
+
+def classify_ue_floor_measurement(
+    *,
+    line_hit_count: int,
+    selected_method: str,
+    floor_height_m: float,
+) -> dict[str, Any]:
+    """Label a floor result so a depth fallback cannot be called a line trace."""
+    selected = str(selected_method)
+    depth_selected = selected in {
+        "depth_capture",
+        "ue_depth_capture_straight_down_v1",
+        "ue_line_trace_then_depth_fallback_v1",
+    }
+    if int(line_hit_count) <= 0 or depth_selected:
+        kind = DEPTH_FALLBACK_KIND
+        precision = DEPTH_FALLBACK_PRECISION_M
+    else:
+        kind = LINE_TRACE_KIND
+        precision = None
+    status = "measured"
+    invalid_reason = None
+    if not math.isfinite(float(floor_height_m)) or abs(float(floor_height_m)) > PLAUSIBLE_ABS_FLOOR_HEIGHT_M:
+        status = "invalid"
+        invalid_reason = (
+            "floor_height_m is non-finite or outside the plausible residential range of +/-10 m"
+        )
+        if int(line_hit_count) <= 0 or depth_selected:
+            kind = DEPTH_FALLBACK_KIND
+            precision = DEPTH_FALLBACK_PRECISION_M
+    return {
+        "status": status,
+        "measurement_kind": kind,
+        "precision_m": precision,
+        "invalid_reason": invalid_reason,
+    }
+
+
 
 def _lookup(value: Any, key: str) -> Any:
     if not isinstance(value, Mapping):
@@ -256,9 +299,17 @@ def measure(args: argparse.Namespace) -> dict[str, Any]:
         if summary.get("hit_count", 0) == 0:
             raise RuntimeError("no valid floor measurements")
         floor_cm = float(summary["median_cm"])
+        selected_method = "line_trace" if selected_rows is trace_rows else "depth_capture"
+        labeled = classify_ue_floor_measurement(
+            line_hit_count=len(line_values),
+            selected_method=selected_method,
+            floor_height_m=floor_cm / 100.0,
+        )
         result = {
             "schema": "avengine_qa_ue_floor_reference_v1",
-            "status": "measured",
+            "status": labeled["status"],
+            "measurement_kind": labeled["measurement_kind"],
+            "precision_m": labeled["precision_m"],
             "room_id": str(args.room_id),
             "native_map": str(args.map_path),
             "level_readback": level,
@@ -271,6 +322,9 @@ def measure(args: argparse.Namespace) -> dict[str, Any]:
             "raw_measurements": {"line_trace_rows": len(trace_rows), "line_trace_hits": len(line_values), "depth_rows": len(depth_rows), "selected_method": ("line_trace" if selected_rows is trace_rows else "depth_capture")},
             "claim_boundary": "Measured floor readback from the currently loaded UE map; outliers remain in rows and this is not a question-admission claim",
         }
+        if labeled["invalid_reason"]:
+            result["invalid_reason"] = labeled["invalid_reason"]
+            result["claim_boundary"] = labeled["invalid_reason"]
         _write_fresh(output / "floor_trace_rows.json", {"schema": result["schema"], "room_id": result["room_id"], "native_map": result["native_map"], "selected_method": result["raw_measurements"]["selected_method"], "line_trace_rows": trace_rows, "depth_rows": depth_rows, "rows": selected_rows})
         _write_fresh(output / "floor_reference.json", result)
         return result
@@ -319,7 +373,7 @@ def main() -> int:
     parser.add_argument("--depth-camera-z-cm", type=float, default=30.0)
     args = parser.parse_args()
     result = measure(args)
-    print(json.dumps({"status": result["status"], "room_id": result["room_id"], "native_map": result["native_map"], "floor_height_m": result["floor_height_m"], "method": result["method"]["kind"]}, sort_keys=True))
+    print(json.dumps({"status": result["status"], "room_id": result["room_id"], "native_map": result["native_map"], "floor_height_m": result["floor_height_m"], "measurement_kind": result.get("measurement_kind"), "precision_m": result.get("precision_m"), "method": result["method"]["kind"]}, sort_keys=True))
     return 0
 
 

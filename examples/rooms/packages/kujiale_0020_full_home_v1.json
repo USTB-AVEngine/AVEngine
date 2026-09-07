@@ -9,108 +9,109 @@
   },
   "family": "kujiale",
   "floor_reference": {
-    "measurement_kind": "ue_line_trace_down_blockall_complex_v1_or_native_depth_capture_v1",
-    "path": "tmp/p3_room_packages_20260907_v6/ue_floor_measurements/kujiale/floor_reference.json",
+    "measurement_kind": "depth_readback_fallback",
+    "path": "tmp/gb_floor_reference_20260907/kujiale/floor_reference.json",
+    "precision_m": 0.00025,
     "status": "measured"
   },
   "planning_inputs": {
     "acoustic_package": "${AVENGINE_KUJIALE_ACOUSTIC_ROOT}/manifest.json",
     "acoustic_package_template": "${AVENGINE_KUJIALE_ACOUSTIC_ROOT}/manifest.json",
-    "floor_reference": "tmp/p3_room_packages_20260907_v6/ue_floor_measurements/kujiale/floor_reference.json",
+    "floor_reference": "tmp/gb_floor_reference_20260907/kujiale/floor_reference.json",
     "map_path": "/Game/AVEngine/Optional/Kujiale/kujiale_0020_full_home_v1",
     "pose_bindings": "examples/rooms/packages/kujiale_0020_pose_bindings.json",
-    "room_manifest": "examples/qa/scenes/interioragent_kujiale_0020_livingroom_491.json",
     "review_lights": [
       {
+        "attenuation_radius_m": 4.5,
+        "intensity_lumens": 750.0,
         "light_id": "living_table_lamp_fill",
         "position_xyz_m": [
           -4.043,
           -0.633,
           1.07
         ],
-        "intensity_lumens": 750.0,
-        "attenuation_radius_m": 4.5,
-        "temperature_kelvin": 4000.0,
-        "source_radius_m": 0.15,
         "soft_source_radius_m": 0.3,
-        "source_prim": "/Root/Meshes/livingroom_491/table_lamp_0000"
+        "source_prim": "/Root/Meshes/livingroom_491/table_lamp_0000",
+        "source_radius_m": 0.15,
+        "temperature_kelvin": 4000.0
       },
       {
+        "attenuation_radius_m": 6.5,
+        "intensity_lumens": 2000.0,
         "light_id": "living_north_chandelier_fill",
         "position_xyz_m": [
           -2.986,
           2.128,
           2.2
         ],
-        "intensity_lumens": 2000.0,
-        "attenuation_radius_m": 6.5,
-        "temperature_kelvin": 4000.0,
-        "source_radius_m": 0.15,
         "soft_source_radius_m": 0.3,
-        "source_prim": "/Root/Meshes/livingroom_491/chandelier_0000"
+        "source_prim": "/Root/Meshes/livingroom_491/chandelier_0000",
+        "source_radius_m": 0.15,
+        "temperature_kelvin": 4000.0
       },
       {
+        "attenuation_radius_m": 6.5,
+        "intensity_lumens": 2500.0,
         "light_id": "living_south_chandelier_fill",
         "position_xyz_m": [
           -2.114,
           -3.05,
           2.2
         ],
-        "intensity_lumens": 2500.0,
-        "attenuation_radius_m": 6.5,
-        "temperature_kelvin": 4000.0,
-        "source_radius_m": 0.15,
         "soft_source_radius_m": 0.3,
-        "source_prim": "/Root/Meshes/livingroom_491/chandelier_0002"
+        "source_prim": "/Root/Meshes/livingroom_491/chandelier_0002",
+        "source_radius_m": 0.15,
+        "temperature_kelvin": 4000.0
       },
       {
+        "attenuation_radius_m": 4.0,
+        "intensity_lumens": 1800.0,
         "light_id": "kitchen_ceiling_fill",
         "position_xyz_m": [
           -3.19,
           4.6,
           2.25
         ],
-        "intensity_lumens": 1800.0,
-        "attenuation_radius_m": 4.0,
-        "temperature_kelvin": 4000.0,
-        "source_radius_m": 0.22,
         "soft_source_radius_m": 0.6,
-        "source_prim": "/Root/Meshes/kitchen_736/ceiling_light_0000"
+        "source_prim": "/Root/Meshes/kitchen_736/ceiling_light_0000",
+        "source_radius_m": 0.22,
+        "temperature_kelvin": 4000.0
       },
       {
+        "attenuation_radius_m": 3.5,
+        "intensity_lumens": 1600.0,
         "light_id": "bathroom_ceiling_fill",
         "position_xyz_m": [
           1.63,
           0.15,
           2.65
         ],
-        "intensity_lumens": 1600.0,
-        "attenuation_radius_m": 3.5,
-        "temperature_kelvin": 4300.0,
-        "source_radius_m": 0.22,
         "soft_source_radius_m": 0.6,
-        "source_prim": "/Root/Meshes/bathroom_781525/ceiling_light_0001"
+        "source_prim": "/Root/Meshes/bathroom_781525/ceiling_light_0001",
+        "source_radius_m": 0.22,
+        "temperature_kelvin": 4300.0
       }
     ],
     "review_lights_coordinate_frame": {
-      "linear_unit": "meter",
-      "up_axis": "+Z",
       "handedness": "left",
-      "scope": "UE executor only"
+      "linear_unit": "meter",
+      "scope": "UE executor only",
+      "up_axis": "+Z"
     },
-    "review_lights_source": "tmp/p3_room_packages_20260907_v11/evidence.json"
+    "review_lights_source": "tmp/p3_room_packages_20260907_v11/evidence.json",
+    "room_manifest": "examples/qa/scenes/interioragent_kujiale_0020_livingroom_491.json"
   },
   "pose_bindings": "examples/rooms/packages/kujiale_0020_pose_bindings.json",
   "provenance": {
     "native_canary": "tmp/p3_room_packages_20260907_v11/evidence.json",
+    "native_canary_display_review": "tmp/p3_room_packages_20260907_v11/parent_visual_verification.json",
     "native_canary_visual_validation": "clearance-table camera point [-112.5,-227.5] cm at 1.47 m, yaw 150 deg; assistant-verified readable RGB",
     "native_execution": "pending_root_execution",
-    "native_floor_measurement": "tmp/p3_room_packages_20260907_v6/ue_floor_measurements/kujiale/floor_reference.json",
+    "native_floor_measurement": "tmp/gb_floor_reference_20260907/kujiale/floor_reference.json",
     "qualification_claim": false,
     "runtime_route": "native UE/SPEAR",
     "source": "examples/qa/scenes/interioragent_kujiale_0020_livingroom_491.json",
-    "source_revision": "multi_home_activity_20260905 integration_sol_v6",
-    "native_canary_display_review": "tmp/p3_room_packages_20260907_v11/parent_visual_verification.json"
+    "source_revision": "multi_home_activity_20260905 integration_sol_v6"
   },
   "qualification_claim": false,
   "renderer": "ue_spear",
@@ -122,8 +123,8 @@
     "source": "examples/rooms/interioragent_kujiale_0020_visual_profile.json"
   },
   "source_assets": {
-    "map_asset": "${AVENGINE_MULTI_HOME_UE_ROOT}/Content/AVEngine/Optional/Kujiale/kujiale_0020_full_home_v1.umap",
-    "map_asset_template": "${AVENGINE_MULTI_HOME_UE_ROOT}/Content/AVEngine/Optional/Kujiale/kujiale_0020_full_home_v1.umap",
+    "map_asset": "${AVENGINE_MULTI_HOME_UE_ROOT}/SpearSim/Content/AVEngine/Optional/Kujiale/kujiale_0020_full_home_v1.umap",
+    "map_asset_template": "${AVENGINE_MULTI_HOME_UE_ROOT}/SpearSim/Content/AVEngine/Optional/Kujiale/kujiale_0020_full_home_v1.umap",
     "native_canary": "tmp/p3_room_packages_20260907_v11/evidence.json",
     "scene_config": "examples/qa/scenes/interioragent_kujiale_0020_livingroom_491.json",
     "walkable_grid": "${AVENGINE_QA_V3_ROOT}/qa_v3_walkable_grid_kujiale_20260903_v2",

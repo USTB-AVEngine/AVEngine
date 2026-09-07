@@ -19,8 +19,8 @@
     "navmesh_template": "${AVENGINE_HM3D_ROOT}/versioned_data/hm3d-1.0/hm3d/val/00800-TEEsavR23oF/TEEsavR23oF.basis.navmesh",
     "room_manifest": "${AVENGINE_HM3D_REVIEW_ROOT}/rooms/hm3d_val_00800_TEEsavR23oF/room_manifest.json",
     "room_manifest_template": "${AVENGINE_HM3D_REVIEW_ROOT}/rooms/hm3d_val_00800_TEEsavR23oF/room_manifest.json",
-    "route_bank": "${AVENGINE_HM3D_ROUTE_ROOT}/routes_R3",
-    "route_bank_template": "${AVENGINE_HM3D_ROUTE_ROOT}/routes_R3",
+    "route_bank": "${AVENGINE_HM3D_ROUTE_ROOT}",
+    "route_bank_template": "${AVENGINE_HM3D_ROUTE_ROOT}",
     "scene_glb": "${AVENGINE_HM3D_ROOT}/versioned_data/hm3d-1.0/hm3d/val/00800-TEEsavR23oF/TEEsavR23oF.glb",
     "scene_glb_template": "${AVENGINE_HM3D_ROOT}/versioned_data/hm3d-1.0/hm3d/val/00800-TEEsavR23oF/TEEsavR23oF.glb"
   },
@@ -99,7 +99,7 @@
   "walkable_space": {
     "kind": "habitat_navmesh",
     "path": "${AVENGINE_HM3D_ROOT}/versioned_data/hm3d-1.0/hm3d/val/00800-TEEsavR23oF/TEEsavR23oF.basis.navmesh",
-    "route_bank": "${AVENGINE_HM3D_ROUTE_ROOT}/routes_R3",
-    "route_bank_template": "${AVENGINE_HM3D_ROUTE_ROOT}/routes_R3"
+    "route_bank": "${AVENGINE_HM3D_ROUTE_ROOT}",
+    "route_bank_template": "${AVENGINE_HM3D_ROUTE_ROOT}"
   }
 }
