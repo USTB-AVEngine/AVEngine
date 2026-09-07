@@ -2,11 +2,35 @@
 from __future__ import annotations
 
 from collections import Counter
+from copy import deepcopy
 import json
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 import numpy as np
+
+IN_FOV_DEFINITION = (
+    "target_pixels > 0 from the native target-only footprint, including fully_occluded; "
+    "this is not visible_pixels > 0 and does not mean the instance is unoccluded or fully inside the frame"
+)
+
+PLACEHOLDER_NONHUMAN_MINIMUM_COLOR_PIXELS = 512
+PLACEHOLDER_NONHUMAN_DOMINANCE_RATIO = 1.25
+PLACEHOLDER_NONHUMAN_COLOR_COMPONENT_FRACTIONS = {
+    "tricolor_white": 0.08,
+    "tricolor_dark": 0.12,
+    "tricolor_warm_brown": 0.08,
+    "black_white_white": 0.12,
+    "black_white_dark": 0.25,
+    "red_white_white": 0.12,
+    "red_white_warm_brown": 0.12,
+    "white_tan_white": 0.12,
+    "white_tan_warm_brown": 0.12,
+    "yellow_coat": 0.12,
+    "blue_gray_coat": 0.30,
+    "dark": 0.55,
+    "warm_brown": 0.12,
+}
 
 
 def _mask_frame_row(
@@ -192,11 +216,188 @@ def inspect_coarse_top_color(
     }
 
 
+def bbox_touches_frame_edge(
+    bbox: Sequence[int] | None,
+    resolution_hw: Sequence[int],
+) -> bool:
+    """Return whether a target-only xyxy bbox (exclusive max) touches an image edge."""
+    if bbox is None or len(bbox) != 4:
+        return False
+    if len(resolution_hw) != 2:
+        raise ValueError("resolution_hw must be [height, width]")
+    height, width = int(resolution_hw[0]), int(resolution_hw[1])
+    x0, y0, x1, y1 = (int(value) for value in bbox)
+    if height <= 0 or width <= 0 or x1 <= x0 or y1 <= y0:
+        return False
+    return x0 <= 0 or y0 <= 0 or x1 >= width or y1 >= height
+
+
+def summarize_pixel_visibility_semantics(
+    frames: Sequence[Mapping[str, Any]],
+    *,
+    resolution_hw: Sequence[int],
+    window_frames: Sequence[int] | None = None,
+) -> dict[str, Any]:
+    """Count in-FOV, visible, and edge-truncated frames from native pixel truth."""
+    if window_frames is not None:
+        if len(window_frames) != 2:
+            raise ValueError("window_frames must be [start, end)")
+        start, end = int(window_frames[0]), int(window_frames[1])
+        selected = [
+            frame for frame in frames
+            if isinstance(frame, Mapping)
+            and isinstance(frame.get("frame_index"), int)
+            and not isinstance(frame.get("frame_index"), bool)
+            and start <= int(frame["frame_index"]) < end
+        ]
+    else:
+        selected = [frame for frame in frames if isinstance(frame, Mapping)]
+    in_fov = 0
+    visible = 0
+    edge = 0
+    missing = 0
+    for frame in selected:
+        target = frame.get("target_pixels")
+        vis = frame.get("visible_pixels")
+        if isinstance(target, bool) or not isinstance(target, int):
+            missing += 1
+            continue
+        if target > 0:
+            in_fov += 1
+        if (not isinstance(vis, bool)) and isinstance(vis, int) and vis > 0:
+            visible += 1
+        if bbox_touches_frame_edge(frame.get("target_bbox_xyxy_px"), resolution_hw):
+            edge += 1
+    return {
+        "in_fov_frame_count": in_fov,
+        "in_fov_definition": IN_FOV_DEFINITION,
+        "visible_pixel_frames": visible,
+        "bbox_touches_frame_edge_frames": edge,
+        "missing_pixel_frames": missing,
+        "frame_count": len(selected),
+        "window_frames": [int(window_frames[0]), int(window_frames[1])] if window_frames is not None else None,
+        "resolution_hw": [int(resolution_hw[0]), int(resolution_hw[1])],
+        "calibration": "placeholder; native pixel-truth tallies, not human answerability",
+    }
+
+
+def annotate_pixel_visibility_semantics(truth: Mapping[str, Any]) -> dict[str, Any]:
+    """Copy pixel truth and add in_fov / visible / edge-touch fields without redefining state."""
+    annotated = deepcopy(dict(truth))
+    resolution = annotated.get("resolution_hw")
+    if not isinstance(resolution, Sequence) or isinstance(resolution, (str, bytes)) or len(resolution) != 2:
+        raise ValueError("pixel truth requires resolution_hw [height, width]")
+    resolution_hw = [int(resolution[0]), int(resolution[1])]
+    per_instance = annotated.get("per_instance")
+    if not isinstance(per_instance, Mapping):
+        raise ValueError("pixel truth per_instance is required")
+    instances: dict[str, Any] = {}
+    for instance_id, instance in per_instance.items():
+        if not isinstance(instance, Mapping):
+            instances[str(instance_id)] = instance
+            continue
+        record = deepcopy(dict(instance))
+        frames = record.get("frames")
+        frame_rows: list[Any] = []
+        if isinstance(frames, list):
+            for frame in frames:
+                if not isinstance(frame, Mapping):
+                    frame_rows.append(frame)
+                    continue
+                row = deepcopy(dict(frame))
+                target = row.get("target_pixels")
+                row["in_fov"] = (
+                    (not isinstance(target, bool))
+                    and isinstance(target, int)
+                    and target > 0
+                )
+                row["bbox_touches_frame_edge"] = bbox_touches_frame_edge(
+                    row.get("target_bbox_xyxy_px"), resolution_hw
+                )
+                frame_rows.append(row)
+        record["frames"] = frame_rows
+        summary = summarize_pixel_visibility_semantics(frame_rows, resolution_hw=resolution_hw)
+        record["in_fov_frame_count"] = summary["in_fov_frame_count"]
+        record["visible_pixel_frames"] = summary["visible_pixel_frames"]
+        record["bbox_touches_frame_edge_frames"] = summary["bbox_touches_frame_edge_frames"]
+        record["in_fov_definition"] = IN_FOV_DEFINITION
+        instances[str(instance_id)] = record
+    annotated["per_instance"] = instances
+    annotated["resolution_hw"] = resolution_hw
+    annotated["in_fov_definition"] = IN_FOV_DEFINITION
+    annotated["visibility_semantics_authority"] = "qa_evidence.annotate_pixel_visibility_semantics"
+    return annotated
+
+
+def annotate_achieved_conditions_visibility(
+    achieved: Mapping[str, Any],
+    pixel_truth: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Copy achieved_conditions and add visible/edge counts next to existing in_fov_frame_count."""
+    result = deepcopy(dict(achieved))
+    resolution = pixel_truth.get("resolution_hw") or [0, 0]
+    instances = pixel_truth.get("per_instance") if isinstance(pixel_truth.get("per_instance"), Mapping) else {}
+    measurements = result.get("anchor_event_measurements")
+    if not isinstance(measurements, list):
+        result["in_fov_definition"] = IN_FOV_DEFINITION
+        return result
+    updated: list[Any] = []
+    for row in measurements:
+        if not isinstance(row, Mapping):
+            updated.append(row)
+            continue
+        item = deepcopy(dict(row))
+        actor_id = str(item.get("actor_id"))
+        instance = instances.get(actor_id)
+        frames = instance.get("frames") if isinstance(instance, Mapping) else []
+        window = item.get("window_frames")
+        summary = summarize_pixel_visibility_semantics(
+            frames if isinstance(frames, list) else [],
+            resolution_hw=resolution if isinstance(resolution, Sequence) else [0, 0],
+            window_frames=window if isinstance(window, list) and len(window) == 2 else None,
+        )
+        item["visible_pixel_frames"] = summary["visible_pixel_frames"]
+        item["bbox_touches_frame_edge_frames"] = summary["bbox_touches_frame_edge_frames"]
+        item["in_fov_definition"] = IN_FOV_DEFINITION
+        updated.append(item)
+    result["anchor_event_measurements"] = updated
+    result["in_fov_definition"] = IN_FOV_DEFINITION
+    return result
+
+
+def nonhuman_appearance_placeholder_thresholds(
+    *,
+    minimum_color_pixels: int = PLACEHOLDER_NONHUMAN_MINIMUM_COLOR_PIXELS,
+    dominance_ratio: float = PLACEHOLDER_NONHUMAN_DOMINANCE_RATIO,
+    color_component_fractions: Mapping[str, float] | None = None,
+) -> dict[str, Any]:
+    """Named placeholder calibration for non-human coarse color evidence."""
+    fractions = dict(PLACEHOLDER_NONHUMAN_COLOR_COMPONENT_FRACTIONS)
+    if color_component_fractions:
+        fractions.update({str(key): float(value) for key, value in color_component_fractions.items()})
+    return {
+        "label": "placeholder",
+        "calibration": "placeholder_nonhuman_appearance_v1",
+        "minimum_color_pixels": int(minimum_color_pixels),
+        "dominance_ratio": float(dominance_ratio),
+        "color_component_fractions": fractions,
+        "human_rule_untouched": {
+            "minimum_color_pixels": 512,
+            "dominance_ratio": 1.6,
+            "function": "inspect_coarse_top_color",
+        },
+        "claim_boundary": (
+            "placeholder non-human coarse-color thresholds at human order of magnitude "
+            "(512 visible pixels); not human-calibrated and not formal certification"
+        ),
+    }
+
+
 def _appearance_spec(
     record: Mapping[str, Any],
     *,
     asset_registry: Mapping[str, Mapping[str, Any]] | None = None,
-) -> dict[str, str] | None:
+) -> dict[str, Any]:
     """Resolve the registered appearance field without parsing asset labels."""
     owners: list[tuple[str, Mapping[str, Any]]] = []
     for owner_key in ("registered_appearance", "realized_attributes", "appearance", "attributes"):
@@ -215,7 +416,7 @@ def _appearance_spec(
     if not entity_class and isinstance(species, str):
         entity_class = species.casefold()
     if "rigid" in entity_class or "device" in entity_class or "speaker" in entity_class or "object" in entity_class:
-        wanted = (("finish", "finish"), ("surface_finish", "surface_finish"))
+        wanted = (("finish", "finish"), ("surface_finish", "surface_finish"), ("body_color", "body_color"))
         kind = "device"
     elif "animal" in entity_class or any(token in entity_class for token in ("dog", "cat", "beagle", "quadruped")) or (isinstance(species, str) and species.casefold() not in {"human", "person"}):
         wanted = (("coat_profile", "coat_profile.value"), ("coat_value", "coat_value"), ("color", "color"))
@@ -223,19 +424,33 @@ def _appearance_spec(
     else:
         wanted = (("top_color", "top_color"), ("shirt_color", "shirt_color"), ("color", "color"))
         kind = "human"
+    found_fields: list[dict[str, str]] = []
+    chosen: dict[str, str] | None = None
     for source, owner in owners:
         for key, field in wanted:
             value = owner.get(key)
             if key == "coat_profile" and isinstance(value, Mapping):
                 value = value.get("value")
             if isinstance(value, str) and value.strip():
-                return {
-                    "field": field,
-                    "value": value.strip(),
-                    "kind": kind,
-                    "source": source,
-                }
-    return None
+                item = {"field": field, "value": value.strip(), "source": source}
+                found_fields.append(item)
+                if chosen is None:
+                    chosen = item
+    missing_reason = (
+        "neither finish nor body_color is registered"
+        if kind == "device"
+        else "registered appearance field is unavailable"
+    )
+    return {
+        "field": chosen["field"] if chosen else None,
+        "value": chosen["value"] if chosen else None,
+        "kind": kind,
+        "source": chosen["source"] if chosen else None,
+        "appearance_field_used": chosen["field"] if chosen else None,
+        "searched_fields": [field for _, field in wanted],
+        "available_registered_fields": found_fields,
+        "missing_reason": None if chosen else missing_reason,
+    }
 
 
 def _rgb_frame(
@@ -265,7 +480,9 @@ def inspect_registered_appearance(
     expected_value: str,
     *,
     entity_kind: str,
-    minimum_color_pixels: int = 8,
+    minimum_color_pixels: int = PLACEHOLDER_NONHUMAN_MINIMUM_COLOR_PIXELS,
+    dominance_ratio: float = PLACEHOLDER_NONHUMAN_DOMINANCE_RATIO,
+    color_component_fractions: Mapping[str, float] | None = None,
     target_bbox: Sequence[int] | None = None,
 ) -> dict[str, Any]:
     """Compare registered appearance values against actual masked RGB pixels."""
@@ -291,9 +508,18 @@ def inspect_registered_appearance(
             "expected_value": expected_value,
             "minimum_color_pixels": observed.get("minimum_color_pixels", 512),
             "calibration": "existing_coarse_human_rule_not_formal_certification",
+            "placeholder": False,
             "crop_xyxy": observed.get("crop_xyxy"),
             "claim_boundary": observed["claim_boundary"],
         }
+    thresholds = nonhuman_appearance_placeholder_thresholds(
+        minimum_color_pixels=minimum_color_pixels,
+        dominance_ratio=dominance_ratio,
+        color_component_fractions=color_component_fractions,
+    )
+    fractions = thresholds["color_component_fractions"]
+    min_pixels = int(thresholds["minimum_color_pixels"])
+    dominance = float(thresholds["dominance_ratio"])
     if target_bbox is not None and len(target_bbox) == 4 and entity_kind == "human":
         x0, y0, x1, y1 = (int(value) for value in target_bbox)
         torso = np.zeros(mask.shape, dtype=bool)
@@ -305,7 +531,6 @@ def inspect_registered_appearance(
             torso[ya:yb, xa:xb] = True
             mask = mask & torso
     pixels = image[mask]
-    expected = str(expected_value).strip().casefold()
     if pixels.size == 0:
         return {
             "status": "not_observable",
@@ -313,7 +538,12 @@ def inspect_registered_appearance(
             "visible_pixels": 0,
             "candidate_counts": {},
             "expected_value": expected_value,
+            "minimum_color_pixels": min_pixels,
+            "appearance_thresholds": thresholds,
+            "placeholder": True,
+            "calibration": "placeholder_coarse_color_only",
             "reason": "no visible native RGB pixels in the target mask",
+            "claim_boundary": thresholds["claim_boundary"],
         }
     hsv = cv2.cvtColor(pixels.reshape(-1, 1, 3), cv2.COLOR_RGB2HSV).reshape(-1, 3).astype(float)
     hue = hsv[:, 0] * 2.0
@@ -332,6 +562,8 @@ def inspect_registered_appearance(
     coarse = {
         "standard_black_white": "black_white",
         "standard_red_white": "red_white",
+        "standard_white_tan": "white_tan",
+        "white_tan": "white_tan",
         "standard_red": "red",
         "standard_yellow": "yellow_coat",
         "standard_blue": "blue_gray_coat",
@@ -341,45 +573,59 @@ def inspect_registered_appearance(
     counts["blue_gray_coat"] = int(((saturation <= 0.28) & (value >= 0.15) & (value <= 0.85)).sum())
     counts["yellow_coat"] = int(((hue >= 30) & (hue <= 75) & (saturation >= 0.05) & (value >= 0.25)).sum())
     total = max(1, len(pixels))
+    component_fractions = {name: count / total for name, count in counts.items()}
     unsupported = False
-    if coarse in counts and coarse not in {"dark", "warm_brown", "yellow_coat", "blue_gray_coat"}:
-        expected_count = counts[expected]
-        ranked = sorted(counts.items(), key=lambda item: (-item[1], item[0]))
-        second = next((count for name, count in ranked if name != expected), 0)
-        accepted = expected_count >= minimum_color_pixels and expected_count >= 1.25 * max(1, second)
-        observed = expected if accepted else (ranked[0][0] if ranked[0][1] >= minimum_color_pixels else None)
+    if coarse in {"blue", "green", "yellow", "burgundy", "pink", "white"}:
+        # Animal coat buckets overlap these HSV ranges (white is a subset of
+        # blue_gray_coat). Rank only the shared palette so a white device is
+        # not scored against an animal-fur predicate.
+        palette = ("blue", "green", "yellow", "burgundy", "pink", "white")
+        expected_count = counts[coarse]
+        ranked = sorted(((name, counts[name]) for name in palette), key=lambda item: (-item[1], item[0]))
+        second = next((count for name, count in ranked if name != coarse), 0)
+        accepted = expected_count >= min_pixels and expected_count >= dominance * max(1, second)
+        observed = expected if accepted else (ranked[0][0] if ranked[0][1] >= min_pixels else None)
     elif coarse in {"standard_tricolor", "light_tricolor", "dark_tricolor"}:
-        white_fraction = counts["white"] / total
-        dark_fraction = counts["dark"] / total
-        warm_fraction = counts["warm_brown"] / total
         accepted = (
-            counts["white"] >= max(2, minimum_color_pixels // 4)
-            and counts["dark"] >= max(4, minimum_color_pixels // 2)
-            and counts["warm_brown"] >= max(2, minimum_color_pixels // 4)
-            and white_fraction > 0.0
-            and dark_fraction > 0.0
-            and warm_fraction > 0.0
+            len(pixels) >= min_pixels
+            and component_fractions["white"] >= fractions["tricolor_white"]
+            and component_fractions["dark"] >= fractions["tricolor_dark"]
+            and component_fractions["warm_brown"] >= fractions["tricolor_warm_brown"]
         )
         observed = expected if accepted else None
     elif coarse == "black_white":
         accepted = (
-            counts["white"] >= max(2, minimum_color_pixels // 4)
-            and counts["dark"] >= max(4, minimum_color_pixels // 2)
+            len(pixels) >= min_pixels
+            and component_fractions["white"] >= fractions["black_white_white"]
+            and component_fractions["dark"] >= fractions["black_white_dark"]
         )
         observed = expected if accepted else None
     elif coarse == "red_white":
-        accepted = (counts["white"] >= max(2, minimum_color_pixels // 4)
-                    and counts["warm_brown"] >= max(2, minimum_color_pixels // 4))
+        accepted = (
+            len(pixels) >= min_pixels
+            and component_fractions["white"] >= fractions["red_white_white"]
+            and component_fractions["warm_brown"] >= fractions["red_white_warm_brown"]
+        )
+        observed = expected if accepted else None
+    elif coarse == "white_tan":
+        accepted = (
+            len(pixels) >= min_pixels
+            and component_fractions["white"] >= fractions["white_tan_white"]
+            and component_fractions["warm_brown"] >= fractions["white_tan_warm_brown"]
+        )
         observed = expected if accepted else None
     elif coarse in {"yellow_coat", "blue_gray_coat"}:
-        minimum_fraction = 0.30 if coarse == "blue_gray_coat" else 0.12
-        accepted = counts[coarse] >= minimum_color_pixels and counts[coarse] / total >= minimum_fraction
+        minimum_fraction = fractions[coarse]
+        accepted = counts[coarse] >= min_pixels and counts[coarse] / total >= minimum_fraction
         observed = expected if accepted else None
-    elif coarse in {"black_ash", "black", "charcoal", "dark"}:
-        accepted = counts["dark"] >= minimum_color_pixels and counts["dark"] / total >= 0.55
+    elif coarse in {"black_ash", "black", "charcoal", "dark", "matte_black"}:
+        accepted = counts["dark"] >= min_pixels and counts["dark"] / total >= fractions["dark"]
         observed = expected if accepted else None
     elif coarse in {"walnut_veneer", "walnut", "ruddy", "standard_ruddy", "brown", "red"}:
-        accepted = counts["warm_brown"] >= minimum_color_pixels and counts["warm_brown"] / total >= 0.12
+        accepted = (
+            counts["warm_brown"] >= min_pixels
+            and counts["warm_brown"] / total >= fractions["warm_brown"]
+        )
         observed = expected if accepted else None
     else:
         accepted = False
@@ -390,13 +636,17 @@ def inspect_registered_appearance(
         "observed_value": observed,
         "visible_pixels": int(len(pixels)),
         "candidate_counts": counts,
+        "component_fractions": component_fractions,
         "expected_value": expected_value,
-        "minimum_color_pixels": minimum_color_pixels,
+        "minimum_color_pixels": min_pixels,
+        "dominance_ratio": dominance,
         "coarse_color_predicate": coarse,
+        "appearance_thresholds": thresholds,
+        "placeholder": True,
         **({"reason": "registered_appearance_value_classifier_not_implemented",
             "gap_category": "interface_not_implemented"} if unsupported else {}),
         "calibration": "placeholder_coarse_color_only",
-        "claim_boundary": "coarse native masked color comparison; does not certify texture, wood grain or fine phenotype",
+        "claim_boundary": thresholds["claim_boundary"],
     }
 
 
@@ -405,9 +655,17 @@ def build_pixel_appearance_review(
     plan: Mapping[str, Any], *,
     frame_stride: int = 15,
     asset_registry: Mapping[str, Mapping[str, Any]] | None = None,
+    minimum_color_pixels: int = PLACEHOLDER_NONHUMAN_MINIMUM_COLOR_PIXELS,
+    dominance_ratio: float = PLACEHOLDER_NONHUMAN_DOMINANCE_RATIO,
+    color_component_fractions: Mapping[str, float] | None = None,
 ) -> dict[str, Any]:
     """Build renderer-neutral appearance evidence from masked native RGB."""
     capture_root = Path(capture_root).resolve()
+    thresholds = nonhuman_appearance_placeholder_thresholds(
+        minimum_color_pixels=minimum_color_pixels,
+        dominance_ratio=dominance_ratio,
+        color_component_fractions=color_component_fractions,
+    )
     truth = json.loads((capture_root / "pixel_visibility_truth.json").read_text(encoding="utf-8"))
     if not isinstance(truth, Mapping):
         raise ValueError("pixel visibility truth must be an object")
@@ -443,27 +701,49 @@ def build_pixel_appearance_review(
         rgb_array = np.load(rgb_path, mmap_mode="r", allow_pickle=False)
     mask_path = capture_root / "native_pixel_masks_depth_authority_v1.npz"
     records: dict[str, Any] = {}
+    pixel_semantics: dict[str, Any] = {}
+    resolution = truth.get("resolution_hw")
     with np.load(mask_path, allow_pickle=False) as data:
         modal = _modal_array(data)
+        if not isinstance(resolution, Sequence) or isinstance(resolution, (str, bytes)) or len(resolution) != 2:
+            resolution = [int(modal.shape[1]), int(modal.shape[2])]
+        resolution_hw = [int(resolution[0]), int(resolution[1])]
         for actor_id, instance in truth.get("per_instance", {}).items():
             if not isinstance(instance, Mapping):
                 continue
+            instance_frames = instance.get("frames", [])
+            pixel_semantics[str(actor_id)] = summarize_pixel_visibility_semantics(
+                instance_frames if isinstance(instance_frames, list) else [],
+                resolution_hw=resolution_hw,
+            )
             declaration = declarations.get(str(actor_id), {})
             spec = _appearance_spec(declaration, asset_registry=asset_registry)
-            if spec is None:
+            if spec["value"] is None:
                 records[str(actor_id)] = {
                     "status": "not_observable",
                     "value": None,
+                    "attribute_value": None,
+                    "attribute_field": spec["field"],
+                    "appearance_field_used": spec["appearance_field_used"],
+                    "appearance_source": spec["source"],
+                    "entity_kind": spec["kind"],
+                    "searched_fields": spec["searched_fields"],
+                    "available_registered_fields": spec["available_registered_fields"],
                     "frame_refs": [],
                     "checks": [],
-                    "reason": "registered appearance field is unavailable",
+                    "reason": spec["missing_reason"],
                     "reviewer": "native_RGB_masked_registered_appearance_v1",
+                    "pixel_visibility_semantics": pixel_semantics[str(actor_id)],
+                    "appearance_thresholds": thresholds,
+                    "placeholder": True,
+                    "calibration": thresholds["calibration"],
+                    "claim_boundary": thresholds["claim_boundary"],
                 }
                 continue
             semantic_id = int(instance["semantic_id"])
             checks: list[dict[str, Any]] = []
             accepted: list[int] = []
-            for frame in instance.get("frames", []):
+            for frame in instance_frames if isinstance(instance_frames, list) else []:
                 if not isinstance(frame, Mapping):
                     continue
                 f = int(frame.get("frame_index", -1))
@@ -478,28 +758,39 @@ def build_pixel_appearance_review(
                     modal[row] == semantic_id,
                     spec["value"],
                     entity_kind=spec["kind"],
+                    minimum_color_pixels=int(thresholds["minimum_color_pixels"]),
+                    dominance_ratio=float(thresholds["dominance_ratio"]),
+                    color_component_fractions=thresholds["color_component_fractions"],
                     target_bbox=frame.get("target_bbox_xyxy_px"),
                 )
                 check.update(
                     frame_index=f,
                     frame_path=source,
                     appearance_field=spec["field"],
+                    appearance_field_used=spec["appearance_field_used"],
                     appearance_source=spec["source"],
                     entity_kind=spec["kind"],
                 )
                 checks.append(check)
-                if check["status"] == "pass" and check.get("observed_value") == spec["value"]:
+                if check["status"] == "pass" and check.get("observed_value") == spec["value"].casefold():
                     accepted.append(f)
             records[str(actor_id)] = {
                 "status": "reviewed" if accepted else "not_observable",
                 "value": spec["value"],
                 "attribute_value": spec["value"],
                 "attribute_field": spec["field"],
+                "appearance_field_used": spec["appearance_field_used"],
                 "appearance_source": spec["source"],
                 "entity_kind": spec["kind"],
+                "searched_fields": spec["searched_fields"],
+                "available_registered_fields": spec["available_registered_fields"],
                 "frame_refs": sorted(set(accepted)),
                 "checks": checks,
                 "reviewer": "native_RGB_masked_registered_appearance_v1",
+                "pixel_visibility_semantics": pixel_semantics[str(actor_id)],
+                "appearance_thresholds": thresholds,
+                "placeholder": True,
+                "calibration": thresholds["calibration"],
                 "claim_boundary": "automatic coarse appearance evidence; native RGB frames remain available for human review",
             }
     return {
@@ -508,6 +799,11 @@ def build_pixel_appearance_review(
         "actors": records,
         "authority": "actual_RGB_and_native_depth_instance_masks",
         "formal_certification": False,
+        "in_fov_definition": IN_FOV_DEFINITION,
+        "pixel_visibility_semantics": pixel_semantics,
+        "appearance_thresholds": thresholds,
+        "placeholder": True,
+        "calibration": thresholds["calibration"],
         "claim_boundary": "registered appearance values are compared against actual masked RGB; asset labels are never treated as pixel evidence",
     }
 
