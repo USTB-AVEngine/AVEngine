@@ -132,24 +132,41 @@ def main(argv=None):
             base["room_catalog"] = str(args.catalog)
         if args.registry is not None:
             base["source_registry"] = str(args.registry)
-        base["room_catalog"] = str(_existing(
+        base["room_catalog"] = str(Path(_existing(
             base.get("room_catalog", REPOSITORY / "examples/rooms/packages/catalog.json"),
-            REPOSITORY / "examples/rooms/packages/catalog.json"))
-        base["source_registry"] = str(_existing(
+            REPOSITORY / "examples/rooms/packages/catalog.json")).resolve())
+        base["source_registry"] = str(Path(_existing(
             base.get("source_registry", REPOSITORY / "examples/runtime/source_asset_runtime_profiles.json"),
-            REPOSITORY / "examples/runtime/source_asset_runtime_profiles.json"))
+            REPOSITORY / "examples/runtime/source_asset_runtime_profiles.json")).resolve())
         registry = load_source_asset_runtime_registry(base["source_registry"])
         catalog = read(base["room_catalog"])
         if args.sounds is not None:
-            payload = read(args.sounds)
+            sounds_path = Path(args.sounds).expanduser().resolve()
+            payload = read(sounds_path)
             sounds = payload.get("sounds", payload) if isinstance(payload, dict) else payload
             pool = None
+            base["sound_pool"] = str(sounds_path)
+            base.setdefault("sound_selection", {}).pop("prepared_set", None)
         else:
             registry, catalog, sounds, pool, pool_path = _load_sounds(config, output)
+            base["room_catalog"] = str(Path(base["room_catalog"]).resolve())
+            base["source_registry"] = str(Path(base["source_registry"]).resolve())
         packed = prepare_scaleup_dry_run(
             config, registry, catalog, sounds, seed=args.seed,
             episodes_per_room=args.episodes_per_room, batch_id=args.batch_id)
         result = packed["manifest"]
+        catalog_bindings = catalog.get("path_bindings") if isinstance(catalog, dict) else {}
+        sound_pool = base.get("sound_pool")
+        for row in result["episodes"]:
+            req = row["request"]
+            req["room_catalog"] = base["room_catalog"]
+            req["source_registry"] = base["source_registry"]
+            if sound_pool:
+                req["sound_pool"] = sound_pool
+            if isinstance(catalog_bindings, dict) and catalog_bindings:
+                runtime = req.setdefault("runtime", {})
+                runtime["path_bindings"] = {
+                    **catalog_bindings, **dict(runtime.get("path_bindings") or {})}
         result = _annotate_prepare(result, output, args.config)
         if pool is not None:
             write(output / "batch_sounds.json", pool)

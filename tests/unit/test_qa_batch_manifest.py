@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from copy import deepcopy
+import importlib.util
 import json
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -294,3 +296,158 @@ def test_collect_outcomes_histograms_achieved_5deg_not_requested_bin(inputs):
     assert occupied == {60: 1}
     assert 60.7 not in [row["requested_profile"]["separation_bin_deg"][0]
                         for row in manifest["episodes"]]
+
+
+def device_asset(asset_id, color="black"):
+    record = asset(asset_id, color)
+    record["entity_class"] = "rigid_object"
+    record["identity"] = {"category": "appliance", "object_type": "speaker"}
+    record["realized_attributes"] = {"finish": color}
+    return record
+
+
+def animal_asset(asset_id, coat="brown"):
+    record = asset(asset_id, coat)
+    record["entity_class"] = "articulated_animal"
+    record["identity"] = {"species_id": "dog"}
+    record["realized_attributes"] = {"coat_profile": {"value": coat}}
+    return record
+
+
+def test_rescatter_keeps_scaleup_distance_range_m(inputs):
+    config, registry, rooms, sounds = deepcopy(inputs)
+    config["scatter_condition_groups"] = True
+    config["scaleup"] = {"distance_range_m": [1.5, 6.0]}
+    result = prepare_batch_manifest(config, registry, rooms, sounds)
+    for row in result["episodes"]:
+        assert row["request"]["profile"]["distance_range_m"] == [1.5, 6.0]
+        assert row["requested_profile"]["distance_range_m"] == [1.5, 6.0]
+
+
+def test_rescatter_does_not_drop_existing_slot_distance_range(inputs):
+    config, registry, rooms, sounds = deepcopy(inputs)
+    config["scatter_condition_groups"] = True
+    for slot in config["slots"]:
+        slot["profile"] = {**(slot.get("profile") or {}), "distance_range_m": [1.5, 6.0]}
+    result = prepare_batch_manifest(config, registry, rooms, sounds)
+    for row in result["episodes"]:
+        assert row["request"]["profile"]["distance_range_m"] == [1.5, 6.0]
+        assert row["requested_profile"]["distance_range_m"] == [1.5, 6.0]
+
+
+def test_zero_compatible_sounds_is_reported_as_no_sounds(inputs):
+    config, registry, rooms, _ = deepcopy(inputs)
+    sounds = [{
+        "sound_asset_id": "ac_hum", "sound_identity_id": "ac1",
+        "sound_class": "air_conditioning", "sample_rate_hz": 16000, "sample_count": 16000,
+        "compatible_asset_ids": ["missing_portable_ac"],
+        "path": "/prepared/ac_hum.wav",
+    }]
+    result = prepare_batch_manifest(config, registry, rooms, sounds)
+    assert result["preallocation_gap_counts"].get("no_compatible_sounds", 0) >= 1
+    assert "no_distinct_compatible_sound_identity" not in result["preallocation_gap_counts"]
+    gap = next(item for row in result["episodes"] for item in row["preallocation_gaps"]
+               if item["code"] == "no_compatible_sounds")
+    assert gap["compatible_sound_count"] == 0
+    assert gap["state"] == "evidence_missing_or_unsampled"
+
+
+def test_collect_outcomes_keeps_source_classes_and_old_profile_defaults(inputs):
+    manifest = prepare_batch_manifest(*deepcopy(inputs))
+    row = manifest["episodes"][0]
+    old_profile = deepcopy(row["requested_profile"])
+    for key in ("competitor_visibility", "distance_range_m", "separation_target_policy"):
+        old_profile.pop(key, None)
+    manifest["episodes"][0]["requested_profile"] = old_profile
+    observed = deepcopy(row["requested_profile"])
+    assert "competitor_visibility" not in old_profile
+    outcome = {
+        "episode_id": row["episode_id"], "status": "delivered",
+        "facts_path": "/facts.json", "questions_path": "/questions.json",
+        "condition_profile": observed,
+        "produced_count_by_qa": {qa: 1 for qa in row["requested_quota_by_qa"]},
+    }
+    result = collect_batch_outcomes(manifest, [outcome])
+    collected = result["episodes"][0]
+    assert collected["requested_source_classes"] == row["requested_source_classes"]
+    assert collected["profile_matches_request"] is True
+    pairs = result["class_pair_condition_group_crosstab"]["class_pairs"]
+    assert pairs and "" not in pairs
+    quota = next(item for item in result["quota_by_condition_group"]
+                 if item["room_id"] == row["room_id"] and item["condition_group"] == row["condition_group"])
+    assert quota["delivered"] == 1
+    assert quota["unmet"] == 0
+
+
+def test_scaleup_dry_run_cli_writes_sound_pool(tmp_path, monkeypatch):
+    repo = Path(__file__).resolve().parents[2]
+    catalog = {
+        "path_bindings": {"AVENGINE_TEST_ROOT": "/data/test"},
+        "rooms": [
+            {"room_id": "room_a", "family": "authored", "renderer": "ue_spear"},
+            {"room_id": "room_b", "family": "apartment", "renderer": "ue_spear"},
+        ],
+    }
+    registry = {"assets": [
+        asset("red", "red"), asset("blue", "blue"), asset("green", "green"),
+        animal_asset("dog_a"), animal_asset("dog_b"),
+        device_asset("dev_a"), device_asset("dev_b"),
+    ]}
+    sounds = {
+        "sounds": [
+            sound("one", "speaker1"), sound("two", "speaker2"), sound("three", "speaker3"),
+            {"sound_asset_id": "bark1", "sound_identity_id": "dog:a", "sound_class": "dog_bark",
+             "species_id": "dog", "sample_rate_hz": 16000, "sample_count": 32000,
+             "active_duration_s": 2, "path": "/prepared/bark1.wav",
+             "compatible_asset_ids": ["dog_a", "dog_b"]},
+            {"sound_asset_id": "hum1", "sound_identity_id": "dev:a", "sound_class": "blender",
+             "sample_rate_hz": 16000, "sample_count": 32000, "active_duration_s": 2,
+             "path": "/prepared/hum1.wav", "compatible_asset_ids": ["dev_a", "dev_b"]},
+        ]
+    }
+    config = {
+        "base_request": {
+            "camera": {"fov_deg": 85, "motion": "static"},
+            "room_catalog": "relative/catalog.json",
+            "source_registry": "relative/registry.json",
+            "runtime": {"graphics_adapter": 0},
+            "sound_selection": {"prepared_set": "/should/be/removed.json", "max_clip_s": 5.0},
+        }
+    }
+    catalog_path = tmp_path / "catalog.json"
+    registry_path = tmp_path / "registry.json"
+    sounds_path = tmp_path / "sounds.json"
+    config_path = tmp_path / "config.json"
+    catalog_path.write_text(json.dumps(catalog))
+    registry_path.write_text(json.dumps(registry))
+    sounds_path.write_text(json.dumps(sounds))
+    config_path.write_text(json.dumps(config))
+    spec = importlib.util.spec_from_file_location(
+        "build_qa_batch_manifest_h7", repo / "tools/dataset/build_qa_batch_manifest.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    monkeypatch.setattr(mod, "load_source_asset_runtime_registry",
+                        lambda path: json.loads(Path(path).read_text()))
+    output = tmp_path / "dryrun"
+    mod.main([
+        "scaleup-dry-run",
+        "--config", str(config_path),
+        "--catalog", str(catalog_path),
+        "--registry", str(registry_path),
+        "--sounds", str(sounds_path),
+        "--output", str(output),
+        "--seed", "20260907",
+        "--episodes-per-room", "7",
+        "--batch-id", "qa_h7_cli",
+    ])
+    manifest = json.loads((output / "batch_manifest.json").read_text())
+    scaleup = json.loads((output / "scaleup_config.json").read_text())
+    assert manifest["requested_episode_count"] == 14
+    distances = {tuple(row["requested_profile"]["distance_range_m"]) for row in manifest["episodes"]}
+    assert distances == {(1.5, 6.0)}
+    for row, slot in zip(manifest["episodes"], scaleup["slots"]):
+        assert row["request"]["profile"]["distance_range_m"] == slot["profile"]["distance_range_m"] == [1.5, 6.0]
+        assert row["request"]["sound_pool"] == str(sounds_path.resolve())
+        assert Path(row["request"]["room_catalog"]).is_absolute()
+        assert row["request"]["runtime"]["path_bindings"]["AVENGINE_TEST_ROOT"] == "/data/test"
+        assert "prepared_set" not in row["request"].get("sound_selection", {})
