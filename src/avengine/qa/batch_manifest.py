@@ -21,6 +21,8 @@ from avengine.rooms.conditioned_sampler import (
     sound_matches,
 )
 
+from avengine.qa.failure_accounting import classify_failure
+
 SOURCE_CLASSES = ("articulated_human", "articulated_animal", "rigid_static_object")
 QA_IDS = tuple(f"QA-{index:02d}" for index in range(1, 25))
 SOURCE_CLASS_LABEL = {
@@ -767,43 +769,33 @@ def prepare_batch_manifest(
             "preallocation_gap_counts": dict(Counter(gap["code"] for row in rows for gap in row["preallocation_gaps"]))}
 
 
-def _outcome_failure_fields(outcome: Mapping[str, Any] | None) -> tuple[str | None, str | None]:
-    """Fill failure_stage / gap_state from the outcome, using status only when those keys are absent."""
+def _classify_outcome_failure(outcome: Mapping[str, Any] | None) -> dict[str, Any] | None:
     if not isinstance(outcome, Mapping) or outcome.get("status") == "delivered":
-        return None, None
+        return None
     stage = outcome.get("failure_stage")
-    gap = outcome.get("gap_state")
+    declared_gap = outcome.get("gap_state")
     status = outcome.get("status")
-    code = outcome.get("failure_code") or outcome.get("reason_code")
-    reason = str(outcome.get("failure_reason") or outcome.get("reason") or "")
+    reason_code = outcome.get("failure_code") or outcome.get("reason_code")
+    if reason_code == "unclassified_failure":
+        declared_gap = None
+    reason = outcome.get("failure_reason") or outcome.get("reason") or ""
     histogram = outcome.get("failure_histogram")
-    if not isinstance(stage, str) or not stage:
-        stage = {
-            "preallocation_blocked": "planning",
-            "planning_failed": "planning",
-            "capture_failed": "capture",
-            "audio_failed": "audio",
-            "delivery_failed": "finalize",
-            "review_failed": "finalize",
-            "resource_failed": "launch",
-        }.get(status)
-        if code == "preallocation_gap":
-            stage = "planning"
-    if not isinstance(gap, str) or not gap:
-        exhausted = (
-            isinstance(histogram, Mapping) and bool(histogram)
-            or "fixed condition profile exhausted" in reason.lower()
-            or "conditionedplanningfailure" in reason.lower()
-        )
-        if status == "preallocation_blocked" or code == "preallocation_gap" or status == "planning_failed" or exhausted:
-            gap = "evidence_missing_or_unsampled"
-        elif status in {"audio_failed", "resource_failed"}:
-            gap = "interface_not_implemented"
-    if not isinstance(stage, str) or not stage:
-        stage = None
-    if not isinstance(gap, str) or not gap:
-        gap = None
-    return stage, gap
+    return classify_failure(
+        failure_stage=stage if isinstance(stage, str) else None,
+        reason=str(reason),
+        reason_code=reason_code if isinstance(reason_code, str) else None,
+        histogram=histogram if isinstance(histogram, Mapping) else None,
+        status=status if isinstance(status, str) else None,
+        declared_gap_state=declared_gap if isinstance(declared_gap, str) else None,
+    )
+
+
+def _outcome_failure_fields(outcome: Mapping[str, Any] | None) -> tuple[str | None, str | None]:
+    """Fill failure fields through the shared classifier used by the runner."""
+    classified = _classify_outcome_failure(outcome)
+    if classified is None:
+        return None, None
+    return classified["failure_stage"], classified["gap_state"]
 
 
 def collect_batch_outcomes(manifest: Mapping[str, Any], outcomes: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
@@ -839,12 +831,26 @@ def collect_batch_outcomes(manifest: Mapping[str, Any], outcomes: Sequence[Mappi
             requested_classes = [
                 actor.get("source_class") for actor in requested.get("source_assignments") or []
             ]
-        failure_stage, gap_state = _outcome_failure_fields(outcome)
-        if isinstance(outcome, dict):
+        classified = _classify_outcome_failure(outcome)
+        failure_stage = classified["failure_stage"] if classified is not None else None
+        gap_state = classified["gap_state"] if classified is not None else None
+        if isinstance(outcome, dict) and classified is not None:
             if failure_stage and not outcome.get("failure_stage"):
                 outcome["failure_stage"] = failure_stage
             if gap_state and not outcome.get("gap_state"):
                 outcome["gap_state"] = gap_state
+            existing_diagnostic = outcome.get("diagnostic")
+            outcome["diagnostic"] = {
+                **deepcopy(classified["diagnostic"]),
+                **(deepcopy(existing_diagnostic) if isinstance(existing_diagnostic, Mapping) else {}),
+            }
+            classified_code = classified.get("reason_code")
+            if classified_code and not outcome.get("reason_code"):
+                outcome["reason_code"] = classified_code
+            if classified["failure_reason"] and not outcome.get("failure_reason"):
+                outcome["failure_reason"] = classified["failure_reason"]
+            if classified["failure_reason"] and not outcome.get("reason"):
+                outcome["reason"] = classified["failure_reason"]
         rows.append({"episode_id": requested["episode_id"], "room_id": requested["room_id"],
                      "room_family": requested["room_family"], "condition_group": requested["condition_group"],
                      "requested_source_classes": deepcopy(requested_classes),

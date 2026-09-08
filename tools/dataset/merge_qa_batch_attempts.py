@@ -9,7 +9,7 @@ import importlib.util
 import json
 from pathlib import Path
 import sys
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 
 REPOSITORY = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPOSITORY / "src"))
@@ -201,13 +201,17 @@ def backfill_failed_record(
         if asset_ids:
             out["asset_ids"] = asset_ids
     family, pair = family_class(str(out.get("episode_id") or ""))
-    out.setdefault("family", family)
-    out.setdefault("class_pair", pair)
+    out["family"] = entry.get("room_family") or out.get("family") or family
+    classes = entry.get("requested_source_classes")
+    if isinstance(classes, list) and classes and all(isinstance(value, str) for value in classes):
+        out["class_pair"] = "+".join(dict.fromkeys(classes))
+    else:
+        out.setdefault("class_pair", entry.get("class_pair") or pair)
     if out.get("status") == "delivered":
         out["gap_state"] = "produced"
         return out
     reason_code = out.get("reason_code")
-    if out.get("status") == "blocked" or reason_code == "preallocation_gap":
+    if reason_code in {"preallocation_gap", "preallocation_deficit"}:
         out["failure_stage"] = out.get("failure_stage") or "planning"
         out["gap_state"] = "evidence_missing_or_unsampled"
         out["failure_reason"] = out.get("failure_reason") or out.get("reason")
@@ -224,12 +228,12 @@ def backfill_failed_record(
         return out
     episode_root = _episode_output_root(out)
     attempt_root = Path(out["attempt_root"]) if out.get("attempt_root") else None
-    stderr_path = None
-    stdout_path = None
+    stderr_path = Path(out["stderr_log"]) if out.get("stderr_log") and Path(out["stderr_log"]).is_file() else None
+    stdout_path = Path(out["stdout_log"]) if out.get("stdout_log") and Path(out["stdout_log"]).is_file() else None
     if attempt_root is not None:
-        if (attempt_root / "stderr.log").is_file():
+        if stderr_path is None and (attempt_root / "stderr.log").is_file():
             stderr_path = attempt_root / "stderr.log"
-        if (attempt_root / "stdout.log").is_file():
+        if stdout_path is None and (attempt_root / "stdout.log").is_file():
             stdout_path = attempt_root / "stdout.log"
     if episode_root is None:
         return out
@@ -239,12 +243,59 @@ def backfill_failed_record(
         stdout_path=stdout_path,
         returncode=out.get("controller_returncode"),
     )
-    out["failure_stage"] = classified["failure_stage"]
-    out["failure_reason"] = classified["failure_reason"]
-    out["gap_state"] = classified["gap_state"]
-    out["reason_code"] = classified["reason_code"]
+    out.update(classified)
     out["reason"] = classified["failure_reason"]
     return out
+
+
+def load_attempt_outcomes(root: Path) -> dict[str, Any]:
+    """Read a runner batch or a previously merged selection without changing it."""
+    for name in ("outcomes.json", "merged_episodes.json"):
+        path = Path(root) / name
+        if path.is_file():
+            payload = _load_json(path)
+            if not isinstance(payload, Mapping) or not isinstance(payload.get("episodes"), list):
+                raise ValueError(f"invalid attempt outcomes: {path}")
+            return dict(payload)
+    summary_path = Path(root) / "rerender_summary.json"
+    if summary_path.is_file():
+        payload = _load_json(summary_path)
+        if not isinstance(payload, list):
+            raise ValueError(f"invalid rerender summary: {summary_path}")
+        rows = []
+        for raw in payload:
+            episode_root = Path(raw["dest"])
+            row = {"episode_id": raw["episode_id"], "attempt": episode_root.parent.name,
+                   "episode_output_root": str(episode_root), "attempt_root": str(episode_root.parent),
+                   "status": "delivered" if raw.get("status") == "ok" else "failed",
+                   "controller_returncode": raw.get("finalize_returncode"),
+                   "request_path": str(episode_root / "request.json"),
+                   "stderr_log": str(episode_root / "attempt_03_finalize.log"),
+                   "historical_rerender_summary": deepcopy(raw),
+                   "historical_rerender_summary_path": str(summary_path),
+                   "command_record_status": "not_recorded_in_rerender_summary"}
+            review_path = episode_root / "batch_review/review.json"
+            if review_path.is_file():
+                row["review"] = _load_json(review_path)
+            rows.append(row)
+        return {"episodes": rows, "source": str(summary_path)}
+    raise FileNotFoundError(f"no supported attempt summary in {root}")
+
+
+def _attempt_snapshot(row: Mapping[str, Any]) -> dict[str, Any]:
+    # Commands describe historical execution. Never rebase them to the current tree.
+    result = {key: deepcopy(row[key]) for key in (
+        "attempt", "attempt_root", "episode_output_root", "status", "command",
+        "request_path", "facts_path", "questions_path", "producer", "outcome_path",
+        "failure_stage", "failure_reason", "reason", "reason_code", "gap_state",
+        "exception_type", "controller_returncode", "stderr_log", "stdout_log", "failure_details",
+        "failure_classification", "classification_status", "classification_unknown", "diagnostic",
+        "historical_rerender_summary", "historical_rerender_summary_path", "command_record_status",
+    ) if key in row}
+    audit = (row.get("review") or {}).get("audit") if isinstance(row.get("review"), Mapping) else None
+    if isinstance(audit, Mapping) and "command" in audit:
+        result["review_audit_command"] = deepcopy(audit["command"])
+    return result
 
 
 def merge_episode_records(
@@ -259,12 +310,21 @@ def merge_episode_records(
     entries = {row["episode_id"]: row for row in (manifest or {}).get("episodes", []) if isinstance(row, Mapping)}
     orig_eps = {e["episode_id"]: e for e in original_outcomes["episodes"]}
     rerun_eps = {e["episode_id"]: e for e in rerun_outcomes.get("episodes", [])}
+    extras = [eid for eid in rerun_eps if eid not in orig_eps]
+    if any(eid not in entries for eid in extras):
+        raise ValueError("supplemental rerun Episodes must be declared in the manifest")
     merged: list[dict[str, Any]] = []
-    for eid, row in orig_eps.items():
+    for eid in [*orig_eps, *extras]:
+        row = orig_eps.get(eid)
         if eid in rerun_eps:
             rec = deepcopy(rerun_eps[eid])
             rec["attempt"] = rec.get("attempt") or "attempt_02"
-            rec["supersedes_attempt_01"] = row.get("attempt_root")
+            if row is not None:
+                rec["supersedes_attempt_01"] = row.get("supersedes_attempt_01") or row.get("attempt_root")
+                history = deepcopy(row.get("prior_attempts") or [])
+                history.append(_attempt_snapshot(row))
+                rec["prior_attempts"] = history
+                rec["supersedes_attempt"] = row.get("attempt_root")
         else:
             rec = deepcopy(row)
             rec["attempt"] = rec.get("attempt") or "attempt_01"
@@ -300,6 +360,10 @@ def failed_coverage_records(merged: list[Mapping[str, Any]]) -> list[dict[str, A
             "gap_state": gap_state,
             "failure_stage": rec.get("failure_stage"),
             "failure_reason": rec.get("failure_reason") or rec.get("reason"),
+            **{key: deepcopy(rec[key]) for key in (
+                "reason_code", "failure_code", "exception_type", "failure_classification",
+                "classification_unknown", "classification_status", "diagnostic",
+            ) if key in rec},
         })
     return records
 
@@ -355,15 +419,17 @@ def build_coverage_manifest(
         eid = rec["episode_id"]
         if rec.get("status") != "delivered":
             continue
-        src = rerun_by_id.get(eid) or orig_by_id.get(eid)
-        if src is None and rec.get("facts_path") and rec.get("questions_path"):
-            src = {
+        src = deepcopy(rerun_by_id.get(eid) or orig_by_id.get(eid) or {})
+        if rec.get("facts_path") and rec.get("questions_path"):
+            src.update({
                 "episode_id": eid,
                 "room_id": rec.get("room_id"),
                 "family": rec.get("family"),
                 "facts": rec["facts_path"],
                 "questions": rec["questions_path"],
-            }
+            })
+        elif not src:
+            src = None
         if src is not None:
             coverage_episodes.append(src)
     coverage_manifest = _remap_payload_paths(dict(original_inputs), repository=Path(repository))
@@ -415,6 +481,7 @@ def merge_attempts(
     apply_exposure: bool = True,
     build_coverage: bool = True,
     runner: Any | None = None,
+    later_attempt_roots: Sequence[Path] = (),
 ) -> dict[str, Any]:
     original_root = Path(original_root)
     rerun_root = Path(rerun_root)
@@ -422,11 +489,16 @@ def merge_attempts(
     repository = Path(repository).resolve()
     if output_root.exists():
         raise FileExistsError(f"refusing existing merge output: {output_root}")
-    orig = _load_json(original_root / "outcomes.json")
-    rerun = _load_json(rerun_root / "outcomes.json")
+    orig = load_attempt_outcomes(original_root)
+    rerun = load_attempt_outcomes(rerun_root)
     manifest = resolve_manifest(original_root, manifest_path)
     runner = runner or load_runner_module()
     merged = merge_episode_records(orig, rerun, manifest=manifest, runner=runner)
+    for later_root in later_attempt_roots:
+        merged = merge_episode_records(
+            {"episodes": merged}, load_attempt_outcomes(Path(later_root)),
+            manifest=manifest, runner=runner,
+        )
     output_root.mkdir(parents=True, exist_ok=False)
     attach_exposure_gates(merged, output_root=output_root, apply_gate=apply_exposure)
     counts = Counter(r["status"] for r in merged)
@@ -435,12 +507,32 @@ def merge_attempts(
         "schema": "avengine_qa_pilot46_merged_v1",
         "original_root": str(original_root),
         "rerun_root": str(rerun_root),
+        "later_attempt_roots": [str(path) for path in later_attempt_roots],
         "episode_denominator": len(merged),
         "status_counts": dict(counts),
         "delivered_exposure_gate": dict(gate_counts),
         "episodes": merged,
     }
     _write_json(output_root / "merged_episodes.json", table)
+    entries = {entry["episode_id"]: entry for entry in manifest.get("episodes", [])}
+    current_commands = []
+    for record in merged:
+        entry = entries.get(record["episode_id"], {})
+        request_path = entry.get("request_path")
+        if not request_path:
+            continue
+        replay_root = repository / "tmp" / (output_root.name + "_current_replay") / record["episode_id"]
+        current_commands.append({
+            "episode_id": record["episode_id"],
+            "status": "proposed_not_executed",
+            "command": [sys.executable, str(repository / "tools/studio/run_qa_episode.py"),
+                        "--request", str(request_path), "--output", str(replay_root)],
+            "cwd": str(repository),
+            "pythonpath": f"{repository / 'src'}:{repository / 'tmp/native_python_addons_v1'}",
+            "request_path": str(request_path),
+            "historical_commands_preserved_in": "merged_episodes.json",
+        })
+    _write_json(output_root / "current_replay_commands.json", current_commands)
 
     orig_inputs_path = original_root / "summary/coverage_inputs.json"
     rerun_inputs_path = rerun_root / "summary/coverage_inputs.json"
@@ -488,7 +580,25 @@ def merge_attempts(
         }
         for r in merged
     ]
+    question_counts: Counter[str] = Counter()
+    missing_question_files = []
+    for record in merged:
+        if record.get("status") != "delivered":
+            continue
+        question_path = record.get("questions_path")
+        if not question_path or not Path(question_path).is_file():
+            missing_question_files.append(record["episode_id"])
+            continue
+        question_counts.update(item["qa_id"] for item in _load_json(Path(question_path)).get("items", []))
+    qa_ids = [f"QA-{number:02d}" for number in range(1, 25)]
     summary = {
+        "questions": {
+            "valid_item_count": sum(question_counts.values()),
+            "covered_type_count": sum(bool(question_counts[qa]) for qa in qa_ids),
+            "count_by_qa": {qa: question_counts[qa] for qa in qa_ids},
+            "missing_qa_types": [qa for qa in qa_ids if not question_counts[qa]],
+            "missing_question_files": missing_question_files,
+        },
         "merged_status_counts": dict(counts),
         "delivered_exposure_gate": dict(gate_counts),
         "coverage_row_states": dict(states),
@@ -517,6 +627,10 @@ def merge_attempts(
                 "room_id": r.get("room_id"),
                 "asset_ids": r.get("asset_ids"),
                 "reason": r.get("failure_reason") or r.get("reason"),
+                "reason_code": r.get("reason_code"),
+                "failure_classification": r.get("failure_classification"),
+                "diagnostic": deepcopy(r.get("diagnostic")),
+                "classification_unknown": r.get("classification_unknown"),
                 "evidence_path": r.get("attempt_root"),
             }
             for r in merged
@@ -531,6 +645,8 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--original", type=Path, default=DEFAULT_ORIGINAL)
     parser.add_argument("--rerun", type=Path, default=DEFAULT_RERUN)
+    parser.add_argument("--later-attempt-root", type=Path, action="append", default=[],
+                        help="Overlay another attempt batch in supplied order; preserve prior commands")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--repository", type=Path, default=REPOSITORY)
     parser.add_argument("--manifest", type=Path, default=None)
@@ -547,6 +663,7 @@ def main() -> int:
         dry_run_summary=args.dry_run_summary,
         apply_exposure=not args.skip_exposure_gate,
         build_coverage=not args.skip_coverage,
+        later_attempt_roots=args.later_attempt_root,
     )
     printable = {k: summary[k] for k in summary if k not in {"family_class_gated_clips", "cells"}}
     print(json.dumps(printable, ensure_ascii=False, indent=2)[:4000])

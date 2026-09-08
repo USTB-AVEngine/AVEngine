@@ -4,37 +4,62 @@ from __future__ import annotations
 from copy import deepcopy
 import json
 import math
-import os
+import re
 from pathlib import Path
+from string import Template
 
 import numpy as np
 
 from avengine.qa.answerability import MeshHandle
+from avengine.rooms.room_package import (
+    REPOSITORY_ROOT,
+    configured_path_bindings,
+    resolve_room_package_paths,
+)
 from avengine.rooms.walkable_space import RasterWalkableSpace, NativeRouteWalkableSpace, HabitatWalkableSpace
 
 
 def _read(path):
-    return json.loads(Path(path).expanduser().read_text())
+    return json.loads(Path(path).expanduser().read_text(encoding="utf-8"))
 
 
 def _resolved(raw, base=None, runtime=None):
-    text=str(raw)
-    if runtime and runtime.get('mp3d_root'):
-        text=text.replace('${AVENGINE_MP3D_ROOT}',str(runtime['mp3d_root']))
-    path=Path(os.path.expandvars(text)).expanduser()
-    if not path.is_absolute() and base is not None:path=Path(base)/path
+    text = Template(str(raw)).safe_substitute(configured_path_bindings(runtime))
+    missing = re.findall(r"\$\{([A-Za-z_][A-Za-z_0-9]*)\}", text)
+    if missing:
+        raise ValueError(
+            "QA plan path is missing configured roots: "
+            + ", ".join(sorted(set(missing)))
+        )
+    path = Path(text).expanduser()
+    if not path.is_absolute():
+        root = Path(base).expanduser() if base is not None else REPOSITORY_ROOT
+        if not root.is_absolute():
+            root = REPOSITORY_ROOT / root
+        path = root / path
     return path.resolve()
 
 
-def _package_mesh(package):
-    geometry=package.get('static_geometry') or {}
-    vertices=geometry.get('vertices',geometry.get('vertices_path'))
-    triangles=geometry.get('triangles',geometry.get('triangles_path'))
+def _package_mesh(package, *, runtime=None, base=None):
+    geometry = package.get("static_geometry") or {}
+    vertices = geometry.get("vertices", geometry.get("vertices_path"))
+    triangles = geometry.get("triangles", geometry.get("triangles_path"))
     if vertices and triangles:
-        mesh=MeshHandle.from_paths(vertices,triangles)
-        coordinate=geometry.get('coordinate_frame',{'linear_unit':'meter','up_axis':'+Y','handedness':'right'})
-        if coordinate.get('linear_unit')!='meter' or coordinate.get('up_axis')!='+Y' or coordinate.get('handedness')!='right':
-            raise ValueError('static geometry must declare the shared meter/+Y frame')
+        if isinstance(vertices, (str, Path)):
+            vertices = _resolved(vertices, base=base, runtime=runtime)
+        if isinstance(triangles, (str, Path)):
+            triangles = _resolved(triangles, base=base, runtime=runtime)
+        mesh = MeshHandle.from_paths(vertices, triangles)
+        coordinate = geometry.get(
+            "coordinate_frame",
+            {"linear_unit": "meter", "up_axis": "+Y", "handedness": "right"},
+        )
+        if (
+            coordinate.get("linear_unit") != "meter"
+            or coordinate.get("up_axis") != "+Y"
+            or coordinate.get("handedness") != "right"
+        ):
+            raise ValueError("static geometry must declare the shared meter/+Y frame")
         return mesh
     return None
 
@@ -60,18 +85,23 @@ def load_ue_walkable_grid(path, *, floor_height_m, clearance_m=.38):
     return RasterWalkableSpace(pf,nav)
 
 
-def _floor_value(package, room):
-    if room.get('floor_height_m') is not None:return float(room['floor_height_m'])
-    ref=package.get('floor_reference')
-    path=ref.get('path') if isinstance(ref,dict) else ref
-    if not path:raise ValueError('measured floor_reference is required for this adapter')
-    value=_read(path)
-    for key in ('floor_height_m','floor_y_m','measured_floor_height_m'):
-        if value.get(key) is not None:return float(value[key])
+def _floor_value(package, room, *, runtime=None, base=None):
+    if room.get("floor_height_m") is not None:
+        return float(room["floor_height_m"])
+    ref = package.get("floor_reference")
+    path = ref.get("path") if isinstance(ref, dict) else ref
+    if not path:
+        raise ValueError("measured floor_reference is required for this adapter")
+    path = _resolved(path, base=base, runtime=runtime)
+    value = _read(path)
+    for key in ("floor_height_m", "floor_y_m", "measured_floor_height_m"):
+        if value.get(key) is not None:
+            return float(value[key])
     # Existing UE floor artifacts retain their explicit engine units.
-    for key in ('floor_z_cm','ground_z_cm','measured_floor_z_cm'):
-        if value.get(key) is not None:return float(value[key])/100.
-    raise ValueError('floor_reference has no supported measured height field')
+    for key in ("floor_z_cm", "ground_z_cm", "measured_floor_z_cm"):
+        if value.get(key) is not None:
+            return float(value[key]) / 100.
+    raise ValueError("floor_reference has no supported measured height field")
 
 
 def load_planning_resources(room, request):
@@ -80,63 +110,175 @@ def load_planning_resources(room, request):
     from avengine.rooms.qa_episode import build_room_navigation
     from avengine.rooms.furniture_layout import load_room_layout
     from avengine.rooms.furnished_episode import _load_static_triangle_geometry
-    package=room.get('room_package',{});runtime=request.get('runtime',{})
-    kind=package.get('walkable_space',{}).get('kind')
-    if room.get('native_room_adapter')==nq.SCHEMA or kind=='route_bank':
-        resources=nq.discover_native_apartment_resources(repository=Path.cwd(),source_root=room['native_input_root'],
-                    route_bank=room['route_bank'],room_profile_path=room.get('native_room_profile'))
-        layout=nq.build_native_apartment_layout(resources)
-        pf,nav=build_room_navigation(layout,floor_height_m=float(layout['native_floor_height_m']))
-        bank=_read(resources.route_bank);seconds=float(bank['clip_seconds']);count=int(bank['frame_count']);rate=bank.get('frame_rate_hz',bank.get('frame_rate',count/seconds))
-        routes=[]
-        for raw in bank['routes']:
-            try:points=nq._route_points(raw)
-            except nq.NativeQAResourceError:continue
-            if len(points)!=count:continue
-            length=float(np.linalg.norm(np.diff(points,axis=0),axis=1).sum())
-            if length>=2. and .6<=length/seconds<=1.5:routes.append({'route_id':raw['route_id'],'points_m':points})
-        if not routes:raise ValueError('native route bank has no legal retained paths')
-        nav.update(route_authority='native_spear_ue_recast_route_bank',native_route_bank=str(resources.route_bank),native_route_count=len(routes))
-        space=NativeRouteWalkableSpace(pf,nav,routes,float(rate))
-    elif kind=='walkable_grid':
-        space=load_ue_walkable_grid(package['walkable_space']['path'],floor_height_m=_floor_value(package,room),
-                                    clearance_m=float(request.get('body_clearance_m',.38)))
-        layout={'room_id':room['room_id'],'scene_id':room.get('scene_id',room['room_id']),
-                'backend_route':'spear_unreal','visual_lighting':{},'manifest_path':package['walkable_space']['path']}
-        mesh=_package_mesh(package)
-        if mesh is None:raise ValueError('walkable-grid room needs shared static triangles')
-        return space,mesh,layout
-    elif room.get('backend')=='habitat' or package.get('renderer')=='habitat':
-        from avengine.rooms.habitat_capture import prepare_installed_habitat_runtime
-        rt=prepare_installed_habitat_runtime(**{k:runtime[k] for k in ('runtime_prefix','mp3d_root','magnum_python_site','rlr_sdk_root') if runtime.get(k)})
-        manifest_path=room.get('room_manifest');manifest=_read(manifest_path) if manifest_path else {}
-        navpath=package.get('walkable_space',{}).get('path') or manifest.get('scene',{}).get('navmesh_path')
-        navpath=_resolved(navpath,Path(manifest_path).parent if manifest_path else None,runtime)
-        pf=rt.habitat_sim.PathFinder()
-        if not pf.load_nav_mesh(str(navpath)):raise ValueError('native Habitat navmesh did not load')
-        # floor_reference comes from P3 native measurement, never a guessed ground height.
-        floor=_floor_value(package,room);bounds=np.asarray(pf.get_bounds())
-        nav={'authority':'habitat_native_pathfinder','floor_height_m':floor,'resolution_m':.08,
-             'bounds_habitat_m':bounds.tolist(),'source_manifest':str(navpath),'runtime_prefix':str(rt.prefix)}
-        space=HabitatWalkableSpace(pf,nav);mesh=_package_mesh(package)
-        if mesh is None:raise ValueError('Habitat room needs declared shared static triangles')
-        layout={'room_id':room['room_id'],'scene_id':manifest.get('room_id',room['room_id']),
-                'manifest_path':manifest_path,'backend_route':'habitat','visual_lighting':{},
-                'capture_resolution_hw':_read(room['m1_request'])['primary_camera_rig']['shared_calibration']['resolution_hw'] if room.get('m1_request') else [240,320]}
-        return space,mesh,layout
+
+    package = room.get("room_package") or {}
+    runtime = request.get("runtime") if isinstance(request.get("runtime"), dict) else {}
+    catalog_path = request.get("room_catalog")
+    if catalog_path:
+        catalog_file = _resolved(catalog_path, runtime=runtime)
+        resource_base = catalog_file.parent
+        package = resolve_room_package_paths(
+            package, runtime=runtime, relative_roots=[resource_base]
+        )
     else:
-        layout=load_room_layout(room['manifest'],asset_root=room.get('asset_root'),require_seats=False)
-        pf,nav=build_room_navigation(layout,clearance_m=float(request.get('body_clearance_m',.38)),floor_height_m=_floor_value(package,{}) if package.get('floor_reference') else room.get('floor_height_m'))
-        space=RasterWalkableSpace(pf,nav)
-    mesh=_package_mesh(package)
+        resource_base = REPOSITORY_ROOT
+    planning_inputs = package.get("planning_inputs") or {}
+    kind = package.get("walkable_space", {}).get("kind")
+
+    if room.get("native_room_adapter") == nq.SCHEMA or kind == "route_bank":
+        source_root = room.get("native_input_root") or planning_inputs.get("native_input_root")
+        route_bank = room.get("route_bank") or planning_inputs.get("route_bank")
+        profile_path = room.get("native_room_profile") or planning_inputs.get("native_room_profile")
+        resources = nq.discover_native_apartment_resources(
+            repository=REPOSITORY_ROOT,
+            source_root=_resolved(source_root, base=resource_base, runtime=runtime),
+            route_bank=_resolved(route_bank, base=resource_base, runtime=runtime),
+            room_profile_path=(
+                _resolved(profile_path, base=resource_base, runtime=runtime)
+                if profile_path else None
+            ),
+        )
+        layout = nq.build_native_apartment_layout(resources)
+        pf, nav = build_room_navigation(
+            layout, floor_height_m=float(layout["native_floor_height_m"])
+        )
+        bank = _read(resources.route_bank)
+        seconds = float(bank["clip_seconds"])
+        count = int(bank["frame_count"])
+        rate = bank.get("frame_rate_hz", bank.get("frame_rate", count / seconds))
+        routes = []
+        for raw in bank["routes"]:
+            try:
+                points = nq._route_points(raw)
+            except nq.NativeQAResourceError:
+                continue
+            if len(points) != count:
+                continue
+            length = float(np.linalg.norm(np.diff(points, axis=0), axis=1).sum())
+            if length >= 2. and .6 <= length / seconds <= 1.5:
+                routes.append({"route_id": raw["route_id"], "points_m": points})
+        if not routes:
+            raise ValueError("native route bank has no legal retained paths")
+        nav.update(
+            route_authority="native_spear_ue_recast_route_bank",
+            native_route_bank=str(resources.route_bank),
+            native_route_count=len(routes),
+        )
+        space = NativeRouteWalkableSpace(pf, nav, routes, float(rate))
+    elif kind == "walkable_grid":
+        floor_height = _floor_value(
+            package, room, runtime=runtime, base=resource_base
+        )
+        grid_path = _resolved(
+            package["walkable_space"]["path"], base=resource_base, runtime=runtime
+        )
+        space = load_ue_walkable_grid(
+            grid_path,
+            floor_height_m=floor_height,
+            clearance_m=float(request.get("body_clearance_m", .38)),
+        )
+        layout = {
+            "room_id": room["room_id"],
+            "scene_id": room.get("scene_id", room["room_id"]),
+            "backend_route": "spear_unreal",
+            "visual_lighting": {},
+            "manifest_path": str(grid_path),
+        }
+        mesh = _package_mesh(package, runtime=runtime, base=resource_base)
+        if mesh is None:
+            raise ValueError("walkable-grid room needs shared static triangles")
+        return space, mesh, layout
+    elif room.get("backend") == "habitat" or package.get("renderer") == "habitat":
+        from avengine.rooms.habitat_capture import prepare_installed_habitat_runtime
+
+        rt = prepare_installed_habitat_runtime(
+            **{
+                key: runtime[key]
+                for key in ("runtime_prefix", "mp3d_root", "magnum_python_site", "rlr_sdk_root")
+                if runtime.get(key)
+            }
+        )
+        manifest_raw = room.get("room_manifest") or planning_inputs.get("room_manifest")
+        manifest_path = (
+            _resolved(manifest_raw, base=resource_base, runtime=runtime)
+            if manifest_raw else None
+        )
+        manifest = _read(manifest_path) if manifest_path else {}
+        package_navpath = package.get("walkable_space", {}).get("path")
+        navpath = package_navpath or manifest.get("scene", {}).get("navmesh_path")
+        nav_base = (
+            resource_base
+            if package_navpath
+            else (manifest_path.parent if manifest_path else resource_base)
+        )
+        navpath = _resolved(navpath, base=nav_base, runtime=runtime)
+        pf = rt.habitat_sim.PathFinder()
+        if not pf.load_nav_mesh(str(navpath)):
+            raise ValueError("native Habitat navmesh did not load")
+        floor = _floor_value(package, room, runtime=runtime, base=resource_base)
+        bounds = np.asarray(pf.get_bounds())
+        nav = {
+            "authority": "habitat_native_pathfinder",
+            "floor_height_m": floor,
+            "resolution_m": .08,
+            "bounds_habitat_m": bounds.tolist(),
+            "source_manifest": str(navpath),
+            "runtime_prefix": str(rt.prefix),
+        }
+        space = HabitatWalkableSpace(pf, nav)
+        mesh = _package_mesh(package, runtime=runtime, base=resource_base)
+        if mesh is None:
+            raise ValueError("Habitat room needs declared shared static triangles")
+        m1_path = room.get("m1_request") or planning_inputs.get("m1_request")
+        layout = {
+            "room_id": room["room_id"],
+            "scene_id": manifest.get("room_id", room["room_id"]),
+            "manifest_path": str(manifest_path) if manifest_path else None,
+            "backend_route": "habitat",
+            "visual_lighting": {},
+            "capture_resolution_hw": (
+                _read(_resolved(m1_path, base=resource_base, runtime=runtime))
+                ["primary_camera_rig"]["shared_calibration"]["resolution_hw"]
+                if m1_path else [240, 320]
+            ),
+        }
+        return space, mesh, layout
+    else:
+        manifest_raw = room.get("manifest") or planning_inputs.get("manifest")
+        if not manifest_raw:
+            raise ValueError("furnished room requires a declared manifest path")
+        manifest_path = _resolved(manifest_raw, base=resource_base, runtime=runtime)
+        asset_root = room.get("asset_root") or planning_inputs.get("asset_root")
+        if asset_root:
+            asset_root = _resolved(asset_root, base=resource_base, runtime=runtime)
+        layout = load_room_layout(
+            manifest_path, asset_root=asset_root, require_seats=False
+        )
+        floor_height = (
+            _floor_value(package, {}, runtime=runtime, base=resource_base)
+            if package.get("floor_reference") else room.get("floor_height_m")
+        )
+        pf, nav = build_room_navigation(
+            layout,
+            clearance_m=float(request.get("body_clearance_m", .38)),
+            floor_height_m=floor_height,
+        )
+        space = RasterWalkableSpace(pf, nav)
+
+    mesh = _package_mesh(package, runtime=runtime, base=resource_base)
     if mesh is None:
-        raw=_load_static_triangle_geometry(layout)
-        if raw is None:raise ValueError('room has no retained static mesh for LOS')
-        vertices=np.asarray(raw['vertices'],dtype=float)
+        raw = _load_static_triangle_geometry(layout)
+        if raw is None:
+            raise ValueError("room has no retained static mesh for LOS")
+        vertices = np.asarray(raw["vertices"], dtype=float)
         # Retained furniture/native room mesh is in authoring Z-up meters.
-        vertices=np.column_stack((vertices[:,0],vertices[:,2],-vertices[:,1]))
-        mesh=MeshHandle(vertices,raw['triangles'],{'path':raw['source'],'transform':'authoring_xyz_m_to_xz_negative_y_m'})
-    return space,mesh,layout
+        vertices = np.column_stack((vertices[:, 0], vertices[:, 2], -vertices[:, 1]))
+        mesh = MeshHandle(
+            vertices,
+            raw["triangles"],
+            {"path": raw["source"], "transform": "authoring_xyz_m_to_xz_negative_y_m"},
+        )
+    return space, mesh, layout
 
 
 NEUTRAL_UE_RUNTIME_BINDING_MODE = "renderer_neutral_asset_frame_v2"

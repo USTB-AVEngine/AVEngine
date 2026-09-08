@@ -525,6 +525,35 @@ def test_qa10_keeps_open_form_when_only_one_real_occluder_is_registered() -> Non
     assert item["form_status"]["mcq"]["status"] == "deferred"
     assert "mcq" not in item["forms"]
 
+
+def test_qa10_never_uses_target_actor_as_mcq_distractor() -> None:
+    raw = _fixture()
+    # Make a single native actor occluder for the selected target and remove
+    # the static-object fixture entries. The target itself remains registered
+    # but is not a legal answer option.
+    for actor_id, record in raw["pixel_visibility_truth"]["per_instance"].items():
+        for frame in record["frames"]:
+            frame.pop("occluder_instance_ids", None)
+    raw["pixel_visibility_truth"]["per_instance"]["a0"]["frames"][10][
+        "occluder_instance_ids"
+    ] = ["a1"]
+    raw["occluder_registry"] = {
+        "a0": "blue actor",
+        "a1": "pink actor",
+    }
+    result = generate_unified_questions(raw, qa_ids=["QA-10"])
+    assert result["counts"] == {"requested": 1, "valid": 1, "deferred": 0}
+    item = result["items"][0]
+    assert item["evidence"] == {
+        "target_actor_id": "a0",
+        "frame": 10,
+        "occluder_instance_ids": ["a1"],
+        "option_instance_ids": ["a1"],
+    }
+    assert item["form_status"]["open"]["status"] == "pass"
+    assert item["form_status"]["mcq"]["status"] == "deferred"
+    assert "mcq" not in item["forms"]
+
 def test_p8_candidate_enumeration_and_structural_baseline_are_explicit() -> None:
     facts = _fixture()
     normalized = normalize_episode_bundle(facts)

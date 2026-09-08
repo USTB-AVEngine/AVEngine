@@ -17,6 +17,7 @@ from copy import deepcopy
 from fractions import Fraction
 import json
 import math
+from numbers import Real
 import os
 import wave
 from pathlib import Path
@@ -130,6 +131,56 @@ def _peak_dbfs(value: Any) -> float | None:
         return None
     return float(20.0 * math.log10(peak))
 
+
+def validate_post_assembly_convolution_gain(value: Any) -> float:
+    """Validate the one scalar applied after RIR convolution.
+
+    Event ``linear_gain`` remains owned by the dry AudioProgram assembly.  This
+    separate scalar is a render-time calibration input and is deliberately
+    limited to finite, non-negative real values so a malformed request cannot
+    silently produce NaN/Inf PCM or alter the existing peak fail-closed gate.
+    ``None`` preserves the historical unity behavior.
+    """
+
+    if value is None:
+        return 1.0
+    if isinstance(value, bool) or not isinstance(value, Real):
+        raise CurrentMP3DDynamicAudioError(
+            "post_assembly_convolution_gain must be a finite non-negative real"
+        )
+    try:
+        gain = float(value)
+    except (TypeError, ValueError, OverflowError) as error:
+        raise CurrentMP3DDynamicAudioError(
+            "post_assembly_convolution_gain must be a finite non-negative real"
+        ) from error
+    if not math.isfinite(gain) or gain < 0.0:
+        raise CurrentMP3DDynamicAudioError(
+            "post_assembly_convolution_gain must be a finite non-negative real"
+        )
+    return gain
+
+
+def _apply_post_assembly_convolution_gain(
+    value: Any, *, gain: float, owner: str
+) -> np.ndarray:
+    """Apply the declared scalar once and retain finite floating-point PCM."""
+
+    try:
+        array = np.asarray(value, dtype=np.float64)
+    except (TypeError, ValueError, OverflowError) as error:
+        raise CurrentMP3DDynamicAudioError(
+            f"{owner} cannot be converted to floating-point PCM"
+        ) from error
+    if not np.all(np.isfinite(array)):
+        raise CurrentMP3DDynamicAudioError(f"{owner} contains non-finite samples")
+    with np.errstate(over="ignore", invalid="ignore"):
+        scaled = np.ascontiguousarray(array * gain, dtype=np.float64)
+    if not np.all(np.isfinite(scaled)):
+        raise CurrentMP3DDynamicAudioError(
+            f"{owner} becomes non-finite after post-assembly convolution gain"
+        )
+    return scaled
 
 def _matrix_to_orientation_wxyz(matrix: Any) -> list[float]:
     rotation = np.asarray(matrix, dtype=np.float64)
@@ -1499,16 +1550,19 @@ def render_dynamic_research_audio(
     magnum_python_site: str | Path | None = None,
     diffraction: bool | None = None,
     max_diffraction_order: int | None = None,
+    post_assembly_convolution_gain: float | None = None,
 ) -> dict[str, Any]:
     """Render one room-agnostic episode from explicit positions and clock.
 
     The function is the shared acoustic renderer used by both the UE
     frame-readback adapter and the current MP3D CLI adapter. It consumes no
     renderer-specific coordinates and applies event gain only in the dry bus
-    assembler; convolution is always called with the already-gained buses.
+    assembler; convolution consumes those buses, then the declared scalar is
+    applied once to each wet stem and mixture before writing.
     """
 
     execution_label = _validate_execution_variant(execution_variant)
+    post_gain = validate_post_assembly_convolution_gain(post_assembly_convolution_gain)
     selected_layouts = _normalize_layouts(layouts)
     hrtf = None
     if "binaural" in selected_layouts:
@@ -1736,6 +1790,7 @@ def render_dynamic_research_audio(
                 "AudioProgram clock"
             )
         expected_channels = _LAYOUT_CHANNEL_COUNTS[layout]
+        scaled_stems: dict[str, np.ndarray] = {}
         if not isinstance(stems, Mapping):
             raise CurrentMP3DDynamicAudioError(
                 f"{layout} renderer must return a mapping of source stems"
@@ -1752,8 +1807,17 @@ def render_dynamic_research_audio(
                 expected_channels=expected_channels,
                 owner=f"{layout} stem {source_id!r}",
             )
+            scaled_stems[source_id] = _apply_post_assembly_convolution_gain(
+                stem.episode,
+                gain=post_gain,
+                owner=f"{layout} stem {source_id!r}",
+            )
         mixture = _require_layout_episode_samples(
-            mixture,
+            _apply_post_assembly_convolution_gain(
+                mixture,
+                gain=post_gain,
+                owner=f"{layout} mixture",
+            ),
             expected=expected_sample_count,
             expected_channels=expected_channels,
             owner=f"{layout} mixture",
@@ -1762,6 +1826,7 @@ def render_dynamic_research_audio(
             "sequence": sequence,
             "record": layout_record,
             "stems": stems,
+            "stem_samples": scaled_stems,
             "mixture": mixture,
         }
 
@@ -1802,11 +1867,11 @@ def render_dynamic_research_audio(
         _write(audio_root / "dry" / f"{source_id}.wav", dry)
     for layout in selected_layouts:
         layout_output_dir = _LAYOUT_OUTPUT_DIRS[layout]
-        stems = rendered[layout]["stems"]
+        stems = rendered[layout]["stem_samples"]
         for source_id in source_ids:
             _write(
                 audio_root / layout_output_dir / f"{source_id}_stem.wav",
-                stems[source_id].episode,
+                stems[source_id],
             )
         _write(
             audio_root / layout_output_dir / "mixture.wav",
@@ -1874,14 +1939,23 @@ def render_dynamic_research_audio(
                 rir_lengths=sequence_lengths[:, source_index[source_id]],
                 output_sample_count=expected_sample_count,
             )
-            wet_tail = _nonzero_interval(isolated.full_tail, threshold=1.0e-12)
+            scaled_full_tail = _apply_post_assembly_convolution_gain(
+                isolated.full_tail,
+                gain=post_gain,
+                owner=f"event {event_id!r} wet tail",
+            )
+            wet_tail = _nonzero_interval(scaled_full_tail, threshold=1.0e-12)
             if wet_tail is None:
                 raise CurrentMP3DDynamicAudioError(
                     f"event {event_id!r} produced no measurable wet tail"
                 )
-            event_stem = isolated.episode
-            wet_peak_abs = float(np.max(np.abs(isolated.full_tail))) if isolated.full_tail.size else 0.0
-            wet_peak_dbfs = _peak_dbfs(isolated.full_tail)
+            event_stem = _apply_post_assembly_convolution_gain(
+                isolated.episode,
+                gain=post_gain,
+                owner=f"event {event_id!r} stem",
+            )
+            wet_peak_abs = float(np.max(np.abs(scaled_full_tail))) if scaled_full_tail.size else 0.0
+            wet_peak_dbfs = _peak_dbfs(scaled_full_tail)
             event_activity_signal = True
         else:
             isolated = None
@@ -1941,12 +2015,13 @@ def render_dynamic_research_audio(
             "peak_abs": event_peak,
             "peak_dbfs": _peak_dbfs(event_stem),
             "gain_application": {
-                "applied_at": "dry_audio_assembly",
+                "applied_at": "dry_audio_assembly_then_post_assembly_convolution",
                 "application_count": 1,
                 "linear_gain": float(event.get("linear_gain", 1.0)),
-                "post_assembly_convolution_gain": 1.0,
+                "post_assembly_convolution_gain": post_gain,
+                "post_assembly_convolution_gain_application_count": 1,
                 "normalization": False,
-                "proof": "convolution_consumes_already_gained_named_dry_bus",
+                "proof": "event_gain_in_named_dry_bus_then_declared_scalar_after_convolution",
             },
             **activity,
         }
@@ -1978,8 +2053,8 @@ def render_dynamic_research_audio(
         if rendered[compatibility_layout]["mixture"].size
         else 0.0,
         "stems": {
-            source_id: float(np.max(np.abs(rendered[compatibility_layout]["stems"][source_id].episode)))
-            if rendered[compatibility_layout]["stems"][source_id].episode.size
+            source_id: float(np.max(np.abs(rendered[compatibility_layout]["stem_samples"][source_id])))
+            if rendered[compatibility_layout]["stem_samples"][source_id].size
             else 0.0
             for source_id in source_ids
         },
@@ -1988,7 +2063,7 @@ def render_dynamic_research_audio(
         "mixture": _peak_dbfs(rendered[compatibility_layout]["mixture"]),
         "stems": {
             source_id: _peak_dbfs(
-                rendered[compatibility_layout]["stems"][source_id].episode
+                rendered[compatibility_layout]["stem_samples"][source_id]
             )
             for source_id in source_ids
         },
@@ -2041,6 +2116,10 @@ def render_dynamic_research_audio(
         inputs["prepared_manifest"] = _input_record(prepared_manifest_path)
     if extra_inputs:
         inputs.update({key: value for key, value in extra_inputs.items()})
+    inputs["audio_render_config"] = {
+        "post_assembly_convolution_gain": post_gain,
+        "source": "explicit_render_argument_or_historical_default",
+    }
     materialized = assembly.materialized_program
     receipt_clock = {**dict(clock), "ticks_per_sample": 3}
     receipt: dict[str, Any] = {
@@ -2083,9 +2162,10 @@ def render_dynamic_research_audio(
             "precision_by_output": float32_precision,
         },
         "gain_application": {
-            "authority": "assemble_dry_audio_buses",
+            "authority": "assemble_dry_audio_buses_then_declared_render_gain",
             "applied_once_per_event": True,
-            "post_assembly_convolution_gain": 1.0,
+            "post_assembly_convolution_gain": post_gain,
+            "post_assembly_convolution_gain_application_count": 1,
             "normalization": False,
             "limiting": False,
         },
@@ -2098,6 +2178,7 @@ def render_dynamic_research_audio(
         "audio": {
             "sample_rate_hz": AUDIO_SAMPLE_RATE_HZ,
             "sample_count": clock["sample_count"],
+            "post_assembly_convolution_gain": post_gain,
             "layouts": list(selected_layouts),
             "layout_type": compatibility_layout,
             "channel_labels": list(_LAYOUT_CHANNEL_LABELS[compatibility_layout]),
@@ -2192,8 +2273,10 @@ def render_dynamic_research_audio(
         "qa": {
             "event_clock_and_gain": {
                 "status": "pass",
-                "source": "AudioProgram.events + assemble_dry_audio_buses",
+                "source": "AudioProgram.events + assemble_dry_audio_buses + declared_post_assembly_gain",
                 "gain_applied_once": True,
+                "post_assembly_convolution_gain": post_gain,
+                "post_assembly_convolution_gain_application_count": 1,
                 "normalization": False,
                 "peak_abs_by_stream": peak_abs,
                 "peak_dbfs_by_stream": peak_dbfs,
@@ -2305,6 +2388,7 @@ def render_neutral_readback_audio(
     magnum_python_site: str | Path | None = None,
     diffraction: bool | None = None,
     max_diffraction_order: int | None = None,
+    post_assembly_convolution_gain: float | None = None,
 ) -> dict[str, Any]:
     """Shared renderer entry that consumes a validated P1 NeutralReadback."""
     neutral = _load_neutral_input(neutral_readback)
@@ -2384,6 +2468,7 @@ def render_neutral_readback_audio(
         magnum_python_site=magnum_python_site,
         diffraction=diffraction,
         max_diffraction_order=max_diffraction_order,
+        post_assembly_convolution_gain=post_assembly_convolution_gain,
     )
 
 
@@ -2414,6 +2499,7 @@ def render_current_mp3d_dynamic_audio(
     max_diffraction_order: int | None = None,
     runtime_prefix: str | Path | None = None,
     rlr_sdk_root: str | Path | None = None,
+    post_assembly_convolution_gain: float | None = None,
     magnum_python_site: str | Path | None = None,
     source_endpoint_by_entity: Mapping[str, str] | None = None,
 ) -> dict[str, Any]:
@@ -2453,6 +2539,7 @@ def render_current_mp3d_dynamic_audio(
             listener_authority="P1 NeutralReadback camera[0]",
             diffraction=diffraction,
             max_diffraction_order=max_diffraction_order,
+            post_assembly_convolution_gain=post_assembly_convolution_gain,
             runtime_prefix=runtime_prefix,
             rlr_sdk_root=rlr_sdk_root,
             magnum_python_site=magnum_python_site,
@@ -2522,4 +2609,5 @@ def render_current_mp3d_dynamic_audio(
         },
         diffraction=diffraction,
         max_diffraction_order=max_diffraction_order,
+        post_assembly_convolution_gain=post_assembly_convolution_gain,
     )

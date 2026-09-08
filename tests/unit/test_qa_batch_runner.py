@@ -219,7 +219,10 @@ def test_resource_failure_without_gpu_is_explicit_and_independent(monkeypatch, r
     assert not called
     assert summary["outcome_counts"] == {"blocked": 1}
     outcome = json.loads((tmp_path / "execution/episodes/episode_no_gpu/attempt_01/outcome.json").read_text())
-    assert outcome["reason_code"] == "nvidia_smi_unavailable"
+    assert outcome["reason_code"] == "unclassified_failure"
+    assert outcome["gap_state"] == "evidence_missing_or_unsampled"
+    assert outcome["diagnostic"]["classification"] == "unclassified"
+    assert outcome["diagnostic"]["reason_code"] == "nvidia_smi_unavailable"
 
 
 def test_review_failure_preserves_captured_delivery(monkeypatch, runner, tmp_path):

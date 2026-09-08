@@ -28,6 +28,8 @@ from uuid import uuid4
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 REPOSITORY = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(REPOSITORY / "src"))
+from avengine.qa.failure_accounting import classify_failure
 CONTROLLER = REPOSITORY / "tools/studio/run_qa_episode.py"
 DEFAULT_MAX_PARALLEL = 4
 DEFAULT_MIN_FREE_GPU_MB = 8192
@@ -389,127 +391,20 @@ def _first_useful_error_line(text: str) -> str | None:
     return useful[-1][:2000] if useful else None
 
 
-_INTERFACE_EXCEPTION_TYPES = frozenset({
-    "ModuleNotFoundError",
-    "ImportError",
-    "NotImplementedError",
-    "CalledProcessError",
-    "UnifiedAudioReceiptError",
-    "EvidenceContractError",
-    "TypeError",
-    "AttributeError",
-    "FileNotFoundError",
-    "RuntimeError",
-    "SystemExit",
-    "AssertionError",
-    "KeyError",
-    "ValueError",
-    "OSError",
-    "JSONDecodeError",
-    "AudioProgramError",
-    "SubprocessError",
-})
-_PLANNING_EXHAUSTION_MARKERS = (
-    "conditionedplanningfailure",
-    "fixed condition profile exhausted",
-)
-
-
-def _exception_type(reason: str) -> str | None:
-    """Return the last TypeError-style token in ``Type: message`` form."""
-    if not isinstance(reason, str) or not reason.strip():
-        return None
-    match = None
-    for match in re.finditer(
-        r"(?:^|\n|[^A-Za-z0-9_.])(?:[A-Za-z_][\w]*\.)*([A-Za-z_][A-Za-z0-9_]*(?:Error|Exception|Failure))\s*:",
-        reason,
-    ):
-        pass
-    return match.group(1) if match else None
-
-
-def _is_planning_exhaustion(
-    reason: str,
-    *,
-    histogram: Mapping[str, Any] | None = None,
-    reason_code: str | None = None,
-) -> bool:
-    if reason_code == "planning_exhausted":
-        return True
-    if isinstance(histogram, Mapping) and histogram:
-        return True
-    lower = (reason or "").lower()
-    return any(marker in lower for marker in _PLANNING_EXHAUSTION_MARKERS)
-
-
-def _is_preallocation_deficit(reason: str, *, reason_code: str | None = None) -> bool:
-    if reason_code == "preallocation_gap":
-        return True
-    lower = (reason or "").lower()
-    return "preallocation_gap" in lower or "preallocation gap" in lower
-
-
-def _is_cli_interface_error(reason: str) -> bool:
-    lower = (reason or "").lower()
-    return (
-        "unrecognized arguments" in lower
-        or "the following arguments are required" in lower
-        or "no such option" in lower
-        or "missing cli" in lower
-        or lower.lstrip().startswith("error: argument")
-    )
-
-
-def _is_code_exception(reason: str) -> bool:
-    """True when the reason names a code exception or an audio/contract interface fault."""
-    if _exception_type(reason) in _INTERFACE_EXCEPTION_TYPES:
-        return True
-    if _is_cli_interface_error(reason):
-        return True
-    lower = (reason or "").lower()
-    return (
-        "audioprogram validation" in lower
-        or "unifiedaudioreceipt" in lower
-        or "validate_evidence_contract" in lower
-        or "evidencecontracterror" in lower
-        or "not implemented" in lower
-        or "interface_not_implemented" in lower
-    )
-
-
 def gap_state_for_failure(
     *,
     failure_stage: str,
     reason: str = "",
     reason_code: str | None = None,
     histogram: Mapping[str, Any] | None = None,
-) -> str:
-    """Owner rule 4: planning exhaustion / preallocation → evidence; code exceptions → interface."""
-    if _is_preallocation_deficit(reason, reason_code=reason_code):
-        return "evidence_missing_or_unsampled"
-    if _is_planning_exhaustion(reason, histogram=histogram, reason_code=reason_code):
-        return "evidence_missing_or_unsampled"
-    stage = failure_stage or "unknown"
-    if stage == "planning":
-        if _is_code_exception(reason):
-            return "interface_not_implemented"
-        return "evidence_missing_or_unsampled"
-    if stage == "audio":
-        return "interface_not_implemented"
-    if stage in {"capture", "finalize"}:
-        if _is_code_exception(reason):
-            return "interface_not_implemented"
-        return "evidence_missing_or_unsampled"
-    if stage == "launch":
-        return "interface_not_implemented"
-    if _is_code_exception(reason):
-        return "interface_not_implemented"
-    return "evidence_missing_or_unsampled"
-
-
-def _looks_like_interface_defect(reason: str, *, failure_stage: str = "finalize") -> bool:
-    """Backward-compatible wrapper around the stage/exception-type classifier."""
-    return gap_state_for_failure(failure_stage=failure_stage, reason=reason) == "interface_not_implemented"
+) -> str | None:
+    """Compatibility wrapper around the shared failure classifier."""
+    return classify_failure(
+        failure_stage=failure_stage,
+        reason=reason,
+        reason_code=reason_code,
+        histogram=histogram,
+    )["gap_state"]
 
 
 def classify_controller_failure(
@@ -519,15 +414,33 @@ def classify_controller_failure(
     stdout_path: Path | None = None,
     process_error: str | None = None,
     returncode: int | None = None,
-) -> dict[str, str]:
-    """Map controller artifacts onto failure_stage / gap_state / a useful reason."""
-    if process_error:
+) -> dict[str, Any]:
+    """Map controller artifacts onto shared failure accounting fields."""
+
+    def classified(
+        stage: str,
+        reason: str,
+        code: str,
+        *,
+        histogram: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        result = classify_failure(
+            failure_stage=stage,
+            reason=reason,
+            reason_code=code,
+            histogram=histogram,
+        )
         return {
-            "failure_stage": "launch",
-            "failure_reason": process_error,
-            "gap_state": gap_state_for_failure(failure_stage="launch", reason=process_error),
-            "reason_code": "controller_launch_failed",
+            "failure_stage": result["failure_stage"],
+            "failure_reason": result["failure_reason"],
+            "gap_state": result["gap_state"],
+            "reason_code": result.get("reason_code", code),
+            "diagnostic": result["diagnostic"],
         }
+
+    if process_error:
+        return classified("launch", process_error, "controller_launch_failed")
+
     root = Path(episode_output_root)
     planning: dict[str, Any] = {}
     planning_path = root / "planning_result.json"
@@ -562,34 +475,24 @@ def classify_controller_failure(
                 "ConditionedPlanningFailure: fixed condition profile exhausted "
                 + json.dumps(dict(histogram), ensure_ascii=False, sort_keys=True)
             )
-            return {
-                "failure_stage": "planning",
-                "failure_reason": reason,
-                "gap_state": "evidence_missing_or_unsampled",
-                "reason_code": "planning_exhausted",
-            }
+            return classified("planning", reason, "planning_exhausted", histogram=histogram)
         reason = (
             _first_useful_error_line(stderr)
             or _first_useful_error_line(stdout)
             or f"planning failed (exit {returncode})"
         )
-        exhausted = _is_planning_exhaustion(reason)
-        return {
-            "failure_stage": "planning",
-            "failure_reason": reason,
-            "gap_state": gap_state_for_failure(failure_stage="planning", reason=reason),
-            "reason_code": "planning_exhausted" if exhausted else "planning_failed",
-        }
+        probe = classify_failure(failure_stage="planning", reason=reason, reason_code="planning_failed")
+        code = (
+            "planning_exhausted"
+            if probe["diagnostic"]["classification_reason"] == "planning_exhaustion"
+            else "planning_failed"
+        )
+        return classified("planning", reason, code)
 
     audio_reason = _first_useful_error_line(audio_log)
     if audio_reason or (has_capture and not has_audio_report and (root / "delivery" / "audio.log").is_file()):
         reason = audio_reason or _first_useful_error_line(stderr) or f"audio render failed (exit {returncode})"
-        return {
-            "failure_stage": "audio",
-            "failure_reason": reason,
-            "gap_state": gap_state_for_failure(failure_stage="audio", reason=reason),
-            "reason_code": "audio_failed",
-        }
+        return classified("audio", reason, "audio_failed")
 
     if has_execution and not has_capture:
         reason = (
@@ -597,24 +500,14 @@ def classify_controller_failure(
             or _first_useful_error_line(stderr)
             or f"capture failed (exit {returncode})"
         )
-        return {
-            "failure_stage": "capture",
-            "failure_reason": reason,
-            "gap_state": gap_state_for_failure(failure_stage="capture", reason=reason),
-            "reason_code": "capture_failed",
-        }
+        return classified("capture", reason, "capture_failed")
 
     reason = (
         _first_useful_error_line(stderr)
         or _first_useful_error_line(combined)
         or f"finalize failed (exit {returncode})"
     )
-    return {
-        "failure_stage": "finalize",
-        "failure_reason": reason,
-        "gap_state": gap_state_for_failure(failure_stage="finalize", reason=reason),
-        "reason_code": "finalize_failed",
-    }
+    return classified("finalize", reason, "finalize_failed")
 
 
 def _finalize_delivery(attempt_root: Path, manifest_entry: Mapping[str, Any], *, repository: Path) -> dict[str, Any]:
@@ -736,13 +629,22 @@ class BatchExecutor:
                  preserve_logs: bool = False) -> dict[str, Any]:
         now = _utc_now()
         preallocation = code == "preallocation_gap"
+        classified = classify_failure(
+            failure_stage="planning" if preallocation else "launch",
+            reason=message,
+            reason_code=code,
+        )
+        diagnostic = {
+            **deepcopy(classified["diagnostic"]),
+            **deepcopy(dict(details or {})),
+        }
         outcome = {
             "schema": "avengine_qa_batch_episode_outcome_v1", "episode_id": job.episode_id,
-            "status": "blocked", "reason_code": code, "reason": message,
-            "failure_stage": "planning" if preallocation else "launch",
-            "failure_reason": message,
-            "gap_state": "evidence_missing_or_unsampled" if preallocation else "interface_not_implemented",
-            "diagnostic": deepcopy(dict(details or {})), "pid": None,
+            "status": "blocked", "reason_code": classified.get("reason_code", code), "reason": message,
+            "failure_stage": classified["failure_stage"],
+            "failure_reason": classified["failure_reason"],
+            "gap_state": classified["gap_state"],
+            "diagnostic": diagnostic, "pid": None,
             "started_at": None, "finished_at": now, "duration_seconds": 0.0,
             "request_path": str(job.request_path), "attempt_root": str(job.attempt_root),
             "episode_output_root": str(job.episode_output_root),
@@ -848,6 +750,7 @@ class BatchExecutor:
                     failure_stage=classified["failure_stage"],
                     failure_reason=classified["failure_reason"],
                     gap_state=classified["gap_state"],
+                    diagnostic=classified["diagnostic"],
                 )
                 base["finished_at"] = _utc_now()
                 base["duration_seconds"] = time.monotonic() - overall_started
@@ -860,13 +763,19 @@ class BatchExecutor:
                                  outcome_path=str(job.attempt_root / "outcome.json"))
                 return base
             if isinstance(controller_result, Mapping) and controller_result.get("episode_id") not in {None, job.episode_id}:
+                classified = classify_failure(
+                    failure_stage="finalize",
+                    reason="controller result episode_id differs from manifest",
+                    reason_code="controller_episode_mismatch",
+                )
                 base.update(
                     status="failed",
-                    reason_code="controller_episode_mismatch",
-                    reason="controller result episode_id differs from manifest",
-                    failure_stage="finalize",
-                    failure_reason="controller result episode_id differs from manifest",
-                    gap_state="interface_not_implemented",
+                    reason_code=classified.get("reason_code", "controller_episode_mismatch"),
+                    reason=classified["failure_reason"],
+                    failure_stage=classified["failure_stage"],
+                    failure_reason=classified["failure_reason"],
+                    gap_state=classified["gap_state"],
+                    diagnostic=classified["diagnostic"],
                 )
                 base["finished_at"] = _utc_now()
                 base["duration_seconds"] = time.monotonic() - overall_started
@@ -890,20 +799,42 @@ class BatchExecutor:
                     base["status"] = "delivered"
                     transition = "delivered"
                 else:
-                    base["status"] = "review_failed"
-                    base["reason_code"] = "review_failed"
-                    base["reason"] = "batch delivery review did not pass"
-                    base["failure_stage"] = "finalize"
-                    base["failure_reason"] = "batch delivery review did not pass"
-                    base["gap_state"] = "evidence_missing_or_unsampled"
+                    review_reason = (
+                        review.get("failure_reason")
+                        or review.get("reason")
+                        or review.get("error")
+                        or "batch delivery review did not pass"
+                    )
+                    classified = classify_failure(
+                        failure_stage="finalize",
+                        reason=str(review_reason),
+                        reason_code=review.get("reason_code") if isinstance(review.get("reason_code"), str) else "review_failed",
+                    )
+                    base.update(
+                        status="review_failed",
+                        reason_code=classified.get("reason_code", "review_failed"),
+                        reason=classified["failure_reason"],
+                        failure_stage=classified["failure_stage"],
+                        failure_reason=classified["failure_reason"],
+                        gap_state=classified["gap_state"],
+                        diagnostic=classified["diagnostic"],
+                    )
                     transition = "review_failed"
             except Exception as exc:  # preserve captured delivery and continue siblings
                 review_reason = f"{type(exc).__name__}: {exc}"
+                classified = classify_failure(
+                    failure_stage="finalize",
+                    reason=review_reason,
+                    reason_code="review_failed",
+                )
                 base.update(status="review_failed", review_status="review_failed",
-                            reason_code="review_failed", reason=review_reason,
+                            reason_code=classified.get("reason_code", "review_failed"),
+                            reason=classified["failure_reason"],
                             review_error=review_reason,
-                            failure_stage="finalize", failure_reason=review_reason,
-                            gap_state=gap_state_for_failure(failure_stage="finalize", reason=review_reason))
+                            failure_stage=classified["failure_stage"],
+                            failure_reason=classified["failure_reason"],
+                            gap_state=classified["gap_state"],
+                            diagnostic=classified["diagnostic"])
                 transition = "review_failed"
             finally:
                 review_finished_at = _utc_now()

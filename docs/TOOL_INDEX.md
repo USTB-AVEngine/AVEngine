@@ -5,7 +5,7 @@
 
 自 2026-08-25 起，目录本身就是能力分组（阶段目录 m1…m7 已移除），
 本表按目录列出每个工具做什么。
-当前共 406 个工具脚本。
+当前共 407 个工具脚本。
 
 ## 资产生成与装配（`tools/assets/`）
 
@@ -424,6 +424,7 @@
 | `tools/dataset/render_asset_bound_binaural_canary.py` | Render two real dry recordings through one completed asset-bound RIR cache |
 | `tools/dataset/render_current_apartment_dynamic_audio.py` | Render motion-following binaural audio for a current UE research capture |
 | `tools/dataset/render_room_evaluation_binaural.py` | Mix generic room-evaluation sound classes through a completed RIR cache |
+| `tools/dataset/replay_qa_batch_audio.py` | Replay selected QA audio into fresh attempts, reusing native captures and preserving history |
 | `tools/dataset/run_habitat_room_batch.py` | Batch Habitat-native RGB rendering for registry-selected rooms |
 | `tools/dataset/run_qa_batch.py` | Execute a fresh QA batch with bounded independent controller processes |
 | `tools/dataset/run_qwen_content_controls.py` | Run a resumable Qwen2.5-Omni content/visual control on sanitized Episode inputs |

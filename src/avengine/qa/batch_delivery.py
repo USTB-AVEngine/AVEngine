@@ -393,6 +393,7 @@ def finalize_batch_outputs(output_root: Path, manifest: Mapping[str, Any],
     """Produce full-denominator batch artifacts after the background queue ends."""
     from avengine.qa.batch_coverage import build_batch_coverage, write_batch_coverage
     from avengine.qa.batch_manifest import collect_batch_outcomes, grouped_splits
+    from avengine.qa.failure_accounting import classify_failure
 
     output_root, repository = Path(output_root).resolve(), Path(repository).resolve()
     summary_root = Path(summary_root).resolve() if summary_root else output_root / "summary"
@@ -400,6 +401,43 @@ def finalize_batch_outputs(output_root: Path, manifest: Mapping[str, Any],
     entries = {row["episode_id"]: row for row in manifest["episodes"]}
     records, contexts, split_records, audio_rows, previews = [], [], [], [], []
     failures = []
+
+    def classify_failed_record(
+        raw: Mapping[str, Any],
+        *,
+        status: str | None = None,
+        reason: str | None = None,
+        reason_code: str | None = None,
+    ) -> dict[str, Any]:
+        status = status or raw.get("status")
+        reason = reason if reason is not None else (
+            raw.get("failure_reason") or raw.get("reason") or raw.get("review_error")
+            or raw.get("failure_code") or ""
+        )
+        reason_code = reason_code if reason_code is not None else raw.get("reason_code")
+        declared_gap = raw.get("gap_state")
+        if reason_code == "unclassified_failure":
+            declared_gap = None
+        result = classify_failure(
+            failure_stage=raw.get("failure_stage"),
+            reason=str(reason),
+            reason_code=reason_code if isinstance(reason_code, str) else None,
+            status=status if isinstance(status, str) else None,
+            declared_gap_state=declared_gap if isinstance(declared_gap, str) else None,
+        )
+        existing = raw.get("diagnostic")
+        diagnostic = {
+            **result["diagnostic"],
+            **(deepcopy(dict(existing)) if isinstance(existing, Mapping) else {}),
+        }
+        return {
+            "failure_stage": result["failure_stage"],
+            "failure_reason": result["failure_reason"],
+            "failure_code": result.get("reason_code") or reason_code,
+            "gap_state": result["gap_state"],
+            "diagnostic": diagnostic,
+        }
+
     for raw in execution_summary["episodes"]:
         episode_id = raw["episode_id"]
         entry = entries[episode_id]
@@ -407,6 +445,29 @@ def finalize_batch_outputs(output_root: Path, manifest: Mapping[str, Any],
         review = raw.get("review")
         if isinstance(review, Mapping):
             record = deepcopy(dict(review))
+            if review.get("status") != "delivered":
+                review_reason = (
+                    review.get("failure_reason")
+                    or review.get("reason")
+                    or review.get("error")
+                )
+                fields = classify_failed_record(
+                    raw,
+                    status="review_failed",
+                    reason=str(review_reason) if review_reason else None,
+                    reason_code=(
+                        review.get("reason_code")
+                        if isinstance(review.get("reason_code"), str)
+                        else None
+                    ),
+                )
+                record.update(fields)
+                record.setdefault("episode_id", episode_id)
+                record.setdefault("status", "review_failed")
+                record.setdefault("failure_path", raw.get("stderr_log"))
+                record.setdefault("room_id", _failed_episode_room_id(episode_root, entry))
+                record.setdefault("asset_ids", _failed_episode_asset_ids(episode_root, entry, raw))
+                record["executor_outcome"] = deepcopy(dict(raw))
             records.append(record)
             if review.get("grouped_split_record"):
                 split_records.append(review["grouped_split_record"])
@@ -425,15 +486,17 @@ def finalize_batch_outputs(output_root: Path, manifest: Mapping[str, Any],
                 status = "capture_failed"
             else:
                 status = "delivery_failed"
-            record = {"episode_id": episode_id, "status": status,
-                      "failure_reason": raw.get("failure_reason") or raw.get("reason"),
-                      "failure_code": raw.get("reason_code"),
-                      "failure_stage": raw.get("failure_stage"),
-                      "gap_state": raw.get("gap_state"),
-                      "failure_path": raw.get("stderr_log"), "executor_outcome": deepcopy(dict(raw)),
-                      "stage_classification": "from_executor_result_and_existing_stage_artifacts",
-                      "room_id": _failed_episode_room_id(episode_root, entry),
-                      "asset_ids": _failed_episode_asset_ids(episode_root, entry, raw)}
+            fields = classify_failed_record(raw, status=status)
+            record = {
+                "episode_id": episode_id,
+                "status": status,
+                **fields,
+                "failure_path": raw.get("stderr_log"),
+                "executor_outcome": deepcopy(dict(raw)),
+                "stage_classification": "from_executor_result_and_existing_stage_artifacts",
+                "room_id": _failed_episode_room_id(episode_root, entry),
+                "asset_ids": _failed_episode_asset_ids(episode_root, entry, raw),
+            }
             plan_path = episode_root / "plan/episode_plan.json"
             if plan_path.is_file():
                 record["condition_profile"] = _read(plan_path).get("condition_profile")
@@ -492,6 +555,8 @@ def finalize_batch_outputs(output_root: Path, manifest: Mapping[str, Any],
             "gap_state": gap_state,
             "failure_stage": record.get("failure_stage"),
             "failure_reason": record.get("failure_reason") or record.get("failure_code"),
+            "reason_code": record.get("failure_code"),
+            "diagnostic": deepcopy(record.get("diagnostic")),
         })
     coverage_manifest = {"schema": "avengine_qa_batch_episode_input_manifest_v1",
                          "asset_inventory": request["source_registry"],

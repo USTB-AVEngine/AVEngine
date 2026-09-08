@@ -145,3 +145,5 @@ def test_production_catalog_relative_package_is_cwd_independent(tmp_path, monkey
     assert first == second
     assert first["room_id"] == entry["room_id"]
     assert not str(first["acoustic_package"]).startswith("${")
+    assert Path(first["floor_reference"]["path"]).is_absolute()
+    assert Path(first["static_geometry"]["vertices"]).is_absolute()

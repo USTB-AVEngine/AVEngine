@@ -47,6 +47,8 @@ from avengine.timeline.audio import render_dynamic_stems_and_mix, time_varying_c
 from avengine.timeline.audio_program import bind_audio_program_hash, validate_audio_program
 from avengine.timeline.current_mp3d_dynamic_audio import (
     render_neutral_readback_audio, _neutral_camera_pose, _neutral_source_trajectories,
+    _apply_post_assembly_convolution_gain,
+    validate_post_assembly_convolution_gain,
 )
 from avengine.capture.acoustics import build_strided_review_keyframes
 
@@ -1501,12 +1503,14 @@ def _render_plan_audio_legacy_dynamic(
     direct_sh_order: int = DEFAULT_DIRECT_SH_ORDER,
     indirect_sh_order: int = DEFAULT_INDIRECT_SH_ORDER,
     max_ir_seconds: float = DEFAULT_MAX_IR_SECONDS,
+    post_assembly_convolution_gain: float | None = None,
 ) -> dict[str, Any]:
     readback_path = Path(frame_readbacks).expanduser().resolve()
     package_path = Path(package_manifest).expanduser().resolve()
     plan_path = Path(audio_plan).expanduser().resolve()
     binding_path = Path(voice_binding).expanduser().resolve()
     hrtf_path = Path(hrtf_file).expanduser().resolve()
+    post_gain = validate_post_assembly_convolution_gain(post_assembly_convolution_gain)
     readback = _load(readback_path)
     plan = _load(plan_path)
     if not isinstance(readback, Mapping) or not isinstance(plan, Mapping):
@@ -1630,6 +1634,19 @@ def _render_plan_audio_legacy_dynamic(
         keyframe_samples=[int(item["sample_index"]) for item in keyframes],
         output_sample_count=int(clock["sample_count"]),
     )
+    scaled_stems_by_source = {
+        endpoint_id: _apply_post_assembly_convolution_gain(
+            stems_by_source[endpoint_id].episode,
+            gain=post_gain,
+            owner=f"binaural stem {endpoint_id!r}",
+        )
+        for endpoint_id in endpoint_ids
+    }
+    scaled_mixture = _apply_post_assembly_convolution_gain(
+        mixture,
+        gain=post_gain,
+        owner="binaural mixture",
+    )
     audio_root = root / "audio"
     audio_root.mkdir()
     output_files: dict[str, str] = {}
@@ -1649,10 +1666,13 @@ def _render_plan_audio_legacy_dynamic(
 
     for endpoint_id in endpoint_ids:
         write_audio(audio_root / "dry" / f"{endpoint_id}.wav", dry_buses[endpoint_id][None, :])
-        write_audio(audio_root / "binaural" / f"{endpoint_id}_stem.wav", stems_by_source[endpoint_id].episode)
+        write_audio(
+            audio_root / "binaural" / f"{endpoint_id}_stem.wav",
+            scaled_stems_by_source[endpoint_id],
+        )
     mixture_path = root / "four_speaker_sequential_mixture.wav"
-    write_audio(mixture_path, mixture)
-    write_audio(audio_root / "binaural" / "mixture.wav", mixture)
+    write_audio(mixture_path, scaled_mixture)
+    write_audio(audio_root / "binaural" / "mixture.wav", scaled_mixture)
 
     event_records: list[dict[str, Any]] = []
     source_index = {source_id: index for index, source_id in enumerate(endpoint_ids)}
@@ -1673,8 +1693,14 @@ def _render_plan_audio_legacy_dynamic(
             rir_lengths=rir_lengths[:, source_index[event["source_endpoint_id"]]],
             output_sample_count=int(clock["sample_count"]),
         )
+        event_id = str(event["event_id"])
+        scaled_event_full_tail = _apply_post_assembly_convolution_gain(
+            event_stem.full_tail,
+            gain=post_gain,
+            owner=f"event {event_id!r} wet tail",
+        )
         tail_interval = _nonzero_interval(
-            event_stem.full_tail, threshold=1.0e-12, offset=0
+            scaled_event_full_tail, threshold=1.0e-12, offset=0
         )
         if tail_interval is None:
             raise ValueError(f"{event['event_id']} produced a silent wet tail")
@@ -1691,6 +1717,11 @@ def _render_plan_audio_legacy_dynamic(
             clamped_end = sample_count
             clamped = True
         clamped_interval = [clamped_start, clamped_end]
+        scaled_event_episode = _apply_post_assembly_convolution_gain(
+            event_stem.episode,
+            gain=post_gain,
+            owner=f"event {event_id!r} stem",
+        )
         event_records.append(
             {
                 **event,
@@ -1715,10 +1746,40 @@ def _render_plan_audio_legacy_dynamic(
                 "wet_tail_end_sample_original": tail_end,
                 "wet_float_nonzero_interval": tail_interval,
                 "pcm_output_nonzero_interval": _nonzero_interval(
-                    event_stem.episode, threshold=1.0 / 32767.0, offset=0
+                    scaled_event_episode, threshold=1.0 / 32767.0, offset=0
                 ),
                 "keyframe_indices": [int(item["keyframe_index"]) for item in keyframes],
                 "output_stem": str((audio_root / "binaural" / f"{event['source_endpoint_id']}_stem.wav").resolve()),
+                "wet_tail_peak_abs": (
+                    float(np.max(np.abs(scaled_event_full_tail)))
+                    if scaled_event_full_tail.size
+                    else 0.0
+                ),
+                "wet_tail_peak_dbfs": (
+                    float(20.0 * np.log10(np.max(np.abs(scaled_event_full_tail))))
+                    if scaled_event_full_tail.size
+                    and np.max(np.abs(scaled_event_full_tail)) > 0.0
+                    else None
+                ),
+                "event_output_peak_abs": (
+                    float(np.max(np.abs(scaled_event_episode)))
+                    if scaled_event_episode.size
+                    else 0.0
+                ),
+                "event_output_peak_dbfs": (
+                    float(20.0 * np.log10(np.max(np.abs(scaled_event_episode))))
+                    if scaled_event_episode.size
+                    and np.max(np.abs(scaled_event_episode)) > 0.0
+                    else None
+                ),
+                "gain_application": {
+                    "applied_at": "dry_audio_assembly_then_post_assembly_convolution",
+                    "application_count": 1,
+                    "linear_gain": float(event.get("linear_gain", 1.0)),
+                    "post_assembly_convolution_gain": post_gain,
+                    "post_assembly_convolution_gain_application_count": 1,
+                    "normalization": False,
+                },
             }
         )
     per_source_overlap = {
@@ -1733,10 +1794,10 @@ def _render_plan_audio_legacy_dynamic(
         float(stem.maximum_partition_error) for stem in stems_by_source.values()
     )
     output_peaks = {
-        endpoint_id: float(np.max(np.abs(stems_by_source[endpoint_id].episode)))
+        endpoint_id: float(np.max(np.abs(scaled_stems_by_source[endpoint_id])))
         for endpoint_id in endpoint_ids
     }
-    output_peaks["mixture"] = float(np.max(np.abs(mixture)))
+    output_peaks["mixture"] = float(np.max(np.abs(scaled_mixture)))
     keyframe_metadata = {
         "schema": "avengine_dynamic_rir_keyframes_v1",
         "sampling": {
@@ -1778,6 +1839,14 @@ def _render_plan_audio_legacy_dynamic(
         "mixture_sha256": output_files[str(mixture_path.relative_to(root))],
         "audio_root": str(audio_root.resolve()),
         "voice_bindings": bindings,
+        "gain_application": {
+            "authority": "assemble_dry_audio_buses_then_declared_render_gain",
+            "applied_once_per_event": True,
+            "post_assembly_convolution_gain": post_gain,
+            "post_assembly_convolution_gain_application_count": 1,
+            "normalization": False,
+            "limiting": False,
+        },
         "dry_audio_assembly": dry_assembly.metadata(),
         "dynamic_rir": {
             "status": "pass",
@@ -1822,6 +1891,8 @@ def _render_plan_audio_legacy_dynamic(
                 "source": "plan.audio_events",
                 "dry_gain_and_fade_authority": "assemble_dry_audio_buses",
                 "per_source_actual_active_overlaps": per_source_overlap,
+                "post_assembly_convolution_gain": post_gain,
+                "post_assembly_convolution_gain_application_count": 1,
                 "output_peak_abs_by_stream": output_peaks,
                 "clipping_status": "pass",
             },
@@ -1942,6 +2013,7 @@ def _render_plan_audio(
     direct_sh_order: int = DEFAULT_DIRECT_SH_ORDER,
     indirect_sh_order: int = DEFAULT_INDIRECT_SH_ORDER,
     max_ir_seconds: float = DEFAULT_MAX_IR_SECONDS,
+    post_assembly_convolution_gain: float | None = None,
 ) -> dict[str, Any]:
     """Adapt the historical UE readbacks to the shared neutral renderer."""
     if frame_readbacks is None and neutral_readback is None:
@@ -2001,6 +2073,7 @@ def _render_plan_audio(
             indirect_ray_depth=indirect_ray_depth,
             source_ray_depth=source_ray_depth,
             diffraction=diffraction,
+            post_assembly_convolution_gain=post_assembly_convolution_gain,
             max_diffraction_order=max_diffraction_order,
             direct_sh_order=direct_sh_order,
             indirect_sh_order=indirect_sh_order,
@@ -2135,6 +2208,7 @@ def _render_plan_audio(
         },
         diffraction=diffraction,
         max_diffraction_order=max_diffraction_order,
+        post_assembly_convolution_gain=post_assembly_convolution_gain,
         rir_sequence_override=rir_sequence_override,
         scene_override=scene_override,
         runtime_prefix=runtime_prefix,
@@ -2162,7 +2236,7 @@ def render(
     direct_ray_count: int = 500,
     indirect_ray_count: int = 5000,
     source_ray_count: int = 500,
-    indirect_ray_depth: int = DEFAULT_INDIRECT_RAY_DEPTH,
+    indirect_ray_depth: int | None = None,
     source_ray_depth: int = 16,
     audio_plan: str | Path | None = None,
     hrtf_file: str | Path = "/usr/share/libmysofa/MIT_KEMAR_normal_pinna.sofa",
@@ -2175,6 +2249,7 @@ def render(
     direct_sh_order: int | None = None,
     indirect_sh_order: int | None = None,
     max_ir_seconds: float | None = None,
+    post_assembly_convolution_gain: float | None = None,
     simulation_request: str | Path | None = None,
 ) -> dict[str, Any]:
     overlay = simulation_overlay_from_mapping(
@@ -2197,9 +2272,13 @@ def render(
         resolved_indirect_sh = int(overlay["indirect_sh_order"])
     if max_ir_seconds is None and "max_ir_seconds" in overlay:
         resolved_max_ir = float(overlay["max_ir_seconds"])
-    resolved_depth = int(indirect_ray_depth)
-    if indirect_ray_depth == DEFAULT_INDIRECT_RAY_DEPTH and "indirect_ray_depth" in overlay:
-        # CLI/render default: allow the request file to select depth.
+    resolved_depth = (
+        DEFAULT_INDIRECT_RAY_DEPTH
+        if indirect_ray_depth is None
+        else int(indirect_ray_depth)
+    )
+    if indirect_ray_depth is None and "indirect_ray_depth" in overlay:
+        # An omitted CLI depth may be selected by the simulation overlay.
         resolved_depth = int(overlay["indirect_ray_depth"])
     if audio_plan is not None:
         return _render_plan_audio(
@@ -2223,6 +2302,7 @@ def render(
             prepared_manifest=prepared_manifest,
             diffraction=diffraction,
             max_diffraction_order=max_diffraction_order,
+            post_assembly_convolution_gain=post_assembly_convolution_gain,
             direct_sh_order=resolved_direct_sh,
             indirect_sh_order=resolved_indirect_sh,
             max_ir_seconds=resolved_max_ir,
@@ -2231,6 +2311,7 @@ def render(
     direct_sh_order = resolved_direct_sh
     indirect_sh_order = resolved_indirect_sh
     max_ir_seconds = resolved_max_ir
+    post_gain = validate_post_assembly_convolution_gain(post_assembly_convolution_gain)
     if frame_readbacks is None:
         raise ValueError("neutral_readback requires audio_plan; the legacy four-clip route requires frame_readbacks")
     readback_path = Path(frame_readbacks).expanduser().resolve()
@@ -2410,7 +2491,7 @@ def render(
             emitted_dry,
             ir,
             start_sample=event["start_sample"],
-            gain=1.0,
+            gain=post_gain,
         )
         stem_path = stems / f"{index:02d}_{actor_ids[index]}_rir.wav"
         stem = np.zeros_like(mixture)
@@ -2525,11 +2606,17 @@ def main() -> None:
     parser.add_argument("--direct-rays", type=int, default=500)
     parser.add_argument("--indirect-rays", type=int, default=5000)
     parser.add_argument("--source-rays", type=int, default=500)
-    parser.add_argument("--indirect-depth", type=int, default=DEFAULT_INDIRECT_RAY_DEPTH)
+    parser.add_argument("--indirect-depth", type=int, default=None)
     parser.add_argument("--source-depth", type=int, default=16)
     parser.add_argument("--direct-sh-order", type=int, default=None)
     parser.add_argument("--indirect-sh-order", type=int, default=None)
     parser.add_argument("--max-ir-seconds", type=float, default=None)
+    parser.add_argument(
+        "--post-assembly-convolution-gain",
+        type=float,
+        default=None,
+        help="apply one declared finite non-negative scalar to wet stems and mixtures",
+    )
     parser.add_argument(
         "--simulation-request",
         type=Path,
@@ -2605,6 +2692,7 @@ def main() -> None:
         indirect_sh_order=args.indirect_sh_order,
         max_ir_seconds=args.max_ir_seconds,
         simulation_request=args.simulation_request,
+        post_assembly_convolution_gain=args.post_assembly_convolution_gain,
     )
     output = report.get("mixture_path")
     if output is None:

@@ -3,7 +3,6 @@ from __future__ import annotations
 
 from copy import deepcopy
 import json
-import os
 import re
 from string import Template
 from pathlib import Path
@@ -106,7 +105,11 @@ def _is_repo_relative_path(value: str) -> bool:
     return _normalized_relative(value).startswith(_REPO_RELATIVE_PREFIXES)
 
 
-def _looks_like_relative_filesystem_path(value: str) -> bool:
+def _looks_like_relative_filesystem_path(
+    value: str,
+    *,
+    include_filename: bool = False,
+) -> bool:
     if _is_repo_relative_path(value):
         return True
     if not isinstance(value, str) or not value or value.startswith("/") or _is_ue_or_usd_virtual_path(value):
@@ -118,7 +121,7 @@ def _looks_like_relative_filesystem_path(value: str) -> bool:
     if name.endswith(".scene_dataset_config.json"):
         return True
     suffix = Path(value).suffix.lower()
-    return suffix in _PATH_SUFFIXES and "/" in normalized
+    return suffix in _PATH_SUFFIXES and (include_filename or "/" in normalized)
 
 
 def _relative_roots(
@@ -126,20 +129,32 @@ def _relative_roots(
     *,
     declared: str | Path | None = None,
 ) -> list[Path]:
-    roots: list[Path] = [REPOSITORY_ROOT]
+    roots: list[Path] = [REPOSITORY_ROOT.resolve()]
     seen = {REPOSITORY_ROOT.resolve()}
     extra: list[Path] = []
     if relative_roots:
         extra.extend(Path(item) for item in relative_roots)
     if declared is not None:
         path = Path(declared)
-        extra.append(path.parent if path.is_absolute() else (REPOSITORY_ROOT / path).parent)
+        extra.append(path.parent if path.is_absolute() else REPOSITORY_ROOT / path.parent)
     for item in extra:
-        resolved = item.resolve()
+        root = item if item.is_absolute() else REPOSITORY_ROOT / item
+        resolved = root.resolve()
         if resolved not in seen:
             seen.add(resolved)
-            roots.append(item)
+            roots.append(resolved)
     return roots
+
+
+def _resolve_relative_filesystem_path(value: str, roots: Sequence[Path]) -> str:
+    """Rebase a declared relative path against the repository/package roots."""
+    if _is_repo_relative_path(value):
+        return str((REPOSITORY_ROOT / value).resolve())
+    candidates = [Path(root) / value for root in roots[1:]]
+    for candidate in candidates:
+        if candidate.exists():
+            return str(candidate.resolve())
+    return str((Path(roots[-1]) / value).resolve())
 
 
 def _relative_roots_for_declared(declared: Any) -> list[Path]:
@@ -188,7 +203,7 @@ def missing_filesystem_paths(
             return
         should_check = _is_repo_relative_path(value)
         if check_all_relative:
-            should_check = should_check or _looks_like_relative_filesystem_path(value)
+            should_check = should_check or _looks_like_relative_filesystem_path(value, include_filename=True)
         if should_check and not exists_relative(value):
             missing.append((prefix, value))
 
@@ -216,7 +231,10 @@ def renderer_for_room(package: Mapping[str, Any]) -> str:
 
 
 def _load_json(path: str | Path) -> dict:
-    return json.loads(Path(os.path.expandvars(str(path))).expanduser().read_text())
+    text = str(path)
+    if _is_unexpanded_template(text):
+        raise ValueError(f"unexpanded path template is not allowed: {text!r}")
+    return json.loads(Path(text).expanduser().read_text(encoding="utf-8"))
 
 
 def configured_path_bindings(runtime: Mapping[str, Any] | None = None) -> dict[str, str]:
@@ -225,7 +243,10 @@ def configured_path_bindings(runtime: Mapping[str, Any] | None = None) -> dict[s
     Shell ``AVENGINE_*`` variables are not a source. Callers must pass
     ``runtime.path_bindings`` (and optional ``mp3d_root``).
     """
-    runtime = runtime or {}
+    if runtime is None:
+        runtime = {}
+    if not isinstance(runtime, Mapping):
+        raise ValueError("runtime must be a mapping")
     bindings: dict[str, str] = {}
     if runtime.get("mp3d_root"):
         bindings["AVENGINE_MP3D_ROOT"] = str(runtime["mp3d_root"])
@@ -236,9 +257,16 @@ def configured_path_bindings(runtime: Mapping[str, Any] | None = None) -> dict[s
     return bindings
 
 
-def resolve_room_package_paths(package: Mapping[str, Any], *, runtime: Mapping[str, Any] | None = None) -> dict:
-    """Expand configured package roots once, retaining original template metadata."""
+def resolve_room_package_paths(
+    package: Mapping[str, Any],
+    *,
+    runtime: Mapping[str, Any] | None = None,
+    relative_roots: Sequence[str | Path] | None = None,
+) -> dict:
+    """Expand configured roots and rebase relative filesystem paths."""
     bindings = configured_path_bindings(runtime)
+    roots = _relative_roots(relative_roots) if relative_roots is not None else None
+    missing: set[str] = set()
 
     def expand(value, key=""):
         if isinstance(value, Mapping):
@@ -247,40 +275,60 @@ def resolve_room_package_paths(package: Mapping[str, Any], *, runtime: Mapping[s
             return [expand(v, key) for v in value]
         if isinstance(value, str) and not key.endswith("_template"):
             result = Template(value).safe_substitute(bindings)
-            missing = re.findall(r"\$\{([A-Za-z_][A-Za-z_0-9]*)\}", result)
+            missing.update(re.findall(r"\$\{([A-Za-z_][A-Za-z_0-9]*)\}", result))
             if missing:
-                raise ValueError("RoomPackage missing configured path roots: " + ", ".join(sorted(set(missing))))
+                # Keep building the complete object so every undeclared root
+                # across every field appears in the final diagnostic.
+                return result
+            if roots is not None and _looks_like_relative_filesystem_path(
+                result, include_filename=True
+            ):
+                return _resolve_relative_filesystem_path(result, roots)
             return result
         return deepcopy(value)
-    return expand(package)
+
+    resolved = expand(package)
+    if missing:
+        raise ValueError(
+            "RoomPackage missing configured path roots: "
+            + ", ".join(sorted(missing))
+        )
+    return resolved
 
 
 def resolve_catalog_room_package_path(
     declared: str | Path,
     *,
     catalog_path: str | Path | None = None,
+    runtime: Mapping[str, Any] | None = None,
 ) -> Path:
-    """Resolve a catalog ``room_package`` path without using the process cwd.
-
-    Relative paths are joined to the catalog file's directory. Production
-    catalog rows store repo-relative paths such as
-    ``examples/rooms/packages/room_a.json``; those files live next to the
-    catalog, so a matching basename in the catalog directory is accepted.
-    """
-    text = os.path.expandvars(os.path.expanduser(str(declared)))
+    """Resolve a catalog room_package path against declared roots only."""
+    text = Template(str(declared)).safe_substitute(configured_path_bindings(runtime))
+    missing = re.findall(r"\$\{([A-Za-z_][A-Za-z_0-9]*)\}", text)
+    if missing:
+        raise ValueError(
+            "RoomPackage missing configured path roots: "
+            + ", ".join(sorted(set(missing)))
+        )
+    text = str(Path(text).expanduser())
     path = Path(text)
     if path.is_absolute():
-        return path
+        return path.resolve()
     if catalog_path is None:
         raise ValueError(f"relative room_package path requires catalog_path: {declared!r}")
-    catalog_dir = Path(catalog_path).expanduser().resolve().parent
-    joined = catalog_dir / path
-    if joined.exists():
-        return joined.resolve()
-    sibling = catalog_dir / path.name
-    if path.name and sibling.exists():
-        return sibling.resolve()
-    return joined.resolve()
+    catalog_file = Path(catalog_path).expanduser()
+    if not catalog_file.is_absolute():
+        catalog_file = REPOSITORY_ROOT / catalog_file
+    catalog_dir = catalog_file.resolve().parent
+    candidates = [catalog_dir / path]
+    if path.name:
+        candidates.append(catalog_dir / path.name)
+    if _is_repo_relative_path(text):
+        candidates.append(REPOSITORY_ROOT / path)
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate.resolve()
+    return candidates[0].resolve()
 
 
 def write_room_package_plan_snapshot(
@@ -298,7 +346,7 @@ def write_room_package_plan_snapshot(
     bindings = {str(key): str(value) for key, value in dict(path_bindings).items()}
     record: dict[str, Any] = {"path_bindings": bindings}
     if catalog_path is not None:
-        record["catalog_path"] = str(Path(catalog_path))
+        record["catalog_path"] = str(Path(catalog_path).expanduser().resolve())
     package_path.write_text(
         json.dumps(dict(package), ensure_ascii=False, indent=2, allow_nan=False) + "\n")
     bindings_path.write_text(
@@ -323,20 +371,28 @@ def package_from_catalog_entry(entry: Mapping[str, Any], *,
     if declared is not None:
         if isinstance(declared, (str, Path)):
             declared_path = resolve_catalog_room_package_path(
-                declared, catalog_path=catalog_path)
+                declared, catalog_path=catalog_path, runtime=runtime)
             package = _load_json(declared_path)
             relative_roots = _relative_roots_for_declared(declared_path)
         else:
             package = declared
             relative_roots = _relative_roots_for_declared(None)
         return validate_room_package(
-            resolve_room_package_paths(package, runtime=runtime),
+            resolve_room_package_paths(
+                package, runtime=runtime, relative_roots=relative_roots
+            ),
             relative_roots=relative_roots,
         )
     if entry.get("schema") == SCHEMA:
+        relative_roots = (
+            _relative_roots([Path(catalog_path).expanduser().resolve().parent])
+            if catalog_path is not None else _relative_roots(None)
+        )
         return validate_room_package(
-            resolve_room_package_paths(entry, runtime=runtime),
-            relative_roots=_relative_roots_for_declared(None),
+            resolve_room_package_paths(
+                entry, runtime=runtime, relative_roots=relative_roots
+            ),
+            relative_roots=relative_roots,
         )
     native = entry.get("native_room_adapter") == "avengine_native_spear_apartment_qa_room_v1"
     family = entry.get("family", "apartment" if native else "authored")
@@ -361,7 +417,7 @@ def package_from_catalog_entry(entry: Mapping[str, Any], *,
         source = {}
         if entry.get("room_manifest"):
             source = _load_json(resolve_catalog_room_package_path(
-                entry["room_manifest"], catalog_path=catalog_path))
+                entry["room_manifest"], catalog_path=catalog_path, runtime=runtime))
         scene = source.get("scene", {})
         package.update(
             visual_scene={"scene_glb": scene.get("scene_id"),
@@ -371,5 +427,14 @@ def package_from_catalog_entry(entry: Mapping[str, Any], *,
             semantics=deepcopy(source.get("semantics")),
             coordinate_frame={**deepcopy(source.get("coordinate_system", {})),
                               "world_transform": "identity_meter_y_up_right"})
-    package["validation_errors"] = room_package_errors(package)
+    relative_roots = (
+        _relative_roots([Path(catalog_path).expanduser().resolve().parent])
+        if catalog_path is not None else _relative_roots(None)
+    )
+    package = resolve_room_package_paths(
+        package, runtime=runtime, relative_roots=relative_roots
+    )
+    package["validation_errors"] = room_package_errors(
+        package, relative_roots=relative_roots
+    )
     return package

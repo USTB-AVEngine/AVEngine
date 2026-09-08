@@ -451,3 +451,116 @@ def test_scaleup_dry_run_cli_writes_sound_pool(tmp_path, monkeypatch):
         assert Path(row["request"]["room_catalog"]).is_absolute()
         assert row["request"]["runtime"]["path_bindings"]["AVENGINE_TEST_ROOT"] == "/data/test"
         assert "prepared_set" not in row["request"].get("sound_selection", {})
+    producer = manifest["producer"]
+    assert producer["room_catalog"] == str(catalog_path.resolve())
+    assert producer["source_registry"] == str(registry_path.resolve())
+    assert producer["sound_pool"] == str(sounds_path.resolve())
+    for key, path in (("room_catalog", catalog_path), ("source_registry", registry_path),
+                      ("sound_pool", sounds_path)):
+        assert producer["inputs"][key]["path"] == str(path.resolve())
+        assert producer["inputs"][key]["size_bytes"] == path.stat().st_size
+    assert producer["effective_runtime_path_inputs"]["path_bindings"] == {
+        "AVENGINE_TEST_ROOT": "/data/test"
+    }
+
+
+
+def test_collect_outcomes_uses_shared_failure_classifier_for_each_failure_stage():
+    manifest = {
+        "batch_id": "failure_classifier",
+        "episodes": [
+            {
+                "episode_id": "capture_slot",
+                "room_id": "room_a",
+                "room_family": "authored",
+                "condition_group": "identity_binding",
+                "requested_source_classes": ["articulated_human", "articulated_human"],
+                "requested_profile": {},
+                "source_assignments": [],
+                "requested_quota_by_qa": {"QA-01": 1},
+                "preallocation_gaps": [],
+            },
+            {
+                "episode_id": "delivery_slot",
+                "room_id": "room_a",
+                "room_family": "authored",
+                "condition_group": "audio_event_relations",
+                "requested_source_classes": ["articulated_human", "articulated_human"],
+                "requested_profile": {},
+                "source_assignments": [],
+                "requested_quota_by_qa": {"QA-01": 1},
+                "preallocation_gaps": [],
+            },
+            {
+                "episode_id": "review_slot",
+                "room_id": "room_a",
+                "room_family": "authored",
+                "condition_group": "visibility_occlusion",
+                "requested_source_classes": ["articulated_human", "articulated_human"],
+                "requested_profile": {},
+                "source_assignments": [],
+                "requested_quota_by_qa": {"QA-01": 1},
+                "preallocation_gaps": [],
+            },
+        ],
+    }
+    outcomes = collect_batch_outcomes(manifest, [
+        {
+            "episode_id": "capture_slot",
+            "status": "capture_failed",
+            "failure_reason": "renderer returned an unknown native status 17",
+        },
+        {
+            "episode_id": "delivery_slot",
+            "status": "delivery_failed",
+            "failure_reason": "ValueError: delivery output is malformed",
+        },
+        {
+            "episode_id": "review_slot",
+            "status": "review_failed",
+            "failure_reason": "review gate returned an unrecognised result",
+        },
+    ])
+    by_id = {row["episode_id"]: row for row in outcomes["episodes"]}
+    assert by_id["capture_slot"]["failure_stage"] == "capture"
+    assert by_id["capture_slot"]["gap_state"] == "evidence_missing_or_unsampled"
+    assert by_id["capture_slot"]["outcome"]["reason_code"] == "unclassified_failure"
+    assert by_id["capture_slot"]["outcome"]["diagnostic"]["classification"] == "unclassified"
+    assert by_id["capture_slot"]["outcome"]["diagnostic"]["failure_stage"] == "capture"
+    assert by_id["capture_slot"]["outcome"]["diagnostic"]["failure_reason"] == (
+        "renderer returned an unknown native status 17"
+    )
+    assert by_id["delivery_slot"]["failure_stage"] == "finalize"
+    assert by_id["delivery_slot"]["gap_state"] == "interface_not_implemented"
+    assert by_id["review_slot"]["failure_stage"] == "finalize"
+    assert by_id["review_slot"]["gap_state"] == "evidence_missing_or_unsampled"
+    assert by_id["review_slot"]["outcome"]["reason_code"] == "unclassified_failure"
+
+
+def test_collect_outcomes_marks_explicit_clip_rejection_as_evidence_gap():
+    manifest = {
+        "batch_id": "clip_classifier",
+        "episodes": [{
+            "episode_id": "clip_slot",
+            "room_id": "room_a",
+            "room_family": "authored",
+            "condition_group": "identity_binding",
+            "requested_source_classes": ["rigid_static_object", "rigid_static_object"],
+            "requested_profile": {},
+            "source_assignments": [],
+            "requested_quota_by_qa": {"QA-01": 1},
+            "preallocation_gaps": [],
+        }],
+    }
+    outcomes = collect_batch_outcomes(manifest, [{
+        "episode_id": "clip_slot",
+        "status": "audio_failed",
+        "failure_reason": (
+            "CurrentMP3DDynamicAudioError: audio output would clip "
+            "without normalization/limiting: peak=1.138"
+        ),
+    }])
+    row = outcomes["episodes"][0]
+    assert row["gap_state"] == "evidence_missing_or_unsampled"
+    assert row["outcome"]["reason_code"] == "clip_overflow_rejected"
+    assert row["outcome"]["diagnostic"]["classification_reason"] == "clip_overflow_rejection"

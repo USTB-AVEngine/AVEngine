@@ -3746,15 +3746,23 @@ def _generate_qa_10(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
                     "one or more pixel occluder IDs are not registered",
                     occluder_instance_ids=observed_ids,
                 )
-            candidate_ids = list(observed_ids)
+            # The target is part of the actor registry, but it cannot be a
+            # visible occluder of itself. Exclude it before constructing the
+            # real distractor domain; with one remaining registered actor,
+            # _question_item keeps Open and defers only MCQ.
+            candidate_ids = [item for item in observed_ids if item != actor_id]
             candidate_ids.extend(
-                item for item in registry if item not in candidate_ids
+                item
+                for item in registry
+                if item != actor_id and item not in candidate_ids
             )
             if len(candidate_ids) < 2:
                 candidate_ids.extend(
                     item
                     for item in facts.get("actors", {})
-                    if item in registry and item not in candidate_ids
+                    if item != actor_id
+                    and item in registry
+                    and item not in candidate_ids
                 )
             for occluder_id in observed_ids:
                 if occluder_id in facts.get("actors", {}) and occluder_id not in reviewed:

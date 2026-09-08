@@ -24,7 +24,6 @@ from avengine.rooms.conditioned_sampler import load_conditioned_sound_pool
 from avengine.runtime_profiles import load_source_asset_runtime_registry
 
 PRODUCTION_ROOM_CATALOG = REPOSITORY / "examples/rooms/packages/catalog.json"
-CODEX_CATALOG_MARKERS = ("wt-multi-home-activity-integration",)
 
 
 def read(path):
@@ -48,32 +47,78 @@ def _existing(path, fallback):
     return path
 
 
+def _resolve_declared_file(
+    configured: Any,
+    fallback: Path | None = None,
+    *,
+    label: str,
+) -> Path:
+    candidate = fallback if configured is None or str(configured).strip() == "" else Path(str(configured)).expanduser()
+    if candidate is None:
+        raise FileNotFoundError(f"{label} is required")
+    if not candidate.is_absolute():
+        candidate = REPOSITORY / candidate
+    candidate = candidate.resolve()
+    if not candidate.is_file():
+        raise FileNotFoundError(f"{label} does not exist: {candidate}")
+    return candidate
+
+
+def _input_metadata(path: Path, *, label: str) -> dict[str, Any]:
+    resolved = _resolve_declared_file(path, label=label)
+    record = {"path": str(resolved), "size_bytes": resolved.stat().st_size}
+    try:
+        relative = resolved.relative_to(REPOSITORY.resolve())
+    except ValueError:
+        return record
+    tracked = subprocess.run(
+        ["git", "ls-files", "--error-unmatch", "--", str(relative)],
+        cwd=REPOSITORY, capture_output=True, text=True,
+    )
+    if tracked.returncode == 0:
+        record["git"] = {
+            "repository": str(REPOSITORY),
+            "path": str(relative),
+            "commit": subprocess.check_output(
+                ["git", "rev-parse", "HEAD"], cwd=REPOSITORY, text=True
+            ).strip(),
+            "working_tree_changes": subprocess.check_output(
+                ["git", "status", "--porcelain", "--", str(relative)],
+                cwd=REPOSITORY, text=True,
+            ).splitlines(),
+        }
+    return record
+
+
+def _effective_runtime_path_inputs(rows: list[Mapping[str, Any]], bindings: Mapping[str, Any]) -> dict[str, Any]:
+    runtimes = [
+        row.get("request", {}).get("runtime", {})
+        for row in rows
+        if isinstance(row.get("request"), Mapping)
+    ]
+    normalized = [json.dumps(value, ensure_ascii=False, sort_keys=True) for value in runtimes]
+    runtime = runtimes[0] if normalized and all(value == normalized[0] for value in normalized) else {
+        row.get("episode_id"): row.get("request", {}).get("runtime", {})
+        for row in rows
+    }
+    return {
+        "path_bindings": {str(key): str(value) for key, value in dict(bindings).items()},
+        "runtime": runtime,
+    }
+
+
 def production_room_catalog_path() -> Path:
     return PRODUCTION_ROOM_CATALOG.resolve()
 
 
 def resolve_request_room_catalog(configured: Any = None, *, explicit: Path | None = None) -> Path:
-    """Choose the catalog path written into each request.
-
-    Default is this worktree's production catalog. Codex integration-tree
-    paths are replaced. Relative paths resolve against the repository, not cwd.
-    ``explicit`` (``--catalog``) is used as given after becoming absolute.
-    """
+    """Resolve the declared catalog against the repository or an explicit input."""
     production = production_room_catalog_path()
     if explicit is not None:
-        return Path(explicit).expanduser().resolve()
+        return _resolve_declared_file(explicit, label="room catalog")
     if configured is None or str(configured).strip() == "":
-        return production
-    raw = Path(str(configured)).expanduser()
-    text = str(raw)
-    if any(marker in text for marker in CODEX_CATALOG_MARKERS):
-        return production
-    if not raw.is_absolute():
-        repo_relative = (REPOSITORY / raw).resolve()
-        return repo_relative if repo_relative.exists() else production
-    if raw.exists():
-        return raw.resolve()
-    return production
+        return _resolve_declared_file(production, label="room catalog")
+    return _resolve_declared_file(configured, label="room catalog")
 
 
 def catalog_path_bindings(catalog: Any) -> dict[str, str]:
@@ -107,45 +152,90 @@ def stamp_request_catalog(
 
 def _load_sounds(config, output):
     base = config["base_request"]
-    registry = load_source_asset_runtime_registry(
-        _existing(base["source_registry"], REPOSITORY / "examples/runtime/source_asset_runtime_profiles.json"))
+    registry_path = _resolve_declared_file(
+        base.get("source_registry"),
+        REPOSITORY / "examples/runtime/source_asset_runtime_profiles.json",
+        label="source registry",
+    )
+    base["source_registry"] = str(registry_path)
+    registry = load_source_asset_runtime_registry(registry_path)
     catalog_path = resolve_request_room_catalog(base.get("room_catalog"))
     catalog = read(catalog_path)
-    stamp_request_catalog(base, catalog_path=catalog_path, path_bindings=catalog_path_bindings(catalog))
+    stamp_request_catalog(
+        base, catalog_path=catalog_path, path_bindings=catalog_path_bindings(catalog)
+    )
     if config.get("sound_sources") is not None:
         pool = build_batch_sound_pool(config["sound_sources"], registry)
-        pool_path = output / "batch_sounds.json"
+        pool_path = (Path(output) / "batch_sounds.json").resolve()
         base["sound_pool"] = str(pool_path)
         base.setdefault("sound_selection", {}).pop("prepared_set", None)
         sounds = pool["sounds"]
     else:
         pool = None
-        pool_path = base.get("sound_selection", {}).get("prepared_set") or base["sound_pool"]
+        selection = base.get("sound_selection") if isinstance(base.get("sound_selection"), Mapping) else {}
+        configured_pool = selection.get("prepared_set") or base.get("sound_pool")
+        pool_path = _resolve_declared_file(configured_pool, label="sound pool")
         sounds = load_conditioned_sound_pool(read(pool_path), source_path=pool_path)
-    return registry, catalog, sounds, pool, pool_path, catalog_path
+        base["sound_pool"] = str(pool_path)
+        base.setdefault("sound_selection", {}).pop("prepared_set", None)
+    return registry, catalog, sounds, pool, pool_path, catalog_path, registry_path
 
 
-def _annotate_prepare(result, output, config_path, *, catalog_path, path_bindings):
-    catalog_path = Path(catalog_path).resolve()
+def _annotate_prepare(
+    result,
+    output,
+    config_path,
+    *,
+    catalog_path,
+    path_bindings,
+    source_registry_path,
+    sound_pool_path,
+):
+    catalog_path = Path(catalog_path).expanduser().resolve()
+    source_registry_path = Path(source_registry_path).expanduser().resolve()
+    sound_pool_path = Path(sound_pool_path).expanduser().resolve()
     bindings = {str(key): str(value) for key, value in dict(path_bindings).items()}
     for row in result["episodes"]:
         name = row["episode_id"] + ".json"
         if Path(name).name != name:
             raise ValueError("episode_id cannot contain path separators")
         stamp_request_catalog(row["request"], catalog_path=catalog_path, path_bindings=bindings)
+        row["request"]["source_registry"] = str(source_registry_path)
+        row["request"]["sound_pool"] = str(sound_pool_path)
         request_path = output / "requests" / name
         write(request_path, row["request"])
         row["request_path"] = str(request_path)
         row["controller_entrypoint"] = str(REPOSITORY / "tools/studio/run_qa_episode.py")
-    result["source_config_path"] = str(Path(config_path).resolve())
-    dirty = subprocess.check_output(["git", "status", "--porcelain"], cwd=REPOSITORY, text=True).splitlines()
-    result["producer"] = {"repository": str(REPOSITORY),
-                          "git_commit": subprocess.check_output(["git", "rev-parse", "HEAD"],
-                                                                cwd=REPOSITORY, text=True).strip(),
-                          "working_tree_changes": dirty,
-                          "code_state": "working_tree" if dirty else "committed",
-                          "python": sys.executable,
-                          "room_catalog": str(catalog_path)}
+    result["source_config_path"] = str(Path(config_path).expanduser().resolve())
+    dirty = subprocess.check_output(
+        ["git", "status", "--porcelain"], cwd=REPOSITORY, text=True
+    ).splitlines()
+    commit = subprocess.check_output(
+        ["git", "rev-parse", "HEAD"], cwd=REPOSITORY, text=True
+    ).strip()
+    branch = subprocess.check_output(
+        ["git", "branch", "--show-current"], cwd=REPOSITORY, text=True
+    ).strip()
+    inputs = {
+        "room_catalog": _input_metadata(catalog_path, label="room catalog"),
+        "source_registry": _input_metadata(source_registry_path, label="source registry"),
+        "sound_pool": _input_metadata(sound_pool_path, label="sound pool"),
+    }
+    result["producer"] = {
+        "repository": str(REPOSITORY),
+        "git_commit": commit,
+        "git_branch": branch,
+        "working_tree_changes": dirty,
+        "code_state": "working_tree" if dirty else "committed",
+        "python": sys.executable,
+        "room_catalog": str(catalog_path),
+        "source_registry": str(source_registry_path),
+        "sound_pool": str(sound_pool_path),
+        "inputs": inputs,
+        "effective_runtime_path_inputs": _effective_runtime_path_inputs(
+            result["episodes"], bindings
+        ),
+    }
     return result
 
 
@@ -181,13 +271,14 @@ def main(argv=None):
         raise FileExistsError(f"refusing existing output: {output}")
     if args.command == "prepare":
         config = read(args.config)
-        registry, catalog, sounds, pool, pool_path, catalog_path = _load_sounds(config, output)
+        registry, catalog, sounds, pool, pool_path, catalog_path, registry_path = _load_sounds(config, output)
         result = prepare_batch_manifest(config, registry, catalog, sounds)
         if pool is not None:
             write(Path(pool_path), pool)
         result = _annotate_prepare(
             result, output, args.config, catalog_path=catalog_path,
-            path_bindings=catalog_path_bindings(catalog))
+            path_bindings=catalog_path_bindings(catalog),
+            source_registry_path=registry_path, sound_pool_path=pool_path)
         write(output / "batch_manifest.json", result)
     elif args.command == "outcomes":
         result = collect_batch_outcomes(read(args.manifest), read(args.records))
@@ -200,19 +291,23 @@ def main(argv=None):
         catalog_path = resolve_request_room_catalog(base.get("room_catalog"), explicit=args.catalog)
         catalog = read(catalog_path)
         stamp_request_catalog(base, catalog_path=catalog_path, path_bindings=catalog_path_bindings(catalog))
-        base["source_registry"] = str(Path(_existing(
-            base.get("source_registry", REPOSITORY / "examples/runtime/source_asset_runtime_profiles.json"),
-            REPOSITORY / "examples/runtime/source_asset_runtime_profiles.json")).resolve())
-        registry = load_source_asset_runtime_registry(base["source_registry"])
+        registry_path = _resolve_declared_file(
+            base.get("source_registry"),
+            REPOSITORY / "examples/runtime/source_asset_runtime_profiles.json",
+            label="source registry",
+        )
+        base["source_registry"] = str(registry_path)
+        registry = load_source_asset_runtime_registry(registry_path)
         if args.sounds is not None:
-            sounds_path = Path(args.sounds).expanduser().resolve()
+            sounds_path = _resolve_declared_file(args.sounds, label="sound pool")
             payload = read(sounds_path)
             sounds = payload.get("sounds", payload) if isinstance(payload, dict) else payload
             pool = None
             base["sound_pool"] = str(sounds_path)
+            pool_path = sounds_path
             base.setdefault("sound_selection", {}).pop("prepared_set", None)
         else:
-            registry, catalog, sounds, pool, pool_path, catalog_path = _load_sounds(config, output)
+            registry, catalog, sounds, pool, pool_path, catalog_path, registry_path = _load_sounds(config, output)
             stamp_request_catalog(base, catalog_path=catalog_path, path_bindings=catalog_path_bindings(catalog))
         packed = prepare_scaleup_dry_run(
             config, registry, catalog, sounds, seed=args.seed,
@@ -226,12 +321,13 @@ def main(argv=None):
             req["source_registry"] = base["source_registry"]
             if sound_pool:
                 req["sound_pool"] = sound_pool
-        result = _annotate_prepare(
-            result, output, args.config, catalog_path=catalog_path,
-            path_bindings=bindings)
         if pool is not None:
             write(output / "batch_sounds.json", pool)
         write(output / "scaleup_config.json", packed["config"])
+        result = _annotate_prepare(
+            result, output, args.config, catalog_path=catalog_path,
+            path_bindings=bindings,
+            source_registry_path=registry_path, sound_pool_path=pool_path)
         write(output / "batch_manifest.json", result)
         off_screen = sum(
             1 for row in result["episodes"]

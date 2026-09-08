@@ -1412,6 +1412,7 @@ def _m5_render_current_mp3d_dynamic_audio(args: argparse.Namespace) -> int:
                 ticks_per_frame=args.ticks_per_frame,
                 neutral_readback_path=getattr(args, "neutral_readback", None),
                 prepared_manifest_path=getattr(args, "prepared_manifest", None),
+                post_assembly_convolution_gain=getattr(args, "post_assembly_convolution_gain", None),
                 diffraction=getattr(args, "diffraction", None),
                 max_diffraction_order=getattr(args, "max_diffraction_order", None),
             )
@@ -2321,6 +2322,10 @@ def build_parser() -> argparse.ArgumentParser:
     m5_dynamic_audio.add_argument("--rlr-sdk-root", required=True)
     m5_dynamic_audio.add_argument("--magnum-python-site")
     m5_dynamic_audio.add_argument("--rir-stride-frames", type=int, default=3)
+    m5_dynamic_audio.add_argument(
+        "--post-assembly-convolution-gain", type=float,
+        help="declared scalar applied once to wet stems and mixture before peak validation",
+    )
     m5_dynamic_audio.add_argument(
         "--neutral-readback",
         help="optional P1 NeutralReadback JSON; otherwise use the legacy frame capture",

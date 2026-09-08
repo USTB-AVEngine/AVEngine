@@ -20,6 +20,16 @@ from avengine.rooms.qa_evidence import (
 )
 
 
+
+def _declared_audio_gain(request: Mapping[str, Any], plan: Mapping[str, Any]) -> float | None:
+    from avengine.timeline.current_mp3d_dynamic_audio import validate_post_assembly_convolution_gain
+
+    runtime = request.get("runtime")
+    for source in (request, runtime, plan):
+        if isinstance(source, Mapping) and source.get("post_assembly_convolution_gain") is not None:
+            return validate_post_assembly_convolution_gain(source["post_assembly_convolution_gain"])
+    return None
+
 def build_audio_command(
     request: Mapping[str, Any], plan: Mapping[str, Any], episode_root: Path,
     audio_root: Path, *, repository: Path,
@@ -28,6 +38,10 @@ def build_audio_command(
     runtime = request["runtime"]
     selected_capture = Path(capture_root) if capture_root is not None else episode_root / "capture"
     selected_plan = Path(plan_root) if plan_root is not None else episode_root / "plan"
+    cache_value = request.get("rir_cache") or runtime.get("rir_cache") or plan.get("rir_cache")
+    cache_path = Path(cache_value).expanduser().resolve() if cache_value else audio_root.parent / (audio_root.name + "_rir_cache")
+    if cache_value and not cache_path.is_dir():
+        raise FileNotFoundError(f"declared existing RIR cache is unavailable: {cache_path}")
     command = [
         sys.executable, str(repository / "tools/acoustics/render_frame_readback_sequential_speech.py"),
         "--frame-readbacks", str(selected_capture / "frame_readbacks.json"),
@@ -38,9 +52,12 @@ def build_audio_command(
         "--runtime-prefix", str(runtime["runtime_prefix"]),
         "--rlr-sdk-root", str(runtime["rlr_sdk_root"]),
         "--magnum-python-site", str(runtime["magnum_python_site"]),
-        "--rir-cache", str(audio_root.parent / (audio_root.name + "_rir_cache")),
+        "--rir-cache", str(cache_path),
         "--rir-stride", str(request.get("rir_stride", 3)),
     ]
+    gain = _declared_audio_gain(request, plan)
+    if gain is not None:
+        command += ["--post-assembly-convolution-gain", str(gain)]
     if runtime.get("hrtf"):
         command += ["--hrtf", str(runtime["hrtf"])]
     neutral = (
@@ -387,9 +404,10 @@ def _build_habitat_audio_command(
     if not isinstance(package_value, str):
         raise ValueError("Habitat audio plan lacks acoustic package manifest")
     simulation_value = (
-        resources.get("simulation_request")
+        request.get("simulation_request")
         or runtime.get("simulation_request")
-        or request.get("simulation_request")
+        or plan.get("simulation_request")
+        or resources.get("simulation_request")
         or str(repository / "examples/runtime/rir_cache_simulation_request_v2.json")
     )
     bindings = plan.get("voice_bindings")
@@ -426,6 +444,16 @@ def _build_habitat_audio_command(
         "--rlr-sdk-root", str(runtime.get("rlr_sdk_root", "")),
         "--output", str(audio_root),
     ]
+    gain = _declared_audio_gain(request, plan)
+    if gain is not None:
+        command += ["--post-assembly-convolution-gain", str(gain)]
+    if "diffraction" in request:
+        command += ["--diffraction" if request["diffraction"] else "--no-diffraction"]
+    elif "diffraction" in runtime:
+        command += ["--diffraction" if runtime["diffraction"] else "--no-diffraction"]
+    max_order = request.get("max_diffraction_order", runtime.get("max_diffraction_order"))
+    if max_order is not None:
+        command += ["--max-diffraction-order", str(max_order)]
     if runtime.get("magnum_python_site"):
         command += ["--magnum-python-site", str(runtime["magnum_python_site"])]
     neutral = capture_root / "neutral_readback.json"

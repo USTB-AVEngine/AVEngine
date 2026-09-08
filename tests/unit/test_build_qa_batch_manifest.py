@@ -31,11 +31,13 @@ def controller():
     return _load("tools/studio/run_qa_episode.py")
 
 
-def test_codex_catalog_is_replaced_with_production_worktree(builder, tmp_path, monkeypatch):
+def test_declared_catalog_path_is_preserved_without_directory_heuristics(builder, tmp_path, monkeypatch):
     production = builder.production_room_catalog_path()
     monkeypatch.chdir(tmp_path)
-    codex = Path("/data/jzy/tmp/wt-multi-home-activity-integration/examples/rooms/packages/catalog.json")
-    assert builder.resolve_request_room_catalog(str(codex)) == production
+    wt_catalog = tmp_path / "wt-production" / "catalog.json"
+    wt_catalog.parent.mkdir()
+    wt_catalog.write_text(json.dumps({"rooms": []}) + "\n", encoding="utf-8")
+    assert builder.resolve_request_room_catalog(str(wt_catalog)) == wt_catalog.resolve()
     assert builder.resolve_request_room_catalog("examples/rooms/packages/catalog.json") == production
     assert builder.resolve_request_room_catalog(None) == production
     assert builder.resolve_request_room_catalog("") == production
@@ -44,7 +46,7 @@ def test_codex_catalog_is_replaced_with_production_worktree(builder, tmp_path, m
     assert builder.resolve_request_room_catalog(str(other)) == other.resolve()
     explicit = tmp_path / "explicit.json"
     explicit.write_text("{}\n", encoding="utf-8")
-    assert builder.resolve_request_room_catalog(str(codex), explicit=explicit) == explicit.resolve()
+    assert builder.resolve_request_room_catalog(str(wt_catalog), explicit=explicit) == explicit.resolve()
 
 
 def test_catalog_resolution_does_not_follow_cwd(builder, tmp_path, monkeypatch):

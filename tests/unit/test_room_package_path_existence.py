@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from avengine.capture.qa_plan_adapters import _floor_value, _resolved
 from avengine.rooms.room_package import (
     REPOSITORY_ROOT,
     missing_filesystem_paths,
@@ -140,3 +141,20 @@ def test_package_from_catalog_entry_validates_after_resolve():
             loaded, relative_roots=[ROOT, PACKAGE_ROOT]
         ) == []
     assert REPOSITORY_ROOT == ROOT
+
+
+
+def test_floor_consumer_resolves_declared_repo_path_from_any_cwd(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    package = {
+        "floor_reference": {
+            "path": "examples/rooms/packages/floor_reference/room_a/floor_reference.json"
+        }
+    }
+    assert _floor_value(package, {}) == pytest.approx(0.0001953125)
+
+
+def test_plan_consumer_rejects_ambient_environment_expansion(monkeypatch):
+    monkeypatch.setenv("AVENGINE_PLAN_LEAK", "/tmp")
+    with pytest.raises(ValueError, match="AVENGINE_PLAN_LEAK"):
+        _resolved("${AVENGINE_PLAN_LEAK}/missing.json")
