@@ -1,3 +1,13 @@
+## 2026-09-09：主线整合验证通过
+
+用户已接受本轮10秒审阅结果并授权整合与推送main。整合从远端main的f07212d出发，以b6f9e4a合入验收分支ef8fcef，保留双方提交历史；随后aba2a6c修正一条对旧相对路径行为的测试断言。
+
+- 7处合并冲突已处理，保留主线通用声音绑定校验、可变声源数量和家具组合逻辑，以及验收分支的原生像素、音频与QA实现。
+- 代码、配置和测试在aba2a6c上完成干净工作区回归：4914 passed、117 skipped、2 deselected、52 subtests passed。跳过项主要为未挂载的历史证据或已归档工作流。
+- 合并后的UE与Habitat各一条10秒原生回归样本均完成交付，结果保存在Git忽略的tmp/qa_main_integration_20260908_v1。媒体和缓存不随Git提交。
+- 当前批次配置中的catalog/registry改为仓库相对路径，语音输入指向外部数据根，不再依赖另一个代码检出。
+- 350条生产未启动，已有服务未切换，正式数据准入状态未改变。下文保留验收阶段与历史版本记录。
+
 # 10 秒 QA 验收修订与操作指南（2026-09-08）
 
 权威位置：48g-jump 上 /data/jzy/tmp/wt-grok-pilot46-round2；分支 grok/pilot46-fixes-round2-20260907。本次产物根为 /data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_user_acceptance_rework_20260908_v1。
