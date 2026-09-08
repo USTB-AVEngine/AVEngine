@@ -1,11 +1,28 @@
 # Current Apartment execution
 
-Last updated: 2026-09-06
+Last updated: 2026-09-08
 
 This is the short operational checkpoint for the active Apartment training
 dataset work. Durable project rules live in the repository `AGENTS.md`; this
 file prevents a later session from reconstructing current state from chat
 history or choosing an easier but incorrect substitute.
+
+## 2026-09-08: production QA closure
+
+The task authority is `/data/jzy/tmp/wt-grok-pilot46-round2`, branch
+`grok/pilot46-fixes-round2-20260907`. The current cohort preserves the original
+46-cell denominator and adds one native QA-10 witness: 43 delivered Episodes,
+four retained gaps, 426 valid items covering QA-01..24. All 43 current WAVs
+declare and verify post-convolution gain 0.5. QA-10 has a valid Open form and
+an explicitly deferred one-option MCQ.
+
+The current 350-request manifest uses production catalog/registry/sound inputs,
+four GPU lanes, a complete per-slot reproduction, and seven real-room planning
+checks. It has not been executed. Read the
+[closure report and launch guide](../qa/QA_PRODUCTION_CLOSURE_20260908.md)
+for canonical paths, source versions and retained deficits. Historical attempts,
+audit tools and the existing Studio service were preserved; this is not formal
+admission or a deployment.
 
 ## 2026-09-06: unified real-room QA integration
 
