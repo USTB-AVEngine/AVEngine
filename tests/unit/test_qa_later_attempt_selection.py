@@ -102,3 +102,13 @@ def test_unknown_failure_stays_in_coverage_with_diagnostics():
     assert result[0]["gap_state"] == "evidence_missing_or_unsampled"
     assert result[0]["failure_reason"] == "unexpected native abort"
     assert result[0]["classification_unknown"] is True
+
+
+def test_manifest_source_classes_keep_device_in_family_coverage():
+    module = _module()
+    row = _row("attempt_06", episode_id="supplement")
+    entry = {"room_family": "authored",
+             "requested_source_classes": ["articulated_human", "rigid_static_object"]}
+    result = module.backfill_failed_record(row, manifest_entry=entry, runner=object())
+    assert result["family"] == "authored"
+    assert result["class_pair"] == "human+device"

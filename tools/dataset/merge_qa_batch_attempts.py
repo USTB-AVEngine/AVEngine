@@ -204,7 +204,8 @@ def backfill_failed_record(
     out["family"] = entry.get("room_family") or out.get("family") or family
     classes = entry.get("requested_source_classes")
     if isinstance(classes, list) and classes and all(isinstance(value, str) for value in classes):
-        out["class_pair"] = "+".join(dict.fromkeys(classes))
+        from avengine.qa.batch_manifest import SOURCE_CLASS_LABEL
+        out["class_pair"] = "+".join(dict.fromkeys(SOURCE_CLASS_LABEL.get(value, value) for value in classes))
     else:
         out.setdefault("class_pair", entry.get("class_pair") or pair)
     if out.get("status") == "delivered":
