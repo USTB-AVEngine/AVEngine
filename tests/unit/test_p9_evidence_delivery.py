@@ -533,3 +533,17 @@ def test_contract_failure_does_not_leave_facts_or_questions(tmp_path: Path, monk
     assert not (derived / "facts.json").exists()
     assert not (derived / "questions.json").exists()
 
+
+
+def test_finalization_preserves_declared_qa_sampling_policy(tmp_path):
+    root = tmp_path / "episode"
+    report = _write_finalize_fixture(root, source_name="frame_readbacks.json")
+    policy = {"candidate_policy": "uniform_over_legal", "items_per_type": 1,
+              "query_time_policy": "uniform_in_legal_window"}
+    derived = tmp_path / "current_policy"
+    finalize_qa_episode(root, derived, repository=Path(__file__).resolve().parents[2],
+                        request={"qa_sampling": policy, "sampling_policy": "conditioned_static_v2"},
+                        audio_report=report)
+    facts = json.loads((derived / "facts.json").read_text())
+    assert facts["sampling"] == policy
+    assert facts["sampling_policy"] == "conditioned_static_v2"

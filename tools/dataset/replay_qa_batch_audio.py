@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Replay selected QA audio into fresh attempts, reusing native captures and preserving history."""
+"""Replay QA audio or finalize retained audio in fresh attempts, preserving native captures and history."""
 from __future__ import annotations
 
 import argparse
@@ -55,9 +55,17 @@ def source_episode(row):
     return root.resolve()
 
 
-def prepare_attempt(row, entry, output, attempt, gain, catalog_path, producer):
+def prepare_attempt(row, entry, output, attempt, gain, catalog_path, producer, *, reuse_audio=False):
     from avengine.rooms.room_package import write_room_package_plan_snapshot
     source = source_episode(row)
+    retained_report = None
+    if reuse_audio:
+        refs = read_json(source / "delivery/input_refs.json")
+        retained_report = Path(refs["audio_report"]).resolve()
+        report = read_json(retained_report)
+        recorded_gain = report.get("gain_application", {}).get("post_assembly_convolution_gain")
+        if recorded_gain != gain:
+            raise ValueError(f"retained audio gain {recorded_gain!r} differs from declared gain {gain!r}")
     target = Path(output) / "episodes" / row["episode_id"] / attempt / "episode"
     target.mkdir(parents=True, exist_ok=False)
     # Finalization only reads capture. Keep the actual pixel/readback identity intact.
@@ -84,6 +92,8 @@ def prepare_attempt(row, entry, output, attempt, gain, catalog_path, producer):
         "source_episode_root": str(source), "captured_plan": str(source / "plan/episode_plan.json"),
         "post_assembly_convolution_gain": gain, "capture_reused": True,
         "rir_cache": request.get("rir_cache"),
+        "audio_reused": reuse_audio,
+        "retained_audio_report": str(retained_report) if retained_report else None,
         "capture_producer": str(source / "producer_version.json") if (source / "producer_version.json").is_file() else None,
         "capture_receipt": str((source / "capture/research_receipt.json").resolve()), "producer": producer,
     })
@@ -92,6 +102,8 @@ def prepare_attempt(row, entry, output, attempt, gain, catalog_path, producer):
     prepared["request"] = request
     prepared["request_path"] = str(target / "request.json")
     prepared["controller_entrypoint"] = str(REPOSITORY / "tools/studio/run_qa_episode.py")
+    if retained_report is not None:
+        prepared["audio_report_path"] = str(retained_report)
     return target, prepared
 
 
@@ -112,6 +124,8 @@ def replay_one(target_string, entry, producer):
     command = [sys.executable, str(REPOSITORY / "tools/studio/run_qa_episode.py"),
         "--resume", "--request", str(target / "request.json"), "--output", str(target),
         "--derived-output", str(target / "delivery")]
+    if entry.get("audio_report_path"):
+        command += ["--audio-report", entry["audio_report_path"]]
     env = dict(os.environ, PYTHONPATH=f"{REPOSITORY / 'src'}:{REPOSITORY / 'tmp/native_python_addons_v1'}",
                PYTHONDONTWRITEBYTECODE="1", OMP_NUM_THREADS="1", OPENBLAS_NUM_THREADS="1", MKL_NUM_THREADS="1")
     rec = {"episode_id": entry["episode_id"], "attempt": attempt_root.name,
@@ -159,6 +173,8 @@ def main():
     parser.add_argument("--attempt", default="attempt_04")
     parser.add_argument("--convolution-gain", type=float, required=True)
     parser.add_argument("--max-parallel", type=int, default=2)
+    parser.add_argument("--reuse-audio", action="store_true",
+                        help="reuse matching retained gain audio and rebuild facts/questions/reviews only")
     parser.add_argument("--episode-id", action="append", help="Optional explicit subset for a bounded verification")
     args = parser.parse_args()
     if not math.isfinite(args.convolution_gain) or args.convolution_gain <= 0:
@@ -184,7 +200,7 @@ def main():
     prepared_entries, jobs = {}, []
     for row in rows:
         target, entry = prepare_attempt(row, entries[row["episode_id"]], output,
-            args.attempt, args.convolution_gain, args.catalog.resolve(), producer)
+            args.attempt, args.convolution_gain, args.catalog.resolve(), producer, reuse_audio=args.reuse_audio)
         prepared_entries[row["episode_id"]] = entry
         jobs.append((str(target), entry, producer))
     final_manifest = deepcopy(manifest)

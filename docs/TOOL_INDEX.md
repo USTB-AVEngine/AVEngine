@@ -424,7 +424,7 @@
 | `tools/dataset/render_asset_bound_binaural_canary.py` | Render two real dry recordings through one completed asset-bound RIR cache |
 | `tools/dataset/render_current_apartment_dynamic_audio.py` | Render motion-following binaural audio for a current UE research capture |
 | `tools/dataset/render_room_evaluation_binaural.py` | Mix generic room-evaluation sound classes through a completed RIR cache |
-| `tools/dataset/replay_qa_batch_audio.py` | Replay selected QA audio into fresh attempts, reusing native captures and preserving history |
+| `tools/dataset/replay_qa_batch_audio.py` | Replay QA audio or finalize retained audio in fresh attempts, preserving native captures and history |
 | `tools/dataset/run_habitat_room_batch.py` | Batch Habitat-native RGB rendering for registry-selected rooms |
 | `tools/dataset/run_qa_batch.py` | Execute a fresh QA batch with bounded independent controller processes |
 | `tools/dataset/run_qwen_content_controls.py` | Run a resumable Qwen2.5-Omni content/visual control on sanitized Episode inputs |

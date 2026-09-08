@@ -1316,6 +1316,8 @@ def finalize_qa_episode(
     raw = {
         "episode_id": str(plan.get("episode_id") or capture_root.name),
         "plan": plan,
+        "sampling": deepcopy(request_value.get("qa_sampling") or (plan.get("request") or {}).get("qa_sampling") or {}),
+        "sampling_policy": request_value.get("sampling_policy") or (plan.get("request") or {}).get("sampling_policy"),
         "actors": actors,
         "frame_readbacks": frame_readbacks,
         "pixel_visibility_truth": truth,
