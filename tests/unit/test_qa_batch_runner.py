@@ -433,3 +433,18 @@ def test_execute_batch_writes_producer_argv_and_avengine_env(monkeypatch, runner
     assert producer["argv"] == argv
     assert producer["avengine_environ"]["AVENGINE_H3_TEST"] == "/from-execute"
 
+
+
+@pytest.mark.parametrize("audio_started, expected_stage", [(False, "finalize"), (True, "audio")])
+def test_resume_failure_uses_retained_capture_stage_without_a_capture_command(tmp_path, runner, audio_started, expected_stage):
+    root = tmp_path / "resumed"
+    (root / "capture").mkdir(parents=True)
+    (root / "capture/neutral_readback.json").write_text("{}")
+    stderr = tmp_path / "stderr.log"
+    stderr.write_text("KeyError: 'runtime_prefix'\n")
+    if audio_started:
+        (root / "delivery").mkdir()
+        (root / "delivery/audio.log").write_text("RuntimeError: native audio failed\n")
+    result = runner.classify_controller_failure(episode_output_root=root, stderr_path=stderr, returncode=1)
+    assert result["failure_stage"] == expected_stage
+    assert result["gap_state"] == "interface_not_implemented"

@@ -2599,10 +2599,24 @@ def _query_frame(
                 "query_windows",
             )
             if window is None:
-                _defer(
-                    "sampling_window_missing",
-                    f"{qa_id} uses uniform_in_legal_window without a legal window",
+                derived = _derived_legal_query_windows(
+                    facts, qa_id, event=event
                 )
+                if derived is None:
+                    _defer(
+                        "sampling_window_missing",
+                        f"{qa_id} uses uniform_in_legal_window without a legal window",
+                    )
+                if not derived:
+                    _defer(
+                        "no_valid_post_sound_window",
+                        f"{qa_id} has no legal query frame",
+                    )
+                _record_derived_query_windows(
+                    facts, qa_id, derived, event=event
+                )
+                frame = _sample_frame_from_windows(facts, qa_id, derived)
+                return frame, "derived_uniform_in_legal_window"
             frame = _resolve_query_frame_spec(
                 facts,
                 qa_id,
@@ -2610,6 +2624,7 @@ def _query_frame(
                 source="uniform_in_legal_window",
             )
             return frame, "uniform_in_legal_window"
+
     if require_declared:
         _defer("missing_query_frame", f"{qa_id} requires an explicit query frame")
     if after_event and event is not None:
@@ -2644,9 +2659,22 @@ def _query_time(
                 "query_windows",
             )
             if window is None:
-                _defer(
-                    "sampling_window_missing",
-                    f"{qa_id} uses uniform_in_legal_window without a legal window",
+                derived = _derived_legal_query_windows(facts, qa_id)
+                if derived is None:
+                    _defer(
+                        "sampling_window_missing",
+                        f"{qa_id} uses uniform_in_legal_window without a legal window",
+                    )
+                if not derived:
+                    _defer(
+                        "sampling_window_missing",
+                        f"{qa_id} has no safe query frame",
+                    )
+                _record_derived_query_windows(facts, qa_id, derived)
+                frame = _sample_frame_from_windows(facts, qa_id, derived)
+                return (
+                    frame / float(facts["time"]["frame_rate_hz"]),
+                    "derived_uniform_in_legal_window",
                 )
             return (
                 _resolve_query_time_spec(
@@ -2657,6 +2685,7 @@ def _query_time(
                 ),
                 "uniform_in_legal_window",
             )
+
     if event is not None:
         return (float(event["start_s"]) + float(event["end_s"])) / 2.0, "event_midpoint"
     duration = float(facts["time"]["duration_seconds"])
@@ -3205,9 +3234,14 @@ def _after_event_candidates(
             pre_silence = _anchor_pre_silence(facts, event)
         except _Deferred:
             continue
-        query_frame, query_source = _query_frame(
-            facts, qa_id, event=event, after_event=True
-        )
+        try:
+            query_frame, query_source = _query_frame(
+                facts, qa_id, event=event, after_event=True
+            )
+        except _Deferred as error:
+            if error.code not in {"no_valid_post_sound_window", "sampling_window_missing"}:
+                raise
+            continue
         if query_frame <= _event_frame(event, "end_frame"):
             continue
         if query_frame >= int(facts["time"]["frame_count"]):
@@ -3225,11 +3259,37 @@ def _after_event_candidates(
                 silence = _silent_after(facts, event, candidate_frame)
             except _Deferred:
                 continue
-            yield event, candidate_frame, {
+            evidence = {
                 **silence,
                 "query_source": query_source,
                 "pre_silence": pre_silence,
             }
+            candidate = facts.get("_p8_candidate")
+            legal_windows = (
+                candidate.get("legal_query_windows")
+                if isinstance(candidate, Mapping)
+                else None
+            )
+            legal_authority = (
+                candidate.get("legal_window_authority")
+                if isinstance(candidate, Mapping)
+                else None
+            )
+            if legal_windows is None and query_source == "derived_uniform_in_legal_window":
+                legal_windows = _derived_legal_query_windows(
+                    facts, qa_id, event=event
+                )
+            if legal_windows is not None:
+                evidence["legal_query_windows"] = copy.deepcopy(legal_windows)
+                evidence["legal_window_authority"] = (
+                    legal_authority
+                    or (
+                        _derived_query_window_authority(qa_id)
+                        if query_source == "derived_uniform_in_legal_window"
+                        else "caller_declared_sampling_window"
+                    )
+                )
+            yield event, candidate_frame, evidence
 
 
 def _after_event_candidate(
@@ -4305,6 +4365,19 @@ def _generate_qa_18(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
         # active source must be named.
         reviewed = {}
     query_time, query_source = _query_time(facts, "QA-18")
+    candidate = facts.get("_p8_candidate")
+    legal_windows = (
+        candidate.get("legal_query_windows")
+        if isinstance(candidate, Mapping)
+        else None
+    )
+    legal_authority = (
+        candidate.get("legal_window_authority")
+        if isinstance(candidate, Mapping)
+        else None
+    )
+    if legal_windows is None and query_source == "derived_uniform_in_legal_window":
+        legal_windows = _derived_legal_query_windows(facts, "QA-18")
     frame = _resolve_query_frame_spec(
         facts,
         "QA-18",
@@ -4394,6 +4467,21 @@ def _generate_qa_18(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
             ],
             "wet_tail_event_ids": wet_tail_events,
             "wet_tail_boundary_policy": "measured_interval_only",
+            **(
+                {
+                    "legal_query_windows": copy.deepcopy(legal_windows),
+                    "legal_window_authority": (
+                        legal_authority
+                        or (
+                            _derived_query_window_authority("QA-18")
+                            if query_source == "derived_uniform_in_legal_window"
+                            else "caller_declared_sampling_window"
+                        )
+                    ),
+                }
+                if legal_windows is not None
+                else {}
+            ),
             "active_event_ids": [event["event_id"] for event in active],
             "active_actor_ids": active_actor_ids,
             "appearance_reviews": {
@@ -4850,6 +4938,157 @@ def _sampling_window_bounds(value: Any) -> tuple[int, int] | None:
     return None
 
 
+
+def _window_bounds_list(value: Any, *, qa_id: str) -> list[tuple[int, int]]:
+    """Normalize one or more half-open frame windows."""
+    bounds = _sampling_window_bounds(value)
+    if bounds is not None:
+        return [bounds]
+    if _is_sequence(value):
+        windows: list[tuple[int, int]] = []
+        for part in value:
+            part_bounds = _sampling_window_bounds(part)
+            if part_bounds is None:
+                _defer(
+                    "sampling_window_invalid",
+                    f"{qa_id} legal windows must be half-open frame intervals",
+                )
+            windows.append(part_bounds)
+        if windows:
+            return windows
+    _defer(
+        "sampling_window_invalid",
+        f"{qa_id} legal windows must be half-open frame intervals",
+    )
+
+
+def _compress_frame_windows(frames: Sequence[int]) -> list[list[int]]:
+    ordered = sorted({int(frame) for frame in frames})
+    if not ordered:
+        return []
+    windows: list[list[int]] = []
+    start = previous = ordered[0]
+    for frame in ordered[1:]:
+        if frame != previous + 1:
+            windows.append([start, previous + 1])
+            start = frame
+        previous = frame
+    windows.append([start, previous + 1])
+    return windows
+
+
+def _query_time_policy(facts: Mapping[str, Any]) -> Any:
+    sampling = facts.get("sampling")
+    if not isinstance(sampling, Mapping):
+        return None
+    nested = sampling.get("qa_sampling")
+    nested = nested if isinstance(nested, Mapping) else {}
+    return _first(nested, "query_time_policy", "policy") or _first(
+        sampling, "query_time_policy", "policy"
+    )
+
+
+def _derived_query_window_authority(qa_id: str) -> str:
+    if qa_id in {"QA-13", "QA-16", "QA-17"}:
+        return "native_audio_event_gap_and_wet_tail_readback_v1"
+    if qa_id == "QA-18":
+        return "native_wet_tail_complement_frame_clock_v1"
+    return "derived_native_query_window"
+
+
+def _record_derived_query_windows(
+    facts: Mapping[str, Any],
+    qa_id: str,
+    windows: Sequence[Sequence[int]],
+    *,
+    event: Mapping[str, Any] | None = None,
+) -> None:
+    sampling = facts.get("sampling")
+    if not isinstance(sampling, MutableMapping):
+        return
+    derived = sampling.setdefault("derived_legal_windows_by_qa", {})
+    if not isinstance(derived, MutableMapping):
+        return
+    normalized = [[int(start), int(end)] for start, end in windows]
+    if qa_id in {"QA-13", "QA-16", "QA-17"} and event is not None:
+        by_event = derived.setdefault(qa_id, {})
+        if isinstance(by_event, MutableMapping):
+            event_id = event.get("event_id")
+            if event_id is not None:
+                by_event[str(event_id)] = copy.deepcopy(normalized)
+    else:
+        derived[qa_id] = copy.deepcopy(normalized)
+
+
+def _derived_legal_query_windows(
+    facts: Mapping[str, Any],
+    qa_id: str,
+    *,
+    event: Mapping[str, Any] | None = None,
+) -> list[list[int]] | None:
+    """Derive legal query windows from native audio predicates when absent."""
+    frame_count = int(facts["time"]["frame_count"])
+    if qa_id in {"QA-13", "QA-16", "QA-17"}:
+        if event is None:
+            return None
+        legal_frames: list[int] = []
+        missing_readback = False
+        for frame in range(frame_count):
+            try:
+                _silent_after(facts, event, frame)
+            except _Deferred as error:
+                if error.code in {"missing_wet_tail_readback", "missing_event_wet_tail"}:
+                    missing_readback = True
+                continue
+            legal_frames.append(frame)
+        if missing_readback and not legal_frames:
+            return None
+        return _compress_frame_windows(legal_frames)
+    if qa_id == "QA-18":
+        audio = facts.get("audio")
+        tails = audio.get("wet_tail_intervals") if isinstance(audio, Mapping) else None
+        if not _is_sequence(tails) or not tails:
+            return None
+        normalized_tails: list[tuple[float, float]] = []
+        for interval in tails:
+            if not isinstance(interval, Mapping):
+                return None
+            try:
+                start = float(interval["start_s"])
+                end = float(interval["end_s"])
+            except (KeyError, TypeError, ValueError):
+                return None
+            if not math.isfinite(start) or not math.isfinite(end) or end <= start:
+                return None
+            normalized_tails.append((start, end))
+        fps = float(facts["time"]["frame_rate_hz"])
+        safe_frames = [
+            frame for frame in range(frame_count)
+            if not any(start <= frame / fps < end for start, end in normalized_tails)
+        ]
+        return _compress_frame_windows(safe_frames)
+    return None
+
+
+def _sample_frame_from_windows(
+    facts: Mapping[str, Any],
+    qa_id: str,
+    windows: Sequence[Sequence[int]],
+) -> int:
+    frames = sorted({
+        frame
+        for start, end in _window_bounds_list(windows, qa_id=qa_id)
+        for frame in range(start, end)
+    })
+    if not frames:
+        _defer(
+            "no_valid_post_sound_window",
+            f"{qa_id} has no legal query frame",
+        )
+    generation_seed = str(facts.get("_generation_seed", ""))
+    window_key = repr(tuple(tuple(int(value) for value in window) for window in windows))
+    return random.Random(f"{generation_seed}\0{qa_id}\0{window_key}").choice(frames)
+
 def _resolve_query_frame_spec(
     facts: Mapping[str, Any],
     qa_id: str,
@@ -4869,23 +5108,22 @@ def _resolve_query_frame_spec(
                 or value.get("legal_window")
                 or value.get("window")
             )
-            bounds = _sampling_window_bounds(window)
-            if bounds is None:
-                _defer(
-                    "sampling_window_invalid",
-                    f"{qa_id} legal window must be [start_frame, end_frame_exclusive]",
-                )
-            start, end = bounds
-            if start < 0 or end > frame_count or start >= end:
-                _defer(
-                    "sampling_window_invalid",
-                    f"{qa_id} legal frame window {bounds} is outside the frame clock",
-                    window=list(bounds),
-                )
+            windows = _window_bounds_list(window, qa_id=qa_id)
+            for start, end in windows:
+                if start < 0 or end > frame_count or start >= end:
+                    _defer(
+                        "sampling_window_invalid",
+                        f"{qa_id} legal frame window {(start, end)} is outside the frame clock",
+                        window=[start, end],
+                    )
             generation_seed = str(facts.get("_generation_seed", ""))
-            frame = random.Random(
-                f"{generation_seed}\\0{qa_id}\\0{start}\\0{end}"
-            ).randrange(start, end)
+            if len(windows) == 1:
+                start, end = windows[0]
+                frame = random.Random(
+                    f"{generation_seed}\\0{qa_id}\\0{start}\\0{end}"
+                ).randrange(start, end)
+            else:
+                frame = _sample_frame_from_windows(facts, qa_id, windows)
         else:
             nested = next(
                 (
@@ -6465,13 +6703,19 @@ __all__ = list(dict.fromkeys([
 resolve_query_frame = _resolve_query_frame_spec
 
 
-def _query_time_candidates(facts: Mapping[str, Any], qa_id: str) -> list[dict[str, Any]]:
+def _query_time_candidates(
+    facts: Mapping[str, Any],
+    qa_id: str,
+    *,
+    event: Mapping[str, Any] | None = None,
+) -> list[dict[str, Any]]:
     """Enumerate query instants, not one duplicate per unrelated sound event."""
     count = int(facts['time']['frame_count'])
     fps = float(facts['time']['frame_rate_hz'])
     declared_time = _sampling_value(facts, qa_id, 'query_time_s_by_qa', 'query_times_s')
     declared_frame = _sampling_value(facts, qa_id, 'query_frame_by_qa', 'query_frames', 'query_frame', 'at_frame')
     window = None
+    derived_windows = None
     if isinstance(declared_time, Mapping) or isinstance(declared_frame, Mapping):
         spec = declared_time if isinstance(declared_time, Mapping) else declared_frame
         if spec.get('policy', spec.get('query_time_policy')) == 'uniform_in_legal_window':
@@ -6487,22 +6731,42 @@ def _query_time_candidates(facts: Mapping[str, Any], qa_id: str) -> list[dict[st
         sampling = facts.get('sampling', {})
         nested = sampling.get('qa_sampling', {}) if isinstance(sampling, Mapping) else {}
         policy = _first(nested, 'query_time_policy', 'policy') or _first(sampling, 'query_time_policy', 'policy')
+        derived_windows = None
         if window is None:
             window = _sampling_value(facts, qa_id, 'legal_window_by_qa', 'legal_windows', 'query_windows')
         if policy == 'uniform_in_legal_window' and window is None:
-            _defer('sampling_window_missing', f'{qa_id} needs concrete legal query windows')
+            derived_windows = _derived_legal_query_windows(
+                facts, qa_id, event=event
+            )
+            if derived_windows is None:
+                _defer('sampling_window_missing', f'{qa_id} needs concrete legal query windows')
+            if not derived_windows:
+                _defer('sampling_window_missing', f'{qa_id} has no legal query frame')
+            _record_derived_query_windows(
+                facts, qa_id, derived_windows, event=event
+            )
+            window = derived_windows
         if window is None:
             frames = range(count)
         else:
-            bounds = _sampling_window_bounds(window)
-            windows = [bounds] if bounds is not None else [_sampling_window_bounds(x) for x in window] if _is_sequence(window) else []
-            if not windows or any(b is None or not 0 <= b[0] < b[1] <= count for b in windows):
+            windows = _window_bounds_list(window, qa_id=qa_id)
+            if any(not 0 <= start < end <= count for start, end in windows):
                 _defer('sampling_window_invalid', f'{qa_id} legal windows must be half-open frame intervals')
             frames = sorted({f for start, end in windows for f in range(start, end)})
         candidates = [(frame, frame / fps) for frame in frames]
-    return [{'candidate_id': f'{qa_id}:frame:{frame}:time:{time_s:.9f}', 'kind': 'query_time',
-             'query_frame': frame, 'query_time_s': time_s} for frame, time_s in candidates]
-
+    result = []
+    for frame, time_s in candidates:
+        item = {
+            'candidate_id': f'{qa_id}:frame:{frame}:time:{time_s:.9f}',
+            'kind': 'query_time',
+            'query_frame': frame,
+            'query_time_s': time_s,
+        }
+        if derived_windows is not None:
+            item['legal_query_windows'] = copy.deepcopy(derived_windows)
+            item['legal_window_authority'] = _derived_query_window_authority(qa_id)
+        result.append(item)
+    return result
 
 def _safe_candidate_count(facts: Mapping[str, Any], qa_id: str) -> int:
     try:
@@ -6511,8 +6775,9 @@ def _safe_candidate_count(facts: Mapping[str, Any], qa_id: str) -> int:
         return 0
 
 
+
 def _post_sound_candidates(facts: Mapping[str, Any], qa_id: str, events: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
-    """Enumerate real silent query frames; do not always choose the earliest one."""
+    '''Enumerate real silent query frames; do not always choose the earliest one.'''
     result = []
     for event in events:
         try:
@@ -6523,17 +6788,64 @@ def _post_sound_candidates(facts: Mapping[str, Any], qa_id: str, events: Sequenc
         declared = _first(event, 'post_sound_query_frame', 'query_frame')
         if declared is None:
             declared = _sampling_value(facts, qa_id, 'post_sound_query_frame')
+        explicit_window = _sampling_value(
+            facts, qa_id, 'legal_window_by_qa', 'legal_windows', 'query_windows'
+        )
+        derived_windows = None
+        if (
+            declared is None
+            and explicit_window is None
+            and _query_time_policy(facts) == 'uniform_in_legal_window'
+        ):
+            derived_windows = _derived_legal_query_windows(
+                facts, qa_id, event=event
+            )
+            if derived_windows is None or not derived_windows:
+                continue
+            _record_derived_query_windows(
+                facts, qa_id, derived_windows, event=event
+            )
+            sampling = copy.deepcopy(facts.get('sampling', {}))
+            sampling.setdefault('legal_window_by_qa', {})[qa_id] = derived_windows
+            specific['sampling'] = sampling
         if declared is not None:
             sampling = copy.deepcopy(facts.get('sampling', {}))
             sampling.setdefault('query_frame_by_qa', {})[qa_id] = declared
             specific['sampling'] = sampling
-        for query in _query_time_candidates(specific, qa_id):
+        try:
+            queries = _query_time_candidates(
+                specific, qa_id, event=event
+            )
+        except _Deferred:
+            if derived_windows is not None:
+                continue
+            raise
+        for query in queries:
             frame = query['query_frame']
             try:
                 _silent_after(facts, event, frame)
             except _Deferred:
                 continue
-            result.append({'candidate_id': f"{qa_id}:event:{event['event_id']}:frame:{frame}",
-                           'kind': 'post_event_query', 'actor_id': event['actor_id'], 'event_id': event['event_id'],
-                           'query_frame': frame, 'query_time_s': query['query_time_s']})
+            item = {
+                'candidate_id': f"{qa_id}:event:{event['event_id']}:frame:{frame}",
+                'kind': 'post_event_query', 'actor_id': event['actor_id'],
+                'event_id': event['event_id'],
+                'query_frame': frame, 'query_time_s': query['query_time_s'],
+            }
+            legal_windows = query.get(
+                'legal_query_windows',
+                derived_windows if derived_windows is not None else explicit_window,
+            )
+            if legal_windows is not None:
+                if derived_windows is None and explicit_window is not None:
+                    legal_windows = _window_bounds_list(
+                        legal_windows, qa_id=qa_id
+                    )
+                item['legal_query_windows'] = copy.deepcopy(legal_windows)
+                item['legal_window_authority'] = (
+                    _derived_query_window_authority(qa_id)
+                    if derived_windows is not None
+                    else 'caller_declared_sampling_window'
+                )
+            result.append(item)
     return result

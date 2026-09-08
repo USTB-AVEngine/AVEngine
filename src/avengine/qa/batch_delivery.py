@@ -170,8 +170,8 @@ def _review_frames(questions: Mapping[str, Any], facts: Mapping[str, Any]) -> di
         if isinstance(value, Mapping):
             for key, child in value.items():
                 if key in {"query_frame", "query_start_frame", "query_end_frame", "anchor_end_frame",
-                           "start_frame", "end_frame", "frame_index"} and isinstance(child, int) and not isinstance(child, bool):
-                    if key == "query_frame" and not 0 <= child < frame_count:
+                           "start_frame", "end_frame", "frame_index", "frame"} and isinstance(child, int) and not isinstance(child, bool):
+                    if key in {"query_frame", "frame"} and not 0 <= child < frame_count:
                         raise ValueError("explicit question query frame is outside the Episode")
                     if child == frame_count and key in {"end_frame", "query_end_frame", "anchor_end_frame"}:
                         child -= 1

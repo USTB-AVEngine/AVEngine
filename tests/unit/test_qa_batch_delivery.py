@@ -128,3 +128,11 @@ def test_exposure_gate_import_error_fails_review(monkeypatch, tmp_path):
     assert "unavailable" in result["reason"]
     assert result["frame_source"]["kind"] == "unavailable"
 
+
+
+def test_review_frames_include_the_native_occluder_evidence_frame():
+    questions = {"items": [{"question_id": "qa10", "evidence": {
+        "target_actor_id": "source2", "frame": 7, "occluder_instance_ids": ["source1"]}}]}
+    frames = _review_frames(questions, facts_fixture())
+    assert set(frames) == {0, 7}
+    assert "qa10:frame" in frames[7]

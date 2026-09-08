@@ -131,6 +131,7 @@ def replay_one(target_string, entry, producer):
     rec = {"episode_id": entry["episode_id"], "attempt": attempt_root.name,
         "attempt_root": str(attempt_root), "episode_output_root": str(target),
         "request_path": str(target / "request.json"), "command": command, "producer": producer,
+        "stdout_log": str(attempt_root / "stdout.log"), "stderr_log": str(attempt_root / "stderr.log"),
         "room_id": entry["room_id"], "room_family": entry.get("room_family"),
         "asset_ids": [a["asset_id"] for a in entry["source_assignments"]]}
     with (attempt_root / "stdout.log").open("x") as out, (attempt_root / "stderr.log").open("x") as err:

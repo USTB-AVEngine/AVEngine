@@ -465,7 +465,7 @@ def classify_controller_failure(
     histogram = planning.get("failure_histogram") if isinstance(planning.get("failure_histogram"), Mapping) else None
     planning_failed = (
         planning.get("status") == "failed"
-        or not has_execution
+        or (not has_execution and not has_capture)
     )
     combined = "\n".join(part for part in (audio_log, capture_log, stderr, stdout) if part)
 
