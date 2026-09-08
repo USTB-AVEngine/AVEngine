@@ -434,6 +434,7 @@ def _build_habitat_audio_command(
         "avengine.cli",
         "m5",
         "render-current-mp3d-dynamic-audio",
+        "--rir-stride-frames", str(request.get("rir_stride", 3)),
         "--visual-capture-dir", str(capture_root),
         "--m1-request", str(Path(m1_value).expanduser().resolve()),
         "--simulation-request", str(Path(simulation_value).expanduser().resolve()),

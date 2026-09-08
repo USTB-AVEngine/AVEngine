@@ -66,3 +66,14 @@ def test_delivery_uses_an_explicit_asset_registry(tmp_path):
         {"asset_id": "new_actor", "display_label": "new observable asset"}
     ]}))
     assert _asset_registry(tmp_path, registry)["new_actor"]["display_label"] == "new observable asset"
+
+
+def test_habitat_audio_command_honors_configured_rir_stride(tmp_path):
+    from avengine.rooms.qa_delivery import _build_habitat_audio_command
+    plan = {"resources": {"acoustic_package": str(tmp_path / "package.json")},
+            "voice_bindings": [{"sound_asset_id": "event", "path": str(tmp_path / "event.wav")}]}
+    for request, expected in [({"rir_stride": 5}, "5"), ({}, "3")]:
+        command = _build_habitat_audio_command(request, plan, tmp_path, tmp_path / "capture",
+                                              tmp_path / "audio", tmp_path / "program.json",
+                                              repository=tmp_path)
+        assert command[command.index("--rir-stride-frames") + 1] == expected
