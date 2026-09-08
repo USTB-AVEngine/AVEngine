@@ -112,3 +112,28 @@ def test_manifest_source_classes_keep_device_in_family_coverage():
     result = module.backfill_failed_record(row, manifest_entry=entry, runner=object())
     assert result["family"] == "authored"
     assert result["class_pair"] == "human+device"
+
+
+def test_latest_coverage_context_supersedes_old_audio_provenance(tmp_path):
+    import json
+    module = _module()
+    original, rerun, latest = (tmp_path / name for name in ["old", "rerun", "latest"])
+    for root in [original, rerun, latest]:
+        (root / "summary").mkdir(parents=True)
+    old = _row("attempt_01")
+    new = _row("attempt_06", facts_path="/current/facts.json", questions_path="/current/questions.json")
+    (original / "outcomes.json").write_text(json.dumps({"episodes": [old]}))
+    (rerun / "outcomes.json").write_text(json.dumps({"episodes": []}))
+    (latest / "outcomes.json").write_text(json.dumps({"episodes": [new]}))
+    (original / "summary/coverage_inputs.json").write_text(json.dumps({"episodes": [
+        {"episode_id": "episode", "source_refs": {"audio_report": "/old/gain1.json"}}]}))
+    (latest / "summary/coverage_inputs.json").write_text(json.dumps({"episodes": [
+        {"episode_id": "episode", "source_refs": {"audio_report": "/current/gain05.json"},
+         "sound_events": [{"event_id": "actual_current_event"}]}]}))
+    output = tmp_path / "merged"
+    module.merge_attempts(original_root=original, rerun_root=rerun, output_root=output,
+        repository=tmp_path, later_attempt_roots=[latest], apply_exposure=False, build_coverage=False,
+        dry_run_summary=None, runner=object())
+    context = json.loads((output / "coverage_inputs.json").read_text())["episodes"][0]
+    assert context["source_refs"]["audio_report"] == "/current/gain05.json"
+    assert context["sound_events"] == [{"event_id": "actual_current_event"}]

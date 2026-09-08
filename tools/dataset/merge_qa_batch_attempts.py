@@ -483,6 +483,7 @@ def merge_attempts(
     build_coverage: bool = True,
     runner: Any | None = None,
     later_attempt_roots: Sequence[Path] = (),
+    coverage_inputs_path: Path | None = None,
 ) -> dict[str, Any]:
     original_root = Path(original_root)
     rerun_root = Path(rerun_root)
@@ -539,6 +540,18 @@ def merge_attempts(
     rerun_inputs_path = rerun_root / "summary/coverage_inputs.json"
     orig_inputs = _load_json(orig_inputs_path) if orig_inputs_path.is_file() else {"episodes": []}
     rerun_inputs = _load_json(rerun_inputs_path) if rerun_inputs_path.is_file() else {}
+    for later_root in later_attempt_roots:
+        latest_inputs_path = Path(later_root) / "summary/coverage_inputs.json"
+        if latest_inputs_path.is_file():
+            latest_inputs = _load_json(latest_inputs_path)
+            by_id = {row["episode_id"]: row for row in rerun_inputs.get("episodes", [])}
+            by_id.update({row["episode_id"]: row for row in latest_inputs.get("episodes", [])})
+            rerun_inputs = {**rerun_inputs, **latest_inputs, "episodes": list(by_id.values())}
+    if coverage_inputs_path is not None:
+        supplied_inputs = _load_json(Path(coverage_inputs_path))
+        by_id = {row["episode_id"]: row for row in rerun_inputs.get("episodes", [])}
+        by_id.update({row["episode_id"]: row for row in supplied_inputs.get("episodes", [])})
+        rerun_inputs = {**rerun_inputs, **supplied_inputs, "episodes": list(by_id.values())}
     coverage_manifest = build_coverage_manifest(
         merged,
         original_inputs=orig_inputs,
@@ -651,6 +664,8 @@ def main() -> int:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--repository", type=Path, default=REPOSITORY)
     parser.add_argument("--manifest", type=Path, default=None)
+    parser.add_argument("--coverage-inputs", type=Path,
+                        help="Use a completed current batch context for audio/source provenance")
     parser.add_argument("--dry-run-summary", type=Path, default=DEFAULT_DRY)
     parser.add_argument("--skip-coverage", action="store_true")
     parser.add_argument("--skip-exposure-gate", action="store_true")
@@ -665,6 +680,7 @@ def main() -> int:
         apply_exposure=not args.skip_exposure_gate,
         build_coverage=not args.skip_coverage,
         later_attempt_roots=args.later_attempt_root,
+        coverage_inputs_path=args.coverage_inputs,
     )
     printable = {k: summary[k] for k in summary if k not in {"family_class_gated_clips", "cells"}}
     print(json.dumps(printable, ensure_ascii=False, indent=2)[:4000])
