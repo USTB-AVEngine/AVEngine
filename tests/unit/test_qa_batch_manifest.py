@@ -264,6 +264,59 @@ def test_repeat_over_budget_pair_is_replaced_by_legal_identities(inputs):
     assert any(legal)
 
 
+def test_sequential_over_budget_replaces_only_sound_identities_with_legal_pair(inputs):
+    config, registry, rooms, _ = deepcopy(inputs)
+    config["seed"] = 1
+    config["base_request"]["frame_count"] = 150
+    config["base_request"]["frame_rate_hz"] = 15
+    config["slots"] = [{
+        "room_id": "a",
+        "source_classes": ["articulated_human"] * 2,
+        "source_asset_ids": ["red", "blue"],
+        "condition_group": "identity",
+        "profile": {
+            "event_relation": "sequential",
+            "reserve_tail_s": 3.0,
+            "min_gap_between_audible_windows_s": 0.5,
+        },
+    }]
+    sounds = [
+        sound("long_red", "long_red", count=76800),
+        sound("short_red", "short_red", count=32000),
+        sound("long_blue", "long_blue", count=76800),
+        sound("short_blue", "short_blue", count=32000),
+    ]
+    sounds[0]["compatible_asset_ids"] = ["red"]
+    sounds[1]["compatible_asset_ids"] = ["red"]
+    sounds[2]["compatible_asset_ids"] = ["blue"]
+    sounds[3]["compatible_asset_ids"] = ["blue"]
+
+    result = prepare_batch_manifest(config, registry, rooms, sounds)
+    episode = result["episodes"][0]
+    assert episode["request"]["source_asset_ids"] == ["red", "blue"]
+    assert [row["sound_identity_id"] for row in episode["source_assignments"]] == [
+        "short_red", "short_blue"
+    ]
+    assert not any(gap["code"] == "fixed_sound_identities_exceed_profile_clip_budget"
+                   for gap in episode["preallocation_gaps"])
+    assert episode["request"]["sound_selection"]["identity_substitution_applied"] is True
+
+    records = {record["asset_id"]: record for record in registry["assets"]}
+    actors = [neutral_source_declaration(records[asset_id], f"source{index + 1}")
+              for index, asset_id in enumerate(("red", "blue"))]
+    selected = select_sounds(
+        actors,
+        sounds,
+        episode["requested_profile"],
+        {"sample_rate_hz": 16000, "sample_count": 160000},
+        episode["request"],
+        np.random.default_rng(2),
+    )
+    assert [selected[index]["sound_asset_id"] for index in range(2)] == [
+        "short_red", "short_blue"
+    ]
+
+
 def test_class_pair_crosstab_covers_at_least_three_groups():
     rooms = [{"room_id": f"room_{i}", "family": fam}
              for i, fam in enumerate(("authored", "apartment", "hm3d", "mp3d"))]

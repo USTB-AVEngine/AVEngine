@@ -632,6 +632,7 @@ def prepare_batch_manifest(
                                      "asset_id": assignment["asset_id"], "actor_id": actor_id})
             ready = [row for row in speaker_rows if row["assignment"].get("sound_status") != "evidence_missing_or_unsampled"]
             substitution = False
+            substitution_applied = False
             repeat_actor_id = None
             all_speaking_have_groups = len(ready) == len(speaker_rows) and bool(ready)
             if ready:
@@ -682,28 +683,37 @@ def prepare_batch_manifest(
                             repeat_index = rng.choice([index for index in legal_repeats if greedy_durs[index] == shortest])
                         else:
                             substitution = True
-                            legal = []
-                            lists = [row["distinct"] for row in ready]
-                            if math.prod(max(1, len(values)) for values in lists) <= 40000:
-                                for combo in product(*lists):
-                                    if len(set(combo)) != len(combo):
-                                        continue
-                                    durs = [min(_clip_duration_s(sound) for sound in row["groups"][identity])
-                                            for row, identity in zip(ready, combo)]
-                                    score = tuple(usage(row, identity) for row, identity in zip(ready, combo))
-                                    for index in range(len(combo)):
-                                        seconds = program_seconds_for_durations(
-                                            durs, gap_s=gap, relation=relation, repeat_index=index)
-                                        if seconds <= available + 1e-9:
-                                            legal.append((score, combo, index, seconds))
-                            if legal:
-                                minimum = min(item[0] for item in legal)
-                                score, combo, repeat_index, _seconds = rng.choice(
-                                    [item for item in legal if item[0] == minimum])
-                                chosen = list(combo)
-                            else:
-                                chosen = None
-                    elif program_seconds_for_durations(greedy_durs, gap_s=gap, relation=relation) > available + 1e-9:
+                    elif relation == "sequential" and program_seconds_for_durations(
+                        greedy_durs, gap_s=gap, relation=relation
+                    ) > available + 1e-9:
+                        substitution = True
+                    if substitution:
+                        legal = []
+                        lists = [row["distinct"] for row in ready]
+                        if math.prod(max(1, len(values)) for values in lists) <= 40000:
+                            for combo in product(*lists):
+                                if len(set(combo)) != len(combo):
+                                    continue
+                                durs = [min(_clip_duration_s(sound) for sound in row["groups"][identity])
+                                        for row, identity in zip(ready, combo)]
+                                score = tuple(usage(row, identity) for row, identity in zip(ready, combo))
+                                repeat_indices = range(len(combo)) if relation == "repeat" else (None,)
+                                for index in repeat_indices:
+                                    seconds = program_seconds_for_durations(
+                                        durs, gap_s=gap, relation=relation, repeat_index=index)
+                                    if seconds <= available + 1e-9:
+                                        legal.append((score, combo, index, seconds))
+                        if legal:
+                            minimum = min(item[0] for item in legal)
+                            score, combo, repeat_index, _seconds = rng.choice(
+                                [item for item in legal if item[0] == minimum])
+                            chosen = list(combo)
+                            substitution_applied = True
+                        else:
+                            chosen = None
+                    elif relation != "repeat" and program_seconds_for_durations(
+                        greedy_durs, gap_s=gap, relation=relation
+                    ) > available + 1e-9:
                         chosen = None
                     if chosen is None:
                         for row, identity in zip(ready, greedy):
@@ -738,6 +748,8 @@ def prepare_batch_manifest(
             if repeat_actor_id is not None:
                 selection["repeat_actor_id"] = repeat_actor_id
                 selection["identity_substitution_applied"] = substitution
+            elif substitution_applied:
+                selection["identity_substitution_applied"] = True
             request["sound_selection"] = selection
         rows.append({"episode_id": episode_id, "room_id": room_id, "room_family": room["family"],
                      "renderer": room["renderer"], "condition_group": _text(slot.get("condition_group"), "condition_group"),
