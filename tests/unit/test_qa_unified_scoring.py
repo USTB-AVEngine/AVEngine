@@ -6,6 +6,7 @@ from avengine.qa.unified_scoring import (
     score_counts,
     score_angle,
     score_unified_item,
+    score_time_range,
 )
 
 
@@ -115,3 +116,34 @@ def test_negated_chinese_direction_alias_is_not_positive_farther() -> None:
     result = score_closed("并不远", "farther", classes)
     assert result["status"] == "invalid"
     assert result["score"] == 0.0
+
+
+
+def test_time_range_scoring_accepts_natural_range_separators() -> None:
+    truth = [4.0, 8.0]
+    for answer in ("4-8", "4～8", "4到8", "4–8 seconds", "4 to 8 seconds"):
+        result = score_time_range(answer, truth)
+        assert result["status"] == "scored"
+        assert result["score"] == 1.0
+    assert score_time_range("4-8 and 9", truth)["status"] == "invalid"
+
+
+def test_time_range_scoring_accepts_declared_labels_and_rejects_other_intervals() -> None:
+    form = {
+        "answer_type": "time_range_s",
+        "truth": [0.0, 2.0],
+        "classes": {
+            "band_0": ["first quarter of the clip", "片段前四分之一"],
+            "band_1": ["second quarter of the clip", "片段第二个四分之一"],
+        },
+        "time_ranges_s": [[0.0, 2.0], [2.0, 4.0]],
+        "time_range_index": 0,
+    }
+    assert score_time_range(
+        "first quarter of the clip", form["truth"], form=form
+    )["score"] == 1.0
+    assert score_time_range("[0, 2) seconds", form["truth"], form=form)["score"] == 1.0
+    assert score_time_range(
+        "second quarter of the clip", form["truth"], form=form
+    )["score"] == 0.0
+    assert score_time_range("at 1 second", form["truth"], form=form)["status"] == "invalid"

@@ -808,8 +808,140 @@ def build_conditioned_plan(*, room, request, source_registry, sounds, space, mes
                                       'gap_category':'evidence_missing_or_unsampled'})
 
 
+def _gain_metadata(value: Any) -> dict[str, Any]:
+    """Copy gain/normalization fields without interpreting policy labels."""
+    if not isinstance(value, Mapping):
+        return {}
+    result: dict[str, Any] = {}
+    for key, item in value.items():
+        name = str(key)
+        folded = name.casefold()
+        if folded == "source_normalization":
+            continue
+        if any(token in folded for token in ("gain", "normal", "peak")) or folded in {
+            "target_dbfs", "target_peak_dbfs"
+        }:
+            result[name] = deepcopy(item)
+    return result
+
+
+def source_normalization_metadata(
+    raw: Mapping[str, Any],
+    *,
+    related: Sequence[Mapping[str, Any]] = (),
+    container: Mapping[str, Any] | None = None,
+    measured_peak_dbfs: float | None = None,
+    measured_peak_source: str | None = None,
+    source_overrides: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Carry source-level normalization facts separately from runtime gain."""
+    records: list[tuple[str, Mapping[str, Any]]] = []
+    if isinstance(raw, Mapping):
+        records.append(("raw", raw))
+        facts = raw.get("facts")
+        if isinstance(facts, Mapping):
+            records.append(("facts", facts))
+    for index, value in enumerate(related):
+        if isinstance(value, Mapping):
+            records.append((f"related_{index}", value))
+    if isinstance(container, Mapping):
+        records.append(("container", container))
+
+    existing = raw.get("source_normalization") if isinstance(raw, Mapping) else None
+    result = deepcopy(existing) if isinstance(existing, Mapping) else {}
+
+    policy = None
+    policy_found = False
+    target = None
+    target_found = False
+    applied_gain = None
+    applied_gain_found = False
+    normalized = None
+    normalized_found = False
+    measured = measured_peak_dbfs
+    measured_source = measured_peak_source
+    if measured is None:
+        for label, record in records:
+            for key in ("measured_peak_dbfs", "prepared_peak_dbfs", "peak_dbfs"):
+                if key in record:
+                    measured = deepcopy(record[key])
+                    measured_source = measured_source or f"{label}.{key}"
+                    break
+            if measured is not None:
+                break
+    for _label, record in records:
+        if not policy_found and "normalization_policy" in record:
+            policy = deepcopy(record["normalization_policy"])
+            policy_found = True
+        if not target_found:
+            candidate = record.get("normalization_policy")
+            if isinstance(candidate, Mapping) and "target_dbfs" in candidate:
+                target = deepcopy(candidate["target_dbfs"])
+                target_found = True
+            elif "target_dbfs" in record:
+                target = deepcopy(record["target_dbfs"])
+                target_found = True
+            elif "target_peak_dbfs" in record:
+                target = deepcopy(record["target_peak_dbfs"])
+                target_found = True
+        if not applied_gain_found and "applied_gain_db" in record:
+            applied_gain = deepcopy(record["applied_gain_db"])
+            applied_gain_found = True
+        if not normalized_found and "normalization_applied" in record:
+            normalized = deepcopy(record["normalization_applied"])
+            normalized_found = True
+
+    if policy_found:
+        result["policy"] = policy
+    elif "policy" not in result:
+        result["policy"] = None
+    if target_found:
+        result["target_dbfs"] = target
+    elif "target_dbfs" not in result:
+        result["target_dbfs"] = None
+    if applied_gain_found:
+        result["applied_gain_db"] = applied_gain
+    elif "applied_gain_db" not in result:
+        result["applied_gain_db"] = None
+    if normalized_found:
+        result["normalization_applied"] = normalized
+    elif "normalization_applied" not in result:
+        result["normalization_applied"] = None
+    if measured is not None or "measured_peak_dbfs" not in result:
+        result["measured_peak_dbfs"] = measured
+    if measured_source is not None or "measured_peak_source" not in result:
+        result["measured_peak_source"] = measured_source
+
+    source = deepcopy(result.get("source")) if isinstance(result.get("source"), Mapping) else {}
+    for _label, record in records:
+        for key in (
+            "source", "source_pcm_path", "source_relative", "source_sha256",
+            "source_metadata_path", "source_metadata_manifest", "source_origin",
+            "source_origin_aliases", "source_event_registry",
+        ):
+            if key in record and key not in source:
+                source[key] = deepcopy(record[key])
+        dry_audio = record.get("dry_audio")
+        if isinstance(dry_audio, Mapping):
+            for key, target_key in (("uri", "dry_audio_uri"), ("sha256", "dry_audio_sha256")):
+                if key in dry_audio and target_key not in source:
+                    source[target_key] = deepcopy(dry_audio[key])
+    if source_overrides:
+        source.update(deepcopy(dict(source_overrides)))
+    result["source"] = source
+
+    metadata = deepcopy(result.get("metadata")) if isinstance(result.get("metadata"), Mapping) else {}
+    for label, record in records:
+        subset = _gain_metadata(record)
+        if subset:
+            metadata[label] = subset
+    if metadata:
+        result["metadata"] = metadata
+    return result
+
+
 def load_conditioned_sound_pool(payload, *, source_path=None):
-    """Bridge P7 crop-relative activity once; original source clocks stay unchanged."""
+    """Bridge P7 crop-relative activity once; preserve source gain facts."""
     from pathlib import Path
     import wave
     from types import SimpleNamespace
@@ -817,6 +949,7 @@ def load_conditioned_sound_pool(payload, *, source_path=None):
     rows=payload.get('clips',[]) if prepared else payload.get('sounds',[]) if isinstance(payload,Mapping) else payload
     root=Path(source_path).resolve().parent if source_path else Path.cwd()
     result=[]
+    source_manifest = {"manifest_path": str(Path(source_path).resolve())} if source_path else None
     for raw in rows:
         if prepared and raw.get('status')!='prepared':continue
         sound=deepcopy(raw)
@@ -826,6 +959,18 @@ def load_conditioned_sound_pool(payload, *, source_path=None):
             info=SimpleNamespace(frames=wav.getnframes(), samplerate=wav.getframerate(), channels=wav.getnchannels())
         if info.channels!=1:raise ValueError('conditioned sound pool must be real mono source PCM')
         sound.update(path=str(path.resolve()),sample_count=int(info.frames),sample_rate_hz=int(info.samplerate))
+        if isinstance(raw.get('source_normalization'), Mapping):
+            # This namespace describes prior source processing. Carrier-level
+            # runtime gain or normalization flags must not overwrite it.
+            sound['source_normalization'] = deepcopy(raw['source_normalization'])
+            if source_path:
+                source = sound['source_normalization'].setdefault('source', {})
+                source['input_manifest_path'] = str(Path(source_path).resolve())
+        else:
+            sound['source_normalization'] = source_normalization_metadata(
+                raw, container=payload if isinstance(payload, Mapping) else None,
+                source_overrides=source_manifest,
+            )
         if prepared:
             facts=raw['facts'];source_rate=int(facts['source_rate_hz']);offset=int(raw['source_crop_start_sample'])
             intervals=[[int(round((i['start_sample']-offset)*info.samplerate/source_rate)),

@@ -24,6 +24,7 @@ from collections.abc import Mapping
 import hashlib
 import io
 import json
+import math
 import sys
 import wave
 from pathlib import Path
@@ -143,11 +144,12 @@ def _read_wav_mono(path: Path) -> tuple[np.ndarray, int]:
 
 
 def _encode_wav_mono(samples: np.ndarray, rate: int, *,
-                     peak_normalize: bool) -> tuple[bytes, float]:
+                     peak_normalize: bool,
+                     target_peak_dbfs: float) -> tuple[bytes, float]:
     peak = float(np.abs(samples).max()) if samples.size else 0.0
     applied_gain_db = 0.0
     if peak_normalize and peak > 0:
-        gain = (10 ** (TARGET_PEAK_DBFS / 20)) / peak
+        gain = (10 ** (target_peak_dbfs / 20)) / peak
         samples = samples * gain
         applied_gain_db = float(20.0 * np.log10(gain))
     ints = np.clip(np.round(samples * 32767.0), -32768, 32767).astype("<i2")
@@ -198,7 +200,11 @@ def _prepared_metadata(library_root: Path) -> dict[str, dict]:
 
 
 def split_library(library_root: Path, output_root: Path, *,
-                  peak_normalize: bool = False) -> dict:
+                  peak_normalize: bool = False,
+                  target_peak_dbfs: float = TARGET_PEAK_DBFS) -> dict:
+    target_peak_dbfs = float(target_peak_dbfs)
+    if not math.isfinite(target_peak_dbfs) or target_peak_dbfs > 0.0:
+        raise ValueError("target_peak_dbfs must be finite and non-positive")
     if output_root.exists() and any(output_root.iterdir()):
         raise FileExistsError(f"refuse to write into non-empty {output_root}")
     output_root.mkdir(parents=True, exist_ok=True)
@@ -237,7 +243,8 @@ def split_library(library_root: Path, output_root: Path, *,
         for index, event in enumerate(events):
             payload, applied_gain_db = _encode_wav_mono(
                 slice_event(samples, event), rate,
-                peak_normalize=peak_normalize)
+                peak_normalize=peak_normalize,
+                target_peak_dbfs=target_peak_dbfs)
             sha256 = hashlib.sha256(payload).hexdigest()
             sha8 = sha256[:8]
             collision_key = (event_class, sha8)
@@ -309,9 +316,15 @@ def split_library(library_root: Path, output_root: Path, *,
             )
 
     index_assets.sort(key=lambda item: item["asset_id"])
+    normalization_policy = {
+        "mode": "peak_dbfs" if peak_normalize else "preserve",
+        "target_dbfs": target_peak_dbfs if peak_normalize else None,
+        "applied_to": "each_event_pcm" if peak_normalize else "none",
+    }
     index = {
         "schema": INDEX_SCHEMA,
         "layout": LAYOUT,
+        "normalization_policy": normalization_policy,
         "layout_note": (
             "category is the domain an engine asks for first; type is the "
             "event class; variant is the content sha256 prefix of this cut "
@@ -326,6 +339,7 @@ def split_library(library_root: Path, output_root: Path, *,
     manifest = {
         "schema": SCHEMA,
         "layout": LAYOUT,
+        "normalization_policy": normalization_policy,
         "library_root": str(library_root),
         "output_root": str(output_root),
         "source_library_sha256": source_library_sha256,
@@ -354,8 +368,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--output-root", type=Path, required=True)
     parser.add_argument(
         "--peak-normalize", action="store_true",
-        help="Peak-normalize each cut event to -3 dBFS. Off by default "
-             "because prepared clips are already peak-normalized.")
+        help="Peak-normalize each cut event to --target-peak-dbfs. Off by "
+             "default because prepared clips are already peak-normalized.")
+    parser.add_argument(
+        "--target-peak-dbfs", type=float, default=TARGET_PEAK_DBFS,
+        help="Target peak for --peak-normalize (default: -3.0 dBFS).")
     args = parser.parse_args(argv)
     library_root = args.library_root.resolve()
     output_root = args.output_root.resolve()
@@ -367,7 +384,8 @@ def main(argv: list[str] | None = None) -> int:
         raise SystemExit(
             f"refuse to write into the prepared library: {library_root}")
     manifest = split_library(
-        library_root, output_root, peak_normalize=args.peak_normalize)
+        library_root, output_root, peak_normalize=args.peak_normalize,
+        target_peak_dbfs=args.target_peak_dbfs)
     print(json.dumps(manifest["counts"], ensure_ascii=False))
     return 0
 

@@ -177,6 +177,12 @@ def _review_frames(questions: Mapping[str, Any], facts: Mapping[str, Any]) -> di
                         child -= 1
                     if 0 <= child < frame_count:
                         selected.setdefault(child, []).append(qid + ":" + key)
+                elif key == "query_window_frames" and isinstance(child, list) and len(child) == 2:
+                    start, end = child
+                    if not all(isinstance(v, int) and not isinstance(v, bool) for v in child) or not 0 <= start < end <= frame_count:
+                        raise ValueError("explicit question query window is outside the Episode")
+                    selected.setdefault(start, []).append(qid + ":query_window_start")
+                    selected.setdefault(end - 1, []).append(qid + ":query_window_end")
                 elif isinstance(child, (Mapping, list)):
                     visit(child, qid)
         elif isinstance(value, list):

@@ -486,8 +486,12 @@ def _find_audio_report(
     raise FileNotFoundError("finalization requires an existing P6 research_report.json")
 
 
-def _asset_registry(repository: Path) -> dict[str, Mapping[str, Any]]:
-    path = repository / "examples/runtime/source_asset_runtime_profiles.json"
+def _asset_registry(repository: Path, registry_path: str | Path | None = None) -> dict[str, Mapping[str, Any]]:
+    path = Path(registry_path).expanduser() if registry_path is not None else (
+        repository / "examples/runtime/source_asset_runtime_profiles.json"
+    )
+    if not path.is_absolute():
+        path = repository / path
     if not path.is_file():
         return {}
     value = read_json(path)
@@ -1082,6 +1086,85 @@ def _build_export_if_possible(
     return str(export_root), {"status": "pass", "manifest": manifest}
 
 
+
+def _rendered_sound_registry(request, audio_program, audio_report, *, repository):
+    """Bind sound semantics to the pool entries used by the completed audio."""
+    inputs = audio_report.get("inputs") or {}
+    rendered = inputs.get("dry_assets") if isinstance(inputs, Mapping) else None
+    pool_value = request.get("sound_pool")
+    if not pool_value or not isinstance(rendered, Mapping):
+        return {"sounds": [], "status": "unavailable",
+                "reason": "sound pool or rendered dry-asset references are absent"}
+    pool_path = Path(pool_value).expanduser()
+    if not pool_path.is_absolute():
+        pool_path = Path(repository) / pool_path
+    pool_path = pool_path.resolve()
+    payload = read_json(pool_path)
+    rows = payload.get("sounds", []) if isinstance(payload, Mapping) else payload
+    if not isinstance(rows, list):
+        raise ValueError("sound pool must contain a list of sounds")
+    by_id = {row.get("sound_asset_id"): row for row in rows if isinstance(row, Mapping)}
+    used_ids = {
+        event.get("sound_asset_id") for event in audio_program.get("events", [])
+        if isinstance(event, Mapping) and event.get("sound_asset_id")
+    }
+    records = []
+    for sound_id in sorted(used_ids):
+        source = by_id.get(sound_id)
+        observed = rendered.get(sound_id)
+        if not isinstance(source, Mapping) or not isinstance(observed, Mapping):
+            raise ValueError(f"rendered sound {sound_id!r} is absent from the declared pool or audio inputs")
+        source_path = Path(source["path"]).expanduser()
+        if not source_path.is_absolute():
+            source_path = pool_path.parent / source_path
+        observed_path = Path(observed["path"]).expanduser()
+        if not observed_path.is_absolute():
+            observed_path = Path(repository) / observed_path
+        if source_path.resolve() != observed_path.resolve():
+            raise ValueError(f"sound pool PCM differs from the rendered input for {sound_id}")
+        record = deepcopy(dict(source))
+        record["semantic_sound_class"] = source.get("sound_class") or source.get("event_class")
+        record["rendered_pcm_path"] = str(observed_path.resolve())
+        record["rendered_pcm_sha256"] = observed.get("sha256")
+        records.append(record)
+    return {"sounds": records, "status": "matched_rendered_inputs",
+            "source_pool": str(pool_path), "sound_count": len(records)}
+
+
+def _reviewed_occluder_registry(review, actors):
+    """Reuse the question renderer's readable labels for reviewed occluders."""
+    from avengine.qa.unified_catalog import _Deferred, _appearance_phrases
+
+    result = {}
+    reviews = review.get("actors")
+    if not isinstance(reviews, Mapping):
+        return result
+    for actor_id, record in reviews.items():
+        if not isinstance(record, Mapping) or record.get("status") not in {
+            "pass", "reviewed", "astra_reviewed"
+        }:
+            continue
+        actor = actors.get(str(actor_id), {})
+        label = actor.get("display_label")
+        if not isinstance(label, str) or not label.strip():
+            continue
+        value = record.get("value") or record.get("attribute_value")
+        appearance = {
+            "field": record.get("attribute_field") or record.get("appearance_field_used"),
+            "value": value, "label": label,
+        }
+        try:
+            label_en, label_zh = _appearance_phrases(appearance)
+        except _Deferred:
+            continue
+        result[str(actor_id)] = {
+            "display_label": label_en, "display_label_zh": label_zh,
+            "appearance_value": value,
+            "entity_kind": str(record.get("entity_kind") or actor.get("entity_class") or "entity"),
+        }
+    return result
+
+
 def finalize_qa_episode(
     episode_root: Path, derived_root: Path, *, repository: Path,
     request: Mapping[str, Any] | None = None, audio_report: Path | None = None,
@@ -1142,7 +1225,12 @@ def finalize_qa_episode(
     if not isinstance(truth, Mapping):
         raise ValueError("pixel visibility truth must be an object")
     truth = annotate_pixel_visibility_semantics(truth)
-    registry = _asset_registry(Path(repository).resolve())
+    registry = _asset_registry(
+        Path(repository).resolve(),
+        request_value.get("source_registry") or (
+            (plan.get("request") or {}).get("source_registry") if isinstance(plan, Mapping) else None
+        ),
+    )
     if plan is None:
         plan = _build_habitat_plan(capture_root, capture_receipt, truth, report, registry)
         plan_path = Path(capture_receipt.get("inputs", {}).get("case_manifest", capture_root / "native_case_manifest.json")).expanduser().resolve() if isinstance(capture_receipt.get("inputs"), Mapping) and capture_receipt["inputs"].get("case_manifest") else None
@@ -1264,25 +1352,15 @@ def finalize_qa_episode(
     occluders = derive_actor_occluders(masks_path, truth)
     occluder_path = derived / "actor_occluders.json"
     write_json(occluder_path, occluders)
-    occluder_registry: dict[str, dict[str, str]] = {}
-    for actor_id, record in review.get("actors", {}).items() if isinstance(review.get("actors"), Mapping) else []:
-        if not isinstance(record, Mapping) or record.get("status") not in {"pass", "reviewed", "astra_reviewed"}:
-            continue
-        actor = actors.get(str(actor_id), {})
-        kind = str(record.get("entity_kind") or actor.get("entity_class") or "entity")
-        value = str(record.get("value") or record.get("attribute_value") or "appearance")
-        if kind == "human":
-            label = f"person with {value} top"
-        elif kind == "animal":
-            label = f"{actor.get('display_label', actor_id)} ({value})"
-        elif kind == "device":
-            label = f"{actor.get('display_label', actor_id)} ({value})"
-        else:
-            label = f"{actor.get('display_label', actor_id)} ({value})"
-        occluder_registry[str(actor_id)] = {"display_label": label, "appearance_value": value, "entity_kind": kind}
+    occluder_registry = _reviewed_occluder_registry(review, actors)
     occluder_registry_path = derived / "occluder_registry.json"
     write_json(occluder_registry_path, occluder_registry)
     audio_program = read_json(program_path)
+    sound_registry = _rendered_sound_registry(
+        request_value, audio_program, report, repository=repository,
+    )
+    sound_registry_path = derived / "rendered_sound_registry.json"
+    write_json(sound_registry_path, sound_registry)
     report_audio = contract_report.get("audio") if isinstance(contract_report.get("audio"), Mapping) else {}
     report_hrtf = contract_report.get("hrtf") if isinstance(contract_report.get("hrtf"), Mapping) else {}
     audio_readback = {
@@ -1325,6 +1403,8 @@ def finalize_qa_episode(
         "audio_readback": audio_readback,
         "research_report": contract_report,
         "voice_bindings": voice_bindings_value,
+        "sound_registry": sound_registry,
+        "sound_registry_path": str(sound_registry_path.resolve()),
         "source_endpoint_bindings": [
             {"source_endpoint_id": endpoint, "actor_id": actor_id}
             for endpoint, actor_id in endpoint_to_actor.items()
@@ -1393,6 +1473,7 @@ def finalize_qa_episode(
     facts["source_paths"]["appearance_review"] = str(appearance_path.resolve())
     facts["source_paths"]["occluder_evidence"] = str(occluder_path.resolve())
     facts["source_paths"]["occluder_registry"] = str(occluder_registry_path.resolve())
+    facts["source_paths"]["sound_registry"] = str(sound_registry_path.resolve())
     if final_video is not None:
         facts["source_paths"]["video"] = str(final_video)
     qa_ids = request_value.get("qa_ids") if isinstance(request_value, Mapping) else None
@@ -1418,6 +1499,7 @@ def finalize_qa_episode(
         {"path": str(appearance_path.resolve()), "role": "registered_appearance_review", "required": True},
         {"path": str(occluder_path.resolve()), "role": "actor_occluder_evidence", "required": True},
         {"path": str(occluder_registry_path.resolve()), "role": "actor_occluder_display_registry", "required": True},
+        {"path": str(sound_registry_path.resolve()), "role": "rendered_sound_semantic_registry", "required": True},
         {"path": str(facts_path.resolve()), "role": "private_normalized_facts", "required": True},
         {"path": str(questions_path.resolve()), "role": "question_output", "required": True},
     ]

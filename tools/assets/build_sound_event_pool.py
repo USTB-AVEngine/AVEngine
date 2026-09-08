@@ -22,6 +22,7 @@ import argparse
 import json
 import sys
 import wave
+from copy import deepcopy
 from pathlib import Path
 from typing import Mapping
 
@@ -63,6 +64,9 @@ def build_pool_catalog(manifest_path: Path, output_path: Path) -> dict:
             f"{manifest_path} schema {payload.get('schema')!r} is not "
             f"{MANIFEST_SCHEMA}")
     output_root = Path(payload["output_root"])
+    normalization_policy = payload.get("normalization_policy")
+    if normalization_policy is not None and not isinstance(normalization_policy, Mapping):
+        raise PoolBuildError("event manifest normalization_policy must be a mapping")
     clips = []
     excluded: list[dict] = []
     for index, row in enumerate(payload.get("clips") or []):
@@ -93,7 +97,7 @@ def build_pool_catalog(manifest_path: Path, output_path: Path) -> dict:
         rate, frames = _wav_rate_and_frames(wav_path)
         if frames <= 0 or rate <= 0:
             raise PoolBuildError(f"{owner} empty wav {wav_path}")
-        clips.append({
+        clip = {
             "sound_asset_id": sound_asset_id_for_row(row),
             "event_class": event_class,
             "sample_rate_hz": rate,
@@ -103,7 +107,12 @@ def build_pool_catalog(manifest_path: Path, output_path: Path) -> dict:
             "prepared": prepared,
             "purpose": purpose,
             **speech_metadata_from_mapping(row),
-        })
+        }
+        if normalization_policy is not None:
+            clip["normalization_policy"] = deepcopy(normalization_policy)
+        if "applied_gain_db" in row:
+            clip["applied_gain_db"] = deepcopy(row["applied_gain_db"])
+        clips.append(clip)
     if not clips:
         raise PoolBuildError(f"{manifest_path} has no event rows")
     by_class: dict[str, int] = {}
@@ -117,6 +126,7 @@ def build_pool_catalog(manifest_path: Path, output_path: Path) -> dict:
     catalog = {
         "schema": POOL_SCHEMA,
         "source_manifest": str(manifest_path),
+        "normalization_policy": deepcopy(normalization_policy),
         "clips_by_class": by_class,
         "excluded": excluded,
         "excluded_note": (

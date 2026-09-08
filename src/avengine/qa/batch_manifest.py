@@ -489,6 +489,31 @@ def _asset_interface_gaps(record: Mapping[str, Any], renderer: str) -> list[dict
     return []
 
 
+def merge_request_overrides(
+    base: Mapping[str, Any], overrides: Mapping[str, Any]
+) -> dict[str, Any]:
+    """Recursively apply request overrides without mutating the base config.
+
+    Nested mappings merge by key. Lists and scalar values replace the base
+    value as a whole, preserving request-level configuration semantics.
+    """
+    if not isinstance(base, Mapping):
+        raise ValueError("base_request must be a mapping")
+    if not isinstance(overrides, Mapping):
+        raise ValueError("slot.request_overrides must be a mapping")
+
+    def merge(target: dict[str, Any], source: Mapping[str, Any]) -> dict[str, Any]:
+        for key, value in source.items():
+            current = target.get(key)
+            if isinstance(current, Mapping) and isinstance(value, Mapping):
+                target[key] = merge(deepcopy(dict(current)), value)
+            else:
+                target[key] = deepcopy(value)
+        return target
+
+    return merge(deepcopy(dict(base)), overrides)
+
+
 def prepare_batch_manifest(
     config: Mapping[str, Any], registry: Mapping[str, Any],
     room_catalog: Mapping[str, Any], sounds: Sequence[Mapping[str, Any]],
@@ -543,8 +568,9 @@ def prepare_batch_manifest(
         classes = slot.get("source_classes")
         if not isinstance(classes, list) or not 2 <= len(classes) <= 4 or any(c not in SOURCE_CLASSES for c in classes):
             raise ValueError("slot source_classes must specify 2..4 supported sources")
-        request = deepcopy(config.get("base_request", {}))
-        request.update(deepcopy(slot.get("request_overrides", {})))
+        request = merge_request_overrides(
+            config.get("base_request", {}), slot.get("request_overrides", {})
+        )
         request.update(episode_id=episode_id, room_id=room_id,
                        seed=int(slot.get("seed", seed + index)), sampling_policy="conditioned_static_v2")
         request["camera"] = {**request.get("camera", {}), "motion": "static"}

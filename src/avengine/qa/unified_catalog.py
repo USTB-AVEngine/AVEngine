@@ -51,6 +51,19 @@ VISIBILITY_STATES = (
     "fully_occluded",
 )
 _ID_SAFE = re.compile(r"[^A-Za-z0-9_.-]+")
+_APPEARANCE_VERSION_SUFFIX = re.compile(
+    r"(?:[\s._-]+(?:v|ver|version)[\s._-]*\d+)\s*$",
+    re.IGNORECASE,
+)
+
+
+def _strip_display_version_suffix(value: Any) -> str:
+    """Remove an internal version suffix from a human-facing display label."""
+
+    if not isinstance(value, str):
+        return ""
+    text = value.strip()
+    return _APPEARANCE_VERSION_SUFFIX.sub("", text).strip(" ._-\t")
 
 
 class UnifiedQAError(ValueError):
@@ -425,7 +438,7 @@ CATALOG: tuple[dict[str, Any], ...] = (
         "qa_id": "QA-19",
         "title": "目标首次发声时刻",
         "question_family": "first_sound_time",
-        "answer_type": "time_s",
+        "answer_type": "time_range_s",
         "forms": ["mcq", "open"],
         "potential_requirements": _req(
             min_entities=1,
@@ -894,14 +907,17 @@ def _appearance_from_record(record: Mapping[str, Any]) -> dict[str, str] | None:
     for field, value in candidates:
         if isinstance(value, str) and value.strip():
             label = _first(record, "appearance_label", "display_label", "label")
+            if not isinstance(label, str) or not label.strip():
+                nested_appearance = record.get("appearance")
+                if isinstance(nested_appearance, Mapping):
+                    label = _first(
+                        nested_appearance, "appearance_label", "display_label", "label"
+                    )
+            label_text = _strip_display_version_suffix(label)
             return {
                 "field": field,
                 "value": value.strip(),
-                "label": (
-                    str(label).strip()
-                    if isinstance(label, str) and label.strip()
-                    else value.strip()
-                ),
+                "label": label_text or value.strip(),
             }
     return None
 
@@ -912,10 +928,13 @@ def _actor_label(
     appearance: Mapping[str, Any] | None,
 ) -> str:
     value = _first(record, "display_label", "label")
-    if isinstance(value, str) and value.strip():
-        return value.strip()
+    value_text = _strip_display_version_suffix(value)
+    if value_text:
+        return value_text
     if appearance and isinstance(appearance.get("label"), str):
-        return str(appearance["label"])
+        appearance_label = _strip_display_version_suffix(appearance["label"])
+        if appearance_label:
+            return appearance_label
     if appearance and isinstance(appearance.get("value"), str):
         return str(appearance["value"])
     return actor_id
@@ -1062,7 +1081,12 @@ def _content_from_event(
     sound_record: Mapping[str, Any] | None,
     voice_record: Mapping[str, Any] | None,
 ) -> tuple[str | None, str | None, str | None, str | None, bool]:
-    """Return transcript, statement id, language, sound class and explicitness."""
+    """Return transcript, statement id, language, sound class and explicitness.
+
+    A generic playback capability is not an observed event class. If the
+    event carries that capability while its bound sound registry identifies a
+    concrete class, the concrete registry class is authoritative.
+    """
 
     owners = [event, voice_record or {}, sound_record or {}]
     transcript: str | None = None
@@ -1095,11 +1119,58 @@ def _content_from_event(
                 "sound_category",
                 "sound_type",
                 "semantic_sound_class",
+                "event_class",
                 "category",
             )
             if isinstance(candidate, str) and candidate.strip():
                 sound_class = candidate.strip()
                 explicit = True
+            elif _is_sequence(content.get("event_classes")):
+                candidates = [
+                    value.strip()
+                    for value in content["event_classes"]
+                    if isinstance(value, str) and value.strip()
+                ]
+                if len(candidates) == 1:
+                    sound_class = candidates[0]
+                    explicit = True
+    capability_key = (
+        re.sub(r"\s+", "_", sound_class.casefold())
+        if sound_class is not None
+        else None
+    )
+    if capability_key in _CAPABILITY_SOUND_CLASSES:
+        for owner in (sound_record or {}, voice_record or {}):
+            content = (
+                owner.get("content")
+                if isinstance(owner.get("content"), Mapping)
+                else owner
+            )
+            candidate = _first(
+                content,
+                "semantic_sound_class",
+                "sound_class",
+                "sound_category",
+                "sound_type",
+                "event_class",
+                "category",
+            )
+            if isinstance(candidate, str) and candidate.strip() and candidate.casefold() not in _CAPABILITY_SOUND_CLASSES:
+                sound_class = candidate.strip()
+                explicit = True
+                break
+            if _is_sequence(content.get("event_classes")):
+                candidates = [
+                    value.strip()
+                    for value in content["event_classes"]
+                    if isinstance(value, str)
+                    and value.strip()
+                    and value.casefold() not in _CAPABILITY_SOUND_CLASSES
+                ]
+                if len(candidates) == 1:
+                    sound_class = candidates[0]
+                    explicit = True
+                    break
     if transcript is not None and sound_class is None:
         sound_class = "speech"
         explicit = True
@@ -2294,6 +2365,20 @@ def _appearance_candidates(
                 "appearance selector matches more than one actor",
                 duplicate_values=duplicate,
             )
+        labels: dict[str, list[str]] = {}
+        for actor_id, _actor, appearance in result:
+            label = _strip_display_version_suffix(appearance.get("label"))
+            if label:
+                labels.setdefault(label.casefold(), []).append(actor_id)
+        duplicate_labels = {
+            label: ids for label, ids in labels.items() if len(ids) > 1
+        }
+        if duplicate_labels:
+            _defer(
+                "appearance_display_labels_not_unique",
+                "reviewed appearance labels do not distinguish the target actors",
+                duplicate_labels=duplicate_labels,
+            )
     return result
 
 
@@ -2312,7 +2397,8 @@ def _actor_options(
         if isinstance(appearance, Mapping):
             label_en, label_zh = _appearance_phrases(appearance)
         else:
-            label_en = label_zh = str(actor.get("display_label") or actor_id)
+            fallback = _strip_display_version_suffix(actor.get("display_label"))
+            label_en = label_zh = fallback or str(actor_id)
         value = str(actor_id)
         if value in seen:
             continue
@@ -2324,6 +2410,13 @@ def _actor_options(
                 "label_zh": label_zh,
                 "allow_value": False,
             }
+        )
+    labels = [option["label_en"] for option in options]
+    if len(labels) != len(set(labels)):
+        _defer(
+            "appearance_display_labels_not_unique",
+            "reviewed appearance labels do not distinguish the answer options",
+            labels=labels,
         )
     return options
 
@@ -2343,9 +2436,26 @@ _APPEARANCE_WORDS = {
 
 def _appearance_phrases(appearance: Mapping[str, Any]) -> tuple[str, str]:
     value = str(appearance.get("value", "")).strip()
-    return _APPEARANCE_WORDS.get(
-        value.casefold(),
-        (value, value),
+    label = appearance.get("label")
+    label_text = _strip_display_version_suffix(label)
+    mapped = _APPEARANCE_WORDS.get(value.casefold())
+    if mapped is not None and (
+        not label_text
+        or label_text.casefold() == value.casefold()
+        or any(
+            token in label_text.casefold()
+            for token in ("human", "person", "actor", "shirt", "top")
+        )
+    ):
+        return mapped
+    if label_text and label_text.casefold() != value.casefold():
+        return label_text, label_text
+    if mapped is not None:
+        return mapped
+    _defer(
+        "missing_appearance_display_label",
+        "reviewed appearance has no human-readable display label",
+        appearance_value=value,
     )
 
 
@@ -2388,15 +2498,33 @@ def _appearance_options(
     include_values: Sequence[str] | None = None,
 ) -> list[dict[str, str]]:
     candidates = _appearance_candidates(facts, require_unique=False)
-    values = [str(item[2]["value"]) for item in candidates]
-    if include_values is not None:
-        wanted = set(include_values)
-        values = [value for value in values if value in wanted]
-    values = list(dict.fromkeys(values))
-    return [
-        {"value": value, "label_en": value, "label_zh": value}
-        for value in values
-    ]
+    wanted = set(include_values) if include_values is not None else None
+    options: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for _actor_id, _actor, appearance in candidates:
+        value = str(appearance["value"])
+        if wanted is not None and value not in wanted:
+            continue
+        if value in seen:
+            continue
+        label_en, label_zh = _appearance_phrases(appearance)
+        options.append(
+            {
+                "value": value,
+                "label_en": label_en,
+                "label_zh": label_zh,
+                "allow_value": False,
+            }
+        )
+        seen.add(value)
+    labels = [option["label_en"] for option in options]
+    if len(labels) != len(set(labels)):
+        _defer(
+            "appearance_display_labels_not_unique",
+            "reviewed appearance labels do not distinguish the answer options",
+            labels=labels,
+        )
+    return options
 
 
 def _appearance_review_for(
@@ -3189,13 +3317,86 @@ def _sector_options() -> list[dict[str, str]]:
     ]
 
 
+_STATE_LABELS = {
+    "visible_clear": "clearly visible",
+    "visible_occluded": "partially occluded",
+    "fully_occluded": "fully occluded",
+    "out_of_view": "out of view",
+}
+
+
+def _state_label(state: Any) -> str:
+    value = str(state)
+    label = _STATE_LABELS.get(value)
+    if label is None:
+        _defer(
+            "missing_visibility_display_label",
+            "visibility state has no human-readable display label",
+            state=value,
+        )
+    return label
+
+
 def _state_options() -> list[dict[str, str]]:
     return [
-        _option("visible_clear", "clearly visible"),
-        _option("visible_occluded", "partially occluded"),
-        _option("fully_occluded", "fully occluded"),
-        _option("out_of_view", "out of view"),
+        _option(value, label)
+        for value, label in _STATE_LABELS.items()
     ]
+
+
+_CAPABILITY_SOUND_CLASSES = frozenset({
+    "any_audioset_class_playback",
+    "audio_playback",
+    "sound_playback",
+})
+
+
+_SOUND_CLASS_LABELS = {
+    "speech": ("speech", "语音"),
+    "speech_playback": ("speech", "语音"),
+    "dog_bark": ("dog bark", "狗叫声"),
+    "bark": ("bark", "吠声"),
+    "cat_meow": ("cat meow", "猫叫声"),
+    "laugh": ("laughter", "笑声"),
+    "whistle": ("whistle", "口哨声"),
+    "music_playback": ("music", "音乐"),
+    "bathtub_filling_washing": ("bathtub filling or washing", "浴缸进水或冲洗声"),
+    "sink_filling_washing": ("sink filling or washing", "水槽进水或冲洗声"),
+    "blender": ("blender", "搅拌机声"),
+    "drip": ("dripping water", "滴水声"),
+    "fire": ("fire", "火焰声"),
+    "microwave_beep": ("microwave beep", "微波炉提示音"),
+    "printer": ("printer", "打印机声"),
+    "alarm_bell": ("alarm bell", "警铃声"),
+    "toilet_flush": ("toilet flush", "冲马桶声"),
+    "phone_ring": ("phone ringing", "电话铃声"),
+}
+
+
+def _sound_class_phrases(
+    sound_class: Any,
+    *,
+    event: Mapping[str, Any] | None = None,
+) -> tuple[str, str]:
+    value = str(sound_class).strip().casefold()
+    if event is not None:
+        for key in (
+            "sound_class_label",
+            "sound_category_label",
+            "sound_type_label",
+            "display_label",
+        ):
+            label = event.get(key)
+            if isinstance(label, str) and label.strip() and label.strip().casefold() != value:
+                return label.strip(), label.strip()
+    mapped = _SOUND_CLASS_LABELS.get(value)
+    if mapped is not None:
+        return mapped
+    _defer(
+        "missing_sound_class_display_label",
+        "sound class has no human-readable display label",
+        sound_class=value,
+    )
 
 
 def _event_pair(facts: Mapping[str, Any]) -> tuple[Mapping[str, Any], Mapping[str, Any]]:
@@ -3387,7 +3588,7 @@ def _generate_qa_02(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
         facts=facts,
         seed=seed,
         question_en=(
-            f"What appearance value belongs to the actor of {anchor_en}"
+            f"Which described appearance belongs to the actor of {anchor_en}"
             + (
                 f" (the recorded utterance is {event['transcript']!r})?"
                 if event.get("transcript")
@@ -3395,7 +3596,7 @@ def _generate_qa_02(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
             )
         ),
         question_zh=(
-            f"{anchor_zh}对应的个体是什么外观属性？"
+            f"{anchor_zh}对应的个体具有什么已核验外观？"
             + (
                 f"（录音台词为“{event['transcript']}”）"
                 if event.get("transcript")
@@ -3463,29 +3664,37 @@ def _generate_qa_03(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
 
 def _generate_qa_04(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
     _require_stereo(facts)
-    event = _bound_events(facts)[0] if _bound_events(facts) else None
-    if event is None:
-        _defer("missing_bound_events", "QA-04 needs a bound sound event")
-    frame = _event_frame(event, "start_frame")
-    angle = _azimuth(facts, event["actor_id"], max(0, min(frame, facts["time"]["frame_count"] - 1)))
-    if abs(angle) < 5.0:
-        _defer("front_dead_zone", "speaker angle is inside the left/right dead zone")
-    side = "right" if angle > 0 else "left"
-    anchor_en, anchor_zh = _event_anchor(facts, event)
-    return _question_item(
-        qa_id="QA-04",
-        facts=facts,
-        seed=seed,
-        question_en=f"At the onset of {anchor_en}, was the source on your left or right?",
-        question_zh=f"{anchor_zh}开始时，声源在听者左侧还是右侧？",
-        open_answer_type="closed_set",
-        open_truth=side,
-        truth_label=side,
-        options=[_option("left", "left"), _option("right", "right")],
-        evidence={**_event_evidence(event), "query_frame": frame, "azimuth_deg": angle},
-        slug=event["event_id"],
-    )
-
+    events = _bound_events(facts)
+    for event in events:
+        result = _event_start_side_window(facts, event)
+        if result is None:
+            continue
+        window, side, angle = result
+        anchor_en, anchor_zh = _event_anchor(facts, event)
+        window_fields = _query_window_fields(facts, window)
+        display = _display_time_range(facts, window)
+        if display is None:
+            _defer("query_interval_too_short_for_display", "the stable onset interval has no public range")
+        display_en, display_zh = display
+        return _question_item(
+            qa_id="QA-04",
+            facts=facts,
+            seed=seed,
+            question_en=f"At the onset of {anchor_en} (query interval {display_en}), was the source on your left or right?",
+            question_zh=f"在{anchor_zh}的查询区间{display_zh}开始阶段，声源在听者左侧还是右侧？",
+            open_answer_type="closed_set",
+            open_truth=side,
+            truth_label=side,
+            options=[_option("left", "left"), _option("right", "right")],
+            evidence={
+                **_event_evidence(event),
+                "query_frame": window[0],
+                **window_fields,
+                "azimuth_deg": angle,
+            },
+            slug=event["event_id"],
+        )
+    _defer("front_dead_zone", "no sound event has a stable left/right side at onset")
 
 def _generate_qa_05(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
     first, second = _event_pair(facts)
@@ -3582,63 +3791,87 @@ def _generate_qa_07(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
             offset = float(centroid[0]) - center
             if abs(offset) <= dead_zone:
                 continue
-            side = "right" if offset > 0 else "left"
-            if preferred_frame is not None and int(current.get("frame_index", -1)) != int(preferred_frame):
+            entry_frame = int(current["frame_index"])
+            if preferred_frame is not None and entry_frame != int(preferred_frame):
                 continue
+            window = _entry_transition_window(
+                facts,
+                str(actor_id),
+                entry_frame,
+                center=center,
+                dead_zone=dead_zone,
+            )
+            if window is None:
+                continue
+            side = "right" if offset > 0.0 else "left"
             appearance_en, appearance_zh = _appearance_phrases(reviewed[actor_id])
+            window_fields = _query_window_fields(facts, window)
+            display = _display_time_range(facts, window)
+            if display is None:
+                _defer("query_interval_too_short_for_display", "the entry interval has no public range")
+            display_en, display_zh = display
             return _question_item(
                 qa_id="QA-07",
                 facts=facts,
                 seed=seed,
                 question_en=(
-                    f"Did the {appearance_en} enter from the "
-                    f"left or right side of the frame at video frame {current['frame_index']}?"
+                    f"Did the {appearance_en} enter from the left or right side "
+                    f"of the frame during the transition into view {display_en}?"
                 ),
-                question_zh=f"在视频第{current['frame_index']}帧入画时，{appearance_zh}是从左侧还是右侧进入的？",
+                question_zh=(
+                    f"在入画过渡时段{display_zh}内，{appearance_zh}是从左侧还是右侧进入画面的？"
+                ),
                 open_answer_type="closed_set",
                 open_truth=side,
                 truth_label=side,
                 options=[_option("left", "left"), _option("right", "right")],
                 evidence={
                     "target_actor_id": actor_id,
-                    "entry_frame": current.get("frame_index"),
-                    "query_frame": current.get("frame_index"),
+                    "entry_frame": entry_frame,
+                    "query_frame": entry_frame,
+                    **window_fields,
                     "centroid_xy_px": list(centroid),
                     "side_dead_zone_px": dead_zone,
                 },
-                slug=f"{actor_id}_entry_{current.get('frame_index')}",
+                slug=f"{actor_id}_entry_{entry_frame}",
             )
     _defer("no_entry_transition", "no out_of_view to visible transition with an unambiguous side")
-
 
 def _generate_qa_08(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
     _require_stereo(facts)
     for event in _bound_events(facts):
-        frame = max(0, min(int(facts["time"]["frame_count"]) - 1, _event_frame(event, "start_frame")))
-        try:
-            state = _require_visibility(facts, event["actor_id"], frame).get("state")
-        except _Deferred:
+        window_and_state = _event_start_visibility_window(facts, event)
+        if window_and_state is None:
             continue
+        window, state = window_and_state
         anchor_en, anchor_zh = _event_anchor(facts, event)
-        start_time = float(event["start_s"])
+        window_fields = _query_window_fields(facts, window)
+        display = _display_time_range(facts, window)
+        if display is None:
+            _defer("query_interval_too_short_for_display", "the visibility interval has no public range")
+        display_en, display_zh = display
         return _question_item(
             qa_id="QA-08",
             facts=facts,
             seed=seed,
             question_en=(
-                f"At the onset of {anchor_en} ({start_time:.3f} seconds), "
-                "what was the source's visibility state?"
+                f"At the beginning of {anchor_en} within {display_en}, what was "
+                "the source's visibility state?"
             ),
-            question_zh=f"{anchor_zh}\u5728\u7b2c{start_time:.3f}\u79d2\u8d77\u70b9\u65f6\u5904\u4e8e\u4ec0\u4e48\u53ef\u89c1\u72b6\u6001\uff1f",
+            question_zh=f"在{anchor_zh}对应的{display_zh}开始阶段，声源处于什么可见状态？",
             open_answer_type="closed_set",
             open_truth=state,
-            truth_label=state,
+            truth_label=_state_label(state),
             options=_state_options(),
-            evidence={**_event_evidence(event), "query_frame": frame, "visibility_state": state},
+            evidence={
+                **_event_evidence(event),
+                "query_frame": window[0],
+                **window_fields,
+                "visibility_state": state,
+            },
             slug=event["event_id"],
         )
-    _defer("no_event_visibility", "no sound event has pixel visibility at its onset")
-
+    _defer("no_event_visibility", "no sound event has a stable pixel visibility state at its onset")
 
 def _generate_qa_09(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
     reviewed = _reviewed_appearances(facts)
@@ -3746,13 +3979,23 @@ def _occluder_label(facts: Mapping[str, Any], occluder_id: str) -> str:
     registry = facts.get("occluder_registry")
     if isinstance(registry, Mapping):
         value = registry.get(occluder_id)
+        label: Any = None
         if isinstance(value, Mapping):
             label = value.get("display_label") or value.get("label") or value.get("category")
-            if isinstance(label, str) and label.strip():
-                return label.strip()
-        if isinstance(value, str) and value.strip():
-            return value.strip()
-    return occluder_id
+        elif isinstance(value, str):
+            label = value
+        label_text = _strip_display_version_suffix(label)
+        if label_text:
+            # Registry entries such as occluder_17/source3 are identifiers,
+            # not labels a participant can use to answer the question.
+            lower = label_text.casefold()
+            if not re.fullmatch(r"(?:source|actor|occluder|instance)[_.-]?\d*", lower):
+                return label_text
+    _defer(
+        "missing_occluder_display_label",
+        "occluder identity has no human-readable display label",
+        occluder_instance_id=occluder_id,
+    )
 
 
 def _generate_qa_10(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
@@ -3776,14 +4019,17 @@ def _generate_qa_10(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
         if not isinstance(frames, Mapping):
             continue
         for frame, value in frames.items():
-            if preferred_frame is not None and int(frame) != int(preferred_frame):
+            frame = int(frame)
+            if preferred_frame is not None and frame != int(preferred_frame):
                 continue
             if value.get("state") not in {"visible_occluded", "fully_occluded"}:
                 continue
-            ids = _occluder_ids(facts, actor_id, int(frame))
+            ids = _occluder_ids(facts, actor_id, frame)
             if len(ids) != 1:
                 continue
-            appearance_en, appearance_zh = _appearance_phrases(reviewed[actor_id])
+            window = _occlusion_interval_window(facts, str(actor_id), frame)
+            if window is None:
+                continue
             observed_ids: list[str] = []
             for other_actor_id, other_frames in facts.get("visibility", {}).items():
                 if isinstance(other_frames, Mapping):
@@ -3806,10 +4052,6 @@ def _generate_qa_10(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
                     "one or more pixel occluder IDs are not registered",
                     occluder_instance_ids=observed_ids,
                 )
-            # The target is part of the actor registry, but it cannot be a
-            # visible occluder of itself. Exclude it before constructing the
-            # real distractor domain; with one remaining registered actor,
-            # _question_item keeps Open and defers only MCQ.
             candidate_ids = [item for item in observed_ids if item != actor_id]
             candidate_ids.extend(
                 item
@@ -3837,17 +4079,22 @@ def _generate_qa_10(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
                 }
                 for item in candidate_ids
             ]
+            appearance_en, appearance_zh = _appearance_phrases(reviewed[actor_id])
+            window_fields = _query_window_fields(facts, window)
+            display = _display_time_range(facts, window)
+            if display is None:
+                _defer("query_interval_too_short_for_display", "the occlusion interval has no public range")
+            display_en, display_zh = display
             return _question_item(
                 qa_id="QA-10",
                 facts=facts,
                 seed=seed,
                 question_en=(
-                    f"Which visible object or person occluded the "
-                    f"{appearance_en} at frame {frame}?"
+                    f"Which visible object or person occluded the {appearance_en} "
+                    f"during the occlusion interval {display_en}?"
                 ),
                 question_zh=(
-                    f"这一帧中哪个可见的物体或人物遮挡了"
-                    f"{appearance_zh}？（帧{frame}）"
+                    f"在遮挡时段{display_zh}内，哪个可见物体或人物遮挡了{appearance_zh}？"
                 ),
                 open_answer_type="closed_set",
                 open_truth=ids[0],
@@ -3856,14 +4103,15 @@ def _generate_qa_10(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
                 evidence={
                     "target_actor_id": actor_id,
                     "frame": frame,
+                    "query_frame": frame,
+                    **window_fields,
                     "occluder_instance_ids": ids,
                     "option_instance_ids": candidate_ids,
                 },
                 mcq_optional=len(candidate_ids) < 2,
                 slug=f"{actor_id}_occluder_{frame}",
             )
-    _defer("missing_occluder_identity", "pixel visibility contains no unique occluder identity")
-
+    _defer("missing_occluder_identity", "pixel visibility contains no unique occluder identity over a stable interval")
 
 def _generate_qa_11(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
     reviewed = _reviewed_appearances(facts)
@@ -3968,6 +4216,7 @@ def _generate_qa_12(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
     actor_id, actor, event = _target_with_event(
         facts, require_content=True, require_visible=True
     )
+    appearance_en, appearance_zh = _appearance_phrases(actor["appearance"])
     frame = max(
         0,
         min(
@@ -3988,8 +4237,8 @@ def _generate_qa_12(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
         qa_id="QA-12",
         facts=facts,
         seed=seed,
-        question_en=f"What did the {actor['appearance']['value']} actor say in their spoken statement {_statement_ordinal(facts, event)}?",
-        question_zh=f"{actor['appearance']['value']}的个体在其第{_statement_ordinal(facts, event)}次说话时说了什么？",
+        question_en=f"What did the {appearance_en} say in their spoken statement {_statement_ordinal(facts, event)}?",
+        question_zh=f"{appearance_zh}在其第{_statement_ordinal(facts, event)}次说话时说了什么？",
         open_answer_type="transcript_wer",
         open_truth=event["transcript"],
         truth_label=str(event["transcript"]),
@@ -4024,67 +4273,216 @@ def _generate_qa_13(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
     _require_actor_count(facts, 2)
     saw_window = False
     saw_unobservable = False
+    saw_unstable_interval = False
     last_reasons = {}
     for event, query_frame, silence in _after_event_candidates(facts, qa_id="QA-13"):
         saw_window = True
+        legal_windows = _post_sound_window(
+            facts, event, silence, qa_id="QA-13"
+        )
+        if not legal_windows:
+            saw_unstable_interval = True
+            continue
         try:
-            visibility = _require_visibility(facts, event["actor_id"], query_frame)
-            angle = _azimuth(facts, event["actor_id"], query_frame)
+            query_visibility = _require_visibility(
+                facts, event["actor_id"], query_frame
+            )
+            query_angle = _azimuth(facts, event["actor_id"], query_frame)
+        except _Deferred:
+            saw_unobservable = True
+            continue
+        if (
+            query_visibility.get("state") not in VISIBLE_STATES
+            or _fov_band(query_angle) is None
+        ):
+            saw_unobservable = True
+            continue
+
+        def value_for_frame(frame: int) -> dict[str, Any] | None:
+            try:
+                _silent_after(facts, event, frame)
+                visibility = _require_visibility(facts, event["actor_id"], frame)
+                angle = _azimuth(facts, event["actor_id"], frame)
+            except _Deferred:
+                return None
             band = _fov_band(angle)
             if visibility.get("state") not in VISIBLE_STATES or band is None:
-                saw_unobservable = True
-                continue
-            other_angles = {actor_id: _azimuth(facts, actor_id, query_frame)
-                            for actor_id in facts["actors"] if actor_id != event["actor_id"]}
+                return None
+            return {"angle": float(angle), "band": band}
+
+        def stable(values: Sequence[Any]) -> bool:
+            if not values or any(not isinstance(value, Mapping) for value in values):
+                return False
+            bands = {value.get("band") for value in values}
+            if len(bands) != 1:
+                return False
+            angles = [float(value["angle"]) for value in values]
+            reference = float(sorted(angles)[len(angles) // 2])
+            return max(abs(angle - reference) for angle in angles) <= 15.0
+
+        window = _stable_frame_window(
+            facts,
+            legal_windows,
+            query_frame,
+            value_for_frame,
+            stable,
+        )
+        if window is None:
+            saw_unstable_interval = True
+            continue
+        values = [value_for_frame(frame) for frame in range(window[0], window[1])]
+        if any(not isinstance(value, Mapping) for value in values):
+            saw_unstable_interval = True
+            continue
+        angles = [float(value["angle"]) for value in values]
+        stable_angle = float(sorted(angles)[len(angles) // 2])
+        query_value = value_for_frame(query_frame)
+        if not isinstance(query_value, Mapping):
+            saw_unobservable = True
+            continue
+        angle_at_query = float(query_value["angle"])
+        band = str(query_value["band"])
+        try:
+            other_angles = {
+                actor_id: _azimuth(facts, actor_id, query_frame)
+                for actor_id in facts["actors"]
+                if actor_id != event["actor_id"]
+            }
         except _Deferred:
             continue
-        gaps = [abs((angle - value + 180.0) % 360.0 - 180.0) for value in other_angles.values()]
-        # Preserve the existing numerical scoring separation only for Open.
-        # The MCQ uses its own three-band domain and never inherits the old 90-degree sectors.
+        gaps = [
+            abs((angle_at_query - value + 180.0) % 360.0 - 180.0)
+            for value in other_angles.values()
+        ]
         open_reason = None if gaps and min(gaps) > 60.0 else {
-            "code": "open_numeric_candidate_gap_too_small", "detail": "Open candidates overlap the existing 30-degree partial-credit tolerance",
-            "minimum_gap_deg": min(gaps) if gaps else None, "minimum_required_gap_deg": 60.0, "calibration": "placeholder"}
-        other_bands = {actor_id: _fov_band(value) for actor_id, value in other_angles.items()}
-        missing = [actor_id for actor_id, value in other_bands.items() if value is None]
-        equal = [actor_id for actor_id, value in other_bands.items() if value == band]
-        boundary_distance = min(abs(angle - boundary) for boundary in _FOV_BAND_BOUNDARIES_DEG)
+            "code": "open_numeric_candidate_gap_too_small",
+            "detail": "Open candidates overlap the existing 30-degree partial-credit tolerance",
+            "minimum_gap_deg": min(gaps) if gaps else None,
+            "minimum_required_gap_deg": 60.0,
+            "calibration": "placeholder",
+        }
+        other_bands = {
+            actor_id: _fov_band(value)
+            for actor_id, value in other_angles.items()
+        }
+        missing = [
+            actor_id for actor_id, value in other_bands.items() if value is None
+        ]
+        equal = [
+            actor_id for actor_id, value in other_bands.items() if value == band
+        ]
+        boundary_distance = min(
+            abs(stable_angle - boundary) for boundary in _FOV_BAND_BOUNDARIES_DEG
+        )
         mcq_reason = None
         available = [value for value in other_bands.values() if value is not None]
         if not available:
-            mcq_reason = {"code": "candidate_value_missing", "detail": "offscreen competitors have no in-view band and are not counted as different", "actor_ids": missing}
+            mcq_reason = {
+                "code": "candidate_value_missing",
+                "detail": "offscreen competitors have no in-view band and are not counted as different",
+                "actor_ids": missing,
+            }
         elif len(equal) == len(available):
-            mcq_reason = {"code": "distractors_equal_gold", "detail": "all available competitors occupy the same MCQ band as gold", "actor_ids": equal}
+            mcq_reason = {
+                "code": "distractors_equal_gold",
+                "detail": "all available competitors occupy the same MCQ band as gold",
+                "actor_ids": equal,
+            }
         elif boundary_distance < 5.0:
-            mcq_reason = {"code": "mcq_band_boundary_margin", "detail": "target is within the placeholder 5-degree band-boundary margin",
-                          "distance_to_boundary_deg": boundary_distance, "required_margin_deg": 5.0, "calibration": "placeholder"}
+            mcq_reason = {
+                "code": "mcq_band_boundary_margin",
+                "detail": "target is within the placeholder 5-degree band-boundary margin",
+                "distance_to_boundary_deg": boundary_distance,
+                "required_margin_deg": 5.0,
+                "calibration": "placeholder",
+            }
         if open_reason is not None and mcq_reason is not None:
             last_reasons = {"open": open_reason, "mcq": mcq_reason}
             continue
         anchor_en, anchor_zh = _event_anchor(facts, event)
-        time_s = query_frame / float(facts["time"]["frame_rate_hz"])
-        evidence = {**_event_evidence(event), "post_sound": silence, "query_frame": query_frame,
-                    "query_time_s": time_s, "query_visibility_state": visibility.get("state"),
-                    "azimuth_deg": angle, "distractor_azimuths_deg": other_angles,
-                    "target_fov_band": band, "distractor_fov_bands": other_bands,
-                    "fov_half_angle_deg": _FOV_HALF_DEG, "fov_band_boundaries_deg": list(_FOV_BAND_BOUNDARIES_DEG),
-                    "fov_band_calibration": "placeholder", "band_boundary_margin_deg": 5.0,
-                    "target_unobservable_at_query": False}
-        return _question_item(qa_id="QA-13", facts=facts, seed=seed,
-            question_en=f"After {anchor_en} ended, what was the source's numeric azimuth at {time_s:.3f} seconds (video frame {query_frame})? Report degrees: front is 0°, right is positive, range [-180°, 180°).",
-            question_zh=f"{anchor_zh}结束后，第{time_s:.3f}秒（视频帧{query_frame}）声源的数值方位角是多少？正前方为0°，右侧为正，范围[-180°，180°）。",
-            mcq_question_en=f"After {anchor_en} ended, which in-view horizontal band contains the source at {time_s:.3f} seconds (video frame {query_frame})?",
-            mcq_question_zh=f"{anchor_zh}结束后，第{time_s:.3f}秒（视频帧{query_frame}）声源位于哪个视野内水平角带？",
-            open_answer_type="angle_deg", open_truth=angle, truth_label=str(angle), mcq_truth=band,
-            open_extra={"convention": "right_positive", "convention_description": "azimuth_deg; front=0°, right_positive, range=[-180°,180°)",
-                        "theta_full_deg": 15.0, "theta_half_deg": 30.0},
-            open_deferred_reason=open_reason, mcq_deferred_reason=mcq_reason, options=_fov_band_options(),
-            evidence=evidence, slug=f"{event['event_id']}_post_direction")
+        window_fields = _query_window_fields(facts, window)
+        display = _display_time_range(facts, window)
+        if display is None:
+            _defer("query_interval_too_short_for_display", "the post-sound interval has no public range")
+        display_en, display_zh = display
+        silence = copy.deepcopy(silence)
+        silence.update(window_fields)
+        evidence = {
+            **_event_evidence(event),
+            "post_sound": silence,
+            "query_frame": query_frame,
+            "query_time_s": query_frame / float(facts["time"]["frame_rate_hz"]),
+            **window_fields,
+            "query_visibility_state": query_value.get("band"),
+            "azimuth_deg": stable_angle,
+            "azimuth_at_query_deg": angle_at_query,
+            "azimuth_interval_deg": [min(angles), max(angles)],
+            "distractor_azimuths_deg": other_angles,
+            "target_fov_band": band,
+            "distractor_fov_bands": other_bands,
+            "fov_half_angle_deg": _FOV_HALF_DEG,
+            "fov_band_boundaries_deg": list(_FOV_BAND_BOUNDARIES_DEG),
+            "fov_band_calibration": "placeholder",
+            "band_boundary_margin_deg": 5.0,
+            "target_unobservable_at_query": False,
+        }
+        return _question_item(
+            qa_id="QA-13",
+            facts=facts,
+            seed=seed,
+            question_en=(
+                f"After {anchor_en} ended, during the silent interval {display_en}, "
+                "what approximate numeric azimuth did the source maintain? "
+                "Report degrees: front is 0°, right is positive, range [-180°, 180°)."
+            ),
+            question_zh=(
+                f"{anchor_zh}结束后的静音时段{display_zh}内，声源大致保持在什么数值方位角？"
+                "正前方为0°，右侧为正，范围[-180°，180°）。"
+            ),
+            mcq_question_en=(
+                f"After {anchor_en} ended, during the silent interval {display_en}, "
+                "which in-view horizontal band contained the source?"
+            ),
+            mcq_question_zh=(
+                f"{anchor_zh}结束后的静音时段{display_zh}内，声源位于哪个视野内水平角带？"
+            ),
+            open_answer_type="angle_deg",
+            open_truth=stable_angle,
+            truth_label=f"{stable_angle:.1f}°",
+            mcq_truth=band,
+            open_extra={
+                "convention": "right_positive",
+                "convention_description": "azimuth_deg; front=0°, right_positive, range=[-180°,180°)",
+                "theta_full_deg": 15.0,
+                "theta_half_deg": 30.0,
+            },
+            open_deferred_reason=open_reason,
+            mcq_deferred_reason=mcq_reason,
+            options=_fov_band_options(),
+            evidence=evidence,
+            slug=f"{event['event_id']}_post_direction",
+        )
     if saw_unobservable:
-        _defer("target_unobservable_at_query", "the target is not observable in the declared query view", open_and_mcq_deferred=True)
+        _defer(
+            "target_unobservable_at_query",
+            "the target is not observable in the declared query view",
+            open_and_mcq_deferred=True,
+        )
+    if saw_unstable_interval:
+        _defer(
+            "post_sound_query_interval_not_stable",
+            "no legal post-sound interval keeps the target answer within the established scoring margin",
+        )
     if not saw_window:
-        _defer("no_valid_post_sound_window", "no bound event has a measured silent query window")
-    _defer("post_sound_angle_not_separated", "no query candidate supports either answer form", form_reasons=last_reasons)
-
+        _defer(
+            "no_valid_post_sound_window",
+            "no bound event has a measured silent query window",
+        )
+    _defer(
+        "post_sound_angle_not_separated",
+        "no query candidate supports either answer form",
+        form_reasons=last_reasons,
+    )
 
 def _generate_qa_14(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
     _require_actor_count(facts, 2)
@@ -4122,36 +4520,68 @@ def _generate_qa_14(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
     else:
         frame_candidates = list(range(frame_count))
         query_source = "first_valid_frame_search"
-    selected: tuple[str, Mapping[str, Any], str, Mapping[str, Any], float, float, int] | None = None
+    declared_windows = _sampling_value(
+        facts, "QA-14", "legal_window_by_qa", "legal_windows", "query_windows"
+    )
+    legal_windows = declared_windows if declared_windows is not None else [[0, frame_count]]
+    selected: tuple[
+        str, Mapping[str, Any], str, Mapping[str, Any], float, float, int, list[int]
+    ] | None = None
     for frame in frame_candidates:
         for first_index, (first_id, first_actor, _first_appearance) in enumerate(candidates):
             for second_id, second_actor, _second_appearance in candidates[first_index + 1 :]:
-                try:
-                    first_state = _require_visibility(facts, first_id, frame)
-                    second_state = _require_visibility(facts, second_id, frame)
-                except _Deferred:
-                    continue
-                if (
-                    first_state.get("state") not in VISIBLE_STATES
-                    or second_state.get("state") not in VISIBLE_STATES
-                ):
-                    continue
-                try:
-                    first_distance = _distance_at(facts, first_id, frame)
-                    second_distance = _distance_at(facts, second_id, frame)
-                except _Deferred:
-                    continue
-                if abs(first_distance - second_distance) >= 0.5:
-                    selected = (
-                        first_id,
-                        first_actor,
-                        second_id,
-                        second_actor,
-                        first_distance,
-                        second_distance,
-                        frame,
+                def value_for_frame(query: int) -> dict[str, Any] | None:
+                    try:
+                        first_state = _require_visibility(facts, first_id, query)
+                        second_state = _require_visibility(facts, second_id, query)
+                        first_distance = _distance_at(facts, first_id, query)
+                        second_distance = _distance_at(facts, second_id, query)
+                    except _Deferred:
+                        return None
+                    if (
+                        first_state.get("state") not in VISIBLE_STATES
+                        or second_state.get("state") not in VISIBLE_STATES
+                        or abs(first_distance - second_distance) < 0.5
+                    ):
+                        return None
+                    return {
+                        "closer": first_id if first_distance < second_distance else second_id,
+                        "first_distance": float(first_distance),
+                        "second_distance": float(second_distance),
+                    }
+
+                def stable(values: Sequence[Any]) -> bool:
+                    if not values or any(not isinstance(value, Mapping) for value in values):
+                        return False
+                    closer = {value.get("closer") for value in values}
+                    return len(closer) == 1 and all(
+                        abs(float(value["first_distance"]) - float(value["second_distance"])) >= 0.5
+                        for value in values
                     )
-                    break
+
+                window = _stable_frame_window(
+                    facts,
+                    legal_windows,
+                    frame,
+                    value_for_frame,
+                    stable,
+                )
+                if window is None:
+                    continue
+                value = value_for_frame(frame)
+                if not isinstance(value, Mapping):
+                    continue
+                selected = (
+                    first_id,
+                    first_actor,
+                    second_id,
+                    second_actor,
+                    float(value["first_distance"]),
+                    float(value["second_distance"]),
+                    frame,
+                    window,
+                )
+                break
             if selected is not None:
                 break
         if selected is not None:
@@ -4159,34 +4589,60 @@ def _generate_qa_14(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
     if selected is None:
         _defer(
             "no_valid_distance_query",
-            "no sampled frame has two reviewed visible targets with a 0.5 m distance margin",
+            "no sampled frame has a stable interval with two reviewed visible targets and a 0.5 m distance margin",
         )
-    first_id, first_actor, second_id, second_actor, first_distance, second_distance, frame = selected
-    query_time = frame / frame_rate
+    (
+        first_id,
+        first_actor,
+        second_id,
+        second_actor,
+        first_distance,
+        second_distance,
+        frame,
+        window,
+    ) = selected
+    values = []
+    for query in range(window[0], window[1]):
+        try:
+            values.append(
+                {
+                    "first_distance": _distance_at(facts, first_id, query),
+                    "second_distance": _distance_at(facts, second_id, query),
+                }
+            )
+        except _Deferred:
+            continue
     truth = first_id if first_distance < second_distance else second_id
     options = _actor_options(facts, [first_id, second_id])
+    window_fields = _query_window_fields(facts, window)
+    display = _display_time_range(facts, window)
+    if display is None:
+        _defer("query_interval_too_short_for_display", "the distance interval has no public range")
+    display_en, display_zh = display
     return _question_item(
         qa_id="QA-14",
         facts=facts,
         seed=seed,
         question_en=(
-            f"At {query_time:.3f} seconds (video frame {frame}), which actor "
-            "is closer to the listener?"
+            f"During {display_en}, which actor was closer to the listener?"
         ),
-        question_zh=f"第{query_time:.3f}秒（视频帧{frame}）时，哪个个体离听者更近？",
+        question_zh=f"{display_zh}内，哪个个体离听者更近？",
         open_answer_type="closed_set",
         open_truth=truth,
-        truth_label=str(
-            facts["actors"][truth].get("appearance", {}).get(
-                "label", facts["actors"][truth]["display_label"]
-            )
-        ),
+        truth_label=_appearance_phrases(facts["actors"][truth]["appearance"])[0],
         options=options,
         evidence={
-            "query_time_s": query_time,
+            "query_time_s": frame / frame_rate,
             "query_source": query_source,
             "query_frame": frame,
+            **window_fields,
             "distances_m": {first_id: first_distance, second_id: second_distance},
+            "distance_interval_m": {
+                first_id: [min(value["first_distance"] for value in values), max(value["first_distance"] for value in values)]
+                if values else [first_distance, first_distance],
+                second_id: [min(value["second_distance"] for value in values), max(value["second_distance"] for value in values)]
+                if values else [second_distance, second_distance],
+            },
             "appearance_reviews": {
                 first_id: _appearance_review_for(facts, first_id),
                 second_id: _appearance_review_for(facts, second_id),
@@ -4194,7 +4650,6 @@ def _generate_qa_14(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
         },
         slug=f"{first_id}_{second_id}_{frame}",
     )
-
 
 def _generate_qa_15(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
     _require_stereo(facts)
@@ -4238,53 +4693,110 @@ def _generate_qa_15(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
 def _generate_qa_16(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
     _require_stereo(facts)
     candidate_seen = False
+    unstable_interval = False
     for event, query_frame, silence in _after_event_candidates(
         facts, qa_id="QA-16"
     ):
         candidate_seen = True
+        legal_windows = _post_sound_window(
+            facts, event, silence, qa_id="QA-16"
+        )
+        if not legal_windows:
+            unstable_interval = True
+            continue
         try:
-            start_frame = max(0, _event_frame(event, "start_frame"))
-            anchor_frame = max(
-                start_frame, _event_frame(event, "end_frame") - 1
-            )
-            start_distance = _distance_at(
+            anchor_frame = _event_frame(event, "end_frame")
+            anchor_distance = _distance_at(
                 facts, event["actor_id"], anchor_frame
-            )
-            query_distance = _distance_at(
-                facts, event["actor_id"], query_frame
             )
         except _Deferred:
             continue
-        delta = query_distance - start_distance
-        if abs(delta) < 0.2:
+
+        def value_for_frame(frame: int) -> dict[str, Any] | None:
+            try:
+                _silent_after(facts, event, frame)
+                query_distance = _distance_at(
+                    facts, event["actor_id"], frame
+                )
+            except _Deferred:
+                return None
+            delta = float(query_distance) - float(anchor_distance)
+            if abs(delta) < 0.2:
+                return None
+            return {
+                "trend": "nearer" if delta < 0.0 else "farther",
+                "query_distance": float(query_distance),
+                "delta": delta,
+            }
+
+        def stable(values: Sequence[Any]) -> bool:
+            if not values or any(not isinstance(value, Mapping) for value in values):
+                return False
+            trends = {value.get("trend") for value in values}
+            return len(trends) == 1 and all(
+                abs(float(value["delta"])) >= 0.2 for value in values
+            )
+
+        window = _stable_frame_window(
+            facts,
+            legal_windows,
+            query_frame,
+            value_for_frame,
+            stable,
+        )
+        if window is None:
+            unstable_interval = True
             continue
+        query_value = value_for_frame(query_frame)
+        if not isinstance(query_value, Mapping):
+            unstable_interval = True
+            continue
+        trend = str(query_value["trend"])
+        query_distance = float(query_value["query_distance"])
+        interval_values = [
+            value_for_frame(frame)
+            for frame in range(window[0], window[1])
+        ]
+        distances = [
+            float(value["query_distance"])
+            for value in interval_values
+            if isinstance(value, Mapping)
+        ]
         anchor_en, anchor_zh = _event_anchor(facts, event)
-        query_time = query_frame / float(facts["time"]["frame_rate_hz"])
-        truth = "nearer" if delta < 0 else "farther"
+        window_fields = _query_window_fields(facts, window)
+        display = _display_time_range(facts, window)
+        if display is None:
+            _defer("query_interval_too_short_for_display", "the post-sound interval has no public range")
+        display_en, display_zh = display
+        silence = copy.deepcopy(silence)
+        silence.update(window_fields)
         return _question_item(
             qa_id="QA-16",
             facts=facts,
             seed=seed,
             question_en=(
                 f"Compared with the source position at the end of {anchor_en}, "
-                f"was it nearer or farther at {query_time:.3f} seconds "
-                f"(video frame {query_frame})?"
+                f"was the source nearer or farther throughout the silent "
+                f"interval {display_en} afterward?"
             ),
             question_zh=(
-                f"与{anchor_zh}结束时的声源位置相比，在第{query_time:.3f}秒"
-                f"（视频帧{query_frame}）时更近还是更远？"
+                f"与{anchor_zh}结束时的声源位置相比，在其后的静音时段{display_zh}内，"
+                "声源整体更近还是更远？"
             ),
             open_answer_type="closed_set",
-            open_truth=truth,
-            truth_label=truth,
+            open_truth=trend,
+            truth_label=trend,
             options=[_option("nearer", "nearer"), _option("farther", "farther")],
             evidence={
                 **_event_evidence(event),
                 "post_sound": silence,
-                "distance_anchor_m": start_distance,
+                "distance_anchor_m": anchor_distance,
                 "distance_query_m": query_distance,
-                "delta_m": delta,
-                "query_time_s": query_time,
+                "distance_query_interval_m": [min(distances), max(distances)] if distances else [query_distance, query_distance],
+                "delta_m": float(query_value["delta"]),
+                "query_time_s": query_frame / float(facts["time"]["frame_rate_hz"]),
+                "query_frame": query_frame,
+                **window_fields,
             },
             slug=f"{event['event_id']}_post_distance",
         )
@@ -4293,52 +4805,92 @@ def _generate_qa_16(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
             "no_valid_post_sound_window",
             "no bound event has a later silent query frame",
         )
+    if unstable_interval:
+        _defer(
+            "post_sound_query_interval_not_stable",
+            "no legal post-sound interval keeps the distance answer within the established margin",
+        )
     _defer(
         "no_distance_change_after_event",
         "no legal post-sound event has a distance change above the research margin",
     )
 
-
 def _generate_qa_17(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
     _require_stereo(facts)
-    first_valid: tuple[Mapping[str, Any], int, dict[str, Any], list[bool]] | None = None
+    unstable_interval = False
+    first_valid: tuple[Mapping[str, Any], int, dict[str, Any], list[int], list[bool]] | None = None
     for event, query_frame, silence in _after_event_candidates(
         facts, qa_id="QA-17"
     ):
-        try:
-            end_frame = min(query_frame, _event_frame(event, "end_frame"))
-            values = [
-                _motion_at(facts, event["actor_id"], frame)
-                for frame in range(max(0, end_frame), query_frame + 1)
-            ]
-        except _Deferred:
+        legal_windows = _post_sound_window(
+            facts, event, silence, qa_id="QA-17"
+        )
+        if not legal_windows:
+            unstable_interval = True
             continue
-        if first_valid is None:
-            first_valid = (event, query_frame, silence, values)
-        if any(values):
-            first_valid = (event, query_frame, silence, values)
+        anchor_frame = _event_frame(event, "end_frame")
+
+        def value_for_frame(frame: int) -> bool | None:
+            try:
+                _silent_after(facts, event, frame)
+                values = [
+                    _motion_at(facts, event["actor_id"], index)
+                    for index in range(max(0, anchor_frame), frame + 1)
+                ]
+            except _Deferred:
+                return None
+            # The question asks whether any movement occurred in the interval;
+            # it does not require every frame to be moving.
+            return any(values)
+
+        window = _stable_frame_window(
+            facts,
+            legal_windows,
+            query_frame,
+            value_for_frame,
+            lambda values: bool(values) and len(set(values)) == 1,
+        )
+        if window is None:
+            unstable_interval = True
+            continue
+        truth = value_for_frame(query_frame)
+        if truth is None:
+            unstable_interval = True
+            continue
+        values = [
+            bool(value_for_frame(frame))
+            for frame in range(window[0], window[1])
+        ]
+        if first_valid is None or truth:
+            first_valid = (event, query_frame, copy.deepcopy(silence), window, values)
+        if truth:
             break
     if first_valid is None:
         _defer(
             "no_valid_post_sound_window",
-            "no bound event has a later silent query frame with motion readback",
+            "no bound event has a later silent query frame with a stable motion answer",
         )
-    event, query_frame, silence, values = first_valid
+    event, query_frame, silence, window, values = first_valid
     anchor_en, anchor_zh = _event_anchor(facts, event)
-    end_frame = min(query_frame, _event_frame(event, "end_frame"))
-    query_time = query_frame / float(facts["time"]["frame_rate_hz"])
+    window_fields = _query_window_fields(facts, window)
+    display = _display_time_range(facts, window)
+    if display is None:
+        _defer("query_interval_too_short_for_display", "the post-sound interval has no public range")
+    display_en, display_zh = display
+    silence.update(window_fields)
     truth = "yes" if any(values) else "no"
     return _question_item(
         qa_id="QA-17",
         facts=facts,
         seed=seed,
         question_en=(
-            f"Between the end of {anchor_en} and {query_time:.3f} seconds "
-            f"(video frame {query_frame}), did the source move?"
+            f"Within the silent interval {display_en} after {anchor_en}, did the "
+            "source move at any point between the event's end and the end of "
+            "that interval?"
         ),
         question_zh=(
-            f"{anchor_zh}结束后到第{query_time:.3f}秒（视频帧{query_frame}）之间"
-            "声源还移动过吗？"
+            f"在{anchor_zh}结束后的静音时段{display_zh}内，直到该时段结束前，"
+            "声源是否曾移动过？"
         ),
         open_answer_type="closed_set",
         open_truth=truth,
@@ -4347,12 +4899,14 @@ def _generate_qa_17(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
         evidence={
             **_event_evidence(event),
             "post_sound": silence,
-            "motion_frames": [end_frame, query_frame],
+            "motion_frames": [event["end_frame"], window[1] - 1],
             "moving_values": values,
+            "query_frame": query_frame,
+            "query_time_s": query_frame / float(facts["time"]["frame_rate_hz"]),
+            **window_fields,
         },
         slug=f"{event['event_id']}_post_motion",
     )
-
 
 def _generate_qa_18(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
     _require_actor_count(facts, 2)
@@ -4366,29 +4920,30 @@ def _generate_qa_18(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
         reviewed = {}
     query_time, query_source = _query_time(facts, "QA-18")
     candidate = facts.get("_p8_candidate")
-    legal_windows = (
-        candidate.get("legal_query_windows")
-        if isinstance(candidate, Mapping)
-        else None
-    )
-    legal_authority = (
-        candidate.get("legal_window_authority")
-        if isinstance(candidate, Mapping)
-        else None
-    )
-    if legal_windows is None and query_source == "derived_uniform_in_legal_window":
+    candidate = candidate if isinstance(candidate, Mapping) else {}
+    legal_windows = candidate.get("legal_query_windows")
+    legal_windows_source = "candidate" if legal_windows is not None else None
+    if legal_windows is None:
+        legal_windows = _sampling_value(
+            facts, "QA-18", "legal_window_by_qa", "legal_windows", "query_windows"
+        )
+        if legal_windows is not None:
+            legal_windows_source = "caller"
+    if legal_windows is None:
         legal_windows = _derived_legal_query_windows(facts, "QA-18")
+        if legal_windows is not None:
+            legal_windows_source = "derived"
     frame = _resolve_query_frame_spec(
         facts,
         "QA-18",
         int(round(query_time * float(facts["time"]["frame_rate_hz"]))),
         source="query_time",
     )
-    active = _active_at(
-        facts,
-        frame,
-        require_source_activity=True,
-    )
+    if not _source_activity_present(facts):
+        _defer(
+            "missing_source_activity_readback",
+            "QA-18 needs source activity readback to prove its interval",
+        )
     wet_tails = (
         facts.get("audio", {}).get("wet_tail_intervals", [])
         if isinstance(facts.get("audio"), Mapping)
@@ -4408,6 +4963,53 @@ def _generate_qa_18(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
             "QA-18 query is inside a measured listener-side wet-tail interval",
             query_time_s=query_time,
             event_ids=wet_tail_events,
+        )
+
+    def active_signature(query_frame: int) -> tuple[str, ...] | None:
+        try:
+            return tuple(
+                str(event.get("event_id"))
+                for event in _active_at(
+                    facts, query_frame, require_source_activity=True
+                )
+            )
+        except _Deferred:
+            return None
+
+    query_signature = active_signature(frame)
+    if query_signature is None:
+        _defer(
+            "missing_source_activity_readback",
+            "QA-18 needs source activity readback to prove its interval",
+        )
+    if legal_windows is None:
+        _defer(
+            "query_interval_missing",
+            "QA-18 requires a concrete legal query interval",
+        )
+    window = _stable_frame_window(
+        facts,
+        legal_windows,
+        frame,
+        active_signature,
+        lambda values: bool(values) and len(set(values)) == 1,
+    )
+    if window is None:
+        _defer(
+            "query_interval_not_stable",
+            "no legal query interval keeps the active source set unchanged",
+        )
+    active = _active_at(
+        facts,
+        frame,
+        require_source_activity=True,
+    )
+    legal_authority = candidate.get("legal_window_authority")
+    if legal_authority is None:
+        legal_authority = (
+            _derived_query_window_authority("QA-18")
+            if legal_windows_source == "derived"
+            else "caller_declared_sampling_window"
         )
     active_actor_ids = list(
         dict.fromkeys(
@@ -4431,18 +5033,18 @@ def _generate_qa_18(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
     options.extend([_option("multiple", "multiple actors"), _option("none", "no actor")])
     if truth not in {option["value"] for option in options}:
         _defer("speaker_at_time_truth_missing", "query truth is absent from its option domain")
+    window_fields = _query_window_fields(facts, window)
+    display = _display_time_range(facts, window)
+    if display is None:
+        _defer("query_interval_too_short_for_display", "the active-source interval has no public range")
+    display_en, display_zh = display
+    legal_windows_copy = copy.deepcopy(legal_windows)
     return _question_item(
         qa_id="QA-18",
         facts=facts,
         seed=seed,
-        question_en=(
-            f"At {query_time:.3f} seconds (video frame {frame}), who is "
-            "currently making a sound?"
-        ),
-        question_zh=(
-            f"第{query_time:.3f}秒（视频帧{frame}）"
-            "时，正在发声的是谁？"
-        ),
+        question_en=f"During {display_en}, who was making a sound?",
+        question_zh=f"{display_zh}内，谁在发声？",
         open_answer_type="closed_set",
         open_truth=truth,
         truth_label=(
@@ -4450,38 +5052,20 @@ def _generate_qa_18(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
             if truth == "multiple"
             else "no actor"
             if truth == "none"
-            else str(
-                facts["actors"][truth].get("appearance", {}).get(
-                    "label", facts["actors"][truth]["display_label"]
-                )
-            )
+            else _appearance_phrases(facts["actors"][truth]["appearance"])[0]
         ),
         options=options,
         evidence={
             "query_time_s": query_time,
             "query_source": query_source,
             "query_frame": frame,
+            **window_fields,
             "source_activity_coordinate_space": "episode_sample_clock",
-            "source_activity_event_ids": [
-                event["event_id"] for event in active
-            ],
+            "source_activity_event_ids": [event["event_id"] for event in active],
             "wet_tail_event_ids": wet_tail_events,
             "wet_tail_boundary_policy": "measured_interval_only",
-            **(
-                {
-                    "legal_query_windows": copy.deepcopy(legal_windows),
-                    "legal_window_authority": (
-                        legal_authority
-                        or (
-                            _derived_query_window_authority("QA-18")
-                            if query_source == "derived_uniform_in_legal_window"
-                            else "caller_declared_sampling_window"
-                        )
-                    ),
-                }
-                if legal_windows is not None
-                else {}
-            ),
+            "legal_query_windows": legal_windows_copy,
+            "legal_window_authority": legal_authority,
             "active_event_ids": [event["event_id"] for event in active],
             "active_actor_ids": active_actor_ids,
             "appearance_reviews": {
@@ -4492,16 +5076,77 @@ def _generate_qa_18(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
         slug=f"frame_{frame}",
     )
 
+def _time_band_count(facts: Mapping[str, Any]) -> int:
+    sampling = facts.get("sampling")
+    owners: list[Mapping[str, Any]] = []
+    if isinstance(sampling, Mapping):
+        nested = sampling.get("qa_sampling")
+        if isinstance(nested, Mapping):
+            owners.append(nested)
+        owners.append(sampling)
+    policy = facts.get("sampling_policy")
+    if isinstance(policy, Mapping):
+        owners.append(policy)
+    value = None
+    for owner in owners:
+        for key in ("time_band_count", "time_interval_count", "qa19_time_band_count"):
+            if key in owner:
+                value = owner[key]
+                break
+        if value is not None:
+            break
+    if value is None:
+        return 4
+    if isinstance(value, bool) or not isinstance(value, int) or value < 2:
+        _defer(
+            "time_band_config_invalid",
+            "time interval count must be an integer greater than one",
+            value=value,
+        )
+    return int(value)
+
+
 def _time_bands(facts: Mapping[str, Any]) -> list[tuple[float, float]]:
     duration = float(facts["time"]["duration_seconds"])
-    step = duration / 4.0
-    return [(index * step, (index + 1) * step) for index in range(4)]
+    if not math.isfinite(duration) or duration <= 0.0:
+        _defer("invalid_duration", "time duration must be positive")
+    count = _time_band_count(facts)
+    step = duration / float(count)
+    return [(index * step, (index + 1) * step) for index in range(count)]
+
+
+def _format_public_seconds(value: float, *, precision: int = 6) -> str:
+    precision = max(0, int(precision))
+    text = f"{float(value):.{precision}f}"
+    if "." in text:
+        text = text.rstrip("0").rstrip(".")
+    return "0" if text in {"", "-0"} else text
+
+
+def _time_band_label(
+    facts: Mapping[str, Any],
+    index: int,
+    bands: Sequence[Sequence[float]],
+) -> tuple[str, str]:
+    if not 0 <= int(index) < len(bands):
+        _defer(
+            "time_band_invalid",
+            "time band index is outside the declared interval domain",
+            index=index,
+        )
+    start, end = bands[int(index)]
+    start_text = _format_public_seconds(float(start))
+    end_text = _format_public_seconds(float(end))
+    return (
+        f"[{start_text}, {end_text}) seconds",
+        f"第{start_text}至第{end_text}秒的时间段",
+    )
 
 
 def _generate_qa_19(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
     _require_stereo(facts)
     actor_id, actor, event = _target_with_event(facts, require_visible=True)
-    appearance = actor["appearance"]
+    appearance_en, appearance_zh = _appearance_phrases(actor["appearance"])
     first = _first_event(facts, actor_id)
     time_s = float(first["start_s"])
     bands = _time_bands(facts)
@@ -4509,35 +5154,55 @@ def _generate_qa_19(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
         (index for index, (lo, hi) in enumerate(bands) if lo <= time_s < hi),
         len(bands) - 1,
     )
+    labels = [_time_band_label(facts, index, bands) for index in range(len(bands))]
+    band_en, band_zh = labels[band_index]
     options = [
         {
-            **_option(f"band_{index}", f"[{lo:.2f}, {hi:.2f}) s"),
+            "value": f"band_{index}",
+            "label_en": labels[index][0],
+            "label_zh": labels[index][1],
             "allow_value": False,
         }
-        for index, (lo, hi) in enumerate(bands)
+        for index in range(len(bands))
     ]
+    truth_range = [float(bands[band_index][0]), float(bands[band_index][1])]
+    domain_en = ", ".join(label[0] for label in labels)
+    domain_zh = "、".join(label[1] for label in labels)
     return _question_item(
         qa_id="QA-19",
         facts=facts,
         seed=seed,
-        question_en=f"At what time did the {appearance['value']} actor first make a sound?",
-        question_zh=f"{appearance['value']}的个体第一次发声是在第几秒？",
-        open_answer_type="time_s",
-        open_truth=time_s,
-        truth_label=f"{time_s:.3f} s",
+        question_en=(
+            f"Which time interval contained the first sound from {appearance_en}? "
+            f"The clip is divided into {len(bands)} equal-duration intervals: {domain_en}."
+        ),
+        question_zh=(
+            f"{appearance_zh}第一次发声落在哪个时间段？"
+            f"片段按等长划分为{len(bands)}段：{domain_zh}。"
+        ),
+        open_answer_type="time_range_s",
+        open_truth=truth_range,
+        truth_label=band_en,
         options=options,
         mcq_truth=f"band_{band_index}",
-        open_extra={"t_full_s": 0.3, "t_half_s": 1.0},
+        open_extra={
+            "time_ranges_s": [list(band) for band in bands],
+            "time_range_labels_en": [label[0] for label in labels],
+            "time_range_labels_zh": [label[1] for label in labels],
+            "time_range_index": band_index,
+        },
         evidence={
             "target_actor_id": actor_id,
-            "appearance": dict(appearance),
+            "appearance": dict(actor["appearance"]),
             "appearance_review": _appearance_review_for(facts, actor_id),
             "first_event": _event_evidence(first),
-            "time_bands_s": bands,
+            "first_sound_interval_s": truth_range,
+            "time_band_index": band_index,
+            "time_band_count": len(bands),
+            "time_bands_s": [list(band) for band in bands],
         },
         slug=f"{actor_id}_first_time",
     )
-
 
 def _generate_qa_20(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
     _require_actor_count(facts, 2)
@@ -4613,10 +5278,20 @@ def _generate_qa_21(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
     if not targets:
         _defer("missing_explicit_sound_class", "QA-21 requires an explicit registered sound class")
     target_id, target, event = targets[0]
+    target_sound_class = str(event["sound_class"]).casefold()
+    if target_sound_class in _CAPABILITY_SOUND_CLASSES:
+        _defer(
+            "sound_class_capability_only",
+            "the target event carries a playback capability rather than an observed sound class",
+            sound_class=target_sound_class,
+            target_actor_id=target_id,
+        )
     target_classes = {
         str(candidate.get("sound_class"))
         for candidate in _event_for_actor(facts, target_id)
-        if candidate.get("sound_class") and candidate.get("sound_class_explicit")
+        if candidate.get("sound_class")
+        and candidate.get("sound_class_explicit")
+        and str(candidate.get("sound_class")).casefold() not in _CAPABILITY_SOUND_CLASSES
     }
     if len(target_classes) != 1:
         _defer(
@@ -4632,6 +5307,7 @@ def _generate_qa_21(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
             if isinstance(other, Mapping)
             and other.get("sound_class")
             and other.get("sound_class_explicit")
+            and str(other.get("sound_class")).casefold() not in _CAPABILITY_SOUND_CLASSES
         )
     )
     if len(classes) < 2:
@@ -4639,6 +5315,20 @@ def _generate_qa_21(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
     if event["sound_class"] not in classes:
         _defer("sound_class_truth_missing", "target sound class is absent from the class domain")
     appearance_en, appearance_zh = _appearance_phrases(target["appearance"])
+    sound_options = []
+    for value in classes:
+        label_en, label_zh = _sound_class_phrases(value)
+        sound_options.append(
+            {
+                "value": value,
+                "label_en": label_en,
+                "label_zh": label_zh,
+                "allow_value": True,
+            }
+        )
+    target_sound_label, _target_sound_label_zh = _sound_class_phrases(
+        event["sound_class"], event=event
+    )
     return _question_item(
         qa_id="QA-21",
         facts=facts,
@@ -4649,8 +5339,8 @@ def _generate_qa_21(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
         question_zh=f"{appearance_zh}发出什么声音类别？",
         open_answer_type="closed_set",
         open_truth=event["sound_class"],
-        truth_label=event["sound_class"],
-        options=[_option(value, value) for value in classes],
+        truth_label=target_sound_label,
+        options=sound_options,
         evidence={
             "target_actor_id": target_id,
             "appearance": dict(target["appearance"]),
@@ -4823,7 +5513,7 @@ def _generate_qa_24(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
         question_zh="最先发声的个体在片尾处于什么可见状态？",
         open_answer_type="closed_set",
         open_truth=state,
-        truth_label=state,
+        truth_label=_state_label(state),
         options=_state_options(),
         evidence={
             "anchor_event": _event_evidence(event),
@@ -4975,6 +5665,281 @@ def _compress_frame_windows(frames: Sequence[int]) -> list[list[int]]:
         previous = frame
     windows.append([start, previous + 1])
     return windows
+
+
+def _frame_window_seconds(
+    facts: Mapping[str, Any],
+    window: Sequence[int],
+) -> list[float]:
+    start, end = (int(window[0]), int(window[1]))
+    fps = float(facts["time"]["frame_rate_hz"])
+    return [start / fps, end / fps]
+
+
+def _time_display_precision(facts: Mapping[str, Any]) -> int:
+    """Read the public interval precision from the episode sampling policy."""
+
+    owners: list[Mapping[str, Any]] = []
+    sampling = facts.get("sampling")
+    if isinstance(sampling, Mapping):
+        nested = sampling.get("qa_sampling")
+        if isinstance(nested, Mapping):
+            owners.append(nested)
+        owners.append(sampling)
+    policy = facts.get("sampling_policy")
+    if isinstance(policy, Mapping):
+        owners.append(policy)
+    value: Any = None
+    for owner in owners:
+        for key in (
+            "time_display_precision",
+            "time_interval_precision",
+            "query_time_precision",
+            "time_range_precision",
+            "time_precision",
+            "public_time_precision",
+        ):
+            if key in owner:
+                value = owner[key]
+                break
+        if value is not None:
+            break
+    if value is None:
+        return 2
+    if isinstance(value, bool) or not isinstance(value, int) or not 0 <= value <= 9:
+        _defer(
+            "time_display_precision_invalid",
+            "public time interval precision must be an integer from zero through nine",
+            value=value,
+        )
+    return int(value)
+
+
+def _display_time_bounds(
+    facts: Mapping[str, Any],
+    window: Sequence[int],
+) -> tuple[float, float] | None:
+    """Quantize a proven frame interval inward for a readable public range."""
+
+    exact_start, exact_end = _frame_window_seconds(facts, window)
+    precision = _time_display_precision(facts)
+    scale = float(10**precision)
+    # Epsilon only removes binary representation noise at an exact decimal
+    # boundary; ceil/floor keep the displayed range inside the proven window.
+    lower_units = math.ceil(exact_start * scale - 1.0e-9)
+    upper_units = math.floor(exact_end * scale + 1.0e-9)
+    if upper_units <= lower_units:
+        return None
+    return lower_units / scale, upper_units / scale
+
+
+def _query_window_fields(
+    facts: Mapping[str, Any],
+    window: Sequence[int],
+) -> dict[str, Any]:
+    display = _display_time_bounds(facts, window)
+    if display is None:
+        _defer(
+            "query_interval_too_short_for_display",
+            "the stable query interval cannot be expressed at the configured public precision",
+        )
+    return {
+        "query_window_frames": [int(window[0]), int(window[1])],
+        "query_window_s": [float(display[0]), float(display[1])],
+        "query_window_exact_s": _frame_window_seconds(facts, window),
+        "query_window_precision": _time_display_precision(facts),
+    }
+
+
+def _display_time_range(
+    facts: Mapping[str, Any],
+    window: Sequence[int],
+) -> tuple[str, str] | None:
+    """Describe a proven frame interval with explicit half-open boundaries."""
+
+    display = _display_time_bounds(facts, window)
+    if display is None:
+        return None
+    precision = _time_display_precision(facts)
+    start_text = _format_public_seconds(display[0], precision=precision)
+    end_text = _format_public_seconds(display[1], precision=precision)
+    return (
+        f"[{start_text}, {end_text}) seconds",
+        f"第{start_text}至第{end_text}秒的时间段（左闭右开）",
+    )
+
+
+def _stable_frame_window(
+    facts: Mapping[str, Any],
+    windows: Any,
+    query_frame: int,
+    value_for_frame: Any,
+    values_are_stable: Any,
+    *,
+    min_frames: int = 2,
+) -> list[int] | None:
+    """Find the longest legal interval containing a query frame with one answer."""
+    normalized = _window_bounds_list(windows, qa_id="query")
+    query_frame = int(query_frame)
+    for start, end in normalized:
+        if not start <= query_frame < end:
+            continue
+        values: dict[int, Any] = {}
+        for frame in range(start, end):
+            try:
+                values[frame] = value_for_frame(frame)
+            except _Deferred:
+                return None
+        best: tuple[int, int] | None = None
+        for lower in range(query_frame, start - 1, -1):
+            for upper in range(query_frame + 1, end + 1):
+                if upper - lower < int(min_frames):
+                    continue
+                if not values_are_stable(
+                    [values[frame] for frame in range(lower, upper)]
+                ):
+                    continue
+                if best is None or upper - lower > best[1] - best[0]:
+                    best = (lower, upper)
+        if best is not None:
+            return [best[0], best[1]]
+    return None
+
+
+def _event_start_side_window(
+    facts: Mapping[str, Any],
+    event: Mapping[str, Any],
+) -> tuple[list[int], str, float] | None:
+    frame_count = int(facts["time"]["frame_count"])
+    start = max(0, min(frame_count - 1, _event_frame(event, "start_frame")))
+    stop = min(frame_count, max(start + 1, _event_frame(event, "end_frame") + 1))
+
+    def side_and_angle(frame: int) -> tuple[str, float] | None:
+        try:
+            angle = float(_azimuth(facts, str(event["actor_id"]), frame))
+        except _Deferred:
+            return None
+        if abs(angle) < 5.0:
+            return None
+        return ("right" if angle > 0.0 else "left", angle)
+
+    values = [side_and_angle(frame) for frame in range(start, stop)]
+    if not values or values[0] is None:
+        return None
+    side = values[0][0]
+    end = start + 1
+    while end < stop and values[end - start] is not None and values[end - start][0] == side:
+        end += 1
+    if end - start < 2:
+        return None
+    return [start, end], side, values[0][1]
+
+
+def _event_start_visibility_window(
+    facts: Mapping[str, Any],
+    event: Mapping[str, Any],
+) -> tuple[list[int], str] | None:
+    frame_count = int(facts["time"]["frame_count"])
+    start = max(0, min(frame_count - 1, _event_frame(event, "start_frame")))
+    stop = min(frame_count, max(start + 1, _event_frame(event, "end_frame") + 1))
+    try:
+        target_state = str(_state(facts, str(event["actor_id"]), start).get("state"))
+    except _Deferred:
+        return None
+    end = start + 1
+    while end < stop:
+        try:
+            state = str(_state(facts, str(event["actor_id"]), end).get("state"))
+        except _Deferred:
+            break
+        if state != target_state:
+            break
+        end += 1
+    if end - start < 2:
+        return None
+    return [start, end], target_state
+
+
+def _entry_transition_window(
+    facts: Mapping[str, Any],
+    actor_id: str,
+    entry_frame: int,
+    *,
+    center: float,
+    dead_zone: float,
+) -> list[int] | None:
+    frames = facts.get("visibility", {}).get(actor_id)
+    if not isinstance(frames, Mapping):
+        return None
+
+    def side(frame: int) -> str | None:
+        try:
+            row = _state(facts, actor_id, frame)
+        except _Deferred:
+            return None
+        if row.get("state") not in VISIBLE_STATES:
+            return None
+        centroid = row.get("target_centroid_xy_px")
+        if not _is_sequence(centroid) or len(centroid) != 2:
+            return None
+        offset = float(centroid[0]) - center
+        if abs(offset) <= dead_zone:
+            return None
+        return "right" if offset > 0.0 else "left"
+
+    target = side(int(entry_frame))
+    if target is None:
+        return None
+    end = int(entry_frame) + 1
+    frame_count = int(facts["time"]["frame_count"])
+    while end < frame_count and side(end) == target:
+        end += 1
+    if end - int(entry_frame) < 2:
+        return None
+    return [int(entry_frame), end]
+
+
+def _occlusion_interval_window(
+    facts: Mapping[str, Any],
+    actor_id: str,
+    query_frame: int,
+) -> list[int] | None:
+    frame_count = int(facts["time"]["frame_count"])
+
+    def occluder(frame: int) -> str | None:
+        try:
+            state = _state(facts, actor_id, frame)
+        except _Deferred:
+            return None
+        if state.get("state") not in {"visible_occluded", "fully_occluded"}:
+            return None
+        ids = _occluder_ids(facts, actor_id, frame)
+        return ids[0] if len(ids) == 1 else None
+
+    return _stable_frame_window(
+        facts,
+        [[0, frame_count]],
+        int(query_frame),
+        occluder,
+        lambda values: bool(values) and len(set(values)) == 1,
+    )
+
+
+def _post_sound_window(
+    facts: Mapping[str, Any],
+    event: Mapping[str, Any],
+    silence: Mapping[str, Any],
+    *,
+    qa_id: str,
+) -> Any:
+    windows = silence.get("legal_query_windows")
+    if windows is not None:
+        return windows
+    return _derived_legal_query_windows(
+        facts,
+        qa_id,
+        event=event,
+    )
 
 
 def _query_time_policy(facts: Mapping[str, Any]) -> Any:
@@ -6039,7 +7004,7 @@ def _p8_form_candidate_values(
         }
         return next(iter(values)) if len(values) == 1 else None
 
-    def time_value(actor_id: str) -> tuple[float | None, str | None]:
+    def time_value(actor_id: str) -> tuple[list[float] | None, str | None]:
         rows = actor_events(actor_id)
         if not rows:
             return None, None
@@ -6049,7 +7014,7 @@ def _p8_form_candidate_values(
             (index for index, (lo, hi) in enumerate(bands) if lo <= value < hi),
             len(bands) - 1,
         )
-        return value, f"band_{index}"
+        return [float(bands[index][0]), float(bands[index][1])], f"band_{index}"
 
     if qa_id == "QA-01":
         for actor_id in actor_ids:

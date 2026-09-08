@@ -12,7 +12,9 @@ import numpy as np
 import soundfile as sf
 
 from avengine.assets.sound_events import SoundEventError, extract_sound_events
-from avengine.rooms.conditioned_sampler import load_conditioned_sound_pool
+from avengine.rooms.conditioned_sampler import (
+    load_conditioned_sound_pool, source_normalization_metadata,
+)
 
 
 def build_batch_sound_pool(spec: Mapping[str, Any], registry: Mapping[str, Any]) -> dict[str, Any]:
@@ -123,6 +125,20 @@ def build_batch_sound_pool(spec: Mapping[str, Any], registry: Mapping[str, Any])
             continue
         origins = sorted({str((Path(event_manifest["library_root"]) / entry["source"]).resolve())
                           for entry in entries})
+        peak = float(np.max(np.abs(samples))) if samples.size else 0.0
+        source_normalization = source_normalization_metadata(
+            raw,
+            related=entries,
+            measured_peak_dbfs=(float(20.0 * np.log10(peak)) if peak > 0.0 else None),
+            measured_peak_source="registered_event_pcm",
+            source_overrides={
+                "pcm_path": str(path),
+                "source_origin": origins[0],
+                "source_origin_aliases": origins,
+                "event_manifest_path": str(manifest_path),
+                "event_registry_path": str(event_registry_path),
+            },
+        )
         sounds.append({"sound_asset_id": sound_id, "path": str(path), "sound_class": sound_class,
                        "event_class": sound_class, "species_id": species, "source_origin": origins[0],
                        "source_origin_aliases": origins, "sound_identity_id": "source:" + origins[0],
@@ -134,7 +150,8 @@ def build_batch_sound_pool(spec: Mapping[str, Any], registry: Mapping[str, Any])
                        "activity_measurement": "existing_avengine_sound_events_detector_extent_with_guard",
                        "activity_calibration": "placeholder", "activity_guard_included": True,
                        "activity_is_qa_event_count": False, "linear_gain": 1.0,
-                       "normalization_applied": False, "source_metadata_manifest": str(manifest_path),
+                       "normalization_applied": False, "source_normalization": source_normalization,
+                       "source_metadata_manifest": str(manifest_path),
                        "source_event_registry": str(event_registry_path),
                        "human_review": {"status": "not_measured"}})
     ids = [sound["sound_asset_id"] for sound in sounds]

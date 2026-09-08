@@ -11,7 +11,8 @@ import pytest
 from avengine.qa.batch_manifest import (
     CLASS_PAIRS, CONDITION_GROUPS, build_scaleup_slots, class_pair_condition_group_crosstab,
     collect_batch_outcomes, format_class_pair_condition_group_crosstab, grouped_splits,
-    prepare_batch_manifest, program_seconds_for_durations, scatter_condition_groups, sound_identity,
+    merge_request_overrides, prepare_batch_manifest, program_seconds_for_durations,
+    scatter_condition_groups, sound_identity,
 )
 from avengine.rooms.conditioned_sampler import histogram_separation_5deg
 from avengine.rooms.conditioned_sampler import (
@@ -71,6 +72,118 @@ def test_preallocation_is_deterministic_independent_and_preserves_inputs(inputs)
         assert row["achieved_conditions"] is None
     silent = [a for a in first["episodes"][1]["source_assignments"] if not a["speaking"]]
     assert silent[0]["sound_asset_ids"] == []
+
+
+def test_request_overrides_merge_replaces_lists_and_scalars_without_mutating_base():
+    base = {
+        "runtime": {
+            "uproject": "base.uproject",
+            "path_bindings": {"COMMON": "/common", "BASE_ONLY": "/base"},
+        },
+        "camera": {"fov_deg": 85, "resolution_hw": [720, 1280]},
+        "sound_selection": {"max_clip_s": 5.0, "classes": ["speech", "event"]},
+    }
+    overrides = {
+        "runtime": {"path_bindings": {"SLOT_ONLY": "/slot"}},
+        "camera": {"resolution_hw": [480, 640]},
+        "sound_selection": {"classes": ["animal"]},
+    }
+    before = deepcopy(base)
+    merged = merge_request_overrides(base, overrides)
+
+    assert merged["runtime"] == {
+        "uproject": "base.uproject",
+        "path_bindings": {
+            "COMMON": "/common", "BASE_ONLY": "/base", "SLOT_ONLY": "/slot"
+        },
+    }
+    assert merged["camera"] == {"fov_deg": 85, "resolution_hw": [480, 640]}
+    assert merged["sound_selection"] == {"max_clip_s": 5.0, "classes": ["animal"]}
+    merged["runtime"]["path_bindings"]["COMMON"] = "/changed"
+    assert base == before
+
+
+def test_request_overrides_merge_keeps_base_siblings_per_slot(inputs):
+    config, registry, rooms, sounds = deepcopy(inputs)
+    config["base_request"].update({
+        "runtime": {
+            "uproject": "base.uproject",
+            "runtime_prefix": "base-prefix",
+            "graphics_adapter": 3,
+            "path_bindings": {"COMMON": "/common", "BASE_ONLY": "/base"},
+        },
+        "camera": {"fov_deg": 85, "resolution_hw": [720, 1280]},
+        "sound_selection": {"max_clip_s": 5.0, "classes": ["speech", "event"]},
+        "qa_sampling": {
+            "candidate_policy": "uniform_over_legal",
+            "query_time_policy": "uniform",
+            "bins": [1, 2],
+        },
+        "profile": {"separation_bin_deg": [30, 60], "anchor_count": 1},
+    })
+    config["slots"] = [
+        {
+            "room_id": "a",
+            "source_classes": ["articulated_human"] * 2,
+            "condition_group": "identity",
+            "request_overrides": {
+                "runtime": {
+                    "graphics_adapter": 1,
+                    "path_bindings": {"SLOT_ONLY": "/slot"},
+                },
+                "camera": {"fov_deg": 70, "resolution_hw": [480, 640]},
+                "sound_selection": {"max_clip_s": 4.0},
+                "qa_sampling": {"candidate_policy": "slot"},
+                "profile": {"separation_bin_deg": [15, 30]},
+            },
+        },
+        {
+            "room_id": "b",
+            "source_classes": ["articulated_human"] * 2,
+            "condition_group": "identity",
+            "request_overrides": {"runtime": {"rpc_port": 40002}},
+        },
+    ]
+    before = deepcopy(config)
+    result = prepare_batch_manifest(config, registry, rooms, sounds)
+    first, second = result["episodes"]
+
+    assert first["request"]["runtime"] == {
+        "uproject": "base.uproject",
+        "runtime_prefix": "base-prefix",
+        "graphics_adapter": 1,
+        "path_bindings": {
+            "COMMON": "/common", "BASE_ONLY": "/base", "SLOT_ONLY": "/slot"
+        },
+    }
+    assert second["request"]["runtime"] == {
+        "uproject": "base.uproject",
+        "runtime_prefix": "base-prefix",
+        "graphics_adapter": 3,
+        "rpc_port": 40002,
+        "path_bindings": {"COMMON": "/common", "BASE_ONLY": "/base"},
+    }
+    assert first["request"]["camera"] == {
+        "fov_deg": 70, "resolution_hw": [480, 640], "motion": "static"
+    }
+    assert second["request"]["camera"] == {
+        "fov_deg": 85, "resolution_hw": [720, 1280], "motion": "static"
+    }
+    assert first["request"]["sound_selection"]["max_clip_s"] == 4.0
+    assert second["request"]["sound_selection"]["max_clip_s"] == 5.0
+    assert first["request"]["sound_selection"]["classes"] == ["speech", "event"]
+    assert second["request"]["sound_selection"]["classes"] == ["speech", "event"]
+    assert first["request"]["qa_sampling"] == {
+        "candidate_policy": "slot", "query_time_policy": "uniform", "bins": [1, 2],
+        "items_per_type": 1,
+    }
+    assert second["request"]["qa_sampling"] == {
+        "candidate_policy": "uniform_over_legal", "query_time_policy": "uniform",
+        "bins": [1, 2], "items_per_type": 1,
+    }
+    assert first["request"]["profile"]["separation_bin_deg"] == [15, 30]
+    assert second["request"]["profile"]["separation_bin_deg"] == [30, 60]
+    assert config == before
 
 
 def test_preallocated_sound_mapping_is_actually_consumed_and_never_falls_back(inputs):

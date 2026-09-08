@@ -425,7 +425,8 @@ def test_qa13_samples_distinct_legal_post_sound_query_frames() -> None:
     for item in result["items"]:
         assert len(item["forms"]["mcq"]["options"]) == 3
         assert "independent sound event" in item["model_input"]["mcq"]["question_en"]
-        assert f"video frame {item['evidence']['query_frame']}" in item["model_input"]["mcq"]["question_en"]
+        assert "video frame" not in item["model_input"]["mcq"]["question_en"]
+        assert len(item["evidence"]["query_window_frames"]) == 2
 
 
 def test_missing_wet_tail_evidence_defers_temporal_queries() -> None:
@@ -514,6 +515,9 @@ def test_qa22_does_not_use_actor_roster_without_pixel_visibility() -> None:
 
 def test_qa10_keeps_open_form_when_only_one_real_occluder_is_registered() -> None:
     raw = _fixture()
+    for frame in raw["pixel_visibility_truth"]["per_instance"]["a0"]["frames"][9:12]:
+        frame["state"] = "visible_occluded"
+        frame["occluder_instance_ids"] = ["table"]
     raw["pixel_visibility_truth"]["per_instance"]["a1"]["frames"][12].pop(
         "occluder_instance_ids"
     )
@@ -528,15 +532,15 @@ def test_qa10_keeps_open_form_when_only_one_real_occluder_is_registered() -> Non
 
 def test_qa10_never_uses_target_actor_as_mcq_distractor() -> None:
     raw = _fixture()
-    # Make a single native actor occluder for the selected target and remove
+    # Make a stable native actor occluder for the selected target and remove
     # the static-object fixture entries. The target itself remains registered
     # but is not a legal answer option.
     for actor_id, record in raw["pixel_visibility_truth"]["per_instance"].items():
         for frame in record["frames"]:
             frame.pop("occluder_instance_ids", None)
-    raw["pixel_visibility_truth"]["per_instance"]["a0"]["frames"][10][
-        "occluder_instance_ids"
-    ] = ["a1"]
+    for frame in raw["pixel_visibility_truth"]["per_instance"]["a0"]["frames"][9:12]:
+        frame["state"] = "visible_occluded"
+        frame["occluder_instance_ids"] = ["a1"]
     raw["occluder_registry"] = {
         "a0": "blue actor",
         "a1": "pink actor",
@@ -544,12 +548,12 @@ def test_qa10_never_uses_target_actor_as_mcq_distractor() -> None:
     result = generate_unified_questions(raw, qa_ids=["QA-10"])
     assert result["counts"] == {"requested": 1, "valid": 1, "deferred": 0}
     item = result["items"][0]
-    assert item["evidence"] == {
-        "target_actor_id": "a0",
-        "frame": 10,
-        "occluder_instance_ids": ["a1"],
-        "option_instance_ids": ["a1"],
-    }
+    assert item["evidence"]["target_actor_id"] == "a0"
+    assert item["evidence"]["frame"] in {9, 10, 11}
+    assert item["evidence"]["query_frame"] == item["evidence"]["frame"]
+    assert item["evidence"]["query_window_frames"] == [9, 12]
+    assert item["evidence"]["occluder_instance_ids"] == ["a1"]
+    assert item["evidence"]["option_instance_ids"] == ["a1"]
     assert item["form_status"]["open"]["status"] == "pass"
     assert item["form_status"]["mcq"]["status"] == "deferred"
     assert "mcq" not in item["forms"]
@@ -668,8 +672,9 @@ def test_p8_question_wording_and_transcript_metrics_are_explicit() -> None:
         seed="wording",
     )
     by_qa = {item["qa_id"]: item for item in result["items"]}
-    assert "video frame" in by_qa["QA-17"]["question"]["en"]
-    assert "currently making a sound" in by_qa["QA-18"]["question"]["en"]
+    assert "video frame" not in by_qa["QA-17"]["question"]["en"]
+    assert len(by_qa["QA-17"]["evidence"]["query_window_frames"]) == 2
+    assert "making a sound" in by_qa["QA-18"]["question"]["en"]
     qa12 = by_qa["QA-12"]
     assert qa12["evidence"]["transcript_attribution"]["match_required"] is True
     assert qa12["evidence"]["wer"]["metric"] == "word_error_rate"
@@ -861,7 +866,7 @@ def test_first_utterance_time_does_not_change_when_a_later_event_is_sampled():
     result = generate_unified_questions(facts, qa_ids=["QA-19"], items_per_type=3, seed="repeat")
     item = next(x for x in result["items"] if x["evidence"]["target_actor_id"] == "a0")
     assert item["evidence"]["first_event"]["event_id"] == "e0"
-    assert item["truth"]["value"] == pytest.approx(.2)
+    assert item["truth"]["value"] == pytest.approx([0.0, 1.0])
 
 
 def test_p8_form_candidate_values_follow_real_answer_domains_and_keep_missing() -> None:
@@ -909,7 +914,12 @@ def test_p8_form_candidate_values_follow_real_answer_domains_and_keep_missing() 
             assert all(isinstance(value, float) for value in observed)
         if qa_id == "QA-19":
             assert all(
-                value is None or isinstance(value, float)
+                value is None
+                or (
+                    isinstance(value, list)
+                    and len(value) == 2
+                    and all(isinstance(endpoint, float) for endpoint in value)
+                )
                 for value in values["open"].values()
             )
         if item.get("forms", {}).get("mcq"):
@@ -988,6 +998,16 @@ def test_p8_transition_and_occlusion_candidates_are_not_fixed_to_first_record() 
     a2[0]["state"] = "out_of_view"
     a2[1]["state"] = "visible_clear"
     a2[1]["target_centroid_xy_px"] = [10.0, 50.0]
+    a2[2]["state"] = "visible_clear"
+    a2[2]["target_centroid_xy_px"] = [12.0, 50.0]
+    a3 = raw["pixel_visibility_truth"]["per_instance"]["a3"]["frames"]
+    a3[4]["state"] = "visible_clear"
+    a3[4]["target_centroid_xy_px"] = [88.0, 50.0]
+    # QA-10: provide stable native occlusion intervals for both targets.
+    a0 = raw["pixel_visibility_truth"]["per_instance"]["a0"]["frames"]
+    for row in a0[9:12]:
+        row["state"] = "visible_occluded"
+        row["occluder_instance_ids"] = ["table"]
     # QA-09: a0 reappears; a1 remains fully occluded after its trigger.
     a1 = raw["pixel_visibility_truth"]["per_instance"]["a1"]["frames"]
     for row in a1:
@@ -995,8 +1015,10 @@ def test_p8_transition_and_occlusion_candidates_are_not_fixed_to_first_record() 
             row["state"] = "fully_occluded"
     # QA-11: a0 clears; a1 has a complete negative partial-occlusion record.
     a1[12]["state"] = "visible_occluded"
+    a1[12]["occluder_instance_ids"] = ["chair"]
     for row in a1[13:]:
         row["state"] = "fully_occluded"
+        row["occluder_instance_ids"] = ["chair"]
 
     facts = normalize_episode_bundle(raw)
     expected = {
@@ -1103,7 +1125,10 @@ def test_p8_open_and_mcq_use_distinct_angle_and_time_domains() -> None:
     time_item = qa19["items"][0]
     time_open = time_item["structure"]["open"]["candidate_value_multiplicity"]
     time_mcq = time_item["structure"]["mcq"]["candidate_value_multiplicity"]
-    assert all(isinstance(float(value), float) for value in time_open)
+    assert all(
+        isinstance(value, str) and value.startswith("[")
+        for value in time_open
+    )
     assert set(time_mcq) <= {"band_0", "band_1", "band_2", "band_3"}
 
 

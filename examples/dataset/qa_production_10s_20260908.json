@@ -45,14 +45,16 @@
     "qa_sampling": {
       "items_per_type": 1,
       "candidate_policy": "uniform_over_legal",
-      "query_time_policy": "uniform_in_legal_window"
+      "query_time_policy": "uniform_in_legal_window",
+      "time_display_precision": 1,
+      "time_band_count": 4
     },
     "post_assembly_convolution_gain": 0.5
   },
   "sound_sources": {
-    "prepared_speech_manifest": "/data/jzy/tmp/wt-multi-home-activity-integration/tmp/p7_prepared_audio_v3/prepared_manifest.json",
-    "sound_event_registry": "/data/avengine_external/assets/sound_event_library_v1_20260903/sound_asset_registry_v1.json",
-    "sound_event_manifest": "/data/avengine_external/assets/sound_event_library_v1_20260903/event_manifest.json",
+    "prepared_speech_manifest": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/p7_prepared_audio_v3/prepared_manifest.json",
+    "sound_event_registry": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_user_acceptance_rework_20260908_v1/event_library_peak_dbfs_3_20260908_v1/sound_asset_registry_peak_dbfs_3_20260908_v1.json",
+    "sound_event_manifest": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_user_acceptance_rework_20260908_v1/event_library_peak_dbfs_3_20260908_v1/event_manifest.json",
     "max_clip_s": 5,
     "minimum_animal_activity_s": 0.5,
     "species_sound_classes": {
@@ -188,19 +190,8 @@
       },
       "request_overrides": {
         "runtime": {
-          "uproject": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_full_asset_ue_stage_20260907_v1/SpearSim/SpearSim.uproject",
-          "unreal_editor": "/data/UE_5.5/Engine/Binaries/Linux/UnrealEditor",
-          "spear_ext_dir": "/data/avengine_external/spear-host-sdk/avengine-spear-ext-cp312-8a36d4d-20260821T0030Z",
           "graphics_adapter": 0,
-          "rpc_port": 39600,
-          "streaming_warmup_frames": 180,
-          "ddc_profile": "InstalledNoZenLocalFallback",
-          "ddc_directory": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_real_rooms_20260906_ddc",
-          "runtime_prefix": "/data/avengine_external/runtime-prefixes/avengine-habitat-object-id-732f264-20260824T1041Z",
-          "rlr_sdk_root": "/data/avengine_external/rlr-sdk/RLRAudioPropagationPkg",
-          "magnum_python_site": "/data/avengine_external/runtime-prefixes/magnum-python-cp312-45811bb-20260820T1845Z/lib/python3.12/site-packages",
-          "hrtf": "/data/avengine_external/rlr-sdk/hrtf/mit_kemar_normal_pinna_16k_v2_sofar_20260820T2200Z/mit_kemar_normal_pinna_16k.sofa",
-          "mp3d_root": "/data/datasets/habitat_data"
+          "rpc_port": 39600
         }
       }
     },
@@ -233,19 +224,8 @@
       },
       "request_overrides": {
         "runtime": {
-          "uproject": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_full_asset_ue_stage_20260907_v1/SpearSim/SpearSim.uproject",
-          "unreal_editor": "/data/UE_5.5/Engine/Binaries/Linux/UnrealEditor",
-          "spear_ext_dir": "/data/avengine_external/spear-host-sdk/avengine-spear-ext-cp312-8a36d4d-20260821T0030Z",
           "graphics_adapter": 1,
-          "rpc_port": 39601,
-          "streaming_warmup_frames": 180,
-          "ddc_profile": "InstalledNoZenLocalFallback",
-          "ddc_directory": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_real_rooms_20260906_ddc",
-          "runtime_prefix": "/data/avengine_external/runtime-prefixes/avengine-habitat-object-id-732f264-20260824T1041Z",
-          "rlr_sdk_root": "/data/avengine_external/rlr-sdk/RLRAudioPropagationPkg",
-          "magnum_python_site": "/data/avengine_external/runtime-prefixes/magnum-python-cp312-45811bb-20260820T1845Z/lib/python3.12/site-packages",
-          "hrtf": "/data/avengine_external/rlr-sdk/hrtf/mit_kemar_normal_pinna_16k_v2_sofar_20260820T2200Z/mit_kemar_normal_pinna_16k.sofa",
-          "mp3d_root": "/data/datasets/habitat_data"
+          "rpc_port": 39601
         }
       }
     },
@@ -278,19 +258,8 @@
       },
       "request_overrides": {
         "runtime": {
-          "uproject": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_full_asset_ue_stage_20260907_v1/SpearSim/SpearSim.uproject",
-          "unreal_editor": "/data/UE_5.5/Engine/Binaries/Linux/UnrealEditor",
-          "spear_ext_dir": "/data/avengine_external/spear-host-sdk/avengine-spear-ext-cp312-8a36d4d-20260821T0030Z",
           "graphics_adapter": 2,
-          "rpc_port": 39602,
-          "streaming_warmup_frames": 180,
-          "ddc_profile": "InstalledNoZenLocalFallback",
-          "ddc_directory": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_real_rooms_20260906_ddc",
-          "runtime_prefix": "/data/avengine_external/runtime-prefixes/avengine-habitat-object-id-732f264-20260824T1041Z",
-          "rlr_sdk_root": "/data/avengine_external/rlr-sdk/RLRAudioPropagationPkg",
-          "magnum_python_site": "/data/avengine_external/runtime-prefixes/magnum-python-cp312-45811bb-20260820T1845Z/lib/python3.12/site-packages",
-          "hrtf": "/data/avengine_external/rlr-sdk/hrtf/mit_kemar_normal_pinna_16k_v2_sofar_20260820T2200Z/mit_kemar_normal_pinna_16k.sofa",
-          "mp3d_root": "/data/datasets/habitat_data"
+          "rpc_port": 39602
         }
       }
     },
@@ -323,19 +292,7 @@
       },
       "request_overrides": {
         "runtime": {
-          "uproject": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_full_asset_ue_stage_20260907_v1/SpearSim/SpearSim.uproject",
-          "unreal_editor": "/data/UE_5.5/Engine/Binaries/Linux/UnrealEditor",
-          "spear_ext_dir": "/data/avengine_external/spear-host-sdk/avengine-spear-ext-cp312-8a36d4d-20260821T0030Z",
-          "graphics_adapter": 3,
-          "rpc_port": 39603,
-          "streaming_warmup_frames": 180,
-          "ddc_profile": "InstalledNoZenLocalFallback",
-          "ddc_directory": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_real_rooms_20260906_ddc",
-          "runtime_prefix": "/data/avengine_external/runtime-prefixes/avengine-habitat-object-id-732f264-20260824T1041Z",
-          "rlr_sdk_root": "/data/avengine_external/rlr-sdk/RLRAudioPropagationPkg",
-          "magnum_python_site": "/data/avengine_external/runtime-prefixes/magnum-python-cp312-45811bb-20260820T1845Z/lib/python3.12/site-packages",
-          "hrtf": "/data/avengine_external/rlr-sdk/hrtf/mit_kemar_normal_pinna_16k_v2_sofar_20260820T2200Z/mit_kemar_normal_pinna_16k.sofa",
-          "mp3d_root": "/data/datasets/habitat_data"
+          "rpc_port": 39603
         }
       }
     },
@@ -368,19 +325,8 @@
       },
       "request_overrides": {
         "runtime": {
-          "uproject": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_full_asset_ue_stage_20260907_v1/SpearSim/SpearSim.uproject",
-          "unreal_editor": "/data/UE_5.5/Engine/Binaries/Linux/UnrealEditor",
-          "spear_ext_dir": "/data/avengine_external/spear-host-sdk/avengine-spear-ext-cp312-8a36d4d-20260821T0030Z",
           "graphics_adapter": 0,
-          "rpc_port": 39604,
-          "streaming_warmup_frames": 180,
-          "ddc_profile": "InstalledNoZenLocalFallback",
-          "ddc_directory": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_real_rooms_20260906_ddc",
-          "runtime_prefix": "/data/avengine_external/runtime-prefixes/avengine-habitat-object-id-732f264-20260824T1041Z",
-          "rlr_sdk_root": "/data/avengine_external/rlr-sdk/RLRAudioPropagationPkg",
-          "magnum_python_site": "/data/avengine_external/runtime-prefixes/magnum-python-cp312-45811bb-20260820T1845Z/lib/python3.12/site-packages",
-          "hrtf": "/data/avengine_external/rlr-sdk/hrtf/mit_kemar_normal_pinna_16k_v2_sofar_20260820T2200Z/mit_kemar_normal_pinna_16k.sofa",
-          "mp3d_root": "/data/datasets/habitat_data"
+          "rpc_port": 39604
         }
       }
     },
@@ -413,19 +359,8 @@
       },
       "request_overrides": {
         "runtime": {
-          "uproject": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_full_asset_ue_stage_20260907_v1/SpearSim/SpearSim.uproject",
-          "unreal_editor": "/data/UE_5.5/Engine/Binaries/Linux/UnrealEditor",
-          "spear_ext_dir": "/data/avengine_external/spear-host-sdk/avengine-spear-ext-cp312-8a36d4d-20260821T0030Z",
           "graphics_adapter": 1,
-          "rpc_port": 39605,
-          "streaming_warmup_frames": 180,
-          "ddc_profile": "InstalledNoZenLocalFallback",
-          "ddc_directory": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_real_rooms_20260906_ddc",
-          "runtime_prefix": "/data/avengine_external/runtime-prefixes/avengine-habitat-object-id-732f264-20260824T1041Z",
-          "rlr_sdk_root": "/data/avengine_external/rlr-sdk/RLRAudioPropagationPkg",
-          "magnum_python_site": "/data/avengine_external/runtime-prefixes/magnum-python-cp312-45811bb-20260820T1845Z/lib/python3.12/site-packages",
-          "hrtf": "/data/avengine_external/rlr-sdk/hrtf/mit_kemar_normal_pinna_16k_v2_sofar_20260820T2200Z/mit_kemar_normal_pinna_16k.sofa",
-          "mp3d_root": "/data/datasets/habitat_data"
+          "rpc_port": 39605
         }
       }
     },
@@ -458,19 +393,8 @@
       },
       "request_overrides": {
         "runtime": {
-          "uproject": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_full_asset_ue_stage_20260907_v1/SpearSim/SpearSim.uproject",
-          "unreal_editor": "/data/UE_5.5/Engine/Binaries/Linux/UnrealEditor",
-          "spear_ext_dir": "/data/avengine_external/spear-host-sdk/avengine-spear-ext-cp312-8a36d4d-20260821T0030Z",
           "graphics_adapter": 2,
-          "rpc_port": 39606,
-          "streaming_warmup_frames": 180,
-          "ddc_profile": "InstalledNoZenLocalFallback",
-          "ddc_directory": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_real_rooms_20260906_ddc",
-          "runtime_prefix": "/data/avengine_external/runtime-prefixes/avengine-habitat-object-id-732f264-20260824T1041Z",
-          "rlr_sdk_root": "/data/avengine_external/rlr-sdk/RLRAudioPropagationPkg",
-          "magnum_python_site": "/data/avengine_external/runtime-prefixes/magnum-python-cp312-45811bb-20260820T1845Z/lib/python3.12/site-packages",
-          "hrtf": "/data/avengine_external/rlr-sdk/hrtf/mit_kemar_normal_pinna_16k_v2_sofar_20260820T2200Z/mit_kemar_normal_pinna_16k.sofa",
-          "mp3d_root": "/data/datasets/habitat_data"
+          "rpc_port": 39606
         }
       }
     },
@@ -503,19 +427,7 @@
       },
       "request_overrides": {
         "runtime": {
-          "uproject": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_full_asset_ue_stage_20260907_v1/SpearSim/SpearSim.uproject",
-          "unreal_editor": "/data/UE_5.5/Engine/Binaries/Linux/UnrealEditor",
-          "spear_ext_dir": "/data/avengine_external/spear-host-sdk/avengine-spear-ext-cp312-8a36d4d-20260821T0030Z",
-          "graphics_adapter": 3,
-          "rpc_port": 39607,
-          "streaming_warmup_frames": 180,
-          "ddc_profile": "InstalledNoZenLocalFallback",
-          "ddc_directory": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_real_rooms_20260906_ddc",
-          "runtime_prefix": "/data/avengine_external/runtime-prefixes/avengine-habitat-object-id-732f264-20260824T1041Z",
-          "rlr_sdk_root": "/data/avengine_external/rlr-sdk/RLRAudioPropagationPkg",
-          "magnum_python_site": "/data/avengine_external/runtime-prefixes/magnum-python-cp312-45811bb-20260820T1845Z/lib/python3.12/site-packages",
-          "hrtf": "/data/avengine_external/rlr-sdk/hrtf/mit_kemar_normal_pinna_16k_v2_sofar_20260820T2200Z/mit_kemar_normal_pinna_16k.sofa",
-          "mp3d_root": "/data/datasets/habitat_data"
+          "rpc_port": 39607
         }
       }
     },
@@ -548,19 +460,8 @@
       },
       "request_overrides": {
         "runtime": {
-          "uproject": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_full_asset_ue_stage_20260907_v1/SpearSim/SpearSim.uproject",
-          "unreal_editor": "/data/UE_5.5/Engine/Binaries/Linux/UnrealEditor",
-          "spear_ext_dir": "/data/avengine_external/spear-host-sdk/avengine-spear-ext-cp312-8a36d4d-20260821T0030Z",
           "graphics_adapter": 0,
-          "rpc_port": 39608,
-          "streaming_warmup_frames": 180,
-          "ddc_profile": "InstalledNoZenLocalFallback",
-          "ddc_directory": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_real_rooms_20260906_ddc",
-          "runtime_prefix": "/data/avengine_external/runtime-prefixes/avengine-habitat-object-id-732f264-20260824T1041Z",
-          "rlr_sdk_root": "/data/avengine_external/rlr-sdk/RLRAudioPropagationPkg",
-          "magnum_python_site": "/data/avengine_external/runtime-prefixes/magnum-python-cp312-45811bb-20260820T1845Z/lib/python3.12/site-packages",
-          "hrtf": "/data/avengine_external/rlr-sdk/hrtf/mit_kemar_normal_pinna_16k_v2_sofar_20260820T2200Z/mit_kemar_normal_pinna_16k.sofa",
-          "mp3d_root": "/data/datasets/habitat_data"
+          "rpc_port": 39608
         }
       }
     },
@@ -593,19 +494,8 @@
       },
       "request_overrides": {
         "runtime": {
-          "uproject": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_full_asset_ue_stage_20260907_v1/SpearSim/SpearSim.uproject",
-          "unreal_editor": "/data/UE_5.5/Engine/Binaries/Linux/UnrealEditor",
-          "spear_ext_dir": "/data/avengine_external/spear-host-sdk/avengine-spear-ext-cp312-8a36d4d-20260821T0030Z",
           "graphics_adapter": 1,
-          "rpc_port": 39609,
-          "streaming_warmup_frames": 180,
-          "ddc_profile": "InstalledNoZenLocalFallback",
-          "ddc_directory": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_real_rooms_20260906_ddc",
-          "runtime_prefix": "/data/avengine_external/runtime-prefixes/avengine-habitat-object-id-732f264-20260824T1041Z",
-          "rlr_sdk_root": "/data/avengine_external/rlr-sdk/RLRAudioPropagationPkg",
-          "magnum_python_site": "/data/avengine_external/runtime-prefixes/magnum-python-cp312-45811bb-20260820T1845Z/lib/python3.12/site-packages",
-          "hrtf": "/data/avengine_external/rlr-sdk/hrtf/mit_kemar_normal_pinna_16k_v2_sofar_20260820T2200Z/mit_kemar_normal_pinna_16k.sofa",
-          "mp3d_root": "/data/datasets/habitat_data"
+          "rpc_port": 39609
         }
       }
     },
@@ -638,19 +528,8 @@
       },
       "request_overrides": {
         "runtime": {
-          "uproject": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_full_asset_ue_stage_20260907_v1/SpearSim/SpearSim.uproject",
-          "unreal_editor": "/data/UE_5.5/Engine/Binaries/Linux/UnrealEditor",
-          "spear_ext_dir": "/data/avengine_external/spear-host-sdk/avengine-spear-ext-cp312-8a36d4d-20260821T0030Z",
           "graphics_adapter": 2,
-          "rpc_port": 39610,
-          "streaming_warmup_frames": 180,
-          "ddc_profile": "InstalledNoZenLocalFallback",
-          "ddc_directory": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_real_rooms_20260906_ddc",
-          "runtime_prefix": "/data/avengine_external/runtime-prefixes/avengine-habitat-object-id-732f264-20260824T1041Z",
-          "rlr_sdk_root": "/data/avengine_external/rlr-sdk/RLRAudioPropagationPkg",
-          "magnum_python_site": "/data/avengine_external/runtime-prefixes/magnum-python-cp312-45811bb-20260820T1845Z/lib/python3.12/site-packages",
-          "hrtf": "/data/avengine_external/rlr-sdk/hrtf/mit_kemar_normal_pinna_16k_v2_sofar_20260820T2200Z/mit_kemar_normal_pinna_16k.sofa",
-          "mp3d_root": "/data/datasets/habitat_data"
+          "rpc_port": 39610
         }
       }
     },
@@ -683,19 +562,7 @@
       },
       "request_overrides": {
         "runtime": {
-          "uproject": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_full_asset_ue_stage_20260907_v1/SpearSim/SpearSim.uproject",
-          "unreal_editor": "/data/UE_5.5/Engine/Binaries/Linux/UnrealEditor",
-          "spear_ext_dir": "/data/avengine_external/spear-host-sdk/avengine-spear-ext-cp312-8a36d4d-20260821T0030Z",
-          "graphics_adapter": 3,
-          "rpc_port": 39611,
-          "streaming_warmup_frames": 180,
-          "ddc_profile": "InstalledNoZenLocalFallback",
-          "ddc_directory": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_real_rooms_20260906_ddc",
-          "runtime_prefix": "/data/avengine_external/runtime-prefixes/avengine-habitat-object-id-732f264-20260824T1041Z",
-          "rlr_sdk_root": "/data/avengine_external/rlr-sdk/RLRAudioPropagationPkg",
-          "magnum_python_site": "/data/avengine_external/runtime-prefixes/magnum-python-cp312-45811bb-20260820T1845Z/lib/python3.12/site-packages",
-          "hrtf": "/data/avengine_external/rlr-sdk/hrtf/mit_kemar_normal_pinna_16k_v2_sofar_20260820T2200Z/mit_kemar_normal_pinna_16k.sofa",
-          "mp3d_root": "/data/datasets/habitat_data"
+          "rpc_port": 39611
         }
       }
     },
@@ -728,19 +595,8 @@
       },
       "request_overrides": {
         "runtime": {
-          "uproject": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_full_asset_ue_stage_20260907_v1/SpearSim/SpearSim.uproject",
-          "unreal_editor": "/data/UE_5.5/Engine/Binaries/Linux/UnrealEditor",
-          "spear_ext_dir": "/data/avengine_external/spear-host-sdk/avengine-spear-ext-cp312-8a36d4d-20260821T0030Z",
           "graphics_adapter": 0,
-          "rpc_port": 39612,
-          "streaming_warmup_frames": 180,
-          "ddc_profile": "InstalledNoZenLocalFallback",
-          "ddc_directory": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_real_rooms_20260906_ddc",
-          "runtime_prefix": "/data/avengine_external/runtime-prefixes/avengine-habitat-object-id-732f264-20260824T1041Z",
-          "rlr_sdk_root": "/data/avengine_external/rlr-sdk/RLRAudioPropagationPkg",
-          "magnum_python_site": "/data/avengine_external/runtime-prefixes/magnum-python-cp312-45811bb-20260820T1845Z/lib/python3.12/site-packages",
-          "hrtf": "/data/avengine_external/rlr-sdk/hrtf/mit_kemar_normal_pinna_16k_v2_sofar_20260820T2200Z/mit_kemar_normal_pinna_16k.sofa",
-          "mp3d_root": "/data/datasets/habitat_data"
+          "rpc_port": 39612
         }
       }
     },
@@ -773,19 +629,8 @@
       },
       "request_overrides": {
         "runtime": {
-          "uproject": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_full_asset_ue_stage_20260907_v1/SpearSim/SpearSim.uproject",
-          "unreal_editor": "/data/UE_5.5/Engine/Binaries/Linux/UnrealEditor",
-          "spear_ext_dir": "/data/avengine_external/spear-host-sdk/avengine-spear-ext-cp312-8a36d4d-20260821T0030Z",
           "graphics_adapter": 1,
-          "rpc_port": 39613,
-          "streaming_warmup_frames": 180,
-          "ddc_profile": "InstalledNoZenLocalFallback",
-          "ddc_directory": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_real_rooms_20260906_ddc",
-          "runtime_prefix": "/data/avengine_external/runtime-prefixes/avengine-habitat-object-id-732f264-20260824T1041Z",
-          "rlr_sdk_root": "/data/avengine_external/rlr-sdk/RLRAudioPropagationPkg",
-          "magnum_python_site": "/data/avengine_external/runtime-prefixes/magnum-python-cp312-45811bb-20260820T1845Z/lib/python3.12/site-packages",
-          "hrtf": "/data/avengine_external/rlr-sdk/hrtf/mit_kemar_normal_pinna_16k_v2_sofar_20260820T2200Z/mit_kemar_normal_pinna_16k.sofa",
-          "mp3d_root": "/data/datasets/habitat_data"
+          "rpc_port": 39613
         }
       }
     },
@@ -818,19 +663,8 @@
       },
       "request_overrides": {
         "runtime": {
-          "uproject": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_full_asset_ue_stage_20260907_v1/SpearSim/SpearSim.uproject",
-          "unreal_editor": "/data/UE_5.5/Engine/Binaries/Linux/UnrealEditor",
-          "spear_ext_dir": "/data/avengine_external/spear-host-sdk/avengine-spear-ext-cp312-8a36d4d-20260821T0030Z",
           "graphics_adapter": 2,
-          "rpc_port": 39614,
-          "streaming_warmup_frames": 180,
-          "ddc_profile": "InstalledNoZenLocalFallback",
-          "ddc_directory": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_real_rooms_20260906_ddc",
-          "runtime_prefix": "/data/avengine_external/runtime-prefixes/avengine-habitat-object-id-732f264-20260824T1041Z",
-          "rlr_sdk_root": "/data/avengine_external/rlr-sdk/RLRAudioPropagationPkg",
-          "magnum_python_site": "/data/avengine_external/runtime-prefixes/magnum-python-cp312-45811bb-20260820T1845Z/lib/python3.12/site-packages",
-          "hrtf": "/data/avengine_external/rlr-sdk/hrtf/mit_kemar_normal_pinna_16k_v2_sofar_20260820T2200Z/mit_kemar_normal_pinna_16k.sofa",
-          "mp3d_root": "/data/datasets/habitat_data"
+          "rpc_port": 39614
         }
       }
     },
@@ -863,19 +697,7 @@
       },
       "request_overrides": {
         "runtime": {
-          "uproject": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_full_asset_ue_stage_20260907_v1/SpearSim/SpearSim.uproject",
-          "unreal_editor": "/data/UE_5.5/Engine/Binaries/Linux/UnrealEditor",
-          "spear_ext_dir": "/data/avengine_external/spear-host-sdk/avengine-spear-ext-cp312-8a36d4d-20260821T0030Z",
-          "graphics_adapter": 3,
-          "rpc_port": 39615,
-          "streaming_warmup_frames": 180,
-          "ddc_profile": "InstalledNoZenLocalFallback",
-          "ddc_directory": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_real_rooms_20260906_ddc",
-          "runtime_prefix": "/data/avengine_external/runtime-prefixes/avengine-habitat-object-id-732f264-20260824T1041Z",
-          "rlr_sdk_root": "/data/avengine_external/rlr-sdk/RLRAudioPropagationPkg",
-          "magnum_python_site": "/data/avengine_external/runtime-prefixes/magnum-python-cp312-45811bb-20260820T1845Z/lib/python3.12/site-packages",
-          "hrtf": "/data/avengine_external/rlr-sdk/hrtf/mit_kemar_normal_pinna_16k_v2_sofar_20260820T2200Z/mit_kemar_normal_pinna_16k.sofa",
-          "mp3d_root": "/data/datasets/habitat_data"
+          "rpc_port": 39615
         }
       }
     },
@@ -908,19 +730,8 @@
       },
       "request_overrides": {
         "runtime": {
-          "uproject": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_full_asset_ue_stage_20260907_v1/SpearSim/SpearSim.uproject",
-          "unreal_editor": "/data/UE_5.5/Engine/Binaries/Linux/UnrealEditor",
-          "spear_ext_dir": "/data/avengine_external/spear-host-sdk/avengine-spear-ext-cp312-8a36d4d-20260821T0030Z",
           "graphics_adapter": 0,
-          "rpc_port": 39616,
-          "streaming_warmup_frames": 180,
-          "ddc_profile": "InstalledNoZenLocalFallback",
-          "ddc_directory": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_real_rooms_20260906_ddc",
-          "runtime_prefix": "/data/avengine_external/runtime-prefixes/avengine-habitat-object-id-732f264-20260824T1041Z",
-          "rlr_sdk_root": "/data/avengine_external/rlr-sdk/RLRAudioPropagationPkg",
-          "magnum_python_site": "/data/avengine_external/runtime-prefixes/magnum-python-cp312-45811bb-20260820T1845Z/lib/python3.12/site-packages",
-          "hrtf": "/data/avengine_external/rlr-sdk/hrtf/mit_kemar_normal_pinna_16k_v2_sofar_20260820T2200Z/mit_kemar_normal_pinna_16k.sofa",
-          "mp3d_root": "/data/datasets/habitat_data"
+          "rpc_port": 39616
         }
       }
     },
@@ -953,19 +764,8 @@
       },
       "request_overrides": {
         "runtime": {
-          "uproject": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_full_asset_ue_stage_20260907_v1/SpearSim/SpearSim.uproject",
-          "unreal_editor": "/data/UE_5.5/Engine/Binaries/Linux/UnrealEditor",
-          "spear_ext_dir": "/data/avengine_external/spear-host-sdk/avengine-spear-ext-cp312-8a36d4d-20260821T0030Z",
           "graphics_adapter": 1,
-          "rpc_port": 39617,
-          "streaming_warmup_frames": 180,
-          "ddc_profile": "InstalledNoZenLocalFallback",
-          "ddc_directory": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_real_rooms_20260906_ddc",
-          "runtime_prefix": "/data/avengine_external/runtime-prefixes/avengine-habitat-object-id-732f264-20260824T1041Z",
-          "rlr_sdk_root": "/data/avengine_external/rlr-sdk/RLRAudioPropagationPkg",
-          "magnum_python_site": "/data/avengine_external/runtime-prefixes/magnum-python-cp312-45811bb-20260820T1845Z/lib/python3.12/site-packages",
-          "hrtf": "/data/avengine_external/rlr-sdk/hrtf/mit_kemar_normal_pinna_16k_v2_sofar_20260820T2200Z/mit_kemar_normal_pinna_16k.sofa",
-          "mp3d_root": "/data/datasets/habitat_data"
+          "rpc_port": 39617
         }
       }
     },
@@ -998,19 +798,8 @@
       },
       "request_overrides": {
         "runtime": {
-          "uproject": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_full_asset_ue_stage_20260907_v1/SpearSim/SpearSim.uproject",
-          "unreal_editor": "/data/UE_5.5/Engine/Binaries/Linux/UnrealEditor",
-          "spear_ext_dir": "/data/avengine_external/spear-host-sdk/avengine-spear-ext-cp312-8a36d4d-20260821T0030Z",
           "graphics_adapter": 2,
-          "rpc_port": 39618,
-          "streaming_warmup_frames": 180,
-          "ddc_profile": "InstalledNoZenLocalFallback",
-          "ddc_directory": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_real_rooms_20260906_ddc",
-          "runtime_prefix": "/data/avengine_external/runtime-prefixes/avengine-habitat-object-id-732f264-20260824T1041Z",
-          "rlr_sdk_root": "/data/avengine_external/rlr-sdk/RLRAudioPropagationPkg",
-          "magnum_python_site": "/data/avengine_external/runtime-prefixes/magnum-python-cp312-45811bb-20260820T1845Z/lib/python3.12/site-packages",
-          "hrtf": "/data/avengine_external/rlr-sdk/hrtf/mit_kemar_normal_pinna_16k_v2_sofar_20260820T2200Z/mit_kemar_normal_pinna_16k.sofa",
-          "mp3d_root": "/data/datasets/habitat_data"
+          "rpc_port": 39618
         }
       }
     },
@@ -1043,19 +832,7 @@
       },
       "request_overrides": {
         "runtime": {
-          "uproject": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_full_asset_ue_stage_20260907_v1/SpearSim/SpearSim.uproject",
-          "unreal_editor": "/data/UE_5.5/Engine/Binaries/Linux/UnrealEditor",
-          "spear_ext_dir": "/data/avengine_external/spear-host-sdk/avengine-spear-ext-cp312-8a36d4d-20260821T0030Z",
-          "graphics_adapter": 3,
-          "rpc_port": 39619,
-          "streaming_warmup_frames": 180,
-          "ddc_profile": "InstalledNoZenLocalFallback",
-          "ddc_directory": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_real_rooms_20260906_ddc",
-          "runtime_prefix": "/data/avengine_external/runtime-prefixes/avengine-habitat-object-id-732f264-20260824T1041Z",
-          "rlr_sdk_root": "/data/avengine_external/rlr-sdk/RLRAudioPropagationPkg",
-          "magnum_python_site": "/data/avengine_external/runtime-prefixes/magnum-python-cp312-45811bb-20260820T1845Z/lib/python3.12/site-packages",
-          "hrtf": "/data/avengine_external/rlr-sdk/hrtf/mit_kemar_normal_pinna_16k_v2_sofar_20260820T2200Z/mit_kemar_normal_pinna_16k.sofa",
-          "mp3d_root": "/data/datasets/habitat_data"
+          "rpc_port": 39619
         }
       }
     },
@@ -1088,19 +865,8 @@
       },
       "request_overrides": {
         "runtime": {
-          "uproject": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_full_asset_ue_stage_20260907_v1/SpearSim/SpearSim.uproject",
-          "unreal_editor": "/data/UE_5.5/Engine/Binaries/Linux/UnrealEditor",
-          "spear_ext_dir": "/data/avengine_external/spear-host-sdk/avengine-spear-ext-cp312-8a36d4d-20260821T0030Z",
           "graphics_adapter": 0,
-          "rpc_port": 39620,
-          "streaming_warmup_frames": 180,
-          "ddc_profile": "InstalledNoZenLocalFallback",
-          "ddc_directory": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_real_rooms_20260906_ddc",
-          "runtime_prefix": "/data/avengine_external/runtime-prefixes/avengine-habitat-object-id-732f264-20260824T1041Z",
-          "rlr_sdk_root": "/data/avengine_external/rlr-sdk/RLRAudioPropagationPkg",
-          "magnum_python_site": "/data/avengine_external/runtime-prefixes/magnum-python-cp312-45811bb-20260820T1845Z/lib/python3.12/site-packages",
-          "hrtf": "/data/avengine_external/rlr-sdk/hrtf/mit_kemar_normal_pinna_16k_v2_sofar_20260820T2200Z/mit_kemar_normal_pinna_16k.sofa",
-          "mp3d_root": "/data/datasets/habitat_data"
+          "rpc_port": 39620
         }
       }
     },
@@ -1133,19 +899,8 @@
       },
       "request_overrides": {
         "runtime": {
-          "uproject": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_full_asset_ue_stage_20260907_v1/SpearSim/SpearSim.uproject",
-          "unreal_editor": "/data/UE_5.5/Engine/Binaries/Linux/UnrealEditor",
-          "spear_ext_dir": "/data/avengine_external/spear-host-sdk/avengine-spear-ext-cp312-8a36d4d-20260821T0030Z",
           "graphics_adapter": 1,
-          "rpc_port": 39621,
-          "streaming_warmup_frames": 180,
-          "ddc_profile": "InstalledNoZenLocalFallback",
-          "ddc_directory": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_real_rooms_20260906_ddc",
-          "runtime_prefix": "/data/avengine_external/runtime-prefixes/avengine-habitat-object-id-732f264-20260824T1041Z",
-          "rlr_sdk_root": "/data/avengine_external/rlr-sdk/RLRAudioPropagationPkg",
-          "magnum_python_site": "/data/avengine_external/runtime-prefixes/magnum-python-cp312-45811bb-20260820T1845Z/lib/python3.12/site-packages",
-          "hrtf": "/data/avengine_external/rlr-sdk/hrtf/mit_kemar_normal_pinna_16k_v2_sofar_20260820T2200Z/mit_kemar_normal_pinna_16k.sofa",
-          "mp3d_root": "/data/datasets/habitat_data"
+          "rpc_port": 39621
         }
       }
     },
@@ -1178,19 +933,8 @@
       },
       "request_overrides": {
         "runtime": {
-          "uproject": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_full_asset_ue_stage_20260907_v1/SpearSim/SpearSim.uproject",
-          "unreal_editor": "/data/UE_5.5/Engine/Binaries/Linux/UnrealEditor",
-          "spear_ext_dir": "/data/avengine_external/spear-host-sdk/avengine-spear-ext-cp312-8a36d4d-20260821T0030Z",
           "graphics_adapter": 2,
-          "rpc_port": 39622,
-          "streaming_warmup_frames": 180,
-          "ddc_profile": "InstalledNoZenLocalFallback",
-          "ddc_directory": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_real_rooms_20260906_ddc",
-          "runtime_prefix": "/data/avengine_external/runtime-prefixes/avengine-habitat-object-id-732f264-20260824T1041Z",
-          "rlr_sdk_root": "/data/avengine_external/rlr-sdk/RLRAudioPropagationPkg",
-          "magnum_python_site": "/data/avengine_external/runtime-prefixes/magnum-python-cp312-45811bb-20260820T1845Z/lib/python3.12/site-packages",
-          "hrtf": "/data/avengine_external/rlr-sdk/hrtf/mit_kemar_normal_pinna_16k_v2_sofar_20260820T2200Z/mit_kemar_normal_pinna_16k.sofa",
-          "mp3d_root": "/data/datasets/habitat_data"
+          "rpc_port": 39622
         }
       }
     },
@@ -1223,19 +967,7 @@
       },
       "request_overrides": {
         "runtime": {
-          "uproject": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_full_asset_ue_stage_20260907_v1/SpearSim/SpearSim.uproject",
-          "unreal_editor": "/data/UE_5.5/Engine/Binaries/Linux/UnrealEditor",
-          "spear_ext_dir": "/data/avengine_external/spear-host-sdk/avengine-spear-ext-cp312-8a36d4d-20260821T0030Z",
-          "graphics_adapter": 3,
-          "rpc_port": 39623,
-          "streaming_warmup_frames": 180,
-          "ddc_profile": "InstalledNoZenLocalFallback",
-          "ddc_directory": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_real_rooms_20260906_ddc",
-          "runtime_prefix": "/data/avengine_external/runtime-prefixes/avengine-habitat-object-id-732f264-20260824T1041Z",
-          "rlr_sdk_root": "/data/avengine_external/rlr-sdk/RLRAudioPropagationPkg",
-          "magnum_python_site": "/data/avengine_external/runtime-prefixes/magnum-python-cp312-45811bb-20260820T1845Z/lib/python3.12/site-packages",
-          "hrtf": "/data/avengine_external/rlr-sdk/hrtf/mit_kemar_normal_pinna_16k_v2_sofar_20260820T2200Z/mit_kemar_normal_pinna_16k.sofa",
-          "mp3d_root": "/data/datasets/habitat_data"
+          "rpc_port": 39623
         }
       }
     },
@@ -1268,19 +1000,8 @@
       },
       "request_overrides": {
         "runtime": {
-          "uproject": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_full_asset_ue_stage_20260907_v1/SpearSim/SpearSim.uproject",
-          "unreal_editor": "/data/UE_5.5/Engine/Binaries/Linux/UnrealEditor",
-          "spear_ext_dir": "/data/avengine_external/spear-host-sdk/avengine-spear-ext-cp312-8a36d4d-20260821T0030Z",
           "graphics_adapter": 0,
-          "rpc_port": 39624,
-          "streaming_warmup_frames": 180,
-          "ddc_profile": "InstalledNoZenLocalFallback",
-          "ddc_directory": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_real_rooms_20260906_ddc",
-          "runtime_prefix": "/data/avengine_external/runtime-prefixes/avengine-habitat-object-id-732f264-20260824T1041Z",
-          "rlr_sdk_root": "/data/avengine_external/rlr-sdk/RLRAudioPropagationPkg",
-          "magnum_python_site": "/data/avengine_external/runtime-prefixes/magnum-python-cp312-45811bb-20260820T1845Z/lib/python3.12/site-packages",
-          "hrtf": "/data/avengine_external/rlr-sdk/hrtf/mit_kemar_normal_pinna_16k_v2_sofar_20260820T2200Z/mit_kemar_normal_pinna_16k.sofa",
-          "mp3d_root": "/data/datasets/habitat_data"
+          "rpc_port": 39624
         }
       }
     },
@@ -1313,19 +1034,8 @@
       },
       "request_overrides": {
         "runtime": {
-          "uproject": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_full_asset_ue_stage_20260907_v1/SpearSim/SpearSim.uproject",
-          "unreal_editor": "/data/UE_5.5/Engine/Binaries/Linux/UnrealEditor",
-          "spear_ext_dir": "/data/avengine_external/spear-host-sdk/avengine-spear-ext-cp312-8a36d4d-20260821T0030Z",
           "graphics_adapter": 1,
-          "rpc_port": 39625,
-          "streaming_warmup_frames": 180,
-          "ddc_profile": "InstalledNoZenLocalFallback",
-          "ddc_directory": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_real_rooms_20260906_ddc",
-          "runtime_prefix": "/data/avengine_external/runtime-prefixes/avengine-habitat-object-id-732f264-20260824T1041Z",
-          "rlr_sdk_root": "/data/avengine_external/rlr-sdk/RLRAudioPropagationPkg",
-          "magnum_python_site": "/data/avengine_external/runtime-prefixes/magnum-python-cp312-45811bb-20260820T1845Z/lib/python3.12/site-packages",
-          "hrtf": "/data/avengine_external/rlr-sdk/hrtf/mit_kemar_normal_pinna_16k_v2_sofar_20260820T2200Z/mit_kemar_normal_pinna_16k.sofa",
-          "mp3d_root": "/data/datasets/habitat_data"
+          "rpc_port": 39625
         }
       }
     },
@@ -1358,19 +1068,8 @@
       },
       "request_overrides": {
         "runtime": {
-          "uproject": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_full_asset_ue_stage_20260907_v1/SpearSim/SpearSim.uproject",
-          "unreal_editor": "/data/UE_5.5/Engine/Binaries/Linux/UnrealEditor",
-          "spear_ext_dir": "/data/avengine_external/spear-host-sdk/avengine-spear-ext-cp312-8a36d4d-20260821T0030Z",
           "graphics_adapter": 2,
-          "rpc_port": 39626,
-          "streaming_warmup_frames": 180,
-          "ddc_profile": "InstalledNoZenLocalFallback",
-          "ddc_directory": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_real_rooms_20260906_ddc",
-          "runtime_prefix": "/data/avengine_external/runtime-prefixes/avengine-habitat-object-id-732f264-20260824T1041Z",
-          "rlr_sdk_root": "/data/avengine_external/rlr-sdk/RLRAudioPropagationPkg",
-          "magnum_python_site": "/data/avengine_external/runtime-prefixes/magnum-python-cp312-45811bb-20260820T1845Z/lib/python3.12/site-packages",
-          "hrtf": "/data/avengine_external/rlr-sdk/hrtf/mit_kemar_normal_pinna_16k_v2_sofar_20260820T2200Z/mit_kemar_normal_pinna_16k.sofa",
-          "mp3d_root": "/data/datasets/habitat_data"
+          "rpc_port": 39626
         }
       }
     },
@@ -1403,19 +1102,7 @@
       },
       "request_overrides": {
         "runtime": {
-          "uproject": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_full_asset_ue_stage_20260907_v1/SpearSim/SpearSim.uproject",
-          "unreal_editor": "/data/UE_5.5/Engine/Binaries/Linux/UnrealEditor",
-          "spear_ext_dir": "/data/avengine_external/spear-host-sdk/avengine-spear-ext-cp312-8a36d4d-20260821T0030Z",
-          "graphics_adapter": 3,
-          "rpc_port": 39627,
-          "streaming_warmup_frames": 180,
-          "ddc_profile": "InstalledNoZenLocalFallback",
-          "ddc_directory": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_real_rooms_20260906_ddc",
-          "runtime_prefix": "/data/avengine_external/runtime-prefixes/avengine-habitat-object-id-732f264-20260824T1041Z",
-          "rlr_sdk_root": "/data/avengine_external/rlr-sdk/RLRAudioPropagationPkg",
-          "magnum_python_site": "/data/avengine_external/runtime-prefixes/magnum-python-cp312-45811bb-20260820T1845Z/lib/python3.12/site-packages",
-          "hrtf": "/data/avengine_external/rlr-sdk/hrtf/mit_kemar_normal_pinna_16k_v2_sofar_20260820T2200Z/mit_kemar_normal_pinna_16k.sofa",
-          "mp3d_root": "/data/datasets/habitat_data"
+          "rpc_port": 39627
         }
       }
     },
@@ -1448,19 +1135,8 @@
       },
       "request_overrides": {
         "runtime": {
-          "uproject": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_full_asset_ue_stage_20260907_v1/SpearSim/SpearSim.uproject",
-          "unreal_editor": "/data/UE_5.5/Engine/Binaries/Linux/UnrealEditor",
-          "spear_ext_dir": "/data/avengine_external/spear-host-sdk/avengine-spear-ext-cp312-8a36d4d-20260821T0030Z",
           "graphics_adapter": 0,
-          "rpc_port": 39628,
-          "streaming_warmup_frames": 180,
-          "ddc_profile": "InstalledNoZenLocalFallback",
-          "ddc_directory": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_real_rooms_20260906_ddc",
-          "runtime_prefix": "/data/avengine_external/runtime-prefixes/avengine-habitat-object-id-732f264-20260824T1041Z",
-          "rlr_sdk_root": "/data/avengine_external/rlr-sdk/RLRAudioPropagationPkg",
-          "magnum_python_site": "/data/avengine_external/runtime-prefixes/magnum-python-cp312-45811bb-20260820T1845Z/lib/python3.12/site-packages",
-          "hrtf": "/data/avengine_external/rlr-sdk/hrtf/mit_kemar_normal_pinna_16k_v2_sofar_20260820T2200Z/mit_kemar_normal_pinna_16k.sofa",
-          "mp3d_root": "/data/datasets/habitat_data"
+          "rpc_port": 39628
         }
       }
     },
@@ -1493,19 +1169,8 @@
       },
       "request_overrides": {
         "runtime": {
-          "uproject": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_full_asset_ue_stage_20260907_v1/SpearSim/SpearSim.uproject",
-          "unreal_editor": "/data/UE_5.5/Engine/Binaries/Linux/UnrealEditor",
-          "spear_ext_dir": "/data/avengine_external/spear-host-sdk/avengine-spear-ext-cp312-8a36d4d-20260821T0030Z",
           "graphics_adapter": 1,
-          "rpc_port": 39629,
-          "streaming_warmup_frames": 180,
-          "ddc_profile": "InstalledNoZenLocalFallback",
-          "ddc_directory": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_real_rooms_20260906_ddc",
-          "runtime_prefix": "/data/avengine_external/runtime-prefixes/avengine-habitat-object-id-732f264-20260824T1041Z",
-          "rlr_sdk_root": "/data/avengine_external/rlr-sdk/RLRAudioPropagationPkg",
-          "magnum_python_site": "/data/avengine_external/runtime-prefixes/magnum-python-cp312-45811bb-20260820T1845Z/lib/python3.12/site-packages",
-          "hrtf": "/data/avengine_external/rlr-sdk/hrtf/mit_kemar_normal_pinna_16k_v2_sofar_20260820T2200Z/mit_kemar_normal_pinna_16k.sofa",
-          "mp3d_root": "/data/datasets/habitat_data"
+          "rpc_port": 39629
         }
       }
     },
@@ -1538,19 +1203,8 @@
       },
       "request_overrides": {
         "runtime": {
-          "uproject": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_full_asset_ue_stage_20260907_v1/SpearSim/SpearSim.uproject",
-          "unreal_editor": "/data/UE_5.5/Engine/Binaries/Linux/UnrealEditor",
-          "spear_ext_dir": "/data/avengine_external/spear-host-sdk/avengine-spear-ext-cp312-8a36d4d-20260821T0030Z",
           "graphics_adapter": 2,
-          "rpc_port": 39630,
-          "streaming_warmup_frames": 180,
-          "ddc_profile": "InstalledNoZenLocalFallback",
-          "ddc_directory": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_real_rooms_20260906_ddc",
-          "runtime_prefix": "/data/avengine_external/runtime-prefixes/avengine-habitat-object-id-732f264-20260824T1041Z",
-          "rlr_sdk_root": "/data/avengine_external/rlr-sdk/RLRAudioPropagationPkg",
-          "magnum_python_site": "/data/avengine_external/runtime-prefixes/magnum-python-cp312-45811bb-20260820T1845Z/lib/python3.12/site-packages",
-          "hrtf": "/data/avengine_external/rlr-sdk/hrtf/mit_kemar_normal_pinna_16k_v2_sofar_20260820T2200Z/mit_kemar_normal_pinna_16k.sofa",
-          "mp3d_root": "/data/datasets/habitat_data"
+          "rpc_port": 39630
         }
       }
     },
@@ -1583,19 +1237,7 @@
       },
       "request_overrides": {
         "runtime": {
-          "uproject": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_full_asset_ue_stage_20260907_v1/SpearSim/SpearSim.uproject",
-          "unreal_editor": "/data/UE_5.5/Engine/Binaries/Linux/UnrealEditor",
-          "spear_ext_dir": "/data/avengine_external/spear-host-sdk/avengine-spear-ext-cp312-8a36d4d-20260821T0030Z",
-          "graphics_adapter": 3,
-          "rpc_port": 39631,
-          "streaming_warmup_frames": 180,
-          "ddc_profile": "InstalledNoZenLocalFallback",
-          "ddc_directory": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_real_rooms_20260906_ddc",
-          "runtime_prefix": "/data/avengine_external/runtime-prefixes/avengine-habitat-object-id-732f264-20260824T1041Z",
-          "rlr_sdk_root": "/data/avengine_external/rlr-sdk/RLRAudioPropagationPkg",
-          "magnum_python_site": "/data/avengine_external/runtime-prefixes/magnum-python-cp312-45811bb-20260820T1845Z/lib/python3.12/site-packages",
-          "hrtf": "/data/avengine_external/rlr-sdk/hrtf/mit_kemar_normal_pinna_16k_v2_sofar_20260820T2200Z/mit_kemar_normal_pinna_16k.sofa",
-          "mp3d_root": "/data/datasets/habitat_data"
+          "rpc_port": 39631
         }
       }
     },
@@ -1628,19 +1270,8 @@
       },
       "request_overrides": {
         "runtime": {
-          "uproject": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_full_asset_ue_stage_20260907_v1/SpearSim/SpearSim.uproject",
-          "unreal_editor": "/data/UE_5.5/Engine/Binaries/Linux/UnrealEditor",
-          "spear_ext_dir": "/data/avengine_external/spear-host-sdk/avengine-spear-ext-cp312-8a36d4d-20260821T0030Z",
           "graphics_adapter": 0,
-          "rpc_port": 39632,
-          "streaming_warmup_frames": 180,
-          "ddc_profile": "InstalledNoZenLocalFallback",
-          "ddc_directory": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_real_rooms_20260906_ddc",
-          "runtime_prefix": "/data/avengine_external/runtime-prefixes/avengine-habitat-object-id-732f264-20260824T1041Z",
-          "rlr_sdk_root": "/data/avengine_external/rlr-sdk/RLRAudioPropagationPkg",
-          "magnum_python_site": "/data/avengine_external/runtime-prefixes/magnum-python-cp312-45811bb-20260820T1845Z/lib/python3.12/site-packages",
-          "hrtf": "/data/avengine_external/rlr-sdk/hrtf/mit_kemar_normal_pinna_16k_v2_sofar_20260820T2200Z/mit_kemar_normal_pinna_16k.sofa",
-          "mp3d_root": "/data/datasets/habitat_data"
+          "rpc_port": 39632
         }
       }
     },
@@ -1673,19 +1304,8 @@
       },
       "request_overrides": {
         "runtime": {
-          "uproject": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_full_asset_ue_stage_20260907_v1/SpearSim/SpearSim.uproject",
-          "unreal_editor": "/data/UE_5.5/Engine/Binaries/Linux/UnrealEditor",
-          "spear_ext_dir": "/data/avengine_external/spear-host-sdk/avengine-spear-ext-cp312-8a36d4d-20260821T0030Z",
           "graphics_adapter": 1,
-          "rpc_port": 39633,
-          "streaming_warmup_frames": 180,
-          "ddc_profile": "InstalledNoZenLocalFallback",
-          "ddc_directory": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_real_rooms_20260906_ddc",
-          "runtime_prefix": "/data/avengine_external/runtime-prefixes/avengine-habitat-object-id-732f264-20260824T1041Z",
-          "rlr_sdk_root": "/data/avengine_external/rlr-sdk/RLRAudioPropagationPkg",
-          "magnum_python_site": "/data/avengine_external/runtime-prefixes/magnum-python-cp312-45811bb-20260820T1845Z/lib/python3.12/site-packages",
-          "hrtf": "/data/avengine_external/rlr-sdk/hrtf/mit_kemar_normal_pinna_16k_v2_sofar_20260820T2200Z/mit_kemar_normal_pinna_16k.sofa",
-          "mp3d_root": "/data/datasets/habitat_data"
+          "rpc_port": 39633
         }
       }
     },
@@ -1718,19 +1338,8 @@
       },
       "request_overrides": {
         "runtime": {
-          "uproject": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_full_asset_ue_stage_20260907_v1/SpearSim/SpearSim.uproject",
-          "unreal_editor": "/data/UE_5.5/Engine/Binaries/Linux/UnrealEditor",
-          "spear_ext_dir": "/data/avengine_external/spear-host-sdk/avengine-spear-ext-cp312-8a36d4d-20260821T0030Z",
           "graphics_adapter": 2,
-          "rpc_port": 39634,
-          "streaming_warmup_frames": 180,
-          "ddc_profile": "InstalledNoZenLocalFallback",
-          "ddc_directory": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_real_rooms_20260906_ddc",
-          "runtime_prefix": "/data/avengine_external/runtime-prefixes/avengine-habitat-object-id-732f264-20260824T1041Z",
-          "rlr_sdk_root": "/data/avengine_external/rlr-sdk/RLRAudioPropagationPkg",
-          "magnum_python_site": "/data/avengine_external/runtime-prefixes/magnum-python-cp312-45811bb-20260820T1845Z/lib/python3.12/site-packages",
-          "hrtf": "/data/avengine_external/rlr-sdk/hrtf/mit_kemar_normal_pinna_16k_v2_sofar_20260820T2200Z/mit_kemar_normal_pinna_16k.sofa",
-          "mp3d_root": "/data/datasets/habitat_data"
+          "rpc_port": 39634
         }
       }
     },
@@ -1763,19 +1372,7 @@
       },
       "request_overrides": {
         "runtime": {
-          "uproject": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_full_asset_ue_stage_20260907_v1/SpearSim/SpearSim.uproject",
-          "unreal_editor": "/data/UE_5.5/Engine/Binaries/Linux/UnrealEditor",
-          "spear_ext_dir": "/data/avengine_external/spear-host-sdk/avengine-spear-ext-cp312-8a36d4d-20260821T0030Z",
-          "graphics_adapter": 3,
-          "rpc_port": 39635,
-          "streaming_warmup_frames": 180,
-          "ddc_profile": "InstalledNoZenLocalFallback",
-          "ddc_directory": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_real_rooms_20260906_ddc",
-          "runtime_prefix": "/data/avengine_external/runtime-prefixes/avengine-habitat-object-id-732f264-20260824T1041Z",
-          "rlr_sdk_root": "/data/avengine_external/rlr-sdk/RLRAudioPropagationPkg",
-          "magnum_python_site": "/data/avengine_external/runtime-prefixes/magnum-python-cp312-45811bb-20260820T1845Z/lib/python3.12/site-packages",
-          "hrtf": "/data/avengine_external/rlr-sdk/hrtf/mit_kemar_normal_pinna_16k_v2_sofar_20260820T2200Z/mit_kemar_normal_pinna_16k.sofa",
-          "mp3d_root": "/data/datasets/habitat_data"
+          "rpc_port": 39635
         }
       }
     },
@@ -1808,19 +1405,8 @@
       },
       "request_overrides": {
         "runtime": {
-          "uproject": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_full_asset_ue_stage_20260907_v1/SpearSim/SpearSim.uproject",
-          "unreal_editor": "/data/UE_5.5/Engine/Binaries/Linux/UnrealEditor",
-          "spear_ext_dir": "/data/avengine_external/spear-host-sdk/avengine-spear-ext-cp312-8a36d4d-20260821T0030Z",
           "graphics_adapter": 0,
-          "rpc_port": 39636,
-          "streaming_warmup_frames": 180,
-          "ddc_profile": "InstalledNoZenLocalFallback",
-          "ddc_directory": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_real_rooms_20260906_ddc",
-          "runtime_prefix": "/data/avengine_external/runtime-prefixes/avengine-habitat-object-id-732f264-20260824T1041Z",
-          "rlr_sdk_root": "/data/avengine_external/rlr-sdk/RLRAudioPropagationPkg",
-          "magnum_python_site": "/data/avengine_external/runtime-prefixes/magnum-python-cp312-45811bb-20260820T1845Z/lib/python3.12/site-packages",
-          "hrtf": "/data/avengine_external/rlr-sdk/hrtf/mit_kemar_normal_pinna_16k_v2_sofar_20260820T2200Z/mit_kemar_normal_pinna_16k.sofa",
-          "mp3d_root": "/data/datasets/habitat_data"
+          "rpc_port": 39636
         }
       }
     },
@@ -1853,19 +1439,8 @@
       },
       "request_overrides": {
         "runtime": {
-          "uproject": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_full_asset_ue_stage_20260907_v1/SpearSim/SpearSim.uproject",
-          "unreal_editor": "/data/UE_5.5/Engine/Binaries/Linux/UnrealEditor",
-          "spear_ext_dir": "/data/avengine_external/spear-host-sdk/avengine-spear-ext-cp312-8a36d4d-20260821T0030Z",
           "graphics_adapter": 1,
-          "rpc_port": 39637,
-          "streaming_warmup_frames": 180,
-          "ddc_profile": "InstalledNoZenLocalFallback",
-          "ddc_directory": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_real_rooms_20260906_ddc",
-          "runtime_prefix": "/data/avengine_external/runtime-prefixes/avengine-habitat-object-id-732f264-20260824T1041Z",
-          "rlr_sdk_root": "/data/avengine_external/rlr-sdk/RLRAudioPropagationPkg",
-          "magnum_python_site": "/data/avengine_external/runtime-prefixes/magnum-python-cp312-45811bb-20260820T1845Z/lib/python3.12/site-packages",
-          "hrtf": "/data/avengine_external/rlr-sdk/hrtf/mit_kemar_normal_pinna_16k_v2_sofar_20260820T2200Z/mit_kemar_normal_pinna_16k.sofa",
-          "mp3d_root": "/data/datasets/habitat_data"
+          "rpc_port": 39637
         }
       }
     },
@@ -1898,19 +1473,8 @@
       },
       "request_overrides": {
         "runtime": {
-          "uproject": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_full_asset_ue_stage_20260907_v1/SpearSim/SpearSim.uproject",
-          "unreal_editor": "/data/UE_5.5/Engine/Binaries/Linux/UnrealEditor",
-          "spear_ext_dir": "/data/avengine_external/spear-host-sdk/avengine-spear-ext-cp312-8a36d4d-20260821T0030Z",
           "graphics_adapter": 2,
-          "rpc_port": 39638,
-          "streaming_warmup_frames": 180,
-          "ddc_profile": "InstalledNoZenLocalFallback",
-          "ddc_directory": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_real_rooms_20260906_ddc",
-          "runtime_prefix": "/data/avengine_external/runtime-prefixes/avengine-habitat-object-id-732f264-20260824T1041Z",
-          "rlr_sdk_root": "/data/avengine_external/rlr-sdk/RLRAudioPropagationPkg",
-          "magnum_python_site": "/data/avengine_external/runtime-prefixes/magnum-python-cp312-45811bb-20260820T1845Z/lib/python3.12/site-packages",
-          "hrtf": "/data/avengine_external/rlr-sdk/hrtf/mit_kemar_normal_pinna_16k_v2_sofar_20260820T2200Z/mit_kemar_normal_pinna_16k.sofa",
-          "mp3d_root": "/data/datasets/habitat_data"
+          "rpc_port": 39638
         }
       }
     },
@@ -1943,19 +1507,7 @@
       },
       "request_overrides": {
         "runtime": {
-          "uproject": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_full_asset_ue_stage_20260907_v1/SpearSim/SpearSim.uproject",
-          "unreal_editor": "/data/UE_5.5/Engine/Binaries/Linux/UnrealEditor",
-          "spear_ext_dir": "/data/avengine_external/spear-host-sdk/avengine-spear-ext-cp312-8a36d4d-20260821T0030Z",
-          "graphics_adapter": 3,
-          "rpc_port": 39639,
-          "streaming_warmup_frames": 180,
-          "ddc_profile": "InstalledNoZenLocalFallback",
-          "ddc_directory": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_real_rooms_20260906_ddc",
-          "runtime_prefix": "/data/avengine_external/runtime-prefixes/avengine-habitat-object-id-732f264-20260824T1041Z",
-          "rlr_sdk_root": "/data/avengine_external/rlr-sdk/RLRAudioPropagationPkg",
-          "magnum_python_site": "/data/avengine_external/runtime-prefixes/magnum-python-cp312-45811bb-20260820T1845Z/lib/python3.12/site-packages",
-          "hrtf": "/data/avengine_external/rlr-sdk/hrtf/mit_kemar_normal_pinna_16k_v2_sofar_20260820T2200Z/mit_kemar_normal_pinna_16k.sofa",
-          "mp3d_root": "/data/datasets/habitat_data"
+          "rpc_port": 39639
         }
       }
     },
@@ -1988,19 +1540,8 @@
       },
       "request_overrides": {
         "runtime": {
-          "uproject": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_full_asset_ue_stage_20260907_v1/SpearSim/SpearSim.uproject",
-          "unreal_editor": "/data/UE_5.5/Engine/Binaries/Linux/UnrealEditor",
-          "spear_ext_dir": "/data/avengine_external/spear-host-sdk/avengine-spear-ext-cp312-8a36d4d-20260821T0030Z",
           "graphics_adapter": 0,
-          "rpc_port": 39640,
-          "streaming_warmup_frames": 180,
-          "ddc_profile": "InstalledNoZenLocalFallback",
-          "ddc_directory": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_real_rooms_20260906_ddc",
-          "runtime_prefix": "/data/avengine_external/runtime-prefixes/avengine-habitat-object-id-732f264-20260824T1041Z",
-          "rlr_sdk_root": "/data/avengine_external/rlr-sdk/RLRAudioPropagationPkg",
-          "magnum_python_site": "/data/avengine_external/runtime-prefixes/magnum-python-cp312-45811bb-20260820T1845Z/lib/python3.12/site-packages",
-          "hrtf": "/data/avengine_external/rlr-sdk/hrtf/mit_kemar_normal_pinna_16k_v2_sofar_20260820T2200Z/mit_kemar_normal_pinna_16k.sofa",
-          "mp3d_root": "/data/datasets/habitat_data"
+          "rpc_port": 39640
         }
       }
     },
@@ -2033,19 +1574,8 @@
       },
       "request_overrides": {
         "runtime": {
-          "uproject": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_full_asset_ue_stage_20260907_v1/SpearSim/SpearSim.uproject",
-          "unreal_editor": "/data/UE_5.5/Engine/Binaries/Linux/UnrealEditor",
-          "spear_ext_dir": "/data/avengine_external/spear-host-sdk/avengine-spear-ext-cp312-8a36d4d-20260821T0030Z",
           "graphics_adapter": 1,
-          "rpc_port": 39641,
-          "streaming_warmup_frames": 180,
-          "ddc_profile": "InstalledNoZenLocalFallback",
-          "ddc_directory": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_real_rooms_20260906_ddc",
-          "runtime_prefix": "/data/avengine_external/runtime-prefixes/avengine-habitat-object-id-732f264-20260824T1041Z",
-          "rlr_sdk_root": "/data/avengine_external/rlr-sdk/RLRAudioPropagationPkg",
-          "magnum_python_site": "/data/avengine_external/runtime-prefixes/magnum-python-cp312-45811bb-20260820T1845Z/lib/python3.12/site-packages",
-          "hrtf": "/data/avengine_external/rlr-sdk/hrtf/mit_kemar_normal_pinna_16k_v2_sofar_20260820T2200Z/mit_kemar_normal_pinna_16k.sofa",
-          "mp3d_root": "/data/datasets/habitat_data"
+          "rpc_port": 39641
         }
       }
     },
@@ -2078,19 +1608,8 @@
       },
       "request_overrides": {
         "runtime": {
-          "uproject": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_full_asset_ue_stage_20260907_v1/SpearSim/SpearSim.uproject",
-          "unreal_editor": "/data/UE_5.5/Engine/Binaries/Linux/UnrealEditor",
-          "spear_ext_dir": "/data/avengine_external/spear-host-sdk/avengine-spear-ext-cp312-8a36d4d-20260821T0030Z",
           "graphics_adapter": 2,
-          "rpc_port": 39642,
-          "streaming_warmup_frames": 180,
-          "ddc_profile": "InstalledNoZenLocalFallback",
-          "ddc_directory": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_real_rooms_20260906_ddc",
-          "runtime_prefix": "/data/avengine_external/runtime-prefixes/avengine-habitat-object-id-732f264-20260824T1041Z",
-          "rlr_sdk_root": "/data/avengine_external/rlr-sdk/RLRAudioPropagationPkg",
-          "magnum_python_site": "/data/avengine_external/runtime-prefixes/magnum-python-cp312-45811bb-20260820T1845Z/lib/python3.12/site-packages",
-          "hrtf": "/data/avengine_external/rlr-sdk/hrtf/mit_kemar_normal_pinna_16k_v2_sofar_20260820T2200Z/mit_kemar_normal_pinna_16k.sofa",
-          "mp3d_root": "/data/datasets/habitat_data"
+          "rpc_port": 39642
         }
       }
     },
@@ -2123,19 +1642,7 @@
       },
       "request_overrides": {
         "runtime": {
-          "uproject": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_full_asset_ue_stage_20260907_v1/SpearSim/SpearSim.uproject",
-          "unreal_editor": "/data/UE_5.5/Engine/Binaries/Linux/UnrealEditor",
-          "spear_ext_dir": "/data/avengine_external/spear-host-sdk/avengine-spear-ext-cp312-8a36d4d-20260821T0030Z",
-          "graphics_adapter": 3,
-          "rpc_port": 39643,
-          "streaming_warmup_frames": 180,
-          "ddc_profile": "InstalledNoZenLocalFallback",
-          "ddc_directory": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_real_rooms_20260906_ddc",
-          "runtime_prefix": "/data/avengine_external/runtime-prefixes/avengine-habitat-object-id-732f264-20260824T1041Z",
-          "rlr_sdk_root": "/data/avengine_external/rlr-sdk/RLRAudioPropagationPkg",
-          "magnum_python_site": "/data/avengine_external/runtime-prefixes/magnum-python-cp312-45811bb-20260820T1845Z/lib/python3.12/site-packages",
-          "hrtf": "/data/avengine_external/rlr-sdk/hrtf/mit_kemar_normal_pinna_16k_v2_sofar_20260820T2200Z/mit_kemar_normal_pinna_16k.sofa",
-          "mp3d_root": "/data/datasets/habitat_data"
+          "rpc_port": 39643
         }
       }
     },
@@ -2168,19 +1675,8 @@
       },
       "request_overrides": {
         "runtime": {
-          "uproject": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_full_asset_ue_stage_20260907_v1/SpearSim/SpearSim.uproject",
-          "unreal_editor": "/data/UE_5.5/Engine/Binaries/Linux/UnrealEditor",
-          "spear_ext_dir": "/data/avengine_external/spear-host-sdk/avengine-spear-ext-cp312-8a36d4d-20260821T0030Z",
           "graphics_adapter": 0,
-          "rpc_port": 39644,
-          "streaming_warmup_frames": 180,
-          "ddc_profile": "InstalledNoZenLocalFallback",
-          "ddc_directory": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_real_rooms_20260906_ddc",
-          "runtime_prefix": "/data/avengine_external/runtime-prefixes/avengine-habitat-object-id-732f264-20260824T1041Z",
-          "rlr_sdk_root": "/data/avengine_external/rlr-sdk/RLRAudioPropagationPkg",
-          "magnum_python_site": "/data/avengine_external/runtime-prefixes/magnum-python-cp312-45811bb-20260820T1845Z/lib/python3.12/site-packages",
-          "hrtf": "/data/avengine_external/rlr-sdk/hrtf/mit_kemar_normal_pinna_16k_v2_sofar_20260820T2200Z/mit_kemar_normal_pinna_16k.sofa",
-          "mp3d_root": "/data/datasets/habitat_data"
+          "rpc_port": 39644
         }
       }
     },
@@ -2213,19 +1709,8 @@
       },
       "request_overrides": {
         "runtime": {
-          "uproject": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_full_asset_ue_stage_20260907_v1/SpearSim/SpearSim.uproject",
-          "unreal_editor": "/data/UE_5.5/Engine/Binaries/Linux/UnrealEditor",
-          "spear_ext_dir": "/data/avengine_external/spear-host-sdk/avengine-spear-ext-cp312-8a36d4d-20260821T0030Z",
           "graphics_adapter": 1,
-          "rpc_port": 39645,
-          "streaming_warmup_frames": 180,
-          "ddc_profile": "InstalledNoZenLocalFallback",
-          "ddc_directory": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_real_rooms_20260906_ddc",
-          "runtime_prefix": "/data/avengine_external/runtime-prefixes/avengine-habitat-object-id-732f264-20260824T1041Z",
-          "rlr_sdk_root": "/data/avengine_external/rlr-sdk/RLRAudioPropagationPkg",
-          "magnum_python_site": "/data/avengine_external/runtime-prefixes/magnum-python-cp312-45811bb-20260820T1845Z/lib/python3.12/site-packages",
-          "hrtf": "/data/avengine_external/rlr-sdk/hrtf/mit_kemar_normal_pinna_16k_v2_sofar_20260820T2200Z/mit_kemar_normal_pinna_16k.sofa",
-          "mp3d_root": "/data/datasets/habitat_data"
+          "rpc_port": 39645
         }
       }
     }

@@ -19,6 +19,15 @@ from typing import Any
 
 UNIFIED_SCORE_SCHEMA = "avengine_qa_unified_score_v1"
 _NUMBER = re.compile(r"[-+]?(?:\d+(?:\.\d*)?|\.\d+)")
+_UNSIGNED_NUMBER = r"(?:\d+(?:\.\d*)?|\.\d+)"
+_TIME_RANGE_SEPARATOR = re.compile(
+    rf"(?<![\w.+-])(?P<start>{_UNSIGNED_NUMBER})\s*(?:-|–|—|−|~|～|到|至|\bto\b)\s*"
+    rf"(?P<end>{_UNSIGNED_NUMBER})(?![\w.])",
+    re.IGNORECASE,
+)
+_UNSIGNED_NUMBER_TOKEN = re.compile(
+    rf"(?<![A-Za-z0-9_.]){_UNSIGNED_NUMBER}(?![A-Za-z0-9_.])"
+)
 _ANGLE_MARK = re.compile(
     r"([-+]?\d+(?:\.\d+)?)\s*(?:°|度|deg(?:ree)?s?)",
     re.IGNORECASE,
@@ -443,6 +452,116 @@ def score_mcq(form: Mapping[str, Any], answer: str) -> dict[str, Any]:
     }
 
 
+def _finite_time_range(value: Any) -> tuple[float, float] | None:
+    if (
+        not isinstance(value, Sequence)
+        or isinstance(value, (str, bytes))
+        or len(value) != 2
+        or any(isinstance(item, bool) or not isinstance(item, (int, float)) for item in value)
+    ):
+        return None
+    start, end = float(value[0]), float(value[1])
+    if not math.isfinite(start) or not math.isfinite(end) or end <= start:
+        return None
+    return start, end
+
+
+def _time_range_numbers(answer: str) -> list[float]:
+    """Parse two endpoints without treating a range separator as a sign."""
+
+    text = unicodedata.normalize("NFKC", answer)
+    range_match = _TIME_RANGE_SEPARATOR.search(text)
+    if range_match is not None:
+        # Accept the separator form only when the answer contains exactly its
+        # two endpoints; extra numbers must remain invalid.
+        tokens = list(_UNSIGNED_NUMBER_TOKEN.finditer(text))
+        group_spans = {
+            (range_match.start("start"), range_match.end("start")),
+            (range_match.start("end"), range_match.end("end")),
+        }
+        if len(tokens) == 2 and {
+            (token.start(), token.end()) for token in tokens
+        } == group_spans:
+            return [float(range_match.group("start")), float(range_match.group("end"))]
+    marked = [float(match.group(1)) for match in _TIME_MARK.finditer(text)]
+    if len(marked) == 2:
+        return marked
+    return [float(match.group(0)) for match in _NUMBER.finditer(text)]
+
+
+def score_time_range(
+    answer: str,
+    truth: Any,
+    *,
+    form: Mapping[str, Any] | None = None,
+    strict: bool = False,
+) -> dict[str, Any]:
+    """Score an answer against one declared half-open time interval."""
+    target = _finite_time_range(truth)
+    if target is None:
+        return {"status": "invalid", "reason": "time range truth is invalid", "score": 0.0}
+    form = form or {}
+    classes = form.get("classes")
+    if isinstance(classes, Mapping):
+        label, _reason = _closed_match(answer, classes)
+        if label is not None:
+            ranges = form.get("time_ranges_s")
+            expected_index = form.get("time_range_index")
+            if isinstance(expected_index, bool) or not isinstance(expected_index, int):
+                expected_index = None
+            if expected_index is None and isinstance(ranges, Sequence):
+                for index, candidate in enumerate(ranges):
+                    candidate_range = _finite_time_range(candidate)
+                    if candidate_range is not None and all(
+                        math.isclose(candidate_range[pos], target[pos], rel_tol=0.0, abs_tol=1.0e-9)
+                        for pos in (0, 1)
+                    ):
+                        expected_index = index
+                        break
+            parsed_index = None
+            match = re.fullmatch(r"band_(\d+)", str(label))
+            if match:
+                parsed_index = int(match.group(1))
+            if expected_index is not None and parsed_index is not None:
+                return {
+                    "status": "scored",
+                    "parsed": list(target if parsed_index == expected_index else (
+                        _finite_time_range(ranges[parsed_index]) if isinstance(ranges, Sequence) and parsed_index < len(ranges) else target
+                    )),
+                    "expected_range_s": list(target),
+                    "parsed_range_index": parsed_index,
+                    "expected_range_index": expected_index,
+                    "score": 1.0 if parsed_index == expected_index else 0.0,
+                }
+    if _has_abstention(answer):
+        return {
+            "status": "abstained",
+            "score": 0.0,
+            "abstention": True,
+            "refusal_allowed": False,
+        }
+    numbers = _time_range_numbers(answer)
+    if len(numbers) != 2:
+        return {
+            "status": "invalid",
+            "reason": "time range answer must identify exactly two endpoints",
+            "score": 0.0,
+        }
+    parsed = _finite_time_range(numbers)
+    if parsed is None:
+        return {"status": "invalid", "reason": "time range answer is invalid", "score": 0.0}
+    error = max(abs(parsed[0] - target[0]), abs(parsed[1] - target[1]))
+    exact = error <= 1.0e-6
+    return {
+        "status": "scored",
+        "parsed": list(parsed),
+        "expected_range_s": list(target),
+        "range_error_s": error,
+        "score": 1.0 if exact else 0.0,
+        "strict": bool(strict),
+    }
+
+
 def score_open_form(
     form: Mapping[str, Any],
     answer: str,
@@ -492,6 +611,8 @@ def score_open_form(
             convention=str(form.get("convention", "right_positive")),
             strict=bool(form.get("strict_certification", False)),
         )
+    if answer_type == "time_range_s":
+        return score_time_range(answer, truth, form=form)
     if answer_type == "time_s":
         full = form.get("t_full_s", params.get("T_FULL", 0.3))
         half = form.get("t_half_s", params.get("T_HALF", 1.0))
@@ -620,6 +741,7 @@ __all__ = [
     "score_mcq",
     "score_open_form",
     "score_time",
+    "score_time_range",
     "score_transcript",
     "score_unified_item",
     "score_unified_question_set",

@@ -136,3 +136,14 @@ def test_review_frames_include_the_native_occluder_evidence_frame():
     frames = _review_frames(questions, facts_fixture())
     assert set(frames) == {0, 7}
     assert "qa10:frame" in frames[7]
+
+
+def test_review_frames_include_public_window_endpoints():
+    questions = {"items": [{"question_id": "range", "evidence": {"query_window_frames": [3, 10]}}]}
+    result = _review_frames(questions, facts_fixture())
+    assert set(result) == {0, 3, 9}
+    assert "range:query_window_start" in result[3]
+    assert "range:query_window_end" in result[9]
+    questions["items"][0]["evidence"]["query_window_frames"] = [3, 11]
+    with pytest.raises(ValueError, match="query window"):
+        _review_frames(questions, facts_fixture())
