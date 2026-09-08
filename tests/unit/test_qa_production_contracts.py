@@ -50,14 +50,17 @@ def package():
                 subrooms=[])
 
 
-def test_package_requires_measured_floor_and_keeps_legacy_draft_missing(package):
+def test_package_requires_measured_floor_and_keeps_legacy_draft_missing(package, tmp_path):
     assert validate_room_package(package)["room_id"] == "room"
     del package["floor_reference"]
     with pytest.raises(ValueError, match="floor_reference"):
         validate_room_package(package)
     old = dict(room_id="A", map_path="/Game/A", manifest="layout.json", backend="spear_unreal")
-    draft = package_from_catalog_entry(old)
-    assert draft["legacy_catalog_entry"] == old
+    manifest_path = tmp_path / "layout.json"
+    manifest_path.write_text("{}\n")
+    draft = package_from_catalog_entry(old, catalog_path=tmp_path / "catalog.json")
+    assert draft["legacy_catalog_entry"] == {**old, "manifest": str(manifest_path)}
+    assert old["manifest"] == "layout.json"  # Path normalization does not mutate the input.
     assert draft["floor_reference"] is None
     assert "missing floor_reference" in room_package_errors(draft)
 
