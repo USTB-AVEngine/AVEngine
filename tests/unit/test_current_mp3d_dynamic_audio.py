@@ -607,6 +607,8 @@ def test_mp3d_dynamic_cli_passes_configured_bindings_without_legacy_beagle(
     second = tmp_path / "second.wav"
     first.write_bytes(b"RIFF")
     second.write_bytes(b"RIFF")
+    third = tmp_path / "third.wav"
+    third.write_bytes(b"RIFF")
     mapping = tmp_path / "sound_asset_map.json"
     mapping.write_text(json.dumps({"first": str(first)}), encoding="utf-8")
     args = cli.build_parser().parse_args([
@@ -621,6 +623,7 @@ def test_mp3d_dynamic_cli_passes_configured_bindings_without_legacy_beagle(
         "--sound-asset-registry", "sounds.json",
         "--sound-asset-map", str(mapping),
         "--sound-asset-path", f"second={second}",
+        "--asset-binding", f"third={third}",
         "--hrtf", "hrtf.sofa",
         "--runtime-prefix", "runtime",
         "--rlr-sdk-root", "rlr",
@@ -652,7 +655,14 @@ def test_mp3d_dynamic_cli_passes_configured_bindings_without_legacy_beagle(
     assert captured["external_sound_asset_paths"] == {
         "first": first.resolve(),
         "second": second.resolve(),
+        "third": third.resolve(),
     }
+
+    assert captured["event_asset_bindings"] == captured["external_sound_asset_paths"]
+    captured.clear()
+    args.asset_binding = [f"first={third}"]
+    assert cli._m5_render_current_mp3d_dynamic_audio(args) == 2
+    assert captured == {}
 
 
 def test_cli_propagates_explicit_dynamic_clock_options() -> None:
@@ -886,3 +896,20 @@ def test_dataset_renderer_cli_parses_layouts_without_defaulting_to_foa():
     )
     with pytest.raises(argparse.ArgumentTypeError):
         module.parse_layouts("binaural,foa")
+
+def test_cli_beagle_audio_is_optional() -> None:
+    parser = cli.build_parser()
+    args = parser.parse_args([
+        "m5",
+        "render-current-mp3d-dynamic-audio",
+        "--visual-capture-dir", "capture",
+        "--m1-request", "m1.json",
+        "--simulation-request", "simulation.json",
+        "--package-manifest", "package.json",
+        "--audio-program", "program.json",
+        "--hrtf", "hrtf.sofa",
+        "--runtime-prefix", "runtime",
+        "--rlr-sdk-root", "rlr",
+        "--output", "out",
+    ])
+    assert args.beagle_audio is None

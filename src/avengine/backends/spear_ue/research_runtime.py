@@ -588,6 +588,74 @@ def attach_emitter_component(game: Any, *, actor_id: str, anchor_root: Any,
     return emitter
 
 
+def attach_skeletal_emitter_component(
+    game: Any,
+    *,
+    actor_id: str,
+    skeletal_component: Any,
+    attachment: Mapping[str, Any],
+) -> Any:
+    """Attach an emitter to a declared UE bone or socket on a skeletal component."""
+
+    if not isinstance(attachment, Mapping):
+        raise SpearResearchRuntimeError(
+            "skeletal emitter attachment must be a mapping"
+        )
+    attachment_type = attachment.get("attachment_type")
+    if attachment_type not in {"bone", "socket"}:
+        raise SpearResearchRuntimeError(
+            "skeletal emitter attachment type must be bone or socket"
+        )
+    name = attachment.get("name")
+    if not isinstance(name, str) or not name.strip():
+        raise SpearResearchRuntimeError(
+            "skeletal emitter attachment name must be non-empty"
+        )
+    raw_offset = attachment.get("local_offset_cm")
+    if (
+        isinstance(raw_offset, (str, bytes))
+        or not isinstance(raw_offset, (list, tuple))
+        or len(raw_offset) != 3
+        or any(
+            isinstance(value, bool)
+            or not isinstance(value, Real)
+            or not math.isfinite(float(value))
+            for value in raw_offset
+        )
+    ):
+        raise SpearResearchRuntimeError(
+            "skeletal emitter local offset must contain three finite values"
+        )
+    offset = [float(value) for value in raw_offset]
+    emitter = game.unreal_service.create_scene_component_for_scene_component(
+        owner=skeletal_component,
+        scene_component_name=f"{actor_id}_skeletal_emitter",
+        uclass="USceneComponent",
+    )
+    emitter.SetMobility(NewMobility="Movable")
+    attached = emitter.K2_AttachToComponent(
+        Parent=skeletal_component,
+        SocketName=name,
+        LocationRule="SnapToTarget",
+        RotationRule="SnapToTarget",
+        ScaleRule="KeepWorld",
+        bWeldSimulatedBodies=False,
+    )
+    if (
+        attached is not True
+        or emitter.GetAttachParent(as_handle=True) != skeletal_component.uobject
+    ):
+        raise SpearResearchRuntimeError(
+            f"{actor_id} skeletal emitter did not attach to {attachment_type} {name}"
+        )
+    emitter.K2_SetRelativeLocation(
+        NewLocation=dict(zip(("X", "Y", "Z"), offset)),
+        bSweep=False,
+        bTeleport=True,
+    )
+    return emitter
+
+
 def spawn_attached_static_actor(
     game: Any,
     *,
@@ -677,6 +745,7 @@ __all__ = [
     "read_rgb_bgr",
     "run_frame_transaction",
     "spawn_attached_visual_actor",
+    "attach_skeletal_emitter_component",
     "spawn_attached_static_actor",
     "spawn_scene_capture",
     "warm_scene_capture_until_stable",

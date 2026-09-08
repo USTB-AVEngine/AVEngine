@@ -5,7 +5,7 @@
 
 自 2026-08-25 起，目录本身就是能力分组（阶段目录 m1…m7 已移除），
 本表按目录列出每个工具做什么。
-当前共 381 个工具脚本。
+当前共 417 个工具脚本。
 
 ## 资产生成与装配（`tools/assets/`）
 
@@ -18,6 +18,7 @@
 | `tools/assets/append_loop_closure.py` | Append one 15 Hz return-to-start sample to each GLB action channel |
 | `tools/assets/assemble_variant_package.py` | Assemble a generic M2 animal research package from real QA evidence |
 | `tools/assets/audit_candidate.py` | Write bounded automatic QA reports for an M2 research candidate |
+| `tools/assets/audit_habitat_mesh_grounding.py` | Audit exact skinned-vertex grounding and declared source anchors |
 | `tools/assets/audit_variant_candidate.py` | Run body-plan-neutral automatic M2 QA using explicit variant anchors |
 | `tools/assets/audit_world_contacts.py` | Fit M2 root cadence and emit hash-bound world-contact artifacts |
 | `tools/assets/bake_actions.py` | Bake the strict M2 Idle/Walking action artifact and hash-bound report |
@@ -35,6 +36,7 @@
 | `tools/assets/build_cross_species_appearance_lineage.py` | Build one diagnostic-only cross-species appearance lineage |
 | `tools/assets/build_generated_asset_run_manifest.py` | Write an AVEngine-readable generated-asset run index |
 | `tools/assets/build_generated_asset_visual_review_page.py` | Build a standalone HTML visual-review page for generated Pixal3D assets |
+| `tools/assets/build_habitat_asset_package.py` | Build one real, research-only P12 Habitat asset package |
 | `tools/assets/build_joint_mapping.py` | Emit the exact Habitat joint mapping bound to a rebase report |
 | `tools/assets/build_research_review_request.py` | Build an exact 75-state M2 request for research-only human review |
 | `tools/assets/build_seated_human_batch.py` | Run the AVEngine-owned Blender seated-human builder for four assets |
@@ -47,7 +49,7 @@
 | `tools/assets/capture_installed_research_review.py` | Run the current installed-prefix M2 Blender-room research review |
 | `tools/assets/capture_research_review.py` | Run the 75-state single-view M2 research-review capture in Habitat |
 | `tools/assets/check_prompt_token_budget.py` | Fail closed when a candidate profile's effective prompt cannot fit the model window |
-| `tools/assets/compile_animal_package.py` | Compile a pinned Rocketbox Beagle M2 research-candidate package |
+| `tools/assets/compile_animal_package.py` | Compile a bounded M2 research-candidate package |
 | `tools/assets/compose_topdown_review.py` | Derive synchronized RGB + navmesh/descriptor top-down QA review media |
 | `tools/assets/derive_variant_contacts.py` | Derive generic package anchors and actor-space four-paw contacts |
 | `tools/assets/force_matte_materials.py` | Force a complete opaque matte-dielectric GLB material policy |
@@ -70,6 +72,7 @@
 | `tools/assets/pixal3d_transform_profile.py` | Load the class-level Pixal3D / SkinTokens transform profile |
 | `tools/assets/plan_instance_variants.py` | Derive the instance-level variant plan for accepted source assets |
 | `tools/assets/prepare_sound_library.py` | Convert the collected dry clips into the form the pipeline consumes |
+| `tools/assets/prepare_speech_audio.py` | Build the P7 speech-band prepared set and review manifests |
 | `tools/assets/preprocess_glb.py` | Select GLB actions and strip provably unweighted controller roots |
 | `tools/assets/probe_habitat_skin_rest.py` | Generate and exercise a temporary Habitat skinned-AO rest-pose descriptor |
 | `tools/assets/probe_heading_axis.py` |  |
@@ -97,6 +100,7 @@
 | `tools/assets/spike_habitat_local_tr.py` | Prove one bounded local-translation-plus-rotation Habitat AO encoding |
 | `tools/assets/split_sound_library_events.py` | Split a prepared sound library into one wav per sounding event |
 | `tools/assets/validate_animated_animal_closure.py` | Validate an animated animal GLB and write one fresh closure report |
+| `tools/assets/verify_habitat_asset_runtime_readback.py` | Read back Habitat native root, contact-link and emitter transforms |
 | `tools/assets/wrap_uniform_scene_scale.py` | Wrap every root of one GLB scene in an explicit uniform-scale node |
 
 ## 房间（`tools/rooms/`）
@@ -113,8 +117,10 @@
 | `tools/rooms/build_residential_source_episode.py` | Build AVEngine Timeline, Topdown and binaural audio for a residential room |
 | `tools/rooms/emit_hm3d_room_manifest.py` | Emit an AVEngine room manifest for an HM3D scene directory |
 | `tools/rooms/extract_interioragent_scene_metadata.py` | Extract a room polygon and navigation footprints from InteriorAgent USD |
+| `tools/rooms/measure_habitat_floor_reference.py` | Measure Habitat floor levels from a declared scene and navmesh |
+| `tools/rooms/measure_ue_room_floor_reference.py` | Measure an UE room floor from the currently loaded map |
 | `tools/rooms/plan_furnished_camera_review.py` | Build a short multi-view camera review plan for one furnished room |
-| `tools/rooms/plan_furnished_residential_episode.py` | Plan a static furnished residential episode without starting UE/SPEAR |
+| `tools/rooms/plan_furnished_residential_episode.py` | Plan a static furnished residential episode through the AVEngine room API |
 | `tools/rooms/prepare_3d_front_toolbox_sample_proxy.py` | Build a clearly labelled 3D-FRONT Toolbox sample review proxy in USD |
 | `tools/rooms/prepare_interioragent_kujiale_adapter.py` | Prepare an external InteriorAgent USD stage for UE's runtime USD importer |
 | `tools/rooms/prepare_legacy_apartment.py` | Prepare the real-surface UE apartment export as an M1 Habitat room package |
@@ -122,6 +128,7 @@
 | `tools/rooms/prepare_spear_apartment_exterior.py` | Export UE's approaching_storm HDRI and build a visual-only Habitat GLB |
 | `tools/rooms/rebuild_replicacad_obstacle_review.py` | Rebuild the retained ReplicaCAD review with live furniture obstacles |
 | `tools/rooms/run_habitat_replicacad_lighting_canary.py` | Run the real ReplicaCAD Habitat capture with one shared lighting profile |
+| `tools/rooms/run_native_qa_room.py` | Materialize one native Apartment QA plan without launching UE |
 | `tools/rooms/run_room_qualification_attempt.py` | Run or verify the read-only M6 representative-room qualification attempt |
 | `tools/rooms/run_spear_apartment_canary.py` | Render M6.x S0/S3/S4 through the native SPEAR Apartment map |
 | `tools/rooms/run_spear_kujiale_canary.py` | Capture an external InteriorAgent/Kujiale room through SPEAR and UE |
@@ -148,15 +155,17 @@
 | `tools/acoustics/audit_jaeger_rir.py` | JAEGER SpatialSceneQA 公开包 RIR 混响审计脚本(可重跑版)。 |
 | `tools/acoustics/audit_skokloster_cleanup_inventory.py` | Emit the exact face inventory for a Skokloster research cleanup |
 | `tools/acoustics/build_asset_bound_rir_plan.py` | Bind concrete assets to generic root routes and plan on-demand RIR work |
+| `tools/acoustics/cleanup_dynamic_rir_cache.py` | Clear completed numeric RIR payloads while retaining replayable evidence |
 | `tools/acoustics/compile_semantic_research_package.py` | Compile one room's semantic mesh into an M3/RLR research acoustic package |
 | `tools/acoustics/derive_authored_geometry_proxy.py` | Locate authored-GLB topology roots and optionally derive a fresh acoustic proxy |
 | `tools/acoustics/derive_research_rlr_package.py` | Derive an RLR-loadable research package by removing QA-degenerate faces |
 | `tools/acoustics/derive_skokloster_two_face_research_package.py` | Derive the bounded Skokloster package by removing exactly two QA faces |
+| `tools/acoustics/diagnose_region_ray_leakage.py` | Replay declared rays from an actual room region or route path |
 | `tools/acoustics/extract_usd_acoustic_snapshot.py` | Expand a static USD room into one auditable M3 acoustic snapshot |
 | `tools/acoustics/plan_vctk_four_speaker_program.py` | Plan four distinct complete VCTK sentences on an AVEngine clock |
 | `tools/acoustics/prepare_authored_room_acoustics.py` | Prepare a real-surface authored room for the existing AVEngine M3/RLR compiler |
 | `tools/acoustics/probe_room_front_back_pairs.py` | Measure whether one room supports front/back mirrored source pairs |
-| `tools/acoustics/render_frame_readback_sequential_speech.py` | Render a research four-speaker sequential speech program from SPEAR readbacks |
+| `tools/acoustics/render_frame_readback_sequential_speech.py` | Render multi-source research audio from SPEAR frame readbacks |
 | `tools/acoustics/render_rir_cache.py` | Render a resumable native-RLR RIR cache from an M6.x job plan |
 | `tools/acoustics/run_material_canary.py` | Run the hash-bound repeated M3 RLR material activation canary |
 | `tools/acoustics/verify_material_canary.py` | Verify M3 canary schema, lineage, raw IRs and recomputed gates |
@@ -192,12 +201,16 @@
 
 | 工具 | 做什么 |
 |---|---|
+| `tools/capture/build_habitat_binding_delta.py` | Build a reviewable Habitat binding delta from the two source registries |
+| `tools/capture/build_mp3d_beagle_rigid_case.py` | Prepare one fresh beagle plus rigid-object Habitat capture case |
 | `tools/capture/capture_human_beagle_legacy.py` | Capture the committed 270-frame Rocketbox-human + Beagle legacy route |
 | `tools/capture/capture_human_beagle_mp3d.py` | Run the real-navmesh 270-frame MP3D human + Beagle visual canary |
 | `tools/capture/capture_human_beagle_replicacad.py` | Run the real ReplicaCAD apt_0 human + Beagle visual/placement review |
 | `tools/capture/capture_mp3d_multi_actor.py` | Capture one explicit N-actor MP3D case through the installed Habitat runtime |
 | `tools/capture/capture_two_human_mp3d.py` | Run the Habitat-native MP3D two-human production visual capture |
+| `tools/capture/materialize_common_plan_habitat.py` | Materialize one common renderer-neutral plan into a Habitat case |
 | `tools/capture/run_apartment_four_motion_pilot.py` | Run one shared Apartment capture for the four human/dog motion cases |
+| `tools/capture/write_neutral_readback.py` | Convert retained native UE or Habitat capture into a fresh neutral readback |
 
 ## 视觉回放（`tools/visual/`）
 
@@ -233,9 +246,11 @@
 
 | 工具 | 做什么 |
 |---|---|
+| `tools/qa/adapt_four_speaker_research_qa.py` | Adapt four-speaker SPEAR/audio research inputs to existing QuestionSpec Facts |
 | `tools/qa/adapt_strict_two_human_both_move_v1_preflight.py` | Bind the reviewed both-move geometry handoff to A's materializer contract |
 | `tools/qa/assemble_qa_v3_room_pilot.py` | Assemble one quota-complete room-centric QA-v3 research pilot manifest |
 | `tools/qa/audio_profiles.py` | Question-type audio profiles: one schedule per question type, not one for all |
+| `tools/qa/audit_binding_feasibility.py` | 绑定可行性与逐题难度画像审计（research_only）。 |
 | `tools/qa/audit_gatea_by_form.py` |  |
 | `tools/qa/audit_gatea_semantics.py` |  |
 | `tools/qa/audit_qa_v3_prescale_candidates.py` | Revalidate an existing room-pilot manifest against prescale QA-v3 rules |
@@ -309,12 +324,14 @@
 | `tools/qa/floor_reference.py` | Per-room floor reference: the measured UE z of the walkable floor |
 | `tools/qa/generate_qa_v2_questions.py` | QA v2 question generation for a constraint-driven batch |
 | `tools/qa/generate_qa_v3_questions.py` | Generate qa-v3 pilot fact records + question candidates (cards ①⑦⑧⑨) |
+| `tools/qa/generate_unified_questions.py` | Generate the QA-01..QA-24 views from one native episode bundle |
 | `tools/qa/join_f2_direction_pixel.py` | Join F2 direction facts with native windowed pixel/audio evidence |
 | `tools/qa/join_f2_offscreen_identity_pixel.py` | Join native main/GateB pixel evidence for an F2 identity candidate |
 | `tools/qa/join_qa_v3_extended_pixel.py` | Join native pixel truth to pixel-dependent QA-v3 candidates |
 | `tools/qa/make_idle_then_walk_timeline.py` | Idle-then-walk timeline transform (pilot work order items 1.2/1.7 支撑件) |
 | `tools/qa/materialize_qa_v3_dual_gateb.py` | Materialize renderable Gate-B twins for selected dual-source QA-v3 points |
 | `tools/qa/materialize_strict_two_human_dynamic_canary.py` | Materialize one true-motion strict two-human full75 CPU closure |
+| `tools/qa/measure_conditioned_plan_matrix.py` | Measure fixed-profile plan feasibility without rendering or replacing quotas |
 | `tools/qa/measure_qa_v3_floor_z.py` | Measure a room's floor height in the engine and write its floor reference |
 | `tools/qa/mine_simple_questions.py` | Mine simple (A-group) questions from compiled QA fact tables |
 | `tools/qa/mine_temporal_questions.py` | Mine temporal (B-group) and numeric questions over intermittent fact tables |
@@ -362,6 +379,7 @@
 | `tools/qa/scene_sampler.py` | Scene-agnostic candidate search for qa-v3 question types |
 | `tools/qa/score_open_answers.py` | Open-form answer scorer (pilot work order item 1.5) |
 | `tools/qa/score_qa_v3_human_calibration.py` | Score QA-v3 human calibration responses without mixing binding errors |
+| `tools/qa/score_unified_questions.py` | Score model answers for a generated unified QA question set |
 | `tools/qa/search_mp3d_strict_two_human_nav_positions.py` | Search the real MP3D navmesh for a safer two-adult static probe pair |
 | `tools/qa/search_skokloster_strict_listener.py` | Search one coupled Skokloster camera/listener for a strict two-adult probe |
 | `tools/qa/select_qa_v3_card16_pixel_quota.py` | Select card16 candidates after native-pixel truth, stratified by gold state |
@@ -398,16 +416,29 @@
 | `tools/dataset/build_asset_bound_visual_reviews.py` | Build Habitat-only internal visual QA reviews for the M7 throughput batch |
 | `tools/dataset/build_cached_apartment_dataset_examples.py` | Build four cache-bound Apartment dataset examples for UE review |
 | `tools/dataset/build_mp3d_room_evaluation_review.py` | Build one hash-bound MP3D room-evaluation listening review |
+| `tools/dataset/build_qa_batch_coverage.py` | Build full-scope five-state QA coverage and structural baselines |
+| `tools/dataset/build_qa_batch_manifest.py` | Prepare independent QA batch requests, collect outcomes, group splits, or dry-run a scattered scale-up manifest |
+| `tools/dataset/build_qa_evaluation_permutations.py` | Build deterministic pre-evaluation option permutations and private mappings |
 | `tools/dataset/build_room_evaluation_plan.py` | Select balanced generic source trajectories for one room evaluation |
 | `tools/dataset/build_spear_apartment_review.py` | Bind one exact SPEAR Apartment RGB render to Habitat Topdown v3 and audio |
 | `tools/dataset/compare_rir_cache_metrics.py` | Compare EDT/DRR/late-energy between two retained RIR caches on matched jobs |
+| `tools/dataset/export_episode_bundle.py` | Publish a shared-room Episode/QA reference bundle |
+| `tools/dataset/merge_qa_batch_attempts.py` | Merge original QA batch attempts with a later rerun and rebuild coverage including failed-episode accounting |
 | `tools/dataset/merge_spear_apartment_render_shards.py` | Merge independently rendered SPEAR Apartment shards without copying media |
+| `tools/dataset/prepare_qwen25_omni_gold.py` | Build the private gold sidecar for the existing Qwen2.5-Omni pilot scorer |
+| `tools/dataset/prepare_qwen25_omni_pilot.py` | Prepare answer-free stereo inputs for the installed Qwen2.5-Omni pilot |
+| `tools/dataset/prepare_spatial_omni_eval.py` | Prepare the private QA root consumed by the installed Spatial-Omni bench |
+| `tools/dataset/prepare_whisper_review.py` | Prepare a truth-free request for the local Whisper speech review |
 | `tools/dataset/recombine_source_trajectory_bank.py` | Build many unique two-source episodes from one finite single-path pool |
 | `tools/dataset/render_asset_bound_binaural_batch.py` | Assemble many binaural training items from one completed asset-bound cache |
 | `tools/dataset/render_asset_bound_binaural_canary.py` | Render two real dry recordings through one completed asset-bound RIR cache |
 | `tools/dataset/render_current_apartment_dynamic_audio.py` | Render motion-following binaural audio for a current UE research capture |
 | `tools/dataset/render_room_evaluation_binaural.py` | Mix generic room-evaluation sound classes through a completed RIR cache |
+| `tools/dataset/replay_qa_batch_audio.py` | Replay QA audio or finalize retained audio in fresh attempts, preserving native captures and history |
 | `tools/dataset/run_habitat_room_batch.py` | Batch Habitat-native RGB rendering for registry-selected rooms |
+| `tools/dataset/run_qa_batch.py` | Execute a fresh QA batch with bounded independent controller processes |
+| `tools/dataset/run_qwen_content_controls.py` | Run a resumable Qwen2.5-Omni content/visual control on sanitized Episode inputs |
+| `tools/dataset/score_qwen_content_controls.py` | Score Qwen2.5-Omni content/visual control predictions without hiding missing/invalid outputs |
 | `tools/dataset/verify_asset_bound_batch.py` | Verify the complete M7 asset-bound binaural throughput batch |
 
 ## 审阅（`tools/review/`）
@@ -451,10 +482,12 @@
 | `tools/studio/feed_hm3d_fleet.py` | Keep the studio queue fed with the next un-attempted HM3D houses |
 | `tools/studio/make_paired_ablation.py` | Paired ablation variants for a rendered dynamic-audio bundle |
 | `tools/studio/run_apartment_end_to_end.py` | Studio end-to-end Apartment chain: author timeline → UE capture → audio → clip |
+| `tools/studio/run_furnished_seated_episode.py` | Plan and render one static-seated furnished room as a Studio research task |
 | `tools/studio/run_hm3d_end_to_end.py` | One HM3D house, start to finish, in a single task |
 | `tools/studio/run_hm3d_episode.py` | Render one HM3D moving-source episode: pose, FOA, first-person video, binaural |
 | `tools/studio/run_kujiale_acoustic_package.py` | Compile a Kujiale USD room into an RLR-loadable research acoustic package |
 | `tools/studio/run_mp3d_end_to_end.py` | Studio end-to-end MP3D chain: author route → capture → dynamic audio → clip |
+| `tools/studio/run_qa_episode.py` | Match a QA request to existing room resources, plan it and execute its Episode |
 | `tools/studio/run_studio_server.py` | Launch the AVEngine Studio backend server (loopback only) |
 | `tools/studio/ue_export_apartment_gltf.py` | Headless UE editor export: apartment_0000 level -> textured glb |
 
@@ -467,11 +500,13 @@
 | `tools/ue/assemble_package_stage.py` | Assemble a fresh UE package stage for the current Apartment visual route |
 | `tools/ue/assemble_research_editor_stage.py` | Create an isolated SPEAR Editor stage using current source and installed binaries |
 | `tools/ue/build_minimal_closure_report.py` | Build a minimal-closure report for the current Apartment visual stage |
+| `tools/ue/create_extra_animals_blueprints_editor.py` |  |
 | `tools/ue/create_spear_kujiale_map_editor.py` | Create a UE map containing one external USD stage |
 | `tools/ue/export_apartment_gltf.py` | Export the legacy SPEAR apartment as real UE render-surface geometry |
 | `tools/ue/export_asset_dependencies_editor.py` | Export real Unreal package dependencies for declared mounted content roots |
 | `tools/ue/fix_spear_mp3d_materials_editor.py` | Repair and verify MP3D glTF color semantics inside an isolated UE project |
 | `tools/ue/import_controlled_humans_editor.py` | Import one catalog-described controlled human with generic Unreal APIs |
+| `tools/ue/import_extra_animals_editor.py` | Import research-only animated animal GLBs into isolated UE SkeletalMesh roots |
 | `tools/ue/import_seated_human_editor.py` | Import four seated skeletal GLBs and create independent UE Blueprints |
 | `tools/ue/import_spear_3d_front_sample_editor.py` | Import the local 3D-FRONT Toolbox sample proxy into a persistent UE map |
 | `tools/ue/import_spear_replicacad_editor.py` | Import and assemble the prepared ReplicaCAD apt_0 scene inside UE 5.5 |
@@ -482,6 +517,7 @@
 | `tools/ue/prepare_spear_replicacad_scene.py` | Prepare the complete ReplicaCAD scene request for the optional UE backend |
 | `tools/ue/probe_spear_replicacad_environment.py` | Probe whether ReplicaCAD can be imported/cooked without touching old SPEAR |
 | `tools/ue/unreal_export_approaching_storm.py` | Unreal Editor-side exporter for the stock approaching_storm TextureCube |
+| `tools/ue/verify_extra_animals_editor.py` |  |
 
 ## Blender 工程（`tools/blender/`）
 

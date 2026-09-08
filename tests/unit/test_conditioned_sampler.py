@@ -1,0 +1,435 @@
+from copy import deepcopy
+import json
+from pathlib import Path
+
+import numpy as np
+import pytest
+
+from avengine.qa.answerability import (MeshHandle, line_of_sight, listener_azimuth_deg,
+    max_concurrent_entities, separation_stats, structural_baselines)
+from avengine.rooms import conditioned_sampler as cs
+from avengine.rooms.furniture_layout import clock_config
+from avengine.rooms.walkable_space import RasterWalkableSpace, NativeRouteWalkableSpace
+from avengine.routes.raster_pathfinder import RasterPathfinder
+
+
+def registry():
+    return {'assets':[{'asset_id':f'human_{i}','revision':'v1','entity_class':'articulated_human',
+        'identity':{'species_id':'human'},'display_label':f'person {i}',
+        'realized_attributes':{'sex_or_gender_label':'male','top_color':color},
+        'timeline':{'idle_action_id':'idle','walking_action_id':'walk','walk_phase_period_frames':30,
+                    'local_anatomical_forward_axis':[1.,0.,0.]},
+        'default_emitter_anchor_id':'mouth','emitter_anchors':[{'anchor_id':'mouth','offset_m':[0.,1.6,0.],
+              'offset_space':'final_scaled_asset_root'}]} for i,color in enumerate(['blue','green','red','yellow'])]}
+
+
+def request(**extra):
+    return {'episode_id':'fixture','seed':111,'sampling_policy':cs.POLICY,'source_asset_ids':['human_0','human_1'],
+        'profile':{'anchor_count':1,'separation_bin_deg':[15,60],'speech_motion':'all_still','event_relation':'sequential',
+                   'reserve_tail_s':1.,'retry_budget_within_profile':30},**extra}
+
+
+def sounds():
+    return [{'sound_asset_id':f'speech_{i}','sound_class':'speech','gender':'M','transcript':f'utterance {i}',
+        'sample_count':32000,'sample_rate_hz':16000,'audible_start_sample':800,'audible_end_sample_exclusive':31200,
+        'active_duration_s':1.9,'path':f'/prepared/{i}.wav'} for i in range(4)]
+
+
+def space():
+    pf=RasterPathfinder(np.ones((32,32),dtype=bool),bounds_m=[[0,-1,0],[8,1,8]],floor_height_m=0.)
+    return RasterWalkableSpace(pf,{'floor_height_m':0.,'resolution_m':.25,'authority':'fixture_retained_grid'})
+
+
+def clock():
+    return clock_config(frame_count=120,frame_rate_hz=15,sample_rate_hz=16000)
+
+
+def test_fixed_profile_failure_keeps_denominator_and_histogram(monkeypatch):
+    r=request();r['profile']['retry_budget_within_profile']=3;p=cs.resolve_condition_profile(r,registry());seen=[]
+    def fail(*args,**kwargs):
+        seen.append(deepcopy(args[2]));raise cs.CandidateFailure('routes','fixture_no_path')
+    monkeypatch.setattr(cs,'sample_routes',fail)
+    with pytest.raises(cs.ConditionedPlanningFailure) as error:
+        cs.build_conditioned_plan(room={'room_id':'r'},request=r,source_registry=registry(),sounds=sounds(),space=space(),mesh=None,clock=clock(),condition_profile=p)
+    assert error.value.result['attempts']==3
+    assert error.value.result['failure_histogram']=={'routes:fixture_no_path':3}
+    assert seen==[p,p,p]
+
+
+def test_explicit_source_count_conflict_is_rejected():
+    with pytest.raises(ValueError,match='agree with total_count'):
+        cs.resolve_condition_profile(request(entities={'total_count':3}),registry())
+
+
+def test_rigid_pair_not_excluded_by_unrequested_min_articulated_rule():
+    reg=registry()
+    for r in reg['assets']:r['entity_class']='rigid_object';r.pop('timeline')
+    profile=cs.resolve_condition_profile(request(),reg)
+    assert profile['source_classes']==['rigid_static_object']*2
+
+
+def test_unknown_gender_never_pairs_biological_human():
+    actor=cs.neutral_source_declaration(registry()['assets'][0],'source1')
+    assert cs.sound_matches(actor,{'sound_class':'speech','gender':'M'})
+    assert not cs.sound_matches(actor,{'sound_class':'speech','gender':'F'})
+    assert not cs.sound_matches(actor,{'sound_class':'speech'})
+    actor['entity_class']='rigid_object'
+    assert cs.sound_matches(actor,{'sound_class':'speech','gender':'F'})
+
+
+def test_half_open_legal_activity_start_ranges_include_sample_zero():
+    c={'sample_rate_hz':10,'frame_rate_hz':2,'sample_count':30}
+    s={'sample_count':10,'audible_start_sample':2,'audible_end_sample_exclusive':8}
+    ranges=cs.legal_start_ranges([True,True,False,True,True,False],s,c,{'reserve_tail_s':0})
+    assert ranges==[[0,2],[13,17]]
+
+
+def test_sequential_uniform_starts_keep_feasible_suffix():
+    events={'a':{'actor_id':'source1','audible_start_sample':0,'audible_end_sample_exclusive':10},
+            'b':{'actor_id':'source2','audible_start_sample':0,'audible_end_sample_exclusive':10}}
+    starts={'a':[[0,20]],'b':[[15,15]]};p={'event_relation':'sequential','min_gap_between_audible_windows_s':0}
+    values=[cs.schedule_legal_events(events,starts,{'sample_rate_hz':1},p,np.random.default_rng(i)) for i in range(60)]
+    assert {r['a'] for r in values}==set(range(6))
+    assert all(r['b']==15 and r['a']+10<=r['b'] for r in values)
+
+
+def test_overlap_uses_declared_duration_not_merely_order():
+    events={'a':{'actor_id':'source1','audible_start_sample':1,'audible_end_sample_exclusive':8},
+            'b':{'actor_id':'source2','audible_start_sample':2,'audible_end_sample_exclusive':7}}
+    p={'event_relation':'overlap','minimum_overlap_s':3};starts={'a':[[0,20]],'b':[[2,30]]}
+    for seed in range(30):
+        r=cs.schedule_legal_events(events,starts,{'sample_rate_hz':1},p,np.random.default_rng(seed))
+        assert min(r['a']+8,r['b']+7)-max(r['a']+1,r['b']+2)>=3
+    p['minimum_overlap_s']=6
+    assert cs.schedule_legal_events(events,starts,{'sample_rate_hz':1},p) is None
+
+
+def test_repeat_keeps_original_playback_and_unique_event_times():
+    events={'a':{'actor_id':'source1','audible_start_sample':0,'audible_end_sample_exclusive':3},
+            'b':{'actor_id':'source2','audible_start_sample':0,'audible_end_sample_exclusive':3},
+            'r':{'actor_id':'source1','audible_start_sample':0,'audible_end_sample_exclusive':3,'repeat_of':'a'}}
+    p={'event_relation':'repeat','min_gap_between_audible_windows_s':1};starts={k:[[0,20]] for k in events}
+    for seed in range(20):
+        r=cs.schedule_legal_events(events,starts,{'sample_rate_hz':1},p,np.random.default_rng(seed))
+        assert r['r']>=r['a']+4
+        order=sorted(r,key=r.get)
+        assert all(r[b]>=r[a]+4 for a,b in zip(order,order[1:]))
+
+
+def test_native_routes_preserve_points_and_never_call_raster_solver():
+    raster=space();bank=[{'route_id':'a','points_m':[[0,0,0],[0,0,1],[0,0,2]]},
+                        {'route_id':'b','points_m':[[2,0,0],[2,0,1],[2,0,2]]}]
+    native=NativeRouteWalkableSpace(raster.pathfinder,raster.metadata,bank,15.)
+    paths,record=cs._native_routes(native,[True,True],5,15.,np.random.default_rng(3))
+    assert set(record['selected_route_ids'])=={'a','b'}
+    for route,rid in zip(paths,record['selected_route_ids']):
+        original=np.asarray(next(b['points_m'] for b in bank if b['route_id']==rid))
+        assert all(any(np.array_equal(p,x) for x in original) for p in route)
+        assert any(np.array_equal(route[start:start+3],original) for start in range(3))
+    with pytest.raises(ValueError,match='only permits retained'):
+        native.shortest_path([0,0,0],[2,0,2])
+
+
+def test_full_plan_same_seed_bytes_and_camera_membership(monkeypatch):
+    kwargs={'room':{'room_id':'fixture'},'request':request(),'source_registry':registry(),'sounds':sounds(),
+            'space':space(),'mesh':MeshHandle(np.zeros((0,3)),np.zeros((0,3),dtype=int)),'clock':clock()}
+    a=cs.build_conditioned_plan(**kwargs);b=cs.build_conditioned_plan(**kwargs)
+    assert json.dumps(a,sort_keys=True)==json.dumps(b,sort_keys=True)
+    assert a['visual_plan']['camera']['candidate_id'] in a['planned_conditions']['legal_candidate_ids']
+    assert a['condition_profile']['anchor_count']==1
+    assert 'achieved_conditions' not in a
+    assert all(f['camera_state']==a['visual_plan']['camera'] for f in a['visual_plan']['frames'])
+    assert all('translation_ue_cm' not in s for f in a['visual_plan']['frames'] for s in f['actor_states'])
+    p=dict(kwargs);p['request']=request(seed=112);c=cs.build_conditioned_plan(**p)
+    assert a['audio_events']!=c['audio_events']
+    assert a['visual_plan']['camera']!=c['visual_plan']['camera']
+    from avengine.capture.qa_plan_adapters import materialize_ue_episode_plan
+    from avengine.rooms import qa_episode
+    monkeypatch.setattr(qa_episode, 'source_declaration',
+                        lambda _registry, asset_id, actor_id: {'asset_id': asset_id, 'actor_id': actor_id})
+    from avengine import runtime_profiles
+    monkeypatch.setattr(runtime_profiles, 'resolve_source_asset_runtime_profile',
+                        lambda reg, asset_id: next(row for row in reg['assets'] if row['asset_id']==asset_id))
+    native = materialize_ue_episode_plan(a, registry())
+    assert [f['camera_state']['frame_index'] for f in native['visual_plan']['frames']] == list(range(clock()['frame_count']))
+    assert all('frame_index' not in f['camera_state'] for f in a['visual_plan']['frames'])
+    assert native['visual_plan']['camera']['resolution_hw'] == a['visual_plan']['camera']['resolution_hw']
+
+
+def test_azimuth_matches_catalog_horizontal_projection():
+    from avengine.qa.unified_catalog import _listener_azimuth
+    for yaw in np.linspace(-180,180,17):
+        angle=np.deg2rad(yaw);basis={'forward':[np.sin(angle),.1,-np.cos(angle)],'right':[np.cos(angle),0.,np.sin(angle)],'up':[0.,1.,0.]}
+        pose={'position_m':[1.,2.,3.],'basis':basis};listener={'positions_m':[[1.,2.,3.]],'basis_m3':[basis]}
+        for p in [[2,1,4],[0,0,0],[-2,8,4]]:
+            assert listener_azimuth_deg(pose,p)==_listener_azimuth(p,listener,0)
+
+
+def test_concurrency_sweep_deduplicates_entities_and_touching_boundaries():
+    assert max_concurrent_entities([(0,10,'a'),(1,2,'b'),(8,9,'c')])==2
+    assert max_concurrent_entities([(0,3,'a'),(1,5,'a'),(5,6,'b')])==1
+
+
+def test_separation_tracks_nearest_switch_and_sustained_seconds():
+    r=separation_stats([0]*4,{'offscreen':[30,30,60,60],'visible':[50,50,20,20]},[0,4],frame_rate_hz=2,thresholds_deg=[25])
+    assert r['min']==20 and r['max']==30 and r['nearest_competitor_changed']
+    assert r['sustained_s_above']['25.0']==1.
+
+
+def test_los_keeps_missing_geometry_unmeasured_and_exact_triangle_block():
+    mesh=MeshHandle([[0,0,0],[0,2,0],[0,0,2]],[[0,1,2]])
+    assert line_of_sight(None,[-1,.5,.5],[1,.5,.5])=='unmeasured'
+    assert line_of_sight(mesh,[-1,.5,.5],[1,.5,.5])=='blocked'
+    assert line_of_sight(mesh,[-1,3,3],[1,3,3])=='clear'
+
+
+def test_structure_reports_majority_shortcut_without_refusing():
+    r=structural_baselines({'a':'blue','b':'blue','c':'red'},'c')
+    assert r['unique_minority_hits']==1 and r['majority_hits']==0 and r['random_hits']==pytest.approx(1/3)
+    assert structural_baselines({'a':None,'b':1},'b')['status']=='unmeasured'
+
+
+def test_clear_camera_rejects_occluded_body_even_with_clear_emitter(monkeypatch):
+    r=request();profile=cs.resolve_condition_profile(r,registry());n=clock()['frame_count']
+    actors=[cs.neutral_source_declaration(record,f'source{i+1}') for i,record in enumerate(registry()['assets'][:2])]
+    paths=np.repeat(np.array([[[-1.,0.,-3.]],[[1.,0.,-3.]]]),n,axis=1)
+    emitters=paths+np.array([0.,1.6,0.]);bodies=paths+np.array([0.,1.28,0.])
+    selected={i:{**sounds()[i],'actor_id':actor['actor_id']} for i,actor in enumerate(actors)}
+    monkeypatch.setattr(cs,'camera_grid',lambda *args,**kwargs:[[0.,1.55,0.]])
+    def trace(_mesh,_origin,target):
+        return 'clear' if target[1]>1.5 else 'blocked'
+    monkeypatch.setattr(cs,'line_of_sight',trace)
+    with pytest.raises(cs.CandidateFailure,match='no_joint_geometry_activity_schedule'):
+        cs.select_camera_and_schedule(space(),object(),paths,np.zeros((2,n),dtype=bool),emitters,bodies,
+                                      actors,selected,profile,clock(),r,np.random.default_rng(0))
+    monkeypatch.setattr(cs,'line_of_sight',lambda *args:'clear')
+    camera,events,conditions=cs.select_camera_and_schedule(space(),object(),paths,np.zeros((2,n),dtype=bool),
+        emitters,bodies,actors,selected,profile,clock(),r,np.random.default_rng(0))
+    assert camera['candidate_id'] in conditions['legal_candidate_ids']
+    assert len(events)==2
+
+
+class TwoFloorWalkableSpace:
+    """Constructed two-floor nav mesh; cells exist at y=0 and y=3 only."""
+
+    def __init__(self, floors=(0.0, 3.0), size=8.0, step=0.5):
+        self.floors = [float(v) for v in floors]
+        self.size = float(size)
+        self.step = float(step)
+        self.metadata = {
+            "floor_height_m": self.floors[0],
+            "authority": "fixture_two_floor_navmesh",
+            "floor_heights_m": list(self.floors),
+            "resolution_m": self.step,
+        }
+        xs = np.arange(self.step / 2, self.size, self.step)
+        zs = np.arange(self.step / 2, self.size, self.step)
+        pts = []
+        for y in self.floors:
+            for x in xs:
+                for z in zs:
+                    pts.append([float(x), float(y), float(z)])
+        self._points = np.asarray(pts, dtype=float)
+
+    def bounds(self):
+        return np.array([[0.0, min(self.floors) - 0.5, 0.0],
+                         [self.size, max(self.floors) + 0.5, self.size]], dtype=float)
+
+    def route_bank(self):
+        return None
+
+    def is_navigable(self, point):
+        p = np.asarray(point, dtype=float)
+        if not (0.0 <= p[0] <= self.size and 0.0 <= p[2] <= self.size):
+            return False
+        return min(abs(p[1] - y) for y in self.floors) <= cs.SAME_FLOOR_Y_TOLERANCE_M
+
+    def floor_height(self, point):
+        p = np.asarray(point, dtype=float)
+        return float(min(self.floors, key=lambda y: abs(p[1] - y)))
+
+    def points(self, region=None):
+        pts = self._points
+        if region is not None:
+            bounds = np.asarray(region, dtype=float)
+            pts = pts[np.all((pts >= bounds[0]) & (pts <= bounds[1]), axis=1)]
+        return pts
+
+    def sample_navigable(self, rng, region=None):
+        pts = self.points(region)
+        if not len(pts):
+            raise ValueError("requested region has no navigable cells")
+        return pts[int(rng.integers(len(pts)))].copy()
+
+    def shortest_path(self, start, end):
+        start = np.asarray(start, dtype=float)
+        end = np.asarray(end, dtype=float)
+        if abs(start[1] - end[1]) > cs.SAME_FLOOR_Y_TOLERANCE_M:
+            return None
+        return np.stack([start, end])
+
+
+def _actors():
+    return [cs.neutral_source_declaration(record, f"source{i+1}")
+            for i, record in enumerate(registry()["assets"][:2])]
+
+
+def test_declared_floor_tokens_and_same_floor_lock():
+    room = {"subrooms": [{"subroom_id": "R3_floor_0.1634"}, {"subroom_id": "R3_floor_3.1634"}]}
+    assert cs.declared_floor_heights_m(room) == [0.1634, 3.1634]
+    space = TwoFloorWalkableSpace()
+    space.metadata.pop("floor_heights_m", None)
+    seen = set()
+    for seed in range(20):
+        bounds, floor_y = cs.lock_same_floor_region(space, np.random.default_rng(seed), room=room)
+        seen.add(round(floor_y, 4))
+        assert abs(bounds[0, 1] - (floor_y - cs.SAME_FLOOR_Y_TOLERANCE_M)) < 1e-9
+        assert abs(bounds[1, 1] - (floor_y + cs.SAME_FLOOR_Y_TOLERANCE_M)) < 1e-9
+    assert seen == {0.1634, 3.1634}
+
+
+def test_two_floor_navmesh_keeps_sources_within_0_3m():
+    space = TwoFloorWalkableSpace()
+    room = {"room_id": "two_floor", "subrooms": ["L_floor_0.0", "L_floor_3.0"]}
+    profile = cs.resolve_condition_profile(request(), registry())
+    actors = _actors()
+    clk = clock()
+    kept = 0
+    floors_seen = set()
+    for seed in range(40):
+        rng = np.random.default_rng(seed)
+        try:
+            paths, _rot, _moving, _emit, _bodies, meta = cs.sample_routes(
+                space, actors, profile, clk, rng, room=room)
+        except cs.CandidateFailure:
+            continue
+        ys = np.asarray(paths)[:, :, 1]
+        floor_y = float(meta["selected_floor_height_m"])
+        assert floor_y in space.floors
+        assert np.all(np.abs(ys - floor_y) <= cs.SAME_FLOOR_Y_TOLERANCE_M)
+        assert float(np.max(ys) - np.min(ys)) <= cs.SAME_FLOOR_Y_TOLERANCE_M
+        floors_seen.add(floor_y)
+        kept += 1
+        if kept >= 8:
+            break
+    assert kept >= 8
+
+
+def test_cross_floor_pair_is_rejected():
+    ok, _ = cs._points_same_floor([[0.0, 0.16, 0.0], [1.0, 2.02, 1.0]])
+    assert ok is False
+    ok, floor_y = cs._points_same_floor([[0.0, 0.16, 0.0], [1.0, 0.40, 1.0]])
+    assert ok is True
+    assert abs(floor_y - 0.28) < 1e-9 or abs(floor_y - 0.16) <= 0.3
+
+
+def test_histogram_reports_achieved_5deg_bins_not_requested_box():
+    report = cs.histogram_separation_5deg([60.5, 61.9, 89.0, 180.0])
+    assert report["requested_bin_is_not_coverage"] is True
+    assert report["bin_width_deg"] == 5
+    by_lo = {row["lo_deg"]: row["count"] for row in report["bins"]}
+    assert by_lo[60] == 2
+    assert by_lo[85] == 1
+    assert by_lo[175] == 1
+    assert by_lo[90] == 0
+    occupied = {row["lo_deg"] for row in report["occupied_bins"]}
+    assert occupied == {60, 85, 175}
+
+
+def test_clip_span_fit_policy_is_wired_and_rejects_unknown():
+    r = request()
+    r["sound_selection"] = {"clip_span_fit_policy": "not_a_policy"}
+    profile = cs.resolve_condition_profile(r, registry())
+    actors = _actors()
+    with pytest.raises(ValueError, match="unsupported clip_span_fit_policy"):
+        cs.select_sounds(actors, sounds(), profile, clock(), r, np.random.default_rng(0))
+    r["sound_selection"] = {"clip_span_fit_policy": cs.CLIP_SPAN_FIT_POLICY, "max_clip_s": 5.0}
+    selected = cs.select_sounds(actors, sounds(), profile, clock(), r, np.random.default_rng(0))
+    assert len(selected) == 2
+
+
+def test_speaker_moving_does_not_require_competitors_still():
+    r = request()
+    r["profile"]["speech_motion"] = "speaker_moving"
+    profile = cs.resolve_condition_profile(r, registry())
+    actors = _actors()
+    flags = [cs._moving_flags(profile, actors, np.random.default_rng(seed)) for seed in range(40)]
+    assert all(row[profile["anchor_indices"][0]] for row in flags)
+    other = [i for i in range(len(actors)) if i not in profile["anchor_indices"]]
+    assert other
+    seen = {bool(row[other[0]]) for row in flags}
+    assert seen == {False, True}
+
+
+def test_off_screen_anchor_portrait_is_legal(monkeypatch):
+    r = request()
+    r["profile"].update(anchor_visibility="off_screen", competitor_visibility="in_fov",
+                        separation_bin_deg=[90, 180], distance_range_m=[1.5, 6.0])
+    profile = cs.resolve_condition_profile(r, registry())
+    assert profile["anchor_visibility"] == "off_screen"
+    n = clock()["frame_count"]
+    actors = _actors()
+    paths = np.repeat(np.array([[[0.0, 0.0, 2.8]], [[0.0, 0.0, -3.0]]]), n, axis=1)
+    emitters = paths + np.array([0.0, 1.6, 0.0])
+    bodies = paths + np.array([0.0, 1.28, 0.0])
+    selected = {i: {**sounds()[i], "actor_id": actor["actor_id"]} for i, actor in enumerate(actors)}
+    monkeypatch.setattr(cs, "camera_grid", lambda *args, **kwargs: [[0.0, 1.55, 0.0]])
+    monkeypatch.setattr(cs, "line_of_sight", lambda *args: "clear")
+    camera, events, conditions = cs.select_camera_and_schedule(
+        space(), object(), paths, np.zeros((2, n), dtype=bool), emitters, bodies,
+        actors, selected, profile, clock(), r, np.random.default_rng(0))
+    assert conditions["anchor_visibility"] == "off_screen"
+    assert camera["candidate_id"] in conditions["legal_candidate_ids"]
+    assert len(events) == 2
+    origin = np.asarray(camera["position_m"], dtype=float)
+    forward = np.asarray(camera["basis"]["forward"], dtype=float)
+    anchor_i = profile["anchor_indices"][0]
+    depth = float(np.dot(bodies[anchor_i, 0] - origin, forward))
+    assert depth <= 0.1
+
+
+def test_off_screen_competitor_portrait_is_legal(monkeypatch):
+    r = request()
+    r["profile"].update(anchor_visibility="in_fov", competitor_visibility="off_screen",
+                        separation_bin_deg=[90, 180], distance_range_m=[1.5, 6.0])
+    profile = cs.resolve_condition_profile(r, registry())
+    n = clock()["frame_count"]
+    actors = _actors()
+    paths = np.repeat(np.array([[[-0.2, 0.0, -3.0]], [[0.0, 0.0, 2.8]]]), n, axis=1)
+    emitters = paths + np.array([0.0, 1.6, 0.0])
+    bodies = paths + np.array([0.0, 1.28, 0.0])
+    selected = {i: {**sounds()[i], "actor_id": actor["actor_id"]} for i, actor in enumerate(actors)}
+    monkeypatch.setattr(cs, "camera_grid", lambda *args, **kwargs: [[0.0, 1.55, 0.0]])
+    monkeypatch.setattr(cs, "line_of_sight", lambda *args: "clear")
+    camera, events, conditions = cs.select_camera_and_schedule(
+        space(), object(), paths, np.zeros((2, n), dtype=bool), emitters, bodies,
+        actors, selected, profile, clock(), r, np.random.default_rng(0))
+    assert conditions["competitor_visibility"] == "off_screen"
+    assert len(events) == 2
+    origin = np.asarray(camera["position_m"], dtype=float)
+    forward = np.asarray(camera["basis"]["forward"], dtype=float)
+    competitor = [i for i in range(2) if i not in profile["anchor_indices"]][0]
+    depth = float(np.dot(bodies[competitor, 0] - origin, forward))
+    assert depth <= 0.1
+
+
+def test_two_floor_full_plan_stays_on_one_floor():
+    room = {"room_id": "two_floor", "subrooms": ["L_floor_0.0", "L_floor_3.0"]}
+    kwargs = {
+        "room": room, "request": request(), "source_registry": registry(), "sounds": sounds(),
+        "space": TwoFloorWalkableSpace(),
+        "mesh": MeshHandle(np.zeros((0, 3)), np.zeros((0, 3), dtype=int)),
+        "clock": clock(),
+    }
+    plan = cs.build_conditioned_plan(**kwargs)
+    translations = [np.asarray(state["root_transform"]["translation_m"])
+                    for frame in plan["visual_plan"]["frames"] for state in frame["actor_states"]]
+    ys = np.asarray(translations)[:, 1]
+    floor_y = plan["planned_conditions"]["selected_floor_height_m"]
+    assert float(np.max(ys) - np.min(ys)) <= cs.SAME_FLOOR_Y_TOLERANCE_M
+    assert np.all(np.abs(ys - floor_y) <= cs.SAME_FLOOR_Y_TOLERANCE_M)
+    cam_y = float(plan["visual_plan"]["camera"]["position_m"][1])
+    assert abs(cam_y - 1.55 - floor_y) <= cs.SAME_FLOOR_Y_TOLERANCE_M
+    hist = plan["planned_conditions"]["planned_separation_histogram_5deg"]
+    assert hist["requested_bin_is_not_coverage"] is True
+    assert hist["count"] == 1

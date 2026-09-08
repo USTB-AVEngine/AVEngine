@@ -3,8 +3,9 @@
 
 The case and actor tracks must come from the current CPU planning chain.  The
 native output is research-only and records RGB/depth/semantic arrays together
-with actor root, joint, and emitter readback.  It does not run RLR audio or
-object-ID/target-only capture.
+with actor/object root, joint, and emitter readback.  It also performs
+same-camera target-only semantic passes for pixel evidence, and does not run
+RLR audio.
 """
 
 from __future__ import annotations
@@ -25,6 +26,11 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--case-manifest", type=Path, required=True)
     parser.add_argument("--room-manifest", type=Path, required=True)
     parser.add_argument("--m1-request", type=Path, required=True)
+    parser.add_argument(
+        "--episode-plan",
+        type=Path,
+        help="Optional plan with the authoritative clock for neutral readback",
+    )
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument(
         "--runtime-prefix",
@@ -42,7 +48,24 @@ def _parser() -> argparse.ArgumentParser:
         help="External Corrade/Magnum Python site",
     )
     parser.add_argument("--rlr-sdk-root", type=Path, help="Declared SDK needed by adapter-linked runtime builds")
+    parser.add_argument(
+        "--runtime-registry",
+        type=Path,
+        help="Runtime source-asset registry containing optional Habitat bindings",
+    )
+    parser.add_argument(
+        "--external-asset-index",
+        type=Path,
+        help="External sound-source index used to resolve rigid GLBs",
+    )
+    parser.add_argument(
+        "--habitat-binding-delta",
+        type=Path,
+        help="P4 binding delta produced from the external index",
+    )
     parser.add_argument("--gpu-device-id", type=int, default=0)
+    parser.add_argument("--allow-research-candidate", action="store_true",
+        help="allow explicitly non-counted checks of structurally valid research-candidate M2 assets")
     return parser
 
 
@@ -53,10 +76,15 @@ def main(argv: Sequence[str] | None = None) -> int:
             case_manifest_path=args.case_manifest,
             room_manifest_path=args.room_manifest,
             m1_request_path=args.m1_request,
+            episode_plan_path=args.episode_plan,
             runtime_prefix=args.runtime_prefix,
             rlr_sdk_root=args.rlr_sdk_root,
             mp3d_root=args.mp3d_root,
             magnum_python_site=args.magnum_python_site,
+            runtime_registry_path=args.runtime_registry,
+            external_index_path=args.external_asset_index,
+            binding_delta_path=args.habitat_binding_delta,
+            allow_research_candidate=args.allow_research_candidate,
             output_directory=args.output,
             gpu_device_id=args.gpu_device_id,
         )

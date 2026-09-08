@@ -280,6 +280,7 @@ def render_review(
     output_path: Path,
     actor_yaw_degrees: float,
     shader_type: str = "phong",
+    semantic_id: int = _SEMANTIC_ID,
 ) -> dict[str, Any]:
     output = _output_directory(output_path)
     document = load_glb(visual_glb)
@@ -300,7 +301,7 @@ def render_review(
     ao_config = build_habitat_ao_config_data(
         render_asset=visual_copy.name,
         urdf_filepath=urdf_path.name,
-        semantic_id=_SEMANTIC_ID,
+        semantic_id=semantic_id,
         shader_type=shader_type,
     )
     _write_json(config_path, ao_config)
@@ -406,7 +407,7 @@ def render_review(
                     semantic = np.asarray(observations["semantic"])
                     if not (rgb.shape[:2] == depth.shape == semantic.shape):
                         raise RuntimeError("co-located modality resolutions differ")
-                    count = int(np.count_nonzero(semantic == _SEMANTIC_ID))
+                    count = int(np.count_nonzero(semantic == semantic_id))
                     semantic_counts.append(count)
                     observation_hashes.append(
                         {
@@ -596,6 +597,12 @@ def _parser() -> argparse.ArgumentParser:
         default="phong",
         help="Explicit Habitat AO shader; formal M2 remains phong by default.",
     )
+    parser.add_argument(
+        "--semantic-id",
+        type=int,
+        default=_SEMANTIC_ID,
+        help="Semantic ID bound to the reviewed asset (default: 200).",
+    )
     return parser
 
 
@@ -608,6 +615,7 @@ def main() -> int:
         output_path=args.output,
         actor_yaw_degrees=args.actor_yaw_degrees,
         shader_type=args.shader_type,
+        semantic_id=args.semantic_id,
     )
     print(json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True))
     return 0 if report["status"] == "pass" else 1

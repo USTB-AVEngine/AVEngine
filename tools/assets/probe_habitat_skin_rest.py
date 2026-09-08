@@ -237,13 +237,19 @@ def _write_urdf(path: Path, skin: dict[str, Any]) -> None:
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
-def _write_config(path: Path, glb_name: str, *, shader_type: str) -> dict[str, Any]:
+def _write_config(
+    path: Path,
+    glb_name: str,
+    *,
+    shader_type: str,
+    semantic_id: int = 200,
+) -> dict[str, Any]:
     value = {
         "urdf_filepath": "animal.urdf",
         "render_asset": glb_name,
         "uniform_scale": 1.0,
         "mass_scale": 1.0,
-        "semantic_id": 200,
+        "semantic_id": semantic_id,
         "base_type": "free",
         "inertia_source": "computed",
         "link_order": "tree_traversal",
@@ -299,7 +305,7 @@ def _runtime_binding_data(
     }
 
 
-def _make_configuration(scene_dataset: Path) -> Any:
+def _make_configuration(scene_dataset: Path, *, gpu_device_id: int = 0) -> Any:
     import quaternion  # noqa: F401 -- required before habitat_sim in this build
 
     import habitat_sim
@@ -334,7 +340,11 @@ def _make_configuration(scene_dataset: Path) -> Any:
     del scene_dataset
     sim_cfg.scene_id = "NONE"
     sim_cfg.enable_physics = True
-    sim_cfg.gpu_device_id = 0
+    if isinstance(gpu_device_id, bool) or not isinstance(gpu_device_id, int):
+        raise ValueError("gpu_device_id must be an integer")
+    if gpu_device_id < 0:
+        raise ValueError("gpu_device_id must be non-negative")
+    sim_cfg.gpu_device_id = gpu_device_id
     agent_cfg = habitat_sim.AgentConfiguration()
     agent_cfg.sensor_specifications = sensor_specs
     agent_cfg.action_space = {}
@@ -346,12 +356,15 @@ def _run_habitat(
     config_path: Path,
     scene_dataset: Path,
     skin: dict[str, Any],
+    *,
+    gpu_device_id: int = 0,
+    semantic_id: int = 200,
 ) -> dict[str, Any]:
     import habitat_sim
     import magnum as mn
     from habitat_sim.utils.common import quat_from_two_vectors, quat_to_coeffs
 
-    configuration = _make_configuration(scene_dataset)
+    configuration = _make_configuration(scene_dataset, gpu_device_id=gpu_device_id)
     with habitat_sim.Simulator(configuration) as sim:
         loaded_template_ids = sim.metadata_mediator.ao_template_manager.load_configs(
             str(config_path)
@@ -442,7 +455,7 @@ def _run_habitat(
         bootstrap_rgb = np.asarray(bootstrap["rgb"])
         bootstrap_depth = np.asarray(bootstrap["depth"])
         bootstrap_semantic = np.asarray(bootstrap["semantic"])
-        bootstrap_mask = bootstrap_semantic == 200
+        bootstrap_mask = bootstrap_semantic == semantic_id
         Image.fromarray(bootstrap_rgb[..., :3].astype(np.uint8), mode="RGB").save(
             output / "qa_bootstrap_rgb.png"
         )
@@ -493,7 +506,7 @@ def _run_habitat(
             candidate_rgb = np.asarray(observations["rgb"])
             candidate_depth = np.asarray(observations["depth"])
             candidate_semantic = np.asarray(observations["semantic"])
-            count = int(np.count_nonzero(candidate_semantic == 200))
+            count = int(np.count_nonzero(candidate_semantic == semantic_id))
             candidates.append(
                 (count, qa_id, candidate_rgb, candidate_depth, candidate_semantic)
             )
@@ -513,7 +526,7 @@ def _run_habitat(
         )
         semantic_u16 = np.asarray(semantic, dtype=np.uint16)
         Image.fromarray(semantic_u16, mode="I;16").save(output / "rest_semantic.png")
-        dog_depth = depth[semantic == 200]
+        dog_depth = depth[semantic == semantic_id]
         root_node = ao.get_link_scene_node(-1)
         aabb = ao.aabb
         cumulative_bb = measured_bb
@@ -526,16 +539,27 @@ def _run_habitat(
             for link_id in [-1, *ao.get_link_ids()]
         }
         expected_link_transforms: dict[str, np.ndarray] = {}
-        for joint in skin["joints"]:
-            local = _transform_matrix(
-                joint["urdf_origin_xyz"], joint["urdf_joint_rotation_xyzw"]
-            )
-            parent_name = joint["parent_name"]
-            if parent_name is None:
-                expected = _transform_matrix(root_translation, root_q)
-            else:
-                expected = expected_link_transforms[parent_name] @ local
-            expected_link_transforms[joint["name"]] = expected
+        pending_joints = {joint["name"]: joint for joint in skin["joints"]}
+        while pending_joints:
+            progressed = False
+            for name, joint in list(pending_joints.items()):
+                parent_name = joint["parent_name"]
+                if parent_name is not None and parent_name not in expected_link_transforms:
+                    continue
+                local = _transform_matrix(
+                    joint["urdf_origin_xyz"], joint["urdf_joint_rotation_xyzw"]
+                )
+                if parent_name is None:
+                    expected = _transform_matrix(root_translation, root_q)
+                else:
+                    expected = expected_link_transforms[parent_name] @ local
+                expected_link_transforms[name] = expected
+                del pending_joints[name]
+                progressed = True
+            if not progressed:
+                raise RuntimeError(
+                    "skin hierarchy cannot be ordered for link-transform verification"
+                )
         link_transform_errors = {
             name: float(
                 np.max(
@@ -570,7 +594,7 @@ def _run_habitat(
                 "rgb_shape": list(rgb.shape),
                 "depth_shape": list(depth.shape),
                 "semantic_shape": list(semantic.shape),
-                "dog_semantic_pixel_count": int(np.count_nonzero(semantic == 200)),
+                "dog_semantic_pixel_count": int(np.count_nonzero(semantic == semantic_id)),
                 "dog_depth_m": {
                     "minimum": float(np.min(dog_depth)) if dog_depth.size else None,
                     "median": float(np.median(dog_depth)) if dog_depth.size else None,
@@ -605,7 +629,61 @@ def main() -> int:
         default="phong",
         help="Explicit Habitat AO shader; formal M2 remains phong by default.",
     )
+    parser.add_argument(
+        "--gpu-device-id",
+        type=int,
+        default=0,
+        help="Habitat GPU device for this bounded probe (default: 0).",
+    )
+    parser.add_argument(
+        "--semantic-id",
+        type=int,
+        default=200,
+        help="Semantic ID bound to the probed asset (default: 200).",
+    )
+    parser.add_argument(
+        "--runtime-prefix",
+        type=Path,
+        help="Optional installed Habitat prefix to activate before importing Habitat.",
+    )
+    parser.add_argument(
+        "--magnum-python-site",
+        type=Path,
+        help="Optional external Magnum Python site paired with --runtime-prefix.",
+    )
+    parser.add_argument(
+        "--mp3d-root",
+        type=Path,
+        help="Optional Habitat dataset root used by the installed runtime.",
+    )
+    parser.add_argument(
+        "--rlr-sdk-root",
+        type=Path,
+        help="Optional explicit external RLR SDK root used before Habitat import.",
+    )
     args = parser.parse_args()
+    runtime_options = (
+        args.runtime_prefix,
+        args.magnum_python_site,
+        args.mp3d_root,
+        args.rlr_sdk_root,
+    )
+    if any(value is not None for value in runtime_options):
+        if args.runtime_prefix is None or args.magnum_python_site is None:
+            parser.error(
+                "--runtime-prefix and --magnum-python-site are required together"
+            )
+        # Use AVEngine's installed-runtime activator so the probe records the
+        # actual prefix/site and preloads the explicitly selected RLR library.
+        # This keeps the probe independent of editable Habitat checkouts.
+        from avengine.rooms.habitat_capture import prepare_installed_habitat_runtime
+
+        prepare_installed_habitat_runtime(
+            runtime_prefix=args.runtime_prefix,
+            mp3d_root=args.mp3d_root,
+            magnum_python_site=args.magnum_python_site,
+            rlr_sdk_root=args.rlr_sdk_root,
+        )
 
     source = args.input_glb.resolve()
     output = args.output_dir.resolve()
@@ -621,8 +699,20 @@ def main() -> int:
     urdf = output / "animal.urdf"
     config = output / "animal.ao_config.json"
     _write_urdf(urdf, skin)
-    config_value = _write_config(config, copied_glb.name, shader_type=args.shader_type)
-    runtime = _run_habitat(output, config, scene_dataset, skin)
+    config_value = _write_config(
+        config,
+        copied_glb.name,
+        shader_type=args.shader_type,
+        semantic_id=args.semantic_id,
+    )
+    runtime = _run_habitat(
+        output,
+        config,
+        scene_dataset,
+        skin,
+        gpu_device_id=args.gpu_device_id,
+        semantic_id=args.semantic_id,
+    )
     runtime_binding = _runtime_binding_data(skin, runtime)
     runtime_binding_path = output / "habitat_runtime_binding.json"
     runtime_binding_path.write_text(

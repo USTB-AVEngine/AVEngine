@@ -104,6 +104,37 @@ def test_permitted_event_usage_has_no_code_default() -> None:
     assert inspect.getsource(main).count("permitted-event-usage") >= 1
 
 
+def test_event_pool_and_registry_preserve_configured_normalization(tmp_path: Path) -> None:
+    library = tmp_path / "prepared"
+    _write(
+        library / "dog_bark" / "one.wav",
+        np.concatenate([np.zeros(6400), _tone(800, 16000, 0.25), np.zeros(6400)]),
+    )
+    events = tmp_path / "events"
+    split = split_library(library, events, peak_normalize=True, target_peak_dbfs=-6.0)
+    catalog = tmp_path / "pool.json"
+    pool = build_pool_catalog(events / "event_manifest.json", catalog)
+    expected = {"mode": "peak_dbfs", "target_dbfs": -6.0, "applied_to": "each_event_pcm"}
+    assert split["normalization_policy"] == expected
+    assert pool["normalization_policy"] == expected
+    assert pool["clips"]
+    assert pool["clips"][0]["normalization_policy"] == expected
+    assert "applied_gain_db" in pool["clips"][0]
+
+    registry = register_sound_event_assets(
+        catalog,
+        tmp_path / "registry.json",
+        permitted_event_usage=["one_active_of_n", "sequential_sources"],
+        normalization_policy="peak_dbfs",
+        normalization_target_dbfs=-6.0,
+        registry_id="m6_sound_event_peak_test_v1",
+        revision="v1",
+    )
+    assert registry["sound_assets"][0]["normalization_policy"] == {
+        "mode": "peak_dbfs", "target_dbfs": -6.0
+    }
+
+
 def test_register_derives_dry_audio_and_passes_validator(tmp_path: Path) -> None:
     catalog = _catalog(tmp_path)
     output = tmp_path / "registry.json"

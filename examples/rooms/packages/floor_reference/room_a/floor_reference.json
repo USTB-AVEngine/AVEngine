@@ -1,0 +1,60 @@
+{
+  "claim_boundary": "Measured floor readback from the currently loaded UE map; outliers remain in rows and this is not a question-admission claim",
+  "floor_height_m": 0.0001953125,
+  "floor_z_ue_cm": 0.01953125,
+  "level_readback": "room_a_living_props_v7",
+  "measurement_kind": "depth_readback_fallback",
+  "method": {
+    "depth_capture": {
+      "camera_z_ue_cm": 30.0,
+      "center_window_px": 5,
+      "hit_count": 64,
+      "kind": "ue_depth_capture_straight_down_v1",
+      "points": 64,
+      "render_hw": [
+        64,
+        64
+      ]
+    },
+    "kind": "ue_line_trace_then_depth_fallback_v1",
+    "line_trace": {
+      "end_z_ue_cm": -100.0,
+      "hit_count": 0,
+      "kind": "ue_line_trace_down_blockall_complex_v1",
+      "points": 64,
+      "profile_name": "BlockAll",
+      "start_z_ue_cm": 300.0,
+      "trace_complex": true
+    }
+  },
+  "native_map": "/Game/AVEngine/MultiHome/room_a_living_props_v7",
+  "point_source": {
+    "count": 64,
+    "kind": "bounds_grid",
+    "source": "explicit_bounds"
+  },
+  "precision_m": 0.00025,
+  "relabel_note": "Copy-on-write of the P3 v6 depth-fallback artifact. line_trace.hit_count is 0; the numeric floor is a 1/4096 m depth-buffer residual, not a measured line trace. H-4: status is depth_readback_fallback (not measured); summary.hit_count is the line-trace hit count, not the depth-readback 64.",
+  "room_id": "aea_loc3_social_rebuild_v1",
+  "rows": {
+    "count": 64,
+    "path": "floor_trace_rows.json"
+  },
+  "schema": "avengine_qa_ue_floor_reference_v1",
+  "status": "depth_readback_fallback",
+  "summary": {
+    "hit_count": 0,
+    "hit_fraction": 0.0,
+    "mad_cm": 0.0,
+    "max_cm": 19.227294921875,
+    "mean_cm": 0.7633018493652344,
+    "median_cm": 0.01953125,
+    "min_cm": -7.98828125,
+    "p05_cm": -7.98828125,
+    "p95_cm": 13.39843749999994,
+    "trace_count": 64,
+    "within_2cm_fraction": 0.75,
+    "line_trace_hit_count": 0,
+    "depth_readback_hit_count": 64
+  }
+}

@@ -155,6 +155,12 @@ def _configure_spear(args: argparse.Namespace, plan: dict[str, Any]) -> Any:
     config.SPEAR.INSTANCE.COMMAND_LINE_ARGS.log = settings["log"]
     config.SPEAR.INSTANCE.COMMAND_LINE_ARGS.renderoffscreen = None
     config.SPEAR.INSTANCE.COMMAND_LINE_ARGS.graphicsadapter = args.graphics_adapter
+    if getattr(args, "ddc_profile", None):
+        config.SPEAR.INSTANCE.COMMAND_LINE_ARGS.ddc = args.ddc_profile
+    if getattr(args, "ddc_directory", None):
+        config.SPEAR.ENVIRONMENT_VARS.UE_LocalDataCachePath = str(
+            Path(args.ddc_directory).expanduser().resolve()
+        )
     # The persisted review map contains an AUsdStageActor which references the
     # local derived scene adapter.  SPEAR's stock project does not enable the
     # USD plugin by default, so make the dependency explicit for every run.

@@ -34,6 +34,8 @@ from avengine.backends.spear_ue.research_runtime import (
     close_scene_capture as _close_external_scene_capture,
     launch_external_game_instance,
     read_rgb_bgr,
+    attach_skeletal_emitter_component,
+    spawn_attached_static_actor,
     spawn_scene_capture,
 )
 from avengine.backends.spear_ue.rig_direction import (
@@ -161,6 +163,36 @@ def _actor_readback(actor: Any, frame_index: int) -> dict[str, Any]:
         "rotation_deg": _struct_components(
             actor.K2_GetActorRotation(as_dict=True), ("roll", "pitch", "yaw")
         ),
+    }
+
+
+def _uniform_relative_scale_readback(
+    visual_root: Any, *, actor_id: str, requested_scale: float
+) -> dict[str, Any]:
+    """Read the static visual root scale after binding it in UE."""
+
+    getter = getattr(visual_root, "GetRelativeScale3D", None)
+    if callable(getter):
+        raw_scale = getter(as_dict=True)
+        readback_method = "visual_root.GetRelativeScale3D"
+    else:
+        raw_scale = visual_root.get_property_value(
+            property_name="RelativeScale3D", as_value=True
+        )
+        readback_method = "visual_root.RelativeScale3D_property"
+    observed_scale = _struct_components(raw_scale, ("x", "y", "z"))
+    scale_error = max(abs(value - requested_scale) for value in observed_scale)
+    if scale_error > 1.0e-6:
+        raise RuntimeError(
+            f"{actor_id} static visual scale readback {observed_scale} "
+            f"!= {requested_scale}"
+        )
+    return {
+        "status": "pass",
+        "authority": readback_method,
+        "requested_uniform_scale": requested_scale,
+        "observed_scale_xyz": observed_scale,
+        "maximum_absolute_error": scale_error,
     }
 
 
@@ -411,6 +443,19 @@ def _sample_anatomical_forward(
     return record
 
 
+def _neutral_runtime_binding_enabled(plan: Mapping[str, Any]) -> bool:
+    """Enable renderer-neutral asset adaptation only for materialized plans."""
+
+    binding = plan.get("ue_neutral_runtime_binding")
+    return (
+        isinstance(binding, Mapping)
+        and binding.get("schema") == "avengine_spear_neutral_runtime_binding_v1"
+        and binding.get("mode") == "renderer_neutral_asset_frame_v2"
+        and binding.get("source") == "materialize_ue_episode_plan"
+        and binding.get("actor_root_preserved") is True
+    )
+
+
 def _spawn_runtime_actors(
     game: Any, scenario: Mapping[str, Any]
 ) -> dict[str, dict[str, Any]]:
@@ -418,11 +463,80 @@ def _spawn_runtime_actors(
     first_states = {
         item["actor_id"]: item for item in plan["frames"][0]["actor_states"]
     }
+    neutral_runtime_enabled = _neutral_runtime_binding_enabled(plan)
     runtimes: dict[str, dict[str, Any]] = {}
     for declaration in plan["actors"]:
         actor_id = declaration["actor_id"]
         state = first_states[actor_id]
         position = state["translation_ue_cm"]
+
+        if declaration.get("motion_model") == "rigid_static" or declaration.get(
+            "entity_class"
+        ) in {"rigid_object", "rigid_static_object"}:
+            static_mesh = declaration.get("static_mesh_object_path")
+            emitter = declaration.get("emitter_local_ue_cm")
+            if not isinstance(static_mesh, str) or not static_mesh.startswith("/Game/"):
+                raise RuntimeError(f"{actor_id} exact static mesh path is invalid")
+            if not isinstance(emitter, list) or len(emitter) != 3:
+                raise RuntimeError(f"{actor_id} exact static emitter offset is invalid")
+            runtime = spawn_attached_static_actor(
+                game,
+                actor_id=actor_id,
+                static_mesh_object_path=static_mesh,
+                position_ue_cm=position,
+                yaw_ue_degrees=float(state.get("actor_yaw_ue_deg", 0.0)),
+                actor_scale=float(declaration["actor_scale"]),
+                emitter_local_ue_cm=[float(value) for value in emitter],
+            )
+            expected_mesh_handle = int(
+                game.unreal_service.load_object(
+                    uclass="UStaticMesh", name=static_mesh, as_handle=True
+                )
+            )
+            observed_mesh_handle = int(
+                runtime["component"].get_property_value(
+                    property_name="StaticMesh", as_handle=True
+                )
+            )
+            if observed_mesh_handle != expected_mesh_handle:
+                raise RuntimeError(f"{actor_id} spawned StaticMesh readback differs")
+            requested_scale = float(declaration["actor_scale"])
+            runtime.update(
+                {
+                    "motion_model": "rigid_static",
+                    "animations": {},
+                    "animation_asset_owner_service": None,
+                    "lengths": {},
+                    "current_animation": None,
+                    "animation_paths_by_action_id": {},
+                    "component_frame_correction": {
+                        "status": "not_applicable",
+                        "reason": "rigid_static_mesh",
+                    },
+                    "actor_scale_readback": _uniform_relative_scale_readback(
+                        runtime["visual_root"],
+                        actor_id=actor_id,
+                        requested_scale=requested_scale,
+                    ),
+                    "skeletal_mesh_readback": None,
+                    "static_mesh_readback": {
+                        "status": "pass",
+                        "expected_path": static_mesh,
+                        "expected_handle": expected_mesh_handle,
+                        "observed_handle": observed_mesh_handle,
+                    },
+                    "exact_runtime_binding": None,
+                    "anatomical_basis_bones": None,
+                    "hierarchy": {
+                        "status": "pass",
+                        "timeline_root_owner": "hidden_anchor_actor",
+                        "asset_frame_owner": "attached_static_mesh_actor_root",
+                        "visual_parent_readback_matches_anchor": True,
+                    },
+                }
+            )
+            runtimes[actor_id] = runtime
+            continue
 
         # Keep the authoritative Timeline transform on a deliberately empty
         # anchor.  Imported animal Blueprints may use their skeletal mesh as
@@ -504,6 +618,34 @@ def _spawn_runtime_actors(
         component_frame_correction = apply_ue_component_frame_delta(
             visual_root, declaration
         )
+        neutral_frame_correction = None
+        neutral_delta = declaration.get("ue_neutral_visual_frame_correction")
+        if neutral_runtime_enabled and isinstance(neutral_delta, Mapping):
+            neutral_frame_correction = apply_ue_component_frame_delta(
+                visual_root,
+                {
+                    "actor_id": actor_id,
+                    "asset_id": declaration.get("asset_id"),
+                    "ue_component_frame_delta": neutral_delta,
+                },
+            )
+            component_frame_correction = {
+                **component_frame_correction,
+                "neutral_visual_frame_correction": neutral_frame_correction,
+            }
+        emitter_component = None
+        emitter_attachment = (
+            declaration.get("ue_emitter_attachment")
+            if neutral_runtime_enabled
+            else None
+        )
+        if isinstance(emitter_attachment, Mapping):
+            emitter_component = attach_skeletal_emitter_component(
+                game,
+                actor_id=actor_id,
+                skeletal_component=component,
+                attachment=emitter_attachment,
+            )
         observed_scale = _struct_components(
             visual_actor.GetActorScale3D(as_dict=True), ("x", "y", "z")
         )
@@ -560,10 +702,15 @@ def _spawn_runtime_actors(
                 "walk": declaration["walking_animation"],
             }
         )
-        animations = {
-            path: game.unreal_service.load_object(uclass="UAnimationAsset", name=path)
-            for path in animation_paths.values()
-        }
+        animations = {}
+        for path in dict.fromkeys(animation_paths.values()):
+            animation = game.unreal_service.load_object(uclass="UAnimationAsset", name=path)
+            # Python RPC handles are not UObject references seen by UE's GC.
+            # An inactive walk/idle asset can otherwise be collected before a
+            # later transition or target-depth replay uses its cached handle.
+            # Hold only this scenario's animation assets until actor teardown.
+            game.unreal_service.add_object_to_root(uobject=animation)
+            animations[path] = animation
         lengths = {
             path: float(asset.GetPlayLength()) for path, asset in animations.items()
         }
@@ -576,9 +723,17 @@ def _spawn_runtime_actors(
             "visual_root": visual_root,
             "component": component,
             "animations": animations,
+            "animation_asset_owner_service": game.unreal_service,
             "lengths": lengths,
             "current_animation": None,
             "component_frame_correction": component_frame_correction,
+            "neutral_visual_frame_correction": neutral_frame_correction,
+            "emitter_component": emitter_component,
+            "emitter_attachment": (
+                deepcopy(dict(emitter_attachment))
+                if isinstance(emitter_attachment, Mapping)
+                else None
+            ),
             "actor_scale_readback": scale_readback,
             "skeletal_mesh_readback": skeletal_mesh_readback,
             "animation_paths_by_action_id": animation_paths,
@@ -611,20 +766,36 @@ def _assert_suite_actor_binding_closure(suite: Mapping[str, Any]) -> None:
             source_slot = (
                 str(exact.get("source_slot_id")) if isinstance(exact, Mapping) else None
             )
-            binding = (
-                value["blueprint_class_path"],
-                value["idle_animation"],
-                value["walking_animation"],
-                value["ue_component_frame_delta"],
-                value.get("ue_anatomical_basis_bones"),
-                value.get("skeletal_mesh_binding"),
-                value.get("skeletal_mesh_path"),
-                value.get("asset_revision"),
-                value.get("floor_contact_gate"),
-                value.get("actor_scale"),
-                value.get("animation_paths_by_action_id"),
-                exact,
-            )
+            if value.get("motion_model") == "rigid_static" or value.get(
+                "entity_class"
+            ) in {"rigid_object", "rigid_static_object"}:
+                binding = (
+                    value.get("static_mesh_binding"),
+                    value.get("static_mesh_object_path"),
+                    value.get("actor_scale"),
+                    value.get("ue_static_forward_yaw_deg"),
+                    value.get("resting_pose"),
+                    value.get("emitter_binding"),
+                    value.get("asset_revision"),
+                    exact,
+                )
+            else:
+                binding = (
+                    value["blueprint_class_path"],
+                    value["idle_animation"],
+                    value["walking_animation"],
+                    value["ue_component_frame_delta"],
+                    value.get("ue_anatomical_basis_bones"),
+                    value.get("skeletal_mesh_binding"),
+                    value.get("skeletal_mesh_path"),
+                    value.get("asset_revision"),
+                    value.get("floor_contact_gate"),
+                    value.get("actor_scale"),
+                    value.get("animation_paths_by_action_id"),
+                    value.get("ue_neutral_visual_frame_correction"),
+                    value.get("ue_emitter_attachment"),
+                    exact,
+                )
             previous = binding_by_asset.setdefault(
                 (value["asset_id"], source_slot), binding
             )
@@ -771,6 +942,26 @@ def _apply_camera_state_and_readback(
 def _apply_actor_state(
     runtime: dict[str, Any], state: Mapping[str, Any], frame_index: int
 ) -> tuple[dict[str, Any], dict[str, Any]]:
+    if runtime.get("motion_model") == "rigid_static":
+        if state.get("action_id") not in (None, "static") or state.get("moving"):
+            raise RuntimeError(f"rigid actor has an animated state at frame {frame_index}")
+        position = state["translation_ue_cm"]
+        runtime["anchor"].K2_SetActorLocationAndRotation(
+            NewLocation={"X": position[0], "Y": position[1], "Z": position[2]},
+            NewRotation={
+                "Roll": 0.0,
+                "Pitch": 0.0,
+                "Yaw": float(state.get("actor_yaw_ue_deg", 0.0)),
+            },
+            bSweep=False,
+            bTeleport=True,
+        )
+        return _actor_readback(runtime["anchor"], frame_index), {
+            "frame_index": frame_index,
+            "action_id": "static",
+            "motion_model": "rigid_static",
+            "status": "not_applicable",
+        }
     anchor = runtime["anchor"]
     component = runtime["component"]
     animation_path = state["ue_animation"]
@@ -1170,7 +1361,10 @@ def _render_scenario(
                     )
                     actor_readbacks[actor_id].append(root_record)
                     animation_readbacks[actor_id].append(animation_record)
-                    if frame_index in ANATOMICAL_FORWARD_SAMPLE_FRAMES:
+                    if (
+                        frame_index in ANATOMICAL_FORWARD_SAMPLE_FRAMES
+                        and runtimes[actor_id].get("motion_model") != "rigid_static"
+                    ):
                         visual_forward_readbacks[actor_id].append(
                             _sample_anatomical_forward(
                                 game,
@@ -1257,6 +1451,13 @@ def _render_scenario(
     )
     animation_gate = {}
     for actor_id, records in animation_readbacks.items():
+        if runtimes[actor_id].get("motion_model") == "rigid_static":
+            animation_gate[actor_id] = {
+                "status": "not_applicable",
+                "motion_model": "rigid_static",
+                "action_ids": [],
+            }
+            continue
         maximum_error = max(value["absolute_error_seconds"] for value in records)
         if maximum_error > ANIMATION_TOLERANCE_SECONDS:
             raise RuntimeError(f"{actor_id} animation phase gate failed")
@@ -1271,10 +1472,38 @@ def _render_scenario(
         actor_declarations=plan["actors"],
         actor_bounds=actor_bounds,
     )
-    anatomical_forward_gate = summarize_anatomical_forward_readbacks(
-        expected_frames=plan["frames"],
-        visual_forward_readbacks=visual_forward_readbacks,
-    )
+    articulated_actor_ids = {
+        actor_id
+        for actor_id, runtime in runtimes.items()
+        if runtime.get("motion_model") != "rigid_static"
+    }
+    if articulated_actor_ids:
+        # The shared anatomical gate is intentionally skeletal-only.  Keep
+        # static entities in root/bounds/emitter readbacks while removing them
+        # from this independent pose gate instead of inventing bones.
+        articulated_frames = [
+            {
+                **frame,
+                "actor_states": [
+                    state
+                    for state in frame["actor_states"]
+                    if state["actor_id"] in articulated_actor_ids
+                ],
+            }
+            for frame in plan["frames"]
+        ]
+        anatomical_forward_gate = summarize_anatomical_forward_readbacks(
+            expected_frames=articulated_frames,
+            visual_forward_readbacks={
+                actor_id: visual_forward_readbacks[actor_id]
+                for actor_id in articulated_actor_ids
+            },
+        )
+    else:
+        anatomical_forward_gate = {
+            "status": "not_applicable",
+            "reason": "episode contains no articulated skeletal actors",
+        }
     phase_wall_seconds["runtime_readback_and_gate"] = _elapsed_seconds(phase_started)
 
     phase_started = time.perf_counter()
@@ -1445,6 +1674,16 @@ def _destroy_runtime_actors(
             runtime["visual_actor"].K2_DestroyActor()
         for runtime in runtimes.values():
             runtime["anchor"].K2_DestroyActor()
+        released = set()
+        for runtime in runtimes.values():
+            service = runtime.get("animation_asset_owner_service")
+            if service is None:
+                continue
+            for animation in runtime.get("animations", {}).values():
+                handle = int(animation.uobject)
+                if handle not in released:
+                    service.remove_object_from_root(uobject=animation)
+                    released.add(handle)
     with instance.end_frame():
         pass
 

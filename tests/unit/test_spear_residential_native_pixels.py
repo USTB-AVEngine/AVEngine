@@ -12,7 +12,10 @@ import pytest
 
 REPOSITORY = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPOSITORY / "tools/rooms"))
-sys.modules.setdefault("cv2", types.ModuleType("cv2"))
+try:
+    import cv2  # Preserve an available module for other image tests.
+except ModuleNotFoundError:
+    sys.modules.setdefault("cv2", types.ModuleType("cv2"))
 TOOL_PATH = REPOSITORY / "tools/rooms/run_spear_residential_episode.py"
 SPEC = importlib.util.spec_from_file_location("residential_pixels", TOOL_PATH)
 assert SPEC is not None and SPEC.loader is not None
@@ -411,6 +414,10 @@ class _FakeGame:
         events = self._events
 
         class GameplayStatics:
+            def GetCurrentLevelName(self, *, bRemovePrefixString: bool) -> str:
+                assert bRemovePrefixString is True
+                return "Kujiale"
+
             def SetGamePaused(self, *, bPaused: bool) -> None:
                 events.append(("paused", bPaused))
 

@@ -33,17 +33,22 @@ ADMISSION_STATES = {
 CHECK_STATUSES = {"pass", "fail", "blocked", "not_run"}
 FORMAL_VIEW_IDS = ["view0"]
 FORMAL_MODALITIES = ["rgb", "depth", "semantic"]
-CONTACT_ORDER = [
+DEFAULT_QUADRUPED_CONTACT_ORDER = [
     "paw_front_left",
     "paw_front_right",
     "paw_hind_left",
     "paw_hind_right",
 ]
+CONTACT_ORDER = DEFAULT_QUADRUPED_CONTACT_ORDER
+BIPED_CONTACT_ORDER = ["foot_left", "foot_right"]
+SUPPORTED_CONTACT_ORDERS = (
+    tuple(DEFAULT_QUADRUPED_CONTACT_ORDER),
+    tuple(BIPED_CONTACT_ORDER),
+)
 REQUIRED_ANCHORS = {
     "head",
     "muzzle",
     "body",
-    *CONTACT_ORDER,
 }
 REQUIRED_FILE_ROLES = {
     "visual",
@@ -604,8 +609,14 @@ def validate_animal_asset_package(
     contact_order = (
         contacts.get("contact_order") if isinstance(contacts, dict) else None
     )
-    if contact_order != CONTACT_ORDER:
-        errors.append(f"contacts.contact_order must be exactly {CONTACT_ORDER}")
+    if (
+        not isinstance(contact_order, list)
+        or tuple(contact_order) not in SUPPORTED_CONTACT_ORDERS
+    ):
+        errors.append(
+            "contacts.contact_order must be exactly one supported order: "
+            f"{[list(order) for order in SUPPORTED_CONTACT_ORDERS]}"
+        )
 
     anchors = asset.get("anchors")
     anchor_ids: set[str] = set()
@@ -629,7 +640,12 @@ def validate_animal_asset_package(
                     anchor.get("joint_from_anchor"), f"{prefix}.joint_from_anchor"
                 )
             )
-    missing_anchors = sorted(REQUIRED_ANCHORS - anchor_ids)
+    required_anchor_ids = set(REQUIRED_ANCHORS)
+    if isinstance(contact_order, list):
+        required_anchor_ids.update(
+            value for value in contact_order if isinstance(value, str)
+        )
+    missing_anchors = sorted(required_anchor_ids - anchor_ids)
     if missing_anchors:
         errors.append(f"anchors are missing required semantic IDs: {missing_anchors}")
 
@@ -931,7 +947,10 @@ def validate_capture_request(
 
 
 def load_and_validate_inputs(
-    asset_path: str | Path, request_path: str | Path
+    asset_path: str | Path,
+    request_path: str | Path,
+    *,
+    allow_research_candidate: bool = False,
 ) -> ValidatedM2Inputs:
     resolved_asset = Path(asset_path).resolve()
     resolved_request = Path(request_path).resolve()
@@ -942,14 +961,18 @@ def load_and_validate_inputs(
         f"asset: {error}"
         for error in validate_animal_asset_package(asset, manifest_path=resolved_asset)
     ]
-    errors.extend(
-        f"request: {error}"
-        for error in validate_capture_request(
-            request,
-            asset=asset,
-            asset_manifest_sha256=asset_manifest_sha256,
-        )
+    capture_errors = validate_capture_request(
+        request,
+        asset=asset,
+        asset_manifest_sha256=asset_manifest_sha256,
     )
+    if allow_research_candidate and asset.get("admission_state") == "research_candidate":
+        capture_errors = [
+            error
+            for error in capture_errors
+            if error != "M2 capture accepts only a canary_qualified animal package"
+        ]
+    errors.extend(f"request: {error}" for error in capture_errors)
     if errors:
         raise ContractError(errors)
     return ValidatedM2Inputs(

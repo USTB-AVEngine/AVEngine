@@ -1,0 +1,121 @@
+{
+  "acoustic_package": "${AVENGINE_MULTI_HOME_ROOT}/integration_sol_v6/room_c_final_rlr_research_v1/manifest.json",
+  "acoustic_package_template": "${AVENGINE_MULTI_HOME_ROOT}/integration_sol_v6/room_c_final_rlr_research_v1/manifest.json",
+  "coordinate_frame": {
+    "handedness": "left",
+    "linear_unit": "centimeter",
+    "up_axis": "+Z",
+    "world_transform": "ue_xyz_cm_to_xzy_m_v1"
+  },
+  "exposure_bias_ev": -3.0,
+  "family": "authored",
+  "floor_reference": {
+    "measurement_kind": "depth_readback_fallback",
+    "path": "examples/rooms/packages/floor_reference/room_c/floor_reference.json",
+    "precision_m": 0.00025,
+    "status": "depth_readback_fallback"
+  },
+  "planning_inputs": {
+    "acoustic_package": "${AVENGINE_MULTI_HOME_ROOT}/integration_sol_v6/room_c_final_rlr_research_v1/manifest.json",
+    "acoustic_package_template": "${AVENGINE_MULTI_HOME_ROOT}/integration_sol_v6/room_c_final_rlr_research_v1/manifest.json",
+    "exposure_bias_ev": -3.0,
+    "floor_reference": "examples/rooms/packages/floor_reference/room_c/floor_reference.json",
+    "manifest": "${AVENGINE_MULTI_HOME_ROOT}/integration_sol_v6/final_plan_inputs_v1/room_c_final_handoff.json",
+    "manifest_template": "${AVENGINE_MULTI_HOME_ROOT}/integration_sol_v6/final_plan_inputs_v1/room_c_final_handoff.json",
+    "map_path": "/Game/AVEngine/MultiHome/room_c_living_props_v7",
+    "pose_bindings": "${AVENGINE_MULTI_HOME_ROOT}/integration_sol_v6/plan_inputs_v1/room_c_pose_bindings.json",
+    "room_manifest": "${AVENGINE_MULTI_HOME_ROOT}/integration_sol_v6/final_plan_inputs_v1/room_c_final_handoff.json",
+    "room_manifest_template": "${AVENGINE_MULTI_HOME_ROOT}/integration_sol_v6/final_plan_inputs_v1/room_c_final_handoff.json"
+  },
+  "pose_bindings": "${AVENGINE_MULTI_HOME_ROOT}/integration_sol_v6/plan_inputs_v1/room_c_pose_bindings.json",
+  "provenance": {
+    "native_execution": "pending_root_execution",
+    "native_floor_measurement": "examples/rooms/packages/floor_reference/room_c/floor_reference.json",
+    "qualification_claim": false,
+    "runtime_route": "native UE/SPEAR",
+    "source": "${AVENGINE_MULTI_HOME_ROOT}/integration_sol_v6/final_plan_inputs_v1/room_c_final_handoff.json",
+    "source_revision": "multi_home_activity_20260905 integration_sol_v6",
+    "source_template": "${AVENGINE_MULTI_HOME_ROOT}/integration_sol_v6/final_plan_inputs_v1/room_c_final_handoff.json"
+  },
+  "qualification_claim": false,
+  "renderer": "ue_spear",
+  "room_id": "authored_open_family_home_room_c_v1",
+  "room_label": "room_c",
+  "schema": "avengine_qa_room_package_v1",
+  "semantics": {
+    "functional_anchors": "${AVENGINE_MULTI_HOME_AUTHORING_ROOT}/living_props_v7_candidate/room_c/functional_anchors.json",
+    "functional_anchors_template": "${AVENGINE_MULTI_HOME_AUTHORING_ROOT}/living_props_v7_candidate/room_c/functional_anchors.json",
+    "interpretation": "Explicit authored furniture object and functional-anchor semantics; actor slots are injected by the UE executor.",
+    "source": "${AVENGINE_MULTI_HOME_AUTHORING_ROOT}/living_props_v7_candidate/room_c/object_semantics.json",
+    "source_template": "${AVENGINE_MULTI_HOME_AUTHORING_ROOT}/living_props_v7_candidate/room_c/object_semantics.json",
+    "usd": "${AVENGINE_MULTI_HOME_AUTHORING_ROOT}/living_props_v7_candidate/room_c/usd/room_c_living_props_v7.usda",
+    "usd_template": "${AVENGINE_MULTI_HOME_AUTHORING_ROOT}/living_props_v7_candidate/room_c/usd/room_c_living_props_v7.usda",
+    "visual_glb": "${AVENGINE_MULTI_HOME_AUTHORING_ROOT}/living_props_v7_candidate/room_c/visual/room_c.glb",
+    "visual_glb_template": "${AVENGINE_MULTI_HOME_AUTHORING_ROOT}/living_props_v7_candidate/room_c/visual/room_c.glb"
+  },
+  "source_assets": {
+    "functional_anchors": "${AVENGINE_MULTI_HOME_AUTHORING_ROOT}/living_props_v7_candidate/room_c/functional_anchors.json",
+    "functional_anchors_template": "${AVENGINE_MULTI_HOME_AUTHORING_ROOT}/living_props_v7_candidate/room_c/functional_anchors.json",
+    "lighting": "${AVENGINE_MULTI_HOME_AUTHORING_ROOT}/polished_v3_final/room_c/lighting.json",
+    "lighting_template": "${AVENGINE_MULTI_HOME_AUTHORING_ROOT}/polished_v3_final/room_c/lighting.json",
+    "objects": "${AVENGINE_MULTI_HOME_AUTHORING_ROOT}/living_props_v7_candidate/room_c/object_semantics.json",
+    "objects_template": "${AVENGINE_MULTI_HOME_AUTHORING_ROOT}/living_props_v7_candidate/room_c/object_semantics.json",
+    "usd": "${AVENGINE_MULTI_HOME_AUTHORING_ROOT}/living_props_v7_candidate/room_c/usd/room_c_living_props_v7.usda",
+    "usd_template": "${AVENGINE_MULTI_HOME_AUTHORING_ROOT}/living_props_v7_candidate/room_c/usd/room_c_living_props_v7.usda",
+    "visual_glb": "${AVENGINE_MULTI_HOME_AUTHORING_ROOT}/living_props_v7_candidate/room_c/visual/room_c.glb",
+    "visual_glb_template": "${AVENGINE_MULTI_HOME_AUTHORING_ROOT}/living_props_v7_candidate/room_c/visual/room_c.glb"
+  },
+  "static_geometry": {
+    "coordinate_frame": {
+      "forward_axis": "-Z",
+      "handedness": "right",
+      "linear_unit": "meter",
+      "up_axis": "+Y"
+    },
+    "representation": "real_surface_mesh",
+    "source": "acoustic_package_arrays",
+    "source_coordinate_frame": {
+      "forward_axis": "-Z",
+      "handedness": "right",
+      "linear_unit": "meter",
+      "up_axis": "+Y"
+    },
+    "source_manifest": "${AVENGINE_MULTI_HOME_ROOT}/integration_sol_v6/room_c_final_rlr_research_v1/manifest.json",
+    "source_manifest_template": "${AVENGINE_MULTI_HOME_ROOT}/integration_sol_v6/room_c_final_rlr_research_v1/manifest.json",
+    "triangle_material_ids": "${AVENGINE_MULTI_HOME_ROOT}/integration_sol_v6/room_c_final_rlr_research_v1/acoustic/triangle_material_ids.npy",
+    "triangle_material_ids_template": "${AVENGINE_MULTI_HOME_ROOT}/integration_sol_v6/room_c_final_rlr_research_v1/acoustic/triangle_material_ids.npy",
+    "triangles": "${AVENGINE_MULTI_HOME_ROOT}/integration_sol_v6/room_c_final_rlr_research_v1/acoustic/triangles.npy",
+    "triangles_template": "${AVENGINE_MULTI_HOME_ROOT}/integration_sol_v6/room_c_final_rlr_research_v1/acoustic/triangles.npy",
+    "vertices": "${AVENGINE_MULTI_HOME_ROOT}/integration_sol_v6/room_c_final_rlr_research_v1/acoustic/vertices.npy",
+    "vertices_template": "${AVENGINE_MULTI_HOME_ROOT}/integration_sol_v6/room_c_final_rlr_research_v1/acoustic/vertices.npy"
+  },
+  "status": "research_candidate",
+  "subrooms": [
+    {
+      "source": "room_spec_zones",
+      "subroom_id": "gallery"
+    },
+    {
+      "source": "room_spec_zones",
+      "subroom_id": "great_room"
+    },
+    {
+      "source": "room_spec_zones",
+      "subroom_id": "kitchen"
+    },
+    {
+      "source": "room_spec_zones",
+      "subroom_id": "study_lounge"
+    }
+  ],
+  "visual_scene": {
+    "map_path": "/Game/AVEngine/MultiHome/room_c_living_props_v7",
+    "uproject": "${AVENGINE_MULTI_HOME_UE_ROOT}/SpearSim/SpearSim.uproject"
+  },
+  "walkable_space": {
+    "kind": "furniture_grid",
+    "path": "${AVENGINE_MULTI_HOME_ROOT}/integration_sol_v6/final_plan_inputs_v1/room_c_final_handoff.json",
+    "source_manifest": "${AVENGINE_MULTI_HOME_ROOT}/integration_sol_v6/final_plan_inputs_v1/room_c_final_handoff.json",
+    "source_manifest_template": "${AVENGINE_MULTI_HOME_ROOT}/integration_sol_v6/final_plan_inputs_v1/room_c_final_handoff.json"
+  }
+}

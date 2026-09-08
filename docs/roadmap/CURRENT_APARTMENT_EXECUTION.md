@@ -1,11 +1,56 @@
+<!-- owner-review-rework-20260908 -->
+## 2026-09-08：10秒验收修订已完成实际验证
+
+- 权威源码提交 f9b08f6（含 c8f8440 与 dcbcc11）；当前10秒配置、事件参考峰值、时间段题面、外观语义及Habitat参数传递已验证。
+- 46/48 段交付（44条主批、1条新的原生QA10、1条复用该画面的静默音频变体），415题，QA-01～24都有实际有效实例；每一种形式的数量单列在coverage.csv。保留2条先导预分配缺额。
+- 每段实际媒体10秒、150帧/15fps、160000 samples/16kHz/双声道，全部有限未超幅；14条Habitat音频实际stride5、30个RIR关键帧。旧stride3尝试保留但不作为最终音频。
+- 当前事件库1376条记录按源参考峰值−3dBFS处理，原素材/旧库保留；场景内保留距离与双耳差异，统一后增益0.5。用户确认的QA10听感不扩展为全库人工校准。
+- 新350清单：7房各50、4条明确预分配缺口；7房×6类来源组合的7条实际plan-only通过。未运行350、未推送/合并、未代填正式准入。
+- 最终索引：/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_user_acceptance_rework_20260908_v1/final_cohort_v1/；审阅包：/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_user_acceptance_rework_20260908_v1/review_bundle_10s_v1/。
+- 源配置与必要操作见 docs/qa/QA_PRODUCTION_CLOSURE_20260908.md。下文保留此前阶段的历史记录，不覆盖此处的当前结果。
+
 # Current Apartment execution
 
-Last updated: 2026-09-01
+Last updated: 2026-09-08
 
 This is the short operational checkpoint for the active Apartment training
 dataset work. Durable project rules live in the repository `AGENTS.md`; this
 file prevents a later session from reconstructing current state from chat
 history or choosing an easier but incorrect substitute.
+
+## 2026-09-08: production QA closure
+
+The task authority is `/data/jzy/tmp/wt-grok-pilot46-round2`, branch
+`grok/pilot46-fixes-round2-20260907`. The current cohort preserves the original
+46-cell denominator and adds one native QA-10 witness: 43 delivered Episodes,
+four retained gaps, 426 valid items covering QA-01..24. All 43 current WAVs
+declare and verify post-convolution gain 0.5. QA-10 has a valid Open form and
+an explicitly deferred one-option MCQ.
+
+The current 350-request manifest uses production catalog/registry/sound inputs,
+four GPU lanes, a complete per-slot reproduction, and seven real-room planning
+checks. It has not been executed. Read the
+[closure report and launch guide](../qa/QA_PRODUCTION_CLOSURE_20260908.md)
+for canonical paths, source versions and retained deficits. Historical attempts,
+audit tools and the existing Studio service were preserved; this is not formal
+admission or a deployment.
+
+## 2026-09-06: unified real-room QA integration
+
+The owner-requested continuation landed on the server integration branch
+`codex/multi-home-activity-integration`, implementation commit `48afe5b`.
+Five SPEAR Episodes across three retained authored rooms and native
+`apartment_0000` produced 74 valid QA instances covering QA-01..24.
+Native Apartment uses two registered human bindings, current-map readback,
+30 current Recast path checks, complete 240-frame RGB/depth capture and
+16 kHz binaural audio. The 32 local geometry controls pass CPU/native replay.
+The detailed [delivery and runbook](../qa/QA_REAL_ROOMS_DELIVERY_20260906.md)
+records the exact final outputs, model results, cache cleanup and limits.
+
+The research output root is
+`tmp/qa_real_rooms_20260906`; the final reference export is `final_export_v1`.
+This checkpoint carries no formal-admission or service-switch claim. The
+retained animal training-data baseline and its ownership rules continue below.
 
 ## Target deliverable
 
@@ -1174,3 +1219,169 @@ manifests are retained at
 
 
 Gate-B precert recomputed all 216 selected twins: 180 fact/geometry rows pass and 36 pixel-dependent rows remain pixel_pending. The augmented manifest backfills every Gate-B pointer and gold status. Appearance twins must reuse main audio; route twins must rerender audio consistently. See `docs/roadmap/QA_V3_GATEB_PRECERT_REPORT_20260901.md`.
+
+
+## Checkpoint 20260906: unified QA P1 contracts and renderer dispatch
+
+On `codex/multi-home-activity-integration`, P1 adds strict room/neutral-readback/
+evidence interfaces and UE/Habitat capture dispatch. Retained A (240 frames) and
+MP3D (150 frames) readbacks pass conversion; A root round-trip error is 0 cm.
+Related tests: 32 passed, no failures/skips with the existing native Python addons.
+No new native render or dataset batch was run for this step. Complete room inputs,
+Habitat common planning/materialization, pixels, audio and finalization remain
+P3/P5/P4/P6/P9 work; next is P2. Report:
+`docs/roadmap/codex_reports_20260906/P1_contracts_dispatch.md`.
+
+
+## Checkpoint 20260906: P2 native forwarding and one-active source
+
+New-policy native planning now preserves requested 85-degree/static camera and
+a silent entity. Real RLR replay on retained A capture produced a zero silent
+stem and a stereo mixture; a two-active control reused the same RIR cache.
+Ten camera seeds selected nine distinct legal cameras without top-40 truncation.
+Related P1/P2 tests: 52 passed; next shared-planner work is P5 after this commit.
+See `docs/roadmap/codex_reports_20260906/P2_native_silent_random.md`.
+
+
+## Checkpoint 20260906: P7 prepared speech machine evidence
+
+P7 produces 296 encoding-safe mono/16 kHz speech clips from 307 detector
+candidates; 11 highpass full-scale overflows remain explicit failed rows rather
+than being silently clipped. All 613 registry rows remain in the manifest.
+Output PCM is highpass-only; the speech band is used only for activity detection.
+Fifteen preparation tests and all 296 WAV readbacks passed. Ten human listening
+records remain pending, so P7 is not yet fully accepted. Report:
+`docs/roadmap/codex_reports_20260906/P7_prepared_audio.md`.
+
+
+## Checkpoint 20260907: shared planning, assets, questions and native closure
+
+Authoritative tree remains 48g-jump:/data/jzy/tmp/wt-multi-home-activity-integration,
+branch codex/multi-home-activity-integration. No push/main merge or Studio switch.
+
+Completed implementation reports and commits: P3 178868d (seven measured room
+packages); P4 8ac2ea1 (Habitat native masks/rigid bindings); P12 5e2002f plus
+0b391a9 (fourteen human/generated-animal packages and readable mixed capture);
+P5 f15bca8 (one fixed-profile neutral sampler); P6 93a14e7 plus 9fd5097/f2f7a7d
+(shared audio and actual neutral-only input); P8 055c054 (candidate sampling,
+per-form rules/scoring). P9 is included with this checkpoint update.
+
+P5 produced real 240-frame native A, MP3D and HM3D captures; its 2400-trial
+plan-only matrix keeps all failed cells and distinguishes one-attempt yield
+from the production 200-retry budget. P12 registry currently contains 55 assets,
+55 Habitat bindings and 17 original SPEAR bindings; all original revisions and
+SPEAR bindings were preserved. Remaining external asset/UE-binding gaps retain
+the full 59-ID union as denominator, pending P11 inventory integration.
+
+P8 final evidence is tmp/p8_parent_final_20260907_v3: five retained episodes
+keep 21 valid question types collectively and every deferred row; three
+explicitly traced native supplements bring the sample union to QA01-24.
+The 17-second QA09 prefix is a derived diagnostic of unchanged original
+observations, not a new native capture or a pilot episode.
+
+P9 consumes actual P1/P4/P6 contracts. Final evidence:
+tmp/p9_finalize_20260907/a_same_input_v5 (old A semantic facts unchanged),
+mp3d_final_v7 (actual RGB-derived video and audio, beagle coat stays unobserved),
+mp3d_auto_p5_common_v5 (automatic neutral endpoint/audio path),
+p4_hm3d_final_p9_v1 (16-second beagle plus speaker, native audio/appearance),
+and tmp/matrix_kujiale_humans_20260907_v1/delivery_v2 (16-second two humans).
+Native color checks retain the original human shirt criterion and mark new
+animal/device color predicates as coarse placeholder evidence. Final P9
+related tests: 28 passed, no failures/skips. All outputs remain research-only.
+
+Next: finish P11 UE static/animal runtime and native combinations, merge the
+verified full-asset binding inventory, then implement P10 batch/coverage/
+permutations last. P7 still requires ten actual human listening records.
+The owner-facing review pack is under local artifacts/p7-listening-20260907
+and server tmp/p7_human_review_transfer_20260907_v1; it contains unchanged
+prepared/source WAV pairs and unfilled records. The authorized 46-episode
+pilot has NOT started and remains conditional on all prerequisite acceptance,
+including those human records. No dataset/formal admission is claimed.
+
+## Checkpoint 20260907: preserve Habitat static asset origins
+
+All 40 registered rigid GLBs now have native object/root/emitter/bounds and
+semantic-RGB load evidence in tmp/p11_habitat_static_native_probe_20260907_v2.
+The actual probe exposed Habitat's default bounding-box COM recentering; capture
+now keeps the finalized GLB origin explicitly. Exact source-vertex floor bases
+remain within 3.63e-8 m of registered base planes; conservative node AABBs are
+not used to raise objects. Wall/ceiling mounting remains an explicit interface gap.
+Corrected HM3D and MP3D captures plus P9 exports are in
+tmp/p4_rigid_origin_captures_20260907_v1/{hm3d,mp3d}/delivery_v1. Unchanged P6
+audio is reused only after exact actual camera/clock/emitter equality. Old COM
+centred captures are diagnostic. Related origin/binding tests: 11 passed.
+P11 UE integration, P10 and the actual human listening records remain pending;
+the 46-episode pilot has not started.
+
+## Checkpoint 20260907: automatic UE neutral audio closure
+
+Kujiale animal/device path is complete in
+tmp/matrix_kujiale_beagle_speaker_20260907_v2/delivery_v3: native 240 frames,
+16-second two-channel automatic P6 audio, P9 contract and export passed.
+Fixes select audio renderer from RoomPackage, carry the actual retry capture
+into audio, and adapt explicit NeutralReadback to the unchanged old RIR cache
+format. P6/P9/legacy audio tests: 35 passed; native PCM readback is finite
+[256000,2] at 16kHz. Beagle remains pixel-appearance not_observable at the image
+edge; speaker is reviewed. The independent stage preserves shared map/Content.
+P11 imported 38 additional UE rigid meshes and is completing actor/emitter
+readback plus four extra animated animal bindings. P10 remains last; no pilot
+production or human-listening completion is claimed.
+
+## Checkpoint 20260907: full source bindings and native matrix closure
+
+Registry now contains the full 59-ID union: 40 rigid, 12 animal and 7 human,
+with 59 Habitat and 59 SPEAR bindings. The four external animated animals
+have source-specific packages, native actions/joints and measured emitter/
+anatomical references; unknown body build/life stage remain explicit research
+metadata. New runtime-only coat observations do not change the L9 generation
+vocabulary or qualified/formal requirements. P12 emitter offsets are joint-local;
+optional measured actor-root references remain separate, preserving old specs.
+
+The shared task UE stage is
+/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_full_asset_ue_stage_20260907_v1.
+Catalog AVENGINE_MULTI_HOME_UE_ROOT selects it. Its stage_manifest v3 has actual
+target-stage disjoint native load/readbacks for 40+4+15=59 IDs, five unchanged
+P3 maps, readable external USD and preserved plugins. It includes the legacy
+articulated Content that the initial clone lacked. No old stage/map was changed.
+
+Native Apartment final: tmp/matrix_native_apartment_beagle_speaker_sampled_20260907_v2/delivery_v1
+(240 frames/16 seconds, real bone emitter, 2ch audio, 13 valid/11 deferred).
+Kujiale final: tmp/matrix_kujiale_beagle_speaker_native_bone_20260907_v1/delivery
+(240 frames/16 seconds, both targets clear, 2ch audio, 8 valid/16 deferred;
+beagle coarse coat remains unobserved under warm illumination). Corrected
+MP3D/HM3D static origins use the P4 follow-up paths recorded above. Together
+with retained native human paths, all four families have human/animal/device
+native paths; pixel/appearance gaps and 9 mounting interfaces remain explicit.
+
+P5 now tests both existing emitter and body proxies for a requested clear LOS.
+The same 2400-seed one-route-attempt matrix was rerun, still 34/2400, all
+failures retained; no production-yield inference. Parent integrated tests
+currently87 passed. P11 A human+speaker and human+BorderCollie now also have
+independent P6 audio and P9 finalize_p9_v2 artifacts. See P11/P12 reports.
+
+Next implementation task is P10 (last): batch preallocation, five-state coverage,
+option permutations and grouped split metadata. P7 still lacks ten actual human
+listening records; the 46-episode pilot has NOT started. All results remain
+research-only; no formal admission, model evaluation or human review is claimed.
+
+
+P11最终提交检查：tmp/p11_parent_full_related_tests_20260907_v2.log记录181 passed、
+0 failed、0 skipped（12.46s）；两项旧库存测试已随四动物登记更新，并保留无P12绑定
+不得静态回退的反例。P11/P12/P5后续修复与59资产登记、共同UE目标本次一并收口。
+下一项为任务书指定最后执行的P10；P7十条真实人工试听仍pending，46段未启动。
+
+
+2026-09-07 owner明确裁定P7：“这个处理应该是没有问题的，可以直接通过了”。
+已提供本机10条original/prepared试听包及第01条直接播放器。P7按owner接受当前处理结果
+通过；逐条heard/consonant字段未伪填，prepared v3字节不改。记录
+tmp/p7_prepared_audio_v3/owner_acceptance_20260907T020953Z.json。
+当前剩P10工程收口，之后继续既有授权的46段；这不是整库人工校准或正式准入声明。
+
+P10实现收口：批预分配/五态覆盖/评测排列/连通切分/后台执行与自动汇总已完成，报告P10_batch_coverage_evaluation.md。原五段73有效+47延期，9912详细分母、504联合轴，70MCQ/202排列且未运行模型。真实保留Kuja片的审计/条件/截图/整批汇总已验证。46条预分配中2条固定repeat声音身份确定超13s预算，保留失败配额不换身份。接下来在干净P10提交上做整合验证，生成最终清单，按owner最新授权推送当前分支并后台启动46逻辑格。
+
+
+P10代码提交24ea774已在干净HEAD上完成144 passed/0 failed/0 skipped（7.04s），
+前后HEAD/status一致；tmp/p10_committed_verification_20260907_v1记录实际来源。
+最终46格清单tmp/p10_pilot46_manifest_20260907_v3/batch_manifest.json，producer为
+committed24ea774；固定画像与v2逐条相同，两个重复设备声音组合的预算缺额明确保留。
+本次owner明确授权推送当前分支并后台执行，覆盖原始任务中的不push限制。

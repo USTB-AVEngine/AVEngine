@@ -1,0 +1,70 @@
+{
+  "claim_boundary": "Package catalog selects strict RoomPackage files; it does not imply native execution or dataset admission.",
+  "path_bindings": {
+    "AVENGINE_APARTMENT_INPUT_ROOT": "/data/avengine_external/m6x-canary-inputs/fixed_apartment_inputs_v1_20260821T131842Z",
+    "AVENGINE_HM3D_ACOUSTIC_ROOT": "/data/avengine_external/review/hm3d_e2e_wt_20260905_v1/package",
+    "AVENGINE_HM3D_REVIEW_ROOT": "/data/avengine_external/review/hm3d_e2e_wt_20260905_v1",
+    "AVENGINE_HM3D_ROOT": "/data/datasets/habitat_data",
+    "AVENGINE_HM3D_ROUTE_ROOT": "/data/avengine_external/review/hm3d_e2e_wt_20260905_v1/routes_R3",
+    "AVENGINE_KUJIALE_ACOUSTIC_ROOT": "/data/avengine_external/review/kujiale_acoustics/pkg_kujiale_0020_rlr",
+    "AVENGINE_MP3D_ACOUSTIC_ROOT": "/data/avengine_external/review/m3_current_mp3d_semantic_20260820T1630Z",
+    "AVENGINE_MP3D_ROOT": "/data/avengine_external/datasets/mp3d_example_scene_1.1",
+    "AVENGINE_MULTI_HOME_AUTHORING_ROOT": "/data/avengine_external/workspaces/multi_home_activity_20260905",
+    "AVENGINE_MULTI_HOME_ROOT": "/data/datasets/avengine_workspaces/multi_home_activity_20260905",
+    "AVENGINE_MULTI_HOME_UE_ROOT": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_full_asset_ue_stage_20260907_v1",
+    "AVENGINE_NATIVE_APARTMENT_ROUTE_ROOT": "/data/avengine_external/review/apartment_route_bank_20260825T0700Z",
+    "AVENGINE_P3_ROOM_PACKAGE_ROOT": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root",
+    "AVENGINE_QA_V3_ROOT": "/data/jzy/tmp",
+    "AVENGINE_SPEAR_STAGE_ROOT": "/data/avengine_external/workspaces/multi_home_activity_20260905/ue_stage"
+  },
+  "path_bindings_note": "Values are the actual external roots used by the P3 package and native floor/canary validations on 2026-09-07; callers may override them per runtime policy.",
+  "pose_binding_files": {
+    "kujiale_0020_full_home_v1": "examples/rooms/packages/kujiale_0020_pose_bindings.json"
+  },
+  "revision": "20260907_p3_v2",
+  "rooms": [
+    {
+      "family": "apartment",
+      "renderer": "ue_spear",
+      "room_id": "legacy_ue_apartment_0000_v1",
+      "room_package": "examples/rooms/packages/native_apartment.json"
+    },
+    {
+      "family": "authored",
+      "renderer": "ue_spear",
+      "room_id": "aea_loc3_social_rebuild_v1",
+      "room_package": "examples/rooms/packages/room_a.json"
+    },
+    {
+      "family": "authored",
+      "renderer": "ue_spear",
+      "room_id": "authored_compact_home_room_b_v1",
+      "room_package": "examples/rooms/packages/room_b.json"
+    },
+    {
+      "family": "authored",
+      "renderer": "ue_spear",
+      "room_id": "authored_open_family_home_room_c_v1",
+      "room_package": "examples/rooms/packages/room_c.json"
+    },
+    {
+      "family": "kujiale",
+      "renderer": "ue_spear",
+      "room_id": "kujiale_0020_full_home_v1",
+      "room_package": "examples/rooms/packages/kujiale_0020_full_home_v1.json"
+    },
+    {
+      "family": "mp3d",
+      "renderer": "habitat",
+      "room_id": "habitat_mp3d_example_17DRP5sb8fy",
+      "room_package": "examples/rooms/packages/mp3d_17DRP5sb8fy.json"
+    },
+    {
+      "family": "hm3d",
+      "renderer": "habitat",
+      "room_id": "hm3d_val_00800_TEEsavR23oF",
+      "room_package": "examples/rooms/packages/hm3d_00800_TEEsavR23oF.json"
+    }
+  ],
+  "schema": "avengine_qa_room_package_catalog_v1"
+}

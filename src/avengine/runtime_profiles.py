@@ -23,6 +23,15 @@ from avengine.appearance.contracts import CANONICAL_DOMAINS, COAT_PROFILE_DOMAIN
 from avengine.contracts.json_io import canonical_json_sha256, load_json
 
 
+# These source-library coats have observed research instances, not reviewed
+# three-level L9 generation domains. Keep them out of COAT_PROFILE_DOMAINS.
+_OBSERVED_RESEARCH_COAT_PROFILES = {
+    ("cat", "burmese", "cat_burmese_coat_v1"): ("dark_sable", "standard_sable"),
+    ("dog", "jack_russell_terrier", "dog_jack_russell_coat_v1"): ("standard_white_tan",),
+    ("cat", "siamese", "cat_siamese_coat_v1"): ("standard_seal_point",),
+}
+
+
 SOURCE_ASSET_RUNTIME_REGISTRY_SCHEMA = (
     "avengine_source_asset_runtime_registry_v1"
 )
@@ -332,8 +341,12 @@ def _validate_static_runtime_record(
         if isinstance(runtime_backends, Mapping)
         else None
     )
+    habitat = runtime_backends.get("habitat") if isinstance(runtime_backends, Mapping) else None
+    if not isinstance(spear, Mapping) and not isinstance(habitat, Mapping):
+        errors.append(f"{prefix}: rigid_object lacks a renderer binding")
+    if isinstance(record.get("geometry"), Mapping) and record["geometry"].get("rig_authority") is not None:
+        errors.append(f"{prefix}: rigid_object must not declare rig_authority")
     if not isinstance(spear, Mapping):
-        errors.append(f"{prefix}: rigid_object lacks a SPEAR static-mesh binding")
         return errors
     if spear.get("static_mesh_binding") != "explicit_path":
         errors.append(
@@ -362,6 +375,51 @@ def _validate_static_runtime_record(
     geometry = record.get("geometry")
     if isinstance(geometry, Mapping) and geometry.get("rig_authority") is not None:
         errors.append(f"{prefix}: rigid_object must not declare rig_authority")
+    return errors
+
+
+def _validate_spear_emitter_attachment(
+    value: Any,
+    *,
+    owner: str,
+) -> list[str]:
+    """Validate an optional native UE bone or socket emitter attachment."""
+
+    errors: list[str] = []
+    if not isinstance(value, Mapping):
+        return [f"{owner} must be an object"]
+    attachment_type = value.get("attachment_type")
+    if attachment_type not in {"bone", "socket"}:
+        errors.append(
+            f"{owner}.attachment_type must be bone or socket"
+        )
+    name = value.get("name")
+    if not isinstance(name, str) or not name.strip():
+        errors.append(f"{owner}.name must be a non-empty string")
+    try:
+        _finite_vector(
+            value.get("local_offset_cm"),
+            length=3,
+            owner=f"{owner}.local_offset_cm",
+        )
+    except RuntimeProfileError as error:
+        errors.extend(error.errors)
+    probe_source = value.get("probe_source")
+    if not isinstance(probe_source, Mapping):
+        errors.append(f"{owner}.probe_source must be an artifact reference")
+    else:
+        root_id = probe_source.get("root_id")
+        if not isinstance(root_id, str) or not root_id.strip():
+            errors.append(f"{owner}.probe_source.root_id must be non-empty")
+        path = probe_source.get("path")
+        if not isinstance(path, str) or not path.strip():
+            errors.append(f"{owner}.probe_source.path must be non-empty")
+        else:
+            probe_path = PurePosixPath(path)
+            if probe_path.is_absolute() or ".." in probe_path.parts:
+                errors.append(
+                    f"{owner}.probe_source.path must be repository-relative"
+                )
     return errors
 
 
@@ -420,6 +478,8 @@ def _validate_source_asset_runtime_registry_uncached(value: Any) -> list[str]:
                     str(coat.get("profile_id")),
                 )
                 domain = COAT_PROFILE_DOMAINS.get(registry_key)
+                if domain is None and record.get("admission_state") == "research":
+                    domain = _OBSERVED_RESEARCH_COAT_PROFILES.get(registry_key)
                 if domain is None:
                     errors.append(
                         f"{prefix}: coat profile {registry_key!r} is not "
@@ -490,6 +550,17 @@ def _validate_source_asset_runtime_registry_uncached(value: Any) -> list[str]:
 
         spear = record.get("runtime_backends", {}).get("spear_unreal")
         if isinstance(spear, Mapping):
+            emitter_attachment = spear.get("ue_emitter_attachment")
+            if emitter_attachment is not None:
+                errors.extend(
+                    _validate_spear_emitter_attachment(
+                        emitter_attachment,
+                        owner=(
+                            f"{prefix}.runtime_backends.spear_unreal."
+                            "ue_emitter_attachment"
+                        ),
+                    )
+                )
             actor_scale = spear.get("actor_scale")
             if actor_scale is not None and (
                 isinstance(actor_scale, bool)
@@ -788,7 +859,7 @@ def source_timeline_profiles(
     result: dict[str, dict[str, Any]] = {}
     for asset_id, record in source_asset_runtime_index(registry).items():
         if record.get("entity_class") == "rigid_object":
-            spear = record["runtime_backends"]["spear_unreal"]
+            spear = record["runtime_backends"].get("spear_unreal")
             result[asset_id] = {
                 "revision": record["revision"],
                 "entity_class": "rigid_object",
@@ -799,7 +870,7 @@ def source_timeline_profiles(
                 "geometry": deepcopy(dict(record["geometry"])),
                 "default_emitter_anchor_id": record["default_emitter_anchor_id"],
                 "emitter_anchors": deepcopy(list(record["emitter_anchors"])),
-                "static_mesh_binding": deepcopy(dict(spear)),
+                **({"static_mesh_binding": deepcopy(dict(spear))} if spear else {}),
             }
             continue
         timeline = record["timeline"]
@@ -865,7 +936,7 @@ def build_asset_emitter_binding(
         )
     anchor = matches[0]
     if record.get("entity_class") == "rigid_object":
-        spear = record["runtime_backends"]["spear_unreal"]
+        spear = record["runtime_backends"].get("spear_unreal")
         binding = {
             "source_slot_id": source_slot_id,
             "asset_id": asset_id,
@@ -876,12 +947,10 @@ def build_asset_emitter_binding(
             "emitter_offset_m": deepcopy(list(anchor["offset_m"])),
             "emitter_offset_space": anchor["offset_space"],
             "offset_space": anchor["offset_space"],
-            "static_mesh_binding": spear["static_mesh_binding"],
-            "static_mesh_object_path": spear["static_mesh_object_path"],
-            "actor_scale": float(spear["actor_scale"]),
-            "ue_static_forward_yaw_deg": float(
-                spear["ue_static_forward_yaw_deg"]
-            ),
+            **({"static_mesh_binding": spear["static_mesh_binding"],
+                "static_mesh_object_path": spear["static_mesh_object_path"],
+                "actor_scale": float(spear["actor_scale"]),
+                "ue_static_forward_yaw_deg": float(spear["ue_static_forward_yaw_deg"])} if spear else {}),
         }
     else:
         binding = {
@@ -897,6 +966,15 @@ def build_asset_emitter_binding(
         }
     if isinstance(anchor.get("local_basis"), Mapping):
         binding["local_basis"] = deepcopy(dict(anchor["local_basis"]))
+    if record.get("entity_class") not in {"rigid_object", "rigid_static_object"}:
+        spear = record["runtime_backends"].get("spear_unreal")
+        attachment = (
+            spear.get("ue_emitter_attachment")
+            if isinstance(spear, Mapping)
+            else None
+        )
+        if isinstance(attachment, Mapping):
+            binding["ue_emitter_attachment"] = deepcopy(dict(attachment))
     return binding
 
 

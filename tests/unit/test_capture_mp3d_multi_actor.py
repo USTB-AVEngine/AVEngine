@@ -333,6 +333,19 @@ def test_public_entrypoint_reads_native_state_for_configured_actor_count(
     assert receipt["artifacts"]["actor_joint_readbacks_by_slot"][last_slot] == (
         f"actor_joint_readbacks_{last_slot}.npy"
     )
+    expected_slots = {f"source{index + 1}" for index in range(actor_count)}
+    with np.load(output / "native_pixel_masks_depth_authority_v1.npz") as masks:
+        assert np.array_equal(masks["modal"], masks["depth_derived_modal_semantic"])
+        assert masks["modal"].shape == (frame_count, 2, 2)
+        assert set(masks.files) == {
+            "depth_derived_modal_semantic", "modal",
+            *(f"target_only_{slot}" for slot in expected_slots),
+        }
+    truth = json.loads(
+        (output / "pixel_visibility_truth.json").read_text(encoding="utf-8")
+    )
+    assert truth["status"] == "computed_modal_target_only_v1"
+    assert set(truth["per_instance"]) == expected_slots
     assert receipt["capture"]["native_habitat_started"] is True
     assert receipt["capture"]["rgb_channel_order"] == "rgb"
 
@@ -494,3 +507,65 @@ def test_case_loader_rejects_slot_that_would_escape_output_name(tmp_path: Path):
         capture.MP3DMultiActorCaptureError, match="safe identifiers"
     ):
         capture._resolve_case_track_paths(case_path, case)
+
+
+def test_base_template_handle_uses_exact_manager_load_id_without_basename_prefix(
+    tmp_path: Path,
+) -> None:
+    config_path = tmp_path / "animal.ao_config.json"
+    config_path.write_text("{}\n", encoding="utf-8")
+
+    class _Manager:
+        def __init__(self) -> None:
+            self.loaded: list[str] = []
+
+        def load_configs(self, path: str) -> list[int]:
+            self.loaded.append(path)
+            return [73]
+
+        def get_template_handle_by_id(self, template_id: int) -> str:
+            assert template_id == 73
+            return "/tmp/other/package/animal.ao_config.json"
+
+        def get_template_handles(self, *_args: Any) -> list[str]:
+            raise AssertionError("basename prefix lookup must not be used")
+
+    manager = _Manager()
+    simulator = SimpleNamespace(
+        metadata_mediator=SimpleNamespace(ao_template_manager=manager)
+    )
+    bundle = SimpleNamespace(paths_by_role={"habitat_ao_config": str(config_path)})
+    cache: dict[Path, str] = {}
+
+    assert capture._base_template_handle(simulator, bundle, cache=cache) == (
+        "/tmp/other/package/animal.ao_config.json"
+    )
+    assert cache[config_path.resolve()] == "/tmp/other/package/animal.ao_config.json"
+
+
+def test_rigid_instantiation_preserves_authored_origin(tmp_path):
+    from types import SimpleNamespace
+    from avengine.capture.mp3d_multi_actor import _instantiate_rigid_object
+
+    glb = tmp_path / "grounded.glb"
+    glb.write_bytes(b"source-path-only; native geometry is covered by the retained probe")
+    attributes = SimpleNamespace(com=(1.0, 2.0, 3.0), compute_COM_from_shape=True)
+    obj = SimpleNamespace(root_scene_node=SimpleNamespace(semantic_id=0), visual_scene_nodes=[])
+    def instantiate(handle):
+        assert attributes.compute_COM_from_shape is False
+        assert attributes.com == (0.0, 0.0, 0.0)
+        return obj
+    templates = SimpleNamespace(
+        create_new_template=lambda handle, register: attributes,
+        register_template=lambda attributes, handle: 0,
+    )
+    simulator = SimpleNamespace(
+        get_object_template_manager=lambda: templates,
+        get_rigid_object_manager=lambda: SimpleNamespace(add_object_by_template_handle=instantiate),
+    )
+    runtime = SimpleNamespace(physics=SimpleNamespace(MotionType=SimpleNamespace(KINEMATIC=1)))
+    result = _instantiate_rigid_object(
+        simulator, binding={"glb_path": str(glb)}, habitat_sim=runtime,
+        semantic_id=7, object_index=0,
+    )
+    assert result.semantic_id == result.root_scene_node.semantic_id == 7

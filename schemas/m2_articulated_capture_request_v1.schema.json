@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://avengine.local/schema/m2_articulated_capture_request_v1.schema.json",
-  "title": "AVEngine M2 Articulated Dog Capture Request v1",
+  "title": "AVEngine M2 Articulated Asset Capture Request v1",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -56,11 +56,22 @@
       "items": {"type": "string", "minLength": 1}
     },
     "contact_order": {
-      "type": "array",
-      "minItems": 4,
-      "maxItems": 4,
-      "uniqueItems": true,
-      "items": {"type": "string", "minLength": 1}
+      "oneOf": [
+        {
+          "const": [
+            "paw_front_left",
+            "paw_front_right",
+            "paw_hind_left",
+            "paw_hind_right"
+          ]
+        },
+        {
+          "const": [
+            "foot_left",
+            "foot_right"
+          ]
+        }
+      ]
     },
     "pose_hash_algorithm": {"const": "avengine_m2_pose_hash_v1"},
     "applied_state_hash_algorithm": {
@@ -175,7 +186,7 @@
         },
         "contact_states": {
           "type": "array",
-          "minItems": 4,
+          "minItems": 2,
           "maxItems": 4,
           "items": {"$ref": "#/$defs/contact_state"}
         },

@@ -9,12 +9,14 @@ TOOL = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(TOOL)
 
 
-def test_select_balanced_visibility_over_large_occluding_foreground_person():
+def test_visibility_filters_only_targets_explicitly_required_by_question():
     segments = [{"candidate_id": "one_large", "frame_start": 0, "frame_end": 3},
                 {"candidate_id": "both_visible", "frame_start": 4, "frame_end": 7}]
     visible = {"a": np.array([900]*4 + [200]*4), "b": np.array([0]*4 + [180]*4)}
     target = {"a": np.array([1000]*8), "b": np.array([1000]*8)}
-    ranking = TOOL.rank_segments(segments, visible, target)
+    default = TOOL.rank_segments(segments, visible, target)
+    assert default[0]["candidate_id"] == "one_large"
+    ranking = TOOL.rank_segments(segments, visible, target, required_actor_ids=["a", "b"])
     assert ranking[0]["candidate_id"] == "both_visible"
     assert ranking[0]["minimum_visible_pixels"] == 180
     assert ranking[0]["evaluated_frames"] == [6, 7]
@@ -22,9 +24,9 @@ def test_select_balanced_visibility_over_large_occluding_foreground_person():
 
 def test_reject_missing_participant_and_frame_mismatch():
     segments = [{"candidate_id": "a", "frame_start": 0, "frame_end": 1}]
-    with pytest.raises(ValueError, match="every actor"):
+    with pytest.raises(ValueError, match="required targets"):
         TOOL.rank_segments(segments, {"a": [2, 2], "b": [0, 0]},
-                           {"a": [2, 2], "b": [4, 4]})
+                           {"a": [2, 2], "b": [4, 4]}, required_actor_ids=["b"])
     with pytest.raises(ValueError, match="counts differ"):
         TOOL.rank_segments(segments, {"a": [1, 1]}, {"a": [1]})
 

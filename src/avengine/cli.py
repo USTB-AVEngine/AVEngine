@@ -1508,6 +1508,31 @@ def _m5_render_current_m1_research_audio(args: argparse.Namespace) -> int:
 
 
 
+def _parse_m5_external_audio_bindings(values: Sequence[str] | None) -> dict[str, str]:
+    """Parse explicit sound_asset_id=path bindings without asset-name policy."""
+    result: dict[str, str] = {}
+    for value in values or ():
+        if not isinstance(value, str) or "=" not in value:
+            raise ValueError("--asset-binding must be sound_asset_id=path")
+        sound_id, path = value.split("=", 1)
+        if not sound_id or not path:
+            raise ValueError("--asset-binding must be sound_asset_id=path")
+        if sound_id in result and result[sound_id] != path:
+            raise ValueError(f"duplicate --asset-binding for {sound_id!r}")
+        result[sound_id] = path
+    return result
+
+
+
+def _m5_dynamic_audio_bindings(args: argparse.Namespace) -> dict[str, str]:
+    """Bind explicit dry assets; omit beagle unless --beagle-audio was provided."""
+    bindings = _parse_m5_external_audio_bindings(getattr(args, "asset_binding", None))
+    beagle = getattr(args, "beagle_audio", None)
+    if isinstance(beagle, str) and beagle:
+        bindings = {"dog_beagle_v2_scheduled_dry": beagle, **bindings}
+    return bindings
+
+
 def _m5_render_current_mp3d_dynamic_audio(args: argparse.Namespace) -> int:
     """Render per-state MP3D research audio on the installed native runtime."""
 
@@ -1515,7 +1540,8 @@ def _m5_render_current_mp3d_dynamic_audio(args: argparse.Namespace) -> int:
         output = _require_ignored_or_external_output(args.output)
         sound_asset_bindings = _resolve_mp3d_sound_asset_bindings(
             getattr(args, "sound_asset_map", None),
-            getattr(args, "sound_asset_path", None),
+            [*(getattr(args, "sound_asset_path", None) or ()),
+             *(getattr(args, "asset_binding", None) or ())],
             getattr(args, "beagle_audio", None),
         )
         with _temporary_native_audio_environment(
@@ -1534,6 +1560,7 @@ def _m5_render_current_mp3d_dynamic_audio(args: argparse.Namespace) -> int:
                 source_endpoint_registry_path=args.source_endpoint_registry,
                 sound_asset_registry_path=args.sound_asset_registry,
                 external_sound_asset_paths=sound_asset_bindings,
+                event_asset_bindings=sound_asset_bindings,
                 hrtf_file_path=args.hrtf,
                 hrtf_license_path=args.hrtf_license,
                 output_path=output,
@@ -1542,6 +1569,11 @@ def _m5_render_current_mp3d_dynamic_audio(args: argparse.Namespace) -> int:
                 frame_count=args.frame_count,
                 frame_rate_hz=args.frame_rate_hz,
                 ticks_per_frame=args.ticks_per_frame,
+                neutral_readback_path=getattr(args, "neutral_readback", None),
+                prepared_manifest_path=getattr(args, "prepared_manifest", None),
+                post_assembly_convolution_gain=getattr(args, "post_assembly_convolution_gain", None),
+                diffraction=getattr(args, "diffraction", None),
+                max_diffraction_order=getattr(args, "max_diffraction_order", None),
             )
     except (CurrentMP3DDynamicAudioError, OSError, ValueError) as error:
         _print({"status": "fail", "error": str(error)})
@@ -2450,8 +2482,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     m5_dynamic_audio.add_argument("--package-manifest", required=True)
     m5_dynamic_audio.add_argument("--audio-program", required=True)
-    m5_dynamic_audio.add_argument("--source-endpoint-registry", required=True)
-    m5_dynamic_audio.add_argument("--sound-asset-registry", required=True)
+    m5_dynamic_audio.add_argument("--source-endpoint-registry")
+    m5_dynamic_audio.add_argument("--sound-asset-registry")
     m5_dynamic_audio.add_argument(
         "--sound-asset-map",
         type=Path,
@@ -2480,6 +2512,36 @@ def build_parser() -> argparse.ArgumentParser:
     m5_dynamic_audio.add_argument("--rlr-sdk-root", required=True)
     m5_dynamic_audio.add_argument("--magnum-python-site")
     m5_dynamic_audio.add_argument("--rir-stride-frames", type=int, default=3)
+    m5_dynamic_audio.add_argument(
+        "--post-assembly-convolution-gain", type=float,
+        help="declared scalar applied once to wet stems and mixture before peak validation",
+    )
+    m5_dynamic_audio.add_argument(
+        "--neutral-readback",
+        help="optional P1 NeutralReadback JSON; otherwise use the legacy frame capture",
+    )
+    m5_dynamic_audio.add_argument(
+        "--asset-binding",
+        action="append",
+        default=[],
+        metavar="SOUND_ASSET_ID=PATH",
+        help="explicit external dry binding for a non-registry sound asset",
+    )
+    m5_dynamic_audio.add_argument(
+        "--prepared-manifest",
+        help="optional P7 prepared audio manifest for source activity intervals",
+    )
+    m5_dynamic_audio.add_argument(
+        "--diffraction",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="override the RLR diffraction flag",
+    )
+    m5_dynamic_audio.add_argument(
+        "--max-diffraction-order",
+        type=int,
+        help="override the RLR maximum diffraction order",
+    )
     m5_dynamic_audio.add_argument("--frame-count", type=int)
     m5_dynamic_audio.add_argument("--frame-rate-hz", type=float)
     m5_dynamic_audio.add_argument("--ticks-per-frame", type=int)

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import json
 from pathlib import Path
 
@@ -10,14 +11,19 @@ from avengine.rooms.furniture_layout import (
     SeatCapacityError,
     authoring_to_habitat,
     build_seat_placements,
+    camera_obstacle_bounds,
     clock_config,
     generate_camera_candidates,
     load_room_layout,
     score_camera_candidates,
 )
-from tools.rooms.plan_furnished_residential_episode import (
+from avengine.camera_pose import yaw_rotation_xyzw
+from avengine.rooms.furnished_episode import (
+    _actor_state,
     _overview_target_bounds,
     build_episode_plan,
+    plan_furnished_residential_episode,
+    reuse_camera_from_plan,
 )
 
 
@@ -27,6 +33,7 @@ def _fixture(
     room_id: str = "fixture_room",
     bounds: tuple[float, float, float, float] = (-4.0, -3.0, 4.0, 3.0),
     seat_count: int = 4,
+    seat_facings: tuple[float, ...] | None = None,
     bad_objects: bool = False,
     furniture_assemblies: list[dict] | None = None,
 ) -> Path:
@@ -53,7 +60,11 @@ def _fixture(
                 -1.4,
                 0.0,
             ],
-            "facing_yaw_deg": 0.0,
+            "facing_yaw_deg": (
+                seat_facings[index]
+                if seat_facings is not None and index < len(seat_facings)
+                else 0.0
+            ),
             "support_height_m": 0.46,
         }
         for index in range(seat_count)
@@ -109,6 +120,65 @@ def test_bad_object_metadata_fails_before_camera_generation(tmp_path: Path) -> N
     manifest = _fixture(tmp_path / "bad", bad_objects=True)
     with pytest.raises(FurnitureLayoutError, match="bounds_xyz_m|bounds_xy_m"):
         load_room_layout(manifest)
+
+
+def test_pose_root_closure_follows_actor_anatomical_forward(tmp_path: Path) -> None:
+    manifest = _fixture(
+        tmp_path / "closure",
+        seat_facings=(0.0, 180.0, 90.0, -90.0),
+    )
+    layout = load_room_layout(manifest)
+    placement = build_seat_placements(
+        layout,
+        seat_count=4,
+        actor_count=4,
+        pose_bindings={
+            "assets": [
+                {
+                    "asset_id": f"pose_{index}",
+                    "blueprint": f"/Game/Pose/BP_{index}.BP_{index}",
+                    "skeletal_mesh": f"/Game/Pose/pose_{index}.pose_{index}",
+                    "animation": "/Game/Pose/Seated_Idle.Seated_Idle",
+                    "ue_anatomical_forward_yaw_deg": 90.0,
+                    "seat_reference": {
+                        "seat_anchor_id": f"seat_{index}",
+                        "reference_chair_yaw_degrees": 0.0,
+                        "seat_top_m": 0.46,
+                        "root_offset_from_seat_anchor_blender_m": [0.0, -0.18, -0.01],
+                    },
+                }
+                for index in range(4)
+            ]
+        },
+    )
+    for actor in placement["actor_placements"]:
+        seat = actor["seat_reference"]["position_authoring_m"]
+        root = actor["root_position_authoring_m"]
+        theta = actor["seat_reference"]["facing_yaw_deg"]
+        import math
+        yaw = math.radians(theta + 90.0)
+        anchor = [0.0, 0.18]
+        world_anchor = [
+            anchor[0] * math.cos(yaw) - anchor[1] * math.sin(yaw),
+            anchor[0] * math.sin(yaw) + anchor[1] * math.cos(yaw),
+        ]
+        assert [root[0] + world_anchor[0], root[1] + world_anchor[1]] == pytest.approx(
+            seat[:2]
+        )
+        assert actor["pose_seat_anchor_closure_error_m"] == pytest.approx(
+            [0.0, 0.0, 0.0]
+        )
+        state = _actor_state(actor, frame_index=0, pts_ticks=0)
+        assert state["actor_yaw_blender_deg"] == pytest.approx(theta + 90.0)
+        assert state["actor_yaw_ue_deg"] == pytest.approx(
+            ((-theta - 90.0 + 180.0) % 360.0) - 180.0
+        )
+        assert state["root_transform"]["rotation_xyzw"] == pytest.approx(
+            yaw_rotation_xyzw(theta + 90.0)
+        )
+        assert state["rotation_xyzw"] == pytest.approx(
+            yaw_rotation_xyzw(theta + 90.0)
+        )
 
 
 def test_camera_forward_conversion_matches_spear_blender_to_ue_convention(
@@ -214,6 +284,32 @@ def test_overview_only_contains_camera_and_no_actor_states(tmp_path: Path) -> No
     assert plan["visual_plan"]["camera_selection"]["selection_mode"] == "overview_geometry_only"
 
 
+def test_camera_obstacle_bounds_excludes_floor_but_keeps_low_furniture(
+    tmp_path: Path,
+) -> None:
+    layout = load_room_layout(_fixture(tmp_path / "room"))
+    layout["objects"].extend(
+        [
+            {
+                "object_id": "floor",
+                "semantic_class": "floor",
+                "navigation_role": "ground_blocker",
+                "bounds_xyz_m": [[-4.0, -3.0, 0.0], [4.0, 3.0, 0.1]],
+            },
+            {
+                "object_id": "ceiling",
+                "semantic_class": "ceiling",
+                "navigation_role": "ground_blocker",
+                "bounds_xyz_m": [[-4.0, -3.0, 2.9], [4.0, 3.0, 3.0]],
+            },
+        ]
+    )
+    obstacles = camera_obstacle_bounds(layout)
+    assert len(obstacles) == 1
+    assert obstacles[0][0] == pytest.approx([-0.8, -0.6, 0.0])
+    assert obstacles[0][1] == pytest.approx([0.8, 0.6, 0.8])
+
+
 def test_camera_scoring_reports_multi_target_framing_and_geometry_clearance(
     tmp_path: Path,
 ) -> None:
@@ -293,11 +389,15 @@ def test_pose_binding_offsets_from_seat_reference_and_150_clock(tmp_path: Path) 
     assert request_actor["blueprint_class_path"] == "/Game/Pose/BP_pose.BP_pose_C"
     assert request_actor["skeletal_mesh_path"] == "/Game/Pose/pose.pose"
     assert request_actor["emitter_local_ue_cm"] == pytest.approx([10.0, -20.0, 120.0])
-    assert request_actor["root_position_authoring_m"][0] == pytest.approx(-2.2)
-    assert request_actor["root_position_authoring_m"][1] == pytest.approx(-1.58)
+    assert request_actor["root_position_authoring_m"][0] == pytest.approx(-2.02)
+    assert request_actor["root_position_authoring_m"][1] == pytest.approx(-1.4)
     assert request_actor["root_position_authoring_m"][2] == pytest.approx(-0.08)
     assert request_actor["pose_orientation_policy"].endswith(
         "reference_actor_yaw_ignored"
+    )
+    assert request_actor["pose_actor_yaw_blender_deg"] == pytest.approx(90.0)
+    assert request_actor["pose_seat_anchor_closure_error_m"] == pytest.approx(
+        [0.0, 0.0, 0.0]
     )
 
     candidate_set = generate_camera_candidates(layout)
@@ -375,3 +475,131 @@ def test_furniture_assembly_center_must_be_finite_xy(
                 }],
             )
         )
+
+
+
+def test_reuse_camera_from_plan_preserves_new_actor_states(tmp_path: Path) -> None:
+    layout = load_room_layout(_fixture(tmp_path / "room"))
+    plan = build_episode_plan(layout, frame_count=3)
+    actor_states = copy.deepcopy(
+        [frame["actor_states"] for frame in plan["visual_plan"]["frames"]]
+    )
+    source = tmp_path / "source_plan.json"
+    source.write_text(
+        json.dumps(
+            {
+                "visual_plan": {
+                    "camera": {
+                        "candidate_id": "native_selected_camera",
+                        "position_authoring_m": [1.0, 2.0, 1.55],
+                        "position_habitat_m": [1.0, 1.55, -2.0],
+                        "position_ue_cm": [100.0, -200.0, 155.0],
+                    }
+                }
+            }
+        )
+    )
+    reused = reuse_camera_from_plan(plan, source.resolve())
+    assert reused["visual_plan"]["camera"]["candidate_id"] == "native_selected_camera"
+    assert reused["camera_reuse"]["camera_pose_only"] is True
+    assert [frame["actor_states"] for frame in reused["visual_plan"]["frames"]] == actor_states
+    assert all(
+        frame["camera_state"]["frame_index"] == index
+        for index, frame in enumerate(reused["visual_plan"]["frames"])
+    )
+
+
+def _camera_source(path: Path, camera: dict, frames=None) -> Path:
+    visual = {"camera": camera}
+    if frames is not None:
+        visual["frames"] = frames
+    path.write_text(json.dumps({"visual_plan": visual}))
+    return path
+
+
+def test_reuse_camera_rejects_dynamic_source_frames(tmp_path: Path) -> None:
+    plan = build_episode_plan(load_room_layout(_fixture(tmp_path / "room")), frame_count=3)
+    camera = {
+        "position_authoring_m": [1.0, 2.0, 1.55],
+        "position_habitat_m": [1.0, 1.55, -2.0],
+        "position_ue_cm": [100.0, -200.0, 155.0],
+    }
+    moved = {**camera, "position_ue_cm": [101.0, -200.0, 155.0], "frame_index": 1}
+    source = _camera_source(
+        tmp_path / "dynamic.json",
+        camera,
+        [{"camera_state": {**camera, "frame_index": 0}}, {"camera_state": moved}],
+    )
+    with pytest.raises(FurnitureLayoutError, match="dynamic"):
+        reuse_camera_from_plan(plan, source)
+
+
+def test_reuse_camera_keeps_overview_selection_mode(tmp_path: Path) -> None:
+    plan = build_episode_plan(
+        load_room_layout(_fixture(tmp_path / "room")),
+        frame_count=3,
+        overview_only=True,
+    )
+    camera = {
+        "position_authoring_m": [1.0, 2.0, 1.55],
+        "position_habitat_m": [1.0, 1.55, -2.0],
+        "position_ue_cm": [100.0, -200.0, 155.0],
+    }
+    source = _camera_source(tmp_path / "fixed.json", camera)
+    reused = reuse_camera_from_plan(plan, source)
+    assert reused["visual_plan"]["camera_selection"]["selection_mode"] == "overview_geometry_only"
+    assert reused["camera_reuse"]["source_plan_path"] == str(source)
+
+
+@pytest.mark.parametrize(
+    "value",
+    ([1.0, "2.0", 1.55], [1.0, float("nan"), 1.55], [1.0, True, 1.55]),
+)
+def test_reuse_camera_rejects_nonfinite_or_nonnumeric_positions(
+    tmp_path: Path,
+    value,
+) -> None:
+    plan = build_episode_plan(load_room_layout(_fixture(tmp_path / "room")), frame_count=3)
+    camera = {
+        "position_authoring_m": value,
+        "position_habitat_m": [1.0, 1.55, -2.0],
+        "position_ue_cm": [100.0, -200.0, 155.0],
+    }
+    source = _camera_source(tmp_path / "bad.json", camera)
+    with pytest.raises(FurnitureLayoutError, match="invalid position_authoring_m"):
+        reuse_camera_from_plan(plan, source)
+
+
+def test_public_furnished_api_propagates_changed_seat_semantics(
+    tmp_path: Path,
+) -> None:
+    room_path = _fixture(tmp_path / "room", seat_count=4)
+    manifest = json.loads(room_path.read_text())
+    anchors_path = room_path.parent / "functional_anchors.json"
+    anchors = json.loads(anchors_path.read_text())
+    anchors["seat_points"][0]["position_m"] = [-1.8, -1.4, 0.0]
+    anchors["seat_points"][0]["support_height_m"] = 0.61
+    anchors["seat_points"][0]["facing_yaw_deg"] = 45.0
+    anchors_path.write_text(json.dumps(anchors))
+    pose = tmp_path / "pose.json"
+    pose.write_text(json.dumps({"bindings": [{
+        "actor_id": "person0",
+        "seat_affordance_id": "seat_0",
+        "root_from_seat_m": [0.0, 0.2, -0.61],
+        "ue_anatomical_forward_yaw_deg": 90.0,
+    }]}))
+    plan = plan_furnished_residential_episode(
+        room=room_path,
+        pose_bindings=pose,
+        output=tmp_path / "plan",
+        activity="seated",
+        map_path="/Game/Rooms/Test",
+        seat_count=1,
+        actor_count=1,
+        frame_count=3,
+    )
+    placement = plan["seat_layout"]["actor_placements"][0]
+    assert placement["seat_reference"]["seat_surface_height_m"] == pytest.approx(0.61)
+    assert placement["seat_reference"]["facing_yaw_deg"] == pytest.approx(45.0)
+    assert plan["visual_plan"]["frames"][0]["actor_states"][0]["translation_ue_cm"] != [0, 0, 0]
+    assert plan["visual_plan"]["frames"][0]["actor_states"][0]["actor_yaw_ue_deg"] == pytest.approx(-135.0)

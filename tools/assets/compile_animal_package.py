@@ -1,12 +1,9 @@
-#!/usr/bin/env python3
-"""Compile a pinned Rocketbox Beagle M2 research-candidate package.
+"""Compile a bounded M2 research-candidate package.
 
-This is intentionally a bounded, reproducible canary tool.  It derives the
-contact evidence from explicit terminal-joint anchors, snapshots the pinned
-upstream files and MIT notice, and invokes the strict package compiler.  It
-never emits a human-review pass or promotes the asset to ``canary_qualified``.
-Defaults preserve the historical v4 inputs; explicit paths and revisions are
-required for replacement-motion candidates.
+The default invocation preserves the historical pinned Rocketbox Beagle
+inputs. Generic mode accepts an explicit source-artifact list, semantic
+anchor map and contact order, then invokes the same strict package compiler.
+It never emits a human-review pass or promotes an asset to canary_qualified.
 """
 
 from __future__ import annotations
@@ -15,13 +12,14 @@ import argparse
 import hashlib
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping, Sequence
 
 from avengine.assets.actions import read_baked_actions_npz
 from avengine.assets.glb import load_glb
 from avengine.assets.habitat import build_habitat_asset_mapping_from_rebase_report
 from avengine.assets.kinematics import (
     CONTACT_ORDER,
+    SUPPORTED_CONTACT_ORDERS,
     AnchorDefinition,
     RigidTransform,
     derive_contact_phases,
@@ -199,14 +197,24 @@ def _validate_motion_evidence(
         raise ValueError("motion QA action hash differs from package actions")
 
 
-def _anchors() -> tuple[AnchorDefinition, ...]:
+def _anchors(
+    joint_map: Mapping[str, str] | None = None,
+    contact_order: Sequence[str] = CONTACT_ORDER,
+) -> tuple[AnchorDefinition, ...]:
+    mapping = dict(_SEMANTIC_JOINTS if joint_map is None else joint_map)
+    required = {"body", "head", "muzzle", *contact_order}
+    if set(mapping) != required:
+        raise ValueError(
+            "anchor map must contain exactly body, head, muzzle and the declared "
+            f"contact order: {sorted(required)}"
+        )
     return tuple(
         AnchorDefinition(
             anchor_id=anchor_id,
-            joint_id=joint_id,
+            joint_id=mapping[anchor_id],
             joint_from_anchor=RigidTransform(_ZERO, _IDENTITY),
         )
-        for anchor_id, joint_id in _SEMANTIC_JOINTS.items()
+        for anchor_id in ("body", "head", "muzzle", *contact_order)
     )
 
 
@@ -222,6 +230,49 @@ def _assert_pinned_source(rocketbox_root: Path) -> list[dict[str, Any]]:
             )
         records.append(record)
     return records
+
+
+def _source_artifacts(
+    root: Path,
+    specifications: Sequence[str],
+) -> list[dict[str, Any]]:
+    if not specifications:
+        raise ValueError("generic source mode requires at least one --source-artifact")
+    records: list[dict[str, Any]] = []
+    for specification in specifications:
+        raw_path, separator, expected_hash = specification.partition("=")
+        if not raw_path or Path(raw_path).is_absolute():
+            raise ValueError("--source-artifact must name a relative path")
+        record = _artifact(Path(root) / raw_path, root=root, root_id="source_checkout")
+        if separator and record["sha256"] != expected_hash:
+            raise ValueError(
+                f"source artifact hash differs for {raw_path}: "
+                f"{record['sha256']} != {expected_hash}"
+            )
+        records.append(record)
+    return records
+
+
+def _parse_contact_order(value: str) -> tuple[str, ...]:
+    values = tuple(item.strip() for item in value.split(",") if item.strip())
+    if values not in SUPPORTED_CONTACT_ORDERS:
+        raise ValueError(
+            "contact order must be one of "
+            f"{[list(order) for order in SUPPORTED_CONTACT_ORDERS]}"
+        )
+    return values
+
+
+def _parse_anchor_map(values: Sequence[str] | None) -> dict[str, str]:
+    if not values:
+        return dict(_SEMANTIC_JOINTS)
+    result: dict[str, str] = {}
+    for value in values:
+        anchor_id, separator, joint_id = value.partition("=")
+        if not separator or not anchor_id or not joint_id or anchor_id in result:
+            raise ValueError("--anchor must be unique anchor_id=joint_id entries")
+        result[anchor_id] = joint_id
+    return result
 
 
 def main() -> int:
@@ -331,7 +382,9 @@ def main() -> int:
         "--asset-id",
         default="rocketbox_dog_beagle_01_m2_v4_candidate",
     )
+    parser.add_argument("--template-id", default="rocketbox_dog_beagle_01")
     parser.add_argument("--body-plan-id", default="quadruped_dog")
+    parser.add_argument("--morphotype-id", default="beagle")
     parser.add_argument(
         "--skeleton-revision", default="rocketbox-beagle-skeleton-m2-v3"
     )
@@ -339,7 +392,40 @@ def main() -> int:
     parser.add_argument(
         "--action-revision", default="rocketbox-beagle-idle-walk-baked-v1"
     )
+    parser.add_argument("--source-label", default="Microsoft Rocketbox Dog_Beagle_01")
+    parser.add_argument(
+        "--source-url",
+        default="https://github.com/microsoft/Microsoft-Rocketbox.git",
+    )
+    parser.add_argument("--source-revision", default=_PINNED_ROCKETBOX_REVISION)
+    parser.add_argument("--source-artifact", action="append")
+    parser.add_argument(
+        "--anchor",
+        action="append",
+        help="Semantic anchor override as anchor_id=joint_id; repeat per anchor",
+    )
+    parser.add_argument(
+        "--contact-order",
+        default=",".join(CONTACT_ORDER),
+        help="Comma-separated declared contact order",
+    )
+    parser.add_argument("--generic-source", action="store_true")
+    parser.add_argument("--license", dest="license_name", default="MIT")
+    parser.add_argument("--allowed-use", default="review_required")
+    parser.add_argument("--redistribution", default="review_required")
     args = parser.parse_args()
+    generic_source = bool(
+        args.generic_source or args.source_artifact or args.anchor
+        or args.contact_order != ",".join(CONTACT_ORDER)
+    )
+    contact_order = _parse_contact_order(args.contact_order)
+    joint_map = _parse_anchor_map(args.anchor)
+    if generic_source:
+        if not args.source_artifact:
+            raise ValueError("generic source mode requires --source-artifact")
+        if not args.anchor:
+            raise ValueError("generic source mode requires explicit --anchor entries")
+    all_anchors = _anchors(joint_map, contact_order)
     repo_root = args.repo_root.absolute()
     rocketbox_root = args.rocketbox_root.absolute()
     evidence_directory = (
@@ -416,9 +502,8 @@ def main() -> int:
             motion_qa_report=motion_qa_report,
         )
     mapping = build_habitat_asset_mapping_from_rebase_report(document, rebase_value)
-    all_anchors = _anchors()
     contact_anchors = tuple(
-        anchor for anchor in all_anchors if anchor.anchor_id in CONTACT_ORDER
+        anchor for anchor in all_anchors if anchor.anchor_id in contact_order
     )
     if contact_report is None:
         contacts = derive_contact_phases(mapping, actions, contact_anchors)
@@ -443,7 +528,11 @@ def main() -> int:
                 "actions and contact report"
             )
 
-    source_records = _assert_pinned_source(rocketbox_root)
+    source_records = (
+        _source_artifacts(rocketbox_root, args.source_artifact)
+        if generic_source
+        else _assert_pinned_source(rocketbox_root)
+    )
     lineage_paths = [
         normalization,
         rebase,
@@ -462,14 +551,19 @@ def main() -> int:
     if world_contact_audit is not None:
         lineage_paths.append(world_contact_audit)
     source_manifest = {
-        "schema": "avengine_m2_rocketbox_beagle_source_snapshot_v1",
+        "schema": (
+            "avengine_m2_source_snapshot_v1"
+            if generic_source
+            else "avengine_m2_rocketbox_beagle_source_snapshot_v1"
+        ),
         "qualification_state": "research_candidate",
         "qualification_claim": False,
         "formal_dataset_registration_authorized": False,
         "source_repository": {
-            "url": "https://github.com/microsoft/Microsoft-Rocketbox.git",
-            "revision": _PINNED_ROCKETBOX_REVISION,
-            "root_id": "rocketbox_checkout",
+            "url": args.source_url,
+            "revision": args.source_revision,
+            "label": args.source_label,
+            "root_id": "source_checkout" if generic_source else "rocketbox_checkout",
         },
         "source_artifacts": source_records,
         "m2_lineage_evidence": [
@@ -478,7 +572,12 @@ def main() -> int:
         ],
         "lineage_status": "legacy_conversion_assertion_review_required",
         "notes": [
-            "Raw Beagle and license files are hash-pinned to the Rocketbox checkout.",
+            (
+                "Source artifacts are explicitly listed and hash-recorded; generic "
+                "mode does not infer a repository or asset identity."
+                if generic_source
+                else "Raw Beagle and license files are hash-pinned to the Rocketbox checkout."
+            ),
             "The historical FBX-to-GLB conversion itself lacks a complete hash-bound "
             "conversion manifest, so this snapshot cannot authorize formal registry "
             "promotion.",
@@ -488,19 +587,20 @@ def main() -> int:
     _write_json(source_manifest_path, source_manifest)
 
     license_record = next(
-        record for record in source_records if record["path"] == "LICENSE.md"
+        (record for record in source_records if record["path"] == "LICENSE.md"),
+        None,
     )
     license_snapshot = {
         "schema": "avengine_m2_license_snapshot_v1",
-        "license": "MIT",
-        "allowed_use": "review_required",
-        "redistribution": "review_required",
-        "license_file": license_record,
-        "source_revision": _PINNED_ROCKETBOX_REVISION,
+        "license": args.license_name,
+        "allowed_use": args.allowed_use,
+        "redistribution": args.redistribution,
+        **({"license_file": license_record} if license_record is not None else {}),
+        "source_revision": args.source_revision,
         "qualification_claim": False,
         "decision_reason": (
-            "The pinned Rocketbox checkout carries MIT, but package-level "
-            "redistribution and the legacy conversion lineage remain review-required."
+            "The source policy and package-level redistribution remain "
+            "review-required pending owner review."
         ),
     }
     license_snapshot_path = evidence_directory / "license_snapshot.json"
@@ -508,18 +608,18 @@ def main() -> int:
 
     identity = AnimalPackageIdentity(
         asset_id=args.asset_id,
-        template_id="rocketbox_dog_beagle_01",
+        template_id=args.template_id,
         body_plan_id=args.body_plan_id,
-        morphotype_id="beagle",
+        morphotype_id=args.morphotype_id,
         skeleton_revision=args.skeleton_revision,
         weights_revision=args.weights_revision,
         collision_revision="m2-kinematic-rest-bbox-proxy-v1",
         action_revision=args.action_revision,
-        source="Microsoft Rocketbox Dog_Beagle_01",
-        source_revision=_PINNED_ROCKETBOX_REVISION,
-        license="MIT",
-        allowed_use="review_required",
-        redistribution="review_required",
+        source=args.source_label,
+        source_revision=args.source_revision,
+        license=args.license_name,
+        allowed_use=args.allowed_use,
+        redistribution=args.redistribution,
         semantic_id=200,
     )
     manifest_path = compile_research_candidate_animal_package(

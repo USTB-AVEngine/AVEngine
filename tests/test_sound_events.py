@@ -196,9 +196,16 @@ def test_splitter_does_not_peak_normalize_unless_asked(tmp_path: Path) -> None:
     row = next(item for item in plain["clips"] if item["status"] == "event")
     assert row["applied_gain_db"] == 0.0
     normalized = split_library(
-        library, tmp_path / "norm", peak_normalize=True)
+        library, tmp_path / "norm", peak_normalize=True, target_peak_dbfs=-6.0)
     gained = next(item for item in normalized["clips"] if item["status"] == "event")
     assert gained["applied_gain_db"] != 0.0
+    assert normalized["normalization_policy"] == {
+        "mode": "peak_dbfs", "target_dbfs": -6.0,
+        "applied_to": "each_event_pcm",
+    }
+    with wave.open(str((tmp_path / "norm") / gained["prepared"]), "rb") as handle:
+        encoded = np.frombuffer(handle.readframes(handle.getnframes()), dtype="<i2").astype(float) / 32768.0
+    assert 20 * np.log10(np.max(np.abs(encoded))) == pytest.approx(-6.0, abs=0.1)
 
 
 def test_pulse_longer_than_max_is_truncated() -> None:

@@ -33,6 +33,7 @@ from avengine.backends.spear_ue.research_runtime import (
 )
 from avengine.qa.pixel_visibility import compile_depth_pixel_visibility_truth  # noqa: E402
 from avengine.optional_backends.residential_episode import TICKS_PER_FRAME  # noqa: E402
+from avengine.backends.spear_ue.rig_direction import sample_body_bone_position_in_frame  # noqa: E402
 
 from avengine.optional_backends.spear_apartment import (  # noqa: E402
     ANIMATION_TOLERANCE_SECONDS,
@@ -42,6 +43,7 @@ from avengine.optional_backends.spear_apartment import (  # noqa: E402
     WIDTH,
     build_png_encode_command,
     summarize_actor_bounds,
+    summarize_anatomical_forward_readbacks,
     summarize_root_readbacks,
 )
 from run_spear_apartment_canary import (  # noqa: E402
@@ -54,13 +56,46 @@ from run_spear_apartment_canary import (  # noqa: E402
     _apply_camera_state_and_readback,
     _destroy_runtime_actors,
     _read_frame,
+    _sample_anatomical_forward,
     _spawn_camera,
     _spawn_runtime_actors,
+    _neutral_runtime_binding_enabled,
 )
 from run_spear_kujiale_canary import (  # noqa: E402
     _configure_spear,
     _spawn_review_lights,
 )
+
+
+
+def _finite_bias(value: Any) -> float | None:
+    if value is None or isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    bias = float(value)
+    return bias if math.isfinite(bias) else None
+
+
+def _resolve_capture_exposure_bias(
+    args: argparse.Namespace, episode: Mapping[str, Any], plan: Mapping[str, Any]
+) -> tuple[float | None, str]:
+    cli = _finite_bias(getattr(args, "exposure_bias_ev", None))
+    if cli is not None:
+        return cli, "cli"
+    camera = plan.get("camera") if isinstance(plan.get("camera"), Mapping) else {}
+    camera_bias = _finite_bias(camera.get("exposure_bias_ev"))
+    if camera_bias is not None:
+        return camera_bias, "visual_plan.camera"
+    resources = episode.get("resources") if isinstance(episode.get("resources"), Mapping) else {}
+    resource_bias = _finite_bias(resources.get("exposure_bias_ev"))
+    if resource_bias is not None:
+        return resource_bias, "episode.resources"
+    package = resources.get("room_package") if isinstance(resources.get("room_package"), Mapping) else {}
+    planning = package.get("planning_inputs") if isinstance(package.get("planning_inputs"), Mapping) else {}
+    for owner, mapping in (("room_package", package), ("planning_inputs", planning)):
+        bias = _finite_bias(mapping.get("exposure_bias_ev"))
+        if bias is not None:
+            return bias, owner
+    return None, "not_requested"
 
 
 OBJECT_IDS_COMPONENT = "DefaultSceneRoot.sp_object_ids_uint8_"
@@ -243,6 +278,60 @@ def _spawn_multimodal_camera(
         )
     return camera, components
 
+
+
+def _validate_native_route_replay(instance: Any, game: Any, episode: Mapping[str, Any]) -> dict[str, Any]:
+    """Re-query the loaded UE Recast mesh for retained bank path segments."""
+    if episode.get("activity_plan", {}).get("authority") != "native_spear_ue_recast_route_bank":
+        return {"status": "not_requested"}
+    from avengine.backends.spear_ue.research_runtime import run_frame_transaction
+    import importlib.util
+    helper_path = REPOSITORY / "tools/routes/build_apartment_route_bank.py"
+    spec = importlib.util.spec_from_file_location("avengine_native_route_bank_reader", helper_path)
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+    navigation_data, navigation_system, data_name = module._navigation_handles(instance, game)
+    frames = episode["visual_plan"]["frames"]
+    pairs = []
+    for actor in episode["visual_plan"]["actors"]:
+        aid = actor["actor_id"]
+        path = np.array([next(x for x in f["actor_states"] if x["actor_id"] == aid)["translation_ue_cm"]
+                         for f in frames], dtype=np.float64)
+        for first in range(0, len(path) - 1, 5):
+            last = min(first + 5, len(path) - 1)
+            length = float(np.linalg.norm(np.diff(path[first:last + 1], axis=0), axis=1).sum())
+            if length > 0.01:
+                pairs.append((aid, first, last, path[first], path[last], length))
+    if not pairs and episode.get("plan_coordinates") == "renderer_neutral":
+        return {"status": "stationary_retained_native_endpoints", "moving_segments": 0}
+    _require(bool(pairs), "native route replay contains no moving segments")
+    starts = np.ascontiguousarray([x[3] for x in pairs], dtype=np.float64)
+    ends = np.ascontiguousarray([x[4] for x in pairs], dtype=np.float64)
+    paths = run_frame_transaction(
+        instance, apply=lambda: None,
+        readback=lambda: game.navigation_service.find_paths(
+            navigation_system=navigation_system, navigation_data=navigation_data,
+            num_paths=len(pairs), start_points=starts, end_points=ends,
+            require_navigable_end_locations=np.ones(len(pairs), dtype=np.uint8)))
+    _require(len(paths) == len(pairs), "native Recast path count mismatch")
+    records = []
+    for pair, raw in zip(pairs, paths, strict=True):
+        aid, first, last, start, end, intended_length = pair
+        points = np.asarray(raw, dtype=np.float64)
+        _require(points.ndim == 2 and len(points) >= 2 and points.shape[1] == 3,
+                 f"native Recast rejected {aid} frames {first}:{last}")
+        endpoint_error = max(float(np.linalg.norm(points[0] - start)),
+                             float(np.linalg.norm(points[-1] - end)))
+        actual_length = float(np.linalg.norm(np.diff(points, axis=0), axis=1).sum())
+        _require(endpoint_error <= 5.0 and actual_length <= intended_length + 5.0,
+                 f"retained path differs from current native navigation: {aid} {first}:{last}")
+        records.append({"actor_id": aid, "start_frame": first, "end_frame": last,
+                        "endpoint_error_cm": endpoint_error,
+                        "native_path_length_cm": actual_length, "planned_segment_length_cm": intended_length})
+    return {"status": "pass", "authority": "current_loaded_UE_Recast",
+            "navigation_actor": data_name, "segments": records,
+            "claim_boundary": "current native source-center navigation; body-envelope review is separate"}
 
 def _derive_native_pixel_masks(
     *,
@@ -889,8 +978,22 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
 
     episode_root = args.episode_root.expanduser().resolve()
     episode = _load(episode_root / "episode_plan.json")
+    if episode.get("plan_coordinates") == "renderer_neutral":
+        from avengine.capture.qa_plan_adapters import materialize_ue_episode_plan
+        from avengine.runtime_profiles import load_source_asset_runtime_registry
+        registry = load_source_asset_runtime_registry(episode.get("request", {}).get(
+            "source_registry", REPOSITORY / "examples/runtime/source_asset_runtime_profiles.json"))
+        episode = materialize_ue_episode_plan(episode, registry)
     plan = episode["visual_plan"]
     clock = _resolve_plan_clock(episode)
+    # Retained UE plans may carry a per-frame camera pose without the
+    # optional frame_index field. Native readbacks are always frame-indexed,
+    # so bind the already validated visual frame order before running the
+    # runtime and persist that binding in visual_plan.json.
+    for frame in plan["frames"]:
+        camera_state = frame.get("camera_state")
+        if isinstance(camera_state, dict) and camera_state.get("frame_index") is None:
+            camera_state["frame_index"] = int(frame["frame_index"])
     frame_count = clock.frame_count
     frame_rate_hz = int(clock.frame_rate_hz)
     ticks_per_frame = 48000 // frame_rate_hz
@@ -923,9 +1026,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         and capture_height % 2 == 0,
         "capture width and height must be positive even integers",
     )
-    exposure_bias_ev = getattr(args, "exposure_bias_ev", None)
-    if exposure_bias_ev is None:
-        exposure_bias_ev = plan["camera"].get("exposure_bias_ev")
+    exposure_bias_ev, exposure_source = _resolve_capture_exposure_bias(args, episode, plan)
     if exposure_bias_ev is not None:
         _require(
             not isinstance(exposure_bias_ev, bool)
@@ -933,7 +1034,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             and math.isfinite(exposure_bias_ev),
             "camera exposure bias must be finite",
         )
-    exposure_readback: dict[str, Any] = {"status": "not_requested"}
+    exposure_readback: dict[str, Any] = {"status": "not_requested", "source": exposure_source}
     output = args.output.expanduser().resolve()
     if output.exists():
         raise FileExistsError(f"refusing to replace output: {output}")
@@ -941,6 +1042,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     frames_dir = output / "frames"
     frames_dir.mkdir()
     _write(output / "visual_plan.json", plan)
+    if episode.get("execution_coordinates") == "ue_spear":
+        _write(output / "ue_materialized_episode_plan.json", episode)
 
     config_args = argparse.Namespace(**vars(args))
     config_args.frame_rate_hz = frame_rate_hz
@@ -950,9 +1053,11 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     runtimes: dict[str, dict[str, Any]] = {}
     light_records: list[dict[str, Any]] = []
     stage_actor_count = 0
+    level_readback = {"status": "not_run"}
     actor_readbacks = {actor_id: [] for actor_id in actor_ids}
     animation_readbacks = {actor_id: [] for actor_id in actor_ids}
     actor_bounds = {actor_id: [] for actor_id in actor_ids}
+    anatomical_forward_readbacks = {actor_id: [] for actor_id in actor_ids}
     camera_readbacks: list[dict[str, Any]] = []
     emitter_components: dict[str, Any] = {}
     emitter_readbacks: dict[str, list[dict[str, Any]]] = {}
@@ -982,6 +1087,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                     hfov_degrees=float(plan["camera"]["horizontal_fov_deg"]),
                 )
             exposure_readback = apply_capture_exposure(capture, bias_ev=exposure_bias_ev)
+            if isinstance(exposure_readback, dict):
+                exposure_readback = {**exposure_readback, "source": exposure_source}
             capture.set_property_value(
                 property_name="FOVAngle",
                 property_value=float(plan["camera"]["horizontal_fov_deg"]),
@@ -996,13 +1103,51 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                     offset = declaration.get("emitter_local_ue_cm")
                     if offset is not None:
                         actor_id = declaration["actor_id"]
-                        emitter_components[actor_id] = attach_emitter_component(
-                            game, actor_id=actor_id,
-                            anchor_root=runtimes[actor_id]["anchor"].K2_GetRootComponent(),
-                            emitter_local_ue_cm=offset)
+                        emitter_components[actor_id] = runtimes[actor_id].get(
+                            "emitter_component"
+                        )
+                        if emitter_components[actor_id] is None:
+                            emitter_components[actor_id] = attach_emitter_component(
+                                game,
+                                actor_id=actor_id,
+                                anchor_root=runtimes[actor_id]["anchor"].K2_GetRootComponent(),
+                                emitter_local_ue_cm=offset,
+                            )
                         emitter_readbacks[actor_id] = []
                 for state in plan["frames"][0]["actor_states"]:
                     _apply_actor_state(runtimes[state["actor_id"]], state, 0)
+                _write(
+                    output / "native_runtime_binding_readback.json",
+                    {
+                        "schema": "avengine_spear_native_runtime_binding_readback_v1",
+                        "status": "pass",
+                        "actors": {
+                            actor_id: {
+                                "motion_model": runtime.get("motion_model"),
+                                "actor_scale": runtime.get("actor_scale_readback"),
+                                "static_mesh": runtime.get("static_mesh_readback"),
+                                "skeletal_mesh": runtime.get("skeletal_mesh_readback"),
+                                "component_frame_correction": runtime.get(
+                                    "component_frame_correction"
+                                ),
+                                "neutral_visual_frame_correction": runtime.get(
+                                    "neutral_visual_frame_correction"
+                                ),
+                                "ue_emitter_attachment": runtime.get(
+                                    "emitter_attachment"
+                                ),
+                                "hierarchy": runtime.get("hierarchy"),
+                                "animation_paths_by_action_id": runtime.get(
+                                    "animation_paths_by_action_id", {}
+                                ),
+                                "exact_runtime_binding": runtime.get(
+                                    "exact_runtime_binding"
+                                ),
+                            }
+                            for actor_id, runtime in runtimes.items()
+                        },
+                    },
+                )
             light_records = _spawn_review_lights(game, _light_plan(episode))
             game.get_unreal_object(uclass="UGameplayStatics").SetGamePaused(
                 bPaused=False
@@ -1025,6 +1170,13 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             instance.step(num_frames=2)
 
         with instance.begin_frame():
+            actual_level = str(game.get_unreal_object(uclass="UGameplayStatics").GetCurrentLevelName(
+                bRemovePrefixString=True))
+            expected_level = str(episode["scene"]["map_path"]).rsplit("/", 1)[-1]
+            _require(actual_level == expected_level,
+                     f"loaded UE map differs from plan: {actual_level!r} != {expected_level!r}")
+            level_readback = {"status": "pass", "expected": expected_level,
+                              "observed": actual_level, "method": "UGameplayStatics.GetCurrentLevelName"}
             stage_actor_count = len(
                 game.unreal_service.find_actors_by_class(uclass="AUsdStageActor")
             )
@@ -1034,6 +1186,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             raise RuntimeError(
                 f"expected {args.expected_stage_actor_count} UsdStageActor(s), got {stage_actor_count}"
             )
+        navigation_readback = _validate_native_route_replay(instance, game, episode)
+        _write(output / "native_navigation_readback.json", navigation_readback)
 
         for frame_index, frame in enumerate(plan["frames"]):
             native_frame_readback: dict[str, Any] | None = None
@@ -1046,6 +1200,23 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                     )
                     actor_readbacks[actor_id].append(root)
                     animation_readbacks[actor_id].append(animation)
+                    if (
+                        native_multimodal
+                        and _neutral_runtime_binding_enabled(plan)
+                        and frame_index
+                        in {0, frame_count // 2, frame_count - 1}
+                        and runtimes[actor_id].get("motion_model") != "rigid_static"
+                    ):
+                        anatomical_forward_readbacks[actor_id].append(
+                            _sample_anatomical_forward(
+                                game,
+                                runtimes[actor_id]["visual_actor"],
+                                frame_index,
+                                explicit_quadruped_bones=runtimes[
+                                    actor_id
+                                ].get("anatomical_basis_bones"),
+                            )
+                        )
                     if native_multimodal:
                         native_actor_readbacks[actor_id] = root
                 camera_readback = _apply_camera_for_frame(
@@ -1054,8 +1225,55 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                 assert camera_readback is not None
                 camera_readbacks.append(camera_readback)
                 for actor_id, component in emitter_components.items():
-                    emitter_readbacks[actor_id].append({
-                        "frame_index": frame_index, **read_scene_component_pose(component)})
+                    pose = {
+                        "frame_index": frame_index,
+                        **read_scene_component_pose(component),
+                    }
+                    attachment = runtimes[actor_id].get("emitter_attachment")
+                    if (
+                        isinstance(attachment, Mapping)
+                        and attachment.get("attachment_type") == "bone"
+                        and frame_index
+                        in {0, frame_count // 2, frame_count - 1}
+                    ):
+                        bone_location = sample_body_bone_position_in_frame(
+                            runtimes[actor_id]["visual_actor"],
+                            attachment["name"],
+                            unreal_service=game.unreal_service,
+                        )
+                        _require(
+                            bone_location is not None,
+                            f"{actor_id} declared emitter bone is unavailable: "
+                            f"{attachment['name']}",
+                        )
+                        bone_location_list = [
+                            float(value) for value in bone_location
+                        ]
+                        pose["attachment_bone_name"] = attachment["name"]
+                        pose["attachment_bone_world_location_cm"] = (
+                            bone_location_list
+                        )
+                        local_offset = [
+                            float(value)
+                            for value in attachment["local_offset_cm"]
+                        ]
+                        pose["attachment_local_offset_cm"] = local_offset
+                        if max(abs(value) for value in local_offset) <= 1.0e-6:
+                            error = max(
+                                abs(left - right)
+                                for left, right in zip(
+                                    pose["location_cm"],
+                                    bone_location_list,
+                                    strict=True,
+                                )
+                            )
+                            pose["attachment_position_error_cm"] = error
+                            _require(
+                                error <= 1.0e-3,
+                                f"{actor_id} bone emitter position differs from "
+                                f"{attachment['name']}: {error} cm",
+                            )
+                    emitter_readbacks[actor_id].append(pose)
                 if native_multimodal:
                     native_frame_readback = {
                         "camera": camera_readback,
@@ -1092,7 +1310,14 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
 
         if native_multimodal:
             _require(components is not None, "native multimodal components are missing")
+            _write(output / "normal_pass_readbacks.json", {
+                "clock": clock.to_dict(), "camera": camera_readbacks,
+                "actors": actor_readbacks, "animations": animation_readbacks,
+                "bounds": actor_bounds, "emitters": emitter_readbacks,
+                "status": "normal_pass_complete_target_depth_pending",
+            })
             for target_actor_id in actor_ids:
+                print(f"[residential] target-only depth: {target_actor_id}", flush=True)
                 target_depths_by_actor[target_actor_id] = []
                 target_readbacks[target_actor_id] = []
                 with instance.begin_frame():
@@ -1130,6 +1355,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                         target_depth = _depth_native(components["depth"])
                     target_depths_by_actor[target_actor_id].append(target_depth)
                     target_readbacks[target_actor_id].append(target_frame_readback)
+                print(f"[residential] target-only complete: {target_actor_id}, {len(target_readbacks[target_actor_id])} frames", flush=True)
+            print("[residential] all native passes complete; closing UE before evidence compression", flush=True)
     finally:
         if runtimes:
             try:
@@ -1156,6 +1383,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
 
     native_pixel: dict[str, Any] | None = None
     if native_multimodal:
+        print("[residential] compressing complete native pixel evidence", flush=True)
         native_pixel = _finalize_native_pixel_artifacts(
             output=output,
             episode=episode,
@@ -1187,6 +1415,13 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     )
     animation_gate = {}
     for actor_id, records in animation_readbacks.items():
+        if runtimes[actor_id].get("motion_model") == "rigid_static":
+            animation_gate[actor_id] = {
+                "status": "not_applicable",
+                "motion_model": "rigid_static",
+                "action_ids": [],
+            }
+            continue
         maximum = max(item["absolute_error_seconds"] for item in records)
         if maximum > ANIMATION_TOLERANCE_SECONDS:
             raise RuntimeError(f"{actor_id} animation phase readback failed")
@@ -1200,12 +1435,47 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         readbacks=camera_readbacks,
         frame_count=frame_count,
     )
+    anatomical_forward_gate: dict[str, Any] = {"status": "not_requested"}
+    if _neutral_runtime_binding_enabled(plan) and native_multimodal:
+        articulated_actor_ids = {
+            actor_id
+            for actor_id, runtime in runtimes.items()
+            if runtime.get("motion_model") != "rigid_static"
+        }
+        if articulated_actor_ids:
+            articulated_frames = [
+                {
+                    **frame,
+                    "actor_states": [
+                        state
+                        for state in frame["actor_states"]
+                        if state["actor_id"] in articulated_actor_ids
+                    ],
+                }
+                for frame in plan["frames"]
+            ]
+            anatomical_forward_gate = summarize_anatomical_forward_readbacks(
+                expected_frames=articulated_frames,
+                visual_forward_readbacks={
+                    actor_id: anatomical_forward_readbacks[actor_id]
+                    for actor_id in articulated_actor_ids
+                },
+            )
+        else:
+            anatomical_forward_gate = {
+                "status": "not_applicable",
+                "reason": "episode contains no articulated skeletal actors",
+            }
 
     _write(output / "frame_readbacks.json", {
         "clock": clock.to_dict(), "camera": camera_readbacks,
         "actors": actor_readbacks, "animations": animation_readbacks,
         "bounds": actor_bounds, "emitters": emitter_readbacks,
+        "anatomical_forward": anatomical_forward_readbacks,
     })
+    if episode.get("kind") == "avengine_question_driven_episode":
+        from avengine.capture.ue_neutral_readback import write_ue_neutral_readback
+        write_ue_neutral_readback(output, episode)
     visual = output / "ue_visual_only.mp4"
     subprocess.run(
         build_png_encode_command(
@@ -1239,12 +1509,14 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             "backend_role": episode["visual_plan"]["backend_role"],
             "scene": _runtime_scene_receipt(episode, stage_actor_count=stage_actor_count),
             "stage_actor_count": stage_actor_count,
+            "native_level_readback": level_readback,
             "runtime_review_lights": light_records,
             "capture_exposure_readback": exposure_readback,
             "visual_lighting": episode["visual_lighting"],
             "root_readback": _research_root_readback_summary(root_gate),
             "camera_full_rotation_readback": camera_rotation_gate,
             "animation_phase_readback": animation_gate,
+            "anatomical_forward_readback": anatomical_forward_gate,
             "visual_bounds_readback": bounds_gate,
             "media": {"ue_visual_only": visual_probe},
             "audio": {"status": "not_requested"},
@@ -1296,6 +1568,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "root_readback": root_gate,
         "camera_full_rotation_readback": camera_rotation_gate,
         "animation_phase_readback": animation_gate,
+        "anatomical_forward_readback": anatomical_forward_gate,
         "visual_bounds_readback": bounds_gate,
         "media": media,
         "authority": {
@@ -1340,6 +1613,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--rpc-port", type=int, default=39379)
     parser.add_argument("--graphics-adapter", type=int, default=0)
+    parser.add_argument("--ddc-profile", help="optional installed UE derived-data cache profile")
+    parser.add_argument("--ddc-directory", type=Path, help="task-owned reusable UE derived-data cache")
     parser.add_argument("--width", type=int, default=WIDTH)
     parser.add_argument("--height", type=int, default=HEIGHT)
     parser.add_argument("--exposure-bias-ev", type=float,

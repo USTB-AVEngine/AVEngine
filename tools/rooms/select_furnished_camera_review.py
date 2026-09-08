@@ -1,8 +1,8 @@
 """Choose a furnished-room camera from actual SPEAR per-person visibility masks.
 
 This consumes the existing native camera review and emits a fixed-camera
-research plan. It ranks the least visible person first so a large foreground
-actor cannot hide a missing participant in an average visibility score.
+research plan. Natural occlusion and offscreen actors are preserved as facts.
+Only explicitly requested question targets must have visible native pixels.
 """
 from __future__ import annotations
 import argparse
@@ -18,10 +18,13 @@ sys.path.insert(0, str(REPOSITORY / "src"))
 from avengine.rooms.furniture_layout import clock_config
 
 
-def rank_segments(segments, visible_counts, target_counts):
+def rank_segments(segments, visible_counts, target_counts, *, required_actor_ids=()):
     actor_ids = list(visible_counts)
     if not actor_ids or set(actor_ids) != set(target_counts):
         raise ValueError("visible and target actor closure differs")
+    required = set(required_actor_ids)
+    if not required <= set(actor_ids):
+        raise ValueError("required visibility target is not a declared actor")
     frame_counts = {len(v) for v in visible_counts.values()} | {len(v) for v in target_counts.values()}
     if len(frame_counts) != 1:
         raise ValueError("native pixel frame counts differ")
@@ -59,14 +62,20 @@ def rank_segments(segments, visible_counts, target_counts):
             "minimum_visible_pixels": min(x["median_visible_pixels"] for x in per_actor.values()),
             "minimum_visible_fraction": min(x["median_visible_fraction"] for x in per_actor.values()),
             "total_visible_pixels": sum(x["median_visible_pixels"] for x in per_actor.values()),
+            "engine_review_score": segment.get("review_score"),
         }
         rows.append(row)
     if covered != set(range(frame_count)):
         raise ValueError("camera segments do not cover the native frames")
-    rows.sort(key=lambda r: (-r["minimum_visible_pixels"], -r["minimum_visible_fraction"],
-                             -r["total_visible_pixels"], r["candidate_id"]))
-    if not rows or rows[0]["minimum_visible_pixels"] <= 0:
-        raise ValueError("no reviewed camera shows every actor")
+    # Keep the engine's composition ranking. Visibility is a question-specific
+    # filter, not a global demand for all actors or whole bodies to be in frame.
+    if required:
+        rows = [r for r in rows if all(
+            r["per_actor"][actor_id]["median_visible_pixels"] > 0
+            for actor_id in required
+        )]
+    if not rows:
+        raise ValueError("no reviewed camera shows the explicitly required targets")
     return rows
 
 
@@ -84,7 +93,9 @@ def count_native_masks(visible, target, *, semantic_id, frame_count):
     return np.count_nonzero(visible, axis=(1, 2)), np.count_nonzero(target, axis=(1, 2))
 
 
-def select_camera(*, episode_root: Path, capture_root: Path, output: Path, frame_count: int):
+def select_camera(*, episode_root: Path, capture_root: Path, output: Path,
+                  frame_count: int, candidate_id: str | None = None,
+                  required_actor_ids=()):
     episode_root, capture_root, output = (p.expanduser().resolve() for p in (episode_root, capture_root, output))
     if output.exists():
         raise FileExistsError(f"refusing to replace output: {output}")
@@ -111,8 +122,14 @@ def select_camera(*, episode_root: Path, capture_root: Path, output: Path, frame
                 frame_count=len(plan["frames"]),
             )
     segments = plan["camera_review"]["segments"]
-    ranking = rank_segments(segments, visible_counts, target_counts)
-    winner = ranking[0]
+    ranking = rank_segments(segments, visible_counts, target_counts,
+                            required_actor_ids=required_actor_ids)
+    if candidate_id is None:
+        winner = ranking[0]
+    else:
+        winner = next((r for r in ranking if r["candidate_id"] == candidate_id), None)
+        if winner is None:
+            raise ValueError("selected candidate is absent or fails requested target visibility")
     selected_segment = next(s for s in segments if s["candidate_id"] == winner["candidate_id"])
     camera = deepcopy(selected_segment["camera"])
     clock = clock_config(frame_count=frame_count,
@@ -136,7 +153,8 @@ def select_camera(*, episode_root: Path, capture_root: Path, output: Path, frame
         "selection_mode": "native_pixel_review",
         "selected_candidate_id": winner["candidate_id"],
         "capture_root": str(capture_root),
-        "ranking_rule": "maximize minimum per-person visible pixels, then visibility fraction",
+        "ranking_rule": "preserve engine composition order; filter only explicit question targets",
+        "required_visible_actor_ids": list(required_actor_ids),
         "metrics": winner,
         "visual_quality_review_pending": True,
     }
@@ -175,6 +193,10 @@ def main():
     parser.add_argument("--capture-root", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--frame-count", default=240, type=int)
+    parser.add_argument("--candidate-id", help="explicitly reviewed engine candidate")
+    parser.add_argument("--require-visible-actor", action="append", default=[],
+                        dest="required_actor_ids",
+                        help="optional visibility target required by a particular question")
     args = parser.parse_args()
     report = select_camera(**vars(args))
     print(json.dumps({key: report[key] for key in ("status", "selected_candidate_id", "representative_image")}, indent=2))
