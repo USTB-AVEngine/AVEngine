@@ -604,7 +604,8 @@ def merge_attempts(
             missing_question_files.append(record["episode_id"])
             continue
         question_counts.update(item["qa_id"] for item in _load_json(Path(question_path)).get("items", []))
-    qa_ids = [f"QA-{number:02d}" for number in range(1, 25)]
+    from avengine.qa.unified_catalog import QA_IDS
+    qa_ids = list(QA_IDS)
     summary = {
         "questions": {
             "valid_item_count": sum(question_counts.values()),

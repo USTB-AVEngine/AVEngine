@@ -6,6 +6,8 @@ The planner never adds room furniture and never selects by room name.
 """
 from __future__ import annotations
 
+from avengine.qa.unified_catalog import QA_IDS
+
 from collections import Counter
 from copy import deepcopy
 import json
@@ -729,7 +731,7 @@ def build_qa_episode_plan(
         if motion != "static":
             raise QAPlanningError("conditioned_static_v2 requires a static camera")
     rng = np.random.default_rng(seed)
-    qa_ids = list(request.get("qa_ids", [f"QA-{i:02d}" for i in range(1, 25)]))
+    qa_ids = list(request.get("qa_ids", list(QA_IDS)))
     from avengine.qa.unified_catalog import get_requirements
     activity = str(request.get("activity", "auto"))
     if activity == "auto":

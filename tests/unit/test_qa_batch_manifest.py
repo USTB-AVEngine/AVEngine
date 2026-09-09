@@ -68,7 +68,7 @@ def test_preallocation_is_deterministic_independent_and_preserves_inputs(inputs)
         assert resolve_condition_profile(row["request"], inputs[1]) == row["requested_profile"]
         speakers = [actor for actor in row["source_assignments"] if actor["speaking"]]
         assert len({actor["sound_identity_id"] for actor in speakers}) == len(speakers)
-        assert len(row["request"]["qa_ids"]) == 24
+        assert len(row["request"]["qa_ids"]) == 25
         assert row["achieved_conditions"] is None
     silent = [a for a in first["episodes"][1]["source_assignments"] if not a["speaking"]]
     assert silent[0]["sound_asset_ids"] == []
@@ -217,7 +217,7 @@ def test_missing_sound_identity_retains_quota_and_failure(inputs):
                                                "failure_histogram": {"sounds:no_distinct": 200}}])
     assert outcomes["episode_denominator"] == 2
     assert outcomes["outcome_counts"] == {"planning_failed": 1, "not_run": 1}
-    assert sum(sum(row["unmet_quota_by_qa"].values()) for row in outcomes["episodes"]) == 48
+    assert sum(sum(row["unmet_quota_by_qa"].values()) for row in outcomes["episodes"]) == 54
 
 
 def test_wall_asset_remains_in_manifest_with_explicit_interface_gap(inputs):
@@ -233,7 +233,7 @@ def test_wall_asset_remains_in_manifest_with_explicit_interface_gap(inputs):
     assert row["source_assignments"][0]["appearance"]["status"] == "unknown"
     assert any(gap["state"] == "interface_not_implemented" for gap in row["preallocation_gaps"])
     assert "wall" in result["asset_inventory"]
-    assert len(row["requested_quota_by_qa"]) == 24
+    assert len(row["requested_quota_by_qa"]) == 25
 
 
 def test_profile_substitution_does_not_satisfy_requested_quota(inputs):
@@ -323,7 +323,7 @@ def test_fixed_repeat_identities_keep_their_unmet_budget_instead_of_substitution
                if row["code"] == "fixed_sound_identities_exceed_profile_clip_budget")
     assert gap["minimum_program_seconds_under_sampler_clip_budget"] > 13
     assert gap["identity_substitution_applied"] is False
-    assert len(episode["requested_quota_by_qa"]) == 24
+    assert len(episode["requested_quota_by_qa"]) == 25
 
 
 def test_repeat_legal_pair_is_accepted_without_deficit(inputs):

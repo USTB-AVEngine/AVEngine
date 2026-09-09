@@ -324,7 +324,7 @@
 | `tools/qa/floor_reference.py` | Per-room floor reference: the measured UE z of the walkable floor |
 | `tools/qa/generate_qa_v2_questions.py` | QA v2 question generation for a constraint-driven batch |
 | `tools/qa/generate_qa_v3_questions.py` | Generate qa-v3 pilot fact records + question candidates (cards ①⑦⑧⑨) |
-| `tools/qa/generate_unified_questions.py` | Generate the QA-01..QA-24 views from one native episode bundle |
+| `tools/qa/generate_unified_questions.py` | Generate the QA-01..QA-25 views from one native episode bundle |
 | `tools/qa/join_f2_direction_pixel.py` | Join F2 direction facts with native windowed pixel/audio evidence |
 | `tools/qa/join_f2_offscreen_identity_pixel.py` | Join native main/GateB pixel evidence for an F2 identity candidate |
 | `tools/qa/join_qa_v3_extended_pixel.py` | Join native pixel truth to pixel-dependent QA-v3 candidates |

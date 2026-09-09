@@ -244,7 +244,7 @@ def test_denominator_is_stable_when_every_qa_is_deferred(tmp_path: Path) -> None
             "code": "insufficient_candidates",
             "detail": "deferred test",
         }
-        for qa_id in [f"QA-{index:02d}" for index in range(1, 25)]
+        for qa_id in [f"QA-{index:02d}" for index in range(1, 26)]
     ]
     manifest = _manifest(
         tmp_path,
@@ -271,8 +271,8 @@ def test_denominator_is_stable_when_every_qa_is_deferred(tmp_path: Path) -> None
         ],
     )
     result = build_batch_coverage(manifest)
-    assert result["denominator"]["row_count"] == 24
-    assert len(result["rows"]) == 24
+    assert result["denominator"]["row_count"] == 25
+    assert len(result["rows"]) == 25
     assert {row["state"] for row in result["rows"]} == {"deferred_by_rule"}
 
 
@@ -315,7 +315,7 @@ def test_same_family_rooms_remain_separate(tmp_path: Path) -> None:
     }
     assert qa02["authored_a"]["state"] == "produced"
     assert qa02["authored_b"]["state"] == "evidence_missing_or_unsampled"
-    assert result["denominator"]["row_count"] == 48
+    assert result["denominator"]["row_count"] == 50
 
 
 def test_global_item_is_not_multiplied_over_mixed_pair(tmp_path: Path) -> None:
@@ -583,7 +583,7 @@ def test_structural_report_uses_p8_form_structure_and_open_k_is_null() -> None:
     assert open_row["random_rate_calibration"].startswith("uncalibrated_open")
 
 
-def test_joint_summary_has_three_classes_by_seven_rooms_by_24_qas(
+def test_joint_summary_has_three_classes_by_seven_rooms_by_25_qas(
     tmp_path: Path,
 ) -> None:
     assets = [
@@ -606,8 +606,8 @@ def test_joint_summary_has_three_classes_by_seven_rooms_by_24_qas(
         )
     )
     joint = result["summaries"]["joint_asset_class_family_room_qa"]
-    assert joint["row_count"] == 3 * 7 * 24
-    assert len(joint["cells"]) == 504
+    assert joint["row_count"] == 3 * 7 * 25
+    assert len(joint["cells"]) == 525
 
 
 

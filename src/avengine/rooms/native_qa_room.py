@@ -9,6 +9,8 @@ upstream room package.
 
 from __future__ import annotations
 
+from avengine.qa.unified_catalog import QA_IDS
+
 from copy import deepcopy
 from dataclasses import dataclass
 import json
@@ -705,7 +707,7 @@ def build_native_apartment_qa_plan(
     if conditioned:
         from avengine.rooms.qa_episode import build_qa_episode_plan
         request = {"episode_id": episode_id, "source_asset_ids": selected,
-                   "qa_ids": list(qa_ids or [f"QA-{i:02d}" for i in range(1, 25)]),
+                   "qa_ids": list(qa_ids or list(QA_IDS)),
                    "seed": seed, "frame_count": frame_count, "frame_rate_hz": frame_rate_hz,
                    "sample_rate_hz": sample_rate_hz, "sampling_policy": sampling_policy,
                    "camera": {"motion": camera_motion, "fov_deg": effective_fov},
@@ -746,7 +748,7 @@ def build_native_apartment_qa_plan(
         "camera_candidate_adapter": raster_nav["authority"],
     }
     actors = [source_declaration(source_registry, asset_id, f"source{index + 1}") for index, asset_id in enumerate(selected)]
-    ids = list(qa_ids or [f"QA-{index:02d}" for index in range(1, 25)])
+    ids = list(qa_ids or list(QA_IDS))
     capability = room_capabilities(layout, native_nav, actors, sounds)
     matching = match_question_conditions(ids, capability)
     if matching["status"] == "unsupported":

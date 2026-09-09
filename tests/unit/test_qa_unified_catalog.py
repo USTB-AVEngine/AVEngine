@@ -160,6 +160,9 @@ def _fixture() -> dict:
     ]
     return {
         "episode_id": "unified_fixture",
+        # Legacy short-window behavior remains available through an explicit
+        # precision; the current public default is tested separately at zero.
+        "sampling": {"time_display_precision": 2},
         "actors": actors,
         "frame_readbacks": {
             **frame_readbacks,
@@ -215,7 +218,7 @@ def _fixture() -> dict:
 
 def test_catalog_is_complete_and_requirements_are_pre_capture() -> None:
     assert [item["qa_id"] for item in CATALOG] == [
-        f"QA-{index:02d}" for index in range(1, 25)
+        f"QA-{index:02d}" for index in range(1, 26)
     ]
     requirements = get_requirements("qa_13")
     assert requirements["qa_id"] == "QA-13"
@@ -337,8 +340,8 @@ def test_ue_camera_basis_maps_forward_and_right_without_a_90_degree_bias() -> No
 
 def test_generation_reports_valid_rows_and_exact_missing_conditions() -> None:
     result = generate_unified_questions(_fixture(), seed="fixture")
-    assert result["counts"]["requested"] == 24
-    assert result["counts"]["valid"] + result["counts"]["deferred"] == 24
+    assert result["counts"]["requested"] == 25
+    assert result["counts"]["valid"] + result["counts"]["deferred"] == 25
     by_id = {item["qa_id"]: item for item in result["items"]}
     if "QA-13" in by_id:
         assert by_id["QA-13"]["evidence"]["target_unobservable_at_query"] is False
@@ -579,19 +582,19 @@ def test_p8_candidate_enumeration_and_structural_baseline_are_explicit() -> None
 
 def test_p8_sampling_executes_frame_zero_window_and_rejects_invalid_frame() -> None:
     raw = _fixture()
-    raw["sampling"] = {"query_frame_by_qa": {"QA-14": 0}}
+    raw["sampling"] = {"time_display_precision": 2, "query_frame_by_qa": {"QA-14": 0}}
     result = generate_unified_questions(raw, qa_ids=["QA-14"], seed="frame-zero")
     assert result["counts"] == {"requested": 1, "valid": 1, "deferred": 0}
     assert result["items"][0]["evidence"]["query_frame"] == 0
 
     raw = _fixture()
-    raw["sampling"] = {"query_frame_by_qa": {"QA-14": 999}}
+    raw["sampling"] = {"time_display_precision": 2, "query_frame_by_qa": {"QA-14": 999}}
     result = generate_unified_questions(raw, qa_ids=["QA-14"], seed="bad-frame")
     assert result["counts"] == {"requested": 1, "valid": 0, "deferred": 1}
     assert result["deferred"][0]["code"] == "query_frame_out_of_range"
 
     raw = _fixture()
-    raw["sampling"] = {
+    raw["sampling"] = {"time_display_precision": 2,
         "query_frame_by_qa": {
             "QA-14": {
                 "policy": "uniform_in_legal_window",
@@ -657,7 +660,7 @@ def test_p8_conditioned_qa13_defers_mcq_outside_in_view_domain() -> None:
     assert result["deferred"][0]["open_and_mcq_deferred"] is True
 def test_p8_question_wording_and_transcript_metrics_are_explicit() -> None:
     raw = _fixture()
-    raw["sampling"] = {"query_time_s_by_qa": {"QA-18": 0.0}}
+    raw["sampling"] = {"time_display_precision": 2, "query_time_s_by_qa": {"QA-18": 0.0}}
     raw["audio_readback"]["source_activity_intervals_samples"] = [
         {
             "event_id": event["event_id"],
@@ -973,7 +976,7 @@ def test_p8_distractor_gate_is_per_form_and_preserves_exceptions() -> None:
 
 def test_p8_qa14_enumerates_actor_pair_by_legal_query_frame() -> None:
     raw = _fixture()
-    raw["sampling"] = {
+    raw["sampling"] = {"time_display_precision": 2,
         "query_frame_by_qa": {
             "QA-14": {
                 "policy": "uniform_in_legal_window",
@@ -1092,7 +1095,7 @@ def test_p8_qa18_requires_source_activity_and_separates_wet_tail() -> None:
     assert silent["counts"]["valid"] == 1
     assert silent["items"][0]["truth"]["value"] == "none"
 
-    raw["sampling"] = {"query_time_s_by_qa": {"QA-18": 0.3}}
+    raw["sampling"] = {"time_display_precision": 2, "query_time_s_by_qa": {"QA-18": 0.3}}
     wet = generate_unified_questions(raw, qa_ids=["QA-18"], seed="activity-wet")
     assert wet["counts"] == {"requested": 1, "valid": 0, "deferred": 1}
     assert wet["deferred"][0]["code"] == "query_inside_wet_tail"

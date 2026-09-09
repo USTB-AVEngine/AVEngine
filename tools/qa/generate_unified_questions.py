@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate the QA-01..QA-24 views from one native episode bundle.
+"""Generate the QA-01..QA-25 views from one native episode bundle.
 
 The input is the raw bundle accepted by
 avengine.qa.unified_catalog.normalize_episode_bundle. The command writes a
@@ -10,6 +10,7 @@ it never overwrites an existing artifact.
 from __future__ import annotations
 
 import argparse
+from copy import deepcopy
 import json
 from pathlib import Path
 import sys
@@ -21,8 +22,10 @@ sys.path.insert(0, str(REPOSITORY / "src"))
 
 from avengine.qa.unified_catalog import (  # noqa: E402
     UnifiedQAError,
+    UNIFIED_FACT_SCHEMA,
     generate_unified_questions,
     normalize_episode_bundle,
+    model_input_questions,
 )
 
 
@@ -54,6 +57,8 @@ def _load_bundle(args: argparse.Namespace) -> dict[str, Any]:
         value = _read_json(args.input.resolve())
         if not isinstance(value, dict):
             raise UnifiedQAError("--input must contain a JSON object")
+        if args.camera_calibration is not None:
+            value["camera_calibration"] = _read_json(args.camera_calibration.resolve())
         return value
     raw: dict[str, Any] = {}
     if args.episode_id:
@@ -71,6 +76,7 @@ def _load_bundle(args: argparse.Namespace) -> dict[str, Any]:
         ("source_endpoint_registry", args.source_endpoint_registry),
         ("occluder_evidence", args.occluder_evidence),
         ("occluder_registry", args.occluder_registry),
+        ("camera_calibration", args.camera_calibration),
     ):
         if path is not None:
             raw[field] = _read_json(path.resolve())
@@ -89,17 +95,24 @@ def build(
     qa_ids: list[str] | None,
     facts_output: Path | None = None,
     include_facts: bool = False,
+    items_per_type: int = 1,
+    include_angle_followups: bool = True,
+    model_inputs_output: Path | None = None,
 ) -> dict[str, Any]:
     if raw is None:
         if input_path is None:
             raise UnifiedQAError("input_path is required when raw bundle is absent")
         raw = _read_json(input_path)
-    facts = normalize_episode_bundle(raw)
+    facts = deepcopy(raw) if raw.get("schema") == UNIFIED_FACT_SCHEMA else normalize_episode_bundle(raw)
     result = generate_unified_questions(
         facts,
         qa_ids=qa_ids,
         seed=seed,
+        items_per_type=items_per_type,
+        include_angle_followups=include_angle_followups,
     )
+    if model_inputs_output is not None:
+        _write_json(model_inputs_output, model_input_questions(result))
     if facts_output is not None:
         _write_json(facts_output, facts)
         result["normalized_facts_path"] = str(facts_output.resolve())
@@ -126,11 +139,15 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--source-endpoint-registry", type=Path)
     parser.add_argument("--occluder-evidence", type=Path)
     parser.add_argument("--occluder-registry", type=Path)
+    parser.add_argument("--camera-calibration", type=Path, help="public pinhole calibration JSON for visual bearings")
+    parser.add_argument("--items-per-type", type=int, default=1, help="quota per QA type; for QA-25, per A/V/AV subset")
+    parser.add_argument("--no-angle-followups", action="store_true")
+    parser.add_argument("--model-inputs-out", type=Path, help="public questions and calibration including linked angle followups")
     parser.add_argument("--out", required=True, type=Path)
     parser.add_argument("--seed", default="avengine-qa-20260906")
     parser.add_argument(
         "--qa-ids",
-        help="comma-separated QA numbers; default is all QA-01 through QA-24",
+        help="comma-separated QA numbers; default is all QA-01 through QA-25",
     )
     parser.add_argument(
         "--facts-out",
@@ -153,6 +170,9 @@ def main(argv: list[str] | None = None) -> int:
             qa_ids=_qa_ids(args.qa_ids),
             facts_output=args.facts_out.resolve() if args.facts_out else None,
             include_facts=args.include_facts,
+            items_per_type=args.items_per_type,
+            include_angle_followups=not args.no_angle_followups,
+            model_inputs_output=args.model_inputs_out.resolve() if args.model_inputs_out else None,
         )
     except (OSError, ValueError, UnifiedQAError) as error:
         print(f"ERROR: {error}", file=sys.stderr)

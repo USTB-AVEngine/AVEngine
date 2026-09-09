@@ -1,4 +1,4 @@
-"""Deterministic scoring for the unified QA-01..QA-24 question forms.
+"""Deterministic scoring for the unified QA-01..QA-25 question forms.
 
 The scorer accepts one generated question item and a model answer. It never
 reads the hidden engine evidence from the input bundle. MCQ answers are exact
@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import math
 import re
+import statistics
 import unicodedata
 from collections.abc import Mapping, Sequence
 from typing import Any
@@ -603,7 +604,7 @@ def score_open_form(
     if answer_type == "angle_deg":
         full = form.get("theta_full_deg", params.get("THETA_FULL", 15.0))
         half = form.get("theta_half_deg", params.get("THETA_HALF", 30.0))
-        return score_angle(
+        result = score_angle(
             answer,
             truth,
             full_tolerance_deg=full,
@@ -611,6 +612,11 @@ def score_open_form(
             convention=str(form.get("convention", "right_positive")),
             strict=bool(form.get("strict_certification", False)),
         )
+        if form.get("scoring_mode") == "continuous" and result.get("status") == "scored":
+            result["score"] = 1.0 - result["circular_error_deg"] / 180.0
+            result["score_definition"] = "1 - circular_error_deg / 180; use angle_metrics as primary"
+            result.pop("diagnostic_two_tier_score", None)
+        return result
     if answer_type == "time_range_s":
         return score_time_range(answer, truth, form=form)
     if answer_type == "time_s":
@@ -684,6 +690,17 @@ def score_unified_question_set(
             )
     else:
         raise UnifiedScoreError("answers must be a mapping or records")
+    from avengine.qa.unified_catalog import iter_unified_items
+    all_items = list(iter_unified_items(question_set))
+    # Public exports use ordinal transport IDs because legacy private IDs carry
+    # target/event/frame evidence. Keep legacy answer IDs accepted as well.
+    for index, item in enumerate(all_items):
+        public_id = f"question_{index + 1:06d}"
+        if public_id in answer_map and item["question_id"] not in answer_map:
+            answer_map[item["question_id"]] = answer_map[public_id]
+    items = [item for item in iter_unified_items(question_set, include_angle_followups=form == "open")
+             if not (form not in item.get("forms", {}) and
+                     item.get("form_status", {}).get(form, {}).get("code") == "continuous_numeric_only")]
     records: list[dict[str, Any]] = []
     for item in items:
         if not isinstance(item, Mapping):
@@ -724,6 +741,7 @@ def score_unified_question_set(
             else None
         ),
         "records": records,
+        "angle_metrics": angular_metrics(items, records) if form == "open" else None,
         "claim_boundary": (
             "Scores describe supplied model answers against research candidate "
             "golds; they do not certify data validity or modality necessity."
@@ -746,3 +764,45 @@ __all__ = [
     "score_unified_item",
     "score_unified_question_set",
 ]
+
+
+def angular_metrics(items: Sequence[Mapping[str, Any]], records: Sequence[Mapping[str, Any]],
+                    thresholds_deg: Sequence[float] = (1.0, 3.0, 5.0, 10.0)) -> dict[str, Any]:
+    """Circular errors on parsed answers; accuracy denominators include missing/invalid."""
+    thresholds = [float(value) for value in thresholds_deg]
+    if not thresholds or any(not math.isfinite(value) or value < 0 or value > 180 for value in thresholds):
+        raise UnifiedScoreError("angle thresholds must be finite degrees between 0 and 180")
+    by_id = {row.get("question_id"): row for row in records}
+    angle_items = [item for item in items if item.get("forms", {}).get("open", {}).get("answer_type") == "angle_deg"]
+
+    def summarize(selected):
+        errors = [float(by_id[item["question_id"]]["circular_error_deg"]) for item in selected
+                  if by_id.get(item["question_id"], {}).get("status") == "scored"
+                  and isinstance(by_id[item["question_id"]].get("circular_error_deg"), (int, float))
+                  and math.isfinite(by_id[item["question_id"]]["circular_error_deg"])]
+        return {"total": len(selected), "parsed": len(errors), "unparsed": len(selected) - len(errors),
+                "mae_deg": statistics.fmean(errors) if errors else None,
+                "median_deg": statistics.median(errors) if errors else None,
+                "accuracy_at_deg": {f"{threshold:g}": sum(error <= threshold for error in errors) / len(selected)
+                                    if selected else None for threshold in thresholds}}
+
+    paired = [item for item in angle_items if item.get("parent_question_id")]
+    binding = [item for item in paired if item.get("binding_parent")]
+    def joint(selected):
+        correct = [item for item in selected if by_id.get(item["parent_question_id"], {}).get("status") == "scored"
+                   and by_id[item["parent_question_id"]].get("score") == 1.0]
+        return {"total": len(selected), "parent_accuracy": len(correct) / len(selected) if selected else None,
+                "joint_accuracy_at_deg": {f"{threshold:g}": sum(
+                    by_id.get(item["question_id"], {}).get("status") == "scored"
+                    and by_id[item["question_id"]].get("circular_error_deg", math.inf) <= threshold
+                    for item in correct) / len(selected) if selected else None for threshold in thresholds}}
+    return {**summarize(angle_items),
+            "error_denominator": "finite parsed angle answers", "accuracy_denominator": "all angle questions including missing, invalid and abstained",
+            "thresholds_are_reporting_dimensions": True,
+            "by_qa": {qa_id: summarize([item for item in angle_items if item.get("qa_id") == qa_id])
+                      for qa_id in sorted({item["qa_id"] for item in angle_items})},
+            "qa25_by_subset": {subset: summarize([item for item in angle_items if item.get("qa_id") == "QA-25" and item.get("angle_subset") == subset])
+                               for subset in ("A", "V", "AV")},
+            "followup_parent_joint": joint(paired), "instance_binding_joint": joint(binding)}
+
+__all__.append("angular_metrics")

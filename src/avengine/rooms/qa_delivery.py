@@ -1464,6 +1464,8 @@ def finalize_qa_episode(
     write_json(derived / "evidence_contract_validation.json", contract_validation)
     facts_path = derived / "facts.json"
     questions_path = derived / "questions.json"
+    from avengine.qa.angular_questions import camera_calibration_from_capture
+    raw["camera_calibration"] = camera_calibration_from_capture(capture_root)
     facts = normalize_episode_bundle(raw)
     facts.setdefault("audio", {})["path"] = str(mixture)
     facts["audio"]["actual_path"] = str(mixture)
@@ -1479,13 +1481,16 @@ def finalize_qa_episode(
         facts["source_paths"]["video"] = str(final_video)
     qa_ids = request_value.get("qa_ids") if isinstance(request_value, Mapping) else None
     questions = generate_unified_questions(
-        facts, qa_ids=qa_ids, seed=str(plan.get("seed", capture_root.name))
+        facts, qa_ids=qa_ids, seed=str(plan.get("seed", capture_root.name)),
+        items_per_type=int(request_value.get("items_per_type", 1)),
     )
     questions.pop("input_facts", None)
     questions["normalized_facts_path"] = str(facts_path.resolve())
     try:
         write_json(facts_path, facts)
         write_json(questions_path, questions)
+        from avengine.qa.unified_catalog import model_input_questions
+        write_json(derived / "model_inputs.json", model_input_questions(questions))
     except Exception:
         facts_path.unlink(missing_ok=True)
         questions_path.unlink(missing_ok=True)

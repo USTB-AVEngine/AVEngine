@@ -326,7 +326,10 @@ def finalize_batch_episode(episode_root: Path, manifest_entry: Mapping[str, Any]
     achieved_path = root / "achieved_conditions.json"
     _write(achieved_path, achieved)
     produced = Counter(item["qa_id"] for item in questions["items"])
-    qa_ids = [f"QA-{index:02d}" for index in range(1, 25)]
+    from avengine.qa.unified_catalog import QA_IDS
+    legacy_ids = [qa_id for qa_id in QA_IDS if qa_id != "QA-25"]
+    default_ids = list(QA_IDS) if questions.get("catalog_version", "20260906") >= "20260909" else legacy_ids
+    qa_ids = list(plan.get("request", {}).get("qa_ids") or default_ids)
     if set(questions.get("coverage_by_qa", {})) != set(qa_ids):
         raise ValueError("delivery is missing requested QA-type denominator entries")
     commands = [sys.executable, str(repository / "tools/qa/audit_binding_feasibility.py"),

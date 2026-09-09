@@ -28,7 +28,7 @@ COVERAGE_STATES = (
     "interface_not_implemented",
     "evidence_missing_or_unsampled",
 )
-QA_IDS = tuple(f"QA-{index:02d}" for index in range(1, 25))
+from avengine.qa.unified_catalog import QA_IDS
 MOTION_TARGET_QA_IDS = frozenset({"QA-06", "QA-15", "QA-16", "QA-17"})
 TRANSCRIPT_QA_ID = "QA-12"
 STATIC_CLASS_NAMES = frozenset({"rigid_object", "rigid_static_object"})
@@ -1558,7 +1558,7 @@ def build_batch_coverage(
             "union runtime_registry.assets"
         ),
         "room_catalog": "examples/rooms/packages/catalog.json",
-        "qa_catalog": "QA-01..QA-24",
+        "qa_catalog": "QA-01..QA-25",
     }
     summary = _axis_summary(rows)
     summary["joint_asset_class_family_room_qa"] = _joint_summary(

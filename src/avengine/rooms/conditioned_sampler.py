@@ -5,6 +5,8 @@ separate: planned geometry never becomes an achieved-condition assertion.
 """
 from __future__ import annotations
 
+from avengine.qa.unified_catalog import QA_IDS
+
 from collections import Counter
 from copy import deepcopy
 import itertools
@@ -797,7 +799,7 @@ def build_conditioned_plan(*, room, request, source_registry, sounds, space, mes
               'visual_plan':{'backend_role':'production_visual','camera':camera,'actors':actors,'frames':frames,
                              'render':{'frame_count':clock['frame_count'],'fps_num':clock['frame_rate_hz'],'fps_den':1,'ticks_per_frame':clock['ticks_per_frame']},
                              'authority':{'actor_state':'avengine_conditioned_static_sampler','camera_listener':'avengine_conditioned_static_sampler','backend_may_replan':False}},
-              'resources':deepcopy(dict(room)),'question_condition_match':{'candidate_qa_ids':list(request.get('qa_ids',[f'QA-{i:02d}' for i in range(1,25)])),'status':'candidate','episode_validity':'not_run'},
+              'resources':deepcopy(dict(room)),'question_condition_match':{'candidate_qa_ids':list(request.get('qa_ids',list(QA_IDS))),'status':'candidate','episode_validity':'not_run'},
               'room_capabilities':{'status':'potential_only','evidence_refs':{'navigation':deepcopy(space.metadata)}},
               'planning_result':{'status':'research_candidate','attempts':attempt+1,'condition_profile':profile,'failure_histogram':dict(failures)},
               'evidence_status':{'native_visual':'not_run','native_audio':'not_run','qa_validity':'not_run'},'qualification_claim':False,

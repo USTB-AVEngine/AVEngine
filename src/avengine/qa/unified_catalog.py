@@ -1,4 +1,4 @@
-"""Unified QA-01..QA-24 conditions, episode evidence and question mining.
+"""Unified QA-01..QA-25 conditions, episode evidence and question mining.
 
 The twelve historical QuestionSpec classes remain the semantic base for the
 older protocol. This module is the small adapter used by the real-room
@@ -41,7 +41,7 @@ UNIFIED_INPUT_SCHEMA = "avengine_qa_unified_episode_input_v1"
 UNIFIED_FACT_SCHEMA = "avengine_qa_unified_episode_facts_v1"
 UNIFIED_ITEM_SCHEMA = "avengine_qa_unified_question_v1"
 UNIFIED_OUTPUT_SCHEMA = "avengine_qa_unified_question_set_v1"
-CATALOG_VERSION = "20260906"
+CATALOG_VERSION = "20260909"
 
 VISIBLE_STATES = {"visible_clear", "visible_occluded"}
 VISIBILITY_STATES = (
@@ -541,9 +541,27 @@ CATALOG: tuple[dict[str, Any], ...] = (
             required_modalities=("video", "binaural_audio", "time"),
         ),
     },
+    {
+        "qa_id": "QA-25",
+        "title": "实例级连续水平角度",
+        "question_family": "instance_continuous_bearing",
+        "answer_type": "angle_deg",
+        "forms": ["open"],
+        "subsets": {
+            "A": {"required_modalities": ["audio"], "target": "audible_event_emitter"},
+            "V": {"required_modalities": ["video"], "target": "visible_pixel_centroid", "public_camera_calibration": True},
+            "AV": {"required_modalities": ["audio", "video"], "target": "visually_anchored_hidden_emitter", "min_query_sources": 2},
+        },
+        "potential_requirements": _req(events={"source_activity": True},
+            appearance={"reviewed": True}, motion={"hidden_change_for_av": True},
+            pixel_visibility={"query_state": True}, required_modalities=("video", "binaural_audio", "time")),
+        "evidence_requirements": _req(events={"source_activity": True},
+            pixel_visibility={"query_state": True}, required_modalities=("time",)),
+    },
 )
 
 _CATALOG_BY_ID = {item["qa_id"]: item for item in CATALOG}
+QA_IDS = tuple(_CATALOG_BY_ID)
 
 
 def _canonical_qa_id(value: Any) -> str:
@@ -553,8 +571,8 @@ def _canonical_qa_id(value: Any) -> str:
     if not match:
         raise UnifiedQAError(f"unknown qa_id {value!r}")
     number = int(match.group(1))
-    if not 1 <= number <= 24:
-        raise UnifiedQAError(f"qa_id must be QA-01 through QA-24, got {value!r}")
+    if f"QA-{number:02d}" not in _CATALOG_BY_ID:
+        raise UnifiedQAError(f"qa_id must be QA-01 through QA-25, got {value!r}")
     return f"QA-{number:02d}"
 
 
@@ -2148,6 +2166,7 @@ def normalize_episode_bundle(raw: Mapping[str, Any]) -> dict[str, Any]:
         "source_activity_evidence_present": source_activity_present,
         "visibility": visibility,
         "visibility_meta": visibility_meta,
+        "camera_calibration": copy.deepcopy(root.get("camera_calibration")),
         "appearance_review": appearance_review,
         "input_summary": {
             "plan_present": bool(plan),
@@ -3050,6 +3069,27 @@ def _question_item(
     slug: str,
 ) -> dict[str, Any]:
     canonical = _canonical_qa_id(qa_id)
+    if open_answer_type == "angle_deg" or (
+        open_answer_type in {"time_s", "time_range_s"} and _time_display_precision(facts) == 0
+    ):
+        evidence = copy.deepcopy(dict(evidence))
+        evidence["answer_full_precision"] = copy.deepcopy(open_truth)
+        if open_answer_type == "angle_deg":
+            open_truth = (int(round(float(open_truth))) + 180) % 360 - 180
+            truth_label = f"{open_truth}°"
+            if "integer" not in question_en:
+                question_en += " Answer in whole degrees."
+                question_zh += " 请回答整数角度。"
+        elif open_answer_type == "time_s":
+            open_truth = int(round(float(open_truth)))
+            truth_label = f"{open_truth} s"
+            question_en += " Answer in whole seconds."
+            question_zh += " 请回答整数秒。"
+        else:
+            open_truth = [int(round(float(value))) for value in open_truth]
+            truth_label = f"[{open_truth[0]}, {open_truth[1]}) s"
+            question_en += " Answer in whole seconds."
+            question_zh += " 请回答整数秒。"
     question_id = _question_id_for(
         canonical,
         facts,
@@ -5112,6 +5152,11 @@ def _time_bands(facts: Mapping[str, Any]) -> list[tuple[float, float]]:
         _defer("invalid_duration", "time duration must be positive")
     count = _time_band_count(facts)
     step = duration / float(count)
+    if _time_display_precision(facts) == 0:
+        boundaries = [round(index * step) for index in range(count)] + [math.ceil(duration)]
+        if any(end <= start for start, end in zip(boundaries, boundaries[1:])):
+            _defer("integer_time_bands_too_short", "the requested time bands need distinct whole-second boundaries")
+        return list(zip(boundaries, boundaries[1:]))
     return [(index * step, (index + 1) * step) for index in range(count)]
 
 
@@ -5174,11 +5219,11 @@ def _generate_qa_19(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
         seed=seed,
         question_en=(
             f"Which time interval contained the first sound from {appearance_en}? "
-            f"The clip is divided into {len(bands)} equal-duration intervals: {domain_en}."
+            f"The clip is divided into {len(bands)} time intervals: {domain_en}."
         ),
         question_zh=(
             f"{appearance_zh}第一次发声落在哪个时间段？"
-            f"片段按等长划分为{len(bands)}段：{domain_zh}。"
+            f"片段按时间划分为{len(bands)}段：{domain_zh}。"
         ),
         open_answer_type="time_range_s",
         open_truth=truth_range,
@@ -5525,6 +5570,14 @@ def _generate_qa_24(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
     )
 
 
+def _generate_qa_25(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
+    from avengine.qa.angular_questions import candidates, emit
+    rows = candidates(facts)
+    if not rows:
+        _defer("no_continuous_bearing_candidate", "no QA-25 subset has sufficient native evidence")
+    return emit(facts, rows[0], seed)
+
+
 _GENERATORS = {
     "QA-01": _generate_qa_01,
     "QA-02": _generate_qa_02,
@@ -5550,6 +5603,7 @@ _GENERATORS = {
     "QA-22": _generate_qa_22,
     "QA-23": _generate_qa_23,
     "QA-24": _generate_qa_24,
+    "QA-25": _generate_qa_25,
 }
 
 
@@ -5705,7 +5759,7 @@ def _time_display_precision(facts: Mapping[str, Any]) -> int:
         if value is not None:
             break
     if value is None:
-        return 2
+        return 0
     if isinstance(value, bool) or not isinstance(value, int) or not 0 <= value <= 9:
         _defer(
             "time_display_precision_invalid",
@@ -6523,6 +6577,9 @@ def _p8_candidate_pool(
 ) -> list[dict[str, Any]]:
     """Enumerate cheap legal actor/event candidates before the expensive emit."""
 
+    if qa_id == "QA-25":
+        from avengine.qa.angular_questions import candidates
+        return candidates(facts)
     actors = facts.get("actors")
     actor_ids = [
         str(actor_id)
@@ -7263,6 +7320,9 @@ def _p8_emit_for(qa_id: str):
         candidate: Mapping[str, Any],
         seed: str,
     ) -> dict[str, Any]:
+        if qa_id == "QA-25":
+            from avengine.qa.angular_questions import emit as emit_bearing
+            return emit_bearing(facts, candidate, seed)
         candidate_facts = _p8_facts_for_candidate(facts, candidate, seed)
         applicability = _p8_applicability_reason(
             candidate_facts, qa_id, candidate
@@ -7310,6 +7370,7 @@ def generate_unified_questions(
     qa_ids: Sequence[str] | None = None,
     seed: str = "avengine-qa-20260906",
     items_per_type: int = 1,
+    include_angle_followups: bool = True,
 ) -> dict[str, Any]:
     """Enumerate legal candidates, sample without replacement, then emit."""
 
@@ -7342,7 +7403,8 @@ def generate_unified_questions(
             deferred.append(row)
             deferred_groups.setdefault(qa_id, []).append(row)
             continue
-        quota = 1 if qa_id in {"QA-03", "QA-22", "QA-23", "QA-24"} else int(items_per_type)
+        quota = (1 if qa_id in {"QA-03", "QA-22", "QA-23", "QA-24"}
+                 else int(items_per_type) * (3 if qa_id == "QA-25" else 1))
         if not candidates:
             try:
                 item = _P8_BASE_GENERATORS[qa_id](facts, seed)
@@ -7369,6 +7431,8 @@ def generate_unified_questions(
         emitted: list[dict[str, Any]] = []
         last_error: _Deferred | None = None
         for candidate in order:
+            if qa_id == "QA-25" and sum(item.get("angle_subset") == candidate["subset"] for item in emitted) >= items_per_type:
+                continue
             try:
                 item = _P8_EMITTERS[qa_id](facts, candidate, seed)
             except _Deferred as error:
@@ -7409,7 +7473,8 @@ def generate_unified_questions(
                 deferred_groups.setdefault(qa_id, []).append(row)
     unmet_quota = {}
     for qa_id in requested:
-        quota = 1 if qa_id in {"QA-03", "QA-22", "QA-23", "QA-24"} else int(items_per_type)
+        quota = (1 if qa_id in {"QA-03", "QA-22", "QA-23", "QA-24"}
+                 else int(items_per_type) * (3 if qa_id == "QA-25" else 1))
         available = len(item_groups.get(qa_id, []))
         if available < quota:
             unmet_quota[qa_id] = {"requested": quota, "valid": available, "missing": quota - available,
@@ -7435,6 +7500,8 @@ def generate_unified_questions(
             records.append(dict(row))
             coverage.append(dict(row))
         coverage_by_qa[qa_id] = records
+    from avengine.qa.angular_questions import followups
+    angle_followups, angle_deferred = followups(facts, items, seed) if include_angle_followups else ([], [])
     return {
         "schema": UNIFIED_OUTPUT_SCHEMA,
         "status": "research_candidate",
@@ -7459,6 +7526,14 @@ def generate_unified_questions(
         "coverage": coverage,
         "coverage_by_qa": coverage_by_qa,
         "items": items,
+        "angle_followups": angle_followups,
+        "angle_followup_deferred": angle_deferred,
+        "angle_followup_counts": {"valid": len(angle_followups), "deferred": len(angle_deferred)},
+        "angle_subset_coverage": {
+            subset: {"requested": int(items_per_type),
+                     "valid": sum(item.get("angle_subset") == subset for item in item_groups.get("QA-25", []))}
+            for subset in ("A", "V", "AV")
+        } if "QA-25" in requested else {},
         "deferred": deferred,
         "actual_evidence_summary": {
             "actor_count": len(facts.get("actors", {})),
@@ -7657,11 +7732,11 @@ __all__ = list(dict.fromkeys([
     "resolve_query_frame",
     *[
         f"_candidates_qa_{index:02d}"
-        for index in range(1, 25)
+        for index in range(1, 26)
     ],
     *[
         f"_emit_qa_{index:02d}"
-        for index in range(1, 25)
+        for index in range(1, 26)
     ],
 ]))
 
@@ -7814,3 +7889,30 @@ def _post_sound_candidates(facts: Mapping[str, Any], qa_id: str, events: Sequenc
                 )
             result.append(item)
     return result
+
+
+def iter_unified_items(question_set: Mapping[str, Any], *, include_angle_followups: bool = True):
+    """Yield main questions and explicit linked angle questions exactly once."""
+    seen = set()
+    for key in (("items", "angle_followups") if include_angle_followups else ("items",)):
+        for item in question_set.get(key, []):
+            if not isinstance(item, Mapping):
+                continue
+            question_id = item.get("question_id")
+            if question_id in seen:
+                continue
+            seen.add(question_id)
+            yield item
+
+
+def model_input_questions(question_set: Mapping[str, Any]) -> dict[str, Any]:
+    """Export public questions with IDs scoped to this set, never hidden actor IDs."""
+    rows = []
+    for index, item in enumerate(iter_unified_items(question_set)):
+        rows.append({"question_id": f"question_{index + 1:06d}", "qa_id": item["qa_id"],
+                     "forms": copy.deepcopy(item.get("model_input", {})),
+                     "required_modalities": copy.deepcopy(item.get("required_modalities"))})
+    return {"schema": "avengine_qa_public_questions_v1", "episode_id": question_set.get("episode_id"),
+            "items": rows, "count": len(rows)}
+
+__all__.extend(["QA_IDS", "iter_unified_items", "model_input_questions"])

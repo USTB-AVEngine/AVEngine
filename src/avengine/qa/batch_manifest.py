@@ -24,7 +24,7 @@ from avengine.rooms.conditioned_sampler import (
 from avengine.qa.failure_accounting import classify_failure
 
 SOURCE_CLASSES = ("articulated_human", "articulated_animal", "rigid_static_object")
-QA_IDS = tuple(f"QA-{index:02d}" for index in range(1, 25))
+from avengine.qa.unified_catalog import QA_IDS
 SOURCE_CLASS_LABEL = {
     "articulated_human": "human",
     "articulated_animal": "animal",
@@ -781,7 +781,7 @@ def prepare_batch_manifest(
                      "renderer": room["renderer"], "condition_group": _text(slot.get("condition_group"), "condition_group"),
                      "class_pair": class_pair_label(classes),
                      "requested_source_classes": deepcopy(classes), "requested_profile": deepcopy(condition),
-                     "requested_quota_by_qa": {qa: 1 for qa in QA_IDS}, "source_assignments": assignments,
+                     "requested_quota_by_qa": {qa: (3 if qa == "QA-25" else 1) for qa in QA_IDS}, "source_assignments": assignments,
                      "preallocation_gaps": gaps, "request": request, "execution_status": "not_run",
                      "achieved_conditions": None})
     group_quota = Counter((row["room_family"], row["room_id"], row["condition_group"]) for row in rows)
