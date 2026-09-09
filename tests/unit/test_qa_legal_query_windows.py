@@ -18,6 +18,7 @@ def _uniform_sampling(facts: dict) -> dict:
     facts["sampling"] = {
         "qa_sampling": {
             "query_time_policy": "uniform_in_legal_window",
+            "time_display_precision": 2,  # This fixture exercises subsecond legal windows.
         }
     }
     return facts
@@ -227,7 +228,7 @@ def test_time_range_domain_uses_sampling_granularity_and_decimal_precision() -> 
     assert item["forms"]["open"]["time_ranges_s"] == [
         [0.0, 2.0], [2.0, 4.0], [4.0, 6.0], [6.0, 8.0], [8.0, 10.0]
     ]
-    assert "5 equal-duration intervals" in item["question"]["en"]
+    assert "5 time intervals" in item["question"]["en"]
     assert "[0, 2) seconds" in item["question"]["en"]
     assert len(item["forms"]["mcq"]["options"]) == 5
 
