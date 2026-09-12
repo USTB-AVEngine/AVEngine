@@ -158,3 +158,53 @@ def test_plan_consumer_rejects_ambient_environment_expansion(monkeypatch):
     monkeypatch.setenv("AVENGINE_PLAN_LEAK", "/tmp")
     with pytest.raises(ValueError, match="AVENGINE_PLAN_LEAK"):
         _resolved("${AVENGINE_PLAN_LEAK}/missing.json")
+
+
+def test_host_runtime_paths_are_checked_where_the_run_declares_them():
+    """A host runtime value that does not exist has to be named, not guessed.
+
+    Existence is the run's concern rather than the shipped package's, so this
+    checks the run-local config the same way package paths are checked.
+    """
+    from avengine.rooms.room_package import (
+        HOST_RUNTIME_CONFIG_SCHEMA, resolve_room_runtime,
+    )
+
+    package = {
+        "schema": "avengine_qa_room_package_v1",
+        "room_id": "hm3d_val_00800_TEEsavR23oF",
+        "family": "hm3d", "renderer": "habitat",
+        "walkable_space": {"kind": "habitat_navmesh", "path": "nav.navmesh"},
+    }
+    host = {
+        "schema": HOST_RUNTIME_CONFIG_SCHEMA,
+        "_source": "/run/host_runtime.json",
+        "rooms": {"hm3d_val_00800_TEEsavR23oF": {
+            "runtime_prefix": "/definitely/absent/p06r1/prefix"}},
+    }
+    report = resolve_room_runtime(
+        package, {}, host_config=host, room_id=package["room_id"])
+    # Resolution binds the declared value and says where it came from; whether
+    # the directory exists is checked by the loader that uses it.
+    assert report["effective"]["runtime_prefix"] == "/definitely/absent/p06r1/prefix"
+    assert report["provenance"]["runtime_prefix"].startswith("host_config:")
+    assert report["missing"] == ()
+    missing = missing_filesystem_paths(
+        {"host_runtime": report["effective"]})
+    assert [path for _field, path in missing] == [
+        "/definitely/absent/p06r1/prefix"]
+
+
+def test_a_room_with_no_host_runtime_names_every_required_key():
+    from avengine.rooms.room_package import resolve_room_runtime
+
+    package = {
+        "schema": "avengine_qa_room_package_v1", "room_id": "r",
+        "family": "apartment", "renderer": "ue_spear",
+        "walkable_space": {"kind": "route_bank", "path": "routes.json"},
+    }
+    report = resolve_room_runtime(package, {})
+    assert report["missing"] == ("uproject", "unreal_editor", "spear_ext_dir")
+    for key in report["missing"]:
+        assert key in report["reason"]
+    assert "host runtime config" in report["reason"]

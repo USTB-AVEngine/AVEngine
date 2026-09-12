@@ -1,0 +1,14 @@
+{
+  "policy_id": "task_tolerant_20260912_v1",
+  "visibility": {
+    "max_hidden_visible_fraction": 0.01,
+    "min_reappeared_visible_fraction": 0.05,
+    "max_edge_sliver_width_fraction": 0.02
+  },
+  "motion": {
+    "mode": "noticeable_motion",
+    "min_moving_duration_s": 0.8,
+    "min_travel_m": 0.2,
+    "max_still_travel_m": 0.05
+  }
+}

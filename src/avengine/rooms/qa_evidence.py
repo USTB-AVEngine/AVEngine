@@ -4,8 +4,12 @@ from __future__ import annotations
 from collections import Counter
 from copy import deepcopy
 import json
+import os
 from pathlib import Path
+import shutil
+import time
 from typing import Any, Mapping, Sequence
+from urllib.parse import quote
 
 import numpy as np
 
@@ -115,9 +119,12 @@ def derive_actor_occluders(
         modal = _modal_array(data)
         for target, own_id in semantic.items():
             name = f"target_only_{target}"
-            if name not in data or np.asarray(data[name]).shape != modal.shape:
+            if name not in data:
                 raise ValueError(f"missing or mismatched target-only masks: {target}")
+            # NPZ indexing decompresses the array on each access.
             target_masks = np.asarray(data[name])
+            if target_masks.shape != modal.shape:
+                raise ValueError(f"missing or mismatched target-only masks: {target}")
             target_frames = instances[target].get("frames")
             if not isinstance(target_frames, list):
                 raise ValueError(f"pixel truth has no frames for {target}")
@@ -667,6 +674,36 @@ def classifier_gap_fields(checks: Sequence[Any]) -> dict[str, Any]:
     return {}
 
 
+def appearance_review_frame_selection(
+    truth: Mapping[str, Any],
+    plan: Mapping[str, Any],
+    *,
+    frame_stride: int = 15,
+) -> list[int]:
+    """Resolve which explicit truth frames an appearance review inspects.
+
+    The stride walk, the retained last frame and the audio-event neighbourhood
+    stay exactly as the review has always selected them. Exposing the list lets
+    a caller record the frames actually reviewed instead of re-deriving the
+    rule, and lets shared visual evidence compare two selections directly.
+    """
+    frame_indices = truth.get("frame_indices")
+    if not isinstance(frame_indices, list) or not frame_indices:
+        raise ValueError("pixel visibility truth requires explicit frame indices")
+    selected_frames = list(frame_indices[::max(1, int(frame_stride))])
+    selected_frames.append(int(frame_indices[-1]))
+    selected_frames = sorted(set(int(value) for value in selected_frames))
+    clock = plan.get("clock", {})
+    fps = float(clock.get("frame_rate_hz", 15.0)) if isinstance(clock, Mapping) else 15.0
+    sr = int(clock.get("sample_rate_hz", 16000)) if isinstance(clock, Mapping) else 16000
+    for event in plan.get("audio_events", []) if isinstance(plan.get("audio_events"), list) else []:
+        start = event.get("start_sample") if isinstance(event, Mapping) else None
+        if isinstance(start, (int, float)):
+            frame = int(float(start) * fps / sr)
+            selected_frames.extend(i for i in (frame, frame + 1) if i in frame_indices)
+    return sorted(set(selected_frames))
+
+
 def build_pixel_appearance_review(
     capture_root: Path,
     plan: Mapping[str, Any], *,
@@ -700,18 +737,9 @@ def build_pixel_appearance_review(
     frame_indices = truth.get("frame_indices")
     if not isinstance(frame_indices, list) or not frame_indices:
         raise ValueError("pixel visibility truth requires explicit frame indices")
-    selected_frames = list(frame_indices[::max(1, int(frame_stride))])
-    selected_frames.append(int(frame_indices[-1]))
-    selected_frames = sorted(set(int(value) for value in selected_frames))
-    clock = plan.get("clock", {})
-    fps = float(clock.get("frame_rate_hz", 15.0)) if isinstance(clock, Mapping) else 15.0
-    sr = int(clock.get("sample_rate_hz", 16000)) if isinstance(clock, Mapping) else 16000
-    for event in plan.get("audio_events", []) if isinstance(plan.get("audio_events"), list) else []:
-        start = event.get("start_sample") if isinstance(event, Mapping) else None
-        if isinstance(start, (int, float)):
-            frame = int(float(start) * fps / sr)
-            selected_frames.extend(i for i in (frame, frame + 1) if i in frame_indices)
-    selected_frames = sorted(set(selected_frames))
+    selected_frames = appearance_review_frame_selection(
+        truth, plan, frame_stride=frame_stride
+    )
     rgb_array = None
     rgb_path = capture_root / "rgb.npy"
     if rgb_path.is_file():
@@ -725,6 +753,13 @@ def build_pixel_appearance_review(
         if not isinstance(resolution, Sequence) or isinstance(resolution, (str, bytes)) or len(resolution) != 2:
             resolution = [int(modal.shape[1]), int(modal.shape[2])]
         resolution_hw = [int(resolution[0]), int(resolution[1])]
+        # Resolve every actor declaration first, then walk the reviewed frames
+        # once. The previous actor-major walk re-read the same native RGB frame
+        # for every actor in it; each frame is now read once and every actor
+        # that needs it is inspected against that one decoded image. The masked
+        # pixel comparison per (actor, frame) is unchanged.
+        pending: dict[str, dict[str, Any]] = {}
+        frame_requests: dict[int, list[tuple[str, int, Mapping[str, Any]]]] = {}
         for actor_id, instance in truth.get("per_instance", {}).items():
             if not isinstance(instance, Mapping):
                 continue
@@ -758,21 +793,32 @@ def build_pixel_appearance_review(
                 }
                 continue
             semantic_id = int(instance["semantic_id"])
-            checks: list[dict[str, Any]] = []
-            accepted: list[int] = []
+            slots: list[dict[str, Any] | None] = []
             for frame in instance_frames if isinstance(instance_frames, list) else []:
                 if not isinstance(frame, Mapping):
                     continue
                 f = int(frame.get("frame_index", -1))
                 if f not in selected_frames or frame.get("state") not in {"visible_clear", "visible_occluded"}:
                     continue
-                row = _mask_frame_row(f, frame_indices, modal.shape[0])
-                rgb, source = _rgb_frame(capture_root, f, frame_indices, rgb_array)
-                if rgb.shape[:2] != modal.shape[1:]:
-                    raise ValueError("native RGB and modal mask resolutions differ")
+                frame_requests.setdefault(f, []).append((str(actor_id), len(slots), frame))
+                slots.append(None)
+            pending[str(actor_id)] = {
+                "spec": spec,
+                "semantic_id": semantic_id,
+                "instance": instance,
+                "slots": slots,
+            }
+        for f in sorted(frame_requests):
+            row = _mask_frame_row(f, frame_indices, modal.shape[0])
+            rgb, source = _rgb_frame(capture_root, f, frame_indices, rgb_array)
+            if rgb.shape[:2] != modal.shape[1:]:
+                raise ValueError("native RGB and modal mask resolutions differ")
+            modal_row = modal[row]
+            for actor_id, position, frame in frame_requests[f]:
+                spec = pending[actor_id]["spec"]
                 check = inspect_registered_appearance(
                     rgb,
-                    modal[row] == semantic_id,
+                    modal_row == pending[actor_id]["semantic_id"],
                     spec["value"],
                     entity_kind=spec["kind"],
                     minimum_color_pixels=int(thresholds["minimum_color_pixels"]),
@@ -788,9 +834,15 @@ def build_pixel_appearance_review(
                     appearance_source=spec["source"],
                     entity_kind=spec["kind"],
                 )
-                checks.append(check)
-                if check["status"] == "pass" and check.get("observed_value") == spec["value"].casefold():
-                    accepted.append(f)
+                pending[actor_id]["slots"][position] = check
+        for actor_id, work in pending.items():
+            spec = work["spec"]
+            checks = [check for check in work["slots"] if check is not None]
+            accepted = [
+                int(check["frame_index"]) for check in checks
+                if check["status"] == "pass"
+                and check.get("observed_value") == spec["value"].casefold()
+            ]
             records[str(actor_id)] = {
                 "status": "reviewed" if accepted else "not_observable",
                 "value": spec["value"],
@@ -944,3 +996,703 @@ def review_imported_pose_clearance(
         },
     })
     return result
+
+
+# --------------------------------------------------------------------------
+# Shared visual evidence for audio-track members that reuse one native capture
+# --------------------------------------------------------------------------
+#
+# A binding group renders one visual episode and binds several audio variants
+# to it (`materialize_audio_variant` links each member's `capture` at the same
+# physical directory). Appearance review, actor occluders and the visibility
+# annotation read only that capture, the visual actor declarations and their
+# registered attributes, so every member recomputed identical products from
+# identical pixels. This pack computes them once per (capture, binding,
+# parameter, evidence-version) identity and lets later members reuse them.
+#
+# Reuse never trusts the stored answer on its own: the retained capture inputs
+# are re-stated, and a bounded sample of the recorded appearance and occluder
+# observations is recomputed from the actual RGB, depth-authority modal masks
+# and target-only masks before the pack is accepted.
+
+SHARED_VISUAL_EVIDENCE_SCHEMA = "avengine_qa_shared_visual_evidence_v1"
+SHARED_VISUAL_EVIDENCE_PRODUCER = "qa_evidence.build_shared_visual_evidence"
+SHARED_VISUAL_EVIDENCE_CLAIM = "build.claim"
+SHARED_VISUAL_EVIDENCE_MANIFEST = "manifest.json"
+SHARED_VISUAL_EVIDENCE_DEFAULT_WAIT_SECONDS = 600.0
+SHARED_VISUAL_EVIDENCE_VERIFICATION_FRAMES = 2
+
+_CAPTURE_PIXEL_INPUTS = (
+    "pixel_visibility_truth.json",
+    "native_pixel_masks_depth_authority_v1.npz",
+    "rgb.npy",
+    "ue_visual_only.mp4",
+    "visual.mp4",
+    "metric_depth_native.npz",
+)
+
+
+class SharedVisualEvidenceError(RuntimeError):
+    """A shared visual evidence pack could not be built, read or trusted."""
+
+
+def visual_input_identity(path: Path) -> dict[str, Any] | None:
+    """Describe one retained visual input by its ordinary filesystem identity.
+
+    Size and modification time are the identity a cache needs: they change
+    whenever the capture is re-rendered or repaired. This is deliberately not a
+    content digest and is not an integrity contract. Its resolution is the
+    host filesystem's timestamp granularity, measured at about one millisecond
+    on this server, so a same-size rewrite inside one tick is not visible here.
+    That is why reuse never rests on this record alone: a pack is accepted only
+    after recorded observations are recomputed from the actual pixels and
+    masks. A stale or ambiguous identity costs a rebuild, never a wrong answer.
+    """
+    value = Path(path)
+    if value.is_dir():
+        entries = sorted(entry for entry in value.iterdir() if entry.is_file())
+        if not entries:
+            return None
+        stats = [entry.stat() for entry in entries]
+        return {
+            "path": str(value.resolve()),
+            "kind": "directory",
+            "entry_count": len(entries),
+            "total_size_bytes": sum(stat.st_size for stat in stats),
+            "latest_mtime_ns": max(stat.st_mtime_ns for stat in stats),
+        }
+    if not value.is_file():
+        return None
+    stat = value.stat()
+    return {
+        "path": str(value.resolve()),
+        "kind": "file",
+        "size_bytes": int(stat.st_size),
+        "mtime_ns": int(stat.st_mtime_ns),
+    }
+
+
+def capture_visual_input_identities(capture_root: Path) -> dict[str, Any]:
+    """Identify every retained capture input the visual evidence actually reads."""
+    root = Path(capture_root).resolve()
+    identities: dict[str, Any] = {}
+    for name in _CAPTURE_PIXEL_INPUTS:
+        identity = visual_input_identity(root / name)
+        if identity is not None:
+            identities[name] = identity
+    frames = visual_input_identity(root / "frames")
+    if frames is not None:
+        identities["frames"] = frames
+    if "pixel_visibility_truth.json" not in identities:
+        raise SharedVisualEvidenceError(
+            f"capture has no pixel visibility truth for shared visual evidence: {root}"
+        )
+    if "native_pixel_masks_depth_authority_v1.npz" not in identities:
+        raise SharedVisualEvidenceError(
+            f"capture has no depth-authority masks for shared visual evidence: {root}"
+        )
+    return identities
+
+
+def shared_visual_evidence_key(
+    capture_root: Path,
+    plan: Mapping[str, Any],
+    truth: Mapping[str, Any],
+    *,
+    asset_registry: Mapping[str, Mapping[str, Any]] | None = None,
+    frame_stride: int = 15,
+    thresholds: Mapping[str, Any] | None = None,
+    occluder_minimum_covered_pixels: int = 100,
+    occluder_minimum_explained_fraction: float = 0.9,
+) -> dict[str, Any]:
+    """Describe exactly what a shared visual evidence pack was derived from.
+
+    Two members may share a pack only when this whole record matches: the same
+    retained capture pixels, the same visual actor/asset bindings and resolved
+    appearance fields, the same reviewed frame selection, the same thresholds
+    and the same evidence schema versions. Audio program, voice bindings and
+    the sound pool are deliberately absent; they never reach these products.
+    """
+    root = Path(capture_root).resolve()
+    resolved_thresholds = dict(thresholds) if thresholds is not None else nonhuman_appearance_placeholder_thresholds()
+    declarations: dict[str, Mapping[str, Any]] = {}
+    visual_plan = plan.get("visual_plan") if isinstance(plan.get("visual_plan"), Mapping) else plan
+    values = visual_plan.get("actors") if isinstance(visual_plan, Mapping) else None
+    if isinstance(values, Mapping):
+        declarations = {str(key): value for key, value in values.items() if isinstance(value, Mapping)}
+    elif isinstance(values, Sequence) and not isinstance(values, (str, bytes)):
+        declarations = {
+            str(row["actor_id"]): row
+            for row in values
+            if isinstance(row, Mapping) and isinstance(row.get("actor_id"), str)
+        }
+    bindings: list[dict[str, Any]] = []
+    for actor_id in sorted(set(declarations) | {str(key) for key in truth.get("per_instance", {})}):
+        declaration = declarations.get(actor_id, {})
+        instance = truth.get("per_instance", {}).get(actor_id)
+        spec = _appearance_spec(declaration, asset_registry=asset_registry)
+        bindings.append({
+            "actor_id": actor_id,
+            "asset_id": declaration.get("asset_id") or declaration.get("entity_asset_id"),
+            "entity_class": declaration.get("entity_class") or declaration.get("actor_class"),
+            "species_id": declaration.get("species_id"),
+            "semantic_id": (
+                int(instance["semantic_id"])
+                if isinstance(instance, Mapping) and isinstance(instance.get("semantic_id"), int)
+                and not isinstance(instance.get("semantic_id"), bool)
+                else None
+            ),
+            "appearance_field": spec["field"],
+            "appearance_value": spec["value"],
+            "appearance_source": spec["source"],
+            "entity_kind": spec["kind"],
+        })
+    return {
+        "capture_root": str(root),
+        "capture_inputs": capture_visual_input_identities(root),
+        "asset_bindings": bindings,
+        "frame_indices": [int(value) for value in truth.get("frame_indices", [])],
+        "reviewed_frames": appearance_review_frame_selection(truth, plan, frame_stride=frame_stride),
+        "resolution_hw": (
+            [int(truth["resolution_hw"][0]), int(truth["resolution_hw"][1])]
+            if isinstance(truth.get("resolution_hw"), Sequence)
+            and not isinstance(truth.get("resolution_hw"), (str, bytes))
+            and len(truth["resolution_hw"]) == 2
+            else None
+        ),
+        "parameters": {
+            "frame_stride": int(frame_stride),
+            "appearance_thresholds": resolved_thresholds,
+            "occluder_minimum_covered_pixels": int(occluder_minimum_covered_pixels),
+            "occluder_minimum_explained_fraction": float(occluder_minimum_explained_fraction),
+        },
+        "evidence_versions": {
+            "shared_pack": SHARED_VISUAL_EVIDENCE_SCHEMA,
+            "appearance_review": "avengine_qa_appearance_review_v2",
+            "pixel_truth_status": truth.get("status"),
+            "visibility_semantics_authority": "qa_evidence.annotate_pixel_visibility_semantics",
+            "occluder_authority": "intersection_of_native_depth_modal_and_target_only_masks",
+        },
+    }
+
+
+def build_shared_visual_evidence(
+    capture_root: Path,
+    plan: Mapping[str, Any],
+    truth: Mapping[str, Any],
+    *,
+    asset_registry: Mapping[str, Mapping[str, Any]] | None = None,
+    frame_stride: int = 15,
+    thresholds: Mapping[str, Any] | None = None,
+    occluder_minimum_covered_pixels: int = 100,
+    occluder_minimum_explained_fraction: float = 0.9,
+) -> dict[str, Any]:
+    """Compute the audio-independent visual evidence for one native capture."""
+    root = Path(capture_root).resolve()
+    resolved_thresholds = dict(thresholds) if thresholds is not None else nonhuman_appearance_placeholder_thresholds()
+    key = shared_visual_evidence_key(
+        root, plan, truth,
+        asset_registry=asset_registry,
+        frame_stride=frame_stride,
+        thresholds=resolved_thresholds,
+        occluder_minimum_covered_pixels=occluder_minimum_covered_pixels,
+        occluder_minimum_explained_fraction=occluder_minimum_explained_fraction,
+    )
+    timings: dict[str, float] = {}
+    started = time.monotonic()
+    annotated = annotate_pixel_visibility_semantics(truth)
+    timings["annotate_pixel_visibility_semantics_s"] = time.monotonic() - started
+
+    started = time.monotonic()
+    review = build_pixel_appearance_review(
+        root, plan,
+        frame_stride=frame_stride,
+        asset_registry=asset_registry,
+        minimum_color_pixels=int(resolved_thresholds["minimum_color_pixels"]),
+        dominance_ratio=float(resolved_thresholds["dominance_ratio"]),
+        color_component_fractions=resolved_thresholds["color_component_fractions"],
+    )
+    timings["build_pixel_appearance_review_s"] = time.monotonic() - started
+
+    started = time.monotonic()
+    occluders = derive_actor_occluders(
+        root / "native_pixel_masks_depth_authority_v1.npz",
+        annotated,
+        minimum_covered_pixels=occluder_minimum_covered_pixels,
+        minimum_explained_fraction=occluder_minimum_explained_fraction,
+    )
+    timings["derive_actor_occluders_s"] = time.monotonic() - started
+
+    return {
+        "schema": SHARED_VISUAL_EVIDENCE_SCHEMA,
+        "producer": SHARED_VISUAL_EVIDENCE_PRODUCER,
+        "key": key,
+        "annotated_pixel_visibility_truth": annotated,
+        "appearance_review": review,
+        "actor_occluders": occluders,
+        "stage_timings_s": timings,
+        "build_total_s": sum(timings.values()),
+        "claim_boundary": (
+            "audio-independent visual evidence for one native capture; the "
+            "audio program, voice bindings and per-member facts are not derived here"
+        ),
+    }
+
+
+def _verification_checks(review: Mapping[str, Any], limit: int) -> list[tuple[str, Mapping[str, Any]]]:
+    """Pick a bounded, deterministic sample of recorded appearance observations."""
+    selected: list[tuple[str, Mapping[str, Any]]] = []
+    actors = review.get("actors")
+    if not isinstance(actors, Mapping):
+        return selected
+    for actor_id in sorted(actors):
+        record = actors[actor_id]
+        if not isinstance(record, Mapping):
+            continue
+        checks = [check for check in record.get("checks", []) if isinstance(check, Mapping)]
+        if not checks:
+            continue
+        # First and last reviewed frames bracket the episode; both are recorded
+        # observations, so a re-read compares like with like.
+        candidates = [checks[0]] if limit <= 1 else [checks[0], checks[-1]]
+        for check in candidates[:max(1, int(limit))]:
+            selected.append((str(actor_id), check))
+    return selected
+
+
+def verify_shared_visual_evidence(
+    pack: Mapping[str, Any],
+    capture_root: Path,
+    *,
+    verification_frames: int = SHARED_VISUAL_EVIDENCE_VERIFICATION_FRAMES,
+) -> dict[str, Any]:
+    """Re-observe real pixels before a stored pack is reused.
+
+    Filesystem identity alone would only prove that nothing was rewritten. This
+    re-opens the actual RGB, the depth-authority modal masks and the target-only
+    masks and recomputes a bounded sample of the recorded appearance and
+    occluder observations. A registered label is never accepted in place of the
+    observation it claims to summarise.
+    """
+    root = Path(capture_root).resolve()
+    key = pack.get("key")
+    if not isinstance(key, Mapping):
+        return {"status": "rejected", "reason": "pack has no key record"}
+    recorded = key.get("capture_inputs")
+    if not isinstance(recorded, Mapping):
+        return {"status": "rejected", "reason": "pack key has no capture input identities"}
+    try:
+        current = capture_visual_input_identities(root)
+    except SharedVisualEvidenceError as error:
+        return {"status": "rejected", "reason": str(error)}
+    if current != recorded:
+        drifted = sorted(
+            name for name in set(current) | set(recorded)
+            if current.get(name) != recorded.get(name)
+        )
+        return {
+            "status": "rejected",
+            "reason": "retained capture inputs changed since the pack was built",
+            "changed_inputs": drifted,
+        }
+
+    review = pack.get("appearance_review")
+    truth = pack.get("annotated_pixel_visibility_truth")
+    if not isinstance(review, Mapping) or not isinstance(truth, Mapping):
+        return {"status": "rejected", "reason": "pack lacks appearance review or annotated truth"}
+    thresholds = key.get("parameters", {}).get("appearance_thresholds")
+    if not isinstance(thresholds, Mapping):
+        return {"status": "rejected", "reason": "pack key lacks appearance thresholds"}
+    frame_indices = truth.get("frame_indices")
+    if not isinstance(frame_indices, list) or not frame_indices:
+        return {"status": "rejected", "reason": "pack truth lacks explicit frame indices"}
+
+    samples = _verification_checks(review, verification_frames)
+    masks_path = root / "native_pixel_masks_depth_authority_v1.npz"
+    rgb_array = None
+    rgb_path = root / "rgb.npy"
+    if rgb_path.is_file():
+        rgb_array = np.load(rgb_path, mmap_mode="r", allow_pickle=False)
+    reobserved: list[dict[str, Any]] = []
+    occluder_reobserved: list[dict[str, Any]] = []
+    try:
+        with np.load(masks_path, allow_pickle=False) as data:
+            modal = _modal_array(data)
+            for actor_id, check in samples:
+                frame_index = check.get("frame_index")
+                if isinstance(frame_index, bool) or not isinstance(frame_index, int):
+                    return {"status": "rejected", "reason": f"recorded check has no frame identity: {actor_id}"}
+                instance = truth.get("per_instance", {}).get(actor_id)
+                if not isinstance(instance, Mapping) or not isinstance(instance.get("semantic_id"), int):
+                    return {"status": "rejected", "reason": f"pack truth has no semantic ID for {actor_id}"}
+                row = _mask_frame_row(frame_index, frame_indices, modal.shape[0])
+                rgb, _source = _rgb_frame(root, frame_index, frame_indices, rgb_array)
+                if rgb.shape[:2] != modal.shape[1:]:
+                    return {"status": "rejected", "reason": "native RGB and modal mask resolutions differ"}
+                frame_record = next(
+                    (
+                        row_value for row_value in instance.get("frames", [])
+                        if isinstance(row_value, Mapping) and row_value.get("frame_index") == frame_index
+                    ),
+                    None,
+                )
+                observed = inspect_registered_appearance(
+                    rgb,
+                    modal[row] == int(instance["semantic_id"]),
+                    check.get("expected_value"),
+                    entity_kind=str(check.get("entity_kind") or "human"),
+                    minimum_color_pixels=int(thresholds["minimum_color_pixels"]),
+                    dominance_ratio=float(thresholds["dominance_ratio"]),
+                    color_component_fractions=thresholds["color_component_fractions"],
+                    target_bbox=frame_record.get("target_bbox_xyxy_px") if isinstance(frame_record, Mapping) else None,
+                )
+                for field in ("status", "observed_value", "visible_pixels"):
+                    if observed.get(field) != check.get(field):
+                        return {
+                            "status": "rejected",
+                            "reason": "re-observed pixels disagree with the recorded appearance check",
+                            "actor_id": actor_id,
+                            "frame_index": frame_index,
+                            "field": field,
+                            "recorded": check.get(field),
+                            "reobserved": observed.get(field),
+                        }
+                reobserved.append({
+                    "actor_id": actor_id, "frame_index": frame_index,
+                    "status": observed.get("status"),
+                    "observed_value": observed.get("observed_value"),
+                    "visible_pixels": observed.get("visible_pixels"),
+                })
+
+            occluders = pack.get("actor_occluders")
+            records = occluders.get("frame_records") if isinstance(occluders, Mapping) else None
+            if isinstance(records, list) and records:
+                record = records[0]
+                target = str(record.get("target_instance_id"))
+                name = f"target_only_{target}"
+                instance = truth.get("per_instance", {}).get(target)
+                if name not in data or not isinstance(instance, Mapping):
+                    return {"status": "rejected", "reason": f"pack occluder target is unavailable: {target}"}
+                target_masks = np.asarray(data[name])
+                if target_masks.shape != modal.shape:
+                    return {"status": "rejected", "reason": f"target-only mask shape differs: {target}"}
+                row = _mask_frame_row(int(record["frame_index"]), frame_indices, modal.shape[0])
+                own_id = int(instance["semantic_id"])
+                occluded = (target_masks[row] > 0) & (modal[row] != own_id)
+                total = int(occluded.sum())
+                if total != int(record.get("occluded_target_pixels", -1)):
+                    return {
+                        "status": "rejected",
+                        "reason": "re-observed masks disagree with the recorded occluded pixel count",
+                        "frame_index": int(record["frame_index"]),
+                        "recorded": record.get("occluded_target_pixels"),
+                        "reobserved": total,
+                    }
+                occluder_reobserved.append({
+                    "frame_index": int(record["frame_index"]),
+                    "target_instance_id": target,
+                    "occluded_target_pixels": total,
+                })
+    except (OSError, ValueError) as error:
+        return {"status": "rejected", "reason": f"pack inputs could not be re-observed: {error}"}
+
+    return {
+        "status": "pass",
+        "capture_inputs_unchanged": sorted(current),
+        "reobserved_appearance_checks": reobserved,
+        "reobserved_occluder_records": occluder_reobserved,
+        "method": "restat_retained_capture_inputs_then_recompute_sampled_pixel_and_mask_observations",
+        "claim_boundary": (
+            "bounded re-observation of recorded checks against actual RGB, modal "
+            "and target-only masks; it is a reuse guard, not a fresh full review"
+        ),
+    }
+
+
+def _pack_products(pack: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        "annotated_pixel_visibility_truth.json": pack["annotated_pixel_visibility_truth"],
+        "appearance_review.json": pack["appearance_review"],
+        "actor_occluders.json": pack["actor_occluders"],
+    }
+
+
+def write_shared_visual_evidence(pack: Mapping[str, Any], pack_root: Path) -> Path:
+    """Publish a pack atomically so a reader never sees a partial directory."""
+    root = Path(pack_root)
+    root.mkdir(parents=True, exist_ok=True)
+    staging = root / f".staging_{os.getpid()}_{time.time_ns()}"
+    staging.mkdir()
+    try:
+        for name, value in _pack_products(pack).items():
+            (staging / name).write_text(json.dumps(value, indent=2, sort_keys=True), encoding="utf-8")
+        manifest = {
+            "schema": pack["schema"],
+            "producer": pack["producer"],
+            "key": pack["key"],
+            "stage_timings_s": pack.get("stage_timings_s", {}),
+            "build_total_s": pack.get("build_total_s"),
+            "products": sorted(_pack_products(pack)),
+            "written_unix_ns": time.time_ns(),
+            "claim_boundary": pack.get("claim_boundary"),
+        }
+        (staging / SHARED_VISUAL_EVIDENCE_MANIFEST).write_text(
+            json.dumps(manifest, indent=2, sort_keys=True), encoding="utf-8"
+        )
+        final = root / f"pack_{time.time_ns()}_{os.getpid()}"
+        os.rename(staging, final)
+        return final
+    except BaseException:
+        shutil.rmtree(staging, ignore_errors=True)
+        raise
+
+
+def read_shared_visual_evidence(pack_dir: Path) -> dict[str, Any] | None:
+    """Read one published pack directory, or None when it is not complete."""
+    root = Path(pack_dir)
+    manifest_path = root / SHARED_VISUAL_EVIDENCE_MANIFEST
+    if not manifest_path.is_file():
+        return None
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(manifest, Mapping) or manifest.get("schema") != SHARED_VISUAL_EVIDENCE_SCHEMA:
+        return None
+    products: dict[str, Any] = {}
+    for name in ("annotated_pixel_visibility_truth.json", "appearance_review.json", "actor_occluders.json"):
+        path = root / name
+        if not path.is_file():
+            return None
+        try:
+            products[name] = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return None
+    return {
+        "schema": manifest["schema"],
+        "producer": manifest.get("producer"),
+        "key": manifest.get("key"),
+        "annotated_pixel_visibility_truth": products["annotated_pixel_visibility_truth.json"],
+        "appearance_review": products["appearance_review.json"],
+        "actor_occluders": products["actor_occluders.json"],
+        "stage_timings_s": manifest.get("stage_timings_s", {}),
+        "build_total_s": manifest.get("build_total_s"),
+        "pack_dir": str(root.resolve()),
+        "claim_boundary": manifest.get("claim_boundary"),
+    }
+
+
+def find_shared_visual_evidence(pack_root: Path, key: Mapping[str, Any]) -> dict[str, Any] | None:
+    """Return the published pack whose key matches exactly, if one exists."""
+    root = Path(pack_root)
+    if not root.is_dir():
+        return None
+    for entry in sorted(root.glob("pack_*")):
+        if not entry.is_dir():
+            continue
+        pack = read_shared_visual_evidence(entry)
+        if pack is not None and pack.get("key") == dict(key):
+            return pack
+    return None
+
+
+def shared_visual_pack_root(shared_root: Path, capture_root: Path) -> Path:
+    """Give one capture a readable directory under the shared root.
+
+    The complete resolved capture path is represented as directory components.
+    The old last-three-components token made sibling captures such as
+    v0_capture/.../capture and v1_capture/.../capture collide. A full path
+    identity keeps different captures in different pack/master roots, while
+    members whose capture symlinks resolve to the same directory still reuse
+    one root. URL-encoding is only path-name encoding; it is not a content hash
+    or a new integrity contract.
+    """
+    resolved = Path(capture_root).expanduser().resolve()
+    path_parts = [
+        quote(part, safe="")
+        for part in resolved.parts
+        if part not in ("/", "")
+    ]
+    token_parts = ["absolute" if resolved.is_absolute() else "relative", *path_parts]
+    if len(token_parts) == 1:
+        token_parts.append("capture")
+    return (
+        Path(shared_root).expanduser().resolve()
+        / "capture_by_path"
+        / Path(*token_parts)
+    )
+
+
+def _claim_shared_build(pack_root: Path, *, stale_seconds: float) -> bool:
+    """Try to become the process that builds this pack."""
+    claim = Path(pack_root) / SHARED_VISUAL_EVIDENCE_CLAIM
+    try:
+        descriptor = os.open(claim, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
+    except FileExistsError:
+        try:
+            age = time.time() - claim.stat().st_mtime
+        except OSError:
+            return False
+        if age <= stale_seconds:
+            return False
+        # The holder is gone or wedged well past a normal build. Take the claim
+        # over; a duplicate build only wastes work, it cannot corrupt a pack,
+        # because publication is an atomic rename of a complete directory.
+        try:
+            claim.unlink()
+            descriptor = os.open(claim, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
+        except (FileExistsError, OSError):
+            return False
+    with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+        json.dump({"pid": os.getpid(), "unix_ns": time.time_ns()}, stream)
+    return True
+
+
+def _release_shared_build(pack_root: Path) -> None:
+    try:
+        (Path(pack_root) / SHARED_VISUAL_EVIDENCE_CLAIM).unlink()
+    except OSError:
+        pass
+
+
+def acquire_shared_visual_evidence(
+    capture_root: Path,
+    plan: Mapping[str, Any],
+    truth: Mapping[str, Any],
+    *,
+    shared_root: Path | None,
+    asset_registry: Mapping[str, Mapping[str, Any]] | None = None,
+    frame_stride: int = 15,
+    thresholds: Mapping[str, Any] | None = None,
+    occluder_minimum_covered_pixels: int = 100,
+    occluder_minimum_explained_fraction: float = 0.9,
+    verification_frames: int = SHARED_VISUAL_EVIDENCE_VERIFICATION_FRAMES,
+    wait_seconds: float = SHARED_VISUAL_EVIDENCE_DEFAULT_WAIT_SECONDS,
+    poll_seconds: float = 2.0,
+) -> dict[str, Any]:
+    """Reuse or build the audio-independent visual evidence for one capture.
+
+    With no shared root this simply builds, which is what a single-episode
+    finalization has always done. With a shared root the first member builds
+    and publishes; later members reuse only after the key matches exactly and
+    the bounded pixel/mask re-observation passes.
+    """
+    root = Path(capture_root).resolve()
+    resolved_thresholds = dict(thresholds) if thresholds is not None else nonhuman_appearance_placeholder_thresholds()
+    build_arguments = {
+        "asset_registry": asset_registry,
+        "frame_stride": frame_stride,
+        "thresholds": resolved_thresholds,
+        "occluder_minimum_covered_pixels": occluder_minimum_covered_pixels,
+        "occluder_minimum_explained_fraction": occluder_minimum_explained_fraction,
+    }
+    if shared_root is None:
+        started = time.monotonic()
+        pack = build_shared_visual_evidence(root, plan, truth, **build_arguments)
+        pack["reuse"] = {
+            "status": "built",
+            "shared": False,
+            "reason": "no shared visual root was declared for this episode",
+            "elapsed_s": time.monotonic() - started,
+        }
+        return pack
+
+    key = shared_visual_evidence_key(
+        root, plan, truth,
+        asset_registry=asset_registry,
+        frame_stride=frame_stride,
+        thresholds=resolved_thresholds,
+        occluder_minimum_covered_pixels=occluder_minimum_covered_pixels,
+        occluder_minimum_explained_fraction=occluder_minimum_explained_fraction,
+    )
+    pack_root = shared_visual_pack_root(shared_root, root)
+    rejected: list[dict[str, Any]] = []
+
+    def try_reuse() -> dict[str, Any] | None:
+        found = find_shared_visual_evidence(pack_root, key)
+        if found is None:
+            return None
+        started = time.monotonic()
+        verification = verify_shared_visual_evidence(
+            found, root, verification_frames=verification_frames
+        )
+        if verification.get("status") != "pass":
+            rejected.append({"pack_dir": found.get("pack_dir"), **verification})
+            return None
+        found["reuse"] = {
+            "status": "reused",
+            "shared": True,
+            "pack_dir": found.get("pack_dir"),
+            "pack_root": str(pack_root),
+            "verification": verification,
+            "elapsed_s": time.monotonic() - started,
+            "rejected_packs": rejected,
+        }
+        found["stage_timings_s"] = {"verify_shared_visual_evidence_s": time.monotonic() - started}
+        found["build_total_s"] = 0.0
+        return found
+
+    reused = try_reuse()
+    if reused is not None:
+        return reused
+
+    try:
+        pack_root.mkdir(parents=True, exist_ok=True)
+    except OSError as error:
+        started = time.monotonic()
+        pack = build_shared_visual_evidence(root, plan, truth, **build_arguments)
+        pack["reuse"] = {
+            "status": "built_unshared",
+            "shared": False,
+            "reason": f"shared visual root is not writable: {error}",
+            "pack_root": str(pack_root),
+            "elapsed_s": time.monotonic() - started,
+        }
+        return pack
+
+    claimed = _claim_shared_build(pack_root, stale_seconds=max(1.0, float(wait_seconds)))
+    if not claimed:
+        # Another member is building the same pack. Wait for it rather than
+        # repeating the work, and fall back to a local build if it never
+        # arrives, so a stalled peer can never block this finalization.
+        deadline = time.monotonic() + max(0.0, float(wait_seconds))
+        waited = time.monotonic()
+        while time.monotonic() < deadline:
+            time.sleep(max(0.1, float(poll_seconds)))
+            reused = try_reuse()
+            if reused is not None:
+                reused["reuse"]["status"] = "reused_after_wait"
+                reused["reuse"]["waited_s"] = time.monotonic() - waited
+                return reused
+            if not (pack_root / SHARED_VISUAL_EVIDENCE_CLAIM).exists():
+                break
+        claimed = _claim_shared_build(pack_root, stale_seconds=max(1.0, float(wait_seconds)))
+        if not claimed:
+            started = time.monotonic()
+            pack = build_shared_visual_evidence(root, plan, truth, **build_arguments)
+            pack["reuse"] = {
+                "status": "built_unshared",
+                "shared": False,
+                "reason": "a peer build was still in progress after the declared wait",
+                "pack_root": str(pack_root),
+                "waited_s": time.monotonic() - waited,
+                "elapsed_s": time.monotonic() - started,
+                "rejected_packs": rejected,
+            }
+            return pack
+
+    try:
+        started = time.monotonic()
+        pack = build_shared_visual_evidence(root, plan, truth, **build_arguments)
+        published = write_shared_visual_evidence(pack, pack_root)
+        pack["reuse"] = {
+            "status": "built_and_published",
+            "shared": True,
+            "pack_dir": str(published.resolve()),
+            "pack_root": str(pack_root),
+            "elapsed_s": time.monotonic() - started,
+            "rejected_packs": rejected,
+        }
+        return pack
+    finally:
+        _release_shared_build(pack_root)

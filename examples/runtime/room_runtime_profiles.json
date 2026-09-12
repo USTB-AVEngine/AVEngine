@@ -1,7 +1,7 @@
 {
   "schema": "avengine_room_runtime_profile_registry_v1",
   "registry_id": "avengine_room_runtime_profiles_v1",
-  "revision": "20260726_v3",
+  "revision": "20260910_v5",
   "default_profile_id": "spear_apartment_0000",
   "profiles": [
     {
@@ -64,6 +64,126 @@
       "default_lighting_profile_id": "scan_baked",
       "supported_input_layouts": [
         "m5_1-mixed-route"
+      ]
+    },
+    {
+      "profile_id": "qa_v1_spear_apartment_0000",
+      "revision": "qa_v1_10s_150f_20260910",
+      "room_ref": {
+        "registry_id": "avengine_m6_representative_rooms_v1",
+        "room_id": "legacy_ue_apartment_0000_v1",
+        "revision": "real_surface_export_pending_portable_package_v1"
+      },
+      "backend_id": "spear_unreal",
+      "adapter_id": "avengine_qa_v1_spear_room_v1",
+      "scene": {
+        "scene_id": "apartment_0000",
+        "map_path": "/Game/SPEAR/Scenes/apartment_0000/Maps/apartment_0000",
+        "layout_policy": "native_map_unchanged",
+        "outdoor_view_policy": "native_map_assets_and_postprocess"
+      },
+      "render": {
+        "width": 1280,
+        "height": 720,
+        "frame_count": 150,
+        "frame_rate_hz": 15,
+        "horizontal_fov_deg": 85.0,
+        "streaming_warmup_frames": 120,
+        "camera_warmup_frames": 40
+      },
+      "default_lighting_profile_id": "native",
+      "supported_input_layouts": [
+        "qa-v1-binding-group"
+      ]
+    },
+    {
+      "profile_id": "qa_v1_habitat_mp3d_17DRP5sb8fy",
+      "revision": "qa_v1_10s_150f_20260910",
+      "room_ref": {
+        "registry_id": "avengine_m6_representative_rooms_v1",
+        "room_id": "habitat_mp3d_example_17DRP5sb8fy",
+        "revision": "raw_v1_plus_declared_proxy_v2_research"
+      },
+      "backend_id": "habitat_native",
+      "adapter_id": "avengine_qa_v1_habitat_room_v1",
+      "scene": {
+        "scene_id": "habitat_mp3d_17DRP5sb8fy",
+        "map_path": "examples/rooms/habitat_mp3d_example/room_manifest.json",
+        "layout_policy": "native_scan_unchanged",
+        "outdoor_view_policy": "scan_baked_lighting_no_proxy"
+      },
+      "render": {
+        "width": 1280,
+        "height": 720,
+        "frame_count": 150,
+        "frame_rate_hz": 15,
+        "horizontal_fov_deg": 85.0,
+        "streaming_warmup_frames": 0,
+        "camera_warmup_frames": 0
+      },
+      "default_lighting_profile_id": "scan_baked",
+      "supported_input_layouts": [
+        "qa-v1-binding-group"
+      ]
+    },
+    {
+      "profile_id": "qa_v1_habitat_hm3d_val_00800_TEEsavR23oF",
+      "revision": "qa_v1_10s_150f_20260910",
+      "room_ref": {
+        "registry_id": "avengine_m6_representative_rooms_v1",
+        "room_id": "hm3d_val_00800_TEEsavR23oF",
+        "revision": "hm3d_e2e_wt_20260905_v1"
+      },
+      "backend_id": "habitat_native",
+      "adapter_id": "avengine_qa_v1_habitat_room_v1",
+      "scene": {
+        "scene_id": "hm3d_val_00800_TEEsavR23oF",
+        "map_path": "${AVENGINE_HM3D_REVIEW_ROOT}/rooms/hm3d_val_00800_TEEsavR23oF/room_manifest.json",
+        "layout_policy": "native_scan_unchanged",
+        "outdoor_view_policy": "scan_baked_lighting_no_proxy"
+      },
+      "render": {
+        "width": 1280,
+        "height": 720,
+        "frame_count": 150,
+        "frame_rate_hz": 15,
+        "horizontal_fov_deg": 85.0,
+        "streaming_warmup_frames": 0,
+        "camera_warmup_frames": 0
+      },
+      "default_lighting_profile_id": "scan_baked",
+      "supported_input_layouts": [
+        "qa-v1-binding-group"
+      ]
+    },
+    {
+      "profile_id": "qa_v1_spear_kujiale_0020_full_home",
+      "revision": "qa_v1_10s_150f_20260910",
+      "room_ref": {
+        "registry_id": "avengine_qa_room_packages_v1",
+        "room_id": "kujiale_0020_full_home_v1",
+        "revision": "20260907_p3_v2"
+      },
+      "backend_id": "spear_unreal",
+      "adapter_id": "avengine_qa_v1_spear_room_v1",
+      "scene": {
+        "scene_id": "kujiale_0020_full_home_v1",
+        "map_path": "/Game/AVEngine/Optional/Kujiale/kujiale_0020_full_home_v1",
+        "layout_policy": "native_map_unchanged",
+        "outdoor_view_policy": "native_map_assets_and_postprocess"
+      },
+      "render": {
+        "width": 1280,
+        "height": 720,
+        "frame_count": 150,
+        "frame_rate_hz": 15,
+        "horizontal_fov_deg": 85.0,
+        "streaming_warmup_frames": 120,
+        "camera_warmup_frames": 40
+      },
+      "default_lighting_profile_id": "native",
+      "supported_input_layouts": [
+        "qa-v1-binding-group"
       ]
     }
   ]

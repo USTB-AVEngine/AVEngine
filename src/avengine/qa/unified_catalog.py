@@ -1479,10 +1479,11 @@ def _source_activity_index(
     values: Sequence[Any],
     *,
     sample_count: int,
-) -> tuple[dict[str, list[dict[str, int]]], bool]:
+) -> tuple[dict[str, list[dict[str, int]]], bool, set[str]]:
     """Normalize P6 episode-sample source activity without inferring it."""
 
     result: dict[str, list[dict[str, int]]] = {}
+    observed_event_ids: set[str] = set()
     present = False
     known_keys = {
         "event_id",
@@ -1496,6 +1497,15 @@ def _source_activity_index(
         "end_sample",
         "end_sample_index",
     }
+    metadata_keys = {
+        "schema",
+        "status",
+        "coordinate_space",
+        "sample_rate_hz",
+        "sample_count",
+        "metadata",
+        "provenance",
+    }
 
     def integer(value: Any) -> int | None:
         if isinstance(value, bool) or not isinstance(value, (int, float)):
@@ -1504,6 +1514,10 @@ def _source_activity_index(
         if not math.isfinite(number) or not number.is_integer():
             return None
         return int(number)
+
+    def mark(event_id: Any) -> None:
+        if isinstance(event_id, str) and event_id.strip():
+            observed_event_ids.add(event_id.strip())
 
     def add(event_id: Any, start: Any, end: Any) -> None:
         if not isinstance(event_id, str) or not event_id.strip():
@@ -1515,7 +1529,9 @@ def _source_activity_index(
         end_i = min(sample_count, end_i)
         if end_i <= start_i:
             return
-        result.setdefault(event_id.strip(), []).append(
+        event_key = event_id.strip()
+        mark(event_key)
+        result.setdefault(event_key, []).append(
             {
                 "start_sample": start_i,
                 "end_sample_exclusive": end_i,
@@ -1560,10 +1576,25 @@ def _source_activity_index(
             for key, nested_value in value.items():
                 if key in known_keys:
                     continue
+                if key == "events":
+                    present = True
+                    visit(nested_value)
+                    continue
+                if key in metadata_keys:
+                    continue
                 if isinstance(key, str):
+                    if nested_value is None:
+                        continue
+                    present = True
                     visit(nested_value, key)
             return
         if _is_sequence(value):
+            if not value:
+                # An explicitly empty per-event list is measured silence.
+                # Malformed non-empty intervals are missing evidence instead
+                # of an observed empty activity set.
+                mark(event_id)
+                return
             if len(value) == 2:
                 start, end = value
                 if integer(start) is not None and integer(end) is not None:
@@ -1586,7 +1617,9 @@ def _source_activity_index(
             {"start_sample": start, "end_sample_exclusive": end}
             for start, end in result[event_id]
         ]
-    return result, present
+    return result, present, observed_event_ids
+
+
 
 
 def _visibility_index(
@@ -1653,6 +1686,49 @@ def _visibility_is_complete(facts: Mapping[str, Any], actor_id: str) -> bool:
     except (TypeError, ValueError):
         return False
     return indices == set(range(frame_count))
+
+
+def visibility_state_census(
+    facts: Mapping[str, Any],
+    actor_id: str | None = None,
+) -> dict[str, Any]:
+    """Count the visibility states actually observed, per actor or overall.
+
+    A family that needs an out-of-view or fully-occluded state produces
+    nothing when the episode never records one. That is a scene the producer
+    has to generate, not a judging failure, so the absent state is named and
+    counted instead of collapsing into one generic miss.
+    """
+
+    rows = facts.get("visibility")
+    states: dict[str, int] = {}
+    complete: list[str] = []
+    incomplete: list[str] = []
+    if not isinstance(rows, Mapping):
+        return {"states": states, "complete_actors": complete,
+                "incomplete_actors": incomplete, "actor_count": 0}
+    selected = (
+        {actor_id: rows.get(actor_id)}
+        if actor_id is not None
+        else rows
+    )
+    for key, frames in selected.items():
+        if not isinstance(frames, Mapping):
+            incomplete.append(str(key))
+            continue
+        for row in frames.values():
+            if isinstance(row, Mapping):
+                name = str(row.get("state"))
+                states[name] = states.get(name, 0) + 1
+        (complete if _visibility_is_complete(facts, str(key)) else incomplete).append(
+            str(key)
+        )
+    return {
+        "states": dict(sorted(states.items())),
+        "complete_actors": sorted(complete),
+        "incomplete_actors": sorted(incomplete),
+        "actor_count": len(selected),
+    }
 
 
 def _motion_series(
@@ -2033,18 +2109,33 @@ def normalize_episode_bundle(raw: Mapping[str, Any]) -> dict[str, Any]:
             report_events = report_value.get("events")
             if _is_sequence(report_events):
                 activity_values.extend(report_events)
-    source_activity_by_event, source_activity_present = _source_activity_index(
+    (
+        source_activity_by_event,
+        source_activity_present,
+        source_activity_event_ids,
+    ) = _source_activity_index(
         activity_values,
         sample_count=sample_count,
     )
+    for event_id in source_activity_event_ids:
+        source_activity_by_event.setdefault(event_id, [])
+    source_activity_evidence_complete = bool(events) and (
+        source_activity_present
+        and all(
+            event["event_id"] in source_activity_event_ids
+            for event in events
+        )
+    )
     for event in events:
         event_id = event["event_id"]
-        if source_activity_present:
+        if event_id in source_activity_event_ids:
             event["source_activity_intervals_samples"] = copy.deepcopy(
                 source_activity_by_event.get(event_id, [])
             )
+            event["source_activity_evidence_status"] = "observed"
         else:
             event.pop("source_activity_intervals_samples", None)
+            event["source_activity_evidence_status"] = "missing"
 
     visibility_value = root.get("pixel_visibility_truth") or root.get("pixel_truth")
     visibility = _visibility_index(
@@ -2124,6 +2215,22 @@ def normalize_episode_bundle(raw: Mapping[str, Any]) -> dict[str, Any]:
         candidate = record.get("appearance_review")
         if isinstance(candidate, Mapping):
             appearance_review[actor_id] = dict(candidate)
+    sampling_value = root.get("sampling") or root.get("qa_sampling") or {}
+    sampling = (
+        copy.deepcopy(dict(sampling_value))
+        if isinstance(sampling_value, Mapping)
+        else {}
+    )
+    public_entities = root.get("entities")
+    if not isinstance(public_entities, Mapping):
+        request_value = plan_meta.get("request")
+        if isinstance(request_value, Mapping):
+            public_entities = request_value.get("entities")
+    if isinstance(public_entities, Mapping):
+        # Keep the existing public/qa_sampling shape while making the
+        # request's entity-count choices available to post-capture QA.
+        sampling.setdefault("entities", copy.deepcopy(dict(public_entities)))
+
     facts = {
         "schema": UNIFIED_FACT_SCHEMA,
         "status": "pass",
@@ -2164,6 +2271,15 @@ def normalize_episode_bundle(raw: Mapping[str, Any]) -> dict[str, Any]:
             else None
         ),
         "source_activity_evidence_present": source_activity_present,
+        "source_activity_evidence_complete": source_activity_evidence_complete,
+        "source_activity_evidence_by_event": {
+            event["event_id"]: (
+                "observed"
+                if event["event_id"] in source_activity_event_ids
+                else "missing"
+            )
+            for event in events
+        },
         "visibility": visibility,
         "visibility_meta": visibility_meta,
         "camera_calibration": copy.deepcopy(root.get("camera_calibration")),
@@ -2174,6 +2290,7 @@ def normalize_episode_bundle(raw: Mapping[str, Any]) -> dict[str, Any]:
             "pixel_visibility_truth_present": isinstance(visibility_value, Mapping),
             "audio_program_present": bool(audio_program),
             "source_activity_intervals_samples_present": source_activity_present,
+            "source_activity_evidence_complete": source_activity_evidence_complete,
             "unresolved_event_ids": unresolved_event_ids,
         },
         "source_paths": {
@@ -2189,7 +2306,7 @@ def normalize_episode_bundle(raw: Mapping[str, Any]) -> dict[str, Any]:
             "occluder_evidence": _first(root, "occluder_evidence_path"),
             "occluder_registry": _first(root, "occluder_registry_path"),
         },
-        "sampling": root.get("sampling") or root.get("qa_sampling") or {},
+        "sampling": sampling,
         "sampling_policy": _first(root, "sampling_policy") or _first(plan_meta, "sampling_policy"),
         "occluder_registry": root.get("occluder_registry") or {},
         "occluder_evidence": root.get("occluder_evidence") or {},
@@ -2572,14 +2689,24 @@ def _appearance_review_for(
 
 def _state(facts: Mapping[str, Any], actor_id: str, frame: int) -> Mapping[str, Any]:
     frames = facts.get("visibility", {}).get(actor_id)
-    if not isinstance(frames, Mapping) or frame not in frames:
+    if not isinstance(frames, Mapping):
         _defer(
             "missing_pixel_visibility",
             f"pixel visibility truth is unavailable for {actor_id!r} at frame {frame}",
             actor_id=actor_id,
             frame=frame,
         )
-    value = frames[frame]
+    missing = object()
+    value = frames.get(frame, missing)
+    if value is missing:
+        value = frames.get(str(frame), missing)
+    if value is missing:
+        _defer(
+            "missing_pixel_visibility",
+            f"pixel visibility truth is unavailable for {actor_id!r} at frame {frame}",
+            actor_id=actor_id,
+            frame=frame,
+        )
     if not isinstance(value, Mapping) or value.get("state") not in VISIBILITY_STATES:
         _defer(
             "invalid_pixel_visibility",
@@ -2640,7 +2767,10 @@ def _active_at(
     *,
     require_source_activity: bool = False,
 ) -> list[Mapping[str, Any]]:
-    if require_source_activity and not _source_activity_present(facts):
+    if require_source_activity and (
+        not _source_activity_present(facts)
+        or facts.get("source_activity_evidence_complete") is False
+    ):
         _defer(
             "missing_source_activity_readback",
             "QA-18 requires episode source_activity_intervals_samples",
@@ -3012,6 +3142,392 @@ def _stable_motion_window(
             frame_range=[start_frame, end_frame],
         )
     return values[0]
+
+
+DISTANCE_TREND_DEFAULTS = {
+    "min_net_change_m": 0.2,
+    "reversal_tolerance_m": 0.05,
+    "reversal_fraction": 0.25,
+}
+
+
+def _policy_number(
+    facts: Mapping[str, Any],
+    keys: Sequence[str],
+    *,
+    default: float,
+    name: str,
+    minimum: float = 0.0,
+    maximum: float | None = None,
+) -> float:
+    """Read one numeric policy value from the episode sampling policy.
+
+    New thresholds arrive through configuration like every other runtime
+    parameter; nothing here keys off a room, source or asset name.
+    """
+
+    owners: list[Mapping[str, Any]] = []
+    sampling = facts.get("sampling")
+    if isinstance(sampling, Mapping):
+        nested = sampling.get("qa_sampling")
+        if isinstance(nested, Mapping):
+            owners.append(nested)
+        owners.append(sampling)
+    policy = facts.get("sampling_policy")
+    if isinstance(policy, Mapping):
+        owners.append(policy)
+    value: Any = None
+    for owner in owners:
+        for key in keys:
+            if key in owner:
+                value = owner[key]
+                break
+        if value is not None:
+            break
+    if value is None:
+        return float(default)
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        _defer("policy_number_invalid", f"{name} must be a finite number", value=value)
+    value = float(value)
+    if not math.isfinite(value) or value < minimum or (
+        maximum is not None and value > maximum
+    ):
+        _defer("policy_number_invalid", f"{name} is outside its allowed range", value=value)
+    return value
+
+
+def audible_frame_window(
+    facts: Mapping[str, Any],
+    event: Mapping[str, Any],
+) -> dict[str, Any]:
+    """The frame span over which this event's own source activity is present.
+
+    A question about what happened "while the source was sounding" is about
+    the measured activity span, not about the declared event bounds. The
+    current audio policy keeps natural short pauses inside one segment, so
+    the span runs from the first to the last active frame and the gaps are
+    reported rather than treated as the end of the sound.
+    """
+
+    frame_count = int(facts["time"]["frame_count"])
+    declared_start = max(0, _event_frame(event, "start_frame"))
+    declared_end = min(
+        frame_count, max(declared_start + 1, _event_frame(event, "end_frame"))
+    )
+    declared = [declared_start, declared_end]
+    rows = _source_activity_for_event(facts, str(event.get("event_id")))
+    record: dict[str, Any] = {
+        "declared_event_frames": declared,
+        "activity_readback_present": bool(rows),
+    }
+    if not rows:
+        record.update({"frames": declared, "window_source": "declared_event_frames"})
+        return record
+    sample_rate = float(facts["time"]["sample_rate_hz"])
+    frame_rate = float(facts["time"]["frame_rate_hz"])
+    active = [
+        frame
+        for frame in range(frame_count)
+        if any(
+            int(row.get("start_sample", 0))
+            <= int(round(frame * sample_rate / frame_rate))
+            < int(row.get("end_sample_exclusive", 0))
+            for row in rows
+        )
+    ]
+    if not active:
+        record.update({
+            "frames": declared,
+            "window_source": "declared_event_frames",
+            "audible_frame_count": 0,
+            "detail": "the activity readback covers no video frame",
+        })
+        return record
+    record.update({
+        "frames": [active[0], active[-1] + 1],
+        "window_source": "source_activity_readback",
+        "audible_frame_count": len(active),
+        "audible_span_frame_count": active[-1] - active[0] + 1,
+        "contiguous": active[-1] - active[0] + 1 == len(active),
+        "internal_pause_frame_count": active[-1] - active[0] + 1 - len(active),
+    })
+    return record
+
+
+def distance_trend_during_window(
+    facts: Mapping[str, Any],
+    actor_id: str,
+    window: Sequence[int],
+    *,
+    min_net_change_m: float | None = None,
+    reversal_tolerance_m: float | None = None,
+    reversal_fraction: float | None = None,
+) -> dict[str, Any]:
+    """Decide nearer or farther over a window and prove the trend holds.
+
+    The published answer is a direction, so the difference between the first
+    and last frame cannot carry it on its own: a path that approaches and
+    then recedes has the same endpoint difference as one that only recedes.
+    The trend qualifies when the net change clears ``min_net_change_m`` and
+    the largest excursion against the net direction stays inside both an
+    absolute tolerance and a fraction of that net change. Both readings are
+    reported, so a caller can see the endpoint figure and the excursion that
+    actually decided the verdict.
+    """
+
+    start, end = int(window[0]), int(window[1])
+    minimum = (
+        _policy_number(
+            facts,
+            ("qa15_min_net_change_m", "distance_net_change_min_m"),
+            default=DISTANCE_TREND_DEFAULTS["min_net_change_m"],
+            name="distance net change margin",
+        )
+        if min_net_change_m is None
+        else float(min_net_change_m)
+    )
+    tolerance = (
+        _policy_number(
+            facts,
+            ("qa15_reversal_tolerance_m", "distance_reversal_tolerance_m"),
+            default=DISTANCE_TREND_DEFAULTS["reversal_tolerance_m"],
+            name="distance reversal tolerance",
+        )
+        if reversal_tolerance_m is None
+        else float(reversal_tolerance_m)
+    )
+    fraction = (
+        _policy_number(
+            facts,
+            ("qa15_reversal_fraction", "distance_reversal_fraction"),
+            default=DISTANCE_TREND_DEFAULTS["reversal_fraction"],
+            name="distance reversal fraction",
+            maximum=1.0,
+        )
+        if reversal_fraction is None
+        else float(reversal_fraction)
+    )
+    criteria = {
+        "min_net_change_m": minimum,
+        "reversal_tolerance_m": tolerance,
+        "reversal_fraction": fraction,
+        "definition": (
+            "net change clears the margin and no excursion against the net "
+            "direction exceeds the absolute tolerance or the allowed "
+            "fraction of that net change"
+        ),
+    }
+    record: dict[str, Any] = {
+        "window_frames": [start, end],
+        "criteria": criteria,
+        "verdict": None,
+        "reason": None,
+    }
+    if end <= start + 1:
+        record.update({
+            "reason": "distance_window_too_short",
+            "detail": "a distance trend needs at least two readback frames",
+        })
+        return record
+    try:
+        series = [_distance_at(facts, actor_id, frame) for frame in range(start, end)]
+    except _Deferred as error:
+        record.update({"reason": error.code, "detail": error.detail})
+        return record
+    net = series[-1] - series[0]
+    direction = "nearer" if net < 0.0 else "farther"
+    extreme = series[0]
+    counter = 0.0
+    for value in series:
+        if net < 0.0:
+            extreme = min(extreme, value)
+            counter = max(counter, value - extreme)
+        else:
+            extreme = max(extreme, value)
+            counter = max(counter, extreme - value)
+    allowed = min(tolerance, fraction * abs(net)) if abs(net) > 0.0 else tolerance
+    record.update({
+        "distance_series_m": series,
+        "distance_start_m": series[0],
+        "distance_end_m": series[-1],
+        "endpoint_delta_m": net,
+        "net_direction": direction,
+        "distance_span_m": max(series) - min(series),
+        "total_variation_m": sum(abs(b - a) for a, b in zip(series, series[1:])),
+        "max_counter_trend_m": counter,
+        "allowed_counter_trend_m": allowed,
+        "monotone_within_tolerance": counter <= allowed,
+        "endpoint_delta_is_not_sufficient": True,
+    })
+    if abs(net) < minimum:
+        record.update({
+            "reason": "distance_net_change_below_margin",
+            "detail": (
+                "the distance changes by less than the configured margin over "
+                "the window"
+            ),
+        })
+        return record
+    if counter > allowed:
+        record.update({
+            "reason": "distance_trend_reverses",
+            "detail": (
+                "the path moves back against its net direction by more than "
+                "the configured reversal allowance"
+            ),
+        })
+        return record
+    record["verdict"] = direction
+    return record
+
+
+def _ordinary_observation_questions(facts):
+    return ((facts.get("sampling") or {}).get("acceptance_policy") or {}).get(
+        "question_mode") == "ordinary_observation"
+
+
+def _generate_qa16_timepoint(facts, seed):
+    """Compare distance at an explicit whole-second point, using native positions."""
+    for event, query_frame, silence in _after_event_candidates(facts, qa_id="QA-16"):
+        seconds = query_frame / float(facts["time"]["frame_rate_hz"])
+        if abs(seconds - round(seconds)) > 1e-8:
+            continue
+        try:
+            anchor_frame = _event_frame(event, "end_frame")
+            anchor_distance = _distance_at(facts, event["actor_id"], anchor_frame)
+            query_distance = _distance_at(facts, event["actor_id"], query_frame)
+            _silent_after(facts, event, query_frame)
+        except _Deferred:
+            continue
+        margin = _policy_number(facts, ("qa16_distance_margin_m",), default=0.2,
+                                name="post-sound distance margin")
+        delta = query_distance - anchor_distance
+        if abs(delta) < margin:
+            continue
+        trend = "nearer" if delta < 0 else "farther"
+        anchor_en, anchor_zh = _event_anchor(facts, event)
+        return _question_item(
+            qa_id="QA-16", facts=facts, seed=seed,
+            question_en=f"At {int(round(seconds))} seconds, compared with its position at the end of {anchor_en}, was the source nearer or farther from the listener?",
+            question_zh=f"与{anchor_zh}结束时的声源位置相比，在第{int(round(seconds))}秒，声源离听者更近还是更远？",
+            open_answer_type="closed_set", open_truth=trend, truth_label=trend,
+            options=[_option("nearer", "nearer"), _option("farther", "farther")],
+            evidence={**_event_evidence(event), "query_frame":query_frame,
+                      "query_time_s":float(round(seconds)), "reference_frame":anchor_frame,
+                      "reference_distance_m":anchor_distance,"query_distance_m":query_distance,
+                      "distance_delta_m":delta,"distance_margin_m":margin,
+                      "query_scope":"explicit_integer_timepoint",
+                      "silence_evidence":silence},
+            slug=f"{event['event_id']}_post_distance_frame_{query_frame}")
+    _defer("no_valid_post_sound_timepoint",
+           "no silent whole-second query has a measured distance change above the margin")
+
+
+def _noticeable_motion_policy(facts):
+    policy = (facts.get("sampling") or {}).get("acceptance_policy") or {}
+    motion = policy.get("motion")
+    if not motion:
+        return None
+    if motion.get("mode") != "noticeable_motion":
+        raise UnifiedQAError("unknown configured motion acceptance mode")
+    result = dict(motion)
+    result.setdefault("speed_threshold_mps", 0.05)
+    for key in ("min_moving_duration_s", "min_travel_m", "max_still_travel_m", "speed_threshold_mps"):
+        value = result.get(key)
+        if isinstance(value, bool) or not isinstance(value, (float, int)) or not math.isfinite(value) or value < 0:
+            raise UnifiedQAError(f"invalid motion acceptance parameter: {key}")
+    if result["max_still_travel_m"] >= result["min_travel_m"]:
+        raise UnifiedQAError("moving travel must exceed the still allowance")
+    return result
+
+
+def _noticeable_motion_window(facts, actor_id, start, end, policy):
+    actor = _actor(facts, actor_id)
+    positions = actor.get("root_positions_m")
+    if not _is_sequence(positions) or end > len(positions) or end <= start + 1:
+        return {"moving": None, "reason": "missing_motion_position_readback"}
+    points = positions[start:end]
+    if any(not _is_sequence(p) or len(p) != 3 or
+           any(not isinstance(v, (int, float)) or not math.isfinite(v) for v in p)
+           for p in points):
+        return {"moving": None, "reason": "invalid_motion_position_readback"}
+    rate = float(facts["time"]["frame_rate_hz"])
+    distances = [math.dist(a, b) for a, b in zip(points, points[1:])]
+    travel = sum(distances)
+    moving_s = sum(d * rate > policy["speed_threshold_mps"] for d in distances) / rate
+    value = (True if travel >= policy["min_travel_m"] and moving_s >= policy["min_moving_duration_s"]
+             else False if travel <= policy["max_still_travel_m"] else None)
+    return {"moving": value, "reason": None if value is not None else "motion_between_noticeability_thresholds",
+            "measurement": {"window_frames": [start, end], "travel_m": travel,
+                            "moving_duration_s": moving_s, "position_source": "root_positions_m",
+                            "criteria": dict(policy)}}
+
+
+def _tag_question_tolerance(item, facts, qa_id):
+    acceptance = (facts.get("sampling") or {}).get("acceptance_policy") or {}
+    active = (_ordinary_observation_questions(facts) or
+              (qa_id == "QA-06" and _noticeable_motion_policy(facts) is not None) or
+              (qa_id in {"QA-07", "QA-09"} and facts.get("visibility_interpretation")))
+    if not active:
+        return item
+    policy_id = str(acceptance.get("policy_id") or "configured_question_tolerance")
+    item["question_id"] += "__policy_" + policy_id
+    item["acceptance_policy"] = copy.deepcopy(acceptance)
+    item["evidence"]["acceptance_policy"] = copy.deepcopy(acceptance)
+    if facts.get("visibility_interpretation"):
+        item["evidence"]["visibility_interpretation"] = copy.deepcopy(facts["visibility_interpretation"])
+    item["truth"]["source"] = "native_measurements_with_configured_question_tolerance"
+    item["truth"]["evidence"] = copy.deepcopy(item["evidence"])
+    item["claim_boundary"] = "Research question under the stated tolerance, not strict pixel visibility or original V1 admission."
+    if _ordinary_observation_questions(facts):
+        item["question_mode"] = "ordinary_observation"
+        item["cross_modal_necessity_claim"] = False
+        item["claim_boundary"] = "Ordinary observation question from native evidence; cross-modal necessity and original paired-research admission are not claimed."
+    return item
+
+
+def motion_state_during_audible_window(
+    facts: Mapping[str, Any],
+    event: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Whether the emitter held one motion state across its sounding span."""
+
+    audible = audible_frame_window(facts, event)
+    record: dict[str, Any] = {"audible_window": audible, "moving": None, "reason": None}
+    policy = _noticeable_motion_policy(facts)
+    if policy is not None:
+        record.update(_noticeable_motion_window(
+            facts, str(event["actor_id"]), int(audible["frames"][0]), int(audible["frames"][1]), policy))
+        return record
+    try:
+        record["moving"] = _stable_motion_window(
+            facts,
+            str(event["actor_id"]),
+            int(audible["frames"][0]),
+            int(audible["frames"][1]),
+        )
+    except _Deferred as error:
+        record.update({"reason": error.code, "detail": error.detail})
+    return record
+
+
+def _defer_with_reasons(
+    code: str,
+    detail: str,
+    reasons: Sequence[Mapping[str, Any]],
+    **extra: Any,
+) -> None:
+    """Defer with one primary code while keeping every candidate reason."""
+
+    _defer(
+        code,
+        detail,
+        candidate_reasons=[dict(reason) for reason in reasons],
+        candidate_reason_codes=sorted(
+            {str(reason.get("code")) for reason in reasons if reason.get("code")}
+        ),
+        **extra,
+    )
 
 
 def _option(value: Any, label: str | None = None) -> dict[str, str]:
@@ -3452,6 +3968,89 @@ def _event_pair(facts: Mapping[str, Any]) -> tuple[Mapping[str, Any], Mapping[st
         return selected[0], selected[1]
     return events[0], events[1]
 
+def _event_overlap_intervals(
+    facts: Mapping[str, Any],
+    first: Mapping[str, Any],
+    second: Mapping[str, Any],
+) -> tuple[list[list[float]], str]:
+    """Return measured source-activity overlaps for one event pair.
+
+    The event `start_s`/`end_s` fields describe placement on the episode
+    clock.  When the native source-activity readback is present, it is the
+    answer authority for QA-05; an event with no measured active interval
+    therefore contributes no overlap.  Older retained bundles without that
+    readback keep the placement interval as an explicitly reported fallback.
+    """
+
+    sample_rate = float(facts["time"]["sample_rate_hz"])
+    use_activity = _source_activity_present(facts)
+    basis = (
+        "source_activity_intervals_samples"
+        if use_activity
+        else "event_program_interval"
+    )
+
+    if use_activity and any(
+        event.get("source_activity_evidence_status") == "missing"
+        for event in (first, second)
+    ):
+        _defer(
+            "missing_source_activity_readback",
+            "QA-05 cannot classify an event pair with partial source-activity evidence",
+            event_ids=[first.get("event_id"), second.get("event_id")],
+        )
+
+    def intervals(event: Mapping[str, Any]) -> list[tuple[int, int]]:
+        if use_activity:
+            result: list[tuple[int, int]] = []
+            for row in _source_activity_for_event(
+                facts, str(event.get("event_id"))
+            ):
+                start = row.get("start_sample")
+                end = row.get("end_sample_exclusive")
+                if (
+                    isinstance(start, bool)
+                    or isinstance(end, bool)
+                    or not isinstance(start, (int, float))
+                    or not isinstance(end, (int, float))
+                    or not math.isfinite(float(start))
+                    or not math.isfinite(float(end))
+                    or not float(start).is_integer()
+                    or not float(end).is_integer()
+                ):
+                    continue
+                start_i, end_i = int(start), int(end)
+                if end_i > start_i:
+                    result.append((start_i, end_i))
+            return result
+
+        start = float(event["start_s"]) * sample_rate
+        end = float(event["end_s"]) * sample_rate
+        return (
+            [(round(start), round(end))]
+            if math.isfinite(start) and math.isfinite(end) and end > start
+            else []
+        )
+
+    overlaps: list[tuple[int, int]] = []
+    for first_start, first_end in intervals(first):
+        for second_start, second_end in intervals(second):
+            start = max(first_start, second_start)
+            end = min(first_end, second_end)
+            if end > start:
+                overlaps.append((start, end))
+
+    merged: list[list[int]] = []
+    for start, end in sorted(overlaps):
+        if merged and start <= merged[-1][1]:
+            merged[-1][1] = max(merged[-1][1], end)
+        else:
+            merged.append([start, end])
+    return (
+        [[start / sample_rate, end / sample_rate] for start, end in merged],
+        basis,
+    )
+
 
 def _after_event_candidates(
     facts: Mapping[str, Any],
@@ -3738,9 +4337,10 @@ def _generate_qa_04(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
 
 def _generate_qa_05(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
     first, second = _event_pair(facts)
-    overlap_start = max(float(first["start_s"]), float(second["start_s"]))
-    overlap_end = min(float(first["end_s"]), float(second["end_s"]))
-    truth = "yes" if overlap_start < overlap_end else "no"
+    overlap_intervals, overlap_basis = _event_overlap_intervals(
+        facts, first, second
+    )
+    truth = "yes" if overlap_intervals else "no"
     first_anchor_en, first_anchor_zh = _event_anchor(facts, first)
     second_anchor_en, second_anchor_zh = _event_anchor(facts, second)
     return _question_item(
@@ -3755,7 +4355,11 @@ def _generate_qa_05(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
         options=[_option("yes", "yes"), _option("no", "no")],
         evidence={
             "event_ids": [first["event_id"], second["event_id"]],
-            "overlap_interval_s": [overlap_start, overlap_end] if truth == "yes" else None,
+            "overlap_interval_s": (
+                overlap_intervals[0] if overlap_intervals else None
+            ),
+            "overlap_intervals_s": overlap_intervals,
+            "overlap_basis": overlap_basis,
         },
         slug=f"{first['event_id']}_{second['event_id']}",
     )
@@ -3764,30 +4368,53 @@ def _generate_qa_05(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
 def _generate_qa_06(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
     _require_stereo(facts)
     events = _bound_events(facts)
+    reasons: list[dict[str, Any]] = []
     for event in events:
-        actor_id = event["actor_id"]
-        try:
-            moving = _stable_motion_window(
-                facts,
-                actor_id,
-                max(0, _event_frame(event, "start_frame")),
-                min(int(facts["time"]["frame_count"]), _event_frame(event, "end_frame")),
-            )
-        except _Deferred:
+        # The question is about the sounding span, so the motion state is read
+        # over the measured activity window rather than the declared event
+        # bounds. Both windows stay in the evidence.
+        state = motion_state_during_audible_window(facts, event)
+        if state["moving"] is None:
+            reasons.append({
+                "event_id": event.get("event_id"),
+                "actor_id": event.get("actor_id"),
+                "code": state["reason"],
+                "detail": state.get("detail"),
+                "audible_window": state["audible_window"],
+            })
             continue
+        moving = bool(state["moving"])
+        audible = state["audible_window"]
         anchor_en, anchor_zh = _event_anchor(facts, event)
         return _question_item(
             qa_id="QA-06",
             facts=facts,
             seed=seed,
-            question_en=f"Was the source moving while making {anchor_en}?",
-            question_zh=f"{anchor_zh}期间，声源在运动吗？",
+            question_en=(f"Did the source move noticeably during {anchor_en}?"
+                         if _noticeable_motion_policy(facts) is not None else
+                         f"Was the source moving while making {anchor_en}?"),
+            question_zh=(f"{anchor_zh}期间，声源有没有明显移动？"
+                         if _noticeable_motion_policy(facts) is not None else
+                         f"{anchor_zh}期间，声源在运动吗？"),
             open_answer_type="closed_set",
             open_truth="moving" if moving else "still",
             truth_label="moving" if moving else "still",
             options=[_option("moving", "moving"), _option("still", "staying still")],
-            evidence={**_event_evidence(event), "moving": moving},
+            evidence={
+                **_event_evidence(event),
+                "moving": moving,
+                "motion_window_frames": list(audible["frames"]),
+                "motion_window_source": audible["window_source"],
+                "audible_window": audible,
+                **({"motion_measurement": state["measurement"]} if "measurement" in state else {}),
+            },
             slug=event["event_id"],
+        )
+    if reasons:
+        _defer_with_reasons(
+            "no_stable_motion_event",
+            "no bound event holds one motion state across its sounding span",
+            reasons,
         )
     _defer("no_stable_motion_event", "no bound event has a stable motion state")
 
@@ -3812,14 +4439,21 @@ def _generate_qa_07(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
         if isinstance(preferred, Mapping)
         else None
     )
+    census = visibility_state_census(facts)
+    reasons: list[dict[str, Any]] = []
     for actor_id, frames in facts.get("visibility", {}).items():
-        if actor_id not in reviewed or (
-            preferred_actor is not None and actor_id != preferred_actor
-        ):
+        if preferred_actor is not None and actor_id != preferred_actor:
             continue
         if not isinstance(frames, Mapping):
+            reasons.append({
+                "actor_id": str(actor_id),
+                "code": "visibility_rows_missing",
+                "detail": "this actor has no per-frame visibility readback",
+            })
             continue
         ordered = [frames[index] for index in sorted(frames)]
+        transitions: list[tuple[int, float]] = []
+        ambiguous: list[int] = []
         for previous, current in zip(ordered, ordered[1:]):
             if int(current.get("frame_index", -1)) != int(previous.get("frame_index", -2)) + 1:
                 continue
@@ -3827,11 +4461,60 @@ def _generate_qa_07(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
                 continue
             centroid = current.get("target_centroid_xy_px")
             if not _is_sequence(centroid) or len(centroid) != 2:
+                ambiguous.append(int(current.get("frame_index", -1)))
                 continue
             offset = float(centroid[0]) - center
             if abs(offset) <= dead_zone:
+                ambiguous.append(int(current["frame_index"]))
                 continue
-            entry_frame = int(current["frame_index"])
+            transitions.append((int(current["frame_index"]), offset))
+        if not transitions:
+            if ambiguous:
+                reasons.append({
+                    "actor_id": str(actor_id),
+                    "code": "entry_side_ambiguous",
+                    "detail": (
+                        "the entry frame centroid is missing or sits inside "
+                        "the centre dead zone, so no side can be named"
+                    ),
+                    "entry_frames": ambiguous,
+                    "side_dead_zone_px": dead_zone,
+                })
+            elif not census["states"].get("out_of_view"):
+                reasons.append({
+                    "actor_id": str(actor_id),
+                    "code": "no_out_of_view_state_observed",
+                    "detail": (
+                        "the episode never records an out-of-view frame, so "
+                        "an entry into view cannot exist in it"
+                    ),
+                    "observed_states": census["states"],
+                })
+            else:
+                reasons.append({
+                    "actor_id": str(actor_id),
+                    "code": "no_entry_transition",
+                    "detail": "this actor never crosses from out of view into view",
+                    "observed_states": visibility_state_census(
+                        facts, str(actor_id)
+                    )["states"],
+                })
+            continue
+        if actor_id not in reviewed:
+            # The entry is observed. What is missing is a reviewed appearance
+            # to name the target with, which is not the same as the target
+            # being invisible.
+            reasons.append({
+                "actor_id": str(actor_id),
+                "code": "appearance_review_missing_for_entry",
+                "detail": (
+                    "the entry into view is observed but this target has no "
+                    "reviewed appearance to name it in the question"
+                ),
+                "entry_frames": [frame for frame, _offset in transitions],
+            })
+            continue
+        for entry_frame, offset in transitions:
             if preferred_frame is not None and entry_frame != int(preferred_frame):
                 continue
             window = _entry_transition_window(
@@ -3842,11 +4525,21 @@ def _generate_qa_07(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
                 dead_zone=dead_zone,
             )
             if window is None:
+                reasons.append({
+                    "actor_id": str(actor_id),
+                    "code": "entry_transition_window_not_stable",
+                    "detail": "the entry side is not held across a usable interval",
+                    "entry_frame": entry_frame,
+                })
                 continue
             side = "right" if offset > 0.0 else "left"
             appearance_en, appearance_zh = _appearance_phrases(reviewed[actor_id])
-            window_fields = _query_window_fields(facts, window)
-            display = _display_time_range(facts, window)
+            window_fields = _query_window_fields(
+                facts, window, start_rounding="floor"
+            )
+            display = _display_time_range(
+                facts, window, start_rounding="floor"
+            )
             if display is None:
                 _defer("query_interval_too_short_for_display", "the entry interval has no public range")
             display_en, display_zh = display
@@ -3855,11 +4548,11 @@ def _generate_qa_07(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
                 facts=facts,
                 seed=seed,
                 question_en=(
-                    f"Did the {appearance_en} enter from the left or right side "
+                    f"Did the {appearance_en} {'clearly enter' if facts.get('visibility_interpretation') else 'enter'} from the left or right side "
                     f"of the frame during the transition into view {display_en}?"
                 ),
                 question_zh=(
-                    f"在入画过渡时段{display_zh}内，{appearance_zh}是从左侧还是右侧进入画面的？"
+                    f"在入画过渡时段{display_zh}内，{appearance_zh}是从左侧还是右侧{'清晰进入' if facts.get('visibility_interpretation') else '进入'}画面的？"
                 ),
                 open_answer_type="closed_set",
                 open_truth=side,
@@ -3875,6 +4568,28 @@ def _generate_qa_07(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
                 },
                 slug=f"{actor_id}_entry_{entry_frame}",
             )
+    if reasons:
+        codes = {str(reason.get("code")) for reason in reasons}
+        primary = next(
+            (
+                code
+                for code in (
+                    "entry_transition_window_not_stable",
+                    "appearance_review_missing_for_entry",
+                    "entry_side_ambiguous",
+                    "no_out_of_view_state_observed",
+                    "visibility_rows_missing",
+                )
+                if code in codes
+            ),
+            "no_entry_transition",
+        )
+        _defer_with_reasons(
+            primary,
+            "no out_of_view to visible transition yields a nameable, publishable side",
+            reasons,
+            observed_visibility_states=census["states"],
+        )
     _defer("no_entry_transition", "no out_of_view to visible transition with an unambiguous side")
 
 def _generate_qa_08(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
@@ -3932,13 +4647,28 @@ def _generate_qa_09(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
         else None
     )
     incomplete_negative = False
+    census = visibility_state_census(facts)
+    reasons: list[dict[str, Any]] = []
     for actor_id, frames in facts.get("visibility", {}).items():
-        if actor_id not in reviewed or (
-            preferred_actor is not None and actor_id != preferred_actor
-        ):
+        if preferred_actor is not None and actor_id != preferred_actor:
             continue
         ordered = [frames[index] for index in sorted(frames)] if isinstance(frames, Mapping) else []
         fully = [frame.get("frame_index") for frame in ordered if frame.get("state") == "fully_occluded"]
+        if fully and actor_id not in reviewed:
+            # Full occlusion is observed; the target simply has no reviewed
+            # appearance to name it. That is not evidence of invisibility.
+            reasons.append({
+                "actor_id": str(actor_id),
+                "code": "appearance_review_missing_for_occlusion",
+                "detail": (
+                    "full occlusion is observed but this target has no "
+                    "reviewed appearance to name it in the question"
+                ),
+                "fully_occluded_frames": fully,
+            })
+            continue
+        if actor_id not in reviewed:
+            continue
         if preferred_occluded is not None:
             fully = [
                 frame for frame in fully
@@ -3966,11 +4696,12 @@ def _generate_qa_09(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
                 facts=facts,
                 seed=seed,
                 question_en=(
-                    f"Did the {appearance_en} reappear "
-                    "after being fully occluded before the end of the clip?"
+                    f"Did the {appearance_en} become visible again after being mostly occluded before the end of the clip?"
+                    if facts.get("visibility_interpretation") else
+                    f"Did the {appearance_en} reappear after being fully occluded before the end of the clip?"
                 ),
                 question_zh=(
-                    f"整段视频中，{appearance_zh}完全遮挡后又重新出现了吗？"
+                    f"整段视频中，{appearance_zh}{'基本被遮挡后又重新出现' if facts.get('visibility_interpretation') else '完全遮挡后又重新出现'}了吗？"
                 ),
                 open_answer_type="closed_set",
                 open_truth=truth,
@@ -3992,6 +4723,23 @@ def _generate_qa_09(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
         _defer(
             "incomplete_visibility_for_negative",
             "cannot emit a negative reappearance answer without complete visibility coverage",
+            candidate_reasons=[dict(reason) for reason in reasons],
+            observed_visibility_states=census["states"],
+        )
+    if reasons:
+        _defer_with_reasons(
+            "appearance_review_missing_for_occlusion",
+            "full occlusion is observed but no occluded target can be named",
+            reasons,
+            observed_visibility_states=census["states"],
+        )
+    if not census["states"].get("fully_occluded"):
+        _defer(
+            "no_fully_occluded_state_observed",
+            "the episode never records a fully occluded frame, so a "
+            "reappearance question cannot exist in it",
+            observed_visibility_states=census["states"],
+            complete_visibility_actors=census["complete_actors"],
         )
     _defer("no_reappearance_transition", "no fully_occluded to visible transition is present")
 
@@ -4692,19 +5440,51 @@ def _generate_qa_14(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
     )
 
 def _generate_qa_15(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
+    """Ask whether the source approached or receded while it was sounding.
+
+    The answer is a direction held across the whole sounding span, so the
+    check is ``distance_trend_during_window``: a net change past the margin
+    plus a bounded excursion against that direction. The first-to-last
+    difference is kept as a reading, never as the proof.
+    """
+
     _require_stereo(facts)
+    reasons: list[dict[str, Any]] = []
     for event in _bound_events(facts):
-        start_frame = max(0, _event_frame(event, "start_frame"))
-        end_frame = min(int(facts["time"]["frame_count"]) - 1, max(start_frame + 1, _event_frame(event, "end_frame") - 1))
-        try:
-            start_distance = _distance_at(facts, event["actor_id"], start_frame)
-            end_distance = _distance_at(facts, event["actor_id"], end_frame)
-        except _Deferred:
+        actor_id = str(event["actor_id"])
+        audible = audible_frame_window(facts, event)
+        window = [int(audible["frames"][0]), int(audible["frames"][1])]
+        trend = distance_trend_during_window(facts, actor_id, window)
+        if trend["verdict"] is None:
+            reasons.append({
+                "event_id": event.get("event_id"),
+                "actor_id": actor_id,
+                "code": trend["reason"],
+                "detail": trend.get("detail"),
+                "endpoint_delta_m": trend.get("endpoint_delta_m"),
+                "max_counter_trend_m": trend.get("max_counter_trend_m"),
+                "window_frames": window,
+                "window_source": audible["window_source"],
+            })
             continue
-        delta = end_distance - start_distance
-        if abs(delta) < 0.2:
+        # A change in listener distance under a fixed camera means the emitter
+        # moved. If the per-frame motion readback denies that, the two
+        # readbacks disagree and neither may be published as the answer.
+        motion = motion_state_during_audible_window(facts, event)
+        if motion["reason"] is None and motion["moving"] is False:
+            reasons.append({
+                "event_id": event.get("event_id"),
+                "actor_id": actor_id,
+                "code": "distance_and_motion_readbacks_disagree",
+                "detail": (
+                    "listener distance changes past the margin while the "
+                    "per-frame motion readback reports a still emitter"
+                ),
+                "endpoint_delta_m": trend.get("endpoint_delta_m"),
+                "window_frames": window,
+            })
             continue
-        truth = "nearer" if delta < 0 else "farther"
+        truth = str(trend["verdict"])
         anchor_en, anchor_zh = _event_anchor(facts, event)
         return _question_item(
             qa_id="QA-15",
@@ -4721,17 +5501,32 @@ def _generate_qa_15(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
             options=[_option("nearer", "nearer"), _option("farther", "farther")],
             evidence={
                 **_event_evidence(event),
-                "distance_start_m": start_distance,
-                "distance_end_m": end_distance,
-                "delta_m": delta,
+                "distance_start_m": trend["distance_start_m"],
+                "distance_end_m": trend["distance_end_m"],
+                "delta_m": trend["endpoint_delta_m"],
+                "distance_trend": trend,
+                "audible_window": audible,
+                "motion_readback": {
+                    "moving": motion.get("moving"),
+                    "reason": motion.get("reason"),
+                },
             },
             slug=event["event_id"],
+        )
+    if reasons:
+        _defer_with_reasons(
+            "no_distance_trend_during_event",
+            "no event has a proven approach or recession across its sounding span",
+            reasons,
         )
     _defer("no_distance_trend_during_event", "no event has a measurable distance trend")
 
 
 def _generate_qa_16(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
     _require_stereo(facts)
+    acceptance = (facts.get("sampling") or {}).get("acceptance_policy") or {}
+    if _ordinary_observation_questions(facts) and acceptance.get("post_sound_distance_query") == "integer_timepoint":
+        return _generate_qa16_timepoint(facts, seed)
     candidate_seen = False
     unstable_interval = False
     for event, query_frame, silence in _after_event_candidates(
@@ -4912,6 +5707,27 @@ def _generate_qa_17(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
         )
     event, query_frame, silence, window, values = first_valid
     anchor_en, anchor_zh = _event_anchor(facts, event)
+    chosen_anchor_frame = _event_frame(event, "end_frame")
+
+    def chosen_value_for_frame(frame: int) -> bool | None:
+        """Re-read the answer for the selected event, not the last one tried."""
+        try:
+            _silent_after(facts, event, frame)
+            readings = [
+                _motion_at(facts, event["actor_id"], index)
+                for index in range(max(0, chosen_anchor_frame), frame + 1)
+            ]
+        except _Deferred:
+            return None
+        return any(readings)
+
+    truth_value = bool(values[0]) if values else None
+    # The reader is handed whole seconds, which is a different set of instants
+    # from the proven frame window, so the answer is measured again on exactly
+    # those instants rather than restated from the finer window.
+    publication = verify_published_query_window(
+        facts, window, chosen_value_for_frame, truth_value, qa_id="QA-17"
+    )
     window_fields = _query_window_fields(facts, window)
     display = _display_time_range(facts, window)
     if display is None:
@@ -4943,6 +5759,7 @@ def _generate_qa_17(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
             "moving_values": values,
             "query_frame": query_frame,
             "query_time_s": query_frame / float(facts["time"]["frame_rate_hz"]),
+            "published_window_verification": publication,
             **window_fields,
         },
         slug=f"{event['event_id']}_post_motion",
@@ -4984,10 +5801,25 @@ def _generate_qa_18(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
             "missing_source_activity_readback",
             "QA-18 needs source activity readback to prove its interval",
         )
+    if _time_display_precision(facts) == 0:
+        return _generate_qa18_integer_window(
+            facts,
+            seed,
+            query_time=query_time,
+            query_source=query_source,
+            candidate=candidate,
+            frame=frame,
+            reviewed=reviewed,
+        )
     wet_tails = (
         facts.get("audio", {}).get("wet_tail_intervals", [])
         if isinstance(facts.get("audio"), Mapping)
         else []
+    )
+    active = _active_at(
+        facts,
+        frame,
+        require_source_activity=True,
     )
     wet_tail_events = [
         interval.get("event_id")
@@ -4997,10 +5829,10 @@ def _generate_qa_18(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
         and float(interval.get("start_s", 0.0)) <= query_time
         < float(interval.get("end_s", 0.0))
     ]
-    if wet_tail_events:
+    if wet_tail_events and not active:
         _defer(
             "query_inside_wet_tail",
-            "QA-18 query is inside a measured listener-side wet-tail interval",
+            "QA-18 query has no active source and is inside a measured listener-side wet-tail interval",
             query_time_s=query_time,
             event_ids=wet_tail_events,
         )
@@ -5039,11 +5871,6 @@ def _generate_qa_18(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
             "query_interval_not_stable",
             "no legal query interval keeps the active source set unchanged",
         )
-    active = _active_at(
-        facts,
-        frame,
-        require_source_activity=True,
-    )
     legal_authority = candidate.get("legal_window_authority")
     if legal_authority is None:
         legal_authority = (
@@ -5057,6 +5884,13 @@ def _generate_qa_18(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
             for event in active
             if event.get("actor_id")
         )
+    )
+    activity_class = (
+        "empty"
+        if not active_actor_ids
+        else "active"
+        if len(active_actor_ids) == 1
+        else "multiple"
     )
     if any(actor_id not in reviewed for actor_id in active_actor_ids):
         _defer(
@@ -5103,8 +5937,9 @@ def _generate_qa_18(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
             "source_activity_coordinate_space": "episode_sample_clock",
             "source_activity_event_ids": [event["event_id"] for event in active],
             "wet_tail_event_ids": wet_tail_events,
-            "wet_tail_boundary_policy": "measured_interval_only",
+            "wet_tail_boundary_policy": "measured_interval_only_for_empty_branch",
             "legal_query_windows": legal_windows_copy,
+            "activity_class": activity_class,
             "legal_window_authority": legal_authority,
             "active_event_ids": [event["event_id"] for event in active],
             "active_actor_ids": active_actor_ids,
@@ -5252,19 +6087,45 @@ def _generate_qa_19(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
 def _generate_qa_20(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
     _require_actor_count(facts, 2)
     _require_stereo(facts)
-    reviewed = _reviewed_appearances(facts)
+    try:
+        reviewed = _reviewed_appearances(facts)
+    except _Deferred:
+        # Appearance review controls which visible identities can be named;
+        # it must never decide whether a pixel-visible actor exists.
+        reviewed = {}
     events = _bound_events(facts)
     for event in events:
         frame = max(0, min(int(facts["time"]["frame_count"]) - 1, _event_frame(event, "start_frame")))
-        visible_ids = [
-            actor_id
-            for actor_id in facts["actors"]
-            if actor_id in reviewed
-            if actor_id in facts.get("visibility", {})
-            and _state(facts, actor_id, frame).get("state") in VISIBLE_STATES
-        ]
+        missing_visibility_ids: list[str] = []
+        visible_ids: list[str] = []
+        for actor_id in facts["actors"]:
+            if actor_id not in facts.get("visibility", {}):
+                missing_visibility_ids.append(str(actor_id))
+                continue
+            try:
+                state = _state(facts, str(actor_id), frame)
+            except _Deferred:
+                missing_visibility_ids.append(str(actor_id))
+                continue
+            if state.get("state") in VISIBLE_STATES:
+                visible_ids.append(str(actor_id))
+        if missing_visibility_ids:
+            _defer(
+                "missing_pixel_visibility",
+                "QA-20 cannot classify visible candidates without a state for every actor",
+                actor_ids=sorted(set(missing_visibility_ids)),
+            )
         if not visible_ids:
             continue
+        unreviewed_visible_ids = [
+            actor_id for actor_id in visible_ids if actor_id not in reviewed
+        ]
+        if unreviewed_visible_ids:
+            _defer(
+                "speaker_appearance_review_missing",
+                "a pixel-visible candidate has no reviewed appearance label",
+                actor_ids=sorted(unreviewed_visible_ids),
+            )
         target_visible = event["actor_id"] in visible_ids
         truth = event["actor_id"] if target_visible else "none_of_visible"
         options = _actor_options(facts, visible_ids)
@@ -5355,6 +6216,14 @@ def _generate_qa_21(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
             and str(other.get("sound_class")).casefold() not in _CAPABILITY_SOUND_CLASSES
         )
     )
+    option_domain_source = "observed_classes_in_this_episode"
+    if _ordinary_observation_questions(facts):
+        domain = ((facts.get("sampling") or {}).get("acceptance_policy") or {}).get("sound_class_options") or []
+        if not isinstance(domain, list) or any(not isinstance(value, str) for value in domain):
+            raise UnifiedQAError("ordinary sound_class_options must be a list of registered classes")
+        classes = list(dict.fromkeys(classes + [value for value in domain
+                       if value.casefold() not in _CAPABILITY_SOUND_CLASSES]))
+        option_domain_source = "configured_registered_sound_class_catalog"
     if len(classes) < 2:
         _defer("sound_class_option_domain_too_small", "QA-21 needs at least two explicit sound classes")
     if event["sound_class"] not in classes:
@@ -5394,9 +6263,180 @@ def _generate_qa_21(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
             "sound_class": event["sound_class"],
             "explicit_class": True,
             "distinct_sound_classes": classes,
+            **({"option_domain_source":option_domain_source} if _ordinary_observation_questions(facts) else {}),
         },
         slug=target_id,
     )
+
+
+def _public_entity_count_values(facts: Mapping[str, Any]) -> list[int] | None:
+    """Return the public visible-entity count domain for QA-22.
+
+    Explicit visible-count choices in the existing sampling configuration
+    are authoritative.  When only ``entities.total_count`` is configured,
+    that field is a scene upper bound and the public visible domain is every
+    integer from zero through its largest configured total.  An observed
+    roster is never promoted into a counterfactual option domain.
+    """
+
+    def parse(value: Any) -> list[int] | None:
+        if isinstance(value, Mapping):
+            for key in ("QA-22", "qa-22", "qa_22", "QA_22"):
+                if key in value:
+                    parsed = parse(value[key])
+                    if parsed is not None:
+                        return parsed
+            for key in (
+                "public_visible_count_domain",
+                "visible_count_domain",
+                "visible_entity_count_domain",
+                "public_visible_count_values",
+                "visible_count_values",
+                "visible_entity_count_values",
+                # Compatibility aliases used by earlier QA sampling drafts.
+                "public_entity_count_domain",
+                "entity_count_domain",
+                "entity_count_values",
+                "public_entity_count_values",
+                "qa_sampling",
+                "entities",
+            ):
+                if key in value:
+                    parsed = parse(value[key])
+                    if parsed is not None:
+                        return parsed
+            for key in ("choices", "values", "allowed", "domain"):
+                if key in value:
+                    parsed = parse(value[key])
+                    if parsed is not None:
+                        return parsed
+            for key in ("total_count", "visible_count", "entity_count"):
+                if key in value:
+                    parsed = parse(value[key])
+                    if parsed is not None:
+                        return parsed
+            if "min" in value or "max" in value:
+                lower, upper = value.get("min"), value.get("max")
+                if (
+                    isinstance(lower, bool)
+                    or isinstance(upper, bool)
+                    or not isinstance(lower, int)
+                    or not isinstance(upper, int)
+                    or upper < lower
+                ):
+                    _defer(
+                        "invalid_public_entity_count_domain",
+                        "QA-22 public entity count range must have integer min <= max",
+                    )
+                return list(range(lower, upper + 1))
+            return None
+        if isinstance(value, bool):
+            return None
+        if isinstance(value, int):
+            return [value]
+        if _is_sequence(value):
+            result: list[int] = []
+            for item in value:
+                if isinstance(item, bool) or not isinstance(item, int):
+                    _defer(
+                        "invalid_public_entity_count_domain",
+                        "QA-22 public entity count choices must be integers",
+                    )
+                result.append(int(item))
+            return result
+        return None
+
+    def normalize(values: list[int], *, owner: str) -> list[int]:
+        normalized = sorted(set(values))
+        if any(value < 0 for value in normalized):
+            _defer(
+                "invalid_public_entity_count_domain",
+                f"QA-22 {owner} cannot contain negative counts",
+            )
+        return normalized
+
+    sampling = facts.get("sampling")
+    containers: list[Mapping[str, Any]] = []
+    if isinstance(sampling, Mapping):
+        nested = sampling.get("qa_sampling")
+        if isinstance(nested, Mapping):
+            containers.append(nested)
+        containers.append(sampling)
+    # These fields are retained for normalized facts produced by callers that
+    # already copied the public request configuration into the facts object.
+    if isinstance(facts, Mapping):
+        containers.append(facts)
+
+    explicit_keys = (
+        "public_visible_count_domain",
+        "visible_count_domain",
+        "visible_entity_count_domain",
+        "public_visible_count_values",
+        "visible_count_values",
+        "visible_entity_count_values",
+        # Compatibility aliases used by earlier QA sampling drafts.
+        "public_entity_count_domain",
+        "entity_count_domain",
+        "entity_count_values",
+        "public_entity_count_values",
+    )
+    total_candidates: list[Any] = []
+    for container in containers:
+        for key in explicit_keys:
+            if key not in container:
+                continue
+            raw_value = container[key]
+            values = parse(raw_value)
+            if values is None:
+                _defer(
+                    "invalid_public_entity_count_domain",
+                    f"QA-22 {key} must provide integer visible-count choices",
+                )
+            return normalize(values, owner=key)
+        entities = container.get("entities")
+        if isinstance(entities, Mapping):
+            for key in (
+                "public_visible_count_domain",
+                "visible_count_domain",
+                "visible_entity_count_domain",
+                "public_visible_count_values",
+                "visible_count_values",
+                "visible_entity_count_values",
+                "visible_count",
+            ):
+                if key not in entities:
+                    continue
+                raw_value = entities[key]
+                values = parse(raw_value)
+                if values is None:
+                    _defer(
+                        "invalid_public_entity_count_domain",
+                        f"QA-22 entities.{key} must provide integer visible-count choices",
+                    )
+                return normalize(values, owner=f"entities.{key}")
+            if "total_count" in entities:
+                total_candidates.append(entities["total_count"])
+        if "total_count" in container and container.get("total_count") is not None:
+            total_candidates.append(container["total_count"])
+
+    if total_candidates:
+        upper_values: list[int] = []
+        for raw_value in total_candidates:
+            values = parse(raw_value)
+            if values is None or not values:
+                _defer(
+                    "invalid_public_entity_count_domain",
+                    "QA-22 entities.total_count must provide a nonempty integer domain",
+                )
+            upper_values.extend(values)
+        upper_values = normalize(upper_values, owner="entities.total_count")
+        if not upper_values:
+            _defer(
+                "invalid_public_entity_count_domain",
+                "QA-22 entities.total_count must provide a nonempty integer domain",
+            )
+        return list(range(0, max(upper_values) + 1))
+    return None
 
 
 def _generate_qa_22(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
@@ -5443,27 +6483,52 @@ def _generate_qa_22(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
     entity_count = len(visible_actor_ids)
     speaking_count = len(speaking_actor_ids)
     truth = [entity_count, speaking_count]
-    # With the observed entity count fixed, the legal speaking count domain is
-    # exactly 0..entity_count. Do not fabricate extra count pairs.
-    pairs = [
-        (entity_count, candidate_speaking_count)
-        for candidate_speaking_count in range(entity_count + 1)
-    ]
-    if len(pairs) < 2:
-        _defer(
-            "count_option_domain_too_small",
-            "QA-22 cannot construct distinct count options",
-        )
+
+    configured_counts = _public_entity_count_values(facts)
+    option_pairs: list[tuple[int, int]] = []
+    mcq_deferred_reason: dict[str, Any] | None = None
+    if configured_counts is None:
+        mcq_deferred_reason = {
+            "code": "missing_public_entity_count_domain",
+            "detail": "QA-22 needs configured public entity count choices for distinct MCQ distractors",
+        }
+    elif entity_count not in configured_counts:
+        mcq_deferred_reason = {
+            "code": "entity_count_outside_public_domain",
+            "detail": "observed QA-22 entity count is absent from the configured public count domain",
+            "observed_entity_count": entity_count,
+            "configured_entity_count_values": configured_counts,
+        }
+    else:
+        # Every pair is a legal count pair for a configured visible count.
+        # Retaining all legal speaking values avoids manufacturing an
+        # impossible pair and keeps the observed truth untouched.
+        option_pairs = [
+            (visible_count, candidate_speaking_count)
+            for visible_count in configured_counts
+            for candidate_speaking_count in range(visible_count + 1)
+        ]
+        if not any(visible_count != entity_count for visible_count, _ in option_pairs):
+            mcq_deferred_reason = {
+                "code": "count_option_domain_too_small",
+                "detail": "QA-22 public entity count domain has no alternative visible count",
+                "configured_entity_count_values": configured_counts,
+            }
     options = [
         {
             **_option(
-                f"{pair[0]}|{pair[1]}",
-                f"{pair[0]} entities, {pair[1]} speaking",
+                f"{visible_count}|{candidate_speaking_count}",
+                f"{visible_count} entities, {candidate_speaking_count} speaking",
             ),
             "allow_value": False,
         }
-        for pair in pairs
+        for visible_count, candidate_speaking_count in option_pairs
     ]
+    if mcq_deferred_reason is not None:
+        # Keep a deferred one-count domain out of the Open form's choice
+        # aliases; its pair values are not a usable public MCQ.
+        options = []
+    pair_values = [f"{visible_count}|{speaking}" for visible_count, speaking in option_pairs]
     return _question_item(
         qa_id="QA-22",
         facts=facts,
@@ -5475,12 +6540,27 @@ def _generate_qa_22(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
         truth_label=f"{entity_count}, {speaking_count}",
         options=options,
         mcq_truth=f"{entity_count}|{speaking_count}",
+        mcq_deferred_reason=mcq_deferred_reason,
         evidence={
             "statistics_window": [0.0, float(facts["time"]["duration_seconds"])],
             "entity_count": entity_count,
             "appeared_actor_ids": sorted(visible_actor_ids),
             "speaking_actor_ids": sorted(speaking_actor_ids),
             "speaking_count": speaking_count,
+            "option_domain": {
+                "entity_count_values": configured_counts,
+                "pair_values": pair_values,
+                "speaking_count_values_by_entity_count": (
+                    {str(value): list(range(value + 1)) for value in configured_counts}
+                    if configured_counts is not None
+                    else {}
+                ),
+            },
+            "answer_prior_diagnostic": {
+                "all_appeared_entities_speak": speaking_count == entity_count,
+                "no_appeared_entities_speak": speaking_count == 0,
+                "speaking_count_is_boundary": speaking_count in {0, entity_count},
+            },
         },
         slug="whole_clip",
     )
@@ -5769,49 +6849,187 @@ def _time_display_precision(facts: Mapping[str, Any]) -> int:
     return int(value)
 
 
-def _display_time_bounds(
+def publishable_query_window(
     facts: Mapping[str, Any],
     window: Sequence[int],
-) -> tuple[float, float] | None:
-    """Quantize a proven frame interval inward for a readable public range."""
+    *,
+    start_rounding: str = "ceil",
+) -> dict[str, Any]:
+    """Report whether a proven frame interval survives public quantization.
+
+    A public question states whole seconds, so the readable interval is the
+    proven interval quantized inward: the start rounds up and the end rounds
+    down. A window that is shorter than one public step therefore has no
+    publishable form even though the underlying evidence is sound. That is a
+    different rejection from an interval whose answer is not distinguishable,
+    so this returns the measured numbers instead of a bare boolean and never
+    widens the interval to make it expressible.
+    """
 
     exact_start, exact_end = _frame_window_seconds(facts, window)
     precision = _time_display_precision(facts)
     scale = float(10**precision)
+    step = 1.0 / scale
     # Epsilon only removes binary representation noise at an exact decimal
-    # boundary; ceil/floor keep the displayed range inside the proven window.
-    lower_units = math.ceil(exact_start * scale - 1.0e-9)
+    # boundary. QA-07 can deliberately floor the public start to contain its
+    # entry frame; all other callers retain the inward ceil.
+    if start_rounding == "ceil":
+        lower_units = math.ceil(exact_start * scale - 1.0e-9)
+    elif start_rounding == "floor":
+        lower_units = math.floor(exact_start * scale + 1.0e-9)
+    else:
+        raise ValueError("start_rounding must be 'ceil' or 'floor'")
     upper_units = math.floor(exact_end * scale + 1.0e-9)
-    if upper_units <= lower_units:
+    record: dict[str, Any] = {
+        "query_window_frames": [int(window[0]), int(window[1])],
+        "query_window_exact_s": [exact_start, exact_end],
+        "query_window_precision": precision,
+        "public_time_step_s": step,
+    }
+    if upper_units > lower_units:
+        record["publishable"] = True
+        record["query_window_s"] = [lower_units / scale, upper_units / scale]
+        return record
+    record["publishable"] = False
+    record["reason"] = "query_interval_too_short_for_display"
+    record["proven_span_s"] = exact_end - exact_start
+    record["shortfall_s"] = max(0.0, step - (exact_end - exact_start))
+    record["inward_lower_s"] = lower_units / scale
+    record["inward_upper_s"] = upper_units / scale
+    return record
+
+
+def _display_time_bounds(
+    facts: Mapping[str, Any],
+    window: Sequence[int],
+    *,
+    start_rounding: str = "ceil",
+) -> tuple[float, float] | None:
+    """Quantize a proven frame interval inward for a readable public range."""
+
+    record = publishable_query_window(
+        facts, window, start_rounding=start_rounding
+    )
+    if not record["publishable"]:
         return None
-    return lower_units / scale, upper_units / scale
+    bounds = record["query_window_s"]
+    return float(bounds[0]), float(bounds[1])
+
+
+def published_window_frames(
+    facts: Mapping[str, Any],
+    published_s: Sequence[float],
+) -> list[int]:
+    """Frames whose own instants fall inside the published half-open interval."""
+
+    fps = float(facts["time"]["frame_rate_hz"])
+    lower = math.ceil(float(published_s[0]) * fps - 1.0e-9)
+    upper = math.ceil(float(published_s[1]) * fps - 1.0e-9)
+    frame_count = int(facts["time"]["frame_count"])
+    lower = max(0, lower)
+    upper = min(frame_count, upper)
+    return list(range(lower, upper))
+
+
+def verify_published_query_window(
+    facts: Mapping[str, Any],
+    window: Sequence[int],
+    value_for_frame: Any,
+    expected: Any,
+    *,
+    qa_id: str,
+) -> dict[str, Any]:
+    """Recompute the answer on the published interval, not the proven one.
+
+    Quantizing the public text is not a cosmetic step: the readable interval
+    is a different set of instants from the proven frame window, so the truth
+    is measured again on exactly the instants a reader is given. This refuses
+    to publish a rounded restatement of an answer that was established
+    somewhere else.
+    """
+
+    record = publishable_query_window(facts, window)
+    if not record["publishable"]:
+        _defer(
+            "query_interval_too_short_for_display",
+            f"{qa_id} has a proven interval that no public whole step can express",
+            **{key: value for key, value in record.items() if key != "publishable"},
+        )
+    frames = published_window_frames(facts, record["query_window_s"])
+    record["published_window_frames"] = [
+        (frames[0], frames[-1] + 1) if frames else []
+    ][0]
+    if not frames:
+        _defer(
+            "published_window_has_no_frame",
+            f"{qa_id} published interval contains no readback frame",
+            query_window_s=record["query_window_s"],
+            query_window_frames=record["query_window_frames"],
+        )
+    outside = [
+        frame for frame in frames
+        if not int(window[0]) <= frame < int(window[1])
+    ]
+    if outside:
+        _defer(
+            "published_window_outside_proven_window",
+            f"{qa_id} published interval reaches frames the evidence never proved",
+            frames_outside=outside,
+            query_window_frames=record["query_window_frames"],
+            query_window_s=record["query_window_s"],
+        )
+    values = [value_for_frame(frame) for frame in frames]
+    record["published_window_values"] = copy.deepcopy(values)
+    changed = [
+        frame for frame, value in zip(frames, values) if value != expected
+    ]
+    if changed:
+        _defer(
+            "published_window_truth_changed",
+            f"{qa_id} answer does not hold on every instant of the published interval",
+            frames_with_other_answer=changed,
+            expected=copy.deepcopy(expected),
+            query_window_s=record["query_window_s"],
+        )
+    record["published_window_recomputed"] = True
+    return record
 
 
 def _query_window_fields(
     facts: Mapping[str, Any],
     window: Sequence[int],
+    *,
+    start_rounding: str = "ceil",
 ) -> dict[str, Any]:
-    display = _display_time_bounds(facts, window)
-    if display is None:
+    record = publishable_query_window(
+        facts, window, start_rounding=start_rounding
+    )
+    if not record["publishable"]:
         _defer(
             "query_interval_too_short_for_display",
             "the stable query interval cannot be expressed at the configured public precision",
+            **{key: value for key, value in record.items() if key != "publishable"},
         )
     return {
-        "query_window_frames": [int(window[0]), int(window[1])],
-        "query_window_s": [float(display[0]), float(display[1])],
-        "query_window_exact_s": _frame_window_seconds(facts, window),
-        "query_window_precision": _time_display_precision(facts),
+        "query_window_frames": record["query_window_frames"],
+        "query_window_s": [float(value) for value in record["query_window_s"]],
+        "query_window_exact_s": record["query_window_exact_s"],
+        "query_window_precision": record["query_window_precision"],
+        "public_time_step_s": record["public_time_step_s"],
     }
 
 
 def _display_time_range(
     facts: Mapping[str, Any],
     window: Sequence[int],
+    *,
+    start_rounding: str = "ceil",
 ) -> tuple[str, str] | None:
     """Describe a proven frame interval with explicit half-open boundaries."""
 
-    display = _display_time_bounds(facts, window)
+    display = _display_time_bounds(
+        facts, window, start_rounding=start_rounding
+    )
     if display is None:
         return None
     precision = _time_display_precision(facts)
@@ -6081,11 +7299,20 @@ def _derived_legal_query_windows(
                 return None
             normalized_tails.append((start, end))
         fps = float(facts["time"]["frame_rate_hz"])
-        safe_frames = [
+        safe_frames = {
             frame for frame in range(frame_count)
             if not any(start <= frame / fps < end for start, end in normalized_tails)
-        ]
-        return _compress_frame_windows(safe_frames)
+        }
+        # A source-active frame is the intended positive branch of QA-18 and
+        # must remain eligible even though its own listener-side wet tail
+        # necessarily overlaps the source activity.  Empty frames still need
+        # the wet-tail complement so "no actor" does not mean "only a tail".
+        active_frames: set[int] = set()
+        if _source_activity_present(facts):
+            for frame in range(frame_count):
+                if _active_at(facts, frame, require_source_activity=True):
+                    active_frames.add(frame)
+        return _compress_frame_windows(sorted(safe_frames | active_frames))
     return None
 
 
@@ -6699,37 +7926,21 @@ def _p8_candidate_pool(
             and event.get("sound_class_explicit")
         ]
     if qa_id == "QA-06":
-        legal_events = []
-        for event in event_rows:
-            try:
-                _stable_motion_window(
-                    facts,
-                    str(event["actor_id"]),
-                    max(0, _event_frame(event, "start_frame")),
-                    min(
-                        int(facts["time"]["frame_count"]),
-                        _event_frame(event, "end_frame"),
-                    ),
-                )
-            except _Deferred:
-                continue
-            legal_events.append(event)
-        event_rows = legal_events
+        # The pool asks the same predicate the emitter asks, so a candidate is
+        # never enumerated on a looser rule than the one that judges it.
+        event_rows = [
+            event
+            for event in event_rows
+            if motion_state_during_audible_window(facts, event)["moving"] is not None
+        ]
     if qa_id == "QA-15":
         legal_events = []
         for event in event_rows:
-            try:
-                start_frame = max(0, _event_frame(event, "start_frame"))
-                end_frame = min(
-                    int(facts["time"]["frame_count"]) - 1,
-                    max(start_frame + 1, _event_frame(event, "end_frame") - 1),
-                )
-                delta = _distance_at(facts, str(event["actor_id"]), end_frame) - _distance_at(
-                    facts, str(event["actor_id"]), start_frame
-                )
-            except _Deferred:
-                continue
-            if abs(delta) >= 0.2:
+            window = audible_frame_window(facts, event)["frames"]
+            trend = distance_trend_during_window(
+                facts, str(event["actor_id"]), window
+            )
+            if trend["verdict"] is not None:
                 legal_events.append(event)
         event_rows = legal_events
     return [
@@ -6926,6 +8137,9 @@ def _p8_form_candidate_values(
             return None
 
     def event_motion(actor_id: str, event: Mapping[str, Any]) -> str | None:
+        if _noticeable_motion_policy(facts) is not None:
+            response = motion_state_during_audible_window(facts, {**event, "actor_id": actor_id})
+            return None if response["moving"] is None else ("moving" if response["moving"] else "still")
         try:
             moving = _stable_motion_window(
                 facts,
@@ -7340,12 +8554,10 @@ def _p8_emit_for(qa_id: str):
         metadata_candidate["form_candidate_values"] = _p8_form_candidate_values(
             qa_id, item, candidate_facts
         )
-        _p8_apply_distractor_gate(
-            qa_id,
-            item,
-            metadata_candidate,
-        )
-        return _attach_p8_structure(item, metadata_candidate)
+        if not _ordinary_observation_questions(candidate_facts):
+            _p8_apply_distractor_gate(qa_id, item, metadata_candidate)
+        return _tag_question_tolerance(
+            _attach_p8_structure(item, metadata_candidate), candidate_facts, qa_id)
     emit.__name__ = f"_emit_{qa_id.lower().replace('-', '_')}"
     return emit
 
@@ -7362,6 +8574,114 @@ for _qa_id, _candidate_fn in _P8_CANDIDATES.items():
     globals()[_candidate_fn.__name__] = _candidate_fn
 for _qa_id, _emit_fn in _P8_EMITTERS.items():
     globals()[_emit_fn.__name__] = _emit_fn
+
+
+# Evidence-side states reuse the shared four-word vocabulary. The catalog can
+# only speak for what the readbacks prove; whether the sampler can point at a
+# scene is the planning side of the same question and lives in
+# ``avengine.qa.generation_conditions``.
+EVIDENCE_STATE_AVAILABLE = "available"
+EVIDENCE_STATE_NOT_APPLICABLE = "not_applicable_by_definition"
+EVIDENCE_STATE_MISSING = "evidence_missing_or_unsampled"
+
+
+def _evidence_state(emitted_count: int, codes: Sequence[str]) -> str:
+    if emitted_count:
+        return EVIDENCE_STATE_AVAILABLE
+    distinct = {str(code) for code in codes if code}
+    if distinct and distinct == {EVIDENCE_STATE_NOT_APPLICABLE}:
+        return EVIDENCE_STATE_NOT_APPLICABLE
+    return EVIDENCE_STATE_MISSING
+
+
+def _form_coverage(items: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+    """Per-form validity and the denominator a scorer divides by.
+
+    MCQ and open are accepted or refused independently, so a missing answer
+    rate has to be counted against the items that actually offered that form.
+    Merging the two produces a denominator no form ever had.
+    """
+
+    coverage: dict[str, Any] = {}
+    for form in ("mcq", "open"):
+        passed = 0
+        deferred: dict[str, int] = {}
+        for item in items:
+            status = item.get("form_status")
+            row = status.get(form) if isinstance(status, Mapping) else None
+            if not isinstance(row, Mapping):
+                continue
+            if row.get("status") == "pass":
+                passed += 1
+            else:
+                code = str(row.get("code", "deferred_without_code"))
+                deferred[code] = deferred.get(code, 0) + 1
+        coverage[form] = {
+            "answerable_item_count": passed,
+            "deferred_item_count": sum(deferred.values()),
+            "deferred_codes": dict(sorted(deferred.items())),
+            "scoring_denominator": passed,
+        }
+    coverage["item_count"] = len(items)
+    return coverage
+
+
+# How a published answer token maps onto a declared key branch, for the types
+# whose answer vocabulary is not the branch vocabulary. This is metadata only:
+# the published truth, the options and the scoring keep the answer token.
+#
+# QA-20 publishes an actor id when a visible candidate made the sound and
+# ``none_of_visible`` when none of them did (see ``_generate_qa_20``); the
+# branch owner calls that second case ``none_of_them``. Without this map a
+# world that really produced the none_of_them question reported
+# ``branches_seen=['visible_candidate']``, so the branch looked unmet while the
+# question existed.
+#
+# ``avengine.qa.batch_delivery.BRANCH_OBSERVATION_RULES`` carries the same
+# statement for the delivery side. The two are asserted to agree in
+# ``tests/unit/test_qa_unified_branch_reporting.py``; this module is the lower
+# layer and must not import that one.
+ANSWER_TOKEN_BRANCH_MAP: dict[str, dict[str, str]] = {
+    "QA-20": {"none_of_visible": "none_of_them", "none_of_them": "none_of_them"},
+}
+ANSWER_TOKEN_BRANCH_DEFAULT: dict[str, str] = {"QA-20": "visible_candidate"}
+
+
+def _emitted_branch(qa_id: str, item: Mapping[str, Any]) -> str | None:
+    """Read which key branch an emitted item landed on.
+
+    The branch is not always the answer value. QA-25 branches by modality
+    subset and QA-20 branches by whether any candidate was named at all, so
+    each shape is read from the field that actually carries it rather than
+    from ``truth.value`` for every type. Where the answer vocabulary differs
+    from the branch vocabulary, ``ANSWER_TOKEN_BRANCH_MAP`` names the mapping
+    instead of the answer token being compared to a branch name it never uses.
+    """
+
+    if qa_id == "QA-25":
+        subset = item.get("angle_subset")
+        return str(subset) if subset is not None else None
+    truth = item.get("truth")
+    value = truth.get("value") if isinstance(truth, Mapping) else None
+    if value is None:
+        return None
+    mapped = ANSWER_TOKEN_BRANCH_MAP.get(qa_id)
+    if mapped is not None:
+        return mapped.get(str(value), ANSWER_TOKEN_BRANCH_DEFAULT[qa_id])
+    return str(value)
+
+
+def _branch_authority_branches(qa_id: str) -> tuple[tuple[str, ...], str]:
+    """Ask the branch owner, so the branch list has one definition."""
+
+    try:
+        from avengine.qa.generation_conditions import branches_for
+    except Exception:  # noqa: BLE001 - report the absence, never invent a list
+        return (), "unavailable"
+    try:
+        return tuple(branches_for(qa_id)), "avengine.qa.generation_conditions.branches_for"
+    except Exception:  # noqa: BLE001
+        return (), "unavailable"
 
 
 def generate_unified_questions(
@@ -7394,7 +8714,15 @@ def generate_unified_questions(
     deferred: list[dict[str, Any]] = []
     item_groups: dict[str, list[dict[str, Any]]] = {}
     deferred_groups: dict[str, list[dict[str, Any]]] = {}
+    # One row per attempted candidate. A type that emits one question still
+    # rejected the others for their own reasons, and those reasons are what a
+    # producer needs: "no publishable whole-second interval" and "every real
+    # distractor shares the gold answer" call for different scenes.
+    candidate_attempts: list[dict[str, Any]] = []
+    base_facts = facts
+    from avengine.qa.visibility_interpretation import prepare_facts_for_qa
     for qa_id in requested:
+        facts = prepare_facts_for_qa(base_facts, qa_id)
         try:
             candidates = _P8_CANDIDATES[qa_id](facts)
         except _Deferred as error:
@@ -7432,14 +8760,55 @@ def generate_unified_questions(
         last_error: _Deferred | None = None
         for candidate in order:
             if qa_id == "QA-25" and sum(item.get("angle_subset") == candidate["subset"] for item in emitted) >= items_per_type:
+                candidate_attempts.append({
+                    "qa_id": qa_id,
+                    "candidate_id": candidate.get("candidate_id"),
+                    "status": "not_attempted",
+                    "code": "subset_quota_already_met",
+                    "detail": "this angle subset already reached its requested count",
+                    "angle_subset": candidate.get("subset"),
+                })
                 continue
+            attempt: dict[str, Any] = {
+                "qa_id": qa_id,
+                "candidate_id": candidate.get("candidate_id"),
+                "actor_id": candidate.get("actor_id"),
+                "event_id": candidate.get("event_id"),
+            }
+            if candidate.get("subset") is not None:
+                attempt["angle_subset"] = candidate.get("subset")
             try:
                 item = _P8_EMITTERS[qa_id](facts, candidate, seed)
             except _Deferred as error:
                 last_error = error
+                attempt.update({
+                    "status": "candidate_rejected",
+                    "code": error.code,
+                    "detail": error.detail,
+                    **{
+                        key: value
+                        for key, value in error.extra.items()
+                        if key not in {"qa_id", "candidate_id", "status", "code", "detail"}
+                    },
+                })
+                candidate_attempts.append(attempt)
                 continue
             if any(previous["question_id"] == item["question_id"] for previous in emitted):
+                attempt.update({
+                    "status": "candidate_rejected",
+                    "code": "duplicate_question_id",
+                    "detail": "another candidate already produced this question",
+                    "question_id": item["question_id"],
+                })
+                candidate_attempts.append(attempt)
                 continue
+            attempt.update({
+                "status": "pass",
+                "question_id": item["question_id"],
+                "truth_value": copy.deepcopy(item.get("truth", {}).get("value")),
+                "forms": sorted(item.get("forms", {})),
+            })
+            candidate_attempts.append(attempt)
             emitted.append(item)
             items.append(item)
             if len(emitted) >= quota:
@@ -7471,6 +8840,14 @@ def generate_unified_questions(
                 }
                 deferred.append(row)
                 deferred_groups.setdefault(qa_id, []).append(row)
+    facts = base_facts
+    rejection_codes_by_qa: dict[str, dict[str, int]] = {}
+    for attempt in candidate_attempts:
+        if attempt.get("status") != "candidate_rejected":
+            continue
+        counts = rejection_codes_by_qa.setdefault(str(attempt["qa_id"]), {})
+        code = str(attempt.get("code", "candidate_rejected_without_code"))
+        counts[code] = counts.get(code, 0) + 1
     unmet_quota = {}
     for qa_id in requested:
         quota = (1 if qa_id in {"QA-03", "QA-22", "QA-23", "QA-24"}
@@ -7478,7 +8855,9 @@ def generate_unified_questions(
         available = len(item_groups.get(qa_id, []))
         if available < quota:
             unmet_quota[qa_id] = {"requested": quota, "valid": available, "missing": quota - available,
-                                 "code": "insufficient_candidates"}
+                                 "code": "insufficient_candidates",
+                                 "rejection_codes": dict(sorted(
+                                     rejection_codes_by_qa.get(qa_id, {}).items()))}
             if available:
                 deferred_groups.setdefault(qa_id, []).append({"qa_id": qa_id, "status": "insufficient_candidates",
                     "code": "insufficient_candidates", **unmet_quota[qa_id]})
@@ -7499,9 +8878,76 @@ def generate_unified_questions(
         for row in deferred_groups.get(qa_id, []):
             records.append(dict(row))
             coverage.append(dict(row))
+        # Rejected candidates carry their own status so existing consumers that
+        # select "pass" or "deferred" rows keep the counts they had.
+        for attempt in candidate_attempts:
+            if attempt.get("qa_id") != qa_id or attempt.get("status") not in {
+                "candidate_rejected", "not_attempted"
+            }:
+                continue
+            row = dict(attempt)
+            row["requirements"] = get_requirements(qa_id)
+            records.append(row)
+            coverage.append(dict(row))
         coverage_by_qa[qa_id] = records
     from avengine.qa.angular_questions import followups
     angle_followups, angle_deferred = followups(facts, items, seed) if include_angle_followups else ([], [])
+    angle_subset_reasons: dict[str, Any] = {}
+    if "QA-25" in requested:
+        from avengine.qa.angular_questions import subset_diagnostics
+        try:
+            angle_subset_reasons = subset_diagnostics(facts)
+        except _Deferred as error:
+            angle_subset_reasons = {
+                subset: {"candidate_count": 0, "code": error.code,
+                         "detail": error.detail}
+                for subset in ("A", "V", "AV")
+            }
+    branch_state_by_qa: dict[str, Any] = {}
+    for qa_id in requested:
+        expected, authority = _branch_authority_branches(qa_id)
+        observed = {
+            branch
+            for branch in (
+                _emitted_branch(qa_id, item)
+                for item in item_groups.get(qa_id, [])
+            )
+            if branch is not None
+        }
+        # A branch list exists to be checked against. A value outside it is
+        # reported as unmapped, and a type the branch owner declares no
+        # branches for reports none rather than promoting its answer values
+        # into a branch list nobody defined.
+        answer_values = sorted(observed)
+        seen = sorted(observed & set(expected))
+        unmapped = sorted(observed - set(expected)) if expected else []
+        codes = sorted(rejection_codes_by_qa.get(qa_id, {}))
+        deferred_codes = sorted({
+            str(row.get("code"))
+            for row in deferred_groups.get(qa_id, [])
+            if row.get("code")
+        })
+        branch_state_by_qa[qa_id] = {
+            "branches_expected": list(expected),
+            "branch_authority": authority,
+            "branches_seen": seen,
+            "branches_missing": [
+                branch for branch in expected if branch not in set(seen)
+            ],
+            "branch_values_unmapped": unmapped,
+            "answer_values_seen": answer_values,
+            "emitted_item_count": len(item_groups.get(qa_id, [])),
+            "evidence_state": _evidence_state(
+                len(item_groups.get(qa_id, [])), codes + deferred_codes
+            ),
+            "evidence_state_authority": "unified_catalog_evidence",
+            "planning_state_authority": (
+                "avengine.qa.generation_conditions.compile_generation_conditions"
+            ),
+            "rejection_codes": dict(sorted(
+                rejection_codes_by_qa.get(qa_id, {}).items())),
+            "deferred_codes": deferred_codes,
+        }
     return {
         "schema": UNIFIED_OUTPUT_SCHEMA,
         "status": "research_candidate",
@@ -7525,13 +8971,40 @@ def generate_unified_questions(
         },
         "coverage": coverage,
         "coverage_by_qa": coverage_by_qa,
+        "candidate_attempts": candidate_attempts,
+        "rejection_codes_by_qa": {
+            qa_id: dict(sorted(codes.items()))
+            for qa_id, codes in sorted(rejection_codes_by_qa.items())
+        },
+        "public_time_precision": _time_display_precision(facts),
+        "form_coverage": {
+            "main": _form_coverage(items),
+            "angle_followup": _form_coverage(angle_followups),
+        },
+        "branch_state_by_qa": branch_state_by_qa,
         "items": items,
         "angle_followups": angle_followups,
         "angle_followup_deferred": angle_deferred,
         "angle_followup_counts": {"valid": len(angle_followups), "deferred": len(angle_deferred)},
         "angle_subset_coverage": {
-            subset: {"requested": int(items_per_type),
-                     "valid": sum(item.get("angle_subset") == subset for item in item_groups.get("QA-25", []))}
+            subset: {
+                "requested": int(items_per_type),
+                "valid": sum(
+                    item.get("angle_subset") == subset
+                    for item in item_groups.get("QA-25", [])
+                ),
+                # A subset that produced nothing says why here. Without it a
+                # zero looks the same whether the predicate never fired or
+                # the episode simply has no such scene.
+                **{
+                    key: value
+                    for key, value in angle_subset_reasons.get(subset, {}).items()
+                    if key != "candidate_count"
+                },
+                "candidate_count": angle_subset_reasons.get(subset, {}).get(
+                    "candidate_count"
+                ),
+            }
             for subset in ("A", "V", "AV")
         } if "QA-25" in requested else {},
         "deferred": deferred,
@@ -7722,9 +9195,15 @@ def _p8_applicability_reason(
             "not_applicable_by_definition",
             "a static device is not a movement-question target",
         )
+    if qa_id == "QA-07" and kind == "rigid_static_object":
+        # Under a fixed camera a device that cannot move itself can never
+        # cross into view, so this is a semantic mismatch and not a gap in
+        # the evidence.
+        return (
+            "not_applicable_by_definition",
+            "a static device cannot enter the frame under a fixed camera",
+        )
     return None
-
-
 __all__ = list(dict.fromkeys([
     *__all__,
     "structural_baselines",
@@ -7743,6 +9222,688 @@ __all__ = list(dict.fromkeys([
 resolve_query_frame = _resolve_query_frame_spec
 
 
+
+def _qa18_frame_activity(
+    facts: Mapping[str, Any],
+    frame: int,
+) -> dict[str, Any]:
+    """Return the measured activity set and public branch for one frame."""
+
+    active = _active_at(facts, int(frame), require_source_activity=True)
+    event_ids = sorted(str(event.get("event_id")) for event in active)
+    actor_ids = sorted(
+        {
+            str(event.get("actor_id"))
+            for event in active
+            if event.get("actor_id") is not None
+        }
+    )
+    return {
+        "activity_class": (
+            "empty"
+            if not actor_ids
+            else "active"
+            if len(actor_ids) == 1
+            else "multiple"
+        ),
+        "active_event_ids": event_ids,
+        "active_actor_ids": actor_ids,
+        "active_event_count": len(event_ids),
+        "active_actor_count": len(actor_ids),
+    }
+
+
+def _qa18_stable_activity_windows(
+    facts: Mapping[str, Any],
+    legal_windows: Sequence[Sequence[int]],
+) -> tuple[dict[int, dict[str, Any]], dict[int, list[int]]]:
+    """Group legal frames by a stable measured active-event set."""
+
+    frame_data: dict[int, dict[str, Any]] = {}
+    stable_by_frame: dict[int, list[int]] = {}
+    for start, end in _window_bounds_list(legal_windows, qa_id="QA-18"):
+        run_start: int | None = None
+        run_signature: tuple[str, ...] | None = None
+        previous: int | None = None
+        for frame in range(int(start), int(end)):
+            info = _qa18_frame_activity(facts, frame)
+            frame_data[frame] = info
+            signature = tuple(info["active_event_ids"])
+            if (
+                run_start is None
+                or previous is None
+                or frame != previous + 1
+                or signature != run_signature
+            ):
+                if run_start is not None and previous is not None:
+                    run = [run_start, previous + 1]
+                    if run[1] - run[0] >= 2:
+                        for member in range(run[0], run[1]):
+                            stable_by_frame[member] = list(run)
+                run_start = frame
+                run_signature = signature
+            previous = frame
+        if run_start is not None and previous is not None:
+            run = [run_start, previous + 1]
+            if run[1] - run[0] >= 2:
+                for member in range(run[0], run[1]):
+                    stable_by_frame[member] = list(run)
+    return frame_data, stable_by_frame
+
+
+def _qa18_legal_windows(
+    facts: Mapping[str, Any],
+    requested: Any,
+) -> tuple[list[list[int]] | None, str | None]:
+    """Intersect a caller window with native activity/tail legal frames."""
+
+    legal = _derived_legal_query_windows(facts, "QA-18")
+    if legal is None:
+        return None, None
+    if requested is None:
+        return copy.deepcopy(legal), _derived_query_window_authority("QA-18")
+    allowed = _window_bounds_list(requested, qa_id="QA-18")
+    count = int(facts["time"]["frame_count"])
+    if any(start < 0 or start >= end or end > count for start, end in allowed):
+        _defer(
+            "sampling_window_invalid",
+            "QA-18 legal frame windows must be inside the frame clock",
+        )
+    allowed_frames = {
+        frame for start, end in allowed for frame in range(start, end)
+    }
+    legal_frames = {
+        frame for start, end in legal for frame in range(start, end)
+    }
+    return (
+        _compress_frame_windows(sorted(allowed_frames & legal_frames)),
+        "caller_declared_sampling_window",
+    )
+
+
+def _qa18_wet_tail_intervals(
+    facts: Mapping[str, Any],
+) -> list[tuple[float, float, str | None]] | None:
+    audio = facts.get("audio")
+    tails = audio.get("wet_tail_intervals") if isinstance(audio, Mapping) else None
+    if not _is_sequence(tails) or not tails:
+        return None
+    result: list[tuple[float, float, str | None]] = []
+    for interval in tails:
+        if not isinstance(interval, Mapping):
+            return None
+        try:
+            start = float(interval["start_s"])
+            end = float(interval["end_s"])
+        except (KeyError, TypeError, ValueError):
+            return None
+        if not math.isfinite(start) or not math.isfinite(end) or end <= start:
+            return None
+        result.append((start, end, interval.get("event_id")))
+    return result
+
+
+def _qa18_integer_window_activity(
+    facts: Mapping[str, Any],
+    start_frame: int,
+    end_frame: int,
+    tails: Sequence[tuple[float, float, str | None]],
+) -> dict[str, Any]:
+    fps = float(facts["time"]["frame_rate_hz"])
+    sample_rate = float(facts["time"]["sample_rate_hz"])
+    start_sample = int(round(start_frame * sample_rate / fps))
+    end_sample = int(round(end_frame * sample_rate / fps))
+    active_events = [
+        event
+        for event in _bound_events(facts)
+        if any(
+            int(row.get("start_sample", 0)) < end_sample
+            and int(row.get("end_sample_exclusive", 0)) > start_sample
+            for row in _source_activity_for_event(
+                facts, str(event.get("event_id"))
+            )
+        )
+    ]
+    active_event_ids = sorted(
+        str(event.get("event_id")) for event in active_events
+    )
+    active_actor_ids = sorted(
+        {
+            str(event.get("actor_id"))
+            for event in active_events
+            if event.get("actor_id") is not None
+        }
+    )
+    start_s = start_frame / fps
+    end_s = end_frame / fps
+    wet_tail_event_ids = [
+        str(event_id)
+        for tail_start, tail_end, event_id in tails
+        if tail_start < end_s and tail_end > start_s and event_id is not None
+    ]
+    return {
+        "activity_class": (
+            "empty"
+            if not active_actor_ids
+            else "active"
+            if len(active_actor_ids) == 1
+            else "multiple"
+        ),
+        "active_event_ids": active_event_ids,
+        "active_actor_ids": active_actor_ids,
+        "active_event_count": len(active_event_ids),
+        "active_actor_count": len(active_actor_ids),
+        "wet_tail_event_ids": list(dict.fromkeys(wet_tail_event_ids)),
+    }
+
+
+def _qa18_integer_bins(
+    facts: Mapping[str, Any],
+    requested: Any,
+) -> list[dict[str, Any]]:
+    if not _source_activity_present(facts):
+        _defer(
+            "missing_source_activity_readback",
+            "QA-18 needs source activity readback before selecting a query window",
+        )
+    if facts.get("source_activity_evidence_complete") is False:
+        _defer(
+            "missing_source_activity_readback",
+            "QA-18 cannot select a query window from partial source activity evidence",
+        )
+    tails = _qa18_wet_tail_intervals(facts)
+    if tails is None:
+        _defer(
+            "sampling_window_missing",
+            "QA-18 needs measured wet-tail intervals before selecting a query window",
+        )
+    count = int(facts["time"]["frame_count"])
+    fps = float(facts["time"]["frame_rate_hz"])
+    duration = float(facts["time"]["duration_seconds"])
+    allowed_frames: set[int] | None = None
+    if requested is not None:
+        allowed = _window_bounds_list(requested, qa_id="QA-18")
+        if any(start < 0 or start >= end or end > count for start, end in allowed):
+            _defer(
+                "sampling_window_invalid",
+                "QA-18 legal frame windows must be inside the frame clock",
+            )
+        allowed_frames = {
+            frame for start, end in allowed for frame in range(start, end)
+        }
+    result: list[dict[str, Any]] = []
+    for second in range(int(math.floor(duration + 1.0e-9))):
+        start_frame = int(round(second * fps))
+        end_frame = int(round((second + 1) * fps))
+        if end_frame <= start_frame or end_frame > count:
+            continue
+        window_frames = list(range(start_frame, end_frame))
+        if allowed_frames is not None and not set(window_frames) <= allowed_frames:
+            continue
+        activity = _qa18_integer_window_activity(
+            facts, start_frame, end_frame, tails
+        )
+        if activity["active_actor_ids"] or not activity["wet_tail_event_ids"]:
+            result.append(
+                {
+                    "window_frames": [start_frame, end_frame],
+                    "window_seconds": [float(second), float(second + 1)],
+                    **activity,
+                }
+            )
+    return result
+
+
+def _qa18_integer_query_candidates(
+    facts: Mapping[str, Any],
+) -> list[dict[str, Any]]:
+    fps = float(facts["time"]["frame_rate_hz"])
+    declared_time = _sampling_value(
+        facts, "QA-18", "query_time_s_by_qa", "query_times_s"
+    )
+    declared_frame = _sampling_value(
+        facts,
+        "QA-18",
+        "query_frame_by_qa",
+        "query_frames",
+        "query_frame",
+        "at_frame",
+    )
+
+    def uniform(value: Any) -> bool:
+        return (
+            isinstance(value, Mapping)
+            and value.get("policy", value.get("query_time_policy"))
+            == "uniform_in_legal_window"
+        )
+
+    uniform_time = uniform(declared_time)
+    uniform_frame = uniform(declared_frame)
+    exact = (
+        declared_time is not None and not uniform_time
+    ) or (
+        declared_frame is not None and not uniform_frame
+    )
+    requested = (
+        _first(
+            declared_time,
+            "window_frames",
+            "frame_window",
+            "legal_window",
+            "window",
+        )
+        if uniform_time
+        else _first(
+            declared_frame,
+            "window_frames",
+            "frame_window",
+            "legal_window",
+            "window",
+        )
+        if uniform_frame
+        else None
+    )
+    if requested is None:
+        requested = _sampling_value(
+            facts,
+            "QA-18",
+            "legal_window_by_qa",
+            "legal_windows",
+            "query_windows",
+        )
+
+    if exact:
+        if declared_time is not None:
+            time_s = _resolve_query_time_spec(
+                facts, "QA-18", declared_time, source="sampling"
+            )
+            query_frames = [
+                _resolve_query_frame_spec(
+                    facts,
+                    "QA-18",
+                    int(round(time_s * fps)),
+                    source="sampling",
+                )
+            ]
+        else:
+            query_frames = [
+                _resolve_query_frame_spec(
+                    facts, "QA-18", declared_frame, source="sampling"
+                )
+            ]
+        if not _source_activity_present(facts):
+            return [
+                {
+                    "candidate_id": f"QA-18:frame:{frame}:time:{frame / fps:.9f}",
+                    "kind": "query_time",
+                    "query_frame": frame,
+                    "query_time_s": frame / fps,
+                }
+                for frame in query_frames
+            ]
+    else:
+        query_frames = []
+
+    bins = _qa18_integer_bins(facts, requested)
+    if not bins:
+        _defer(
+            "sampling_window_missing",
+            "QA-18 has no whole-second window with observed activity or proven silence",
+        )
+    legal_windows = [entry["window_frames"] for entry in bins]
+    authority = (
+        "caller_declared_sampling_window"
+        if requested is not None
+        else _derived_query_window_authority("QA-18")
+    )
+    if exact:
+        frame = query_frames[0]
+        selected = next(
+            (
+                entry
+                for entry in bins
+                if entry["window_frames"][0] <= frame < entry["window_frames"][1]
+            ),
+            None,
+        )
+        if selected is None:
+            _defer(
+                "sampling_window_missing",
+                "QA-18 query frame is not inside a legal whole-second window",
+            )
+        return [
+            {
+                "candidate_id": f"QA-18:frame:{frame}:time:{frame / fps:.9f}",
+                "kind": "query_time",
+                "query_frame": frame,
+                "query_time_s": frame / fps,
+                **selected,
+                "legal_query_windows": copy.deepcopy(legal_windows),
+                "legal_window_authority": authority,
+            }
+        ]
+
+    return [
+        {
+            "candidate_id": (
+                f"QA-18:frame:{(entry['window_frames'][0] + entry['window_frames'][1] - 1) // 2}:"
+                f"time:{((entry['window_frames'][0] + entry['window_frames'][1] - 1) // 2) / fps:.9f}"
+            ),
+            "kind": "query_time",
+            "query_frame": (
+                entry["window_frames"][0] + entry["window_frames"][1] - 1
+            ) // 2,
+            "query_time_s": (
+                entry["window_frames"][0] + entry["window_frames"][1] - 1
+            ) / (2 * fps),
+            **entry,
+            "legal_query_windows": copy.deepcopy(legal_windows),
+            "legal_window_authority": authority,
+        }
+        for entry in bins
+    ]
+
+
+def _generate_qa18_integer_window(
+    facts: Mapping[str, Any],
+    seed: str,
+    *,
+    query_time: float,
+    query_source: str,
+    candidate: Mapping[str, Any],
+    frame: int,
+    reviewed: Mapping[str, Mapping[str, Any]],
+) -> dict[str, Any]:
+    if facts.get("source_activity_evidence_complete") is False:
+        _defer(
+            "missing_source_activity_readback",
+            "QA-18 cannot answer from partial source activity evidence",
+        )
+    tails = _qa18_wet_tail_intervals(facts)
+    if tails is None:
+        _defer(
+            "sampling_window_missing",
+            "QA-18 needs measured wet-tail intervals before selecting a query window",
+        )
+    window = candidate.get("activity_query_window")
+    if (
+        not _is_sequence(window)
+        or len(window) != 2
+        or isinstance(window[0], bool)
+        or isinstance(window[1], bool)
+        or not isinstance(window[0], int)
+        or not isinstance(window[1], int)
+    ):
+        bins = _qa18_integer_bins(facts, None)
+        fps = float(facts["time"]["frame_rate_hz"])
+        selected = next(
+            (
+                entry
+                for entry in bins
+                if entry["window_frames"][0] <= frame < entry["window_frames"][1]
+            ),
+            None,
+        )
+        if selected is None:
+            _defer(
+                "sampling_window_missing",
+                "QA-18 query frame is not inside a legal whole-second window",
+            )
+        window = selected["window_frames"]
+    start_frame, end_frame = int(window[0]), int(window[1])
+    activity = _qa18_integer_window_activity(facts, start_frame, end_frame, tails)
+    active_actor_ids = activity["active_actor_ids"]
+    if not active_actor_ids and activity["wet_tail_event_ids"]:
+        _defer(
+            "query_inside_wet_tail",
+            "QA-18 empty query window overlaps measured listener-side wet tails",
+            query_time_s=query_time,
+            event_ids=activity["wet_tail_event_ids"],
+        )
+    if any(actor_id not in reviewed for actor_id in active_actor_ids):
+        _defer(
+            "speaker_appearance_review_missing",
+            "the specified-time speaker has no reviewed appearance label",
+            actor_ids=active_actor_ids,
+        )
+    truth = (
+        active_actor_ids[0]
+        if len(active_actor_ids) == 1
+        else "multiple"
+        if len(active_actor_ids) > 1
+        else "none"
+    )
+    options = _actor_options(facts, list(reviewed))
+    options.extend(
+        [_option("multiple", "multiple actors"), _option("none", "no actor")]
+    )
+    if truth not in {option["value"] for option in options}:
+        _defer(
+            "speaker_at_time_truth_missing",
+            "query truth is absent from its option domain",
+        )
+    window_fields = _query_window_fields(facts, [start_frame, end_frame])
+    display = _display_time_range(facts, [start_frame, end_frame])
+    if display is None:
+        _defer(
+            "query_interval_too_short_for_display",
+            "the QA-18 whole-second query window has no public range",
+        )
+    display_en, display_zh = display
+    legal_windows = candidate.get("legal_query_windows")
+    legal_windows = (
+        copy.deepcopy(legal_windows)
+        if _is_sequence(legal_windows)
+        else [[start_frame, end_frame]]
+    )
+    legal_authority = candidate.get("legal_window_authority")
+    return _question_item(
+        qa_id="QA-18",
+        facts=facts,
+        seed=seed,
+        question_en=(
+            f"Which actor(s) made a sound at any point during {display_en}?"
+        ),
+        question_zh=(
+            f"{display_zh}内，哪些个体曾经发声（至少在某一时刻）？"
+        ),
+        open_answer_type="closed_set",
+        open_truth=truth,
+        truth_label=(
+            "multiple actors"
+            if truth == "multiple"
+            else "no actor"
+            if truth == "none"
+            else _appearance_phrases(
+                facts["actors"][truth]["appearance"]
+            )[0]
+        ),
+        options=options,
+        evidence={
+            "query_time_s": query_time,
+            "query_source": query_source,
+            "query_frame": frame,
+            **window_fields,
+            "source_activity_coordinate_space": "episode_sample_clock",
+            "source_activity_event_ids": activity["active_event_ids"],
+            "active_event_ids": activity["active_event_ids"],
+            "active_actor_ids": active_actor_ids,
+            "activity_class": activity["activity_class"],
+            "activity_semantics": "union_any_time_within_query_window_v1",
+            "wet_tail_event_ids": activity["wet_tail_event_ids"],
+            "wet_tail_boundary_policy": "measured_interval_only_for_empty_branch",
+            "legal_query_windows": legal_windows,
+            "legal_window_authority": (
+                legal_authority
+                or _derived_query_window_authority("QA-18")
+            ),
+            "appearance_reviews": {
+                actor_id: _appearance_review_for(facts, actor_id)
+                for actor_id in reviewed
+            },
+        },
+        slug=f"frame_{frame}",
+    )
+
+
+def _qa18_query_candidates(
+    facts: Mapping[str, Any],
+) -> list[dict[str, Any]]:
+    """Enumerate legal QA-18 frames and preserve activity branch diversity."""
+    if _time_display_precision(facts) == 0:
+        return _qa18_integer_query_candidates(facts)
+
+    fps = float(facts["time"]["frame_rate_hz"])
+    declared_time = _sampling_value(
+        facts, "QA-18", "query_time_s_by_qa", "query_times_s"
+    )
+    declared_frame = _sampling_value(
+        facts,
+        "QA-18",
+        "query_frame_by_qa",
+        "query_frames",
+        "query_frame",
+        "at_frame",
+    )
+
+    def uniform(value: Any) -> bool:
+        return (
+            isinstance(value, Mapping)
+            and value.get("policy", value.get("query_time_policy"))
+            == "uniform_in_legal_window"
+        )
+
+    uniform_time = uniform(declared_time)
+    uniform_frame = uniform(declared_frame)
+    exact = (
+        declared_time is not None and not uniform_time
+    ) or (
+        declared_frame is not None and not uniform_frame
+    )
+    requested_window = (
+        _first(
+            declared_time,
+            "window_frames",
+            "frame_window",
+            "legal_window",
+            "window",
+        )
+        if uniform_time
+        else _first(
+            declared_frame,
+            "window_frames",
+            "frame_window",
+            "legal_window",
+            "window",
+        )
+        if uniform_frame
+        else None
+    )
+    if requested_window is None:
+        requested_window = _sampling_value(
+            facts,
+            "QA-18",
+            "legal_window_by_qa",
+            "legal_windows",
+            "query_windows",
+        )
+
+    if exact:
+        if declared_time is not None:
+            time_s = _resolve_query_time_spec(
+                facts, "QA-18", declared_time, source="sampling"
+            )
+            query_frames = [
+                _resolve_query_frame_spec(
+                    facts,
+                    "QA-18",
+                    int(round(time_s * fps)),
+                    source="sampling",
+                )
+            ]
+        else:
+            query_frames = [
+                _resolve_query_frame_spec(
+                    facts, "QA-18", declared_frame, source="sampling"
+                )
+            ]
+    else:
+        if not _source_activity_present(facts):
+            code = (
+                "sampling_window_missing"
+                if _query_time_policy(facts) == "uniform_in_legal_window"
+                else "missing_source_activity_readback"
+            )
+            _defer(
+                code,
+                "QA-18 needs source activity readback before selecting a query frame",
+            )
+        legal_windows, authority = _qa18_legal_windows(
+            facts, requested_window
+        )
+        if legal_windows is None:
+            _defer(
+                "sampling_window_missing",
+                "QA-18 needs measured wet-tail intervals before selecting a query frame",
+            )
+        if not legal_windows:
+            _defer(
+                "sampling_window_missing",
+                "QA-18 has no legal query frame outside measured wet tails",
+            )
+        frame_data, stable_by_frame = _qa18_stable_activity_windows(
+            facts, legal_windows
+        )
+        query_frames = sorted(stable_by_frame)
+        if not query_frames:
+            _defer(
+                "sampling_window_missing",
+                "QA-18 has no stable active, multiple-active or empty query window",
+            )
+
+    if _source_activity_present(facts):
+        if exact:
+            legal_windows, authority = _qa18_legal_windows(
+                facts, requested_window
+            )
+            frame_data = {}
+            stable_by_frame = {}
+            if legal_windows:
+                frame_data, stable_by_frame = _qa18_stable_activity_windows(
+                    facts, legal_windows
+                )
+            for frame in query_frames:
+                frame_data.setdefault(
+                    frame, _qa18_frame_activity(facts, frame)
+                )
+    else:
+        frame_data = {}
+        stable_by_frame = {}
+        authority = None
+        legal_windows = None
+
+    result: list[dict[str, Any]] = []
+    for frame in query_frames:
+        item = {
+            "candidate_id": f"QA-18:frame:{frame}:time:{frame / fps:.9f}",
+            "kind": "query_time",
+            "query_frame": frame,
+            "query_time_s": frame / fps,
+        }
+        info = frame_data.get(frame)
+        if info is not None:
+            item.update(info)
+        if legal_windows:
+            item["legal_query_windows"] = copy.deepcopy(legal_windows)
+            item["legal_window_authority"] = authority
+        if frame in stable_by_frame:
+            item["activity_query_window"] = list(stable_by_frame[frame])
+        result.append(item)
+    return result
+
+
+
+
 def _query_time_candidates(
     facts: Mapping[str, Any],
     qa_id: str,
@@ -7750,6 +9911,8 @@ def _query_time_candidates(
     event: Mapping[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     """Enumerate query instants, not one duplicate per unrelated sound event."""
+    if qa_id == "QA-18":
+        return _qa18_query_candidates(facts)
     count = int(facts['time']['frame_count'])
     fps = float(facts['time']['frame_rate_hz'])
     declared_time = _sampling_value(facts, qa_id, 'query_time_s_by_qa', 'query_times_s')
@@ -7862,6 +10025,12 @@ def _post_sound_candidates(facts: Mapping[str, Any], qa_id: str, events: Sequenc
             raise
         for query in queries:
             frame = query['query_frame']
+            acceptance = (facts.get('sampling') or {}).get('acceptance_policy') or {}
+            if (qa_id == 'QA-16' and _ordinary_observation_questions(facts)
+                    and acceptance.get('post_sound_distance_query') == 'integer_timepoint'):
+                seconds = frame / float(facts['time']['frame_rate_hz'])
+                if abs(seconds - round(seconds)) > 1e-8:
+                    continue
             try:
                 _silent_after(facts, event, frame)
             except _Deferred:

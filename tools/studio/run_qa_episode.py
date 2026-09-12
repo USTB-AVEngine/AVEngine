@@ -21,7 +21,20 @@ from avengine.rooms.qa_episode import (
 )
 from avengine.runtime_profiles import load_source_asset_runtime_registry
 from avengine.rooms.room_package import (
-    package_from_catalog_entry, renderer_for_room, write_room_package_plan_snapshot,
+    package_from_catalog_entry, canonical_runtime, renderer_for_room,
+    room_capability_report, write_room_package_plan_snapshot,
+)
+from avengine.rooms.room_package import (
+    host_runtime_layers, load_host_runtime_config,
+)
+from avengine.rooms.room_providers import (
+    CAPTURE_ENTRYPOINTS, RoomRouteError, catalog_runtime, enumerate_catalog_rooms,
+    load_profile_registry, load_room_catalog, planning_room_mapping,
+    request_with_effective_camera, require_catalog_room, resolve_room_profile,
+    room_render_parameters, room_route, runtime_isolation_groups,
+)
+from avengine.capture.qa_plan_adapters import (
+    capture_adapter_binding, request_host_runtime_config,
 )
 
 
@@ -75,16 +88,16 @@ def plan_request(request: dict, output: Path) -> dict:
     catalog_path = request["room_catalog"]
     catalog = read_json(catalog_path)
     package_runtime = request_package_runtime(request, catalog)
+    host_runtime_config = request_host_runtime_config(
+        request, runtime=package_runtime)
+    profile_registry = load_profile_registry(request.get("room_profile_registry"))
     rooms = catalog.get("rooms", catalog) if isinstance(catalog, dict) else catalog
     conditioned = request.get("sampling_policy") == "conditioned_static_v2"
     sound_path = request.get("sound_selection", {}).get("prepared_set", request.get("sound_pool")) if conditioned else request["sound_pool"]
     sounds = read_json(sound_path)
-    condition_profile = None
     if conditioned:
-        from avengine.rooms.conditioned_sampler import load_conditioned_sound_pool, resolve_condition_profile
+        from avengine.rooms.conditioned_sampler import load_conditioned_sound_pool
         sounds = load_conditioned_sound_pool(sounds, source_path=sound_path)
-        condition_profile = resolve_condition_profile(request, registry)
-        write_json(output / "condition_profile.json", condition_profile)
     else:
         sounds = sounds.get("sounds", sounds) if isinstance(sounds, dict) else sounds
     if not isinstance(rooms, list) or not rooms or not isinstance(sounds, list) or not sounds:
@@ -100,21 +113,43 @@ def plan_request(request: dict, output: Path) -> dict:
         try:
             package = package_from_catalog_entry(
                 room, runtime=package_runtime, catalog_path=catalog_path)
-            renderer = renderer_for_room(package)
+            route = room_route(package)
+            renderer = route.renderer
+            # The registered transport becomes an explicit camera request, so
+            # the sampler's own field-of-view default cannot decide for a room.
+            room_profile = resolve_room_profile(
+                profile_registry, str(package["room_id"]),
+                profile_id=request.get("room_runtime_profile_id"))
+            render = room_render_parameters(room_profile, request)
+            request = request_with_effective_camera(request, render)
             if "room_package" in room or room.get("schema") == package["schema"]:
-                room = {**package.get("legacy_catalog_entry", package.get("planning_inputs", {})),
-                        "room_id": package["room_id"], "room_package": package}
+                room = planning_room_mapping(package)
+            binding = capture_adapter_binding(
+                package, package_runtime, repository=REPOSITORY,
+                host_config=host_runtime_config, room_id=package["room_id"])
             write_json(output / "renderer_dispatch.json", {
+                "schema": "avengine_qa_room_dispatch_v1",
                 "room_id": room["room_id"], "renderer": renderer,
+                "family": route.family, "walkable_kind": route.walkable_kind,
+                "planning_adapter": route.planning_adapter,
+                "production_family": route.production_family,
                 "capture_entrypoint": str(renderer_capture_entrypoint(renderer)),
+                "selected_scene": binding["selected_scene"],
+                "runtime": binding["runtime"],
+                "capabilities": room_capability_report(
+                    package, runtime=package_runtime)["dimensions"],
+                "room_runtime_profile_id": render["profile_id"],
+                "render": render,
                 "package_validation_errors": package.get("validation_errors", []),
                 "status": "dispatched", "native_execution": "not_run",
             })
             if conditioned:
                 plan, layout, pf = build_qa_episode_plan(
                     room={**room, "room_package": package, "backend": renderer},
-                    request=request, source_registry=registry, sounds=sounds,
-                    condition_profile=condition_profile)
+                    request=request, source_registry=registry, sounds=sounds)
+                # Persist the profile actually solved from the request's QA targets.
+                # A pre-resolved base profile would bypass compiled branch knobs.
+                write_json(output / "condition_profile.json", plan["condition_profile"])
                 if room.get("native_room_adapter") == "avengine_native_spear_apartment_qa_room_v1":
                     plan["resources"]["expected_stage_actor_count"] = 0
             elif renderer == "ue_spear" and room.get("native_room_adapter") == "avengine_native_spear_apartment_qa_room_v1":
@@ -188,21 +223,63 @@ def plan_request(request: dict, output: Path) -> dict:
         })
         return plan
     if not (output / "planning_result.json").is_file():
-        write_json(output / "planning_result.json", {"status": "failed", "condition_profile": condition_profile,
+        # No room solved a profile, so there is no solved profile to report. The
+        # stated request profile and the per-room refusals are what a reader
+        # needs, and the key stays so an existing consumer still finds it.
+        write_json(output / "planning_result.json", {"status": "failed", "condition_profile": None,
+                    "requested_profile": deepcopy(request.get("profile")),
                     "room_attempts": attempts, "gap_category": "evidence_missing_or_unsampled"})
     raise QAPlanningError(f"no existing room could realize the request: {attempts}")
 
 
+def effective_capture_runtime(request: dict) -> dict:
+    """Merge the run-local host runtime under the request's own runtime.
+
+    The request wins per key. Without this the executor would only ever see
+    the keys a request restated, which is the gap that made every room report
+    its uproject or runtime_prefix missing.
+    """
+    runtime = dict(request.get("runtime") or {})
+    host = request_host_runtime_config(request, runtime=runtime)
+    if not host:
+        return runtime
+    catalog = read_json(request["room_catalog"]) if request.get("room_catalog") else {}
+    renderer = _request_renderer(request, catalog) or ""
+    merged: dict = {}
+    for _source, mapping in host_runtime_layers(
+        host, renderer, request.get("room_id")
+    ):
+        merged.update(mapping)
+    merged.update(runtime)
+    return merged
+
+
+def _request_renderer(request: dict, catalog: dict) -> str | None:
+    """The renderer of the room this request selected, from declared data."""
+    room_id = request.get("room_id")
+    rooms = catalog.get("rooms", catalog) if isinstance(catalog, dict) else catalog
+    if not isinstance(rooms, list):
+        return None
+    for entry in rooms:
+        if not isinstance(entry, dict):
+            continue
+        if room_id is None or entry.get("room_id") == room_id:
+            return entry.get("renderer")
+    return None
+
+
 def renderer_capture_entrypoint(renderer: str) -> Path:
-    entries = {"ue_spear": "tools/rooms/run_spear_residential_episode.py",
-               "habitat": "tools/capture/capture_mp3d_multi_actor.py"}
-    if renderer not in entries:
-        raise QAPlanningError(f"unsupported renderer: {renderer}")
-    return REPOSITORY / entries[renderer]
+    """Resolve the executor for a renderer against the shared route table."""
+    if renderer not in CAPTURE_ENTRYPOINTS:
+        raise QAPlanningError(
+            f"unsupported renderer: {renderer}; supported renderers are "
+            f"{sorted(CAPTURE_ENTRYPOINTS)}"
+        )
+    return REPOSITORY / CAPTURE_ENTRYPOINTS[renderer]
 
 
 def capture_command(request: dict, output: Path) -> list[str]:
-    runtime = request["runtime"]
+    runtime = effective_capture_runtime(request)
     plan_path = output / "plan/episode_plan.json"
     saved_plan = read_json(plan_path)
     package_path = output / "plan/room_package.json"
@@ -285,6 +362,9 @@ def run(request: dict, output: Path, *, plan_only: bool = False,
             validate_neutral_readback(read_json(neutral_path), plan=plan)
         else:
             write_habitat_neutral_readback(output / "capture", plan)
+    from avengine.dataset.binding_group_native import check_requested_visibility
+    check_requested_visibility(plan, request, output / "capture",
+                               report_path=output / "native_visibility_acceptance.json")
     result = {
         "status": "research_only", "episode_id": plan["episode_id"],
         "output": str(output), "elapsed_seconds": time.monotonic() - started,
@@ -303,10 +383,103 @@ def run(request: dict, output: Path, *, plan_only: bool = False,
     return result
 
 
+def room_catalog_runtime(catalog: dict, request: dict | None) -> dict:
+    """The runtime a registry query uses: catalog bindings under the request."""
+    return catalog_runtime(catalog, canonical_runtime((request or {}).get("runtime")))
+
+
+def room_query_inputs(catalog: dict, request: dict | None,
+                      *, host_runtime: Path | None = None,
+                      profile_registry: Path | None = None) -> dict:
+    """Resolve the three independent axes a room query needs.
+
+    Room resources come from the catalog, the registered render transport from
+    the profile registry, and the machine's executor parameters from the host
+    runtime config. Keeping them separate is what lets the distributable
+    examples stay free of server paths.
+    """
+    runtime = room_catalog_runtime(catalog, request)
+    host = (load_host_runtime_config(host_runtime) if host_runtime is not None
+            else request_host_runtime_config(request, runtime=runtime))
+    return {
+        "runtime": runtime,
+        "host_config": host,
+        "profile_registry": load_profile_registry(profile_registry),
+    }
+
+
+def list_rooms(catalog_path: Path, request: dict | None = None,
+               *, production_only: bool = False, host_runtime: Path | None = None,
+               profile_registry: Path | None = None,
+               allow_environment: bool = False) -> dict:
+    """Report every registered room, its route and why it is or is not ready."""
+    catalog_path = catalog_path.expanduser().resolve()
+    catalog = load_room_catalog(catalog_path)
+    inputs = room_query_inputs(
+        catalog, request, host_runtime=host_runtime,
+        profile_registry=profile_registry)
+    runtime = inputs["runtime"]
+    resolutions = enumerate_catalog_rooms(
+        catalog, catalog_path=catalog_path, runtime=runtime,
+        production_only=production_only,
+        profile_registry=inputs["profile_registry"],
+        host_config=inputs["host_config"], request=request,
+        allow_environment=allow_environment)
+    return {
+        "schema": "avengine_qa_room_registry_listing_v1",
+        "room_catalog": str(catalog_path),
+        "catalog_revision": catalog.get("revision"),
+        "production_only": production_only,
+        "host_runtime": None if not inputs["host_config"] else
+            inputs["host_config"].get("_source"),
+        "environment_allowed": allow_environment,
+        "runtime_isolation_groups": [
+            dict(group, group_key=list(group["group_key"]))
+            for group in runtime_isolation_groups(resolutions)
+        ],
+        "rooms": [item.as_report() for item in resolutions],
+        "claim_boundary": (
+            "Declared resources resolve and each route has an adapter. This is "
+            "not episode feasibility, native execution or dataset admission."
+        ),
+        "native_execution": "not_run",
+    }
+
+
+def resolve_room(catalog_path: Path, room_id: str, request: dict | None = None,
+                 *, for_execution: bool = False, host_runtime: Path | None = None,
+                 profile_registry: Path | None = None,
+                 profile_id: str | None = None,
+                 allow_environment: bool = False) -> dict:
+    """Resolve one registered room, raising the exact reason when it cannot."""
+    catalog_path = catalog_path.expanduser().resolve()
+    catalog = load_room_catalog(catalog_path)
+    inputs = room_query_inputs(
+        catalog, request, host_runtime=host_runtime,
+        profile_registry=profile_registry)
+    runtime = inputs["runtime"]
+    resolution = require_catalog_room(
+        catalog, room_id, catalog_path=catalog_path, runtime=runtime,
+        require_runtime=for_execution,
+        profile_registry=inputs["profile_registry"], profile_id=profile_id,
+        host_config=inputs["host_config"], request=request,
+        allow_environment=allow_environment)
+    report = resolution.as_report()
+    report["room_catalog"] = str(catalog_path)
+    report["host_runtime"] = (None if not inputs["host_config"] else
+                              inputs["host_config"].get("_source"))
+    report["capture_adapter"] = capture_adapter_binding(
+        resolution.package, runtime, repository=REPOSITORY,
+        host_config=inputs["host_config"], room_id=resolution.room_id,
+        allow_environment=allow_environment)
+    report["planning_room"] = resolution.planning_room
+    return report
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--request", type=Path, required=True)
-    parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--request", type=Path)
+    parser.add_argument("--output", type=Path)
     parser.add_argument("--plan-only", action="store_true")
     parser.add_argument("--capture-only", action="store_true")
     parser.add_argument("--resume", action="store_true",
@@ -314,10 +487,65 @@ def main() -> int:
     parser.add_argument("--derived-output", type=Path)
     parser.add_argument("--audio-report", type=Path, help="reuse a matching completed audio render")
     parser.add_argument("--appearance-review", type=Path, help="reuse an actual RGB appearance review")
+    parser.add_argument("--room-catalog", type=Path,
+                        help="RoomPackage catalog for --list-rooms/--resolve-room")
+    parser.add_argument("--list-rooms", action="store_true",
+                        help="report every registered room, its route and its blockers")
+    parser.add_argument("--resolve-room", metavar="ROOM_ID",
+                        help="resolve one registered room and print its route")
+    parser.add_argument("--production-only", action="store_true",
+                        help="with --list-rooms, keep only production room families")
+    parser.add_argument("--for-execution", action="store_true",
+                        help="with --resolve-room, also require the renderer runtime parameters")
+    parser.add_argument("--host-runtime", type=Path,
+                        help="run-local host runtime config (server paths belong here, not in examples/)")
+    parser.add_argument("--room-profile-registry", type=Path,
+                        help="room runtime profile registry (default: examples/runtime/room_runtime_profiles.json)")
+    parser.add_argument("--room-profile-id",
+                        help="with --resolve-room, name one registered render transport")
+    parser.add_argument("--allow-environment-runtime", action="store_true",
+                        help="also read the established AVENGINE_* host runtime variables")
     args = parser.parse_args()
+    if args.list_rooms or args.resolve_room:
+        catalog_path = args.room_catalog
+        request = read_json(args.request) if args.request else None
+        if catalog_path is None and request is not None:
+            catalog_path = Path(request["room_catalog"])
+        if catalog_path is None:
+            parser.error("--list-rooms/--resolve-room need --room-catalog or --request")
+        try:
+            result = (
+                list_rooms(
+                    catalog_path, request, production_only=args.production_only,
+                    host_runtime=args.host_runtime,
+                    profile_registry=args.room_profile_registry,
+                    allow_environment=args.allow_environment_runtime)
+                if args.list_rooms else
+                resolve_room(
+                    catalog_path, args.resolve_room, request,
+                    for_execution=args.for_execution,
+                    host_runtime=args.host_runtime,
+                    profile_registry=args.room_profile_registry,
+                    profile_id=args.room_profile_id,
+                    allow_environment=args.allow_environment_runtime)
+            )
+        except RoomRouteError as error:
+            print(json.dumps({"status": "blocked", "reason": str(error)},
+                             ensure_ascii=False, indent=2))
+            return 2
+        if args.output is not None:
+            write_json(args.output, result)
+        print(json.dumps(result, ensure_ascii=False, indent=2, default=str))
+        return 0
+    if args.request is None or args.output is None:
+        parser.error("--request and --output are required to plan or run an Episode")
     request = read_json(args.request)
     if args.resume:
         from avengine.rooms.qa_delivery import finalize_qa_episode
+        from avengine.dataset.binding_group_native import check_requested_visibility
+        check_requested_visibility(
+            read_json(args.output / "plan" / "episode_plan.json"),
+            request, args.output / "capture")
         result = finalize_qa_episode(
             args.output, args.derived_output or args.output / "delivery",
             repository=REPOSITORY, request=request, audio_report=args.audio_report,

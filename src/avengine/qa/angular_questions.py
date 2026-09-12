@@ -157,6 +157,28 @@ def _query_second(facts: Mapping[str, Any], frame: int) -> int:
     return round(frame / float(facts["time"]["frame_rate_hz"]))
 
 
+def publishable_query_second(facts: Mapping[str, Any], frame: int) -> int | None:
+    """The whole second a frame may be published as, or None.
+
+    A question states a whole second, and the answer is measured at one
+    frame. The two only describe the same instant when that frame is the
+    nearest readback to the second and the second is itself inside the clip.
+    Rounding the last frame of a ten second clip up to "10 s" names a moment
+    the media never shows, so this refuses instead of restating.
+    """
+
+    fps = float(facts["time"]["frame_rate_hz"])
+    frame_count = int(facts["time"]["frame_count"])
+    frame = int(frame)
+    second = round(frame / fps)
+    nearest = round(second * fps)
+    if nearest != frame:
+        return None
+    if not 0 <= nearest < frame_count:
+        return None
+    return int(second)
+
+
 def _active_frames(facts: Mapping[str, Any]) -> dict[int, list]:
     if not catalog._source_activity_present(facts):
         return {}
@@ -250,15 +272,101 @@ def candidates(facts: Mapping[str, Any]) -> list[dict[str, Any]]:
     return result
 
 
+def subset_diagnostics(facts: Mapping[str, Any]) -> dict[str, Any]:
+    """Say why each QA-25 subset has candidates or has none.
+
+    The AV subset needs a target that is still audible after it stops being
+    visible. When an episode keeps every emitter inside the view for its whole
+    duration, that subset has nothing to select and the count is zero for a
+    reason a producer can act on. Reporting the measured stage counts keeps
+    that apart from a broken predicate.
+    """
+
+    rows = candidates(facts)
+    counts = {subset: sum(1 for row in rows if row["subset"] == subset)
+              for subset in SUBSETS}
+    stages = Counter()
+    hidden_states = Counter()
+    audible_states = Counter()
+    labels = _labels(facts)
+    audio_pass = facts.get("audio", {}).get("status") == "pass"
+    active = _active_frames(facts) if audio_pass else {}
+    events = catalog._bound_events(facts) if active else []
+    for event in events:
+        actor_id, event_id = event["actor_id"], event["event_id"]
+        audible = [f for f, entries in active.items()
+                   if any(e["event_id"] == event_id for e in entries)]
+        if not audible:
+            continue
+        stages["events_with_audible_frame"] += 1
+        if actor_id not in labels:
+            stages["events_without_unique_appearance"] += 1
+            continue
+        for frame in audible:
+            state = str(facts.get("visibility", {}).get(actor_id, {}).get(frame, {}).get("state"))
+            audible_states[state] += 1
+            if state in {"out_of_view", "fully_occluded"}:
+                hidden_states[state] += 1
+                stages["hidden_while_audible_frames"] += 1
+                if len([e for e in active[frame] if e["actor_id"] != actor_id]):
+                    stages["hidden_with_other_source_frames"] += 1
+    diagnostics: dict[str, Any] = {}
+    for subset in SUBSETS:
+        record: dict[str, Any] = {"candidate_count": counts[subset]}
+        if counts[subset]:
+            diagnostics[subset] = record
+            continue
+        if not audio_pass:
+            record.update({"code": "audio_readback_not_pass",
+                           "detail": "the episode has no passing audio readback"})
+        elif not active:
+            record.update({"code": "missing_source_activity_readback",
+                           "detail": "no source activity readback is present"})
+        elif subset == "V":
+            record.update({"code": "no_publishable_visual_bearing",
+                           "detail": ("no whole-second frame has a public pinhole "
+                                      "calibration and a visible target centroid")})
+        elif subset == "A":
+            record.update({"code": "no_identifiable_audible_onset",
+                           "detail": ("no audible event can be named without "
+                                      "revealing its hidden identity")})
+        else:
+            record.update({
+                "code": ("no_hidden_while_audible_frame"
+                         if not stages["hidden_while_audible_frames"]
+                         else "no_hidden_frame_with_a_competing_source"),
+                "detail": ("the target never leaves the view or becomes fully "
+                           "occluded while it is still audible"
+                           if not stages["hidden_while_audible_frames"]
+                           else "the target is hidden while audible but no other "
+                                "source with a distinct asset sounds at that instant"),
+            })
+        record["visibility_states_at_audible_frames"] = dict(sorted(audible_states.items()))
+        record["stage_counts"] = dict(sorted(stages.items()))
+        diagnostics[subset] = record
+    return diagnostics
+
+
 def _item(facts: Mapping[str, Any], seed: str, candidate: Mapping[str, Any],
           question_en: str, question_zh: str, *, qa_id: str = "QA-25", slug: str | None = None) -> dict:
     actor_id, frame = candidate["actor_id"], int(candidate["query_frame"])
     subset = candidate["subset"]
+    second = publishable_query_second(facts, frame)
     evidence = {**copy.deepcopy(dict(candidate)), "target_actor_id": actor_id,
-                "query_time_s": _query_second(facts, frame),
                 "query_frame_time_s": frame / float(facts["time"]["frame_rate_hz"]),
                 "angle_reference": "camera_image_horizontal" if subset == "V" else "listener_horizontal",
                 "angle_target": "visible_pixel_centroid" if subset == "V" else "sound_emitter"}
+    if second is not None:
+        evidence["query_time_s"] = second
+    elif frame == int(facts["time"]["frame_count"]) - 1:
+        # The same convention binding_questions uses for a clip-end query: no
+        # second is published, the anchor names the instant instead.
+        evidence["query_anchor"] = "clip_end"
+    else:
+        evidence["query_time_s_deferred"] = {
+            "code": "query_frame_is_not_a_whole_second",
+            "detail": "this readback frame is not the nearest frame to any whole second inside the clip",
+        }
     calibration = None
     if subset == "V":
         angle, calibration, centroid = _visual_bearing(facts, actor_id, frame)
@@ -295,7 +403,12 @@ def _item(facts: Mapping[str, Any], seed: str, candidate: Mapping[str, Any],
 
 def emit(facts: Mapping[str, Any], candidate: Mapping[str, Any], seed: str) -> dict:
     subset, frame = candidate["subset"], int(candidate["query_frame"])
-    time_s = _query_second(facts, frame)
+    time_s = publishable_query_second(facts, frame)
+    if time_s is None:
+        catalog._defer("query_frame_is_not_a_whole_second",
+                       "a bearing question states a whole second, and this frame is not one",
+                       query_frame=frame,
+                       query_frame_time_s=frame / float(facts["time"]["frame_rate_hz"]))
     if subset == "A":
         event = next(e for e in facts["events"] if e["event_id"] == candidate["event_id"])
         anchor_en, anchor_zh = catalog._event_anchor(facts, event)
@@ -310,7 +423,11 @@ def emit(facts: Mapping[str, Any], candidate: Mapping[str, Any], seed: str) -> d
             en = f"At {time_s} s, what is the horizontal camera bearing of the centroid of the visible pixels of {label_en}? Use the supplied pinhole calibration."
             zh = f"在{time_s}秒，{label_zh}的可见像素质心相对相机的水平角度是多少？请使用提供的针孔相机标定。"
         else:
-            anchor_s = _query_second(facts, candidate["anchor_frame"])
+            anchor_s = publishable_query_second(facts, candidate["anchor_frame"])
+            if anchor_s is None:
+                catalog._defer("anchor_frame_is_not_a_whole_second",
+                               "the visible anchor instant cannot be stated in whole seconds",
+                               anchor_frame=int(candidate["anchor_frame"]))
             en = f"Track {label_en}, visible and sounding at {anchor_s} s. At {time_s} s, when it is hidden and multiple sources are sounding, what is its sound bearing?"
             zh = f"请追踪在{anchor_s}秒可见且发声的{label_zh}。在{time_s}秒它已不可见且多个声源同时发声时，它的声音来自多少度？"
     return _item(facts, seed, candidate, en, zh)
@@ -349,7 +466,11 @@ def followups(facts: Mapping[str, Any], items: list[dict], seed: str) -> tuple[l
                     catalog._defer("target_not_audible_at_query", "the associated event has no source activity readback")
                 frame, subset, target_event = audible[len(audible) // 2], "A", event
                 subject_en, subject_zh = catalog._event_anchor(facts, event)
-            time_s = _query_second(facts, frame)
+            time_s = publishable_query_second(facts, frame)
+            if qa_id != "QA-24" and time_s is None:
+                catalog._defer("query_frame_is_not_a_whole_second",
+                               "the angle followup instant cannot be stated in whole seconds",
+                               query_frame=int(frame))
             target_en = "visible pixel centroid" if subset == "V" else "sound"
             target_zh = "可见像素质心" if subset == "V" else "声音"
             candidate = {"subset": subset, "actor_id": actor_id, "event_id": target_event["event_id"], "query_frame": frame}

@@ -94,14 +94,17 @@ def test_uniform_qa18_uses_wet_tail_complement_union() -> None:
     facts = _uniform_sampling(normalize_episode_bundle(raw))
     candidates = catalog._P8_CANDIDATES["QA-18"](facts)
 
-    assert len(candidates) == 24
+    assert len(candidates) == 37
     assert {candidate["query_frame"] for candidate in candidates} == {
-        *range(0, 2),
-        *range(7, 10),
-        *range(17, 20),
+        *range(0, 6),
+        *range(7, 16),
+        *range(17, 23),
         *range(24, 40),
     }
-    assert all(candidate["legal_query_windows"] == [[0, 2], [7, 10], [17, 20], [24, 40]]
+    assert {"empty", "active", "multiple"} <= {
+        candidate["activity_class"] for candidate in candidates
+    }
+    assert all(candidate["legal_query_windows"] == [[0, 6], [7, 16], [17, 23], [24, 40]]
                   for candidate in candidates)
     assert all(
         candidate["legal_window_authority"]
@@ -115,9 +118,9 @@ def test_uniform_qa18_uses_wet_tail_complement_union() -> None:
     assert output["counts"] == {"requested": 1, "valid": 1, "deferred": 0}
     item = output["items"][0]
     assert item["evidence"]["legal_query_windows"] == [
-        [0, 2],
-        [7, 10],
-        [17, 20],
+        [0, 6],
+        [7, 16],
+        [17, 23],
         [24, 40],
     ]
     assert (
@@ -330,3 +333,134 @@ def test_public_time_formatter_preserves_integer_trailing_zeroes():
     assert _format_public_seconds(10.0, precision=0) == "10"
     assert _format_public_seconds(100.0, precision=0) == "100"
     assert _format_public_seconds(10.0, precision=1) == "10"
+
+
+# --- P08: whole-second publication and re-verification -----------------------
+
+
+def _integer_public_time(facts: dict) -> dict:
+    """The current public default: whole seconds, no subsecond interval."""
+    facts["sampling"] = {
+        "qa_sampling": {
+            "query_time_policy": "uniform_in_legal_window",
+            "time_display_precision": 0,
+        }
+    }
+    return facts
+
+
+def test_a_window_shorter_than_one_whole_second_has_no_publishable_form() -> None:
+    facts = normalize_episode_bundle(_integer_public_time(_fixture()))
+    record = catalog.publishable_query_window(facts, [7, 10])
+
+    assert record["publishable"] is False
+    assert record["reason"] == "query_interval_too_short_for_display"
+    assert record["query_window_exact_s"] == [0.7, 1.0]
+    assert record["proven_span_s"] == pytest.approx(0.3)
+    assert record["shortfall_s"] == pytest.approx(0.7)
+    assert "query_window_s" not in record
+
+
+def test_a_publishable_window_is_quantized_inward() -> None:
+    facts = normalize_episode_bundle(_integer_public_time(_fixture()))
+    record = catalog.publishable_query_window(facts, [24, 40])
+
+    assert record["publishable"] is True
+    assert record["query_window_exact_s"] == [2.4, 4.0]
+    # The readable range must not reach earlier or later than the evidence.
+    assert record["query_window_s"] == [3.0, 4.0]
+
+
+def test_published_range_maps_back_to_frames_inside_the_proven_window() -> None:
+    facts = normalize_episode_bundle(_integer_public_time(_fixture()))
+    record = catalog.publishable_query_window(facts, [24, 40])
+    frames = catalog.published_window_frames(facts, record["query_window_s"])
+
+    assert frames == list(range(30, 40))
+    assert min(frames) >= 24 and max(frames) < 40
+
+
+def test_verification_refuses_an_answer_that_changes_inside_the_published_range() -> None:
+    facts = normalize_episode_bundle(_integer_public_time(_fixture()))
+
+    def flips_at_35(frame: int) -> bool:
+        return frame == 35
+
+    with pytest.raises(catalog._Deferred) as raised:
+        catalog.verify_published_query_window(
+            facts, [24, 40], flips_at_35, False, qa_id="QA-17"
+        )
+    assert raised.value.code == "published_window_truth_changed"
+    assert raised.value.extra["frames_with_other_answer"] == [35]
+
+
+def test_verification_accepts_an_answer_that_holds_on_the_published_range() -> None:
+    facts = normalize_episode_bundle(_integer_public_time(_fixture()))
+    record = catalog.verify_published_query_window(
+        facts, [24, 40], lambda frame: False, False, qa_id="QA-17"
+    )
+
+    assert record["published_window_recomputed"] is True
+    assert record["published_window_frames"] == (30, 40)
+    assert record["published_window_values"] == [False] * 10
+
+
+def test_verification_refuses_a_window_with_no_publishable_form() -> None:
+    facts = normalize_episode_bundle(_integer_public_time(_fixture()))
+
+    with pytest.raises(catalog._Deferred) as raised:
+        catalog.verify_published_query_window(
+            facts, [7, 10], lambda frame: True, True, qa_id="QA-17"
+        )
+    assert raised.value.code == "query_interval_too_short_for_display"
+    assert raised.value.extra["shortfall_s"] == pytest.approx(0.7)
+
+
+def test_qa17_recomputes_its_answer_on_the_published_range() -> None:
+    facts = _fixture()
+    facts["sampling"] = {
+        "qa_sampling": {
+            "query_time_policy": "uniform_in_legal_window",
+            "time_display_precision": 2,
+        }
+    }
+    output = generate_unified_questions(facts, qa_ids=["QA-17"], seed="p08-published")
+    item = output["items"][0]
+    verification = item["evidence"]["published_window_verification"]
+
+    assert verification["published_window_recomputed"] is True
+    published = verification["query_window_s"]
+    exact = verification["query_window_exact_s"]
+    assert published[0] >= exact[0] and published[1] <= exact[1]
+    assert set(verification["published_window_values"]) == {
+        item["truth"]["value"] == "yes"
+    }
+
+
+def test_the_two_qa17_refusals_are_reported_as_different_reasons() -> None:
+    """A short publishable window and a shared answer are not one problem."""
+    facts = _integer_public_time(_fixture())
+    output = generate_unified_questions(facts, qa_ids=["QA-17"], seed="p08-reasons")
+
+    codes = output["rejection_codes_by_qa"]["QA-17"]
+    assert set(codes) == {"distractors_equal_gold", "query_interval_too_short_for_display"}
+    assert all(count > 0 for count in codes.values())
+    # The quota row carries the same split, so a producer reading only the
+    # summary still sees two different things to fix.
+    assert set(output["unmet_quota_by_qa"]["QA-17"]["rejection_codes"]) == set(codes)
+
+
+def test_integer_public_time_refuses_rather_than_rounding_a_subsecond_window() -> None:
+    """Rounding 4.2-4.7333 outward to 4-5 would publish unproven instants."""
+    subsecond = generate_unified_questions(
+        _fixture(), qa_ids=["QA-17"], seed="p08-round"
+    )
+    whole = generate_unified_questions(
+        _integer_public_time(_fixture()), qa_ids=["QA-17"], seed="p08-round"
+    )
+
+    assert [item["qa_id"] for item in subsecond["items"]] == ["QA-17"]
+    assert whole["items"] == []
+    assert {row["code"] for row in whole["deferred"]} == {
+        "query_interval_too_short_for_display"
+    }

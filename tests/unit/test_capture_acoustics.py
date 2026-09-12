@@ -15,7 +15,11 @@ from avengine.contracts.json_io import (
     sha256_file,
     write_json,
 )
-from avengine.acoustics.runtime import CompiledAcousticScene, RuntimeContractError
+from avengine.acoustics.runtime import (
+    CompiledAcousticScene,
+    RuntimeContractError,
+    _expected_upload_report,
+)
 from avengine.spatial_audio.runtime import M4SimulationConfig
 from avengine.timeline.acoustics import DynamicRIRSequence, validate_acoustic_keyframes
 from avengine.capture import acoustics
@@ -248,6 +252,54 @@ def _scene() -> CompiledAcousticScene:
     )
 
 
+def _uploadable_scene() -> CompiledAcousticScene:
+    """A scene whose objects and material database derive a real upload report."""
+
+    def band(base: float) -> list[float]:
+        return [125.0, base, 250.0, base + 0.05, 500.0, base + 0.1, 1000.0, base + 0.2]
+
+    database = b'{"materials": "capture-fixture"}'
+    return CompiledAcousticScene(
+        manifest_path=__file__,
+        manifest_sha256="3" * 64,
+        manifest={},
+        package_id="m5_1_uploadable_test_scene",
+        package_content_sha256="4" * 64,
+        material_database_path=__file__,
+        material_database_bytes=database,
+        material_database_sha256=hashlib.sha256(database).hexdigest(),
+        material_categories_document={},
+        rlr_material_database={
+            "materials": [
+                {
+                    "name": "painted_wall",
+                    "labels": ["wall"],
+                    "absorption": band(0.1),
+                    "scattering": band(0.2),
+                    "transmission": band(0.05),
+                }
+            ]
+        },
+        material_categories=("wall",),
+        objects=(
+            {
+                "object_id": "wall_object",
+                "position": [0.25, 0.0, -1.0],
+                "orientation_wxyz": [1.0, 0.0, 0.0, 0.0],
+                "vertices": np.ascontiguousarray(
+                    [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [1.0, 2.4, 0.0], [0.0, 2.4, 0.0]],
+                    dtype="<f4",
+                ),
+                "triangles": np.ascontiguousarray([[0, 1, 2], [0, 2, 3]], dtype="<u4"),
+                "triangle_material_ids": np.ascontiguousarray([0, 0], dtype="<u4"),
+            },
+        ),
+        geometry_records={},
+        triangle_count_by_material={"wall": 2},
+        qa_reports={},
+    )
+
+
 def _simulation(sample_rate_hz: int = 16_000) -> M4SimulationConfig:
     return M4SimulationConfig.from_mapping(
         {
@@ -430,9 +482,15 @@ def _install_fake_runtime(monkeypatch: pytest.MonkeyPatch) -> None:
         ),
     )
     monkeypatch.setattr(acoustics, "_upload_report", lambda value: {"verified": True})
-    monkeypatch.setattr(
-        acoustics, "_verify_upload_report", lambda scene, report: None
-    )
+    verify_calls: list[dict[str, object]] = []
+
+    def record_verify(scene, report, *, expectation=None):
+        verify_calls.append(
+            {"scene": scene, "report": report, "expectation": expectation}
+        )
+
+    monkeypatch.setattr(acoustics, "_verify_upload_report", record_verify)
+    monkeypatch.setattr(acoustics, "_recorded_verify_upload_calls", verify_calls, raising=False)
 
     def receipts(
         context,
@@ -668,3 +726,150 @@ def test_audio_rejects_trajectory_hash_drift() -> None:
             sequence,
             grid=grid,
         )
+
+def test_independent_states_keep_real_source_paths_and_reset_native_history(monkeypatch):
+    grid = acoustics.build_strided_review_keyframes(
+        {"a": [[1., 0., 0.]] * 3, "b": [[2., 0., 0.]] * 3},
+        visual_frame_rate_hz=15, rir_stride_frames=1,
+        listener_position_m=[0., 0., 0.], listener_orientation_wxyz=[1., 0., 0., 0.],
+    )
+    seen = []
+    def native_render(scene, simulation, *, grid, layout_type, **kwargs):
+        assert grid.source_ids == ("emitter0",)
+        assert len(grid.keyframes) == 1
+        assert grid.keyframes[0].tick == grid.keyframes[0].sample_index == 0
+        value = grid.keyframes[0].source_positions_m["emitter0"][0]
+        seen.append(value)
+        length = 3 if value == 1. else 5
+        return DynamicRIRSequence(
+            samples=np.full((1, 1, 2, length), value, dtype="<f4"),
+            lengths=np.full((1, 1), length, dtype="<u4"),
+            source_ids=grid.source_ids,
+            keyframe_ticks=(0,), keyframe_samples=(0,),
+            sample_rate_hz=16000, layout_type="binaural", layout_id="rlr_binaural_lr_v1",
+            channel_labels=("left", "right"),
+            trajectory_sha256=canonical_json_sha256(acoustics.research_review_trajectory_record(grid)),
+            metadata={"actual_source_position": list(grid.keyframes[0].source_positions_m["emitter0"])},
+        )
+    monkeypatch.setattr(acoustics, "render_research_review_rir_sequence", native_render)
+    result = acoustics.render_independent_state_rir_sequence(None, None, grid=grid, layout_type="binaural")
+    assert seen == [1., 2.]
+    assert result.source_ids == grid.source_ids
+    assert result.keyframe_ticks == tuple(frame.tick for frame in grid.keyframes)
+    assert result.keyframe_samples == tuple(frame.sample_index for frame in grid.keyframes)
+    assert result.samples.shape == (3, 2, 2, 5)
+    np.testing.assert_array_equal(result.samples[:, 0, :, :3], 1.)
+    np.testing.assert_array_equal(result.samples[:, 0, :, 3:], 0.)
+    np.testing.assert_array_equal(result.samples[:, 1], 2.)
+    np.testing.assert_array_equal(result.lengths, [[3, 5]] * 3)
+    assert result.trajectory_sha256 == canonical_json_sha256(acoustics.research_review_trajectory_record(grid))
+    assert result.metadata["source_keyframe_state_indices"] == {"a": [0, 0, 0], "b": [1, 1, 1]}
+    assert len(result.metadata["state_evaluations"][0]["used_by"]) == 3
+    changed = replace(grid, keyframes=tuple(replace(
+        frame, source_positions_m={**frame.source_positions_m, "b": (9., 0., 0.)}
+    ) for frame in grid.keyframes))
+    other = acoustics.render_independent_state_rir_sequence(None, None, grid=changed, layout_type="binaural")
+    np.testing.assert_array_equal(result.samples[:, 0], other.samples[:, 0])
+    assert not np.array_equal(result.samples[:, 1], other.samples[:, 1])
+
+
+def test_render_forwards_a_precomputed_upload_expectation_to_the_comparison(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _install_fake_runtime(monkeypatch)
+    scene = _uploadable_scene()
+    expectation = acoustics.CompiledSceneUploadExpectation(scene)
+    hrtf = tmp_path / "review.sofa"
+    hrtf.write_bytes(b"mock-hrtf")
+
+    acoustics.render_research_review_binaural_rir_sequence(
+        scene,
+        _simulation(),
+        grid=_grid(9, frame_rate_hz=9, stride=3),
+        hrtf_file_path=str(hrtf),
+        upload_expectation=expectation,
+    )
+
+    calls = acoustics._recorded_verify_upload_calls
+    assert [call["expectation"] for call in calls] == [expectation]
+    assert calls[0]["scene"] is scene
+
+
+def test_render_rejects_an_expectation_built_for_another_scene(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _install_fake_runtime(monkeypatch)
+    scene = _uploadable_scene()
+    other = acoustics.CompiledSceneUploadExpectation(_uploadable_scene())
+    hrtf = tmp_path / "review.sofa"
+    hrtf.write_bytes(b"mock-hrtf")
+
+    with pytest.raises(RuntimeContractError, match="different compiled scene"):
+        acoustics.render_research_review_binaural_rir_sequence(
+            scene,
+            _simulation(),
+            grid=_grid(9, frame_rate_hz=9, stride=3),
+            hrtf_file_path=str(hrtf),
+            upload_expectation=other,
+        )
+    assert not _FakeContext.instances
+
+
+def test_independent_states_derive_one_expected_upload_report_per_call(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    scene = _uploadable_scene()
+    grid = acoustics.build_strided_review_keyframes(
+        {"a": [[1.0, 0.0, 0.0]] * 3, "b": [[2.0, 0.0, 0.0]] * 3},
+        visual_frame_rate_hz=15,
+        rir_stride_frames=1,
+        listener_position_m=[0.0, 0.0, 0.0],
+        listener_orientation_wxyz=[1.0, 0.0, 0.0, 0.0],
+    )
+    seen: list[object] = []
+
+    def native_render(scene, simulation, *, grid, layout_type, **kwargs):
+        seen.append(kwargs["upload_expectation"])
+        return DynamicRIRSequence(
+            samples=np.ones((1, 1, 2, 4), dtype="<f4"),
+            lengths=np.full((1, 1), 4, dtype="<u4"),
+            source_ids=grid.source_ids,
+            keyframe_ticks=(0,),
+            keyframe_samples=(0,),
+            sample_rate_hz=16000,
+            layout_type="binaural",
+            layout_id="rlr_binaural_lr_v1",
+            channel_labels=("left", "right"),
+            trajectory_sha256=canonical_json_sha256(
+                acoustics.research_review_trajectory_record(grid)
+            ),
+            metadata={},
+        )
+
+    monkeypatch.setattr(acoustics, "render_research_review_rir_sequence", native_render)
+    result = acoustics.render_independent_state_rir_sequence(
+        scene, _simulation(), grid=grid, layout_type="binaural"
+    )
+
+    assert len(seen) == 2
+    assert isinstance(seen[0], acoustics.CompiledSceneUploadExpectation)
+    # One derivation is shared by every distinct acoustic state in this call.
+    assert seen[0] is seen[1]
+    assert seen[0].scene is scene
+    assert seen[0].expected_report() == _expected_upload_report(scene)
+    policy = result.metadata["context_policy"]
+    assert policy["expected_upload_report"] == "precomputed_once_per_call"
+    assert policy["actual_upload_report_comparison"] == "per_context"
+    assert policy["simulate_calls"] == 2
+
+    # A caller that already owns the expectation may supply it instead.
+    seen.clear()
+    supplied = acoustics.CompiledSceneUploadExpectation(scene)
+    acoustics.render_independent_state_rir_sequence(
+        scene,
+        _simulation(),
+        grid=grid,
+        layout_type="binaural",
+        upload_expectation=supplied,
+    )
+    assert seen == [supplied, supplied]

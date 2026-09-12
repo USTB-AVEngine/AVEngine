@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 import json
+import os
 import re
 from string import Template
 from pathlib import Path
@@ -438,3 +439,387 @@ def package_from_catalog_entry(entry: Mapping[str, Any], *,
         package, relative_roots=relative_roots
     )
     return package
+
+
+# ---------------------------------------------------------------------------
+# Route description: renderer runtime parameters and per-room capability
+# ---------------------------------------------------------------------------
+#
+# A room is added by registering its package and resources, so the facts the
+# executors need have to come off the package rather than out of a per-room
+# code branch. These two reports are that boundary: which runtime parameters
+# the declared renderer requires, and which dimensions this room can actually
+# supply. Both name the exact missing key or path, because "unsupported" and
+# "declared but absent" lead to different fixes.
+
+RENDERER_RUNTIME_KEYS = {
+    "ue_spear": {
+        "required": ("uproject", "unreal_editor", "spear_ext_dir"),
+        "optional": ("graphics_adapter", "rpc_port", "streaming_warmup_frames",
+                     "ddc_profile", "ddc_directory"),
+    },
+    "habitat": {
+        "required": ("runtime_prefix",),
+        "optional": ("magnum_python_site", "rlr_sdk_root", "mp3d_root",
+                     "graphics_adapter"),
+    },
+}
+
+# Stored task templates spell three of these differently. Accept the older
+# name instead of treating an existing configuration as wrong: the hm3d
+# template on this server carries ``magnum_site``, and Habitat's loader asks
+# for ``magnum_python_site``, which is why that route reported a missing
+# Corrade/Magnum site while the value was right there in the template.
+RUNTIME_KEY_ALIASES = {
+    "magnum_site": "magnum_python_site",
+    "habitat_runtime_prefix": "runtime_prefix",
+    "spear_ext": "spear_ext_dir",
+}
+
+CAPABILITY_DIMENSIONS = (
+    "visual_scene", "navigation", "acoustics", "semantics", "static_geometry",
+    "floor_reference", "coordinate_frame", "subrooms",
+)
+
+_VISUAL_SCENE_KEYS = {
+    "ue_spear": ("map_path", "uproject"),
+    "habitat": ("scene_glb", "dataset_config", "navmesh"),
+}
+
+
+def canonical_runtime(runtime: Mapping[str, Any] | None) -> dict[str, Any]:
+    """Rewrite historical runtime key spellings to the names loaders read.
+
+    Applied wherever a stored runtime mapping reaches a loader, so a task
+    template that says ``magnum_site`` binds the Corrade/Magnum site instead
+    of the loader reporting it as unset.
+    """
+    if runtime is None:
+        return {}
+    if not isinstance(runtime, Mapping):
+        raise ValueError("runtime must be a mapping")
+    result: dict[str, Any] = {}
+    for key, value in runtime.items():
+        result[RUNTIME_KEY_ALIASES.get(str(key), str(key))] = value
+    return result
+
+
+def renderer_runtime_keys(renderer: str) -> dict[str, tuple[str, ...]]:
+    """Report the runtime parameters one renderer's executor needs."""
+    try:
+        return RENDERER_RUNTIME_KEYS[renderer]
+    except KeyError as error:
+        raise ValueError(
+            f"no runtime contract for renderer {renderer!r}; supported "
+            f"renderers are {sorted(RENDERER_RUNTIME_KEYS)}"
+        ) from error
+
+
+def _dimension_value(package: Mapping[str, Any], dimension: str) -> Any:
+    """Map a capability dimension onto the package field that backs it."""
+    if dimension == "navigation":
+        return package.get("walkable_space")
+    if dimension == "acoustics":
+        return package.get("acoustic_package")
+    return package.get(dimension)
+
+
+def _dimension_declared(value: Any) -> bool:
+    if value is None or value == "":
+        return False
+    if isinstance(value, (Mapping, list)):
+        return True
+    return True
+
+
+def room_capability_report(
+    package: Mapping[str, Any],
+    *,
+    relative_roots: Sequence[str | Path] | None = None,
+    runtime: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Describe, dimension by dimension, what this registered room supplies.
+
+    Call this on an expanded package (``resolve_room_package_paths``). A
+    dimension is ``pass`` when it is declared and every filesystem path under
+    it exists, ``blocked`` when it is declared but a path is absent, and
+    ``not_run`` when the room never declared it. Nothing here judges episode
+    feasibility or claims native execution.
+    """
+    renderer = renderer_for_room(package)
+    dimensions: dict[str, dict[str, Any]] = {}
+    for dimension in CAPABILITY_DIMENSIONS:
+        value = _dimension_value(package, dimension)
+        if dimension == "subrooms" and isinstance(value, list):
+            dimensions[dimension] = {
+                "status": "pass", "subroom_count": len(value),
+                "reason": None if value else "map declares no subdivisions",
+            }
+            continue
+        if not _dimension_declared(value):
+            dimensions[dimension] = {
+                "status": "not_run",
+                "reason": f"the room package declares no {dimension}",
+            }
+            continue
+        entry: dict[str, Any] = {"status": "pass", "reason": None}
+        if dimension == "visual_scene" and isinstance(value, Mapping):
+            expected = _VISUAL_SCENE_KEYS[renderer]
+            absent = [key for key in expected if not value.get(key)]
+            entry["declared_keys"] = tuple(expected)
+            if absent:
+                entry.update(
+                    status="blocked",
+                    reason=f"visual_scene is missing {', '.join(absent)} for renderer {renderer}",
+                )
+        if dimension == "navigation" and isinstance(value, Mapping):
+            entry["kind"] = value.get("kind")
+        missing = missing_filesystem_paths(
+            {dimension: value}, relative_roots=relative_roots
+        )
+        if missing and entry["status"] == "pass":
+            entry.update(
+                status="blocked",
+                reason="declared resources are absent: " + "; ".join(
+                    f"{field}={path}" for field, path in missing
+                ),
+            )
+        entry["missing_paths"] = tuple(path for _field, path in missing)
+        dimensions[dimension] = entry
+    runtime_report = resolve_room_runtime(package, runtime)
+    statuses = [entry["status"] for entry in dimensions.values()]
+    if "blocked" in statuses or runtime_report["status"] == "blocked":
+        status = "blocked"
+    elif "not_run" in statuses:
+        status = "not_run"
+    else:
+        status = "pass"
+    return {
+        "schema": "avengine_qa_room_capability_v1",
+        "room_id": package.get("room_id"),
+        "family": package.get("family"),
+        "renderer": renderer,
+        "status": status,
+        "dimensions": dimensions,
+        "runtime": runtime_report,
+        "claim_boundary": (
+            "Declared resources resolve and the renderer route is legal. This "
+            "is not episode feasibility, native execution or dataset admission."
+        ),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Host runtime: resolved separately from room identity
+# ---------------------------------------------------------------------------
+#
+# A room's scene and asset identity is registered data and travels in the
+# package. The host's Python prefix, Magnum site, RLR SDK and Unreal
+# executable are properties of the machine a run happens on, and they differ
+# per room family: MP3D and HM3D pin different Habitat prefixes. Keeping the
+# two axes apart is why a distributable example carries no server path while
+# a run still resolves real ones.
+#
+# Precedence, highest first:
+#   1. the request / CLI                    ("request")
+#   2. a run-local host runtime config      ("host_config:<path>")
+#   3. the established AVENGINE_* variables ("environment:<VAR>"), opt-in only
+# Anything still absent is a named blocker, never a guessed default.
+
+HOST_RUNTIME_CONFIG_SCHEMA = "avengine_qa_host_runtime_v1"
+
+# Only variables that some loader in this repository already reads. UE keys
+# are deliberately absent: nothing here resolves a uproject or an editor
+# binary from the environment, so inventing a name would be a new contract.
+HOST_RUNTIME_ENVIRONMENT = {
+    "runtime_prefix": "AVENGINE_HABITAT_RUNTIME_PREFIX",
+    "magnum_python_site": "AVENGINE_HABITAT_MAGNUM_PYTHON_SITE",
+    "mp3d_root": "AVENGINE_MP3D_ROOT",
+    "rlr_sdk_root": "AVENGINE_RLR_SDK_ROOT",
+}
+
+# Habitat binds its native extension modules once per interpreter, so two
+# rooms that pin different prefixes cannot share a process, and a parent that
+# has already imported Habitat cannot reach the other prefix by plain fork.
+RUNTIME_ISOLATION_KEYS = {
+    "habitat": ("runtime_prefix", "magnum_python_site", "rlr_sdk_root"),
+    "ue_spear": ("uproject", "unreal_editor", "spear_ext_dir"),
+}
+RENDERERS_REQUIRING_FRESH_INTERPRETER = frozenset({"habitat"})
+
+
+def load_host_runtime_config(path: str | Path) -> dict[str, Any]:
+    """Read a run-local host runtime config.
+
+    This file is where a run's real server paths belong. It is not a
+    distributable example and not a new global configuration framework: it is
+    one JSON the caller names, with three optional scopes read in order of
+    increasing specificity - flat keys, ``renderers[<renderer>]`` and
+    ``rooms[<room_id>]``.
+    """
+    source = Path(path).expanduser()
+    raw = json.loads(source.read_text(encoding="utf-8"))
+    if not isinstance(raw, Mapping):
+        raise ValueError(f"host runtime config must be a mapping: {source}")
+    schema = raw.get("schema")
+    if schema is not None and schema != HOST_RUNTIME_CONFIG_SCHEMA:
+        raise ValueError(
+            f"host runtime config schema must be {HOST_RUNTIME_CONFIG_SCHEMA}, "
+            f"got {schema!r}: {source}"
+        )
+    for scope in ("renderers", "rooms"):
+        value = raw.get(scope)
+        if value is not None and not isinstance(value, Mapping):
+            raise ValueError(f"host runtime config {scope} must be a mapping: {source}")
+    result = dict(raw)
+    result["_source"] = str(source.resolve())
+    return result
+
+
+def _host_config_layers(
+    host_config: Mapping[str, Any] | None, renderer: str, room_id: str | None
+) -> list[tuple[str, Mapping[str, Any]]]:
+    """Least specific first, so a per-room value overrides a per-renderer one."""
+    if not host_config:
+        return []
+    source = host_config.get("_source", "host_config")
+    reserved = {"schema", "renderers", "rooms", "_source"}
+    layers: list[tuple[str, Mapping[str, Any]]] = [(
+        f"host_config:{source}",
+        {key: value for key, value in host_config.items() if key not in reserved},
+    )]
+    renderers = host_config.get("renderers") or {}
+    if isinstance(renderers.get(renderer), Mapping):
+        layers.append((f"host_config:{source}#renderers.{renderer}",
+                       renderers[renderer]))
+    rooms = host_config.get("rooms") or {}
+    if room_id and isinstance(rooms.get(room_id), Mapping):
+        layers.append((f"host_config:{source}#rooms.{room_id}", rooms[room_id]))
+    return layers
+
+
+def host_runtime_layers(
+    host_config: Mapping[str, Any] | None,
+    renderer: str,
+    room_id: str | None = None,
+) -> tuple[tuple[str, Mapping[str, Any]], ...]:
+    """The host config scopes that apply, least specific first.
+
+    Exposed so a caller building an executor command line merges the scopes
+    the same way resolution did, instead of keeping a second copy of the rule.
+    """
+    return tuple(_host_config_layers(host_config, renderer, room_id))
+
+
+def host_runtime_path_bindings(
+    host_config: Mapping[str, Any] | None,
+    renderer: str,
+    room_id: str | None = None,
+) -> dict[str, str]:
+    """The external roots a host config declares, least specific scope first.
+
+    Roots are the third thing a machine supplies, alongside the executor
+    parameters: an external dataset lives at a different absolute path on
+    every host. Declaring them here is what lets a shipped catalog stop
+    carrying one host's paths while the same run still resolves.
+    """
+    bindings: dict[str, str] = {}
+    for _source, mapping in _host_config_layers(host_config, renderer, room_id):
+        declared = mapping.get("path_bindings")
+        if not declared:
+            continue
+        if not isinstance(declared, Mapping):
+            raise ValueError("host runtime path_bindings must be a mapping")
+        bindings.update({str(key): str(value) for key, value in declared.items()})
+    return bindings
+
+
+def resolve_room_runtime(
+    package: Mapping[str, Any],
+    runtime: Mapping[str, Any] | None = None,
+    *,
+    host_config: Mapping[str, Any] | None = None,
+    room_id: str | None = None,
+    environment: Mapping[str, str] | None = None,
+    allow_environment: bool = False,
+) -> dict[str, Any]:
+    """Bind the declared renderer's host runtime parameters for this room.
+
+    Reports ``provenance`` per key so a run can say where every effective
+    value came from. ``missing`` is a returned reason rather than an
+    exception, because a plan-only or capability query is legitimate with no
+    host runtime at all.
+    """
+    renderer = renderer_for_room(package)
+    contract = renderer_runtime_keys(renderer)
+    declared = package.get("runtime") or {}
+    if not isinstance(declared, Mapping):
+        raise ValueError("room package runtime must be a mapping")
+    selected_room = str(room_id or package.get("room_id") or "") or None
+
+    layers: list[tuple[str, Mapping[str, Any]]] = []
+    if allow_environment:
+        env = dict(os.environ if environment is None else environment)
+        for key, variable in HOST_RUNTIME_ENVIRONMENT.items():
+            if env.get(variable):
+                layers.append((f"environment:{variable}", {key: env[variable]}))
+    layers.append(("room_package", declared))
+    layers.extend(_host_config_layers(host_config, renderer, selected_room))
+    layers.append(("request", runtime or {}))
+
+    known = set(contract["required"]) | set(contract["optional"])
+    effective: dict[str, Any] = {}
+    provenance: dict[str, str] = {}
+    aliased: dict[str, str] = {}
+    for source, mapping in layers:
+        if not isinstance(mapping, Mapping):
+            raise ValueError(f"runtime layer {source} must be a mapping")
+        for key, value in mapping.items():
+            canonical = RUNTIME_KEY_ALIASES.get(str(key), str(key))
+            if canonical != str(key):
+                aliased[str(key)] = canonical
+            if canonical == "path_bindings" or value in (None, ""):
+                continue
+            if canonical not in known:
+                continue
+            effective[canonical] = value
+            provenance[canonical] = source
+
+    missing = tuple(key for key in contract["required"] if key not in effective)
+    supplied_bindings = dict((runtime or {}).get("path_bindings") or {})
+    return {
+        "renderer": renderer,
+        "effective": effective,
+        "provenance": provenance,
+        "required": tuple(contract["required"]),
+        "optional": tuple(contract["optional"]),
+        "missing": missing,
+        "aliased_keys": aliased,
+        "environment_allowed": bool(allow_environment),
+        "isolation_keys": RUNTIME_ISOLATION_KEYS[renderer],
+        "requires_fresh_interpreter": renderer in RENDERERS_REQUIRING_FRESH_INTERPRETER,
+        "path_bindings": configured_path_bindings(
+            {"path_bindings": supplied_bindings,
+             **({"mp3d_root": effective["mp3d_root"]} if effective.get("mp3d_root") else {})}
+        ),
+        "status": "pass" if not missing else "blocked",
+        "reason": None if not missing else (
+            f"{renderer} execution requires runtime parameters not supplied by "
+            f"the request, the host runtime config or the room package: "
+            f"{', '.join(missing)}"
+        ),
+    }
+
+
+def runtime_isolation_key(runtime_report: Mapping[str, Any]) -> tuple:
+    """The identity two rooms must share to run in one interpreter.
+
+    Habitat resolves its native modules against one prefix per process, so
+    rooms whose keys differ have to be split across processes. A parent that
+    already imported Habitat cannot switch by plain fork; it needs a fresh
+    interpreter (``multiprocessing`` spawn or a subprocess).
+    """
+    effective = runtime_report["effective"]
+    return (runtime_report["renderer"],) + tuple(
+        str(effective.get(key, "")) for key in runtime_report["isolation_keys"]
+    )

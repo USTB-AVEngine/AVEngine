@@ -261,6 +261,11 @@ def _frame_truth(
         )
     visible_pixels = int(np.count_nonzero(modal_target))
     target_pixels = int(np.count_nonzero(target_footprint))
+    if visible_pixels:
+        visible_rows, visible_columns = np.nonzero(modal_target)
+        visible_centroid_xy_px = [float(visible_columns.mean()), float(visible_rows.mean())]
+    else:
+        visible_centroid_xy_px = None
 
     if target_pixels == 0:
         state = "out_of_view"
@@ -293,6 +298,7 @@ def _frame_truth(
         "occlusion_fraction": occlusion_fraction,
         "target_bbox_xyxy_px": target_bbox_xyxy_px,
         "target_centroid_xy_px": target_centroid_xy_px,
+        "visible_centroid_xy_px": visible_centroid_xy_px,
         "state": state,
     }
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+import json
 from pathlib import Path
 
 import pytest
@@ -124,11 +125,32 @@ def test_default_room_and_source_runtime_registries_are_independent_and_valid():
 
     assert validate_source_asset_runtime_registry(sources) == []
     assert validate_room_runtime_profile_registry(rooms) == []
+    catalog_path = ROOT / "examples/rooms/packages/catalog.json"
     assert validate_room_runtime_links(
-        rooms, load_json(ROOT / "examples/registry/rooms/room_registry.json")
+        rooms,
+        load_json(ROOT / "examples/registry/rooms/room_registry.json"),
+        room_package_catalog=load_json(catalog_path),
+        room_package_catalog_path=catalog_path,
     ) == []
     assert "sounds" not in sources
     assert "assets" not in rooms
+
+
+def test_room_runtime_links_refuse_a_registry_the_caller_did_not_supply():
+    """Half the registries is not enough to pass the shipped registry.
+
+    The profile registry references both the M6 room registry and the
+    RoomPackage catalog. Validating it against only the first must report the
+    catalog references rather than skipping them, or a wrong registry_id
+    would read as valid.
+    """
+    rooms = load_default_room_runtime_profile_registry()
+    m6 = load_json(ROOT / "examples/registry/rooms/room_registry.json")
+    errors = validate_room_runtime_links(rooms, m6)
+    assert errors, "catalog-backed references were silently accepted"
+    assert all("is not a room registry this check was given" in item
+               for item in errors), errors
+    assert any("avengine_qa_room_packages_v1" in item for item in errors), errors
 
 
 def test_source_alias_resolves_timeline_emitter_and_ue_from_one_asset_record():
@@ -828,3 +850,119 @@ def test_unknown_body_build_remains_research_only():
     assert validate_source_asset_runtime_registry(registry) == []
     asset['admission_state'] = 'qualified'
     assert any('body_build' in e for e in validate_source_asset_runtime_registry(registry))
+
+
+def _profile_registry_and_registries():
+    from copy import deepcopy
+
+    catalog_path = ROOT / "examples/rooms/packages/catalog.json"
+    return (
+        deepcopy(load_default_room_runtime_profile_registry()),
+        load_json(ROOT / "examples/registry/rooms/room_registry.json"),
+        load_json(catalog_path),
+        catalog_path,
+    )
+
+
+def _catalog_backed_profile(registry):
+    return next(
+        profile for profile in registry["profiles"]
+        if profile["room_ref"]["registry_id"] == "avengine_qa_room_packages_v1"
+    )
+
+
+def test_a_catalog_reference_needs_the_catalog_path_to_be_checkable():
+    registry, m6, catalog, _path = _profile_registry_and_registries()
+    errors = validate_room_runtime_links(
+        registry, m6, room_package_catalog=catalog)
+    assert errors == [
+        "room_package_catalog requires room_package_catalog_path so its "
+        "relative room_package paths can be resolved"
+    ]
+
+
+def test_a_catalog_reference_must_name_the_exact_catalog_revision():
+    registry, m6, catalog, path = _profile_registry_and_registries()
+    _catalog_backed_profile(registry)["room_ref"]["revision"] = "20250101_stale"
+    errors = validate_room_runtime_links(
+        registry, m6, room_package_catalog=catalog,
+        room_package_catalog_path=path)
+    assert errors and "does not resolve an exact room revision" in errors[0]
+    assert "avengine_qa_room_packages_v1" in errors[0]
+
+
+def test_a_catalog_reference_must_name_a_registered_room():
+    registry, m6, catalog, path = _profile_registry_and_registries()
+    _catalog_backed_profile(registry)["room_ref"]["room_id"] = "not_registered_v1"
+    errors = validate_room_runtime_links(
+        registry, m6, room_package_catalog=catalog,
+        room_package_catalog_path=path)
+    assert errors and "does not resolve an exact room revision" in errors[0]
+
+
+def test_a_catalog_without_its_own_identity_cannot_back_a_reference():
+    registry, m6, catalog, path = _profile_registry_and_registries()
+    anonymous = {key: value for key, value in catalog.items()
+                 if key != "registry_id"}
+    errors = validate_room_runtime_links(
+        registry, m6, room_package_catalog=anonymous,
+        room_package_catalog_path=path)
+    assert errors == ["room package catalog declares no registry_id"]
+    wrong_schema = dict(catalog, schema="something_else_v1")
+    errors = validate_room_runtime_links(
+        registry, m6, room_package_catalog=wrong_schema,
+        room_package_catalog_path=path)
+    assert errors and "catalog schema must be" in errors[0]
+
+
+def test_a_catalog_reference_needs_a_package_that_loads_and_names_the_room(
+        tmp_path):
+    registry, m6, catalog, path = _profile_registry_and_registries()
+    room_id = _catalog_backed_profile(registry)["room_ref"]["room_id"]
+
+    absent = dict(catalog, rooms=[
+        dict(row, room_package="absent_package.json")
+        if row["room_id"] == room_id else row
+        for row in catalog["rooms"]
+    ])
+    probe = tmp_path / "catalog.json"
+    probe.write_text(json.dumps(absent), encoding="utf-8")
+    errors = validate_room_runtime_links(
+        registry, m6, room_package_catalog=absent,
+        room_package_catalog_path=probe)
+    assert errors and "room package is absent" in errors[0]
+
+    other = dict(catalog, rooms=[
+        dict(row, room_package="mp3d_17DRP5sb8fy.json")
+        if row["room_id"] == room_id else row
+        for row in catalog["rooms"]
+    ])
+    errors = validate_room_runtime_links(
+        registry, m6, room_package_catalog=other,
+        room_package_catalog_path=path)
+    assert errors and "declares room_id" in errors[0]
+    assert room_id in errors[0]
+
+
+def test_m6_references_stay_exactly_as_strict():
+    registry, m6, catalog, path = _profile_registry_and_registries()
+    m6_backed = next(
+        profile for profile in registry["profiles"]
+        if profile["room_ref"]["registry_id"] == m6["registry_id"]
+    )
+    m6_backed["room_ref"]["revision"] = "not_a_real_m6_revision"
+    errors = validate_room_runtime_links(
+        registry, m6, room_package_catalog=catalog,
+        room_package_catalog_path=path)
+    assert errors and "does not resolve an exact room revision" in errors[0]
+    # The message stays the M6 one, without naming a catalog.
+    assert "room package catalog" not in errors[0]
+
+
+def test_the_shipped_registry_uses_both_registries_and_each_resolves():
+    registry, m6, catalog, path = _profile_registry_and_registries()
+    used = {profile["room_ref"]["registry_id"] for profile in registry["profiles"]}
+    assert used == {m6["registry_id"], catalog["registry_id"]}
+    assert validate_room_runtime_links(
+        registry, m6, room_package_catalog=catalog,
+        room_package_catalog_path=path) == []

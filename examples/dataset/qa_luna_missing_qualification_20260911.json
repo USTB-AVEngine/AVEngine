@@ -1,0 +1,1073 @@
+{
+  "base_request": {
+    "allow_research_candidate_assets": true,
+    "diffraction": false,
+    "max_diffraction_order": 0,
+    "post_assembly_convolution_gain": 0.5,
+    "prepared_manifest": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/p7_prepared_audio_v3/prepared_manifest.json",
+    "room_catalog": "examples/rooms/packages/catalog.json",
+    "runtime": {
+      "ddc_directory": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/binding_v1_parallel_20260910/TAKEOVER/M16_RUNTIME_CONFIG/attempt_20260910T235227Z_pid888238/ue_ddc",
+      "ddc_profile": "InstalledNoZenLocalFallback",
+      "hrtf": "/data/avengine_external/rlr-sdk/hrtf/mit_kemar_normal_pinna_16k_v2_sofar_20260820T2200Z/mit_kemar_normal_pinna_16k.sofa",
+      "magnum_python_site": "/data/avengine_external/runtime-prefixes/magnum-python-cp312-45811bb-20260820T1845Z/lib/python3.12/site-packages",
+      "path_bindings": {
+        "AVENGINE_APARTMENT_INPUT_ROOT": "/data/avengine_external/m6x-canary-inputs/fixed_apartment_inputs_v1_20260821T131842Z",
+        "AVENGINE_HM3D_ACOUSTIC_ROOT": "/data/avengine_external/review/hm3d_e2e_wt_20260905_v1/package",
+        "AVENGINE_HM3D_REVIEW_ROOT": "/data/avengine_external/review/hm3d_e2e_wt_20260905_v1",
+        "AVENGINE_HM3D_ROOT": "/data/datasets/habitat_data",
+        "AVENGINE_HM3D_ROUTE_ROOT": "/data/avengine_external/review/hm3d_e2e_wt_20260905_v1/routes_R3",
+        "AVENGINE_KUJIALE_ACOUSTIC_ROOT": "/data/avengine_external/review/kujiale_acoustics/pkg_kujiale_0020_rlr",
+        "AVENGINE_MP3D_ACOUSTIC_ROOT": "/data/avengine_external/review/m3_current_mp3d_semantic_20260820T1630Z",
+        "AVENGINE_MP3D_ROOT": "/data/avengine_external/datasets/mp3d_example_scene_1.1",
+        "AVENGINE_MULTI_HOME_AUTHORING_ROOT": "/data/avengine_external/workspaces/multi_home_activity_20260905",
+        "AVENGINE_MULTI_HOME_ROOT": "/data/datasets/avengine_workspaces/multi_home_activity_20260905",
+        "AVENGINE_MULTI_HOME_UE_ROOT": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_full_asset_ue_stage_20260907_v1",
+        "AVENGINE_NATIVE_APARTMENT_ROUTE_ROOT": "/data/avengine_external/review/apartment_route_bank_20260825T0700Z",
+        "AVENGINE_P3_ROOM_PACKAGE_ROOT": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root",
+        "AVENGINE_QA_V3_ROOT": "/data/jzy/tmp",
+        "AVENGINE_SPEAR_STAGE_ROOT": "/data/avengine_external/workspaces/multi_home_activity_20260905/ue_stage"
+      },
+      "rlr_sdk_root": "/data/avengine_external/rlr-sdk/RLRAudioPropagationPkg",
+      "spear_ext_dir": "/data/avengine_external/spear-host-sdk/avengine-spear-ext-cp312-8a36d4d-20260821T0030Z",
+      "streaming_warmup_frames": 180,
+      "unreal_editor": "/data/UE_5.5/Engine/Binaries/Linux/UnrealEditor",
+      "uproject": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_full_asset_ue_stage_20260907_v1/SpearSim/SpearSim.uproject"
+    },
+    "sample_rate_hz": 16000,
+    "sound_pool": "tmp/binding_v1_parallel_20260910/TAKEOVER/T06_PLACE/attempt_20260910T192045Z_pid739226/T06_SOUND_POOL.json",
+    "sound_selection": {
+      "clip_span_fit_policy": "filter_to_remaining_budget_then_uniform",
+      "max_clip_s": 7.0,
+      "min_audible_s": 1.5,
+      "sound_class_config": {
+        "human_nonverbal_sound_classes": [],
+        "object_sound_classes": {
+          "air_conditioner": [
+            "air_conditioning"
+          ],
+          "alarm_clock": [
+            "alarm_clock",
+            "alarm_beep",
+            "alarm_bell",
+            "clock_tick"
+          ],
+          "bathtub": [
+            "bathtub_filling_washing"
+          ],
+          "blender": [
+            "blender"
+          ],
+          "bookshelf_speaker": [
+            "speech_playback",
+            "music_playback",
+            "any_audioset_class_playback"
+          ],
+          "cellphone": [
+            "cellphone_vibration_alert",
+            "ringtone",
+            "phone_ring"
+          ],
+          "desk_telephone": [
+            "telephone_bell_ringing",
+            "telephone_dialing_dtmf",
+            "busy_signal",
+            "phone_ring",
+            "telephone"
+          ],
+          "doorbell_chime_unit": [
+            "doorbell",
+            "doorbell_chime",
+            "ding_dong",
+            "chime"
+          ],
+          "fireplace": [
+            "fire",
+            "crackle"
+          ],
+          "floor_drain": [
+            "drip",
+            "gurgling"
+          ],
+          "floorstanding_speaker": [
+            "speech_playback",
+            "music_playback",
+            "any_audioset_class_playback"
+          ],
+          "landline_phone": [
+            "telephone_bell_ringing",
+            "telephone_dialing_dtmf",
+            "busy_signal",
+            "phone_ring",
+            "telephone"
+          ],
+          "microwave_oven": [
+            "microwave_beep",
+            "microwave_hum"
+          ],
+          "printer": [
+            "printer"
+          ],
+          "sink_with_tap": [
+            "sink_filling_washing",
+            "water_tap_faucet"
+          ],
+          "smart_speaker": [
+            "speech_playback",
+            "music_playback",
+            "any_audioset_class_playback"
+          ],
+          "smoke_detector": [
+            "smoke_alarm",
+            "fire_alarm"
+          ],
+          "soundbar": [
+            "speech_playback",
+            "music_playback",
+            "any_audioset_class_playback"
+          ],
+          "television": [
+            "speech_playback",
+            "music_playback",
+            "any_audioset_class_playback"
+          ],
+          "toilet": [
+            "toilet_flush"
+          ]
+        },
+        "species_sound_classes": {
+          "cat": [
+            "cat_meow"
+          ],
+          "dog": [
+            "dog_bark"
+          ]
+        },
+        "speech_playback_categories": [
+          "audio_playback"
+        ]
+      },
+      "unique_first_utterance_transcripts": true
+    },
+    "source_registry": "examples/runtime/source_asset_runtime_profiles.json"
+  },
+  "batch_id": "qa_luna_missing_qualification_20260911",
+  "claim_boundary": "L32 bounded qualification batch: three ordinary Episodes carry explicit qa_targets for QA-06/07/09/15/17 across multiple branches. Plan, native visual, audio and RLR results are counted from fresh receipts; no plan-only row is accepted as a QA item, and this subset is not a full V1 coverage/admission claim. P19 coverage is explicitly disabled for this child batch; full P19 remains with the main controller.",
+  "l32_qualification": {
+    "allocator_backend": "habitat_native_capture",
+    "attempt_root": "tmp/binding_v1_parallel_20260910/TAKEOVER/L32_QA_NATIVE/attempt_20260911T125058Z_pid2065191",
+    "audio_attempt_cap": 3,
+    "claim_boundary": "qualification evidence only; no formal V1 admission",
+    "native_failure_is_charged": true,
+    "normal_program": "tools/dataset/run_qa_batch.py",
+    "owner": "L32",
+    "p19_coverage": {
+      "append": false,
+      "claim_boundary": "No P19 coverage or append/run_appended claim is made by this child batch.",
+      "enabled": false,
+      "inherit_main_config": false,
+      "outstanding_qa_ids": [
+        "QA-06",
+        "QA-07",
+        "QA-09",
+        "QA-15",
+        "QA-17"
+      ],
+      "scope": "L32 child qualification only; main-controller P19 remains separate"
+    },
+    "rlr_context_cap": 12,
+    "selected_episode_ids": [
+      "c01_w1_still_competitor_speaker_moving_hm3d_val_00800_TEEsavR23oF",
+      "c01_w2_still_competitor_speaker_moving_habitat_mp3d_example_17DRP5sb8fy",
+      "c01_w5_still_competitor_post_sound_move_kujiale_0020_full_home_v1"
+    ],
+    "selected_source_episode_indices": [
+      0,
+      1,
+      4
+    ],
+    "source_support_gate": "contact/support evidence must be present before native launch",
+    "visual_attempt_cap": 3
+  },
+  "p19_coverage": {
+    "append": false,
+    "claim_boundary": "No P19 coverage or append/run_appended claim is made by this child batch.",
+    "enabled": false,
+    "inherit_main_config": false,
+    "outstanding_qa_ids": [
+      "QA-06",
+      "QA-07",
+      "QA-09",
+      "QA-15",
+      "QA-17"
+    ],
+    "scope": "L32 child qualification only; main-controller P19 remains separate"
+  },
+  "production": {
+    "batch_id": "qa_luna_missing_qualification_20260911",
+    "claim_boundary": "L32 bounded qualification batch: three ordinary Episodes carry explicit qa_targets for QA-06/07/09/15/17 across multiple branches. Plan, native visual, audio and RLR results are counted from fresh receipts; no plan-only row is accepted as a QA item, and this subset is not a full V1 coverage/admission claim. P19 coverage is explicitly disabled for this child batch; full P19 remains with the main controller.",
+    "core_groups": [],
+    "coverage_quota": {
+      "branches_by_qa_id": {
+        "QA-06": [
+          "moving",
+          "still"
+        ],
+        "QA-07": [
+          "left",
+          "right"
+        ],
+        "QA-09": [
+          "yes",
+          "no"
+        ],
+        "QA-15": [
+          "nearer",
+          "farther"
+        ],
+        "QA-17": [
+          "yes",
+          "no"
+        ]
+      },
+      "claim_boundary": "Targets only. Meeting them yields a readable, scoreable V1 question bank; it is not human answerability, model evaluation or paper admission, and none of those may be inferred from these numbers.",
+      "core_task_families": [
+        "visible_binding",
+        "visual_conditioned_relation",
+        "cross_event_identity",
+        "cross_time_state"
+      ],
+      "entity_combinations": [
+        "animal+animal",
+        "animal+device",
+        "device+device",
+        "human+animal",
+        "human+device",
+        "human+human"
+      ],
+      "first_version_cap_source": "T24 five real prepared plan worlds, two independent worlds per requested QA ID and all requested branches represented",
+      "min_core_groups_per_task_family_and_room_family": 1,
+      "min_distinct_worlds_per_branch": 2,
+      "min_distinct_worlds_per_entity_combination": 2,
+      "min_distinct_worlds_per_qa_id": 2,
+      "min_valid_main_questions_per_branch": 2,
+      "min_valid_main_questions_per_qa_id": 2,
+      "notes": [
+        "One generated item offering both mcq and open is one valid main question; the form counts break the same items down.",
+        "Angle follow-ups are counted on their own line, never as main questions.",
+        "A world contributes once however many members it serves, and an already imported retained delivery is counted once."
+      ],
+      "qa_ids": [
+        "QA-06",
+        "QA-07",
+        "QA-09",
+        "QA-15",
+        "QA-17"
+      ],
+      "room_families": [
+        "apartment",
+        "kujiale",
+        "hm3d",
+        "mp3d"
+      ],
+      "schema": "avengine_qa_v1_coverage_targets_v1",
+      "target_core_group_count": 0
+    },
+    "defaults": {
+      "audio_layouts": [
+        {
+          "indirect_sh_order": 1,
+          "role": "primary",
+          "type": "binaural"
+        },
+        {
+          "ambisonic_order": 1,
+          "indirect_sh_order": 1,
+          "role": "attached_view",
+          "type": "ambisonics"
+        }
+      ],
+      "clock": {
+        "frame_count": 150,
+        "frame_rate_hz": 15,
+        "sample_rate_hz": 16000
+      },
+      "items_per_type": 1,
+      "post_assembly_convolution_gain": 0.5,
+      "profile": {
+        "competitor_set": "all_other_entities_including_offscreen",
+        "min_gap_between_audible_windows_s": 0.5,
+        "minimum_overlap_s": 0.3,
+        "reserve_tail_s": 3.0,
+        "retry_budget_within_profile": 120,
+        "separation_floor_deg": 15,
+        "separation_window": "whole_audible_window_of_anchor"
+      },
+      "qa_ids": [
+        "QA-06",
+        "QA-07",
+        "QA-09",
+        "QA-15",
+        "QA-17"
+      ],
+      "reserve_tail_s": 3.0,
+      "resources": {
+        "assembly": {
+          "kind": "cpu"
+        },
+        "audio": {
+          "kind": "cpu_native_acoustic",
+          "rlr_threads": 1
+        },
+        "capture": {
+          "kind": "gpu_native_visual",
+          "min_free_vram_mb": 12000
+        },
+        "delivery": {
+          "kind": "cpu"
+        },
+        "late_plan": {
+          "kind": "cpu_native_geometry"
+        },
+        "plan": {
+          "kind": "cpu"
+        }
+      },
+      "retry": {
+        "attempts_per_stage": 2,
+        "attempts_within_profile": 120
+      },
+      "rig": {
+        "fov_deg": 85,
+        "height_above_floor_m": 1.55,
+        "motion": "static",
+        "resolution_hw": [
+          720,
+          1280
+        ]
+      },
+      "sound": {
+        "selection": {
+          "clip_span_fit_policy": "filter_to_remaining_budget_then_uniform",
+          "max_clip_s": 5.0,
+          "min_audible_s": 1.5,
+          "unique_first_utterance_transcripts": true
+        }
+      }
+    },
+    "episodes": [
+      {
+        "condition_group": "c01_missing_targets_w1_still_competitor_speaker_moving",
+        "instances": [
+          {
+            "asset_id": "rocketbox_human_male_adult_01_top_blue_research_v1",
+            "instance_id": "human_target",
+            "role": "anchor",
+            "source_class": "articulated_human",
+            "speaking": true
+          },
+          {
+            "asset_id": "rocketbox_dog_beagle_01_m2_v7_world_contact_candidate",
+            "instance_id": "dog_competitor",
+            "source_class": "articulated_animal",
+            "speaking": true
+          },
+          {
+            "asset_id": "generated_desk_telephone_corded_desk_unit_black_research_v1",
+            "instance_id": "device_competitor",
+            "source_class": "rigid_static_object",
+            "speaking": true
+          }
+        ],
+        "member_role": "plain_episode",
+        "profile": {
+          "anchor_count": 1,
+          "distance_range_m": [
+            1.0,
+            6.0
+          ],
+          "event_relation": "sequential",
+          "min_gap_between_audible_windows_s": 0.5,
+          "minimum_motion_s": 0.8,
+          "minimum_overlap_s": 0.3,
+          "reserve_tail_s": 3.0,
+          "retry_budget_within_profile": 200,
+          "separation_bin_deg": [
+            15.0,
+            180.0
+          ],
+          "separation_floor_deg": 15.0,
+          "separation_window": "whole_audible_window_of_anchor"
+        },
+        "qa_targets": [
+          {
+            "branch": "moving",
+            "event": {
+              "kind": "target_audible_window"
+            },
+            "forms": [
+              "mcq",
+              "open"
+            ],
+            "items": 1,
+            "qa_id": "QA-06",
+            "query_time_policy": "uniform_in_legal_window",
+            "target_instance_ids": [
+              "human_target"
+            ],
+            "target_source": "config"
+          },
+          {
+            "branch": "nearer",
+            "event": {
+              "kind": "target_audible_window"
+            },
+            "forms": [
+              "mcq",
+              "open"
+            ],
+            "items": 1,
+            "qa_id": "QA-15",
+            "query_time_policy": "uniform_in_legal_window",
+            "target_instance_ids": [
+              "human_target"
+            ],
+            "target_source": "config"
+          },
+          {
+            "branch": "left",
+            "event": {
+              "kind": "target_audible_window"
+            },
+            "forms": [
+              "mcq",
+              "open"
+            ],
+            "items": 1,
+            "qa_id": "QA-07",
+            "query_time_policy": "uniform_in_legal_window",
+            "target_instance_ids": [
+              "human_target"
+            ],
+            "target_source": "config"
+          },
+          {
+            "branch": "yes",
+            "event": {
+              "kind": "target_audible_window"
+            },
+            "forms": [
+              "mcq",
+              "open"
+            ],
+            "items": 1,
+            "qa_id": "QA-09",
+            "query_time_policy": "uniform_in_legal_window",
+            "target_instance_ids": [
+              "human_target"
+            ],
+            "target_source": "config"
+          }
+        ],
+        "request_extras": {
+          "motion": {
+            "speed_range_mps": [
+              0.5,
+              0.9
+            ]
+          },
+          "runtime": {
+            "ddc_directory": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/binding_v1_parallel_20260910/TAKEOVER/M16_RUNTIME_CONFIG/attempt_20260910T235227Z_pid888238/ue_ddc",
+            "ddc_profile": "InstalledNoZenLocalFallback",
+            "hrtf": "/data/avengine_external/rlr-sdk/hrtf/mit_kemar_normal_pinna_16k_v2_sofar_20260820T2200Z/mit_kemar_normal_pinna_16k.sofa",
+            "magnum_python_site": "/data/avengine_external/runtime-prefixes/magnum-python-cp312-45811bb-20260820T1845Z/lib/python3.12/site-packages",
+            "path_bindings": {
+              "AVENGINE_APARTMENT_INPUT_ROOT": "/data/avengine_external/m6x-canary-inputs/fixed_apartment_inputs_v1_20260821T131842Z",
+              "AVENGINE_HM3D_ACOUSTIC_ROOT": "/data/avengine_external/review/hm3d_e2e_wt_20260905_v1/package",
+              "AVENGINE_HM3D_REVIEW_ROOT": "/data/avengine_external/review/hm3d_e2e_wt_20260905_v1",
+              "AVENGINE_HM3D_ROOT": "/data/datasets/habitat_data",
+              "AVENGINE_HM3D_ROUTE_ROOT": "/data/avengine_external/review/hm3d_e2e_wt_20260905_v1/routes_R3",
+              "AVENGINE_KUJIALE_ACOUSTIC_ROOT": "/data/avengine_external/review/kujiale_acoustics/pkg_kujiale_0020_rlr",
+              "AVENGINE_MP3D_ACOUSTIC_ROOT": "/data/avengine_external/review/m3_current_mp3d_semantic_20260820T1630Z",
+              "AVENGINE_MP3D_ROOT": "/data/avengine_external/datasets/mp3d_example_scene_1.1",
+              "AVENGINE_MULTI_HOME_AUTHORING_ROOT": "/data/avengine_external/workspaces/multi_home_activity_20260905",
+              "AVENGINE_MULTI_HOME_ROOT": "/data/datasets/avengine_workspaces/multi_home_activity_20260905",
+              "AVENGINE_MULTI_HOME_UE_ROOT": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_full_asset_ue_stage_20260907_v1",
+              "AVENGINE_NATIVE_APARTMENT_ROUTE_ROOT": "/data/avengine_external/review/apartment_route_bank_20260825T0700Z",
+              "AVENGINE_P3_ROOM_PACKAGE_ROOT": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root",
+              "AVENGINE_QA_V3_ROOT": "/data/jzy/tmp",
+              "AVENGINE_SPEAR_STAGE_ROOT": "/data/avengine_external/workspaces/multi_home_activity_20260905/ue_stage"
+            },
+            "rlr_sdk_root": "/data/avengine_external/rlr-sdk/RLRAudioPropagationPkg",
+            "runtime_prefix": "/data/avengine_external/runtime-prefixes/avengine-habitat-object-id-732f264-20260824T1041Z",
+            "spear_ext_dir": "/data/avengine_external/spear-host-sdk/avengine-spear-ext-cp312-8a36d4d-20260821T0030Z",
+            "streaming_warmup_frames": 180,
+            "unreal_editor": "/data/UE_5.5/Engine/Binaries/Linux/UnrealEditor",
+            "uproject": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_full_asset_ue_stage_20260907_v1/SpearSim/SpearSim.uproject"
+          }
+        },
+        "request_id": "c01_w1_still_competitor_speaker_moving_hm3d_val_00800_TEEsavR23oF",
+        "room_id": "hm3d_val_00800_TEEsavR23oF",
+        "seed": 20260911
+      },
+      {
+        "condition_group": "c01_missing_targets_w2_still_competitor_speaker_moving",
+        "instances": [
+          {
+            "asset_id": "rocketbox_human_male_adult_01_top_blue_research_v1",
+            "instance_id": "human_target",
+            "role": "anchor",
+            "source_class": "articulated_human",
+            "speaking": true
+          },
+          {
+            "asset_id": "rocketbox_dog_beagle_01_m2_v7_world_contact_candidate",
+            "instance_id": "dog_competitor",
+            "source_class": "articulated_animal",
+            "speaking": true
+          },
+          {
+            "asset_id": "generated_desk_telephone_corded_desk_unit_black_research_v1",
+            "instance_id": "device_competitor",
+            "source_class": "rigid_static_object",
+            "speaking": true
+          }
+        ],
+        "member_role": "plain_episode",
+        "profile": {
+          "anchor_count": 1,
+          "distance_range_m": [
+            1.0,
+            6.0
+          ],
+          "event_relation": "sequential",
+          "min_gap_between_audible_windows_s": 0.5,
+          "minimum_motion_s": 0.8,
+          "minimum_overlap_s": 0.3,
+          "reserve_tail_s": 3.0,
+          "retry_budget_within_profile": 200,
+          "separation_bin_deg": [
+            15.0,
+            180.0
+          ],
+          "separation_floor_deg": 15.0,
+          "separation_window": "whole_audible_window_of_anchor"
+        },
+        "qa_targets": [
+          {
+            "branch": "moving",
+            "event": {
+              "kind": "target_audible_window"
+            },
+            "forms": [
+              "mcq",
+              "open"
+            ],
+            "items": 1,
+            "qa_id": "QA-06",
+            "query_time_policy": "uniform_in_legal_window",
+            "target_instance_ids": [
+              "human_target"
+            ],
+            "target_source": "config"
+          },
+          {
+            "branch": "farther",
+            "event": {
+              "kind": "target_audible_window"
+            },
+            "forms": [
+              "mcq",
+              "open"
+            ],
+            "items": 1,
+            "qa_id": "QA-15",
+            "query_time_policy": "uniform_in_legal_window",
+            "target_instance_ids": [
+              "human_target"
+            ],
+            "target_source": "config"
+          },
+          {
+            "branch": "right",
+            "event": {
+              "kind": "target_audible_window"
+            },
+            "forms": [
+              "mcq",
+              "open"
+            ],
+            "items": 1,
+            "qa_id": "QA-07",
+            "query_time_policy": "uniform_in_legal_window",
+            "target_instance_ids": [
+              "human_target"
+            ],
+            "target_source": "config"
+          },
+          {
+            "branch": "no",
+            "event": {
+              "kind": "target_audible_window"
+            },
+            "forms": [
+              "mcq",
+              "open"
+            ],
+            "items": 1,
+            "qa_id": "QA-09",
+            "query_time_policy": "uniform_in_legal_window",
+            "target_instance_ids": [
+              "human_target"
+            ],
+            "target_source": "config"
+          }
+        ],
+        "request_extras": {
+          "motion": {
+            "speed_range_mps": [
+              0.5,
+              0.9
+            ]
+          },
+          "runtime": {
+            "ddc_directory": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/binding_v1_parallel_20260910/TAKEOVER/M16_RUNTIME_CONFIG/attempt_20260910T235227Z_pid888238/ue_ddc",
+            "ddc_profile": "InstalledNoZenLocalFallback",
+            "hrtf": "/data/avengine_external/rlr-sdk/hrtf/mit_kemar_normal_pinna_16k_v2_sofar_20260820T2200Z/mit_kemar_normal_pinna_16k.sofa",
+            "magnum_python_site": "/data/avengine_external/runtime-prefixes/magnum-python-cp312-45811bb-20260820T1845Z/lib/python3.12/site-packages",
+            "mp3d_root": "/data/avengine_external/datasets/mp3d_example_scene_1.1",
+            "path_bindings": {
+              "AVENGINE_APARTMENT_INPUT_ROOT": "/data/avengine_external/m6x-canary-inputs/fixed_apartment_inputs_v1_20260821T131842Z",
+              "AVENGINE_HM3D_ACOUSTIC_ROOT": "/data/avengine_external/review/hm3d_e2e_wt_20260905_v1/package",
+              "AVENGINE_HM3D_REVIEW_ROOT": "/data/avengine_external/review/hm3d_e2e_wt_20260905_v1",
+              "AVENGINE_HM3D_ROOT": "/data/datasets/habitat_data",
+              "AVENGINE_HM3D_ROUTE_ROOT": "/data/avengine_external/review/hm3d_e2e_wt_20260905_v1/routes_R3",
+              "AVENGINE_KUJIALE_ACOUSTIC_ROOT": "/data/avengine_external/review/kujiale_acoustics/pkg_kujiale_0020_rlr",
+              "AVENGINE_MP3D_ACOUSTIC_ROOT": "/data/avengine_external/review/m3_current_mp3d_semantic_20260820T1630Z",
+              "AVENGINE_MP3D_ROOT": "/data/avengine_external/datasets/mp3d_example_scene_1.1",
+              "AVENGINE_MULTI_HOME_AUTHORING_ROOT": "/data/avengine_external/workspaces/multi_home_activity_20260905",
+              "AVENGINE_MULTI_HOME_ROOT": "/data/datasets/avengine_workspaces/multi_home_activity_20260905",
+              "AVENGINE_MULTI_HOME_UE_ROOT": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_full_asset_ue_stage_20260907_v1",
+              "AVENGINE_NATIVE_APARTMENT_ROUTE_ROOT": "/data/avengine_external/review/apartment_route_bank_20260825T0700Z",
+              "AVENGINE_P3_ROOM_PACKAGE_ROOT": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root",
+              "AVENGINE_QA_V3_ROOT": "/data/jzy/tmp",
+              "AVENGINE_SPEAR_STAGE_ROOT": "/data/avengine_external/workspaces/multi_home_activity_20260905/ue_stage"
+            },
+            "rlr_sdk_root": "/data/avengine_external/rlr-sdk/RLRAudioPropagationPkg-runtime-b-20260820T2010Z",
+            "runtime_prefix": "/data/avengine_external/runtime-prefixes/avengine-habitat-pbr-ibl-c78db29-20260821T0111Z",
+            "spear_ext_dir": "/data/avengine_external/spear-host-sdk/avengine-spear-ext-cp312-8a36d4d-20260821T0030Z",
+            "streaming_warmup_frames": 180,
+            "unreal_editor": "/data/UE_5.5/Engine/Binaries/Linux/UnrealEditor",
+            "uproject": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_full_asset_ue_stage_20260907_v1/SpearSim/SpearSim.uproject"
+          }
+        },
+        "request_id": "c01_w2_still_competitor_speaker_moving_habitat_mp3d_example_17DRP5sb8fy",
+        "room_id": "habitat_mp3d_example_17DRP5sb8fy",
+        "seed": 20261012
+      },
+      {
+        "condition_group": "c01_missing_targets_w5_still_competitor_post_sound_move",
+        "instances": [
+          {
+            "asset_id": "rocketbox_human_male_adult_01_top_blue_research_v1",
+            "instance_id": "human_target",
+            "role": "anchor",
+            "source_class": "articulated_human",
+            "speaking": true
+          },
+          {
+            "asset_id": "rocketbox_dog_beagle_01_m2_v7_world_contact_candidate",
+            "instance_id": "dog_competitor",
+            "source_class": "articulated_animal",
+            "speaking": true
+          },
+          {
+            "asset_id": "generated_desk_telephone_corded_desk_unit_black_research_v1",
+            "instance_id": "device_competitor",
+            "source_class": "rigid_static_object",
+            "speaking": true
+          }
+        ],
+        "member_role": "plain_episode",
+        "profile": {
+          "anchor_count": 1,
+          "distance_range_m": [
+            1.0,
+            6.0
+          ],
+          "event_relation": "sequential",
+          "min_gap_between_audible_windows_s": 0.5,
+          "minimum_motion_s": 0.8,
+          "minimum_overlap_s": 0.3,
+          "reserve_tail_s": 3.0,
+          "retry_budget_within_profile": 200,
+          "separation_bin_deg": [
+            15.0,
+            180.0
+          ],
+          "separation_floor_deg": 15.0,
+          "separation_window": "whole_audible_window_of_anchor"
+        },
+        "qa_targets": [
+          {
+            "branch": "yes",
+            "event": {
+              "kind": "target_audible_window"
+            },
+            "forms": [
+              "mcq",
+              "open"
+            ],
+            "items": 1,
+            "qa_id": "QA-17",
+            "query_time_policy": "uniform_in_legal_window",
+            "target_instance_ids": [
+              "human_target"
+            ],
+            "target_source": "config"
+          },
+          {
+            "branch": "nearer",
+            "event": {
+              "kind": "target_audible_window"
+            },
+            "forms": [
+              "mcq",
+              "open"
+            ],
+            "items": 1,
+            "qa_id": "QA-15",
+            "query_time_policy": "uniform_in_legal_window",
+            "target_instance_ids": [
+              "human_target"
+            ],
+            "target_source": "config"
+          },
+          {
+            "branch": "left",
+            "event": {
+              "kind": "target_audible_window"
+            },
+            "forms": [
+              "mcq",
+              "open"
+            ],
+            "items": 1,
+            "qa_id": "QA-07",
+            "query_time_policy": "uniform_in_legal_window",
+            "target_instance_ids": [
+              "human_target"
+            ],
+            "target_source": "config"
+          },
+          {
+            "branch": "yes",
+            "event": {
+              "kind": "target_audible_window"
+            },
+            "forms": [
+              "mcq",
+              "open"
+            ],
+            "items": 1,
+            "qa_id": "QA-09",
+            "query_time_policy": "uniform_in_legal_window",
+            "target_instance_ids": [
+              "human_target"
+            ],
+            "target_source": "config"
+          }
+        ],
+        "request_extras": {
+          "motion": {
+            "speed_range_mps": [
+              0.5,
+              0.9
+            ]
+          },
+          "runtime": {
+            "ddc_directory": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/binding_v1_parallel_20260910/TAKEOVER/M16_RUNTIME_CONFIG/attempt_20260910T235227Z_pid888238/ue_ddc",
+            "ddc_profile": "InstalledNoZenLocalFallback",
+            "hrtf": "/data/avengine_external/rlr-sdk/hrtf/mit_kemar_normal_pinna_16k_v2_sofar_20260820T2200Z/mit_kemar_normal_pinna_16k.sofa",
+            "magnum_python_site": "/data/avengine_external/runtime-prefixes/magnum-python-cp312-45811bb-20260820T1845Z/lib/python3.12/site-packages",
+            "path_bindings": {
+              "AVENGINE_APARTMENT_INPUT_ROOT": "/data/avengine_external/m6x-canary-inputs/fixed_apartment_inputs_v1_20260821T131842Z",
+              "AVENGINE_HM3D_ACOUSTIC_ROOT": "/data/avengine_external/review/hm3d_e2e_wt_20260905_v1/package",
+              "AVENGINE_HM3D_REVIEW_ROOT": "/data/avengine_external/review/hm3d_e2e_wt_20260905_v1",
+              "AVENGINE_HM3D_ROOT": "/data/datasets/habitat_data",
+              "AVENGINE_HM3D_ROUTE_ROOT": "/data/avengine_external/review/hm3d_e2e_wt_20260905_v1/routes_R3",
+              "AVENGINE_KUJIALE_ACOUSTIC_ROOT": "/data/avengine_external/review/kujiale_acoustics/pkg_kujiale_0020_rlr",
+              "AVENGINE_MP3D_ACOUSTIC_ROOT": "/data/avengine_external/review/m3_current_mp3d_semantic_20260820T1630Z",
+              "AVENGINE_MP3D_ROOT": "/data/avengine_external/datasets/mp3d_example_scene_1.1",
+              "AVENGINE_MULTI_HOME_AUTHORING_ROOT": "/data/avengine_external/workspaces/multi_home_activity_20260905",
+              "AVENGINE_MULTI_HOME_ROOT": "/data/datasets/avengine_workspaces/multi_home_activity_20260905",
+              "AVENGINE_MULTI_HOME_UE_ROOT": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_full_asset_ue_stage_20260907_v1",
+              "AVENGINE_NATIVE_APARTMENT_ROUTE_ROOT": "/data/avengine_external/review/apartment_route_bank_20260825T0700Z",
+              "AVENGINE_P3_ROOM_PACKAGE_ROOT": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root",
+              "AVENGINE_QA_V3_ROOT": "/data/jzy/tmp",
+              "AVENGINE_SPEAR_STAGE_ROOT": "/data/avengine_external/workspaces/multi_home_activity_20260905/ue_stage"
+            },
+            "rlr_sdk_root": "/data/avengine_external/rlr-sdk/RLRAudioPropagationPkg",
+            "runtime_prefix": "/data/avengine_external/runtime-prefixes/avengine-habitat-object-id-732f264-20260824T1041Z",
+            "spear_ext_dir": "/data/avengine_external/spear-host-sdk/avengine-spear-ext-cp312-8a36d4d-20260821T0030Z",
+            "streaming_warmup_frames": 180,
+            "unreal_editor": "/data/UE_5.5/Engine/Binaries/Linux/UnrealEditor",
+            "uproject": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_full_asset_ue_stage_20260907_v1/SpearSim/SpearSim.uproject"
+          },
+          "sound_selection": {
+            "max_clip_s": 3.0,
+            "min_audible_s": 1.5
+          }
+        },
+        "request_id": "c01_w5_still_competitor_post_sound_move_kujiale_0020_full_home_v1",
+        "room_id": "kujiale_0020_full_home_v1",
+        "seed": 20261315
+      }
+    ],
+    "imported_coverage": {
+      "note": "Import through avengine.qa.batch_delivery.survey_retained_group_library and merge with fresh surveys; merge_achieved_surveys counts a member, a world and a question once.",
+      "retained_group_snapshot": "tmp/binding_dataset_20260909_v2/completed_groups_snapshot_0037.json",
+      "runtime_source_registry": "examples/runtime/source_asset_runtime_profiles.json"
+    },
+    "known_blocked_qa_cells": {},
+    "l32_selection": {
+      "branches_present": {
+        "QA-06": [
+          "moving"
+        ],
+        "QA-07": [
+          "left",
+          "right"
+        ],
+        "QA-09": [
+          "yes",
+          "no"
+        ],
+        "QA-15": [
+          "nearer",
+          "farther"
+        ],
+        "QA-17": [
+          "yes"
+        ]
+      },
+      "full_coverage_not_claimed": true,
+      "selected_indices": [
+        0,
+        1,
+        4
+      ]
+    },
+    "p19_coverage": {
+      "append": false,
+      "claim_boundary": "No P19 coverage or append/run_appended claim is made by this child batch.",
+      "enabled": false,
+      "inherit_main_config": false,
+      "outstanding_qa_ids": [
+        "QA-06",
+        "QA-07",
+        "QA-09",
+        "QA-15",
+        "QA-17"
+      ],
+      "scope": "L32 child qualification only; main-controller P19 remains separate"
+    },
+    "planner_capability_basis": {
+      "claim_boundary": "capability/plan precheck, not native or answerability evidence",
+      "qa_ids": [
+        "QA-06",
+        "QA-07",
+        "QA-09",
+        "QA-15",
+        "QA-17"
+      ],
+      "source": "conditioned_sampler describe_generator_capabilities + T03a/T03c handoffs"
+    },
+    "production_rounds": {
+      "candidate_world_count": 5,
+      "capture_pending_interface_fix": 5,
+      "capture_primary_now": 0,
+      "core_groups_declared": 0,
+      "note": "T24 plan-only precheck; native budget remains zero",
+      "ordinary_episode_count": 5
+    },
+    "schema": "avengine_v1_production_spec_v1",
+    "seed": 20260911,
+    "sound_sources": {
+      "activity_family_reclassification_requests": [
+        {
+          "declared_activity_family": "device_continuous",
+          "measured_basis": "49 of 93 clips pass the 0.85 continuous coverage requirement and 86 pass under a short_prompt policy. These are pulsed or sparse sounds carrying a continuous contract.",
+          "reason": "A coverage number is not a reason to reclassify a whole class. The declared family stays until the sound_prepare owner decides, and the refused clips are reported as a real shortfall.",
+          "sound_classes": [
+            "clock_tick",
+            "crackle",
+            "drip",
+            "fire",
+            "gurgling"
+          ],
+          "state": "declared_family_retained_pending_owner_decision"
+        }
+      ],
+      "clip_length_filter": {
+        "max_clip_s": null,
+        "reason": "The old pool declared max_clip_s 5, which excluded every air_conditioning event. Length is no longer a pool filter; a long recording enters through an authorized activity-segment selection with its own budget."
+      },
+      "human_review_scope": "The library's human_review record covers the original recording only. It never overrides a machine QC fail and it does not carry over to a cropped segment or to audiovisual answerability.",
+      "minimum_animal_activity_s": 0.5,
+      "object_sound_classes": {
+        "air_conditioner": [
+          "air_conditioning"
+        ],
+        "alarm_clock": [
+          "alarm_clock",
+          "alarm_beep",
+          "alarm_bell",
+          "clock_tick"
+        ],
+        "bathtub": [
+          "bathtub_filling_washing"
+        ],
+        "blender": [
+          "blender"
+        ],
+        "bookshelf_speaker": [
+          "speech_playback",
+          "music_playback",
+          "any_audioset_class_playback"
+        ],
+        "cellphone": [
+          "cellphone_vibration_alert",
+          "ringtone",
+          "phone_ring"
+        ],
+        "desk_telephone": [
+          "telephone_bell_ringing",
+          "telephone_dialing_dtmf",
+          "busy_signal",
+          "phone_ring",
+          "telephone"
+        ],
+        "doorbell_chime_unit": [
+          "doorbell",
+          "doorbell_chime",
+          "ding_dong",
+          "chime"
+        ],
+        "fireplace": [
+          "fire",
+          "crackle"
+        ],
+        "floor_drain": [
+          "drip",
+          "gurgling"
+        ],
+        "floorstanding_speaker": [
+          "speech_playback",
+          "music_playback",
+          "any_audioset_class_playback"
+        ],
+        "landline_phone": [
+          "telephone_bell_ringing",
+          "telephone_dialing_dtmf",
+          "busy_signal",
+          "phone_ring",
+          "telephone"
+        ],
+        "microwave_oven": [
+          "microwave_beep",
+          "microwave_hum"
+        ],
+        "printer": [
+          "printer"
+        ],
+        "sink_with_tap": [
+          "sink_filling_washing",
+          "water_tap_faucet"
+        ],
+        "smart_speaker": [
+          "speech_playback",
+          "music_playback",
+          "any_audioset_class_playback"
+        ],
+        "smoke_detector": [
+          "smoke_alarm",
+          "fire_alarm"
+        ],
+        "soundbar": [
+          "speech_playback",
+          "music_playback",
+          "any_audioset_class_playback"
+        ],
+        "television": [
+          "speech_playback",
+          "music_playback",
+          "any_audioset_class_playback"
+        ],
+        "toilet": [
+          "toilet_flush"
+        ]
+      },
+      "prepared_speech_manifest": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/p7_prepared_audio_v3/prepared_manifest.json",
+      "segment_budget": {
+        "derived_max_duration_s": 7.0,
+        "earliest_start_s": 0.0,
+        "episode_s": 10.0,
+        "reason": "The span one dry recording gets when it has to fit alone inside the Episode. Sequential, overlapping and repeated events share the same span, so this is neither a per-clip cap nor a new global rule.",
+        "reserve_tail_s": 3.0
+      },
+      "segment_selections": null,
+      "segment_selections_note": "Pool rows from avengine.dataset.sound_segments.pool_row, keyed by library-relative path; batch_sound_pool reads spec['segment_selections'] as a mapping, a list or a JSON path. Left null because a run must point at the selection set it materialized itself, not at another attempt's artifacts.",
+      "sound_event_manifest": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_user_acceptance_rework_20260908_v1/event_library_peak_dbfs_3_20260908_v1/event_manifest.json",
+      "sound_event_registry": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_user_acceptance_rework_20260908_v1/event_library_peak_dbfs_3_20260908_v1/sound_asset_registry_peak_dbfs_3_20260908_v1.json",
+      "species_sound_classes": {
+        "cat": [
+          "cat_meow"
+        ],
+        "dog": [
+          "dog_bark"
+        ]
+      },
+      "speech_playback_categories": [
+        "audio_playback"
+      ],
+      "telephone_binding_basis": "16 registered telephone events had no accepting device. Every retained clip carries the FSD50K provenance label 'Telephone' and the library QC measures a ring cadence, which is what a corded desk unit and a wall landline emit; both already declare the narrower telephone classes. A cellphone is deliberately left out: it has no bell.",
+      "undetermined_sound_class_semantics": [
+        {
+          "activity_family": "short_prompt",
+          "decision_needed": "An owner audition deciding whether these recordings are a door or appliance buzzer. Only then does an object_type declare the class; no device gets a blanket accept in the meantime.",
+          "measured_basis": "9 of the 10 retained clips carry the FSD50K provenance label 'Buzz', not 'Buzzer', and the one clip actually labelled 'Buzzer' is the one whose machine QC verdict is fail. A generic buzz covers electrical and insect buzzing, which does not establish an entry buzzer or an appliance alert.",
+          "registered_event_count": 9,
+          "sound_class": "buzzer",
+          "state": "semantics_undetermined_pending_owner_decision"
+        },
+        {
+          "activity_family": "unknown",
+          "decision_needed": "The class of these five recordings. If they are busy signals, desk_telephone and landline_phone already declare busy_signal and no new mapping is needed. If they are dial tones, sound_prepare must declare an activity family for dial_tone first: it resolves to unknown today, so every selection is refused.",
+          "library_clip_count": 5,
+          "measured_basis": "All five clips declare event_classes ['dial_tone'], but the library QC measures continuous=false at 0.500-0.532 duty for the three supplemental_busy files and 0.210-0.216 for the two supplemental_dial files. A continuous dial tone would measure continuous=true at ratio 1.0 and none of them does.",
+          "registered_event_count": 0,
+          "sound_class": "dial_tone",
+          "state": "semantics_undetermined_pending_owner_decision"
+        }
+      ]
+    }
+  },
+  "resource_policy": {
+    "cpu": {
+      "max_memory_mb": 64000,
+      "max_threads": 16,
+      "max_workers": 1,
+      "rlr_threads": 1
+    },
+    "gpu": {
+      "allow_shared_device": false,
+      "headroom_mb": 2048,
+      "max_workers": 1,
+      "max_workers_per_device": 1,
+      "min_free_vram_mb": 12000,
+      "selection": "most_free"
+    }
+  },
+  "seed": 20260911
+}

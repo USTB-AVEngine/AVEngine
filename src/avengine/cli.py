@@ -1565,6 +1565,8 @@ def _m5_render_current_mp3d_dynamic_audio(args: argparse.Namespace) -> int:
                 hrtf_license_path=args.hrtf_license,
                 output_path=output,
                 rir_stride_frames=args.rir_stride_frames,
+                source_context_policy=getattr(args, "source_context_policy", "joint"),
+                foa_normalization=getattr(args, "foa_normalization", "native_n3d"),
                 variant_id=args.variant,
                 frame_count=args.frame_count,
                 frame_rate_hz=args.frame_rate_hz,
@@ -1868,9 +1870,129 @@ def _m6_verify_controlled(args: argparse.Namespace) -> int:
     return 0 if status == "pass" else 1
 
 
+def _dataset_result(value: Any, output: Path | None = None) -> None:
+    if output is None:
+        print(json.dumps(value, ensure_ascii=False, indent=2, default=str))
+        return
+    target = output.expanduser().resolve()
+    target.parent.mkdir(parents=True, exist_ok=True)
+    with target.open("x", encoding="utf-8") as stream:
+        json.dump(value, stream, ensure_ascii=False, indent=2, default=str)
+        stream.write("\n")
+    _print({"output": str(target)})
+
+
+def _dataset_delivery(args: argparse.Namespace) -> int:
+    from avengine.qa.binding_delivery import (
+        attach_audio_layout, build_dataset_index, export_binding_delivery,
+    )
+    config = load_json(args.index_config) if args.index_config else None
+    if args.dataset_command == "export-delivery":
+        result = export_binding_delivery(args.core_bundle, args.catalog_index, args.output)
+        if args.build_index:
+            result["dataset_index"] = build_dataset_index(args.output, config=config)
+    elif args.dataset_command == "build-index":
+        result = build_dataset_index(args.output, config=config)
+    else:
+        attached = attach_audio_layout(
+            args.output, sample_id=args.sample, layout=args.layout,
+            receipt=args.receipt, mixture=args.mixture,
+        )
+        result = {"attached_layout": attached,
+                  "dataset_index": build_dataset_index(args.output, config=config)}
+    _dataset_result(result)
+    return 0
+
+
+def _dataset_inspect(args: argparse.Namespace) -> int:
+    from avengine.dataset.qa_dataset_reader import open_qa_dataset
+    config = {name: getattr(args, name) for name in
+              ("form", "language", "audio_layout", "video_view", "split")
+              if getattr(args, name) is not None}
+    reader = open_qa_dataset(args.root, config=config or None)
+    command = args.operation
+    if command == "list":
+        ids = reader.list_samples(room_family=args.room, qa_id=args.qa,
+                                  record_kind=args.record_kind,
+                                  audio_layout=args.audio_layout, form=args.form)
+        if args.limit is not None:
+            if args.limit < 0:
+                raise ValueError("--limit must be nonnegative")
+            ids = ids[:args.limit]
+        result = {"counts": reader.counts, "selected_sample_count": len(ids), "samples": ids}
+    elif command == "layouts":
+        result = {"declared_layouts": list(reader.audio_layouts()),
+                  "declarations": {name: reader.layout_declaration(name)
+                                   for name in reader.audio_layouts()},
+                  "observation_protocols": reader.observation_protocols()}
+    elif command in ("media", "input"):
+        if not args.sample:
+            raise ValueError(command + " requires --sample")
+        result = reader.media(args.sample) if command == "media" else reader.model_input(args.sample)
+    elif command == "coverage":
+        result = reader.coverage(form=args.form)
+    elif command == "verify":
+        result = {"portability": reader.verify_self_contained(),
+                  "world_accounting": reader.verify_world_accounting(), "counts": reader.counts}
+    elif command == "groups":
+        result = reader.private().groups()
+    elif command == "score":
+        if args.predictions is None:
+            raise ValueError("score requires --predictions")
+        payload = load_json(args.predictions)
+        predictions = payload.get("predictions", payload) if isinstance(payload, Mapping) else payload
+        result = reader.private().score(predictions, form=args.form)
+    else:
+        result = reader.private().gold_replay_smoke(form=args.form)
+    _dataset_result(result, args.out)
+    if command == "verify" and any(result[key].get("status") != "pass"
+                                   for key in ("portability", "world_accounting")):
+        return 2
+    return 0
+
+
+def _add_dataset_commands(commands: Any) -> None:
+    from avengine.dataset.qa_dataset_reader import FORMS, LANGUAGES
+    dataset = commands.add_parser("dataset", help="Export, inspect and score QA datasets")
+    sub = dataset.add_subparsers(dest="dataset_command", required=True)
+    export = sub.add_parser("export-delivery")
+    export.add_argument("--core-bundle", type=Path)
+    export.add_argument("--catalog-index", type=Path, required=True)
+    export.add_argument("--output", type=Path, required=True)
+    export.add_argument("--build-index", action="store_true")
+    export.add_argument("--index-config", type=Path)
+    export.set_defaults(handler=_dataset_delivery)
+    index = sub.add_parser("build-index")
+    index.add_argument("--output", type=Path, required=True)
+    index.add_argument("--index-config", type=Path)
+    index.set_defaults(handler=_dataset_delivery)
+    attach = sub.add_parser("attach-layout")
+    for option in ("output", "receipt"):
+        attach.add_argument("--" + option, type=Path, required=True)
+    attach.add_argument("--sample", required=True)
+    attach.add_argument("--layout", required=True)
+    attach.add_argument("--mixture", type=Path)
+    attach.add_argument("--index-config", type=Path)
+    attach.set_defaults(handler=_dataset_delivery)
+    inspect = sub.add_parser("inspect")
+    inspect.add_argument("operation", choices=("list", "layouts", "media", "input", "coverage",
+                                               "verify", "score", "gold-replay", "groups"))
+    inspect.add_argument("--root", type=Path, required=True)
+    inspect.add_argument("--out", type=Path)
+    inspect.add_argument("--form", choices=FORMS)
+    inspect.add_argument("--language", choices=LANGUAGES)
+    for option in ("audio-layout", "video-view", "split", "room", "qa", "sample"):
+        inspect.add_argument("--" + option)
+    inspect.add_argument("--record-kind", choices=("core_group_member", "episode"))
+    inspect.add_argument("--predictions", type=Path)
+    inspect.add_argument("--limit", type=int)
+    inspect.set_defaults(handler=_dataset_inspect)
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="avengine")
     commands = parser.add_subparsers(dest="command", required=True)
+    _add_dataset_commands(commands)
     m1 = commands.add_parser("rooms", aliases=["m1"], help="Room visual canary commands (alias: m1)")
     m1_commands = m1.add_subparsers(dest="m1_command", required=True)
 
@@ -2512,6 +2634,8 @@ def build_parser() -> argparse.ArgumentParser:
     m5_dynamic_audio.add_argument("--rlr-sdk-root", required=True)
     m5_dynamic_audio.add_argument("--magnum-python-site")
     m5_dynamic_audio.add_argument("--rir-stride-frames", type=int, default=3)
+    m5_dynamic_audio.add_argument("--source-context-policy", choices=("joint", "independent_states"), default="joint")
+    m5_dynamic_audio.add_argument("--foa-normalization", choices=("native_n3d", "sn3d"), default="native_n3d")
     m5_dynamic_audio.add_argument(
         "--post-assembly-convolution-gain", type=float,
         help="declared scalar applied once to wet stems and mixture before peak validation",

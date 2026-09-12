@@ -145,8 +145,22 @@ def navigation_points(pf: RasterPathfinder, nav: Mapping[str, Any]) -> np.ndarra
     ))
 
 
-def source_declaration(registry: Mapping[str, Any], asset_id: str, actor_id: str) -> dict[str, Any]:
+def source_declaration(
+    registry: Mapping[str, Any], asset_id: str, actor_id: str, *,
+    entity_instance_id: str | None = None, instance_ordinal: int = 1,
+) -> dict[str, Any]:
+    """Declare one slot's source. ``actor_id`` is the backend slot, and
+    ``entity_instance_id`` is the physical identity roles and facts attach to,
+    so two instances of one asset stay two entities."""
+    from avengine.dataset.source_capabilities import make_instance_id
+
     record = resolve_source_asset_runtime_profile(registry, asset_id)
+    instance_id = str(entity_instance_id or make_instance_id(asset_id, int(instance_ordinal)))
+    identity_fields = {
+        "entity_instance_id": instance_id,
+        "instance_ordinal": int(instance_ordinal),
+        "source_endpoint_id": f"{actor_id}_mouth",
+    }
     backend = deepcopy(record.get("runtime_backends", {}).get("spear_unreal"))
     entity_class = record.get("entity_class")
     if entity_class in {"rigid_object", "rigid_static_object"}:
@@ -209,6 +223,7 @@ def source_declaration(registry: Mapping[str, Any], asset_id: str, actor_id: str
             )
         return {
             **backend,
+            **identity_fields,
             "actor_id": actor_id,
             "asset_id": asset_id,
             "asset_revision": record["revision"],
@@ -260,7 +275,7 @@ def source_declaration(registry: Mapping[str, Any], asset_id: str, actor_id: str
     elif isinstance(attributes.get("coat_profile"), Mapping):
         attributes["coat_value"] = attributes["coat_profile"]["value"]
     result = {
-        **backend, "actor_id": actor_id, "asset_id": asset_id,
+        **backend, **identity_fields, "actor_id": actor_id, "asset_id": asset_id,
         "asset_revision": record["revision"], "entity_class": entity_class,
         "template_id": timeline["template_id"],
         "body_plan_id": timeline["body_plan_id"], "identity": deepcopy(record["identity"]),
@@ -313,7 +328,15 @@ def room_capabilities(
     }
 
 
-def match_question_conditions(qa_ids: Sequence[str], capabilities: Mapping[str, Any]) -> dict[str, Any]:
+def room_potential_match(qa_ids: Sequence[str], capabilities: Mapping[str, Any]) -> dict[str, Any]:
+    """Which questions the room's declared potential does not rule out.
+
+    This is a resource screen and nothing more: it compares the catalog's
+    requirement families against room-level potential flags. It knows no answer
+    branch, no entity instance and no event, so a pass here is not a compiled
+    condition. :func:`match_question_conditions` runs the real compile when the
+    caller names instances.
+    """
     from avengine.qa.unified_catalog import get_requirements
 
     possible, gaps = [], {}
@@ -345,6 +368,214 @@ def match_question_conditions(qa_ids: Sequence[str], capabilities: Mapping[str, 
         "episode_validity": "not_run",
         "claim_boundary": "resources permit planning; no native pixel, sound or answer validation implied",
     }
+
+
+def _target_rows(qa_ids, instances, branches, targets):
+    """Build one qa_target row per requested question, keeping stated targets."""
+    if targets:
+        rows = []
+        for item in targets:
+            row = dict(item.to_dict()) if hasattr(item, "to_dict") else dict(item)
+            rows.append(row)
+        return rows
+    speaking = [row["entity_instance_id"] for row in instances if row.get("speaking", True)]
+    if not speaking:
+        raise QAPlanningError("a compiled question needs at least one speaking instance")
+    rows = []
+    for qa_id in qa_ids:
+        row = {"qa_id": qa_id, "target_instance_ids": list(speaking)}
+        branch = (branches or {}).get(qa_id)
+        if branch is not None:
+            row["branch"] = branch
+        rows.append(row)
+    return rows
+
+
+def compile_question_conditions(
+    qa_ids: Sequence[str], instances: Sequence[Mapping[str, Any]], *,
+    targets: Sequence[Any] | None = None, branches: Mapping[str, Any] | None = None,
+    registry: Mapping[str, Any] | None = None, task_family: str | None = None,
+    backend: str | None = None, generator: Any = None, public_time_precision: int = 0,
+    include_compiled: bool = False, question_mode: str | None = None,
+) -> dict[str, Any]:
+    """Compile named QA types, branches, instances and events into real conditions.
+
+    Every named candidate keeps its own verdict, so one inapplicable device
+    candidate cannot hide a legitimate human candidate behind a single "missing"
+    list. The planning knobs come back merged as ``sampler_profile``; the
+    compiler is told which knobs this planner build actually reads instead of
+    consulting a hand-maintained list.
+    """
+    import inspect
+
+    from avengine.qa import generation_conditions as gc
+
+    aliases = {}
+    for row in instances:
+        instance_id = str(row["entity_instance_id"])
+        aliases[instance_id] = instance_id
+        slot = row.get("source_slot_id")
+        if slot:
+            aliases.setdefault(str(slot), instance_id)
+    records = [
+        {
+            "instance_id": str(row["entity_instance_id"]),
+            "asset_id": row.get("asset_id"),
+            "source_class": row.get("source_class"),
+            "role": row.get("role"),
+            "sound_asset_id": row.get("sound_asset_id"),
+            "sound_identity_id": row.get("sound_identity_id"),
+        }
+        for row in instances
+    ]
+    accepts_capabilities = "capabilities" in inspect.signature(gc.compile_target_candidates).parameters
+    capability_state = "declared_by_planner" if accepts_capabilities else "compiler_default"
+    declaration = None
+    if generator is not None:
+        declaration = gc.resolve_generator_capabilities(generator).to_dict()
+
+    compiled, candidates, blocked = [], [], []
+    profile_by_qa: dict[str, dict[str, Any]] = {}
+    for row in _target_rows(qa_ids, instances, branches, targets):
+        named = [
+            aliases.get(str(value), str(value))
+            for value in (row.get("target_instance_ids") or row.get("target_instances") or ())
+        ]
+        row = {**row, "target_instance_ids": named}
+        row.pop("target_instances", None)
+        kwargs = dict(
+            instances=records, registry=registry,
+            public_time_precision=public_time_precision, task_family=task_family,
+        )
+        if accepts_capabilities:
+            kwargs["capabilities"] = generator
+            if "backend" in inspect.signature(gc.compile_target_candidates).parameters:
+                kwargs["backend"] = backend
+        try:
+            results = gc.compile_target_candidates(row, **kwargs)
+        except gc.GenerationConditionError as error:
+            blocked.append({"qa_id": row.get("qa_id"), "branch": row.get("branch"),
+                            "state": gc.STATE_NOT_APPLICABLE, "reason": str(error),
+                            "target_instance_ids": named})
+            continue
+        for result in results:
+            if question_mode == "ordinary_observation":
+                # Ordinary questions need a true answer, not a proof that
+                # confusing their source necessarily changes that answer.
+                from dataclasses import replace
+                conditions = tuple(c for c in result.conditions
+                                   if c.kind != "answer_distinguishable")
+                if len(conditions) != len(result.conditions):
+                    conflicts = gc._conflicts_within(
+                        conditions, task_family=result.task_family, qa_id=result.qa_id)
+                    state, reason = gc._verdict(conditions, conflicts)
+                    result = replace(result, conditions=conditions,
+                                     conflicts=tuple(conflicts), state=state, reason=reason)
+            compiled.append(result)
+            entry = {
+                "qa_id": result.qa_id, "branch": result.branch,
+                "target_instance_ids": list(result.target_instance_ids),
+                "state": result.state, "reason": result.reason,
+                "gaps": [dict(gap) for gap in result.gaps()],
+            }
+            candidates.append(entry)
+            if result.state == gc.STATE_AVAILABLE:
+                knobs = dict(result.sampler_profile())
+                # A knob the planner declares support for counts even when the
+                # compiler files it under the solver layer, because this planner
+                # is the solver for it.
+                declared = set((declaration or {}).get("knobs") or ())
+                if declared and hasattr(result, "planning_by_layer"):
+                    for knob, value in (result.planning_by_layer().get("solver") or {}).items():
+                        if knob in declared:
+                            knobs[knob] = value
+                profile_by_qa.setdefault(result.qa_id, {}).update(knobs)
+            else:
+                blocked.append(entry)
+
+    conflicts = gc.reject_conflicts([item for item in compiled if item.state == gc.STATE_AVAILABLE])
+    conflicting = {str(row.get("knob")) for row in conflicts if row.get("knob")}
+    sampler_profile: dict[str, Any] = {}
+    for qa_id in sorted(profile_by_qa):
+        for knob, value in profile_by_qa[qa_id].items():
+            if knob in conflicting:
+                continue
+            sampler_profile.setdefault(knob, value)
+    available_ids = sorted({row["qa_id"] for row in candidates if row["state"] == gc.STATE_AVAILABLE})
+    unsatisfied: dict[str, list[str]] = {}
+    for row in candidates:
+        if row["state"] == gc.STATE_AVAILABLE:
+            continue
+        unsatisfied.setdefault(row["qa_id"], []).append(
+            f"{row['branch'] or 'no_branch'}/{'+'.join(row['target_instance_ids'])}: "
+            f"{row['state']}: {row['reason'] or 'unstated'}"
+        )
+    # Only the post-sound window is bounded at planning time: it is the one the
+    # sampler itself schedules. An entry, distance or frame-level window is a
+    # measurement someone else owns, so it is reported, never gated here.
+    authorities: dict[str, list[str]] = {}
+    for item in compiled:
+        if item.state != gc.STATE_AVAILABLE:
+            continue
+        for cond in item.conditions:
+            if not cond.planning.get("min_display_units"):
+                continue
+            authority = str(cond.detail.get("window_authority", "unspecified"))
+            authorities.setdefault(authority, [])
+            if item.qa_id not in authorities[authority]:
+                authorities[authority].append(item.qa_id)
+    requires_public_window = "derived_post_sound_window" in authorities
+    result = {
+        "candidate_qa_ids": available_ids,
+        "unsatisfied_potential_conditions": unsatisfied,
+        "status": "candidate" if available_ids else "unsupported",
+        "episode_validity": "not_run",
+        "compiled": [item.to_dict() for item in compiled],
+        "candidates": candidates,
+        "blocked": blocked,
+        "conflicts": [dict(row) for row in conflicts],
+        "sampler_profile": sampler_profile,
+        "sampler_profile_by_qa": profile_by_qa,
+        "requires_public_query_window": requires_public_window,
+        "public_window_authorities": authorities,
+        "public_time_precision": int(public_time_precision),
+        "instance_aliases": aliases,
+        "generator_capabilities": declaration,
+        "capability_source": capability_state,
+        "compiler": "avengine.qa.generation_conditions.compile_target_candidates",
+        "claim_boundary": "compiled planning conditions; no native pixel, sound or answer validation implied",
+    }
+    if question_mode is not None:
+        result["question_mode"] = question_mode
+    if include_compiled:
+        result["_compiled_conditions"] = tuple(compiled)
+    return result
+
+
+def match_question_conditions(
+    qa_ids: Sequence[str], capabilities: Mapping[str, Any], *,
+    instances: Sequence[Mapping[str, Any]] | None = None,
+    targets: Sequence[Any] | None = None, branches: Mapping[str, Any] | None = None,
+    registry: Mapping[str, Any] | None = None, task_family: str | None = None,
+    backend: str | None = None, generator: Any = None, public_time_precision: int = 0,
+) -> dict[str, Any]:
+    """Screen a room's potential, and compile the real conditions when instances exist.
+
+    Without named instances this stays the resource screen it has always been.
+    With them it compiles the QA type, its answer branch, the named instances and
+    the stated event through ``generation_conditions``, so a branch change
+    changes the planning knobs instead of only renaming a candidate list.
+    """
+    screen = room_potential_match(qa_ids, capabilities)
+    if not instances and not targets:
+        return screen
+    compiled = compile_question_conditions(
+        qa_ids, list(instances or ()), targets=targets, branches=branches, registry=registry,
+        task_family=task_family, backend=backend, generator=generator,
+        public_time_precision=public_time_precision,
+    )
+    compiled["room_potential"] = screen
+    return compiled
 
 
 def _path(pf: RasterPathfinder, start: np.ndarray, end: np.ndarray) -> np.ndarray | None:
@@ -708,7 +939,7 @@ def build_qa_episode_plan(
 ) -> tuple[dict[str, Any], dict[str, Any], RasterPathfinder]:
     if request.get("sampling_policy") == "conditioned_static_v2":
         from avengine.capture.qa_plan_adapters import load_planning_resources
-        from avengine.rooms.conditioned_sampler import build_conditioned_plan
+        from avengine.rooms.conditioned_sampler import solve_conditioned_episode
         space, mesh, layout = load_planning_resources(room, request)
         clock = clock_config(frame_count=int(request.get("frame_count", 240)),
                              frame_rate_hz=float(request.get("frame_rate_hz", 15)),
@@ -716,9 +947,18 @@ def build_qa_episode_plan(
         effective_request = deepcopy(dict(request))
         camera_config = effective_request.setdefault("camera", {})
         camera_config.setdefault("resolution_hw", layout.get("capture_resolution_hw", [720, 1280]))
-        plan = build_conditioned_plan(room=room, request=effective_request, source_registry=source_registry,
-                sounds=sounds, space=space, mesh=mesh, clock=clock, condition_profile=condition_profile,
-                region=request.get("planning_region_m"))
+        solved = solve_conditioned_episode(
+            request=effective_request,
+            source_registry=source_registry,
+            sounds=sounds,
+            room=room,
+            space=space,
+            mesh=mesh,
+            clock=clock,
+            condition_profile=condition_profile,
+            region=request.get("planning_region_m"),
+        )
+        plan = solved["plan"]
         plan["visual_lighting"] = deepcopy(layout.get("visual_lighting", {}))
         return plan, layout, space.pathfinder
     seed = int(request.get("seed", 0))
@@ -757,11 +997,17 @@ def build_qa_episode_plan(
         layout, clearance_m=float(request.get("body_clearance_m", 0.38)),
         floor_height_m=room.get("floor_height_m"))
     selected_assets = list(request["source_asset_ids"])
-    if len(selected_assets) < 2 or len(selected_assets) > 4 or len(set(selected_assets)) != len(selected_assets):
-        raise QAPlanningError("select two to four distinct registered source assets")
+    if len(selected_assets) < 2 or len(selected_assets) > 4:
+        raise QAPlanningError("select two to four registered source assets")
     rng.shuffle(selected_assets)
-    actors = ([source_declaration(source_registry, asset, f"source{i + 1}")
-               for i, asset in enumerate(selected_assets)] if activity != "seated" else [])
+    # A repeated asset ID is two physical instances of one asset, not a duplicate.
+    ordinals: Counter = Counter()
+    actors = []
+    if activity != "seated":
+        for index, asset in enumerate(selected_assets):
+            ordinals[asset] += 1
+            actors.append(source_declaration(source_registry, asset, f"source{index + 1}",
+                                             instance_ordinal=ordinals[asset]))
     frames = []
     if activity == "seated":
         if not room.get("pose_bindings"):
@@ -834,7 +1080,10 @@ def build_qa_episode_plan(
                 moving = float(np.linalg.norm(delta)) > 1e-5
                 if moving:
                     headings[aid] = math.degrees(math.atan2(delta[2], delta[0]))
-                if timeline:
+                # A rigid source has no walk cycle; only an articulated actor
+                # carries the retained idle/walk actions and their period.
+                articulated = actor.get("motion_model") != "rigid_static"
+                if articulated:
                     yaw = (headings[aid] - float(actor["ue_anatomical_forward_yaw_deg"]) + 180) % 360 - 180
                     action = actor["walking_action_id"] if moving else actor["idle_action_id"]
                     phases[aid] = (phases[aid] + (1 / actor["walk_phase_period_frames"] if moving else 0)) % 1
@@ -853,7 +1102,7 @@ def build_qa_episode_plan(
                     "action_time_ticks": f * clock["ticks_per_frame"],
                     "moving": moving, "frame_index": f,
                 }
-                if timeline:
+                if articulated:
                     state["ue_animation"] = actor["animation_paths_by_action_id"][action]
             states.append(state)
         frames.append({"frame_index": f, "pts_ticks": f * clock["ticks_per_frame"],

@@ -31,14 +31,19 @@ from avengine.contracts.transforms import compose_transforms
 from avengine.capture.dry_audio import DryAudioClipSpec, assemble_dry_audio_buses
 from avengine.capture.neutral_readback import validate_neutral_readback
 from avengine.rooms.contracts import validate_capture_request
-from avengine.acoustics.runtime import load_compiled_acoustic_scene
+from avengine.acoustics.runtime import (
+    CompiledAcousticScene,
+    CompiledSceneUploadExpectation,
+    load_compiled_acoustic_scene,
+)
 from avengine.spatial_audio.audio import write_float32_wav
 from avengine.spatial_audio.current_request_pair_ir import _load_simulation_request
-from avengine.spatial_audio.runtime import M4SimulationConfig
+from avengine.spatial_audio.runtime import M4SimulationConfig, _layout_contract
 from avengine.capture.acoustics import (
     build_strided_review_keyframes,
     render_research_review_audio,
     render_research_review_rir_sequence,
+    render_independent_state_rir_sequence,
     research_review_trajectory_record,
 )
 from avengine.timeline.acoustics import DynamicRIRSequence
@@ -69,6 +74,111 @@ _LAYOUT_CHANNEL_LABELS = {
     "ambisonics": ("W", "Y", "Z", "X"),
 }
 _LAYOUT_OUTPUT_DIRS = {"binaural": "binaural", "ambisonics": "foa"}
+
+
+def layout_output_contract(layout: str) -> dict[str, Any]:
+    """Resolve one layout's channel/normalization/frame identity.
+
+    The normalization and coordinate frame come from the shared M4 runtime
+    contract rather than a second literal here, so a FOA consumer reads the
+    same ACN/N3D world-frame identity the native renderer actually produced.
+    """
+
+    if layout not in SUPPORTED_LAYOUTS:
+        raise CurrentMP3DDynamicAudioError(
+            f"unsupported audio layout {layout!r}"
+        )
+    channel_count = _LAYOUT_CHANNEL_COUNTS[layout]
+    contract = _layout_contract(layout, channel_count)
+    labels = tuple(contract["channel_labels"])
+    if labels != _LAYOUT_CHANNEL_LABELS[layout]:
+        raise CurrentMP3DDynamicAudioError(
+            f"{layout} runtime channel labels differ from this module's layout table"
+        )
+    return {
+        "layout_type": layout,
+        "layout_id": str(contract["layout_id"]),
+        "channel_count": channel_count,
+        "channel_labels": list(labels),
+        "channel_order": "ACN" if layout == "ambisonics" else "not_applicable",
+        "normalization": str(contract["normalization"]),
+        "coordinate_frame": str(contract["coordinate_frame"]),
+        "output_directory": _LAYOUT_OUTPUT_DIRS[layout],
+        "sample_rate_hz": AUDIO_SAMPLE_RATE_HZ,
+    }
+
+
+FOA_NORMALIZATIONS = ("native_n3d", "sn3d")
+# ACN channel degrees for first order: W=0, Y=1, Z=1, X=1.
+_FOA_ACN_DEGREES = (0, 1, 1, 1)
+
+
+def foa_normalization_scale(target: str) -> tuple[float, ...]:
+    """Per-ACN-channel gain converting the native N3D encode to ``target``.
+
+    The native RLR ambisonics interface delivers ACN-ordered N3D. Fully
+    normalized (N3D) and Schmidt semi-normalized (SN3D) components differ by
+    ``sqrt(2l + 1)`` per degree, so this is a convention change with an exact
+    closed form, not a loudness adjustment and not added bandwidth.
+    """
+
+    if target not in FOA_NORMALIZATIONS:
+        raise CurrentMP3DDynamicAudioError(
+            "foa_normalization must be one of " + ", ".join(FOA_NORMALIZATIONS)
+        )
+    if target == "native_n3d":
+        return (1.0,) * len(_FOA_ACN_DEGREES)
+    return tuple(1.0 / math.sqrt(2 * degree + 1) for degree in _FOA_ACN_DEGREES)
+
+
+def foa_normalization_record(target: str) -> dict[str, Any]:
+    """Describe one FOA normalization decision for a delivery receipt."""
+
+    scale = foa_normalization_scale(target)
+    return {
+        "requested": target,
+        "native_normalization": "N3D",
+        "delivered_normalization": "N3D" if target == "native_n3d" else "SN3D",
+        "channel_order": "ACN",
+        "per_channel_scale": [float(value) for value in scale],
+        "conversion": (
+            "identity_native_encode"
+            if target == "native_n3d"
+            else "n3d_to_sn3d_per_degree_1_over_sqrt_2l_plus_1"
+        ),
+    }
+
+
+def _assert_native_ambisonics(samples: Any, *, owner: str) -> None:
+    """Reject a four-channel buffer that is really a tiled binaural pair.
+
+    A native first-order buffer carries W plus three independent directional
+    components. Duplicating a two-channel binaural render into four channels
+    reproduces one of two exact tilings, and an all-zero W with directional
+    energy cannot come from a real encode.
+    """
+
+    array = np.asarray(samples, dtype=np.float64)
+    if array.ndim != 2 or array.shape[0] != 4:
+        raise CurrentMP3DDynamicAudioError(
+            f"{owner} must be a four-channel ambisonics buffer"
+        )
+    if not array.size or not np.any(array):
+        return
+    if np.array_equal(array[0:2], array[2:4]):
+        raise CurrentMP3DDynamicAudioError(
+            f"{owner} repeats channels 0-1 as 2-3; a tiled binaural pair is not native FOA"
+        )
+    if np.array_equal(array[0], array[1]) and np.array_equal(array[2], array[3]):
+        raise CurrentMP3DDynamicAudioError(
+            f"{owner} duplicates each channel of a pair; a tiled binaural pair is not native FOA"
+        )
+    omni_peak = float(np.max(np.abs(array[0])))
+    directional_peak = float(np.max(np.abs(array[1:])))
+    if directional_peak > 0.0 and omni_peak == 0.0:
+        raise CurrentMP3DDynamicAudioError(
+            f"{owner} carries directional energy with a silent W channel"
+        )
 
 # Backward-compatible names retained for the original current-MP3D route.
 VISUAL_FRAME_RATE_HZ = DEFAULT_VISUAL_FRAME_RATE_HZ
@@ -1012,6 +1122,8 @@ def _render_layout_rir_sequence(
     *,
     grid: Any,
     layout: str,
+    source_context_policy: str = "joint",
+    upload_expectation: Any = None,
     hrtf_file_path: Path | None,
     runtime_prefix: str | Path | None = None,
     rlr_sdk_root: str | Path | None = None,
@@ -1028,13 +1140,21 @@ def _render_layout_rir_sequence(
         for key, value in updates.items():
             if value is not None:
                 os.environ[key] = str(Path(value).expanduser().resolve())
-        return render_research_review_rir_sequence(
+        renderer = (render_independent_state_rir_sequence
+                    if source_context_policy == "independent_states"
+                    else render_research_review_rir_sequence)
+        return renderer(
             scene,
             simulation,
             grid=grid,
             layout_type=layout,
             hrtf_file_path=(
                 str(hrtf_file_path) if layout == "binaural" else None
+            ),
+            **(
+                {"upload_expectation": upload_expectation}
+                if upload_expectation is not None
+                else {}
             ),
         )
     finally:
@@ -1057,6 +1177,7 @@ def _render_layout_audio(
 
 
 def _layout_sequence_record(sequence: Any, layout: str) -> dict[str, Any]:
+    contract = layout_output_contract(layout)
     expected_labels = _LAYOUT_CHANNEL_LABELS[layout]
     if getattr(sequence, "layout_type", None) != layout:
         raise CurrentMP3DDynamicAudioError(
@@ -1082,16 +1203,28 @@ def _layout_sequence_record(sequence: Any, layout: str) -> dict[str, Any]:
         raise CurrentMP3DDynamicAudioError(
             f"{layout} RIR sequence has no trajectory identity"
         )
-    return {
+    record = {
         "layout_type": layout,
         "layout_id": layout_id,
+        "layout_id_contract": contract["layout_id"],
+        "layout_id_matches_contract": layout_id == contract["layout_id"],
         "channel_count": _LAYOUT_CHANNEL_COUNTS[layout],
         "channel_labels": list(labels),
+        "channel_order": contract["channel_order"],
+        "normalization": contract["normalization"],
+        "coordinate_frame": contract["coordinate_frame"],
         "keyframe_count": len(keyframe_samples),
         "keyframe_samples": list(keyframe_samples),
         "trajectory_sha256": trajectory_sha256,
         "output_directory": _LAYOUT_OUTPUT_DIRS[layout],
     }
+
+    metadata = getattr(sequence, "metadata", {})
+    if isinstance(metadata, Mapping) and metadata.get("state_evaluations"):
+        record["source_context_policy"] = "independent_states"
+        record["native_state_evaluations"] = metadata["state_evaluations"]
+        record["source_keyframe_state_indices"] = metadata["source_keyframe_state_indices"]
+    return record
 
 
 def _require_layout_episode_samples(
@@ -1492,6 +1625,18 @@ def _sequence_from_override(
         raise CurrentMP3DDynamicAudioError(
             f"{layout} RIR override shape differs from the neutral clock"
         )
+    contract = layout_output_contract(layout)
+    declared_layout_id = override.get("layout_id")
+    if not isinstance(declared_layout_id, str) or not declared_layout_id:
+        raise CurrentMP3DDynamicAudioError(
+            f"{layout} RIR override does not declare a layout_id; a reused "
+            "sequence without its layout identity is not a cache hit"
+        )
+    if declared_layout_id != contract["layout_id"]:
+        raise CurrentMP3DDynamicAudioError(
+            f"{layout} RIR override declares layout_id {declared_layout_id!r}; "
+            f"this layout requires {contract['layout_id']!r}"
+        )
     trajectory_hash = canonical_json_sha256(research_review_trajectory_record(grid))
     metadata = dict(override.get("metadata") or {})
     metadata.setdefault("override_source", "legacy_dynamic_rir_cache_adapter")
@@ -1504,7 +1649,7 @@ def _sequence_from_override(
         keyframe_samples=tuple(frame.sample_index for frame in grid.keyframes),
         sample_rate_hz=int(grid.sample_rate_hz),
         layout_type=layout,
-        layout_id=str(override.get("layout_id", _LAYOUT_OUTPUT_DIRS[layout])),
+        layout_id=declared_layout_id,
         channel_labels=tuple(_LAYOUT_CHANNEL_LABELS[layout]),
         trajectory_sha256=trajectory_hash,
         metadata=metadata,
@@ -1532,6 +1677,8 @@ def render_dynamic_research_audio(
     position_authority: str,
     listener_authority: str,
     rir_stride_frames: int = 3,
+    source_context_policy: str = "joint",
+    foa_normalization: str = "native_n3d",
     variant_id: str = "A",
     execution_variant: str | None = None,
     hrtf_license_path: str | Path | None = None,
@@ -1562,7 +1709,13 @@ def render_dynamic_research_audio(
     """
 
     execution_label = _validate_execution_variant(execution_variant)
+    if source_context_policy not in {"joint", "independent_states"}:
+        raise CurrentMP3DDynamicAudioError("source_context_policy must be joint or independent_states")
+    if source_context_policy != "joint" and rir_sequence_override:
+        raise CurrentMP3DDynamicAudioError(
+            "independent source contexts require a fresh native render, not a joint-context override")
     post_gain = validate_post_assembly_convolution_gain(post_assembly_convolution_gain)
+    foa_record = foa_normalization_record(foa_normalization)
     selected_layouts = _normalize_layouts(layouts)
     hrtf = None
     if "binaural" in selected_layouts:
@@ -1761,6 +1914,19 @@ def render_dynamic_research_audio(
         )
     )
 
+    # Deriving the expected RLR upload report canonicalizes the whole world
+    # mesh, which measured about 11 s on the current MP3D package. Every layout
+    # in this render uploads that same unchanged scene, so derive the
+    # expectation once here and let each native context still perform its own
+    # real upload and its own full field comparison. The expectation is bound
+    # to this exact scene object and re-checks its input snapshot on every use,
+    # so a changed or different scene is refused rather than served.
+    upload_expectation = (
+        CompiledSceneUploadExpectation(scene)
+        if isinstance(scene, CompiledAcousticScene)
+        else None
+    )
+
     rendered: dict[str, dict[str, Any]] = {}
     for layout in selected_layouts:
         override = (rir_sequence_override or {}).get(layout)
@@ -1773,9 +1939,12 @@ def render_dynamic_research_audio(
                 grid=grid,
                 layout=layout,
                 hrtf_file_path=hrtf,
+                upload_expectation=upload_expectation,
                 runtime_prefix=runtime_prefix,
                 rlr_sdk_root=rlr_sdk_root,
                 magnum_python_site=magnum_python_site,
+                **({"source_context_policy": source_context_policy}
+                   if source_context_policy != "joint" else {}),
             )
         layout_record = _layout_sequence_record(sequence, layout)
         stems, mixture = _render_layout_audio(
@@ -1812,6 +1981,11 @@ def render_dynamic_research_audio(
                 gain=post_gain,
                 owner=f"{layout} stem {source_id!r}",
             )
+            if layout == "ambisonics":
+                _assert_native_ambisonics(
+                    scaled_stems[source_id],
+                    owner=f"{layout} stem {source_id!r}",
+                )
         mixture = _require_layout_episode_samples(
             _apply_post_assembly_convolution_gain(
                 mixture,
@@ -1822,6 +1996,18 @@ def render_dynamic_research_audio(
             expected_channels=expected_channels,
             owner=f"{layout} mixture",
         )
+        if layout == "ambisonics":
+            _assert_native_ambisonics(mixture, owner=f"{layout} mixture")
+            column = np.asarray(
+                foa_normalization_scale(foa_normalization), dtype=np.float64
+            )[:, None]
+            if not np.array_equal(column, np.ones_like(column)):
+                # One linear per-channel factor keeps mixture == sum(stems).
+                mixture = mixture * column
+                scaled_stems = {
+                    source_id: value * column
+                    for source_id, value in scaled_stems.items()
+                }
         rendered[layout] = {
             "sequence": sequence,
             "record": layout_record,
@@ -2082,6 +2268,56 @@ def render_dynamic_research_audio(
         }
         for layout in selected_layouts
     }
+    layout_receipts: dict[str, dict[str, Any]] = {}
+    for layout in selected_layouts:
+        layout_record = rendered[layout]["record"]
+        layout_mixture = rendered[layout]["mixture"]
+        layout_stems = rendered[layout]["stem_samples"]
+        layout_receipts[layout] = {
+            **layout_output_contract(layout),
+            "sample_count": clock["sample_count"],
+            **(
+                {"normalization": foa_record["delivered_normalization"]}
+                if layout == "ambisonics"
+                else {}
+            ),
+            "keyframe_count": layout_record["keyframe_count"],
+            "keyframe_samples": layout_record["keyframe_samples"],
+            "trajectory_sha256": layout_record["trajectory_sha256"],
+            "source_context_policy": layout_record.get(
+                "source_context_policy", source_context_policy
+            ),
+            "foa_normalization": (
+                foa_record if layout == "ambisonics" else None
+            ),
+            "rir_source": (
+                "reused_override"
+                if (rir_sequence_override or {}).get(layout) is not None
+                else "fresh_native_render"
+            ),
+            "cache": dict(
+                ((rir_sequence_override or {}).get(layout) or {}).get("cache")
+                or {}
+            )
+            or None,
+            "mixture": {
+                "path": outputs_by_layout[layout]["mixture"],
+                "peak_dbfs": _peak_dbfs(layout_mixture),
+                "active_interval_samples": _nonzero_interval(
+                    layout_mixture, threshold=1.0e-12
+                ),
+            },
+            "stems": {
+                source_id: {
+                    "path": outputs_by_layout[layout]["stems"][source_id],
+                    "peak_dbfs": _peak_dbfs(layout_stems[source_id]),
+                    "active_interval_samples": _nonzero_interval(
+                        layout_stems[source_id], threshold=1.0e-12
+                    ),
+                }
+                for source_id in source_ids
+            },
+        }
     inputs: dict[str, Any] = {
         "simulation_request": simulation_input,
         "package_manifest": _input_record(package_manifest_path),
@@ -2117,6 +2353,8 @@ def render_dynamic_research_audio(
     if extra_inputs:
         inputs.update({key: value for key, value in extra_inputs.items()})
     inputs["audio_render_config"] = {
+        "source_context_policy": source_context_policy,
+        "foa_normalization": foa_record,
         "post_assembly_convolution_gain": post_gain,
         "source": "explicit_render_argument_or_historical_default",
     }
@@ -2201,6 +2439,8 @@ def render_dynamic_research_audio(
                 }
                 for layout in selected_layouts
             },
+            "layout_delivery": layout_receipts,
+            "activity_measurement_layout": compatibility_layout,
         },
         "audio_program_record": {
             "path": str(program_output.resolve()),
@@ -2376,6 +2616,8 @@ def render_neutral_readback_audio(
     position_authority: str = "neutral_readback.entities[].emitter",
     listener_authority: str = "neutral_readback.camera[0]",
     rir_stride_frames: int = 3,
+    source_context_policy: str = "joint",
+    foa_normalization: str = "native_n3d",
     variant_id: str = "A",
     execution_variant: str | None = None,
     hrtf_license_path: str | Path | None = None,
@@ -2450,6 +2692,8 @@ def render_neutral_readback_audio(
         position_authority=position_authority,
         listener_authority=listener_authority,
         rir_stride_frames=rir_stride_frames,
+        source_context_policy=source_context_policy,
+        foa_normalization=foa_normalization,
         variant_id=variant_id,
         execution_variant=execution_variant,
         hrtf_license_path=hrtf_license_path,
@@ -2485,6 +2729,8 @@ def render_current_mp3d_dynamic_audio(
     hrtf_file_path: str | Path | None = None,
     output_path: str | Path,
     rir_stride_frames: int = 3,
+    source_context_policy: str = "joint",
+    foa_normalization: str = "native_n3d",
     variant_id: str = "A",
     execution_variant: str | None = None,
     hrtf_license_path: str | Path | None = None,
@@ -2532,6 +2778,8 @@ def render_current_mp3d_dynamic_audio(
             output_path=output_path,
             layouts=layouts,
             rir_stride_frames=rir_stride_frames,
+            source_context_policy=source_context_policy,
+            foa_normalization=foa_normalization,
             variant_id=variant_id,
             execution_variant=execution_variant,
             hrtf_license_path=hrtf_license_path,
@@ -2591,6 +2839,8 @@ def render_current_mp3d_dynamic_audio(
         position_authority="current-visual frame_records per-frame source_positions_m",
         listener_authority="research M1 request primary_camera_rig composed with rig_from_listener",
         rir_stride_frames=rir_stride_frames,
+        source_context_policy=source_context_policy,
+        foa_normalization=foa_normalization,
         variant_id=variant_id,
         execution_variant=execution_variant,
         hrtf_license_path=hrtf_license_path,

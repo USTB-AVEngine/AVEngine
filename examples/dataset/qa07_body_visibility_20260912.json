@@ -1,0 +1,365 @@
+{
+  "allow_research_candidate_assets": true,
+  "audio_layouts": [
+    {
+      "channel_count": 2,
+      "indirect_sh_order": 1,
+      "role": "primary",
+      "type": "binaural"
+    },
+    {
+      "ambisonic_order": 1,
+      "channel_count": 4,
+      "indirect_sh_order": 1,
+      "role": "attached_view",
+      "type": "ambisonics"
+    }
+  ],
+  "camera": {
+    "fov_deg": 85.0,
+    "height_above_floor_m": 1.55,
+    "motion": "static",
+    "resolution_hw": [
+      720,
+      1280
+    ],
+    "visibility_solver": {
+      "body_geometry": "registered_body_envelope"
+    }
+  },
+  "condition_group": "c01r1_single_qa07_left",
+  "diffraction": false,
+  "entities": {
+    "instances": [
+      {
+        "asset_id": "rocketbox_human_male_adult_01_top_blue_research_v1",
+        "instance_id": "human_target",
+        "role": "anchor",
+        "source_class": "articulated_human",
+        "speaking": true
+      },
+      {
+        "asset_id": "rocketbox_dog_beagle_01_m2_v7_world_contact_candidate",
+        "instance_id": "dog_competitor",
+        "source_class": "articulated_animal",
+        "speaking": true
+      }
+    ],
+    "min_articulated_count": 0,
+    "silent_count": 0,
+    "total_count": 2
+  },
+  "entity_instances": [
+    {
+      "asset_id": "rocketbox_human_male_adult_01_top_blue_research_v1",
+      "instance_id": "human_target",
+      "role": "anchor",
+      "source_class": "articulated_human",
+      "speaking": true
+    },
+    {
+      "asset_id": "rocketbox_dog_beagle_01_m2_v7_world_contact_candidate",
+      "instance_id": "dog_competitor",
+      "source_class": "articulated_animal",
+      "speaking": true
+    }
+  ],
+  "episode_id": "c01r1_qa07_left_r1",
+  "frame_count": 150,
+  "frame_rate_hz": 15.0,
+  "max_diffraction_order": 0,
+  "member_role": "plain_episode",
+  "motion": {
+    "speed_range_mps": [
+      0.5,
+      0.9
+    ]
+  },
+  "motion_timing": "none",
+  "post_assembly_convolution_gain": 0.5,
+  "prepared_manifest": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/p7_prepared_audio_v3/prepared_manifest.json",
+  "production": {
+    "retry": {
+      "attempts_per_stage": 2,
+      "attempts_within_profile": 120
+    },
+    "stage_resources": {
+      "assembly": {
+        "execution": "cpu",
+        "kind": "cpu",
+        "runtime_context": "pure_python"
+      },
+      "audio": {
+        "execution": "cpu",
+        "kind": "cpu_native_acoustic",
+        "rlr_threads": 1,
+        "runtime_context": "rlr_native"
+      },
+      "capture": {
+        "execution": "gpu",
+        "kind": "gpu_native_visual",
+        "min_free_vram_mb": 12000,
+        "runtime_context": "renderer_native"
+      },
+      "delivery": {
+        "execution": "cpu",
+        "kind": "cpu",
+        "runtime_context": "pure_python"
+      },
+      "late_plan": {
+        "execution": "cpu",
+        "kind": "cpu_native_geometry",
+        "runtime_context": "habitat_native"
+      },
+      "plan": {
+        "execution": "cpu",
+        "kind": "cpu",
+        "runtime_context": "pure_python"
+      }
+    }
+  },
+  "profile": {
+    "anchor_count": 1,
+    "competitor_set": "all_other_entities_including_offscreen",
+    "contact_correction": {
+      "path": "tmp/binding_v1_parallel_20260910/TAKEOVER/L32_QA_NATIVE/attempt_20260911T125058Z_pid2065191/qa07_contact/CONTACT_CORRECTION_R4_CPU_SOURCE2_V3_ORIGINAL_ID.json"
+    },
+    "distance_range_m": [
+      1.0,
+      6.0
+    ],
+    "event_relation": "sequential",
+    "min_gap_between_audible_windows_s": 0.5,
+    "minimum_motion_s": 0.8,
+    "minimum_overlap_s": 0.3,
+    "reserve_tail_s": 3.0,
+    "retry_budget_within_profile": 200,
+    "separation_bin_deg": [
+      15.0,
+      180.0
+    ],
+    "separation_floor_deg": 15.0,
+    "separation_window": "whole_audible_window_of_anchor"
+  },
+  "qa_ids": [
+    "QA-06",
+    "QA-07",
+    "QA-09",
+    "QA-15",
+    "QA-17"
+  ],
+  "qa_sampling": {
+    "items_per_type": 1
+  },
+  "qa_targets": [
+    {
+      "branch": "left",
+      "event": {
+        "kind": "target_audible_window"
+      },
+      "forms": [
+        "mcq",
+        "open"
+      ],
+      "items": 1,
+      "qa_id": "QA-07",
+      "query_time_policy": "uniform_in_legal_window",
+      "target_instance_ids": [
+        "human_target"
+      ],
+      "target_source": "config"
+    }
+  ],
+  "quota_by_qa": {
+    "QA-06": 1,
+    "QA-07": 1,
+    "QA-09": 1,
+    "QA-15": 1,
+    "QA-17": 1
+  },
+  "room_catalog": "/data/jzy/tmp/wt-grok-pilot46-round2/examples/rooms/packages/catalog.json",
+  "room_id": "hm3d_val_00800_TEEsavR23oF",
+  "runtime": {
+    "ddc_directory": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/binding_v1_parallel_20260910/TAKEOVER/M16_RUNTIME_CONFIG/attempt_20260910T235227Z_pid888238/ue_ddc",
+    "ddc_profile": "InstalledNoZenLocalFallback",
+    "hrtf": "/data/avengine_external/rlr-sdk/hrtf/mit_kemar_normal_pinna_16k_v2_sofar_20260820T2200Z/mit_kemar_normal_pinna_16k.sofa",
+    "magnum_python_site": "/data/avengine_external/runtime-prefixes/magnum-python-cp312-45811bb-20260820T1845Z/lib/python3.12/site-packages",
+    "path_bindings": {
+      "AVENGINE_APARTMENT_INPUT_ROOT": "/data/avengine_external/m6x-canary-inputs/fixed_apartment_inputs_v1_20260821T131842Z",
+      "AVENGINE_HM3D_ACOUSTIC_ROOT": "/data/avengine_external/review/hm3d_e2e_wt_20260905_v1/package",
+      "AVENGINE_HM3D_REVIEW_ROOT": "/data/avengine_external/review/hm3d_e2e_wt_20260905_v1",
+      "AVENGINE_HM3D_ROOT": "/data/datasets/habitat_data",
+      "AVENGINE_HM3D_ROUTE_ROOT": "/data/avengine_external/review/hm3d_e2e_wt_20260905_v1/routes_R3",
+      "AVENGINE_KUJIALE_ACOUSTIC_ROOT": "/data/avengine_external/review/kujiale_acoustics/pkg_kujiale_0020_rlr",
+      "AVENGINE_MP3D_ACOUSTIC_ROOT": "/data/avengine_external/review/m3_current_mp3d_semantic_20260820T1630Z",
+      "AVENGINE_MP3D_ROOT": "/data/avengine_external/datasets/mp3d_example_scene_1.1",
+      "AVENGINE_MULTI_HOME_AUTHORING_ROOT": "/data/avengine_external/workspaces/multi_home_activity_20260905",
+      "AVENGINE_MULTI_HOME_ROOT": "/data/datasets/avengine_workspaces/multi_home_activity_20260905",
+      "AVENGINE_MULTI_HOME_UE_ROOT": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_full_asset_ue_stage_20260907_v1",
+      "AVENGINE_NATIVE_APARTMENT_ROUTE_ROOT": "/data/avengine_external/review/apartment_route_bank_20260825T0700Z",
+      "AVENGINE_P3_ROOM_PACKAGE_ROOT": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root",
+      "AVENGINE_QA_V3_ROOT": "/data/jzy/tmp",
+      "AVENGINE_SPEAR_STAGE_ROOT": "/data/avengine_external/workspaces/multi_home_activity_20260905/ue_stage"
+    },
+    "rlr_sdk_root": "/data/avengine_external/rlr-sdk/RLRAudioPropagationPkg",
+    "runtime_prefix": "/data/avengine_external/runtime-prefixes/avengine-habitat-object-id-732f264-20260824T1041Z",
+    "spear_ext_dir": "/data/avengine_external/spear-host-sdk/avengine-spear-ext-cp312-8a36d4d-20260821T0030Z",
+    "streaming_warmup_frames": 180,
+    "unreal_editor": "/data/UE_5.5/Engine/Binaries/Linux/UnrealEditor",
+    "uproject": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_full_asset_ue_stage_20260907_v1/SpearSim/SpearSim.uproject"
+  },
+  "sample_rate_hz": 16000,
+  "sampling_policy": "conditioned_static_v2",
+  "schema": "avengine_native_qa_room_request_v1",
+  "seed": 20260985,
+  "simulation": {
+    "indirect_sh_order": 1
+  },
+  "sound_pool": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/binding_v1_parallel_20260910/TAKEOVER/T06_PLACE/attempt_20260910T192045Z_pid739226/T06_SOUND_POOL.json",
+  "sound_selection": {
+    "clip_span_fit_policy": "filter_to_remaining_budget_then_uniform",
+    "max_clip_s": 5.0,
+    "min_audible_s": 1.5,
+    "preallocated_sound_asset_ids_by_actor": {
+      "dog_competitor": [
+        "sound_dog_bark_135f293f_v1",
+        "sound_dog_bark_45d896d0_v1",
+        "sound_dog_bark_5a47f068_v1",
+        "sound_dog_bark_92f15b25_v1",
+        "sound_dog_bark_e6b4f056_v1"
+      ],
+      "human_target": [
+        "prepared_speech_band_4cb18f32170d_v1",
+        "prepared_speech_band_4eddf4984404_v1",
+        "prepared_speech_band_6db439bb0e7b_v1",
+        "prepared_speech_band_7d9b32a6e273_v1",
+        "prepared_speech_band_7da00e96c533_v1",
+        "prepared_speech_band_85c821ad4d37_v1",
+        "prepared_speech_band_a90d8a9f509a_v1",
+        "prepared_speech_band_c12fc71d314c_v1",
+        "prepared_speech_band_c480a06216ad_v1",
+        "prepared_speech_band_c5f5ab7ed64f_v1",
+        "prepared_speech_band_c867e3e5ae0d_v1",
+        "prepared_speech_band_d764fdde2737_v1",
+        "prepared_speech_band_dacdd3595c46_v1",
+        "prepared_speech_band_fcab410017b5_v1",
+        "prepared_speech_band_fcad02795856_v1",
+        "prepared_speech_band_fcc67fa09176_v1"
+      ]
+    },
+    "sound_class_config": {
+      "human_nonverbal_sound_classes": [],
+      "object_sound_classes": {
+        "air_conditioner": [
+          "air_conditioning"
+        ],
+        "alarm_clock": [
+          "alarm_clock",
+          "alarm_beep",
+          "alarm_bell",
+          "clock_tick"
+        ],
+        "bathtub": [
+          "bathtub_filling_washing"
+        ],
+        "blender": [
+          "blender"
+        ],
+        "bookshelf_speaker": [
+          "speech_playback",
+          "music_playback",
+          "any_audioset_class_playback"
+        ],
+        "cellphone": [
+          "cellphone_vibration_alert",
+          "ringtone",
+          "phone_ring"
+        ],
+        "desk_telephone": [
+          "telephone_bell_ringing",
+          "telephone_dialing_dtmf",
+          "busy_signal",
+          "phone_ring",
+          "telephone"
+        ],
+        "doorbell_chime_unit": [
+          "doorbell",
+          "doorbell_chime",
+          "ding_dong",
+          "chime"
+        ],
+        "fireplace": [
+          "fire",
+          "crackle"
+        ],
+        "floor_drain": [
+          "drip",
+          "gurgling"
+        ],
+        "floorstanding_speaker": [
+          "speech_playback",
+          "music_playback",
+          "any_audioset_class_playback"
+        ],
+        "landline_phone": [
+          "telephone_bell_ringing",
+          "telephone_dialing_dtmf",
+          "busy_signal",
+          "phone_ring",
+          "telephone"
+        ],
+        "microwave_oven": [
+          "microwave_beep",
+          "microwave_hum"
+        ],
+        "printer": [
+          "printer"
+        ],
+        "sink_with_tap": [
+          "sink_filling_washing",
+          "water_tap_faucet"
+        ],
+        "smart_speaker": [
+          "speech_playback",
+          "music_playback",
+          "any_audioset_class_playback"
+        ],
+        "smoke_detector": [
+          "smoke_alarm",
+          "fire_alarm"
+        ],
+        "soundbar": [
+          "speech_playback",
+          "music_playback",
+          "any_audioset_class_playback"
+        ],
+        "television": [
+          "speech_playback",
+          "music_playback",
+          "any_audioset_class_playback"
+        ],
+        "toilet": [
+          "toilet_flush"
+        ]
+      },
+      "species_sound_classes": {
+        "cat": [
+          "cat_meow"
+        ],
+        "dog": [
+          "dog_bark"
+        ]
+      },
+      "speech_playback_categories": [
+        "audio_playback"
+      ]
+    },
+    "unique_first_utterance_transcripts": true
+  },
+  "source_asset_ids": [
+    "rocketbox_human_male_adult_01_top_blue_research_v1",
+    "rocketbox_dog_beagle_01_m2_v7_world_contact_candidate"
+  ],
+  "source_registry": "/data/jzy/tmp/wt-grok-pilot46-round2/examples/runtime/source_asset_runtime_profiles.json",
+  "camera_fov_deg": 85.0
+}

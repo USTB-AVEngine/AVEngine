@@ -1,0 +1,5619 @@
+{
+  "batch_id": "qa_binding_first_version_20260910",
+  "claim_boundary": "A configuration. The camera is fixed, the Episode is 10 seconds at 15 fps, the tail reserve is 3 seconds, the post-assembly convolution gain is 0.5 and RLR runs one internal thread; an explicit request overrides a default, never the other way round. Public question times are whole seconds and public angles whole degrees while the internal values keep their precision, so moving a query time means recomputing its truth. Nothing here has been rendered, auditioned or admitted.",
+  "core_groups": [
+    {
+      "group_id": "v1_visible_binding_apartment_g01",
+      "member_defaults": {
+        "seed": 20261910
+      },
+      "members": [
+        {
+          "instances": [
+            {
+              "asset_id": "rocketbox_human_male_adult_01_top_blue_research_v1",
+              "instance_id": "source1",
+              "source_class": "articulated_human"
+            },
+            {
+              "asset_id": "rocketbox_human_male_adult_01_top_green_research_v1",
+              "instance_id": "source2",
+              "source_class": "articulated_human"
+            }
+          ],
+          "member_role": "v0_a0",
+          "request_id": "v1_visible_binding_apartment_g01_v0_a0"
+        },
+        {
+          "instances": [
+            {
+              "asset_id": "rocketbox_human_male_adult_01_top_blue_research_v1",
+              "instance_id": "source1",
+              "source_class": "articulated_human"
+            },
+            {
+              "asset_id": "rocketbox_human_male_adult_01_top_green_research_v1",
+              "instance_id": "source2",
+              "source_class": "articulated_human"
+            }
+          ],
+          "member_role": "v0_a1",
+          "request_id": "v1_visible_binding_apartment_g01_v0_a1"
+        },
+        {
+          "instances": [
+            {
+              "asset_id": "rocketbox_human_male_adult_01_top_green_research_v1",
+              "instance_id": "source1",
+              "source_class": "articulated_human"
+            },
+            {
+              "asset_id": "rocketbox_human_male_adult_01_top_blue_research_v1",
+              "instance_id": "source2",
+              "source_class": "articulated_human"
+            }
+          ],
+          "member_role": "v1_a0",
+          "request_id": "v1_visible_binding_apartment_g01_v1_a0"
+        },
+        {
+          "instances": [
+            {
+              "asset_id": "rocketbox_human_male_adult_01_top_green_research_v1",
+              "instance_id": "source1",
+              "source_class": "articulated_human"
+            },
+            {
+              "asset_id": "rocketbox_human_male_adult_01_top_blue_research_v1",
+              "instance_id": "source2",
+              "source_class": "articulated_human"
+            }
+          ],
+          "member_role": "v1_a1",
+          "request_id": "v1_visible_binding_apartment_g01_v1_a1"
+        }
+      ],
+      "room_id": "legacy_ue_apartment_0000_v1",
+      "shared_audio_member_ids": [
+        [
+          "v1_visible_binding_apartment_g01_v0_a0",
+          "v1_visible_binding_apartment_g01_v1_a0"
+        ],
+        [
+          "v1_visible_binding_apartment_g01_v0_a1",
+          "v1_visible_binding_apartment_g01_v1_a1"
+        ]
+      ],
+      "shared_visual_member_ids": [
+        [
+          "v1_visible_binding_apartment_g01_v0_a0",
+          "v1_visible_binding_apartment_g01_v0_a1"
+        ],
+        [
+          "v1_visible_binding_apartment_g01_v1_a0",
+          "v1_visible_binding_apartment_g01_v1_a1"
+        ]
+      ],
+      "task_family": "visible_binding"
+    },
+    {
+      "group_id": "v1_visible_binding_kujiale_g01",
+      "member_defaults": {
+        "seed": 20262910
+      },
+      "members": [
+        {
+          "instances": [
+            {
+              "asset_id": "rocketbox_human_male_adult_01_top_blue_research_v1",
+              "instance_id": "source1",
+              "source_class": "articulated_human"
+            },
+            {
+              "asset_id": "rocketbox_human_male_adult_01_top_green_research_v1",
+              "instance_id": "source2",
+              "source_class": "articulated_human"
+            }
+          ],
+          "member_role": "v0_a0",
+          "request_id": "v1_visible_binding_kujiale_g01_v0_a0"
+        },
+        {
+          "instances": [
+            {
+              "asset_id": "rocketbox_human_male_adult_01_top_blue_research_v1",
+              "instance_id": "source1",
+              "source_class": "articulated_human"
+            },
+            {
+              "asset_id": "rocketbox_human_male_adult_01_top_green_research_v1",
+              "instance_id": "source2",
+              "source_class": "articulated_human"
+            }
+          ],
+          "member_role": "v0_a1",
+          "request_id": "v1_visible_binding_kujiale_g01_v0_a1"
+        },
+        {
+          "instances": [
+            {
+              "asset_id": "rocketbox_human_male_adult_01_top_green_research_v1",
+              "instance_id": "source1",
+              "source_class": "articulated_human"
+            },
+            {
+              "asset_id": "rocketbox_human_male_adult_01_top_blue_research_v1",
+              "instance_id": "source2",
+              "source_class": "articulated_human"
+            }
+          ],
+          "member_role": "v1_a0",
+          "request_id": "v1_visible_binding_kujiale_g01_v1_a0"
+        },
+        {
+          "instances": [
+            {
+              "asset_id": "rocketbox_human_male_adult_01_top_green_research_v1",
+              "instance_id": "source1",
+              "source_class": "articulated_human"
+            },
+            {
+              "asset_id": "rocketbox_human_male_adult_01_top_blue_research_v1",
+              "instance_id": "source2",
+              "source_class": "articulated_human"
+            }
+          ],
+          "member_role": "v1_a1",
+          "request_id": "v1_visible_binding_kujiale_g01_v1_a1"
+        }
+      ],
+      "room_id": "kujiale_0020_full_home_v1",
+      "shared_audio_member_ids": [
+        [
+          "v1_visible_binding_kujiale_g01_v0_a0",
+          "v1_visible_binding_kujiale_g01_v1_a0"
+        ],
+        [
+          "v1_visible_binding_kujiale_g01_v0_a1",
+          "v1_visible_binding_kujiale_g01_v1_a1"
+        ]
+      ],
+      "shared_visual_member_ids": [
+        [
+          "v1_visible_binding_kujiale_g01_v0_a0",
+          "v1_visible_binding_kujiale_g01_v0_a1"
+        ],
+        [
+          "v1_visible_binding_kujiale_g01_v1_a0",
+          "v1_visible_binding_kujiale_g01_v1_a1"
+        ]
+      ],
+      "task_family": "visible_binding"
+    },
+    {
+      "group_id": "v1_visible_binding_hm3d_g01",
+      "member_defaults": {
+        "seed": 20263910
+      },
+      "members": [
+        {
+          "instances": [
+            {
+              "asset_id": "rocketbox_human_male_adult_01_top_blue_research_v1",
+              "instance_id": "source1",
+              "source_class": "articulated_human"
+            },
+            {
+              "asset_id": "rocketbox_human_male_adult_01_top_green_research_v1",
+              "instance_id": "source2",
+              "source_class": "articulated_human"
+            }
+          ],
+          "member_role": "v0_a0",
+          "request_id": "v1_visible_binding_hm3d_g01_v0_a0"
+        },
+        {
+          "instances": [
+            {
+              "asset_id": "rocketbox_human_male_adult_01_top_blue_research_v1",
+              "instance_id": "source1",
+              "source_class": "articulated_human"
+            },
+            {
+              "asset_id": "rocketbox_human_male_adult_01_top_green_research_v1",
+              "instance_id": "source2",
+              "source_class": "articulated_human"
+            }
+          ],
+          "member_role": "v0_a1",
+          "request_id": "v1_visible_binding_hm3d_g01_v0_a1"
+        },
+        {
+          "instances": [
+            {
+              "asset_id": "rocketbox_human_male_adult_01_top_green_research_v1",
+              "instance_id": "source1",
+              "source_class": "articulated_human"
+            },
+            {
+              "asset_id": "rocketbox_human_male_adult_01_top_blue_research_v1",
+              "instance_id": "source2",
+              "source_class": "articulated_human"
+            }
+          ],
+          "member_role": "v1_a0",
+          "request_id": "v1_visible_binding_hm3d_g01_v1_a0"
+        },
+        {
+          "instances": [
+            {
+              "asset_id": "rocketbox_human_male_adult_01_top_green_research_v1",
+              "instance_id": "source1",
+              "source_class": "articulated_human"
+            },
+            {
+              "asset_id": "rocketbox_human_male_adult_01_top_blue_research_v1",
+              "instance_id": "source2",
+              "source_class": "articulated_human"
+            }
+          ],
+          "member_role": "v1_a1",
+          "request_id": "v1_visible_binding_hm3d_g01_v1_a1"
+        }
+      ],
+      "room_id": "hm3d_val_00800_TEEsavR23oF",
+      "shared_audio_member_ids": [
+        [
+          "v1_visible_binding_hm3d_g01_v0_a0",
+          "v1_visible_binding_hm3d_g01_v1_a0"
+        ],
+        [
+          "v1_visible_binding_hm3d_g01_v0_a1",
+          "v1_visible_binding_hm3d_g01_v1_a1"
+        ]
+      ],
+      "shared_visual_member_ids": [
+        [
+          "v1_visible_binding_hm3d_g01_v0_a0",
+          "v1_visible_binding_hm3d_g01_v0_a1"
+        ],
+        [
+          "v1_visible_binding_hm3d_g01_v1_a0",
+          "v1_visible_binding_hm3d_g01_v1_a1"
+        ]
+      ],
+      "task_family": "visible_binding"
+    },
+    {
+      "group_id": "v1_visible_binding_mp3d_g01",
+      "member_defaults": {
+        "seed": 20264910
+      },
+      "members": [
+        {
+          "instances": [
+            {
+              "asset_id": "rocketbox_human_male_adult_01_top_blue_research_v1",
+              "instance_id": "source1",
+              "source_class": "articulated_human"
+            },
+            {
+              "asset_id": "rocketbox_human_male_adult_01_top_green_research_v1",
+              "instance_id": "source2",
+              "source_class": "articulated_human"
+            }
+          ],
+          "member_role": "v0_a0",
+          "request_id": "v1_visible_binding_mp3d_g01_v0_a0"
+        },
+        {
+          "instances": [
+            {
+              "asset_id": "rocketbox_human_male_adult_01_top_blue_research_v1",
+              "instance_id": "source1",
+              "source_class": "articulated_human"
+            },
+            {
+              "asset_id": "rocketbox_human_male_adult_01_top_green_research_v1",
+              "instance_id": "source2",
+              "source_class": "articulated_human"
+            }
+          ],
+          "member_role": "v0_a1",
+          "request_id": "v1_visible_binding_mp3d_g01_v0_a1"
+        },
+        {
+          "instances": [
+            {
+              "asset_id": "rocketbox_human_male_adult_01_top_green_research_v1",
+              "instance_id": "source1",
+              "source_class": "articulated_human"
+            },
+            {
+              "asset_id": "rocketbox_human_male_adult_01_top_blue_research_v1",
+              "instance_id": "source2",
+              "source_class": "articulated_human"
+            }
+          ],
+          "member_role": "v1_a0",
+          "request_id": "v1_visible_binding_mp3d_g01_v1_a0"
+        },
+        {
+          "instances": [
+            {
+              "asset_id": "rocketbox_human_male_adult_01_top_green_research_v1",
+              "instance_id": "source1",
+              "source_class": "articulated_human"
+            },
+            {
+              "asset_id": "rocketbox_human_male_adult_01_top_blue_research_v1",
+              "instance_id": "source2",
+              "source_class": "articulated_human"
+            }
+          ],
+          "member_role": "v1_a1",
+          "request_id": "v1_visible_binding_mp3d_g01_v1_a1"
+        }
+      ],
+      "room_id": "habitat_mp3d_example_17DRP5sb8fy",
+      "shared_audio_member_ids": [
+        [
+          "v1_visible_binding_mp3d_g01_v0_a0",
+          "v1_visible_binding_mp3d_g01_v1_a0"
+        ],
+        [
+          "v1_visible_binding_mp3d_g01_v0_a1",
+          "v1_visible_binding_mp3d_g01_v1_a1"
+        ]
+      ],
+      "shared_visual_member_ids": [
+        [
+          "v1_visible_binding_mp3d_g01_v0_a0",
+          "v1_visible_binding_mp3d_g01_v0_a1"
+        ],
+        [
+          "v1_visible_binding_mp3d_g01_v1_a0",
+          "v1_visible_binding_mp3d_g01_v1_a1"
+        ]
+      ],
+      "task_family": "visible_binding"
+    },
+    {
+      "group_id": "v1_visual_conditioned_relation_apartment_g01",
+      "member_defaults": {
+        "seed": 20265910,
+        "sound": {
+          "selection": {
+            "preallocated_sound_asset_ids_by_actor": {
+              "source1": [
+                "prepared_speech_band_018c0ab7639d_v1",
+                "prepared_speech_band_076282cf6ebc_v1",
+                "prepared_speech_band_c62d8bfac815_v1",
+                "prepared_speech_band_1ba2ea32d899_v1"
+              ],
+              "source2": [
+                "prepared_speech_band_018c0ab7639d_v1",
+                "prepared_speech_band_076282cf6ebc_v1",
+                "prepared_speech_band_c62d8bfac815_v1",
+                "prepared_speech_band_1ba2ea32d899_v1"
+              ],
+              "source3": [
+                "prepared_speech_band_018c0ab7639d_v1",
+                "prepared_speech_band_076282cf6ebc_v1",
+                "prepared_speech_band_c62d8bfac815_v1",
+                "prepared_speech_band_1ba2ea32d899_v1"
+              ]
+            }
+          }
+        }
+      },
+      "members": [
+        {
+          "instances": [
+            {
+              "asset_id": "rocketbox_human_male_adult_01_top_blue_research_v1",
+              "instance_id": "source1",
+              "source_class": "articulated_human"
+            },
+            {
+              "asset_id": "rocketbox_human_male_adult_01_top_green_research_v1",
+              "instance_id": "source2",
+              "source_class": "articulated_human"
+            },
+            {
+              "asset_id": "rocketbox_human_male_adult_01_top_yellow_research_v1",
+              "instance_id": "source3",
+              "source_class": "articulated_human"
+            }
+          ],
+          "member_role": "v0_a0",
+          "request_id": "v1_visual_conditioned_relation_apartment_g01_v0_a0"
+        },
+        {
+          "instances": [
+            {
+              "asset_id": "rocketbox_human_male_adult_01_top_blue_research_v1",
+              "instance_id": "source1",
+              "source_class": "articulated_human"
+            },
+            {
+              "asset_id": "rocketbox_human_male_adult_01_top_green_research_v1",
+              "instance_id": "source2",
+              "source_class": "articulated_human"
+            },
+            {
+              "asset_id": "rocketbox_human_male_adult_01_top_yellow_research_v1",
+              "instance_id": "source3",
+              "source_class": "articulated_human"
+            }
+          ],
+          "member_role": "v0_a1",
+          "request_id": "v1_visual_conditioned_relation_apartment_g01_v0_a1"
+        },
+        {
+          "instances": [
+            {
+              "asset_id": "rocketbox_human_male_adult_01_top_blue_research_v1",
+              "instance_id": "source1",
+              "source_class": "articulated_human"
+            },
+            {
+              "asset_id": "rocketbox_human_male_adult_01_top_yellow_research_v1",
+              "instance_id": "source3",
+              "source_class": "articulated_human"
+            },
+            {
+              "asset_id": "rocketbox_human_male_adult_01_top_green_research_v1",
+              "instance_id": "source2",
+              "source_class": "articulated_human"
+            }
+          ],
+          "member_role": "v1_a0",
+          "request_id": "v1_visual_conditioned_relation_apartment_g01_v1_a0"
+        },
+        {
+          "instances": [
+            {
+              "asset_id": "rocketbox_human_male_adult_01_top_blue_research_v1",
+              "instance_id": "source1",
+              "source_class": "articulated_human"
+            },
+            {
+              "asset_id": "rocketbox_human_male_adult_01_top_yellow_research_v1",
+              "instance_id": "source3",
+              "source_class": "articulated_human"
+            },
+            {
+              "asset_id": "rocketbox_human_male_adult_01_top_green_research_v1",
+              "instance_id": "source2",
+              "source_class": "articulated_human"
+            }
+          ],
+          "member_role": "v1_a1",
+          "request_id": "v1_visual_conditioned_relation_apartment_g01_v1_a1"
+        }
+      ],
+      "room_id": "legacy_ue_apartment_0000_v1",
+      "shared_audio_member_ids": [
+        [
+          "v1_visual_conditioned_relation_apartment_g01_v0_a0",
+          "v1_visual_conditioned_relation_apartment_g01_v1_a0"
+        ],
+        [
+          "v1_visual_conditioned_relation_apartment_g01_v0_a1",
+          "v1_visual_conditioned_relation_apartment_g01_v1_a1"
+        ]
+      ],
+      "shared_visual_member_ids": [
+        [
+          "v1_visual_conditioned_relation_apartment_g01_v0_a0",
+          "v1_visual_conditioned_relation_apartment_g01_v0_a1"
+        ],
+        [
+          "v1_visual_conditioned_relation_apartment_g01_v1_a0",
+          "v1_visual_conditioned_relation_apartment_g01_v1_a1"
+        ]
+      ],
+      "task_family": "visual_conditioned_relation"
+    },
+    {
+      "group_id": "v1_visual_conditioned_relation_kujiale_g01",
+      "member_defaults": {
+        "seed": 20266910,
+        "sound": {
+          "selection": {
+            "preallocated_sound_asset_ids_by_actor": {
+              "source1": [
+                "prepared_speech_band_018c0ab7639d_v1",
+                "prepared_speech_band_076282cf6ebc_v1",
+                "prepared_speech_band_c62d8bfac815_v1",
+                "prepared_speech_band_1ba2ea32d899_v1"
+              ],
+              "source2": [
+                "prepared_speech_band_018c0ab7639d_v1",
+                "prepared_speech_band_076282cf6ebc_v1",
+                "prepared_speech_band_c62d8bfac815_v1",
+                "prepared_speech_band_1ba2ea32d899_v1"
+              ],
+              "source3": [
+                "prepared_speech_band_018c0ab7639d_v1",
+                "prepared_speech_band_076282cf6ebc_v1",
+                "prepared_speech_band_c62d8bfac815_v1",
+                "prepared_speech_band_1ba2ea32d899_v1"
+              ]
+            }
+          }
+        }
+      },
+      "members": [
+        {
+          "instances": [
+            {
+              "asset_id": "rocketbox_human_male_adult_01_top_blue_research_v1",
+              "instance_id": "source1",
+              "source_class": "articulated_human"
+            },
+            {
+              "asset_id": "rocketbox_human_male_adult_01_top_green_research_v1",
+              "instance_id": "source2",
+              "source_class": "articulated_human"
+            },
+            {
+              "asset_id": "rocketbox_human_male_adult_01_top_yellow_research_v1",
+              "instance_id": "source3",
+              "source_class": "articulated_human"
+            }
+          ],
+          "member_role": "v0_a0",
+          "request_id": "v1_visual_conditioned_relation_kujiale_g01_v0_a0"
+        },
+        {
+          "instances": [
+            {
+              "asset_id": "rocketbox_human_male_adult_01_top_blue_research_v1",
+              "instance_id": "source1",
+              "source_class": "articulated_human"
+            },
+            {
+              "asset_id": "rocketbox_human_male_adult_01_top_green_research_v1",
+              "instance_id": "source2",
+              "source_class": "articulated_human"
+            },
+            {
+              "asset_id": "rocketbox_human_male_adult_01_top_yellow_research_v1",
+              "instance_id": "source3",
+              "source_class": "articulated_human"
+            }
+          ],
+          "member_role": "v0_a1",
+          "request_id": "v1_visual_conditioned_relation_kujiale_g01_v0_a1"
+        },
+        {
+          "instances": [
+            {
+              "asset_id": "rocketbox_human_male_adult_01_top_blue_research_v1",
+              "instance_id": "source1",
+              "source_class": "articulated_human"
+            },
+            {
+              "asset_id": "rocketbox_human_male_adult_01_top_yellow_research_v1",
+              "instance_id": "source3",
+              "source_class": "articulated_human"
+            },
+            {
+              "asset_id": "rocketbox_human_male_adult_01_top_green_research_v1",
+              "instance_id": "source2",
+              "source_class": "articulated_human"
+            }
+          ],
+          "member_role": "v1_a0",
+          "request_id": "v1_visual_conditioned_relation_kujiale_g01_v1_a0"
+        },
+        {
+          "instances": [
+            {
+              "asset_id": "rocketbox_human_male_adult_01_top_blue_research_v1",
+              "instance_id": "source1",
+              "source_class": "articulated_human"
+            },
+            {
+              "asset_id": "rocketbox_human_male_adult_01_top_yellow_research_v1",
+              "instance_id": "source3",
+              "source_class": "articulated_human"
+            },
+            {
+              "asset_id": "rocketbox_human_male_adult_01_top_green_research_v1",
+              "instance_id": "source2",
+              "source_class": "articulated_human"
+            }
+          ],
+          "member_role": "v1_a1",
+          "request_id": "v1_visual_conditioned_relation_kujiale_g01_v1_a1"
+        }
+      ],
+      "room_id": "kujiale_0020_full_home_v1",
+      "shared_audio_member_ids": [
+        [
+          "v1_visual_conditioned_relation_kujiale_g01_v0_a0",
+          "v1_visual_conditioned_relation_kujiale_g01_v1_a0"
+        ],
+        [
+          "v1_visual_conditioned_relation_kujiale_g01_v0_a1",
+          "v1_visual_conditioned_relation_kujiale_g01_v1_a1"
+        ]
+      ],
+      "shared_visual_member_ids": [
+        [
+          "v1_visual_conditioned_relation_kujiale_g01_v0_a0",
+          "v1_visual_conditioned_relation_kujiale_g01_v0_a1"
+        ],
+        [
+          "v1_visual_conditioned_relation_kujiale_g01_v1_a0",
+          "v1_visual_conditioned_relation_kujiale_g01_v1_a1"
+        ]
+      ],
+      "task_family": "visual_conditioned_relation"
+    },
+    {
+      "group_id": "v1_visual_conditioned_relation_hm3d_g01",
+      "member_defaults": {
+        "seed": 20267910,
+        "sound": {
+          "selection": {
+            "preallocated_sound_asset_ids_by_actor": {
+              "source1": [
+                "prepared_speech_band_018c0ab7639d_v1",
+                "prepared_speech_band_076282cf6ebc_v1",
+                "prepared_speech_band_c62d8bfac815_v1",
+                "prepared_speech_band_1ba2ea32d899_v1"
+              ],
+              "source2": [
+                "prepared_speech_band_018c0ab7639d_v1",
+                "prepared_speech_band_076282cf6ebc_v1",
+                "prepared_speech_band_c62d8bfac815_v1",
+                "prepared_speech_band_1ba2ea32d899_v1"
+              ],
+              "source3": [
+                "prepared_speech_band_018c0ab7639d_v1",
+                "prepared_speech_band_076282cf6ebc_v1",
+                "prepared_speech_band_c62d8bfac815_v1",
+                "prepared_speech_band_1ba2ea32d899_v1"
+              ]
+            }
+          }
+        }
+      },
+      "members": [
+        {
+          "instances": [
+            {
+              "asset_id": "rocketbox_human_male_adult_01_top_blue_research_v1",
+              "instance_id": "source1",
+              "source_class": "articulated_human"
+            },
+            {
+              "asset_id": "rocketbox_human_male_adult_01_top_green_research_v1",
+              "instance_id": "source2",
+              "source_class": "articulated_human"
+            },
+            {
+              "asset_id": "rocketbox_human_male_adult_01_top_yellow_research_v1",
+              "instance_id": "source3",
+              "source_class": "articulated_human"
+            }
+          ],
+          "member_role": "v0_a0",
+          "request_id": "v1_visual_conditioned_relation_hm3d_g01_v0_a0"
+        },
+        {
+          "instances": [
+            {
+              "asset_id": "rocketbox_human_male_adult_01_top_blue_research_v1",
+              "instance_id": "source1",
+              "source_class": "articulated_human"
+            },
+            {
+              "asset_id": "rocketbox_human_male_adult_01_top_green_research_v1",
+              "instance_id": "source2",
+              "source_class": "articulated_human"
+            },
+            {
+              "asset_id": "rocketbox_human_male_adult_01_top_yellow_research_v1",
+              "instance_id": "source3",
+              "source_class": "articulated_human"
+            }
+          ],
+          "member_role": "v0_a1",
+          "request_id": "v1_visual_conditioned_relation_hm3d_g01_v0_a1"
+        },
+        {
+          "instances": [
+            {
+              "asset_id": "rocketbox_human_male_adult_01_top_blue_research_v1",
+              "instance_id": "source1",
+              "source_class": "articulated_human"
+            },
+            {
+              "asset_id": "rocketbox_human_male_adult_01_top_yellow_research_v1",
+              "instance_id": "source3",
+              "source_class": "articulated_human"
+            },
+            {
+              "asset_id": "rocketbox_human_male_adult_01_top_green_research_v1",
+              "instance_id": "source2",
+              "source_class": "articulated_human"
+            }
+          ],
+          "member_role": "v1_a0",
+          "request_id": "v1_visual_conditioned_relation_hm3d_g01_v1_a0"
+        },
+        {
+          "instances": [
+            {
+              "asset_id": "rocketbox_human_male_adult_01_top_blue_research_v1",
+              "instance_id": "source1",
+              "source_class": "articulated_human"
+            },
+            {
+              "asset_id": "rocketbox_human_male_adult_01_top_yellow_research_v1",
+              "instance_id": "source3",
+              "source_class": "articulated_human"
+            },
+            {
+              "asset_id": "rocketbox_human_male_adult_01_top_green_research_v1",
+              "instance_id": "source2",
+              "source_class": "articulated_human"
+            }
+          ],
+          "member_role": "v1_a1",
+          "request_id": "v1_visual_conditioned_relation_hm3d_g01_v1_a1"
+        }
+      ],
+      "room_id": "hm3d_val_00800_TEEsavR23oF",
+      "shared_audio_member_ids": [
+        [
+          "v1_visual_conditioned_relation_hm3d_g01_v0_a0",
+          "v1_visual_conditioned_relation_hm3d_g01_v1_a0"
+        ],
+        [
+          "v1_visual_conditioned_relation_hm3d_g01_v0_a1",
+          "v1_visual_conditioned_relation_hm3d_g01_v1_a1"
+        ]
+      ],
+      "shared_visual_member_ids": [
+        [
+          "v1_visual_conditioned_relation_hm3d_g01_v0_a0",
+          "v1_visual_conditioned_relation_hm3d_g01_v0_a1"
+        ],
+        [
+          "v1_visual_conditioned_relation_hm3d_g01_v1_a0",
+          "v1_visual_conditioned_relation_hm3d_g01_v1_a1"
+        ]
+      ],
+      "task_family": "visual_conditioned_relation"
+    },
+    {
+      "group_id": "v1_visual_conditioned_relation_mp3d_g01",
+      "member_defaults": {
+        "seed": 20268910,
+        "sound": {
+          "selection": {
+            "preallocated_sound_asset_ids_by_actor": {
+              "source1": [
+                "prepared_speech_band_018c0ab7639d_v1",
+                "prepared_speech_band_076282cf6ebc_v1",
+                "prepared_speech_band_c62d8bfac815_v1",
+                "prepared_speech_band_1ba2ea32d899_v1"
+              ],
+              "source2": [
+                "prepared_speech_band_018c0ab7639d_v1",
+                "prepared_speech_band_076282cf6ebc_v1",
+                "prepared_speech_band_c62d8bfac815_v1",
+                "prepared_speech_band_1ba2ea32d899_v1"
+              ],
+              "source3": [
+                "prepared_speech_band_018c0ab7639d_v1",
+                "prepared_speech_band_076282cf6ebc_v1",
+                "prepared_speech_band_c62d8bfac815_v1",
+                "prepared_speech_band_1ba2ea32d899_v1"
+              ]
+            }
+          }
+        }
+      },
+      "members": [
+        {
+          "instances": [
+            {
+              "asset_id": "rocketbox_human_male_adult_01_top_blue_research_v1",
+              "instance_id": "source1",
+              "source_class": "articulated_human"
+            },
+            {
+              "asset_id": "rocketbox_human_male_adult_01_top_green_research_v1",
+              "instance_id": "source2",
+              "source_class": "articulated_human"
+            },
+            {
+              "asset_id": "rocketbox_human_male_adult_01_top_yellow_research_v1",
+              "instance_id": "source3",
+              "source_class": "articulated_human"
+            }
+          ],
+          "member_role": "v0_a0",
+          "request_id": "v1_visual_conditioned_relation_mp3d_g01_v0_a0"
+        },
+        {
+          "instances": [
+            {
+              "asset_id": "rocketbox_human_male_adult_01_top_blue_research_v1",
+              "instance_id": "source1",
+              "source_class": "articulated_human"
+            },
+            {
+              "asset_id": "rocketbox_human_male_adult_01_top_green_research_v1",
+              "instance_id": "source2",
+              "source_class": "articulated_human"
+            },
+            {
+              "asset_id": "rocketbox_human_male_adult_01_top_yellow_research_v1",
+              "instance_id": "source3",
+              "source_class": "articulated_human"
+            }
+          ],
+          "member_role": "v0_a1",
+          "request_id": "v1_visual_conditioned_relation_mp3d_g01_v0_a1"
+        },
+        {
+          "instances": [
+            {
+              "asset_id": "rocketbox_human_male_adult_01_top_blue_research_v1",
+              "instance_id": "source1",
+              "source_class": "articulated_human"
+            },
+            {
+              "asset_id": "rocketbox_human_male_adult_01_top_yellow_research_v1",
+              "instance_id": "source3",
+              "source_class": "articulated_human"
+            },
+            {
+              "asset_id": "rocketbox_human_male_adult_01_top_green_research_v1",
+              "instance_id": "source2",
+              "source_class": "articulated_human"
+            }
+          ],
+          "member_role": "v1_a0",
+          "request_id": "v1_visual_conditioned_relation_mp3d_g01_v1_a0"
+        },
+        {
+          "instances": [
+            {
+              "asset_id": "rocketbox_human_male_adult_01_top_blue_research_v1",
+              "instance_id": "source1",
+              "source_class": "articulated_human"
+            },
+            {
+              "asset_id": "rocketbox_human_male_adult_01_top_yellow_research_v1",
+              "instance_id": "source3",
+              "source_class": "articulated_human"
+            },
+            {
+              "asset_id": "rocketbox_human_male_adult_01_top_green_research_v1",
+              "instance_id": "source2",
+              "source_class": "articulated_human"
+            }
+          ],
+          "member_role": "v1_a1",
+          "request_id": "v1_visual_conditioned_relation_mp3d_g01_v1_a1"
+        }
+      ],
+      "room_id": "habitat_mp3d_example_17DRP5sb8fy",
+      "shared_audio_member_ids": [
+        [
+          "v1_visual_conditioned_relation_mp3d_g01_v0_a0",
+          "v1_visual_conditioned_relation_mp3d_g01_v1_a0"
+        ],
+        [
+          "v1_visual_conditioned_relation_mp3d_g01_v0_a1",
+          "v1_visual_conditioned_relation_mp3d_g01_v1_a1"
+        ]
+      ],
+      "shared_visual_member_ids": [
+        [
+          "v1_visual_conditioned_relation_mp3d_g01_v0_a0",
+          "v1_visual_conditioned_relation_mp3d_g01_v0_a1"
+        ],
+        [
+          "v1_visual_conditioned_relation_mp3d_g01_v1_a0",
+          "v1_visual_conditioned_relation_mp3d_g01_v1_a1"
+        ]
+      ],
+      "task_family": "visual_conditioned_relation"
+    },
+    {
+      "group_id": "v1_cross_event_identity_apartment_g01",
+      "member_defaults": {
+        "seed": 20269910
+      },
+      "members": [
+        {
+          "instances": [
+            {
+              "asset_id": "rocketbox_human_male_adult_01_top_blue_research_v1",
+              "instance_id": "source1",
+              "source_class": "articulated_human"
+            },
+            {
+              "asset_id": "generated_smart_speaker_fabric_wrapped_cylinder_charcoal_research_v1",
+              "instance_id": "source2",
+              "source_class": "rigid_static_object"
+            }
+          ],
+          "member_role": "v0_a0",
+          "request_id": "v1_cross_event_identity_apartment_g01_v0_a0"
+        },
+        {
+          "instances": [
+            {
+              "asset_id": "rocketbox_human_male_adult_01_top_blue_research_v1",
+              "instance_id": "source1",
+              "source_class": "articulated_human"
+            },
+            {
+              "asset_id": "generated_smart_speaker_fabric_wrapped_cylinder_charcoal_research_v1",
+              "instance_id": "source2",
+              "source_class": "rigid_static_object"
+            }
+          ],
+          "member_role": "v0_a1",
+          "request_id": "v1_cross_event_identity_apartment_g01_v0_a1"
+        },
+        {
+          "instances": [
+            {
+              "asset_id": "generated_smart_speaker_fabric_wrapped_cylinder_charcoal_research_v1",
+              "instance_id": "source1",
+              "source_class": "rigid_static_object"
+            },
+            {
+              "asset_id": "rocketbox_human_male_adult_01_top_blue_research_v1",
+              "instance_id": "source2",
+              "source_class": "articulated_human"
+            }
+          ],
+          "member_role": "v1_a0",
+          "request_id": "v1_cross_event_identity_apartment_g01_v1_a0"
+        },
+        {
+          "instances": [
+            {
+              "asset_id": "generated_smart_speaker_fabric_wrapped_cylinder_charcoal_research_v1",
+              "instance_id": "source1",
+              "source_class": "rigid_static_object"
+            },
+            {
+              "asset_id": "rocketbox_human_male_adult_01_top_blue_research_v1",
+              "instance_id": "source2",
+              "source_class": "articulated_human"
+            }
+          ],
+          "member_role": "v1_a1",
+          "request_id": "v1_cross_event_identity_apartment_g01_v1_a1"
+        }
+      ],
+      "room_id": "legacy_ue_apartment_0000_v1",
+      "shared_audio_member_ids": [
+        [
+          "v1_cross_event_identity_apartment_g01_v0_a0",
+          "v1_cross_event_identity_apartment_g01_v1_a0"
+        ],
+        [
+          "v1_cross_event_identity_apartment_g01_v0_a1",
+          "v1_cross_event_identity_apartment_g01_v1_a1"
+        ]
+      ],
+      "shared_visual_member_ids": [
+        [
+          "v1_cross_event_identity_apartment_g01_v0_a0",
+          "v1_cross_event_identity_apartment_g01_v0_a1"
+        ],
+        [
+          "v1_cross_event_identity_apartment_g01_v1_a0",
+          "v1_cross_event_identity_apartment_g01_v1_a1"
+        ]
+      ],
+      "task_family": "cross_event_identity"
+    },
+    {
+      "group_id": "v1_cross_event_identity_kujiale_g01",
+      "member_defaults": {
+        "seed": 20270910
+      },
+      "members": [
+        {
+          "instances": [
+            {
+              "asset_id": "rocketbox_human_male_adult_01_top_blue_research_v1",
+              "instance_id": "source1",
+              "source_class": "articulated_human"
+            },
+            {
+              "asset_id": "generated_smart_speaker_fabric_wrapped_cylinder_charcoal_research_v1",
+              "instance_id": "source2",
+              "source_class": "rigid_static_object"
+            }
+          ],
+          "member_role": "v0_a0",
+          "request_id": "v1_cross_event_identity_kujiale_g01_v0_a0"
+        },
+        {
+          "instances": [
+            {
+              "asset_id": "rocketbox_human_male_adult_01_top_blue_research_v1",
+              "instance_id": "source1",
+              "source_class": "articulated_human"
+            },
+            {
+              "asset_id": "generated_smart_speaker_fabric_wrapped_cylinder_charcoal_research_v1",
+              "instance_id": "source2",
+              "source_class": "rigid_static_object"
+            }
+          ],
+          "member_role": "v0_a1",
+          "request_id": "v1_cross_event_identity_kujiale_g01_v0_a1"
+        },
+        {
+          "instances": [
+            {
+              "asset_id": "generated_smart_speaker_fabric_wrapped_cylinder_charcoal_research_v1",
+              "instance_id": "source1",
+              "source_class": "rigid_static_object"
+            },
+            {
+              "asset_id": "rocketbox_human_male_adult_01_top_blue_research_v1",
+              "instance_id": "source2",
+              "source_class": "articulated_human"
+            }
+          ],
+          "member_role": "v1_a0",
+          "request_id": "v1_cross_event_identity_kujiale_g01_v1_a0"
+        },
+        {
+          "instances": [
+            {
+              "asset_id": "generated_smart_speaker_fabric_wrapped_cylinder_charcoal_research_v1",
+              "instance_id": "source1",
+              "source_class": "rigid_static_object"
+            },
+            {
+              "asset_id": "rocketbox_human_male_adult_01_top_blue_research_v1",
+              "instance_id": "source2",
+              "source_class": "articulated_human"
+            }
+          ],
+          "member_role": "v1_a1",
+          "request_id": "v1_cross_event_identity_kujiale_g01_v1_a1"
+        }
+      ],
+      "room_id": "kujiale_0020_full_home_v1",
+      "shared_audio_member_ids": [
+        [
+          "v1_cross_event_identity_kujiale_g01_v0_a0",
+          "v1_cross_event_identity_kujiale_g01_v1_a0"
+        ],
+        [
+          "v1_cross_event_identity_kujiale_g01_v0_a1",
+          "v1_cross_event_identity_kujiale_g01_v1_a1"
+        ]
+      ],
+      "shared_visual_member_ids": [
+        [
+          "v1_cross_event_identity_kujiale_g01_v0_a0",
+          "v1_cross_event_identity_kujiale_g01_v0_a1"
+        ],
+        [
+          "v1_cross_event_identity_kujiale_g01_v1_a0",
+          "v1_cross_event_identity_kujiale_g01_v1_a1"
+        ]
+      ],
+      "task_family": "cross_event_identity"
+    },
+    {
+      "group_id": "v1_cross_event_identity_hm3d_g01",
+      "member_defaults": {
+        "seed": 20271910
+      },
+      "members": [
+        {
+          "instances": [
+            {
+              "asset_id": "rocketbox_human_male_adult_01_top_blue_research_v1",
+              "instance_id": "source1",
+              "source_class": "articulated_human"
+            },
+            {
+              "asset_id": "generated_smart_speaker_fabric_wrapped_cylinder_charcoal_research_v1",
+              "instance_id": "source2",
+              "source_class": "rigid_static_object"
+            }
+          ],
+          "member_role": "v0_a0",
+          "request_id": "v1_cross_event_identity_hm3d_g01_v0_a0"
+        },
+        {
+          "instances": [
+            {
+              "asset_id": "rocketbox_human_male_adult_01_top_blue_research_v1",
+              "instance_id": "source1",
+              "source_class": "articulated_human"
+            },
+            {
+              "asset_id": "generated_smart_speaker_fabric_wrapped_cylinder_charcoal_research_v1",
+              "instance_id": "source2",
+              "source_class": "rigid_static_object"
+            }
+          ],
+          "member_role": "v0_a1",
+          "request_id": "v1_cross_event_identity_hm3d_g01_v0_a1"
+        },
+        {
+          "instances": [
+            {
+              "asset_id": "generated_smart_speaker_fabric_wrapped_cylinder_charcoal_research_v1",
+              "instance_id": "source1",
+              "source_class": "rigid_static_object"
+            },
+            {
+              "asset_id": "rocketbox_human_male_adult_01_top_blue_research_v1",
+              "instance_id": "source2",
+              "source_class": "articulated_human"
+            }
+          ],
+          "member_role": "v1_a0",
+          "request_id": "v1_cross_event_identity_hm3d_g01_v1_a0"
+        },
+        {
+          "instances": [
+            {
+              "asset_id": "generated_smart_speaker_fabric_wrapped_cylinder_charcoal_research_v1",
+              "instance_id": "source1",
+              "source_class": "rigid_static_object"
+            },
+            {
+              "asset_id": "rocketbox_human_male_adult_01_top_blue_research_v1",
+              "instance_id": "source2",
+              "source_class": "articulated_human"
+            }
+          ],
+          "member_role": "v1_a1",
+          "request_id": "v1_cross_event_identity_hm3d_g01_v1_a1"
+        }
+      ],
+      "room_id": "hm3d_val_00800_TEEsavR23oF",
+      "shared_audio_member_ids": [
+        [
+          "v1_cross_event_identity_hm3d_g01_v0_a0",
+          "v1_cross_event_identity_hm3d_g01_v1_a0"
+        ],
+        [
+          "v1_cross_event_identity_hm3d_g01_v0_a1",
+          "v1_cross_event_identity_hm3d_g01_v1_a1"
+        ]
+      ],
+      "shared_visual_member_ids": [
+        [
+          "v1_cross_event_identity_hm3d_g01_v0_a0",
+          "v1_cross_event_identity_hm3d_g01_v0_a1"
+        ],
+        [
+          "v1_cross_event_identity_hm3d_g01_v1_a0",
+          "v1_cross_event_identity_hm3d_g01_v1_a1"
+        ]
+      ],
+      "task_family": "cross_event_identity"
+    },
+    {
+      "group_id": "v1_cross_event_identity_mp3d_g01",
+      "member_defaults": {
+        "seed": 20272910
+      },
+      "members": [
+        {
+          "instances": [
+            {
+              "asset_id": "rocketbox_human_male_adult_01_top_blue_research_v1",
+              "instance_id": "source1",
+              "source_class": "articulated_human"
+            },
+            {
+              "asset_id": "generated_smart_speaker_fabric_wrapped_cylinder_charcoal_research_v1",
+              "instance_id": "source2",
+              "source_class": "rigid_static_object"
+            }
+          ],
+          "member_role": "v0_a0",
+          "request_id": "v1_cross_event_identity_mp3d_g01_v0_a0"
+        },
+        {
+          "instances": [
+            {
+              "asset_id": "rocketbox_human_male_adult_01_top_blue_research_v1",
+              "instance_id": "source1",
+              "source_class": "articulated_human"
+            },
+            {
+              "asset_id": "generated_smart_speaker_fabric_wrapped_cylinder_charcoal_research_v1",
+              "instance_id": "source2",
+              "source_class": "rigid_static_object"
+            }
+          ],
+          "member_role": "v0_a1",
+          "request_id": "v1_cross_event_identity_mp3d_g01_v0_a1"
+        },
+        {
+          "instances": [
+            {
+              "asset_id": "generated_smart_speaker_fabric_wrapped_cylinder_charcoal_research_v1",
+              "instance_id": "source1",
+              "source_class": "rigid_static_object"
+            },
+            {
+              "asset_id": "rocketbox_human_male_adult_01_top_blue_research_v1",
+              "instance_id": "source2",
+              "source_class": "articulated_human"
+            }
+          ],
+          "member_role": "v1_a0",
+          "request_id": "v1_cross_event_identity_mp3d_g01_v1_a0"
+        },
+        {
+          "instances": [
+            {
+              "asset_id": "generated_smart_speaker_fabric_wrapped_cylinder_charcoal_research_v1",
+              "instance_id": "source1",
+              "source_class": "rigid_static_object"
+            },
+            {
+              "asset_id": "rocketbox_human_male_adult_01_top_blue_research_v1",
+              "instance_id": "source2",
+              "source_class": "articulated_human"
+            }
+          ],
+          "member_role": "v1_a1",
+          "request_id": "v1_cross_event_identity_mp3d_g01_v1_a1"
+        }
+      ],
+      "room_id": "habitat_mp3d_example_17DRP5sb8fy",
+      "shared_audio_member_ids": [
+        [
+          "v1_cross_event_identity_mp3d_g01_v0_a0",
+          "v1_cross_event_identity_mp3d_g01_v1_a0"
+        ],
+        [
+          "v1_cross_event_identity_mp3d_g01_v0_a1",
+          "v1_cross_event_identity_mp3d_g01_v1_a1"
+        ]
+      ],
+      "shared_visual_member_ids": [
+        [
+          "v1_cross_event_identity_mp3d_g01_v0_a0",
+          "v1_cross_event_identity_mp3d_g01_v0_a1"
+        ],
+        [
+          "v1_cross_event_identity_mp3d_g01_v1_a0",
+          "v1_cross_event_identity_mp3d_g01_v1_a1"
+        ]
+      ],
+      "task_family": "cross_event_identity"
+    },
+    {
+      "group_id": "v1_cross_time_state_apartment_g01",
+      "member_defaults": {
+        "seed": 20273910
+      },
+      "members": [
+        {
+          "instances": [
+            {
+              "asset_id": "rocketbox_human_male_adult_01_top_blue_research_v1",
+              "instance_id": "source1",
+              "source_class": "articulated_human"
+            },
+            {
+              "asset_id": "rocketbox_human_male_adult_01_top_green_research_v1",
+              "instance_id": "source2",
+              "source_class": "articulated_human"
+            }
+          ],
+          "member_role": "v0_a0",
+          "request_id": "v1_cross_time_state_apartment_g01_v0_a0"
+        },
+        {
+          "instances": [
+            {
+              "asset_id": "rocketbox_human_male_adult_01_top_blue_research_v1",
+              "instance_id": "source1",
+              "source_class": "articulated_human"
+            },
+            {
+              "asset_id": "rocketbox_human_male_adult_01_top_green_research_v1",
+              "instance_id": "source2",
+              "source_class": "articulated_human"
+            }
+          ],
+          "member_role": "v0_a1",
+          "request_id": "v1_cross_time_state_apartment_g01_v0_a1"
+        },
+        {
+          "instances": [
+            {
+              "asset_id": "rocketbox_human_male_adult_01_top_green_research_v1",
+              "instance_id": "source1",
+              "source_class": "articulated_human"
+            },
+            {
+              "asset_id": "rocketbox_human_male_adult_01_top_blue_research_v1",
+              "instance_id": "source2",
+              "source_class": "articulated_human"
+            }
+          ],
+          "member_role": "v1_a0",
+          "request_id": "v1_cross_time_state_apartment_g01_v1_a0"
+        },
+        {
+          "instances": [
+            {
+              "asset_id": "rocketbox_human_male_adult_01_top_green_research_v1",
+              "instance_id": "source1",
+              "source_class": "articulated_human"
+            },
+            {
+              "asset_id": "rocketbox_human_male_adult_01_top_blue_research_v1",
+              "instance_id": "source2",
+              "source_class": "articulated_human"
+            }
+          ],
+          "member_role": "v1_a1",
+          "request_id": "v1_cross_time_state_apartment_g01_v1_a1"
+        }
+      ],
+      "room_id": "legacy_ue_apartment_0000_v1",
+      "shared_audio_member_ids": [
+        [
+          "v1_cross_time_state_apartment_g01_v0_a0",
+          "v1_cross_time_state_apartment_g01_v1_a0"
+        ],
+        [
+          "v1_cross_time_state_apartment_g01_v0_a1",
+          "v1_cross_time_state_apartment_g01_v1_a1"
+        ]
+      ],
+      "shared_visual_member_ids": [
+        [
+          "v1_cross_time_state_apartment_g01_v0_a0",
+          "v1_cross_time_state_apartment_g01_v0_a1"
+        ],
+        [
+          "v1_cross_time_state_apartment_g01_v1_a0",
+          "v1_cross_time_state_apartment_g01_v1_a1"
+        ]
+      ],
+      "task_family": "cross_time_state"
+    },
+    {
+      "group_id": "v1_cross_time_state_kujiale_g01",
+      "member_defaults": {
+        "seed": 20274910
+      },
+      "members": [
+        {
+          "instances": [
+            {
+              "asset_id": "rocketbox_human_male_adult_01_top_blue_research_v1",
+              "instance_id": "source1",
+              "source_class": "articulated_human"
+            },
+            {
+              "asset_id": "rocketbox_human_male_adult_01_top_green_research_v1",
+              "instance_id": "source2",
+              "source_class": "articulated_human"
+            }
+          ],
+          "member_role": "v0_a0",
+          "request_id": "v1_cross_time_state_kujiale_g01_v0_a0"
+        },
+        {
+          "instances": [
+            {
+              "asset_id": "rocketbox_human_male_adult_01_top_blue_research_v1",
+              "instance_id": "source1",
+              "source_class": "articulated_human"
+            },
+            {
+              "asset_id": "rocketbox_human_male_adult_01_top_green_research_v1",
+              "instance_id": "source2",
+              "source_class": "articulated_human"
+            }
+          ],
+          "member_role": "v0_a1",
+          "request_id": "v1_cross_time_state_kujiale_g01_v0_a1"
+        },
+        {
+          "instances": [
+            {
+              "asset_id": "rocketbox_human_male_adult_01_top_green_research_v1",
+              "instance_id": "source1",
+              "source_class": "articulated_human"
+            },
+            {
+              "asset_id": "rocketbox_human_male_adult_01_top_blue_research_v1",
+              "instance_id": "source2",
+              "source_class": "articulated_human"
+            }
+          ],
+          "member_role": "v1_a0",
+          "request_id": "v1_cross_time_state_kujiale_g01_v1_a0"
+        },
+        {
+          "instances": [
+            {
+              "asset_id": "rocketbox_human_male_adult_01_top_green_research_v1",
+              "instance_id": "source1",
+              "source_class": "articulated_human"
+            },
+            {
+              "asset_id": "rocketbox_human_male_adult_01_top_blue_research_v1",
+              "instance_id": "source2",
+              "source_class": "articulated_human"
+            }
+          ],
+          "member_role": "v1_a1",
+          "request_id": "v1_cross_time_state_kujiale_g01_v1_a1"
+        }
+      ],
+      "room_id": "kujiale_0020_full_home_v1",
+      "shared_audio_member_ids": [
+        [
+          "v1_cross_time_state_kujiale_g01_v0_a0",
+          "v1_cross_time_state_kujiale_g01_v1_a0"
+        ],
+        [
+          "v1_cross_time_state_kujiale_g01_v0_a1",
+          "v1_cross_time_state_kujiale_g01_v1_a1"
+        ]
+      ],
+      "shared_visual_member_ids": [
+        [
+          "v1_cross_time_state_kujiale_g01_v0_a0",
+          "v1_cross_time_state_kujiale_g01_v0_a1"
+        ],
+        [
+          "v1_cross_time_state_kujiale_g01_v1_a0",
+          "v1_cross_time_state_kujiale_g01_v1_a1"
+        ]
+      ],
+      "task_family": "cross_time_state"
+    },
+    {
+      "group_id": "v1_cross_time_state_hm3d_g01",
+      "member_defaults": {
+        "seed": 20275910
+      },
+      "members": [
+        {
+          "instances": [
+            {
+              "asset_id": "rocketbox_human_male_adult_01_top_blue_research_v1",
+              "instance_id": "source1",
+              "source_class": "articulated_human"
+            },
+            {
+              "asset_id": "rocketbox_human_male_adult_01_top_green_research_v1",
+              "instance_id": "source2",
+              "source_class": "articulated_human"
+            }
+          ],
+          "member_role": "v0_a0",
+          "request_id": "v1_cross_time_state_hm3d_g01_v0_a0"
+        },
+        {
+          "instances": [
+            {
+              "asset_id": "rocketbox_human_male_adult_01_top_blue_research_v1",
+              "instance_id": "source1",
+              "source_class": "articulated_human"
+            },
+            {
+              "asset_id": "rocketbox_human_male_adult_01_top_green_research_v1",
+              "instance_id": "source2",
+              "source_class": "articulated_human"
+            }
+          ],
+          "member_role": "v0_a1",
+          "request_id": "v1_cross_time_state_hm3d_g01_v0_a1"
+        },
+        {
+          "instances": [
+            {
+              "asset_id": "rocketbox_human_male_adult_01_top_green_research_v1",
+              "instance_id": "source1",
+              "source_class": "articulated_human"
+            },
+            {
+              "asset_id": "rocketbox_human_male_adult_01_top_blue_research_v1",
+              "instance_id": "source2",
+              "source_class": "articulated_human"
+            }
+          ],
+          "member_role": "v1_a0",
+          "request_id": "v1_cross_time_state_hm3d_g01_v1_a0"
+        },
+        {
+          "instances": [
+            {
+              "asset_id": "rocketbox_human_male_adult_01_top_green_research_v1",
+              "instance_id": "source1",
+              "source_class": "articulated_human"
+            },
+            {
+              "asset_id": "rocketbox_human_male_adult_01_top_blue_research_v1",
+              "instance_id": "source2",
+              "source_class": "articulated_human"
+            }
+          ],
+          "member_role": "v1_a1",
+          "request_id": "v1_cross_time_state_hm3d_g01_v1_a1"
+        }
+      ],
+      "room_id": "hm3d_val_00800_TEEsavR23oF",
+      "shared_audio_member_ids": [
+        [
+          "v1_cross_time_state_hm3d_g01_v0_a0",
+          "v1_cross_time_state_hm3d_g01_v1_a0"
+        ],
+        [
+          "v1_cross_time_state_hm3d_g01_v0_a1",
+          "v1_cross_time_state_hm3d_g01_v1_a1"
+        ]
+      ],
+      "shared_visual_member_ids": [
+        [
+          "v1_cross_time_state_hm3d_g01_v0_a0",
+          "v1_cross_time_state_hm3d_g01_v0_a1"
+        ],
+        [
+          "v1_cross_time_state_hm3d_g01_v1_a0",
+          "v1_cross_time_state_hm3d_g01_v1_a1"
+        ]
+      ],
+      "task_family": "cross_time_state"
+    },
+    {
+      "group_id": "v1_cross_time_state_mp3d_g01",
+      "member_defaults": {
+        "seed": 20276910
+      },
+      "members": [
+        {
+          "instances": [
+            {
+              "asset_id": "rocketbox_human_male_adult_01_top_blue_research_v1",
+              "instance_id": "source1",
+              "source_class": "articulated_human"
+            },
+            {
+              "asset_id": "rocketbox_human_male_adult_01_top_green_research_v1",
+              "instance_id": "source2",
+              "source_class": "articulated_human"
+            }
+          ],
+          "member_role": "v0_a0",
+          "request_id": "v1_cross_time_state_mp3d_g01_v0_a0"
+        },
+        {
+          "instances": [
+            {
+              "asset_id": "rocketbox_human_male_adult_01_top_blue_research_v1",
+              "instance_id": "source1",
+              "source_class": "articulated_human"
+            },
+            {
+              "asset_id": "rocketbox_human_male_adult_01_top_green_research_v1",
+              "instance_id": "source2",
+              "source_class": "articulated_human"
+            }
+          ],
+          "member_role": "v0_a1",
+          "request_id": "v1_cross_time_state_mp3d_g01_v0_a1"
+        },
+        {
+          "instances": [
+            {
+              "asset_id": "rocketbox_human_male_adult_01_top_green_research_v1",
+              "instance_id": "source1",
+              "source_class": "articulated_human"
+            },
+            {
+              "asset_id": "rocketbox_human_male_adult_01_top_blue_research_v1",
+              "instance_id": "source2",
+              "source_class": "articulated_human"
+            }
+          ],
+          "member_role": "v1_a0",
+          "request_id": "v1_cross_time_state_mp3d_g01_v1_a0"
+        },
+        {
+          "instances": [
+            {
+              "asset_id": "rocketbox_human_male_adult_01_top_green_research_v1",
+              "instance_id": "source1",
+              "source_class": "articulated_human"
+            },
+            {
+              "asset_id": "rocketbox_human_male_adult_01_top_blue_research_v1",
+              "instance_id": "source2",
+              "source_class": "articulated_human"
+            }
+          ],
+          "member_role": "v1_a1",
+          "request_id": "v1_cross_time_state_mp3d_g01_v1_a1"
+        }
+      ],
+      "room_id": "habitat_mp3d_example_17DRP5sb8fy",
+      "shared_audio_member_ids": [
+        [
+          "v1_cross_time_state_mp3d_g01_v0_a0",
+          "v1_cross_time_state_mp3d_g01_v1_a0"
+        ],
+        [
+          "v1_cross_time_state_mp3d_g01_v0_a1",
+          "v1_cross_time_state_mp3d_g01_v1_a1"
+        ]
+      ],
+      "shared_visual_member_ids": [
+        [
+          "v1_cross_time_state_mp3d_g01_v0_a0",
+          "v1_cross_time_state_mp3d_g01_v0_a1"
+        ],
+        [
+          "v1_cross_time_state_mp3d_g01_v1_a0",
+          "v1_cross_time_state_mp3d_g01_v1_a1"
+        ]
+      ],
+      "task_family": "cross_time_state"
+    }
+  ],
+  "coverage_quota": {
+    "branches_by_qa_id": {
+      "QA-01": [],
+      "QA-02": [],
+      "QA-03": [],
+      "QA-04": [],
+      "QA-05": [
+        "overlap",
+        "disjoint"
+      ],
+      "QA-06": [
+        "moving",
+        "still"
+      ],
+      "QA-07": [
+        "left",
+        "right"
+      ],
+      "QA-08": [
+        "out_of_view",
+        "visible_clear",
+        "visible_occluded",
+        "fully_occluded"
+      ],
+      "QA-09": [
+        "yes",
+        "no"
+      ],
+      "QA-10": [],
+      "QA-11": [],
+      "QA-12": [],
+      "QA-13": [],
+      "QA-14": [],
+      "QA-15": [
+        "nearer",
+        "farther"
+      ],
+      "QA-16": [],
+      "QA-17": [
+        "yes",
+        "no"
+      ],
+      "QA-18": [],
+      "QA-19": [],
+      "QA-20": [
+        "visible_candidate",
+        "none_of_them"
+      ],
+      "QA-21": [],
+      "QA-22": [],
+      "QA-23": [],
+      "QA-24": [
+        "out_of_view",
+        "visible_clear",
+        "visible_occluded",
+        "fully_occluded"
+      ],
+      "QA-25": [
+        "A",
+        "V",
+        "AV"
+      ]
+    },
+    "claim_boundary": "Targets only. Meeting them yields a readable, scoreable V1 question bank; it is not human answerability, model evaluation or paper admission, and none of those may be inferred from these numbers.",
+    "core_task_families": [
+      "visible_binding",
+      "visual_conditioned_relation",
+      "cross_event_identity",
+      "cross_time_state"
+    ],
+    "entity_combinations": [
+      "animal+animal",
+      "animal+device",
+      "device+device",
+      "human+animal",
+      "human+device",
+      "human+human"
+    ],
+    "first_version_cap_source": "This pilot targets 16 core groups: one in each of four task families x four room families. The retained snapshot is historical evidence only.",
+    "min_core_groups_per_task_family_and_room_family": 1,
+    "min_distinct_worlds_per_branch": 2,
+    "min_distinct_worlds_per_entity_combination": 2,
+    "min_distinct_worlds_per_qa_id": 2,
+    "min_valid_main_questions_per_branch": 2,
+    "min_valid_main_questions_per_qa_id": 8,
+    "notes": [
+      "One generated item offering both mcq and open is one valid main question; the form counts break the same items down.",
+      "Angle follow-ups are counted on their own line, never as main questions.",
+      "A world contributes once however many members it serves, and an already imported retained delivery is counted once."
+    ],
+    "qa_ids": [
+      "QA-01",
+      "QA-02",
+      "QA-03",
+      "QA-04",
+      "QA-05",
+      "QA-06",
+      "QA-07",
+      "QA-08",
+      "QA-09",
+      "QA-10",
+      "QA-11",
+      "QA-12",
+      "QA-13",
+      "QA-14",
+      "QA-15",
+      "QA-16",
+      "QA-17",
+      "QA-18",
+      "QA-19",
+      "QA-20",
+      "QA-21",
+      "QA-22",
+      "QA-23",
+      "QA-24",
+      "QA-25"
+    ],
+    "room_families": [
+      "apartment",
+      "kujiale",
+      "hm3d",
+      "mp3d"
+    ],
+    "schema": "avengine_qa_v1_coverage_targets_v1",
+    "target_core_group_count": 16
+  },
+  "defaults": {
+    "audio_layouts": [
+      {
+        "indirect_sh_order": 1,
+        "role": "primary",
+        "type": "binaural"
+      },
+      {
+        "ambisonic_order": 1,
+        "indirect_sh_order": 1,
+        "role": "attached_view",
+        "type": "ambisonics"
+      }
+    ],
+    "clock": {
+      "frame_count": 150,
+      "frame_rate_hz": 15,
+      "sample_rate_hz": 16000
+    },
+    "items_per_type": 1,
+    "post_assembly_convolution_gain": 0.5,
+    "profile": {
+      "competitor_set": "all_other_entities_including_offscreen",
+      "min_gap_between_audible_windows_s": 0.5,
+      "minimum_overlap_s": 0.3,
+      "reserve_tail_s": 3.0,
+      "retry_budget_within_profile": 200,
+      "separation_floor_deg": 15,
+      "separation_window": "whole_audible_window_of_anchor"
+    },
+    "reserve_tail_s": 3.0,
+    "resources": {
+      "assembly": {
+        "kind": "cpu"
+      },
+      "audio": {
+        "kind": "cpu_native_acoustic",
+        "rlr_threads": 1
+      },
+      "capture": {
+        "kind": "gpu_native_visual",
+        "min_free_vram_mb": 12000
+      },
+      "delivery": {
+        "kind": "cpu"
+      },
+      "late_plan": {
+        "kind": "cpu_native_geometry"
+      },
+      "plan": {
+        "kind": "cpu"
+      }
+    },
+    "retry": {
+      "attempts_per_stage": 2,
+      "attempts_within_profile": 200
+    },
+    "rig": {
+      "fov_deg": 85,
+      "height_above_floor_m": 1.55,
+      "motion": "static",
+      "resolution_hw": [
+        720,
+        1280
+      ]
+    },
+    "sound": {
+      "selection": {
+        "clip_span_fit_policy": "filter_to_remaining_budget_then_uniform",
+        "max_clip_s": 5.0,
+        "min_audible_s": 1.5,
+        "unique_first_utterance_transcripts": true
+      }
+    }
+  },
+  "episodes": [
+    {
+      "condition_group": "animal+animal_bundle_00",
+      "instances": [
+        {
+          "asset_id": "generated_border_collie_black_white_medium_standard_adult_research_v1",
+          "instance_id": "source1",
+          "source_class": "articulated_animal"
+        },
+        {
+          "asset_id": "generated_abyssinian_ruddy_medium_standard_adult_research_v1",
+          "instance_id": "source2",
+          "source_class": "articulated_animal"
+        }
+      ],
+      "member_role": "plain_episode",
+      "profile": {
+        "anchor_count": 1,
+        "anchor_line_of_sight": "clear",
+        "anchor_visibility": "in_fov",
+        "competitor_motion": "still",
+        "event_relation": "sequential",
+        "min_gap_between_audible_windows_s": 0.5,
+        "speech_motion": "speaker_moving"
+      },
+      "qa_targets": [
+        {
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-01",
+          "target_instance_ids": [
+            "source1"
+          ]
+        },
+        {
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-02",
+          "target_instance_ids": [
+            "source1"
+          ]
+        },
+        {
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-04",
+          "target_instance_ids": [
+            "source1"
+          ]
+        },
+        {
+          "branch": "moving",
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-06",
+          "target_instance_ids": [
+            "source1"
+          ]
+        },
+        {
+          "branch": "left",
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-07",
+          "target_instance_ids": [
+            "source1"
+          ]
+        },
+        {
+          "branch": "visible_clear",
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-08",
+          "target_instance_ids": [
+            "source1"
+          ]
+        },
+        {
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-12",
+          "target_instance_ids": [
+            "source1"
+          ]
+        },
+        {
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-13",
+          "target_instance_ids": [
+            "source1"
+          ]
+        },
+        {
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-16",
+          "target_instance_ids": [
+            "source1"
+          ]
+        },
+        {
+          "branch": "yes",
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-17",
+          "target_instance_ids": [
+            "source1"
+          ]
+        },
+        {
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-19",
+          "target_instance_ids": [
+            "source1"
+          ]
+        },
+        {
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-21",
+          "target_instance_ids": [
+            "source1"
+          ]
+        },
+        {
+          "branch": "visible_clear",
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-24",
+          "target_instance_ids": [
+            "source1"
+          ]
+        },
+        {
+          "branch": "A",
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-25",
+          "target_instance_ids": [
+            "source1"
+          ]
+        },
+        {
+          "branch": "V",
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-25",
+          "target_instance_ids": [
+            "source1"
+          ]
+        }
+      ],
+      "request_id": "v1_episode_apartment_animal_animal_b00",
+      "room_id": "legacy_ue_apartment_0000_v1"
+    },
+    {
+      "condition_group": "animal+animal_bundle_01",
+      "instances": [
+        {
+          "asset_id": "generated_border_collie_black_white_medium_standard_adult_research_v1",
+          "instance_id": "source1",
+          "source_class": "articulated_animal"
+        },
+        {
+          "asset_id": "generated_abyssinian_ruddy_medium_standard_adult_research_v1",
+          "instance_id": "source2",
+          "source_class": "articulated_animal"
+        }
+      ],
+      "member_role": "plain_episode",
+      "profile": {
+        "anchor_count": 2,
+        "anchor_visibility": "in_fov",
+        "competitor_visibility": "in_fov",
+        "event_relation": "sequential"
+      },
+      "qa_targets": [
+        {
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-03",
+          "target_instance_ids": [
+            "source1",
+            "source2"
+          ]
+        },
+        {
+          "branch": "disjoint",
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-05",
+          "target_instance_ids": [
+            "source1",
+            "source2"
+          ]
+        },
+        {
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-14",
+          "target_instance_ids": [
+            "source1",
+            "source2"
+          ]
+        },
+        {
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-18",
+          "target_instance_ids": [
+            "source1",
+            "source2"
+          ]
+        },
+        {
+          "branch": "visible_candidate",
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-20",
+          "target_instance_ids": [
+            "source1",
+            "source2"
+          ]
+        },
+        {
+          "event": {
+            "kind": "whole_clip"
+          },
+          "items": 1,
+          "qa_id": "QA-22",
+          "target_instance_ids": [
+            "source1",
+            "source2"
+          ]
+        }
+      ],
+      "request_id": "v1_episode_kujiale_animal_animal_b01",
+      "room_id": "kujiale_0020_full_home_v1"
+    },
+    {
+      "condition_group": "animal+animal_bundle_02",
+      "instances": [
+        {
+          "asset_id": "generated_border_collie_black_white_medium_standard_adult_research_v1",
+          "instance_id": "source1",
+          "source_class": "articulated_animal"
+        },
+        {
+          "asset_id": "generated_abyssinian_ruddy_medium_standard_adult_research_v1",
+          "instance_id": "source2",
+          "source_class": "articulated_animal"
+        }
+      ],
+      "member_role": "plain_episode",
+      "profile": {
+        "anchor_count": 2,
+        "anchor_visibility": "off_screen",
+        "competitor_visibility": "in_fov",
+        "event_relation": "overlap",
+        "minimum_overlap_s": 0.3
+      },
+      "qa_targets": [
+        {
+          "branch": "overlap",
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-05",
+          "target_instance_ids": [
+            "source1",
+            "source2"
+          ]
+        },
+        {
+          "branch": "none_of_them",
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-20",
+          "target_instance_ids": [
+            "source1",
+            "source2"
+          ]
+        }
+      ],
+      "request_id": "v1_episode_hm3d_animal_animal_b02",
+      "room_id": "hm3d_val_00800_TEEsavR23oF"
+    },
+    {
+      "condition_group": "animal+animal_bundle_03",
+      "instances": [
+        {
+          "asset_id": "generated_border_collie_black_white_medium_standard_adult_research_v1",
+          "instance_id": "source1",
+          "source_class": "articulated_animal"
+        },
+        {
+          "asset_id": "generated_abyssinian_ruddy_medium_standard_adult_research_v1",
+          "instance_id": "source2",
+          "source_class": "articulated_animal"
+        }
+      ],
+      "member_role": "plain_episode",
+      "profile": {
+        "anchor_count": 1,
+        "anchor_line_of_sight": "occluded",
+        "anchor_visibility": "off_screen",
+        "competitor_motion": "moving",
+        "event_relation": "sequential",
+        "min_gap_between_audible_windows_s": 0.5,
+        "speech_motion": "all_still"
+      },
+      "qa_targets": [
+        {
+          "branch": "still",
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-06",
+          "target_instance_ids": [
+            "source1"
+          ]
+        },
+        {
+          "branch": "right",
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-07",
+          "target_instance_ids": [
+            "source1"
+          ]
+        },
+        {
+          "branch": "out_of_view",
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-08",
+          "target_instance_ids": [
+            "source1"
+          ]
+        },
+        {
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-11",
+          "target_instance_ids": [
+            "source1"
+          ]
+        },
+        {
+          "branch": "no",
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-17",
+          "target_instance_ids": [
+            "source1"
+          ]
+        },
+        {
+          "branch": "out_of_view",
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-24",
+          "target_instance_ids": [
+            "source1"
+          ]
+        }
+      ],
+      "request_id": "v1_episode_mp3d_animal_animal_b03",
+      "room_id": "habitat_mp3d_example_17DRP5sb8fy"
+    },
+    {
+      "condition_group": "animal+animal_bundle_04",
+      "instances": [
+        {
+          "asset_id": "generated_border_collie_black_white_medium_standard_adult_research_v1",
+          "instance_id": "source1",
+          "source_class": "articulated_animal"
+        },
+        {
+          "asset_id": "generated_abyssinian_ruddy_medium_standard_adult_research_v1",
+          "instance_id": "source2",
+          "source_class": "articulated_animal"
+        }
+      ],
+      "member_role": "plain_episode",
+      "profile": {
+        "anchor_count": 1,
+        "anchor_line_of_sight": "occluded",
+        "anchor_visibility": "in_fov",
+        "event_relation": "sequential"
+      },
+      "qa_targets": [
+        {
+          "branch": "visible_occluded",
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-08",
+          "target_instance_ids": [
+            "source1"
+          ]
+        },
+        {
+          "branch": "visible_occluded",
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-24",
+          "target_instance_ids": [
+            "source1"
+          ]
+        }
+      ],
+      "request_id": "v1_episode_apartment_animal_animal_b04",
+      "room_id": "legacy_ue_apartment_0000_v1"
+    },
+    {
+      "condition_group": "animal+animal_bundle_05",
+      "instances": [
+        {
+          "asset_id": "generated_border_collie_black_white_medium_standard_adult_research_v1",
+          "instance_id": "source1",
+          "source_class": "articulated_animal"
+        },
+        {
+          "asset_id": "generated_abyssinian_ruddy_medium_standard_adult_research_v1",
+          "instance_id": "source2",
+          "source_class": "articulated_animal"
+        }
+      ],
+      "member_role": "plain_episode",
+      "profile": {
+        "anchor_count": 2,
+        "event_relation": "repeat"
+      },
+      "qa_targets": [
+        {
+          "event": {
+            "kind": "whole_clip"
+          },
+          "items": 1,
+          "qa_id": "QA-23",
+          "target_instance_ids": [
+            "source1",
+            "source2"
+          ]
+        }
+      ],
+      "request_id": "v1_episode_kujiale_animal_animal_b05",
+      "room_id": "kujiale_0020_full_home_v1"
+    },
+    {
+      "condition_group": "animal+animal_bundle_06",
+      "instances": [
+        {
+          "asset_id": "generated_border_collie_black_white_medium_standard_adult_research_v1",
+          "instance_id": "source1",
+          "source_class": "articulated_animal"
+        },
+        {
+          "asset_id": "generated_abyssinian_ruddy_medium_standard_adult_research_v1",
+          "instance_id": "source2",
+          "source_class": "articulated_animal"
+        }
+      ],
+      "member_role": "plain_episode",
+      "profile": {
+        "anchor_count": 1,
+        "event_relation": "overlap",
+        "speech_motion": "speaker_moving"
+      },
+      "qa_targets": [
+        {
+          "branch": "AV",
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-25",
+          "target_instance_ids": [
+            "source1"
+          ]
+        }
+      ],
+      "request_id": "v1_episode_hm3d_animal_animal_b06",
+      "room_id": "hm3d_val_00800_TEEsavR23oF"
+    },
+    {
+      "condition_group": "animal+device_bundle_00",
+      "instances": [
+        {
+          "asset_id": "generated_border_collie_black_white_medium_standard_adult_research_v1",
+          "instance_id": "source1",
+          "source_class": "articulated_animal"
+        },
+        {
+          "asset_id": "generated_air_conditioner_portable_floor_white_research_v2",
+          "instance_id": "source2",
+          "source_class": "rigid_static_object"
+        }
+      ],
+      "member_role": "plain_episode",
+      "profile": {
+        "anchor_count": 1,
+        "anchor_line_of_sight": "clear",
+        "anchor_visibility": "in_fov",
+        "competitor_motion": "still",
+        "event_relation": "sequential",
+        "min_gap_between_audible_windows_s": 0.5,
+        "speech_motion": "speaker_moving"
+      },
+      "qa_targets": [
+        {
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-01",
+          "target_instance_ids": [
+            "source1"
+          ]
+        },
+        {
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-02",
+          "target_instance_ids": [
+            "source1"
+          ]
+        },
+        {
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-04",
+          "target_instance_ids": [
+            "source1"
+          ]
+        },
+        {
+          "branch": "moving",
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-06",
+          "target_instance_ids": [
+            "source1"
+          ]
+        },
+        {
+          "branch": "left",
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-07",
+          "target_instance_ids": [
+            "source1"
+          ]
+        },
+        {
+          "branch": "visible_clear",
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-08",
+          "target_instance_ids": [
+            "source1"
+          ]
+        },
+        {
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-12",
+          "target_instance_ids": [
+            "source1"
+          ]
+        },
+        {
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-13",
+          "target_instance_ids": [
+            "source1"
+          ]
+        },
+        {
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-16",
+          "target_instance_ids": [
+            "source1"
+          ]
+        },
+        {
+          "branch": "yes",
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-17",
+          "target_instance_ids": [
+            "source1"
+          ]
+        },
+        {
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-19",
+          "target_instance_ids": [
+            "source1"
+          ]
+        },
+        {
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-21",
+          "target_instance_ids": [
+            "source1"
+          ]
+        },
+        {
+          "branch": "visible_clear",
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-24",
+          "target_instance_ids": [
+            "source1"
+          ]
+        },
+        {
+          "branch": "A",
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-25",
+          "target_instance_ids": [
+            "source1"
+          ]
+        },
+        {
+          "branch": "V",
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-25",
+          "target_instance_ids": [
+            "source1"
+          ]
+        }
+      ],
+      "request_id": "v1_episode_kujiale_animal_device_b00",
+      "room_id": "kujiale_0020_full_home_v1"
+    },
+    {
+      "condition_group": "animal+device_bundle_01",
+      "instances": [
+        {
+          "asset_id": "generated_border_collie_black_white_medium_standard_adult_research_v1",
+          "instance_id": "source1",
+          "source_class": "articulated_animal"
+        },
+        {
+          "asset_id": "generated_air_conditioner_portable_floor_white_research_v2",
+          "instance_id": "source2",
+          "source_class": "rigid_static_object"
+        }
+      ],
+      "member_role": "plain_episode",
+      "profile": {
+        "anchor_count": 2,
+        "anchor_visibility": "in_fov",
+        "competitor_visibility": "in_fov",
+        "event_relation": "sequential"
+      },
+      "qa_targets": [
+        {
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-03",
+          "target_instance_ids": [
+            "source1",
+            "source2"
+          ]
+        },
+        {
+          "branch": "disjoint",
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-05",
+          "target_instance_ids": [
+            "source1",
+            "source2"
+          ]
+        },
+        {
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-14",
+          "target_instance_ids": [
+            "source1",
+            "source2"
+          ]
+        },
+        {
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-18",
+          "target_instance_ids": [
+            "source1",
+            "source2"
+          ]
+        },
+        {
+          "branch": "visible_candidate",
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-20",
+          "target_instance_ids": [
+            "source1",
+            "source2"
+          ]
+        },
+        {
+          "event": {
+            "kind": "whole_clip"
+          },
+          "items": 1,
+          "qa_id": "QA-22",
+          "target_instance_ids": [
+            "source1",
+            "source2"
+          ]
+        }
+      ],
+      "request_id": "v1_episode_hm3d_animal_device_b01",
+      "room_id": "hm3d_val_00800_TEEsavR23oF"
+    },
+    {
+      "condition_group": "animal+device_bundle_02",
+      "instances": [
+        {
+          "asset_id": "generated_border_collie_black_white_medium_standard_adult_research_v1",
+          "instance_id": "source1",
+          "source_class": "articulated_animal"
+        },
+        {
+          "asset_id": "generated_air_conditioner_portable_floor_white_research_v2",
+          "instance_id": "source2",
+          "source_class": "rigid_static_object"
+        }
+      ],
+      "member_role": "plain_episode",
+      "profile": {
+        "anchor_count": 2,
+        "anchor_visibility": "off_screen",
+        "competitor_visibility": "in_fov",
+        "event_relation": "overlap",
+        "minimum_overlap_s": 0.3
+      },
+      "qa_targets": [
+        {
+          "branch": "overlap",
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-05",
+          "target_instance_ids": [
+            "source1",
+            "source2"
+          ]
+        },
+        {
+          "branch": "none_of_them",
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-20",
+          "target_instance_ids": [
+            "source1",
+            "source2"
+          ]
+        }
+      ],
+      "request_id": "v1_episode_mp3d_animal_device_b02",
+      "room_id": "habitat_mp3d_example_17DRP5sb8fy"
+    },
+    {
+      "condition_group": "animal+device_bundle_03",
+      "instances": [
+        {
+          "asset_id": "generated_border_collie_black_white_medium_standard_adult_research_v1",
+          "instance_id": "source1",
+          "source_class": "articulated_animal"
+        },
+        {
+          "asset_id": "generated_air_conditioner_portable_floor_white_research_v2",
+          "instance_id": "source2",
+          "source_class": "rigid_static_object"
+        }
+      ],
+      "member_role": "plain_episode",
+      "profile": {
+        "anchor_count": 1,
+        "anchor_line_of_sight": "occluded",
+        "anchor_visibility": "off_screen",
+        "competitor_motion": "moving",
+        "event_relation": "sequential",
+        "min_gap_between_audible_windows_s": 0.5,
+        "speech_motion": "all_still"
+      },
+      "qa_targets": [
+        {
+          "branch": "still",
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-06",
+          "target_instance_ids": [
+            "source1"
+          ]
+        },
+        {
+          "branch": "right",
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-07",
+          "target_instance_ids": [
+            "source1"
+          ]
+        },
+        {
+          "branch": "out_of_view",
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-08",
+          "target_instance_ids": [
+            "source1"
+          ]
+        },
+        {
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-11",
+          "target_instance_ids": [
+            "source1"
+          ]
+        },
+        {
+          "branch": "no",
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-17",
+          "target_instance_ids": [
+            "source1"
+          ]
+        },
+        {
+          "branch": "out_of_view",
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-24",
+          "target_instance_ids": [
+            "source1"
+          ]
+        }
+      ],
+      "request_id": "v1_episode_apartment_animal_device_b03",
+      "room_id": "legacy_ue_apartment_0000_v1"
+    },
+    {
+      "condition_group": "animal+device_bundle_04",
+      "instances": [
+        {
+          "asset_id": "generated_border_collie_black_white_medium_standard_adult_research_v1",
+          "instance_id": "source1",
+          "source_class": "articulated_animal"
+        },
+        {
+          "asset_id": "generated_air_conditioner_portable_floor_white_research_v2",
+          "instance_id": "source2",
+          "source_class": "rigid_static_object"
+        }
+      ],
+      "member_role": "plain_episode",
+      "profile": {
+        "anchor_count": 1,
+        "anchor_line_of_sight": "occluded",
+        "anchor_visibility": "in_fov",
+        "event_relation": "sequential"
+      },
+      "qa_targets": [
+        {
+          "branch": "visible_occluded",
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-08",
+          "target_instance_ids": [
+            "source1"
+          ]
+        },
+        {
+          "branch": "visible_occluded",
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-24",
+          "target_instance_ids": [
+            "source1"
+          ]
+        }
+      ],
+      "request_id": "v1_episode_kujiale_animal_device_b04",
+      "room_id": "kujiale_0020_full_home_v1"
+    },
+    {
+      "condition_group": "animal+device_bundle_05",
+      "instances": [
+        {
+          "asset_id": "generated_border_collie_black_white_medium_standard_adult_research_v1",
+          "instance_id": "source1",
+          "source_class": "articulated_animal"
+        },
+        {
+          "asset_id": "generated_air_conditioner_portable_floor_white_research_v2",
+          "instance_id": "source2",
+          "source_class": "rigid_static_object"
+        }
+      ],
+      "member_role": "plain_episode",
+      "profile": {
+        "anchor_count": 2,
+        "event_relation": "repeat"
+      },
+      "qa_targets": [
+        {
+          "event": {
+            "kind": "whole_clip"
+          },
+          "items": 1,
+          "qa_id": "QA-23",
+          "target_instance_ids": [
+            "source1",
+            "source2"
+          ]
+        }
+      ],
+      "request_id": "v1_episode_hm3d_animal_device_b05",
+      "room_id": "hm3d_val_00800_TEEsavR23oF"
+    },
+    {
+      "condition_group": "animal+device_bundle_06",
+      "instances": [
+        {
+          "asset_id": "generated_border_collie_black_white_medium_standard_adult_research_v1",
+          "instance_id": "source1",
+          "source_class": "articulated_animal"
+        },
+        {
+          "asset_id": "generated_air_conditioner_portable_floor_white_research_v2",
+          "instance_id": "source2",
+          "source_class": "rigid_static_object"
+        }
+      ],
+      "member_role": "plain_episode",
+      "profile": {
+        "anchor_count": 1,
+        "event_relation": "overlap",
+        "speech_motion": "speaker_moving"
+      },
+      "qa_targets": [
+        {
+          "branch": "AV",
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-25",
+          "target_instance_ids": [
+            "source1"
+          ]
+        }
+      ],
+      "request_id": "v1_episode_mp3d_animal_device_b06",
+      "room_id": "habitat_mp3d_example_17DRP5sb8fy"
+    },
+    {
+      "condition_group": "device+device_bundle_00",
+      "instances": [
+        {
+          "asset_id": "generated_air_conditioner_portable_floor_white_research_v2",
+          "instance_id": "source1",
+          "source_class": "rigid_static_object"
+        },
+        {
+          "asset_id": "generated_smart_speaker_fabric_wrapped_cylinder_charcoal_research_v1",
+          "instance_id": "source2",
+          "source_class": "rigid_static_object"
+        }
+      ],
+      "member_role": "plain_episode",
+      "profile": {
+        "anchor_count": 1,
+        "anchor_line_of_sight": "clear",
+        "anchor_visibility": "in_fov",
+        "event_relation": "sequential",
+        "min_gap_between_audible_windows_s": 0.5
+      },
+      "qa_targets": [
+        {
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-01",
+          "target_instance_ids": [
+            "source1"
+          ]
+        },
+        {
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-02",
+          "target_instance_ids": [
+            "source1"
+          ]
+        },
+        {
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-04",
+          "target_instance_ids": [
+            "source1"
+          ]
+        },
+        {
+          "branch": "visible_clear",
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-08",
+          "target_instance_ids": [
+            "source1"
+          ]
+        },
+        {
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-12",
+          "target_instance_ids": [
+            "source1"
+          ]
+        },
+        {
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-13",
+          "target_instance_ids": [
+            "source1"
+          ]
+        },
+        {
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-19",
+          "target_instance_ids": [
+            "source1"
+          ]
+        },
+        {
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-21",
+          "target_instance_ids": [
+            "source1"
+          ]
+        },
+        {
+          "branch": "visible_clear",
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-24",
+          "target_instance_ids": [
+            "source1"
+          ]
+        },
+        {
+          "branch": "A",
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-25",
+          "target_instance_ids": [
+            "source1"
+          ]
+        },
+        {
+          "branch": "V",
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-25",
+          "target_instance_ids": [
+            "source1"
+          ]
+        }
+      ],
+      "request_id": "v1_episode_hm3d_device_device_b00",
+      "room_id": "hm3d_val_00800_TEEsavR23oF"
+    },
+    {
+      "condition_group": "device+device_bundle_01",
+      "instances": [
+        {
+          "asset_id": "generated_air_conditioner_portable_floor_white_research_v2",
+          "instance_id": "source1",
+          "source_class": "rigid_static_object"
+        },
+        {
+          "asset_id": "generated_smart_speaker_fabric_wrapped_cylinder_charcoal_research_v1",
+          "instance_id": "source2",
+          "source_class": "rigid_static_object"
+        }
+      ],
+      "member_role": "plain_episode",
+      "profile": {
+        "anchor_count": 2,
+        "anchor_visibility": "in_fov",
+        "competitor_visibility": "in_fov",
+        "event_relation": "sequential"
+      },
+      "qa_targets": [
+        {
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-03",
+          "target_instance_ids": [
+            "source1",
+            "source2"
+          ]
+        },
+        {
+          "branch": "disjoint",
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-05",
+          "target_instance_ids": [
+            "source1",
+            "source2"
+          ]
+        },
+        {
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-14",
+          "target_instance_ids": [
+            "source1",
+            "source2"
+          ]
+        },
+        {
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-18",
+          "target_instance_ids": [
+            "source1",
+            "source2"
+          ]
+        },
+        {
+          "branch": "visible_candidate",
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-20",
+          "target_instance_ids": [
+            "source1",
+            "source2"
+          ]
+        },
+        {
+          "event": {
+            "kind": "whole_clip"
+          },
+          "items": 1,
+          "qa_id": "QA-22",
+          "target_instance_ids": [
+            "source1",
+            "source2"
+          ]
+        }
+      ],
+      "request_id": "v1_episode_mp3d_device_device_b01",
+      "room_id": "habitat_mp3d_example_17DRP5sb8fy"
+    },
+    {
+      "condition_group": "device+device_bundle_02",
+      "instances": [
+        {
+          "asset_id": "generated_air_conditioner_portable_floor_white_research_v2",
+          "instance_id": "source1",
+          "source_class": "rigid_static_object"
+        },
+        {
+          "asset_id": "generated_smart_speaker_fabric_wrapped_cylinder_charcoal_research_v1",
+          "instance_id": "source2",
+          "source_class": "rigid_static_object"
+        }
+      ],
+      "member_role": "plain_episode",
+      "profile": {
+        "anchor_count": 2,
+        "anchor_visibility": "off_screen",
+        "competitor_visibility": "in_fov",
+        "event_relation": "overlap",
+        "minimum_overlap_s": 0.3
+      },
+      "qa_targets": [
+        {
+          "branch": "overlap",
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-05",
+          "target_instance_ids": [
+            "source1",
+            "source2"
+          ]
+        },
+        {
+          "branch": "none_of_them",
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-20",
+          "target_instance_ids": [
+            "source1",
+            "source2"
+          ]
+        }
+      ],
+      "request_id": "v1_episode_apartment_device_device_b02",
+      "room_id": "legacy_ue_apartment_0000_v1"
+    },
+    {
+      "condition_group": "device+device_bundle_03",
+      "instances": [
+        {
+          "asset_id": "generated_air_conditioner_portable_floor_white_research_v2",
+          "instance_id": "source1",
+          "source_class": "rigid_static_object"
+        },
+        {
+          "asset_id": "generated_smart_speaker_fabric_wrapped_cylinder_charcoal_research_v1",
+          "instance_id": "source2",
+          "source_class": "rigid_static_object"
+        }
+      ],
+      "member_role": "plain_episode",
+      "profile": {
+        "anchor_count": 1,
+        "anchor_line_of_sight": "occluded",
+        "anchor_visibility": "off_screen",
+        "event_relation": "sequential"
+      },
+      "qa_targets": [
+        {
+          "branch": "out_of_view",
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-08",
+          "target_instance_ids": [
+            "source1"
+          ]
+        },
+        {
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-11",
+          "target_instance_ids": [
+            "source1"
+          ]
+        },
+        {
+          "branch": "out_of_view",
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-24",
+          "target_instance_ids": [
+            "source1"
+          ]
+        }
+      ],
+      "request_id": "v1_episode_kujiale_device_device_b03",
+      "room_id": "kujiale_0020_full_home_v1"
+    },
+    {
+      "condition_group": "device+device_bundle_04",
+      "instances": [
+        {
+          "asset_id": "generated_air_conditioner_portable_floor_white_research_v2",
+          "instance_id": "source1",
+          "source_class": "rigid_static_object"
+        },
+        {
+          "asset_id": "generated_smart_speaker_fabric_wrapped_cylinder_charcoal_research_v1",
+          "instance_id": "source2",
+          "source_class": "rigid_static_object"
+        }
+      ],
+      "member_role": "plain_episode",
+      "profile": {
+        "anchor_count": 1,
+        "anchor_line_of_sight": "occluded",
+        "anchor_visibility": "in_fov",
+        "event_relation": "sequential"
+      },
+      "qa_targets": [
+        {
+          "branch": "visible_occluded",
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-08",
+          "target_instance_ids": [
+            "source1"
+          ]
+        },
+        {
+          "branch": "visible_occluded",
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-24",
+          "target_instance_ids": [
+            "source1"
+          ]
+        }
+      ],
+      "request_id": "v1_episode_hm3d_device_device_b04",
+      "room_id": "hm3d_val_00800_TEEsavR23oF"
+    },
+    {
+      "condition_group": "device+device_bundle_05",
+      "instances": [
+        {
+          "asset_id": "generated_air_conditioner_portable_floor_white_research_v2",
+          "instance_id": "source1",
+          "source_class": "rigid_static_object"
+        },
+        {
+          "asset_id": "generated_smart_speaker_fabric_wrapped_cylinder_charcoal_research_v1",
+          "instance_id": "source2",
+          "source_class": "rigid_static_object"
+        }
+      ],
+      "member_role": "plain_episode",
+      "profile": {
+        "anchor_count": 2,
+        "event_relation": "repeat"
+      },
+      "qa_targets": [
+        {
+          "event": {
+            "kind": "whole_clip"
+          },
+          "items": 1,
+          "qa_id": "QA-23",
+          "target_instance_ids": [
+            "source1",
+            "source2"
+          ]
+        }
+      ],
+      "request_id": "v1_episode_mp3d_device_device_b05",
+      "room_id": "habitat_mp3d_example_17DRP5sb8fy"
+    },
+    {
+      "condition_group": "device+device_bundle_06",
+      "instances": [
+        {
+          "asset_id": "generated_air_conditioner_portable_floor_white_research_v2",
+          "instance_id": "source1",
+          "source_class": "rigid_static_object"
+        },
+        {
+          "asset_id": "generated_smart_speaker_fabric_wrapped_cylinder_charcoal_research_v1",
+          "instance_id": "source2",
+          "source_class": "rigid_static_object"
+        }
+      ],
+      "member_role": "plain_episode",
+      "profile": {
+        "anchor_count": 1,
+        "event_relation": "overlap",
+        "speech_motion": "speaker_moving"
+      },
+      "qa_targets": [
+        {
+          "branch": "AV",
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-25",
+          "target_instance_ids": [
+            "source1"
+          ]
+        }
+      ],
+      "request_id": "v1_episode_apartment_device_device_b06",
+      "room_id": "legacy_ue_apartment_0000_v1"
+    },
+    {
+      "condition_group": "human+animal_bundle_00",
+      "instances": [
+        {
+          "asset_id": "rocketbox_human_male_adult_01_top_blue_research_v1",
+          "instance_id": "source1",
+          "source_class": "articulated_human"
+        },
+        {
+          "asset_id": "generated_border_collie_black_white_medium_standard_adult_research_v1",
+          "instance_id": "source2",
+          "source_class": "articulated_animal"
+        }
+      ],
+      "member_role": "plain_episode",
+      "profile": {
+        "anchor_count": 1,
+        "anchor_line_of_sight": "clear",
+        "anchor_visibility": "in_fov",
+        "competitor_motion": "still",
+        "event_relation": "sequential",
+        "min_gap_between_audible_windows_s": 0.5,
+        "speech_motion": "speaker_moving"
+      },
+      "qa_targets": [
+        {
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-01",
+          "target_instance_ids": [
+            "source1"
+          ]
+        },
+        {
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-02",
+          "target_instance_ids": [
+            "source1"
+          ]
+        },
+        {
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-04",
+          "target_instance_ids": [
+            "source1"
+          ]
+        },
+        {
+          "branch": "moving",
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-06",
+          "target_instance_ids": [
+            "source1"
+          ]
+        },
+        {
+          "branch": "left",
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-07",
+          "target_instance_ids": [
+            "source1"
+          ]
+        },
+        {
+          "branch": "visible_clear",
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-08",
+          "target_instance_ids": [
+            "source1"
+          ]
+        },
+        {
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-12",
+          "target_instance_ids": [
+            "source1"
+          ]
+        },
+        {
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-13",
+          "target_instance_ids": [
+            "source1"
+          ]
+        },
+        {
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-16",
+          "target_instance_ids": [
+            "source1"
+          ]
+        },
+        {
+          "branch": "yes",
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-17",
+          "target_instance_ids": [
+            "source1"
+          ]
+        },
+        {
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-19",
+          "target_instance_ids": [
+            "source1"
+          ]
+        },
+        {
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-21",
+          "target_instance_ids": [
+            "source1"
+          ]
+        },
+        {
+          "branch": "visible_clear",
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-24",
+          "target_instance_ids": [
+            "source1"
+          ]
+        },
+        {
+          "branch": "A",
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-25",
+          "target_instance_ids": [
+            "source1"
+          ]
+        },
+        {
+          "branch": "V",
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-25",
+          "target_instance_ids": [
+            "source1"
+          ]
+        }
+      ],
+      "request_id": "v1_episode_mp3d_human_animal_b00",
+      "room_id": "habitat_mp3d_example_17DRP5sb8fy"
+    },
+    {
+      "condition_group": "human+animal_bundle_01",
+      "instances": [
+        {
+          "asset_id": "rocketbox_human_male_adult_01_top_blue_research_v1",
+          "instance_id": "source1",
+          "source_class": "articulated_human"
+        },
+        {
+          "asset_id": "generated_border_collie_black_white_medium_standard_adult_research_v1",
+          "instance_id": "source2",
+          "source_class": "articulated_animal"
+        }
+      ],
+      "member_role": "plain_episode",
+      "profile": {
+        "anchor_count": 2,
+        "anchor_visibility": "in_fov",
+        "competitor_visibility": "in_fov",
+        "event_relation": "sequential"
+      },
+      "qa_targets": [
+        {
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-03",
+          "target_instance_ids": [
+            "source1",
+            "source2"
+          ]
+        },
+        {
+          "branch": "disjoint",
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-05",
+          "target_instance_ids": [
+            "source1",
+            "source2"
+          ]
+        },
+        {
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-14",
+          "target_instance_ids": [
+            "source1",
+            "source2"
+          ]
+        },
+        {
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-18",
+          "target_instance_ids": [
+            "source1",
+            "source2"
+          ]
+        },
+        {
+          "branch": "visible_candidate",
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-20",
+          "target_instance_ids": [
+            "source1",
+            "source2"
+          ]
+        },
+        {
+          "event": {
+            "kind": "whole_clip"
+          },
+          "items": 1,
+          "qa_id": "QA-22",
+          "target_instance_ids": [
+            "source1",
+            "source2"
+          ]
+        }
+      ],
+      "request_id": "v1_episode_apartment_human_animal_b01",
+      "room_id": "legacy_ue_apartment_0000_v1"
+    },
+    {
+      "condition_group": "human+animal_bundle_02",
+      "instances": [
+        {
+          "asset_id": "rocketbox_human_male_adult_01_top_blue_research_v1",
+          "instance_id": "source1",
+          "source_class": "articulated_human"
+        },
+        {
+          "asset_id": "generated_border_collie_black_white_medium_standard_adult_research_v1",
+          "instance_id": "source2",
+          "source_class": "articulated_animal"
+        }
+      ],
+      "member_role": "plain_episode",
+      "profile": {
+        "anchor_count": 2,
+        "anchor_visibility": "off_screen",
+        "competitor_visibility": "in_fov",
+        "event_relation": "overlap",
+        "minimum_overlap_s": 0.3
+      },
+      "qa_targets": [
+        {
+          "branch": "overlap",
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-05",
+          "target_instance_ids": [
+            "source1",
+            "source2"
+          ]
+        },
+        {
+          "branch": "none_of_them",
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-20",
+          "target_instance_ids": [
+            "source1",
+            "source2"
+          ]
+        }
+      ],
+      "request_id": "v1_episode_kujiale_human_animal_b02",
+      "room_id": "kujiale_0020_full_home_v1"
+    },
+    {
+      "condition_group": "human+animal_bundle_03",
+      "instances": [
+        {
+          "asset_id": "rocketbox_human_male_adult_01_top_blue_research_v1",
+          "instance_id": "source1",
+          "source_class": "articulated_human"
+        },
+        {
+          "asset_id": "generated_border_collie_black_white_medium_standard_adult_research_v1",
+          "instance_id": "source2",
+          "source_class": "articulated_animal"
+        }
+      ],
+      "member_role": "plain_episode",
+      "profile": {
+        "anchor_count": 1,
+        "anchor_line_of_sight": "occluded",
+        "anchor_visibility": "off_screen",
+        "competitor_motion": "moving",
+        "event_relation": "sequential",
+        "min_gap_between_audible_windows_s": 0.5,
+        "speech_motion": "all_still"
+      },
+      "qa_targets": [
+        {
+          "branch": "still",
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-06",
+          "target_instance_ids": [
+            "source1"
+          ]
+        },
+        {
+          "branch": "right",
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-07",
+          "target_instance_ids": [
+            "source1"
+          ]
+        },
+        {
+          "branch": "out_of_view",
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-08",
+          "target_instance_ids": [
+            "source1"
+          ]
+        },
+        {
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-11",
+          "target_instance_ids": [
+            "source1"
+          ]
+        },
+        {
+          "branch": "no",
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-17",
+          "target_instance_ids": [
+            "source1"
+          ]
+        },
+        {
+          "branch": "out_of_view",
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-24",
+          "target_instance_ids": [
+            "source1"
+          ]
+        }
+      ],
+      "request_id": "v1_episode_hm3d_human_animal_b03",
+      "room_id": "hm3d_val_00800_TEEsavR23oF"
+    },
+    {
+      "condition_group": "human+animal_bundle_04",
+      "instances": [
+        {
+          "asset_id": "rocketbox_human_male_adult_01_top_blue_research_v1",
+          "instance_id": "source1",
+          "source_class": "articulated_human"
+        },
+        {
+          "asset_id": "generated_border_collie_black_white_medium_standard_adult_research_v1",
+          "instance_id": "source2",
+          "source_class": "articulated_animal"
+        }
+      ],
+      "member_role": "plain_episode",
+      "profile": {
+        "anchor_count": 1,
+        "anchor_line_of_sight": "occluded",
+        "anchor_visibility": "in_fov",
+        "event_relation": "sequential"
+      },
+      "qa_targets": [
+        {
+          "branch": "visible_occluded",
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-08",
+          "target_instance_ids": [
+            "source1"
+          ]
+        },
+        {
+          "branch": "visible_occluded",
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-24",
+          "target_instance_ids": [
+            "source1"
+          ]
+        }
+      ],
+      "request_id": "v1_episode_mp3d_human_animal_b04",
+      "room_id": "habitat_mp3d_example_17DRP5sb8fy"
+    },
+    {
+      "condition_group": "human+animal_bundle_05",
+      "instances": [
+        {
+          "asset_id": "rocketbox_human_male_adult_01_top_blue_research_v1",
+          "instance_id": "source1",
+          "source_class": "articulated_human"
+        },
+        {
+          "asset_id": "generated_border_collie_black_white_medium_standard_adult_research_v1",
+          "instance_id": "source2",
+          "source_class": "articulated_animal"
+        }
+      ],
+      "member_role": "plain_episode",
+      "profile": {
+        "anchor_count": 2,
+        "event_relation": "repeat"
+      },
+      "qa_targets": [
+        {
+          "event": {
+            "kind": "whole_clip"
+          },
+          "items": 1,
+          "qa_id": "QA-23",
+          "target_instance_ids": [
+            "source1",
+            "source2"
+          ]
+        }
+      ],
+      "request_id": "v1_episode_apartment_human_animal_b05",
+      "room_id": "legacy_ue_apartment_0000_v1"
+    },
+    {
+      "condition_group": "human+animal_bundle_06",
+      "instances": [
+        {
+          "asset_id": "rocketbox_human_male_adult_01_top_blue_research_v1",
+          "instance_id": "source1",
+          "source_class": "articulated_human"
+        },
+        {
+          "asset_id": "generated_border_collie_black_white_medium_standard_adult_research_v1",
+          "instance_id": "source2",
+          "source_class": "articulated_animal"
+        }
+      ],
+      "member_role": "plain_episode",
+      "profile": {
+        "anchor_count": 1,
+        "event_relation": "overlap",
+        "speech_motion": "speaker_moving"
+      },
+      "qa_targets": [
+        {
+          "branch": "AV",
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-25",
+          "target_instance_ids": [
+            "source1"
+          ]
+        }
+      ],
+      "request_id": "v1_episode_kujiale_human_animal_b06",
+      "room_id": "kujiale_0020_full_home_v1"
+    },
+    {
+      "condition_group": "human+device_bundle_00",
+      "instances": [
+        {
+          "asset_id": "rocketbox_human_male_adult_01_top_blue_research_v1",
+          "instance_id": "source1",
+          "source_class": "articulated_human"
+        },
+        {
+          "asset_id": "generated_smart_speaker_fabric_wrapped_cylinder_charcoal_research_v1",
+          "instance_id": "source2",
+          "source_class": "rigid_static_object"
+        }
+      ],
+      "member_role": "plain_episode",
+      "profile": {
+        "anchor_count": 1,
+        "anchor_line_of_sight": "clear",
+        "anchor_visibility": "in_fov",
+        "competitor_motion": "still",
+        "event_relation": "sequential",
+        "min_gap_between_audible_windows_s": 0.5,
+        "speech_motion": "speaker_moving"
+      },
+      "qa_targets": [
+        {
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-01",
+          "target_instance_ids": [
+            "source1"
+          ]
+        },
+        {
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-02",
+          "target_instance_ids": [
+            "source1"
+          ]
+        },
+        {
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-04",
+          "target_instance_ids": [
+            "source1"
+          ]
+        },
+        {
+          "branch": "moving",
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-06",
+          "target_instance_ids": [
+            "source1"
+          ]
+        },
+        {
+          "branch": "left",
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-07",
+          "target_instance_ids": [
+            "source1"
+          ]
+        },
+        {
+          "branch": "visible_clear",
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-08",
+          "target_instance_ids": [
+            "source1"
+          ]
+        },
+        {
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-12",
+          "target_instance_ids": [
+            "source1"
+          ]
+        },
+        {
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-13",
+          "target_instance_ids": [
+            "source1"
+          ]
+        },
+        {
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-16",
+          "target_instance_ids": [
+            "source1"
+          ]
+        },
+        {
+          "branch": "yes",
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-17",
+          "target_instance_ids": [
+            "source1"
+          ]
+        },
+        {
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-19",
+          "target_instance_ids": [
+            "source1"
+          ]
+        },
+        {
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-21",
+          "target_instance_ids": [
+            "source1"
+          ]
+        },
+        {
+          "branch": "visible_clear",
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-24",
+          "target_instance_ids": [
+            "source1"
+          ]
+        },
+        {
+          "branch": "A",
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-25",
+          "target_instance_ids": [
+            "source1"
+          ]
+        },
+        {
+          "branch": "V",
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-25",
+          "target_instance_ids": [
+            "source1"
+          ]
+        }
+      ],
+      "request_id": "v1_episode_apartment_human_device_b00",
+      "room_id": "legacy_ue_apartment_0000_v1"
+    },
+    {
+      "condition_group": "human+device_bundle_01",
+      "instances": [
+        {
+          "asset_id": "rocketbox_human_male_adult_01_top_blue_research_v1",
+          "instance_id": "source1",
+          "source_class": "articulated_human"
+        },
+        {
+          "asset_id": "generated_smart_speaker_fabric_wrapped_cylinder_charcoal_research_v1",
+          "instance_id": "source2",
+          "source_class": "rigid_static_object"
+        }
+      ],
+      "member_role": "plain_episode",
+      "profile": {
+        "anchor_count": 2,
+        "anchor_visibility": "in_fov",
+        "competitor_visibility": "in_fov",
+        "event_relation": "sequential"
+      },
+      "qa_targets": [
+        {
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-03",
+          "target_instance_ids": [
+            "source1",
+            "source2"
+          ]
+        },
+        {
+          "branch": "disjoint",
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-05",
+          "target_instance_ids": [
+            "source1",
+            "source2"
+          ]
+        },
+        {
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-14",
+          "target_instance_ids": [
+            "source1",
+            "source2"
+          ]
+        },
+        {
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-18",
+          "target_instance_ids": [
+            "source1",
+            "source2"
+          ]
+        },
+        {
+          "branch": "visible_candidate",
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-20",
+          "target_instance_ids": [
+            "source1",
+            "source2"
+          ]
+        },
+        {
+          "event": {
+            "kind": "whole_clip"
+          },
+          "items": 1,
+          "qa_id": "QA-22",
+          "target_instance_ids": [
+            "source1",
+            "source2"
+          ]
+        }
+      ],
+      "request_id": "v1_episode_kujiale_human_device_b01",
+      "room_id": "kujiale_0020_full_home_v1"
+    },
+    {
+      "condition_group": "human+device_bundle_02",
+      "instances": [
+        {
+          "asset_id": "rocketbox_human_male_adult_01_top_blue_research_v1",
+          "instance_id": "source1",
+          "source_class": "articulated_human"
+        },
+        {
+          "asset_id": "generated_smart_speaker_fabric_wrapped_cylinder_charcoal_research_v1",
+          "instance_id": "source2",
+          "source_class": "rigid_static_object"
+        }
+      ],
+      "member_role": "plain_episode",
+      "profile": {
+        "anchor_count": 2,
+        "anchor_visibility": "off_screen",
+        "competitor_visibility": "in_fov",
+        "event_relation": "overlap",
+        "minimum_overlap_s": 0.3
+      },
+      "qa_targets": [
+        {
+          "branch": "overlap",
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-05",
+          "target_instance_ids": [
+            "source1",
+            "source2"
+          ]
+        },
+        {
+          "branch": "none_of_them",
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-20",
+          "target_instance_ids": [
+            "source1",
+            "source2"
+          ]
+        }
+      ],
+      "request_id": "v1_episode_hm3d_human_device_b02",
+      "room_id": "hm3d_val_00800_TEEsavR23oF"
+    },
+    {
+      "condition_group": "human+device_bundle_03",
+      "instances": [
+        {
+          "asset_id": "rocketbox_human_male_adult_01_top_blue_research_v1",
+          "instance_id": "source1",
+          "source_class": "articulated_human"
+        },
+        {
+          "asset_id": "generated_smart_speaker_fabric_wrapped_cylinder_charcoal_research_v1",
+          "instance_id": "source2",
+          "source_class": "rigid_static_object"
+        }
+      ],
+      "member_role": "plain_episode",
+      "profile": {
+        "anchor_count": 1,
+        "anchor_line_of_sight": "occluded",
+        "anchor_visibility": "off_screen",
+        "competitor_motion": "moving",
+        "event_relation": "sequential",
+        "min_gap_between_audible_windows_s": 0.5,
+        "speech_motion": "all_still"
+      },
+      "qa_targets": [
+        {
+          "branch": "still",
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-06",
+          "target_instance_ids": [
+            "source1"
+          ]
+        },
+        {
+          "branch": "right",
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-07",
+          "target_instance_ids": [
+            "source1"
+          ]
+        },
+        {
+          "branch": "out_of_view",
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-08",
+          "target_instance_ids": [
+            "source1"
+          ]
+        },
+        {
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-11",
+          "target_instance_ids": [
+            "source1"
+          ]
+        },
+        {
+          "branch": "no",
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-17",
+          "target_instance_ids": [
+            "source1"
+          ]
+        },
+        {
+          "branch": "out_of_view",
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-24",
+          "target_instance_ids": [
+            "source1"
+          ]
+        }
+      ],
+      "request_id": "v1_episode_mp3d_human_device_b03",
+      "room_id": "habitat_mp3d_example_17DRP5sb8fy"
+    },
+    {
+      "condition_group": "human+device_bundle_04",
+      "instances": [
+        {
+          "asset_id": "rocketbox_human_male_adult_01_top_blue_research_v1",
+          "instance_id": "source1",
+          "source_class": "articulated_human"
+        },
+        {
+          "asset_id": "generated_smart_speaker_fabric_wrapped_cylinder_charcoal_research_v1",
+          "instance_id": "source2",
+          "source_class": "rigid_static_object"
+        }
+      ],
+      "member_role": "plain_episode",
+      "profile": {
+        "anchor_count": 1,
+        "anchor_line_of_sight": "occluded",
+        "anchor_visibility": "in_fov",
+        "event_relation": "sequential"
+      },
+      "qa_targets": [
+        {
+          "branch": "visible_occluded",
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-08",
+          "target_instance_ids": [
+            "source1"
+          ]
+        },
+        {
+          "branch": "visible_occluded",
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-24",
+          "target_instance_ids": [
+            "source1"
+          ]
+        }
+      ],
+      "request_id": "v1_episode_apartment_human_device_b04",
+      "room_id": "legacy_ue_apartment_0000_v1"
+    },
+    {
+      "condition_group": "human+device_bundle_05",
+      "instances": [
+        {
+          "asset_id": "rocketbox_human_male_adult_01_top_blue_research_v1",
+          "instance_id": "source1",
+          "source_class": "articulated_human"
+        },
+        {
+          "asset_id": "generated_smart_speaker_fabric_wrapped_cylinder_charcoal_research_v1",
+          "instance_id": "source2",
+          "source_class": "rigid_static_object"
+        }
+      ],
+      "member_role": "plain_episode",
+      "profile": {
+        "anchor_count": 2,
+        "event_relation": "repeat"
+      },
+      "qa_targets": [
+        {
+          "event": {
+            "kind": "whole_clip"
+          },
+          "items": 1,
+          "qa_id": "QA-23",
+          "target_instance_ids": [
+            "source1",
+            "source2"
+          ]
+        }
+      ],
+      "request_id": "v1_episode_kujiale_human_device_b05",
+      "room_id": "kujiale_0020_full_home_v1"
+    },
+    {
+      "condition_group": "human+device_bundle_06",
+      "instances": [
+        {
+          "asset_id": "rocketbox_human_male_adult_01_top_blue_research_v1",
+          "instance_id": "source1",
+          "source_class": "articulated_human"
+        },
+        {
+          "asset_id": "generated_smart_speaker_fabric_wrapped_cylinder_charcoal_research_v1",
+          "instance_id": "source2",
+          "source_class": "rigid_static_object"
+        }
+      ],
+      "member_role": "plain_episode",
+      "profile": {
+        "anchor_count": 1,
+        "event_relation": "overlap",
+        "speech_motion": "speaker_moving"
+      },
+      "qa_targets": [
+        {
+          "branch": "AV",
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-25",
+          "target_instance_ids": [
+            "source1"
+          ]
+        }
+      ],
+      "request_id": "v1_episode_hm3d_human_device_b06",
+      "room_id": "hm3d_val_00800_TEEsavR23oF"
+    },
+    {
+      "condition_group": "human+human_bundle_00",
+      "instances": [
+        {
+          "asset_id": "rocketbox_human_male_adult_01_top_blue_research_v1",
+          "instance_id": "source1",
+          "source_class": "articulated_human"
+        },
+        {
+          "asset_id": "rocketbox_human_male_adult_01_top_green_research_v1",
+          "instance_id": "source2",
+          "source_class": "articulated_human"
+        }
+      ],
+      "member_role": "plain_episode",
+      "profile": {
+        "anchor_count": 1,
+        "anchor_line_of_sight": "clear",
+        "anchor_visibility": "in_fov",
+        "competitor_motion": "still",
+        "event_relation": "sequential",
+        "min_gap_between_audible_windows_s": 0.5,
+        "speech_motion": "speaker_moving"
+      },
+      "qa_targets": [
+        {
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-01",
+          "target_instance_ids": [
+            "source1"
+          ]
+        },
+        {
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-02",
+          "target_instance_ids": [
+            "source1"
+          ]
+        },
+        {
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-04",
+          "target_instance_ids": [
+            "source1"
+          ]
+        },
+        {
+          "branch": "moving",
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-06",
+          "target_instance_ids": [
+            "source1"
+          ]
+        },
+        {
+          "branch": "left",
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-07",
+          "target_instance_ids": [
+            "source1"
+          ]
+        },
+        {
+          "branch": "visible_clear",
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-08",
+          "target_instance_ids": [
+            "source1"
+          ]
+        },
+        {
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-12",
+          "target_instance_ids": [
+            "source1"
+          ]
+        },
+        {
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-13",
+          "target_instance_ids": [
+            "source1"
+          ]
+        },
+        {
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-16",
+          "target_instance_ids": [
+            "source1"
+          ]
+        },
+        {
+          "branch": "yes",
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-17",
+          "target_instance_ids": [
+            "source1"
+          ]
+        },
+        {
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-19",
+          "target_instance_ids": [
+            "source1"
+          ]
+        },
+        {
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-21",
+          "target_instance_ids": [
+            "source1"
+          ]
+        },
+        {
+          "branch": "visible_clear",
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-24",
+          "target_instance_ids": [
+            "source1"
+          ]
+        },
+        {
+          "branch": "A",
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-25",
+          "target_instance_ids": [
+            "source1"
+          ]
+        },
+        {
+          "branch": "V",
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-25",
+          "target_instance_ids": [
+            "source1"
+          ]
+        }
+      ],
+      "request_id": "v1_episode_kujiale_human_human_b00",
+      "room_id": "kujiale_0020_full_home_v1"
+    },
+    {
+      "condition_group": "human+human_bundle_01",
+      "instances": [
+        {
+          "asset_id": "rocketbox_human_male_adult_01_top_blue_research_v1",
+          "instance_id": "source1",
+          "source_class": "articulated_human"
+        },
+        {
+          "asset_id": "rocketbox_human_male_adult_01_top_green_research_v1",
+          "instance_id": "source2",
+          "source_class": "articulated_human"
+        }
+      ],
+      "member_role": "plain_episode",
+      "profile": {
+        "anchor_count": 2,
+        "anchor_visibility": "in_fov",
+        "competitor_visibility": "in_fov",
+        "event_relation": "sequential"
+      },
+      "qa_targets": [
+        {
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-03",
+          "target_instance_ids": [
+            "source1",
+            "source2"
+          ]
+        },
+        {
+          "branch": "disjoint",
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-05",
+          "target_instance_ids": [
+            "source1",
+            "source2"
+          ]
+        },
+        {
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-14",
+          "target_instance_ids": [
+            "source1",
+            "source2"
+          ]
+        },
+        {
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-18",
+          "target_instance_ids": [
+            "source1",
+            "source2"
+          ]
+        },
+        {
+          "branch": "visible_candidate",
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-20",
+          "target_instance_ids": [
+            "source1",
+            "source2"
+          ]
+        },
+        {
+          "event": {
+            "kind": "whole_clip"
+          },
+          "items": 1,
+          "qa_id": "QA-22",
+          "target_instance_ids": [
+            "source1",
+            "source2"
+          ]
+        }
+      ],
+      "request_id": "v1_episode_hm3d_human_human_b01",
+      "room_id": "hm3d_val_00800_TEEsavR23oF"
+    },
+    {
+      "condition_group": "human+human_bundle_02",
+      "instances": [
+        {
+          "asset_id": "rocketbox_human_male_adult_01_top_blue_research_v1",
+          "instance_id": "source1",
+          "source_class": "articulated_human"
+        },
+        {
+          "asset_id": "rocketbox_human_male_adult_01_top_green_research_v1",
+          "instance_id": "source2",
+          "source_class": "articulated_human"
+        }
+      ],
+      "member_role": "plain_episode",
+      "profile": {
+        "anchor_count": 2,
+        "anchor_visibility": "off_screen",
+        "competitor_visibility": "in_fov",
+        "event_relation": "overlap",
+        "minimum_overlap_s": 0.3
+      },
+      "qa_targets": [
+        {
+          "branch": "overlap",
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-05",
+          "target_instance_ids": [
+            "source1",
+            "source2"
+          ]
+        },
+        {
+          "branch": "none_of_them",
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-20",
+          "target_instance_ids": [
+            "source1",
+            "source2"
+          ]
+        }
+      ],
+      "request_id": "v1_episode_mp3d_human_human_b02",
+      "room_id": "habitat_mp3d_example_17DRP5sb8fy"
+    },
+    {
+      "condition_group": "human+human_bundle_03",
+      "instances": [
+        {
+          "asset_id": "rocketbox_human_male_adult_01_top_blue_research_v1",
+          "instance_id": "source1",
+          "source_class": "articulated_human"
+        },
+        {
+          "asset_id": "rocketbox_human_male_adult_01_top_green_research_v1",
+          "instance_id": "source2",
+          "source_class": "articulated_human"
+        }
+      ],
+      "member_role": "plain_episode",
+      "profile": {
+        "anchor_count": 1,
+        "anchor_line_of_sight": "occluded",
+        "anchor_visibility": "off_screen",
+        "competitor_motion": "moving",
+        "event_relation": "sequential",
+        "min_gap_between_audible_windows_s": 0.5,
+        "speech_motion": "all_still"
+      },
+      "qa_targets": [
+        {
+          "branch": "still",
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-06",
+          "target_instance_ids": [
+            "source1"
+          ]
+        },
+        {
+          "branch": "right",
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-07",
+          "target_instance_ids": [
+            "source1"
+          ]
+        },
+        {
+          "branch": "out_of_view",
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-08",
+          "target_instance_ids": [
+            "source1"
+          ]
+        },
+        {
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-11",
+          "target_instance_ids": [
+            "source1"
+          ]
+        },
+        {
+          "branch": "no",
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-17",
+          "target_instance_ids": [
+            "source1"
+          ]
+        },
+        {
+          "branch": "out_of_view",
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-24",
+          "target_instance_ids": [
+            "source1"
+          ]
+        }
+      ],
+      "request_id": "v1_episode_apartment_human_human_b03",
+      "room_id": "legacy_ue_apartment_0000_v1"
+    },
+    {
+      "condition_group": "human+human_bundle_04",
+      "instances": [
+        {
+          "asset_id": "rocketbox_human_male_adult_01_top_blue_research_v1",
+          "instance_id": "source1",
+          "source_class": "articulated_human"
+        },
+        {
+          "asset_id": "rocketbox_human_male_adult_01_top_green_research_v1",
+          "instance_id": "source2",
+          "source_class": "articulated_human"
+        }
+      ],
+      "member_role": "plain_episode",
+      "profile": {
+        "anchor_count": 1,
+        "anchor_line_of_sight": "occluded",
+        "anchor_visibility": "in_fov",
+        "event_relation": "sequential"
+      },
+      "qa_targets": [
+        {
+          "branch": "visible_occluded",
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-08",
+          "target_instance_ids": [
+            "source1"
+          ]
+        },
+        {
+          "branch": "visible_occluded",
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-24",
+          "target_instance_ids": [
+            "source1"
+          ]
+        }
+      ],
+      "request_id": "v1_episode_kujiale_human_human_b04",
+      "room_id": "kujiale_0020_full_home_v1"
+    },
+    {
+      "condition_group": "human+human_bundle_05",
+      "instances": [
+        {
+          "asset_id": "rocketbox_human_male_adult_01_top_blue_research_v1",
+          "instance_id": "source1",
+          "source_class": "articulated_human"
+        },
+        {
+          "asset_id": "rocketbox_human_male_adult_01_top_green_research_v1",
+          "instance_id": "source2",
+          "source_class": "articulated_human"
+        }
+      ],
+      "member_role": "plain_episode",
+      "profile": {
+        "anchor_count": 2,
+        "event_relation": "repeat"
+      },
+      "qa_targets": [
+        {
+          "event": {
+            "kind": "whole_clip"
+          },
+          "items": 1,
+          "qa_id": "QA-23",
+          "target_instance_ids": [
+            "source1",
+            "source2"
+          ]
+        }
+      ],
+      "request_id": "v1_episode_hm3d_human_human_b05",
+      "room_id": "hm3d_val_00800_TEEsavR23oF"
+    },
+    {
+      "condition_group": "human+human_bundle_06",
+      "instances": [
+        {
+          "asset_id": "rocketbox_human_male_adult_01_top_blue_research_v1",
+          "instance_id": "source1",
+          "source_class": "articulated_human"
+        },
+        {
+          "asset_id": "rocketbox_human_male_adult_01_top_green_research_v1",
+          "instance_id": "source2",
+          "source_class": "articulated_human"
+        }
+      ],
+      "member_role": "plain_episode",
+      "profile": {
+        "anchor_count": 1,
+        "event_relation": "overlap",
+        "speech_motion": "speaker_moving"
+      },
+      "qa_targets": [
+        {
+          "branch": "AV",
+          "event": {
+            "kind": "target_audible_window"
+          },
+          "items": 1,
+          "qa_id": "QA-25",
+          "target_instance_ids": [
+            "source1"
+          ]
+        }
+      ],
+      "request_id": "v1_episode_mp3d_human_human_b06",
+      "room_id": "habitat_mp3d_example_17DRP5sb8fy"
+    }
+  ],
+  "imported_coverage": {
+    "note": "Import through avengine.qa.batch_delivery.survey_retained_group_library and merge with fresh surveys; merge_achieved_surveys counts a member, a world and a question once.",
+    "retained_group_snapshot": "tmp/binding_dataset_20260909_v2/completed_groups_snapshot_0037.json",
+    "runtime_source_registry": "examples/runtime/source_asset_runtime_profiles.json"
+  },
+  "known_blocked_qa_cells": {
+    "cells": [
+      {
+        "branch": "fully_occluded",
+        "entity_combination": "animal+animal",
+        "qa_id": "QA-08",
+        "reason": "visibility_state: avengine/rooms/conditioned_sampler.py:select_camera_and_schedule: anchor_line_of_sight uses a single emitter/body ray; a fully_occluded pixel state is a different measurement and has no planning knob [the retained facts carry no fully_occluded pixel state across 148 members; a blocked line-of-sight ray is a different measurement and cannot stand in]",
+        "state": "interface_not_implemented"
+      },
+      {
+        "branch": "yes",
+        "entity_combination": "animal+animal",
+        "qa_id": "QA-09",
+        "reason": "occlusion_transition: avengine/rooms/conditioned_sampler.py:select_camera_and_schedule: anchor_line_of_sight uses a single emitter/body ray; a fully_occluded pixel state is a different measurement and has no planning knob [the retained facts carry no fully_occluded pixel state across 148 members; a blocked line-of-sight ray is a different measurement and cannot stand in]",
+        "state": "interface_not_implemented"
+      },
+      {
+        "branch": "no",
+        "entity_combination": "animal+animal",
+        "qa_id": "QA-09",
+        "reason": "occlusion_transition: avengine/rooms/conditioned_sampler.py:select_camera_and_schedule: anchor_line_of_sight uses a single emitter/body ray; a fully_occluded pixel state is a different measurement and has no planning knob [the retained facts carry no fully_occluded pixel state across 148 members; a blocked line-of-sight ray is a different measurement and cannot stand in]",
+        "state": "interface_not_implemented"
+      },
+      {
+        "branch": null,
+        "entity_combination": "animal+animal",
+        "qa_id": "QA-10",
+        "reason": "occluder_identity: avengine/rooms/conditioned_sampler.py:select_camera_and_schedule: anchor_line_of_sight uses a single emitter/body ray; a fully_occluded pixel state is a different measurement and has no planning knob [the retained facts carry no fully_occluded pixel state across 148 members; a blocked line-of-sight ray is a different measurement and cannot stand in]",
+        "state": "interface_not_implemented"
+      },
+      {
+        "branch": "nearer",
+        "entity_combination": "animal+animal",
+        "qa_id": "QA-15",
+        "reason": "distance_net_change: avengine/rooms/conditioned_sampler.py:sample_routes: routes are sampled for a contiguous moving window, not for a signed listener-distance change of at least the judged margin [every retained event measures a listener-distance change of exactly 0.0 m against a judged 0.2 m margin, so the trend does not appear on its own]",
+        "state": "interface_not_implemented"
+      },
+      {
+        "branch": "farther",
+        "entity_combination": "animal+animal",
+        "qa_id": "QA-15",
+        "reason": "distance_net_change: avengine/rooms/conditioned_sampler.py:sample_routes: routes are sampled for a contiguous moving window, not for a signed listener-distance change of at least the judged margin [every retained event measures a listener-distance change of exactly 0.0 m against a judged 0.2 m margin, so the trend does not appear on its own]",
+        "state": "interface_not_implemented"
+      },
+      {
+        "branch": "fully_occluded",
+        "entity_combination": "animal+animal",
+        "qa_id": "QA-24",
+        "reason": "visibility_state: avengine/rooms/conditioned_sampler.py:select_camera_and_schedule: anchor_line_of_sight uses a single emitter/body ray; a fully_occluded pixel state is a different measurement and has no planning knob [the retained facts carry no fully_occluded pixel state across 148 members; a blocked line-of-sight ray is a different measurement and cannot stand in]",
+        "state": "interface_not_implemented"
+      },
+      {
+        "branch": "fully_occluded",
+        "entity_combination": "animal+device",
+        "qa_id": "QA-08",
+        "reason": "visibility_state: avengine/rooms/conditioned_sampler.py:select_camera_and_schedule: anchor_line_of_sight uses a single emitter/body ray; a fully_occluded pixel state is a different measurement and has no planning knob [the retained facts carry no fully_occluded pixel state across 148 members; a blocked line-of-sight ray is a different measurement and cannot stand in]",
+        "state": "interface_not_implemented"
+      },
+      {
+        "branch": "yes",
+        "entity_combination": "animal+device",
+        "qa_id": "QA-09",
+        "reason": "occlusion_transition: avengine/rooms/conditioned_sampler.py:select_camera_and_schedule: anchor_line_of_sight uses a single emitter/body ray; a fully_occluded pixel state is a different measurement and has no planning knob [the retained facts carry no fully_occluded pixel state across 148 members; a blocked line-of-sight ray is a different measurement and cannot stand in]",
+        "state": "interface_not_implemented"
+      },
+      {
+        "branch": "no",
+        "entity_combination": "animal+device",
+        "qa_id": "QA-09",
+        "reason": "occlusion_transition: avengine/rooms/conditioned_sampler.py:select_camera_and_schedule: anchor_line_of_sight uses a single emitter/body ray; a fully_occluded pixel state is a different measurement and has no planning knob [the retained facts carry no fully_occluded pixel state across 148 members; a blocked line-of-sight ray is a different measurement and cannot stand in]",
+        "state": "interface_not_implemented"
+      },
+      {
+        "branch": null,
+        "entity_combination": "animal+device",
+        "qa_id": "QA-10",
+        "reason": "occluder_identity: avengine/rooms/conditioned_sampler.py:select_camera_and_schedule: anchor_line_of_sight uses a single emitter/body ray; a fully_occluded pixel state is a different measurement and has no planning knob [the retained facts carry no fully_occluded pixel state across 148 members; a blocked line-of-sight ray is a different measurement and cannot stand in]",
+        "state": "interface_not_implemented"
+      },
+      {
+        "branch": "nearer",
+        "entity_combination": "animal+device",
+        "qa_id": "QA-15",
+        "reason": "distance_net_change: avengine/rooms/conditioned_sampler.py:sample_routes: routes are sampled for a contiguous moving window, not for a signed listener-distance change of at least the judged margin [every retained event measures a listener-distance change of exactly 0.0 m against a judged 0.2 m margin, so the trend does not appear on its own]",
+        "state": "interface_not_implemented"
+      },
+      {
+        "branch": "farther",
+        "entity_combination": "animal+device",
+        "qa_id": "QA-15",
+        "reason": "distance_net_change: avengine/rooms/conditioned_sampler.py:sample_routes: routes are sampled for a contiguous moving window, not for a signed listener-distance change of at least the judged margin [every retained event measures a listener-distance change of exactly 0.0 m against a judged 0.2 m margin, so the trend does not appear on its own]",
+        "state": "interface_not_implemented"
+      },
+      {
+        "branch": "fully_occluded",
+        "entity_combination": "animal+device",
+        "qa_id": "QA-24",
+        "reason": "visibility_state: avengine/rooms/conditioned_sampler.py:select_camera_and_schedule: anchor_line_of_sight uses a single emitter/body ray; a fully_occluded pixel state is a different measurement and has no planning knob [the retained facts carry no fully_occluded pixel state across 148 members; a blocked line-of-sight ray is a different measurement and cannot stand in]",
+        "state": "interface_not_implemented"
+      },
+      {
+        "branch": "moving",
+        "entity_combination": "device+device",
+        "qa_id": "QA-06",
+        "reason": "this pair has no source that can be a self-motion target",
+        "state": "not_applicable_by_definition"
+      },
+      {
+        "branch": "still",
+        "entity_combination": "device+device",
+        "qa_id": "QA-06",
+        "reason": "this pair has no source that can be a self-motion target",
+        "state": "not_applicable_by_definition"
+      },
+      {
+        "branch": "left",
+        "entity_combination": "device+device",
+        "qa_id": "QA-07",
+        "reason": "this pair has no source that can be a self-motion target",
+        "state": "not_applicable_by_definition"
+      },
+      {
+        "branch": "right",
+        "entity_combination": "device+device",
+        "qa_id": "QA-07",
+        "reason": "this pair has no source that can be a self-motion target",
+        "state": "not_applicable_by_definition"
+      },
+      {
+        "branch": "fully_occluded",
+        "entity_combination": "device+device",
+        "qa_id": "QA-08",
+        "reason": "visibility_state: avengine/rooms/conditioned_sampler.py:select_camera_and_schedule: anchor_line_of_sight uses a single emitter/body ray; a fully_occluded pixel state is a different measurement and has no planning knob [the retained facts carry no fully_occluded pixel state across 148 members; a blocked line-of-sight ray is a different measurement and cannot stand in]",
+        "state": "interface_not_implemented"
+      },
+      {
+        "branch": "yes",
+        "entity_combination": "device+device",
+        "qa_id": "QA-09",
+        "reason": "occlusion_transition: avengine/rooms/conditioned_sampler.py:select_camera_and_schedule: anchor_line_of_sight uses a single emitter/body ray; a fully_occluded pixel state is a different measurement and has no planning knob [the retained facts carry no fully_occluded pixel state across 148 members; a blocked line-of-sight ray is a different measurement and cannot stand in]",
+        "state": "interface_not_implemented"
+      },
+      {
+        "branch": "no",
+        "entity_combination": "device+device",
+        "qa_id": "QA-09",
+        "reason": "occlusion_transition: avengine/rooms/conditioned_sampler.py:select_camera_and_schedule: anchor_line_of_sight uses a single emitter/body ray; a fully_occluded pixel state is a different measurement and has no planning knob [the retained facts carry no fully_occluded pixel state across 148 members; a blocked line-of-sight ray is a different measurement and cannot stand in]",
+        "state": "interface_not_implemented"
+      },
+      {
+        "branch": null,
+        "entity_combination": "device+device",
+        "qa_id": "QA-10",
+        "reason": "occluder_identity: avengine/rooms/conditioned_sampler.py:select_camera_and_schedule: anchor_line_of_sight uses a single emitter/body ray; a fully_occluded pixel state is a different measurement and has no planning knob [the retained facts carry no fully_occluded pixel state across 148 members; a blocked line-of-sight ray is a different measurement and cannot stand in]",
+        "state": "interface_not_implemented"
+      },
+      {
+        "branch": "nearer",
+        "entity_combination": "device+device",
+        "qa_id": "QA-15",
+        "reason": "this pair has no source that can be a self-motion target",
+        "state": "not_applicable_by_definition"
+      },
+      {
+        "branch": "farther",
+        "entity_combination": "device+device",
+        "qa_id": "QA-15",
+        "reason": "this pair has no source that can be a self-motion target",
+        "state": "not_applicable_by_definition"
+      },
+      {
+        "branch": null,
+        "entity_combination": "device+device",
+        "qa_id": "QA-16",
+        "reason": "this pair has no source that can be a self-motion target",
+        "state": "not_applicable_by_definition"
+      },
+      {
+        "branch": "yes",
+        "entity_combination": "device+device",
+        "qa_id": "QA-17",
+        "reason": "this pair has no source that can be a self-motion target",
+        "state": "not_applicable_by_definition"
+      },
+      {
+        "branch": "no",
+        "entity_combination": "device+device",
+        "qa_id": "QA-17",
+        "reason": "this pair has no source that can be a self-motion target",
+        "state": "not_applicable_by_definition"
+      },
+      {
+        "branch": "fully_occluded",
+        "entity_combination": "device+device",
+        "qa_id": "QA-24",
+        "reason": "visibility_state: avengine/rooms/conditioned_sampler.py:select_camera_and_schedule: anchor_line_of_sight uses a single emitter/body ray; a fully_occluded pixel state is a different measurement and has no planning knob [the retained facts carry no fully_occluded pixel state across 148 members; a blocked line-of-sight ray is a different measurement and cannot stand in]",
+        "state": "interface_not_implemented"
+      },
+      {
+        "branch": "fully_occluded",
+        "entity_combination": "human+animal",
+        "qa_id": "QA-08",
+        "reason": "visibility_state: avengine/rooms/conditioned_sampler.py:select_camera_and_schedule: anchor_line_of_sight uses a single emitter/body ray; a fully_occluded pixel state is a different measurement and has no planning knob [the retained facts carry no fully_occluded pixel state across 148 members; a blocked line-of-sight ray is a different measurement and cannot stand in]",
+        "state": "interface_not_implemented"
+      },
+      {
+        "branch": "yes",
+        "entity_combination": "human+animal",
+        "qa_id": "QA-09",
+        "reason": "occlusion_transition: avengine/rooms/conditioned_sampler.py:select_camera_and_schedule: anchor_line_of_sight uses a single emitter/body ray; a fully_occluded pixel state is a different measurement and has no planning knob [the retained facts carry no fully_occluded pixel state across 148 members; a blocked line-of-sight ray is a different measurement and cannot stand in]",
+        "state": "interface_not_implemented"
+      },
+      {
+        "branch": "no",
+        "entity_combination": "human+animal",
+        "qa_id": "QA-09",
+        "reason": "occlusion_transition: avengine/rooms/conditioned_sampler.py:select_camera_and_schedule: anchor_line_of_sight uses a single emitter/body ray; a fully_occluded pixel state is a different measurement and has no planning knob [the retained facts carry no fully_occluded pixel state across 148 members; a blocked line-of-sight ray is a different measurement and cannot stand in]",
+        "state": "interface_not_implemented"
+      },
+      {
+        "branch": null,
+        "entity_combination": "human+animal",
+        "qa_id": "QA-10",
+        "reason": "occluder_identity: avengine/rooms/conditioned_sampler.py:select_camera_and_schedule: anchor_line_of_sight uses a single emitter/body ray; a fully_occluded pixel state is a different measurement and has no planning knob [the retained facts carry no fully_occluded pixel state across 148 members; a blocked line-of-sight ray is a different measurement and cannot stand in]",
+        "state": "interface_not_implemented"
+      },
+      {
+        "branch": "nearer",
+        "entity_combination": "human+animal",
+        "qa_id": "QA-15",
+        "reason": "distance_net_change: avengine/rooms/conditioned_sampler.py:sample_routes: routes are sampled for a contiguous moving window, not for a signed listener-distance change of at least the judged margin [every retained event measures a listener-distance change of exactly 0.0 m against a judged 0.2 m margin, so the trend does not appear on its own]",
+        "state": "interface_not_implemented"
+      },
+      {
+        "branch": "farther",
+        "entity_combination": "human+animal",
+        "qa_id": "QA-15",
+        "reason": "distance_net_change: avengine/rooms/conditioned_sampler.py:sample_routes: routes are sampled for a contiguous moving window, not for a signed listener-distance change of at least the judged margin [every retained event measures a listener-distance change of exactly 0.0 m against a judged 0.2 m margin, so the trend does not appear on its own]",
+        "state": "interface_not_implemented"
+      },
+      {
+        "branch": "fully_occluded",
+        "entity_combination": "human+animal",
+        "qa_id": "QA-24",
+        "reason": "visibility_state: avengine/rooms/conditioned_sampler.py:select_camera_and_schedule: anchor_line_of_sight uses a single emitter/body ray; a fully_occluded pixel state is a different measurement and has no planning knob [the retained facts carry no fully_occluded pixel state across 148 members; a blocked line-of-sight ray is a different measurement and cannot stand in]",
+        "state": "interface_not_implemented"
+      },
+      {
+        "branch": "fully_occluded",
+        "entity_combination": "human+device",
+        "qa_id": "QA-08",
+        "reason": "visibility_state: avengine/rooms/conditioned_sampler.py:select_camera_and_schedule: anchor_line_of_sight uses a single emitter/body ray; a fully_occluded pixel state is a different measurement and has no planning knob [the retained facts carry no fully_occluded pixel state across 148 members; a blocked line-of-sight ray is a different measurement and cannot stand in]",
+        "state": "interface_not_implemented"
+      },
+      {
+        "branch": "yes",
+        "entity_combination": "human+device",
+        "qa_id": "QA-09",
+        "reason": "occlusion_transition: avengine/rooms/conditioned_sampler.py:select_camera_and_schedule: anchor_line_of_sight uses a single emitter/body ray; a fully_occluded pixel state is a different measurement and has no planning knob [the retained facts carry no fully_occluded pixel state across 148 members; a blocked line-of-sight ray is a different measurement and cannot stand in]",
+        "state": "interface_not_implemented"
+      },
+      {
+        "branch": "no",
+        "entity_combination": "human+device",
+        "qa_id": "QA-09",
+        "reason": "occlusion_transition: avengine/rooms/conditioned_sampler.py:select_camera_and_schedule: anchor_line_of_sight uses a single emitter/body ray; a fully_occluded pixel state is a different measurement and has no planning knob [the retained facts carry no fully_occluded pixel state across 148 members; a blocked line-of-sight ray is a different measurement and cannot stand in]",
+        "state": "interface_not_implemented"
+      },
+      {
+        "branch": null,
+        "entity_combination": "human+device",
+        "qa_id": "QA-10",
+        "reason": "occluder_identity: avengine/rooms/conditioned_sampler.py:select_camera_and_schedule: anchor_line_of_sight uses a single emitter/body ray; a fully_occluded pixel state is a different measurement and has no planning knob [the retained facts carry no fully_occluded pixel state across 148 members; a blocked line-of-sight ray is a different measurement and cannot stand in]",
+        "state": "interface_not_implemented"
+      },
+      {
+        "branch": "nearer",
+        "entity_combination": "human+device",
+        "qa_id": "QA-15",
+        "reason": "distance_net_change: avengine/rooms/conditioned_sampler.py:sample_routes: routes are sampled for a contiguous moving window, not for a signed listener-distance change of at least the judged margin [every retained event measures a listener-distance change of exactly 0.0 m against a judged 0.2 m margin, so the trend does not appear on its own]",
+        "state": "interface_not_implemented"
+      },
+      {
+        "branch": "farther",
+        "entity_combination": "human+device",
+        "qa_id": "QA-15",
+        "reason": "distance_net_change: avengine/rooms/conditioned_sampler.py:sample_routes: routes are sampled for a contiguous moving window, not for a signed listener-distance change of at least the judged margin [every retained event measures a listener-distance change of exactly 0.0 m against a judged 0.2 m margin, so the trend does not appear on its own]",
+        "state": "interface_not_implemented"
+      },
+      {
+        "branch": "fully_occluded",
+        "entity_combination": "human+device",
+        "qa_id": "QA-24",
+        "reason": "visibility_state: avengine/rooms/conditioned_sampler.py:select_camera_and_schedule: anchor_line_of_sight uses a single emitter/body ray; a fully_occluded pixel state is a different measurement and has no planning knob [the retained facts carry no fully_occluded pixel state across 148 members; a blocked line-of-sight ray is a different measurement and cannot stand in]",
+        "state": "interface_not_implemented"
+      },
+      {
+        "branch": "fully_occluded",
+        "entity_combination": "human+human",
+        "qa_id": "QA-08",
+        "reason": "visibility_state: avengine/rooms/conditioned_sampler.py:select_camera_and_schedule: anchor_line_of_sight uses a single emitter/body ray; a fully_occluded pixel state is a different measurement and has no planning knob [the retained facts carry no fully_occluded pixel state across 148 members; a blocked line-of-sight ray is a different measurement and cannot stand in]",
+        "state": "interface_not_implemented"
+      },
+      {
+        "branch": "yes",
+        "entity_combination": "human+human",
+        "qa_id": "QA-09",
+        "reason": "occlusion_transition: avengine/rooms/conditioned_sampler.py:select_camera_and_schedule: anchor_line_of_sight uses a single emitter/body ray; a fully_occluded pixel state is a different measurement and has no planning knob [the retained facts carry no fully_occluded pixel state across 148 members; a blocked line-of-sight ray is a different measurement and cannot stand in]",
+        "state": "interface_not_implemented"
+      },
+      {
+        "branch": "no",
+        "entity_combination": "human+human",
+        "qa_id": "QA-09",
+        "reason": "occlusion_transition: avengine/rooms/conditioned_sampler.py:select_camera_and_schedule: anchor_line_of_sight uses a single emitter/body ray; a fully_occluded pixel state is a different measurement and has no planning knob [the retained facts carry no fully_occluded pixel state across 148 members; a blocked line-of-sight ray is a different measurement and cannot stand in]",
+        "state": "interface_not_implemented"
+      },
+      {
+        "branch": null,
+        "entity_combination": "human+human",
+        "qa_id": "QA-10",
+        "reason": "occluder_identity: avengine/rooms/conditioned_sampler.py:select_camera_and_schedule: anchor_line_of_sight uses a single emitter/body ray; a fully_occluded pixel state is a different measurement and has no planning knob [the retained facts carry no fully_occluded pixel state across 148 members; a blocked line-of-sight ray is a different measurement and cannot stand in]",
+        "state": "interface_not_implemented"
+      },
+      {
+        "branch": "nearer",
+        "entity_combination": "human+human",
+        "qa_id": "QA-15",
+        "reason": "distance_net_change: avengine/rooms/conditioned_sampler.py:sample_routes: routes are sampled for a contiguous moving window, not for a signed listener-distance change of at least the judged margin [every retained event measures a listener-distance change of exactly 0.0 m against a judged 0.2 m margin, so the trend does not appear on its own]",
+        "state": "interface_not_implemented"
+      },
+      {
+        "branch": "farther",
+        "entity_combination": "human+human",
+        "qa_id": "QA-15",
+        "reason": "distance_net_change: avengine/rooms/conditioned_sampler.py:sample_routes: routes are sampled for a contiguous moving window, not for a signed listener-distance change of at least the judged margin [every retained event measures a listener-distance change of exactly 0.0 m against a judged 0.2 m margin, so the trend does not appear on its own]",
+        "state": "interface_not_implemented"
+      },
+      {
+        "branch": "fully_occluded",
+        "entity_combination": "human+human",
+        "qa_id": "QA-24",
+        "reason": "visibility_state: avengine/rooms/conditioned_sampler.py:select_camera_and_schedule: anchor_line_of_sight uses a single emitter/body ray; a fully_occluded pixel state is a different measurement and has no planning knob [the retained facts carry no fully_occluded pixel state across 148 members; a blocked line-of-sight ray is a different measurement and cannot stand in]",
+        "state": "interface_not_implemented"
+      }
+    ],
+    "note": "Cells the condition compiler refuses today, per source combination. They are declared here rather than requested, so a program worker does not spend a budget retrying a knob that does not exist. Each keeps its own state: inapplicable by definition is a different answer from an unimplemented interface. This is about requestable conditions only. No Episode declares qa_ids, so every Episode still generates all twenty-five types from whatever its facts support, which is how the retained library produced QA-10 questions in nine worlds with no planner able to demand an occluder identity."
+  },
+  "planner_capability_basis": {
+    "declared_by": "avengine.rooms.conditioned_sampler.describe_generator_capabilities",
+    "measurement": "generation_conditions.measure_sampler_capabilities pushed a legal non-default value through resolve_condition_profile for every knob the sampler publishes and read the resolved profile back. Pure CPU, nothing rendered. The conservative fallback in generation_conditions omits competitor_motion and visibility_transition, which the checked-in sampler does honour, so this configuration asks the planner what it can do instead of trusting that fallback.",
+    "unverified_knobs": [],
+    "verified_knobs": [
+      "anchor_count",
+      "anchor_line_of_sight",
+      "anchor_visibility",
+      "competitor_motion",
+      "competitor_visibility",
+      "distance_range_m",
+      "distance_trend_during_event",
+      "event_relation",
+      "first_speaker_instance_id",
+      "min_gap_between_audible_windows_s",
+      "minimum_overlap_s",
+      "pixel_occlusion_transition",
+      "reserve_tail_s",
+      "retry_budget_within_profile",
+      "separation_bin_deg",
+      "separation_target_policy",
+      "speech_motion",
+      "target_moved_after_sound",
+      "visibility_transition"
+    ]
+  },
+  "production_rounds": {
+    "core_groups_in_this_configuration": 16,
+    "core_groups_per_cell_in_this_configuration": 1,
+    "episode_count": 42,
+    "note": "This configuration is one engineering batch: one core group in each of the sixteen task-family by room cells, which is the configured per-cell floor, plus the Episodes below. The 42 Episode rows are retained request inventory and are not run as one initial batch; small initial batches remain capped at 32. Further QA, world, branch, fresh-world and entity-combination evidence is tracked separately, so this core matrix alone is not V1 coverage.",
+    "required_core_groups_per_cell": 1
+  },
+  "schema": "avengine_v1_production_spec_v1",
+  "seed": 20260910,
+  "sound_sources": {
+    "activity_family_reclassification_requests": [
+      {
+        "declared_activity_family": "device_continuous",
+        "measured_basis": "49 of 93 clips pass the 0.85 continuous coverage requirement and 86 pass under a short_prompt policy. These are pulsed or sparse sounds carrying a continuous contract.",
+        "reason": "A coverage number is not a reason to reclassify a whole class. The declared family stays until the sound_prepare owner decides, and the refused clips are reported as a real shortfall.",
+        "sound_classes": [
+          "clock_tick",
+          "crackle",
+          "drip",
+          "fire",
+          "gurgling"
+        ],
+        "state": "declared_family_retained_pending_owner_decision"
+      }
+    ],
+    "clip_length_filter": {
+      "max_clip_s": null,
+      "reason": "The old pool declared max_clip_s 5, which excluded every air_conditioning event. Length is no longer a pool filter; a long recording enters through an authorized activity-segment selection with its own budget."
+    },
+    "human_review_scope": "The library's human_review record covers the original recording only. It never overrides a machine QC fail and it does not carry over to a cropped segment or to audiovisual answerability.",
+    "minimum_animal_activity_s": 0.5,
+    "object_sound_classes": {
+      "air_conditioner": [
+        "air_conditioning"
+      ],
+      "alarm_clock": [
+        "alarm_clock",
+        "alarm_beep",
+        "alarm_bell",
+        "clock_tick"
+      ],
+      "bathtub": [
+        "bathtub_filling_washing"
+      ],
+      "blender": [
+        "blender"
+      ],
+      "bookshelf_speaker": [
+        "speech_playback",
+        "music_playback",
+        "any_audioset_class_playback"
+      ],
+      "cellphone": [
+        "cellphone_vibration_alert",
+        "ringtone",
+        "phone_ring"
+      ],
+      "desk_telephone": [
+        "telephone_bell_ringing",
+        "telephone_dialing_dtmf",
+        "busy_signal",
+        "phone_ring",
+        "telephone"
+      ],
+      "doorbell_chime_unit": [
+        "doorbell",
+        "doorbell_chime",
+        "ding_dong",
+        "chime"
+      ],
+      "fireplace": [
+        "fire",
+        "crackle"
+      ],
+      "floor_drain": [
+        "drip",
+        "gurgling"
+      ],
+      "floorstanding_speaker": [
+        "speech_playback",
+        "music_playback",
+        "any_audioset_class_playback"
+      ],
+      "landline_phone": [
+        "telephone_bell_ringing",
+        "telephone_dialing_dtmf",
+        "busy_signal",
+        "phone_ring",
+        "telephone"
+      ],
+      "microwave_oven": [
+        "microwave_beep",
+        "microwave_hum"
+      ],
+      "printer": [
+        "printer"
+      ],
+      "sink_with_tap": [
+        "sink_filling_washing",
+        "water_tap_faucet"
+      ],
+      "smart_speaker": [
+        "speech_playback",
+        "music_playback",
+        "any_audioset_class_playback"
+      ],
+      "smoke_detector": [
+        "smoke_alarm",
+        "fire_alarm"
+      ],
+      "soundbar": [
+        "speech_playback",
+        "music_playback",
+        "any_audioset_class_playback"
+      ],
+      "television": [
+        "speech_playback",
+        "music_playback",
+        "any_audioset_class_playback"
+      ],
+      "toilet": [
+        "toilet_flush"
+      ]
+    },
+    "prepared_speech_manifest": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/p7_prepared_audio_v3/prepared_manifest.json",
+    "segment_budget": {
+      "derived_max_duration_s": 7.0,
+      "earliest_start_s": 0.0,
+      "episode_s": 10.0,
+      "reason": "The span one dry recording gets when it has to fit alone inside the Episode. Sequential, overlapping and repeated events share the same span, so this is neither a per-clip cap nor a new global rule.",
+      "reserve_tail_s": 3.0
+    },
+    "segment_selections": null,
+    "segment_selections_note": "Pool rows from avengine.dataset.sound_segments.pool_row, keyed by library-relative path; batch_sound_pool reads spec['segment_selections'] as a mapping, a list or a JSON path. Left null because a run must point at the selection set it materialized itself, not at another attempt's artifacts.",
+    "sound_event_manifest": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_user_acceptance_rework_20260908_v1/event_library_peak_dbfs_3_20260908_v1/event_manifest.json",
+    "sound_event_registry": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_user_acceptance_rework_20260908_v1/event_library_peak_dbfs_3_20260908_v1/sound_asset_registry_peak_dbfs_3_20260908_v1.json",
+    "species_sound_classes": {
+      "cat": [
+        "cat_meow"
+      ],
+      "dog": [
+        "dog_bark"
+      ]
+    },
+    "speech_playback_categories": [
+      "audio_playback"
+    ],
+    "telephone_binding_basis": "16 registered telephone events had no accepting device. Every retained clip carries the FSD50K provenance label 'Telephone' and the library QC measures a ring cadence, which is what a corded desk unit and a wall landline emit; both already declare the narrower telephone classes. A cellphone is deliberately left out: it has no bell.",
+    "undetermined_sound_class_semantics": [
+      {
+        "activity_family": "short_prompt",
+        "decision_needed": "An owner audition deciding whether these recordings are a door or appliance buzzer. Only then does an object_type declare the class; no device gets a blanket accept in the meantime.",
+        "measured_basis": "9 of the 10 retained clips carry the FSD50K provenance label 'Buzz', not 'Buzzer', and the one clip actually labelled 'Buzzer' is the one whose machine QC verdict is fail. A generic buzz covers electrical and insect buzzing, which does not establish an entry buzzer or an appliance alert.",
+        "registered_event_count": 9,
+        "sound_class": "buzzer",
+        "state": "semantics_undetermined_pending_owner_decision"
+      },
+      {
+        "activity_family": "unknown",
+        "decision_needed": "The class of these five recordings. If they are busy signals, desk_telephone and landline_phone already declare busy_signal and no new mapping is needed. If they are dial tones, sound_prepare must declare an activity family for dial_tone first: it resolves to unknown today, so every selection is refused.",
+        "library_clip_count": 5,
+        "measured_basis": "All five clips declare event_classes ['dial_tone'], but the library QC measures continuous=false at 0.500-0.532 duty for the three supplemental_busy files and 0.210-0.216 for the two supplemental_dial files. A continuous dial tone would measure continuous=true at ratio 1.0 and none of them does.",
+        "registered_event_count": 0,
+        "sound_class": "dial_tone",
+        "state": "semantics_undetermined_pending_owner_decision"
+      }
+    ]
+  }
+}

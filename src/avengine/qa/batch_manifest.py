@@ -21,6 +21,23 @@ from avengine.rooms.conditioned_sampler import (
     sound_matches,
 )
 
+from avengine.dataset.production_spec import (
+    CORE_TASK_FAMILIES,
+    CoreGroupRequest,
+    ProductionSpecError,
+    StageResult,
+    deep_merge_mappings,
+    group_blockers,
+    group_stage_units,
+    initial_group_work_items,
+    initial_stage_work_items,
+    next_group_work_items,
+    next_stage_work_items,
+    parse_production_config,
+    production_request_from_legacy,
+    recipe_for_task_family,
+    stage_protocol_summary,
+)
 from avengine.qa.failure_accounting import classify_failure
 
 SOURCE_CLASSES = ("articulated_human", "articulated_animal", "rigid_static_object")
@@ -63,6 +80,19 @@ COMMON_PROFILE = {
     "distance_range_m": [1.5, 4.5],
     "separation_target_policy": "any_legal_in_bin",
 }
+# The one condition group each core task family exercises. A config may name
+# condition_group itself; this table is only the default for a member that does
+# not, and every row records which of the two it used.
+CONDITION_GROUP_BY_TASK_FAMILY = {
+    "visible_binding": "identity_binding",
+    "visual_conditioned_relation": "audio_event_relations",
+    "cross_event_identity": "identity_binding",
+    "cross_time_state": "post_sound_state",
+}
+# What configs written before config.qa existed asked for. Kept so an old
+# config still preallocates the same rows; a V1 config states its own quota.
+LEGACY_QA_QUOTA_BY_QA = {qa: (3 if qa == "QA-25" else 1) for qa in QA_IDS}
+LEGACY_ITEMS_PER_TYPE = 1
 GROUP_PROFILE = {
     "identity_binding": {},
     "audio_event_relations": {"event_relation": "overlap", "anchor_count": 2},
@@ -411,6 +441,44 @@ def iter_achieved_separation_deg(row: Mapping[str, Any]):
         yield float(value)
 
 
+def _declared_preallocation_by_actor(
+    request: Mapping[str, Any], instances: Sequence[Mapping[str, Any]],
+) -> dict[str, list[str]] | None:
+    """Validate and return the request's explicit actor sound allowlists."""
+    selection = request.get("sound_selection")
+    if not isinstance(selection, Mapping):
+        return None
+    declared = selection.get("preallocated_sound_asset_ids_by_actor")
+    if declared is None:
+        return None
+    if not isinstance(declared, Mapping):
+        raise ValueError(
+            "explicit sound preallocation must be an actor-to-sound-ID mapping"
+        )
+    speaking = {
+        str(instance.get("instance_id"))
+        for instance in instances
+        if instance.get("speaking") is not False
+    }
+    missing = sorted(speaking - {str(key) for key in declared})
+    if missing:
+        raise ValueError(
+            "explicit sound preallocation misses speaking actors: "
+            f"{missing}"
+        )
+    result: dict[str, list[str]] = {}
+    for actor_id in sorted(speaking):
+        values = declared.get(actor_id)
+        if not isinstance(values, list) or any(
+            not isinstance(value, str) or not value for value in values
+        ):
+            raise ValueError(
+                "explicit sound preallocation values must be nonempty string lists"
+            )
+        result[actor_id] = [str(value) for value in values]
+    return result
+
+
 def _bind_identity(assignment, identity, groups):
     entries = sorted(groups[identity], key=lambda sound: sound["sound_asset_id"])
     assignment.update(
@@ -469,13 +537,91 @@ def _minimum_choice(values: Sequence[Any], score, rng: random.Random):
     return rng.choice([value for value in values if score(value) == minimum])
 
 
-def _asset_interface_gaps(record: Mapping[str, Any], renderer: str) -> list[dict[str, str]]:
+def _formal_static_placement_state(
+    request: Mapping[str, Any] | None, asset_id: str,
+    *, support_placed: bool = True,
+) -> tuple[str, list[str]] | None:
+    """Classify a formal support-placement input before legacy asset guards.
+
+    A production request with a catalog, bounded config and an asset-specific
+    support request is consumed by conditioned_sampler/source_placement. It is
+    therefore not an interface gap merely because the old floor materializer
+    cannot realize it. Malformed or asset-missing formal input remains an
+    evidence gap and is never silently accepted.
+
+    ``support_placed`` says whether this particular asset is one that a support
+    surface carries. An articulated actor stands on the navmesh and never gets a
+    support request, so demanding one for it reports a gap that nothing can ever
+    close. The spec-level checks (catalog, config, a well-formed request list)
+    still run for every asset.
+    """
+    if not isinstance(request, Mapping):
+        return None
+    spec = request.get("static_source_placement") or request.get(
+        "static_source_placements"
+    )
+    if spec is None:
+        return None
+    if not isinstance(spec, Mapping):
+        return "invalid", ["static_source_placement"]
+    missing: list[str] = []
+    catalog = spec.get("catalog_path") or spec.get("support_surface_catalog")
+    if not isinstance(catalog, str) or not catalog.strip():
+        missing.append("catalog_path")
+    if not isinstance(spec.get("config") or spec.get("placement_config"), Mapping):
+        missing.append("config")
+    raw_requests = spec.get("requests")
+    if raw_requests is not None:
+        if isinstance(raw_requests, (str, bytes)) or not isinstance(raw_requests, Sequence):
+            missing.append("requests")
+        elif support_placed:
+            matches = [
+                row for row in raw_requests
+                if isinstance(row, Mapping) and str(row.get("asset_id")) == str(asset_id)
+            ]
+            if not matches:
+                missing.append(f"requests[{asset_id}]")
+            elif any(
+                not isinstance(row.get("support_surface_id"), str)
+                or not row.get("support_surface_id").strip()
+                for row in matches
+            ):
+                missing.append(f"support_surface_id[{asset_id}]")
+    elif not (
+        isinstance(spec.get("qualification_config"), str)
+        and spec.get("qualification_config")
+        and spec.get("qualification_episode_id")
+    ):
+        missing.extend(["requests", "qualification_config", "qualification_episode_id"])
+    return ("valid", []) if not missing else ("invalid", missing)
+
+
+def _asset_interface_gaps(
+    record: Mapping[str, Any], renderer: str,
+    request: Mapping[str, Any] | None = None,
+) -> list[dict[str, str]]:
     backend = "spear_unreal" if renderer == "ue_spear" else "habitat"
     bindings = record.get("runtime_backends", {})
     if not bindings.get(backend):
         return [{"state": "interface_not_implemented", "code": "renderer_binding_missing",
                  "asset_id": record["asset_id"], "renderer": renderer,
                  "file": "examples/runtime/source_asset_runtime_profiles.json"}]
+    formal = _formal_static_placement_state(
+        request, str(record["asset_id"]),
+        support_placed=source_class(record) == "rigid_static_object",
+    )
+    if formal is not None:
+        status, missing = formal
+        if status == "valid":
+            return []
+        return [{
+            "state": "evidence_missing_or_unsampled",
+            "code": "static_placement_input_missing",
+            "asset_id": record["asset_id"],
+            "renderer": renderer,
+            "missing_fields": ",".join(missing),
+            "file": "request.static_source_placement",
+        }]
     if source_class(record) == "rigid_static_object":
         pose = bindings.get("habitat", {}).get("resting_pose", {})
         if pose.get("attachment_surface") != "floor" or pose.get("base_plane_offset_m") is None:
@@ -501,17 +647,573 @@ def merge_request_overrides(
         raise ValueError("base_request must be a mapping")
     if not isinstance(overrides, Mapping):
         raise ValueError("slot.request_overrides must be a mapping")
+    return deep_merge_mappings(base, overrides)
 
-    def merge(target: dict[str, Any], source: Mapping[str, Any]) -> dict[str, Any]:
-        for key, value in source.items():
-            current = target.get(key)
-            if isinstance(current, Mapping) and isinstance(value, Mapping):
-                target[key] = merge(deepcopy(dict(current)), value)
-            else:
-                target[key] = deepcopy(value)
-        return target
 
-    return merge(deepcopy(dict(base)), overrides)
+def resolve_qa_plan(config: Mapping[str, Any], slot: Mapping[str, Any]) -> dict[str, Any]:
+    """Read the QA selection, per-type item count and quota from configuration.
+
+    A config `qa` block applies to the whole batch and a slot `qa` block
+    overrides it. Nothing here decides how many items a QA type is worth: when
+    neither level says, the row records that it fell back to the pre-config
+    default instead of silently owning that number.
+    """
+    batch_block = config.get("qa")
+    slot_block = slot.get("qa")
+    for owner, block in (("config.qa", batch_block), ("slot.qa", slot_block)):
+        if block is not None and not isinstance(block, Mapping):
+            raise ValueError(f"{owner} must be a mapping")
+    block = {**dict(batch_block or {}), **dict(slot_block or {})}
+    declared_ids = block.get("qa_ids")
+    if declared_ids is None:
+        qa_ids = list(QA_IDS)
+        qa_ids_source = "unified_catalog_all"
+    else:
+        if not isinstance(declared_ids, list) or not declared_ids:
+            raise ValueError("qa.qa_ids must be a nonempty list")
+        unknown = [value for value in declared_ids if value not in QA_IDS]
+        if unknown:
+            raise ValueError(f"qa.qa_ids are not in the unified catalog: {unknown}")
+        if len(set(declared_ids)) != len(declared_ids):
+            raise ValueError("qa.qa_ids must be distinct")
+        qa_ids = list(declared_ids)
+        qa_ids_source = "config"
+    items_per_type = block.get("items_per_type")
+    if items_per_type is None:
+        items_per_type, items_source = LEGACY_ITEMS_PER_TYPE, "legacy_default"
+    else:
+        if isinstance(items_per_type, bool) or not isinstance(items_per_type, int) or items_per_type < 1:
+            raise ValueError("qa.items_per_type must be a positive integer")
+        items_source = "config"
+    quota = block.get("quota_by_qa")
+    if quota is None:
+        quota_by_qa = {qa: LEGACY_QA_QUOTA_BY_QA[qa] for qa in qa_ids}
+        quota_source = "legacy_default"
+    else:
+        if not isinstance(quota, Mapping) or not quota:
+            raise ValueError("qa.quota_by_qa must be a nonempty mapping")
+        outside = sorted(set(quota) - set(qa_ids))
+        if outside:
+            raise ValueError(f"qa.quota_by_qa names QA types outside qa_ids: {outside}")
+        for qa, value in quota.items():
+            if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+                raise ValueError(f"qa.quota_by_qa[{qa}] must be a positive integer")
+        quota_by_qa = {qa: int(quota.get(qa, LEGACY_QA_QUOTA_BY_QA[qa])) for qa in qa_ids}
+        quota_source = "config" if set(quota) == set(qa_ids) else "config_partial_legacy_default"
+    return {"qa_ids": qa_ids, "qa_ids_source": qa_ids_source,
+            "items_per_type": int(items_per_type), "items_per_type_source": items_source,
+            "quota_by_qa": quota_by_qa, "quota_source": quota_source,
+            "qa_targets": deepcopy(block.get("qa_targets"))}
+
+
+def resolve_qa_targets(
+    qa_plan: Mapping[str, Any],
+    *,
+    instances: Sequence[Mapping[str, Any]],
+    condition: Mapping[str, Any] | None,
+) -> list[dict[str, Any]]:
+    """Name the target entity instances and the event selection for each QA type.
+
+    A declared target is used as written. A derived target reads the resolved
+    anchor entities and asks about their own audible window: `anchor_indices`
+    says which entity anchors the question, never that the answer is the first
+    sound of the program.
+    """
+    instance_ids = [instance["instance_id"] for instance in instances]
+    declared = qa_plan.get("qa_targets")
+    if declared is not None:
+        if not isinstance(declared, list) or not declared:
+            raise ValueError("qa.qa_targets must be a nonempty list")
+        targets = []
+        for index, raw in enumerate(declared):
+            if not isinstance(raw, Mapping):
+                raise ValueError("qa.qa_targets entries must be mappings")
+            qa_id = _text(raw.get("qa_id"), f"qa_targets[{index}].qa_id")
+            if qa_id not in qa_plan["qa_ids"]:
+                raise ValueError(f"qa_targets[{index}].qa_id is outside qa_ids: {qa_id}")
+            named = raw.get("target_instance_ids")
+            if not isinstance(named, list) or not named:
+                raise ValueError(f"qa_targets[{index}].target_instance_ids must name an instance")
+            unknown = [value for value in named if value not in instance_ids]
+            if unknown:
+                raise ValueError(
+                    f"qa_targets[{index}].target_instance_ids are not in this episode: {unknown}")
+            event = raw.get("event")
+            if not isinstance(event, Mapping) or not event.get("kind"):
+                raise ValueError(f"qa_targets[{index}].event must state its kind")
+            targets.append({**deepcopy(dict(raw)),
+                            "target_source": raw.get("target_source", "config")})
+        return targets
+    if condition is not None:
+        anchors = [instance_ids[index] for index in condition["anchor_indices"]]
+        speaking = [instance_ids[index] for index in condition["speaking_indices"]]
+        source = "resolved_anchor_entities"
+    else:
+        anchors = [instance["instance_id"] for instance in instances]
+        speaking = list(anchors)
+        source = "unresolved_all_instances"
+    return [{"qa_id": qa_id,
+             "target_instance_ids": list(anchors),
+             "competitor_instance_ids": [value for value in speaking if value not in anchors],
+             "event": {"kind": "target_audible_window"},
+             "items": int(qa_plan["quota_by_qa"][qa_id]),
+             "target_source": source}
+            for qa_id in qa_plan["qa_ids"]]
+
+
+def declared_silent_count(instances: Sequence[Mapping[str, Any]]) -> int | None:
+    """How many instances declared themselves silent, or None if none declared.
+
+    A count is only meaningful when the instances state their own flags; an
+    episode that states nothing keeps the upstream count.
+    """
+    if not any(isinstance(row, Mapping) and row.get("speaking") is not None
+               for row in instances):
+        return None
+    return sum(1 for row in instances
+               if isinstance(row, Mapping) and row.get("speaking") is False)
+
+
+def resolve_silent_count(
+    instances: Sequence[Mapping[str, Any]], stated: Any, *, owner: str,
+) -> int:
+    """Reconcile a stated silent_count with the per-instance speaking flags.
+
+    The flags win, because they say *which* instance is silent and a count only
+    says how many. A stated count that disagrees is a real contradiction in the
+    request and is reported, never quietly replaced.
+    """
+    declared = declared_silent_count(instances)
+    if declared is None:
+        return 0 if stated is None else int(stated)
+    if stated is not None and int(stated) != declared:
+        silent = [row.get("instance_id") for row in instances
+                  if isinstance(row, Mapping) and row.get("speaking") is False]
+        raise ValueError(
+            f"{owner}: entities.silent_count is {int(stated)} but the declared "
+            f"instance speaking flags make {declared} instance(s) silent "
+            f"({silent}); state one of them, not both")
+    if not 0 <= declared < len(instances):
+        raise ValueError(
+            f"{owner}: the declared speaking flags leave no speaking instance")
+    return declared
+
+
+def entity_instances_for_slot(
+    slot: Mapping[str, Any], classes: Sequence[str], assets: Sequence[str] | None
+) -> list[dict[str, Any]]:
+    """Name one identity per entity instance, not one per registry entry.
+
+    Two instances may resolve the same asset. The instance is the identity, so
+    `source1` and `source2` stay separate rows even when they share `asset_id`.
+    """
+    declared = slot.get("entity_instances")
+    if declared is not None:
+        if not isinstance(declared, list) or len(declared) != len(classes):
+            raise ValueError("slot.entity_instances must supply one entry per source class")
+        instances = []
+        for index, raw in enumerate(declared):
+            if not isinstance(raw, Mapping):
+                raise ValueError("slot.entity_instances entries must be mappings")
+            instance = {"instance_id": _text(raw.get("instance_id", f"source{index + 1}"),
+                                             "entity_instance.instance_id"),
+                        "source_class": classes[index]}
+            declared_class = raw.get("source_class")
+            if declared_class is not None and declared_class != classes[index]:
+                raise ValueError(
+                    f"entity_instances[{index}].source_class disagrees with source_classes: "
+                    f"{declared_class} vs {classes[index]}")
+            asset_id = raw.get("asset_id", assets[index] if assets is not None else None)
+            if asset_id is not None:
+                instance["asset_id"] = _text(asset_id, "entity_instance.asset_id")
+            if raw.get("role") is not None:
+                instance["role"] = _text(raw["role"], "entity_instance.role")
+            speaking = raw.get("speaking")
+            if speaking is not None:
+                if not isinstance(speaking, bool):
+                    raise ValueError(
+                        f"entity_instances[{index}].speaking must be true or false, "
+                        f"got {speaking!r}")
+                # The declared flag is the identity of this instance, not a count.
+                # Dropping it here is what made the sampler draw the silent actor
+                # at random and silence whichever instance the draw happened to hit.
+                instance["speaking"] = speaking
+            instances.append(instance)
+    else:
+        instances = [{"instance_id": f"source{index + 1}", "source_class": kind,
+                      **({"asset_id": assets[index]} if assets is not None else {})}
+                     for index, kind in enumerate(classes)]
+    ids = [instance["instance_id"] for instance in instances]
+    if len(set(ids)) != len(ids):
+        raise ValueError(f"entity instance_id values must be distinct: {ids}")
+    return instances
+
+
+def shared_asset_instance_gap(instances: Sequence[Mapping[str, Any]]) -> dict[str, Any] | None:
+    """Report the exact place a repeated asset is still refused downstream."""
+    bound = [instance.get("asset_id") for instance in instances if instance.get("asset_id")]
+    if len(set(bound)) == len(bound):
+        return None
+    repeated = sorted({value for value in bound if bound.count(value) > 1})
+    return {
+        "state": "interface_not_implemented",
+        "code": "repeated_asset_across_entity_instances",
+        "asset_ids": repeated,
+        "instance_ids": [instance["instance_id"] for instance in instances],
+        "file": "src/avengine/rooms/conditioned_sampler.py",
+        "functions": ["resolve_condition_profile", "select_entities"],
+        "detail": ("both require a distinct asset_id per source, so two instances of one "
+                   "asset cannot be planned or sampled until that rule is relaxed"),
+    }
+
+
+def _member_stage_scope(row: Mapping[str, Any], slot: Mapping[str, Any]) -> dict[str, Any]:
+    """Where a core member's stages actually live, and which units deliver it."""
+    recipe = recipe_for_task_family(row["task_family"])
+    index = slot.get("member_index")
+    delivering = None if index is None else recipe.member_unit_ids[int(index)]
+    unit = None if delivering is None else recipe.unit(delivering)
+    return {
+        "kind": "core_group",
+        "group_id": row["group_id"],
+        "task_family": row["task_family"],
+        "member_index": index,
+        "delivering_unit_id": delivering,
+        "consumes_visual_unit_id": None if unit is None else unit.visual_unit_id,
+        "entry_point": "avengine.qa.batch_manifest.stage_work_items_for_group",
+        "reason": "one visual and one audio column are shared, so stages are group scoped",
+    }
+
+
+def _condition_group_for_slot(slot: Mapping[str, Any]) -> tuple[str, str]:
+    declared = slot.get("condition_group")
+    if declared is not None:
+        return _text(declared, "condition_group"), "config"
+    family = slot.get("task_family")
+    if family in CONDITION_GROUP_BY_TASK_FAMILY:
+        return CONDITION_GROUP_BY_TASK_FAMILY[family], "task_family_default"
+    raise ValueError("condition_group must be nonempty text")
+
+
+def _slot_qa_block(request: Any) -> dict[str, Any]:
+    """Carry only what the production request was actually told.
+
+    A quota the spec filled in per unit, or a target it derived from the
+    speaking instances, is not a declaration. Passing those on would shadow a
+    batch-level `config.qa` and would replace the anchor-resolved targets this
+    module can compute once the condition profile exists.
+    """
+    block: dict[str, Any] = {"qa_ids": list(request.qa_ids),
+                             "items_per_type": request.items_per_type}
+    if request.quota_source != "unit_default":
+        block["quota_by_qa"] = dict(request.quota_by_qa)
+    if request.qa_targets_declared:
+        block["qa_targets"] = [target.to_dict() for target in request.qa_targets]
+    return block
+
+
+def _preallocation_by_asset(
+    instances: Sequence[Mapping[str, Any]],
+    allowlists: Mapping[str, Any],
+) -> dict[str, list[str]]:
+    """Canonicalize actor-keyed candidate pools by the bound physical asset."""
+    result: dict[str, list[str]] = {}
+    for instance in instances:
+        actor_id = str(instance.get("instance_id") or "")
+        if actor_id not in allowlists:
+            continue
+        values = allowlists[actor_id]
+        if (
+            not isinstance(values, list)
+            or any(not isinstance(value, str) or not value for value in values)
+        ):
+            raise ValueError(
+                "sound preallocation must map every speaking actor to sound IDs"
+            )
+        asset_id = instance.get("asset_id")
+        key = str(asset_id) if asset_id is not None else f"actor:{actor_id}"
+        copied = [str(value) for value in values]
+        if key in result and result[key] != copied:
+            raise ValueError(
+                f"one physical asset has conflicting sound preallocation: {key}"
+            )
+        result[key] = copied
+    return result
+
+
+def _preallocation_for_instances(
+    instances: Sequence[Mapping[str, Any]],
+    by_asset: Mapping[str, Sequence[str]],
+) -> dict[str, list[str]]:
+    """Project one shared physical-asset pool onto a member's actor slots."""
+    result: dict[str, list[str]] = {}
+    for instance in instances:
+        actor_id = str(instance.get("instance_id") or "")
+        asset_id = instance.get("asset_id")
+        key = str(asset_id) if asset_id is not None else f"actor:{actor_id}"
+        if key in by_asset:
+            result[actor_id] = [str(value) for value in by_asset[key]]
+    return result
+
+
+def _intersect_preallocations(
+    left: Mapping[str, Sequence[str]],
+    right: Mapping[str, Sequence[str]],
+    *,
+    required_assets: Sequence[str],
+) -> dict[str, list[str]]:
+    """Keep only candidate sounds legal for both members of one audio column."""
+    result: dict[str, list[str]] = {}
+    empty = []
+    for asset_id in sorted(set(left) | set(right)):
+        left_values = [str(value) for value in left.get(asset_id, ())]
+        right_values = [str(value) for value in right.get(asset_id, ())]
+        right_set = set(right_values)
+        common = [value for value in left_values if value in right_set]
+        if asset_id in required_assets and not common:
+            empty.append(asset_id)
+        if common:
+            result[asset_id] = common
+    if empty:
+        raise ValueError(
+            "shared audio column has no common legal sound candidate for asset(s): "
+            f"{empty}"
+        )
+    return result
+
+
+def _request_preallocation_by_asset(request: Any) -> dict[str, list[str]] | None:
+    """Read an explicitly declared actor-keyed candidate pool from a request."""
+    selection = getattr(request, "sound_selection", None)
+    if not isinstance(selection, Mapping):
+        return None
+    declared = selection.get("preallocated_sound_asset_ids_by_actor")
+    if declared is None:
+        return None
+    if not isinstance(declared, Mapping):
+        raise ProductionSpecError(
+            "explicit sound preallocation must be an actor-to-sound-ID mapping"
+        )
+    instances = [instance.to_dict() for instance in request.instances]
+    speaking = {
+        str(instance["instance_id"])
+        for instance in instances
+        if instance.get("speaking") is not False
+    }
+    missing = sorted(speaking - set(str(key) for key in declared))
+    if missing:
+        raise ProductionSpecError(
+            f"explicit sound preallocation misses speaking actors: {missing}"
+        )
+    return _preallocation_by_asset(instances, declared)
+
+
+def production_config_slots(config: Mapping[str, Any]) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Turn one production-spec config into batch slots plus its own summary.
+
+    The same configuration therefore drives ordinary Episodes and the four core
+    group tasks through the existing preallocation path.
+    """
+    parsed = parse_production_config(config)
+    # The parser keeps per-instance speaking flags and drops an episode-level
+    # entities.silent_count once instances are declared. Compare them here, while
+    # the raw block is still readable, so a contradiction is reported rather than
+    # silently resolved in favour of the flags.
+    by_request_id = {request.request_id: request for request in parsed.all_requests()}
+    for raw in list(config.get("episodes") or ()) + [
+        member
+        for group in (config.get("core_groups") or ())
+        if isinstance(group, Mapping)
+        for member in (group.get("members") or ())
+    ]:
+        if not isinstance(raw, Mapping):
+            continue
+        request_id = raw.get("request_id") or raw.get("episode_id")
+        request = by_request_id.get(str(request_id))
+        entities = raw.get("entities")
+        if request is None or not isinstance(entities, Mapping):
+            continue
+        if entities.get("silent_count") is None or not raw.get("instances"):
+            continue
+        resolve_silent_count(
+            [instance.to_dict() for instance in request.instances],
+            entities["silent_count"],
+            owner=f"episode {request_id}")
+    for group in parsed.core_groups:
+        member_by_id = {member.request_id: member for member in group.members}
+        columns: dict[str, list[str]] = {}
+        for unit in group_stage_units(group):
+            if unit["unit_kind"] != "audio":
+                continue
+            unit_id = str(unit["unit_id"])
+            suffix = unit_id.rsplit("_a", 1)[-1] if "_a" in unit_id else ""
+            column = f"a{suffix}" if suffix.isdigit() else unit_id
+            columns.setdefault(column, []).extend(
+                str(value) for value in unit.get("member_request_ids") or ()
+            )
+        pairs = group.shared_audio_member_ids or tuple(
+            tuple(values) for values in columns.values() if len(values) == 2
+        )
+        for pair in pairs:
+            if len(pair) != 2 or pair[0] not in member_by_id or pair[1] not in member_by_id:
+                continue
+            left = _request_preallocation_by_asset(member_by_id[pair[0]])
+            right = _request_preallocation_by_asset(member_by_id[pair[1]])
+            if left is not None and right is not None:
+                _intersect_preallocations(
+                    left,
+                    right,
+                    required_assets=sorted(set(left) | set(right)),
+                )
+    member_index_by_request_id = {
+        member.request_id: index
+        for group in parsed.core_groups
+        for index, member in enumerate(group.members)
+    }
+    member_audio_column_by_request_id: dict[str, tuple[str, str]] = {}
+    for group in parsed.core_groups:
+        for unit in group_stage_units(group):
+            if unit["unit_kind"] != "audio":
+                continue
+            unit_id = str(unit["unit_id"])
+            suffix = unit_id.rsplit("_a", 1)[-1] if "_a" in unit_id else ""
+            column = f"a{suffix}" if suffix.isdigit() else unit_id
+            for member_id in unit.get("member_request_ids") or ():
+                member_audio_column_by_request_id[str(member_id)] = (
+                    group.group_id,
+                    column,
+                )
+    slots: list[dict[str, Any]] = []
+    for request in parsed.all_requests():
+        legacy = request.to_legacy_request()
+        bound = [instance.asset_id for instance in request.instances]
+        slot: dict[str, Any] = {
+            "episode_id": request.request_id,
+            "room_id": request.room_id,
+            "source_classes": [instance.source_class for instance in request.instances],
+            "silent_count": request.silent_count,
+            "seed": request.seed,
+            "profile": deepcopy(request.profile),
+            "entity_instances": [instance.to_dict() for instance in request.instances],
+            "request_overrides": legacy,
+            "qa": _slot_qa_block(request),
+            "production_request": request.to_dict(),
+        }
+        if request.task_family is not None:
+            slot["task_family"] = request.task_family
+        if request.group_id is not None:
+            slot["group_id"] = request.group_id
+        if request.member_role is not None:
+            slot["member_role"] = request.member_role
+        if request.group_id is not None:
+            slot["member_index"] = member_index_by_request_id[request.request_id]
+            audio_key = member_audio_column_by_request_id.get(request.request_id)
+            if audio_key is not None:
+                slot["_production_audio_key"] = f"{audio_key[0]}:{audio_key[1]}"
+        if request.condition_group is not None:
+            slot["condition_group"] = request.condition_group
+        if all(value is not None for value in bound):
+            slot["source_asset_ids"] = list(bound)
+        slots.append(slot)
+    summary = {
+        "schema": parsed.schema,
+        "batch_id": parsed.batch_id,
+        "episode_count": len(parsed.episodes),
+        "core_group_count": len(parsed.core_groups),
+        "core_member_count": sum(len(group.members) for group in parsed.core_groups),
+        "core_groups": [
+            {**group.to_dict(),
+             "initial_work_items": [item.to_dict() for item in initial_group_work_items(group)]}
+            for group in parsed.core_groups
+        ],
+        "shared_unit_count": sum(len(group_stage_units(group)) for group in parsed.core_groups),
+        "coverage_quota": deepcopy(parsed.coverage_quota),
+        "task_families": list(CORE_TASK_FAMILIES),
+    }
+    return slots, summary
+
+
+def stage_work_items_for_row(
+    row: Mapping[str, Any], *, results: Sequence[Mapping[str, Any]] = ()
+) -> list[dict[str, Any]]:
+    """Describe the stages one ordinary Episode row can run next.
+
+    With no results this is the planning stage only; the schedule grows from
+    actual results. A core group member has no row-scoped schedule because its
+    visual and audio units are shared, so this refuses one and names the group
+    entry point instead of quietly planning a fourth independent world.
+    """
+    if row.get("group_id") or row.get("task_family"):
+        raise ValueError(
+            f"{row['episode_id']} is a core group member of {row.get('group_id')}; "
+            "use stage_work_items_for_group so one visual is not captured twice"
+        )
+    request = production_request_from_legacy(
+        row["request"], request_id=row["episode_id"], kind="episode")
+    parsed_results = [StageResult.from_mapping(value, owner="stage_result") for value in results]
+    items = (initial_stage_work_items(request) if not parsed_results
+             else next_stage_work_items(request, parsed_results))
+    return [item.to_dict() for item in items]
+
+
+def core_group_from_manifest(manifest: Mapping[str, Any], group_id: str) -> CoreGroupRequest:
+    """Rebuild one saved group so its shared units are described exactly once."""
+    rows = [row for row in manifest["episodes"] if row.get("group_id") == group_id]
+    if not rows:
+        raise ValueError(f"manifest has no rows for group {group_id!r}")
+    declared = next(
+        (entry for entry in ((manifest.get("production") or {}).get("core_groups") or [])
+         if entry.get("group_id") == group_id),
+        {},
+    )
+    order = declared.get("member_request_ids")
+    if order:
+        position = {value: index for index, value in enumerate(order)}
+        missing = [row["episode_id"] for row in rows if row["episode_id"] not in position]
+        if missing:
+            raise ValueError(f"group {group_id} rows are not in its member list: {missing}")
+        rows = sorted(rows, key=lambda row: position[row["episode_id"]])
+    families = {row.get("task_family") for row in rows}
+    if len(families) != 1 or None in families:
+        raise ValueError(f"group {group_id} rows disagree on task_family: {sorted(families)}")
+    room_ids = {row["room_id"] for row in rows}
+    if len(room_ids) != 1:
+        raise ValueError(f"group {group_id} rows span rooms {sorted(room_ids)}")
+    members = tuple(
+        production_request_from_legacy(row["request"], request_id=row["episode_id"],
+                                       kind="core_group_member")
+        for row in rows
+    )
+    return CoreGroupRequest(
+        group_id=group_id,
+        task_family=next(iter(families)),
+        room_id=next(iter(room_ids)),
+        members=members,
+        shared_audio_member_ids=tuple(
+            tuple(pair) for pair in declared.get("shared_audio_member_ids") or ()),
+        shared_visual_member_ids=tuple(
+            tuple(pair) for pair in declared.get("shared_visual_member_ids") or ()),
+    )
+
+
+def stage_work_items_for_group(
+    manifest: Mapping[str, Any], group_id: str, *, results: Sequence[Mapping[str, Any]] = ()
+) -> list[dict[str, Any]]:
+    """Every shared unit of one group whose real dependencies have passed."""
+    group = core_group_from_manifest(manifest, group_id)
+    parsed = [StageResult.from_mapping(value, owner="stage_result") for value in results]
+    items = (initial_group_work_items(group) if not parsed
+             else next_group_work_items(group, parsed))
+    return [item.to_dict() for item in items]
+
+
+def group_blockers_for_group(
+    manifest: Mapping[str, Any], group_id: str, *, results: Sequence[Mapping[str, Any]] = ()
+) -> list[dict[str, Any]]:
+    """Why a group cannot advance: a failed round, or no legal movement time."""
+    group = core_group_from_manifest(manifest, group_id)
+    parsed = [StageResult.from_mapping(value, owner="stage_result") for value in results]
+    return group_blockers(group, parsed)
 
 
 def prepare_batch_manifest(
@@ -524,6 +1226,37 @@ def prepare_batch_manifest(
     Per-actor sound-ID allowlists are consumed by the existing conditioned
     sampler; it still filters clip duration inside each fixed identity.
     """
+    # These controls belong to the production runner, not individual Episodes.
+    # Preserve them through the public prepare CLI instead of silently dropping
+    # resource limits or coverage-driven request generation at this boundary.
+    runner_controls = {}
+    for key in ("p19_coverage", "resource_policy"):
+        if key in config:
+            if not isinstance(config[key], Mapping):
+                raise ValueError(f"config.{key} must be a mapping")
+            runner_controls[key] = deepcopy(dict(config[key]))
+    production_summary = None
+    production_audio_scope_by_group: dict[str, str] = {}
+    production_audio_selection_by_key: dict[str, dict[str, list[str]]] = {}
+    production_audio_rows_by_key: dict[str, list[dict[str, Any]]] = {}
+    if config.get("production") is not None:
+        if config.get("slots") is not None:
+            raise ValueError("config declares both production and slots; keep one source of slots")
+        production_block = config["production"]
+        if not isinstance(production_block, Mapping):
+            raise ValueError("config.production must be a mapping")
+        derived_slots, production_summary = production_config_slots(production_block)
+        config = {**dict(config), "slots": derived_slots,
+                  "batch_id": config.get("batch_id", production_summary["batch_id"]),
+                  "seed": config.get("seed", production_block.get("seed", 0))}
+        production_audio_scope_by_group = {
+            str(entry["group_id"]): str(
+                (entry.get("recipe") or {}).get(
+                    "audio_content_scope", "shared_audio_pairs"
+                )
+            )
+            for entry in production_summary.get("core_groups") or ()
+        }
     batch_id = _text(config.get("batch_id"), "batch_id")
     seed = int(config.get("seed", 0))
     slots = config.get("slots")
@@ -574,15 +1307,30 @@ def prepare_batch_manifest(
         request.update(episode_id=episode_id, room_id=room_id,
                        seed=int(slot.get("seed", seed + index)), sampling_policy="conditioned_static_v2")
         request["camera"] = {**request.get("camera", {}), "motion": "static"}
-        request["qa_ids"] = list(QA_IDS)
-        request["qa_sampling"] = {**request.get("qa_sampling", {}), "items_per_type": 1}
+        qa_plan = resolve_qa_plan(config, slot)
+        request["qa_ids"] = list(qa_plan["qa_ids"])
+        request["qa_sampling"] = {**request.get("qa_sampling", {}),
+                                  "items_per_type": qa_plan["items_per_type"]}
+        slot_instances = slot.get("entity_instances") or []
+        silent_count = resolve_silent_count(
+            slot_instances,
+            slot.get("silent_count"),
+            owner=f"episode {episode_id}")
         request["entities"] = {**request.get("entities", {}), "total_count": len(classes),
-                               "silent_count": int(slot.get("silent_count", 0)), "min_articulated_count": 0}
+                               "silent_count": silent_count, "min_articulated_count": 0}
         request["profile"] = {**request.get("profile", {}), **deepcopy(slot.get("profile", {}))}
         explicit = slot.get("source_asset_ids")
-        if explicit is not None and (len(explicit) != len(classes) or len(set(explicit)) != len(explicit)):
-            raise ValueError("explicit slot assets must be distinct and match source count")
+        if explicit is not None and len(explicit) != len(classes):
+            raise ValueError("explicit slot assets must match source count")
+        instances = entity_instances_for_slot(slot, classes, explicit)
+        request["entity_instances"] = deepcopy(instances)
+        # instance_requests() prefers entities.instances, so a stale block left by
+        # the base request would outrank the rows this slot just resolved.
+        request["entities"]["instances"] = deepcopy(instances)
         selected, assignments, gaps = [], [], []
+        shared_gap = shared_asset_instance_gap(instances)
+        if shared_gap is not None:
+            gaps.append(shared_gap)
         for actor_index, kind in enumerate(classes):
             if explicit is not None:
                 if explicit[actor_index] not in assets or source_class(assets[explicit[actor_index]]) != kind:
@@ -605,16 +1353,40 @@ def prepare_batch_manifest(
             appearance_key = json.dumps([appearance["field"], appearance["value"]], sort_keys=True)
             appearance_counts[(room["family"], kind, appearance_key)] += 1
             asset_counts[record["asset_id"]] += 1
-            assignment = {"actor_id": f"source{actor_index + 1}", "asset_id": record["asset_id"],
+            assignment = {"actor_id": instances[actor_index]["instance_id"],
+                          "instance_id": instances[actor_index]["instance_id"],
+                          "asset_id": record["asset_id"],
                           "asset_revision": record["revision"], "source_class": kind,
                           "appearance": appearance, "sound_identity_id": None, "sound_asset_ids": []}
+            if instances[actor_index].get("role") is not None:
+                assignment["role"] = instances[actor_index]["role"]
             assignments.append(assignment)
-            gaps.extend(_asset_interface_gaps(record, room["renderer"]))
+            gaps.extend(_asset_interface_gaps(record, room["renderer"], request=request))
         request["source_asset_ids"] = selected
+        for instance, assignment in zip(instances, assignments):
+            instance["asset_id"] = assignment["asset_id"]
+        request["entity_instances"] = deepcopy(instances)
+        request["entities"]["instances"] = deepcopy(instances)
         condition = None
-        if len(selected) == len(classes):
+        if len(selected) == len(classes) and shared_gap is None:
             condition = resolve_condition_profile(request, registry)
             allowlists = {}
+            declared_sound_ids_by_actor = _declared_preallocation_by_actor(
+                request, instances
+            )
+            selection_config = request.get("sound_selection")
+            selection_config = (
+                selection_config if isinstance(selection_config, Mapping) else {}
+            )
+            sample_rate_hz = int(request.get("sample_rate_hz", 16000))
+            max_clip_s = selection_config.get("max_clip_s")
+            max_clip_samples = None
+            if max_clip_s is not None:
+                if isinstance(max_clip_s, bool) or not isinstance(max_clip_s, (int, float)):
+                    raise ValueError("sound_selection.max_clip_s must be finite")
+                if not math.isfinite(float(max_clip_s)) or float(max_clip_s) <= 0.0:
+                    raise ValueError("sound_selection.max_clip_s must be positive")
+                max_clip_samples = int(round(float(max_clip_s) * sample_rate_hz))
             speaker_rows = []
             for actor_index, assignment in enumerate(assignments):
                 actor_id = assignment["actor_id"]
@@ -624,10 +1396,21 @@ def prepare_batch_manifest(
                     continue
                 actor = neutral_source_declaration(assets[assignment["asset_id"]], actor_id)
                 groups = defaultdict(list)
+                declared_ids = (
+                    None
+                    if declared_sound_ids_by_actor is None
+                    else set(declared_sound_ids_by_actor[actor_id])
+                )
                 compatible_sound_count = 0
                 for sound in sounds:
                     allowed = sound.get("compatible_asset_ids")
                     if allowed is not None and assignment["asset_id"] not in allowed:
+                        continue
+                    if declared_ids is not None and sound.get("sound_asset_id") not in declared_ids:
+                        continue
+                    if max_clip_samples is not None and int(sound.get("sample_count", 0)) > max_clip_samples:
+                        continue
+                    if int(sound.get("sample_rate_hz", sample_rate_hz)) != sample_rate_hz:
                         continue
                     if not sound_matches(actor, sound):
                         continue
@@ -635,8 +1418,13 @@ def prepare_batch_manifest(
                     identity = sound_identity(sound)
                     if identity is not None:
                         groups[identity].append(sound)
+                if declared_ids is not None:
+                    assignment["declared_sound_asset_ids"] = sorted(declared_ids)
                 speaker_rows.append({"assignment": assignment, "groups": groups,
                                      "compatible_sound_count": compatible_sound_count,
+                                     "declared_sound_asset_ids": (
+                                         sorted(declared_ids) if declared_ids is not None else None
+                                     ),
                                      "appearance_key": json.dumps(assignment["appearance"], sort_keys=True),
                                      "kind": assignment["source_class"]})
             used_identities = set()
@@ -657,6 +1445,22 @@ def prepare_batch_manifest(
                                      "code": "no_distinct_compatible_sound_identity",
                                      "asset_id": assignment["asset_id"], "actor_id": actor_id})
             ready = [row for row in speaker_rows if row["assignment"].get("sound_status") != "evidence_missing_or_unsampled"]
+            # For a production shared audio column, the selector's full
+            # compatible pools are the common legal universe.  Each generated
+            # row remains a real selector input; explicit allowlists remain
+            # restrictive and are intersected below.
+            common_sound_ids_by_asset: dict[str, list[str]] = {}
+            for speaker in speaker_rows:
+                assignment = speaker["assignment"]
+                asset_id = str(assignment["asset_id"])
+                candidate_ids = sorted({
+                    str(sound["sound_asset_id"])
+                    for sounds_by_identity in speaker["groups"].values()
+                    for sound in sounds_by_identity
+                    if sound.get("sound_asset_id")
+                })
+                if candidate_ids:
+                    common_sound_ids_by_asset[asset_id] = candidate_ids
             substitution = False
             substitution_applied = False
             repeat_actor_id = None
@@ -771,22 +1575,151 @@ def prepare_batch_manifest(
                          "preallocated_sound_asset_ids_by_actor": allowlists,
                          "clip_span_fit_policy": request.get("sound_selection", {}).get(
                              "clip_span_fit_policy", CLIP_SPAN_FIT_POLICY)}
+            production_audio_key = slot.get("_production_audio_key")
+            production_group_id = slot.get("group_id")
+            if (
+                isinstance(production_audio_key, str)
+                and production_audio_scope_by_group.get(str(production_group_id))
+                == "shared_audio_pairs"
+            ):
+                declared_selection = request.get("sound_selection")
+                declared_selection = (
+                    declared_selection
+                    if isinstance(declared_selection, Mapping)
+                    else {}
+                )
+                declared_preallocation = declared_selection.get(
+                    "preallocated_sound_asset_ids_by_actor"
+                )
+                speaking_assets = [
+                    str(assignment["asset_id"])
+                    for assignment in assignments
+                    if assignment.get("speaking")
+                ]
+                if declared_preallocation is not None:
+                    if not isinstance(declared_preallocation, Mapping):
+                        raise ValueError(
+                            "explicit sound preallocation must be an actor-to-sound-ID mapping"
+                        )
+                    speaking_actor_ids = {
+                        str(assignment["actor_id"])
+                        for assignment in assignments
+                        if assignment.get("speaking")
+                    }
+                    missing = sorted(speaking_actor_ids - set(declared_preallocation))
+                    if missing:
+                        raise ValueError(
+                            "explicit sound preallocation misses speaking actors: "
+                            f"{missing}"
+                        )
+                    effective_by_asset = _preallocation_by_asset(
+                        instances, declared_preallocation
+                    )
+                else:
+                    effective_by_asset = dict(common_sound_ids_by_asset)
+                canonical = production_audio_selection_by_key.get(production_audio_key)
+                if canonical is None:
+                    canonical = effective_by_asset
+                else:
+                    canonical = _intersect_preallocations(
+                        canonical,
+                        effective_by_asset,
+                        required_assets=speaking_assets,
+                    )
+                if not canonical:
+                    raise ValueError(
+                        f"shared audio column {production_audio_key} has no legal candidates"
+                    )
+                production_audio_selection_by_key[production_audio_key] = canonical
+                allowlists = _preallocation_for_instances(instances, canonical)
+                for assignment in assignments:
+                    assignment["sound_asset_ids"] = deepcopy(
+                        allowlists.get(str(assignment["actor_id"]), [])
+                    )
+                for previous in production_audio_rows_by_key.get(
+                    production_audio_key, ()
+                ):
+                    previous_instances = previous.get("entity_instances") or ()
+                    previous_allowlists = _preallocation_for_instances(
+                        previous_instances, canonical
+                    )
+                    previous["request"]["sound_selection"] = {
+                        **dict(previous["request"].get("sound_selection") or {}),
+                        "preallocated_sound_asset_ids_by_actor": previous_allowlists,
+                    }
+                    for assignment in previous.get("source_assignments") or ():
+                        assignment["sound_asset_ids"] = deepcopy(
+                            previous_allowlists.get(
+                                str(assignment["actor_id"]), []
+                            )
+                        )
+                selection["preallocated_sound_asset_ids_by_actor"] = allowlists
             if repeat_actor_id is not None:
                 selection["repeat_actor_id"] = repeat_actor_id
                 selection["identity_substitution_applied"] = substitution
             elif substitution_applied:
                 selection["identity_substitution_applied"] = True
             request["sound_selection"] = selection
-        rows.append({"episode_id": episode_id, "room_id": room_id, "room_family": room["family"],
-                     "renderer": room["renderer"], "condition_group": _text(slot.get("condition_group"), "condition_group"),
-                     "class_pair": class_pair_label(classes),
-                     "requested_source_classes": deepcopy(classes), "requested_profile": deepcopy(condition),
-                     "requested_quota_by_qa": {qa: (3 if qa == "QA-25" else 1) for qa in QA_IDS}, "source_assignments": assignments,
-                     "preallocation_gaps": gaps, "request": request, "execution_status": "not_run",
-                     "achieved_conditions": None})
+        condition_group, condition_group_source = _condition_group_for_slot(slot)
+        # Catalog target metadata does not itself opt into conditioned
+        # sampling. Only an explicit target declaration belongs in the
+        # execution request; branch/drive/profile controls retain their own
+        # existing execution semantics.
+        target_plan = dict(qa_plan)
+        if target_plan.get("qa_targets") is None and request.get("qa_targets"):
+            target_plan["qa_targets"] = deepcopy(request["qa_targets"])
+        qa_targets = resolve_qa_targets(target_plan, instances=instances, condition=condition)
+        if target_plan.get("qa_targets") is not None:
+            request["qa_targets"] = deepcopy(qa_targets)
+        else:
+            request.pop("qa_targets", None)
+        row = {"episode_id": episode_id, "room_id": room_id, "room_family": room["family"],
+               "renderer": room["renderer"], "condition_group": condition_group,
+               "condition_group_source": condition_group_source,
+               "class_pair": class_pair_label(classes),
+               "requested_source_classes": deepcopy(classes), "requested_profile": deepcopy(condition),
+               "entity_instances": deepcopy(instances),
+               "entity_instance_count": len(instances),
+               "distinct_asset_count": len({instance["asset_id"] for instance in instances
+                                            if instance.get("asset_id")}),
+               "requested_qa_ids": list(qa_plan["qa_ids"]),
+               "qa_ids_source": qa_plan["qa_ids_source"],
+               "items_per_type": qa_plan["items_per_type"],
+               "items_per_type_source": qa_plan["items_per_type_source"],
+               "qa_targets": deepcopy(qa_targets),
+               "requested_quota_by_qa": dict(qa_plan["quota_by_qa"]),
+               "requested_quota_source": qa_plan["quota_source"],
+               "source_assignments": assignments,
+               "preallocation_gaps": gaps, "request": request, "execution_status": "not_run",
+               "achieved_conditions": None}
+        for key in ("task_family", "group_id", "member_role"):
+            if slot.get(key) is not None:
+                row[key] = _text(slot[key], "slot." + key)
+        if slot.get("production_request") is not None:
+            row["production_request"] = deepcopy(slot["production_request"])
+        if row.get("group_id"):
+            row["stage_scope"] = _member_stage_scope(row, slot)
+            row["stage_work_items"] = []
+        else:
+            row["stage_scope"] = {"kind": "episode", "scope_id": episode_id}
+            row["stage_work_items"] = stage_work_items_for_row(row)
+        production_audio_key = slot.get("_production_audio_key")
+        if (
+            isinstance(production_audio_key, str)
+            and "sound_selection" in request
+            and production_audio_scope_by_group.get(str(slot.get("group_id")))
+            == "shared_audio_pairs"
+        ):
+            production_audio_rows_by_key.setdefault(production_audio_key, []).append(row)
+        rows.append(row)
     group_quota = Counter((row["room_family"], row["room_id"], row["condition_group"]) for row in rows)
     crosstab = class_pair_condition_group_crosstab(rows)
+    if production_summary is not None:
+        production_summary = {**production_summary, "derived_slot_count": len(rows)}
     return {"schema": "avengine_qa_batch_manifest_v1", "batch_id": batch_id, "seed": seed,
+            **runner_controls,
+            "stage_protocol": stage_protocol_summary(),
+            "production": production_summary,
             "claim_boundary": "Preallocated requests only; no native execution, achieved quota or admission claim.",
             "allocation_policy": "offline_least_used_appearance_asset_and_sound_identity_with_repeat_feasibility_substitution",
             "class_pair_condition_group_crosstab": crosstab,

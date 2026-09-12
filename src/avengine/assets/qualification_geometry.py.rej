@@ -1,0 +1,34 @@
+--- src/avengine/assets/qualification_geometry.py
++++ src/avengine/assets/qualification_geometry.py
+@@ -2707,15 +2707,30 @@
+     root being corrected.  Every level is returned with the fraction of the
+     footprint it actually covers, so a small object standing on a desk is visible
+     as partial coverage instead of being mistaken for a new support surface.
+     """
+     if navigation_floor_m is None or not navigation_floor_source:
+         raise QualificationGeometryError(
+             "a navigation floor and its source are required; the storey may not be "
+             "inferred from the candidate root height"
+         )
++    if search_below_floor_m is None:
++        search_below = float(level_cluster_m)
++        search_below_source = "legacy_level_cluster_default"
++    else:
++        try:
++            search_below = float(search_below_floor_m)
++        except (TypeError, ValueError) as exc:
++            raise QualificationGeometryError(
++                "search_below_floor_m must be finite and non-negative"
++            ) from exc
++        if not math.isfinite(search_below) or search_below < 0.0:
++            raise QualificationGeometryError(
++                "search_below_floor_m must be finite and non-negative"
++            )
++        search_below_source = "explicit_search_below_floor_m"
+     samples = _footprint_sample_points(
+         centre_world_m, footprint_extent_m, yaw_deg=yaw_deg, grid=grid
+     )
+-    low = float(navigation_floor_m) - float(level_cluster_m)
++    low = float(navigation_floor_m) - search_below
+     high = (
+         float(search_ceiling_m)

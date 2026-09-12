@@ -21,6 +21,7 @@
   "pose_binding_files": {
     "kujiale_0020_full_home_v1": "examples/rooms/packages/kujiale_0020_pose_bindings.json"
   },
+  "registry_id": "avengine_qa_room_packages_v1",
   "revision": "20260907_p3_v2",
   "rooms": [
     {

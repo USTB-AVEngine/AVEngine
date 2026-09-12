@@ -17,6 +17,8 @@ KNOWN_GAP_STATES = frozenset({EVIDENCE_GAP_STATE, INTERFACE_GAP_STATE})
 
 _INTERFACE_EXCEPTION_TYPES = frozenset({
     "ModuleNotFoundError",
+    "NameError",
+    "SyntaxError",
     "ImportError",
     "NotImplementedError",
     "CalledProcessError",
@@ -77,7 +79,7 @@ def exception_type(reason: str) -> str | None:
     match = None
     for match in re.finditer(
         r"(?:^|\n|[^A-Za-z0-9_.])(?:[A-Za-z_][\w]*\.)*"
-        r"([A-Za-z_][A-Za-z0-9_]*(?:Error|Exception|Failure))\s*:",
+        r"([A-Za-z_][A-Za-z0-9_]*(?:Error|Exception|Failure|Conflict))\s*:",
         reason,
     ):
         pass
@@ -167,6 +169,18 @@ def classify_failure(
         gap_state = declared_gap_state
         classification = declared_gap_state
         classification_reason = "declared_gap_state"
+    elif exception == "RequestedVisibilityError":
+        gap_state = EVIDENCE_GAP_STATE
+        classification = gap_state
+        classification_reason = "native_visibility_rejection"
+    elif exception == "ConditionedRequestConflict":
+        gap_state = EVIDENCE_GAP_STATE
+        classification = gap_state
+        classification_reason = "request_conditions_conflict"
+    elif exception in {"NameError", "SyntaxError"}:
+        gap_state = INTERFACE_GAP_STATE
+        classification = gap_state
+        classification_reason = "controller_code_exception"
     elif _is_preallocation_deficit(text, reason_code=reason_code):
         gap_state = EVIDENCE_GAP_STATE
         classification = gap_state
@@ -202,7 +216,13 @@ def classify_failure(
         "failure_reason": text,
         "diagnostic": diagnostic,
     }
-    if _is_clip_rejection(text, reason_code=reason_code):
+    if exception == "RequestedVisibilityError":
+        result["reason_code"] = "requested_visibility_not_satisfied"
+    elif exception == "ConditionedRequestConflict":
+        result["reason_code"] = "conditioned_request_conflict"
+    elif exception in {"NameError", "SyntaxError"}:
+        result["reason_code"] = "controller_code_error"
+    elif _is_clip_rejection(text, reason_code=reason_code):
         result["reason_code"] = "clip_overflow_rejected"
     elif classification == "unclassified":
         result["reason_code"] = "unclassified_failure"

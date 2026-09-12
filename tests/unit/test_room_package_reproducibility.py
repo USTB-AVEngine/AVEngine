@@ -147,3 +147,142 @@ def test_production_catalog_relative_package_is_cwd_independent(tmp_path, monkey
     assert not str(first["acoustic_package"]).startswith("${")
     assert Path(first["floor_reference"]["path"]).is_absolute()
     assert Path(first["static_geometry"]["vertices"]).is_absolute()
+
+
+def test_host_runtime_resolution_does_not_depend_on_the_process_directory(
+        tmp_path, monkeypatch):
+    """The same room and the same config resolve identically from any cwd."""
+    from avengine.rooms.room_package import (
+        HOST_RUNTIME_CONFIG_SCHEMA, load_host_runtime_config, resolve_room_runtime,
+    )
+
+    config = tmp_path / "host_runtime.json"
+    config.write_text(json.dumps({
+        "schema": HOST_RUNTIME_CONFIG_SCHEMA,
+        "renderers": {"habitat": {"magnum_python_site": "/host/magnum"}},
+        "rooms": {"room": {"runtime_prefix": "/host/prefix",
+                           "rlr_sdk_root": "/host/rlr"}},
+    }), encoding="utf-8")
+    package = {
+        "schema": SCHEMA, "room_id": "room", "family": "hm3d",
+        "renderer": "habitat",
+        "walkable_space": {"kind": "habitat_navmesh", "path": "nav.navmesh"},
+    }
+
+    def resolve():
+        return resolve_room_runtime(
+            package, {}, host_config=load_host_runtime_config(config),
+            room_id="room")
+
+    first = resolve()
+    monkeypatch.chdir(tmp_path)
+    second = resolve()
+    assert first["effective"] == second["effective"]
+    assert first["provenance"] == second["provenance"]
+    assert first["effective"]["runtime_prefix"] == "/host/prefix"
+    assert first["effective"]["magnum_python_site"] == "/host/magnum"
+
+
+def test_shell_variables_never_substitute_for_a_declared_host_runtime(
+        monkeypatch):
+    """Environment stays opt-in, so a stale shell cannot change a run."""
+    from avengine.rooms.room_package import resolve_room_runtime
+
+    monkeypatch.setenv("AVENGINE_HABITAT_RUNTIME_PREFIX", "/from/the/shell")
+    package = {
+        "schema": SCHEMA, "room_id": "room", "family": "hm3d",
+        "renderer": "habitat",
+        "walkable_space": {"kind": "habitat_navmesh", "path": "nav.navmesh"},
+    }
+    default = resolve_room_runtime(package, {})
+    assert default["missing"] == ("runtime_prefix",)
+    assert "runtime_prefix" not in default["effective"]
+    opted_in = resolve_room_runtime(package, {}, allow_environment=True)
+    assert opted_in["effective"]["runtime_prefix"] == "/from/the/shell"
+    assert opted_in["provenance"]["runtime_prefix"] == (
+        "environment:AVENGINE_HABITAT_RUNTIME_PREFIX")
+
+
+def test_room_package_declared_runtime_is_the_lowest_precedence():
+    """A package may carry working defaults without overriding a run."""
+    from avengine.rooms.room_package import resolve_room_runtime
+
+    package = {
+        "schema": SCHEMA, "room_id": "room", "family": "hm3d",
+        "renderer": "habitat",
+        "walkable_space": {"kind": "habitat_navmesh", "path": "nav.navmesh"},
+        "runtime": {"runtime_prefix": "/from/package",
+                    "rlr_sdk_root": "/from/package/rlr"},
+    }
+    host = {"_source": "/run/host.json",
+            "rooms": {"room": {"runtime_prefix": "/from/host"}}}
+    report = resolve_room_runtime(
+        package, {}, host_config=host, room_id="room")
+    assert report["effective"]["runtime_prefix"] == "/from/host"
+    assert report["provenance"]["runtime_prefix"].startswith("host_config:")
+    # The package still supplies what nothing else did.
+    assert report["effective"]["rlr_sdk_root"] == "/from/package/rlr"
+    assert report["provenance"]["rlr_sdk_root"] == "room_package"
+
+
+def test_external_roots_from_the_host_config_expand_the_same_from_any_cwd(
+        tmp_path, monkeypatch):
+    """Where a root is declared must not change what it expands to."""
+    from avengine.rooms.room_package import (
+        HOST_RUNTIME_CONFIG_SCHEMA, host_runtime_path_bindings,
+        load_host_runtime_config,
+    )
+    from avengine.rooms.room_providers import catalog_runtime
+
+    config = tmp_path / "host_runtime.json"
+    config.write_text(json.dumps({
+        "schema": HOST_RUNTIME_CONFIG_SCHEMA,
+        "path_bindings": {"AVENGINE_TEST_ROOT": "/external/roots/test"},
+    }), encoding="utf-8")
+    package = _package()
+    catalog = {"schema": "avengine_qa_room_package_catalog_v1",
+               "registry_id": "probe_v1", "revision": "r1", "rooms": []}
+
+    def expand():
+        host = load_host_runtime_config(config)
+        runtime = catalog_runtime(catalog, None, host_config=host,
+                                  renderer="ue_spear")
+        return resolve_room_package_paths(package, runtime=runtime)
+
+    first = expand()
+    monkeypatch.chdir(tmp_path)
+    second = expand()
+    assert first == second
+    assert first["acoustic_package"] == "/external/roots/test/acoustic/manifest.json"
+    assert host_runtime_path_bindings(
+        load_host_runtime_config(config), "ue_spear") == {
+            "AVENGINE_TEST_ROOT": "/external/roots/test"}
+
+
+def test_a_catalog_root_and_a_host_root_expand_identically(tmp_path):
+    """Same value, two declaring files, one expansion."""
+    from avengine.rooms.room_package import (
+        HOST_RUNTIME_CONFIG_SCHEMA, load_host_runtime_config,
+    )
+    from avengine.rooms.room_providers import catalog_runtime
+
+    roots = {"AVENGINE_TEST_ROOT": "/external/roots/shared"}
+    package = _package()
+    from_catalog = resolve_room_package_paths(
+        package,
+        runtime=catalog_runtime(
+            {"schema": "avengine_qa_room_package_catalog_v1",
+             "registry_id": "probe_v1", "revision": "r1", "rooms": [],
+             "path_bindings": roots}, None))
+    config = tmp_path / "host_runtime.json"
+    config.write_text(json.dumps({
+        "schema": HOST_RUNTIME_CONFIG_SCHEMA, "path_bindings": roots,
+    }), encoding="utf-8")
+    from_host = resolve_room_package_paths(
+        package,
+        runtime=catalog_runtime(
+            {"schema": "avengine_qa_room_package_catalog_v1",
+             "registry_id": "probe_v1", "revision": "r1", "rooms": []},
+            None, host_config=load_host_runtime_config(config),
+            renderer="ue_spear"))
+    assert from_catalog == from_host

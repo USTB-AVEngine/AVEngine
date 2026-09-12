@@ -448,3 +448,109 @@ def test_resume_failure_uses_retained_capture_stage_without_a_capture_command(tm
     result = runner.classify_controller_failure(episode_output_root=root, stderr_path=stderr, returncode=1)
     assert result["failure_stage"] == expected_stage
     assert result["gap_state"] == "interface_not_implemented"
+
+
+# ---------------------------------------------------------------------------
+# The production entry: core group rows are shared units, not four Episodes
+# ---------------------------------------------------------------------------
+
+
+def _core_member_row(episode_id: str, *, group_id: str = "g01") -> dict:
+    row = _row(episode_id)
+    row["group_id"] = group_id
+    row["task_family"] = "visible_binding"
+    row["request"]["group_id"] = group_id
+    row["request"]["task_family"] = "visible_binding"
+    return row
+
+
+def test_load_manifest_refuses_a_core_group_member_row(runner, tmp_path):
+    path = _manifest(tmp_path, [_row("plain"), _core_member_row("g01_v0_a0")])
+    with pytest.raises(runner.ManifestError) as error:
+        runner.load_manifest(path)
+    message = str(error.value)
+    assert "core group member" in message
+    assert "--production" in message
+    assert "four times" in message
+
+
+def test_selecting_only_ordinary_rows_still_runs(runner, tmp_path):
+    path = _manifest(tmp_path, [_row("plain"), _core_member_row("g01_v0_a0")])
+    _manifest_value, selected = runner.load_manifest(path, episode_ids=["plain"])
+    assert [entry["episode_id"] for entry, _request in selected] == ["plain"]
+
+
+def test_production_requires_a_run_root(runner, tmp_path):
+    path = _manifest(tmp_path, [_core_member_row("g01_v0_a0")])
+    with pytest.raises(SystemExit):
+        runner.main(["--manifest", str(path), "--production"])
+
+
+def test_production_dispatch_passes_the_declared_budget_and_prints_the_result(
+        monkeypatch, runner, tmp_path, capsys):
+    path = _manifest(tmp_path, [_core_member_row("g01_v0_a0")])
+    seen = {}
+
+    def fake_run_production(**kwargs):
+        seen.update(kwargs)
+        return {
+            "status": "complete",
+            "run_root": str(kwargs["run_root"]),
+            "run_summary": {"delivered_groups": [{"group_id": "g01"}],
+                            "native_visual_worlds_used": 2},
+            "coverage_feedback": {"deficits": [{"quota_key": "min_worlds_per_qa_id"}]},
+        }
+
+    import avengine.dataset.production_runner as production_runner
+    monkeypatch.setattr(production_runner, "run_production", fake_run_production)
+    code = runner.main([
+        "--manifest", str(path), "--production",
+        "--run-root", str(tmp_path / "run"),
+        "--delivery-output", str(tmp_path / "delivery"),
+        "--group-id", "g01",
+        "--native-visual-world-budget", "2",
+        "--candidate-rotation-limit", "3",
+        "--imported-bundle", str(tmp_path / "retained/binding_groups.json"),
+    ])
+    assert code == 0
+    assert seen["native_visual_world_budget"] == 2
+    assert seen["candidate_rotation_limit"] == 3
+    assert seen["group_ids"] == ["g01"]
+    assert seen["imported_bundle_paths"] == [str(tmp_path / "retained/binding_groups.json")]
+    assert seen["manifest_path"] == path
+    printed = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+    assert printed["delivered_groups"] == ["g01"]
+    assert printed["native_visual_worlds_used"] == 2
+    assert printed["coverage_deficits"] == 1
+
+
+def test_production_reports_a_diagnostic_run_with_a_nonzero_exit(
+        monkeypatch, runner, tmp_path, capsys):
+    path = _manifest(tmp_path, [_core_member_row("g01_v0_a0")])
+
+    import avengine.dataset.production_runner as production_runner
+    monkeypatch.setattr(production_runner, "run_production", lambda **kwargs: {
+        "status": "completed_with_diagnostics",
+        "run_root": str(kwargs["run_root"]),
+        "run_summary": {"delivered_groups": [], "native_visual_worlds_used": 0},
+        "coverage_feedback": {"deficits": []},
+    })
+    code = runner.main(["--manifest", str(path), "--production",
+                        "--run-root", str(tmp_path / "run")])
+    assert code == 1
+    printed = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+    assert printed["delivered_groups"] == []
+
+
+def test_output_is_still_required_for_the_per_episode_path(runner, tmp_path):
+    path = _manifest(tmp_path, [_row("plain")])
+    with pytest.raises(SystemExit):
+        runner.main(["--manifest", str(path)])
+
+
+def test_production_refuses_the_per_episode_output_root(runner, tmp_path):
+    path = _manifest(tmp_path, [_core_member_row("g01_v0_a0")])
+    with pytest.raises(SystemExit):
+        runner.main(["--manifest", str(path), "--production",
+                     "--run-root", str(tmp_path / "run"),
+                     "--output", str(tmp_path / "batch")])

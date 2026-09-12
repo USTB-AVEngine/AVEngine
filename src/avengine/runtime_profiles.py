@@ -1068,31 +1068,155 @@ def resolve_room_runtime_profile(
         ) from error
 
 
+ROOM_PACKAGE_CATALOG_SCHEMA = "avengine_qa_room_package_catalog_v1"
+ROOM_PACKAGE_SCHEMA = "avengine_qa_room_package_v1"
+
+
+def _room_package_catalog_rooms(
+    catalog: Mapping[str, Any],
+    catalog_path: str | Path,
+) -> tuple[dict[tuple[str, str], Mapping[str, Any]], list[str]]:
+    """Index a RoomPackage catalog by (room_id, catalog revision).
+
+    A catalog is one versioned data source, so its revision is the version a
+    reference has to name. Returns the index plus any problem with the catalog
+    itself, because a reference cannot be judged against a catalog that does
+    not identify itself.
+    """
+    problems: list[str] = []
+    if catalog.get("schema") != ROOM_PACKAGE_CATALOG_SCHEMA:
+        problems.append(
+            f"room package catalog schema must be {ROOM_PACKAGE_CATALOG_SCHEMA}, "
+            f"got {catalog.get('schema')!r}"
+        )
+    registry_id = catalog.get("registry_id")
+    if not registry_id:
+        problems.append("room package catalog declares no registry_id")
+    revision = catalog.get("revision")
+    if not revision:
+        problems.append("room package catalog declares no revision")
+    index: dict[tuple[str, str], Mapping[str, Any]] = {}
+    if problems:
+        return index, problems
+    for entry in catalog.get("rooms", ()):
+        if isinstance(entry, Mapping) and entry.get("room_id"):
+            index[(str(entry["room_id"]), str(revision))] = entry
+    return index, problems
+
+
+def _room_package_reference_errors(
+    prefix: str,
+    reference: Mapping[str, Any],
+    entry: Mapping[str, Any],
+    catalog_path: str | Path,
+) -> list[str]:
+    """Check the referenced package actually exists and names the same room."""
+    from avengine.rooms.room_package import resolve_catalog_room_package_path
+
+    declared = entry.get("room_package")
+    if declared is None:
+        return [f"{prefix}: catalog row declares no room_package"]
+    if not isinstance(declared, (str, Path)):
+        # An inline package is already the catalog's own content.
+        return ([] if str(declared.get("room_id")) == str(reference["room_id"])
+                else [f"{prefix}: inline room package names a different room"])
+    try:
+        path = resolve_catalog_room_package_path(
+            declared, catalog_path=catalog_path)
+    except ValueError as error:
+        return [f"{prefix}: room package path does not resolve: {error}"]
+    if not path.is_file():
+        return [f"{prefix}: room package is absent: {path}"]
+    try:
+        package = load_json(path)
+    except (OSError, ValueError) as error:
+        return [f"{prefix}: room package does not load: {error}"]
+    problems: list[str] = []
+    if package.get("schema") != ROOM_PACKAGE_SCHEMA:
+        problems.append(
+            f"{prefix}: room package schema must be {ROOM_PACKAGE_SCHEMA}, "
+            f"got {package.get('schema')!r}"
+        )
+    if str(package.get("room_id")) != str(reference["room_id"]):
+        problems.append(
+            f"{prefix}: room package declares room_id "
+            f"{package.get('room_id')!r} but the profile references "
+            f"{reference['room_id']!r}"
+        )
+    return problems
+
+
 def validate_room_runtime_links(
     runtime_registry: Mapping[str, Any],
     room_registry: Mapping[str, Any],
+    *,
+    room_package_catalog: Mapping[str, Any] | None = None,
+    room_package_catalog_path: str | Path | None = None,
 ) -> list[str]:
-    """Check that every runtime room profile references one M6 room revision."""
+    """Check that every runtime room profile references one exact room revision.
+
+    Two room registries are recognised. The M6 registry keeps its original
+    strict check. A RoomPackage catalog is accepted only when the caller
+    passes it, and then a reference to it is checked just as strictly: the
+    declared data source identity, the room_id, the exact catalog revision,
+    and a room package that really loads and names the same room.
+
+    A reference naming neither registry is an error. It is never skipped:
+    silently continuing would turn a typo in ``registry_id`` into a pass.
+    """
 
     errors = validate_room_runtime_profile_registry(runtime_registry)
     if errors:
         return errors
-    registry_id = room_registry.get("registry_id")
-    records = {
+    m6_registry_id = room_registry.get("registry_id")
+    m6_records = {
         (record.get("room_id"), record.get("revision"))
         for record in room_registry.get("records", ())
         if isinstance(record, Mapping)
     }
+    catalog_registry_id = None
+    catalog_rooms: dict[tuple[str, str], Mapping[str, Any]] = {}
+    if room_package_catalog is not None:
+        if room_package_catalog_path is None:
+            return [
+                "room_package_catalog requires room_package_catalog_path so its "
+                "relative room_package paths can be resolved"
+            ]
+        catalog_rooms, problems = _room_package_catalog_rooms(
+            room_package_catalog, room_package_catalog_path
+        )
+        if problems:
+            return problems
+        catalog_registry_id = str(room_package_catalog["registry_id"])
+
+    accepted = [str(m6_registry_id)] + (
+        [catalog_registry_id] if catalog_registry_id else [])
     for index, profile in enumerate(runtime_registry["profiles"]):
+        prefix = f"profiles[{index}].room_ref"
         reference = profile["room_ref"]
-        if reference["registry_id"] != registry_id:
-            errors.append(
-                f"profiles[{index}].room_ref.registry_id does not match room registry"
-            )
-        if (reference["room_id"], reference["revision"]) not in records:
-            errors.append(
-                f"profiles[{index}].room_ref does not resolve an exact room revision"
-            )
+        declared_registry = str(reference["registry_id"])
+        if declared_registry == str(m6_registry_id):
+            if (reference["room_id"], reference["revision"]) not in m6_records:
+                errors.append(
+                    f"{prefix} does not resolve an exact room revision"
+                )
+            continue
+        if catalog_registry_id and declared_registry == catalog_registry_id:
+            key = (str(reference["room_id"]), str(reference["revision"]))
+            entry = catalog_rooms.get(key)
+            if entry is None:
+                errors.append(
+                    f"{prefix} does not resolve an exact room revision in "
+                    f"room package catalog {catalog_registry_id!r}"
+                )
+                continue
+            errors.extend(_room_package_reference_errors(
+                prefix, reference, entry, room_package_catalog_path))
+            continue
+        errors.append(
+            f"{prefix}.registry_id {declared_registry!r} is not a room registry "
+            f"this check was given; accepted registries are {accepted}"
+        )
     return errors
 
 
@@ -1115,6 +1239,8 @@ __all__ = [
     "source_asset_runtime_index",
     "source_timeline_profiles",
     "spear_actor_bindings",
+    "ROOM_PACKAGE_CATALOG_SCHEMA",
+    "ROOM_PACKAGE_SCHEMA",
     "validate_room_runtime_links",
     "validate_room_runtime_profile_registry",
     "validate_source_asset_runtime_registry",

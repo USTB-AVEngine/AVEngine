@@ -9,11 +9,16 @@ import numpy as np
 import pytest
 
 from avengine.qa.batch_manifest import (
-    CLASS_PAIRS, CONDITION_GROUPS, build_scaleup_slots, class_pair_condition_group_crosstab,
-    collect_batch_outcomes, format_class_pair_condition_group_crosstab, grouped_splits,
-    merge_request_overrides, prepare_batch_manifest, program_seconds_for_durations,
-    scatter_condition_groups, sound_identity,
+    CLASS_PAIRS, CONDITION_GROUP_BY_TASK_FAMILY, CONDITION_GROUPS, build_scaleup_slots,
+    class_pair_condition_group_crosstab, collect_batch_outcomes, core_group_from_manifest,
+    entity_instances_for_slot, format_class_pair_condition_group_crosstab,
+    group_blockers_for_group, grouped_splits, merge_request_overrides,
+    prepare_batch_manifest, production_config_slots, program_seconds_for_durations,
+    resolve_qa_plan, resolve_qa_targets, scatter_condition_groups, shared_asset_instance_gap,
+    sound_identity, stage_work_items_for_group, stage_work_items_for_row,
 )
+from avengine.dataset.production_spec import SCHEMA as PRODUCTION_SPEC_SCHEMA
+from avengine.qa.unified_catalog import QA_IDS
 from avengine.rooms.conditioned_sampler import histogram_separation_5deg
 from avengine.rooms.conditioned_sampler import (
     CandidateFailure, neutral_source_declaration, resolve_condition_profile, select_sounds,
@@ -730,3 +735,1072 @@ def test_collect_outcomes_marks_explicit_clip_rejection_as_evidence_gap():
     assert row["gap_state"] == "evidence_missing_or_unsampled"
     assert row["outcome"]["reason_code"] == "clip_overflow_rejected"
     assert row["outcome"]["diagnostic"]["classification_reason"] == "clip_overflow_rejection"
+
+
+# ---------------------------------------------------------------------------
+# P01: one production request, QA quota from configuration, entity instances
+# and the minimal stage protocol.
+# ---------------------------------------------------------------------------
+
+
+def production_defaults():
+    return {
+        "clock": {"frame_count": 150, "frame_rate_hz": 15, "sample_rate_hz": 16000},
+        "rig": {"resolution_hw": [720, 1280], "fov_deg": 85},
+        "reserve_tail_s": 3.0,
+        "profile": {"separation_bin_deg": [30, 60], "anchor_count": 1},
+        "sound": {
+            "pool": "/pool/batch_sounds.json",
+            "selection": {
+                "preallocated_sound_asset_ids_by_actor": {
+                    "source1": ["one", "one_alt"],
+                    "source2": ["two", "three"],
+                }
+            },
+        },
+        "request_extras": {"binding_motion": dict(BINDING_MOTION)},
+    }
+
+
+BINDING_MOTION = {"minimum_motion_s": 2.0, "end_hold_s": 0.5, "angle_tolerance_deg": 10,
+                  "minimum_entity_separation_m": 0.95, "source_start_s": 0.1,
+                  "walk_speed_range_mps": [0.5, 0.8]}
+
+
+def production_member(request_id, assets=("red", "blue")):
+    return {"request_id": request_id,
+            "instances": [{"instance_id": f"source{index + 1}", "asset_id": asset,
+                           "source_class": "articulated_human"}
+                          for index, asset in enumerate(assets)]}
+
+
+def production_group(group_id, task_family, room_id):
+    return {"group_id": group_id, "task_family": task_family, "room_id": room_id,
+            "members": [production_member(f"{group_id}_m{index + 1}") for index in range(4)]}
+
+
+def production_config(rooms):
+    return {
+        "schema": PRODUCTION_SPEC_SCHEMA,
+        "batch_id": "p01_batch",
+        "seed": 7,
+        "defaults": production_defaults(),
+        "episodes": [{**production_member("p01_episode_01"), "room_id": rooms[0],
+                      "condition_group": "identity_binding"}],
+        "core_groups": [
+            production_group("p01_visible", "visible_binding", rooms[0]),
+            production_group("p01_relation", "visual_conditioned_relation", rooms[1]),
+            production_group("p01_identity", "cross_event_identity", rooms[0]),
+            production_group("p01_state", "cross_time_state", rooms[1]),
+        ],
+        "coverage_quota": {"min_main_questions_per_qa_id": 8},
+    }
+
+
+def test_production_config_yields_an_episode_and_four_core_groups(inputs):
+    config, registry, rooms, sounds = deepcopy(inputs)
+    room_ids = [room["room_id"] for room in rooms["rooms"]]
+    manifest = prepare_batch_manifest(
+        {"batch_id": "p01_batch", "seed": 7, "base_request": config["base_request"],
+         "production": production_config(room_ids)},
+        registry, rooms, sounds)
+    assert manifest["production"]["episode_count"] == 1
+    assert manifest["production"]["core_group_count"] == 4
+    assert manifest["production"]["core_member_count"] == 16
+    assert manifest["production"]["derived_slot_count"] == 17
+    assert manifest["production"]["coverage_quota"] == {"min_main_questions_per_qa_id": 8}
+    assert manifest["requested_episode_count"] == 17
+
+    rows = {row["episode_id"]: row for row in manifest["episodes"]}
+    assert rows["p01_episode_01"].get("task_family") is None
+    assert rows["p01_episode_01"]["condition_group_source"] == "config"
+    member = rows["p01_state_m1"]
+    assert member["task_family"] == "cross_time_state"
+    assert member["group_id"] == "p01_state"
+    assert member.get("member_role") is None or isinstance(member["member_role"], str)
+    assert member["condition_group"] == CONDITION_GROUP_BY_TASK_FAMILY["cross_time_state"]
+    assert member["condition_group_source"] == "task_family_default"
+    families = {row.get("task_family") for row in manifest["episodes"]}
+    assert families == {None, "visible_binding", "visual_conditioned_relation",
+                        "cross_event_identity", "cross_time_state"}
+    assert rows["p01_episode_01"]["production_request"]["stage_plan"] == [
+        "plan", "capture", "audio", "delivery"]
+    assert rows["p01_episode_01"]["stage_scope"] == {
+        "kind": "episode", "scope_id": "p01_episode_01"}
+    # A member has no plan of its own: its stages are the group's shared units.
+    assert member["production_request"]["stage_plan"] is None
+    assert member["production_request"]["stage_scope"] == "core_group"
+    assert member["stage_work_items"] == []
+    scope = member["stage_scope"]
+    assert scope["kind"] == "core_group"
+    assert scope["group_id"] == "p01_state"
+    assert scope["delivering_unit_id"] == "v0_a0"
+    assert scope["consumes_visual_unit_id"] == "v0_capture"
+    assert scope["entry_point"].endswith("stage_work_items_for_group")
+    state = next(entry for entry in manifest["production"]["core_groups"]
+                 if entry["group_id"] == "p01_state")
+    assert [row["unit_id"] for row in state["stage_units"]] == [
+        "v0", "v0_capture", "v0_a0", "v0_a1", "v1", "v1_capture", "v1_a0", "v1_a1", "group"]
+    assert state["recipe"]["motion_timing"] == "after_wet_tail"
+    assert [item["unit_id"] for item in state["initial_work_items"]] == ["v0"]
+    assert manifest["production"]["shared_unit_count"] == 40
+    identity_units = next(group for group in manifest["production"]["core_groups"]
+                          if group["task_family"] == "cross_event_identity")["stage_units"]
+    assert [unit["unit_id"] for unit in identity_units if unit.get("internal_only")] == [
+        "identity_probe_plan", "identity_probe_capture", "identity_probe_audio", "identity_topology"]
+
+
+
+def test_shared_production_audio_preallocation_intersects_and_rejects_empty(inputs):
+    config, registry, rooms, sounds = deepcopy(inputs)
+    room_ids = [room["room_id"] for room in rooms["rooms"]]
+    production = production_config(room_ids)
+    production["episodes"] = []
+    production["core_groups"] = [production["core_groups"][0]]
+    production["core_groups"][0]["members"][2]["sound"] = {
+        "selection": {
+            "preallocated_sound_asset_ids_by_actor": {
+                "source1": ["one"],
+                "source2": ["two"],
+            }
+        }
+    }
+    manifest = prepare_batch_manifest(
+        {"batch_id": "p01_shared_audio", "seed": 7,
+         "base_request": config["base_request"], "production": production},
+        registry, rooms, sounds)
+    rows = {row["episode_id"]: row for row in manifest["episodes"]}
+    expected = {"source1": ["one"], "source2": ["two"]}
+    assert rows["p01_visible_m1"]["request"]["sound_selection"][
+        "preallocated_sound_asset_ids_by_actor"
+    ] == expected
+    assert rows["p01_visible_m3"]["request"]["sound_selection"][
+        "preallocated_sound_asset_ids_by_actor"
+    ] == expected
+
+    broken = production_config(room_ids)
+    broken["episodes"] = []
+    broken["core_groups"] = [broken["core_groups"][0]]
+    broken["core_groups"][0]["members"][2]["sound"] = {
+        "selection": {
+            "preallocated_sound_asset_ids_by_actor": {
+                "source1": ["three"],
+                "source2": ["one"],
+            }
+        }
+    }
+    with pytest.raises(ValueError, match="no common legal sound candidate"):
+        prepare_batch_manifest(
+            {"batch_id": "p01_shared_audio_broken", "seed": 7,
+             "base_request": config["base_request"], "production": broken},
+            registry, rooms, sounds)
+
+
+def test_production_and_slots_together_are_refused(inputs):
+    config, registry, rooms, sounds = deepcopy(inputs)
+    room_ids = [room["room_id"] for room in rooms["rooms"]]
+    with pytest.raises(ValueError, match="declares both production and slots"):
+        prepare_batch_manifest(
+            {**config, "production": production_config(room_ids)}, registry, rooms, sounds)
+
+
+def test_explicit_clock_resolution_and_fov_reach_the_production_request(inputs):
+    config, registry, rooms, sounds = deepcopy(inputs)
+    room_ids = [room["room_id"] for room in rooms["rooms"]]
+    production = production_config(room_ids)
+    production["core_groups"] = []
+    production["episodes"][0].update({
+        "clock": {"frame_count": 300, "frame_rate_hz": 30, "sample_rate_hz": 48000},
+        "rig": {"resolution_hw": [1080, 1920], "fov_deg": 60},
+        "reserve_tail_s": 4.0,
+        "resources": {"capture": {"graphics_adapter": 1, "min_free_vram_mb": 24000}},
+    })
+    manifest = prepare_batch_manifest(
+        {"batch_id": "p01_explicit", "seed": 7, "base_request": config["base_request"],
+         "production": production}, registry, rooms, sounds)
+    row = manifest["episodes"][0]
+    assert row["request"]["frame_count"] == 300
+    assert row["request"]["frame_rate_hz"] == 30.0
+    assert row["request"]["sample_rate_hz"] == 48000
+    assert row["request"]["camera"]["resolution_hw"] == [1080, 1920]
+    assert row["request"]["camera"]["fov_deg"] == 60.0
+    assert row["request"]["profile"]["reserve_tail_s"] == 4.0
+    assert row["production_request"]["duration_seconds"] == pytest.approx(10.0)
+    assert row["production_request"]["available_program_seconds"] == pytest.approx(6.0)
+    plan = row["stage_work_items"][0]
+    assert plan["payload"]["clock"]["frame_count"] == 300
+    assert plan["payload"]["rig"]["fov_deg"] == 60.0
+    assert plan["payload"]["reserve_tail_s"] == 4.0
+
+
+def test_illegal_production_values_fail_before_any_row_exists(inputs):
+    config, registry, rooms, sounds = deepcopy(inputs)
+    room_ids = [room["room_id"] for room in rooms["rooms"]]
+    production = production_config(room_ids)
+    production["core_groups"] = []
+    production["episodes"][0]["rig"] = {"resolution_hw": [720, 1280], "fov_deg": 85,
+                                        "motion": "orbit"}
+    with pytest.raises(ValueError, match="fixes the camera"):
+        prepare_batch_manifest(
+            {"batch_id": "p01_bad", "seed": 7, "base_request": config["base_request"],
+             "production": production}, registry, rooms, sounds)
+
+
+def test_qa_ids_items_and_quota_come_from_configuration(inputs):
+    config, registry, rooms, sounds = deepcopy(inputs)
+    config["qa"] = {"qa_ids": ["QA-05", "QA-20", "QA-25"], "items_per_type": 2,
+                    "quota_by_qa": {"QA-05": 8, "QA-20": 8, "QA-25": 3}}
+    config["slots"][1]["qa"] = {"qa_ids": ["QA-13"], "quota_by_qa": {"QA-13": 4}}
+    manifest = prepare_batch_manifest(config, registry, rooms, sounds)
+    first, second = manifest["episodes"]
+    assert first["requested_qa_ids"] == ["QA-05", "QA-20", "QA-25"]
+    assert first["request"]["qa_ids"] == ["QA-05", "QA-20", "QA-25"]
+    assert first["request"]["qa_sampling"]["items_per_type"] == 2
+    assert first["items_per_type"] == 2
+    assert first["items_per_type_source"] == "config"
+    assert first["requested_quota_by_qa"] == {"QA-05": 8, "QA-20": 8, "QA-25": 3}
+    assert first["requested_quota_source"] == "config"
+    assert first["qa_ids_source"] == "config"
+    assert second["requested_qa_ids"] == ["QA-13"]
+    assert second["requested_quota_by_qa"] == {"QA-13": 4}
+    assert second["request"]["qa_sampling"]["items_per_type"] == 2
+
+
+def test_a_config_without_a_qa_block_keeps_the_old_rows_and_says_so(inputs):
+    manifest = prepare_batch_manifest(*inputs)
+    row = manifest["episodes"][0]
+    assert row["requested_qa_ids"] == list(QA_IDS)
+    assert row["qa_ids_source"] == "unified_catalog_all"
+    assert row["requested_quota_by_qa"] == {qa: (3 if qa == "QA-25" else 1) for qa in QA_IDS}
+    assert row["requested_quota_source"] == "legacy_default"
+    assert row["items_per_type"] == 1
+    assert row["items_per_type_source"] == "legacy_default"
+
+
+@pytest.mark.parametrize("block,message", [
+    ({"qa_ids": ["QA-99"]}, "not in the unified catalog"),
+    ({"qa_ids": []}, "nonempty list"),
+    ({"qa_ids": ["QA-05", "QA-05"]}, "must be distinct"),
+    ({"items_per_type": 0}, "positive integer"),
+    ({"qa_ids": ["QA-05"], "quota_by_qa": {"QA-06": 1}}, "outside qa_ids"),
+    ({"qa_ids": ["QA-05"], "quota_by_qa": {"QA-05": 0}}, "positive integer"),
+    ({"qa_ids": ["QA-05"], "quota_by_qa": {}}, "nonempty mapping"),
+])
+def test_illegal_qa_blocks_fail_explicitly(inputs, block, message):
+    config, registry, rooms, sounds = deepcopy(inputs)
+    config["qa"] = block
+    with pytest.raises(ValueError, match=message):
+        prepare_batch_manifest(config, registry, rooms, sounds)
+
+
+def test_derived_targets_name_the_anchor_entity_not_the_first_sound(inputs):
+    manifest = prepare_batch_manifest(*inputs)
+    row = manifest["episodes"][0]
+    profile = row["requested_profile"]
+    instance_ids = [instance["instance_id"] for instance in row["entity_instances"]]
+    expected = [instance_ids[index] for index in profile["anchor_indices"]]
+    assert row["qa_targets"]
+    for target in row["qa_targets"]:
+        assert target["target_instance_ids"] == expected
+        assert target["event"] == {"kind": "target_audible_window"}
+        assert target["target_source"] == "resolved_anchor_entities"
+        assert "ordinal" not in target["event"]
+        assert target["items"] == row["requested_quota_by_qa"][target["qa_id"]]
+    assert "qa_targets" not in row["request"]
+
+
+def test_declared_targets_are_kept_and_validated(inputs):
+    config, registry, rooms, sounds = deepcopy(inputs)
+    config["qa"] = {
+        "qa_ids": ["QA-05"],
+        "quota_by_qa": {"QA-05": 2},
+        "qa_targets": [{"qa_id": "QA-05", "target_instance_ids": ["source2"],
+                        "event": {"kind": "event_ordinal", "ordinal": 3}, "items": 2}],
+    }
+    manifest = prepare_batch_manifest(config, registry, rooms, sounds)
+    target = manifest["episodes"][0]["qa_targets"][0]
+    assert target["target_instance_ids"] == ["source2"]
+    assert target["event"] == {"kind": "event_ordinal", "ordinal": 3}
+    assert target["target_source"] == "config"
+    assert manifest["episodes"][0]["request"]["qa_targets"] == manifest["episodes"][0]["qa_targets"]
+
+    broken = deepcopy(config)
+    broken["qa"]["qa_targets"][0]["target_instance_ids"] = ["source9"]
+    with pytest.raises(ValueError, match="are not in this episode"):
+        prepare_batch_manifest(broken, registry, rooms, sounds)
+
+    broken = deepcopy(config)
+    broken["qa"]["qa_targets"][0].pop("event")
+    with pytest.raises(ValueError, match="event must state its kind"):
+        prepare_batch_manifest(broken, registry, rooms, sounds)
+
+    broken = deepcopy(config)
+    broken["qa"]["qa_targets"][0]["qa_id"] = "QA-13"
+    with pytest.raises(ValueError, match="outside qa_ids"):
+        prepare_batch_manifest(broken, registry, rooms, sounds)
+
+
+def test_resolve_qa_targets_without_a_resolved_profile_says_so():
+    plan = resolve_qa_plan({"qa": {"qa_ids": ["QA-05"], "quota_by_qa": {"QA-05": 1}}}, {})
+    targets = resolve_qa_targets(
+        plan, instances=[{"instance_id": "source1"}, {"instance_id": "source2"}], condition=None)
+    assert targets[0]["target_source"] == "unresolved_all_instances"
+    assert targets[0]["target_instance_ids"] == ["source1", "source2"]
+
+
+def test_entity_instance_count_is_not_the_asset_count(inputs):
+    config, registry, rooms, sounds = deepcopy(inputs)
+    config["slots"][0]["source_asset_ids"] = ["red", "red"]
+    manifest = prepare_batch_manifest(config, registry, rooms, sounds)
+    row = manifest["episodes"][0]
+    assert [instance["instance_id"] for instance in row["entity_instances"]] == ["source1", "source2"]
+    assert [instance["asset_id"] for instance in row["entity_instances"]] == ["red", "red"]
+    assert row["entity_instance_count"] == 2
+    assert row["distinct_asset_count"] == 1
+    assert [actor["instance_id"] for actor in row["source_assignments"]] == ["source1", "source2"]
+    assert [actor["actor_id"] for actor in row["source_assignments"]] == ["source1", "source2"]
+    gap = next(item for item in row["preallocation_gaps"]
+               if item["code"] == "repeated_asset_across_entity_instances")
+    assert gap["state"] == "interface_not_implemented"
+    assert gap["asset_ids"] == ["red"]
+    assert gap["file"] == "src/avengine/rooms/conditioned_sampler.py"
+    assert gap["functions"] == ["resolve_condition_profile", "select_entities"]
+    # The shared asset is not silently planned: the row keeps its whole quota.
+    assert row["requested_profile"] is None
+    assert manifest["preallocation_gap_counts"]["repeated_asset_across_entity_instances"] == 1
+
+
+def test_distinct_assets_produce_no_shared_asset_gap(inputs):
+    manifest = prepare_batch_manifest(*inputs)
+    row = manifest["episodes"][0]
+    assert row["entity_instance_count"] == row["distinct_asset_count"] == 2
+    assert not [item for item in row["preallocation_gaps"]
+                if item["code"] == "repeated_asset_across_entity_instances"]
+    assert shared_asset_instance_gap(row["entity_instances"]) is None
+
+
+def test_named_entity_instances_and_roles_survive_into_the_row(inputs):
+    config, registry, rooms, sounds = deepcopy(inputs)
+    config["slots"][0]["entity_instances"] = [
+        {"instance_id": "speaker_left", "asset_id": "red", "role": "anchor"},
+        {"instance_id": "speaker_right", "asset_id": "blue", "role": "competitor"},
+    ]
+    config["slots"][0]["source_asset_ids"] = ["red", "blue"]
+    manifest = prepare_batch_manifest(config, registry, rooms, sounds)
+    row = manifest["episodes"][0]
+    assert [instance["instance_id"] for instance in row["entity_instances"]] == [
+        "speaker_left", "speaker_right"]
+    assert [actor["actor_id"] for actor in row["source_assignments"]] == [
+        "speaker_left", "speaker_right"]
+    assert [actor["role"] for actor in row["source_assignments"]] == ["anchor", "competitor"]
+    assert row["request"]["entity_instances"][0]["role"] == "anchor"
+    assert set(row["qa_targets"][0]["target_instance_ids"]) <= {"speaker_left", "speaker_right"}
+
+
+@pytest.mark.parametrize("declared,message", [
+    ([{"instance_id": "a"}], "one entry per source class"),
+    ([{"instance_id": "a"}, {"instance_id": "a"}], "must be distinct"),
+    ([{"instance_id": "a"}, {"instance_id": "b", "source_class": "rigid_static_object"}],
+     "disagrees with source_classes"),
+])
+def test_illegal_entity_instances_fail_explicitly(declared, message):
+    with pytest.raises(ValueError, match=message):
+        entity_instances_for_slot({"entity_instances": declared},
+                                  ["articulated_human", "articulated_human"], None)
+
+
+def test_episode_row_stage_items_start_at_planning_and_grow_from_results(inputs):
+    config, registry, rooms, sounds = deepcopy(inputs)
+    room_ids = [room["room_id"] for room in rooms["rooms"]]
+    manifest = prepare_batch_manifest(
+        {"batch_id": "p01_stages", "seed": 7, "base_request": config["base_request"],
+         "production": production_config(room_ids)}, registry, rooms, sounds)
+    plain = next(row for row in manifest["episodes"] if row["episode_id"] == "p01_episode_01")
+    assert [item["stage"] for item in plain["stage_work_items"]] == ["plan"]
+    assert plain["stage_work_items"][0]["resource"]["kind"] == "cpu"
+    assert plain["stage_work_items"][0]["resource"]["execution"] == "cpu"
+    assert plain["stage_work_items"][0]["fresh_output_relative"] == (
+        "p01_episode_01/plan/attempt_01")
+    plan_pass = {"work_item_id": plain["stage_work_items"][0]["work_item_id"], "stage": "plan",
+                 "request_id": "p01_episode_01", "status": "pass",
+                 "facts": {"episode_plan_path": "plan/episode_plan.json", "renderer": "ue_spear",
+                           "clock": plain["stage_work_items"][0]["payload"]["clock"]}}
+    after = stage_work_items_for_row(plain, results=[plan_pass])
+    assert [item["stage"] for item in after] == ["capture"]
+    assert after[0]["resource"]["execution"] == "gpu"
+
+
+def test_a_member_row_refuses_a_row_scoped_schedule(inputs):
+    config, registry, rooms, sounds = deepcopy(inputs)
+    room_ids = [room["room_id"] for room in rooms["rooms"]]
+    manifest = prepare_batch_manifest(
+        {"batch_id": "p01_member", "seed": 7, "base_request": config["base_request"],
+         "production": production_config(room_ids)}, registry, rooms, sounds)
+    member = next(row for row in manifest["episodes"] if row["episode_id"] == "p01_state_m1")
+    with pytest.raises(ValueError, match="stage_work_items_for_group"):
+        stage_work_items_for_row(member)
+
+
+def test_group_units_follow_the_real_cross_time_dependency(inputs):
+    config, registry, rooms, sounds = deepcopy(inputs)
+    room_ids = [room["room_id"] for room in rooms["rooms"]]
+    manifest = prepare_batch_manifest(
+        {"batch_id": "p01_group", "seed": 7, "base_request": config["base_request"],
+         "production": production_config(room_ids)}, registry, rooms, sounds)
+    clock = next(row for row in manifest["episodes"]
+                 if row["episode_id"] == "p01_state_m1")["production_request"]["clock"]
+
+    first = stage_work_items_for_group(manifest, "p01_state")
+    assert [item["unit_id"] for item in first] == ["v0"]
+    assert first[0]["member_request_ids"] == ["p01_state_m1", "p01_state_m2"]
+
+    def result(item, facts):
+        return {"work_item_id": item["work_item_id"], "stage": item["stage"],
+                "request_id": item["scope_id"], "status": "pass", "facts": facts,
+                "depends_on": item["depends_on"]}
+
+    results = [result(first[0], {"episode_plan_path": "v0/plan.json", "renderer": "habitat",
+                                 "clock": clock})]
+    capture = stage_work_items_for_group(manifest, "p01_state", results=results)
+    assert [item["unit_id"] for item in capture] == ["v0_capture"]
+    assert capture[0]["resource"]["execution"] == "gpu"
+    assert capture[0]["member_request_ids"] == ["p01_state_m1", "p01_state_m2"]
+    results.append(result(capture[0], {"capture_receipt_path": "v0_capture.json",
+                                       "captured_frame_count": 150}))
+
+    columns = stage_work_items_for_group(manifest, "p01_state", results=results)
+    assert sorted(item["unit_id"] for item in columns) == ["v0_a0", "v0_a1"]
+    assert all(item["resource"]["execution"] == "cpu" for item in columns)
+    assert all(item["resource"]["runtime_context"] == "rlr_native" for item in columns)
+    for index, item in enumerate(columns):
+        results.append(result(item, {
+            "facts_path": f"{item['unit_id']}/facts.json",
+            "audio_report_path": f"{item['unit_id']}/report.json",
+            "wet_tail_intervals": [{"start_s": 1.0, "end_s": 3.0 + index * 0.4}]}))
+
+    late = stage_work_items_for_group(manifest, "p01_state", results=results)
+    assert [item["unit_id"] for item in late] == ["v1"]
+    assert late[0]["stage"] == "late_plan"
+    window = late[0]["payload"]["measured_motion_window"]
+    assert window["measured_wet_end_s"] == pytest.approx(3.4)
+    assert window["sufficient"] is True
+    assert window["boundary_formula"] == "ceil(max(wet_tail end_s) * fps) + 1"
+    assert len(window["wet_tail_source_work_item_ids"]) == 2
+    assert group_blockers_for_group(manifest, "p01_state", results=results) == []
+
+
+def test_a_group_whose_tail_fills_the_clip_is_blocked_with_a_reason(inputs):
+    config, registry, rooms, sounds = deepcopy(inputs)
+    room_ids = [room["room_id"] for room in rooms["rooms"]]
+    manifest = prepare_batch_manifest(
+        {"batch_id": "p01_blocked", "seed": 7, "base_request": config["base_request"],
+         "production": production_config(room_ids)}, registry, rooms, sounds)
+    clock = next(row for row in manifest["episodes"]
+                 if row["episode_id"] == "p01_state_m1")["production_request"]["clock"]
+    scope = "p01_state/{}"
+    results = [
+        {"work_item_id": f"{scope.format('v0')}:plan:01", "stage": "plan",
+         "request_id": scope.format("v0"), "status": "pass",
+         "facts": {"episode_plan_path": "v0/plan.json", "renderer": "habitat", "clock": clock}},
+        {"work_item_id": f"{scope.format('v0_capture')}:capture:01", "stage": "capture",
+         "request_id": scope.format("v0_capture"), "status": "pass",
+         "facts": {"capture_receipt_path": "v0.json", "captured_frame_count": 150},
+         "depends_on": [f"{scope.format('v0')}:plan:01"]},
+    ]
+    for unit in ("v0_a0", "v0_a1"):
+        results.append({
+            "work_item_id": f"{scope.format(unit)}:audio:01", "stage": "audio",
+            "request_id": scope.format(unit), "status": "pass",
+            "facts": {"facts_path": "f.json", "audio_report_path": "r.json",
+                      "wet_tail_intervals": [{"start_s": 8.0, "end_s": 9.4}]},
+            "depends_on": [f"{scope.format('v0_capture')}:capture:01"]})
+    assert stage_work_items_for_group(manifest, "p01_state", results=results) == []
+    blockers = group_blockers_for_group(manifest, "p01_state", results=results)
+    assert [row["code"] for row in blockers] == [
+        "measured_reverberation_leaves_insufficient_movement_time"]
+
+
+def test_declared_resources_and_retry_survive_the_group_round_trip(inputs):
+    """A work item rebuilt from a saved request keeps the declared resources."""
+    config, registry, rooms, sounds = deepcopy(inputs)
+    room_ids = [room["room_id"] for room in rooms["rooms"]]
+    production = production_config(room_ids)
+    production["defaults"]["resources"] = {
+        "graphics_adapter": 2,
+        "capture": {"min_free_vram_mb": 20000, "rpc_port": 40100},
+        "audio": {"rlr_threads": 1},
+        "audio_tail_probe": {"rlr_threads": 1},
+    }
+    production["defaults"]["retry"] = {"attempts_per_stage": 3, "attempts_within_profile": 50}
+    manifest = prepare_batch_manifest(
+        {"batch_id": "p01_resources", "seed": 7, "base_request": config["base_request"],
+         "production": production}, registry, rooms, sounds)
+    rows = {row["episode_id"]: row for row in manifest["episodes"]}
+    state = rows["p01_state_m1"]
+    assert state["request"]["production"]["stage_resources"]["capture"] == {
+        "kind": "gpu_native_visual", "execution": "gpu", "runtime_context": "renderer_native",
+        "graphics_adapter": 2, "min_free_vram_mb": 20000, "rpc_port": 40100}
+    assert state["request"]["production"]["stage_resources"]["audio"] == {
+        "kind": "cpu_native_acoustic", "execution": "cpu", "runtime_context": "rlr_native",
+        "graphics_adapter": 2, "rlr_threads": 1}
+    assert state["request"]["production"]["retry"] == {"attempts_per_stage": 3,
+                                                       "attempts_within_profile": 50}
+    plan_item = stage_work_items_for_group(manifest, "p01_state")[0]
+    assert plan_item["resource"] == {"kind": "cpu", "execution": "cpu",
+                                     "runtime_context": "pure_python", "graphics_adapter": 2}
+    assert plan_item["payload"]["retry"] == {"attempts_per_stage": 3,
+                                             "attempts_within_profile": 50}
+    plan_pass = {"work_item_id": plan_item["work_item_id"], "stage": "plan",
+                 "request_id": plan_item["scope_id"], "status": "pass",
+                 "facts": {"episode_plan_path": "p/plan.json", "renderer": "habitat",
+                           "clock": plan_item["payload"]["clock"]}}
+    capture = stage_work_items_for_group(manifest, "p01_state", results=[plan_pass])[0]
+    assert capture["resource"] == {"kind": "gpu_native_visual", "execution": "gpu",
+                                  "runtime_context": "renderer_native", "graphics_adapter": 2,
+                                  "min_free_vram_mb": 20000, "rpc_port": 40100}
+    capture_pass = {"work_item_id": capture["work_item_id"], "stage": "capture",
+                    "request_id": capture["scope_id"], "status": "pass",
+                    "facts": {"capture_receipt_path": "v0.json", "captured_frame_count": 150},
+                    "depends_on": capture["depends_on"]}
+    columns = stage_work_items_for_group(manifest, "p01_state",
+                                          results=[plan_pass, capture_pass])
+    assert all(item["resource"] == {"kind": "cpu_native_acoustic", "execution": "cpu",
+                                    "runtime_context": "rlr_native", "graphics_adapter": 2,
+                                    "rlr_threads": 1} for item in columns)
+
+
+def test_manifest_declares_the_stage_protocol_and_its_boundary(inputs):
+    manifest = prepare_batch_manifest(*inputs)
+    protocol = manifest["stage_protocol"]
+    assert protocol["stages"] == ["plan", "capture", "audio", "late_plan", "assembly", "delivery"]
+    assert protocol["resource_kind_by_stage"]["capture"] == "gpu_native_visual"
+    assert protocol["resource_kind_by_stage"]["audio"] == "cpu_native_acoustic"
+    assert "audio_tail_probe" in protocol["removed_stages"]
+    assert protocol["group_recipes"]["cross_time_state"]["units"][4]["unit_id"] == "v1"
+    assert "not an executed stage" in protocol["claim_boundary"]
+    assert manifest["production"] is None
+    assert manifest["executed_episode_count"] == 0
+
+
+def test_a_batch_quota_still_reaches_a_production_config_row(inputs):
+    """The spec fills a unit quota only as a placeholder; config.qa still wins."""
+    config, registry, rooms, sounds = deepcopy(inputs)
+    room_ids = [room["room_id"] for room in rooms["rooms"]]
+    production = production_config(room_ids)
+    production["core_groups"] = []
+    manifest = prepare_batch_manifest(
+        {"batch_id": "p01_quota", "seed": 7, "base_request": config["base_request"],
+         "qa": {"quota_by_qa": {qa: 8 for qa in QA_IDS}},
+         "production": production}, registry, rooms, sounds)
+    row = manifest["episodes"][0]
+    assert row["requested_quota_by_qa"] == {qa: 8 for qa in QA_IDS}
+    assert row["requested_quota_source"] == "config"
+    assert all(target["items"] == 8 for target in row["qa_targets"])
+    slots, _summary = production_config_slots(production)
+    assert "quota_by_qa" not in slots[0]["qa"]
+    assert "qa_targets" not in slots[0]["qa"]
+
+
+def test_a_production_declared_quota_beats_the_batch_block(inputs):
+    config, registry, rooms, sounds = deepcopy(inputs)
+    room_ids = [room["room_id"] for room in rooms["rooms"]]
+    production = production_config(room_ids)
+    production["core_groups"] = []
+    production["episodes"][0].update({"qa_ids": ["QA-05"], "quota_by_qa": {"QA-05": 12}})
+    manifest = prepare_batch_manifest(
+        {"batch_id": "p01_quota2", "seed": 7, "base_request": config["base_request"],
+         "qa": {"quota_by_qa": {qa: 8 for qa in QA_IDS}},
+         "production": production}, registry, rooms, sounds)
+    row = manifest["episodes"][0]
+    assert row["requested_qa_ids"] == ["QA-05"]
+    assert row["requested_quota_by_qa"] == {"QA-05": 12}
+    slots, _summary = production_config_slots(production)
+    assert slots[0]["qa"]["quota_by_qa"] == {"QA-05": 12}
+
+
+def test_production_slots_are_derived_without_touching_the_registry(inputs):
+    _config, _registry, rooms, _sounds = deepcopy(inputs)
+    room_ids = [room["room_id"] for room in rooms["rooms"]]
+    slots, summary = production_config_slots(production_config(room_ids))
+    assert len(slots) == 17
+    assert summary["core_member_count"] == 16
+    assert [pair for group in summary["core_groups"] for pair in group["member_request_ids"]][:4] == [
+        "p01_visible_m1", "p01_visible_m2", "p01_visible_m3", "p01_visible_m4"]
+    assert [slot.get("member_index") for slot in slots[1:5]] == [0, 1, 2, 3]
+    episode = slots[0]
+    assert episode.get("member_index") is None
+    assert episode["source_classes"] == ["articulated_human", "articulated_human"]
+    assert episode["source_asset_ids"] == ["red", "blue"]
+    assert episode["request_overrides"]["schema"] == "avengine_native_qa_room_request_v1"
+    assert episode["qa"]["qa_ids"] == list(QA_IDS)
+    assert len({slot["seed"] for slot in slots[1:5]}) == 1
+    assert len({slot["seed"] for slot in slots[5:9]}) == 1
+    assert len({slot["seed"] for slot in slots[9:13]}) == 1
+    assert len({slot["seed"] for slot in slots[13:17]}) == 1
+    assert len({slot["seed"] for slot in slots[1:]}) == 4
+
+
+def test_prepare_preserves_runner_controls_without_putting_them_in_episode_inputs(inputs):
+    config, registry, rooms, sounds = deepcopy(inputs)
+    controls = {
+        "p19_coverage": {"enabled": True, "cached_survey": "retained.json",
+                         "append_requests": True, "max_new_ordinary": 3},
+        "resource_policy": {"gpu": {"allow_shared_device": False},
+                            "cpu": {"max_workers": 2}},
+    }
+    config.update(deepcopy(controls))
+    manifest = prepare_batch_manifest(config, registry, rooms, sounds)
+    for key, value in controls.items():
+        assert manifest[key] == value
+        assert all(key not in row["request"] for row in manifest["episodes"])
+    manifest["resource_policy"]["cpu"]["max_workers"] = 1
+    assert config["resource_policy"]["cpu"]["max_workers"] == 2
+    manifest["p19_coverage"]["max_new_ordinary"] = 0
+    assert config["p19_coverage"]["max_new_ordinary"] == 3
+
+
+@pytest.mark.parametrize("key", ["p19_coverage", "resource_policy"])
+def test_prepare_rejects_nonmapping_runner_controls(inputs, key):
+    config, registry, rooms, sounds = deepcopy(inputs)
+    config[key] = []
+    with pytest.raises(ValueError, match=key):
+        prepare_batch_manifest(config, registry, rooms, sounds)
+
+
+def test_production_explicit_targets_survive_nonconfig_entity_origin():
+    production = {
+        "schema": PRODUCTION_SPEC_SCHEMA, "batch_id": "explicit_origin", "seed": 1,
+        "defaults": {**production_defaults(), "qa_ids": ["QA-06"]},
+        "episodes": [{
+            "request_id": "episode", "room_id": "a",
+            "instances": [
+                {"instance_id": "left", "source_class": "articulated_human", "asset_id": "red"},
+                {"instance_id": "right", "source_class": "articulated_human", "asset_id": "blue"},
+            ],
+            "qa_targets": [{
+                "qa_id": "QA-06", "branch": "moving",
+                "target_instance_ids": ["left"],
+                "event": {"kind": "target_audible_window"},
+                "target_source": "derived_from_speaking_instances",
+            }],
+        }],
+    }
+    slots, _ = production_config_slots(production)
+    assert slots[0]["qa"]["qa_targets"][0]["branch"] == "moving"
+    assert slots[0]["request_overrides"]["qa_targets"][0]["target_instance_ids"] == ["left"]
+
+
+def test_explicit_request_override_targets_remain_execution_inputs(inputs):
+    config, registry, rooms, sounds = deepcopy(inputs)
+    target = {"qa_id": "QA-05", "target_instance_ids": ["source2"],
+              "event": {"kind": "target_audible_window"}}
+    config["slots"][0]["request_overrides"] = {"qa_targets": [target]}
+    row = prepare_batch_manifest(config, registry, rooms, sounds)["episodes"][0]
+    assert row["request"]["qa_targets"][0]["target_instance_ids"] == ["source2"]
+    assert row["qa_targets"] == row["request"]["qa_targets"]
+
+
+def test_formal_static_placement_input_bypasses_legacy_floor_gap(inputs):
+    config, registry, rooms, sounds = deepcopy(inputs)
+    wall = asset("wall", None, surface="wall")
+    wall["entity_class"] = "rigid_object"
+    wall["identity"] = {"category": "audio_playback", "object_type": "speaker"}
+    registry["assets"].append(wall)
+    config["slots"][0].update(
+        source_classes=["rigid_static_object", "articulated_human"],
+        source_asset_ids=["wall", "red"],
+    )
+    config["base_request"]["static_source_placement"] = {
+        "catalog_path": "/catalog/support.json",
+        "config": {
+            "normal_tolerance_deg": 8.0,
+            "plane_tolerance_m": 0.03,
+            "candidate_search": {
+                "grid_step_m": 0.1,
+                "max_candidates": 4,
+                "edge_margin_m": 0.01,
+            },
+        },
+        "requests": [{
+            "instance_id": "source1",
+            "asset_id": "wall",
+            "support_surface_id": "wall_surface",
+        }],
+    }
+    row = prepare_batch_manifest(config, registry, rooms, sounds)["episodes"][0]
+    assert not any(
+        gap["state"] == "interface_not_implemented"
+        for gap in row["preallocation_gaps"]
+    )
+    assert not any(
+        gap["code"] == "floor_only_placement_interface"
+        for gap in row["preallocation_gaps"]
+    )
+
+
+def test_malformed_formal_static_placement_is_evidence_gap_not_backend_gap(inputs):
+    config, registry, rooms, sounds = deepcopy(inputs)
+    wall = asset("wall", None, surface="wall")
+    wall["entity_class"] = "rigid_object"
+    wall["identity"] = {"category": "audio_playback", "object_type": "speaker"}
+    registry["assets"].append(wall)
+    config["slots"][0].update(
+        source_classes=["rigid_static_object", "articulated_human"],
+        source_asset_ids=["wall", "red"],
+    )
+    config["base_request"]["static_source_placement"] = {
+        "catalog_path": "/catalog/support.json",
+        "config": {},
+        "requests": [],
+    }
+    row = prepare_batch_manifest(config, registry, rooms, sounds)["episodes"][0]
+    gap = next(
+        gap for gap in row["preallocation_gaps"]
+        if gap["code"] == "static_placement_input_missing"
+    )
+    assert gap["state"] == "evidence_missing_or_unsampled"
+    assert not any(
+        gap["state"] == "interface_not_implemented"
+        for gap in row["preallocation_gaps"]
+    )
+
+
+def test_explicit_sound_allowlist_and_clip_fit_do_not_fallback_to_full_pool(inputs):
+    config, registry, rooms, _ = deepcopy(inputs)
+    config["slots"] = [{
+        "room_id": "a",
+        "source_classes": ["articulated_human", "articulated_human"],
+        "source_asset_ids": ["red", "blue"],
+        "condition_group": "identity",
+        "profile": {
+            "event_relation": "sequential",
+            "reserve_tail_s": 3.0,
+            "min_gap_between_audible_windows_s": 0.5,
+        },
+    }]
+    sounds = [
+        sound("long_red", "long_red", count=76800),
+        sound("short_red", "short_red", count=32000),
+        sound("long_blue", "long_blue", count=76800),
+        sound("short_blue", "short_blue", count=32000),
+    ]
+    config["base_request"]["sound_selection"] = {
+        "max_clip_s": 4.0,
+        "preallocated_sound_asset_ids_by_actor": {
+            "source1": ["long_red", "short_red"],
+            "source2": ["long_blue", "short_blue"],
+        },
+    }
+    result = prepare_batch_manifest(config, registry, rooms, sounds)
+    row = result["episodes"][0]
+    assert [assignment["sound_asset_ids"] for assignment in row["source_assignments"]] == [
+        ["short_red"], ["short_blue"]
+    ]
+    assert not any(
+        gap["code"] == "fixed_sound_identities_exceed_profile_clip_budget"
+        for gap in row["preallocation_gaps"]
+    )
+
+
+def test_explicit_long_sound_allowlist_keeps_real_duration_gap_without_pool_fallback(inputs):
+    config, registry, rooms, _ = deepcopy(inputs)
+    config["slots"] = [{
+        "room_id": "a",
+        "source_classes": ["articulated_human", "articulated_human"],
+        "source_asset_ids": ["red", "blue"],
+        "condition_group": "identity",
+        "profile": {
+            "event_relation": "sequential",
+            "reserve_tail_s": 3.0,
+            "min_gap_between_audible_windows_s": 0.5,
+        },
+    }]
+    sounds = [
+        sound("long_red", "long_red", count=76800),
+        sound("short_red", "short_red", count=32000),
+        sound("long_blue", "long_blue", count=76800),
+        sound("short_blue", "short_blue", count=32000),
+    ]
+    config["base_request"]["frame_count"] = 150
+    config["base_request"]["frame_rate_hz"] = 15
+    config["base_request"]["sample_rate_hz"] = 16000
+    config["base_request"]["sound_selection"] = {
+        "max_clip_s": 7.0,
+        "preallocated_sound_asset_ids_by_actor": {
+            "source1": ["long_red"],
+            "source2": ["long_blue"],
+        },
+    }
+    result = prepare_batch_manifest(config, registry, rooms, sounds)
+    row = result["episodes"][0]
+    assert [assignment["sound_asset_ids"] for assignment in row["source_assignments"]] == [
+        ["long_red"], ["long_blue"]
+    ]
+    gap = next(
+        gap for gap in row["preallocation_gaps"]
+        if gap["code"] == "fixed_sound_identities_exceed_profile_clip_budget"
+    )
+    assert gap["identity_substitution_applied"] is False
+
+
+def test_articulated_actor_is_not_asked_for_a_support_placement_request(inputs):
+    """A human anchor stands on the navmesh, so a support request for it can
+    never exist. Reporting one as a gap makes a world look unfixable when the
+    static devices beside it are fully specified."""
+    config, registry, rooms, sounds = deepcopy(inputs)
+    wall = asset("wall", None, surface="wall")
+    wall["entity_class"] = "rigid_object"
+    wall["identity"] = {"category": "audio_playback", "object_type": "speaker"}
+    registry["assets"].append(wall)
+    config["slots"][0].update(
+        source_classes=["rigid_static_object", "articulated_human"],
+        source_asset_ids=["wall", "red"],
+    )
+    config["base_request"]["static_source_placement"] = {
+        "catalog_path": "/catalog/support.json",
+        "config": {
+            "normal_tolerance_deg": 8.0,
+            "plane_tolerance_m": 0.03,
+            "candidate_search": {
+                "grid_step_m": 0.1,
+                "max_candidates": 4,
+                "edge_margin_m": 0.01,
+            },
+        },
+        "requests": [{
+            "instance_id": "source1",
+            "asset_id": "wall",
+            "support_surface_id": "wall_surface",
+        }],
+    }
+    row = prepare_batch_manifest(config, registry, rooms, sounds)["episodes"][0]
+    assert not [
+        gap for gap in row["preallocation_gaps"]
+        if gap["code"] == "static_placement_input_missing"
+    ]
+
+
+def test_a_static_device_without_its_own_support_request_is_still_a_gap(inputs):
+    config, registry, rooms, sounds = deepcopy(inputs)
+    wall = asset("wall", None, surface="wall")
+    wall["entity_class"] = "rigid_object"
+    wall["identity"] = {"category": "audio_playback", "object_type": "speaker"}
+    registry["assets"].append(wall)
+    config["slots"][0].update(
+        source_classes=["rigid_static_object", "articulated_human"],
+        source_asset_ids=["wall", "red"],
+    )
+    config["base_request"]["static_source_placement"] = {
+        "catalog_path": "/catalog/support.json",
+        "config": {
+            "normal_tolerance_deg": 8.0,
+            "plane_tolerance_m": 0.03,
+            "candidate_search": {
+                "grid_step_m": 0.1,
+                "max_candidates": 4,
+                "edge_margin_m": 0.01,
+            },
+        },
+        "requests": [{
+            "instance_id": "source9",
+            "asset_id": "some_other_device",
+            "support_surface_id": "wall_surface",
+        }],
+    }
+    row = prepare_batch_manifest(config, registry, rooms, sounds)["episodes"][0]
+    gap = next(
+        gap for gap in row["preallocation_gaps"]
+        if gap["code"] == "static_placement_input_missing"
+    )
+    assert gap["asset_id"] == "wall"
+    assert gap["missing_fields"] == "requests[wall]"
+
+
+def test_a_static_device_with_a_blank_support_surface_id_is_still_a_gap(inputs):
+    config, registry, rooms, sounds = deepcopy(inputs)
+    wall = asset("wall", None, surface="wall")
+    wall["entity_class"] = "rigid_object"
+    wall["identity"] = {"category": "audio_playback", "object_type": "speaker"}
+    registry["assets"].append(wall)
+    config["slots"][0].update(
+        source_classes=["rigid_static_object", "articulated_human"],
+        source_asset_ids=["wall", "red"],
+    )
+    config["base_request"]["static_source_placement"] = {
+        "catalog_path": "/catalog/support.json",
+        "config": {
+            "normal_tolerance_deg": 8.0,
+            "plane_tolerance_m": 0.03,
+            "candidate_search": {
+                "grid_step_m": 0.1,
+                "max_candidates": 4,
+                "edge_margin_m": 0.01,
+            },
+        },
+        "requests": [{
+            "instance_id": "source1",
+            "asset_id": "wall",
+            "support_surface_id": "   ",
+        }],
+    }
+    row = prepare_batch_manifest(config, registry, rooms, sounds)["episodes"][0]
+    gap = next(
+        gap for gap in row["preallocation_gaps"]
+        if gap["code"] == "static_placement_input_missing"
+    )
+    assert gap["missing_fields"] == "support_surface_id[wall]"
+
+
+def test_a_malformed_spec_is_still_reported_for_an_articulated_actor(inputs):
+    config, registry, rooms, sounds = deepcopy(inputs)
+    config["slots"][0].update(
+        source_classes=["articulated_human", "articulated_human"],
+        source_asset_ids=["red", "blue"],
+    )
+    config["base_request"]["static_source_placement"] = {
+        "catalog_path": "",
+        "config": {},
+    }
+    row = prepare_batch_manifest(config, registry, rooms, sounds)["episodes"][0]
+    gap = next(
+        gap for gap in row["preallocation_gaps"]
+        if gap["code"] == "static_placement_input_missing"
+    )
+    assert "catalog_path" in gap["missing_fields"]
+    assert "config" in gap["missing_fields"]
+
+
+def _speaking_by_instance(row):
+    return {a["instance_id"]: a["speaking"] for a in row["source_assignments"]}
+
+
+def test_a_declared_silent_competitor_silences_that_instance_and_no_other(inputs):
+    """The flag names which instance is silent; a count only says how many.
+
+    Before this was carried through, entity_instances_for_slot dropped `speaking`,
+    conditioned_sampler saw no declaration and drew the silent actor at random, so
+    the declared-speaking target could come back silent.
+    """
+    config, registry, rooms, sounds = deepcopy(inputs)
+    config["slots"][0]["entity_instances"] = [
+        {"instance_id": "human_target", "role": "anchor", "speaking": True},
+        {"instance_id": "dog_competitor", "speaking": False},
+    ]
+    row = prepare_batch_manifest(config, registry, rooms, sounds)["episodes"][0]
+    assert _speaking_by_instance(row) == {"human_target": True, "dog_competitor": False}
+    silent = next(a for a in row["source_assignments"] if a["instance_id"] == "dog_competitor")
+    assert silent["sound_status"] == "silent_by_request"
+    assert silent["sound_asset_ids"] == []
+    speaking = next(a for a in row["source_assignments"] if a["instance_id"] == "human_target")
+    assert speaking["sound_asset_ids"]
+    # the silent instance is still in the scene, with its own asset and actor slot
+    assert [i["instance_id"] for i in row["entity_instances"]] == ["human_target", "dog_competitor"]
+    assert silent["asset_id"] and silent["asset_id"] != speaking["asset_id"]
+    assert row["request"]["entities"]["silent_count"] == 1
+    assert row["request"]["entities"]["total_count"] == 2
+
+
+def test_declared_speaking_flags_reach_the_sampler_request(inputs):
+    config, registry, rooms, sounds = deepcopy(inputs)
+    config["slots"][0]["entity_instances"] = [
+        {"instance_id": "human_target", "role": "anchor", "speaking": True},
+        {"instance_id": "dog_competitor", "speaking": False},
+    ]
+    row = prepare_batch_manifest(config, registry, rooms, sounds)["episodes"][0]
+    for block in (row["request"]["entity_instances"], row["request"]["entities"]["instances"]):
+        assert [i.get("speaking") for i in block] == [True, False]
+
+
+def test_a_silent_target_is_refused_rather_than_silencing_the_other_instance(inputs):
+    config, registry, rooms, sounds = deepcopy(inputs)
+    config["slots"][0]["entity_instances"] = [
+        {"instance_id": "human_target", "role": "anchor", "speaking": False},
+        {"instance_id": "dog_competitor", "speaking": True},
+    ]
+    with pytest.raises(ValueError, match="target instance must be a speaking instance"):
+        prepare_batch_manifest(config, registry, rooms, sounds)
+
+
+def test_a_stated_silent_count_that_contradicts_the_flags_is_named(inputs):
+    config, registry, rooms, sounds = deepcopy(inputs)
+    config["slots"][0]["entity_instances"] = [
+        {"instance_id": "human_target", "role": "anchor", "speaking": True},
+        {"instance_id": "dog_competitor", "speaking": False},
+    ]
+    config["slots"][0]["silent_count"] = 0
+    with pytest.raises(ValueError) as caught:
+        prepare_batch_manifest(config, registry, rooms, sounds)
+    message = str(caught.value)
+    assert "entities.silent_count is 0" in message
+    assert "1 instance(s) silent" in message
+    assert "dog_competitor" in message
+
+
+def test_flags_that_leave_nobody_speaking_are_refused(inputs):
+    config, registry, rooms, sounds = deepcopy(inputs)
+    config["slots"][0]["entity_instances"] = [
+        {"instance_id": "one", "speaking": False},
+        {"instance_id": "two", "speaking": False},
+    ]
+    with pytest.raises(ValueError):
+        prepare_batch_manifest(config, registry, rooms, sounds)
+
+
+def test_a_non_boolean_speaking_flag_is_refused(inputs):
+    config, registry, rooms, sounds = deepcopy(inputs)
+    config["slots"][0]["entity_instances"] = [
+        {"instance_id": "one", "speaking": "yes"},
+        {"instance_id": "two"},
+    ]
+    with pytest.raises(ValueError, match="speaking must be true or false"):
+        prepare_batch_manifest(config, registry, rooms, sounds)
+
+
+def test_an_episode_that_declares_no_flags_keeps_the_stated_count(inputs):
+    config, registry, rooms, sounds = deepcopy(inputs)
+    config["slots"][0]["silent_count"] = 1
+    row = prepare_batch_manifest(config, registry, rooms, sounds)["episodes"][0]
+    assert row["request"]["entities"]["silent_count"] == 1
+    assert sum(1 for a in row["source_assignments"] if not a["speaking"]) == 1
+
+
+def test_production_episode_contradicting_its_own_instances_is_refused():
+    production = {
+        "schema": PRODUCTION_SPEC_SCHEMA,
+        "batch_id": "contradiction",
+        "seed": 1,
+        "defaults": {
+            "qa_ids": ["QA-01"], "items_per_type": 1,
+            "clock": {"frame_count": 150, "frame_rate_hz": 15, "sample_rate_hz": 16000},
+            "rig": {"fov_deg": 85.0, "height_above_floor_m": 1.55, "motion": "static",
+                    "resolution_hw": [720, 1280]},
+            "audio_layouts": [{"role": "primary", "type": "binaural"}],
+            "reserve_tail_s": 3.0,
+            "post_assembly_convolution_gain": 0.5,
+        },
+        "episodes": [{
+            "request_id": "ep",
+            "room_id": "a",
+            "entities": {"silent_count": 1},
+            "instances": [
+                {"instance_id": "one", "source_class": "articulated_human",
+                 "asset_id": "red", "role": "anchor", "speaking": True},
+                {"instance_id": "two", "source_class": "articulated_human",
+                 "asset_id": "blue", "speaking": True},
+            ],
+        }],
+        "core_groups": [],
+    }
+    with pytest.raises(ValueError) as caught:
+        production_config_slots(production)
+    assert "entities.silent_count is 1" in str(caught.value)
+
+
+def test_entity_instances_for_slot_carries_the_declared_speaking_flag():
+    slot = {"entity_instances": [
+        {"instance_id": "a", "speaking": True},
+        {"instance_id": "b", "speaking": False},
+        {"instance_id": "c"},
+    ]}
+    rows = entity_instances_for_slot(slot, ["articulated_human"] * 3, None)
+    assert [row.get("speaking") for row in rows] == [True, False, None]

@@ -1,0 +1,2114 @@
+{
+ "base_request": {
+  "allow_research_candidate_assets": true,
+  "diffraction": false,
+  "max_diffraction_order": 0,
+  "post_assembly_convolution_gain": 0.5,
+  "prepared_manifest": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/p7_prepared_audio_v3/prepared_manifest.json",
+  "room_catalog": "examples/rooms/packages/catalog.json",
+  "runtime": {
+   "ddc_directory": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/binding_v1_parallel_20260910/TAKEOVER/M16_RUNTIME_CONFIG/attempt_20260910T235227Z_pid888238/ue_ddc",
+   "ddc_profile": "InstalledNoZenLocalFallback",
+   "hrtf": "/data/avengine_external/rlr-sdk/hrtf/mit_kemar_normal_pinna_16k_v2_sofar_20260820T2200Z/mit_kemar_normal_pinna_16k.sofa",
+   "magnum_python_site": "/data/avengine_external/runtime-prefixes/magnum-python-cp312-45811bb-20260820T1845Z/lib/python3.12/site-packages",
+   "path_bindings": {
+    "AVENGINE_APARTMENT_INPUT_ROOT": "/data/avengine_external/m6x-canary-inputs/fixed_apartment_inputs_v1_20260821T131842Z",
+    "AVENGINE_HM3D_ACOUSTIC_ROOT": "/data/avengine_external/review/hm3d_e2e_wt_20260905_v1/package",
+    "AVENGINE_HM3D_REVIEW_ROOT": "/data/avengine_external/review/hm3d_e2e_wt_20260905_v1",
+    "AVENGINE_HM3D_ROOT": "/data/datasets/habitat_data",
+    "AVENGINE_HM3D_ROUTE_ROOT": "/data/avengine_external/review/hm3d_e2e_wt_20260905_v1/routes_R3",
+    "AVENGINE_KUJIALE_ACOUSTIC_ROOT": "/data/avengine_external/review/kujiale_acoustics/pkg_kujiale_0020_rlr",
+    "AVENGINE_MP3D_ACOUSTIC_ROOT": "/data/avengine_external/review/m3_current_mp3d_semantic_20260820T1630Z",
+    "AVENGINE_MP3D_ROOT": "/data/avengine_external/datasets/mp3d_example_scene_1.1",
+    "AVENGINE_MULTI_HOME_AUTHORING_ROOT": "/data/avengine_external/workspaces/multi_home_activity_20260905",
+    "AVENGINE_MULTI_HOME_ROOT": "/data/datasets/avengine_workspaces/multi_home_activity_20260905",
+    "AVENGINE_MULTI_HOME_UE_ROOT": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_full_asset_ue_stage_20260907_v1",
+    "AVENGINE_NATIVE_APARTMENT_ROUTE_ROOT": "/data/avengine_external/review/apartment_route_bank_20260825T0700Z",
+    "AVENGINE_P3_ROOM_PACKAGE_ROOT": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root",
+    "AVENGINE_QA_V3_ROOT": "/data/jzy/tmp",
+    "AVENGINE_SPEAR_STAGE_ROOT": "/data/avengine_external/workspaces/multi_home_activity_20260905/ue_stage"
+   },
+   "rlr_sdk_root": "/data/avengine_external/rlr-sdk/RLRAudioPropagationPkg",
+   "spear_ext_dir": "/data/avengine_external/spear-host-sdk/avengine-spear-ext-cp312-8a36d4d-20260821T0030Z",
+   "streaming_warmup_frames": 180,
+   "unreal_editor": "/data/UE_5.5/Engine/Binaries/Linux/UnrealEditor",
+   "uproject": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_full_asset_ue_stage_20260907_v1/SpearSim/SpearSim.uproject"
+  },
+  "sample_rate_hz": 16000,
+  "sound_pool": "tmp/binding_v1_parallel_20260910/TAKEOVER/T06_PLACE/attempt_20260910T192045Z_pid739226/T06_SOUND_POOL.json",
+  "sound_selection": {
+   "clip_span_fit_policy": "filter_to_remaining_budget_then_uniform",
+   "max_clip_s": 7.0,
+   "min_audible_s": 1.5,
+   "sound_class_config": {
+    "human_nonverbal_sound_classes": [],
+    "object_sound_classes": {
+     "air_conditioner": [
+      "air_conditioning"
+     ],
+     "alarm_clock": [
+      "alarm_clock",
+      "alarm_beep",
+      "alarm_bell",
+      "clock_tick"
+     ],
+     "bathtub": [
+      "bathtub_filling_washing"
+     ],
+     "blender": [
+      "blender"
+     ],
+     "bookshelf_speaker": [
+      "speech_playback",
+      "music_playback",
+      "any_audioset_class_playback"
+     ],
+     "cellphone": [
+      "cellphone_vibration_alert",
+      "ringtone",
+      "phone_ring"
+     ],
+     "desk_telephone": [
+      "telephone_bell_ringing",
+      "telephone_dialing_dtmf",
+      "busy_signal",
+      "phone_ring",
+      "telephone"
+     ],
+     "doorbell_chime_unit": [
+      "doorbell",
+      "doorbell_chime",
+      "ding_dong",
+      "chime"
+     ],
+     "fireplace": [
+      "fire",
+      "crackle"
+     ],
+     "floor_drain": [
+      "drip",
+      "gurgling"
+     ],
+     "floorstanding_speaker": [
+      "speech_playback",
+      "music_playback",
+      "any_audioset_class_playback"
+     ],
+     "landline_phone": [
+      "telephone_bell_ringing",
+      "telephone_dialing_dtmf",
+      "busy_signal",
+      "phone_ring",
+      "telephone"
+     ],
+     "microwave_oven": [
+      "microwave_beep",
+      "microwave_hum"
+     ],
+     "printer": [
+      "printer"
+     ],
+     "sink_with_tap": [
+      "sink_filling_washing",
+      "water_tap_faucet"
+     ],
+     "smart_speaker": [
+      "speech_playback",
+      "music_playback",
+      "any_audioset_class_playback"
+     ],
+     "smoke_detector": [
+      "smoke_alarm",
+      "fire_alarm"
+     ],
+     "soundbar": [
+      "speech_playback",
+      "music_playback",
+      "any_audioset_class_playback"
+     ],
+     "television": [
+      "speech_playback",
+      "music_playback",
+      "any_audioset_class_playback"
+     ],
+     "toilet": [
+      "toilet_flush"
+     ]
+    },
+    "species_sound_classes": {
+     "cat": [
+      "cat_meow"
+     ],
+     "dog": [
+      "dog_bark"
+     ]
+    },
+    "speech_playback_categories": [
+     "audio_playback"
+    ]
+   },
+   "unique_first_utterance_transcripts": true
+  },
+  "source_registry": "examples/runtime/source_asset_runtime_profiles.json"
+ },
+ "batch_id": "c06_remaining_branch_targets",
+ "blocked_branch_fragments": {
+  "claim_boundary": "Ready-to-run episode fragments for the three branches that the planner interface refuses today. Each names the exact refusal and the one change that unblocks it. They are NOT candidate plans and were not run.",
+  "fully_occluded_pair": {
+   "fixed_by": "the conditioned_sampler / generation_conditions owner (C01)",
+   "state": "unblocked 2026-09-11, now planned by this config",
+   "still_cannot_share_a_world_with_qa20": "QA-20's none_of_them compiles anchor_visibility=off_screen and the fully_occluded branches compile in_fov, so the two recipes stay separate. QA-20's own evidence key already accepts fully_occluded, so its planning knob is still narrower than the evidence it claims.",
+   "verified": "the real controller plans it: pixel_occlusion_transition='fully_occluded' and first_speaker_instance_id='hidden_target' reach the solved profile, candidate_qa_ids ['QA-08','QA-24']",
+   "was": "generation_conditions._visibility_planning emitted pixel_occlusion_transition='fully_occluded' while the sampler's SOLVER_KNOB_VALUES declared only 'fully_occluded_then_visible' and 'fully_occluded_without_return', so resolve_condition_profile refused it with ValueError: unsupported pixel_occlusion_transition and no room could be asked for the branch."
+  },
+  "qa25_av": {
+   "blocked_at": "avengine.qa.angular_questions.candidates, the AV arm",
+   "episode_fragment": {
+    "condition_group": "c06_visible_then_hidden_emitter",
+    "instances": [
+     {
+      "asset_id": "rocketbox_human_male_adult_01_top_blue_research_v1",
+      "instance_id": "hidden_target",
+      "role": "anchor",
+      "source_class": "articulated_human",
+      "speaking": true
+     },
+     {
+      "asset_id": "rocketbox_human_male_adult_01_top_green_research_v1",
+      "instance_id": "visible_speaker",
+      "source_class": "articulated_human",
+      "speaking": true
+     },
+     {
+      "asset_id": "generated_smart_speaker_fabric_wrapped_cylinder_charcoal_research_v1",
+      "instance_id": "visible_silent",
+      "source_class": "rigid_static_object",
+      "speaking": false
+     }
+    ],
+    "member_role": "plain_episode",
+    "profile": {
+     "anchor_count": 1,
+     "distance_range_m": [
+      1.0,
+      8.0
+     ],
+     "min_gap_between_audible_windows_s": 0.5,
+     "minimum_overlap_s": 0.3,
+     "reserve_tail_s": 3.0,
+     "retry_budget_within_profile": 200,
+     "separation_bin_deg": [
+      15.0,
+      180.0
+     ],
+     "separation_floor_deg": 15.0,
+     "separation_window": "whole_audible_window_of_anchor"
+    },
+    "qa_targets": [
+     {
+      "branch": "AV",
+      "event": {
+       "kind": "target_audible_window"
+      },
+      "forms": [
+       "open"
+      ],
+      "items": 1,
+      "qa_id": "QA-25",
+      "query_time_policy": "uniform_in_legal_window",
+      "target_instance_ids": [
+       "hidden_target"
+      ],
+      "target_source": "config"
+     }
+    ],
+    "request_extras_note": "same per-room runtime block as the out_of_view plans",
+    "request_id": "c06_av_<room_family>"
+   },
+   "measured": "148 of 148 retained members, 489 audible frames, every one visible",
+   "merge_route_instead_of_a_new_world": "C01's QA-06/moving and QA-17 worlds already carry a moving speaking anchor with motion inside the audible window, which is the expensive half of the AV recipe. Once the span knob exists, AV rides on two of those worlds as a two-knob addition (visibility_transition=visible_then_hidden plus the span knob) rather than costing two worlds of its own. It cannot ride on the out_of_view plans here: those need event_relation='sequential' for QA-24 while AV needs 'overlap', and reject_conflicts does not catch that pair because the two demands sit on different subjects.",
+   "refusal": "no_hidden_while_audible_frame",
+   "requested_fix": "add one knob, e.g. anchor_visibility='spans_crossing' or an explicit audible_window_visibility_span, and have _continuous_bearing's AV arm state it next to visibility_transition='visible_then_hidden'",
+   "requested_fix_owner": "conditioned_sampler owner plus generation_conditions owner",
+   "why_the_interface_cannot_fix_it_by_value": "the compiled set applies visibility_transition='visible_then_hidden', event_relation='overlap' and speech_motion='speaker_moving', but leaves anchor_visibility at its 'in_fov' default. select_camera_and_schedule restricts the anchor's legal event frames to the in-FOV frames under 'in_fov' and to the out-of-FOV frames under 'off_screen'; neither value expresses 'the audible window straddles the crossing', which is what the AV subset needs (visible isolated anchor frame, then hidden query frame, same continuing event)"
+  }
+ },
+ "claim_boundary": "CPU candidate plans for the three plannable remaining branches. No native pixel, audio or RLR evidence, no produced question, and nothing here counts towards the V1 quota. The fully_occluded pair and QA-25:AV are declared and blocked at the planner interface, not planned.",
+ "cpu_plan_outcome": {
+  "anchor_order_is_a_draw_not_a_pass": {
+   "claim": "a plan whose draw happened to put the anchor first is NOT a production pass for these two branches. The event order, the target identity and the query frame all still have to satisfy the type's own requirement, and none of that is checked by a written plan.",
+   "why_it_is_not_planned": "select_sounds shuffles the speaking order and schedule_legal_events picks a feasible actor order uniformly, so no knob asks for it and no candidate is rejected for the wrong order. Owner: C01.",
+   "why_it_matters": "QA-24's unique_earliest and QA-20's none_of_them both need the hidden anchor to be the earliest speaker."
+  },
+  "candidate_qa_ids_per_plan": [
+   "QA-08",
+   "QA-20",
+   "QA-24"
+  ],
+  "claim_boundary": "CPU candidate plans only. status=research_candidate, qualification_claim=false, evidence_status native_visual/native_audio/qa_validity all not_run, visibility_solver status=screened_no_pixels_rendered tier=frustum_and_ray with confirmation_authority=native_pixel_witness and geometry_authority=acoustic_proxy_mesh. No produced question and no contribution to the V1 quota.",
+  "plans_written_with_the_knob_restored": 4,
+  "rooms": [
+   "hm3d_val_00800_TEEsavR23oF",
+   "habitat_mp3d_example_17DRP5sb8fy",
+   "kujiale_0020_full_home_v1",
+   "legacy_ue_apartment_0000_v1"
+  ],
+  "what_a_written_plan_does_not_establish": [
+   "native pixel visibility: nothing was rendered, so out_of_view and fully_occluded are unproven",
+   "placement legality: the target has to be actually loaded and standing at a legal position. Occlusion produced by a body clipping through a floor or a wall is not an occlusion result, and ground contact was not measured here",
+   "that the compiled branch is satisfiable in the room, as opposed to requested"
+  ]
+ },
+ "planner_entry_history": {
+  "fixed_by": "the main controller (M26) removed the pre-resolved profile and made condition_profile.json come from the plan that was actually solved. The four requests in this config then planned 4/4 through the unwrapped controller.",
+  "follow_up_fix_here": "removing the pre-resolved profile left `condition_profile` referenced but unbound on the failure path (run_qa_episode.py, the planning_result.json write), so every refused request died with NameError and wrote no planning_result at all - the gap dropped out of the coverage denominator instead of being recorded. That line now writes condition_profile None plus the requested_profile, and the refusal reason and gap_category are recorded again.",
+  "regression_tests": "tests/unit/test_qa_episode_cli_conditions.py",
+  "state": "resolved 2026-09-11",
+  "was": "tools/studio/run_qa_episode.py pre-resolved a base condition profile with no question_knobs and handed it to build_qa_episode_plan, so resolve_conditioned_request kept the caller's profile and returned before any compiled branch knob was applied. anchor_visibility off_screen became in_fov; QA-25:AV lost event_relation, visibility_transition and speech_motion; an illegal compiled value was planned quietly instead of refused."
+ },
+ "production": {
+  "batch_id": "c06_remaining_branch_targets",
+  "claim_boundary": "CPU candidate plans for the three plannable remaining branches. No native pixel, audio or RLR evidence, no produced question, and nothing here counts towards the V1 quota. The fully_occluded pair and QA-25:AV are declared and blocked at the planner interface, not planned.",
+  "core_groups": [],
+  "coverage_quota": {
+   "branches_by_qa_id": {
+    "QA-08": [
+     "out_of_view",
+     "fully_occluded"
+    ],
+    "QA-20": [
+     "none_of_them"
+    ],
+    "QA-24": [
+     "out_of_view",
+     "fully_occluded"
+    ],
+    "QA-25": [
+     "AV"
+    ]
+   },
+   "claim_boundary": "Targets only. Meeting them yields a readable, scoreable V1 question bank; it is not human answerability, model evaluation or paper admission, and none of those may be inferred from these numbers.",
+   "min_distinct_worlds_per_branch": 2,
+   "min_distinct_worlds_per_qa_id": 2,
+   "min_valid_main_questions_per_branch": 2,
+   "min_valid_main_questions_per_qa_id": 2,
+   "notes": [
+    "Three of the six branches (QA-08/out_of_view, QA-24/out_of_view, QA-20/none_of_them) share one world recipe: a hidden emitter with two reviewed visible candidates satisfies all three at once.",
+    "QA-08/fully_occluded and QA-24/fully_occluded cannot be planned until the compiler stops emitting pixel_occlusion_transition='fully_occluded', which resolve_condition_profile refuses as an unsupported value.",
+    "QA-25/AV cannot be planned until a knob places the target's audible window across the visibility crossing; anchor_visibility is one value per episode and defaults to in_fov, so the target is never hidden while audible."
+   ],
+   "qa_ids": [
+    "QA-08",
+    "QA-20",
+    "QA-24",
+    "QA-25"
+   ],
+   "room_families": [
+    "hm3d",
+    "mp3d",
+    "kujiale",
+    "apartment"
+   ],
+   "schema": "avengine_qa_v1_coverage_targets_v1"
+  },
+  "defaults": {
+   "audio_layouts": [
+    {
+     "indirect_sh_order": 1,
+     "role": "primary",
+     "type": "binaural"
+    },
+    {
+     "ambisonic_order": 1,
+     "indirect_sh_order": 1,
+     "role": "attached_view",
+     "type": "ambisonics"
+    }
+   ],
+   "clock": {
+    "frame_count": 150,
+    "frame_rate_hz": 15,
+    "sample_rate_hz": 16000
+   },
+   "items_per_type": 1,
+   "post_assembly_convolution_gain": 0.5,
+   "profile": {
+    "competitor_set": "all_other_entities_including_offscreen",
+    "min_gap_between_audible_windows_s": 0.5,
+    "minimum_overlap_s": 0.3,
+    "reserve_tail_s": 3.0,
+    "retry_budget_within_profile": 200,
+    "separation_bin_deg": {
+     "bins": [
+      [
+       30.0,
+       60.0
+      ]
+     ],
+     "floor_deg": 15.0
+    },
+    "separation_window": "whole_audible_window_of_anchor"
+   },
+   "qa_ids": [
+    "QA-01",
+    "QA-02",
+    "QA-03",
+    "QA-04",
+    "QA-05",
+    "QA-06",
+    "QA-07",
+    "QA-08",
+    "QA-09",
+    "QA-10",
+    "QA-11",
+    "QA-12",
+    "QA-13",
+    "QA-14",
+    "QA-15",
+    "QA-16",
+    "QA-17",
+    "QA-18",
+    "QA-19",
+    "QA-20",
+    "QA-21",
+    "QA-22",
+    "QA-23",
+    "QA-24",
+    "QA-25"
+   ],
+   "reserve_tail_s": 3.0,
+   "resources": {
+    "assembly": {
+     "kind": "cpu"
+    },
+    "audio": {
+     "kind": "cpu_native_acoustic",
+     "rlr_threads": 1
+    },
+    "capture": {
+     "kind": "gpu_native_visual",
+     "min_free_vram_mb": 12000
+    },
+    "delivery": {
+     "kind": "cpu"
+    },
+    "late_plan": {
+     "kind": "cpu_native_geometry"
+    },
+    "plan": {
+     "kind": "cpu"
+    }
+   },
+   "retry": {
+    "attempts_per_stage": 2,
+    "attempts_within_profile": 200
+   },
+   "rig": {
+    "fov_deg": 85,
+    "height_above_floor_m": 1.55,
+    "motion": "static",
+    "resolution_hw": [
+     720,
+     1280
+    ]
+   },
+   "sound": {
+    "pool": "tmp/binding_v1_parallel_20260910/TAKEOVER/T06_PLACE/attempt_20260910T192045Z_pid739226/T06_SOUND_POOL.json",
+    "selection": {
+     "clip_span_fit_policy": "filter_to_remaining_budget_then_uniform",
+     "max_clip_s": 7.0,
+     "min_audible_s": 1.5,
+     "sound_class_config": {
+      "human_nonverbal_sound_classes": [],
+      "object_sound_classes": {
+       "air_conditioner": [
+        "air_conditioning"
+       ],
+       "alarm_clock": [
+        "alarm_clock",
+        "alarm_beep",
+        "alarm_bell",
+        "clock_tick"
+       ],
+       "bathtub": [
+        "bathtub_filling_washing"
+       ],
+       "blender": [
+        "blender"
+       ],
+       "bookshelf_speaker": [
+        "speech_playback",
+        "music_playback",
+        "any_audioset_class_playback"
+       ],
+       "cellphone": [
+        "cellphone_vibration_alert",
+        "ringtone",
+        "phone_ring"
+       ],
+       "desk_telephone": [
+        "telephone_bell_ringing",
+        "telephone_dialing_dtmf",
+        "busy_signal",
+        "phone_ring",
+        "telephone"
+       ],
+       "doorbell_chime_unit": [
+        "doorbell",
+        "doorbell_chime",
+        "ding_dong",
+        "chime"
+       ],
+       "fireplace": [
+        "fire",
+        "crackle"
+       ],
+       "floor_drain": [
+        "drip",
+        "gurgling"
+       ],
+       "floorstanding_speaker": [
+        "speech_playback",
+        "music_playback",
+        "any_audioset_class_playback"
+       ],
+       "landline_phone": [
+        "telephone_bell_ringing",
+        "telephone_dialing_dtmf",
+        "busy_signal",
+        "phone_ring",
+        "telephone"
+       ],
+       "microwave_oven": [
+        "microwave_beep",
+        "microwave_hum"
+       ],
+       "printer": [
+        "printer"
+       ],
+       "sink_with_tap": [
+        "sink_filling_washing",
+        "water_tap_faucet"
+       ],
+       "smart_speaker": [
+        "speech_playback",
+        "music_playback",
+        "any_audioset_class_playback"
+       ],
+       "smoke_detector": [
+        "smoke_alarm",
+        "fire_alarm"
+       ],
+       "soundbar": [
+        "speech_playback",
+        "music_playback",
+        "any_audioset_class_playback"
+       ],
+       "television": [
+        "speech_playback",
+        "music_playback",
+        "any_audioset_class_playback"
+       ],
+       "toilet": [
+        "toilet_flush"
+       ]
+      },
+      "species_sound_classes": {
+       "cat": [
+        "cat_meow"
+       ],
+       "dog": [
+        "dog_bark"
+       ]
+      },
+      "speech_playback_categories": [
+       "audio_playback"
+      ]
+     },
+     "unique_first_utterance_transcripts": true
+    }
+   }
+  },
+  "episodes": [
+   {
+    "condition_group": "c06_hidden_emitter_out_of_view",
+    "entities": {
+     "silent_count": 1
+    },
+    "instances": [
+     {
+      "asset_id": "rocketbox_human_male_adult_01_top_blue_research_v1",
+      "instance_id": "hidden_target",
+      "role": "anchor",
+      "source_class": "articulated_human",
+      "speaking": true
+     },
+     {
+      "asset_id": "rocketbox_human_male_adult_01_top_green_research_v1",
+      "instance_id": "visible_speaker",
+      "source_class": "articulated_human",
+      "speaking": true
+     },
+     {
+      "asset_id": "generated_smart_speaker_fabric_wrapped_cylinder_charcoal_research_v1",
+      "instance_id": "visible_silent",
+      "source_class": "rigid_static_object",
+      "speaking": false
+     }
+    ],
+    "member_role": "plain_episode",
+    "profile": {
+     "anchor_count": 1,
+     "distance_range_m": [
+      1.0,
+      8.0
+     ],
+     "min_gap_between_audible_windows_s": 0.5,
+     "minimum_overlap_s": 0.3,
+     "reserve_tail_s": 3.0,
+     "retry_budget_within_profile": 200,
+     "separation_bin_deg": [
+      15.0,
+      180.0
+     ],
+     "separation_floor_deg": 15.0,
+     "separation_window": "whole_audible_window_of_anchor"
+    },
+    "qa_targets": [
+     {
+      "branch": "out_of_view",
+      "event": {
+       "kind": "target_audible_window"
+      },
+      "forms": [
+       "mcq",
+       "open"
+      ],
+      "items": 1,
+      "qa_id": "QA-08",
+      "query_time_policy": "uniform_in_legal_window",
+      "target_instance_ids": [
+       "hidden_target"
+      ],
+      "target_source": "config"
+     },
+     {
+      "branch": "out_of_view",
+      "event": {
+       "kind": "target_audible_window"
+      },
+      "forms": [
+       "mcq",
+       "open"
+      ],
+      "items": 1,
+      "qa_id": "QA-24",
+      "query_time_policy": "uniform_in_legal_window",
+      "target_instance_ids": [
+       "hidden_target"
+      ],
+      "target_source": "config"
+     },
+     {
+      "branch": "none_of_them",
+      "event": {
+       "kind": "target_audible_window"
+      },
+      "forms": [
+       "mcq",
+       "open"
+      ],
+      "items": 1,
+      "qa_id": "QA-20",
+      "query_time_policy": "uniform_in_legal_window",
+      "target_instance_ids": [
+       "hidden_target"
+      ],
+      "target_source": "config"
+     }
+    ],
+    "request_extras": {
+     "camera": {
+      "visibility_solver": {
+       "candidate_pool_budget": 1536,
+       "max_candidates": 48,
+       "max_ray_poses": 96
+      }
+     },
+     "runtime": {
+      "ddc_directory": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/binding_v1_parallel_20260910/TAKEOVER/M16_RUNTIME_CONFIG/attempt_20260910T235227Z_pid888238/ue_ddc",
+      "ddc_profile": "InstalledNoZenLocalFallback",
+      "hrtf": "/data/avengine_external/rlr-sdk/hrtf/mit_kemar_normal_pinna_16k_v2_sofar_20260820T2200Z/mit_kemar_normal_pinna_16k.sofa",
+      "magnum_python_site": "/data/avengine_external/runtime-prefixes/magnum-python-cp312-45811bb-20260820T1845Z/lib/python3.12/site-packages",
+      "path_bindings": {
+       "AVENGINE_APARTMENT_INPUT_ROOT": "/data/avengine_external/m6x-canary-inputs/fixed_apartment_inputs_v1_20260821T131842Z",
+       "AVENGINE_HM3D_ACOUSTIC_ROOT": "/data/avengine_external/review/hm3d_e2e_wt_20260905_v1/package",
+       "AVENGINE_HM3D_REVIEW_ROOT": "/data/avengine_external/review/hm3d_e2e_wt_20260905_v1",
+       "AVENGINE_HM3D_ROOT": "/data/datasets/habitat_data",
+       "AVENGINE_HM3D_ROUTE_ROOT": "/data/avengine_external/review/hm3d_e2e_wt_20260905_v1/routes_R3",
+       "AVENGINE_KUJIALE_ACOUSTIC_ROOT": "/data/avengine_external/review/kujiale_acoustics/pkg_kujiale_0020_rlr",
+       "AVENGINE_MP3D_ACOUSTIC_ROOT": "/data/avengine_external/review/m3_current_mp3d_semantic_20260820T1630Z",
+       "AVENGINE_MP3D_ROOT": "/data/avengine_external/datasets/mp3d_example_scene_1.1",
+       "AVENGINE_MULTI_HOME_AUTHORING_ROOT": "/data/avengine_external/workspaces/multi_home_activity_20260905",
+       "AVENGINE_MULTI_HOME_ROOT": "/data/datasets/avengine_workspaces/multi_home_activity_20260905",
+       "AVENGINE_MULTI_HOME_UE_ROOT": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_full_asset_ue_stage_20260907_v1",
+       "AVENGINE_NATIVE_APARTMENT_ROUTE_ROOT": "/data/avengine_external/review/apartment_route_bank_20260825T0700Z",
+       "AVENGINE_P3_ROOM_PACKAGE_ROOT": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root",
+       "AVENGINE_QA_V3_ROOT": "/data/jzy/tmp",
+       "AVENGINE_SPEAR_STAGE_ROOT": "/data/avengine_external/workspaces/multi_home_activity_20260905/ue_stage"
+      },
+      "rlr_sdk_root": "/data/avengine_external/rlr-sdk/RLRAudioPropagationPkg",
+      "runtime_prefix": "/data/avengine_external/runtime-prefixes/avengine-habitat-object-id-732f264-20260824T1041Z",
+      "spear_ext_dir": "/data/avengine_external/spear-host-sdk/avengine-spear-ext-cp312-8a36d4d-20260821T0030Z",
+      "streaming_warmup_frames": 180,
+      "unreal_editor": "/data/UE_5.5/Engine/Binaries/Linux/UnrealEditor",
+      "uproject": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_full_asset_ue_stage_20260907_v1/SpearSim/SpearSim.uproject"
+     }
+    },
+    "request_id": "c06_oov_hm3d",
+    "room_id": "hm3d_val_00800_TEEsavR23oF",
+    "seed": 20261524
+   },
+   {
+    "condition_group": "c06_hidden_emitter_out_of_view",
+    "entities": {
+     "silent_count": 1
+    },
+    "instances": [
+     {
+      "asset_id": "rocketbox_human_male_adult_01_top_blue_research_v1",
+      "instance_id": "hidden_target",
+      "role": "anchor",
+      "source_class": "articulated_human",
+      "speaking": true
+     },
+     {
+      "asset_id": "rocketbox_human_male_adult_01_top_green_research_v1",
+      "instance_id": "visible_speaker",
+      "source_class": "articulated_human",
+      "speaking": true
+     },
+     {
+      "asset_id": "generated_smart_speaker_fabric_wrapped_cylinder_charcoal_research_v1",
+      "instance_id": "visible_silent",
+      "source_class": "rigid_static_object",
+      "speaking": false
+     }
+    ],
+    "member_role": "plain_episode",
+    "profile": {
+     "anchor_count": 1,
+     "distance_range_m": [
+      1.0,
+      8.0
+     ],
+     "min_gap_between_audible_windows_s": 0.5,
+     "minimum_overlap_s": 0.3,
+     "reserve_tail_s": 3.0,
+     "retry_budget_within_profile": 200,
+     "separation_bin_deg": [
+      15.0,
+      180.0
+     ],
+     "separation_floor_deg": 15.0,
+     "separation_window": "whole_audible_window_of_anchor"
+    },
+    "qa_targets": [
+     {
+      "branch": "out_of_view",
+      "event": {
+       "kind": "target_audible_window"
+      },
+      "forms": [
+       "mcq",
+       "open"
+      ],
+      "items": 1,
+      "qa_id": "QA-08",
+      "query_time_policy": "uniform_in_legal_window",
+      "target_instance_ids": [
+       "hidden_target"
+      ],
+      "target_source": "config"
+     },
+     {
+      "branch": "out_of_view",
+      "event": {
+       "kind": "target_audible_window"
+      },
+      "forms": [
+       "mcq",
+       "open"
+      ],
+      "items": 1,
+      "qa_id": "QA-24",
+      "query_time_policy": "uniform_in_legal_window",
+      "target_instance_ids": [
+       "hidden_target"
+      ],
+      "target_source": "config"
+     },
+     {
+      "branch": "none_of_them",
+      "event": {
+       "kind": "target_audible_window"
+      },
+      "forms": [
+       "mcq",
+       "open"
+      ],
+      "items": 1,
+      "qa_id": "QA-20",
+      "query_time_policy": "uniform_in_legal_window",
+      "target_instance_ids": [
+       "hidden_target"
+      ],
+      "target_source": "config"
+     }
+    ],
+    "request_extras": {
+     "camera": {
+      "visibility_solver": {
+       "candidate_pool_budget": 1536,
+       "max_candidates": 48,
+       "max_ray_poses": 96
+      }
+     },
+     "runtime": {
+      "ddc_directory": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/binding_v1_parallel_20260910/TAKEOVER/M16_RUNTIME_CONFIG/attempt_20260910T235227Z_pid888238/ue_ddc",
+      "ddc_profile": "InstalledNoZenLocalFallback",
+      "hrtf": "/data/avengine_external/rlr-sdk/hrtf/mit_kemar_normal_pinna_16k_v2_sofar_20260820T2200Z/mit_kemar_normal_pinna_16k.sofa",
+      "magnum_python_site": "/data/avengine_external/runtime-prefixes/magnum-python-cp312-45811bb-20260820T1845Z/lib/python3.12/site-packages",
+      "mp3d_root": "/data/avengine_external/datasets/mp3d_example_scene_1.1",
+      "path_bindings": {
+       "AVENGINE_APARTMENT_INPUT_ROOT": "/data/avengine_external/m6x-canary-inputs/fixed_apartment_inputs_v1_20260821T131842Z",
+       "AVENGINE_HM3D_ACOUSTIC_ROOT": "/data/avengine_external/review/hm3d_e2e_wt_20260905_v1/package",
+       "AVENGINE_HM3D_REVIEW_ROOT": "/data/avengine_external/review/hm3d_e2e_wt_20260905_v1",
+       "AVENGINE_HM3D_ROOT": "/data/datasets/habitat_data",
+       "AVENGINE_HM3D_ROUTE_ROOT": "/data/avengine_external/review/hm3d_e2e_wt_20260905_v1/routes_R3",
+       "AVENGINE_KUJIALE_ACOUSTIC_ROOT": "/data/avengine_external/review/kujiale_acoustics/pkg_kujiale_0020_rlr",
+       "AVENGINE_MP3D_ACOUSTIC_ROOT": "/data/avengine_external/review/m3_current_mp3d_semantic_20260820T1630Z",
+       "AVENGINE_MP3D_ROOT": "/data/avengine_external/datasets/mp3d_example_scene_1.1",
+       "AVENGINE_MULTI_HOME_AUTHORING_ROOT": "/data/avengine_external/workspaces/multi_home_activity_20260905",
+       "AVENGINE_MULTI_HOME_ROOT": "/data/datasets/avengine_workspaces/multi_home_activity_20260905",
+       "AVENGINE_MULTI_HOME_UE_ROOT": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_full_asset_ue_stage_20260907_v1",
+       "AVENGINE_NATIVE_APARTMENT_ROUTE_ROOT": "/data/avengine_external/review/apartment_route_bank_20260825T0700Z",
+       "AVENGINE_P3_ROOM_PACKAGE_ROOT": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root",
+       "AVENGINE_QA_V3_ROOT": "/data/jzy/tmp",
+       "AVENGINE_SPEAR_STAGE_ROOT": "/data/avengine_external/workspaces/multi_home_activity_20260905/ue_stage"
+      },
+      "rlr_sdk_root": "/data/avengine_external/rlr-sdk/RLRAudioPropagationPkg-runtime-b-20260820T2010Z",
+      "runtime_prefix": "/data/avengine_external/runtime-prefixes/avengine-habitat-pbr-ibl-c78db29-20260821T0111Z",
+      "spear_ext_dir": "/data/avengine_external/spear-host-sdk/avengine-spear-ext-cp312-8a36d4d-20260821T0030Z",
+      "streaming_warmup_frames": 180,
+      "unreal_editor": "/data/UE_5.5/Engine/Binaries/Linux/UnrealEditor",
+      "uproject": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_full_asset_ue_stage_20260907_v1/SpearSim/SpearSim.uproject"
+     }
+    },
+    "request_id": "c06_oov_mp3d",
+    "room_id": "habitat_mp3d_example_17DRP5sb8fy",
+    "seed": 20262137
+   },
+   {
+    "condition_group": "c06_hidden_emitter_out_of_view",
+    "entities": {
+     "silent_count": 1
+    },
+    "instances": [
+     {
+      "asset_id": "rocketbox_human_male_adult_01_top_blue_research_v1",
+      "instance_id": "hidden_target",
+      "role": "anchor",
+      "source_class": "articulated_human",
+      "speaking": true
+     },
+     {
+      "asset_id": "rocketbox_human_male_adult_01_top_green_research_v1",
+      "instance_id": "visible_speaker",
+      "source_class": "articulated_human",
+      "speaking": true
+     },
+     {
+      "asset_id": "generated_smart_speaker_fabric_wrapped_cylinder_charcoal_research_v1",
+      "instance_id": "visible_silent",
+      "source_class": "rigid_static_object",
+      "speaking": false
+     }
+    ],
+    "member_role": "plain_episode",
+    "profile": {
+     "anchor_count": 1,
+     "distance_range_m": [
+      1.0,
+      8.0
+     ],
+     "min_gap_between_audible_windows_s": 0.5,
+     "minimum_overlap_s": 0.3,
+     "reserve_tail_s": 3.0,
+     "retry_budget_within_profile": 200,
+     "separation_bin_deg": [
+      15.0,
+      180.0
+     ],
+     "separation_floor_deg": 15.0,
+     "separation_window": "whole_audible_window_of_anchor"
+    },
+    "qa_targets": [
+     {
+      "branch": "out_of_view",
+      "event": {
+       "kind": "target_audible_window"
+      },
+      "forms": [
+       "mcq",
+       "open"
+      ],
+      "items": 1,
+      "qa_id": "QA-08",
+      "query_time_policy": "uniform_in_legal_window",
+      "target_instance_ids": [
+       "hidden_target"
+      ],
+      "target_source": "config"
+     },
+     {
+      "branch": "out_of_view",
+      "event": {
+       "kind": "target_audible_window"
+      },
+      "forms": [
+       "mcq",
+       "open"
+      ],
+      "items": 1,
+      "qa_id": "QA-24",
+      "query_time_policy": "uniform_in_legal_window",
+      "target_instance_ids": [
+       "hidden_target"
+      ],
+      "target_source": "config"
+     },
+     {
+      "branch": "none_of_them",
+      "event": {
+       "kind": "target_audible_window"
+      },
+      "forms": [
+       "mcq",
+       "open"
+      ],
+      "items": 1,
+      "qa_id": "QA-20",
+      "query_time_policy": "uniform_in_legal_window",
+      "target_instance_ids": [
+       "hidden_target"
+      ],
+      "target_source": "config"
+     }
+    ],
+    "request_extras": {
+     "camera": {
+      "visibility_solver": {
+       "candidate_pool_budget": 1536,
+       "max_candidates": 48,
+       "max_ray_poses": 96
+      }
+     },
+     "runtime": {
+      "ddc_directory": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/binding_v1_parallel_20260910/TAKEOVER/M16_RUNTIME_CONFIG/attempt_20260910T235227Z_pid888238/ue_ddc",
+      "ddc_profile": "InstalledNoZenLocalFallback",
+      "hrtf": "/data/avengine_external/rlr-sdk/hrtf/mit_kemar_normal_pinna_16k_v2_sofar_20260820T2200Z/mit_kemar_normal_pinna_16k.sofa",
+      "magnum_python_site": "/data/avengine_external/runtime-prefixes/magnum-python-cp312-45811bb-20260820T1845Z/lib/python3.12/site-packages",
+      "path_bindings": {
+       "AVENGINE_APARTMENT_INPUT_ROOT": "/data/avengine_external/m6x-canary-inputs/fixed_apartment_inputs_v1_20260821T131842Z",
+       "AVENGINE_HM3D_ACOUSTIC_ROOT": "/data/avengine_external/review/hm3d_e2e_wt_20260905_v1/package",
+       "AVENGINE_HM3D_REVIEW_ROOT": "/data/avengine_external/review/hm3d_e2e_wt_20260905_v1",
+       "AVENGINE_HM3D_ROOT": "/data/datasets/habitat_data",
+       "AVENGINE_HM3D_ROUTE_ROOT": "/data/avengine_external/review/hm3d_e2e_wt_20260905_v1/routes_R3",
+       "AVENGINE_KUJIALE_ACOUSTIC_ROOT": "/data/avengine_external/review/kujiale_acoustics/pkg_kujiale_0020_rlr",
+       "AVENGINE_MP3D_ACOUSTIC_ROOT": "/data/avengine_external/review/m3_current_mp3d_semantic_20260820T1630Z",
+       "AVENGINE_MP3D_ROOT": "/data/avengine_external/datasets/mp3d_example_scene_1.1",
+       "AVENGINE_MULTI_HOME_AUTHORING_ROOT": "/data/avengine_external/workspaces/multi_home_activity_20260905",
+       "AVENGINE_MULTI_HOME_ROOT": "/data/datasets/avengine_workspaces/multi_home_activity_20260905",
+       "AVENGINE_MULTI_HOME_UE_ROOT": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_full_asset_ue_stage_20260907_v1",
+       "AVENGINE_NATIVE_APARTMENT_ROUTE_ROOT": "/data/avengine_external/review/apartment_route_bank_20260825T0700Z",
+       "AVENGINE_P3_ROOM_PACKAGE_ROOT": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root",
+       "AVENGINE_QA_V3_ROOT": "/data/jzy/tmp",
+       "AVENGINE_SPEAR_STAGE_ROOT": "/data/avengine_external/workspaces/multi_home_activity_20260905/ue_stage"
+      },
+      "rlr_sdk_root": "/data/avengine_external/rlr-sdk/RLRAudioPropagationPkg",
+      "runtime_prefix": "/data/avengine_external/runtime-prefixes/avengine-habitat-object-id-732f264-20260824T1041Z",
+      "spear_ext_dir": "/data/avengine_external/spear-host-sdk/avengine-spear-ext-cp312-8a36d4d-20260821T0030Z",
+      "streaming_warmup_frames": 180,
+      "unreal_editor": "/data/UE_5.5/Engine/Binaries/Linux/UnrealEditor",
+      "uproject": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_full_asset_ue_stage_20260907_v1/SpearSim/SpearSim.uproject"
+     }
+    },
+    "request_id": "c06_oov_kujiale",
+    "room_id": "kujiale_0020_full_home_v1",
+    "seed": 20262750
+   },
+   {
+    "condition_group": "c06_hidden_emitter_out_of_view",
+    "entities": {
+     "silent_count": 1
+    },
+    "instances": [
+     {
+      "asset_id": "rocketbox_human_male_adult_01_top_blue_research_v1",
+      "instance_id": "hidden_target",
+      "role": "anchor",
+      "source_class": "articulated_human",
+      "speaking": true
+     },
+     {
+      "asset_id": "rocketbox_human_male_adult_01_top_green_research_v1",
+      "instance_id": "visible_speaker",
+      "source_class": "articulated_human",
+      "speaking": true
+     },
+     {
+      "asset_id": "generated_smart_speaker_fabric_wrapped_cylinder_charcoal_research_v1",
+      "instance_id": "visible_silent",
+      "source_class": "rigid_static_object",
+      "speaking": false
+     }
+    ],
+    "member_role": "plain_episode",
+    "profile": {
+     "anchor_count": 1,
+     "distance_range_m": [
+      1.0,
+      8.0
+     ],
+     "min_gap_between_audible_windows_s": 0.5,
+     "minimum_overlap_s": 0.3,
+     "reserve_tail_s": 3.0,
+     "retry_budget_within_profile": 200,
+     "separation_bin_deg": [
+      15.0,
+      180.0
+     ],
+     "separation_floor_deg": 15.0,
+     "separation_window": "whole_audible_window_of_anchor"
+    },
+    "qa_targets": [
+     {
+      "branch": "out_of_view",
+      "event": {
+       "kind": "target_audible_window"
+      },
+      "forms": [
+       "mcq",
+       "open"
+      ],
+      "items": 1,
+      "qa_id": "QA-08",
+      "query_time_policy": "uniform_in_legal_window",
+      "target_instance_ids": [
+       "hidden_target"
+      ],
+      "target_source": "config"
+     },
+     {
+      "branch": "out_of_view",
+      "event": {
+       "kind": "target_audible_window"
+      },
+      "forms": [
+       "mcq",
+       "open"
+      ],
+      "items": 1,
+      "qa_id": "QA-24",
+      "query_time_policy": "uniform_in_legal_window",
+      "target_instance_ids": [
+       "hidden_target"
+      ],
+      "target_source": "config"
+     },
+     {
+      "branch": "none_of_them",
+      "event": {
+       "kind": "target_audible_window"
+      },
+      "forms": [
+       "mcq",
+       "open"
+      ],
+      "items": 1,
+      "qa_id": "QA-20",
+      "query_time_policy": "uniform_in_legal_window",
+      "target_instance_ids": [
+       "hidden_target"
+      ],
+      "target_source": "config"
+     }
+    ],
+    "request_extras": {
+     "camera": {
+      "visibility_solver": {
+       "candidate_pool_budget": 1536,
+       "max_candidates": 48,
+       "max_ray_poses": 96
+      }
+     },
+     "runtime": {
+      "ddc_directory": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/binding_v1_parallel_20260910/TAKEOVER/M16_RUNTIME_CONFIG/attempt_20260910T235227Z_pid888238/ue_ddc",
+      "ddc_profile": "InstalledNoZenLocalFallback",
+      "hrtf": "/data/avengine_external/rlr-sdk/hrtf/mit_kemar_normal_pinna_16k_v2_sofar_20260820T2200Z/mit_kemar_normal_pinna_16k.sofa",
+      "magnum_python_site": "/data/avengine_external/runtime-prefixes/magnum-python-cp312-45811bb-20260820T1845Z/lib/python3.12/site-packages",
+      "path_bindings": {
+       "AVENGINE_APARTMENT_INPUT_ROOT": "/data/avengine_external/m6x-canary-inputs/fixed_apartment_inputs_v1_20260821T131842Z",
+       "AVENGINE_HM3D_ACOUSTIC_ROOT": "/data/avengine_external/review/hm3d_e2e_wt_20260905_v1/package",
+       "AVENGINE_HM3D_REVIEW_ROOT": "/data/avengine_external/review/hm3d_e2e_wt_20260905_v1",
+       "AVENGINE_HM3D_ROOT": "/data/datasets/habitat_data",
+       "AVENGINE_HM3D_ROUTE_ROOT": "/data/avengine_external/review/hm3d_e2e_wt_20260905_v1/routes_R3",
+       "AVENGINE_KUJIALE_ACOUSTIC_ROOT": "/data/avengine_external/review/kujiale_acoustics/pkg_kujiale_0020_rlr",
+       "AVENGINE_MP3D_ACOUSTIC_ROOT": "/data/avengine_external/review/m3_current_mp3d_semantic_20260820T1630Z",
+       "AVENGINE_MP3D_ROOT": "/data/avengine_external/datasets/mp3d_example_scene_1.1",
+       "AVENGINE_MULTI_HOME_AUTHORING_ROOT": "/data/avengine_external/workspaces/multi_home_activity_20260905",
+       "AVENGINE_MULTI_HOME_ROOT": "/data/datasets/avengine_workspaces/multi_home_activity_20260905",
+       "AVENGINE_MULTI_HOME_UE_ROOT": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_full_asset_ue_stage_20260907_v1",
+       "AVENGINE_NATIVE_APARTMENT_ROUTE_ROOT": "/data/avengine_external/review/apartment_route_bank_20260825T0700Z",
+       "AVENGINE_P3_ROOM_PACKAGE_ROOT": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root",
+       "AVENGINE_QA_V3_ROOT": "/data/jzy/tmp",
+       "AVENGINE_SPEAR_STAGE_ROOT": "/data/avengine_external/workspaces/multi_home_activity_20260905/ue_stage"
+      },
+      "rlr_sdk_root": "/data/avengine_external/rlr-sdk/RLRAudioPropagationPkg",
+      "runtime_prefix": "/data/avengine_external/runtime-prefixes/avengine-habitat-object-id-732f264-20260824T1041Z",
+      "spear_ext_dir": "/data/avengine_external/spear-host-sdk/avengine-spear-ext-cp312-8a36d4d-20260821T0030Z",
+      "streaming_warmup_frames": 180,
+      "unreal_editor": "/data/UE_5.5/Engine/Binaries/Linux/UnrealEditor",
+      "uproject": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_full_asset_ue_stage_20260907_v1/SpearSim/SpearSim.uproject"
+     }
+    },
+    "request_id": "c06_oov_apartment",
+    "room_id": "legacy_ue_apartment_0000_v1",
+    "seed": 20263363
+   },
+   {
+    "condition_group": "c06_hidden_emitter_fully_occluded",
+    "entities": {
+     "silent_count": 1
+    },
+    "instances": [
+     {
+      "asset_id": "rocketbox_human_male_adult_01_top_blue_research_v1",
+      "instance_id": "hidden_target",
+      "role": "anchor",
+      "source_class": "articulated_human",
+      "speaking": true
+     },
+     {
+      "asset_id": "rocketbox_human_male_adult_01_top_green_research_v1",
+      "instance_id": "visible_speaker",
+      "source_class": "articulated_human",
+      "speaking": true
+     },
+     {
+      "asset_id": "generated_smart_speaker_fabric_wrapped_cylinder_charcoal_research_v1",
+      "instance_id": "visible_silent",
+      "source_class": "rigid_static_object",
+      "speaking": false
+     }
+    ],
+    "member_role": "plain_episode",
+    "profile": {
+     "anchor_count": 1,
+     "distance_range_m": [
+      1.0,
+      8.0
+     ],
+     "min_gap_between_audible_windows_s": 0.5,
+     "minimum_overlap_s": 0.3,
+     "reserve_tail_s": 3.0,
+     "retry_budget_within_profile": 200,
+     "separation_bin_deg": [
+      15.0,
+      180.0
+     ],
+     "separation_floor_deg": 15.0,
+     "separation_window": "whole_audible_window_of_anchor"
+    },
+    "qa_targets": [
+     {
+      "branch": "fully_occluded",
+      "event": {
+       "kind": "target_audible_window"
+      },
+      "forms": [
+       "mcq",
+       "open"
+      ],
+      "items": 1,
+      "qa_id": "QA-08",
+      "query_time_policy": "uniform_in_legal_window",
+      "target_instance_ids": [
+       "hidden_target"
+      ],
+      "target_source": "config"
+     },
+     {
+      "branch": "fully_occluded",
+      "event": {
+       "kind": "target_audible_window"
+      },
+      "forms": [
+       "mcq",
+       "open"
+      ],
+      "items": 1,
+      "qa_id": "QA-24",
+      "query_time_policy": "uniform_in_legal_window",
+      "target_instance_ids": [
+       "hidden_target"
+      ],
+      "target_source": "config"
+     }
+    ],
+    "request_extras": {
+     "camera": {
+      "visibility_solver": {
+       "candidate_pool_budget": 1536,
+       "max_candidates": 48,
+       "max_ray_poses": 96
+      }
+     },
+     "runtime": {
+      "ddc_directory": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/binding_v1_parallel_20260910/TAKEOVER/M16_RUNTIME_CONFIG/attempt_20260910T235227Z_pid888238/ue_ddc",
+      "ddc_profile": "InstalledNoZenLocalFallback",
+      "hrtf": "/data/avengine_external/rlr-sdk/hrtf/mit_kemar_normal_pinna_16k_v2_sofar_20260820T2200Z/mit_kemar_normal_pinna_16k.sofa",
+      "magnum_python_site": "/data/avengine_external/runtime-prefixes/magnum-python-cp312-45811bb-20260820T1845Z/lib/python3.12/site-packages",
+      "path_bindings": {
+       "AVENGINE_APARTMENT_INPUT_ROOT": "/data/avengine_external/m6x-canary-inputs/fixed_apartment_inputs_v1_20260821T131842Z",
+       "AVENGINE_HM3D_ACOUSTIC_ROOT": "/data/avengine_external/review/hm3d_e2e_wt_20260905_v1/package",
+       "AVENGINE_HM3D_REVIEW_ROOT": "/data/avengine_external/review/hm3d_e2e_wt_20260905_v1",
+       "AVENGINE_HM3D_ROOT": "/data/datasets/habitat_data",
+       "AVENGINE_HM3D_ROUTE_ROOT": "/data/avengine_external/review/hm3d_e2e_wt_20260905_v1/routes_R3",
+       "AVENGINE_KUJIALE_ACOUSTIC_ROOT": "/data/avengine_external/review/kujiale_acoustics/pkg_kujiale_0020_rlr",
+       "AVENGINE_MP3D_ACOUSTIC_ROOT": "/data/avengine_external/review/m3_current_mp3d_semantic_20260820T1630Z",
+       "AVENGINE_MP3D_ROOT": "/data/avengine_external/datasets/mp3d_example_scene_1.1",
+       "AVENGINE_MULTI_HOME_AUTHORING_ROOT": "/data/avengine_external/workspaces/multi_home_activity_20260905",
+       "AVENGINE_MULTI_HOME_ROOT": "/data/datasets/avengine_workspaces/multi_home_activity_20260905",
+       "AVENGINE_MULTI_HOME_UE_ROOT": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_full_asset_ue_stage_20260907_v1",
+       "AVENGINE_NATIVE_APARTMENT_ROUTE_ROOT": "/data/avengine_external/review/apartment_route_bank_20260825T0700Z",
+       "AVENGINE_P3_ROOM_PACKAGE_ROOT": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root",
+       "AVENGINE_QA_V3_ROOT": "/data/jzy/tmp",
+       "AVENGINE_SPEAR_STAGE_ROOT": "/data/avengine_external/workspaces/multi_home_activity_20260905/ue_stage"
+      },
+      "rlr_sdk_root": "/data/avengine_external/rlr-sdk/RLRAudioPropagationPkg",
+      "runtime_prefix": "/data/avengine_external/runtime-prefixes/avengine-habitat-object-id-732f264-20260824T1041Z",
+      "spear_ext_dir": "/data/avengine_external/spear-host-sdk/avengine-spear-ext-cp312-8a36d4d-20260821T0030Z",
+      "streaming_warmup_frames": 180,
+      "unreal_editor": "/data/UE_5.5/Engine/Binaries/Linux/UnrealEditor",
+      "uproject": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_full_asset_ue_stage_20260907_v1/SpearSim/SpearSim.uproject"
+     }
+    },
+    "request_id": "c06_occ_hm3d",
+    "room_id": "hm3d_val_00800_TEEsavR23oF",
+    "seed": 20269443
+   },
+   {
+    "condition_group": "c06_hidden_emitter_fully_occluded",
+    "entities": {
+     "silent_count": 1
+    },
+    "instances": [
+     {
+      "asset_id": "rocketbox_human_male_adult_01_top_blue_research_v1",
+      "instance_id": "hidden_target",
+      "role": "anchor",
+      "source_class": "articulated_human",
+      "speaking": true
+     },
+     {
+      "asset_id": "rocketbox_human_male_adult_01_top_green_research_v1",
+      "instance_id": "visible_speaker",
+      "source_class": "articulated_human",
+      "speaking": true
+     },
+     {
+      "asset_id": "generated_smart_speaker_fabric_wrapped_cylinder_charcoal_research_v1",
+      "instance_id": "visible_silent",
+      "source_class": "rigid_static_object",
+      "speaking": false
+     }
+    ],
+    "member_role": "plain_episode",
+    "profile": {
+     "anchor_count": 1,
+     "distance_range_m": [
+      1.0,
+      8.0
+     ],
+     "min_gap_between_audible_windows_s": 0.5,
+     "minimum_overlap_s": 0.3,
+     "reserve_tail_s": 3.0,
+     "retry_budget_within_profile": 200,
+     "separation_bin_deg": [
+      15.0,
+      180.0
+     ],
+     "separation_floor_deg": 15.0,
+     "separation_window": "whole_audible_window_of_anchor"
+    },
+    "qa_targets": [
+     {
+      "branch": "fully_occluded",
+      "event": {
+       "kind": "target_audible_window"
+      },
+      "forms": [
+       "mcq",
+       "open"
+      ],
+      "items": 1,
+      "qa_id": "QA-08",
+      "query_time_policy": "uniform_in_legal_window",
+      "target_instance_ids": [
+       "hidden_target"
+      ],
+      "target_source": "config"
+     },
+     {
+      "branch": "fully_occluded",
+      "event": {
+       "kind": "target_audible_window"
+      },
+      "forms": [
+       "mcq",
+       "open"
+      ],
+      "items": 1,
+      "qa_id": "QA-24",
+      "query_time_policy": "uniform_in_legal_window",
+      "target_instance_ids": [
+       "hidden_target"
+      ],
+      "target_source": "config"
+     }
+    ],
+    "request_extras": {
+     "camera": {
+      "visibility_solver": {
+       "candidate_pool_budget": 1536,
+       "max_candidates": 48,
+       "max_ray_poses": 96
+      }
+     },
+     "runtime": {
+      "ddc_directory": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/binding_v1_parallel_20260910/TAKEOVER/M16_RUNTIME_CONFIG/attempt_20260910T235227Z_pid888238/ue_ddc",
+      "ddc_profile": "InstalledNoZenLocalFallback",
+      "hrtf": "/data/avengine_external/rlr-sdk/hrtf/mit_kemar_normal_pinna_16k_v2_sofar_20260820T2200Z/mit_kemar_normal_pinna_16k.sofa",
+      "magnum_python_site": "/data/avengine_external/runtime-prefixes/magnum-python-cp312-45811bb-20260820T1845Z/lib/python3.12/site-packages",
+      "mp3d_root": "/data/avengine_external/datasets/mp3d_example_scene_1.1",
+      "path_bindings": {
+       "AVENGINE_APARTMENT_INPUT_ROOT": "/data/avengine_external/m6x-canary-inputs/fixed_apartment_inputs_v1_20260821T131842Z",
+       "AVENGINE_HM3D_ACOUSTIC_ROOT": "/data/avengine_external/review/hm3d_e2e_wt_20260905_v1/package",
+       "AVENGINE_HM3D_REVIEW_ROOT": "/data/avengine_external/review/hm3d_e2e_wt_20260905_v1",
+       "AVENGINE_HM3D_ROOT": "/data/datasets/habitat_data",
+       "AVENGINE_HM3D_ROUTE_ROOT": "/data/avengine_external/review/hm3d_e2e_wt_20260905_v1/routes_R3",
+       "AVENGINE_KUJIALE_ACOUSTIC_ROOT": "/data/avengine_external/review/kujiale_acoustics/pkg_kujiale_0020_rlr",
+       "AVENGINE_MP3D_ACOUSTIC_ROOT": "/data/avengine_external/review/m3_current_mp3d_semantic_20260820T1630Z",
+       "AVENGINE_MP3D_ROOT": "/data/avengine_external/datasets/mp3d_example_scene_1.1",
+       "AVENGINE_MULTI_HOME_AUTHORING_ROOT": "/data/avengine_external/workspaces/multi_home_activity_20260905",
+       "AVENGINE_MULTI_HOME_ROOT": "/data/datasets/avengine_workspaces/multi_home_activity_20260905",
+       "AVENGINE_MULTI_HOME_UE_ROOT": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_full_asset_ue_stage_20260907_v1",
+       "AVENGINE_NATIVE_APARTMENT_ROUTE_ROOT": "/data/avengine_external/review/apartment_route_bank_20260825T0700Z",
+       "AVENGINE_P3_ROOM_PACKAGE_ROOT": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root",
+       "AVENGINE_QA_V3_ROOT": "/data/jzy/tmp",
+       "AVENGINE_SPEAR_STAGE_ROOT": "/data/avengine_external/workspaces/multi_home_activity_20260905/ue_stage"
+      },
+      "rlr_sdk_root": "/data/avengine_external/rlr-sdk/RLRAudioPropagationPkg-runtime-b-20260820T2010Z",
+      "runtime_prefix": "/data/avengine_external/runtime-prefixes/avengine-habitat-pbr-ibl-c78db29-20260821T0111Z",
+      "spear_ext_dir": "/data/avengine_external/spear-host-sdk/avengine-spear-ext-cp312-8a36d4d-20260821T0030Z",
+      "streaming_warmup_frames": 180,
+      "unreal_editor": "/data/UE_5.5/Engine/Binaries/Linux/UnrealEditor",
+      "uproject": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_full_asset_ue_stage_20260907_v1/SpearSim/SpearSim.uproject"
+     }
+    },
+    "request_id": "c06_occ_mp3d",
+    "room_id": "habitat_mp3d_example_17DRP5sb8fy",
+    "seed": 20270056
+   },
+   {
+    "condition_group": "c06_hidden_emitter_fully_occluded",
+    "entities": {
+     "silent_count": 1
+    },
+    "instances": [
+     {
+      "asset_id": "rocketbox_human_male_adult_01_top_blue_research_v1",
+      "instance_id": "hidden_target",
+      "role": "anchor",
+      "source_class": "articulated_human",
+      "speaking": true
+     },
+     {
+      "asset_id": "rocketbox_human_male_adult_01_top_green_research_v1",
+      "instance_id": "visible_speaker",
+      "source_class": "articulated_human",
+      "speaking": true
+     },
+     {
+      "asset_id": "generated_smart_speaker_fabric_wrapped_cylinder_charcoal_research_v1",
+      "instance_id": "visible_silent",
+      "source_class": "rigid_static_object",
+      "speaking": false
+     }
+    ],
+    "member_role": "plain_episode",
+    "profile": {
+     "anchor_count": 1,
+     "distance_range_m": [
+      1.0,
+      8.0
+     ],
+     "min_gap_between_audible_windows_s": 0.5,
+     "minimum_overlap_s": 0.3,
+     "reserve_tail_s": 3.0,
+     "retry_budget_within_profile": 200,
+     "separation_bin_deg": [
+      15.0,
+      180.0
+     ],
+     "separation_floor_deg": 15.0,
+     "separation_window": "whole_audible_window_of_anchor"
+    },
+    "qa_targets": [
+     {
+      "branch": "fully_occluded",
+      "event": {
+       "kind": "target_audible_window"
+      },
+      "forms": [
+       "mcq",
+       "open"
+      ],
+      "items": 1,
+      "qa_id": "QA-08",
+      "query_time_policy": "uniform_in_legal_window",
+      "target_instance_ids": [
+       "hidden_target"
+      ],
+      "target_source": "config"
+     },
+     {
+      "branch": "fully_occluded",
+      "event": {
+       "kind": "target_audible_window"
+      },
+      "forms": [
+       "mcq",
+       "open"
+      ],
+      "items": 1,
+      "qa_id": "QA-24",
+      "query_time_policy": "uniform_in_legal_window",
+      "target_instance_ids": [
+       "hidden_target"
+      ],
+      "target_source": "config"
+     }
+    ],
+    "request_extras": {
+     "camera": {
+      "visibility_solver": {
+       "candidate_pool_budget": 1536,
+       "max_candidates": 48,
+       "max_ray_poses": 96
+      }
+     },
+     "runtime": {
+      "ddc_directory": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/binding_v1_parallel_20260910/TAKEOVER/M16_RUNTIME_CONFIG/attempt_20260910T235227Z_pid888238/ue_ddc",
+      "ddc_profile": "InstalledNoZenLocalFallback",
+      "hrtf": "/data/avengine_external/rlr-sdk/hrtf/mit_kemar_normal_pinna_16k_v2_sofar_20260820T2200Z/mit_kemar_normal_pinna_16k.sofa",
+      "magnum_python_site": "/data/avengine_external/runtime-prefixes/magnum-python-cp312-45811bb-20260820T1845Z/lib/python3.12/site-packages",
+      "path_bindings": {
+       "AVENGINE_APARTMENT_INPUT_ROOT": "/data/avengine_external/m6x-canary-inputs/fixed_apartment_inputs_v1_20260821T131842Z",
+       "AVENGINE_HM3D_ACOUSTIC_ROOT": "/data/avengine_external/review/hm3d_e2e_wt_20260905_v1/package",
+       "AVENGINE_HM3D_REVIEW_ROOT": "/data/avengine_external/review/hm3d_e2e_wt_20260905_v1",
+       "AVENGINE_HM3D_ROOT": "/data/datasets/habitat_data",
+       "AVENGINE_HM3D_ROUTE_ROOT": "/data/avengine_external/review/hm3d_e2e_wt_20260905_v1/routes_R3",
+       "AVENGINE_KUJIALE_ACOUSTIC_ROOT": "/data/avengine_external/review/kujiale_acoustics/pkg_kujiale_0020_rlr",
+       "AVENGINE_MP3D_ACOUSTIC_ROOT": "/data/avengine_external/review/m3_current_mp3d_semantic_20260820T1630Z",
+       "AVENGINE_MP3D_ROOT": "/data/avengine_external/datasets/mp3d_example_scene_1.1",
+       "AVENGINE_MULTI_HOME_AUTHORING_ROOT": "/data/avengine_external/workspaces/multi_home_activity_20260905",
+       "AVENGINE_MULTI_HOME_ROOT": "/data/datasets/avengine_workspaces/multi_home_activity_20260905",
+       "AVENGINE_MULTI_HOME_UE_ROOT": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_full_asset_ue_stage_20260907_v1",
+       "AVENGINE_NATIVE_APARTMENT_ROUTE_ROOT": "/data/avengine_external/review/apartment_route_bank_20260825T0700Z",
+       "AVENGINE_P3_ROOM_PACKAGE_ROOT": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root",
+       "AVENGINE_QA_V3_ROOT": "/data/jzy/tmp",
+       "AVENGINE_SPEAR_STAGE_ROOT": "/data/avengine_external/workspaces/multi_home_activity_20260905/ue_stage"
+      },
+      "rlr_sdk_root": "/data/avengine_external/rlr-sdk/RLRAudioPropagationPkg",
+      "runtime_prefix": "/data/avengine_external/runtime-prefixes/avengine-habitat-object-id-732f264-20260824T1041Z",
+      "spear_ext_dir": "/data/avengine_external/spear-host-sdk/avengine-spear-ext-cp312-8a36d4d-20260821T0030Z",
+      "streaming_warmup_frames": 180,
+      "unreal_editor": "/data/UE_5.5/Engine/Binaries/Linux/UnrealEditor",
+      "uproject": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_full_asset_ue_stage_20260907_v1/SpearSim/SpearSim.uproject"
+     }
+    },
+    "request_id": "c06_occ_kujiale",
+    "room_id": "kujiale_0020_full_home_v1",
+    "seed": 20270669
+   },
+   {
+    "condition_group": "c06_hidden_emitter_fully_occluded",
+    "entities": {
+     "silent_count": 1
+    },
+    "instances": [
+     {
+      "asset_id": "rocketbox_human_male_adult_01_top_blue_research_v1",
+      "instance_id": "hidden_target",
+      "role": "anchor",
+      "source_class": "articulated_human",
+      "speaking": true
+     },
+     {
+      "asset_id": "rocketbox_human_male_adult_01_top_green_research_v1",
+      "instance_id": "visible_speaker",
+      "source_class": "articulated_human",
+      "speaking": true
+     },
+     {
+      "asset_id": "generated_smart_speaker_fabric_wrapped_cylinder_charcoal_research_v1",
+      "instance_id": "visible_silent",
+      "source_class": "rigid_static_object",
+      "speaking": false
+     }
+    ],
+    "member_role": "plain_episode",
+    "profile": {
+     "anchor_count": 1,
+     "distance_range_m": [
+      1.0,
+      8.0
+     ],
+     "min_gap_between_audible_windows_s": 0.5,
+     "minimum_overlap_s": 0.3,
+     "reserve_tail_s": 3.0,
+     "retry_budget_within_profile": 200,
+     "separation_bin_deg": [
+      15.0,
+      180.0
+     ],
+     "separation_floor_deg": 15.0,
+     "separation_window": "whole_audible_window_of_anchor"
+    },
+    "qa_targets": [
+     {
+      "branch": "fully_occluded",
+      "event": {
+       "kind": "target_audible_window"
+      },
+      "forms": [
+       "mcq",
+       "open"
+      ],
+      "items": 1,
+      "qa_id": "QA-08",
+      "query_time_policy": "uniform_in_legal_window",
+      "target_instance_ids": [
+       "hidden_target"
+      ],
+      "target_source": "config"
+     },
+     {
+      "branch": "fully_occluded",
+      "event": {
+       "kind": "target_audible_window"
+      },
+      "forms": [
+       "mcq",
+       "open"
+      ],
+      "items": 1,
+      "qa_id": "QA-24",
+      "query_time_policy": "uniform_in_legal_window",
+      "target_instance_ids": [
+       "hidden_target"
+      ],
+      "target_source": "config"
+     }
+    ],
+    "request_extras": {
+     "camera": {
+      "visibility_solver": {
+       "candidate_pool_budget": 1536,
+       "max_candidates": 48,
+       "max_ray_poses": 96
+      }
+     },
+     "runtime": {
+      "ddc_directory": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/binding_v1_parallel_20260910/TAKEOVER/M16_RUNTIME_CONFIG/attempt_20260910T235227Z_pid888238/ue_ddc",
+      "ddc_profile": "InstalledNoZenLocalFallback",
+      "hrtf": "/data/avengine_external/rlr-sdk/hrtf/mit_kemar_normal_pinna_16k_v2_sofar_20260820T2200Z/mit_kemar_normal_pinna_16k.sofa",
+      "magnum_python_site": "/data/avengine_external/runtime-prefixes/magnum-python-cp312-45811bb-20260820T1845Z/lib/python3.12/site-packages",
+      "path_bindings": {
+       "AVENGINE_APARTMENT_INPUT_ROOT": "/data/avengine_external/m6x-canary-inputs/fixed_apartment_inputs_v1_20260821T131842Z",
+       "AVENGINE_HM3D_ACOUSTIC_ROOT": "/data/avengine_external/review/hm3d_e2e_wt_20260905_v1/package",
+       "AVENGINE_HM3D_REVIEW_ROOT": "/data/avengine_external/review/hm3d_e2e_wt_20260905_v1",
+       "AVENGINE_HM3D_ROOT": "/data/datasets/habitat_data",
+       "AVENGINE_HM3D_ROUTE_ROOT": "/data/avengine_external/review/hm3d_e2e_wt_20260905_v1/routes_R3",
+       "AVENGINE_KUJIALE_ACOUSTIC_ROOT": "/data/avengine_external/review/kujiale_acoustics/pkg_kujiale_0020_rlr",
+       "AVENGINE_MP3D_ACOUSTIC_ROOT": "/data/avengine_external/review/m3_current_mp3d_semantic_20260820T1630Z",
+       "AVENGINE_MP3D_ROOT": "/data/avengine_external/datasets/mp3d_example_scene_1.1",
+       "AVENGINE_MULTI_HOME_AUTHORING_ROOT": "/data/avengine_external/workspaces/multi_home_activity_20260905",
+       "AVENGINE_MULTI_HOME_ROOT": "/data/datasets/avengine_workspaces/multi_home_activity_20260905",
+       "AVENGINE_MULTI_HOME_UE_ROOT": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_full_asset_ue_stage_20260907_v1",
+       "AVENGINE_NATIVE_APARTMENT_ROUTE_ROOT": "/data/avengine_external/review/apartment_route_bank_20260825T0700Z",
+       "AVENGINE_P3_ROOM_PACKAGE_ROOT": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root",
+       "AVENGINE_QA_V3_ROOT": "/data/jzy/tmp",
+       "AVENGINE_SPEAR_STAGE_ROOT": "/data/avengine_external/workspaces/multi_home_activity_20260905/ue_stage"
+      },
+      "rlr_sdk_root": "/data/avengine_external/rlr-sdk/RLRAudioPropagationPkg",
+      "runtime_prefix": "/data/avengine_external/runtime-prefixes/avengine-habitat-object-id-732f264-20260824T1041Z",
+      "spear_ext_dir": "/data/avengine_external/spear-host-sdk/avengine-spear-ext-cp312-8a36d4d-20260821T0030Z",
+      "streaming_warmup_frames": 180,
+      "unreal_editor": "/data/UE_5.5/Engine/Binaries/Linux/UnrealEditor",
+      "uproject": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_full_asset_ue_stage_20260907_v1/SpearSim/SpearSim.uproject"
+     }
+    },
+    "request_id": "c06_occ_apartment",
+    "room_id": "legacy_ue_apartment_0000_v1",
+    "seed": 20271282
+   }
+  ],
+  "known_blocked_qa_cells": {
+   "cells": [
+    {
+     "branch": "fully_occluded",
+     "entity_combination": "animal+animal",
+     "qa_id": "QA-08",
+     "reason": "visibility_state: avengine/rooms/conditioned_sampler.py:select_camera_and_schedule: anchor_line_of_sight uses a single emitter/body ray; a fully_occluded pixel state is a different measurement and has no planning knob [the retained facts carry no fully_occluded pixel state across 148 members; a blocked line-of-sight ray is a different measurement and cannot stand in]",
+     "state": "interface_not_implemented"
+    },
+    {
+     "branch": "yes",
+     "entity_combination": "animal+animal",
+     "qa_id": "QA-09",
+     "reason": "occlusion_transition: avengine/rooms/conditioned_sampler.py:select_camera_and_schedule: anchor_line_of_sight uses a single emitter/body ray; a fully_occluded pixel state is a different measurement and has no planning knob [the retained facts carry no fully_occluded pixel state across 148 members; a blocked line-of-sight ray is a different measurement and cannot stand in]",
+     "state": "interface_not_implemented"
+    },
+    {
+     "branch": "no",
+     "entity_combination": "animal+animal",
+     "qa_id": "QA-09",
+     "reason": "occlusion_transition: avengine/rooms/conditioned_sampler.py:select_camera_and_schedule: anchor_line_of_sight uses a single emitter/body ray; a fully_occluded pixel state is a different measurement and has no planning knob [the retained facts carry no fully_occluded pixel state across 148 members; a blocked line-of-sight ray is a different measurement and cannot stand in]",
+     "state": "interface_not_implemented"
+    },
+    {
+     "branch": null,
+     "entity_combination": "animal+animal",
+     "qa_id": "QA-10",
+     "reason": "occluder_identity: avengine/rooms/conditioned_sampler.py:select_camera_and_schedule: anchor_line_of_sight uses a single emitter/body ray; a fully_occluded pixel state is a different measurement and has no planning knob [the retained facts carry no fully_occluded pixel state across 148 members; a blocked line-of-sight ray is a different measurement and cannot stand in]",
+     "state": "interface_not_implemented"
+    },
+    {
+     "branch": "nearer",
+     "entity_combination": "animal+animal",
+     "qa_id": "QA-15",
+     "reason": "distance_net_change: avengine/rooms/conditioned_sampler.py:sample_routes: routes are sampled for a contiguous moving window, not for a signed listener-distance change of at least the judged margin [every retained event measures a listener-distance change of exactly 0.0 m against a judged 0.2 m margin, so the trend does not appear on its own]",
+     "state": "interface_not_implemented"
+    },
+    {
+     "branch": "farther",
+     "entity_combination": "animal+animal",
+     "qa_id": "QA-15",
+     "reason": "distance_net_change: avengine/rooms/conditioned_sampler.py:sample_routes: routes are sampled for a contiguous moving window, not for a signed listener-distance change of at least the judged margin [every retained event measures a listener-distance change of exactly 0.0 m against a judged 0.2 m margin, so the trend does not appear on its own]",
+     "state": "interface_not_implemented"
+    },
+    {
+     "branch": "fully_occluded",
+     "entity_combination": "animal+animal",
+     "qa_id": "QA-24",
+     "reason": "visibility_state: avengine/rooms/conditioned_sampler.py:select_camera_and_schedule: anchor_line_of_sight uses a single emitter/body ray; a fully_occluded pixel state is a different measurement and has no planning knob [the retained facts carry no fully_occluded pixel state across 148 members; a blocked line-of-sight ray is a different measurement and cannot stand in]",
+     "state": "interface_not_implemented"
+    },
+    {
+     "branch": "fully_occluded",
+     "entity_combination": "animal+device",
+     "qa_id": "QA-08",
+     "reason": "visibility_state: avengine/rooms/conditioned_sampler.py:select_camera_and_schedule: anchor_line_of_sight uses a single emitter/body ray; a fully_occluded pixel state is a different measurement and has no planning knob [the retained facts carry no fully_occluded pixel state across 148 members; a blocked line-of-sight ray is a different measurement and cannot stand in]",
+     "state": "interface_not_implemented"
+    },
+    {
+     "branch": "yes",
+     "entity_combination": "animal+device",
+     "qa_id": "QA-09",
+     "reason": "occlusion_transition: avengine/rooms/conditioned_sampler.py:select_camera_and_schedule: anchor_line_of_sight uses a single emitter/body ray; a fully_occluded pixel state is a different measurement and has no planning knob [the retained facts carry no fully_occluded pixel state across 148 members; a blocked line-of-sight ray is a different measurement and cannot stand in]",
+     "state": "interface_not_implemented"
+    },
+    {
+     "branch": "no",
+     "entity_combination": "animal+device",
+     "qa_id": "QA-09",
+     "reason": "occlusion_transition: avengine/rooms/conditioned_sampler.py:select_camera_and_schedule: anchor_line_of_sight uses a single emitter/body ray; a fully_occluded pixel state is a different measurement and has no planning knob [the retained facts carry no fully_occluded pixel state across 148 members; a blocked line-of-sight ray is a different measurement and cannot stand in]",
+     "state": "interface_not_implemented"
+    },
+    {
+     "branch": null,
+     "entity_combination": "animal+device",
+     "qa_id": "QA-10",
+     "reason": "occluder_identity: avengine/rooms/conditioned_sampler.py:select_camera_and_schedule: anchor_line_of_sight uses a single emitter/body ray; a fully_occluded pixel state is a different measurement and has no planning knob [the retained facts carry no fully_occluded pixel state across 148 members; a blocked line-of-sight ray is a different measurement and cannot stand in]",
+     "state": "interface_not_implemented"
+    },
+    {
+     "branch": "nearer",
+     "entity_combination": "animal+device",
+     "qa_id": "QA-15",
+     "reason": "distance_net_change: avengine/rooms/conditioned_sampler.py:sample_routes: routes are sampled for a contiguous moving window, not for a signed listener-distance change of at least the judged margin [every retained event measures a listener-distance change of exactly 0.0 m against a judged 0.2 m margin, so the trend does not appear on its own]",
+     "state": "interface_not_implemented"
+    },
+    {
+     "branch": "farther",
+     "entity_combination": "animal+device",
+     "qa_id": "QA-15",
+     "reason": "distance_net_change: avengine/rooms/conditioned_sampler.py:sample_routes: routes are sampled for a contiguous moving window, not for a signed listener-distance change of at least the judged margin [every retained event measures a listener-distance change of exactly 0.0 m against a judged 0.2 m margin, so the trend does not appear on its own]",
+     "state": "interface_not_implemented"
+    },
+    {
+     "branch": "fully_occluded",
+     "entity_combination": "animal+device",
+     "qa_id": "QA-24",
+     "reason": "visibility_state: avengine/rooms/conditioned_sampler.py:select_camera_and_schedule: anchor_line_of_sight uses a single emitter/body ray; a fully_occluded pixel state is a different measurement and has no planning knob [the retained facts carry no fully_occluded pixel state across 148 members; a blocked line-of-sight ray is a different measurement and cannot stand in]",
+     "state": "interface_not_implemented"
+    },
+    {
+     "branch": "moving",
+     "entity_combination": "device+device",
+     "qa_id": "QA-06",
+     "reason": "this pair has no source that can be a self-motion target",
+     "state": "not_applicable_by_definition"
+    },
+    {
+     "branch": "still",
+     "entity_combination": "device+device",
+     "qa_id": "QA-06",
+     "reason": "this pair has no source that can be a self-motion target",
+     "state": "not_applicable_by_definition"
+    },
+    {
+     "branch": "left",
+     "entity_combination": "device+device",
+     "qa_id": "QA-07",
+     "reason": "this pair has no source that can be a self-motion target",
+     "state": "not_applicable_by_definition"
+    },
+    {
+     "branch": "right",
+     "entity_combination": "device+device",
+     "qa_id": "QA-07",
+     "reason": "this pair has no source that can be a self-motion target",
+     "state": "not_applicable_by_definition"
+    },
+    {
+     "branch": "fully_occluded",
+     "entity_combination": "device+device",
+     "qa_id": "QA-08",
+     "reason": "visibility_state: avengine/rooms/conditioned_sampler.py:select_camera_and_schedule: anchor_line_of_sight uses a single emitter/body ray; a fully_occluded pixel state is a different measurement and has no planning knob [the retained facts carry no fully_occluded pixel state across 148 members; a blocked line-of-sight ray is a different measurement and cannot stand in]",
+     "state": "interface_not_implemented"
+    },
+    {
+     "branch": "yes",
+     "entity_combination": "device+device",
+     "qa_id": "QA-09",
+     "reason": "occlusion_transition: avengine/rooms/conditioned_sampler.py:select_camera_and_schedule: anchor_line_of_sight uses a single emitter/body ray; a fully_occluded pixel state is a different measurement and has no planning knob [the retained facts carry no fully_occluded pixel state across 148 members; a blocked line-of-sight ray is a different measurement and cannot stand in]",
+     "state": "interface_not_implemented"
+    },
+    {
+     "branch": "no",
+     "entity_combination": "device+device",
+     "qa_id": "QA-09",
+     "reason": "occlusion_transition: avengine/rooms/conditioned_sampler.py:select_camera_and_schedule: anchor_line_of_sight uses a single emitter/body ray; a fully_occluded pixel state is a different measurement and has no planning knob [the retained facts carry no fully_occluded pixel state across 148 members; a blocked line-of-sight ray is a different measurement and cannot stand in]",
+     "state": "interface_not_implemented"
+    },
+    {
+     "branch": null,
+     "entity_combination": "device+device",
+     "qa_id": "QA-10",
+     "reason": "occluder_identity: avengine/rooms/conditioned_sampler.py:select_camera_and_schedule: anchor_line_of_sight uses a single emitter/body ray; a fully_occluded pixel state is a different measurement and has no planning knob [the retained facts carry no fully_occluded pixel state across 148 members; a blocked line-of-sight ray is a different measurement and cannot stand in]",
+     "state": "interface_not_implemented"
+    },
+    {
+     "branch": "nearer",
+     "entity_combination": "device+device",
+     "qa_id": "QA-15",
+     "reason": "this pair has no source that can be a self-motion target",
+     "state": "not_applicable_by_definition"
+    },
+    {
+     "branch": "farther",
+     "entity_combination": "device+device",
+     "qa_id": "QA-15",
+     "reason": "this pair has no source that can be a self-motion target",
+     "state": "not_applicable_by_definition"
+    },
+    {
+     "branch": null,
+     "entity_combination": "device+device",
+     "qa_id": "QA-16",
+     "reason": "this pair has no source that can be a self-motion target",
+     "state": "not_applicable_by_definition"
+    },
+    {
+     "branch": "yes",
+     "entity_combination": "device+device",
+     "qa_id": "QA-17",
+     "reason": "this pair has no source that can be a self-motion target",
+     "state": "not_applicable_by_definition"
+    },
+    {
+     "branch": "no",
+     "entity_combination": "device+device",
+     "qa_id": "QA-17",
+     "reason": "this pair has no source that can be a self-motion target",
+     "state": "not_applicable_by_definition"
+    },
+    {
+     "branch": "fully_occluded",
+     "entity_combination": "device+device",
+     "qa_id": "QA-24",
+     "reason": "visibility_state: avengine/rooms/conditioned_sampler.py:select_camera_and_schedule: anchor_line_of_sight uses a single emitter/body ray; a fully_occluded pixel state is a different measurement and has no planning knob [the retained facts carry no fully_occluded pixel state across 148 members; a blocked line-of-sight ray is a different measurement and cannot stand in]",
+     "state": "interface_not_implemented"
+    },
+    {
+     "branch": "fully_occluded",
+     "entity_combination": "human+animal",
+     "qa_id": "QA-08",
+     "reason": "visibility_state: avengine/rooms/conditioned_sampler.py:select_camera_and_schedule: anchor_line_of_sight uses a single emitter/body ray; a fully_occluded pixel state is a different measurement and has no planning knob [the retained facts carry no fully_occluded pixel state across 148 members; a blocked line-of-sight ray is a different measurement and cannot stand in]",
+     "state": "interface_not_implemented"
+    },
+    {
+     "branch": "yes",
+     "entity_combination": "human+animal",
+     "qa_id": "QA-09",
+     "reason": "occlusion_transition: avengine/rooms/conditioned_sampler.py:select_camera_and_schedule: anchor_line_of_sight uses a single emitter/body ray; a fully_occluded pixel state is a different measurement and has no planning knob [the retained facts carry no fully_occluded pixel state across 148 members; a blocked line-of-sight ray is a different measurement and cannot stand in]",
+     "state": "interface_not_implemented"
+    },
+    {
+     "branch": "no",
+     "entity_combination": "human+animal",
+     "qa_id": "QA-09",
+     "reason": "occlusion_transition: avengine/rooms/conditioned_sampler.py:select_camera_and_schedule: anchor_line_of_sight uses a single emitter/body ray; a fully_occluded pixel state is a different measurement and has no planning knob [the retained facts carry no fully_occluded pixel state across 148 members; a blocked line-of-sight ray is a different measurement and cannot stand in]",
+     "state": "interface_not_implemented"
+    },
+    {
+     "branch": null,
+     "entity_combination": "human+animal",
+     "qa_id": "QA-10",
+     "reason": "occluder_identity: avengine/rooms/conditioned_sampler.py:select_camera_and_schedule: anchor_line_of_sight uses a single emitter/body ray; a fully_occluded pixel state is a different measurement and has no planning knob [the retained facts carry no fully_occluded pixel state across 148 members; a blocked line-of-sight ray is a different measurement and cannot stand in]",
+     "state": "interface_not_implemented"
+    },
+    {
+     "branch": "nearer",
+     "entity_combination": "human+animal",
+     "qa_id": "QA-15",
+     "reason": "distance_net_change: avengine/rooms/conditioned_sampler.py:sample_routes: routes are sampled for a contiguous moving window, not for a signed listener-distance change of at least the judged margin [every retained event measures a listener-distance change of exactly 0.0 m against a judged 0.2 m margin, so the trend does not appear on its own]",
+     "state": "interface_not_implemented"
+    },
+    {
+     "branch": "farther",
+     "entity_combination": "human+animal",
+     "qa_id": "QA-15",
+     "reason": "distance_net_change: avengine/rooms/conditioned_sampler.py:sample_routes: routes are sampled for a contiguous moving window, not for a signed listener-distance change of at least the judged margin [every retained event measures a listener-distance change of exactly 0.0 m against a judged 0.2 m margin, so the trend does not appear on its own]",
+     "state": "interface_not_implemented"
+    },
+    {
+     "branch": "fully_occluded",
+     "entity_combination": "human+animal",
+     "qa_id": "QA-24",
+     "reason": "visibility_state: avengine/rooms/conditioned_sampler.py:select_camera_and_schedule: anchor_line_of_sight uses a single emitter/body ray; a fully_occluded pixel state is a different measurement and has no planning knob [the retained facts carry no fully_occluded pixel state across 148 members; a blocked line-of-sight ray is a different measurement and cannot stand in]",
+     "state": "interface_not_implemented"
+    },
+    {
+     "branch": "fully_occluded",
+     "entity_combination": "human+device",
+     "qa_id": "QA-08",
+     "reason": "visibility_state: avengine/rooms/conditioned_sampler.py:select_camera_and_schedule: anchor_line_of_sight uses a single emitter/body ray; a fully_occluded pixel state is a different measurement and has no planning knob [the retained facts carry no fully_occluded pixel state across 148 members; a blocked line-of-sight ray is a different measurement and cannot stand in]",
+     "state": "interface_not_implemented"
+    },
+    {
+     "branch": "yes",
+     "entity_combination": "human+device",
+     "qa_id": "QA-09",
+     "reason": "occlusion_transition: avengine/rooms/conditioned_sampler.py:select_camera_and_schedule: anchor_line_of_sight uses a single emitter/body ray; a fully_occluded pixel state is a different measurement and has no planning knob [the retained facts carry no fully_occluded pixel state across 148 members; a blocked line-of-sight ray is a different measurement and cannot stand in]",
+     "state": "interface_not_implemented"
+    },
+    {
+     "branch": "no",
+     "entity_combination": "human+device",
+     "qa_id": "QA-09",
+     "reason": "occlusion_transition: avengine/rooms/conditioned_sampler.py:select_camera_and_schedule: anchor_line_of_sight uses a single emitter/body ray; a fully_occluded pixel state is a different measurement and has no planning knob [the retained facts carry no fully_occluded pixel state across 148 members; a blocked line-of-sight ray is a different measurement and cannot stand in]",
+     "state": "interface_not_implemented"
+    },
+    {
+     "branch": null,
+     "entity_combination": "human+device",
+     "qa_id": "QA-10",
+     "reason": "occluder_identity: avengine/rooms/conditioned_sampler.py:select_camera_and_schedule: anchor_line_of_sight uses a single emitter/body ray; a fully_occluded pixel state is a different measurement and has no planning knob [the retained facts carry no fully_occluded pixel state across 148 members; a blocked line-of-sight ray is a different measurement and cannot stand in]",
+     "state": "interface_not_implemented"
+    },
+    {
+     "branch": "nearer",
+     "entity_combination": "human+device",
+     "qa_id": "QA-15",
+     "reason": "distance_net_change: avengine/rooms/conditioned_sampler.py:sample_routes: routes are sampled for a contiguous moving window, not for a signed listener-distance change of at least the judged margin [every retained event measures a listener-distance change of exactly 0.0 m against a judged 0.2 m margin, so the trend does not appear on its own]",
+     "state": "interface_not_implemented"
+    },
+    {
+     "branch": "farther",
+     "entity_combination": "human+device",
+     "qa_id": "QA-15",
+     "reason": "distance_net_change: avengine/rooms/conditioned_sampler.py:sample_routes: routes are sampled for a contiguous moving window, not for a signed listener-distance change of at least the judged margin [every retained event measures a listener-distance change of exactly 0.0 m against a judged 0.2 m margin, so the trend does not appear on its own]",
+     "state": "interface_not_implemented"
+    },
+    {
+     "branch": "fully_occluded",
+     "entity_combination": "human+device",
+     "qa_id": "QA-24",
+     "reason": "visibility_state: avengine/rooms/conditioned_sampler.py:select_camera_and_schedule: anchor_line_of_sight uses a single emitter/body ray; a fully_occluded pixel state is a different measurement and has no planning knob [the retained facts carry no fully_occluded pixel state across 148 members; a blocked line-of-sight ray is a different measurement and cannot stand in]",
+     "state": "interface_not_implemented"
+    },
+    {
+     "branch": "fully_occluded",
+     "entity_combination": "human+human",
+     "qa_id": "QA-08",
+     "reason": "visibility_state: avengine/rooms/conditioned_sampler.py:select_camera_and_schedule: anchor_line_of_sight uses a single emitter/body ray; a fully_occluded pixel state is a different measurement and has no planning knob [the retained facts carry no fully_occluded pixel state across 148 members; a blocked line-of-sight ray is a different measurement and cannot stand in]",
+     "state": "interface_not_implemented"
+    },
+    {
+     "branch": "yes",
+     "entity_combination": "human+human",
+     "qa_id": "QA-09",
+     "reason": "occlusion_transition: avengine/rooms/conditioned_sampler.py:select_camera_and_schedule: anchor_line_of_sight uses a single emitter/body ray; a fully_occluded pixel state is a different measurement and has no planning knob [the retained facts carry no fully_occluded pixel state across 148 members; a blocked line-of-sight ray is a different measurement and cannot stand in]",
+     "state": "interface_not_implemented"
+    },
+    {
+     "branch": "no",
+     "entity_combination": "human+human",
+     "qa_id": "QA-09",
+     "reason": "occlusion_transition: avengine/rooms/conditioned_sampler.py:select_camera_and_schedule: anchor_line_of_sight uses a single emitter/body ray; a fully_occluded pixel state is a different measurement and has no planning knob [the retained facts carry no fully_occluded pixel state across 148 members; a blocked line-of-sight ray is a different measurement and cannot stand in]",
+     "state": "interface_not_implemented"
+    },
+    {
+     "branch": null,
+     "entity_combination": "human+human",
+     "qa_id": "QA-10",
+     "reason": "occluder_identity: avengine/rooms/conditioned_sampler.py:select_camera_and_schedule: anchor_line_of_sight uses a single emitter/body ray; a fully_occluded pixel state is a different measurement and has no planning knob [the retained facts carry no fully_occluded pixel state across 148 members; a blocked line-of-sight ray is a different measurement and cannot stand in]",
+     "state": "interface_not_implemented"
+    },
+    {
+     "branch": "nearer",
+     "entity_combination": "human+human",
+     "qa_id": "QA-15",
+     "reason": "distance_net_change: avengine/rooms/conditioned_sampler.py:sample_routes: routes are sampled for a contiguous moving window, not for a signed listener-distance change of at least the judged margin [every retained event measures a listener-distance change of exactly 0.0 m against a judged 0.2 m margin, so the trend does not appear on its own]",
+     "state": "interface_not_implemented"
+    },
+    {
+     "branch": "farther",
+     "entity_combination": "human+human",
+     "qa_id": "QA-15",
+     "reason": "distance_net_change: avengine/rooms/conditioned_sampler.py:sample_routes: routes are sampled for a contiguous moving window, not for a signed listener-distance change of at least the judged margin [every retained event measures a listener-distance change of exactly 0.0 m against a judged 0.2 m margin, so the trend does not appear on its own]",
+     "state": "interface_not_implemented"
+    },
+    {
+     "branch": "fully_occluded",
+     "entity_combination": "human+human",
+     "qa_id": "QA-24",
+     "reason": "visibility_state: avengine/rooms/conditioned_sampler.py:select_camera_and_schedule: anchor_line_of_sight uses a single emitter/body ray; a fully_occluded pixel state is a different measurement and has no planning knob [the retained facts carry no fully_occluded pixel state across 148 members; a blocked line-of-sight ray is a different measurement and cannot stand in]",
+     "state": "interface_not_implemented"
+    }
+   ],
+   "note": "Cells the condition compiler refuses today, per source combination. They are declared here rather than requested, so a program worker does not spend a budget retrying a knob that does not exist. Each keeps its own state: inapplicable by definition is a different answer from an unimplemented interface. This is about requestable conditions only. No Episode declares qa_ids, so every Episode still generates all twenty-five types from whatever its facts support, which is how the retained library produced QA-10 questions in nine worlds with no planner able to demand an occluder identity."
+  },
+  "production_rounds": {
+   "candidate_world_count": 8,
+   "capture_primary_now": 0,
+   "core_groups_declared": 0,
+   "note": "plan-only precheck; native budget stays zero",
+   "ordinary_episode_count": 8
+  },
+  "schema": "avengine_v1_production_spec_v1",
+  "seed": 20260911,
+  "sound_sources": {
+   "activity_family_reclassification_requests": [
+    {
+     "declared_activity_family": "device_continuous",
+     "measured_basis": "49 of 93 clips pass the 0.85 continuous coverage requirement and 86 pass under a short_prompt policy. These are pulsed or sparse sounds carrying a continuous contract.",
+     "reason": "A coverage number is not a reason to reclassify a whole class. The declared family stays until the sound_prepare owner decides, and the refused clips are reported as a real shortfall.",
+     "sound_classes": [
+      "clock_tick",
+      "crackle",
+      "drip",
+      "fire",
+      "gurgling"
+     ],
+     "state": "declared_family_retained_pending_owner_decision"
+    }
+   ],
+   "clip_length_filter": {
+    "max_clip_s": null,
+    "reason": "The old pool declared max_clip_s 5, which excluded every air_conditioning event. Length is no longer a pool filter; a long recording enters through an authorized activity-segment selection with its own budget."
+   },
+   "human_review_scope": "The library's human_review record covers the original recording only. It never overrides a machine QC fail and it does not carry over to a cropped segment or to audiovisual answerability.",
+   "minimum_animal_activity_s": 0.5,
+   "object_sound_classes": {
+    "air_conditioner": [
+     "air_conditioning"
+    ],
+    "alarm_clock": [
+     "alarm_clock",
+     "alarm_beep",
+     "alarm_bell",
+     "clock_tick"
+    ],
+    "bathtub": [
+     "bathtub_filling_washing"
+    ],
+    "blender": [
+     "blender"
+    ],
+    "bookshelf_speaker": [
+     "speech_playback",
+     "music_playback",
+     "any_audioset_class_playback"
+    ],
+    "cellphone": [
+     "cellphone_vibration_alert",
+     "ringtone",
+     "phone_ring"
+    ],
+    "desk_telephone": [
+     "telephone_bell_ringing",
+     "telephone_dialing_dtmf",
+     "busy_signal",
+     "phone_ring",
+     "telephone"
+    ],
+    "doorbell_chime_unit": [
+     "doorbell",
+     "doorbell_chime",
+     "ding_dong",
+     "chime"
+    ],
+    "fireplace": [
+     "fire",
+     "crackle"
+    ],
+    "floor_drain": [
+     "drip",
+     "gurgling"
+    ],
+    "floorstanding_speaker": [
+     "speech_playback",
+     "music_playback",
+     "any_audioset_class_playback"
+    ],
+    "landline_phone": [
+     "telephone_bell_ringing",
+     "telephone_dialing_dtmf",
+     "busy_signal",
+     "phone_ring",
+     "telephone"
+    ],
+    "microwave_oven": [
+     "microwave_beep",
+     "microwave_hum"
+    ],
+    "printer": [
+     "printer"
+    ],
+    "sink_with_tap": [
+     "sink_filling_washing",
+     "water_tap_faucet"
+    ],
+    "smart_speaker": [
+     "speech_playback",
+     "music_playback",
+     "any_audioset_class_playback"
+    ],
+    "smoke_detector": [
+     "smoke_alarm",
+     "fire_alarm"
+    ],
+    "soundbar": [
+     "speech_playback",
+     "music_playback",
+     "any_audioset_class_playback"
+    ],
+    "television": [
+     "speech_playback",
+     "music_playback",
+     "any_audioset_class_playback"
+    ],
+    "toilet": [
+     "toilet_flush"
+    ]
+   },
+   "prepared_speech_manifest": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/p7_prepared_audio_v3/prepared_manifest.json",
+   "segment_budget": {
+    "derived_max_duration_s": 7.0,
+    "earliest_start_s": 0.0,
+    "episode_s": 10.0,
+    "reason": "The span one dry recording gets when it has to fit alone inside the Episode. Sequential, overlapping and repeated events share the same span, so this is neither a per-clip cap nor a new global rule.",
+    "reserve_tail_s": 3.0
+   },
+   "segment_selections": null,
+   "segment_selections_note": "Pool rows from avengine.dataset.sound_segments.pool_row, keyed by library-relative path; batch_sound_pool reads spec['segment_selections'] as a mapping, a list or a JSON path. Left null because a run must point at the selection set it materialized itself, not at another attempt's artifacts.",
+   "sound_event_manifest": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_user_acceptance_rework_20260908_v1/event_library_peak_dbfs_3_20260908_v1/event_manifest.json",
+   "sound_event_registry": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_user_acceptance_rework_20260908_v1/event_library_peak_dbfs_3_20260908_v1/sound_asset_registry_peak_dbfs_3_20260908_v1.json",
+   "species_sound_classes": {
+    "cat": [
+     "cat_meow"
+    ],
+    "dog": [
+     "dog_bark"
+    ]
+   },
+   "speech_playback_categories": [
+    "audio_playback"
+   ],
+   "telephone_binding_basis": "16 registered telephone events had no accepting device. Every retained clip carries the FSD50K provenance label 'Telephone' and the library QC measures a ring cadence, which is what a corded desk unit and a wall landline emit; both already declare the narrower telephone classes. A cellphone is deliberately left out: it has no bell.",
+   "undetermined_sound_class_semantics": [
+    {
+     "activity_family": "short_prompt",
+     "decision_needed": "An owner audition deciding whether these recordings are a door or appliance buzzer. Only then does an object_type declare the class; no device gets a blanket accept in the meantime.",
+     "measured_basis": "9 of the 10 retained clips carry the FSD50K provenance label 'Buzz', not 'Buzzer', and the one clip actually labelled 'Buzzer' is the one whose machine QC verdict is fail. A generic buzz covers electrical and insect buzzing, which does not establish an entry buzzer or an appliance alert.",
+     "registered_event_count": 9,
+     "sound_class": "buzzer",
+     "state": "semantics_undetermined_pending_owner_decision"
+    },
+    {
+     "activity_family": "unknown",
+     "decision_needed": "The class of these five recordings. If they are busy signals, desk_telephone and landline_phone already declare busy_signal and no new mapping is needed. If they are dial tones, sound_prepare must declare an activity family for dial_tone first: it resolves to unknown today, so every selection is refused.",
+     "library_clip_count": 5,
+     "measured_basis": "All five clips declare event_classes ['dial_tone'], but the library QC measures continuous=false at 0.500-0.532 duty for the three supplemental_busy files and 0.210-0.216 for the two supplemental_dial files. A continuous dial tone would measure continuous=true at ratio 1.0 and none of them does.",
+     "registered_event_count": 0,
+     "sound_class": "dial_tone",
+     "state": "semantics_undetermined_pending_owner_decision"
+    }
+   ]
+  }
+ },
+ "resource_policy": {
+  "cpu": {
+   "max_memory_mb": 64000,
+   "max_threads": 16,
+   "max_workers": 4,
+   "rlr_threads": 1
+  },
+  "gpu": {
+   "allow_shared_device": false,
+   "headroom_mb": 2048,
+   "max_workers": 2,
+   "max_workers_per_device": 1,
+   "min_free_vram_mb": 12000,
+   "selection": "most_free"
+  }
+ },
+ "seed": 20260911
+}

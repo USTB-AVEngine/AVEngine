@@ -1,0 +1,217 @@
+{
+  "schema": "avengine_qa_constructive_motion_example_v1",
+  "batch_id": "qa_constructive_motion_20260912",
+  "claim_boundary": "CPU plan-only example for QA-06 motion construction. Native visual, audio, RLR, pixel truth and dataset admission remain not_run.",
+  "base_request": {
+    "allow_research_candidate_assets": true,
+    "frame_count": 150,
+    "frame_rate_hz": 15,
+    "sample_rate_hz": 16000,
+    "post_assembly_convolution_gain": 0.5,
+    "sampling_policy": "conditioned_static_v2",
+    "room_catalog": "examples/rooms/packages/catalog.json",
+    "source_registry": "examples/runtime/source_asset_runtime_profiles.json",
+    "prepared_manifest": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/p7_prepared_audio_v3/prepared_manifest.json",
+    "sound_pool": "tmp/binding_v1_parallel_20260910/TAKEOVER/T06_PLACE/attempt_20260910T192045Z_pid739226/T06_SOUND_POOL.json",
+    "runtime": {
+      "runtime_prefix": "/data/avengine_external/runtime-prefixes/avengine-habitat-object-id-732f264-20260824T1041Z",
+      "mp3d_root": "/data/datasets/habitat_data",
+      "rlr_sdk_root": "/data/avengine_external/rlr-sdk/RLRAudioPropagationPkg",
+      "hrtf": "/data/avengine_external/rlr-sdk/hrtf/mit_kemar_normal_pinna_16k_v2_sofar_20260820T2200Z/mit_kemar_normal_pinna_16k.sofa",
+      "magnum_python_site": "/data/avengine_external/runtime-prefixes/magnum-python-cp312-45811bb-20260820T1845Z/lib/python3.12/site-packages"
+    },
+    "camera": {
+      "motion": "static",
+      "fov_deg": 85,
+      "height_above_floor_m": 1.55,
+      "resolution_hw": [720, 1280]
+    },
+    "sound_selection": {
+      "clip_span_fit_policy": "filter_to_remaining_budget_then_uniform",
+      "max_clip_s": 5.0,
+      "min_audible_s": 1.5,
+      "unique_first_utterance_transcripts": true,
+      "sound_class_config": {
+        "human_nonverbal_sound_classes": [],
+        "species_sound_classes": {
+          "dog": ["dog_bark"]
+        }
+      }
+    },
+    "profile": {
+      "anchor_count": 1,
+      "distance_range_m": [1.0, 6.0],
+      "event_relation": "sequential",
+      "min_gap_between_audible_windows_s": 0.5,
+      "minimum_motion_s": 0.8,
+      "minimum_overlap_s": 0.3,
+      "reserve_tail_s": 3.0,
+      "retry_budget_within_profile": 120,
+      "separation_bin_deg": [15.0, 180.0],
+      "separation_window": "whole_audible_window_of_anchor",
+      "constructive_motion": true
+    }
+  },
+  "production": {
+    "batch_id": "qa_constructive_motion_20260912",
+    "defaults": {
+      "clock": {
+        "frame_count": 150,
+        "frame_rate_hz": 15,
+        "sample_rate_hz": 16000
+      },
+      "audio_layouts": [
+        {"type": "binaural", "channel_count": 2, "role": "primary"}
+      ],
+      "qa_ids": ["QA-06"],
+      "items_per_type": 1,
+      "profile": {
+        "anchor_count": 1,
+        "distance_range_m": [1.0, 6.0],
+        "event_relation": "sequential",
+        "min_gap_between_audible_windows_s": 0.5,
+        "minimum_motion_s": 0.8,
+        "minimum_overlap_s": 0.3,
+        "reserve_tail_s": 3.0,
+        "separation_bin_deg": [15.0, 180.0],
+        "constructive_motion": true
+      },
+      "rig": {
+        "motion": "static",
+        "fov_deg": 85,
+        "height_above_floor_m": 1.55,
+        "resolution_hw": [720, 1280]
+      }
+    },
+    "episodes": [
+      {
+        "episode_id": "qa06_constructive_still_hm3d",
+        "condition_group": "qa06_constructive_still_hm3d",
+        "room_id": "hm3d_val_00800_TEEsavR23oF",
+        "seed": 20260912,
+        "instances": [
+          {
+            "instance_id": "human_target",
+            "asset_id": "rocketbox_human_male_adult_01_top_blue_research_v1",
+            "source_class": "articulated_human",
+            "role": "anchor",
+            "speaking": true
+          },
+          {
+            "instance_id": "dog_foil",
+            "asset_id": "rocketbox_dog_beagle_01_m2_v7_world_contact_candidate",
+            "source_class": "articulated_animal",
+            "role": "competitor",
+            "speaking": false
+          }
+        ],
+        "qa_targets": [
+          {"qa_id": "QA-06", "branch": "still", "target_instance_ids": ["human_target"]}
+        ]
+      },
+      {
+        "episode_id": "qa06_constructive_moving_hm3d",
+        "condition_group": "qa06_constructive_moving_hm3d",
+        "room_id": "hm3d_val_00800_TEEsavR23oF",
+        "seed": 20260913,
+        "instances": [
+          {
+            "instance_id": "human_target",
+            "asset_id": "rocketbox_human_male_adult_01_top_blue_research_v1",
+            "source_class": "articulated_human",
+            "role": "anchor",
+            "speaking": true
+          },
+          {
+            "instance_id": "dog_foil",
+            "asset_id": "rocketbox_dog_beagle_01_m2_v7_world_contact_candidate",
+            "source_class": "articulated_animal",
+            "role": "competitor",
+            "speaking": false
+          }
+        ],
+        "qa_targets": [
+          {"qa_id": "QA-06", "branch": "moving", "target_instance_ids": ["human_target"]}
+        ]
+      }
+    ],
+    "core_groups": [],
+    "claim_boundary": "Planning candidates only; no native or formal admission claim.",
+    "coverage_quota": {
+      "qa_ids": ["QA-06"],
+      "branches_by_qa_id": {"QA-06": ["still", "moving"]}
+    }
+  },
+  "episodes": [
+    {
+      "episode_id": "qa06_constructive_still_hm3d",
+      "condition_group": "qa06_constructive_still_hm3d",
+      "room_id": "hm3d_val_00800_TEEsavR23oF",
+      "seed": 20260912,
+      "member_role": "plain_episode",
+      "instances": [
+        {
+          "asset_id": "rocketbox_human_male_adult_01_top_blue_research_v1",
+          "instance_id": "human_target",
+          "role": "anchor",
+          "source_class": "articulated_human",
+          "speaking": true
+        },
+        {
+          "asset_id": "rocketbox_dog_beagle_01_m2_v7_world_contact_candidate",
+          "instance_id": "dog_foil",
+          "role": "competitor",
+          "source_class": "articulated_animal",
+          "speaking": false
+        }
+      ],
+      "qa_ids": ["QA-06"],
+      "qa_targets": [
+        {
+          "qa_id": "QA-06",
+          "branch": "still",
+          "target_instance_ids": ["human_target"],
+          "event": {"kind": "target_audible_window"},
+          "items": 1,
+          "forms": ["mcq", "open"],
+          "target_source": "config"
+        }
+      ]
+    },
+    {
+      "episode_id": "qa06_constructive_moving_hm3d",
+      "condition_group": "qa06_constructive_moving_hm3d",
+      "room_id": "hm3d_val_00800_TEEsavR23oF",
+      "seed": 20260913,
+      "member_role": "plain_episode",
+      "instances": [
+        {
+          "asset_id": "rocketbox_human_male_adult_01_top_blue_research_v1",
+          "instance_id": "human_target",
+          "role": "anchor",
+          "source_class": "articulated_human",
+          "speaking": true
+        },
+        {
+          "asset_id": "rocketbox_dog_beagle_01_m2_v7_world_contact_candidate",
+          "instance_id": "dog_foil",
+          "role": "competitor",
+          "source_class": "articulated_animal",
+          "speaking": false
+        }
+      ],
+      "qa_ids": ["QA-06"],
+      "qa_targets": [
+        {
+          "qa_id": "QA-06",
+          "branch": "moving",
+          "target_instance_ids": ["human_target"],
+          "event": {"kind": "target_audible_window"},
+          "items": 1,
+          "forms": ["mcq", "open"],
+          "target_source": "config"
+        }
+      ]
+    }
+  ]
+}

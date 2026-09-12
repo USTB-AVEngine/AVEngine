@@ -196,6 +196,13 @@ def load_manifest(path: Path, episode_ids: Sequence[str] | None = None) -> tuple
         seen.add(episode_id)
         if wanted is not None and episode_id not in wanted_set:
             continue
+        if raw_row.get("group_id") or raw_row.get("task_family"):
+            raise ManifestError(
+                f"{episode_id} is a core group member of {raw_row.get('group_id')!r}: "
+                "its visual and audio units are shared by four members, so running "
+                "the row here would capture one visual up to four times. Use "
+                "--production, which consumes the group's shared units."
+            )
         request = _request_from_row(raw_row, manifest_path=path)
         request_episode_id = request.get("episode_id")
         if request_episode_id is not None and _safe_episode_id(request_episode_id) != episode_id:
@@ -1021,11 +1028,207 @@ def execute_batch(manifest_path: Path, output_root: Path, *, max_parallel: int =
                          argv=argv).execute()
 
 
+def execute_production(
+    manifest_path: Path,
+    run_root: Path,
+    *,
+    delivery_output: Path | None = None,
+    imported_bundle_paths: Sequence[str] = (),
+    resume: bool = False,
+    reopen_failed_units: Sequence[str] = (),
+    group_ids: Sequence[str] | None = None,
+    episode_ids: Sequence[str] | None = None,
+    native_visual_world_budget: int | None = None,
+    candidate_rotation_limit: int = 2,
+    max_waves: int = 200,
+    max_parallel: int = 1,
+    recipe_options: Mapping[str, Mapping[str, Any]] | None = None,
+    resource_policy_override: Mapping[str, Any] | None = None,
+    repository: Path = REPOSITORY,
+    argv: Sequence[str] | None = None,
+) -> dict[str, Any]:
+    """Drive one manifest through the shared-unit runner, start to delivery.
+
+    Core group rows are not scheduled one by one here.  The runner asks the
+    stage protocol which shared units may run, executes each one once, reads
+    its artifacts back and files a stage result, then resumes, backfills what
+    the coverage quota is short of, and exports.  The whole sequence is code.
+    """
+    from avengine.dataset.production_runner import run_production
+
+    return run_production(
+        manifest_path=manifest_path,
+        run_root=run_root,
+        delivery_output=delivery_output,
+        imported_bundle_paths=list(imported_bundle_paths),
+        resume=resume,
+        reopen_failed_units=list(reopen_failed_units),
+        repository=repository,
+        group_ids=None if group_ids is None else list(group_ids),
+        episode_ids=None if episode_ids is None else list(episode_ids),
+        native_visual_world_budget=native_visual_world_budget,
+        candidate_rotation_limit=candidate_rotation_limit,
+        max_waves=max_waves,
+        max_parallel=max_parallel,
+        recipe_options=None if recipe_options is None else {
+            str(key): dict(value) for key, value in recipe_options.items()
+        },
+        resource_policy_override=(
+            None if resource_policy_override is None
+            else dict(resource_policy_override)
+        ),
+        argv=list(argv) if argv is not None else None,
+    )
+
+
+def _write_controller_record(path: Path, recorded_argv: Sequence[str]) -> None:
+    """Record who this controller actually is, from inside this process.
+
+    Written here rather than by whatever launched the run, because a launcher
+    that reads a pid out of `pgrep` or records its own `python -c` helper has
+    recorded the wrong process. Anything that later wants to signal this run
+    has to match the start ticks and the command line too: a bare pid is
+    reusable and identifies nothing.
+    """
+
+    import os
+
+    pid = os.getpid()
+    start_ticks = None
+    ppid = None
+    try:
+        stat = Path(f"/proc/{pid}/stat").read_text(encoding="utf-8", errors="replace")
+        tail = stat.rsplit(")", 1)[-1].split()
+        ppid = int(tail[1]) if len(tail) > 1 else None
+        start_ticks = tail[19] if len(tail) > 19 else None
+    except (OSError, ValueError, IndexError):
+        pass
+    entry = Path(sys.argv[0]).name
+    record = {
+        "schema": "avengine_production_controller_identity_v1",
+        "pid": pid,
+        "ppid": ppid,
+        "start_ticks": start_ticks,
+        "argv": list(sys.argv),
+        "recorded_argv": [str(value) for value in recorded_argv],
+        "entry_point": entry,
+        "cmdline_marker": entry,
+        "executable": sys.executable,
+        "cwd": os.getcwd(),
+        "started_at": _utc_now_text(),
+        "claim_boundary": (
+            "This identifies the controller process only. Signalling it must "
+            "re-read /proc and match pid, start ticks and command line first, "
+            "and must never touch a process this run did not start."
+        ),
+    }
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
+
+
+def _utc_now_text() -> str:
+    from datetime import datetime, timezone
+
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _explicit_production_recipe_options(
+    manifest_path: Path,
+    *,
+    episode_ids: Sequence[str] | None,
+    group_ids: Sequence[str] | None,
+    retained_episode_root: Path | None,
+    world_id: str | None,
+) -> dict[str, dict[str, Any]] | None:
+    """Build a narrowly scoped retained option for an explicit CLI request."""
+    if retained_episode_root is None and world_id is None:
+        return None
+    if group_ids:
+        raise ManifestError(
+            "explicit retained episode options require an ordinary Episode selection"
+        )
+    manifest = _read_json(Path(manifest_path).expanduser().resolve())
+    rows = [
+        row for row in manifest.get("episodes", [])
+        if isinstance(row, Mapping) and not row.get("group_id")
+    ]
+    selected = [str(value) for value in (episode_ids or ())]
+    if not selected:
+        if len(rows) != 1:
+            raise ManifestError(
+                "explicit retained episode options require exactly one --episode-id"
+            )
+        selected = [str(rows[0]["episode_id"])]
+    if len(selected) != 1:
+        raise ManifestError(
+            "explicit retained episode options accept exactly one --episode-id"
+        )
+    options: dict[str, Any] = {}
+    if retained_episode_root is not None:
+        options["retained_episode_root"] = str(
+            Path(retained_episode_root).expanduser().resolve()
+        )
+    if world_id is not None:
+        if not str(world_id).strip():
+            raise ManifestError("--world-id must be nonempty")
+        options["world_id"] = str(world_id)
+    return {selected[0]: options}
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--manifest", type=Path, required=True)
-    parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--max-parallel", type=int, default=DEFAULT_MAX_PARALLEL)
+    parser.add_argument("--production", action="store_true",
+                        help="consume the manifest's shared core-group units through "
+                             "the production runner instead of one Episode per row")
+    parser.add_argument("--run-root", type=Path, default=None,
+                        help="--production: the run's fresh state, journal and work root")
+    parser.add_argument("--delivery-output", type=Path, default=None,
+                        help="--production: export the delivered groups here when finished")
+    parser.add_argument("--imported-bundle", action="append", default=None,
+                        help="--production: a retained binding_groups.json whose worlds "
+                             "are counted once alongside this run's own")
+    parser.add_argument("--resume", action="store_true",
+                        help="--production: pick up the run in --run-root")
+    parser.add_argument("--controller-record", type=Path, default=None,
+                        help="--production: write this controller's own "
+                             "identity here before the run starts -- pid, "
+                             "parent, argv, cwd and /proc start ticks, read "
+                             "from inside the controller process itself. A "
+                             "pid recorded by a separate helper is that "
+                             "helper's pid, not the controller's, and cannot "
+                             "be used to signal the run.")
+    parser.add_argument("--retry-failed-unit", action="append", default=None,
+                        metavar="UNIT_ID",
+                        help="--production --resume: re-offer this unit after "
+                             "its input was repaired outside the run. The "
+                             "failed result is retired into the state, not "
+                             "deleted; its attempt directory stays; the next "
+                             "attempt gets a fresh root. Repeat for several "
+                             "units. Naming a unit that did not fail is an "
+                             "error rather than a no-op.")
+    parser.add_argument("--group-id", action="append", default=None,
+                        help="--production: run only these core groups")
+    parser.add_argument("--native-visual-world-budget", type=int, default=None,
+                        help="--production: cap on new native visual worlds, failed "
+                             "attempts included")
+    parser.add_argument("--candidate-rotation-limit", type=int, default=2,
+                        help="--production: bounded retries after a legal candidate is "
+                             "refused; a program error is never rotated")
+    parser.add_argument("--max-waves", type=int, default=200,
+                        help="--production: bound on scheduling rounds")
+    parser.add_argument("--resource-policy", type=Path, default=None,
+                        help="--production: a task-local JSON file whose "
+                             "sections are laid over the manifest's resource "
+                             "policy for this run only. The manifest and the "
+                             "shared configuration are not written. The "
+                             "effective policy and this override are both "
+                             "recorded in the run's state.json, and a --resume "
+                             "of the same --run-root reapplies them without "
+                             "repeating the flag.")
+    parser.add_argument("--output", type=Path, default=None,
+                        help="per-Episode path: the fresh batch output root")
+    parser.add_argument("--max-parallel", type=int, default=None)
     parser.add_argument("--min-free-gpu-mb", type=int, default=DEFAULT_MIN_FREE_GPU_MB)
     parser.add_argument("--episode-id", action="append", default=None,
                         help="run a selected original manifest row; repeat for multiple IDs")
@@ -1033,11 +1236,95 @@ def main(argv: list[str] | None = None) -> int:
                         help="attempt directory name under each episode; G-E reruns use attempt_02")
     parser.add_argument("--force-gpu", type=int, default=None,
                         help="override request.runtime.graphics_adapter for every selected row")
+    parser.add_argument("--retained-episode-root", type=Path, default=None,
+                        help="--production: explicit retained Episode root for one ordinary row")
+    parser.add_argument("--world-id", default=None,
+                        help="--production: explicit world identity for a retained ordinary row")
     args = parser.parse_args(argv)
     recorded_argv = [sys.argv[0], *(argv if argv is not None else sys.argv[1:])]
+    if args.production:
+        if args.run_root is None:
+            parser.error("--production requires --run-root")
+        if args.output is not None:
+            parser.error("--production writes under --run-root; --output is the "
+                         "per-Episode path and the two are not the same root")
+        if args.controller_record is not None:
+            try:
+                _write_controller_record(args.controller_record, recorded_argv)
+            except OSError as exc:
+                print(f"FAIL: --controller-record {args.controller_record}: {exc}",
+                      file=sys.stderr)
+                return 2
+        resource_policy_override = None
+        if args.resource_policy is not None:
+            try:
+                resource_policy_override = json.loads(
+                    args.resource_policy.read_text(encoding="utf-8")
+                )
+            except (OSError, ValueError) as exc:
+                print(f"FAIL: --resource-policy {args.resource_policy}: {exc}",
+                      file=sys.stderr)
+                return 2
+            if not isinstance(resource_policy_override, dict):
+                print(f"FAIL: --resource-policy {args.resource_policy} must hold "
+                      "a JSON object of resource-policy sections",
+                      file=sys.stderr)
+                return 2
+        try:
+            recipe_options = _explicit_production_recipe_options(
+                args.manifest,
+                episode_ids=args.episode_id,
+                group_ids=args.group_id,
+                retained_episode_root=args.retained_episode_root,
+                world_id=args.world_id,
+            )
+            result = execute_production(
+                args.manifest, args.run_root,
+                delivery_output=args.delivery_output,
+                imported_bundle_paths=args.imported_bundle or (),
+                resume=args.resume,
+                reopen_failed_units=args.retry_failed_unit or (),
+                group_ids=args.group_id,
+                episode_ids=args.episode_id,
+                native_visual_world_budget=args.native_visual_world_budget,
+                candidate_rotation_limit=args.candidate_rotation_limit,
+                max_waves=args.max_waves,
+                max_parallel=1 if args.max_parallel is None else args.max_parallel,
+                recipe_options=recipe_options,
+                resource_policy_override=resource_policy_override,
+                argv=recorded_argv,
+            )
+        except (ManifestError, FileExistsError, OSError, ValueError) as exc:
+            print(f"FAIL: {exc}", file=sys.stderr)
+            return 2
+        print(json.dumps({
+            "status": result["status"],
+            "run_root": result["run_root"],
+            "resource_policy_source": result.get("resource_policy_source"),
+            "reopened_failed_units": [
+                row["unit_id"] for row in
+                ((result.get("reopened_failed_units") or {}).get("reopened") or [])
+            ],
+            "delivered_groups": [row["group_id"] for row in
+                                 result["run_summary"].get("delivered_groups") or []],
+            "delivered_episodes": [row["episode_id"] for row in
+                                   result["run_summary"].get("delivered_episodes") or []],
+            "native_visual_worlds_used":
+                result["run_summary"]["native_visual_worlds_used"],
+            "coverage_deficits": len(result["coverage_feedback"]["deficits"]),
+        }, ensure_ascii=False))
+        return 0 if result["status"] == "complete" else 1
+    if args.output is None:
+        parser.error("--output is required unless --production is given")
     try:
-        summary = execute_batch(args.manifest, args.output, max_parallel=args.max_parallel,
-                                min_free_gpu_mb=args.min_free_gpu_mb, episode_ids=args.episode_id,
+        summary = execute_batch(
+                                args.manifest, args.output,
+                                max_parallel=(
+                                    DEFAULT_MAX_PARALLEL
+                                    if args.max_parallel is None else args.max_parallel
+                                ),
+                                min_free_gpu_mb=args.min_free_gpu_mb,
+                                episode_ids=args.episode_id,
                                 attempt_name=args.attempt_name, force_gpu=args.force_gpu,
                                 argv=recorded_argv)
     except (ManifestError, FileExistsError, OSError, ValueError) as exc:

@@ -21,6 +21,8 @@ from avengine.qa.unified_catalog import (
     _p8_facts_for_candidate,
     _p8_form_candidate_values,
     _attach_p8_structure,
+    _Deferred,
+    _state,
     VISIBILITY_STATES,
 )
 from avengine.qa.unified_scoring import score_unified_item
@@ -311,6 +313,16 @@ def test_generation_restores_visibility_frame_keys_after_json_round_trip() -> No
     result = generate_unified_questions(round_tripped, qa_ids=["QA-08"])
     assert result["counts"] == {"requested": 1, "valid": 1, "deferred": 0}
     assert 0 <= result["items"][0]["evidence"]["query_frame"] < 40
+def test_state_accepts_json_string_frame_keys_and_defers_missing_frame() -> None:
+    facts = json.loads(json.dumps(normalize_episode_bundle(_fixture())))
+
+    assert _state(facts, "a0", 2)["state"] == "visible_clear"
+
+    with pytest.raises(_Deferred) as error:
+        _state(facts, "a0", 40)
+    assert error.value.code == "missing_pixel_visibility"
+
+
 def test_qa13_generated_open_form_uses_scorer_angle_convention() -> None:
     raw = _fixture()
     points = {
@@ -479,6 +491,172 @@ def test_occlusion_negative_answers_require_complete_visibility_coverage() -> No
     assert qa11["deferred"][0]["code"] == "incomplete_visibility_for_negative"
 
 
+def test_qa20_does_not_treat_an_unreviewed_visible_target_as_none() -> None:
+    raw = _fixture()
+    raw["audio_program"]["events"] = raw["audio_program"]["events"][:1]
+    raw["appearance_review"]["actors"]["a0"]["status"] = "failed"
+
+    result = generate_unified_questions(raw, qa_ids=["QA-20"], seed="review-gap")
+
+    assert result["counts"] == {"requested": 1, "valid": 0, "deferred": 1}
+    assert result["deferred"][0]["code"] == "speaker_appearance_review_missing"
+    assert result["deferred"][0]["actor_ids"] == ["a0"]
+
+
+def test_qa18_samples_stable_active_multiple_and_empty_windows() -> None:
+    raw = _fixture()
+    raw["audio_program"]["events"] = raw["audio_program"]["events"][:3]
+    raw["audio_program"]["events"][1]["start_sample"] = 6400
+    raw["audio_program"]["events"][1]["end_sample_exclusive"] = 12800
+    raw["audio_readback"]["source_activity_intervals_samples"] = [
+        {
+            "event_id": "e0",
+            "start_sample": 3200,
+            "end_sample_exclusive": 9600,
+        },
+        {
+            "event_id": "e1",
+            "start_sample": 6400,
+            "end_sample_exclusive": 12800,
+        },
+        {
+            "event_id": "e2",
+            "start_sample": 19200,
+            "end_sample_exclusive": 24000,
+        },
+    ]
+    raw["audio_readback"]["wet_tail_intervals"] = [
+        {"event_id": "e0", "start_s": 0.0, "end_s": 0.05},
+        {"event_id": "e1", "start_s": 0.9, "end_s": 0.95},
+        {"event_id": "e2", "start_s": 1.7, "end_s": 1.75},
+    ]
+    raw["sampling"] = {"time_display_precision": 2}
+
+    facts = normalize_episode_bundle(raw)
+    candidates = _P8_CANDIDATES["QA-18"](facts)
+
+    assert {"empty", "active", "multiple"} <= {
+        candidate["activity_class"] for candidate in candidates
+    }
+    result = generate_unified_questions(
+        raw, qa_ids=["QA-18"], items_per_type=3, seed="activity-branches"
+    )
+    assert result["counts"] == {"requested": 1, "valid": 3, "deferred": 0}
+    sampled_classes = {
+        item["evidence"]["activity_class"]
+        for item in result["items"]
+    }
+    assert sampled_classes <= {"empty", "active", "multiple"}
+    # Default candidate sampling is uniform over legal frames; it does not
+    # reorder candidates to force one answer class into a single batch.
+    observed_classes = set(sampled_classes)
+    for index in range(32):
+        sampled = generate_unified_questions(
+            raw, qa_ids=["QA-18"], items_per_type=1, seed=f"activity-{index}"
+        )
+        observed_classes.update(
+            item["evidence"]["activity_class"] for item in sampled["items"]
+        )
+    assert observed_classes == {"empty", "active", "multiple"}
+
+
+def test_qa05_uses_source_activity_before_program_placement() -> None:
+    raw = _fixture()
+    raw["audio_program"]["events"] = raw["audio_program"]["events"][:2]
+    raw["audio_program"]["events"][1]["start_sample"] = 3200
+    raw["audio_program"]["events"][1]["end_sample_exclusive"] = 9600
+    raw["audio_readback"]["source_activity_intervals_samples"] = [
+        {
+            "event_id": "e0",
+            "start_sample": 3200,
+            "end_sample_exclusive": 4800,
+        },
+        {
+            "event_id": "e1",
+            "start_sample": 6400,
+            "end_sample_exclusive": 9600,
+        },
+    ]
+
+    result = generate_unified_questions(
+        raw, qa_ids=["QA-05"], seed="activity-overlap"
+    )
+
+    assert result["counts"] == {"requested": 1, "valid": 1, "deferred": 0}
+    item = result["items"][0]
+    assert item["truth"]["value"] == "no"
+    assert item["evidence"]["overlap_intervals_s"] == []
+
+
+def test_source_activity_marks_explicit_empty_and_missing_events() -> None:
+    raw = _fixture()
+    raw["audio_readback"]["source_activity_intervals_samples"] = {
+        "e0": [],
+        "e1": [
+            {
+                "start_sample": 16000,
+                "end_sample_exclusive": 22400,
+            }
+        ],
+    }
+
+    facts = normalize_episode_bundle(raw)
+
+    assert facts["source_activity_evidence_present"] is True
+    assert facts["source_activity_evidence_complete"] is False
+    assert facts["source_activity_evidence_by_event"] == {
+        "e0": "observed",
+        "e1": "observed",
+        "e2": "missing",
+        "e3": "missing",
+    }
+    assert facts["events"][0]["source_activity_intervals_samples"] == []
+    assert facts["events"][0]["source_activity_evidence_status"] == "observed"
+    assert facts["events"][1]["source_activity_evidence_status"] == "observed"
+    assert facts["events"][2]["source_activity_evidence_status"] == "missing"
+    assert "source_activity_intervals_samples" not in facts["events"][2]
+
+
+
+def test_source_activity_malformed_intervals_remain_missing_evidence() -> None:
+    raw = _fixture()
+    raw["audio_readback"]["source_activity_intervals_samples"] = {
+        "e0": [{"start_sample": "bad", "end_sample_exclusive": 6400}],
+        "e1": [],
+    }
+
+    facts = normalize_episode_bundle(raw)
+
+    assert facts["source_activity_evidence_present"] is True
+    assert facts["source_activity_evidence_complete"] is False
+    assert facts["source_activity_evidence_by_event"]["e0"] == "missing"
+    assert facts["source_activity_evidence_by_event"]["e1"] == "observed"
+    assert "source_activity_intervals_samples" not in facts["events"][0]
+    assert facts["events"][1]["source_activity_intervals_samples"] == []
+
+
+def test_qa05_rejects_partial_activity_but_accepts_explicit_empty() -> None:
+    raw = _fixture()
+    raw["audio_program"]["events"] = raw["audio_program"]["events"][:2]
+    raw["audio_readback"]["source_activity_intervals_samples"] = {
+        "e0": [],
+    }
+
+    partial = generate_unified_questions(raw, qa_ids=["QA-05"])
+    assert partial["counts"] == {"requested": 1, "valid": 0, "deferred": 1}
+    assert partial["deferred"][0]["code"] == "missing_source_activity_readback"
+
+    raw["audio_readback"]["source_activity_intervals_samples"] = {
+        "e0": [],
+        "e1": [],
+    }
+    explicit_empty = generate_unified_questions(raw, qa_ids=["QA-05"])
+    assert explicit_empty["counts"] == {"requested": 1, "valid": 1, "deferred": 0}
+    item = explicit_empty["items"][0]
+    assert item["truth"]["value"] == "no"
+    assert item["evidence"]["overlap_basis"] == "source_activity_intervals_samples"
+
+
 def test_qa22_counts_observed_visible_entities_and_speakers_only() -> None:
     raw = _fixture()
     for actor_id, entry in raw["pixel_visibility_truth"]["per_instance"].items():
@@ -489,12 +667,54 @@ def test_qa22_counts_observed_visible_entities_and_speakers_only() -> None:
                 {"frame_index": frame, "state": "out_of_view"}
                 for frame in range(40)
             ]
+    raw["sampling"]["entities"] = {
+        "total_count": {"choices": [1, 2]}
+    }
     result = generate_unified_questions(raw, qa_ids=["QA-22"])
     assert result["counts"] == {"requested": 1, "valid": 1, "deferred": 0}
     item = result["items"][0]
     assert item["truth"]["value"] == [1, 1]
     assert item["evidence"]["appeared_actor_ids"] == ["a0"]
     assert item["evidence"]["speaking_actor_ids"] == ["a0"]
+    assert item["evidence"]["option_domain"] == {
+        "entity_count_values": [0, 1, 2],
+        "pair_values": [
+            "0|0",
+            "1|0", "1|1",
+            "2|0", "2|1", "2|2",
+        ],
+        "speaking_count_values_by_entity_count": {
+            "0": [0],
+            "1": [0, 1],
+            "2": [0, 1, 2],
+        },
+    }
+    assert {
+        int(option["value"].split("|", 1)[0])
+        for option in item["forms"]["mcq"]["options"]
+    } == {0, 1, 2}
+    assert item["evidence"]["answer_prior_diagnostic"] == {
+        "all_appeared_entities_speak": True,
+        "no_appeared_entities_speak": False,
+        "speaking_count_is_boundary": True,
+    }
+
+def test_qa22_keeps_open_truth_and_defers_mcq_without_count_domain() -> None:
+    raw = _fixture()
+    for actor_id, entry in raw["pixel_visibility_truth"]["per_instance"].items():
+        state = "visible_clear" if actor_id in {"a0", "a1"} else "out_of_view"
+        entry["frames"] = [
+            {"frame_index": frame, "state": state}
+            for frame in range(40)
+        ]
+
+    result = generate_unified_questions(raw, qa_ids=["QA-22"])
+
+    assert result["counts"] == {"requested": 1, "valid": 1, "deferred": 0}
+    item = result["items"][0]
+    assert item["truth"]["value"] == [2, 2]
+    assert "mcq" not in item["forms"]
+    assert item["form_status"]["mcq"]["code"] == "missing_public_entity_count_domain"
 
 
 def test_qa22_defers_when_an_actor_has_unobserved_frames() -> None:
@@ -696,11 +916,73 @@ def test_p8_qa22_uses_only_legal_speaking_count_options() -> None:
                 {"frame_index": frame, "state": "out_of_view"}
                 for frame in range(40)
             ]
+    raw["sampling"]["entities"] = {
+        "total_count": {"choices": [1, 2, 3]}
+    }
     result = generate_unified_questions(raw, qa_ids=["QA-22"])
     assert result["counts"]["valid"] == 1
-    options = result["items"][0]["forms"]["mcq"]["options"]
-    assert len(options) == 3
-    assert {option["value"] for option in options} == {"2|0", "2|1", "2|2"}
+    item = result["items"][0]
+    options = item["forms"]["mcq"]["options"]
+    values = {option["value"] for option in options}
+    assert values == {
+        "0|0",
+        "1|0", "1|1",
+        "2|0", "2|1", "2|2",
+        "3|0", "3|1", "3|2", "3|3",
+    }
+    assert any(value.split("|", 1)[0] != "2" for value in values)
+    assert all(
+        int(value.split("|", 1)[1]) <= int(value.split("|", 1)[0])
+        for value in values
+    )
+
+
+def test_qa22_explicit_visible_count_domain_precedes_total_upper_bound() -> None:
+    raw = _fixture()
+    for actor_id, entry in raw["pixel_visibility_truth"]["per_instance"].items():
+        state = "visible_clear" if actor_id in {"a0", "a1"} else "out_of_view"
+        entry["frames"] = [
+            {"frame_index": frame, "state": state}
+            for frame in range(40)
+        ]
+    raw["sampling"] = {
+        "qa_sampling": {
+            "visible_count_values": [0, 2, 4],
+            "entities": {"total_count": {"choices": [2, 3, 4]}},
+        }
+    }
+
+    result = generate_unified_questions(raw, qa_ids=["QA-22"])
+
+    assert result["counts"] == {"requested": 1, "valid": 1, "deferred": 0}
+    item = result["items"][0]
+    assert item["evidence"]["option_domain"]["entity_count_values"] == [0, 2, 4]
+    values = {option["value"] for option in item["forms"]["mcq"]["options"]}
+    assert {value.split("|", 1)[0] for value in values} == {"0", "2", "4"}
+    assert all(
+        int(value.split("|", 1)[1]) <= int(value.split("|", 1)[0])
+        for value in values
+    )
+
+
+def test_qa22_fixed_total_count_is_an_upper_bound_for_visible_options() -> None:
+    raw = _fixture()
+    for actor_id, entry in raw["pixel_visibility_truth"]["per_instance"].items():
+        state = "visible_clear" if actor_id in {"a0", "a1"} else "out_of_view"
+        entry["frames"] = [
+            {"frame_index": frame, "state": state}
+            for frame in range(40)
+        ]
+    raw["sampling"]["entities"] = {"total_count": 2}
+
+    result = generate_unified_questions(raw, qa_ids=["QA-22"])
+
+    assert result["counts"] == {"requested": 1, "valid": 1, "deferred": 0}
+    values = {
+        option["value"]
+        for option in result["items"][0]["forms"]["mcq"]["options"]
+    }
+    assert {value.split("|", 1)[0] for value in values} == {"0", "1", "2"}
 
 
 def test_p8_multiple_items_have_unique_ids_and_list_coverage() -> None:
@@ -858,7 +1140,10 @@ def test_quota_shortfall_is_reported_without_copying_a_pair():
     facts = _two_actor_direction_facts(32, -32)
     result = generate_unified_questions(facts, qa_ids=["QA-05"], items_per_type=3)
     assert len(result["items"]) == 1
-    assert result["unmet_quota_by_qa"]["QA-05"] == {"requested":3,"valid":1,"missing":2,"code":"insufficient_candidates"}
+    assert result["unmet_quota_by_qa"]["QA-05"] == {
+        "requested": 3, "valid": 1, "missing": 2,
+        "code": "insufficient_candidates", "rejection_codes": {},
+    }
 
 
 def test_first_utterance_time_does_not_change_when_a_later_event_is_sampled():
@@ -1097,8 +1382,9 @@ def test_p8_qa18_requires_source_activity_and_separates_wet_tail() -> None:
 
     raw["sampling"] = {"time_display_precision": 2, "query_time_s_by_qa": {"QA-18": 0.3}}
     wet = generate_unified_questions(raw, qa_ids=["QA-18"], seed="activity-wet")
-    assert wet["counts"] == {"requested": 1, "valid": 0, "deferred": 1}
-    assert wet["deferred"][0]["code"] == "query_inside_wet_tail"
+    assert wet["counts"] == {"requested": 1, "valid": 1, "deferred": 0}
+    assert wet["items"][0]["truth"]["value"] == "a0"
+    assert wet["items"][0]["evidence"]["activity_class"] == "active"
 
 
 def test_p8_open_and_mcq_use_distinct_angle_and_time_domains() -> None:
@@ -1225,3 +1511,358 @@ def test_qa13_known_band_contrast_survives_majority_or_missing_other_value(angle
     item = output["items"][0]
     assert "mcq" in item["forms"]
     assert item["form_status"]["mcq"]["status"] == "pass"
+
+
+def test_qa18_default_integer_windows_union_bursts_and_empty() -> None:
+    raw = _fixture()
+    raw["audio_program"]["events"] = raw["audio_program"]["events"][:3]
+    raw["audio_program"]["timeline"].update(frame_count=60, sample_count=96000)
+    raw["frame_readbacks"]["clock"].update(frame_count=60, sample_count=96000)
+    raw["audio_readback"].update(sample_count=96000)
+    for stream in ("actors", "emitters"):
+        for rows in raw["frame_readbacks"][stream].values():
+            last = rows[-1]
+            rows.extend(
+                {**last, "frame_index": frame}
+                for frame in range(40, 60)
+            )
+    camera_rows = raw["frame_readbacks"]["camera"]
+    camera_last = camera_rows[-1]
+    camera_rows.extend(
+        {**camera_last, "frame_index": frame}
+        for frame in range(40, 60)
+    )
+    for entry in raw["pixel_visibility_truth"]["per_instance"].values():
+        last = entry["frames"][-1]
+        entry["frames"].extend(
+            {**last, "frame_index": frame}
+            for frame in range(40, 60)
+        )
+
+    events = raw["audio_program"]["events"]
+    events[0].update(start_sample=32000, end_sample_exclusive=35200)
+    events[1].update(start_sample=64000, end_sample_exclusive=67200)
+    events[2].update(start_sample=73600, end_sample_exclusive=76800)
+    raw["audio_readback"]["source_activity_intervals_samples"] = [
+        {
+            "event_id": "e0",
+            "start_sample": 32000,
+            "end_sample_exclusive": 35200,
+        },
+        {
+            "event_id": "e1",
+            "start_sample": 64000,
+            "end_sample_exclusive": 67200,
+        },
+        {
+            "event_id": "e2",
+            "start_sample": 73600,
+            "end_sample_exclusive": 76800,
+        },
+    ]
+    raw["audio_readback"]["wet_tail_intervals"] = [
+        {"event_id": "e0", "start_s": 2.0, "end_s": 2.3},
+        {"event_id": "e1", "start_s": 4.0, "end_s": 4.3},
+        {"event_id": "e2", "start_s": 4.6, "end_s": 4.9},
+    ]
+    raw["sampling"] = {"time_display_precision": 0}
+
+    result = generate_unified_questions(
+        raw, qa_ids=["QA-18"], items_per_type=3, seed="integer-windows"
+    )
+
+    assert result["counts"] == {"requested": 1, "valid": 3, "deferred": 0}
+    by_class = {
+        item["evidence"]["activity_class"]: item for item in result["items"]
+    }
+    assert set(by_class) <= {"empty", "active", "multiple"}
+    observed_classes = set(by_class)
+    for index in range(32):
+        sampled = generate_unified_questions(
+            raw, qa_ids=["QA-18"], items_per_type=1, seed=f"integer-windows-{index}"
+        )
+        observed_classes.update(
+            item["evidence"]["activity_class"] for item in sampled["items"]
+        )
+    assert observed_classes == {"empty", "active", "multiple"}
+    assert by_class["multiple"]["evidence"]["active_actor_ids"] == ["a1", "a2"]
+    assert by_class["multiple"]["evidence"]["query_window_s"] == [4.0, 5.0]
+    assert by_class["multiple"]["evidence"]["activity_semantics"] == (
+        "union_any_time_within_query_window_v1"
+    )
+    assert "at any point" in by_class["multiple"]["question"]["en"]
+    assert "曾经" in by_class["multiple"]["question"]["zh"]
+    assert by_class["empty"]["evidence"]["active_actor_ids"] == []
+
+
+# --- P08: shared predicates, rejection reasons and reporting -----------------
+
+import avengine.qa.unified_catalog as _p08_catalog
+
+
+def _p08_with_activity(raw: dict, rows: dict | None = None) -> dict:
+    """Declare a complete source-activity readback for the fixture events."""
+    raw["audio_readback"]["source_activity_intervals_samples"] = rows or {
+        "e0": [{"start_sample": 3200, "end_sample_exclusive": 9600}],
+        "e1": [{"start_sample": 16000, "end_sample_exclusive": 22400}],
+        "e2": [{"start_sample": 19200, "end_sample_exclusive": 25600}],
+        "e3": [{"start_sample": 32000, "end_sample_exclusive": 36800}],
+    }
+    return raw
+
+
+def _p08_path(raw: dict, actor_id: str, points: dict[int, list[float]]) -> dict:
+    """Move one actor's root and emitter readbacks together."""
+    for field in ("actors", "emitters"):
+        for row in raw["frame_readbacks"][field][actor_id]:
+            point = points.get(row["frame_index"])
+            if point is not None:
+                row["position_m"] = list(point)
+    return raw
+
+
+def test_a_reversing_path_and_a_monotone_path_share_an_endpoint_difference() -> None:
+    """The endpoint difference cannot decide a direction on its own."""
+    monotone = normalize_episode_bundle(_p08_path(_fixture(), "a0", {
+        2: [0.0, 0.0, -5.0], 3: [0.0, 0.0, -4.0],
+        4: [0.0, 0.0, -3.0], 5: [0.0, 0.0, -2.0],
+    }))
+    reversing = normalize_episode_bundle(_p08_path(_fixture(), "a0", {
+        2: [0.0, 0.0, -5.0], 3: [0.0, 0.0, -2.0],
+        4: [0.0, 0.0, -4.5], 5: [0.0, 0.0, -2.0],
+    }))
+
+    first = _p08_catalog.distance_trend_during_window(monotone, "a0", [2, 6])
+    second = _p08_catalog.distance_trend_during_window(reversing, "a0", [2, 6])
+
+    assert first["endpoint_delta_m"] == pytest.approx(second["endpoint_delta_m"])
+    assert first["endpoint_delta_m"] == pytest.approx(-3.0)
+    assert first["verdict"] == "nearer"
+    assert first["max_counter_trend_m"] == pytest.approx(0.0)
+    assert second["verdict"] is None
+    assert second["reason"] == "distance_trend_reverses"
+    assert second["max_counter_trend_m"] == pytest.approx(2.5)
+    assert second["monotone_within_tolerance"] is False
+
+
+def test_distance_trend_below_the_margin_is_named_separately() -> None:
+    facts = normalize_episode_bundle(_p08_path(_fixture(), "a0", {
+        2: [0.0, 0.0, -5.0], 3: [0.0, 0.0, -4.95],
+        4: [0.0, 0.0, -4.92], 5: [0.0, 0.0, -4.9],
+    }))
+    trend = _p08_catalog.distance_trend_during_window(facts, "a0", [2, 6])
+
+    assert trend["verdict"] is None
+    assert trend["reason"] == "distance_net_change_below_margin"
+    assert trend["endpoint_delta_m"] == pytest.approx(-0.1)
+
+
+def test_the_distance_trend_thresholds_come_from_configuration() -> None:
+    raw = _p08_path(_fixture(), "a0", {
+        2: [0.0, 0.0, -5.0], 3: [0.0, 0.0, -2.0],
+        4: [0.0, 0.0, -4.5], 5: [0.0, 0.0, -2.0],
+    })
+    raw["sampling"] = {"qa_sampling": {
+        "time_display_precision": 2,
+        "qa15_reversal_tolerance_m": 3.0,
+        "qa15_reversal_fraction": 1.0,
+    }}
+    facts = normalize_episode_bundle(raw)
+    trend = _p08_catalog.distance_trend_during_window(facts, "a0", [2, 6])
+
+    assert trend["criteria"]["reversal_tolerance_m"] == pytest.approx(3.0)
+    assert trend["verdict"] == "nearer"
+
+
+def test_qa15_candidate_pool_and_judge_use_one_predicate() -> None:
+    raw = _p08_path(_fixture(), "a0", {
+        2: [0.0, 0.0, -5.0], 3: [0.0, 0.0, -2.0],
+        4: [0.0, 0.0, -4.5], 5: [0.0, 0.0, -2.0],
+    })
+    facts = normalize_episode_bundle(deepcopy(raw))
+    pool = _P8_CANDIDATES["QA-15"](facts)
+
+    assert _p08_catalog.distance_trend_during_window(
+        facts, "a0", [2, 6]
+    )["reason"] == "distance_trend_reverses"
+    assert "e0" not in {candidate["event_id"] for candidate in pool}
+
+
+def test_qa15_refuses_a_reversing_path_with_its_own_reason() -> None:
+    raw = _fixture()
+    for actor_id in ("a0", "a1"):
+        events = {"a0": [2, 3, 4, 5], "a1": [10, 11, 12, 13]}[actor_id]
+        _p08_path(raw, actor_id, {
+            events[0]: [0.0, 0.0, -5.0], events[1]: [0.0, 0.0, -2.0],
+            events[2]: [0.0, 0.0, -4.5], events[3]: [0.0, 0.0, -2.0],
+        })
+    output = generate_unified_questions(raw, qa_ids=["QA-15"], seed="p08-qa15")
+
+    assert output["items"] == []
+    row = next(entry for entry in output["deferred"] if entry["qa_id"] == "QA-15")
+    assert row["code"] == "no_distance_trend_during_event"
+    assert "distance_trend_reverses" in row["candidate_reason_codes"]
+
+
+def test_qa06_reads_motion_over_the_measured_sounding_span() -> None:
+    """The declared event window is unstable; the audible span is not."""
+    plain = normalize_episode_bundle(_fixture())
+    event = next(row for row in _p08_catalog._bound_events(plain) if row["event_id"] == "e0")
+    assert _p08_catalog.motion_state_during_audible_window(plain, event)["reason"] == (
+        "motion_state_changes"
+    )
+
+    raw = _p08_with_activity(_fixture(), {
+        "e0": [{"start_sample": 4800, "end_sample_exclusive": 8000}],
+        "e1": [{"start_sample": 16000, "end_sample_exclusive": 22400}],
+        "e2": [{"start_sample": 19200, "end_sample_exclusive": 25600}],
+        "e3": [{"start_sample": 32000, "end_sample_exclusive": 36800}],
+    })
+    output = generate_unified_questions(raw, qa_ids=["QA-06"], seed="p08-qa06")
+    item = next(row for row in output["items"] if row["evidence"]["event_id"] == "e0")
+
+    assert item["truth"]["value"] == "still"
+    assert item["evidence"]["motion_window_frames"] == [3, 5]
+    assert item["evidence"]["motion_window_source"] == "source_activity_readback"
+    assert item["evidence"]["audible_window"]["declared_event_frames"] == [2, 6]
+
+
+def test_a_natural_pause_stays_inside_one_sounding_span() -> None:
+    raw = _p08_with_activity(_fixture(), {
+        "e0": [
+            {"start_sample": 3200, "end_sample_exclusive": 4800},
+            {"start_sample": 6400, "end_sample_exclusive": 8000},
+        ],
+    })
+    facts = normalize_episode_bundle(raw)
+    event = next(row for row in _p08_catalog._bound_events(facts) if row["event_id"] == "e0")
+    audible = _p08_catalog.audible_frame_window(facts, event)
+
+    assert audible["frames"] == [2, 5]
+    assert audible["contiguous"] is False
+    assert audible["internal_pause_frame_count"] == 1
+    assert audible["audible_frame_count"] == 2
+
+
+def _p08_all_visible(raw: dict) -> dict:
+    for actor in raw["pixel_visibility_truth"]["per_instance"].values():
+        for row in actor["frames"]:
+            row["state"] = "visible_clear"
+    return raw
+
+
+def test_qa07_names_a_missing_out_of_view_state() -> None:
+    output = generate_unified_questions(
+        _p08_all_visible(_fixture()), qa_ids=["QA-07"], seed="p08-qa07"
+    )
+    row = next(entry for entry in output["deferred"] if entry["qa_id"] == "QA-07")
+
+    assert row["code"] == "no_out_of_view_state_observed"
+    assert row["observed_visibility_states"] == {"visible_clear": 160}
+    assert row["candidate_reason_codes"] == ["no_out_of_view_state_observed"]
+
+
+def test_qa09_names_a_missing_fully_occluded_state() -> None:
+    output = generate_unified_questions(
+        _p08_all_visible(_fixture()), qa_ids=["QA-09"], seed="p08-qa09"
+    )
+    row = next(entry for entry in output["deferred"] if entry["qa_id"] == "QA-09")
+
+    assert row["code"] == "no_fully_occluded_state_observed"
+    assert "fully_occluded" not in row["observed_visibility_states"]
+    assert row["complete_visibility_actors"] == ["a0", "a1", "a2", "a3"]
+
+
+def test_a_target_without_a_reviewed_appearance_is_not_reported_as_invisible() -> None:
+    raw = _fixture()
+    raw["appearance_review"]["actors"].pop("a3")
+    output = generate_unified_questions(raw, qa_ids=["QA-07"], seed="p08-appearance")
+    row = next(entry for entry in output["deferred"] if entry["qa_id"] == "QA-07")
+
+    assert "appearance_review_missing_for_entry" in row["candidate_reason_codes"]
+    reason = next(
+        entry for entry in row["candidate_reasons"]
+        if entry["code"] == "appearance_review_missing_for_entry"
+    )
+    assert reason["actor_id"] == "a3"
+    assert reason["entry_frames"] == [3]
+    assert "invisible" not in reason["detail"]
+
+
+def test_a_static_device_is_not_an_entry_question_target() -> None:
+    facts = normalize_episode_bundle(_fixture())
+    facts["actors"]["a3"]["entity_class"] = "rigid_static_device"
+    candidate = {"candidate_id": "QA-07:actor:a3", "actor_id": "a3", "query_frame": 3}
+
+    assert _p08_catalog._p8_applicability_reason(facts, "QA-07", candidate)[0] == (
+        "not_applicable_by_definition"
+    )
+
+
+def test_visibility_state_census_counts_observed_states() -> None:
+    facts = normalize_episode_bundle(_fixture())
+    census = _p08_catalog.visibility_state_census(facts)
+
+    assert census["states"]["out_of_view"] == 3
+    assert census["states"]["fully_occluded"] == 2
+    assert census["complete_actors"] == ["a0", "a1", "a2", "a3"]
+    assert _p08_catalog.visibility_state_census(facts, "a2")["states"] == {
+        "visible_clear": 40
+    }
+
+
+def test_every_rejected_candidate_keeps_its_own_reason() -> None:
+    output = generate_unified_questions(_fixture(), seed="p08-ledger")
+    rejected = [
+        row for row in output["candidate_attempts"]
+        if row["status"] == "candidate_rejected"
+    ]
+
+    assert rejected
+    assert all(row.get("code") for row in rejected)
+    for row in rejected:
+        assert row["code"] in output["rejection_codes_by_qa"][row["qa_id"]]
+    # A type that emitted a question still reports the candidates it refused.
+    emitted_ids = {item["qa_id"] for item in output["items"]}
+    assert emitted_ids & set(output["rejection_codes_by_qa"])
+
+
+def test_form_validity_is_counted_per_form() -> None:
+    output = generate_unified_questions(_fixture(), seed="p08-forms")
+    main = output["form_coverage"]["main"]
+
+    assert main["item_count"] == len(output["items"])
+    assert main["open"]["scoring_denominator"] == main["open"]["answerable_item_count"]
+    for form in ("mcq", "open"):
+        row = main[form]
+        assert row["answerable_item_count"] + row["deferred_item_count"] <= main["item_count"]
+        assert sum(row["deferred_codes"].values()) == row["deferred_item_count"]
+    # The angle followups keep their own denominator instead of joining the
+    # main questions.
+    assert output["form_coverage"]["angle_followup"]["item_count"] == len(
+        output["angle_followups"]
+    )
+
+
+def test_branch_state_uses_the_branch_owner_and_flags_unmapped_values() -> None:
+    output = generate_unified_questions(_fixture(), seed="p08-branch")
+    states = output["branch_state_by_qa"]
+
+    assert states["QA-06"]["branch_authority"] == (
+        "avengine.qa.generation_conditions.branches_for"
+    )
+    assert states["QA-06"]["branches_expected"] == ["moving", "still"]
+    assert states["QA-09"]["branches_seen"] == ["yes"]
+    assert states["QA-09"]["branches_missing"] == ["no"]
+    assert states["QA-09"]["evidence_state"] == "available"
+    # QA-05 answers yes/no while the branch owner declares overlap/disjoint.
+    assert states["QA-05"]["branch_values_unmapped"]
+    assert set(states["QA-05"]["answer_values_seen"]) <= {"yes", "no"}
+    # A type with no declared branch does not invent one from its answers.
+    assert states["QA-19"]["branches_expected"] == []
+    assert states["QA-19"]["branches_seen"] == []
+    for row in states.values():
+        assert row["evidence_state"] in {
+            "available", "not_applicable_by_definition", "evidence_missing_or_unsampled"
+        }
+        assert row["evidence_state_authority"] == "unified_catalog_evidence"

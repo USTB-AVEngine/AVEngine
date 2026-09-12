@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from avengine.qa.unified_catalog import QA_IDS
 
+from collections import Counter
 from copy import deepcopy
 from dataclasses import dataclass
 import json
@@ -648,6 +649,7 @@ def _build_actor_states(
             states.append(
                 {
                     "actor_id": aid,
+                    "entity_instance_id": actor.get("entity_instance_id"),
                     "translation_m": point,
                     "translation_ue_cm": habitat_to_ue_cm(point),
                     "rotation_xyzw": list(rotation),
@@ -687,8 +689,23 @@ def build_native_apartment_qa_plan(
     camera_fov_deg: float | None = None,
     silent_actor_count: int = 0,
     sampling_policy: str | None = None,
+    camera: Mapping[str, Any] | None = None,
+    profile: Mapping[str, Any] | None = None,
+    entities: Mapping[str, Any] | None = None,
+    motion: Mapping[str, Any] | None = None,
+    sound_selection: Mapping[str, Any] | None = None,
+    qa_targets: Sequence[Any] | None = None,
+    question_branches: Mapping[str, Any] | None = None,
+    task_family: str | None = None,
+    public_time_precision: int | None = None,
+    request_overrides: Mapping[str, Any] | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any], Any, dict[str, np.ndarray]]:
-    """Build one common-plan Episode using native routes and room geometry."""
+    """Build one common-plan Episode using native routes and room geometry.
+
+    Every explicit camera, clock, motion, profile and question statement is
+    forwarded as given: this route supplies defaults for what the caller left
+    out, and never replaces what the caller stated.
+    """
 
     conditioned = sampling_policy == "conditioned_static_v2"
     if sampling_policy not in (None, "conditioned_static_v2"):
@@ -696,7 +713,11 @@ def build_native_apartment_qa_plan(
     camera_motion = camera_motion or ("static" if conditioned else "follow_group")
     if conditioned and camera_motion != "static":
         raise NativeQAResourceError("conditioned_static_v2 requires a static camera")
-    effective_fov = float(camera_fov_deg if camera_fov_deg is not None else (85.0 if conditioned else 105.0))
+    requested_fov = camera_fov_deg
+    if requested_fov is None and isinstance(camera, Mapping):
+        requested_fov = camera.get("fov_deg")
+    fov_source = "request" if requested_fov is not None else "route_default"
+    effective_fov = float(requested_fov if requested_fov is not None else (85.0 if conditioned else 105.0))
     if not math.isfinite(effective_fov) or not 0 < effective_fov < 180:
         raise NativeQAResourceError("camera_fov_deg must be finite and between 0 and 180")
     if not isinstance(episode_id, str) or not episode_id.strip():
@@ -706,14 +727,28 @@ def build_native_apartment_qa_plan(
     selected = list(source_asset_ids)
     if conditioned:
         from avengine.rooms.qa_episode import build_qa_episode_plan
+        camera_request = {"motion": camera_motion, "fov_deg": effective_fov}
+        camera_request.update({key: deepcopy(value) for key, value in dict(camera or {}).items()})
+        camera_request["fov_deg"] = effective_fov
+        # The route's own profile is a default for what the caller left out.
+        route_profile = {"speech_motion": "speaker_moving", "event_relation": audio_mode}
+        route_profile.update({key: deepcopy(value) for key, value in dict(profile or {}).items()})
         request = {"episode_id": episode_id, "source_asset_ids": selected,
                    "qa_ids": list(qa_ids or list(QA_IDS)),
                    "seed": seed, "frame_count": frame_count, "frame_rate_hz": frame_rate_hz,
                    "sample_rate_hz": sample_rate_hz, "sampling_policy": sampling_policy,
-                   "camera": {"motion": camera_motion, "fov_deg": effective_fov},
+                   "camera": camera_request,
                    "silent_actor_count": silent_actor_count, "audio_mode": audio_mode,
                    "start_hold_frames": start_hold_frames,
-                   "profile": {"speech_motion": "speaker_moving", "event_relation": audio_mode}}
+                   "camera_fov_source": fov_source,
+                   "profile": route_profile}
+        for key, value in (("entities", entities), ("motion", motion),
+                           ("sound_selection", sound_selection), ("qa_targets", qa_targets),
+                           ("question_branches", question_branches), ("task_family", task_family),
+                           ("public_time_precision", public_time_precision)):
+            if value is not None:
+                request[key] = deepcopy(value) if not isinstance(value, Sequence) or isinstance(value, (str, bytes)) else list(value)
+        request.update({key: deepcopy(value) for key, value in dict(request_overrides or {}).items()})
         plan, layout, pathfinder = build_qa_episode_plan(
             room=native_apartment_room_entry(resources), request=request,
             source_registry=source_registry, sounds=sounds)
@@ -722,8 +757,10 @@ def build_native_apartment_qa_plan(
                     for f in plan["visual_plan"]["frames"]]) for actor in plan["visual_plan"]["actors"]}
         plan["resources"]["expected_stage_actor_count"] = 0
         return plan, layout, pathfinder, routes
-    if len(selected) != 2 or len(set(selected)) != 2:
-        raise NativeQAResourceError("exactly two distinct human source assets are required")
+    if len(selected) != 2:
+        # Two instances of one registered asset are two physical entities; only
+        # the instance count is fixed on this route.
+        raise NativeQAResourceError("exactly two source instances are required")
     layout = build_native_apartment_layout(resources)
     routes, route_record = select_native_walking_routes(
         resources,
@@ -747,7 +784,12 @@ def build_native_apartment_qa_plan(
         **route_record,
         "camera_candidate_adapter": raster_nav["authority"],
     }
-    actors = [source_declaration(source_registry, asset_id, f"source{index + 1}") for index, asset_id in enumerate(selected)]
+    ordinals: Counter = Counter()
+    actors = []
+    for index, asset_id in enumerate(selected):
+        ordinals[asset_id] += 1
+        actors.append(source_declaration(source_registry, asset_id, f"source{index + 1}",
+                                         instance_ordinal=ordinals[asset_id]))
     ids = list(qa_ids or list(QA_IDS))
     capability = room_capabilities(layout, native_nav, actors, sounds)
     matching = match_question_conditions(ids, capability)
@@ -829,6 +871,26 @@ def build_native_apartment_qa_plan(
         },
         "room_capabilities": capability,
         "question_condition_match": matching,
+        "entity_instances": [
+            {
+                "entity_instance_id": actor.get("entity_instance_id"),
+                "actor_id": actor["actor_id"],
+                "source_endpoint_id": actor.get("source_endpoint_id"),
+                "asset_id": actor["asset_id"],
+                "asset_revision": actor.get("asset_revision"),
+                "entity_class": actor.get("entity_class"),
+                "instance_ordinal": actor.get("instance_ordinal"),
+                "speaking": any(event.get("actor_id") == actor["actor_id"] for event in events),
+            }
+            for actor in actors
+        ],
+        "instance_role_map": {
+            str(actor.get("entity_instance_id")): {
+                "actor_id": actor["actor_id"],
+                "source_endpoint_id": actor.get("source_endpoint_id"),
+            }
+            for actor in actors
+        },
         "activity_plan": route_record,
         "camera_condition_sampling": camera_record,
         "audio_events": events,

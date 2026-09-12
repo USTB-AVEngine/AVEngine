@@ -7,6 +7,8 @@ from pathlib import Path
 import pytest
 
 from avengine.qa.answerability import structural_baselines
+from avengine.qa import batch_coverage as bc
+from avengine.qa.unified_catalog import QA_IDS
 from avengine.qa.batch_coverage import (
     APPEARANCE_CLASSIFIER_GAP_REASON,
     COVERAGE_STATES,
@@ -823,3 +825,415 @@ def test_appearance_review_missing_without_classifier_gap_stays_deferred(tmp_pat
     )
     assert row["state"] == "deferred_by_rule"
     assert row["reason_code"] == "appearance_review_missing"
+
+
+# --------------------------------------------------------------------------- V1 targets and feedback
+
+
+def _targets(**overrides):
+    from avengine.qa.generation_conditions import branches_for
+    from avengine.dataset.source_capabilities import combination_key, entity_combinations
+
+    block = {
+        "schema": bc.V1_TARGETS_SCHEMA,
+        "qa_ids": list(QA_IDS),
+        "branches_by_qa_id": {qa_id: list(branches_for(qa_id)) for qa_id in QA_IDS},
+        "room_families": ["apartment", "kujiale", "hm3d", "mp3d"],
+        "core_task_families": ["visible_binding", "visual_conditioned_relation",
+                               "cross_event_identity", "cross_time_state"],
+        "entity_combinations": sorted(combination_key(*pair) for pair in entity_combinations()),
+        "min_valid_main_questions_per_qa_id": 8,
+        "min_distinct_worlds_per_qa_id": 2,
+        "min_valid_main_questions_per_branch": 2,
+        "min_distinct_worlds_per_branch": 2,
+        "min_core_groups_per_task_family_and_room_family": 4,
+        "target_core_group_count": 64,
+        "min_distinct_worlds_per_entity_combination": 2,
+    }
+    block.update(overrides)
+    return block
+
+
+def _achieved(by_qa=None, by_branch=None, **overrides):
+    table = {
+        "schema": "avengine_qa_v1_achieved_coverage_v1",
+        "source_kind": "unit_test",
+        "member_count": 4, "group_count": 1, "world_count": 1,
+        "generation_failures": [],
+        "by_qa_id": {
+            qa_id: {"valid_main_questions": 0, "valid_angle_followups": 0,
+                    "distinct_worlds_with_main": 0, "form_counts": {},
+                    "task_families": {}, "room_families": {},
+                    "entity_combinations": {}, "source_families": {},
+                    "branch_unobservable_main": 0}
+            for qa_id in QA_IDS
+        },
+        "by_qa_branch": {},
+        "core_task_by_room_family_member_counts": {},
+        "core_task_by_room_family_group_counts": {},
+        "deferred_codes_by_qa_id": {},
+        "source_families_unresolved": [],
+        "counting_note": "unit test",
+    }
+    for qa_id, row in (by_qa or {}).items():
+        table["by_qa_id"][qa_id].update(row)
+    table["by_qa_branch"].update(by_branch or {})
+    table.update(overrides)
+    return table
+
+
+def test_targets_must_name_every_qa_type() -> None:
+    block = _targets(qa_ids=[qa_id for qa_id in QA_IDS if qa_id != "QA-21"])
+    with pytest.raises(bc.BatchCoverageError, match="QA-21"):
+        bc.load_v1_coverage_targets(block)
+
+
+def test_targets_must_agree_with_the_shared_branch_table() -> None:
+    branches = {qa_id: list(row) for qa_id, row in _targets()["branches_by_qa_id"].items()}
+    branches["QA-06"] = ["moving"]
+    with pytest.raises(bc.BatchCoverageError, match="branch table"):
+        bc.load_v1_coverage_targets(_targets(branches_by_qa_id=branches))
+
+
+def test_targets_reject_a_group_count_that_cannot_fill_the_matrix() -> None:
+    with pytest.raises(bc.BatchCoverageError, match="target_core_group_count"):
+        bc.load_v1_coverage_targets(_targets(target_core_group_count=12))
+
+
+def test_targets_reject_an_unknown_core_task_family() -> None:
+    with pytest.raises(bc.BatchCoverageError, match="shared-unit recipe"):
+        bc.load_v1_coverage_targets(_targets(core_task_families=["walking_speech"]))
+
+
+def test_targets_reject_an_unknown_two_entity_combination() -> None:
+    with pytest.raises(bc.BatchCoverageError, match="two-entity"):
+        bc.load_v1_coverage_targets(_targets(entity_combinations=["human+robot"]))
+
+
+def test_targets_are_read_from_a_configuration_block() -> None:
+    resolved = bc.load_v1_coverage_targets({"coverage_quota": _targets()})
+    assert resolved["target_core_group_count"] == 64
+    assert len(resolved["qa_ids"]) == len(QA_IDS)
+
+
+REGISTRY = {
+    "assets": [
+        {"asset_id": "human_a", "entity_class": "articulated_human"},
+        {"asset_id": "dog_a", "entity_class": "articulated_animal"},
+        {"asset_id": "speaker_a", "entity_class": "rigid_object",
+         "identity": {"category": "audio_playback"}},
+        {"asset_id": "fan_a", "entity_class": "rigid_object",
+         "identity": {"category": "climate_control"},
+         "allowed_event_classes": ["air_conditioning"]},
+    ]
+}
+
+
+def test_a_static_device_is_inapplicable_to_the_entry_side_question() -> None:
+    # A fixed camera plus a device that cannot walk means "which side did it
+    # enter from" has no answer by definition, not missing evidence.
+    assert "QA-07" in bc.MOTION_TARGET_QA_IDS
+    row = bc.source_family_applicability(REGISTRY)["QA-07"]
+    assert row["device"]["state"] == "not_applicable_by_definition"
+    assert row["human"]["state"] == "available"
+    assert row["animal"]["state"] == "available"
+
+
+def test_an_inapplicable_device_never_collapses_the_whole_qa_type() -> None:
+    applicability = bc.source_family_applicability(REGISTRY)
+    feedback = bc.build_v1_coverage_feedback(
+        targets=_targets(), achieved=_achieved(), applicability=applicability,
+    )
+    # Every family inapplicable is the only route to an inapplicable type.
+    assert feedback["by_qa_id"]["QA-06"]["state"] != "not_applicable_by_definition"
+    assert feedback["by_qa_id"]["QA-06"]["source_family_applicability"]["device"][
+        "state"] == "not_applicable_by_definition"
+
+
+def test_a_met_target_needs_both_the_question_count_and_the_world_count() -> None:
+    feedback = bc.build_v1_coverage_feedback(
+        targets=_targets(),
+        achieved=_achieved(by_qa={
+            "QA-01": {"valid_main_questions": 12, "distinct_worlds_with_main": 3},
+            "QA-02": {"valid_main_questions": 12, "distinct_worlds_with_main": 1},
+        }),
+    )
+    assert feedback["by_qa_id"]["QA-01"]["state"] == "met"
+    assert feedback["by_qa_id"]["QA-02"]["state"] == "short_of_target"
+    assert feedback["by_qa_id"]["QA-02"]["remaining_distinct_worlds"] == 1
+    assert feedback["by_qa_id"]["QA-02"]["remaining_valid_main_questions"] == 0
+
+
+def test_a_partial_count_stays_a_shortfall_and_keeps_its_remainder() -> None:
+    feedback = bc.build_v1_coverage_feedback(
+        targets=_targets(),
+        achieved=_achieved(by_qa={
+            "QA-10": {"valid_main_questions": 2, "distinct_worlds_with_main": 2},
+        }),
+    )
+    row = feedback["by_qa_id"]["QA-10"]
+    assert row["state"] == "short_of_target"
+    assert row["remaining_valid_main_questions"] == 6
+
+
+def test_an_unimplemented_interface_is_not_reported_as_unsampled() -> None:
+    planning = {
+        "qa_ids": {
+            "QA-15": {"candidates": [
+                {"branch": "nearer", "state": "interface_not_implemented",
+                 "reason": "distance_net_change: routes are sampled for a moving window"},
+            ]},
+        }
+    }
+    feedback = bc.build_v1_coverage_feedback(
+        targets=_targets(), achieved=_achieved(), planning=planning,
+    )
+    assert feedback["by_qa_branch"]["QA-15:nearer"]["state"] == "interface_not_implemented"
+    assert "routes are sampled" in feedback["by_qa_branch"]["QA-15:nearer"]["reason"]
+    # An untouched branch of the same type keeps the plain unsampled state.
+    assert feedback["by_qa_branch"]["QA-15:farther"]["state"] == "evidence_missing_or_unsampled"
+
+
+def test_one_available_candidate_keeps_the_cell_plannable() -> None:
+    planning = {
+        "qa_ids": {
+            "QA-09": {"candidates": [
+                {"branch": "yes", "state": "interface_not_implemented", "reason": "no knob"},
+                {"branch": "yes", "state": "available", "reason": None},
+            ]},
+        }
+    }
+    feedback = bc.build_v1_coverage_feedback(
+        targets=_targets(), achieved=_achieved(), planning=planning,
+    )
+    assert feedback["by_qa_branch"]["QA-09:yes"]["state"] == "evidence_missing_or_unsampled"
+
+
+def test_a_generation_failure_is_not_reported_as_missing_evidence() -> None:
+    feedback = bc.build_v1_coverage_feedback(
+        targets=_targets(),
+        achieved=_achieved(generation_failures=[
+            {"group_id": "g1", "member_id": "v0_a0", "world_id": "w1",
+             "error": "UnifiedQAError: broken"},
+        ]),
+    )
+    assert feedback["by_qa_id"]["QA-01"]["state"] == "generation_failed"
+    assert feedback["generation_failures"][0]["error"] == "UnifiedQAError: broken"
+
+
+def test_the_core_matrix_counts_groups_not_members() -> None:
+    feedback = bc.build_v1_coverage_feedback(
+        targets=_targets(),
+        achieved=_achieved(
+            core_task_by_room_family_member_counts={"visible_binding|apartment": 16},
+            core_task_by_room_family_group_counts={"visible_binding|apartment": 4},
+        ),
+    )
+    cell = feedback["core_task_by_room_family"]["visible_binding|apartment"]
+    assert cell["complete_group_count"] == 4 and cell["state"] == "met"
+    empty = feedback["core_task_by_room_family"]["cross_time_state|mp3d"]
+    assert empty["state"] == "evidence_missing_or_unsampled"
+    assert empty["remaining_group_count"] == 4
+
+
+def test_outstanding_work_excludes_cells_a_worker_cannot_act_on() -> None:
+    planning = {"qa_ids": {"QA-15": {"candidates": [
+        {"branch": "nearer", "state": "interface_not_implemented", "reason": "no knob"},
+        {"branch": "farther", "state": "interface_not_implemented", "reason": "no knob"},
+    ]}}}
+    feedback = bc.build_v1_coverage_feedback(
+        targets=_targets(),
+        achieved=_achieved(by_qa={
+            "QA-01": {"valid_main_questions": 12, "distinct_worlds_with_main": 3},
+            "QA-10": {"valid_main_questions": 2, "distinct_worlds_with_main": 2},
+        }),
+        planning=planning,
+    )
+    rows = bc.outstanding_production_requests(feedback)
+    kinds = {(row["kind"], row.get("qa_id"), row.get("branch")) for row in rows}
+    assert ("qa_id", "QA-01", None) not in kinds
+    assert ("qa_id", "QA-10", None) in kinds
+    assert ("qa_branch", "QA-15", "nearer") not in kinds
+    assert ("qa_branch", "QA-05", "overlap") in kinds
+    assert any(row["kind"] == "core_group_cell" for row in rows)
+    assert any(row["kind"] == "entity_combination" for row in rows)
+
+
+def test_outstanding_work_refuses_a_document_that_is_not_feedback() -> None:
+    with pytest.raises(bc.BatchCoverageError):
+        bc.outstanding_production_requests({"schema": "something_else"})
+
+
+SOUND_CONFIG = {
+    "species_sound_classes": {"dog": ["dog_bark"]},
+    "object_sound_classes": {
+        "air_conditioner": ["air_conditioning"],
+        "desk_telephone": ["telephone_bell_ringing", "telephone"],
+    },
+    "speech_playback_categories": ["audio_playback"],
+    "undetermined_sound_class_semantics": [
+        {"sound_class": "buzzer", "state": "semantics_undetermined_pending_owner_decision",
+         "measured_basis": "9 of 10 retained clips are labelled Buzz, not Buzzer"},
+    ],
+}
+SOUND_REGISTRY = {
+    "assets": [
+        {"asset_id": "fan_a", "entity_class": "rigid_object",
+         "identity": {"object_type": "air_conditioner", "category": "climate_control"}},
+        {"asset_id": "phone_a", "entity_class": "rigid_object",
+         "identity": {"object_type": "desk_telephone", "category": "communication_device"}},
+        {"asset_id": "speaker_a", "entity_class": "rigid_object",
+         "identity": {"object_type": "smart_speaker", "category": "audio_playback"}},
+    ]
+}
+
+
+def test_a_sound_class_with_no_accepting_device_is_reported_not_made_usable() -> None:
+    accounting = bc.sound_input_accounting(
+        registry=SOUND_REGISTRY, sound_class_config=SOUND_CONFIG,
+        registered_event_class_counts={"telephone": 16, "buzzer": 9, "air_conditioning": 20},
+    )
+    assert accounting["sound_classes_bound_to_a_device"]["telephone"][
+        "accepting_asset_ids"] == ["phone_a"]
+    unbound = accounting["sound_classes_without_accepting_device"]["buzzer"]
+    assert unbound["state"] == bc.V1_UNDETERMINED_SEMANTICS_STATE
+    assert unbound["registered_event_count"] == 9
+    assert "labelled Buzz" in unbound["undetermined_semantics"]["measured_basis"]
+    assert accounting["unbound_registered_event_count"] == 9
+
+
+def test_an_undeclared_unbound_class_is_not_silently_undetermined() -> None:
+    accounting = bc.sound_input_accounting(
+        registry=SOUND_REGISTRY, sound_class_config=SOUND_CONFIG,
+        registered_event_class_counts={"dial_tone": 4},
+    )
+    assert accounting["sound_classes_without_accepting_device"]["dial_tone"][
+        "state"] == "no_registered_device_declares_this_sound_class"
+
+
+def test_no_registered_device_accepts_an_arbitrary_sound_class() -> None:
+    accounting = bc.sound_input_accounting(
+        registry=SOUND_REGISTRY, sound_class_config=SOUND_CONFIG,
+        registered_event_class_counts={"dog_bark": 166},
+    )
+    assert "dog_bark" not in accounting["sound_classes_bound_to_a_device"]
+
+
+def test_sound_denominators_stay_separate() -> None:
+    accounting = bc.sound_input_accounting(
+        registry=SOUND_REGISTRY, sound_class_config=SOUND_CONFIG,
+        registered_event_class_counts={"air_conditioning": 20},
+        library_denominators={"library_inventory_clips": 1190,
+                              "byte_identical_carry_over": 1168,
+                              "truly_new_relative_paths": 22,
+                              "pool_admissions_without_length_filter": 844},
+        segment_rows=[
+            {"selection_authorized": True, "crop_authorization": "owner_authorized"},
+            {"selection_authorized": False},
+        ],
+    )
+    assert accounting["denominators"]["library_inventory_clips"] == 1190
+    assert accounting["denominators"]["truly_new_relative_paths"] == 22
+    assert accounting["segment_candidates"]["cropped_candidate_rows"] == 2
+    assert accounting["segment_candidates"]["authorized_rows"] == 1
+    assert accounting["segment_candidates"]["rows_without_named_authorization"] == 1
+
+
+def test_feedback_refuses_a_sound_document_of_the_wrong_kind() -> None:
+    with pytest.raises(bc.BatchCoverageError, match="sound_inputs"):
+        bc.build_v1_coverage_feedback(
+            targets=_targets(), achieved=_achieved(), sound_inputs={"schema": "other"},
+        )
+
+
+def test_feedback_refuses_an_achieved_document_of_the_wrong_kind() -> None:
+    with pytest.raises(bc.BatchCoverageError, match="achieved"):
+        bc.build_v1_coverage_feedback(
+            targets=_targets(), achieved={"schema": "other", "by_qa_id": {}},
+        )
+
+
+def test_written_feedback_keeps_the_outstanding_list_and_refuses_an_existing_output(
+    tmp_path,
+) -> None:
+    feedback = bc.build_v1_coverage_feedback(
+        targets=_targets(),
+        achieved=_achieved(by_qa={
+            "QA-10": {"valid_main_questions": 2, "distinct_worlds_with_main": 2}}),
+    )
+    paths = bc.write_v1_coverage_feedback(feedback, tmp_path / "out")
+    written = json.loads(Path(paths["feedback"]).read_text(encoding="utf-8"))
+    assert written["by_qa_id"]["QA-10"]["state"] == "short_of_target"
+    outstanding = json.loads(Path(paths["outstanding"]).read_text(encoding="utf-8"))
+    assert outstanding["count"] == len(bc.outstanding_production_requests(feedback))
+    rows = Path(paths["csv"]).read_text(encoding="utf-8").splitlines()
+    assert rows[0].startswith("scope,qa_id,branch,state")
+    assert any(line.startswith("qa_id,QA-10,,short_of_target") for line in rows)
+    with pytest.raises(FileExistsError):
+        bc.write_v1_coverage_feedback(feedback, tmp_path / "out")
+
+
+def test_feedback_never_claims_evaluation_or_answerability() -> None:
+    feedback = bc.build_v1_coverage_feedback(targets=_targets(), achieved=_achieved())
+    assert feedback["model_evaluation"] == "not_run"
+    assert feedback["human_answerability"] == "not_run"
+    assert "paper admission" in feedback["claim_boundary"]
+
+
+def test_a_device_only_inapplicability_never_speaks_for_a_movable_source() -> None:
+    """A report covering several source pairs keeps the least excusing reason.
+
+    QA-15 is inapplicable to a device pair by definition and blocked on a
+    missing route solver for a human pair. Letting the device reason represent
+    the cell would excuse the gap that actually has to be built.
+    """
+    planning = {
+        "qa_ids": {
+            "QA-15": {"candidates": [
+                {"branch": "nearer", "state": "not_applicable_by_definition",
+                 "reason": "this pair has no source that can be a self-motion target"},
+                {"branch": "nearer", "state": "interface_not_implemented",
+                 "reason": "sample_routes: routes are sampled for a contiguous window"},
+            ]},
+        }
+    }
+    feedback = bc.build_v1_coverage_feedback(
+        targets=_targets(), achieved=_achieved(), planning=planning,
+    )
+    row = feedback["by_qa_branch"]["QA-15:nearer"]
+    assert row["state"] == "interface_not_implemented"
+    assert "sample_routes" in row["reason"]
+
+
+def test_the_order_of_the_candidates_does_not_change_the_reason() -> None:
+    reversed_candidates = {
+        "qa_ids": {
+            "QA-15": {"candidates": [
+                {"branch": "nearer", "state": "interface_not_implemented",
+                 "reason": "sample_routes"},
+                {"branch": "nearer", "state": "not_applicable_by_definition",
+                 "reason": "device"},
+            ]},
+        }
+    }
+    feedback = bc.build_v1_coverage_feedback(
+        targets=_targets(), achieved=_achieved(), planning=reversed_candidates,
+    )
+    assert feedback["by_qa_branch"]["QA-15:nearer"]["state"] == "interface_not_implemented"
+
+
+def test_a_cell_every_pair_finds_inapplicable_stays_inapplicable() -> None:
+    planning = {
+        "qa_ids": {
+            "QA-06": {"candidates": [
+                {"branch": "moving", "state": "not_applicable_by_definition",
+                 "reason": "no source of this pair can be a self-motion target"},
+            ]},
+        }
+    }
+    feedback = bc.build_v1_coverage_feedback(
+        targets=_targets(), achieved=_achieved(), planning=planning,
+    )
+    assert feedback["by_qa_branch"]["QA-06:moving"][
+        "state"] == "not_applicable_by_definition"
+

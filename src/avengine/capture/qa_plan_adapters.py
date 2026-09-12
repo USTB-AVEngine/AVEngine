@@ -7,13 +7,16 @@ import math
 import re
 from pathlib import Path
 from string import Template
+from typing import Mapping
 
 import numpy as np
 
 from avengine.qa.answerability import MeshHandle
 from avengine.rooms.room_package import (
     REPOSITORY_ROOT,
+    canonical_runtime,
     configured_path_bindings,
+    load_host_runtime_config,
     resolve_room_package_paths,
 )
 from avengine.rooms.walkable_space import RasterWalkableSpace, NativeRouteWalkableSpace, HabitatWalkableSpace
@@ -104,6 +107,42 @@ def _floor_value(package, room, *, runtime=None, base=None):
     raise ValueError("floor_reference has no supported measured height field")
 
 
+def _expanded_room(room, request):
+    """Accept either a raw catalog row or an already-expanded room mapping.
+
+    A catalog row names its RoomPackage by path, so a caller that iterates a
+    catalog used to reach the adapters with ``room_package`` still a string.
+    Expanding it here gives every caller the route the unified entry gives,
+    and a row that carries no package at all is returned untouched.
+    """
+    from avengine.rooms.room_package import package_from_catalog_entry
+    from avengine.rooms.room_providers import catalog_runtime, load_room_catalog, planning_room_mapping
+
+    package = room.get("room_package")
+    if package is None or isinstance(package, Mapping):
+        return room
+    if not isinstance(package, (str, Path)):
+        raise ValueError(
+            "room_package must be a RoomPackage mapping or a path to one, got "
+            f"{type(package).__name__}"
+        )
+    runtime = canonical_runtime(
+        request.get("runtime") if isinstance(request.get("runtime"), dict) else {}
+    )
+    catalog_path = request.get("room_catalog")
+    if catalog_path is not None:
+        catalog_path = _resolved(catalog_path, runtime=runtime)
+        runtime = catalog_runtime(load_room_catalog(catalog_path), runtime)
+    expanded = package_from_catalog_entry(
+        room, runtime=runtime, catalog_path=catalog_path
+    )
+    normalized = planning_room_mapping(expanded)
+    for key, value in room.items():
+        if key != "room_package" and key not in normalized:
+            normalized[key] = value
+    return normalized
+
+
 def load_planning_resources(room, request):
     """Load once per request; return an existing solver plus shared static mesh."""
     from avengine.rooms import native_qa_room as nq
@@ -111,8 +150,11 @@ def load_planning_resources(room, request):
     from avengine.rooms.furniture_layout import load_room_layout
     from avengine.rooms.furnished_episode import _load_static_triangle_geometry
 
+    room = _expanded_room(room, request)
     package = room.get("room_package") or {}
-    runtime = request.get("runtime") if isinstance(request.get("runtime"), dict) else {}
+    runtime = canonical_runtime(
+        request.get("runtime") if isinstance(request.get("runtime"), dict) else {}
+    )
     catalog_path = request.get("room_catalog")
     if catalog_path:
         catalog_file = _resolved(catalog_path, runtime=runtime)
@@ -123,9 +165,9 @@ def load_planning_resources(room, request):
     else:
         resource_base = REPOSITORY_ROOT
     planning_inputs = package.get("planning_inputs") or {}
-    kind = package.get("walkable_space", {}).get("kind")
+    adapter = planning_adapter_for_room(room, package)
 
-    if room.get("native_room_adapter") == nq.SCHEMA or kind == "route_bank":
+    if adapter == "native_spear_route_bank":
         source_root = room.get("native_input_root") or planning_inputs.get("native_input_root")
         route_bank = room.get("route_bank") or planning_inputs.get("route_bank")
         profile_path = room.get("native_room_profile") or planning_inputs.get("native_room_profile")
@@ -156,6 +198,17 @@ def load_planning_resources(room, request):
                 continue
             length = float(np.linalg.norm(np.diff(points, axis=0), axis=1).sum())
             if length >= 2. and .6 <= length / seconds <= 1.5:
+                motion_request = request.get("binding_motion") or request.get("binding_identity") or {}
+                speed_range = motion_request.get("walk_speed_range_mps")
+                if speed_range is not None:
+                    if (len(speed_range) != 2 or not all(np.isfinite(speed_range))
+                            or not 0 < speed_range[0] <= speed_range[1]):
+                        raise ValueError("binding motion requires two finite positive ordered walk speeds")
+                    speeds = np.linalg.norm(np.diff(points, axis=0), axis=1)*float(rate)
+                    moving = speeds[speeds > .05]
+                    if (not len(moving) or moving.min() < speed_range[0]-1e-5
+                            or moving.max() > speed_range[1]+1e-5):
+                        continue
                 routes.append({"route_id": raw["route_id"], "points_m": points})
         if not routes:
             raise ValueError("native route bank has no legal retained paths")
@@ -165,7 +218,7 @@ def load_planning_resources(room, request):
             native_route_count=len(routes),
         )
         space = NativeRouteWalkableSpace(pf, nav, routes, float(rate))
-    elif kind == "walkable_grid":
+    elif adapter == "retained_ue_walkable_grid":
         floor_height = _floor_value(
             package, room, runtime=runtime, base=resource_base
         )
@@ -188,7 +241,7 @@ def load_planning_resources(room, request):
         if mesh is None:
             raise ValueError("walkable-grid room needs shared static triangles")
         return space, mesh, layout
-    elif room.get("backend") == "habitat" or package.get("renderer") == "habitat":
+    elif adapter == "habitat_native_navmesh":
         from avengine.rooms.habitat_capture import prepare_installed_habitat_runtime
 
         rt = prepare_installed_habitat_runtime(
@@ -388,3 +441,146 @@ def materialize_habitat_room_manifest(package, source_manifest, output):
     manifest['provenance']['adaptation']='room_package_visual_scene_and_semantics'
     with Path(output).open('x') as stream:json.dump(manifest,stream,ensure_ascii=False,indent=2)
     return manifest
+
+
+# ---------------------------------------------------------------------------
+# Route boundary: which adapter plans a room, which executor renders it
+# ---------------------------------------------------------------------------
+
+
+def planning_adapter_for_room(room, package):
+    """Name the planning adapter this room routes to, from declared facts.
+
+    These are the branches ``load_planning_resources`` implements, in its
+    order. Naming them keeps the route reportable, and keeps the decision on
+    walkable_space.kind and renderer rather than on a room_id.
+    """
+    from avengine.rooms import native_qa_room as nq
+
+    kind = (package.get("walkable_space") or {}).get("kind")
+    if room.get("native_room_adapter") == nq.SCHEMA or kind == "route_bank":
+        return "native_spear_route_bank"
+    if kind == "walkable_grid":
+        return "retained_ue_walkable_grid"
+    if room.get("backend") == "habitat" or package.get("renderer") == "habitat":
+        return "habitat_native_navmesh"
+    return "furnished_manifest_raster"
+
+
+def selected_scene_reference(package):
+    """The scene identity a readback must match for this room.
+
+    Execution readback has to be checked against the scene this run selected,
+    not against whatever the executor happened to load, so the identity
+    travels with the route.
+    """
+    from avengine.rooms.room_package import renderer_for_room
+
+    renderer = renderer_for_room(package)
+    visual = package.get("visual_scene") or {}
+    keys = (("map_path", "uproject") if renderer == "ue_spear"
+            else ("scene_glb", "dataset_config", "navmesh"))
+    return {
+        "renderer": renderer,
+        "room_id": package.get("room_id"),
+        "family": package.get("family"),
+        **{key: visual.get(key) for key in keys},
+    }
+
+
+def capture_adapter_binding(package, runtime=None, *, repository=None,
+                            host_config=None, room_id=None, environment=None,
+                            allow_environment=False):
+    """Bind the selected room to its executor and that executor's parameters.
+
+    This is the capture-side half of the route. It reports rather than runs,
+    so a missing ``uproject`` or ``runtime_prefix`` comes back as a named
+    blocker instead of an executor failing later with a partial command line.
+    ``host_config`` is the run-local host runtime; it is a separate axis from
+    the room's own resources, and its per-room scope is how MP3D and HM3D
+    reach their different Habitat prefixes.
+    """
+    from avengine.rooms.room_providers import CAPTURE_ENTRYPOINTS
+    from avengine.rooms.room_package import renderer_for_room, resolve_room_runtime
+
+    renderer = renderer_for_room(package)
+    if renderer not in CAPTURE_ENTRYPOINTS:
+        raise ValueError(
+            f"renderer {renderer!r} has no capture adapter; supported renderers "
+            f"are {sorted(CAPTURE_ENTRYPOINTS)}"
+        )
+    report = resolve_room_runtime(
+        package, runtime, host_config=host_config, room_id=room_id,
+        environment=environment, allow_environment=allow_environment)
+    root = Path(repository) if repository is not None else REPOSITORY_ROOT
+    relative = CAPTURE_ENTRYPOINTS[renderer]
+    entrypoint = root / relative
+    blockers = list(report["missing"])
+    if not entrypoint.is_file():
+        blockers.append(f"capture entrypoint is absent: {entrypoint}")
+    return {
+        "schema": "avengine_qa_capture_adapter_binding_v1",
+        "renderer": renderer,
+        "planning_adapter": planning_adapter_for_room(
+            {"room_package": package}, package
+        ),
+        "entrypoint": str(entrypoint),
+        "entrypoint_repository_relative": relative,
+        "selected_scene": selected_scene_reference(package),
+        "runtime": report,
+        "status": "pass" if not blockers else "blocked",
+        "reason": None if not blockers else (
+            "capture cannot be launched for this room: " + "; ".join(
+                str(item) for item in blockers)
+        ),
+        "native_execution": "not_run",
+    }
+
+
+def request_host_runtime_config(request, *, runtime=None):
+    """Load the host runtime config a request names, if it names one.
+
+    Server paths live in that file rather than in the request or the
+    distributable examples, so a request stays portable between machines.
+    """
+    declared = (request or {}).get("host_runtime")
+    if declared is None:
+        return None
+    if isinstance(declared, Mapping):
+        return dict(declared)
+    return load_host_runtime_config(_resolved(declared, runtime=runtime or {}))
+
+
+def load_planning_resources_for_room(room_id, request, *, catalog=None,
+                                     profile_registry=None, host_config=None):
+    """Resolve a registered room and load its planning resources in one call.
+
+    The single entry a sampler should use: it takes a ``room_id`` against the
+    request's ``room_catalog`` and returns the navigation space, the shared
+    static mesh, the layout and the resolution that produced them. Runtime
+    executor parameters are not required here - planning reads the room's
+    declared resources, and capture is where ``uproject`` or
+    ``runtime_prefix`` becomes mandatory.
+    """
+    from avengine.rooms.room_providers import load_room_catalog, require_catalog_room
+
+    catalog_path = request.get("room_catalog")
+    if catalog_path is None:
+        raise ValueError(
+            "load_planning_resources_for_room needs request['room_catalog']"
+        )
+    runtime = canonical_runtime(
+        request.get("runtime") if isinstance(request.get("runtime"), dict) else {}
+    )
+    resolved_catalog_path = _resolved(catalog_path, runtime=runtime)
+    if catalog is None:
+        catalog = load_room_catalog(resolved_catalog_path)
+    if host_config is None:
+        host_config = request_host_runtime_config(request, runtime=runtime)
+    resolution = require_catalog_room(
+        catalog, room_id, catalog_path=resolved_catalog_path, runtime=runtime,
+        require_runtime=False, profile_registry=profile_registry,
+        host_config=host_config, request=request,
+    )
+    space, mesh, layout = load_planning_resources(dict(resolution.planning_room), request)
+    return space, mesh, layout, resolution

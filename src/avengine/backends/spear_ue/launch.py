@@ -78,3 +78,88 @@ def parallel_instance_settings(
         "log": f"SpearSim_rpc_{port}.log",
         "shared_memory_initial_unique_id": port * 10000,
     }
+
+
+def instance_settings_for_lease(lease: object) -> dict[str, int | str | None]:
+    """Build one instance's collision-free settings from a granted lease.
+
+    The allocator owns which port and which graphics device this worker got;
+    this function only turns that into the upstream SPEAR settings, so the
+    port that isolates the temp directory, the log file and the shared-memory
+    id is the same port the allocator reserved and probed.
+    """
+
+    port = getattr(lease, "rpc_port", None)
+    if port is None:
+        raise ValueError(
+            "this lease reserved no RPC port; a SPEAR instance needs one, so "
+            "its backend profile must declare needs_rpc_port"
+        )
+    return parallel_instance_settings(
+        port, graphics_adapter=getattr(lease, "device_index", None)
+    )
+
+
+def launch_arguments_for_lease(lease: object) -> dict[str, int | None]:
+    """The two values a granted lease decides for an external game launch.
+
+    ``launch_external_game_instance`` already takes ``rpc_port`` and
+    ``graphics_adapter`` and passes them to ``parallel_instance_settings``, so
+    a runner that has a lease only needs to hand these through. Nothing has to
+    be renamed or replaced for the allocator's choice to take effect.
+    """
+
+    port = getattr(lease, "rpc_port", None)
+    if port is None:
+        raise ValueError(
+            "this lease reserved no RPC port; a SPEAR instance needs one, so "
+            "its backend profile must declare needs_rpc_port"
+        )
+    return {
+        "rpc_port": int(port),
+        "graphics_adapter": getattr(lease, "device_index", None),
+    }
+
+
+def describe_instance_isolation(
+    settings: dict[str, int | str | None],
+    *,
+    uproject: str | Path | None = None,
+    ddc_directory: str | Path | None = None,
+    concurrency_trial: dict[str, object] | None = None,
+) -> dict[str, object]:
+    """Say what one instance isolates by port and what it still shares.
+
+    The temp directory, the log file and the shared-memory id are per port, so
+    two instances do not collide there. A shared `.uproject` and a shared
+    derived-data cache are not isolated by port at all. Whether two instances
+    may use them at once is a measurement, not an assumption: without a
+    recorded trial this reports `not_run` rather than claiming it is safe.
+    """
+
+    trial = dict(concurrency_trial or {})
+    status = str(trial.get("status") or "not_run")
+    return {
+        "isolated_by_rpc_port": {
+            "rpc_port": settings.get("rpc_port"),
+            "temp_dir": settings.get("temp_dir"),
+            "log": settings.get("log"),
+            "shared_memory_initial_unique_id": settings.get(
+                "shared_memory_initial_unique_id"
+            ),
+        },
+        "graphics_adapter": settings.get("graphics_adapter"),
+        "shared_between_instances": {
+            "uproject": None if uproject is None else str(uproject),
+            "ddc_directory": None if ddc_directory is None else str(ddc_directory),
+        },
+        "shared_input_concurrency": {
+            "status": status,
+            "detail": trial,
+            "note": (
+                "a shared uproject and derived-data cache are not separated by "
+                "the RPC port; run a representative two-instance trial before "
+                "treating concurrent use of them as safe"
+            ),
+        },
+    }

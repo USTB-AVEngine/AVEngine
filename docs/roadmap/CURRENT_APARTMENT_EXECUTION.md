@@ -1,3 +1,93 @@
+## 2026-09-11: takeover integration and partial delivery update
+
+The takeover remains active. The verified seed export is one repaired P09
+HM3D world with four samples, 56 valid main questions and five angle follow-ups.
+Its public index, model-input projection and HTML no longer expose world_key;
+private world accounting and world-level splitting remain. Both answer forms
+passed gold and unparseable-input controls from an unrelated cwd. This is a
+partial research delivery, not completed V1 or production readiness.
+
+Completed integration evidence includes legacy sound-pool rhythm/coordinate
+compatibility, pair coverage by distinct world rather than question count,
+registered QA07 left/right planning with bounded camera/ray work, and real
+metric-depth/GLB support-surface planning. QA07 pixels and asset placement
+qualification still require native execution. The retained survey still reports
+37 worlds / 2165 valid main questions, 20/25 QA quotas and 5/6 combination
+quotas; animal+device is short by one world.
+
+One retained-origin engineering audio stage produced true binaural and FOA
+tracks (16 kHz, 160000 samples, ACN/N3D avengine_world, gain 0.5), with four
+actual RLR contexts. Its unresolved legacy world identity is excluded from V1
+and fresh-world counting. Production ancillary registration was fixed against
+those real files without rerendering audio. Exact g03 replay, controller
+interruption/resume, automatic view attachment and coverage backfill continue.
+
+Current work: T11 source-placement wiring, T06 joint placement and independent
+verification, state/relation/identity staged recipes, and ordinary generation
+plus full missing-coverage requests. New visual launches remain subject to the
+pending 24-world budget-unit clarification; bounded zero-visual audio replay is
+separately recorded. Internal delivery target remains September 11 23:00 +08:00,
+with native acceptance time reserved before it.
+
+Evidence and current single-writer allocation:
+`tmp/binding_v1_parallel_20260910/TAKEOVER/MAIN/attempt_20260911T0129_controller/CONTROLLER_STATE.json`.
+Safe seed export:
+`tmp/binding_v1_parallel_20260910/TAKEOVER/M06_PUBLIC_GROUPING/attempt_20260910T201948Z_pid763902/delivery`.
+FOA finalization evidence:
+`tmp/binding_v1_parallel_20260910/TAKEOVER/M07_FOA_INDEX/attempt_20260910T210157Z_pid773163/REAL_FINALIZATION_READBACK.json`.
+
+## 2026-09-11: V1 takeover - first retained-stage closure
+
+The active authority remains `/data/jzy/tmp/wt-grok-pilot46-round2`; the
+2026-09-11 takeover preserves all existing dirty/untracked implementation.
+Production readiness and the original V1 quotas are not yet complete. The
+internal delivery target is 2026-09-11 23:00 Asia/Singapore, with the final
+six hours reserved for real acceptance.
+
+- The P09 HM3D visible-binding world now closes into one media-checked group
+  of four members after the shared-video path collision repair. It reuses the
+  two retained captures and four retained audio outputs: zero new visual
+  worlds and zero new RLR contexts. An independent worker decoded the actual
+  PCM/RGB relationships and checked changed answers; the old collided master
+  was preserved. This is a research candidate, not human or paper admission.
+- `binding_catalog` now carries the actual `task_family` into private
+  `core_task` metadata. Its retained four-member example passes export/reader
+  verification: 52 valid main questions and 8 angle follow-ups (60 catalog
+  items). The earlier main-controller label of 60 main questions is corrected
+  in a separate count-correction record; original evidence and gold remain.
+- The representative inventory retains all 31 fine source types and 59 asset
+  rows. Its initial schedule covered only 15 types and is being corrected;
+  no all-type acceptance claim follows from the inventory. Current asset
+  acceptance rows remain `not_run` pending representative evidence.
+- Group seed/intervention consistency, motion/visibility integration, the
+  other three staged recipes, ordinary stages, full backfill, native failure
+  accounting and real interruption/resume acceptance remain in progress.
+  Native launches are held until historical accounting and the 24-world
+  budget unit are resolved; failed launches will not disappear from the bill.
+
+Current controller and file ownership:
+`tmp/binding_v1_parallel_20260910/TAKEOVER/MAIN/attempt_20260911T0129_controller/CONTROLLER_STATE.json`.
+Corrected P09 group:
+`tmp/binding_v1_parallel_20260910/TAKEOVER/T01/attempt_20260910T173239Z_pid642365/p09_fresh_retry/assembly/binding_groups.json`.
+Independent raw media check:
+`tmp/binding_v1_parallel_20260910/TAKEOVER/V01/attempt_20260910T174046Z_pid651223/t01_frames_labeled/T01_INDEPENDENT_READBACK_LABELED.json`.
+Count correction:
+`tmp/binding_v1_parallel_20260910/TAKEOVER/M01/attempt_20260910T173811Z_pid648962/COUNT_CORRECTION.json`.
+
+## 2026-09-10: binding dataset snapshot0029 milestone
+
+The current authority records completed_groups_snapshot_0029.json with
+status=partial_delivery, 29 unique groups and 116 core members toward a
+64-group target. The room-by-task matrix (identity/state/visible/ref, where
+ref means visual-conditioned relation) is HM3D 4/2/4/3, MP3D 1/1/1/2,
+Kujiale 1/1/3/2, and Apartment 1/1/1/1.
+
+The full catalog is assembled from full_catalog_initial16_v1 plus expansion
+batches 0001 through 0004: 1,965 catalog items across 116 core members, with
+Open 1,894 and MCQ 1,475 counted separately. Batch 0004 adds four QA-21 items.
+The native queue is still in progress; model evaluation, human answerability
+and formal admission remain unrun.
+
 ## 2026-09-09：主线整合验证通过
 
 用户已接受本轮10秒审阅结果并授权整合与推送main。整合从远端main的f07212d出发，以b6f9e4a合入验收分支ef8fcef，保留双方提交历史；随后aba2a6c修正一条对旧相对路径行为的测试断言。
@@ -21,7 +111,7 @@
 
 # Current Apartment execution
 
-Last updated: 2026-09-08
+Last updated: 2026-09-10
 
 This is the short operational checkpoint for the active Apartment training
 dataset work. Durable project rules live in the repository `AGENTS.md`; this
@@ -1395,3 +1485,95 @@ P10代码提交24ea774已在干净HEAD上完成144 passed/0 failed/0 skipped（7
 最终46格清单tmp/p10_pilot46_manifest_20260907_v3/batch_manifest.json，producer为
 committed24ea774；固定画像与v2逐条相同，两个重复设备声音组合的预算缺额明确保留。
 本次owner明确授权推送当前分支并后台执行，覆盖原始任务中的不push限制。
+
+
+## Checkpoint 20260910: binding dataset implementation in progress
+
+The owner-approved full plan and subsequent full-catalog, retention and
+performance-order instructions are recorded verbatim/explicitly in
+[the binding implementation plan](../qa/BINDING_GROUP_IMPLEMENTATION_PLAN.md).
+Continue this active goal in the server authority; do not substitute four core
+families for QA-01–25, relax static-camera/10-second/tail constraints, or count
+re-exports as independent worlds. Current actual counts and delivery paths are
+tracked in [BINDING_GROUP_DATASET.md](../qa/BINDING_GROUP_DATASET.md).
+
+
+## Checkpoint 20260911: Luna closeout and Claude prompt handoff
+
+All four Luna workers returned final handoffs and released ownership. The
+controller read the handoffs and checked /proc: no owned runtime jobs remain;
+M23 controller941901 is stopped before native launch. Dirty implementation and
+failed attempts remain intact; no Git index operation. Evidence: tmp/binding_v1_parallel_20260910/TAKEOVER/M24_LUNA_CLOSEOUT/attempt_20260911T024941Z_pid974098/README.md.
+
+QA06/07/09/15/17 lack native qualification, not proof of impossible rooms.
+T24 prepare fails at missing base_request; the display exception is partial.
+T25 retains31 types/59 assets with full qualification not_run. P09 has a
+verified4-sample/1-world binaural+FOA export. Complete V1, integrated recovery/
+backfill and qualified end-to-end throughput are unfinished. At owner request,
+the controller prepares Claude prompts for user distribution, not direct CLI
+invocation. Deadline remains September11 evening, internal23:00 Singapore.
+
+
+## Checkpoint 20260911: Claude round1 reviewed, round2 prepared
+
+Controller verified the4 Claude handoffs. P09 contains all4 members; the
+delivery survey mixes public and core sample namespaces, causing the false
+missing-v1_a1 report. A retained native UE research receipt exists outside
+the searched parallel root; its real structure differs from the m5_1-only
+provenance reader. QA distinguishability is overconstrained (any equal rival
+versus the catalog all-equal rule). The8-dimension asset matrix and the5-key
+coverage reader are not integrated, and source-type backfill ignores assets.
+
+Three representative config blocks and P19 templates merged with runtime
+preserved. Normal prepare25 records/no gaps; measured capability regression
+21 passed. No new native/RLR work by controller. Round2 uses3 returning repair
+tasks plus2 independent measurement/branch tasks, exclusive writers; C04 idle.
+C02 may resume only M23 after related writers release and preflight, within
+the existing2 visual/4 audio/16 RLR reservation. Prompt handoff: /data/jzy/tmp/wt-grok-pilot46-round2/tmp/binding_v1_parallel_20260910/TAKEOVER/CLAUDE_ROUND2_HANDOFF/attempt_20260911T044800Z_pid1287245.
+Full production qualification, remaining3 fresh core worlds,31-type full asset
+acceptance and qualified end-to-end throughput remain incomplete.
+
+
+## Checkpoint 20260911: normal CLI condition repair and M23 materialization blocker
+
+The controller removed the CLI pre-resolved base-profile override. The original
+C06 requests now pass the unwrapped plan-only CLI in all4 room families; actual
+profile snapshots agree. Related tests29 passed; tool index regenerated/check
+passed. These are CPU plans, not native pixel or QA quota acceptance.
+
+M23 reached a chargeable capture attempt but failed before creating a Habitat
+context: the state variant reports a thin episode/plan tree without its own
+materialized capture inputs. C04 must materialize the actual variant, never
+point capture at the differing base plan. Failure charged1, actual native0;
+one unused global slot reallocated to M23 local cumulative cap3 (remaining2),
+keeping globalcap24 and audio4/RLR16 unchanged. C02 controller PID readback
+incorrectly described its recorder process and must be fixed before SIGTERM.
+
+Qualification review separates navigation height from visual ground contact,
+root height from actual feet, and AABB overlap from mesh penetration. Unknown
+surface measurements remain not_run; intended support may be configured while
+keeping measurement facts separate. Round3 prompts for6 exclusive owners: /data/jzy/tmp/wt-grok-pilot46-round2/tmp/binding_v1_parallel_20260910/TAKEOVER/CLAUDE_ROUND3_HANDOFF/attempt_20260911T064744Z_pid1476473.
+
+
+## Checkpoint 20260911: first M23 native media and runtime ownership consolidation
+
+Main repaired the state-to-native capture directory handoff while preserving
+no-clobber for old/unrelated attempts. The real thin-plan delegation regression
+failed before repair; related source tests69 pass. Main config prepares25 rows
+with no gaps, actual19-knob capability basis refreshed, identity pins/pool
+merged into all4 core member requests.
+
+M23 attempt03 produced150 actual Habitat frames. First audio has measured
+16kHz160000-sample binaural2ch and FOA4ch, finite/nonzero,4 actual RLR contexts.
+The second early audio has also reached4 RLR contexts; full group, recovery
+and qualified throughput remain incomplete. Controller collection/resume is
+being repaired by C02; completed worker outcomes must be adopted, not rerendered.
+M23 cumulative caps visual4/audio4/RLR16 remain inside globalvisual24; failures
+kept, actual launches separate.
+
+C05 now proves P09 source1 sole is about0.0585m above measured visual floor,
+and3 device mesh placements really intersect. Old media functional results
+remain reusable, but P09 full physical qualification is not passed and older
+zero-fail asset matrices are stale. Geometry-scale59/59 is not full31-type
+qualification. Round4 consolidates runtime code underC02, visibility underC07,
+AV/time underC01 and physical repair underC03/C05. Prompts: /data/jzy/tmp/wt-grok-pilot46-round2/tmp/binding_v1_parallel_20260910/TAKEOVER/CLAUDE_ROUND4_HANDOFF/attempt_20260911T091653Z_pid1748255.

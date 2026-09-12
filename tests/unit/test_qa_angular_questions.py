@@ -269,3 +269,103 @@ def test_integer_time_bands_classify_against_the_displayed_boundaries():
     from avengine.qa.unified_catalog import _time_bands
     facts = {"time": {"duration_seconds": 10}}
     assert _time_bands(facts) == [(0, 2), (2, 5), (5, 8), (8, 10)]
+
+
+# --- P08: whole-second bearing queries and reported subset gaps --------------
+
+import avengine.qa.angular_questions as _p08_angles
+import avengine.qa.unified_catalog as _p08_catalog
+
+
+def _p08_sounding_fixture() -> dict:
+    """The fixture plus a complete source-activity readback."""
+    raw = _fixture()
+    raw["audio_readback"]["source_activity_intervals_samples"] = {
+        "e0": [{"start_sample": 3200, "end_sample_exclusive": 9600}],
+        "e1": [{"start_sample": 16000, "end_sample_exclusive": 22400}],
+        "e2": [{"start_sample": 19200, "end_sample_exclusive": 25600}],
+        "e3": [{"start_sample": 32000, "end_sample_exclusive": 64000}],
+    }
+    return raw
+
+
+def test_a_frame_that_is_not_a_whole_second_publishes_no_second() -> None:
+    facts = normalize_episode_bundle(_fixture())
+
+    assert _p08_angles.publishable_query_second(facts, 30) == 3
+    assert _p08_angles.publishable_query_second(facts, 20) == 2
+    # The last frame of a four second clip at ten frames a second sits at
+    # 3.9 s. Rounding it to 4 s would name an instant past the clip.
+    assert _p08_angles.publishable_query_second(facts, 39) is None
+    assert _p08_angles.publishable_query_second(facts, 35) is None
+
+
+def test_a_clip_end_query_uses_the_anchor_instead_of_a_rounded_second() -> None:
+    facts = normalize_episode_bundle(_p08_sounding_fixture())
+    candidate = {"subset": "A", "actor_id": "a3", "event_id": "e3",
+                 "query_frame": 39, "candidate_id": "QA-25:A:a3:e3:39",
+                 "kind": "continuous_bearing"}
+    item = _p08_angles._item(facts, "p08", candidate, "Q?", "问?")
+    evidence = item["evidence"]
+
+    assert "query_time_s" not in evidence
+    assert evidence["query_anchor"] == "clip_end"
+    assert evidence["query_frame_time_s"] == pytest.approx(3.9)
+
+
+def test_a_whole_second_query_still_publishes_its_second() -> None:
+    facts = normalize_episode_bundle(_p08_sounding_fixture())
+    candidate = {"subset": "A", "actor_id": "a3", "event_id": "e3",
+                 "query_frame": 30, "candidate_id": "QA-25:A:a3:e3:30",
+                 "kind": "continuous_bearing"}
+    item = _p08_angles._item(facts, "p08", candidate, "Q?", "问?")
+
+    assert item["evidence"]["query_time_s"] == 3
+    assert item["evidence"]["query_frame_time_s"] == pytest.approx(3.0)
+    assert "query_anchor" not in item["evidence"]
+
+
+def test_a_bearing_question_refuses_a_frame_it_cannot_state_in_seconds() -> None:
+    facts = normalize_episode_bundle(_p08_sounding_fixture())
+    candidate = {"subset": "A", "actor_id": "a3", "event_id": "e3",
+                 "query_frame": 35, "candidate_id": "QA-25:A:a3:e3:35",
+                 "kind": "continuous_bearing"}
+
+    with pytest.raises(_p08_catalog._Deferred) as raised:
+        _p08_angles.emit(facts, candidate, "p08")
+    assert raised.value.code == "query_frame_is_not_a_whole_second"
+
+
+def test_the_av_subset_reports_why_it_has_no_candidate() -> None:
+    facts = normalize_episode_bundle(_p08_sounding_fixture())
+    diagnostics = _p08_angles.subset_diagnostics(facts)
+
+    assert diagnostics["A"]["candidate_count"] > 0
+    assert diagnostics["AV"]["candidate_count"] == 0
+    assert diagnostics["AV"]["code"] == "no_hidden_while_audible_frame"
+    # The measured states are what a producer needs in order to build the
+    # missing scene, so they travel with the reason.
+    assert diagnostics["AV"]["visibility_states_at_audible_frames"]
+    assert "out_of_view" not in diagnostics["AV"]["visibility_states_at_audible_frames"]
+    assert "fully_occluded" not in diagnostics["AV"]["visibility_states_at_audible_frames"]
+
+
+def test_a_missing_activity_readback_is_a_different_subset_reason() -> None:
+    facts = normalize_episode_bundle(_fixture())
+    diagnostics = _p08_angles.subset_diagnostics(facts)
+
+    assert {row["code"] for row in diagnostics.values()} == {
+        "missing_source_activity_readback"
+    }
+
+
+def test_the_question_set_carries_the_subset_reason() -> None:
+    output = generate_unified_questions(
+        _p08_sounding_fixture(), qa_ids=["QA-25"], seed="p08-subset"
+    )
+    coverage = output["angle_subset_coverage"]
+
+    assert coverage["AV"]["valid"] == 0
+    assert coverage["AV"]["code"] == "no_hidden_while_audible_frame"
+    assert coverage["A"]["valid"] >= 1
+    assert "code" not in coverage["A"]

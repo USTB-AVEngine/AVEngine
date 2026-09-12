@@ -8,7 +8,7 @@ import math
 from pathlib import Path
 import subprocess
 import sys
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 
 import numpy as np
 import soundfile as sf
@@ -22,6 +22,8 @@ from avengine.qa.answerability import (
     MeshHandle, line_of_sight, listener_azimuth_deg,
     max_concurrent_entities, separation_stats,
 )
+from avengine.dataset.source_capabilities import combination_key, source_family
+from avengine.qa.unified_catalog import iter_unified_items
 
 
 def _read(path: Path):
@@ -612,3 +614,817 @@ def finalize_batch_outputs(output_root: Path, manifest: Mapping[str, Any],
               "human_listening_status": "pending_human", "qualification_claim": False}
     _write(summary_root / "summary.json", result)
     return result
+
+
+# ---------------------------------------------------------------------------
+# V1 achieved coverage
+#
+# The V1 question bank is counted here from artifacts that actually exist: a
+# retained group library, a delivered export, or a fresh run's question sets.
+# Every count uses the same publication predicate the delivery boundary uses
+# (``binding_delivery`` item status plus per-form status), so a "valid main
+# question" means the same thing in the feedback table and in the exported
+# dataset. Requested quota never enters this side.
+# ---------------------------------------------------------------------------
+
+V1_ACHIEVED_SCHEMA = "avengine_qa_v1_achieved_coverage_v1"
+V1_QUESTION_FORMS = ("mcq", "open")
+V1_QUESTION_KINDS = ("main", "angle_followup")
+UNRESOLVED_SOURCE_FAMILY = "unresolved_source_family"
+UNOBSERVED_BRANCH = "branch_not_observable_from_published_answer"
+
+
+class V1AchievedCoverageError(ValueError):
+    """An achieved-coverage input is missing or contradicts itself."""
+
+
+def valid_question_forms(item: Mapping[str, Any]) -> list[str]:
+    """Return the forms the delivery boundary would actually publish.
+
+    This mirrors ``binding_delivery`` exactly: a form counts only when the
+    generator emitted it and its own ``form_status`` is ``pass``. A form the
+    export would drop must not be counted here either.
+    """
+    declared = item.get("forms") or {}
+    status = item.get("form_status") or {}
+    return sorted(
+        form
+        for form in V1_QUESTION_FORMS
+        if form in declared and (status.get(form) or {}).get("status") == "pass"
+    )
+
+
+# How a declared key branch shows up in a published answer. Three real shapes,
+# measured against the retained catalog rather than assumed:
+#
+#  * identity      - the answer token is the branch token (QA-06/07/08/09/15/17/24).
+#  * answer_map    - the answer vocabulary differs from the branch vocabulary.
+#                    QA-05 publishes yes/no for "did they overlap", which is the
+#                    overlap/disjoint branch under a different name; QA-20
+#                    publishes an actor id or none_of_visible, so any actor
+#                    id is the visible-candidate branch.
+#  * modalities    - QA-25 asks the same bearing question of audio, video or
+#                    both, so its branch is the item's required modalities and
+#                    is not readable from the numeric answer at all.
+#
+# A branch that cannot be read this way is reported as unobservable; it is never
+# assigned to a branch on the strength of the request that asked for it.
+BRANCH_OBSERVATION_RULES = {
+    "QA-05": {"kind": "answer_map", "map": {"yes": "overlap", "no": "disjoint"}},
+    "QA-20": {
+        "kind": "answer_map",
+        "map": {"none_of_visible": "none_of_them", "none_of_them": "none_of_them"},
+        "default": "visible_candidate",
+    },
+    "QA-25": {
+        "kind": "modalities",
+        "map": {"audio": "A", "video": "V", "audio+video": "AV"},
+    },
+}
+
+
+def _answer_tokens(item: Mapping[str, Any]) -> list[str]:
+    tokens = []
+    forms = item.get("forms") or {}
+    for form in V1_QUESTION_FORMS:
+        block = forms.get(form)
+        if not isinstance(block, Mapping) or "truth" not in block:
+            continue
+        value = block.get("truth")
+        if isinstance(value, bool):
+            tokens.append("yes" if value else "no")
+        elif isinstance(value, (str, int)):
+            tokens.append(str(value))
+    return tokens
+
+
+def observed_branch(
+    item: Mapping[str, Any],
+    branches: Sequence[str],
+    *,
+    qa_id: str | None = None,
+    rules: Mapping[str, Any] | None = None,
+) -> str | None:
+    """Return which declared key branch this produced item actually realizes.
+
+    The branch is read off what the item published, so a request that asked for
+    a moving speaker but produced a still episode is not counted as branch
+    coverage. When the published answer does not identify the branch this
+    returns None and the caller records the item as branch-unobservable.
+    """
+    if not branches:
+        return None
+    branches = tuple(str(value) for value in branches)
+    rules = BRANCH_OBSERVATION_RULES if rules is None else rules
+    rule = rules.get(str(qa_id)) if qa_id is not None else None
+    if rule is not None and rule.get("kind") == "modalities":
+        modalities = item.get("required_modalities")
+        if not modalities:
+            return None
+        key = "+".join(sorted(str(value) for value in modalities))
+        branch = (rule.get("map") or {}).get(key)
+        return branch if branch in branches else None
+    tokens = _answer_tokens(item)
+    if rule is not None and rule.get("kind") == "answer_map":
+        mapping = rule.get("map") or {}
+        for token in tokens:
+            if token in mapping:
+                branch = mapping[token]
+                return branch if branch in branches else None
+        default = rule.get("default")
+        if tokens and default in branches:
+            return default
+        return None
+    for token in tokens:
+        if token in branches:
+            return token
+    return None
+
+
+def question_set_rows(question_set: Mapping[str, Any], *, branches_for_qa=None) -> list[dict[str, Any]]:
+    """Publishable question rows of one generated question set.
+
+    ``branches_for_qa`` defaults to the shared branch table in
+    ``avengine.qa.generation_conditions`` so the condition compiler and this
+    counter never disagree about what a key branch is.
+    """
+    if branches_for_qa is None:
+        from avengine.qa.generation_conditions import branches_for as branches_for_qa
+    angle_ids = {
+        str(entry.get("question_id"))
+        for entry in question_set.get("angle_followups") or []
+        if isinstance(entry, Mapping)
+    }
+    rows: list[dict[str, Any]] = []
+    for item in iter_unified_items(question_set):
+        if not isinstance(item, Mapping):
+            continue
+        qa_id = str(item.get("qa_id"))
+        if item.get("status") != "pass":
+            continue
+        forms = valid_question_forms(item)
+        if not forms:
+            continue
+        branches = tuple(branches_for_qa(qa_id))
+        rows.append(
+            {
+                "qa_id": qa_id,
+                "question_id": str(item.get("question_id")),
+                "kind": "angle_followup" if str(item.get("question_id")) in angle_ids else "main",
+                "forms": forms,
+                "branches_expected": list(branches),
+                "branch": observed_branch(item, branches, qa_id=qa_id),
+            }
+        )
+    return rows
+
+
+def question_set_deferrals(question_set: Mapping[str, Any]) -> list[dict[str, Any]]:
+    """Deferred rows of one generated question set, reason code kept per row."""
+    rows = []
+    for entry in question_set.get("deferred") or []:
+        if not isinstance(entry, Mapping):
+            continue
+        rows.append(
+            {
+                "qa_id": str(entry.get("qa_id")),
+                "code": str(entry.get("code") or "deferred_by_rule"),
+                "detail": entry.get("detail"),
+            }
+        )
+    return rows
+
+
+def source_family_index(registry: Mapping[str, Any]) -> dict[str, str]:
+    """asset_id -> human/animal/device, from the registry that owns that fact."""
+    index: dict[str, str] = {}
+    for record in registry.get("assets") or []:
+        if not isinstance(record, Mapping):
+            continue
+        index[str(record["asset_id"])] = source_family(record)
+    return index
+
+
+def member_source_families(
+    facts: Mapping[str, Any], *, family_by_asset: Mapping[str, str]
+) -> dict[str, Any]:
+    """Resolve the participating source families of one Episode's actors.
+
+    Retained facts carry ``asset_id`` but leave ``entity_class`` null, so the
+    family is resolved through the runtime registry that owns that attribute.
+    An asset the registry does not know stays unresolved; it is never inferred
+    from the identifier text.
+    """
+    actors = facts.get("actors")
+    actors = actors if isinstance(actors, Mapping) else {}
+    families: list[str] = []
+    unresolved: list[str] = []
+    for actor_id in sorted(actors):
+        actor = actors.get(actor_id)
+        asset_id = str((actor or {}).get("asset_id"))
+        family = family_by_asset.get(asset_id)
+        if family is None:
+            unresolved.append(asset_id)
+        else:
+            families.append(family)
+    # Coverage of the two-entity combinations is every unordered pair actually
+    # present, not only the pair of a two-source Episode: a room holding a
+    # human, a second human and a device covers human+human and human+device at
+    # once. Counting only two-source Episodes hid every device combination in
+    # the retained library, where 36 of 148 members carry three or four sources.
+    counted = Counter(families)
+    combinations = sorted({
+        combination_key(first, second)
+        for first in counted
+        for second in counted
+        if first != second or counted[first] >= 2
+    }) if not unresolved else []
+    combination = None
+    if len(families) == 2 and not unresolved:
+        combination = combination_key(families[0], families[1])
+    elif unresolved:
+        combination = UNRESOLVED_SOURCE_FAMILY
+    return {
+        "source_families": sorted(families),
+        "entity_combination": combination,
+        "entity_combinations": combinations,
+        "asset_ids_absent_from_registry": sorted(set(unresolved)),
+    }
+
+
+def _member_facts_path(member: Mapping[str, Any], *, base: Path) -> Path:
+    value = member.get("facts_path")
+    if not value:
+        raise V1AchievedCoverageError("group member has no facts_path")
+    path = Path(str(value))
+    return path if path.is_absolute() else (base / path).resolve()
+
+
+def survey_group_member(
+    group: Mapping[str, Any],
+    member: Mapping[str, Any],
+    *,
+    base: Path,
+    family_by_asset: Mapping[str, str],
+    generate,
+    seed: str,
+    items_per_type: int = 1,
+) -> dict[str, Any]:
+    """Survey one retained core-group member from its own facts.
+
+    Only the question generator runs; no media is copied and no world is
+    rendered, so this census can cover a whole retained library without
+    spending a native budget.
+    """
+    facts_path = _member_facts_path(member, base=base)
+    facts = _read(facts_path)
+    sampling = dict(facts.get("sampling") or {})
+    sampling["time_display_precision"] = 0
+    sampling["qa_sampling"] = {
+        **(sampling.get("qa_sampling") or {}),
+        "time_display_precision": 0,
+    }
+    facts["sampling"] = sampling
+    identity = member_source_families(facts, family_by_asset=family_by_asset)
+    row = {
+        "group_id": str(group.get("group_id")),
+        "member_id": str(member.get("member_id")),
+        "world_id": str(group.get("world_id")),
+        "task_family": group.get("task_family"),
+        "room_family": group.get("room_family"),
+        "room_id": group.get("room_id"),
+        "core_sample_id": member.get("sample_id"),
+        "facts_path": str(facts_path),
+        **identity,
+    }
+    try:
+        questions = generate(facts, seed=seed, items_per_type=int(items_per_type))
+    except Exception as error:  # a real generation failure stays one row, not a gap
+        row["generation_status"] = "fail"
+        row["generation_error"] = f"{type(error).__name__}: {error}"
+        row["questions"] = []
+        row["deferred"] = []
+        return row
+    row["generation_status"] = "pass"
+    row["questions"] = question_set_rows(questions)
+    row["deferred"] = question_set_deferrals(questions)
+    return row
+
+
+def survey_retained_group_library(
+    snapshot: str | Path | Mapping[str, Any],
+    *,
+    registry: str | Path | Mapping[str, Any],
+    generate=None,
+    seed_prefix: str = "v1-coverage-census",
+    items_per_type: int = 1,
+    group_ids: Sequence[str] | None = None,
+) -> dict[str, Any]:
+    """Census every member of a retained group snapshot, one world counted once.
+
+    A snapshot lists groups with their bundle path, world identity, task family
+    and room family; each bundle carries the members and their facts. This walks
+    that real structure instead of assuming a delivery subset is the library.
+    """
+    if generate is None:
+        from avengine.qa.binding_catalog import whole_degree_display
+        from avengine.qa.unified_catalog import QA_IDS, generate_unified_questions
+
+        def generate(facts, *, seed, items_per_type):
+            return whole_degree_display(
+                generate_unified_questions(
+                    facts, qa_ids=QA_IDS, items_per_type=items_per_type, seed=seed
+                )
+            )
+
+    snapshot_path = None
+    if isinstance(snapshot, (str, Path)):
+        snapshot_path = Path(snapshot).expanduser().resolve()
+        document = _read(snapshot_path)
+    elif isinstance(snapshot, Mapping):
+        document = deepcopy(dict(snapshot))
+    else:
+        raise V1AchievedCoverageError("snapshot must be a path or object")
+    registry_path = None
+    if isinstance(registry, (str, Path)):
+        registry_path = Path(registry).expanduser().resolve()
+        registry_document = _read(registry_path)
+    elif isinstance(registry, Mapping):
+        registry_document = registry
+    else:
+        raise V1AchievedCoverageError("registry must be a path or object")
+    family_by_asset = source_family_index(registry_document)
+    wanted = None if group_ids is None else {str(value) for value in group_ids}
+    rows: list[dict[str, Any]] = []
+    seen: set[tuple[str, str]] = set()
+    for entry in document.get("groups") or []:
+        if not isinstance(entry, Mapping):
+            raise V1AchievedCoverageError("snapshot group entry must be an object")
+        if wanted is not None and str(entry.get("group_id")) not in wanted:
+            continue
+        bundle_path = Path(str(entry["bundle"])).expanduser()
+        bundle = _read(bundle_path)
+        for group in bundle.get("groups") or []:
+            merged = {
+                "group_id": group.get("group_id", entry.get("group_id")),
+                "world_id": group.get("world_id", entry.get("world_id")),
+                "task_family": group.get("task_family", entry.get("task_family")),
+                "room_family": group.get("room_family", entry.get("room_family")),
+                "room_id": group.get("room_id", entry.get("room_id")),
+            }
+            for member in group.get("members") or []:
+                key = (str(merged["group_id"]), str(member.get("member_id")))
+                if key in seen:
+                    raise V1AchievedCoverageError(
+                        f"snapshot supplies group/member {key} twice"
+                    )
+                seen.add(key)
+                rows.append(
+                    survey_group_member(
+                        merged,
+                        member,
+                        base=bundle_path.parent,
+                        family_by_asset=family_by_asset,
+                        generate=generate,
+                        seed=f"{seed_prefix}:{merged['group_id']}:{member.get('member_id')}",
+                        items_per_type=items_per_type,
+                    )
+                )
+    return {
+        "schema": V1_ACHIEVED_SCHEMA,
+        "source_kind": "retained_group_library_census",
+        "snapshot": str(snapshot_path) if snapshot_path else "inline",
+        "snapshot_status": document.get("status"),
+        "registry": str(registry_path) if registry_path else "inline",
+        "members": rows,
+        "claim_boundary": (
+            "Question generation over retained facts only. No new world, no media "
+            "readback, no human answerability and no model evaluation."
+        ),
+    }
+
+
+def survey_delivery_export(root: str | Path) -> dict[str, Any]:
+    """Read achieved rows out of a delivered export instead of regenerating them.
+
+    The public index owns world key, room family and split; the private gold
+    index owns the per-sample facts, group identity and core task. Both are read
+    as delivered, so an imported delivery contributes the counts it actually
+    published.
+    """
+    root = Path(root).expanduser().resolve()
+    public = _read(root / "public" / "dataset_index.json")
+    private_path = root / "private" / "gold_index.json"
+    private = _read(private_path) if private_path.exists() else {"records": []}
+    records = [
+        record for record in private.get("records") or []
+        if isinstance(record, Mapping)
+    ]
+    public_samples = list(public.get("samples") or [])
+    public_ids = {
+        str(sample.get("sample_id")) for sample in public_samples
+        if sample.get("sample_id") is not None
+    }
+    # The public index joins on the private record's own public `sample_id`.
+    # `core_sample_id` is a *different* namespace and in a real export the two
+    # are permuted: public sample_000001 carries core id sample_000003 while
+    # public sample_000003 carries core id sample_000001. Folding both into
+    # one map let one record's alias overwrite another record's primary key,
+    # so two public samples resolved to the same member and a delivered
+    # member disappeared from the survey entirely.
+    by_public_id: dict[str, Mapping[str, Any]] = {}
+    duplicate_public_ids: list[str] = []
+    for record in records:
+        key = record.get("sample_id")
+        if not isinstance(key, str) or not key.strip():
+            continue
+        key = key.strip()
+        if key in by_public_id:
+            duplicate_public_ids.append(key)
+            continue
+        by_public_id[key] = record
+    # An older export wrote only the core id. That alias is a fallback, never
+    # a primary key: it is consulted only for a public sample no record
+    # claims, only when exactly one record carries it, and only when that
+    # record is not already joined through its own public id. Any of those
+    # three failing leaves the sample unmatched and says so, because guessing
+    # is what produced a wrong member list in the first place.
+    alias_counts: dict[str, int] = {}
+    by_core_alias: dict[str, Mapping[str, Any]] = {}
+    for record in records:
+        alias = record.get("core_sample_id")
+        if not isinstance(alias, str) or not alias.strip():
+            continue
+        alias = alias.strip()
+        alias_counts[alias] = alias_counts.get(alias, 0) + 1
+        by_core_alias.setdefault(alias, record)
+    ambiguous_core_aliases = sorted(
+        alias for alias, count in alias_counts.items() if count > 1
+    )
+    rows = []
+    world_identity_unknown = False
+    unmatched_public_sample_ids: list[str] = []
+    join_key_counts: dict[str, int] = {}
+    for sample in public_samples:
+        sample_id = str(sample.get("sample_id"))
+        record = by_public_id.get(sample_id)
+        join_key = "public_sample_id"
+        if record is None:
+            candidate = by_core_alias.get(sample_id)
+            own_public_id = (
+                None if candidate is None else candidate.get("sample_id")
+            )
+            already_joined = (
+                isinstance(own_public_id, str)
+                and own_public_id.strip() in public_ids
+            )
+            if (
+                candidate is not None
+                and alias_counts.get(sample_id) == 1
+                and not already_joined
+            ):
+                record = candidate
+                join_key = "core_sample_id_alias"
+        if record is None:
+            record = {}
+            join_key = "unmatched"
+            unmatched_public_sample_ids.append(sample_id)
+        join_key_counts[join_key] = join_key_counts.get(join_key, 0) + 1
+        private_world_id = record.get("world_id")
+        if not isinstance(private_world_id, str) or not private_world_id.strip():
+            world_identity_unknown = True
+            private_world_id = None
+        questions = []
+        for entry in sample.get("questions") or []:
+            questions.append(
+                {
+                    "qa_id": str(entry.get("qa_id")),
+                    "question_id": str(entry.get("question_id")),
+                    "kind": str(entry.get("kind")),
+                    "forms": sorted(str(form) for form in entry.get("forms") or []),
+                    "branches_expected": [],
+                    "branch": None,
+                }
+            )
+        rows.append(
+            {
+                "group_id": record.get("group_id"),
+                "member_id": record.get("member_id"),
+                "world_id": private_world_id,
+                "task_family": record.get("core_task") or record.get("task_family"),
+                "room_family": sample.get("room_family"),
+                "room_id": None,
+                "core_sample_id": record.get("core_sample_id") or sample_id,
+                "facts_path": record.get("facts_path"),
+                "source_families": [],
+                "entity_combination": None,
+                "asset_ids_absent_from_registry": [],
+                "generation_status": "pass",
+                "questions": questions,
+                "deferred": [],
+                "delivered_sample_id": sample_id,
+                "private_join_key": join_key,
+            }
+        )
+    return {
+        "schema": V1_ACHIEVED_SCHEMA,
+        "source_kind": "delivered_export",
+        "export_root": str(root),
+        "members": rows,
+        "world_accounting": (
+            "unknown_public_only" if world_identity_unknown else "private_metadata"
+        ),
+        "delivered_counts": deepcopy(dict(public.get("counts") or {})),
+        "private_join": {
+            "join_key_counts": dict(sorted(join_key_counts.items())),
+            "unmatched_public_sample_ids": unmatched_public_sample_ids,
+            "duplicate_public_sample_ids": sorted(set(duplicate_public_ids)),
+            "ambiguous_core_aliases": ambiguous_core_aliases,
+            "note": (
+                "The public sample_id is the join key. core_sample_id is a "
+                "separate namespace kept for older exports and is used only "
+                "for a public sample no record claims, when it is unambiguous "
+                "and its record is not already joined."
+            ),
+        },
+        "claim_boundary": (
+            "Counts as delivered. Branch and source family are absent from the "
+            "public export, so this view reports them as unavailable rather than "
+            "deriving them."
+        ),
+    }
+
+
+def _delivered_sample_identity(row: Mapping[str, Any]) -> str | None:
+    """Which delivered sample a survey row came from, if it says."""
+    for field in ("delivered_sample_id", "core_sample_id", "sample_id"):
+        value = row.get(field)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return None
+
+
+def merge_achieved_surveys(*surveys: Mapping[str, Any]) -> dict[str, Any]:
+    """Union several surveys, counting each core-group member slot once.
+
+    Identity is the core-group member, falling back to the delivered sample
+    when a survey has no group identity. Re-importing the same retained
+    delivery therefore does not inflate a world or a question count.
+
+    Two different things collide on that key and they are reported apart,
+    because they mean opposite things about the data. The same member
+    delivered twice is a re-import: nothing new arrived. A *different*
+    delivered sample sitting in a member slot that is already filled is an
+    extra sample -- an engineering replay of one member, which a real export
+    in this programme contains. Both are kept out of the member count, so a
+    four-member core group stays four members and never reads as five. Only
+    the extra sample is a fact about the delivery rather than about the
+    import, so it keeps its own sample id: calling it "already imported"
+    named a sample that had never been imported at all and left no way to
+    see that the export carried a replay.
+    """
+    merged: dict[tuple[str, str], dict[str, Any]] = {}
+    reimported: list[dict[str, Any]] = []
+    extra_samples: list[dict[str, Any]] = []
+    for survey in surveys:
+        if survey.get("schema") != V1_ACHIEVED_SCHEMA:
+            raise V1AchievedCoverageError("every merged survey must be an achieved survey")
+        for row in survey.get("members") or []:
+            group_id = row.get("group_id")
+            member_id = row.get("member_id")
+            if group_id and member_id:
+                key = (str(group_id), str(member_id))
+            else:
+                key = ("delivered_sample", str(row.get("delivered_sample_id") or row.get("core_sample_id")))
+            if key in merged:
+                kept = merged[key]
+                incoming_sample = _delivered_sample_identity(row)
+                kept_sample = _delivered_sample_identity(kept)
+                record = {
+                    "key": list(key),
+                    "kept_source": kept["_source_kind"],
+                    "skipped_source": survey.get("source_kind"),
+                }
+                if (
+                    incoming_sample is not None
+                    and kept_sample is not None
+                    and incoming_sample != kept_sample
+                ):
+                    # Only the extra sample needs the two ids: for a genuine
+                    # re-import they are the same value, and the re-import
+                    # record is an existing published shape.
+                    record["kept_sample_id"] = kept_sample
+                    record["skipped_sample_id"] = incoming_sample
+                    record["world_id"] = row.get("world_id")
+                    record["reason"] = (
+                        "a second delivered sample occupies a member slot that "
+                        "is already filled; it is an extra sample for that "
+                        "member, not a re-import, and it does not add a member "
+                        "or a world"
+                    )
+                    extra_samples.append(record)
+                else:
+                    reimported.append(record)
+                continue
+            merged[key] = {**deepcopy(dict(row)), "_source_kind": survey.get("source_kind")}
+    rows = []
+    for key in sorted(merged):
+        row = merged[key]
+        row.pop("_source_kind", None)
+        rows.append(row)
+    return {
+        "schema": V1_ACHIEVED_SCHEMA,
+        "source_kind": "merged",
+        "merged_source_kinds": [survey.get("source_kind") for survey in surveys],
+        "members": rows,
+        "already_imported_members_counted_once": reimported,
+        "extra_samples_for_a_filled_member_slot": extra_samples,
+        "claim_boundary": (
+            "Union of real surveys; no member, world or question counted "
+            "twice. An extra delivered sample for a member slot is listed "
+            "separately and counted in neither the member nor the world total."
+        ),
+    }
+
+
+def achieved_coverage_table(survey: Mapping[str, Any]) -> dict[str, Any]:
+    """Aggregate one survey into the axes the V1 targets are written against.
+
+    One item carrying both mcq and open counts once as a main question; the form
+    counts are a breakdown of the same items. Angle follow-ups are listed on
+    their own line and never enter the main-question count.
+    """
+    from avengine.qa.unified_catalog import QA_IDS
+
+    rows = survey.get("members") or []
+    per_qa: dict[str, dict[str, Any]] = {}
+    branch_rows: dict[tuple[str, str], dict[str, Any]] = {}
+    combination_world_ids: dict[str, set[str]] = {}
+    failures = []
+    world_identity_unknown = False
+    for row in rows:
+        if row.get("generation_status") != "pass":
+            failures.append(
+                {
+                    "group_id": row.get("group_id"),
+                    "member_id": row.get("member_id"),
+                    "world_id": row.get("world_id"),
+                    "error": row.get("generation_error"),
+                }
+            )
+            continue
+        raw_world_id = row.get("world_id")
+        world_id = (
+            str(raw_world_id)
+            if isinstance(raw_world_id, str) and raw_world_id.strip()
+            else None
+        )
+        if world_id is None:
+            world_identity_unknown = True
+        for question in row.get("questions") or []:
+            qa_id = str(question["qa_id"])
+            bucket = per_qa.setdefault(
+                qa_id,
+                {
+                    "valid_main_questions": 0,
+                    "valid_angle_followups": 0,
+                    "worlds": set(),
+                    "form_counts": Counter(),
+                    "task_families": Counter(),
+                    "room_families": Counter(),
+                    "entity_combinations": Counter(),
+                    "source_families": Counter(),
+                    "branch_unobservable_main": 0,
+                },
+            )
+            if question["kind"] == "main":
+                bucket["valid_main_questions"] += 1
+                if world_id is not None:
+                    bucket["worlds"].add(world_id)
+                if row.get("task_family"):
+                    bucket["task_families"][str(row["task_family"])] += 1
+                if row.get("room_family"):
+                    bucket["room_families"][str(row["room_family"])] += 1
+                for combination in row.get("entity_combinations") or (
+                    [row["entity_combination"]] if row.get("entity_combination") else []
+                ):
+                    bucket["entity_combinations"][str(combination)] += 1
+                    # Questions, forms and core members from one world cannot
+                    # satisfy a quota for a second independent world.
+                    actual_world = row.get("world_id")
+                    if isinstance(actual_world, str) and actual_world.strip():
+                        combination_world_ids.setdefault(str(combination), set()).add(actual_world)
+                for family in sorted(set(row.get("source_families") or [])):
+                    bucket["source_families"][str(family)] += 1
+                branch = question.get("branch")
+                if question.get("branches_expected"):
+                    if branch is None:
+                        bucket["branch_unobservable_main"] += 1
+                    else:
+                        entry = branch_rows.setdefault(
+                            (qa_id, str(branch)),
+                            {"qa_id": qa_id, "branch": str(branch),
+                             "valid_main_questions": 0, "worlds": set()},
+                        )
+                        entry["valid_main_questions"] += 1
+                        if world_id is not None:
+                            entry["worlds"].add(world_id)
+            else:
+                bucket["valid_angle_followups"] += 1
+            for form in question.get("forms") or []:
+                bucket["form_counts"][str(form)] += 1
+    by_qa = {}
+    for qa_id in QA_IDS:
+        bucket = per_qa.get(qa_id)
+        if bucket is None:
+            by_qa[qa_id] = {
+                "valid_main_questions": 0,
+                "valid_angle_followups": 0,
+                "distinct_worlds_with_main": 0,
+                "form_counts": {},
+                "task_families": {},
+                "room_families": {},
+                "entity_combinations": {},
+                "source_families": {},
+                "branch_unobservable_main": 0,
+            }
+            continue
+        by_qa[qa_id] = {
+            "valid_main_questions": bucket["valid_main_questions"],
+            "valid_angle_followups": bucket["valid_angle_followups"],
+            "distinct_worlds_with_main": (
+                None if world_identity_unknown else len(bucket["worlds"])
+            ),
+            "form_counts": dict(sorted(bucket["form_counts"].items())),
+            "task_families": dict(sorted(bucket["task_families"].items())),
+            "room_families": dict(sorted(bucket["room_families"].items())),
+            "entity_combinations": dict(sorted(bucket["entity_combinations"].items())),
+            "source_families": dict(sorted(bucket["source_families"].items())),
+            "branch_unobservable_main": bucket["branch_unobservable_main"],
+        }
+    branches = {
+        f"{qa_id}:{branch}": {
+            "qa_id": entry["qa_id"],
+            "branch": entry["branch"],
+            "valid_main_questions": entry["valid_main_questions"],
+            "distinct_worlds_with_main": (
+                None if world_identity_unknown else len(entry["worlds"])
+            ),
+        }
+        for (qa_id, branch), entry in sorted(branch_rows.items())
+    }
+    deferred_by_qa: dict[str, Counter] = {}
+    for row in rows:
+        for entry in row.get("deferred") or []:
+            deferred_by_qa.setdefault(str(entry["qa_id"]), Counter())[str(entry["code"])] += 1
+    matrix: dict[str, int] = Counter()
+    matrix_groups: dict[str, set] = {}
+    for row in rows:
+        if row.get("task_family") and row.get("room_family"):
+            key = f"{row['task_family']}|{row['room_family']}"
+            matrix[key] += 1
+            matrix_groups.setdefault(key, set()).add(str(row.get("group_id")))
+    actor_counts = Counter(len(row.get("source_families") or []) for row in rows)
+    return {
+        "schema": V1_ACHIEVED_SCHEMA,
+        "source_kind": survey.get("source_kind"),
+        "member_count": len(rows),
+        "group_count": len({str(row.get("group_id")) for row in rows if row.get("group_id")}),
+        "world_count": (
+            None if world_identity_unknown
+            else len({str(row.get("world_id")) for row in rows})
+        ),
+        "world_identity_status": (
+            "unknown" if world_identity_unknown else "known"
+        ),
+        "generation_failures": failures,
+        "by_qa_id": by_qa,
+        "by_qa_branch": branches,
+        "world_ids_by_entity_combination": {
+            key: sorted(values) for key, values in sorted(combination_world_ids.items())
+        },
+        "core_task_by_room_family_member_counts": dict(sorted(matrix.items())),
+        "core_task_by_room_family_group_counts": {
+            key: len(values) for key, values in sorted(matrix_groups.items())
+        },
+        "resolved_source_count_per_member": dict(sorted(actor_counts.items())),
+        "deferred_codes_by_qa_id": {
+            qa_id: dict(sorted(counter.items()))
+            for qa_id, counter in sorted(deferred_by_qa.items())
+        },
+        "source_families_unresolved": sorted(
+            {
+                asset_id
+                for row in rows
+                for asset_id in row.get("asset_ids_absent_from_registry") or []
+            }
+        ),
+        "counting_note": (
+            "One generated item with both forms is one valid main question; the "
+            "form counts break the same items down. Angle follow-ups are counted "
+            "separately. A world contributes once however many members it serves."
+        ),
+        "model_evaluation": "not_run",
+        "human_answerability": "not_run",
+    }
+

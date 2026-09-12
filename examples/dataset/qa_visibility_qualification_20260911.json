@@ -1,0 +1,871 @@
+{
+ "schema": "avengine_qa_visibility_qualification_v1",
+ "record": "screened_candidate_qualification",
+ "date_utc": "2026-09-11",
+ "author": "C07",
+ "subject": "QA-07 entry side (left/right) and QA-09 reappearance (yes): the two branches that had never reached a candidate through the ordinary planning entry point.",
+ "what_this_file_is": "A record of which pixel-visibility branches now reach a screened camera candidate, on which rooms, under which conditions, and with what was independently re-measured. It is planning evidence. It is not a QA item, not a dataset sample, and not pixel truth.",
+ "claim_boundary": "Every row is a CPU screened candidate. No pixel was rendered for any of them: native visual 0, native audio 0, RLR 0, new query 0. A 'consistent' verdict means the projection-and-ray screen could not refute the requirement and the candidate is worth a render. A 'undetermined' verdict means even that much is not claimed - and every QA-09 occlusion screen comes back undetermined by construction, because the screening geometry is the room's acoustic proxy mesh and a projection screen can only ever refute a full occlusion, never confirm one. avengine.rooms.conditioned_visibility.accept_native_visibility on the renderer's own pixel truth remains the only authority that can pass any of these.",
+ "why_they_used_to_fail": "Not search budget. Every retry of every failing request drew a still scene, so a fixed camera could never produce an out_of_view->visible crossing or a fully_occluded->visible transition. conditioned_visibility already reported that correctly, but only after the routes had been drawn. See CLAUDE_ROUND4_COORD/C07_TO_C01.json for the measurement and the patch.",
+ "source_state": "conditioned_sampler.py was edited by its owner at 18:17 local and released at 18:28 (CLAUDE_ROUND4_COORD/C01_DONE.json), straddling this measurement. The three hm3d branches were rerun baseline-and-patched against the settled source and reproduced every number exactly (<attempt_dir>/final_base, <attempt_dir>/final_fix, fingerprint in <attempt_dir>/SOURCE_STATE_final.txt). The plans linked below are the earlier run of the same code path; their state series were re-derived independently, see independent_recheck.",
+ "depends_on_an_unlanded_patch": "The 'after' column and every screened candidate below were produced with the conditioned_sampler.py patch in CLAUDE_ROUND4_COORD/C07_TO_C01.json loaded as a shadow module. That file belongs to C01 and was not modified on disk. Until C01 lands it, these branches still do not plan through the checked-in tree.",
+ "fixed_run_conditions": {
+  "camera": "static, 85 deg horizontal fov, 1.55 m above the selected floor, 720x1280",
+  "clock": "150 frames at 15 fps, 16 kHz",
+  "reserve_tail_s": 3.0,
+  "post_assembly_convolution_gain": 0.5,
+  "retry_budget_within_profile": 200,
+  "minimum_source_separation_m": 0.95,
+  "entry": "tools/studio/run_qa_episode.py --plan-only"
+ },
+ "branches": [
+  {
+   "episode_id": "c01r1_qa07_left_r1",
+   "qa_id": "QA-07",
+   "branch": "left",
+   "room_id": "hm3d_val_00800_TEEsavR23oF",
+   "request": "<attempt_dir>/repro/c01r1_qa07_left_r1.json",
+   "before": {
+    "planned": false,
+    "retries": 200,
+    "retries_with_any_actor_moving": 0,
+    "visibility_solver_calls": 0,
+    "visibility_solver_status_counts": {},
+    "candidate_failure_histogram": {
+     "camera:no_joint_geometry_activity_schedule": 87,
+     "routes:initial_source_separation_below_0.95_m": 102,
+     "routes:navigation_sampling_failed: native navmesh has no sampled point in the requested region": 11
+    }
+   },
+   "after_proposed_sampler_patch": {
+    "planned": true,
+    "retries": 31,
+    "visibility_solver_calls": 4,
+    "visibility_solver_calls_with_candidates": 2,
+    "visibility_solver_status_counts": {
+     "no_candidate_survived_screening": 2,
+     "screened_no_pixels_rendered": 2
+    },
+    "candidate_failure_histogram": {
+     "routes:all_frame_source_separation_below_0.95_m": 4,
+     "routes:path_too_short_for_moving_window": 20,
+     "camera:visibility_solver_candidate_budget_exhausted": 2,
+     "camera:no_joint_geometry_activity_schedule": 3,
+     "routes:navigation_sampling_failed: native navmesh has no sampled point in the requested region": 1
+    },
+    "plan": "<attempt_dir>/fix2/out_qa07_left_r1/plan/episode_plan.json"
+   },
+   "screened_candidate": {
+    "requirement": {
+     "kind": "out_of_view_to_visible",
+     "subject": "human_target",
+     "state": null,
+     "side": "left",
+     "capability_state": "available",
+     "required_dynamics": [
+      "subject_frustum_crossing"
+     ],
+     "require_publishable_window": true
+    },
+    "solver_status": "screened_no_pixels_rendered",
+    "solver_tier": "frustum_and_ray",
+    "geometry_authority": "acoustic_proxy_mesh",
+    "candidate_ids_applied": [
+     "grid_00025_yaw_015",
+     "grid_00036_yaw_015"
+    ],
+    "selected_candidate_id": "grid_00036_yaw_015",
+    "selected_verdict": "consistent",
+    "predicted_state_counts": {
+     "human_target": {
+      "out_of_view": 46,
+      "visible_clear": 5,
+      "visible_occluded": 99,
+      "fully_occluded": 0,
+      "unmeasured": 0
+     }
+    },
+    "selected_transition": {
+     "entry_frame": 46,
+     "side": "left",
+     "side_beyond_dead_zone": true,
+     "same_side_sustain_frames": 74,
+     "publishable_extent": {
+      "start_frame": 46,
+      "end_frame": 75,
+      "frames_needed": 29,
+      "public_seconds": [
+       4.0,
+       5.0
+      ],
+      "publishable": true
+     },
+     "out_of_view_run": [
+      0,
+      46
+     ],
+     "visible_run": [
+      46,
+      150
+     ]
+    },
+    "screen_reason_if_not_consistent": null,
+    "condition_profile": {
+     "speech_motion": "all_still",
+     "competitor_motion": "any",
+     "visibility_transition": "out_of_view_to_visible",
+     "pixel_occlusion_transition": null,
+     "anchor_visibility": "in_fov",
+     "visibility_forced_movers": [
+      "human_target"
+     ]
+    },
+    "route": {
+     "authority": "habitat_native_pathfinder",
+     "selected_floor_height_m": 3.1634,
+     "actors": [
+      {
+       "motion": "walk_with_sampled_pause",
+       "start_frame": 45,
+       "end_frame_exclusive": 124,
+       "required_contiguous_motion_frames": 1
+      },
+      {
+       "motion": "static",
+       "start_frame": null,
+       "end_frame_exclusive": null,
+       "required_contiguous_motion_frames": null
+      }
+     ]
+    },
+    "evidence_status": {
+     "native_visual": "not_run",
+     "native_audio": "not_run",
+     "qa_validity": "not_run"
+    },
+    "qualification_claim": false
+   },
+   "independent_recheck": {
+    "independently_rescreened_state_counts": {
+     "out_of_view": 46,
+     "visible_clear": 5,
+     "visible_occluded": 99
+    },
+    "plan_recorded_state_counts": {
+     "out_of_view": 46,
+     "visible_clear": 5,
+     "visible_occluded": 99,
+     "fully_occluded": 0,
+     "unmeasured": 0
+    },
+    "all_root_points_navigable": true,
+    "root_floor_offset_min_max_m": [
+     -0.0,
+     -0.0
+    ],
+    "subject_path_length_m": 3.2522,
+    "camera_height_above_floor_m": 1.55
+   }
+  },
+  {
+   "episode_id": "c01r1_qa07_right_r1",
+   "qa_id": "QA-07",
+   "branch": "right",
+   "room_id": "hm3d_val_00800_TEEsavR23oF",
+   "request": "<attempt_dir>/repro/c01r1_qa07_right_r1.json",
+   "before": {
+    "planned": false,
+    "retries": 200,
+    "retries_with_any_actor_moving": 0,
+    "visibility_solver_calls": 0,
+    "visibility_solver_status_counts": {},
+    "candidate_failure_histogram": {
+     "routes:initial_source_separation_below_0.95_m": 117,
+     "camera:no_joint_geometry_activity_schedule": 71,
+     "routes:navigation_sampling_failed: native navmesh has no sampled point in the requested region": 12
+    }
+   },
+   "after_proposed_sampler_patch": {
+    "planned": true,
+    "retries": 4,
+    "visibility_solver_calls": 2,
+    "visibility_solver_calls_with_candidates": 2,
+    "visibility_solver_status_counts": {
+     "screened_no_pixels_rendered": 2
+    },
+    "candidate_failure_histogram": {
+     "routes:path_too_short_for_moving_window": 3
+    },
+    "plan": "<attempt_dir>/fix2/out_qa07_right_r1/plan/episode_plan.json"
+   },
+   "screened_candidate": {
+    "requirement": {
+     "kind": "out_of_view_to_visible",
+     "subject": "human_target",
+     "state": null,
+     "side": "right",
+     "capability_state": "available",
+     "required_dynamics": [
+      "subject_frustum_crossing"
+     ],
+     "require_publishable_window": true
+    },
+    "solver_status": "screened_no_pixels_rendered",
+    "solver_tier": "frustum_and_ray",
+    "geometry_authority": "acoustic_proxy_mesh",
+    "candidate_ids_applied": [
+     "grid_00055_yaw_120",
+     "grid_00055_yaw_135",
+     "grid_00059_yaw_150"
+    ],
+    "selected_candidate_id": "grid_00055_yaw_135",
+    "selected_verdict": "consistent",
+    "predicted_state_counts": {
+     "human_target": {
+      "out_of_view": 22,
+      "visible_clear": 121,
+      "visible_occluded": 5,
+      "fully_occluded": 2,
+      "unmeasured": 0
+     }
+    },
+    "selected_transition": {
+     "entry_frame": 22,
+     "side": "right",
+     "side_beyond_dead_zone": true,
+     "same_side_sustain_frames": 128,
+     "publishable_extent": {
+      "start_frame": 22,
+      "end_frame": 45,
+      "frames_needed": 23,
+      "public_seconds": [
+       2.0,
+       3.0
+      ],
+      "publishable": true
+     },
+     "out_of_view_run": [
+      0,
+      22
+     ],
+     "visible_run": [
+      22,
+      150
+     ]
+    },
+    "screen_reason_if_not_consistent": null,
+    "condition_profile": {
+     "speech_motion": "all_still",
+     "competitor_motion": "any",
+     "visibility_transition": "out_of_view_to_visible",
+     "pixel_occlusion_transition": null,
+     "anchor_visibility": "in_fov",
+     "visibility_forced_movers": [
+      "human_target"
+     ]
+    },
+    "route": {
+     "authority": "habitat_native_pathfinder",
+     "selected_floor_height_m": 3.1634,
+     "actors": [
+      {
+       "motion": "walk_with_sampled_holds",
+       "start_frame": 16,
+       "end_frame_exclusive": 54,
+       "required_contiguous_motion_frames": 1
+      },
+      {
+       "motion": "static",
+       "start_frame": null,
+       "end_frame_exclusive": null,
+       "required_contiguous_motion_frames": null
+      }
+     ]
+    },
+    "evidence_status": {
+     "native_visual": "not_run",
+     "native_audio": "not_run",
+     "qa_validity": "not_run"
+    },
+    "qualification_claim": false
+   },
+   "independent_recheck": {
+    "independently_rescreened_state_counts": {
+     "out_of_view": 22,
+     "fully_occluded": 2,
+     "visible_clear": 121,
+     "visible_occluded": 5
+    },
+    "plan_recorded_state_counts": {
+     "out_of_view": 22,
+     "visible_clear": 121,
+     "visible_occluded": 5,
+     "fully_occluded": 2,
+     "unmeasured": 0
+    },
+    "all_root_points_navigable": true,
+    "root_floor_offset_min_max_m": [
+     -0.0,
+     -0.0
+    ],
+    "subject_path_length_m": 1.8323,
+    "camera_height_above_floor_m": 1.55
+   }
+  },
+  {
+   "episode_id": "c01r1_qa09_yes_r1",
+   "qa_id": "QA-09",
+   "branch": "yes",
+   "room_id": "hm3d_val_00800_TEEsavR23oF",
+   "request": "<attempt_dir>/repro/c01r1_qa09_yes_r1.json",
+   "before": {
+    "planned": false,
+    "retries": 200,
+    "retries_with_any_actor_moving": 0,
+    "visibility_solver_calls": 50,
+    "visibility_solver_status_counts": {
+     "no_solvable_requirement": 50
+    },
+    "candidate_failure_histogram": {
+     "routes:initial_source_separation_below_0.95_m": 125,
+     "camera:visibility_solver_candidate_budget_exhausted": 50,
+     "camera:no_joint_geometry_activity_schedule": 15,
+     "routes:navigation_sampling_failed: native navmesh has no sampled point in the requested region": 10
+    }
+   },
+   "after_proposed_sampler_patch": {
+    "planned": true,
+    "retries": 24,
+    "visibility_solver_calls": 5,
+    "visibility_solver_calls_with_candidates": 5,
+    "visibility_solver_status_counts": {
+     "screened_no_pixels_rendered": 5
+    },
+    "candidate_failure_histogram": {
+     "routes:path_too_short_for_moving_window": 16,
+     "camera:visibility_solver_candidate_budget_exhausted": 3,
+     "routes:initial_source_separation_below_0.95_m": 2,
+     "routes:navigation_sampling_failed: native navmesh has no sampled point in the requested region": 1,
+     "routes:route_does_not_fit_clock_or_required_window": 1
+    },
+    "plan": "<attempt_dir>/fix2/out_qa09_yes_r1/plan/episode_plan.json"
+   },
+   "screened_candidate": {
+    "requirement": {
+     "kind": "fully_occluded_then_visible",
+     "subject": "human_target",
+     "state": null,
+     "side": null,
+     "capability_state": "available",
+     "required_dynamics": [
+      "subject_or_occluder_motion"
+     ],
+     "require_publishable_window": false
+    },
+    "solver_status": "screened_no_pixels_rendered",
+    "solver_tier": "frustum_and_ray",
+    "geometry_authority": "acoustic_proxy_mesh",
+    "candidate_ids_applied": [
+     "grid_00027_yaw_000",
+     "grid_00027_yaw_330",
+     "grid_00027_yaw_345",
+     "grid_00035_yaw_000",
+     "grid_00035_yaw_345",
+     "grid_00046_yaw_345",
+     "grid_00047_yaw_330"
+    ],
+    "selected_candidate_id": "grid_00027_yaw_330",
+    "selected_verdict": "undetermined",
+    "predicted_state_counts": {
+     "human_target": {
+      "out_of_view": 0,
+      "visible_clear": 39,
+      "visible_occluded": 111,
+      "fully_occluded": 0,
+      "unmeasured": 0
+     }
+    },
+    "selected_transition": null,
+    "screen_reason_if_not_consistent": "the screening geometry is not the geometry that renders (acoustic_proxy_mesh), so this occlusion requirement is left undetermined instead of refused",
+    "condition_profile": {
+     "speech_motion": "all_still",
+     "competitor_motion": "any",
+     "visibility_transition": "none",
+     "pixel_occlusion_transition": "fully_occluded_then_visible",
+     "anchor_visibility": "in_fov",
+     "visibility_forced_movers": [
+      "human_target"
+     ]
+    },
+    "route": {
+     "authority": "habitat_native_pathfinder",
+     "selected_floor_height_m": 3.1634,
+     "actors": [
+      {
+       "motion": "walk_with_sampled_holds",
+       "start_frame": 15,
+       "end_frame_exclusive": 70,
+       "required_contiguous_motion_frames": 1
+      },
+      {
+       "motion": "static",
+       "start_frame": null,
+       "end_frame_exclusive": null,
+       "required_contiguous_motion_frames": null
+      }
+     ]
+    },
+    "evidence_status": {
+     "native_visual": "not_run",
+     "native_audio": "not_run",
+     "qa_validity": "not_run"
+    },
+    "qualification_claim": false
+   },
+   "independent_recheck": {
+    "independently_rescreened_state_counts": {
+     "visible_occluded": 111,
+     "visible_clear": 39
+    },
+    "plan_recorded_state_counts": {
+     "out_of_view": 0,
+     "visible_clear": 39,
+     "visible_occluded": 111,
+     "fully_occluded": 0,
+     "unmeasured": 0
+    },
+    "all_root_points_navigable": true,
+    "root_floor_offset_min_max_m": [
+     -0.0,
+     -0.0
+    ],
+    "subject_path_length_m": 2.3328,
+    "camera_height_above_floor_m": 1.55
+   }
+  },
+  {
+   "episode_id": "c01r1_qa07_left_r2",
+   "qa_id": "QA-07",
+   "branch": "left",
+   "room_id": "habitat_mp3d_example_17DRP5sb8fy",
+   "request": "<attempt_dir>/repro/c01r1_qa07_left_r2.json",
+   "before": {
+    "planned": false,
+    "retries": 200,
+    "retries_with_any_actor_moving": 0,
+    "visibility_solver_calls": 0,
+    "visibility_solver_status_counts": {},
+    "candidate_failure_histogram": {
+     "camera:no_joint_geometry_activity_schedule": 176,
+     "routes:initial_source_separation_below_0.95_m": 24
+    }
+   },
+   "after_proposed_sampler_patch": {
+    "planned": true,
+    "retries": 131,
+    "visibility_solver_calls": 29,
+    "visibility_solver_calls_with_candidates": 14,
+    "visibility_solver_status_counts": {
+     "screened_no_pixels_rendered": 14,
+     "no_candidate_survived_screening": 15
+    },
+    "candidate_failure_histogram": {
+     "routes:initial_source_separation_below_0.95_m": 9,
+     "camera:visibility_solver_candidate_budget_exhausted": 27,
+     "routes:route_does_not_fit_clock_or_required_window": 9,
+     "routes:path_too_short_for_moving_window": 25,
+     "routes:all_frame_source_separation_below_0.95_m": 21,
+     "camera:no_joint_geometry_activity_schedule": 32,
+     "routes:no_existing_navigation_path": 7
+    },
+    "plan": "<attempt_dir>/fix2/out_qa07_left_r2/plan/episode_plan.json"
+   },
+   "screened_candidate": {
+    "requirement": {
+     "kind": "out_of_view_to_visible",
+     "subject": "human_target",
+     "state": null,
+     "side": "left",
+     "capability_state": "available",
+     "required_dynamics": [
+      "subject_frustum_crossing"
+     ],
+     "require_publishable_window": true
+    },
+    "solver_status": "screened_no_pixels_rendered",
+    "solver_tier": "frustum_and_ray",
+    "geometry_authority": "acoustic_proxy_mesh",
+    "candidate_ids_applied": [
+     "grid_00081_yaw_270"
+    ],
+    "selected_candidate_id": "grid_00081_yaw_270",
+    "selected_verdict": "consistent",
+    "predicted_state_counts": {
+     "human_target": {
+      "out_of_view": 16,
+      "visible_clear": 57,
+      "visible_occluded": 77,
+      "fully_occluded": 0,
+      "unmeasured": 0
+     }
+    },
+    "selected_transition": {
+     "entry_frame": 16,
+     "side": "left",
+     "side_beyond_dead_zone": true,
+     "same_side_sustain_frames": 134,
+     "publishable_extent": {
+      "start_frame": 16,
+      "end_frame": 45,
+      "frames_needed": 29,
+      "public_seconds": [
+       2.0,
+       3.0
+      ],
+      "publishable": true
+     },
+     "out_of_view_run": [
+      0,
+      16
+     ],
+     "visible_run": [
+      16,
+      150
+     ]
+    },
+    "screen_reason_if_not_consistent": null,
+    "condition_profile": {
+     "speech_motion": "all_still",
+     "competitor_motion": "any",
+     "visibility_transition": "out_of_view_to_visible",
+     "pixel_occlusion_transition": null,
+     "anchor_visibility": "in_fov",
+     "visibility_forced_movers": [
+      "human_target"
+     ]
+    },
+    "route": {
+     "authority": "habitat_native_pathfinder",
+     "selected_floor_height_m": 0.0724,
+     "actors": [
+      {
+       "motion": "walk_with_sampled_holds",
+       "start_frame": 8,
+       "end_frame_exclusive": 131,
+       "required_contiguous_motion_frames": 1
+      },
+      {
+       "motion": "static",
+       "start_frame": null,
+       "end_frame_exclusive": null,
+       "required_contiguous_motion_frames": null
+      }
+     ]
+    },
+    "evidence_status": {
+     "native_visual": "not_run",
+     "native_audio": "not_run",
+     "qa_validity": "not_run"
+    },
+    "qualification_claim": false
+   },
+   "independent_recheck": {
+    "independently_rescreened_state_counts": {
+     "out_of_view": 16,
+     "visible_clear": 57,
+     "visible_occluded": 77
+    },
+    "plan_recorded_state_counts": {
+     "out_of_view": 16,
+     "visible_clear": 57,
+     "visible_occluded": 77,
+     "fully_occluded": 0,
+     "unmeasured": 0
+    },
+    "all_root_points_navigable": true,
+    "root_floor_offset_min_max_m": [
+     0.0,
+     0.0
+    ],
+    "subject_path_length_m": 5.2759,
+    "camera_height_above_floor_m": 1.55
+   }
+  },
+  {
+   "episode_id": "c01r1_qa07_right_r2",
+   "qa_id": "QA-07",
+   "branch": "right",
+   "room_id": "habitat_mp3d_example_17DRP5sb8fy",
+   "request": "<attempt_dir>/repro/c01r1_qa07_right_r2.json",
+   "before": {
+    "planned": false,
+    "retries": 200,
+    "retries_with_any_actor_moving": 0,
+    "visibility_solver_calls": 0,
+    "visibility_solver_status_counts": {},
+    "candidate_failure_histogram": {
+     "camera:no_joint_geometry_activity_schedule": 178,
+     "routes:initial_source_separation_below_0.95_m": 22
+    }
+   },
+   "after_proposed_sampler_patch": {
+    "planned": true,
+    "retries": 72,
+    "visibility_solver_calls": 14,
+    "visibility_solver_calls_with_candidates": 7,
+    "visibility_solver_status_counts": {
+     "screened_no_pixels_rendered": 7,
+     "no_candidate_survived_screening": 7
+    },
+    "candidate_failure_histogram": {
+     "routes:route_does_not_fit_clock_or_required_window": 8,
+     "camera:visibility_solver_candidate_budget_exhausted": 12,
+     "routes:path_too_short_for_moving_window": 14,
+     "camera:no_joint_geometry_activity_schedule": 16,
+     "routes:all_frame_source_separation_below_0.95_m": 13,
+     "routes:no_existing_navigation_path": 4,
+     "routes:initial_source_separation_below_0.95_m": 4
+    },
+    "plan": "<attempt_dir>/fix2/out_qa07_right_r2/plan/episode_plan.json"
+   },
+   "screened_candidate": {
+    "requirement": {
+     "kind": "out_of_view_to_visible",
+     "subject": "human_target",
+     "state": null,
+     "side": "right",
+     "capability_state": "available",
+     "required_dynamics": [
+      "subject_frustum_crossing"
+     ],
+     "require_publishable_window": true
+    },
+    "solver_status": "screened_no_pixels_rendered",
+    "solver_tier": "frustum_and_ray",
+    "geometry_authority": "acoustic_proxy_mesh",
+    "candidate_ids_applied": [
+     "grid_00092_yaw_195"
+    ],
+    "selected_candidate_id": "grid_00092_yaw_195",
+    "selected_verdict": "consistent",
+    "predicted_state_counts": {
+     "human_target": {
+      "out_of_view": 28,
+      "visible_clear": 77,
+      "visible_occluded": 45,
+      "fully_occluded": 0,
+      "unmeasured": 0
+     }
+    },
+    "selected_transition": {
+     "entry_frame": 28,
+     "side": "right",
+     "side_beyond_dead_zone": true,
+     "same_side_sustain_frames": 122,
+     "publishable_extent": {
+      "start_frame": 28,
+      "end_frame": 45,
+      "frames_needed": 17,
+      "public_seconds": [
+       2.0,
+       3.0
+      ],
+      "publishable": true
+     },
+     "out_of_view_run": [
+      0,
+      28
+     ],
+     "visible_run": [
+      28,
+      150
+     ]
+    },
+    "screen_reason_if_not_consistent": null,
+    "condition_profile": {
+     "speech_motion": "all_still",
+     "competitor_motion": "any",
+     "visibility_transition": "out_of_view_to_visible",
+     "pixel_occlusion_transition": null,
+     "anchor_visibility": "in_fov",
+     "visibility_forced_movers": [
+      "human_target"
+     ]
+    },
+    "route": {
+     "authority": "habitat_native_pathfinder",
+     "selected_floor_height_m": 0.0724,
+     "actors": [
+      {
+       "motion": "walk_with_sampled_pause",
+       "start_frame": 23,
+       "end_frame_exclusive": 79,
+       "required_contiguous_motion_frames": 1
+      },
+      {
+       "motion": "static",
+       "start_frame": null,
+       "end_frame_exclusive": null,
+       "required_contiguous_motion_frames": null
+      }
+     ]
+    },
+    "evidence_status": {
+     "native_visual": "not_run",
+     "native_audio": "not_run",
+     "qa_validity": "not_run"
+    },
+    "qualification_claim": false
+   },
+   "independent_recheck": {
+    "independently_rescreened_state_counts": {
+     "out_of_view": 28,
+     "visible_occluded": 45,
+     "visible_clear": 77
+    },
+    "plan_recorded_state_counts": {
+     "out_of_view": 28,
+     "visible_clear": 77,
+     "visible_occluded": 45,
+     "fully_occluded": 0,
+     "unmeasured": 0
+    },
+    "all_root_points_navigable": true,
+    "root_floor_offset_min_max_m": [
+     0.0,
+     0.0
+    ],
+    "subject_path_length_m": 1.5197,
+    "camera_height_above_floor_m": 1.55
+   }
+  },
+  {
+   "episode_id": "c01r1_qa09_yes_r2",
+   "qa_id": "QA-09",
+   "branch": "yes",
+   "room_id": "habitat_mp3d_example_17DRP5sb8fy",
+   "request": "<attempt_dir>/repro/c01r1_qa09_yes_r2.json",
+   "before": {
+    "planned": false,
+    "retries": 200,
+    "retries_with_any_actor_moving": 0,
+    "visibility_solver_calls": 176,
+    "visibility_solver_status_counts": {
+     "no_solvable_requirement": 176
+    },
+    "candidate_failure_histogram": {
+     "camera:visibility_solver_candidate_budget_exhausted": 176,
+     "routes:initial_source_separation_below_0.95_m": 23,
+     "camera:no_joint_geometry_activity_schedule": 1
+    }
+   },
+   "after_proposed_sampler_patch": {
+    "planned": true,
+    "retries": 7,
+    "visibility_solver_calls": 4,
+    "visibility_solver_calls_with_candidates": 4,
+    "visibility_solver_status_counts": {
+     "screened_no_pixels_rendered": 4
+    },
+    "candidate_failure_histogram": {
+     "camera:visibility_solver_candidate_budget_exhausted": 2,
+     "routes:route_does_not_fit_clock_or_required_window": 2,
+     "routes:path_too_short_for_moving_window": 2
+    },
+    "plan": "<attempt_dir>/fix2/out_qa09_yes_r2/plan/episode_plan.json"
+   },
+   "screened_candidate": {
+    "requirement": {
+     "kind": "fully_occluded_then_visible",
+     "subject": "human_target",
+     "state": null,
+     "side": null,
+     "capability_state": "available",
+     "required_dynamics": [
+      "subject_or_occluder_motion"
+     ],
+     "require_publishable_window": false
+    },
+    "solver_status": "screened_no_pixels_rendered",
+    "solver_tier": "frustum_and_ray",
+    "geometry_authority": "acoustic_proxy_mesh",
+    "candidate_ids_applied": [
+     "grid_00092_yaw_255"
+    ],
+    "selected_candidate_id": "grid_00092_yaw_255",
+    "selected_verdict": "undetermined",
+    "predicted_state_counts": {
+     "human_target": {
+      "out_of_view": 0,
+      "visible_clear": 59,
+      "visible_occluded": 91,
+      "fully_occluded": 0,
+      "unmeasured": 0
+     }
+    },
+    "selected_transition": null,
+    "screen_reason_if_not_consistent": "the screening geometry is not the geometry that renders (acoustic_proxy_mesh), so this occlusion requirement is left undetermined instead of refused",
+    "condition_profile": {
+     "speech_motion": "all_still",
+     "competitor_motion": "any",
+     "visibility_transition": "none",
+     "pixel_occlusion_transition": "fully_occluded_then_visible",
+     "anchor_visibility": "in_fov",
+     "visibility_forced_movers": [
+      "human_target"
+     ]
+    },
+    "route": {
+     "authority": "habitat_native_pathfinder",
+     "selected_floor_height_m": 0.0724,
+     "actors": [
+      {
+       "motion": "walk_with_sampled_pause",
+       "start_frame": 38,
+       "end_frame_exclusive": 117,
+       "required_contiguous_motion_frames": 1
+      },
+      {
+       "motion": "static",
+       "start_frame": null,
+       "end_frame_exclusive": null,
+       "required_contiguous_motion_frames": null
+      }
+     ]
+    },
+    "evidence_status": {
+     "native_visual": "not_run",
+     "native_audio": "not_run",
+     "qa_validity": "not_run"
+    },
+    "qualification_claim": false
+   },
+   "independent_recheck": {
+    "independently_rescreened_state_counts": {
+     "visible_occluded": 91,
+     "visible_clear": 59
+    },
+    "plan_recorded_state_counts": {
+     "out_of_view": 0,
+     "visible_clear": 59,
+     "visible_occluded": 91,
+     "fully_occluded": 0,
+     "unmeasured": 0
+    },
+    "all_root_points_navigable": true,
+    "root_floor_offset_min_max_m": [
+     0.0,
+     0.0
+    ],
+    "subject_path_length_m": 2.3144,
+    "camera_height_above_floor_m": 1.55
+   }
+  }
+ ],
+ "not_claimed": [
+  "No QA item was generated and nothing here counts towards the V1 quota.",
+  "QA-09 'yes' has no positive screened evidence of a full occlusion on either room; it has a candidate that the screen cannot refute. Settling it needs a native visual render, which is C02's budget and was not spent.",
+  "The entry side of QA-07 is the sign of the predicted centroid column offset under the judge's own dead zone, screened on the body proxy. The rendered silhouette is what the answer is actually measured on.",
+  "kujiale and the fixed apartment were not exercised."
+ ]
+}

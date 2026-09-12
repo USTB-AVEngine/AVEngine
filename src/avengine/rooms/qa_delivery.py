@@ -3,7 +3,9 @@ from __future__ import annotations
 
 import json
 from copy import deepcopy
+import os
 from pathlib import Path
+import time
 import wave
 import subprocess
 import sys
@@ -14,9 +16,12 @@ from avengine.qa.unified_catalog import generate_unified_questions, normalize_ep
 from avengine.rooms.evidence_contract import validate_evidence_contract
 from avengine.rooms.qa_episode import read_json, write_json
 from avengine.rooms.qa_evidence import (
+    acquire_shared_visual_evidence,
     annotate_pixel_visibility_semantics,
     audit_native_structural_clearance, build_pixel_appearance_review, derive_actor_occluders,
+    nonhuman_appearance_placeholder_thresholds,
     review_imported_pose_clearance,
+    shared_visual_pack_root,
 )
 
 
@@ -30,16 +35,95 @@ def _declared_audio_gain(request: Mapping[str, Any], plan: Mapping[str, Any]) ->
             return validate_post_assembly_convolution_gain(source["post_assembly_convolution_gain"])
     return None
 
+
+def _declared_source_context_policy(request: Mapping[str, Any], plan: Mapping[str, Any]) -> str:
+    value = request.get("source_context_policy", plan.get("request", {}).get("source_context_policy", "joint"))
+    if value not in {"joint", "independent_states"}:
+        raise ValueError("source_context_policy must be joint or independent_states")
+    return value
+
+
+def _declared_audio_render_options(
+    request: Mapping[str, Any], plan: Mapping[str, Any],
+) -> tuple[str, str]:
+    """Resolve the existing audio delivery declaration for both renderers."""
+    sources: list[Mapping[str, Any]] = [request]
+    request_runtime = request.get("runtime")
+    if isinstance(request_runtime, Mapping):
+        sources.append(request_runtime)
+    plan_request = plan.get("request")
+    if isinstance(plan_request, Mapping):
+        sources.append(plan_request)
+    sources.append(plan)
+    plan_runtime = plan.get("runtime")
+    if isinstance(plan_runtime, Mapping):
+        sources.append(plan_runtime)
+
+    layouts_value: Any = None
+    for source in sources:
+        for key in ("audio_layouts", "layouts"):
+            if key in source and source[key] is not None:
+                layouts_value = source[key]
+                break
+        if layouts_value is not None:
+            break
+
+    if layouts_value is None:
+        layout_names = ("binaural",)
+    elif isinstance(layouts_value, str):
+        layout_names = tuple(item.strip() for item in layouts_value.split(",") if item.strip())
+    elif isinstance(layouts_value, Mapping):
+        layout_names = tuple(str(item).strip() for item in layouts_value if str(item).strip())
+    elif isinstance(layouts_value, Sequence) and not isinstance(layouts_value, (str, bytes)):
+        names: list[str] = []
+        for index, item in enumerate(layouts_value):
+            if isinstance(item, Mapping):
+                value = item.get("type", item.get("layout_type"))
+            else:
+                value = item
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(f"audio_layouts[{index}] must declare a layout type")
+            names.append(value.strip())
+        layout_names = tuple(names)
+    else:
+        raise ValueError("audio_layouts must be a sequence, mapping or comma-separated string")
+    if not layout_names:
+        raise ValueError("audio_layouts must declare at least one layout")
+    unsupported = [item for item in layout_names if item not in {"binaural", "ambisonics"}]
+    if unsupported:
+        raise ValueError(
+            "audio render does not support declared layouts "
+            f"{unsupported}; choose binaural or ambisonics"
+        )
+    if len(set(layout_names)) != len(layout_names):
+        raise ValueError("audio_layouts must not repeat a layout")
+
+    normalization: Any = None
+    for source in sources:
+        if "foa_normalization" in source and source["foa_normalization"] is not None:
+            normalization = source["foa_normalization"]
+            break
+    if normalization is None:
+        normalization = "native_n3d"
+    if normalization not in {"native_n3d", "sn3d"}:
+        raise ValueError("foa_normalization must be native_n3d or sn3d")
+    return ",".join(layout_names), str(normalization)
+
+
 def build_audio_command(
     request: Mapping[str, Any], plan: Mapping[str, Any], episode_root: Path,
     audio_root: Path, *, repository: Path,
     capture_root: Path | None = None, plan_root: Path | None = None,
 ) -> list[str]:
     runtime = request["runtime"]
+    source_policy = _declared_source_context_policy(request, plan)
+    layouts, foa_normalization = _declared_audio_render_options(request, plan)
     selected_capture = Path(capture_root) if capture_root is not None else episode_root / "capture"
     selected_plan = Path(plan_root) if plan_root is not None else episode_root / "plan"
     cache_value = request.get("rir_cache") or runtime.get("rir_cache") or plan.get("rir_cache")
     cache_path = Path(cache_value).expanduser().resolve() if cache_value else audio_root.parent / (audio_root.name + "_rir_cache")
+    if source_policy != "joint" and cache_value:
+        raise ValueError("independent source contexts cannot reuse a declared joint RIR cache")
     if cache_value and not cache_path.is_dir():
         raise FileNotFoundError(f"declared existing RIR cache is unavailable: {cache_path}")
     command = [
@@ -52,9 +136,14 @@ def build_audio_command(
         "--runtime-prefix", str(runtime["runtime_prefix"]),
         "--rlr-sdk-root", str(runtime["rlr_sdk_root"]),
         "--magnum-python-site", str(runtime["magnum_python_site"]),
-        "--rir-cache", str(cache_path),
         "--rir-stride", str(request.get("rir_stride", 3)),
+        "--layouts", layouts,
+        "--foa-normalization", foa_normalization,
     ]
+    if source_policy == "joint":
+        command += ["--rir-cache", str(cache_path)]
+    else:
+        command += ["--source-context-policy", source_policy]
     gain = _declared_audio_gain(request, plan)
     if gain is not None:
         command += ["--post-assembly-convolution-gain", str(gain)]
@@ -392,6 +481,7 @@ def _build_habitat_audio_command(
     repository: Path,
 ) -> list[str]:
     runtime = request.get("runtime") if isinstance(request.get("runtime"), Mapping) else {}
+    layouts, foa_normalization = _declared_audio_render_options(request, plan)
     resources = plan.get("resources") if isinstance(plan.get("resources"), Mapping) else {}
     m1_value = resources.get("m1_request") or resources.get("m1_request_path")
     if not isinstance(m1_value, str):
@@ -422,7 +512,10 @@ def _build_habitat_audio_command(
         sound_id = value.get("sound_asset_id") or value.get("prepared_audio_id")
         path = value.get("path") or value.get("prepared") or value.get("audio_path")
         if isinstance(sound_id, str) and sound_id and isinstance(path, str) and path:
-            sound_paths.setdefault(sound_id, str(Path(path).expanduser().resolve()))
+            resolved_path = str(Path(path).expanduser().resolve())
+            if sound_id in sound_paths and sound_paths[sound_id] != resolved_path:
+                raise ValueError(f"conflicting dry PCM paths for sound asset {sound_id!r}")
+            sound_paths[sound_id] = resolved_path
     if not sound_paths:
         raise ValueError("Habitat audio plan lacks explicit dry asset bindings")
     hrtf = runtime.get("hrtf") or "/usr/share/libmysofa/MIT_KEMAR_normal_pinna.sofa"
@@ -444,7 +537,12 @@ def _build_habitat_audio_command(
         "--runtime-prefix", str(runtime.get("runtime_prefix", "")),
         "--rlr-sdk-root", str(runtime.get("rlr_sdk_root", "")),
         "--output", str(audio_root),
+        "--layouts", layouts,
+        "--foa-normalization", foa_normalization,
     ]
+    source_policy = _declared_source_context_policy(request, plan)
+    if source_policy != "joint":
+        command += ["--source-context-policy", source_policy]
     gain = _declared_audio_gain(request, plan)
     if gain is not None:
         command += ["--post-assembly-convolution-gain", str(gain)]
@@ -942,17 +1040,144 @@ def _encode_rgb_frames_to_video(
     }
 
 
+SHARED_VISUAL_EVIDENCE_DIRECTORY = "shared_visual_evidence"
+SHARED_VISUAL_MASTER_NAME = "visual_rgb.mp4"
+
+
+def _capture_is_shared(root: Path, capture_root: Path) -> dict[str, Any]:
+    """Report whether this episode reuses a visual capture owned elsewhere.
+
+    `materialize_audio_variant` links a member's `capture` at the group's one
+    rendered visual episode and records that reuse in `native_linkage.json`.
+    Either signal means several audio members read the same pixels, which is
+    exactly when the visual evidence is worth sharing.
+    """
+    link = root / "capture"
+    reasons: list[str] = []
+    if link.is_symlink():
+        reasons.append("capture is a symlink to a visual episode owned elsewhere")
+    linkage = _read_optional(root / "native_linkage.json")
+    if isinstance(linkage, Mapping) and linkage.get("native_capture_reused") is True:
+        reasons.append("native_linkage.json declares native_capture_reused")
+    return {
+        "shared": bool(reasons),
+        "reasons": reasons,
+        "capture_root": str(Path(capture_root).resolve()),
+        "member_id": linkage.get("member_id") if isinstance(linkage, Mapping) else None,
+    }
+
+
+def _resolve_shared_visual_root(
+    root: Path,
+    derived: Path,
+    capture_root: Path,
+    *,
+    shared_visual_root: Path | str | None,
+    visual_evidence_reuse: bool | None,
+) -> tuple[Path | None, dict[str, Any]]:
+    """Decide where this episode's shared visual evidence lives.
+
+    An explicit root always wins. Otherwise reuse turns itself on only for a
+    declared shared capture, and the default location is the directory that
+    holds the members, so one group's members share and unrelated episodes do
+    not.
+    """
+    scope = _capture_is_shared(root, capture_root)
+    if visual_evidence_reuse is False:
+        return None, {**scope, "enabled": False, "source": "caller_disabled_reuse"}
+    if shared_visual_root is not None:
+        return Path(shared_visual_root).expanduser().resolve(), {
+            **scope, "enabled": True, "source": "caller_declared_shared_visual_root",
+        }
+    if visual_evidence_reuse is None and not scope["shared"]:
+        return None, {
+            **scope, "enabled": False,
+            "source": "capture_is_not_declared_shared_between_audio_members",
+        }
+    default = (derived.parent.parent / SHARED_VISUAL_EVIDENCE_DIRECTORY).resolve()
+    return default, {
+        **scope, "enabled": True,
+        "source": "default_shared_root_beside_the_member_roots",
+    }
+
+
+def _publish_visual_master(
+    encoded_path: Path, publish_to: Path | None, encoded: dict[str, Any],
+) -> tuple[Path, dict[str, Any]]:
+    """Publish a finished encode without replacing an existing shared master."""
+    if publish_to is None:
+        return encoded_path.resolve(), encoded
+    try:
+        # A hard-link create is atomic and has no-replace semantics on the
+        # same filesystem. This closes the first-creator race between members
+        # that resolve to one capture.
+        os.link(encoded_path, publish_to)
+    except FileExistsError:
+        existing_probe = _probe_video(publish_to)
+        encoded_probe = encoded.get("probe")
+        if not isinstance(encoded_probe, Mapping):
+            raise ValueError("encoded shared visual master lacks a video probe")
+        if (
+            existing_probe["frame_count"] != encoded_probe["frame_count"]
+            or abs(existing_probe["frame_rate_hz"] - encoded_probe["frame_rate_hz"]) > 1.0e-3
+        ):
+            raise ValueError("existing shared visual master has a different clock")
+        encoded["path"] = str(publish_to.resolve())
+        encoded["published_shared_master"] = False
+        encoded["reused"] = True
+        encoded["source"] = "shared_visual_master_existing"
+        encoded["source_encode_path"] = str(encoded_path)
+        encoded["probe"] = existing_probe
+        try:
+            encoded_path.unlink()
+        except FileNotFoundError:
+            pass
+        return publish_to.resolve(), encoded
+    encoded["path"] = str(publish_to.resolve())
+    encoded["published_shared_master"] = True
+    encoded["source_encode_path"] = str(encoded_path)
+    try:
+        encoded_path.unlink()
+    except FileNotFoundError:
+        pass
+    return publish_to.resolve(), encoded
+
+
 def _prepare_visual_video(
     capture_root: Path, *, clock: Mapping[str, Any], output_path: Path,
+    shared_master_path: Path | None = None,
 ) -> tuple[Path | None, dict[str, Any]]:
     expected_frames = int(clock["frame_count"])
     expected_rate = float(clock["frame_rate_hz"])
+    publish_to: Path | None = None
     existing = _find_visual_media(capture_root, {})
     if existing is not None:
         probe = _probe_video(existing)
         if probe["frame_count"] != expected_frames or abs(probe["frame_rate_hz"] - expected_rate) > 1.0e-3:
             raise ValueError("existing visual video does not match the episode clock")
         return existing, {"status": "pass", "source": "existing_native_video", "probe": probe}
+    if shared_master_path is not None:
+        # Members of one group share a capture, so they share its encode. The
+        # master is probed against this episode's own clock before it is used,
+        # and a mismatch falls through to a private encode instead of silently
+        # accepting a video that belongs to a different capture.
+        master = Path(shared_master_path)
+        if master.is_file():
+            probe = _probe_video(master)
+            if probe["frame_count"] == expected_frames and abs(probe["frame_rate_hz"] - expected_rate) <= 1.0e-3:
+                return master.resolve(), {
+                    "status": "pass",
+                    "source": "shared_visual_master",
+                    "reused": True,
+                    "path": str(master.resolve()),
+                    "probe": probe,
+                }
+        else:
+            # Encode to a private name and publish with no-replace semantics,
+            # so a member arriving mid-encode sees no master or a complete one.
+            master.parent.mkdir(parents=True, exist_ok=True)
+            publish_to = master
+            output_path = master.parent / f".{master.name}.{os.getpid()}.{time.time_ns()}.tmp.mp4"
     rgb_path = capture_root / "rgb.npy"
     if rgb_path.is_file():
         import numpy as np
@@ -964,7 +1189,7 @@ def _prepare_visual_video(
             expected_frame_count=expected_frames,
         )
         encoded["source"] = str(rgb_path.resolve())
-        return output_path.resolve(), encoded
+        return _publish_visual_master(output_path, publish_to, encoded)
     png_paths = sorted((capture_root / "frames").glob("frame_*.png"))
     if png_paths:
         import cv2
@@ -984,7 +1209,7 @@ def _prepare_visual_video(
             expected_frame_count=expected_frames,
         )
         encoded["source"] = str((capture_root / "frames").resolve())
-        return output_path.resolve(), encoded
+        return _publish_visual_master(output_path, publish_to, encoded)
     return None, {
         "status": "not_run",
         "reason": "no native visual video, rgb.npy, or complete PNG frame sequence was supplied",
@@ -1166,18 +1391,129 @@ def _reviewed_occluder_registry(review, actors):
     return result
 
 
+def _ancillary_audio_outputs(report: Mapping[str, Any]) -> list[dict[str, Any]]:
+    """Collect non-canonical audio renders the report declares beside the mix.
+
+    The two-channel mixture stays the canonical delivery and keeps its own
+    clock and channel checks. An ambisonic or first-order render is carried
+    through as an extra, optional artifact so a consumer can find it without
+    any of the binaural contract changing. Nothing is inferred from a filename
+    the report did not declare.
+    """
+    outputs: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    candidates: list[tuple[Any, str]] = []
+    audio_record = report.get("audio")
+    layout_delivery = (audio_record.get("layout_delivery")
+                       if isinstance(audio_record, Mapping) else None)
+    if isinstance(layout_delivery, Mapping):
+        clock = report.get("clock") if isinstance(report.get("clock"), Mapping) else {}
+        for layout_name, declaration in layout_delivery.items():
+            if not isinstance(declaration, Mapping):
+                raise ValueError(f"audio.layout_delivery.{layout_name} must be an object")
+            layout_type = str(declaration.get("layout_type") or layout_name)
+            if layout_type == "binaural":
+                continue
+            mixture = declaration.get("mixture")
+            value = mixture.get("path") if isinstance(mixture, Mapping) else declaration.get("mixture_path")
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(f"audio.layout_delivery.{layout_name} lacks a mixture path")
+            path = Path(value).expanduser().resolve()
+            if not path.is_file():
+                raise FileNotFoundError(f"declared ancillary mixture is unavailable: {path}")
+            actual = _audio_media_info(path)
+            for key in ("channel_count", "sample_rate_hz", "sample_count"):
+                expected = declaration.get(key)
+                if (isinstance(expected, bool) or not isinstance(expected, int)
+                        or expected <= 0 or actual[key] != expected):
+                    raise ValueError(f"ancillary {layout_type} {key} differs from its declared audio layout")
+            for key in ("sample_rate_hz", "sample_count"):
+                expected = clock.get(key)
+                if expected is not None and actual[key] != expected:
+                    raise ValueError(f"ancillary {layout_type} {key} differs from the episode clock")
+            labels = declaration.get("channel_labels")
+            if (not isinstance(labels, (list, tuple)) or len(labels) != actual["channel_count"]
+                    or any(not isinstance(label, str) or not label.strip() for label in labels)):
+                raise ValueError(f"ancillary {layout_type} lacks matching channel labels")
+            for key in ("layout_id", "channel_order", "normalization", "coordinate_frame"):
+                if not isinstance(declaration.get(key), str) or not declaration[key].strip():
+                    raise ValueError(f"ancillary {layout_type} lacks an explicit {key}")
+            resolved = str(path)
+            if resolved in seen:
+                continue
+            seen.add(resolved)
+            outputs.append({
+                "path": resolved, "role": f"ancillary_audio_{layout_type}",
+                "required": False, "canonical": False,
+                "source": f"audio.layout_delivery.{layout_name}",
+                "layout_type": layout_type,
+                **{key: deepcopy(declaration[key]) for key in (
+                    "layout_id", "channel_count", "channel_labels", "channel_order",
+                    "normalization", "coordinate_frame", "sample_rate_hz", "sample_count",
+                )},
+                "foa_normalization": deepcopy(declaration.get("foa_normalization")),
+                "media_readback": actual,
+            })
+    for key in ("ambisonic_path", "foa_path", "ambisonics_path"):
+        candidates.append((report.get(key), key))
+    for container_key in ("ancillary_outputs", "additional_outputs", "auxiliary_audio"):
+        container = report.get(container_key)
+        if isinstance(container, Sequence) and not isinstance(container, (str, bytes)):
+            for row in container:
+                if isinstance(row, Mapping):
+                    candidates.append((row.get("path"), str(row.get("role") or container_key)))
+        elif isinstance(container, Mapping):
+            for role, value in container.items():
+                candidates.append((value.get("path") if isinstance(value, Mapping) else value, str(role)))
+    audio = report.get("audio")
+    if isinstance(audio, Mapping):
+        for key in ("ambisonic_path", "foa_path", "ambisonics_path"):
+            candidates.append((audio.get(key), key))
+    for value, role in candidates:
+        if not isinstance(value, str) or not value:
+            continue
+        path = Path(value).expanduser()
+        if not path.is_file():
+            continue
+        resolved = str(path.resolve())
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        outputs.append({
+            "path": resolved,
+            "role": f"ancillary_audio_{role}",
+            "required": False,
+            "canonical": False,
+        })
+    return outputs
+
+
 def finalize_qa_episode(
     episode_root: Path, derived_root: Path, *, repository: Path,
     request: Mapping[str, Any] | None = None, audio_report: Path | None = None,
     appearance_review: Path | None = None,
+    shared_visual_root: Path | str | None = None,
+    visual_evidence_reuse: bool | None = None,
+    visual_reuse_verification_frames: int = 2,
 ) -> dict[str, Any]:
-    """Finalize UE or Habitat evidence through the shared contract bundle."""
+    """Finalize UE or Habitat evidence through the shared contract bundle.
+
+    When several audio members bind to one rendered visual episode, the
+    appearance review, actor occluders, visibility annotation and the encoded
+    visual master depend only on that shared capture. `shared_visual_root`
+    names where those products are published so later members reuse them;
+    leaving it unset turns the sharing on only for a capture that declares
+    itself reused, and `visual_evidence_reuse=False` always turns it off. The
+    audio program, mixture, muxed preview, facts and questions stay per member.
+    """
     from avengine.timeline.unified_audio_receipt import validate_unified_audio_receipt
 
     root, derived = Path(episode_root).expanduser().resolve(), Path(derived_root).expanduser().resolve()
     if derived.exists():
         raise FileExistsError(f"refusing existing derived output: {derived}")
     capture_root = _capture_root(root)
+    stage_timings: dict[str, float] = {}
+    finalize_started = time.monotonic()
     plan_path = _find_plan_path(root, capture_root)
     plan = read_json(plan_path) if plan_path is not None else None
     capture_receipt = _read_optional(capture_root / "research_receipt.json") or {}
@@ -1225,7 +1561,7 @@ def finalize_qa_episode(
     truth = read_json(truth_path)
     if not isinstance(truth, Mapping):
         raise ValueError("pixel visibility truth must be an object")
-    truth = annotate_pixel_visibility_semantics(truth)
+    raw_truth = truth
     registry = _asset_registry(
         Path(repository).resolve(),
         request_value.get("source_registry") or (
@@ -1339,20 +1675,54 @@ def finalize_qa_episode(
     clock = plan_clock
     if media_info["channel_count"] != 2 or media_info["sample_rate_hz"] != int(clock["sample_rate_hz"]) or media_info["sample_count"] != int(clock["sample_count"]):
         raise ValueError("actual audio mixture does not match the plan clock and binaural contract")
+    shared_root, shared_scope = _resolve_shared_visual_root(
+        root, derived, capture_root,
+        shared_visual_root=shared_visual_root,
+        visual_evidence_reuse=visual_evidence_reuse,
+    )
+    started = time.monotonic()
+    shared_visual = acquire_shared_visual_evidence(
+        capture_root, plan, raw_truth,
+        shared_root=shared_root,
+        asset_registry=registry,
+        frame_stride=1,
+        thresholds=nonhuman_appearance_placeholder_thresholds(),
+        verification_frames=int(visual_reuse_verification_frames),
+    )
+    stage_timings["shared_visual_evidence_s"] = time.monotonic() - started
+    stage_timings.update(shared_visual.get("stage_timings_s", {}))
+    visual_reuse = dict(shared_visual.get("reuse", {}))
+    visual_reuse["scope"] = shared_scope
+    truth = shared_visual["annotated_pixel_visibility_truth"]
+    # The shared pack is what applies the visibility semantics now. Fail closed
+    # if a pack ever arrives without them rather than finalizing questions on
+    # un-annotated pixel truth.
+    if truth.get("visibility_semantics_authority") != "qa_evidence.annotate_pixel_visibility_semantics":
+        raise ValueError(
+            "shared visual evidence did not apply annotate_pixel_visibility_semantics"
+        )
     review = read_json(appearance_review) if appearance_review is not None else None
     if review is None:
-        review = build_pixel_appearance_review(
-            capture_root, plan, frame_stride=1, asset_registry=registry
-        )
-        appearance_path = derived / "appearance_review.json"
-        write_json(appearance_path, review)
+        review = shared_visual["appearance_review"]
+        pack_dir = visual_reuse.get("pack_dir")
+        if isinstance(pack_dir, str) and (Path(pack_dir) / "appearance_review.json").is_file():
+            # The shared pack already holds this exact review; point the
+            # evidence at it instead of writing another copy per member.
+            appearance_path = (Path(pack_dir) / "appearance_review.json").resolve()
+        else:
+            appearance_path = derived / "appearance_review.json"
+            write_json(appearance_path, review)
     else:
         appearance_path = Path(appearance_review).expanduser().resolve()
     if not isinstance(review, Mapping):
         raise ValueError("appearance review must be an object")
-    occluders = derive_actor_occluders(masks_path, truth)
-    occluder_path = derived / "actor_occluders.json"
-    write_json(occluder_path, occluders)
+    occluders = shared_visual["actor_occluders"]
+    pack_dir = visual_reuse.get("pack_dir")
+    if isinstance(pack_dir, str) and (Path(pack_dir) / "actor_occluders.json").is_file():
+        occluder_path = (Path(pack_dir) / "actor_occluders.json").resolve()
+    else:
+        occluder_path = derived / "actor_occluders.json"
+        write_json(occluder_path, occluders)
     occluder_registry = _reviewed_occluder_registry(review, actors)
     occluder_registry_path = derived / "occluder_registry.json"
     write_json(occluder_registry_path, occluder_registry)
@@ -1389,9 +1759,15 @@ def finalize_qa_episode(
             for event in contract_report.get("events", [])
             if isinstance(event, Mapping) and isinstance(event.get("actor_id"), str)
         ]
+    started = time.monotonic()
     visual_video, visual_video_status = _prepare_visual_video(
-        capture_root, clock=clock, output_path=derived / "visual_rgb.mp4"
+        capture_root, clock=clock, output_path=derived / SHARED_VISUAL_MASTER_NAME,
+        shared_master_path=(
+            shared_visual_pack_root(shared_root, capture_root) / SHARED_VISUAL_MASTER_NAME
+            if shared_root is not None else None
+        ),
     )
+    stage_timings["prepare_visual_video_s"] = time.monotonic() - started
     raw = {
         "episode_id": str(plan.get("episode_id") or capture_root.name),
         "plan": plan,
@@ -1510,6 +1886,8 @@ def finalize_qa_episode(
         {"path": str(questions_path.resolve()), "role": "question_output", "required": True},
     ]
     evidence.append({"path": str((derived / "evidence_contract_validation.json").resolve()), "role": "evidence_contract_validation", "required": True})
+    ancillary_audio = _ancillary_audio_outputs(contract_report)
+    evidence.extend(ancillary_audio)
     if visual_video is not None:
         evidence.append({"path": str(visual_video.resolve()), "role": "native_visual_video_or_rgb_encode", "required": True})
         evidence.append({"path": str(preview.resolve()), "role": "AAC_preview_with_complete_lossless_audio_source", "required": True})
@@ -1528,6 +1906,9 @@ def finalize_qa_episode(
         "evidence_contract": str((derived / "evidence_contract_validation.json").resolve()),
         "visual_video": str(visual_video.resolve()) if visual_video is not None else None,
         "visual_video_status": visual_video_status,
+        "shared_visual_evidence": visual_reuse,
+        "ancillary_audio_outputs": ancillary_audio,
+        "canonical_audio_delivery": "two_channel_binaural_mixture",
         "preview": str(preview.resolve()) if preview is not None else None,
         "preview_status": preview_status,
         "lossless_stereo_wav": str(mixture),
@@ -1542,6 +1923,19 @@ def finalize_qa_episode(
         "model_evaluation": "not_run",
         "formal_admission": False,
     }
+    stage_timings["finalize_total_s"] = time.monotonic() - finalize_started
+    timings_record = {
+        "schema": "avengine_qa_finalize_stage_timings_v1",
+        "episode_id": result["episode_id"],
+        "capture_root": str(capture_root),
+        "stage_timings_s": stage_timings,
+        "shared_visual_evidence": visual_reuse,
+        "visual_video_source": visual_video_status.get("source"),
+        "claim_boundary": "wall-clock stage timing on a shared host; not an isolated benchmark",
+    }
+    write_json(derived / "visual_stage_timings.json", timings_record)
+    result["stage_timings"] = timings_record
+    result["stage_timings_path"] = str((derived / "visual_stage_timings.json").resolve())
     commands["contract_validation"] = ["validate_evidence_contract", str(derived / "evidence_contract_validation.json")]
     write_json(derived / "input_refs.json", {
         "plan": str(plan_path) if plan_path is not None else None,
@@ -1553,6 +1947,8 @@ def finalize_qa_episode(
         "contract_audio_report": str(contract_report_path.resolve()),
         "appearance_review": str(appearance_path.resolve()),
         "occluder_evidence": str(occluder_path.resolve()),
+        "shared_visual_evidence_pack": visual_reuse.get("pack_dir"),
+        "visual_video": str(visual_video.resolve()) if visual_video is not None else None,
     })
     write_json(derived / "commands.json", commands)
     write_json(derived / "result.json", result)

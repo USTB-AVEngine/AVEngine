@@ -5,7 +5,7 @@
 
 自 2026-08-25 起，目录本身就是能力分组（阶段目录 m1…m7 已移除），
 本表按目录列出每个工具做什么。
-当前共 417 个工具脚本。
+当前共 430 个工具脚本。
 
 ## 资产生成与装配（`tools/assets/`）
 
@@ -248,6 +248,7 @@
 |---|---|
 | `tools/qa/adapt_four_speaker_research_qa.py` | Adapt four-speaker SPEAR/audio research inputs to existing QuestionSpec Facts |
 | `tools/qa/adapt_strict_two_human_both_move_v1_preflight.py` | Bind the reviewed both-move geometry handoff to A's materializer contract |
+| `tools/qa/assemble_binding_groups.py` | Assemble controlled binding groups from completed native episode variants |
 | `tools/qa/assemble_qa_v3_room_pilot.py` | Assemble one quota-complete room-centric QA-v3 research pilot manifest |
 | `tools/qa/audio_profiles.py` | Question-type audio profiles: one schedule per question type, not one for all |
 | `tools/qa/audit_binding_feasibility.py` | 绑定可行性与逐题难度画像审计（research_only）。 |
@@ -301,6 +302,7 @@
 | `tools/qa/compare_question_spec_fresh.py` | Fresh QuestionSpec re-evaluation versus retained bind-time records |
 | `tools/qa/compile_apartment_fact_tables.py` | Compile per-episode QA fact tables for the asset-bound Apartment batch |
 | `tools/qa/compile_question_protocol_coverage.py` | Compile or independently validate the 12-type native QuestionSpec protocol |
+| `tools/qa/derive_binding_catalog.py` | Derive all 25 catalog types for validated paired AV samples |
 | `tools/qa/derive_native_occluder_evidence.py` | Derive static occluder identity from native modal/target-only pixels |
 | `tools/qa/derive_twin_programs.py` | Derive sealed audio programs for Gate B twin points (qa-v3 pilot) |
 | `tools/qa/design_qa_batch.py` | Design and author one constraint-driven QA v2 batch (reverse fitting) |
@@ -309,6 +311,7 @@
 | `tools/qa/design_qa_v3_pilot_batch.py` | Design one qa-v3 dual-source pilot batch (stage two assembler) |
 | `tools/qa/design_qa_v3_scene_batch.py` | Integrated qa-v3 batch: generic scene solver + per-type audio + facts |
 | `tools/qa/evaluate_question_specs.py` | Evaluate registry-bound QuestionSpecs and render a standalone review page |
+| `tools/qa/export_binding_delivery.py` | Export a self-contained delivery, build its dataset index, attach a layout |
 | `tools/qa/export_qa_v3_dataset.py` | Export one completed QA-v3 pipeline run without model-specific fields |
 | `tools/qa/filter_cross_time_points.py` | Cross-time sampling filter (pilot work order item 1.7) |
 | `tools/qa/finalize_batch_visuals.py` | Retire raw rgb.npy arrays for a finished QA v2 batch (owner policy |
@@ -377,6 +380,8 @@
 | `tools/qa/run_strict_two_human_skokloster_f15_probe_v2.py` | Freeze the Skokloster v1 environment failure and prepare f15 revision v2 |
 | `tools/qa/scan_capture_listener_yaw.py` | Batch scan: does every capture's camera yaw match its audio listener? |
 | `tools/qa/scene_sampler.py` | Scene-agnostic candidate search for qa-v3 question types |
+| `tools/qa/score_binding_catalog.py` | Score full-catalog predictions through the AVEngine unified scorer |
+| `tools/qa/score_binding_groups.py` | Score private AVEngine instance-binding groups against model answers |
 | `tools/qa/score_open_answers.py` | Open-form answer scorer (pilot work order item 1.5) |
 | `tools/qa/score_qa_v3_human_calibration.py` | Score QA-v3 human calibration responses without mixing binding errors |
 | `tools/qa/score_unified_questions.py` | Score model answers for a generated unified QA question set |
@@ -423,11 +428,19 @@
 | `tools/dataset/build_spear_apartment_review.py` | Bind one exact SPEAR Apartment RGB render to Habitat Topdown v3 and audio |
 | `tools/dataset/compare_rir_cache_metrics.py` | Compare EDT/DRR/late-energy between two retained RIR caches on matched jobs |
 | `tools/dataset/export_episode_bundle.py` | Publish a shared-room Episode/QA reference bundle |
+| `tools/dataset/inspect_qa_dataset.py` | Read, inspect and score a self-contained V1 QA dataset export |
+| `tools/dataset/measure_source_qualification_geometry.py` | Measure the geometry observations the source-asset qualification matrix reads |
 | `tools/dataset/merge_qa_batch_attempts.py` | Merge original QA batch attempts with a later rerun and rebuild coverage including failed-episode accounting |
 | `tools/dataset/merge_spear_apartment_render_shards.py` | Merge independently rendered SPEAR Apartment shards without copying media |
+| `tools/dataset/prepare_binding_group_identity.py` | Prepare one native HM3D cross-event physical-identity group |
+| `tools/dataset/prepare_binding_group_motion.py` | Prepare a fixed-camera native four-member cross-time state group |
+| `tools/dataset/prepare_binding_group_native.py` | Prepare the first native four-member visible-binding group |
+| `tools/dataset/prepare_binding_group_reference.py` | Plan a CPU-only QA-05 reference group |
 | `tools/dataset/prepare_qwen25_omni_gold.py` | Build the private gold sidecar for the existing Qwen2.5-Omni pilot scorer |
 | `tools/dataset/prepare_qwen25_omni_pilot.py` | Prepare answer-free stereo inputs for the installed Qwen2.5-Omni pilot |
+| `tools/dataset/prepare_sound_segments.py` | Select the sounding part of dry recordings and cut it to a time budget |
 | `tools/dataset/prepare_spatial_omni_eval.py` | Prepare the private QA root consumed by the installed Spatial-Omni bench |
+| `tools/dataset/prepare_visual_conditioned_relation.py` | Prepare one native visual-conditioned relation binding group |
 | `tools/dataset/prepare_whisper_review.py` | Prepare a truth-free request for the local Whisper speech review |
 | `tools/dataset/recombine_source_trajectory_bank.py` | Build many unique two-source episodes from one finite single-path pool |
 | `tools/dataset/render_asset_bound_binaural_batch.py` | Assemble many binaural training items from one completed asset-bound cache |

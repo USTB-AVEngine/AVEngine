@@ -1,0 +1,710 @@
+{
+  "base_request": {
+    "allow_research_candidate_assets": true,
+    "diffraction": false,
+    "max_diffraction_order": 0,
+    "post_assembly_convolution_gain": 0.5,
+    "prepared_manifest": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/p7_prepared_audio_v3/prepared_manifest.json",
+    "room_catalog": "examples/rooms/packages/catalog.json",
+    "runtime": {
+      "ddc_directory": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/binding_v1_parallel_20260910/TAKEOVER/M16_RUNTIME_CONFIG/attempt_20260910T235227Z_pid888238/ue_ddc",
+      "ddc_profile": "InstalledNoZenLocalFallback",
+      "hrtf": "/data/avengine_external/rlr-sdk/hrtf/mit_kemar_normal_pinna_16k_v2_sofar_20260820T2200Z/mit_kemar_normal_pinna_16k.sofa",
+      "magnum_python_site": "/data/avengine_external/runtime-prefixes/magnum-python-cp312-45811bb-20260820T1845Z/lib/python3.12/site-packages",
+      "path_bindings": {
+        "AVENGINE_APARTMENT_INPUT_ROOT": "/data/avengine_external/m6x-canary-inputs/fixed_apartment_inputs_v1_20260821T131842Z",
+        "AVENGINE_HM3D_ACOUSTIC_ROOT": "/data/avengine_external/review/hm3d_e2e_wt_20260905_v1/package",
+        "AVENGINE_HM3D_REVIEW_ROOT": "/data/avengine_external/review/hm3d_e2e_wt_20260905_v1",
+        "AVENGINE_HM3D_ROOT": "/data/datasets/habitat_data",
+        "AVENGINE_HM3D_ROUTE_ROOT": "/data/avengine_external/review/hm3d_e2e_wt_20260905_v1/routes_R3",
+        "AVENGINE_KUJIALE_ACOUSTIC_ROOT": "/data/avengine_external/review/kujiale_acoustics/pkg_kujiale_0020_rlr",
+        "AVENGINE_MP3D_ACOUSTIC_ROOT": "/data/avengine_external/review/m3_current_mp3d_semantic_20260820T1630Z",
+        "AVENGINE_MP3D_ROOT": "/data/avengine_external/datasets/mp3d_example_scene_1.1",
+        "AVENGINE_MULTI_HOME_AUTHORING_ROOT": "/data/avengine_external/workspaces/multi_home_activity_20260905",
+        "AVENGINE_MULTI_HOME_ROOT": "/data/datasets/avengine_workspaces/multi_home_activity_20260905",
+        "AVENGINE_MULTI_HOME_UE_ROOT": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_full_asset_ue_stage_20260907_v1",
+        "AVENGINE_NATIVE_APARTMENT_ROUTE_ROOT": "/data/avengine_external/review/apartment_route_bank_20260825T0700Z",
+        "AVENGINE_P3_ROOM_PACKAGE_ROOT": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root",
+        "AVENGINE_QA_V3_ROOT": "/data/jzy/tmp",
+        "AVENGINE_SPEAR_STAGE_ROOT": "/data/avengine_external/workspaces/multi_home_activity_20260905/ue_stage"
+      },
+      "rlr_sdk_root": "/data/avengine_external/rlr-sdk/RLRAudioPropagationPkg",
+      "spear_ext_dir": "/data/avengine_external/spear-host-sdk/avengine-spear-ext-cp312-8a36d4d-20260821T0030Z",
+      "streaming_warmup_frames": 180,
+      "unreal_editor": "/data/UE_5.5/Engine/Binaries/Linux/UnrealEditor",
+      "uproject": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_full_asset_ue_stage_20260907_v1/SpearSim/SpearSim.uproject"
+    },
+    "sample_rate_hz": 16000,
+    "sound_pool": "tmp/binding_v1_parallel_20260910/TAKEOVER/T06_PLACE/attempt_20260910T192045Z_pid739226/T06_SOUND_POOL.json",
+    "sound_selection": {
+      "clip_span_fit_policy": "filter_to_remaining_budget_then_uniform",
+      "max_clip_s": 7.0,
+      "min_audible_s": 1.5,
+      "sound_class_config": {
+        "human_nonverbal_sound_classes": [],
+        "object_sound_classes": {
+          "air_conditioner": [
+            "air_conditioning"
+          ],
+          "alarm_clock": [
+            "alarm_clock",
+            "alarm_beep",
+            "alarm_bell",
+            "clock_tick"
+          ],
+          "bathtub": [
+            "bathtub_filling_washing"
+          ],
+          "blender": [
+            "blender"
+          ],
+          "bookshelf_speaker": [
+            "speech_playback",
+            "music_playback",
+            "any_audioset_class_playback"
+          ],
+          "cellphone": [
+            "cellphone_vibration_alert",
+            "ringtone",
+            "phone_ring"
+          ],
+          "desk_telephone": [
+            "telephone_bell_ringing",
+            "telephone_dialing_dtmf",
+            "busy_signal",
+            "phone_ring",
+            "telephone"
+          ],
+          "doorbell_chime_unit": [
+            "doorbell",
+            "doorbell_chime",
+            "ding_dong",
+            "chime"
+          ],
+          "fireplace": [
+            "fire",
+            "crackle"
+          ],
+          "floor_drain": [
+            "drip",
+            "gurgling"
+          ],
+          "floorstanding_speaker": [
+            "speech_playback",
+            "music_playback",
+            "any_audioset_class_playback"
+          ],
+          "landline_phone": [
+            "telephone_bell_ringing",
+            "telephone_dialing_dtmf",
+            "busy_signal",
+            "phone_ring",
+            "telephone"
+          ],
+          "microwave_oven": [
+            "microwave_beep",
+            "microwave_hum"
+          ],
+          "printer": [
+            "printer"
+          ],
+          "sink_with_tap": [
+            "sink_filling_washing",
+            "water_tap_faucet"
+          ],
+          "smart_speaker": [
+            "speech_playback",
+            "music_playback",
+            "any_audioset_class_playback"
+          ],
+          "smoke_detector": [
+            "smoke_alarm",
+            "fire_alarm"
+          ],
+          "soundbar": [
+            "speech_playback",
+            "music_playback",
+            "any_audioset_class_playback"
+          ],
+          "television": [
+            "speech_playback",
+            "music_playback",
+            "any_audioset_class_playback"
+          ],
+          "toilet": [
+            "toilet_flush"
+          ]
+        },
+        "species_sound_classes": {
+          "cat": [
+            "cat_meow"
+          ],
+          "dog": [
+            "dog_bark"
+          ]
+        },
+        "speech_playback_categories": [
+          "audio_playback"
+        ]
+      },
+      "unique_first_utterance_transcripts": true
+    },
+    "source_registry": "examples/runtime/source_asset_runtime_profiles.json"
+  },
+  "batch_id": "qa_luna_identity_qualification_20260911",
+  "claim_boundary": "Fresh identity-only qualification configuration. P19 is fully disabled here; native execution, media readback, public export and admission remain pending the normal production runner.",
+  "p19_coverage": {
+    "append_requests": false,
+    "enabled": false,
+    "run_appended": false
+  },
+  "production": {
+    "batch_id": "binding_takeover_20260911",
+    "claim_boundary": "Production qualification candidate; parse/plan/run status is not acceptance.",
+    "core_groups": [
+      {
+        "group_id": "takeover_cross_event_identity_apartment_g01",
+        "member_defaults": {
+          "profile": {
+            "pinned_static_positions_m": {
+              "source1": [
+                -1.4833,
+                0.28,
+                0.1295
+              ],
+              "source2": [
+                0.7308,
+                0.28,
+                1.2741
+              ]
+            }
+          },
+          "request_extras": {
+            "binding_identity": {
+              "angle_tolerance_deg": 10.0,
+              "end_hold_s": 3.0,
+              "event_start_s": 0.25,
+              "minimum_bearing_change_deg": 8.0,
+              "minimum_entity_separation_m": 0.95,
+              "minimum_motion_s": 0.5,
+              "minimum_silence_after_emission_s": 0.15,
+              "native_geometry_pools": [
+                {
+                  "path": "tmp/binding_dataset_20260909_v2/identity_room_preflight_v1/apartment/native_common_endpoint_query_v5.json",
+                  "room_id": "legacy_ue_apartment_0000_v1"
+                }
+              ],
+              "path_length_range_m": [
+                0.8,
+                2.0
+              ],
+              "post_motion_silence_s": 0.0,
+              "route_retry_budget": 512,
+              "same_floor_tolerance_m": 0.35,
+              "sound_identity_field": "speaker_id",
+              "visibility_margin_deg": 5.0,
+              "walk_speed_range_mps": [
+                0.65,
+                0.8
+              ]
+            },
+            "runtime": {
+              "ddc_directory": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/binding_v1_parallel_20260910/TAKEOVER/M16_RUNTIME_CONFIG/attempt_20260910T235227Z_pid888238/ue_ddc",
+              "ddc_profile": "InstalledNoZenLocalFallback",
+              "hrtf": "/data/avengine_external/rlr-sdk/hrtf/mit_kemar_normal_pinna_16k_v2_sofar_20260820T2200Z/mit_kemar_normal_pinna_16k.sofa",
+              "magnum_python_site": "/data/avengine_external/runtime-prefixes/magnum-python-cp312-45811bb-20260820T1845Z/lib/python3.12/site-packages",
+              "path_bindings": {
+                "AVENGINE_APARTMENT_INPUT_ROOT": "/data/avengine_external/m6x-canary-inputs/fixed_apartment_inputs_v1_20260821T131842Z",
+                "AVENGINE_HM3D_ACOUSTIC_ROOT": "/data/avengine_external/review/hm3d_e2e_wt_20260905_v1/package",
+                "AVENGINE_HM3D_REVIEW_ROOT": "/data/avengine_external/review/hm3d_e2e_wt_20260905_v1",
+                "AVENGINE_HM3D_ROOT": "/data/datasets/habitat_data",
+                "AVENGINE_HM3D_ROUTE_ROOT": "/data/avengine_external/review/hm3d_e2e_wt_20260905_v1/routes_R3",
+                "AVENGINE_KUJIALE_ACOUSTIC_ROOT": "/data/avengine_external/review/kujiale_acoustics/pkg_kujiale_0020_rlr",
+                "AVENGINE_MP3D_ACOUSTIC_ROOT": "/data/avengine_external/review/m3_current_mp3d_semantic_20260820T1630Z",
+                "AVENGINE_MP3D_ROOT": "/data/avengine_external/datasets/mp3d_example_scene_1.1",
+                "AVENGINE_MULTI_HOME_AUTHORING_ROOT": "/data/avengine_external/workspaces/multi_home_activity_20260905",
+                "AVENGINE_MULTI_HOME_ROOT": "/data/datasets/avengine_workspaces/multi_home_activity_20260905",
+                "AVENGINE_MULTI_HOME_UE_ROOT": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_full_asset_ue_stage_20260907_v1",
+                "AVENGINE_NATIVE_APARTMENT_ROUTE_ROOT": "/data/avengine_external/review/apartment_route_bank_20260825T0700Z",
+                "AVENGINE_P3_ROOM_PACKAGE_ROOT": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root",
+                "AVENGINE_QA_V3_ROOT": "/data/jzy/tmp",
+                "AVENGINE_SPEAR_STAGE_ROOT": "/data/avengine_external/workspaces/multi_home_activity_20260905/ue_stage"
+              },
+              "rlr_sdk_root": "/data/avengine_external/rlr-sdk/RLRAudioPropagationPkg",
+              "runtime_prefix": "/data/avengine_external/runtime-prefixes/avengine-habitat-object-id-732f264-20260824T1041Z",
+              "spear_ext_dir": "/data/avengine_external/spear-host-sdk/avengine-spear-ext-cp312-8a36d4d-20260821T0030Z",
+              "streaming_warmup_frames": 180,
+              "unreal_editor": "/data/UE_5.5/Engine/Binaries/Linux/UnrealEditor",
+              "uproject": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_full_asset_ue_stage_20260907_v1/SpearSim/SpearSim.uproject"
+            }
+          },
+          "seed": 20369910
+        },
+        "members": [
+          {
+            "instances": [
+              {
+                "asset_id": "rocketbox_human_male_adult_01_top_blue_research_v1",
+                "instance_id": "source1",
+                "source_class": "articulated_human"
+              },
+              {
+                "asset_id": "rocketbox_human_male_adult_01_top_green_research_v1",
+                "instance_id": "source2",
+                "source_class": "articulated_human"
+              }
+            ],
+            "member_role": "v0_a0",
+            "request_id": "takeover_cross_event_identity_apartment_g01_v0_a0"
+          },
+          {
+            "instances": [
+              {
+                "asset_id": "rocketbox_human_male_adult_01_top_blue_research_v1",
+                "instance_id": "source1",
+                "source_class": "articulated_human"
+              },
+              {
+                "asset_id": "rocketbox_human_male_adult_01_top_green_research_v1",
+                "instance_id": "source2",
+                "source_class": "articulated_human"
+              }
+            ],
+            "member_role": "v0_a1",
+            "request_id": "takeover_cross_event_identity_apartment_g01_v0_a1"
+          },
+          {
+            "instances": [
+              {
+                "asset_id": "rocketbox_human_male_adult_01_top_blue_research_v1",
+                "instance_id": "source1",
+                "source_class": "articulated_human"
+              },
+              {
+                "asset_id": "rocketbox_human_male_adult_01_top_green_research_v1",
+                "instance_id": "source2",
+                "source_class": "articulated_human"
+              }
+            ],
+            "member_role": "v1_a0",
+            "request_id": "takeover_cross_event_identity_apartment_g01_v1_a0"
+          },
+          {
+            "instances": [
+              {
+                "asset_id": "rocketbox_human_male_adult_01_top_blue_research_v1",
+                "instance_id": "source1",
+                "source_class": "articulated_human"
+              },
+              {
+                "asset_id": "rocketbox_human_male_adult_01_top_green_research_v1",
+                "instance_id": "source2",
+                "source_class": "articulated_human"
+              }
+            ],
+            "member_role": "v1_a1",
+            "request_id": "takeover_cross_event_identity_apartment_g01_v1_a1"
+          }
+        ],
+        "room_id": "legacy_ue_apartment_0000_v1",
+        "shared_audio_member_ids": [
+          [
+            "takeover_cross_event_identity_apartment_g01_v0_a0",
+            "takeover_cross_event_identity_apartment_g01_v1_a0"
+          ],
+          [
+            "takeover_cross_event_identity_apartment_g01_v0_a1",
+            "takeover_cross_event_identity_apartment_g01_v1_a1"
+          ]
+        ],
+        "shared_visual_member_ids": [
+          [
+            "takeover_cross_event_identity_apartment_g01_v0_a0",
+            "takeover_cross_event_identity_apartment_g01_v0_a1"
+          ],
+          [
+            "takeover_cross_event_identity_apartment_g01_v1_a0",
+            "takeover_cross_event_identity_apartment_g01_v1_a1"
+          ]
+        ],
+        "task_family": "cross_event_identity"
+      }
+    ],
+    "coverage_quota": {
+      "branches_by_qa_id": {
+        "QA-01": [],
+        "QA-02": [],
+        "QA-03": [],
+        "QA-04": [],
+        "QA-05": [
+          "overlap",
+          "disjoint"
+        ],
+        "QA-06": [
+          "moving",
+          "still"
+        ],
+        "QA-07": [
+          "left",
+          "right"
+        ],
+        "QA-08": [
+          "out_of_view",
+          "visible_clear",
+          "visible_occluded",
+          "fully_occluded"
+        ],
+        "QA-09": [
+          "yes",
+          "no"
+        ],
+        "QA-10": [],
+        "QA-11": [],
+        "QA-12": [],
+        "QA-13": [],
+        "QA-14": [],
+        "QA-15": [
+          "nearer",
+          "farther"
+        ],
+        "QA-16": [],
+        "QA-17": [
+          "yes",
+          "no"
+        ],
+        "QA-18": [],
+        "QA-19": [],
+        "QA-20": [
+          "visible_candidate",
+          "none_of_them"
+        ],
+        "QA-21": [],
+        "QA-22": [],
+        "QA-23": [],
+        "QA-24": [
+          "out_of_view",
+          "visible_clear",
+          "visible_occluded",
+          "fully_occluded"
+        ],
+        "QA-25": [
+          "A",
+          "V",
+          "AV"
+        ]
+      },
+      "claim_boundary": "Targets only. Meeting them yields a readable, scoreable V1 question bank; it is not human answerability, model evaluation or paper admission, and none of those may be inferred from these numbers.",
+      "core_task_families": [
+        "visible_binding",
+        "visual_conditioned_relation",
+        "cross_event_identity",
+        "cross_time_state"
+      ],
+      "entity_combinations": [
+        "animal+animal",
+        "animal+device",
+        "device+device",
+        "human+animal",
+        "human+device",
+        "human+human"
+      ],
+      "first_version_cap_source": "This pilot targets 16 core groups: one in each of four task families x four room families. The retained snapshot is historical evidence only.",
+      "min_core_groups_per_task_family_and_room_family": 1,
+      "min_distinct_worlds_per_branch": 1,
+      "min_distinct_worlds_per_entity_combination": 2,
+      "min_distinct_worlds_per_qa_id": 2,
+      "min_valid_main_questions_per_branch": 2,
+      "min_valid_main_questions_per_qa_id": 8,
+      "notes": [
+        "One generated item offering both mcq and open is one valid main question; the form counts break the same items down.",
+        "Angle follow-ups are counted on their own line, never as main questions.",
+        "A world contributes once however many members it serves, and an already imported retained delivery is counted once.",
+        "The takeover acceptance requires at least two valid main questions per key branch, but adds no separate two-world branch quota; every QA type still requires at least two worlds."
+      ],
+      "qa_ids": [
+        "QA-01",
+        "QA-02",
+        "QA-03",
+        "QA-04",
+        "QA-05",
+        "QA-06",
+        "QA-07",
+        "QA-08",
+        "QA-09",
+        "QA-10",
+        "QA-11",
+        "QA-12",
+        "QA-13",
+        "QA-14",
+        "QA-15",
+        "QA-16",
+        "QA-17",
+        "QA-18",
+        "QA-19",
+        "QA-20",
+        "QA-21",
+        "QA-22",
+        "QA-23",
+        "QA-24",
+        "QA-25"
+      ],
+      "room_families": [
+        "apartment",
+        "kujiale",
+        "hm3d",
+        "mp3d"
+      ],
+      "schema": "avengine_qa_v1_coverage_targets_v1",
+      "target_core_group_count": 16
+    },
+    "defaults": {
+      "audio_layouts": [
+        {
+          "indirect_sh_order": 1,
+          "role": "primary",
+          "type": "binaural"
+        },
+        {
+          "ambisonic_order": 1,
+          "indirect_sh_order": 1,
+          "role": "attached_view",
+          "type": "ambisonics"
+        }
+      ],
+      "clock": {
+        "frame_count": 150,
+        "frame_rate_hz": 15,
+        "sample_rate_hz": 16000
+      },
+      "items_per_type": 1,
+      "post_assembly_convolution_gain": 0.5,
+      "profile": {
+        "competitor_set": "all_other_entities_including_offscreen",
+        "min_gap_between_audible_windows_s": 0.5,
+        "minimum_overlap_s": 0.3,
+        "reserve_tail_s": 3.0,
+        "retry_budget_within_profile": 200,
+        "separation_bin_deg": {
+          "bins": [
+            [
+              30.0,
+              60.0
+            ]
+          ],
+          "floor_deg": 15.0
+        },
+        "separation_window": "whole_audible_window_of_anchor"
+      },
+      "qa_ids": [
+        "QA-01",
+        "QA-02",
+        "QA-03",
+        "QA-04",
+        "QA-05",
+        "QA-06",
+        "QA-07",
+        "QA-08",
+        "QA-09",
+        "QA-10",
+        "QA-11",
+        "QA-12",
+        "QA-13",
+        "QA-14",
+        "QA-15",
+        "QA-16",
+        "QA-17",
+        "QA-18",
+        "QA-19",
+        "QA-20",
+        "QA-21",
+        "QA-22",
+        "QA-23",
+        "QA-24",
+        "QA-25"
+      ],
+      "reserve_tail_s": 3.0,
+      "resources": {
+        "assembly": {
+          "kind": "cpu"
+        },
+        "audio": {
+          "kind": "cpu_native_acoustic",
+          "rlr_threads": 1
+        },
+        "capture": {
+          "kind": "gpu_native_visual",
+          "min_free_vram_mb": 12000
+        },
+        "delivery": {
+          "kind": "cpu"
+        },
+        "late_plan": {
+          "kind": "cpu_native_geometry"
+        },
+        "plan": {
+          "kind": "cpu"
+        }
+      },
+      "retry": {
+        "attempts_per_stage": 2,
+        "attempts_within_profile": 200
+      },
+      "rig": {
+        "fov_deg": 85,
+        "height_above_floor_m": 1.55,
+        "motion": "static",
+        "resolution_hw": [
+          720,
+          1280
+        ]
+      },
+      "sound": {
+        "pool": "tmp/binding_v1_parallel_20260910/TAKEOVER/T06_PLACE/attempt_20260910T192045Z_pid739226/T06_SOUND_POOL.json",
+        "selection": {
+          "clip_span_fit_policy": "filter_to_remaining_budget_then_uniform",
+          "max_clip_s": 7.0,
+          "min_audible_s": 1.5,
+          "sound_class_config": {
+            "human_nonverbal_sound_classes": [],
+            "object_sound_classes": {
+              "air_conditioner": [
+                "air_conditioning"
+              ],
+              "alarm_clock": [
+                "alarm_clock",
+                "alarm_beep",
+                "alarm_bell",
+                "clock_tick"
+              ],
+              "bathtub": [
+                "bathtub_filling_washing"
+              ],
+              "blender": [
+                "blender"
+              ],
+              "bookshelf_speaker": [
+                "speech_playback",
+                "music_playback",
+                "any_audioset_class_playback"
+              ],
+              "cellphone": [
+                "cellphone_vibration_alert",
+                "ringtone",
+                "phone_ring"
+              ],
+              "desk_telephone": [
+                "telephone_bell_ringing",
+                "telephone_dialing_dtmf",
+                "busy_signal",
+                "phone_ring",
+                "telephone"
+              ],
+              "doorbell_chime_unit": [
+                "doorbell",
+                "doorbell_chime",
+                "ding_dong",
+                "chime"
+              ],
+              "fireplace": [
+                "fire",
+                "crackle"
+              ],
+              "floor_drain": [
+                "drip",
+                "gurgling"
+              ],
+              "floorstanding_speaker": [
+                "speech_playback",
+                "music_playback",
+                "any_audioset_class_playback"
+              ],
+              "landline_phone": [
+                "telephone_bell_ringing",
+                "telephone_dialing_dtmf",
+                "busy_signal",
+                "phone_ring",
+                "telephone"
+              ],
+              "microwave_oven": [
+                "microwave_beep",
+                "microwave_hum"
+              ],
+              "printer": [
+                "printer"
+              ],
+              "sink_with_tap": [
+                "sink_filling_washing",
+                "water_tap_faucet"
+              ],
+              "smart_speaker": [
+                "speech_playback",
+                "music_playback",
+                "any_audioset_class_playback"
+              ],
+              "smoke_detector": [
+                "smoke_alarm",
+                "fire_alarm"
+              ],
+              "soundbar": [
+                "speech_playback",
+                "music_playback",
+                "any_audioset_class_playback"
+              ],
+              "television": [
+                "speech_playback",
+                "music_playback",
+                "any_audioset_class_playback"
+              ],
+              "toilet": [
+                "toilet_flush"
+              ]
+            },
+            "species_sound_classes": {
+              "cat": [
+                "cat_meow"
+              ],
+              "dog": [
+                "dog_bark"
+              ]
+            },
+            "speech_playback_categories": [
+              "audio_playback"
+            ]
+          },
+          "unique_first_utterance_transcripts": true
+        }
+      }
+    },
+    "episodes": [],
+    "schema": "avengine_v1_production_spec_v1",
+    "seed": 20260911
+  },
+  "qualification_scope": {
+    "group_id": "takeover_cross_event_identity_apartment_g01",
+    "p19_coverage": {
+      "append_requests": false,
+      "enabled": false,
+      "run_appended": false
+    },
+    "room_id": "legacy_ue_apartment_0000_v1",
+    "source_config": "/data/jzy/tmp/wt-grok-pilot46-round2/examples/dataset/qa_binding_takeover_20260911.json",
+    "task_family": "cross_event_identity"
+  },
+  "resource_policy": {
+    "cpu": {
+      "max_memory_mb": 64000,
+      "max_threads": 16,
+      "max_workers": 4,
+      "rlr_threads": 1
+    },
+    "gpu": {
+      "allow_shared_device": false,
+      "headroom_mb": 2048,
+      "max_workers": 2,
+      "max_workers_per_device": 1,
+      "min_free_vram_mb": 12000,
+      "selection": "most_free"
+    }
+  },
+  "seed": 20260911
+}

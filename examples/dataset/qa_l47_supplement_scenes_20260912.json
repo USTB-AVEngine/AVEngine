@@ -1,0 +1,316 @@
+{
+  "schema": "avengine_qa_l47_supplement_scene_config_v1",
+  "batch_id": "qa_l47_supplement_scenes_20260912",
+  "claim_boundary": "Bounded CPU normal CLI plan-only qualification candidates; native visual, audio/RLR, pixel truth and dataset admission are not run.",
+  "native_visual_runs": 0,
+  "plan_mode": "tools/studio/run_qa_episode.py --plan-only",
+  "fixed_conditions": {
+    "episode_duration_s": 10,
+    "frame_count": 150,
+    "frame_rate_hz": 15,
+    "camera_motion": "static",
+    "post_assembly_convolution_gain": 0.5,
+    "reserve_tail_s": 3.0,
+    "room_selection": "registered room catalog; no hardcoded room coordinates",
+    "candidate_budget_policy": "inherit existing request budgets; do not increase for the same failure",
+    "ordinary_question_policy": "current tolerant policy accepted; ordinary policy publication remains with Main"
+  },
+  "reused_inputs": {
+    "qa07_request": "examples/dataset/qa07_body_visibility_20260912.json",
+    "qa09_request": "tmp/binding_v1_parallel_20260910/TAKEOVER/L38_QA09_CPU/probe_20260911T1728Z/ordinary_qa09_no_request.json",
+    "qa15_fallback": "tmp/binding_v1_parallel_20260910/TAKEOVER/CLAUDE_C01_R2/attempt_20260911T065526Z_pid1486540/reverify_prepare/requests/c01r1_qa15_nearer_r1.json",
+    "source_registry": "examples/runtime/source_asset_runtime_profiles.json",
+    "contact_correction": "tmp/binding_v1_parallel_20260910/TAKEOVER/L32_QA_NATIVE/attempt_20260911T125058Z_pid2065191/qa07_contact/CONTACT_CORRECTION_R4_CPU_SOURCE2_V3_ORIGINAL_ID.json"
+  },
+  "templates": [
+    {
+      "name": "qa07",
+      "request": "tmp/binding_v1_parallel_20260910/TAKEOVER/L47_SUPPLEMENT_SCENES/requests/separate/l47_qa07.json",
+      "episode_id": "l47_q07_cpu_20260912T020948Z_reuse_seed",
+      "qa_ids": [
+        "QA-07"
+      ],
+      "branches": {
+        "QA-07": [
+          "left"
+        ]
+      },
+      "seed": 20260985
+    },
+    {
+      "name": "qa15",
+      "request": "tmp/binding_v1_parallel_20260910/TAKEOVER/L47_SUPPLEMENT_SCENES/requests/separate/l47_qa15.json",
+      "episode_id": "l47_q15_cpu_20260912T020948Z_fallback",
+      "qa_ids": [
+        "QA-15"
+      ],
+      "branches": {
+        "QA-15": [
+          "nearer"
+        ]
+      }
+    },
+    {
+      "name": "qa09",
+      "branch_requests": {
+        "no": "tmp/binding_v1_parallel_20260910/TAKEOVER/L47_SUPPLEMENT_SCENES/requests/l47_qa09_no.json",
+        "yes": "tmp/binding_v1_parallel_20260910/TAKEOVER/L47_SUPPLEMENT_SCENES/requests/l47_qa09_yes.json"
+      },
+      "qa_ids": [
+        "QA-09"
+      ],
+      "branches": {
+        "QA-09": [
+          "no",
+          "yes"
+        ]
+      },
+      "episode_ids": {
+        "no": "l47_q09_no_cpu_20260912T020948Z",
+        "yes": "l47_q09_yes_cpu_20260912T020948Z_preferred"
+      }
+    }
+  ],
+  "expansion_contract": {
+    "seed_policy": "change only episode seed and episode_id per future plan",
+    "asset_policy": "retain existing asset registry, source_asset_ids, sound_pool and contact/body knobs",
+    "room_policy": "choose from registered room resources",
+    "manual_sample_creation": false,
+    "requested_native_creation": false
+  },
+  "ordinary_acceptance_policy": {
+    "policy_id": "ordinary_observation_20260912_v1",
+    "visibility": {
+      "max_hidden_visible_fraction": 0.01,
+      "min_reappeared_visible_fraction": 0.05,
+      "max_edge_sliver_width_fraction": 0.02
+    },
+    "motion": {
+      "mode": "noticeable_motion",
+      "min_moving_duration_s": 0.8,
+      "min_travel_m": 0.2,
+      "max_still_travel_m": 0.05
+    },
+    "question_mode": "ordinary_observation",
+    "post_sound_distance_query": "integer_timepoint",
+    "sound_class_options": [
+      "alarm_bell",
+      "blender",
+      "cat_meow",
+      "dog_bark",
+      "printer",
+      "speech_playback"
+    ],
+    "sound_class_options_source": "registered classes bound to native events in L44_BULK_POOL/source_manifest.json"
+  },
+  "policy_source": "examples/dataset/qa_acceptance_ordinary_20260912.json",
+  "joint_probe": {
+    "request": "/data/jzy/tmp/wt-grok-pilot46-round2/tmp/binding_v1_parallel_20260910/TAKEOVER/L47_SUPPLEMENT_SCENES/requests/l47_qa07_qa15_joint.json",
+    "episode_id": "l47_q07q15_joint_cpu_20260912T020948Z",
+    "status": "failed",
+    "reason": "Bounded search failed after 200 attempts for the joint QA07 visibility plus QA15 nearer condition; this is not evidence that the registered room is unrealizable.",
+    "native_execution": "not_run",
+    "claim_boundary": "bounded_search_failed_not_room_unrealizable"
+  },
+  "materialization_policy": {
+    "mode": "normal_cli_plan_only",
+    "native_visual_runs": 0,
+    "source_edits": 0,
+    "candidate_budget_change": 0
+  },
+  "launch_ready_ordinary_materializations": [
+    {
+      "template": "qa07",
+      "branch": "left",
+      "episode_id": "l47_q07_cpu_20260912T020948Z_reuse_seed",
+      "output": "/data/jzy/tmp/wt-grok-pilot46-round2/tmp/binding_v1_parallel_20260910/TAKEOVER/L47_SUPPLEMENT_SCENES/plans/l47_q07_cpu_20260912T020948Z_reuse_seed",
+      "plan": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/binding_v1_parallel_20260910/TAKEOVER/L47_SUPPLEMENT_SCENES/plans/l47_q07_cpu_20260912T020948Z_reuse_seed/plan/episode_plan.json",
+      "status": "research_candidate",
+      "selected_room_id": "hm3d_val_00800_TEEsavR23oF",
+      "elapsed_seconds": 25.00707630859688,
+      "attempts": 31,
+      "native_execution": "not_run",
+      "launch_ready": true,
+      "failure_histogram": {
+        "routes:all_frame_source_separation_below_0.95_m": 4,
+        "routes:path_too_short_for_moving_window": 20,
+        "routes:contact_correction_without_measured_support:human_target:frame_45": 1,
+        "routes:contact_correction_without_measured_support:human_target:frame_0": 4,
+        "routes:navigation_sampling_failed: native navmesh has no sampled point in the requested region": 1
+      }
+    },
+    {
+      "template": "qa15",
+      "branch": "nearer",
+      "episode_id": "l47_q15_cpu_20260912T020948Z_fallback",
+      "output": "/data/jzy/tmp/wt-grok-pilot46-round2/tmp/binding_v1_parallel_20260910/TAKEOVER/L47_SUPPLEMENT_SCENES/plans/l47_q15_cpu_20260912T020948Z_fallback",
+      "plan": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/binding_v1_parallel_20260910/TAKEOVER/L47_SUPPLEMENT_SCENES/plans/l47_q15_cpu_20260912T020948Z_fallback/plan/episode_plan.json",
+      "status": "research_candidate",
+      "selected_room_id": "hm3d_val_00800_TEEsavR23oF",
+      "elapsed_seconds": 13.864271566271782,
+      "attempts": 16,
+      "native_execution": "not_run",
+      "launch_ready": true,
+      "failure_histogram": {
+        "routes:path_too_short_for_moving_window": 14,
+        "camera:no_joint_geometry_activity_schedule": 1
+      }
+    },
+    {
+      "template": "qa09",
+      "branch": "no",
+      "episode_id": "l47_q09_no_cpu_20260912T020948Z",
+      "output": "/data/jzy/tmp/wt-grok-pilot46-round2/tmp/binding_v1_parallel_20260910/TAKEOVER/L47_SUPPLEMENT_SCENES/plans/l47_q09_no_cpu_20260912T020948Z",
+      "plan": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/binding_v1_parallel_20260910/TAKEOVER/L47_SUPPLEMENT_SCENES/plans/l47_q09_no_cpu_20260912T020948Z/plan/episode_plan.json",
+      "status": "research_candidate",
+      "selected_room_id": "hm3d_val_00800_TEEsavR23oF",
+      "elapsed_seconds": 76.18966042390093,
+      "attempts": 59,
+      "native_execution": "not_run",
+      "launch_ready": true,
+      "failure_histogram": {
+        "routes:path_too_short_for_moving_window": 45,
+        "routes:all_frame_source_separation_below_0.95_m": 2,
+        "routes:no_existing_navigation_path": 2,
+        "routes:route_does_not_fit_clock_or_required_window": 6,
+        "camera:no_joint_geometry_activity_schedule": 1,
+        "routes:navigation_sampling_failed: native navmesh has no sampled point in the requested region": 2
+      }
+    },
+    {
+      "template": "qa09",
+      "branch": "yes",
+      "episode_id": "l47_q09_yes_cpu_20260912T020948Z_preferred",
+      "output": "/data/jzy/tmp/wt-grok-pilot46-round2/tmp/binding_v1_parallel_20260910/TAKEOVER/L47_SUPPLEMENT_SCENES/plans/l47_q09_yes_cpu_20260912T020948Z_preferred",
+      "plan": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/binding_v1_parallel_20260910/TAKEOVER/L47_SUPPLEMENT_SCENES/plans/l47_q09_yes_cpu_20260912T020948Z_preferred/plan/episode_plan.json",
+      "status": "research_candidate",
+      "selected_room_id": "hm3d_val_00800_TEEsavR23oF",
+      "elapsed_seconds": 28.17294100485742,
+      "attempts": 14,
+      "native_execution": "not_run",
+      "launch_ready": true,
+      "failure_histogram": {
+        "routes:path_too_short_for_moving_window": 10,
+        "routes:all_frame_source_separation_below_0.95_m": 3
+      }
+    }
+  ],
+  "failed_attempts": [
+    {
+      "kind": "joint_qa07_qa15",
+      "episode_id": "l47_q07q15_joint_cpu_20260912T020948Z",
+      "output": "/data/jzy/tmp/wt-grok-pilot46-round2/tmp/binding_v1_parallel_20260910/TAKEOVER/L47_SUPPLEMENT_SCENES/plans/l47_q07q15_joint_cpu_20260912T020948Z",
+      "status": "failed",
+      "native_execution": "not_run",
+      "reason": "Joint QA07 out_of_view_to_visible plus QA15 nearer compiled to one fixed condition profile and exhausted 200 attempts.",
+      "failure_histogram": {
+        "routes:path_too_short_for_moving_window": 147,
+        "routes:all_frame_source_separation_below_0.95_m": 9,
+        "routes:navigation_sampling_failed: native navmesh has no sampled point in the requested region": 11,
+        "routes:contact_correction_without_measured_support:human_target:frame_0": 8,
+        "routes:route_does_not_fit_clock_or_required_window": 14,
+        "routes:no_existing_navigation_path": 1,
+        "routes:contact_correction_without_measured_support:human_target:frame_64": 1,
+        "routes:contact_correction_without_measured_support:human_target:frame_76": 1,
+        "routes:contact_correction_without_measured_support:human_target:frame_72": 1,
+        "routes:contact_correction_without_measured_support:human_target:frame_54": 1,
+        "routes:initial_source_separation_below_0.95_m": 3,
+        "camera:no_joint_geometry_activity_schedule": 2,
+        "routes:contact_correction_without_measured_support:human_target:frame_61": 1
+      }
+    },
+    {
+      "kind": "qa07_separate_first_seed",
+      "episode_id": "l47_q07_cpu_20260912T020948Z_fallback",
+      "output": "/data/jzy/tmp/wt-grok-pilot46-round2/tmp/binding_v1_parallel_20260910/TAKEOVER/L47_SUPPLEMENT_SCENES/plans/l47_q07_cpu_20260912T020948Z_fallback",
+      "status": "failed",
+      "native_execution": "not_run",
+      "reason": "QA07 separate request with new seed exhausted 200 attempts; route length/separation/contact-support failures dominated.",
+      "failure_histogram": {
+        "routes:all_frame_source_separation_below_0.95_m": 13,
+        "routes:path_too_short_for_moving_window": 142,
+        "routes:contact_correction_without_measured_support:human_target:frame_0": 12,
+        "routes:no_existing_navigation_path": 2,
+        "routes:initial_source_separation_below_0.95_m": 9,
+        "routes:navigation_sampling_failed: native navmesh has no sampled point in the requested region": 14,
+        "routes:contact_correction_without_measured_support:human_target:frame_91": 1,
+        "camera:no_joint_geometry_activity_schedule": 2,
+        "routes:contact_correction_without_measured_support:human_target:frame_24": 1,
+        "routes:route_does_not_fit_clock_or_required_window": 2,
+        "routes:contact_correction_without_measured_support:human_target:frame_88": 1,
+        "routes:contact_correction_without_measured_support:human_target:frame_1": 1
+      }
+    },
+    {
+      "kind": "qa09_yes_first_shape",
+      "episode_id": "l47_q09_yes_cpu_20260912T020948Z",
+      "output": "/data/jzy/tmp/wt-grok-pilot46-round2/tmp/binding_v1_parallel_20260910/TAKEOVER/L47_SUPPLEMENT_SCENES/plans/l47_q09_yes_cpu_20260912T020948Z",
+      "status": "timeout",
+      "native_execution": "not_run",
+      "reason": "Copied no-branch shape timed out at the 180 s bounded CLI limit; the output has no planning_result.",
+      "timeout_seconds": 180
+    }
+  ],
+  "ordinary_policy_injected_into": [
+    "tmp/binding_v1_parallel_20260910/TAKEOVER/L47_SUPPLEMENT_SCENES/requests/l47_qa07_qa15_joint.json",
+    "tmp/binding_v1_parallel_20260910/TAKEOVER/L47_SUPPLEMENT_SCENES/requests/l47_qa09_no.json",
+    "tmp/binding_v1_parallel_20260910/TAKEOVER/L47_SUPPLEMENT_SCENES/requests/l47_qa09_yes.json",
+    "tmp/binding_v1_parallel_20260910/TAKEOVER/L47_SUPPLEMENT_SCENES/requests/separate/l47_qa07.json",
+    "tmp/binding_v1_parallel_20260910/TAKEOVER/L47_SUPPLEMENT_SCENES/requests/separate/l47_qa15.json"
+  ],
+  "joint_probe_farther": {
+    "request": "/data/jzy/tmp/wt-grok-pilot46-round2/tmp/binding_v1_parallel_20260910/TAKEOVER/L47_SUPPLEMENT_SCENES/requests/l47_qa07_qa15_joint_farther.json",
+    "episode_id": "l47_q07q15_joint_farther_cpu_20260912T020948Z_singleprobe",
+    "condition_group": "l47_q07q15_joint_farther",
+    "qa_targets": [
+      {
+        "qa_id": "QA-07",
+        "branch": "left"
+      },
+      {
+        "qa_id": "QA-15",
+        "branch": "farther"
+      }
+    ],
+    "seed": 20260985,
+    "retry_budget_within_profile": 200,
+    "status": "failed",
+    "attempts": 200,
+    "native_execution": "not_run",
+    "plan": null,
+    "claim_boundary": "bounded_search_failed_not_room_unrealizable",
+    "reason": "Bounded search failed after 200 attempts for QA07 left plus QA15 farther; this is not evidence that the registered room is unrealizable.",
+    "failure_histogram": {
+      "routes:all_frame_source_separation_below_0.95_m": 16,
+      "routes:path_too_short_for_moving_window": 134,
+      "routes:contact_correction_without_measured_support:human_target:frame_0": 14,
+      "routes:navigation_sampling_failed: native navmesh has no sampled point in the requested region": 11,
+      "routes:route_does_not_fit_clock_or_required_window": 13,
+      "camera:no_joint_geometry_activity_schedule": 2,
+      "routes:initial_source_separation_below_0.95_m": 3,
+      "routes:no_existing_navigation_path": 3,
+      "routes:contact_correction_without_measured_support:dog_competitor:frame_0": 2,
+      "camera:visibility_solver_candidate_budget_exhausted": 1,
+      "routes:contact_correction_without_measured_support:human_target:frame_87": 1
+    },
+    "probe_policy": "one_changed_condition_probe_no_seed_loop"
+  },
+  "first_batch_native_proposal": {
+    "candidate_order": [
+      "l47_q07_cpu_20260912T020948Z_reuse_seed",
+      "l47_q15_cpu_20260912T020948Z_fallback",
+      "l47_q09_no_cpu_20260912T020948Z",
+      "l47_q09_yes_cpu_20260912T020948Z_preferred"
+    ],
+    "native_visual_world_budget_proposed": 4,
+    "native_audio_rlr_runs_now": 0,
+    "changed_joint_probe_native_allocation_now": 0,
+    "retained_ordinary_bank_qa_ids": [
+      "QA-06",
+      "QA-16",
+      "QA-17",
+      "QA-21"
+    ],
+    "basis": "Four existing positive plan trees are the first supplemental candidates; retained ordinary bank supplies QA06/16/17/21 and is not duplicated here. Any native reuse requires actual capture identity/content verification."
+  }
+}

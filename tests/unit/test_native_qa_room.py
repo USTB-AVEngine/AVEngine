@@ -6,6 +6,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+import avengine.rooms.native_qa_room as nq
 from avengine.rooms.native_qa_room import (
     NativeApartmentResources,
     NativeQAResourceError,
@@ -116,3 +117,87 @@ def test_room_pool_entry_has_native_map_and_no_actor_coordinates(tmp_path):
 def test_route_pair_rejects_request_fps_that_differs_from_native_bank(tmp_path):
     with pytest.raises(NativeQAResourceError, match="does not match native route bank clock"):
         select_native_walking_routes(_resources(tmp_path), frame_rate_hz=30)
+
+
+# ------------------------------------- P05: explicit requests and instance identity
+
+def _sounds():
+    return [{"sound_asset_id": f"speech_{i}", "path": f"/prepared/{i}.wav",
+             "sound_class": "speech", "gender": "M", "transcript": f"utterance {i}"}
+            for i in range(2)]
+
+
+def test_conditioned_route_forwards_every_explicit_statement(tmp_path, monkeypatch):
+    captured = {}
+
+    def recorder(*, room, request, source_registry, sounds):
+        captured.update(request)
+        return ({"visual_plan": {"frames": [], "actors": []}, "resources": {}}, {}, object())
+
+    monkeypatch.setattr(nq, "build_qa_episode_plan", recorder, raising=False)
+    monkeypatch.setattr("avengine.rooms.qa_episode.build_qa_episode_plan", recorder)
+    nq.build_native_apartment_qa_plan(
+        resources=_resources(tmp_path), source_registry={"assets": []}, sounds=_sounds(),
+        episode_id="explicit", source_asset_ids=["human_0", "human_1"],
+        sampling_policy="conditioned_static_v2", camera={"fov_deg": 62.0},
+        profile={"speech_motion": "all_still", "competitor_motion": "moving"},
+        entities={"instances": [{"instance_id": "a", "asset_id": "human_0"},
+                                {"instance_id": "b", "asset_id": "human_1"}]},
+        motion={"speed_range_mps": [1.1, 1.2]}, question_branches={"QA-06": "still"},
+        frame_count=150, frame_rate_hz=15, sample_rate_hz=16000)
+
+    assert captured["camera"]["fov_deg"] == 62.0
+    assert captured["camera_fov_source"] == "request"
+    # The route default never replaces what the caller stated.
+    assert captured["profile"]["speech_motion"] == "all_still"
+    assert captured["profile"]["competitor_motion"] == "moving"
+    assert captured["profile"]["event_relation"] == "sequential"
+    assert captured["motion"] == {"speed_range_mps": [1.1, 1.2]}
+    assert captured["question_branches"] == {"QA-06": "still"}
+    assert [row["instance_id"] for row in captured["entities"]["instances"]] == ["a", "b"]
+    assert captured["frame_count"] == 150 and captured["sample_rate_hz"] == 16000
+
+
+def test_conditioned_route_still_supplies_its_own_defaults(tmp_path, monkeypatch):
+    captured = {}
+
+    def recorder(*, room, request, source_registry, sounds):
+        captured.update(request)
+        return ({"visual_plan": {"frames": [], "actors": []}, "resources": {}}, {}, object())
+
+    monkeypatch.setattr("avengine.rooms.qa_episode.build_qa_episode_plan", recorder)
+    nq.build_native_apartment_qa_plan(
+        resources=_resources(tmp_path), source_registry={"assets": []}, sounds=_sounds(),
+        episode_id="default", source_asset_ids=["human_0", "human_1"],
+        sampling_policy="conditioned_static_v2", audio_mode="overlap")
+
+    assert captured["camera"]["fov_deg"] == 85.0
+    assert captured["camera_fov_source"] == "route_default"
+    assert captured["profile"] == {"speech_motion": "speaker_moving", "event_relation": "overlap"}
+    assert "question_branches" not in captured and "entities" not in captured
+
+
+def test_two_instances_of_one_asset_each_get_their_own_identity(tmp_path, monkeypatch):
+    calls = []
+
+    def recorder(registry, asset_id, actor_id, *, entity_instance_id=None, instance_ordinal=1):
+        calls.append((asset_id, actor_id, instance_ordinal))
+        if len(calls) < 2:
+            return {"actor_id": actor_id, "asset_id": asset_id,
+                    "entity_instance_id": f"{asset_id}#instance{instance_ordinal:02d}"}
+        raise RuntimeError("stop after both declarations")
+
+    monkeypatch.setattr(nq, "source_declaration", recorder)
+    with pytest.raises(RuntimeError, match="stop after both declarations"):
+        nq.build_native_apartment_qa_plan(
+            resources=_resources(tmp_path), source_registry={"assets": []}, sounds=_sounds(),
+            episode_id="same_asset", source_asset_ids=["human_0", "human_0"],
+            frame_count=75, frame_rate_hz=15)
+    assert calls == [("human_0", "source1", 1), ("human_0", "source2", 2)]
+
+
+def test_the_native_route_still_requires_exactly_two_instances(tmp_path):
+    with pytest.raises(NativeQAResourceError, match="exactly two source instances"):
+        nq.build_native_apartment_qa_plan(
+            resources=_resources(tmp_path), source_registry={"assets": []}, sounds=_sounds(),
+            episode_id="three", source_asset_ids=["human_0", "human_1", "human_2"])

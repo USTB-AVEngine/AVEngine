@@ -34,7 +34,9 @@ from __future__ import annotations
 
 import csv
 import hashlib
+import io
 import json
+import os
 import random
 import re
 import wave
@@ -145,15 +147,32 @@ def _read_wav_mono(path: Path) -> tuple[np.ndarray, int]:
     return samples, rate
 
 
-def _write_wav_mono(path: Path, samples: np.ndarray, rate: int) -> str:
+def wav_mono_bytes(samples: np.ndarray, rate: int) -> bytes:
+    """The exact 16-bit mono RIFF/WAVE bytes, without touching the filesystem.
+
+    Having the payload in hand before any file is created is what lets the
+    no-clobber writer below be a single atomic create rather than a check
+    followed by a write.
+    """
+
     ints = np.clip(np.round(samples * 32767.0), -32768, 32767).astype("<i2")
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with wave.open(str(path), "wb") as handle:
+    buffer = io.BytesIO()
+    with wave.open(buffer, "wb") as handle:
         handle.setnchannels(1)
         handle.setsampwidth(2)
-        handle.setframerate(rate)
+        handle.setframerate(int(rate))
         handle.writeframes(ints.tobytes())
-    return hashlib.sha256(path.read_bytes()).hexdigest()
+    return buffer.getvalue()
+
+
+def write_wav_mono(path: Path, samples: np.ndarray, rate: int) -> str:
+    payload = wav_mono_bytes(samples, rate)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(payload)
+    return hashlib.sha256(payload).hexdigest()
+
+
+_write_wav_mono = write_wav_mono
 
 
 def _trim_bounds(samples: np.ndarray, rate: int) -> tuple[int, int]:
@@ -563,7 +582,9 @@ def activity_profile_for_class(sound_class: str | None) -> dict[str, Any]:
     }
 
 
-def _as_mono_float(samples: np.ndarray | Sequence[float]) -> np.ndarray:
+def as_mono_float(samples: np.ndarray | Sequence[float]) -> np.ndarray:
+    """Mono float64 from a vector or a [frames, channels] block."""
+
     array = np.asarray(samples, dtype=np.float64)
     if array.ndim == 2:
         if array.shape[1] == 0:
@@ -578,7 +599,10 @@ def _as_mono_float(samples: np.ndarray | Sequence[float]) -> np.ndarray:
     return array
 
 
-def _zero_phase_filter(
+_as_mono_float = as_mono_float
+
+
+def zero_phase_filter(
     samples: np.ndarray,
     rate: int,
     *,
@@ -604,6 +628,9 @@ def _zero_phase_filter(
             except ValueError:
                 pass
         return sosfilt(sos, samples)
+
+
+_zero_phase_filter = zero_phase_filter
 
 
 def _speech_band_analysis(
@@ -896,8 +923,29 @@ def make_prepared_audio_id(
     *,
     source_sha256: str,
     facts: Mapping[str, Any],
+    processing: Mapping[str, Any] | None = None,
+    prefix: str = "prepared_speech_band",
 ) -> str:
-    """Derive a new ID from source identity and all result-changing settings."""
+    """Derive a new ID from source identity and all result-changing settings.
+
+    The fixed keys below are the settings *this* module's speech preparation
+    can vary, and they stay exactly as they were, so every id already issued
+    still comes out the same.
+
+    They are not, however, every setting a *different* producer can vary.  A
+    caller that also chooses an edge fade, a DC policy, a peak target or an
+    overflow policy has to bind those too, or two different pieces of audio
+    end up sharing one id and one file - which is precisely what happened to
+    the segment cutter on 2026-09-10: asking for a 5 ms fade returned the
+    no-fade file that was already on disk.  ``processing`` is where such a
+    caller puts them; omitting it reproduces the historical identity byte for
+    byte.  ``prefix`` keeps a doorbell segment from being labelled
+    ``prepared_speech_band_*``.
+
+    Bind the *requested* settings, not measured results.  A gain that is only
+    known after the samples have been processed cannot participate in the name
+    the processing is looked up by.
+    """
 
     identity = {
         "source_asset_id": str(source_asset_id),
@@ -914,10 +962,18 @@ def make_prepared_audio_id(
     }
     if facts.get("normalization_applied"):
         identity["normalization"] = {"applied_gain_db": facts.get("applied_gain_db")}
-    digest = hashlib.sha256(
-        json.dumps(identity, sort_keys=True, separators=(",", ":")).encode("utf-8")
-    ).hexdigest()[:12]
-    return f"prepared_speech_band_{digest}_v1"
+    if processing:
+        identity["processing"] = dict(processing)
+    try:
+        encoded = json.dumps(
+            identity, sort_keys=True, separators=(",", ":"), allow_nan=False
+        )
+    except (TypeError, ValueError) as error:
+        raise PrepareError(
+            f"prepared audio identity is not serialisable: {error}"
+        ) from error
+    digest = hashlib.sha256(encoded.encode("utf-8")).hexdigest()[:12]
+    return f"{prefix}_{digest}_v1"
 
 
 prepared_speech_id = make_prepared_audio_id
@@ -1024,14 +1080,52 @@ def _registry_payload(
     return dict(registry), None
 
 
-def _write_wav_no_clobber(
+def write_wav_mono_no_clobber(
     path: Path,
     samples: np.ndarray,
     rate: int,
 ) -> str:
-    if path.exists():
-        raise FileExistsError(path)
-    return _write_wav_mono(path, samples, rate)
+    """Create the file or fail; never replace one that is already there.
+
+    The old form asked ``path.exists()`` and then wrote, which is not the same
+    promise: two workers preparing the same clip both see "absent" and both
+    open the file for writing, and the winner is whichever finishes last.  A
+    single ``O_EXCL`` create makes exactly one of them the writer and hands the
+    other a ``FileExistsError`` it can act on.  Same pattern the float32 WAVE
+    publisher in ``avengine.spatial_audio.audio`` already uses.
+    """
+
+    payload = wav_mono_bytes(samples, rate)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    descriptor = os.open(path, flags, 0o644)
+    try:
+        view = memoryview(payload)
+        while view:
+            written = os.write(descriptor, view)
+            if written <= 0:
+                raise OSError("prepared clip write made no progress")
+            view = view[written:]
+        os.fsync(descriptor)
+    except BaseException:
+        # Only ever remove the file this call created; never a file another
+        # worker won the O_EXCL race for.
+        os.close(descriptor)
+        descriptor = -1
+        try:
+            path.unlink(missing_ok=True)
+        except OSError:
+            pass
+        raise
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+    return hashlib.sha256(payload).hexdigest()
+
+
+_write_wav_no_clobber = write_wav_mono_no_clobber
 
 
 def prepare_speech_registry(

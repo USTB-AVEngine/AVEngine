@@ -14,7 +14,7 @@ loosening the M5 formal contract.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from fractions import Fraction
 import hashlib
 import math
@@ -28,6 +28,7 @@ import numpy as np
 from avengine.contracts.json_io import canonical_json_sha256, sha256_file
 from avengine.acoustics.runtime import (
     CompiledAcousticScene,
+    CompiledSceneUploadExpectation,
     RuntimeAnchor,
     RuntimeContractError,
     RuntimeExecutionError,
@@ -507,11 +508,22 @@ def render_research_review_rir_sequence(
     source_radius_m: float = 0.0,
     listener_id: str = "listener0",
     listener_radius_m: float = 0.0,
+    upload_expectation: CompiledSceneUploadExpectation | None = None,
 ) -> DynamicRIRSequence:
-    """Render one variable grid through one persistent RLR context."""
+    """Render one variable grid through one persistent RLR context.
+
+    ``upload_expectation`` is an optional precomputed expected upload
+    report for this exact scene.  The native scene upload and the full
+    field-by-field comparison still run here; only the derivation of the
+    expected report is shared with the caller that supplied it.
+    """
 
     if not isinstance(scene, CompiledAcousticScene):
         raise RuntimeContractError("scene must be a validated CompiledAcousticScene")
+    if upload_expectation is not None and upload_expectation.scene is not scene:
+        raise RuntimeContractError(
+            "upload expectation belongs to a different compiled scene"
+        )
     if not isinstance(simulation, M4SimulationConfig):
         raise RuntimeContractError("simulation must be an M4SimulationConfig")
     grid = validate_research_review_grid(grid)
@@ -561,7 +573,7 @@ def render_research_review_rir_sequence(
                 list(scene.objects),
             )
         upload = _upload_report(raw_upload)
-        _verify_upload_report(scene, upload)
+        _verify_upload_report(scene, upload, expectation=upload_expectation)
         first = grid.keyframes[0]
         for source_id in grid.source_ids:
             context.add_source(
@@ -742,6 +754,121 @@ def render_research_review_rir_sequence(
     )
 
 
+def render_independent_state_rir_sequence(
+    scene: CompiledAcousticScene,
+    simulation: M4SimulationConfig,
+    *,
+    grid: ResearchReviewKeyframeGrid,
+    layout_type: str,
+    hrtf_file_path: str | Path | None = None,
+    source_radius_m: float = 0.0,
+    listener_id: str = "listener0",
+    listener_radius_m: float = 0.0,
+    upload_expectation: CompiledSceneUploadExpectation | None = None,
+) -> DynamicRIRSequence:
+    """Evaluate each real acoustic state without other endpoints or RLR history.
+
+    RLR's sampler advances inside a persistent context even when temporal
+    coherence is disabled. Each distinct captured source/listener pose therefore
+    uses a fresh one-source context. Exact repeated poses share that evaluation
+    within this call. Source IDs remain routing metadata, not acoustic inputs.
+    """
+    grid = validate_research_review_grid(grid)
+    # Every state below uploads this one unchanged scene into its own fresh
+    # native context.  Deriving the expected upload report canonicalizes the
+    # whole world mesh, so derive it once for this call and let each context
+    # compare its own real upload against it.
+    if upload_expectation is None and isinstance(scene, CompiledAcousticScene):
+        upload_expectation = CompiledSceneUploadExpectation(scene)
+    query_source_id = "emitter0"
+    state_indices, evaluations, native_sequences = {}, [], []
+    source_keyframe_indices = {source_id: [] for source_id in grid.source_ids}
+    for source_id in grid.source_ids:
+        for keyframe_index, frame in enumerate(grid.keyframes):
+            point = frame.source_positions_m[source_id]
+            key = (tuple(point), tuple(frame.listener_position_m),
+                   tuple(frame.listener_orientation_wxyz), source_radius_m, listener_radius_m)
+            if key not in state_indices:
+                query_frame = replace(
+                    frame, tick=0, sample_index=0,
+                    source_positions_m={query_source_id: point},
+                )
+                query_grid = replace(
+                    grid, source_ids=(query_source_id,), keyframes=(query_frame,),
+                    visual_frame_indices=(0,), rir_stride_frames=grid.visual_frame_count,
+                )
+                sequence = render_research_review_rir_sequence(
+                    scene, simulation, grid=query_grid, layout_type=layout_type,
+                    hrtf_file_path=hrtf_file_path, source_radius_m=source_radius_m,
+                    listener_id=listener_id, listener_radius_m=listener_radius_m,
+                    upload_expectation=upload_expectation,
+                )
+                state_indices[key] = len(evaluations)
+                native_sequences.append(sequence)
+                evaluations.append({
+                    "evaluation_index": len(evaluations),
+                    "source_position_m": list(point),
+                    "listener_position_m": list(frame.listener_position_m),
+                    "listener_orientation_wxyz": list(frame.listener_orientation_wxyz),
+                    "native_query": sequence.metadata,
+                    "used_by": [],
+                })
+            index = state_indices[key]
+            source_keyframe_indices[source_id].append(index)
+            evaluations[index]["used_by"].append({
+                "source_id": source_id, "keyframe_index": keyframe_index,
+                "visual_frame_index": grid.visual_frame_indices[keyframe_index],
+                "sample_index": frame.sample_index,
+            })
+    first = native_sequences[0]
+    maximum_length = max(value.samples.shape[-1] for value in native_sequences)
+    samples = np.zeros(
+        (len(grid.keyframes), len(grid.source_ids), first.samples.shape[2], maximum_length),
+        dtype="<f4",
+    )
+    lengths = np.empty(samples.shape[:2], dtype="<u4")
+    for source_index, source_id in enumerate(grid.source_ids):
+        for keyframe_index, evaluation_index in enumerate(source_keyframe_indices[source_id]):
+            value = native_sequences[evaluation_index]
+            samples[keyframe_index, source_index, :, :value.samples.shape[-1]] = value.samples[0, 0]
+            lengths[keyframe_index, source_index] = value.lengths[0, 0]
+    trajectory = research_review_trajectory_record(grid)
+    trajectory_sha256 = canonical_json_sha256(trajectory)
+    metadata = {
+        "schema": RESEARCH_REVIEW_RIR_SCHEMA, "profile": RESEARCH_REVIEW_PROFILE,
+        "qualification_claim": False, "trajectory": trajectory,
+        "trajectory_sha256": trajectory_sha256, "source_ids": list(grid.source_ids),
+        "listener_id": listener_id, "layout_type": layout_type,
+        "layout_id": first.layout_id, "channel_labels": list(first.channel_labels),
+        "sample_rate_hz": grid.sample_rate_hz,
+        "context_policy": {
+            "lifetime": "one_fresh_context_per_distinct_acoustic_state",
+            "source_context_policy": "independent_states",
+            "native_query_source_count": 1,
+            "simulate_calls": len(evaluations),
+            "temporal_coherence": False,
+            "reason": "remove endpoint-set and previous-simulation dependence",
+            "expected_upload_report": (
+                "precomputed_once_per_call"
+                if upload_expectation is not None
+                else "derived_per_context"
+            ),
+            "actual_upload_report_comparison": "per_context",
+        },
+        "state_evaluations": evaluations,
+        "source_keyframe_state_indices": source_keyframe_indices,
+    }
+    result = replace(
+        first, samples=np.ascontiguousarray(samples), lengths=np.ascontiguousarray(lengths),
+        source_ids=grid.source_ids,
+        keyframe_ticks=tuple(frame.tick for frame in grid.keyframes),
+        keyframe_samples=tuple(frame.sample_index for frame in grid.keyframes),
+        trajectory_sha256=trajectory_sha256, metadata=metadata,
+    )
+    _validate_review_audio_sequence(result, grid=grid)
+    return result
+
+
 def render_research_review_binaural_rir_sequence(
     scene: CompiledAcousticScene,
     simulation: M4SimulationConfig,
@@ -751,6 +878,7 @@ def render_research_review_binaural_rir_sequence(
     source_radius_m: float = 0.0,
     listener_id: str = "listener0",
     listener_radius_m: float = 0.0,
+    upload_expectation: CompiledSceneUploadExpectation | None = None,
 ) -> DynamicRIRSequence:
     """Compatibility wrapper for the original binaural entry point."""
 
@@ -763,6 +891,7 @@ def render_research_review_binaural_rir_sequence(
         source_radius_m=source_radius_m,
         listener_id=listener_id,
         listener_radius_m=listener_radius_m,
+        upload_expectation=upload_expectation,
     )
 
 
@@ -842,6 +971,7 @@ def render_research_review_binaural_audio(
 
 
 __all__ = [
+    "CompiledSceneUploadExpectation",
     "RESEARCH_REVIEW_PROFILE",
     "RESEARCH_REVIEW_RIR_SCHEMA",
     "RESEARCH_REVIEW_TRAJECTORY_SCHEMA",
@@ -851,6 +981,7 @@ __all__ = [
     "render_research_review_binaural_audio",
     "render_research_review_binaural_rir_sequence",
     "render_research_review_rir_sequence",
+    "render_independent_state_rir_sequence",
     "research_review_trajectory_record",
     "validate_research_review_grid",
 ]

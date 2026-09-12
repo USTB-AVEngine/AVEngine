@@ -9,6 +9,7 @@ records that workaround so every M3 invocation follows the same order.
 
 from __future__ import annotations
 
+import copy
 from dataclasses import asdict, dataclass
 import hashlib
 import importlib
@@ -1067,22 +1068,59 @@ def _canonical_world_geometry(scene: CompiledAcousticScene) -> bytes:
         quaternion = np.asarray(item["orientation_wxyz"], dtype=np.float64)
         w = float(quaternion[0])
         q = quaternion[1:]
+        raw_vertices = np.asarray(item["vertices"], dtype=np.float64)
         object_tokens: list[str] = []
-        for raw_vertex in np.asarray(item["vertices"], dtype=np.float64):
-            twice_cross = 2.0 * np.cross(q, raw_vertex)
-            transformed = raw_vertex + w * twice_cross + np.cross(q, twice_cross)
+        if raw_vertices.ndim == 2 and raw_vertices.shape[1] == 3:
+            # Identical arithmetic to the per-vertex form below, evaluated once
+            # for the whole object.  ``np.cross`` is componentwise here, so
+            # broadcasting one quaternion against an (N, 3) block performs the
+            # same IEEE operations in the same order and returns bit-identical
+            # coordinates; only the per-vertex NumPy dispatch disappears.
+            twice_cross = 2.0 * np.cross(q, raw_vertices)
+            transformed = raw_vertices + w * twice_cross + np.cross(q, twice_cross)
             transformed = transformed + position
-            token = " ".join(coordinate(value) for value in transformed)
-            object_tokens.append(token)
-            vertex_tokens.append(token)
-        for face in np.asarray(item["triangles"], dtype=np.int64):
-            values = [object_tokens[int(index)] for index in face]
-            rotations = [
-                "|".join(values),
-                "|".join(values[1:] + values[:1]),
-                "|".join(values[2:] + values[:2]),
+            if not bool(np.isfinite(transformed).all()):
+                raise RuntimeContractError(
+                    "scene geometry contains a non-finite value"
+                )
+            # ``abs(number) < 0.5e-6 -> 0.0`` from ``coordinate``, applied to the
+            # whole block.  ``np.where`` also turns -0.0 into 0.0 exactly as the
+            # scalar branch did.
+            transformed = np.where(np.abs(transformed) < 0.5e-6, 0.0, transformed)
+            object_tokens = [
+                f"{x:.6f} {y:.6f} {z:.6f}" for x, y, z in transformed.tolist()
             ]
-            triangle_tokens.append(min(rotations))
+        else:
+            for raw_vertex in raw_vertices:
+                twice_cross = 2.0 * np.cross(q, raw_vertex)
+                transformed = raw_vertex + w * twice_cross + np.cross(q, twice_cross)
+                transformed = transformed + position
+                object_tokens.append(
+                    " ".join(coordinate(value) for value in transformed)
+                )
+        vertex_tokens.extend(object_tokens)
+        faces = np.asarray(item["triangles"], dtype=np.int64)
+        if faces.ndim == 2 and faces.shape[1] == 3:
+            for first_index, second_index, third_index in faces.tolist():
+                first = object_tokens[first_index]
+                second = object_tokens[second_index]
+                third = object_tokens[third_index]
+                triangle_tokens.append(
+                    min(
+                        "|".join((first, second, third)),
+                        "|".join((second, third, first)),
+                        "|".join((third, first, second)),
+                    )
+                )
+        else:
+            for face in faces:
+                values = [object_tokens[int(index)] for index in face]
+                rotations = [
+                    "|".join(values),
+                    "|".join(values[1:] + values[:1]),
+                    "|".join(values[2:] + values[:2]),
+                ]
+                triangle_tokens.append(min(rotations))
     lines = ["AVENGINE_RLR_WORLD_GEOMETRY_V1"]
     lines.extend(f"v {value}" for value in sorted(vertex_tokens))
     lines.extend(f"f {value}" for value in sorted(triangle_tokens))
@@ -1193,21 +1231,153 @@ def _expected_upload_report(scene: CompiledAcousticScene) -> dict[str, Any]:
     }
 
 
-def _verify_upload_report(
-    scene: CompiledAcousticScene, report: Mapping[str, Any]
-) -> None:
-    expected = _expected_upload_report(scene)
-    comparisons = {
-        name: (report.get(name), value) for name, value in expected.items()
+def _upload_input_snapshot(scene: CompiledAcousticScene) -> dict[str, Any]:
+    """Private copy of every scene input that ``_expected_upload_report`` reads.
+
+    ``CompiledAcousticScene`` is a frozen dataclass whose fields still hold
+    mutable containers: ``objects`` is a tuple of dicts holding NumPy arrays,
+    and ``rlr_material_database`` is a plain dict.  Object identity therefore
+    cannot certify that a scene is unchanged, so a precomputed expectation
+    keeps its own snapshot and compares against it instead.
+    """
+
+    objects: list[dict[str, Any]] = []
+    for item in scene.objects:
+        objects.append(
+            {
+                "object_id": str(item["object_id"]),
+                "position": np.array(item["position"], copy=True),
+                "orientation_wxyz": np.array(item["orientation_wxyz"], copy=True),
+                "vertices": np.array(item["vertices"], copy=True),
+                "triangles": np.array(item["triangles"], copy=True),
+                "triangle_material_ids": np.array(
+                    item["triangle_material_ids"], copy=True
+                ),
+            }
+        )
+    return {
+        "objects": objects,
+        "material_categories": tuple(scene.material_categories),
+        "material_database_bytes": bytes(scene.material_database_bytes),
+        "rlr_material_database": copy.deepcopy(scene.rlr_material_database),
+        "triangle_count_by_material": dict(scene.triangle_count_by_material),
     }
+
+
+def _upload_input_snapshot_matches(
+    snapshot: Mapping[str, Any], scene: CompiledAcousticScene
+) -> bool:
+    if (
+        tuple(scene.material_categories) != snapshot["material_categories"]
+        or bytes(scene.material_database_bytes) != snapshot["material_database_bytes"]
+        or dict(scene.triangle_count_by_material)
+        != snapshot["triangle_count_by_material"]
+        or scene.rlr_material_database != snapshot["rlr_material_database"]
+        or len(scene.objects) != len(snapshot["objects"])
+    ):
+        return False
+    for item, recorded in zip(scene.objects, snapshot["objects"], strict=True):
+        if str(item["object_id"]) != recorded["object_id"]:
+            return False
+        for field in (
+            "position",
+            "orientation_wxyz",
+            "vertices",
+            "triangles",
+            "triangle_material_ids",
+        ):
+            current = np.asarray(item[field])
+            stored = recorded[field]
+            if (
+                current.shape != stored.shape
+                or current.dtype != stored.dtype
+                or not np.array_equal(current, stored)
+            ):
+                return False
+    return True
+
+
+class CompiledSceneUploadExpectation:
+    """One precomputed expected upload report for one compiled scene.
+
+    Deriving the expected report canonicalizes every world-space vertex and
+    triangle, which dominates a short RLR query.  A caller that drives several
+    native contexts over one unchanged scene can precompute the report once and
+    hand this object to each render.  Every native upload and every field
+    comparison still runs per context; only the expectation is shared.
+
+    The expectation is deliberately caller-scoped.  It is bound to one exact
+    scene object, keeps a private snapshot of the inputs that produced it, and
+    refuses to serve a scene that no longer equals that snapshot, so it can
+    never become a process-wide cache keyed on an object address.
+    """
+
+    __slots__ = ("_scene", "_snapshot", "_report")
+
+    def __init__(self, scene: CompiledAcousticScene) -> None:
+        if not isinstance(scene, CompiledAcousticScene):
+            raise RuntimeContractError(
+                "upload expectation requires a validated CompiledAcousticScene"
+            )
+        self._scene = scene
+        self._snapshot = _upload_input_snapshot(scene)
+        self._report = _expected_upload_report(scene)
+
+    @property
+    def scene(self) -> CompiledAcousticScene:
+        return self._scene
+
+    def expected_report(
+        self, scene: CompiledAcousticScene | None = None
+    ) -> dict[str, Any]:
+        """Return a private copy of the precomputed expected upload report."""
+
+        self._require_same_scene(scene)
+        return copy.deepcopy(self._report)
+
+    def verify(
+        self, scene: CompiledAcousticScene, report: Mapping[str, Any]
+    ) -> None:
+        """Compare one real native upload report against the precomputed one."""
+
+        self._require_same_scene(scene)
+        _compare_upload_report(self._report, report)
+
+    def _require_same_scene(self, scene: CompiledAcousticScene | None) -> None:
+        if scene is not None and scene is not self._scene:
+            raise RuntimeContractError(
+                "upload expectation belongs to a different compiled scene"
+            )
+        if not _upload_input_snapshot_matches(self._snapshot, self._scene):
+            raise RuntimeContractError(
+                "compiled acoustic scene changed after its expected upload "
+                "report was precomputed"
+            )
+
+
+def _compare_upload_report(
+    expected: Mapping[str, Any], report: Mapping[str, Any]
+) -> None:
     mismatches = [
-        name for name, (observed, expected) in comparisons.items() if observed != expected
+        name for name, value in expected.items() if report.get(name) != value
     ]
     if mismatches:
         raise RuntimeContractError(
             "RLR upload report differs from the hash-checked package: "
             + ", ".join(mismatches)
         )
+
+
+def _verify_upload_report(
+    scene: CompiledAcousticScene,
+    report: Mapping[str, Any],
+    *,
+    expectation: CompiledSceneUploadExpectation | None = None,
+) -> None:
+    if expectation is not None:
+        expectation.verify(scene, report)
+        return
+    _compare_upload_report(_expected_upload_report(scene), report)
 
 
 _READBACK_COORDINATE_DECIMAL_PLACES = 6
@@ -2084,6 +2254,7 @@ def simulate_compiled_acoustic_scene(
 
 __all__ = [
     "CompiledAcousticScene",
+    "CompiledSceneUploadExpectation",
     "RLRSimulationConfig",
     "RUNTIME_IMPORT_WORKAROUND",
     "RUNTIME_MODE_CURRENT_INSTALLED",

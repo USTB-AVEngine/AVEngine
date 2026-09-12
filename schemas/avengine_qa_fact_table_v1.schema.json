@@ -938,6 +938,17 @@
             }
           ]
         },
+        "visible_centroid_xy_px": {
+          "oneOf": [
+            {"type": "null"},
+            {
+              "type": "array",
+              "minItems": 2,
+              "maxItems": 2,
+              "items": {"type": "number", "minimum": 0}
+            }
+          ]
+        },
         "state": {
           "enum": [
             "out_of_view",

@@ -98,12 +98,17 @@ def build(
     items_per_type: int = 1,
     include_angle_followups: bool = True,
     model_inputs_output: Path | None = None,
+    acceptance_policy: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     if raw is None:
         if input_path is None:
             raise UnifiedQAError("input_path is required when raw bundle is absent")
         raw = _read_json(input_path)
     facts = deepcopy(raw) if raw.get("schema") == UNIFIED_FACT_SCHEMA else normalize_episode_bundle(raw)
+    if acceptance_policy is not None:
+        if not isinstance(acceptance_policy, dict):
+            raise UnifiedQAError("acceptance policy must be a JSON object")
+        facts.setdefault("sampling", {})["acceptance_policy"] = deepcopy(acceptance_policy)
     result = generate_unified_questions(
         facts,
         qa_ids=qa_ids,
@@ -111,6 +116,8 @@ def build(
         items_per_type=items_per_type,
         include_angle_followups=include_angle_followups,
     )
+    if acceptance_policy is not None:
+        result["acceptance_policy"] = deepcopy(acceptance_policy)
     if model_inputs_output is not None:
         _write_json(model_inputs_output, model_input_questions(result))
     if facts_output is not None:
@@ -126,6 +133,7 @@ def build(
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--input", type=Path)
+    parser.add_argument("--acceptance-policy", type=Path, help="configured question tolerance; raw measurements and old outputs remain unchanged")
     parser.add_argument("--episode-id")
     parser.add_argument("--plan", type=Path)
     parser.add_argument("--frame-readbacks", type=Path)
@@ -165,6 +173,7 @@ def main(argv: list[str] | None = None) -> int:
         result = build(
             input_path=args.input.resolve() if args.input else None,
             raw=raw,
+            acceptance_policy=_read_json(args.acceptance_policy.resolve()) if args.acceptance_policy else None,
             output_path=args.out.resolve(),
             seed=args.seed,
             qa_ids=_qa_ids(args.qa_ids),

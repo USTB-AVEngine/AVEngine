@@ -13,11 +13,12 @@ admission.
 from __future__ import annotations
 
 import argparse
+from collections import Counter
 from fractions import Fraction
 import json
 from pathlib import Path
 import wave
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 
 import numpy as np
 
@@ -37,6 +38,7 @@ from avengine.acoustics.rir_cache import (
     render_rir_cache,
     rir_acoustic_state_sha256,
 )
+from avengine.spatial_audio.runtime import simulation_with_layout
 from avengine.acoustics.runtime import (
     RLRSimulationConfig,
     RuntimeAnchor,
@@ -49,6 +51,9 @@ from avengine.timeline.current_mp3d_dynamic_audio import (
     render_neutral_readback_audio, _neutral_camera_pose, _neutral_source_trajectories,
     _apply_post_assembly_convolution_gain,
     validate_post_assembly_convolution_gain,
+    layout_output_contract,
+    FOA_NORMALIZATIONS,
+    SUPPORTED_LAYOUTS,
 )
 from avengine.capture.acoustics import build_strided_review_keyframes
 
@@ -364,6 +369,150 @@ def simulation_overlay_from_mapping(value: Mapping[str, Any] | None) -> dict[str
     return overlay
 
 
+def normalize_requested_layouts(layouts: Any) -> tuple[str, ...]:
+    """Accept a comma-separated CLI value or a sequence of layout names."""
+
+    if layouts is None:
+        return ("binaural",)
+    if isinstance(layouts, str):
+        values = tuple(item.strip() for item in layouts.split(",") if item.strip())
+    else:
+        values = tuple(str(item).strip() for item in layouts)
+    if not values:
+        raise ValueError("layouts must name at least one output layout")
+    unknown = [item for item in values if item not in SUPPORTED_LAYOUTS]
+    if unknown:
+        raise ValueError(
+            f"unsupported layouts {unknown}; choose from {list(SUPPORTED_LAYOUTS)}"
+        )
+    if len(set(values)) != len(values):
+        raise ValueError("layouts must not repeat a layout")
+    return values
+
+
+def layout_cache_root(cache_path: Path, layout_type: str) -> Path:
+    """Give each layout its own cache root.
+
+    Binaural keeps the historical root so already-written caches stay
+    readable; any other layout gets a named subdirectory, because a binaural
+    payload can never serve an ambisonics request.
+    """
+
+    if layout_type == "binaural":
+        return cache_path
+    return cache_path / layout_output_contract(layout_type)["output_directory"]
+
+
+# Identity the cache writer already records and the scene loader already
+# computes. Comparing these is not a new hash protocol: both sides hold the
+# value before this function runs.
+# This route renders in the compiled scene's own frame with point endpoints.
+# A cache written under different values describes different geometry.
+_DYNAMIC_RIR_COORDINATE_TRANSLATION_M = (0.0, 0.0, 0.0)
+_DYNAMIC_RIR_SOURCE_RADIUS_M = 0.0
+_DYNAMIC_RIR_LISTENER_RADIUS_M = 0.0
+
+_CACHE_SCENE_IDENTITY_FIELDS = (
+    ("package_id", "package_id"),
+    ("manifest_sha256", "manifest_sha256"),
+    ("package_content_sha256", "package_content_sha256"),
+)
+
+
+def existing_rir_cache_execution_reason(
+    request: Mapping[str, Any],
+    *,
+    layout_type: str,
+    scene: Any,
+    hrtf_path: Path | None,
+    coordinate_translation_m: Sequence[float] = (0.0, 0.0, 0.0),
+    source_radius_m: float = 0.0,
+    listener_radius_m: float = 0.0,
+) -> str | None:
+    """Name the first recorded execution condition that blocks reuse.
+
+    Every condition that changes the samples must be recorded and equal. An
+    absent field is not a match: the writer never stated the condition, so the
+    payload on disk cannot be attributed to this request.
+
+    ``package_id`` alone is not scene identity. Two different valid packages
+    can carry one id, and the poses checked elsewhere would still line up, so
+    the recorded manifest and package content digests are compared too.
+    """
+
+    output = request.get("output")
+    if not isinstance(output, Mapping):
+        return "cache request records no output block"
+    recorded_layout = output.get("layout_type")
+    if not isinstance(recorded_layout, str) or not recorded_layout:
+        return "cache request records no output layout_type"
+    if recorded_layout != layout_type:
+        return (
+            f"cache holds layout {recorded_layout!r}, this request needs {layout_type!r}"
+        )
+    scene_block = request.get("acoustic_scene")
+    if not isinstance(scene_block, Mapping):
+        return "cache request records no acoustic_scene block"
+    for recorded_name, attribute in _CACHE_SCENE_IDENTITY_FIELDS:
+        recorded = scene_block.get(recorded_name)
+        if not isinstance(recorded, str) or not recorded:
+            return f"cache request records no acoustic scene {recorded_name}"
+        selected = getattr(scene, attribute, None)
+        if not isinstance(selected, str) or not selected:
+            return f"the selected acoustic scene exposes no {attribute} to compare"
+        if recorded != selected:
+            return (
+                f"cache was built on acoustic scene {recorded_name} "
+                f"{recorded!r}, this request selects {selected!r}"
+            )
+
+    runtime = request.get("runtime_policy")
+    if not isinstance(runtime, Mapping):
+        return "cache request records no runtime_policy block"
+    recorded_translation = runtime.get("coordinate_translation_m")
+    if not isinstance(recorded_translation, Sequence) or isinstance(
+        recorded_translation, (str, bytes)
+    ):
+        return "cache request records no coordinate_translation_m"
+    if [float(value) for value in recorded_translation] != [
+        float(value) for value in coordinate_translation_m
+    ]:
+        return (
+            f"cache was built with coordinate translation "
+            f"{list(recorded_translation)}, this request uses "
+            f"{list(coordinate_translation_m)}"
+        )
+    for name, expected in (
+        ("source_radius_m", source_radius_m),
+        ("listener_radius_m", listener_radius_m),
+    ):
+        recorded_radius = runtime.get(name)
+        if isinstance(recorded_radius, bool) or not isinstance(
+            recorded_radius, (int, float)
+        ):
+            return f"cache request records no {name}"
+        if float(recorded_radius) != float(expected):
+            return (
+                f"cache was built with {name} {float(recorded_radius)}, "
+                f"this request uses {float(expected)}"
+            )
+    if layout_type == "binaural":
+        recorded_hrtf = output.get("hrtf_path")
+        if not isinstance(recorded_hrtf, str) or not recorded_hrtf:
+            return "cache request records no HRTF for a binaural layout"
+        if hrtf_path is not None:
+            try:
+                same = Path(recorded_hrtf).resolve() == Path(hrtf_path).resolve()
+            except OSError:
+                same = str(recorded_hrtf) == str(hrtf_path)
+            if not same:
+                return (
+                    f"cache was built with HRTF {recorded_hrtf!r}, "
+                    f"this request uses {str(hrtf_path)!r}"
+                )
+    return None
+
+
 def existing_rir_cache_simulation_matches(
     request: Mapping[str, Any], simulation: RLRSimulationConfig
 ) -> bool:
@@ -485,9 +634,18 @@ def _load_voice_binding_records(path: Path) -> list[dict[str, Any]]:
         if not isinstance(path_value, str) or not path_value:
             raise ValueError(f"voice binding record {index} lacks path")
         records.append(dict(item))
-    actor_ids = [str(item["actor_id"]) for item in records]
-    if len(set(actor_ids)) != len(actor_ids):
-        raise ValueError("voice bindings must have unique actor IDs")
+    actor_counts = Counter(str(item["actor_id"]) for item in records)
+    event_ids = []
+    for item in records:
+        event_id = item.get("event_id")
+        if event_id is not None:
+            if not isinstance(event_id, str) or not event_id:
+                raise ValueError("voice binding event_id must be a nonempty string")
+            event_ids.append(event_id)
+        elif actor_counts[str(item["actor_id"])] > 1:
+            raise ValueError("repeated actor voice bindings require unique event IDs")
+    if len(set(event_ids)) != len(event_ids):
+        raise ValueError("voice bindings must have unique event IDs")
     return records
 
 
@@ -595,12 +753,24 @@ def _normalize_plan_events(
         raw_events = plan.get("events")
     if not isinstance(raw_events, list) or not raw_events:
         raise ValueError("audio plan must contain a non-empty audio_events list")
-    by_actor = {str(item["actor_id"]): item for item in bindings}
-    by_endpoint = {
-        str(item.get("source_endpoint_id")): item
-        for item in bindings
+    actor_counts = Counter(str(item["actor_id"]) for item in bindings)
+    endpoint_counts = Counter(
+        item["source_endpoint_id"] for item in bindings
         if isinstance(item.get("source_endpoint_id"), str)
+    )
+    by_actor = {
+        str(item["actor_id"]): item for item in bindings
+        if actor_counts[str(item["actor_id"])] == 1
     }
+    by_endpoint = {
+        str(item["source_endpoint_id"]): item for item in bindings
+        if isinstance(item.get("source_endpoint_id"), str)
+        and endpoint_counts[item["source_endpoint_id"]] == 1
+    }
+    event_bindings = [item for item in bindings if isinstance(item.get("event_id"), str)]
+    by_event = {item["event_id"]: item for item in event_bindings}
+    if len(by_event) != len(event_bindings):
+        raise ValueError("voice bindings must have unique event IDs")
     clips_by_path: dict[str, tuple[np.ndarray, int]] = {}
     normalized: list[dict[str, Any]] = []
     seen_event_ids: set[str] = set()
@@ -616,8 +786,17 @@ def _normalize_plan_events(
             endpoint_id = f"{actor_id}_mouth"
         if not isinstance(endpoint_id, str) or not endpoint_id:
             raise ValueError(f"audio_events[{index}] lacks actor_id/source_endpoint_id")
-        actor_binding = by_actor.get(str(actor_id)) if actor_id is not None else None
-        actor_binding = actor_binding or by_endpoint.get(endpoint_id)
+        requested_event_id = raw.get("event_id")
+        actor_binding = by_event.get(requested_event_id) if isinstance(requested_event_id, str) else None
+        if actor_binding is not None:
+            if actor_id is not None and actor_binding["actor_id"] != actor_id:
+                raise ValueError(f"audio_events[{index}] event voice binding has a different actor")
+            bound_endpoint = actor_binding.get("source_endpoint_id")
+            if bound_endpoint is not None and bound_endpoint != endpoint_id:
+                raise ValueError(f"audio_events[{index}] event voice binding has a different endpoint")
+        else:
+            actor_binding = by_actor.get(str(actor_id)) if actor_id is not None else None
+            actor_binding = actor_binding or by_endpoint.get(endpoint_id)
         event_binding = raw.get("voice_binding", raw.get("binding"))
         if event_binding is not None and not isinstance(event_binding, Mapping):
             raise ValueError(f"audio_events[{index}].voice_binding must be an object")
@@ -1054,6 +1233,7 @@ def _reorder_existing_cached_sequence(
     source_ids: list[str],
     keyframes: list[dict[str, Any]],
     episode_id: str,
+    layout_type: str = "binaural",
 ) -> tuple[np.ndarray, np.ndarray, dict[str, Any]]:
     """Convert established source1/source2 slots to the episode endpoint order."""
 
@@ -1062,8 +1242,15 @@ def _reorder_existing_cached_sequence(
         raise ValueError("established RIR cache returned unexpected source slots")
     if list(cached.keyframe_samples) != expected_samples:
         raise ValueError("established RIR cache keyframe grid differs from readbacks")
-    if cached.layout_type != "binaural" or cached.layout_id != "rlr_binaural_lr_v1":
-        raise ValueError("established RIR cache is not binaural")
+    contract = layout_output_contract(layout_type)
+    if (
+        cached.layout_type != layout_type
+        or cached.layout_id != contract["layout_id"]
+    ):
+        raise ValueError(
+            f"established RIR cache is {cached.layout_type!r}/{cached.layout_id!r}, "
+            f"not the requested {layout_type!r}/{contract['layout_id']!r}"
+        )
     if int(cached.sample_rate_hz) != 16_000:
         raise ValueError("established RIR cache sample rate differs from the audio clock")
     evidence_jobs = cached.evidence.get("jobs", [])
@@ -1092,7 +1279,11 @@ def _reorder_existing_cached_sequence(
                 raise ValueError("established RIR cache pose differs from actual readback keyframe")
     samples = np.asarray(cached.samples)
     lengths = np.asarray(cached.lengths)
-    if samples.ndim != 4 or samples.shape[1] != 2 or samples.shape[2] != 2:
+    if (
+        samples.ndim != 4
+        or samples.shape[1] != 2
+        or samples.shape[2] != contract["channel_count"]
+    ):
         raise ValueError("established RIR cache payload has an invalid [K,S,C,L] shape")
     evidence = {
         "schema": "avengine_existing_rir_cache_reuse_v1",
@@ -1122,11 +1313,20 @@ def _existing_rir_cache_sequence(
     runtime_prefix: str | Path,
     rlr_sdk_root: str | Path,
     magnum_python_site: str | Path,
+    layout_type: str = "binaural",
 ) -> tuple[np.ndarray, np.ndarray, dict[str, Any], dict[str, Any]]:
     """Use :func:`render_rir_cache` for the exact two-source dynamic case."""
 
     if len(source_ids) != 2:
         raise ValueError("established RIR cache path requires exactly two endpoints")
+    layout_simulation = simulation_with_layout(
+        simulation,
+        layout_type=layout_type,
+        channel_count=layout_output_contract(layout_type)["channel_count"],
+    )
+    coordinate_translation_m = _DYNAMIC_RIR_COORDINATE_TRANSLATION_M
+    source_radius_m = _DYNAMIC_RIR_SOURCE_RADIUS_M
+    listener_radius_m = _DYNAMIC_RIR_LISTENER_RADIUS_M
     plan_path = cache_path.parent / f"{cache_path.name}_job_plan.json"
     simulation_request_path = cache_path.parent / f"{cache_path.name}_simulation_request.json"
     if cache_path.exists():
@@ -1134,13 +1334,26 @@ def _existing_rir_cache_sequence(
             request = _load(cache_path / "request.json")
             if not isinstance(request, Mapping):
                 raise ValueError("existing RIR cache request.json is not an object")
-            if not existing_rir_cache_simulation_matches(request, simulation):
+            if not existing_rir_cache_simulation_matches(
+                request, layout_simulation
+            ):
                 raise ValueError(
                     "existing established RIR cache simulation does not match this "
                     "request (direct_sh_order/indirect_sh_order/indirect_ray_depth/"
                     "max_ir_seconds); refusing to reuse a different-order cache: "
                     f"{cache_path}"
                 )
+            blocking = existing_rir_cache_execution_reason(
+                request,
+                layout_type=layout_type,
+                scene=scene,
+                hrtf_path=(hrtf_path if layout_type == "binaural" else None),
+                coordinate_translation_m=coordinate_translation_m,
+                source_radius_m=source_radius_m,
+                listener_radius_m=listener_radius_m,
+            )
+            if blocking is not None:
+                raise ValueError(f"{blocking}: {cache_path}")
             selected_plan_path = Path(str(request["plan"]["path"])).resolve()
             selected_simulation_path = Path(
                 str(request["simulation"]["request_path"])
@@ -1158,6 +1371,7 @@ def _existing_rir_cache_sequence(
             source_ids=source_ids,
             keyframes=keyframes,
             episode_id=episode_id,
+            layout_type=layout_type,
         )
         receipt = _load(cache_path / "receipt.json") if (cache_path / "receipt.json").is_file() else {}
         return (
@@ -1167,6 +1381,7 @@ def _existing_rir_cache_sequence(
             {
                 "status": "hit_existing_rir_cache",
                 "path": str(cache_path),
+                "layout_type": layout_type,
                 "cache_format": "avengine_rlr_rir_cache_v1",
                 "request_identity_sha256": receipt.get("request_identity_sha256"),
                 "plan_path": str(selected_plan_path),
@@ -1184,10 +1399,10 @@ def _existing_rir_cache_sequence(
         simulation_request_path=simulation_request_path,
         simulation=simulation,
         output=cache_path,
-        layout_type="binaural",
-        hrtf_file_path=hrtf_path,
+        layout_type=layout_type,
+        hrtf_file_path=(hrtf_path if layout_type == "binaural" else None),
         batch_size=2,
-        coordinate_translation_m=(0.0, 0.0, 0.0),
+        coordinate_translation_m=coordinate_translation_m,
         runtime_prefix=runtime_prefix,
         magnum_python_site=magnum_python_site,
         rlr_sdk_root=rlr_sdk_root,
@@ -1203,6 +1418,7 @@ def _existing_rir_cache_sequence(
         source_ids=source_ids,
         keyframes=keyframes,
         episode_id=episode_id,
+        layout_type=layout_type,
     )
     return (
         samples,
@@ -1211,6 +1427,7 @@ def _existing_rir_cache_sequence(
         {
             "status": "miss_written_existing_rir_cache",
             "path": str(cache_path),
+            "layout_type": layout_type,
             "cache_format": "avengine_rlr_rir_cache_v1",
             "request_identity_sha256": result.receipt.get("request_identity_sha256"),
             "plan_path": str(plan_path.resolve()),
@@ -1236,6 +1453,7 @@ def _existing_rir_cache_pair_sequence(
     runtime_prefix: str | Path,
     rlr_sdk_root: str | Path,
     magnum_python_site: str | Path,
+    layout_type: str = "binaural",
 ) -> tuple[np.ndarray, np.ndarray, dict[str, Any], dict[str, Any]]:
     """Represent N sources as standard two-slot cache partitions.
 
@@ -1298,6 +1516,7 @@ def _existing_rir_cache_pair_sequence(
             runtime_prefix=runtime_prefix,
             rlr_sdk_root=rlr_sdk_root,
             magnum_python_site=magnum_python_site,
+            layout_type=layout_type,
         )
         pair_samples.append(samples)
         pair_lengths.append(lengths)
@@ -1310,8 +1529,10 @@ def _existing_rir_cache_pair_sequence(
             }
         )
     maximum_length = max(int(value.shape[3]) for value in pair_samples)
+    channel_count = layout_output_contract(layout_type)["channel_count"]
     values = np.zeros(
-        (len(keyframes), len(source_ids), 2, maximum_length), dtype="<f4"
+        (len(keyframes), len(source_ids), channel_count, maximum_length),
+        dtype="<f4",
     )
     lengths = np.zeros((len(keyframes), len(source_ids)), dtype="<u4")
     output_index = {source_id: index for index, source_id in enumerate(source_ids)}
@@ -1390,6 +1611,7 @@ def _dynamic_rir_sequence(
     magnum_python_site: str | Path,
     cache_path: Path,
     episode_id: str = "frame_readback_dynamic_episode",
+    layout_type: str = "binaural",
 ) -> tuple[np.ndarray, np.ndarray, dict[str, Any], dict[str, Any]]:
     """Load a matching sequence or render it with one persistent cache context."""
 
@@ -1414,6 +1636,7 @@ def _dynamic_rir_sequence(
             runtime_prefix=runtime_prefix,
             rlr_sdk_root=rlr_sdk_root,
             magnum_python_site=magnum_python_site,
+            layout_type=layout_type,
         )
     if len(source_ids) >= 3 and (
         not cache_path.exists() or (cache_path / "pair_sequence_index.json").is_file()
@@ -1432,6 +1655,7 @@ def _dynamic_rir_sequence(
             runtime_prefix=runtime_prefix,
             rlr_sdk_root=rlr_sdk_root,
             magnum_python_site=magnum_python_site,
+            layout_type=layout_type,
         )
 
     # Compatibility reader for an already-produced variable-source sequence
@@ -1463,9 +1687,13 @@ def _dynamic_rir_sequence(
         ) from error
     metadata = dict(payload.metadata)
     if tuple(payload.samples.shape[:3]) != (
-        len(keyframes), len(source_ids), 2
+        len(keyframes),
+        len(source_ids),
+        layout_output_contract(layout_type)["channel_count"],
     ):
-        raise ValueError("legacy dynamic RIR compatibility cache has an invalid binaural shape")
+        raise ValueError(
+            f"legacy dynamic RIR compatibility cache has an invalid {layout_type} shape"
+        )
     return (
         np.asarray(payload.samples),
         np.asarray(payload.lengths),
@@ -2014,8 +2242,20 @@ def _render_plan_audio(
     indirect_sh_order: int = DEFAULT_INDIRECT_SH_ORDER,
     max_ir_seconds: float = DEFAULT_MAX_IR_SECONDS,
     post_assembly_convolution_gain: float | None = None,
+    source_context_policy: str = "joint",
+    layouts: Any = None,
+    foa_normalization: str = "native_n3d",
 ) -> dict[str, Any]:
     """Adapt the historical UE readbacks to the shared neutral renderer."""
+    selected_layouts = normalize_requested_layouts(layouts)
+    if foa_normalization not in FOA_NORMALIZATIONS:
+        raise ValueError(
+            "foa_normalization must be one of " + ", ".join(FOA_NORMALIZATIONS)
+        )
+    if source_context_policy not in {"joint", "independent_states"}:
+        raise ValueError("source_context_policy must be joint or independent_states")
+    if source_context_policy != "joint" and rir_cache is not None:
+        raise ValueError("independent source contexts require a fresh render without a joint RIR cache")
     if frame_readbacks is None and neutral_readback is None:
         raise ValueError("an actual frame_readbacks or neutral_readback input is required")
     readback_path = Path(neutral_readback if neutral_readback is not None else frame_readbacks).expanduser().resolve()
@@ -2048,6 +2288,8 @@ def _render_plan_audio(
         validate_neutral_readback(readback, plan=plan)
     camera_motion = _plan_camera_has_motion(readback)
     if camera_motion:
+        if source_context_policy != "joint":
+            raise ValueError("independent source contexts currently require a static listener")
         if _plan_is_conditioned_static(plan):
             raise ValueError(
                 "conditioned_static_v2 audio rendering requires a static listener; "
@@ -2147,29 +2389,38 @@ def _render_plan_audio(
             package_path,
             allow_nonpassing_research_qa=True,
         )
-        rir_samples, rir_lengths, rir_metadata, cache_record = _dynamic_rir_sequence(
-            scene=scene_override,
-            simulation=simulation,
-            source_ids=endpoint_ids,
-            keyframes=legacy_keyframes,
-            clock=clock,
-            package_path=package_path,
-            hrtf_path=Path(hrtf_file).expanduser().resolve(),
-            runtime_prefix=runtime_prefix,
-            rlr_sdk_root=rlr_sdk_root,
-            magnum_python_site=magnum_python_site,
-            cache_path=Path(rir_cache).expanduser().resolve(),
-            episode_id=str(plan.get("episode_id", "frame_readback_dynamic_episode")),
-        )
-        rir_sequence_override = {
-            "binaural": {
+        cache_root = Path(rir_cache).expanduser().resolve()
+        rir_sequence_override = {}
+        for layout in selected_layouts:
+            (
+                rir_samples,
+                rir_lengths,
+                rir_metadata,
+                cache_record,
+            ) = _dynamic_rir_sequence(
+                scene=scene_override,
+                simulation=simulation,
+                source_ids=endpoint_ids,
+                keyframes=legacy_keyframes,
+                clock=clock,
+                package_path=package_path,
+                hrtf_path=Path(hrtf_file).expanduser().resolve(),
+                runtime_prefix=runtime_prefix,
+                rlr_sdk_root=rlr_sdk_root,
+                magnum_python_site=magnum_python_site,
+                cache_path=layout_cache_root(cache_root, layout),
+                episode_id=str(
+                    plan.get("episode_id", "frame_readback_dynamic_episode")
+                ),
+                layout_type=layout,
+            )
+            rir_sequence_override[layout] = {
                 "samples": rir_samples,
                 "lengths": rir_lengths,
                 "metadata": rir_metadata,
                 "cache": cache_record,
-                "layout_id": "rlr_binaural_lr_v1",
+                "layout_id": layout_output_contract(layout)["layout_id"],
             }
-        }
     result = render_neutral_readback_audio(
         neutral_input,
         audio_program=program,
@@ -2189,6 +2440,9 @@ def _render_plan_audio(
         output_path=output,
         position_authority="P1 NeutralReadback entities[].emitter",
         listener_authority="P1 NeutralReadback.camera[0]",
+        source_context_policy=source_context_policy,
+        layouts=selected_layouts,
+        foa_normalization=foa_normalization,
         rir_stride_frames=rir_stride_frames,
         hrtf_license_path=None,
         extra_inputs={
@@ -2222,6 +2476,7 @@ def _render_plan_audio(
     result["voice_binding"] = str(binding_path)
     result["acoustic_package"] = str(package_path)
     result["clock"] = dict(clock)
+    result["layouts"] = list(selected_layouts)
     return result
 
 def render(
@@ -2251,7 +2506,24 @@ def render(
     max_ir_seconds: float | None = None,
     post_assembly_convolution_gain: float | None = None,
     simulation_request: str | Path | None = None,
+    source_context_policy: str = "joint",
+    layouts: Any = None,
+    foa_normalization: str = "native_n3d",
 ) -> dict[str, Any]:
+    selected_layouts = normalize_requested_layouts(layouts)
+    if foa_normalization not in FOA_NORMALIZATIONS:
+        raise ValueError(
+            "foa_normalization must be one of " + ", ".join(FOA_NORMALIZATIONS)
+        )
+    if selected_layouts != ("binaural",) and audio_plan is None:
+        raise ValueError(
+            "a non-default layout selection requires an explicit audio plan; the "
+            "legacy four-speaker path renders binaural only"
+        )
+    if source_context_policy not in {"joint", "independent_states"}:
+        raise ValueError("source_context_policy must be joint or independent_states")
+    if source_context_policy != "joint" and audio_plan is None:
+        raise ValueError("independent source contexts require an explicit audio plan")
     overlay = simulation_overlay_from_mapping(
         _load(Path(simulation_request).expanduser().resolve())
         if simulation_request is not None
@@ -2293,6 +2565,9 @@ def render(
             hrtf_file=hrtf_file,
             rir_cache=rir_cache,
             rir_stride_frames=rir_stride_frames,
+            source_context_policy=source_context_policy,
+            layouts=selected_layouts,
+            foa_normalization=foa_normalization,
             direct_ray_count=direct_ray_count,
             indirect_ray_count=indirect_ray_count,
             source_ray_count=source_ray_count,
@@ -2666,6 +2941,25 @@ def main() -> None:
         type=int,
         help="override the RLR maximum diffraction order",
     )
+    parser.add_argument("--source-context-policy", choices=("joint", "independent_states"), default="joint")
+    parser.add_argument(
+        "--layouts",
+        default="binaural",
+        help=(
+            "comma-separated output layouts from "
+            + ",".join(SUPPORTED_LAYOUTS)
+            + " (default: binaural)"
+        ),
+    )
+    parser.add_argument(
+        "--foa-normalization",
+        choices=FOA_NORMALIZATIONS,
+        default="native_n3d",
+        help=(
+            "ambisonics normalization to deliver; the native RLR encode is "
+            "ACN/N3D and 'sn3d' applies the declared per-degree conversion"
+        ),
+    )
     args = parser.parse_args()
     report = render(
         frame_readbacks=args.frame_readbacks,
@@ -2684,6 +2978,9 @@ def main() -> None:
         hrtf_file=args.hrtf_file,
         rir_cache=args.rir_cache,
         rir_stride_frames=args.rir_stride,
+        source_context_policy=args.source_context_policy,
+        layouts=args.layouts,
+        foa_normalization=args.foa_normalization,
         neutral_readback=args.neutral_readback,
         prepared_manifest=args.prepared_manifest,
         diffraction=args.diffraction,
