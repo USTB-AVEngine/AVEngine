@@ -5439,6 +5439,7 @@
       "first_speaker_instance_id",
       "min_gap_between_audible_windows_s",
       "minimum_overlap_s",
+      "pixel_occlusion_partial_transition",
       "pixel_occlusion_transition",
       "reserve_tail_s",
       "retry_budget_within_profile",

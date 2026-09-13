@@ -1266,6 +1266,7 @@ def test_the_layer_summary_separates_blocking_gaps_from_yield_costs():
     assert blocking == {
         "visibility_transition",
         "pixel_occlusion_transition",
+        "pixel_occlusion_partial_transition",
         "distance_trend_during_event",
         "anchor_median_plane_offset_deg",
         "first_speaker_instance_id",

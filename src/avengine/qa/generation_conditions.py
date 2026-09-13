@@ -202,11 +202,6 @@ KNOB_GAPS: dict[str, tuple[str, str]] = {
         "under speech_motion=speaker_moving the non-anchor articulated actors are "
         "given a random moving flag, so the competitor can share the target's answer",
     ),
-    "pixel_occlusion_partial_transition": (
-        "avengine/rooms/conditioned_sampler.py:_occlusion_route",
-        "the partial-to-clear transition is an accepted interface key; its "
-        "camera-first route construction is scheduled for C2",
-    ),
     "registered_occluder_transition": (
         "avengine/rooms/conditioned_sampler.py:_occlusion_route",
         "the registered-occluder transition is an accepted interface key; its "
@@ -1804,10 +1799,10 @@ def _became_clear(*, subjects, **_: Any) -> list[Condition]:
             kind="occlusion_transition",
             subject=target.entity_instance_id,
             detail={"transition": "visible_occluded_to_visible_clear"},
-            planning={"anchor_line_of_sight": "occluded"},
+            planning={"pixel_occlusion_partial_transition": "visible_occluded_to_visible_clear"},
             evidence={"previous_state": "visible_occluded", "current_state": "visible_clear"},
-            reason="anchor_line_of_sight=occluded is a ray proxy for a partial occlusion; "
-            "the pixel transition stays the answer authority",
+            reason="the camera-first path constructs a partial view followed by a clear view; "
+            "native pixels remain the answer authority",
         )
     ]
 

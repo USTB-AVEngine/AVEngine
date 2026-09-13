@@ -509,3 +509,19 @@ def test_a_route_bank_room_enters_from_the_requested_side(side):
     assert chosen['requirement_screens'][0]['selected']['side'] == side
     assert plan['activity_plan']['visibility_construction']['route_source'] == 'retained_native_route_bank'
 
+
+
+def test_named_partial_clear_question_reaches_shared_construction():
+    request = visibility_request('QA-11', None, seed=4, camera_budget=16, reserve_tail_s=3.)
+    request.pop('question_branches', None)
+    request['qa_targets'] = [{'qa_id': 'QA-11', 'target_instance_ids': ['human_target']}]
+    plan = build(request, wall_mesh())
+    construction = plan['activity_plan']['visibility_construction']
+    assert construction['kind'] == 'visible_occluded_to_visible_clear'
+    assert construction['subject'] == 'human_target'
+    assert plan['condition_profile']['pixel_occlusion_partial_transition'] == 'visible_occluded_to_visible_clear'
+    target = next(row for row in plan['activity_plan']['actors']
+                  if row.get('visibility_construction', {}).get('kind')
+                  == 'visible_occluded_to_visible_clear')
+    assert target['visibility_construction']['predicted_partial_frames']
+    assert target['visibility_construction']['predicted_clear_frames']

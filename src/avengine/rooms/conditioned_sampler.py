@@ -25,7 +25,7 @@ from avengine.rooms.walkable_space import camera_grid
 from avengine.routes.trajectory import resample_polyline_by_arc_length
 
 POLICY = 'conditioned_static_v2'
-CAPABILITY_REVISION = 'p05_conditions_20260910'
+CAPABILITY_REVISION = 'unified_partial_transition_20260913'
 RIGID = {'rigid_object', 'rigid_static_object'}
 SAME_FLOOR_Y_TOLERANCE_M = 0.3
 DEFAULT_DISTANCE_RANGE_M = (1.5, 4.5)
@@ -85,10 +85,8 @@ def _pixel_occlusion_values():
 SOLVER_KNOB_VALUES = {
     'target_moved_after_sound': (True, False),
     'distance_trend_during_event': ('nearer', 'farther'),
-    # These names are carried now so C2/C3 can bind their own route
-    # constructors without changing request/profile vocabulary. They are
-    # interface placeholders in wave 1; the generic pixel transition remains
-    # the only currently implemented construction.
+    # Partial-to-clear has a shared route constructor. Registered-occluder
+    # construction remains an accepted interface awaiting C3.
     'pixel_occlusion_partial_transition': ('visible_occluded_to_visible_clear',),
     'registered_occluder_transition': ('registered_occluder_visible',),
     # Filled from conditioned_visibility below, once that module is importable.
@@ -98,7 +96,6 @@ SOLVER_KNOB_VALUES = {
 # the route constructor. Pending keys are deliberately excluded from the live
 # capability declaration until C2/C3 implement them.
 PENDING_SOLVER_KNOBS = frozenset({
-    'pixel_occlusion_partial_transition',
     'registered_occluder_transition',
 })
 SOLVER_KNOBS = tuple(SOLVER_KNOB_VALUES)
@@ -151,7 +148,8 @@ PUBLIC_QUERY_WINDOW_MIN_S = 1.2
 # Visibility-first construction: choose the camera, classify the floor under
 # it, then walk the subject through the states the question needs.
 CONSTRUCTIVE_VISIBILITY_KINDS = (
-    'out_of_view_to_visible', 'fully_occluded_then_visible', 'fully_occluded_without_return')
+    'out_of_view_to_visible', 'fully_occluded_then_visible', 'fully_occluded_without_return',
+    'visible_occluded_to_visible_clear')
 # Question types whose answer is a pixel-visibility fact. An ordinary request
 # that asks one of them keeps its anchor still while it speaks, so the walk
 # stays available for the visibility construction.
@@ -187,10 +185,9 @@ def describe_generator_capabilities():
                         'SOLVER_KNOB_VALUES and '
                         'SCALAR_KNOBS, read by resolve_condition_profile, select_entities, '
                         '_moving_flags, select_sounds, _solve_motion_conditions and '
-                        'select_camera_and_schedule. The partial and registered '
-                        'occlusion names are wave-1 interface placeholders for C2/C3; '
-                        'they do not claim a current route constructor or native pixel '
-                        'outcome.'),
+                        'select_camera_and_schedule. Partial-to-clear construction (C2) is '
+                        'implemented; registered-occluder construction remains pending C3. '
+                        'The declaration does not claim a native pixel outcome.'),
     }
 
 
@@ -3352,9 +3349,69 @@ def _navigation_path_is_legal(space, path):
         return False
 
 
+def _partial_clear_route(requirement, rows, cloud, space, camera, body, mesh, policy,
+                         cache, rng, frames, fps, profile, distance_range,
+                         target_observability=False):
+    """Move a named subject from a partial view to a clear view on the same floor."""
+    partial = [i for i, row in enumerate(rows) if row['state'] == 'partial'
+               and distance_range[0] <= row['distance'] <= distance_range[1]]
+    visible = [i for i, row in enumerate(rows) if row['state'] == 'visible'
+               and distance_range[0] <= row['distance'] <= distance_range[1]]
+    partial = [partial[int(k)] for k in rng.permutation(len(partial))][:10]
+    visible = [visible[int(k)] for k in rng.permutation(len(visible))]
+    if target_observability:
+        from avengine.rooms.target_observability import rank_projected_point_rows
+        visible = [row['_point_index'] for row in rank_projected_point_rows(
+            [dict(rows[index], _point_index=index) for index in visible], limit=10)]
+    else:
+        visible = visible[:10]
+    dwell = max(1, int(math.ceil(PUBLIC_QUERY_WINDOW_MIN_S * fps)))
+    for pi in partial:
+        for vi in visible:
+            poly = space.shortest_path(cloud[pi], cloud[vi])
+            if poly is None or len(poly) < 2:
+                continue
+            poly = np.asarray(poly, dtype=float)
+            length = _polyline_length(poly)
+            if length <= 1e-6 or length > WALK_MAX_LENGTH_M:
+                continue
+            speed = _draw_speed(profile, rng)
+            moving = _frames_for_length(length, speed, fps)
+            latest = min(dwell + int(fps), frames - moving - dwell)
+            if latest < dwell:
+                continue
+            start = int(rng.integers(dwell, latest + 1))
+            arrive = start + moving
+            if not (_public_interval_is_publishable(0, start, fps)
+                    and _public_interval_is_publishable(arrive, frames, fps)):
+                continue
+            motion = np.asarray(resample_polyline_by_arc_length(poly, moving), dtype=float)
+            route = np.repeat(cloud[pi][None], frames, axis=0)
+            route[start:arrive] = motion
+            route[arrive:] = cloud[vi]
+            return route, {
+                'motion': 'constructive_visibility_walk', 'start_frame': start,
+                'end_frame_exclusive': arrive, 'route_points_m': poly.tolist(),
+                'required_contiguous_motion_frames': 1,
+                'visibility_construction': {
+                    'kind': requirement.kind,
+                    'predicted_partial_frames': [0, start],
+                    'predicted_clear_frames': [arrive, frames],
+                    'partial_point_m': cloud[pi].tolist(),
+                    'clear_point_m': cloud[vi].tolist(),
+                    'speed_mps': float(speed), 'path_length_m': float(length),
+                },
+            }
+    return None
+
+
 def _occlusion_route(requirement, rows, cloud, space, camera, body, mesh, policy, cache, rng,
                      frames, fps, profile, distance_range, min_pre_walk_frames=8,
                      target_observability=False):
+    if requirement.kind == 'visible_occluded_to_visible_clear':
+        return _partial_clear_route(
+            requirement, rows, cloud, space, camera, body, mesh, policy, cache, rng,
+            frames, fps, profile, distance_range, target_observability)
     visible = [i for i, r in enumerate(rows) if r['state'] == 'visible'
                and distance_range[0] <= r['distance'] <= distance_range[1]]
     hidden = [i for i, r in enumerate(rows) if r['state'] == 'hidden']
@@ -3584,6 +3641,47 @@ def _bank_visibility_route(requirement, bank, camera, body, emitter_offset, mesh
             construction = {
                 'kind': requirement.kind, 'side': side, 'predicted_entry_frame': int(delay + first_in),
                 'predicted_entry_column_px': float(column), 'entry_depth_px_required': float(depth_px)}
+        elif requirement.kind == 'visible_occluded_to_visible_clear':
+            if states[0] != 'partial':
+                note('start_not_partial')
+                continue
+            partial_end = 0
+            while partial_end < length and states[partial_end] == 'partial':
+                partial_end += 1
+            # Retained routes use strided ray sampling. Refine only transition
+            # boundaries so the existing endpoint holds cover real state frames.
+            for index in range(max(0, partial_end - BANK_RAY_STRIDE), min(length, partial_end + 1)):
+                states[index], _ = _point_state(camera, points[index], body, mesh, policy, cache)
+            states[-1], _ = _point_state(camera, points[-1], body, mesh, policy, cache)
+            partial_end = next((index for index, state in enumerate(states) if state != 'partial'), length)
+            clear_start = partial_end
+            clear_end = clear_start
+            while clear_end < length and states[clear_end] == 'visible':
+                clear_end += 1
+            if clear_end < length:
+                for index in range(max(clear_start, clear_end - BANK_RAY_STRIDE), min(length, clear_end + 1)):
+                    states[index], _ = _point_state(camera, points[index], body, mesh, policy, cache)
+                clear_end = clear_start
+                while clear_end < length and states[clear_end] == 'visible':
+                    clear_end += 1
+            if clear_end == clear_start:
+                note('no_partial_to_clear_transition')
+                continue
+            delay = min(max_delay, max(0, minimum_public_frames - partial_end))
+            partial_last = delay + partial_end
+            clear_last = delay + clear_end
+            if clear_end == length:
+                clear_last += frames - delay - length
+            fps = float(frames) / 10.0
+            if not (_public_interval_is_publishable(0, partial_last, fps)
+                    and _public_interval_is_publishable(delay + clear_start, clear_last, fps)):
+                note('partial_or_clear_window_unpublishable')
+                continue
+            construction = {
+                'kind': requirement.kind,
+                'predicted_partial_frames': [0, int(partial_last)],
+                'predicted_clear_frames': [int(delay + clear_start), int(clear_last)],
+            }
         else:
             if states[0] != 'visible':
                 note('start_not_clear')
