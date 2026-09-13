@@ -36,6 +36,35 @@ def now():
     return datetime.now(timezone.utc).isoformat()
 
 
+# Two-way answer branches a template may alternate between when the config
+# says ``alternate_branches``; the observed branch is accepted at capture time.
+BRANCH_PAIRS = {"QA-06": ("moving", "still"), "QA-07": ("left", "right"),
+                "QA-09": ("yes", "no"), "QA-15": ("nearer", "farther"), "QA-17": ("yes", "no")}
+
+
+def screen_verdict(plan):
+    """The visibility screen's verdict on the camera the plan selected, or None."""
+    solver = (plan.get("camera_condition_sampling") or {}).get("visibility_solver") or {}
+    camera = ((plan.get("visual_plan") or {}).get("camera") or {}).get("candidate_id")
+    for candidate in solver.get("candidates") or []:
+        if candidate.get("candidate_id") == camera:
+            return candidate.get("verdict")
+    return None
+
+
+def apply_candidate_variation(request, number, config):
+    """Alternate the answer branch and rotate rooms across candidate numbers."""
+    if config.get("alternate_branches"):
+        for target in request.get("qa_targets") or []:
+            branches = BRANCH_PAIRS.get(target.get("qa_id"))
+            if branches and target.get("branch") in branches:
+                target["branch"] = branches[number % len(branches)]
+    rooms = config.get("room_ids")
+    if rooms:
+        request["room_id"] = rooms[number % len(rooms)]
+    return request
+
+
 def scene_key(plan):
     visual = plan["visual_plan"]
     camera = {k: v for k, v in visual["camera"].items() if k != "candidate_id"}
@@ -101,6 +130,7 @@ def normalize_candidate(template, number, config):
     req.update(episode_id=episode, world_id=episode,
                world_identity_source="declared_before_planning",
                seed=int(config["seed"]) + number, sampling_candidate_index=0)
+    req = apply_candidate_variation(req, number, config)
     # Convert through the same typed interface used by the real stage runner.
     spec = production_request_from_legacy(req)
     req = spec.to_legacy_request()
@@ -124,10 +154,13 @@ def plan_candidate(job):
         planned = plan_visual_variant(request_path, candidate / "episode",
                                       label="automatic_cpu_plan", log=candidate / "plan.log")
         plan_path = Path(planned["plan"]).resolve()
+        plan_value = read(plan_path)
         row["request_path"] = str(request_path)
+        row["screen_verdict"] = screen_verdict(plan_value)
         result.update(outcome="cpu_plan_accepted", candidate={
             "row": row, "plan_root": str(plan_path.parent.parent),
-            "scene_key": scene_key(read(plan_path)), "template_id": template_id})
+            "scene_key": scene_key(plan_value), "template_id": template_id,
+            "screen_verdict": row["screen_verdict"]})
     except Exception as exc:
         result["outcome"] = f"planning_failed: {type(exc).__name__}: {exc}"
     write(candidate / "cpu_result.json", result)
@@ -170,6 +203,9 @@ def observed_branch_recovery(wave_root, options, execution):
                 continue
             options[episode].pop("preplanned_episode_root", None)
             options[episode]["retained_episode_root"] = str(retained)
+            # The retained root holds a capture and no audio report yet, so the
+            # audio stage has to render from it instead of looking one up.
+            options[episode]["render_audio_from_retained_capture"] = True
             reopened.append(episode + "/capture")
     return reopened
 
@@ -285,7 +321,12 @@ def run(config, root, resume=False, plan_only=False):
             if not charged:
                 continue
             passed = episode in state["sources"] and row["request"]["qa_targets"][0]["qa_id"] in state["sources"][episode]["generated_qa_ids"]
-            native_streaks[original] = 0 if passed else native_streaks.get(original, 0) + 1
+            if passed:
+                native_streaks[original] = 0
+            elif row.get("screen_verdict") in (None, "consistent"):
+                # A capture the screen could not vouch for says nothing about
+                # the template; only a consistent screen that still failed counts.
+                native_streaks[original] = native_streaks.get(original, 0) + 1
     state["failed_templates"] = native_streaks
     manifest_base = read(config["pilot_manifest"])
     templates = {row["episode_id"]: row for row in manifest_base["episodes"]}
@@ -452,7 +493,7 @@ def run(config, root, resume=False, plan_only=False):
                 for a in result["run_summary"].get("native_accounting", {}).values())
             if successful:
                 state["failed_templates"][template_id] = 0
-            elif capture_charged:
+            elif capture_charged and candidate.get("screen_verdict") in (None, "consistent"):
                 state["failed_templates"][template_id] = state["failed_templates"].get(template_id, 0) + 1
         state["completed_waves"].append(pending["id"])
         state["pending_wave"] = None

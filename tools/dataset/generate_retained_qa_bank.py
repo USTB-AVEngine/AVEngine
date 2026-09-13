@@ -104,8 +104,21 @@ def tokens(candidate):
         result.add(("world",s["world_id"]))
     return result
 
-def select_balanced(candidates, limit, minimum_per_type=0):
+def select_balanced(candidates, limit, minimum_per_type=0, max_per_scene_type=None):
     minimum_per_type = int(minimum_per_type)
+    if max_per_scene_type is not None:
+        # One scene may legitimately answer one type several times (query
+        # instants, forms); it must not fill the type's quota by itself.
+        cap = int(max_per_scene_type)
+        if cap <= 0:
+            raise ValueError("max_per_scene_type must be positive")
+        seen = Counter(); kept = []
+        for candidate in candidates:
+            key = (candidate["source"].get("facts_path"), candidate["item"]["qa_id"])
+            if seen[key] >= cap:
+                continue
+            seen[key] += 1; kept.append(candidate)
+        candidates = kept
     if minimum_per_type < 0:
         raise ValueError("minimum_per_type must be non-negative")
     selected = []; remaining = list(candidates); covered = set()
@@ -165,7 +178,8 @@ def assert_public_safe(value):
         for child in value:
             assert_public_safe(child)
 
-def export(out, selected, checkpoints, policy, target, dedup, minimum_per_type=0):
+def export(out, selected, checkpoints, policy, target, dedup, minimum_per_type=0,
+           min_scenes_per_type=0):
     # Question IDs are local to their original episode/catalog. Distinct
     # media observations may legitimately reuse one, so give the projection
     # unique IDs before calling the single-catalog public projector.
@@ -232,6 +246,13 @@ def export(out, selected, checkpoints, policy, target, dedup, minimum_per_type=0
     report["source_counts_by_qa"] = {
         qa:len({c["source"]["facts_path"] for c in selected if c["item"]["qa_id"]==qa})
         for qa in report["qa_counts"]}
+    minimum_scenes = int(min_scenes_per_type)
+    report["minimum_scenes_per_type"] = minimum_scenes
+    report["scene_deficits_by_qa"] = {
+        qa: minimum_scenes - report["source_counts_by_qa"].get(qa, 0)
+        for qa in sorted(qa_types)
+        if minimum_scenes and report["source_counts_by_qa"].get(qa, 0) < minimum_scenes}
+    report["minimum_scenes_met"] = not report["scene_deficits_by_qa"]
     report["known_world_counts_by_qa"] = {
         qa:len({c["source"]["world_id"] for c in selected
                 if c["item"]["qa_id"]==qa and c["source"].get("world_id")})
@@ -244,7 +265,8 @@ def export(out, selected, checkpoints, policy, target, dedup, minimum_per_type=0
     pool_sounds={v for c in checkpoints for v in c["source"].get("sound_asset_ids",[])}
     report["unused_pool_asset_ids"]=sorted(pool_assets-set(report["asset_ids"]))
     report["unused_pool_sound_asset_ids"]=sorted(pool_sounds-set(report["sound_asset_ids"]))
-    if report["missing_qa_types"] or report["missing_room_families"] or deficits_by_qa:
+    if (report["missing_qa_types"] or report["missing_room_families"] or deficits_by_qa
+            or report["scene_deficits_by_qa"]):
         report["status"]="completed_with_coverage_gaps"
     write(out/"report.json",report)
     (out/"README.md").write_text(
@@ -324,9 +346,10 @@ def run(args):
     minimum_per_type = int(cfg.get("min_questions_per_type", 0))
     if minimum_per_type < 0:
         raise ValueError("min_questions_per_type must be non-negative")
-    selected=select_balanced(candidates,int(cfg["target_questions"]),minimum_per_type)
+    selected=select_balanced(candidates,int(cfg["target_questions"]),minimum_per_type,
+                             max_per_scene_type=cfg.get("max_questions_per_scene_per_type"))
     report=export(out,selected,checkpoints,policy,int(cfg["target_questions"]),dedup,
-                  minimum_per_type)
+                  minimum_per_type,min_scenes_per_type=int(cfg.get("min_scenes_per_type",0)))
     write(out/"progress.json",{"status":report["status"],"updated_at":now(),
          "processed_sources":len(checkpoints),"total_sources":len(sources),
          "exported_question_count":len(selected),"report":"report.json","pid":os.getpid()})

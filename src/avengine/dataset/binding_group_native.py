@@ -119,12 +119,25 @@ def check_requested_visibility(
                 report["status"] = "fail"
                 report["reason"] = "pixel truth authority is not registered"
             report["pixel_truth_path"] = str(pixel_path.resolve())
-    if report_path is not None:
-        _write(Path(report_path), report)
+    keep_scene = False
+    reason = None
     if report["status"] != "pass":
         reasons = [str(row.get("reason")) for row in report.get("requirements") or ()
                    if row.get("status") != "pass"]
         reason = "; ".join(reasons) or str(report.get("reason") or report["status"])
+        policy = (request.get("qa_sampling") or {}).get("acceptance_policy") or {}
+        keep_scene = isinstance(policy, dict) and bool(policy.get("keep_scene_when_target_unmet"))
+        if keep_scene:
+            # An ordinary scene that missed its requested pixel condition is
+            # still a legal scene for every other question type. Record the
+            # miss and let audio and delivery continue; the requested target
+            # stays unmet in the accounting and no question is invented for it.
+            report["requested_target_unmet"] = True
+            report["requested_target_unmet_reason"] = reason
+            report["salvage"] = "scene_kept_for_other_question_types"
+    if report_path is not None:
+        _write(Path(report_path), report)
+    if report["status"] != "pass" and not keep_scene:
         raise RequestedVisibilityError(
             "requested visibility conditions not satisfied; replan before audio: " + reason)
     return report

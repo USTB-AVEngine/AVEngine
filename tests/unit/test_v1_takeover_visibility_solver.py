@@ -94,6 +94,10 @@ def real_visibility_context() -> dict:
             "max_ray_poses": 16,
             "candidate_pool_budget": 512,
             "frame_budget": 150,
+            # This fixture exercises the bounded projection-then-ray routing
+            # itself and accepts unresolved candidates on purpose. Production
+            # refuses them since 2026-09-12 (see the sampler's screen gate).
+            "allow_unresolved_candidates": True,
         },
     }
     registry = json.loads(REAL_REGISTRY.read_text(encoding="utf-8"))

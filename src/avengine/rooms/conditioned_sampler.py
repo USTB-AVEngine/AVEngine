@@ -10,6 +10,8 @@ from avengine.qa.unified_catalog import QA_IDS
 from collections import Counter
 from copy import deepcopy
 import itertools
+import sys
+import os
 import json
 import math
 from pathlib import Path
@@ -42,8 +44,12 @@ ENUM_KNOB_VALUES = {
     # carry a visible frame that identifies the emitter and, later in that same
     # event, a hidden frame the question is asked at. A uniform mask cannot say
     # that, which is why the AV subset had no way to be planned.
-    'anchor_visibility': ('in_fov', 'off_screen', 'visible_then_hidden'),
-    'competitor_visibility': ('in_fov', 'off_screen'),
+    # ``any`` states no visibility claim for the whole audible window: the
+    # camera stage then skips both the field-of-view mask and the line-of-sight
+    # ray for that role. An ordinary question that does not ask about a
+    # competitor's visibility has no reason to require it in frame.
+    'anchor_visibility': ('in_fov', 'off_screen', 'visible_then_hidden', 'any'),
+    'competitor_visibility': ('in_fov', 'off_screen', 'any'),
     'anchor_line_of_sight': ('clear', 'occluded'),
     'speech_motion': ('speaker_moving', 'competitor_moving', 'all_still'),
     # Stated, never drawn: under speaker_moving the competitors used to receive a
@@ -104,6 +110,41 @@ def _fill_pixel_occlusion_values():
 SUPPORTED_BACKENDS = ('spear_unreal', 'spear_usd', 'habitat')
 COMPETITOR_MOTION_DEFAULT = 'any'
 VISIBILITY_TRANSITION_DEFAULT = 'none'
+# Ordinary-question defaults. They apply only when the request declares
+# ``qa_sampling.acceptance_policy.question_mode == ordinary_observation`` and
+# only where neither the request profile nor a compiled question says anything.
+ORDINARY_QUESTION_MODE = 'ordinary_observation'
+ORDINARY_SPEAKER_MOVING_PROBABILITY = 0.5
+ORDINARY_SEPARATION_BIN_DEG = (15., 180.)
+# A declared floor with less than this share of the sampled navigable points is
+# a stair landing or a platform, not a room: a walk of a metre and a half does
+# not fit on it. Measured 2026-09-12 on hm3d_val_00800: 4 of 6 declared levels
+# held 0.5-3.8 % of the navmesh and each still drew 1/6 of the attempts.
+MIN_FLOOR_NAVIGABLE_SHARE = 0.05
+FLOOR_SHARE_SAMPLES = 400
+# Route construction: a walk is grown leg by leg until it is long enough,
+# instead of drawing two points and refusing when their shortest path is short.
+WALK_LEG_RANGE_M = (1.0, 3.5)
+WALK_MAX_LEGS = 8
+WALK_DRAWS_PER_LEG = 40
+WALK_MAX_LENGTH_M = 6.0
+POST_WINDOW_WALK_EXTENSION_S = (1.0, 3.0)
+# Visibility-first construction: choose the camera, classify the floor under
+# it, then walk the subject through the states the question needs.
+CONSTRUCTIVE_VISIBILITY_KINDS = (
+    'out_of_view_to_visible', 'fully_occluded_then_visible', 'fully_occluded_without_return')
+# Question types whose answer is a pixel-visibility fact. An ordinary request
+# that asks one of them keeps its anchor still while it speaks, so the walk
+# stays available for the visibility construction.
+VISIBILITY_QA_IDS = frozenset({'QA-07', 'QA-08', 'QA-09', 'QA-10', 'QA-11', 'QA-20', 'QA-24', 'QA-25'})
+VISIBILITY_CLOUD_POINTS = 240
+CONSTRUCTIVE_CAMERA_BUDGET = 16
+ENTRY_DEPTH_FRACTION = 0.05
+# Retained native routes examined per camera pose in a route-bank room, and the
+# frame stride of the ray casts along one route (frustum tests run every frame).
+CONSTRUCTIVE_BANK_ROUTES = 160
+CONSTRUCTIVE_BANK_RAY_ROUTES = 24
+BANK_RAY_STRIDE = 3
 ASSET_REPEAT_POLICIES = ('distinct_assets', 'allow_repeats')
 
 
@@ -369,7 +410,8 @@ def lock_same_floor_region(space, rng, region=None, room=None):
     bounds = space.bounds().copy() if region is None else np.asarray(region, dtype=float).copy()
     floors = declared_floor_heights_m(room, space)
     if len(floors) > 1:
-        floor_y = float(floors[int(rng.integers(len(floors)))])
+        weights = _floor_navigable_weights(space, floors, rng)
+        floor_y = float(floors[int(rng.choice(len(floors), p=weights))])
     elif floors:
         floor_y = float(floors[0])
     else:
@@ -575,7 +617,11 @@ def resolve_condition_profile(request, registry, *, question_knobs=None):
         anchors = declared_anchors
     else:
         anchors = sorted(int(i) for i in rng.choice(speakers, anchor_count, replace=False))
-    sep_spec = profile.get('separation_bin_deg', {'bins': [[15.,30.],[30.,60.],[60.,90.],[90.,180.]]})
+    ordinary = _ordinary_question_mode(request)
+    sep_spec = profile.get(
+        'separation_bin_deg',
+        list(ORDINARY_SEPARATION_BIN_DEG) if ordinary
+        else {'bins': [[15.,30.],[30.,60.],[60.,90.],[90.,180.]]})
     sep = _draw(sep_spec, rng)
     floor = float(sep_spec.get('floor_deg', 15.)) if isinstance(sep_spec, Mapping) else float(profile.get('separation_floor_deg', 15.))
     if len(sep) != 2 or not 0 <= floor <= float(sep[0]) < float(sep[1]) <= 180.:
@@ -617,9 +663,11 @@ def resolve_condition_profile(request, registry, *, question_knobs=None):
               'competitor_set': 'all_other_entities_including_offscreen',
               'native_start_hold_frames': request.get('start_hold_frames',0),
               'anchor_visibility': _draw(profile.get('anchor_visibility', 'in_fov'), rng),
-              'competitor_visibility': _draw(profile.get('competitor_visibility', 'in_fov'), rng),
+              'competitor_visibility': _draw(profile.get('competitor_visibility', 'any' if ordinary else 'in_fov'), rng),
               'anchor_line_of_sight': _draw(profile.get('anchor_line_of_sight', 'clear'), rng),
-              'speech_motion': _draw(profile.get('speech_motion', 'all_still'), rng),
+              'speech_motion': (_draw(profile['speech_motion'], rng) if 'speech_motion' in profile
+                                else _ordinary_speech_motion_default(ordinary, classes, anchors, question_knobs, rng,
+                                                                     request=request)),
               'competitor_motion': _draw(profile.get('competitor_motion', COMPETITOR_MOTION_DEFAULT), rng),
               'visibility_transition': _draw(profile.get('visibility_transition', VISIBILITY_TRANSITION_DEFAULT), rng),
               'target_moved_after_sound': profile.get('target_moved_after_sound'),
@@ -650,6 +698,14 @@ def resolve_condition_profile(request, registry, *, question_knobs=None):
               # defaults to the pre-existing sampler and is recorded so a
               # plan's route construction can be read back unambiguously.
               'constructive_motion': constructive_motion,
+              **({'ordinary_defaults': {
+                  'question_mode': ORDINARY_QUESTION_MODE,
+                  'competitor_visibility_default': 'any',
+                  'separation_bin_default_deg': list(ORDINARY_SEPARATION_BIN_DEG),
+                  'speech_motion_default': (
+                      'drawn_speaker_moving_p%.2f_unless_a_visibility_or_motion_knob_is_compiled'
+                      % ORDINARY_SPEAKER_MOVING_PROBABILITY),
+              }} if ordinary else {}),
               'knob_sources': knob_sources}
     for key, valid in ENUM_KNOB_VALUES.items():
         if result[key] not in valid:
@@ -1054,6 +1110,23 @@ def _moving_flags(profile, actors, rng, motion_requirements=None):
 
 
 
+def _distance_trend_override(request):
+    """``request.motion.distance_trend_criterion`` when stated, else None.
+
+    Lets an ordinary request plan a net listener-distance change larger than
+    the judged 0.2 m margin (a 0.25 m approach is legal but hard to see).
+    """
+    motion = request.get('motion') if isinstance(request, Mapping) else None
+    if not isinstance(motion, Mapping):
+        return None
+    override = motion.get('distance_trend_criterion')
+    if override is None:
+        return None
+    if not isinstance(override, Mapping):
+        raise ValueError('motion.distance_trend_criterion must be a mapping')
+    return dict(override)
+
+
 def _motion_budget(request, profile):
     from avengine.rooms.conditioned_motion import MotionBudget
     values = dict(profile)
@@ -1205,6 +1278,7 @@ def _solve_motion_conditions(
             camera={'motion': 'static'},
             event_start_s=event_start_s,
             other_event_windows_s=other_event_windows_s,
+            distance_trend_criterion=_distance_trend_override(request),
         )
         if not solution.solved:
             codes = ','.join(str(row['code']) for row in solution.rejections)
@@ -2658,11 +2732,937 @@ def apply_contact_correction(actors, paths, profile, *, room=None, planned_yaw_s
     }
 
 
+def _legacy_random_routes(space, actors, profile, clock, rng, flags, visibility_only_movers,
+                          required_frames, placement_rows, floor_region, floor_y):
+    """The historical fallback route draw, with the walk grown to length.
+
+    Start points are still drawn inside a hub box; the walk itself is now built
+    leg by leg by :func:`_walk_to_length`, so ``path_too_short_for_moving_window``
+    is a genuine dead end of the navigation and no longer the outcome of two
+    unlucky draws (measured 2026-09-12: 71 % of draws on hm3d_val_00800).
+    """
+    frames, fps = int(clock['frame_count']), float(clock['frame_rate_hz'])
+    anchors = set(profile['anchor_indices'])
+    paths=[]; records=[]; hub=space.sample_navigable(rng, floor_region)
+    if abs(float(hub[1]) - floor_y) > SAME_FLOOR_Y_TOLERANCE_M:
+        raise CandidateFailure('routes', 'hub_left_selected_floor')
+    bounds=floor_region.copy()
+    bounds[0,[0,2]]=np.maximum(bounds[0,[0,2]],hub[[0,2]]-3.1)
+    bounds[1,[0,2]]=np.minimum(bounds[1,[0,2]],hub[[0,2]]+3.1)
+    bounds[0,1]=floor_region[0,1]; bounds[1,1]=floor_region[1,1]
+    for i, required_motion in enumerate(flags):
+        actor_required_frames = (
+            1 if i in visibility_only_movers else required_frames
+        )
+        placement = placement_rows.get(
+            actors[i].get('entity_instance_id')
+        )
+        if placement is not None and not _placement_is_ground(placement):
+            if required_motion:
+                raise CandidateFailure(
+                    'routes', 'non_ground_static_source_cannot_move'
+                )
+            root = np.asarray(
+                placement['root_transform']['translation_m'],
+                dtype=float,
+            )
+            if root.shape != (3,) or not np.all(np.isfinite(root)):
+                raise CandidateFailure(
+                    'placement', 'static_source_placement_translation_invalid'
+                )
+            # Support-catalog placement owns non-ground peer fit. The
+            # navigation separation gate applies only to ground actors.
+            route=np.repeat(root[None], frames, axis=0)
+            record={
+                'motion':'static',
+                'route_points_m':None,
+                'placement_status':'planned',
+                'support_identity':deepcopy(
+                    placement.get('support_identity') or {}
+                ),
+                'navigation_authority':'support_surface_not_ground',
+            }
+            paths.append(route)
+            records.append(record)
+            continue
+        start=space.sample_navigable(rng, bounds)
+        if abs(float(start[1]) - floor_y) > SAME_FLOOR_Y_TOLERANCE_M:
+            raise CandidateFailure('routes', 'placement_left_selected_floor')
+        if any(
+            _placement_is_ground(
+                placement_rows.get(
+                    actors[index].get('entity_instance_id')
+                )
+            )
+            and np.linalg.norm(start-p[0]) < .95
+            for index,p in enumerate(paths)
+        ):
+            raise CandidateFailure('routes','initial_source_separation_below_0.95_m')
+        route=np.repeat(start[None], frames, axis=0); record={'motion':'static','route_points_m':None}
+        if required_motion:
+            low_speed,high_speed=profile.get('walk_speed_range_mps',(.5,.8))
+            speed=float(rng.uniform(float(low_speed),float(high_speed))) if high_speed>low_speed else float(low_speed)
+            # The walk is grown to the length the window needs instead of
+            # being drawn between two random points and refused when short.
+            # A speaking anchor that walks keeps walking past its window for
+            # a while, so post-sound movement occurs in ordinary scenes too.
+            extension=(POST_WINDOW_WALK_EXTENSION_S
+                       if (i in anchors and profile.get('speech_motion')=='speaker_moving'
+                           and i not in visibility_only_movers) else None)
+            target_length=_walk_target_length_m(actor_required_frames,fps,frames,speed,rng,
+                                                extend_after_window_s=extension)
+            poly=_walk_to_length(space,start,bounds,rng,floor_y,target_length,
+                                 avoid=[p[0] for p in paths])
+            if poly is None or len(poly)<2:
+                raise CandidateFailure('routes','no_existing_navigation_path')
+            if _polyline_length(poly)>target_length*1.05:
+                # The last leg may overshoot; the clock is sized for the target.
+                poly=_polyline_prefix(poly,target_length)
+            length=_polyline_length(poly)
+            if length < max(1.5,(actor_required_frames-1)/fps*speed):
+                raise CandidateFailure('routes','path_too_short_for_moving_window')
+            moving_frames=max(2,int(math.ceil(length/speed*fps))+1)
+            if moving_frames>=frames or moving_frames<actor_required_frames:
+                raise CandidateFailure('routes','route_does_not_fit_clock_or_required_window')
+            pause=int(rng.integers(max(1,int(fps)),max(2,int(2*fps))+1))
+            modes=['walk_with_sampled_holds']
+            if moving_frames>=2*actor_required_frames and moving_frames+pause<frames:modes.append('walk_with_sampled_pause')
+            mode=modes[int(rng.integers(len(modes)))];extra=pause if mode=='walk_with_sampled_pause' else 0
+            start_frame=int(rng.integers(frames-moving_frames-extra+1));motion=resample_polyline_by_arc_length(poly,moving_frames)
+            if extra:
+                split=int(rng.integers(actor_required_frames,moving_frames-actor_required_frames+1))
+                motion=np.concatenate([motion[:split],np.repeat(motion[split-1:split],pause,axis=0),motion[split:]])
+            route[start_frame:start_frame+len(motion)]=motion;route[start_frame+len(motion):]=motion[-1]
+            record={'motion':mode,'start_frame':start_frame,'end_frame_exclusive':start_frame+len(motion),'route_points_m':poly.tolist(),
+                    'required_contiguous_motion_frames':actor_required_frames}
+        if not all(space.is_navigable(p) for p in route):
+            raise CandidateFailure('routes','sampled_path_left_existing_navigation')
+        if any(
+            _placement_is_ground(
+                placement_rows.get(
+                    actors[index].get('entity_instance_id')
+                )
+            )
+            and np.linalg.norm(route-p,axis=1).min()<.95
+            for index,p in enumerate(paths)
+        ):
+            raise CandidateFailure('routes','all_frame_source_separation_below_0.95_m')
+        ok, _ = _points_same_floor(route, floor_y)
+        if not ok:
+            raise CandidateFailure('routes', 'sampled_path_left_selected_floor')
+        paths.append(route);records.append(record)
+    metadata={'authority':space.metadata['authority'],'actors':records,'minimum_separation_m':.95,
+              'selected_floor_height_m': floor_y, 'same_floor_tolerance_m': SAME_FLOOR_Y_TOLERANCE_M}
+    metadata['motion_construction'] = 'legacy_random_route_then_solver'
+    return paths, records, metadata
+
+
+
+def _ordinary_question_mode(request):
+    if not isinstance(request, Mapping):
+        return False
+    policy = ((request.get('qa_sampling') or {}).get('acceptance_policy') or {})
+    return isinstance(policy, Mapping) and policy.get('question_mode') == ORDINARY_QUESTION_MODE
+
+
+def _requested_qa_ids(request):
+    if not isinstance(request, Mapping):
+        return set()
+    found = set()
+    for target in request.get('qa_targets') or ():
+        if isinstance(target, Mapping) and target.get('qa_id'):
+            found.add(str(target['qa_id']))
+    branches = request.get('question_branches')
+    if isinstance(branches, Mapping):
+        found.update(str(key) for key in branches)
+    for value in request.get('qa_ids') or ():
+        found.add(str(value))
+    return found
+
+
+def _ordinary_speech_motion_default(ordinary, classes, anchors, question_knobs, rng, request=None):
+    """all_still, unless this is an ordinary request with nothing else to say.
+
+    An ordinary question that compiles no visibility or motion knob draws
+    ``speaker_moving`` with :data:`ORDINARY_SPEAKER_MOVING_PROBABILITY`, so the
+    moving branch of QA-06 and the post-sound movement QA-16/17 need can occur
+    without a research recipe. A visibility question keeps the anchor still
+    while it speaks, because its walk is already spoken for by the crossing.
+    """
+    if not ordinary:
+        return 'all_still'
+    knobs = dict(question_knobs or {})
+    if any(key in knobs for key in ('visibility_transition', 'pixel_occlusion_transition',
+                                    'anchor_visibility', 'speech_motion')):
+        return 'all_still'
+    if _requested_qa_ids(request) & VISIBILITY_QA_IDS:
+        return 'all_still'
+    if any(classes[i] == 'rigid_static_object' for i in anchors):
+        return 'all_still'
+    return ('speaker_moving' if float(rng.random()) < ORDINARY_SPEAKER_MOVING_PROBABILITY
+            else 'all_still')
+
+
+def _floor_navigable_weights(space, floors, rng):
+    """Draw probability of each declared floor from its share of navigable points.
+
+    Landings below :data:`MIN_FLOOR_NAVIGABLE_SHARE` get no weight unless every
+    floor is that small. The sample uses its own generator seeded from ``rng``
+    so the request seed still determines the outcome.
+    """
+    heights = None
+    points_reader = getattr(space, 'points', None)
+    if callable(points_reader):
+        try:
+            raw = np.asarray(points_reader(None), dtype=float)
+            heights = raw[:, 1] if raw.ndim == 2 and len(raw) else None
+        except (ValueError, TypeError, IndexError):
+            heights = None
+    if heights is None:
+        sampler = np.random.default_rng(int(rng.integers(0, 2**31 - 1)))
+        collected = []
+        for _ in range(FLOOR_SHARE_SAMPLES):
+            try:
+                collected.append(float(space.sample_navigable(sampler, None)[1]))
+            except ValueError:
+                continue
+        heights = np.asarray(collected, dtype=float)
+    counts = np.asarray(
+        [np.count_nonzero(np.abs(heights - float(f)) <= SAME_FLOOR_Y_TOLERANCE_M) for f in floors],
+        dtype=float)
+    if not len(heights) or counts.sum() <= 0:
+        return np.full(len(floors), 1. / len(floors))
+    shares = counts / counts.sum()
+    kept = np.where(shares >= MIN_FLOOR_NAVIGABLE_SHARE, shares, 0.)
+    if kept.sum() <= 0:
+        kept = shares
+    return kept / kept.sum()
+
+
+def _walk_target_length_m(required_frames, fps, frames, speed, rng, extend_after_window_s=None):
+    minimum = max(1.5, (max(1, int(required_frames)) - 1) / fps * speed * 1.05)
+    maximum = min(WALK_MAX_LENGTH_M, (frames - 2) / fps * speed * .9)
+    if extend_after_window_s is not None:
+        low, high = extend_after_window_s
+        minimum = minimum + float(rng.uniform(float(low), float(high))) * speed
+    if maximum <= minimum:
+        return float(minimum)
+    return float(rng.uniform(minimum, maximum))
+
+
+def _walk_to_length(space, start, bounds, rng, floor_y, target_length_m, *,
+                    leg_range_m=WALK_LEG_RANGE_M, max_legs=WALK_MAX_LEGS,
+                    draws_per_leg=WALK_DRAWS_PER_LEG, avoid=()):
+    """Grow a walk from ``start`` leg by leg until it reaches ``target_length_m``.
+
+    Each leg goes to a navigable point one to a few metres away along the
+    existing shortest path, so the walker turns where the room makes it turn.
+    Returns the polyline, or None when the navigation offers no further leg.
+    """
+    points = [np.asarray(start, dtype=float)]
+    total = 0.
+    current = points[0]
+    low_leg, high_leg = leg_range_m
+    for _ in range(max_legs):
+        if total >= float(target_length_m) - 1e-9:
+            break
+        leg = None
+        for _ in range(draws_per_leg):
+            try:
+                candidate = space.sample_navigable(rng, bounds)
+            except ValueError:
+                return None
+            if abs(float(candidate[1]) - floor_y) > SAME_FLOOR_Y_TOLERANCE_M:
+                continue
+            straight = float(np.linalg.norm(candidate - current))
+            if straight < low_leg or straight > high_leg:
+                continue
+            if any(np.linalg.norm(candidate - np.asarray(p)) < .95 for p in avoid):
+                continue
+            segment = space.shortest_path(current, candidate)
+            if segment is None or len(segment) < 2:
+                continue
+            leg = np.asarray(segment, dtype=float)
+            break
+        if leg is None:
+            break
+        points.extend(leg[1:])
+        total += _polyline_length(leg)
+        current = points[-1]
+    if len(points) < 2 or total <= 0.:
+        return None
+    return np.asarray(points, dtype=float)
+
+
+# ---------------------------------------------------------------------------
+# Visibility-first construction. The camera is chosen before the routes, the
+# floor under it is classified into out-of-view / visible / hidden points with
+# the same projection and ray helpers the screen uses, and the subject is then
+# walked through the states the question needs. The camera stage still screens
+# the result and the renderer still decides the pixels.
+# ---------------------------------------------------------------------------
+
+def _constructive_visibility_requested(request, visibility_requirements, profile=None,
+                                       route_bank=False):
+    camera = request.get('camera', {}) if isinstance(request, Mapping) else {}
+    options = camera.get('visibility_solver') if isinstance(camera, Mapping) else None
+    raw = True if not isinstance(options, Mapping) else options.get('constructive', True)
+    if not isinstance(raw, bool):
+        raise ValueError('camera.visibility_solver.constructive must be a boolean')
+    if not raw:
+        return False
+    kinds = {requirement.kind for requirement in visibility_requirements}
+    if not kinds or not kinds <= set(CONSTRUCTIVE_VISIBILITY_KINDS):
+        return False
+    if isinstance(profile, Mapping):
+        # The constructed walk lets the anchor speak standing and visible, then
+        # walk. A request that binds the audible window to walking or to a
+        # blocked sight line asks for something else and keeps the route draw.
+        # A route-bank room keeps its retained routes whole, so its subject
+        # walks for the entire clock and a walking speaker is the only option.
+        if profile.get('speech_motion') == 'speaker_moving' and not route_bank:
+            return False
+        if profile.get('anchor_line_of_sight') == 'occluded':
+            return False
+        if profile.get('anchor_visibility') not in (None, 'in_fov', 'any'):
+            return False
+    return True
+
+
+def _camera_basis(yaw_index):
+    yaw = math.radians(15. * int(yaw_index))
+    return (np.array([math.sin(yaw), 0., -math.cos(yaw)]),
+            np.array([math.cos(yaw), 0., math.sin(yaw)]))
+
+
+def _visibility_point_cloud(space, floor_region, rng, count):
+    points_reader = getattr(space, 'points', None)
+    if callable(points_reader):
+        raw = np.asarray(points_reader(floor_region), dtype=float)
+        if raw.ndim != 2 or not len(raw):
+            raise CandidateFailure('routes', 'constructive_visibility_no_navigable_points')
+        if len(raw) > count:
+            raw = raw[rng.choice(len(raw), count, replace=False)]
+        return raw
+    sampler = np.random.default_rng(int(rng.integers(0, 2**31 - 1)))
+    seen = {}
+    for _ in range(count * 3):
+        try:
+            point = space.sample_navigable(sampler, floor_region)
+        except ValueError:
+            break
+        seen.setdefault(tuple(np.round(point, 3)), np.asarray(point, dtype=float))
+        if len(seen) >= count:
+            break
+    if not seen:
+        raise CandidateFailure('routes', 'constructive_visibility_no_navigable_points')
+    return np.asarray(list(seen.values()), dtype=float)
+
+
+def _frame_view(camera, root, body, policy):
+    """In-view flag and predicted centroid column of one body position."""
+    from avengine.rooms import conditioned_visibility as cv
+    try:
+        samples = cv.body_sample_points(camera.position_m, root, body, policy)
+    except cv.ConditionedVisibilityError:
+        return False, None
+    projected = cv._project(camera, samples, policy)
+    inside = projected['in_frustum']
+    if not inside.any():
+        return False, None
+    return True, float(np.nanmean(projected['column_px'][inside]))
+
+
+def _point_state(camera, root, body, mesh, policy, cache):
+    """out / visible / hidden / partial / in_view_unmeasured for one root position."""
+    from avengine.rooms import conditioned_visibility as cv
+    origin = np.asarray(camera.position_m, dtype=float)
+    try:
+        samples = cv.body_sample_points(origin, root, body, policy)
+    except cv.ConditionedVisibilityError:
+        return 'unusable', None
+    projected = cv._project(camera, samples, policy)
+    inside = projected['in_frustum']
+    if not inside.any():
+        return 'out', None
+    column = float(np.nanmean(projected['column_px'][inside]))
+    if mesh is None:
+        return 'in_view_unmeasured', column
+    blocked, measured = cv._blocked_by_scene(mesh, origin, samples, policy, cache)
+    blocked_in, measured_in = blocked[inside], measured[inside]
+    if not measured_in.all():
+        return 'in_view_unmeasured', column
+    if blocked_in.all():
+        return 'hidden', column
+    if not blocked_in.any():
+        return 'visible', column
+    return 'partial', column
+
+
+def _classify_cloud(camera, cloud, body, emitter_offset, mesh, policy, cache, *,
+                    max_distance_m, cast_rays):
+    origin = np.asarray(camera.position_m, dtype=float)
+    forward = np.asarray(camera.forward, dtype=float)
+    right = np.asarray(camera.right, dtype=float)
+    rows = []
+    for point in cloud:
+        delta = point - origin
+        depth, lateral = float(delta @ forward), float(delta @ right)
+        emitter = point + np.array([0., float(emitter_offset[1]), 0.])
+        distance = float(np.linalg.norm(emitter - origin))
+        row = {'depth': depth, 'lateral': lateral, 'distance': distance, 'column': None, 'state': None}
+        horizontal = math.hypot(float(delta[0]), float(delta[2]))
+        if horizontal < .8:
+            row['state'] = 'camera_clearance'
+            rows.append(row)
+            continue
+        if distance > max_distance_m + 1.0:
+            row['state'] = 'too_far'
+            rows.append(row)
+            continue
+        if cast_rays:
+            state, column = _point_state(camera, point, body, mesh, policy, cache)
+        else:
+            in_view, column = _frame_view(camera, point, body, policy)
+            state = 'in_view_unmeasured' if in_view else 'out'
+        row['state'], row['column'] = state, column
+        if state == 'out':
+            row['outside_side'] = (('left' if lateral < 0. else 'right')
+                                   if depth > policy.near_m else 'behind')
+        rows.append(row)
+    return rows
+
+
+def _frames_for_length(length_m, speed, fps):
+    return max(2, int(math.ceil(float(length_m) / speed * fps)) + 1)
+
+
+def _draw_speed(profile, rng):
+    low, high = profile.get('walk_speed_range_mps', (.5, .8))
+    low, high = float(low), float(high)
+    return float(rng.uniform(low, high)) if high > low else low
+
+
+def _entry_route(requirement, rows, cloud, space, camera, body, mesh, policy, cache, rng,
+                 frames, fps, profile, distance_range):
+    height, width = camera.resolution_hw
+    center, dead = camera.center_column_px, camera.dead_zone_px
+    depth_px = ENTRY_DEPTH_FRACTION * float(width)
+    side = requirement.side or ('left' if float(rng.random()) < .5 else 'right')
+    starts = [i for i, r in enumerate(rows) if r['state'] == 'out' and r.get('outside_side') == side]
+    if side == 'left':
+        ends = [i for i, r in enumerate(rows) if r['column'] is not None
+                and r['state'] in ('in_view_unmeasured', 'visible')
+                and depth_px - .5 <= r['column'] <= center - dead
+                and distance_range[0] <= r['distance'] <= distance_range[1]]
+    else:
+        ends = [i for i, r in enumerate(rows) if r['column'] is not None
+                and r['state'] in ('in_view_unmeasured', 'visible')
+                and center + dead <= r['column'] <= width - .5 - depth_px
+                and distance_range[0] <= r['distance'] <= distance_range[1]]
+    if not starts or not ends:
+        return None
+    starts = [starts[int(k)] for k in rng.permutation(len(starts))][:12]
+    ends = [ends[int(k)] for k in rng.permutation(len(ends))][:12]
+
+    def deep(column):
+        return (column + .5 >= depth_px) if side == 'left' else ((width - .5) - column >= depth_px)
+
+    for si in starts:
+        for ei in ends:
+            start, end = cloud[si], cloud[ei]
+            if mesh is not None and _point_state(camera, end, body, mesh, policy, cache)[0] != 'visible':
+                continue
+            poly = space.shortest_path(start, end)
+            if poly is None or len(poly) < 2:
+                continue
+            poly = np.asarray(poly, dtype=float)
+            length = _polyline_length(poly)
+            if length < 1.0 or length > WALK_MAX_LENGTH_M * 1.5:
+                continue
+            speed = _draw_speed(profile, rng)
+            moving = _frames_for_length(length, speed, fps)
+            if moving >= frames - 45:
+                continue
+            motion = np.asarray(resample_polyline_by_arc_length(poly, moving), dtype=float)
+            views = [_frame_view(camera, point, body, policy) for point in motion]
+            in_view = [v[0] for v in views]
+            first_in = next((k for k, v in enumerate(in_view) if v), None)
+            if first_in is None or first_in == 0 or not all(in_view[first_in:]):
+                continue
+            column = views[first_in][1]
+            if side == 'left' and not column < center - dead:
+                continue
+            if side == 'right' and not column > center + dead:
+                continue
+            deep_frames = [k for k in range(first_in, len(views)) if views[k][1] is not None and deep(views[k][1])]
+            if not deep_frames or deep_frames[0] - first_in > 8:
+                continue
+            # The body has to be clear of the scene at the entry frames, not just at
+            # the walk's end: an occluder at the frame edge would make the pixel
+            # judge see out_of_view -> fully_occluded instead of an entry.
+            if mesh is not None and any(
+                    _point_state(camera, motion[k], body, mesh, policy, cache)[0] != 'visible'
+                    for k in sorted({first_in, deep_frames[0], min(len(motion) - 1, deep_frames[0] + 6)})):
+                continue
+            latest_start = max(1, frames - moving - 45)
+            start_frame = int(rng.integers(0, min(30, latest_start)))
+            entry_frame = start_frame + first_in
+            route = np.repeat(start[None], frames, axis=0)
+            route[start_frame:start_frame + moving] = motion
+            route[start_frame + moving:] = motion[-1]
+            record = {
+                'motion': 'constructive_visibility_walk', 'start_frame': start_frame,
+                'end_frame_exclusive': start_frame + moving, 'route_points_m': poly.tolist(),
+                'required_contiguous_motion_frames': 1,
+                'visibility_construction': {
+                    'kind': requirement.kind, 'side': side,
+                    'predicted_entry_frame': int(entry_frame),
+                    'predicted_entry_column_px': float(column),
+                    'entry_depth_px_required': float(depth_px),
+                    'speed_mps': float(speed), 'path_length_m': float(length)}}
+            return route, record
+    return None
+
+
+def _occlusion_route(requirement, rows, cloud, space, camera, body, mesh, policy, cache, rng,
+                     frames, fps, profile, distance_range, min_pre_walk_frames=8):
+    visible = [i for i, r in enumerate(rows) if r['state'] == 'visible'
+               and distance_range[0] <= r['distance'] <= distance_range[1]]
+    hidden = [i for i, r in enumerate(rows) if r['state'] == 'hidden']
+    if not visible or not hidden:
+        return None
+    visible = [visible[int(k)] for k in rng.permutation(len(visible))][:10]
+    hidden = [hidden[int(k)] for k in rng.permutation(len(hidden))][:10]
+    wants_return = requirement.kind == 'fully_occluded_then_visible'
+    for hi in hidden:
+        for vi in visible:
+            leg1 = space.shortest_path(cloud[vi], cloud[hi])
+            if leg1 is None or len(leg1) < 2:
+                continue
+            leg1 = np.asarray(leg1, dtype=float)
+            length1 = _polyline_length(leg1)
+            if length1 < 1.0 or length1 > WALK_MAX_LENGTH_M:
+                continue
+            speed = _draw_speed(profile, rng)
+            moving1 = _frames_for_length(length1, speed, fps)
+            route = np.repeat(cloud[vi][None], frames, axis=0)
+            if wants_return:
+                vj = visible[int(rng.integers(len(visible)))]
+                leg2 = space.shortest_path(cloud[hi], cloud[vj])
+                if leg2 is None or len(leg2) < 2:
+                    continue
+                leg2 = np.asarray(leg2, dtype=float)
+                length2 = _polyline_length(leg2)
+                if length2 < 1.0 or length2 > WALK_MAX_LENGTH_M:
+                    continue
+                moving2 = _frames_for_length(length2, speed, fps)
+                hold = int(rng.integers(12, 31))
+                total = moving1 + hold + moving2
+                # The subject stands visible long enough to speak before it
+                # walks, and stands visible again after it returns.
+                low = int(min_pre_walk_frames)
+                high = frames - total - 15
+                if high <= low:
+                    continue
+                start_frame = int(rng.integers(low, high))
+                motion = np.concatenate([
+                    np.asarray(resample_polyline_by_arc_length(leg1, moving1), dtype=float),
+                    np.repeat(cloud[hi][None], hold, axis=0),
+                    np.asarray(resample_polyline_by_arc_length(leg2, moving2), dtype=float)])
+                route[start_frame:start_frame + total] = motion
+                route[start_frame + total:] = motion[-1]
+                hidden_frames = [start_frame + moving1, start_frame + moving1 + hold]
+                end_exclusive = start_frame + total
+            else:
+                # Hide late enough to leave the speaking phase in front of the
+                # walk, and early enough for a terminal hidden run of 30+ frames.
+                low = max(int(min_pre_walk_frames), 95 - moving1)
+                high = 120 - moving1
+                if high < low:
+                    continue
+                start_frame = int(rng.integers(low, high + 1))
+                arrive = start_frame + moving1
+                motion = np.asarray(resample_polyline_by_arc_length(leg1, moving1), dtype=float)
+                route[start_frame:arrive] = motion
+                route[arrive:] = cloud[hi]
+                hidden_frames = [arrive, frames]
+                end_exclusive = arrive
+            record = {
+                'motion': 'constructive_visibility_walk', 'start_frame': int(start_frame),
+                'end_frame_exclusive': int(end_exclusive),
+                'route_points_m': np.asarray(leg1, dtype=float).tolist(),
+                'required_contiguous_motion_frames': 1,
+                'visibility_construction': {
+                    'kind': requirement.kind, 'predicted_hidden_frames': [int(v) for v in hidden_frames],
+                    'hidden_point_m': [float(v) for v in cloud[hi]],
+                    'speed_mps': float(speed), 'path_length_m': float(length1)}}
+            return route, record
+    return None
+
+
+def _bank_endpoints(bank):
+    points = []
+    for row in bank:
+        route = np.asarray(row['points_m'], dtype=float)
+        if len(route):
+            points.append(route[0])
+            points.append(route[-1])
+    return np.asarray(points, dtype=float) if points else np.zeros((0, 3))
+
+
+def _bank_route_states(points, camera, body, mesh, policy, cache, *, cast_rays):
+    """Predicted state and centroid column at every frame of one retained route."""
+    views = [_frame_view(camera, point, body, policy) for point in points]
+    if not cast_rays:
+        return (['in_view_unmeasured' if v[0] else 'out' for v in views], [v[1] for v in views])
+    states, columns, last = [], [], None
+    for k, (point, (in_view, column)) in enumerate(zip(points, views)):
+        if not in_view:
+            states.append('out')
+            columns.append(None)
+            last = None
+            continue
+        if last is None or k % BANK_RAY_STRIDE == 0:
+            last = _point_state(camera, point, body, mesh, policy, cache)
+        states.append(last[0])
+        columns.append(column)
+    return states, columns
+
+
+def _bank_visibility_route(requirement, bank, camera, body, emitter_offset, mesh, policy, cache, rng,
+                           frames, distance_range, min_speaking_frames, *,
+                           max_routes=CONSTRUCTIVE_BANK_ROUTES):
+    """Pick a retained native route, plus a legal start hold, that walks the subject
+    through the needed states.
+
+    A retained route is kept whole and unshifted in shape; like the legacy draw, the
+    subject may hold the route's start for up to ``frames - len(route)`` frames and
+    holds the end for the rest of the clock, so it can stand and speak before or
+    after the walk. The frustum tests run every frame; rays only for routes that
+    pass them, for a bounded number of routes per camera pose.
+    """
+    from avengine.rooms.native_qa_room import _hold_endpoint_path
+    height, width = camera.resolution_hw
+    center, dead = camera.center_column_px, camera.dead_zone_px
+    depth_px = ENTRY_DEPTH_FRACTION * float(width)
+    origin = np.asarray(camera.position_m, dtype=float)
+    entry = requirement.kind == 'out_of_view_to_visible'
+    need = max(int(min_speaking_frames), 8)
+    ray_routes = 0
+    debug = Counter() if os.environ.get('AVENGINE_BANK_DEBUG') else None
+
+    def note(key):
+        if debug is not None:
+            debug[key] += 1
+
+    for ri in rng.permutation(len(bank))[:int(max_routes)]:
+        row = bank[int(ri)]
+        points = np.asarray(row['points_m'], dtype=float)
+        length = len(points)
+        if points.ndim != 2 or points.shape[1] != 3 or length < 2 or length > int(frames):
+            note('bad_shape')
+            continue
+        max_delay = int(frames) - length
+        if float(np.hypot(points[:, 0] - origin[0], points[:, 2] - origin[2]).min()) < .85:
+            note('camera_clearance')
+            continue
+        distances = np.linalg.norm(
+            points + np.array([0., float(emitter_offset[1]), 0.]) - origin, axis=1)
+        if not entry:
+            in_view = [_frame_view(camera, point, body, policy)[0] for point in points]
+            if not in_view[0] or sum(in_view) < 15:
+                note('starts_out_or_barely_in_view')
+                continue
+            if not distance_range[0] <= float(distances[0]) <= distance_range[1]:
+                note('start_out_of_range')
+                continue
+            ray_routes += 1
+            if ray_routes > CONSTRUCTIVE_BANK_RAY_ROUTES:
+                break
+        states, columns = _bank_route_states(points, camera, body, mesh, policy, cache, cast_rays=not entry)
+        if entry:
+            in_view = [s != 'out' for s in states]
+            first_in = next((k for k, v in enumerate(in_view) if v), None)
+            if first_in is None or first_in == 0:
+                note('never_in_view' if first_in is None else 'starts_in_view')
+                continue
+            # Seen for at least two seconds after entering; the end hold counts, a
+            # route may also wander out again later. Speech placement is the
+            # schedule solver's decision.
+            sustain = 30
+            padded_in_view = in_view[first_in:] + [in_view[-1]] * max_delay
+            if len(padded_in_view) < sustain or not all(padded_in_view[:sustain]):
+                note('leaves_within_2s')
+                continue
+            if not distance_range[0] <= float(distances[first_in]) <= distance_range[1]:
+                note('entry_out_of_range')
+                continue
+            column = columns[first_in]
+            if column is None:
+                continue
+            side = 'left' if column < center - dead else ('right' if column > center + dead else None)
+            if side is None or (requirement.side and side != requirement.side):
+                note('wrong_or_center_side')
+                continue
+
+            def deep(value):
+                return (value + .5 >= depth_px) if side == 'left' else ((width - .5) - value >= depth_px)
+
+            deep_frames = [k for k in range(first_in, length) if columns[k] is not None and deep(columns[k])]
+            if not deep_frames or deep_frames[0] - first_in > 8:
+                note('no_prompt_depth')
+                continue
+            if mesh is not None and any(
+                    _point_state(camera, points[k], body, mesh, policy, cache)[0] != 'visible'
+                    for k in sorted({first_in, deep_frames[0], min(length - 1, deep_frames[0] + 10)})):
+                note('blocked_at_entry')
+                continue
+            # Out of view while holding the start; enter no earlier than frame 3.
+            low = max(0, 3 - first_in)
+            if low > max_delay:
+                note('no_legal_delay')
+                continue
+            delay = int(rng.integers(low, min(max_delay, low + 30) + 1))
+            construction = {
+                'kind': requirement.kind, 'side': side, 'predicted_entry_frame': int(delay + first_in),
+                'predicted_entry_column_px': float(column), 'entry_depth_px_required': float(depth_px)}
+        else:
+            if states[0] != 'visible':
+                note('start_not_clear')
+                continue
+            k = 0
+            while k < length and states[k] == 'visible':
+                k += 1
+            h0 = k
+            # The body crosses the occluder's edge over several 'partial' frames.
+            while h0 < length and states[h0] == 'partial':
+                h0 += 1
+            if h0 >= length or states[h0] != 'hidden':
+                note('never_hidden')
+                continue
+            h1 = h0
+            while h1 < length and states[h1] == 'hidden':
+                h1 += 1
+            end_state = states[-1]
+            hidden_run = (h1 - h0) + (max_delay if h1 == length and end_state == 'hidden' else 0)
+            if hidden_run < 8:
+                note('hidden_too_short')
+                continue
+            # Stand visible and speak before the walk when the clock allows it.
+            delay = min(max_delay, max(need, 8)) if max_delay else 0
+            if requirement.kind == 'fully_occluded_without_return':
+                if any(states[j] not in ('hidden', 'out') for j in range(h1, length)) or end_state not in ('hidden', 'out'):
+                    note('reappears')
+                    continue
+                hidden_frames = [int(delay + h0), int(frames)]
+                visible_after = 0
+            else:
+                r0 = h1
+                while r0 < length and states[r0] == 'partial':
+                    r0 += 1
+                r1 = r0
+                while r1 < length and states[r1] == 'visible':
+                    r1 += 1
+                visible_after = (r1 - r0) + ((int(frames) - delay - length) if r1 == length and end_state == 'visible' else 0)
+                if visible_after < 8:
+                    note('no_return')
+                    continue
+                hidden_frames = [int(delay + h0), int(delay + h1)]
+            construction = {
+                'kind': requirement.kind, 'predicted_hidden_frames': hidden_frames,
+                'visible_before_frames': int(delay + k), 'visible_after_frames': int(visible_after)}
+        note('accepted')
+        path = _hold_endpoint_path(points, int(frames), start_hold_frames=int(delay))
+        record = {
+            'motion': 'constructive_visibility_walk', 'start_frame': int(delay), 'end_frame_exclusive': int(delay + length),
+            'route_points_m': points.tolist(), 'required_contiguous_motion_frames': 1,
+            'native_route_id': row.get('route_id'), 'native_start_hold_frames': int(delay),
+            'visibility_construction': {
+                **construction, 'route_source': 'retained_native_route_bank',
+                'path_length_m': float(_polyline_length(points))}}
+        return np.asarray(path, dtype=float), record
+    if debug is not None:
+        print('[bank-debug]', camera.candidate_id, dict(debug), file=sys.stderr, flush=True)
+    return None
+
+
+def _construct_visibility_route_plan(space, mesh, actors, profile, clock, rng, region, room,
+                                     request, visibility_requirements, static_placements,
+                                     sounds=None):
+    """Choose a camera first, then walk the subject through the needed states.
+
+    Raises :class:`CandidateFailure` when no camera in the budget supports the
+    requirement, so the outer candidate loop draws a new floor and camera.
+    """
+    from avengine.rooms import conditioned_visibility as cv
+    frames, fps = int(clock['frame_count']), float(clock['frame_rate_hz'])
+    placement_rows = _static_placement_rows(static_placements)
+    if any(not _placement_is_ground(row) for row in placement_rows.values()):
+        raise CandidateFailure('routes', 'constructive_visibility_unsupported_with_static_placements')
+    requirements = [r for r in visibility_requirements if r.kind in CONSTRUCTIVE_VISIBILITY_KINDS]
+    if not requirements:
+        raise CandidateFailure('routes', 'constructive_visibility_no_supported_requirement')
+    requirement = requirements[0]
+    index_by_id = {str(actor['entity_instance_id']): i for i, actor in enumerate(actors)}
+    subject_index = index_by_id.get(str(requirement.subject))
+    if subject_index is None:
+        raise CandidateFailure('routes', 'visibility_requirement_names_unknown_instance')
+    if actors[subject_index]['entity_class'] in RIGID:
+        raise CandidateFailure('routes', 'visibility_requirement_needs_motion_from_static_entity')
+    if requirement.kind != 'out_of_view_to_visible' and mesh is None:
+        raise CandidateFailure('camera', 'constructive_visibility_needs_static_mesh')
+    config = request.get('camera', {}) if isinstance(request.get('camera'), Mapping) else {}
+    fov = float(config.get('fov_deg', request.get('camera_fov_deg', 85.)))
+    height = float(config.get('height_above_floor_m', 1.55))
+    resolution = [int(v) for v in config.get('resolution_hw', [720, 1280])]
+    options = _visibility_solver_options(request, frames)
+    policy = cv.screen_policy(options['screen_policy'])
+    emitter_offset = np.asarray(actors[subject_index]['emitter_binding']['emitter_offset_m'], dtype=float)
+    body = cv.body_proxy_from_emitter_anchor(emitter_offset)
+    distance_range = profile.get('distance_range_m') or list(DEFAULT_DISTANCE_RANGE_M)
+    distance_range = [float(distance_range[0]), float(distance_range[1])]
+    # The subject speaks while standing visible before its walk, so the standing
+    # phase has to hold its longest selected clip plus a little slack.
+    needed = 0
+    for value in (sounds or {}).values():
+        if isinstance(value, Mapping) and str(value.get('entity_instance_id')) == str(requirement.subject):
+            span = int(value['audible_end_sample_exclusive']) - int(value['audible_start_sample'])
+            needed = max(needed, int(math.ceil(span / float(clock['sample_rate_hz']) * fps)) + 3)
+    min_pre_walk_frames = max(needed, 8)
+    floor_region, floor_y = lock_same_floor_region(space, rng, region, room)
+    bank = space.route_bank()
+    if bank is not None:
+        # The camera stage measures the floor from the actor paths, which in a
+        # route-bank room are the retained routes themselves; use their height.
+        heights = np.concatenate([np.asarray(row['points_m'], dtype=float)[:, 1] for row in bank if len(row['points_m'])])
+        floor_y = float(np.median(heights))
+        floor_region = np.asarray(floor_region, dtype=float).copy()
+        floor_region[0, 1] = floor_y - SAME_FLOOR_Y_TOLERANCE_M
+        floor_region[1, 1] = floor_y + SAME_FLOOR_Y_TOLERANCE_M
+    positions = _camera_grid_on_floor(space, height=height, region=floor_region, floor_y=floor_y)
+    if not positions:
+        raise CandidateFailure('camera', 'constructive_visibility_no_camera_position_on_floor')
+    if bank is None:
+        cloud = _visibility_point_cloud(space, floor_region, rng, int(options['constructive_cloud_points']))
+    else:
+        # Static competitors of a route-bank room stand on route endpoints, the
+        # positions the legacy draw already permits; the cloud is those endpoints.
+        cloud = _bank_endpoints(bank)
+        if not len(cloud):
+            raise CandidateFailure('routes', 'constructive_visibility_route_bank_has_no_endpoints')
+        if len(cloud) > int(options['constructive_cloud_points']):
+            cloud = cloud[rng.choice(len(cloud), int(options['constructive_cloud_points']), replace=False)]
+    order = [(int(pi), int(yi)) for pi in range(len(positions)) for yi in range(24)]
+    order = [order[int(k)] for k in rng.permutation(len(order))][:int(options['constructive_camera_budget'])]
+    cache = {}
+    tried = 0
+    for pi, yi in order:
+        tried += 1
+        forward, right = _camera_basis(yi)
+        camera = cv.CameraPose(
+            candidate_id=f'grid_{pi:05d}_yaw_{yi * 15:03d}',
+            position_m=tuple(float(v) for v in positions[pi]),
+            forward=tuple(float(v) for v in forward), right=tuple(float(v) for v in right),
+            up=(0., 1., 0.), horizontal_fov_deg=fov, resolution_hw=tuple(resolution))
+        rows = _classify_cloud(camera, cloud, body, emitter_offset, mesh, policy, cache,
+                               max_distance_m=distance_range[1],
+                               cast_rays=requirement.kind != 'out_of_view_to_visible')
+        if bank is not None:
+            built = _bank_visibility_route(requirement, bank, camera, body, emitter_offset, mesh, policy,
+                                           cache, rng, frames, distance_range, min_pre_walk_frames)
+        elif requirement.kind == 'out_of_view_to_visible':
+            built = _entry_route(requirement, rows, cloud, space, camera, body, mesh, policy, cache,
+                                 rng, frames, fps, profile, distance_range)
+        else:
+            built = _occlusion_route(requirement, rows, cloud, space, camera, body, mesh, policy, cache,
+                                     rng, frames, fps, profile, distance_range,
+                                     min_pre_walk_frames=min_pre_walk_frames)
+        if built is None:
+            continue
+        route, record = built
+        foot = np.asarray(positions[pi], dtype=float).copy()
+        foot[1] = floor_y
+        if float(np.linalg.norm(route - foot, axis=1).min()) < .85:
+            continue
+        # Competitors stand on visible, in-range floor away from the walk; a
+        # competitor whose motion knob says it walks grows its own leg-by-leg walk.
+        others = {}
+        usable = [i for i, r in enumerate(rows) if r['state'] in ('visible', 'in_view_unmeasured')
+                  and distance_range[0] <= r['distance'] <= distance_range[1]]
+        if not usable:
+            usable = [i for i, r in enumerate(rows) if r['state'] not in ('camera_clearance', 'unusable')]
+        usable = [usable[int(k)] for k in rng.permutation(len(usable))]
+        taken = [route]
+        failed = False
+        for index, actor in enumerate(actors):
+            if index == subject_index:
+                continue
+            chosen = None
+            for ci in usable[:40]:
+                point = cloud[ci]
+                if all(float(np.linalg.norm(path - point, axis=1).min()) >= .95 for path in taken):
+                    chosen = point
+                    break
+            if chosen is None:
+                failed = True
+                break
+            static = np.repeat(chosen[None], frames, axis=0)
+            others[index] = (static, {'motion': 'static', 'route_points_m': None,
+                                      'visibility_construction': {'role': 'competitor', 'state': rows[ci]['state']}})
+            taken.append(static)
+        if failed:
+            continue
+        paths = [None] * len(actors)
+        records = [None] * len(actors)
+        paths[subject_index], records[subject_index] = route, record
+        for index, (path, rec) in others.items():
+            paths[index], records[index] = path, rec
+        return {
+            'camera': {'position_m': [float(v) for v in positions[pi]], 'yaw_index': int(yi),
+                       'grid_index': int(pi), 'candidate_id': camera.candidate_id},
+            'floor_region': np.asarray(floor_region, dtype=float).tolist(), 'floor_y': float(floor_y),
+            'paths': [np.asarray(p, dtype=float) for p in paths], 'records': records,
+            'forced_movers': [str(requirement.subject)],
+            'record': {
+                'kind': requirement.kind, 'subject': str(requirement.subject),
+                'camera_candidate_id': camera.candidate_id, 'camera_poses_tried': tried,
+                'camera_pose_budget': int(options['constructive_camera_budget']),
+                'cloud_points': int(len(cloud)), 'screen_policy': policy.policy_id,
+                'route_source': 'retained_native_route_bank' if bank is not None else 'grown_walk',
+                'state_counts': dict(Counter(r['state'] for r in rows)),
+                'claim_boundary': ('camera-first construction from the screen projection and '
+                                   'ray helpers; the camera stage re-screens the result and the '
+                                   'renderer decides the pixels')}}
+    raise CandidateFailure('camera', 'constructive_visibility_no_camera_supports_requirement')
+
+
+def _materialize_visibility_route_plan(plan, space, actors, flags, frames):
+    paths = [np.asarray(p, dtype=float) for p in plan['paths']]
+    records = list(plan['records'])
+    if len(paths) != len(actors) or any(p.shape != (frames, 3) for p in paths):
+        raise CandidateFailure('routes', 'constructive_visibility_plan_shape_mismatch')
+    if space.route_bank() is None:
+        for index, path in enumerate(paths):
+            if not all(space.is_navigable(point) for point in path):
+                raise CandidateFailure('routes', 'sampled_path_left_existing_navigation')
+    for left, right in itertools.combinations(range(len(paths)), 2):
+        if float(np.linalg.norm(paths[left] - paths[right], axis=1).min()) < .95:
+            raise CandidateFailure('routes', 'all_frame_source_separation_below_0.95_m')
+    authority = space.metadata.get('authority', space.metadata.get('route_authority', 'retained_native_route_bank'))
+    metadata = {'authority': authority, 'actors': records, 'minimum_separation_m': .95,
+                'selected_floor_height_m': float(plan['floor_y']),
+                'same_floor_tolerance_m': SAME_FLOOR_Y_TOLERANCE_M,
+                'motion_construction': 'constructive_visibility_camera_first',
+                'visibility_construction': deepcopy(plan['record'])}
+    return paths, records, metadata
+
+
 def sample_routes(space, actors, profile, clock, rng, region=None, *,
                  required_windows=None, room=None, motion_requirements=None,
                  motion_budget=None, static_placements=None,
                  constructive_motion=False,
-                 visibility_requirements=()):
+                 visibility_requirements=(), visibility_route_plan=None):
     frames, fps = int(clock['frame_count']), float(clock['frame_rate_hz'])
     flags = _moving_flags(profile, actors, rng, motion_requirements)
     visibility_only_movers: set[int] = set()
@@ -2716,7 +3716,17 @@ def sample_routes(space, actors, profile, clock, rng, region=None, *,
     constructive_motion_active = bool(
         constructive_motion and motion_requirements
     )
-    if constructive_motion_active and not any(
+    if visibility_route_plan is not None:
+        # The constructed plan already carries every actor's path, a grown walk
+        # or a retained native route, so it precedes the route-bank and legacy draws.
+        paths, records, metadata = _materialize_visibility_route_plan(
+            visibility_route_plan, space, actors, flags, frames)
+        floor_y = float(visibility_route_plan['floor_y'])
+        floor_source = 'constructive_visibility_camera_first'
+        forced = set(profile.get('visibility_forced_movers') or ())
+        forced.update(str(v) for v in visibility_route_plan.get('forced_movers') or ())
+        profile['visibility_forced_movers'] = sorted(forced)
+    elif constructive_motion_active and not any(
         not _placement_is_ground(row) for row in placement_rows.values()
     ):
         if space.route_bank() is not None:
@@ -2792,107 +3802,9 @@ def sample_routes(space, actors, profile, clock, rng, region=None, *,
         else:
             floor_region, floor_y = lock_same_floor_region(space, rng, region, room)
             floor_source = 'declared_or_sampled_navigation_floor'
-        paths=[]; records=[]; hub=space.sample_navigable(rng, floor_region)
-        if abs(float(hub[1]) - floor_y) > SAME_FLOOR_Y_TOLERANCE_M:
-            raise CandidateFailure('routes', 'hub_left_selected_floor')
-        bounds=floor_region.copy()
-        bounds[0,[0,2]]=np.maximum(bounds[0,[0,2]],hub[[0,2]]-3.1)
-        bounds[1,[0,2]]=np.minimum(bounds[1,[0,2]],hub[[0,2]]+3.1)
-        bounds[0,1]=floor_region[0,1]; bounds[1,1]=floor_region[1,1]
-        for i, required_motion in enumerate(flags):
-            actor_required_frames = (
-                1 if i in visibility_only_movers else required_frames
-            )
-            placement = placement_rows.get(
-                actors[i].get('entity_instance_id')
-            )
-            if placement is not None and not _placement_is_ground(placement):
-                if required_motion:
-                    raise CandidateFailure(
-                        'routes', 'non_ground_static_source_cannot_move'
-                    )
-                root = np.asarray(
-                    placement['root_transform']['translation_m'],
-                    dtype=float,
-                )
-                if root.shape != (3,) or not np.all(np.isfinite(root)):
-                    raise CandidateFailure(
-                        'placement', 'static_source_placement_translation_invalid'
-                    )
-                # Support-catalog placement owns non-ground peer fit. The
-                # navigation separation gate applies only to ground actors.
-                route=np.repeat(root[None], frames, axis=0)
-                record={
-                    'motion':'static',
-                    'route_points_m':None,
-                    'placement_status':'planned',
-                    'support_identity':deepcopy(
-                        placement.get('support_identity') or {}
-                    ),
-                    'navigation_authority':'support_surface_not_ground',
-                }
-                paths.append(route)
-                records.append(record)
-                continue
-            start=space.sample_navigable(rng, bounds)
-            if abs(float(start[1]) - floor_y) > SAME_FLOOR_Y_TOLERANCE_M:
-                raise CandidateFailure('routes', 'placement_left_selected_floor')
-            if any(
-                _placement_is_ground(
-                    placement_rows.get(
-                        actors[index].get('entity_instance_id')
-                    )
-                )
-                and np.linalg.norm(start-p[0]) < .95
-                for index,p in enumerate(paths)
-            ):
-                raise CandidateFailure('routes','initial_source_separation_below_0.95_m')
-            route=np.repeat(start[None], frames, axis=0); record={'motion':'static','route_points_m':None}
-            if required_motion:
-                end=space.sample_navigable(rng,bounds)
-                if abs(float(end[1]) - floor_y) > SAME_FLOOR_Y_TOLERANCE_M:
-                    raise CandidateFailure('routes', 'placement_left_selected_floor')
-                poly=space.shortest_path(start,end)
-                if poly is None or len(poly)<2:
-                    raise CandidateFailure('routes','no_existing_navigation_path')
-                length=float(np.linalg.norm(np.diff(poly,axis=0),axis=1).sum())
-                if length < max(1.5,(actor_required_frames-1)/fps*.5):
-                    raise CandidateFailure('routes','path_too_short_for_moving_window')
-                low_speed,high_speed=profile.get('walk_speed_range_mps',(.5,.8))
-                speed=float(rng.uniform(float(low_speed),float(high_speed))) if high_speed>low_speed else float(low_speed)
-                moving_frames=max(2,int(math.ceil(length/speed*fps))+1)
-                if moving_frames>=frames or moving_frames<actor_required_frames:
-                    raise CandidateFailure('routes','route_does_not_fit_clock_or_required_window')
-                pause=int(rng.integers(max(1,int(fps)),max(2,int(2*fps))+1))
-                modes=['walk_with_sampled_holds']
-                if moving_frames>=2*actor_required_frames and moving_frames+pause<frames:modes.append('walk_with_sampled_pause')
-                mode=modes[int(rng.integers(len(modes)))];extra=pause if mode=='walk_with_sampled_pause' else 0
-                start_frame=int(rng.integers(frames-moving_frames-extra+1));motion=resample_polyline_by_arc_length(poly,moving_frames)
-                if extra:
-                    split=int(rng.integers(actor_required_frames,moving_frames-actor_required_frames+1))
-                    motion=np.concatenate([motion[:split],np.repeat(motion[split-1:split],pause,axis=0),motion[split:]])
-                route[start_frame:start_frame+len(motion)]=motion;route[start_frame+len(motion):]=motion[-1]
-                record={'motion':mode,'start_frame':start_frame,'end_frame_exclusive':start_frame+len(motion),'route_points_m':poly.tolist(),
-                        'required_contiguous_motion_frames':actor_required_frames}
-            if not all(space.is_navigable(p) for p in route):
-                raise CandidateFailure('routes','sampled_path_left_existing_navigation')
-            if any(
-                _placement_is_ground(
-                    placement_rows.get(
-                        actors[index].get('entity_instance_id')
-                    )
-                )
-                and np.linalg.norm(route-p,axis=1).min()<.95
-                for index,p in enumerate(paths)
-            ):
-                raise CandidateFailure('routes','all_frame_source_separation_below_0.95_m')
-            ok, _ = _points_same_floor(route, floor_y)
-            if not ok:
-                raise CandidateFailure('routes', 'sampled_path_left_selected_floor')
-            paths.append(route);records.append(record)
-        metadata={'authority':space.metadata['authority'],'actors':records,'minimum_separation_m':.95,
-                  'selected_floor_height_m': floor_y, 'same_floor_tolerance_m': SAME_FLOOR_Y_TOLERANCE_M}
-        metadata['motion_construction'] = 'legacy_random_route_then_solver'
+        paths, records, metadata = _legacy_random_routes(
+            space, actors, profile, clock, rng, flags, visibility_only_movers,
+            required_frames, placement_rows, floor_region, floor_y)
     if motion_requirements:
         if motion_budget is None:
             raise CandidateFailure('routes', 'motion_solver_budget_unavailable')
@@ -3518,6 +4430,9 @@ def _visibility_solver_options(request, frame_count):
     body_geometry = options.get("body_geometry", "emitter_proxy")
     if body_geometry not in {"emitter_proxy", "registered_body_envelope"}:
         raise CandidateFailure("camera", "unsupported_visibility_body_geometry")
+    allow_unresolved = options.get("allow_unresolved_candidates", False)
+    if not isinstance(allow_unresolved, bool):
+        raise CandidateFailure("camera", "visibility_solver_allow_unresolved_candidates_not_boolean")
     return {
         "body_geometry": body_geometry,
         "max_candidates": max_candidates,
@@ -3525,6 +4440,13 @@ def _visibility_solver_options(request, frame_count):
         "candidate_pool_budget": candidate_pool_budget,
         "frame_budget": frame_budget,
         "screen_policy": options.get("screen_policy", "validated_3x3_v1"),
+        # Whether a candidate whose screen could neither confirm nor refute the
+        # requirement may still be rendered. Off by default: see the gate.
+        "allow_unresolved_candidates": allow_unresolved,
+        "constructive_camera_budget": positive_integer(
+            "constructive_camera_budget", CONSTRUCTIVE_CAMERA_BUDGET),
+        "constructive_cloud_points": positive_integer(
+            "constructive_cloud_points", VISIBILITY_CLOUD_POINTS),
     }
 
 
@@ -3549,7 +4471,7 @@ def select_camera_and_schedule(space, mesh, paths, moving, emitters, bodies, act
                                 motion_requirements=None, motion_solution=None,
                                 visibility_requirements=(), room_package=None,
                                 static_placements=None, root_rotations=None,
-                                source_registry=None):
+                                source_registry=None, fixed_camera=None):
     config=request.get('camera',{});fov=float(config.get('fov_deg',request.get('camera_fov_deg',85.)))
     height=float(config.get('height_above_floor_m',1.55))
     resolution=list(config.get('resolution_hw',[720,1280]))
@@ -3579,6 +4501,17 @@ def select_camera_and_schedule(space, mesh, paths, moving, emitters, bodies, act
     cam_region[0, 1] = floor_y - SAME_FLOOR_Y_TOLERANCE_M
     cam_region[1, 1] = floor_y + SAME_FLOOR_Y_TOLERANCE_M
     positions=_camera_grid_on_floor(space, height=height, region=cam_region, floor_y=floor_y)
+    fixed_grid_index=None
+    if fixed_camera is not None:
+        # A camera chosen before the routes were drawn: evaluate exactly it, at
+        # its own grid index so the candidate id matches the construction record.
+        index=fixed_camera.get('grid_index')
+        wanted=np.asarray(fixed_camera['position_m'],dtype=float)
+        if (index is None or not 0<=int(index)<len(positions)
+                or not np.allclose(np.asarray(positions[int(index)],dtype=float)[[0,2]],wanted[[0,2]],atol=1e-6)
+                or abs(float(positions[int(index)][1])-float(wanted[1]))>SAME_FLOOR_Y_TOLERANCE_M):
+            raise CandidateFailure('camera','fixed_camera_not_on_grid')
+        fixed_grid_index=int(index)
     yaws=np.deg2rad(np.arange(0,360,15)); forwards=np.c_[np.sin(yaws),np.zeros(24),-np.cos(yaws)]
     rights=np.c_[np.cos(yaws),np.zeros(24),np.sin(yaws)];tangent=math.tan(math.radians(fov)/2)
     events=event_bindings if event_bindings is not None else _event_bindings(sounds,profile,rng)
@@ -3705,6 +4638,8 @@ def select_camera_and_schedule(space, mesh, paths, moving, emitters, bodies, act
     cheap_legal = []
     position_states = {}
     for pi,position in enumerate(positions):
+        if fixed_grid_index is not None and pi!=fixed_grid_index:
+            continue
         origin=np.asarray(position)
         floor=origin-np.array([0,height,0])
         if any(np.linalg.norm(path-floor,axis=1).min()<.8 for path in paths):
@@ -3746,6 +4681,8 @@ def select_camera_and_schedule(space, mesh, paths, moving, emitters, bodies, act
             separation[i,i]=np.inf
         nearest=separation.min(axis=1)
         mask=np.ones_like(fov_mask,dtype=bool)
+        if fixed_camera is not None:
+            mask[[yaw for yaw in range(24) if yaw!=int(fixed_camera['yaw_index'])]]=False
         if trend_target_index is not None:
             from avengine.rooms.conditioned_motion import distance_trend
             trend_report = distance_trend(
@@ -3774,15 +4711,19 @@ def select_camera_and_schedule(space, mesh, paths, moving, emitters, bodies, act
         anchor_visibility=profile['anchor_visibility']
         for i in profile['speaking_indices']:
             if i in anchors:
-                if anchor_visibility=='visible_then_hidden':
+                if anchor_visibility in ('visible_then_hidden','any'):
                     # Both states are legal inside the window; which frames may
                     # carry which is decided per placement below, because the
-                    # statement is about the order inside one event.
+                    # statement is about the order inside one event. ``any``
+                    # makes no visibility claim at all.
                     visible=np.ones_like(fov_mask[:,i],dtype=bool)
                 else:
                     visible=fov_mask[:,i] if anchor_visibility=='in_fov' else ~fov_mask[:,i]
             else:
-                visible=fov_mask[:,i] if competitor_visibility=='in_fov' else ~fov_mask[:,i]
+                if competitor_visibility=='any':
+                    visible=np.ones_like(fov_mask[:,i],dtype=bool)
+                else:
+                    visible=fov_mask[:,i] if competitor_visibility=='in_fov' else ~fov_mask[:,i]
             mask[:,i]&=visible&in_range[i][None]
             if i in anchors:
                 mask[:,i]&=(nearest[i]>=low)[None]&(
@@ -4009,6 +4950,11 @@ def select_camera_and_schedule(space, mesh, paths, moving, emitters, bodies, act
         )
         los=np.zeros((len(actors),paths.shape[1]),dtype=bool)
         for i in profile['speaking_indices']:
+            if ((i in anchors and profile['anchor_visibility']=='any')
+                    or (i not in anchors and competitor_visibility=='any')):
+                # No visibility claim for this role, so no line-of-sight demand.
+                los[i,:]=True
+                continue
             desired='blocked' if (
                 i in anchors and profile['anchor_line_of_sight']=='occluded'
             ) else 'clear'
@@ -4103,6 +5049,14 @@ def select_camera_and_schedule(space, mesh, paths, moving, emitters, bodies, act
             visibility_allowed_ids = consistent_ids
         visibility_report['selection_preference'] = (
             'screen_consistent' if consistent_ids else 'screen_unresolved')
+        if not consistent_ids and not visibility_options.get('allow_unresolved_candidates'):
+            # An unresolved screen is a guess about the pixels. Every QA-09
+            # capture sent on an unresolved screen (2026-09-12: 4 of 4) rendered
+            # no full occlusion, and every consistent one (2 of 2) did.
+            visibility_report['selection_preference'] = 'screen_unresolved_refused'
+            raise CandidateFailure(
+                'camera', 'visibility_screen_has_no_consistent_candidate'
+            )
         visibility_report['candidate_ids_applied'] = sorted(visibility_allowed_ids)
         legal = [
             row for row in legal
@@ -4557,6 +5511,22 @@ def build_conditioned_plan(*, room, request, source_registry, sounds, space, mes
                     if motion_context is not None:
                         profile.setdefault(
                             'end_hold_s', motion_context['budget'].end_hold_s)
+            visibility_route_plan=None
+            if (visibility_requirements and motion_context is None
+                    and _constructive_visibility_requested(
+                        request, visibility_requirements, profile,
+                        route_bank=space.route_bank() is not None)):
+                # Camera first, then the walk that produces the requested state:
+                # a grown walk on free navigation, a retained route in a route bank.
+                try:
+                    visibility_route_plan=_construct_visibility_route_plan(
+                        space, mesh, actors, profile, clock, rng, region, room, request,
+                        visibility_requirements, static_placement_plan, sounds=selected_sounds)
+                except CandidateFailure:
+                    raise
+                except ValueError as exc:
+                    raise CandidateFailure(
+                        'routes', 'constructive_visibility_navigation_failed: '+str(exc)) from exc
             try:
                 paths,rotations,moving,emitters,bodies,route_record=sample_routes(space,actors,profile,clock,rng,region,
                     required_windows={i:[selected_sounds[i]['audible_start_sample'],selected_sounds[i]['audible_end_sample_exclusive']] for i in profile['anchor_indices']},
@@ -4567,7 +5537,8 @@ def build_conditioned_plan(*, room, request, source_registry, sounds, space, mes
                         request, profile
                     ),
                     static_placements=static_placement_plan,
-                    visibility_requirements=visibility_requirements)
+                    visibility_requirements=visibility_requirements,
+                    visibility_route_plan=visibility_route_plan)
             except CandidateFailure:
                 raise
             except ValueError as exc:
@@ -4586,7 +5557,8 @@ def build_conditioned_plan(*, room, request, source_registry, sounds, space, mes
                                                                 ),
                                                                 static_placements=static_placement_plan,
                                                                 root_rotations=rotations,
-                                                                source_registry=source_registry)
+                                                                source_registry=source_registry,
+                                                                fixed_camera=(visibility_route_plan or {}).get('camera'))
             if motion_context is not None:
                 conditions['motion_solver']=_motion_context_record(motion_context)
         except CandidateFailure as exc:

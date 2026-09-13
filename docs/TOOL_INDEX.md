@@ -5,7 +5,7 @@
 
 自 2026-08-25 起，目录本身就是能力分组（阶段目录 m1…m7 已移除），
 本表按目录列出每个工具做什么。
-当前共 430 个工具脚本。
+当前共 433 个工具脚本。
 
 ## 资产生成与装配（`tools/assets/`）
 
@@ -416,6 +416,7 @@
 
 | 工具 | 做什么 |
 |---|---|
+| `tools/dataset/backfill_sparse_qa.py` | Bounded QA-driven scene backfill using the existing production runner |
 | `tools/dataset/build_asset_bound_apartment_ue_bundle.py` | Materialize M7 source1/source2 routes as one reusable Apartment UE bundle |
 | `tools/dataset/build_asset_bound_dataset_index.py` | Index 1,000 samples without copying visual, audio, or room media |
 | `tools/dataset/build_asset_bound_visual_reviews.py` | Build Habitat-only internal visual QA reviews for the M7 throughput batch |
@@ -428,6 +429,7 @@
 | `tools/dataset/build_spear_apartment_review.py` | Bind one exact SPEAR Apartment RGB render to Habitat Topdown v3 and audio |
 | `tools/dataset/compare_rir_cache_metrics.py` | Compare EDT/DRR/late-energy between two retained RIR caches on matched jobs |
 | `tools/dataset/export_episode_bundle.py` | Publish a shared-room Episode/QA reference bundle |
+| `tools/dataset/generate_retained_qa_bank.py` | CPU-only question-bank generation from retained native media; resumable per source |
 | `tools/dataset/inspect_qa_dataset.py` | Read, inspect and score a self-contained V1 QA dataset export |
 | `tools/dataset/measure_source_qualification_geometry.py` | Measure the geometry observations the source-asset qualification matrix reads |
 | `tools/dataset/merge_qa_batch_attempts.py` | Merge original QA batch attempts with a later rerun and rebuild coverage including failed-episode accounting |
@@ -451,6 +453,7 @@
 | `tools/dataset/run_habitat_room_batch.py` | Batch Habitat-native RGB rendering for registry-selected rooms |
 | `tools/dataset/run_qa_batch.py` | Execute a fresh QA batch with bounded independent controller processes |
 | `tools/dataset/run_qwen_content_controls.py` | Run a resumable Qwen2.5-Omni content/visual control on sanitized Episode inputs |
+| `tools/dataset/run_source_asset_qualification.py` | Build an evidence-derived source-asset qualification matrix |
 | `tools/dataset/score_qwen_content_controls.py` | Score Qwen2.5-Omni content/visual control predictions without hiding missing/invalid outputs |
 | `tools/dataset/verify_asset_bound_batch.py` | Verify the complete M7 asset-bound binaural throughput batch |
 

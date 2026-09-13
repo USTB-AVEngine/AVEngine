@@ -3172,6 +3172,11 @@ def _policy_number(
         nested = sampling.get("qa_sampling")
         if isinstance(nested, Mapping):
             owners.append(nested)
+        acceptance = sampling.get("acceptance_policy")
+        if isinstance(acceptance, Mapping):
+            # The acceptance policy a bank run injects carries the same
+            # numeric thresholds, so a retained-media rerun reads them too.
+            owners.append(acceptance)
         owners.append(sampling)
     policy = facts.get("sampling_policy")
     if isinstance(policy, Mapping):
@@ -4690,6 +4695,23 @@ def _generate_qa_09(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
             if not visible_after and not _visibility_is_complete(facts, actor_id):
                 incomplete_negative = True
                 continue
+            if not visible_after and not any(
+                frame.get("state") in VISIBLE_STATES
+                and int(frame.get("frame_index", -1)) < min(int(value) for value in fully)
+                for frame in ordered
+            ):
+                # "Did X reappear?" presupposes X was seen before it was hidden.
+                reasons.append({
+                    "actor_id": str(actor_id),
+                    "code": "target_never_visible_before_occlusion",
+                    "detail": (
+                        "a negative reappearance answer presupposes the target was "
+                        "seen before it was hidden; this actor is never visible "
+                        "before its first fully occluded frame"
+                    ),
+                    "fully_occluded_frames": fully,
+                })
+                continue
             appearance_en, appearance_zh = _appearance_phrases(reviewed[actor_id])
             return _question_item(
                 qa_id="QA-09",
@@ -4727,9 +4749,15 @@ def _generate_qa_09(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
             observed_visibility_states=census["states"],
         )
     if reasons:
+        codes = {str(reason.get("code")) for reason in reasons}
+        only_presupposition = codes == {"target_never_visible_before_occlusion"}
         _defer_with_reasons(
-            "appearance_review_missing_for_occlusion",
-            "full occlusion is observed but no occluded target can be named",
+            "target_never_visible_before_occlusion"
+            if only_presupposition
+            else "appearance_review_missing_for_occlusion",
+            "the hidden target was never visible before its occlusion"
+            if only_presupposition
+            else "full occlusion is observed but no occluded target can be named",
             reasons,
             observed_visibility_states=census["states"],
         )
@@ -7639,7 +7667,9 @@ def _p8_reappearance_candidates(facts: Mapping[str, Any]) -> list[dict[str, Any]
             continue
         positive = any(row.get("state") in VISIBLE_STATES
                        and int(row["frame_index"]) > min(fully) for row in rows)
-        if positive or _visibility_is_complete(facts, actor_id):
+        seen_before = any(row.get("state") in VISIBLE_STATES
+                          and int(row["frame_index"]) < min(fully) for row in rows)
+        if positive or (seen_before and _visibility_is_complete(facts, actor_id)):
             result.append({"candidate_id": f"QA-09:actor:{actor_id}:whole-clip",
                            "kind": "whole_clip_reappearance", "actor_id": actor_id})
     return result

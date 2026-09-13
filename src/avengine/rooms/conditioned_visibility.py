@@ -313,6 +313,11 @@ class ScreenPolicy:
     # A blocked ray is re-cast this much short of the sample so a grazing hit
     # on the body's own surface is not read as an occluder.
     ray_backoff_m: float = 0.05
+    # A crossing counts as an entry only once the body reaches this fraction of
+    # the image width inside the entry edge. A body grazing the edge as a
+    # sliver is not an entry: one QA-07 capture (2026-09-12) entered 4 to 12 px
+    # after a consistent screen and was refused by the pixel judge.
+    entry_depth_fraction: float = 0.05
 
     def __post_init__(self) -> None:
         _text(self.policy_id, owner="policy_id")
@@ -331,6 +336,9 @@ class ScreenPolicy:
             raise ConditionedVisibilityError("edge_margin_px must not be negative")
         if _finite(self.ray_backoff_m, owner="ray_backoff_m") < 0.0:
             raise ConditionedVisibilityError("ray_backoff_m must not be negative")
+        depth = _finite(self.entry_depth_fraction, owner="entry_depth_fraction")
+        if not 0.0 <= depth < 0.5:
+            raise ConditionedVisibilityError("entry_depth_fraction must lie in [0, 0.5)")
 
     @property
     def sample_count(self) -> int:
@@ -345,6 +353,7 @@ class ScreenPolicy:
             "near_m": self.near_m,
             "edge_margin_px": self.edge_margin_px,
             "ray_backoff_m": self.ray_backoff_m,
+            "entry_depth_fraction": self.entry_depth_fraction,
             "lateral_span": "body_width_perpendicular_to_the_sight_line",
             "validated_against": "tools/qa/validate_visibility_prediction.py",
         }
@@ -2143,6 +2152,34 @@ _OCCLUSION_REFUTATION_KINDS = frozenset(
 )
 
 
+def _entry_depth_px(record: Mapping[str, Any], side: Any, image_width: float) -> float:
+    """How far inside the image the screened body reaches at one frame.
+
+    With a full-body envelope this is the projected width lying inside the
+    image; with the emitter proxy it is the centroid's distance from the entry
+    edge.  A body that only grazes the edge scores a few pixels either way.
+    """
+
+    bbox = record.get("projected_body_bbox_px")
+    if (
+        isinstance(bbox, Sequence)
+        and len(bbox) == 4
+        and all(isinstance(v, (int, float)) and math.isfinite(float(v)) for v in bbox)
+    ):
+        # How far the body's inner edge has come in from the edge it entered
+        # through. A person fully inside near the left edge scores their full
+        # extent; a sliver at that edge scores a few pixels.
+        if side == "left":
+            return max(0.0, min(float(bbox[2]), image_width - 0.5) + 0.5)
+        return max(0.0, (image_width - 0.5) - max(float(bbox[0]), -0.5))
+    column = record.get("predicted_column_px")
+    if column is None or image_width <= 0.0:
+        return 0.0
+    if side == "left":
+        return float(column) + 0.5
+    return (image_width - 0.5) - float(column)
+
+
 def _evaluate_requirement(
     requirement: VisibilityRequirement,
     *,
@@ -2180,6 +2217,11 @@ def _evaluate_requirement(
         return result
 
     if requirement.kind == "out_of_view_to_visible":
+        camera_report = series.get("camera") if isinstance(series.get("camera"), Mapping) else {}
+        resolution = camera_report.get("resolution_hw") or (0, 0)
+        image_width = float(resolution[1]) if len(resolution) == 2 else 0.0
+        policy_report = series.get("policy") if isinstance(series.get("policy"), Mapping) else {}
+        depth_px = float(policy_report.get("entry_depth_fraction", 0.0) or 0.0) * image_width
         crossings: list[dict[str, Any]] = []
         for previous, current in zip(view_runs, view_runs[1:]):
             if previous["value"] is not False or current["value"] is not True:
@@ -2188,11 +2230,18 @@ def _evaluate_requirement(
             side = by_frame[entry].get("side")
             beyond = bool(by_frame[entry].get("side_beyond_dead_zone"))
             sustain = 0
+            deep_sustain = 0
+            deep_streak = 0
             for frame in range(entry, int(current["end"])):
                 record = by_frame[frame]
                 if record.get("side") != side or not record.get("side_beyond_dead_zone"):
                     break
                 sustain += 1
+                if _entry_depth_px(record, side, image_width) >= depth_px:
+                    deep_streak += 1
+                    deep_sustain = max(deep_sustain, deep_streak)
+                else:
+                    deep_streak = 0
             extent = first_publishable_extent(
                 facts_view, entry, frame_count=frame_count
             )
@@ -2205,6 +2254,8 @@ def _evaluate_requirement(
                         "outside_side"
                     ),
                     "same_side_sustain_frames": sustain,
+                    "deep_sustain_frames": deep_sustain,
+                    "entry_depth_px_required": depth_px,
                     "publishable_extent": extent,
                     "out_of_view_run": [previous["start"], previous["end"]],
                     "visible_run": [current["start"], current["end"]],
@@ -2242,6 +2293,7 @@ def _evaluate_requirement(
             for item in wanted
             if item["side_beyond_dead_zone"]
             and item["same_side_sustain_frames"] >= requirement.min_sustain_frames
+            and item["deep_sustain_frames"] >= requirement.min_sustain_frames
         ]
         publishable = [
             item
@@ -2256,7 +2308,8 @@ def _evaluate_requirement(
         if not usable:
             result["verdict"] = "refuted"
             result["reason"] = (
-                "no crossing holds one entry side beyond the judge's dead zone for "
+                "no crossing holds one entry side beyond the judge's dead zone and at "
+                f"least {depth_px:.0f} px inside the entry edge for "
                 f"{requirement.min_sustain_frames} consecutive frames"
             )
             return result
@@ -3608,6 +3661,17 @@ def _judge_requirement(
             for item in found
             if requirement.side is None or item["side"] == requirement.side
         ]
+        accepted_observed_side = False
+        if not wanted:
+            policy = (facts_view.get("sampling") or {}).get("acceptance_policy") or {}
+            allowed = (policy.get("accept_observed_branches") or {}).get(requirement.qa_id, ())
+            observed = [item for item in found if item["side"] in allowed]
+            if observed:
+                # The pixels answer the question with the other side. The
+                # requested side was a preference, and the policy keeps a
+                # measured legal branch as measured.
+                wanted = observed
+                accepted_observed_side = True
         if not wanted:
             return _acceptance_row(
                 requirement,
@@ -3634,6 +3698,9 @@ def _judge_requirement(
             measured={
                 "entry_candidates": wanted,
                 "selected": (publishable or wanted)[0],
+                "observed_side": (publishable or wanted)[0]["side"],
+                "planned_side": requirement.side,
+                "accepted_observed_branch": accepted_observed_side,
             },
             **common,
         )
@@ -3700,6 +3767,28 @@ def _judge_requirement(
         allowed_answers = (policy.get("accept_observed_branches") or {}).get(requirement.qa_id, ())
         observed_answer = "yes" if returned else "no"
         accepts_observed = observed_answer in allowed_answers
+        seen_before = [
+            int(record["frame_index"])
+            for record in series
+            if record.get("state") in VISIBLE_STATES
+            and int(record["frame_index"]) < min(hidden)
+        ]
+        if not returned and not seen_before:
+            # "Did X reappear after being hidden?" presupposes X was seen. A
+            # target hidden from its first occluded frame to the end and never
+            # visible before gives the viewer nothing to answer about.
+            return _acceptance_row(
+                requirement,
+                "fail",
+                reason="the target is never visible before its full occlusion, so a "
+                "viewer cannot know whom a negative reappearance question is about",
+                measured={
+                    "fully_occluded_frames": hidden,
+                    "visible_before_full_occlusion": [],
+                    "observed_answer": observed_answer,
+                },
+                **common,
+            )
         if bool(returned) == wants_return or accepts_observed:
             return _acceptance_row(
                 requirement,
@@ -3707,6 +3796,7 @@ def _judge_requirement(
                 measured={
                     "fully_occluded_frames": hidden,
                     "visible_after_full_occlusion": returned,
+                    "visible_before_full_occlusion": seen_before,
                     "observed_answer": observed_answer,
                     "planned_answer": "yes" if wants_return else "no",
                     "accepted_observed_branch": accepts_observed,
