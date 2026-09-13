@@ -41,6 +41,7 @@ def test_strict_two_human_canary_cpu_contract_passes() -> None:
     assert female["realized_attributes"] == {
         "life_stage": "adult",
         "sex_or_gender_label": "female",
+        "top_color": "pink",
     }
     assert female["emitter_anchors"][0]["offset_m"] == [
         0.0,

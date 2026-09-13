@@ -103,6 +103,7 @@ def test_construction_runtime_profile_closes_exact_lineage() -> None:
     assert profile["realized_attributes"] == {
         "life_stage": "adult",
         "sex_or_gender_label": "male",
+        "top_color": "blue",
     }
     assert profile["geometry"]["mesh_authority"] == "audited_library_asset"
     assert profile["geometry"]["source_mesh_uri"].endswith(

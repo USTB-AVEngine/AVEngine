@@ -39,6 +39,42 @@ ROOM_RUNTIME_PROFILE_REGISTRY_SCHEMA = (
     "avengine_room_runtime_profile_registry_v1"
 )
 
+
+# This vocabulary is used only by the opt-in new-asset registration check.
+# Legacy registry records continue through the existing compatibility validator;
+# values that lack a classifier are deferred at question-evidence time.
+PIXEL_APPEARANCE_VALUE_VOCABULARY = frozenset({
+    "blue",
+    "green",
+    "yellow",
+    "burgundy",
+    "pink",
+    "white",
+    "black_ash",
+    "black",
+    "charcoal",
+    "dark",
+    "matte_black",
+    "walnut_veneer",
+    "walnut",
+    "ruddy",
+    "standard_ruddy",
+    "brown",
+    "red",
+    "light_gray",
+    "light_tricolor",
+    "standard_tricolor",
+    "dark_tricolor",
+    "standard_black_white",
+    "standard_red_white",
+    "standard_white_tan",
+    "standard_yellow",
+    "standard_blue",
+    "standard_red",
+    "standard_sable",
+    "dark_sable",
+})
+
 _SOURCE_SCHEMA_FILE = "source_asset_runtime_registry_v1.schema.json"
 _ROOM_SCHEMA_FILE = "room_runtime_profile_registry_v1.schema.json"
 _SOURCE_DEFAULT_FILE = "source_asset_runtime_profiles.json"
@@ -293,6 +329,121 @@ def validate_source_asset_runtime_registry(value: Any) -> list[str]:
             _VALIDATED_SOURCE_REGISTRIES.pop(
                 next(iter(_VALIDATED_SOURCE_REGISTRIES)), None)
         _VALIDATED_SOURCE_REGISTRIES[key] = tuple(errors)
+    return errors
+
+
+def _validate_appearance_and_resting_pose(
+    record: Mapping[str, Any],
+    *,
+    prefix: str,
+) -> list[str]:
+    """Validate the cross-renderer appearance and placement declarations."""
+
+    errors: list[str] = []
+    attributes = record.get("realized_attributes")
+    candidates: list[tuple[str, Any]] = []
+    if isinstance(attributes, Mapping):
+        for field in ("finish", "surface_finish", "body_color", "top_color"):
+            value = attributes.get(field)
+            if isinstance(value, str) and value.strip():
+                candidates.append((field, value.strip()))
+        coat = attributes.get("coat_profile")
+        if isinstance(coat, Mapping):
+            value = coat.get("value")
+            if isinstance(value, str) and value.strip():
+                candidates.append(("coat_profile.value", value.strip()))
+    if not candidates:
+        errors.append(
+            f"{prefix}: realized_attributes must declare one of "
+            "finish, surface_finish, body_color, top_color or coat_profile.value"
+        )
+    else:
+        supported = [
+            (field, value)
+            for field, value in candidates
+            if value.casefold() in PIXEL_APPEARANCE_VALUE_VOCABULARY
+        ]
+        if not supported:
+            for field, value in candidates:
+                errors.append(
+                    f"{prefix}.realized_attributes.{field} value {value!r} is "
+                    "outside the native RGB appearance vocabulary"
+                )
+
+    backends = record.get("runtime_backends")
+    habitat = backends.get("habitat") if isinstance(backends, Mapping) else None
+    if not isinstance(habitat, Mapping):
+        return errors
+    resting = habitat.get("resting_pose")
+    if not isinstance(resting, Mapping):
+        errors.append(
+            f"{prefix}.runtime_backends.habitat.resting_pose must declare "
+            "attachment_surface and attachment_surface_assumed"
+        )
+        return errors
+    assumed = resting.get("attachment_surface_assumed")
+    if "attachment_surface_assumed" not in resting:
+        errors.append(
+            f"{prefix}.runtime_backends.habitat.resting_pose must explicitly "
+            "declare attachment_surface_assumed"
+        )
+    elif not isinstance(assumed, bool):
+        errors.append(
+            f"{prefix}.runtime_backends.habitat.resting_pose."
+            "attachment_surface_assumed must be boolean"
+        )
+    elif str(record.get("entity_class", "")).startswith("articulated_") and assumed:
+        errors.append(
+            f"{prefix}.runtime_backends.habitat.resting_pose attachment surface "
+            "must be a measured declaration (attachment_surface_assumed=false)"
+        )
+    return errors
+
+
+def validate_new_source_asset_runtime_profile(value: Any) -> list[str]:
+    """Validate the opt-in D1 contract for a newly registered asset.
+
+    Historical records intentionally use the compatibility validator. This
+    entry check is the place where a new record must carry bilingual labels,
+    a classifier-supported appearance value, and a measured attachment
+    declaration without changing the availability of old records.
+    """
+
+    if not isinstance(value, Mapping):
+        return ["new source asset profile must be an object"]
+    errors: list[str] = []
+    for field in ("asset_id", "revision", "display_label", "display_label_zh"):
+        item = value.get(field)
+        if not isinstance(item, str) or not item.strip():
+            errors.append(f"new_asset.{field} must be non-empty text")
+    errors.extend(
+        _validate_appearance_and_resting_pose(
+            value,
+            prefix="new_asset",
+        )
+    )
+    backends = value.get("runtime_backends")
+    habitat = backends.get("habitat") if isinstance(backends, Mapping) else None
+    if not isinstance(habitat, Mapping):
+        errors.append(
+            "new_asset.runtime_backends.habitat.resting_pose is required "
+            "for an explicit attachment declaration"
+        )
+        return errors
+    resting = habitat.get("resting_pose")
+    if not isinstance(resting, Mapping):
+        return errors
+    surface = resting.get("attachment_surface")
+    if surface not in {"floor", "wall", "ceiling"}:
+        errors.append(
+            "new_asset.runtime_backends.habitat.resting_pose."
+            "attachment_surface must be floor, wall or ceiling"
+        )
+    if resting.get("attachment_surface_assumed") is not False:
+        errors.append(
+            "new_asset.runtime_backends.habitat.resting_pose must set "
+            "attachment_surface_assumed=false"
+        )
     return errors
 
 
@@ -1243,5 +1394,6 @@ __all__ = [
     "ROOM_PACKAGE_SCHEMA",
     "validate_room_runtime_links",
     "validate_room_runtime_profile_registry",
+    "validate_new_source_asset_runtime_profile",
     "validate_source_asset_runtime_registry",
 ]

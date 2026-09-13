@@ -3911,6 +3911,7 @@ _CAPABILITY_SOUND_CLASSES = frozenset({
     "sound_playback",
 })
 
+SOUND_CLASS_ANSWER_DOMAIN_EXCLUSIONS = frozenset({"any_audioset_class_playback"})
 
 _SOUND_CLASS_LABELS = {
     "speech": ("speech", "语音"),
@@ -3931,6 +3932,26 @@ _SOUND_CLASS_LABELS = {
     "alarm_bell": ("alarm bell", "警铃声"),
     "toilet_flush": ("toilet flush", "冲马桶声"),
     "phone_ring": ("phone ringing", "电话铃声"),
+    "air_conditioning": ("air conditioning", "空调声"),
+    "alarm_beep": ("alarm beep", "报警提示音"),
+    "alarm_clock": ("alarm clock", "闹钟声"),
+    "busy_signal": ("busy signal", "占线音"),
+    "cellphone_vibration_alert": ("cellphone vibration alert", "手机振动提示音"),
+    "chime": ("chime", "提示音"),
+    "clock_tick": ("clock ticking", "时钟滴答声"),
+    "crackle": ("crackling", "噼啪声"),
+    "ding_dong": ("ding-dong chime", "叮咚声"),
+    "doorbell": ("doorbell", "门铃声"),
+    "doorbell_chime": ("doorbell chime", "门铃提示音"),
+    "fire_alarm": ("fire alarm", "火灾报警声"),
+    "gurgling": ("gurgling water", "咕噜水声"),
+    "microwave_hum": ("microwave hum", "微波炉嗡鸣声"),
+    "ringtone": ("ringtone", "手机铃声"),
+    "smoke_alarm": ("smoke alarm", "烟雾报警声"),
+    "telephone": ("telephone", "电话声"),
+    "telephone_bell_ringing": ("telephone bell ringing", "电话铃响"),
+    "telephone_dialing_dtmf": ("telephone dialing tones", "电话拨号音"),
+    "water_tap_faucet": ("running tap water", "水龙头流水声"),
 }
 
 
@@ -3958,6 +3979,144 @@ def _sound_class_phrases(
         "sound class has no human-readable display label",
         sound_class=value,
     )
+
+
+def derive_sound_class_answer_domain(
+    configured_values: Sequence[Any] | None = None,
+    *,
+    observed_events: Sequence[Mapping[str, Any]] = (),
+) -> dict[str, Any]:
+    """Derive one public sound-class domain from a configured pool.
+
+    When a caller supplies a pool, that pool is the domain boundary. Observed
+    events may provide an event-owned display label for a class already in the
+    pool, but they cannot add a new answer option. If no pool is supplied,
+    explicit observed event classes are the only source of the derived
+    domain. Capability-only classes keep their existing exclusion semantics;
+    the owner-specific any_audioset_class_playback removal is recorded
+    separately.
+    """
+
+    event_by_class: dict[str, Mapping[str, Any]] = {}
+    observed_values: list[str] = []
+    for event in observed_events:
+        if not isinstance(event, Mapping):
+            continue
+        raw = event.get("sound_class")
+        if not isinstance(raw, str) or not raw.strip():
+            continue
+        value = re.sub(r"\s+", "_", raw.strip().casefold())
+        observed_values.append(value)
+        event_by_class.setdefault(value, event)
+
+    if configured_values is None:
+        candidates = observed_values
+        boundary = "observed_explicit_events"
+        source = (
+            "observed_explicit_events_with_display_labels; "
+            "no configured pool supplied"
+        )
+    else:
+        candidates = []
+        for raw in configured_values:
+            if not isinstance(raw, str) or not raw.strip():
+                raise UnifiedQAError(
+                    "ordinary sound_class_options must contain non-empty strings"
+                )
+            candidates.append(re.sub(r"\s+", "_", raw.strip().casefold()))
+        boundary = "explicit_configured_pool"
+        source = (
+            "explicit_configured_pool_with_display_labels; observed events "
+            "supply label metadata only"
+        )
+
+    values: list[str] = []
+    excluded: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for value in candidates:
+        if value in seen:
+            continue
+        seen.add(value)
+        if value in SOUND_CLASS_ANSWER_DOMAIN_EXCLUSIONS:
+            excluded.append({
+                "sound_class": value,
+                "reason": "owner_policy_exclusion_any_audioset_class_playback",
+            })
+            continue
+        if value in _CAPABILITY_SOUND_CLASSES:
+            excluded.append({
+                "sound_class": value,
+                "reason": "existing_capability_only_class",
+            })
+            continue
+        try:
+            _sound_class_phrases(value, event=event_by_class.get(value))
+        except _Deferred:
+            excluded.append({
+                "sound_class": value,
+                "reason": "missing_sound_class_display_label",
+            })
+            continue
+        values.append(value)
+    return {
+        "values": values,
+        "excluded": excluded,
+        "boundary": boundary,
+        "source": source,
+    }
+
+
+def with_derived_sound_class_answer_domain(
+    facts: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Return facts with the ordinary policy's sound domain derived once."""
+
+    result = copy.deepcopy(dict(facts))
+    sampling = result.get("sampling")
+    if not isinstance(sampling, MutableMapping):
+        return result
+    policy = sampling.get("acceptance_policy")
+    policy_owner: MutableMapping[str, Any] | None = sampling
+    nested = sampling.get("qa_sampling")
+    if isinstance(nested, MutableMapping) and isinstance(
+        nested.get("acceptance_policy"), Mapping
+    ):
+        policy = nested.get("acceptance_policy")
+        policy_owner = nested
+    if not isinstance(policy, Mapping):
+        return result
+    if policy.get("question_mode") != "ordinary_observation":
+        return result
+
+    configured = policy.get("sound_class_options")
+    if configured is not None and (
+        not isinstance(configured, Sequence)
+        or isinstance(configured, (str, bytes))
+    ):
+        raise UnifiedQAError(
+            "ordinary sound_class_options must be a list of registered classes"
+        )
+    events = result.get("events")
+    events = (
+        events
+        if isinstance(events, Sequence) and not isinstance(events, (str, bytes))
+        else ()
+    )
+    domain = derive_sound_class_answer_domain(
+        configured,
+        observed_events=events,
+    )
+    updated_policy = copy.deepcopy(dict(policy))
+    updated_policy["sound_class_options"] = list(domain["values"])
+    updated_policy["sound_class_options_source"] = domain["source"]
+    updated_policy["sound_class_options_excluded"] = copy.deepcopy(
+        domain["excluded"]
+    )
+    if policy_owner is not None:
+        policy_owner["acceptance_policy"] = updated_policy
+    result["sampling"] = sampling
+    result["sound_class_answer_domain"] = domain
+    return result
 
 
 def _event_pair(facts: Mapping[str, Any]) -> tuple[Mapping[str, Any], Mapping[str, Any]]:
@@ -6234,7 +6393,7 @@ def _generate_qa_21(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
             target_actor_id=target_id,
             sound_classes=sorted(target_classes),
         )
-    classes = list(
+    observed_classes = list(
         dict.fromkeys(
             str(other.get("sound_class"))
             for other in facts["events"]
@@ -6244,14 +6403,37 @@ def _generate_qa_21(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
             and str(other.get("sound_class")).casefold() not in _CAPABILITY_SOUND_CLASSES
         )
     )
+    classes = observed_classes
+    answer_domain: Mapping[str, Any] | None = None
     option_domain_source = "observed_classes_in_this_episode"
     if _ordinary_observation_questions(facts):
-        domain = ((facts.get("sampling") or {}).get("acceptance_policy") or {}).get("sound_class_options") or []
-        if not isinstance(domain, list) or any(not isinstance(value, str) for value in domain):
-            raise UnifiedQAError("ordinary sound_class_options must be a list of registered classes")
-        classes = list(dict.fromkeys(classes + [value for value in domain
-                       if value.casefold() not in _CAPABILITY_SOUND_CLASSES]))
-        option_domain_source = "configured_registered_sound_class_catalog"
+        recorded_domain = facts.get("sound_class_answer_domain")
+        if (
+            isinstance(recorded_domain, Mapping)
+            and isinstance(recorded_domain.get("values"), list)
+        ):
+            answer_domain = recorded_domain
+        else:
+            sampling = facts.get("sampling")
+            policy = sampling.get("acceptance_policy") if isinstance(sampling, Mapping) else None
+            configured = policy.get("sound_class_options") if isinstance(policy, Mapping) else None
+            if configured is not None and (
+                not isinstance(configured, list)
+                or any(not isinstance(value, str) for value in configured)
+            ):
+                raise UnifiedQAError(
+                    "ordinary sound_class_options must be a list of registered classes"
+                )
+            answer_domain = derive_sound_class_answer_domain(
+                configured,
+                observed_events=facts.get("events", ()),
+            )
+        classes = list(answer_domain.get("values", ()))
+        option_domain_source = (
+            "configured_registered_sound_class_catalog"
+            if answer_domain.get("boundary") == "explicit_configured_pool"
+            else "observed_classes_in_this_episode"
+        )
     if len(classes) < 2:
         _defer("sound_class_option_domain_too_small", "QA-21 needs at least two explicit sound classes")
     if event["sound_class"] not in classes:
@@ -6291,7 +6473,12 @@ def _generate_qa_21(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
             "sound_class": event["sound_class"],
             "explicit_class": True,
             "distinct_sound_classes": classes,
-            **({"option_domain_source":option_domain_source} if _ordinary_observation_questions(facts) else {}),
+            "sound_class_answer_domain": (
+                copy.deepcopy(dict(answer_domain))
+                if isinstance(answer_domain, Mapping)
+                else None
+            ),
+            **({"option_domain_source": option_domain_source} if _ordinary_observation_questions(facts) else {}),
         },
         slug=target_id,
     )
@@ -6756,6 +6943,8 @@ __all__ = [
     "build_unified_episode_facts",
     "normalize_episode_bundle",
     "question_catalog",
+    "derive_sound_class_answer_domain",
+    "with_derived_sound_class_answer_domain",
 ]
 
 # Small descriptive aliases for callers that do not need the longer function
@@ -8714,6 +8903,38 @@ def _branch_authority_branches(qa_id: str) -> tuple[tuple[str, ...], str]:
         return (), "unavailable"
 
 
+def _qa_targets_for(facts: Mapping[str, Any], qa_id: str) -> list[Mapping[str, Any]]:
+    sampling = facts.get("sampling") or {}
+    return [target for target in sampling.get("qa_targets", ())
+            if isinstance(target, Mapping) and _canonical_qa_id(target.get("qa_id")) == qa_id]
+
+
+def _qa_target_actor_matches(target: Mapping[str, Any], value: Mapping[str, Any]) -> bool:
+    ids = target.get("target_actor_ids", target.get("target_instance_ids")) or ()
+    evidence = value.get("evidence") or {}
+    actor = value.get("actor_id") or evidence.get("actor_id") or evidence.get("target_actor_id")
+    # Clip-level candidates do not carry a single primary actor.
+    return not ids or actor is None or str(actor) in {str(item) for item in ids}
+
+
+def _qa_target_item_matches(target: Mapping[str, Any], qa_id: str,
+                            item: Mapping[str, Any], facts: Mapping[str, Any],
+                            *, accept_observed: bool = False) -> bool:
+    if not _qa_target_actor_matches(target, item):
+        return False
+    branch = target.get("branch")
+    if not branch:
+        return True
+    observed = _emitted_branch(qa_id, item)
+    if observed == str(branch):
+        return True
+    if accept_observed:
+        policy = (facts.get("sampling") or {}).get("acceptance_policy") or {}
+        allowed = (policy.get("accept_observed_branches") or {}).get(qa_id, ())
+        return observed in allowed
+    return False
+
+
 def generate_unified_questions(
     raw_or_facts: Mapping[str, Any],
     *,
@@ -8733,6 +8954,7 @@ def generate_unified_questions(
         if raw_or_facts.get("schema") == UNIFIED_FACT_SCHEMA
         else normalize_episode_bundle(raw_or_facts)
     )
+    facts = with_derived_sound_class_answer_domain(facts)
     requested = (
         [_canonical_qa_id(value) for value in qa_ids]
         if qa_ids is not None
@@ -8786,6 +9008,12 @@ def generate_unified_questions(
         rng = random.Random(f"{seed}\\0{qa_id}")
         order = list(candidates)
         rng.shuffle(order)
+        targets = _qa_targets_for(facts, qa_id)
+        if targets:
+            order.sort(key=lambda candidate: not any(
+                _qa_target_actor_matches(target, candidate) for target in targets))
+            quota = max(quota, sum(int(target.get("items", 1)) for target in targets))
+        side_questions: list[tuple[dict[str, Any], dict[str, Any]]] = []
         emitted: list[dict[str, Any]] = []
         last_error: _Deferred | None = None
         for candidate in order:
@@ -8832,6 +9060,15 @@ def generate_unified_questions(
                 })
                 candidate_attempts.append(attempt)
                 continue
+            if targets and not any(_qa_target_item_matches(target, qa_id, item, facts)
+                                   for target in targets):
+                attempt.update({"status": "not_selected", "code": "valid_side_question",
+                                "question_id": item["question_id"],
+                                "truth_value": copy.deepcopy(item.get("truth", {}).get("value")),
+                                "forms": sorted(item.get("forms", {}))})
+                candidate_attempts.append(attempt)
+                side_questions.append((item, attempt))
+                continue
             attempt.update({
                 "status": "pass",
                 "question_id": item["question_id"],
@@ -8843,6 +9080,21 @@ def generate_unified_questions(
             items.append(item)
             if len(emitted) >= quota:
                 break
+        # Preserve valid questions when the named target is unavailable. The
+        # explicit target result below keeps them from disguising a missed goal.
+        if len(emitted) < quota and side_questions:
+            side_questions.sort(key=lambda pair: not any(
+                _qa_target_item_matches(target, qa_id, pair[0], facts, accept_observed=True)
+                for target in targets))
+            for item, attempt in side_questions:
+                if len(emitted) >= quota:
+                    break
+                if any(previous["question_id"] == item["question_id"] for previous in emitted):
+                    continue
+                attempt.update(status="pass", target_relation="valid_side_question")
+                attempt.pop("code", None)
+                emitted.append(item)
+                items.append(item)
         if emitted:
             item_groups[qa_id] = emitted
         elif last_error is not None:
@@ -8978,8 +9230,25 @@ def generate_unified_questions(
                 rejection_codes_by_qa.get(qa_id, {}).items())),
             "deferred_codes": deferred_codes,
         }
+    qa_target_results = []
+    for qa_id in requested:
+        for target in _qa_targets_for(base_facts, qa_id):
+            exact = [item["question_id"] for item in item_groups.get(qa_id, ())
+                     if _qa_target_item_matches(target, qa_id, item, base_facts)]
+            accepted = [item["question_id"] for item in item_groups.get(qa_id, ())
+                        if _qa_target_item_matches(target, qa_id, item, base_facts,
+                                                   accept_observed=True)]
+            count = int(target.get("items", 1))
+            qa_target_results.append({"qa_id": qa_id,
+                "target_actor_ids": list(target.get("target_actor_ids", target.get("target_instance_ids")) or ()),
+                "requested_branch": target.get("branch"), "requested_items": count,
+                "requested_branch_question_ids": exact,
+                "policy_accepted_target_question_ids": accepted,
+                "status": "met" if len(accepted) >= count else "unmet",
+                "claim_boundary": "Emitted target questions under the existing policy. This does not measure predicted-frame agreement."})
     return {
         "schema": UNIFIED_OUTPUT_SCHEMA,
+        "qa_target_results": qa_target_results,
         "status": "research_candidate",
         "qualification_claim": False,
         "catalog_version": CATALOG_VERSION,

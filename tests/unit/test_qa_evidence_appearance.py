@@ -354,11 +354,8 @@ def test_unsupported_registered_values_use_classifier_gap_reason() -> None:
         ("white_satin", "device"),
         ("warm_gray", "device"),
         ("beige", "device"),
-        ("light_gray", "device"),
         ("sandstone", "device"),
         ("light_gray_fabric", "device"),
-        ("dark_sable", "animal"),
-        ("standard_sable", "animal"),
         ("standard_seal_point", "animal"),
     )
     for value, kind in unsupported:

@@ -396,9 +396,8 @@ def test_knob_support_answers_exactly_the_two_recorded_gaps() -> None:
     support = cv.visibility_knob_support()
     implemented = set(support["implemented"])
     assert implemented == {"visibility_transition", "pixel_occlusion_transition"}
-    # Both are named in the compiler's gap table today; this module is what
-    # closes them, so a gap key that stops existing must not silently drift.
-    assert implemented <= set(gc.KNOB_GAPS)
+    # Implemented knobs no longer remain in the live gap table.
+    assert implemented.isdisjoint(gc.KNOB_GAPS)
     for detail in support["implemented"].values():
         assert detail["solver"].endswith("solve_visibility_candidates")
         for kind in detail["requirement_kinds"]:
@@ -1599,13 +1598,13 @@ def test_all_four_production_rooms_dispatch_by_declared_renderer(
     assert facilities["native_static_occluder_witness"]["state"] == expected
     assert report["screen_can_confirm_a_pixel_state"] is False
     assert set(report["facilities"]) == set(cv.VISIBILITY_FACILITIES)
-    # All four rooms declare acoustic proxy arrays as their static geometry, so
-    # the ray tier ranks occlusion and never refuses it.
-    assert report["geometry_authority"] == "acoustic_proxy_mesh"
-    assert facilities["ray_occlusion_screen"]["may_refute_an_occlusion_state"] is False
-    assert "not the geometry that renders" in (
-        facilities["ray_occlusion_screen"]["geometry_note"]
-    )
+    package = resolved(room_id).package
+    render_surface = package['static_geometry'].get('render_surface') is True
+    assert report['geometry_authority'] == ('visual_mesh' if render_surface else 'acoustic_proxy_mesh')
+    assert facilities['ray_occlusion_screen']['may_refute_an_occlusion_state'] is render_surface
+    if not render_surface:
+        assert 'not the geometry that renders' in facilities['ray_occlusion_screen']['geometry_note']
+
 
 
 def test_no_room_identifier_appears_in_the_dispatch() -> None:
@@ -1634,7 +1633,10 @@ def test_geometry_authority_comes_from_the_declared_static_geometry_source() -> 
         catalog, "habitat_mp3d_example_17DRP5sb8fy", catalog_path=CATALOG
     ).package
     assert package["static_geometry"]["source"] == "acoustic_package_arrays"
-    assert cv.geometry_authority_for_package(package) == "acoustic_proxy_mesh"
+    assert package['static_geometry']['render_surface'] is True
+    assert cv.geometry_authority_for_package(package) == "visual_mesh"
+    legacy = {"static_geometry": {"source": "acoustic_package_arrays"}}
+    assert cv.geometry_authority_for_package(legacy) == "acoustic_proxy_mesh"
     assert (
         cv.geometry_authority_for_package(
             {"static_geometry": {"representation": "visual_surface_mesh"}}

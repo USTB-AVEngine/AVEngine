@@ -12,7 +12,11 @@ import sys
 from typing import Any, Mapping, Sequence
 
 from avengine.capture.neutral_readback import validate_clock, validate_neutral_readback
-from avengine.qa.unified_catalog import generate_unified_questions, normalize_episode_bundle
+from avengine.qa.unified_catalog import (
+    generate_unified_questions,
+    normalize_episode_bundle,
+    with_derived_sound_class_answer_domain,
+)
 from avengine.rooms.evidence_contract import validate_evidence_contract
 from avengine.rooms.qa_episode import read_json, write_json
 from avengine.rooms.qa_evidence import (
@@ -629,36 +633,22 @@ def _decorate_actor(
     if attrs:
         value["registered_appearance"] = deepcopy(attrs)
         value["realized_attributes"] = attrs
-        if isinstance(attrs.get("finish"), str):
-            value["appearance"] = {
-                "field": "finish",
-                "value": attrs["finish"],
-                "label": value.get("display_label", asset_id or "device"),
-            }
-        elif isinstance(attrs.get("surface_finish"), str):
-            value["appearance"] = {
-                "field": "surface_finish",
-                "value": attrs["surface_finish"],
-                "label": value.get("display_label", asset_id or "device"),
-            }
-        elif isinstance(attrs.get("body_color"), str):
-            value["appearance"] = {
-                "field": "body_color",
-                "value": attrs["body_color"],
-                "label": value.get("display_label", asset_id or "device"),
-            }
-        elif isinstance(attrs.get("top_color"), str):
-            value["appearance"] = {
-                "field": "top_color",
-                "value": attrs["top_color"],
-                "label": value.get("display_label", asset_id or "person"),
-            }
-        elif isinstance(attrs.get("coat_profile"), Mapping) and isinstance(attrs["coat_profile"].get("value"), str):
-            value["appearance"] = {
-                "field": "coat_profile.value",
-                "value": attrs["coat_profile"]["value"],
-                "label": value.get("display_label", asset_id or "animal"),
-            }
+        from avengine.runtime_profiles import PIXEL_APPEARANCE_VALUE_VOCABULARY
+        candidates = [(field, attrs[field]) for field in
+                      ("finish", "surface_finish", "body_color", "top_color")
+                      if isinstance(attrs.get(field), str) and attrs[field].strip()]
+        coat = attrs.get("coat_profile")
+        if isinstance(coat, Mapping) and isinstance(coat.get("value"), str):
+            candidates.append(("coat_profile.value", coat["value"]))
+        supported = [(field, appearance) for field, appearance in candidates
+                     if appearance.casefold() in PIXEL_APPEARANCE_VALUE_VOCABULARY]
+        # A supplementary unsupported finish must not hide an existing,
+        # classifier-supported colour. Keep the old first field as an honest
+        # unavailable observation when no registered candidate is supported.
+        if candidates:
+            field, appearance = (supported or candidates)[0]
+            value["appearance"] = {"field": field, "value": appearance,
+                                   "label": value.get("display_label", asset_id or "source")}
     if identity:
         value.setdefault("identity", identity)
         if identity.get("species_id") is not None:
@@ -1488,6 +1478,33 @@ def _ancillary_audio_outputs(report: Mapping[str, Any]) -> list[dict[str, Any]]:
     return outputs
 
 
+def _sampling_for_delivery(plan: Mapping[str, Any], request: Mapping[str, Any]) -> dict[str, Any]:
+    """Carry named targets across the instance-to-native-actor boundary."""
+    original = plan.get("request") or {}
+    sampling = deepcopy(request.get("qa_sampling") or original.get("qa_sampling") or {})
+    targets = request.get("qa_targets", original.get("qa_targets"))
+    if targets is None:
+        return sampling
+    actor_ids = {}
+    for row in plan.get("entity_instances", ()):
+        actor_id = row.get("actor_id")
+        if actor_id:
+            actor_ids[str(actor_id)] = str(actor_id)
+            if row.get("entity_instance_id"):
+                actor_ids[str(row["entity_instance_id"])] = str(actor_id)
+    normalized = []
+    for raw in targets:
+        target = deepcopy(dict(raw))
+        ids = target.get("target_instance_ids") or ()
+        missing = [str(value) for value in ids if str(value) not in actor_ids]
+        if missing:
+            raise ValueError(f"QA target instances have no native actor mapping: {missing}")
+        target["target_actor_ids"] = [actor_ids[str(value)] for value in ids]
+        normalized.append(target)
+    sampling["qa_targets"] = normalized
+    return sampling
+
+
 def finalize_qa_episode(
     episode_root: Path, derived_root: Path, *, repository: Path,
     request: Mapping[str, Any] | None = None, audio_report: Path | None = None,
@@ -1771,7 +1788,7 @@ def finalize_qa_episode(
     raw = {
         "episode_id": str(plan.get("episode_id") or capture_root.name),
         "plan": plan,
-        "sampling": deepcopy(request_value.get("qa_sampling") or (plan.get("request") or {}).get("qa_sampling") or {}),
+        "sampling": _sampling_for_delivery(plan, request_value),
         "sampling_policy": request_value.get("sampling_policy") or (plan.get("request") or {}).get("sampling_policy"),
         "actors": actors,
         "frame_readbacks": frame_readbacks,
@@ -1842,7 +1859,9 @@ def finalize_qa_episode(
     questions_path = derived / "questions.json"
     from avengine.qa.angular_questions import camera_calibration_from_capture
     raw["camera_calibration"] = camera_calibration_from_capture(capture_root)
-    facts = normalize_episode_bundle(raw)
+    facts = with_derived_sound_class_answer_domain(
+        normalize_episode_bundle(raw)
+    )
     facts.setdefault("audio", {})["path"] = str(mixture)
     facts["audio"]["actual_path"] = str(mixture)
     facts.setdefault("source_paths", {})["neutral_readback"] = str(neutral_value.resolve())
@@ -1923,6 +1942,9 @@ def finalize_qa_episode(
         "model_evaluation": "not_run",
         "formal_admission": False,
     }
+    if questions.get("qa_target_results"):
+        result["qa_target_results"] = deepcopy(questions["qa_target_results"])
+        result["qa_targets_met"] = all(row["status"] == "met" for row in questions["qa_target_results"])
     stage_timings["finalize_total_s"] = time.monotonic() - finalize_started
     timings_record = {
         "schema": "avengine_qa_finalize_stage_timings_v1",

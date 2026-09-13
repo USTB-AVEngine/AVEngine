@@ -5429,6 +5429,7 @@
     "verified_knobs": [
       "anchor_count",
       "anchor_line_of_sight",
+      "anchor_median_plane_offset_deg",
       "anchor_visibility",
       "competitor_motion",
       "competitor_visibility",

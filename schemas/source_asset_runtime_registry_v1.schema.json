@@ -796,6 +796,9 @@
         "display_label": {
           "$ref": "#/$defs/nonempty_string"
         },
+        "display_label_zh": {
+          "$ref": "#/$defs/nonempty_string"
+        },
         "entity_class": {
           "enum": [
             "articulated_human",
@@ -1068,6 +1071,9 @@
             },
             "base_plane_offset_m": {
               "type": "number"
+            },
+            "attachment_surface_assumed": {
+              "type": "boolean"
             }
           }
         },

@@ -85,20 +85,35 @@ def _pixel_occlusion_values():
 SOLVER_KNOB_VALUES = {
     'target_moved_after_sound': (True, False),
     'distance_trend_during_event': ('nearer', 'farther'),
+    # These names are carried now so C2/C3 can bind their own route
+    # constructors without changing request/profile vocabulary. They are
+    # interface placeholders in wave 1; the generic pixel transition remains
+    # the only currently implemented construction.
+    'pixel_occlusion_partial_transition': ('visible_occluded_to_visible_clear',),
+    'registered_occluder_transition': ('registered_occluder_visible',),
     # Filled from conditioned_visibility below, once that module is importable.
     'pixel_occlusion_transition': (),
 }
+# The vocabulary is accepted by profile resolution before the later wave owns
+# the route constructor. Pending keys are deliberately excluded from the live
+# capability declaration until C2/C3 implement them.
+PENDING_SOLVER_KNOBS = frozenset({
+    'pixel_occlusion_partial_transition',
+    'registered_occluder_transition',
+})
 SOLVER_KNOBS = tuple(SOLVER_KNOB_VALUES)
 # The remaining knobs this sampler reads: counts, budgets, ranges and policies.
 SCALAR_KNOBS = ('anchor_count', 'distance_range_m', 'min_gap_between_audible_windows_s',
                 'minimum_overlap_s', 'reserve_tail_s', 'retry_budget_within_profile',
                 'separation_bin_deg', 'separation_target_policy',
+                'anchor_median_plane_offset_deg',
                 # Which declared instance must own the earliest audible window. A
                 # question whose gold answer is "who spoke first" cannot be served
                 # by a uniform draw over feasible actor orders.
                 'first_speaker_instance_id')
 DECLARED_SAMPLER_KNOBS = tuple(sorted(
-    set(ENUM_KNOB_VALUES) | set(SCALAR_KNOBS) | set(SOLVER_KNOBS)))
+    set(ENUM_KNOB_VALUES) | set(SCALAR_KNOBS)
+    | (set(SOLVER_KNOBS) - set(PENDING_SOLVER_KNOBS))))
 
 
 def _fill_pixel_occlusion_values():
@@ -129,6 +144,10 @@ WALK_MAX_LEGS = 8
 WALK_DRAWS_PER_LEG = 40
 WALK_MAX_LENGTH_M = 6.0
 POST_WINDOW_WALK_EXTENSION_S = (1.0, 3.0)
+# Public bounds are quantized inward at the publication edge. Keep 1.0 s of
+# publishable interval plus 0.2 s of planning margin, which is 18 frames at
+# the production 15 fps clock.
+PUBLIC_QUERY_WINDOW_MIN_S = 1.2
 # Visibility-first construction: choose the camera, classify the floor under
 # it, then walk the subject through the states the question needs.
 CONSTRUCTIVE_VISIBILITY_KINDS = (
@@ -164,10 +183,14 @@ def describe_generator_capabilities():
         'version': POLICY + '+' + CAPABILITY_REVISION,
         'knobs': list(DECLARED_SAMPLER_KNOBS),
         'backends': list(SUPPORTED_BACKENDS),
-        'declared_at': ('src/avengine/rooms/conditioned_sampler.py ENUM_KNOB_VALUES and '
+        'declared_at': ('src/avengine/rooms/conditioned_sampler.py ENUM_KNOB_VALUES, '
+                        'SOLVER_KNOB_VALUES and '
                         'SCALAR_KNOBS, read by resolve_condition_profile, select_entities, '
                         '_moving_flags, select_sounds, _solve_motion_conditions and '
-                        'select_camera_and_schedule'),
+                        'select_camera_and_schedule. The partial and registered '
+                        'occlusion names are wave-1 interface placeholders for C2/C3; '
+                        'they do not claim a current route constructor or native pixel '
+                        'outcome.'),
     }
 
 
@@ -657,6 +680,15 @@ def resolve_condition_profile(request, registry, *, question_knobs=None):
             'constructive_motion', request.get('constructive_motion', False)))
     if not isinstance(constructive_motion, bool):
         raise ValueError('constructive_motion must be a boolean')
+    anchor_plane_offset = profile.get('anchor_median_plane_offset_deg')
+    if anchor_plane_offset is not None:
+        if isinstance(anchor_plane_offset, (bool, np.bool_)) or not isinstance(
+                anchor_plane_offset, (int, float, np.integer, np.floating)):
+            raise ValueError('anchor_median_plane_offset_deg must be a number')
+        anchor_plane_offset = float(anchor_plane_offset)
+        if not math.isfinite(anchor_plane_offset) or not 0. <= anchor_plane_offset <= 180.:
+            raise ValueError(
+                'anchor_median_plane_offset_deg must be finite and within 0..180 degrees')
     result = {'total_count': n, 'speaking_count': n-silent, 'silent_count': silent,
               'source_classes': classes, 'anchor_count': anchor_count, 'separation_bin_deg': list(map(float, sep)),
               'separation_floor_deg': floor, 'speaking_indices': speakers, 'anchor_indices': anchors,
@@ -665,6 +697,7 @@ def resolve_condition_profile(request, registry, *, question_knobs=None):
               'anchor_visibility': _draw(profile.get('anchor_visibility', 'in_fov'), rng),
               'competitor_visibility': _draw(profile.get('competitor_visibility', 'any' if ordinary else 'in_fov'), rng),
               'anchor_line_of_sight': _draw(profile.get('anchor_line_of_sight', 'clear'), rng),
+              'anchor_median_plane_offset_deg': anchor_plane_offset,
               'speech_motion': (_draw(profile['speech_motion'], rng) if 'speech_motion' in profile
                                 else _ordinary_speech_motion_default(ordinary, classes, anchors, question_knobs, rng,
                                                                      request=request)),
@@ -673,6 +706,10 @@ def resolve_condition_profile(request, registry, *, question_knobs=None):
               'target_moved_after_sound': profile.get('target_moved_after_sound'),
               'distance_trend_during_event': profile.get('distance_trend_during_event'),
               'pixel_occlusion_transition': profile.get('pixel_occlusion_transition'),
+              'pixel_occlusion_partial_transition': profile.get(
+                  'pixel_occlusion_partial_transition'),
+              'registered_occluder_transition': profile.get(
+                  'registered_occluder_transition'),
               'event_relation': _draw(profile.get('event_relation', request.get('audio_mode', 'sequential')), rng),
               'min_gap_between_audible_windows_s': float(profile.get('min_gap_between_audible_windows_s', .5)),
               'reserve_tail_s': float(profile.get('reserve_tail_s', 3.)),
@@ -982,6 +1019,21 @@ def select_sounds(actors, sounds, profile, clock, request, rng):
         raise ValueError('unsupported clip_span_fit_policy: ' + clip_policy)
     sound_class_config = request_sound_class_config(request)
     max_samples, deadline, clip_bound_source = clip_budget_samples(profile, clock, config)
+    selection_deadline = int(deadline)
+    if (profile.get('target_moved_after_sound') is not None
+            and profile.get('first_speaker_instance_id') is not None):
+        # QA-16/17 need the anchor event, its existing reserved tail and a
+        # publishable post-sound interval. Apply that same bound while choosing
+        # prepared clips, so the later scheduler does not select a pair that
+        # cannot fit when the anchor is required to be the final event.
+        post_sound_deadline = (
+            int(clock['sample_count'])
+            - int(round(float(profile.get('reserve_tail_s', 0.)) * sr))
+            - 2 * sr
+            - 1
+        )
+        selection_deadline = min(selection_deadline, post_sound_deadline)
+        max_samples = min(int(max_samples), selection_deadline)
     speakers = profile['speaking_indices']; order = list(speakers); rng.shuffle(order)
     preallocated = config.get('preallocated_sound_asset_ids_by_actor')
     if preallocated is not None:
@@ -1018,7 +1070,7 @@ def select_sounds(actors, sounds, profile, clock, request, rng):
             repeated = matching[0]
         else:
             repeated = speakers[int(rng.integers(len(speakers)))]
-    selected = {}; transcripts = set(); remaining = deadline
+    selected = {}; transcripts = set(); remaining = selection_deadline
     gap = int(round(profile['min_gap_between_audible_windows_s'] * sr))
     for pos, i in enumerate(order):
         rest = order[pos+1:]
@@ -1036,6 +1088,7 @@ def select_sounds(actors, sounds, profile, clock, request, rng):
         sound['source_endpoint_id'] = actors[i]['source_endpoint_id']
         sound['clip_length_bound_source'] = clip_bound_source
         sound['clip_length_bound_samples'] = int(max_samples)
+        sound['clip_selection_deadline_samples'] = int(selection_deadline)
         if i==repeated:sound['repeat_requested']=True
         selected[i] = sound
         if sound.get('transcript'): transcripts.add(sound['transcript'])
@@ -1175,7 +1228,44 @@ def _schedule_for_motion_solver(sounds, profile, clock, rng):
     }
     if any(not values for values in starts.values()):
         raise CandidateFailure('schedule', 'no_legal_event_start_for_motion_solver')
-    schedule = schedule_legal_events(events, starts, clock, profile, rng)
+
+    # QA-16/17 ask about the anchor after its event and its reserved wet tail.
+    # The existing motion solver already performs the legal-frame and
+    # inward-quantized whole-second checks; this scheduling bound keeps its
+    # target event in a region where that existing check can succeed for any
+    # legal sample phase. It consumes no extra episode time or retry budget.
+    schedule_profile = dict(profile)
+    if (profile.get('target_moved_after_sound') is not None
+            and profile.get('first_speaker_instance_id') is not None):
+        anchor_indices = {int(index) for index in profile.get('anchor_indices', ())}
+        target_ids = {
+            str(sounds[index].get('entity_instance_id'))
+            for index in anchor_indices
+            if isinstance(sounds.get(index), Mapping)
+            and sounds[index].get('entity_instance_id')
+        }
+        if target_ids:
+            sr = int(clock['sample_rate_hz'])
+            reserve_samples = int(round(float(profile.get('reserve_tail_s', 0.)) * sr))
+            # The solver checks [first_query_frame, frame_count) against
+            # inward whole-second bounds. A target programmed end strictly
+            # before duration - reserve - 2 seconds leaves at least one
+            # complete display interval regardless of sample/frame phase.
+            latest_target_end = int(clock['sample_count']) - reserve_samples - 2 * sr - 1
+            for key, event in events.items():
+                if str(event.get('entity_instance_id')) not in target_ids:
+                    continue
+                clipped = _clip_ranges(
+                    starts[key],
+                    high=latest_target_end - int(event['sample_count']),
+                )
+                # If the caller's stated reserve leaves no such start, retain
+                # the original legal range so the existing motion solver owns
+                # the failure classification and histogram.
+                if clipped:
+                    starts[key] = clipped
+
+    schedule = schedule_legal_events(events, starts, clock, schedule_profile, rng)
     if not isinstance(schedule, Mapping):
         raise CandidateFailure('schedule', 'no_legal_event_schedule_for_motion_solver')
     sr = int(clock['sample_rate_hz'])
@@ -3208,6 +3298,8 @@ def _entry_route(requirement, rows, cloud, space, camera, body, mesh, policy, ca
             latest_start = max(1, frames - moving - 45)
             start_frame = int(rng.integers(0, min(30, latest_start)))
             entry_frame = start_frame + first_in
+            if not _public_interval_is_publishable(entry_frame, frames, fps):
+                continue
             route = np.repeat(start[None], frames, axis=0)
             route[start_frame:start_frame + moving] = motion
             route[start_frame + moving:] = motion[-1]
@@ -3223,6 +3315,23 @@ def _entry_route(requirement, rows, cloud, space, camera, body, mesh, policy, ca
                     'speed_mps': float(speed), 'path_length_m': float(length)}}
             return route, record
     return None
+
+
+def _navigation_path_is_legal(space, path):
+    if path is None:
+        return False
+    points = np.asarray(path, dtype=float)
+    if points.ndim != 2 or points.shape[1] != 3 or len(points) < 2:
+        return False
+    if not np.all(np.isfinite(points)):
+        return False
+    checker = getattr(space, 'is_navigable', None)
+    if not callable(checker):
+        return True
+    try:
+        return all(bool(checker(point)) for point in points)
+    except (TypeError, ValueError, IndexError):
+        return False
 
 
 def _occlusion_route(requirement, rows, cloud, space, camera, body, mesh, policy, cache, rng,
@@ -3248,16 +3357,27 @@ def _occlusion_route(requirement, rows, cloud, space, camera, body, mesh, policy
             moving1 = _frames_for_length(length1, speed, fps)
             route = np.repeat(cloud[vi][None], frames, axis=0)
             if wants_return:
-                vj = visible[int(rng.integers(len(visible)))]
-                leg2 = space.shortest_path(cloud[hi], cloud[vj])
-                if leg2 is None or len(leg2) < 2:
-                    continue
-                leg2 = np.asarray(leg2, dtype=float)
+                # Default to the exact reverse of the entering leg. This
+                # preserves the same route geometry for the return and removes
+                # a second random path from the predicted transition. A
+                # fallback is considered only when the adapter reports that
+                # the reversed path is not navigable.
+                leg2 = np.asarray(leg1[::-1], dtype=float)
+                return_route_policy = 'reversed_entry_leg'
+                if not _navigation_path_is_legal(space, leg2):
+                    vj = visible[int(rng.integers(len(visible)))]
+                    fallback = space.shortest_path(cloud[hi], cloud[vj])
+                    if not _navigation_path_is_legal(space, fallback):
+                        continue
+                    leg2 = np.asarray(fallback, dtype=float)
+                    return_route_policy = (
+                        'random_visible_endpoint_fallback_after_reverse_leg_invalid'
+                    )
                 length2 = _polyline_length(leg2)
                 if length2 < 1.0 or length2 > WALK_MAX_LENGTH_M:
                     continue
                 moving2 = _frames_for_length(length2, speed, fps)
-                hold = int(rng.integers(12, 31))
+                hold = int(rng.integers(18, 31))
                 total = moving1 + hold + moving2
                 # The subject stands visible long enough to speak before it
                 # walks, and stands visible again after it returns.
@@ -3266,6 +3386,9 @@ def _occlusion_route(requirement, rows, cloud, space, camera, body, mesh, policy
                 if high <= low:
                     continue
                 start_frame = int(rng.integers(low, high))
+                if not _public_interval_is_publishable(
+                        start_frame + moving1, start_frame + moving1 + hold, fps):
+                    continue
                 motion = np.concatenate([
                     np.asarray(resample_polyline_by_arc_length(leg1, moving1), dtype=float),
                     np.repeat(cloud[hi][None], hold, axis=0),
@@ -3283,6 +3406,8 @@ def _occlusion_route(requirement, rows, cloud, space, camera, body, mesh, policy
                     continue
                 start_frame = int(rng.integers(low, high + 1))
                 arrive = start_frame + moving1
+                if not _public_interval_is_publishable(arrive, frames, fps):
+                    continue
                 motion = np.asarray(resample_polyline_by_arc_length(leg1, moving1), dtype=float)
                 route[start_frame:arrive] = motion
                 route[arrive:] = cloud[hi]
@@ -3295,6 +3420,7 @@ def _occlusion_route(requirement, rows, cloud, space, camera, body, mesh, policy
                 'required_contiguous_motion_frames': 1,
                 'visibility_construction': {
                     'kind': requirement.kind, 'predicted_hidden_frames': [int(v) for v in hidden_frames],
+                    **({'return_route_policy': return_route_policy} if wants_return else {}),
                     'hidden_point_m': [float(v) for v in cloud[hi]],
                     'speed_mps': float(speed), 'path_length_m': float(length1)}}
             return route, record
@@ -3348,7 +3474,10 @@ def _bank_visibility_route(requirement, bank, camera, body, emitter_offset, mesh
     depth_px = ENTRY_DEPTH_FRACTION * float(width)
     origin = np.asarray(camera.position_m, dtype=float)
     entry = requirement.kind == 'out_of_view_to_visible'
-    need = max(int(min_speaking_frames), 8)
+    minimum_public_frames = max(
+        1, int(math.ceil(PUBLIC_QUERY_WINDOW_MIN_S * float(frames) / 10.0 - 1.0e-9))
+    )
+    need = max(int(min_speaking_frames), minimum_public_frames)
     ray_routes = 0
     debug = Counter() if os.environ.get('AVENGINE_BANK_DEBUG') else None
 
@@ -3424,6 +3553,9 @@ def _bank_visibility_route(requirement, bank, camera, body, emitter_offset, mesh
                 note('no_legal_delay')
                 continue
             delay = int(rng.integers(low, min(max_delay, low + 30) + 1))
+            if not _public_interval_is_publishable(delay + first_in, int(frames), float(frames) / 10.0):
+                note('entry_unpublishable')
+                continue
             construction = {
                 'kind': requirement.kind, 'side': side, 'predicted_entry_frame': int(delay + first_in),
                 'predicted_entry_column_px': float(column), 'entry_depth_px_required': float(depth_px)}
@@ -3446,11 +3578,16 @@ def _bank_visibility_route(requirement, bank, camera, body, emitter_offset, mesh
                 h1 += 1
             end_state = states[-1]
             hidden_run = (h1 - h0) + (max_delay if h1 == length and end_state == 'hidden' else 0)
-            if hidden_run < 8:
-                note('hidden_too_short')
-                continue
             # Stand visible and speak before the walk when the clock allows it.
-            delay = min(max_delay, max(need, 8)) if max_delay else 0
+            delay = min(max_delay, max(need, minimum_public_frames)) if max_delay else 0
+            hidden_end = delay + h1 + (
+                max_delay if h1 == length and end_state == 'hidden' else 0
+            )
+            if (hidden_run < minimum_public_frames
+                    or not _public_interval_is_publishable(
+                        delay + h0, hidden_end, float(frames) / 10.0)):
+                note('hidden_too_short_or_unpublishable')
+                continue
             if requirement.kind == 'fully_occluded_without_return':
                 if any(states[j] not in ('hidden', 'out') for j in range(h1, length)) or end_state not in ('hidden', 'out'):
                     note('reappears')
@@ -3465,8 +3602,14 @@ def _bank_visibility_route(requirement, bank, camera, body, emitter_offset, mesh
                 while r1 < length and states[r1] == 'visible':
                     r1 += 1
                 visible_after = (r1 - r0) + ((int(frames) - delay - length) if r1 == length and end_state == 'visible' else 0)
-                if visible_after < 8:
-                    note('no_return')
+                visible_end = delay + r1 + (
+                    int(frames) - delay - length
+                    if r1 == length and end_state == 'visible' else 0
+                )
+                if (visible_after < minimum_public_frames
+                        or not _public_interval_is_publishable(
+                            delay + r0, visible_end, float(frames) / 10.0)):
+                    note('no_return_or_unpublishable')
                     continue
                 hidden_frames = [int(delay + h0), int(delay + h1)]
             construction = {
@@ -4093,10 +4236,10 @@ def _visible_then_hidden_ok(fov, sound, clock, start_sample):
         return False
     fps = float(clock['frame_rate_hz'])
     first, last = min(hidden_after), max(hidden_after)
-    # QA-25 publishes a whole-second query frame, so one has to exist here.
-    return any(first <= second * fps <= last
-               for second in range(int(math.ceil(first / fps)),
-                                   int(math.floor(last / fps)) + 1))
+    # QA-25 publishes a whole-second query frame, so the actual hidden frame
+    # interval must also survive inward quantization. A duration-only check
+    # would accept a phase such as [0.1, 1.3] and publish no bound.
+    return _public_interval_is_publishable(first, last + 1, fps)
 
 
 def visible_then_hidden_start_ranges(ranges, fov, sound, clock):
@@ -4171,6 +4314,43 @@ def _orders_with_first_speaker(orders, events, wanted):
     return kept
 
 
+
+def _anchor_pre_silence_start_ranges(ranges, event, scheduled, events, clock, profile):
+    """Exclude only the same short pre-anchor gaps that the catalog rejects.
+
+    Valid overlap of silent clip padding remains allowed. This does not turn
+    the existing audible-gap rule into a stricter full-clip separation rule.
+    """
+    instances = profile.get('instances') or ()
+    anchors = [instances[int(index)] for index in profile.get('anchor_indices', ())
+               if 0 <= int(index) < len(instances)]
+    is_anchor = any(event.get('entity_instance_id') == row.get('entity_instance_id')
+                    or event.get('actor_id') == row.get('source_slot_id')
+                    for row in anchors)
+    if (profile.get('target_moved_after_sound') is None
+            or profile.get('first_speaker_instance_id') is None or not is_anchor):
+        return ranges
+    from avengine.qa.generation_conditions import ANCHOR_PRE_SILENCE_S
+    count = int(math.ceil(ANCHOR_PRE_SILENCE_S * int(clock['sample_rate_hz'])))
+    forbidden = [(0, count - 1)]
+    for key, start in scheduled.items():
+        end = int(start) + int(events[key]['sample_count'])
+        forbidden.append((end, end + count - 1))
+    remaining = [list(window) for window in ranges]
+    for low, high in forbidden:
+        pieces = []
+        for first, last in remaining:
+            if last < low or first > high:
+                pieces.append([first, last])
+            else:
+                if first < low:
+                    pieces.append([first, low - 1])
+                if last > high:
+                    pieces.append([high + 1, last])
+        remaining = pieces
+    return remaining
+
+
 def schedule_legal_events(events, starts, clock, profile, rng=None):
     """Choose only starts with a feasible suffix; feasibility calls consume no RNG."""
     relation=profile['event_relation'];sr=int(clock['sample_rate_hz'])
@@ -4190,7 +4370,13 @@ def schedule_legal_events(events, starts, clock, profile, rng=None):
         result={}; previous=None;gap=int(round(profile['min_gap_between_audible_windows_s']*sr))
         for key in order:
             low=0 if previous is None else result[previous]+events[previous]['audible_end_sample_exclusive']+gap-events[key]['audible_start_sample']
-            result[key]=_pick_sample(_clip_ranges(starts[key],low,latest[key]),rng);previous=key
+            legal = _anchor_pre_silence_start_ranges(
+                _clip_ranges(starts[key], low, latest[key]), events[key], result,
+                events, clock, profile)
+            if not legal:
+                return None
+            result[key] = _pick_sample(legal, rng)
+            previous = key
         return result
     if wanted_first is not None:
         # Only a sequential schedule has a well-defined earliest speaker.
@@ -4233,6 +4419,23 @@ def _event_bindings(sounds, profile, rng):
     return result
 
 
+def _public_interval_is_publishable(start_frame, end_frame, fps):
+    """Check duration and actual whole-second inward quantization together."""
+    start_frame, end_frame = int(start_frame), int(end_frame)
+    fps = float(fps)
+    if end_frame <= start_frame or fps <= 0:
+        return False
+    minimum_frames = max(
+        1, int(math.ceil(PUBLIC_QUERY_WINDOW_MIN_S * fps - 1.0e-9))
+    )
+    if end_frame - start_frame < minimum_frames:
+        return False
+    from avengine.qa.generation_conditions import integer_second_window
+    return integer_second_window(
+        start_frame / fps, end_frame / fps, precision=0
+    ) is not None
+
+
 def visibility_transition_ok(states, transition):
     """Whether one body-proxy frustum series crosses the way the question needs.
 
@@ -4270,6 +4473,9 @@ def planned_query_window(events, clock, profile, request=None, anchor_actor_ids=
     end_hold_samples=int(round(float(profile.get('end_hold_s',0.))*sr))
     precision=int(request.get('public_time_precision',profile.get('public_time_precision',0)))
     anchors=set(anchor_actor_ids or ())
+    requires=bool(request.get('require_public_query_window',
+                              profile.get('require_public_query_window',False)))
+    minimum_public_s=float(PUBLIC_QUERY_WINDOW_MIN_S)
     from avengine.qa.generation_conditions import integer_second_window
     ordered=sorted(events,key=lambda event:int(event['planned_audible_interval_samples'][0]))
     rows=[]
@@ -4289,20 +4495,32 @@ def planned_query_window(events, clock, profile, request=None, anchor_actor_ids=
                    if int(other['planned_audible_interval_samples'][0])>boundary]
         limit=min(following) if following else total-end_hold_samples
         start_s=boundary/sr+reserve;end_s=limit/sr
-        published=integer_second_window(start_s,end_s,precision=precision) if end_s>start_s else None
+        available_s=max(0.,end_s-start_s)
+        is_anchor_event=event.get('actor_id') in anchors
+        # C7 applies the duration floor only to the event whose interval the
+        # requested question will publish. Other actors remain valid
+        # distractors/side events and are not rejected by this target window.
+        needs_public_window=bool(requires and (is_anchor_event or not anchors))
+        published=(
+            integer_second_window(start_s,end_s,precision=precision)
+            if end_s > start_s and (
+                not needs_public_window
+                or available_s + 1.0e-9 >= minimum_public_s
+            ) else None
+        )
         rows.append({'event_id':event['event_id'],'actor_id':event.get('actor_id'),
                      'entity_instance_id':event.get('entity_instance_id'),
-                     'is_anchor_event':event.get('actor_id') in anchors,
+                     'is_anchor_event':is_anchor_event,
                      'window_s':[start_s,max(start_s,end_s)],
-                     'available_s':max(0.,end_s-start_s),
+                     'available_s':available_s,
+                     'public_window_min_s':minimum_public_s,
                      'blocked_by_other_event':boundary!=end,
                      'ends_at_next_event':bool(following),
                      'public_query_window_s':list(published) if published else None})
     preferred=[row for row in rows if row['is_anchor_event']] or rows
     publishable=[row for row in preferred if row['public_query_window_s']]
-    requires=bool(request.get('require_public_query_window',
-                              profile.get('require_public_query_window',False)))
     return {'reserve_tail_s':reserve,'public_time_precision':precision,
+            'public_window_min_s':minimum_public_s,
             'windows':rows,
             'anchor_actor_ids':sorted(anchors),
             'public_query_window_s':publishable[0]['public_query_window_s'] if publishable else None,
@@ -4465,6 +4683,38 @@ def _native_visibility_not_run():
     }
 
 
+def _qa16_camera_distance_evidence(solution, actors, emitters, position, clock, request):
+    """Apply QA-16's existing distance criterion to a proposed listener pose."""
+    if solution is None or getattr(solution, 'qa_id', None) != 'QA-16':
+        return None
+    from avengine.qa.generation_conditions import DISTANCE_MARGIN_M
+    target = next(row.entity_instance_id for row in solution.requirements if row.role == 'target')
+    index = next(i for i, actor in enumerate(actors) if actor['entity_instance_id'] == target)
+    event = next(row for row in solution.placements if row.entity_instance_id == target)
+    window = solution.query_window['legal_frames']
+    points = np.asarray(emitters[index], dtype=float)
+    origin = np.asarray(position, dtype=float)
+    policy = (request.get('qa_sampling') or {}).get('acceptance_policy') or {}
+    if (policy.get('question_mode') == 'ordinary_observation'
+            and policy.get('post_sound_distance_query') == 'integer_timepoint'):
+        fps = float(clock['frame_rate_hz'])
+        frames = [int(round(second * fps)) for second in range(int(clock['frame_count'] / fps) + 1)
+                  if int(window[0]) <= int(round(second * fps)) < int(window[1])]
+        reference = float(np.linalg.norm(points[event.end_frame] - origin))
+        deltas = [float(np.linalg.norm(points[frame] - origin)) - reference for frame in frames]
+        usable = [frame for frame, delta in zip(frames, deltas) if abs(delta) >= DISTANCE_MARGIN_M]
+        return {'available': bool(usable), 'target_instance_id': target,
+                'anchor_end_frame': event.end_frame, 'query_frames': frames,
+                'distance_changes_m': deltas, 'usable_query_frames': usable,
+                'margin_m': DISTANCE_MARGIN_M, 'criterion': 'existing_ordinary_integer_timepoint'}
+    from avengine.rooms.conditioned_motion import post_sound_distance_stability
+    evidence = post_sound_distance_stability(points, origin, anchor_end_frame=event.end_frame,
+        windows=[window], frame_rate_hz=float(clock['frame_rate_hz']),
+        precision=int(request.get('public_time_precision', 0)))
+    return {'available': evidence['publishable'], 'criterion': 'existing_stable_public_interval',
+            'evidence': evidence}
+
+
 def select_camera_and_schedule(space, mesh, paths, moving, emitters, bodies, actors,
                                 sounds, profile, clock, request, rng, region=None, *,
                                 event_bindings=None, fixed_schedule=None,
@@ -4539,6 +4789,7 @@ def select_camera_and_schedule(space, mesh, paths, moving, emitters, bodies, act
     competitor_visibility=profile.get('competitor_visibility', 'in_fov')
     competitor_motion=profile.get('competitor_motion', COMPETITOR_MOTION_DEFAULT)
     transition=profile.get('visibility_transition', VISIBILITY_TRANSITION_DEFAULT)
+    anchor_plane_offset=profile.get('anchor_median_plane_offset_deg')
     competitors=[j for j in range(len(actors)) if j not in anchors]
     visibility_report = {
         'status': 'not_requested',
@@ -4636,11 +4887,19 @@ def select_camera_and_schedule(space, mesh, paths, moving, emitters, bodies, act
             raise CandidateFailure(
                 'camera', 'motion_solver_distance_trend_target_unavailable')
     cheap_legal = []
+    post_sound_distance_checks = {}
     position_states = {}
     for pi,position in enumerate(positions):
         if fixed_grid_index is not None and pi!=fixed_grid_index:
             continue
         origin=np.asarray(position)
+        post_distance = _qa16_camera_distance_evidence(
+            motion_solution, actors, emitters, origin, clock, request)
+        if post_distance is not None:
+            post_sound_distance_checks[pi] = post_distance
+            if not post_distance['available']:
+                stages['post_sound_distance_camera_refused'] = stages.get('post_sound_distance_camera_refused', 0) + 1
+                continue
         floor=origin-np.array([0,height,0])
         if any(np.linalg.norm(path-floor,axis=1).min()<.8 for path in paths):
             continue
@@ -4681,6 +4940,22 @@ def select_camera_and_schedule(space, mesh, paths, moving, emitters, bodies, act
             separation[i,i]=np.inf
         nearest=separation.min(axis=1)
         mask=np.ones_like(fov_mask,dtype=bool)
+        if anchor_plane_offset is not None:
+            listener_depth=np.einsum('yc,nfc->ynf', forwards, d)
+            listener_lateral=np.einsum('yc,nfc->ynf', rights, d)
+            plane_offsets=np.abs(np.degrees(
+                np.arctan2(listener_lateral, listener_depth)
+            ))
+            keep_plane=np.ones(24, dtype=bool)
+            for anchor_index in profile['anchor_indices']:
+                good=(np.isfinite(plane_offsets[:,anchor_index])
+                       & (plane_offsets[:,anchor_index] + 1.0e-9 >=
+                          float(anchor_plane_offset)))
+                mask[:,anchor_index] &= good
+                keep_plane &= np.all(good, axis=1)
+            stages['poses_without_requested_anchor_median_plane_offset'] += int(
+                np.count_nonzero(~keep_plane)
+            )
         if fixed_camera is not None:
             mask[[yaw for yaw in range(24) if yaw!=int(fixed_camera['yaw_index'])]]=False
         if trend_target_index is not None:
@@ -5089,6 +5364,27 @@ def select_camera_and_schedule(space, mesh, paths, moving, emitters, bodies, act
     if not isinstance(schedule, Mapping):
         raise CandidateFailure('schedule', 'selected_camera_lost_fixed_event_schedule')
     achieved_sep=_anchor_sep(nearest)
+    achieved_anchor_plane_offset=None
+    if anchor_plane_offset is not None:
+        values=[]
+        selected_delta=emitters-np.asarray(positions[pi], dtype=float)
+        selected_depth=np.einsum(
+            'nfc,c->nf', selected_delta, forwards[yi]
+        )
+        selected_lateral=np.einsum(
+            'nfc,c->nf', selected_delta, rights[yi]
+        )
+        selected_offsets=np.abs(np.degrees(
+            np.arctan2(selected_lateral, selected_depth)
+        ))
+        for anchor_index in profile['anchor_indices']:
+            finite=selected_offsets[anchor_index][
+                np.isfinite(selected_offsets[anchor_index])
+            ]
+            if len(finite):
+                values.extend(float(value) for value in finite)
+        if values:
+            achieved_anchor_plane_offset=float(min(values))
     camera={'candidate_id':f'grid_{pi:05d}_yaw_{yi*15:03d}','position_m':positions[pi],
             'basis':{'forward':forwards[yi].tolist(),'right':rights[yi].tolist(),'up':[0.,1.,0.]},
             'horizontal_fov_deg':fov,'resolution_hw':resolution,'height_above_floor_m':height,'motion':'static','yaw_deg':int(yi*15)}
@@ -5108,6 +5404,7 @@ def select_camera_and_schedule(space, mesh, paths, moving, emitters, bodies, act
         # unit, which is a planning fact, not a rendering accident.
         raise CandidateFailure('question','integer_query_window_below_one_display_unit')
     return camera,output,{'selection':(visibility_selection['mode'] if visibility_requirements else 'uniform_over_all_legal_static_poses'),
+                         'post_sound_distance': post_sound_distance_checks.get(pi),
                          'selection_policy':visibility_selection['selection_policy'],
                          'bounded_candidate_pool_count':visibility_selection['candidate_pool_count'],
                          'bounded_ray_pose_count':visibility_selection['ray_pose_count'],
@@ -5119,6 +5416,11 @@ def select_camera_and_schedule(space, mesh, paths, moving, emitters, bodies, act
                          'anchor_indices':profile['anchor_indices'],'clear_los_requires':['emitter','body_proxy'],'pixel_observability':'not_run',
                          'requested_separation_bin_deg': list(map(float, profile['separation_bin_deg'])),
                          'planned_anchor_nearest_competitor_separation_deg': achieved_sep,
+                         'anchor_median_plane_offset_deg': anchor_plane_offset,
+                         'planned_anchor_median_plane_offset_deg': achieved_anchor_plane_offset,
+                         'anchor_median_plane_offset_basis': (
+                             'listener_relative_azimuth_from_selected_camera_basis'
+                         ),
                          'separation_target_policy': sep_policy, 'separation_target_deg': target_deg,
                          'distance_trend_criterion_source': trend.get('criterion_source'),
                          'planned_distance_trend': (

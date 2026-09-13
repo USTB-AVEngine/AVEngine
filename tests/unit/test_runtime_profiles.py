@@ -713,7 +713,11 @@ def test_habitat_only_rigid_binding_has_neutral_emitter_and_no_spear_claim():
     asset['runtime_backends'] = {'habitat': {
         'asset_kind': 'rigid_static_object', 'glb_path': '/retained/speaker.glb',
         'semantic_template': {'semantic_id_source': 'episode_binding'},
-        'resting_pose': {'attachment_surface': 'floor', 'base_plane_offset_m': 0.},
+        'resting_pose': {
+            'attachment_surface': 'floor',
+            'attachment_surface_assumed': False,
+            'base_plane_offset_m': 0.,
+        },
         'emitter': {'anchor_id': 'woofer', 'offset_m': [.105, .099, -.006]}}}
     assert validate_source_asset_runtime_registry(registry) == []
     assert spear_actor_bindings(registry) == {}

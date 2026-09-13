@@ -150,7 +150,9 @@ PLANNING_KEY_LAYER: dict[str, str] = {
     "distance_trend_during_event": "solver",
     "entry_side": "solver",
     "pixel_occlusion_transition": "solver",
+    "pixel_occlusion_partial_transition": "solver",
     "require_distance_margin_m": "solver",
+    "registered_occluder_transition": "solver",
     "target_moved_after_sound": "solver",
     "visibility_transition": "solver",
     # Statements about the request rather than about a planner interface.
@@ -200,26 +202,15 @@ KNOB_GAPS: dict[str, tuple[str, str]] = {
         "under speech_motion=speaker_moving the non-anchor articulated actors are "
         "given a random moving flag, so the competitor can share the target's answer",
     ),
-    "visibility_transition": (
-        "avengine/rooms/conditioned_sampler.py:select_camera_and_schedule",
-        "anchor_visibility constrains per-frame field of view during the audible "
-        "window; no knob requires an out_of_view to visible crossing in the clip",
+    "pixel_occlusion_partial_transition": (
+        "avengine/rooms/conditioned_sampler.py:_occlusion_route",
+        "the partial-to-clear transition is an accepted interface key; its "
+        "camera-first route construction is scheduled for C2",
     ),
-    "pixel_occlusion_transition": (
-        "avengine/rooms/conditioned_sampler.py:select_camera_and_schedule",
-        "anchor_line_of_sight uses a single emitter/body ray; a fully_occluded "
-        "pixel state is a different measurement and has no planning knob",
-    ),
-    "anchor_median_plane_offset_deg": (
-        "avengine/rooms/conditioned_sampler.py:select_camera_and_schedule",
-        "separation_bin_deg constrains the angle between two sources; nothing "
-        "constrains how far the anchor sits from the listener median plane, which "
-        "is what a left/right question needs",
-    ),
-    "distance_trend_during_event": (
-        "avengine/rooms/conditioned_sampler.py:sample_routes",
-        "routes are sampled for a contiguous moving window, not for a signed "
-        "listener-distance change of at least the judged margin",
+    "registered_occluder_transition": (
+        "avengine/rooms/conditioned_sampler.py:_occlusion_route",
+        "the registered-occluder transition is an accepted interface key; its "
+        "two-role construction is scheduled for C3 after appearance review",
     ),
 }
 
@@ -263,18 +254,18 @@ _REPLACES_BASELINE = "replaces the measured baseline"
 GOAL_ENFORCEMENT: dict[str, tuple[str, str]] = {
     "visibility_transition": (
         "guarantee_required",
-        "the retained facts carry no out_of_view state at all across 148 members, so an "
-        "entry crossing does not happen unless it is planned",
+        "conditioned_sampler selects a camera and route whose body-proxy series "
+        "contains the requested out_of_view to visible crossing",
     ),
     "pixel_occlusion_transition": (
         "guarantee_required",
-        "the retained facts carry no fully_occluded pixel state across 148 members; a "
-        "blocked line-of-sight ray is a different measurement and cannot stand in",
+        "conditioned_visibility screens the multi-sample pixel requirement and leaves "
+        "native pixels as the acceptance authority",
     ),
     "distance_trend_during_event": (
         "guarantee_required",
-        "every retained event measures a listener-distance change of exactly 0.0 m "
-        "against a judged 0.2 m margin, so the trend does not appear on its own",
+        "conditioned_motion.solve_motion_windows supplies a signed distance-trend "
+        "requirement and conditioned_sampler rejects poses that miss its margin",
     ),
     "competitor_motion": (
         "verify_only",
@@ -284,9 +275,9 @@ GOAL_ENFORCEMENT: dict[str, tuple[str, str]] = {
         "100 diagnostic seeds. That is a retry yield, not an unreachable condition",
     ),
     "anchor_median_plane_offset_deg": (
-        "verify_only",
-        "QA-04 produced items in the retained batch, so a usable median-plane offset "
-        "occurs without being requested; the judge reads the angle back",
+        "guarantee_required",
+        "conditioned_sampler filters each camera candidate by the listener-relative "
+        "anchor angle before scheduling the event",
     ),
     "entry_side": (
         "verify_only",
@@ -355,8 +346,11 @@ DISTANCE_MARGIN_M = 0.2
 QA04_SIDE_DEAD_ZONE_DEG = 5.0
 # The minimum silence the catalog demands before an anchor event.
 ANCHOR_PRE_SILENCE_S = 0.1
-# Public intervals are whole seconds unless an episode declares otherwise.
+# Public intervals are whole seconds unless an episode declares otherwise. The
+# planner keeps an additional 0.2 s of room so inward quantization still leaves
+# one complete public second.
 DEFAULT_PUBLIC_TIME_PRECISION = 0
+PUBLIC_WINDOW_MIN_S = 1.2
 
 # The event selection each question implies when a caller states none.  A
 # question that counts over the clip is not a question about one audible window,
@@ -560,6 +554,7 @@ def resolve_generator_capabilities(value: Any = None) -> GeneratorCapabilities:
 # value set needs no edit here.
 _SCALAR_PROBES: dict[str, Any] = {
     "anchor_count": 1,
+    "anchor_median_plane_offset_deg": 5.0,
     "distance_range_m": [1.0, 4.0],
     "min_gap_between_audible_windows_s": 0.75,
     "minimum_overlap_s": 0.4,
@@ -1326,6 +1321,8 @@ def _public_window_condition(qa_id: str, precision: int) -> Condition:
             "public_time_precision": precision,
             "window_authority": authority,
             "qa_id": qa_id,
+            "minimum_interval_s": PUBLIC_WINDOW_MIN_S,
+            "planning_margin_s": 0.2,
             "note": "the public bounds are quantized inward, so the proven interval has "
             "to cross two display marks before the question can state it",
         },

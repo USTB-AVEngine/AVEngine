@@ -1866,3 +1866,56 @@ def test_branch_state_uses_the_branch_owner_and_flags_unmapped_values() -> None:
             "available", "not_applicable_by_definition", "evidence_missing_or_unsampled"
         }
         assert row["evidence_state_authority"] == "unified_catalog_evidence"
+
+
+def test_named_target_is_selected_before_a_random_valid_side_question():
+    raw = _fixture()
+    raw['sampling']['acceptance_policy'] = {'question_mode': 'ordinary_observation', 'policy_id': 'target_test'}
+    raw['sampling']['qa_targets'] = [{'qa_id': 'QA-06', 'target_actor_ids': ['a2'], 'branch': 'still', 'items': 1}]
+    result = generate_unified_questions(raw, qa_ids=['QA-06'], seed='named-target')
+    assert result['items'][0]['evidence']['actor_id'] == 'a2'
+    assert result['items'][0]['truth']['value'] == 'still'
+    assert result['qa_target_results'][0]['status'] == 'met'
+
+
+def test_an_unmet_named_branch_keeps_valid_side_questions_and_reports_the_miss():
+    raw = _fixture()
+    raw['sampling']['acceptance_policy'] = {'question_mode': 'ordinary_observation', 'policy_id': 'target_test'}
+    raw['sampling']['qa_targets'] = [{'qa_id': 'QA-06', 'target_actor_ids': ['a2'], 'branch': 'moving', 'items': 1}]
+    result = generate_unified_questions(raw, qa_ids=['QA-06'], seed='named-target')
+    assert result['items']
+    assert all(item['status'] == 'pass' for item in result['items'])
+    assert result['qa_target_results'][0]['status'] == 'unmet'
+    assert result['qa_target_results'][0]['policy_accepted_target_question_ids'] == []
+
+
+def test_observed_branch_permission_remains_owned_by_the_existing_policy():
+    import avengine.qa.unified_catalog as catalog
+    facts = {'sampling': {'acceptance_policy': {'accept_observed_branches': {'QA-07': ['left', 'right']}}}}
+    target = {'target_actor_ids': ['source1'], 'branch': 'left'}
+    item = {'evidence': {'actor_id': 'source1'}, 'truth': {'value': 'right'}}
+    assert not catalog._qa_target_item_matches(target, 'QA-07', item, facts)
+    assert catalog._qa_target_item_matches(target, 'QA-07', item, facts, accept_observed=True)
+    item['evidence']['actor_id'] = 'source2'
+    assert not catalog._qa_target_item_matches(target, 'QA-07', item, facts, accept_observed=True)
+
+
+def test_delivery_maps_named_instances_without_changing_the_acceptance_policy():
+    from avengine.rooms.qa_delivery import _sampling_for_delivery
+    policy = {'keep_scene_when_target_unmet': True}
+    request = {'qa_sampling': {'acceptance_policy': policy},
+               'qa_targets': [{'qa_id': 'QA-06', 'target_instance_ids': ['human_target'], 'branch': 'moving'}]}
+    plan = {'entity_instances': [{'entity_instance_id': 'human_target', 'actor_id': 'source1'}]}
+    sampling = _sampling_for_delivery(plan, request)
+    assert sampling['qa_targets'][0]['target_actor_ids'] == ['source1']
+    assert sampling['acceptance_policy'] == policy
+    assert 'target_actor_ids' not in request['qa_targets'][0]
+
+
+def test_an_unsupported_finish_does_not_hide_a_registered_supported_colour():
+    from avengine.rooms.qa_delivery import _decorate_actor
+    actor = {"actor_id": "source1", "asset_id": "example",
+             "realized_attributes": {"finish": "unimplemented_finish", "body_color": "white"}}
+    decorated = _decorate_actor(actor, {})
+    assert decorated["appearance"] == {"field": "body_color", "value": "white", "label": "example"}
+    assert decorated["registered_appearance"]["finish"] == "unimplemented_finish"

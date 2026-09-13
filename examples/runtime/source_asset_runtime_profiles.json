@@ -33,6 +33,7 @@
       "asset_id": "generated_abyssinian_ruddy_medium_standard_adult_research_v1",
       "revision": "pixel3d_tokenrig_ue_v1",
       "display_label": "Abyssinian",
+      "display_label_zh": "阿比西尼亚猫",
       "entity_class": "articulated_animal",
       "identity": {
         "species_id": "cat",
@@ -154,6 +155,7 @@
           "glb_relative_path": "package/visual.glb",
           "resting_pose": {
             "attachment_surface": "floor",
+            "attachment_surface_assumed": false,
             "base_plane_offset_m": 0.0,
             "measured_from": "P12 Habitat native skin-rest probe",
             "probe_path": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/p12_package_abyssinian_20260906_v1/habitat_static_probe/probe.json"
@@ -179,6 +181,7 @@
       "asset_id": "generated_border_collie_black_white_medium_standard_adult_research_v1",
       "revision": "pixel3d_tokenrig_ue_v1",
       "display_label": "Border Collie",
+      "display_label_zh": "边境牧羊犬",
       "entity_class": "articulated_animal",
       "identity": {
         "species_id": "dog",
@@ -300,6 +303,7 @@
           "glb_relative_path": "package/visual.glb",
           "resting_pose": {
             "attachment_surface": "floor",
+            "attachment_surface_assumed": false,
             "base_plane_offset_m": 0.0,
             "measured_from": "P12 Habitat native skin-rest probe",
             "probe_path": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/p12_package_border_20260906_v1/habitat_static_probe/probe.json"
@@ -325,6 +329,7 @@
       "asset_id": "generated_labrador_yellow_medium_standard_adult_research_v1",
       "revision": "pixel3d_tokenrig_ue_v1",
       "display_label": "Labrador Retriever",
+      "display_label_zh": "拉布拉多寻回犬",
       "entity_class": "articulated_animal",
       "identity": {
         "species_id": "dog",
@@ -446,6 +451,7 @@
           "glb_relative_path": "package/visual.glb",
           "resting_pose": {
             "attachment_surface": "floor",
+            "attachment_surface_assumed": false,
             "base_plane_offset_m": 0.0,
             "measured_from": "P12 Habitat native skin-rest probe",
             "probe_path": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/p12_package_labrador_20260906_v3/habitat_static_probe/probe.json"
@@ -471,6 +477,7 @@
       "asset_id": "generated_shiba_inu_red_medium_standard_adult_research_v1",
       "revision": "pixel3d_tokenrig_ue_v1",
       "display_label": "Shiba Inu",
+      "display_label_zh": "柴犬",
       "entity_class": "articulated_animal",
       "identity": {
         "species_id": "dog",
@@ -592,6 +599,7 @@
           "glb_relative_path": "package/visual.glb",
           "resting_pose": {
             "attachment_surface": "floor",
+            "attachment_surface_assumed": false,
             "base_plane_offset_m": 0.0,
             "measured_from": "P12 Habitat native skin-rest probe",
             "probe_path": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/p12_package_shiba1_20260906_v1/habitat_static_probe/probe.json"
@@ -617,6 +625,7 @@
       "asset_id": "generated_pembroke_welsh_corgi_red_white_medium_standard_adult_research_v1",
       "revision": "pixel3d_tokenrig_ue_v1",
       "display_label": "Pembroke Welsh Corgi",
+      "display_label_zh": "彭布罗克威尔士柯基犬",
       "entity_class": "articulated_animal",
       "identity": {
         "species_id": "dog",
@@ -762,6 +771,7 @@
           "glb_relative_path": "package/visual.glb",
           "resting_pose": {
             "attachment_surface": "floor",
+            "attachment_surface_assumed": false,
             "base_plane_offset_m": 0.0,
             "measured_from": "P12 Habitat native skin-rest probe",
             "probe_path": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/p12_package_corgi_20260906_v1/habitat_static_probe/probe.json"
@@ -872,6 +882,7 @@
       "asset_id": "generated_british_shorthair_blue_medium_stocky_adult_research_v1",
       "revision": "pixel3d_tokenrig_ue_v1",
       "display_label": "British Shorthair",
+      "display_label_zh": "英国短毛猫",
       "entity_class": "articulated_animal",
       "identity": {
         "species_id": "cat",
@@ -1017,6 +1028,7 @@
           "glb_relative_path": "package/visual.glb",
           "resting_pose": {
             "attachment_surface": "floor",
+            "attachment_surface_assumed": false,
             "base_plane_offset_m": 0.0,
             "measured_from": "P12 Habitat native skin-rest probe",
             "probe_path": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/p12_package_british_20260906_v1/habitat_static_probe/probe.json"
@@ -1132,6 +1144,7 @@
       "asset_id": "generated_shiba_inu_red_medium_standard_adult_research_v2",
       "revision": "pixel3d_tokenrig_ue_v2",
       "display_label": "Shiba Inu v2",
+      "display_label_zh": "柴犬 v2",
       "entity_class": "articulated_animal",
       "identity": {
         "species_id": "dog",
@@ -1277,6 +1290,7 @@
           "glb_relative_path": "package/visual.glb",
           "resting_pose": {
             "attachment_surface": "floor",
+            "attachment_surface_assumed": false,
             "base_plane_offset_m": 0.0,
             "measured_from": "P12 Habitat native skin-rest probe",
             "probe_path": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/p12_package_shiba2_20260906_v1/habitat_static_probe/probe.json"
@@ -1392,6 +1406,7 @@
       "asset_id": "rocketbox_dog_beagle_01_m2_v7_world_contact_candidate",
       "revision": "m2_v7_world_contact_r5",
       "display_label": "Beagle",
+      "display_label_zh": "比格犬",
       "entity_class": "articulated_animal",
       "identity": {
         "species_id": "dog",
@@ -1503,6 +1518,7 @@
           "glb_relative_path": "visual.glb",
           "resting_pose": {
             "attachment_surface": "floor",
+            "attachment_surface_assumed": false,
             "base_plane_offset_m": 0.0,
             "measured_from": "M2 package contact/rest calibration",
             "source_manifest": "/data/avengine_external/datasets/m2/rocketbox_beagle_m2_canary_v7_world_contact_r5/asset_manifest.json"
@@ -1520,6 +1536,7 @@
       "asset_id": "rocketbox_human_male_adult_01_m5_1_candidate",
       "revision": "native_runtime_ue_v3",
       "display_label": "Human",
+      "display_label_zh": "成年男性",
       "entity_class": "articulated_human",
       "identity": {
         "species_id": "human",
@@ -1527,7 +1544,8 @@
       },
       "realized_attributes": {
         "life_stage": "adult",
-        "sex_or_gender_label": "male"
+        "sex_or_gender_label": "male",
+        "top_color": "white"
       },
       "geometry": {
         "mesh_authority": "audited_library_asset",
@@ -1631,6 +1649,7 @@
           "glb_relative_path": "package/visual.glb",
           "resting_pose": {
             "attachment_surface": "floor",
+            "attachment_surface_assumed": false,
             "base_plane_offset_m": 0.0,
             "measured_from": "P12 Habitat native skin-rest probe",
             "probe_path": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/p12_package_human_male_base_20260906_v1/habitat_static_probe/probe.json"
@@ -1656,6 +1675,7 @@
       "asset_id": "lead_b_rocketbox_adults_female_adult_01_original_v1",
       "revision": "native_runtime_ue_v1",
       "display_label": "Rocketbox Female Adult 01",
+      "display_label_zh": "Rocketbox 成年女性 01",
       "entity_class": "articulated_human",
       "identity": {
         "species_id": "human",
@@ -1663,7 +1683,8 @@
       },
       "realized_attributes": {
         "life_stage": "adult",
-        "sex_or_gender_label": "female"
+        "sex_or_gender_label": "female",
+        "top_color": "pink"
       },
       "geometry": {
         "mesh_authority": "audited_library_asset",
@@ -1768,6 +1789,7 @@
           "glb_relative_path": "package/visual.glb",
           "resting_pose": {
             "attachment_surface": "floor",
+            "attachment_surface_assumed": false,
             "base_plane_offset_m": 0.0,
             "measured_from": "P12 Habitat native skin-rest probe",
             "probe_path": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/p12_package_human_female_20260906_v3/habitat_static_probe/probe.json"
@@ -1793,6 +1815,7 @@
       "asset_id": "lead_b_rocketbox_professions_construction_male_01_original_v1",
       "revision": "native_runtime_ue_v1",
       "display_label": "Rocketbox Construction Male 01",
+      "display_label_zh": "Rocketbox 建筑工男性 01",
       "entity_class": "articulated_human",
       "identity": {
         "species_id": "human",
@@ -1800,7 +1823,8 @@
       },
       "realized_attributes": {
         "life_stage": "adult",
-        "sex_or_gender_label": "male"
+        "sex_or_gender_label": "male",
+        "top_color": "blue"
       },
       "geometry": {
         "mesh_authority": "audited_library_asset",
@@ -1905,6 +1929,7 @@
           "glb_relative_path": "package/visual.glb",
           "resting_pose": {
             "attachment_surface": "floor",
+            "attachment_surface_assumed": false,
             "base_plane_offset_m": 0.0,
             "measured_from": "P12 Habitat native skin-rest probe",
             "probe_path": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/p12_package_human_construction_male_20260906_v2/habitat_static_probe/probe.json"
@@ -1930,6 +1955,7 @@
       "asset_id": "rocketbox_human_male_adult_01_top_burgundy_research_v1",
       "revision": "controlled_material_ue_v3",
       "display_label": "Human (burgundy top)",
+      "display_label_zh": "酒红上衣人物",
       "entity_class": "articulated_human",
       "identity": {
         "species_id": "human",
@@ -2042,6 +2068,7 @@
           "glb_relative_path": "package/visual.glb",
           "resting_pose": {
             "attachment_surface": "floor",
+            "attachment_surface_assumed": false,
             "base_plane_offset_m": 0.0,
             "measured_from": "P12 Habitat native skin-rest probe",
             "probe_path": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/p12_package_human_burgundy_20260906_v1/habitat_static_probe/probe.json"
@@ -2067,6 +2094,7 @@
       "asset_id": "rocketbox_human_male_adult_01_top_green_research_v1",
       "revision": "controlled_material_ue_v3",
       "display_label": "Human (green top)",
+      "display_label_zh": "绿色上衣人物",
       "entity_class": "articulated_human",
       "identity": {
         "species_id": "human",
@@ -2179,6 +2207,7 @@
           "glb_relative_path": "package/visual.glb",
           "resting_pose": {
             "attachment_surface": "floor",
+            "attachment_surface_assumed": false,
             "base_plane_offset_m": 0.0,
             "measured_from": "P12 Habitat native skin-rest probe",
             "probe_path": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/p12_package_human_green_20260906_v1/habitat_static_probe/probe.json"
@@ -2204,6 +2233,7 @@
       "asset_id": "rocketbox_human_male_adult_01_top_blue_research_v1",
       "revision": "controlled_material_ue_v3",
       "display_label": "Human (blue top)",
+      "display_label_zh": "蓝色上衣人物",
       "entity_class": "articulated_human",
       "identity": {
         "species_id": "human",
@@ -2316,6 +2346,7 @@
           "glb_relative_path": "package/visual.glb",
           "resting_pose": {
             "attachment_surface": "floor",
+            "attachment_surface_assumed": false,
             "base_plane_offset_m": 0.0,
             "measured_from": "P12 Habitat native skin-rest probe",
             "probe_path": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/p12_package_human_blue_20260906_v5/habitat_static_probe/probe.json"
@@ -2341,6 +2372,7 @@
       "asset_id": "rocketbox_human_male_adult_01_top_yellow_research_v1",
       "revision": "controlled_material_ue_v3",
       "display_label": "Human with yellow top",
+      "display_label_zh": "黄色上衣人物",
       "entity_class": "articulated_human",
       "identity": {
         "species_id": "human",
@@ -2453,6 +2485,7 @@
           "glb_relative_path": "package/visual.glb",
           "resting_pose": {
             "attachment_surface": "floor",
+            "attachment_surface_assumed": false,
             "base_plane_offset_m": 0.0,
             "measured_from": "P12 Habitat native skin-rest probe",
             "probe_path": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/p12_package_human_yellow_20260906_v1/habitat_static_probe/probe.json"
@@ -2478,6 +2511,7 @@
       "asset_id": "generated_bookshelf_speaker_compact_shelf_cabinet_black_ash_research_v1",
       "revision": "sound_source_assets_v1",
       "display_label": "bookshelf speaker (black ash)",
+      "display_label_zh": "黑灰木纹书架音箱",
       "entity_class": "rigid_object",
       "identity": {
         "object_type": "bookshelf_speaker",
@@ -2577,6 +2611,7 @@
       "asset_id": "generated_bookshelf_speaker_compact_shelf_cabinet_walnut_veneer_research_v1",
       "revision": "sound_source_assets_v1",
       "display_label": "bookshelf speaker (walnut veneer)",
+      "display_label_zh": "胡桃木饰面书架音箱",
       "entity_class": "rigid_object",
       "identity": {
         "object_type": "bookshelf_speaker",
@@ -2676,6 +2711,7 @@
       "asset_id": "generated_air_conditioner_portable_floor_white_research_v2",
       "revision": "sound_source_assets_v1",
       "display_label": "air conditioner",
+      "display_label_zh": "白色落地空调",
       "entity_class": "rigid_object",
       "identity": {
         "object_type": "air_conditioner",
@@ -2782,6 +2818,7 @@
       "asset_id": "generated_air_conditioner_wall_split_white_research_v1",
       "revision": "sound_source_assets_v1",
       "display_label": "air conditioner",
+      "display_label_zh": "白色壁挂分体空调",
       "entity_class": "rigid_object",
       "identity": {
         "object_type": "air_conditioner",
@@ -2891,6 +2928,7 @@
       "asset_id": "generated_air_conditioner_window_unit_white_research_v2",
       "revision": "sound_source_assets_v1",
       "display_label": "air conditioner",
+      "display_label_zh": "白色窗式空调",
       "entity_class": "rigid_object",
       "identity": {
         "object_type": "air_conditioner",
@@ -3001,6 +3039,7 @@
       "asset_id": "generated_alarm_clock_digital_cube_black_research_v2",
       "revision": "sound_source_assets_v1",
       "display_label": "alarm clock",
+      "display_label_zh": "黑色数字方钟",
       "entity_class": "rigid_object",
       "identity": {
         "object_type": "alarm_clock",
@@ -3107,6 +3146,7 @@
       "asset_id": "generated_alarm_clock_twin_bell_analog_white_research_v1",
       "revision": "sound_source_assets_v1",
       "display_label": "alarm clock",
+      "display_label_zh": "白色双铃指针闹钟",
       "entity_class": "rigid_object",
       "identity": {
         "object_type": "alarm_clock",
@@ -3213,6 +3253,7 @@
       "asset_id": "generated_bathtub_built_in_alcove_white_research_v2",
       "revision": "sound_source_assets_v1",
       "display_label": "bathtub",
+      "display_label_zh": "白色嵌入式浴缸",
       "entity_class": "rigid_object",
       "identity": {
         "object_type": "bathtub",
@@ -3319,6 +3360,7 @@
       "asset_id": "generated_bathtub_freestanding_white_research_v1",
       "revision": "sound_source_assets_v1",
       "display_label": "bathtub",
+      "display_label_zh": "白色独立式浴缸",
       "entity_class": "rigid_object",
       "identity": {
         "object_type": "bathtub",
@@ -3425,6 +3467,7 @@
       "asset_id": "generated_blender_bullet_blender_silver_research_v1",
       "revision": "sound_source_assets_v1",
       "display_label": "blender",
+      "display_label_zh": "银色子弹头搅拌机",
       "entity_class": "rigid_object",
       "identity": {
         "object_type": "blender",
@@ -3531,6 +3574,7 @@
       "asset_id": "generated_blender_jug_blender_black_research_v2",
       "revision": "sound_source_assets_v1",
       "display_label": "blender",
+      "display_label_zh": "黑色壶式搅拌机",
       "entity_class": "rigid_object",
       "identity": {
         "object_type": "blender",
@@ -3637,6 +3681,7 @@
       "asset_id": "generated_bookshelf_speaker_compact_shelf_cabinet_white_satin_research_v1",
       "revision": "sound_source_assets_v1",
       "display_label": "bookshelf speaker",
+      "display_label_zh": "白色缎面书架音箱",
       "entity_class": "rigid_object",
       "identity": {
         "object_type": "bookshelf_speaker",
@@ -3735,6 +3780,7 @@
       "asset_id": "generated_cellphone_bar_smartphone_black_research_v1",
       "revision": "sound_source_assets_v1",
       "display_label": "cellphone",
+      "display_label_zh": "黑色智能手机",
       "entity_class": "rigid_object",
       "identity": {
         "object_type": "cellphone",
@@ -3841,6 +3887,7 @@
       "asset_id": "generated_desk_telephone_corded_desk_unit_black_research_v1",
       "revision": "sound_source_assets_v1",
       "display_label": "desk telephone",
+      "display_label_zh": "黑色有绳座机",
       "entity_class": "rigid_object",
       "identity": {
         "object_type": "desk_telephone",
@@ -3947,6 +3994,7 @@
       "asset_id": "generated_doorbell_chime_unit_video_doorbell_black_research_v1",
       "revision": "sound_source_assets_v1",
       "display_label": "doorbell chime unit",
+      "display_label_zh": "黑色视频门铃",
       "entity_class": "rigid_object",
       "identity": {
         "object_type": "doorbell_chime_unit",
@@ -4056,6 +4104,7 @@
       "asset_id": "generated_doorbell_chime_unit_wall_mounted_box_black_research_v1",
       "revision": "sound_source_assets_v1",
       "display_label": "doorbell chime unit",
+      "display_label_zh": "黑色壁挂门铃盒",
       "entity_class": "rigid_object",
       "identity": {
         "object_type": "doorbell_chime_unit",
@@ -4165,6 +4214,7 @@
       "asset_id": "generated_fireplace_masonry_open_warm_gray_research_v1",
       "revision": "sound_source_assets_v1",
       "display_label": "fireplace",
+      "display_label_zh": "暖灰色开放式壁炉",
       "entity_class": "rigid_object",
       "identity": {
         "object_type": "fireplace",
@@ -4271,6 +4321,7 @@
       "asset_id": "generated_fireplace_wood_stove_matte_black_research_v1",
       "revision": "sound_source_assets_v1",
       "display_label": "fireplace",
+      "display_label_zh": "哑光黑木柴炉",
       "entity_class": "rigid_object",
       "identity": {
         "object_type": "fireplace",
@@ -4377,6 +4428,7 @@
       "asset_id": "generated_floor_drain_exposed_bottle_trap_silver_research_v1",
       "revision": "sound_source_assets_v1",
       "display_label": "floor drain",
+      "display_label_zh": "银色外露存水弯地漏",
       "entity_class": "rigid_object",
       "identity": {
         "object_type": "floor_drain",
@@ -4487,6 +4539,7 @@
       "asset_id": "generated_floor_drain_floor_drain_silver_research_v1",
       "revision": "sound_source_assets_v1",
       "display_label": "floor drain",
+      "display_label_zh": "银色地漏",
       "entity_class": "rigid_object",
       "identity": {
         "object_type": "floor_drain",
@@ -4593,6 +4646,7 @@
       "asset_id": "generated_floorstanding_speaker_floor_standing_tower_walnut_veneer_research_v1",
       "revision": "sound_source_assets_v1",
       "display_label": "floorstanding speaker",
+      "display_label_zh": "胡桃木落地塔式音箱",
       "entity_class": "rigid_object",
       "identity": {
         "object_type": "floorstanding_speaker",
@@ -4691,6 +4745,7 @@
       "asset_id": "generated_landline_phone_wall_mounted_beige_research_v1",
       "revision": "sound_source_assets_v1",
       "display_label": "landline phone",
+      "display_label_zh": "米色壁挂电话",
       "entity_class": "rigid_object",
       "identity": {
         "object_type": "landline_phone",
@@ -4800,6 +4855,7 @@
       "asset_id": "generated_microwave_oven_countertop_black_research_v1",
       "revision": "sound_source_assets_v1",
       "display_label": "microwave oven",
+      "display_label_zh": "黑色台式微波炉",
       "entity_class": "rigid_object",
       "identity": {
         "object_type": "microwave_oven",
@@ -4906,6 +4962,7 @@
       "asset_id": "generated_microwave_oven_over_range_silver_research_v1",
       "revision": "sound_source_assets_v1",
       "display_label": "microwave oven",
+      "display_label_zh": "银色吊柜式微波炉",
       "entity_class": "rigid_object",
       "identity": {
         "object_type": "microwave_oven",
@@ -5015,6 +5072,7 @@
       "asset_id": "generated_printer_desktop_inkjet_matte_black_research_v1",
       "revision": "sound_source_assets_v1",
       "display_label": "printer",
+      "display_label_zh": "哑光黑喷墨打印机",
       "entity_class": "rigid_object",
       "identity": {
         "object_type": "printer",
@@ -5121,6 +5179,7 @@
       "asset_id": "generated_printer_office_laser_mfp_white_research_v1",
       "revision": "sound_source_assets_v1",
       "display_label": "printer",
+      "display_label_zh": "白色办公激光打印机",
       "entity_class": "rigid_object",
       "identity": {
         "object_type": "printer",
@@ -5227,6 +5286,7 @@
       "asset_id": "generated_sink_with_tap_counter_vanity_white_research_v2",
       "revision": "sound_source_assets_v1",
       "display_label": "sink with tap",
+      "display_label_zh": "白色台面式带龙头水槽",
       "entity_class": "rigid_object",
       "identity": {
         "object_type": "sink_with_tap",
@@ -5333,6 +5393,7 @@
       "asset_id": "generated_sink_with_tap_pedestal_basin_white_research_v2",
       "revision": "sound_source_assets_v1",
       "display_label": "sink with tap",
+      "display_label_zh": "白色立柱式带龙头水槽",
       "entity_class": "rigid_object",
       "identity": {
         "object_type": "sink_with_tap",
@@ -5439,6 +5500,7 @@
       "asset_id": "generated_smart_speaker_fabric_wrapped_cylinder_charcoal_research_v1",
       "revision": "sound_source_assets_v1",
       "display_label": "smart speaker",
+      "display_label_zh": "炭灰色织物智能音箱",
       "entity_class": "rigid_object",
       "identity": {
         "object_type": "smart_speaker",
@@ -5537,6 +5599,7 @@
       "asset_id": "generated_smart_speaker_fabric_wrapped_cylinder_light_gray_research_v1",
       "revision": "sound_source_assets_v1",
       "display_label": "smart speaker",
+      "display_label_zh": "浅灰色织物智能音箱",
       "entity_class": "rigid_object",
       "identity": {
         "object_type": "smart_speaker",
@@ -5635,6 +5698,7 @@
       "asset_id": "generated_smart_speaker_fabric_wrapped_cylinder_sandstone_research_v1",
       "revision": "sound_source_assets_v1",
       "display_label": "smart speaker",
+      "display_label_zh": "砂岩色织物智能音箱",
       "entity_class": "rigid_object",
       "identity": {
         "object_type": "smart_speaker",
@@ -5733,6 +5797,7 @@
       "asset_id": "generated_smoke_detector_ceiling_disc_white_research_v1",
       "revision": "sound_source_assets_v1",
       "display_label": "smoke detector",
+      "display_label_zh": "白色吸顶烟雾探测器",
       "entity_class": "rigid_object",
       "identity": {
         "object_type": "smoke_detector",
@@ -5842,6 +5907,7 @@
       "asset_id": "generated_smoke_detector_wall_square_white_research_v1",
       "revision": "sound_source_assets_v1",
       "display_label": "smoke detector",
+      "display_label_zh": "白色壁挂烟雾探测器",
       "entity_class": "rigid_object",
       "identity": {
         "object_type": "smoke_detector",
@@ -5951,6 +6017,7 @@
       "asset_id": "generated_soundbar_wide_low_bar_light_gray_fabric_research_v1",
       "revision": "sound_source_assets_v1",
       "display_label": "soundbar",
+      "display_label_zh": "浅灰色织物条形音箱",
       "entity_class": "rigid_object",
       "identity": {
         "object_type": "soundbar",
@@ -6049,6 +6116,7 @@
       "asset_id": "generated_soundbar_wide_low_bar_matte_black_research_v1",
       "revision": "sound_source_assets_v1",
       "display_label": "soundbar",
+      "display_label_zh": "哑光黑条形音箱",
       "entity_class": "rigid_object",
       "identity": {
         "object_type": "soundbar",
@@ -6147,6 +6215,7 @@
       "asset_id": "generated_soundbar_wide_low_bar_white_satin_research_v1",
       "revision": "sound_source_assets_v1",
       "display_label": "soundbar",
+      "display_label_zh": "白色缎面条形音箱",
       "entity_class": "rigid_object",
       "identity": {
         "object_type": "soundbar",
@@ -6245,6 +6314,7 @@
       "asset_id": "generated_television_flat_panel_16_9_central_pedestal_research_v1",
       "revision": "sound_source_assets_v1",
       "display_label": "television",
+      "display_label_zh": "中央底座平板电视",
       "entity_class": "rigid_object",
       "identity": {
         "object_type": "television",
@@ -6344,6 +6414,7 @@
       "asset_id": "generated_television_flat_panel_16_9_two_splayed_feet_research_v1",
       "revision": "sound_source_assets_v1",
       "display_label": "television",
+      "display_label_zh": "双外展支脚平板电视",
       "entity_class": "rigid_object",
       "identity": {
         "object_type": "television",
@@ -6443,6 +6514,7 @@
       "asset_id": "generated_toilet_elevated_tank_exposed_pipe_white_research_v2",
       "revision": "sound_source_assets_v1",
       "display_label": "toilet",
+      "display_label_zh": "白色高位水箱外露管马桶",
       "entity_class": "rigid_object",
       "identity": {
         "object_type": "toilet",
@@ -6549,6 +6621,7 @@
       "asset_id": "generated_toilet_exposed_flush_pipe_tank_white_research_v1",
       "revision": "sound_source_assets_v1",
       "display_label": "toilet",
+      "display_label_zh": "白色外露冲水管水箱马桶",
       "entity_class": "rigid_object",
       "identity": {
         "object_type": "toilet",
@@ -6655,6 +6728,7 @@
       "asset_id": "generated_burmese_dark_sable_research_v1",
       "revision": "external_animated_v1",
       "display_label": "burmese cat",
+      "display_label_zh": "深棕缅甸猫",
       "entity_class": "articulated_animal",
       "identity": {
         "species_id": "cat",
@@ -6938,6 +7012,7 @@
           "glb_relative_path": "package/visual.glb",
           "resting_pose": {
             "attachment_surface": "floor",
+            "attachment_surface_assumed": false,
             "base_plane_offset_m": 0.0,
             "measured_from": "P12 Habitat native skin-rest probe",
             "probe_path": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/p12_package_burmese_dark_sable_20260907_v2/habitat_static_probe/probe.json"
@@ -6963,6 +7038,7 @@
       "asset_id": "generated_burmese_standard_sable_research_v1",
       "revision": "external_animated_v1",
       "display_label": "burmese cat",
+      "display_label_zh": "标准棕缅甸猫",
       "entity_class": "articulated_animal",
       "identity": {
         "species_id": "cat",
@@ -7246,6 +7322,7 @@
           "glb_relative_path": "package/visual.glb",
           "resting_pose": {
             "attachment_surface": "floor",
+            "attachment_surface_assumed": false,
             "base_plane_offset_m": 0.0,
             "measured_from": "P12 Habitat native skin-rest probe",
             "probe_path": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/p12_package_burmese_standard_sable_20260907_v1/habitat_static_probe/probe.json"
@@ -7271,6 +7348,7 @@
       "asset_id": "generated_jack_russell_terrier_standard_white_tan_research_v1",
       "revision": "external_animated_v1",
       "display_label": "jack russell terrier dog",
+      "display_label_zh": "标准白棕杰克罗素梗犬",
       "entity_class": "articulated_animal",
       "identity": {
         "species_id": "dog",
@@ -7554,6 +7632,7 @@
           "glb_relative_path": "package/visual.glb",
           "resting_pose": {
             "attachment_surface": "floor",
+            "attachment_surface_assumed": false,
             "base_plane_offset_m": 0.0,
             "measured_from": "P12 Habitat native skin-rest probe",
             "probe_path": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/p12_package_jack_russell_terrier_20260907_v1/habitat_static_probe/probe.json"
@@ -7579,6 +7658,7 @@
       "asset_id": "generated_siamese_standard_seal_point_research_v1",
       "revision": "external_animated_v1",
       "display_label": "siamese cat",
+      "display_label_zh": "标准海豹重点色暹罗猫",
       "entity_class": "articulated_animal",
       "identity": {
         "species_id": "cat",
@@ -7862,6 +7942,7 @@
           "glb_relative_path": "package/visual.glb",
           "resting_pose": {
             "attachment_surface": "floor",
+            "attachment_surface_assumed": false,
             "base_plane_offset_m": 0.0,
             "measured_from": "P12 Habitat native skin-rest probe",
             "probe_path": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/p12_package_siamese_standard_seal_point_20260907_v1/habitat_static_probe/probe.json"

@@ -18,7 +18,11 @@ REPOSITORY = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPOSITORY / "src"))
 import numpy as np
 import soundfile as sf
-from avengine.qa.unified_catalog import generate_unified_questions, model_input_questions
+from avengine.qa.unified_catalog import (
+    generate_unified_questions,
+    model_input_questions,
+    with_derived_sound_class_answer_domain,
+)
 from avengine.qa.binding_catalog import whole_degree_display
 
 def now():
@@ -321,6 +325,7 @@ def run(args):
             try:
                 facts=read(source["facts_path"]);media=validate_source(source,facts)
                 facts=deepcopy(facts);facts.setdefault("sampling",{})["acceptance_policy"]=policy
+                facts=with_derived_sound_class_answer_domain(facts)
                 facts["sampling"]["time_display_precision"]=0
                 facts["sampling"].setdefault("qa_sampling",{})["time_display_precision"]=0
                 questions=whole_degree_display(generate_unified_questions(

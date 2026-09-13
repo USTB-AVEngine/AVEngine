@@ -1081,13 +1081,20 @@ def test_the_measured_trap_knob_is_refused_in_a_declaration():
 
 
 def test_qa04_asks_for_a_median_plane_offset_not_an_inter_source_separation():
-    compiled = _compile("QA-04")
+    from avengine.rooms import conditioned_sampler
+
+    # QA-04 now has a live sampler guarantee; compiling against the measured
+    # fallback alone intentionally remains a missing-capability diagnostic.
+    compiled = _compile("QA-04", capabilities=conditioned_sampler)
     bearing = next(item for item in compiled.conditions if item.kind == "bearing_reference")
     assert "separation_floor_deg" not in bearing.planning
     assert bearing.planning["anchor_median_plane_offset_deg"] == gc.QA04_SIDE_DEAD_ZONE_DEG
     assert "_event_start_side_window" in bearing.detail["judge"]
-    # A missing knob here is a yield cost, because QA-04 did produce items.
     assert compiled.state == capabilities.STATE_AVAILABLE
+    assert compiled.capabilities.supports("anchor_median_plane_offset_deg")
+    assert compiled.capabilities.declared_by("anchor_median_plane_offset_deg").startswith(
+        "avengine.rooms.conditioned_sampler@"
+    )
 
 
 def test_a_declaration_turns_its_supported_knobs_green_without_touching_the_rest():
@@ -1260,8 +1267,15 @@ def test_the_layer_summary_separates_blocking_gaps_from_yield_costs():
         "visibility_transition",
         "pixel_occlusion_transition",
         "distance_trend_during_event",
+        "anchor_median_plane_offset_deg",
         "first_speaker_instance_id",
     }
+    from avengine.rooms import conditioned_sampler
+
+    live_qa04 = _compile("QA-04", capabilities=conditioned_sampler)
+    assert live_qa04.state == capabilities.STATE_AVAILABLE
+    assert live_qa04.capabilities.supports("anchor_median_plane_offset_deg")
+    assert gc.unsupported_by_layer([live_qa04]) == {}
     yields = {
         key
         for keys in rows.values()

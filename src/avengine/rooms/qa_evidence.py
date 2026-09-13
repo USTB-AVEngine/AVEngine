@@ -20,6 +20,8 @@ IN_FOV_DEFINITION = (
 REGISTERED_APPEARANCE_CLASSIFIER_GAP_REASON = (
     "registered_appearance_value_classifier_not_implemented"
 )
+HUMAN_CORAL_PINK_MINIMUM_COLOR_PIXELS = 512
+HUMAN_CORAL_PINK_MINIMUM_FRACTION = 0.02
 
 PLACEHOLDER_NONHUMAN_MINIMUM_COLOR_PIXELS = 512
 PLACEHOLDER_NONHUMAN_DOMINANCE_RATIO = 1.25
@@ -212,6 +214,15 @@ def inspect_coarse_top_color(
         "pink": int((color & (hue >= 300) & (hue < 345)).sum()),
         "white": int((selected & (saturation < 0.1) & (value > 0.65)).sum()),
     }
+    # The reviewed female Rocketbox shirt is coral under the room light. Keep
+    # the existing burgundy bucket unchanged and expose a separate, measured
+    # coral tolerance for a registered pink value.
+    coral_pink = selected & (
+        ((hue < 16) | (hue >= 345))
+        & (saturation >= 0.55)
+        & (value >= 0.45)
+    )
+    coral_pink_pixels = int(coral_pink.sum())
     ranked = sorted(counts.items(), key=lambda x: (-x[1], x[0]))
     winner, count = ranked[0]
     second = ranked[1][1]
@@ -220,8 +231,14 @@ def inspect_coarse_top_color(
         "status": "pass" if confident else "not_observable",
         "observed_color": winner if confident else None,
         "color_pixels": count, "upper_body_visible_pixels": int(selected.sum()),
-        "candidate_color_counts": counts, "crop_xyxy": [xa, ya, xb, yb],
+        "candidate_color_counts": counts,
+        "coral_pink_pixels": coral_pink_pixels,
+        "coral_pink_fraction": coral_pink_pixels / max(1, int(selected.sum())),
+        "crop_xyxy": [xa, ya, xb, yb],
         "minimum_color_pixels": minimum_color_pixels,
+        "pattern_tolerance": (
+            "registered_pink_accepts_high_saturation_coral_pixels"
+        ),
         "claim_boundary": "coarse RGB color diagnostic, not formal attribute certification",
     }
 
@@ -509,17 +526,35 @@ def inspect_registered_appearance(
         # 1.6 dominance rule. Skin and animal/device colors are not competing
         # shirt values simply because an upper-body mask includes bare arms.
         observed = inspect_coarse_top_color(image, mask, list(target_bbox))
-        matched = observed["status"] == "pass" and observed.get("observed_color") == expected
+        coral_tolerant = (
+            expected == "pink"
+            and observed.get("coral_pink_pixels", 0)
+            >= HUMAN_CORAL_PINK_MINIMUM_COLOR_PIXELS
+            and observed.get("coral_pink_fraction", 0.0)
+            >= HUMAN_CORAL_PINK_MINIMUM_FRACTION
+        )
+        matched = (
+            observed["status"] == "pass"
+            and observed.get("observed_color") == expected
+        ) or coral_tolerant
+        observed_value = expected if coral_tolerant else observed.get("observed_color")
         return {
             "status": "pass" if matched else "not_observable",
-            "observed_value": observed.get("observed_color"),
+            "observed_value": observed_value,
             "visible_pixels": observed.get("upper_body_visible_pixels", 0),
             "candidate_counts": observed.get("candidate_color_counts", {}),
             "expected_value": expected_value,
             "minimum_color_pixels": observed.get("minimum_color_pixels", 512),
-            "calibration": "existing_coarse_human_rule_not_formal_certification",
             "placeholder": False,
             "crop_xyxy": observed.get("crop_xyxy"),
+            "coral_pink_pixels": observed.get("coral_pink_pixels", 0),
+            "coral_pink_fraction": observed.get("coral_pink_fraction", 0.0),
+            "pattern_tolerance": observed.get("pattern_tolerance"),
+            "calibration": (
+                "human_palette_with_measured_coral_pink_tolerance_v2"
+                if coral_tolerant
+                else "existing_coarse_human_rule_not_formal_certification"
+            ),
             "claim_boundary": observed["claim_boundary"],
         }
     thresholds = nonhuman_appearance_placeholder_thresholds(
@@ -577,11 +612,20 @@ def inspect_registered_appearance(
         "standard_red": "red",
         "standard_yellow": "yellow_coat",
         "standard_blue": "blue_gray_coat",
+        "standard_sable": "sable",
+        "dark_sable": "sable",
     }.get(expected, expected) if entity_kind == "animal" else expected
     # These are coat-profile semantics, not names parsed out of asset IDs.
     # In the registered British Shorthair profile, blue denotes gray-blue fur.
     counts["blue_gray_coat"] = int(((saturation <= 0.28) & (value >= 0.15) & (value <= 0.85)).sum())
     counts["yellow_coat"] = int(((hue >= 30) & (hue <= 75) & (saturation >= 0.05) & (value >= 0.25)).sum())
+    counts["sable"] = int(
+        ((hue >= 15) & (hue < 45) & (saturation >= 0.18)
+         & (value >= 0.05) & (value < 0.78)).sum()
+    )
+    counts["light_gray"] = int(
+        ((saturation <= 0.28) & (value >= 0.18) & (value <= 0.85)).sum()
+    )
     total = max(1, len(pixels))
     component_fractions = {name: count / total for name, count in counts.items()}
     unsupported = False
@@ -627,6 +671,18 @@ def inspect_registered_appearance(
     elif coarse in {"yellow_coat", "blue_gray_coat"}:
         minimum_fraction = fractions[coarse]
         accepted = counts[coarse] >= min_pixels and counts[coarse] / total >= minimum_fraction
+        observed = expected if accepted else None
+    elif coarse == "sable":
+        accepted = (
+            counts["sable"] >= min_pixels
+            and counts["sable"] / total >= 0.20
+        )
+        observed = expected if accepted else None
+    elif coarse == "light_gray":
+        accepted = (
+            counts["light_gray"] >= min_pixels
+            and counts["light_gray"] / total >= 0.25
+        )
         observed = expected if accepted else None
     elif coarse in {"black_ash", "black", "charcoal", "dark", "matte_black"}:
         accepted = counts["dark"] >= min_pixels and counts["dark"] / total >= fractions["dark"]

@@ -378,6 +378,9 @@ def run(request: dict, output: Path, *, plan_only: bool = False,
             request=request)
         result.update(audio="pass", qa=delivery["questions"],
                       delivery=delivery["export"], preview=delivery["preview"])
+        if delivery.get("qa_target_results"):
+            result["qa_target_results"] = delivery["qa_target_results"]
+            result["qa_targets_met"] = delivery["qa_targets_met"]
         result["elapsed_seconds"] = time.monotonic() - started
     write_json(output / "episode_result.json", result)
     return result
