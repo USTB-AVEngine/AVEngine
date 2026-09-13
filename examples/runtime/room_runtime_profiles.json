@@ -168,7 +168,7 @@
       "adapter_id": "avengine_qa_v1_spear_room_v1",
       "scene": {
         "scene_id": "kujiale_0020_full_home_v1",
-        "map_path": "/Game/AVEngine/Optional/Kujiale/kujiale_0020_full_home_v1",
+        "map_path": "/Game/AVEngine/Optional/KujialeMaterialized/kujiale_0020_full_home_materialized_20260913_v1",
         "layout_policy": "native_map_unchanged",
         "outdoor_view_policy": "native_map_assets_and_postprocess"
       },

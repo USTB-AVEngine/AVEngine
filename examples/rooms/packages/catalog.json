@@ -6,7 +6,7 @@
     "AVENGINE_HM3D_REVIEW_ROOT": "/data/avengine_external/review/hm3d_e2e_wt_20260905_v1",
     "AVENGINE_HM3D_ROOT": "/data/datasets/habitat_data",
     "AVENGINE_HM3D_ROUTE_ROOT": "/data/avengine_external/review/hm3d_e2e_wt_20260905_v1/routes_R3",
-    "AVENGINE_KUJIALE_ACOUSTIC_ROOT": "/data/avengine_external/review/kujiale_acoustics/pkg_kujiale_0020_rlr",
+    "AVENGINE_KUJIALE_ACOUSTIC_ROOT": "/data/jzy/tmp/astra_unified_20260913/packages/kujiale_0020_ue_export_v2",
     "AVENGINE_MP3D_ACOUSTIC_ROOT": "/data/avengine_external/review/m3_current_mp3d_semantic_20260820T1630Z",
     "AVENGINE_MP3D_ROOT": "/data/avengine_external/datasets/mp3d_example_scene_1.1",
     "AVENGINE_MULTI_HOME_AUTHORING_ROOT": "/data/avengine_external/workspaces/multi_home_activity_20260905",
@@ -17,7 +17,7 @@
     "AVENGINE_QA_V3_ROOT": "/data/jzy/tmp",
     "AVENGINE_SPEAR_STAGE_ROOT": "/data/avengine_external/workspaces/multi_home_activity_20260905/ue_stage"
   },
-  "path_bindings_note": "Values are the actual external roots used by the P3 package and native floor/canary validations on 2026-09-07; callers may override them per runtime policy.",
+  "path_bindings_note": "These roots select the validated runtime packages. Kujiale uses the UE render-surface export from 2026-09-13. Callers may override roots per runtime policy.",
   "pose_binding_files": {
     "kujiale_0020_full_home_v1": "examples/rooms/packages/kujiale_0020_pose_bindings.json"
   },

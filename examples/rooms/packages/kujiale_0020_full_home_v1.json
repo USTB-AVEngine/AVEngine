@@ -18,7 +18,7 @@
     "acoustic_package": "${AVENGINE_KUJIALE_ACOUSTIC_ROOT}/manifest.json",
     "acoustic_package_template": "${AVENGINE_KUJIALE_ACOUSTIC_ROOT}/manifest.json",
     "floor_reference": "examples/rooms/packages/floor_reference/kujiale_0020/floor_reference.json",
-    "map_path": "/Game/AVEngine/Optional/Kujiale/kujiale_0020_full_home_v1",
+    "map_path": "/Game/AVEngine/Optional/KujialeMaterialized/kujiale_0020_full_home_materialized_20260913_v1",
     "pose_bindings": "examples/rooms/packages/kujiale_0020_pose_bindings.json",
     "review_lights": [
       {
@@ -99,7 +99,8 @@
       "up_axis": "+Z"
     },
     "review_lights_source": "tmp/p3_room_packages_20260907_v11/evidence.json",
-    "room_manifest": "examples/qa/scenes/interioragent_kujiale_0020_livingroom_491.json"
+    "room_manifest": "examples/qa/scenes/interioragent_kujiale_0020_livingroom_491.json",
+    "expected_stage_actor_count": 0
   },
   "pose_bindings": "examples/rooms/packages/kujiale_0020_pose_bindings.json",
   "provenance": {
@@ -111,7 +112,9 @@
     "qualification_claim": false,
     "runtime_route": "native UE/SPEAR",
     "source": "examples/qa/scenes/interioragent_kujiale_0020_livingroom_491.json",
-    "source_revision": "multi_home_activity_20260905 integration_sol_v6"
+    "source_revision": "multi_home_activity_20260905 integration_sol_v6",
+    "render_surface_export": "${AVENGINE_QA_V3_ROOT}/astra_unified_20260913/validation/wp_a/export_v1/ue_export_manifest.json",
+    "materialization_review": "${AVENGINE_QA_V3_ROOT}/astra_unified_20260913/reports/owner_practical_acceptance_20260913.md"
   },
   "qualification_claim": false,
   "renderer": "ue_spear",
@@ -123,8 +126,8 @@
     "source": "examples/rooms/interioragent_kujiale_0020_visual_profile.json"
   },
   "source_assets": {
-    "map_asset": "${AVENGINE_MULTI_HOME_UE_ROOT}/SpearSim/Content/AVEngine/Optional/Kujiale/kujiale_0020_full_home_v1.umap",
-    "map_asset_template": "${AVENGINE_MULTI_HOME_UE_ROOT}/SpearSim/Content/AVEngine/Optional/Kujiale/kujiale_0020_full_home_v1.umap",
+    "map_asset": "${AVENGINE_MULTI_HOME_UE_ROOT}/SpearSim/Content/AVEngine/Optional/KujialeMaterialized/kujiale_0020_full_home_materialized_20260913_v1.umap",
+    "map_asset_template": "${AVENGINE_MULTI_HOME_UE_ROOT}/SpearSim/Content/AVEngine/Optional/KujialeMaterialized/kujiale_0020_full_home_materialized_20260913_v1.umap",
     "native_canary": "tmp/p3_room_packages_20260907_v11/evidence.json",
     "scene_config": "examples/qa/scenes/interioragent_kujiale_0020_livingroom_491.json",
     "walkable_grid": "${AVENGINE_QA_V3_ROOT}/qa_v3_walkable_grid_kujiale_20260903_v2",
@@ -146,7 +149,8 @@
     "triangles": "${AVENGINE_KUJIALE_ACOUSTIC_ROOT}/acoustic/triangles.npy",
     "triangles_template": "${AVENGINE_KUJIALE_ACOUSTIC_ROOT}/acoustic/triangles.npy",
     "vertices": "${AVENGINE_KUJIALE_ACOUSTIC_ROOT}/acoustic/vertices.npy",
-    "vertices_template": "${AVENGINE_KUJIALE_ACOUSTIC_ROOT}/acoustic/vertices.npy"
+    "vertices_template": "${AVENGINE_KUJIALE_ACOUSTIC_ROOT}/acoustic/vertices.npy",
+    "render_surface": true
   },
   "status": "research_candidate",
   "subroom_policy": "livingroom_491 and kitchen are kept as separate coverage rows",
@@ -161,7 +165,7 @@
     }
   ],
   "visual_scene": {
-    "map_path": "/Game/AVEngine/Optional/Kujiale/kujiale_0020_full_home_v1",
+    "map_path": "/Game/AVEngine/Optional/KujialeMaterialized/kujiale_0020_full_home_materialized_20260913_v1",
     "uproject": "${AVENGINE_MULTI_HOME_UE_ROOT}/SpearSim/SpearSim.uproject"
   },
   "walkable_space": {
