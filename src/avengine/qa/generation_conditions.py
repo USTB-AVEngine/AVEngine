@@ -197,11 +197,6 @@ ACCEPTED_BUT_IGNORED_KNOBS: dict[str, str] = {
 # Knobs this module needs that no planner accepts yet.  Each names the exact
 # place that has to change, so the gap is actionable instead of decorative.
 KNOB_GAPS: dict[str, tuple[str, str]] = {
-    "competitor_motion": (
-        "avengine/rooms/conditioned_sampler.py:_moving_flags",
-        "under speech_motion=speaker_moving the non-anchor articulated actors are "
-        "given a random moving flag, so the competitor can share the target's answer",
-    ),
     "registered_occluder_transition": (
         "avengine/rooms/conditioned_sampler.py:_occlusion_route",
         "the registered-occluder transition is an accepted interface key; its "
@@ -1930,7 +1925,7 @@ def _distance_trend_after(*, branch, subjects, precision, task_family=None, **_:
                 "stable_over_whole_window": True,
                 "reference": "source distance at the anchor event end frame",
             },
-            planning={"target_moved_after_sound": True},
+            planning={"target_moved_after_sound": True, "competitor_motion": "still"},
             evidence={
                 "every_frame_same_trend": True,
                 "every_frame_margin_at_least_m": DISTANCE_MARGIN_M,

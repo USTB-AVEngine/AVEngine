@@ -646,7 +646,9 @@ def motion_semantics(compiled: Any) -> dict[str, Any]:
                 target_moves = bool(value)
 
     competitor = None
-    for item in _conditions_of_kind(compiled, "answer_distinguishable"):
+    # Role motion can be requested by a distance or motion condition; read the
+    # shared planning field without requiring an extra readback predicate.
+    for item in _conditions_of(compiled):
         value = item.planning.get("competitor_motion")
         if value is not None:
             competitor = str(value)
