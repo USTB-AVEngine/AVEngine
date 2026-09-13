@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from copy import deepcopy
 
+import pytest
+
 from avengine.rooms import conditioned_visibility as cv
 from avengine.rooms.target_observability import (
     DEFAULT_MIN_PROJECTED_AREA_PX,
@@ -122,3 +124,49 @@ def test_cloud_preference_adds_projection_only_when_requested():
     assert ordinary[0]['state'] == preferred[0]['state']
     assert 'projected_observability_score' not in ordinary[0]
     assert preferred[0]['projected_observability_score'] > 0
+
+
+@pytest.mark.parametrize("root", [(0., 0., -4.), (3., 0., -4.)])
+def test_point_state_keeps_ray_results_and_cache_after_mesh_narrowing(monkeypatch, root):
+    import numpy as np
+    from avengine.qa.answerability import MeshHandle
+    from avengine.rooms.conditioned_sampler import _point_state
+    camera = _camera()
+    vertices = np.array([[-1., -1., -2.], [1., -1., -2.], [1., 3., -2.], [-1., 3., -2.],
+                         [-1., -1., 20.], [1., -1., 20.], [1., 3., 20.], [-1., 3., 20.]])
+    triangles = np.array([[0, 1, 2], [0, 2, 3], [4, 5, 6], [4, 6, 7]])
+    mesh = MeshHandle(vertices, triangles, {})
+    body = cv.BodyProxy(height_m=1.8, width_m=.4)
+    policy = cv.screen_policy(None)
+    origin = np.asarray(camera.position_m)
+    samples = cv.body_sample_points(origin, root, body, policy)
+    baseline_cache = {}
+    blocked, measured = cv._blocked_by_scene(mesh, origin, samples, policy, baseline_cache)
+    inside = cv._project(camera, samples, policy)['in_frustum']
+    expected = 'hidden' if blocked[inside].all() else 'visible' if not blocked[inside].any() else 'partial'
+    assert measured[inside].all()
+    calls = []
+    ray = cv.line_of_sight
+    def record(selected, source, endpoint):
+        calls.append(len(selected.triangles))
+        return ray(selected, source, endpoint)
+    monkeypatch.setattr(cv, 'line_of_sight', record)
+    actual_cache = {}
+    actual, _ = _point_state(camera, np.asarray(root), body, mesh, policy, actual_cache)
+    assert actual == expected
+    assert actual_cache == baseline_cache
+    assert len(calls) == len(baseline_cache)
+    assert all(count < len(mesh.triangles) for count in calls)
+
+
+@pytest.mark.parametrize("qa_id,branch", [("QA-07", "left"), ("QA-09", "yes"),
+                                         ("QA-10", None), ("QA-11", None)])
+def test_real_transition_translation_enables_the_named_visual_reference(qa_id, branch):
+    from avengine.qa import generation_conditions as gc
+    from avengine.rooms.conditioned_sampler import _appearance_target_ids
+    conditions = gc._HANDLERS[qa_id](
+        subjects=(gc.ConditionSubject(entity_instance_id='named_target', role='target'),),
+        branch=branch, precision=0)
+    payload = {'qa_id': qa_id, 'conditions': [condition.to_dict() for condition in conditions]}
+    assert _appearance_target_ids({'qa_targets': [{'qa_id': qa_id}]}, [payload]) == {'named_target'}
+    assert _appearance_target_ids({'qa_ids': [qa_id]}, [payload]) == set()

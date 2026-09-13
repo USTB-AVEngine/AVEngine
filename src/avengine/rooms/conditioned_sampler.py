@@ -3178,7 +3178,11 @@ def _point_state(camera, root, body, mesh, policy, cache):
     column = float(np.nanmean(projected['column_px'][inside]))
     if mesh is None:
         return 'in_view_unmeasured', column
-    blocked, measured = cv._blocked_by_scene(mesh, origin, samples, policy, cache)
+    # Reject triangles outside all camera-to-body segments once, rather than
+    # scanning the entire room again for each body sample. The retained
+    # triangles, ray endpoints and existing cache remain unchanged.
+    ray_mesh = cv.narrow_mesh_to_segments(mesh, np.vstack((origin[None], samples)))
+    blocked, measured = cv._blocked_by_scene(ray_mesh, origin, samples, policy, cache)
     blocked_in, measured_in = blocked[inside], measured[inside]
     if not measured_in.all():
         return 'in_view_unmeasured', column
@@ -4619,7 +4623,11 @@ def _appearance_target_ids(request, compiled_conditions):
         if str(payload.get('qa_id')) not in requested:
             continue
         for condition in payload.get('conditions', ()):
-            if condition.get('kind') == 'appearance_reference' and condition.get('subject'):
+            # Entry and occlusion questions carry their visual reference in
+            # the transition itself, rather than as a second condition.
+            if (condition.get('kind') in ('appearance_reference', 'entry_transition',
+                                           'occlusion_transition', 'occluder_identity')
+                    and condition.get('subject')):
                 subjects.add(str(condition['subject']))
     return subjects
 
