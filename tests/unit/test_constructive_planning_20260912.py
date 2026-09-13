@@ -525,3 +525,57 @@ def test_named_partial_clear_question_reaches_shared_construction():
                   == 'visible_occluded_to_visible_clear')
     assert target['visibility_construction']['predicted_partial_frames']
     assert target['visibility_construction']['predicted_clear_frames']
+
+
+def test_named_occluder_crosses_a_stationary_speaking_target():
+    request = visibility_request('QA-10', None, seed=5, camera_budget=16, reserve_tail_s=3.)
+    request.pop('question_branches', None)
+    request['profile'].pop('separation_bin_deg', None)
+    request['qa_targets'] = [{'qa_id': 'QA-10', 'target_instance_ids': ['human_target'],
+                              'event': {'kind': 'target_audible_window'}}]
+    request['entities']['silent_count'] = 1
+    request['entities']['instances'][1]['speaking'] = False
+    plan = build(request, empty_mesh())
+    construction = plan['activity_plan']['visibility_construction']
+    assert construction['kind'] == 'registered_occluder_visible'
+    assert construction['subject'] == 'human_target'
+    assert construction['occluder_instance_id'] == 'human_other'
+    assert construction['occluder_view_style'] == 'readable_approach_and_departure'
+    target = next(actor for actor in plan['entity_instances'] if actor['entity_instance_id'] == 'human_target')
+    target_states = [next(actor for actor in frame['actor_states']
+                          if actor['actor_id'] == target['actor_id'])
+                     for frame in plan['visual_plan']['frames']]
+    assert not any(state['moving'] for state in target_states)
+    first, last = construction['predicted_hidden_frames']
+    assert cs._public_interval_is_publishable(first, last, 15.)
+    event = next(event for event in plan['audio_events'] if event['actor_id'] == target['actor_id'])
+    start_sample, end_sample = event['planned_audible_interval_samples']
+    assert start_sample / 16000 <= first / 15
+    assert end_sample / 16000 >= last / 15
+    assert selected_screen(plan)['verdict'] == 'consistent'
+
+
+def test_registered_occluder_geometry_can_cover_a_static_low_target():
+    actors = [
+        {'actor_id': 'source1', 'entity_instance_id': 'device', 'asset_id': 'device',
+         'entity_class': 'rigid_static_object', 'realized_attributes': {'body_color': 'white'},
+         'emitter_binding': {'emitter_offset_m': [0., .1, 0.]}},
+        {'actor_id': 'source2', 'entity_instance_id': 'mover', 'asset_id': 'mover',
+         'entity_class': 'articulated_animal', 'realized_attributes': {'body_color': 'brown'},
+         'emitter_binding': {'emitter_offset_m': [0., .7, 0.]}},
+    ]
+    requirement = cv.VisibilityRequirement(kind='registered_occluder_visible', subject='device',
+                                           observation_windows=((0, 150),))
+    sound = {0: {'entity_instance_id': 'device', 'audible_start_sample': 0,
+                 'audible_end_sample_exclusive': 32000}}
+    placement = {'device': {'root_transform': {'translation_m': [5., 0., 5.]}}}
+    result = cs._construct_registered_occluder_plan(
+        space(), empty_mesh(), actors,
+        {'distance_range_m': [1., 6.], 'reserve_tail_s': 3., 'walk_speed_range_mps': [.8, .8]},
+        clock(), np.random.default_rng(5), None, {'room_id': 'fixture'},
+        requirement, placement, sound,
+        {'camera': {'height_above_floor_m': 1.55, 'visibility_solver': {'constructive_camera_budget': 16}}})
+    assert result['forced_movers'] == ['mover']
+    assert result['surface_placed_indices'] == [0]
+    assert np.allclose(result['paths'][0], [5., 0., 5.])
+    assert result['record']['occluder_instance_id'] == 'mover'

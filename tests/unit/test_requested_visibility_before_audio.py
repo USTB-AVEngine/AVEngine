@@ -99,3 +99,32 @@ def test_native_condition_rejection_is_not_retried_as_same_capture():
         {"reason": "RequestedVisibilityError: requested visibility conditions not satisfied"})
     assert decision["retry"] is False
     assert decision["kind"] == "requires_replan"
+
+
+def test_registered_occluder_precheck_builds_shared_visual_evidence_without_mutating_capture(tmp_path, monkeypatch):
+    from avengine.rooms import qa_evidence, conditioned_visibility
+    plan, request, capture = case(tmp_path)
+    request['qa_targets'] = [{'qa_id': 'QA-10', 'target_instance_ids': ['speaker']}]
+    request['qa_sampling'] = {'acceptance_policy': {'keep_scene_when_target_unmet': True}}
+    plan['camera_condition_sampling']['visibility_solver']['requirements'] = [
+        {'kind': 'registered_occluder_visible', 'subject': 'speaker', 'qa_id': 'QA-10',
+         'observation_windows': [[30, 48]], 'require_publishable_window': True}]
+    (capture / 'native_pixel_masks_depth_authority_v1.npz').write_bytes(b'test dependency marker')
+    calls = []
+    witness = {'status': 'pass', 'frame_records': []}
+    def prepare(root, scene, truth, **kwargs):
+        calls.append(('prepare', kwargs['shared_root']))
+        return {'actor_occluders': witness, 'appearance_review': {'actors': {}}}
+    def judge(requirements, **kwargs):
+        calls.append(('judge', kwargs['occluder_evidence']))
+        return {'status': 'fail', 'pixel_truth_authority_registered': True,
+                'requirements': [{'status': 'fail', 'reason': 'no attributed occlusion'}]}
+    monkeypatch.setattr(qa_evidence, 'acquire_shared_visual_evidence', prepare)
+    monkeypatch.setattr(conditioned_visibility, 'accept_native_visibility', judge)
+    report = tmp_path / 'checks' / 'native_visibility_acceptance.json'
+    before = set(capture.iterdir())
+    result = native.check_requested_visibility(plan, request, capture, report_path=report)
+    assert calls == [('prepare', report.parent / 'native_visibility_visual_evidence'), ('judge', witness)]
+    assert set(capture.iterdir()) == before
+    assert result['status'] == 'fail' and result['requested_target_unmet'] is True
+    assert result['shared_visual_root'] == str((report.parent / 'native_visibility_visual_evidence').resolve())

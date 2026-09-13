@@ -129,13 +129,13 @@ def test_c4_declares_wave1_knobs_and_keeps_later_routes_explicit():
         "anchor_median_plane_offset_deg",
     } <= declared
     assert "pixel_occlusion_partial_transition" in declared
-    assert "registered_occluder_transition" not in declared
+    assert "registered_occluder_transition" in declared
     assert "visibility_transition" not in gc.KNOB_GAPS
     assert "pixel_occlusion_transition" not in gc.KNOB_GAPS
     assert "distance_trend_during_event" not in gc.KNOB_GAPS
     assert "anchor_median_plane_offset_deg" not in gc.KNOB_GAPS
     assert "pixel_occlusion_partial_transition" not in gc.KNOB_GAPS
-    assert "registered_occluder_transition" in gc.KNOB_GAPS
+    assert "registered_occluder_transition" not in gc.KNOB_GAPS
     assert "C2" in declaration["declared_at"]
     assert "C3" in declaration["declared_at"]
     resolved = cs.resolve_condition_profile(

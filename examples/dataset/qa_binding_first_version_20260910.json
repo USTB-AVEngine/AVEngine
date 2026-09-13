@@ -5441,6 +5441,7 @@
       "minimum_overlap_s",
       "pixel_occlusion_partial_transition",
       "pixel_occlusion_transition",
+      "registered_occluder_transition",
       "reserve_tail_s",
       "retry_budget_within_profile",
       "separation_bin_deg",

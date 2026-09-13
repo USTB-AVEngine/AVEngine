@@ -1692,6 +1692,11 @@ def finalize_qa_episode(
     clock = plan_clock
     if media_info["channel_count"] != 2 or media_info["sample_rate_hz"] != int(clock["sample_rate_hz"]) or media_info["sample_count"] != int(clock["sample_count"]):
         raise ValueError("actual audio mixture does not match the plan clock and binaural contract")
+    # A QA-10 pre-audio check may already have prepared this capture's visual
+    # evidence. Reuse the existing content-checked cache in the same output root.
+    prepared_visual = root / "native_visibility_visual_evidence"
+    if shared_visual_root is None and visual_evidence_reuse is not False and prepared_visual.is_dir():
+        shared_visual_root = prepared_visual
     shared_root, shared_scope = _resolve_shared_visual_root(
         root, derived, capture_root,
         shared_visual_root=shared_visual_root,

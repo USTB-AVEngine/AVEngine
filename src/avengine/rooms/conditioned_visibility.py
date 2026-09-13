@@ -961,7 +961,7 @@ def requirements_from_planning(
             )
         )
 
-    occlusion = planning.get("pixel_occlusion_transition")
+    occlusion = planning.get("pixel_occlusion_transition", planning.get("registered_occluder_transition"))
     if occlusion is not None:
         try:
             kind, state = _TRANSITION_TO_REQUIREMENT[str(occlusion)]
@@ -3512,7 +3512,9 @@ def accept_native_visibility(
             continue
         rows.append(
             _judge_requirement(
-                requirement,
+                replace(requirement, occluder_subject=mapping.get(
+                    requirement.occluder_subject, requirement.occluder_subject))
+                if requirement.occluder_subject is not None else requirement,
                 instance=instance,
                 series=series,
                 facts_view=facts_view,

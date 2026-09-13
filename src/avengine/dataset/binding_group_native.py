@@ -105,13 +105,31 @@ def check_requested_visibility(
                       "reason": "pixel truth or planned camera resolution is missing"}
         else:
             occluders = capture / "actor_occluders.json"
+            occluder_evidence = _load(occluders) if occluders.is_file() else None
+            occluder_registry = None
+            visual_root = None
+            if (occluder_evidence is None
+                    and (capture / "native_pixel_masks_depth_authority_v1.npz").is_file()
+                    and any(r.kind == "registered_occluder_visible" for r in requirements)):
+                from avengine.rooms.qa_evidence import acquire_shared_visual_evidence
+                from avengine.rooms.qa_delivery import _asset_registry, _reviewed_occluder_registry
+                visual_root = (Path(report_path).parent / "native_visibility_visual_evidence"
+                               if report_path is not None else None)
+                visual = acquire_shared_visual_evidence(
+                    capture, plan, _load(pixel_path), shared_root=visual_root,
+                    asset_registry=_asset_registry(REPOSITORY, request.get("source_registry")),
+                    frame_stride=1)
+                occluder_evidence = visual["actor_occluders"]
+                occluder_registry = _reviewed_occluder_registry(
+                    visual["appearance_review"], {str(a["actor_id"]): a for a in actors})
             report = accept_native_visibility(
                 requirements, pixel_truth=_load(pixel_path),
                 frame_rate_hz=float(clock["frame_rate_hz"]),
                 frame_count=int(clock["frame_count"]),
                 resolution_hw=camera["resolution_hw"],
                 actor_by_instance=actor_mapping,
-                occluder_evidence=_load(occluders) if occluders.is_file() else None,
+                occluder_evidence=occluder_evidence,
+                occluder_registry=occluder_registry,
                 public_time_precision=0,
                 acceptance_policy=(request.get("qa_sampling") or {}).get("acceptance_policy"),
                 screen=screen if screen.get("record") == "screen_series" else None)
@@ -119,6 +137,8 @@ def check_requested_visibility(
                 report["status"] = "fail"
                 report["reason"] = "pixel truth authority is not registered"
             report["pixel_truth_path"] = str(pixel_path.resolve())
+            if visual_root is not None:
+                report["shared_visual_root"] = str(visual_root.resolve())
     keep_scene = False
     reason = None
     if report["status"] != "pass":

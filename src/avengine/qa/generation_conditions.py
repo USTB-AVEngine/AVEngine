@@ -197,11 +197,6 @@ ACCEPTED_BUT_IGNORED_KNOBS: dict[str, str] = {
 # Knobs this module needs that no planner accepts yet.  Each names the exact
 # place that has to change, so the gap is actionable instead of decorative.
 KNOB_GAPS: dict[str, tuple[str, str]] = {
-    "registered_occluder_transition": (
-        "avengine/rooms/conditioned_sampler.py:_occlusion_route",
-        "the registered-occluder transition is an accepted interface key; its "
-        "two-role construction is scheduled for C3 after appearance review",
-    ),
 }
 
 # The knobs the checked-in sampler was measured to honour on 2026-09-10.  This
@@ -1779,7 +1774,11 @@ def _occluder(*, subjects, **_: Any) -> list[Condition]:
             kind="occluder_identity",
             subject=target.entity_instance_id,
             detail={"unique_registered_occluder": True},
-            planning={"pixel_occlusion_transition": "registered_occluder_visible"},
+            planning={
+                "registered_occluder_transition": "registered_occluder_visible",
+                # The second body must be allowed onto the target's bearing.
+                "separation_bin_deg": {"bins": [[0.0, 180.0]], "floor_deg": 0.0},
+            },
             evidence={"occluder_ids_present": True, "occluder_registry_resolves": True},
         )
     ]
