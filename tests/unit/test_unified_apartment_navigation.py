@@ -93,3 +93,54 @@ def test_default_apartment_loads_habitat_pathfinder_and_keeps_spear_layout():
     assert layout["native_navigation_mode"] == "habitat_navmesh"
     assert layout["native_navigation_authority"] == "native_apartment_recast_navmesh"
     assert mesh is not None
+
+
+@pytest.mark.parametrize("separation_bin", [[15., 180.], [15., 40.]])
+def test_competitor_preference_uses_a_legal_sound_window(separation_bin):
+    import numpy as np
+    from avengine.rooms import conditioned_sampler as cs
+
+    # First candidate is separated in metres but never by the requested angle.
+    # The second meets the angular bin for only the first 30 of 150 frames.
+    target = np.array([[0., 0., -4.]] * 30 + [[2., 0., -4.]] * 120)
+    cloud = np.array([[8. * np.tan(np.deg2rad(13.)), 0., -8.], [4., 0., -8.]])
+    actor = {"entity_instance_id": "target",
+             "emitter_binding": {"emitter_offset_m": [0., 1.6, 0.]}}
+    sound = {"entity_instance_id": "target", "sample_count": 48000,
+             "audible_start_sample": 16000, "audible_end_sample_exclusive": 32000}
+    clock = {"sample_rate_hz": 16000, "frame_rate_hz": 15, "sample_count": 160000}
+    profile = {"separation_bin_deg": separation_bin, "reserve_tail_s": 3.}
+    assert cs._choose_visibility_competitor(
+        cloud, [0, 1], [target], [0., 1.55, 0.], actor, actor,
+        {0: sound}, profile, clock) == 1
+
+
+@pytest.mark.parametrize("evidence", [None, {}, {0: {"entity_instance_id": "target"}}])
+def test_competitor_preference_without_evidence_keeps_first_distance_legal_point(evidence):
+    import numpy as np
+    from avengine.rooms import conditioned_sampler as cs
+
+    target = np.array([[0., 0., -4.]] * 150)
+    cloud = np.array([[0., 0., -4.1], [0., 0., -8.], [4., 0., -8.]])
+    actor = {"entity_instance_id": "target",
+             "emitter_binding": {"emitter_offset_m": [0., 1.6, 0.]}}
+    assert cs._choose_visibility_competitor(
+        cloud, [0, 1, 2], [target], [0., 1.55, 0.], actor, actor,
+        evidence, {"separation_bin_deg": [15., 180.], "reserve_tail_s": 3.},
+        {"sample_rate_hz": 16000, "frame_rate_hz": 15, "sample_count": 160000}) == 1
+
+
+def test_competitor_preference_preserves_fallback_and_original_candidate_limit():
+    import numpy as np
+    from avengine.rooms import conditioned_sampler as cs
+
+    target = np.array([[0., 0., -4.]] * 150)
+    cloud = np.array([[0., 0., -8.]] * 40 + [[4., 0., -8.]])
+    actor = {"entity_instance_id": "target",
+             "emitter_binding": {"emitter_offset_m": [0., 1.6, 0.]}}
+    sound = {"entity_instance_id": "target", "sample_count": 16000,
+             "audible_start_sample": 0, "audible_end_sample_exclusive": 16000}
+    assert cs._choose_visibility_competitor(
+        cloud, list(range(41)), [target], [0., 1.55, 0.], actor, actor,
+        {0: sound}, {"separation_bin_deg": [15., 180.], "reserve_tail_s": 3.},
+        {"sample_rate_hz": 16000, "frame_rate_hz": 15, "sample_count": 160000}) == 0

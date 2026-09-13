@@ -3651,6 +3651,50 @@ def _bank_visibility_route(requirement, bank, camera, body, emitter_offset, mesh
     return None
 
 
+def _choose_visibility_competitor(cloud, usable, taken, camera_position,
+                                  subject_actor, competitor_actor, sounds, profile, clock):
+    """Prefer an angularly schedulable point; never reject a distance-legal fallback.
+
+    Headings are assigned later by sample_routes. Unrotated emitter offsets
+    give a cheap preference here, not an acceptance gate; the existing camera
+    stage still checks actual rotated emitters, visibility and joint timing.
+    """
+    candidates = [ci for ci in usable[:40]
+                  if all(float(np.linalg.norm(path - cloud[ci], axis=1).min()) >= .95
+                         for path in taken)]
+    if not candidates:
+        return None
+    fallback = candidates[0]
+    try:
+        subject_sounds = [sound for sound in (sounds or {}).values()
+                          if isinstance(sound, Mapping)
+                          and sound.get('entity_instance_id') == subject_actor['entity_instance_id']]
+        if not subject_sounds:
+            return fallback
+        origin = np.asarray(camera_position, dtype=float)
+        target_offset = np.asarray(subject_actor['emitter_binding']['emitter_offset_m'], dtype=float)
+        competitor_offset = np.asarray(competitor_actor['emitter_binding']['emitter_offset_m'], dtype=float)
+        if (target_offset.shape != (3,) or competitor_offset.shape != (3,)
+                or not np.all(np.isfinite([target_offset, competitor_offset]))):
+            return fallback
+        target_delta = np.asarray(taken[0], dtype=float) + target_offset - origin
+        target_az = np.degrees(np.arctan2(target_delta[:, 0], -target_delta[:, 2]))
+        low, high = profile['separation_bin_deg']
+        for ci in candidates:
+            competitor_delta = cloud[ci] + competitor_offset - origin
+            competitor_az = np.degrees(np.arctan2(competitor_delta[0], -competitor_delta[2]))
+            separation = np.abs((target_az - competitor_az + 180) % 360 - 180)
+            mask = (separation >= low) & (
+                (separation < high) | ((high == 180) & np.isclose(separation, 180)))
+            if all(legal_start_ranges(mask, sound, clock, profile) for sound in subject_sounds):
+                return ci
+    except (KeyError, TypeError, ValueError, AttributeError):
+        # Missing/incomplete scheduling evidence must not remove a scene that
+        # the unchanged final camera/schedule checks could still accept.
+        return fallback
+    return fallback
+
+
 def _construct_visibility_route_plan(space, mesh, actors, profile, clock, rng, region, room,
                                      request, visibility_requirements, static_placements,
                                      sounds=None, appearance_target_ids=()):
@@ -3766,15 +3810,13 @@ def _construct_visibility_route_plan(space, mesh, actors, profile, clock, rng, r
         for index, actor in enumerate(actors):
             if index == subject_index:
                 continue
-            chosen = None
-            for ci in usable[:40]:
-                point = cloud[ci]
-                if all(float(np.linalg.norm(path - point, axis=1).min()) >= .95 for path in taken):
-                    chosen = point
-                    break
-            if chosen is None:
+            ci = _choose_visibility_competitor(
+                cloud, usable, taken, positions[pi], actors[subject_index], actor,
+                sounds, profile, clock)
+            if ci is None:
                 failed = True
                 break
+            chosen = cloud[ci]
             static = np.repeat(chosen[None], frames, axis=0)
             others[index] = (static, {'motion': 'static', 'route_points_m': None,
                                       'visibility_construction': {'role': 'competitor', 'state': rows[ci]['state']}})
