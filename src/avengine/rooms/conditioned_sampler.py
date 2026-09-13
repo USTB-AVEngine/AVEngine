@@ -3190,7 +3190,7 @@ def _point_state(camera, root, body, mesh, policy, cache):
 
 
 def _classify_cloud(camera, cloud, body, emitter_offset, mesh, policy, cache, *,
-                    max_distance_m, cast_rays):
+                    max_distance_m, cast_rays, target_observability=False):
     origin = np.asarray(camera.position_m, dtype=float)
     forward = np.asarray(camera.forward, dtype=float)
     right = np.asarray(camera.right, dtype=float)
@@ -3216,6 +3216,14 @@ def _classify_cloud(camera, cloud, body, emitter_offset, mesh, policy, cache, *,
             in_view, column = _frame_view(camera, point, body, policy)
             state = 'in_view_unmeasured' if in_view else 'out'
         row['state'], row['column'] = state, column
+        if target_observability:
+            from avengine.rooms.target_observability import score_projected_target_point
+            score = score_projected_target_point(
+                camera=camera, root_m=point, body=body, policy=policy)
+            for key in ('projected_body_bbox_px', 'projected_area_px',
+                        'border_marginal_samples', 'bbox_touches_frame_edge',
+                        'projected_observability_score'):
+                row[key] = score[key]
         if state == 'out':
             row['outside_side'] = (('left' if lateral < 0. else 'right')
                                    if depth > policy.near_m else 'behind')
@@ -3234,7 +3242,7 @@ def _draw_speed(profile, rng):
 
 
 def _entry_route(requirement, rows, cloud, space, camera, body, mesh, policy, cache, rng,
-                 frames, fps, profile, distance_range):
+                 frames, fps, profile, distance_range, target_observability=False):
     height, width = camera.resolution_hw
     center, dead = camera.center_column_px, camera.dead_zone_px
     depth_px = ENTRY_DEPTH_FRACTION * float(width)
@@ -3253,7 +3261,13 @@ def _entry_route(requirement, rows, cloud, space, camera, body, mesh, policy, ca
     if not starts or not ends:
         return None
     starts = [starts[int(k)] for k in rng.permutation(len(starts))][:12]
-    ends = [ends[int(k)] for k in rng.permutation(len(ends))][:12]
+    ends = [ends[int(k)] for k in rng.permutation(len(ends))]
+    if target_observability:
+        from avengine.rooms.target_observability import rank_projected_point_rows
+        ends = [row['_point_index'] for row in rank_projected_point_rows(
+            [dict(rows[index], _point_index=index) for index in ends], limit=12)]
+    else:
+        ends = ends[:12]
 
     def deep(column):
         return (column + .5 >= depth_px) if side == 'left' else ((width - .5) - column >= depth_px)
@@ -3335,13 +3349,20 @@ def _navigation_path_is_legal(space, path):
 
 
 def _occlusion_route(requirement, rows, cloud, space, camera, body, mesh, policy, cache, rng,
-                     frames, fps, profile, distance_range, min_pre_walk_frames=8):
+                     frames, fps, profile, distance_range, min_pre_walk_frames=8,
+                     target_observability=False):
     visible = [i for i, r in enumerate(rows) if r['state'] == 'visible'
                and distance_range[0] <= r['distance'] <= distance_range[1]]
     hidden = [i for i, r in enumerate(rows) if r['state'] == 'hidden']
     if not visible or not hidden:
         return None
-    visible = [visible[int(k)] for k in rng.permutation(len(visible))][:10]
+    visible = [visible[int(k)] for k in rng.permutation(len(visible))]
+    if target_observability:
+        from avengine.rooms.target_observability import rank_projected_point_rows
+        visible = [row['_point_index'] for row in rank_projected_point_rows(
+            [dict(rows[index], _point_index=index) for index in visible], limit=10)]
+    else:
+        visible = visible[:10]
     hidden = [hidden[int(k)] for k in rng.permutation(len(hidden))][:10]
     wants_return = requirement.kind == 'fully_occluded_then_visible'
     for hi in hidden:
@@ -3632,7 +3653,7 @@ def _bank_visibility_route(requirement, bank, camera, body, emitter_offset, mesh
 
 def _construct_visibility_route_plan(space, mesh, actors, profile, clock, rng, region, room,
                                      request, visibility_requirements, static_placements,
-                                     sounds=None):
+                                     sounds=None, appearance_target_ids=()):
     """Choose a camera first, then walk the subject through the needed states.
 
     Raises :class:`CandidateFailure` when no camera in the budget supports the
@@ -3647,6 +3668,7 @@ def _construct_visibility_route_plan(space, mesh, actors, profile, clock, rng, r
     if not requirements:
         raise CandidateFailure('routes', 'constructive_visibility_no_supported_requirement')
     requirement = requirements[0]
+    target_observability = str(requirement.subject) in appearance_target_ids
     index_by_id = {str(actor['entity_instance_id']): i for i, actor in enumerate(actors)}
     subject_index = index_by_id.get(str(requirement.subject))
     if subject_index is None:
@@ -3710,17 +3732,20 @@ def _construct_visibility_route_plan(space, mesh, actors, profile, clock, rng, r
             up=(0., 1., 0.), horizontal_fov_deg=fov, resolution_hw=tuple(resolution))
         rows = _classify_cloud(camera, cloud, body, emitter_offset, mesh, policy, cache,
                                max_distance_m=distance_range[1],
-                               cast_rays=requirement.kind != 'out_of_view_to_visible')
+                               cast_rays=requirement.kind != 'out_of_view_to_visible',
+                               target_observability=target_observability)
         if bank is not None:
             built = _bank_visibility_route(requirement, bank, camera, body, emitter_offset, mesh, policy,
                                            cache, rng, frames, distance_range, min_pre_walk_frames)
         elif requirement.kind == 'out_of_view_to_visible':
             built = _entry_route(requirement, rows, cloud, space, camera, body, mesh, policy, cache,
-                                 rng, frames, fps, profile, distance_range)
+                                 rng, frames, fps, profile, distance_range,
+                                 target_observability=target_observability)
         else:
             built = _occlusion_route(requirement, rows, cloud, space, camera, body, mesh, policy, cache,
                                      rng, frames, fps, profile, distance_range,
-                                     min_pre_walk_frames=min_pre_walk_frames)
+                                     min_pre_walk_frames=min_pre_walk_frames,
+                                     target_observability=target_observability)
         if built is None:
             continue
         route, record = built
@@ -3772,6 +3797,14 @@ def _construct_visibility_route_plan(space, mesh, actors, profile, clock, rng, r
                 'camera_candidate_id': camera.candidate_id, 'camera_poses_tried': tried,
                 'camera_pose_budget': int(options['constructive_camera_budget']),
                 'cloud_points': int(len(cloud)), 'screen_policy': policy.policy_id,
+                'target_observability_preference': {
+                    'enabled': target_observability,
+                    'subject': str(requirement.subject),
+                    'scope': 'visible route endpoints and their existing dwell windows',
+                    'evidence': 'projected body area and frame-edge clearance',
+                    'native_pixel_observability': 'not_run',
+                    'low_score_candidates_retained': True,
+                },
                 'route_source': 'retained_native_route_bank' if bank is not None else 'grown_walk',
                 'state_counts': dict(Counter(r['state'] for r in rows)),
                 'claim_boundary': ('camera-first construction from the screen projection and '
@@ -4530,6 +4563,23 @@ def planned_query_window(events, clock, profile, request=None, anchor_actor_ids=
             'basis':('planned audible end plus the reserved tail budget, ending where the '
                      'next event starts; the measured wet tail replaces that budget at readback'),
             'wet_tail_status':'not_run'}
+
+
+def _appearance_target_ids(request, compiled_conditions):
+    """Limit the endpoint preference to explicitly requested appearance targets."""
+    requested = {str(target.get('qa_id')) for target in request.get('qa_targets', ())
+                 if isinstance(target, Mapping) and target.get('qa_id')}
+    if not requested:
+        return set()
+    subjects = set()
+    for compiled in compiled_conditions:
+        payload = compiled.to_dict() if hasattr(compiled, 'to_dict') else dict(compiled)
+        if str(payload.get('qa_id')) not in requested:
+            continue
+        for condition in payload.get('conditions', ()):
+            if condition.get('kind') == 'appearance_reference' and condition.get('subject'):
+                subjects.add(str(condition['subject']))
+    return subjects
 
 
 def _visibility_requirements_for_selection(
@@ -5823,7 +5873,8 @@ def build_conditioned_plan(*, room, request, source_registry, sounds, space, mes
                 try:
                     visibility_route_plan=_construct_visibility_route_plan(
                         space, mesh, actors, profile, clock, rng, region, room, request,
-                        visibility_requirements, static_placement_plan, sounds=selected_sounds)
+                        visibility_requirements, static_placement_plan, sounds=selected_sounds,
+                        appearance_target_ids=_appearance_target_ids(request, compiled_conditions))
                 except CandidateFailure:
                     raise
                 except ValueError as exc:
