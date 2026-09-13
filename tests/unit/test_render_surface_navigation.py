@@ -1,13 +1,9 @@
 """The shared builder preserves surface orientation and renderer routing."""
-import importlib.util
 from pathlib import Path
 import json
 import pytest
 
-ROOT = Path(__file__).resolve().parents[2]
-SPEC = importlib.util.spec_from_file_location('render_nav_builder', ROOT/'tools/rooms/build_render_surface_navigation.py')
-builder = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(builder)
+from avengine.rooms import navigation_preparation as builder
 
 
 def test_shared_surface_selection_does_not_depend_on_room_name(tmp_path):
