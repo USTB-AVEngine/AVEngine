@@ -4,6 +4,7 @@ from collections.abc import Mapping, Sequence
 from copy import deepcopy
 import math
 from pathlib import Path
+from numbers import Real
 from typing import Any
 
 SOURCE_PLACEMENT_SCHEMA = "avengine_source_placement_plan_v1"
@@ -41,15 +42,21 @@ def _text(value: Any, owner: str) -> str:
 
 
 def _finite(value: Any, owner: str) -> float:
-    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(float(value)):
+    if isinstance(value, bool) or not isinstance(value, Real) or not math.isfinite(float(value)):
         raise SourcePlacementError("finite_number_required", f"{owner} must be finite")
     return float(value)
 
 
 def _vector(value: Any, owner: str) -> tuple[float, float, float]:
-    if isinstance(value, (str, bytes)) or not isinstance(value, Sequence) or len(value) != 3:
+    if isinstance(value, (str, bytes)):
         raise SourcePlacementError("vector3_required", f"{owner} must be a 3-vector")
-    return tuple(_finite(item, f"{owner}[{index}]") for index, item in enumerate(value))
+    try:
+        if len(value) != 3:
+            raise SourcePlacementError("vector3_required", f"{owner} must be a 3-vector")
+        items = (value[0], value[1], value[2])
+    except (TypeError, KeyError, IndexError) as exc:
+        raise SourcePlacementError("vector3_required", f"{owner} must be a 3-vector") from exc
+    return tuple(_finite(item, f"{owner}[{index}]") for index, item in enumerate(items))
 
 
 def _pair(value: Any, owner: str) -> tuple[float, float]:

@@ -81,18 +81,53 @@ def test_rigid_source_declaration_rejects_missing_resting_pose(
 
 
 @pytest.mark.parametrize(
-    ("field", "value", "message"),
+    ("field", "value"),
     [
-        ("attachment_surface", "wall", "only floor"),
-        ("base_plane_offset_m", 0.01, "non-zero base_plane_offset_m"),
+        ("attachment_surface", "wall"),
+        ("attachment_surface", "ceiling"),
+        ("base_plane_offset_m", 0.01),
     ],
 )
-def test_rigid_source_declaration_rejects_unsupported_resting_pose(
-    field: str, value: object, message: str
+def test_rigid_source_declaration_carries_the_shared_resting_pose_contract(
+    field: str, value: object
 ) -> None:
     registry = _speaker_registry_copy()
     pose = _speaker_record(registry)["runtime_backends"]["habitat"]["resting_pose"]
     pose[field] = value
+
+    declaration = source_declaration(registry, SPEAKER_ID, "source2")
+    assert declaration["resting_pose"][field] == value
+    assert declaration["static_placement_contract"][field] == value
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        ("attachment_surface", "roof", "floor, wall or ceiling"),
+        ("base_plane_offset_m", float("nan"), "base_plane_offset_m must be finite"),
+        ("height_m", -0.01, "height_m must be finite and nonnegative"),
+    ],
+)
+def test_rigid_source_declaration_rejects_invalid_resting_pose(
+    monkeypatch: pytest.MonkeyPatch, field: str, value: object, message: str
+) -> None:
+    registry = _speaker_registry_copy()
+    record = _speaker_record(registry)
+    record["runtime_backends"]["habitat"]["resting_pose"][field] = value
+    monkeypatch.setattr(
+        qa_episode,
+        "resolve_source_asset_runtime_profile",
+        lambda _registry, _asset_id: record,
+    )
+    monkeypatch.setattr(
+        qa_episode,
+        "build_asset_emitter_binding",
+        lambda _registry, *, source_slot_id, asset_id: {
+            "source_slot_id": source_slot_id,
+            "asset_id": asset_id,
+            "emitter_offset_m": [0.0, 0.0, 0.0],
+        },
+    )
 
     with pytest.raises(QAPlanningError, match=f"interface_not_implemented.*{message}"):
         source_declaration(registry, SPEAKER_ID, "source2")
@@ -178,6 +213,205 @@ class _FakeScaleRoot:
 
     def GetActorScale3D(self, **_kwargs):
         raise AssertionError("static readback must use visual-root relative scale")
+
+
+def test_habitat_root_conversion_preserves_legacy_floor_yaw_sign() -> None:
+    import math
+    import avengine.optional_backends.spear_apartment as apartment
+
+    pose = apartment.habitat_root_transform_to_ue(
+        {
+            "translation_m": [1.0, 2.0, 3.0],
+            "rotation_xyzw": [0.0, math.sin(math.radians(30.0)), 0.0, math.cos(math.radians(30.0))],
+            "scale": [1.0, 1.0, 1.0],
+        }
+    )
+    assert pose["translation_cm"] == pytest.approx([100.0, 300.0, 200.0])
+    assert pose["rotation_deg"] == pytest.approx([0.0, 0.0, -60.0])
+
+
+def test_materializer_keeps_complete_wall_root_pose_and_world_emitter_point() -> None:
+    import avengine.optional_backends.spear_apartment as apartment
+
+    registry = load_source_asset_runtime_registry(REGISTRY_PATH)
+    wall_id = "generated_smoke_detector_wall_square_white_research_v1"
+    root_quaternion = [0.25, 0.30, 0.10, 0.90]
+    norm = sum(value * value for value in root_quaternion) ** 0.5
+    root_quaternion = [value / norm for value in root_quaternion]
+    habitat_rotation = apartment._rotation_matrix_from_xyzw(
+        root_quaternion, owner="test root quaternion"
+    )
+    root_matrix = [
+        value
+        for row, translation in zip(
+            habitat_rotation,
+            [1.0, 2.0, 3.0],
+            strict=True,
+        )
+        for value in (*row, translation)
+    ] + [0.0, 0.0, 0.0, 1.0]
+    neutral = {
+        "plan_coordinates": "renderer_neutral",
+        "scene": {},
+        "resources": {},
+        "visual_plan": {
+            "actors": [
+                {
+                    "actor_id": "source1",
+                    "asset_id": wall_id,
+                    "entity_class": "rigid_object",
+                    "static_placement": {
+                        "status": "planned",
+                        "asset_id": wall_id,
+                        "support_identity": {
+                            "surface_kind": "wall",
+                            "surface_id": "room_wall_01",
+                        },
+                    },
+                }
+            ],
+            "camera": {
+                "position_m": [0.0, 1.5, 0.0],
+                "basis": {
+                    "forward": [1.0, 0.0, 0.0],
+                    "right": [0.0, 0.0, 1.0],
+                    "up": [0.0, 1.0, 0.0],
+                },
+                "horizontal_fov_deg": 85.0,
+            },
+            "frames": [
+                {
+                    "frame_index": 0,
+                    "actor_states": [
+                        {
+                            "actor_id": "source1",
+                            "root_transform": {
+                                "translation_m": [1.0, 2.0, 3.0],
+                                "rotation_xyzw": root_quaternion,
+                                "matrix_row_major": root_matrix,
+                                "scale": [1.0, 1.0, 1.0],
+                            },
+                            "planned_emitter_m": [1.1, 2.2, 3.3],
+                            "emitter_transform": {
+                                "position_m": [1.1, 2.2, 3.3],
+                            },
+                        }
+                    ],
+                    "camera_state": {
+                        "position_m": [0.0, 1.5, 0.0],
+                        "basis": {
+                            "forward": [1.0, 0.0, 0.0],
+                            "right": [0.0, 0.0, 1.0],
+                            "up": [0.0, 1.0, 0.0],
+                        },
+                        "horizontal_fov_deg": 85.0,
+                    },
+                }
+            ],
+        },
+    }
+
+    materialized = materialize_ue_episode_plan(neutral, registry)
+    state = materialized["visual_plan"]["frames"][0]["actor_states"][0]
+    full_pose = state["ue_root_transform"]
+    assert state["translation_ue_cm"] == pytest.approx([100.0, 300.0, 200.0])
+    assert state["planned_emitter_ue_cm"] == pytest.approx([110.0, 330.0, 220.0])
+    assert full_pose["rotation_deg"][0] != pytest.approx(0.0)
+    assert full_pose["rotation_deg"][1] != pytest.approx(0.0)
+    expected = apartment._rotator_quaternion_xyzw(full_pose["rotation_deg"])
+    dot = abs(sum(left * right for left, right in zip(expected, full_pose["rotation_xyzw"])))
+    assert dot == pytest.approx(1.0, abs=1.0e-6)
+
+
+class _ResidentialAnchor:
+    def __init__(self) -> None:
+        self.location = None
+        self.rotation = None
+
+    def K2_SetActorLocationAndRotation(self, *, NewLocation, NewRotation, **_kwargs):
+        self.location = NewLocation
+        self.rotation = NewRotation
+
+    def K2_GetActorLocation(self, *, as_dict):
+        assert as_dict
+        return self.location
+
+    def K2_GetActorRotation(self, *, as_dict):
+        assert as_dict
+        return self.rotation
+
+
+def test_residential_runner_consumes_complete_static_root_pose() -> None:
+    path = ROOT / "tools/rooms/run_spear_residential_episode.py"
+    spec = importlib.util.spec_from_file_location("d5_residential_runner", path)
+    assert spec is not None and spec.loader is not None
+    runner = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(runner)
+    anchor = _ResidentialAnchor()
+    root, animation = runner._apply_residential_actor_state(
+        {"motion_model": "rigid_static", "anchor": anchor},
+        {
+            "action_id": "static",
+            "moving": False,
+            "translation_ue_cm": [1.0, 2.0, 3.0],
+            "actor_yaw_ue_deg": 4.0,
+            "ue_root_transform": {
+                "translation_cm": [11.0, 22.0, 33.0],
+                "rotation_deg": [12.0, 23.0, 34.0],
+            },
+        },
+        4,
+    )
+    assert root["location_cm"] == [11.0, 22.0, 33.0]
+    assert root["rotation_deg"] == [12.0, 23.0, 34.0]
+    assert animation["status"] == "not_applicable"
+
+
+def test_root_readback_gate_checks_complete_static_rotation() -> None:
+    import avengine.optional_backends.spear_apartment as apartment
+
+    state = {
+        "actor_id": "source1",
+        "translation_ue_cm": [11.0, 22.0, 33.0],
+        "actor_yaw_ue_deg": 34.0,
+        "ue_root_transform": {
+            "translation_cm": [11.0, 22.0, 33.0],
+            "rotation_deg": [12.0, 23.0, 34.0],
+        },
+    }
+    frames = [{"actor_states": [state]}]
+    actor_readbacks = {
+        "source1": [
+            {
+                "frame_index": 0,
+                "location_cm": [11.0, 22.0, 33.0],
+                "rotation_deg": [12.0, 23.0, 34.0],
+            }
+        ]
+    }
+    cameras = [{"frame_index": 0, "location_cm": [0.0, 0.0, 0.0], "rotation_deg": [0.0, 0.0, 0.0]}]
+    summary = apartment.summarize_root_readbacks(
+        expected_frames=frames,
+        actor_readbacks=actor_readbacks,
+        camera_readbacks=cameras,
+        camera_position_cm=[0.0, 0.0, 0.0],
+        camera_yaw_deg=0.0,
+        frame_count=1,
+    )
+    assert summary["source1"]["full_pose_frame_count"] == 1
+    assert summary["source1"]["maximum_rotation_error_deg"] == pytest.approx(0.0, abs=1.0e-5)
+
+    drifted = deepcopy(actor_readbacks)
+    drifted["source1"][0]["rotation_deg"][0] += 5.0
+    with pytest.raises(apartment.SpearApartmentError, match="source1.*drifted"):
+        apartment.summarize_root_readbacks(
+            expected_frames=frames,
+            actor_readbacks=drifted,
+            camera_readbacks=cameras,
+            camera_position_cm=[0.0, 0.0, 0.0],
+            camera_yaw_deg=0.0,
+            frame_count=1,
+        )
 
 
 def test_static_scale_readback_uses_visual_root_and_records_observed_value() -> None:

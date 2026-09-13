@@ -426,6 +426,8 @@ def materialize_ue_episode_plan(plan, registry):
     for neutral in plan['visual_plan']['actors']:
         actor=source_declaration(registry,neutral['asset_id'],neutral['actor_id'])
         actor.update(entity_class=neutral['entity_class'])
+        if isinstance(neutral.get('static_placement'), Mapping):
+            actor['static_placement'] = deepcopy(neutral['static_placement'])
         timeline = resolve_source_asset_runtime_profile(
             registry, neutral['asset_id']
         ).get('timeline')
@@ -475,9 +477,58 @@ def materialize_ue_episode_plan(plan, registry):
         frame['camera_state']=camera(frame['camera_state'])
         frame['camera_state']['frame_index']=int(frame['frame_index'])
         for state in frame['actor_states']:
-            actor=by_id[state['actor_id']];transform=state['root_transform'];q=transform['rotation_xyzw'];yaw=-math.degrees(2*math.atan2(q[1],q[3]))
-            state.update(translation_m=deepcopy(transform['translation_m']),translation_ue_cm=habitat_to_ue_cm(transform['translation_m']),
+            actor=by_id[state['actor_id']]
+            transform=state['root_transform']
+            resting_pose = actor.get('resting_pose') or {}
+            attachment_surface = str(resting_pose.get('attachment_surface', 'floor'))
+            base_plane_offset = float(resting_pose.get('base_plane_offset_m', 0.0))
+            needs_static_placement = (
+                attachment_surface in {'wall', 'ceiling'}
+                or abs(base_plane_offset) > 1.0e-9
+            )
+            if (
+                actor.get('motion_model') == 'rigid_static'
+                and needs_static_placement
+                and not isinstance(actor.get('static_placement'), Mapping)
+            ):
+                raise ValueError(
+                    f"{actor['actor_id']} {attachment_surface} static source "
+                    "requires the shared static placement plan"
+                )
+            q=transform['rotation_xyzw']
+            if actor.get('motion_model') == 'rigid_static':
+                # Keep this optional-backend import lazy: articulated neutral
+                # plans remain usable with lightweight test registries and do
+                # not initialize the SPEAR Apartment registry on import.
+                from avengine.optional_backends.spear_apartment import (
+                    habitat_root_transform_to_ue,
+                )
+                ue_root = habitat_root_transform_to_ue(transform)
+                ue_translation = ue_root['translation_cm']
+                yaw=float(ue_root['rotation_deg'][2])
+            else:
+                yaw=-math.degrees(2*math.atan2(q[1],q[3]))
+                ue_translation=habitat_to_ue_cm(transform['translation_m'])
+                ue_root = None
+            state.update(translation_m=deepcopy(transform['translation_m']),
+                         translation_ue_cm=deepcopy(ue_translation),
                          rotation_xyzw=deepcopy(q),actor_yaw_ue_deg=yaw)
+            if ue_root is not None:
+                state['ue_root_transform'] = ue_root
+            emitter_transform = state.get('emitter_transform')
+            emitter_position = None
+            if isinstance(emitter_transform, Mapping):
+                emitter_position = emitter_transform.get('position_m')
+            if emitter_position is None:
+                emitter_position = state.get('planned_emitter_m')
+            if emitter_position is not None:
+                emitter_ue_cm = habitat_to_ue_cm(emitter_position)
+                state['planned_emitter_ue_cm'] = deepcopy(emitter_ue_cm)
+                if isinstance(emitter_transform, Mapping):
+                    state['emitter_transform'] = {
+                        **deepcopy(dict(emitter_transform)),
+                        'ue_position_cm': deepcopy(emitter_ue_cm),
+                    }
             correction = actor.get('ue_neutral_visual_frame_correction')
             if isinstance(correction, dict):
                 timeline_yaw = float(correction.get('timeline_forward_yaw_deg', 0.0))

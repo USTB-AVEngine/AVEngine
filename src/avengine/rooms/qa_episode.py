@@ -200,10 +200,11 @@ def source_declaration(
                 f"{asset_id} static placement interface_not_implemented: "
                 "a measured resting_pose is required"
             )
-        if resting_pose.get("attachment_surface") != "floor":
+        attachment_surface = resting_pose.get("attachment_surface")
+        if attachment_surface not in {"floor", "wall", "ceiling"}:
             raise QAPlanningError(
                 f"{asset_id} static placement interface_not_implemented: "
-                "only floor attachment_surface is supported"
+                "resting_pose.attachment_surface must be floor, wall or ceiling"
             )
         base_offset = resting_pose.get("base_plane_offset_m")
         if (
@@ -215,11 +216,16 @@ def source_declaration(
                 f"{asset_id} static placement interface_not_implemented: "
                 "resting_pose.base_plane_offset_m must be finite"
             )
-        if abs(float(base_offset)) > 1.0e-9:
+        height = resting_pose.get("height_m")
+        if height is not None and (
+            isinstance(height, bool)
+            or not isinstance(height, (int, float))
+            or not math.isfinite(float(height))
+            or float(height) < 0.0
+        ):
             raise QAPlanningError(
                 f"{asset_id} static placement interface_not_implemented: "
-                "non-zero base_plane_offset_m is unsupported by root-at-floor "
-                "placement"
+                "resting_pose.height_m must be finite and nonnegative"
             )
         return {
             **backend,
@@ -237,6 +243,15 @@ def source_declaration(
             "actor_scale": float(actor_scale),
             "ue_static_forward_yaw_deg": float(static_forward_yaw),
             "resting_pose": resting_pose,
+            "static_placement_contract": {
+                "schema": "avengine_static_resting_pose_attachment_v1",
+                "attachment_surface": attachment_surface,
+                "base_plane_offset_m": float(base_offset),
+                "root_transform_semantics": (
+                    "world_from_asset_root; the registered base plane is "
+                    "resolved before renderer coordinate conversion"
+                ),
+            },
             "emitter_local_ue_cm": [
                 float(offset[0]) * 100.0,
                 float(offset[2]) * 100.0,

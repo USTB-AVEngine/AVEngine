@@ -38,6 +38,7 @@ from avengine.backends.spear_ue.rig_direction import sample_body_bone_position_i
 from avengine.optional_backends.spear_apartment import (  # noqa: E402
     ANIMATION_TOLERANCE_SECONDS,
     FRAME_COUNT,
+    apply_ue_root_transform,
     FPS,
     HEIGHT,
     WIDTH,
@@ -108,6 +109,20 @@ DEPTH_RELATIVE_TOLERANCE = 0.002
 def _require(condition: bool, message: str) -> None:
     if not condition:
         raise RuntimeError(message)
+
+
+def _apply_residential_actor_state(
+    runtime: dict[str, Any], state: Mapping[str, Any], frame_index: int
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Apply the legacy state and then consume a complete static UE root pose."""
+
+    root, animation = _apply_actor_state(runtime, state, frame_index)
+    if runtime.get("motion_model") == "rigid_static":
+        complete_root = state.get("ue_root_transform")
+        if isinstance(complete_root, Mapping):
+            apply_ue_root_transform(runtime["anchor"], complete_root)
+            root = _actor_readback(runtime["anchor"], frame_index)
+    return root, animation
 
 
 def _runtime_scene_receipt(
@@ -1115,7 +1130,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                             )
                         emitter_readbacks[actor_id] = []
                 for state in plan["frames"][0]["actor_states"]:
-                    _apply_actor_state(runtimes[state["actor_id"]], state, 0)
+                    _apply_residential_actor_state(runtimes[state["actor_id"]], state, 0)
                 _write(
                     output / "native_runtime_binding_readback.json",
                     {
@@ -1163,7 +1178,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                 components["depth"].PrimitiveRenderMode = "PRM_RenderScenePrimitives"
                 components["depth"].ShowOnlyActors = []
                 for state in plan["frames"][0]["actor_states"]:
-                    _apply_actor_state(runtimes[state["actor_id"]], state, 0)
+                    _apply_residential_actor_state(runtimes[state["actor_id"]], state, 0)
                 _apply_camera_for_frame(camera, plan, 0, readback=False)
             with instance.end_frame():
                 pass
@@ -1195,7 +1210,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                 native_actor_readbacks: dict[str, Any] = {}
                 for state in frame["actor_states"]:
                     actor_id = state["actor_id"]
-                    root, animation = _apply_actor_state(
+                    root, animation = _apply_residential_actor_state(
                         runtimes[actor_id], state, frame_index
                     )
                     actor_readbacks[actor_id].append(root)
@@ -1331,7 +1346,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                         runtimes[target_actor_id]["visual_actor"]
                     ]
                     for state in plan["frames"][0]["actor_states"]:
-                        _apply_actor_state(runtimes[state["actor_id"]], state, 0)
+                        _apply_residential_actor_state(runtimes[state["actor_id"]], state, 0)
                     _apply_camera_for_frame(camera, plan, 0, readback=False)
                 with instance.end_frame():
                     pass
@@ -1342,7 +1357,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                     with instance.begin_frame():
                         for state in frame["actor_states"]:
                             actor_id = state["actor_id"]
-                            root, _ = _apply_actor_state(
+                            root, _ = _apply_residential_actor_state(
                                 runtimes[actor_id], state, frame_index
                             )
                             target_frame_readback["actors"][actor_id] = root

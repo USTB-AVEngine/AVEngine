@@ -397,6 +397,24 @@ def _finite_triplet(value: Any, *, owner: str) -> list[float]:
     return result
 
 
+def _finite_quaternion(value: Any, *, owner: str) -> list[float]:
+    if (
+        isinstance(value, (str, bytes))
+        or not isinstance(value, Sequence)
+        or len(value) != 4
+    ):
+        raise SpearApartmentError(f"{owner} must contain exactly four finite numbers")
+    result: list[float] = []
+    for index, item in enumerate(value):
+        if isinstance(item, bool) or not isinstance(item, (int, float)):
+            raise SpearApartmentError(f"{owner}[{index}] must be finite")
+        number = float(item)
+        if not math.isfinite(number):
+            raise SpearApartmentError(f"{owner}[{index}] must be finite")
+        result.append(number)
+    return result
+
+
 def _component_frame_delta(
     value: Mapping[str, Any], *, asset_id: str
 ) -> dict[str, Any]:
@@ -528,6 +546,159 @@ def read_ue_component_relative_transform(component: Any) -> dict[str, list[float
         ),
     }
 
+
+
+def _rotation_matrix_from_xyzw(
+    value: Sequence[float], *, owner: str
+):
+    quaternion = _finite_quaternion(value, owner=owner)
+    norm = math.sqrt(sum(component * component for component in quaternion))
+    if norm <= 1.0e-12:
+        raise SpearApartmentError(f"{owner} quaternion has zero norm")
+    x, y, z, w = (component / norm for component in quaternion)
+    return (
+        (1.0 - 2.0 * (y * y + z * z), 2.0 * (x * y - z * w), 2.0 * (x * z + y * w)),
+        (2.0 * (x * y + z * w), 1.0 - 2.0 * (x * x + z * z), 2.0 * (y * z - x * w)),
+        (2.0 * (x * z - y * w), 2.0 * (y * z + x * w), 1.0 - 2.0 * (x * x + y * y)),
+    )
+
+
+def _ue_rotator_from_matrix(rotation: Any, *, owner: str) -> list[float]:
+    """Convert a UE rotation matrix to Roll/Pitch/Yaw degrees."""
+
+    import numpy as np
+
+    matrix = np.asarray(rotation, dtype=float)
+    if matrix.shape != (3, 3) or not np.all(np.isfinite(matrix)):
+        raise SpearApartmentError(f"{owner} must be a finite 3x3 rotation")
+    pitch = math.asin(max(-1.0, min(1.0, -float(matrix[2, 0]))))
+    if abs(math.cos(pitch)) > 1.0e-8:
+        roll = math.atan2(float(matrix[2, 1]), float(matrix[2, 2]))
+        yaw = math.atan2(float(matrix[1, 0]), float(matrix[0, 0]))
+    else:
+        # At +/-90 degrees of pitch, choose the zero-roll representative.  It
+        # remains quaternion-equivalent to the complete root pose.
+        roll = 0.0
+        yaw = math.atan2(float(-matrix[0, 1]), float(matrix[1, 1]))
+    return [math.degrees(roll), math.degrees(pitch), math.degrees(yaw)]
+
+
+def habitat_root_transform_to_ue(
+    root_transform: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Convert Habitat ``world_from_asset_root`` into the complete UE pose."""
+
+    import numpy as np
+    from avengine.rooms.capture_adapter import _matrix_quaternion_xyzw
+
+    if not isinstance(root_transform, Mapping):
+        raise SpearApartmentError("Habitat root_transform must be an object")
+    matrix_raw = root_transform.get("matrix_row_major")
+    if matrix_raw is not None:
+        try:
+            matrix = np.asarray(matrix_raw, dtype=float).reshape(4, 4)
+        except (TypeError, ValueError) as exc:
+            raise SpearApartmentError(
+                "Habitat root_transform.matrix_row_major must be a finite 4x4 matrix"
+            ) from exc
+        if not np.all(np.isfinite(matrix)) or not np.allclose(
+            matrix[3], [0.0, 0.0, 0.0, 1.0], atol=1.0e-7, rtol=0.0
+        ):
+            raise SpearApartmentError(
+                "Habitat root_transform.matrix_row_major is invalid"
+            )
+        rotation_h = matrix[:3, :3]
+        matrix_translation = matrix[:3, 3]
+    else:
+        rotation_h = np.asarray(
+            _rotation_matrix_from_xyzw(
+                root_transform.get("rotation_xyzw"),
+                owner="Habitat root_transform.rotation_xyzw",
+            ),
+            dtype=float,
+        )
+        matrix_translation = None
+    if not np.allclose(
+        rotation_h.T @ rotation_h, np.eye(3), atol=1.0e-6, rtol=0.0
+    ) or not math.isclose(float(np.linalg.det(rotation_h)), 1.0, abs_tol=1.0e-6):
+        raise SpearApartmentError("Habitat root rotation must be a proper rotation")
+
+    translation_raw = root_transform.get("translation_m")
+    if translation_raw is None:
+        if matrix_translation is None:
+            raise SpearApartmentError(
+                "Habitat root_transform needs translation_m or matrix_row_major"
+            )
+        translation = [float(value) for value in matrix_translation]
+    else:
+        translation = _finite_triplet(
+            translation_raw, owner="Habitat root_transform.translation_m"
+        )
+        if matrix_translation is not None and max(
+            abs(translation[index] - float(matrix_translation[index]))
+            for index in range(3)
+        ) > 1.0e-7:
+            raise SpearApartmentError(
+                "Habitat root_transform translation disagrees with its matrix"
+            )
+    if matrix_raw is not None and root_transform.get("rotation_xyzw") is not None:
+        declared = _finite_quaternion(
+            root_transform["rotation_xyzw"],
+            owner="Habitat root_transform.rotation_xyzw",
+        )
+        norm = math.sqrt(sum(value * value for value in declared))
+        declared = [value / norm for value in declared]
+        actual = _matrix_quaternion_xyzw(rotation_h)
+        if abs(sum(left * right for left, right in zip(declared, actual, strict=True))) < 1.0 - 1.0e-5:
+            raise SpearApartmentError(
+                "Habitat root_transform quaternion disagrees with its matrix"
+            )
+
+    # P is the existing shared Habitat-to-UE axis permutation.  Conjugating
+    # the full rotation preserves pitch/roll and gives the legacy floor yaw.
+    permutation = np.asarray(
+        [[1.0, 0.0, 0.0], [0.0, 0.0, 1.0], [0.0, 1.0, 0.0]]
+    )
+    rotation_ue = permutation @ rotation_h @ permutation
+    quaternion_ue = _matrix_quaternion_xyzw(rotation_ue)
+    scale = _finite_triplet(
+        root_transform.get("scale", [1.0, 1.0, 1.0]),
+        owner="Habitat root_transform.scale",
+    )
+    if any(component <= 0.0 for component in scale):
+        raise SpearApartmentError("Habitat root_transform.scale must be positive")
+    return {
+        "translation_cm": habitat_point_to_apartment_ue_cm(translation),
+        "rotation_xyzw": list(quaternion_ue),
+        "rotation_deg": _ue_rotator_from_matrix(
+            rotation_ue, owner="UE root rotation"
+        ),
+        "scale": scale,
+        "source": "habitat_world_from_asset_root_axis_swap_v1",
+    }
+
+
+def apply_ue_root_transform(actor: Any, transform: Mapping[str, Any]) -> None:
+    """Apply a materialized complete UE root pose to a runtime actor."""
+
+    if not isinstance(transform, Mapping):
+        raise SpearApartmentError("UE root transform must be an object")
+    location = _finite_triplet(
+        transform.get("translation_cm"), owner="UE root translation_cm"
+    )
+    rotation = _finite_triplet(
+        transform.get("rotation_deg"), owner="UE root rotation_deg"
+    )
+    actor.K2_SetActorLocationAndRotation(
+        NewLocation={"X": location[0], "Y": location[1], "Z": location[2]},
+        NewRotation={
+            "Roll": rotation[0],
+            "Pitch": rotation[1],
+            "Yaw": rotation[2],
+        },
+        bSweep=False,
+        bTeleport=True,
+    )
 
 def _rotator_quaternion_xyzw(rotation_deg: Sequence[float]) -> tuple[float, ...]:
     """Convert UE-style Roll/Pitch/Yaw degrees to an equivalent quaternion.
@@ -1831,6 +2002,8 @@ def summarize_root_readbacks(
             raise SpearApartmentError(f"{actor_id} root readback lacks {frame_count} frames")
         position_errors = []
         yaw_errors = []
+        rotation_errors = []
+        full_pose_frame_count = 0
         for frame_index, (frame, record) in enumerate(zip(expected_frames, records)):
             expected = next(
                 item for item in frame["actor_states"] if item["actor_id"] == actor_id
@@ -1843,26 +2016,45 @@ def summarize_root_readbacks(
                     for axis in range(3)
                 )
             )
-            yaw_errors.append(
-                abs(
-                    wrap_angle_difference_degrees(
-                        rotation[2], expected["actor_yaw_ue_deg"]
-                    )
+            yaw_error = abs(
+                wrap_angle_difference_degrees(
+                    rotation[2], expected["actor_yaw_ue_deg"]
                 )
             )
+            yaw_errors.append(yaw_error)
+            full_pose = expected.get("ue_root_transform")
+            if isinstance(full_pose, Mapping):
+                expected_rotation = _finite_triplet(
+                    full_pose.get("rotation_deg"),
+                    owner=f"expected {actor_id} full root rotation",
+                )
+                observed_rotation = _finite_triplet(
+                    rotation, owner=f"observed {actor_id} full root rotation"
+                )
+                rotation_errors.append(
+                    _rotator_equivalence_error_degrees(
+                        expected_rotation, observed_rotation
+                    )
+                )
+                full_pose_frame_count += 1
+            else:
+                rotation_errors.append(yaw_error)
             if record.get("frame_index") != frame_index:
                 raise SpearApartmentError(f"{actor_id} readback frame order changed")
         maximum_position = max(position_errors)
         maximum_yaw = max(yaw_errors)
+        maximum_rotation = max(rotation_errors)
         if (
             maximum_position > POSITION_TOLERANCE_CM
-            or maximum_yaw > ROTATION_TOLERANCE_DEGREES
+            or maximum_rotation > ROTATION_TOLERANCE_DEGREES
         ):
             raise SpearApartmentError(f"{actor_id} UE root readback drifted")
         summaries[actor_id] = {
             "status": "pass",
             "maximum_position_error_cm": maximum_position,
             "maximum_yaw_error_deg": maximum_yaw,
+            "maximum_rotation_error_deg": maximum_rotation,
+            "full_pose_frame_count": full_pose_frame_count,
         }
 
     declared_camera_states = [
@@ -2432,6 +2624,8 @@ __all__ = [
     "anatomical_basis_bones_for_asset",
     "animation_position_seconds",
     "apply_ue_component_frame_delta",
+    "apply_ue_root_transform",
+    "habitat_root_transform_to_ue",
     "asset_bound_bundle_acoustic_visual_identity",
     "asset_bound_bundle_episode_ids",
     "build_clean_binaural_mux_command",
