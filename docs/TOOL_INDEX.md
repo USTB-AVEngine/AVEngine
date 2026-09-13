@@ -5,7 +5,7 @@
 
 自 2026-08-25 起，目录本身就是能力分组（阶段目录 m1…m7 已移除），
 本表按目录列出每个工具做什么。
-当前共 434 个工具脚本。
+当前共 437 个工具脚本。
 
 ## 资产生成与装配（`tools/assets/`）
 
@@ -115,6 +115,7 @@
 | `tools/rooms/blender_build_exterior_proxy.py` | Blender-side builder for an inward-facing, textured exterior sphere |
 | `tools/rooms/build_fixed_apartment_canary.py` | Build the fixed SPEAR Apartment S0--S5 M6.x review bundle |
 | `tools/rooms/build_residential_source_episode.py` | Build AVEngine Timeline, Topdown and binaural audio for a residential room |
+| `tools/rooms/compile_ue_navigation.py` | Build free navigation from current UE collision geometry and null areas |
 | `tools/rooms/emit_hm3d_room_manifest.py` | Emit an AVEngine room manifest for an HM3D scene directory |
 | `tools/rooms/extract_interioragent_scene_metadata.py` | Extract a room polygon and navigation footprints from InteriorAgent USD |
 | `tools/rooms/measure_habitat_floor_reference.py` | Measure Habitat floor levels from a declared scene and navmesh |
@@ -479,6 +480,7 @@
 | 工具 | 做什么 |
 |---|---|
 | `tools/registry/publish_static_object_registry.py` | Publish or verify one fail-closed M6 static-object research registration |
+| `tools/registry/register_source_runtime_asset.py` | Register one new source runtime asset into a fresh registry copy |
 | `tools/registry/reseal_examples.py` | Reseal and re-pin example evidence bindings after a legitimate content change |
 
 ## 发布（`tools/release/`）
@@ -521,6 +523,7 @@
 | `tools/ue/create_spear_kujiale_map_editor.py` | Create a UE map containing one external USD stage |
 | `tools/ue/export_apartment_gltf.py` | Export a selected SPEAR map as real UE render-surface geometry |
 | `tools/ue/export_asset_dependencies_editor.py` | Export real Unreal package dependencies for declared mounted content roots |
+| `tools/ue/export_navigation_editor.py` | Export current UE navigation input geometry, settings and native mesh bounds |
 | `tools/ue/fix_spear_mp3d_materials_editor.py` | Repair and verify MP3D glTF color semantics inside an isolated UE project |
 | `tools/ue/import_controlled_humans_editor.py` | Import one catalog-described controlled human with generic Unreal APIs |
 | `tools/ue/import_extra_animals_editor.py` | Import research-only animated animal GLBs into isolated UE SkeletalMesh roots |
