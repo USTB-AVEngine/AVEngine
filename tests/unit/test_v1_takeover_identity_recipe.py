@@ -438,12 +438,11 @@ def test_route_bank_block_reports_the_measured_structure_not_just_a_string():
         identity._select_topology(plan, request, None, sound, sound)
     bank = raised.value.report["route_bank"]
     assert bank["available"] is True
-    assert bank["route_count"] == 113
-    assert bank["distinct_route_pairs"] == 6328
-    # A walker never leaves the retained route its start sits on, so a common
-    # endpoint needs two routes sharing a vertex. The Apartment bank has one
-    # such pair in 6328, which is why re-planning alone cannot fix this.
-    assert bank["route_pairs_sharing_a_vertex"] == 1
+    assert bank["route_count"] == 114
+    assert bank["distinct_route_pairs"] == 6441
+    # A common endpoint needs a shared 3D vertex. Preserving the native
+    # per-frame heights removes the old match created by flattening each route.
+    assert bank["route_pairs_sharing_a_vertex"] == 0
     assert bank["plan_starts_on_a_shared_route"] is False
 
 

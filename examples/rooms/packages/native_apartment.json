@@ -22,6 +22,7 @@
     "native_input_root": "${AVENGINE_APARTMENT_INPUT_ROOT}",
     "native_room_adapter": "avengine_native_spear_apartment_qa_room_v1",
     "native_room_profile": "examples/runtime/room_runtime_profiles.json",
+    "expected_stage_actor_count": 0,
     "pose_bindings": null,
     "room_manifest": "${AVENGINE_APARTMENT_INPUT_ROOT}/m1/legacy_apartment_package/room_manifest.json",
     "room_manifest_template": "${AVENGINE_APARTMENT_INPUT_ROOT}/m1/legacy_apartment_package/room_manifest.json",
@@ -42,7 +43,7 @@
   "room_profile": "examples/runtime/room_runtime_profiles.json",
   "schema": "avengine_qa_room_package_v1",
   "semantics": {
-    "interpretation": "Native Apartment mesh-audit object semantics and route-bank source; UE task actors are injected at runtime.",
+    "interpretation": "Native Apartment mesh-audit semantics; default navigation uses the current UE-derived Habitat Recast navmesh, with the retained route bank as an explicit fallback; UE task actors are injected at runtime.",
     "source": "tmp/native_qa_apartment_walk_20260906_v3_final/plan/room_layout.json"
   },
   "source_assets": {
@@ -59,6 +60,7 @@
       "up_axis": "+Y"
     },
     "representation": "real_surface_mesh",
+    "render_surface": true,
     "source": "acoustic_package_arrays",
     "source_manifest": "${AVENGINE_APARTMENT_INPUT_ROOT}/m3/root_ue_package_current_20260718_02/manifest.json",
     "source_manifest_template": "${AVENGINE_APARTMENT_INPUT_ROOT}/m3/root_ue_package_current_20260718_02/manifest.json",
@@ -76,10 +78,12 @@
     "uproject": "${AVENGINE_MULTI_HOME_UE_ROOT}/SpearSim/SpearSim.uproject"
   },
   "walkable_space": {
-    "kind": "route_bank",
-    "path": "${AVENGINE_NATIVE_APARTMENT_ROUTE_ROOT}/route_bank.json",
-    "path_template": "${AVENGINE_NATIVE_APARTMENT_ROUTE_ROOT}/route_bank.json",
-    "source_manifest": "${AVENGINE_APARTMENT_INPUT_ROOT}/m1/legacy_apartment_package/room_manifest.json",
-    "source_manifest_template": "${AVENGINE_APARTMENT_INPUT_ROOT}/m1/legacy_apartment_package/room_manifest.json"
+    "kind": "habitat_navmesh",
+    "path": "${AVENGINE_QA_V3_ROOT}/astra_unified_20260913/packages/apartment_navigation_current_ue_v1/apartment_current_ue.navmesh",
+    "path_template": "${AVENGINE_QA_V3_ROOT}/astra_unified_20260913/packages/apartment_navigation_current_ue_v1/apartment_current_ue.navmesh",
+    "route_bank": "${AVENGINE_NATIVE_APARTMENT_ROUTE_ROOT}/route_bank.json",
+    "route_bank_template": "${AVENGINE_NATIVE_APARTMENT_ROUTE_ROOT}/route_bank.json",
+    "source_manifest": "${AVENGINE_QA_V3_ROOT}/astra_unified_20260913/packages/apartment_navigation_current_ue_v1/build_result.json",
+    "source_manifest_template": "${AVENGINE_QA_V3_ROOT}/astra_unified_20260913/packages/apartment_navigation_current_ue_v1/build_result.json"
   }
 }

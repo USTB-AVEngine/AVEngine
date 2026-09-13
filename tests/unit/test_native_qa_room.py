@@ -76,6 +76,42 @@ def _resources(tmp_path: Path) -> NativeApartmentResources:
     )
 
 
+def test_route_points_preserve_full_three_dimensional_samples():
+    raw = {
+        "waypoints_ue_cm": [[0.0, 0.0, 10.0], [100.0, 0.0, 20.0]],
+        "samples_ue_cm": [
+            [0.0, 0.0, 10.0],
+            [50.0, 0.0, 15.0],
+            [100.0, 0.0, 20.0],
+        ],
+    }
+
+    np.testing.assert_allclose(
+        nq._route_points(raw), [[0.0, 0.1, 0.0], [0.5, 0.15, 0.0], [1.0, 0.2, 0.0]]
+    )
+
+
+def test_route_points_reconstruct_two_dimensional_writer_samples_with_z():
+    raw = {
+        "waypoints_ue_cm": [[0.0, 0.0, 10.0], [100.0, 0.0, 20.0]],
+        "samples_ue_cm": [[0.0, 0.0], [50.0, 0.0], [100.0, 0.0]],
+    }
+
+    np.testing.assert_allclose(
+        nq._route_points(raw), [[0.0, 0.1, 0.0], [0.5, 0.15, 0.0], [1.0, 0.2, 0.0]]
+    )
+
+
+def test_route_points_reject_writer_xy_mismatch():
+    raw = {
+        "waypoints_ue_cm": [[0.0, 0.0, 10.0], [100.0, 0.0, 20.0]],
+        "samples_ue_cm": [[0.0, 0.0], [50.1, 0.0], [100.0, 0.0]],
+    }
+
+    with pytest.raises(NativeQAResourceError, match="differs from resampled"):
+        nq._route_points(raw)
+
+
 def test_layout_comes_from_native_mesh_audit_and_preserves_real_object_semantics(tmp_path):
     layout = build_native_apartment_layout(_resources(tmp_path))
 

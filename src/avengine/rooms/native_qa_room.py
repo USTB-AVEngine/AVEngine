@@ -34,6 +34,7 @@ from avengine.rooms.qa_episode import (
 )
 from avengine.rooms.furniture_layout import habitat_to_ue_cm
 
+from avengine.route_sampling import resample_route
 
 SCHEMA = "avengine_native_spear_apartment_qa_room_v1"
 ROOM_CATALOG_SCHEMA = "avengine_qa_room_catalog_v1"
@@ -353,19 +354,92 @@ def _route_points(raw: Mapping[str, Any]) -> np.ndarray:
     waypoints = raw.get("waypoints_ue_cm")
     if not isinstance(samples, Sequence) or not isinstance(waypoints, Sequence) or not waypoints:
         raise NativeQAResourceError("route lacks native UE samples or waypoints")
-    heights = [float(item[2]) for item in waypoints if isinstance(item, Sequence) and len(item) >= 3]
-    if not heights or not all(math.isfinite(item) for item in heights):
-        raise NativeQAResourceError("route has no finite UE floor height")
-    floor_cm = float(np.median(heights))
-    points: list[list[float]] = []
+    waypoint_points: list[list[float]] = []
+    for index, item in enumerate(waypoints):
+        if not isinstance(item, Sequence) or len(item) < 3:
+            raise NativeQAResourceError(f"route waypoint {index} is invalid")
+        try:
+            point = [float(value) for value in item[:3]]
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise NativeQAResourceError(
+                f"route waypoint {index} contains a nonnumeric coordinate"
+            ) from exc
+        if len(point) != 3 or not all(math.isfinite(value) for value in point):
+            raise NativeQAResourceError(
+                f"route waypoint {index} contains a nonfinite coordinate"
+            )
+        waypoint_points.append(point)
+
+    dimensions: set[int] = set()
     for index, sample in enumerate(samples):
         if not isinstance(sample, Sequence) or len(sample) < 2:
             raise NativeQAResourceError(f"route sample {index} is invalid")
-        x_cm, y_cm = float(sample[0]), float(sample[1])
-        if not all(math.isfinite(item) for item in (x_cm, y_cm)):
-            raise NativeQAResourceError("route sample contains a nonfinite coordinate")
-        points.append([x_cm / 100.0, floor_cm / 100.0, y_cm / 100.0])
-    result = np.asarray(points, dtype=np.float64)
+        dimensions.add(3 if len(sample) >= 3 else 2)
+
+    if dimensions == {3}:
+        # A producer that retained full samples owns the per-frame height.
+        points_ue_cm: list[list[float]] = []
+        for index, sample in enumerate(samples):
+            try:
+                point = [float(value) for value in sample[:3]]
+            except (TypeError, ValueError, OverflowError) as exc:
+                raise NativeQAResourceError(
+                    f"route sample {index} contains a nonnumeric coordinate"
+                ) from exc
+            if not all(math.isfinite(value) for value in point):
+                raise NativeQAResourceError(
+                    f"route sample {index} contains a nonfinite coordinate"
+                )
+            points_ue_cm.append(point)
+    elif dimensions == {2}:
+        # The current UE writer stores rounded XY only. Reuse its exact 3-D
+        # arc-length resampler to recover the omitted per-frame Z values.
+        try:
+            reconstructed = resample_route(waypoint_points, len(samples))
+        except (TypeError, ValueError, IndexError) as exc:
+            raise NativeQAResourceError(
+                "route waypoints cannot be resampled into its samples"
+            ) from exc
+        if len(reconstructed) != len(samples):
+            raise NativeQAResourceError(
+                "route resampling returned the wrong sample count"
+            )
+        points_ue_cm = []
+        rounding_tolerance_cm = 0.005 + 1.0e-9
+        for index, (sample, point) in enumerate(
+            zip(samples, reconstructed, strict=True)
+        ):
+            try:
+                x_cm, y_cm = float(sample[0]), float(sample[1])
+            except (TypeError, ValueError, OverflowError) as exc:
+                raise NativeQAResourceError(
+                    f"route sample {index} contains a nonnumeric XY coordinate"
+                ) from exc
+            if not math.isfinite(x_cm) or not math.isfinite(y_cm):
+                raise NativeQAResourceError(
+                    f"route sample {index} contains a nonfinite XY coordinate"
+                )
+            point = [float(value) for value in point[:3]]
+            if (
+                abs(point[0] - x_cm) > rounding_tolerance_cm
+                or abs(point[1] - y_cm) > rounding_tolerance_cm
+            ):
+                raise NativeQAResourceError(
+                    f"route sample {index} XY differs from resampled waypoint path"
+                )
+            points_ue_cm.append(point)
+    else:
+        raise NativeQAResourceError(
+            "route samples must be uniformly 2-D or uniformly 3-D"
+        )
+
+    result = np.asarray(
+        [
+            [point[0] / 100.0, point[2] / 100.0, point[1] / 100.0]
+            for point in points_ue_cm
+        ],
+        dtype=np.float64,
+    )
     if result.ndim != 2 or result.shape[1] != 3 or len(result) < 2:
         raise NativeQAResourceError("native route needs at least two samples")
     return result

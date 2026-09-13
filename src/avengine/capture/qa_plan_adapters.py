@@ -143,6 +143,67 @@ def _expanded_room(room, request):
     return normalized
 
 
+def _load_native_apartment_recast_navmesh(
+    package, room, planning_inputs, request, runtime, resource_base, habitat_runtime
+):
+    """Load Apartment Recast navigation while retaining its UE visual route."""
+    from avengine.rooms import native_qa_room as nq
+
+    source_root = room.get("native_input_root") or planning_inputs.get("native_input_root")
+    route_bank = room.get("route_bank") or planning_inputs.get("route_bank")
+    profile_path = room.get("native_room_profile") or planning_inputs.get("native_room_profile")
+    if not source_root:
+        raise ValueError("native Apartment free navigation needs native_input_root")
+    if not route_bank:
+        raise ValueError("native Apartment route_bank declaration is required as optional fallback")
+    resources = nq.discover_native_apartment_resources(
+        repository=REPOSITORY_ROOT,
+        source_root=_resolved(source_root, base=resource_base, runtime=runtime),
+        route_bank=_resolved(route_bank, base=resource_base, runtime=runtime),
+        room_profile_path=(
+            _resolved(profile_path, base=resource_base, runtime=runtime)
+            if profile_path else None
+        ),
+    )
+    package_navpath = (package.get("walkable_space") or {}).get("path")
+    if not package_navpath:
+        raise ValueError("native Apartment free navigation needs walkable_space.path")
+    navpath = _resolved(package_navpath, base=resource_base, runtime=runtime)
+    if not navpath.is_file():
+        raise ValueError(
+            "native Apartment package navmesh is not a readable declared file: "
+            f"{navpath}"
+        )
+    floor = _floor_value(package, room, runtime=runtime, base=resource_base)
+    pf = habitat_runtime.habitat_sim.PathFinder()
+    if not pf.load_nav_mesh(str(navpath)):
+        raise ValueError("native Apartment Recast navmesh did not load")
+    bounds = np.asarray(pf.get_bounds(), dtype=float)
+    nav = {
+        "authority": "native_apartment_recast_navmesh",
+        "floor_height_m": float(floor),
+        "resolution_m": 0.08,
+        "bounds_habitat_m": bounds.tolist(),
+        "source_manifest": str(navpath),
+        "runtime_prefix": str(habitat_runtime.prefix),
+        "legacy_native_navmesh": str(resources.navmesh),
+        "navmesh_source_match": navpath == resources.navmesh.resolve(),
+        "route_bank": str(resources.route_bank),
+        "route_bank_optional": True,
+    }
+    space = HabitatWalkableSpace(pf, nav)
+    layout = nq.build_native_apartment_layout(resources)
+    layout["native_floor_height_m"] = float(floor)
+    layout["native_navigation_mode"] = "habitat_navmesh"
+    layout["native_navigation_authority"] = "native_apartment_recast_navmesh"
+    layout["native_route_bank_optional"] = str(resources.route_bank)
+    layout["backend_route"] = "spear_unreal"
+    mesh = _package_mesh(package, runtime=runtime, base=resource_base)
+    if mesh is None:
+        raise ValueError("native Apartment free navigation needs shared static triangles")
+    return space, mesh, layout
+
+
 def load_planning_resources(room, request):
     """Load once per request; return an existing solver plus shared static mesh."""
     from avengine.rooms import native_qa_room as nq
@@ -252,6 +313,14 @@ def load_planning_resources(room, request):
             }
         )
         manifest_raw = room.get("room_manifest") or planning_inputs.get("room_manifest")
+        if (
+            package.get("family") == "apartment"
+            and package.get("renderer") == "ue_spear"
+        ):
+            return _load_native_apartment_recast_navmesh(
+                package, room, planning_inputs, request, runtime, resource_base, rt
+            )
+
         manifest_path = (
             _resolved(manifest_raw, base=resource_base, runtime=runtime)
             if manifest_raw else None
@@ -458,10 +527,14 @@ def planning_adapter_for_room(room, package):
     from avengine.rooms import native_qa_room as nq
 
     kind = (package.get("walkable_space") or {}).get("kind")
-    if room.get("native_room_adapter") == nq.SCHEMA or kind == "route_bank":
+    if kind == "route_bank":
         return "native_spear_route_bank"
     if kind == "walkable_grid":
         return "retained_ue_walkable_grid"
+    if kind == "habitat_navmesh":
+        return "habitat_native_navmesh"
+    if room.get("native_room_adapter") == nq.SCHEMA:
+        return "native_spear_route_bank"
     if room.get("backend") == "habitat" or package.get("renderer") == "habitat":
         return "habitat_native_navmesh"
     return "furnished_manifest_raster"

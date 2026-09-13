@@ -52,7 +52,7 @@ CATALOG = ROOT / "examples/rooms/packages/catalog.json"
 # The four production routes and the adapter each must resolve to. A route
 # that silently moves to another adapter is the failure this pins down.
 PRODUCTION_ROUTES = {
-    "legacy_ue_apartment_0000_v1": ("apartment", "ue_spear", "native_spear_route_bank"),
+    "legacy_ue_apartment_0000_v1": ("apartment", "ue_spear", "habitat_native_navmesh"),
     "kujiale_0020_full_home_v1": ("kujiale", "ue_spear", "retained_ue_walkable_grid"),
     "habitat_mp3d_example_17DRP5sb8fy": ("mp3d", "habitat", "habitat_native_navmesh"),
     "hm3d_val_00800_TEEsavR23oF": ("hm3d", "habitat", "habitat_native_navmesh"),
