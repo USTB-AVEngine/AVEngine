@@ -53,7 +53,7 @@ CATALOG = ROOT / "examples/rooms/packages/catalog.json"
 # that silently moves to another adapter is the failure this pins down.
 PRODUCTION_ROUTES = {
     "legacy_ue_apartment_0000_v1": ("apartment", "ue_spear", "habitat_native_navmesh"),
-    "kujiale_0020_full_home_v1": ("kujiale", "ue_spear", "retained_ue_walkable_grid"),
+    "kujiale_0020_full_home_v1": ("kujiale", "ue_spear", "habitat_native_navmesh"),
     "habitat_mp3d_example_17DRP5sb8fy": ("mp3d", "habitat", "habitat_native_navmesh"),
     "hm3d_val_00800_TEEsavR23oF": ("hm3d", "habitat", "habitat_native_navmesh"),
 }
@@ -517,7 +517,7 @@ def test_cli_production_only_lists_exactly_the_four_routes(controller):
 
 def test_cli_resolves_one_room_with_its_capture_adapter(controller):
     report = controller.resolve_room(CATALOG, "kujiale_0020_full_home_v1")
-    assert report["route"]["planning_adapter"] == "retained_ue_walkable_grid"
+    assert report["route"]["planning_adapter"] == "habitat_native_navmesh"
     adapter = report["capture_adapter"]
     assert adapter["entrypoint_repository_relative"] == (
         "tools/rooms/run_spear_residential_episode.py")
@@ -851,7 +851,7 @@ def test_a_room_without_a_registered_profile_still_resolves(
         profile_registry=profiles, host_config=host_config, request=V1_REQUEST)
     assert resolution.profile is None
     assert resolution.render["profile_id"] is None
-    assert resolution.route.planning_adapter == "retained_ue_walkable_grid"
+    assert resolution.route.planning_adapter == "habitat_native_navmesh"
     assert resolution.status == "pass", resolution.reason
     # The request still supplies the transport it states.
     assert resolution.render["effective"]["frame_count"] == V1_FRAME_COUNT

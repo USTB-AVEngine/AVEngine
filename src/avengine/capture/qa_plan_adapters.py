@@ -356,7 +356,7 @@ def load_planning_resources(room, request):
             "room_id": room["room_id"],
             "scene_id": manifest.get("room_id", room["room_id"]),
             "manifest_path": str(manifest_path) if manifest_path else None,
-            "backend_route": "habitat",
+            "backend_route": ("spear_unreal" if package.get("renderer") == "ue_spear" else "habitat"),
             "visual_lighting": {},
             "capture_resolution_hw": (
                 _read(_resolved(m1_path, base=resource_base, runtime=runtime))

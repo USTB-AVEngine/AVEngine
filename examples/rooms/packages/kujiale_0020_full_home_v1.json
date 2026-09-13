@@ -122,7 +122,7 @@
   "schema": "avengine_qa_room_package_v1",
   "semantics": {
     "acoustic_source": "${AVENGINE_KUJIALE_ACOUSTIC_ROOT}/manifest.json",
-    "interpretation": "Selected USD scopes plus acoustic semantic package; no furniture object list is declared, so walkability comes from the measured route-derived raster.",
+    "interpretation": "The shared render surface supplies acoustic and visibility geometry. CPU Recast navigation is built once from this surface and reused by the common path planner.",
     "source": "examples/rooms/interioragent_kujiale_0020_visual_profile.json"
   },
   "source_assets": {
@@ -169,9 +169,11 @@
     "uproject": "${AVENGINE_MULTI_HOME_UE_ROOT}/SpearSim/SpearSim.uproject"
   },
   "walkable_space": {
-    "cell_m": 0.05,
-    "kind": "walkable_grid",
-    "path": "${AVENGINE_QA_V3_ROOT}/qa_v3_walkable_grid_kujiale_20260903_v2",
-    "source_scene_config": "examples/qa/scenes/interioragent_kujiale_0020_livingroom_491.json"
+    "kind": "habitat_navmesh",
+    "path": "${AVENGINE_QA_V3_ROOT}/astra_unified_20260913/packages/kujiale_render_navigation_v2/navigation.navmesh",
+    "path_template": "${AVENGINE_QA_V3_ROOT}/astra_unified_20260913/packages/kujiale_render_navigation_v2/navigation.navmesh",
+    "source_manifest": "${AVENGINE_QA_V3_ROOT}/astra_unified_20260913/packages/kujiale_render_navigation_v2/build_result.json",
+    "source_manifest_template": "${AVENGINE_QA_V3_ROOT}/astra_unified_20260913/packages/kujiale_render_navigation_v2/build_result.json",
+    "legacy_walkable_grid": "${AVENGINE_QA_V3_ROOT}/qa_v3_walkable_grid_kujiale_20260903_v2"
   }
 }
