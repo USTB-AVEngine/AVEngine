@@ -63,7 +63,8 @@
     "triangles": "${AVENGINE_MP3D_ACOUSTIC_ROOT}/acoustic/triangles.npy",
     "triangles_template": "${AVENGINE_MP3D_ACOUSTIC_ROOT}/acoustic/triangles.npy",
     "vertices": "${AVENGINE_MP3D_ACOUSTIC_ROOT}/acoustic/vertices.npy",
-    "vertices_template": "${AVENGINE_MP3D_ACOUSTIC_ROOT}/acoustic/vertices.npy"
+    "vertices_template": "${AVENGINE_MP3D_ACOUSTIC_ROOT}/acoustic/vertices.npy",
+    "render_surface": true
   },
   "status": "research_candidate",
   "subrooms": [

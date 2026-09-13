@@ -1,4 +1,4 @@
-"""Export the legacy SPEAR apartment as real UE render-surface geometry.
+"""Export a selected SPEAR map as real UE render-surface geometry.
 
 This file runs inside Unreal Editor 5.5 through SPEAR's
 ``tools/run_editor_script.py``. It intentionally exports StaticMesh render LOD0
@@ -26,12 +26,14 @@ SPEAR_PROJECT_CONTENT = Path("cpp/unreal_projects/SpearSim/Content")
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
+    parser.add_argument("--map", default=MAP_ASSET, help="Selected /Game map asset")
+    parser.add_argument("--project-dir", help="External installed UE project; omit for the legacy SPEAR project")
     parser.add_argument("--output", required=True)
     parser.add_argument("--manifest", required=True)
     parser.add_argument(
-        "--spear-root",
+        "--source-root", "--spear-root", dest="spear_root",
         required=True,
-        help="Clean SPEAR checkout whose loaded apartment source is being exported",
+        help="Source repository for SPEAR provenance; external content is selected with --project-dir",
     )
     parser.add_argument("--texture-size", type=int, default=512)
     return parser.parse_args()
@@ -45,7 +47,9 @@ def sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def capture_spear_source_snapshot(root: Path, *, capture_phase: str) -> dict:
+def capture_spear_source_snapshot(root: Path, *, capture_phase: str,
+                                  project_dir: Path | None = None,
+                                  map_asset: str = MAP_ASSET) -> dict:
     """Bind the export to the clean SPEAR commit, project, and map bytes."""
 
     if not root.is_dir():
@@ -67,10 +71,36 @@ def capture_spear_source_snapshot(root: Path, *, capture_phase: str) -> dict:
     commit = git("rev-parse", "HEAD")
     if len(commit) != 40 or any(value not in "0123456789abcdef" for value in commit):
         raise RuntimeError(f"SPEAR HEAD is not a lowercase full commit: {commit!r}")
+    if not map_asset.startswith("/Game/") or ".." in map_asset.split("/"):
+        raise ValueError("--map must be a project map without parent traversal")
+    if project_dir is not None:
+        # Integrated SPEAR source and external runtime content have different
+        # owners. Inspect the clean tracked SPEAR source scope and the actual
+        # external map bytes separately; do not claim content is Git tracked.
+        scope = "native/spear"
+        if not (root / scope).is_dir():
+            raise FileNotFoundError("Integrated SPEAR source is missing")
+        source_status = git("status", "--porcelain", "--untracked-files=no", "--", scope)
+        if source_status:
+            raise RuntimeError("Tracked integrated SPEAR source is dirty")
+        project_dir = project_dir.resolve()
+        map_package = (project_dir / "Content" / (map_asset[6:] + ".umap")).resolve()
+        map_package.relative_to(project_dir)
+        if not map_package.is_file():
+            raise FileNotFoundError(map_package)
+        return {
+            "schema": "avengine_integrated_spear_source_snapshot_v1",
+            "capture_phase": capture_phase,
+            "repository_root": str(root), "commit": commit,
+            "tracked_source_scope": scope, "tracked_source_scope_dirty": False,
+            "actual_project_dir": str(project_dir), "map_asset": map_asset,
+            "map_package_path": str(map_package),
+            "map_package_sha256": sha256(map_package),
+        }
     tracked_status = git("status", "--porcelain", "--untracked-files=no")
     if tracked_status:
         raise RuntimeError("SPEAR tracked worktree must be clean before UE export")
-    map_package = (root / SPEAR_MAP_PACKAGE).resolve()
+    map_package = (root / SPEAR_PROJECT_CONTENT / (map_asset[6:] + ".umap")).resolve()
     if not map_package.is_file():
         raise FileNotFoundError(
             f"SPEAR apartment map package is missing: {map_package}"
@@ -83,14 +113,14 @@ def capture_spear_source_snapshot(root: Path, *, capture_phase: str) -> dict:
         "actual_project_dir": str(expected_project_dir),
         "commit": commit,
         "tracked_worktree_dirty": False,
-        "map_asset": MAP_ASSET,
+        "map_asset": map_asset,
         "map_package_path": str(map_package),
         "map_package_sha256": sha256(map_package),
     }
 
 
 def selected_project_package_records(
-    root: Path, asset_object_paths: set[str]
+    root: Path, asset_object_paths: set[str], *, project_dir: Path | None = None
 ) -> tuple[list[dict], list[str]]:
     """Bind every directly selected /Game mesh/material package to Git bytes."""
 
@@ -115,12 +145,13 @@ def selected_project_package_records(
 
     records: list[dict] = []
     for package_name, object_paths in sorted(packages.items()):
-        relative = (
-            SPEAR_PROJECT_CONTENT / f"{package_name.removeprefix('/Game/')}.uasset"
-        )
+        content_relative = Path("Content") / f"{package_name.removeprefix('/Game/')}.uasset"
+        relative = content_relative if project_dir is not None else SPEAR_PROJECT_CONTENT / f"{package_name.removeprefix('/Game/')}.uasset"
         repository_relative = relative.as_posix()
-        package_path = (root / relative).resolve()
-        if repository_relative not in tracked:
+        package_root = project_dir.resolve() if project_dir is not None else root
+        package_path = (package_root / relative).resolve()
+        package_path.relative_to(package_root)
+        if project_dir is None and repository_relative not in tracked:
             raise RuntimeError(
                 f"Selected UE package is not tracked by SPEAR Git: {package_name}"
             )
@@ -136,7 +167,8 @@ def selected_project_package_records(
                 "resolved_path": str(package_path),
                 "byte_size": package_path.stat().st_size,
                 "sha256": sha256(package_path),
-                "git_tracked": True,
+                "git_tracked": project_dir is None,
+                "source_kind": "external_runtime_package" if project_dir is not None else "tracked_spear_package",
             }
         )
     return records, sorted(engine_references)
@@ -247,10 +279,12 @@ def main() -> None:
     spear_root = Path(args.spear_root).resolve()
     output.parent.mkdir(parents=True, exist_ok=True)
     manifest.parent.mkdir(parents=True, exist_ok=True)
-    manifest.unlink(missing_ok=True)
+    if output.exists() or manifest.exists():
+        raise FileExistsError("Export output and manifest must be fresh")
 
     actual_project_dir = Path(unreal.Paths.project_dir()).resolve()
-    expected_project_dir = (
+    external_project = Path(args.project_dir).resolve() if args.project_dir else None
+    expected_project_dir = external_project or (
         spear_root / "cpp" / "unreal_projects" / "SpearSim"
     ).resolve()
     if actual_project_dir != expected_project_dir:
@@ -260,19 +294,19 @@ def main() -> None:
         )
     dirty_before_reload = require_no_dirty_packages("pre-export editor state")
     source_snapshot = capture_spear_source_snapshot(
-        spear_root, capture_phase="before_ue_gltf_export"
+        spear_root, capture_phase="before_ue_gltf_export", project_dir=external_project, map_asset=args.map
     )
 
     editor = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem)
     actor_subsystem = unreal.get_editor_subsystem(unreal.EditorActorSubsystem)
-    world = unreal.EditorLoadingAndSavingUtils.load_map(MAP_ASSET)
+    world = unreal.EditorLoadingAndSavingUtils.load_map(args.map)
     if world is None:
-        raise RuntimeError(f"Unable to reload source map from disk: {MAP_ASSET}")
+        raise RuntimeError(f"Unable to reload source map from disk: {args.map}")
     world = editor.get_editor_world()
     loaded_world = world.get_path_name()
-    expected_world_prefix = MAP_ASSET + "."
+    expected_world_prefix = args.map + "."
     if not loaded_world.startswith(expected_world_prefix):
-        raise RuntimeError(f"Loaded editor world {loaded_world!r} is not {MAP_ASSET!r}")
+        raise RuntimeError(f"Loaded editor world {loaded_world!r} is not {args.map!r}")
     dirty_after_reload = require_no_dirty_packages("reloaded source map")
     engine_version = unreal.SystemLibrary.get_engine_version()
     if not str(engine_version).startswith("5.5."):
@@ -320,12 +354,14 @@ def main() -> None:
                 if material is not None
             )
 
+    if any(actor.get_class().get_name() == "UsdStageActor" for actor in all_actors):
+        raise RuntimeError("Materialize USD stage actors before exporting render surfaces")
     if not selected:
         raise RuntimeError(
             "No relevant StaticMesh actors were found in the editor world"
         )
     project_package_records, engine_asset_references = selected_project_package_records(
-        spear_root, selected_asset_object_paths
+        spear_root, selected_asset_object_paths, project_dir=external_project
     )
 
     options = unreal.GLTFExportOptions()
@@ -383,7 +419,6 @@ def main() -> None:
             f"missing={missing_critical_options}, warnings={option_warnings}"
         )
 
-    output.unlink(missing_ok=True)
     unreal.log(
         f"AVEngine M1: exporting {len(selected)} actors / "
         f"{static_mesh_component_count} StaticMesh components to {output}"
@@ -419,7 +454,7 @@ def main() -> None:
     }
     dirty_after_export = require_no_dirty_packages("post-export editor state")
     source_snapshot_after_export = capture_spear_source_snapshot(
-        spear_root, capture_phase="after_ue_gltf_export"
+        spear_root, capture_phase="after_ue_gltf_export", project_dir=external_project, map_asset=args.map
     )
     before_identity = {
         key: value for key, value in source_snapshot.items() if key != "capture_phase"
@@ -434,7 +469,7 @@ def main() -> None:
     report = {
         "schema": "avengine_legacy_ue_apartment_export_v1",
         "status": "pass" if not export_messages["errors"] else "fail",
-        "source_map_asset": MAP_ASSET,
+        "source_map_asset": args.map,
         "source_snapshot": source_snapshot,
         "source_snapshot_after_export": source_snapshot_after_export,
         "actual_project_dir": str(actual_project_dir),

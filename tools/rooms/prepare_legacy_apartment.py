@@ -161,7 +161,7 @@ def spear_source_snapshot(
 
 
 def validate_selected_project_packages(
-    ue_manifest: dict[str, Any], spear_root: Path
+    ue_manifest: dict[str, Any], spear_root: Path, *, project_dir: Path | None = None
 ) -> None:
     records = ue_manifest.get("selected_project_asset_packages")
     require(
@@ -203,19 +203,22 @@ def validate_selected_project_packages(
         require(package_name not in package_names, "UE package closure has duplicates")
         package_names.add(package_name)
         expected_relative = (
-            Path("cpp/unreal_projects/SpearSim/Content")
+            (Path("Content") if project_dir is not None else Path("cpp/unreal_projects/SpearSim/Content"))
             / f"{package_name.removeprefix('/Game/')}.uasset"
         ).as_posix()
         require(
             relative_raw == expected_relative,
             "UE package closure path does not match its package name",
         )
-        require(
-            relative_raw in tracked, "UE package closure contains an untracked file"
-        )
-        expected_path = (spear_root / relative_raw).resolve()
+        if project_dir is None:
+            require(relative_raw in tracked, "UE package closure contains an untracked file")
+        else:
+            require(record.get("source_kind") == "external_runtime_package",
+                    "UE external package provenance is missing")
+        package_root = project_dir.resolve() if project_dir is not None else spear_root
+        expected_path = (package_root / relative_raw).resolve()
         try:
-            expected_path.relative_to(spear_root)
+            expected_path.relative_to(package_root)
         except ValueError as error:
             raise ValueError("UE package closure escapes the SPEAR checkout") from error
         require(expected_path.is_file(), f"UE package is missing: {expected_path}")
@@ -223,7 +226,7 @@ def validate_selected_project_packages(
             record.get("resolved_path") == str(expected_path),
             "UE package closure resolved path changed",
         )
-        require(record.get("git_tracked") is True, "UE package was not tracked")
+        require(record.get("git_tracked") is (project_dir is None), "UE package tracking claim is inconsistent")
         require(
             record.get("byte_size") == expected_path.stat().st_size
             and record.get("sha256") == sha256_file(expected_path),
@@ -255,6 +258,7 @@ def validate_real_surface_inputs(
     mesh_audit_path: Path,
     mesh_audit: dict[str, Any],
     current_spear_snapshot: dict[str, Any],
+    *, project_dir: Path | None = None,
 ) -> str:
     require(scene_glb.is_file(), f"Scene GLB does not exist: {scene_glb}")
     require(scene_glb.suffix.lower() == ".glb", "--scene-glb must be a .glb file")
@@ -286,7 +290,7 @@ def validate_real_surface_inputs(
         "UE export ran from a different Unreal project checkout",
     )
     validate_selected_project_packages(
-        ue_manifest, Path(current_spear_snapshot["repository_root"]).resolve()
+        ue_manifest, Path(current_spear_snapshot["repository_root"]).resolve(), project_dir=project_dir
     )
     dirty_packages = ue_manifest.get("dirty_packages")
     expected_clean = {"content": [], "maps": []}
@@ -299,7 +303,7 @@ def validate_real_surface_inputs(
     )
     require(
         str(ue_manifest.get("loaded_editor_world", "")).startswith(
-            "/Game/SPEAR/Scenes/apartment_0000/Maps/apartment_0000."
+            current_spear_snapshot["map_asset"] + "."
         ),
         "UE exporter ran against the wrong loaded world",
     )

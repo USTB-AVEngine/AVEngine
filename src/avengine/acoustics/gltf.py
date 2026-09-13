@@ -372,14 +372,17 @@ def _nonzero_area_triangle_mask(
 
     if len(triangles) == 0:
         return np.zeros((0,), dtype=bool)
-    points = np.asarray(vertices, dtype=np.float64)
+    # Match the existing RLR upload check: float32 edge subtraction, then
+    # float64 cross products. Screening must remove the same degenerate
+    # render triangles before they reach that unchanged native validator.
+    points = np.asarray(vertices, dtype=np.float32)
     corners = triangles.astype(np.int64, copy=False)
     v0 = points[corners[:, 0]]
     v1 = points[corners[:, 1]]
     v2 = points[corners[:, 2]]
-    cross = np.cross(v1 - v0, v2 - v0)
+    cross = np.cross((v1 - v0).astype(np.float64), (v2 - v0).astype(np.float64))
     area_sq = np.einsum("ij,ij->i", cross, cross)
-    return area_sq > 1.0e-24
+    return area_sq > 1.0e-20
 
 
 def _extract_triangle_scene_from_document(glb: GlbDocument) -> ExpandedGltfScene:

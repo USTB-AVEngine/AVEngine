@@ -114,13 +114,9 @@ COORDINATE_FRAME = {"linear_unit": "meter", "up_axis": "+Y", "handedness": "righ
 
 SCREEN_TIERS = ("frustum", "frustum_and_ray", "native_pixel")
 
-# Which geometry the ray tier is screening against.  Every registered room
-# declares ``static_geometry.source = acoustic_package_arrays``: that array set
-# is the acoustic proxy, and AGENTS.md keeps real visual geometry and acoustic
-# proxy geometry as separate facts on purpose.  Measured on one retained
-# UE/SPEAR capture (kujiale, 2026-09-10) the proxy missed the occluder for all
-# 150 frames the renderer reported ``fully_occluded``, so an occlusion call made
-# against a proxy may never refute an occlusion state.
+# Array storage does not determine geometric authority. A room may use the
+# same audited render surfaces for acoustics and visibility. Legacy proxy
+# arrays remain conservative unless the room explicitly declares otherwise.
 GEOMETRY_AUTHORITIES = ("visual_mesh", "acoustic_proxy_mesh", "unknown")
 _ACOUSTIC_PROXY_SOURCES = frozenset({"acoustic_package_arrays"})
 
@@ -131,6 +127,8 @@ def geometry_authority_for_package(package: Mapping[str, Any] | None) -> str:
     geometry = package.get("static_geometry") if isinstance(package, Mapping) else None
     if not isinstance(geometry, Mapping):
         return "unknown"
+    if geometry.get("render_surface") is True:
+        return "visual_mesh"
     source = geometry.get("source")
     if isinstance(source, str) and source in _ACOUSTIC_PROXY_SOURCES:
         return "acoustic_proxy_mesh"
