@@ -6619,6 +6619,8 @@ def attached_static_placement_plan(actors, source_registry, room, *, space=None,
                 config.get("placement_checks"),
                 fallback_search_m=config.get("plane_tolerance_m"),
             ),
+            floor_heights=declared_floor_heights_m(room, space),
+            floor_tolerance_m=SAME_FLOOR_Y_TOLERANCE_M,
         ) if mesh is not None else None
         cache["interior"] = interior
         # A room whose walkable points could not be read is not a room where no
@@ -6980,6 +6982,10 @@ def _prepare_static_placement_plan(request, source_registry, room, *, mesh=None,
             config.get("placement_checks"),
             fallback_search_m=config.get("plane_tolerance_m"),
         ),
+        # Every storey the room declares, so a device upstairs is judged by the
+        # people who can stand upstairs.
+        floor_heights=declared_floor_heights_m(room, space),
+        floor_tolerance_m=SAME_FLOOR_Y_TOLERANCE_M,
     ) if mesh is not None else None
     interior_points = (
         None if interior is None or interior["status"] == "not_run"

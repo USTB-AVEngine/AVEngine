@@ -206,6 +206,47 @@ def test_sampling_candidate_index_rejects_bool_and_negative():
 
 
 @pytest.mark.parametrize(
+    ("episode_id", "asset_id", "refused_candidate_index"),
+    [
+        ("v02_rep_tabletop_pending_01",
+         "generated_alarm_clock_digital_cube_black_research_v2", 15),
+        ("v02_rep_tabletop_pending_02",
+         "generated_desk_telephone_corded_desk_unit_black_research_v1", 4),
+    ],
+)
+def test_an_explicit_candidate_the_room_refuses_is_refused_by_name(
+    real_context, episode_id, asset_id, refused_candidate_index
+):
+    """A pinned spot the room cannot support is refused, not quietly moved.
+
+    These are the two spots this fixture used to pin. The desk surface's
+    declared bounds reach past the triangles it was fitted on, and at those two
+    spots the real desk top is 3.6 cm and 8.4 cm below the fitted plane, more
+    than the 3 cm tolerance the catalog declares for its own fit. Planning
+    keeps the explicit index and says so rather than sliding the asset to a
+    neighbouring candidate behind the caller's back.
+    """
+    request = _request(real_context["base"], real_context["qualification"], episode_id)
+
+    spec = request["static_source_placement"]
+    for row in spec["requests"]:
+        if row.get("asset_id") == asset_id:
+            row["candidate_index"] = refused_candidate_index
+    registry = json.loads(REGISTRY_PATH.read_text(encoding="utf-8"))
+    with pytest.raises(ValueError) as refused:
+        cs.solve_conditioned_episode(
+            request=request,
+            source_registry=registry,
+            sounds=real_context["sounds"],
+            room_id=request["room_id"],
+        )
+    message = str(refused.value)
+    assert "static placement rejected support request" in message
+    assert "explicit_candidate_room_surface_checks_refused" in message
+    assert asset_id in message
+
+
+@pytest.mark.parametrize(
     ("episode_id", "surface_kind"),
     [
         ("v02_rep_tabletop_pending_01", "tabletop"),
