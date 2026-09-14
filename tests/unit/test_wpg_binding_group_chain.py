@@ -321,3 +321,43 @@ def test_a_request_naming_two_questions_cannot_be_one_group():
     request["qa_targets"].append({"qa_id": "QA-02", "target_instance_ids": ["human_b"]})
     with pytest.raises(native.BindingNativeError, match="one question"):
         native._requested_group_question(request)
+
+
+def _review(status_by_actor):
+    return {"actors": {
+        actor: {"status": status, "value": value,
+                "checks": [{"status": "pass" if status == "reviewed" else "not_observable",
+                            "observed_value": observed,
+                            "reason": None if status == "reviewed" else "target_is_too_dark"}
+                           for _ in range(3)]}
+        for actor, (status, value, observed) in status_by_actor.items()}}
+
+
+def test_an_appearance_review_is_read_in_either_shape():
+    pack = _review({"source1": ("reviewed", "blue", "blue"),
+                    "source2": ("reviewed", "green", "green")})
+    rows, unreviewed = native.appearance_review_rows(pack, ["source1", "source2"])
+    assert unreviewed == []
+    assert rows["source1"]["registered_value"] == "blue"
+    assert rows["source1"]["checked_frames"] == 3
+    # The delivered facts hoist the same rows to the top level.
+    hoisted, hoisted_unreviewed = native.appearance_review_rows(
+        pack["actors"], ["source1", "source2"])
+    assert (hoisted, hoisted_unreviewed) == (rows, unreviewed)
+
+
+def test_a_candidate_nobody_can_name_is_reported_with_the_reason():
+    pack = _review({"source1": ("not_observable", "blue", "black"),
+                    "source2": ("reviewed", "green", "green")})
+    rows, unreviewed = native.appearance_review_rows(pack, ["source1", "source2"])
+    assert unreviewed == ["source1"]
+    assert rows["source1"]["observed_values"] == ["black"]
+    assert rows["source1"]["failing_frames"] == 3
+    assert rows["source1"]["reasons"] == ["target_is_too_dark"]
+
+
+def test_a_slot_missing_from_the_review_counts_as_unreviewed():
+    pack = _review({"source2": ("reviewed", "green", "green")})
+    rows, unreviewed = native.appearance_review_rows(pack, ["source1", "source2"])
+    assert unreviewed == ["source1"]
+    assert rows["source1"]["status"] is None

@@ -3056,6 +3056,21 @@ def prepare_visual_conditioned_relation_group(
         }
         if acoustics["v0"] != acoustics["v1"]:
             raise BindingNativeError("acoustic input/configuration identity differs")
+        appearance_reviews = {}
+        if question_recipe["answer_expression"] == "appearance_of_event_slot":
+            # Naming the answer is a pixel measurement, so it is checked on the
+            # rendered frames before any audio is paid for.
+            from avengine.rooms.qa_delivery import SHARED_VISUAL_EVIDENCE_DIRECTORY
+
+            shared_visual = output / "variants" / SHARED_VISUAL_EVIDENCE_DIRECTORY
+            for visual_id in ("v0", "v1"):
+                appearance_reviews[visual_id] = check_group_appearance_reviewable(
+                    captured[visual_id]["capture"],
+                    _load(Path(planned[visual_id]["plan"])),
+                    requests[visual_id],
+                    shared_root=shared_visual,
+                    report_path=output / f"appearance_review_{visual_id}.json",
+                )
         variants, reports = {}, {}
         for assignment in ("a0", "a1"):
             plan0, req0 = build_audio_assignment_plan(
@@ -3542,6 +3557,173 @@ def _group_spec(
     }
 
 
+def group_spec_from_summary(
+    summary_path: str | Path, *, split: str = "pilot", qa_id: str | None = None,
+    group_id: str | None = None, world_id: str | None = None,
+) -> dict[str, Any]:
+    """Rebuild one group's specification from a finished preparation.
+
+    The rendering is the expensive part and it is already done; the shape of the
+    specification is not. Reading the saved summary back means a group can be
+    re-specified - a different split, a question recipe that gained a builder,
+    a comparison set that grew an invariance row - without spending a second
+    render on it, and it keeps every group in a batch on one shape even when
+    they were produced days apart.
+    """
+    summary = _load(Path(summary_path).expanduser().resolve())
+    root = Path(summary_path).expanduser().resolve().parent
+    request_path = root / "requests/v0_request.json"
+    if not request_path.is_file():
+        raise BindingNativeError(f"the finished run kept no v0 request: {request_path}")
+    request = _load(request_path)
+    from avengine.qa.binding_conditions import (
+        TASK_QA_IDS, implemented_group_question_recipe,
+    )
+
+    recipe = implemented_group_question_recipe(
+        qa_id
+        or (summary.get("group_question") or {}).get("qa_id")
+        or _requested_group_question(request)
+        or TASK_QA_IDS[TASK_FAMILY]
+    )
+    captured = summary.get("captured")
+    variants = summary.get("variants")
+    if not isinstance(captured, Mapping) or not isinstance(variants, Mapping):
+        raise BindingNativeError(f"{summary_path} carries no finished captures or variants")
+    profile = summary.get("visual_profile")
+    if not isinstance(profile, Mapping):
+        plan = _load(Path(summary["planned"]["v0"]["plan"]))
+        profile = {
+            "task_family": TASK_FAMILY, "source_count": 2,
+            "camera": deepcopy((plan.get("visual_plan") or {}).get("camera", {})),
+            "camera_motion": "static",
+            "audio": {"rir_stride": request.get("rir_stride"),
+                      "post_assembly_convolution_gain": request.get(
+                          "post_assembly_convolution_gain")},
+            "reserve_tail_s": (request.get("profile") or {}).get("reserve_tail_s"),
+            "sound_pool": request.get("sound_pool"),
+        }
+    return _group_spec(
+        str(group_id or summary["group_id"]),
+        str(world_id or summary["world_id"]),
+        str(summary["room_family"]),
+        str(request["room_id"]),
+        captured,
+        variants,
+        request=request,
+        profile=profile,
+        split=split,
+        qa_id=recipe["qa_id"],
+        source_registry=_registry_document(request),
+    )
+
+
+def appearance_review_rows(
+    review: Any, actors: Sequence[str],
+) -> tuple[dict[str, dict[str, Any]], list[str]]:
+    """Read one appearance review per slot, whichever shape it arrives in.
+
+    The shared evidence pack keys its per-actor rows under "actors"; the
+    delivered facts hoist the same rows to the top level. Accepting both means
+    the group can read the pack directly instead of waiting for a delivery.
+    """
+    rows: dict[str, dict[str, Any]] = {}
+    unreviewed: list[str] = []
+    table = dict(review) if isinstance(review, Mapping) else {}
+    if isinstance(table.get("actors"), Mapping):
+        table = dict(table["actors"])
+    for actor_id in actors:
+        entry = table.get(actor_id)
+        entry = dict(entry) if isinstance(entry, Mapping) else {}
+        checks = [row for row in entry.get("checks") or () if isinstance(row, Mapping)]
+        failing = [row for row in checks if row.get("status") != "pass"]
+        rows[str(actor_id)] = {
+            "status": entry.get("status"),
+            "registered_value": entry.get("value"),
+            "observed_values": sorted({str(row.get("observed_value")) for row in checks
+                                       if row.get("observed_value")}),
+            "checked_frames": len(checks),
+            "failing_frames": len(failing),
+            "reasons": sorted({str(row.get("reason")) for row in failing
+                               if row.get("reason")}),
+        }
+        if entry.get("status") != "reviewed":
+            unreviewed.append(str(actor_id))
+    return rows, unreviewed
+
+
+class GroupAppearanceError(BindingNativeError):
+    """A group whose answer is an appearance has a candidate nobody can name."""
+
+
+def check_group_appearance_reviewable(
+    capture: str | Path, plan: Mapping[str, Any], request: Mapping[str, Any], *,
+    shared_root: str | Path | None = None, report_path: str | Path | None = None,
+) -> dict[str, Any]:
+    """Require every source slot to carry a readable registered appearance.
+
+    A group whose answer is "which appearance produced this sound" needs both
+    candidates named, and the naming is a pixel measurement: the delivery's
+    appearance review checks the registered value against what the frames
+    actually show. Until now that ran inside the delivery, which is after four
+    audio renders, so a group whose second candidate stood in shadow spent the
+    whole render budget and then failed in the question builder with "the event
+    has no visible, active multi-candidate anchor" - a message about the
+    question that says nothing about the cause.
+
+    The same review is run here, into the shared evidence root the delivery
+    would use anyway, so it is one pass and not a second one, and the reason is
+    reported per slot in the words the classifier used.
+    """
+    from avengine.rooms.qa_evidence import acquire_shared_visual_evidence
+    from avengine.rooms.qa_delivery import _asset_registry
+
+    capture = Path(capture).expanduser().resolve()
+    pixel_path = capture / "pixel_visibility_truth.json"
+    if not pixel_path.is_file():
+        raise GroupAppearanceError(f"pixel truth is missing: {pixel_path}")
+    visual = acquire_shared_visual_evidence(
+        capture, plan, _load(pixel_path),
+        shared_root=Path(shared_root).expanduser().resolve()
+        if shared_root is not None else None,
+        asset_registry=_asset_registry(REPOSITORY, request.get("source_registry")),
+        frame_stride=1,
+    )
+    actors = [str(actor["actor_id"])
+              for actor in ((plan.get("visual_plan") or {}).get("actors") or ())
+              if isinstance(actor, Mapping) and actor.get("actor_id")]
+    rows, unreviewed = appearance_review_rows(visual.get("appearance_review"), actors)
+    values = [str(row["registered_value"]) for row in rows.values()
+              if row["registered_value"] is not None]
+    report = {
+        "record": "group_appearance_review",
+        "status": "pass" if not unreviewed and len(set(values)) == len(values) else "fail",
+        "capture": str(capture),
+        "slots": rows,
+        "unreviewed_slots": unreviewed,
+        "shared_visual_root": str(Path(shared_root).resolve()) if shared_root else None,
+        "judge_source": "avengine/rooms/qa_evidence.py:acquire_shared_visual_evidence",
+        "claim_boundary": ("the registered appearance of each slot is or is not readable "
+                           "in these rendered frames; it is not human answerability"),
+    }
+    if report_path is not None:
+        _write(Path(report_path), report)
+    if unreviewed:
+        detail = "; ".join(
+            f"{actor_id} registered {rows[actor_id]['registered_value']!r} but reads as "
+            f"{rows[actor_id]['observed_values']} ({rows[actor_id]['status']}): "
+            f"{rows[actor_id]['reasons']}"
+            for actor_id in unreviewed
+        )
+        raise GroupAppearanceError(
+            "a group whose answer is an appearance needs every candidate reviewed; "
+            + detail)
+    if len(set(values)) != len(values):
+        raise GroupAppearanceError(
+            f"two slots carry the same registered appearance: {values}")
+    return report
+
+
 def _requested_group_question(request: Mapping[str, Any]) -> str | None:
     """The catalog question a base request asks its group to be built around."""
     targets = request.get("qa_targets")
@@ -3885,6 +4067,7 @@ def prepare_visible_binding_group(
             "room_family": room_family,
             "seed": base.get("seed"),
             "group_question": deepcopy(question_recipe),
+            "group_appearance_review": deepcopy(appearance_reviews),
             "visual_invariance": measure_group_visual_invariance({
                 f"{visual_id}_{assignment}": Path(
                     output / "variants" / f"{visual_id}_{assignment}" / "plan/episode_plan.json")
