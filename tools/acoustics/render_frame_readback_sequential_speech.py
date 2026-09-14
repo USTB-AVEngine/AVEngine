@@ -1147,6 +1147,81 @@ def _dynamic_cache_request_metadata(
     return canonical_json_sha256(request), request
 
 
+def _acoustic_surface_mesh(package_path: Path):
+    """The acoustic package's own surface triangles, or ``None`` with a reason.
+
+    The package manifest names the arrays RLR itself is compiled from, so the
+    poses handed to RLR can be read against the same geometry RLR will use. A
+    package that declares anything other than a real surface mesh, or that
+    cannot be read, yields ``None``: the check then records that it did not
+    run rather than pretending the poses were tested.
+    """
+    from avengine.qa.answerability import MeshHandle
+
+    try:
+        manifest = _load(package_path)
+    except Exception as error:
+        return None, f"the acoustic package manifest could not be read: {error}"
+    geometry = manifest.get("geometry") or {}
+    if geometry.get("representation") != "real_surface_mesh":
+        return None, (
+            "the acoustic package declares geometry representation "
+            f"{geometry.get('representation')!r}, which is not a real surface mesh"
+        )
+    frame = manifest.get("coordinate_system") or {}
+    if (frame.get("linear_unit") != "meter" or frame.get("up_axis") != "+Y"
+            or frame.get("handedness") != "right"):
+        return None, "the acoustic package does not declare the shared meter/+Y frame"
+    arrays = manifest.get("arrays") or {}
+    try:
+        vertices = package_path.parent / arrays["vertices"]["path"]
+        triangles = package_path.parent / arrays["triangles"]["path"]
+        return MeshHandle.from_paths(vertices, triangles), None
+    except Exception as error:
+        return None, f"the acoustic package surface arrays could not be read: {error}"
+
+
+def _check_acoustic_poses(*, package_path: Path, source_ids: list[str],
+                          keyframes: list[dict[str, Any]]) -> dict[str, Any]:
+    """Refuse a source or listener the room itself places outside or on a wall.
+
+    RLR is given points in a room. A point in the void above a ceiling, or one
+    sitting on a wall, comes back several minutes later as an invalid native
+    payload with nothing to act on. The same two readings taken here name the
+    pose and the reason before the simulation starts.
+    """
+    from avengine.rooms.placement_geometry import (
+        PlacementCheckConfig, acoustic_pose_refusal, check_acoustic_scene_points,
+    )
+
+    mesh, reason = _acoustic_surface_mesh(package_path)
+    if mesh is None:
+        return {
+            "schema": "avengine_acoustic_pose_enclosure_check_v1",
+            "status": "not_run", "reason": reason, "rows": [],
+        }
+    seen: set[tuple[str, tuple[float, ...]]] = set()
+    rows: list[dict[str, Any]] = []
+    for keyframe in keyframes:
+        for source_id in source_ids:
+            position = tuple(float(value) for value in keyframe["source_positions_m"][source_id])
+            if ("source", position) not in seen:
+                seen.add(("source", position))
+                rows.append({"role": "source", "id": source_id, "position_m": position})
+        position = tuple(float(value) for value in keyframe["listener_position_m"])
+        if ("listener", position) not in seen:
+            seen.add(("listener", position))
+            rows.append({"role": "listener", "id": "listener", "position_m": position})
+    report = check_acoustic_scene_points(
+        mesh, rows, config=PlacementCheckConfig(),
+    )
+    report["acoustic_package_manifest"] = str(package_path)
+    refusal = acoustic_pose_refusal(report)
+    if refusal is not None:
+        raise RIRCacheError(refusal)
+    return report
+
+
 def _existing_rir_plan(
     *,
     source_ids: list[str],
@@ -1391,6 +1466,10 @@ def _existing_rir_cache_sequence(
             },
         )
 
+    pose_check = _check_acoustic_poses(
+        package_path=package_path, source_ids=source_ids, keyframes=keyframes
+    )
+    _write(plan_path.parent / f"{plan_path.stem}_pose_check.json", pose_check)
     _write(plan_path, _existing_rir_plan(source_ids=source_ids, keyframes=keyframes, episode_id=episode_id))
     _write_cache_simulation_request(simulation_request_path, simulation)
     result = render_rir_cache(

@@ -323,6 +323,98 @@ def test_materializer_keeps_complete_wall_root_pose_and_world_emitter_point() ->
     assert dot == pytest.approx(1.0, abs=1.0e-6)
 
 
+def test_materializer_carries_the_measured_static_placement_to_the_renderer() -> None:
+    """The seat the room mesh measured is the seat UE is asked to reproduce.
+
+    Planning now seats a wall or ceiling device on the surface a ray finds
+    rather than on the plane the catalog fitted, and records the readings that
+    justify it. The renderer has to receive that placement, not a re-derivation
+    of it, or the pixels and the plan describe different rooms.
+    """
+    registry = load_source_asset_runtime_registry(REGISTRY_PATH)
+    wall_id = "generated_smoke_detector_wall_square_white_research_v1"
+    corners = [[x, y, z] for x in (0.9, 1.1) for y in (1.9, 2.1) for z in (2.9, 3.1)]
+    placement = {
+        "status": "planned",
+        "asset_id": wall_id,
+        "instance_id": "wall_device",
+        "support_identity": {
+            "surface_kind": "wall",
+            "surface_id": "room_wall_01",
+            "surface_normal_offset_m": -0.087,
+            "surface_normal_offset_basis": (
+                "measured room surface on the mounting axis under this footprint"
+            ),
+            "contact_point_m": [0.9, 2.0, 3.0],
+            "mounting_direction_m": [1.0, 0.0, 0.0],
+        },
+        "asset_bounds": {
+            "world_aabb_min_m": [0.9, 1.9, 2.9],
+            "world_aabb_max_m": [1.1, 2.1, 3.1],
+            "world_corners_m": corners,
+        },
+        "placement_checks": {
+            "schema": "avengine_static_placement_geometry_checks_v1",
+            "status": "pass",
+            "failed_checks": [],
+            "normal_flipped": True,
+            "support_normal_sign": -1.0,
+            "mesh_contact_offset": {"status": "measured", "offset_m": -0.087},
+        },
+    }
+    neutral = {
+        "plan_coordinates": "renderer_neutral",
+        "scene": {},
+        "resources": {},
+        "visual_plan": {
+            "actors": [{
+                "actor_id": "source1", "asset_id": wall_id,
+                "entity_class": "rigid_object", "static_placement": placement,
+            }],
+            "camera": {
+                "position_m": [0.0, 1.5, 0.0],
+                "basis": {"forward": [1.0, 0.0, 0.0], "right": [0.0, 0.0, 1.0],
+                          "up": [0.0, 1.0, 0.0]},
+                "horizontal_fov_deg": 85.0,
+            },
+            "frames": [{
+                "frame_index": 0,
+                "actor_states": [{
+                    "actor_id": "source1",
+                    "root_transform": {
+                        "translation_m": [0.9, 2.0, 3.0],
+                        "rotation_xyzw": [0.0, 0.0, 0.0, 1.0],
+                        "matrix_row_major": [1.0, 0.0, 0.0, 0.9,
+                                             0.0, 1.0, 0.0, 2.0,
+                                             0.0, 0.0, 1.0, 3.0,
+                                             0.0, 0.0, 0.0, 1.0],
+                        "scale": [1.0, 1.0, 1.0],
+                    },
+                    "emitter_transform": {"position_m": [1.0, 2.05, 3.0]},
+                }],
+                "camera_state": {
+                    "position_m": [0.0, 1.5, 0.0],
+                    "basis": {"forward": [1.0, 0.0, 0.0], "right": [0.0, 0.0, 1.0],
+                              "up": [0.0, 1.0, 0.0]},
+                    "horizontal_fov_deg": 85.0,
+                },
+            }],
+        },
+    }
+
+    materialized = materialize_ue_episode_plan(neutral, registry)
+    actor = next(row for row in materialized["visual_plan"]["actors"]
+                 if row["actor_id"] == "source1")
+    carried = actor["static_placement"]
+    assert carried["placement_checks"]["status"] == "pass"
+    assert carried["placement_checks"]["normal_flipped"] is True
+    assert carried["support_identity"]["contact_point_m"] == [0.9, 2.0, 3.0]
+    assert carried["asset_bounds"]["world_corners_m"] == corners
+    state = materialized["visual_plan"]["frames"][0]["actor_states"][0]
+    assert state["translation_ue_cm"] == pytest.approx([90.0, 300.0, 200.0])
+    assert state["planned_emitter_ue_cm"] == pytest.approx([100.0, 300.0, 205.0])
+
+
 class _ResidentialAnchor:
     def __init__(self) -> None:
         self.location = None

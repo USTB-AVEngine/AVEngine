@@ -259,19 +259,67 @@ def _visual_geometry(geometry: Any, *, plane_tolerance_m: float) -> tuple[dict[s
             raise SourcePlacementError("visual_geometry_triangles_unreadable", "visual geometry triangles_path cannot be read", source_ref=str(data.get("triangles_path")), detail=str(exc)) from exc
     if vertices_raw is None or triangles_raw is None:
         raise SourcePlacementError("visual_geometry_data_missing", "support planning requires loaded visual vertices and triangles; a scene path alone is not a support surface")
-    try:
-        vertices = [_vector(row, "visual_geometry.vertices_m[]") for row in vertices_raw]
-        triangles = [tuple(int(value) for value in row) for row in triangles_raw]
-    except Exception as exc:
-        raise SourcePlacementError("visual_geometry_arrays_invalid", "visual geometry arrays must contain finite vertices and integer triangles", detail=str(exc)) from exc
-    if not vertices or not triangles:
-        raise SourcePlacementError("visual_geometry_arrays_empty", "visual geometry arrays must be non-empty")
-    for index, tri in enumerate(triangles):
-        if len(tri) != 3 or any(value < 0 or value >= len(vertices) for value in tri):
-            raise SourcePlacementError("visual_geometry_triangle_invalid", "visual geometry triangle index is outside vertices", triangle_index=index)
-    bounds_min = [min(row[index] for row in vertices) for index in range(3)]
-    bounds_max = [max(row[index] for row in vertices) for index in range(3)]
+    # A room export carries millions of triangles. Checking them one Python row
+    # at a time is the same check, taken one row at a time; where the arrays are
+    # already numeric arrays the identical conditions are read in one pass.
+    array_shaped = hasattr(vertices_raw, "shape") and hasattr(triangles_raw, "shape")
+    if array_shaped:
+        try:
+            import numpy as np
+            vertices = np.asarray(vertices_raw, dtype=float)
+            triangles = np.asarray(triangles_raw)
+        except Exception as exc:
+            raise SourcePlacementError("visual_geometry_arrays_invalid", "visual geometry arrays must contain finite vertices and integer triangles", detail=str(exc)) from exc
+        if vertices.ndim != 2 or vertices.shape[1] != 3 or not np.all(np.isfinite(vertices)):
+            raise SourcePlacementError("visual_geometry_arrays_invalid", "visual geometry arrays must contain finite vertices and integer triangles", detail="vertices must be a finite [vertex,3] array")
+        if triangles.ndim != 2 or triangles.shape[1] != 3:
+            raise SourcePlacementError("visual_geometry_arrays_invalid", "visual geometry arrays must contain finite vertices and integer triangles", detail="triangles must be a [triangle,3] array")
+        triangles = triangles.astype(np.int64, copy=False)
+        if not vertices.size or not triangles.size:
+            raise SourcePlacementError("visual_geometry_arrays_empty", "visual geometry arrays must be non-empty")
+        outside = (triangles < 0) | (triangles >= len(vertices))
+        if bool(outside.any()):
+            raise SourcePlacementError("visual_geometry_triangle_invalid", "visual geometry triangle index is outside vertices", triangle_index=int(np.flatnonzero(outside.any(axis=1))[0]))
+        bounds_min = [float(value) for value in vertices.min(axis=0)]
+        bounds_max = [float(value) for value in vertices.max(axis=0)]
+    else:
+        try:
+            vertices = [_vector(row, "visual_geometry.vertices_m[]") for row in vertices_raw]
+            triangles = [tuple(int(value) for value in row) for row in triangles_raw]
+        except Exception as exc:
+            raise SourcePlacementError("visual_geometry_arrays_invalid", "visual geometry arrays must contain finite vertices and integer triangles", detail=str(exc)) from exc
+        if not vertices or not triangles:
+            raise SourcePlacementError("visual_geometry_arrays_empty", "visual geometry arrays must be non-empty")
+        for index, tri in enumerate(triangles):
+            if len(tri) != 3 or any(value < 0 or value >= len(vertices) for value in tri):
+                raise SourcePlacementError("visual_geometry_triangle_invalid", "visual geometry triangle index is outside vertices", triangle_index=index)
+        bounds_min = [min(row[index] for row in vertices) for index in range(3)]
+        bounds_max = [max(row[index] for row in vertices) for index in range(3)]
     return ({"geometry_id":geometry_id,"authority":authority,"source_ref":source_ref,"vertex_count":len(vertices),"triangle_count":len(triangles),"bounds_min_m":bounds_min,"bounds_max_m":bounds_max,"plane_tolerance_m":plane_tolerance_m}, vertices, triangles)
+
+
+class PreparedVisualGeometry:
+    """One already-validated visual geometry, reusable across candidates.
+
+    Validating a room's triangles is the same work whichever candidate point is
+    being planned, so a batch reads and checks them once and hands the result to
+    every trial.  ``plan_source_placement`` still accepts the raw mapping.
+    """
+
+    __slots__ = ("summary", "vertices", "triangles")
+
+    def __init__(self, summary, vertices, triangles):
+        self.summary = summary
+        self.vertices = vertices
+        self.triangles = triangles
+
+
+def prepare_visual_geometry(visual_geometry: Any, *, plane_tolerance_m: float) -> PreparedVisualGeometry:
+    """Read and validate a visual geometry once for a whole placement batch."""
+    summary, vertices, triangles = _visual_geometry(
+        visual_geometry, plane_tolerance_m=plane_tolerance_m
+    )
+    return PreparedVisualGeometry(summary, vertices, triangles)
 
 
 def parse_support_surfaces(layout: Any, *, room_id: str | None = None) -> list[dict[str, Any]]:
@@ -426,11 +474,13 @@ def _transform_point(
     return _add(translation, _mat3_vec(rotation, point))
 
 
-def _asset_world_aabb(
-    pose: Mapping[str, Any],
-    rotation: Sequence[Sequence[float]],
-    translation: Sequence[float],
-) -> dict[str, Any]:
+def _asset_local_box(pose: Mapping[str, Any]) -> tuple[list[float], list[float], str]:
+    """The asset's own local box, measured where the catalog measured it.
+
+    Without a measured box the conservative footprint-by-height prism is used,
+    exactly as before; naming it here lets the mesh checks work on the same box
+    the world AABB is built from instead of re-deriving it.
+    """
     local_min = pose.get("bounds_min_m")
     local_max = pose.get("bounds_max_m")
     bounds_source = str(pose.get("bounds_source") or "resting_pose_footprint_height_conservative")
@@ -455,11 +505,28 @@ def _asset_world_aabb(
         local_min = list(_vector(local_min, "asset_bounds.local_min_m"))
         local_max = list(_vector(local_max, "asset_bounds.local_max_m"))
         bounds_source = str(pose.get("bounds_source") or "request.asset_geometry")
-    corners = []
-    for x in (float(local_min[0]), float(local_max[0])):
-        for y in (float(local_min[1]), float(local_max[1])):
-            for z in (float(local_min[2]), float(local_max[2])):
-                corners.append(_transform_point(rotation, translation, (x, y, z)))
+    return local_min, local_max, bounds_source
+
+
+def _local_box_corners(local_min: Sequence[float], local_max: Sequence[float]) -> list[tuple[float, float, float]]:
+    return [
+        (float(x), float(y), float(z))
+        for x in (float(local_min[0]), float(local_max[0]))
+        for y in (float(local_min[1]), float(local_max[1]))
+        for z in (float(local_min[2]), float(local_max[2]))
+    ]
+
+
+def _asset_world_aabb(
+    pose: Mapping[str, Any],
+    rotation: Sequence[Sequence[float]],
+    translation: Sequence[float],
+) -> dict[str, Any]:
+    local_min, local_max, bounds_source = _asset_local_box(pose)
+    corners = [
+        _transform_point(rotation, translation, corner)
+        for corner in _local_box_corners(local_min, local_max)
+    ]
     world_min = [min(point[index] for point in corners) for index in range(3)]
     world_max = [max(point[index] for point in corners) for index in range(3)]
     return {
@@ -468,6 +535,9 @@ def _asset_world_aabb(
         "local_max_m": list(local_max),
         "world_aabb_min_m": world_min,
         "world_aabb_max_m": world_max,
+        # The rotated box itself, so a consumer that needs the asset's real
+        # extent does not have to inflate it back out of the axis-aligned box.
+        "world_corners_m": [list(point) for point in corners],
     }
 
 
@@ -565,14 +635,177 @@ def _batch_clearance(
     }
 
 
-def plan_source_placement(registry,room,layout,visual_geometry,request,*,config):
+def _footprint_reach(pose: Mapping[str, Any]) -> float:
+    """Half-diagonal of the asset's own box: how far a corner can be from its root."""
+    local_min, local_max, _source = _asset_local_box(pose)
+    return 0.5 * math.sqrt(
+        sum((float(high) - float(low)) ** 2 for low, high in zip(local_min, local_max))
+    )
+
+
+def _check_config(config, plane_tolerance_m):
+    from avengine.rooms.placement_geometry import PlacementCheckConfig
+
+    return PlacementCheckConfig.from_mapping(
+        config.get("placement_checks"), fallback_search_m=plane_tolerance_m
+    )
+
+
+def _seat_asset(surface, pose, emitter, plane_point, normal_sign, *, yaw_deg,
+                normal_tolerance_deg, room_mesh, interior_points, check_config):
+    """Seat the asset on one side of its support plane and read the result.
+
+    The support plane is a fit, so two things are decided here rather than
+    assumed: which of its two sides the asset belongs on, and how far along the
+    mounting axis the surface the asset can actually rest on lies.  Both are
+    read from the room mesh; with no mesh the seating is exactly what the
+    catalog states, as it was before.
+    """
+    from avengine.rooms import placement_geometry as geometry
+
+    yaw = math.radians(_finite(yaw_deg, "request.yaw_deg"))
+    declared_normal = _unit(surface["normal_m"], "support.normal_m")
+    declared_u = _unit(surface["basis_u_m"], "support.basis_u_m")
+    declared_v = _unit(surface["basis_v_m"], "support.basis_v_m")
+    sign = 1.0 if float(normal_sign) >= 0.0 else -1.0
+    # Negating the normal together with one in-plane axis keeps the frame
+    # right-handed and leaves the plane itself, and every candidate point on
+    # it, exactly where the catalog put them.
+    support_normal = _scale(declared_normal, sign)
+    support_v = _scale(declared_v, sign)
+    rotated_u = _unit(
+        _add(_scale(declared_u, math.cos(yaw)), _scale(support_v, math.sin(yaw))),
+        "rotated support basis u",
+    )
+    rotated_v = _unit(_cross(support_normal, rotated_u), "rotated support basis v")
+    asset_normal = pose["plane_normal_m"]
+    rotation = [[0.0] * 3 for _ in range(3)]
+    _outer_add(rotation, rotated_u, pose["plane_basis_u_m"])
+    _outer_add(rotation, rotated_v, pose["plane_basis_v_m"])
+    _outer_add(rotation, support_normal, asset_normal)
+    if _dot(_mat3_vec(rotation, asset_normal), support_normal) < math.cos(
+        math.radians(normal_tolerance_deg)
+    ):
+        raise SourcePlacementError(
+            "asset_support_normal_misaligned",
+            "asset plane normal cannot align to support normal within configured tolerance",
+            support_surface_id=surface["surface_id"],
+        )
+    local_min, local_max, _bounds_source = _asset_local_box(pose)
+    span = geometry.body_span_along_normal(
+        local_min, local_max, asset_normal, float(pose["base_plane_offset_m"])
+    )
+    mounting = _scale(support_normal, span["sign"])
+    contact = tuple(float(value) for value in plane_point)
+    mesh_offset = {"status": "not_run",
+                   "reason": "no room surface mesh was supplied to the planner",
+                   "offset_m": 0.0}
+    near_mesh = None
+    if room_mesh is not None:
+        # One selection of the neighbourhood serves every short probe below.
+        # Its radius covers the whole search bound plus the asset and its
+        # clearances, so no probe can reach a triangle the selection dropped.
+        near_mesh = geometry.local_mesh(
+            room_mesh, plane_point,
+            radius=(float(check_config.max_contact_search_m or 0.0)
+                    + float(span["depth_m"]) + float(span["overhang_m"])
+                    + _footprint_reach(pose)
+                    + check_config.corner_probe_m + check_config.body_clearance_m
+                    + check_config.support_probe_m + 0.05),
+        )
+        # The asset's own footprint, projected onto the fitted plane, so the
+        # seat is measured under the whole contact face rather than one point.
+        seated_at_plane = _sub(
+            plane_point, _mat3_vec(rotation, _scale(asset_normal, pose["base_plane_offset_m"]))
+        )
+        footprint = [
+            _transform_point(rotation, seated_at_plane, corner)
+            for corner in _local_box_corners(local_min, local_max)
+        ]
+        mesh_offset = geometry.measure_contact_offset(
+            near_mesh, plane_point=plane_point, out_direction=mounting,
+            body_depth_m=span["depth_m"], config=check_config,
+            footprint_points=footprint,
+        )
+        if mesh_offset["status"] == "measured":
+            contact = _add(plane_point, _scale(mounting, mesh_offset["offset_m"]))
+    root = _sub(contact, _mat3_vec(rotation, _scale(asset_normal, pose["base_plane_offset_m"])))
+    emitter_world = _add(root, _mat3_vec(rotation, emitter["offset_m"]))
+    bounds = _asset_world_aabb(pose, rotation, root)
+    corners = [
+        _transform_point(rotation, root, corner)
+        for corner in _local_box_corners(local_min, local_max)
+    ]
+    if room_mesh is None:
+        checks = {
+            "schema": geometry.PLACEMENT_CHECK_SCHEMA,
+            "status": "not_run",
+            "failed_checks": [],
+            "reason": "no room surface mesh was supplied to the planner",
+        }
+    else:
+        checks = geometry.evaluate_placement(
+            room_mesh, contact_point=contact, out_direction=mounting,
+            plane_u=rotated_u, plane_v=rotated_v, body_depth_m=span["depth_m"],
+            corners_m=corners, emitter_point=emitter_world,
+            interior_points=interior_points, near_mesh=near_mesh,
+            config=check_config,
+        )
+    checks = dict(checks)
+    checks["support_normal_sign"] = sign
+    checks["support_normal_m"] = list(support_normal)
+    checks["declared_support_normal_m"] = list(declared_normal)
+    checks["normal_flipped"] = sign < 0.0
+    checks["asset_body_span_m"] = span["span_m"]
+    checks["mesh_contact_offset"] = deepcopy(mesh_offset)
+    return {
+        "sign": sign,
+        "rotation": rotation,
+        "support_normal_m": support_normal,
+        "rotated_u_m": rotated_u,
+        "rotated_v_m": rotated_v,
+        "mounting_direction_m": mounting,
+        "contact_point_m": contact,
+        "root": root,
+        "emitter_world": emitter_world,
+        "asset_bounds": bounds,
+        "span": span,
+        "mesh_offset": mesh_offset,
+        "checks": checks,
+    }
+
+
+_CHECK_STATUS_RANK = {"pass": 0, "partial": 1, "not_run": 1, "fail": 2}
+
+
+def _seating_rank(attempt):
+    """Prefer a passing seating, then the one that moved the asset least.
+
+    Two sides of the same slab can both be free; without the distance tie-break
+    a wall's far face would be as good an answer as its near face, which quietly
+    mounts a device in the next room.
+    """
+    checks = attempt["checks"]
+    status = _CHECK_STATUS_RANK.get(str(checks.get("status")), 2)
+    failures = len(checks.get("failed_checks") or ())
+    offset = attempt["mesh_offset"].get("offset_m")
+    distance = abs(float(offset)) if isinstance(offset, (int, float)) else float("inf")
+    return (status, failures, distance)
+
+
+def plan_source_placement(registry,room,layout,visual_geometry,request,*,config,
+                          room_mesh=None, interior_points=None):
     room_data=_mapping(room,'room'); room_id=_text(room_data.get('room_id'),'room.room_id'); req=_mapping(request,'request'); asset=_asset_record(registry,req.get('asset_id'),req.get('asset_revision')); support_id=_text(req.get('support_surface_id'),'request.support_surface_id')
     conf=_mapping(config,'config'); normal_tol=_finite(conf.get('normal_tolerance_deg'),'config.normal_tolerance_deg'); plane_tol=_finite(conf.get('plane_tolerance_m'),'config.plane_tolerance_m')
     if normal_tol<0 or normal_tol>=90: raise SourcePlacementError('normal_tolerance_invalid','config.normal_tolerance_deg must be in [0,90)')
     if plane_tol<0: raise SourcePlacementError('plane_tolerance_invalid','config.plane_tolerance_m must be nonnegative')
     surfaces=parse_support_surfaces(layout,room_id=room_id); matches=[s for s in surfaces if s['surface_id']==support_id]
     if len(matches)!=1: raise SourcePlacementError('support_surface_unresolved','request.support_surface_id must resolve to one layout surface',support_surface_id=support_id,available=[s['surface_id'] for s in surfaces])
-    surface=matches[0]; gsummary,vertices,triangles=_visual_geometry(visual_geometry,plane_tolerance_m=plane_tol)
+    surface=matches[0]
+    if isinstance(visual_geometry, PreparedVisualGeometry):
+        gsummary,vertices,triangles=visual_geometry.summary,visual_geometry.vertices,visual_geometry.triangles
+    else:
+        gsummary,vertices,triangles=_visual_geometry(visual_geometry,plane_tolerance_m=plane_tol)
     cross_checked=surface['geometry_ref'].get('triangle_indices') is not None and surface['geometry_ref'].get('geometry_id')==gsummary['geometry_id']
     if cross_checked:
         _surface_geometry_check(surface,gsummary,vertices,triangles,plane_tol)
@@ -580,8 +813,7 @@ def plan_source_placement(registry,room,layout,visual_geometry,request,*,config)
         _surface_geometry_check(surface,gsummary,vertices,triangles,plane_tol)
     pose=_resting_pose(asset,req); emitter=_emitter(asset); candidates=_candidate_uv(surface,pose['footprint_extent_m'],_mapping(conf.get('candidate_search'),'config.candidate_search')); candidate_index=req.get('candidate_index',0)
     if isinstance(candidate_index,bool) or not isinstance(candidate_index,int) or candidate_index<0 or candidate_index>=len(candidates): raise SourcePlacementError('candidate_index_invalid','request.candidate_index must select a bounded candidate',candidate_index=candidate_index,candidate_count=len(candidates))
-    yaw=math.radians(_finite(req.get('yaw_deg',0.0),'request.yaw_deg')); sn=_unit(surface['normal_m'],'support.normal_m'); su=_unit(surface['basis_u_m'],'support.basis_u_m'); sv=_unit(surface['basis_v_m'],'support.basis_v_m'); ru=_unit(_add(_scale(su,math.cos(yaw)),_scale(sv,math.sin(yaw))),'rotated support basis u'); rv=_unit(_cross(sn,ru),'rotated support basis v'); an=pose['plane_normal_m']; au=pose['plane_basis_u_m']; av=pose['plane_basis_v_m']; rotation=[[0.0]*3 for _ in range(3)]; _outer_add(rotation,ru,au); _outer_add(rotation,rv,av); _outer_add(rotation,sn,an)
-    if _dot(_mat3_vec(rotation,an),sn)<math.cos(math.radians(normal_tol)): raise SourcePlacementError('asset_support_normal_misaligned','asset plane normal cannot align to support normal within configured tolerance',asset_id=asset['asset_id'],support_surface_id=support_id)
+    sn=_unit(surface['normal_m'],'support.normal_m'); su=_unit(surface['basis_u_m'],'support.basis_u_m'); sv=_unit(surface['basis_v_m'],'support.basis_v_m')
     u_coord,v_coord=candidates[candidate_index]
     # A fitted support plane is a plane through a real slab, not the slab's top.
     # Where the measured surface under this footprint sits above the fit, the
@@ -592,13 +824,69 @@ def plan_source_placement(registry,room,layout,visual_geometry,request,*,config)
     point=_add(surface['origin_m'],_add(_scale(su,u_coord),_scale(sv,v_coord)))
     if normal_offset:
         point=_add(point,_scale(sn,normal_offset))
-    root=_sub(point,_mat3_vec(rotation,_scale(an,pose['base_plane_offset_m']))); emitter_world=_add(root,_mat3_vec(rotation,emitter['offset_m']))
-    asset_bounds=_asset_world_aabb(pose,rotation,root)
+    # With a room mesh in hand both sides of the fitted plane are seated and
+    # read, and the reading decides which side the asset belongs on. Without
+    # one only the declared side exists, which is what every earlier caller got.
+    check_config=_check_config(conf, plane_tol)
+    attempts=[]; seating_error=None
+    for sign in ((1.0, -1.0) if room_mesh is not None else (1.0,)):
+        try:
+            attempts.append(_seat_asset(
+                surface, pose, emitter, point, sign, yaw_deg=req.get('yaw_deg', 0.0),
+                normal_tolerance_deg=normal_tol, room_mesh=room_mesh,
+                interior_points=interior_points, check_config=check_config))
+        except SourcePlacementError as error:
+            seating_error = error
+    if not attempts:
+        raise seating_error if seating_error is not None else SourcePlacementError(
+            'asset_support_normal_misaligned',
+            'asset plane normal cannot align to the support normal',
+            asset_id=asset['asset_id'], support_surface_id=support_id)
+    seated=min(attempts, key=_seating_rank)
+    rotation=seated['rotation']; root=seated['root']; emitter_world=seated['emitter_world']
+    asset_bounds=seated['asset_bounds']
+    placement_checks=deepcopy(seated['checks'])
+    placement_checks['rejected_sides']=[
+        {'support_normal_sign': other['sign'],
+         'status': other['checks'].get('status'),
+         'failed_checks': list(other['checks'].get('failed_checks') or ()),
+         'contact_offset_m': other['mesh_offset'].get('offset_m')}
+        for other in attempts if other is not seated
+    ]
+    mesh_contact_offset=seated['mesh_offset'].get('offset_m') or 0.0
+    if seated['mesh_offset'].get('status') == 'measured' and mesh_contact_offset:
+        # Report the measured seating in the same units and along the same
+        # declared normal the request states its own offset in.
+        normal_offset = normal_offset + float(mesh_contact_offset) * _dot(
+            seated['mounting_direction_m'], sn)
     explicit_candidate = candidate_index if "candidate_index" in req else None
     return {'schema':SOURCE_PLACEMENT_SCHEMA,'status':'planned','qualification_status':'not_run','native_execution':'not_run','instance_id':_text(req.get('instance_id'),'request.instance_id'),'asset_id':asset['asset_id'],'asset_revision':asset.get('revision'),'room_id':room_id,'support_identity':{'room_id':room_id,'surface_id':surface['surface_id'],'surface_kind':surface['surface_kind'],'geometry_ref':deepcopy(surface['geometry_ref']),'origin_m':list(surface['origin_m']),'normal_m':list(surface['normal_m']),'candidate_uv_m':[u_coord,v_coord],'surface_normal_offset_m':normal_offset,
                               'surface_normal_offset_basis':(
-                                  'measured slab top under this footprint, above the fitted plane'
-                                  if normal_offset else 'none; the asset rests on the fitted plane')},'candidate':{'index':candidate_index,'count':len(candidates),'requested_index':explicit_candidate,'selected_index':candidate_index,'selection_mode':'explicit' if explicit_candidate is not None else 'single_default','search':deepcopy(dict(conf['candidate_search'])),'footprint_fit':True,'rejected_indices':[],'rejected_for_clearance':[]},'asset_resting_pose':pose,'asset_bounds':asset_bounds,'emitter':emitter,'root_transform':{'matrix_row_major':_mat4(rotation,root),'rotation_xyzw':_quaternion_xyzw(rotation),'translation_m':list(root)},'emitter_transform':{'matrix_row_major':_mat4(rotation,emitter_world),'rotation_xyzw':_quaternion_xyzw(rotation),'position_m':list(emitter_world)},'clearance':{'status':'not_run','inter_instance_aabb':{'status':'not_run','scope':'single placement; no peer list supplied'},'room_collision':{'status':'not_run','reason':'room-wide collision query was not supplied to the helper'},'reason':'no batch peer list supplied; room collision remains not_run'},'planning_evidence':[{'kind':'registry.resting_pose','status':'observed','source':'registry.resting_pose'},{'kind':'registry.emitter_anchor','status':'observed','source':'registry.emitter_anchors','anchor_id':emitter['anchor_id']},{'kind':'asset_bounds','status':'observed' if asset_bounds['source']=='request.asset_geometry' else 'derived_conservative','source':asset_bounds['source']},{'kind':'layout.support_surface','status':'observed','surface_id':surface['surface_id'],'surface_kind':surface['surface_kind']},{'kind':'visual_geometry','status':'observed' if cross_checked else 'observed_on_its_own_capture','geometry_id':gsummary['geometry_id'],'authority':gsummary['authority'],'source_ref':gsummary['source_ref'],'triangle_indices':surface['geometry_ref']['triangle_indices'],'surface_geometry_cross_check':'named_triangles_on_the_supplied_geometry' if cross_checked else surface['geometry_ref'].get('cross_check'),'surface_geometry_id':surface['geometry_ref']['geometry_id'],'surface_visual_depth_source':surface['geometry_ref'].get('visual_depth_source')},{'kind':'candidate_search','status':'planned','max_candidates':conf['candidate_search']['max_candidates'],'candidate_index':candidate_index},{'kind':'support_normal_offset','status':'observed' if normal_offset else 'not_applied','offset_m':normal_offset,'source':req.get('surface_normal_offset_source')}], 'claim_boundary':'planning transform and bounded support fit only; no native visual support, room collision or dataset admission claim'}
+                                  'measured room surface on the mounting axis under this footprint'
+                                  if seated['mesh_offset'].get('status') == 'measured'
+                                  else 'measured slab top under this footprint, above the fitted plane'
+                                  if normal_offset else 'none; the asset rests on the fitted plane'),
+                              'effective_normal_m':list(seated['support_normal_m']),
+                              'mounting_direction_m':list(seated['mounting_direction_m']),
+                              'contact_point_m':list(seated['contact_point_m'])},'placement_checks':placement_checks,'candidate':{'index':candidate_index,'count':len(candidates),'requested_index':explicit_candidate,'selected_index':candidate_index,'selection_mode':'explicit' if explicit_candidate is not None else 'single_default','search':deepcopy(dict(conf['candidate_search'])),'footprint_fit':True,'rejected_indices':[],'rejected_for_clearance':[]},'asset_resting_pose':pose,'asset_bounds':asset_bounds,'emitter':emitter,'root_transform':{'matrix_row_major':_mat4(rotation,root),'rotation_xyzw':_quaternion_xyzw(rotation),'translation_m':list(root)},'emitter_transform':{'matrix_row_major':_mat4(rotation,emitter_world),'rotation_xyzw':_quaternion_xyzw(rotation),'position_m':list(emitter_world)},'clearance':{'status':'not_run','inter_instance_aabb':{'status':'not_run','scope':'single placement; no peer list supplied'},'room_collision':{'status':'not_run','reason':'room-wide collision query was not supplied to the helper'},'reason':'no batch peer list supplied; room collision remains not_run'},'planning_evidence':[{'kind':'registry.resting_pose','status':'observed','source':'registry.resting_pose'},{'kind':'registry.emitter_anchor','status':'observed','source':'registry.emitter_anchors','anchor_id':emitter['anchor_id']},{'kind':'asset_bounds','status':'observed' if asset_bounds['source']=='request.asset_geometry' else 'derived_conservative','source':asset_bounds['source']},{'kind':'layout.support_surface','status':'observed','surface_id':surface['surface_id'],'surface_kind':surface['surface_kind']},{'kind':'visual_geometry','status':'observed' if cross_checked else 'observed_on_its_own_capture','geometry_id':gsummary['geometry_id'],'authority':gsummary['authority'],'source_ref':gsummary['source_ref'],'triangle_indices':surface['geometry_ref']['triangle_indices'],'surface_geometry_cross_check':'named_triangles_on_the_supplied_geometry' if cross_checked else surface['geometry_ref'].get('cross_check'),'surface_geometry_id':surface['geometry_ref']['geometry_id'],'surface_visual_depth_source':surface['geometry_ref'].get('visual_depth_source')},{'kind':'candidate_search','status':'planned','max_candidates':conf['candidate_search']['max_candidates'],'candidate_index':candidate_index},{'kind':'support_normal_offset','status':'observed' if normal_offset else 'not_applied','offset_m':normal_offset,'source':req.get('surface_normal_offset_source')},{'kind':'room_surface_mesh_checks','status':placement_checks.get('status','not_run'),'failed_checks':list(placement_checks.get('failed_checks') or ()),'support_normal_sign':placement_checks.get('support_normal_sign'),'mesh_contact_offset_m':seated['mesh_offset'].get('offset_m')}], 'claim_boundary':'planning transform and bounded support fit only; no native visual support, room collision or dataset admission claim'}
+
+
+def _checks_refuse(planned: Mapping[str, Any]) -> dict[str, Any] | None:
+    """A mesh reading that refuses this candidate, or ``None`` when it allows it."""
+    checks = planned.get("placement_checks")
+    if not isinstance(checks, Mapping) or str(checks.get("status")) != "fail":
+        return None
+    return {
+        "candidate_index": int(planned["candidate"]["index"]),
+        "failed_checks": list(checks.get("failed_checks") or ()),
+        "support_normal_sign": checks.get("support_normal_sign"),
+        "mesh_contact_offset_m": (checks.get("mesh_contact_offset") or {}).get("offset_m"),
+        "reasons": {
+            name: (checks.get(name) or {}).get("reason")
+            for name in (checks.get("failed_checks") or ())
+            if isinstance(checks.get(name), Mapping)
+        },
+    }
 
 
 def plan_static_source_placements(
@@ -610,11 +898,18 @@ def plan_static_source_placements(
     *,
     config,
     existing_placements: Sequence[Mapping[str, Any]] | None = None,
+    room_mesh=None,
+    interior_points=None,
 ):
     conf = _mapping(config, "config")
     gap_m = _finite(conf.get("min_inter_instance_gap_m", 0.0), "config.min_inter_instance_gap_m")
     if gap_m < 0.0:
         raise SourcePlacementError("inter_instance_gap_invalid", "config.min_inter_instance_gap_m must be nonnegative")
+    if not isinstance(visual_geometry, PreparedVisualGeometry):
+        visual_geometry = prepare_visual_geometry(
+            visual_geometry,
+            plane_tolerance_m=_finite(conf.get("plane_tolerance_m"), "config.plane_tolerance_m"),
+        )
     occupied: list[dict[str, Any]] = []
     if existing_placements is not None:
         if isinstance(existing_placements, (str, bytes)) or not isinstance(existing_placements, Sequence):
@@ -639,6 +934,7 @@ def plan_static_source_placements(
         candidate_count = None
         valid_rows: dict[int, dict[str, Any]] = {}
         conflict_rows: list[dict[str, Any]] = []
+        refused_rows: list[dict[str, Any]] = []
         last_error: SourcePlacementError | None = None
         selected = None
         selected_conflicts: list[dict[str, Any]] = []
@@ -648,13 +944,20 @@ def plan_static_source_placements(
             trial.setdefault("surface_normal_offset_m", req.get("surface_normal_offset_m", 0.0))
             try:
                 planned = plan_source_placement(
-                    registry, room, layout, visual_geometry, trial, config=conf
+                    registry, room, layout, visual_geometry, trial, config=conf,
+                    room_mesh=room_mesh, interior_points=interior_points,
                 )
             except SourcePlacementError as exc:
                 last_error = exc
                 break
             valid_rows[int(candidate_index)] = planned
             candidate_count = int(planned["candidate"]["count"])
+            refused = _checks_refuse(planned)
+            if refused is not None:
+                refused_rows.append(refused)
+                if explicit:
+                    break
+                continue
             conflicts = []
             for peer in occupied:
                 if _aabb_overlaps(planned["asset_bounds"], peer["asset_bounds"], gap_m):
@@ -681,12 +984,17 @@ def plan_static_source_placements(
                 trial["candidate_index"] = candidate_index
                 try:
                     planned = plan_source_placement(
-                        registry, room, layout, visual_geometry, trial, config=conf
+                        registry, room, layout, visual_geometry, trial, config=conf,
+                        room_mesh=room_mesh, interior_points=interior_points,
                     )
                 except SourcePlacementError as exc:
                     last_error = exc
                     continue
                 valid_rows[int(candidate_index)] = planned
+                refused = _checks_refuse(planned)
+                if refused is not None:
+                    refused_rows.append(refused)
+                    continue
                 conflicts = []
                 for peer in occupied:
                     if _aabb_overlaps(planned["asset_bounds"], peer["asset_bounds"], gap_m):
@@ -714,8 +1022,11 @@ def plan_static_source_placements(
                 "requested_index": int(req["candidate_index"]) if explicit else None,
                 "selected_index": int(selected["candidate"]["index"]),
                 "selection_mode": "explicit" if explicit else "bounded_joint_nonoverlap",
-                "rejected_indices": rejected_indices,
+                "rejected_indices": sorted(set(rejected_indices) | {
+                    int(item["candidate_index"]) for item in refused_rows
+                }),
                 "rejected_for_clearance": deepcopy(conflict_rows),
+                "rejected_for_room_surface_checks": deepcopy(refused_rows),
             })
             selected["clearance"] = _batch_clearance(
                 selected,
@@ -737,7 +1048,18 @@ def plan_static_source_placements(
             rows.append(selected)
             continue
 
-        if explicit and conflict_rows:
+        if refused_rows and not conflict_rows:
+            reason = SourcePlacementError(
+                "room_surface_checks_refused_every_candidate"
+                if not explicit else "explicit_candidate_room_surface_checks_refused",
+                "the room surface mesh refuses every bounded candidate on this support surface",
+                instance_id=req.get("instance_id"),
+                support_surface_id=req.get("support_surface_id"),
+                candidate_count=candidate_count,
+                refused=refused_rows[:8],
+                refused_count=len(refused_rows),
+            )
+        elif explicit and conflict_rows:
             reason = SourcePlacementError(
                 "explicit_candidate_conflict",
                 "explicit candidate_index overlaps a previously planned source; it was not changed",
@@ -785,14 +1107,19 @@ def plan_static_source_placements(
                 "emitter": deepcopy(exemplar.get("emitter")),
                 "root_transform": deepcopy(exemplar.get("root_transform")),
                 "emitter_transform": deepcopy(exemplar.get("emitter_transform")),
+                "placement_checks": deepcopy(exemplar.get("placement_checks")),
             })
         rejected["candidate"] = {
             "requested_index": req.get("candidate_index") if explicit else None,
             "selected_index": None,
             "selection_mode": "explicit_rejected" if explicit else "bounded_joint_nonoverlap_exhausted",
             "count": candidate_count,
-            "rejected_indices": sorted({int(item["candidate_index"]) for item in conflict_rows}),
+            "rejected_indices": sorted(
+                {int(item["candidate_index"]) for item in conflict_rows}
+                | {int(item["candidate_index"]) for item in refused_rows}
+            ),
             "rejected_for_clearance": deepcopy(conflict_rows),
+            "rejected_for_room_surface_checks": deepcopy(refused_rows),
             "search": deepcopy(dict(conf.get("candidate_search") or {})),
         }
         rejected["clearance"] = {
@@ -822,6 +1149,18 @@ def plan_static_source_placements(
             "existing_placement_count": len(existing_placements or ()),
             "room_collision": "not_run",
             "placement_order": placement_order,
+        },
+        "room_surface_checks": {
+            "status": "measured" if room_mesh is not None else "not_run",
+            "reason": (
+                "each candidate was seated on both sides of its fitted plane and "
+                "read against the room surface mesh"
+                if room_mesh is not None
+                else "no room surface mesh was supplied; the catalog plane was used as declared"
+            ),
+            "interior_reference_point_count": (
+                0 if interior_points is None else int(len(interior_points))
+            ),
         },
         "instances": rows,
         "claim_boundary": "per-instance static placement planning with bounded inter-instance AABB checks; room collision and native execution remain not_run",
@@ -1089,4 +1428,4 @@ def apply_room_collision(plan, report):
 
 parse_support_surface_config=parse_support_surfaces
 plan_static_source_placement=plan_source_placement
-__all__=['SOURCE_PLACEMENT_SCHEMA','SourcePlacementError','parse_support_surfaces','parse_support_surface_config','plan_source_placement','plan_static_source_placement','plan_static_source_placements','bind_support_catalog_requests','support_catalog_surface_kinds','room_collision_report','apply_room_collision']
+__all__=['SOURCE_PLACEMENT_SCHEMA','SourcePlacementError','PreparedVisualGeometry','prepare_visual_geometry','parse_support_surfaces','parse_support_surface_config','plan_source_placement','plan_static_source_placement','plan_static_source_placements','bind_support_catalog_requests','support_catalog_surface_kinds','room_collision_report','apply_room_collision']
