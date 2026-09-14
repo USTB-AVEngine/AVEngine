@@ -427,6 +427,7 @@ PRIVATE_ONLY_KEYS = frozenset({
     "group_id", "member_id", "interventions", "task_family", "world_id",
     "facts_path", "native_episode_id", "source_identity", "episode_conditions",
     "gold", "truth", "comparisons",
+    "planned_answer", "world_bindings", "question_recipe",
 })
 
 
@@ -674,7 +675,12 @@ def assemble_binding_dataset(spec: Mapping[str, Any], *, input_base: Path, outpu
     next_index = 0
     for group in groups:
         result = {key: deepcopy(group[key]) for key in
-                  ("group_id", "world_id", "task_family", "room_family", "room_id", "split", "query", "angle_tolerance_deg")
+                  ("group_id", "world_id", "task_family", "room_family", "room_id",
+                   "split", "query", "angle_tolerance_deg",
+                   # What question this group was built around and what moves its
+                   # answer. Carried on the private side so a reader of the packed
+                   # group can see the claim without going back to the producer.
+                   "question_recipe")
                   if key in group}
         result.setdefault("split", "pilot")
         identity = identities[id(group)]
@@ -739,6 +745,13 @@ def assemble_binding_dataset(spec: Mapping[str, Any], *, input_base: Path, outpu
                 "episode_conditions": conditions,
                 "facts_path": str(facts_path), "native_episode_id": facts["episode_id"],
                 "interventions": deepcopy(raw.get("interventions", {})),
+                # The answer the declared interventions predicted, kept beside the
+                # observed one this member's own facts produced. Never used to
+                # overwrite it: two columns, so a disagreement is visible.
+                **({"planned_answer": deepcopy(raw["planned_answer"])}
+                   if isinstance(raw.get("planned_answer"), Mapping) else {}),
+                **({"world_bindings": deepcopy(raw["world_bindings"])}
+                   if isinstance(raw.get("world_bindings"), Mapping) else {}),
             })
         align_question_forms([member["question"] for member in members], seed + ":" + group["group_id"])
         result["members"] = members
