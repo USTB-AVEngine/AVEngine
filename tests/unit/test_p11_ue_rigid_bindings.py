@@ -3,6 +3,7 @@ from __future__ import annotations
 from copy import deepcopy
 import importlib.util
 import json
+import math
 from pathlib import Path
 
 import pytest
@@ -321,6 +322,112 @@ def test_materializer_keeps_complete_wall_root_pose_and_world_emitter_point() ->
     expected = apartment._rotator_quaternion_xyzw(full_pose["rotation_deg"])
     dot = abs(sum(left * right for left, right in zip(expected, full_pose["rotation_xyzw"])))
     assert dot == pytest.approx(1.0, abs=1.0e-6)
+
+
+def _unreal_rotation_matrix_row_vector(rotation_deg):
+    """Unreal's own FRotator to FRotationMatrix, written out here as UE writes it.
+
+    This is the engine's formula, for row vectors, with Pitch measured the
+    opposite way round from the right-handed convention. It is duplicated in
+    the test on purpose: it is the thing the conversion under test has to
+    agree with, so it must not be imported from the code being tested.
+    """
+    roll, pitch, yaw = (math.radians(float(value)) for value in rotation_deg)
+    sp, cp = math.sin(pitch), math.cos(pitch)
+    sy, cy = math.sin(yaw), math.cos(yaw)
+    sr, cr = math.sin(roll), math.cos(roll)
+    return [
+        [cp * cy, cp * sy, sp],
+        [sr * sp * cy - cr * sy, sr * sp * sy + cr * cy, -sr * cp],
+        [-(cr * sp * cy + sr * sy), cy * sr - cr * sp * sy, cr * cp],
+    ]
+
+
+def _non_trivial_habitat_root():
+    """A root pose with real pitch and roll, as a wall or ceiling mount has."""
+    import avengine.optional_backends.spear_apartment as apartment
+
+    quaternion = [0.25, 0.30, 0.10, 0.90]
+    norm = sum(value * value for value in quaternion) ** 0.5
+    quaternion = [value / norm for value in quaternion]
+    rotation = apartment._rotation_matrix_from_xyzw(quaternion, owner="test root")
+    translation = [1.0, 2.0, 3.0]
+    matrix = [value for row, shift in zip(rotation, translation, strict=True)
+              for value in (*row, shift)] + [0.0, 0.0, 0.0, 1.0]
+    return {"translation_m": translation, "rotation_xyzw": quaternion,
+            "matrix_row_major": matrix, "scale": [1.0, 1.0, 1.0]}, rotation
+
+
+def test_ue_rotator_puts_an_attached_emitter_where_the_plan_says() -> None:
+    """The emitter child has to land on the planned emitter point.
+
+    The emitter is a component attached to the actor's root with a local
+    offset, so it is the root's rotator that decides where it ends up. A
+    rotator read off the rotation as a plain right-handed Z-Y-X decomposition
+    is not the rotation Unreal builds from it: Unreal turns Pitch and Roll the
+    other way. The actor's own position and its readback both still look
+    right, and only its attachments are mirrored about it, which is why this
+    went unnoticed until a wall device's emitter was measured.
+    """
+    import avengine.optional_backends.spear_apartment as apartment
+
+    root_transform, rotation = _non_trivial_habitat_root()
+    # An asset-local emitter anchor with all three components distinct, so a
+    # swapped or negated component cannot pass by coincidence.
+    offset_m = [0.049068, 0.049751, -0.017771]
+    planned_m = [
+        float(root_transform["translation_m"][axis])
+        + sum(rotation[axis][index] * offset_m[index] for index in range(3))
+        for axis in range(3)
+    ]
+
+    ue = apartment.habitat_root_transform_to_ue(root_transform)
+    matrix = _unreal_rotation_matrix_row_vector(ue["rotation_deg"])
+    # The renderer hands Unreal this local offset, in its own axis order.
+    local_ue_cm = [offset_m[0] * 100.0, offset_m[2] * 100.0, offset_m[1] * 100.0]
+    world_ue_cm = [
+        sum(local_ue_cm[index] * matrix[index][axis] for index in range(3))
+        + float(ue["translation_cm"][axis])
+        for axis in range(3)
+    ]
+    back_to_habitat_m = [world_ue_cm[0] / 100.0, world_ue_cm[2] / 100.0,
+                         world_ue_cm[1] / 100.0]
+    assert back_to_habitat_m == pytest.approx(planned_m, abs=1.0e-9)
+
+
+def test_ue_rotator_helper_matches_the_engine_formula_and_round_trips() -> None:
+    """The stated rotator convention is Unreal's, and the decomposition inverts it."""
+    import avengine.optional_backends.spear_apartment as apartment
+
+    for rotator in ([0.0, 0.0, 0.0], [17.0, -34.0, 121.0], [-90.0, 12.0, 200.0],
+                    [45.0, 89.9, -170.0], [0.0, 0.0, 45.0]):
+        engine = _unreal_rotation_matrix_row_vector(rotator)
+        # The helper states the same rotation for column vectors, so it is the
+        # engine matrix transposed.
+        stated = apartment.ue_rotator_rotation_matrix(rotator)
+        for row in range(3):
+            for column in range(3):
+                assert stated[row][column] == pytest.approx(engine[column][row], abs=1.0e-9)
+        recovered = apartment._ue_rotator_from_matrix(stated, owner="round trip")
+        assert apartment._rotator_equivalence_error_degrees(rotator, recovered) \
+            == pytest.approx(0.0, abs=1.0e-6)
+
+
+def test_a_pure_floor_yaw_rotator_is_unchanged_by_the_convention() -> None:
+    """Floor sources only ever carry yaw, so nothing about them moves."""
+    import avengine.optional_backends.spear_apartment as apartment
+
+    yaw = math.radians(37.0)
+    rotation_h = [[math.cos(yaw), 0.0, math.sin(yaw)],
+                  [0.0, 1.0, 0.0],
+                  [-math.sin(yaw), 0.0, math.cos(yaw)]]
+    matrix = [value for row, shift in zip(rotation_h, [0.0, 0.0, 0.0], strict=True)
+              for value in (*row, shift)] + [0.0, 0.0, 0.0, 1.0]
+    ue = apartment.habitat_root_transform_to_ue(
+        {"translation_m": [0.0, 0.0, 0.0], "matrix_row_major": matrix})
+    assert ue["rotation_deg"][0] == pytest.approx(0.0, abs=1.0e-9)
+    assert ue["rotation_deg"][1] == pytest.approx(0.0, abs=1.0e-9)
+    assert ue["rotation_deg"][2] == pytest.approx(-37.0, abs=1.0e-6)
 
 
 def test_materializer_carries_the_measured_static_placement_to_the_renderer() -> None:

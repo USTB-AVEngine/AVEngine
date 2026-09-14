@@ -563,17 +563,55 @@ def _rotation_matrix_from_xyzw(
     )
 
 
+def ue_rotator_rotation_matrix(rotation_deg: Sequence[float]) -> tuple[tuple[float, ...], ...]:
+    """The rotation Unreal really applies for a Roll/Pitch/Yaw rotator.
+
+    Unreal builds its rotation matrix for row vectors and measures Pitch the
+    opposite way round from the right-handed convention, so a rotator is not
+    the plain right-handed Z-Y-X decomposition it looks like.  Written as a
+    column-vector rotation, which is the form the rest of this chain uses,
+    it is ``Rz(Yaw) Ry(-Pitch) Rx(-Roll)``.
+
+    Reading a rotator the other way costs nothing visible on the actor itself:
+    its position is set separately and its rotation reads back exactly as it
+    was written.  What moves is everything attached to it with a local offset,
+    which ends up mirrored about the actor in two of three axes.  That is how
+    a wall-mounted source's emitter came to sit a quarter of a metre from the
+    point the plan placed it while every readback said the actor was fine.
+    """
+    roll, pitch, yaw = (math.radians(float(value)) for value in rotation_deg)
+    sin_pitch, cos_pitch = math.sin(pitch), math.cos(pitch)
+    sin_yaw, cos_yaw = math.sin(yaw), math.cos(yaw)
+    sin_roll, cos_roll = math.sin(roll), math.cos(roll)
+    # Unreal's FRotationMatrix, transposed into the column-vector convention.
+    return (
+        (cos_pitch * cos_yaw,
+         sin_roll * sin_pitch * cos_yaw - cos_roll * sin_yaw,
+         -(cos_roll * sin_pitch * cos_yaw + sin_roll * sin_yaw)),
+        (cos_pitch * sin_yaw,
+         sin_roll * sin_pitch * sin_yaw + cos_roll * cos_yaw,
+         cos_yaw * sin_roll - cos_roll * sin_pitch * sin_yaw),
+        (sin_pitch, -sin_roll * cos_pitch, cos_roll * cos_pitch),
+    )
+
+
 def _ue_rotator_from_matrix(rotation: Any, *, owner: str) -> list[float]:
-    """Convert a UE rotation matrix to Roll/Pitch/Yaw degrees."""
+    """The UE rotator that makes Unreal apply this rotation.
+
+    This inverts :func:`ue_rotator_rotation_matrix`, so Pitch and Roll come
+    out with Unreal's signs rather than the right-handed ones.  A pure yaw is
+    unaffected either way, which is why floor sources never showed the
+    difference.
+    """
 
     import numpy as np
 
     matrix = np.asarray(rotation, dtype=float)
     if matrix.shape != (3, 3) or not np.all(np.isfinite(matrix)):
         raise SpearApartmentError(f"{owner} must be a finite 3x3 rotation")
-    pitch = math.asin(max(-1.0, min(1.0, -float(matrix[2, 0]))))
+    pitch = math.asin(max(-1.0, min(1.0, float(matrix[2, 0]))))
     if abs(math.cos(pitch)) > 1.0e-8:
-        roll = math.atan2(float(matrix[2, 1]), float(matrix[2, 2]))
+        roll = math.atan2(float(-matrix[2, 1]), float(matrix[2, 2]))
         yaw = math.atan2(float(matrix[1, 0]), float(matrix[0, 0]))
     else:
         # At +/-90 degrees of pitch, choose the zero-roll representative.  It
@@ -708,7 +746,14 @@ def _rotator_quaternion_xyzw(rotation_deg: Sequence[float]) -> tuple[float, ...]
     report a false 180 degree error for the same physical orientation.
     """
 
-    roll, pitch, yaw = (math.radians(float(value)) / 2.0 for value in rotation_deg)
+    # Unreal turns Pitch and Roll the other way from the right-handed Z-Y-X
+    # convention this closed form is written in, so both are negated here.
+    # See ue_rotator_rotation_matrix for the rotation this stands for.
+    roll, pitch, yaw = (
+        math.radians(-float(rotation_deg[0])) / 2.0,
+        math.radians(-float(rotation_deg[1])) / 2.0,
+        math.radians(float(rotation_deg[2])) / 2.0,
+    )
     sr, cr = math.sin(roll), math.cos(roll)
     sp, cp = math.sin(pitch), math.cos(pitch)
     sy, cy = math.sin(yaw), math.cos(yaw)
@@ -2649,5 +2694,6 @@ __all__ = [
     "summarize_root_readbacks",
     "summarize_actor_bounds",
     "summarize_anatomical_forward_readbacks",
+    "ue_rotator_rotation_matrix",
     "wrap_angle_difference_degrees",
 ]
