@@ -131,8 +131,14 @@ def merge_binding_groups_into_bank(
                       "controller.json"):
             if (source_bank / extra).is_file():
                 (out / extra).write_bytes((source_bank / extra).read_bytes())
+    # An index already in the source bank is carried too, so merging several
+    # exports one after another ends with one index over all of them instead of
+    # the last one's.
+    carried_index = []
+    if source_bank is not None and (source_bank / BANK_GROUP_INDEX).is_file():
+        carried_index = list(_load(source_bank / BANK_GROUP_INDEX).get("groups") or [])
     number = _next_question_number(carried["public"])
-    index, added = [], 0
+    index, added = list(carried_index), 0
     for group in core.get("groups", []):
         members = []
         for member in group["members"]:
@@ -202,13 +208,17 @@ def merge_binding_groups_into_bank(
         "source_export": str(export),
         "source_bank": str(source_bank) if source_bank is not None else None,
         "group_count": len(index),
+        "carried_group_count": len(carried_index),
         "member_question_count": added,
         "scoring": ("each member is an ordinary sample in public/questions.jsonl; a group "
                     "is scored by requiring every one of its members to be right"),
         "groups": index,
     })
+    # The scan covers every group in the run, not only the ones this call added:
+    # a carried group's identity must stay out of the public side as well.
     check = check_public_export_files(
-        out, core.get("groups", []), files=BANK_PUBLIC_FILES, media_dirs=(BANK_MEDIA_DIR,))
+        out, [row for row in core.get("groups", [])] + carried_index,
+        files=BANK_PUBLIC_FILES, media_dirs=(BANK_MEDIA_DIR,))
     summary = {
         "schema": "avengine_bank_binding_merge_v1",
         "bank_run": str(out),
@@ -217,6 +227,7 @@ def merge_binding_groups_into_bank(
         "carried_question_count": len(carried["public"]) - added,
         "binding_question_count": added,
         "binding_group_count": len(index),
+        "binding_groups_added_here": len(index) - len(carried_index),
         "total_question_count": len(carried["public"]),
         "media_file_count": len(list(media_dir.iterdir())),
         "group_index": BANK_GROUP_INDEX,
