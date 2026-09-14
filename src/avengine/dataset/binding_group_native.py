@@ -4360,7 +4360,7 @@ def prepare_visible_binding_group(
         )
     selected = tuple(str(value) for value in selected_raw)
     from avengine.qa.binding_conditions import (
-        TASK_QA_IDS, implemented_group_question_recipe,
+        TASK_QA_IDS, implemented_group_question_recipe, question_conditions_for,
     )
 
     requested_question = group_question or _requested_group_question(base)
@@ -4523,9 +4523,18 @@ def prepare_visible_binding_group(
         if acoustics["v0"] != acoustics["v1"]:
             raise BindingNativeError("acoustic input/configuration identity differs")
         appearance_reviews = {}
-        if question_recipe["answer_expression"] == "appearance_of_event_slot":
-            # Naming the answer is a pixel measurement, so it is checked on the
-            # rendered frames before any audio is paid for.
+        needs_named_candidates = any(
+            row["key"] == "distinct_reviewed_candidates"
+            for row in question_conditions_for(TASK_FAMILY, question_recipe["qa_id"])
+        )
+        if needs_named_candidates:
+            # Every question of this family needs its candidates nameable, not
+            # only the ones that answer with an appearance: QA-19 answers with a
+            # time interval and still identifies its target by how it looks.
+            # The gate is read from the family's own declared question
+            # conditions, so a question added later is covered by having said
+            # what it reads. Naming is a pixel measurement, so it is checked on
+            # the rendered frames before any audio is paid for.
             from avengine.rooms.qa_delivery import SHARED_VISUAL_EVIDENCE_DIRECTORY
 
             shared_visual = output / "variants" / SHARED_VISUAL_EVIDENCE_DIRECTORY
@@ -7523,8 +7532,11 @@ def run_group_stage_work_item(
             item, status="fail",
             reason=(f"attempt output {unit_root} already exists without a saved stage "
                     "result; an interrupted attempt is kept for diagnosis and this unit "
-                    "needs a new attempt"),
-            outputs={"partial_attempt_root": str(unit_root)},
+                    "needs a new attempt. Rename that directory (for example to "
+                    f"{unit_root.name}.interrupted) and run the same command again: the "
+                    "units that saved a result are restored and only this one is redone"),
+            outputs={"partial_attempt_root": str(unit_root),
+                     "recovery": "rename the partial attempt directory, then rerun"},
         )
     try:
         result = runner(item, context, unit_root, output_root=root,
