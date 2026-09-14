@@ -159,7 +159,9 @@ def test_cli_rejects_duplicate_and_leaves_fresh_output_absent(tmp_path: Path) ->
 def test_cli_rejects_unimplemented_only_appearance_value(tmp_path: Path) -> None:
     registry, asset = _asset_fixture()
     asset["realized_attributes"].pop("body_color")
-    asset["realized_attributes"]["finish"] = "standard_seal_point"
+    # standard_seal_point is observed now; a value with no colour-family
+    # predicate at all is what the registration check has to refuse.
+    asset["realized_attributes"]["finish"] = "iridescent_teal_flake"
     registry_path = tmp_path / "registry.json"
     asset_path = tmp_path / "asset.json"
     output_path = tmp_path / "derived.json"

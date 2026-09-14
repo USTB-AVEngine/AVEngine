@@ -151,13 +151,28 @@ def test_legacy_registry_keeps_assumed_rigid_assets_loadable() -> None:
     assert validate_source_asset_runtime_registry(legacy) == []
 
 
-def test_new_asset_contract_rejects_unimplemented_standard_seal_point() -> None:
+def test_new_asset_contract_accepts_the_now_observed_standard_seal_point() -> None:
+    """A pointed coat has a colour-family predicate, so it may be registered."""
     registry = load_default_source_asset_runtime_registry()
     record = next(
         item
         for item in registry["assets"]
         if item["asset_id"] == "generated_siamese_standard_seal_point_research_v1"
     )
+    errors = validate_new_source_asset_runtime_profile(record)
+    assert not any("outside the native RGB appearance vocabulary" in error for error in errors)
+
+
+def test_new_asset_contract_still_rejects_a_value_with_no_classifier() -> None:
+    from copy import deepcopy
+
+    registry = load_default_source_asset_runtime_registry()
+    record = deepcopy(next(
+        item
+        for item in registry["assets"]
+        if item["asset_id"] == "generated_siamese_standard_seal_point_research_v1"
+    ))
+    record["realized_attributes"] = {"finish": "iridescent_teal_flake"}
     errors = validate_new_source_asset_runtime_profile(record)
     assert any("outside the native RGB appearance vocabulary" in error for error in errors)
 

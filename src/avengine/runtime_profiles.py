@@ -43,6 +43,11 @@ ROOM_RUNTIME_PROFILE_REGISTRY_SCHEMA = (
 # This vocabulary is used only by the opt-in new-asset registration check.
 # Legacy registry records continue through the existing compatibility validator;
 # values that lack a classifier are deferred at question-evidence time.
+# It must stay exactly the set of values the pixel classifier can observe --
+# avengine.rooms.appearance_color.supported_appearance_values() -- which a unit
+# test asserts, so a new colour family predicate and a registrable value can
+# never drift apart. It is spelled out here rather than imported so that the
+# registry module keeps no dependency on the review code.
 PIXEL_APPEARANCE_VALUE_VOCABULARY = frozenset({
     "blue",
     "green",
@@ -73,6 +78,14 @@ PIXEL_APPEARANCE_VALUE_VOCABULARY = frozenset({
     "standard_red",
     "standard_sable",
     "dark_sable",
+    "standard_seal_point",
+    "gray",
+    "silver",
+    "warm_gray",
+    "light_gray_fabric",
+    "white_satin",
+    "beige",
+    "sandstone",
 })
 
 _SOURCE_SCHEMA_FILE = "source_asset_runtime_registry_v1.schema.json"

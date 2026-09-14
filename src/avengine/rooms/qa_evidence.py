@@ -20,9 +20,6 @@ IN_FOV_DEFINITION = (
 REGISTERED_APPEARANCE_CLASSIFIER_GAP_REASON = (
     "registered_appearance_value_classifier_not_implemented"
 )
-HUMAN_CORAL_PINK_MINIMUM_COLOR_PIXELS = 512
-HUMAN_CORAL_PINK_MINIMUM_FRACTION = 0.02
-
 PLACEHOLDER_NONHUMAN_MINIMUM_COLOR_PIXELS = 512
 PLACEHOLDER_NONHUMAN_DOMINANCE_RATIO = 1.25
 PLACEHOLDER_NONHUMAN_COLOR_COMPONENT_FRACTIONS = {
@@ -178,67 +175,74 @@ def derive_actor_occluders(
     }
 
 
-def inspect_coarse_top_color(
-    rgb: np.ndarray, visible_mask: np.ndarray, target_bbox: list[int], *,
-    minimum_color_pixels: int = 512,
-) -> dict[str, Any]:
-    """Check coarse registered shirt colors in actual native RGB.
+def upper_body_window(
+    mask_shape: Sequence[int], target_bbox: Sequence[int],
+) -> tuple[int, int, int, int] | None:
+    """The crop a clothed torso occupies inside a target-only bounding box.
 
-    This bounded HSV diagnostic uses a visible upper-body crop. It makes no
-    accessory, clothing-pattern or fine-attribute claim, and low-resolution
-    or competing color evidence stays unverified.
+    The garment a ``top_color`` registers sits on the upper body, so a review of
+    it inspects the middle of the box rather than the whole silhouette, which
+    also carries hair, skin, trousers and shoes. The fractions are the ones this
+    review has always used; they are geometric, not per-asset.
     """
-    import cv2
-
-    if rgb.ndim != 3 or rgb.shape[2] != 3 or visible_mask.shape != rgb.shape[:2]:
-        raise ValueError("RGB and native instance mask dimensions differ")
-    x0, y0, x1, y1 = [int(x) for x in target_bbox]
-    height, width = rgb.shape[:2]
+    x0, y0, x1, y1 = (int(value) for value in target_bbox)
     if x1 <= x0 or y1 <= y0:
-        return {"status": "not_observable", "reason": "empty_target_footprint"}
-    torso = np.zeros((height, width), dtype=bool)
+        return None
+    height, width = int(mask_shape[0]), int(mask_shape[1])
     xa = max(0, int(x0 + 0.1 * (x1 - x0)))
     xb = min(width, int(x1 - 0.1 * (x1 - x0)))
     ya = max(0, int(y0 + 0.18 * (y1 - y0)))
     yb = min(height, int(y0 + 0.58 * (y1 - y0)))
-    torso[ya:yb, xa:xb] = True
-    selected = torso & np.asarray(visible_mask, dtype=bool)
-    hsv = cv2.cvtColor(rgb, cv2.COLOR_RGB2HSV).astype(float)
-    hue, saturation, value = hsv[..., 0] * 2, hsv[..., 1] / 255, hsv[..., 2] / 255
-    color = selected & (saturation >= 0.18) & (value >= 0.16)
-    counts = {
-        "blue": int((color & (hue >= 190) & (hue < 270)).sum()),
-        "green": int((color & (hue >= 70) & (hue < 175)).sum()),
-        "yellow": int((color & (hue >= 38) & (hue < 70)).sum()),
-        "burgundy": int((color & ((hue < 16) | (hue >= 345)) & (saturation >= 0.28)).sum()),
-        "pink": int((color & (hue >= 300) & (hue < 345)).sum()),
-        "white": int((selected & (saturation < 0.1) & (value > 0.65)).sum()),
-    }
-    # The reviewed female Rocketbox shirt is coral under the room light. Keep
-    # the existing burgundy bucket unchanged and expose a separate, measured
-    # coral tolerance for a registered pink value.
-    coral_pink = selected & (
-        ((hue < 16) | (hue >= 345))
-        & (saturation >= 0.55)
-        & (value >= 0.45)
+    if xb <= xa or yb <= ya:
+        return None
+    return xa, ya, xb, yb
+
+
+def inspect_coarse_top_color(
+    rgb: np.ndarray, visible_mask: np.ndarray, target_bbox: list[int], *,
+    minimum_color_pixels: int = 512,
+) -> dict[str, Any]:
+    """Name the dominant colour family of a visible upper-body crop.
+
+    This is the bounded diagnostic behind a registered shirt colour: it reports
+    which family the torso pixels actually fall into, measured against the
+    scene's own neutral reference so that a warm room does not rename a white
+    shirt. It makes no accessory or clothing-pattern claim, and a crop with too
+    few pixels or no dominant family stays unverified.
+    """
+    from avengine.rooms.appearance_color import (
+        colour_family_counts,
+        estimate_scene_neutral,
+        white_balanced,
     )
-    coral_pink_pixels = int(coral_pink.sum())
-    ranked = sorted(counts.items(), key=lambda x: (-x[1], x[0]))
-    winner, count = ranked[0]
-    second = ranked[1][1]
+
+    image = np.asarray(rgb)
+    mask = np.asarray(visible_mask, dtype=bool)
+    if image.ndim != 3 or image.shape[2] != 3 or mask.shape != image.shape[:2]:
+        raise ValueError("RGB and native instance mask dimensions differ")
+    window = upper_body_window(mask.shape, target_bbox)
+    if window is None:
+        return {"status": "not_observable", "reason": "empty_target_footprint"}
+    xa, ya, xb, yb = window
+    torso = np.zeros(mask.shape, dtype=bool)
+    torso[ya:yb, xa:xb] = True
+    selected = torso & mask
+    neutral = estimate_scene_neutral(image, exclude_mask=mask)
+    pixels = white_balanced(image[selected], neutral)
+    counts, _medians = colour_family_counts(pixels, neutral["reference_lightness"])
+    ranked = sorted(counts.items(), key=lambda item: (-item[1], item[0]))
+    winner, count = ranked[0] if ranked else ("", 0)
+    second = ranked[1][1] if len(ranked) > 1 else 0
     confident = count >= minimum_color_pixels and count >= 1.6 * max(1, second)
     return {
         "status": "pass" if confident else "not_observable",
         "observed_color": winner if confident else None,
-        "color_pixels": count, "upper_body_visible_pixels": int(selected.sum()),
+        "color_pixels": count,
+        "upper_body_visible_pixels": int(selected.sum()),
         "candidate_color_counts": counts,
-        "coral_pink_pixels": coral_pink_pixels,
-        "coral_pink_fraction": coral_pink_pixels / max(1, int(selected.sum())),
+        "scene_neutral": neutral,
         "crop_xyxy": [xa, ya, xb, yb],
         "minimum_color_pixels": minimum_color_pixels,
-        "pattern_tolerance": (
-            "registered_pink_accepts_high_saturation_coral_pixels"
-        ),
         "claim_boundary": "coarse RGB color diagnostic, not formal attribute certification",
     }
 
@@ -397,25 +401,41 @@ def nonhuman_appearance_placeholder_thresholds(
     minimum_color_pixels: int = PLACEHOLDER_NONHUMAN_MINIMUM_COLOR_PIXELS,
     dominance_ratio: float = PLACEHOLDER_NONHUMAN_DOMINANCE_RATIO,
     color_component_fractions: Mapping[str, float] | None = None,
+    value_minimum_shares: Mapping[str, float] | None = None,
 ) -> dict[str, Any]:
-    """Named placeholder calibration for non-human coarse color evidence."""
+    """Named calibration for coarse colour evidence, shared by every entity kind.
+
+    ``color_component_fractions`` is kept for the older multi-tone coat records
+    and stays in the reuse key; the component shares a registered value actually
+    has to meet now live with its colour-family predicate. ``value_minimum_shares``
+    overrides that per-value share for a caller that wants a stricter reading.
+    """
     fractions = dict(PLACEHOLDER_NONHUMAN_COLOR_COMPONENT_FRACTIONS)
     if color_component_fractions:
         fractions.update({str(key): float(value) for key, value in color_component_fractions.items()})
+    from avengine.rooms.appearance_color import COLOUR_MODEL
+
     return {
         "label": "placeholder",
         "calibration": "placeholder_nonhuman_appearance_v1",
+        "color_model": COLOUR_MODEL,
         "minimum_color_pixels": int(minimum_color_pixels),
         "dominance_ratio": float(dominance_ratio),
         "color_component_fractions": fractions,
-        "human_rule_untouched": {
-            "minimum_color_pixels": 512,
-            "dominance_ratio": 1.6,
-            "function": "inspect_coarse_top_color",
+        "value_minimum_shares": dict(value_minimum_shares or {}),
+        "one_rule_for_every_entity_kind": {
+            "minimum_color_pixels": int(minimum_color_pixels),
+            "dominance_ratio": float(dominance_ratio),
+            "function": "inspect_registered_appearance",
+            "note": (
+                "humans, animals and devices now run the same illumination-relative "
+                "decision; the separate absolute-HSV human palette is gone"
+            ),
         },
         "claim_boundary": (
-            "placeholder non-human coarse-color thresholds at human order of magnitude "
-            "(512 visible pixels); not human-calibrated and not formal certification"
+            "coarse colour-family evidence measured against the scene's own neutral "
+            "reference at human order of magnitude (512 supporting pixels); it names "
+            "a family, not a fine-grained appearance, and is not formal certification"
         ),
     }
 
@@ -510,210 +530,145 @@ def inspect_registered_appearance(
     minimum_color_pixels: int = PLACEHOLDER_NONHUMAN_MINIMUM_COLOR_PIXELS,
     dominance_ratio: float = PLACEHOLDER_NONHUMAN_DOMINANCE_RATIO,
     color_component_fractions: Mapping[str, float] | None = None,
+    value_minimum_shares: Mapping[str, float] | None = None,
     target_bbox: Sequence[int] | None = None,
 ) -> dict[str, Any]:
-    """Compare registered appearance values against actual masked RGB pixels."""
-    import cv2
+    """Compare a registered appearance value against actual masked RGB pixels.
+
+    One rule serves every entity kind. The frame's own neutral reference is
+    measured first, from the least chromatic pixels that do not belong to the
+    inspected instance; the target's pixels are white balanced against it and
+    sorted into colour families whose lightness bands are expressed relative to
+    that same reference. The registered value is accepted only when the families
+    it names carry a real share of the target and outweigh the families it could
+    be confused with. Nothing here is keyed to a room, a map or an asset, so a
+    warm interior and a baked scan are judged by the same numbers.
+    """
+    from avengine.rooms.appearance_color import (
+        colour_family_counts,
+        estimate_scene_neutral,
+        evaluate_registered_value,
+        white_balanced,
+    )
+
     image = np.asarray(rgb)
     mask = np.asarray(visible_mask, dtype=bool)
     if image.ndim != 3 or image.shape[2] != 3 or mask.shape != image.shape[:2]:
         raise ValueError("RGB and native instance mask dimensions differ")
-    expected = str(expected_value).strip().casefold()
-    if (entity_kind == "human" and expected in
-            {"blue", "green", "yellow", "burgundy", "pink", "white"}
-            and target_bbox is not None and len(target_bbox) == 4):
-        # Preserve the established human shirt palette and its 512-pixel /
-        # 1.6 dominance rule. Skin and animal/device colors are not competing
-        # shirt values simply because an upper-body mask includes bare arms.
-        observed = inspect_coarse_top_color(image, mask, list(target_bbox))
-        coral_tolerant = (
-            expected == "pink"
-            and observed.get("coral_pink_pixels", 0)
-            >= HUMAN_CORAL_PINK_MINIMUM_COLOR_PIXELS
-            and observed.get("coral_pink_fraction", 0.0)
-            >= HUMAN_CORAL_PINK_MINIMUM_FRACTION
-        )
-        matched = (
-            observed["status"] == "pass"
-            and observed.get("observed_color") == expected
-        ) or coral_tolerant
-        observed_value = expected if coral_tolerant else observed.get("observed_color")
-        return {
-            "status": "pass" if matched else "not_observable",
-            "observed_value": observed_value,
-            "visible_pixels": observed.get("upper_body_visible_pixels", 0),
-            "candidate_counts": observed.get("candidate_color_counts", {}),
-            "expected_value": expected_value,
-            "minimum_color_pixels": observed.get("minimum_color_pixels", 512),
-            "placeholder": False,
-            "crop_xyxy": observed.get("crop_xyxy"),
-            "coral_pink_pixels": observed.get("coral_pink_pixels", 0),
-            "coral_pink_fraction": observed.get("coral_pink_fraction", 0.0),
-            "pattern_tolerance": observed.get("pattern_tolerance"),
-            "calibration": (
-                "human_palette_with_measured_coral_pink_tolerance_v2"
-                if coral_tolerant
-                else "existing_coarse_human_rule_not_formal_certification"
-            ),
-            "claim_boundary": observed["claim_boundary"],
-        }
     thresholds = nonhuman_appearance_placeholder_thresholds(
         minimum_color_pixels=minimum_color_pixels,
         dominance_ratio=dominance_ratio,
         color_component_fractions=color_component_fractions,
+        value_minimum_shares=value_minimum_shares,
     )
-    fractions = thresholds["color_component_fractions"]
-    min_pixels = int(thresholds["minimum_color_pixels"])
-    dominance = float(thresholds["dominance_ratio"])
-    if target_bbox is not None and len(target_bbox) == 4 and entity_kind == "human":
-        x0, y0, x1, y1 = (int(value) for value in target_bbox)
+    expected = str(expected_value).strip().casefold()
+    kind = str(entity_kind).strip().casefold()
+    inspected = mask
+    crop: list[int] | None = None
+    geometry = "whole_visible_instance_mask"
+    if kind == "human" and target_bbox is not None and len(target_bbox) == 4:
+        window = upper_body_window(mask.shape, target_bbox)
+        if window is None:
+            return _appearance_not_observable(
+                expected_value, thresholds, reason="empty_target_footprint",
+                geometry="upper_body_crop_of_the_target_bounding_box",
+            )
+        xa, ya, xb, yb = window
         torso = np.zeros(mask.shape, dtype=bool)
-        xa = max(0, int(x0 + 0.1 * (x1 - x0)))
-        xb = min(mask.shape[1], int(x1 - 0.1 * (x1 - x0)))
-        ya = max(0, int(y0 + 0.18 * (y1 - y0)))
-        yb = min(mask.shape[0], int(y0 + 0.58 * (y1 - y0)))
-        if xb > xa and yb > ya:
-            torso[ya:yb, xa:xb] = True
-            mask = mask & torso
-    pixels = image[mask]
-    if pixels.size == 0:
-        return {
-            "status": "not_observable",
-            "observed_value": None,
-            "visible_pixels": 0,
-            "candidate_counts": {},
-            "expected_value": expected_value,
-            "minimum_color_pixels": min_pixels,
-            "appearance_thresholds": thresholds,
-            "placeholder": True,
-            "calibration": "placeholder_coarse_color_only",
-            "reason": "no visible native RGB pixels in the target mask",
-            "claim_boundary": thresholds["claim_boundary"],
-        }
-    hsv = cv2.cvtColor(pixels.reshape(-1, 1, 3), cv2.COLOR_RGB2HSV).reshape(-1, 3).astype(float)
-    hue = hsv[:, 0] * 2.0
-    saturation = hsv[:, 1] / 255.0
-    value = hsv[:, 2] / 255.0
-    counts = {
-        "blue": int(((hue >= 190) & (hue < 270) & (saturation >= 0.18) & (value >= 0.16)).sum()),
-        "green": int(((hue >= 70) & (hue < 175) & (saturation >= 0.18) & (value >= 0.16)).sum()),
-        "yellow": int(((hue >= 38) & (hue < 70) & (saturation >= 0.18) & (value >= 0.16)).sum()),
-        "burgundy": int((((hue < 16) | (hue >= 345)) & (saturation >= 0.28) & (value >= 0.12)).sum()),
-        "pink": int(((hue >= 300) & (hue < 345) & (saturation >= 0.18) & (value >= 0.16)).sum()),
-        "white": int(((saturation < 0.2) & (value > 0.6)).sum()),
-        "dark": int((value < 0.35).sum()),
-        "warm_brown": int(((hue >= 5) & (hue < 45) & (saturation >= 0.12) & (value < 0.85)).sum()),
-    }
-    coarse = {
-        "standard_black_white": "black_white",
-        "standard_red_white": "red_white",
-        "standard_white_tan": "white_tan",
-        "white_tan": "white_tan",
-        "standard_red": "red",
-        "standard_yellow": "yellow_coat",
-        "standard_blue": "blue_gray_coat",
-        "standard_sable": "sable",
-        "dark_sable": "sable",
-    }.get(expected, expected) if entity_kind == "animal" else expected
-    # These are coat-profile semantics, not names parsed out of asset IDs.
-    # In the registered British Shorthair profile, blue denotes gray-blue fur.
-    counts["blue_gray_coat"] = int(((saturation <= 0.28) & (value >= 0.15) & (value <= 0.85)).sum())
-    counts["yellow_coat"] = int(((hue >= 30) & (hue <= 75) & (saturation >= 0.05) & (value >= 0.25)).sum())
-    counts["sable"] = int(
-        ((hue >= 15) & (hue < 45) & (saturation >= 0.18)
-         & (value >= 0.05) & (value < 0.78)).sum()
+        torso[ya:yb, xa:xb] = True
+        inspected = mask & torso
+        crop = [xa, ya, xb, yb]
+        geometry = "upper_body_crop_of_the_target_bounding_box"
+    inspected_pixels = int(inspected.sum())
+    if inspected_pixels == 0:
+        return _appearance_not_observable(
+            expected_value, thresholds,
+            reason="no visible native RGB pixels in the target mask",
+            geometry=geometry, crop=crop,
+        )
+    neutral = estimate_scene_neutral(image, exclude_mask=mask)
+    balanced = white_balanced(image[inspected], neutral)
+    counts, medians = colour_family_counts(balanced, neutral["reference_lightness"])
+    share_override = thresholds["value_minimum_shares"].get(expected)
+    decision = evaluate_registered_value(
+        counts, medians, expected_value, kind,
+        minimum_support_pixels=int(thresholds["minimum_color_pixels"]),
+        dominance_ratio=float(thresholds["dominance_ratio"]),
+        minimum_share=float(share_override) if share_override is not None else None,
     )
-    counts["light_gray"] = int(
-        ((saturation <= 0.28) & (value >= 0.18) & (value <= 0.85)).sum()
-    )
-    total = max(1, len(pixels))
-    component_fractions = {name: count / total for name, count in counts.items()}
-    unsupported = False
-    if coarse in {"blue", "green", "yellow", "burgundy", "pink", "white"}:
-        # Animal coat buckets overlap these HSV ranges (white is a subset of
-        # blue_gray_coat). Rank only the shared palette so a white device is
-        # not scored against an animal-fur predicate.
-        palette = ("blue", "green", "yellow", "burgundy", "pink", "white")
-        expected_count = counts[coarse]
-        ranked = sorted(((name, counts[name]) for name in palette), key=lambda item: (-item[1], item[0]))
-        second = next((count for name, count in ranked if name != coarse), 0)
-        accepted = expected_count >= min_pixels and expected_count >= dominance * max(1, second)
-        observed = expected if accepted else (ranked[0][0] if ranked[0][1] >= min_pixels else None)
-    elif coarse in {"standard_tricolor", "light_tricolor", "dark_tricolor"}:
-        accepted = (
-            len(pixels) >= min_pixels
-            and component_fractions["white"] >= fractions["tricolor_white"]
-            and component_fractions["dark"] >= fractions["tricolor_dark"]
-            and component_fractions["warm_brown"] >= fractions["tricolor_warm_brown"]
-        )
-        observed = expected if accepted else None
-    elif coarse == "black_white":
-        accepted = (
-            len(pixels) >= min_pixels
-            and component_fractions["white"] >= fractions["black_white_white"]
-            and component_fractions["dark"] >= fractions["black_white_dark"]
-        )
-        observed = expected if accepted else None
-    elif coarse == "red_white":
-        accepted = (
-            len(pixels) >= min_pixels
-            and component_fractions["white"] >= fractions["red_white_white"]
-            and component_fractions["warm_brown"] >= fractions["red_white_warm_brown"]
-        )
-        observed = expected if accepted else None
-    elif coarse == "white_tan":
-        accepted = (
-            len(pixels) >= min_pixels
-            and component_fractions["white"] >= fractions["white_tan_white"]
-            and component_fractions["warm_brown"] >= fractions["white_tan_warm_brown"]
-        )
-        observed = expected if accepted else None
-    elif coarse in {"yellow_coat", "blue_gray_coat"}:
-        minimum_fraction = fractions[coarse]
-        accepted = counts[coarse] >= min_pixels and counts[coarse] / total >= minimum_fraction
-        observed = expected if accepted else None
-    elif coarse == "sable":
-        accepted = (
-            counts["sable"] >= min_pixels
-            and counts["sable"] / total >= 0.20
-        )
-        observed = expected if accepted else None
-    elif coarse == "light_gray":
-        accepted = (
-            counts["light_gray"] >= min_pixels
-            and counts["light_gray"] / total >= 0.25
-        )
-        observed = expected if accepted else None
-    elif coarse in {"black_ash", "black", "charcoal", "dark", "matte_black"}:
-        accepted = counts["dark"] >= min_pixels and counts["dark"] / total >= fractions["dark"]
-        observed = expected if accepted else None
-    elif coarse in {"walnut_veneer", "walnut", "ruddy", "standard_ruddy", "brown", "red"}:
-        accepted = (
-            counts["warm_brown"] >= min_pixels
-            and counts["warm_brown"] / total >= fractions["warm_brown"]
-        )
-        observed = expected if accepted else None
-    else:
-        accepted = False
-        observed = None
-        unsupported = True
-    return {
+    ranked = sorted(counts.items(), key=lambda item: (-item[1], item[0]))
+    dominant = ranked[0][0] if ranked and ranked[0][1] > 0 else None
+    # A family only names what was seen once it clears the same support floor the
+    # registered value has to clear; below that the target was simply not read.
+    named = dominant if ranked and ranked[0][1] >= int(thresholds["minimum_color_pixels"]) else None
+    accepted = bool(decision["accepted"])
+    record: dict[str, Any] = {
         "status": "pass" if accepted else "not_observable",
-        "observed_value": observed,
-        "visible_pixels": int(len(pixels)),
+        # On a refusal this reports the family the pixels actually showed, which
+        # is what the older palette diagnostic reported and what a reviewer needs
+        # in order to see whether the registration or the render is at fault.
+        "observed_value": expected if accepted else named,
+        "observed_family": dominant,
+        "visible_pixels": inspected_pixels,
         "candidate_counts": counts,
-        "component_fractions": component_fractions,
+        "component_fractions": {
+            name: round(count / max(1, inspected_pixels), 4) for name, count in counts.items()
+        },
+        "family_relative_lightness": dict(medians),
         "expected_value": expected_value,
-        "minimum_color_pixels": min_pixels,
-        "dominance_ratio": dominance,
-        "coarse_color_predicate": coarse,
+        "entity_kind": kind,
+        "inspected_geometry": geometry,
+        "minimum_color_pixels": int(thresholds["minimum_color_pixels"]),
+        "dominance_ratio": float(thresholds["dominance_ratio"]),
+        "scene_neutral": neutral,
+        "decision": decision,
         "appearance_thresholds": thresholds,
         "placeholder": True,
-        **({"reason": REGISTERED_APPEARANCE_CLASSIFIER_GAP_REASON,
-            "gap_category": "interface_not_implemented"} if unsupported else {}),
         "calibration": "placeholder_coarse_color_only",
+        "color_model": thresholds["color_model"],
         "claim_boundary": thresholds["claim_boundary"],
     }
+    if crop is not None:
+        record["crop_xyxy"] = crop
+    if decision["unsupported"]:
+        record["reason"] = REGISTERED_APPEARANCE_CLASSIFIER_GAP_REASON
+        record["gap_category"] = "interface_not_implemented"
+    elif not accepted:
+        record["reason"] = "; ".join(decision["rejections"])
+    return record
+
+
+def _appearance_not_observable(
+    expected_value: str,
+    thresholds: Mapping[str, Any],
+    *,
+    reason: str,
+    geometry: str,
+    crop: list[int] | None = None,
+) -> dict[str, Any]:
+    """A geometric refusal: the target has no pixels this review could read."""
+    record: dict[str, Any] = {
+        "status": "not_observable",
+        "observed_value": None,
+        "observed_family": None,
+        "visible_pixels": 0,
+        "candidate_counts": {},
+        "component_fractions": {},
+        "family_relative_lightness": {},
+        "expected_value": expected_value,
+        "inspected_geometry": geometry,
+        "minimum_color_pixels": int(thresholds["minimum_color_pixels"]),
+        "appearance_thresholds": dict(thresholds),
+        "placeholder": True,
+        "calibration": "placeholder_coarse_color_only",
+        "color_model": thresholds["color_model"],
+        "reason": reason,
+        "gap_category": "target_geometry",
+        "claim_boundary": thresholds["claim_boundary"],
+    }
+    if crop is not None:
+        record["crop_xyxy"] = crop
+    return record
 
 
 def classifier_gap_fields(checks: Sequence[Any]) -> dict[str, Any]:
@@ -768,6 +723,7 @@ def build_pixel_appearance_review(
     minimum_color_pixels: int = PLACEHOLDER_NONHUMAN_MINIMUM_COLOR_PIXELS,
     dominance_ratio: float = PLACEHOLDER_NONHUMAN_DOMINANCE_RATIO,
     color_component_fractions: Mapping[str, float] | None = None,
+    value_minimum_shares: Mapping[str, float] | None = None,
 ) -> dict[str, Any]:
     """Build renderer-neutral appearance evidence from masked native RGB."""
     capture_root = Path(capture_root).resolve()
@@ -775,6 +731,7 @@ def build_pixel_appearance_review(
         minimum_color_pixels=minimum_color_pixels,
         dominance_ratio=dominance_ratio,
         color_component_fractions=color_component_fractions,
+        value_minimum_shares=value_minimum_shares,
     )
     truth = json.loads((capture_root / "pixel_visibility_truth.json").read_text(encoding="utf-8"))
     if not isinstance(truth, Mapping):
@@ -880,6 +837,7 @@ def build_pixel_appearance_review(
                     minimum_color_pixels=int(thresholds["minimum_color_pixels"]),
                     dominance_ratio=float(thresholds["dominance_ratio"]),
                     color_component_fractions=thresholds["color_component_fractions"],
+                    value_minimum_shares=thresholds.get("value_minimum_shares"),
                     target_bbox=frame.get("target_bbox_xyxy_px"),
                 )
                 check.update(
@@ -1267,6 +1225,7 @@ def build_shared_visual_evidence(
         minimum_color_pixels=int(resolved_thresholds["minimum_color_pixels"]),
         dominance_ratio=float(resolved_thresholds["dominance_ratio"]),
         color_component_fractions=resolved_thresholds["color_component_fractions"],
+        value_minimum_shares=resolved_thresholds.get("value_minimum_shares"),
     )
     timings["build_pixel_appearance_review_s"] = time.monotonic() - started
 
@@ -1400,6 +1359,7 @@ def verify_shared_visual_evidence(
                     minimum_color_pixels=int(thresholds["minimum_color_pixels"]),
                     dominance_ratio=float(thresholds["dominance_ratio"]),
                     color_component_fractions=thresholds["color_component_fractions"],
+                    value_minimum_shares=thresholds.get("value_minimum_shares"),
                     target_bbox=frame_record.get("target_bbox_xyxy_px") if isinstance(frame_record, Mapping) else None,
                 )
                 for field in ("status", "observed_value", "visible_pixels"):
