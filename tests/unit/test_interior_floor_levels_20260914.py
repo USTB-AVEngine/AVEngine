@@ -359,3 +359,17 @@ def test_the_plan_record_carries_the_measured_area_of_every_level():
     assert [row['area_m2'] for row in summary['levels']] == [
         pytest.approx(64.0), pytest.approx(4.0), pytest.approx(64.0)]
     assert summary['criterion']['minimum_navigable_area_m2'] == floor_levels.MIN_FLOOR_NAVIGABLE_AREA_M2
+
+def test_a_geometry_object_without_triangle_bounds_is_treated_like_no_mesh():
+    """A caller may hand over a stub or a proxy that is not a MeshHandle.
+
+    The criterion cannot read triangle bounds from it, so nothing is judged and
+    no level is dropped, exactly as when there is no mesh at all.
+    """
+    space, _mesh = single_storey()
+    room = {'room_package': {'floor_heights_m': [0.0, 3.2]}}
+    record = cs.planning_floor_decision(room, space, object())
+    assert record['status'] == 'unmeasured'
+    assert 'no triangle bounds' in record['reason']
+    assert record['legal_heights_m'] == [0.0, 3.2]
+    assert {row['verdict'] for row in record['levels']} == {'unmeasured'}

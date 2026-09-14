@@ -249,10 +249,17 @@ def interior_floor_levels(space, mesh, *, candidates=None,
         'claim_boundary': 'a planning guard measured from room geometry; it '
                           'certifies no rendered frame',
     }
-    if mesh is None or not len(heights) or not len(pool):
+    # The criterion reads per-triangle bounds; a caller may hand over another
+    # kind of geometry object (a test stub, a proxy without arrays). That is the
+    # same situation as having no mesh: nothing is judged and nothing is dropped.
+    mesh_has_bounds = (mesh is not None and hasattr(mesh, 'minimum')
+                       and hasattr(mesh, 'maximum'))
+    if not mesh_has_bounds or not len(heights) or not len(pool):
         record['status'] = 'unmeasured'
         record['reason'] = (
             'no static mesh, so no interior judgement was made' if mesh is None
+            else 'the geometry object exposes no triangle bounds, so no interior judgement was made'
+            if not mesh_has_bounds
             else 'navigation offered no sampled points, so no interior judgement was made'
             if not len(pool) else 'no candidate level to judge')
         record['navigable_area_source'] = 'not_measured'
