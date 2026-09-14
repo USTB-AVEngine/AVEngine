@@ -43,6 +43,20 @@ UNIFIED_ITEM_SCHEMA = "avengine_qa_unified_question_v1"
 UNIFIED_OUTPUT_SCHEMA = "avengine_qa_unified_question_set_v1"
 CATALOG_VERSION = "20260909"
 
+from avengine.qa.observation_predicates import (
+    clear_after_partial_transitions,
+    distance_step_verdict,
+    distance_trend as _distance_trend_from_series,
+    full_occlusion_frames,
+    moved_at_any_frame,
+    noticeable_motion,
+    partial_occlusion_frames,
+    reappeared_frames,
+)
+
+#: QA-16 的距离门限默认值，原来写在出题函数里。
+POST_SOUND_DISTANCE_MARGIN_M = 0.2
+
 VISIBLE_STATES = {"visible_clear", "visible_occluded"}
 VISIBILITY_STATES = (
     "out_of_view",
@@ -1274,6 +1288,24 @@ def _camera_fallback(
     if not all(isinstance(record, Mapping) for record in camera):
         return None
     return list(camera)
+
+
+def camera_pose_series(
+    frame_readbacks: Mapping[str, Any],
+    *,
+    frame_count: int,
+) -> list[list[float]] | None:
+    """相机的逐帧位置，用和听者块完全一样的读法读出来。
+
+    听者和相机是不是同一个点，要么量一遍，要么别说。量的时候两边必须用同一套
+    单位与坐标约定，否则量出来的差值只是两套约定的差，不是位置的差，所以这里直接复用
+    ``_camera_fallback`` 和 ``_position_series``，不另写一份转换。
+    """
+
+    records = _camera_fallback(frame_readbacks, frame_count=frame_count)
+    if records is None:
+        return None
+    return _position_series(records, default_ue_cm=True)
 
 
 def _listener_block(
@@ -3427,50 +3459,12 @@ def distance_trend_during_window(
     except _Deferred as error:
         record.update({"reason": error.code, "detail": error.detail})
         return record
-    net = series[-1] - series[0]
-    direction = "nearer" if net < 0.0 else "farther"
-    extreme = series[0]
-    counter = 0.0
-    for value in series:
-        if net < 0.0:
-            extreme = min(extreme, value)
-            counter = max(counter, value - extreme)
-        else:
-            extreme = max(extreme, value)
-            counter = max(counter, extreme - value)
-    allowed = min(tolerance, fraction * abs(net)) if abs(net) > 0.0 else tolerance
-    record.update({
-        "distance_series_m": series,
-        "distance_start_m": series[0],
-        "distance_end_m": series[-1],
-        "endpoint_delta_m": net,
-        "net_direction": direction,
-        "distance_span_m": max(series) - min(series),
-        "total_variation_m": sum(abs(b - a) for a, b in zip(series, series[1:])),
-        "max_counter_trend_m": counter,
-        "allowed_counter_trend_m": allowed,
-        "monotone_within_tolerance": counter <= allowed,
-        "endpoint_delta_is_not_sufficient": True,
-    })
-    if abs(net) < minimum:
-        record.update({
-            "reason": "distance_net_change_below_margin",
-            "detail": (
-                "the distance changes by less than the configured margin over "
-                "the window"
-            ),
-        })
-        return record
-    if counter > allowed:
-        record.update({
-            "reason": "distance_trend_reverses",
-            "detail": (
-                "the path moves back against its net direction by more than "
-                "the configured reversal allowance"
-            ),
-        })
-        return record
-    record["verdict"] = direction
+    record.update(_distance_trend_from_series(
+        series,
+        min_net_change_m=minimum,
+        reversal_tolerance_m=tolerance,
+        reversal_fraction=fraction,
+    ))
     return record
 
 
@@ -3492,12 +3486,13 @@ def _generate_qa16_timepoint(facts, seed):
             _silent_after(facts, event, query_frame)
         except _Deferred:
             continue
-        margin = _policy_number(facts, ("qa16_distance_margin_m",), default=0.2,
+        margin = _policy_number(facts, ("qa16_distance_margin_m",),
+                                default=POST_SOUND_DISTANCE_MARGIN_M,
                                 name="post-sound distance margin")
-        delta = query_distance - anchor_distance
-        if abs(delta) < margin:
+        step = distance_step_verdict(anchor_distance, query_distance, margin)
+        if step["trend"] is None:
             continue
-        trend = "nearer" if delta < 0 else "farther"
+        delta, trend = step["delta"], step["trend"]
         anchor_en, anchor_zh = _event_anchor(facts, event)
         return _question_item(
             qa_id="QA-16", facts=facts, seed=seed,
@@ -3539,21 +3534,12 @@ def _noticeable_motion_window(facts, actor_id, start, end, policy):
     positions = actor.get("root_positions_m")
     if not _is_sequence(positions) or end > len(positions) or end <= start + 1:
         return {"moving": None, "reason": "missing_motion_position_readback"}
-    points = positions[start:end]
-    if any(not _is_sequence(p) or len(p) != 3 or
-           any(not isinstance(v, (int, float)) or not math.isfinite(v) for v in p)
-           for p in points):
-        return {"moving": None, "reason": "invalid_motion_position_readback"}
-    rate = float(facts["time"]["frame_rate_hz"])
-    distances = [math.dist(a, b) for a, b in zip(points, points[1:])]
-    travel = sum(distances)
-    moving_s = sum(d * rate > policy["speed_threshold_mps"] for d in distances) / rate
-    value = (True if travel >= policy["min_travel_m"] and moving_s >= policy["min_moving_duration_s"]
-             else False if travel <= policy["max_still_travel_m"] else None)
-    return {"moving": value, "reason": None if value is not None else "motion_between_noticeability_thresholds",
-            "measurement": {"window_frames": [start, end], "travel_m": travel,
-                            "moving_duration_s": moving_s, "position_source": "root_positions_m",
-                            "criteria": dict(policy)}}
+    return noticeable_motion(
+        positions[start:end],
+        float(facts["time"]["frame_rate_hz"]),
+        policy,
+        window_frames=[start, end],
+    )
 
 
 def _tag_question_tolerance(item, facts, qa_id):
@@ -4905,7 +4891,7 @@ def _generate_qa_09(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
         if preferred_actor is not None and actor_id != preferred_actor:
             continue
         ordered = [frames[index] for index in sorted(frames)] if isinstance(frames, Mapping) else []
-        fully = [frame.get("frame_index") for frame in ordered if frame.get("state") == "fully_occluded"]
+        fully = full_occlusion_frames(ordered)
         if fully and actor_id not in reviewed:
             # Full occlusion is observed; the target simply has no reviewed
             # appearance to name it. That is not evidence of invisibility.
@@ -4926,12 +4912,7 @@ def _generate_qa_09(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
                 frame for frame in fully
                 if int(frame) == int(preferred_occluded)
             ]
-        visible_after = [
-            frame.get("frame_index")
-            for frame in ordered
-            if frame.get("state") in VISIBLE_STATES
-            and any(int(previous) < int(frame.get("frame_index", 0)) for previous in fully)
-        ]
+        visible_after = reappeared_frames(ordered, fully)
         if preferred_frame is not None:
             visible_after = [
                 frame for frame in visible_after
@@ -5239,10 +5220,8 @@ def _generate_qa_11(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
         ordered = [frames[index] for index in sorted(frames)]
         transitions = [
             current.get("frame_index")
-            for previous, current in zip(ordered, ordered[1:])
-            if previous.get("state") == "visible_occluded"
-            and current.get("state") == "visible_clear"
-            and (
+            for previous, current in clear_after_partial_transitions(ordered)
+            if (
                 preferred_frame is None
                 or int(current.get("frame_index", -1)) == int(preferred_frame)
             )
@@ -5251,11 +5230,7 @@ def _generate_qa_11(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
                 or int(previous.get("frame_index", -1)) == int(preferred_partial)
             )
         ]
-        partial_frames = [
-            frame.get("frame_index")
-            for frame in ordered
-            if frame.get("state") == "visible_occluded"
-        ]
+        partial_frames = partial_occlusion_frames(ordered)
         if partial_frames:
             if not transitions and not _visibility_is_complete(facts, actor_id):
                 incomplete_negative = True
@@ -5864,13 +5839,15 @@ def _generate_qa_16(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
                 )
             except _Deferred:
                 return None
-            delta = float(query_distance) - float(anchor_distance)
-            if abs(delta) < 0.2:
+            step = distance_step_verdict(
+                anchor_distance, query_distance, POST_SOUND_DISTANCE_MARGIN_M
+            )
+            if step["trend"] is None:
                 return None
             return {
-                "trend": "nearer" if delta < 0.0 else "farther",
+                "trend": step["trend"],
                 "query_distance": float(query_distance),
-                "delta": delta,
+                "delta": step["delta"],
             }
 
         def stable(values: Sequence[Any]) -> bool:
@@ -5878,7 +5855,7 @@ def _generate_qa_16(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
                 return False
             trends = {value.get("trend") for value in values}
             return len(trends) == 1 and all(
-                abs(float(value["delta"])) >= 0.2 for value in values
+                abs(float(value["delta"])) >= POST_SOUND_DISTANCE_MARGIN_M for value in values
             )
 
         window = _stable_frame_window(
@@ -5985,7 +5962,7 @@ def _generate_qa_17(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
                 return None
             # The question asks whether any movement occurred in the interval;
             # it does not require every frame to be moving.
-            return any(values)
+            return moved_at_any_frame(values)
 
         window = _stable_frame_window(
             facts,
@@ -6028,7 +6005,7 @@ def _generate_qa_17(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
             ]
         except _Deferred:
             return None
-        return any(readings)
+        return moved_at_any_frame(readings)
 
     truth_value = bool(values[0]) if values else None
     # The reader is handed whole seconds, which is a different set of instants
@@ -6043,7 +6020,7 @@ def _generate_qa_17(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
         _defer("query_interval_too_short_for_display", "the post-sound interval has no public range")
     display_en, display_zh = display
     silence.update(window_fields)
-    truth = "yes" if any(values) else "no"
+    truth = "yes" if moved_at_any_frame(values) else "no"
     return _question_item(
         qa_id="QA-17",
         facts=facts,
