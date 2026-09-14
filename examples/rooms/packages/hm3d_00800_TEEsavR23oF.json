@@ -22,7 +22,9 @@
     "route_bank": "${AVENGINE_HM3D_ROUTE_ROOT}",
     "route_bank_template": "${AVENGINE_HM3D_ROUTE_ROOT}",
     "scene_glb": "${AVENGINE_HM3D_ROOT}/versioned_data/hm3d-1.0/hm3d/val/00800-TEEsavR23oF/TEEsavR23oF.glb",
-    "scene_glb_template": "${AVENGINE_HM3D_ROOT}/versioned_data/hm3d-1.0/hm3d/val/00800-TEEsavR23oF/TEEsavR23oF.glb"
+    "scene_glb_template": "${AVENGINE_HM3D_ROOT}/versioned_data/hm3d-1.0/hm3d/val/00800-TEEsavR23oF/TEEsavR23oF.glb",
+    "support_surface_catalog": "${AVENGINE_SUPPORT_SURFACE_ROOT}/hm3d_val_00800_TEEsavR23oF/support_surface_catalog.json",
+    "support_surface_catalog_template": "${AVENGINE_SUPPORT_SURFACE_ROOT}/hm3d_val_00800_TEEsavR23oF/support_surface_catalog.json"
   },
   "provenance": {
     "native_floor_measurement": "tmp/p3_room_packages_20260907_v5/hm3d_floor_measurement/floor_reference.json",

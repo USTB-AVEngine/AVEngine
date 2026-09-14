@@ -9,6 +9,8 @@ walkable point in the room tells the two apart.
 
 from __future__ import annotations
 
+import json
+
 import numpy as np
 import pytest
 
@@ -650,3 +652,216 @@ def test_static_target_edge_margin_is_declared_and_validated():
         {"camera": {"static_target_edge_margin_fraction": 0.2}}) == pytest.approx(0.2)
     with pytest.raises(ValueError):
         cs._static_target_edge_margin({"camera": {"static_target_edge_margin_fraction": 1.5}})
+
+
+# --------------------------------------------------------------------------
+# Attaching a registered wall or ceiling source without being told where
+
+
+def _attached_registry(asset_id, surface, *, emitter_offset, bounds_min, bounds_max,
+                       plane_normal, base_plane_offset):
+    basis_u, basis_v = _orthogonal_basis(plane_normal)
+    return {"assets": [{
+        "asset_id": asset_id, "revision": "v1", "entity_class": "rigid_object",
+        "identity": {"species_id": "device"}, "display_label": asset_id,
+        "realized_attributes": {"body_color": "white"},
+        "default_emitter_anchor_id": "speaker",
+        "emitter_anchors": [{"anchor_id": "speaker", "offset_m": list(emitter_offset),
+                             "offset_space": "final_scaled_asset_root"}],
+        "runtime_backends": {"habitat": {"resting_pose": {
+            "attachment_surface": surface, "base_plane_offset_m": base_plane_offset,
+            "plane_normal_m": list(plane_normal), "plane_basis_u_m": list(basis_u),
+            "plane_basis_v_m": list(basis_v), "footprint_extent_m": [0.1, 0.1],
+            "height_m": 0.1, "measured_plane": surface + "_base"}}},
+    }]}
+
+
+def _room_catalog(tmp_path, surfaces, measurements):
+    """A support surface catalog shaped as the room tool writes one."""
+    vertices = tmp_path / "vertices.npy"
+    triangles = tmp_path / "triangles.npy"
+    mesh = room_mesh()
+    np.save(vertices, mesh.vertices)
+    np.save(triangles, mesh.triangles)
+    catalog = {
+        "schema": "avengine_support_surface_catalog_v1",
+        "room": {"room_id": "room_fixture",
+                 "coordinate_frame": {"handedness": "right", "linear_unit": "meter",
+                                      "up_axis": "+Y"}},
+        "layout": {"support_surfaces": surfaces},
+        "visual_geometry": {
+            "authority": "visual_geometry", "geometry_id": "room_visual_fixture_v1",
+            "source_ref": str(vertices), "vertices_path": str(vertices),
+            "triangles_path": str(triangles),
+        },
+        "asset_visual_geometry_measurements": measurements,
+        "placement_config": {
+            "normal_tolerance_deg": 1.0, "plane_tolerance_m": 0.25,
+            "min_inter_instance_gap_m": 0.0,
+            "candidate_search": {"grid_step_m": 0.5, "max_candidates": 32,
+                                 "edge_margin_m": 0.05},
+        },
+    }
+    path = tmp_path / "support_surface_catalog.json"
+    path.write_text(json.dumps(catalog))
+    return path
+
+
+def _room_wall_surface():
+    """The x = 0 wall of the fixture room, its normal pointing into the room."""
+    mesh = room_mesh()
+    indices = [index for index, triangle in enumerate(mesh.triangles)
+               if np.allclose(mesh.vertices[triangle][:, 0], 0.0)]
+    basis_u, basis_v = (np.asarray(value) for value in _orthogonal_basis([1.0, 0.0, 0.0]))
+    origin = np.asarray([0.0, 1.5, 2.0])
+    points = mesh.vertices[mesh.triangles[indices]].reshape(-1, 3) - origin
+    along_u = points @ basis_u
+    along_v = points @ basis_v
+    return {
+        "surface_id": "room_fixture_mesh_wall_01", "surface_kind": "wall",
+        "room_id": "room_fixture", "origin_m": [0.0, 1.5, 2.0],
+        "normal_m": [1.0, 0.0, 0.0],
+        "basis_u_m": [float(value) for value in basis_u],
+        "basis_v_m": [float(value) for value in basis_v],
+        # The bounds are read off the named triangles, which is what the
+        # planner's own cross-check requires of a real catalog too.
+        "bounds_u_m": [float(along_u.min()), float(along_u.max())],
+        "bounds_v_m": [float(along_v.min()), float(along_v.max())],
+        "geometry_ref": {"authority": "visual_geometry",
+                         "geometry_id": "room_visual_fixture_v1",
+                         "triangle_indices": indices},
+    }
+
+
+def _wall_measurement():
+    return {
+        "support_kind": "wall", "source_ref": "fixture://asset",
+        "bounds_min_m": WALL_BOX["bounds_min_m"], "bounds_max_m": WALL_BOX["bounds_max_m"],
+        "plane_normal_m": WALL_BOX["plane_normal_m"],
+        "base_plane_offset_m": WALL_BOX["base_plane_offset_m"],
+    }
+
+
+def test_registered_attachment_surface_reads_the_registry():
+    registry = _attached_registry(
+        "wall_device", "wall", emitter_offset=[0.05, 0.0, 0.0],
+        bounds_min=WALL_BOX["bounds_min_m"], bounds_max=WALL_BOX["bounds_max_m"],
+        plane_normal=WALL_BOX["plane_normal_m"],
+        base_plane_offset=WALL_BOX["base_plane_offset_m"])
+    assert cs.registered_attachment_surface(registry, "wall_device") == "wall"
+    assert cs.registered_attachment_surface(registry, "not_registered") is None
+
+
+def test_room_package_declares_where_its_support_surfaces_are(tmp_path):
+    declared = str(tmp_path / "support_surface_catalog.json")
+    room = {"room_package": {"planning_inputs": {"support_surface_catalog": declared}}}
+    assert cs.room_support_surface_catalog_path(room) == declared
+    assert cs.room_support_surface_catalog_path({"room_package": {}}) is None
+    # A binding that was never expanded is not a path and must not be read as one.
+    unexpanded = {"room_package": {"planning_inputs": {
+        "support_surface_catalog": "${AVENGINE_SUPPORT_SURFACE_ROOT}/x.json"}}}
+    assert cs.room_support_surface_catalog_path(unexpanded) is None
+
+
+def test_a_request_that_names_no_surface_still_hangs_its_wall_device(tmp_path):
+    """The request knows the asset; the room knows its walls; nobody knows both."""
+    registry = _attached_registry(
+        "wall_device", "wall", emitter_offset=[0.05, 0.0, 0.0],
+        bounds_min=WALL_BOX["bounds_min_m"], bounds_max=WALL_BOX["bounds_max_m"],
+        plane_normal=WALL_BOX["plane_normal_m"],
+        base_plane_offset=WALL_BOX["base_plane_offset_m"])
+    catalog = _room_catalog(tmp_path, [_room_wall_surface()],
+                            {"wall_device": _wall_measurement()})
+    room = {"room_id": "room_fixture",
+            "room_package": {"planning_inputs": {"support_surface_catalog": str(catalog)}}}
+    actors = [{"entity_instance_id": "device_1", "asset_id": "wall_device",
+               "entity_class": "rigid_object"}]
+    plan = cs.attached_static_placement_plan(
+        actors, registry, room, space=None, mesh=room_mesh(),
+        interior_points=walkable_points(), cache={})
+    assert plan["status"] == "planned"
+    row = plan["instances"][0]
+    assert row["support_identity"]["surface_kind"] == "wall"
+    # Seated on the wall the room actually has, growing into the room.
+    assert row["root_transform"]["translation_m"][0] == pytest.approx(0.0, abs=0.02)
+    assert row["emitter_transform"]["position_m"][0] > 0.0
+
+
+def test_a_request_with_no_attached_source_is_left_alone(tmp_path):
+    registry = _attached_registry(
+        "floor_device", "floor", emitter_offset=[0.0, 0.1, 0.0],
+        bounds_min=[-0.1, 0.0, -0.1], bounds_max=[0.1, 0.2, 0.1],
+        plane_normal=[0.0, 1.0, 0.0], base_plane_offset=0.0)
+    actors = [{"entity_instance_id": "device_1", "asset_id": "floor_device",
+               "entity_class": "rigid_object"}]
+    assert cs.attached_static_placement_plan(
+        actors, registry, {"room_id": "room_fixture"}, space=None,
+        mesh=room_mesh(), cache={}) is None
+
+
+def test_a_room_without_support_surfaces_refuses_instead_of_using_the_floor(tmp_path):
+    registry = _attached_registry(
+        "wall_device", "wall", emitter_offset=[0.05, 0.0, 0.0],
+        bounds_min=WALL_BOX["bounds_min_m"], bounds_max=WALL_BOX["bounds_max_m"],
+        plane_normal=WALL_BOX["plane_normal_m"],
+        base_plane_offset=WALL_BOX["base_plane_offset_m"])
+    actors = [{"entity_instance_id": "device_1", "asset_id": "wall_device",
+               "entity_class": "rigid_object"}]
+    with pytest.raises(cs.CandidateFailure) as refused:
+        cs.attached_static_placement_plan(
+            actors, registry, {"room_id": "room_fixture"}, space=None,
+            mesh=room_mesh(), cache={})
+    assert "declares_no_support_surfaces" in str(refused.value)
+
+
+def test_an_emitter_buried_in_its_own_mounting_face_is_refused_by_name(tmp_path):
+    """A device whose emitter sits inside the face it mounts by cannot be placed.
+
+    Standing it far enough off the wall to clear the acoustic minimum would
+    mean it is not mounted on that wall at all, so the asset is refused and the
+    reason names the asset rather than the room.
+    """
+    registry = _attached_registry(
+        "buried_device", "wall", emitter_offset=[0.002, 0.0, 0.0],
+        bounds_min=WALL_BOX["bounds_min_m"], bounds_max=WALL_BOX["bounds_max_m"],
+        plane_normal=WALL_BOX["plane_normal_m"],
+        base_plane_offset=WALL_BOX["base_plane_offset_m"])
+    catalog = _room_catalog(tmp_path, [_room_wall_surface()],
+                            {"buried_device": _wall_measurement()})
+    room = {"room_id": "room_fixture",
+            "room_package": {"planning_inputs": {"support_surface_catalog": str(catalog)}}}
+    actors = [{"entity_instance_id": "device_1", "asset_id": "buried_device",
+               "entity_class": "rigid_object"}]
+    with pytest.raises(cs.CandidateFailure) as refused:
+        cs.attached_static_placement_plan(
+            actors, registry, room, space=None, mesh=room_mesh(),
+            interior_points=walkable_points(), cache={})
+    assert "no_support_surface_in_this_room_accepts" in str(refused.value)
+
+
+def test_the_acoustic_minimum_decides_how_far_a_device_is_seated_off_its_surface():
+    """A shallow emitter buys the millimetres it needs, and only those."""
+    mesh = room_mesh()
+    normal = [1.0, 0.0, 0.0]
+    origin = [0.0, 1.5, 2.0]
+    registry = _registry(WALL_BOX["bounds_min_m"], WALL_BOX["bounds_max_m"],
+                         WALL_BOX["plane_normal_m"], WALL_BOX["base_plane_offset_m"],
+                         [0.02, 0.0, 0.0])
+    request = {"instance_id": "source1", "asset_id": "fixture_device",
+               "support_surface_id": "wall_01", "candidate_index": 4, "yaw_deg": 0.0,
+               "asset_geometry": {"source_ref": "fixture://asset",
+                                  "bounds_min_m": WALL_BOX["bounds_min_m"],
+                                  "bounds_max_m": WALL_BOX["bounds_max_m"],
+                                  "plane_normal_m": WALL_BOX["plane_normal_m"],
+                                  "base_plane_offset_m": WALL_BOX["base_plane_offset_m"]}}
+    result = plan_source_placement(
+        registry, {"room_id": "room_fixture"}, _layout(normal, origin),
+        _visual_geometry(origin, normal), request, config=_config(),
+        room_mesh=mesh, interior_points=walkable_points())
+    checks = result["placement_checks"]
+    assert checks["status"] == "pass", checks["failed_checks"]
+    # The emitter is 2 cm in front of the contact plane, so the asset stands
+    # 1 cm off the wall and the emitter keeps its 3 cm.
+    assert checks["emitter_depth_in_front_of_contact_m"] == pytest.approx(0.02)
+    assert checks["seated_standoff_m"] == pytest.approx(0.01)
+    assert result["emitter_transform"]["position_m"][0] == pytest.approx(0.03, abs=1.0e-6)

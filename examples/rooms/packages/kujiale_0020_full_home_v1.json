@@ -17,6 +17,7 @@
   "planning_inputs": {
     "acoustic_package": "${AVENGINE_KUJIALE_ACOUSTIC_ROOT}/manifest.json",
     "acoustic_package_template": "${AVENGINE_KUJIALE_ACOUSTIC_ROOT}/manifest.json",
+    "expected_stage_actor_count": 0,
     "floor_reference": "examples/rooms/packages/floor_reference/kujiale_0020/floor_reference.json",
     "map_path": "/Game/AVEngine/Optional/KujialeMaterialized/kujiale_0020_full_home_materialized_20260913_v1",
     "pose_bindings": "examples/rooms/packages/kujiale_0020_pose_bindings.json",
@@ -100,7 +101,8 @@
     },
     "review_lights_source": "tmp/p3_room_packages_20260907_v11/evidence.json",
     "room_manifest": "examples/qa/scenes/interioragent_kujiale_0020_livingroom_491.json",
-    "expected_stage_actor_count": 0
+    "support_surface_catalog": "${AVENGINE_SUPPORT_SURFACE_ROOT}/kujiale_0020_full_home_v1/support_surface_catalog.json",
+    "support_surface_catalog_template": "${AVENGINE_SUPPORT_SURFACE_ROOT}/kujiale_0020_full_home_v1/support_surface_catalog.json"
   },
   "pose_bindings": "examples/rooms/packages/kujiale_0020_pose_bindings.json",
   "provenance": {
