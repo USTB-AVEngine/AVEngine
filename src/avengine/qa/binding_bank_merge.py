@@ -19,6 +19,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 from typing import Any
 
 from avengine.qa.binding_groups import BindingGroupError, check_public_export_files
@@ -35,6 +36,14 @@ BANK_ROW_FILES = (
     ("private/answers.jsonl", "answers"),
     ("private/sources.jsonl", "sources"),
 )
+
+#: Private files this module writes itself. Every other file under the source
+#: bank's ``private/`` (the research-only strata, for one) is carried unchanged:
+#: it describes the ordinary rows, which the merge keeps as they were.
+BANK_REBUILT_PRIVATE_FILES = frozenset({"answers.jsonl", "sources.jsonl",
+                                        Path(BANK_GROUP_INDEX).name})
+
+README_MERGE_HEADING = "## Binding groups"
 
 
 def _load(path: Path) -> Any:
@@ -86,6 +95,49 @@ def _publish_media(source: Path, media_dir: Path) -> str:
     return f"{BANK_MEDIA_DIR}/{name}"
 
 
+def _carry_private_files(source_bank: Path, out: Path) -> list[str]:
+    """Copy the source bank's private files that the merge does not rebuild."""
+    carried = []
+    private_dir = source_bank / "private"
+    if not private_dir.is_dir():
+        return carried
+    for item in sorted(private_dir.iterdir()):
+        if not item.is_file() or item.name in BANK_REBUILT_PRIVATE_FILES:
+            continue
+        (out / "private").mkdir(parents=True, exist_ok=True)
+        (out / "private" / item.name).write_bytes(item.read_bytes())
+        carried.append(f"private/{item.name}")
+    return carried
+
+
+def _describe_merge_in_readme(out: Path, *, total: int, member_total: int,
+                              group_total: int, carried_private: Sequence[str]) -> None:
+    """Make the run's README describe the merged bank, not the bank it came from.
+
+    The README is copied from the source bank, so its question count would
+    otherwise keep naming the ordinary rows alone. A run can be merged into more
+    than once; the merge paragraph is rewritten, not appended, so one paragraph
+    describes the whole bank however many merges produced it.
+    """
+    path = out / "README.md"
+    text = (path.read_text(encoding="utf-8") if path.is_file()
+            else f"# AVEngine question bank\n\nQuestions: {total}.\n")
+    text = re.sub(r"(?m)^Questions: \d+\.", f"Questions: {total}.", text)
+    head = text.split(f"\n{README_MERGE_HEADING}\n", 1)[0].rstrip("\n")
+    carried_note = (
+        f"The carried private files ({', '.join(carried_private)}) describe the "
+        f"{total - member_total} ordinary questions only; group members have no rows there. "
+        if carried_private else "")
+    paragraph = (
+        f"{README_MERGE_HEADING}\n\n"
+        f"{total - member_total} ordinary questions were carried from the source bank and "
+        f"{member_total} binding-group member questions were appended, in {group_total} groups. "
+        f"Each member is an ordinary row in public/questions.jsonl; the private index "
+        f"{BANK_GROUP_INDEX} maps members to their groups so an evaluator can also score by whole "
+        f"group. {carried_note}Merge counts are in binding_merge.json.\n")
+    path.write_text(f"{head}\n\n{paragraph}", encoding="utf-8")
+
+
 def _next_question_number(rows: Sequence[Mapping[str, Any]]) -> int:
     highest = 0
     for row in rows:
@@ -131,6 +183,7 @@ def merge_binding_groups_into_bank(
                       "controller.json"):
             if (source_bank / extra).is_file():
                 (out / extra).write_bytes((source_bank / extra).read_bytes())
+    carried_private = _carry_private_files(source_bank, out) if source_bank is not None else []
     # An index already in the source bank is carried too, so merging several
     # exports one after another ends with one index over all of them instead of
     # the last one's.
@@ -203,6 +256,9 @@ def merge_binding_groups_into_bank(
         })
     for relative, name in BANK_ROW_FILES:
         _write_rows(out / relative, carried[name])
+    member_total = sum(len(row["members"]) for row in index)
+    _describe_merge_in_readme(out, total=len(carried["public"]), member_total=member_total,
+                              group_total=len(index), carried_private=carried_private)
     _write(out / BANK_GROUP_INDEX, {
         "schema": "avengine_bank_binding_group_index_v1",
         "source_export": str(export),
@@ -232,6 +288,7 @@ def merge_binding_groups_into_bank(
         "total_question_count": len(carried["public"]),
         "media_file_count": len(list(media_dir.iterdir())),
         "group_index": BANK_GROUP_INDEX,
+        "carried_private_files": carried_private,
         "public_export_file_check": check,
         "claim_boundary": ("the group members are ordinary bank samples plus one private "
                            "group index; no model or human evaluation is claimed"),
