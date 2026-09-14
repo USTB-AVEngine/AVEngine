@@ -33,6 +33,20 @@ def stage_for_manifest(room, manifest_path, stage_config=None):
             'up': [0, 1, 0], 'front': [0, 0, -1], 'units_to_meters': 1.0}
 
 
+def _interior_floors_of(pathfinder, static_vertices, static_triangles):
+    """Judge the built navigation against the room's own static triangles."""
+    from avengine.qa.answerability import MeshHandle
+    from avengine.rooms.floor_levels import interior_floor_levels
+    from avengine.rooms.walkable_space import HabitatWalkableSpace
+
+    if not static_vertices or not static_triangles:
+        return {'status': 'unmeasured', 'reason': 'no shared static triangles were '
+                'given, so this package makes no interior-floor claim'}
+    mesh = MeshHandle.from_paths(Path(static_vertices), Path(static_triangles))
+    space = HabitatWalkableSpace(pathfinder, {'authority': 'habitat_native_pathfinder'})
+    return interior_floor_levels(space, mesh)
+
+
 def prepare_render_surface_navigation(
     room_manifest: str | Path,
     output_directory: str | Path,
@@ -41,12 +55,22 @@ def prepare_render_surface_navigation(
     magnum_python_site: str | Path,
     rlr_sdk_root: str | Path,
     stage_config: str | Path | None = None,
+    static_vertices: str | Path | None = None,
+    static_triangles: str | Path | None = None,
 ) -> dict:
     """Prepare one reusable navmesh without starting a renderer.
 
     Agent dimensions come from the room manifest. The returned ``walkable_space``
     can be registered in a RoomPackage; room selection and rendering remain with
     their existing entry points. The output directory must be new.
+
+    Recast walks a render surface wherever an agent fits, which includes the
+    roof, the balconies and the ground outside the building. Given the room's
+    shared static triangles, the package also declares ``planning_floors_m``:
+    the levels that have room geometry overhead, measured by
+    :func:`avengine.rooms.floor_levels.interior_floor_levels`. A planner that
+    reads it does not have to measure the same thing again, and one that does
+    not read it still gets the same answer from the same function.
     """
     from avengine.rooms.habitat_capture import prepare_installed_habitat_runtime
 
@@ -86,13 +110,17 @@ def prepare_render_surface_navigation(
             raise RuntimeError('The declared room surface did not produce navigation')
         navmesh = output / 'navigation.navmesh'
         pf.save_nav_mesh(str(navmesh))
+        floors = _interior_floors_of(pf, static_vertices, static_triangles)
         report = {
             'status': 'built', 'renderer': 'disabled', 'room_manifest': str(manifest_path),
             'room_id': room.get('room_id'), 'surface': stage, 'navmesh': str(navmesh),
             'walkable_space': {
                 'kind': 'habitat_navmesh', 'path': str(navmesh),
                 'source_manifest': str(output / 'build_result.json'),
+                **({'planning_floors_m': list(floors['legal_heights_m'])}
+                   if floors.get('status') == 'measured' else {}),
             },
+            'floor_levels': floors,
             'settings': {key: getattr(settings, key) for key in (
                 'agent_height', 'agent_radius', 'cell_size', 'cell_height',
                 'agent_max_climb', 'agent_max_slope')},

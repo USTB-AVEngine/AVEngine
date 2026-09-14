@@ -16,11 +16,18 @@ def main():
     parser.add_argument('--runtime-prefix', required=True, type=Path)
     parser.add_argument('--magnum-site', required=True, type=Path)
     parser.add_argument('--rlr-sdk-root', required=True, type=Path)
+    parser.add_argument('--static-vertices', type=Path,
+                        help="The room's shared static vertices, so the package can "
+                             'declare which built levels are inside the building')
+    parser.add_argument('--static-triangles', type=Path,
+                        help="The room's shared static triangles, given with "
+                             '--static-vertices')
     args = parser.parse_args()
     report = prepare_render_surface_navigation(
         args.room_manifest, args.output, stage_config=args.stage_config,
         runtime_prefix=args.runtime_prefix, magnum_python_site=args.magnum_site,
-        rlr_sdk_root=args.rlr_sdk_root)
+        rlr_sdk_root=args.rlr_sdk_root, static_vertices=args.static_vertices,
+        static_triangles=args.static_triangles)
     print(json.dumps(report, indent=2))
 
 

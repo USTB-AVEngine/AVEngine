@@ -67,6 +67,23 @@ def _package_mesh(package, *, runtime=None, base=None):
     return None
 
 
+def _declared_planning_floors(package):
+    """Carry a navigation package's interior floors into the planning space.
+
+    ``prepare_render_surface_navigation`` writes ``planning_floors_m`` when it
+    was given the room's static triangles, and the sampler reads that key off
+    the space's metadata. A package built before this existed simply says
+    nothing, and the sampler measures the levels itself.
+    """
+    declared = (package.get("walkable_space") or {}).get("planning_floors_m")
+    if not isinstance(declared, (list, tuple)) or not len(declared):
+        return {}
+    values = [float(value) for value in declared]
+    if not all(math.isfinite(value) for value in values):
+        raise ValueError("declared planning floors must be finite heights in meters")
+    return {"planning_floors_m": values}
+
+
 def load_ue_walkable_grid(path, *, floor_height_m, clearance_m=.38):
     """Convert the retained UE raster once at the renderer boundary."""
     from avengine.routes.raster_pathfinder import RasterPathfinder
@@ -191,6 +208,7 @@ def _load_native_apartment_recast_navmesh(
         "route_bank": str(resources.route_bank),
         "route_bank_optional": True,
     }
+    nav.update(_declared_planning_floors(package))
     space = HabitatWalkableSpace(pf, nav)
     layout = nq.build_native_apartment_layout(resources)
     layout["native_floor_height_m"] = float(floor)
@@ -347,6 +365,7 @@ def load_planning_resources(room, request):
             "source_manifest": str(navpath),
             "runtime_prefix": str(rt.prefix),
         }
+        nav.update(_declared_planning_floors(package))
         space = HabitatWalkableSpace(pf, nav)
         mesh = _package_mesh(package, runtime=runtime, base=resource_base)
         if mesh is None:
