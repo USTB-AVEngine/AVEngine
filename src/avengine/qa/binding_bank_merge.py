@@ -209,7 +209,8 @@ def merge_binding_groups_into_bank(
         "source_bank": str(source_bank) if source_bank is not None else None,
         "group_count": len(index),
         "carried_group_count": len(carried_index),
-        "member_question_count": added,
+        "member_question_count": sum(len(row["members"]) for row in index),
+        "member_questions_added_here": added,
         "scoring": ("each member is an ordinary sample in public/questions.jsonl; a group "
                     "is scored by requiring every one of its members to be right"),
         "groups": index,
