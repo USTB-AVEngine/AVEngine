@@ -1093,6 +1093,32 @@ def _resolve_event_actor(
     return None
 
 
+def _event_source_field(
+    event: Mapping[str, Any],
+    *keys: str,
+    sound_record: Mapping[str, Any] | None,
+    voice_record: Mapping[str, Any] | None,
+) -> Any:
+    """One per-event field, from the event or from the clip it plays.
+
+    An M6 AudioProgram event carries scheduling only - which clip, from which
+    sample, at which gain - so facts about the *recording* (its QC record, the
+    event segmentation that says how many sounds it holds) live on the pool
+    row, which reaches delivery as the rendered sound registry.  Reading the
+    event first keeps an explicitly stated value authoritative; falling back to
+    the registry is what lets a field added to the pool arrive in the facts
+    without every producer in between being taught to copy it.
+    """
+
+    for owner in (event, voice_record, sound_record):
+        if not isinstance(owner, Mapping):
+            continue
+        found = _first(owner, *keys)
+        if found is not None:
+            return found
+    return None
+
+
 def _content_from_event(
     event: Mapping[str, Any],
     *,
@@ -2068,10 +2094,23 @@ def normalize_episode_bundle(raw: Mapping[str, Any]) -> dict[str, Any]:
                 "sound_class_explicit": class_explicit,
                 "source_endpoint_id": _first(value, "source_endpoint_id", "endpoint_id"),
                 "event_unit": value.get("event_unit"),
-                "event_segmentation": value.get(
-                    "event_segmentation", value.get("event_segmentation_status")
+                "event_segmentation": copy.deepcopy(
+                    _event_source_field(
+                        value,
+                        "event_segmentation",
+                        "event_segmentation_status",
+                        sound_record=sound_record,
+                        voice_record=voice_record,
+                    )
                 ),
-                "source_qc": copy.deepcopy(value.get("source_qc")),
+                "source_qc": copy.deepcopy(
+                    _event_source_field(
+                        value,
+                        "source_qc",
+                        sound_record=sound_record,
+                        voice_record=voice_record,
+                    )
+                ),
                 "source_activity_intervals_samples": copy.deepcopy(
                     value.get("source_activity_intervals_samples")
                 ),

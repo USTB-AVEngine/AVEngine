@@ -1919,3 +1919,134 @@ def test_an_unsupported_finish_does_not_hide_a_registered_supported_colour():
     decorated = _decorate_actor(actor, {})
     assert decorated["appearance"] == {"field": "body_color", "value": "white", "label": "example"}
     assert decorated["registered_appearance"]["finish"] == "unimplemented_finish"
+
+
+def _segmentation_record(status: str = "pass", event_count: int = 1) -> dict:
+    return {
+        "schema": "avengine_event_segmentation_v1",
+        "status": status,
+        "event_count": event_count,
+        "certification": "automatic" if status == "pass" else None,
+        "method": "uniform_peak_relative_window_rms_onset_grouping_v1",
+        "human_review": {"status": "not_reviewed", "count": 0},
+    }
+
+
+def _unreviewed_bundle() -> dict:
+    """The fixture with the one non-speech event's review taken away."""
+
+    raw = _fixture()
+    for event in raw["audio_program"]["events"]:
+        event.pop("event_segmentation_status", None)
+    return raw
+
+
+def test_event_segmentation_reaches_the_facts_from_the_sound_registry() -> None:
+    """An M6 program carries scheduling only; the clip's record rides the registry.
+
+    A sound pool that gains a field must be able to deliver it to the facts
+    without teaching every producer between the pool and delivery to copy it,
+    because the AudioProgram schema deliberately does not carry clip facts.
+    """
+
+    raw = _unreviewed_bundle()
+    raw["sound_registry"] = {
+        "status": "matched_rendered_inputs",
+        "sounds": [
+            {"sound_asset_id": "s0", "sound_class": "bark",
+             "event_segmentation": _segmentation_record()},
+        ],
+    }
+    facts = normalize_episode_bundle(raw)
+    by_event = {event["event_id"]: event for event in facts["events"]}
+    assert by_event["e0"]["event_segmentation"]["status"] == "pass"
+    assert by_event["e0"]["event_segmentation"]["event_count"] == 1
+    result = generate_unified_questions(facts, qa_ids=["QA-23"])
+    assert [item["qa_id"] for item in result["items"]] == ["QA-23"]
+    assert result["items"][0]["truth"]["value"] == [4]
+
+
+def test_event_segmentation_also_arrives_through_the_voice_bindings() -> None:
+    raw = _unreviewed_bundle()
+    raw["voice_bindings"] = [
+        {"actor_id": "a0", "sound_asset_id": "s0",
+         "event_segmentation": _segmentation_record()},
+    ]
+    facts = normalize_episode_bundle(raw)
+    by_event = {event["event_id"]: event for event in facts["events"]}
+    assert by_event["e0"]["event_segmentation"]["status"] == "pass"
+    assert generate_unified_questions(facts, qa_ids=["QA-23"])["items"]
+
+
+def test_an_uncertified_clip_keeps_qa_23_deferred() -> None:
+    """A recording the measurement could not certify is not a pass."""
+
+    raw = _unreviewed_bundle()
+    raw["sound_registry"] = {
+        "sounds": [
+            {"sound_asset_id": "s0", "sound_class": "bark",
+             "event_segmentation": _segmentation_record("multi_event_candidate", 3)},
+        ],
+    }
+    result = generate_unified_questions(raw, qa_ids=["QA-23"])
+    assert result["counts"] == {"requested": 1, "valid": 0, "deferred": 1}
+    assert result["deferred"][0]["code"] == "event_segmentation_not_reviewed"
+    assert result["deferred"][0]["event_ids"] == ["e0"]
+
+
+def test_a_registry_without_the_clip_keeps_qa_23_deferred() -> None:
+    raw = _unreviewed_bundle()
+    raw["sound_registry"] = {
+        "sounds": [
+            {"sound_asset_id": "s9", "event_segmentation": _segmentation_record()},
+        ],
+    }
+    result = generate_unified_questions(raw, qa_ids=["QA-23"])
+    assert result["deferred"][0]["code"] == "event_segmentation_not_reviewed"
+
+
+def test_the_event_keeps_its_own_segmentation_over_the_registry() -> None:
+    """An explicitly scheduled value stays authoritative over the clip record."""
+
+    raw = _unreviewed_bundle()
+    raw["audio_program"]["events"][0]["event_segmentation"] = _segmentation_record(
+        "multi_event_candidate", 2
+    )
+    raw["sound_registry"] = {
+        "sounds": [
+            {"sound_asset_id": "s0", "event_segmentation": _segmentation_record()},
+        ],
+    }
+    facts = normalize_episode_bundle(raw)
+    by_event = {event["event_id"]: event for event in facts["events"]}
+    assert by_event["e0"]["event_segmentation"]["status"] == "multi_event_candidate"
+    result = generate_unified_questions(facts, qa_ids=["QA-23"])
+    assert result["deferred"][0]["code"] == "event_segmentation_not_reviewed"
+
+
+def test_source_qc_reaches_the_facts_from_the_sound_registry() -> None:
+    """The same route carries the clip's QC record, which the gate also reads."""
+
+    raw = _unreviewed_bundle()
+    raw["sound_registry"] = {
+        "sounds": [
+            {"sound_asset_id": "s0", "source_qc": {"event_count": 1,
+                                                   "segmentation_status": "reviewed"}},
+        ],
+    }
+    facts = normalize_episode_bundle(raw)
+    by_event = {event["event_id"]: event for event in facts["events"]}
+    assert by_event["e0"]["source_qc"]["event_count"] == 1
+    assert generate_unified_questions(facts, qa_ids=["QA-23"])["items"]
+
+
+def test_a_registry_record_is_copied_not_shared() -> None:
+    raw = _unreviewed_bundle()
+    record = _segmentation_record()
+    raw["sound_registry"] = {
+        "sounds": [{"sound_asset_id": "s0", "event_segmentation": record}],
+    }
+    facts = normalize_episode_bundle(raw)
+    by_event = {event["event_id"]: event for event in facts["events"]}
+    by_event["e0"]["event_segmentation"]["status"] = "tampered"
+    assert record["status"] == "pass"
