@@ -380,6 +380,20 @@ def validate_group(group: Mapping[str, Any], *, base: Path, verify_media: bool =
                 raise BindingGroupError("the visual intervention did not change video")
             if shared == "video" and relation == "different" and audio_same:
                 raise BindingGroupError("the audio intervention did not change audio")
+            # A comparison also declares which streams its interventions rewrote.
+            # An invariance row is the place this matters most: "the answer did
+            # not change" is only a claim if something actually did change, and
+            # nothing above would have caught a control member whose audio came
+            # out identical to the member it controls.
+            for modality in comparison.get("changed_modalities") or ():
+                if modality == "audio" and audio_same:
+                    raise BindingGroupError(
+                        "an intervention declared as rewriting the audio left the "
+                        "actual PCM samples identical")
+                if modality == "video" and video_same:
+                    raise BindingGroupError(
+                        "an intervention declared as rewriting the video left the "
+                        "decoded RGB identical")
             media_result = "pass"
         if comparison.get("kind") == "necessity" and relation == "different" and shared:
             for member_id in ids:
@@ -509,7 +523,9 @@ def _private_identity_values(packed: Sequence[Mapping[str, Any]]) -> dict:
     return {"values": values, "variant_tokens": variant_tokens}
 
 
-def check_public_export_files(output: Path, packed: Sequence[Mapping[str, Any]]) -> dict:
+def check_public_export_files(output: Path, packed: Sequence[Mapping[str, Any]], *,
+                              files: Sequence[str] | None = None,
+                              media_dirs: Sequence[str] | None = None) -> dict:
     """Scan the exported public files for anything naming a member or a group.
 
     The in-memory payload check runs before anything is written; this reads the
@@ -537,7 +553,7 @@ def check_public_export_files(output: Path, packed: Sequence[Mapping[str, Any]])
                 if re.search(rf"(?<![A-Za-z0-9_]){re.escape(token)}(?![A-Za-z0-9_])", text)]
 
     scanned, leaks = [], []
-    for name in PUBLIC_EXPORT_FILES:
+    for name in (files if files is not None else PUBLIC_EXPORT_FILES):
         path = output / name
         if not path.is_file():
             continue
@@ -546,10 +562,14 @@ def check_public_export_files(output: Path, packed: Sequence[Mapping[str, Any]])
         for value in long_values:
             if value in raw:
                 leaks.append({"file": name, "kind": "private_value", "value": value})
-        payload = json.loads(raw)
+        # A .jsonl public file is one payload per line; a .json one is a single
+        # payload. Both are read as the reader reads them.
+        payloads = ([json.loads(line) for line in raw.splitlines() if line.strip()]
+                    if name.endswith(".jsonl") else [json.loads(raw)])
         keys: set[str] = set()
         strings: set[str] = set()
-        _public_strings(payload, keys, strings)
+        for payload in payloads:
+            _public_strings(payload, keys, strings)
         for key in sorted(keys & PRIVATE_ONLY_KEYS):
             leaks.append({"file": name, "kind": "private_key", "value": key})
         for text in sorted(keys | strings):
@@ -557,7 +577,7 @@ def check_public_export_files(output: Path, packed: Sequence[Mapping[str, Any]])
                 leaks.append({"file": name, "kind": "variant_token", "value": token,
                               "in": text})
     names = []
-    for directory in PUBLIC_EXPORT_MEDIA_DIRS:
+    for directory in (media_dirs if media_dirs is not None else PUBLIC_EXPORT_MEDIA_DIRS):
         folder = output / directory
         if not folder.is_dir():
             continue
@@ -708,7 +728,9 @@ def assemble_binding_dataset(spec: Mapping[str, Any], *, input_base: Path, outpu
             except BindingConditionError as error:
                 raise BindingGroupError(str(error)) from error
             question = generate_binding_question(
-                facts, group["task_family"], group["query"], seed=seed + ":" + group["group_id"])
+                facts, group["task_family"], group["query"],
+                seed=seed + ":" + group["group_id"],
+                qa_id=(group.get("question_recipe") or {}).get("qa_id"))
             native_video = _path(facts["source_paths"]["video"], facts_path.parent)
             native_audio = _path(facts["audio"]["path"], facts_path.parent)
             source_video = _path(raw.get("video_path") or str(native_video), input_base)

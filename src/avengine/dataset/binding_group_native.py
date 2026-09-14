@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from datetime import datetime, timezone
+import hashlib
 import importlib.util
 import json
 import filecmp
@@ -3380,6 +3381,37 @@ def _member_plan_path(row: Mapping[str, Any]) -> Path | None:
     return None
 
 
+def published_time_bands(plan: Mapping[str, Any]) -> list[list[float]]:
+    """The episode's published time intervals, from the catalog's own rule.
+
+    A question whose answer is an interval needs the same boundaries the
+    delivered question will use. They follow from the clip length and the
+    request's sampling policy, both fixed at planning time, so they are read
+    here through the catalog function that defines them rather than restated.
+
+    A clip too short to carry distinct whole-second boundaries has no published
+    intervals, and that is reported as none rather than as an error: a group
+    whose answer is not an interval has no use for them, and one whose answer is
+    an interval refuses in the predictor, where the reason belongs.
+    """
+    from avengine.qa import unified_catalog as catalog
+
+    clock = plan.get("clock") if isinstance(plan.get("clock"), Mapping) else {}
+    frames = clock.get("frame_count")
+    rate = clock.get("frame_rate_hz")
+    if not frames or not rate:
+        raise BindingNativeError("a plan needs a frame count and rate to publish intervals")
+    request = plan.get("request") if isinstance(plan.get("request"), Mapping) else {}
+    probe = {
+        "time": {"duration_seconds": float(frames) / float(rate)},
+        "sampling": {"qa_sampling": deepcopy(request.get("qa_sampling") or {})},
+    }
+    try:
+        return [[float(low), float(high)] for low, high in catalog._time_bands(probe)]
+    except catalog._Deferred:
+        return []
+
+
 def member_world_bindings(
     plan: Mapping[str, Any], *, registry: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
@@ -3418,11 +3450,23 @@ def member_world_bindings(
                    if isinstance(declared, Mapping) else
                    {str(row["event_id"]): str(row.get("actor_id") or "") for row in events
                     if row.get("event_id")})
+    rate = float((plan.get("clock") or {}).get("sample_rate_hz") or 0.0)
+    starts = {}
+    for row in events:
+        event_id = str(row.get("event_id") or "")
+        if not event_id:
+            continue
+        if "start_s" in row:
+            starts[event_id] = float(row["start_s"])
+        elif rate > 0.0 and row.get("start_sample") is not None:
+            starts[event_id] = float(row["start_sample"]) / rate
     return {
         "slot_appearances": slot_appearances,
         "slot_assets": slot_assets,
         "event_order": order,
         "event_slots": event_slots,
+        "event_start_s": starts,
+        "time_bands": published_time_bands(plan),
         "authority": "the member's own saved episode plan and the request's source registry",
     }
 
@@ -3442,6 +3486,7 @@ def _group_spec(
     task_family: str | None = None,
     qa_id: str | None = None,
     source_registry: Mapping[str, Any] | None = None,
+    member_factor_levels: Mapping[str, Mapping[str, str]] | None = None,
 ) -> dict[str, Any]:
     """Describe one assembled group.
 
@@ -3453,9 +3498,13 @@ def _group_spec(
         (member_id, member_id.split("_")[0], member_id)
         for member_id in ("v0_a0", "v0_a1", "v1_a0", "v1_a1")
     ]
-    if len(selected) != 4 or len({row[0] for row in selected}) != 4:
+    # Four crossed members are the minimum. A group may carry more when it also
+    # states an intervention that must NOT change the answer: those members are
+    # extra rows in the same table, not a different shape.
+    if len(selected) < 4 or len({row[0] for row in selected}) != len(selected):
         raise BindingNativeError(
-            f"a binding group delivers four distinct members, got {[row[0] for row in selected]}"
+            f"a binding group delivers at least four distinct members, got "
+            f"{[row[0] for row in selected]}"
         )
     members = []
     for member_id, visual_id, variant_key in selected:
@@ -3479,10 +3528,11 @@ def _group_spec(
         audio_delivery = variants[variant_key].get("audio_delivery")
         if isinstance(audio_delivery, Mapping):
             member["audio_delivery"] = deepcopy(dict(audio_delivery))
-        member["_factor_levels"] = {
-            "visual_appearance_slots": visual_id,
-            "audio_event_slot_assignment": assignment,
-        }
+        member["_factor_levels"] = dict(
+            (member_factor_levels or {}).get(member_id)
+            or {"visual_appearance_slots": visual_id,
+                "audio_event_slot_assignment": assignment}
+        )
         member["_plan_path"] = _member_plan_path(variants[variant_key])
         members.append(member)
     from avengine.qa.binding_conditions import (
@@ -3502,6 +3552,19 @@ def _group_spec(
             rows.append({"member_id": member["member_id"],
                          "factor_levels": member["_factor_levels"],
                          "bindings": bindings})
+        if "appearance_value" not in query and "appearance_ordinal" in query:
+            # Naming the target by an ordinal would name a different colour in
+            # each visual variant and the public question text would differ.
+            # The group resolves one value for every member instead.
+            available = sorted({value for row in rows
+                                for value in (row["bindings"].get("slot_appearances")
+                                              or {}).values()})
+            ordinal = int(query["appearance_ordinal"])
+            if ordinal < 1 or ordinal > len(available):
+                raise BindingNativeError(
+                    f"the group names appearance {ordinal} but its world carries "
+                    f"{len(available)}")
+            query = {**query, "appearance_value": available[ordinal - 1]}
         comparisons = derive_group_comparisons(rows, qa_id=recipe["qa_id"], query=query)
         planned = {}
         for row in comparisons:
@@ -3540,6 +3603,199 @@ def _group_spec(
         **({"request": deepcopy(dict(request))} if request is not None else {}),
         "groups": [group],
     }
+
+
+def substitute_declared_instance_asset(
+    request: dict[str, Any], *, replace: str, with_asset: str,
+) -> dict[str, Any]:
+    """Put another registered asset in one slot without moving the others.
+
+    A permutation says the same assets change places. A control that changes
+    what an actor the question does not ask about looks like is a substitution
+    instead, so it is a separate statement: exactly one selected asset is
+    replaced, everywhere the request names it.
+    """
+    if replace == with_asset:
+        raise BindingNativeError("a substitution must name two different assets")
+    selected = [str(value) for value in request.get("source_asset_ids") or ()]
+    if replace not in selected:
+        raise BindingNativeError(f"{replace!r} is not one of the selected assets")
+    if with_asset in selected:
+        raise BindingNativeError(
+            f"{with_asset!r} is already selected; that would give two slots one asset")
+    request["source_asset_ids"] = [with_asset if value == replace else value
+                                   for value in selected]
+    moved = []
+    for owner in ("entity_instances", "entities"):
+        instances = _instance_list(request, owner)
+        if instances is None:
+            continue
+        for index, row in enumerate(instances):
+            if isinstance(row, Mapping) and row.get("asset_id") == replace:
+                updated = dict(row)
+                updated["asset_id"] = with_asset
+                instances[index] = updated
+                moved.append({"owner": owner, "instance_id": row.get("instance_id")})
+    return {"status": "applied", "replaced": replace, "with": with_asset, "moved": moved}
+
+
+def select_appearance_substitute(
+    registry: Mapping[str, Any], *, body_of: str, avoid_families: Sequence[str],
+    entity_class: str = "articulated_human",
+) -> dict[str, Any]:
+    """A third registered appearance on the same body, in a new colour family."""
+    assets = registry.get("assets") if isinstance(registry, Mapping) else None
+    if not isinstance(assets, list):
+        raise BindingNativeError("the source registry declares no assets")
+    records = {str(row["asset_id"]): row for row in assets
+               if isinstance(row, Mapping) and isinstance(row.get("asset_id"), str)
+               and (entity_class is None or row.get("entity_class") == entity_class)}
+    if body_of not in records:
+        raise BindingNativeError(f"{body_of} is not registered as {entity_class}")
+    wanted_body = controlled_swap_body_key(records[body_of])
+    avoid = {str(value) for value in avoid_families}
+    for asset_id in sorted(records):
+        record = records[asset_id]
+        if controlled_swap_body_key(record) != wanted_body:
+            continue
+        family = appearance_family_of(record)
+        if family is None or family in avoid:
+            continue
+        return {"asset_id": asset_id, "appearance": registered_appearance(record),
+                "appearance_family": family, "body_key": wanted_body}
+    raise BindingNativeError(
+        f"no registered {entity_class} on this body carries a colour family outside "
+        f"{sorted(avoid)}")
+
+
+def prepare_appearance_control_variant(
+    group_root: str | Path, *, graphics_adapter: int | None = None,
+    rpc_port: int | None = None, replacement_asset_id: str | None = None,
+    factor: str = "unqueried_actor_appearance", level: str = "u1",
+    variant_id: str = "v2",
+) -> dict[str, Any]:
+    """Add a control that changes an actor the question does not ask about.
+
+    Only a question whose answer domain does not depend on that actor can carry
+    this control: a closed set drawn from the visible candidates would change
+    its own options, which is a different intervention from the one being
+    claimed. The recipe's invariant_under list is what decides, and a question
+    that does not declare it is refused.
+
+    The control is a third visual capture of the same world: the named
+    appearance stays on the slot the first variant gave it, and the other slot
+    carries a third registered colour on the same body. Both audio columns are
+    reused from the crossed members after the usual native equivalence checks,
+    so the control pair adds one capture and no new acoustic render.
+    """
+    root = Path(group_root).expanduser().resolve()
+    summary = _load(root / "summary.json")
+    if summary.get("status") != "pass":
+        raise BindingNativeError(f"{root} did not finish: {summary.get('status')}")
+    spec = _load(Path(summary["group_spec"]))
+    group = spec["groups"][0]
+    recipe = group.get("question_recipe") or {}
+    if factor not in tuple(recipe.get("invariant_under") or ()):
+        raise BindingNativeError(
+            f"{recipe.get('qa_id')} does not declare itself invariant under {factor!r}; "
+            f"it declares {list(recipe.get('invariant_under') or ())}")
+    named = (group.get("query") or {}).get("appearance_value")
+    if not named:
+        raise BindingNativeError(
+            "this control needs the group to name one appearance for every member")
+    base_request = _load(root / "requests/v0_request.json")
+    base_plan = _load(Path(summary["planned"]["v0"]["plan"]))
+    registry = _registry_document(base_request)
+    if registry is None:
+        raise BindingNativeError("the request names no readable source registry")
+    bindings = member_world_bindings(base_plan, registry=registry)
+    appearances = bindings["slot_appearances"]
+    holders = [slot for slot, value in appearances.items() if value == str(named)]
+    if len(holders) != 1:
+        raise BindingNativeError(f"{named!r} is carried by {len(holders)} slots in v0")
+    unqueried = [slot for slot in sorted(appearances) if slot != holders[0]]
+    if len(unqueried) != 1:
+        raise BindingNativeError(
+            "this control is written for one queried and one unqueried slot")
+    replaced_asset = bindings["slot_assets"][unqueried[0]]
+    if replacement_asset_id is None:
+        substitute = select_appearance_substitute(
+            registry, body_of=replaced_asset,
+            avoid_families=[value for value in appearances.values()])
+    else:
+        substitute = {"asset_id": str(replacement_asset_id)}
+    request = build_variant_request(
+        base_request, episode_id=f"{summary['group_id']}_{variant_id}",
+        source_asset_ids=tuple(base_request["source_asset_ids"]),
+        rpc_port=rpc_port, graphics_adapter=graphics_adapter,
+        seed=base_request.get("seed"))
+    substitution = substitute_declared_instance_asset(
+        request, replace=replaced_asset, with_asset=substitute["asset_id"])
+    out = root / "controls" / factor
+    if out.exists():
+        raise BindingNativeError(f"refusing existing control root: {out}")
+    out.mkdir(parents=True)
+    request_path = _write(out / f"{variant_id}_request.json", request)
+    planned = plan_visual_variant(request_path, out / "visual" / variant_id,
+                                  label=variant_id)
+    # The control must change nothing but that one appearance.
+    plan_equivalence = compare_controlled_visual_plans(
+        Path(summary["planned"]["v0"]["plan"]), Path(planned["plan"]))
+    captured = capture_visual_plan(request, planned["output"], label=variant_id)
+    readback = compare_native_visuals(summary["captured"]["v0"], captured)
+    endpoints = _neutral_endpoint_bindings(
+        captured["neutral_readback"], plan=_load(Path(planned["plan"])))
+    if endpoints != _neutral_endpoint_bindings(
+            summary["captured"]["v0"]["neutral_readback"],
+            plan=_load(Path(summary["planned"]["v0"]["plan"]))):
+        raise BindingNativeError("the control variant exposes other source endpoints")
+    from avengine.rooms.qa_delivery import SHARED_VISUAL_EVIDENCE_DIRECTORY
+
+    review = check_group_appearance_reviewable(
+        captured["capture"], _load(Path(planned["plan"])), request,
+        shared_root=root / "variants" / SHARED_VISUAL_EVIDENCE_DIRECTORY,
+        report_path=out / f"appearance_review_{variant_id}.json")
+    variants, levels = {}, {}
+    for assignment in ("a0", "a1"):
+        source_member = f"v0_{assignment}"
+        report = Path(summary["variants"][source_member]["audio_report"]).resolve()
+        plan_value, rebound = build_audio_assignment_plan(
+            _load(Path(planned["plan"])), request, assignment,
+            endpoint_by_actor=endpoints, require_authoritative_endpoints=True)
+        member_id = f"{variant_id}_{assignment}"
+        member_root = materialize_audio_variant(
+            captured, out / "variants" / member_id, plan_value, rebound,
+            member_id=member_id)
+        variants[member_id] = finalize_audio_assignment(
+            member_root, rebound, audio_report=report)
+        variants[member_id]["visual_capture_root"] = str(
+            Path(captured["capture"]).resolve())
+        levels[member_id] = {
+            **dict((summary.get("member_factor_levels") or {}).get(source_member) or {}),
+            "visual_appearance_slots": "v0",
+            "audio_event_slot_assignment": assignment,
+            factor: str(level),
+        }
+    record = {
+        "schema": "avengine_binding_group_control_members_v1",
+        "factor": factor, "level": str(level), "variant_id": variant_id,
+        "group_id": summary["group_id"],
+        "named_appearance": str(named), "queried_slot": holders[0],
+        "unqueried_slot": unqueried[0],
+        "substitution": substitution, "substitute": substitute,
+        "plan_equivalence": plan_equivalence,
+        "native_readback_equivalence": readback,
+        "appearance_review": review,
+        "visual": {variant_id: captured},
+        "variants": variants,
+        "member_factor_levels": levels,
+        "baseline_levels_for_existing_members": {factor: "u0"},
+        "claim_boundary": ("one more visual capture of the same world with one more "
+                           "registered appearance; the audio is the crossed members' own"),
+    }
+    _write(out / "control_members.json", record)
+    _write(root / "control_members.json", record)
+    return record
 
 
 def group_spec_from_summary(
@@ -3588,6 +3844,34 @@ def group_spec_from_summary(
             "reserve_tail_s": (request.get("profile") or {}).get("reserve_tail_s"),
             "sound_pool": request.get("sound_pool"),
         }
+    control_path = root / "control_members.json"
+    control = _load(control_path) if control_path.is_file() else None
+    levels = summary.get("member_factor_levels")
+    levels = dict(levels) if isinstance(levels, Mapping) else None
+    if control is not None:
+        if levels is None:
+            raise BindingNativeError(
+                "a saved control needs the crossed members' own declared levels")
+        baseline = dict(control.get("baseline_levels_for_existing_members") or {})
+        levels = {member_id: {**baseline, **row} for member_id, row in levels.items()}
+        levels.update({member_id: dict(row)
+                       for member_id, row in (control.get("member_factor_levels") or {}).items()})
+        captured = {**dict(captured), **dict(control.get("visual") or {})}
+        variants = {**dict(variants), **dict(control.get("variants") or {})}
+    units = None
+    if levels:
+        # A control member is rendered on its own capture; its visual level names
+        # the crossed variant it controls, so the capture is named separately.
+        visual_of = {member_id: member_id.split("_")[0] for member_id in levels}
+        if control is not None:
+            visual_of.update({member_id: str(control.get("variant_id"))
+                              for member_id in (control.get("variants") or {})})
+        units = [(member_id, visual_of[member_id], member_id)
+                 for member_id in sorted(levels)]
+        missing = sorted(set(levels) - set(variants))
+        if missing:
+            raise BindingNativeError(
+                f"the summary declares members with no finalized variant: {missing}")
     return _group_spec(
         str(group_id or summary["group_id"]),
         str(world_id or summary["world_id"]),
@@ -3600,6 +3884,8 @@ def group_spec_from_summary(
         split=split,
         qa_id=recipe["qa_id"],
         source_registry=_registry_document(request),
+        member_units=units,
+        member_factor_levels=levels,
     )
 
 
@@ -3709,6 +3995,267 @@ def check_group_appearance_reviewable(
     return report
 
 
+# ---------------------------------------------------------------------------
+# An intervention that must NOT change the answer
+#
+# A group's necessity comparisons say "change this and the answer changes". The
+# claim only means something next to its opposite: change something the question
+# does not ask about and the answer stays put. Swapping which recording the
+# queried event plays is that control for a question whose answer is who made
+# the sound: the listener hears a different voice saying different words at the
+# same instant from the same place, and the answer is still that person.
+# ---------------------------------------------------------------------------
+
+#: Fields of one event row that belong to the event rather than to the clip.
+#: Everything else is replaced from the pool row, so a swapped clip brings its
+#: own measured activity, crop and checksum instead of inheriting the old one's.
+CLIP_INDEPENDENT_EVENT_FIELDS = frozenset({
+    "event_id", "actor_id", "entity_instance_id", "voice_binding_actor_id",
+    "source_endpoint_id", "assignment_variant", "target_sound_compatibility",
+    "start_sample", "start_tick", "end_sample", "end_tick", "linear_gain",
+    "event_unit", "planned_audible_interval_samples", "event_ordinal_for_instance",
+    "instance_event_id", "source_asset_id", "source_registry_revision",
+    "clip_length_bound_samples", "clip_length_bound_source",
+    "clip_selection_deadline_samples", "compatible_asset_ids",
+    "compatible_object_categories", "status",
+})
+
+
+def _pool_rows(pool: Mapping[str, Any] | Sequence[Any]) -> list[Mapping[str, Any]]:
+    rows = pool.get("sounds", pool) if isinstance(pool, Mapping) else pool
+    if not isinstance(rows, list):
+        raise BindingNativeError("a sound pool must carry a list of prepared sounds")
+    return [row for row in rows if isinstance(row, Mapping)]
+
+
+def available_clip_room_samples(
+    plan: Mapping[str, Any], event_id: str, request: Mapping[str, Any] | None = None,
+) -> int:
+    """How long a replacement recording may be without moving anything else.
+
+    The room is whatever the event already has: its own declared length bound,
+    the deadline the reserve tail leaves it, and the start of the next event
+    minus the gap the request asked to keep between audible windows. A control
+    that does not fit is refused rather than allowed to push a neighbour.
+    """
+    clock = plan.get("clock") if isinstance(plan.get("clock"), Mapping) else {}
+    rate = int(clock.get("sample_rate_hz") or 0)
+    total = int(clock.get("sample_count") or 0)
+    if not rate or not total:
+        raise BindingNativeError("a clip control needs the episode clock")
+    events = sorted(
+        [row for row in plan.get("audio_events") or () if isinstance(row, Mapping)],
+        key=lambda row: (int(row["start_sample"]), str(row["event_id"])))
+    target = next((row for row in events if str(row.get("event_id")) == str(event_id)), None)
+    if target is None:
+        raise BindingNativeError(f"the plan carries no event {event_id!r}")
+    start = int(target["start_sample"])
+    limits = [total - start]
+    bound = target.get("clip_length_bound_samples")
+    if isinstance(bound, int) and bound > 0:
+        limits.append(bound)
+    deadline = target.get("clip_selection_deadline_samples")
+    if isinstance(deadline, int) and deadline > 0:
+        limits.append(deadline - start)
+    gap_s = ((request or {}).get("profile") or {}).get("min_gap_between_audible_windows_s")
+    gap = int(round(float(gap_s) * rate)) if isinstance(gap_s, (int, float)) else 0
+    for row in events:
+        if str(row.get("event_id")) == str(event_id):
+            continue
+        other = int(row["start_sample"])
+        if other > start:
+            limits.append(other - gap - start)
+    room = min(limits)
+    if room <= 0:
+        raise BindingNativeError(
+            f"event {event_id!r} has no room for another recording: {room} samples")
+    return int(room)
+
+
+def select_clip_within_class(
+    pool: Mapping[str, Any] | Sequence[Any], event: Mapping[str, Any], *,
+    exclude_sound_asset_ids: Sequence[str] = (), sample_rate_hz: int | None = None,
+    maximum_sample_count: int | None = None, seed: str = "clip-control",
+    plan: Mapping[str, Any] | None = None, target_actor_id: str | None = None,
+) -> dict[str, Any]:
+    """Another prepared recording of the same sound class as this event.
+
+    Same class, different recording, different speaker where the pool offers
+    one, and short enough to fit the room the event already has. The choice is
+    seeded so a group rebuilt from the same inputs picks the same control.
+
+    When a plan and a target slot are given, each candidate is put through the
+    same compatibility rule the assignment path uses, so a recording whose
+    speaker does not match the body that would play it is skipped here instead
+    of failing later. Sound class alone is not that rule: a class holds
+    recordings of both genders and the registered body accepts one of them.
+    """
+    wanted_class = str(event.get("sound_class") or "")
+    if not wanted_class:
+        raise BindingNativeError("the event declares no sound class to stay inside")
+    excluded = {str(value) for value in exclude_sound_asset_ids}
+    excluded.add(str(event.get("sound_asset_id") or ""))
+    identity = str(event.get("sound_identity_id") or "")
+    transcript = str(event.get("transcript") or "").strip()
+    candidates = []
+    for row in _pool_rows(pool):
+        if str(row.get("sound_class") or "") != wanted_class:
+            continue
+        if str(row.get("sound_asset_id") or "") in excluded:
+            continue
+        if sample_rate_hz is not None and int(row.get("sample_rate_hz") or 0) != int(sample_rate_hz):
+            continue
+        count = row.get("sample_count")
+        if not isinstance(count, int) or count <= 0:
+            continue
+        if maximum_sample_count is not None and count > int(maximum_sample_count):
+            continue
+        if transcript and str(row.get("transcript") or "").strip() == transcript:
+            continue
+        if plan is not None and target_actor_id:
+            probe = {key: value for key, value in event.items()
+                     if key in CLIP_INDEPENDENT_EVENT_FIELDS}
+            probe.update({key: deepcopy(value) for key, value in row.items()
+                          if key not in CLIP_INDEPENDENT_EVENT_FIELDS
+                          and not str(key).startswith("_")})
+            try:
+                _check_sound_target_compatibility(plan, probe, probe, str(target_actor_id))
+            except BindingNativeError:
+                continue
+        candidates.append(row)
+    if not candidates:
+        raise BindingNativeError(
+            f"the pool offers no other {wanted_class} recording that fits this event")
+    # Prefer a different speaker: the control should be audibly another
+    # recording, not the same voice cropped elsewhere.
+    other_identity = [row for row in candidates
+                      if str(row.get("sound_identity_id") or "") != identity]
+    chosen_from = other_identity or candidates
+    chosen_from = sorted(chosen_from, key=lambda row: str(row.get("sound_asset_id")))
+    index = int(hashlib.sha256(seed.encode("utf-8")).hexdigest(), 16) % len(chosen_from)
+    row = deepcopy(dict(chosen_from[index]))
+    row["_control_selection"] = {
+        "sound_class": wanted_class,
+        "candidate_count": len(candidates),
+        "different_identity_available": bool(other_identity),
+        "replaced_sound_asset_id": event.get("sound_asset_id"),
+        "replaced_identity": identity or None,
+        "seed": seed,
+    }
+    return row
+
+
+def build_clip_variant_plan(
+    assignment_plan: Mapping[str, Any], request: Mapping[str, Any], *,
+    event_id: str, replacement: Mapping[str, Any], level: str,
+    factor: str = "queried_clip_within_class",
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Rewrite one event to play another recording of its own sound class.
+
+    The event keeps its onset, its emitting slot and its endpoint; the clip and
+    everything measured from it is replaced. The new end follows the same rule
+    the sampler uses when it lays an event down
+    (``conditioned_sampler.py``: end = start + the clip's own sample count, ticks
+    rescaled from the time base, audible interval offset by the onset), so a
+    control event is composed the way an ordinary one is.
+    """
+    plan = deepcopy(dict(assignment_plan))
+    clock = plan.get("clock") if isinstance(plan.get("clock"), Mapping) else {}
+    rate = int(clock.get("sample_rate_hz") or 0)
+    base = int(clock.get("time_base_hz") or 0)
+    total = int(clock.get("sample_count") or 0)
+    if not rate or not base or not total:
+        raise BindingNativeError("a clip control needs the episode clock")
+    events = [row for row in plan.get("audio_events") or () if isinstance(row, Mapping)]
+    target = next((row for row in events if str(row.get("event_id")) == str(event_id)), None)
+    if target is None:
+        raise BindingNativeError(f"the plan carries no event {event_id!r}")
+    if str(replacement.get("sound_class")) != str(target.get("sound_class")):
+        raise BindingNativeError("a clip control must stay inside the event's sound class")
+    if int(replacement.get("sample_rate_hz") or 0) != rate:
+        raise BindingNativeError("the replacement clip has another sample rate")
+    start = int(target["start_sample"])
+    count = int(replacement["sample_count"])
+    end = start + count
+    bound = target.get("clip_length_bound_samples")
+    deadline = target.get("clip_selection_deadline_samples")
+    if isinstance(bound, int) and count > bound:
+        raise BindingNativeError(
+            f"the replacement is {count} samples, longer than this event's bound {bound}")
+    if isinstance(deadline, int) and end > deadline:
+        raise BindingNativeError(
+            f"the replacement would end at {end}, past this event's deadline {deadline}")
+    if end > total:
+        raise BindingNativeError("the replacement would run past the end of the clip")
+    for row in events:
+        if str(row.get("event_id")) == str(event_id):
+            continue
+        if start < int(row["end_sample"]) and int(row["start_sample"]) < end:
+            raise BindingNativeError(
+                f"the replacement would overlap {row.get('event_id')!r}")
+    clip = {key: deepcopy(value) for key, value in replacement.items()
+            if key not in CLIP_INDEPENDENT_EVENT_FIELDS and not key.startswith("_")}
+    updated = {key: value for key, value in target.items()
+               if key in CLIP_INDEPENDENT_EVENT_FIELDS}
+    updated.update(clip)
+    updated.update(
+        end_sample=end,
+        start_tick=int(round(start * base / rate)),
+        end_tick=int(round(end * base / rate)),
+        event_unit="independent_source_playback_onset",
+        planned_audible_interval_samples=[
+            start + int(replacement["audible_start_sample"]),
+            start + int(replacement["audible_end_sample_exclusive"]),
+        ],
+    )
+    compatibility = _check_sound_target_compatibility(
+        plan, updated, updated, str(target.get("actor_id")))
+    updated["target_sound_compatibility"] = compatibility
+    plan["audio_events"] = sorted(
+        [updated if str(row.get("event_id")) == str(event_id) else deepcopy(row)
+         for row in events],
+        key=lambda row: (int(row["start_sample"]), str(row["event_id"])))
+    bindings = []
+    for row in plan.get("voice_bindings") or ():
+        if not isinstance(row, Mapping):
+            continue
+        if str(row.get("event_id")) == str(event_id):
+            binding = {key: value for key, value in row.items()
+                       if key in CLIP_INDEPENDENT_EVENT_FIELDS}
+            binding.update(clip)
+            binding.update(event_id=str(event_id), actor_id=target.get("actor_id"),
+                           source_endpoint_id=target.get("source_endpoint_id"),
+                           target_sound_compatibility=compatibility)
+            bindings.append(binding)
+        else:
+            bindings.append(deepcopy(dict(row)))
+    bindings.sort(key=lambda row: (str(row.get("actor_id") or ""), str(row.get("event_id") or "")))
+    plan["voice_bindings"] = bindings
+    rebound = deepcopy(dict(request))
+    selection = dict(rebound.get("sound_selection") or {})
+    by_actor = {}
+    for row in plan["audio_events"]:
+        by_actor.setdefault(str(row["actor_id"]), []).append(str(row["sound_asset_id"]))
+    selection["selected_sound_asset_ids_by_actor"] = by_actor
+    rebound["sound_selection"] = selection
+    control = {
+        "factor": factor, "level": str(level), "event_id": str(event_id),
+        "replaced_sound_asset_id": target.get("sound_asset_id"),
+        "replacement_sound_asset_id": replacement.get("sound_asset_id"),
+        "replaced_identity": target.get("sound_identity_id"),
+        "replacement_identity": replacement.get("sound_identity_id"),
+        "sound_class": target.get("sound_class"),
+        "onset_sample": start,
+        "replaced_end_sample": int(target["end_sample"]),
+        "replacement_end_sample": end,
+        "selection": deepcopy(dict(replacement.get("_control_selection") or {})),
+    }
+    plan["control_intervention"] = deepcopy(control)
+    rebound["control_intervention"] = deepcopy(control)
+    plan["request"] = rebound
+    return plan, rebound
+
+
 def _requested_group_question(request: Mapping[str, Any]) -> str | None:
     """The catalog question a base request asks its group to be built around."""
     targets = request.get("qa_targets")
@@ -3751,8 +4298,10 @@ def prepare_visible_binding_group(
     qa_ids: Sequence[str] | None = None,
     seed: int | None = None,
     group_question: str | None = None,
+    control_interventions: Sequence[str] = (),
+    control_assignment: str = "a0",
 ) -> dict[str, Any]:
-    """Build one four-member visible-binding group.
+    """Build one visible-binding group of four crossed members, and any controls.
 
     Retained visual roots are validated and linked read-only. When a retained
     root is absent, only that visual variant is planned and captured; every
@@ -3762,6 +4311,11 @@ def prepare_visible_binding_group(
     defaults to whatever the base request asks for, so the question type is a
     property of the request rather than a constant in this function; a question
     without a group recipe or without a builder is refused by name.
+
+    ``control_interventions`` names interventions the group's question declares
+    it is invariant under. Each one adds a pair of members on the two existing
+    visual captures, so the crossed four are unchanged and the control pair is
+    judged by the same media and answer checks.
     """
     if second_visual_capture_root is not None and first_visual_capture_root is None:
         raise BindingNativeError("second visual capture requires a retained first visual capture")
@@ -3983,7 +4537,7 @@ def prepare_visible_binding_group(
                     shared_root=shared_visual,
                     report_path=output / f"appearance_review_{visual_id}.json",
                 )
-        variants, reports = {}, {}
+        variants, reports, assignment_plans = {}, {}, {}
         for assignment in ("a0", "a1"):
             plan0, req0 = build_audio_assignment_plan(
                 _load(Path(planned["v0"]["plan"])),
@@ -4026,6 +4580,79 @@ def prepare_visible_binding_group(
             variants[f"v1_{assignment}"]["visual_capture_root"] = str(
                 Path(captured["v1"]["capture"]).resolve()
             )
+            assignment_plans[("v0", assignment)] = (plan0, req0)
+            assignment_plans[("v1", assignment)] = (plan1, req1)
+        # Members whose intervention must NOT change the answer. They are a
+        # second pair on the same two visual captures, so each of them still has
+        # a sibling that shares its audio and a sibling that shares its video,
+        # and nothing about the necessity claim is loosened to hold them.
+        member_levels = {
+            f"{visual_id}_{assignment}": {
+                "visual_appearance_slots": visual_id,
+                "audio_event_slot_assignment": assignment,
+                **{factor: "c0" for factor in control_interventions},
+            }
+            for visual_id in ("v0", "v1") for assignment in ("a0", "a1")
+        }
+        member_units = [(f"{visual_id}_{assignment}", visual_id, f"{visual_id}_{assignment}")
+                        for visual_id in ("v0", "v1") for assignment in ("a0", "a1")]
+        controls = []
+        for factor in control_interventions:
+            if factor != "queried_clip_within_class":
+                raise BindingNativeError(
+                    f"this recipe produces queried_clip_within_class controls; "
+                    f"{factor!r} is declared but has no producer here")
+            level = "c1"
+            base_plan, base_request = assignment_plans[("v0", control_assignment)]
+            ordered = sorted(
+                [row for row in base_plan["audio_events"] if isinstance(row, Mapping)],
+                key=lambda row: (int(row["start_sample"]), str(row["event_id"])))
+            queried = ordered[question_recipe["default_query"].get("event_number", 1) - 1]
+            room = available_clip_room_samples(base_plan, queried["event_id"], base_request)
+            pool = _load(Path(str(base_request["sound_pool"])).expanduser())
+            replacement = select_clip_within_class(
+                pool, queried,
+                exclude_sound_asset_ids=[str(row.get("sound_asset_id")) for row in ordered],
+                sample_rate_hz=int(base_plan["clock"]["sample_rate_hz"]),
+                maximum_sample_count=room,
+                seed=f"{group_id}:{factor}:{level}",
+                plan=base_plan, target_actor_id=str(queried["actor_id"]),
+            )
+            control_report = None
+            for visual_id in ("v0", "v1"):
+                plan_v, request_v = assignment_plans[(visual_id, control_assignment)]
+                control_plan, control_request = build_clip_variant_plan(
+                    plan_v, request_v, event_id=str(queried["event_id"]),
+                    replacement=replacement, level=level, factor=factor)
+                member_id = f"{visual_id}_{control_assignment}{level}"
+                root = materialize_audio_variant(
+                    captured[visual_id], output / "variants" / member_id,
+                    control_plan, control_request, member_id=member_id)
+                if control_report is None:
+                    variants[member_id] = finalize_audio_assignment(root, control_request)
+                    control_report = Path(variants[member_id]["audio_report"]).resolve()
+                else:
+                    variants[member_id] = finalize_audio_assignment(
+                        root, control_request, audio_report=control_report)
+                variants[member_id]["visual_capture_root"] = str(
+                    Path(captured[visual_id]["capture"]).resolve())
+                member_levels[member_id] = {
+                    "visual_appearance_slots": visual_id,
+                    "audio_event_slot_assignment": control_assignment,
+                    **{other: "c0" for other in control_interventions},
+                    factor: level,
+                }
+                member_units.append((member_id, visual_id, member_id))
+            controls.append({
+                "factor": factor, "level": level,
+                "queried_event_id": str(queried["event_id"]),
+                "available_room_samples": room,
+                "replacement": deepcopy(dict(replacement.get("_control_selection") or {})),
+                "replacement_sound_asset_id": replacement.get("sound_asset_id"),
+                "replacement_identity": replacement.get("sound_identity_id"),
+                "members": [f"v0_{control_assignment}{level}", f"v1_{control_assignment}{level}"],
+                "shared_audio_source_member": f"v0_{control_assignment}{level}",
+            })
         visual_profile = {
             "task_family": TASK_FAMILY,
             "source_count": 2,
@@ -4059,6 +4686,8 @@ def prepare_visible_binding_group(
                 profile=visual_profile,
                 qa_id=question_recipe["qa_id"],
                 source_registry=_registry_document(requests["v0"]),
+                member_units=member_units,
+                member_factor_levels=member_levels,
             ),
         )
         summary = {
@@ -4067,6 +4696,8 @@ def prepare_visible_binding_group(
             "room_family": room_family,
             "seed": base.get("seed"),
             "group_question": deepcopy(question_recipe),
+            "control_interventions": deepcopy(controls),
+            "member_factor_levels": deepcopy(member_levels),
             "group_appearance_review": deepcopy(appearance_reviews),
             "visual_invariance": measure_group_visual_invariance({
                 f"{visual_id}_{assignment}": Path(
