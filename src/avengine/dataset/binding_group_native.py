@@ -3056,21 +3056,6 @@ def prepare_visual_conditioned_relation_group(
         }
         if acoustics["v0"] != acoustics["v1"]:
             raise BindingNativeError("acoustic input/configuration identity differs")
-        appearance_reviews = {}
-        if question_recipe["answer_expression"] == "appearance_of_event_slot":
-            # Naming the answer is a pixel measurement, so it is checked on the
-            # rendered frames before any audio is paid for.
-            from avengine.rooms.qa_delivery import SHARED_VISUAL_EVIDENCE_DIRECTORY
-
-            shared_visual = output / "variants" / SHARED_VISUAL_EVIDENCE_DIRECTORY
-            for visual_id in ("v0", "v1"):
-                appearance_reviews[visual_id] = check_group_appearance_reviewable(
-                    captured[visual_id]["capture"],
-                    _load(Path(planned[visual_id]["plan"])),
-                    requests[visual_id],
-                    shared_root=shared_visual,
-                    report_path=output / f"appearance_review_{visual_id}.json",
-                )
         variants, reports = {}, {}
         for assignment in ("a0", "a1"):
             plan0, req0 = build_audio_assignment_plan(
@@ -3983,6 +3968,21 @@ def prepare_visible_binding_group(
         }
         if acoustics["v0"] != acoustics["v1"]:
             raise BindingNativeError("acoustic input/configuration identity differs")
+        appearance_reviews = {}
+        if question_recipe["answer_expression"] == "appearance_of_event_slot":
+            # Naming the answer is a pixel measurement, so it is checked on the
+            # rendered frames before any audio is paid for.
+            from avengine.rooms.qa_delivery import SHARED_VISUAL_EVIDENCE_DIRECTORY
+
+            shared_visual = output / "variants" / SHARED_VISUAL_EVIDENCE_DIRECTORY
+            for visual_id in ("v0", "v1"):
+                appearance_reviews[visual_id] = check_group_appearance_reviewable(
+                    captured[visual_id]["capture"],
+                    _load(Path(planned[visual_id]["plan"])),
+                    requests[visual_id],
+                    shared_root=shared_visual,
+                    report_path=output / f"appearance_review_{visual_id}.json",
+                )
         variants, reports = {}, {}
         for assignment in ("a0", "a1"):
             plan0, req0 = build_audio_assignment_plan(
