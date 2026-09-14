@@ -1919,3 +1919,54 @@ def test_an_unsupported_finish_does_not_hide_a_registered_supported_colour():
     decorated = _decorate_actor(actor, {})
     assert decorated["appearance"] == {"field": "body_color", "value": "white", "label": "example"}
     assert decorated["registered_appearance"]["finish"] == "unimplemented_finish"
+
+
+# ---------------------------------------------------------------------------
+# "A different appearance" means a different colour family, not a different word.
+#
+# pink and burgundy are a tint and a shade of one hue. A rendered frame shows the
+# same family for both, so a question that asks a participant to tell two actors
+# apart by colour cannot be built on that pair.
+# ---------------------------------------------------------------------------
+
+
+def _appearance_facts(*values: str) -> dict:
+    actors = {}
+    review = {}
+    for index, value in enumerate(values, start=1):
+        actor_id = f"source{index}"
+        actors[actor_id] = {
+            "actor_id": actor_id,
+            "display_label": f"Person {index}",
+            "appearance": {"field": "top_color", "value": value, "label": f"human {index}"},
+        }
+        review[actor_id] = {
+            "status": "reviewed", "value": value, "attribute_value": value,
+            "attribute_field": "top_color", "frame_refs": [0],
+        }
+    return {"actors": actors, "appearance_review": review, "time": {"frame_count": 8}}
+
+
+def test_two_registered_values_in_one_colour_family_are_not_two_appearances() -> None:
+    from avengine.qa.unified_catalog import _appearance_candidates, _appearance_options, _Deferred
+
+    separable = _appearance_facts("blue", "yellow")
+    assert len(_appearance_candidates(separable)) == 2
+    assert len(_appearance_options(separable)) == 2
+
+    with pytest.raises(_Deferred) as unique:
+        _appearance_candidates(_appearance_facts("pink", "burgundy"))
+    assert unique.value.code == "appearance_not_unique"
+
+    with pytest.raises(_Deferred) as options:
+        _appearance_options(_appearance_facts("pink", "burgundy"))
+    assert options.value.code == "appearance_options_share_a_colour_family"
+
+
+def test_a_colour_family_falls_back_to_the_value_when_it_is_unknown() -> None:
+    from avengine.qa.unified_catalog import _appearance_family
+
+    assert _appearance_family({"value": "pink"}) == _appearance_family({"value": "burgundy"})
+    assert _appearance_family({"value": "blue"}) != _appearance_family({"value": "green"})
+    assert _appearance_family({"value": "lunar_opal"}) == "lunar_opal"
+    assert _appearance_family({"value": ""}) == ""
