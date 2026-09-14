@@ -52,9 +52,12 @@ def mesh_of(*slabs):
 class BoxSpace:
     """Navigation whose points sit on the given levels, as a raster space does."""
 
-    def __init__(self, levels, span=(0.5, 7.5), step=1.0):
+    def __init__(self, levels, span=(0.5, 7.5), step=1.0, resolution_m=None):
         self.metadata = {'authority': 'fixture_box_navmesh',
                          'floor_height_m': float(min(height for height, _ in levels))}
+        if resolution_m is not None:
+            # Declaring a cell size is what lets a raster space state an area.
+            self.metadata['resolution_m'] = float(resolution_m)
         points = []
         for height, extent in levels:
             low, high = extent
@@ -255,3 +258,104 @@ def test_a_built_navigation_package_declares_the_levels_inside_the_building(tmp_
     assert [round(value, 3) for value in floors['legal_heights_m']] == [0.0]
     assert verdicts(floors)[3.2] == 'open_to_sky'
     assert navigation_preparation._interior_floors_of(finder, None, None)['status'] == 'unmeasured'
+
+
+# ------------------------------------------------------- how big a level has to be
+
+def storeyed(upper_extent, *, resolution_m=1.0):
+    """A ground floor, an upper level of the given extent, and a walkable roof."""
+    space = BoxSpace([(0.0, (0.5, 7.5)), (3.0, upper_extent), (6.2, (0.5, 7.5))],
+                     resolution_m=resolution_m)
+    mesh = mesh_of(slab(0.0), slab(2.8), slab(3.0, span=(upper_extent[0] - 0.5, upper_extent[1] + 0.5),
+                                              cells=2),
+                   slab(5.8), slab(6.2))
+    return space, mesh
+
+
+def test_an_indoor_level_too_small_to_hold_an_episode_is_not_a_floor():
+    space, mesh = storeyed((3.5, 4.5))
+    record = floor_levels.interior_floor_levels(space, mesh)
+    assert record['navigable_area_source'] == 'navigable_cells_times_declared_cell_area'
+    by_height = {round(row['height_m'], 3): row for row in record['levels']}
+    assert by_height[0.0]['area_m2'] == pytest.approx(64.0)
+    assert by_height[0.0]['verdict'] == 'interior'
+    assert by_height[3.0]['area_m2'] == pytest.approx(4.0)
+    assert by_height[3.0]['verdict'] == 'too_small'
+    assert 'less navigable surface' in by_height[3.0]['reason']
+    # The area rule does not rescue a roof, and does not have to judge it either.
+    assert by_height[6.2]['verdict'] == 'open_to_sky'
+    assert [round(value, 3) for value in record['legal_heights_m']] == [0.0]
+
+
+def test_a_second_storey_above_the_minimum_area_stays_a_floor():
+    space, mesh = storeyed((0.5, 7.5))
+    record = floor_levels.interior_floor_levels(space, mesh)
+    by_height = {round(row['height_m'], 3): row for row in record['levels']}
+    assert by_height[3.0]['area_m2'] == pytest.approx(64.0)
+    assert by_height[3.0]['verdict'] == 'interior'
+    assert [round(value, 3) for value in record['legal_heights_m']] == [0.0, 3.0]
+
+
+def test_a_space_that_cannot_measure_area_keeps_every_indoor_level():
+    space, mesh = storeyed((3.5, 4.5), resolution_m=None)
+    record = floor_levels.interior_floor_levels(space, mesh)
+    assert record['navigable_area_source'] == 'unavailable'
+    assert all(row['area_m2'] is None for row in record['levels'])
+    by_height = {round(row['height_m'], 3): row for row in record['levels']}
+    assert by_height[3.0]['verdict'] == 'interior'
+    assert 'cannot measure level area' in by_height[3.0]['reason']
+    assert [round(value, 3) for value in record['legal_heights_m']] == [0.0, 3.0]
+
+
+class NavmeshLikeSpace(BoxSpace):
+    """A space that cannot list its cells but knows its total navigable area."""
+
+    class _PathFinder:
+        def __init__(self, navigable_area):
+            self.navigable_area = float(navigable_area)
+
+    def __init__(self, levels, navigable_area, **kwargs):
+        super().__init__(levels, **kwargs)
+        self.pathfinder = self._PathFinder(navigable_area)
+        self.metadata.pop('resolution_m', None)
+
+    # A native navmesh answers point queries; it cannot enumerate its cells.
+    points = None
+
+    def sample_navigable(self, rng, region=None):
+        return self._points[int(rng.integers(len(self._points)))].copy()
+
+
+def test_a_native_navmesh_measures_level_area_from_its_own_total():
+    space = NavmeshLikeSpace([(0.0, (0.5, 7.5)), (3.0, (3.5, 4.5)), (6.2, (0.5, 7.5))],
+                             navigable_area=132.0)
+    mesh = mesh_of(slab(0.0), slab(2.8), slab(3.0, span=(3.0, 5.0), cells=2), slab(5.8), slab(6.2))
+    record = floor_levels.interior_floor_levels(space, mesh)
+    assert record['navigable_area_source'] == 'navmesh_navigable_area_times_pool_share'
+    assert record['navigable_pool_source'] == 'fixed_seed_sample_navigable'
+    by_height = {round(row['height_m'], 3): row for row in record['levels']}
+    # 64 + 4 + 64 navigable cells share 132 m2, so the upper level is about 4 m2.
+    assert by_height[3.0]['area_m2'] == pytest.approx(4.0, abs=2.0)
+    assert by_height[3.0]['verdict'] == 'too_small'
+    assert by_height[0.0]['area_m2'] == pytest.approx(64.0, abs=8.0)
+    assert [round(value, 3) for value in record['legal_heights_m']] == [0.0]
+
+
+def test_a_room_whose_every_indoor_level_is_small_keeps_them_all():
+    space = BoxSpace([(0.0, (3.5, 4.5)), (6.2, (0.5, 7.5))], resolution_m=1.0)
+    mesh = mesh_of(slab(0.0, span=(3.0, 5.0), cells=2), slab(2.8), slab(6.2))
+    record = floor_levels.interior_floor_levels(space, mesh)
+    assert record['status'] == 'no_level_above_minimum_area'
+    assert 'rather than leaving the room with no floor' in record['reason']
+    assert [round(value, 3) for value in record['legal_heights_m']] == [0.0]
+    by_height = {round(row['height_m'], 3): row for row in record['levels']}
+    assert by_height[0.0]['verdict'] == 'too_small'
+
+
+def test_the_plan_record_carries_the_measured_area_of_every_level():
+    space, mesh = storeyed((3.5, 4.5))
+    summary = floor_levels.decision_summary(floor_levels.interior_floor_levels(space, mesh))
+    assert summary['navigable_area_source'] == 'navigable_cells_times_declared_cell_area'
+    assert [row['area_m2'] for row in summary['levels']] == [
+        pytest.approx(64.0), pytest.approx(4.0), pytest.approx(64.0)]
+    assert summary['criterion']['minimum_navigable_area_m2'] == floor_levels.MIN_FLOOR_NAVIGABLE_AREA_M2

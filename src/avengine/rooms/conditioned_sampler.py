@@ -394,12 +394,14 @@ def planning_floor_decision(room, space=None, mesh=None):
             'criterion': None,
             'navigable_pool_size': 0,
             'navigable_pool_source': None,
+            'navigable_area_source': 'not_measured',
             'candidate_heights_m': [float(value) for value in declared],
             'legal_heights_m': [float(value) for value in declared],
             'levels': [{'height_m': float(value), 'sources': ['room_declaration'],
                         'verdict': 'unmeasured', 'reason': reason,
-                        'navigable_share': None, 'probe_samples': 0,
-                        'covered_share': None} for value in declared],
+                        'navigable_share': None, 'area_m2': None,
+                        'probe_samples': 0, 'covered_share': None}
+                       for value in declared],
             'claim_boundary': 'a planning guard measured from room geometry; it '
                               'certifies no rendered frame',
         }
