@@ -833,6 +833,13 @@ class VisibilityRequirement:
     kind: str
     subject: str
     state: str | None = None
+    # Some questions accept any of several pixel states rather than one. QA-02
+    # and QA-20 are answerable whenever the emitter is visible at all, clear or
+    # partly occluded, and a single ``state`` cannot say that: two separate
+    # requirements would mean both states at once. ``allowed_states`` is that
+    # disjunction, and ``states`` below is what every judge reads, so a caller
+    # that states one exact state behaves exactly as it did.
+    allowed_states: tuple[str, ...] = ()
     side: str | None = None
     min_state_frames: int = 1
     min_sustain_frames: int = 2
@@ -851,13 +858,29 @@ class VisibilityRequirement:
                 f"kinds are {list(REQUIREMENT_KINDS)}"
             )
         _text(self.subject, owner="requirement subject")
+        object.__setattr__(
+            self, "allowed_states",
+            tuple(str(value) for value in (self.allowed_states or ())),
+        )
         if self.kind == "visibility_state":
-            if self.state not in VISIBILITY_STATES:
+            if self.state is not None and self.allowed_states:
+                raise ConditionedVisibilityError(
+                    "a visibility_state requirement states one exact state or a set "
+                    "of accepted states, not both"
+                )
+            named = (self.state,) if self.state is not None else self.allowed_states
+            if not named:
                 raise ConditionedVisibilityError(
                     "a visibility_state requirement needs a state from "
                     f"{list(VISIBILITY_STATES)}"
                 )
-        elif self.state is not None:
+            unknown = [value for value in named if value not in VISIBILITY_STATES]
+            if unknown:
+                raise ConditionedVisibilityError(
+                    "a visibility_state requirement needs a state from "
+                    f"{list(VISIBILITY_STATES)}; got {unknown}"
+                )
+        elif self.state is not None or self.allowed_states:
             raise ConditionedVisibilityError(
                 f"{self.kind} does not take an explicit state"
             )
@@ -886,6 +909,13 @@ class VisibilityRequirement:
                 )
 
     @property
+    def states(self) -> tuple[str, ...]:
+        """Every pixel state that satisfies this requirement."""
+        if self.state is not None:
+            return (self.state,)
+        return self.allowed_states
+
+    @property
     def required_dynamics(self) -> tuple[str, ...]:
         return _REQUIRED_DYNAMICS[self.kind]
 
@@ -894,6 +924,7 @@ class VisibilityRequirement:
             "kind": self.kind,
             "subject": self.subject,
             "state": self.state,
+            "allowed_states": list(self.allowed_states),
             "side": self.side,
             "min_state_frames": self.min_state_frames,
             "min_sustain_frames": self.min_sustain_frames,
@@ -980,6 +1011,27 @@ def requirements_from_planning(
             )
         )
 
+    accepted_states = evidence.get("visibility_state_in")
+    if (
+        accepted_states is not None
+        and not isinstance(accepted_states, (str, bytes))
+        and isinstance(accepted_states, Sequence)
+        and not any(item.kind == "visibility_state" for item in requirements)
+    ):
+        named = [str(value) for value in accepted_states]
+        unknown = [value for value in named if value not in VISIBILITY_STATES]
+        if not named or unknown:
+            raise ConditionedVisibilityError(
+                "condition evidence names unknown visibility states "
+                f"{unknown or named!r}"
+            )
+        requirements.append(
+            VisibilityRequirement(
+                kind="visibility_state", allowed_states=tuple(sorted(set(named))),
+                **common,
+            )
+        )
+
     wanted_state = evidence.get("visibility_state") or evidence.get(
         "final_visibility_state"
     )
@@ -1055,6 +1107,7 @@ def requirements_from_conditions(
                 item.kind,
                 item.subject,
                 item.state,
+                item.allowed_states,
                 item.side,
                 item.require_complete_coverage,
                 # Two statements about the same state in two different windows
@@ -2337,12 +2390,12 @@ def _evaluate_requirement(
         return result
 
     if requirement.kind == "visibility_state":
-        wanted = requirement.state
-        matching = [frame for frame, state in states if state == wanted]
+        wanted = set(requirement.states)
+        matching = [frame for frame, state in states if state in wanted]
         refuting = [
             frame
             for frame, _state in states
-            if wanted in (by_frame[frame].get("refutes") or ())
+            if wanted <= set(by_frame[frame].get("refutes") or ())
         ]
         windows = requirement.observation_windows
         if windows:
@@ -2961,7 +3014,7 @@ def _frustum_refusal(
                     "goes from having no in-image body sample to having one",
                 }
             continue
-        if requirement.kind == "visibility_state" and requirement.state == "out_of_view":
+        if requirement.kind == "visibility_state" and set(requirement.states) == {"out_of_view"}:
             if not any(not visible for visible in in_view):
                 return {
                     "kind": requirement.kind,
@@ -2976,7 +3029,8 @@ def _frustum_refusal(
             "registered_occluder_visible",
         } or (
             requirement.kind == "visibility_state"
-            and requirement.state in {"fully_occluded", "visible_occluded", "visible_clear"}
+            and set(requirement.states) <= {"fully_occluded", "visible_occluded", "visible_clear"}
+            and requirement.states
         ):
             if not any(in_view):
                 return {
@@ -3360,6 +3414,7 @@ def _acceptance_row(
         "kind": requirement.kind,
         "subject": requirement.subject,
         "state": requirement.state,
+        "allowed_states": list(requirement.allowed_states),
         "side": requirement.side,
         "status": status,
         "judge_source": "avengine/qa/unified_catalog.py",
@@ -3709,7 +3764,7 @@ def _judge_requirement(
         matching = [
             int(record["frame_index"])
             for record in series
-            if record.get("state") == requirement.state
+            if record.get("state") in set(requirement.states)
         ]
         windows = requirement.observation_windows
         inside = (
@@ -3731,7 +3786,7 @@ def _judge_requirement(
         return _acceptance_row(
             requirement,
             "fail",
-            reason=f"only {len(inside)} frames reach {requirement.state} inside the "
+            reason=f"only {len(inside)} frames reach {' or '.join(requirement.states)} inside the "
             f"declared observation windows; {requirement.min_state_frames} are needed",
             measured={"frames_in_state": matching, "inside_observation": inside},
             **common,
