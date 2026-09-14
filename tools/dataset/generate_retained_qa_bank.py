@@ -24,6 +24,7 @@ from avengine.qa.unified_catalog import (
     with_derived_sound_class_answer_domain,
 )
 from avengine.qa.binding_catalog import whole_degree_display
+from avengine.dataset.question_strata import question_strata, summarize_strata
 
 def now():
     return datetime.now(timezone.utc).isoformat()
@@ -44,6 +45,52 @@ def resolve(path):
 def file_hash(path):
     with Path(path).open("rb") as stream:
         return hashlib.file_digest(stream, "sha256").hexdigest()
+
+def public_digest(out):
+    """public 目录里每个文件的 sha256。私有字段写完要跟写之前逐字节对上。"""
+    root = Path(out) / "public"
+    if not root.is_dir():
+        return {}
+    return {str(path.relative_to(root)): file_hash(path)
+            for path in sorted(root.rglob("*")) if path.is_file()}
+
+def write_question_strata(out, entries):
+    """按 question_id 一行写 private/strata.jsonl：查询时刻的可见状态和单模态候选数收据。
+
+    两个字段只进 private。facts 按路径缓存；哪一行算不出来就把原因写进那一行，
+    既不让旧的导出因为新字段跑挂，也不会把算不出来记成算过了。
+    """
+    cache = {}; rows = []; failures = 0
+    for question_id, item, source in entries:
+        facts_path = source.get("facts_path")
+        try:
+            if facts_path not in cache:
+                cache[facts_path] = read(facts_path)
+            rows.append(question_strata(question_id, item, cache[facts_path], source))
+        except Exception as error:
+            failures += 1
+            reason = f"{type(error).__name__}: {error}"
+            rows.append({"question_id": question_id, "qa_id": item.get("qa_id"),
+                "episode_id": source.get("episode_id"), "room_family": source.get("room_family"),
+                "room_id": source.get("room_id"), "facts_path": facts_path,
+                "visibility_at_query": {"rule": None, "rule_note": "", "frame": None,
+                    "window_frames": None, "state": "unknown", "targets": [],
+                    "reason": reason, "cross_check": None},
+                "visibility_histogram": {},
+                "unimodal_candidates": {"audio_only": None, "video_only": None, "joint": None,
+                    "option_count": None, "rule": None, "basis": None, "reason": reason,
+                    "necessary_multimodal": None},
+                "research_only": True})
+    path = Path(out) / "private/strata.jsonl"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp = path.with_suffix(path.suffix + f".tmp_{os.getpid()}")
+    with temp.open("w") as stream:
+        for row in rows:
+            stream.write(json.dumps(row, ensure_ascii=False) + "\n")
+    os.replace(temp, path)
+    summary = summarize_strata(rows)
+    summary["failed_rows"] = failures
+    return summary
 
 def validate_source(source, facts):
     clock = facts["time"]
@@ -195,7 +242,7 @@ def export(out, selected, checkpoints, policy, target, dedup, minimum_per_type=0
     for row,candidate in zip(public["items"],selected,strict=True):
         if row["qa_id"] != candidate["item"]["qa_id"] or row["forms"] != candidate["item"].get("model_input",{}):
             raise ValueError("public projection differs from its source question")
-    answers = []; links = []; copied = {}
+    answers = []; links = []; copied = {}; strata_inputs = []
     for index,(row,candidate) in enumerate(zip(public["items"],selected,strict=True)):
         media = candidate["media"]; row["media"] = {}
         for kind,suffix in (("video",".mp4"),("audio",".wav")):
@@ -214,6 +261,7 @@ def export(out, selected, checkpoints, policy, target, dedup, minimum_per_type=0
                         "qa_id":item["qa_id"],"truth":item["truth"],"forms":item["forms"],
                         "evidence":item["evidence"],"research_only":True})
         links.append({"question_id":row["question_id"],**candidate["source"]})
+        strata_inputs.append((row["question_id"], item, candidate["source"]))
     for path,rows in ((out/"public/questions.jsonl",public["items"]),
                       (out/"private/answers.jsonl",answers),(out/"private/sources.jsonl",links)):
         path.parent.mkdir(parents=True,exist_ok=True)
@@ -222,6 +270,12 @@ def export(out, selected, checkpoints, policy, target, dedup, minimum_per_type=0
             for row in rows:
                 stream.write(json.dumps(row,ensure_ascii=False)+"\n")
         os.replace(temp,path)
+    # The two strata fields are private-only: hash the public tree before and
+    # after writing them, and refuse the export if a single byte moved.
+    public_before = public_digest(out)
+    strata = write_question_strata(out, strata_inputs)
+    if public_digest(out) != public_before:
+        raise ValueError("writing the private strata changed the public export")
     successful=[c for c in checkpoints if c["status"]=="pass"]
     minimum_per_type = int(minimum_per_type)
     qa_counts = Counter(c["item"]["qa_id"] for c in selected)
@@ -269,6 +323,13 @@ def export(out, selected, checkpoints, policy, target, dedup, minimum_per_type=0
     pool_sounds={v for c in checkpoints for v in c["source"].get("sound_asset_ids",[])}
     report["unused_pool_asset_ids"]=sorted(pool_assets-set(report["asset_ids"]))
     report["unused_pool_sound_asset_ids"]=sorted(pool_sounds-set(report["sound_asset_ids"]))
+    report["question_strata"]={
+      "rows":strata["question_count"],"path":"private/strata.jsonl",
+      "public_unchanged":True,
+      "visibility_state_counts":strata["visibility_state_counts"],
+      "unimodal_necessity":strata["unimodal_necessity"],
+      "visibility_cross_checks":strata["visibility_cross_checks"],
+      "failed_rows":strata["failed_rows"]}
     if (report["missing_qa_types"] or report["missing_room_families"] or deficits_by_qa
             or report["scene_deficits_by_qa"]):
         report["status"]="completed_with_coverage_gaps"
@@ -276,6 +337,8 @@ def export(out, selected, checkpoints, policy, target, dedup, minimum_per_type=0
     (out/"README.md").write_text(
        "# AVEngine question bank\n\n"+f"Questions: {len(selected)}. Target ceiling: {target}.\n\n"+
        "Public inputs: public/questions.jsonl. Private answers: private/answers.jsonl. Media paths are relative to this dataset root.\n\n"+
+       "private/strata.jsonl carries two research-only fields per question: the pixel visibility state of the asked actor at the query instant, "+
+       "and how many answer options survive audio-only and video-only facts. They are a record, not a gate, and no public file depends on them.\n\n"+
        "Coverage, omissions and source failures are in report.json; source provenance is private/sources.jsonl. "+
        "The acceptance policy is explicit. Original native media and old gold are unchanged. No native rendering was performed.\n")
     return report

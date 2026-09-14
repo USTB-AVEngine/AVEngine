@@ -461,6 +461,7 @@
 | `tools/dataset/run_qwen_content_controls.py` | Run a resumable Qwen2.5-Omni content/visual control on sanitized Episode inputs |
 | `tools/dataset/run_source_asset_qualification.py` | Build an evidence-derived source-asset qualification matrix |
 | `tools/dataset/score_qwen_content_controls.py` | Score Qwen2.5-Omni content/visual control predictions without hiding missing/invalid outputs |
+| `tools/dataset/summarize_question_strata.py` | 只读汇总题库的私有分层字段：题型 × 房间 × 可见状态的题数，和单模态候选数的可用率 |
 | `tools/dataset/verify_asset_bound_batch.py` | Verify the complete M7 asset-bound binaural throughput batch |
 
 ## 审阅（`tools/review/`）
