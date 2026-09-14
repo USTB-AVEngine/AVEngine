@@ -5,7 +5,7 @@
 
 自 2026-08-25 起，目录本身就是能力分组（阶段目录 m1…m7 已移除），
 本表按目录列出每个工具做什么。
-当前共 438 个工具脚本。
+当前共 439 个工具脚本。
 
 ## 资产生成与装配（`tools/assets/`）
 
@@ -419,6 +419,7 @@
 
 | 工具 | 做什么 |
 |---|---|
+| `tools/dataset/backfill_event_segmentation.py` | Measure how many sound events each pool recording holds and record it |
 | `tools/dataset/backfill_sparse_qa.py` | Bounded QA-driven scene backfill using the existing production runner |
 | `tools/dataset/build_asset_bound_apartment_ue_bundle.py` | Materialize M7 source1/source2 routes as one reusable Apartment UE bundle |
 | `tools/dataset/build_asset_bound_dataset_index.py` | Index 1,000 samples without copying visual, audio, or room media |
