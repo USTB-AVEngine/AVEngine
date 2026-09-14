@@ -6651,7 +6651,8 @@ def attached_static_placement_plan(actors, source_registry, room, *, space=None,
 
 def _hang_attached_sources(wanted, measurements, by_kind, source_registry, room_data,
                            catalog, config, cache, mesh, catalog_path):
-    """Place each attached instance on the first surface of its kind that accepts it."""
+    """Place each attached instance on the most visible surface of its kind."""
+    from avengine.rooms import placement_geometry
     from avengine.rooms.source_placement import (
         SOURCE_PLACEMENT_SCHEMA, plan_static_source_placements,
     )
@@ -6671,6 +6672,7 @@ def _hang_attached_sources(wanted, measurements, by_kind, source_registry, room_
                 "room_has_no_" + wanted_row["surface_kind"] + "_support_surface",
             )
         chosen = None
+        chosen_score = -1
         for surface in options:
             request_row = {
                 "instance_id": wanted_row["instance_id"],
@@ -6685,18 +6687,33 @@ def _hang_attached_sources(wanted, measurements, by_kind, source_registry, room_
                 room_mesh=mesh, interior_points=cache["interior_points"],
             )
             row = result["instances"][0]
-            tried.append({"instance_id": wanted_row["instance_id"],
-                          "surface_id": surface["surface_id"],
-                          "status": row.get("status"),
-                          "reason": (row.get("reason") or {}).get("code")})
-            if row.get("status") == "planned":
-                chosen = row
+            attempt = {"instance_id": wanted_row["instance_id"],
+                       "surface_id": surface["surface_id"],
+                       "status": row.get("status"),
+                       "reason": (row.get("reason") or {}).get("code")}
+            tried.append(attempt)
+            if row.get("status") != "planned":
+                continue
+            # A surface can be perfectly good to mount on and still be
+            # somewhere nobody in the room can see. Among the surfaces that
+            # accept the device, the one the most standing points can see wins,
+            # so a coverage episode gets a device that can be looked at rather
+            # than one hidden over a stairwell.
+            seen = placement_geometry.visible_walkable_count(
+                mesh, row["emitter_transform"]["position_m"], cache["interior_points"])
+            attempt["walkable_points_that_see_it"] = seen["visible"]
+            attempt["walkable_points_checked"] = seen["checked"]
+            score = seen["visible"] if seen["status"] == "measured" else 0
+            if score > chosen_score:
+                chosen, chosen_score = row, score
+            if seen["status"] != "measured" or score >= seen["checked"]:
                 break
         if chosen is None:
             raise CandidateFailure(
                 "placement",
                 "no_support_surface_in_this_room_accepts:" + wanted_row["instance_id"],
             )
+        chosen["support_identity"]["walkable_points_that_see_it"] = chosen_score
         placed.append(chosen)
         rows.append(chosen)
     return {
