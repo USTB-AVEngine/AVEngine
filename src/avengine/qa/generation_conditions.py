@@ -2977,16 +2977,13 @@ def _visibility_state_at(facts: Mapping[str, Any], actor_id: str, frame: int) ->
     return str(state) if isinstance(state, str) else None
 
 
+from avengine.qa.observation_predicates import visibility_series  # noqa: E402
+
+
 def _visibility_series(facts: Mapping[str, Any], actor_id: str) -> list[Mapping[str, Any]]:
-    frames = facts.get("visibility", {}).get(actor_id)
-    if not isinstance(frames, Mapping):
-        return []
-    def order(key: Any) -> int:
-        try:
-            return int(key)
-        except (TypeError, ValueError):
-            return -1
-    return [frames[key] for key in sorted(frames, key=order) if isinstance(frames[key], Mapping)]
+    return visibility_series(
+        facts.get("visibility", {}).get(actor_id), require_mapping=True
+    )
 
 
 # --------------------------------------------------------------------- per-kind checks

@@ -94,6 +94,7 @@ from avengine.dataset.source_capabilities import (
     STATE_NOT_IMPLEMENTED,
 )
 from avengine.qa import unified_catalog as catalog
+from avengine.qa.observation_predicates import visibility_series
 from avengine.qa.answerability import MeshHandle, line_of_sight
 from avengine.qa.pixel_visibility import (
     PIXEL_VISIBILITY_AUTHORITIES,
@@ -3543,7 +3544,7 @@ def accept_native_visibility(
                 )
             )
             continue
-        series = [frames[index] for index in sorted(frames)]
+        series = visibility_series(frames)
         observed = sorted({str(record.get("state")) for record in series})
         in_view = [
             int(record["frame_index"])
