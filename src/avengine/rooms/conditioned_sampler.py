@@ -21,6 +21,7 @@ import numpy as np
 
 from avengine.capture.neutral_readback import COORDINATE_FRAME
 from avengine.qa.answerability import line_of_sight
+from avengine.rooms import floor_levels
 from avengine.rooms.walkable_space import camera_grid
 from avengine.routes.trajectory import resample_polyline_by_arc_length
 
@@ -125,12 +126,14 @@ VISIBILITY_TRANSITION_DEFAULT = 'none'
 ORDINARY_QUESTION_MODE = 'ordinary_observation'
 ORDINARY_SPEAKER_MOVING_PROBABILITY = 0.5
 ORDINARY_SEPARATION_BIN_DEG = (15., 180.)
-# A declared floor with less than this share of the sampled navigable points is
-# a stair landing or a platform, not a room: a walk of a metre and a half does
+# A floor with less than this share of the room's sampled navigable points is a
+# stair landing or a platform, not a room: a walk of a metre and a half does
 # not fit on it. Measured 2026-09-12 on hm3d_val_00800: 4 of 6 declared levels
-# held 0.5-3.8 % of the navmesh and each still drew 1/6 of the attempts.
+# held 0.5-3.8 % of the navmesh and each still drew 1/6 of the attempts. The
+# share is of the whole room, so dropping a level cannot enlarge what is left:
+# measured 2026-09-14 on kujiale_0020, whose 2.8 % platform would read as 8.6 %
+# once its roof was dropped.
 MIN_FLOOR_NAVIGABLE_SHARE = 0.05
-FLOOR_SHARE_SAMPLES = 400
 # Route construction: a walk is grown leg by leg until it is long enough,
 # instead of drawing two points and refusing when their shortest path is short.
 WALK_LEG_RANGE_M = (1.0, 3.5)
@@ -310,8 +313,8 @@ def _floor_level_clusters(levels):
     return clusters
 
 
-def declared_floor_heights_m(room, space=None):
-    """Unique measured/planned navigable floors for a room and its space."""
+def _room_declared_floor_heights_m(room, space=None):
+    """Unique measured/planned navigable floors a room and its space declare."""
     floors = []
     measured_levels = []
     package = {}
@@ -362,14 +365,62 @@ def declared_floor_heights_m(room, space=None):
     return unique
 
 
-def static_support_floor_reference(room, space, placement_rows):
+def planning_floor_decision(room, space=None, mesh=None):
+    """Which levels of a room a plan may stand on, and why each was kept.
+
+    A navigation mesh built from a room's render surface offers its roof,
+    its balconies and the ground outside it alongside the rooms inside, and
+    a floor drawn by navigable area alone lands on whichever of those is
+    largest. The declared levels and the levels measured from the navigable
+    points are therefore judged together against the room's own triangles by
+    :func:`avengine.rooms.floor_levels.interior_floor_levels`, which keeps a
+    level only when the room has geometry overhead. A real upper storey
+    passes that test, so a two-floor house keeps both of its floors, and no
+    part of the test names a room, a dataset or a coordinate.
+
+    Without a space or without a mesh nothing can be measured, so the room's
+    own declaration is returned and the record says the judgement was not
+    made.
+    """
+    declared = _room_declared_floor_heights_m(room, space)
+    if space is None or mesh is None:
+        reason = ('no navigation space, so no interior judgement was made'
+                  if space is None else
+                  'no static mesh, so no interior judgement was made')
+        return {
+            'schema': 'avengine_interior_floor_levels_v1',
+            'status': 'unmeasured',
+            'reason': reason,
+            'criterion': None,
+            'navigable_pool_size': 0,
+            'navigable_pool_source': None,
+            'candidate_heights_m': [float(value) for value in declared],
+            'legal_heights_m': [float(value) for value in declared],
+            'levels': [{'height_m': float(value), 'sources': ['room_declaration'],
+                        'verdict': 'unmeasured', 'reason': reason,
+                        'navigable_share': None, 'probe_samples': 0,
+                        'covered_share': None} for value in declared],
+            'claim_boundary': 'a planning guard measured from room geometry; it '
+                              'certifies no rendered frame',
+        }
+    return floor_levels.floor_level_decision(
+        space, mesh, candidates=declared, tolerance_m=SAME_FLOOR_Y_TOLERANCE_M)
+
+
+def declared_floor_heights_m(room, space=None, mesh=None):
+    """Floors a plan may stand on: the declaration, minus levels open to the sky."""
+    return [float(value) for value
+            in planning_floor_decision(room, space, mesh)['legal_heights_m']]
+
+
+def static_support_floor_reference(room, space, placement_rows, mesh=None):
     """Select a measured room floor for support-only static planning.
 
     Support Y is used only to choose among measured room levels; it is never
     published or treated as the floor height. This keeps navigation/floor
     semantics separate from tabletop and wall root transforms.
     """
-    floors = declared_floor_heights_m(room, space)
+    floors = declared_floor_heights_m(room, space, mesh)
     raw_package = room.get('room_package') if isinstance(room, Mapping) else None
     package = raw_package if isinstance(raw_package, Mapping) else (
         room if isinstance(room, Mapping) and isinstance(
@@ -422,12 +473,20 @@ def static_support_floor_reference(room, space, placement_rows):
     return float(floors[0]), 'measured_room_floor_default'
 
 
-def lock_same_floor_region(space, rng, region=None, room=None):
-    """Sample a floor first in multi-floor scenes, then lock |Delta y| to 0.3 m."""
+def lock_same_floor_region(space, rng, region=None, room=None, mesh=None):
+    """Draw an interior floor first in multi-floor scenes, then lock |Delta y| to 0.3 m.
+
+    The floor comes from :func:`planning_floor_decision`, so the draw is over
+    levels the room's geometry shows to be inside the building. Drawing a
+    single random navigable point instead, which is what happens when no mesh
+    can be measured, follows the navigation's own area and lands on the roof
+    of a house whose roof is the biggest walkable surface it has.
+    """
     bounds = space.bounds().copy() if region is None else np.asarray(region, dtype=float).copy()
-    floors = declared_floor_heights_m(room, space)
+    decision = planning_floor_decision(room, space, mesh)
+    floors = [float(value) for value in decision['legal_heights_m']]
     if len(floors) > 1:
-        weights = _floor_navigable_weights(space, floors, rng)
+        weights = _floor_navigable_weights(space, floors, rng, decision=decision)
         floor_y = float(floors[int(rng.choice(len(floors), p=weights))])
     elif floors:
         floor_y = float(floors[0])
@@ -1871,7 +1930,7 @@ def _constructive_candidate_points(space, region, rng):
 
 def _constructive_motion_paths(
     space, actors, profile, clock, rng, region, room, motion_requirements,
-    motion_budget,
+    motion_budget, mesh=None,
 ):
     """Construct solver windows from legal points before camera selection."""
     from avengine.rooms.conditioned_motion import EpisodeClock, build_motion_trajectory
@@ -1881,7 +1940,7 @@ def _constructive_motion_paths(
         clock if isinstance(clock, EpisodeClock)
         else EpisodeClock.from_mapping(clock)
     )
-    floor_region, floor_y = lock_same_floor_region(space, rng, region, room)
+    floor_region, floor_y = lock_same_floor_region(space, rng, region, room, mesh)
     candidates, candidate_source = _constructive_candidate_points(
         space, floor_region, rng)
     requirements = {
@@ -2987,36 +3046,35 @@ def _ordinary_speech_motion_default(ordinary, classes, anchors, question_knobs, 
             else 'all_still')
 
 
-def _floor_navigable_weights(space, floors, rng):
-    """Draw probability of each declared floor from its share of navigable points.
+def _floor_navigable_weights(space, floors, rng=None, *, decision=None):
+    """Draw probability of each legal floor from its share of navigable points.
 
-    Landings below :data:`MIN_FLOOR_NAVIGABLE_SHARE` get no weight unless every
-    floor is that small. The sample uses its own generator seeded from ``rng``
-    so the request seed still determines the outcome.
+    The share is measured against every navigable sample the room offers, not
+    against the subtotal of the floors still under consideration. Dropping a
+    level therefore cannot promote a sliver of navigation - a step, or a bed
+    Recast walked onto - into a floor worth planning on: it stays below
+    :data:`MIN_FLOOR_NAVIGABLE_SHARE` of the room. Only when that leaves
+    nothing does the draw fall back to the relative sizes.
+
+    ``rng`` is accepted for existing callers and is not drawn from. Which
+    levels a room has, and how much of the room each one is, are properties of
+    the room; letting the request seed move them only added noise.
     """
-    heights = None
-    points_reader = getattr(space, 'points', None)
-    if callable(points_reader):
-        try:
-            raw = np.asarray(points_reader(None), dtype=float)
-            heights = raw[:, 1] if raw.ndim == 2 and len(raw) else None
-        except (ValueError, TypeError, IndexError):
-            heights = None
-    if heights is None:
-        sampler = np.random.default_rng(int(rng.integers(0, 2**31 - 1)))
-        collected = []
-        for _ in range(FLOOR_SHARE_SAMPLES):
-            try:
-                collected.append(float(space.sample_navigable(sampler, None)[1]))
-            except ValueError:
-                continue
-        heights = np.asarray(collected, dtype=float)
-    counts = np.asarray(
-        [np.count_nonzero(np.abs(heights - float(f)) <= SAME_FLOOR_Y_TOLERANCE_M) for f in floors],
-        dtype=float)
-    if not len(heights) or counts.sum() <= 0:
+    shares = None
+    if isinstance(decision, Mapping):
+        measured = {round(float(row['height_m']), 6): row.get('navigable_share')
+                    for row in decision.get('levels') or ()
+                    if row.get('navigable_share') is not None}
+        looked = [measured.get(round(float(value), 6)) for value in floors]
+        if looked and all(value is not None for value in looked):
+            shares = np.asarray(looked, dtype=float)
+    if shares is None:
+        shares, pool_size = floor_levels.navigable_level_shares(
+            space, floors, tolerance_m=SAME_FLOOR_Y_TOLERANCE_M)
+        if not pool_size:
+            return np.full(len(floors), 1. / len(floors))
+    if shares.sum() <= 0:
         return np.full(len(floors), 1. / len(floors))
-    shares = counts / counts.sum()
     kept = np.where(shares >= MIN_FLOOR_NAVIGABLE_SHARE, shares, 0.)
     if kept.sum() <= 0:
         kept = shares
@@ -3828,7 +3886,7 @@ def _construct_registered_occluder_plan(space, mesh, actors, profile, clock, rng
             (sound['audible_end_sample_exclusive'] - sound['audible_start_sample'])
             / float(clock['sample_rate_hz']) >= dwell / fps for sound in target_sounds):
         raise CandidateFailure('events', 'registered_occluder_needs_target_sound_covering_hidden_window')
-    floor_region, floor_y = lock_same_floor_region(space, rng, region, room)
+    floor_region, floor_y = lock_same_floor_region(space, rng, region, room, mesh)
     config = request.get('camera') or {}
     height = float(config.get('height_above_floor_m', 1.55))
     positions = _camera_grid_on_floor(space, height=height, region=floor_region, floor_y=floor_y)
@@ -4030,7 +4088,7 @@ def _construct_visibility_route_plan(space, mesh, actors, profile, clock, rng, r
             span = int(value['audible_end_sample_exclusive']) - int(value['audible_start_sample'])
             needed = max(needed, int(math.ceil(span / float(clock['sample_rate_hz']) * fps)) + 3)
     min_pre_walk_frames = max(needed, 8)
-    floor_region, floor_y = lock_same_floor_region(space, rng, region, room)
+    floor_region, floor_y = lock_same_floor_region(space, rng, region, room, mesh)
     bank = space.route_bank()
     if bank is not None:
         # The camera stage measures the floor from the actor paths, which in a
@@ -4172,7 +4230,7 @@ def _materialize_visibility_route_plan(plan, space, actors, flags, frames):
 def sample_routes(space, actors, profile, clock, rng, region=None, *,
                  required_windows=None, room=None, motion_requirements=None,
                  motion_budget=None, static_placements=None,
-                 constructive_motion=False,
+                 constructive_motion=False, mesh=None,
                  visibility_requirements=(), visibility_route_plan=None):
     frames, fps = int(clock['frame_count']), float(clock['frame_rate_hz'])
     flags = _moving_flags(profile, actors, rng, motion_requirements)
@@ -4277,7 +4335,7 @@ def sample_routes(space, actors, profile, clock, rng, region=None, *,
                 floor_source,
             ) = _constructive_motion_paths(
                 space, actors, profile, clock, rng, region, room,
-                motion_requirements, motion_budget,
+                motion_requirements, motion_budget, mesh,
             )
     elif space.route_bank() is not None:
         if any(
@@ -4303,7 +4361,7 @@ def sample_routes(space, actors, profile, clock, rng, region=None, *,
             not _placement_is_ground(row) for row in placement_rows.values()
         ):
             floor_y, floor_source = static_support_floor_reference(
-                room, space, placement_rows
+                room, space, placement_rows, mesh
             )
             floor_region = space.bounds().copy() if region is None else np.asarray(
                 region, dtype=float
@@ -4311,7 +4369,7 @@ def sample_routes(space, actors, profile, clock, rng, region=None, *,
             floor_region[0, 1] = floor_y - SAME_FLOOR_Y_TOLERANCE_M
             floor_region[1, 1] = floor_y + SAME_FLOOR_Y_TOLERANCE_M
         else:
-            floor_region, floor_y = lock_same_floor_region(space, rng, region, room)
+            floor_region, floor_y = lock_same_floor_region(space, rng, region, room, mesh)
             floor_source = 'declared_or_sampled_navigation_floor'
         paths, records, metadata = _legacy_random_routes(
             space, actors, profile, clock, rng, flags, visibility_only_movers,
@@ -4476,6 +4534,8 @@ def sample_routes(space, actors, profile, clock, rng, region=None, *,
     metadata['selected_floor_height_m'] = floor_y
     metadata['selected_floor_reference_source'] = floor_source
     metadata['same_floor_tolerance_m'] = SAME_FLOOR_Y_TOLERANCE_M
+    metadata['floor_level_decision'] = floor_levels.decision_summary(
+        planning_floor_decision(room, space, mesh))
     return stacked,np.asarray(rotations),np.asarray(moving),np.asarray(emitters),np.asarray(bodies),metadata
 
 
@@ -5140,7 +5200,7 @@ def select_camera_and_schedule(space, mesh, paths, moving, emitters, bodies, act
         floor_source = 'ground_actor_paths'
     else:
         floor_y, floor_source = static_support_floor_reference(
-            room_package or {}, space, placement_rows
+            room_package or {}, space, placement_rows, mesh
         )
         floor_ok = True
     if not floor_ok:
@@ -6251,6 +6311,7 @@ def build_conditioned_plan(*, room, request, source_registry, sounds, space, mes
                         request, profile
                     ),
                     static_placements=static_placement_plan,
+                    mesh=mesh,
                     visibility_requirements=visibility_requirements,
                     visibility_route_plan=visibility_route_plan)
             except CandidateFailure:
