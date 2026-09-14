@@ -52,6 +52,7 @@ from avengine.qa.observation_predicates import (
     noticeable_motion,
     partial_occlusion_frames,
     reappeared_frames,
+    visibility_series,
 )
 
 #: QA-16 的距离门限默认值，原来写在出题函数里。
@@ -4689,7 +4690,7 @@ def _generate_qa_07(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
                 "detail": "this actor has no per-frame visibility readback",
             })
             continue
-        ordered = [frames[index] for index in sorted(frames)]
+        ordered = visibility_series(frames)
         transitions: list[tuple[int, float]] = []
         ambiguous: list[int] = []
         for previous, current in zip(ordered, ordered[1:]):
@@ -4890,7 +4891,7 @@ def _generate_qa_09(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
     for actor_id, frames in facts.get("visibility", {}).items():
         if preferred_actor is not None and actor_id != preferred_actor:
             continue
-        ordered = [frames[index] for index in sorted(frames)] if isinstance(frames, Mapping) else []
+        ordered = visibility_series(frames)
         fully = full_occlusion_frames(ordered)
         if fully and actor_id not in reviewed:
             # Full occlusion is observed; the target simply has no reviewed
@@ -5217,7 +5218,7 @@ def _generate_qa_11(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
             continue
         if not isinstance(frames, Mapping):
             continue
-        ordered = [frames[index] for index in sorted(frames)]
+        ordered = visibility_series(frames)
         transitions = [
             current.get("frame_index")
             for previous, current in clear_after_partial_transitions(ordered)

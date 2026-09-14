@@ -19,6 +19,38 @@ from typing import Any
 VISIBLE_STATES = frozenset({"visible_clear", "visible_occluded"})
 
 
+def visibility_series(
+    frames: Any, *, require_mapping: bool = False
+) -> list[Any]:
+    """把一个按帧号索引的字典摊成一串，按帧号的**数值**排序。
+
+    这件事值得有个共用函数。帧号是 JSON 对象的键，也就是字符串，所以 ``sorted(frames)``
+    给的是字典序：0, 1, 10, 100, 101, …, 2, 20, …。凡是靠“相邻两帧”判转场的地方，
+    字典序会把不相邻的两帧凑成一对（比如第 1 帧跟第 10 帧），也会让真正相邻的两帧
+    永远不相邻（第 9 帧跟第 10 帧）。
+
+    2026-09-14 实测：QA-11 的 144 道题里有 14 道因此判反，另有 503 个报出来的转场帧
+    在数值序下根本不存在。按键直接取值的路径（QA-08、QA-24 那种 ``frames[str(k)]``）
+    不受影响，因为它们压根不遍历。
+
+    修的是帧键排序，不是放宽判据：什么叫转场、什么叫遗挡，一个字没改。
+    """
+
+    if not isinstance(frames, Mapping):
+        return []
+
+    def order(key: Any) -> int:
+        try:
+            return int(key)
+        except (TypeError, ValueError):
+            return -1
+
+    keys = sorted(frames, key=order)
+    if require_mapping:
+        return [frames[key] for key in keys if isinstance(frames[key], Mapping)]
+    return [frames[key] for key in keys]
+
+
 def _is_point(value: Any) -> bool:
     # 判定跟拆出来之前逐字相同，包括这里不把 bool 单独排除——改了就不是同一个判据了。
     return (
