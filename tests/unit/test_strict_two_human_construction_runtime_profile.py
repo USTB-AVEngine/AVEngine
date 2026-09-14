@@ -100,10 +100,14 @@ def test_construction_runtime_profile_closes_exact_lineage() -> None:
     assert profile["revision"] == "native_runtime_ue_v1"
     assert profile["entity_class"] == "articulated_human"
     assert profile["identity"] == {"species_id": "human", "breed_id": None}
+    # The plaid shirt is blue with beige checks; the beige is registered as the
+    # secondary top colour (2026-09-14) so the appearance review can pass this
+    # actor by its declared colours instead of a per-asset exception.
     assert profile["realized_attributes"] == {
         "life_stage": "adult",
         "sex_or_gender_label": "male",
         "top_color": "blue",
+        "top_secondary_color": "beige",
     }
     assert profile["geometry"]["mesh_authority"] == "audited_library_asset"
     assert profile["geometry"]["source_mesh_uri"].endswith(

@@ -1824,7 +1824,8 @@
       "realized_attributes": {
         "life_stage": "adult",
         "sex_or_gender_label": "male",
-        "top_color": "blue"
+        "top_color": "blue",
+        "top_secondary_color": "beige"
       },
       "geometry": {
         "mesh_authority": "audited_library_asset",
@@ -4015,9 +4016,9 @@
           "anchor_id": "front_speaker_hole_cluster",
           "anchor_type": "object_speaker",
           "offset_m": [
-            0.021489359438419342,
-            0.06413363665342331,
-            0.0056402492336928844
+            -0.014111395870178234,
+            0.06423885826536346,
+            0.006106851496123383
           ],
           "offset_space": "final_scaled_asset_root"
         }
