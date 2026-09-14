@@ -77,7 +77,7 @@
       },
       {
         "asset_id": "generated_alarm_clock_digital_cube_black_research_v2",
-        "candidate_index": 15,
+        "candidate_index": 14,
         "episode_id": "v02_rep_tabletop_pending_01",
         "instance_id": "source2",
         "penetrating_pair_count": 0,
@@ -95,7 +95,7 @@
       },
       {
         "asset_id": "generated_desk_telephone_corded_desk_unit_black_research_v1",
-        "candidate_index": 4,
+        "candidate_index": 1,
         "episode_id": "v02_rep_tabletop_pending_02",
         "instance_id": "source2",
         "penetrating_pair_count": 0,
@@ -2986,7 +2986,7 @@
           "requests": [
             {
               "asset_id": "generated_alarm_clock_digital_cube_black_research_v2",
-              "candidate_index": 15,
+              "candidate_index": 14,
               "declared_placement_intent": {
                 "basis": "the registry attachment surface is marked assumed, so this episode declares the kind of surface it places this instance on",
                 "registry_attachment_surface": "floor",
@@ -3651,7 +3651,7 @@
           "requests": [
             {
               "asset_id": "generated_desk_telephone_corded_desk_unit_black_research_v1",
-              "candidate_index": 4,
+              "candidate_index": 1,
               "declared_placement_intent": {
                 "basis": "the registry attachment surface is marked assumed, so this episode declares the kind of surface it places this instance on",
                 "registry_attachment_surface": "floor",

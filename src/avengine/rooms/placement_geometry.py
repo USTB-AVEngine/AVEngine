@@ -318,9 +318,48 @@ def vertical_enclosure(mesh: Any, point, *, margin_m: float) -> dict[str, Any]:
     }
 
 
+def _standing_grid_on_every_floor(space, floor_heights, *, height_above_floor_m,
+                                  step_m, region, tolerance_m):
+    """Standing points on each of a room's floors, not only the one it starts on.
+
+    A navigation grid is probed from the floor height the space announces, and a
+    snap to the mesh from there lands on that storey. A house with an upstairs
+    therefore offers no standing point upstairs, and a device on an upstairs
+    wall looks like it is outside the building because nobody can see it. Each
+    declared floor is probed in turn and the results are pooled.
+    """
+    from avengine.rooms.walkable_space import camera_grid
+
+    bounds = space.bounds() if region is None else np.asarray(region, dtype=float)
+    metadata = getattr(space, "metadata", None)
+    saved = metadata.get("floor_height_m") if isinstance(metadata, dict) else None
+    had = isinstance(metadata, dict) and "floor_height_m" in metadata
+    rows = []
+    try:
+        for floor in floor_heights:
+            window = np.asarray(bounds, dtype=float).copy()
+            window[0, 1] = float(floor) - tolerance_m
+            window[1, 1] = float(floor) + tolerance_m
+            if isinstance(metadata, dict):
+                metadata["floor_height_m"] = float(floor)
+            for point in camera_grid(space, step_m=step_m,
+                                     height_above_floor_m=height_above_floor_m,
+                                     region=window):
+                if abs(float(point[1]) - height_above_floor_m - float(floor)) <= tolerance_m:
+                    rows.append([float(value) for value in point])
+    finally:
+        if isinstance(metadata, dict):
+            if had:
+                metadata["floor_height_m"] = saved
+            else:
+                metadata.pop("floor_height_m", None)
+    return rows
+
+
 def interior_reference_points(mesh: Any, space: Any, *, config: PlacementCheckConfig,
-                              step_m: float = 0.55,
-                              region=None) -> dict[str, Any]:
+                              step_m: float = 0.55, region=None,
+                              floor_heights: Sequence[float] = (),
+                              floor_tolerance_m: float = 0.3) -> dict[str, Any]:
     """Standing-height walkable points whose own vertical probe says indoors.
 
     The room's navigation decides what is walkable; the vertical probe then
@@ -339,10 +378,16 @@ def interior_reference_points(mesh: Any, space: Any, *, config: PlacementCheckCo
             "indoor_count": 0,
         }
     try:
-        grid = camera_grid(
-            space, step_m=step_m,
-            height_above_floor_m=config.interior_eye_height_m, region=region,
-        )
+        if floor_heights:
+            grid = _standing_grid_on_every_floor(
+                space, floor_heights, height_above_floor_m=config.interior_eye_height_m,
+                step_m=step_m, region=region, tolerance_m=floor_tolerance_m,
+            )
+        else:
+            grid = camera_grid(
+                space, step_m=step_m,
+                height_above_floor_m=config.interior_eye_height_m, region=region,
+            )
     except (ValueError, KeyError, TypeError) as error:
         return {
             "status": "not_run",
@@ -450,24 +495,29 @@ def measure_contact_offset(mesh: Any, *, plane_point, out_direction,
         usable = [float(value) for value in values if free_after(point, value)]
         per_probe.append({"crossings_m": [float(value) for value in values],
                           "usable_m": usable})
-    missing = [index for index, row in enumerate(per_probe) if not row["usable_m"]]
-    if missing:
-        empty = [index for index in missing if not per_probe[index]["crossings_m"]]
+    # The centre is what says the asset is resting on something. A footprint
+    # corner with nothing under it is the fitted rectangle reaching past the
+    # real surface, not an unsupported asset: it cannot raise the seat, so it
+    # is recorded and passed over. Whether the asset is really seated is
+    # decided afterwards by probing behind it, and whether its own volume is
+    # free by probing in front.
+    unsupported = [index for index, row in enumerate(per_probe) if not row["usable_m"]]
+    if not per_probe[0]["usable_m"]:
         return {
             "status": "fail",
-            "reason": ("no room triangle crosses the mounting axis under part of "
-                       "the footprint within the catalog's declared plane tolerance"
-                       if empty else
-                       "part of the footprint has less free depth in front of every "
-                       "surface than the asset needs"),
+            "reason": ("no room triangle crosses the mounting axis under the centre "
+                       "of the footprint within the catalog's declared plane tolerance"
+                       if not per_probe[0]["crossings_m"] else
+                       "every surface under the centre of the footprint has less free "
+                       "depth in front of it than the asset needs"),
             "offset_m": 0.0,
             "search_bound_m": float(search),
             "required_free_depth_m": needed,
             "probe_count": len(probes),
-            "probes_without_seat": missing,
+            "probes_without_seat": unsupported,
             "probe_crossings_m": [row["crossings_m"] for row in per_probe],
         }
-    nearest = [min(row["usable_m"], key=abs) for row in per_probe]
+    nearest = [min(row["usable_m"], key=abs) for row in per_probe if row["usable_m"]]
     chosen = max(nearest)
     obstructed = [index for index, point in enumerate(probes)
                   if not free_after(point, chosen)]
@@ -495,6 +545,7 @@ def measure_contact_offset(mesh: Any, *, plane_point, out_direction,
         "search_bound_m": float(search),
         "required_free_depth_m": needed,
         "probe_count": len(probes),
+        "probes_without_seat": unsupported,
         "probe_seat_offsets_m": [float(value) for value in nearest],
         "footprint_unevenness_m": float(max(nearest) - min(nearest)),
     }
