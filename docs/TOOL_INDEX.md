@@ -5,7 +5,7 @@
 
 自 2026-08-25 起，目录本身就是能力分组（阶段目录 m1…m7 已移除），
 本表按目录列出每个工具做什么。
-当前共 438 个工具脚本。
+当前共 439 个工具脚本。
 
 ## 资产生成与装配（`tools/assets/`）
 
@@ -365,6 +365,7 @@
 | `tools/qa/refresh_strict_two_human_row8_ready.py` | Refresh the row8 sparse request against the current split visibility contract |
 | `tools/qa/render_axis1_twin_audio.py` | Render route-swap twin binaural audio for axis-1 certified episodes |
 | `tools/qa/render_intermittent_batch.py` | Render intermittent-window binaural mixtures for a declared episode subset |
+| `tools/qa/replay_appearance_review.py` | 重放已渲染 episode 的登记外观复核，按房间给出"登记值 × 判定"混淆表。 |
 | `tools/qa/report_qa_v3_card1_conditional_baseline.py` | Card1 realized conditional tables and best-response unimodal baselines |
 | `tools/qa/route_synthesis.py` | Routes designed by the solver for the pose it has chosen |
 | `tools/qa/run_qa_v3_audio_batch.py` | Sequential dynamic-audio runner for a qa-v3 design batch (stage two) |
