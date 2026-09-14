@@ -75,6 +75,24 @@ def _inspect_kwargs(thresholds: Mapping[str, Any]) -> dict[str, Any]:
     return {name: value for name, value in offered.items() if name in accepted}
 
 
+def _with_secondary(
+    knobs: Mapping[str, Any], secondary: str | None, primary: str | None = None,
+) -> dict[str, Any]:
+    """Add the registration only when the classifier understands it.
+
+    The declared primary travels with the declared second colour so that a cross
+    acceptance probe -- which asks about a colour the item never declared -- is
+    judged without the benefit of that item's pattern declaration.
+    """
+    merged = dict(knobs)
+    accepted = _inspect.signature(inspect_registered_appearance).parameters
+    if secondary and "secondary_value" in accepted:
+        merged["secondary_value"] = secondary
+        if primary and "declared_primary_value" in accepted:
+            merged["declared_primary_value"] = primary
+    return merged
+
+
 _SEED_IN_NAME = re.compile(r"s(\d+)\b")
 
 
@@ -120,6 +138,65 @@ def _appearance_review_path(episode: Path) -> Path | None:
     return local if local.is_file() else None
 
 
+def load_asset_registry(path: Path | None) -> dict[str, Mapping[str, Any]]:
+    """Read a source-asset runtime registry into an asset_id lookup."""
+    if path is None:
+        return {}
+    value = json.loads(Path(path).read_text(encoding="utf-8"))
+    records = value.get("assets") if isinstance(value, Mapping) else value
+    if not isinstance(records, list):
+        return {}
+    return {
+        str(record["asset_id"]): record
+        for record in records
+        if isinstance(record, Mapping) and isinstance(record.get("asset_id"), str)
+    }
+
+
+def plan_asset_ids(episode: Path) -> dict[str, str]:
+    """Which asset each actor of an episode was planned with."""
+    plan_path = episode / "plan" / "episode_plan.json"
+    if not plan_path.is_file():
+        return {}
+    try:
+        plan = json.loads(plan_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    values = plan.get("visual_plan")
+    values = values.get("actors") if isinstance(values, Mapping) else None
+    rows: list[Mapping[str, Any]] = []
+    if isinstance(values, Mapping):
+        rows = [dict(row, actor_id=str(key)) for key, row in values.items() if isinstance(row, Mapping)]
+    elif isinstance(values, list):
+        rows = [row for row in values if isinstance(row, Mapping)]
+    table: dict[str, str] = {}
+    for row in rows:
+        actor_id = row.get("actor_id")
+        asset_id = row.get("asset_id") or row.get("entity_asset_id")
+        if isinstance(actor_id, str) and isinstance(asset_id, str):
+            table[actor_id] = asset_id
+    return table
+
+
+def _declared_secondary(record: Mapping[str, Any] | None, entity_kind: str) -> str | None:
+    """The second colour an asset registers, by the field its kind uses."""
+    if not isinstance(record, Mapping):
+        return None
+    attributes = record.get("realized_attributes")
+    if not isinstance(attributes, Mapping):
+        return None
+    fields = {
+        "human": ("top_secondary_color", "secondary_color"),
+        "device": ("secondary_finish", "secondary_body_color", "secondary_color"),
+        "animal": ("coat_secondary_color", "secondary_color"),
+    }.get(str(entity_kind).strip().casefold(), ("secondary_color",))
+    for field in fields:
+        value = attributes.get(field)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return None
+
+
 def _room_id(episode: Path) -> str:
     plan = episode / "plan" / "episode_plan.json"
     if plan.is_file():
@@ -153,6 +230,7 @@ def replay_episode(
     frame_stride: int = 10,
     cross_acceptance_frames: int = 2,
     thresholds: Mapping[str, Any] | None = None,
+    asset_registry: Mapping[str, Mapping[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Re-run the appearance review for one already-rendered episode."""
     episode = Path(episode).resolve()
@@ -172,6 +250,7 @@ def replay_episode(
     rgb_array = np.load(rgb_path, mmap_mode="r", allow_pickle=False) if rgb_path.is_file() else None
     masks = capture / "native_pixel_masks_depth_authority_v1.npz"
     room = _room_id(episode)
+    assets = plan_asset_ids(episode) if asset_registry else {}
     actors: dict[str, Any] = {}
     started = time.monotonic()
     with np.load(masks, allow_pickle=False) as data:
@@ -199,6 +278,11 @@ def replay_episode(
                 "episode_dir": str(episode),
                 "registered_value": value,
                 "entity_kind": record.get("entity_kind"),
+                "asset_id": assets.get(str(actor_id)),
+                "registered_secondary_value": _declared_secondary(
+                    (asset_registry or {}).get(assets.get(str(actor_id), "")),
+                    str(record.get("entity_kind") or "human"),
+                ),
                 "attribute_field": record.get("attribute_field") or record.get("appearance_field_used"),
                 "stored_status": record.get("status"),
                 "visible_pixel_frames": len(visible),
@@ -236,7 +320,9 @@ def replay_episode(
                     rgb, mask, str(state["registered_value"]),
                     entity_kind=str(state["entity_kind"] or "human"),
                     target_bbox=frame.get("target_bbox_xyxy_px"),
-                    **knobs,
+                    **_with_secondary(
+                        knobs, state["registered_secondary_value"], str(state["registered_value"]),
+                    ),
                 )
                 state["replayed_frames"] += 1
                 if observed.get("status") == "pass":
@@ -254,7 +340,9 @@ def replay_episode(
                             rgb, mask, candidate,
                             entity_kind=str(state["entity_kind"] or "human"),
                             target_bbox=frame.get("target_bbox_xyxy_px"),
-                            **knobs,
+                            **_with_secondary(
+                                knobs, state["registered_secondary_value"], str(state["registered_value"]),
+                            ),
                         )
                         state["cross_probed"].append(candidate)
                         if probe.get("status") == "pass":
@@ -283,6 +371,7 @@ def replay_render_roots(
     cross_acceptance_frames: int = 2,
     exclude: Sequence[str] = (),
     thresholds: Mapping[str, Any] | None = None,
+    asset_registry: Mapping[str, Mapping[str, Any]] | None = None,
 ) -> Iterator[dict[str, Any]]:
     """Replay every episode under each render root, skipping excluded names."""
     blocked = tuple(str(value) for value in exclude)
@@ -299,6 +388,7 @@ def replay_render_roots(
                     frame_stride=frame_stride,
                     cross_acceptance_frames=cross_acceptance_frames,
                     thresholds=thresholds,
+                    asset_registry=asset_registry,
                 )
             except (OSError, ValueError, KeyError) as error:
                 yield {"schema": REPLAY_SCHEMA, "episode": name, "episode_dir": str(episode),

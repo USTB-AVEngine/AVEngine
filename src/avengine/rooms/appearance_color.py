@@ -70,9 +70,20 @@ MAXIMUM_REFERENCE_SATURATION = 0.55
 NO_REFERENCE_LIGHTNESS = 75.0
 
 #: Share of the inspected pixels whose hue must be measurable before a hue can be
-#: named at all. Below this the target is mostly shadow or mostly neutral, and
-#: the honest answer is that its colour was not observed.
+#: named at all. Below this the target reads as neutral and whatever hue is left
+#: is usually not the item: on a person a small warm region is nearly always bare
+#: skin, which is why a grey-rendered blue shirt could otherwise be certified by
+#: the colour of its own face.
 MINIMUM_NAMEABLE_HUE_FRACTION = 0.25
+
+#: The same floor for an item that registers a second colour. Declaring a check
+#: or a stripe says the item is patterned, and a patterned item carries its hues
+#: over a partly neutral ground -- the measured blue-and-tan plaid reads as a hue
+#: in a fifth of its pixels. The relaxation is only available to an item whose
+#: registration says so; an item that declares nothing is judged at the full
+#: quarter. Either way the hue-carrying pixels must also clear the same absolute
+#: support floor the registered colour itself has to clear.
+DECLARED_PATTERN_NAMEABLE_HUE_FRACTION = 0.10
 
 #: Default share a value's families must reach. A hue is judged among the pixels
 #: whose hue is measurable, so it needs a clear majority of them; a lightness
@@ -432,7 +443,9 @@ _ANIMAL_PREDICATES: dict[str, ColourPredicate] = {
         note="a two-tone coat: a warm and a light component must both be present",
     ),
     "standard_white_tan": ColourPredicate(
-        support=("orange", "yellow") + LIGHT_NEUTRAL,
+        # Light first: the coat is named for its white ground, and the leading
+        # family is what appearance_distinction_family reports.
+        support=LIGHT_NEUTRAL + ("orange", "yellow"),
         tolerated=("red", "black", "gray"),
         components=((LIGHT_NEUTRAL, 0.10), (("orange", "yellow"), 0.10)),
         minimum_share=0.40,
@@ -477,6 +490,37 @@ def predicate_for(value: str, entity_kind: str) -> ColourPredicate | None:
     return None
 
 
+def appearance_distinction_family(value: str, entity_kind: str = "") -> str | None:
+    """The coarse family two registered values must differ in to be told apart.
+
+    Two values that resolve to the same family cannot be separated in rendered
+    pixels: pink and burgundy are a tint and a shade of one hue, so a frame shows
+    the same family for both and no amount of thresholding recovers which is
+    which. A question that asks a participant to tell two actors apart by colour
+    therefore needs their registered values to land in different families here.
+
+    The family is the first family a value's predicate is built on, which is the
+    one the value is named for; it is derived from the predicate table rather
+    than listed separately, so a new value joins the right group automatically.
+    """
+    predicate = predicate_for(value, entity_kind)
+    if predicate is None or not predicate.support:
+        return None
+    return predicate.support[0]
+
+
+def secondary_tolerated_families(value: str, entity_kind: str = "") -> tuple[str, ...]:
+    """The families a registered second colour of a two-tone item covers.
+
+    A checked or striped item carries a second colour that is part of the item,
+    not evidence against the first. Declaring it in the registry is what lets the
+    classifier stop counting it as a competitor; an item that declares nothing is
+    judged exactly as before.
+    """
+    predicate = predicate_for(value, entity_kind)
+    return tuple(predicate.support) if predicate is not None else ()
+
+
 def supported_appearance_values() -> frozenset[str]:
     """Every registered value this classifier can actually observe."""
     return frozenset(value for table in PREDICATES_BY_KIND.values() for value in table)
@@ -491,6 +535,8 @@ def evaluate_registered_value(
     minimum_support_pixels: int,
     dominance_ratio: float,
     minimum_share: float | None = None,
+    secondary_value: str | None = None,
+    declared_primary_value: str | None = None,
 ) -> dict[str, Any]:
     """Decide whether the family histogram shows the registered value.
 
@@ -533,6 +579,24 @@ def evaluate_registered_value(
     )
     share = support / max(1, denominator)
     excluded = set(support_families) | set(predicate.tolerated)
+    # A registration speaks about the colours it declares. Asking whether the
+    # same item could be some third colour is a question its declaration says
+    # nothing about, so the declared pattern neither excuses a competitor nor
+    # lowers the bar for naming a hue in that case.
+    checking_the_declaration = (
+        declared_primary_value is None
+        or str(declared_primary_value).strip().casefold() == str(value).strip().casefold()
+    )
+    declared_secondary = (
+        secondary_tolerated_families(secondary_value, entity_kind)
+        if checking_the_declaration and isinstance(secondary_value, str) and secondary_value.strip()
+        else ()
+    )
+    # A declared second colour leaves the competition, but it stays in the
+    # denominator, so the registered first colour still has to carry its share of
+    # the item. Declaring a second colour cannot rescue a first colour that is
+    # actually a minority of what the frame shows.
+    excluded |= set(declared_secondary)
     if not neutral_support:
         # Shadow and neutral trim never contradict a registered hue.
         excluded |= set(ACHROMATIC_NAMES)
@@ -569,7 +633,14 @@ def evaluate_registered_value(
     reasons: list[str] = []
     if support < int(minimum_support_pixels):
         reasons.append("too_few_supporting_pixels")
-    if not neutral_support and nameable_hue < MINIMUM_NAMEABLE_HUE_FRACTION * max(1, total):
+    nameable_floor = (
+        DECLARED_PATTERN_NAMEABLE_HUE_FRACTION if declared_secondary
+        else MINIMUM_NAMEABLE_HUE_FRACTION
+    )
+    if not neutral_support and (
+        nameable_hue < nameable_floor * max(1, total)
+        or nameable_hue < int(minimum_support_pixels)
+    ):
         reasons.append("target_is_too_dark_or_too_neutral_for_a_hue")
     if share < share_floor:
         reasons.append("registered_families_are_a_minority_of_the_target")
@@ -588,11 +659,14 @@ def evaluate_registered_value(
         "analysed_pixels": total,
         "support_families": list(support_families),
         "tolerated_families": list(predicate.tolerated),
+        "declared_secondary_value": secondary_value if declared_secondary else None,
+        "declared_secondary_families": list(declared_secondary),
         "support_pixels": support,
         "support_share": round(share, 4),
         "support_share_denominator": denominator_name,
         "denominator_pixels": int(denominator),
         "nameable_hue_pixels": int(nameable_hue),
+        "minimum_nameable_hue_fraction": round(float(nameable_floor), 3),
         "minimum_support_share": round(share_floor, 3),
         "support_relative_lightness": (
             round(support_lightness, 3) if support_lightness is not None else None

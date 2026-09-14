@@ -382,6 +382,21 @@ def _validate_appearance_and_resting_pose(
                     f"{prefix}.realized_attributes.{field} value {value!r} is "
                     "outside the native RGB appearance vocabulary"
                 )
+    # A two-tone item may declare the second colour it carries. It is optional,
+    # but when it is there it has to be a colour the pixel review can recognise,
+    # otherwise the declaration would silently do nothing.
+    if isinstance(attributes, Mapping):
+        for field in (
+            "top_secondary_color", "coat_secondary_color", "secondary_finish",
+            "secondary_body_color", "secondary_color",
+        ):
+            value = attributes.get(field)
+            if isinstance(value, str) and value.strip():
+                if value.strip().casefold() not in PIXEL_APPEARANCE_VALUE_VOCABULARY:
+                    errors.append(
+                        f"{prefix}.realized_attributes.{field} value {value!r} is "
+                        "outside the native RGB appearance vocabulary"
+                    )
 
     backends = record.get("runtime_backends")
     habitat = backends.get("habitat") if isinstance(backends, Mapping) else None
