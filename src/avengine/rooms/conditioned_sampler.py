@@ -2028,6 +2028,12 @@ def _constructive_motion_paths(
     return paths, metadata, floor_y, 'constructive_existing_navigation'
 
 
+# A static target keeps this fraction of the half-frame between itself and the
+# edge. It is a framing margin, not an acceptance threshold: native pixels
+# remain the authority on what was visible.
+STATIC_TARGET_EDGE_MARGIN_FRACTION = 0.08
+
+
 def _static_placement_rows(placement_plan):
     if not isinstance(placement_plan, Mapping):
         return {}
@@ -2062,6 +2068,67 @@ def _placement_surface_kind(placement):
 
 def _placement_is_ground(placement):
     return _placement_surface_kind(placement) in {"", "floor"}
+
+
+def _placement_world_corners(placement):
+    """The eight world corners of one planned static placement.
+
+    The planner records the asset's own rotated box corners; the world
+    axis-aligned box is used only where they are missing, because the
+    axis-aligned box of a thin panel on a slanted wall is larger than the panel
+    and would demand more frame than the asset occupies.
+    """
+    bounds = placement.get("asset_bounds") if isinstance(placement, Mapping) else None
+    if not isinstance(bounds, Mapping):
+        raise CandidateFailure("camera", "static_source_placement_bounds_missing")
+    recorded = bounds.get("world_corners_m")
+    if recorded is not None:
+        corners = np.asarray(recorded, dtype=float)
+        if corners.shape == (8, 3) and np.all(np.isfinite(corners)):
+            return corners
+    low = np.asarray(bounds.get("world_aabb_min_m"), dtype=float)
+    high = np.asarray(bounds.get("world_aabb_max_m"), dtype=float)
+    if low.shape != (3,) or high.shape != (3,) or not np.all(np.isfinite([low, high])):
+        raise CandidateFailure("camera", "static_source_placement_bounds_invalid")
+    return np.asarray([[x, y, z] for x in (low[0], high[0])
+                       for y in (low[1], high[1])
+                       for z in (low[2], high[2])], dtype=float)
+
+
+def _static_target_edge_margin(request):
+    """Fraction of the half-frame a static target must keep clear of the edge."""
+    camera = request.get("camera") if isinstance(request, Mapping) else None
+    value = (camera or {}).get("static_target_edge_margin_fraction",
+                               STATIC_TARGET_EDGE_MARGIN_FRACTION)
+    if isinstance(value, bool) or not isinstance(value, (int, float, np.integer, np.floating)):
+        raise ValueError("camera.static_target_edge_margin_fraction must be a number")
+    margin = float(value)
+    if not math.isfinite(margin) or not 0.0 <= margin < 1.0:
+        raise ValueError(
+            "camera.static_target_edge_margin_fraction must be within [0, 1)")
+    return margin
+
+
+def _corners_framed(corners, origin, forwards, rights, *, tangent, aspect, margin,
+                    near_m=0.1):
+    """Per yaw: does every corner of this box project inside the shrunk frame?
+
+    The vertical term is what a ceiling device lives or dies by. The camera
+    never pitches, so height above the lens has to be bought with horizontal
+    distance, and this states that requirement instead of discovering it in the
+    rendered pixels.
+    """
+    delta = np.asarray(corners, dtype=float) - np.asarray(origin, dtype=float)
+    depth = forwards @ delta.T
+    side = rights @ delta.T
+    vertical = np.abs(delta[:, 1])[None, :]
+    keep = 1.0 - float(margin)
+    inside = (
+        (depth > float(near_m))
+        & (np.abs(side) <= depth * tangent * keep)
+        & (vertical <= depth * tangent / aspect * keep)
+    )
+    return np.all(inside, axis=1)
 
 
 def _rotation_matrix_to_xyzw(matrix):
@@ -5165,6 +5232,23 @@ def select_camera_and_schedule(space, mesh, paths, moving, emitters, bodies, act
     events=event_bindings if event_bindings is not None else _event_bindings(sounds,profile,rng)
     actor_index={a['actor_id']:i for i,a in enumerate(actors)}
     anchors=set(profile['anchor_indices']); legal=[]; stages=Counter();ray_cache={}
+    # A static source is furniture: it cannot walk into frame and the route
+    # solver never moves it, so whether the camera can see it is settled here
+    # or not at all. A question about a doorbell on a wall needs the camera to
+    # have the doorbell in frame with a margin and an unobstructed line to its
+    # emitter; a companion device may stay off screen unless the request says
+    # otherwise. Both readings come from the placement plan, so they hold for
+    # any room and any registered wall, ceiling or tabletop asset.
+    static_target_boxes = {}
+    for target_index, target_row in enumerate(actors):
+        placement = placement_rows.get(target_row.get('entity_instance_id'))
+        if placement is None or _placement_is_ground(placement):
+            continue
+        if target_index not in anchors:
+            continue
+        static_target_boxes[target_index] = _placement_world_corners(placement)
+    static_edge_margin = _static_target_edge_margin(request)
+    static_target_indices = sorted(static_target_boxes)
     def fixed_schedule_is_legal(starts):
         if fixed_schedule is None:
             return bool(starts) and all(starts.values()) and (
@@ -5397,6 +5481,16 @@ def select_camera_and_schedule(space, mesh, paths, moving, emitters, bodies, act
                     visible=np.ones_like(fov_mask[:,i],dtype=bool)
                 else:
                     visible=fov_mask[:,i] if competitor_visibility=='in_fov' else ~fov_mask[:,i]
+            if i in static_target_boxes:
+                # anchor_visibility 'any' states no visibility claim for a
+                # walking speaker. A static target has no other chance to be
+                # seen, so its own framing is required regardless.
+                framed=_corners_framed(
+                    static_target_boxes[i], origin, forwards, rights,
+                    tangent=tangent, aspect=aspect, margin=static_edge_margin)
+                if not framed.any():
+                    stages['poses_without_framed_static_target']+=1
+                visible=visible&framed[:,None]
             mask[:,i]&=visible&in_range[i][None]
             if i in anchors:
                 mask[:,i]&=(nearest[i]>=low)[None]&(
@@ -5623,9 +5717,11 @@ def select_camera_and_schedule(space, mesh, paths, moving, emitters, bodies, act
         )
         los=np.zeros((len(actors),paths.shape[1]),dtype=bool)
         for i in profile['speaking_indices']:
-            if ((i in anchors and profile['anchor_visibility']=='any')
+            if i not in static_target_boxes and (
+                    (i in anchors and profile['anchor_visibility']=='any')
                     or (i not in anchors and competitor_visibility=='any')):
                 # No visibility claim for this role, so no line-of-sight demand.
+                # A static target is the exception: it is required to be seen.
                 los[i,:]=True
                 continue
             desired='blocked' if (
@@ -5638,6 +5734,8 @@ def select_camera_and_schedule(space, mesh, paths, moving, emitters, bodies, act
                     stages['ray_los_queries'] += 1
                     ray_cache[key]=line_of_sight(mesh,origin,dest)
                 los[i,frame]=ray_cache[key]==desired
+                if not los[i,frame] and i in static_target_boxes:
+                    stages['static_target_frames_without_line_of_sight']+=1
                 if los[i,frame] and desired=='clear':
                     body_key=(pi,tuple(bodies[i,frame]))
                     if body_key not in ray_cache:
@@ -5682,6 +5780,10 @@ def select_camera_and_schedule(space, mesh, paths, moving, emitters, bodies, act
                 else 'static_geometry_unmeasured'
             )
         )
+        if static_target_indices and (
+                stages.get('poses_without_framed_static_target')
+                or stages.get('static_target_frames_without_line_of_sight')):
+            reason='no_camera_frames_the_static_target_with_a_clear_line'
         raise CandidateFailure('camera',reason)
     if visibility_requirements:
         visibility_poses = [
@@ -6372,7 +6474,8 @@ def build_conditioned_plan(*, room, request, source_registry, sounds, space, mes
                                       'gap_category':'evidence_missing_or_unsampled'})
 
 
-def _prepare_static_placement_plan(request, source_registry, room):
+def _prepare_static_placement_plan(request, source_registry, room, *, mesh=None,
+                                   space=None):
     """Resolve qualification-referenced support evidence before sampling.
 
     The support catalog is an observed visual resource. Its measured
@@ -6436,6 +6539,7 @@ def _prepare_static_placement_plan(request, source_registry, room):
         )
     from pathlib import Path
     from avengine.rooms.qa_episode import read_json
+    from avengine.rooms import placement_geometry
     from avengine.rooms.source_placement import (
         SOURCE_PLACEMENT_SCHEMA,
         plan_static_source_placements,
@@ -6598,6 +6702,19 @@ def _prepare_static_placement_plan(request, source_registry, room):
         "scene_glb": catalog_room.get("scene_glb"),
         "coordinate_frame": catalog_room.get("coordinate_frame"),
     }
+    # A support surface fitted from one depth readback is a plane, not the slab
+    # it was fitted on, and its normal is as likely to point out of the room as
+    # into it. Handing the planner the room's own surface mesh and a set of
+    # walkable standing points lets it decide both from measurements instead of
+    # inheriting the fit. Without a mesh the planner behaves exactly as before.
+    interior = placement_geometry.interior_reference_points(
+        mesh, space,
+        config=placement_geometry.PlacementCheckConfig.from_mapping(
+            config.get("placement_checks"),
+            fallback_search_m=config.get("plane_tolerance_m"),
+        ),
+    ) if mesh is not None else None
+    interior_points = None if interior is None else interior["points_m"]
     result = plan_static_source_placements(
         source_registry,
         room_data,
@@ -6605,6 +6722,8 @@ def _prepare_static_placement_plan(request, source_registry, room):
         visual_geometry,
         requests,
         config=config,
+        room_mesh=mesh,
+        interior_points=interior_points,
     )
     if result.get("schema") != SOURCE_PLACEMENT_SCHEMA:
         raise ValueError("static placement helper returned an unexpected schema")
@@ -6613,12 +6732,27 @@ def _prepare_static_placement_plan(request, source_registry, room):
         for row in result.get("instances", ())
         if isinstance(row, Mapping)
     ):
+        refusals = [
+            {
+                "instance_id": row.get("instance_id"),
+                "asset_id": row.get("asset_id"),
+                "support_surface_id": row.get("support_surface_id"),
+                "reason": row.get("reason"),
+            }
+            for row in result.get("instances", ())
+            if isinstance(row, Mapping) and row.get("status") != "planned"
+        ]
         raise ValueError(
             "static placement rejected support request: "
-            + str(result)
+            + json.dumps(refusals, ensure_ascii=False, default=str)
         )
     return {
         **result,
+        "interior_reference_points": (
+            None if interior is None else {
+                key: value for key, value in interior.items() if key != "points_m"
+            }
+        ),
         "catalog_ref": str(Path(catalog_path).expanduser().resolve()),
         "catalog_schema": catalog.get("schema"),
         "qualification_config_ref": (
@@ -6659,7 +6793,7 @@ def solve_conditioned_episode(*, request, source_registry, sounds, room=None, ro
             raise ValueError('solve_conditioned_episode needs a room, a room_id with a '
                              'room_catalog, or an already loaded space and mesh')
     placement_plan = _prepare_static_placement_plan(
-        effective, source_registry, room
+        effective, source_registry, room, mesh=mesh, space=space
     )
     if placement_plan is not None:
         effective['_static_source_placement_plan'] = placement_plan
