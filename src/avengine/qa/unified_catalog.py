@@ -1291,6 +1291,44 @@ def _camera_fallback(
     return list(camera)
 
 
+def camera_position_series(
+    readbacks: Mapping[str, Any],
+    *,
+    frame_count: int,
+) -> dict[str, Any] | None:
+    """相机的逐帧位置，两种读数形状都认，并且说得出来是从哪一种读的。
+
+    UE 那边把相机写成顶层的 ``camera`` 列表（厘米），Habitat 那边写在每一帧的
+    ``camera_readback`` 里（米）。两边都要能读，否则“听者跟相机同不同位”这件事只在
+    一半房间上量得出来，那就不是一条能用的声明。返回 ``{"positions_m", "source"}``，
+    读不到就返回 None。
+    """
+
+    records = _camera_fallback(readbacks, frame_count=frame_count)
+    if records is not None:
+        positions = _position_series(records, default_ue_cm=True)
+        if positions is not None:
+            return {"positions_m": positions, "source": "frame_readbacks.camera"}
+    frames = readbacks.get("frames")
+    if not _is_sequence(frames) or len(frames) != frame_count:
+        return None
+    for path in (("sensors", "rig_rgb"), ("agent",)):
+        positions = []
+        for record in frames:
+            block = record.get("camera_readback") if isinstance(record, Mapping) else None
+            for key in path:
+                block = block.get(key) if isinstance(block, Mapping) else None
+            point = block.get("translation_m") if isinstance(block, Mapping) else None
+            if not _is_sequence(point) or len(point) != 3:
+                positions = None
+                break
+            positions.append([float(axis) for axis in point])
+        if positions is not None and len(positions) == frame_count:
+            return {"positions_m": positions,
+                    "source": "frame_records.camera_readback." + ".".join(path)}
+    return None
+
+
 def camera_pose_series(
     frame_readbacks: Mapping[str, Any],
     *,

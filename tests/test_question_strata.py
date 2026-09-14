@@ -231,16 +231,18 @@ def test_演员在像素真值里没有那一帧也记原因():
 # --------------------------------------------------------------------------
 
 
-def test_没有封闭选项的题写_null_加原因():
-    got = unimodal_candidates(item("QA-25", {"query_frame": 3}), make_facts())
+def test_没有封闭选项也推不出答案域的题写_null_加原因():
+    # QA-10 / QA-13 / QA-25 这三类虽然没有 MCQ，但答案域能从证据或题面推出来；
+    # 这里用一道没有选项、也没有推导口径的 QA-04 来走这条分支。
+    got = unimodal_candidates(item("QA-04", {"actor_id": "a1", "azimuth_deg": -30.0}), make_facts())
     assert got["audio_only"] is None and got["video_only"] is None
     assert "开放式" in got["reason"]
 
 
 def test_没写过口径的题型写_null_并且原因就是表里那一句():
-    got = unimodal_candidates(item("QA-06", {"actor_id": "a1"}, ["moving", "still"]), make_facts())
+    got = unimodal_candidates(item("QA-07", {"target_actor_id": "a1"}, ["left", "right"]), make_facts())
     assert got["audio_only"] is None
-    assert got["reason"] == UNDERIVED_REASONS["QA-06"]
+    assert got["reason"] == UNDERIVED_REASONS["QA-07"]
 
 
 def test_口径要用的证据缺了也写_null_加原因():
