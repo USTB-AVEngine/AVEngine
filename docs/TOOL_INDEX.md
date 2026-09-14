@@ -5,7 +5,7 @@
 
 自 2026-08-25 起，目录本身就是能力分组（阶段目录 m1…m7 已移除），
 本表按目录列出每个工具做什么。
-当前共 442 个工具脚本。
+当前共 443 个工具脚本。
 
 ## 资产生成与装配（`tools/assets/`）
 
@@ -434,6 +434,7 @@
 | `tools/dataset/build_spear_apartment_review.py` | Bind one exact SPEAR Apartment RGB render to Habitat Topdown v3 and audio |
 | `tools/dataset/compare_rir_cache_metrics.py` | Compare EDT/DRR/late-energy between two retained RIR caches on matched jobs |
 | `tools/dataset/export_episode_bundle.py` | Publish a shared-room Episode/QA reference bundle |
+| `tools/dataset/export_presentations.py` | 给已导出的题库补上五种呈现的输入清单，以及自己下混的单声道 |
 | `tools/dataset/generate_retained_qa_bank.py` | CPU-only question-bank generation from retained native media; resumable per source |
 | `tools/dataset/inspect_qa_dataset.py` | Read, inspect and score a self-contained V1 QA dataset export |
 | `tools/dataset/measure_source_qualification_geometry.py` | Measure the geometry observations the source-asset qualification matrix reads |
