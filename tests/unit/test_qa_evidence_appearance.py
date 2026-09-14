@@ -3,12 +3,14 @@ from __future__ import annotations
 from copy import deepcopy
 import json
 from pathlib import Path
+from typing import Any
 import time
 
 import numpy as np
 
 from avengine.rooms.qa_evidence import (
     PLACEHOLDER_NONHUMAN_MINIMUM_COLOR_PIXELS,
+    REGISTERED_APPEARANCE_CLASSIFIER_GAP_REASON,
     acquire_shared_visual_evidence,
     annotate_achieved_conditions_visibility,
     annotate_pixel_visibility_semantics,
@@ -346,25 +348,25 @@ def test_annotate_pixel_truth_and_achieved_conditions_keep_in_fov_meaning() -> N
     assert "visible_pixels > 0" in row["in_fov_definition"]
 
 
-def test_unsupported_registered_values_use_classifier_gap_reason() -> None:
-    rgb = np.full((48, 48, 3), 180, dtype=np.uint8)
-    mask = np.ones((48, 48), dtype=bool)
-    unsupported = (
-        ("silver", "device"),
-        ("white_satin", "device"),
-        ("warm_gray", "device"),
-        ("beige", "device"),
-        ("sandstone", "device"),
-        ("light_gray_fabric", "device"),
+def test_values_the_registry_carries_now_have_a_classifier() -> None:
+    """Every value an asset may register is either observed or named as a gap."""
+    rgb = np.full((160, 200, 3), 150, dtype=np.uint8)
+    rgb[30:150, 40:160] = (208, 206, 202)
+    mask = np.zeros((160, 200), dtype=bool)
+    mask[30:150, 40:160] = True
+    implemented = (
+        ("silver", "device"), ("white_satin", "device"), ("warm_gray", "device"),
+        ("beige", "device"), ("sandstone", "device"), ("light_gray_fabric", "device"),
         ("standard_seal_point", "animal"),
     )
-    for value, kind in unsupported:
+    for value, kind in implemented:
         row = inspect_registered_appearance(rgb, mask, value, entity_kind=kind)
-        assert row["status"] == "not_observable", value
-        assert row["reason"] == "registered_appearance_value_classifier_not_implemented", value
-        assert row["gap_category"] == "interface_not_implemented", value
-    implemented = inspect_registered_appearance(rgb, mask, "white", entity_kind="device")
-    assert implemented.get("reason") != "registered_appearance_value_classifier_not_implemented"
+        assert row.get("reason") != REGISTERED_APPEARANCE_CLASSIFIER_GAP_REASON, value
+        assert row.get("gap_category") != "interface_not_implemented", value
+    unknown = inspect_registered_appearance(rgb, mask, "lunar_opal", entity_kind="device")
+    assert unknown["status"] == "not_observable"
+    assert unknown["reason"] == REGISTERED_APPEARANCE_CLASSIFIER_GAP_REASON
+    assert unknown["gap_category"] == "interface_not_implemented"
 
 
 def test_actor_reason_is_classifier_gap_when_value_has_no_classifier(tmp_path: Path) -> None:
@@ -404,7 +406,7 @@ def test_actor_reason_is_classifier_gap_when_value_has_no_classifier(tmp_path: P
                     "actor_id": "source1",
                     "asset_id": "blender_silver",
                     "entity_class": "rigid_object",
-                    "realized_attributes": {"body_color": "silver", "form_factor": "jug"},
+                    "realized_attributes": {"body_color": "lunar_opal", "form_factor": "jug"},
                 }
             ]
         }
@@ -412,7 +414,7 @@ def test_actor_reason_is_classifier_gap_when_value_has_no_classifier(tmp_path: P
     result = build_pixel_appearance_review(tmp_path, plan, frame_stride=1)
     actor = result["actors"]["source1"]
     assert actor["status"] == "not_observable"
-    assert actor["value"] == "silver"
+    assert actor["value"] == "lunar_opal"
     assert actor["reason"] == "registered_appearance_value_classifier_not_implemented"
     assert actor["gap_category"] == "interface_not_implemented"
     assert actor["checks"]
@@ -678,3 +680,239 @@ def test_reobservation_rejects_changed_pixels_behind_an_unchanged_identity(tmp_p
     assert rejected["status"] == "rejected"
     assert rejected["reason"] == "re-observed pixels disagree with the recorded appearance check"
     assert rejected["actor_id"] == "source1"
+
+
+# ---------------------------------------------------------------------------
+# Illumination-relative colour families.
+#
+# Every case below is built twice where it matters: once under a neutral room
+# light and once under a warm one. A registered value that survives the neutral
+# frame and dies under the warm one would mean the classifier is reading the
+# lamp instead of the surface, which is exactly the failure these replace.
+# ---------------------------------------------------------------------------
+
+NEUTRAL_ROOM = (1.0, 1.0, 1.0)
+WARM_ROOM = (1.0, 0.80, 0.62)
+COOL_ROOM = (0.82, 0.92, 1.0)
+DIM_WARM_ROOM = (0.55, 0.44, 0.34)
+
+
+def _room_frame(
+    patch: Any,
+    *,
+    background: tuple[int, int, int] = (150, 150, 150),
+    illuminant: tuple[float, float, float] = NEUTRAL_ROOM,
+    size: tuple[int, int] = (160, 200),
+    box: tuple[int, int, int, int] = (40, 30, 160, 150),
+) -> tuple[np.ndarray, np.ndarray, list[int]]:
+    """A target patch inside a room, then the whole frame lit by one lamp.
+
+    The background is what the scene-neutral estimate has to work from, and the
+    illuminant multiplies target and room alike, which is what a coloured room
+    light actually does.
+    """
+    height, width = size
+    x0, y0, x1, y1 = box
+    rgb = np.zeros((height, width, 3), dtype=np.uint8)
+    rgb[:] = background
+    region = np.asarray(patch, dtype=np.uint8)
+    if region.ndim == 1:
+        rgb[y0:y1, x0:x1] = region
+    else:
+        rgb[y0:y1, x0:x1] = np.resize(region, (y1 - y0, x1 - x0, 3))
+    lit = np.clip(rgb.astype(np.float64) * np.asarray(illuminant), 0, 255).astype(np.uint8)
+    mask = np.zeros((height, width), dtype=bool)
+    mask[y0:y1, x0:x1] = True
+    return lit, mask, [x0, y0, x1, y1]
+
+
+def _striped(first: tuple[int, int, int], second: tuple[int, int, int],
+             height: int, width: int, period: int = 6) -> np.ndarray:
+    rows = np.zeros((height, width, 3), dtype=np.uint8)
+    rows[:] = first
+    for start in range(0, height, period):
+        rows[start:start + period // 2] = second
+    return rows
+
+
+def _verdict(patch: Any, value: str, kind: str, *, illuminant=NEUTRAL_ROOM, **frame) -> dict[str, Any]:
+    rgb, mask, bbox = _room_frame(patch, illuminant=illuminant, **frame)
+    return inspect_registered_appearance(
+        rgb, mask, value, entity_kind=kind, target_bbox=bbox,
+    )
+
+
+def test_a_warm_room_light_does_not_rename_a_white_shirt() -> None:
+    for room in (NEUTRAL_ROOM, WARM_ROOM, COOL_ROOM, DIM_WARM_ROOM):
+        observed = _verdict((236, 234, 230), "white", "human", illuminant=room)
+        assert observed["status"] == "pass", (room, observed.get("reason"))
+        assert observed["observed_value"] == "white"
+        # The same pixels must not also satisfy a warm garment colour.
+        for other in ("burgundy", "yellow", "pink"):
+            competing = _verdict((236, 234, 230), other, "human", illuminant=room)
+            assert competing["status"] == "not_observable", (room, other)
+
+
+def test_a_green_shirt_is_never_certified_as_yellow() -> None:
+    for room in (NEUTRAL_ROOM, WARM_ROOM, DIM_WARM_ROOM):
+        assert _verdict((54, 128, 62), "green", "human", illuminant=room)["status"] == "pass", room
+        for other in ("yellow", "blue", "white", "burgundy"):
+            observed = _verdict((54, 128, 62), other, "human", illuminant=room)
+            assert observed["status"] == "not_observable", (room, other)
+
+
+def test_a_yellow_shirt_survives_a_warm_room_and_stays_yellow() -> None:
+    for room in (NEUTRAL_ROOM, WARM_ROOM, DIM_WARM_ROOM):
+        assert _verdict((198, 164, 40), "yellow", "human", illuminant=room)["status"] == "pass", room
+        assert _verdict((198, 164, 40), "green", "human", illuminant=room)["status"] == "not_observable"
+        assert _verdict((198, 164, 40), "white", "human", illuminant=room)["status"] == "not_observable"
+
+
+def test_a_two_tone_striped_shirt_keeps_its_registered_white() -> None:
+    stripes = _striped((238, 236, 232), (150, 122, 96), 120, 120)
+    for room in (NEUTRAL_ROOM, WARM_ROOM):
+        observed = _verdict(stripes, "white", "human", illuminant=room)
+        assert observed["status"] == "pass", (room, observed.get("reason"))
+        assert observed["decision"]["support_share"] >= 0.35
+        # A registered brown on the same garment loses to the white ground.
+        assert _verdict(stripes, "burgundy", "human", illuminant=room)["status"] == "not_observable"
+
+
+def test_a_mostly_brown_shirt_is_not_certified_as_white() -> None:
+    stripes = np.zeros((120, 120, 3), dtype=np.uint8)
+    stripes[:] = (150, 108, 74)
+    stripes[::10] = (238, 236, 232)
+    observed = _verdict(stripes, "white", "human", illuminant=WARM_ROOM)
+    assert observed["status"] == "not_observable"
+
+
+def test_the_grey_family_values_are_implemented() -> None:
+    for value in ("light_gray", "light_gray_fabric", "silver", "warm_gray"):
+        for room in (NEUTRAL_ROOM, WARM_ROOM):
+            observed = _verdict((120, 118, 116), value, "device", illuminant=room)
+            assert observed["status"] == "pass", (value, room, observed.get("reason"))
+            assert observed.get("reason") != REGISTERED_APPEARANCE_CLASSIFIER_GAP_REASON
+        # A mid grey is never certified as black: black has no lighter neighbour.
+        assert _verdict((120, 118, 116), "black", "device")["status"] == "not_observable"
+
+
+def test_the_sand_family_values_are_implemented() -> None:
+    for value in ("beige", "sandstone"):
+        for room in (NEUTRAL_ROOM, WARM_ROOM):
+            observed = _verdict((214, 196, 158), value, "device", illuminant=room)
+            assert observed["status"] == "pass", (value, room, observed.get("reason"))
+        assert _verdict((40, 70, 150), value, "device")["status"] == "not_observable"
+
+
+def test_white_satin_is_implemented_and_is_the_white_family() -> None:
+    assert _verdict((240, 238, 236), "white_satin", "device")["status"] == "pass"
+    assert _verdict((240, 238, 236), "white_satin", "device", illuminant=WARM_ROOM)["status"] == "pass"
+    assert _verdict((60, 58, 56), "white_satin", "device")["status"] == "not_observable"
+
+
+def test_a_sable_coat_is_a_dark_warm_family_not_a_golden_one() -> None:
+    for value in ("standard_sable", "dark_sable"):
+        observed = _verdict((86, 58, 34), value, "animal", illuminant=WARM_ROOM)
+        assert observed["status"] == "pass", (value, observed.get("reason"))
+    assert _verdict((86, 58, 34), "standard_yellow", "animal")["status"] == "not_observable"
+    assert _verdict((226, 186, 96), "standard_yellow", "animal", illuminant=WARM_ROOM)["status"] == "pass"
+
+
+def test_seal_point_needs_a_light_body_and_dark_points() -> None:
+    pointed = _striped((222, 206, 180), (46, 34, 28), 120, 120, period=10)
+    observed = _verdict(pointed, "standard_seal_point", "animal", illuminant=WARM_ROOM)
+    assert observed["status"] == "pass", observed.get("reason")
+    assert observed.get("reason") != REGISTERED_APPEARANCE_CLASSIFIER_GAP_REASON
+    # A cream coat with no dark points is not a pointed coat.
+    plain = _verdict((222, 206, 180), "standard_seal_point", "animal")
+    assert plain["status"] == "not_observable"
+    assert any("missing_component" in reason for reason in plain["decision"]["rejections"])
+
+
+def test_a_registered_value_with_no_predicate_still_reports_the_gap() -> None:
+    observed = _verdict((180, 180, 180), "iridescent_teal_flake", "device")
+    assert observed["status"] == "not_observable"
+    assert observed["reason"] == REGISTERED_APPEARANCE_CLASSIFIER_GAP_REASON
+    assert observed["gap_category"] == "interface_not_implemented"
+
+
+def test_the_scene_reference_ignores_the_inspected_instance() -> None:
+    """A target that fills the view may not become its own lightness scale."""
+    from avengine.rooms.appearance_color import estimate_scene_neutral
+
+    rgb, mask, bbox = _room_frame(
+        (48, 47, 46), background=(168, 166, 164), box=(6, 6, 194, 154),
+    )
+    without = estimate_scene_neutral(rgb, exclude_mask=mask)
+    with_target = estimate_scene_neutral(rgb)
+    assert without["reference_lightness"] > with_target["reference_lightness"] + 10
+    # Read against the room, the dark target is dark; read against itself it is not.
+    observed = inspect_registered_appearance(
+        rgb, mask, "black", entity_kind="device", target_bbox=bbox,
+    )
+    assert observed["status"] == "pass", observed.get("reason")
+
+
+def test_a_target_too_small_to_read_stays_not_observable() -> None:
+    rgb, mask, bbox = _room_frame((54, 128, 62), box=(40, 30, 52, 44))
+    observed = inspect_registered_appearance(
+        rgb, mask, "green", entity_kind="human", target_bbox=bbox,
+    )
+    assert observed["status"] == "not_observable"
+    assert "too_few_supporting_pixels" in observed["decision"]["rejections"]
+
+
+def test_an_empty_target_footprint_is_a_geometric_refusal() -> None:
+    rgb, mask, _bbox = _room_frame((54, 128, 62))
+    observed = inspect_registered_appearance(
+        rgb, mask, "green", entity_kind="human", target_bbox=[10, 10, 10, 10],
+    )
+    assert observed["status"] == "not_observable"
+    assert observed["reason"] == "empty_target_footprint"
+    assert observed["gap_category"] == "target_geometry"
+
+
+def test_the_same_numbers_serve_every_entity_kind() -> None:
+    thresholds = nonhuman_appearance_placeholder_thresholds()
+    assert thresholds["minimum_color_pixels"] == 512
+    assert thresholds["color_model"] == "illumination_relative_colour_families_v1"
+    assert thresholds["one_rule_for_every_entity_kind"]["function"] == "inspect_registered_appearance"
+
+
+def test_the_registrable_vocabulary_is_exactly_what_the_classifier_observes() -> None:
+    """A value an asset may register must be a value the pixels can be read for."""
+    from avengine.rooms.appearance_color import supported_appearance_values
+    from avengine.runtime_profiles import PIXEL_APPEARANCE_VALUE_VOCABULARY
+
+    assert set(PIXEL_APPEARANCE_VALUE_VOCABULARY) == set(supported_appearance_values())
+
+
+def test_a_shirt_in_shadow_is_judged_among_the_pixels_that_carry_a_hue() -> None:
+    """Shadow is the absence of colour evidence, not evidence of another colour."""
+    shirt = np.zeros((120, 120, 3), dtype=np.uint8)
+    shirt[:] = (18, 16, 15)
+    shirt[:, 40:100] = (40, 96, 54)
+    observed = _verdict(shirt, "green", "human", illuminant=DIM_WARM_ROOM)
+    assert observed["status"] == "pass", observed.get("reason")
+    decision = observed["decision"]
+    assert decision["support_share_denominator"] == "pixels_with_a_measurable_hue"
+    assert decision["denominator_pixels"] < decision["analysed_pixels"]
+
+
+def test_a_target_almost_entirely_in_shadow_cannot_name_a_hue() -> None:
+    shirt = np.zeros((120, 120, 3), dtype=np.uint8)
+    shirt[:] = (16, 15, 14)
+    shirt[:, 56:64] = (40, 96, 54)
+    observed = _verdict(shirt, "green", "human", illuminant=DIM_WARM_ROOM)
+    assert observed["status"] == "not_observable"
+    assert "target_is_too_dark_or_too_neutral_for_a_hue" in observed["decision"]["rejections"]
+
+
+def test_a_lightness_band_still_counts_every_pixel_of_the_target() -> None:
+    """A white value is weighed against the shadow on it, not excused from it."""
+    shirt = np.zeros((120, 120, 3), dtype=np.uint8)
+    shirt[:] = (26, 25, 25)
+    shirt[:, 50:70] = (238, 236, 232)
+    observed = _verdict(shirt, "white", "human")
+    assert observed["status"] == "not_observable"
+    assert observed["decision"]["support_share_denominator"] == "inspected_pixels"
