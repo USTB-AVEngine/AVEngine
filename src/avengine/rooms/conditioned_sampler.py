@@ -463,6 +463,13 @@ def static_support_floor_reference(room, space, placement_rows, mesh=None):
                             modal.append(float(height))
             except (OSError, TypeError, ValueError, json.JSONDecodeError):
                 pass
+        # The floor reference file knows the heights of the levels it saw, not
+        # which of them are inside the building or big enough to plan on. Only
+        # the levels the planning decision kept may serve as the ground below a
+        # static support; the reference merely refines their heights.
+        modal = [value for value in modal
+                 if any(abs(float(value) - float(legal)) <= SAME_FLOOR_Y_TOLERANCE_M
+                        for legal in floors)]
         floor_levels = sorted(set(modal)) or floors
         below_support = [value for value in floor_levels if value <= target - 0.2]
         if below_support:

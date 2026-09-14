@@ -6,6 +6,8 @@ have to come out differently - a single-storey box whose roof is walkable, and
 a genuine two-storey box - from the same criterion, with no rule that names
 either of them.
 """
+import json
+
 import numpy as np
 import pytest
 
@@ -373,3 +375,25 @@ def test_a_geometry_object_without_triangle_bounds_is_treated_like_no_mesh():
     assert 'no triangle bounds' in record['reason']
     assert record['legal_heights_m'] == [0.0, 3.2]
     assert {row['verdict'] for row in record['levels']} == {'unmeasured'}
+
+def test_the_ground_below_a_static_support_is_never_a_level_the_decision_dropped(tmp_path):
+    """The floor reference lists every level it saw, roof included.
+
+    A wall device seated high up must still be planned from an interior floor,
+    so the reference's levels are filtered by the planning decision before one
+    is chosen as the ground below the support.
+    """
+    space, mesh = two_storey()
+    reference = tmp_path / 'floor_reference.json'
+    reference.write_text(json.dumps({'summary': {'levels': [
+        {'floor_height_m': 0.0, 'sample_count': 5},
+        {'floor_height_m': 3.0, 'sample_count': 5},
+        {'floor_height_m': 6.2, 'sample_count': 5},
+    ]}}))
+    room = {'room_package': {'floor_reference': {'path': str(reference)}}}
+    decision = cs.planning_floor_decision(room, space, mesh)
+    assert verdicts(decision)[6.2] == 'open_to_sky'
+    rows = {'device': {'root_transform': {'translation_m': [1.0, 7.0, 1.0]}}}
+    floor_y, source = cs.static_support_floor_reference(room, space, rows, mesh)
+    assert floor_y == pytest.approx(3.0)
+    assert source == 'measured_room_floor_below_static_support'
