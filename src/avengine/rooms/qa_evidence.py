@@ -464,15 +464,29 @@ def _appearance_spec(
         entity_class = species.casefold()
     if "rigid" in entity_class or "device" in entity_class or "speaker" in entity_class or "object" in entity_class:
         wanted = (("finish", "finish"), ("surface_finish", "surface_finish"), ("body_color", "body_color"))
+        secondary_wanted = (
+            ("secondary_finish", "secondary_finish"),
+            ("secondary_body_color", "secondary_body_color"),
+            ("secondary_color", "secondary_color"),
+        )
         kind = "device"
     elif "animal" in entity_class or any(token in entity_class for token in ("dog", "cat", "beagle", "quadruped")) or (isinstance(species, str) and species.casefold() not in {"human", "person"}):
         wanted = (("coat_profile", "coat_profile.value"), ("coat_value", "coat_value"), ("color", "color"))
+        secondary_wanted = (
+            ("coat_secondary_color", "coat_secondary_color"),
+            ("secondary_color", "secondary_color"),
+        )
         kind = "animal"
     else:
         wanted = (("top_color", "top_color"), ("shirt_color", "shirt_color"), ("color", "color"))
+        secondary_wanted = (
+            ("top_secondary_color", "top_secondary_color"),
+            ("secondary_color", "secondary_color"),
+        )
         kind = "human"
     found_fields: list[dict[str, str]] = []
     chosen: dict[str, str] | None = None
+    secondary: dict[str, str] | None = None
     for source, owner in owners:
         for key, field in wanted:
             value = owner.get(key)
@@ -483,6 +497,10 @@ def _appearance_spec(
                 found_fields.append(item)
                 if chosen is None:
                     chosen = item
+        for key, field in secondary_wanted:
+            value = owner.get(key)
+            if isinstance(value, str) and value.strip() and secondary is None:
+                secondary = {"field": field, "value": value.strip(), "source": source}
     missing_reason = (
         "neither finish nor body_color is registered"
         if kind == "device"
@@ -491,6 +509,12 @@ def _appearance_spec(
     return {
         "field": chosen["field"] if chosen else None,
         "value": chosen["value"] if chosen else None,
+        # A two-tone item may register the second colour it actually carries.
+        # It is never evidence for the first colour, only a declaration that the
+        # second one is part of the item rather than a competing reading.
+        "secondary_field": secondary["field"] if secondary else None,
+        "secondary_value": secondary["value"] if secondary else None,
+        "searched_secondary_fields": [field for _, field in secondary_wanted],
         "kind": kind,
         "source": chosen["source"] if chosen else None,
         "appearance_field_used": chosen["field"] if chosen else None,
@@ -531,6 +555,8 @@ def inspect_registered_appearance(
     dominance_ratio: float = PLACEHOLDER_NONHUMAN_DOMINANCE_RATIO,
     color_component_fractions: Mapping[str, float] | None = None,
     value_minimum_shares: Mapping[str, float] | None = None,
+    secondary_value: str | None = None,
+    declared_primary_value: str | None = None,
     target_bbox: Sequence[int] | None = None,
 ) -> dict[str, Any]:
     """Compare a registered appearance value against actual masked RGB pixels.
@@ -595,6 +621,8 @@ def inspect_registered_appearance(
         minimum_support_pixels=int(thresholds["minimum_color_pixels"]),
         dominance_ratio=float(thresholds["dominance_ratio"]),
         minimum_share=float(share_override) if share_override is not None else None,
+        secondary_value=secondary_value,
+        declared_primary_value=declared_primary_value,
     )
     ranked = sorted(counts.items(), key=lambda item: (-item[1], item[0]))
     dominant = ranked[0][0] if ranked and ranked[0][1] > 0 else None
@@ -616,6 +644,8 @@ def inspect_registered_appearance(
         },
         "family_relative_lightness": dict(medians),
         "expected_value": expected_value,
+        "registered_secondary_value": secondary_value,
+        "declared_primary_value": declared_primary_value,
         "entity_kind": kind,
         "inspected_geometry": geometry,
         "minimum_color_pixels": int(thresholds["minimum_color_pixels"]),
@@ -789,6 +819,8 @@ def build_pixel_appearance_review(
                     "value": None,
                     "attribute_value": None,
                     "attribute_field": spec["field"],
+                    "attribute_secondary_value": spec.get("secondary_value"),
+                    "attribute_secondary_field": spec.get("secondary_field"),
                     "appearance_field_used": spec["appearance_field_used"],
                     "appearance_source": spec["source"],
                     "entity_kind": spec["kind"],
@@ -838,6 +870,8 @@ def build_pixel_appearance_review(
                     dominance_ratio=float(thresholds["dominance_ratio"]),
                     color_component_fractions=thresholds["color_component_fractions"],
                     value_minimum_shares=thresholds.get("value_minimum_shares"),
+                    secondary_value=spec.get("secondary_value"),
+                    declared_primary_value=spec["value"],
                     target_bbox=frame.get("target_bbox_xyxy_px"),
                 )
                 check.update(
@@ -862,6 +896,8 @@ def build_pixel_appearance_review(
                 "value": spec["value"],
                 "attribute_value": spec["value"],
                 "attribute_field": spec["field"],
+                "attribute_secondary_value": spec.get("secondary_value"),
+                "attribute_secondary_field": spec.get("secondary_field"),
                 "appearance_field_used": spec["appearance_field_used"],
                 "appearance_source": spec["source"],
                 "entity_kind": spec["kind"],
@@ -1158,6 +1194,8 @@ def shared_visual_evidence_key(
             ),
             "appearance_field": spec["field"],
             "appearance_value": spec["value"],
+            "appearance_secondary_field": spec.get("secondary_field"),
+            "appearance_secondary_value": spec.get("secondary_value"),
             "appearance_source": spec["source"],
             "entity_kind": spec["kind"],
         })
@@ -1360,6 +1398,8 @@ def verify_shared_visual_evidence(
                     dominance_ratio=float(thresholds["dominance_ratio"]),
                     color_component_fractions=thresholds["color_component_fractions"],
                     value_minimum_shares=thresholds.get("value_minimum_shares"),
+                    secondary_value=check.get("registered_secondary_value"),
+                    declared_primary_value=check.get("declared_primary_value"),
                     target_bbox=frame_record.get("target_bbox_xyxy_px") if isinstance(frame_record, Mapping) else None,
                 )
                 for field in ("status", "observed_value", "visible_pixels"):

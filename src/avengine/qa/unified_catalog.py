@@ -2524,7 +2524,7 @@ def _appearance_candidates(
             )
         ):
             continue
-        values.setdefault(value.strip(), []).append(str(actor_id))
+        values.setdefault(_appearance_family(appearance) or value.strip(), []).append(str(actor_id))
         result.append((str(actor_id), actor, appearance))
     if not result:
         _defer(
@@ -2537,8 +2537,9 @@ def _appearance_candidates(
         if duplicate:
             _defer(
                 "appearance_not_unique",
-                "appearance selector matches more than one actor",
-                duplicate_values=duplicate,
+                "appearance selector matches more than one actor; two registered "
+                "values in one colour family are one colour in the rendered frame",
+                duplicate_colour_families=duplicate,
             )
         labels: dict[str, list[str]] = {}
         for actor_id, _actor, appearance in result:
@@ -2593,6 +2594,20 @@ def _actor_options(
             "reviewed appearance labels do not distinguish the answer options",
             labels=labels,
         )
+    families: dict[str, list[str]] = {}
+    for option in options:
+        actor = actors.get(option["value"])
+        appearance = actor.get("appearance") if isinstance(actor, Mapping) else None
+        family = _appearance_family(appearance) if isinstance(appearance, Mapping) else ""
+        if family:
+            families.setdefault(family, []).append(option["value"])
+    shared = {family: members for family, members in families.items() if len(members) > 1}
+    if shared:
+        _defer(
+            "appearance_options_share_a_colour_family",
+            "two answer options are the same colour in the rendered frame",
+            colour_families=shared,
+        )
     return options
 
 
@@ -2607,6 +2622,30 @@ _APPEARANCE_WORDS = {
     "black": ("black individual", "黑色外观个体"),
     "ruddy": ("ruddy individual", "红棕色外观个体"),
 }
+
+
+def _appearance_family(appearance: Any) -> str:
+    """The colour family a registered appearance value can be told apart by.
+
+    Two values in one family are one colour as far as a rendered frame is
+    concerned: pink and burgundy are a tint and a shade of the same hue, and no
+    participant looking at the video could be expected to separate them. A
+    question that asks who wore which colour therefore has to be built on values
+    that land in different families, which is stricter than the plain string
+    inequality this used to be. A value with no family falls back to itself, so
+    an unrecognised value is still only equal to an identical one.
+    """
+    from avengine.rooms.appearance_color import appearance_distinction_family
+
+    if isinstance(appearance, Mapping):
+        value = appearance.get("value", appearance.get("attribute_value"))
+        kind = str(appearance.get("entity_kind") or "")
+    else:
+        value, kind = appearance, ""
+    text = str(value or "").strip().casefold()
+    if not text:
+        return ""
+    return appearance_distinction_family(text, kind) or text
 
 
 def _appearance_phrases(appearance: Mapping[str, Any]) -> tuple[str, str]:
@@ -2698,6 +2737,16 @@ def _appearance_options(
             "appearance_display_labels_not_unique",
             "reviewed appearance labels do not distinguish the answer options",
             labels=labels,
+        )
+    families: dict[str, list[str]] = {}
+    for option in options:
+        families.setdefault(_appearance_family(option["value"]), []).append(option["value"])
+    shared = {family: members for family, members in families.items() if len(members) > 1}
+    if shared:
+        _defer(
+            "appearance_options_share_a_colour_family",
+            "two answer options are the same colour in the rendered frame",
+            colour_families=shared,
         )
     return options
 
@@ -5093,6 +5142,40 @@ def _generate_qa_10(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
                 }
                 for item in candidate_ids
             ]
+            target_family = _appearance_family(reviewed[actor_id])
+            clash = {}
+            for item in candidate_ids:
+                entry = registry.get(item)
+                if not isinstance(entry, Mapping):
+                    continue
+                family = _appearance_family(entry.get("appearance_value"))
+                if family and family == target_family:
+                    clash[item] = entry.get("appearance_value")
+            if clash:
+                _defer(
+                    "occluder_shares_the_target_colour_family",
+                    "an answer option is the same colour as the occluded actor in "
+                    "the rendered frame, so the question cannot be answered by looking",
+                    target_appearance=reviewed[actor_id].get("value"),
+                    clashing_occluders=clash,
+                )
+            option_families: dict[str, list[str]] = {}
+            for item in candidate_ids:
+                entry = registry.get(item)
+                if not isinstance(entry, Mapping):
+                    continue
+                family = _appearance_family(entry.get("appearance_value"))
+                if family:
+                    option_families.setdefault(family, []).append(item)
+            shared_options = {
+                family: members for family, members in option_families.items() if len(members) > 1
+            }
+            if shared_options:
+                _defer(
+                    "occluder_options_share_a_colour_family",
+                    "two answer options are the same colour in the rendered frame",
+                    colour_families=shared_options,
+                )
             appearance_en, appearance_zh = _appearance_phrases(reviewed[actor_id])
             window_fields = _query_window_fields(facts, window)
             display = _display_time_range(facts, window)

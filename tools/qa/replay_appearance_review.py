@@ -30,10 +30,14 @@ def main(argv: list[str] | None = None) -> int:
                         help="episode 名或路径里出现该子串就跳过")
     parser.add_argument("--minimum-visible-frames", type=int, default=30,
                         help="混淆表只统计可见像素帧不少于该值的角色")
+    parser.add_argument("--asset-registry", type=Path, default=None,
+                        help="source asset runtime registry，用来解析资产登记的第二色")
     parser.add_argument("--label", default="replay", help="产物文件名前缀")
     args = parser.parse_args(argv)
 
-    from avengine.rooms.appearance_replay import confusion, replay_render_roots
+    from avengine.rooms.appearance_replay import (
+        confusion, load_asset_registry, replay_render_roots,
+    )
 
     args.out.mkdir(parents=True, exist_ok=True)
     episodes = []
@@ -44,6 +48,7 @@ def main(argv: list[str] | None = None) -> int:
             frame_stride=args.frame_stride,
             cross_acceptance_frames=args.cross_acceptance_frames,
             exclude=args.exclude,
+            asset_registry=load_asset_registry(args.asset_registry),
         ):
             handle.write(json.dumps(episode, ensure_ascii=False) + "\n")
             handle.flush()
@@ -57,6 +62,7 @@ def main(argv: list[str] | None = None) -> int:
     table["render_roots"] = [str(root) for root in args.render_root]
     table["frame_stride"] = int(args.frame_stride)
     table["excluded"] = list(args.exclude)
+    table["asset_registry"] = str(args.asset_registry) if args.asset_registry else None
     table["episode_records"] = str(lines_path)
     summary_path = args.out / f"{args.label}_confusion.json"
     summary_path.write_text(json.dumps(table, ensure_ascii=False, indent=2), encoding="utf-8")

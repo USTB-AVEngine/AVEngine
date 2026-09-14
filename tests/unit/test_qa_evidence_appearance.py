@@ -916,3 +916,131 @@ def test_a_lightness_band_still_counts_every_pixel_of_the_target() -> None:
     observed = _verdict(shirt, "white", "human")
     assert observed["status"] == "not_observable"
     assert observed["decision"]["support_share_denominator"] == "inspected_pixels"
+
+
+# ---------------------------------------------------------------------------
+# A registered second colour, and what "a different appearance" now means.
+# ---------------------------------------------------------------------------
+
+
+def test_a_declared_second_colour_stops_the_check_from_competing() -> None:
+    """A checked garment registers both colours; only then is the second one free."""
+    # A check pattern whose second colour is about as large as its first, which
+    # is what the measured blue-and-tan plaid actually looks like.
+    plaid = np.zeros((120, 120, 3), dtype=np.uint8)
+    plaid[:] = (86, 112, 150)
+    for start in range(0, 120, 10):
+        plaid[start:start + 3] = (176, 152, 96)
+        plaid[:, start:start + 3] = (176, 152, 96)
+    undeclared = _verdict(plaid, "blue", "human", illuminant=WARM_ROOM)
+    assert undeclared["status"] == "not_observable"
+    assert any("competes" in reason for reason in undeclared["decision"]["rejections"])
+
+    rgb, mask, bbox = _room_frame(plaid, illuminant=WARM_ROOM)
+    declared = inspect_registered_appearance(
+        rgb, mask, "blue", entity_kind="human", target_bbox=bbox, secondary_value="beige",
+    )
+    assert declared["status"] == "pass", declared.get("reason")
+    assert declared["registered_secondary_value"] == "beige"
+    assert "orange" in declared["decision"]["declared_secondary_families"]
+
+
+def test_a_declared_second_colour_cannot_rescue_a_minority_first_colour() -> None:
+    """The second colour leaves the competition but stays in the denominator."""
+    mostly_tan = np.zeros((120, 120, 3), dtype=np.uint8)
+    mostly_tan[:] = (176, 152, 96)
+    mostly_tan[:, :24] = (86, 112, 150)
+    rgb, mask, bbox = _room_frame(mostly_tan, illuminant=WARM_ROOM)
+    observed = inspect_registered_appearance(
+        rgb, mask, "blue", entity_kind="human", target_bbox=bbox, secondary_value="beige",
+    )
+    assert observed["status"] == "not_observable"
+    assert "registered_families_are_a_minority_of_the_target" in observed["decision"]["rejections"]
+
+
+def test_a_second_colour_is_read_from_the_registry_by_entity_kind() -> None:
+    from avengine.rooms.qa_evidence import _appearance_spec
+
+    human = _appearance_spec(
+        {"actor_id": "source1", "asset_id": "shirt", "entity_class": "human"},
+        asset_registry={"shirt": {"realized_attributes": {
+            "top_color": "blue", "top_secondary_color": "beige"}}},
+    )
+    assert human["value"] == "blue"
+    assert human["secondary_value"] == "beige"
+    assert human["secondary_field"] == "top_secondary_color"
+    device = _appearance_spec(
+        {"actor_id": "source2", "asset_id": "box", "entity_class": "rigid_object"},
+        asset_registry={"box": {"realized_attributes": {
+            "body_color": "white", "secondary_color": "black"}}},
+    )
+    assert device["secondary_value"] == "black"
+    plain = _appearance_spec(
+        {"actor_id": "source3", "asset_id": "plain", "entity_class": "human"},
+        asset_registry={"plain": {"realized_attributes": {"top_color": "green"}}},
+    )
+    assert plain["secondary_value"] is None
+
+
+def test_a_second_colour_outside_the_vocabulary_is_refused_at_registration() -> None:
+    from avengine.runtime_profiles import _validate_appearance_and_resting_pose
+
+    errors = _validate_appearance_and_resting_pose(
+        {"realized_attributes": {"top_color": "blue", "top_secondary_color": "lunar_opal"}},
+        prefix="assets[0]",
+    )
+    assert any("outside the native RGB appearance vocabulary" in error for error in errors)
+    clean = _validate_appearance_and_resting_pose(
+        {"realized_attributes": {"top_color": "blue", "top_secondary_color": "beige"}},
+        prefix="assets[0]",
+    )
+    assert not any("appearance vocabulary" in error for error in clean)
+
+
+def test_a_tint_and_a_shade_of_one_hue_are_one_colour_family() -> None:
+    from avengine.rooms.appearance_color import appearance_distinction_family
+
+    assert appearance_distinction_family("pink") == appearance_distinction_family("burgundy")
+    separate = ["blue", "green", "yellow", "white"]
+    families = [appearance_distinction_family(value) for value in separate]
+    assert len(set(families)) == len(separate)
+    assert appearance_distinction_family("iridescent_teal_flake") is None
+
+
+def test_only_a_declared_pattern_may_name_a_hue_from_a_mostly_neutral_target() -> None:
+    """A small warm patch on a person is usually skin, not the garment."""
+    muted = np.zeros((120, 120, 3), dtype=np.uint8)
+    muted[:] = (118, 120, 122)
+    muted[:, :30] = (176, 152, 96)
+    undeclared = _verdict(muted, "yellow", "human", illuminant=NEUTRAL_ROOM)
+    assert undeclared["status"] == "not_observable"
+    assert "target_is_too_dark_or_too_neutral_for_a_hue" in undeclared["decision"]["rejections"]
+    assert undeclared["decision"]["minimum_nameable_hue_fraction"] == 0.25
+
+    rgb, mask, bbox = _room_frame(muted)
+    declared = inspect_registered_appearance(
+        rgb, mask, "yellow", entity_kind="human", target_bbox=bbox, secondary_value="light_gray",
+    )
+    assert declared["decision"]["minimum_nameable_hue_fraction"] == 0.10
+    assert "target_is_too_dark_or_too_neutral_for_a_hue" not in declared["decision"]["rejections"]
+
+
+def test_a_registration_only_speaks_about_the_colours_it_declares() -> None:
+    """Asking whether a blue-and-tan check is yellow gets no pattern discount."""
+    plaid = np.zeros((120, 120, 3), dtype=np.uint8)
+    plaid[:] = (86, 112, 150)
+    for start in range(0, 120, 10):
+        plaid[start:start + 3] = (176, 152, 96)
+        plaid[:, start:start + 3] = (176, 152, 96)
+    rgb, mask, bbox = _room_frame(plaid, illuminant=WARM_ROOM)
+    declared = inspect_registered_appearance(
+        rgb, mask, "blue", entity_kind="human", target_bbox=bbox,
+        secondary_value="beige", declared_primary_value="blue",
+    )
+    assert declared["status"] == "pass", declared.get("reason")
+    probe = inspect_registered_appearance(
+        rgb, mask, "yellow", entity_kind="human", target_bbox=bbox,
+        secondary_value="beige", declared_primary_value="blue",
+    )
+    assert probe["decision"]["declared_secondary_families"] == []
+    assert probe["status"] == "not_observable"
