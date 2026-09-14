@@ -432,14 +432,70 @@ _TASK_FAMILY_CONDITIONS = {
 }
 
 
-def task_family_requirements(task_family: str) -> dict:
+#: Extra question-layer conditions a particular question inside a family has
+#: on top of the family's own. A family whose questions all read the same
+#: evidence needs no entry here; one that asks a different thing of the same
+#: world states the difference rather than reusing a condition list that does
+#: not describe it.
+_QUESTION_CONDITIONS_BY_QA = {
+    ("visible_binding", "QA-02"): (
+        _condition(
+            "sound_uniquely_attributable", _QUESTION,
+            "avengine/qa/binding_questions.py:_sound_to_appearance",
+            "the named sound belongs to exactly one source, by a unique onset or a "
+            "unique sound class, so the question points at one emitter and not at a "
+            "moment several sources share",
+        ),
+    ),
+    ("visible_binding", "QA-19"): (
+        _condition(
+            "named_appearance_is_unique", _QUESTION,
+            "avengine/qa/binding_questions.py:_appearance_first_sound_time",
+            "exactly one reviewed candidate carries the appearance the question names, "
+            "so the target is identified by looking rather than by elimination",
+        ),
+        _condition(
+            "first_event_of_named_target", _QUESTION,
+            "avengine/qa/binding_questions.py:_appearance_first_sound_time",
+            "the named target has at least one bound event and its earliest one is "
+            "separable from its own later events by at least one frame",
+        ),
+        _condition(
+            "answer_band_is_resolved", _QUESTION,
+            "avengine/qa/binding_questions.py:_appearance_first_sound_time",
+            "the onset falls inside exactly one of the published time intervals, and "
+            "the intervals come from the episode's own clock and sampling policy",
+        ),
+    ),
+}
+
+#: Question-layer conditions of the family that a particular question does not
+#: read. QA-19 names its target by appearance rather than by a sound, so the
+#: family's "which event does the ordinal name" condition is not its evidence.
+_QUESTION_CONDITIONS_DROPPED_BY_QA = {
+    ("visible_binding", "QA-19"): ("identified_sound_event",),
+}
+
+
+def question_conditions_for(task_family: str, qa_id: str | None) -> tuple:
+    """The question-layer conditions one question of one family really reads."""
+    if task_family not in _TASK_FAMILY_CONDITIONS:
+        raise BindingConditionError(f"unknown binding task family: {task_family}")
+    resolved = str(qa_id or TASK_QA_IDS[task_family])
+    dropped = set(_QUESTION_CONDITIONS_DROPPED_BY_QA.get((task_family, resolved), ()))
+    rows = [row for row in _TASK_FAMILY_CONDITIONS[task_family]
+            if row["layer"] != _QUESTION or row["key"] not in dropped]
+    return tuple(rows) + tuple(_QUESTION_CONDITIONS_BY_QA.get((task_family, resolved), ()))
+
+
+def task_family_requirements(task_family: str, qa_id: str | None = None) -> dict:
     """State what a core recipe requires, split by who judges each condition."""
     if task_family not in _TASK_FAMILY_CONDITIONS:
         raise BindingConditionError(f"unknown binding task family: {task_family}")
-    conditions = _TASK_FAMILY_CONDITIONS[task_family]
+    conditions = question_conditions_for(task_family, qa_id)
     return {
         "task_family": task_family,
-        "qa_id": TASK_QA_IDS[task_family],
+        "qa_id": str(qa_id or TASK_QA_IDS[task_family]),
         "question_conditions": [dict(row) for row in conditions if row["layer"] == _QUESTION],
         "recipe_conditions": [dict(row) for row in conditions if row["layer"] == _RECIPE],
         "group_conditions": [dict(row) for row in conditions if row["layer"] == _GROUP],
@@ -448,13 +504,14 @@ def task_family_requirements(task_family: str) -> dict:
     }
 
 
-def verify_task_family_evidence(readings, *, task_family: str) -> dict:
+def verify_task_family_evidence(readings, *, task_family: str,
+                                qa_id: str | None = None) -> dict:
     """Confirm the builder actually recorded a reading for every question condition.
 
     A missing reading is a gap in this module's own evidence, not a silent pass:
     the caller sees which condition has nothing behind it.
     """
-    requirements = task_family_requirements(task_family)
+    requirements = task_family_requirements(task_family, qa_id)
     if not isinstance(readings, Mapping):
         raise BindingConditionError("task family readings must be a mapping")
     expected = {row["key"] for row in requirements["question_conditions"]}
@@ -589,7 +646,7 @@ GROUP_QUESTION_RECIPES = {
     },
     "QA-02": {
         "qa_id": "QA-02",
-        "task_family": None,
+        "task_family": "visible_binding",
         "title": "sound or line to appearance",
         "answer_variable": "the registered appearance of the source of the named sound",
         "answer_expression": "appearance_of_event_slot",
@@ -597,28 +654,29 @@ GROUP_QUESTION_RECIPES = {
         "default_query": {"event_number": 1},
         "flipped_by": ("visual_appearance_slots", "audio_event_slot_assignment"),
         "invariant_under": ("queried_clip_within_class",),
-        "status": "not_implemented",
+        "status": "implemented",
         "note": (
             "the same answer variable as QA-20 with the candidate set left open rather "
-            "than restricted to the visible ones; it needs its own question builder "
-            "before a group can carry it"
+            "than restricted to the visible ones, so a reviewed candidate that is off "
+            "screen at the anchor frame is still an option"
         ),
     },
     "QA-19": {
         "qa_id": "QA-19",
-        "task_family": None,
+        "task_family": "visible_binding",
         "title": "the target's first utterance time",
         "answer_variable": "the onset time of the first event of the slot holding the named appearance",
-        "answer_expression": "first_event_time_of_appearance",
+        "answer_expression": "first_event_band_of_appearance",
         "answer_type": "time_range_s",
         "default_query": {"appearance_ordinal": 1},
         "flipped_by": ("visual_appearance_slots", "audio_event_slot_assignment"),
-        "invariant_under": ("unqueried_actor_appearance",),
-        "status": "not_implemented",
+        "invariant_under": ("unqueried_actor_appearance", "queried_clip_within_class"),
+        "status": "implemented",
         "note": (
-            "the question names an appearance and asks for a time, so both interventions "
-            "move it; it needs a question builder and an onset tolerance before a group "
-            "can carry it"
+            "the question names an appearance and asks which published time interval "
+            "holds that target's first sound, so both interventions move it. The answer "
+            "domain is the intervals, which do not depend on any actor's appearance, so "
+            "this is the question an unqueried_actor_appearance control can be run on"
         ),
     },
     "QA-16": {
@@ -710,6 +768,38 @@ def predicted_group_answer(recipe: Mapping[str, Any], bindings: Mapping[str, Any
                 f"event {event_id} is emitted by {slot!r}, which carries no appearance")
         return {"value": appearances[slot], "source_slot": slot, "event_id": event_id,
                 "expression": expression}
+    if expression == "first_event_band_of_appearance":
+        wanted = query.get("appearance_value")
+        if wanted is None:
+            ordinal = int(query.get("appearance_ordinal", 1))
+            ordered = [appearances[slot] for slot in sorted(appearances)]
+            if ordinal < 1 or ordinal > len(ordered):
+                raise BindingConditionError(
+                    f"the group names appearance {ordinal} but the world carries "
+                    f"{len(ordered)}")
+            wanted = ordered[ordinal - 1]
+        holders = [slot for slot, value in appearances.items() if value == wanted]
+        if len(holders) != 1:
+            raise BindingConditionError(
+                f"appearance {wanted!r} is carried by {len(holders)} slots, so it names "
+                "no single target")
+        slot = holders[0]
+        starts = dict(bindings.get("event_start_s") or {})
+        owned = [(float(starts[event_id]), event_id) for event_id in order
+                 if slots.get(event_id) == slot and event_id in starts]
+        if not owned:
+            raise BindingConditionError(f"{slot!r} emits nothing, so it has no first sound")
+        onset, event_id = min(owned)
+        bands = [tuple(float(value) for value in band)
+                 for band in bindings.get("time_bands") or ()]
+        if not bands:
+            raise BindingConditionError(
+                "a first-sound-interval answer needs the episode's published intervals")
+        index = next((position for position, (low, high) in enumerate(bands)
+                      if low <= onset < high), len(bands) - 1)
+        return {"value": f"band_{index}", "source_slot": slot, "event_id": event_id,
+                "onset_s": onset, "band": [bands[index][0], bands[index][1]],
+                "named_appearance": wanted, "expression": expression}
     raise BindingConditionError(
         f"answer expression {expression!r} has no predictor yet; "
         f"{recipe['qa_id']} cannot have its planned answer derived")
@@ -780,6 +870,7 @@ def derive_group_comparisons(members: Sequence[Mapping[str, Any]], *, qa_id: str
             row = {
                 "members": sorted([left_id, right_id]),
                 "shared_modality": shared,
+                "changed_modalities": sorted(touched),
                 "answer_relation": "different" if answers_differ else "same",
                 "kind": kind,
                 "intervention_factors": differing,

@@ -81,6 +81,27 @@ def _visible_instances(facts: Mapping[str, Any], frame: int) -> dict[str, None]:
     return {actor_id: None for actor_id in facts["actors"]
             if catalog._state(facts, actor_id, frame).get("state") in catalog.VISIBLE_STATES}
 
+def _at_event_for_emitter(facts: Mapping[str, Any], event: Mapping[str, Any]) -> int:
+    """The first frame where this event is actually sounding and its emitter shows.
+
+    A question whose answer domain is every reviewed appearance needs its target
+    visible so the answer can be bound by looking; it does not need a second
+    candidate on screen at that instant, because an off-screen candidate is
+    still one of the options. That is the difference from :func:`_at_event`,
+    which serves a question whose options are the visible candidates.
+    """
+    first = max(0, int(math.floor(event["start_s"] * facts["time"]["frame_rate_hz"])))
+    last = min(int(facts["time"]["frame_count"]),
+               int(math.ceil(event["end_s"] * facts["time"]["frame_rate_hz"])))
+    for frame in range(first, last):
+        if event["event_id"] not in {row["event_id"] for row in catalog._active_at(facts, frame)}:
+            continue
+        if event["actor_id"] in _visible_instances(facts, frame):
+            return frame
+    raise BindingQuestionError(
+        "the event has no frame where it is sounding and its emitter is visible")
+
+
 def _at_event(facts: Mapping[str, Any], event: Mapping[str, Any], *,
               named_candidates: bool = False) -> tuple[int, dict]:
     """Use an actually active, visible anchor rather than a leading-silence frame."""
@@ -468,6 +489,175 @@ def _cross_time_state(facts: dict, query: Mapping[str, Any], seed: str) -> tuple
     return item, readings
 
 
+def _sound_to_appearance(facts: dict, query: Mapping[str, Any], seed: str) -> tuple[dict, dict]:
+    """QA-02 as a core-group question: which appearance made this sound.
+
+    The answer variable is the registered appearance of whoever produced the
+    queried event, so the appearance swap moves it and the event/slot swap moves
+    it. It differs from QA-20 in its answer domain: QA-20 offers the candidates
+    that are visible at the anchor frame, this one offers every reviewed
+    appearance in the episode, so a candidate that is off screen at that instant
+    is still an option and the reader cannot answer by elimination from the
+    frame alone.
+    """
+    number = query.get("event_number", 1)
+    event = _event(facts, number)
+    frame = _at_event_for_emitter(facts, event)
+    visible = _visible_instances(facts, frame)
+    reviewed = catalog._reviewed_appearances(facts)
+    if event["actor_id"] not in reviewed:
+        raise BindingQuestionError("the emitter of the queried sound has no reviewed appearance")
+    values = [str(row["value"]) for row in reviewed.values()]
+    if len(reviewed) < 2 or len(values) != len(set(values)):
+        raise BindingQuestionError(
+            "at least two candidates with distinct reviewed appearances are required")
+    active = sorted(row["event_id"] for row in catalog._active_at(facts, frame))
+    if active != [event["event_id"]]:
+        raise BindingQuestionError(
+            "another programmed event is audible at the anchor frame, so the named "
+            "sound is not attributable to one source")
+    target = reviewed[event["actor_id"]]
+    readings = {
+        "identified_sound_event": _event_reading(facts, event, number),
+        "visible_active_anchor": _anchor_reading(facts, event, frame, visible),
+        "distinct_reviewed_candidates": {
+            "candidate_actor_ids": sorted(reviewed),
+            "appearance_values": sorted(values),
+        },
+        "sound_uniquely_attributable": {
+            "event_id": event["event_id"], "anchor_frame": frame,
+            "active_event_ids": active,
+            "emitter_actor_id": event["actor_id"],
+        },
+    }
+    options = []
+    for appearance in reviewed.values():
+        label_en, label_zh = catalog._appearance_phrases(appearance)
+        options.append({"value": str(appearance["value"]),
+                        "label_en": label_en, "label_zh": label_zh})
+    anchor_en, anchor_zh = catalog._event_anchor(facts, event)
+    return catalog._question_item(
+        qa_id="QA-02", facts=facts, seed=seed,
+        question_en=f"What does the object that produced {anchor_en} look like?",
+        question_zh=f"发出{anchor_zh}的那个对象是什么样子的？",
+        open_answer_type="closed_set", open_truth=str(target["value"]),
+        truth_label=catalog._appearance_phrases(target)[0], options=options,
+        evidence={"target_actor_id": event["actor_id"], "event_id": event["event_id"],
+                  "anchor_frame": frame, "candidate_actor_ids": sorted(reviewed),
+                  "visible_candidate_actor_ids": sorted(visible),
+                  "appearance": deepcopy(dict(target))},
+        slug="binding_sound_to_appearance",
+    ), readings
+
+
+def _appearance_first_sound_time(facts: dict, query: Mapping[str, Any], seed: str) -> tuple[dict, dict]:
+    """QA-19 as a core-group question: when did the named appearance first sound.
+
+    The target is named by its reviewed appearance and the answer is which
+    published time interval holds that target's first sound. The appearance swap
+    moves which body carries the name, and the event/slot swap moves which sound
+    that body emits, so both interventions move the answer while the answer
+    domain - the intervals - depends on neither.
+
+    The group names one appearance value for every member, so the public
+    question text is the same sentence in all of them; leaving the target to an
+    ordinal would have named a different colour in each variant.
+    """
+    reviewed = catalog._reviewed_appearances(facts)
+    values = [str(row["value"]) for row in reviewed.values()]
+    if len(reviewed) < 2 or len(values) != len(set(values)):
+        raise BindingQuestionError(
+            "at least two candidates with distinct reviewed appearances are required")
+    wanted = query.get("appearance_value")
+    if wanted is None:
+        ordinal = int(query.get("appearance_ordinal", 1))
+        if ordinal < 1 or ordinal > len(values):
+            raise BindingQuestionError(
+                f"the group names appearance {ordinal} of {len(values)}")
+        wanted = sorted(values)[ordinal - 1]
+    wanted = str(wanted)
+    holders = [actor_id for actor_id, row in reviewed.items()
+               if str(row["value"]) == wanted]
+    if len(holders) != 1:
+        raise BindingQuestionError(
+            f"the named appearance {wanted!r} is carried by {len(holders)} reviewed "
+            "candidates, so it names no single target")
+    actor_id = holders[0]
+    owned = sorted((event for event in catalog._bound_events(facts)
+                    if event["actor_id"] == actor_id),
+                   key=lambda event: (float(event["start_s"]), str(event["event_id"])))
+    if not owned:
+        raise BindingQuestionError("the named target emits nothing in this episode")
+    first = owned[0]
+    tolerance = 1.0 / float(facts["time"]["frame_rate_hz"])
+    if any(float(event["start_s"]) - float(first["start_s"]) < tolerance
+           for event in owned[1:]):
+        raise BindingQuestionError(
+            "the named target's first onset is not separable from its own next one")
+    frame, visible = _at_event(facts, first, named_candidates=True)
+    if actor_id not in visible:
+        raise BindingQuestionError("the named target is not visible while it is sounding")
+    bands = [tuple(float(value) for value in band) for band in catalog._time_bands(facts)]
+    onset = float(first["start_s"])
+    matching = [index for index, (low, high) in enumerate(bands) if low <= onset < high]
+    if len(matching) != 1:
+        raise BindingQuestionError(
+            f"the onset {onset} falls in {len(matching)} published intervals")
+    band_index = matching[0]
+    labels = [catalog._time_band_label(facts, index, bands) for index in range(len(bands))]
+    options = [{"value": f"band_{index}", "label_en": labels[index][0],
+                "label_zh": labels[index][1], "allow_value": False}
+               for index in range(len(bands))]
+    appearance_en, appearance_zh = catalog._appearance_phrases(reviewed[actor_id])
+    domain_en = ", ".join(label[0] for label in labels)
+    domain_zh = "、".join(label[1] for label in labels)
+    readings = {
+        "visible_active_anchor": _anchor_reading(facts, first, frame, visible),
+        "distinct_reviewed_candidates": {
+            "candidate_actor_ids": sorted(reviewed),
+            "appearance_values": sorted(values),
+        },
+        "named_appearance_is_unique": {
+            "named_value": wanted, "holder_actor_ids": holders,
+            "reviewed_actor_ids": sorted(reviewed),
+        },
+        "first_event_of_named_target": {
+            "target_actor_id": actor_id, "event_id": first["event_id"],
+            "onset_s": onset, "own_event_ids": [event["event_id"] for event in owned],
+            "separation_tolerance_s": tolerance,
+        },
+        "answer_band_is_resolved": {
+            "onset_s": onset, "band_index": band_index,
+            "bands_s": [list(band) for band in bands],
+            "band_authority": "avengine/qa/unified_catalog.py:_time_bands",
+        },
+    }
+    return catalog._question_item(
+        qa_id="QA-19", facts=facts, seed=seed,
+        question_en=(f"Which time interval contained the first sound from {appearance_en}? "
+                     f"The clip is divided into {len(bands)} time intervals: {domain_en}."),
+        question_zh=(f"{appearance_zh}第一次发声落在哪个时间段？"
+                     f"片段按时间划分为{len(bands)}段：{domain_zh}。"),
+        open_answer_type="time_range_s",
+        open_truth=[float(bands[band_index][0]), float(bands[band_index][1])],
+        truth_label=labels[band_index][0], options=options,
+        mcq_truth=f"band_{band_index}",
+        open_extra={
+            "time_ranges_s": [list(band) for band in bands],
+            "time_range_labels_en": [label[0] for label in labels],
+            "time_range_labels_zh": [label[1] for label in labels],
+            "time_range_index": band_index,
+        },
+        evidence={"target_actor_id": actor_id, "named_appearance": wanted,
+                  "appearance": deepcopy(dict(reviewed[actor_id])),
+                  "event_id": first["event_id"], "anchor_frame": frame,
+                  "first_sound_onset_s": onset, "time_band_index": band_index,
+                  "time_bands_s": [list(band) for band in bands],
+                  "candidate_actor_ids": sorted(reviewed)},
+        slug="binding_first_sound_interval",
+    ), readings
+
+
 _BUILDERS = {
     "visible_binding": _visible_binding,
     "visual_conditioned_relation": _visual_conditioned_relation,
@@ -475,14 +665,38 @@ _BUILDERS = {
     "cross_time_state": _cross_time_state,
 }
 
+#: A family can build more than one catalog question of the same controlled
+#: world. The family entry above stays the default so an existing caller that
+#: names only a family behaves exactly as it did.
+_BUILDERS_BY_QA = {
+    ("visible_binding", "QA-20"): _visible_binding,
+    ("visible_binding", "QA-02"): _sound_to_appearance,
+    ("visible_binding", "QA-19"): _appearance_first_sound_time,
+}
+
 
 def generate_binding_question(
     raw_or_facts: Mapping[str, Any], task_family: str, query: Mapping[str, Any], *,
-    seed: str = "binding-question",
+    seed: str = "binding-question", qa_id: str | None = None,
 ) -> dict[str, Any]:
-    """Emit one requested variant; fail rather than label an inapplicable case."""
+    """Emit one requested variant; fail rather than label an inapplicable case.
+
+    ``qa_id`` selects which catalog question of this family to build. Omitting
+    it keeps the family's own default, so a caller that never asked for a
+    second question type sees no change.
+    """
     if task_family not in _BUILDERS:
         raise BindingQuestionError(f"unknown binding task family: {task_family}")
+    resolved_qa = str(qa_id or TASK_QA_IDS[task_family])
+    builder = _BUILDERS_BY_QA.get((task_family, resolved_qa))
+    if builder is None:
+        if qa_id is not None and resolved_qa != TASK_QA_IDS[task_family]:
+            raise BindingQuestionError(
+                f"{task_family} has no builder for {resolved_qa}; it builds "
+                + ", ".join(sorted(
+                    name for family, name in _BUILDERS_BY_QA if family == task_family))
+                or "nothing else")
+        builder = _BUILDERS[task_family]
     facts = (catalog._restore_normalized_frame_keys(raw_or_facts)
              if raw_or_facts.get("schema") == catalog.UNIFIED_FACT_SCHEMA
              else catalog.normalize_episode_bundle(raw_or_facts))
@@ -500,8 +714,9 @@ def generate_binding_question(
             raise BindingQuestionError(
                 "complete observed source activity is required; rederive older normalized facts "
                 f"from native readbacks: {missing_activity}")
-        item, readings = _BUILDERS[task_family](facts, query, seed)
-        conditions = verify_task_family_evidence(readings, task_family=task_family)
+        item, readings = builder(facts, query, seed)
+        conditions = verify_task_family_evidence(
+            readings, task_family=task_family, qa_id=resolved_qa)
     except catalog._Deferred as error:
         raise BindingQuestionError(f"{error.code}: {error.detail}") from error
     except BindingConditionError as error:

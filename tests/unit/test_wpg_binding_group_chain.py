@@ -227,6 +227,9 @@ def test_world_bindings_come_from_the_member_plan(tmp_path):
     path = _plan(tmp_path, "one", slot_assets={"source1": "one_blue", "source2": "one_green"},
                  events={"event_002": ("source2", 900), "event_001": ("source1", 100)})
     bindings = native.member_world_bindings(json.loads(path.read_text()), registry=REGISTRY)
+    # This fixture's clip is three frames long, which cannot carry distinct
+    # whole-second intervals; that is reported as no intervals, not as an error.
+    assert bindings["time_bands"] == []
     assert bindings["slot_appearances"] == {"source1": "blue", "source2": "green"}
     # Ordered by when the event actually starts, not by how the plan listed it.
     assert bindings["event_order"] == ["event_001", "event_002"]
@@ -312,8 +315,9 @@ def test_the_group_question_is_a_recipe_not_a_constant():
 
 def test_a_declared_question_without_a_builder_is_refused_by_name():
     with pytest.raises(conditions.BindingConditionError, match="no builder yet"):
-        conditions.implemented_group_question_recipe("QA-19")
-    assert conditions.implemented_group_question_recipe("QA-20")["qa_id"] == "QA-20"
+        conditions.implemented_group_question_recipe("QA-16")
+    for qa_id in ("QA-20", "QA-02", "QA-19"):
+        assert conditions.implemented_group_question_recipe(qa_id)["qa_id"] == qa_id
 
 
 def test_a_request_naming_two_questions_cannot_be_one_group():

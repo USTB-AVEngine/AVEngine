@@ -198,12 +198,16 @@ def _whole_group(args, parser) -> int:
             qa_ids=args.qa_ids,
             seed=args.seed,
             group_question=args.group_question,
+            control_interventions=tuple(args.control_interventions or ()),
+            control_assignment=args.control_assignment,
         )
     except (BindingNativeError, ProductionSpecError, OSError, RuntimeError, ValueError) as exc:
         parser.error(str(exc))
     print(json.dumps({
         "status": summary["status"],
         "group_question": summary.get("group_question", {}).get("qa_id"),
+        "control_interventions": summary.get("control_interventions"),
+        "members": sorted(summary.get("member_factor_levels") or {}),
         "visual_invariance": {
             key: value for key, value in (summary.get("visual_invariance") or {}).items()
             if key in ("status", "frames_compared_per_member",
@@ -221,7 +225,7 @@ def _whole_group(args, parser) -> int:
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--mode", choices=("whole-group", "stage-run"),
+    parser.add_argument("--mode", choices=("whole-group", "stage-run", "bank-merge"),
                         default="whole-group")
     parser.add_argument("--base-request", type=Path)
     parser.add_argument("--first-visual-capture-root", type=Path)
@@ -244,6 +248,12 @@ def main(argv=None) -> int:
     parser.add_argument("--seed", type=int)
     parser.add_argument("--qa-id", action="append", dest="qa_ids",
                         help="which catalog questions the delivered episodes emit")
+    parser.add_argument("--control-intervention", action="append",
+                        dest="control_interventions",
+                        help="an intervention the group's question is invariant under; "
+                             "each one adds a control pair on the existing captures")
+    parser.add_argument("--control-assignment", default="a0",
+                        help="which audio column the control pair is built on")
     parser.add_argument("--group-question",
                         help="the catalog question the group itself is built around; "
                              "defaults to the one the base request asks for")
@@ -254,7 +264,24 @@ def main(argv=None) -> int:
     parser.add_argument("--retained-visual-root", action="append",
                         help="unit_id=path for a validated retained visual capture")
     parser.add_argument("--max-rounds", type=int, default=64)
+    parser.add_argument("--export-root", type=Path,
+                        help="bank-merge: the assembled binding export to fold in")
+    parser.add_argument("--bank-in", type=Path,
+                        help="bank-merge: an existing bank run to carry forward; read only")
     args = parser.parse_args(argv)
+    if args.mode == "bank-merge":
+        if args.export_root is None:
+            parser.error("bank-merge needs --export-root")
+        from avengine.qa.binding_bank_merge import merge_binding_groups_into_bank
+        from avengine.qa.binding_groups import BindingGroupError
+
+        try:
+            summary = merge_binding_groups_into_bank(
+                args.export_root, args.output_root, bank_in=args.bank_in)
+        except (BindingGroupError, OSError, ValueError) as exc:
+            parser.error(f"{type(exc).__name__}: {exc}")
+        print(json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=True))
+        return 0
     if args.mode == "stage-run":
         if (args.manifest is None) == (args.group_config is None):
             parser.error("stage-run needs exactly one of --manifest or --group-config")
