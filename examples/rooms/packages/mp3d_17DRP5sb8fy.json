@@ -20,7 +20,9 @@
     "navmesh_template": "${AVENGINE_MP3D_ROOT}/scene_datasets/mp3d_example/17DRP5sb8fy/17DRP5sb8fy.navmesh",
     "room_manifest": "examples/rooms/habitat_mp3d_example/room_manifest.json",
     "scene_glb": "${AVENGINE_MP3D_ROOT}/scene_datasets/mp3d_example/17DRP5sb8fy/17DRP5sb8fy.glb",
-    "scene_glb_template": "${AVENGINE_MP3D_ROOT}/scene_datasets/mp3d_example/17DRP5sb8fy/17DRP5sb8fy.glb"
+    "scene_glb_template": "${AVENGINE_MP3D_ROOT}/scene_datasets/mp3d_example/17DRP5sb8fy/17DRP5sb8fy.glb",
+    "support_surface_catalog": "${AVENGINE_SUPPORT_SURFACE_ROOT}/habitat_mp3d_example_17DRP5sb8fy/support_surface_catalog.json",
+    "support_surface_catalog_template": "${AVENGINE_SUPPORT_SURFACE_ROOT}/habitat_mp3d_example_17DRP5sb8fy/support_surface_catalog.json"
   },
   "provenance": {
     "native_floor_measurement": "tmp/p3_room_packages_20260907_v3/habitat_floor_measurement/mp3d_floor_reference.json",

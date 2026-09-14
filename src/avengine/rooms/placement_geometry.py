@@ -67,6 +67,13 @@ class PlacementCheckConfig:
     corner_probe_m: float = 0.02
     # The emitter is a point source; it must not sit on a wall.
     min_emitter_clearance_m: float = 0.03
+    # How far a device may be stood off its surface so that its own emitter
+    # keeps the acoustic minimum. Some assets carry their emitter anchor a
+    # couple of centimetres inside the face they mount by, and a millimetre of
+    # extra air is the difference between a legal source and a refused one. An
+    # asset that would need more than this is refused instead: a device sitting
+    # further than this off its wall is not mounted on it.
+    max_standoff_m: float = 0.01
     # How far above the mesh a vertical probe is allowed to look for a ceiling.
     ceiling_probe_margin_m: float = 0.5
     # Standing eye height used when a room's walkable points are consulted.
@@ -82,7 +89,7 @@ class PlacementCheckConfig:
         if isinstance(value, Mapping):
             fields = {
                 "support_probe_m", "contact_gap_m", "body_clearance_m",
-                "corner_probe_m", "min_emitter_clearance_m",
+                "corner_probe_m", "min_emitter_clearance_m", "max_standoff_m",
                 "ceiling_probe_margin_m", "interior_eye_height_m",
                 "max_contact_search_m",
             }
@@ -592,13 +599,17 @@ def evaluate_placement(mesh: Any, *, contact_point, out_direction, plane_u, plan
     distance = nearest_surface_distance(
         near, emitter, radius=config.min_emitter_clearance_m
     )
+    # "at least this far" includes being exactly that far: a placement seated
+    # to buy precisely the stated clearance must not then fail the check that
+    # asked for it.
+    too_close = distance is not None and distance < config.min_emitter_clearance_m - 1.0e-9
     emitter_clearance = {
-        "status": "fail" if distance is not None else "pass",
+        "status": "fail" if too_close else "pass",
         "minimum_clearance_m": float(config.min_emitter_clearance_m),
         "measured_distance_m": distance,
         "reason": (
             f"the emitter is {distance:.4f} m from a room triangle"
-            if distance is not None
+            if too_close
             else "no room triangle is within the required emitter clearance"
         ),
     }
@@ -739,7 +750,9 @@ def check_acoustic_point(mesh: Any, point, *, role: str, identifier: str,
         mesh, probe, radius=config.min_emitter_clearance_m
     )
     clearance = {
-        "status": "fail" if distance is not None else "pass",
+        "status": "fail"
+        if distance is not None and distance < config.min_emitter_clearance_m - 1.0e-9
+        else "pass",
         "minimum_clearance_m": float(config.min_emitter_clearance_m),
         "measured_distance_m": distance,
     }

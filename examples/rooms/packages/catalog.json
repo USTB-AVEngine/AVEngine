@@ -15,7 +15,8 @@
     "AVENGINE_NATIVE_APARTMENT_ROUTE_ROOT": "/data/avengine_external/review/apartment_route_bank_20260825T0700Z",
     "AVENGINE_P3_ROOM_PACKAGE_ROOT": "/data/datasets/avengine_workspaces/multi_home_activity_20260905/root",
     "AVENGINE_QA_V3_ROOT": "/data/jzy/tmp",
-    "AVENGINE_SPEAR_STAGE_ROOT": "/data/avengine_external/workspaces/multi_home_activity_20260905/ue_stage"
+    "AVENGINE_SPEAR_STAGE_ROOT": "/data/avengine_external/workspaces/multi_home_activity_20260905/ue_stage",
+    "AVENGINE_SUPPORT_SURFACE_ROOT": "/data/jzy/tmp/claude_fix_20260914/packages/support_surfaces"
   },
   "path_bindings_note": "These roots select the validated runtime packages. Kujiale uses the UE render-surface export from 2026-09-13. Callers may override roots per runtime policy.",
   "pose_binding_files": {

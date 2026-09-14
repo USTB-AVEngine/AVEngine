@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from copy import deepcopy
+import dataclasses
 import math
 from pathlib import Path
 from numbers import Real
@@ -696,6 +697,30 @@ def _seat_asset(surface, pose, emitter, plane_point, normal_sign, *, yaw_deg,
         local_min, local_max, asset_normal, float(pose["base_plane_offset_m"])
     )
     mounting = _scale(support_normal, span["sign"])
+    # How far the asset's own emitter stands in front of its contact plane. A
+    # ceiling disc carries its emitter a couple of centimetres inside the face
+    # it mounts by, so seating the disc flush leaves the emitter closer to the
+    # ceiling than a source may be. The acoustic minimum therefore decides how
+    # far the asset is seated off the surface, rather than being tested after
+    # the fact and failing every candidate by a millimetre.
+    emitter_depth = span["sign"] * _dot(
+        _sub(emitter["offset_m"], _scale(asset_normal, pose["base_plane_offset_m"])),
+        asset_normal,
+    )
+    standoff = max(check_config.contact_gap_m,
+                   check_config.min_emitter_clearance_m - emitter_depth)
+    if room_mesh is not None and standoff > check_config.contact_gap_m:
+        if standoff > check_config.max_standoff_m:
+            raise SourcePlacementError(
+                "emitter_anchor_inside_mounting_face",
+                "this asset's emitter anchor sits so far inside the face it mounts by "
+                "that no seating keeps the emitter clear of the surface",
+                asset_id=pose.get("asset_id"),
+                emitter_depth_m=emitter_depth,
+                required_standoff_m=standoff,
+                max_standoff_m=check_config.max_standoff_m,
+            )
+        check_config = dataclasses.replace(check_config, contact_gap_m=standoff)
     contact = tuple(float(value) for value in plane_point)
     mesh_offset = {"status": "not_run",
                    "reason": "no room surface mesh was supplied to the planner",
@@ -758,6 +783,8 @@ def _seat_asset(surface, pose, emitter, plane_point, normal_sign, *, yaw_deg,
     checks["normal_flipped"] = sign < 0.0
     checks["asset_body_span_m"] = span["span_m"]
     checks["mesh_contact_offset"] = deepcopy(mesh_offset)
+    checks["emitter_depth_in_front_of_contact_m"] = float(emitter_depth)
+    checks["seated_standoff_m"] = float(check_config.contact_gap_m)
     return {
         "sign": sign,
         "rotation": rotation,

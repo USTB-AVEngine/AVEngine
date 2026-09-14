@@ -17,17 +17,19 @@
     "acoustic_package": "${AVENGINE_APARTMENT_INPUT_ROOT}/m3/root_ue_package_current_20260718_02/manifest.json",
     "acoustic_package_template": "${AVENGINE_APARTMENT_INPUT_ROOT}/m3/root_ue_package_current_20260718_02/manifest.json",
     "backend": "spear_unreal",
+    "expected_stage_actor_count": 0,
     "manifest": "${AVENGINE_APARTMENT_INPUT_ROOT}/m1/legacy_apartment_package/room_manifest.json",
     "map_path": "/Game/SPEAR/Scenes/apartment_0000/Maps/apartment_0000",
     "native_input_root": "${AVENGINE_APARTMENT_INPUT_ROOT}",
     "native_room_adapter": "avengine_native_spear_apartment_qa_room_v1",
     "native_room_profile": "examples/runtime/room_runtime_profiles.json",
-    "expected_stage_actor_count": 0,
     "pose_bindings": null,
     "room_manifest": "${AVENGINE_APARTMENT_INPUT_ROOT}/m1/legacy_apartment_package/room_manifest.json",
     "room_manifest_template": "${AVENGINE_APARTMENT_INPUT_ROOT}/m1/legacy_apartment_package/room_manifest.json",
     "route_bank": "${AVENGINE_NATIVE_APARTMENT_ROUTE_ROOT}/route_bank.json",
-    "route_bank_template": "${AVENGINE_NATIVE_APARTMENT_ROUTE_ROOT}/route_bank.json"
+    "route_bank_template": "${AVENGINE_NATIVE_APARTMENT_ROUTE_ROOT}/route_bank.json",
+    "support_surface_catalog": "${AVENGINE_SUPPORT_SURFACE_ROOT}/legacy_ue_apartment_0000_v1/support_surface_catalog.json",
+    "support_surface_catalog_template": "${AVENGINE_SUPPORT_SURFACE_ROOT}/legacy_ue_apartment_0000_v1/support_surface_catalog.json"
   },
   "provenance": {
     "native_execution": "pending_root_execution",

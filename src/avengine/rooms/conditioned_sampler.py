@@ -6242,9 +6242,17 @@ def build_conditioned_plan(*, room, request, source_registry, sounds, space, mes
                                                   condition_profile=condition_profile,
                                                   generator=generator)
     seed=int(request.get('seed',0));failures=Counter();last_errors={};first_errors={};stage_reasons={}
-    static_placement_plan = request.get('_static_source_placement_plan')
-    static_placement_rows = _static_placement_rows(static_placement_plan)
+    requested_placement_plan = request.get('_static_source_placement_plan')
+    requested_placement_rows = _static_placement_rows(requested_placement_plan)
+    attached_placement_cache = {}
     for attempt in range(profile['retry_budget_within_profile']):
+        # A request that named its own placements keeps them. One that did not
+        # may still have drawn a registered wall or ceiling device by class, and
+        # that device is hung on a surface of this room rather than left to
+        # stand on the floor. The draw changes per attempt, so this is decided
+        # per attempt, on the instances this attempt actually selected.
+        static_placement_plan = requested_placement_plan
+        static_placement_rows = requested_placement_rows
         # Index 0 keeps the historical SeedSequence exactly. Nonzero indices
         # select a sibling candidate without changing the resolved profile.
         sampling_provenance = _sampling_provenance(
@@ -6255,6 +6263,12 @@ def build_conditioned_plan(*, room, request, source_registry, sounds, space, mes
         )
         try:
             actors=select_entities(request,profile,source_registry,rng)
+            if not static_placement_rows:
+                static_placement_plan = attached_static_placement_plan(
+                    actors, source_registry, room, space=space, mesh=mesh,
+                    cache=attached_placement_cache,
+                )
+                static_placement_rows = _static_placement_rows(static_placement_plan)
             actor_ids = {str(actor['entity_instance_id']) for actor in actors}
             unknown_placements = sorted(
                 set(static_placement_rows) - actor_ids
@@ -6472,6 +6486,242 @@ def build_conditioned_plan(*, room, request, source_registry, sounds, space, mes
                                       'errors_by_stage':{stage:dict(reasons) for stage,reasons in stage_reasons.items()},
                                       'question_conditions':deepcopy(questions) if questions is not None else None,
                                       'gap_category':'evidence_missing_or_unsampled'})
+
+
+ATTACHED_SUPPORT_KINDS = frozenset(("wall", "ceiling"))
+DEFAULT_ATTACHED_PLACEMENT_CONFIG = {
+    "normal_tolerance_deg": 8.0,
+    "plane_tolerance_m": 0.05,
+    "min_inter_instance_gap_m": 0.0,
+    "candidate_search": {"grid_step_m": 0.25, "max_candidates": 64,
+                         "edge_margin_m": 0.05},
+}
+
+
+def registered_attachment_surface(source_registry, asset_id):
+    """The surface a registered asset is measured to hang on, or ``None``.
+
+    A doorbell is registered as a wall device and a smoke alarm as a ceiling
+    device. Reading that here is what lets an ordinary request draw one by
+    class and still have it end up on a wall rather than standing on the floor.
+    """
+    for record in (source_registry or {}).get("assets", ()):
+        if not isinstance(record, Mapping) or str(record.get("asset_id")) != str(asset_id):
+            continue
+        pose = ((record.get("runtime_backends") or {}).get("habitat") or {}).get("resting_pose")
+        if not isinstance(pose, Mapping):
+            return None
+        surface = str(pose.get("attachment_surface") or "").strip().lower()
+        return surface or None
+    return None
+
+
+def room_support_surface_catalog_path(room):
+    """The support surface catalog a room package declares, or ``None``.
+
+    The path is a room package resource like any other, so a room that has
+    never been fitted simply has no catalog and says so, rather than having one
+    invented for it.
+    """
+    package = room.get("room_package") if isinstance(room, Mapping) else None
+    if not isinstance(package, Mapping):
+        package = room if isinstance(room, Mapping) else {}
+    for owner in (package.get("planning_inputs"), package):
+        if not isinstance(owner, Mapping):
+            continue
+        value = owner.get("support_surface_catalog")
+        if isinstance(value, str) and value and "${" not in value:
+            return value
+    return None
+
+
+def _attached_placement_requests(actors, source_registry):
+    """The selected instances that are registered to hang on a wall or ceiling."""
+    rows = []
+    for actor in actors:
+        if actor.get("entity_class") not in RIGID:
+            continue
+        surface = registered_attachment_surface(source_registry, actor.get("asset_id"))
+        if surface not in ATTACHED_SUPPORT_KINDS:
+            continue
+        rows.append({
+            "instance_id": str(actor["entity_instance_id"]),
+            "asset_id": str(actor["asset_id"]),
+            "surface_kind": surface,
+        })
+    return rows
+
+
+def attached_static_placement_plan(actors, source_registry, room, *, space=None,
+                                   mesh=None, interior_points=None, cache=None):
+    """Hang every registered wall or ceiling source on a real surface of this room.
+
+    An ordinary request draws its sources by class and says nothing about the
+    room it will be planned in, so nothing in it can name a support surface.
+    Without this the sampler treated a smoke alarm as a thing that stands on
+    the floor, which is where one was found in a rendered episode. The room
+    package names the surfaces that were fitted from its own geometry, the
+    registry says which surface each asset belongs on, and the placement
+    planner does the rest, with the same mesh readings an explicitly requested
+    placement gets.
+
+    Returns ``None`` when no selected instance is an attached device, so a
+    request made only of people and floor objects is untouched.
+    """
+    from avengine.rooms import placement_geometry
+    from avengine.rooms.qa_episode import read_json
+    from avengine.rooms.source_placement import (
+        SOURCE_PLACEMENT_SCHEMA, plan_static_source_placements, prepare_visual_geometry,
+    )
+
+    wanted = _attached_placement_requests(actors, source_registry)
+    if not wanted:
+        return None
+    # The instances a retry draws are usually the ones the last retry drew, and
+    # hanging them is the most expensive thing in an attempt. The answer only
+    # depends on which asset each instance is, so it is kept for the attempts
+    # that ask the same question again, refusals included.
+    cache = cache if cache is not None else {}
+    identity = tuple(sorted((row["instance_id"], row["asset_id"]) for row in wanted))
+    remembered = cache.get(("plan", identity))
+    if isinstance(remembered, CandidateFailure):
+        raise remembered
+    if remembered is not None:
+        return deepcopy(remembered)
+    catalog_path = room_support_surface_catalog_path(room)
+    if catalog_path is None:
+        raise CandidateFailure(
+            "placement", "attached_source_room_declares_no_support_surfaces"
+        )
+    catalog = cache.get("catalog")
+    if catalog is None:
+        catalog = read_json(catalog_path)
+        if catalog.get("schema") != "avengine_support_surface_catalog_v1":
+            raise CandidateFailure(
+                "placement", "room_support_surface_catalog_schema_unsupported"
+            )
+        cache["catalog"] = catalog
+    measurements = catalog.get("asset_visual_geometry_measurements")
+    surfaces = ((catalog.get("layout") or {}).get("support_surfaces")) or ()
+    if not isinstance(measurements, Mapping) or not surfaces:
+        raise CandidateFailure(
+            "placement", "room_support_surface_catalog_incomplete"
+        )
+    config = catalog.get("placement_config") or DEFAULT_ATTACHED_PLACEMENT_CONFIG
+    if "prepared" not in cache:
+        cache["prepared"] = prepare_visual_geometry(
+            catalog["visual_geometry"],
+            plane_tolerance_m=float(config.get("plane_tolerance_m", 0.05)),
+        )
+        interior = placement_geometry.interior_reference_points(
+            mesh, space,
+            config=placement_geometry.PlacementCheckConfig.from_mapping(
+                config.get("placement_checks"),
+                fallback_search_m=config.get("plane_tolerance_m"),
+            ),
+        ) if mesh is not None else None
+        cache["interior"] = interior
+        # A room whose walkable points could not be read is not a room where no
+        # walkable point can see the placement: that reading is recorded as not
+        # run, and the vertical cover still stands on its own.
+        cache["interior_points"] = (
+            interior_points if interior_points is not None
+            else None if interior is None or interior["status"] == "not_run"
+            else interior["points_m"]
+        )
+    room_data = {
+        "room_id": (catalog.get("room") or {}).get("room_id") or room.get("room_id"),
+        "coordinate_frame": (catalog.get("room") or {}).get("coordinate_frame"),
+    }
+    by_kind = {}
+    for surface in surfaces:
+        by_kind.setdefault(str(surface.get("surface_kind")), []).append(surface)
+
+    try:
+        result = _hang_attached_sources(
+            wanted, measurements, by_kind, source_registry, room_data,
+            catalog, config, cache, mesh, catalog_path,
+        )
+    except CandidateFailure as refusal:
+        cache[("plan", identity)] = refusal
+        raise
+    cache[("plan", identity)] = deepcopy(result)
+    return result
+
+
+def _hang_attached_sources(wanted, measurements, by_kind, source_registry, room_data,
+                           catalog, config, cache, mesh, catalog_path):
+    """Place each attached instance on the first surface of its kind that accepts it."""
+    from avengine.rooms.source_placement import (
+        SOURCE_PLACEMENT_SCHEMA, plan_static_source_placements,
+    )
+
+    placed, rows, tried = [], [], []
+    for wanted_row in wanted:
+        measured = measurements.get(wanted_row["asset_id"])
+        if not isinstance(measured, Mapping):
+            raise CandidateFailure(
+                "placement",
+                "attached_source_has_no_measured_geometry:" + wanted_row["asset_id"],
+            )
+        options = by_kind.get(wanted_row["surface_kind"]) or ()
+        if not options:
+            raise CandidateFailure(
+                "placement",
+                "room_has_no_" + wanted_row["surface_kind"] + "_support_surface",
+            )
+        chosen = None
+        for surface in options:
+            request_row = {
+                "instance_id": wanted_row["instance_id"],
+                "asset_id": wanted_row["asset_id"],
+                "support_surface_id": surface["surface_id"],
+                "yaw_deg": 0.0,
+                "asset_geometry": deepcopy(dict(measured)),
+            }
+            result = plan_static_source_placements(
+                source_registry, room_data, catalog["layout"], cache["prepared"],
+                [request_row], config=config, existing_placements=placed,
+                room_mesh=mesh, interior_points=cache["interior_points"],
+            )
+            row = result["instances"][0]
+            tried.append({"instance_id": wanted_row["instance_id"],
+                          "surface_id": surface["surface_id"],
+                          "status": row.get("status"),
+                          "reason": (row.get("reason") or {}).get("code")})
+            if row.get("status") == "planned":
+                chosen = row
+                break
+        if chosen is None:
+            raise CandidateFailure(
+                "placement",
+                "no_support_surface_in_this_room_accepts:" + wanted_row["instance_id"],
+            )
+        placed.append(chosen)
+        rows.append(chosen)
+    return {
+        "schema": SOURCE_PLACEMENT_SCHEMA,
+        "status": "planned",
+        "native_execution": "not_run",
+        "source": "room_package_support_surface_catalog",
+        "catalog_ref": str(catalog_path),
+        "config": deepcopy(dict(config)),
+        "surface_attempts": tried,
+        "interior_reference_points": (
+            None if cache.get("interior") is None else
+            {key: value for key, value in cache["interior"].items() if key != "points_m"}
+        ),
+        "joint_candidate_selection": {
+            "mode": "registered_attachment_surface_then_bounded_ordered_nonoverlap",
+            "placement_order": [row["instance_id"] for row in rows],
+        },
+        "instances": rows,
+        "claim_boundary": (
+            "each attached source was hung on a surface fitted from this room's own "
+            "geometry and read against it; no native execution or dataset admission "
+            "claim is made"
+        ),
+    }
 
 
 def _prepare_static_placement_plan(request, source_registry, room, *, mesh=None,
@@ -6714,7 +6964,10 @@ def _prepare_static_placement_plan(request, source_registry, room, *, mesh=None,
             fallback_search_m=config.get("plane_tolerance_m"),
         ),
     ) if mesh is not None else None
-    interior_points = None if interior is None else interior["points_m"]
+    interior_points = (
+        None if interior is None or interior["status"] == "not_run"
+        else interior["points_m"]
+    )
     result = plan_static_source_placements(
         source_registry,
         room_data,
