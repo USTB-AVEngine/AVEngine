@@ -14,6 +14,7 @@ import json
 import math
 from pathlib import Path
 import random
+import re
 import subprocess
 from typing import Any
 
@@ -464,6 +465,104 @@ def _check_public_payload(public: Sequence[Mapping[str, Any]],
             "note": "option labels are public by construction and are not leaks"}
 
 
+#: The files an exported binding dataset hands to a model or an annotator.
+#: Everything else under the export root is the private side. Named here so the
+#: scan cannot quietly stop covering a file the export starts writing.
+PUBLIC_EXPORT_FILES = ("model_inputs.json",)
+
+#: Directories of the export whose file names travel with the public payload.
+PUBLIC_EXPORT_MEDIA_DIRS = ("media",)
+
+
+def _private_identity_values(packed: Sequence[Mapping[str, Any]]) -> dict:
+    """Every string that would say which member of which group a sample is."""
+    values: set[str] = set()
+    variant_tokens: set[str] = set()
+    for group in packed:
+        for field in ("group_id", "world_id", "task_family", "room_id"):
+            if isinstance(group.get(field), str) and group[field].strip():
+                values.add(group[field])
+        request = group.get("request") if isinstance(group.get("request"), Mapping) else {}
+        for asset_id in request.get("source_asset_ids") or ():
+            if isinstance(asset_id, str) and asset_id.strip():
+                values.add(asset_id)
+        if isinstance(request.get("episode_id"), str) and request["episode_id"].strip():
+            values.add(request["episode_id"])
+        for member in group.get("members") or ():
+            if not isinstance(member, Mapping):
+                continue
+            for field in ("member_id", "native_episode_id", "facts_path"):
+                if isinstance(member.get(field), str) and member[field].strip():
+                    values.add(member[field])
+            for item in (member.get("interventions") or {}).values():
+                if isinstance(item, str) and item.strip():
+                    values.add(item)
+                    variant_tokens.add(item)
+            if isinstance(member.get("member_id"), str):
+                variant_tokens.update(
+                    part for part in str(member["member_id"]).split("_") if part)
+    return {"values": values, "variant_tokens": variant_tokens}
+
+
+def check_public_export_files(output: Path, packed: Sequence[Mapping[str, Any]]) -> dict:
+    """Scan the exported public files for anything naming a member or a group.
+
+    The in-memory payload check runs before anything is written; this reads the
+    files back off disk, so a later writer that adds a field, a filename or a
+    provenance line cannot put the intervention where a reader would see it. A
+    media file name is checked as its own text because the name travels with the
+    sample even when the payload does not.
+    """
+    output = Path(output)
+    identity = _private_identity_values(packed)
+    values = sorted(identity["values"])
+    tokens = sorted(token for token in identity["variant_tokens"]
+                    if re.fullmatch(r"[a-z]+[0-9]+", token))
+    scanned, leaks = [], []
+    for name in PUBLIC_EXPORT_FILES:
+        path = output / name
+        if not path.is_file():
+            continue
+        raw = path.read_text(encoding="utf-8")
+        scanned.append({"file": name, "bytes": len(raw.encode("utf-8"))})
+        for value in values:
+            if value in raw:
+                leaks.append({"file": name, "kind": "private_value", "value": value})
+        payload = json.loads(raw)
+        keys: set[str] = set()
+        strings: set[str] = set()
+        _public_strings(payload, keys, strings)
+        for key in sorted(keys & PRIVATE_ONLY_KEYS):
+            leaks.append({"file": name, "kind": "private_key", "value": key})
+    names = []
+    for directory in PUBLIC_EXPORT_MEDIA_DIRS:
+        folder = output / directory
+        if not folder.is_dir():
+            continue
+        for item in sorted(folder.iterdir()):
+            names.append(item.name)
+            for value in values:
+                if value in item.name:
+                    leaks.append({"file": f"{directory}/{item.name}",
+                                  "kind": "private_value_in_filename", "value": value})
+            for token in tokens:
+                if re.search(rf"(?<![a-z0-9]){re.escape(token)}(?![a-z0-9])", item.name):
+                    leaks.append({"file": f"{directory}/{item.name}",
+                                  "kind": "variant_token_in_filename", "value": token})
+    if leaks:
+        raise BindingGroupError(
+            f"the exported public files name private identity: {leaks[:8]}")
+    return {
+        "status": "pass",
+        "files_scanned": scanned,
+        "media_file_count": len(names),
+        "private_values_checked": len(values),
+        "variant_tokens_checked": tokens,
+        "authority": ("read back from the written export; covers the public payload "
+                      "file and every media file name"),
+    }
+
+
 def _identity_matrix(packed: Sequence[Mapping[str, Any]]) -> dict:
     """Count real declared task and room identity, so a matrix needs no guess."""
     by_room: dict[str, dict[str, dict[str, int]]] = {}
@@ -648,4 +747,6 @@ def assemble_binding_dataset(spec: Mapping[str, Any], *, input_base: Path, outpu
     }
     _write(output / "binding_groups.json", result)
     _write(output / "model_inputs.json", {"schema": "avengine_binding_public_inputs_v1", "samples": public})
+    result["public_export_file_check"] = check_public_export_files(output, packed)
+    _write(output / "binding_groups.json", result)
     return result
