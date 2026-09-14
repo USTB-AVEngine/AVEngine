@@ -197,11 +197,19 @@ def _whole_group(args, parser) -> int:
             world_id=args.world_id,
             qa_ids=args.qa_ids,
             seed=args.seed,
+            group_question=args.group_question,
         )
     except (BindingNativeError, ProductionSpecError, OSError, RuntimeError, ValueError) as exc:
         parser.error(str(exc))
     print(json.dumps({
         "status": summary["status"],
+        "group_question": summary.get("group_question", {}).get("qa_id"),
+        "visual_invariance": {
+            key: value for key, value in (summary.get("visual_invariance") or {}).items()
+            if key in ("status", "frames_compared_per_member",
+                       "actor_states_compared_per_member",
+                       "speech_animation_channels_found")
+        },
         "group_spec": summary["group_spec"],
         "plan_equivalence": summary["plan_equivalence"],
         "native_readback_equivalence": summary["native_readback_equivalence"],
@@ -234,7 +242,11 @@ def main(argv=None) -> int:
     parser.add_argument("--world-id")
     parser.add_argument("--split", default="pilot")
     parser.add_argument("--seed", type=int)
-    parser.add_argument("--qa-id", action="append", dest="qa_ids")
+    parser.add_argument("--qa-id", action="append", dest="qa_ids",
+                        help="which catalog questions the delivered episodes emit")
+    parser.add_argument("--group-question",
+                        help="the catalog question the group itself is built around; "
+                             "defaults to the one the base request asks for")
     parser.add_argument("--manifest", type=Path,
                         help="saved batch manifest; stage-run reads the group from it")
     parser.add_argument("--group-config", type=Path,

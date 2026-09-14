@@ -14,6 +14,7 @@ import json
 import math
 from pathlib import Path
 import random
+import re
 import subprocess
 from typing import Any
 
@@ -426,6 +427,7 @@ PRIVATE_ONLY_KEYS = frozenset({
     "group_id", "member_id", "interventions", "task_family", "world_id",
     "facts_path", "native_episode_id", "source_identity", "episode_conditions",
     "gold", "truth", "comparisons",
+    "planned_answer", "world_bindings", "question_recipe",
 })
 
 
@@ -462,6 +464,125 @@ def _check_public_payload(public: Sequence[Mapping[str, Any]],
             "checked_string_count": len(strings),
             "private_identity_values_checked": len(private_values),
             "note": "option labels are public by construction and are not leaks"}
+
+
+#: A private value this short is a variant level, not an identifier; it is
+#: searched as a whole token instead of as a substring.
+SHORT_IDENTITY_LENGTH = 4
+
+#: The files an exported binding dataset hands to a model or an annotator.
+#: Everything else under the export root is the private side. Named here so the
+#: scan cannot quietly stop covering a file the export starts writing.
+PUBLIC_EXPORT_FILES = ("model_inputs.json",)
+
+#: Directories of the export whose file names travel with the public payload.
+PUBLIC_EXPORT_MEDIA_DIRS = ("media",)
+
+
+def _private_identity_values(packed: Sequence[Mapping[str, Any]]) -> dict:
+    """Every string that would say which member of which group a sample is."""
+    values: set[str] = set()
+    variant_tokens: set[str] = set()
+    for group in packed:
+        for field in ("group_id", "world_id", "task_family", "room_id"):
+            if isinstance(group.get(field), str) and group[field].strip():
+                values.add(group[field])
+        request = group.get("request") if isinstance(group.get("request"), Mapping) else {}
+        for asset_id in request.get("source_asset_ids") or ():
+            if isinstance(asset_id, str) and asset_id.strip():
+                values.add(asset_id)
+        if isinstance(request.get("episode_id"), str) and request["episode_id"].strip():
+            values.add(request["episode_id"])
+        for member in group.get("members") or ():
+            if not isinstance(member, Mapping):
+                continue
+            for field in ("member_id", "native_episode_id", "facts_path"):
+                if isinstance(member.get(field), str) and member[field].strip():
+                    values.add(member[field])
+            for item in (member.get("interventions") or {}).values():
+                if isinstance(item, str) and item.strip():
+                    values.add(item)
+                    variant_tokens.add(item)
+            if isinstance(member.get("member_id"), str):
+                variant_tokens.update(
+                    part for part in str(member["member_id"]).split("_") if part)
+    return {"values": values, "variant_tokens": variant_tokens}
+
+
+def check_public_export_files(output: Path, packed: Sequence[Mapping[str, Any]]) -> dict:
+    """Scan the exported public files for anything naming a member or a group.
+
+    The in-memory payload check runs before anything is written; this reads the
+    files back off disk, so a later writer that adds a field, a filename or a
+    provenance line cannot put the intervention where a reader would see it. A
+    media file name is checked as its own text because the name travels with the
+    sample even when the payload does not.
+    """
+    output = Path(output)
+    identity = _private_identity_values(packed)
+    values = sorted(identity["values"])
+    # A variant level such as "v1" is two characters long and occurs inside
+    # ordinary words, schema names and version suffixes, so searching the raw
+    # text for it reports the export's own "..._public_inputs_v1" as a leak.
+    # Short values are searched with a token boundary that also excludes "_";
+    # long, opaque identifiers are searched as plain substrings, which is the
+    # stricter test and is what they need.
+    short = sorted(value for value in values if len(value) <= SHORT_IDENTITY_LENGTH)
+    long_values = sorted(value for value in values if len(value) > SHORT_IDENTITY_LENGTH)
+    tokens = sorted(set(short) | {token for token in identity["variant_tokens"]
+                                  if re.fullmatch(r"[a-z]+[0-9]+", token)})
+
+    def _token_hits(text):
+        return [token for token in tokens
+                if re.search(rf"(?<![A-Za-z0-9_]){re.escape(token)}(?![A-Za-z0-9_])", text)]
+
+    scanned, leaks = [], []
+    for name in PUBLIC_EXPORT_FILES:
+        path = output / name
+        if not path.is_file():
+            continue
+        raw = path.read_text(encoding="utf-8")
+        scanned.append({"file": name, "bytes": len(raw.encode("utf-8"))})
+        for value in long_values:
+            if value in raw:
+                leaks.append({"file": name, "kind": "private_value", "value": value})
+        payload = json.loads(raw)
+        keys: set[str] = set()
+        strings: set[str] = set()
+        _public_strings(payload, keys, strings)
+        for key in sorted(keys & PRIVATE_ONLY_KEYS):
+            leaks.append({"file": name, "kind": "private_key", "value": key})
+        for text in sorted(keys | strings):
+            for token in _token_hits(text):
+                leaks.append({"file": name, "kind": "variant_token", "value": token,
+                              "in": text})
+    names = []
+    for directory in PUBLIC_EXPORT_MEDIA_DIRS:
+        folder = output / directory
+        if not folder.is_dir():
+            continue
+        for item in sorted(folder.iterdir()):
+            names.append(item.name)
+            for value in long_values:
+                if value in item.name:
+                    leaks.append({"file": f"{directory}/{item.name}",
+                                  "kind": "private_value_in_filename", "value": value})
+            for token in _token_hits(item.name):
+                leaks.append({"file": f"{directory}/{item.name}",
+                              "kind": "variant_token_in_filename", "value": token})
+    if leaks:
+        raise BindingGroupError(
+            f"the exported public files name private identity: {leaks[:8]}")
+    return {
+        "status": "pass",
+        "files_scanned": scanned,
+        "media_file_count": len(names),
+        "private_values_checked": len(long_values),
+        "variant_tokens_checked": tokens,
+        "authority": ("read back from the written export; long identifiers are searched "
+                      "as substrings of the payload and of every media file name, short "
+                      "variant levels as whole tokens"),
+    }
 
 
 def _identity_matrix(packed: Sequence[Mapping[str, Any]]) -> dict:
@@ -554,7 +675,12 @@ def assemble_binding_dataset(spec: Mapping[str, Any], *, input_base: Path, outpu
     next_index = 0
     for group in groups:
         result = {key: deepcopy(group[key]) for key in
-                  ("group_id", "world_id", "task_family", "room_family", "room_id", "split", "query", "angle_tolerance_deg")
+                  ("group_id", "world_id", "task_family", "room_family", "room_id",
+                   "split", "query", "angle_tolerance_deg",
+                   # What question this group was built around and what moves its
+                   # answer. Carried on the private side so a reader of the packed
+                   # group can see the claim without going back to the producer.
+                   "question_recipe")
                   if key in group}
         result.setdefault("split", "pilot")
         identity = identities[id(group)]
@@ -619,6 +745,13 @@ def assemble_binding_dataset(spec: Mapping[str, Any], *, input_base: Path, outpu
                 "episode_conditions": conditions,
                 "facts_path": str(facts_path), "native_episode_id": facts["episode_id"],
                 "interventions": deepcopy(raw.get("interventions", {})),
+                # The answer the declared interventions predicted, kept beside the
+                # observed one this member's own facts produced. Never used to
+                # overwrite it: two columns, so a disagreement is visible.
+                **({"planned_answer": deepcopy(raw["planned_answer"])}
+                   if isinstance(raw.get("planned_answer"), Mapping) else {}),
+                **({"world_bindings": deepcopy(raw["world_bindings"])}
+                   if isinstance(raw.get("world_bindings"), Mapping) else {}),
             })
         align_question_forms([member["question"] for member in members], seed + ":" + group["group_id"])
         result["members"] = members
@@ -646,6 +779,9 @@ def assemble_binding_dataset(spec: Mapping[str, Any], *, input_base: Path, outpu
         "model_evaluation": "not_run", "human_answerability": "not_run",
         "input_protocol": "one sample at a time; identifiers and media filenames are routing metadata, not prompt content",
     }
-    _write(output / "binding_groups.json", result)
+    # The model-facing file is written first and then read back, so the check
+    # runs on the bytes a reader receives rather than on the rows in memory.
     _write(output / "model_inputs.json", {"schema": "avengine_binding_public_inputs_v1", "samples": public})
+    result["public_export_file_check"] = check_public_export_files(output, packed)
+    _write(output / "binding_groups.json", result)
     return result

@@ -1,10 +1,12 @@
 """Validate binding episodes against the caller's existing QA request."""
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
+from copy import deepcopy
 import json
 import math
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 
@@ -497,3 +499,325 @@ __all__ = [
     "validate_binding_episode",
     "verify_task_family_evidence",
 ]
+
+
+# --------------------------------------------------------------------------- group interventions
+
+#: What a core group may change about one controlled world, and what changing
+#: it touches. A member declares which level of each factor it holds; a
+#: comparison between two members is then derived from those levels instead of
+#: being written out by hand, so a new factor needs an entry here and nothing
+#: else. ``modality`` is the delivered stream the factor rewrites, which is how
+#: a pair of members knows which stream it still shares.
+INTERVENTION_FACTORS = {
+    "visual_appearance_slots": {
+        "modality": "video",
+        "changes": "which registered appearance holds each generic source slot",
+        "keeps": "the body, the route, the camera and the clock",
+        "implemented": True,
+    },
+    "audio_event_slot_assignment": {
+        "modality": "audio",
+        "changes": "which source slot emits each programmed sound event",
+        "keeps": "the recordings, their crops and the event times",
+        "implemented": True,
+    },
+    # Declared, not produced yet. These are the interventions that must NOT
+    # change the answer, so a group carrying them states an invariance rather
+    # than a necessity. They are named here so the member schema, the
+    # comparison derivation and the validator already accept them.
+    "unqueried_actor_appearance": {
+        "modality": "video",
+        "changes": "the registered appearance of an actor the question does not ask about",
+        "keeps": "the queried actor's appearance, every route and the whole audio",
+        "implemented": False,
+        "caution": (
+            "a closed-set appearance question draws its options from the visible "
+            "candidates, so changing an unqueried actor's appearance also changes the "
+            "answer domain; use it only with a question whose options do not depend "
+            "on that actor"
+        ),
+    },
+    "queried_clip_within_class": {
+        "modality": "audio",
+        "changes": "which recording of the same sound class the queried event plays",
+        "keeps": "who emits it, when it starts and how long it lasts",
+        "implemented": False,
+    },
+}
+
+INTERVENTION_MODALITIES = ("audio", "video")
+
+
+def intervention_factor(name: str) -> dict:
+    """The declared meaning of one intervention factor."""
+    row = INTERVENTION_FACTORS.get(str(name))
+    if row is None:
+        raise BindingConditionError(
+            f"unknown intervention factor {name!r}; the declared factors are "
+            f"{sorted(INTERVENTION_FACTORS)}"
+        )
+    return {"factor": str(name), **deepcopy(row)}
+
+
+#: Which catalog question a core group can be built around, what its answer
+#: actually is, and which declared factors move it. The group recipe reads this
+#: instead of naming one question type in code, so adding a question type is a
+#: row here plus a builder for it.
+#:
+#: ``answer_expression`` says how the answer is computed from the member's own
+#: declared world bindings; it is what lets the planned answer be predicted
+#: before anything is rendered, and it is never used to overwrite the observed
+#: answer a member's facts produce.
+GROUP_QUESTION_RECIPES = {
+    "QA-20": {
+        "qa_id": "QA-20",
+        "task_family": "visible_binding",
+        "title": "which visible candidate produced the sound",
+        "answer_variable": "the registered appearance of the slot that emitted the queried event",
+        "answer_expression": "appearance_of_event_slot",
+        "answer_type": "closed_set",
+        "default_query": {"event_number": 1},
+        "flipped_by": ("visual_appearance_slots", "audio_event_slot_assignment"),
+        "invariant_under": ("queried_clip_within_class",),
+        "status": "implemented",
+        "note": (
+            "the answer names the appearance of whoever produced the queried event, so "
+            "moving the appearances between slots and moving the events between slots "
+            "each change it"
+        ),
+    },
+    "QA-02": {
+        "qa_id": "QA-02",
+        "task_family": None,
+        "title": "sound or line to appearance",
+        "answer_variable": "the registered appearance of the source of the named sound",
+        "answer_expression": "appearance_of_event_slot",
+        "answer_type": "closed_set",
+        "default_query": {"event_number": 1},
+        "flipped_by": ("visual_appearance_slots", "audio_event_slot_assignment"),
+        "invariant_under": ("queried_clip_within_class",),
+        "status": "not_implemented",
+        "note": (
+            "the same answer variable as QA-20 with the candidate set left open rather "
+            "than restricted to the visible ones; it needs its own question builder "
+            "before a group can carry it"
+        ),
+    },
+    "QA-19": {
+        "qa_id": "QA-19",
+        "task_family": None,
+        "title": "the target's first utterance time",
+        "answer_variable": "the onset time of the first event of the slot holding the named appearance",
+        "answer_expression": "first_event_time_of_appearance",
+        "answer_type": "time_range_s",
+        "default_query": {"appearance_ordinal": 1},
+        "flipped_by": ("visual_appearance_slots", "audio_event_slot_assignment"),
+        "invariant_under": ("unqueried_actor_appearance",),
+        "status": "not_implemented",
+        "note": (
+            "the question names an appearance and asks for a time, so both interventions "
+            "move it; it needs a question builder and an onset tolerance before a group "
+            "can carry it"
+        ),
+    },
+    "QA-16": {
+        "qa_id": "QA-16",
+        "task_family": None,
+        "title": "how many times the target sounded",
+        "answer_variable": "the number of events emitted by the slot holding the named appearance",
+        "answer_expression": "event_count_of_appearance",
+        "answer_type": "count",
+        "default_query": {"appearance_ordinal": 1},
+        "flipped_by": ("visual_appearance_slots", "audio_event_slot_assignment"),
+        "invariant_under": ("queried_clip_within_class",),
+        "status": "not_implemented",
+        "note": (
+            "only groups whose two slots emit different numbers of events can flip this; "
+            "a group whose slots each emit once has one count for both members and the "
+            "necessity comparison would be unsatisfiable"
+        ),
+    },
+    "QA-17": {
+        "qa_id": "QA-17",
+        "task_family": None,
+        "title": "did the target sound again after the query moment",
+        "answer_variable": "whether the slot holding the named appearance emits after the query moment",
+        "answer_expression": "later_event_of_appearance",
+        "answer_type": "yes_no",
+        "default_query": {"appearance_ordinal": 1},
+        "flipped_by": ("visual_appearance_slots", "audio_event_slot_assignment"),
+        "invariant_under": ("queried_clip_within_class",),
+        "status": "not_implemented",
+        "note": (
+            "a yes/no answer flips only when the two slots differ on it at the chosen "
+            "query moment, so the moment has to be planned as part of the group rather "
+            "than drawn per member"
+        ),
+    },
+}
+
+
+def group_question_recipe(qa_id: str) -> dict:
+    """The group recipe for one catalog question."""
+    row = GROUP_QUESTION_RECIPES.get(str(qa_id))
+    if row is None:
+        raise BindingConditionError(
+            f"no core-group recipe for {qa_id!r}; the declared recipes are "
+            f"{sorted(GROUP_QUESTION_RECIPES)}"
+        )
+    return deepcopy(row)
+
+
+def implemented_group_question_recipe(qa_id: str) -> dict:
+    """The recipe, refusing a question whose builder does not exist yet."""
+    recipe = group_question_recipe(qa_id)
+    if recipe["status"] != "implemented" or not recipe["task_family"]:
+        raise BindingConditionError(
+            f"{qa_id} is declared as a group question but has no builder yet: "
+            f"{recipe['note']}"
+        )
+    return recipe
+
+
+def predicted_group_answer(recipe: Mapping[str, Any], bindings: Mapping[str, Any],
+                           query: Mapping[str, Any]) -> dict:
+    """The answer a member's declared world bindings imply, before rendering.
+
+    ``bindings`` states what the member's world holds: ``slot_appearances``
+    maps each source slot to the appearance value it carries, and
+    ``event_slots`` maps each event id, in programmed order, to the slot that
+    emits it. The result is a prediction used to derive the group's comparisons
+    and to report a planned answer beside the observed one; the observed answer
+    always comes from that member's own facts.
+    """
+    expression = recipe.get("answer_expression")
+    appearances = dict(bindings.get("slot_appearances") or {})
+    order = list(bindings.get("event_order") or sorted(bindings.get("event_slots") or {}))
+    slots = dict(bindings.get("event_slots") or {})
+    if not appearances or not order or not slots:
+        raise BindingConditionError(
+            "a predicted answer needs slot appearances and an ordered event/slot map")
+    if expression == "appearance_of_event_slot":
+        number = int(query.get("event_number", 1))
+        if number < 1 or number > len(order):
+            raise BindingConditionError(
+                f"the group asks for event {number} but the world programs {len(order)}")
+        event_id = order[number - 1]
+        slot = slots.get(event_id)
+        if slot not in appearances:
+            raise BindingConditionError(
+                f"event {event_id} is emitted by {slot!r}, which carries no appearance")
+        return {"value": appearances[slot], "source_slot": slot, "event_id": event_id,
+                "expression": expression}
+    raise BindingConditionError(
+        f"answer expression {expression!r} has no predictor yet; "
+        f"{recipe['qa_id']} cannot have its planned answer derived")
+
+
+def derive_group_comparisons(members: Sequence[Mapping[str, Any]], *, qa_id: str,
+                             query: Mapping[str, Any] | None = None) -> list[dict]:
+    """Pair the members of one group and say what each pair should show.
+
+    Every member states the level it holds of each intervention factor and the
+    world bindings those levels produced. For each pair the differing factors
+    give the shared stream, and the predicted answers give the relation: a pair
+    whose answers differ is a necessity comparison, a pair whose answers agree
+    is an invariance comparison. A pair whose declared factors and whose
+    predicted answers disagree about which of those it is stops the build
+    instead of being written down either way.
+    """
+    recipe = group_question_recipe(qa_id)
+    query = dict(query or recipe["default_query"])
+    flipping = set(recipe["flipped_by"])
+    rows_by_id: dict[str, dict] = {}
+    for member in members:
+        member_id = str(member["member_id"])
+        if member_id in rows_by_id:
+            raise BindingConditionError(f"duplicate member {member_id!r}")
+        levels = {str(key): str(value) for key, value
+                  in dict(member.get("factor_levels") or {}).items()}
+        if not levels:
+            raise BindingConditionError(f"{member_id} declares no intervention levels")
+        for factor in levels:
+            intervention_factor(factor)
+        rows_by_id[member_id] = {
+            "levels": levels,
+            "predicted": predicted_group_answer(recipe, member.get("bindings") or {}, query),
+        }
+    names = sorted(rows_by_id)
+    if len(names) < 2:
+        raise BindingConditionError("a group comparison needs at least two members")
+    factors = sorted({factor for row in rows_by_id.values() for factor in row["levels"]})
+    comparisons: list[dict] = []
+    for index, left_id in enumerate(names):
+        for right_id in names[index + 1:]:
+            left, right = rows_by_id[left_id], rows_by_id[right_id]
+            differing = sorted(
+                factor for factor in factors
+                if left["levels"].get(factor) != right["levels"].get(factor))
+            if not differing:
+                raise BindingConditionError(
+                    f"{left_id} and {right_id} declare the same intervention levels")
+            touched = {intervention_factor(factor)["modality"] for factor in differing}
+            untouched = sorted(set(INTERVENTION_MODALITIES) - touched)
+            shared = untouched[0] if len(untouched) == 1 and len(touched) == 1 else None
+            answers_differ = left["predicted"]["value"] != right["predicted"]["value"]
+            flipped = [factor for factor in differing if factor in flipping]
+            if len(flipped) == 1 and not answers_differ:
+                raise BindingConditionError(
+                    f"{left_id} and {right_id} differ only in {flipped[0]}, which "
+                    f"{qa_id} declares answer-changing, yet the predicted answers agree")
+            if not flipped and answers_differ:
+                raise BindingConditionError(
+                    f"{left_id} and {right_id} differ only in factors {qa_id} declares "
+                    "irrelevant, yet the predicted answers differ")
+            kind = "necessity" if answers_differ else "invariance"
+            if kind == "necessity" and shared is None:
+                # Two members that share no stream are not a necessity witness;
+                # they are simply two different worlds.
+                continue
+            row = {
+                "members": sorted([left_id, right_id]),
+                "shared_modality": shared,
+                "answer_relation": "different" if answers_differ else "same",
+                "kind": kind,
+                "intervention_factors": differing,
+                "predicted_answers": {left_id: left["predicted"]["value"],
+                                      right_id: right["predicted"]["value"]},
+            }
+            if kind == "invariance" and len(flipped) > 1:
+                row["intervention_type"] = "joint_audio_visual_compensation"
+            elif kind == "invariance":
+                row["intervention_type"] = "answer_irrelevant_change"
+            comparisons.append(row)
+    comparisons.sort(key=lambda row: (row["kind"], str(row["shared_modality"]), row["members"]))
+    return comparisons
+
+
+def member_intervention_record(factor_levels: Mapping[str, str], *, qa_id: str,
+                               extra: Mapping[str, Any] | None = None) -> dict:
+    """One member's declared interventions and what each is expected to do."""
+    recipe = group_question_recipe(qa_id)
+    flipping = set(recipe["flipped_by"])
+    applied = []
+    for factor, level in sorted(dict(factor_levels).items()):
+        declared = intervention_factor(factor)
+        applied.append({
+            "factor": factor,
+            "level": str(level),
+            "modality": declared["modality"],
+            "changes": declared["changes"],
+            "expected_answer_relation": "different" if factor in flipping else "same",
+        })
+    record = {
+        "factor_levels": {str(k): str(v) for k, v in sorted(dict(factor_levels).items())},
+        "applied": applied,
+        "answer_relevance": {row["factor"]: ("answer_changing"
+                                             if row["expected_answer_relation"] == "different"
+                                             else "answer_preserving")
+                             for row in applied},
+    }
+    record.update(dict(extra or {}))
+    return record
+
