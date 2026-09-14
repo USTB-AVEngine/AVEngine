@@ -242,6 +242,180 @@ def _run(command: Sequence[str], *, log: Path, label: str, cwd: Path | None = No
     return result
 
 
+# ---------------------------------------------------------------------------
+# Which registered assets may take part in a controlled visual swap
+#
+# The visual intervention of a binding group swaps which registered asset holds
+# each generic source slot. That is only a controlled intervention when the
+# swap changes the appearance and nothing else: two assets that render
+# different bodies would also move the silhouette, the pose and the emitter,
+# and the group would no longer isolate appearance.
+#
+# Which assets qualify is therefore read from the registry rather than from an
+# asset id spelling or a hand-kept list. These are the record fields that drive
+# a transform, a pose, an animation phase or an emitter position; if any of
+# them differs the two assets are different bodies.
+# ---------------------------------------------------------------------------
+
+#: Registry paths compared to decide that two records render one body.
+CONTROLLED_SWAP_BODY_FIELDS = (
+    ("timeline", "template_id"),
+    ("timeline", "body_plan_id"),
+    ("timeline", "walk_phase_period_frames"),
+    ("timeline", "idle_action_id"),
+    ("timeline", "walking_action_id"),
+    ("timeline", "local_anatomical_forward_axis"),
+    ("geometry", "rig_authority"),
+    ("emitter_anchors",),
+    ("default_emitter_anchor_id",),
+    ("runtime_backends", "spear_unreal", "actor_scale"),
+    ("runtime_backends", "habitat", "asset_kind"),
+)
+
+#: Registry paths that carry a registered appearance value, in the order the
+#: delivery's appearance review reads them. Kept next to the swap rule so a
+#: newly registered appearance field enters both at once.
+CONTROLLED_SWAP_APPEARANCE_FIELDS = (
+    "finish", "surface_finish", "body_color", "top_color",
+)
+
+
+def _registry_at(record: Mapping[str, Any], path: Sequence[str]) -> Any:
+    value: Any = record
+    for key in path:
+        if not isinstance(value, Mapping):
+            return None
+        value = value.get(key)
+    return value
+
+
+def controlled_swap_body_key(record: Mapping[str, Any]) -> str:
+    """A stable key for the body a registered asset renders.
+
+    Two records with one key may swap slots without moving anything: every
+    field that places, poses or animates the asset, and the emitter anchors
+    that decide where its sound leaves it, are equal. The asset id is not part
+    of the key, so two differently named registrations of one body match and a
+    renamed asset does not stop matching.
+    """
+    if not isinstance(record, Mapping):
+        raise BindingNativeError("a registry record must be a mapping")
+    parts = [
+        json.dumps(_registry_at(record, path), ensure_ascii=False, sort_keys=True)
+        for path in CONTROLLED_SWAP_BODY_FIELDS
+    ]
+    return "|".join(parts)
+
+
+def registered_appearance(record: Mapping[str, Any]) -> dict[str, Any] | None:
+    """The appearance field and value a registry record declares, if any."""
+    attributes = record.get("realized_attributes")
+    if not isinstance(attributes, Mapping):
+        return None
+    for field in CONTROLLED_SWAP_APPEARANCE_FIELDS:
+        value = attributes.get(field)
+        if isinstance(value, str) and value.strip():
+            return {"field": field, "value": value.strip()}
+    return None
+
+
+def appearance_family_of(record: Mapping[str, Any]) -> str | None:
+    """The colour family the registered appearance belongs to.
+
+    Two registered values inside one family are one colour on screen, so a
+    binding group made of them could not be answered by looking. The family is
+    computed by the shared appearance rule, not by comparing spellings.
+    """
+    from avengine.rooms.appearance_color import appearance_distinction_family
+
+    appearance = registered_appearance(record)
+    if appearance is None:
+        return None
+    identity = record.get("identity") if isinstance(record.get("identity"), Mapping) else {}
+    species = identity.get("species_id") or record.get("entity_class")
+    family = appearance_distinction_family(appearance["value"], species)
+    return str(family or appearance["value"])
+
+
+def select_controlled_swap_assets(
+    registry: Mapping[str, Any], *, entity_class: str = "articulated_human",
+    count: int = 2, prefer: Sequence[str] | None = None,
+) -> dict[str, Any]:
+    """Choose registered assets that differ only in a distinguishable appearance.
+
+    Every candidate comes from the supplied registry: the assets are grouped by
+    body key, each group is reduced to one asset per appearance family, and the
+    body that offers the most distinguishable appearances is used. prefer names
+    assets the caller already decided on; they are still checked against the
+    same two rules and refused with a reason rather than silently accepted.
+    """
+    if not isinstance(count, Integral) or isinstance(count, bool) or int(count) < 2:
+        raise BindingNativeError("a controlled swap needs at least two assets")
+    count = int(count)
+    assets = registry.get("assets") if isinstance(registry, Mapping) else None
+    if not isinstance(assets, list) or not assets:
+        raise BindingNativeError("the source registry declares no assets")
+    records = {
+        str(row["asset_id"]): row for row in assets
+        if isinstance(row, Mapping) and isinstance(row.get("asset_id"), str)
+        and row["asset_id"].strip()
+        and (entity_class is None or row.get("entity_class") == entity_class)
+    }
+    if prefer:
+        chosen = [str(value) for value in prefer]
+        missing = [value for value in chosen if value not in records]
+        if missing:
+            raise BindingNativeError(
+                f"requested swap assets are not registered as {entity_class}: {missing}"
+            )
+        keys = {controlled_swap_body_key(records[value]) for value in chosen}
+        if len(keys) != 1:
+            raise BindingNativeError(
+                "requested swap assets do not render one body; a visual swap between "
+                "them would move geometry as well as appearance"
+            )
+        families = [appearance_family_of(records[value]) for value in chosen]
+        if any(family is None for family in families):
+            raise BindingNativeError(
+                "every asset in a controlled swap needs a registered appearance value"
+            )
+        if len(set(families)) != len(families):
+            raise BindingNativeError(
+                f"requested swap assets share a colour family: {families}"
+            )
+        selected = chosen
+    else:
+        by_body: dict[str, dict[str, str]] = {}
+        for asset_id, record in sorted(records.items()):
+            family = appearance_family_of(record)
+            if family is None:
+                continue
+            by_body.setdefault(controlled_swap_body_key(record), {}).setdefault(
+                family, asset_id)
+        usable = {key: value for key, value in by_body.items() if len(value) >= count}
+        if not usable:
+            raise BindingNativeError(
+                f"no registered {entity_class} body carries {count} appearances in "
+                "different colour families"
+            )
+        body = max(sorted(usable), key=lambda key: len(usable[key]))
+        selected = [usable[body][family] for family in sorted(usable[body])][:count]
+    return {
+        "asset_ids": list(selected),
+        "body_key": controlled_swap_body_key(records[selected[0]]),
+        "appearances": {
+            asset_id: registered_appearance(records[asset_id]) for asset_id in selected
+        },
+        "appearance_families": {
+            asset_id: appearance_family_of(records[asset_id]) for asset_id in selected
+        },
+        "authority": (
+            "one registry body key across every selected asset and one colour family "
+            "per asset; both computed from the registry record, not from asset names"
+        ),
+    }
+
+
 def _keep_declared(
     target: dict[str, Any], key: str, required: Any, *, supplied: dict[str, Any],
     owner: str | None = None,
@@ -258,6 +432,102 @@ def _keep_declared(
             f"the request declares {name}={current!r} but this recipe requires {required!r}; "
             "an explicit request is not silently replaced by a route default"
         )
+
+
+def _declared_instance_rows(request: Mapping[str, Any]) -> list[tuple[str, int]]:
+    """Every place a request pins one entity instance, in declaration order."""
+    rows: list[tuple[str, int]] = []
+    for owner in ("entity_instances", "entities"):
+        value = request.get(owner)
+        instances = (
+            value.get("instances") if owner == "entities" and isinstance(value, Mapping)
+            else value
+        )
+        if not isinstance(instances, list):
+            continue
+        for index, row in enumerate(instances):
+            if isinstance(row, Mapping):
+                rows.append((owner, index))
+    return rows
+
+
+def _instance_list(request: Mapping[str, Any], owner: str) -> list[Any] | None:
+    value = request.get(owner)
+    if owner == "entities":
+        value = value.get("instances") if isinstance(value, Mapping) else None
+    return value if isinstance(value, list) else None
+
+
+def _base_selected_assets(
+    base_request: Mapping[str, Any], count: int
+) -> list[str] | None:
+    """The asset order the base request selected, however it stated it."""
+    declared = base_request.get("source_asset_ids")
+    if (
+        isinstance(declared, Sequence) and not isinstance(declared, (str, bytes))
+        and len(declared) == count
+        and all(isinstance(value, str) and value.strip() for value in declared)
+    ):
+        return [str(value) for value in declared]
+    for owner in ("entity_instances", "entities"):
+        instances = _instance_list(base_request, owner)
+        if instances is None:
+            continue
+        pinned = [str(row["asset_id"]) for row in instances
+                  if isinstance(row, Mapping) and isinstance(row.get("asset_id"), str)
+                  and row["asset_id"].strip()]
+        if len(pinned) == count:
+            return pinned
+    return None
+
+
+def permute_declared_instance_assets(
+    request: dict[str, Any], *, base_order: Sequence[str], new_order: Sequence[str],
+) -> dict[str, Any]:
+    """Move the declared per-instance assets with the selected asset order.
+
+    A request may pin which registered asset each entity instance holds as well
+    as listing the selected assets. The visual intervention reorders the
+    selection, and an instance list left behind would then contradict it: the
+    planner takes the actor bindings from the selection while the compiled
+    condition profile keeps repeating the stale pin, and the two variants can no
+    longer be compared. Both statements are rewritten with one permutation, so
+    they keep saying the same thing.
+
+    The permutation is taken from the two selections rather than from instance
+    order, so it also holds for a request whose instances are declared in a
+    different order or which pins only some of them.
+    """
+    if len(base_order) != len(new_order) or set(base_order) != set(new_order):
+        raise BindingNativeError(
+            "an asset-order intervention must be a permutation of the same assets"
+        )
+    mapping = {str(old): str(new) for old, new in zip(base_order, new_order, strict=True)}
+    moved: list[dict[str, Any]] = []
+    for owner in ("entity_instances", "entities"):
+        instances = _instance_list(request, owner)
+        if instances is None:
+            continue
+        for index, row in enumerate(instances):
+            if not isinstance(row, Mapping):
+                continue
+            current = row.get("asset_id")
+            if not isinstance(current, str) or current not in mapping:
+                continue
+            replacement = mapping[current]
+            if replacement == current:
+                continue
+            updated = dict(row)
+            updated["asset_id"] = replacement
+            instances[index] = updated
+            moved.append({"owner": owner, "instance_id": row.get("instance_id"),
+                          "from": current, "to": replacement})
+    return {
+        "status": "applied" if moved else "no_declared_instance_assets",
+        "moved": moved,
+        "authority": ("declared instance assets follow the selected asset order, so the "
+                      "compiled condition profile and the planned actors cannot disagree"),
+    }
 
 
 def build_variant_request(
@@ -301,7 +571,16 @@ def build_variant_request(
     request = deepcopy(dict(base_request))
     supplied: dict[str, Any] = {}
     request["episode_id"] = episode_id
+    base_order = _base_selected_assets(base_request, len(source_asset_ids))
     request["source_asset_ids"] = list(source_asset_ids)
+    instance_permutation = (
+        permute_declared_instance_assets(
+            request, base_order=base_order, new_order=[str(v) for v in source_asset_ids])
+        if base_order is not None
+        else {"status": "base_request_declares_no_selection",
+              "moved": [],
+              "authority": "nothing to move: the base request pins no selected asset order"}
+    )
     declared_qa = request.get("qa_ids")
     if qa_ids is None:
         if (
@@ -354,6 +633,7 @@ def build_variant_request(
             "graphics_adapter": "lease" if graphics_adapter is not None else "request",
         },
         "entity_counts_follow": "selected_source_asset_ids",
+        "declared_instance_assets": instance_permutation,
     }
     return request
 
@@ -391,6 +671,29 @@ def plan_visual_variant(
     return {"output": str(output), "plan": str(plan), "process": process}
 
 
+#: Habitat executor flags whose value the request already states once, under
+#: the path bindings every stage of the chain resolves its room through. The
+#: ordinary single-episode finisher bridges these before it builds the capture
+#: command; a group capture goes through the same command builder, so it makes
+#: the same bridge instead of asking every caller to restate the path.
+CAPTURE_RUNTIME_FROM_PATH_BINDINGS = {
+    "mp3d_root": "AVENGINE_MP3D_ROOT",
+}
+
+
+def capture_runtime_request(request: Mapping[str, Any]) -> dict[str, Any]:
+    """A copy of the request with the capture flags its path bindings imply."""
+    value = deepcopy(dict(request))
+    runtime = dict(value.get("runtime") or {})
+    bindings = runtime.get("path_bindings")
+    bindings = dict(bindings) if isinstance(bindings, Mapping) else {}
+    for key, binding in CAPTURE_RUNTIME_FROM_PATH_BINDINGS.items():
+        if not runtime.get(key) and bindings.get(binding):
+            runtime[key] = str(bindings[binding])
+    value["runtime"] = runtime
+    return value
+
+
 def capture_visual_plan(
     request: Mapping[str, Any], output: str | Path, *, label: str,
     log: str | Path | None = None,
@@ -404,7 +707,8 @@ def capture_visual_plan(
     plan = root / "plan/episode_plan.json"
     if not plan.is_file():
         raise BindingNativeError(f"visual plan is missing: {plan}")
-    command = _qa_module().capture_command(dict(request), root)
+    effective = capture_runtime_request(request)
+    command = _qa_module().capture_command(effective, root)
     log_path = Path(log) if log is not None else root.parent / f"{label}.capture.log"
     process = _run(command, log=log_path, label=f"{label}_capture", cwd=root)
     capture = root / "capture"
@@ -413,6 +717,18 @@ def capture_visual_plan(
     package = resources.get("room_package") if isinstance(resources.get("room_package"), Mapping) else {}
     renderer = str(package.get("renderer") or resources.get("renderer") or "").strip().lower()
     if renderer == "habitat" or resources.get("backend") == "habitat":
+        # The Habitat executor leaves the renderer-neutral readback to its
+        # caller, exactly as the ordinary single-episode run does. Writing it
+        # here keeps the group capture on the same evidence as every other
+        # episode instead of failing on a file the executor never promised.
+        from avengine.capture.habitat_neutral_readback import write_habitat_neutral_readback
+        from avengine.capture.neutral_readback import validate_neutral_readback
+
+        neutral_path = capture / "neutral_readback.json"
+        if neutral_path.is_file():
+            validate_neutral_readback(_load(neutral_path), plan=plan_value)
+        else:
+            write_habitat_neutral_readback(capture, plan_value)
         required = (
             "frame_records.json", "rgb.npy", "depth.npy", "semantic.npy",
             "neutral_readback.json", "pixel_visibility_truth.json",
@@ -2900,6 +3216,125 @@ def _retained_visual_entry(
     }
 
 
+# ---------------------------------------------------------------------------
+# What the four members are measured to share
+#
+# The group's claim is that the picture cannot say which member you are
+# watching. Two separate statements have to hold for that: the two visual
+# variants have to move identically, and swapping which slot speaks first must
+# not change anything in the picture either. Both are measured here from the
+# members' own saved plans rather than argued from how the code is written.
+# ---------------------------------------------------------------------------
+
+#: Substrings that would mark a per-frame channel able to show who is speaking.
+#: A plan carrying one of these could leak the audio intervention through the
+#: picture, so the measurement looks for them by name instead of assuming the
+#: renderer has no mouth animation.
+SPEECH_ANIMATION_TOKENS = (
+    "viseme", "lip", "mouth", "jaw", "phoneme", "speak", "talk",
+    "utter", "voice_pose", "blendshape", "blend_shape", "morph",
+)
+
+#: Per-frame fields that carry the visible motion of one actor. Named so the
+#: report can say which fields were compared rather than "the frames matched".
+ACTOR_MOTION_FIELDS = (
+    "root_transform", "emitter_transform", "planned_emitter_m",
+    "action_id", "action_phase", "action_time_ticks", "moving", "support_identity",
+)
+
+
+def _speech_animation_channels(value: Any, *, path: str = "") -> list[str]:
+    found: list[str] = []
+    if isinstance(value, Mapping):
+        for key, item in value.items():
+            name = f"{path}.{key}" if path else str(key)
+            lowered = str(key).lower()
+            if any(token in lowered for token in SPEECH_ANIMATION_TOKENS):
+                # An emitter anchor names the mouth as a position, not as a pose
+                # channel; it moves with the body and says nothing about speech.
+                if not lowered.startswith("emitter") and "emitter" not in lowered:
+                    found.append(name)
+            found.extend(_speech_animation_channels(item, path=name))
+    elif isinstance(value, list):
+        for index, item in enumerate(value):
+            found.extend(_speech_animation_channels(item, path=f"{path}[{index}]"))
+    return found
+
+
+def measure_group_visual_invariance(
+    plan_paths: Mapping[str, str | Path],
+) -> dict[str, Any]:
+    """Measure that every member of one group plans the same picture.
+
+    plan_paths maps member id to that member's own saved episode plan. Each plan
+    is reduced to the slot-normalized visual signature the controlled comparison
+    uses, so a swapped asset identity is not counted as a difference while every
+    transform, action, animation phase and movement flag still is.
+
+    The returned row says how many frames and actor states were compared, which
+    fields were compared, which differed, and whether any per-frame channel in
+    the plans could show who is speaking.
+    """
+    rows = {str(member): Path(path).expanduser().resolve()
+            for member, path in dict(plan_paths).items()}
+    if len(rows) < 2:
+        raise BindingNativeError("visual invariance needs at least two member plans")
+    signatures, plans = {}, {}
+    for member, path in sorted(rows.items()):
+        plan = _load(path)
+        plans[member] = plan
+        signatures[member] = _controlled_visual_signature(plan)
+    reference_id = sorted(signatures)[0]
+    reference = signatures[reference_id]["frames"]
+    frame_count = len(reference)
+    actor_state_count = sum(len(frame.get("actor_states") or ()) for frame in reference)
+    compared_fields: set[str] = set()
+    for frame in reference:
+        for state in frame.get("actor_states") or ():
+            if isinstance(state, Mapping):
+                compared_fields.update(str(key) for key in state)
+    differences: list[dict[str, Any]] = []
+    for member, signature in sorted(signatures.items()):
+        if member == reference_id:
+            continue
+        frames = signature["frames"]
+        if len(frames) != frame_count:
+            differences.append({"member": member, "field": "frame_count",
+                                "reference": frame_count, "member_value": len(frames)})
+            continue
+        for index, (left, right) in enumerate(zip(reference, frames, strict=True)):
+            if left != right:
+                keys = sorted({key for key in set(left) | set(right)
+                               if left.get(key) != right.get(key)})
+                differences.append({"member": member, "frame_index": index,
+                                    "differing_keys": keys})
+        for key in ("camera", "clock", "actor_slots"):
+            if signatures[reference_id].get(key) != signature.get(key):
+                differences.append({"member": member, "field": key})
+    speech_channels = sorted({
+        channel for plan in plans.values()
+        for channel in _speech_animation_channels(
+            (plan.get("visual_plan") or {}).get("frames"))
+    })
+    motion_flags_present = sorted(set(ACTOR_MOTION_FIELDS) & compared_fields)
+    return {
+        "status": "pass" if not differences and not speech_channels else "fail",
+        "members": sorted(rows),
+        "frames_compared_per_member": frame_count,
+        "actor_states_compared_per_member": actor_state_count,
+        "actor_state_fields_compared": sorted(compared_fields),
+        "motion_fields_present": motion_flags_present,
+        "differing_entries": differences,
+        "speech_animation_channels_found": speech_channels,
+        "plan_paths": {member: str(path) for member, path in sorted(rows.items())},
+        "authority": (
+            "each member's own saved episode plan, reduced to the slot-normalized "
+            "visual signature; a swapped asset identity is not a difference, every "
+            "transform, action, animation phase and movement flag is"
+        ),
+    }
+
+
 def _group_comparisons(
     selected: Sequence[tuple[str, str, str]]
 ) -> list[dict[str, Any]]:
@@ -2927,6 +3362,71 @@ def _group_comparisons(
     return rows
 
 
+def _member_plan_path(row: Mapping[str, Any]) -> Path | None:
+    """The saved plan of the member a finalized variant row describes."""
+    for key in ("plan", "episode_plan"):
+        value = row.get(key)
+        if isinstance(value, str) and Path(value).is_file():
+            return Path(value).resolve()
+    facts = row.get("facts")
+    if not isinstance(facts, str):
+        return None
+    current = Path(facts).resolve().parent
+    for _ in range(4):
+        candidate = current / "plan/episode_plan.json"
+        if candidate.is_file():
+            return candidate
+        current = current.parent
+    return None
+
+
+def member_world_bindings(
+    plan: Mapping[str, Any], *, registry: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    """What one member's world binds: appearance per slot, slot per event.
+
+    Read from the member's own saved plan. The appearance comes from the
+    registry record of the asset each slot holds, so the group states the same
+    value the delivery's appearance review checks against, and a plan whose
+    asset carries no registered appearance says so instead of guessing.
+    """
+    visual = plan.get("visual_plan") if isinstance(plan.get("visual_plan"), Mapping) else {}
+    records = {}
+    if isinstance(registry, Mapping) and isinstance(registry.get("assets"), list):
+        records = {str(row["asset_id"]): row for row in registry["assets"]
+                   if isinstance(row, Mapping) and isinstance(row.get("asset_id"), str)}
+    slot_appearances: dict[str, str] = {}
+    slot_assets: dict[str, str] = {}
+    for actor in visual.get("actors") or ():
+        if not isinstance(actor, Mapping) or not actor.get("actor_id"):
+            continue
+        slot = str(actor["actor_id"])
+        asset_id = actor.get("asset_id")
+        if not isinstance(asset_id, str) or not asset_id:
+            continue
+        slot_assets[slot] = asset_id
+        appearance = registered_appearance(records.get(asset_id, {}))
+        if appearance is not None:
+            slot_appearances[slot] = str(appearance["value"])
+    events = sorted(
+        [row for row in plan.get("audio_events") or () if isinstance(row, Mapping)],
+        key=lambda row: (int(row.get("start_sample", 0)), str(row.get("event_id", ""))),
+    )
+    order = [str(row["event_id"]) for row in events if row.get("event_id")]
+    declared = plan.get("audio_assignment_targets")
+    event_slots = ({str(key): str(value) for key, value in declared.items()}
+                   if isinstance(declared, Mapping) else
+                   {str(row["event_id"]): str(row.get("actor_id") or "") for row in events
+                    if row.get("event_id")})
+    return {
+        "slot_appearances": slot_appearances,
+        "slot_assets": slot_assets,
+        "event_order": order,
+        "event_slots": event_slots,
+        "authority": "the member's own saved episode plan and the request's source registry",
+    }
+
+
 def _group_spec(
     group_id: str,
     world_id: str,
@@ -2940,6 +3440,8 @@ def _group_spec(
     member_units: Sequence[tuple[str, str, str]] | None = None,
     split: str = "pilot",
     task_family: str | None = None,
+    qa_id: str | None = None,
+    source_registry: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Describe one assembled group.
 
@@ -2977,15 +3479,58 @@ def _group_spec(
         audio_delivery = variants[variant_key].get("audio_delivery")
         if isinstance(audio_delivery, Mapping):
             member["audio_delivery"] = deepcopy(dict(audio_delivery))
+        member["_factor_levels"] = {
+            "visual_appearance_slots": visual_id,
+            "audio_event_slot_assignment": assignment,
+        }
+        member["_plan_path"] = _member_plan_path(variants[variant_key])
         members.append(member)
+    from avengine.qa.binding_conditions import (
+        BindingConditionError, derive_group_comparisons, group_question_recipe,
+        member_intervention_record,
+    )
+
+    recipe = group_question_recipe(qa_id) if qa_id else None
+    query = dict(recipe["default_query"]) if recipe else {"event_number": 1}
+    comparisons = None
+    if recipe is not None and all(member.get("_plan_path") for member in members):
+        rows = []
+        for member in members:
+            bindings = member_world_bindings(
+                _load(Path(member["_plan_path"])), registry=source_registry)
+            member["world_bindings"] = deepcopy(bindings)
+            rows.append({"member_id": member["member_id"],
+                         "factor_levels": member["_factor_levels"],
+                         "bindings": bindings})
+        comparisons = derive_group_comparisons(rows, qa_id=recipe["qa_id"], query=query)
+        planned = {}
+        for row in comparisons:
+            planned.update(row["predicted_answers"])
+        for member in members:
+            member["planned_answer"] = {
+                "value": planned.get(member["member_id"]),
+                "qa_id": recipe["qa_id"],
+                "answer_variable": recipe["answer_variable"],
+                "source": "declared world bindings before rendering; the delivered "
+                          "answer is recomputed from this member's own facts",
+            }
+    for member in members:
+        levels = member.pop("_factor_levels")
+        member.pop("_plan_path", None)
+        if recipe is not None:
+            member["interventions"] = member_intervention_record(
+                levels, qa_id=recipe["qa_id"], extra=member["interventions"])
     group = {
         "group_id": group_id, "world_id": world_id,
         "task_family": task_family or TASK_FAMILY, "room_family": room_family,
-        "room_id": room_id, "split": split, "query": {"event_number": 1},
+        "room_id": room_id, "split": split, "query": query,
         "angle_tolerance_deg": 10,
         "members": members,
-        "comparisons": _group_comparisons(selected),
+        "comparisons": comparisons if comparisons is not None
+                       else _group_comparisons(selected),
     }
+    if recipe is not None:
+        group["question_recipe"] = deepcopy(recipe)
     if request is not None:
         group["request"] = deepcopy(dict(request))
     if profile is not None:
@@ -2995,6 +3540,31 @@ def _group_spec(
         **({"request": deepcopy(dict(request))} if request is not None else {}),
         "groups": [group],
     }
+
+
+def _requested_group_question(request: Mapping[str, Any]) -> str | None:
+    """The catalog question a base request asks its group to be built around."""
+    targets = request.get("qa_targets")
+    named = [str(row["qa_id"]) for row in targets or ()
+             if isinstance(row, Mapping) and isinstance(row.get("qa_id"), str)
+             and row["qa_id"].strip()]
+    quota = [str(key) for key in (request.get("quota_by_qa") or {})]
+    unique = sorted(set(named) or set(quota))
+    if len(unique) > 1:
+        raise BindingNativeError(
+            f"a core group is built around one question; the request names {unique}")
+    return unique[0] if unique else None
+
+
+def _registry_document(request: Mapping[str, Any]) -> dict[str, Any] | None:
+    """The source registry a request selected, loaded once for appearance reads."""
+    path = request.get("source_registry")
+    if not isinstance(path, str) or not path.strip():
+        return None
+    resolved = Path(path).expanduser()
+    if not resolved.is_absolute():
+        resolved = (REPOSITORY / resolved).resolve()
+    return _load(resolved) if resolved.is_file() else None
 
 
 def prepare_visible_binding_group(
@@ -3013,12 +3583,18 @@ def prepare_visible_binding_group(
     world_id: str = "world_0001",
     qa_ids: Sequence[str] | None = None,
     seed: int | None = None,
+    group_question: str | None = None,
 ) -> dict[str, Any]:
     """Build one four-member visible-binding group.
 
     Retained visual roots are validated and linked read-only. When a retained
     root is absent, only that visual variant is planned and captured; every
     audio assignment is still finalized from an actual native audio run.
+
+    ``group_question`` names the catalog question the group is built around. It
+    defaults to whatever the base request asks for, so the question type is a
+    property of the request rather than a constant in this function; a question
+    without a group recipe or without a builder is refused by name.
     """
     if second_visual_capture_root is not None and first_visual_capture_root is None:
         raise BindingNativeError("second visual capture requires a retained first visual capture")
@@ -3062,6 +3638,17 @@ def prepare_visible_binding_group(
             "visible binding requires two distinct selected source assets"
         )
     selected = tuple(str(value) for value in selected_raw)
+    from avengine.qa.binding_conditions import (
+        TASK_QA_IDS, implemented_group_question_recipe,
+    )
+
+    requested_question = group_question or _requested_group_question(base)
+    question_recipe = implemented_group_question_recipe(
+        requested_question or TASK_QA_IDS[TASK_FAMILY])
+    if question_recipe["task_family"] != TASK_FAMILY:
+        raise BindingNativeError(
+            f"{question_recipe['qa_id']} is built by the "
+            f"{question_recipe['task_family']!r} recipe, not by visible binding")
     if first_visual_capture_root is not None:
         first_plan = retained_first_plan or _load(
             Path(first_visual_capture_root).expanduser().resolve()
@@ -3288,6 +3875,8 @@ def prepare_visible_binding_group(
                 variants,
                 request=requests["v0"],
                 profile=visual_profile,
+                qa_id=question_recipe["qa_id"],
+                source_registry=_registry_document(requests["v0"]),
             ),
         )
         summary = {
@@ -3295,6 +3884,12 @@ def prepare_visible_binding_group(
             "status": "pass",
             "room_family": room_family,
             "seed": base.get("seed"),
+            "group_question": deepcopy(question_recipe),
+            "visual_invariance": measure_group_visual_invariance({
+                f"{visual_id}_{assignment}": Path(
+                    output / "variants" / f"{visual_id}_{assignment}" / "plan/episode_plan.json")
+                for visual_id in ("v0", "v1") for assignment in ("a0", "a1")
+            }),
             "plan_equivalence": plan_equivalence,
             "native_readback_equivalence": readback_equivalence,
             "acoustic_configuration": acoustics["v0"],
