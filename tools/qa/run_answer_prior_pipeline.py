@@ -12,6 +12,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 from avengine.qa.binding_bank_merge import merge_binding_groups_into_bank
 from avengine.qa.prior_bank import curate_bank
+from avengine.qa.release_gate import write_release_receipt
 from run_audio_answer_balance import load, write, run as run_audio
 
 
@@ -36,6 +37,7 @@ def run(config_path, output, *, resume=False):
             # Read the real final bank, not just a launcher completion flag.
             load(Path(result["bank"])/"report.json")
             print(json.dumps({"status": "already_completed", **result}), flush=True)
+            _enforce_release(config, result)
             return result
         if config.get("bank_in"):
             bank = Path(config["bank_in"]).resolve()
@@ -70,11 +72,35 @@ def run(config_path, output, *, resume=False):
         final = output/f"bank_attempt_{attempt:02d}"
         report = curate_bank(bank, final, audio_summary=audio_summary,
                              split_reference=config.get("split_reference"), seed=config.get("seed", 0))
+        # Hold the declared standard here rather than leaving it to whoever reads the
+        # receipt. The decision is written beside the bank either way; require_release
+        # turns it into a failure so a production run cannot quietly ship a bank that a
+        # blind constant answer already scores well on.
+        policy = load(Path(config["release_policy"])) if config.get("release_policy") else None
+        if (final/"private"/"splits.jsonl").is_file():
+            gate = write_release_receipt(final, policy=policy)
+            release_status, blocked = gate["status"], gate["blocked_rules"]
+        else:
+            release_status, blocked = "not_gated_without_splits", []
         result = {"bank": str(final), "question_count": report["exported_question_count"],
-                  "status": report["status"], "audio_summary": str(audio_summary) if audio_summary else None}
+                  "status": report["status"], "audio_summary": str(audio_summary) if audio_summary else None,
+                  "release_status": release_status, "blocked_rules": blocked}
         write(output/"complete.json", result)
         print(json.dumps(result), flush=True)
+        _enforce_release(config, result)
         return result
+
+
+def _enforce_release(config, result):
+    """Fail the run when the config asked for a bank that meets the standard."""
+    if not config.get("require_release"):
+        return
+    status = result.get("release_status")
+    if status != "release":
+        raise ValueError(
+            "the bank does not meet the declared release policy (%s): %s"
+            % (status, ", ".join(result.get("blocked_rules") or []) or "no split assignment")
+        )
 
 
 def main():

@@ -1,0 +1,31 @@
+{
+  "schema": "avengine_qa_release_policy_v1",
+  "blind_baseline": {
+    "max_train_constant_score": {
+      "valid": 0.35,
+      "test": 0.35
+    }
+  },
+  "answers": {
+    "max_majority_share": 0.45,
+    "max_position_deviation": 0.1
+  },
+  "options": {
+    "min_mcq_options": 4,
+    "max_binary_mcq_share": 0.25
+  },
+  "support": {
+    "min_valid_questions_per_type": 24,
+    "min_worlds": {
+      "valid": 60,
+      "test": 60
+    }
+  },
+  "spatial": {
+    "min_off_screen_share": {
+      "valid": 0.6,
+      "test": 0.6
+    },
+    "camera_half_fov_deg": 42.5
+  }
+}
