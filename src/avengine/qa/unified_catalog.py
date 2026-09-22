@@ -3533,10 +3533,14 @@ def _generate_qa16_timepoint(facts, seed):
             continue
         delta, trend = step["delta"], step["trend"]
         anchor_en, anchor_zh = _event_anchor(facts, event)
+        step_en, step_zh, step_order = _named_alternatives(
+            seed, "QA-16", f"{event['event_id']}_post_distance_frame_{query_frame}",
+            (("nearer", "nearer", "更近"), ("farther", "farther", "更远")),
+        )
         return _question_item(
             qa_id="QA-16", facts=facts, seed=seed,
-            question_en=f"At {int(round(seconds))} seconds, compared with its position at the end of {anchor_en}, was the source nearer or farther from the listener?",
-            question_zh=f"与{anchor_zh}结束时的声源位置相比，在第{int(round(seconds))}秒，声源离听者更近还是更远？",
+            question_en=f"At {int(round(seconds))} seconds, compared with its position at the end of {anchor_en}, was the source {step_en[0]} or {step_en[1]} from the listener?",
+            question_zh=f"与{anchor_zh}结束时的声源位置相比，在第{int(round(seconds))}秒，声源离听者{step_zh[0]}还是{step_zh[1]}？",
             open_answer_type="closed_set", open_truth=trend, truth_label=trend,
             options=[_option("nearer", "nearer"), _option("farther", "farther")],
             evidence={**_event_evidence(event), "query_frame":query_frame,
@@ -3544,6 +3548,7 @@ def _generate_qa16_timepoint(facts, seed):
                       "reference_distance_m":anchor_distance,"query_distance_m":query_distance,
                       "distance_delta_m":delta,"distance_margin_m":margin,
                       "query_scope":"explicit_integer_timepoint",
+                      "wording_order":step_order,
                       "silence_evidence":silence},
             slug=f"{event['event_id']}_post_distance_frame_{query_frame}")
     _defer("no_valid_post_sound_timepoint",
@@ -3651,6 +3656,34 @@ def _defer_with_reasons(
 def _option(value: Any, label: str | None = None) -> dict[str, str]:
     text = str(label if label is not None else value)
     return {"value": str(value), "label_en": text, "label_zh": text}
+
+
+def _named_alternatives(
+    seed: str,
+    qa_id: str,
+    slug: str,
+    choices: Sequence[tuple[str, str, str]],
+) -> tuple[list[str], list[str], list[str]]:
+    """Name a closed answer set in a seeded order rather than a fixed one.
+
+    A wording that always names the same alternative first teaches a model to answer with
+    whichever one it read first instead of with what it perceived. Measured on 2026-09-22:
+    on the open direction rows the answer-only model picked the first-named side 84% of the
+    time, while the same questions in multiple-choice form, whose options are shuffled at
+    export, showed no such pull. Fixing the order in the sentence was therefore handing the
+    model a free prior.
+
+    choices are (value, english, chinese) triples. The order comes from the question's own
+    seed, so it is stable across regenerations, and the caller records it on the item as
+    wording_order so the bank can be audited without re-parsing the sentence.
+    """
+    order = list(range(len(choices)))
+    random.Random(f"{seed}\0{qa_id}\0{slug}\0wording_order").shuffle(order)
+    return (
+        [choices[index][1] for index in order],
+        [choices[index][2] for index in order],
+        [choices[index][0] for index in order],
+    )
 
 
 def _choice_aliases(options: Sequence[Mapping[str, Any]]) -> dict[str, list[str]]:
@@ -4592,12 +4625,16 @@ def _generate_qa_04(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
         if display is None:
             _defer("query_interval_too_short_for_display", "the stable onset interval has no public range")
         display_en, display_zh = display
+        sides_en, sides_zh, sides_order = _named_alternatives(
+            seed, "QA-04", event["event_id"],
+            (("left", "left", "左侧"), ("right", "right", "右侧")),
+        )
         return _question_item(
             qa_id="QA-04",
             facts=facts,
             seed=seed,
-            question_en=f"At the onset of {anchor_en} (query interval {display_en}), was the source on your left or right?",
-            question_zh=f"在{anchor_zh}的查询区间{display_zh}开始阶段，声源在听者左侧还是右侧？",
+            question_en=f"At the onset of {anchor_en} (query interval {display_en}), was the source on your {sides_en[0]} or {sides_en[1]}?",
+            question_zh=f"在{anchor_zh}的查询区间{display_zh}开始阶段，声源在听者{sides_zh[0]}还是{sides_zh[1]}？",
             open_answer_type="closed_set",
             open_truth=side,
             truth_label=side,
@@ -4607,6 +4644,7 @@ def _generate_qa_04(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
                 "query_frame": window[0],
                 **window_fields,
                 "azimuth_deg": angle,
+                "wording_order": sides_order,
             },
             slug=event["event_id"],
         )
@@ -4820,16 +4858,20 @@ def _generate_qa_07(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
             if display is None:
                 _defer("query_interval_too_short_for_display", "the entry interval has no public range")
             display_en, display_zh = display
+            entry_en, entry_zh, entry_order = _named_alternatives(
+                seed, "QA-07", f"{actor_id}_entry_{entry_frame}",
+                (("left", "left", "左侧"), ("right", "right", "右侧")),
+            )
             return _question_item(
                 qa_id="QA-07",
                 facts=facts,
                 seed=seed,
                 question_en=(
-                    f"Did the {appearance_en} {'clearly enter' if facts.get('visibility_interpretation') else 'enter'} from the left or right side "
+                    f"Did the {appearance_en} {'clearly enter' if facts.get('visibility_interpretation') else 'enter'} from the {entry_en[0]} or {entry_en[1]} side "
                     f"of the frame during the transition into view {display_en}?"
                 ),
                 question_zh=(
-                    f"在入画过渡时段{display_zh}内，{appearance_zh}是从左侧还是右侧{'清晰进入' if facts.get('visibility_interpretation') else '进入'}画面的？"
+                    f"在入画过渡时段{display_zh}内，{appearance_zh}是从{entry_zh[0]}还是{entry_zh[1]}{'清晰进入' if facts.get('visibility_interpretation') else '进入'}画面的？"
                 ),
                 open_answer_type="closed_set",
                 open_truth=side,
@@ -4842,6 +4884,7 @@ def _generate_qa_07(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
                     **window_fields,
                     "centroid_xy_px": list(centroid),
                     "side_dead_zone_px": dead_zone,
+                    "wording_order": entry_order,
                 },
                 slug=f"{actor_id}_entry_{entry_frame}",
             )
@@ -5809,15 +5852,19 @@ def _generate_qa_15(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
             continue
         truth = str(trend["verdict"])
         anchor_en, anchor_zh = _event_anchor(facts, event)
+        trend_en, trend_zh, trend_order = _named_alternatives(
+            seed, "QA-15", event["event_id"],
+            (("nearer", "nearer", "靠近"), ("farther", "farther", "远离")),
+        )
         return _question_item(
             qa_id="QA-15",
             facts=facts,
             seed=seed,
             question_en=(
-                f"During {anchor_en}, did the source move nearer or farther "
+                f"During {anchor_en}, did the source move {trend_en[0]} or {trend_en[1]} "
                 "from the listener?"
             ),
-            question_zh=f"{anchor_zh}期间，声源是在靠近还是远离听者？",
+            question_zh=f"{anchor_zh}期间，声源是在{trend_zh[0]}还是{trend_zh[1]}听者？",
             open_answer_type="closed_set",
             open_truth=truth,
             truth_label=truth,
@@ -5829,6 +5876,7 @@ def _generate_qa_15(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
                 "delta_m": trend["endpoint_delta_m"],
                 "distance_trend": trend,
                 "audible_window": audible,
+                "wording_order": trend_order,
                 "motion_readback": {
                     "moving": motion.get("moving"),
                     "reason": motion.get("reason"),
@@ -5930,18 +5978,22 @@ def _generate_qa_16(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
         display_en, display_zh = display
         silence = copy.deepcopy(silence)
         silence.update(window_fields)
+        span_en, span_zh, span_order = _named_alternatives(
+            seed, "QA-16", f"{event['event_id']}_post_distance",
+            (("nearer", "nearer", "更近"), ("farther", "farther", "更远")),
+        )
         return _question_item(
             qa_id="QA-16",
             facts=facts,
             seed=seed,
             question_en=(
                 f"Compared with the source position at the end of {anchor_en}, "
-                f"was the source nearer or farther throughout the silent "
+                f"was the source {span_en[0]} or {span_en[1]} throughout the silent "
                 f"interval {display_en} afterward?"
             ),
             question_zh=(
                 f"与{anchor_zh}结束时的声源位置相比，在其后的静音时段{display_zh}内，"
-                "声源整体更近还是更远？"
+                f"声源整体{span_zh[0]}还是{span_zh[1]}？"
             ),
             open_answer_type="closed_set",
             open_truth=trend,
@@ -5956,6 +6008,7 @@ def _generate_qa_16(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
                 "delta_m": float(query_value["delta"]),
                 "query_time_s": query_frame / float(facts["time"]["frame_rate_hz"]),
                 "query_frame": query_frame,
+                "wording_order": span_order,
                 **window_fields,
             },
             slug=f"{event['event_id']}_post_distance",
