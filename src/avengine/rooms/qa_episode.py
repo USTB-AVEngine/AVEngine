@@ -743,12 +743,26 @@ def select_question_camera(
     actors: Sequence[Mapping[str, Any]], *, rng: np.random.Generator,
     camera_motion: str, qa_ids: Sequence[str], camera_fov_deg: float = 85.0,
     sampling_policy: str | None = None,
+    offscreen_actor_ids: Sequence[str] = (),
 ) -> tuple[dict[str, Any], list[dict[str, Any]], dict[str, Any]]:
+    """Choose the camera. `offscreen_actor_ids` must stay outside its view all clip.
+
+    A direction question about a source the camera can show is answerable by looking, and
+    measured on 2026-09-22 that is what most of them were: 81% of sources sat inside the
+    frustum, and there a model with video and mono audio scored 61.4% against 65.9% for one
+    with spatial audio. On the sources that were outside it the same pair scored 60.0% and
+    70.0%. Naming the actor here is what makes that second case something a request can ask
+    for rather than something that happens by accident.
+    """
     conditioned = sampling_policy == "conditioned_static_v2"
     if sampling_policy not in (None, "conditioned_static_v2"):
         raise QAPlanningError(f"unknown sampling_policy: {sampling_policy}")
     if conditioned and camera_motion != "static":
         raise QAPlanningError("conditioned_static_v2 requires a static camera")
+    offscreen_actor_ids = tuple(str(actor_id) for actor_id in offscreen_actor_ids)
+    unknown = sorted(set(offscreen_actor_ids) - {str(a["actor_id"]) for a in actors})
+    if unknown:
+        raise QAPlanningError(f"offscreen_actor_ids names actors this episode has no route for: {unknown}")
     floor = float(next(iter(routes.values()))[0, 1])
     pool = generate_camera_candidates(
         layout, grid_step_m=0.55, camera_height_m=floor + 1.55,
@@ -812,6 +826,15 @@ def select_question_camera(
             if wants_transitions and len(set(states)) > 1:
                 total += 4
             vis[actor["actor_id"]] = states
+        # Requested off-screen sources are settled from the states just computed, so asking
+        # for one costs no extra geometry work. Every sampled frame has to be out of view:
+        # a source that is visible for part of the clip can still be located by looking.
+        if offscreen_actor_ids and any(
+            state != "out_of_view"
+            for actor_id in offscreen_actor_ids
+            for state in vis.get(actor_id, ("geometry_visible",))
+        ):
+            continue
         # Prevent a rig being placed on a source's planned walking path.
         rig = np.asarray(candidate["position_habitat_m"]); rig[1] = floor
         if any(np.linalg.norm(route - rig, axis=1).min() < 0.8 for route in routes.values()):
@@ -841,7 +864,11 @@ def select_question_camera(
         else:
             ranked.append((total, float(rng.random()), candidate, vis))
     if not ranked:
-        raise QAPlanningError("no camera with route clearance")
+        raise QAPlanningError(
+            "no camera with route clearance"
+            + (" that also keeps %s out of view for the whole clip" % ", ".join(offscreen_actor_ids)
+               if offscreen_actor_ids else "")
+        )
     if conditioned:
         _, _, camera, states = ranked[int(rng.integers(len(ranked)))]
     else:
@@ -863,6 +890,7 @@ def select_question_camera(
         "selection": "question_target_torso_geometry_and_path_clearance",
         "sample_frames": sample_frames, "planning_visibility": states,
         "camera_motion": camera_motion,
+        "offscreen_actor_ids": list(offscreen_actor_ids),
         "planned_late_azimuth_separation_deg": camera["planned_late_azimuth_separation_deg"],
         "native_observability": "not_run",
         **({"selection": "uniform_over_legal", "checked_candidate_count": len(candidates),
