@@ -761,6 +761,7 @@ def build_native_apartment_qa_plan(
     audio_mode: str = "sequential",
     start_hold_frames: int = 0,
     camera_fov_deg: float | None = None,
+    offscreen_actor_ids: Sequence[str] = (),
     silent_actor_count: int = 0,
     sampling_policy: str | None = None,
     camera: Mapping[str, Any] | None = None,
@@ -822,6 +823,10 @@ def build_native_apartment_qa_plan(
                            ("public_time_precision", public_time_precision)):
             if value is not None:
                 request[key] = deepcopy(value) if not isinstance(value, Sequence) or isinstance(value, (str, bytes)) else list(value)
+        # Only present when asked for, so an episode that does not request an off-screen
+        # source builds exactly the request it built before.
+        if offscreen_actor_ids:
+            request["offscreen_actor_ids"] = [str(actor_id) for actor_id in offscreen_actor_ids]
         request.update({key: deepcopy(value) for key, value in dict(request_overrides or {}).items()})
         plan, layout, pathfinder = build_qa_episode_plan(
             room=native_apartment_room_entry(resources), request=request,
@@ -879,6 +884,7 @@ def build_native_apartment_qa_plan(
         qa_ids=ids,
         camera_fov_deg=effective_fov,
         sampling_policy=sampling_policy,
+        offscreen_actor_ids=offscreen_actor_ids,
     )
     ticks_per_frame = 48_000 // int(frame_rate_hz)
     clock = {

@@ -1098,7 +1098,11 @@ def build_qa_episode_plan(
         camera_motion=motion if sampling_policy else str(request.get("camera_motion", "static")), qa_ids=qa_ids,
         camera_fov_deg=float(request.get("camera", {}).get("fov_deg", request.get("camera_fov_deg", 85.0))
                              if sampling_policy else request.get("camera_fov_deg", 85.0)),
-        sampling_policy=sampling_policy)
+        sampling_policy=sampling_policy,
+        # Which sources the camera must never show. The planner takes explicit ids; the
+        # layer that builds many requests owns how often it asks for one, the same way it
+        # already owns the mix of audio profiles.
+        offscreen_actor_ids=tuple(request.get("offscreen_actor_ids") or ()))
     if room.get("exposure_bias_ev") is not None:
         for c in cameras:
             c["exposure_bias_ev"] = float(room["exposure_bias_ev"])
