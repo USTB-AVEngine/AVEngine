@@ -274,9 +274,13 @@ def split_map_from_views(directory):
 def audit_bank(bank, *, split_views=None, thresholds=None):
     bank = Path(bank)
     sources = bank / "private/sources.jsonl"
+    split_file = bank / "private/splits.jsonl"
+    splits = split_map_from_views(split_views) if split_views else (
+        {key: row["split"] for key, row in _index(read_jsonl(split_file), "split").items()}
+        if split_file.is_file() else None)
     return audit_priors(read_jsonl(bank/"public/questions.jsonl"), read_jsonl(bank/"private/answers.jsonl"),
         source_rows=read_jsonl(sources) if sources.exists() else (),
-        splits=split_map_from_views(split_views) if split_views else None, thresholds=thresholds)
+        splits=splits, thresholds=thresholds)
 
 
 def write_prior_receipt(bank, *, output=None, split_views=None, thresholds=None):

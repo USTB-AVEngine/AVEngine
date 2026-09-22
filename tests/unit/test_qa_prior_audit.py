@@ -118,3 +118,15 @@ def test_compact_binding_time_ranges_match_endpoints_across_unit_spellings():
     q=audit_priors(p,a)["by_qa"]["QA-19"]
     assert q["correct_option_positions_by_option_count"]["2"]["counts"] == {"0":0,"1":1}
     assert q["open_answers"]["most_common_answer"] == "[0, 2) seconds"
+
+def test_bank_receipt_uses_private_world_split_projection(tmp_path):
+    from avengine.qa.prior_audit import audit_bank
+    (tmp_path/"public").mkdir(); (tmp_path/"private").mkdir()
+    p,a,s=rows(["yes","no"])
+    for path,data in [("public/questions.jsonl",p),("private/answers.jsonl",a),
+                      ("private/sources.jsonl",s), ("private/splits.jsonl",[
+                          {"question_id":"q0","split":"train"}, {"question_id":"q1","split":"valid"}])]:
+        (tmp_path/path).write_text('\n'.join(json.dumps(r) for r in data))
+    report=audit_bank(tmp_path)
+    assert report["split_status"]=="complete"
+    assert report["by_qa"]["QA-01"]["by_split"]["valid"]["open_questions"]==1
