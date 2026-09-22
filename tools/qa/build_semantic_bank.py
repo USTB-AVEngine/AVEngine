@@ -100,14 +100,18 @@ def render_member(source, output, manifest_path, sound_ids, *, swap, seed, audio
     from avengine.rooms.qa_delivery import finalize_qa_episode
     from avengine.dataset.binding_group_native import check_requested_visibility
     source, output = Path(source), Path(output)
-    prepare_audio_variant(source, output, manifest_path, sound_ids, repository=ROOT, swap=swap, seed=seed)
-    request = load(output / "request.json")
-    plan = load(output / "plan/episode_plan.json")
-    check_requested_visibility(plan, request, output / "capture")
-    refs = load(source / "delivery/input_refs.json")
-    result = finalize_qa_episode(output, output / "delivery", repository=ROOT, request=request,
-                                 appearance_review=Path(refs["appearance_review"]), audio_report=audio_report)
-    write(output / "result.json", result)
+    if (output / "result.json").is_file() and (output / "delivery/facts.json").is_file():
+        # Rendered already: only the questions are asked again, from the same facts.
+        result = load(output / "result.json")
+    else:
+        prepare_audio_variant(source, output, manifest_path, sound_ids, repository=ROOT, swap=swap, seed=seed)
+        request = load(output / "request.json")
+        plan = load(output / "plan/episode_plan.json")
+        check_requested_visibility(plan, request, output / "capture")
+        refs = load(source / "delivery/input_refs.json")
+        result = finalize_qa_episode(output, output / "delivery", repository=ROOT, request=request,
+                                     appearance_review=Path(refs["appearance_review"]), audio_report=audio_report)
+        write(output / "result.json", result)
     facts = load(output / "delivery/facts.json")
     questions = generate_semantic_questions(facts, load(manifest_path), variant_id=output.name,
                                             seed="everyday-semantic")
@@ -148,20 +152,27 @@ def _paired(job):
                 report = Path(info["audio_report"])
                 members[(visual, audio)] = info
         checks = []
-        # Holding audio and swapping appearance flips the appearance-bound types;
-        # holding video and swapping who says what flips all three.
+        # Holding audio and swapping appearance flips the appearance-bound types
+        # and must leave QA-28 alone: nobody moved. Holding video and swapping who
+        # says what flips all three. A stem asked on one side must be asked on the
+        # other, so no expectation can be met by comparing nothing.
         for held, pairs, flips in (
                 ("audio", [(("v0", x), ("v1", x)) for x in ("a0", "a1")], ("QA-26", "QA-27")),
                 ("video", [((x, "a0"), (x, "a1")) for x in ("v0", "v1")], ("QA-26", "QA-27", "QA-28"))):
             for left, right in pairs:
                 l, r = members[left]["answers_by_stem"], members[right]["answers_by_stem"]
-                common = [k for k in l.keys() & r.keys() if k.split("|")[0] in flips]
-                flipped = [k for k in common if l[k] != r[k]]
-                unchanged = [k for k in l.keys() & r.keys() if k.split("|")[0] not in flips and l[k] != r[k]]
+                unmatched = sorted(l.keys() ^ r.keys())
+                common = sorted(l.keys() & r.keys())
+                should_flip = [k for k in common if k.split("|")[0] in flips]
+                should_hold = [k for k in common if k.split("|")[0] not in flips]
+                flipped = [k for k in should_flip if l[k] != r[k]]
+                changed = [k for k in should_hold if l[k] != r[k]]
                 checks.append({"held_identical": held, "members": [members[left]["member_id"], members[right]["member_id"]],
-                               "compared": len(common), "flipped": len(flipped),
-                               "passes": bool(common) and len(flipped) == len(common),
-                               "should_not_change_but_did": len(unchanged)})
+                               "should_flip": len(should_flip), "flipped": len(flipped),
+                               "should_hold": len(should_hold), "changed_anyway": len(changed),
+                               "stems_on_one_side_only": unmatched,
+                               "passes": bool(should_flip) and len(flipped) == len(should_flip)
+                                         and not changed and not unmatched})
         return {"group": group.name, "scenario_id": job["scenario_id"], "sound_ids": job["sound_ids"],
                 "members": [m for m in members.values()], "checks": checks,
                 "all_checks_pass": all(c["passes"] for c in checks)}
@@ -180,8 +191,11 @@ def main():
     p.add_argument("--scenarios-per-source", type=int, default=1)
     p.add_argument("--workers", type=int, default=4)
     p.add_argument("--seed", type=int, default=20260923)
+    p.add_argument("--resume", action="store_true",
+                   help="reuse the rendered members under --output and ask their questions again; "
+                        "the same inputs must choose the same jobs")
     a = p.parse_args()
-    a.output.mkdir(parents=True, exist_ok=False)
+    a.output.mkdir(parents=True, exist_ok=a.resume)
     manifest = load(a.manifest)
     chooser = Chooser(manifest, a.seed)
     jobs, skipped = [], []
@@ -204,6 +218,10 @@ def main():
                    "seed": a.seed + 97 * index + k, "output": str(a.output / name)}
             job.update({"group": str(source)} if a.mode == "paired" else {"source": str(source)})
             jobs.append(job)
+    if a.resume and (a.output / "jobs.json").is_file():
+        before = [(j["output"], j["sound_ids"]) for j in load(a.output / "jobs.json")["jobs"]]
+        if before != [(j["output"], j["sound_ids"]) for j in jobs]:
+            raise SystemExit("--resume chose different jobs from the ones already rendered here")
     write(a.output / "jobs.json", {"jobs": jobs, "skipped": skipped,
                                    "scenario_use": dict(chooser.scenario_use),
                                    "voice_relation_use": dict(chooser.relation_use)})

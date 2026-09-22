@@ -33,13 +33,32 @@ from avengine.qa.choice_support import apply_choice_support
 from avengine.qa.unified_catalog import EXTENSION_QA_IDS
 
 
+def _layout_mixture(report: dict, layout: str) -> str | None:
+    audio = report.get("audio") if isinstance(report.get("audio"), dict) else report
+    entry = ((audio or {}).get("layout_delivery") or {}).get(layout)
+    mixture = entry.get("mixture") if isinstance(entry, dict) else None
+    return (mixture.get("path") if isinstance(mixture, dict) else mixture) or None
+
+
 def _binaural(delivery: Path) -> Path:
-    path = delivery / "audio/audio/binaural/mixture.wav"
-    if not path.is_file():
-        raise BindingGroupError(f"semantic variant has no binaural mixture: {path}")
-    if not (delivery / "audio/audio/foa/mixture.wav").is_file():
-        raise BindingGroupError(f"semantic variant has no ambisonic mixture beside {path}")
-    return path
+    """The variant's binaural mixture, found through its audio report.
+
+    Two appearances of one speaker order share one audio render, so the second
+    variant's own delivery holds no audio; its report names the shared files.
+    """
+    refs = json.loads((delivery / "input_refs.json").read_text())
+    for key in ("audio_report", "contract_audio_report"):
+        if not refs.get(key) or not Path(refs[key]).is_file():
+            continue
+        report = json.loads(Path(refs[key]).read_text())
+        binaural, foa = _layout_mixture(report, "binaural"), _layout_mixture(report, "ambisonics")
+        if binaural and Path(binaural).is_file():
+            # A reader derives the ambisonic mix as the binaural mix's sibling.
+            sibling = Path(binaural).parent.parent / "foa" / Path(binaural).name
+            if not sibling.is_file() or (foa and Path(foa).resolve() != sibling.resolve()):
+                raise BindingGroupError(f"semantic variant's ambisonic mix is not beside {binaural}")
+            return Path(binaural)
+    raise BindingGroupError(f"semantic variant has no binaural mixture in its audio reports: {delivery}")
 
 
 def _silent_video(delivery: Path) -> Path:

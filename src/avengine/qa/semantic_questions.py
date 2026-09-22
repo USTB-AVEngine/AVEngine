@@ -188,12 +188,13 @@ def generate_semantic_questions(raw_facts, manifest, *, variant_id="semantic", s
         for actor, event, sound in chosen:
             window, sector, angle = sectors[actor]
             semantic = sound["semantic_answer"]
-            # Seeded by what was said, never by who said it: the wording must not
-            # depend on a hidden actor ID, and swapping the speakers must leave
-            # the stem unchanged so its answer can be compared.
+            # Seeded by what was said, never by who said it or by which episode
+            # this is: a paired group's appearance variants are separate episodes,
+            # and every variant must ask the same stem for its answers to be
+            # compared. The order is independent of the sector, which is geometry.
             names_en, names_zh, order = u._named_alternatives(
                 seed, "QA-28", f"{scenario_id}_{semantic['answer']}", u._DIRECTION_SECTORS,
-                episode_id=str(facts["episode_id"]))
+                episode_id=scenario_id)
             evidence = {**common, "target_actor_id": actor, "event_id": event["event_id"],
                         "sound_asset_id": sound["sound_asset_id"],
                         "authored_semantic_answer": deepcopy(semantic), "matched_transcript": event["transcript"],

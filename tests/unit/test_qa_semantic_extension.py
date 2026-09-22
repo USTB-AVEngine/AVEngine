@@ -139,3 +139,15 @@ def test_direction_wording_follows_the_meaning_not_the_speaker(monkeypatch):
     after = {i["evidence"]["authored_semantic_answer"]["answer"]: i["forms"]["open"]["question_zh"]
              for i in _by(generate_semantic_questions(facts, swapped), "QA-28")}
     assert before == after
+
+
+def test_direction_stem_is_the_same_in_another_episode_of_the_same_world(monkeypatch):
+    """A paired group's appearance variants are separate episodes; the stem must not move."""
+    facts, manifest = _four_answer_fixture()
+    first, second = (e["event_id"] for e in facts["events"])
+    _sectors(monkeypatch, {first: "front-left", second: "back-right"})
+    stems = lambda f: sorted(i["forms"]["open"]["question_zh"]
+                             for i in _by(generate_semantic_questions(f, manifest), "QA-28"))
+    other = deepcopy(facts)
+    other["episode_id"] = str(facts["episode_id"]) + "_appearance_swapped"
+    assert stems(facts) == stems(other)
