@@ -114,11 +114,39 @@ def test_continuous_metrics_wraparound_missing_answers_and_legacy_tolerances():
     assert metrics["total"] == 3 and metrics["parsed"] == 1
     assert metrics["mae_deg"] == 2.0 and metrics["median_deg"] == 2.0
     assert metrics["accuracy_at_deg"] == {"1": 0.0, "3": 1 / 3, "5": 1 / 3, "10": 1 / 3}
-    assert score_unified_item(rows[0], "-179 degrees")["score"] == pytest.approx(1 - 2 / 180)
+    # QA-25 declares threshold_graded, so a 2-degree error sits inside the 15-degree
+    # full-credit band and scores 1.0. The older continuous definition is still honoured for
+    # a bank that declares it, so both are pinned here.
+    assert score_unified_item(rows[0], "-179 degrees")["score"] == 1.0
+    continuous = deepcopy(rows[0])
+    continuous["forms"]["open"]["scoring_mode"] = "continuous"
+    assert score_unified_item(continuous, "-179 degrees")["score"] == pytest.approx(1 - 2 / 180)
     legacy = deepcopy(rows[0])
     legacy["forms"]["open"].pop("scoring_mode")
     legacy["forms"]["open"]["truth"] = 0
     assert score_unified_item(legacy, "20 degrees")["score"] == 0.5
+
+
+def test_the_angle_report_names_what_a_constant_answer_would_score():
+    """The report has to state the line a model that perceives nothing already reaches.
+
+    On the 2026-09-22 bank the continuous metric put that line at 0.84 while both measured
+    models sat at or below it, which is exactly the situation this field makes visible.
+    """
+    result = generate_unified_questions(_angle_fixture(), qa_ids=["QA-25"])
+    rows = result["items"]
+    for item in rows:
+        item["forms"]["open"]["truth"] = 4.0
+    report = score_unified_question_set(
+        result, {row["question_id"]: "4 degrees" for row in rows}
+    )
+    baseline = report["angle_metrics"]["constant_answer_baseline"]
+    assert baseline["rows"] == len(rows)
+    # every truth sits four degrees off centre, so a blind "0 degrees" is already within five
+    assert baseline["answering_zero_degrees"]["accuracy_at_deg"]["5"] == 1.0
+    assert baseline["answering_zero_degrees"]["accuracy_at_deg"]["3"] == 0.0
+    assert baseline["best_constant_answer"]["degrees"] == 4
+    assert report["angle_metrics"]["constant_answer_baseline_by_qa"]["QA-25"]["rows"] == len(rows)
 
 
 def test_wrong_instance_cannot_pass_joint_metric_with_correct_angle():

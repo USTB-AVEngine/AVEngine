@@ -612,10 +612,26 @@ def score_open_form(
             convention=str(form.get("convention", "right_positive")),
             strict=bool(form.get("strict_certification", False)),
         )
-        if form.get("scoring_mode") == "continuous" and result.get("status") == "scored":
+        mode = str(form.get("scoring_mode") or "two_tier")
+        if mode == "continuous" and result.get("status") == "scored":
+            # 1 - error/180 decays so slowly that it is not a pass rate at all. Measured on the
+            # 2026-09-22 valid split, over the 46 QA-25 rows: a uniformly random angle scores
+            # 0.51, answering "0 degrees" every time scores 0.84, and the best constant answer
+            # scores 0.84 - above both models measured that day, which reached 0.80 with full
+            # audio and video and 0.84 with mono audio. Averaging it into an overall figure
+            # therefore imports a 50% floor. It stays a useful per-row diagnostic, and this
+            # branch stays so a bank that declared it keeps reproducing its own numbers, but
+            # banks generated after 2026-09-22 declare threshold_graded instead.
             result["score"] = 1.0 - result["circular_error_deg"] / 180.0
-            result["score_definition"] = "1 - circular_error_deg / 180; use angle_metrics as primary"
+            result["score_definition"] = (
+                "1 - circular_error_deg / 180; a constant answer scores about 0.84 on a "
+                "front-loaded angle distribution, so use angle_metrics as primary"
+            )
             result.pop("diagnostic_two_tier_score", None)
+        elif mode == "threshold_graded" and result.get("status") == "scored":
+            result["score_definition"] = (
+                f"1.0 within {full:g} deg, 0.5 within {half:g} deg, else 0.0"
+            )
         return result
     if answer_type == "time_range_s":
         return score_time_range(answer, truth, form=form)
@@ -796,7 +812,54 @@ def angular_metrics(items: Sequence[Mapping[str, Any]], records: Sequence[Mappin
                     by_id.get(item["question_id"], {}).get("status") == "scored"
                     and by_id[item["question_id"]].get("circular_error_deg", math.inf) <= threshold
                     for item in correct) / len(selected) if selected else None for threshold in thresholds}}
+    def constant_answer_baseline(selected):
+        """What a model that perceives nothing scores on these very rows.
+
+        Any claim about angle accuracy has to clear this line first. It is reported next to
+        the model's own numbers so an inflated metric cannot pass unnoticed.
+        """
+        truths = []
+        for item in selected:
+            truth = (item.get("forms", {}).get("open", {}) or {}).get("truth")
+            if isinstance(truth, Mapping):
+                truth = truth.get("azimuth_deg", truth.get("value"))
+            try:
+                value = float(truth)
+            except (TypeError, ValueError):
+                continue
+            if math.isfinite(value):
+                truths.append(value)
+        if not truths:
+            return None
+
+        def linear(guess):
+            return statistics.fmean(
+                1.0 - circular_distance_deg(guess, truth) / 180.0 for truth in truths
+            )
+
+        def hit_rate(guess, threshold):
+            return sum(circular_distance_deg(guess, truth) <= threshold for truth in truths) / len(truths)
+
+        best = max(range(-180, 180), key=linear)
+        return {
+            "rows": len(truths),
+            "answering_zero_degrees": {
+                "linear_score": linear(0.0),
+                "accuracy_at_deg": {f"{threshold:g}": hit_rate(0.0, threshold) for threshold in thresholds},
+            },
+            "best_constant_answer": {
+                "degrees": best,
+                "linear_score": linear(best),
+                "accuracy_at_deg": {f"{threshold:g}": hit_rate(float(best), threshold) for threshold in thresholds},
+            },
+            "claim_boundary": "a model that perceives nothing should not reach these numbers",
+        }
+
     return {**summarize(angle_items),
+            "constant_answer_baseline": constant_answer_baseline(angle_items),
+            "constant_answer_baseline_by_qa": {
+                qa_id: constant_answer_baseline([item for item in angle_items if item.get("qa_id") == qa_id])
+                for qa_id in sorted({item["qa_id"] for item in angle_items})},
             "error_denominator": "finite parsed angle answers", "accuracy_denominator": "all angle questions including missing, invalid and abstained",
             "thresholds_are_reporting_dimensions": True,
             "by_qa": {qa_id: summarize([item for item in angle_items if item.get("qa_id") == qa_id])

@@ -384,7 +384,7 @@ def _item(facts: Mapping[str, Any], seed: str, candidate: Mapping[str, Any],
         open_answer_type="angle_deg", open_truth=angle, truth_label=f"{angle:.6f} degrees",
         evidence=evidence, mcq_optional=True,
         mcq_deferred_reason={"code": "continuous_numeric_only", "detail": "this question requires a continuous numeric answer"},
-        open_extra={"convention": "right_positive", "scoring_mode": "continuous",
+        open_extra={"convention": "right_positive", "scoring_mode": "threshold_graded",
                     "angle_thresholds_deg": list(ANGLE_THRESHOLDS_DEG), "angle_reference": evidence["angle_reference"]},
         slug=slug or f"bearing_{subset}_{actor_id}_{candidate.get('event_id', 'visual')}_{frame}")
     item.update({"angle_subset": subset, "candidate_id": candidate.get("candidate_id"),

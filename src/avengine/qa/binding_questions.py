@@ -475,7 +475,7 @@ def _cross_time_state(facts: dict, query: Mapping[str, Any], seed: str) -> tuple
         question_zh=(f"{time_zh}，发出{anchor_zh}的对象，其可见像素质心位于多少度？"
                      "正前方为0度，右侧为正。"),
         open_answer_type="angle_deg", open_truth=bearing, truth_label=f"{bearing} degrees",
-        mcq_optional=True, open_extra={"scoring_mode": "continuous", "theta_full_deg": 1.0, "theta_half_deg": 3.0},
+        mcq_optional=True, open_extra={"scoring_mode": "threshold_graded", "theta_full_deg": 1.0, "theta_half_deg": 3.0},
         evidence={"target_actor_id": event["actor_id"], "event_id": event["event_id"],
                   "anchor_frame": anchor, "query_frame": frame, "query_time_s": second,
                   "query_anchor": "clip_end" if clip_end else "integer_second",
