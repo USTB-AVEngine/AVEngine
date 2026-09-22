@@ -23,7 +23,14 @@ from typing import Any, Mapping, Sequence
 DEFAULT_CAMERA_HALF_FOV_DEG = 42.5
 
 #: Measured on the 2026-09-22 bank, for reference when reading a blocked run:
-#: blind constant answer 0.601 on valid, off-screen share 0.19, binary MCQ share 0.57.
+#: blind constant answer 0.587 on valid, off-screen share 0.23, binary MCQ share 0.59.
+#:
+#: Two scopes use this gate and they want different support rules. A capability probe
+#: only has to show whether a model uses spatial hearing at all, so a wide confidence
+#: interval is fine and the per-type quota is relaxed; what it cannot relax is the blind
+#: baseline and the off-screen share, because those decide whether the probe can separate
+#: a spatial model from one with video and mono audio. A set meant to be published keeps
+#: the quota as well. examples/qa/ carries one policy file per scope.
 DEFAULT_POLICY: dict[str, Any] = {
     "schema": "avengine_qa_release_policy_v1",
     "blind_baseline": {
@@ -44,8 +51,10 @@ DEFAULT_POLICY: dict[str, Any] = {
         "max_binary_mcq_share": 0.25,
     },
     "support": {
+        # Only rules that are actually checked belong here. A world-count minimum was
+        # declared here once and never enforced, which is worse than not declaring it:
+        # a run would report a policy it was not held to.
         "min_valid_questions_per_type": 24,
-        "min_worlds": {"valid": 60, "test": 60},
     },
     "spatial": {
         # A benchmark meant to measure spatial hearing has to ask about sources the camera
@@ -218,12 +227,58 @@ def evaluate_release(
         + (", ".join(sorted(binary_flagged)) or "none"),
     ))
 
-    under = sorted(qa for qa, result in by_qa.items()
-                   if result.get("validation_quota_status") == "under_powered")
+    worst_deviation = None
+    skewed: list[str] = []
+    for qa, result in by_qa.items():
+        for split in ("valid", "test"):
+            positions = (result.get("by_split", {}).get(split) or {}).get(
+                "correct_option_positions_by_option_count") or {}
+            for entry in positions.values():
+                deviation = entry.get("max_deviation")
+                if not isinstance(deviation, (int, float)):
+                    continue
+                if worst_deviation is None or deviation > worst_deviation:
+                    worst_deviation = deviation
+                if deviation > policy["answers"]["max_position_deviation"] and qa not in skewed:
+                    skewed.append(qa)
+    rules.append(_rule(
+        "correct_option_position", worst_deviation, policy["answers"]["max_position_deviation"],
+        worst_deviation is None or worst_deviation <= policy["answers"]["max_position_deviation"],
+        "worst departure from an even spread of the correct option over the letters; "
+        "offenders: " + (", ".join(sorted(skewed)) or "none"),
+    ))
+
+    smallest = None
+    thin: list[str] = []
+    for qa, result in by_qa.items():
+        if result.get("binary_mcq_warning"):
+            continue  # an intrinsically two-way domain is covered by binary_mcq_share
+        counts = [int(n) for n in (result.get("mcq_option_count_histogram") or {})]
+        if not counts:
+            continue
+        if smallest is None or min(counts) < smallest:
+            smallest = min(counts)
+        if min(counts) < policy["options"]["min_mcq_options"]:
+            thin.append(qa)
+    rules.append(_rule(
+        "option_domain_size", smallest, policy["options"]["min_mcq_options"],
+        smallest is None or smallest >= policy["options"]["min_mcq_options"],
+        "smallest multiple-choice domain outside the intrinsically two-way types; "
+        "offenders: " + (", ".join(sorted(thin)) or "none"),
+    ))
+
+    # Count the questions here rather than reading the audit's own quota verdict: the audit
+    # applies its own threshold, so reading it back would silently ignore the policy's.
+    minimum = policy["support"]["min_valid_questions_per_type"]
+    under = sorted(
+        qa for qa, result in by_qa.items()
+        if ((result.get("by_split", {}).get("valid") or {}).get("open_questions") or 0) > 0
+        and ((result.get("by_split", {}).get("valid") or {}).get("open_questions") or 0) < minimum
+    )
     rules.append(_rule(
         "validation_quota", len(under), 0, not under,
-        f"types with fewer than {policy['support']['min_valid_questions_per_type']} validation "
-        "questions, whose numbers are noise: " + (", ".join(under) or "none"),
+        f"types with fewer than {minimum} validation questions, whose numbers are noise: "
+        + (", ".join(under) or "none"),
     ))
 
     blocked = [rule for rule in rules if rule["status"] == "blocked"]

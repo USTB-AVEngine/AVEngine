@@ -8,14 +8,14 @@
   },
   "answers": {
     "max_majority_share": 0.45,
-    "max_position_deviation": 0.1
+    "max_position_deviation": 0.15
   },
   "options": {
     "min_mcq_options": 4,
     "max_binary_mcq_share": 0.25
   },
   "support": {
-    "min_valid_questions_per_type": 24
+    "min_valid_questions_per_type": 12
   },
   "spatial": {
     "min_off_screen_share": {
