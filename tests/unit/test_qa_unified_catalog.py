@@ -1862,9 +1862,14 @@ def test_branch_state_uses_the_branch_owner_and_flags_unmapped_values() -> None:
     assert states["QA-09"]["branches_seen"] == ["yes"]
     assert states["QA-09"]["branches_missing"] == ["no"]
     assert states["QA-09"]["evidence_state"] == "available"
-    # QA-05 answers yes/no while the branch owner declares overlap/disjoint.
-    assert states["QA-05"]["branch_values_unmapped"]
-    assert set(states["QA-05"]["answer_values_seen"]) <= {"yes", "no"}
+    # Preserve raw yes/no answers while mapping to the compiler's branch names.
+    # The former unmapped state made valid overlap targets impossible to meet.
+    assert states["QA-05"]["branch_values_unmapped"] == []
+    tokens = {item["truth"]["value"] for item in output["items"] if item["qa_id"] == "QA-05"}
+    assert tokens <= {"yes", "no"}
+    assert set(states["QA-05"]["branches_seen"]) == {"overlap" if v == "yes" else "disjoint" for v in tokens}
+    from avengine.qa.unified_catalog import _emitted_branch
+    assert _emitted_branch("QA-05", {"truth": {"value": "unknown"}}) == "unknown"
     # A type with no declared branch does not invent one from its answers.
     assert states["QA-19"]["branches_expected"] == []
     assert states["QA-19"]["branches_seen"] == []

@@ -1,3 +1,29 @@
+## 2026-09-22: original 25 QA types - answer-prior code closure
+
+The QA-prior branch preserves all QA-01 through QA-25. A fresh retained-media
+bank contains 4359 questions across 214 visual worlds and all four room
+families, with 4325 Open and 2889 MCQ forms. All 7214 offered gold forms score
+correctly; all 4359 private strata were recomputed without errors. World splits
+remain 2784/487/1088 train/valid/test. Sixteen types still have fewer than 24
+validation questions; those deficits and historical answer priors remain
+report-only, not a claim of full population balance.
+
+The reusable configuration entry is documented in
+`docs/qa/ANSWER_PRIOR_GENERATION.md`. It generates/merges retained banks, plans
+compatible full-clip audio variants, verifies realized targets, exports full
+forms and split-aware priors, and resumes interrupted work. The 18-case native
+Apartment pilot met every requested target (QA-01 no8/yes10, QA-05 no5/yes5,
+QA-21 speech9/cough10/laughter9, QA-23 counts1/2/3 = 8/8/2). An additional
+MP3D canary completed after controller interruption by reusing its completed
+native audio receipt. No new visual captures were rendered.
+
+Validation: 465 specified and affected tests passed. Evidence run identifier:
+`qa_prior_fix_20260922T105441Z` (external task output, including preserved failed
+attempts). The ordinary generator path also completed over four room families.
+Semantic/TTS authoring extensions are preserved outside this merge scope.
+The next owner action is review/merge of this branch; no push or main checkout
+mutation is part of this closure. New visual balancing remains deferred.
+
 ## 2026-09-11: takeover integration and partial delivery update
 
 The takeover remains active. The verified seed export is one repaired P09

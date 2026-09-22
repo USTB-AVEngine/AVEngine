@@ -24,6 +24,20 @@ def apply_choice_support(item, *, minimum=4):
     if isinstance(minimum, bool) or not isinstance(minimum, int) or minimum < 2:
         raise ValueError("minimum MCQ option count must be at least two")
     options = form.get("options", [])
+    observed = result.get("evidence", {}).get("observed_sound_classes")
+    if result.get("qa_id") == "QA-21" and observed is not None:
+        # A taxonomy of 34 classes is not 34 real alternatives in this scene.
+        # Use the observed sound candidates; keep Open if that domain is small.
+        keep = [i for i,o in enumerate(options) if o.get("value") in observed]
+        gold = form["gold"]["correct_index"]
+        if gold not in keep:
+            raise ValueError("QA-21 truth is absent from observed sound candidates")
+        form["options"] = options = [options[i] for i in keep]
+        form["gold"]["correct_index"] = keep.index(gold)
+        public = result.get("model_input", {}).get("mcq")
+        if public is not None:
+            public["options"] = [{"option": chr(65+i), "label_en": o["label_en"],
+                                  "label_zh": o.get("label_zh", o["label_en"])} for i,o in enumerate(options)]
     n = len(options)
     intrinsic = frozenset(str(o.get("value")) for o in options) in INTRINSIC_DOMAINS
     report = {"minimum_extensional_options": minimum, "real_candidate_count": n,

@@ -1,0 +1,15 @@
+{
+  "bank_config": "tmp/my_qa_inputs/retained_bank_config.json",
+  "binding_exports": [],
+  "seed": 20260922,
+  "audio_balance": {
+    "sources": [
+      {"root": "tmp/my_qa_inputs/retained_two_actor_episode", "world_id": "my_visual_world", "split": "train"}
+    ],
+    "pool": "tmp/my_qa_inputs/sound_pool.json",
+    "variants": 8,
+    "seed": 20260922,
+    "human_nonverbal_classes": ["cough", "laughter"],
+    "max_attempts_per_job": 2
+  }
+}

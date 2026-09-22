@@ -4073,6 +4073,9 @@ _SOUND_CLASS_LABELS = {
     "bark": ("bark", "吠声"),
     "cat_meow": ("cat meow", "猫叫声"),
     "laugh": ("laughter", "笑声"),
+    "laughter": ("laughter", "笑声"),
+    "cough": ("coughing", "咳嗽"),
+    "sneeze": ("sneezing", "喷嚏声"),
     "whistle": ("whistle", "口哨声"),
     "music_playback": ("music", "音乐"),
     "bathtub_filling_washing": ("bathtub filling or washing", "浴缸进水或冲洗声"),
@@ -6720,6 +6723,7 @@ def _generate_qa_21(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
             "sound_class": event["sound_class"],
             "explicit_class": True,
             "distinct_sound_classes": classes,
+            "observed_sound_classes": observed_classes,
             "sound_class_answer_domain": (
                 copy.deepcopy(dict(answer_domain))
                 if isinstance(answer_domain, Mapping)
@@ -9104,6 +9108,7 @@ def _form_coverage(items: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
 # ``tests/unit/test_qa_unified_branch_reporting.py``; this module is the lower
 # layer and must not import that one.
 ANSWER_TOKEN_BRANCH_MAP: dict[str, dict[str, str]] = {
+    "QA-05": {"yes": "overlap", "no": "disjoint"},
     "QA-20": {"none_of_visible": "none_of_them", "none_of_them": "none_of_them"},
 }
 ANSWER_TOKEN_BRANCH_DEFAULT: dict[str, str] = {"QA-20": "visible_candidate"}
@@ -9129,7 +9134,7 @@ def _emitted_branch(qa_id: str, item: Mapping[str, Any]) -> str | None:
         return None
     mapped = ANSWER_TOKEN_BRANCH_MAP.get(qa_id)
     if mapped is not None:
-        return mapped.get(str(value), ANSWER_TOKEN_BRANCH_DEFAULT[qa_id])
+        return mapped.get(str(value), ANSWER_TOKEN_BRANCH_DEFAULT.get(qa_id, str(value)))
     return str(value)
 
 
