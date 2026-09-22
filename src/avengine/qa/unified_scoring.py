@@ -150,13 +150,61 @@ def _closed_match(
     return None, f"conflicting vocabulary hits: { {label: hits[label] for label in survivors} }"
 
 
+def _closed_match_v2(answer: str, classes: Mapping[str, Sequence[str]]) -> tuple[str | None, str | None]:
+    """Bound Latin aliases and resolve only explicit binary negation.
+
+    The old substring parser accepts 'bright' as right and '不是' as yes.
+    Retained forms keep that parser unless they declare this corrected policy.
+    This is deliberately a small answer parser, not a general language judge.
+    """
+    text = _canonical_text(answer)
+    opposites = {}
+    for first, second in (("yes", "no"), ("left", "right"), ("moving", "still"), ("nearer", "farther")):
+        if first in classes and second in classes:
+            opposites[first], opposites[second] = second, first
+    hits = {}
+    original_labels = set()
+    for label, terms in classes.items():
+        if not isinstance(label, str) or not isinstance(terms, Sequence):
+            continue
+        for term in terms:
+            if not isinstance(term, str) or not term.strip():
+                continue
+            normalized = _canonical_text(term)
+            pattern = re.escape(normalized)
+            if re.search(r"[a-z0-9]", normalized):
+                pattern = r"(?<![a-z0-9_])" + pattern + r"(?![a-z0-9_])"
+            for match in re.finditer(pattern, text):
+                original_labels.add(label)
+                prefix = text[:match.start()].rstrip()
+                negated = bool(re.search(r"(?:不是|并非|没有|并不|不|没|未|非)$", prefix) or
+                    re.search(r"\b(?:not|never|no)\s+(?:(?:on|the|to|at|is|was|be|being|did|do|does|a|an)\s+){0,4}$", text[:match.start()]))
+                parsed = opposites.get(label) if negated else label
+                if parsed is None:
+                    continue
+                if len(normalized) > len(hits.get(parsed, "")):
+                    hits[parsed] = normalized
+    if len(original_labels) > 1 and re.search(r"\bor\b|或者|或是", text):
+        return None, "answer offers alternative classes"
+    if not hits:
+        return None, "no unambiguous vocabulary hit"
+    survivors = [label for label, term in hits.items() if not any(
+        other != term and term in other for other in hits.values())]
+    if len(survivors) == 1:
+        return survivors[0], None
+    return None, f"conflicting vocabulary hits: {hits}"
+
+
 def score_closed(
     answer: str,
     truth: str,
     classes: Mapping[str, Sequence[str]],
     *,
     refusal_allowed: bool = False,
+    policy: str = "legacy",
 ) -> dict[str, Any]:
+    if policy not in {"legacy", "token_negation_v2"}:
+        raise UnifiedScoreError(f"unknown closed-set parsing policy: {policy}")
     if _has_abstention(answer):
         return {
             "status": "abstained",
@@ -164,7 +212,8 @@ def score_closed(
             "abstention": True,
             "refusal_allowed": bool(refusal_allowed),
         }
-    label, reason = _closed_match(answer, classes)
+    label, reason = (_closed_match_v2(answer, classes) if policy == "token_negation_v2"
+                     else _closed_match(answer, classes))
     if label is None:
         return {"status": "invalid", "reason": reason, "score": 0.0}
     return {
@@ -581,6 +630,7 @@ def score_open_form(
             str(truth),
             classes,
             refusal_allowed=bool(form.get("refusal_truth", False)),
+            policy=str(params.get("closed_set_policy", form.get("closed_set_policy", "legacy"))),
         )
     if answer_type == "transcript_wer":
         result = score_transcript(answer, truth, form=form, params=params)
@@ -714,9 +764,13 @@ def score_unified_question_set(
         public_id = f"question_{index + 1:06d}"
         if public_id in answer_map and item["question_id"] not in answer_map:
             answer_map[item["question_id"]] = answer_map[public_id]
+    denominator = (params or {}).get("denominator_policy", (question_set.get("scoring_policy") or {}).get("form_denominator", "legacy_all_items"))
+    if denominator not in {"legacy_all_items", "offered_forms"}:
+        raise UnifiedScoreError(f"unknown denominator policy: {denominator}")
     items = [item for item in iter_unified_items(question_set, include_angle_followups=form == "open")
-             if not (form not in item.get("forms", {}) and
-                     item.get("form_status", {}).get(form, {}).get("code") == "continuous_numeric_only")]
+             if (form in item.get("forms", {}) if denominator == "offered_forms" else
+                 not (form not in item.get("forms", {}) and
+                      item.get("form_status", {}).get(form, {}).get("code") == "continuous_numeric_only"))]
     records: list[dict[str, Any]] = []
     for item in items:
         if not isinstance(item, Mapping):
@@ -751,6 +805,7 @@ def score_unified_question_set(
             "invalid": sum(record.get("status") == "invalid" for record in records),
             "abstained": sum(record.get("status") == "abstained" for record in records),
         },
+        "denominator_policy": denominator,
         "mean_score_over_all": (
             sum(float(record.get("score", 0.0)) for record in records) / len(records)
             if records

@@ -3696,7 +3696,7 @@ def _choice_aliases(options: Sequence[Mapping[str, Any]]) -> dict[str, list[str]
     builtin = {
         "yes": ["yes", "是", "有", "true"],
         "no": ["no", "否", "没有", "无", "false"],
-        "moving": ["moving", "walking", "在移动", "在走动", "动"],
+        "moving": ["moving", "walking", "在移动", "在走动", "移动", "走动", "动"],
         "still": ["still", "static", "staying still", "静止", "不动", "没动"],
         "left": ["left", "左", "左侧", "左边"],
         "right": ["right", "右", "右侧", "右边"],
@@ -3828,6 +3828,8 @@ def _question_item(
     }
     if classes is not None:
         open_form["classes"] = classes
+    if open_answer_type == "closed_set":
+        open_form["closed_set_policy"] = "token_negation_v2"
     if open_extra:
         open_form.update(copy.deepcopy(dict(open_extra)))
     if open_answer_type == "transcript_wer" and "normalization" not in open_form:
@@ -9489,6 +9491,7 @@ def generate_unified_questions(
                 "claim_boundary": "Emitted target questions under the existing policy. This does not measure predicted-frame agreement."})
     return {
         "schema": UNIFIED_OUTPUT_SCHEMA,
+        "scoring_policy": {"form_denominator": "offered_forms"},
         "qa_target_results": qa_target_results,
         "status": "research_candidate",
         "qualification_claim": False,

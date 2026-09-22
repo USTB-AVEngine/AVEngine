@@ -73,3 +73,45 @@ def test_bank_policy_retains_real_four_options_and_intrinsic_domains(values):
     fresh=apply_choice_support(item)
     assert fresh["forms"]["mcq"]==item["forms"]["mcq"]
     assert fresh["evidence"]["mcq_support"]["chance_baseline"]==1/len(values)
+
+from avengine.qa.unified_scoring import score_open_form,score_unified_question_set
+
+
+@pytest.mark.parametrize("classes,text,expected",[
+    ({"left":["left"],"right":["right"]},"not left","right"),
+    ({"moving":["moving"],"still":["still","staying still"]},"not moving","still"),
+    ({"yes":["yes","是"],"no":["no","没有"]},"不是","no"),
+    ({"left":["left"],"right":["right"]},"the bright sound",None),
+    ({"yes":["yes"],"no":["no"]},"yesterday",None),
+])
+def test_new_closed_parser_respects_word_boundaries_and_negation(classes,text,expected):
+    form={"answer_type":"closed_set","truth":expected or next(iter(classes)),"classes":classes,"closed_set_policy":"token_negation_v2"}
+    result=score_open_form(form,text)
+    assert result.get("parsed")==expected
+    assert result["score"]==(1.0 if expected else 0.0)
+
+
+def test_legacy_substring_policy_remains_available_for_retained_scores():
+    form={"answer_type":"closed_set","truth":"left","classes":{"left":["left"],"right":["right"]}}
+    assert score_open_form(form,"not left")["score"]==1
+    form["closed_set_policy"]="token_negation_v2"
+    assert score_open_form(form,"not left")["score"]==0
+    assert score_open_form(form,"not left",params={"closed_set_policy":"legacy"})["score"]==1
+
+
+def test_new_set_denominator_ignores_unoffered_forms_but_not_missing_answers():
+    offered={"status":"pass","question_id":"yes","qa_id":"QA-01","forms":{"open":{"answer_type":"closed_set","truth":"yes","classes":{"yes":["yes"]}}}}
+    mcq_only={"status":"pass","question_id":"mcq-only","qa_id":"QA-13","forms":{"mcq":{}},"form_status":{"open":{"status":"deferred","code":"angle_not_separated"}}}
+    old={"items":[offered,mcq_only]}
+    assert score_unified_question_set(old,{"yes":"yes"})["mean_score_over_all"]==.5
+    new={**old,"scoring_policy":{"form_denominator":"offered_forms"}}
+    result=score_unified_question_set(new,{"yes":"yes"})
+    assert result["counts"]["total"]==1 and result["mean_score_over_all"]==1
+    assert score_unified_question_set(new,{})["mean_score_over_all"]==0
+
+
+def test_common_chinese_motion_negation_uses_the_longer_alias():
+    classes=u._choice_aliases([u._option("moving"),u._option("still")])
+    form={"answer_type":"closed_set","truth":"still","classes":classes,"closed_set_policy":"token_negation_v2"}
+    assert score_open_form(form,"没有移动")["score"]==1
+    assert score_open_form(form,"不是静止")["parsed"]=="moving"
