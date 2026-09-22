@@ -117,3 +117,30 @@ def test_an_existing_output_run_is_refused(tmp_path):
     (tmp_path / "bank_out").mkdir()
     with pytest.raises(BindingGroupError):
         merge_binding_groups_into_bank(_export(tmp_path, "one"), tmp_path / "bank_out", bank_in=bank)
+
+
+def test_merge_preserves_full_interval_forms_instead_of_reconstructing_gold(tmp_path):
+    export=_export(tmp_path,"interval")
+    path=export/"binding_groups.json"
+    payload=json.loads(path.read_text())
+    for member in payload["groups"][0]["members"]:
+        q=member["question"]
+        options=[{"value":"band_3","label_en":"[8, 10) seconds"},
+                 {"value":"band_0","label_en":"[0, 2) seconds"},
+                 {"value":"band_2","label_en":"[5, 8) seconds"},
+                 {"value":"band_1","label_en":"[2, 5) seconds"}]
+        q["qa_id"]="QA-19"
+        q["truth"]={"answer_type":"time_range_s","value":[0,2],"label":"[0, 2) s"}
+        q["forms"]={"open":{"answer_type":"time_range_s","truth":[0,2]},
+                    "mcq":{"options":options,"gold":{"correct_index":1,"value":"band_0"}}}
+        q["model_input"]={"open":{"question_en":"When?"},"mcq":{"question_en":"When?","options":options}}
+        q["evidence"]={"time_band_index":0}
+    path.write_text(json.dumps(payload))
+    out=tmp_path/"complete_forms"
+    merge_binding_groups_into_bank(export,out)
+    answers=[json.loads(line) for line in (out/"private/answers.jsonl").read_text().splitlines()]
+    assert all(a["forms"]["mcq"]["gold"]["correct_index"]==1 for a in answers)
+    assert all(a["forms"]["open"]["truth"]==[0,2] for a in answers)
+    assert all(a["evidence"]["time_band_index"]==0 for a in answers)
+    receipt=json.loads((out/"private/answer_priors.json").read_text())
+    assert receipt["question_count"]==2 and receipt["status"]!="invalid_input"

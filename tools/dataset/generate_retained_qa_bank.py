@@ -234,6 +234,8 @@ def export(out, selected, checkpoints, policy, target, dedup, minimum_per_type=0
     # Question IDs are local to their original episode/catalog. Distinct
     # media observations may legitimately reuse one, so give the projection
     # unique IDs before calling the single-catalog public projector.
+    from avengine.qa.choice_support import apply_choice_support
+    selected = [{**c, "item": apply_choice_support(c["item"])} for c in selected]
     items = [{**c["item"], "question_id": f"bank_projection_{index:08d}"}
              for index,c in enumerate(selected)]
     public = model_input_questions({"items":items, "angle_followups":[]})

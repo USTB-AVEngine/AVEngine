@@ -46,3 +46,30 @@ def test_qa18_drops_only_impossible_multiple_and_keeps_one_actor_none():
     assert "multiple" in {o["value"] for o in u._qa18_actor_options(facts,reviewed)}
     with pytest.raises(u._Deferred,match="at least one identifiable"):
         u._qa18_actor_options(facts,{})
+
+from avengine.qa.choice_support import apply_choice_support
+
+
+def _choice_item(values, *, open_form=True):
+    forms={"mcq":{"options":[{"value":v,"label_en":v} for v in values],"gold":{"correct_index":1,"value":values[1]}}}
+    if open_form:forms["open"]={"answer_type":"closed_set","truth":values[1]}
+    return {"forms":forms,"model_input":{"mcq":{"options":values},"open":{"question_en":"Who?"}},"truth":{"value":values[1]},"evidence":{}}
+
+
+def test_bank_policy_keeps_open_truth_instead_of_inventing_two_actors():
+    item=_choice_item(["actor1","actor2"])
+    fresh=apply_choice_support(item)
+    assert "mcq" not in fresh["forms"] and "mcq" not in fresh["model_input"]
+    assert fresh["forms"]["open"]==item["forms"]["open"]
+    assert fresh["truth"]["value"]==item["truth"]["value"]
+    assert fresh["evidence"]["mcq_support"]["action"]=="open_only"
+    assert "mcq" in item["forms"]  # Retained source candidates are untouched.
+    assert "mcq" in apply_choice_support(item,minimum=2)["forms"]
+
+
+@pytest.mark.parametrize("values", [["yes","no"],["fov_band_0","fov_band_1","fov_band_2"],["a","b","c","d"]])
+def test_bank_policy_retains_real_four_options_and_intrinsic_domains(values):
+    item=_choice_item(values)
+    fresh=apply_choice_support(item)
+    assert fresh["forms"]["mcq"]==item["forms"]["mcq"]
+    assert fresh["evidence"]["mcq_support"]["chance_baseline"]==1/len(values)

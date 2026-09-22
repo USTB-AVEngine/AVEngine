@@ -195,7 +195,8 @@ def merge_binding_groups_into_bank(
     for group in core.get("groups", []):
         members = []
         for member in group["members"]:
-            question = member["question"]
+            from avengine.qa.choice_support import apply_choice_support
+            question = apply_choice_support(member["question"])
             question_id = f"question_{number:06d}"
             number += 1
             media = {
@@ -214,6 +215,11 @@ def merge_binding_groups_into_bank(
                 "source_question_id": question.get("question_id"),
                 "qa_id": question["qa_id"],
                 "truth": deepcopy(question["truth"]),
+                # Preserve the generator's real option index and open aliases.
+                # Compact interval labels ("s" vs "seconds") made downstream
+                # reconstruction fall back to the wrong first option.
+                **({"forms": deepcopy(question["forms"])} if "forms" in question else {}),
+                **({"evidence": deepcopy(question["evidence"])} if "evidence" in question else {}),
             })
             carried["sources"].append({
                 "question_id": question_id,
