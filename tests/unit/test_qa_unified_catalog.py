@@ -1377,8 +1377,15 @@ def test_p8_qa18_requires_source_activity_and_separates_wet_tail() -> None:
         qa_ids=["QA-18"],
         seed="activity-silent",
     )
-    assert silent["counts"]["valid"] == 1
-    assert silent["items"][0]["truth"]["value"] == "none"
+    # Without any identifiable actor, the old {multiple, none} domain could
+    # only emit none. Do not create new shortcut rows, but keep their scorer.
+    assert silent["counts"]["valid"] == 0
+    assert any(row.get("code") == "speaker_candidate_domain_too_small"
+               for row in silent["candidate_attempts"])
+    retained = {"status": "pass", "question_id": "old-empty-domain", "qa_id": "QA-18",
+                "forms": {"open": {"answer_type": "closed_set", "truth": "none",
+                    "classes": {"none": ["none", "no actor"], "multiple": ["multiple actors"]}}}}
+    assert score_unified_item(retained, "none")["score"] == 1.0
 
     raw["sampling"] = {"time_display_precision": 2, "query_time_s_by_qa": {"QA-18": 0.3}}
     wet = generate_unified_questions(raw, qa_ids=["QA-18"], seed="activity-wet")

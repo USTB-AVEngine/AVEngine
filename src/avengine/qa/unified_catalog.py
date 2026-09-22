@@ -4521,7 +4521,7 @@ def _generate_qa_02(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
     _require_actor_count(facts, 2)
     _require_stereo(facts)
     actor_id, actor, event = _target_with_event(
-        facts, require_content=True, require_visible=True
+        facts, require_visible=True
     )
     appearance = actor["appearance"]
     anchor_en, anchor_zh = _event_anchor(facts, event)
@@ -6183,6 +6183,21 @@ def _generate_qa_17(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
         slug=f"{event['event_id']}_post_motion",
     )
 
+def _qa18_actor_options(facts, reviewed):
+    options = _actor_options(facts, list(reviewed))
+    # In the retained bank 49/49 {multiple, none} domains were answered none.
+    # With no named candidate only that branch can pass the emitter; this is
+    # a selection shortcut, not a useful "multiple" distractor. One candidate
+    # still supports a legitimate actor/none question, so keep that question.
+    if not options:
+        _defer("speaker_candidate_domain_too_small",
+               "QA-18 needs at least one identifiable actor as an alternative to none")
+    if len(options) >= 2:
+        options.append(_option("multiple", "multiple actors"))
+    options.append(_option("none", "no actor"))
+    return options
+
+
 def _generate_qa_18(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
     _require_actor_count(facts, 2)
     _require_stereo(facts)
@@ -6321,8 +6336,7 @@ def _generate_qa_18(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
         truth = "multiple"
     else:
         truth = "none"
-    options = _actor_options(facts, list(reviewed))
-    options.extend([_option("multiple", "multiple actors"), _option("none", "no actor")])
+    options = _qa18_actor_options(facts, reviewed)
     if truth not in {option["value"] for option in options}:
         _defer("speaker_at_time_truth_missing", "query truth is absent from its option domain")
     window_fields = _query_window_fields(facts, window)
@@ -8349,13 +8363,9 @@ def _p8_candidate_pool(
             }
             for actor_id in actor_ids
         ]
-    if qa_id == "QA-02":
-        event_rows = [
-            event
-            for event in event_rows
-            if isinstance(event.get("transcript"), str)
-            and bool(event.get("transcript", "").strip())
-        ]
+    # QA-02 asks about a sound, not necessarily a spoken statement. Restricting
+    # this pool to transcripts made the only human option a free answer even
+    # after the quoted words were removed from the stem.
     if qa_id == "QA-12":
         event_rows = [
             event
@@ -10203,10 +10213,7 @@ def _generate_qa18_integer_window(
         if len(active_actor_ids) > 1
         else "none"
     )
-    options = _actor_options(facts, list(reviewed))
-    options.extend(
-        [_option("multiple", "multiple actors"), _option("none", "no actor")]
-    )
+    options = _qa18_actor_options(facts, reviewed)
     if truth not in {option["value"] for option in options}:
         _defer(
             "speaker_at_time_truth_missing",
