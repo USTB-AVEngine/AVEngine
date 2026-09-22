@@ -151,3 +151,33 @@ def test_direction_stem_is_the_same_in_another_episode_of_the_same_world(monkeyp
     other = deepcopy(facts)
     other["episode_id"] = str(facts["episode_id"]) + "_appearance_swapped"
     assert stems(facts) == stems(other)
+
+
+def test_direction_is_still_asked_when_nobody_can_be_named_by_appearance(monkeypatch):
+    """Off screen, no speaker has a reviewed appearance; that must not cost QA-28."""
+    facts, manifest = _four_answer_fixture()
+    first, second = (e["event_id"] for e in facts["events"])
+    _sectors(monkeypatch, {first: "front-left", second: "back-right"})
+
+    def unreviewed(_facts):
+        raise u._Deferred("appearance_unreviewed", "no actor has a reviewed appearance")
+    monkeypatch.setattr(u, "_reviewed_appearances", unreviewed)
+    result = generate_semantic_questions(facts, manifest)
+    assert len(_by(result, "QA-28")) == 2
+    assert not _by(result, "QA-26") and not _by(result, "QA-27")
+    assert any(d.get("code") == "appearance_unreviewed" for d in result["deferred"])
+
+
+def _builder():
+    path = Path(__file__).resolve().parents[2] / "tools/qa/build_semantic_bank.py"
+    spec = importlib.util.spec_from_file_location("build_semantic_bank", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_members_are_named_after_their_episode_not_its_delivery_folder():
+    name = _builder().member_name
+    assert name("/r/apt__cover_s1/episode", "keys") == "apt__cover_s1__keys"
+    assert name("/r/apt__cover_s2/episode", "keys") != name("/r/apt__cover_s1/episode", "keys")
+    assert name("/groups/aptA", "keys") == "aptA__keys"

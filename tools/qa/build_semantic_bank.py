@@ -50,8 +50,16 @@ def actor_genders(source):
         if record.get("source_class") not in (None, "articulated_human") and "human" not in actor["asset_id"]:
             raise ValueError(f"{actor['actor_id']} is not a human speaker")
         label = _gender((record.get("realized_attributes") or {}).get("sex_or_gender_label"))
-        out.append("female" if label == "F" else "male")
+        if label not in ("female", "male"):
+            raise ValueError(f"{actor['asset_id']} has no readable gender to choose a voice by")
+        out.append(label)
     return out
+
+
+def member_name(source, scenario_id):
+    """Rendered episodes all end in .../<name>/episode; name the member after <name>."""
+    source = Path(source)
+    return f"{source.parent.name if source.name == 'episode' else source.name}__{scenario_id}"
 
 
 class Chooser:
@@ -213,7 +221,7 @@ def main():
         for k in range(a.scenarios_per_source):
             sid, ids = chooser.pick(genders, exclude=used)
             used.append(sid)
-            name = f"{source.name}__{sid}"
+            name = member_name(source, sid)
             job = {"manifest": str(a.manifest.resolve()), "sound_ids": ids, "scenario_id": sid,
                    "seed": a.seed + 97 * index + k, "output": str(a.output / name)}
             job.update({"group": str(source)} if a.mode == "paired" else {"source": str(source)})

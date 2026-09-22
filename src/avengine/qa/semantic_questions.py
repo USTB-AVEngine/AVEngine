@@ -55,9 +55,14 @@ def generate_semantic_questions(raw_facts, manifest, *, variant_id="semantic", s
     facts = u._restore_normalized_frame_keys(raw_facts)
     sounds = {r["sound_asset_id"]: r for r in manifest["sounds"]}
     scenarios = {s["id"]: s for s in manifest["dialogues"]["scenarios"]}
-    reviewed = u._reviewed_appearances(facts)
     groups = defaultdict(list)
     deferred = []
+    try:
+        reviewed = u._reviewed_appearances(facts)
+    except u._Deferred as error:
+        # No speaker can be named by appearance (off screen, say); QA-28 needs none.
+        reviewed = {}
+        deferred.append({"qa_id": "QA-26", "code": error.code, "reason": error.detail})
     for event in facts["events"]:
         sound = sounds.get(event.get("sound_asset_id"))
         if sound is None or sound.get("scenario_id") not in scenarios:
