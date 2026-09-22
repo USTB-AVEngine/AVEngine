@@ -3659,6 +3659,43 @@ def _option(value: Any, label: str | None = None) -> dict[str, str]:
     return {"value": str(value), "label_en": text, "label_zh": text}
 
 
+# Eight 45-degree sectors around the listener, measured from the way the camera faces,
+# right positive - the same convention the bearing questions already declare.
+#
+# The direction question used to ask only "left or right". That is a two-way answer whose
+# guessing baseline is 50%, and on the 2026-09-22 bank the commonest side was 56% of rows,
+# so the floor for that type sat at 56% before any perception. Over the same truths the
+# eight sectors put the commonest answer at 34% and the guessing baseline at 12.5%. The
+# bearing is already measured and stored, so this costs no new rendering.
+_DIRECTION_SECTORS: tuple[tuple[str, str, str], ...] = (
+    ("front", "front", "正前方"),
+    ("front-right", "front right", "右前方"),
+    ("right", "right", "正右方"),
+    ("back-right", "back right", "右后方"),
+    ("back", "behind", "正后方"),
+    ("back-left", "back left", "左后方"),
+    ("left", "left", "正左方"),
+    ("front-left", "front left", "左前方"),
+)
+_SECTOR_DEAD_ZONE_DEG = 5.0
+
+
+def _azimuth_sector(angle: float) -> str | None:
+    """The sector a bearing falls in, or None when it sits on a boundary.
+
+    A source within _SECTOR_DEAD_ZONE_DEG of a boundary has no defensible single answer,
+    so those are refused rather than labelled. On the 2026-09-22 bearings that refuses 11%
+    of otherwise usable rows.
+    """
+    value = float(angle)
+    if not math.isfinite(value):
+        return None
+    offset = (value + 22.5) % 45.0
+    if min(offset, 45.0 - offset) < _SECTOR_DEAD_ZONE_DEG:
+        return None
+    return _DIRECTION_SECTORS[int(((value + 22.5) % 360.0) // 45.0)][0]
+
+
 def _named_alternatives(
     seed: str,
     qa_id: str,
@@ -3700,6 +3737,15 @@ def _choice_aliases(options: Sequence[Mapping[str, Any]]) -> dict[str, list[str]
         "still": ["still", "static", "staying still", "静止", "不动", "没动"],
         "left": ["left", "左", "左侧", "左边"],
         "right": ["right", "右", "右侧", "右边"],
+        # The eight-sector direction domain. Several of these contain one another
+        # ("front left" contains "left", "左后方" contains "左"), which the closed-set
+        # matcher resolves by keeping the longest hit, so the compound names win.
+        "front": ["front", "in front", "ahead", "正前方", "前方"],
+        "front-right": ["front right", "front-right", "right front", "右前方", "右前"],
+        "back-right": ["back right", "back-right", "rear right", "behind right", "右后方", "右后"],
+        "back": ["back", "behind", "behind you", "rear", "正后方", "后方"],
+        "back-left": ["back left", "back-left", "rear left", "behind left", "左后方", "左后"],
+        "front-left": ["front left", "front-left", "left front", "左前方", "左前"],
         "nearer": ["nearer", "closer", "更近", "靠近", "近"],
         "farther": ["farther", "further", "更远", "远离", "远"],
         "multiple": ["multiple", "多人", "都在发声", "多人同时"],
@@ -4651,7 +4697,7 @@ def _generate_qa_04(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
     _require_stereo(facts)
     events = _bound_events(facts)
     for event in events:
-        result = _event_start_side_window(facts, event)
+        result = _event_start_sector_window(facts, event)
         if result is None:
             continue
         window, side, angle = result
@@ -4661,31 +4707,41 @@ def _generate_qa_04(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
         if display is None:
             _defer("query_interval_too_short_for_display", "the stable onset interval has no public range")
         display_en, display_zh = display
-        sides_en, sides_zh, sides_order = _named_alternatives(
-            seed, "QA-04", event["event_id"],
-            (("left", "left", "左侧"), ("right", "right", "右侧")),
+        sector_en, sector_zh, sector_order = _named_alternatives(
+            seed, "QA-04", event["event_id"], _DIRECTION_SECTORS,
             episode_id=str(facts["episode_id"]),
         )
+        listed_en = ", ".join(sector_en)
+        listed_zh = "、".join(sector_zh)
         return _question_item(
             qa_id="QA-04",
             facts=facts,
             seed=seed,
-            question_en=f"At the onset of {anchor_en} (query interval {display_en}), was the source on your {sides_en[0]} or {sides_en[1]}?",
-            question_zh=f"在{anchor_zh}的查询区间{display_zh}开始阶段，声源在听者{sides_zh[0]}还是{sides_zh[1]}？",
+            question_en=(
+                f"At the onset of {anchor_en} (query interval {display_en}), which direction was "
+                f"the source in, relative to the way you are facing? Answer with exactly one of: "
+                f"{listed_en}."
+            ),
+            question_zh=(
+                f"在{anchor_zh}的查询区间{display_zh}开始阶段，以你的朝向为准，声源在哪个方向？"
+                f"请只回答其中之一：{listed_zh}。"
+            ),
             open_answer_type="closed_set",
             open_truth=side,
             truth_label=side,
-            options=[_option("left", "left"), _option("right", "right")],
+            options=[_option(value, label_en) for value, label_en, _label_zh in _DIRECTION_SECTORS],
             evidence={
                 **_event_evidence(event),
                 "query_frame": window[0],
                 **window_fields,
                 "azimuth_deg": angle,
-                "wording_order": sides_order,
+                "sector_dead_zone_deg": _SECTOR_DEAD_ZONE_DEG,
+                "answer_domain": "eight_45_degree_sectors",
+                "wording_order": sector_order,
             },
             slug=event["event_id"],
         )
-    _defer("front_dead_zone", "no sound event has a stable left/right side at onset")
+    _defer("sector_dead_zone", "no sound event stays inside one 45-degree sector at onset")
 
 def _generate_qa_05(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
     first, second = _event_pair(facts)
@@ -7573,6 +7629,37 @@ def _event_start_side_window(
     if end - start < 2:
         return None
     return [start, end], side, values[0][1]
+
+
+def _event_start_sector_window(
+    facts: Mapping[str, Any],
+    event: Mapping[str, Any],
+) -> tuple[list[int], str, float] | None:
+    """The onset window over which the source stays inside one 45-degree sector."""
+    frame_count = int(facts["time"]["frame_count"])
+    start = max(0, min(frame_count - 1, _event_frame(event, "start_frame")))
+    stop = min(frame_count, max(start + 1, _event_frame(event, "end_frame") + 1))
+
+    def sector_and_angle(frame: int) -> tuple[str, float] | None:
+        try:
+            angle = float(_azimuth(facts, str(event["actor_id"]), frame))
+        except _Deferred:
+            return None
+        sector = _azimuth_sector(angle)
+        if sector is None:
+            return None
+        return sector, angle
+
+    values = [sector_and_angle(frame) for frame in range(start, stop)]
+    if not values or values[0] is None:
+        return None
+    sector = values[0][0]
+    end = start + 1
+    while end < stop and values[end - start] is not None and values[end - start][0] == sector:
+        end += 1
+    if end - start < 2:
+        return None
+    return [start, end], sector, values[0][1]
 
 
 def _event_start_visibility_window(
