@@ -578,6 +578,58 @@ CATALOG: tuple[dict[str, Any], ...] = (
 _CATALOG_BY_ID = {item["qa_id"]: item for item in CATALOG}
 QA_IDS = tuple(_CATALOG_BY_ID)
 
+# Types that need an authored annotation the fact bundle does not carry, here
+# what each recorded utterance means. They are asked by their own generator
+# (avengine.qa.semantic_questions) and stay out of QA_IDS, which every
+# scene-driven planner, coverage table and generator lookup iterates.
+EXTENSION_CATALOG = (
+    {
+        "qa_id": "QA-26",
+        "title": "外观→话语内容",
+        "question_family": "speech_meaning_by_appearance",
+        "answer_type": "closed_set",
+        "forms": ["mcq", "open"],
+        "requires_annotation": "speech_semantics_manifest",
+        "potential_requirements": _req(min_entities=2, events={"min_count": 2},
+            appearance={"reviewed": True}, speech_content={"authored_meaning": True, "distinct_answers": 2},
+            required_modalities=("video", "binaural_audio")),
+        "evidence_requirements": _req(min_entities=2, appearance={"reviewed": True},
+            speech_content={"transcript_matches_annotation": True},
+            required_modalities=("video", "binaural_audio")),
+    },
+    {
+        "qa_id": "QA-27",
+        "title": "话语内容→外观",
+        "question_family": "appearance_by_speech_meaning",
+        "answer_type": "closed_set",
+        "forms": ["mcq", "open"],
+        "requires_annotation": "speech_semantics_manifest",
+        "potential_requirements": _req(min_entities=2, events={"min_count": 2},
+            appearance={"reviewed": True}, speech_content={"authored_meaning": True, "distinct_answers": 2},
+            required_modalities=("video", "binaural_audio")),
+        "evidence_requirements": _req(min_entities=2, appearance={"reviewed": True},
+            speech_content={"transcript_matches_annotation": True},
+            required_modalities=("video", "binaural_audio")),
+    },
+    {
+        "qa_id": "QA-28",
+        "title": "话语内容→发声方位",
+        "question_family": "direction_by_speech_meaning",
+        "answer_type": "closed_set",
+        "forms": ["mcq", "open"],
+        "requires_annotation": "speech_semantics_manifest",
+        "potential_requirements": _req(min_entities=2, events={"min_count": 2, "query_frame": True},
+            speech_content={"authored_meaning": True, "distinct_answers": 2},
+            required_modalities=("binaural_audio",)),
+        "evidence_requirements": _req(min_entities=2, events={"active_at_query": True},
+            speech_content={"transcript_matches_annotation": True},
+            required_modalities=("binaural_audio",)),
+    },
+)
+_EXTENSION_BY_ID = {item["qa_id"]: item for item in EXTENSION_CATALOG}
+EXTENSION_QA_IDS = tuple(_EXTENSION_BY_ID)
+ALL_QA_IDS = QA_IDS + EXTENSION_QA_IDS
+
 
 def _canonical_qa_id(value: Any) -> str:
     if not isinstance(value, str):
@@ -586,15 +638,16 @@ def _canonical_qa_id(value: Any) -> str:
     if not match:
         raise UnifiedQAError(f"unknown qa_id {value!r}")
     number = int(match.group(1))
-    if f"QA-{number:02d}" not in _CATALOG_BY_ID:
-        raise UnifiedQAError(f"qa_id must be QA-01 through QA-25, got {value!r}")
+    if f"QA-{number:02d}" not in _CATALOG_BY_ID and f"QA-{number:02d}" not in _EXTENSION_BY_ID:
+        raise UnifiedQAError(f"qa_id must be one of {ALL_QA_IDS[0]} through {ALL_QA_IDS[-1]}, got {value!r}")
     return f"QA-{number:02d}"
 
 
 def get_requirements(qa_id: str) -> dict[str, Any]:
     """Return a copy of one pre-capture requirement record."""
 
-    result = copy.deepcopy(_CATALOG_BY_ID[_canonical_qa_id(qa_id)])
+    canonical = _canonical_qa_id(qa_id)
+    result = copy.deepcopy(_CATALOG_BY_ID.get(canonical) or _EXTENSION_BY_ID[canonical])
     # Keep a flat compatibility view for planners that consume a single
     # requirement mapping, while retaining the explicit potential/evidence
     # split for callers that need to distinguish planning from readback proof.
@@ -10716,4 +10769,4 @@ def model_input_questions(question_set: Mapping[str, Any]) -> dict[str, Any]:
     return {"schema": "avengine_qa_public_questions_v1", "episode_id": question_set.get("episode_id"),
             "items": rows, "count": len(rows)}
 
-__all__.extend(["QA_IDS", "iter_unified_items", "model_input_questions"])
+__all__.extend(["QA_IDS", "EXTENSION_QA_IDS", "ALL_QA_IDS", "EXTENSION_CATALOG", "iter_unified_items", "model_input_questions"])

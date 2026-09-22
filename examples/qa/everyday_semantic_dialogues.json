@@ -1,0 +1,1263 @@
+{
+ "language": "zh",
+ "version": 3,
+ "purpose": "Short everyday utterances with four different answers to the same semantic question, so two speakers in one scene always disagree and the options can list answers nobody said.",
+ "audible_rule": "a recording counts only when speech recognition hears one of the utterance's audible tokens; each token names exactly one answer inside its scenario",
+ "scenarios": [
+  {
+   "id": "keys_location",
+   "slot": "location",
+   "question_zh": "{appearance}说钥匙放在哪里？",
+   "question_en": "Where did the {appearance} say the keys were?",
+   "reverse_question_zh": "哪位说话者说钥匙在{answer}？请描述其外观。",
+   "reverse_question_en": "Who said the keys were {answer}? Describe their appearance.",
+   "direction_question_zh": "说钥匙在{answer}的那个人，在你的哪个方向？",
+   "direction_question_en": "The person who said the keys were {answer}: which direction are they from you?",
+   "utterances": [
+    {
+     "text": "钥匙在门口的鞋柜上。",
+     "answer": "shoe_cabinet",
+     "label_zh": "门口的鞋柜上",
+     "label_en": "on the shoe cabinet by the door",
+     "aliases": [
+      "鞋柜"
+     ],
+     "audible": [
+      "鞋柜"
+     ]
+    },
+    {
+     "text": "钥匙在沙发垫子底下。",
+     "answer": "sofa_cushion",
+     "label_zh": "沙发垫子底下",
+     "label_en": "under the sofa cushion",
+     "aliases": [
+      "沙发",
+      "沙发垫"
+     ],
+     "audible": [
+      "沙发"
+     ]
+    },
+    {
+     "text": "钥匙挂在冰箱旁边的钩子上。",
+     "answer": "fridge_hook",
+     "label_zh": "冰箱旁边的钩子上",
+     "label_en": "on the hook beside the fridge",
+     "aliases": [
+      "冰箱",
+      "挂钩"
+     ],
+     "audible": [
+      "冰箱"
+     ]
+    },
+    {
+     "text": "钥匙在我外套的口袋里。",
+     "answer": "coat_pocket",
+     "label_zh": "外套口袋里",
+     "label_en": "in the coat pocket",
+     "aliases": [
+      "外套",
+      "口袋"
+     ],
+     "audible": [
+      "外套",
+      "口袋"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "fetch_object",
+   "slot": "requested_object",
+   "question_zh": "{appearance}想让别人拿什么东西？",
+   "question_en": "What did the {appearance} ask someone to bring?",
+   "reverse_question_zh": "哪位说话者请别人拿{answer}？请描述其外观。",
+   "reverse_question_en": "Who asked someone to bring {answer}? Describe their appearance.",
+   "direction_question_zh": "请别人拿{answer}的那个人，在你的哪个方向？",
+   "direction_question_en": "The person who asked for {answer}: which direction are they from you?",
+   "utterances": [
+    {
+     "text": "帮我把桌上的水杯拿过来。",
+     "answer": "cup",
+     "label_zh": "水杯",
+     "label_en": "the cup",
+     "aliases": [
+      "杯子",
+      "水杯"
+     ],
+     "audible": [
+      "水杯",
+      "杯"
+     ]
+    },
+    {
+     "text": "请把遥控器递给我。",
+     "answer": "remote",
+     "label_zh": "遥控器",
+     "label_en": "the remote control",
+     "aliases": [
+      "遥控器"
+     ],
+     "audible": [
+      "遥控"
+     ]
+    },
+    {
+     "text": "帮我拿一下手机充电器。",
+     "answer": "charger",
+     "label_zh": "充电器",
+     "label_en": "the phone charger",
+     "aliases": [
+      "充电器"
+     ],
+     "audible": [
+      "充电"
+     ]
+    },
+    {
+     "text": "把那条毛巾递给我好吗。",
+     "answer": "towel",
+     "label_zh": "毛巾",
+     "label_en": "the towel",
+     "aliases": [
+      "毛巾"
+     ],
+     "audible": [
+      "毛巾"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "afternoon_plan",
+   "slot": "destination",
+   "question_zh": "{appearance}下午打算去哪里？",
+   "question_en": "Where does the {appearance} plan to go this afternoon?",
+   "reverse_question_zh": "哪位说话者下午要去{answer}？请描述其外观。",
+   "reverse_question_en": "Who is going to {answer} this afternoon? Describe their appearance.",
+   "direction_question_zh": "下午要去{answer}的那个人，在你的哪个方向？",
+   "direction_question_en": "The person going to {answer} this afternoon: which direction are they from you?",
+   "utterances": [
+    {
+     "text": "我下午要去超市买点东西。",
+     "answer": "supermarket",
+     "label_zh": "超市",
+     "label_en": "the supermarket",
+     "aliases": [
+      "超市"
+     ],
+     "audible": [
+      "超市"
+     ]
+    },
+    {
+     "text": "我下午得去一趟银行。",
+     "answer": "bank",
+     "label_zh": "银行",
+     "label_en": "the bank",
+     "aliases": [
+      "银行"
+     ],
+     "audible": [
+      "银行"
+     ]
+    },
+    {
+     "text": "下午我想去图书馆看书。",
+     "answer": "library",
+     "label_zh": "图书馆",
+     "label_en": "the library",
+     "aliases": [
+      "图书馆"
+     ],
+     "audible": [
+      "图书"
+     ]
+    },
+    {
+     "text": "我下午要去医院复查。",
+     "answer": "hospital",
+     "label_zh": "医院",
+     "label_en": "the hospital",
+     "aliases": [
+      "医院"
+     ],
+     "audible": [
+      "医院"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "meeting_time",
+   "slot": "time",
+   "question_zh": "{appearance}约的是几点？",
+   "question_en": "What time did the {appearance} suggest meeting?",
+   "reverse_question_zh": "哪位说话者约在{answer}？请描述其外观。",
+   "reverse_question_en": "Who suggested meeting at {answer}? Describe their appearance.",
+   "direction_question_zh": "约在{answer}的那个人，在你的哪个方向？",
+   "direction_question_en": "The person who suggested {answer}: which direction are they from you?",
+   "utterances": [
+    {
+     "text": "我们约好两点在楼下见。",
+     "answer": "two",
+     "label_zh": "两点",
+     "label_en": "two o'clock",
+     "aliases": [
+      "两点",
+      "2点"
+     ],
+     "audible": [
+      "2点"
+     ]
+    },
+    {
+     "text": "咱们三点在门口碰面吧。",
+     "answer": "three",
+     "label_zh": "三点",
+     "label_en": "three o'clock",
+     "aliases": [
+      "三点",
+      "3点"
+     ],
+     "audible": [
+      "3点"
+     ]
+    },
+    {
+     "text": "那就五点在小区门口见。",
+     "answer": "five",
+     "label_zh": "五点",
+     "label_en": "five o'clock",
+     "aliases": [
+      "五点",
+      "5点"
+     ],
+     "audible": [
+      "5点"
+     ]
+    },
+    {
+     "text": "我们七点一起吃晚饭。",
+     "answer": "seven",
+     "label_zh": "七点",
+     "label_en": "seven o'clock",
+     "aliases": [
+      "七点",
+      "7点"
+     ],
+     "audible": [
+      "7点"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "stay_home_reason",
+   "slot": "reason",
+   "question_zh": "{appearance}为什么今天不出门？",
+   "question_en": "Why is the {appearance} staying in today?",
+   "reverse_question_zh": "哪位说话者因为{answer}不出门？请描述其外观。",
+   "reverse_question_en": "Who is staying in because of {answer}? Describe their appearance.",
+   "direction_question_zh": "因为{answer}不出门的那个人，在你的哪个方向？",
+   "direction_question_en": "The person staying in because of {answer}: which direction are they from you?",
+   "utterances": [
+    {
+     "text": "外面在下雨，我就不出门了。",
+     "answer": "rain",
+     "label_zh": "下雨",
+     "label_en": "the rain",
+     "aliases": [
+      "下雨",
+      "雨"
+     ],
+     "audible": [
+      "下雨"
+     ]
+    },
+    {
+     "text": "我有点头疼，今天在家休息。",
+     "answer": "headache",
+     "label_zh": "头疼",
+     "label_en": "a headache",
+     "aliases": [
+      "头疼",
+      "头痛"
+     ],
+     "audible": [
+      "头疼",
+      "头痛"
+     ]
+    },
+    {
+     "text": "我今天要在家加班。",
+     "answer": "overtime",
+     "label_zh": "加班",
+     "label_en": "working overtime",
+     "aliases": [
+      "加班"
+     ],
+     "audible": [
+      "加班"
+     ]
+    },
+    {
+     "text": "我在等快递，出不了门。",
+     "answer": "parcel",
+     "label_zh": "等快递",
+     "label_en": "waiting for a parcel",
+     "aliases": [
+      "快递"
+     ],
+     "audible": [
+      "快递"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "window_request",
+   "slot": "requested_action",
+   "question_zh": "{appearance}想让别人做什么？",
+   "question_en": "What did the {appearance} ask someone to do?",
+   "reverse_question_zh": "哪位说话者请别人{answer}？请描述其外观。",
+   "reverse_question_en": "Who asked someone to {answer}? Describe their appearance.",
+   "direction_question_zh": "请别人{answer}的那个人，在你的哪个方向？",
+   "direction_question_en": "The person who asked someone to {answer}: which direction are they from you?",
+   "utterances": [
+    {
+     "text": "屋里太闷了，把窗户打开透透气。",
+     "answer": "open_window",
+     "label_zh": "开窗",
+     "label_en": "open the window",
+     "aliases": [
+      "开窗",
+      "打开窗户"
+     ],
+     "audible": [
+      "窗"
+     ]
+    },
+    {
+     "text": "太暗了，帮我把灯打开。",
+     "answer": "light_on",
+     "label_zh": "开灯",
+     "label_en": "turn on the light",
+     "aliases": [
+      "开灯"
+     ],
+     "audible": [
+      "灯"
+     ]
+    },
+    {
+     "text": "有点冷，把空调关掉吧。",
+     "answer": "ac_off",
+     "label_zh": "关空调",
+     "label_en": "turn off the air conditioner",
+     "aliases": [
+      "关空调"
+     ],
+     "audible": [
+      "空调"
+     ]
+    },
+    {
+     "text": "电视声音太大了，调小一点。",
+     "answer": "tv_quieter",
+     "label_zh": "把电视调小声",
+     "label_en": "turn the TV down",
+     "aliases": [
+      "电视",
+      "调小"
+     ],
+     "audible": [
+      "电视"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "dinner_choice",
+   "slot": "food",
+   "question_zh": "{appearance}晚上想吃什么？",
+   "question_en": "What does the {appearance} want for dinner?",
+   "reverse_question_zh": "哪位说话者晚上想吃{answer}？请描述其外观。",
+   "reverse_question_en": "Who wants {answer} for dinner? Describe their appearance.",
+   "direction_question_zh": "晚上想吃{answer}的那个人，在你的哪个方向？",
+   "direction_question_en": "The person who wants {answer} for dinner: which direction are they from you?",
+   "utterances": [
+    {
+     "text": "今晚我想吃饺子。",
+     "answer": "dumplings",
+     "label_zh": "饺子",
+     "label_en": "dumplings",
+     "aliases": [
+      "饺子"
+     ],
+     "audible": [
+      "饺子"
+     ]
+    },
+    {
+     "text": "晚上煮碗面条吧。",
+     "answer": "noodles",
+     "label_zh": "面条",
+     "label_en": "noodles",
+     "aliases": [
+      "面条"
+     ],
+     "audible": [
+      "面条"
+     ]
+    },
+    {
+     "text": "我们今晚吃火锅吧。",
+     "answer": "hotpot",
+     "label_zh": "火锅",
+     "label_en": "hot pot",
+     "aliases": [
+      "火锅"
+     ],
+     "audible": [
+      "火锅"
+     ]
+    },
+    {
+     "text": "晚饭就喝点粥吧。",
+     "answer": "porridge",
+     "label_zh": "粥",
+     "label_en": "porridge",
+     "aliases": [
+      "粥",
+      "稀饭"
+     ],
+     "audible": [
+      "粥"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "lost_item",
+   "slot": "lost_object",
+   "question_zh": "{appearance}说自己找不到什么了？",
+   "question_en": "What did the {appearance} say they could not find?",
+   "reverse_question_zh": "哪位说话者找不到{answer}了？请描述其外观。",
+   "reverse_question_en": "Who could not find {answer}? Describe their appearance.",
+   "direction_question_zh": "找不到{answer}的那个人，在你的哪个方向？",
+   "direction_question_en": "The person who could not find {answer}: which direction are they from you?",
+   "utterances": [
+    {
+     "text": "我的钱包找不到了。",
+     "answer": "wallet",
+     "label_zh": "钱包",
+     "label_en": "their wallet",
+     "aliases": [
+      "钱包"
+     ],
+     "audible": [
+      "钱包"
+     ]
+    },
+    {
+     "text": "我的帽子不知道放哪了。",
+     "answer": "hat",
+     "label_zh": "帽子",
+     "label_en": "their hat",
+     "aliases": [
+      "帽子"
+     ],
+     "audible": [
+      "帽子",
+      "帽"
+     ]
+    },
+    {
+     "text": "我的雨伞好像丢了。",
+     "answer": "umbrella",
+     "label_zh": "雨伞",
+     "label_en": "their umbrella",
+     "aliases": [
+      "雨伞",
+      "伞"
+     ],
+     "audible": [
+      "伞"
+     ]
+    },
+    {
+     "text": "我的耳机又找不到了。",
+     "answer": "earphones",
+     "label_zh": "耳机",
+     "label_en": "their earphones",
+     "aliases": [
+      "耳机"
+     ],
+     "audible": [
+      "耳机"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "weekend_plan",
+   "slot": "activity",
+   "question_zh": "{appearance}周末打算做什么？",
+   "question_en": "What is the {appearance} planning for the weekend?",
+   "reverse_question_zh": "哪位说话者周末要{answer}？请描述其外观。",
+   "reverse_question_en": "Who is going to {answer} this weekend? Describe their appearance.",
+   "direction_question_zh": "周末要{answer}的那个人，在你的哪个方向？",
+   "direction_question_en": "The person who will {answer} this weekend: which direction are they from you?",
+   "utterances": [
+    {
+     "text": "这个周末我想去爬山。",
+     "answer": "hiking",
+     "label_zh": "去爬山",
+     "label_en": "go hiking",
+     "aliases": [
+      "爬山"
+     ],
+     "audible": [
+      "爬山"
+     ]
+    },
+    {
+     "text": "周末我打算去看电影。",
+     "answer": "movie",
+     "label_zh": "看电影",
+     "label_en": "see a film",
+     "aliases": [
+      "电影"
+     ],
+     "audible": [
+      "电影"
+     ]
+    },
+    {
+     "text": "周末我要回老家看看。",
+     "answer": "hometown",
+     "label_zh": "回老家",
+     "label_en": "visit their hometown",
+     "aliases": [
+      "老家"
+     ],
+     "audible": [
+      "老家"
+     ]
+    },
+    {
+     "text": "周末我就在家大扫除。",
+     "answer": "cleaning",
+     "label_zh": "在家大扫除",
+     "label_en": "clean the house",
+     "aliases": [
+      "大扫除",
+      "扫除"
+     ],
+     "audible": [
+      "扫除"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "drink_order",
+   "slot": "drink",
+   "question_zh": "{appearance}想喝什么？",
+   "question_en": "What does the {appearance} want to drink?",
+   "reverse_question_zh": "哪位说话者想喝{answer}？请描述其外观。",
+   "reverse_question_en": "Who wants {answer}? Describe their appearance.",
+   "direction_question_zh": "想喝{answer}的那个人，在你的哪个方向？",
+   "direction_question_en": "The person who wants {answer}: which direction are they from you?",
+   "utterances": [
+    {
+     "text": "给我来一杯咖啡吧。",
+     "answer": "coffee",
+     "label_zh": "咖啡",
+     "label_en": "coffee",
+     "aliases": [
+      "咖啡"
+     ],
+     "audible": [
+      "咖啡"
+     ]
+    },
+    {
+     "text": "我想喝点绿茶。",
+     "answer": "green_tea",
+     "label_zh": "绿茶",
+     "label_en": "green tea",
+     "aliases": [
+      "绿茶",
+      "茶"
+     ],
+     "audible": [
+      "茶"
+     ]
+    },
+    {
+     "text": "帮我热一杯牛奶。",
+     "answer": "milk",
+     "label_zh": "牛奶",
+     "label_en": "milk",
+     "aliases": [
+      "牛奶"
+     ],
+     "audible": [
+      "牛奶"
+     ]
+    },
+    {
+     "text": "我喝杯橙汁就好。",
+     "answer": "orange_juice",
+     "label_zh": "橙汁",
+     "label_en": "orange juice",
+     "aliases": [
+      "橙汁",
+      "果汁"
+     ],
+     "audible": [
+      "汁"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "who_called",
+   "slot": "caller",
+   "question_zh": "{appearance}说刚才是谁打来的电话？",
+   "question_en": "Who did the {appearance} say had just called?",
+   "reverse_question_zh": "哪位说话者说刚才是{answer}打来的电话？请描述其外观。",
+   "reverse_question_en": "Who said {answer} had just called? Describe their appearance.",
+   "direction_question_zh": "说刚才是{answer}来电话的那个人，在你的哪个方向？",
+   "direction_question_en": "The person who said {answer} had called: which direction are they from you?",
+   "utterances": [
+    {
+     "text": "刚才是我妈妈打来的电话。",
+     "answer": "mother",
+     "label_zh": "妈妈",
+     "label_en": "their mother",
+     "aliases": [
+      "妈妈",
+      "我妈"
+     ],
+     "audible": [
+      "妈"
+     ]
+    },
+    {
+     "text": "刚才是快递员打的电话。",
+     "answer": "courier",
+     "label_zh": "快递员",
+     "label_en": "the courier",
+     "aliases": [
+      "快递员",
+      "快递"
+     ],
+     "audible": [
+      "快递"
+     ]
+    },
+    {
+     "text": "刚才是我老板打来的。",
+     "answer": "boss",
+     "label_zh": "老板",
+     "label_en": "their boss",
+     "aliases": [
+      "老板"
+     ],
+     "audible": [
+      "老板"
+     ]
+    },
+    {
+     "text": "刚才是房东打来的电话。",
+     "answer": "landlord",
+     "label_zh": "房东",
+     "label_en": "the landlord",
+     "aliases": [
+      "房东"
+     ],
+     "audible": [
+      "房东"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "travel_mode",
+   "slot": "transport",
+   "question_zh": "{appearance}打算怎么过去？",
+   "question_en": "How is the {appearance} planning to get there?",
+   "reverse_question_zh": "哪位说话者打算{answer}过去？请描述其外观。",
+   "reverse_question_en": "Who plans to go {answer}? Describe their appearance.",
+   "direction_question_zh": "打算{answer}过去的那个人，在你的哪个方向？",
+   "direction_question_en": "The person who will go {answer}: which direction are they from you?",
+   "utterances": [
+    {
+     "text": "我坐地铁过去就行。",
+     "answer": "subway",
+     "label_zh": "坐地铁",
+     "label_en": "by subway",
+     "aliases": [
+      "地铁"
+     ],
+     "audible": [
+      "地铁"
+     ]
+    },
+    {
+     "text": "我打个车过去吧。",
+     "answer": "taxi",
+     "label_zh": "打车",
+     "label_en": "by taxi",
+     "aliases": [
+      "打车",
+      "出租车"
+     ],
+     "audible": [
+      "打"
+     ]
+    },
+    {
+     "text": "我自己开车过去。",
+     "answer": "drive",
+     "label_zh": "开车",
+     "label_en": "by car",
+     "aliases": [
+      "开车",
+      "自己开车"
+     ],
+     "audible": [
+      "开车"
+     ]
+    },
+    {
+     "text": "不远，我走路过去。",
+     "answer": "walk",
+     "label_zh": "走路",
+     "label_en": "on foot",
+     "aliases": [
+      "走路",
+      "步行"
+     ],
+     "audible": [
+      "走路"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "chore_request",
+   "slot": "chore",
+   "question_zh": "{appearance}让别人做什么家务？",
+   "question_en": "Which chore did the {appearance} ask someone to do?",
+   "reverse_question_zh": "哪位说话者让别人{answer}？请描述其外观。",
+   "reverse_question_en": "Who asked someone to {answer}? Describe their appearance.",
+   "direction_question_zh": "让别人{answer}的那个人，在你的哪个方向？",
+   "direction_question_en": "The person who asked someone to {answer}: which direction are they from you?",
+   "utterances": [
+    {
+     "text": "你去把碗洗了吧。",
+     "answer": "dishes",
+     "label_zh": "洗碗",
+     "label_en": "wash the dishes",
+     "aliases": [
+      "洗碗"
+     ],
+     "audible": [
+      "碗"
+     ]
+    },
+    {
+     "text": "帮忙把垃圾倒一下。",
+     "answer": "trash",
+     "label_zh": "倒垃圾",
+     "label_en": "take out the rubbish",
+     "aliases": [
+      "倒垃圾",
+      "垃圾"
+     ],
+     "audible": [
+      "垃圾"
+     ]
+    },
+    {
+     "text": "你把地拖一下吧。",
+     "answer": "mop",
+     "label_zh": "拖地",
+     "label_en": "mop the floor",
+     "aliases": [
+      "拖地"
+     ],
+     "audible": [
+      "拖",
+      "托",
+      "把地"
+     ]
+    },
+    {
+     "text": "帮我把衣服晾起来。",
+     "answer": "laundry",
+     "label_zh": "晾衣服",
+     "label_en": "hang up the laundry",
+     "aliases": [
+      "晾衣服",
+      "衣服"
+     ],
+     "audible": [
+      "衣服"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "weather_tomorrow",
+   "slot": "weather",
+   "question_zh": "{appearance}说明天天气怎么样？",
+   "question_en": "What did the {appearance} say tomorrow's weather would be?",
+   "reverse_question_zh": "哪位说话者说明天{answer}？请描述其外观。",
+   "reverse_question_en": "Who said tomorrow would be {answer}? Describe their appearance.",
+   "direction_question_zh": "说明天{answer}的那个人，在你的哪个方向？",
+   "direction_question_en": "The person who said tomorrow would be {answer}: which direction are they from you?",
+   "utterances": [
+    {
+     "text": "明天好像要下雨。",
+     "answer": "rain",
+     "label_zh": "下雨",
+     "label_en": "rainy",
+     "aliases": [
+      "下雨"
+     ],
+     "audible": [
+      "雨"
+     ]
+    },
+    {
+     "text": "明天是个大晴天。",
+     "answer": "sunny",
+     "label_zh": "晴天",
+     "label_en": "sunny",
+     "aliases": [
+      "晴天"
+     ],
+     "audible": [
+      "晴"
+     ]
+    },
+    {
+     "text": "听说明天要下雪。",
+     "answer": "snow",
+     "label_zh": "下雪",
+     "label_en": "snowy",
+     "aliases": [
+      "下雪"
+     ],
+     "audible": [
+      "雪"
+     ]
+    },
+    {
+     "text": "明天风很大，要降温。",
+     "answer": "windy",
+     "label_zh": "刮大风",
+     "label_en": "windy",
+     "aliases": [
+      "大风",
+      "风大"
+     ],
+     "audible": [
+      "风"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "appointment",
+   "slot": "appointment",
+   "question_zh": "{appearance}约了什么事？",
+   "question_en": "What appointment did the {appearance} mention?",
+   "reverse_question_zh": "哪位说话者约了{answer}？请描述其外观。",
+   "reverse_question_en": "Who has an appointment for {answer}? Describe their appearance.",
+   "direction_question_zh": "约了{answer}的那个人，在你的哪个方向？",
+   "direction_question_en": "The person with the {answer} appointment: which direction are they from you?",
+   "utterances": [
+    {
+     "text": "我约了明天去看牙医。",
+     "answer": "dentist",
+     "label_zh": "看牙医",
+     "label_en": "the dentist",
+     "aliases": [
+      "牙医"
+     ],
+     "audible": [
+      "牙"
+     ]
+    },
+    {
+     "text": "我下午约了去理发。",
+     "answer": "haircut",
+     "label_zh": "理发",
+     "label_en": "a haircut",
+     "aliases": [
+      "理发",
+      "剪头发"
+     ],
+     "audible": [
+      "理发",
+      "剪"
+     ]
+    },
+    {
+     "text": "我约了师傅上门修空调。",
+     "answer": "ac_repair",
+     "label_zh": "修空调",
+     "label_en": "an air-conditioner repair",
+     "aliases": [
+      "修空调"
+     ],
+     "audible": [
+      "空调"
+     ]
+    },
+    {
+     "text": "我明天早上去体检。",
+     "answer": "checkup",
+     "label_zh": "体检",
+     "label_en": "a health check",
+     "aliases": [
+      "体检"
+     ],
+     "audible": [
+      "体检"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "room_location",
+   "slot": "room",
+   "question_zh": "{appearance}说东西放在哪个房间了？",
+   "question_en": "Which room did the {appearance} say the things were put in?",
+   "reverse_question_zh": "哪位说话者说东西放在{answer}？请描述其外观。",
+   "reverse_question_en": "Who said the things were in {answer}? Describe their appearance.",
+   "direction_question_zh": "说东西放在{answer}的那个人，在你的哪个方向？",
+   "direction_question_en": "The person who said the things were in {answer}: which direction are they from you?",
+   "utterances": [
+    {
+     "text": "那个箱子我放在卧室里了。",
+     "answer": "bedroom",
+     "label_zh": "卧室",
+     "label_en": "the bedroom",
+     "aliases": [
+      "卧室"
+     ],
+     "audible": [
+      "卧室"
+     ]
+    },
+    {
+     "text": "我把它放在厨房了。",
+     "answer": "kitchen",
+     "label_zh": "厨房",
+     "label_en": "the kitchen",
+     "aliases": [
+      "厨房"
+     ],
+     "audible": [
+      "厨房"
+     ]
+    },
+    {
+     "text": "东西都搬到阳台上了。",
+     "answer": "balcony",
+     "label_zh": "阳台",
+     "label_en": "the balcony",
+     "aliases": [
+      "阳台"
+     ],
+     "audible": [
+      "阳台"
+     ]
+    },
+    {
+     "text": "我放在书房的桌子上了。",
+     "answer": "study",
+     "label_zh": "书房",
+     "label_en": "the study",
+     "aliases": [
+      "书房"
+     ],
+     "audible": [
+      "书房"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "shopping_item",
+   "slot": "purchase",
+   "question_zh": "{appearance}让别人顺便买什么？",
+   "question_en": "What did the {appearance} ask someone to pick up?",
+   "reverse_question_zh": "哪位说话者让别人买{answer}？请描述其外观。",
+   "reverse_question_en": "Who asked someone to buy {answer}? Describe their appearance.",
+   "direction_question_zh": "让别人买{answer}的那个人，在你的哪个方向？",
+   "direction_question_en": "The person who asked for {answer}: which direction are they from you?",
+   "utterances": [
+    {
+     "text": "回来顺便买一盒鸡蛋。",
+     "answer": "eggs",
+     "label_zh": "鸡蛋",
+     "label_en": "eggs",
+     "aliases": [
+      "鸡蛋"
+     ],
+     "audible": [
+      "鸡蛋",
+      "蛋"
+     ]
+    },
+    {
+     "text": "家里没米了，买袋大米吧。",
+     "answer": "rice",
+     "label_zh": "大米",
+     "label_en": "rice",
+     "aliases": [
+      "大米",
+      "米"
+     ],
+     "audible": [
+      "米"
+     ]
+    },
+    {
+     "text": "帮我带一支牙膏回来。",
+     "answer": "toothpaste",
+     "label_zh": "牙膏",
+     "label_en": "toothpaste",
+     "aliases": [
+      "牙膏"
+     ],
+     "audible": [
+      "牙膏"
+     ]
+    },
+    {
+     "text": "顺路买点苹果回来吧。",
+     "answer": "apples",
+     "label_zh": "苹果",
+     "label_en": "apples",
+     "aliases": [
+      "苹果"
+     ],
+     "audible": [
+      "苹果"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "tv_choice",
+   "slot": "programme",
+   "question_zh": "{appearance}想看什么节目？",
+   "question_en": "What does the {appearance} want to watch?",
+   "reverse_question_zh": "哪位说话者想看{answer}？请描述其外观。",
+   "reverse_question_en": "Who wants to watch {answer}? Describe their appearance.",
+   "direction_question_zh": "想看{answer}的那个人，在你的哪个方向？",
+   "direction_question_en": "The person who wants to watch {answer}: which direction are they from you?",
+   "utterances": [
+    {
+     "text": "我想看今晚的球赛。",
+     "answer": "match",
+     "label_zh": "球赛",
+     "label_en": "the match",
+     "aliases": [
+      "球赛",
+      "比赛"
+     ],
+     "audible": [
+      "球"
+     ]
+    },
+    {
+     "text": "换到新闻频道吧。",
+     "answer": "news",
+     "label_zh": "新闻",
+     "label_en": "the news",
+     "aliases": [
+      "新闻"
+     ],
+     "audible": [
+      "新闻"
+     ]
+    },
+    {
+     "text": "我想接着看那部电视剧。",
+     "answer": "drama",
+     "label_zh": "电视剧",
+     "label_en": "the TV series",
+     "aliases": [
+      "电视剧"
+     ],
+     "audible": [
+      "剧"
+     ]
+    },
+    {
+     "text": "给孩子放个动画片吧。",
+     "answer": "cartoon",
+     "label_zh": "动画片",
+     "label_en": "a cartoon",
+     "aliases": [
+      "动画片",
+      "动画"
+     ],
+     "audible": [
+      "动画"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "arrival_time",
+   "slot": "time",
+   "question_zh": "{appearance}说自己几点到家？",
+   "question_en": "What time did the {appearance} say they would be home?",
+   "reverse_question_zh": "哪位说话者说{answer}到家？请描述其外观。",
+   "reverse_question_en": "Who said they would be home at {answer}? Describe their appearance.",
+   "direction_question_zh": "说{answer}到家的那个人，在你的哪个方向？",
+   "direction_question_en": "The person who will be home at {answer}: which direction are they from you?",
+   "utterances": [
+    {
+     "text": "我大概六点到家。",
+     "answer": "six",
+     "label_zh": "六点",
+     "label_en": "six o'clock",
+     "aliases": [
+      "六点",
+      "6点"
+     ],
+     "audible": [
+      "6点"
+     ]
+    },
+    {
+     "text": "我八点左右到家。",
+     "answer": "eight",
+     "label_zh": "八点",
+     "label_en": "eight o'clock",
+     "aliases": [
+      "八点",
+      "8点"
+     ],
+     "audible": [
+      "8点"
+     ]
+    },
+    {
+     "text": "我今天九点才能到家。",
+     "answer": "nine",
+     "label_zh": "九点",
+     "label_en": "nine o'clock",
+     "aliases": [
+      "九点",
+      "9点"
+     ],
+     "audible": [
+      "9点"
+     ]
+    },
+    {
+     "text": "我四点就到家了。",
+     "answer": "four",
+     "label_zh": "四点",
+     "label_en": "four o'clock",
+     "aliases": [
+      "四点",
+      "4点"
+     ],
+     "audible": [
+      "4点"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "pet_care",
+   "slot": "pet_task",
+   "question_zh": "{appearance}让别人给宠物做什么？",
+   "question_en": "What did the {appearance} ask someone to do for the pet?",
+   "reverse_question_zh": "哪位说话者让别人{answer}？请描述其外观。",
+   "reverse_question_en": "Who asked someone to {answer}? Describe their appearance.",
+   "direction_question_zh": "让别人{answer}的那个人，在你的哪个方向？",
+   "direction_question_en": "The person who asked someone to {answer}: which direction are they from you?",
+   "utterances": [
+    {
+     "text": "记得给猫喂点吃的。",
+     "answer": "feed_cat",
+     "label_zh": "喂猫",
+     "label_en": "feed the cat",
+     "aliases": [
+      "喂猫",
+      "喂"
+     ],
+     "audible": [
+      "喂"
+     ]
+    },
+    {
+     "text": "你带狗出去遛一圈吧。",
+     "answer": "walk_dog",
+     "label_zh": "遛狗",
+     "label_en": "walk the dog",
+     "aliases": [
+      "遛狗",
+      "溜狗"
+     ],
+     "audible": [
+      "遛",
+      "溜"
+     ]
+    },
+    {
+     "text": "帮忙给鱼缸换一下水。",
+     "answer": "fish_water",
+     "label_zh": "给鱼缸换水",
+     "label_en": "change the fish tank water",
+     "aliases": [
+      "鱼缸",
+      "换水"
+     ],
+     "audible": [
+      "鱼"
+     ]
+    },
+    {
+     "text": "该给狗洗个澡了。",
+     "answer": "bathe_dog",
+     "label_zh": "给狗洗澡",
+     "label_en": "bathe the dog",
+     "aliases": [
+      "洗澡"
+     ],
+     "audible": [
+      "澡"
+     ]
+    }
+   ]
+  }
+ ],
+ "revisions": [
+  {
+   "version": 3,
+   "changes": [
+    "lost_item #1: glasses -> hat; 眼镜 and 眼睛 are near-homophones",
+    "travel_mode #2: bicycle -> drive; the bicycle phrase was unintelligible in every voice",
+    "chore_request #2 and pet_care #3: audible tokens accept the homophone 托 and a measure word inside 洗个澡"
+   ]
+  }
+ ]
+}
