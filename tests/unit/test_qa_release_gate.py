@@ -173,3 +173,29 @@ def test_a_correct_option_that_favours_one_letter_blocks_the_bank():
     audit = _audit(position_deviation=0.2)
     result = evaluate_release(audit, [_answer("q0", 90.0)], splits={"q0": "valid"})
     assert "correct_option_position" in result["blocked_rules"]
+
+
+def test_a_balanced_two_way_type_meets_the_majority_rule_and_a_skewed_one_does_not():
+    """Two answers cannot go below one half; the limit must allow exact balance and no more."""
+    def rule(majority, counts):
+        result = evaluate_release(_audit(majority=majority, option_counts=counts), [_answer("q0", 90.0)],
+                                  splits={"q0": "valid"})
+        return next(r for r in result["rules"] if r["rule"] == "answer_majority:valid")["status"]
+    assert rule(0.50, (2,)) == "pass"
+    assert rule(0.56, (2,)) == "blocked"
+    assert rule(0.50, (4,)) == "blocked"   # four options keep the 0.45 limit
+    assert rule(0.44, (4,)) == "pass"
+
+
+def test_split_views_reach_the_spatial_rules_as_well_as_the_audit(tmp_path, monkeypatch):
+    """With no splits.jsonl in the bank, the views' splits must feed every rule."""
+    import avengine.qa.release_gate as gate
+    import avengine.qa.prior_audit as audit_module
+    bank = tmp_path / "bank"
+    (bank / "private").mkdir(parents=True)
+    (bank / "private/answers.jsonl").write_text(json.dumps(_answer("q0", 90.0)) + "\n")
+    monkeypatch.setattr(audit_module, "audit_bank", lambda b, split_views=None: _audit())
+    monkeypatch.setattr(audit_module, "split_map_from_views", lambda v: {"q0": "test"})
+    result = gate.write_release_receipt(bank, split_views=tmp_path / "views", output=tmp_path / "gate.json")
+    rule = next(r for r in result["rules"] if r["rule"] == "off_screen_share:test")
+    assert rule["measured"] == 1.0

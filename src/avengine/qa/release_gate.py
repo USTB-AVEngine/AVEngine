@@ -211,23 +211,30 @@ def evaluate_release(
         ))
 
     by_qa = audit.get("by_qa") or {}
-    worst_majority = {split: None for split in _SPLITS}
+    worst_excess = {split: None for split in _SPLITS}
     offenders: dict[str, list[str]] = {split: [] for split in _SPLITS}
+    limit = policy["answers"]["max_majority_share"]
     for qa, result in by_qa.items():
+        # A type with k options cannot bring its commonest answer below 1/k: a
+        # balanced two-way type sits at exactly one half. Its limit is the higher
+        # of the two, so balance is required and nothing looser is allowed.
+        sizes = [int(n) for n in (result.get("mcq_option_count_histogram") or {})]
+        type_limit = max(limit, 1.0 / max(sizes)) if sizes else limit
         for split in _SPLITS:
             share = ((result.get("by_split", {}).get(split) or {}).get("open_answers") or {}).get("majority_share")
             if share is None:
                 continue
-            if worst_majority[split] is None or share > worst_majority[split]:
-                worst_majority[split] = share
-            if share > policy["answers"]["max_majority_share"]:
+            excess = share - type_limit
+            if worst_excess[split] is None or excess > worst_excess[split]:
+                worst_excess[split] = excess
+            if excess > 1e-9:
                 offenders[split].append(qa)
     for split in ("valid", "test"):
         rules.append(_rule(
-            f"answer_majority:{split}", worst_majority[split], policy["answers"]["max_majority_share"],
-            worst_majority[split] is not None and worst_majority[split] <= policy["answers"]["max_majority_share"],
-            "worst commonest-answer share over the types; offenders: "
-            + (", ".join(sorted(offenders[split])) or "none"),
+            f"answer_majority:{split}", worst_excess[split], 0.0,
+            worst_excess[split] is not None and worst_excess[split] <= 1e-9,
+            f"worst excess of a type's commonest-answer share over max({limit:g}, 1/option count); "
+            "offenders: " + (", ".join(sorted(offenders[split])) or "none"),
         ))
 
     binary_flagged = [qa for qa, result in by_qa.items() if result.get("binary_mcq_warning")]
@@ -324,7 +331,7 @@ def write_release_receipt(
     split_views: Path | str | None = None,
 ) -> dict[str, Any]:
     """Audit a bank, decide against the policy, and leave the decision beside it."""
-    from avengine.qa.prior_audit import audit_bank
+    from avengine.qa.prior_audit import audit_bank, split_map_from_views
 
     bank = Path(bank)
     audit = audit_bank(bank, split_views=split_views)
@@ -334,6 +341,10 @@ def write_release_receipt(
     if split_file.is_file():
         for row in _read_jsonl(split_file):
             splits[str(row.get("question_id"))] = str(row.get("split"))
+    elif split_views is not None:
+        # The audit reads its splits from the views; every rule must read the same ones,
+        # or the spatial rules see no split at all and block on an empty measurement.
+        splits = {str(k): str(v) for k, v in split_map_from_views(split_views).items()}
     result = evaluate_release(audit, answers, splits=splits, policy=policy)
     destination = Path(output) if output is not None else bank / "private" / "release_gate.json"
     destination.parent.mkdir(parents=True, exist_ok=True)
