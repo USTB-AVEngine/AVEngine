@@ -34,6 +34,7 @@ from avengine.acoustics.dynamic_cache import (
     load_dynamic_rir_cache,
 )
 from avengine.acoustics.rir_cache import (
+    RIRCacheError,
     RIRCacheSession,
     render_rir_cache,
     rir_acoustic_state_sha256,
