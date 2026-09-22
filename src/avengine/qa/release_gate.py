@@ -38,6 +38,10 @@ DEFAULT_POLICY: dict[str, Any] = {
         # the held-out splits. Every reported model score sits above this floor, so the
         # floor is what decides how much of a headline number is real.
         "max_train_constant_score": {"valid": 0.35, "test": 0.35},
+        # The same floor for a reader of the question alone: the train majority answer
+        # of each stem with its numbers masked. A stem that names an appearance or a
+        # meaning can carry its answer even when every type's answers are balanced.
+        "max_train_template_score": {"valid": 0.35, "test": 0.35},
     },
     "answers": {
         "max_majority_share": 0.45,
@@ -186,6 +190,15 @@ def evaluate_release(
             measured is not None and measured <= limit,
             "a constant answer fitted on train, scored on this split; the floor under every "
             "model number reported on it",
+        ))
+
+    for split, limit in policy["blind_baseline"]["max_train_template_score"].items():
+        measured = (audit.get("aggregate", {}).get(split) or {}).get("train_template_micro_score")
+        rules.append(_rule(
+            f"template_prior:{split}", measured, limit,
+            measured is not None and measured <= limit,
+            "the train majority answer of each number-masked question stem, scored on this "
+            "split; what a model reading only the question already gets",
         ))
 
     for split, limit in policy["spatial"]["min_off_screen_share"].items():

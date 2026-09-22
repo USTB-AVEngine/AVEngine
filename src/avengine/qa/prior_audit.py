@@ -1,6 +1,7 @@
 """Report answer shortcuts and sample support without changing questions or scores."""
 from __future__ import annotations
 
+import re
 from collections import Counter, defaultdict
 from copy import deepcopy
 import json
@@ -97,6 +98,17 @@ def _answer_text(form):
     if kind == "transcript_wer":
         return str(value)
     raise ValueError(f"unsupported answer type: {kind}")
+
+
+def _template(prompt):
+    """The question with its numbers masked: what a reader of the stem alone can key on.
+
+    Exact prompts almost never repeat across splits because they carry this
+    episode's times and angles, so an exact lookup falls back to the constant
+    answer and measures nothing more. Masking the numbers keeps the wording,
+    the named appearance and the named meaning, which is where a stem can leak.
+    """
+    return re.sub(r"\d+(?:\.\d+)?", "#", str(prompt or "")).strip().casefold()
 
 
 def _distribution(values):
@@ -209,6 +221,10 @@ def audit_priors(public_rows, answer_rows, *, source_rows=(), splits=None, thres
                 lookup[r["prompt"]].append(r["answer"])
             result["train_fitted_constant_answer"] = guess
             result["train_fitted_prompt_lookup"] = {"fit_questions": len(train)}
+            templates = defaultdict(list)
+            for r in train:
+                templates[_template(r["prompt"])].append(r["answer"])
+            result["train_fitted_template_lookup"] = {"fit_questions": len(train), "templates": len(templates)}
             for split, rr in split_rows.items():
                 opened = [r for r in rr if "open" in r["forms"]]
                 scores = [float(score_open_form(r["forms"]["open"], guess)["score"]) for r in opened]
@@ -218,6 +234,13 @@ def audit_priors(public_rows, answer_rows, *, source_rows=(), splits=None, thres
                 lookup_scores = [float(score_open_form(r["forms"]["open"], _distribution(lookup[r["prompt"]])["most_common_answer"] if r["prompt"] in lookup else guess)["score"]) for r in opened]
                 result["train_fitted_prompt_lookup"][split] = {"n": len(opened), "mean_score": sum(lookup_scores)/len(lookup_scores) if lookup_scores else None,
                     "prompts_seen_in_train": sum(r["prompt"] in lookup for r in opened)}
+                template_scores = [float(score_open_form(r["forms"]["open"], _distribution(templates[_template(r["prompt"])])["most_common_answer"]
+                                   if _template(r["prompt"]) in templates else guess)["score"]) for r in opened]
+                result["by_split"][split]["train_template_score"] = sum(template_scores)/len(template_scores) if template_scores else None
+                result["train_fitted_template_lookup"][split] = {"n": len(opened),
+                    "templates_seen_in_train": sum(_template(r["prompt"]) in templates for r in opened)}
+                if template_scores and sum(template_scores)/len(template_scores) > limits["max_majority_share"]:
+                    flags.append(f"{split}:high_template_answer_score")
         if train and valid:
             t, v = Counter(r["answer"] for r in train), Counter(r["answer"] for r in valid)
             result["train_valid_answer_priors"] = {
@@ -234,9 +257,12 @@ def audit_priors(public_rows, answer_rows, *, source_rows=(), splits=None, thres
         total = sum(r["by_split"][split]["open_questions"] for r in results.values())
         fitted = [r for r in results.values() if r["by_split"][split].get("train_constant_score") is not None]
         scored_n = sum(r["by_split"][split]["open_questions"] for r in fitted)
+        templated = [r for r in results.values() if r["by_split"][split].get("train_template_score") is not None]
+        templated_n = sum(r["by_split"][split]["open_questions"] for r in templated)
         aggregate[split] = {"open_questions": total, "constant_baseline_scored_questions": scored_n,
             "train_constant_micro_score": sum(r["by_split"][split]["open_questions"] * r["by_split"][split]["train_constant_score"] for r in fitted)/scored_n if scored_n else None,
             "train_constant_macro_score": sum(r["by_split"][split]["train_constant_score"] for r in fitted)/len(fitted) if fitted else None,
+            "train_template_micro_score": sum(r["by_split"][split]["open_questions"] * r["by_split"][split]["train_template_score"] for r in templated)/templated_n if templated_n else None,
             "train_constant_supported_macro_score": (
                 sum(results[qa]["by_split"][split]["train_constant_score"] for qa in supported
                     if results[qa]["by_split"][split].get("train_constant_score") is not None)
@@ -251,7 +277,7 @@ def audit_priors(public_rows, answer_rows, *, source_rows=(), splits=None, thres
         "status": "under_powered" if any(r["flags"] for r in results.values()) else "pass",
         "by_qa": results, "aggregate": aggregate,
         "counting": "One question_id per bank; forms and presentations do not increase sample size. World counts use supplied world_id, never episode_key.",
-        "scoring": "Train-only constant and prompt lookup evaluated with each retained form's declared scorer; exact answer frequency is reported separately. No validation label is used to fit a predictor."}
+        "scoring": "Train-only constant, prompt lookup and number-masked template lookup evaluated with each retained form's declared scorer; exact answer frequency is reported separately. No validation label is used to fit a predictor."}
 
 
 def read_jsonl(path):

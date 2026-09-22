@@ -4,6 +4,10 @@
     "max_train_constant_score": {
       "valid": 0.35,
       "test": 0.35
+    },
+    "max_train_template_score": {
+      "valid": 0.35,
+      "test": 0.35
     }
   },
   "answers": {

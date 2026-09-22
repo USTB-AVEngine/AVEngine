@@ -14,6 +14,7 @@ from avengine.qa.release_gate import (
 #: how min_worlds, max_position_deviation and min_mcq_options all sat unchecked once.
 LIMIT_RULES = {
     ("blind_baseline", "max_train_constant_score"): "blind_baseline",
+    ("blind_baseline", "max_train_template_score"): "template_prior",
     ("answers", "max_majority_share"): "answer_majority",
     ("answers", "max_position_deviation"): "correct_option_position",
     ("options", "min_mcq_options"): "option_domain_size",

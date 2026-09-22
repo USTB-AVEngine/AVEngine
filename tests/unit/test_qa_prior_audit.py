@@ -130,3 +130,25 @@ def test_bank_receipt_uses_private_world_split_projection(tmp_path):
     report=audit_bank(tmp_path)
     assert report["split_status"]=="complete"
     assert report["by_qa"]["QA-01"]["by_split"]["valid"]["open_questions"]==1
+
+
+def test_template_lookup_sees_through_numbers_that_exact_prompts_do_not_share():
+    """Balanced answers, but the stem's named appearance fixes each one.
+
+    Every prompt also carries its own time, so no held-out prompt repeats a
+    train prompt exactly and the exact lookup is blind to the leak.
+    """
+    p, a, s = rows(["yes", "no"] * 6, qa="QA-26")
+    splits = {}
+    for i in range(12):
+        look = "blue" if a[i]["forms"]["open"]["truth"] == "yes" else "green"
+        prompt = f"What did the person in {look} say at {i}.5 s?"
+        p[i]["forms"]["open"]["question_en"] = a[i]["forms"]["open"]["question_en"] = prompt
+        splits[f"q{i}"] = "train" if i < 8 else "valid"
+    result = audit_priors(p, a, source_rows=s, splits=splits)
+    q = result["by_qa"]["QA-26"]
+    assert q["by_split"]["valid"]["train_constant_score"] == 0.5
+    assert q["train_fitted_prompt_lookup"]["valid"]["prompts_seen_in_train"] == 0
+    assert q["by_split"]["valid"]["train_template_score"] == 1.0
+    assert "valid:high_template_answer_score" in q["flags"]
+    assert result["aggregate"]["valid"]["train_template_micro_score"] == 1.0
