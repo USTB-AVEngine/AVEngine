@@ -4532,6 +4532,30 @@ def _generate_qa_02(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
     options = _appearance_options(facts)
     if len(options) < 2:
         _defer("appearance_option_domain_too_small", "QA-02 needs at least two appearance values")
+    # Quoting the words spoken tells the reader the sound was speech, so any option that is not a
+    # speaker stops being a candidate and the stem alone can name the answer. Measured on the
+    # 2026-09-22 bank: 106 questions quoted the words and on 23 of them exactly one option was a
+    # person, so those were answerable with no audio and no video at all. Keep the quote only when
+    # every option could have produced that sound - that is, when the distractors share the
+    # speaker's species, which turns the question into one that has to be perceived.
+    transcript = event["transcript"] if isinstance(event.get("transcript"), str) and event["transcript"] else None
+    option_domain = "every reviewed appearance"
+    if transcript is not None:
+        target_species = str(actor.get("species_id") or "")
+        same_species = {
+            str(candidate_appearance["value"])
+            for _candidate_id, candidate_actor, candidate_appearance in _appearance_candidates(
+                facts, require_unique=False
+            )
+            if str(candidate_actor.get("species_id") or "") == target_species
+        }
+        restricted = [option for option in options if str(option["value"]) in same_species]
+        if len(restricted) >= 2:
+            options = restricted
+            option_domain = f"appearances of the same species as the speaker ({target_species})"
+        else:
+            transcript = None
+            option_domain = "every reviewed appearance, with the spoken words withheld"
     return _question_item(
         qa_id="QA-02",
         facts=facts,
@@ -4539,16 +4563,16 @@ def _generate_qa_02(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
         question_en=(
             f"Which described appearance belongs to the actor of {anchor_en}"
             + (
-                f" (the recorded utterance is {event['transcript']!r})?"
-                if event.get("transcript")
+                f" (the recorded utterance is {transcript!r})?"
+                if transcript is not None
                 else "?"
             )
         ),
         question_zh=(
             f"{anchor_zh}对应的个体具有什么已核验外观？"
             + (
-                f"（录音台词为“{event['transcript']}”）"
-                if event.get("transcript")
+                f"（录音台词为“{transcript}”）"
+                if transcript is not None
                 else ""
             )
         ),
@@ -4562,6 +4586,8 @@ def _generate_qa_02(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
             "appearance": dict(appearance),
             "appearance_review": _appearance_review_for(facts, actor_id),
             "target_frame": frame,
+            "transcript_quoted": transcript is not None,
+            "option_domain": option_domain,
         },
         slug=event["event_id"],
     )
@@ -4714,7 +4740,12 @@ def _generate_qa_06(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
             open_answer_type="closed_set",
             open_truth="moving" if moving else "still",
             truth_label="moving" if moving else "still",
-            options=[_option("moving", "moving"), _option("still", "staying still")],
+            # "staying still" was thirteen characters against six for "moving", and it was the
+            # correct answer on 78% of the 282 questions of this type, so "pick the longer option"
+            # scored 78% here without perceiving anything. Shuffling the options at export does not
+            # touch length, so the shortcut survived it. Equal-length surface forms remove it; the
+            # answer values are unchanged and "staying still" stays a recognised alias.
+            options=[_option("moving", "moving"), _option("still", "still")],
             evidence={
                 **_event_evidence(event),
                 "moving": moving,
