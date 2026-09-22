@@ -301,9 +301,17 @@ def build_scaleup_slots(
     seed: int,
     episodes_per_room: int = 50,
     include_off_screen: bool = True,
+    off_screen_fraction: float | None = None,
     distance_range_m: Sequence[float] = (1.5, 6.0),
     batch_id: str = "qa_scaleup",
 ) -> list[dict[str, Any]]:
+    """Preallocate one slot per episode.
+
+    ``off_screen_fraction`` is the share of each room's slots whose question
+    subject the camera never shows. ``None`` keeps the original two slots per
+    room, which is 4% of a fifty-episode room and is why a bank built this way
+    answers almost every question from the picture alone.
+    """
     if episodes_per_room < len(CLASS_PAIRS) + 1:
         raise ValueError("episodes_per_room must fit every class pair plus a silent cell")
     rng = random.Random(seed)
@@ -323,6 +331,25 @@ def build_scaleup_slots(
                                if class_pair_label(slot["source_classes"]) != "device-device"
                                and slot.get("silent_count", 0) == 0 and slot is not room_slots[0]), room_slots[1])
             competitor["off_screen"] = "competitor"
+            if off_screen_fraction is not None:
+                if not 0.0 <= float(off_screen_fraction) <= 1.0:
+                    raise ValueError("off_screen_fraction must be within 0..1")
+                usable = room_slots[:episodes_per_room]
+                wanted = int(round(float(off_screen_fraction) * len(usable)))
+                # The two slots above are already off screen; fill the rest in a
+                # seeded order so the same seed names the same episodes.
+                already = sum(1 for slot in usable if slot.get("off_screen"))
+                spare = [slot for slot in usable if not slot.get("off_screen")]
+                # Its own generator: drawing from ``rng`` here would change the
+                # class pairs the next room pads with.
+                random.Random(f"{seed}:{room['room_id']}").shuffle(spare)
+                for position, slot in enumerate(spare[:max(0, wanted - already)]):
+                    if (position % 2 == 0
+                            or class_pair_label(slot["source_classes"]) == "device-device"
+                            or slot.get("silent_count", 0)):
+                        slot["off_screen"] = "anchor"
+                    else:
+                        slot["off_screen"] = "competitor"
         slots.extend(room_slots[:episodes_per_room])
     rooms_by_id = {room["room_id"]: room for room in rooms}
     slots = scatter_condition_groups(slots, rooms_by_id=rooms_by_id, seed=seed,
@@ -347,6 +374,7 @@ def build_scaleup_batch_config(
     episodes_per_room: int = 50,
     batch_id: str | None = None,
     include_off_screen: bool = True,
+    off_screen_fraction: float | None = None,
     distance_range_m: Sequence[float] = (1.5, 6.0),
 ) -> dict[str, Any]:
     """Deterministic 7-room scale-up config. Does not execute GPU episodes."""
@@ -358,11 +386,13 @@ def build_scaleup_batch_config(
     config["scatter_condition_groups"] = True
     config["slots"] = build_scaleup_slots(
         rooms, seed=int(seed), episodes_per_room=int(episodes_per_room),
-        include_off_screen=include_off_screen, distance_range_m=distance_range_m, batch_id=batch_id)
+        include_off_screen=include_off_screen, off_screen_fraction=off_screen_fraction,
+        distance_range_m=distance_range_m, batch_id=batch_id)
     config["scaleup"] = {
         "episodes_per_room": int(episodes_per_room),
         "room_count": len(rooms),
         "include_off_screen_portraits": include_off_screen,
+        "off_screen_fraction": (None if off_screen_fraction is None else float(off_screen_fraction)),
         "distance_range_m": [float(distance_range_m[0]), float(distance_range_m[1])],
         "repeat_feasibility_formula": "2 * duration(repeat_sound) + duration(other_source_sound) + 2 * gap_s <= available_s",
         "gpu_execution": False,
@@ -382,10 +412,12 @@ def prepare_scaleup_dry_run(
     seed: int = 20260907,
     episodes_per_room: int = 50,
     batch_id: str | None = None,
+    off_screen_fraction: float | None = None,
 ) -> dict[str, Any]:
     """Generate a scattered scale-up manifest without native execution."""
     config = build_scaleup_batch_config(
-        template, catalog, seed=seed, episodes_per_room=episodes_per_room, batch_id=batch_id)
+        template, catalog, seed=seed, episodes_per_room=episodes_per_room, batch_id=batch_id,
+        off_screen_fraction=off_screen_fraction)
     manifest = prepare_batch_manifest(config, registry, catalog, sounds)
     return {"config": config, "manifest": manifest,
             "repeat_deficit_count": int(manifest.get("preallocation_gap_counts", {}).get(

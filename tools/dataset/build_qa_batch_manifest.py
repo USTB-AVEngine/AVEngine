@@ -261,6 +261,10 @@ def main(argv=None):
     scaleup.add_argument("--seed", type=int, default=20260907)
     scaleup.add_argument("--episodes-per-room", type=int, default=50)
     scaleup.add_argument("--batch-id", default=None)
+    scaleup.add_argument(
+        "--off-screen-fraction", type=float, default=None,
+        help="share of each room's episodes whose question subject the camera never shows; "
+             "omitted keeps the two slots per room a scale-up has always marked")
     scaleup.add_argument("--catalog", type=Path, default=None)
     scaleup.add_argument("--registry", type=Path, default=None)
     scaleup.add_argument("--sounds", type=Path, default=None,
@@ -311,7 +315,8 @@ def main(argv=None):
             stamp_request_catalog(base, catalog_path=catalog_path, path_bindings=catalog_path_bindings(catalog))
         packed = prepare_scaleup_dry_run(
             config, registry, catalog, sounds, seed=args.seed,
-            episodes_per_room=args.episodes_per_room, batch_id=args.batch_id)
+            episodes_per_room=args.episodes_per_room, batch_id=args.batch_id,
+            off_screen_fraction=args.off_screen_fraction)
         result = packed["manifest"]
         bindings = catalog_path_bindings(catalog)
         sound_pool = base.get("sound_pool")
