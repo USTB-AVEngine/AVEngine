@@ -3536,6 +3536,7 @@ def _generate_qa16_timepoint(facts, seed):
         step_en, step_zh, step_order = _named_alternatives(
             seed, "QA-16", f"{event['event_id']}_post_distance_frame_{query_frame}",
             (("nearer", "nearer", "更近"), ("farther", "farther", "更远")),
+            episode_id=str(facts["episode_id"]),
         )
         return _question_item(
             qa_id="QA-16", facts=facts, seed=seed,
@@ -3663,6 +3664,7 @@ def _named_alternatives(
     qa_id: str,
     slug: str,
     choices: Sequence[tuple[str, str, str]],
+    *, episode_id: str,
 ) -> tuple[list[str], list[str], list[str]]:
     """Name a closed answer set in a seeded order rather than a fixed one.
 
@@ -3678,7 +3680,10 @@ def _named_alternatives(
     wording_order so the bank can be audited without re-parsing the sentence.
     """
     order = list(range(len(choices)))
-    random.Random(f"{seed}\0{qa_id}\0{slug}\0wording_order").shuffle(order)
+    # event_001 recurs in every episode. A global seed plus that local ID left
+    # all 81 retained QA-15 stems in the same order; include the existing world
+    # identity so independent questions can actually draw independent orders.
+    random.Random(f"{seed}\0{episode_id}\0{qa_id}\0{slug}\0wording_order").shuffle(order)
     return (
         [choices[index][1] for index in order],
         [choices[index][2] for index in order],
@@ -4654,6 +4659,7 @@ def _generate_qa_04(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
         sides_en, sides_zh, sides_order = _named_alternatives(
             seed, "QA-04", event["event_id"],
             (("left", "left", "左侧"), ("right", "right", "右侧")),
+            episode_id=str(facts["episode_id"]),
         )
         return _question_item(
             qa_id="QA-04",
@@ -4892,6 +4898,7 @@ def _generate_qa_07(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
             entry_en, entry_zh, entry_order = _named_alternatives(
                 seed, "QA-07", f"{actor_id}_entry_{entry_frame}",
                 (("left", "left", "左侧"), ("right", "right", "右侧")),
+                episode_id=str(facts["episode_id"]),
             )
             return _question_item(
                 qa_id="QA-07",
@@ -5886,6 +5893,7 @@ def _generate_qa_15(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
         trend_en, trend_zh, trend_order = _named_alternatives(
             seed, "QA-15", event["event_id"],
             (("nearer", "nearer", "靠近"), ("farther", "farther", "远离")),
+            episode_id=str(facts["episode_id"]),
         )
         return _question_item(
             qa_id="QA-15",
@@ -6012,6 +6020,7 @@ def _generate_qa_16(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
         span_en, span_zh, span_order = _named_alternatives(
             seed, "QA-16", f"{event['event_id']}_post_distance",
             (("nearer", "nearer", "更近"), ("farther", "farther", "更远")),
+            episode_id=str(facts["episode_id"]),
         )
         return _question_item(
             qa_id="QA-16",
