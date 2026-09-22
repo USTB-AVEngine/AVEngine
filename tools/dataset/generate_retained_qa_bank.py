@@ -333,6 +333,10 @@ def export(out, selected, checkpoints, policy, target, dedup, minimum_per_type=0
     if (report["missing_qa_types"] or report["missing_room_families"] or deficits_by_qa
             or report["scene_deficits_by_qa"]):
         report["status"]="completed_with_coverage_gaps"
+    from avengine.qa.prior_audit import write_prior_receipt
+    prior = write_prior_receipt(out)
+    report["answer_prior_audit"] = {"path": "private/answer_priors.json", "status": prior["status"],
+                                    "mode": "report_only"}
     write(out/"report.json",report)
     (out/"README.md").write_text(
        "# AVEngine question bank\n\n"+f"Questions: {len(selected)}. Target ceiling: {target}.\n\n"+

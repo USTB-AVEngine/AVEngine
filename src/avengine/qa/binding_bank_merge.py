@@ -102,7 +102,7 @@ def _carry_private_files(source_bank: Path, out: Path) -> list[str]:
     if not private_dir.is_dir():
         return carried
     for item in sorted(private_dir.iterdir()):
-        if not item.is_file() or item.name in BANK_REBUILT_PRIVATE_FILES:
+        if not item.is_file() or item.name in BANK_REBUILT_PRIVATE_FILES or item.name == "answer_priors.json":
             continue
         (out / "private").mkdir(parents=True, exist_ok=True)
         (out / "private" / item.name).write_bytes(item.read_bytes())
@@ -293,5 +293,9 @@ def merge_binding_groups_into_bank(
         "claim_boundary": ("the group members are ordinary bank samples plus one private "
                            "group index; no model or human evaluation is claimed"),
     }
+    from avengine.qa.prior_audit import write_prior_receipt
+    prior = write_prior_receipt(out)
+    summary["answer_prior_audit"] = {"path": "private/answer_priors.json", "status": prior["status"],
+                                      "mode": "report_only"}
     _write(out / "binding_merge.json", summary)
     return summary
