@@ -82,16 +82,32 @@ def _room_family(room_id: str | None) -> str | None:
     return None
 
 
-def _items(member_dir: Path) -> list[dict[str, Any]]:
-    payload = json.loads((member_dir / "semantic_questions.json").read_text())
+def _items(member_dir: Path, manifest: dict | None = None) -> list[dict[str, Any]]:
+    """The member's QA-26 to QA-28 items.
+
+    With a speech manifest they are asked again from the member's facts by the
+    current generator, as the ordinary types are at export, so a change of
+    wording reaches the bank without rewriting the member's own files. The
+    builder's variant ID and seed are reused, so question IDs do not move.
+    """
+    if manifest is None:
+        payload = json.loads((member_dir / "semantic_questions.json").read_text())
+    else:
+        from avengine.qa.semantic_questions import generate_semantic_questions
+        facts = json.loads((member_dir / "delivery/facts.json").read_text())
+        payload = generate_semantic_questions(facts, manifest, variant_id=member_dir.name,
+                                              seed="everyday-semantic")
     return [apply_choice_support(item) for item in payload["items"] if item["qa_id"] in EXTENSION_QA_IDS]
 
 
 def merge_semantic_into_bank(bank_in: str | Path, bank_out: str | Path, *,
                              single_runs: Sequence[str | Path] = (),
-                             paired_runs: Sequence[str | Path] = ()) -> dict[str, Any]:
+                             paired_runs: Sequence[str | Path] = (),
+                             regenerate_with_manifest: str | Path | None = None) -> dict[str, Any]:
     source_bank = Path(bank_in).expanduser().resolve()
     out = Path(bank_out).expanduser().resolve()
+    manifest = (json.loads(Path(regenerate_with_manifest).read_text())
+                if regenerate_with_manifest is not None else None)
     if out.exists():
         raise BindingGroupError(f"refusing existing bank run: {out}")
     out.mkdir(parents=True)
@@ -146,7 +162,7 @@ def merge_semantic_into_bank(bank_in: str | Path, bank_out: str | Path, *,
                 continue
             member = Path(result["facts"]).parent.parent
             world = _source_world(Path(result["source"]))
-            for item in _items(member):
+            for item in _items(member, manifest):
                 append(item, member / "delivery", episode_id=f"{world['episode_id']}__{member.name}",
                        world=world["world_id"], room_id=world["room_id"])
 
@@ -167,7 +183,7 @@ def merge_semantic_into_bank(bank_in: str | Path, bank_out: str | Path, *,
             stems: dict[str, list] = defaultdict(list)
             for m in result["members"]:
                 member = Path(m["facts"]).parent.parent
-                for item in _items(member):
+                for item in _items(member, manifest):
                     stems[item["qa_id"] + "|" + item["forms"]["open"]["question_zh"]].append((member, item))
             for stem_index, (stem, entries) in enumerate(sorted(stems.items())):
                 if len(entries) != 4:
@@ -220,6 +236,7 @@ def merge_semantic_into_bank(bank_in: str | Path, bank_out: str | Path, *,
                "semantic_counts_by_qa": dict(sorted(counts.items())),
                "semantic_groups_added": len(index) - carried_groups, "total_question_count": len(rows["public"]),
                "single_runs": [str(p) for p in single_runs], "paired_runs": [str(p) for p in paired_runs],
+               "items_asked_again_with": str(regenerate_with_manifest) if regenerate_with_manifest else None,
                "skipped": skipped, "carried_private_files": carried_private,
                "public_export_file_check": check,
                "answer_prior_audit": {"path": "private/answer_priors.json", "status": prior["status"]},

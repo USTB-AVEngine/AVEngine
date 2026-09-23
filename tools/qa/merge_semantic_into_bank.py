@@ -15,8 +15,11 @@ def main():
     p.add_argument("--bank-out", type=Path, required=True)
     p.add_argument("--single", type=Path, nargs="*", default=())
     p.add_argument("--paired", type=Path, nargs="*", default=())
+    p.add_argument("--regenerate-with-manifest", type=Path, default=None,
+                   help="ask each member's questions again from its facts with the current generator")
     a = p.parse_args()
-    summary = merge_semantic_into_bank(a.bank_in, a.bank_out, single_runs=a.single, paired_runs=a.paired)
+    summary = merge_semantic_into_bank(a.bank_in, a.bank_out, single_runs=a.single, paired_runs=a.paired,
+                                       regenerate_with_manifest=a.regenerate_with_manifest)
     print(json.dumps({k: v for k, v in summary.items() if k not in ("public_export_file_check",)},
                      ensure_ascii=False, indent=1))
 
