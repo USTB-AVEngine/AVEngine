@@ -17,7 +17,7 @@ def test_engine_bearings_are_negated_into_the_published_range():
 
 def _stated_ranges():
     _en, zh = u.sector_range_text()
-    body = zh.split("：", 1)[1].rstrip("。")
+    body = zh.rsplit("：", 1)[1].rstrip("。")
     ranges = {}
     for part in body.split("；"):
         name = re.match(r"^[^0-9+-]+", part).group(0)
@@ -58,5 +58,16 @@ def test_a_direction_word_is_read_in_the_published_convention():
 
 def test_band_labels_state_left_as_positive():
     labels = {o["value"]: o["label_en"] for o in u._fov_band_options()}
-    assert "+13.5°, +40.44°" in labels["fov_band_0"] and "left" in labels["fov_band_0"]
-    assert "-40.44°, -13.5°" in labels["fov_band_2"] and "right" in labels["fov_band_2"]
+    assert "+13.5 to +40.44" in labels["fov_band_0"] and "left" in labels["fov_band_0"]
+    assert "-40.44 to -13.5" in labels["fov_band_2"] and "right" in labels["fov_band_2"]
+
+
+def test_stated_boundaries_survive_the_whole_degree_display_rule():
+    """The bank rounds decimals followed by a degree unit; a boundary must not move."""
+    from avengine.qa.binding_catalog import whole_degree_display
+    en, zh = u.sector_range_text()
+    assert whole_degree_display(en) == en and whole_degree_display(zh) == zh
+    assert "22.5" in zh and "157.5" in zh
+    for option in u._fov_band_options():
+        assert whole_degree_display(option["label_en"]) == option["label_en"]
+        assert whole_degree_display(option["label_zh"]) == option["label_zh"]

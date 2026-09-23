@@ -9758,10 +9758,11 @@ def _fov_band(angle: float) -> str | None:
 
 def _fov_band_options() -> list[dict[str, Any]]:
     labels = (
-        # Bands are named by side; their published ranges are left positive.
-        ("fov_band_0", "in-view left band (+13.5°, +40.44°]", "视野内左带(+13.5°，+40.44°]"),
-        ("fov_band_1", "in-view center band (-13.5°, +13.5°]", "视野内中带(-13.5°，+13.5°]"),
-        ("fov_band_2", "in-view right band [-40.44°, -13.5°]", "视野内右带[-40.44°，-13.5°]"),
+        # Bands are named by side; their published ranges are left positive. The unit is
+        # stated once so the public display rule does not round a boundary to a whole degree.
+        ("fov_band_0", "in-view left band, +13.5 to +40.44 (degrees)", "视野内左带（+13.5～+40.44，单位：度）"),
+        ("fov_band_1", "in-view center band, -13.5 to +13.5 (degrees)", "视野内中带（-13.5～+13.5，单位：度）"),
+        ("fov_band_2", "in-view right band, -40.44 to -13.5 (degrees)", "视野内右带（-40.44～-13.5，单位：度）"),
     )
     return [
         {

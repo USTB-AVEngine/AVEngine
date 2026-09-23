@@ -45,15 +45,17 @@ def sector_ranges(sectors, *, width_deg: float = 45.0) -> tuple[str, str]:
         low, high = centre - half, centre + half
         rows.append((centre if centre >= -half else centre + 360.0, label_en, label_zh, low, high))
     rows.sort()
+    # The unit is stated once and never after a number: these are definitions, and the
+    # public display rule rounds any decimal followed by a degree unit to a whole degree.
     en, zh = [], []
     for _order, label_en, label_zh, low, high in rows:
         if low < -180.0 or high > 180.0:  # "behind" straddles ±180
             lo, hi = (low + 360.0, high) if low < -180.0 else (low, high - 360.0)
-            en.append(f"{label_en} {_deg(lo)}° to 180° or -180° to {_deg(hi)}°")
-            zh.append(f"{label_zh}{_deg(lo)}°～180°及-180°～{_deg(hi)}°")
+            en.append(f"{label_en} {_deg(lo)} to 180 or -180 to {_deg(hi)}")
+            zh.append(f"{label_zh}{_deg(lo)}～180及-180～{_deg(hi)}")
         else:
-            en.append(f"{label_en} {_deg(low)}° to {_deg(high)}°")
-            zh.append(f"{label_zh}{_deg(low)}°～{_deg(high)}°")
-    return ("Directions are horizontal angles from the way you are facing "
-            "(front 0°, left positive, right negative): " + "; ".join(en) + ".",
-            "方向按水平角度划分，以你此刻的朝向为0°，左侧为正、右侧为负：" + "；".join(zh) + "。")
+            en.append(f"{label_en} {_deg(low)} to {_deg(high)}")
+            zh.append(f"{label_zh}{_deg(low)}～{_deg(high)}")
+    return ("Directions are horizontal angles in degrees from the way you are facing "
+            "(front 0, left positive, right negative): " + "; ".join(en) + ".",
+            "方向按水平角度划分（单位：度），以你此刻的朝向为0，左侧为正、右侧为负：" + "；".join(zh) + "。")
