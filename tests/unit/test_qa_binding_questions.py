@@ -130,7 +130,7 @@ def test_cross_time_bearing_exposes_calibration_and_integer_query_only():
     facts["audio"]["wet_tail_intervals"] = facts["audio"]["wet_tail_intervals"][:1]
     facts["source_activity_intervals_samples"] = {"e0": facts["events"][0]["source_activity_intervals_samples"]}
     q = generate_binding_question(facts, "cross_time_state", {"event_number": 1, "query_time_s": 9})
-    assert q["truth"]["value"] == -22
+    assert q["truth"]["value"] == 22  # 22 degrees left of front: DCASE left positive
     assert q["evidence"]["observation_cutoff_s"] == 9
     assert q["model_input"]["open"]["camera_calibration"]["fx_px"] == 50
     assert "mcq" not in q["forms"]
@@ -262,7 +262,7 @@ def test_cross_time_pixel_bearing_does_not_require_color_naming():
     for value in facts["appearance_review"].values():
         value["status"] = "not_observable"
     question = generate_binding_question(facts, "cross_time_state", {"query_anchor": "clip_end"})
-    assert question["truth"]["value"] == -22
+    assert question["truth"]["value"] == 22  # 22 degrees left of front: DCASE left positive
 
 
 def test_reference_geometry_selects_pair_without_color_names():

@@ -204,6 +204,7 @@ def generate_semantic_questions(raw_facts, manifest, *, variant_id="semantic", s
                         "sound_asset_id": sound["sound_asset_id"],
                         "authored_semantic_answer": deepcopy(semantic), "matched_transcript": event["transcript"],
                         "query_frame": window[0], "azimuth_deg": angle,
+                        "azimuth_evidence_convention": "engine_right_positive",
                         "speaker_sectors": {a: w[1] for a, w in sectors.items()},
                         "sector_dead_zone_deg": u._SECTOR_DEAD_ZONE_DEG,
                         "answer_domain": "eight_45_degree_sectors", "wording_order": order,
@@ -216,8 +217,10 @@ def generate_semantic_questions(raw_facts, manifest, *, variant_id="semantic", s
             item = _ask(deferred, "QA-28", {"scenario_id": scenario_id, "actor_id": actor},
                 facts=facts, seed=seed,
                 question_en=(f"{stem_en} Take the moment they start saying it, relative to the way you are "
-                             f"facing, and answer with exactly one of: {', '.join(names_en)}."),
-                question_zh=f"{stem_zh}以这位说话者开口说这句话时、你的朝向为准，请只回答其中之一：{'、'.join(names_zh)}。",
+                             f"facing, and answer with exactly one of: {', '.join(names_en)}. "
+                             f"{u.sector_range_text()[0]}"),
+                question_zh=(f"{stem_zh}以这位说话者开口说这句话时、你的朝向为准，请只回答其中之一："
+                             f"{'、'.join(names_zh)}。{u.sector_range_text()[1]}"),
                 open_answer_type="closed_set", open_truth=sector, truth_label=sector,
                 options=[u._option(value, label_en) for value, label_en, _zh in u._DIRECTION_SECTORS],
                 evidence=evidence, slug=f"{variant_id}_{scenario_id}_{actor}_meaning_to_direction")

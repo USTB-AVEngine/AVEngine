@@ -6,6 +6,10 @@ The group assembler separately checks the actual shared media and answer
 changes; this module never invents media or changes the underlying facts.
 """
 from __future__ import annotations
+from avengine.qa.azimuth_publication import (
+    CONVENTION_EN as _ANGLE_EN, CONVENTION_ZH as _ANGLE_ZH, EVIDENCE_CONVENTION,
+    PUBLISHED_CONVENTION, publish_azimuth_deg,
+)
 
 from collections.abc import Mapping, Sequence
 from copy import deepcopy
@@ -471,16 +475,19 @@ def _cross_time_state(facts: dict, query: Mapping[str, Any], seed: str) -> tuple
     item = catalog._question_item(
         qa_id=TASK_QA_IDS["cross_time_state"], facts=facts, seed=seed,
         question_en=(f"{time_en}, what is the bearing of the visible pixel centroid of the "
-                     f"object that produced {anchor_en}? Front is 0 degrees; right is positive."),
+                     f"object that produced {anchor_en}? {_ANGLE_EN}."),
         question_zh=(f"{time_zh}，发出{anchor_zh}的对象，其可见像素质心位于多少度？"
-                     "正前方为0度，右侧为正。"),
-        open_answer_type="angle_deg", open_truth=bearing, truth_label=f"{bearing} degrees",
-        mcq_optional=True, open_extra={"scoring_mode": "threshold_graded", "theta_full_deg": 1.0, "theta_half_deg": 3.0},
+                     f"{_ANGLE_ZH}。"),
+        open_answer_type="angle_deg", open_truth=publish_azimuth_deg(bearing),
+        truth_label=f"{publish_azimuth_deg(bearing)} degrees",
+        mcq_optional=True, open_extra={"scoring_mode": "threshold_graded", "theta_full_deg": 1.0, "theta_half_deg": 3.0,
+                                       "convention": PUBLISHED_CONVENTION},
         evidence={"target_actor_id": event["actor_id"], "event_id": event["event_id"],
                   "anchor_frame": anchor, "query_frame": frame, "query_time_s": second,
                   "query_anchor": "clip_end" if clip_end else "integer_second",
                   "observation_cutoff_s": None if clip_end else second, "target": "visible_pixel_centroid",
                   "visible_centroid_xy_px": centroid, "camera_calibration": calibration,
+                  "azimuth_engine_frame_deg": bearing, "azimuth_evidence_convention": EVIDENCE_CONVENTION,
                   "candidate_actor_ids": list(candidates)},
         slug="binding_cross_time_bearing",
     )

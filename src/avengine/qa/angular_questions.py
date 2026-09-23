@@ -17,8 +17,13 @@ from avengine.qa import unified_catalog as catalog
 
 SUBSETS = ("A", "V", "AV")
 ANGLE_THRESHOLDS_DEG = (1, 3, 5, 10)
-CONVENTION_EN = " Report one integer horizontal angle in whole degrees: front 0, right positive, in [-180, 180)."
-CONVENTION_ZH = " 请只回答整数水平角度（度）：正前方为0，右侧为正，范围[-180,180)。"
+from avengine.qa.azimuth_publication import (
+    CONVENTION_EN as _ANGLE_EN, CONVENTION_ZH as _ANGLE_ZH, EVIDENCE_CONVENTION,
+    PUBLISHED_CONVENTION, publish_azimuth_deg,
+)
+
+CONVENTION_EN = f" Report one integer horizontal angle in whole degrees: {_ANGLE_EN}."
+CONVENTION_ZH = f" 请只回答整数水平角度（度）：{_ANGLE_ZH}。"
 
 
 def public_camera_calibration(raw: Mapping[str, Any]) -> dict[str, Any] | None:
@@ -379,12 +384,15 @@ def _item(facts: Mapping[str, Any], seed: str, candidate: Mapping[str, Any],
     angle = (float(angle) + 180.0) % 360.0 - 180.0
     if not math.isfinite(angle):
         catalog._defer("nonfinite_angle", "bearing readback is not finite")
+    evidence["azimuth_engine_frame_deg"] = angle
+    evidence["azimuth_evidence_convention"] = EVIDENCE_CONVENTION
+    angle = publish_azimuth_deg(angle)
     item = catalog._question_item(qa_id=qa_id, facts=facts, seed=seed,
         question_en=question_en + CONVENTION_EN, question_zh=question_zh + CONVENTION_ZH,
         open_answer_type="angle_deg", open_truth=angle, truth_label=f"{angle:.6f} degrees",
         evidence=evidence, mcq_optional=True,
         mcq_deferred_reason={"code": "continuous_numeric_only", "detail": "this question requires a continuous numeric answer"},
-        open_extra={"convention": "right_positive", "scoring_mode": "threshold_graded",
+        open_extra={"convention": PUBLISHED_CONVENTION, "scoring_mode": "threshold_graded",
                     "angle_thresholds_deg": list(ANGLE_THRESHOLDS_DEG), "angle_reference": evidence["angle_reference"]},
         slug=slug or f"bearing_{subset}_{actor_id}_{candidate.get('event_id', 'visual')}_{frame}")
     item.update({"angle_subset": subset, "candidate_id": candidate.get("candidate_id"),

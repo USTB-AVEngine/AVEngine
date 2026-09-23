@@ -181,3 +181,12 @@ def test_members_are_named_after_their_episode_not_its_delivery_folder():
     assert name("/r/apt__cover_s1/episode", "keys") == "apt__cover_s1__keys"
     assert name("/r/apt__cover_s2/episode", "keys") != name("/r/apt__cover_s1/episode", "keys")
     assert name("/groups/aptA", "keys") == "aptA__keys"
+
+
+def test_direction_stem_states_every_sector_range(monkeypatch):
+    facts, manifest = _four_answer_fixture()
+    first, second = (e["event_id"] for e in facts["events"])
+    _sectors(monkeypatch, {first: "front-left", second: "back-right"})
+    item = _by(generate_semantic_questions(facts, manifest), "QA-28")[0]
+    assert u.sector_range_text()[1] in item["forms"]["open"]["question_zh"]
+    assert u.sector_range_text()[0] in item["forms"]["open"]["question_en"]

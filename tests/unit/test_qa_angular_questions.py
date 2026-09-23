@@ -37,12 +37,16 @@ def test_all_three_subsets_have_explicit_numeric_questions_and_public_visual_cal
     by_subset = {item["angle_subset"]: item for item in result["items"]}
     assert set(by_subset) == {"A", "V", "AV"}
     assert result["counts"]["valid"] == 3
-    assert by_subset["V"]["forms"]["open"]["truth"] == round(math.degrees(math.atan2(25, 50)))
+    # The centroid sits right of centre (+26.6 degrees in the engine frame); published
+    # bearings are DCASE left positive, so the truth is its negative.
+    assert by_subset["V"]["forms"]["open"]["truth"] == -round(math.degrees(math.atan2(25, 50)))
+    assert by_subset["V"]["forms"]["open"]["convention"] == "left_positive"
     for subset, item in by_subset.items():
         assert set(item["forms"]) == {"open"}
         assert item["forms"]["open"]["answer_type"] == "angle_deg"
         assert item["certification"]["status"] == "not_run"
-        assert "[-180, 180)" in item["model_input"]["open"]["question_en"]
+        assert "[-180°, 180°)" in item["model_input"]["open"]["question_en"]
+        assert "left is positive" in item["model_input"]["open"]["question_en"]
         assert ("camera_calibration" in item["model_input"]["open"]) == (subset == "V")
     assert len(by_subset["AV"]["evidence"]["competing_event_ids"]) >= 1
     public = model_input_questions(result)
@@ -261,8 +265,10 @@ def test_integer_queries_recompute_angles_at_selected_native_frames():
         actor = item["evidence"]["actor_id"]
         exact = (_visual_bearing(facts, actor, frame)[0] if item["angle_subset"] == "V"
                  else _audio_bearing(facts, actor, frame))
-        assert item["truth"]["value"] == (round(exact) + 180) % 360 - 180
-        assert item["evidence"]["answer_full_precision"] == pytest.approx(exact)
+        # engine frame is right positive; the published truth is DCASE left positive
+        assert item["truth"]["value"] == (-round(exact) + 180) % 360 - 180
+        assert item["evidence"]["answer_full_precision"] == pytest.approx(-exact)
+        assert item["evidence"]["azimuth_engine_frame_deg"] == pytest.approx(exact)
         if item["angle_subset"] == "AV":
             assert item["evidence"]["anchor_frame"] % 10 == 0
 

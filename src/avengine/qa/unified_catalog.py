@@ -3720,6 +3720,12 @@ def _option(value: Any, label: str | None = None) -> dict[str, str]:
 # so the floor for that type sat at 56% before any perception. Over the same truths the
 # eight sectors put the commonest answer at 34% and the guessing baseline at 12.5%. The
 # bearing is already measured and stored, so this costs no new rendering.
+from avengine.qa.azimuth_publication import (  # noqa: E402
+    CONVENTION_EN as _PUBLISHED_ANGLE_EN, CONVENTION_ZH as _PUBLISHED_ANGLE_ZH,
+    EVIDENCE_CONVENTION as _EVIDENCE_AZIMUTH_CONVENTION, PUBLISHED_CONVENTION as _PUBLISHED_AZIMUTH_CONVENTION,
+    publish_azimuth_deg as _publish_azimuth, sector_ranges as _sector_ranges,
+)
+
 _DIRECTION_SECTORS: tuple[tuple[str, str, str], ...] = (
     ("front", "front", "正前方"),
     ("front-right", "front right", "右前方"),
@@ -3731,6 +3737,11 @@ _DIRECTION_SECTORS: tuple[tuple[str, str, str], ...] = (
     ("front-left", "front left", "左前方"),
 )
 _SECTOR_DEAD_ZONE_DEG = 5.0
+
+
+def sector_range_text() -> tuple[str, str]:
+    """The published range of every direction, for a stem that asks for one."""
+    return _sector_ranges(_DIRECTION_SECTORS)
 
 
 def _azimuth_sector(angle: float) -> str | None:
@@ -4773,11 +4784,11 @@ def _generate_qa_04(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
             question_en=(
                 f"At the onset of {anchor_en} (query interval {display_en}), which direction was "
                 f"the source in, relative to the way you are facing? Answer with exactly one of: "
-                f"{listed_en}."
+                f"{listed_en}. {sector_range_text()[0]}"
             ),
             question_zh=(
                 f"在{anchor_zh}的查询区间{display_zh}开始阶段，以你的朝向为准，声源在哪个方向？"
-                f"请只回答其中之一：{listed_zh}。"
+                f"请只回答其中之一：{listed_zh}。{sector_range_text()[1]}"
             ),
             open_answer_type="closed_set",
             open_truth=side,
@@ -4788,6 +4799,7 @@ def _generate_qa_04(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
                 "query_frame": window[0],
                 **window_fields,
                 "azimuth_deg": angle,
+                "azimuth_evidence_convention": _EVIDENCE_AZIMUTH_CONVENTION,
                 "sector_dead_zone_deg": _SECTOR_DEAD_ZONE_DEG,
                 "answer_domain": "eight_45_degree_sectors",
                 "wording_order": sector_order,
@@ -5731,7 +5743,9 @@ def _generate_qa_13(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
             "fov_band_calibration": "placeholder",
             "band_boundary_margin_deg": 5.0,
             "target_unobservable_at_query": False,
+            "azimuth_evidence_convention": _EVIDENCE_AZIMUTH_CONVENTION,
         }
+        published = round(_publish_azimuth(stable_angle), 6)
         return _question_item(
             qa_id="QA-13",
             facts=facts,
@@ -5739,11 +5753,11 @@ def _generate_qa_13(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
             question_en=(
                 f"After {anchor_en} ended, during the silent interval {display_en}, "
                 "what approximate numeric azimuth did the source maintain? "
-                "Report degrees: front is 0°, right is positive, range [-180°, 180°)."
+                f"Report degrees: {_PUBLISHED_ANGLE_EN}."
             ),
             question_zh=(
                 f"{anchor_zh}结束后的静音时段{display_zh}内，声源大致保持在什么数值方位角？"
-                "正前方为0°，右侧为正，范围[-180°，180°）。"
+                f"{_PUBLISHED_ANGLE_ZH}。"
             ),
             mcq_question_en=(
                 f"After {anchor_en} ended, during the silent interval {display_en}, "
@@ -5753,12 +5767,12 @@ def _generate_qa_13(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
                 f"{anchor_zh}结束后的静音时段{display_zh}内，声源位于哪个视野内水平角带？"
             ),
             open_answer_type="angle_deg",
-            open_truth=stable_angle,
-            truth_label=f"{stable_angle:.1f}°",
+            open_truth=published,
+            truth_label=f"{published:.1f}°",
             mcq_truth=band,
             open_extra={
-                "convention": "right_positive",
-                "convention_description": "azimuth_deg; front=0°, right_positive, range=[-180°,180°)",
+                "convention": _PUBLISHED_AZIMUTH_CONVENTION,
+                "convention_description": "azimuth_deg; front=0°, left_positive, range=[-180°,180°)",
                 "theta_full_deg": 15.0,
                 "theta_half_deg": 30.0,
             },
@@ -9744,9 +9758,10 @@ def _fov_band(angle: float) -> str | None:
 
 def _fov_band_options() -> list[dict[str, Any]]:
     labels = (
-        ("fov_band_0", "in-view left band [-40.44°, -13.5°)", "视野内左带[-40.44°，-13.5°)"),
-        ("fov_band_1", "in-view center band [-13.5°, 13.5°)", "视野内中带[-13.5°，13.5°)"),
-        ("fov_band_2", "in-view right band [13.5°, 40.44°]", "视野内右带[13.5°，40.44°]"),
+        # Bands are named by side; their published ranges are left positive.
+        ("fov_band_0", "in-view left band (+13.5°, +40.44°]", "视野内左带(+13.5°，+40.44°]"),
+        ("fov_band_1", "in-view center band (-13.5°, +13.5°]", "视野内中带(-13.5°，+13.5°]"),
+        ("fov_band_2", "in-view right band [-40.44°, -13.5°]", "视野内右带[-40.44°，-13.5°]"),
     )
     return [
         {
