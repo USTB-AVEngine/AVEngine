@@ -152,3 +152,17 @@ def test_template_lookup_sees_through_numbers_that_exact_prompts_do_not_share():
     assert q["by_split"]["valid"]["train_template_score"] == 1.0
     assert "valid:high_template_answer_score" in q["flags"]
     assert result["aggregate"]["valid"]["train_template_micro_score"] == 1.0
+
+
+def test_two_way_is_what_a_type_offers_not_its_name():
+    """QA-04 now offers eight sectors; a type-name list called it binary."""
+    p, a, s = rows(["yes", "no"] * 3, qa="QA-04")
+    eight = [{"value": f"s{i}", "label_en": f"s{i}"} for i in range(8)]
+    for i in range(6):
+        a[i]["forms"]["mcq"] = {"options": eight, "gold": {"correct_index": i}}
+        p[i]["forms"]["mcq"] = {"options": eight}
+    q = audit_priors(p, a, source_rows=s)["by_qa"]["QA-04"]
+    assert not q["binary_mcq_warning"] and q["intrinsic_mcq_domain"] is False
+    p, a, s = rows(["yes", "no"] * 3, qa="QA-26")
+    q = audit_priors(p, a, source_rows=s)["by_qa"]["QA-26"]
+    assert q["binary_mcq_warning"] and q["intrinsic_mcq_domain"] is True

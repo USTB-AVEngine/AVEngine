@@ -38,6 +38,8 @@ def _audit(*, constant=0.2, majority=0.3, binary=(), under_powered=(),
         by_qa[qa] = {
             "mcq_questions": 10,
             "binary_mcq_warning": qa in binary,
+            # a two-way type in these fixtures is a declared intrinsic domain (yes/no)
+            "intrinsic_mcq_domain": qa in binary,
             "validation_quota_status": "under_powered" if qa in under_powered else "pass",
             "mcq_option_count_histogram": {str(n): 10 for n in option_counts},
             "by_split": {

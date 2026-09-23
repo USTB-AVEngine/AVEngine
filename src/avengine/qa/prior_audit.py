@@ -9,6 +9,7 @@ import math
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
+from avengine.qa.choice_support import INTRINSIC_DOMAINS
 from avengine.qa.unified_scoring import score_open_form
 
 # The owner-requested first stage is diagnostic, not an admission gate. These
@@ -19,7 +20,6 @@ DEFAULT_THRESHOLDS = {
     "min_valid_questions": 24,
     "max_position_deviation": 0.10,
 }
-BINARY_QAS = frozenset({"QA-01", "QA-04", "QA-05", "QA-06", "QA-07", "QA-09", "QA-11", "QA-15", "QA-16", "QA-17"})
 WORDING_QAS = frozenset({"QA-04", "QA-07", "QA-15", "QA-16"})
 
 
@@ -144,6 +144,14 @@ def _profile(rows):
             "open_answers": distribution,
             "open_scoring_modes": dict(Counter(str(r["forms"]["open"].get("scoring_mode", r["forms"]["open"].get("answer_type"))) for r in opened)),
             "mcq_option_count_histogram": {str(k): sum(v.values()) for k,v in sorted(by_k.items())},
+            # Closed-set questions offered only as open answers still have a candidate set,
+            # e.g. the two visible speakers of QA-27; its size is that type's option count.
+            "open_class_count_histogram": dict(sorted(Counter(
+                str(len(r["forms"]["open"]["classes"])) for r in opened
+                if isinstance(r["forms"]["open"].get("classes"), Mapping) and r["forms"]["open"]["classes"]).items())),
+            # Declared in choice_support: domains whose size is part of the question's meaning.
+            "intrinsic_mcq_domain": (all(frozenset(str(o.get("value")) for o in r["forms"]["mcq"].get("options", []))
+                                         in INTRINSIC_DOMAINS for r in mcq) if mcq else None),
             "mcq_random_baseline": sum(1/len(r["forms"]["mcq"]["options"]) for r in mcq)/len(mcq) if mcq else None,
             "correct_option_positions_by_option_count": position,
             "wording_orders": dict(Counter(" / ".join(r["wording_order"]) for r in rows if r["wording_order"])),
@@ -199,9 +207,11 @@ def audit_priors(public_rows, answer_rows, *, source_rows=(), splits=None, thres
                 flags.append(f"{scope}:dominant_open_answer")
             if any(x["max_deviation"] > limits["max_position_deviation"] for x in profile["correct_option_positions_by_option_count"].values()):
                 flags.append(f"{scope}:correct_option_position_skew")
-        if qa not in BINARY_QAS and any(int(n) < limits["min_mcq_options"] for n in result["mcq_option_count_histogram"]):
+        if not result["intrinsic_mcq_domain"] and any(int(n) < limits["min_mcq_options"] for n in result["mcq_option_count_histogram"]):
             flags.append("mcq_domain_too_small")
-        result["binary_mcq_warning"] = qa in BINARY_QAS and result["mcq_questions"] > 0
+        # Two-way by what the questions offer, not by a list of type names: QA-04 left
+        # the list's meaning when it moved from two sides to eight sectors.
+        result["binary_mcq_warning"] = result["mcq_questions"] > 0 and set(result["mcq_option_count_histogram"]) == {"2"}
         if result["binary_mcq_warning"]:
             flags.append("binary_mcq_has_50_percent_guessing_baseline")
         if qa in WORDING_QAS and rows:

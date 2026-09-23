@@ -218,7 +218,8 @@ def evaluate_release(
         # A type with k options cannot bring its commonest answer below 1/k: a
         # balanced two-way type sits at exactly one half. Its limit is the higher
         # of the two, so balance is required and nothing looser is allowed.
-        sizes = [int(n) for n in (result.get("mcq_option_count_histogram") or {})]
+        sizes = [int(n) for n in (result.get("mcq_option_count_histogram")
+                                  or result.get("open_class_count_histogram") or {})]
         type_limit = max(limit, 1.0 / max(sizes)) if sizes else limit
         for split in _SPLITS:
             share = ((result.get("by_split", {}).get(split) or {}).get("open_answers") or {}).get("majority_share")
@@ -271,8 +272,8 @@ def evaluate_release(
     smallest = None
     thin: list[str] = []
     for qa, result in by_qa.items():
-        if result.get("binary_mcq_warning"):
-            continue  # an intrinsically two-way domain is covered by binary_mcq_share
+        if result.get("intrinsic_mcq_domain"):
+            continue  # a declared intrinsic domain; two-way ones are covered by binary_mcq_share
         counts = [int(n) for n in (result.get("mcq_option_count_histogram") or {})]
         if not counts:
             continue
@@ -283,7 +284,7 @@ def evaluate_release(
     rules.append(_rule(
         "option_domain_size", smallest, policy["options"]["min_mcq_options"],
         smallest is None or smallest >= policy["options"]["min_mcq_options"],
-        "smallest multiple-choice domain outside the intrinsically two-way types; "
+        "smallest multiple-choice domain outside the declared intrinsic domains; "
         "offenders: " + (", ".join(sorted(thin)) or "none"),
     ))
 
