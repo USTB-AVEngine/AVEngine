@@ -5,7 +5,7 @@
 
 自 2026-08-25 起，目录本身就是能力分组（阶段目录 m1…m7 已移除），
 本表按目录列出每个工具做什么。
-当前共 448 个工具脚本。
+当前共 454 个工具脚本。
 
 ## 资产生成与装配（`tools/assets/`）
 
@@ -263,6 +263,7 @@
 | `tools/qa/audit_strict_two_human_camera_pan_motion_realism.py` | Audit camera-pan motion realism against authoritative 15 Hz camera poses |
 | `tools/qa/audit_strict_two_human_room_expansion.py` | Audit two additional cooked SPEAR maps for the strict M/F/C room closure |
 | `tools/qa/author_observed_f2_direction.py` | Author backend-independent F2 direction facts from observed native frames |
+| `tools/qa/balance_bank_answers.py` | Thin over-represented answers per split; see avengine.qa.answer_balance |
 | `tools/qa/bind_native_paper_balance_episode.py` | Bind one full native SPEAR capture to the paper-balance QuestionSpec strata |
 | `tools/qa/bind_native_pixel_fact_episode.py` | Bind one full native SPEAR pixel capture to Facts and QuestionSpecs |
 | `tools/qa/bind_native_spear_episode.py` | Bind one compiled QA Fact table to retained native SPEAR/UE evidence |
@@ -281,6 +282,7 @@
 | `tools/qa/build_qa_v3_programs.py` | Per-point audio-program generator for the v3 pilot (work order item 1.2) |
 | `tools/qa/build_qa_v3_released_probe_items.py` | Build MCQ/Open shortcut-probe items from released run02-style media |
 | `tools/qa/build_qa_v3_walkable_grid.py` | Build a scene's walkable-floor grid (see walkable_grid.py for what it is for) |
+| `tools/qa/build_semantic_bank.py` | Put everyday semantic speech on retained visual worlds and ask QA-26 to QA-28 |
 | `tools/qa/build_skokloster_strict_two_human_preflight.py` | Build a file-evidence-free CPU preflight for the Skokloster strict M/F Episode |
 | `tools/qa/build_strict_two_human_camera_pan_v2_candidate.py` | Build one CPU-only camera-pan/both-static full75 geometry candidate |
 | `tools/qa/build_strict_two_human_canary_preflight.py` | Validate and publish the CPU preflight for one strict two-human canary |
@@ -304,6 +306,8 @@
 | `tools/qa/capture_spear_native_pixel_episode.py` | Capture a full native SPEAR RGB/depth/pixel-truth Episode |
 | `tools/qa/capture_spear_native_pixel_room_batch.py` | Concrete one-process SPEAR adapter for strict full75 room batches |
 | `tools/qa/certify_axis1_questions.py` | Fact-level axis-1 (route-swap) certification for mined simple questions |
+| `tools/qa/check_release_gate.py` | Decide whether one generated bank meets the declared benchmark standard |
+| `tools/qa/check_semantic_speech.py` | Read synthesized semantic speech back with a local Whisper model and admit the audible recordings |
 | `tools/qa/compare_question_spec_fresh.py` | Fresh QuestionSpec re-evaluation versus retained bind-time records |
 | `tools/qa/compile_apartment_fact_tables.py` | Compile per-episode QA fact tables for the asset-bound Apartment batch |
 | `tools/qa/compile_question_protocol_coverage.py` | Compile or independently validate the 12-type native QuestionSpec protocol |
@@ -341,11 +345,13 @@
 | `tools/qa/materialize_strict_two_human_dynamic_canary.py` | Materialize one true-motion strict two-human full75 CPU closure |
 | `tools/qa/measure_conditioned_plan_matrix.py` | Measure fixed-profile plan feasibility without rendering or replacing quotas |
 | `tools/qa/measure_qa_v3_floor_z.py` | Measure a room's floor height in the engine and write its floor reference |
+| `tools/qa/merge_semantic_into_bank.py` | Append QA-26 to QA-28 from semantic builder runs to a copy of a question bank |
 | `tools/qa/mine_simple_questions.py` | Mine simple (A-group) questions from compiled QA fact tables |
 | `tools/qa/mine_temporal_questions.py` | Mine temporal (B-group) and numeric questions over intermittent fact tables |
 | `tools/qa/pre_gpu_launch_ledger.py` | Fail-closed archival for prepared attempts that never reached a GPU launch |
 | `tools/qa/preflight_camera_clearance_depth.py` | Camera-only depth preflight: is the view from a candidate camera pose clear? |
 | `tools/qa/prepare_qa_v3_mcq.py` | Glue: facts (generator) -> split plan (1.3) -> MCQ items (1.4 input) |
+| `tools/qa/prepare_semantic_speech.py` | Synthesize short everyday semantic dialogue pairs with explicit text and answer provenance |
 | `tools/qa/probe_packaged_imported_glb_room.py` | Fail-closed NullRHI packaged readback for an imported-GLB room adapter |
 | `tools/qa/probe_packaged_skokloster_room.py` | Fail-closed NullRHI packaged-object readback for Skokloster Castle |
 | `tools/qa/probe_physical_features.py` | Physical-feature classifier probe (pilot work order item 1.6) |

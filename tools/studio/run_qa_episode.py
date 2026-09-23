@@ -60,11 +60,14 @@ def _native_sampling_arguments(request: dict) -> dict:
     camera = request.get("camera", {})
     # This path names each argument, so a request key that is not named here is dropped.
     # The other three planning calls receive the request itself and do not need a line.
-    return {"sampling_policy": "conditioned_static_v2",
-            "camera_motion": camera.get("motion", request.get("camera_motion", "static")),
-            "camera_fov_deg": camera.get("fov_deg", request.get("camera_fov_deg", 85.0)),
-            "offscreen_actor_ids": tuple(request.get("offscreen_actor_ids") or ()),
-            "silent_actor_count": int(request.get("silent_actor_count", 0))}
+    arguments = {"sampling_policy": "conditioned_static_v2",
+                 "camera_motion": camera.get("motion", request.get("camera_motion", "static")),
+                 "camera_fov_deg": camera.get("fov_deg", request.get("camera_fov_deg", 85.0)),
+                 "silent_actor_count": int(request.get("silent_actor_count", 0))}
+    # Forwarded only when asked for: the planner's own default is "none hidden".
+    if request.get("offscreen_actor_ids"):
+        arguments["offscreen_actor_ids"] = tuple(request["offscreen_actor_ids"])
+    return arguments
 
 
 def plan_request(request: dict, output: Path) -> dict:
