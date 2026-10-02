@@ -81,6 +81,14 @@ def publish(out):
         "",
         f"calibration：{selection['selected']['metrics']['confusion_matrix']}；一致率 {pct(selection['selected']['metrics']['agreement'])}、精度 {pct(selection['selected']['metrics']['precision'])}、召回 {pct(selection['selected']['metrics']['recall'])}。freeze.json 记录改变结果的代码和阈值身份；holdout_evaluation_once.json 明确本协议仅1次评估。",
         "",
+        *(
+            [
+                f"阈值 YAML 两处继承说明已勘误，全部参数值与原冻结模型一致；原绑定文件、改动前后描述和值指纹见 metadata_correction/receipt.json。冻结时间仍指 {frozen['created_at_sgt']} 的数值规则，勘误未选择新阈值。",
+                "",
+            ]
+            if (out / "metadata_correction/receipt.json").exists()
+            else []
+        ),
         "## 同一 holdout 的两次历史评估",
         "",
         "本次是这批 holdout 房子的第二次评估。第一次为 82382e2 冻结规则；这次冻结共享测量后的规则后只评一次，没有根据结果再调阈值。历史 holdout 已被观察，因此这不是新的独立泛化验证；未来论文应说明复用或另设新测试总体。两次都按 human use/skip 二元、unsure 单列，自动 review/not_run 计未选中。",

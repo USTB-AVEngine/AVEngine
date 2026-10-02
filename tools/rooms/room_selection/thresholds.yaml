@@ -1,5 +1,5 @@
 schema: room_selection_thresholds_v1
-status: addendum1_frozen_on_calibration_before_single_holdout_evaluation
+status: merged_protocol_frozen_on_original_calibration_before_second_historical_holdout_evaluation
 parameters:
   floor_area_min_m2:
     value: 4
@@ -214,7 +214,7 @@ parameters:
     source: smy shared classifier; feature/smy-room-screening 4175585
     rationale: Use shared blocker/ground/structural/review definition; no second furniture
       whitelist.
-measurement_backend: tools.rooms.room_screening shared primitives; largest continuous
-  local navmesh component replaces clipped grid-cell area
+measurement_backend: shared room_screening floor/furniture/navmesh triangles; continuous
+  intersection clipped to native geodesic grid main-component support
 freeze_status: calibration-only frozen merged protocol; historical holdout evaluation
   ordinal 2
