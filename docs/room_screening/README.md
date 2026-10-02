@@ -74,11 +74,11 @@ Manifest 结构见 [JSON Schema](../../schemas/room_screening_review_manifest_v1
 ## 验证
 
 ```bash
-python -m unittest tests.unit.room_screening.test_geometry tests.unit.room_screening.test_review_server -v
+python -m unittest tests.unit.room_screening.test_geometry tests.unit.room_screening.test_review_server tests.unit.room_screening.test_inventory_contract -v
 python tools/build_tool_index.py --check
 ```
 
-上述单测使用合成几何和临时文件；不需要 HM3D 文件，也不测试 Habitat 原生场景加载。Habitat 数据级验证须在有权访问数据的本机另行运行，并如实记录运行时/输入版本和失败场景。
+上述单测使用合成几何和临时文件；不需要 HM3D 文件，也不测试 Habitat 原生场景加载。项目此前已用真实 HM3D 场景进行过面积初算和样本抽查；但本分支为便于复用而调整了输入、路径和启动方式，**移植后的代码尚未在真实场景上重新回归运行**。此前的运行结果和审阅记录保留在外部工作区，没有提交到本仓库。要确认移植版本的真实场景行为，应在有数据权限的本机重新运行并记录运行时/输入版本及失败场景。
 
 ## 公开与数据边界
 
