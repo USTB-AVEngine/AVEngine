@@ -185,3 +185,117 @@ def test_explicit_stage1_pilot_never_reports_completed_stage2():
     qualify_region_evidence(r, skip_splitting=True)
     assert r["stage2"]["reason_codes"] == ["STAGE2_NOT_REQUESTED"]
     assert r["floors"][0]["stage2"]["status"] == "not_run"
+
+
+def test_floor_height_is_area_weighted_despite_many_small_artifact_faces():
+    # A scan can tessellate tiny rug/noise faces much more densely than floor.
+    main = np.array([[0, 0, 0], [10, 0, 0], [0, 0, 10]], float)
+    tiny = np.array([[0, 0.25, 0], [0.01, 0.25, 0], [0, 0.25, 0.01]], float)
+    layers = floor_layers(np.stack([main] + [tiny] * 100), PARAMETERS)
+    assert len(layers) == 1
+    assert layers[0]["floor_y_m"] == pytest.approx(0)
+    assert layers[0]["geometry"].area == pytest.approx(50)
+
+
+def test_dominant_layer_scope_does_not_hide_a_real_second_storey():
+    from tools.rooms.room_selection.geometry import dominant_layer
+
+    tiny_first = [
+        dict(metrics=dict(floor_area_m2=0.01)),
+        dict(metrics=dict(floor_area_m2=12)),
+    ]
+    selected, fraction = dominant_layer(tiny_first, 0.9)
+    assert selected == 1 and fraction > 0.99
+    assert (
+        dominant_layer(
+            [
+                dict(metrics=dict(floor_area_m2=12)),
+                dict(metrics=dict(floor_area_m2=10)),
+            ],
+            0.9,
+        )[0]
+        is None
+    )
+
+
+def test_quality_clearance_statistic_is_not_every_devices_radius():
+    from tools.rooms.room_selection.navigation import placement
+
+    mesh = trimesh.creation.box(extents=[0.1, 4, 4])
+    mesh.apply_translation([100, 1, 0])
+    points = np.array([[0, 0, 0], [2, 0, 0], [2, 0, 1.5], [0, 0, 1.5]], float)
+    clearance = np.repeat(0.3, 4)
+    adj = [[1, 3], [0, 2], [1, 3], [0, 2]]
+    old = dict(
+        PARAMETERS, placement_camera_clearance_m=0.5, placement_source_clearance_m=0.5
+    )
+    assert not placement(mesh, points, clearance, adj, old)["found"]
+    witness = placement(mesh, points, clearance, adj, PARAMETERS)
+    assert witness["found"]
+    assert witness["horizontal_angle_deg"] <= 85
+    assert all(1 <= d <= 5 for d in witness["pairwise_distances_m"])
+    camera = np.array(witness["camera_m"])
+    s1, s2 = witness["source_1_m"], witness["source_2_m"]
+    assert ray_clear_batch(mesh, camera, [s1, s2], 0.03).all()
+    assert ray_clear_batch(mesh, np.array(s1), [s2], 0.03).all()
+
+
+def test_split_reference_does_not_match_same_outline_on_another_storey(tmp_path):
+    from shapely.geometry import mapping
+
+    polygon = mapping(box(0, 0, 4, 4))
+    path = tmp_path / "manual.json"
+    path.write_text(
+        json.dumps(
+            dict(
+                records=[
+                    dict(
+                        source="manual",
+                        coordinate_status="complete",
+                        data=dict(
+                            id="part",
+                            house="h",
+                            source_room_label="R0",
+                            bbox_xz_m=[[0, 0], [4, 4]],
+                            floor_y_m=0,
+                        ),
+                    )
+                ]
+            )
+        )
+    )
+    region = dict(
+        house="h",
+        room_label="R0",
+        stage2=dict(status="proposed", reason_codes=[]),
+        floors=[
+            dict(metrics=dict(floor_polygon=polygon, floor_y_m=0), split_parts=[]),
+            dict(
+                metrics=dict(floor_polygon=polygon, floor_y_m=3),
+                split_parts=[dict(metrics=dict(floor_polygon=polygon))],
+            ),
+        ],
+    )
+    result = manual_iou([region], path, PARAMETERS)
+    assert result["compared_manual_count"] == 1
+    assert result["mean_matched_iou_all_coordinate_valid"] == 0
+
+
+def test_completed_holdout_receipt_blocks_another_evaluation(tmp_path, monkeypatch):
+    from tools.rooms.room_selection import addendum
+
+    (tmp_path / "addendum1").mkdir()
+    (tmp_path / "inputs.json").write_text(json.dumps(dict(houses=[])))
+    (tmp_path / "addendum1/holdout_evaluation_once.json").write_text(
+        json.dumps(dict(status="complete", evaluation_count=1))
+    )
+    monkeypatch.setattr(
+        addendum, "verify_freeze", lambda path: dict(created_at_sgt="frozen")
+    )
+
+    def forbidden_analysis(args):
+        pytest.fail("held-out labels must not be evaluated a second time")
+
+    monkeypatch.setattr(addendum, "assemble", forbidden_analysis)
+    with pytest.raises(FileExistsError):
+        addendum.evaluate(tmp_path)

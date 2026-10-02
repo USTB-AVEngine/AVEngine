@@ -161,13 +161,37 @@ def ray_clear_batch(mesh, start, ends, tolerance):
 
 
 def placement(mesh, points, clearance, adj, p, allowed=None):
+    """Find a real three-ray witness on the existing navmesh, on CPU.
+
+    0.5 m clearance remains a reported quality metric. It is NOT the radius of
+    both a camera and every source. Separate pose clearances prevent discarding
+    nearly all otherwise supported navmesh samples in ordinary furnished rooms.
+    """
     comps = components(adj, allowed)
     main = max(comps, key=len, default=[])
-    usable = [i for i in main if clearance[i] >= p["clearance_min_m"]]
-    cams = farthest_sample(points, usable, p["placement_camera_samples"])
-    sources = farthest_sample(points, usable, p["placement_source_samples"])
+    cams = farthest_sample(
+        points,
+        [
+            i
+            for i in main
+            if clearance[i]
+            >= p.get("placement_camera_clearance_m", p["clearance_min_m"])
+        ],
+        p["placement_camera_samples"],
+    )
+    sources = farthest_sample(
+        points,
+        [
+            i
+            for i in main
+            if clearance[i]
+            >= p.get("placement_source_clearance_m", p["clearance_min_m"])
+        ],
+        p["placement_source_samples"],
+    )
     tested_rays = 0
     tested_pairs = 0
+    visible_rays = 0
     for ci in cams:
         camera = points[ci] + [0, p["camera_height_m"], 0]
         target_ids = [i for i in sources if i != ci]
@@ -175,31 +199,27 @@ def placement(mesh, points, clearance, adj, p, allowed=None):
         lengths = np.linalg.norm(ends - camera, axis=1)
         keep = (lengths >= p["distance_min_m"]) & (lengths <= p["distance_max_m"])
         ends = ends[keep]
-        target_ids = np.asarray(target_ids)[keep]
         clear = ray_clear_batch(mesh, camera, ends, p["ray_endpoint_tolerance_m"])
         tested_rays += len(ends)
         ends = ends[clear]
-        target_ids = target_ids[clear]
-        for i, j in itertools.combinations(range(len(ends)), 2):
-            delta = ends[j] - ends[i]
-            dist = float(np.linalg.norm(delta))
-            if not p["distance_min_m"] <= dist <= p["distance_max_m"]:
-                continue
-            a = ends[i][[0, 2]] - camera[[0, 2]]
-            b = ends[j][[0, 2]] - camera[[0, 2]]
-            angle = math.degrees(
-                math.acos(
-                    float(
-                        np.clip(
-                            np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b)),
-                            -1,
-                            1,
-                        )
-                    )
-                )
-            )
-            if angle > p["camera_hfov_deg"]:
-                continue
+        visible_rays += len(ends)
+        # Vectorized filters change speed, not distance, FOV or raw-mesh rays.
+        ii, jj = np.triu_indices(len(ends), 1)
+        if not len(ii):
+            continue
+        dist = np.linalg.norm(ends[ii] - ends[jj], axis=1)
+        a = ends[ii][:, [0, 2]] - camera[[0, 2]]
+        b = ends[jj][:, [0, 2]] - camera[[0, 2]]
+        cosine = np.sum(a * b, axis=1) / (
+            np.linalg.norm(a, axis=1) * np.linalg.norm(b, axis=1)
+        )
+        angle = np.degrees(np.arccos(np.clip(cosine, -1, 1)))
+        keep = (
+            (dist >= p["distance_min_m"])
+            & (dist <= p["distance_max_m"])
+            & (angle <= p["camera_hfov_deg"])
+        )
+        for i, j, d, ang in zip(ii[keep], jj[keep], dist[keep], angle[keep]):
             tested_pairs += 1
             tested_rays += 1
             if not ray_clear_batch(
@@ -211,23 +231,31 @@ def placement(mesh, points, clearance, adj, p, allowed=None):
                 camera_m=camera.tolist(),
                 source_1_m=ends[i].tolist(),
                 source_2_m=ends[j].tolist(),
-                horizontal_angle_deg=angle,
+                horizontal_angle_deg=float(ang),
                 pairwise_distances_m=[
                     float(np.linalg.norm(ends[i] - camera)),
                     float(np.linalg.norm(ends[j] - camera)),
-                    dist,
+                    float(d),
                 ],
                 tested_rays=tested_rays,
                 tested_pairs=tested_pairs,
+                camera_source_clear_rays=visible_rays,
                 camera_candidates=len(cams),
                 source_candidates=len(sources),
-                search="deterministic bounded CPU search; native navmesh support; three clear scan-mesh segments",
+                camera_clearance_min_m=p.get(
+                    "placement_camera_clearance_m", p["clearance_min_m"]
+                ),
+                source_clearance_min_m=p.get(
+                    "placement_source_clearance_m", p["clearance_min_m"]
+                ),
+                search="deterministic bounded CPU search; native navmesh support; three clear raw scan-mesh segments",
                 acoustics="not_run",
             )
     return dict(
         found=False,
         tested_rays=tested_rays,
         tested_pairs=tested_pairs,
+        camera_source_clear_rays=visible_rays,
         camera_candidates=len(cams),
         source_candidates=len(sources),
         search="no witness found within declared sample budget; not an impossibility proof",

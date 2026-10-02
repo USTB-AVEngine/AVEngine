@@ -68,9 +68,13 @@ function show() {
   }
   $('suggestions').hidden=activeRole==='second';
   $('info').textContent=activeRole==='second'?'':JSON.stringify({
-    automatic:r.automatic,split:r.split,gate:r.gate,metrics:r.floor_metrics,
+    automatic:r.automatic,previous_automatic:r.previous_automatic,
+    floor_selection:r.floor_selection,split:r.split,gate:r.gate,metrics:r.floor_metrics,
     split_parts:r.split_parts},null,2);
-  if (activeRole==='first') for (const path of r.split_overlay_paths) addImage(path);
+  if (activeRole==='first') {
+    for (const path of r.split_overlay_paths) addImage(path);
+    if (r.calibration_diagnostic_path) addImage(r.calibration_diagnostic_path);
+  }
   const old=decisions[draftKey(r)]||{};
   $('verdict').value=old.verdict||''; $('note').value=old.note||'';
   reasons($('reasons'),old.reason_codes||[]);

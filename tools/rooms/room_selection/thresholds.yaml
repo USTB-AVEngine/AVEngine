@@ -1,6 +1,6 @@
+# Frozen using calibration only; do not retune after holdout.
 schema: room_selection_thresholds_v1
-status: initial_task_R_frozen_before_holdout
-# All numerical decisions are project choices, not published dataset standards.
+status: addendum1_frozen_on_calibration_before_single_holdout_evaluation
 parameters:
   floor_area_min_m2:
     value: 6.0
@@ -29,7 +29,7 @@ parameters:
   floor_height_separation_m:
     value: 0.3
     source: 任务 R 楼层拆分阈值
-    rationale: 每层成员面重心高度跨度不超过此值，避免连续阶梯把楼层串在一起。
+    rationale: 最大投影面积窗口聚类；每簇高度跨度≤0.3米，保留所有层；高度用投影面积加权中位数。
   grid_step_m:
     value: 0.25
     source: 任务 R 导航采样要求和 smy experiment_split_room.py
@@ -41,7 +41,7 @@ parameters:
   clearance_min_m:
     value: 0.5
     source: 任务 R 净空要求
-    rationale: 记录净空达标比例，并在达标点中搜索三点摆放证据；比例本身不另设淘汰阈值。
+    rationale: 记录净空≥0.5米比例；摆放点使用独立的相机/声源净空，不把质量统计阈值误作所有设备半径。
   camera_height_m:
     value: 1.5
     source: smy render_room_tour.py 和 experiment_split_room.py 默认值
@@ -63,13 +63,13 @@ parameters:
     source: 任务 R 摆放要求
     rationale: 三点两两距离上限。
   placement_camera_samples:
-    value: 24
-    source: 本流程 CPU 确定性搜索预算
-    rationale: 在主连通区域内最远点采样；找到即给出坐标，否则只能称未找到，不能证明不存在。
+    value: 128
+    source: 追加1 calibration确定性CPU搜索预算
+    rationale: 在独立净空合格点中最远点采样，保留0.25米网格；提高上限但不把未找到声称为不存在。
   placement_source_samples:
-    value: 48
-    source: 本流程 CPU 确定性搜索预算
-    rationale: 对主连通区域内的净空达标点作最远点采样，限制共享 CPU 使用。
+    value: 256
+    source: 追加1 calibration确定性CPU搜索预算
+    rationale: 在独立净空合格点中最远点采样，保留0.25米网格；提高上限但不把未找到声称为不存在。
   ray_endpoint_tolerance_m:
     value: 0.03
     source: 本流程射线实现预先选择
@@ -107,7 +107,7 @@ parameters:
     source: 本流程多边形并集数值精度
     rationale: 毫米级坐标量化以消除共享边浮点裂缝，远小于导航网格步长。
   projection_min_triangle_area_m2:
-    value: 0.00000001
+    value: 1.0e-08
     source: 本流程数值退化容差
     rationale: 只忽略水平投影退化面，不用可见面积阈值删除小组件。
   second_reviewer_fraction:
@@ -119,19 +119,66 @@ parameters:
     source: 任务 R 日期，预先固定
     rationale: 房子级调参/留出名单及第二审核人样本可复现。
   excluded_types:
-    value: [stairs, corridor, garage, storage, outdoor]
+    value:
+    - stairs
+    - corridor
+    - garage
+    - storage
+    - outdoor
     source: 任务 R 初始排除清单
     rationale: 只用显式类别或 MP3D region 标签支持；用途未识别不伪造空间类型。
   floor_categories:
-    value: [floor, rug, carpet, flooring]
+    value:
+    - floor
+    - rug
+    - carpet
+    - flooring
     source: 任务 R 地面语义类别
     rationale: 同层所有这些类别面投影求并集，重叠不重复计面积。
   furniture_categories:
-    value: [bed, mattress, sofa, couch, chair, seat, armchair, dining chair, table, dining table, coffee table, desk, counter, stove, oven, refrigerator, fridge, cabinet, wardrobe, dresser, nightstand, bookshelf, shelving, toilet, bathtub, shower, sink, kitchen island]
+    value:
+    - bed
+    - mattress
+    - sofa
+    - couch
+    - chair
+    - seat
+    - armchair
+    - dining chair
+    - table
+    - dining table
+    - coffee table
+    - desk
+    - counter
+    - stove
+    - oven
+    - refrigerator
+    - fridge
+    - cabinet
+    - wardrobe
+    - dresser
+    - nightstand
+    - bookshelf
+    - shelving
+    - toilet
+    - bathtub
+    - shower
+    - sink
+    - kitchen island
     source: smy prescreen_rooms.py 类别清单及任务 R 主体家具示例
     rationale: 已知实体水平投影按实例保留并求并集；未映射几何单列。
   anchor_categories:
-    value: [bed, mattress, sofa, couch, dining table, table, desk, stove, kitchen island, counter]
+    value:
+    - bed
+    - mattress
+    - sofa
+    - couch
+    - dining table
+    - table
+    - desk
+    - stove
+    - kitchen island
+    - counter
     source: 任务 R 主体家具示例
     rationale: 家具簇种子；家具本身不可导航时吸附到簇附近可达点。
   clearance_query_radius_m:
@@ -143,10 +190,28 @@ parameters:
     source: 本流程原生邻接检查参数
     rationale: 邻格最短路超过 1.5 倍格长视为跨障碍绕行，不直接连边。
   calibration_area_grid_m2:
-    value: [4.0, 6.0, 8.0]
+    value:
+    - 4.0
+    - 6.0
+    - 8.0
     source: 本流程调参半集的预先固定敏感性网格
     rationale: 检查初始 6 平方米的相邻值，仅 calibration 计算，不据 holdout 改阈值。
   calibration_short_side_grid_m:
-    value: [2.0, 2.2, 2.4]
+    value:
+    - 2.0
+    - 2.2
+    - 2.4
     source: 本流程调参半集的预先固定敏感性网格
     rationale: 检查初始 2.2 米的相邻值，仅 calibration 计算。
+  placement_camera_clearance_m:
+    value: 0.25
+    source: 追加1 calibration诊断；证据见 addendum1/diagnostics 和 calibration_selection.json
+    rationale: 相机位仍留25厘米净空；calibration旧误拒175间均未形成有效三点组合，111间零距离合格射线。
+  placement_source_clearance_m:
+    value: 0.15
+    source: 追加1 calibration诊断；证据见 addendum1/diagnostics 和 calibration_selection.json
+    rationale: 声源位留15厘米净空，仍要求原生navmesh支撑、原网格、三条原始扫描网格视线、1–5米距离和85度视野。
+  dominant_floor_area_fraction_min:
+    value: 0.98
+    source: 追加1 calibration诊断；证据见 addendum1/diagnostics 和 calibration_selection.json
+    rationale: 仅 calibration 在 [0.9, 0.95, 0.98] 中选择；先要求召回>85%、精度比旧值下降≤2个百分点，再最大化精度。主层占各簇投影并集面积之和至少98%；其余层全部保留。

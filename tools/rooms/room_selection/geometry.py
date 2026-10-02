@@ -196,34 +196,64 @@ def projected_union(corners, parameters):
 
 
 def floor_layers(corners, parameters):
-    """Bound each cluster's height range; no transitive staircase bridging."""
+    """Peel maximum projected-area height windows; keep every nonempty layer.
+
+    The window range stays <=0.3 m, so stairs cannot chain across storeys.
+    Projected face area chooses the window and weighted median height; actual
+    occupancy and the dominant-layer fraction use polygon UNION areas instead.
+    """
     if not len(corners):
         return []
     heights = corners[:, :, 1].mean(axis=1)
-    order = np.argsort(heights, kind="stable")
+    xz = corners[..., [0, 2]]
+    u, v = xz[:, 1] - xz[:, 0], xz[:, 2] - xz[:, 0]
+    weights = np.abs(u[:, 0] * v[:, 1] - u[:, 1] * v[:, 0]) / 2
+    remaining = np.argsort(heights, kind="stable")
     out = []
-    start = 0
     gap = parameters["floor_height_separation_m"]
-    while start < len(order):
-        end = start + 1
-        while end < len(order) and heights[order[end]] - heights[order[start]] <= gap:
-            end += 1
-        chosen = order[start:end]
+    while len(remaining):
+        h = heights[remaining]
+        ends = np.searchsorted(h, h + gap, side="right")
+        cumulative = np.r_[0.0, np.cumsum(weights[remaining])]
+        window_weights = cumulative[ends] - cumulative[np.arange(len(h))]
+        start = int(np.argmax(window_weights))
+        end = int(ends[start])
+        chosen = remaining[start:end]
         g = projected_union(corners[chosen], parameters)
         if not g.is_empty:
+            w = weights[chosen]
+            median_index = min(
+                int(np.searchsorted(np.cumsum(w), w.sum() / 2)), len(chosen) - 1
+            )
             out.append(
                 dict(
-                    floor_y_m=float(np.median(heights[chosen])),
+                    floor_y_m=float(heights[chosen[median_index]]),
                     geometry=g,
                     height_range_m=[
                         float(heights[chosen].min()),
                         float(heights[chosen].max()),
                     ],
                     face_count=len(chosen),
+                    projected_face_area_sum_m2=float(w.sum()),
+                    height_method="maximum projected-area bounded window; projected-area weighted median",
                 )
             )
-        start = end
-    return out
+        remaining = np.concatenate([remaining[:start], remaining[end:]])
+    return sorted(out, key=lambda layer: layer["floor_y_m"])
+
+
+def dominant_layer(floors, minimum_fraction):
+    """Select an eligible measurement scope, retaining all secondary evidence.
+
+    A true substantial second storey still requires review. The returned scope
+    is ONLY the dominant polygon, never the sum of different storeys.
+    """
+    if not floors:
+        return None, 0.0
+    areas = [f["metrics"]["floor_area_m2"] for f in floors]
+    index = int(np.argmax(areas))
+    fraction = areas[index] / sum(areas) if sum(areas) else 0.0
+    return (index if fraction >= minimum_fraction else None), fraction
 
 
 def short_side(geometry):

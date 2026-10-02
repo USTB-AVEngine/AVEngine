@@ -229,6 +229,7 @@ def manual_iou(rows, path, p):
         row = by_key.get(key)
         manual_polygons = []
         auto = []
+        auto_heights = []
         if row:
             for f in row.get("floors", []):
                 auto.extend(
@@ -237,6 +238,7 @@ def manual_iou(rows, path, p):
                         for part in f["split_parts"]
                     ]
                 )
+                auto_heights.extend([f["metrics"]["floor_y_m"]] * len(f["split_parts"]))
         for ref in manuals:
             d = ref["data"]
             bbox = d.get("bbox_xz_m")
@@ -261,6 +263,12 @@ def manual_iou(rows, path, p):
         matrix = np.zeros((len(manuals), len(auto)))
         for i in valid:
             for j, g in enumerate(auto):
+                manual_y = manuals[i]["data"].get("floor_y_m")
+                if (
+                    manual_y is not None
+                    and abs(manual_y - auto_heights[j]) > p["floor_height_separation_m"]
+                ):
+                    continue
                 a = manual_polygons[i]
                 den = a.union(g).area
                 matrix[i, j] = a.intersection(g).area / den if den else 0
@@ -291,6 +299,8 @@ def manual_iou(rows, path, p):
                     else (0.0 if i in valid else None)
                 ),
                 auto_proposal_available=bool(auto),
+                automatic_stage2=(row["stage2"] if row else None),
+                manual_extent_basis=d.get("scope_basis"),
                 manual_bbox_area_m2=(
                     float((np.array(d["bbox_xz_m"][1]) - d["bbox_xz_m"][0]).prod())
                     if d.get("bbox_xz_m")
@@ -304,6 +314,17 @@ def manual_iou(rows, path, p):
             if record["matched_iou"] is not None and auto:
                 available.append(record["matched_iou"])
     all_values = [r["matched_iou"] for r in comparisons if r["matched_iou"] is not None]
+    ratios = [
+        r["clipped_manual_area_m2"] / r["manual_bbox_area_m2"]
+        for r in comparisons
+        if r["clipped_manual_area_m2"] is not None and r["manual_bbox_area_m2"]
+    ]
+    unavailable = [r for r in comparisons if r["matched_iou"] is None]
+    absent = [
+        r
+        for r in comparisons
+        if r["matched_iou"] is not None and not r["auto_proposal_available"]
+    ]
     return dict(
         status="qualified_bbox_proxy",
         source=str(path),
@@ -321,8 +342,28 @@ def manual_iou(rows, path, p):
         ),
         proposal_available_manual_count=len(available),
         comparisons=comparisons,
-        exact_mask_iou_status="not_available: manual masks/polygons absent; bbox crops may extend beyond original semantic region",
-        matching="Hungarian one-to-one IoU; unmatched manual boxes count 0; pending/empty geometry excluded; zero-proposal cases included in all-case mean",
+        exact_mask_iou_status="not_available: no common validated same-floor floor masks/polygons; some pixel crops exist; crops may extend beyond the source region",
+        matching="same-floor (<=0.3m) Hungarian one-to-one IoU; unmatched manual boxes count 0; pending/empty geometry excluded; zero-proposal cases included in all-case mean",
+        diagnosis=dict(
+            valid_without_proposal=len(absent),
+            valid_with_proposal=len(available),
+            empty_or_wrong_floor_proxy=len(unavailable),
+            mean_bbox_fraction_covered_by_source_floor=(
+                float(np.mean(ratios)) if ratios else None
+            ),
+            bbox_coverage_below_half_count=sum(r < 0.5 for r in ratios),
+            no_proposal_stage2_reasons=dict(
+                Counter(
+                    c
+                    for r in absent
+                    for c in (
+                        (r["automatic_stage2"] or {}).get("reason_codes")
+                        or ["NOT_TRIGGERED"]
+                    )
+                )
+            ),
+            conclusion="Both reference scope and algorithm coverage limit IoU: source-region floor clips only part of hand crop, and no automatic proposal counts as zero. Not exact hand-mask accuracy.",
+        ),
     )
 
 
@@ -410,7 +451,8 @@ def candidates(rows, inputs, clean_path, inventory_path):
             dict(
                 house=r["house"],
                 room_label=r["room_label"],
-                floor_id=r["floors"][0]["floor_id"],
+                floor_id=(r.get("floor_selection") or {}).get("selected_floor_id")
+                or r["floors"][0]["floor_id"],
                 human_source=r["human"]["source"],
                 gate_source=r["stage4"]["source"],
                 stage2=r["stage2"],
@@ -418,6 +460,9 @@ def candidates(rows, inputs, clean_path, inventory_path):
                 nav_main_area_m2=r["metrics"]["nav_main_area_m2"],
                 black_fraction=r["metrics"]["black_fraction"],
                 placement=r["metrics"]["placement"],
+                floor_polygon=r["metrics"]["floor_polygon"],
+                floor_selection=r.get("floor_selection"),
+                scope_note="Use verdict belongs to original region; proposed splits need new human labels. Measurements and witness belong only to selected dominant floor.",
             )
         )
     houses = sorted({r["house"] for r in rooms})
@@ -458,7 +503,8 @@ def summarize(args, rows, inputs):
         documented_simple_baseline_holdout=agreement(rows, held, baseline_prediction),
         simple_baseline_rule="legacy floor_area_m2 >=6; >=1 main furniture category; no stairs/step/balustrade/railing among top_categories; human unsure excluded",
         historical_task_R_baseline=inputs["historical_baseline_task_R"],
-        tuning=tune_diagnostics(rows, calibrated, p),
+        tuning=inputs.get("calibration_selection")
+        or tune_diagnostics(rows, calibrated, p),
         second_human_agreement=dict(
             status="not_run", reason="second reviewer has not judged the fixed sample"
         ),
@@ -496,6 +542,7 @@ def summarize(args, rows, inputs):
                 split=r["stage2"],
                 split_overlay_paths=overlays,
                 floor_metrics=[f["metrics"] for f in r.get("floors", [])],
+                floor_selection=r.get("floor_selection"),
                 split_parts=[
                     dict(floor_id=f["floor_id"], **part)
                     for f in r.get("floors", [])
@@ -701,6 +748,7 @@ def report_mp3d(out, inputs, funnel):
 
 def report(args, inputs, funnel, agree, iou, v7, differences, sample):
     out = args.output
+    p = inputs["parameters"]
     if inputs["family"] == "mp3d":
         report_mp3d(out, inputs, funnel)
         return
@@ -723,9 +771,9 @@ def report(args, inputs, funnel, agree, iou, v7, differences, sample):
         "0. 以本地已具备语义与现有 navmesh 的房子为限定总体；以 annotation region ID 全量登记，并保留 -1 未分配桶、旧记录缺失映射和没有地面几何的 region。旧房间登记不是总体边界。",
         "1. HM3D 语义 COLOR_0 按现有解析器转回 sRGB，与 semantic.txt 实例及 region 匹配；源坐标 x,y,z 转为 Habitat x,z,-y。同层 floor/rug/carpet/flooring 面水平投影求并集，家具按实例投影再并集。地面减家具为描述性指标，不替代地面面积。",
         "2. 每个地面层采用固定世界坐标 0.25 米网格中心；限制导航吸附漂移和高差，四邻接边用原生最短路检查，主岛面积为格子与地面交集并集估算。记录净空 ≥0.5 米的比例。现有 navmesh 的生成参数没有 sidecar 时标未知，不假装是本轮默认参数。",
-        "3. 地面面重心高度跨度超过 0.3 米分层，所有层保留。多层 region 的原标签进入人工复核，不因某层通过就把整区自动通过。最小旋转外接矩形短边用于 2.2 米规则。",
+        f"3. 最大投影面积的高度窗口聚类，每簇高度跨度≤0.3米，层高取面积加权中位数；所有层保留。主层面积占比≥{pct(p.get('dominant_floor_area_fraction_min', 1.0))}时只判断主层范围，其余层留供复核；实质多楼层继续review。最小旋转外接矩形短边用于2.2米规则。",
         "4. 对已有 overview RGB 使用保存的 projection/view 矩阵绘制多边形 mask，扣除孔洞后测 RGB 三通道均 <8 的比例。与 ground 层高不匹配或素材不可读就记录未知。黑像素也可能是真实黑色纹理，不能解释为精确缺损率。",
-        "5. 在主导航连通区域的净空达标点上确定性选最多 24 个相机、48 个声源候选；三点两两距离 1–5 米，两个声源水平夹角 ≤85°，三条视线均在原扫描 GLB 三角网格上用 CPU 射线检查。只报告具体可行坐标；未找到不等于数学上证明无解，声学未验证。",
+        f"5. 在主导航连通区域确定性选最多{p['placement_camera_samples']}个相机/{p['placement_source_samples']}个声源候选；相机净空≥{p.get('placement_camera_clearance_m', p['clearance_min_m'])}米，声源≥{p.get('placement_source_clearance_m', p['clearance_min_m'])}米，与0.5米质量统计分开。三点两两距离1–5米，水平夹角≤85°，三条原始GLB三角网格视线均用CPU射线检查。只报告具体证据；无证据不等于证明无解，声学未验证。",
         "6. 面积 >40 平方米、主体家具簇间距 >4 米、凸性 <0.65 触发切分建议。家具簇附近可达点作为种子；测地距离一元项与净空加权边容量做最小割，窄通道边切断成本更低。无足够家具种子的触发房间明确记 review。每个子块重跑阶段 1；非导航/未采样地面面积单列，子块是活动范围建议而非建筑房间真值。门洞没有显式门拓扑证明，因此只能称窄通道优先的代理切线。",
         "7. 房子级门禁取 task.json 的 created_at/task_id 最新记录；不因失败就删房间或改人审。候选清单合并人审 use、阶段 1 pass、房门禁 pass、已计算 clean-house 名单，并再次排除 SO 可识别 HM3D ID 与明确历史暴露。",
         "",
@@ -780,7 +828,7 @@ def report(args, inputs, funnel, agree, iou, v7, differences, sample):
         "",
         f"除上述待收窄记录外，还有 {len(iou.get('comparisons',[]))-iou.get('compared_manual_count',0)} 个框因同层语义地面缺失或相交为空而无法计算，详情在 split_iou.json 的 comparisons。",
         "",
-        "这是「来源语义地面与手工 bbox 相交」对「自动活动范围」的代理 IoU。43 个手工交付目录没有 mask/多边形真值，9 个仍是原房间框；因此真正的手工 mask IoU 无法完成，不能把代理数字写成精确切分质量。人工裁剪超出来源 region 的范围也无法靠来源地面恢复。",
+        "这是「来源语义地面与手工 bbox 相交」对「自动活动范围」的代理 IoU。43 个手工交付没有统一同层地面 mask/多边形真值（个别 JSON 有像素矩形或折线裁剪提示），9 个仍是原房间框；因此真正的手工 mask IoU 无法完成，不能把代理数字写成精确切分质量。人工裁剪超出来源 region 的范围也无法靠来源地面恢复。",
         "",
         "v7 清单（出处 v7_candidates.json 和 v7_candidates.tsv）：",
         "",

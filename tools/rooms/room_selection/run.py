@@ -35,6 +35,7 @@ from .geometry import (
     load_mp3d,
     region_geometry,
     infer_type,
+    dominant_layer,
 )
 from .media import load_overhead, black_metric, overlay
 from .navigation import sample_navigation, placement, cells_polygon, components
@@ -488,17 +489,36 @@ def process_house(args, job):
                 status="review", reason_codes=["NO_SEMANTIC_FLOOR_GEOMETRY"]
             )
             row["metrics"] = None
-        elif len(layers) == 1:
-            row["stage1"] = row["floors"][0]["stage1"]
-            row["metrics"] = row["floors"][0]["metrics"]
         else:
-            row["stage1"] = dict(
-                status="review", reason_codes=["MULTILEVEL_REGION_REQUIRES_REVIEW"]
+            selected, fraction = dominant_layer(
+                row["floors"], p.get("dominant_floor_area_fraction_min", 1.0)
             )
-            row["metrics"] = dict(
-                floor_count=len(layers),
-                floor_area_m2=sum(f["metrics"]["floor_area_m2"] for f in row["floors"]),
+            row["floor_selection"] = dict(
+                dominant_area_fraction=fraction,
+                required_fraction=p.get("dominant_floor_area_fraction_min", 1.0),
+                selected_floor_id=(
+                    row["floors"][selected]["floor_id"]
+                    if selected is not None
+                    else None
+                ),
+                retained_secondary_floor_ids=[
+                    f["floor_id"] for i, f in enumerate(row["floors"]) if i != selected
+                ],
+                scope="dominant layer polygon only; all secondary layers remain registered and measured",
             )
+            if selected is not None:
+                row["stage1"] = dict(row["floors"][selected]["stage1"])
+                row["metrics"] = row["floors"][selected]["metrics"]
+            else:
+                row["stage1"] = dict(
+                    status="review", reason_codes=["MULTILEVEL_REGION_REQUIRES_REVIEW"]
+                )
+                row["metrics"] = dict(
+                    floor_count=len(layers),
+                    floor_area_m2=sum(
+                        f["metrics"]["floor_area_m2"] for f in row["floors"]
+                    ),
+                )
         if (row.get("native_region") or {}).get("ambiguous_colours"):
             row["stage1"] = dict(
                 status="review", reason_codes=["SEMANTIC_COLOUR_CONFLICT"]
@@ -637,6 +657,8 @@ def assemble(args):
         for row in rows:
             stream.write(json.dumps(row, ensure_ascii=False, allow_nan=False) + "\n")
     write_json(args.output / "house_execution.json", houses)
+    if getattr(args, "no_analysis", False):
+        return
     from .analysis import summarize
 
     summarize(args, rows, inputs)
@@ -662,6 +684,11 @@ def parser():
     p.add_argument("--workers", type=int, default=2)
     p.add_argument("--house-timeout", type=int, default=1800)
     p.add_argument("--resume", action="store_true")
+    p.add_argument(
+        "--no-analysis",
+        action="store_true",
+        help="Only measure/assemble; do not read labels or evaluate a holdout before freezing.",
+    )
     p.add_argument(
         "--skip-splitting",
         action="store_true",

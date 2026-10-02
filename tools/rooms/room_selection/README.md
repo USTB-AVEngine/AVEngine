@@ -39,3 +39,8 @@ MP3D 原生 `.house` 的 R/L/O/C 关联加 `_semantic.ply` 的逐面 object_id �
 第二人抽样总体是已有第一次章的 1382 个 region；固定 180 个样本占 13.02%。其余 1217 个登记区域先补第一次审核。MP3D 逐面 object_id 与 house 中对象归属的 region 可接入流程，但跨房间对象可能越出 R 框；原生 R 框不是精确房间多边形。pilot 同时报告边界诊断和扫描质量缺失，不能直接宣布完整通过。
 
 切分图优先叠加真实扫描俯视图；素材缺失时输出明确标注 GEOMETRY ONLY 的 CPU 地面/子块示意。示意图不是扫描 RGB，不能用于黑像素比例或解除扫描质量未知；真实底图和首次人工审核仍需补齐。
+
+
+追加1校准：`diagnostics`只在既有`house_analysis_split.json`的calibration房子抽样，保存原图候选/射线首命中及地面高度直方图。`run measure --no-analysis`允许先测量而不提前计算holdout。`addendum freeze`要求90套calibration测量全部完成，按事先记录的precision/recall约束选主层占比并冻结YAML/测量实现/固定名单；`addendum evaluate`用独占创建的receipt约束只做一次最终holdout评估；`addendum publish`读取评估结果更新报告和队列，不能再调阈值。
+
+摆放仍用0.25米现有navmesh网格、85°、三点两两1–5米、三条原扫描网格无遮挡射线；净空0.5米比例与设备位置半径分开。多高度簇全部保留，用投影并集面积主层占比决定是否有可审核的主层测量范围。v7输出实际主层floor_id和多边形，既有region use不是新子块use。IoU对照只匹配同层，手工bbox与来源语义地面相交仍是代理，不是建筑room mask真值。第二审核名单沿用原固定名单，诊断/自动建议只在第一审核人模式显示。
