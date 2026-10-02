@@ -1,0 +1,1345 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>房间筛选审阅台 · room curation review</title>
+<style>
+  :root {
+    --bg: #f5f6f8; --card: #ffffff; --line: #dde1e6; --text: #1c1f24;
+    --muted: #6b7280; --ok: #16a34a; --bad: #dc2626; --warn: #d97706;
+    --accent: #2563eb;
+    /* 字号体系：全页只用这五档 */
+    --fs-h1: 17px; --fs-title: 16px; --fs-body: 14px; --fs-small: 13px; --fs-tiny: 12px;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; height: 100vh; overflow: hidden; display: flex; flex-direction: column;
+         background: var(--bg); color: var(--text);
+         font: 15px/1.5 -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; }
+  header { flex: none; background: var(--card); border-bottom: 1px solid var(--line); padding: 8px 16px; }
+  header h1 { font-size: var(--fs-h1); margin: 0 0 8px; }
+  .stats { color: var(--muted); margin-bottom: 8px; font-size: var(--fs-small); }
+  .stats b { color: var(--text); }
+  .toolbar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  .guide { margin-top: 7px; color: var(--muted); font-size: var(--fs-small); }
+  .guide summary { cursor: pointer; color: var(--accent); font-weight: 600; }
+  .guide-body { padding: 6px 10px; background: #f8fafc; border-left: 3px solid #93c5fd; }
+  button { border: 1px solid var(--line); background: var(--card); color: var(--text);
+           border-radius: 6px; padding: 6px 12px; font-size: var(--fs-body); cursor: pointer; }
+  button:hover { border-color: var(--accent); }
+  button.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.bulk { background: #eef2ff; border-color: #c7d2fe; }
+  button.locate-last { padding: 5px 9px; font-size: var(--fs-small); color: #374151; }
+
+  /* ---------- 双栏主体 ---------- */
+  #layout { flex: 1; min-height: 0; display: flex; }
+  #sidebar { flex: none; width: 340px; overflow-y: auto; border-right: 1px solid var(--line);
+             background: var(--card); }
+  #preview { flex: 1; min-width: 0; overflow-y: auto; padding: 14px 20px 20px; }
+
+  /* ---------- 左侧列表 ---------- */
+  .house { border-bottom: 1px solid var(--line); }
+  .house.filtered-hidden { display: none; }
+  .house-head { display: flex; align-items: center; gap: 8px; padding: 10px 14px;
+                cursor: pointer; user-select: none; }
+  .house-head .caret { width: 10px; color: var(--muted); font-size: var(--fs-small); }
+  .house-head .name { font-weight: 600; font-size: var(--fs-body); user-select: text; cursor: text; }
+  .house-head .meta { color: var(--muted); font-size: var(--fs-tiny); }
+  .house-rooms { display: none; }
+  .house.open .house-rooms { display: block; }
+  .room-row { display: flex; align-items: center; gap: 8px; padding: 6px 14px; cursor: pointer;
+              font-size: var(--fs-body); }
+  .room-row:hover { background: #f3f4f6; }
+  .room-row.selected { background: #eff6ff; box-shadow: inset 3px 0 0 var(--accent); }
+  .row-thumb { width: 56px; height: 40px; object-fit: cover; border-radius: 4px; flex: none;
+               background: #111; }
+  .row-text { min-width: 0; flex: 1; display: flex; align-items: center; gap: 6px; }
+  .row-label { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .badge { font-size: var(--fs-tiny); border-radius: 4px; padding: 1px 7px; flex: none; }
+  .badge.use { background: #dcfce7; color: var(--ok); }
+  .badge.skip { background: #fee2e2; color: var(--bad); }
+  .badge.unsure { background: #fef3c7; color: var(--warn); }
+  .badge.unknown { background: #e5e7eb; color: var(--muted); }
+  .chip { display: inline-block; border-radius: 10px; padding: 1px 10px; flex: none;
+          font-size: var(--fs-tiny); border: 1px solid var(--line); }
+  .chip.use { background: #dcfce7; color: var(--ok); border-color: #86efac; }
+  .chip.skip { background: #fee2e2; color: var(--bad); border-color: #fca5a5; }
+  .chip.unsure { background: #fef3c7; color: var(--warn); border-color: #fcd34d; }
+  .chip.pending { background: #e5e7eb; color: var(--muted); }
+  .row-div { color: var(--warn); font-weight: 700; flex: none; }
+
+  /* ---------- 右侧预览 ---------- */
+  .pv-media { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .pv-pane { margin: 0; min-width: 0; }
+  .pv-pane img, .pv-pane video { width: 100%; height: min(64vh, 600px); object-fit: contain;
+                                 background: #fff; border-radius: 8px; display: block; }
+  .pv-pane img { cursor: zoom-in; }
+  .pv-pane figcaption { color: var(--muted); font-size: var(--fs-small);
+                        text-align: center; margin-top: 6px; }
+  .pv-video-slot { position: relative; height: min(64vh, 600px);
+                   display: flex; align-items: center; justify-content: center; }
+  #pv-video { height: 100%; }
+  #pv-play { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+             width: 180px; height: 48px; z-index: 2; background: rgba(0, 0, 0, .55); color: #fff;
+             border: 1px solid rgba(255, 255, 255, .4); font-size: var(--fs-body); }
+  #pv-play:hover { background: rgba(0, 0, 0, .75); border-color: #fff; }
+  #pv-video-msg { position: absolute; inset: 0; display: flex; align-items: center;
+                  justify-content: center; background: #fff; color: var(--muted);
+                  border-radius: 8px; font-size: var(--fs-body); text-align: center; padding: 0 20px;
+                  border: 1px dashed var(--line); }
+  /* 关键修复：这层遮罩的 display:flex 会压过 HTML hidden 属性的 UA 样式
+     ([hidden]{display:none} 特异性低)，导致遮罩从未真正隐藏、永远盖在
+     视频上。显式声明 hidden 时 display:none。 */
+  #pv-video-msg[hidden] { display: none; }
+  .pv-info { margin-top: 10px; width: 100%; }
+  .pv-title { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+  .pv-title .label { font-weight: 600; font-size: var(--fs-title); }
+  .pv-meta { color: var(--muted); font-size: var(--fs-small); margin-bottom: 8px; }
+  .pv-meta span { margin-right: 16px; }
+  .reason { font-size: var(--fs-small); margin-bottom: 10px; }
+  .reason .badge { margin-bottom: 2px; }
+  .reason .reason-detail { font-size: var(--fs-small); color: var(--muted); margin-top: 2px; }
+  .reason .reason-divergence { color: var(--warn); font-weight: 600; }
+  .unsure-reasons { margin: 8px 0 4px; padding: 8px 10px; background: #fffbeb;
+                    border: 1px solid #fde68a; border-radius: 7px; }
+  .unsure-reasons[hidden] { display: none; }
+  .unsure-reasons-title { font-size: var(--fs-small); font-weight: 600; margin-bottom: 5px; }
+  .unsure-reason { min-width: 0 !important; padding: 5px 9px !important; margin: 2px 3px 2px 0;
+                   font-size: var(--fs-small) !important; font-weight: 400 !important; }
+  .unsure-reason.active { background: #f59e0b; border-color: #d97706; color: #fff; }
+  .unsure-reasons-hint { display: block; margin-top: 4px; color: #92400e; font-size: var(--fs-tiny); }
+  .actions { display: flex; gap: 8px; margin: 10px 0 6px; align-items: center; flex-wrap: wrap; }
+  .actions button { min-width: 112px; padding: 10px 26px; font-size: 15px; font-weight: 600; }
+  .actions button.active-choice { color: #fff; box-shadow: 0 0 0 3px rgba(37,99,235,.18); }
+  .actions .v-use.active-choice { background: var(--ok); border-color: var(--ok); }
+  .actions .v-skip.active-choice { background: var(--bad); border-color: var(--bad); }
+  .actions .v-unsure.active-choice { background: var(--warn); border-color: var(--warn); }
+  .actions .v-use:hover { border-color: var(--ok); color: var(--ok); }
+  .actions .v-skip:hover { border-color: var(--bad); color: var(--bad); }
+  .actions .v-unsure:hover { border-color: var(--warn); color: var(--warn); }
+  .actions .needs-crop { min-width: 150px; color: #92400e; background: #fffbeb; border-color: #fcd34d; }
+  .actions .needs-crop.active-choice { color: #fff; background: #d97706; border-color: #d97706; }
+  .actions .connector-mark { min-width: 150px; color: #1d4ed8; background: #eff6ff; border-color: #93c5fd; }
+  .actions .connector-mark.active-choice { color: #fff; background: #2563eb; border-color: #2563eb; }
+  .actions .btn-undo { color: var(--muted); font-size: var(--fs-small); }
+  .nav-row { display: flex; gap: 10px; margin: 4px 0 10px; align-items: center; }
+  .nav-row button { padding: 7px 26px; }
+  .nav-row .nav-prev { opacity: .75; }
+  .nav-row .nav-next { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .nav-row .nav-next:hover { background: #1d4ed8; }
+  .nav-hint { color: var(--muted); font-size: var(--fs-small); }
+  .note-input { width: 100%; max-width: 760px; min-height: 48px; resize: vertical;
+                padding: 7px 10px; border: 1px solid var(--line);
+                border-radius: 6px; font: inherit; font-size: var(--fs-body); }
+  .status { font-size: var(--fs-small); margin-top: 8px; min-height: 18px; }
+  .status.ok { color: var(--ok); }
+  .status.err { color: var(--bad); word-break: break-all; }
+  .quality { margin: 6px 0; padding: 6px 10px; border-radius: 6px;
+             background: #f8fafc; color: var(--muted); font-size: var(--fs-small); }
+  .quality.warn { color: #9a3412; background: #fff7ed; border: 1px solid #fed7aa; }
+  .quality.bad { color: #991b1b; background: #fef2f2; border: 1px solid #fecaca; font-weight: 600; }
+  .assessment { margin-top: 5px; color: var(--muted); font-size: var(--fs-small); }
+
+  /* ---------- 放大查看（滚轮缩放 + 拖拽） ---------- */
+  #lightbox { display: none; position: fixed; inset: 0; background: rgba(0, 0, 0, .92);
+              z-index: 20; cursor: zoom-out; align-items: center; justify-content: center;
+              overflow: hidden; }
+  #lightbox.open { display: flex; }
+  #lightbox img { max-width: 94vw; max-height: 92vh; cursor: grab; user-select: none; }
+  #lightbox img:active { cursor: grabbing; }
+  #lb-zoom { position: fixed; right: 18px; bottom: 14px; color: rgba(255,255,255,.75);
+             font-size: 13px; background: rgba(0,0,0,.5); padding: 2px 10px; border-radius: 6px; }
+  #lb-tip { position: fixed; left: 18px; bottom: 14px; color: rgba(255,255,255,.5);
+            font-size: 12px; }
+
+  #toast { position: fixed; bottom: 26px; left: 50%; transform: translateX(-50%);
+           background: rgba(17, 24, 39, .92); color: #fff; padding: 9px 18px;
+           border-radius: 8px; font-size: var(--fs-small); z-index: 40; }
+  .empty { color: var(--muted); text-align: center; padding: 40px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>房间筛选审阅台</h1>
+  <div class="stats">
+    已审 <b id="stat-done">0</b> / <b id="stat-total">0</b>
+    <span id="stat-bars" style="margin-left:8px"></span>
+  </div>
+  <div class="toolbar">
+    <button data-filter="all" class="active">全部</button>
+    <button data-filter="pending">未审</button>
+    <button data-filter="done">已审</button>
+    <button data-filter="unsure">存疑</button>
+    <button data-filter="crop">用 · 可能截取</button>
+    <button data-filter="connector">不用 · 连接区</button>
+    <button data-filter="diverge">△ 分歧</button>
+    <button data-filter="priority">优先复核</button>
+    <button data-filter="quality">视频异常</button>
+    <select id="unsure-filter" title="按存疑原因筛选">
+      <option value="">存疑类型：全部</option>
+      <option>标签与实际空间不一致</option>
+      <option>房间边界或区域重复</option>
+      <option>视频/扫描质量问题</option>
+      <option>相机位置不确定</option>
+      <option>房间用途不明确</option>
+      <option>已切完</option>
+      <option>其他</option>
+    </select>
+    <button id="locate-last" class="locate-last" type="button" title="定位到最近一次盖章的房间">定位最后审核</button>
+    <span style="flex:1"></span>
+    <b id="current-position">尚未选房</b>
+  </div>
+  <details class="guide">
+    <summary>审核标准（点开查看）</summary>
+    <div class="guide-body">正常卧室/客厅/厨房/餐厅/书房且扫描完整 → 用；走廊、楼梯、车库、错误分区或严重黑洞/破损 → 不用；边界、房型或扫描质量拿不准 → 存疑并写原因。预筛建议仅供参考。</div>
+  </details>
+</header>
+<div id="layout">
+  <aside id="sidebar">
+    <div id="houses"></div>
+  </aside>
+  <main id="preview">
+    <div id="preview-empty" class="empty">从左侧列表选一间房开始审阅<br>（点击房子名展开 · 支持 ←→ 键翻页）</div>
+    <div id="preview-body" hidden>
+      <div class="pv-media">
+        <figure class="pv-pane">
+          <div class="pv-video-slot">
+            <video id="pv-video" preload="none" playsinline controls></video>
+            <button id="pv-play">▶ 播放 360° 巡房视频</button>
+            <div id="pv-video-msg" hidden>视频未渲染或暂不可用<br>（媒体服务 8766 未启动/未渲染）</div>
+          </div>
+          <figcaption>360° 巡房视频</figcaption>
+        </figure>
+        <figure class="pv-pane">
+          <div style="position:relative;width:min(100%,64vh,600px);margin:auto;aspect-ratio:1">
+            <img id="pv-img" alt="俯视图" title="点击放大无标记 RGB · 滚轮缩放" style="width:100%;height:100%;object-fit:contain">
+            <svg id="pv-object-box" viewBox="0 0 1024 1024" style="position:absolute;inset:0;width:100%;height:100%;pointer-events:none" hidden>
+              <rect id="pv-object-rect" fill="none" stroke="#00ffff" stroke-width="3"/>
+              <text id="pv-object-name" fill="#00ffff" stroke="#111" stroke-width="0.7" font-size="24"></text>
+            </svg>
+          </div>
+          <figcaption><select id="pv-overhead-view" aria-label="真实俯视图剖切高度"></select>
+            <label><input id="pv-show-box" type="checkbox" checked>显示当前对象范围框</label><br>
+            <span id="pv-overhead-caption">真实俯视图</span><br>
+            范围框为语义几何包围盒，不是精确墙线。点击图片放大无标记 RGB。<a id="pv-original-rgb" target="_blank" rel="noopener">查看原始 PNG</a>
+          </figcaption>
+        </figure>
+      </div>
+      <div class="pv-info">
+        <div class="pv-title">
+          <span class="label" id="pv-label">-</span>
+          <span class="chip pending" id="pv-chip">未审</span>
+        </div>
+        <div class="pv-meta">
+          <span id="pv-area">-</span><span id="pv-dims">-</span><span id="pv-cats">-</span>
+        </div>
+        <div class="quality" id="pv-quality"></div>
+        <div class="reason" id="pv-reason"></div>
+        <div class="unsure-reasons" id="unsure-reasons" hidden>
+          <div class="unsure-reasons-title">存疑原因（可多选，至少选一项）</div>
+          <button type="button" class="unsure-reason" data-reason="标签与实际空间不一致">标签/空间不一致</button>
+          <button type="button" class="unsure-reason" data-reason="房间边界或区域重复">边界/区域重复</button>
+          <button type="button" class="unsure-reason" data-reason="视频/扫描质量问题">视频质量</button>
+          <button type="button" class="unsure-reason" data-reason="相机位置不确定">相机位置</button>
+          <button type="button" class="unsure-reason" data-reason="房间用途不明确">用途不明确</button>
+          <button type="button" class="unsure-reason" data-reason="已切完">已切完</button>
+          <button type="button" class="unsure-reason" data-reason="其他">其他</button>
+          <span class="unsure-reasons-hint">可在下方备注中补充具体说明。</span>
+        </div>
+        <textarea class="note-input" id="pv-note" rows="2" placeholder="备注（可选，存疑时建议写一句为什么）"></textarea>
+        <div class="note-hint">备注自动保存；未审核房间的文字先保存在本浏览器，盖章时写入正式记录。</div>
+        <div class="actions">
+          <button class="v-use">✓ 用 ·1</button>
+          <button class="needs-crop" id="needs-crop" type="button" aria-pressed="false" hidden>可能需要截取 ·5</button>
+          <button class="v-skip">✗ 不用 ·2</button>
+          <button class="connector-mark" id="connector-mark" type="button" aria-pressed="false" hidden>作为连接区 ·6</button>
+          <button class="v-unsure">? 存疑 ·3</button>
+          <button class="btn-undo" id="btn-undo" hidden>↩ 撤销 ·0</button>
+        </div>
+        <div class="nav-row">
+          <button class="nav-prev" id="nav-prev">◀ 上一间</button>
+          <button class="nav-next" id="nav-next">下一间 ▶</button>
+          <span class="nav-hint">←→ 键翻页 · 房子最后一间自动接下一栋</span>
+        </div>
+        <div class="status" id="pv-status"></div>
+      </div>
+    </div>
+  </main>
+</div>
+<div id="lightbox">
+  <img id="lightbox-img" alt="">
+  <span id="lb-zoom">100%</span>
+  <span id="lb-tip">滚轮缩放 · 拖拽平移 · 双击复位 · 点击/Esc 关闭</span>
+</div>
+<div id="toast" hidden></div>
+
+<!-- 页面、媒体、预筛建议、API 全部同源（tools/rooms/serve_curation_media.py 提供服务，
+     /api/* 转发到 studio server 8765），因此 fetch 不受 CORS 限制。 -->
+<script src="/prescreen.js"></script>
+<script>
+"use strict";
+const AUTHOR = "smy";
+const VERDICT_KEYS = { "1": "use", "2": "skip", "3": "unsure" };
+const VN = { use: "用", skip: "不用", unsure: "存疑" };
+const VN_DONE = { use: "已用", skip: "已不用", unsure: "已存疑" };
+const UNSURE_TYPES = ["标签与实际空间不一致", "房间边界或区域重复", "视频/扫描质量问题", "相机位置不确定", "房间用途不明确", "已切完", "其他"];
+
+let DATA = null;          // /api/room-curation 原始响应
+let PRESCREEN = window.PRESCREEN || [];
+const prescreenIndex = new Map(PRESCREEN.map(p => [`${p.house}__${p.label}`, p]));
+let currentFilter = "all";
+let selected = null;      // 当前选中的 .room-row
+let selectedUnsureTypes = new Set();
+let selectedNeedsCrop = false;
+let selectedConnector = false;
+let visibleRows = [];     // 可见行缓存（筛选模式键盘导航用）
+let flatRooms = [];       // 全局房间序（"全部"模式翻页用，跨栋接续）
+const notesMap = new Map();  // house__label -> 备注草稿，切房保留
+const noteDraftKey = (house, label) => `avengine.roomNoteDraft.${house}__${label}`;
+const noteSaveQueues = new Map();
+let pendingNoteSave = null;
+function enqueueNoteSave(job) {
+  const key = `${job.house}__${job.label}`;
+  const previous = noteSaveQueues.get(key) || Promise.resolve();
+  const current = previous.catch(() => {}).then(async () => {
+    const response = await fetch("/api/room-curation/verdict", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ house: job.house, room_label: job.label,
+        verdict: job.verdict, note: job.note, author: AUTHOR }),
+    });
+    const body = await response.json();
+    if (!response.ok) throw new Error(body.error || `HTTP ${response.status}`);
+    const room = findRoom(job.house, job.label);
+    if (room) room.verdict = body.verdict;
+    if (localStorage.getItem(noteDraftKey(job.house, job.label)) === job.text) {
+      localStorage.removeItem(noteDraftKey(job.house, job.label));
+      notesMap.delete(key);
+      if (selected?.dataset.house === job.house && selected?.dataset.label === job.label)
+        setStatus("备注已自动保存", "ok");
+    }
+  }).catch(error => {
+    if (selected?.dataset.house === job.house && selected?.dataset.label === job.label)
+      setStatus(`自动保存暂时失败，草稿仍在本浏览器：${error.message}`, "err");
+    throw error;
+  });
+  noteSaveQueues.set(key, current);
+  return current;
+}
+function flushPendingNoteSave() {
+  if (!pendingNoteSave) return;
+  clearTimeout(pendingNoteSave.timer);
+  const job = pendingNoteSave;
+  pendingNoteSave = null;
+  enqueueNoteSave(job).catch(() => {});
+}
+function scheduleNoteSave(house, label, text) {
+  if (pendingNoteSave) {
+    if (pendingNoteSave.house === house && pendingNoteSave.label === label) {
+      clearTimeout(pendingNoteSave.timer);
+      pendingNoteSave = null;
+    } else flushPendingNoteSave();
+  }
+  const verdict = verdictOf(findRoom(house, label));
+  if (!verdict) {
+    setStatus("备注已自动保存在本浏览器；盖章时写入正式记录。", "");
+    return;
+  }
+  const job = { house, label, text, verdict, note: noteForSubmit(verdict, text) };
+  job.timer = setTimeout(flushPendingNoteSave, 500);
+  pendingNoteSave = job;
+  setStatus("正在自动保存备注…", "");
+}
+
+const housesEl = document.getElementById("houses");
+
+function artUrl(taskId, relPath) {
+  return `/api/tasks/${encodeURIComponent(taskId)}/artifact?path=${encodeURIComponent(relPath)}`;
+}
+function suggestFor(house, label) {
+  const p = prescreenIndex.get(`${house}__${label}`);
+  return p || null;
+}
+function assessmentText(sugg) {
+  const a = sugg && sugg.assessment;
+  if (!a) return "";
+  const priority = {high: "优先复核", medium: "建议复核", low: "低优先级"}[a.review_priority] || "需复核";
+  const confidence = {high: "高", medium: "中", low: "低"}[a.confidence] || "未知";
+  return `自动判断置信度：${confidence} · ${priority}`;
+}
+function stripUnsureTypeLine(note) {
+  return String(note || "").replace(/^(?:存疑类型|可能需要截取|作为连接区)：[^\n]*\n?/gm, "").trim();
+}
+function needsCropFromNote(note) {
+  return /^可能需要截取：是(?:\n|$)/m.test(String(note || ""));
+}
+function connectorFromNote(note) {
+  return /^作为连接区：是(?:\n|$)/m.test(String(note || ""));
+}
+function unsureTypesFromNote(note) {
+  const match = String(note || "").match(/^存疑类型：([^\n]*)/);
+  return new Set(match ? match[1].split("、").filter(x => UNSURE_TYPES.includes(x)) : []);
+}
+function updateUnsureReasonPanel(verdict) {
+  const panel = document.getElementById("unsure-reasons");
+  panel.hidden = verdict !== "unsure";
+  const unsureButton = document.querySelector(".actions .v-unsure");
+  if (verdict === "unsure") {
+    unsureButton.textContent = selectedUnsureTypes.size ? "? 保存存疑 ·3" : "? 选择原因 ·3";
+  } else {
+    unsureButton.textContent = "? 存疑 ·3";
+  }
+  panel.querySelectorAll(".unsure-reason").forEach(btn => {
+    btn.classList.toggle("active", selectedUnsureTypes.has(btn.dataset.reason));
+  });
+}
+function noteForSubmit(verdict, text = document.getElementById("pv-note").value) {
+  const base = text.trim();
+  const prefixes = [];
+  if (verdict === "unsure") prefixes.push(`存疑类型：${[...selectedUnsureTypes].join("、")}`);
+  if (verdict === "use" && selectedNeedsCrop) prefixes.push("可能需要截取：是");
+  if (verdict === "skip" && selectedConnector) prefixes.push("作为连接区：是");
+  return `${prefixes.join("\n")}${prefixes.length && base ? "\n" : ""}${base}`;
+}
+function findRoom(house, label) {
+  const rec = DATA.houses.find(h => h.house === house);
+  return rec ? rec.rooms.find(r => r.label === label) : null;
+}
+/* 系统返回的已审 verdict 是对象 {verdict, note, ...}，未审是空值 —— 统一提成字符串。 */
+function verdictOf(room) {
+  const v = room && room.verdict;
+  return v && typeof v === "object" ? (v.verdict || "") : (v || "");
+}
+function verdictNote(room) {
+  const v = room && room.verdict;
+  return v && typeof v === "object" ? String(v.note || "") : "";
+}
+
+/* ---------- 左侧列表 ---------- */
+
+function buildRow(houseRecord, room) {
+  const row = document.createElement("div");
+  row.className = "room-row";
+  row.dataset.house = houseRecord.house;
+  row.dataset.label = room.label;
+  row.tabIndex = 0;
+
+  const thumb = document.createElement("img");
+  thumb.className = "row-thumb";
+  thumb.loading = "lazy";
+  thumb.alt = "";
+  const topdown = houseRecord.topdowns[0] || "";
+  if (topdown) thumb.dataset.src = artUrl(houseRecord.task_id, topdown);
+  thumb.addEventListener("error", () => thumb.style.display = "none");
+
+  const text = document.createElement("div");
+  text.className = "row-text";
+  const label = document.createElement("span");
+  label.className = "row-label";
+  label.textContent = room.room_type ? `${room.label} · ${room.room_type}` : room.label;
+  const badge = document.createElement("span");
+  badge.className = "badge row-badge";
+  const diverge = document.createElement("span");
+  diverge.className = "row-div";
+  diverge.textContent = "△";
+  diverge.hidden = true;
+  diverge.title = "与预筛建议不同";
+  text.append(label, badge, diverge);
+
+  const chip = document.createElement("span");
+  chip.className = "chip";
+  row.append(thumb, text, chip);
+  updateRowState(row);
+  return row;
+}
+
+/* 行状态机：未审 → 建议徽章 + 未审 chip；已审一致 → 只 chip；已审分歧 → chip + △。 */
+function updateRowState(row) {
+  const house = row.dataset.house, label = row.dataset.label;
+  const v = verdictOf(findRoom(house, label));
+  const sugg = suggestFor(house, label);
+  row.dataset.verdict = v;
+
+  const chip = row.querySelector(".chip");
+  chip.className = `chip ${v || "pending"}`;
+  chip.textContent = v ? VN_DONE[v] : "未审";
+
+  const badge = row.querySelector(".row-badge");
+  const diverge = row.querySelector(".row-div");
+  if (!v) {
+    // 未审：显示预筛建议，帮助决策
+    badge.style.display = "";
+    badge.className = `badge row-badge ${sugg ? sugg.suggestion : "unknown"}`;
+    badge.textContent = sugg ? ({"use":"建议用","skip":"建议不用","unsure":"存疑"}[sugg.suggestion]) : "无建议";
+    diverge.hidden = true;
+  } else {
+    badge.style.display = "none";   // 已审：建议收起，只留结果；分歧用 △ 提示
+    diverge.hidden = !(sugg && v !== sugg.suggestion);
+  }
+}
+
+function buildHouse(houseRecord) {
+  const section = document.createElement("section");
+  section.className = "house";
+  const head = document.createElement("div");
+  head.className = "house-head";
+  head.tabIndex = 0;
+  const caret = document.createElement("span");
+  caret.className = "caret";
+  caret.textContent = "▶";
+  const name = document.createElement("span");
+  name.className = "name";
+  name.textContent = houseRecord.house;
+  const meta = document.createElement("span");
+  meta.className = "meta";
+  meta.textContent = `共 ${houseRecord.rooms.length} 间 · 已审 ${houseRecord.rooms.filter(r => verdictOf(r)).length}`;
+  head.append(caret, name, meta);
+  const rooms = document.createElement("div");
+  rooms.className = "house-rooms";
+  houseRecord.rooms.forEach(room => rooms.appendChild(buildRow(houseRecord, room)));
+  section.append(head, rooms);
+  return section;
+}
+
+function toggleHouse(section) {
+  section.classList.toggle("open");
+  section.querySelector(".caret").textContent =
+    section.classList.contains("open") ? "▼" : "▶";
+  rebuildVisibleCache();
+}
+
+// 单开模式：翻页流只显示当前房子，列表不散。
+function openHouseOnly(house) {
+  housesEl.querySelectorAll(".house").forEach(s => {
+    const isTarget = s.querySelector(".name").textContent === house;
+    s.classList.toggle("open", isTarget);
+    s.querySelector(".caret").textContent = isTarget ? "▼" : "▶";
+  });
+  rebuildVisibleCache();
+}
+
+// 列表事件委托：房子头展开/折叠、房间行选中，一次绑定。
+housesEl.addEventListener("click", event => {
+  const head = event.target.closest(".house-head");
+  if (head) { toggleHouse(head.closest(".house")); return; }
+  const row = event.target.closest(".room-row");
+  if (row) selectRow(row);
+});
+
+/* ---------- 选中与右侧预览 ---------- */
+
+function selectRow(row) {
+  flushPendingNoteSave();
+  if (selected) selected.classList.remove("selected");
+  selected = row;
+  row.classList.add("selected");
+  row.scrollIntoView({ block: "nearest" });
+  renderPreview(row.dataset.house, row.dataset.label);
+}
+
+let overheadRequest = 0;
+let overheadReady = false;
+document.getElementById("pv-show-box").addEventListener("change", () => {
+  document.getElementById("pv-object-box").style.display =
+    overheadReady && document.getElementById("pv-show-box").checked ? "block" : "none";
+});
+async function renderObjectOverhead(house, label) {
+  const request = ++overheadRequest;
+  const img = document.getElementById("pv-img");
+  const box = document.getElementById("pv-object-box");
+  const selector = document.getElementById("pv-overhead-view");
+  const caption = document.getElementById("pv-overhead-caption");
+  overheadReady = false;
+  img.hidden = true;
+  img.removeAttribute("src");
+  box.style.display = "none";
+  selector.replaceChildren();
+  caption.textContent = "正在加载当前对象的真实俯视图…";
+  let boxReady = false;
+  const originalLink = document.getElementById("pv-original-rgb");
+  const defaultRawUrl = `/overheads/all_objects_20260909/${encodeURIComponent(house)}/${encodeURIComponent(label)}_overview.png`;
+  const loadImage = (rawUrl, fast) => {
+    img.hidden = true;
+    overheadReady = false;
+    box.style.display = "none";
+    originalLink.href = rawUrl;
+    img.onload = () => {
+      if (request !== overheadRequest) return;
+      img.hidden = false;
+      overheadReady = true;
+      box.style.display = boxReady && document.getElementById("pv-show-box").checked ? "block" : "none";
+    };
+    img.onerror = () => {
+      if (request !== overheadRequest) return;
+      if (fast) loadImage(rawUrl, false);
+      else caption.textContent = "该对象图片加载失败，请重新选择。";
+    };
+    img.src = fast ? rawUrl.replace(/\.png$/, ".webp") : rawUrl;
+  };
+  // 图片地址由房子和对象编号确定，可与元数据并行下载。
+  loadImage(defaultRawUrl, true);
+  try {
+    const response = await fetch(`/overheads/all_objects_20260909/${encodeURIComponent(house)}/${encodeURIComponent(label)}.json`);
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const entry = await response.json();
+    if (request !== overheadRequest) return;
+    if (entry.house !== house || entry.room_label !== label) throw new Error("对象映射不匹配");
+    entry.images.forEach((view, index) => selector.add(new Option(`地面上方 ${view.cut_height_above_floor_m} 米剖切`, index)));
+    const [x,y,w,h] = entry.bbox_image_fraction.map(value => value * 1024);
+    const rect = document.getElementById("pv-object-rect");
+    for (const [key,value] of Object.entries({x,y,width:w,height:h})) rect.setAttribute(key,value);
+    const name = document.getElementById("pv-object-name");
+    name.setAttribute("x",x+5); name.setAttribute("y",Math.max(26,y-6)); name.textContent = label;
+    boxReady = true;
+    if (overheadReady && document.getElementById("pv-show-box").checked) box.style.display = "block";
+    const show = () => {
+      if (request !== overheadRequest) return;
+      const view = entry.images[Number(selector.value)];
+      caption.textContent = `${label} · Habitat RGB · 画幅 ${view.span_m} × ${view.span_m} m · 1024² · 右=-X，上=+Z · 地面 Y=${entry.floor_y_m} m`;
+      const rawUrl = "/overheads/" + view.path.split("/").map(encodeURIComponent).join("/");
+      loadImage(rawUrl, Number(selector.value) === 0);
+    };
+    selector.onchange = show;
+    const view = entry.images[0];
+    caption.textContent = `${label} · Habitat RGB · 画幅 ${view.span_m} × ${view.span_m} m · 1024² · 右=-X，上=+Z · 地面 Y=${entry.floor_y_m} m`;
+  } catch (error) {
+    if (request === overheadRequest) caption.textContent = `当前对象真实俯视图不可用：${error.message}`;
+  }
+}
+
+function renderPreview(house, label) {
+  const rec = DATA.houses.find(h => h.house === house);
+  const room = rec && rec.rooms.find(r => r.label === label);
+  if (!rec || !room) return;
+  stopPreviewVideo();
+
+  document.getElementById("preview-empty").hidden = true;
+  document.getElementById("preview-body").hidden = false;
+
+  renderObjectOverhead(house, label);
+
+  const video = document.getElementById("pv-video");
+  video.dataset.src = `/media/review_fast_20260912/${encodeURIComponent(house)}/${encodeURIComponent(label)}.mp4`;
+
+  document.getElementById("pv-label").textContent =
+    room.room_type ? `${label} · ${room.room_type}` : label;
+  const position = flatRooms.findIndex(item => item.house === house && item.label === label);
+  document.getElementById("current-position").textContent =
+    position >= 0 ? `第 ${position + 1} / ${flatRooms.length} 间` : `${house} · ${label}`;
+  document.getElementById("pv-area").textContent = `地面类网格面积 ${room.floor_area_m2?.toFixed(1)} m²`;
+  document.getElementById("pv-area").title = "该语义区域内 floor/carpet/rug/flooring 三角形的三维表面积之和；未做投影去重，不是净使用面积或可导航面积。";
+  document.getElementById("pv-dims").title = "该语义区域所有几何的世界 X/Z 轴对齐包围盒尺寸，不是沿墙测量的净长宽，也不是图片画幅。";
+  const extent = room.extent_m || [];
+  document.getElementById("pv-dims").textContent =
+    extent.length ? `语义范围 X×Z ${extent[0]}×${extent[1]} m` : "";
+  document.getElementById("pv-cats").textContent = (room.top_categories || []).join(" / ");
+
+  const key = `${house}__${label}`;
+  const savedNote = room.verdict && typeof room.verdict === "object" ? (room.verdict.note || "") : "";
+  selectedUnsureTypes = unsureTypesFromNote(savedNote);
+  selectedNeedsCrop = needsCropFromNote(savedNote);
+  selectedConnector = connectorFromNote(savedNote);
+  const cropButton = document.getElementById("needs-crop");
+  cropButton.classList.toggle("active-choice", selectedNeedsCrop);
+  cropButton.setAttribute("aria-pressed", String(selectedNeedsCrop));
+  const connectorButton = document.getElementById("connector-mark");
+  connectorButton.classList.toggle("active-choice", selectedConnector);
+  connectorButton.setAttribute("aria-pressed", String(selectedConnector));
+  const storedDraft = localStorage.getItem(noteDraftKey(house, label));
+  if (storedDraft !== null) notesMap.set(key, storedDraft);
+  document.getElementById("pv-note").value = notesMap.has(key) ? notesMap.get(key) : stripUnsureTypeLine(savedNote);
+  const status = document.getElementById("pv-status");
+  status.textContent = storedDraft !== null ? "已恢复本机备注草稿，尚未提交正式记录。" : "";
+  status.className = "status";
+  refreshPreviewState();
+  if (storedDraft !== null && verdictOf(room)) scheduleNoteSave(house, label, storedDraft);
+  // 选房后自动播放一次，结束后由用户点击重播。
+  playPreviewVideo();
+}
+
+/* 预览状态：chip / 建议与分歧呈现 / 撤销按钮可见性。 */
+function refreshPreviewState() {
+  if (!selected) return;
+  const v = verdictOf(findRoom(selected.dataset.house, selected.dataset.label));
+  const sugg = suggestFor(selected.dataset.house, selected.dataset.label);
+  updateUnsureReasonPanel(v);
+  const cropButton = document.getElementById("needs-crop");
+  cropButton.hidden = v !== "use";
+  const connectorButton = document.getElementById("connector-mark");
+  connectorButton.hidden = v !== "skip";
+
+  const quality = document.getElementById("pv-quality");
+  const metrics = sugg && sugg.metrics;
+  const videoMetrics = metrics && metrics.video;
+  const cameraMetrics = metrics && metrics.camera;
+  const pieces = [];
+  quality.className = "quality";
+  if (!videoMetrics) {
+    pieces.push("视频质量：尚未分析或视频缺失");
+    quality.classList.add("warn");
+  } else if (videoMetrics.read_error) {
+    pieces.push("视频质量：解码失败");
+    quality.classList.add("bad");
+  } else {
+    const black = Number(videoMetrics.black_ratio || 0);
+    pieces.push(`视频黑色像素约 ${Math.round(black * 100)}%`);
+    if (black >= .35) quality.classList.add("bad");
+    else if (black >= .18) quality.classList.add("warn");
+  }
+  if (cameraMetrics && Number.isFinite(Number(cameraMetrics.centre_offset_xz_m))) {
+    pieces.push(`相机偏离中心 ${Number(cameraMetrics.centre_offset_xz_m).toFixed(2)}m`);
+  }
+  quality.textContent = pieces.join(" · ");
+
+  const chip = document.getElementById("pv-chip");
+  chip.className = `chip ${v || "pending"}`;
+  chip.textContent = v ? VN_DONE[v] : "未审";
+  document.querySelector(".actions .v-use").classList.toggle("active-choice", v === "use");
+  document.querySelector(".actions .v-skip").classList.toggle("active-choice", v === "skip");
+  document.querySelector(".actions .v-unsure").classList.toggle("active-choice", v === "unsure");
+  document.getElementById("btn-undo").hidden = !v;
+
+  const el = document.getElementById("pv-reason");
+  el.textContent = "";
+  if (v) {
+    if (sugg && v !== sugg.suggestion) {
+      // 分歧：橙色提示，机器建议 vs 我的结果
+      const badge = document.createElement("span");
+      badge.className = "badge skip";
+      badge.textContent = "△ 分歧";
+      const detail = document.createElement("div");
+      detail.className = "reason-detail";
+      const d1 = document.createElement("span");
+      d1.className = "reason-divergence";
+      d1.textContent = `预筛建议 ${VN[sugg.suggestion]}，你盖了 ${VN_DONE[v]}`;
+      detail.append(d1, document.createElement("br"));
+      detail.appendChild(document.createTextNode(sugg.reason));
+      const assess = document.createElement("div");
+      assess.className = "assessment";
+      assess.textContent = assessmentText(sugg);
+      el.append(badge, detail, assess);
+    }
+    // 已审且一致：不重复显示建议
+  } else {
+    if (sugg) {
+      const badge = document.createElement("span");
+      badge.className = `badge ${sugg.suggestion}`;
+      badge.textContent = {"use":"建议用","skip":"建议不用","unsure":"存疑"}[sugg.suggestion];
+      const detail = document.createElement("div");
+      detail.className = "reason-detail";
+      detail.textContent = sugg.reason;
+      const assess = document.createElement("div");
+      assess.className = "assessment";
+      assess.textContent = assessmentText(sugg);
+      el.append(badge, detail, assess);
+    } else {
+      el.textContent = "（暂无预筛建议）";
+    }
+  }
+}
+
+/* ---------- 视频：点了才播 ---------- */
+
+const pvVideoMsg = document.getElementById("pv-video-msg");
+
+function pvShowError(text) {
+  pvVideoMsg.textContent = text;
+  pvVideoMsg.hidden = false;
+  // 自动上报错误码到服务器日志（/diag-video 无路由=404，但 URL 会被记进日志），
+  // 开发无需人工转述即可看到浏览器里的真实错误。
+  try { fetch("/diag-video?review=" + encodeURIComponent(text.slice(0, 150))); } catch (e) {}
+}
+
+function playPreviewVideo() {
+  const video = document.getElementById("pv-video");
+  if (!video.dataset.src) return;
+  pvVideoMsg.hidden = true;  // 清掉上次的错误遮罩（空文本不能显示，会挡住 video 控件）
+  // 同源视频已加载好：在播就不动，暂停就续播（点 ▶ 恢复不再重新下载）。
+  if (video.dataset.loaded === "1" && video.getAttribute("src")) {
+    video.play().catch(() => {});
+    return;
+  }
+  document.getElementById("pv-play").hidden = true;
+  video.muted = true;  // 巡房无音轨；muted 与用户亲证能播的 test 页机制完全一致
+  video.loop = false;
+  video.src = video.dataset.src;
+  video.dataset.loaded = "1";
+  video.load();
+  const promise = video.play();
+  if (promise && promise.catch) {
+    promise.catch(err => pvShowError(`视频播放被拒绝：${err.name} ${err.message || ""}`));
+  }
+  // 只挂一次：media 层错误会把真实 code 显示出来（4=格式不支持 /
+  // 3=解码失败 / 2=网络 / 1=中止），凭 code 才能对症修复。
+  if (!video.dataset.errHooked) {
+    video.dataset.errHooked = "1";
+    video.addEventListener("error", () => {
+      const e = video.error;
+      pvShowError(`视频加载失败 code=${e && e.code}${e && e.message ? `：${e.message}` : ""}`
+        + "（若反复如此，把这段文字发给开发）");
+    });
+    // 播放生命周期上报 /diag-video：playing 出现 = 画面真的在播。
+    // 排障时从服务器日志直接判断，无需人工确认。
+    ["playing", "canplay", "waiting"].forEach(ev => {
+      video.addEventListener(ev, () => {
+        try { fetch("/diag-video?" + ev + "=1"); } catch (e) {}
+      });
+    });
+  }
+}
+
+function stopPreviewVideo() {
+  const video = document.getElementById("pv-video");
+  video.pause();
+  video.removeAttribute("src");
+  delete video.dataset.loaded;
+  video.load();
+  document.getElementById("pv-play").hidden = false;
+  document.getElementById("pv-video-msg").hidden = true;
+}
+
+function togglePreviewVideo() {
+  const video = document.getElementById("pv-video");
+  if (!video.dataset.src) return;
+  if (video.dataset.loaded !== "1") {
+    playPreviewVideo();
+    return;
+  }
+  if (video.paused) video.play().catch(() => {});
+  else video.pause();
+}
+
+document.getElementById("pv-play").addEventListener("click", playPreviewVideo);
+// ▶ 按钮随播放状态显隐：播放中隐藏（不挡画面），手动暂停后出现可续播。
+const pvVideoEl = document.getElementById("pv-video");
+pvVideoEl.addEventListener("play", () => {
+  document.getElementById("pv-play").hidden = true;
+});
+pvVideoEl.addEventListener("pause", () => {
+  // 切房清 src 也会触发 pause；此时无 src，不亮 ▶。
+  if (pvVideoEl.getAttribute("src")) document.getElementById("pv-play").hidden = false;
+});
+
+/* ---------- 放大查看（滚轮缩放 + 拖拽平移） ---------- */
+
+const lb = document.getElementById("lightbox");
+const lbImg = document.getElementById("lightbox-img");
+let lbScale = 1, lbTx = 0, lbTy = 0, lbDrag = false;
+let lbSX = 0, lbSY = 0, lbSTx = 0, lbSTy = 0;
+
+function lbApply() {
+  lbImg.style.transform = `translate(${lbTx}px, ${lbTy}px) scale(${lbScale})`;
+  document.getElementById("lb-zoom").textContent = `${Math.round(lbScale * 100)}%`;
+}
+function lbReset() { lbScale = 1; lbTx = 0; lbTy = 0; lbApply(); }
+
+lb.addEventListener("wheel", event => {
+  event.preventDefault();
+  const rect = lbImg.getBoundingClientRect();
+  const px = event.clientX - rect.left - rect.width / 2;
+  const py = event.clientY - rect.top - rect.height / 2;
+  const factor = event.deltaY < 0 ? 1.2 : 1 / 1.2;
+  const next = Math.min(8, Math.max(0.5, lbScale * factor));
+  const k = next / lbScale;
+  lbTx = px - k * (px - lbTx);
+  lbTy = py - k * (py - lbTy);
+  lbScale = next;
+  lbApply();
+});
+lbImg.addEventListener("pointerdown", event => {
+  lbDrag = true; lbSX = event.clientX; lbSY = event.clientY;
+  lbSTx = lbTx; lbSTy = lbTy;
+  lbImg.setPointerCapture(event.pointerId);
+});
+lbImg.addEventListener("pointermove", event => {
+  if (!lbDrag) return;
+  lbTx = lbSTx + (event.clientX - lbSX);
+  lbTy = lbSTy + (event.clientY - lbSY);
+  lbApply();
+});
+lbImg.addEventListener("pointerup", () => lbDrag = false);
+lbImg.addEventListener("dblclick", lbReset);
+
+function openLightbox() {
+  const img = document.getElementById("pv-img");
+  if (!img.src) return;
+  lbReset();
+  document.getElementById("lightbox-img").src = img.src;
+  document.getElementById("lightbox").classList.add("open");
+}
+document.getElementById("pv-img").addEventListener("click", openLightbox);
+lb.addEventListener("click", event => {
+  if (event.target === lb) document.getElementById("lightbox").classList.remove("open");
+});
+
+/* ---------- 盖章 ---------- */
+
+function setStatus(message, kind) {
+  const statusEl = document.getElementById("pv-status");
+  statusEl.className = "status" + (kind ? ` ${kind}` : "");
+  statusEl.textContent = message;
+}
+
+async function submitVerdict(house, label, verdict) {
+  if (verdict === "unsure" && selectedUnsureTypes.size === 0) {
+    updateUnsureReasonPanel("unsure");
+    setStatus("请先选择至少一个存疑原因，然后再次点击“存疑”保存", "err");
+    return;
+  }
+  const note = noteForSubmit(verdict);
+  flushPendingNoteSave();
+  setStatus("提交中…");
+  try {
+    const existingSave = noteSaveQueues.get(`${house}__${label}`);
+    if (existingSave) await existingSave.catch(() => {});
+    const payload = { house, room_label: label, verdict, note, author: AUTHOR };
+    const send = async () => {
+      const response = await fetch("/api/room-curation/verdict", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error || `HTTP ${response.status}`);
+      return body;
+    };
+    let body;
+    try {
+      body = await send();
+    } catch (error) {
+      // 连接断开时，先查服务端是否已经写入，再决定是否补发，避免盲目重复盖章。
+      if (!(error instanceof TypeError)) throw error;
+      await new Promise(resolve => setTimeout(resolve, 500));
+      const response = await fetch("/api/room-curation", { cache: "no-store" });
+      if (!response.ok) throw new Error(`提交结果未确认（HTTP ${response.status}），请刷新页面核对`);
+      const data = await response.json();
+      const saved = data.houses.find(item => item.house === house)?.rooms.find(item => item.label === label)?.verdict;
+      body = saved?.verdict === verdict && saved?.note === note && saved?.author === AUTHOR
+        ? { verdict: saved } : await send();
+    }
+    const room = findRoom(house, label);
+    if (room) room.verdict = body.verdict || { verdict, note, author: AUTHOR };
+    localStorage.setItem("avengine.lastReviewed", JSON.stringify({ house, label, at: new Date().toISOString() }));
+    const row = housesEl.querySelector(
+      `.room-row[data-house="${house}"][data-label="${label}"]`);
+    if (row) updateRowState(row);
+    if (selected && selected.dataset.house === house && selected.dataset.label === label) {
+      refreshPreviewState();
+    }
+    notesMap.delete(`${house}__${label}`);
+    localStorage.removeItem(noteDraftKey(house, label));
+    updateStats();
+    updateHouseMeta(house);
+    setStatus(`已盖章 ${VN_DONE[verdict]}`, "ok");
+    return true;
+  } catch (error) {
+    if (error instanceof TypeError) {
+      setStatus("连接中断，提交结果暂无法确认；请刷新页面核对后再操作。", "err");
+      return false;
+    }
+    const curl = `curl -X POST http://localhost:8765/api/room-curation/verdict -H 'Content-Type: application/json' -d '{"house":"${house}","room_label":"${label}","verdict":"${verdict}","note":"${note}","author":"smy"}'`;
+    setStatus(`失败：${error.message}。手动命令：${curl}`, "err");
+    return false;
+  }
+}
+
+async function undoVerdict() {
+  if (!selected) return;
+  const house = selected.dataset.house, label = selected.dataset.label;
+  const room = findRoom(house, label);
+  if (!verdictOf(room)) return;
+  setStatus("撤销中…");
+  try {
+    const response = await fetch("/api/room-curation/verdict/undo", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ house, room_label: label }),
+    });
+    const body = await response.json();
+    if (!response.ok) throw new Error(body.error || `HTTP ${response.status}`);
+    if (room) room.verdict = null;
+    updateRowState(selected);
+    refreshPreviewState();
+    updateStats();
+    updateHouseMeta(house);
+    setStatus("已撤销，回到未审", "ok");
+  } catch (error) {
+    setStatus(`撤销失败：${error.message}。手动：rm /data/avengine_external/studio/room_curation/${house}__${label}.json`, "err");
+  }
+}
+
+document.querySelectorAll(".actions button").forEach(btn => {
+  btn.addEventListener("click", () => {
+    if (!selected) return;
+    if (btn.id === "btn-undo") { undoVerdict(); return; }
+    if (btn.id === "needs-crop") {
+      toggleNeedsCrop();
+      return;
+    }
+    if (btn.id === "connector-mark") {
+      toggleConnector();
+      return;
+    }
+    submitVerdict(selected.dataset.house, selected.dataset.label,
+                  btn.classList.contains("v-use") ? "use" :
+                  btn.classList.contains("v-skip") ? "skip" : "unsure");
+  });
+});
+
+async function toggleNeedsCrop() {
+  if (!selected) return;
+  const house = selected.dataset.house, label = selected.dataset.label;
+  const room = findRoom(house, label);
+  if (verdictOf(room) !== "use") return;
+  const previous = selectedNeedsCrop;
+  selectedNeedsCrop = !selectedNeedsCrop;
+  const btn = document.getElementById("needs-crop");
+  btn.classList.toggle("active-choice", selectedNeedsCrop);
+  btn.setAttribute("aria-pressed", String(selectedNeedsCrop));
+  const saved = await submitVerdict(house, label, "use");
+  if (!saved) {
+    selectedNeedsCrop = previous;
+    btn.classList.toggle("active-choice", selectedNeedsCrop);
+    btn.setAttribute("aria-pressed", String(selectedNeedsCrop));
+  } else {
+    setStatus(selectedNeedsCrop ? "已保存：可能需要截取" : "已保存：取消可能需要截取", "ok");
+  }
+}
+
+async function toggleConnector() {
+  if (!selected || verdictOf(findRoom(selected.dataset.house, selected.dataset.label)) !== "skip") return;
+  const house = selected.dataset.house, label = selected.dataset.label;
+  const previous = selectedConnector;
+  selectedConnector = !selectedConnector;
+  const btn = document.getElementById("connector-mark");
+  btn.classList.toggle("active-choice", selectedConnector);
+  btn.setAttribute("aria-pressed", String(selectedConnector));
+  const saved = await submitVerdict(house, label, "skip");
+  if (!saved) {
+    selectedConnector = previous;
+    btn.classList.toggle("active-choice", selectedConnector);
+    btn.setAttribute("aria-pressed", String(selectedConnector));
+  } else {
+    setStatus(selectedConnector ? "已保存：作为连接区" : "已保存：取消作为连接区", "ok");
+  }
+}
+
+document.getElementById("pv-note").addEventListener("input", event => {
+  if (!selected) return;
+  notesMap.set(`${selected.dataset.house}__${selected.dataset.label}`, event.target.value);
+  localStorage.setItem(noteDraftKey(selected.dataset.house, selected.dataset.label), event.target.value);
+  scheduleNoteSave(selected.dataset.house, selected.dataset.label, event.target.value);
+});
+
+document.querySelectorAll(".unsure-reason").forEach(btn => {
+  btn.addEventListener("click", () => {
+    const reason = btn.dataset.reason;
+    if (selectedUnsureTypes.has(reason)) selectedUnsureTypes.delete(reason);
+    else selectedUnsureTypes.add(reason);
+    updateUnsureReasonPanel("unsure");
+    if (selectedUnsureTypes.size) {
+      setStatus(`已选择 ${selectedUnsureTypes.size} 个存疑原因，请再次点击“存疑”保存`);
+    } else {
+      setStatus("请选择至少一个存疑原因", "err");
+    }
+  });
+});
+
+function updateHouseMeta(house) {
+  const rec = DATA.houses.find(h => h.house === house);
+  if (!rec) return;
+  const section = [...housesEl.querySelectorAll(".house")].find(
+    s => s.querySelector(".name").textContent === house);
+  if (!section) return;
+  const done = rec.rooms.filter(r => verdictOf(r)).length;
+  section.querySelector(".meta").textContent = `共 ${rec.rooms.length} 间 · 已审 ${done}`;
+}
+
+/* ---------- 统计 / 筛选 / 导航 ---------- */
+
+function updateStats() {
+  const all = DATA.houses.flatMap(h => h.rooms);
+  const done = all.filter(r => verdictOf(r)).length;
+  document.getElementById("stat-total").textContent = all.length;
+  document.getElementById("stat-done").textContent = done;
+  const byVerdict = { use: 0, skip: 0, unsure: 0 };
+  all.forEach(r => { const v = verdictOf(r); if (v) byVerdict[v]++; });
+  document.getElementById("stat-bars").textContent =
+    `（用 ${byVerdict.use} · 不用 ${byVerdict.skip} · 存疑 ${byVerdict.unsure}）`;
+}
+
+function matchesFilter(row) {
+  const v = row.dataset.verdict;
+  const sugg = suggestFor(row.dataset.house, row.dataset.label);
+  const assessment = sugg && sugg.assessment;
+  const metrics = sugg && sugg.metrics && sugg.metrics.video;
+  const black = Number(metrics && metrics.black_ratio || 0);
+  const qualityIssue = !metrics || metrics.read_error || black >= 0.20;
+  switch (currentFilter) {
+    case "all": return true;
+    case "pending": return !v;
+    case "done": return !!v;
+    case "unsure": {
+      if (v !== "unsure") return false;
+      const typeFilter = document.getElementById("unsure-filter").value;
+      const room = findRoom(row.dataset.house, row.dataset.label);
+      const note = verdictNote(room);
+      return !typeFilter || unsureTypesFromNote(note).has(typeFilter);
+    }
+    case "crop": {
+      return v === "use" && needsCropFromNote(verdictNote(findRoom(row.dataset.house, row.dataset.label)));
+    }
+    case "connector": {
+      return v === "skip" && connectorFromNote(verdictNote(findRoom(row.dataset.house, row.dataset.label)));
+    }
+    case "diverge": return !!v && !!sugg && v !== sugg.suggestion;
+    case "priority": return !!sugg && assessment && assessment.review_priority === "high";
+    case "quality": return qualityIssue;
+  }
+  return true;
+}
+
+function applyFilter() {
+  const filtering = currentFilter !== "all";
+  housesEl.querySelectorAll(".house").forEach(section => {
+    let matched = 0;
+    section.querySelectorAll(".room-row").forEach(row => {
+      const visible = matchesFilter(row);
+      row.style.display = visible ? "" : "none";
+      if (visible) matched++;
+    });
+    section.classList.toggle("filtered-hidden", filtering && matched === 0);
+    if (filtering && matched > 0) {
+      section.classList.add("open");
+      section.querySelector(".caret").textContent = "▼";
+    }
+  });
+  rebuildVisibleCache();
+}
+
+function rebuildVisibleCache() {
+  visibleRows = [];
+  housesEl.querySelectorAll(".house").forEach(section => {
+    if (!section.classList.contains("open")) return;
+    section.querySelectorAll(".room-row").forEach(row => {
+      if (row.style.display !== "none") visibleRows.push(row);
+    });
+  });
+}
+
+function buildFlatRooms() {
+  flatRooms = [];
+  DATA.houses.forEach(rec => {
+    const section = [...housesEl.querySelectorAll(".house")].find(
+      s => s.querySelector(".name").textContent === rec.house);
+    if (!section) return;
+    const rows = section.querySelectorAll(".room-row");
+    rec.rooms.forEach((room, i) => {
+      if (rows[i]) flatRooms.push({ house: rec.house, label: room.label, row: rows[i] });
+    });
+  });
+}
+
+function moveSelection(dir) {
+  if (!visibleRows.length) return;
+  const idx = selected ? visibleRows.indexOf(selected) : -1;
+  const next = Math.min(Math.max(idx + dir, 0), visibleRows.length - 1);
+  selectRow(visibleRows[next]);
+}
+
+let toastTimer = null;
+function toast(message) {
+  const t = document.getElementById("toast");
+  t.textContent = message;
+  t.hidden = false;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.hidden = true, 2400);
+}
+
+/* 翻页：
+   "全部"模式走全局房间序（flatRooms），跨栋自动单开接续——主审阅流；
+   筛选模式只在已展开栋内走（visibleRows）。 */
+function navStep(dir) {
+  if (!selected) return;
+  if (currentFilter === "all") {
+    const idx = flatRooms.findIndex(x => x.row === selected);
+    if (idx < 0) return;
+    const target = idx + dir;
+    if (target < 0 || target >= flatRooms.length) {
+      toast(dir > 0 ? "已到最后一间房" : "已是第一间房");
+      return;
+    }
+    const t = flatRooms[target];
+    openHouseOnly(t.house);
+    selectRow(t.row);
+  } else {
+    moveSelection(dir);
+  }
+}
+
+document.addEventListener("keydown", event => {
+  if (event.target.tagName === "INPUT" || event.target.tagName === "TEXTAREA" ||
+      event.target.tagName === "SELECT" || event.target.isContentEditable) return;
+  if (event.code === "Space" || event.key === " ") {
+    if (event.target.closest("button:not(#pv-play), select, summary")) return;
+    event.preventDefault();
+    togglePreviewVideo();
+    return;
+  }
+  if (event.key === "Escape") {
+    document.getElementById("lightbox").classList.remove("open");
+    return;
+  }
+  if (event.key === "Enter") {
+    const head = event.target.closest(".house-head");
+    if (head) { toggleHouse(head.closest(".house")); event.preventDefault(); }
+    return;
+  }
+  if (event.key === "ArrowRight" || event.key === "ArrowDown") {
+    event.preventDefault(); navStep(1); return;
+  }
+  if (event.key === "ArrowLeft" || event.key === "ArrowUp") {
+    event.preventDefault(); navStep(-1); return;
+  }
+  // 0 = 撤销盖章（回未审）；undoVerdict 内部对未审房间直接返回
+  if (event.key === "0") {
+    event.preventDefault();
+    undoVerdict();
+    return;
+  }
+  // 5 = 切换“可能需要截取”标记；它不是正式 verdict，不会自动盖“用”。
+  if (event.key === "5") {
+    event.preventDefault();
+    toggleNeedsCrop();
+    return;
+  }
+  // 6 = 切换“作为连接区”标记；只有当前房间已选择“不用”时生效。
+  if (event.key === "6") {
+    event.preventDefault();
+    toggleConnector();
+    return;
+  }
+  // 数字键只盖章不跳页（翻页是 ←→ 的显式动作，盖章后可停留写备注）
+  const verdict = VERDICT_KEYS[event.key];
+  if (verdict && selected) {
+    event.preventDefault();
+    submitVerdict(selected.dataset.house, selected.dataset.label, verdict);
+  }
+});
+
+document.getElementById("nav-prev").addEventListener("click", () => navStep(-1));
+document.getElementById("nav-next").addEventListener("click", () => navStep(1));
+
+/* ---------- 筛选按钮 ---------- */
+document.querySelectorAll("button[data-filter]").forEach(btn => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll("button[data-filter]").forEach(b => b.classList.remove("active"));
+    btn.classList.add("active");
+    currentFilter = btn.dataset.filter;
+    applyFilter();
+  });
+});
+document.getElementById("unsure-filter").addEventListener("change", event => {
+  if (currentFilter !== "unsure") {
+    document.querySelector('button[data-filter="unsure"]').click();
+  }
+  applyFilter();
+});
+
+function lastReviewedRoom() {
+  try {
+    const saved = JSON.parse(localStorage.getItem("avengine.lastReviewed") || "null");
+    if (saved && findRoom(saved.house, saved.label) && verdictOf(findRoom(saved.house, saved.label))) {
+      return saved;
+    }
+  } catch (_) {}
+  let latest = null;
+  DATA.houses.forEach(house => house.rooms.forEach(room => {
+    const v = room.verdict;
+    if (!v || typeof v !== "object" || !v.written_at) return;
+    if (!latest || String(v.written_at) > String(latest.at)) {
+      latest = { house: house.house, label: room.label, at: v.written_at };
+    }
+  }));
+  return latest;
+}
+
+function locateLastReviewed() {
+  if (!DATA) return;
+  const last = lastReviewedRoom();
+  if (!last) {
+    toast("还没有找到已审核的房间");
+    return;
+  }
+  currentFilter = "all";
+  document.querySelectorAll("button[data-filter]").forEach(btn =>
+    btn.classList.toggle("active", btn.dataset.filter === "all"));
+  document.getElementById("unsure-filter").value = "";
+  applyFilter();
+  buildFlatRooms();
+  const target = flatRooms.find(item => item.house === last.house && item.label === last.label);
+  if (!target) {
+    toast("找到了审核记录，但房间当前不在清单中");
+    return;
+  }
+  openHouseOnly(last.house);
+  selectRow(target.row);
+  target.row.scrollIntoView({ block: "center" });
+  document.getElementById("preview").scrollTo({ top: 0, behavior: "smooth" });
+  toast(`已定位：${last.house} · ${last.label}`);
+}
+
+document.getElementById("locate-last").addEventListener("click", locateLastReviewed);
+
+/* ---------- 懒加载（行缩略图；侧栏才是滚动容器） ---------- */
+
+const lazyObserver = new IntersectionObserver(entries => {
+  entries.forEach(entry => {
+    if (!entry.isIntersecting) return;
+    const el = entry.target;
+    if (el.dataset.src && !el.src) el.src = el.dataset.src;
+    lazyObserver.unobserve(el);
+  });
+}, { root: document.getElementById("sidebar"), rootMargin: "200px" });
+
+function watchLazy() {
+  housesEl.querySelectorAll("img[data-src]").forEach(el => lazyObserver.observe(el));
+}
+
+/* ---------- 启动 ---------- */
+
+function render() {
+  housesEl.textContent = "";
+  DATA.houses.forEach(h => housesEl.appendChild(buildHouse(h)));
+  updateStats();
+  applyFilter();
+  buildFlatRooms();
+  watchLazy();
+  selectFirst();
+}
+
+function selectFirst() {
+  const firstHouse = housesEl.querySelector(".house");
+  if (!firstHouse) return;
+  firstHouse.classList.add("open");
+  firstHouse.querySelector(".caret").textContent = "▼";
+  const rows = firstHouse.querySelectorAll(".room-row");
+  if (rows.length) selectRow(rows[0]);
+}
+
+fetch("/api/room-curation")
+  .then(response => {
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    return response.json();
+  })
+  .then(data => {
+    DATA = data;
+    render();
+  })
+  .catch(error => {
+    housesEl.innerHTML = `<div class="empty">加载房间清单失败：${error.message}<br>
+      确认 studio server 在 8765 端口运行（/api/room-curation 可用）。</div>`;
+  });
+</script>
+</body>
+</html>
