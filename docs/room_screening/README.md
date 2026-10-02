@@ -24,9 +24,11 @@ python -m pip install -e '.[room-screening]'
 export AVENGINE_HABITAT_RUNTIME_PREFIX=/path/to/habitat-runtime
 export AVENGINE_HABITAT_MAGNUM_PYTHON_SITE=/path/to/magnum/site-packages
 export AVENGINE_MP3D_ROOT=/path/to/licensed/habitat-data-root
+# 仅当所用 Habitat 安装需要外部 RLR 共享库时设置：
+export AVENGINE_RLR_SDK_ROOT=/path/to/RLRAudioPropagationPkg
 ```
 
-也可以在命令行逐次传入这些参数。不要将真实数据根路径写进仓库文件。
+也可以在命令行逐次传入这些参数（`--rlr-sdk-root` 仅在运行时需要 RLR 库时使用）。不要将真实数据根路径写进仓库文件。
 
 ## 计算流程
 
@@ -78,7 +80,7 @@ python -m unittest tests.unit.room_screening.test_geometry tests.unit.room_scree
 python tools/build_tool_index.py --check
 ```
 
-上述单测使用合成几何和临时文件；不需要 HM3D 文件，也不测试 Habitat 原生场景加载。项目此前已用真实 HM3D 场景进行过面积初算和样本抽查；但本分支为便于复用而调整了输入、路径和启动方式，**移植后的代码尚未在真实场景上重新回归运行**。此前的运行结果和审阅记录保留在外部工作区，没有提交到本仓库。要确认移植版本的真实场景行为，应在有数据权限的本机重新运行并记录运行时/输入版本及失败场景。
+上述单测使用合成几何和临时文件；不需要 HM3D 文件，也不测试 Habitat 原生场景加载。项目此前已用真实 HM3D 场景进行过面积初算和样本抽查。2026-10-02，本分支的移植版本又在一栋真实 HM3D 场景上完成了端到端冒烟回归：清单识别 11 个语义区域，候选面积步骤为其中 10 个区域生成面积，家具诊断完成且没有场景级运行失败。该测试验证了真实数据上的启动、路径和执行链路，**不代表这些面积已被人工确认，也不代表 181 栋已全量重算或结果准确率已得到证明**。具体运行输出和场景标识保留在外部工作区，没有提交到本仓库；此前的详细运行结果和审核记录也不随代码公开。
 
 ## 公开与数据边界
 

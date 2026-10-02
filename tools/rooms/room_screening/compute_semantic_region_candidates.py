@@ -35,12 +35,19 @@ GROUND_CATEGORIES = {
 }
 
 
-def runtime(*, runtime_prefix: str, magnum_python_site: str, mp3d_root: str):
+def runtime(
+    *,
+    runtime_prefix: str,
+    magnum_python_site: str,
+    mp3d_root: str,
+    rlr_sdk_root: str | None = None,
+):
     """Load the explicitly installed Habitat runtime and external MP3D root."""
     return prepare_installed_habitat_runtime(
         runtime_prefix=runtime_prefix,
         magnum_python_site=magnum_python_site,
         mp3d_root=mp3d_root,
+        rlr_sdk_root=rlr_sdk_root,
         allow_mp3d_environment=False,
     )
 
@@ -318,6 +325,8 @@ def main():
                         help="Magnum Python site (or AVENGINE_HABITAT_MAGNUM_PYTHON_SITE)")
     parser.add_argument("--mp3d-root", default=os.environ.get("AVENGINE_MP3D_ROOT"),
                         help="External licensed MP3D root (or AVENGINE_MP3D_ROOT)")
+    parser.add_argument("--rlr-sdk-root", default=os.environ.get("AVENGINE_RLR_SDK_ROOT"),
+                        help="Optional external RLR SDK root (or AVENGINE_RLR_SDK_ROOT)")
     parser.add_argument("--house", action="append", help="repeatable HM3D house id; default is all inventory scenes")
     parser.add_argument("--limit", type=int, default=0)
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT,
@@ -346,6 +355,7 @@ def main():
         runtime_prefix=args.runtime_prefix,
         magnum_python_site=args.magnum_python_site,
         mp3d_root=args.mp3d_root,
+        rlr_sdk_root=args.rlr_sdk_root,
     ).habitat_sim
     results = []
     failed_scenes = []

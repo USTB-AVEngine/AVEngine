@@ -126,6 +126,8 @@ def main() -> None:
     parser.add_argument("--runtime-prefix", default=os.environ.get("AVENGINE_HABITAT_RUNTIME_PREFIX"))
     parser.add_argument("--magnum-python-site", default=os.environ.get("AVENGINE_HABITAT_MAGNUM_PYTHON_SITE"))
     parser.add_argument("--mp3d-root", default=os.environ.get("AVENGINE_MP3D_ROOT"))
+    parser.add_argument("--rlr-sdk-root", default=os.environ.get("AVENGINE_RLR_SDK_ROOT"),
+                        help="Optional external RLR SDK root (or AVENGINE_RLR_SDK_ROOT)")
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT,
                         help="output JSON; default is repository tmp/room_screening/")
     args = parser.parse_args()
@@ -142,6 +144,7 @@ def main() -> None:
         runtime_prefix=args.runtime_prefix,
         magnum_python_site=args.magnum_python_site,
         mp3d_root=args.mp3d_root,
+        rlr_sdk_root=args.rlr_sdk_root,
         allow_mp3d_environment=False,
     )
     result = build_inventory(houses, dataset_root, runtime.habitat_sim)
