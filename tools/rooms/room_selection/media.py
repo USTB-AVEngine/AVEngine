@@ -165,7 +165,7 @@ def overlay(path, scope, floor_y, parts, overhead):
         else ImageFont.load_default()
     )
     title = (
-        "GEOMETRY ONLY - original scan overhead missing; scan quality UNKNOWN"
+        "GEOMETRY ONLY - no matching scan overhead; scan quality UNKNOWN"
         if geometry_only
         else "CPU split proposal; independent human review required"
     )

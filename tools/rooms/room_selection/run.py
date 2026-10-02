@@ -438,20 +438,31 @@ def process_house(args, job):
                 floor["stage2"] = proposal
                 if parts:
                     rel = f"split_proposals/{job['house']}__{label}__F{fi}.png"
-                    drawn = overlay(args.output / rel, scope, floor_y, parts, overhead)
+                    matching_overhead = (
+                        overhead
+                        if overhead
+                        and abs(floor_y - overhead[0]["floor_y_m"])
+                        <= p["floor_height_separation_m"]
+                        else None
+                    )
+                    drawn = overlay(
+                        args.output / rel, scope, floor_y, parts, matching_overhead
+                    )
                     floor["stage2"]["overlay_path"] = rel if drawn else None
                     floor["stage2"]["overlay_status"] = (
                         "saved"
-                        if drawn and overhead
+                        if drawn and matching_overhead
                         else (
                             "geometry_only_missing_original_overhead"
                             if drawn
                             else "drawing_failed"
                         )
                     )
-                    if overhead is None:
+                    if matching_overhead is None:
                         floor["stage2"].setdefault("reason_codes", []).append(
-                            "SPLIT_RGB_OVERHEAD_MISSING"
+                            "SPLIT_OVERHEAD_FLOOR_MISMATCH"
+                            if overhead
+                            else "SPLIT_RGB_OVERHEAD_MISSING"
                         )
                 for pi, (part, indices) in enumerate(zip(parts, groups)):
                     pm = scope_metrics(part, same)
