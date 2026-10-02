@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://avengine.local/schemas/room_screening_review_manifest_v1.schema.json",
+  "title": "AVEngine room-screening review manifest v1",
+  "type": "object",
+  "required": ["schema_version", "items"],
+  "properties": {
+    "schema_version": {"const": "room_screening_review_manifest_v1"},
+    "title": {"type": "string"},
+    "purpose": {"type": "string"},
+    "source_note": {"type": "string"},
+    "choices": {"type": "array", "items": {"type": "string"}},
+    "items": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/item"}
+    }
+  },
+  "$defs": {
+    "matrix4": {
+      "type": "array", "minItems": 4, "maxItems": 4,
+      "items": {"type": "array", "minItems": 4, "maxItems": 4, "items": {"type": "number"}}
+    },
+    "item": {
+      "type": "object",
+      "required": ["id", "image_file"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "title": {"type": "string"},
+        "house": {"type": "string"},
+        "label": {"type": "string"},
+        "purpose": {"type": "string"},
+        "image_file": {"type": "string", "minLength": 1},
+        "geometry_file": {"type": "string", "minLength": 1},
+        "video_file": {"type": "string", "minLength": 1},
+        "coordinate_space": {"enum": ["world_xz", "image_pixels"]},
+        "view": {"$ref": "#/$defs/matrix4"},
+        "projection": {"$ref": "#/$defs/matrix4"},
+        "floor_y_m": {"type": "number"},
+        "image_size": {"type": "array", "minItems": 2, "maxItems": 2, "items": {"type": "integer", "minimum": 1}},
+        "bbox_xz_m": {
+          "type": "array", "minItems": 2, "maxItems": 2,
+          "items": {"type": "array", "minItems": 2, "maxItems": 2, "items": {"type": "number"}}
+        },
+        "metrics": {"oneOf": [{"type": "object"}, {"type": "array", "items": {"type": "object"}}]},
+        "scope_note": {"type": "string"},
+        "review_note": {"type": "string"},
+        "warning": {"type": "string"}
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true
+}

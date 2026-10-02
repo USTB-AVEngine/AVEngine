@@ -5,7 +5,7 @@
 
 自 2026-08-25 起，目录本身就是能力分组（阶段目录 m1…m7 已移除），
 本表按目录列出每个工具做什么。
-当前共 454 个工具脚本。
+当前共 459 个工具脚本。
 
 ## 资产生成与装配（`tools/assets/`）
 
@@ -131,6 +131,11 @@
 | `tools/rooms/prepare_spear_apartment_exterior.py` | Export UE's approaching_storm HDRI and build a visual-only Habitat GLB |
 | `tools/rooms/prepare_ue_room.py` | Prepare an audited UE render-surface export for the shared room compiler |
 | `tools/rooms/rebuild_replicacad_obstacle_review.py` | Rebuild the retained ReplicaCAD review with live furniture obstacles |
+| `tools/rooms/room_screening_candidates.py` | Compute provisional HM3D semantic-ground/navmesh overlap candidates |
+| `tools/rooms/room_screening_furniture_audit.py` | Audit provisional HM3D furniture footprints against candidate navmesh areas |
+| `tools/rooms/room_screening_inventory.py` | Build an input inventory from an explicit external HM3D house list |
+| `tools/rooms/room_screening_manifest.py` | Build a validated review manifest from an external item index |
+| `tools/rooms/room_screening_review.py` | Serve a local manifest-driven room-screening review page |
 | `tools/rooms/run_habitat_replicacad_lighting_canary.py` | Run the real ReplicaCAD Habitat capture with one shared lighting profile |
 | `tools/rooms/run_native_qa_room.py` | Materialize one native Apartment QA plan without launching UE |
 | `tools/rooms/run_room_qualification_attempt.py` | Run or verify the read-only M6 representative-room qualification attempt |

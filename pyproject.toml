@@ -18,6 +18,7 @@ dependencies = [
 
 [project.optional-dependencies]
 rlr = ["sofar>=1.2.3"]
+room-screening = ["shapely>=2.0"]
 native = [
   "soundfile>=0.12",
   "numpy-quaternion>=2022.4",

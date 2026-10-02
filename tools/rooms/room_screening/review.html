@@ -1,0 +1,212 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AVEngine 房间筛选抽查</title>
+<style>
+:root{color-scheme:dark;--bg:#11151b;--panel:#1b222b;--muted:#aeb8c6;--line:#35404d;--cyan:#00e5ff;--green:#29df75;--accent:#84b6ff}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:#edf2f7;font:15px/1.5 system-ui,-apple-system,"Microsoft YaHei",sans-serif}
+header{padding:18px 22px 13px;border-bottom:1px solid var(--line);background:#171d25;position:sticky;top:0;z-index:5}h1{font-size:20px;margin:0 0 5px}.sub{color:var(--muted);font-size:13px}
+main{max-width:1700px;margin:auto;padding:0 20px 26px}.toolbar{display:flex;align-items:center;gap:10px;margin:14px 0;flex-wrap:wrap}.toolbar button,.feedback button{background:#27313d;color:#eef5ff;border:1px solid #536273;border-radius:6px;padding:8px 12px;cursor:pointer}.toolbar button:disabled{opacity:.4;cursor:default}.counter{color:#c7d0dc;font-weight:600}.jump{background:#11171e;color:#edf2f7;border:1px solid #465363;border-radius:6px;padding:8px 10px;min-width:230px}
+.layout{display:grid;grid-template-columns:1fr 1fr;gap:14px}.panel{min-width:0;background:var(--panel);border:1px solid var(--line);border-radius:9px;overflow:hidden}.panel h2{font-size:15px;margin:0;padding:10px 13px;border-bottom:1px solid var(--line)}.media{padding:10px}.media-frame{aspect-ratio:1/1;background:#07090c;display:flex;align-items:center;justify-content:center;position:relative;overflow:hidden}.media-frame img,.media-frame video,.media-frame canvas{width:100%;height:100%;object-fit:contain}.overlay-frame img,.overlay-frame canvas{position:absolute;inset:0}.overlay-frame canvas{pointer-events:none}.under-media{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:0 11px 10px;color:var(--muted);font-size:12px}.controls{padding:0 11px 10px;display:flex;gap:12px;align-items:center;flex-wrap:wrap;font-size:13px;color:#d4deea}.controls label{display:flex;align-items:center;gap:6px;cursor:pointer}.controls input{accent-color:var(--green)}
+.legend{display:flex;gap:14px;flex-wrap:wrap;padding:0 11px 10px;color:#c9d3df;font-size:12px}.swatch{display:inline-block;width:12px;height:12px;vertical-align:-2px;margin-right:5px}.swatch.scope{border:2px solid var(--cyan)}.swatch.box{border:2px dashed #48c8ff}.swatch.nav{background:rgba(55,125,255,.65)}.swatch.candidate{background:rgba(41,223,117,.65)}.swatch.blocker{background:rgba(255,62,62,.7)}.swatch.gap{background:rgba(255,213,55,.75)}.swatch.unknown{background:rgba(215,60,220,.7)}
+.info,.feedback{margin-top:14px;padding:15px;background:var(--panel);border:1px solid var(--line);border-radius:9px}.info h2,.feedback h2{font-size:17px;margin:0 0 8px}.muted,.tip{color:var(--muted)}.metrics{display:grid;grid-template-columns:repeat(5,minmax(120px,1fr));gap:10px;margin:12px 0}.metric{padding:11px;border:1px solid var(--line);border-radius:7px;background:#161c23}.metric .label{font-size:12px;color:var(--muted)}.metric .value{font-size:20px;font-weight:700;margin-top:2px}.metric small{display:block;color:#9faaba;font-size:11px;margin-top:3px}.two-cols{display:grid;grid-template-columns:1fr 1fr;gap:12px}.callout{padding:10px 12px;border-left:3px solid var(--accent);background:#171d25;margin:8px 0}.warning{border-left-color:#ffc857}.choices{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0}.feedback button.selected{background:#174b36;border-color:#35d583}.feedback textarea{width:100%;min-height:90px;resize:vertical;background:#11171e;color:#edf2f7;border:1px solid #465363;border-radius:6px;padding:9px;font:inherit}.save-state{font-size:12px;color:#aeb8c6;margin-top:7px}.bottom-nav{display:flex;justify-content:flex-end;margin-top:10px}.status{color:#ffc857}.hidden{display:none!important}
+@media(max-width:950px){.layout{grid-template-columns:1fr}.metrics{grid-template-columns:repeat(2,minmax(130px,1fr))}.two-cols{grid-template-columns:1fr}header{position:static}}
+</style>
+</head>
+<body>
+<header><h1 id="title">房间筛选抽查</h1><div class="sub" id="subtitle">正在加载批次……</div></header>
+<main>
+  <div class="toolbar">
+    <button id="prev">← 上一个样本</button><span class="counter" id="counter">0 / 0</span>
+    <button id="next">下一个样本 →</button>
+    <input class="jump" id="jumpQuery" placeholder="输入房屋编号或房间标签跳转">
+    <button id="jumpBtn">跳转</button><span id="jumpStatus" class="muted"></span>
+  </div>
+  <div class="layout">
+    <section class="panel">
+      <h2 id="leftHeading">左侧：原始俯视 RGB / 环视视频</h2>
+      <div class="media"><div class="media-frame" id="leftFrame">
+        <img id="leftImage" alt="原始 Habitat 俯视 RGB" class="hidden">
+        <video id="leftVideo" controls muted playsinline class="hidden"></video>
+        <span id="leftStatus" class="status">正在加载……</span>
+      </div></div>
+      <div class="under-media"><span>左侧保留原图，不叠加计算颜色。</span><span id="videoStatus"></span></div>
+    </section>
+    <section class="panel">
+      <h2 id="rightHeading">右侧：同一俯视图 + 可开关计算层</h2>
+      <div class="media"><div class="media-frame overlay-frame">
+        <img id="rightImage" alt="俯视图计算层底图">
+        <canvas id="overlay"></canvas>
+      </div></div>
+      <div class="controls">
+        <label><input type="checkbox" id="layerGround" checked>地面范围边线</label>
+        <label><input type="checkbox" id="layerNav" checked>navmesh 支持区</label>
+        <label><input type="checkbox" id="layerCandidate" checked>候选区域</label>
+        <label><input type="checkbox" id="layerBlockers">已识别阻挡物</label>
+        <label><input type="checkbox" id="layerGap">navmesh 未覆盖地面</label>
+        <label><input type="checkbox" id="layerUnknown">未知/待核区域</label>
+        <label><input type="checkbox" id="layerAabb">数据 AABB 参考框</label>
+      </div>
+      <div class="legend">
+        <span><i class="swatch scope"></i>青色实线：语义地面外缘提示，不是墙线</span>
+        <span><i class="swatch nav"></i>蓝色：navmesh 支持</span>
+        <span><i class="swatch candidate"></i>绿色：地面候选</span>
+        <span><i class="swatch blocker"></i>红色：已识别阻挡</span>
+        <span><i class="swatch gap"></i>黄色：地面未被 navmesh 覆盖</span>
+        <span><i class="swatch unknown"></i>紫色：未知/未映射区域</span>
+        <span><i class="swatch box"></i>虚线：AABB 参考框</span>
+      </div>
+      <div class="under-media"><span id="imageStatus"></span><span>颜色是计算候选，不能单独证明可行或不可行。</span></div>
+    </section>
+  </div>
+  <section class="info">
+    <h2 id="sampleTitle">样本信息</h2>
+    <div class="callout" id="purpose"></div>
+    <div class="metrics" id="metrics"></div>
+    <div class="two-cols">
+      <div class="callout"><b>范围说明</b><div id="scopeNote"></div></div>
+      <div class="callout warning"><b>需要核对</b><div id="reviewNote"></div></div>
+    </div>
+  </section>
+  <section class="feedback">
+    <h2>抽查反馈</h2>
+    <div class="tip">选项用于快速归类；请把具体问题写在备注里。反馈自动保存到本地运行输出，不写正式审核 verdict。</div>
+    <div class="choices" id="choices"></div>
+    <textarea id="note" placeholder="写下漏算、多算、范围或连接问题；备注会自动保存"></textarea>
+    <div class="save-state" id="saveState">尚未修改。</div>
+    <div class="bottom-nav"><button id="nextBottom">下一个样本 →</button></div>
+  </section>
+</main>
+<script>
+'use strict';
+const byId=id=>document.getElementById(id);
+const defaults=["整体大体正确","漏算了可行地面","家具/桌面误算为地面","区域范围或连接有误","形状或连通性需复核","图像/范围不清，无法判断"];
+let manifest=null,items=[],feedback={},index=0,geometryCache=new Map(),saveTimer=null;
+const itemId=item=>item.id;
+const fmt=(v,n=2)=>{const x=Number(v);return v===null||v===undefined||v===""||!Number.isFinite(x)?"未评估":x.toFixed(n)};
+const assetUrl=relative=>'/asset/'+String(relative||'').split('/').map(encodeURIComponent).join('/');
+const itemGeometry=async item=>{
+  if(!item.geometry_file)return null;
+  if(geometryCache.has(item.id))return geometryCache.get(item.id);
+  const response=await fetch(assetUrl(item.geometry_file));
+  if(!response.ok)throw new Error('叠加几何 HTTP '+response.status);
+  const geometry=await response.json();geometryCache.set(item.id,geometry);return geometry;
+};
+function matrixVector(matrix,vector){return matrix.map(row=>row.reduce((sum,value,i)=>sum+value*vector[i],0));}
+function project(item,x,z){
+  if(item.coordinate_space==='image_pixels')return [x,z];
+  if(!item.view||!item.projection||item.floor_y_m===undefined||item.floor_y_m===null||!item.image_size)return [NaN,NaN];
+  const point=matrixVector(item.view,[x,item.floor_y_m,z,1]);
+  const clip=matrixVector(item.projection,point);
+  if(!clip[3])return [NaN,NaN];
+  return [(clip[0]/clip[3]+1)*item.image_size[0]/2,(1-clip[1]/clip[3])*item.image_size[1]/2];
+}
+function polygons(geometry){
+  if(!geometry)return [];
+  if(geometry.type==='Polygon')return [geometry.coordinates];
+  if(geometry.type==='MultiPolygon')return geometry.coordinates||[];
+  if(geometry.type==='GeometryCollection')return (geometry.geometries||[]).flatMap(polygons);
+  return [];
+}
+function fillGeometry(ctx,item,geometry,color){
+  for(const polygon of polygons(geometry)){
+    ctx.beginPath();
+    for(const ring of polygon){ring.forEach((point,i)=>{const q=project(item,point[0],point[1]);if(i===0)ctx.moveTo(q[0],q[1]);else ctx.lineTo(q[0],q[1]);});ctx.closePath();}
+    ctx.fillStyle=color;ctx.fill('evenodd');
+  }
+}
+function strokeGeometry(ctx,item,geometry,color,width,dash=[]){
+  ctx.strokeStyle=color;ctx.lineWidth=width;ctx.setLineDash(dash);
+  for(const polygon of polygons(geometry)){
+    const ring=polygon[0];if(!ring||ring.length<2)continue;ctx.beginPath();
+    ring.forEach((point,i)=>{const q=project(item,point[0],point[1]);if(i===0)ctx.moveTo(q[0],q[1]);else ctx.lineTo(q[0],q[1]);});ctx.closePath();ctx.stroke();
+  }
+  ctx.setLineDash([]);
+}
+function drawAabb(ctx,item,width){
+  if(!item.bbox_xz_m)return;const [[xmin,zmin],[xmax,zmax]]=item.bbox_xz_m;
+  const points=[[xmin,zmin],[xmax,zmin],[xmax,zmax],[xmin,zmax]].map(p=>project(item,p[0],p[1]));
+  ctx.beginPath();points.forEach((p,i)=>{if(i===0)ctx.moveTo(p[0],p[1]);else ctx.lineTo(p[0],p[1]);});ctx.closePath();
+  ctx.strokeStyle='#48c8ff';ctx.lineWidth=Math.max(2,width/450);ctx.setLineDash([10,7]);ctx.stroke();ctx.setLineDash([]);
+}
+async function draw(){
+  const item=items[index],image=byId('rightImage'),canvas=byId('overlay');
+  if(!item||!image.complete||!image.naturalWidth)return;
+  canvas.width=image.naturalWidth;canvas.height=image.naturalHeight;
+  const ctx=canvas.getContext('2d');ctx.clearRect(0,0,canvas.width,canvas.height);
+  try{
+    const g=await itemGeometry(item)||{};
+    if(byId('layerGround').checked)strokeGeometry(ctx,item,g.ground,'#00e5ff',Math.max(3,canvas.width/320));
+    if(byId('layerNav').checked)fillGeometry(ctx,item,g.raw,'rgba(55,125,255,.40)');
+    if(byId('layerCandidate').checked)fillGeometry(ctx,item,g.corrected,'rgba(41,223,117,.48)');
+    if(byId('layerBlockers').checked)fillGeometry(ctx,item,g.blockers,'rgba(255,62,62,.66)');
+    if(byId('layerGap').checked)fillGeometry(ctx,item,g.gap,'rgba(255,213,55,.62)');
+    if(byId('layerUnknown').checked)fillGeometry(ctx,item,g.unknown,'rgba(215,60,220,.56)');
+    if(byId('layerAabb').checked)drawAabb(ctx,item,canvas.width);
+    byId('imageStatus').textContent='';
+  }catch(error){byId('imageStatus').textContent='图层加载失败：'+error.message;}
+}
+function renderMetrics(item){
+  const container=byId('metrics');container.replaceChildren();
+  const entries=Array.isArray(item.metrics)?item.metrics:Object.entries(item.metrics||{}).map(([label,value])=>({label,value}));
+  for(const entry of entries){
+    const card=document.createElement('div');card.className='metric';
+    const label=document.createElement('div');label.className='label';label.textContent=entry.label||'指标';
+    const value=document.createElement('div');value.className='value';value.textContent=entry.display??(typeof entry.value==='number'?fmt(entry.value)+' m²':String(entry.value??'未评估'));
+    const help=document.createElement('small');help.textContent=entry.help||'';card.append(label,value,help);container.append(card);
+  }
+}
+function renderFeedback(item){
+  const saved=feedback[itemId(item)]||{};const options=manifest.choices?.length?manifest.choices:defaults;
+  byId('choices').replaceChildren(...options.map(choice=>{const button=document.createElement('button');button.type='button';button.textContent=choice;if(saved.assessment===choice)button.classList.add('selected');button.onclick=()=>{feedback[itemId(item)]={...feedback[itemId(item)],assessment:choice};renderFeedback(item);saveFeedback(item);};return button;}));
+  byId('note').value=saved.note||'';byId('note').oninput=()=>{feedback[itemId(item)]={...feedback[itemId(item)],note:byId('note').value};saveFeedback(item);};
+  byId('saveState').textContent=saved.updated_at?'已保存 '+saved.updated_at+'（独立抽查反馈）':'尚未修改。';
+}
+function render(){
+  const item=items[index];if(!item)return;
+  byId('counter').textContent=(index+1)+' / '+items.length;
+  byId('prev').disabled=index===0;byId('next').disabled=index===items.length-1;byId('nextBottom').disabled=index===items.length-1;
+  byId('sampleTitle').textContent=item.title||`${item.house||''} / ${item.label||item.id}`;
+  byId('purpose').textContent=item.purpose||manifest.purpose||'';
+  byId('scopeNote').textContent=item.scope_note||'青色实线是语义地面外缘提示，不是经核实的墙体边界；AABB 只是包围框。';
+  byId('reviewNote').textContent=item.review_note||item.warning||'请结合原始 RGB 核对范围、家具占地和区域连接。';
+  renderMetrics(item);renderFeedback(item);
+  const raw=byId('leftImage'),video=byId('leftVideo');
+  video.pause();video.removeAttribute('src');video.classList.add('hidden');
+  raw.classList.add('hidden');video.classList.add('hidden');
+  byId('leftStatus').textContent='正在加载……';byId('leftStatus').classList.remove('hidden');
+  raw.onerror=()=>{byId('leftStatus').textContent='原始图加载失败';byId('leftStatus').classList.remove('hidden');};
+  raw.onload=()=>byId('leftStatus').classList.add('hidden');
+  raw.src=assetUrl(item.image_file);
+  byId('rightImage').onload=draw;byId('rightImage').onerror=()=>byId('imageStatus').textContent='底图加载失败';byId('rightImage').src=assetUrl(item.image_file);
+  if(item.video_file){video.src=assetUrl(item.video_file);video.loop=false;video.autoplay=true;video.onloadeddata=()=>byId('leftStatus').classList.add('hidden');video.onerror=()=>{byId('leftStatus').textContent='视频加载失败';byId('leftStatus').classList.remove('hidden');};video.classList.remove('hidden');video.onended=()=>byId('videoStatus').textContent='已播放完毕；可手动重播。';byId('leftHeading').textContent='左侧：中心视点环视视频';}
+  else{raw.classList.remove('hidden');video.onended=null;byId('videoStatus').textContent='';byId('leftHeading').textContent='左侧：Habitat 原始俯视 RGB';}
+  for(const id of ['layerGround','layerNav','layerCandidate','layerBlockers','layerGap','layerUnknown','layerAabb'])byId(id).onchange=draw;
+  itemGeometry(item).then(draw).catch(error=>byId('imageStatus').textContent='图层加载失败：'+error.message);
+  draw();
+}
+async function saveFeedback(item){
+  clearTimeout(saveTimer);byId('saveState').textContent='保存中……';
+  saveTimer=setTimeout(async()=>{
+    const record=feedback[itemId(item)];record.updated_at=new Date().toLocaleString('zh-CN',{hour12:false});
+    try{const response=await fetch('/api/feedback',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:itemId(item),feedback:record})});if(!response.ok)throw new Error('HTTP '+response.status);byId('saveState').textContent='已自动保存 '+record.updated_at+'（仅本地抽查记录）';}
+    catch(error){byId('saveState').textContent='保存失败：'+error.message;}
+  },350);
+}
+function move(delta){index=Math.max(0,Math.min(items.length-1,index+delta));render();}
+function jump(){const query=byId('jumpQuery').value.trim().toLowerCase();if(!query)return;const found=items.findIndex(item=>`${item.house||''} ${item.label||''} ${item.id}`.toLowerCase().includes(query));if(found<0){byId('jumpStatus').textContent='当前批次没有匹配项';return;}index=found;byId('jumpStatus').textContent='已跳转';render();}
+byId('prev').onclick=()=>move(-1);byId('next').onclick=()=>move(1);byId('nextBottom').onclick=()=>move(1);byId('jumpBtn').onclick=jump;byId('jumpQuery').addEventListener('keydown',event=>{if(event.key==='Enter')jump();});
+async function init(){
+  const [manifestResponse,feedbackResponse]=await Promise.all([fetch('/api/manifest'),fetch('/api/feedback')]);
+  if(!manifestResponse.ok)throw new Error('manifest HTTP '+manifestResponse.status);
+  manifest=await manifestResponse.json();feedback=feedbackResponse.ok?await feedbackResponse.json():{};items=manifest.items||[];
+  byId('title').textContent=manifest.title||'房间筛选抽查';
+  byId('subtitle').textContent=[manifest.purpose,manifest.source_note].filter(Boolean).join(' · ');
+  render();
+}
+init().catch(error=>{byId('subtitle').textContent='页面加载失败：'+error.message;});
+</script>
+</body>
+</html>
