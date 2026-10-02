@@ -288,6 +288,42 @@ def register(args):
     return jobs
 
 
+def qualify_region_evidence(row, skip_splitting=False):
+    """Keep incomplete source evidence visible at every derived unit.
+
+    This only qualifies status labels. It never changes measured geometry,
+    numeric thresholds, human verdicts, or the original region's decision.
+    """
+    if not row.get("floors"):
+        row["stage2"] = dict(
+            status="not_run",
+            reason_codes=["NO_SEMANTIC_FLOOR_GEOMETRY"],
+            proposal_floor_ids=[],
+        )
+    if (row.get("native_region") or {}).get("ambiguous_colours"):
+        for floor in row.get("floors", []):
+            for unit in [floor] + floor.get("split_parts", []):
+                previous = unit.get("stage1", {})
+                unit["stage1"] = dict(
+                    status="review",
+                    reason_codes=sorted(
+                        set(previous.get("reason_codes", []))
+                        | {"SEMANTIC_COLOUR_CONFLICT"}
+                    ),
+                )
+    if skip_splitting:
+        row["stage2"] = dict(
+            status="not_run",
+            reason_codes=["STAGE2_NOT_REQUESTED"],
+            proposal_floor_ids=[],
+        )
+        for floor in row.get("floors", []):
+            floor["stage2"] = dict(
+                status="not_run", reason_codes=["STAGE2_NOT_REQUESTED"]
+            )
+    return row
+
+
 def process_house(args, job):
     _, p = load_parameters(args.thresholds)
     started = time.time()
@@ -385,7 +421,7 @@ def process_house(args, job):
                 stage2=dict(status="not_triggered", reason_codes=[]),
                 split_parts=[],
             )
-            if trigger:
+            if trigger and not args.skip_splitting:
                 proposal, parts = propose(scope, points, clearance, adj, clusters, p)
                 groups = proposal.pop("part_sample_indices", [])
                 proposal["trigger_codes"] = trigger
@@ -468,6 +504,7 @@ def process_house(args, job):
                 if f["stage2"]["status"] == "proposed"
             ],
         )
+        qualify_region_evidence(row, skip_splitting=args.skip_splitting)
     result = dict(
         house=job["house"],
         family=job["family"],
@@ -507,6 +544,8 @@ def measure(args, jobs):
             "--media-root",
             str(args.media_root),
         ]
+        if args.skip_splitting:
+            cmd.append("--skip-splitting")
         try:
             with (logs / f"{house}.log").open("w") as stream:
                 cp = subprocess.run(
@@ -592,6 +631,11 @@ def parser():
     p.add_argument("--workers", type=int, default=2)
     p.add_argument("--house-timeout", type=int, default=1800)
     p.add_argument("--resume", action="store_true")
+    p.add_argument(
+        "--skip-splitting",
+        action="store_true",
+        help="Measure stage 1 only; stage 2 is explicitly not_run (MP3D pilot)",
+    )
     p.add_argument("--job", type=Path)
     p.add_argument("--manual-splits", type=Path)
     p.add_argument("--clean-houses", type=Path)

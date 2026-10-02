@@ -32,4 +32,6 @@ python -m tools.rooms.room_selection.serve_review \
 
 打开 `/review.html`；按角色独立判断并导出 JSON。第二人只审 `second_reviewer_sample.json` 固定名单，记录纳入概率供总体统计使用。viewer 只提供读取接口，本轮不启动常驻审核服务。
 
+MP3D 三套试跑先用 `register --family mp3d --limit 3` 登记，再用 `measure --family mp3d --skip-splitting` 运行阶段 1。显式跳过的阶段 2 标记为 `not_run`，不会产生切分建议。
+
 MP3D 原生 `.house` 的 R/L/O/C 关联加 `_semantic.ply` 的逐面 object_id 可以复用几何、导航和摆放流程。原始坐标仍需 x,y,z→x,z,-y。若无矩阵校准的同等俯视图，扫描质量记未知，不能直接完整自动通过。格式出处：[Matterport 官方说明](https://github.com/niessner/Matterport/blob/master/data_organization.md)。

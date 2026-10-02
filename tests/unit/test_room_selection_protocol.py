@@ -17,7 +17,7 @@ from tools.rooms.room_selection.geometry import (
 from tools.rooms.room_selection.navigation import ray_clear_batch
 from tools.rooms.room_selection.media import polygon_mask
 from tools.rooms.room_selection.analysis import agreement, second_sample, manual_iou
-from tools.rooms.room_selection.run import load_parameters
+from tools.rooms.room_selection.run import load_parameters, qualify_region_evidence
 from tools.rooms.room_selection.protocol import decide
 
 pytestmark = pytest.mark.fast_unit
@@ -151,3 +151,37 @@ def test_pending_manual_boxes_never_become_iou_ground_truth(tmp_path):
     assert result["compared_manual_count"] == 0
     assert result["mean_matched_iou_all_coordinate_valid"] is None
     assert result["status"] == "qualified_bbox_proxy"
+
+
+def test_missing_floor_evidence_is_not_a_completed_split_check():
+    r = dict(
+        floors=[], stage1=dict(status="review"), stage2=dict(status="not_triggered")
+    )
+    qualify_region_evidence(r)
+    assert r["stage2"]["status"] == "not_run"
+    assert r["stage2"]["reason_codes"] == ["NO_SEMANTIC_FLOOR_GEOMETRY"]
+
+
+def test_ambiguous_source_identity_qualifies_derived_children():
+    r = dict(
+        native_region=dict(ambiguous_colours=["ABCDEF"]),
+        stage1=dict(status="review"),
+        floors=[
+            dict(
+                stage1=dict(status="pass", reason_codes=[]),
+                split_parts=[dict(stage1=dict(status="pass", reason_codes=[]))],
+            )
+        ],
+    )
+    qualify_region_evidence(r)
+    assert r["floors"][0]["stage1"]["status"] == "review"
+    assert r["floors"][0]["split_parts"][0]["stage1"]["reason_codes"] == [
+        "SEMANTIC_COLOUR_CONFLICT"
+    ]
+
+
+def test_explicit_stage1_pilot_never_reports_completed_stage2():
+    r = dict(floors=[dict(stage2=dict(status="not_triggered"), split_parts=[])])
+    qualify_region_evidence(r, skip_splitting=True)
+    assert r["stage2"]["reason_codes"] == ["STAGE2_NOT_REQUESTED"]
+    assert r["floors"][0]["stage2"]["status"] == "not_run"
