@@ -62,7 +62,7 @@ def publish(out):
         "",
         "## 10 栋对拍",
         "",
-        f"名单在 paired_comparison/sample_manifest.json，全部来自 calibration：{paired['house_count']} 栋、{paired['region_count']} 个原 region。旧实现地面复算全部与 82382e2 保留测量一致。每个 >10% 的指标差异、绝对量、定义分解和楼层变更解释在 paired_comparison/summary.json 与 houses/*.json；数量 {paired['difference_counts']}。",
+        f"名单在 paired_comparison/sample_manifest.json，全部来自 calibration：{paired['house_count']} 栋、{paired['region_count']} 个原 region。旧实现地面复算全部与 82382e2 保留测量一致。每个 >10% 的指标差异、绝对量、定义分解和楼层变更解释在 paired_comparison/summary.json 与 houses/*.json；数量 {paired['difference_counts']}；同高度地面层差异 {paired.get('height_matched_floor_area_difference_count', paired['difference_counts'].get('height_matched_floor_area_m2',0))} 项，实际可选主层变更 {paired.get('eligibility_floor_change_count',0)} 个 region。",
         "",
         "|房子|navmesh 诊断层簇|region|旧分层地面总和 m²|新分层地面总和 m²|",
         "|---|---:|---:|---:|---:|",
@@ -166,12 +166,23 @@ def publish(out):
         "|房子/房间/旧层|指标|旧值|新值|差异比例|原因|",
         "|---|---|---:|---:|---:|---|",
     ]
-    for d in paired["differences"]:
+    for d in paired["differences"] + paired.get(
+        "height_matched_floor_area_differences", []
+    ):
+        reasons_zh = {
+            "floor_area_m2": "共享地面词表和唯一颜色容差扩展、无舍入并集；公共类别/源映射差额见对应 JSON。",
+            "height_matched_floor_area_m2": "同高度窗口内的地面并集口径变化；双方层列表与公共类别分解均保留。",
+            "furniture_footprint_m2": "旧固定词表/全高度投影改为共享人体高度裁剪、填内部孔且保留凹形；同类别面积单列。",
+            "nav_main_area_m2": "旧网格条带会超出原生三角形；新取连续交集并裁剪至原生图主区支持域，格面积与差额单列。",
+            "floor_decision": "临时间隙簇与有界面积窗口的层数不同；实际可选主层变化另报，编号变化不等于楼层变化。",
+            "floor_alignment": "没有对应同高度窗口，双方层列表保留，须核对语义标签与层范围。",
+        }
+        explanation_zh = reasons_zh.get(d["metric"], d["explanation"])
         oldv = d.get("old")
         newv = d.get("new")
         delta = d.get("relative_difference")
         paired_lines.append(
-            f"|{d['house']}/{d['room_label']}/{d.get('old_floor_id','all')}|{d['metric']}|{oldv if oldv is not None else ''}|{newv if newv is not None else ''}|{pct(delta) if delta is not None else '零基数或层变更'}|{d['explanation']}|"
+            f"|{d['house']}/{d['room_label']}/{d.get('old_floor_id','all')}|{d['metric']}|{oldv if oldv is not None else ''}|{newv if newv is not None else ''}|{pct(delta) if delta is not None else '零基数或层变更'}|{explanation_zh}|"
         )
     (out / "paired_comparison/REPORT_zh.md").write_text("\n".join(paired_lines) + "\n")
     print("PUBLISHED", now(), flush=True)

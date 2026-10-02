@@ -131,6 +131,32 @@ def worker(out, previous, old_checkout, house):
             merged_floors=measurements,
             old_floor_replay_matches_cache=True,
         )
+        old_height = next(
+            (
+                f["metrics"]["floor_y_m"]
+                for f in old.get("floors", [])
+                if f["floor_id"] == oldsel
+            ),
+            None,
+        )
+        new_height = (
+            measurements[selected]["metrics"]["floor_y_m"]
+            if selected is not None
+            else None
+        )
+        rec.update(
+            old_selected_floor_height_m=old_height,
+            merged_selected_floor_height_m=new_height,
+            old_dominant_area_fraction=(old.get("floor_selection") or {}).get(
+                "dominant_area_fraction"
+            ),
+            eligibility_floor_changed=((old_height is None) != (new_height is None))
+            or (
+                old_height is not None
+                and new_height is not None
+                and abs(old_height - new_height) > p["floor_height_separation_m"]
+            ),
+        )
         for field, newkey in [("floor_area_m2", "merged_floor_area_m2")]:
             oldv = rec["old_floor_area_m2"]
             newv = rec[newkey]
@@ -192,6 +218,26 @@ def worker(out, previous, old_checkout, house):
             common_occ = scope_metrics(scope, common_furniture)[
                 "furniture_footprint_m2"
             ]
+            old_area = om["floor_area_m2"]
+            new_area = nm["floor_area_m2"]
+            area_delta = relative_difference(old_area, new_area)
+            if (area_delta is None and new_area > 0) or (
+                area_delta is not None and abs(area_delta) > 0.10
+            ):
+                differences.append(
+                    dict(
+                        house=house,
+                        room_label=label,
+                        old_floor_id=of["floor_id"],
+                        merged_floor_id=match["floor_id"],
+                        metric="height_matched_floor_area_m2",
+                        old=old_area,
+                        new=new_area,
+                        relative_difference=area_delta,
+                        classification="definition/shared_loader",
+                        explanation="Same-height projected floor union: shared ground-label expansion, unique palette matching and unrounded projection. Common-category region decomposition and both floor lists are retained.",
+                    )
+                )
             for field in ["furniture_footprint_m2", "nav_main_area_m2"]:
                 oldv = om.get(field, 0)
                 newv = nm.get(field, 0)
@@ -283,6 +329,11 @@ def aggregate(out):
         region_count=sum(len(r["regions"]) for r in results),
         calibration_only=True,
         nav_main_definition="native geodesic grid support clips shared continuous intersection",
+        eligibility_floor_change_count=sum(
+            r.get("eligibility_floor_changed", False)
+            for result in results
+            for r in result["regions"]
+        ),
         old_geometry_replays_passed=all(r["old_geometry_replayed"] for r in results),
         difference_counts=dict(Counter(d["metric"] for d in diffs)),
         unexplained_count=sum(not d.get("explanation") for d in diffs),

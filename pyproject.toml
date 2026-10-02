@@ -19,6 +19,13 @@ dependencies = [
 [project.optional-dependencies]
 rlr = ["sofar>=1.2.3"]
 room-screening = ["shapely>=2.0"]
+room-selection = [
+  "shapely>=2.0,<3",
+  "trimesh>=4.8,<5",
+  "rtree>=1.4,<2",
+  "networkx>=3.5,<4",
+  "scipy>=1.10",
+]
 native = [
   "soundfile>=0.12",
   "numpy-quaternion>=2022.4",

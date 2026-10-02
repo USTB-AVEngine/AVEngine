@@ -9,6 +9,8 @@
 - 摆放：已有 navmesh + 原始碰撞 GLB 的 CPU 三条射线；有限候选搜索没有声学保证。
 - 切分：家具簇、测地距离和窄通道加权最小割；每个子块重新测量、独立人工审核。
 
+可选依赖通过 `python -m pip install -e '.[room-selection]'` 安装，实际任务环境与版本保存在运行产物中。平铺 CLI 入口 `room_selection_protocol.py`、`room_selection_calibrate.py`、`room_selection_compare.py` 已列入工具索引，仅委托本包实现。
+
 ## 外部配置与顺序
 
 与 smy 工具一致，运行时由 `AVENGINE_HABITAT_RUNTIME_PREFIX`、`AVENGINE_HABITAT_MAGNUM_PYTHON_SITE`、`AVENGINE_MP3D_ROOT`、可选 `AVENGINE_RLR_SDK_ROOT` 配置。数据入口为 `--inventory` 和 `AVENGINE_ROOM_TASKS_ROOT`、`AVENGINE_ROOM_VERDICT_ROOT`、`AVENGINE_ROOM_MEDIA_ROOT`（也可传同名 CLI 路径）。不在仓库配置私人服务器路径，不启动 GPU Simulator 或重建 navmesh。

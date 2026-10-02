@@ -2,17 +2,26 @@ schema: room_selection_thresholds_v1
 status: addendum1_frozen_on_calibration_before_single_holdout_evaluation
 parameters:
   floor_area_min_m2:
-    value: 6.0
-    source: 任务 R 初始阈值
-    rationale: 留出相机和两个声源的基本地面空间；使用投影并集而非面面积累加。
+    value: 4
+    source: calibration_selection.json; predeclared calibration_plan.json; same 90
+      whole houses
+    rationale: Shared measurement definition changed; select max precision subject
+      to recall >=85% and prior calibration precision minus 2 percentage points. Holdout
+      unavailable to selection.
   short_side_min_m:
-    value: 2.2
-    source: 任务 R 初始阈值
-    rationale: 最小旋转外接矩形短边，减少狭窄空间；不以 AABB 形状猜房型。
+    value: 2.4
+    source: calibration_selection.json; predeclared calibration_plan.json; same 90
+      whole houses
+    rationale: Shared measurement definition changed; select max precision subject
+      to recall >=85% and prior calibration precision minus 2 percentage points. Holdout
+      unavailable to selection.
   nav_main_area_min_m2:
-    value: 4.0
-    source: 任务 R 初始阈值
-    rationale: 0.25 米采样下的主连通导航区域面积下限。
+    value: 3
+    source: calibration_selection.json; predeclared calibration_plan.json; same 90
+      whole houses
+    rationale: Shared measurement definition changed; select max precision subject
+      to recall >=85% and prior calibration precision minus 2 percentage points. Holdout
+      unavailable to selection.
   bathroom_nav_main_area_min_m2:
     value: 1.5
     source: 任务 R 卫生间例外
@@ -195,8 +204,11 @@ parameters:
     rationale: 声源位留15厘米净空，仍要求原生navmesh支撑、原网格、三条原始扫描网格视线、1–5米距离和85度视野。
   dominant_floor_area_fraction_min:
     value: 0.98
-    source: 追加1 calibration诊断；证据见 addendum1/diagnostics 和 calibration_selection.json
-    rationale: 仅 calibration 在 [0.9, 0.95, 0.98] 中选择；先要求召回>85%、精度比旧值下降≤2个百分点，再最大化精度。主层占各簇投影并集面积之和至少98%；其余层全部保留。
+    source: calibration_selection.json; predeclared calibration_plan.json; same 90
+      whole houses
+    rationale: Shared measurement definition changed; select max precision subject
+      to recall >=85% and prior calibration precision minus 2 percentage points. Holdout
+      unavailable to selection.
   furniture_classifier:
     value: tools.rooms.room_screening.geometry.classify_category
     source: smy shared classifier; feature/smy-room-screening 4175585
@@ -204,3 +216,5 @@ parameters:
       whitelist.
 measurement_backend: tools.rooms.room_screening shared primitives; largest continuous
   local navmesh component replaces clipped grid-cell area
+freeze_status: calibration-only frozen merged protocol; historical holdout evaluation
+  ordinal 2

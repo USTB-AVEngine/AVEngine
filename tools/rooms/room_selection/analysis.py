@@ -435,6 +435,9 @@ def summarize(args, rows, inputs):
     held = set(split["holdout"])
     agree = dict(
         source=str(out / "rooms_registry.jsonl"),
+        historical_holdout_evaluation_ordinal=2,
+        evaluation_count_this_frozen_protocol=1,
+        previous_frozen_commit="82382e2",
         split_source=str(out / "house_analysis_split.json"),
         thresholds_source=str(out / "thresholds.used.yaml"),
         all=agreement(rows),
