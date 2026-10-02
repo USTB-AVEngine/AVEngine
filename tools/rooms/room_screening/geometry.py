@@ -13,30 +13,134 @@ from shapely.geometry import MultiPoint, Polygon
 from shapely.ops import unary_union
 
 GROUND_CATEGORIES = {
-    "floor", "carpet", "rug", "flooring", "floor mat", "mat", "doormat",
-    "shower floor", "bathroom floor", "bath floor",
-    "bath mat", "bathmat", "bathroom mat", "shower mat",
-    "bathroom rug", "bath carpet", "bathroom carpet",
+    "floor",
+    "carpet",
+    "rug",
+    "flooring",
+    "floor mat",
+    "mat",
+    "doormat",
+    "shower floor",
+    "bathroom floor",
+    "bath floor",
+    "bath mat",
+    "bathmat",
+    "bathroom mat",
+    "shower mat",
+    "bathroom rug",
+    "bath carpet",
+    "bathroom carpet",
 }
 BLOCKER_TERMS = (
-    "table", "chair", "armchair", "sofa", "couch", "bed", "sunbed", "lounger",
-    "recliner", "chaise", "daybed", "cabinet", "shelf",
-    "bookshelf", "bookcase", "shelving", "bedframe", "nightstand", "wardrobe",
-    "dresser", "desk", "stool", "seat", "bench", "ottoman",
-    "piano", "appliance", "refrigerator", "fridge", "oven", "stove",
-    "sink", "washbasin", "toilet", "bathtub", "shower", "counter", "countertop", "worktop", "plant", "lamp",
-    "fireplace", "washer", "dryer", "microwave", "basket", "hamper",
-    "chest", "rack", "cart", "island", "vanity", "heater", "radiator",
-    "boiler", "furnace", "playpen", "ladder", "dispenser", "trashcan",
-    "trash", "bin", "crate", "box", "stand", "machine", "urinal", "bidet",
-    "speaker stand", "vacuum", "ironing board", "flower stand", "flowerpot",
+    "table",
+    "chair",
+    "armchair",
+    "sofa",
+    "couch",
+    "bed",
+    "sunbed",
+    "lounger",
+    "recliner",
+    "chaise",
+    "daybed",
+    "cabinet",
+    "shelf",
+    "bookshelf",
+    "bookcase",
+    "shelving",
+    "bedframe",
+    "nightstand",
+    "wardrobe",
+    "dresser",
+    "desk",
+    "stool",
+    "seat",
+    "bench",
+    "ottoman",
+    "piano",
+    "appliance",
+    "refrigerator",
+    "fridge",
+    "oven",
+    "stove",
+    "sink",
+    "washbasin",
+    "toilet",
+    "bathtub",
+    "shower",
+    "counter",
+    "countertop",
+    "worktop",
+    "plant",
+    "lamp",
+    "fireplace",
+    "washer",
+    "dryer",
+    "microwave",
+    "basket",
+    "hamper",
+    "chest",
+    "rack",
+    "cart",
+    "island",
+    "vanity",
+    "heater",
+    "radiator",
+    "boiler",
+    "furnace",
+    "playpen",
+    "ladder",
+    "dispenser",
+    "trashcan",
+    "trash",
+    "bin",
+    "crate",
+    "box",
+    "stand",
+    "machine",
+    "urinal",
+    "bidet",
+    "speaker stand",
+    "vacuum",
+    "ironing board",
+    "flower stand",
+    "flowerpot",
 )
 STRUCTURAL_CATEGORIES = {
-    "wall", "ceiling", "floor", "flooring", "carpet", "rug", "floor mat", "mat", "doormat",
-    "door", "window", "door/window", "door/window frame", "door frame", "window frame",
-    "room", "region", "background", "stairs", "staircase", "stair step", "handrail",
-    "railing", "stairs railing", "balustrade", "parapet", "pillar", "beam", "support beam",
-    "partition", "window glass", "sliding glass door", "garage door", "closet door",
+    "wall",
+    "ceiling",
+    "floor",
+    "flooring",
+    "carpet",
+    "rug",
+    "floor mat",
+    "mat",
+    "doormat",
+    "door",
+    "window",
+    "door/window",
+    "door/window frame",
+    "door frame",
+    "window frame",
+    "room",
+    "region",
+    "background",
+    "stairs",
+    "staircase",
+    "stair step",
+    "handrail",
+    "railing",
+    "stairs railing",
+    "balustrade",
+    "parapet",
+    "pillar",
+    "beam",
+    "support beam",
+    "partition",
+    "window glass",
+    "sliding glass door",
+    "garage door",
+    "closet door",
 }
 
 
@@ -53,36 +157,87 @@ def classify_category(category: str) -> str:
     return "review"
 
 
-def parse_semantic_labels(path: Path) -> dict[int, dict]:
-    """Parse the HM3D semantic TXT without splitting quoted category names."""
-    labels: dict[int, dict] = {}
-    with path.open("r", encoding="utf-8", errors="replace", newline="") as stream:
-        reader = csv.reader(stream)
-        next(reader, None)
-        for row in reader:
-            if len(row) < 4:
+def parse_semantic_annotations(path: Path):
+    """Keep every annotation ID/region; ambiguous palette entries map to none.
+
+    Duplicate RGB rows are real source conflicts, not permission to overwrite
+    an instance. The selection layer retains affected regions for human review.
+    """
+    instances, colours, regions = {}, {}, {}
+    with Path(path).open("r", encoding="utf-8", errors="replace", newline="") as stream:
+        for row in csv.reader(stream, skipinitialspace=True):
+            if len(row) < 4 or not row[0].strip().isdigit():
                 continue
             try:
-                instance_id = int(row[0].strip())
-                colour_text = row[1].strip().lstrip("#").upper()
-                region_id = int(row[3].strip())
-            except (ValueError, IndexError):
+                iid, rid = int(row[0]), int(row[3])
+                text = row[1].strip().lstrip("#").upper()
+                if len(text) != 6:
+                    continue
+                code = int(text, 16)
+            except ValueError:
                 continue
-            if len(colour_text) != 6 or any(ch not in "0123456789ABCDEF" for ch in colour_text):
-                continue
-            rgb = tuple(int(colour_text[i:i + 2], 16) for i in (0, 2, 4))
             category = row[2].strip().lower()
-            labels[(rgb[0] << 16) | (rgb[1] << 8) | rgb[2]] = {
-                "instance_id": instance_id,
-                "category": category,
-                "region_id": region_id,
-                "role": classify_category(category),
-                "rgb": colour_text,
-            }
-    return labels
+            instances[iid] = dict(
+                instance_id=iid,
+                category=category,
+                region_id=rid,
+                role=classify_category(category),
+                rgb=text,
+            )
+            regions.setdefault(rid, {})
+            if code in colours and colours[code] != iid:
+                previous = colours[code]
+                colours[code] = None
+                affected = [rid] + (
+                    [instances[previous]["region_id"]] if previous is not None else []
+                )
+                for region in affected:
+                    conflicts = regions.setdefault(region, {}).setdefault(
+                        "ambiguous_colours", []
+                    )
+                    if text not in conflicts:
+                        conflicts.append(text)
+            else:
+                colours[code] = iid
+    return instances, colours, regions
 
 
-def _clip_triangle_to_y_slab(triangle: np.ndarray, low: float, high: float) -> np.ndarray:
+def parse_semantic_labels(path: Path) -> dict[int, dict]:
+    """Return only unambiguous palette mappings, using the shared CSV parser."""
+    instances, colours, _ = parse_semantic_annotations(path)
+    return {code: instances[iid] for code, iid in colours.items() if iid is not None}
+
+
+def union_projected_polygons(polygons, precision_m=0.001):
+    """Measure an unrounded union; use an explicit precision repair on GEOS failure.
+
+    Normally smy's unrounded projected geometry is retained. Near-degenerate
+    scan triangles occasionally need the same 1 mm precision repair used by
+    the former selection tool. Repairs are printed in the per-house log.
+    """
+    import shapely
+
+    if not len(polygons):
+        return Polygon()
+    try:
+        return unary_union(polygons)
+    except shapely.errors.GEOSException as exc:
+        print(
+            "SHARED_PROJECTED_UNION_PRECISION_REPAIR",
+            len(polygons),
+            str(exc),
+            flush=True,
+        )
+        snapped = shapely.set_precision(polygons, precision_m, mode="valid_output")
+        result = shapely.union_all(snapped, grid_size=precision_m)
+        if not result.is_valid:
+            raise ValueError("shared projected union repair invalid") from exc
+        return result
+
+
+def _clip_triangle_to_y_slab(
+    triangle: np.ndarray, low: float, high: float
+) -> np.ndarray:
     """Return vertices of a triangle clipped to a closed horizontal y slab."""
     polygon = [np.asarray(point, dtype=np.float64) for point in triangle]
     for bound, keep_above in ((low, True), (high, False)):
@@ -164,7 +319,7 @@ def shape_preserving_projected_footprint(
                 projected_faces.append(polygon)
     if not projected_faces:
         return Polygon()
-    surface = unary_union(projected_faces)
+    surface = union_projected_polygons(projected_faces)
     components = list(surface.geoms) if hasattr(surface, "geoms") else [surface]
     filled = []
     for component in components:
@@ -179,7 +334,7 @@ def shape_preserving_projected_footprint(
             filled.append(polygon)
     if not filled:
         return Polygon()
-    result = unary_union(filled)
+    result = union_projected_polygons(filled)
     return result if result.geom_type in {"Polygon", "MultiPolygon"} else Polygon()
 
 
@@ -204,8 +359,12 @@ def projected_unmapped_surface_union(
     relevant = (tri[:, :, 1].max(axis=1) >= low) & (tri[:, :, 1].min(axis=1) <= high)
     if query_bounds is not None:
         qxmin, qzmin, qxmax, qzmax = query_bounds
-        relevant &= (tri[:, :, 0].max(axis=1) >= qxmin) & (tri[:, :, 0].min(axis=1) <= qxmax)
-        relevant &= (tri[:, :, 2].max(axis=1) >= qzmin) & (tri[:, :, 2].min(axis=1) <= qzmax)
+        relevant &= (tri[:, :, 0].max(axis=1) >= qxmin) & (
+            tri[:, :, 0].min(axis=1) <= qxmax
+        )
+        relevant &= (tri[:, :, 2].max(axis=1) >= qzmin) & (
+            tri[:, :, 2].min(axis=1) <= qzmax
+        )
     polygons = []
     for triangle in tri[relevant]:
         clipped = _clip_triangle_to_y_slab(triangle, low, high)
@@ -214,7 +373,7 @@ def projected_unmapped_surface_union(
         polygon = MultiPoint(clipped[:, (0, 2)]).convex_hull
         if polygon.geom_type == "Polygon" and polygon.area > 1e-10:
             polygons.append(polygon)
-    return unary_union(polygons) if polygons else Polygon()
+    return union_projected_polygons(polygons)
 
 
 def load_semantic_ground_and_instances(scene_dir: Path, scene_id: str):
@@ -240,36 +399,56 @@ def load_semantic_ground_and_instances(scene_dir: Path, scene_id: str):
     scene = extract_triangle_scene_document(document)
     linear, _mixed = triangle_vertex_colours(document, scene)
     face_colours = _linear_to_srgb_bytes(linear).astype(np.int64)
-    colour_codes = (face_colours[:, 0] << 16) | (face_colours[:, 1] << 8) | face_colours[:, 2]
+    colour_codes = (
+        (face_colours[:, 0] << 16) | (face_colours[:, 1] << 8) | face_colours[:, 2]
+    )
     corners = scene.vertices[scene.triangles.astype(np.int64)].astype(np.float64)
     corners = np.stack((corners[..., 0], corners[..., 2], -corners[..., 1]), axis=-1)
 
-    unique_codes, inverse, counts = np.unique(colour_codes, return_inverse=True, return_counts=True)
+    unique_codes, inverse, counts = np.unique(
+        colour_codes, return_inverse=True, return_counts=True
+    )
     order = np.argsort(inverse, kind="stable")
     starts = np.concatenate(([0], np.cumsum(counts)))
     ground_faces = defaultdict(list)
-    all_regions = set()
+    all_regions = set(parse_semantic_annotations(semantic_txt)[2])
     instance_groups = defaultdict(list)
     instance_metadata = {}
     unmapped_groups = []
     unmapped_face_count = 0
     unmapped_colour_count = 0
+    ambiguous_codes = {
+        code
+        for code, iid in parse_semantic_annotations(semantic_txt)[1].items()
+        if iid is None
+    }
     palette_codes = np.asarray(sorted(labels), dtype=np.int64)
-    palette = np.asarray([
-        ((code >> 16) & 255, (code >> 8) & 255, code & 255)
-        for code in palette_codes
-    ], dtype=np.int64)
+    palette = np.asarray(
+        [((code >> 16) & 255, (code >> 8) & 255, code & 255) for code in palette_codes],
+        dtype=np.int64,
+    )
     for group_index, code in enumerate(unique_codes):
         first, last = int(starts[group_index]), int(starts[group_index + 1])
         group_triangles = corners[order[first:last]]
         label = labels.get(int(code))
-        if label is None and int(code) != 0 and len(palette):
-            colour = np.asarray(((int(code) >> 16) & 255, (int(code) >> 8) & 255, int(code) & 255), dtype=np.int64)
+        if (
+            label is None
+            and int(code) != 0
+            and int(code) not in ambiguous_codes
+            and len(palette)
+        ):
+            colour = np.asarray(
+                ((int(code) >> 16) & 255, (int(code) >> 8) & 255, int(code) & 255),
+                dtype=np.int64,
+            )
             distances = np.max(np.abs(palette - colour), axis=1)
             nearest = int(np.argmin(distances))
             # Match the ±2 channel tolerance already used by AVEngine's HM3D
             # semantic loader for color-space rounding drift.
-            if int(distances[nearest]) <= 2:
+            if (
+                int(distances[nearest]) <= 2
+                and int(np.sum(distances == distances[nearest])) == 1
+            ):
                 label = labels[int(palette_codes[nearest])]
         if label is None:
             unmapped_face_count += last - first
@@ -286,11 +465,13 @@ def load_semantic_ground_and_instances(scene_dir: Path, scene_id: str):
                 poly = Polygon(face[:, (0, 2)])
                 if poly.is_empty or poly.area <= 1e-10:
                     continue
-                ground_faces[region_id].append({
-                    "polygon": poly,
-                    "ys": float(face[:, 1].mean()),
-                    "category": label["category"],
-                })
+                ground_faces[region_id].append(
+                    {
+                        "polygon": poly,
+                        "ys": float(face[:, 1].mean()),
+                        "category": label["category"],
+                    }
+                )
             continue
         if label["role"] not in {"blocker", "review"}:
             continue
@@ -300,14 +481,17 @@ def load_semantic_ground_and_instances(scene_dir: Path, scene_id: str):
     instances = []
     for key, chunks in instance_groups.items():
         metadata = instance_metadata[key]
-        instances.append({
-            **metadata,
-            "triangles": np.concatenate(chunks, axis=0),
-            "face_count": int(sum(len(chunk) for chunk in chunks)),
-        })
+        instances.append(
+            {
+                **metadata,
+                "triangles": np.concatenate(chunks, axis=0),
+                "face_count": int(sum(len(chunk) for chunk in chunks)),
+            }
+        )
     unmapped_triangles = (
         np.concatenate(unmapped_groups, axis=0)
-        if unmapped_groups else np.empty((0, 3, 3), dtype=np.float64)
+        if unmapped_groups
+        else np.empty((0, 3, 3), dtype=np.float64)
     )
     return (
         ground_faces,

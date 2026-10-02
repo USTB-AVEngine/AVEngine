@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from tools.rooms.emit_hm3d_room_manifest import inventory_rooms
+from .geometry import parse_semantic_annotations
 from avengine.rooms.habitat_capture import prepare_installed_habitat_runtime
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
@@ -22,7 +23,8 @@ def load_houses(houses_file: Path | None, repeated: list[str] | None) -> list[st
     houses = list(repeated or [])
     if houses_file:
         houses.extend(
-            line.strip() for line in houses_file.read_text(encoding="utf-8").splitlines()
+            line.strip()
+            for line in houses_file.read_text(encoding="utf-8").splitlines()
             if line.strip() and not line.lstrip().startswith("#")
         )
     result = list(dict.fromkeys(houses))
@@ -83,29 +85,57 @@ def build_inventory(houses: list[str], dataset_root: Path, habitat_sim) -> dict:
                 issue_codes.append(f"semantic_inventory_failed:{type(error).__name__}")
         else:
             issue_codes.append("annotation_missing")
+        annotation_regions = {}
+        if semantic_txt.is_file():
+            _, _, annotation_regions = parse_semantic_annotations(semantic_txt)
+        measured_rooms = {
+            int(room["region_id"]): room for room in (room_doc or {}).get("rooms", [])
+        }
+        # Mesh success is not the denominator: no-floor and ambiguous regions
+        # remain registered from annotation IDs, with unavailable metrics.
+        registered_rooms = [
+            measured_rooms.get(rid, {"region_id": rid})
+            for rid in sorted(set(annotation_regions) | set(measured_rooms))
+        ]
         complete = navmesh_loaded and room_doc is not None
-        scene_rows.append({
-            "house": house,
-            "split": split,
-            "input_status": "complete" if complete else "unassessable",
-            "issue_codes": issue_codes,
-            "navmesh": {
-                "loaded": navmesh_loaded,
-                "navmesh_settings": navmesh_settings or {},
-            },
-            "source_room_count": len(room_doc.get("rooms", [])) if room_doc else 0,
-        })
-        for room in (room_doc or {}).get("rooms", []):
-            region_rows.append({
+        scene_rows.append(
+            {
                 "house": house,
-                "region_id": room["region_id"],
-                "bbox_xz_m": room.get("bbox_xz_m"),
-                "floor_y_m": room.get("floor_y_m"),
-                "source_floor_area_m2": room.get("floor_area_m2"),
-                "source_top_categories": room.get("top_categories", []),
-            })
+                "split": split,
+                "input_status": "complete" if complete else "unassessable",
+                "issue_codes": issue_codes,
+                "navmesh": {
+                    "loaded": navmesh_loaded,
+                    "navmesh_settings": navmesh_settings or {},
+                },
+                "source_room_count": len(registered_rooms),
+                "mesh_inventory_room_count": len(measured_rooms),
+            }
+        )
+        for room in registered_rooms:
+            region_rows.append(
+                {
+                    "house": house,
+                    "region_id": room["region_id"],
+                    "bbox_xz_m": room.get("bbox_xz_m"),
+                    "floor_y_m": room.get("floor_y_m"),
+                    "source_floor_area_m2": room.get("floor_area_m2"),
+                    "source_top_categories": room.get("top_categories", []),
+                    "semantic_region_present": room["region_id"] in annotation_regions,
+                    "annotation_diagnostics": annotation_regions.get(
+                        room["region_id"], {}
+                    ),
+                    "geometry_inventory_status": (
+                        "available"
+                        if room["region_id"] in measured_rooms
+                        else "unavailable"
+                    ),
+                }
+            )
         status = "ready" if complete else f"unassessable ({','.join(issue_codes)})"
-        print(f"{house}: {len((room_doc or {}).get('rooms', []))} semantic regions; {status}", flush=True)
+        print(
+            f"{house}: {len(registered_rooms)} semantic regions; {status}", flush=True
+        )
     return {
         "schema_version": "room_screening_input_inventory_v1",
         "created_at_utc": datetime.now(timezone.utc).isoformat(),
@@ -119,20 +149,42 @@ def build_inventory(houses: list[str], dataset_root: Path, habitat_sim) -> dict:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--houses-file", type=Path, help="UTF-8 file with one HM3D house ID per line")
-    parser.add_argument("--house", action="append", help="one HM3D house ID; repeatable")
-    parser.add_argument("--dataset-root", type=Path, required=True,
-                        help="external HM3D root containing train/, val/, etc.")
-    parser.add_argument("--runtime-prefix", default=os.environ.get("AVENGINE_HABITAT_RUNTIME_PREFIX"))
-    parser.add_argument("--magnum-python-site", default=os.environ.get("AVENGINE_HABITAT_MAGNUM_PYTHON_SITE"))
+    parser.add_argument(
+        "--houses-file", type=Path, help="UTF-8 file with one HM3D house ID per line"
+    )
+    parser.add_argument(
+        "--house", action="append", help="one HM3D house ID; repeatable"
+    )
+    parser.add_argument(
+        "--dataset-root",
+        type=Path,
+        required=True,
+        help="external HM3D root containing train/, val/, etc.",
+    )
+    parser.add_argument(
+        "--runtime-prefix", default=os.environ.get("AVENGINE_HABITAT_RUNTIME_PREFIX")
+    )
+    parser.add_argument(
+        "--magnum-python-site",
+        default=os.environ.get("AVENGINE_HABITAT_MAGNUM_PYTHON_SITE"),
+    )
     parser.add_argument("--mp3d-root", default=os.environ.get("AVENGINE_MP3D_ROOT"))
-    parser.add_argument("--rlr-sdk-root", default=os.environ.get("AVENGINE_RLR_SDK_ROOT"),
-                        help="Optional external RLR SDK root (or AVENGINE_RLR_SDK_ROOT)")
-    parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT,
-                        help="output JSON; default is repository tmp/room_screening/")
+    parser.add_argument(
+        "--rlr-sdk-root",
+        default=os.environ.get("AVENGINE_RLR_SDK_ROOT"),
+        help="Optional external RLR SDK root (or AVENGINE_RLR_SDK_ROOT)",
+    )
+    parser.add_argument(
+        "--output",
+        type=Path,
+        default=DEFAULT_OUTPUT,
+        help="output JSON; default is repository tmp/room_screening/",
+    )
     args = parser.parse_args()
     if not (args.runtime_prefix and args.magnum_python_site and args.mp3d_root):
-        parser.error("supply Habitat runtime, Magnum Python site, and MP3D root explicitly or via AVENGINE_* environment variables")
+        parser.error(
+            "supply Habitat runtime, Magnum Python site, and MP3D root explicitly or via AVENGINE_* environment variables"
+        )
     try:
         houses = load_houses(args.houses_file, args.house)
     except (OSError, ValueError) as error:
@@ -150,9 +202,13 @@ def main() -> None:
     result = build_inventory(houses, dataset_root, runtime.habitat_sim)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     temporary = args.output.with_suffix(args.output.suffix + ".tmp")
-    temporary.write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    temporary.write_text(
+        json.dumps(result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
     os.replace(temporary, args.output)
-    print(f"Wrote {len(result['scenes'])} scenes / {len(result['regions'])} regions to {args.output}")
+    print(
+        f"Wrote {len(result['scenes'])} scenes / {len(result['regions'])} regions to {args.output}"
+    )
 
 
 if __name__ == "__main__":

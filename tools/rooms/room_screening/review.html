@@ -65,6 +65,8 @@ main{max-width:1700px;margin:auto;padding:0 20px 26px}.toolbar{display:flex;alig
     <h2 id="sampleTitle">样本信息</h2>
     <div class="callout" id="purpose"></div>
     <div class="metrics" id="metrics"></div>
+    <div class="callout" id="automaticInfo"></div>
+    <div id="splitOverlays" class="toolbar"></div>
     <div class="two-cols">
       <div class="callout"><b>范围说明</b><div id="scopeNote"></div></div>
       <div class="callout warning"><b>需要核对</b><div id="reviewNote"></div></div>
@@ -74,6 +76,8 @@ main{max-width:1700px;margin:auto;padding:0 20px 26px}.toolbar{display:flex;alig
     <h2>抽查反馈</h2>
     <div class="tip">选项用于快速归类；请把具体问题写在备注里。反馈自动保存到本地运行输出，不写正式审核 verdict。</div>
     <div class="choices" id="choices"></div>
+    <div class="choices" id="reasonChoices"></div>
+    <label>审核人 <input id="reviewer" class="jump" placeholder="填写姓名或审核代号"></label>
     <textarea id="note" placeholder="写下漏算、多算、范围或连接问题；备注会自动保存"></textarea>
     <div class="save-state" id="saveState">尚未修改。</div>
     <div class="bottom-nav"><button id="nextBottom">下一个样本 →</button></div>
@@ -86,7 +90,7 @@ const defaults=["整体大体正确","漏算了可行地面","家具/桌面误�
 let manifest=null,items=[],feedback={},index=0,geometryCache=new Map(),saveTimer=null;
 const itemId=item=>item.id;
 const fmt=(v,n=2)=>{const x=Number(v);return v===null||v===undefined||v===""||!Number.isFinite(x)?"未评估":x.toFixed(n)};
-const assetUrl=relative=>'/asset/'+String(relative||'').split('/').map(encodeURIComponent).join('/');
+const assetUrl=(relative,root='asset')=>'/'+root+'/'+String(relative||'').split('/').map(encodeURIComponent).join('/');
 const itemGeometry=async item=>{
   if(!item.geometry_file)return null;
   if(geometryCache.has(item.id))return geometryCache.get(item.id);
@@ -161,6 +165,14 @@ function renderMetrics(item){
 function renderFeedback(item){
   const saved=feedback[itemId(item)]||{};const options=manifest.choices?.length?manifest.choices:defaults;
   byId('choices').replaceChildren(...options.map(choice=>{const button=document.createElement('button');button.type='button';button.textContent=choice;if(saved.assessment===choice)button.classList.add('selected');button.onclick=()=>{feedback[itemId(item)]={...feedback[itemId(item)],assessment:choice};renderFeedback(item);saveFeedback(item);};return button;}));
+  byId('reasonChoices').replaceChildren(...Object.entries(manifest.reason_catalog||{}).map(([code,label])=>{
+    const button=document.createElement('button');button.type='button';button.textContent=label;
+    if((saved.reason_codes||[]).includes(code))button.classList.add('selected');
+    button.onclick=()=>{const current=feedback[itemId(item)]||{};const reasons=new Set(current.reason_codes||[]);
+      if(reasons.has(code))reasons.delete(code);else reasons.add(code);
+      feedback[itemId(item)]={...current,reason_codes:[...reasons]};renderFeedback(item);saveFeedback(item);};return button;
+  }));
+  byId('reviewer').value=saved.reviewer||'';byId('reviewer').oninput=()=>{feedback[itemId(item)]={...feedback[itemId(item)],reviewer:byId('reviewer').value};saveFeedback(item);};
   byId('note').value=saved.note||'';byId('note').oninput=()=>{feedback[itemId(item)]={...feedback[itemId(item)],note:byId('note').value};saveFeedback(item);};
   byId('saveState').textContent=saved.updated_at?'已保存 '+saved.updated_at+'（独立抽查反馈）':'尚未修改。';
 }
@@ -173,15 +185,21 @@ function render(){
   byId('scopeNote').textContent=item.scope_note||'青色实线是语义地面外缘提示，不是经核实的墙体边界；AABB 只是包围框。';
   byId('reviewNote').textContent=item.review_note||item.warning||'请结合原始 RGB 核对范围、家具占地和区域连接。';
   renderMetrics(item);renderFeedback(item);
+  byId('automaticInfo').textContent=manifest.blind_second_reviewer?'第二审核人独立判断；自动提示已隐藏。':
+    `自动：${item.automatic?.status||'未评估'}；原因：${(item.automatic?.reason_codes||[]).join(', ')||'无'}；房门禁：${item.gate?.status||'未评估'}；第二审核名单：${item.second_review?'是':'否'}；单元：${item.unit_kind||'原区域'}`;
+  byId('splitOverlays').replaceChildren(...(item.split_overlay_files||[]).map((path,i)=>{
+    const link=document.createElement('a');link.href=assetUrl(path);link.target='_blank';link.textContent='切分叠加 '+(i+1);return link;
+  }));
   const raw=byId('leftImage'),video=byId('leftVideo');
   video.pause();video.removeAttribute('src');video.classList.add('hidden');
   raw.classList.add('hidden');video.classList.add('hidden');
   byId('leftStatus').textContent='正在加载……';byId('leftStatus').classList.remove('hidden');
   raw.onerror=()=>{byId('leftStatus').textContent='原始图加载失败';byId('leftStatus').classList.remove('hidden');};
   raw.onload=()=>byId('leftStatus').classList.add('hidden');
-  raw.src=assetUrl(item.image_file);
-  byId('rightImage').onload=draw;byId('rightImage').onerror=()=>byId('imageStatus').textContent='底图加载失败';byId('rightImage').src=assetUrl(item.image_file);
-  if(item.video_file){video.src=assetUrl(item.video_file);video.loop=false;video.autoplay=true;video.onloadeddata=()=>byId('leftStatus').classList.add('hidden');video.onerror=()=>{byId('leftStatus').textContent='视频加载失败';byId('leftStatus').classList.remove('hidden');};video.classList.remove('hidden');video.onended=()=>byId('videoStatus').textContent='已播放完毕；可手动重播。';byId('leftHeading').textContent='左侧：中心视点环视视频';}
+  if(item.image_file){raw.src=assetUrl(item.image_file);byId('rightImage').classList.remove('hidden');}
+  else{raw.removeAttribute('src');byId('rightImage').removeAttribute('src');byId('rightImage').classList.add('hidden');byId('overlay').getContext('2d').clearRect(0,0,byId('overlay').width,byId('overlay').height);byId('leftStatus').textContent=item.image_missing_reason||'原始图缺失';}
+  byId('rightImage').onload=draw;byId('rightImage').onerror=()=>byId('imageStatus').textContent='底图加载失败';if(item.image_file)byId('rightImage').src=assetUrl(item.image_file);else byId('imageStatus').textContent=item.image_missing_reason||'原始图缺失';
+  if(item.video_file){video.src=assetUrl(item.video_file,item.video_asset_root==='media'?'media':'asset');video.loop=false;video.autoplay=true;video.onloadeddata=()=>byId('leftStatus').classList.add('hidden');video.onerror=()=>{byId('leftStatus').textContent='视频加载失败';byId('leftStatus').classList.remove('hidden');};video.classList.remove('hidden');video.onended=()=>byId('videoStatus').textContent='已播放完毕；可手动重播。';byId('leftHeading').textContent='左侧：中心视点环视视频';}
   else{raw.classList.remove('hidden');video.onended=null;byId('videoStatus').textContent='';byId('leftHeading').textContent='左侧：Habitat 原始俯视 RGB';}
   for(const id of ['layerGround','layerNav','layerCandidate','layerBlockers','layerGap','layerUnknown','layerAabb'])byId(id).onchange=draw;
   itemGeometry(item).then(draw).catch(error=>byId('imageStatus').textContent='图层加载失败：'+error.message);
@@ -190,7 +208,7 @@ function render(){
 async function saveFeedback(item){
   clearTimeout(saveTimer);byId('saveState').textContent='保存中……';
   saveTimer=setTimeout(async()=>{
-    const record=feedback[itemId(item)];record.updated_at=new Date().toLocaleString('zh-CN',{hour12:false});
+    const record=feedback[itemId(item)];record.updated_at=new Date().toLocaleString('zh-CN',{hour12:false,timeZone:'Asia/Singapore'})+' SGT';
     try{const response=await fetch('/api/feedback',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:itemId(item),feedback:record})});if(!response.ok)throw new Error('HTTP '+response.status);byId('saveState').textContent='已自动保存 '+record.updated_at+'（仅本地抽查记录）';}
     catch(error){byId('saveState').textContent='保存失败：'+error.message;}
   },350);

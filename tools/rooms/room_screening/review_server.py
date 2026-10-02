@@ -28,7 +28,7 @@ def child_file(root: Path, relative: str) -> Path | None:
     return candidate if candidate.is_file() else None
 
 
-def read_manifest(path: Path, asset_root: Path) -> dict:
+def read_manifest(path: Path, asset_root: Path, media_root: Path | None = None) -> dict:
     manifest = json.loads(path.read_text(encoding="utf-8"))
     if manifest.get("schema_version") != SCHEMA_VERSION:
         raise ValueError(f"manifest schema_version must be {SCHEMA_VERSION!r}")
@@ -44,12 +44,32 @@ def read_manifest(path: Path, asset_root: Path) -> dict:
             raise ValueError(f"items[{index}].id must be a non-empty string")
         ids.append(item_id)
         image = item.get("image_file")
-        if not isinstance(image, str) or child_file(asset_root, image) is None:
-            raise ValueError(f"items[{index}].image_file is missing or outside asset root")
+        if image is None and item.get("image_missing_reason"):
+            pass
+        elif not isinstance(image, str) or child_file(asset_root, image) is None:
+            raise ValueError(
+                f"items[{index}].image_file is missing or outside asset root"
+            )
         for key in ("geometry_file", "video_file"):
             value = item.get(key)
-            if value is not None and (not isinstance(value, str) or child_file(asset_root, value) is None):
-                raise ValueError(f"items[{index}].{key} is missing or outside asset root")
+            root = (
+                media_root
+                if key == "video_file" and item.get("video_asset_root") == "media"
+                else asset_root
+            )
+            if value is not None and (
+                root is None
+                or not isinstance(value, str)
+                or child_file(root, value) is None
+            ):
+                raise ValueError(
+                    f"items[{index}].{key} is missing or outside asset root"
+                )
+        for overlay in item.get("split_overlay_files", []):
+            if not isinstance(overlay, str) or child_file(asset_root, overlay) is None:
+                raise ValueError(
+                    f"items[{index}].split_overlay_files outside root or missing"
+                )
     if len(ids) != len(set(ids)):
         raise ValueError("manifest item IDs must be unique")
     choices = manifest.get("choices", [])
@@ -59,7 +79,14 @@ def read_manifest(path: Path, asset_root: Path) -> dict:
 
 
 class ReviewApp:
-    def __init__(self, manifest_path: Path, asset_root: Path, feedback_path: Path):
+    def __init__(
+        self,
+        manifest_path: Path,
+        asset_root: Path,
+        feedback_path: Path,
+        media_root: Path | None = None,
+        blind_second: bool = False,
+    ):
         self.manifest_path = manifest_path.expanduser().resolve()
         self.asset_root = asset_root.expanduser().resolve()
         self.feedback_path = feedback_path.expanduser()
@@ -71,13 +98,60 @@ class ReviewApp:
             raise FileNotFoundError(f"manifest not found: {self.manifest_path}")
         if not self.asset_root.is_dir():
             raise NotADirectoryError(f"asset root not found: {self.asset_root}")
-        self.manifest = read_manifest(self.manifest_path, self.asset_root)
+        self.media_root = media_root.expanduser().resolve() if media_root else None
+        self.manifest = read_manifest(
+            self.manifest_path, self.asset_root, self.media_root
+        )
+        if blind_second:
+            # Remove hints at the API boundary, not only in the browser.
+            allowed = {
+                "id",
+                "house",
+                "label",
+                "title",
+                "image_file",
+                "image_missing_reason",
+                "video_file",
+                "video_asset_root",
+                "second_review",
+                "unit_kind",
+            }
+            self.manifest["items"] = [
+                {k: v for k, v in item.items() if k in allowed}
+                for item in self.manifest["items"]
+                if item.get("second_review")
+            ]
+            if not self.manifest["items"]:
+                raise ValueError("no original rooms in second-review sample")
+            self.manifest["purpose"] = (
+                "第二审核人独立判断；第一次结论、自动原因、指标、切分与门禁已隐藏。"
+            )
+            self.manifest["source_note"] = "固定名单；反馈只写指定的独立输出。"
+            self.manifest["blind_second_reviewer"] = True
         self.allowed_ids = {item["id"] for item in self.manifest["items"]}
+        self.allowed_assets = set()
+        self.allowed_media = set()
+        for item in self.manifest["items"]:
+            self.allowed_assets.update(
+                value
+                for key in ("image_file", "geometry_file")
+                if (value := item.get(key))
+            )
+            self.allowed_assets.update(item.get("split_overlay_files", []))
+            if item.get("video_file"):
+                target = (
+                    self.allowed_media
+                    if item.get("video_asset_root") == "media"
+                    else self.allowed_assets
+                )
+                target.add(item["video_file"])
         self.choices = set(self.manifest.get("choices", []))
         self.lock = threading.Lock()
 
     @staticmethod
-    def send_bytes(handler, data: bytes, content_type: str, status: int = 200, headers=None):
+    def send_bytes(
+        handler, data: bytes, content_type: str, status: int = 200, headers=None
+    ):
         handler.send_response(status)
         handler.send_header("Content-Type", content_type)
         handler.send_header("Content-Length", str(len(data)))
@@ -141,13 +215,34 @@ class ReviewApp:
         if path in ("/", "/review.html"):
             return self.send_file(handler, UI_PATH)
         if path == "/api/manifest":
-            return self.send_bytes(handler, json.dumps(self.manifest, ensure_ascii=False).encode(),
-                                   "application/json; charset=utf-8")
+            return self.send_bytes(
+                handler,
+                json.dumps(self.manifest, ensure_ascii=False).encode(),
+                "application/json; charset=utf-8",
+            )
         if path == "/api/feedback":
-            data = self.feedback_path.read_bytes() if self.feedback_path.is_file() else b"{}"
+            data = (
+                self.feedback_path.read_bytes()
+                if self.feedback_path.is_file()
+                else b"{}"
+            )
             return self.send_bytes(handler, data, "application/json; charset=utf-8")
+        if path.startswith("/media/") and self.media_root is not None:
+            relative = path[len("/media/") :]
+            file_path = (
+                child_file(self.media_root, relative)
+                if relative in self.allowed_media
+                else None
+            )
+            if file_path is not None:
+                return self.send_file(handler, file_path)
         if path.startswith("/asset/"):
-            file_path = child_file(self.asset_root, path[len("/asset/"):])
+            relative = path[len("/asset/") :]
+            file_path = (
+                child_file(self.asset_root, relative)
+                if relative in self.allowed_assets
+                else None
+            )
             if file_path is not None:
                 return self.send_file(handler, file_path)
         return self.send_bytes(handler, b"Not found", "text/plain; charset=utf-8", 404)
@@ -169,21 +264,40 @@ class ReviewApp:
                 raise ValueError("note exceeds 5000 characters")
             if self.choices and assessment and assessment not in self.choices:
                 raise ValueError("assessment is not listed in manifest choices")
+            reason_codes = feedback.get("reason_codes", [])
+            catalog = self.manifest.get("reason_catalog", {})
+            if not isinstance(reason_codes, list) or any(
+                not isinstance(code, str) or code not in catalog
+                for code in reason_codes
+            ):
+                raise ValueError("reason_codes must come from manifest reason_catalog")
             row = {
                 "assessment": assessment,
                 "note": note,
+                "reason_codes": list(dict.fromkeys(reason_codes)),
+                "reviewer": str(feedback.get("reviewer", ""))[:100],
                 "updated_at": str(feedback.get("updated_at", ""))[:100],
             }
             with self.lock:
-                current = json.loads(self.feedback_path.read_text()) if self.feedback_path.is_file() else {}
+                current = (
+                    json.loads(self.feedback_path.read_text())
+                    if self.feedback_path.is_file()
+                    else {}
+                )
                 current[item_id] = row
                 self.feedback_path.parent.mkdir(parents=True, exist_ok=True)
-                temporary = self.feedback_path.with_suffix(self.feedback_path.suffix + ".tmp")
-                temporary.write_text(json.dumps(current, ensure_ascii=False, indent=2) + "\n")
+                temporary = self.feedback_path.with_suffix(
+                    self.feedback_path.suffix + ".tmp"
+                )
+                temporary.write_text(
+                    json.dumps(current, ensure_ascii=False, indent=2) + "\n"
+                )
                 os.replace(temporary, self.feedback_path)
             self.send_bytes(handler, b'{"ok":true}', "application/json; charset=utf-8")
         except Exception as error:
-            body = json.dumps({"ok": False, "error": str(error)}, ensure_ascii=False).encode()
+            body = json.dumps(
+                {"ok": False, "error": str(error)}, ensure_ascii=False
+            ).encode()
             self.send_bytes(handler, body, "application/json; charset=utf-8", 400)
 
 
@@ -211,17 +325,49 @@ def make_handler(app: ReviewApp):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--manifest", type=Path, required=True, help="review batch JSON manifest")
-    parser.add_argument("--asset-root", type=Path, required=True, help="root for image/video/geometry files")
-    parser.add_argument("--feedback", type=Path, default=DEFAULT_FEEDBACK,
-                        help="autosave JSON path; default is repository tmp/room_screening/")
-    parser.add_argument("--host", default="127.0.0.1", help="bind locally; do not expose review notes publicly")
+    parser.add_argument(
+        "--manifest", type=Path, required=True, help="review batch JSON manifest"
+    )
+    parser.add_argument(
+        "--asset-root",
+        type=Path,
+        required=True,
+        help="root for image/video/geometry files",
+    )
+    parser.add_argument(
+        "--feedback",
+        type=Path,
+        default=DEFAULT_FEEDBACK,
+        help="autosave JSON path; default is repository tmp/room_screening/",
+    )
+    parser.add_argument(
+        "--media-root", type=Path, help="explicit read-only tour video root"
+    )
+    parser.add_argument(
+        "--blind-second-reviewer",
+        action="store_true",
+        help="serve only fixed second sample; hide all first/automatic hints",
+    )
+    parser.add_argument(
+        "--host",
+        default="127.0.0.1",
+        help="bind locally; do not expose review notes publicly",
+    )
     parser.add_argument("--port", type=int, default=8772)
     args = parser.parse_args()
-    app = ReviewApp(args.manifest, args.asset_root, args.feedback)
+    app = ReviewApp(
+        args.manifest,
+        args.asset_root,
+        args.feedback,
+        args.media_root,
+        args.blind_second_reviewer,
+    )
     server = ThreadingHTTPServer((args.host, args.port), make_handler(app))
     print(f"Room review page: http://{args.host}:{server.server_port}/", flush=True)
-    print(f"Loaded {len(app.manifest['items'])} items; feedback path: {app.feedback_path}", flush=True)
+    print(
+        f"Loaded {len(app.manifest['items'])} items; feedback path: {app.feedback_path}",
+        flush=True,
+    )
     server.serve_forever()
 
 
