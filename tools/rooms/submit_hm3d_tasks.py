@@ -25,6 +25,11 @@ Usage:
 
 from __future__ import annotations
 
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from tools.rooms.runtime_config import (RUNTIME_PREFIX, MAGNUM_SITE, RLR_SDK_ROOT, MP3D_ROOT, TASKS_ROOT, MEDIA_ROOT, ROOM_PYTHON)
+
 import argparse
 import json
 import sys
@@ -33,7 +38,7 @@ import urllib.request
 from pathlib import Path
 
 API = "http://localhost:8765"
-TASKS_ROOT = Path("/data/avengine_external/studio/tasks")
+TASKS_ROOT = Path(str(TASKS_ROOT))
 TEMPLATE = "hm3d_end_to_end"
 
 

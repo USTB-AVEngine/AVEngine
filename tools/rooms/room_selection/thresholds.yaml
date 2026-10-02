@@ -1,0 +1,152 @@
+schema: room_selection_thresholds_v1
+status: initial_task_R_frozen_before_holdout
+# All numerical decisions are project choices, not published dataset standards.
+parameters:
+  floor_area_min_m2:
+    value: 6.0
+    source: 任务 R 初始阈值
+    rationale: 留出相机和两个声源的基本地面空间；使用投影并集而非面面积累加。
+  short_side_min_m:
+    value: 2.2
+    source: 任务 R 初始阈值
+    rationale: 最小旋转外接矩形短边，减少狭窄空间；不以 AABB 形状猜房型。
+  nav_main_area_min_m2:
+    value: 4.0
+    source: 任务 R 初始阈值
+    rationale: 0.25 米采样下的主连通导航区域面积下限。
+  bathroom_nav_main_area_min_m2:
+    value: 1.5
+    source: 任务 R 卫生间例外
+    rationale: 卫生间可较紧凑；仍须通过其余面积、形状和摆放检查。
+  black_fraction_max:
+    value: 0.15
+    source: 任务 R 初始阈值
+    rationale: 只测语义地面多边形内像素，不把统一取景边缘当缺损；黑色纹理可能误报，保留人工审核。
+  black_pixel_channel_lt:
+    value: 8
+    source: smy render_review_overheads.py 的既有黑像素定义
+    rationale: RGB 三通道都小于 8；保存定义便于复算，不等同真实扫描缺损率。
+  floor_height_separation_m:
+    value: 0.3
+    source: 任务 R 楼层拆分阈值
+    rationale: 每层成员面重心高度跨度不超过此值，避免连续阶梯把楼层串在一起。
+  grid_step_m:
+    value: 0.25
+    source: 任务 R 导航采样要求和 smy experiment_split_room.py
+    rationale: 固定世界网格中心；面积按采样格与地面多边形的交集估算。
+  nav_snap_horizontal_max_m:
+    value: 0.12
+    source: 本流程采样实现预先选择
+    rationale: 小于半格，防止吸附穿墙或跨到邻格；不是新生成 navmesh 的代理半径。
+  clearance_min_m:
+    value: 0.5
+    source: 任务 R 净空要求
+    rationale: 记录净空达标比例，并在达标点中搜索三点摆放证据；比例本身不另设淘汰阈值。
+  camera_height_m:
+    value: 1.5
+    source: smy render_room_tour.py 和 experiment_split_room.py 默认值
+    rationale: 从导航支撑点上抬升相机；该高度属于几何检验代理。
+  source_height_m:
+    value: 1.2
+    source: smy experiment_split_room.py 默认值
+    rationale: 从导航支撑点上抬升声源；不声称声学已验。
+  camera_hfov_deg:
+    value: 85.0
+    source: 任务 R 摆放要求
+    rationale: 允许相机指向两条视线的角平分线，水平夹角不超过 85 度。
+  distance_min_m:
+    value: 1.0
+    source: 任务 R 摆放要求
+    rationale: 三点两两距离下限，防止两个声源几乎重合产生退化可行性。
+  distance_max_m:
+    value: 5.0
+    source: 任务 R 摆放要求
+    rationale: 三点两两距离上限。
+  placement_camera_samples:
+    value: 24
+    source: 本流程 CPU 确定性搜索预算
+    rationale: 在主连通区域内最远点采样；找到即给出坐标，否则只能称未找到，不能证明不存在。
+  placement_source_samples:
+    value: 48
+    source: 本流程 CPU 确定性搜索预算
+    rationale: 对主连通区域内的净空达标点作最远点采样，限制共享 CPU 使用。
+  ray_endpoint_tolerance_m:
+    value: 0.03
+    source: 本流程射线实现预先选择
+    rationale: 端点附近 3 厘米数值接触容差；使用原始扫描三角网格，不初始化 GPU。
+  split_area_trigger_m2:
+    value: 40.0
+    source: 任务 R 自动切分初始阈值
+    rationale: 大面积仅触发建议，保留原登记和人工结论。
+  split_cluster_separation_m:
+    value: 4.0
+    source: 任务 R 自动切分初始阈值
+    rationale: 两组主体家具中心间距超过 4 米触发复合空间检查。
+  split_convexity_trigger:
+    value: 0.65
+    source: 任务 R 自动切分初始阈值
+    rationale: 地面面积除凸包面积，低值提示转角或窄连接带。
+  furniture_cluster_link_m:
+    value: 2.0
+    source: 本流程主体家具聚类预先选择
+    rationale: 2 米内的主体实例连成同一簇，允许床与相邻床或沙发组合为一个中心。
+  max_split_seeds:
+    value: 4
+    source: 本流程 CPU 切分预算预先选择
+    rationale: 至多四个建议分区；未覆盖的复杂布局交人工，禁止递归机械切小。
+  split_terminal_radius_m:
+    value: 0.5
+    source: 本流程最小割预先选择
+    rationale: 家具种子周围半米内设为固定终端，避免单点最小割只围住种子。
+  split_geodesic_cost_weight:
+    value: 0.15
+    source: 本流程最小割预先选择
+    rationale: 测地 Voronoi 一元项与净空加权边容量共同约束，优先在窄通道切断。
+  projection_precision_m:
+    value: 0.001
+    source: 本流程多边形并集数值精度
+    rationale: 毫米级坐标量化以消除共享边浮点裂缝，远小于导航网格步长。
+  projection_min_triangle_area_m2:
+    value: 0.00000001
+    source: 本流程数值退化容差
+    rationale: 只忽略水平投影退化面，不用可见面积阈值删除小组件。
+  second_reviewer_fraction:
+    value: 0.125
+    source: 任务 R 要求抽 10–15%，本流程选择中点
+    rationale: 按房子分层作全局控制取整，名单在第二审核开始前固定。
+  random_seed:
+    value: 20261002
+    source: 任务 R 日期，预先固定
+    rationale: 房子级调参/留出名单及第二审核人样本可复现。
+  excluded_types:
+    value: [stairs, corridor, garage, storage, outdoor]
+    source: 任务 R 初始排除清单
+    rationale: 只用显式类别或 MP3D region 标签支持；用途未识别不伪造空间类型。
+  floor_categories:
+    value: [floor, rug, carpet, flooring]
+    source: 任务 R 地面语义类别
+    rationale: 同层所有这些类别面投影求并集，重叠不重复计面积。
+  furniture_categories:
+    value: [bed, mattress, sofa, couch, chair, seat, armchair, dining chair, table, dining table, coffee table, desk, counter, stove, oven, refrigerator, fridge, cabinet, wardrobe, dresser, nightstand, bookshelf, shelving, toilet, bathtub, shower, sink, kitchen island]
+    source: smy prescreen_rooms.py 类别清单及任务 R 主体家具示例
+    rationale: 已知实体水平投影按实例保留并求并集；未映射几何单列。
+  anchor_categories:
+    value: [bed, mattress, sofa, couch, dining table, table, desk, stove, kitchen island, counter]
+    source: 任务 R 主体家具示例
+    rationale: 家具簇种子；家具本身不可导航时吸附到簇附近可达点。
+  clearance_query_radius_m:
+    value: 2.0
+    source: 本流程 PathFinder 查询参数
+    rationale: 截断为 2 米足够判定 0.5 米净空；不据截断值声称真实无限距离。
+  nav_edge_max_geodesic_factor:
+    value: 1.5
+    source: 本流程原生邻接检查参数
+    rationale: 邻格最短路超过 1.5 倍格长视为跨障碍绕行，不直接连边。
+  calibration_area_grid_m2:
+    value: [4.0, 6.0, 8.0]
+    source: 本流程调参半集的预先固定敏感性网格
+    rationale: 检查初始 6 平方米的相邻值，仅 calibration 计算，不据 holdout 改阈值。
+  calibration_short_side_grid_m:
+    value: [2.0, 2.2, 2.4]
+    source: 本流程调参半集的预先固定敏感性网格
+    rationale: 检查初始 2.2 米的相邻值，仅 calibration 计算。

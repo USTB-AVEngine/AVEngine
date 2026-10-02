@@ -8,6 +8,11 @@ and recorded camera placement into a suggestion for a human reviewer.
 
 from __future__ import annotations
 
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from tools.rooms.runtime_config import (RUNTIME_PREFIX, MAGNUM_SITE, RLR_SDK_ROOT, MP3D_ROOT, TASKS_ROOT, MEDIA_ROOT, ROOM_PYTHON)
+
 import argparse
 import json
 import subprocess
@@ -15,7 +20,7 @@ import sys
 import urllib.request
 from pathlib import Path
 
-MEDIA_ROOT = Path("/data/avengine_external/studio/room_curation_media")
+MEDIA_ROOT = Path(str(MEDIA_ROOT))
 DEFAULT_QA_JSON = Path("/data/smy/projects/AVEngine/logs/room_media_qa.json")
 
 _FURNITURE = frozenset({

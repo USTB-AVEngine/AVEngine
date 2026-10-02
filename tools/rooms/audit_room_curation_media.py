@@ -8,6 +8,11 @@ writes one JSON record and one CSV row per expected room.
 
 from __future__ import annotations
 
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from tools.rooms.runtime_config import (RUNTIME_PREFIX, MAGNUM_SITE, RLR_SDK_ROOT, MP3D_ROOT, TASKS_ROOT, MEDIA_ROOT, ROOM_PYTHON)
+
 import argparse
 import csv
 import json
@@ -16,7 +21,7 @@ from collections import Counter
 from pathlib import Path
 
 
-DEFAULT_MEDIA_ROOT = Path("/data/avengine_external/studio/room_curation_media")
+DEFAULT_MEDIA_ROOT = Path(str(MEDIA_ROOT))
 
 
 def load_jsonp(path: Path) -> list[dict]:

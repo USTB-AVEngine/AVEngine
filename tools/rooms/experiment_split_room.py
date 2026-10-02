@@ -14,6 +14,11 @@ one.
 
 from __future__ import annotations
 
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from tools.rooms.runtime_config import (RUNTIME_PREFIX, MAGNUM_SITE, RLR_SDK_ROOT, MP3D_ROOT, TASKS_ROOT, MEDIA_ROOT, ROOM_PYTHON)
+
 import argparse
 import csv
 import heapq
@@ -47,9 +52,9 @@ def args_parser() -> argparse.ArgumentParser:
     p.add_argument("--source-height-m", type=float, default=1.2)
     p.add_argument("--hfov-deg", type=float, default=90.0)
     p.add_argument("--seed", type=int, default=20260903)
-    p.add_argument("--runtime-prefix", default="/data/avengine_external/runtime-prefixes/avengine-habitat-object-id-732f264-20260824T1041Z")
-    p.add_argument("--magnum-site", default="/data/avengine_external/runtime-prefixes/magnum-python-cp312-45811bb-20260820T1845Z/lib/python3.12/site-packages")
-    p.add_argument("--rlr-sdk-root", default="/data/avengine_external/rlr-sdk/RLRAudioPropagationPkg")
+    p.add_argument("--runtime-prefix", default=RUNTIME_PREFIX)
+    p.add_argument("--magnum-site", default=MAGNUM_SITE)
+    p.add_argument("--rlr-sdk-root", default=RLR_SDK_ROOT)
     p.add_argument("--acoustic-probe", type=Path, help="optional executable probe; it must accept the JSON evidence path")
     return p
 

@@ -18,6 +18,11 @@ segfaults the program (no BasisImporter in this runtime).
 
 from __future__ import annotations
 
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from tools.rooms.runtime_config import (RUNTIME_PREFIX, MAGNUM_SITE, RLR_SDK_ROOT, MP3D_ROOT, TASKS_ROOT, MEDIA_ROOT, ROOM_PYTHON)
+
 import argparse
 import json
 import math
@@ -148,7 +153,7 @@ def main() -> int:
     parser.add_argument(
         "--output-dir",
         type=Path,
-        default=Path("/data/avengine_external/studio/room_curation_media"),
+        default=Path(str(MEDIA_ROOT)),
         help="media root; clip lands at <output-dir>/<house>/<label>.mp4",
     )
     parser.add_argument("--frames", type=int, default=36, help="frames per circle")

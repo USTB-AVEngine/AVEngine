@@ -9,6 +9,11 @@ sheet so every visual verdict remains traceable to its source material.
 
 from __future__ import annotations
 
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from tools.rooms.runtime_config import (RUNTIME_PREFIX, MAGNUM_SITE, RLR_SDK_ROOT, MP3D_ROOT, TASKS_ROOT, MEDIA_ROOT, ROOM_PYTHON)
+
 import argparse
 import json
 import subprocess
@@ -18,8 +23,8 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
 
-TASKS_ROOT = Path("/data/avengine_external/studio/tasks")
-MEDIA_ROOT = Path("/data/avengine_external/studio/room_curation_media")
+TASKS_ROOT = Path(str(TASKS_ROOT))
+MEDIA_ROOT = Path(str(MEDIA_ROOT))
 DEFAULT_API = "http://127.0.0.1:8765/api/room-curation"
 
 

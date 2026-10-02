@@ -1,0 +1,6 @@
+# Install only into a task-private Python 3.12 venv over the read-only Habitat runtime.
+shapely==2.1.2
+trimesh==4.8.3
+rtree==1.4.1
+networkx==3.5
+plyfile==1.1.3

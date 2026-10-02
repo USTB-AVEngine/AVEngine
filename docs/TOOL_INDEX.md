@@ -5,7 +5,7 @@
 
 自 2026-08-25 起，目录本身就是能力分组（阶段目录 m1…m7 已移除），
 本表按目录列出每个工具做什么。
-当前共 261 个工具脚本。
+当前共 275 个工具脚本。
 
 ## 资产生成与装配（`tools/assets/`）
 
@@ -76,26 +76,40 @@
 | 工具 | 做什么 |
 |---|---|
 | `tools/rooms/audit_real_surface_mesh.py` | Audit a glTF/GLB as evidence for the M1 real-surface geometry gate |
+| `tools/rooms/audit_room_curation_media.py` | Export a reproducible QA inventory for room-curation videos and verdicts |
 | `tools/rooms/audit_skokloster_glb.py` | Audit the exact Habitat Skokloster GLB for visual and acoustic staging |
 | `tools/rooms/author_current_residential_visual_episode.py` | Author one current residential visual-only research episode |
 | `tools/rooms/blender_build_exterior_proxy.py` | Blender-side builder for an inward-facing, textured exterior sphere |
 | `tools/rooms/build_fixed_apartment_canary.py` | Build the fixed SPEAR Apartment S0--S5 M6.x review bundle |
 | `tools/rooms/build_residential_source_episode.py` | Build AVEngine Timeline, Topdown and binaural audio for a residential room |
+| `tools/rooms/build_room_review_sheet.py` | Build a per-house visual review sheet from room-tour videos |
+| `tools/rooms/check_hm3d_results.py` | Check final results for the 145 resubmitted hm3d_end_to_end houses |
 | `tools/rooms/emit_hm3d_room_manifest.py` | Emit an AVEngine room manifest for an HM3D scene directory |
+| `tools/rooms/experiment_split_room.py` | Read-only pilot experiment for splitting one HM3D room |
 | `tools/rooms/extract_interioragent_scene_metadata.py` | Extract a room polygon and navigation footprints from InteriorAgent USD |
+| `tools/rooms/gen_navmesh_batch.py` | Serial navmesh generation with a read-only plan and per-file provenance |
 | `tools/rooms/prepare_3d_front_toolbox_sample_proxy.py` | Build a clearly labelled 3D-FRONT Toolbox sample review proxy in USD |
 | `tools/rooms/prepare_interioragent_kujiale_adapter.py` | Prepare an external InteriorAgent USD stage for UE's runtime USD importer |
 | `tools/rooms/prepare_legacy_apartment.py` | Prepare the real-surface UE apartment export as an M1 Habitat room package |
 | `tools/rooms/prepare_skokloster_interchange_glb.py` | Bake Skokloster's legacy source axes into a canonical glTF for UE import |
 | `tools/rooms/prepare_spear_apartment_exterior.py` | Export UE's approaching_storm HDRI and build a visual-only Habitat GLB |
+| `tools/rooms/prescreen_rooms.py` | Generate conservative, auditable room-curation suggestions |
 | `tools/rooms/rebuild_replicacad_obstacle_review.py` | Rebuild the retained ReplicaCAD review with live furniture obstacles |
+| `tools/rooms/render_review_overheads.py` | Read-only Habitat overheads for curation entries, isolated per house |
+| `tools/rooms/render_room_tour.py` | Render a 360-degree room tour of one HM3D room as a short mp4 clip |
 | `tools/rooms/run_habitat_replicacad_lighting_canary.py` | Run the real ReplicaCAD Habitat capture with one shared lighting profile |
 | `tools/rooms/run_room_qualification_attempt.py` | Run or verify the read-only M6 representative-room qualification attempt |
+| `tools/rooms/run_room_tour_batch.py` | Batch driver for render_room_tour.py: render every curated room a tour clip |
 | `tools/rooms/run_spear_apartment_canary.py` | Render M6.x S0/S3/S4 through the native SPEAR Apartment map |
 | `tools/rooms/run_spear_kujiale_canary.py` | Capture an external InteriorAgent/Kujiale room through SPEAR and UE |
 | `tools/rooms/run_spear_mp3d_canary.py` | Render the retained 270-frame MP3D route through packaged SPEAR |
 | `tools/rooms/run_spear_replicacad_canary.py` | Render the retained 270-frame ReplicaCAD route in an isolated SPEAR editor |
 | `tools/rooms/run_spear_residential_episode.py` | Render one AVEngine residential human+Beagle episode through SPEAR/UE |
+| `tools/rooms/runtime_config.py` | Shared deployment defaults for the room-curation tools |
+| `tools/rooms/select_rooms.py` | CPU room-selection stages, human review queues and house-held-out statistics |
+| `tools/rooms/serve_curation_media.py` | Local media + API proxy for the room-curation review page |
+| `tools/rooms/submit_hm3d_tasks.py` | Re-submit failed hm3d_end_to_end tasks via the studio API |
+| `tools/rooms/verify_review_overheads.py` | Verify every overhead mapping/file and read-only browser interaction |
 
 ## 场景放置（`tools/scene/`）
 

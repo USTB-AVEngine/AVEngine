@@ -16,6 +16,11 @@ navigable, which is recorded in the log and skipped, not fatal.
 
 from __future__ import annotations
 
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from tools.rooms.runtime_config import (RUNTIME_PREFIX, MAGNUM_SITE, RLR_SDK_ROOT, MP3D_ROOT, TASKS_ROOT, MEDIA_ROOT, ROOM_PYTHON)
+
 import argparse
 import json
 import subprocess
@@ -26,21 +31,19 @@ import urllib.error
 from pathlib import Path
 
 HM3D_ROOT = Path("/data/datasets/habitat_data/versioned_data/hm3d-1.0/hm3d")
-TASKS_ROOT = Path("/data/avengine_external/studio/tasks")
-DEFAULT_MEDIA_ROOT = Path("/data/avengine_external/studio/room_curation_media")
+TASKS_ROOT = Path(str(TASKS_ROOT))
+DEFAULT_MEDIA_ROOT = Path(str(MEDIA_ROOT))
 DEFAULT_PYTHON = Path(
-    "/data/smy/miniconda3/envs/avengine-runtime/bin/python"
+    ROOM_PYTHON
 )
 # studio_config_48g.json "hm3d_episode" 段里的现成环境值。
 DEFAULT_RUNTIME_PREFIX = (
-    "/data/avengine_external/runtime-prefixes/"
-    "avengine-habitat-object-id-732f264-20260824T1041Z"
+    RUNTIME_PREFIX
 )
 DEFAULT_MAGNUM_SITE = (
-    "/data/avengine_external/runtime-prefixes/"
-    "magnum-python-cp312-45811bb-20260820T1845Z/lib/python3.12/site-packages"
+    MAGNUM_SITE
 )
-DEFAULT_RLR_SDK_ROOT = "/data/avengine_external/rlr-sdk/RLRAudioPropagationPkg"
+DEFAULT_RLR_SDK_ROOT = RLR_SDK_ROOT
 
 RENDER_SCRIPT = Path(__file__).resolve().parent / "render_room_tour.py"
 

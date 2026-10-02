@@ -17,6 +17,11 @@ Run with: nohup python3 tools/rooms/serve_curation_media.py > logs/curation_medi
 
 from __future__ import annotations
 
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from tools.rooms.runtime_config import (RUNTIME_PREFIX, MAGNUM_SITE, RLR_SDK_ROOT, MP3D_ROOT, TASKS_ROOT, MEDIA_ROOT, ROOM_PYTHON)
+
 import http.client
 import http.server
 import json
@@ -29,7 +34,7 @@ HOST = "127.0.0.1"
 PORT = int(os.environ.get("CURATION_MEDIA_PORT", "8766"))
 STUDIO_ORIGIN = "127.0.0.1:8765"
 REPO_ROOT = Path(__file__).resolve().parents[2]
-MEDIA_ROOT = Path("/data/avengine_external/studio/room_curation_media")
+MEDIA_ROOT = Path(str(MEDIA_ROOT))
 OVERHEAD_ROOT = Path(os.environ.get("CURATION_OVERHEAD_ROOT", str(Path.home() / "room_review_overheads/20260908")))
 # 系统章文件目录（server 实时读这里；删除文件 = 撤销回未审）。
 VERDICT_DIR = Path("/data/avengine_external/studio/room_curation")
