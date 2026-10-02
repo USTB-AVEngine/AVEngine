@@ -37,3 +37,5 @@ MP3D 三套试跑先用 `register --family mp3d --limit 3` 登记，再用 `meas
 MP3D 原生 `.house` 的 R/L/O/C 关联加 `_semantic.ply` 的逐面 object_id 可以复用几何、导航和摆放流程。原始坐标仍需 x,y,z→x,z,-y。若无矩阵校准的同等俯视图，扫描质量记未知，不能直接完整自动通过。格式出处：[Matterport 官方说明](https://github.com/niessner/Matterport/blob/master/data_organization.md)。
 
 第二人抽样总体是已有第一次章的 1382 个 region；固定 180 个样本占 13.02%。其余 1217 个登记区域先补第一次审核。MP3D 逐面 object_id 与 house 中对象归属的 region 可接入流程，但跨房间对象可能越出 R 框；原生 R 框不是精确房间多边形。pilot 同时报告边界诊断和扫描质量缺失，不能直接宣布完整通过。
+
+切分图优先叠加真实扫描俯视图；素材缺失时输出明确标注 GEOMETRY ONLY 的 CPU 地面/子块示意。示意图不是扫描 RGB，不能用于黑像素比例或解除扫描质量未知；真实底图和首次人工审核仍需补齐。

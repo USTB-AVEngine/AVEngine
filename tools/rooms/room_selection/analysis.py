@@ -591,6 +591,13 @@ def summarize(args, rows, inputs):
             reason_counts=dict(
                 Counter(c for r in rows for c in r["stage2"]["reason_codes"])
             ),
+            overlay_status_counts=dict(
+                Counter(
+                    f["stage2"].get("overlay_status", "not_drawn")
+                    for f in floors
+                    if f["stage2"]["status"] == "proposed"
+                )
+            ),
             proposed_children=len(children),
             children_stage1_counts=dict(
                 Counter(c["stage1"]["status"] for c in children)
@@ -732,6 +739,7 @@ def report(args, inputs, funnel, agree, iou, v7, differences, sample):
         f"|阶段 1 pass / fail / review / not_run|{s1['outgoing_pass']} / {s1['retained_fail']} / {s1['retained_review']} / {s1['not_run']}|",
         f"|分层单元|{s1['floor_units']}；{s1['floor_decisions']}|",
         f"|阶段 2 状态|{s2['region_status_counts']}|",
+        f"|切分建议图（按地面单元）|{s2['overlay_status_counts']}；仅几何图明确无原始 RGB，黑像素指标仍未知|",
         f"|建议子块及重新筛选|{s2['proposed_children']}；{s2['children_stage1_counts']}|",
         f"|阶段 3 队列 / 第二人名单|{sample['reviewed_population']} 个既有人审；完整队列 {funnel['stage3']['queue_count']}；抽样 {sample['sample_count']}|",
         f"|阶段 4 最新房门禁|{s4['house_gate_counts']}|",

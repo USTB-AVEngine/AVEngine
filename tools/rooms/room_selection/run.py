@@ -441,8 +441,18 @@ def process_house(args, job):
                     drawn = overlay(args.output / rel, scope, floor_y, parts, overhead)
                     floor["stage2"]["overlay_path"] = rel if drawn else None
                     floor["stage2"]["overlay_status"] = (
-                        "saved" if drawn else "missing_original_overhead"
+                        "saved"
+                        if drawn and overhead
+                        else (
+                            "geometry_only_missing_original_overhead"
+                            if drawn
+                            else "drawing_failed"
+                        )
                     )
+                    if overhead is None:
+                        floor["stage2"].setdefault("reason_codes", []).append(
+                            "SPLIT_RGB_OVERHEAD_MISSING"
+                        )
                 for pi, (part, indices) in enumerate(zip(parts, groups)):
                     pm = scope_metrics(part, same)
                     # Each child independently re-enters the native stage 1 sampler.

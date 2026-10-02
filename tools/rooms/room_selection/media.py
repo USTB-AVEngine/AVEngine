@@ -8,7 +8,7 @@ import urllib.request
 from pathlib import Path
 
 import numpy as np
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFont
 from shapely.geometry import GeometryCollection
 
 
@@ -115,9 +115,30 @@ def black_metric(geometry, floor_y, entry, im, image, p):
 
 
 def overlay(path, scope, floor_y, parts, overhead):
-    if overhead is None:
-        return False
-    entry, im, image, _ = overhead
+    geometry_only = overhead is None
+    if geometry_only:
+        # A plan of measured polygons is useful even when no scan RGB exists.
+        # The virtual mapping is for drawing ONLY: it is never cached as a
+        # camera measurement and must never enter black_metric().
+        x0, z0, x1, z1 = scope.bounds
+        cx, cz = (x0 + x1) / 2, (z0 + z1) / 2
+        span = max(x1 - x0, z1 - z0) * 1.1
+        entry = {
+            "view": [
+                [1, 0, 0, -cx],
+                [0, 0, 1, -cz],
+                [0, -1, 0, floor_y + 30],
+                [0, 0, 0, 1],
+            ]
+        }
+        im = {"projection": np.diag([2 / span, 2 / span, 1, 1]).tolist()}
+        image = Image.new("RGB", (1024, 1024), "white")
+        mask = Image.fromarray(
+            (polygon_mask(scope, floor_y, entry, im, image.size) * 255).astype("uint8")
+        )
+        image.paste((225, 225, 225), mask=mask)
+    else:
+        entry, im, image, _ = overhead
     canvas = image.convert("RGBA")
     layer = Image.new("RGBA", image.size, (0, 0, 0, 0))
     d = ImageDraw.Draw(layer)
@@ -136,11 +157,44 @@ def overlay(path, scope, floor_y, parts, overhead):
             xy = project_xz(poly.exterior.coords, floor_y, entry, im, image.size)
             d.line([tuple(q) for q in xy], fill=(*rgb, 255), width=3)
     canvas = Image.alpha_composite(canvas, layer)
-    ImageDraw.Draw(canvas).text(
-        (12, 12),
-        "CPU geodesic / narrow-channel split proposal; human review required",
-        fill="white",
+    annotations = ImageDraw.Draw(canvas)
+    font_path = Path("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf")
+    font = (
+        ImageFont.truetype(str(font_path), 20)
+        if font_path.exists()
+        else ImageFont.load_default()
     )
+    title = (
+        "GEOMETRY ONLY - original scan overhead missing; scan quality UNKNOWN"
+        if geometry_only
+        else "CPU split proposal; independent human review required"
+    )
+    annotations.text(
+        (12, 12),
+        title,
+        fill="black" if geometry_only else "white",
+        font=font,
+        stroke_width=1,
+        stroke_fill="white" if geometry_only else "black",
+    )
+    for i, g in enumerate(parts):
+        point = g.representative_point()
+        pixel = project_xz([(point.x, point.y)], floor_y, entry, im, image.size)[0]
+        annotations.text(
+            tuple(pixel),
+            f"S{i}",
+            fill="white",
+            font=font,
+            stroke_width=2,
+            stroke_fill="black",
+        )
+    if geometry_only:
+        annotations.text(
+            (12, image.height - 32),
+            f"World plan: +X right, +Z up; floor_y={floor_y:.3f} m",
+            fill="black",
+            font=font,
+        )
     Path(path).parent.mkdir(parents=True, exist_ok=True)
     canvas.convert("RGB").save(path)
     return True
