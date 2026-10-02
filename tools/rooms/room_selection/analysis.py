@@ -797,7 +797,7 @@ def report(args, inputs, funnel, agree, iou, v7, differences, sample):
         "",
         "一致性（出处 agreement.json、house_analysis_split.json）：",
         "",
-        f"整套房子以种子 {inputs['parameters']['random_seed']} 按 train/val 分层后分成 calibration 与 holdout。calibration 单独进行 4/6/8 平方米与 2/2.2/2.4 米的敏感性检查；最终保留任务书初始值，未用 holdout 选阈值。holdout 有 {held['human_count']} 条既有人审，其中 {held['human_verdicts']}。use/skip 作为二元标签，unsure 单独保留；自动 review/not_run 按未选中计算部署一致率，同时报告仅确定自动结论的一致率和覆盖。",
+        f"整套房子以种子 {inputs['parameters']['random_seed']} 按 train/val 分层后分成 calibration 与 holdout。追加1沿用原固定名单，仅calibration选择主层占比；完整选择记录在addendum1/calibration_selection.json，冻结记录在addendum1/freeze.json。面积和短边仍取任务书初始值，未用holdout选阈值。holdout有{held['human_count']}条既有人审，其中{held['human_verdicts']}。use/skip作为二元标签，unsure单独保留；自动review/not_run按未选中计算部署一致率，同时报告仅确定自动结论的一致率和覆盖。",
         "",
         f"留出二元混淆矩阵 `{held['confusion_matrix']}`；分母 {held['binary_denominator']}；一致率 {pct(held['agreement'])}、精度 {pct(held['precision'])}、召回 {pct(held['recall'])}。仅自动确定样本覆盖 {pct(held['automatic_resolved_fraction'])}，其中一致率 {pct(held['agreement_on_resolved'])}。既有人审是对照标签，不是本轮双人一致性。",
         "",
@@ -858,7 +858,7 @@ def report(args, inputs, funnel, agree, iou, v7, differences, sample):
         "",
         "MP3D 的本地覆盖与三套试跑见 mp3d_inventory.json、mp3d_pilot/REPORT_zh.md（若尚未生成则未验证）。MP3D .house 的 region/level/object 关联可接入同一几何和导航流程，但本地未见同等已校准审核俯视图时，扫描质量必须留作未知，不能直接给出完整通过。数据格式参考 [Matterport 官方说明](https://github.com/niessner/Matterport/blob/master/data_organization.md)。",
         "",
-        "机器与作业：本轮 CPU 控制脚本见 evidence/run_all.sh；没有正在运行作业的情况下无需停任务。若仍运行，先核对 evidence/job.pid 的 PID 和命令，再发送 TERM；具体运行状态以 execution_receipt.json 为准。",
+        "机器与作业：追加1 CPU控制脚本见addendum1/evidence/frozen_run.sh，日志frozen_run.log，PID文件frozen_run.pid；先核对PID与该脚本命令再发送TERM。原轮执行材料保留；本次状态见addendum1/execution_receipt.json和execution_receipt.json。",
         "",
     ]
     receipt_path = out / "execution_receipt.json"
@@ -867,7 +867,7 @@ def report(args, inputs, funnel, agree, iou, v7, differences, sample):
         lines += [
             "执行核对（出处 execution_receipt.json）："
             + f"{receipt.get('status')}，最终房子状态 {receipt.get('final_house_outcomes')}，"
-            f"结束 {receipt.get('finished_at_sgt')}。原整批日志保留，单套精度问题补跑见 evidence/recovery_receipt.json。",
+            f"结束 {receipt.get('finished_at_sgt')}。上一轮结果和日志保留在addendum1/baseline_5d4eca6；原轮单套精度补跑见evidence/recovery_receipt.json（不是本次追加重跑）。",
             "",
         ]
     (out / "REPORT_zh.md").write_text("\n".join(lines))
