@@ -8,6 +8,8 @@ import math
 import random
 from collections import Counter, defaultdict
 from pathlib import Path
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 import numpy as np
 import shapely
@@ -163,7 +165,12 @@ def tune_diagnostics(rows, calibration, p):
         candidate = dict(p, floor_area_min_m2=area, short_side_min_m=short)
 
         def prediction(r):
-            if len(r.get("floors", [])) != 1 or r["region_id"] < 0:
+            if (
+                len(r.get("floors", [])) != 1
+                or r["region_id"] < 0
+                or (r.get("native_region") or {}).get("ambiguous_colours")
+                or not r.get("semantic_region_present", True)
+            ):
                 return r["stage1"]["status"]
             return decide(
                 r["floors"][0]["metrics"], r.get("room_type", "unknown"), candidate
@@ -376,7 +383,9 @@ def candidates(rows, inputs, clean_path, inventory_path):
             rooms=[],
         )
     clean = set(json.loads(Path(clean_path).read_text()))
-    inventory = json.loads(Path(inventory_path).read_text())
+    inventory = json.loads(
+        Path(inventory_path or inputs["inventory_source"]).read_text()
+    )
     so = set(inventory["so_overlap"]["houses"]["hm3d"])
     physical_exposure = inventory["our_house_exposure"]["physical_house_evidence"]
     rooms = []
@@ -423,7 +432,8 @@ def candidates(rows, inputs, clean_path, inventory_path):
             r for r in rooms if r["stage2"]["status"] == "not_triggered"
         ],
         clean_list_source=str(clean_path),
-        so_source=str(inventory_path) + ":so_overlap.houses.hm3d",
+        so_source=str(inventory_path or inputs["inventory_source"])
+        + ":so_overlap.houses.hm3d",
         m1_exclusion_source=str(clean_path),
         m1_method="use owner-provided previously computed clean-house list; additional explicit exposure cross-check from assets_inventory",
         limitation="SO anonymous scenes cannot all be assigned to houses; not a universal guarantee of no historical exposure; split children require a new human review.",
@@ -564,6 +574,9 @@ def summarize(args, rows, inputs):
             triggered_regions=sum(
                 r["stage2"]["status"] in ["review", "proposed"] for r in rows
             ),
+            reason_counts=dict(
+                Counter(c for r in rows for c in r["stage2"]["reason_codes"])
+            ),
             proposed_children=len(children),
             children_stage1_counts=dict(
                 Counter(c["stage1"]["status"] for c in children)
@@ -583,6 +596,7 @@ def summarize(args, rows, inputs):
             incoming=len(rows),
             house_gate_counts=inputs["latest_gate_counts"],
             region_gate_counts=dict(gate),
+            reason_counts={"E2E_GATE_" + str(k).upper(): v for k, v in gate.items()},
             stage1_pass_and_gate_pass=sum(
                 r["stage1"]["status"] == "pass" and r["stage4"]["status"] == "pass"
                 for r in rows
@@ -628,7 +642,7 @@ def report(args, inputs, funnel, agree, iou, v7, differences, sample):
     lines = [
         f"结论：规范的自动几何筛选必须与人工审核结合；本轮在 {inputs['house_count']} 套 {inputs['family'].upper()} 上登记 {s0['outgoing_registered_regions']} 个语义 region/未分配桶，自动通过 {s1['outgoing_pass']} 个原 region，房子留出集与既有人审的一致率为 {pct(held['agreement'])}；SO 已知名单与既有 M1 排除清单交叉后保留 {v7.get('house_count',0)} 套、{v7.get('room_count',0)} 间选房候选。候选仍需人工终审，切分子块未代盖章。",
         "",
-        f"生成时间：{inputs['created_at_sgt']}（新加坡时间）。机器：48g / cw-SYS-4029GP-TRT3。",
+        f"统计生成时间：{datetime.now(ZoneInfo('Asia/Singapore')).isoformat()}；候选登记时间：{inputs['created_at_sgt']}（均为新加坡时间）。机器：48g / cw-SYS-4029GP-TRT3。",
         "",
         f"输入清单 `{inputs['inventory_source']}`；逐行证据 `{out/'rooms_registry.jsonl'}`；阈值 `{out/'thresholds.used.yaml'}`。",
         "",
@@ -683,6 +697,8 @@ def report(args, inputs, funnel, agree, iou, v7, differences, sample):
         "自动切分与 smy 手工对照（出处 split_iou.json）：",
         "",
         f"状态 `{iou['status']}`。手工总记录 {iou.get('total_manual_records','未取到')}，排除 {iou.get('excluded_count','未定义')} 个未收窄或缺少来源的框；可计算 {iou.get('compared_manual_count','未定义')} 个。全部坐标有效样本的一对一匹配平均代理 IoU = {iou.get('mean_matched_iou_all_coordinate_valid','未定义')}；有自动建议的子集平均 = {iou.get('mean_matched_iou_when_auto_proposal_exists','未定义')}（{iou.get('proposal_available_manual_count','未定义')} 个手工块）。无建议或未匹配的有效框在全样本均值中计 0。",
+        "",
+        f"除上述待收窄记录外，还有 {len(iou.get('comparisons',[]))-iou.get('compared_manual_count',0)} 个框因同层语义地面缺失或相交为空而无法计算，详情在 split_iou.json 的 comparisons。",
         "",
         "这是「来源语义地面与手工 bbox 相交」对「自动活动范围」的代理 IoU。43 个手工交付目录没有 mask/多边形真值，9 个仍是原房间框；因此真正的手工 mask IoU 无法完成，不能把代理数字写成精确切分质量。人工裁剪超出来源 region 的范围也无法靠来源地面恢复。",
         "",

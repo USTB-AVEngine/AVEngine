@@ -179,7 +179,20 @@ def projected_union(corners, parameters):
     if not len(xz):
         return GeometryCollection()
     polygons = shapely.polygons(xz)
-    return shapely.union_all(polygons, grid_size=parameters["projection_precision_m"])
+    precision = parameters["projection_precision_m"]
+    try:
+        return shapely.union_all(polygons, grid_size=precision)
+    except shapely.errors.GEOSException as exc:
+        # GEOS can fail to assign tiny holes when near-degenerate scan faces
+        # are rounded during union. Normalize individual triangles to the SAME
+        # specified precision grid first, retaining valid output and recording
+        # the repair. No threshold, unit, or mesh coordinate is changed.
+        print("PROJECTED_UNION_PRECISION_REPAIR", len(polygons), str(exc), flush=True)
+        snapped = shapely.set_precision(polygons, precision, mode="valid_output")
+        result = shapely.union_all(snapped, grid_size=precision)
+        if not result.is_valid:
+            raise ValueError("PROJECTED_UNION_REPAIR_INVALID") from exc
+        return result
 
 
 def floor_layers(corners, parameters):
