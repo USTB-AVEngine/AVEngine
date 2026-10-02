@@ -300,6 +300,16 @@ def qualify_region_evidence(row, skip_splitting=False):
             reason_codes=["NO_SEMANTIC_FLOOR_GEOMETRY"],
             proposal_floor_ids=[],
         )
+    if row.get("floors") and row.get("stage2") and not skip_splitting:
+        row["stage2"]["reason_codes"] = sorted(
+            {
+                code
+                for floor in row["floors"]
+                for code in floor["stage2"].get("trigger_codes", [])
+                + floor["stage2"].get("reason_codes", [])
+            }
+        )
+
     if (row.get("native_region") or {}).get("ambiguous_colours"):
         for floor in row.get("floors", []):
             for unit in [floor] + floor.get("split_parts", []):
@@ -495,7 +505,7 @@ def process_house(args, job):
                 {
                     r
                     for f in triggers
-                    for r in f.get("trigger_codes", f.get("reason_codes", []))
+                    for r in f.get("trigger_codes", []) + f.get("reason_codes", [])
                 }
             ),
             proposal_floor_ids=[

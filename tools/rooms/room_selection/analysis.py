@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import itertools
+import hashlib
 import json
 import math
 import random
@@ -512,6 +513,19 @@ def summarize(args, rows, inputs):
     with (out / "review_queue.jsonl").open("w") as stream:
         for q in queue:
             stream.write(json.dumps(q, ensure_ascii=False) + "\n")
+    write_json(
+        out / "review_manifest.json",
+        dict(
+            schema="room_selection_review_manifest_v1",
+            namespace=hashlib.sha256(
+                (str(out.resolve()) + "|" + inputs["created_at_sgt"]).encode()
+            ).hexdigest()[:20],
+            population=len(rows),
+            second_review_population=sample["reviewed_population"],
+            created_at_sgt=inputs["created_at_sgt"],
+            labels_status="not_judged_in_protocol",
+        ),
+    )
     (out / "review.html").write_text(
         Path(__file__).with_name("review.html").read_text()
     )
@@ -632,8 +646,57 @@ def pct(x):
     return "未定义" if x is None else f"{x*100:.2f}%"
 
 
+def report_mp3d(out, inputs, funnel):
+    """A pilot has no human labels or calibrated scan-quality images."""
+    coverage_path = out.parent / "mp3d_inventory.json"
+    coverage = json.loads(coverage_path.read_text()) if coverage_path.exists() else {}
+    extent_path = out.parent / "evidence/mp3d_region_extent_check.json"
+    extent = json.loads(extent_path.read_text()) if extent_path.exists() else {}
+    extent_text = "边界诊断未验证。"
+    if extent:
+        worst = extent.get("largest", [{}])[0]
+        extent_text = (
+            f"独立检查 {extent_path} 在 {extent['compared_regions']} 个有地面区域上得到平均框外地面比例 {pct(extent['mean_outside_native_bbox_fraction'])}；"
+            f"最明显的 {worst.get('house')}/{worst.get('room_label')} 为 {pct(worst.get('floor_outside_native_bbox_fraction'))}。"
+        )
+    lines = [
+        f"结论：MP3D 的本地原生 region 可登记，几何、现有导航网格和 CPU 摆放检查已在 {inputs['house_count']} 套上运行；完整选房流程还不能直接推广到全部本地房子。需要同等校准俯视图，并核对对象归属 region 与真实房间边界。",
+        "",
+        f"统计生成时间：{datetime.now(ZoneInfo('Asia/Singapore')).isoformat()}（新加坡时间），机器 48g / cw-SYS-4029GP-TRT3。",
+        "",
+        "本地文件布局是 scene_datasets/mp3d/<id>/<id>.house、<id>_semantic.ply、<id>.glb 和 <id>.navmesh。house 中 R 记录 region 索引、楼层、类型字母及包围框；L 记录楼层，O 关联对象到 region/类别，C 记录类别。PLY 为 binary_little_endian，顶点有 XYZ/RGB，三角面有 vertex_indices 和 object_id。按对象所属 region 投影，使用与 HM3D 一致的 x,y,z→x,z,-y 坐标变换。",
+        "",
+        f"本地覆盖 {coverage.get('physical_houses','未核查')} 套、{coverage.get('region_count','未核查')} 个 R 记录，出处 {coverage_path}。本地扁平目录没有独立 house_segmentations/region_segmentations 或同等校准人工审核俯视图；这不等于没有原生 region。格式出处：[Matterport 官方说明](https://github.com/niessner/Matterport/blob/master/data_organization.md)。",
+        "",
+        "|房子|登记 region|阶段 1 fail|阶段 1 review|地面分层单元|找到三点摆放证据的单元|",
+        "|---|---:|---:|---:|---:|---:|",
+    ]
+    for house in inputs["houses"]:
+        d = json.loads((out / "houses" / (house + ".json")).read_text())
+        floors = [f for r in d["rows"] for f in r.get("floors", [])]
+        counts = Counter(r["stage1"]["status"] for r in d["rows"])
+        witnesses = sum(f["metrics"]["placement"]["found"] for f in floors)
+        lines.append(
+            f"|{house}|{len(d['rows'])}|{counts['fail']}|{counts['review']}|{len(floors)}|{witnesses}|"
+        )
+    lines += [
+        "",
+        f"出处 rooms_registry.jsonl、house_execution.json 和 funnel.json：登记 {funnel['stage0']['outgoing_registered_regions']} 个，完整 pass {funnel['stage1']['outgoing_pass']} 个；扫描质量缺失记未知，不能算 pass。显式 --skip-splitting，阶段 2 全为 not_run，未起 GPU 或重生成 navmesh。无第一次人审，第二人名单为空，一致率/kappa 未运行。",
+        "",
+        f"跨 region 的对象表面可能超出原生 R 框，R 框本身也不是多边形真值。{extent_text}这些只是边界诊断，未新增通过阈值。需要 region segmentation mesh/地面多边形或人工校正边界后，才能把对象归属的投影当正式房间范围；直接用 bbox 裁剪也只能是代理。",
+        "",
+        "复用结论：自动登记、对象类别映射、地面/家具投影、PathFinder 和射线模块可以复用。缺少扫描质量素材和可靠房间范围时，本轮 pilot 是资格代理测量，不是 MP3D 正式入库清单。没有在 pilot 以外房子执行阶段 1，也没有人工代判。",
+        "",
+        "命令与结束状态见 execution_receipt.json、../evidence/run_mp3d.sh、../evidence/mp3d_measure.log；环境版本见 ../evidence/environment_freeze.txt。",
+    ]
+    (out / "REPORT_zh.md").write_text("\n".join(lines) + "\n")
+
+
 def report(args, inputs, funnel, agree, iou, v7, differences, sample):
     out = args.output
+    if inputs["family"] == "mp3d":
+        report_mp3d(out, inputs, funnel)
+        return
     held = agree["holdout"]
     s0 = funnel["stage0"]
     s1 = funnel["stage1"]
@@ -684,6 +747,15 @@ def report(args, inputs, funnel, agree, iou, v7, differences, sample):
         "",
         f"任务书提供的旧简单规则近似值是一致率约 72%、精度约 74%、召回约 87%（出处：任务 R 用户背景；精确实现与 unsure 口径未验证）。本轮另存明确实现的简单基线：留出一致率 {pct(agree['documented_simple_baseline_holdout']['agreement'])}、精度 {pct(agree['documented_simple_baseline_holdout']['precision'])}、召回 {pct(agree['documented_simple_baseline_holdout']['recall'])}；它不是对上述历史数字的精确复现。自动规则无法替代人工审核。",
         "",
+        "全部 1382 条既有人审的三向计数（unsure 未丢弃；出处 agreement.json:all.three_way_matrix）：",
+        "",
+        "|人工/自动|pass|fail|review|",
+        "|---|---:|---:|---:|",
+        *[
+            f"|{h}|{agree['all']['three_way_matrix'][h]['pass']}|{agree['all']['three_way_matrix'][h]['fail']}|{agree['all']['three_way_matrix'][h]['review']}|"
+            for h in ["use", "skip", "unsure"]
+        ],
+        "",
         "分歧最大的类型及例子（每类至多五个；详细指标和素材在 disagreement_examples.json）：",
         "",
     ]
@@ -706,10 +778,23 @@ def report(args, inputs, funnel, agree, iou, v7, differences, sample):
         "",
         f"房子列表：{', '.join(v7.get('houses',[])) or '无自动通过且满足全部条件的候选'}。每间房的坐标证据、自动指标、人审和门禁出处见 JSON/TSV。SO 排除使用 assets_inventory.json 的 so_overlap.houses.hm3d；M1 排除使用任务书给定的先前 clean-house 清单。该清单的历史计算并非本轮从全部 M1 训练流重新复算；匿名 SO 场景与未列出的历史暴露仍不能保证不重叠。",
         "",
+        "候选逐房子房间清单（切分仍需另审；详细坐标和证据在 v7_candidates.json/tsv）：",
+        "",
+        "|房子|region 清单|",
+        "|---|---|",
+        *[
+            f"|{h}|{', '.join(r['room_label'] for r in v7.get('rooms',[]) if r['house']==h)}|"
+            for h in v7.get("houses", [])
+        ],
+        "",
         "给 smy 的后续人工审核说明：",
         "",
-        "用 read-only review server 打开 review.html。review_queue.jsonl 为全 region 队列，显示现有俯视图、巡房视频、自动原因、切分叠加和房门禁；没有素材的项先补素材。新发现的 region 先做第一次判断；存疑、分层和自动子块分别复核，批准子块不能继承原 use。固定理由清单在 review_reason_codes.json。判断通过浏览器导出独立 JSON，不直接改原审核章。",
+        f"用 read-only review server 打开 review.html。review_queue.jsonl 为全 region 队列，显示现有俯视图、巡房视频、自动原因、切分叠加和房门禁；没有素材的项先补素材。没有既有第一次章的 region 共 {s0['outgoing_registered_regions']-sample['reviewed_population']} 个，先做第一次判断；存疑、分层和自动子块分别复核，批准子块不能继承原 use。固定理由清单在 review_reason_codes.json。父 region 与切分子块均可逐项选 use/skip/unsure、固定理由和备注，通过浏览器导出独立 JSON，不直接改原审核章。",
         f"第二审核人只审 second_reviewer_sample.json 的固定 {sample['sample_count']} 项（{pct(sample['actual_fraction'])}），覆盖 {sample['house_strata']} 个已审房子的 strata，名单种子固定。第二人模式默认隐藏第一次 verdict 和自动建议，先独立判断后合议分歧。没有代填 verdict；双人一致率、Cohen kappa 和仲裁结论都为 not_run，拿到导出的标签后再计算。样本有不同纳入概率，若估计总体一致率应使用名单记录的权重。",
+        "",
+        f"第二人抽样总体明确为 {sample['reviewed_population']} 个已有第一次章的区域，{sample['sample_count']}/{sample['reviewed_population']}={pct(sample['actual_fraction'])}；抽样总体不包含尚无第一次章的区域。新增第一次标签完成后，再按成文规则生成独立的补充名单。",
+        "",
+        "当前俯视图元数据与旧汇报存在方向差异：例如 R8 服务当前记录 image_right=+X、image_up=-Z，而旧汇报是 -X/+Z。本轮全部使用每张图保存的 projection/view 矩阵，不硬套 85.33 px/m；矩阵 mask 测试和 R8 叠加图目视核对见 evidence/。",
         "",
         "运行与局限：",
         "",
@@ -720,4 +805,13 @@ def report(args, inputs, funnel, agree, iou, v7, differences, sample):
         "机器与作业：本轮 CPU 控制脚本见 evidence/run_all.sh；没有正在运行作业的情况下无需停任务。若仍运行，先核对 evidence/job.pid 的 PID 和命令，再发送 TERM；具体运行状态以 execution_receipt.json 为准。",
         "",
     ]
+    receipt_path = out / "execution_receipt.json"
+    if receipt_path.exists():
+        receipt = json.loads(receipt_path.read_text())
+        lines += [
+            "执行核对（出处 execution_receipt.json）："
+            + f"{receipt.get('status')}，最终房子状态 {receipt.get('final_house_outcomes')}，"
+            f"结束 {receipt.get('finished_at_sgt')}。原整批日志保留，单套精度问题补跑见 evidence/recovery_receipt.json。",
+            "",
+        ]
     (out / "REPORT_zh.md").write_text("\n".join(lines))

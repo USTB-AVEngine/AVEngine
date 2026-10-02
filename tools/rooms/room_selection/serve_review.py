@@ -28,8 +28,9 @@ def main():
                 return str(target)
             return super().translate_path(path)
 
-    print(f"http://127.0.0.1:{a.port}/review.html", flush=True)
-    ThreadingHTTPServer(("127.0.0.1", a.port), Handler).serve_forever()
+    server = ThreadingHTTPServer(("127.0.0.1", a.port), Handler)
+    print(f"http://127.0.0.1:{server.server_address[1]}/review.html", flush=True)
+    server.serve_forever()
 
 
 if __name__ == "__main__":

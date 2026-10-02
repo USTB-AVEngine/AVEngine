@@ -1,22 +1,130 @@
-<!doctype html><html lang="zh"><meta charset="utf-8"><title>规范选房人工审核</title>
-<style>body{font:16px sans-serif;max-width:1400px;margin:24px auto;background:#f5f5f5}button,select,input,textarea{font:inherit;margin:6px;padding:6px}img,video{max-width:48%;max-height:620px;vertical-align:top}pre{white-space:pre-wrap}textarea{width:90%}</style>
-<h1>房间独立人工审核</h1><p>判断在浏览器中暂存并导出独立 JSON。第二审核人先独立看图与视频，再合议分歧。</p>
-<label>审核人 <input id="author" placeholder="填写姓名"></label><label>角色 <select id="role"><option value="first">第一审核 / 复核</option><option value="second">第二审核人（固定样本、隐藏建议）</option></select></label>
+<!doctype html>
+<html lang="zh">
+<meta charset="utf-8">
+<title>规范选房人工审核</title>
+<style>
+body {font:16px sans-serif;max-width:1400px;margin:24px auto;background:#f5f5f5}
+button,select,input,textarea {font:inherit;margin:6px;padding:6px}
+img,video {max-width:48%;max-height:620px;vertical-align:top}
+pre {white-space:pre-wrap}
+textarea {width:90%}
+fieldset {margin:14px 0;border:1px solid #aaa}
+</style>
+<h1>房间独立人工审核</h1>
+<p>先填审核人姓名，再判断。草稿保存在当前浏览器；导出独立 JSON 后交 owner 合议。第二审核人先独立看图与视频。</p>
+<label>审核人 <input id="author" placeholder="填写姓名"></label>
+<label>角色 <select id="role"><option value="first">第一审核 / 复核</option><option value="second">第二审核人（固定样本、隐藏建议）</option></select></label>
 <button id="prev">上一间</button><button id="next">下一间</button><button id="export">导出判断</button>
-<h2 id="title"></h2><div id="media"></div><details id="suggestions"><summary>自动建议及指标</summary><pre id="info"></pre></details>
-<label>判断 <select id="verdict"><option value="">未判断</option><option value="use">use 用</option><option value="skip">skip 不用</option><option value="unsure">unsure 存疑</option></select></label>
-<div id="reasons"></div><textarea id="note" rows="3" placeholder="边界、切分修正或其他原因的说明"></textarea><p id="status"></p>
+<h2 id="title"></h2><div id="media"></div>
+<details id="suggestions"><summary>自动建议及指标</summary><pre id="info"></pre></details>
+<label>原 region 判断 <select id="verdict"><option value="">未判断</option><option value="use">use 用</option><option value="skip">skip 不用</option><option value="unsure">unsure 存疑</option></select></label>
+<div id="reasons"></div>
+<textarea id="note" rows="3" placeholder="边界、切分修正或其他原因的说明"></textarea>
+<div id="children"></div><p id="status"></p>
 <script>
-let queue=[],codes={},subset=[],index=0,decisions={};const $=id=>document.getElementById(id);
+let queue=[], codes={}, subset=[], index=0, decisions={}, storageKey='';
+let activeRole='first', activeAuthor='';
+const $=id=>document.getElementById(id);
 const key=r=>r.house+'/'+r.room_label;
-function save(){if(!subset.length)return;let r=subset[index],k=$('role').value+':'+key(r);decisions[k]={house:r.house,room_label:r.room_label,role:$('role').value,reviewer:$('author').value,verdict:$('verdict').value||null,reason_codes:[...document.querySelectorAll('#reasons input:checked')].map(x=>x.value),note:$('note').value,written_at:new Date().toISOString()};localStorage.setItem('room_selection_review_v1',JSON.stringify(decisions));}
-function show(){let r=subset[index];if(!r){$('title').textContent='没有可审核样本';return;}$('title').textContent=`${index+1}/${subset.length} ${key(r)}`;$('media').replaceChildren();
-if(r.overhead_path){let im=document.createElement('img');im.src=r.overhead_path;$('media').append(im);}if(r.video_url){let v=document.createElement('video');v.src=r.video_url;v.controls=true;v.preload='metadata';$('media').append(v);}
-$('suggestions').hidden=$('role').value==='second';$('info').textContent=JSON.stringify({automatic:r.automatic,split:r.split,gate:r.gate,metrics:r.floor_metrics,split_parts:r.split_parts},null,2);
-if($('role').value==='first')for(let p of r.split_overlay_paths){let im=document.createElement('img');im.src=p;$('media').append(im);}
-let old=decisions[$('role').value+':'+key(r)]||{};$('verdict').value=old.verdict||'';$('note').value=old.note||'';for(let el of document.querySelectorAll('#reasons input'))el.checked=(old.reason_codes||[]).includes(el.value);$('status').textContent=`原 region 登记；本轮状态 ${r.review_status}。`;
+const draftKey=r=>activeRole+':'+activeAuthor+':'+key(r);
+function reasons(container, selected=[]) {
+  container.replaceChildren();
+  for (const [code,name] of Object.entries(codes)) {
+    const label=document.createElement('label'), check=document.createElement('input');
+    check.type='checkbox'; check.value=code; check.checked=selected.includes(code);
+    label.append(check,document.createTextNode(name)); container.append(label);
+  }
 }
-(async()=>{queue=(await(await fetch('review_queue.jsonl')).text()).trim().split('\n').filter(Boolean).map(x=>JSON.parse(x));codes=await(await fetch('review_reason_codes.json')).json();try{decisions=JSON.parse(localStorage.getItem('room_selection_review_v1')||'{}');}catch(e){}for(let [code,name] of Object.entries(codes)){let label=document.createElement('label'),check=document.createElement('input');check.type='checkbox';check.value=code;label.append(check,document.createTextNode(name));$('reasons').append(label);}subset=queue;show();})();
-$('prev').onclick=()=>{save();index=Math.max(0,index-1);show();};$('next').onclick=()=>{save();index=Math.min(subset.length-1,index+1);show();};$('role').onchange=()=>{subset=queue.filter(r=>$('role').value==='first'||r.second_review);index=0;show();};
-$('export').onclick=()=>{save();const judged=Object.values(decisions).filter(r=>r.role===$('role').value&&r.verdict);if(!judged.length){alert('没有已判断条目');return;}if(judged.some(r=>!r.reviewer||((r.verdict!=='use'||r.reason_codes.includes('OTHER'))&&!r.reason_codes.length)||r.reason_codes.includes('OTHER')&&!r.note)){alert('请填写审核人、skip/unsure 理由及其他理由说明');return;}let blob=new Blob([JSON.stringify({schema:'room_selection_independent_reviews_v1',role:$('role').value,records:judged},null,2)],{type:'application/json'}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='room_selection_'+$('role').value+'_'+new Date().toISOString().replaceAll(':','-')+'.json';a.click();URL.revokeObjectURL(a.href);};
-</script></html>
+function selectedReasons(container) {
+  return [...container.querySelectorAll('input:checked')].map(el=>el.value);
+}
+function save() {
+  if (!subset.length) return;
+  const r=subset[index];
+  const splitDecisions=activeRole==='first'?[...$('children').querySelectorAll('fieldset')].map(el=>({
+    part_id:el.dataset.partId, verdict:el.querySelector('select').value||null,
+    reason_codes:selectedReasons(el.querySelector('.part-reasons')),
+    note:el.querySelector('textarea').value
+  })):[];
+  decisions[draftKey(r)]={house:r.house,room_label:r.room_label,role:activeRole,
+    reviewer:activeAuthor,verdict:$('verdict').value||null,
+    reason_codes:selectedReasons($('reasons')),note:$('note').value,
+    split_decisions:splitDecisions,
+    written_at_sgt:new Date().toLocaleString('sv-SE',{timeZone:'Asia/Singapore'}).replace(' ','T')+'+08:00'};
+  localStorage.setItem(storageKey,JSON.stringify(decisions));
+}
+function addImage(path) {
+  const im=document.createElement('img'); im.src=path; $('media').append(im);
+}
+function show() {
+  const r=subset[index];
+  if (!r) {$('title').textContent='没有可审核样本';return;}
+  $('title').textContent=`${index+1}/${subset.length} ${key(r)}`;
+  $('media').replaceChildren();
+  if (r.overhead_path) addImage(r.overhead_path);
+  if (r.video_url) {
+    const video=document.createElement('video');video.src=r.video_url;
+    video.controls=true;video.preload='metadata';$('media').append(video);
+  }
+  $('suggestions').hidden=activeRole==='second';
+  $('info').textContent=activeRole==='second'?'':JSON.stringify({
+    automatic:r.automatic,split:r.split,gate:r.gate,metrics:r.floor_metrics,
+    split_parts:r.split_parts},null,2);
+  if (activeRole==='first') for (const path of r.split_overlay_paths) addImage(path);
+  const old=decisions[draftKey(r)]||{};
+  $('verdict').value=old.verdict||''; $('note').value=old.note||'';
+  reasons($('reasons'),old.reason_codes||[]);
+  $('children').replaceChildren(); $('children').hidden=activeRole==='second';
+  if (activeRole==='first') for (const part of r.split_parts) {
+    const field=document.createElement('fieldset');field.dataset.partId=part.part_id;
+    const legend=document.createElement('legend');
+    legend.textContent=`切分子块 ${part.part_id}：地面 ${part.metrics.floor_area_m2.toFixed(2)} m²，主导航 ${part.metrics.nav_main_area_m2.toFixed(2)} m²`;
+    const select=document.createElement('select');
+    for (const [value,label] of [['','未判断'],['use','use 用'],['skip','skip 不用'],['unsure','unsure 存疑']]) {
+      const option=document.createElement('option');option.value=value;option.textContent=label;select.append(option);
+    }
+    const saved=(old.split_decisions||[]).find(item=>item.part_id===part.part_id)||{};
+    select.value=saved.verdict||'';
+    const reasonDiv=document.createElement('div');reasonDiv.className='part-reasons';
+    reasons(reasonDiv,saved.reason_codes||[]);
+    const note=document.createElement('textarea');note.rows=2;note.placeholder='子块边界或修正说明';note.value=saved.note||'';
+    field.append(legend,select,reasonDiv,note);$('children').append(field);
+  }
+  $('status').textContent=`本轮 ${r.review_status}。切分子块须独立判断，不能继承原 use。`;
+}
+function validLabel(d) {
+  if (!d.verdict) return true;
+  if (d.verdict!=='use'&&!d.reason_codes.length) return false;
+  return !((d.reason_codes.includes('OTHER')||d.reason_codes.includes('SPLIT_CORRECT'))&&!d.note.trim());
+}
+(async()=>{
+  const manifest=await(await fetch('review_manifest.json')).json();
+  storageKey='room_selection_review_v1:'+manifest.namespace;
+  queue=(await(await fetch('review_queue.jsonl')).text()).trim().split('\n').filter(Boolean).map(JSON.parse);
+  codes=await(await fetch('review_reason_codes.json')).json();
+  try {decisions=JSON.parse(localStorage.getItem(storageKey)||'{}');}catch (e) {decisions={};}
+  subset=queue; show();
+})();
+$('prev').onclick=()=>{save();index=Math.max(0,index-1);show();};
+$('next').onclick=()=>{save();index=Math.min(subset.length-1,index+1);show();};
+$('role').onchange=()=>{
+  save();activeRole=$('role').value;
+  subset=queue.filter(r=>activeRole==='first'||r.second_review);index=0;show();
+};
+$('author').onchange=()=>{save();activeAuthor=$('author').value.trim();show();};
+$('export').onclick=()=>{
+  save();
+  const judged=Object.values(decisions).filter(d=>d.role===activeRole&&d.reviewer===activeAuthor&&
+    (d.verdict||(d.split_decisions||[]).some(part=>part.verdict)));
+  if (!judged.length) {alert('没有已判断条目');return;}
+  if (!activeAuthor||judged.some(d=>!validLabel(d)||(d.split_decisions||[]).some(part=>!validLabel(part)))) {
+    alert('请填写审核人、skip/unsure 理由及其他/切分修正说明');return;
+  }
+  const blob=new Blob([JSON.stringify({schema:'room_selection_independent_reviews_v1',role:activeRole,
+    reviewer:activeAuthor,review_namespace:storageKey,records:judged},null,2)],{type:'application/json'});
+  const anchor=document.createElement('a');anchor.href=URL.createObjectURL(blob);
+  anchor.download='room_selection_'+activeRole+'_'+new Date().toISOString().replaceAll(':','-')+'.json';
+  anchor.click();URL.revokeObjectURL(anchor.href);
+};
+</script>
+</html>
