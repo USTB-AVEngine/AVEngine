@@ -1,0 +1,336 @@
+{
+  "description": "v7 proposed source vocabulary; v6 pool has 35 classes, legacy QA-21 fixed domain has 34",
+  "source_v6_pool": "/data/jzy/tmp/claude_fix_20260914/qa23/pool/T06_SOUND_POOL_segmented_v1.json",
+  "starss_public_taxonomy": "https://dcase.community/challenge2023/task-sound-event-localization-and-detection-evaluated-in-real-spatial-sound-scenes",
+  "source_protocol": "/data/jzy/tmp/claude_hardbank_20260923/real_starss23_v02_20261003/PROTOCOL_v02_zh.md",
+  "v6_classes": [
+    {
+      "sound_class": "air_conditioning",
+      "v6_asset_count": 20,
+      "starss_class_id": 5,
+      "mapping_kind": "条件",
+      "rule": "仅实体空调/机械风扇，可映 domestic；不含播放录音"
+    },
+    {
+      "sound_class": "alarm_beep",
+      "v6_asset_count": 18,
+      "starss_class_id": null,
+      "mapping_kind": "不对应",
+      "rule": "电子报警不是电话或手动钟"
+    },
+    {
+      "sound_class": "alarm_bell",
+      "v6_asset_count": 19,
+      "starss_class_id": null,
+      "mapping_kind": "不对应",
+      "rule": "报警铃不能默认映 STARSS 手动 bell"
+    },
+    {
+      "sound_class": "alarm_clock",
+      "v6_asset_count": 11,
+      "starss_class_id": null,
+      "mapping_kind": "不对应",
+      "rule": "闹钟保留 v6 语义"
+    },
+    {
+      "sound_class": "any_audioset_class_playback",
+      "v6_asset_count": 14,
+      "starss_class_id": null,
+      "mapping_kind": "不对应",
+      "rule": "保留兼容占位；必须有底层内容与扬声器机制，不进固定34类 QA-21"
+    },
+    {
+      "sound_class": "bathtub_filling_washing",
+      "v6_asset_count": 20,
+      "starss_class_id": null,
+      "mapping_kind": "不对应",
+      "rule": "浴缸用水不同于水龙头；明确 tap 子事件才映10"
+    },
+    {
+      "sound_class": "blender",
+      "v6_asset_count": 16,
+      "starss_class_id": null,
+      "mapping_kind": "不对应",
+      "rule": "不把所有家电强行塞入 domestic"
+    },
+    {
+      "sound_class": "busy_signal",
+      "v6_asset_count": 12,
+      "starss_class_id": 3,
+      "mapping_kind": "条件",
+      "rule": "实体电话装置发声才映3"
+    },
+    {
+      "sound_class": "cat_meow",
+      "v6_asset_count": 33,
+      "starss_class_id": null,
+      "mapping_kind": "不对应",
+      "rule": "动物类留在 v6 扩展面板"
+    },
+    {
+      "sound_class": "cellphone_vibration_alert",
+      "v6_asset_count": 17,
+      "starss_class_id": 3,
+      "mapping_kind": "条件",
+      "rule": "实体手机振动/提示音，非扬声器内容"
+    },
+    {
+      "sound_class": "chime",
+      "v6_asset_count": 26,
+      "starss_class_id": 11,
+      "mapping_kind": "条件",
+      "rule": "手动碰铃/酒店铃才映11；门铃另列"
+    },
+    {
+      "sound_class": "clock_tick",
+      "v6_asset_count": 20,
+      "starss_class_id": null,
+      "mapping_kind": "不对应",
+      "rule": "保留时钟背景"
+    },
+    {
+      "sound_class": "crackle",
+      "v6_asset_count": 20,
+      "starss_class_id": null,
+      "mapping_kind": "不对应",
+      "rule": "燃烧/爆裂声不强制映 domestic"
+    },
+    {
+      "sound_class": "ding_dong",
+      "v6_asset_count": 19,
+      "starss_class_id": null,
+      "mapping_kind": "不对应",
+      "rule": "门铃不是门扇开关或手动 bell"
+    },
+    {
+      "sound_class": "dog_bark",
+      "v6_asset_count": 28,
+      "starss_class_id": null,
+      "mapping_kind": "不对应",
+      "rule": "动物类留在 v6 扩展面板"
+    },
+    {
+      "sound_class": "doorbell",
+      "v6_asset_count": 3,
+      "starss_class_id": null,
+      "mapping_kind": "不对应",
+      "rule": "门铃保留独立机制"
+    },
+    {
+      "sound_class": "doorbell_chime",
+      "v6_asset_count": 10,
+      "starss_class_id": null,
+      "mapping_kind": "不对应",
+      "rule": "门铃保留独立机制"
+    },
+    {
+      "sound_class": "drip",
+      "v6_asset_count": 20,
+      "starss_class_id": null,
+      "mapping_kind": "不对应",
+      "rule": "水滴不是自动的 tap"
+    },
+    {
+      "sound_class": "fire",
+      "v6_asset_count": 17,
+      "starss_class_id": null,
+      "mapping_kind": "不对应",
+      "rule": "火声保留独立背景"
+    },
+    {
+      "sound_class": "fire_alarm",
+      "v6_asset_count": 13,
+      "starss_class_id": null,
+      "mapping_kind": "不对应",
+      "rule": "火警保留独立背景"
+    },
+    {
+      "sound_class": "gurgling",
+      "v6_asset_count": 14,
+      "starss_class_id": null,
+      "mapping_kind": "不对应",
+      "rule": "排水冒泡不是自动的 tap"
+    },
+    {
+      "sound_class": "microwave_beep",
+      "v6_asset_count": 20,
+      "starss_class_id": null,
+      "mapping_kind": "不对应",
+      "rule": "微波炉提示音不强制映 domestic"
+    },
+    {
+      "sound_class": "microwave_hum",
+      "v6_asset_count": 6,
+      "starss_class_id": null,
+      "mapping_kind": "不对应",
+      "rule": "微波炉机械声不强制映 domestic"
+    },
+    {
+      "sound_class": "music_playback",
+      "v6_asset_count": 15,
+      "starss_class_id": 8,
+      "mapping_kind": "严格",
+      "rule": "扬声器播放音乐；QA-21 music_playback"
+    },
+    {
+      "sound_class": "phone_ring",
+      "v6_asset_count": 16,
+      "starss_class_id": 3,
+      "mapping_kind": "条件",
+      "rule": "实体电话、非音乐铃声"
+    },
+    {
+      "sound_class": "printer",
+      "v6_asset_count": 20,
+      "starss_class_id": null,
+      "mapping_kind": "不对应",
+      "rule": "打印机不强制映 domestic"
+    },
+    {
+      "sound_class": "ringtone",
+      "v6_asset_count": 13,
+      "starss_class_id": 3,
+      "mapping_kind": "条件",
+      "rule": "非音乐实体电话铃声映3；音乐铃声按播放机制仅进入原生8面板"
+    },
+    {
+      "sound_class": "sink_filling_washing",
+      "v6_asset_count": 20,
+      "starss_class_id": null,
+      "mapping_kind": "不对应",
+      "rule": "洗槽/洗涤不自动映 tap；明确 tap 子事件才映10"
+    },
+    {
+      "sound_class": "smoke_alarm",
+      "v6_asset_count": 10,
+      "starss_class_id": null,
+      "mapping_kind": "不对应",
+      "rule": "烟雾报警保留独立背景"
+    },
+    {
+      "sound_class": "speech_playback",
+      "v6_asset_count": 296,
+      "starss_class_id": null,
+      "mapping_kind": "不对应",
+      "rule": "扬声器讲话不能映现场 female/male speech；现场讲话用新增类别"
+    },
+    {
+      "sound_class": "telephone",
+      "v6_asset_count": 16,
+      "starss_class_id": 3,
+      "mapping_kind": "条件",
+      "rule": "电话机械铃/提示；不是自动映播放讲话"
+    },
+    {
+      "sound_class": "telephone_bell_ringing",
+      "v6_asset_count": 13,
+      "starss_class_id": 3,
+      "mapping_kind": "条件",
+      "rule": "实体电话机械铃，非手动 bell"
+    },
+    {
+      "sound_class": "telephone_dialing_dtmf",
+      "v6_asset_count": 9,
+      "starss_class_id": 3,
+      "mapping_kind": "条件",
+      "rule": "实体电话 DTMF 提示"
+    },
+    {
+      "sound_class": "toilet_flush",
+      "v6_asset_count": 20,
+      "starss_class_id": null,
+      "mapping_kind": "不对应",
+      "rule": "冲厕不自动映水龙头"
+    },
+    {
+      "sound_class": "water_tap_faucet",
+      "v6_asset_count": 16,
+      "starss_class_id": 10,
+      "mapping_kind": "严格",
+      "rule": "水龙头；QA-21 water_tap_faucet"
+    }
+  ],
+  "new_classes": [
+    {
+      "sound_class": "human_speech_female",
+      "starss_class_id": 0,
+      "emission_mechanism": "human_live",
+      "rule": "女性现场讲话；类别由可核实声音/合成配置给出"
+    },
+    {
+      "sound_class": "human_speech_male",
+      "starss_class_id": 1,
+      "emission_mechanism": "human_live",
+      "rule": "男性现场讲话；不从衣服推断"
+    },
+    {
+      "sound_class": "hand_clapping",
+      "starss_class_id": 2,
+      "emission_mechanism": "human_live",
+      "rule": "拍手活动段，非拍击次数"
+    },
+    {
+      "sound_class": "human_laughter",
+      "starss_class_id": 4,
+      "emission_mechanism": "human_live",
+      "rule": "笑声与同 actor 的讲话分开划段"
+    },
+    {
+      "sound_class": "vacuum_cleaner",
+      "starss_class_id": 5,
+      "emission_mechanism": "appliance",
+      "rule": "吸尘器"
+    },
+    {
+      "sound_class": "water_boiling",
+      "starss_class_id": 5,
+      "emission_mechanism": "appliance",
+      "rule": "烧水声"
+    },
+    {
+      "sound_class": "walking_footsteps",
+      "starss_class_id": 6,
+      "emission_mechanism": "human_live",
+      "rule": "步行脚步；步次数不等于活动段数"
+    },
+    {
+      "sound_class": "door_open_close",
+      "starss_class_id": 7,
+      "emission_mechanism": "mechanical_live",
+      "rule": "房门/柜门开关"
+    },
+    {
+      "sound_class": "instrument_live",
+      "starss_class_id": 9,
+      "emission_mechanism": "instrument_live",
+      "rule": "吉他/马林巴/牛铃/钢琴/摇铃等现场振动发声"
+    },
+    {
+      "sound_class": "bell_manual",
+      "starss_class_id": 11,
+      "emission_mechanism": "mechanical_live",
+      "rule": "酒店碰铃/玻璃铃，区别于报警和门铃"
+    },
+    {
+      "sound_class": "surface_knock",
+      "starss_class_id": 12,
+      "emission_mechanism": "mechanical_live",
+      "rule": "人敲门/桌面，区别于门扇动作"
+    }
+  ],
+  "emission_mechanisms": [
+    "human_live",
+    "speech_loudspeaker",
+    "instrument_live",
+    "music_loudspeaker",
+    "appliance",
+    "mechanical_live",
+    "animal_live"
+  ],
+  "rules": [
+    "Do not infer physical emitter from dry clip title alone",
+    "Conditional mappings require explicit emitter and reviewed clip semantics",
+    "STARSS protocol legacy QA-21 maps only Music and Water tap strictly; native13 panel is separate",
+    "V6 class names do not certify licenses or pure synthetic label provenance"
+  ]
+}
