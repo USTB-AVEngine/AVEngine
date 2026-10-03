@@ -29,10 +29,14 @@ def command(argv, timeout=3):
     except (OSError, subprocess.TimeoutExpired) as e:
         return {"argv": argv, "error": str(e)}
 
-def cgroup_limits():
+def cgroup_spare(row):
+    limit=row['memory_limit_bytes'];current=int(row.get('memory.current') or 0)
+    return max(0,min(limit,limit-current+min(current,row.get('reclaimable_inactive_file_bytes',0))))
+
+def cgroup_limits(pid=None):
     # Read both the mounted namespace root and the process's visible ancestors.
     paths = {Path('/sys/fs/cgroup')}
-    raw = read('/proc/self/cgroup') or ''
+    raw = read(f'/proc/{pid if pid is not None else 'self'}/cgroup') or ''
     for line in raw.splitlines():
         bits = line.split(':', 2)
         if len(bits) == 3 and bits[0] == '0':
@@ -43,7 +47,7 @@ def cgroup_limits():
                     break
                 p = p.parent
     mount_root='/'
-    for line in (read('/proc/self/mountinfo') or '').splitlines():
+    for line in (read(f'/proc/{pid if pid is not None else 'self'}/mountinfo') or '').splitlines():
         fields=line.split()
         if '-' in fields and fields[fields.index('-')+1]=='cgroup2' and fields[4]=='/sys/fs/cgroup':
             mount_root=fields[3];break
@@ -53,6 +57,10 @@ def cgroup_limits():
         if cpu is None and memory is None:
             continue
         row = {"canonical_path":str(Path(mount_root)/p.relative_to('/sys/fs/cgroup')),"path": str(p), "cpu.max": cpu, "memory.max": memory, "memory.current": read(p/'memory.current'), "cpuset.cpus.effective": read(p/'cpuset.cpus.effective')}
+        stat=read(p/'memory.stat') or ''
+        values={k:int(v) for line in stat.splitlines() for k,v in [line.split()] if k in ('anon','file','inactive_file','active_file','file_dirty','file_writeback')}
+        row['memory_stat']=values
+        row['reclaimable_inactive_file_bytes']=max(0,values.get('inactive_file',0)-values.get('file_dirty',0)-values.get('file_writeback',0))
         if cpu and cpu.split()[0] != 'max':
             q, period = map(int, cpu.split()); row['cpu_quota_cores'] = q / period
         if memory and memory != 'max':
@@ -86,6 +94,7 @@ def gpu_inventory():
     else:
         tokens = visible.split(',')
         gpus = [r for r in all_gpus if r['index'] in tokens or any(r['uuid'].startswith(x) for x in tokens)]
+    gpus=[r for r in gpus if Path('/dev/nvidia'+r['index']).exists() and r['memory_mib'].replace('.','',1).isdigit()]
     return {"query": q, "all": all_gpus, "visible": gpus, "visible_count": len(gpus), "CUDA_VISIBLE_DEVICES": visible}
 
 def io_probe(directory, mib=2):
@@ -112,7 +121,7 @@ def probe(afs_root=None, io=False):
     raw, limits = cgroup_limits()
     cpus = min([len(affinity)] + [r['cpu_quota_cores'] for r in limits if 'cpu_quota_cores' in r])
     memory = min([mem.get('MemTotal', 0)] + [r['memory_limit_bytes'] for r in limits if 'memory_limit_bytes' in r])
-    spares=[max(0,r['memory_limit_bytes']-int(r['memory.current'])) for r in limits if r.get('memory.current') and 'memory_limit_bytes' in r]
+    spares=[cgroup_spare(r) for r in limits if r.get('memory.current') and 'memory_limit_bytes' in r]
     available = min([mem.get('MemAvailable',memory),memory]+spares)
     model = next((x.split(':',1)[1].strip() for x in (read('/proc/cpuinfo') or '').splitlines() if x.startswith('model name')), None)
     rank = {k:os.environ.get(k) for k in ('RANK','LOCAL_RANK','WORLD_SIZE','LOCAL_WORLD_SIZE','GROUP_RANK','GROUP_WORLD_SIZE','SENSECORE_PYTORCH_NNODES','SENSECORE_PYTORCH_NODE_RANK','LADDER_JOB_ID')}
@@ -155,7 +164,7 @@ def allocate(reports, *, mode='dedicated', training_ranks=0, loader_workers=0, t
         common_memory=None;common_available=None
         for r in rows:
             scope={x.get('canonical_path',x['path']):x['memory_limit_bytes'] for x in r.get('cgroup_limits',[]) if 'memory_limit_bytes' in x}
-            free={x.get('canonical_path',x['path']):max(0,x['memory_limit_bytes']-int(x['memory.current'])) for x in r.get('cgroup_limits',[]) if 'memory_limit_bytes' in x and x.get('memory.current')}
+            free={x.get('canonical_path',x['path']):cgroup_spare(x) for x in r.get('cgroup_limits',[]) if 'memory_limit_bytes' in x and x.get('memory.current')}
             common_memory=scope if common_memory is None else {k:min(v,scope[k]) for k,v in common_memory.items() if k in scope}
             common_available=free if common_available is None else {k:min(v,free[k]) for k,v in common_available.items() if k in free}
         memory=min([sum(memory_groups.values()),min(r.get('memory_info',{}).get('MemTotal',sum(memory_groups.values())) for r in rows)]+list((common_memory or {}).values()))

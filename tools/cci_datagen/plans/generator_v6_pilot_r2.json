@@ -1,0 +1,28 @@
+{
+  "schema": "cci_datagen_generator_profile_v1",
+  "base": "/mnt/afs/xinyuanqian/jzy/hardbank/generation/cci_colocated_20261003_codex",
+  "profile_name": "existing_v6_infrastructure_pilot_r2",
+  "production_allowed": false,
+  "generator_code_root": "/mnt/afs/xinyuanqian/jzy/hardbank/generation/cci_colocated_20261003_codex/code",
+  "generator_release": "/mnt/afs/xinyuanqian/jzy/hardbank/generation/cci_colocated_20261003_codex/RELEASE.json",
+  "stage_adapter": "/mnt/afs/xinyuanqian/jzy/hardbank/generation/cci_colocated_20261003_codex/code/tools/cci_datagen/world_stage.py",
+  "workspace_root": "/mnt/afs/xinyuanqian/jzy/hardbank/generation/cci_colocated_20261003_codex/output/generation_workspace",
+  "generation_run_root": "/mnt/afs/xinyuanqian/jzy/hardbank/generation/cci_colocated_20261003_codex/output/generation_workspace/pilot64_v6_r2",
+  "request_paths": "/mnt/afs/xinyuanqian/jzy/hardbank/generation/cci_colocated_20261003_codex/configs/pilot64_request_paths.json",
+  "recommended_houses": "/mnt/afs/xinyuanqian/jzy/hardbank/generation/cci_datagen_20261003_codex/mirror/data/jzy/tmp/claude_hardbank_20260923/v7_batch1_20261003/report_final/recommended_houses.json",
+  "scratch_gib_per_world": 4,
+  "resources": {
+    "loader_workers_per_training_rank": 4,
+    "training_gib_per_rank": 33,
+    "worker_gib": 4,
+    "cpu_reserve_fraction": 0.1,
+    "memory_reserve_fraction": 0.1
+  },
+  "gpu_boundary": {
+    "scheduler_ranks": 1,
+    "max_renderer_gib": 12,
+    "minimum_free_training_reserve_gib": 4,
+    "policy": "only assigned GPU, read-only NVML, stop own renderer on insufficient space; no training launch or preemption"
+  },
+  "version_switch": "deploy another private immutable generator release, select a new profile and generation_run_root; receipts bind profile and release SHA; formal production waits for v7/material handoffs"
+}

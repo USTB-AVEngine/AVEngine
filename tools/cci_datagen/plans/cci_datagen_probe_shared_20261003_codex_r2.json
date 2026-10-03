@@ -1,0 +1,49 @@
+{
+  "schema": "avledger_ladder_plan_v1",
+  "name": "cci_datagen_probe_shared_20261003_codex_r2",
+  "run_root": "/mnt/afs/xinyuanqian/jzy/hardbank/generation/cci_colocated_20261003_codex/output/scheduler_probe",
+  "python": "/mnt/afs/xinyuanqian/jzy/hardbank/generation/cci_datagen_20261003_codex/env/bin/python",
+  "cwd": "/mnt/afs/xinyuanqian/jzy/hardbank/generation/cci_colocated_20261003_codex/code",
+  "max_failures_per_stage": 1,
+  "env": {
+    "PYTHONPATH": "/mnt/afs/xinyuanqian/jzy/hardbank/generation/cci_colocated_20261003_codex/code/src:/mnt/afs/xinyuanqian/jzy/hardbank/generation/cci_colocated_20261003_codex/code:/mnt/afs/xinyuanqian/jzy/hardbank/generation/cci_datagen_20261003_codex/overlay",
+    "LD_LIBRARY_PATH": "/mnt/afs/xinyuanqian/jzy/hardbank/generation/cci_datagen_20261003_codex/private_glvnd:/mnt/afs/xinyuanqian/jzy/hardbank/generation/cci_datagen_20261003_codex/env/lib",
+    "CCI_DATAGEN_BASE": "/mnt/afs/xinyuanqian/jzy/hardbank/generation/cci_colocated_20261003_codex",
+    "DATAGEN_NATIVE_ROOT": "/mnt/afs/xinyuanqian/jzy/hardbank/generation/cci_datagen_20261003_codex/native/data/avengine_external",
+    "DATAGEN_PYTHON": "/mnt/afs/xinyuanqian/jzy/hardbank/generation/cci_datagen_20261003_codex/env/bin/python",
+    "PYTHONDONTWRITEBYTECODE": "1",
+    "PYTHONUNBUFFERED": "1",
+    "OMP_NUM_THREADS": "1",
+    "OPENBLAS_NUM_THREADS": "1",
+    "MKL_NUM_THREADS": "1",
+    "NUMEXPR_NUM_THREADS": "1",
+    "AVENGINE_RLR_THREADS": "1",
+    "TMPDIR": "/mnt/afs/xinyuanqian/jzy/hardbank/generation/cci_colocated_20261003_codex/tmp",
+    "NUMBA_CACHE_DIR": "/mnt/afs/xinyuanqian/jzy/hardbank/generation/cci_colocated_20261003_codex/tmp/numba",
+    "MPLCONFIGDIR": "/mnt/afs/xinyuanqian/jzy/hardbank/generation/cci_colocated_20261003_codex/tmp/matplotlib",
+    "XDG_CACHE_HOME": "/mnt/afs/xinyuanqian/jzy/hardbank/generation/cci_colocated_20261003_codex/tmp/cache",
+    "GIT_CONFIG_GLOBAL": "/mnt/afs/xinyuanqian/jzy/hardbank/generation/cci_colocated_20261003_codex/code/.git/CCI_SAFE_CONFIG"
+  },
+  "experiments": [
+    {
+      "name": "datagen_probe",
+      "evals": [
+        {
+          "name": "job",
+          "checkpoint": "/mnt/afs/xinyuanqian/jzy/hardbank/generation/cci_colocated_20261003_codex/configs/generator_v6_pilot_r2.json",
+          "checkpoint_flag": "--generator-profile",
+          "args": [
+            "/mnt/afs/xinyuanqian/jzy/hardbank/generation/cci_colocated_20261003_codex/code/tools/cci_datagen/normal_entry.py",
+            "--mode",
+            "probe"
+          ]
+        }
+      ]
+    }
+  ],
+  "task_kind": "generic resource probe",
+  "resource_boundary": "one experiment on one existing torchrun worker; nice 19 CPU children; render only on its leased GPU with VRAM guard; no nested torchrun, training commands, exclusive scheduling or worker changes",
+  "receipt_note": "existing eval receipt ABI is used for a generic job; checkpoint is generator-profile JSON, not a model; count=one completed job with completed_worlds reported separately",
+  "queue_line": "/mnt/afs/xinyuanqian/jzy/hardbank/plans/cci_datagen_probe_shared_20261003_codex_r2.json 2",
+  "prepared_only": true
+}
