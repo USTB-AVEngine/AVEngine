@@ -5,7 +5,7 @@
 
 自 2026-08-25 起，目录本身就是能力分组（阶段目录 m1…m7 已移除），
 本表按目录列出每个工具做什么。
-当前共 475 个工具脚本。
+当前共 477 个工具脚本。
 
 ## 资产生成与装配（`tools/assets/`）
 
@@ -19,6 +19,7 @@
 | `tools/assets/assemble_variant_package.py` | Assemble a generic M2 animal research package from real QA evidence |
 | `tools/assets/audit_candidate.py` | Write bounded automatic QA reports for an M2 research candidate |
 | `tools/assets/audit_habitat_mesh_grounding.py` | Audit exact skinned-vertex grounding and declared source anchors |
+| `tools/assets/audit_source_materials.py` | Inventory and native before/after acceptance for inserted source materials |
 | `tools/assets/audit_variant_candidate.py` | Run body-plan-neutral automatic M2 QA using explicit variant anchors |
 | `tools/assets/audit_world_contacts.py` | Fit M2 root cadence and emit hash-bound world-contact artifacts |
 | `tools/assets/bake_actions.py` | Bake the strict M2 Idle/Walking action artifact and hash-bound report |
@@ -49,6 +50,7 @@
 | `tools/assets/capture_installed_research_review.py` | Run the current installed-prefix M2 Blender-room research review |
 | `tools/assets/capture_research_review.py` | Run the 75-state single-view M2 research-review capture in Habitat |
 | `tools/assets/check_prompt_token_budget.py` | Fail closed when a candidate profile's effective prompt cannot fit the model window |
+| `tools/assets/check_source_material_matrix.py` | Gate the complete source-material matrix and emit an offline review page |
 | `tools/assets/compile_animal_package.py` | Compile a bounded M2 research-candidate package |
 | `tools/assets/compose_topdown_review.py` | Derive synchronized RGB + navmesh/descriptor top-down QA review media |
 | `tools/assets/derive_variant_contacts.py` | Derive generic package anchors and actor-space four-paw contacts |
