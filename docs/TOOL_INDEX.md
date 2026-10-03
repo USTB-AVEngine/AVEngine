@@ -5,7 +5,7 @@
 
 自 2026-08-25 起，目录本身就是能力分组（阶段目录 m1…m7 已移除），
 本表按目录列出每个工具做什么。
-当前共 486 个工具脚本。
+当前共 487 个工具脚本。
 
 ## 资产生成与装配（`tools/assets/`）
 
@@ -171,6 +171,7 @@
 | `tools/acoustics/audit_skokloster_cleanup_inventory.py` | Emit the exact face inventory for a Skokloster research cleanup |
 | `tools/acoustics/build_asset_bound_rir_plan.py` | Bind concrete assets to generic root routes and plan on-demand RIR work |
 | `tools/acoustics/check_moving_waveform_controls.py` | Offline nearest/arrival-aligned controls; never replace production qualification |
+| `tools/acoustics/check_native_diffraction_shadow.py` | CPU shadow controls verify diffraction behavior beyond configuration readback |
 | `tools/acoustics/cleanup_dynamic_rir_cache.py` | Clear completed numeric RIR payloads while retaining replayable evidence |
 | `tools/acoustics/compare_moving_energy_policies.py` | Compare four diffraction/refinement arms against fixed native mouth midpoints |
 | `tools/acoustics/compile_semantic_research_package.py` | Compile one room's semantic mesh into an M3/RLR research acoustic package |
