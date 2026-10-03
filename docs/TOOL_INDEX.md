@@ -5,7 +5,7 @@
 
 自 2026-08-25 起，目录本身就是能力分组（阶段目录 m1…m7 已移除），
 本表按目录列出每个工具做什么。
-当前共 467 个工具脚本。
+当前共 485 个工具脚本。
 
 ## 资产生成与装配（`tools/assets/`）
 
@@ -117,21 +117,30 @@
 | `tools/rooms/build_render_surface_navigation.py` | Build reusable CPU navigation from a room's declared render surface |
 | `tools/rooms/build_residential_source_episode.py` | Build AVEngine Timeline, Topdown and binaural audio for a residential room |
 | `tools/rooms/build_support_surface_catalog.py` | Fit a room's wall and ceiling support surfaces from its own render surface |
+| `tools/rooms/check_v7_kujiale_native_assets.py` | Render all registered native source assets with fixed production appearance QA |
+| `tools/rooms/check_v7_kujiale_ue.py` | Native UE room images, measured depth floor and exact exported geometry QA |
 | `tools/rooms/compile_ue_navigation.py` | Build free navigation from current UE collision geometry and null areas |
 | `tools/rooms/emit_hm3d_room_manifest.py` | Emit an AVEngine room manifest for an HM3D scene directory |
 | `tools/rooms/extract_interioragent_scene_metadata.py` | Extract a room polygon and navigation footprints from InteriorAgent USD |
+| `tools/rooms/finalize_v7_kujiale_ue.py` | Finish native room QA from measured RGB/depth and actual UE asset bindings |
 | `tools/rooms/kujiale_batch.py` | CPU InteriorAgent inventory and conversion; never grants native UE admission |
 | `tools/rooms/kujiale_material_translation.py` | Explicit extra InteriorAgent MDL inputs for research Preview Surface USD |
 | `tools/rooms/measure_habitat_floor_reference.py` | Measure Habitat floor levels from a declared scene and navmesh |
 | `tools/rooms/measure_ue_room_floor_reference.py` | Measure an UE room floor from the currently loaded map |
+| `tools/rooms/native_guard_safe_stop.py` | Stop one recorded task guard after verifying PID creation time and argv |
 | `tools/rooms/plan_furnished_camera_review.py` | Build a short multi-view camera review plan for one furnished room |
 | `tools/rooms/plan_furnished_residential_episode.py` | Plan a static furnished residential episode through the AVEngine room API |
+| `tools/rooms/preflight_v7_kujiale_native.py` | Select a measured witness whose unchanged seeded motion stays navigable |
 | `tools/rooms/prepare_3d_front_toolbox_sample_proxy.py` | Build a clearly labelled 3D-FRONT Toolbox sample review proxy in USD |
 | `tools/rooms/prepare_interioragent_kujiale_adapter.py` | Prepare an external InteriorAgent USD stage for UE's runtime USD importer |
 | `tools/rooms/prepare_legacy_apartment.py` | Prepare the real-surface UE apartment export as an M1 Habitat room package |
 | `tools/rooms/prepare_skokloster_interchange_glb.py` | Bake Skokloster's legacy source axes into a canonical glTF for UE import |
 | `tools/rooms/prepare_spear_apartment_exterior.py` | Export UE's approaching_storm HDRI and build a visual-only Habitat GLB |
 | `tools/rooms/prepare_ue_room.py` | Prepare an audited UE render-surface export for the shared room compiler |
+| `tools/rooms/prepare_v7_kujiale_native_generation.py` | Prepare explicit native UE inputs from already measured physical room QA |
+| `tools/rooms/prepare_v7_kujiale_native_materials.py` | Map existing reviewed source GLB PBR repairs to isolated native UE materials |
+| `tools/rooms/prepare_v7_kujiale_native_motion_plan.py` | Find frozen legal native witnesses with navigable seeded actor motion |
+| `tools/rooms/prepare_v7_kujiale_ue.py` | Prepare isolated native UE requests with three frozen-rule pose witnesses |
 | `tools/rooms/rebuild_replicacad_obstacle_review.py` | Rebuild the retained ReplicaCAD review with live furniture obstacles |
 | `tools/rooms/report_kujiale_batch.py` | Report CPU Kujiale conversion, missing native evidence and internal CCI files |
 | `tools/rooms/room_screening_candidates.py` | Compute provisional HM3D semantic-ground/navmesh overlap candidates |
@@ -151,6 +160,7 @@
 | `tools/rooms/run_spear_replicacad_canary.py` | Render the retained 270-frame ReplicaCAD route in an isolated SPEAR editor |
 | `tools/rooms/run_spear_residential_episode.py` | Render one AVEngine residential visual episode through SPEAR/UE |
 | `tools/rooms/select_furnished_camera_review.py` | Choose a furnished-room camera from actual SPEAR per-person visibility masks |
+| `tools/rooms/v7_kujiale_ue_guard.py` | Run one isolated native UE task with graphics-aware GPU and disk accounting |
 
 ## 场景放置（`tools/scene/`）
 
@@ -237,6 +247,17 @@
 |---|---|
 | `tools/visual/render_moving_source_video.py` | Render the route the acoustic pass rendered, as frames that can carry that audio |
 | `tools/visual/replay_placement_in_avengine.py` | Render the same speaker placement the acoustic chain used, in AVEngine's own runtime |
+
+## 时间线（`tools/timeline/`）
+
+*权威时间线、音频程序（src/avengine/timeline，工具暂无）*
+
+| 工具 | 做什么 |
+|---|---|
+| `tools/timeline/generate_v7_scenes.py` | Seed-driven restartable CPU native candidates. Formal mode fails closed |
+| `tools/timeline/pilot_continuous_scenes.py` | CPU-only restartable continuous-scene pilot and native RIR throughput probe |
+| `tools/timeline/pilot_v7_kujiale_ue.py` | Run one measured Kujiale UE/SPEAR research pilot through unchanged v7 stages |
+| `tools/timeline/prepare_v7_seed_tables.py` | Write v7-S and full-set seed tables without changing existing inputs |
 
 ## 空间音频（`tools/audio/`）
 
@@ -548,6 +569,8 @@
 |---|---|
 | `tools/ue/assemble_package_stage.py` | Assemble a fresh UE package stage for the current Apartment visual route |
 | `tools/ue/assemble_research_editor_stage.py` | Create an isolated SPEAR Editor stage using current source and installed binaries |
+| `tools/ue/audit_v7_kujiale_native_assets_editor.py` | Audit native asset material parameters, changing only an isolated project |
+| `tools/ue/bake_kujiale_native_usd.py` | Bake composed USD mesh transforms for exact UE import, preserving geometry |
 | `tools/ue/build_minimal_closure_report.py` | Build a minimal-closure report for the current Apartment visual stage |
 | `tools/ue/create_extra_animals_blueprints_editor.py` |  |
 | `tools/ue/create_spear_kujiale_map_editor.py` | Create a UE map containing one external USD stage |
@@ -563,9 +586,11 @@
 | `tools/ue/import_spear_skokloster_editor.py` | Import the prepared Skokloster GLB into one isolated SPEAR/UE content root |
 | `tools/ue/import_static_source_editor.py` | Import declared rigid source GLBs into fresh Unreal content directories |
 | `tools/ue/import_usd_stage_to_level_editor.py` | Import an external USD stage into ordinary Unreal assets and a saved level |
+| `tools/ue/import_v7_kujiale_editor.py` | Materialize one isolated Kujiale map and record native floor/material evidence |
 | `tools/ue/prepare_spear_mp3d_execution.py` | Bind a compiled Timeline-v2 visual plan to the imported MP3D UE scene |
 | `tools/ue/prepare_spear_replicacad_scene.py` | Prepare the complete ReplicaCAD scene request for the optional UE backend |
 | `tools/ue/probe_spear_replicacad_environment.py` | Probe whether ReplicaCAD can be imported/cooked without touching old SPEAR |
+| `tools/ue/repair_v7_kujiale_native_materials_editor.py` | Apply reviewed GLB PBR changes only to MICs in the task's isolated project |
 | `tools/ue/unreal_export_approaching_storm.py` | Unreal Editor-side exporter for the stock approaching_storm TextureCube |
 | `tools/ue/verify_extra_animals_editor.py` |  |
 

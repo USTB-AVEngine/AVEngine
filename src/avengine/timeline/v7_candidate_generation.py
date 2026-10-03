@@ -225,14 +225,14 @@ def audit_parent_group(row, base, members):
 
 
 def generate_parent(row, house, inputs, assets, output, compact=False):
-    from avengine.capture.continuous_native_video import NativeContinuousVideo
+    from avengine.capture.native_continuous_backend import create_native_video
     from avengine.timeline.v7_production_contract import validate_question_counts
     start_cpu,start_wall=time.process_time(),time.perf_counter()
     working,base=seeded_scene(row,house)
     root=Path(output)/'parents'/row['scene_id'];root.mkdir(parents=True,exist_ok=True)
     write_json(root/f'worker_started_{os.getpid()}_{time.time_ns()}.json',
         {'pid':os.getpid(),'parent_pid':os.getppid(),'scene_id':row['scene_id'],'house':row['house'],
-         'output_root':str(root.resolve()),'compute_device':'CPU'})
+         'output_root':str(root.resolve()),'compute_device':('GPU' if house.get('input',{}).get('visual_backend')=='ue_spear' else 'CPU')})
     recipe={'seed_row':row,'house':house,'runtime_inputs':inputs,'assets':assets}
     input_path=root/'input_recipe.json'
     if input_path.exists():
@@ -253,7 +253,7 @@ def generate_parent(row, house, inputs, assets, output, compact=False):
         appearances={base['sources'][a['endpoint_id']]['actor_id']:a.get('appearance_zh',{'blue':'蓝色上衣的人','yellow':'黄色上衣的人'}[a['appearance']['top_color']]) for a in variant}
         visual_name='visual_'+member[:2]
         def render(attempt):
-            video=NativeContinuousVideo(working,base,inputs,variant)
+            video=create_native_video(working,base,inputs,variant)
             try:result=video.encode(base,attempt/'scene_video.mp4')
             finally:video.close()
             return {'renderer':result['renderer'],'wall_seconds':result['wall_seconds']},['scene_video.mp4','native_visual_evidence.json']
