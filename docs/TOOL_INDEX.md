@@ -5,7 +5,7 @@
 
 自 2026-08-25 起，目录本身就是能力分组（阶段目录 m1…m7 已移除），
 本表按目录列出每个工具做什么。
-当前共 474 个工具脚本。
+当前共 482 个工具脚本。
 
 ## 资产生成与装配（`tools/assets/`）
 
@@ -273,6 +273,7 @@
 | `tools/qa/adapt_strict_two_human_both_move_v1_preflight.py` | Bind the reviewed both-move geometry handoff to A's materializer contract |
 | `tools/qa/assemble_binding_groups.py` | Assemble controlled binding groups from completed native episode variants |
 | `tools/qa/assemble_qa_v3_room_pilot.py` | Assemble one quota-complete room-centric QA-v3 research pilot manifest |
+| `tools/qa/assemble_retained_frozen_panel.py` | Delegate scoring assembly to the unchanged scorer, then assemble minimal witnesses |
 | `tools/qa/audio_profiles.py` | Question-type audio profiles: one schedule per question type, not one for all |
 | `tools/qa/audit_answer_priors.py` | Audit a retained question bank and optional splits into a new private receipt |
 | `tools/qa/audit_binding_feasibility.py` | 绑定可行性与逐题难度画像审计（research_only）。 |
@@ -284,6 +285,7 @@
 | `tools/qa/audit_strict_two_human_room_expansion.py` | Audit two additional cooked SPEAR maps for the strict M/F/C room closure |
 | `tools/qa/author_observed_f2_direction.py` | Author backend-independent F2 direction facts from observed native frames |
 | `tools/qa/balance_bank_answers.py` | Thin over-represented answers per split; see avengine.qa.answer_balance |
+| `tools/qa/bind_frozen_panel_versions.py` | Bind accepted generator/assets/CCI runtime to a new configuration; never launch jobs |
 | `tools/qa/bind_native_paper_balance_episode.py` | Bind one full native SPEAR capture to the paper-balance QuestionSpec strata |
 | `tools/qa/bind_native_pixel_fact_episode.py` | Bind one full native SPEAR pixel capture to Facts and QuestionSpecs |
 | `tools/qa/bind_native_spear_episode.py` | Bind one compiled QA Fact table to retained native SPEAR/UE evidence |
@@ -329,6 +331,8 @@
 | `tools/qa/certify_frozen_panel.py` | Construct media certificates and isolated model requests; never read answers |
 | `tools/qa/check_release_gate.py` | Decide whether one generated bank meets the declared benchmark standard |
 | `tools/qa/check_semantic_speech.py` | Read synthesized semantic speech back with a local Whisper model and admit the audible recordings |
+| `tools/qa/compact_frozen_panel.py` | Stage lossless witnesses, measure three artifact classes, or prune passed parents |
+| `tools/qa/compare_frozen_panel_canary.py` | Compare admitted twenty-parent replay geometry, clock, media and existing QA metrics |
 | `tools/qa/compare_question_spec_fresh.py` | Fresh QuestionSpec re-evaluation versus retained bind-time records |
 | `tools/qa/compile_apartment_fact_tables.py` | Compile per-episode QA fact tables for the asset-bound Apartment batch |
 | `tools/qa/compile_question_protocol_coverage.py` | Compile or independently validate the 12-type native QuestionSpec protocol |
@@ -371,6 +375,8 @@
 | `tools/qa/mine_temporal_questions.py` | Mine temporal (B-group) and numeric questions over intermittent fact tables |
 | `tools/qa/pre_gpu_launch_ledger.py` | Fail-closed archival for prepared attempts that never reached a GPU launch |
 | `tools/qa/preflight_camera_clearance_depth.py` | Camera-only depth preflight: is the view from a candidate camera pose clear? |
+| `tools/qa/preflight_frozen_panel.py` | CPU-only frozen-house floor/pose preparation, without RGB or answer files |
+| `tools/qa/prepare_frozen_panel_canary.py` | CPU-only canary inputs replaying the twenty actual admitted pilot geometries |
 | `tools/qa/prepare_frozen_panel_config.py` | Build a pilot/test configuration from explicit local runtime and admitted rooms |
 | `tools/qa/prepare_qa_v3_mcq.py` | Glue: facts (generator) -> split plan (1.3) -> MCQ items (1.4 input) |
 | `tools/qa/prepare_semantic_speech.py` | Synthesize short everyday semantic dialogue pairs with explicit text and answer provenance |
@@ -446,9 +452,11 @@
 | `tools/qa/validate_strict_two_human_publication_plan.py` | Fail-closed validation for the strict two-human publication plan |
 | `tools/qa/validate_visibility_prediction.py` | Positive control for the visibility predictor: table prediction vs pixel truth |
 | `tools/qa/verify_frozen_panel.py` | Independent CPU verifier. Does not import the producer/certifier or open answers |
+| `tools/qa/verify_frozen_panel_preflight.py` | Independent CPU check of 720 frozen poses, seeds, admitted rooms and acoustic gates |
 | `tools/qa/verify_mp3d_visual_batch.py` | CLI wrapper for AVEngine's native MP3D visual batch verifier |
 | `tools/qa/verify_qa_v3_audio_batch.py` | Batch-level verification of qa-v3 pilot audio renders (post-render gate) |
 | `tools/qa/verify_qa_v3_visual_batch.py` | Verify a materialized QA-v3 visual batch against its runtime readbacks |
+| `tools/qa/verify_retained_frozen_panel.py` | Re-run the unchanged full native verifier from retained files only, one group at a time |
 | `tools/qa/visibility_prediction.py` | Predict actor visibility from the camera clearance table, before rendering |
 | `tools/qa/walkable_grid.py` | Per-scene walkable-floor grid: where an actor may stand, and how far the |
 

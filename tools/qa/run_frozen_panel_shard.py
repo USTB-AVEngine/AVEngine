@@ -17,6 +17,8 @@ import sys
 import time
 
 REPO=Path(__file__).resolve().parents[2]
+sys.path.insert(0,str(REPO/'src'))
+from avengine.qa.frozen_panel_versions import validate_versions, digest, require_canary_acceptance
 def read(p):return json.loads(Path(p).read_text())
 def save(p,x):
     p=Path(p);tmp=p.with_suffix(p.suffix+'.tmp');tmp.write_text(json.dumps(x,ensure_ascii=False,indent=2)+'\n');tmp.replace(p)
@@ -36,7 +38,13 @@ def main():
     if not 0<=a.shard_index<a.shard_count:raise ValueError('invalid shard allocation')
     end=total if a.end_index is None else a.end_index
     if not 0<=a.start_index<end<=total:raise ValueError('invalid index interval')
+    producer=validate_versions(c) or str(REPO/'tools/qa/produce_test_panel_pilot.py')
+    require_canary_acceptance(c)
+    if c.get('split')=='test' and (not c.get('prepared_geometry_root') or not c.get('retain_compact')):
+        raise ValueError('formal production requires frozen CPU poses and per-group compact retention')
     root=a.output.resolve()
+    if c.get('split')=='test' and (not c.get('allowed_output_root') or not root.is_relative_to(Path(c['allowed_output_root']).resolve())):
+        raise ValueError('formal output must stay inside the explicitly configured test-only output directory')
     if (root/'public/COMMITMENTS.sha256').exists():raise ValueError('sealed output is read-only')
     if root.exists() and not a.resume:raise ValueError('output exists; explicit --resume required')
     root.mkdir(parents=True,exist_ok=True)
@@ -48,18 +56,53 @@ def main():
         if read(shard_config)!=c:raise ValueError('resume configuration differs')
     else:save(shard_config,c)
     indices=[i for i in range(a.start_index,end) if i%a.shard_count==a.shard_index]
+    if not indices:raise ValueError('shard has no allocated parents')
     env=os.environ.copy();env.update(PYTHONDONTWRITEBYTECODE='1',PYTHONPATH=f'{REPO}/src:{REPO}',OMP_NUM_THREADS='1',OPENBLAS_NUM_THREADS='1',MKL_NUM_THREADS='1')
     start=time.monotonic();results=[]
+    def retained_finish(cert,group,already_staged=False,accepted_attempt=None):
+        cpuenv=dict(env);cpuenv['CUDA_VISIBLE_DEVICES']=''
+        cmds=[]
+        if not already_staged:
+            cmds.append([sys.executable,str(REPO/'tools/qa/compact_frozen_panel.py'),'stage','--root',str(root),'--certificate',str(cert),'--output',str(root/'evidence'/f'retained_stage_{group}_{session}.json')])
+        proof=root/'evidence'/f'retained_verify_{group}_{session}.json'
+        cmds.append([sys.executable,str(REPO/'tools/qa/verify_retained_frozen_panel.py'),'--root',str(root),'--certificate',str(cert),'--output',str(proof)])
+        if not (root/'retention/prune_receipts'/f'{group}.json').exists():
+            cmds.append([sys.executable,str(REPO/'tools/qa/compact_frozen_panel.py'),'prune','--root',str(root),'--certificate',str(cert),'--verification',str(proof),'--commit-prune','--output',str(root/'evidence'/f'retained_prune_{group}_{session}.json')])
+        for cmd in cmds:
+            with (root/'logs'/f'{group}_retention_{session}.log').open('a') as f:
+                subprocess.run(cmd,env=cpuenv,stdout=f,stderr=subprocess.STDOUT,check=True)
+        if accepted_attempt is not None:
+            # Only the successful attempt's known operational duplicates; failed attempts remain.
+            files=[root/'inputs'/f'{group}_attempt_{accepted_attempt}.json']
+            files += [root/'logs'/f'{group}_attempt{accepted_attempt}_{s}.log' for s in ('prepare','capture','audio','certify','verify')]
+            ledger=[]
+            for file in files:
+                if file.is_symlink():raise ValueError('successful operational artifact is a symlink')
+                if file.is_file():
+                    ledger.append({'path':str(file.relative_to(root)),'sha256':digest(file),'bytes':file.stat().st_size,'allocated_bytes':file.stat().st_blocks*512})
+            receipt=root/'evidence'/f'{group}_operational_prune_{session}.json'
+            save(receipt,{'status':'audited_ready_to_prune','group':group,'certificate_sha256':digest(cert),'retained_verification':str(proof),'files':ledger})
+            for row in ledger:
+                file=root/row['path']
+                if digest(file)!=row['sha256']:raise ValueError('operational artifact changed during cleanup')
+                file.unlink()
+            save(receipt,{'status':'pass','group':group,'certificate_sha256':digest(cert),'retained_verification':str(proof),'files':ledger})
+        progress(root,f'{group} 最小见证验证通过；仅已认证父场景的审计中间件已清理。')
     session=str(time.time_ns())
     state={'pid':os.getpid(),'command':sys.argv,'gpu':a.gpu,'start_utc':stamp(),'indices':indices,'status':'running','results':results,
            'shard_index':a.shard_index,'shard_count':a.shard_count,'session':session}
     save(root/'run_state.json',state);print(json.dumps({k:v for k,v in state.items() if k!='results'}),flush=True)
     for i in indices:
         group=f'{c.get("panel_id","pilot")}_{i:03d}';g=root/'production'/group;cert=root/'scoring_private/certificates'/f'{group}.json'
+        if c.get('retain_compact') and (root/'retention/groups'/f'{group}.json').exists():
+            retained_finish(cert,group,already_staged=True)
+            results.append({'group':group,'status':'certified_retained_resume'})
+            save(root/'run_state.json',state)
+            continue
         previous=[int(x.name.rsplit('_attempt',1)[1]) for x in (root/'rejected').glob(f'{group}_attempt*') if x.name.rsplit('_attempt',1)[1].isdigit()]
         first_attempt=max(previous,default=-1)+1;attempt=first_attempt;success=False
         while attempt<first_attempt+a.max_quality_attempts:
-            ac=dict(c);ac['seed']=c['seed']+attempt*100003;attempt_config=root/'inputs'/f'{group}_attempt_{attempt}.json';save(attempt_config,ac)
+            ac=dict(c);ac['seed']=c['seed']+attempt*100003;ac['quality_retry_ordinal']=attempt;attempt_config=root/'inputs'/f'{group}_attempt_{attempt}.json';save(attempt_config,ac)
             # A retry replaces the whole parent, never individual members or answers.
             try:
                 for stage in ('prepare','capture','audio','certify','verify'):
@@ -70,7 +113,7 @@ def main():
                     log=root/'logs'/f'{group}_attempt{attempt}_{stage}.log'
                     task_env=dict(env);task_env['CUDA_VISIBLE_DEVICES']=''
                     if stage in ('prepare','capture','audio'):
-                        cmd=[sys.executable,str(REPO/'tools/qa/produce_test_panel_pilot.py'),stage,'--config',str(attempt_config),'--index',str(i)]
+                        cmd=[sys.executable,producer,stage,'--config',str(attempt_config),'--index',str(i)]
                         if stage=='capture':task_env.pop('CUDA_VISIBLE_DEVICES',None);cmd+=['--gpu',str(a.gpu)]
                     elif stage=='certify':cmd=[sys.executable,str(REPO/'tools/qa/certify_frozen_panel.py'),'--config',str(attempt_config),'--index',str(i)]
                     else:cmd=[sys.executable,str(REPO/'tools/qa/verify_frozen_panel.py'),'--root',str(root),'--certificate',str(cert),
@@ -96,11 +139,16 @@ def main():
                 rejected=root/'rejected'/f'{group}_attempt{attempt}';g.rename(rejected)
                 save(rejected/'rejection.json',{'whole_parent_rejected':True,'reason':reason,'model_selection':False})
                 attempt+=1
+        if success and c.get('retain_compact'):
+            retained_finish(cert,group,accepted_attempt=attempt)
         results.append({'group':group,'status':'certified' if success else 'quota_failed',
                         'quality_attempts':min(a.max_quality_attempts,attempt-first_attempt+1),
                         'quality_retry_ordinal':attempt if success else attempt-1})
         save(root/'run_state.json',state);print(json.dumps(results[-1]),flush=True)
         progress(root,f'{group} 整组结论：{results[-1]["status"]}；质量筛选依据为媒体/几何审核，未使用模型表现。')
+    if c.get('retain_compact') and all(r['status']!='quota_failed' for r in results) and not (root/'retention/COMMITMENTS.sha256').exists():
+        cpuenv=dict(env);cpuenv['CUDA_VISIBLE_DEVICES']=''
+        subprocess.run([sys.executable,str(REPO/'tools/qa/compact_frozen_panel.py'),'freeze','--root',str(root),'--output',str(root/'evidence'/f'retention_freeze_{session}.json')],env=cpuenv,check=True)
     state.update(status='complete' if all(r['status']!='quota_failed' for r in results) else 'incomplete',end_utc=stamp(),wall_seconds=time.monotonic()-start)
     save(root/'run_state.json',state)
     save(root/'evidence'/f'worker_session_{session}.json',state)

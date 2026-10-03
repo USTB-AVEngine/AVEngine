@@ -28,6 +28,7 @@ from shapely.geometry import shape, Point
 
 REPO=Path(__file__).resolve().parents[2]
 sys.path.insert(0,str(REPO/'src'))
+from avengine.qa.frozen_panel_versions import prepared_parent
 
 def read(path): return json.loads(Path(path).read_text())
 def write(path,value):
@@ -61,77 +62,82 @@ def prepare(config,index):
     # 3/3/2/2 in the first house, 2/2/3/3 in the second: five per cell overall.
     cell=(j+2*hi)%4;voice='same' if cell<2 else 'different';side='opposite' if cell%2==0 else 'same_side'
     h=read(house['acceptance_result']);h['acoustic_package_manifest']=house['acoustic_package_manifest'];rooms=house['rooms']
-    room=rooms[(j+1)%len(rooms)]
-    rt=runtime(config);pf=rt.habitat_sim.PathFinder()
-    if not pf.load_nav_mesh(h['input']['navmesh_source']):raise ValueError('navmesh unavailable')
-    p=room['placement'];listener=np.array(p['camera_m'],float);listener[1]-=1.5
-    source=np.array([p['source_1_m'],p['source_2_m']],float);source[:,1]-=1.2
-    rng=np.random.default_rng(config['seed']+index)
-    admitted=next(r for r in h['input']['acoustic_rooms'] if r['room_label']==room['room_label'])
-    polygon=shape(admitted['floor_polygon'])
-    # Pool contains only measured semantic floor points with native navmesh support.
-    pool=[];bounds=polygon.bounds
-    for xx in np.arange(math.floor(bounds[0]*4)/4+.125,bounds[2],.25):
-        for zz in np.arange(math.floor(bounds[1]*4)/4+.125,bounds[3],.25):
-            if not polygon.covers(Point(xx,zz)):continue
-            query=np.array([xx,listener[1],zz]);q=np.asarray(pf.snap_point(query),float)
-            if not np.isfinite(q).all() or np.linalg.norm(q-query)>.10 or not polygon.covers(Point(q[0],q[2])):continue
-            clearance=pf.distance_to_closest_obstacle(q,.5)
-            if clearance>=.15:pool.append(q)
-    pool=np.asarray(pool);cam_pool=[q for q in pool if pf.distance_to_closest_obstacle(q,.5)>=.25]
-    if len(pool)<3 or not cam_pool:raise ValueError('quota geometry unavailable: insufficient checked floor support')
-    native=renderer(config,h,listener+[0,1.55,0]);native.render([(source[0]+[0,1.64,0]).tolist()])
-    failures={};geometry=None
-    for attempt in range(1600):
-        l=listener.copy();s=source.copy()
-        if attempt or j or config['split']=='test':
-            l[[0,2]]+=rng.uniform(-.32,.32,2);s[:,[0,2]]+=rng.uniform(-.32,.32,(2,2))
-        if side=='same_side' or attempt>=120:
-            # No interpolation through furniture. Every candidate is on this checked room's floor.
-            l=np.asarray(cam_pool[int(rng.integers(len(cam_pool)))]).copy()
-            choices=rng.choice(len(pool),size=2,replace=False);s=pool[choices].copy()
-        checks=[];points=[l,*s]
-        for q in points:
-            snap=np.asarray(pf.snap_point(q),float);error=float(np.linalg.norm(snap-q))
-            checks.append({'query_m':q.tolist(),'snap_m':snap.tolist(),'error_m':error})
-        if any(not np.isfinite(x['error_m']) or x['error_m']>.10 or not polygon.covers(Point(x['snap_m'][0],x['snap_m'][2])) for x in checks):
-            failures['navigation']=failures.get('navigation',0)+1;continue
-        l=np.asarray(checks[0]['snap_m']);s=np.array([x['snap_m'] for x in checks[1:]])
-        c=l+[0,1.55,0];mouth=s+[0,1.641311,0]
-        if np.linalg.norm(s[0]-s[1])<.8 or any(not 1.4<=np.linalg.norm(q-c)<=4.2 for q in mouth):continue
-        v=mouth-c;v[:,1]=0;u=v/np.linalg.norm(v,axis=1)[:,None]
-        f=(u[0]+u[1]);f/=np.linalg.norm(f)
-        gap=math.degrees(math.acos(np.clip(u[0]@u[1],-1,1)))
-        if side=='same_side':
-            if not 12<=gap<=34:continue
-            yaw=math.radians(gap/2+5)
-            f=Rotation.from_rotvec([0,yaw,0]).apply(f)
-        if side=='opposite' and gap<18:continue
-        f,r,up=camera_basis(f)
-        angles=[published_bearing(x,c,f) for x in mouth]
-        if max(abs(x) for x in angles)>49:continue
-        if side=='same_side' and angles[0]*angles[1]<=0:continue
-        if side=='opposite' and angles[0]*angles[1]>=0:continue
-        raychecks=[]
-        for foot in s:
-            for height in [1.10,1.641311]:
-                end=foot+[0,height,0];d=end-c;dist=np.linalg.norm(d)
-                hit=native.context.trace_ray_any_hit(c.tolist(),(d/dist).tolist(),.02,float(dist-.08)).hit
-                raychecks.append({'endpoint_m':end.tolist(),'blocked':bool(hit)})
-        if any(x['blocked'] for x in raychecks):
-            failures['occlusion']=failures.get('occlusion',0)+1;continue
-        parent={'house':house['house'],'camera_m':c.tolist(),'feet_m':sorted(s.tolist()),
-                'basis':{'forward':f.tolist(),'right':r.tolist(),'up':up.tolist()}}
-        parent_sha=hashlib.sha256(json.dumps(parent,sort_keys=True,separators=(',',':'),ensure_ascii=False).encode()).hexdigest()
-        if parent_sha in config.get('excluded_physical_parent_sha256',[]):
-            failures['excluded_pilot_parent']=failures.get('excluded_pilot_parent',0)+1;continue
-        geometry={'camera_m':c.tolist(),'feet_m':s.tolist(),'mouths_planned_m':mouth.tolist(),
-          'basis':{'forward':f.tolist(),'right':r.tolist(),'up':up.tolist()},'bearings_deg':angles,
-          'navigation':checks,'clear_body_rays':raychecks,'attempt':attempt,'failed_candidates':failures,
-          'checked_room_floor_polygon':admitted['floor_polygon'],'checked_floor_pool_count':len(pool),'floor_offsets_m':[x[1] for x in s],'floor_measured_first':True,
-          'raw_hm3d_to_common':'[x,y,z] -> [x,z,-y]', 'navmesh_common_up_axis':'+Y'};break
-    del native
-    if geometry is None:raise ValueError(f'quota geometry unavailable {room["room_label"]}: {failures}')
+    prepared=prepared_parent(config,index)
+    scene_seed=prepared['scene_seed']+int(config.get('quality_retry_ordinal',0))*100003 if prepared else config['seed']+index
+    room=next(r for r in rooms if r['room_label']==prepared['room']) if prepared else rooms[(j+1)%len(rooms)]
+    if prepared and not config.get('quality_retry_ordinal',0):
+        geometry=copy.deepcopy(prepared['geometry'])
+    else:
+        rt=runtime(config);pf=rt.habitat_sim.PathFinder()
+        if not pf.load_nav_mesh(h['input']['navmesh_source']):raise ValueError('navmesh unavailable')
+        p=room['placement'];listener=np.array(p['camera_m'],float);listener[1]-=1.5
+        source=np.array([p['source_1_m'],p['source_2_m']],float);source[:,1]-=1.2
+        rng=np.random.default_rng(scene_seed)
+        admitted=next(r for r in h['input']['acoustic_rooms'] if r['room_label']==room['room_label'])
+        polygon=shape(admitted['floor_polygon'])
+        # Pool contains only measured semantic floor points with native navmesh support.
+        pool=[];bounds=polygon.bounds
+        for xx in np.arange(math.floor(bounds[0]*4)/4+.125,bounds[2],.25):
+            for zz in np.arange(math.floor(bounds[1]*4)/4+.125,bounds[3],.25):
+                if not polygon.covers(Point(xx,zz)):continue
+                query=np.array([xx,listener[1],zz]);q=np.asarray(pf.snap_point(query),float)
+                if not np.isfinite(q).all() or np.linalg.norm(q-query)>.10 or not polygon.covers(Point(q[0],q[2])):continue
+                clearance=pf.distance_to_closest_obstacle(q,.5)
+                if clearance>=.15:pool.append(q)
+        pool=np.asarray(pool);cam_pool=[q for q in pool if pf.distance_to_closest_obstacle(q,.5)>=.25]
+        if len(pool)<3 or not cam_pool:raise ValueError('quota geometry unavailable: insufficient checked floor support')
+        native=renderer(config,h,listener+[0,1.55,0]);native.render([(source[0]+[0,1.64,0]).tolist()])
+        failures={};geometry=None
+        for attempt in range(1600):
+            l=listener.copy();s=source.copy()
+            if attempt or j or config['split']=='test':
+                l[[0,2]]+=rng.uniform(-.32,.32,2);s[:,[0,2]]+=rng.uniform(-.32,.32,(2,2))
+            if side=='same_side' or attempt>=120:
+                # No interpolation through furniture. Every candidate is on this checked room's floor.
+                l=np.asarray(cam_pool[int(rng.integers(len(cam_pool)))]).copy()
+                choices=rng.choice(len(pool),size=2,replace=False);s=pool[choices].copy()
+            checks=[];points=[l,*s]
+            for q in points:
+                snap=np.asarray(pf.snap_point(q),float);error=float(np.linalg.norm(snap-q))
+                checks.append({'query_m':q.tolist(),'snap_m':snap.tolist(),'error_m':error})
+            if any(not np.isfinite(x['error_m']) or x['error_m']>.10 or not polygon.covers(Point(x['snap_m'][0],x['snap_m'][2])) for x in checks):
+                failures['navigation']=failures.get('navigation',0)+1;continue
+            l=np.asarray(checks[0]['snap_m']);s=np.array([x['snap_m'] for x in checks[1:]])
+            c=l+[0,1.55,0];mouth=s+[0,1.641311,0]
+            if np.linalg.norm(s[0]-s[1])<.8 or any(not 1.4<=np.linalg.norm(q-c)<=4.2 for q in mouth):continue
+            v=mouth-c;v[:,1]=0;u=v/np.linalg.norm(v,axis=1)[:,None]
+            f=(u[0]+u[1]);f/=np.linalg.norm(f)
+            gap=math.degrees(math.acos(np.clip(u[0]@u[1],-1,1)))
+            if side=='same_side':
+                if not 12<=gap<=34:continue
+                yaw=math.radians(gap/2+5)
+                f=Rotation.from_rotvec([0,yaw,0]).apply(f)
+            if side=='opposite' and gap<18:continue
+            f,r,up=camera_basis(f)
+            angles=[published_bearing(x,c,f) for x in mouth]
+            if max(abs(x) for x in angles)>49:continue
+            if side=='same_side' and angles[0]*angles[1]<=0:continue
+            if side=='opposite' and angles[0]*angles[1]>=0:continue
+            raychecks=[]
+            for foot in s:
+                for height in [1.10,1.641311]:
+                    end=foot+[0,height,0];d=end-c;dist=np.linalg.norm(d)
+                    hit=native.context.trace_ray_any_hit(c.tolist(),(d/dist).tolist(),.02,float(dist-.08)).hit
+                    raychecks.append({'endpoint_m':end.tolist(),'blocked':bool(hit)})
+            if any(x['blocked'] for x in raychecks):
+                failures['occlusion']=failures.get('occlusion',0)+1;continue
+            parent={'house':house['house'],'camera_m':c.tolist(),'feet_m':sorted(s.tolist()),
+                    'basis':{'forward':f.tolist(),'right':r.tolist(),'up':up.tolist()}}
+            parent_sha=hashlib.sha256(json.dumps(parent,sort_keys=True,separators=(',',':'),ensure_ascii=False).encode()).hexdigest()
+            if parent_sha in config.get('excluded_physical_parent_sha256',[])+config.get('reserved_preflight_physical_parent_sha256',[]):
+                failures['excluded_pilot_parent']=failures.get('excluded_pilot_parent',0)+1;continue
+            geometry={'camera_m':c.tolist(),'feet_m':s.tolist(),'mouths_planned_m':mouth.tolist(),
+              'basis':{'forward':f.tolist(),'right':r.tolist(),'up':up.tolist()},'bearings_deg':angles,
+              'navigation':checks,'clear_body_rays':raychecks,'attempt':attempt,'failed_candidates':failures,
+              'checked_room_floor_polygon':admitted['floor_polygon'],'checked_floor_pool_count':len(pool),'floor_offsets_m':[x[1] for x in s],'floor_measured_first':True,
+              'raw_hm3d_to_common':'[x,y,z] -> [x,z,-y]', 'navmesh_common_up_axis':'+Y'};break
+        del native
+        if geometry is None:raise ValueError(f'quota geometry unavailable {room["room_label"]}: {failures}')
     speech=read(config['speech']);scenarios=speech['dialogues']['scenarios']
     scenario=scenarios[j%len(scenarios)]
     candidates=[s for s in speech['sounds'] if s['scenario_id']==scenario['id'] and s.get('voice_gender')=='male']
@@ -147,6 +153,8 @@ def prepare(config,index):
       'house':house['house'],'room':room['room_label'],'voice':voice,'side':side,'geometry':geometry,
       'speech':choice,'start_seconds':times,'scenario':scenario,'target_utterance':0,'question_zh':
       scenario['reverse_question_zh'].format(answer=choice[0]['semantic_answer']['label_zh']),
+      'scene_seed':scene_seed,'prepared_parent_sha256':prepared['physical_parent_sha256'] if prepared else None,
+      'production_versions':config.get('production_versions'),
       'producer_sha256':sha(__file__),'code_adapter':'checked_pose_to_existing_common_plan_habitat','no_model_selection':True})
     template=read(config['template_plan']);old_package=template['resources']['room_package']
     house_out=root/'inputs'/house['house'];house_out.mkdir(parents=True,exist_ok=True)
@@ -192,7 +200,7 @@ def prepare(config,index):
                 state['planned_emitter_m']=(foot+[0,1.641311,0]).tolist();state['emitter_transform']={'position_m':state['planned_emitter_m']}
             frames.append({'frame_index':fi,'pts_ticks':fi*template['clock']['ticks_per_frame'],'actor_states':states,'camera_state':cam})
         plan={'kind':'avengine_question_driven_episode','plan_coordinates':'renderer_neutral','coordinate_frame':template['coordinate_frame'],
-          'episode_id':f'{group}_v{vi}','seed':config['seed']+index,'status':'research_candidate','clock':template['clock'],
+          'episode_id':f'{group}_v{vi}','seed':scene_seed,'status':'research_candidate','clock':template['clock'],
           'scene':{'scene_id':house['house'],'room_id':house['house']},'visual_plan':{'backend_role':'production_visual','camera':cam,'actors':actors,'frames':frames,'render':template['visual_plan']['render']},
           'resources':{'room_package':package,'renderer':'habitat','backend':'habitat'}}
         request={'allow_research_candidate_assets':True,'source_registry':config['registry'],'runtime':config['runtime'],
