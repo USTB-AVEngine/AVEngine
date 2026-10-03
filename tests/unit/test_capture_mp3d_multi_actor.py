@@ -87,7 +87,7 @@ def _material_source(tmp_path, monkeypatch) -> Path:
     path = tmp_path / "fixture.glb"
     path.write_bytes(struct.pack("<4sII", b"glTF", 2, 28 + len(payload)) +
                      struct.pack("<I4s", len(payload), b"JSON") + payload + struct.pack("<I4s", 0, b"BIN\0"))
-    monkeypatch.setattr(capture, "configure_source_pbr", lambda *_args: {"shader_type": "pbr", "hermetic_native_metadata": True})
+    monkeypatch.setattr(capture, "configure_source_pbr", lambda *_args,**_kwargs: {"shader_type": "pbr", "hermetic_native_metadata": True})
     (tmp_path/'fixture.ao_config.json').write_text(json.dumps({'render_asset':str(path),'uniform_scale':1.0}))
     (tmp_path/'fixture.urdf').write_text('<robot name="fixture"/>')
     return path
@@ -116,6 +116,7 @@ class _Pathfinder:
 
 class _Simulator:
     def __init__(self, events: list[str], semantic_id: int) -> None:
+        self.metadata_mediator = SimpleNamespace()
         self._events = events
         self.pathfinder = _Pathfinder(events)
         self.sensors = {"rgb": object(), "depth": object(), "semantic": object()}

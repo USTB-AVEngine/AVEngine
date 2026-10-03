@@ -145,7 +145,11 @@ color preservation, shared-cache publication, gray fallback, excess highlights,
 white fur, offscreen status, incomplete matrices and generator capture wiring.
 The legacy `capture_mp3d_multi_actor` entrypoint and v7 streaming
 `NativeContinuousVideo` use the same source preparation and first/middle/last
-frame gate. The v7 candidate caller supplies an attempt-owned material cache,
+frame gate. Configure source PBR on the actual Simulator mediator after the
+scan loads, before loading sources. The scan can contain PBR materials itself;
+its existing drawables must retain their original PBR handle and image settings.
+The native matrix applies the same ordering and rejects changed background
+pixels outside the source boundary. The v7 candidate caller supplies an attempt-owned material cache,
 includes `MATERIAL_REVISION` in the visual stage recipe, and requires both
 `source_materials.json` and `source_material_checks.json` before completion.
 Existing visual stages from an older recipe are rejected on resume; use a new
@@ -154,3 +158,13 @@ callers can supply `source_material_cache_directory` or a task-local
 `AVENGINE_SOURCE_MATERIAL_CACHE`; the fallback is a retained unique temporary
 directory under `TMPDIR`. Asset admission, motion, audio and formal-release
 blocks are unchanged. No registry or generator CLI flag is required.
+
+The direct-GLB MP3D streaming canary has a partial modal semantic actor mask:
+its scan semantic geometry covers body pixels that the RGB sensor sees. Native
+blank-stage controls at the identical camera and M2 pose provide independent
+full-body masks for offline appearance/background review. A separate actor-free
+scan control checks that configuring source PBR has no effect on scan RGB.
+These diagnostics do not replace production pixels, change semantic outputs, or
+claim that an occluded runtime sample passed. The runtime gate measures the
+source pixels actually admitted by the modal semantic image; the complete
+fixed-view asset matrix and full-body canaries provide additional coverage.

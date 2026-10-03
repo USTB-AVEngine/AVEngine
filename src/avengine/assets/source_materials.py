@@ -273,8 +273,12 @@ def prepare_source_glb(path: str | Path, *, asset_id: str, entity_class: str,
     return target,receipt
 
 
-def configure_source_pbr(configuration: Any, habitat_sim: Any) -> dict:
-    mediator = habitat_sim.metadata.MetadataMediator(configuration.sim_cfg)
+def configure_source_pbr(configuration: Any, habitat_sim: Any, *, metadata_mediator: Any = None) -> dict:
+    # A direct-GLB stage can contain PBR scanning materials. Such callers load
+    # the stage first and pass its actual mediator, then configure newly
+    # inserted sources. Existing stage drawables retain their original handle.
+    mediator = (metadata_mediator if metadata_mediator is not None else
+                habitat_sim.metadata.MetadataMediator(configuration.sim_cfg))
     manager = mediator.pbr_shader_template_manager
     attributes = manager.create_template(PBR_HANDLE,register_template=False)
     attributes.enable_ibl = False

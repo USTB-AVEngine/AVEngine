@@ -10,6 +10,7 @@ from copy import deepcopy
 from pathlib import Path
 import json, os, resource, subprocess, time, uuid, multiprocessing
 import numpy as np
+from avengine.assets.source_materials import MATERIAL_REVISION
 from avengine.timeline.continuous_pilot import (
     make_scene, write_json, PositionRIRCache, FormantSpeech, make_dry_buses,
 )
@@ -253,11 +254,12 @@ def generate_parent(row, house, inputs, assets, output, compact=False):
         appearances={base['sources'][a['endpoint_id']]['actor_id']:a.get('appearance_zh',{'blue':'蓝色上衣的人','yellow':'黄色上衣的人'}[a['appearance']['top_color']]) for a in variant}
         visual_name='visual_'+member[:2]
         def render(attempt):
-            video=NativeContinuousVideo(working,base,inputs,variant)
+            video=NativeContinuousVideo(working,base,inputs,variant,
+                                        source_material_cache_directory=attempt/'source_material_cache')
             try:result=video.encode(base,attempt/'scene_video.mp4')
             finally:video.close()
-            return {'renderer':result['renderer'],'wall_seconds':result['wall_seconds']},['scene_video.mp4','native_visual_evidence.json']
-        visual_dir,vr,visual_resumed=stage(root,visual_name,{'seed_row':row,'assets':variant},render)
+            return {'renderer':result['renderer'],'wall_seconds':result['wall_seconds']},['scene_video.mp4','native_visual_evidence.json','source_materials.json','source_material_checks.json']
+        visual_dir,vr,visual_resumed=stage(root,visual_name,{'seed_row':row,'assets':variant,'source_material_revision':MATERIAL_REVISION},render)
         visual=read_json(visual_dir/'native_visual_evidence.json');scene=member_scene(base,visual,member)
         if reference_mouths is None:reference_mouths=visual['observed_mouth_trajectories']
         elif visual['observed_mouth_trajectories']!=reference_mouths:
