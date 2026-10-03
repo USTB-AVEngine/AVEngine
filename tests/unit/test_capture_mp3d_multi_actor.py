@@ -5,6 +5,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import json
+import struct
 import numpy as np
 import pytest
 
@@ -76,8 +77,26 @@ class _ActionSet:
         return _ActionClip()
 
 
-def _fake_bundle() -> Any:
+def _material_source(tmp_path, monkeypatch) -> Path:
+    # The call-order simulator has no native metadata bindings, but source
+    # preparation and the compression guard still consume a real small GLB.
+    doc = {"asset": {"version": "2.0"}, "buffers": [{"byteLength": 0}], "bufferViews": [],
+           "materials": [{"pbrMetallicRoughness": {"baseColorFactor": [0.3, 0.3, 0.3, 1]}}],
+           "meshes": [{"primitives": [{"material": 0}]}]}
+    payload = json.dumps(doc).encode(); payload += b" " * (-len(payload) % 4)
+    path = tmp_path / "fixture.glb"
+    path.write_bytes(struct.pack("<4sII", b"glTF", 2, 28 + len(payload)) +
+                     struct.pack("<I4s", len(payload), b"JSON") + payload + struct.pack("<I4s", 0, b"BIN\0"))
+    monkeypatch.setattr(capture, "configure_source_pbr", lambda *_args: {"shader_type": "pbr", "hermetic_native_metadata": True})
+    (tmp_path/'fixture.ao_config.json').write_text(json.dumps({'render_asset':str(path),'uniform_scale':1.0}))
+    (tmp_path/'fixture.urdf').write_text('<robot name="fixture"/>')
+    return path
+
+
+def _fake_bundle(visual_path) -> Any:
     return SimpleNamespace(
+        paths_by_role={"visual": visual_path,"habitat_ao_config":visual_path.parent/'fixture.ao_config.json',
+                       "habitat_urdf":visual_path.parent/'fixture.urdf'},
         joint_mapping={"runtime_joint_order": ("j0",)},
         action_roles_by_id={"idle": "idle_poses"},
         action_sets_by_role={"idle_poses": _ActionSet()},
@@ -210,6 +229,7 @@ def test_public_entrypoint_reads_native_state_for_configured_actor_count(
     tmp_path, monkeypatch, actor_count
 ):
     frame_count = 2
+    source_path = _material_source(tmp_path, monkeypatch)
     events: list[str] = []
     tracks = _tracks(actor_count, frame_count)
     case = {
@@ -250,7 +270,7 @@ def test_public_entrypoint_reads_native_state_for_configured_actor_count(
                 "joint_id": track["emitter"]["joint_id"],
                 "joint_from_anchor": {"translation_m": [0, 0, 0], "rotation_xyzw": [0, 0, 0, 1]},
             }]}),
-            _fake_bundle(),
+            _fake_bundle(source_path),
         ),
     )
     monkeypatch.setattr(capture, "_base_template_handle", lambda *_args, **_kwargs: "base")
@@ -258,6 +278,7 @@ def test_public_entrypoint_reads_native_state_for_configured_actor_count(
 
     def instantiate(*_args: Any, semantic_id: int, actor_index: int, **_kwargs: Any):
         assert semantic_id == 100 + actor_index
+        assert Path(_kwargs["render_asset_path"]).name == "visual.materials_v1.glb"
         actor = _Actor(events, actor_index)
         actors.append(actor)
         return actor, _Binding()
@@ -279,7 +300,7 @@ def test_public_entrypoint_reads_native_state_for_configured_actor_count(
             SimpleNamespace(sim_cfg=SimpleNamespace(gpu_device_id=None)),
             {"rgb": "rgb", "depth": "depth", "semantic": "semantic"},
             "listener0",
-            {"navmesh": str(navmesh)},
+            {"navmesh": str(navmesh), "scene_id": str(source_path)},
         ),
     )
     monkeypatch.setattr(
@@ -309,6 +330,10 @@ def test_public_entrypoint_reads_native_state_for_configured_actor_count(
     )
 
     assert len(actors) == actor_count
+    materials = json.loads((output / "source_materials.json").read_text())
+    assert len(materials["sources"]) == actor_count
+    checks = json.loads((output / "source_material_checks.json").read_text())
+    assert checks["status"] == "not_run"  # Hermetic images contain fewer than 100 pixels.
     assert events.index("render-0") > events.index("root-0")
     assert events.index("render-0") < events.index("emitter-0")
     records = json.loads((output / "frame_records.json").read_text(encoding="utf-8"))
@@ -351,6 +376,7 @@ def test_public_entrypoint_reads_native_state_for_configured_actor_count(
 
 
 def test_render_mutation_is_rejected_before_observed_output(tmp_path, monkeypatch):
+    source_path = _material_source(tmp_path, monkeypatch)
     events: list[str] = []
     tracks = _tracks(2, 1)
     case = {"clock": _clock(1)}
@@ -383,7 +409,7 @@ def test_render_mutation_is_rejected_before_observed_output(tmp_path, monkeypatc
                     "joint_id": track["emitter"]["joint_id"],
                     "joint_from_anchor": {"translation_m": [0, 0, 0], "rotation_xyzw": [0, 0, 0, 1]},
                 }]}),
-            _fake_bundle(),
+            _fake_bundle(source_path),
         ),
     )
     monkeypatch.setattr(capture, "_base_template_handle", lambda *_args, **_kwargs: "base")
@@ -407,7 +433,7 @@ def test_render_mutation_is_rejected_before_observed_output(tmp_path, monkeypatc
             SimpleNamespace(sim_cfg=SimpleNamespace(gpu_device_id=None)),
             {"rgb": "rgb", "depth": "depth", "semantic": "semantic"},
             "listener0",
-            {"navmesh": str(navmesh)},
+            {"navmesh": str(navmesh), "scene_id": str(source_path)},
         ),
     )
     monkeypatch.setattr(capture, "_state_snapshot", lambda *_args, **_kwargs: {})
