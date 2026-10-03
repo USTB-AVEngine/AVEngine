@@ -1,0 +1,22 @@
+{
+  "schema": "avledger_exclusive_plan_v1",
+  "name": "cci_datagen_pilot64_20261003_codex",
+  "run_root": "/mnt/afs/xinyuanqian/jzy/hardbank/generation/cci_datagen_20261003_codex/supervision/cci_datagen_pilot64_20261003_codex",
+  "cwd": "/mnt/afs/xinyuanqian/jzy/hardbank/generation/cci_datagen_20261003_codex",
+  "command": [
+    "bash",
+    "/mnt/afs/xinyuanqian/jzy/hardbank/generation/cci_datagen_20261003_codex/code/tools/cci_datagen/pilot_entry.sh"
+  ],
+  "required_gpus": 1,
+  "max_failures_per_stage": 1,
+  "completion": {
+    "all_files": [
+      "/mnt/afs/xinyuanqian/jzy/hardbank/generation/cci_datagen_20261003_codex/output/pilot/ALL_DONE.json"
+    ]
+  },
+  "env": {
+    "CCI_DATAGEN_BASE": "/mnt/afs/xinyuanqian/jzy/hardbank/generation/cci_datagen_20261003_codex",
+    "DATAGEN_RANKS_PER_GPU": "2"
+  },
+  "notes": "Not queued. required_gpus=1 is the existing runner minimum, not an allocation size or GPU compute request. GPU count, rank count, quotas and memory are probed at runtime. 64 accepted independent training-house requests required from v7 sampler handoff. Native CPU import and first-frame EGL validation must pass before generation. No formal frozen-test production."
+}
