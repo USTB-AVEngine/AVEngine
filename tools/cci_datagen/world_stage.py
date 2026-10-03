@@ -14,7 +14,7 @@ import shutil
 import sys
 import time
 
-REPO=Path(__file__).resolve().parents[2]
+REPO=Path(os.environ.get('AVENGINE_GENERATOR_CODE_ROOT',str(Path(__file__).resolve().parents[2]))).resolve()
 sys.path.insert(0,str(REPO/'src'))
 from resources import write_json
 from generate import sha

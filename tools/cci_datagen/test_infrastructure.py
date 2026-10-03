@@ -78,6 +78,14 @@ p.write_text(json.dumps({"fixture":sys.argv[2]}))
   args=[sys.executable,'-B',str(Path(__file__).with_name('generate.py')),'--manifest',str(self.manifest),'--run-root',str(self.root),'--python',sys.executable,'--mode','cpu','--worker-gib','.1','--timeout-seconds','25','--prune-owned-intermediates',*extra]
   result=subprocess.run(args,env=env,text=True,capture_output=True,timeout=35)
   self.assertEqual(result.returncode,expected,result.stdout+result.stderr);return result
+ def test_one_scheduler_rank_with_shared_afs_allowance_completes_and_resumes(self):
+  assigned=self.base/'single_rank_capacity.json';write_json(assigned,{'affinity_cpus':sorted(os.sched_getaffinity(0))[:2]})
+  extra=['--resource-assignment',str(assigned),'--generation-space-budget-bytes',str(16*1024**2),'--storage-workspace',str(self.base)]
+  self.run_controller('shared-afs-first',extra=extra)
+  self.assertEqual(json.loads((self.root/'ALL_DONE.json').read_text())['worlds'],2)
+  self.assertFalse(list(self.root.glob('scratch/*/*')))
+  self.run_controller('shared-afs-resume',extra=extra)
+  self.assertEqual(len(list(self.root.glob('receipts/*/deliver.json'))),2)
  def test_real_subprocesses_resume_and_prune_only_owned_scratch(self):
   self.run_controller('first');first=list(self.root.glob('receipts/*/deliver.json'));before={str(p):p.read_bytes() for p in first};self.assertEqual(len(first),2)
   self.assertFalse(list(self.root.glob('scratch/*/*')));self.assertTrue((self.base/'render.bin').is_file())

@@ -105,14 +105,20 @@ def execute(root, world, phase, spec, all_receipts, python, job, plan_sha, gpu, 
     if affinity:prefix+=['taskset','-c',','.join(map(str,affinity))]
     log=root/'logs'/job/(world+'--'+phase+'--'+attempt.name+'.log'); log.parent.mkdir(parents=True,exist_ok=True)
     started=time.time()
+    watch=None
+    if phase=='render' and os.environ.get('CCI_REQUIRE_GPU_GUARD')=='1':
+        from gpu_guard import require_headroom,GPUWatch
+        require_headroom(gpu)
     with log.open('x') as out:
         process=subprocess.Popen(prefix+argv,env=env,stdout=out,stderr=subprocess.STDOUT,start_new_session=True)
         CHILDREN[process.pid]=process
+        if phase=='render' and os.environ.get('CCI_REQUIRE_GPU_GUARD')=='1':watch=GPUWatch(gpu,process,log.with_suffix('.gpu_memory.json')).start()
         if STOP:
             try:os.killpg(process.pid,signal.SIGTERM)
             except ProcessLookupError:pass
         write_json(attempt/'process.json',{'pid':process.pid,'argv':prefix+argv,'host':socket.gethostname(),'job':job,'stage':phase,'started_unix':started})
         code=process.wait(); CHILDREN.pop(process.pid,None)
+        if watch:watch.close()
     if code:raise RuntimeError(f'{world}/{phase} exited {code}; {log}')
     outputs=[contained(Path(str(x).format_map(replacements)),root) for x in spec['outputs']]
     if phase=='deliver' and any(not p.is_relative_to(root/'worlds'/world) for p in outputs):raise ValueError('durable outputs must be outside scratch, in this world directory')
@@ -125,6 +131,10 @@ def execute(root, world, phase, spec, all_receipts, python, job, plan_sha, gpu, 
                 if target.stat().st_size!=item['bytes'] or sha(target)!=item['sha256']:raise RuntimeError('stage artifact hash readback failed')
                 records.append(item)
     r={'job':job,'world':world,'phase':phase,'attempt':str(attempt),'plan_sha256':plan_sha,'files':records,'wall_seconds':time.time()-started,'log':str(log),'gpu':gpu,'affinity':affinity,'rlr_threads':1}
+    if watch:
+        memory=load(log.with_suffix('.gpu_memory.json'))
+        r['gpu_memory_log']=str(log.with_suffix('.gpu_memory.json'))
+        r['gpu_memory_summary']={k:memory[k] for k in ('own_renderer_peak_bytes','minimum_free_bytes','cap_bytes','training_free_reserve_bytes','sampling_note')}
     write_json(root/'receipts'/world/(phase+'.json'),r)
     return r
 
@@ -134,12 +144,16 @@ def main():
     p.add_argument('--manifest',required=True);p.add_argument('--run-root',required=True);p.add_argument('--python',default=sys.executable)
     p.add_argument('--mode',choices=['dedicated','mixed','cpu'],default='dedicated');p.add_argument('--render-gpus',default=None)
     p.add_argument('--training-ranks',type=int,default=0);p.add_argument('--loader-workers',type=int,default=0);p.add_argument('--training-gib',type=float,default=33)
+    p.add_argument('--resource-assignment',help='single scheduler lease CPU allocation; never starts extra torchrun ranks')
+    p.add_argument('--generation-space-budget-bytes',type=int);p.add_argument('--storage-workspace');p.add_argument('--storage-owner-root')
     p.add_argument('--worker-gib',type=float,default=4);p.add_argument('--nice',type=int,default=19)
     p.add_argument('--scratch-budget-gib',type=float,default=32);p.add_argument('--media-budget-gib',type=float,default=380000000000/GIB)
     p.add_argument('--timeout-seconds',type=int,default=14400);p.add_argument('--prune-owned-intermediates',action='store_true');p.add_argument('--dry-run',action='store_true')
     a=p.parse_args(); root=Path(a.run_root).resolve(); plan_path=Path(a.manifest).resolve(); plan=load(plan_path); plan_sha=sha(plan_path)
     release=Path(os.environ.get('CCI_DATAGEN_BASE',''))/'RELEASE.json'
     if plan.get('source_commit') and (not release.is_file() or load(release).get('source_commit')!=plan['source_commit']):raise ValueError('source Git version changed; prepare a new accepted manifest/run root')
+    if plan.get('generator_profile_sha256') and sha(plan['generator_profile'])!=plan['generator_profile_sha256']:raise ValueError('generator profile changed; select a new run root')
+    if plan.get('generator_release_sha256') and sha(plan['generator_release'])!=plan['generator_release_sha256']:raise ValueError('generator release changed; select a new run root')
     if plan.get('schema')!='cci_datagen_stages_v1':raise ValueError('unsupported generation manifest')
     if plan.get('formal_frozen_test'):raise ValueError('formal test panel production is not enabled before protocol freeze and owner handoff')
     worlds=plan['worlds']; ids=[token(w['world_id']) for w in worlds]
@@ -178,7 +192,13 @@ def main():
         if time.monotonic()>deadline:raise RuntimeError('timed out waiting for rank resource reports')
         time.sleep(.2)
     reports=[load(x) for x in sorted(reports_dir.glob('rank*.json'))]
-    allocations=allocate(reports,mode=a.mode,training_ranks=a.training_ranks,loader_workers=a.loader_workers,training_gib=a.training_gib,worker_gib=a.worker_gib)
+    if a.resource_assignment:
+        if world_size!=1:raise ValueError('normal generation plan owns exactly one scheduler rank')
+        assigned=load(a.resource_assignment);aff=assigned['affinity_cpus']
+        if not set(aff)<=set(report['affinity_cpus']):raise ValueError('CPU assignment escapes current affinity')
+        allocations={report['host']:{'worker_affinity':{'0':aff},'cpu_workers':{'0':len(aff)},'total_cpu_workers':len(aff),'colocated_resource_policy':assigned}}
+    else:
+        allocations=allocate(reports,mode=a.mode,training_ranks=a.training_ranks,loader_workers=a.loader_workers,training_gib=a.training_gib,worker_gib=a.worker_gib)
     host=report['host']; local=allocations[host]; cpus=local['worker_affinity'][str(rank)]
     host_rows=sorted([r for r in reports if r['host']==host],key=lambda r:int(r['ranks'].get('RANK') or 0))
     gpu_rows=report['gpus']['visible']; tokens=[r['index'] for r in gpu_rows]
@@ -198,7 +218,13 @@ def main():
     if a.dry_run:return
     if a.mode!='cpu' and not any(r['gpus']['visible'] for r in reports):raise RuntimeError('GPU mode requested on a CPU-only host')
     if a.mode=='cpu' and any(not w.get('precompleted',{}).get('render') for w in worlds):raise ValueError('CPU-only mode requires pre-rendered capture receipts for every world')
-    max_scratch=max(w['scratch_bytes_peak'] for w in worlds); slots=int(a.scratch_budget_gib*GIB//max_scratch)
+    space=None;owner_watch=None
+    if a.generation_space_budget_bytes is not None:
+        if not a.storage_workspace:raise ValueError('AFS workspace required for shared storage pool')
+        from space_budget import AFSSpace,OwnerUsageWatch
+        space=AFSSpace(a.storage_workspace,root,a.generation_space_budget_bytes,worlds)
+        if a.storage_owner_root:owner_watch=OwnerUsageWatch(a.storage_owner_root,a.storage_workspace,reports_dir/'owner_storage')
+    max_scratch=max(w['scratch_bytes_peak'] for w in worlds); slots=(sum(x['total_cpu_workers'] for x in allocations.values()) if space else int(a.scratch_budget_gib*GIB//max_scratch))
     if slots<1:raise ValueError('scratch budget cannot fit one world')
     # Claims and slots live in the unique launch namespace; restart ignores
     # interrupted claims while completed receipts remain bound to the manifest.
@@ -207,6 +233,7 @@ def main():
     failures=[];running={};owned_slots={};finished=False;storage_check=0
     def take_slot(wid):
         if wid in owned_slots:return True
+        if space and not space.can_admit(wid,owned_slots):return False
         for i in range(slots):
             d=slot_root/f'{i:05d}'
             try:d.mkdir()
@@ -227,7 +254,11 @@ def main():
     try:
         while not STOP:
             if time.monotonic()>=storage_check:
-                usage=storage_usage(root,a.scratch_budget_gib*GIB,a.media_budget_gib*GIB)
+                if owner_watch:
+                    updated=owner_watch.poll()
+                    if updated is not None:space.limit=min(a.generation_space_budget_bytes,updated)
+                usage=space.check(owned_slots) if space else storage_usage(root,a.scratch_budget_gib*GIB,a.media_budget_gib*GIB)
+                if space and tree_bytes(root/'worlds')>a.media_budget_gib*GIB:raise RuntimeError('durable media allowance exceeded')
                 write_json(reports_dir/f'storage{rank:05d}.json',usage)
                 storage_check=time.monotonic()+10
             for key,(future,claim) in list(running.items()):
@@ -283,5 +314,6 @@ def main():
             time.sleep(.5)
     finally:
         stop(signal.SIGTERM,None);pool.shutdown(wait=True,cancel_futures=True);render_pool.shutdown(wait=True,cancel_futures=True)
+        if owner_watch:owner_watch.close()
     if STOP and not finished:raise SystemExit(143)
 if __name__=='__main__':main()

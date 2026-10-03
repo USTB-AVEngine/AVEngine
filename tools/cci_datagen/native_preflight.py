@@ -10,7 +10,7 @@ import sys
 import time
 from resources import write_json
 p=argparse.ArgumentParser();p.add_argument('--output',required=True);p.add_argument('--render',action='store_true');p.add_argument('--scene');p.add_argument('--gpu-device-id',type=int);a=p.parse_args()
-base=Path(os.environ['CCI_DATAGEN_BASE']);repo=base/'code';native=base/'native/data/avengine_external'
+base=Path(os.environ['CCI_DATAGEN_BASE']);repo=Path(os.environ.get('AVENGINE_GENERATOR_CODE_ROOT',str(base/'code')));native=Path(os.environ.get('DATAGEN_NATIVE_ROOT',str(base/'native/data/avengine_external')))
 script='''import json,sys
 from avengine.acoustics.runtime import load_habitat_runtime
 hs,r=load_habitat_runtime(runtime_mode="current-installed",runtime_prefix=sys.argv[1],magnum_python_site=sys.argv[2],rlr_sdk_root=sys.argv[3])
