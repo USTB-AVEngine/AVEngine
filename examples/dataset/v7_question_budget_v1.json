@@ -1,0 +1,11 @@
+{
+  "schema": "v7-question-budget-20261003-v1",
+  "logical_questions_per_window": {"minimum": 12, "maximum": 15, "small_set_schedule": 14, "full_set_schedule": 12},
+  "modality_fractions": {"vision": 0.30, "audio": 0.25, "audiovisual": 0.45},
+  "counterfactual_binding_minimum_fraction": 0.20,
+  "family_scope": ["QA-01", "QA-02", "QA-03", "QA-04", "QA-05", "QA-06", "QA-07", "QA-08", "QA-09", "QA-10", "QA-11", "QA-12", "QA-13", "QA-14", "QA-15", "QA-16", "QA-17", "QA-18", "QA-19", "QA-20", "QA-21", "QA-22", "QA-23", "QA-24", "QA-25", "QA-26", "QA-27", "QA-28"],
+  "family_minimum_logical_items": {"v7_S": {"train": 100, "dev": 20}, "full": {"train": 2000, "dev": 300, "test": 300}},
+  "additional_protocol_panel_minimum_when_published": {"STARSS-SPEAKERS": {"train": 100, "dev": 20}, "STARSS-FRUSTUM": {"train": 100, "dev": 20}, "STARSS-CLASS13": {"train": 100, "dev": 20}},
+  "on_deficit": "reject formal release; backfill eligible evidence, never fabricate items or relax thresholds",
+  "question_forms_counting": "open and MCQ of the same logical_question_id count once"
+}
