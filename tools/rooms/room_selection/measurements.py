@@ -21,7 +21,12 @@ from tools.rooms.room_screening.compute_semantic_region_candidates import (
 from .geometry import floor_windows
 
 
-def load_scene(scene_dir):
+def load_scene(scene_dir, family="hm3d"):
+    if family == "mp3d":
+        from tools.rooms.room_screening.mp3d_geometry import load_mp3d_scene
+        return load_mp3d_scene(scene_dir)
+    if family != "hm3d":
+        raise ValueError("unsupported room measurement family: " + family)
     sid = Path(scene_dir).name.split("-", 1)[1]
     result = load_semantic_ground_and_instances(Path(scene_dir), sid)
     ann, _, regions = parse_semantic_annotations(

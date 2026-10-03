@@ -322,8 +322,12 @@ def process_house(args, job):
     _, p = load_parameters(args.thresholds)
     started = time.time()
     scene = Path(job["scene_directory"])
-    mesh = load_scene(scene)
+    mesh = load_scene(scene, job["family"])
     collision, collision_source = collision_mesh(scene)
+    cpu_overhead = None
+    if job["family"] == "mp3d":
+        from .cpu_overhead import CPUOverhead, floor_reference
+        cpu_overhead = CPUOverhead(collision_source)
     from avengine.rooms.habitat_capture import prepare_installed_habitat_runtime
 
     rt = prepare_installed_habitat_runtime(**habitat_runtime_options())
@@ -380,6 +384,21 @@ def process_house(args, job):
         for fi, layer in enumerate(layers):
             scope = layer["geometry"]
             floor_y = layer["floor_y_m"]
+            reference = None
+            if cpu_overhead is not None:
+                reference = floor_reference(collision, pf, scope, floor_y, p,
+                                            (row.get("native_region") or {}).get("floor_y_m"))
+                reference_path = args.output / "floor_reference" / job["house"] / (label + f"__F{fi}.json")
+                write_json(reference_path, reference)
+                overhead = cpu_overhead.render(scope, floor_y,
+                    args.output / "overheads" / job["house"] / (label + f"__F{fi}.png"), p)
+                write_json(Path(overhead[3]["image_path"]).with_suffix(".json"),
+                    dict(entry=overhead[0], image_record=overhead[1], diagnostics=overhead[3]))
+                row.setdefault("cpu_overheads", []).append(overhead[3])
+                # Unknown texture evidence cannot pass the frozen RGB gate.
+                if not overhead[3]["black_measurement_usable"]:
+                    row["overhead_error"] = "CPU_TEXTURE_EVIDENCE_UNAVAILABLE"
+                    overhead = None
             same = layer_furniture(mesh, rid, floor_y, nav_settings["agent_height"])
             row["furniture_instances"].extend(
                 dict(
@@ -388,6 +407,8 @@ def process_house(args, job):
                 for f in same
             )
             m = scope_metrics(scope, same)
+            if reference is not None:
+                m["floor_reference"] = dict(reference, path=str(reference_path))
             nav, points, clearance, adj, comps = sample_navigation(
                 pf, hs, scope, floor_y, p
             )
