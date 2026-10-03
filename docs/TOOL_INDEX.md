@@ -5,7 +5,7 @@
 
 自 2026-08-25 起，目录本身就是能力分组（阶段目录 m1…m7 已移除），
 本表按目录列出每个工具做什么。
-当前共 466 个工具脚本。
+当前共 475 个工具脚本。
 
 ## 资产生成与装配（`tools/assets/`）
 
@@ -178,6 +178,7 @@
 | `tools/acoustics/plan_vctk_four_speaker_program.py` | Plan four distinct complete VCTK sentences on an AVEngine clock |
 | `tools/acoustics/prepare_authored_room_acoustics.py` | Prepare a real-surface authored room for the existing AVEngine M3/RLR compiler |
 | `tools/acoustics/probe_room_front_back_pairs.py` | Measure whether one room supports front/back mirrored source pairs |
+| `tools/acoustics/qualify_moving_rirs.py` | Qualify moving RIR energy against retained native references (read-only) |
 | `tools/acoustics/render_frame_readback_sequential_speech.py` | Render multi-source research audio from SPEAR frame readbacks |
 | `tools/acoustics/render_rir_cache.py` | Render a resumable native-RLR RIR cache from an M6.x job plan |
 | `tools/acoustics/run_material_canary.py` | Run the hash-bound repeated M3 RLR material activation canary |
@@ -215,6 +216,7 @@
 
 | 工具 | 做什么 |
 |---|---|
+| `tools/capture/build_cpu_egl.sh` | Build only into a caller-owned task directory, never an installed runtime. |
 | `tools/capture/build_habitat_binding_delta.py` | Build a reviewable Habitat binding delta from the two source registries |
 | `tools/capture/build_mp3d_beagle_rigid_case.py` | Prepare one fresh beagle plus rigid-object Habitat capture case |
 | `tools/capture/capture_human_beagle_legacy.py` | Capture the committed 270-frame Rocketbox-human + Beagle legacy route |
@@ -241,8 +243,15 @@
 
 | 工具 | 做什么 |
 |---|---|
+| `tools/timeline/audit_v7_question_budget.py` | Audit actual v7 logical items, modality ratios, family floors and CF proofs |
+| `tools/timeline/export_native_pilot_windows.py` | Export checked native video windows and balanced pilot question candidates |
+| `tools/timeline/generate_v7_scenes.py` | Seed-driven restartable CPU native candidates. Formal mode fails closed |
 | `tools/timeline/pilot_continuous_scenes.py` | CPU-only restartable continuous-scene pilot and native RIR throughput probe |
+| `tools/timeline/prepare_v7_seed_tables.py` | Write v7-S and full-set seed tables without changing existing inputs |
+| `tools/timeline/qualify_native_counterfactuals.py` | Native 2x2 appearance/association canary; audit actual media and answers |
+| `tools/timeline/review_native_windows.py` | Read five encoded native windows and compare head pixels to native FOA |
 | `tools/timeline/summarize_continuous_pilot.py` | Read back continuous-pilot media, summarize coverage, and estimate CPU throughput |
+| `tools/timeline/synthesize_native_pilot.py` | Resume native-mouth CPU audio and complete 10 s qualification candidates |
 
 ## 空间音频（`tools/audio/`）
 
