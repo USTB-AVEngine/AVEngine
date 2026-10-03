@@ -13,6 +13,8 @@ import sys
 
 import numpy as np
 
+from avengine.acoustics.house_split_policy import eligible_house_splits
+
 REPOSITORY = Path(__file__).resolve().parents[2]
 
 
@@ -66,10 +68,13 @@ def collect(manifest, measurements):
         r.update({"input": h, "native_status": r["status"], "visual": visual,
                   "status": status, "reasons": reasons,
                   "known_exposure": h["known_exposure"],
-                  "batch_eligible": status == "pass" and not h["known_exposure"],
+                  "batch_eligible": status == "pass" and (not h["known_exposure"] or h["family"] == "mp3d"),
                   "result_directory": str(out)})
+        r["eligible_splits"] = list(eligible_house_splits(r))
         if h["known_exposure"]:
-            r["batch_exclusion"] = "KNOWN_SO_HOUSE_EXPOSURE"
+            r["holdout_exclusion"] = "KNOWN_SO_HOUSE_EXPOSURE"
+            if h["family"] != "mp3d":
+                r["batch_exclusion"] = "KNOWN_SO_HOUSE_EXPOSURE"
         results.append(r)
     return results
 
@@ -93,9 +98,9 @@ def diverse_subset(items, count):
 
 
 def recommend(results):
-    eligible = [r for r in results if r["batch_eligible"] and r["family"] == "hm3d"]
-    train = [r for r in eligible if r["input"]["original_split"] == "train"]
-    val = [r for r in eligible if r["input"]["original_split"] == "val"]
+    eligible = [r for r in results if eligible_house_splits(r)]
+    train = [r for r in eligible if "train" in eligible_house_splits(r)]
+    val = [r for r in eligible if "development" in eligible_house_splits(r) and "test" in eligible_house_splits(r)]
     for n in range(16,11,-1):
         nt = round(n*.7); nd = round(n*.15); ne = n-nt-nd
         if len(train) >= nt and len(val) >= nd+ne and nd>=2 and ne>=2:
@@ -118,10 +123,11 @@ def recommend(results):
                     "house_ratios":{k:len(v)/n for k,v in groups.items()},
                     "independent_window_target":3000,
                     "window_targets":{"train":2100,"development":450,"test":450},
-                    "known_exposure_excluded":True,"anonymous_exposure_verified":False,
+                    "known_exposure_excluded":all(not r["known_exposure"] for r in ts),
+                    "known_exposure_excluded_from_holdouts":True,"mp3d_training_only":True,"anonymous_exposure_verified":False,
                     "native_habitat_rgb_verified":False,"production_readiness_verified":False,
-                    "target_met_scope":"12-16 clean houses and whole-house split only; not complete v7 production",
-                    "method":"eligible acoustic and CPU visual pass; whole houses; original val held out; area/RT/floor diversity; no model results"}
+                    "target_met_scope":"12-16 admitted houses and whole-house split only; MP3D training-only; not complete v7 production",
+                    "method":"eligible acoustic and CPU visual pass; whole houses; clean original HM3D val held out; SO-exposed MP3D training-only; area/RT/floor diversity; no model results"}
     return {"target_met":False,"houses":[],
             "eligible_houses":[r["house"] for r in eligible],
             "eligible_train_count":len(train),"eligible_val_count":len(val),
@@ -222,7 +228,7 @@ def summarize(args):
     lines=["# v7第一批房屋声学验收汇总","",
            "结论："+(f"已找到{len(recommendations['houses'])}套CPU诊断通过的干净房屋；长尾覆盖与生产验收仍有缺口。" if recommendations["target_met"] else "当前通过集合不足首批12套及整屋留出要求；没有把待审屋提升为通过。"),"",
            f"本轮检查{len(results)}套房屋，其中{stats['houses_with_rirs']}套完成RIR测量，共{stats['rirs']}个RIR、{stats['baseline_ray_count']}条球面射线，软件视图{stats['cpu_views']}张。数字来源：本目录summary.json及逐屋result.json/visual_checks.json。RLR设置与v6最终生产收据一致；显式退化面诊断会单列并保持待审。只运行CPU，无GPU、push或原始数据修改。","",
-           "acoustic pass为CPU诊断通过，不代表正式Habitat视频、物理材质实测或Episode生产准入。已知SO/M1房屋排除；匿名SO和跨数据集别名不能给出绝对未见保证。","",
+           "acoustic pass为CPU诊断通过，不代表正式Habitat视频、物理材质实测或Episode生产准入。已知SO/M1的HM3D排除；SO暴露MP3D通过后仅训练，开发/测试禁止。匿名SO和跨数据集别名不能保证绝对未见。","",
            "## 全部房屋","",
            "| 房屋 | 来源 | RIR/射线 | CPU视图 | 综合 | 中频RT60中位秒 | 最差逃逸% | 最大FOA误差° | 原因/排除 |",
            "|---|---|---|---|---|---|---:|---:|---|"]
@@ -230,7 +236,8 @@ def summarize(args):
         why="; ".join(r["reasons"]) or "已完成本轮检查"
         if r.get("geometry_diagnostic"):
             why += f"；诊断省略{r['geometry_diagnostic']['omitted_faces']}个原生退化面，原包不改"
-        if r["known_exposure"]:why+="；已知SO暴露，不进首批"
+        if r["known_exposure"]:
+            why += "；已知SO暴露，仅可训练且须全部检查通过" if r["family"] == "mp3d" else "；已知SO暴露，不进首批"
         lines.append(f"| {r['house']} | {r['family']} | {labels[r['native_status']]} | {labels[r['visual']['status']]} | {labels[r['status']]} | {compact_number(r.get('rt60_mid_median_s'))} | {compact_number(100*r['max_escape_fraction'] if r.get('max_escape_fraction') is not None else None,2)} | {compact_number(r.get('max_foa_angle_deg'))} | {why} |")
     lines+=["","每屋证据在输入measurement_root/houses/<house>/：result.json、rirs.npz、leakage.json、acoustics.png、foa_projection.png、visual_checks.json、cpu_view_1..3.png、hole_locators.json、raw_boundary_edges.npz。图中洞口位置是扫描边界候选，不是已恢复/修补的完整破洞。","",
             "## 推荐名单与整屋划分",""]

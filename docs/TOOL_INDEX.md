@@ -5,7 +5,7 @@
 
 自 2026-08-25 起，目录本身就是能力分组（阶段目录 m1…m7 已移除），
 本表按目录列出每个工具做什么。
-当前共 464 个工具脚本。
+当前共 466 个工具脚本。
 
 ## 资产生成与装配（`tools/assets/`）
 
@@ -234,6 +234,15 @@
 |---|---|
 | `tools/visual/render_moving_source_video.py` | Render the route the acoustic pass rendered, as frames that can carry that audio |
 | `tools/visual/replay_placement_in_avengine.py` | Render the same speaker placement the acoustic chain used, in AVEngine's own runtime |
+
+## 时间线（`tools/timeline/`）
+
+*权威时间线、连续场景、时变空间音频与吞吐诊断*
+
+| 工具 | 做什么 |
+|---|---|
+| `tools/timeline/pilot_continuous_scenes.py` | CPU-only restartable continuous-scene pilot and native RIR throughput probe |
+| `tools/timeline/summarize_continuous_pilot.py` | Read back continuous-pilot media, summarize coverage, and estimate CPU throughput |
 
 ## 空间音频（`tools/audio/`）
 
