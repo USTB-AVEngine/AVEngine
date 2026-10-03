@@ -44,11 +44,20 @@ def rir_metrics(ir, sample_rate, distance_m, max_ir_seconds):
         return {"status": "no_energy", "octaves": [], "rt60_mid_s": None}, {}
     onset = int(np.flatnonzero(np.abs(w) >= .1 * np.max(np.abs(w)))[0])
     expected = distance_m / 343
-    expected_idx = int(round(expected * sample_rate))
-    lo, hi = max(0, expected_idx - int(.002 * sample_rate)), min(len(w), expected_idx + int(.003 * sample_rate) + 1)
-    direct_peak = lo + int(np.argmax(np.abs(w[lo:hi]))) if hi > lo else onset
-    direct_start = max(0, direct_peak - int(.00025 * sample_rate))
-    direct_end = min(len(w), direct_peak + max(1, int(.001 * sample_rate)))
+    # The first measured arrival owns the direct gate. A stronger reflection
+    # inside the old +/-2/3 ms geometric search must not replace that arrival.
+    # Keep the existing 10%-of-peak onset criterion; choose the
+    # first qualifying local peak independently of the expected travel time.
+    # This also leaves a genuinely late arrival visible to the delay check.
+    arrival_peaks, _ = signal.find_peaks(np.abs(w), height=.1 * np.max(np.abs(w)))
+    arrival_peaks = arrival_peaks[arrival_peaks >= onset]
+    direct_peak = int(arrival_peaks[0]) if len(arrival_peaks) else onset
+    # Share the already fixed 0.5 ms first-arrival FOA window. The former
+    # 1.25 ms energy window also integrated early reflections whose Monte
+    # Carlo energy could change the distance verdict with an identical pulse.
+    # This is a direct-component measurement, not total early room energy.
+    direct_start = onset
+    direct_end = min(len(w), direct_start + max(1, int(.0005 * sample_rate)))
     direct_energy = float(np.square(w[direct_start:direct_end]).sum())
     total = float(np.square(w).sum())
     late = float(np.square(w[direct_end:]).sum())
