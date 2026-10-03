@@ -54,9 +54,16 @@ def visual_mp3d(a):
     from avengine.acoustics.house_acceptance_geometry import valid_native_triangles
     m=read(a.output/'mp3d_manifest.json');root=a.output/'mp3d_acoustics'
     def one(h):
-        d=root/'houses'/h['house'];r=read(d/'result.json')
+        d=root/'houses'/h['house']
+        if not (d/'result.json').is_file():
+            save(d/'visual_checks.json',{'status':'review','reasons':['NATIVE_MEASUREMENT_MISSING; inspect original per-house PID/log for failure or timeout'],'compute_device':'CPU'})
+            return h['house'],'native_measurement_missing_review'
+        r=read(d/'result.json')
         if not r.get('foa_checks'):return h['house'],'native_input_review'
-        mesh,_,_=load_raw_scan(Path(h['scene_directory'])/(h['scan_id']+'.glb'))
+        try:mesh,_,_=load_raw_scan(Path(h['scene_directory'])/(h['scan_id']+'.glb'))
+        except Exception as exc:
+            save(d/'visual_checks.json',{'status':'review','reasons':['RAW_VISUAL_LOAD_FAILED; no geometry repair authorized',type(exc).__name__+': '+str(exc)],'compute_device':'CPU'})
+            return h['house'],'raw_visual_load_review'
         invalid=int((~valid_native_triangles(mesh.vertices,mesh.faces)).sum())
         if invalid:
             save(d/'visual_checks.json',{'status':'review','reasons':['RAW_VISUAL_ZERO_AREA_TRIANGLES; no face removal authorized'],'raw_zero_area_triangle_count':invalid,'compute_device':'CPU'})
@@ -174,7 +181,7 @@ def report(a):
         reason='; '.join(r['reasons']) or '各项通过';human='smy use' if r['family']=='hm3d' else '待 smy 审房间'
         rule=r['room_rules'];minimum='/'.join(num(rule[k]) for k in ['minimum_floor_area_m2','minimum_short_side_m','minimum_nav_main_area_m2']);black=rule['maximum_black_fraction'];gate=labels.get(rule['house_gate']['status'],rule['house_gate']['status']);rule_counts='/'.join(str(rule['status_counts'].get(k,0)) for k in ['pass','review','fail'])
         lines.append(f"|{r['house']}|{r['family']}|{r['candidate_room_count']}/{r['sampled_room_count']}|{gate}; P/R/F {rule_counts}|{minimum}|{num(black*100 if black is not None else None)}|{labels.get(r.get('native_status'),r.get('native_status'))}/{labels[r['visual']['status']]}/{labels[r['status']]}|{num(leak*100 if leak is not None else None)}|{num(r.get('max_foa_angle_deg'))}|{ex}|{valid}/{r.get('distinct_listener_positions',0)}|{num(delay)}|{int(r['exposure']['so_seen'])}/{int(r['exposure']['m1_seen'])}|{human}; {reason}|" )
-    lines += ['', '## 验证、资源与交付', '', '后端/首批验收针对测试 18 项通过；fast_unit 289 通过、36 跳过（历史资源缺失），日志 ../logs/tests_backend_final_v2.log、tests_fast_unit_final_v2.log。共享门槛与声学源码的最终一致检查另见 ../evidence/final_validation.json。', '', 'CPU 分配见 ../evidence/cpu_allocation.json：现场 110/112 逻辑核低于 20% 使用率，声学最多 2 worker × 原版 8 线程，房间筛选最多 4 worker，分别限制在 16/4 核。MP3D 开始房间筛选和声学时各重新按空闲核分配，收据 cpu_allocation_mp3d_rooms.json、cpu_allocation_mp3d_acoustics.json。所有作业 PID/命令见 logs 与逐屋 .process.json；原始数据、第一批、其他检出与公共环境均只读。', '', 'owner 页面兼容输入为 house_results.csv、all_house_results.json、recommended_houses.json。完整训练名单为 training_houses_v1.json；每套附来源、房间数、各项验收、SO/M1 证据和人工状态。recommended_room_scope.json 保留实际抽查摆放范围；training_room_results.csv 列出逐间规则数值和声学是否抽查。']
+    lines += ['', '## 验证、资源与交付', '', '后端/首批验收针对测试 20 项通过；fast_unit 291 通过、36 跳过（历史资源缺失），日志 ../logs/tests_backend_final_v3.log、tests_fast_unit_final_v3.log。共享门槛与声学源码的最终一致检查另见 ../evidence/final_validation.json。', '', 'CPU 分配见 ../evidence/cpu_allocation.json：现场 110/112 逻辑核低于 20% 使用率，声学最多 2 worker × 原版 8 线程，房间筛选最多 4 worker，分别限制在 16/4 核。MP3D 开始房间筛选和声学时各重新按空闲核分配，收据 cpu_allocation_mp3d_rooms.json、cpu_allocation_mp3d_acoustics.json。所有作业 PID/命令见 logs 与逐屋 .process.json；原始数据、第一批、其他检出与公共环境均只读。', '', 'owner 页面兼容输入为 house_results.csv、all_house_results.json、recommended_houses.json。完整训练名单为 training_houses_v1.json；每套附来源、房间数、各项验收、SO/M1 证据和人工状态。recommended_room_scope.json 保留实际抽查摆放范围；training_room_results.csv 列出逐间规则数值和声学是否抽查。']
     report_text='\n'.join(lines)+'\n';(dest/'REPORT_zh.md').write_text(report_text)
     root_text=report_text.replace('../evidence/','evidence/').replace('../logs/','logs/').replace('../calibration/','calibration/').replace('数字见本目录 summary.json、house_results.csv、all_house_results.json','数字见 report_final/summary.json、report_final/house_results.csv、report_final/all_house_results.json')
     root_text=root_text.replace('\n\n## 范围与口径','\n\n结构化名单、CSV 和报告正文副本位于 `report_final/`。\n\n## 范围与口径',1)
