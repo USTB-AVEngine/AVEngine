@@ -5,7 +5,7 @@
 
 自 2026-08-25 起，目录本身就是能力分组（阶段目录 m1…m7 已移除），
 本表按目录列出每个工具做什么。
-当前共 467 个工具脚本。
+当前共 473 个工具脚本。
 
 ## 资产生成与装配（`tools/assets/`）
 
@@ -171,23 +171,29 @@
 | `tools/acoustics/build_house_test_panel.py` | Build a whole-house test panel in a predeclared order from CPU acceptance |
 | `tools/acoustics/cleanup_dynamic_rir_cache.py` | Clear completed numeric RIR payloads while retaining replayable evidence |
 | `tools/acoustics/compile_semantic_research_package.py` | Compile one room's semantic mesh into an M3/RLR research acoustic package |
+| `tools/acoustics/cpu_scan_rays.py` | CPU BVH reference rays on intact raw scan faces, without native upload |
 | `tools/acoustics/derive_authored_geometry_proxy.py` | Locate authored-GLB topology roots and optionally derive a fresh acoustic proxy |
 | `tools/acoustics/derive_research_rlr_package.py` | Derive an RLR-loadable research package by removing QA-degenerate faces |
 | `tools/acoustics/derive_skokloster_two_face_research_package.py` | Derive the bounded Skokloster package by removing exactly two QA faces |
+| `tools/acoustics/derive_zero_area_glb.py` | Auditable GLB index-only derivation for zero-surface native triangles |
 | `tools/acoustics/diagnose_region_ray_leakage.py` | Replay declared rays from an actual room region or route path |
 | `tools/acoustics/extract_usd_acoustic_snapshot.py` | Expand a static USD room into one auditable M3 acoustic snapshot |
+| `tools/acoustics/followup_house_views.py` | CPU visual checks as this follow-up's owned native house files complete |
 | `tools/acoustics/plan_vctk_four_speaker_program.py` | Plan four distinct complete VCTK sentences on an AVEngine clock |
 | `tools/acoustics/prepare_authored_room_acoustics.py` | Prepare a real-surface authored room for the existing AVEngine M3/RLR compiler |
 | `tools/acoustics/probe_room_front_back_pairs.py` | Measure whether one room supports front/back mirrored source pairs |
 | `tools/acoustics/render_frame_readback_sequential_speech.py` | Render multi-source research audio from SPEAR frame readbacks |
 | `tools/acoustics/render_rir_cache.py` | Render a resumable native-RLR RIR cache from an M6.x job plan |
+| `tools/acoustics/report_train_house_followup.py` | Publish the automatic pool with explicit historical and current gate evidence |
 | `tools/acoustics/run_material_canary.py` | Run the hash-bound repeated M3 RLR material activation canary |
 | `tools/acoustics/summarize_house_acceptance.py` | Summarize CPU house acceptance evidence, plots and whole-house recommendations |
 | `tools/acoustics/summarize_train_house_pool.py` | Prepare MP3D acoustic samples and report CPU training houses in batch1 schema |
+| `tools/acoustics/train_house_followup.py` | Automatic training pool follow-up; immutable historical inputs, CPU only |
 | `tools/acoustics/train_house_pool.py` | Prepare an all-exposure training pool and verify first-batch CPU repeats |
 | `tools/acoustics/verify_material_canary.py` | Verify M3 canary schema, lineage, raw IRs and recomputed gates |
 | `tools/acoustics/verify_package_frame_parity.py` | Cross-system frame parity: the same rays in Habitat and in the package |
 | `tools/acoustics/verify_package_ray_leakage.py` | Run the modern RLR TraceRay checks for a compiled acoustic package |
+| `tools/acoustics/verify_train_house_derivation.py` | Verify authorized MP3D zero-surface derived copies with native CPU rays |
 
 ## 相机与路径（`tools/routes/`）
 

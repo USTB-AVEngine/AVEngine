@@ -50,3 +50,47 @@ root, outside the source checkout and shared dataset directories.
 Reports distinguish rule-pass candidate room counts from acoustically sampled
 room counts. House-level acoustic diagnosis cannot certify every unmeasured
 room, production visuals or future source/listener positions.
+
+## Automatic-only follow-up (owner 2026-10-03)
+
+`tools/acoustics/train_house_followup.py prepare` selects stage1/pass and
+stage4/pass without a human-label filter. Retained clean original validation
+and live development/test houses stay reserved; SO/M1 history is descriptive.
+Use explicit `--output` (earlier training run) and `--work` (fresh follow-up).
+It retains predetermined acoustic samples and fills only unused slots, up to
+three rooms per house. Additional candidate rooms do not imply per-room RIR
+measurements. The earlier human-filtered products remain historical inputs.
+
+Cherry-pick e3dc246 before `calibration`, `rescore`, or new measurement. The
+calibration recomputes two corrected fill-test reference waveform sets and
+requires exact metric equality; it makes no independent propagation-equality
+claim. `rescore` applies the same first-arrival plus 0.5 ms metric uniformly.
+`followup_house_views.py` checks completed owned native house results on CPU.
+`report_train_house_followup.py` emits the original house CSV fields plus
+`smy_labels`, and separates historical task status from current CPU admission.
+Legacy GPU production, dynamic 5-degree audition, and binaural delivery status
+are not silently rewritten by a CPU house-admission diagnosis.
+
+`derive_zero_area_glb.py` only changes a derived GLB's triangle references. An
+entire zero-surface primitive may disappear; nodes remain and mesh references
+are reindexed. Original embedded bytes, nonzero faces, UVs, textures and
+materials remain intact. Its float32 rounding-zero condition and per-face
+area bounds are recorded, with no generic small-area removal. Verification
+uses identical semantic acoustic inputs and cached RIRs, exact textured
+candidate-room overhead comparisons, plus unchanged source projection in the
+native CPU ray views. Perspective centroid-color differences are reported.
+Original datasets and the frozen room/acoustic thresholds remain read-only.
+
+If a raw visual BVH upload still reports a zero-area triangle, the derived-copy
+verification can use the unchanged first-batch `render_probe` with its Trimesh
+CPU reference ray backend. That reference keeps all source faces in memory;
+only the documented derived GLB drops proven empty surfaces. Both backends and
+the native upload error are recorded. Acoustic propagation still uses the
+unchanged native RLR semantic package; this does not bypass a native acoustic
+failure or claim successful native Habitat RGB production.
+
+The fallback can accelerate the same first-hit CPU reference rays using a
+Numba median-triangle BVH. It retains every source face, uses no area cutoff,
+and records its backend. Validate full real-scan reference images against
+completed Trimesh output before admitting further scans. This is a CPU
+selection diagnostic, not a replacement for native Habitat RGB production.
