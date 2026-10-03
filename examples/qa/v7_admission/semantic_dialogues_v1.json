@@ -1,0 +1,273 @@
+{
+  "script_author": "project_author",
+  "label_source": "authored_dialogue_semantics",
+  "external_waveforms_used": false,
+  "script_distribution": "project policy applies; no separate public release in this task",
+  "scenarios": [
+    {
+      "id": "requested_object",
+      "slot": "object",
+      "question_zh": "{appearance}想要什么物品？",
+      "question_en": "What object does the {appearance} ask for?",
+      "roles": [
+        "requester_a",
+        "requester_b"
+      ],
+      "assignment_rule": "choose two distinct answers, independently assign voices and visible appearances; retain the complete utterance",
+      "utterances": [
+        {
+          "answer": "cup",
+          "label_zh": "杯子",
+          "label_en": "cup",
+          "text": "Please bring me a cup.",
+          "aliases": [
+            "杯子",
+            "cup"
+          ]
+        },
+        {
+          "answer": "book",
+          "label_zh": "书",
+          "label_en": "book",
+          "text": "Please bring me a book.",
+          "aliases": [
+            "书",
+            "book"
+          ]
+        },
+        {
+          "answer": "key",
+          "label_zh": "钥匙",
+          "label_en": "key",
+          "text": "Please bring me a key.",
+          "aliases": [
+            "钥匙",
+            "key"
+          ]
+        },
+        {
+          "answer": "towel",
+          "label_zh": "毛巾",
+          "label_en": "towel",
+          "text": "Please bring me a towel.",
+          "aliases": [
+            "毛巾",
+            "towel"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "preferred_drink",
+      "slot": "drink",
+      "question_zh": "{appearance}想喝什么？",
+      "question_en": "What drink does the {appearance} want?",
+      "roles": [
+        "requester_a",
+        "requester_b"
+      ],
+      "assignment_rule": "choose two distinct answers, independently assign voices and visible appearances; retain the complete utterance",
+      "utterances": [
+        {
+          "answer": "water",
+          "label_zh": "水",
+          "label_en": "water",
+          "text": "I would like some water.",
+          "aliases": [
+            "水",
+            "water"
+          ]
+        },
+        {
+          "answer": "tea",
+          "label_zh": "茶",
+          "label_en": "tea",
+          "text": "I would like some tea.",
+          "aliases": [
+            "茶",
+            "tea"
+          ]
+        },
+        {
+          "answer": "coffee",
+          "label_zh": "咖啡",
+          "label_en": "coffee",
+          "text": "I would like some coffee.",
+          "aliases": [
+            "咖啡",
+            "coffee"
+          ]
+        },
+        {
+          "answer": "juice",
+          "label_zh": "果汁",
+          "label_en": "juice",
+          "text": "I would like some juice.",
+          "aliases": [
+            "果汁",
+            "juice"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "planned_action",
+      "slot": "action",
+      "question_zh": "{appearance}打算做什么？",
+      "question_en": "What does the {appearance} plan to do?",
+      "roles": [
+        "requester_a",
+        "requester_b"
+      ],
+      "assignment_rule": "choose two distinct answers, independently assign voices and visible appearances; retain the complete utterance",
+      "utterances": [
+        {
+          "answer": "read",
+          "label_zh": "看书",
+          "label_en": "read",
+          "text": "I plan to read a book.",
+          "aliases": [
+            "看书",
+            "read"
+          ]
+        },
+        {
+          "answer": "cook",
+          "label_zh": "做饭",
+          "label_en": "cook",
+          "text": "I plan to cook dinner.",
+          "aliases": [
+            "做饭",
+            "cook"
+          ]
+        },
+        {
+          "answer": "rest",
+          "label_zh": "休息",
+          "label_en": "rest",
+          "text": "I plan to rest for a while.",
+          "aliases": [
+            "休息",
+            "rest"
+          ]
+        },
+        {
+          "answer": "clean",
+          "label_zh": "打扫",
+          "label_en": "clean",
+          "text": "I plan to clean the room.",
+          "aliases": [
+            "打扫",
+            "clean"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "meeting_place",
+      "slot": "place",
+      "question_zh": "{appearance}说要在哪里见面？",
+      "question_en": "Where does the {appearance} propose to meet?",
+      "roles": [
+        "requester_a",
+        "requester_b"
+      ],
+      "assignment_rule": "choose two distinct answers, independently assign voices and visible appearances; retain the complete utterance",
+      "utterances": [
+        {
+          "answer": "kitchen",
+          "label_zh": "厨房",
+          "label_en": "kitchen",
+          "text": "Let us meet in the kitchen.",
+          "aliases": [
+            "厨房",
+            "kitchen"
+          ]
+        },
+        {
+          "answer": "garden",
+          "label_zh": "花园",
+          "label_en": "garden",
+          "text": "Let us meet in the garden.",
+          "aliases": [
+            "花园",
+            "garden"
+          ]
+        },
+        {
+          "answer": "library",
+          "label_zh": "图书馆",
+          "label_en": "library",
+          "text": "Let us meet in the library.",
+          "aliases": [
+            "图书馆",
+            "library"
+          ]
+        },
+        {
+          "answer": "office",
+          "label_zh": "办公室",
+          "label_en": "office",
+          "text": "Let us meet in the office.",
+          "aliases": [
+            "办公室",
+            "office"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "departure_time",
+      "slot": "time",
+      "question_zh": "{appearance}说什么时候出发？",
+      "question_en": "When does the {appearance} plan to leave?",
+      "roles": [
+        "requester_a",
+        "requester_b"
+      ],
+      "assignment_rule": "choose two distinct answers, independently assign voices and visible appearances; retain the complete utterance",
+      "utterances": [
+        {
+          "answer": "morning",
+          "label_zh": "早上",
+          "label_en": "morning",
+          "text": "I will leave in the morning.",
+          "aliases": [
+            "早上",
+            "morning"
+          ]
+        },
+        {
+          "answer": "noon",
+          "label_zh": "中午",
+          "label_en": "noon",
+          "text": "I will leave at noon.",
+          "aliases": [
+            "中午",
+            "noon"
+          ]
+        },
+        {
+          "answer": "afternoon",
+          "label_zh": "下午",
+          "label_en": "afternoon",
+          "text": "I will leave in the afternoon.",
+          "aliases": [
+            "下午",
+            "afternoon"
+          ]
+        },
+        {
+          "answer": "evening",
+          "label_zh": "晚上",
+          "label_en": "evening",
+          "text": "I will leave in the evening.",
+          "aliases": [
+            "晚上",
+            "evening"
+          ]
+        }
+      ]
+    }
+  ]
+}
