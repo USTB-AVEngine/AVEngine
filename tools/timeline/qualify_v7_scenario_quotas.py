@@ -54,11 +54,18 @@ def find_layout(house,inputs,renderer):
         'room_scope':house['room']['room_label'],'scope_status':'new native placement diagnostic; not additional acoustic house admission'}
 
 def work(task):
-    ip,ap,out,house_id,layout_only=task;inputs=read(ip);assets=read(ap)['assets'];house=next(h for h in inputs['houses'] if h['house']==house_id)
+    ip,ap,out,house_id,layout_only,camera_yaw_deg=task;inputs=read(ip);assets=read(ap)['assets'];house=next(h for h in inputs['houses'] if h['house']==house_id)
     root=Path(out)/house_id;root.mkdir(parents=True,exist_ok=True)
     write_json(root/f'worker_{os.getpid()}.json',{'pid':os.getpid(),'parent_pid':os.getppid(),'compute_device':'CPU','command':'qualify_v7_scenario_quotas.py'})
     renderer,identity=native_renderer(inputs,house);write_json(root/'native_RLR_setup.json',renderer.setup_report)
-    layout=find_layout(house,inputs,renderer);write_json(root/'native_layout.json',layout)
+    layout=find_layout(house,inputs,renderer)
+    if camera_yaw_deg:
+        theta=np.radians(camera_yaw_deg);c,s=np.cos(theta),np.sin(theta)
+        layout['camera_forward']=(np.array([[c,0,s],[0,1,0],[-s,0,c]])@layout['camera_forward']).tolist()
+        for point in layout['candidate_slots']:
+            point['in_frustum']=frustum_geometry(point['position_m'],layout['listener_m'],layout['camera_forward'])
+    layout['diagnostic_camera_yaw_deg']=camera_yaw_deg
+    write_json(root/'native_layout.json',layout)
     if layout_only:return {'house':house_id,'native_layout':layout,'formal_dataset_count':0}
     cache=PositionRIRCache(root/'rir_cache',renderer,identity);tts=FormantSpeech();rows=[]
     from avengine.capture.continuous_native_video import NativeContinuousVideo
@@ -89,10 +96,14 @@ def work(task):
             p=track[0]['position_m']
             if any(np.linalg.norm(np.array(k['position_m'])-p)>1e-8 for k in track):raise ValueError('static diagnostic moved a native mouth')
             scene['sources'][endpoint]['trajectory']=[{'time_s':0.,'position_m':p},{'time_s':30.,'position_m':p}]
-        dry,receipt=make_dry_buses(scene,tts);mix=np.zeros((4,480000+64000-1))
+        dry,receipt=make_dry_buses(scene,tts);mix=np.zeros((4,480000+64000-1));directions=[]
         for endpoint,samples in dry.items():
             if not np.any(samples):continue
             ir=cache.get(scene['sources'][endpoint]['trajectory'][0]['position_m'])
+            from avengine.acoustics.house_acceptance_metrics import foa_direction
+            direction=foa_direction(ir,np.array(scene['listener_m']),np.array(scene['sources'][endpoint]['trajectory'][0]['position_m']),np.array(scene['camera_forward']))
+            directions.append({'endpoint_id':endpoint,**direction})
+            if direction['check']['angle_deg']>5:raise ValueError('native static FOA direction disagrees with camera geometry')
             signal=partitioned_convolve(samples,[ir],[0]);mix[:,:signal.shape[1]]+=signal
         camera=raw_world_to_camera_sn3d(mix,scene['camera_forward']);crop=camera[:,64000:224000]
         write_float32_wav(dest/'audio_foa.wav',crop,16000,channel_axis=0)
@@ -105,7 +116,8 @@ def work(task):
         if int(observed)!=n:raise ValueError('observed stable actor count differs from requested population')
         write_json(dest/'questions.json',public);write_json(dest/'private_answers.json',private)
         write_json(dest/'evidence.json',{'scene':scene,'native_visual':str(dest/'native_visual_evidence.json'),
-            'dry_receipt':receipt,'RIR_cache':cache.stats.copy(),'protocol_audit':audit,
+            'dry_receipt':receipt,'RIR_cache':cache.stats.copy(),'protocol_audit':audit,'native_static_FOA_directions':directions,
+            'camera_yaw_diagnostic_deg':camera_yaw_deg,'FOA_and_all_derived_reads_camera_forward':scene['camera_forward'],
             'static_native_frames_align_to_crop':True,'formal_dataset_count':0,
             'material_pipeline':visual['renderer'].get('source_material_rendering','legacy round3 Flat diagnostic; official material integration pending'),
             'limitations':['eight formant configurations; perceptual voice identity and gender not admitted',
@@ -120,9 +132,9 @@ def work(task):
     write_json(root/'summary.json',result);cache.db.close();return result
 
 def main():
-    p=argparse.ArgumentParser(description=__doc__);p.add_argument('--inputs',type=Path,required=True);p.add_argument('--assets',type=Path,required=True);p.add_argument('--output',type=Path,required=True);p.add_argument('--layout-only',action='store_true');a=p.parse_args()
+    p=argparse.ArgumentParser(description=__doc__);p.add_argument('--inputs',type=Path,required=True);p.add_argument('--assets',type=Path,required=True);p.add_argument('--output',type=Path,required=True);p.add_argument('--layout-only',action='store_true');p.add_argument('--camera-yaw-deg',type=float,default=0.);a=p.parse_args()
     if os.environ.get('CUDA_VISIBLE_DEVICES')!='':raise ValueError('CPU only')
     inputs=read(a.inputs);a.output.mkdir(parents=True,exist_ok=True)
-    with ProcessPoolExecutor(max_workers=2) as pool:rows=list(pool.map(work,[(str(a.inputs),str(a.assets),str(a.output),h['house'],a.layout_only) for h in inputs['houses']]))
+    with ProcessPoolExecutor(max_workers=2) as pool:rows=list(pool.map(work,[(str(a.inputs),str(a.assets),str(a.output),h['house'],a.layout_only,a.camera_yaw_deg) for h in inputs['houses']]))
     write_json(a.output/'summary.json',{'houses':rows,'formal_dataset_count':0})
 if __name__=='__main__':main()

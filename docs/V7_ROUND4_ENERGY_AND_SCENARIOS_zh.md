@@ -36,7 +36,7 @@ a/c复用上一轮已测生产cache及计时，不冒充本轮冷启动；b/d本
 
 ## 场景输入、配额与实际题数
 
-`seeds_quota_v4_release_r2/`为本轮新请求表，不覆盖 `round3_production_20261003/seeds_release_v3/`。schema `v7-production-inputs-20261004-v4`，内部quota revision v3。v7-S train400/dev100仍为8/2套已分配房各50父场景；新版S训练行与新版full训练前400行逐字段/字节一致，dev前100亦一致。原有父种子、独立随机流、房屋划分和30秒/切窗计划保留。0说话人请求不含原生现场male/female speech焦点；通过固定相邻请求交换保持13类总配额和大小前缀一致，播放人声另按扬声器机制处理。
+`seeds_quota_v4_release_r3/`为本轮新请求表，不覆盖 `round3_production_20261003/seeds_release_v3/`。schema `v7-production-inputs-20261004-v4`，内部quota revision v4。v7-S train400/dev100仍为8/2套已分配房各50父场景；新版S训练行与新版full训练前400行逐字段/字节一致，dev前100亦一致。原有父种子、独立随机流、房屋划分和30秒/切窗计划保留。0说话人请求不含原生现场male/female speech焦点；通过固定相邻请求交换保持13类总配额和大小前缀一致，播放人声另按扬声器机制处理。
 
 | 请求轴 | v7-S训练400父场景 | v7-S开发100父场景 | 完整训练7000父场景 |
 |---|---|---|---|
@@ -49,7 +49,7 @@ a/c复用上一轮已测生产cache及计时，不冒充本轮冷启动；b/d本
 
 说话人数监督使用窗口内发声的唯一稳定actor_id；多人同向不合并，同一人多段不重复计数，0人不等同于没有非人声。场景支持carry-in、重复、重叠和超过6个活动段；实际干声活动、声音类、人物/动作许可由families线准入，不能用计划事件代替它要求的实际干声证据。完整34与STARSS13是两个面板，不把播放讲话映成现场人声；音乐/水龙头独立覆盖。
 
-声学请求含已有物理声学包的短/中/长尾分层、clean/稳态/非稳态/脉冲噪声（作者工程起点SNR为无/20/10/0 dB）及0–3个干扰声。长尾、噪声素材和35类尚待准入，本轮没有以STARSS波形拟合参数。每个speaker档都覆盖全部混响分层；music/tap的视锥答案和噪声因素在重复周期中轮换，避免类名编码无关因素。没有把候选86套当86套RLR通过房屋。
+声学请求短/中/长尾目标分别0.2–0.5/0.5–1.5/1.5–2.5秒，比例45/45/10%；长尾只是待准入请求，保持首轮“少量长尾”要求，不改变房屋RT门槛。S训练180/180/40、开发45/45/10、完整训练3150/3150/700。均为作者工程配额及Astra范围，未拟合真实波形。另含clean/稳态/非稳态/脉冲噪声（作者工程起点SNR为无/20/10/0 dB）及0–3个干扰声。长尾、噪声素材和35类尚待准入，本轮没有以STARSS波形拟合参数。每个speaker档都覆盖全部混响分层；music/tap的视锥答案和噪声因素在重复周期中轮换，避免类名编码无关因素。没有把候选86套当86套RLR通过房屋。
 
 `generate_v7_scenes.py --plan-only`可验证v4请求，明确返回requested_only/native_not_admitted；实际调用拒绝以旧两人v3路径悄悄吞掉新配额。`scene_from_native_layout`与`select_spatial_cells`是采样/布局接口；正式native crowd、干声、QA-family resolver全部过后才能调度v4生产。四格实际合格组当前未交付；独立声学/画面/QA门禁分别保留。
 
@@ -61,6 +61,24 @@ a/c复用上一轮已测生产cache及计时，不冒充本轮冷启动；b/d本
 
 ### 已生成诊断题数（不是配额计划）
 
-本轮两屋各0–8人，共18个真实CPU RGB/FOA诊断窗，55个不同逻辑题，每窗2–9题；正式合格题0。QA-04=7、QA-23=18、QA-25=4、STARSS-FRUSTUM=8、STARSS-SPEAKERS=18。说话人数0/1/2/3/4/5/6/7/8各实际2题，actor身份复算不一致0。FRUSTUM实际in_frame=8、out_of_frame=0，未达画内外均衡。STARSS13及QA-21的34类每类题数均0，四格反事实合格组0；这些仍未完成，不能以请求表替代题量。出处：本轮`actual_quota_audit_v1/actual_question_counts.json`及`native_crowd_diagnostic_v1/summary.json`。
+两屋各0–8人＋180°相机对照，共36个真实CPU RGB/FOA诊断窗，110个不同逻辑题，每窗2–9题；正式合格题0。QA-04=14、QA-23=36、QA-25=8、STARSS-FRUSTUM=16、STARSS-SPEAKERS=36。人数0/1/2/3/4/5/6/7/8各实际4题，actor身份复算不一致0。FRUSTUM实际in_frame=8、out_of_frame=8，诊断面板达到答案均衡；不是v7-S已完成量。STARSS13及QA-21的34类每类题数均0，四格反事实合格组0，噪声/干扰和实际长尾配额未生成。原始ID带人数含义且相机对照重用ID，不能作训练交付；本轮新建中性媒体/题目别名，只改地址，不改题面/真值/公开域，110/110公开域一致。旧无限计数域`nonnegative_integer`及角度区间保留，未删溢出题或改答案。出处：`actual_quota_audit_final_v2/actual_question_counts.json`、`native_quota_neutral_diagnostic_v2/private_alias_manifest.json`；原始两个诊断目录保留不覆盖。
 
-本轮额外检验同相机/同姿态的原生modal与target-only遮挡证据，复用既有v6像素判据而未改qa代码。首轮失败；第二轮改为先设置root再设置关节，训练屋3帧通过且原RGB/semantic不变，测试屋第0帧未通过像素子集一致性，未接正式生成入口。失败产物和日志保留在`native_visibility_controls_v1/v2`及`logs/`。
+反向相机的FOA及全部派生读数共用camera_forward；8个静止嘴部逐个检查原生RIR方向≤5°才交付，未单独旋转标签而保持FOA不变。人物人数证明的是稳定actor实例，不是新增八套身体或八种已感知准入声线。事件活动是作者排程诊断，不能替代families接口要求的实际干声活动/湿声/语义内容准入。
+
+### 材质合入与原生CPU复验
+
+按正式清单合入原始`d790e8c`、`486799f`，不拾取参考快照`b6fa5e7`。只给新插入资产创建材质副本，原GLB/贴图/骨骼/动作不改，scan加载后再配置source PBR；不改RLR房屋材质。自动检查首/中/末帧的新增高光比例及原UV色差，失败中止；遮挡not_run独立记录。材质线118/118来自其报告，不能称本线CPU重跑118项。
+
+本分支在所测两屋各实跑完整30秒、450帧、1280×720/15fps，共900原生CPU帧，编码时长/帧数由ffprobe核验；首/中/末两人共12/12项材质检查通过。高光比例最大0，色度p50/p95最大值见`evidence/native_material_CPU_summary.json`，阈值沿用材质线。另有六个配对抽帧证明auxiliary检查前后RGB和semantic完全不变。这是所测两资产/两屋的结果，不覆盖新增资产或全部房型。
+
+额外的完整modal/target-only遮挡流在第53帧违反像素子集，root/joints/all_links/camera读回误差均0；原因未验证。未膨胀蒙版、没有1像素豁免、不改既有qa像素判据。完整遮挡收集保留为显式诊断选项`collect_pixel_visibility=True`，默认候选渲染写not_run，不供完整题族做已观测遮挡真值。原失败目录`native_visibility_full_v1/v2/v3`保留；有效的6抽帧不冒充全450帧通过。旧封存可直接跳过新增验收的具体问题已经修复：parent input及visual recipe带材质/遮挡版本，旧recipe被拒绝且旧文件保留；两项断点回归验证旧seal拒绝、新完整seal可复用。
+
+### 题族线合入边界
+
+正式清单为`23e2cdd`。它提供6个qa模块及语义/准入配置，唯一跨分工为`timeline/v7_native_questions.py`的可选qa_evidence接口；本线不手工改qa源码。只有真实外观复核、像素四态、干湿声活动、完整作者内容及角色证据可调完整题族；缺项deferred/拒绝，旧默认七族流程不当全28族。
+
+独立题族线最终报告24/28有研究候选，QA-07/09/10/21仍0；1277个开放/MCQ答案形式独立复算一致。其10个种子窗口纯视觉只1或3道，要求4或5，完整14题窗0；严格两轴四成员绑定10/72=13.89%低于20%。原第3回合50个绑定ID统计范围不同，不能替代此次完整四成员/全部共同题面口径。35类正式干声0、人物正式准入0；研究副本不自动转正式。QA-25整数anchor书面/AVModel分歧须以该线最终协议交付对齐；本线不改AVModel、v6权威真值或评分器。来源：`v7_families_20261004/delivery/REPORT_zh.md`及该线validation_final_v3/admission_final。
+
+### 范围与交接
+
+仅48g代码检出修改/测试，全部本线作业CPU；不push，不登录CCI，不覆盖前3轮产物。正式生产仍不能冻结，S/full v4真实native配额resolver尚未准入，候选入口明确拒绝把v4降为旧两人场景。CCI接收本轮代码和`seeds_quota_v4_release_r3/`请求表/阻断清单，不能视作500父场景已生成。一次测试临时目录误落`/tmp/pytest-of-jzy/pytest-4387`，后续限定本轮目录，未清理共享/tmp。

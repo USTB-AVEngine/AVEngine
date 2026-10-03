@@ -11,6 +11,7 @@ from pathlib import Path
 import json, os, resource, subprocess, time, uuid, multiprocessing
 import numpy as np
 from avengine.assets.source_materials import MATERIAL_REVISION
+from avengine.capture.continuous_native_visibility import VISIBILITY_REVISION
 from avengine.timeline.continuous_pilot import (
     make_scene, write_json, PositionRIRCache, FormantSpeech, make_dry_buses,
 )
@@ -22,7 +23,7 @@ from avengine.spatial_audio.audio import write_float32_wav
 
 FORMAL_BLOCKERS = (
     'moving_RIR_energy_admission_failed',
-    'all_28_v6_question_families_not_implemented_in_this_continuous_candidate',
+    'all_28_v6_question_families_and_native_evidence_admission_incomplete',
     'native_M2_assets_remain_research_and_full_motion_contact_admission_pending',
 )
 
@@ -238,7 +239,8 @@ def generate_parent(row, house, inputs, assets, output, compact=False):
     write_json(root/f'worker_started_{os.getpid()}_{time.time_ns()}.json',
         {'pid':os.getpid(),'parent_pid':os.getppid(),'scene_id':row['scene_id'],'house':row['house'],
          'output_root':str(root.resolve()),'compute_device':'CPU'})
-    recipe={'seed_row':row,'house':house,'runtime_inputs':inputs,'assets':assets}
+    recipe={'seed_row':row,'house':house,'runtime_inputs':inputs,'assets':assets,
+            'visual_contract':{'source_material_revision':MATERIAL_REVISION,'pixel_visibility_revision':VISIBILITY_REVISION}}
     input_path=root/'input_recipe.json'
     if input_path.exists():
         if read_json(input_path)!=recipe:raise ValueError('parent input recipe changed')
@@ -262,8 +264,8 @@ def generate_parent(row, house, inputs, assets, output, compact=False):
                                         source_material_cache_directory=attempt/'source_material_cache')
             try:result=video.encode(base,attempt/'scene_video.mp4')
             finally:video.close()
-            return {'renderer':result['renderer'],'wall_seconds':result['wall_seconds']},['scene_video.mp4','native_visual_evidence.json','source_materials.json','source_material_checks.json']
-        visual_dir,vr,visual_resumed=stage(root,visual_name,{'seed_row':row,'assets':variant,'source_material_revision':MATERIAL_REVISION},render)
+            return {'renderer':result['renderer'],'wall_seconds':result['wall_seconds']},['scene_video.mp4','native_visual_evidence.json','source_materials.json','source_material_checks.json','native_visibility_evidence.json']
+        visual_dir,vr,visual_resumed=stage(root,visual_name,{'seed_row':row,'assets':variant,'source_material_revision':MATERIAL_REVISION,'pixel_visibility_revision':VISIBILITY_REVISION},render)
         visual=read_json(visual_dir/'native_visual_evidence.json');scene=member_scene(base,visual,member)
         if reference_mouths is None:reference_mouths=visual['observed_mouth_trajectories']
         elif visual['observed_mouth_trajectories']!=reference_mouths:

@@ -17,6 +17,7 @@ def test_small_full_prefix_and_complete_balanced_quotas():
         assert len(c[field])==size and max(c[field].values())-min(c[field].values())<=1
     assert c['requested_frustum']=={'in_frame':200,'out_of_frame':200}
     assert c['actual_generated_questions']==0
+    assert c['requested_reverb']=={'long_qualification_pending':40,'medium':180,'short':180}
 
 def test_zero_to_eight_count_is_identity_not_activity_count():
     for n in range(9):

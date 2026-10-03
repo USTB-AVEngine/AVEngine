@@ -11,7 +11,7 @@ from avengine.capture.continuous_native_visibility import NativeVisibilityStream
 
 def read(path):return json.loads(Path(path).read_text())
 def main():
-    p=argparse.ArgumentParser(description=__doc__);p.add_argument('--inputs',type=Path,required=True);p.add_argument('--assets',type=Path,required=True);p.add_argument('--output',type=Path,required=True);a=p.parse_args()
+    p=argparse.ArgumentParser(description=__doc__);p.add_argument('--inputs',type=Path,required=True);p.add_argument('--assets',type=Path,required=True);p.add_argument('--output',type=Path,required=True);p.add_argument('--encode-full',action='store_true');p.add_argument('--collect-full-visibility',action='store_true');a=p.parse_args()
     if os.environ.get('CUDA_VISIBLE_DEVICES')!='':raise ValueError('CPU only')
     inputs=read(a.inputs);assets=read(a.assets)['assets'];a.output.mkdir(parents=True,exist_ok=True);results=[]
     for house in inputs['houses']:
@@ -26,6 +26,7 @@ def main():
             for frame in (0,45,90):
                 actors=primary._apply(scene,frame);before=primary.sim.get_sensor_observations()
                 rgb=np.asarray(before['rgb']).copy();semantic=np.asarray(before['semantic']).copy()
+                primary._check_source_frame(rgb[:,:,:3],semantic,frame)
                 result=visibility.capture(frame,semantic,actors)
                 after=primary.sim.get_sensor_observations()
                 if not np.array_equal(rgb,after['rgb']) or not np.array_equal(semantic,after['semantic']):
@@ -33,8 +34,13 @@ def main():
                 from PIL import Image
                 Image.fromarray(rgb[:,:,:3]).save(root/f'native_frame_{frame:04d}.png')
                 checks.append({'frame_index':frame,'unchanged_RGB_and_modal_pixels':True,'truth':result})
-            row={'house':house['house'],'status':'pass','checks':checks,'alignment':visibility.receipt(),
-                'formal_dataset_count':0,'producer_only_no_QA_logic_changed':True}
+            sampled_alignment=visibility.receipt();full=None
+            if a.encode_full:
+                visibility.close();visibility=None
+                full=primary.encode(scene,root/'scene_video.mp4',collect_pixel_visibility=a.collect_full_visibility)
+            row={'full_video':{'frame_count':full['frame_count'],'source_material_checks':full['source_material_checks'],'pixel_visibility_status':full['pixel_visibility_truth']['status'],'alignment':full['native_visibility_alignment'],'wall_seconds':full['wall_seconds']} if full else None,
+                'house':house['house'],'status':'pass_sampled_frames_only_full_stream_not_admitted','checks':checks,'alignment':sampled_alignment,
+                'formal_dataset_count':0,'producer_only_no_QA_logic_changed':True,'source_material_checks':primary.material_checks}
             write_json(root/'summary.json',row);results.append(row)
         finally:
             if visibility:visibility.close()

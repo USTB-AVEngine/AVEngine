@@ -5,7 +5,7 @@
 
 自 2026-08-25 起，目录本身就是能力分组（阶段目录 m1…m7 已移除），
 本表按目录列出每个工具做什么。
-当前共 485 个工具脚本。
+当前共 486 个工具脚本。
 
 ## 资产生成与装配（`tools/assets/`）
 
@@ -255,6 +255,7 @@
 | `tools/timeline/export_native_pilot_windows.py` | Export checked native video windows and balanced pilot question candidates |
 | `tools/timeline/generate_v7_scenes.py` | Seed-driven restartable CPU native candidates. Formal mode fails closed |
 | `tools/timeline/pilot_continuous_scenes.py` | CPU-only restartable continuous-scene pilot and native RIR throughput probe |
+| `tools/timeline/prepare_v7_diagnostic_aliases.py` | Give diagnostic media neutral IDs and quarantine incompatible public domains |
 | `tools/timeline/prepare_v7_quota_seed_tables.py` | Version v7-S/full requests with balanced speaker, spatial and class quotas |
 | `tools/timeline/prepare_v7_seed_tables.py` | Write v7-S and full-set seed tables without changing existing inputs |
 | `tools/timeline/qualify_native_counterfactuals.py` | Native 2x2 appearance/association canary; audit actual media and answers |

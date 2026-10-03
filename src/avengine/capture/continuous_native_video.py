@@ -142,6 +142,10 @@ class NativeContinuousVideo:
             root[:3,:3]=np.stack((np.cross(forward,[0,1,0]),[0,1,0],-forward),axis=1)
             skin=root@np.asarray(bundle.actor_from_skin_root)
             _apply_root_with_habitat(obj,skin,qt=self.qt,mn=self.mn)
+            # Keep only the current applied native inputs. Paired target-only
+            # renders avoid another float32 quaternion normalization; readbacks
+            # still certify every actual root, joint and link transform.
+            entry['applied_root_input']=skin.copy();entry['applied_joint_input']=joints.copy()
             actual=np.asarray(obj.root_scene_node.absolute_transformation(),float)
             if np.max(np.abs(actual-skin))>1e-5 or np.max(np.abs(np.asarray(obj.joint_positions)-joints))>1e-5:
                 raise ValueError('native actor root/joints differ from applied M2 state')
@@ -168,7 +172,7 @@ class NativeContinuousVideo:
             if measured['status']=='fail':
                 raise ValueError('inserted source material acceptance failed: '+json.dumps(record))
 
-    def encode(self,scene,path,review_frames=None):
+    def encode(self,scene,path,review_frames=None,*,collect_pixel_visibility=False):
         path=Path(path);start=time.perf_counter();frames=[];mouths={a['endpoint_id']:[] for a in self.actors}
         write_json(path.parent/'source_materials.json',{'rendering':self.material_rendering,
                    'sources':[a['source_material'] for a in self.actors]})
@@ -176,6 +180,8 @@ class NativeContinuousVideo:
         command=['ffmpeg','-hide_banner','-loglevel','error','-nostdin','-n','-f','rawvideo','-pixel_format','rgb24',
             '-video_size',f'{self.width}x{self.height}','-framerate',str(FPS),'-i','pipe:0','-an',
             '-c:v','libx264','-threads','1','-preset','veryfast','-crf','18','-pix_fmt','yuv420p',str(path)]
+        from avengine.capture.continuous_native_visibility import NativeVisibilityStream
+        visibility=NativeVisibilityStream(self,path.parent/"failed_visibility_masks") if collect_pixel_visibility else None
         process=subprocess.Popen(command,stdin=subprocess.PIPE)
         try:
             for index in range(frame_count):
@@ -194,6 +200,7 @@ class NativeContinuousVideo:
                     actor['mask_centroid_px']=[float(xs.mean()),float(ys.mean())] if len(xs) else None
                     actor['mask_bbox_xyxy']=[int(xs.min()),int(ys.min()),int(xs.max()),int(ys.max())] if len(xs) else None
                     mouths[actor['endpoint_id']].append({'time_s':index/FPS,'position_m':actor['emitter_position_m']})
+                if visibility is not None:visibility.capture(index,semantic,actors)
                 frames.append({'frame_index':index,'time_s':index/FPS,'actors':actors,'rgb_std':float(rgb.std())})
                 if index in set(review_frames or [0,45,75,90,120,149,225,300,375,449]):
                     from PIL import Image
@@ -208,11 +215,17 @@ class NativeContinuousVideo:
             if process.stdin and not process.stdin.closed:process.stdin.close()
             process.wait()
             raise
+        finally:
+            if visibility is not None:visibility.close()
         for values in mouths.values():values.append({'time_s':scene['duration_s'],'position_m':values[-1]['position_m']})
         material_checks={'status':'pass' if any(r['status']=='pass' for r in self.material_checks) else 'not_run',
                          'checks':self.material_checks}
         write_json(path.parent/'source_material_checks.json',material_checks)
-        result={'renderer':self.receipt,'frames':frames,'observed_mouth_trajectories':mouths,
+        visibility_receipt={'pixel_visibility_truth':visibility.truth if visibility is not None else {'status':'not_run_unqualified_native_stream'},
+                            'alignment':visibility.receipt() if visibility is not None else {'status':'not_run','full_stream_qualification':'failed; sampler controls retained'}}
+        write_json(path.parent/'native_visibility_evidence.json',visibility_receipt)
+        result={**visibility_receipt,'native_visibility_alignment':visibility_receipt['alignment'],
+                'renderer':self.receipt,'frames':frames,'observed_mouth_trajectories':mouths,
                  'source_material_checks':material_checks,
                 'frame_count':len(frames),'wall_seconds':time.perf_counter()-start}
         write_json(path.parent/'native_visual_evidence.json',result)

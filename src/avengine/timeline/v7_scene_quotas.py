@@ -11,7 +11,7 @@ import math
 import numpy as np
 from avengine.timeline.continuous_scene import QA21_CLASSES, camera_basis, position_at
 
-QUOTA_VERSION = 'v7-scene-quotas-20261004-v3'
+QUOTA_VERSION = 'v7-scene-quotas-20261004-v4'
 QUOTA_INPUT_VERSION = 'v7-production-inputs-20261004-v4'
 CELLS = ('in_clear', 'in_occluded', 'out_clear', 'out_occluded')
 
@@ -47,7 +47,8 @@ def add_quotas(rows):
             'spatial_counterfactual_requested':i%4==0,
             'camera_yaw_deg':float(np.random.default_rng(row['seeds']['camera']).uniform(-180,180)),
             'RIR_profile':'native_diffraction_on_qualification_pending',
-            'reverb_stratum':('short','medium','long_qualification_pending')[(i+i//9)%3],
+            'reverb_stratum':'long_qualification_pending' if i%10==9 else ('short' if (i+i//10)%2==0 else 'medium'),
+            'reverb_targets_s':{'short':[.2,.5],'medium':[.5,1.5],'long_qualification_pending':[1.5,2.5]},
             'noise_profile':('clean','stationary','nonstationary','impulsive')[(i+i//34)%4],
             'noise_SNR_db':(None,20.,10.,0.)[(i+i//34)%4],
             'interferer_count':(i//4)%4,
