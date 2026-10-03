@@ -925,9 +925,10 @@ def _capture_target_only_blank(
         configuration.sim_cfg.load_semantic_mesh = False
         configuration.sim_cfg.enable_physics = True
         configuration.sim_cfg.gpu_device_id = gpu_device_id
-        configure_source_pbr(configuration, runtime.habitat_sim)
         factory = simulator_factory or runtime.habitat_sim.Simulator
         with factory(configuration) as simulator:
+            configure_source_pbr(configuration, runtime.habitat_sim,
+                                 metadata_mediator=simulator.metadata_mediator)
             target_item_is_rigid = bool(target["is_rigid"])
             if target_item_is_rigid:
                 target_actor = _instantiate_rigid_object(
@@ -1211,7 +1212,6 @@ def _capture_with_runtime(
     configuration.sim_cfg.enable_physics = True
     # Reject compressed RGB inputs before Simulator can enter a native importer.
     read_glb(resolved_scene["scene_id"])
-    material_rendering = configure_source_pbr(configuration, runtime.habitat_sim)
     if list(modality_to_uuid) != ["rgb", "depth", "semantic"]:
         raise MP3DMultiActorCaptureError("M1 modalities must remain rgb/depth/semantic")
     if simulator_factory is None:
@@ -1297,8 +1297,10 @@ def _capture_with_runtime(
         str(item["track"]["source_slot_id"]): [] for item in actor_runtime
     }
     expected_frames: list[list[dict[str, Any]]] = []
-    _write_json(output / "source_materials.json", {"rendering": material_rendering, "sources": [item["source_material"] for item in actor_runtime]})
     with simulator_factory(configuration) as simulator:
+        material_rendering = configure_source_pbr(configuration, runtime.habitat_sim,
+                                                 metadata_mediator=simulator.metadata_mediator)
+        _write_json(output / "source_materials.json", {"rendering": material_rendering, "sources": [item["source_material"] for item in actor_runtime]})
         navmesh = resolved_scene.get("navmesh")
         if navmesh is None or not Path(navmesh).is_file():
             raise MP3DMultiActorCaptureError(

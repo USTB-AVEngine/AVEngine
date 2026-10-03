@@ -127,8 +127,9 @@ def render_one(args):
         read_glb(resolved['scene_id'])
         if phase_group == ('reference',):
             config.sim_cfg.scene_id = 'NONE'; config.sim_cfg.load_semantic_mesh = False
-        if phase_group == ('after',): configure_source_pbr(config,r.habitat_sim)
         with r.habitat_sim.Simulator(config) as sim:
+            if phase_group == ('after',):
+                configure_source_pbr(config,r.habitat_sim,metadata_mediator=sim.metadata_mediator)
             for phase_index,phase in enumerate(phase_group):
                 semantic = 2100001
                 path = reference_path if phase=='reference' else (row['derived_path'] if phase=='after' else row['source']['path'])
