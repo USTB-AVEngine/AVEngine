@@ -30,7 +30,7 @@ python -m tools.rooms.room_selection.workflow publish --output /path/to/output
 
 ## 人工审核
 
-本包不提供第二个 HTML 或 HTTP server。`review_manifest.json` 使用 `schemas/room_screening_review_manifest_v1.schema.json`，交给 `room_screening.review_server`。新字段包括 `automatic` 原因、`split_overlay_files`、`gate`、`second_review`、主层、独立子块和固定理由清单。原图缺失明确标记，不能拿几何建议图替代扫描。
+人工审核沿用共享 HTML 和 HTTP server。`review_manifest.json` 使用 `schemas/room_screening_review_manifest_v1.schema.json`，交给 `room_screening.review_server`。新字段包括 `automatic` 原因、`split_overlay_files`、`gate`、`second_review`、主层、独立子块和固定理由清单。原图缺失明确标记，不能拿几何建议图替代扫描。
 
 巡房视频可用显式 `--media-root` 指定只读外部根；所有 asset/media 引用都校验路径范围。`--blind-second-reviewer` 在 API 边界隐藏第一次和自动提示，只提供原固定180项及原图/视频。反馈只保存到 `--feedback`，不回写正式审核章。原 region 与新子块分别选 use/skip/unsure、固定理由与审核人代号。
 
@@ -41,4 +41,28 @@ python -m pytest tests/unit/room_screening tests/unit/test_room_selection_protoc
 python tools/build_tool_index.py --check
 ```
 
-单测覆盖共享语义冲突、多层家具审计、楼层窗口、几何/射线、统计分母、盲审字段和重复 holdout 拒绝；另须按任务许可在真实场景做 CPU 冒烟。当前合并测量后端只接受 HM3D；旧 MP3D pilot 不是这一版的验证。
+单测覆盖共享语义冲突、多层家具审计、楼层窗口、几何/射线、统计分母、盲审字段和重复 holdout 拒绝；另须按任务许可在真实场景做 CPU 冒烟。测量后端支持 HM3D，以及只读 MP3D `.house` / `_semantic.ply` 适配；两者共用 `room_screening` 测量和冻结判断。旧 MP3D pilot 不替代这一版的原生验证。
+
+## 冻结规则的对照演示
+
+`python -m tools.rooms.room_selection.demo` 提供 register / measure / render / page。
+登记时显式传入冻结文件、6 个 MP3D scene ID、合并产物根和 6 套 HM3D 留出名单。
+MP3D 调用原 `process_house` 完成阶段 0–2，再由原 `black_metric` / `decide` / `prediction`
+接收保存原生相机矩阵的纹理俯视图。HM3D 只读原结果和 smy 记录，不重评或重新选阈值。
+
+渲染必须显式指定 `--gpu`，并由任务脚本检查实测峰值加 4 GiB 的余量。HTML
+平铺、离线相对路径、全部图片懒加载。没有摆放见证的参考视点有单独标识，不升级判定。
+完整音频 / RIR 门禁缺失会保留 `not_run`，不会把导航和 RGB 诊断称正式门禁通过。
+`render --supplement-only` 为错层机位补充展示高度切面；`render --fit-overviews`
+扩大展示取景以容纳全部轮廓。两者保留原测量图片、数值和结论，不将切面当作认证建筑层。
+
+当前安装的 Habitat 前缀缺少 BasisImporter，演示用 `demo_textures` 在指定输出中
+创建仅将原 Basis 图像解码为 PNG 的 GLB 副本；原 BIN 前缀以及网格、UV、材质参数、
+节点和采样器均逐项核对未变。上游解码器依赖
+[BinomialLLC/basis_universal v2_50](https://github.com/BinomialLLC/basis_universal/tree/v2_50)，
+不复制进源码仓库，不安装到共享环境。用 `g++ -O2 -std=c++17 -pthread
+-DBASISD_SUPPORT_KTX2=0 -DBASISD_SUPPORT_KTX2_ZSTD=0 -I /path/to/basis_universal
+ tools/rooms/room_selection/basis_decode_rgba.cpp /path/to/basis_universal/transcoder/basisu_transcoder.cpp
+ -o /path/to/output/basis_decode_rgba` 编译；通过 `AVENGINE_DEMO_BASIS_DECODER` 显式配置。
+PNG 行顺序依据 Magnum BasisImporter 的 `m_y_flipped` 语义，保留颜色和透明度。
+这项兼容不改变原资产、测量几何、冻结阈值或人工结论。

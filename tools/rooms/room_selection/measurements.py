@@ -22,6 +22,11 @@ from .geometry import floor_windows
 
 
 def load_scene(scene_dir):
+    scene_dir = Path(scene_dir)
+    if (scene_dir / f"{scene_dir.name}.house").is_file():
+        from .mp3d import load_scene as load_mp3d_scene
+
+        return load_mp3d_scene(scene_dir)
     sid = Path(scene_dir).name.split("-", 1)[1]
     result = load_semantic_ground_and_instances(Path(scene_dir), sid)
     ann, _, regions = parse_semantic_annotations(
