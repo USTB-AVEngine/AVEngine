@@ -5,7 +5,7 @@
 
 自 2026-08-25 起，目录本身就是能力分组（阶段目录 m1…m7 已移除），
 本表按目录列出每个工具做什么。
-当前共 475 个工具脚本。
+当前共 483 个工具脚本。
 
 ## 资产生成与装配（`tools/assets/`）
 
@@ -168,11 +168,14 @@
 | `tools/acoustics/audit_jaeger_rir.py` | JAEGER SpatialSceneQA 公开包 RIR 混响审计脚本(可重跑版)。 |
 | `tools/acoustics/audit_skokloster_cleanup_inventory.py` | Emit the exact face inventory for a Skokloster research cleanup |
 | `tools/acoustics/build_asset_bound_rir_plan.py` | Bind concrete assets to generic root routes and plan on-demand RIR work |
+| `tools/acoustics/check_moving_waveform_controls.py` | Offline nearest/arrival-aligned controls; never replace production qualification |
 | `tools/acoustics/cleanup_dynamic_rir_cache.py` | Clear completed numeric RIR payloads while retaining replayable evidence |
+| `tools/acoustics/compare_moving_energy_policies.py` | Compare four diffraction/refinement arms against fixed native mouth midpoints |
 | `tools/acoustics/compile_semantic_research_package.py` | Compile one room's semantic mesh into an M3/RLR research acoustic package |
 | `tools/acoustics/derive_authored_geometry_proxy.py` | Locate authored-GLB topology roots and optionally derive a fresh acoustic proxy |
 | `tools/acoustics/derive_research_rlr_package.py` | Derive an RLR-loadable research package by removing QA-degenerate faces |
 | `tools/acoustics/derive_skokloster_two_face_research_package.py` | Derive the bounded Skokloster package by removing exactly two QA faces |
+| `tools/acoustics/diagnose_moving_energy.py` | Native LOS, repeatability and phase-cancellation controls at fixed poses |
 | `tools/acoustics/diagnose_region_ray_leakage.py` | Replay declared rays from an actual room region or route path |
 | `tools/acoustics/extract_usd_acoustic_snapshot.py` | Expand a static USD room into one auditable M3 acoustic snapshot |
 | `tools/acoustics/plan_vctk_four_speaker_program.py` | Plan four distinct complete VCTK sentences on an AVEngine clock |
@@ -183,6 +186,7 @@
 | `tools/acoustics/render_rir_cache.py` | Render a resumable native-RLR RIR cache from an M6.x job plan |
 | `tools/acoustics/run_material_canary.py` | Run the hash-bound repeated M3 RLR material activation canary |
 | `tools/acoustics/summarize_house_acceptance.py` | Summarize CPU house acceptance evidence, plots and whole-house recommendations |
+| `tools/acoustics/summarize_moving_energy_experiment.py` | Summarize fixed-threshold native diffraction/refinement controls and plot errors |
 | `tools/acoustics/verify_material_canary.py` | Verify M3 canary schema, lineage, raw IRs and recomputed gates |
 | `tools/acoustics/verify_package_frame_parity.py` | Cross-system frame parity: the same rays in Habitat and in the package |
 | `tools/acoustics/verify_package_ray_leakage.py` | Run the modern RLR TraceRay checks for a compiled acoustic package |
@@ -225,6 +229,7 @@
 | `tools/capture/capture_mp3d_multi_actor.py` | Capture one explicit N-actor MP3D case through the installed Habitat runtime |
 | `tools/capture/capture_two_human_mp3d.py` | Run the Habitat-native MP3D two-human production visual capture |
 | `tools/capture/materialize_common_plan_habitat.py` | Materialize one common renderer-neutral plan into a Habitat case |
+| `tools/capture/qualify_v7_pixel_visibility.py` | CPU native paired visibility check with unchanged published house pixels |
 | `tools/capture/run_apartment_four_motion_pilot.py` | Run one shared Apartment capture for the four human/dog motion cases |
 | `tools/capture/write_neutral_readback.py` | Convert retained native UE or Habitat capture into a fresh neutral readback |
 
@@ -244,11 +249,14 @@
 | 工具 | 做什么 |
 |---|---|
 | `tools/timeline/audit_v7_question_budget.py` | Audit actual v7 logical items, modality ratios, family floors and CF proofs |
+| `tools/timeline/audit_v7_scene_quotas.py` | Count realized v7 protocol answers separately from scene requests and formal media |
 | `tools/timeline/export_native_pilot_windows.py` | Export checked native video windows and balanced pilot question candidates |
 | `tools/timeline/generate_v7_scenes.py` | Seed-driven restartable CPU native candidates. Formal mode fails closed |
 | `tools/timeline/pilot_continuous_scenes.py` | CPU-only restartable continuous-scene pilot and native RIR throughput probe |
+| `tools/timeline/prepare_v7_quota_seed_tables.py` | Version v7-S/full requests with balanced speaker, spatial and class quotas |
 | `tools/timeline/prepare_v7_seed_tables.py` | Write v7-S and full-set seed tables without changing existing inputs |
 | `tools/timeline/qualify_native_counterfactuals.py` | Native 2x2 appearance/association canary; audit actual media and answers |
+| `tools/timeline/qualify_v7_scenario_quotas.py` | CPU native static-crowd diagnostics for actual v0.2 speaker/spatial questions |
 | `tools/timeline/review_native_windows.py` | Read five encoded native windows and compare head pixels to native FOA |
 | `tools/timeline/summarize_continuous_pilot.py` | Read back continuous-pilot media, summarize coverage, and estimate CPU throughput |
 | `tools/timeline/synthesize_native_pilot.py` | Resume native-mouth CPU audio and complete 10 s qualification candidates |

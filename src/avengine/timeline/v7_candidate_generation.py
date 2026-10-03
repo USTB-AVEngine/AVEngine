@@ -52,6 +52,10 @@ def stage(root, name, recipe, run):
 
 
 def seeded_scene(row, house):
+    from avengine.timeline.v7_scene_quotas import QUOTA_INPUT_VERSION,validate_quota_row
+    if row.get('schema')==QUOTA_INPUT_VERSION:
+        validate_quota_row(row)
+        raise RuntimeError('v4 scenario quotas require native layout, dry class and QA-family admission; v3 two-person fallback is forbidden')
     if row.get('schema') not in ('v7-production-inputs-20261003-v2','v7-production-inputs-20261003-v3'):
         raise ValueError('unsupported input seed schema')
     if row['duration_s']!=30 or row['questions_per_window'] not in (12,14):

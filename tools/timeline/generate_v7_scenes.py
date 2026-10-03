@@ -34,9 +34,18 @@ def main():
         raise RuntimeError('formal generation blocked: '+', '.join(FORMAL_BLOCKERS))
     if a.plan_only:
         from avengine.timeline.v7_candidate_generation import seeded_scene
-        for r in rows:seeded_scene(r,by_id[r['house']])
+        from copy import deepcopy
+        from avengine.timeline.v7_scene_quotas import QUOTA_INPUT_VERSION,validate_quota_row,quota_summary
+        quota_rows=[r for r in rows if r.get('schema')==QUOTA_INPUT_VERSION]
+        for r in rows:
+            check=deepcopy(r)
+            if r.get('schema')==QUOTA_INPUT_VERSION:
+                validate_quota_row(r);check['schema']=r['base_seed_schema']
+            seeded_scene(check,by_id[r['house']])
         print(json.dumps({'status':'input_plan_valid','parents':len(rows),'members':sum(len(r['members']) for r in rows),
-                          'formal_generation_ready':False,'blocking_reasons':list(FORMAL_BLOCKERS)}));return
+                          'formal_generation_ready':False,'blocking_reasons':list(FORMAL_BLOCKERS),
+                          'scenario_quota_status':'requested_only_native_not_admitted' if quota_rows else 'legacy_two_person_canary',
+                          'scenario_quotas':quota_summary(quota_rows) if quota_rows else None}));return
     if os.environ.get('CUDA_VISIBLE_DEVICES')!='':raise ValueError('candidate command requires CUDA_VISIBLE_DEVICES empty')
     inputs=json.loads(a.runtime_inputs.read_text());assets=json.loads(a.assets.read_text())
     if isinstance(assets,dict):assets=assets['assets']
