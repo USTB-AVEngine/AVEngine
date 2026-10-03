@@ -5,7 +5,7 @@
 
 自 2026-08-25 起，目录本身就是能力分组（阶段目录 m1…m7 已移除），
 本表按目录列出每个工具做什么。
-当前共 464 个工具脚本。
+当前共 467 个工具脚本。
 
 ## 资产生成与装配（`tools/assets/`）
 
@@ -120,6 +120,8 @@
 | `tools/rooms/compile_ue_navigation.py` | Build free navigation from current UE collision geometry and null areas |
 | `tools/rooms/emit_hm3d_room_manifest.py` | Emit an AVEngine room manifest for an HM3D scene directory |
 | `tools/rooms/extract_interioragent_scene_metadata.py` | Extract a room polygon and navigation footprints from InteriorAgent USD |
+| `tools/rooms/kujiale_batch.py` | CPU InteriorAgent inventory and conversion; never grants native UE admission |
+| `tools/rooms/kujiale_material_translation.py` | Explicit extra InteriorAgent MDL inputs for research Preview Surface USD |
 | `tools/rooms/measure_habitat_floor_reference.py` | Measure Habitat floor levels from a declared scene and navmesh |
 | `tools/rooms/measure_ue_room_floor_reference.py` | Measure an UE room floor from the currently loaded map |
 | `tools/rooms/plan_furnished_camera_review.py` | Build a short multi-view camera review plan for one furnished room |
@@ -131,6 +133,7 @@
 | `tools/rooms/prepare_spear_apartment_exterior.py` | Export UE's approaching_storm HDRI and build a visual-only Habitat GLB |
 | `tools/rooms/prepare_ue_room.py` | Prepare an audited UE render-surface export for the shared room compiler |
 | `tools/rooms/rebuild_replicacad_obstacle_review.py` | Rebuild the retained ReplicaCAD review with live furniture obstacles |
+| `tools/rooms/report_kujiale_batch.py` | Report CPU Kujiale conversion, missing native evidence and internal CCI files |
 | `tools/rooms/room_screening_candidates.py` | Compute provisional HM3D semantic-ground/navmesh overlap candidates |
 | `tools/rooms/room_screening_furniture_audit.py` | Audit provisional HM3D furniture footprints against candidate navmesh areas |
 | `tools/rooms/room_screening_inventory.py` | Build an input inventory from an explicit external HM3D house list |
