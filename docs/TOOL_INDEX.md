@@ -5,7 +5,7 @@
 
 自 2026-08-25 起，目录本身就是能力分组（阶段目录 m1…m7 已移除），
 本表按目录列出每个工具做什么。
-当前共 466 个工具脚本。
+当前共 474 个工具脚本。
 
 ## 资产生成与装配（`tools/assets/`）
 
@@ -276,6 +276,7 @@
 | `tools/qa/audio_profiles.py` | Question-type audio profiles: one schedule per question type, not one for all |
 | `tools/qa/audit_answer_priors.py` | Audit a retained question bank and optional splits into a new private receipt |
 | `tools/qa/audit_binding_feasibility.py` | 绑定可行性与逐题难度画像审计（research_only）。 |
+| `tools/qa/audit_frozen_panel_model_bridge.py` | CPU audit of real AVModel-hub input helpers; no weights, inference or answers |
 | `tools/qa/audit_gatea_by_form.py` |  |
 | `tools/qa/audit_gatea_semantics.py` |  |
 | `tools/qa/audit_qa_v3_prescale_candidates.py` | Revalidate an existing room-pilot manifest against prescale QA-v3 rules |
@@ -325,6 +326,7 @@
 | `tools/qa/capture_spear_native_pixel_episode.py` | Capture a full native SPEAR RGB/depth/pixel-truth Episode |
 | `tools/qa/capture_spear_native_pixel_room_batch.py` | Concrete one-process SPEAR adapter for strict full75 room batches |
 | `tools/qa/certify_axis1_questions.py` | Fact-level axis-1 (route-swap) certification for mined simple questions |
+| `tools/qa/certify_frozen_panel.py` | Construct media certificates and isolated model requests; never read answers |
 | `tools/qa/check_release_gate.py` | Decide whether one generated bank meets the declared benchmark standard |
 | `tools/qa/check_semantic_speech.py` | Read synthesized semantic speech back with a local Whisper model and admit the audible recordings |
 | `tools/qa/compare_question_spec_fresh.py` | Fresh QuestionSpec re-evaluation versus retained bind-time records |
@@ -369,6 +371,7 @@
 | `tools/qa/mine_temporal_questions.py` | Mine temporal (B-group) and numeric questions over intermittent fact tables |
 | `tools/qa/pre_gpu_launch_ledger.py` | Fail-closed archival for prepared attempts that never reached a GPU launch |
 | `tools/qa/preflight_camera_clearance_depth.py` | Camera-only depth preflight: is the view from a candidate camera pose clear? |
+| `tools/qa/prepare_frozen_panel_config.py` | Build a pilot/test configuration from explicit local runtime and admitted rooms |
 | `tools/qa/prepare_qa_v3_mcq.py` | Glue: facts (generator) -> split plan (1.3) -> MCQ items (1.4 input) |
 | `tools/qa/prepare_semantic_speech.py` | Synthesize short everyday semantic dialogue pairs with explicit text and answer provenance |
 | `tools/qa/probe_packaged_imported_glb_room.py` | Fail-closed NullRHI packaged readback for an imported-GLB room adapter |
@@ -377,6 +380,7 @@
 | `tools/qa/probe_qa_v3_runtime_los_batch.py` | Probe QA-v3 candidate sightlines in one real packaged UE map |
 | `tools/qa/probe_released_modality_shortcuts.py` | Probe text-, audio-, or video-only shortcuts from final released media |
 | `tools/qa/probe_ue_capture_animation.py` | Probe a static-camera capture for scheduled-but-unrendered walk animation |
+| `tools/qa/produce_test_panel_pilot.py` | Frozen binding pilot adapter: checked HM3D poses, existing Habitat and RLR |
 | `tools/qa/publish_strict_two_human_full75_canary_summary.py` | Publish a reviewable four-row summary for strict two-human full75 canaries |
 | `tools/qa/publish_strict_two_human_review.py` | Publish a lightweight, server-linked review for the strict two-human gates |
 | `tools/qa/qa_v3_actor_selection.py` | Resolve selected articulated or rigid source assets to their UE content |
@@ -398,6 +402,7 @@
 | `tools/qa/route_synthesis.py` | Routes designed by the solver for the pose it has chosen |
 | `tools/qa/run_answer_prior_pipeline.py` | Generate, augment and audit the original 25 QA types from one reusable config |
 | `tools/qa/run_audio_answer_balance.py` | Plan and render answer-balanced audio over retained two-actor captures; resume safely |
+| `tools/qa/run_frozen_panel_shard.py` | Sequential one-GPU shard worker for 48g pilot or CCI production |
 | `tools/qa/run_qa_v3_audio_batch.py` | Sequential dynamic-audio runner for a qa-v3 design batch (stage two) |
 | `tools/qa/run_qa_v3_capture_batch.py` | Sequential UE capture runner for a qa-v3 design batch (stage two) |
 | `tools/qa/run_qa_v3_pipeline.py` | Run one declared QA-v3 request through design, media and verification |
@@ -416,6 +421,7 @@
 | `tools/qa/scene_sampler.py` | Scene-agnostic candidate search for qa-v3 question types |
 | `tools/qa/score_binding_catalog.py` | Score full-catalog predictions through the AVEngine unified scorer |
 | `tools/qa/score_binding_groups.py` | Score private AVEngine instance-binding groups against model answers |
+| `tools/qa/score_frozen_panel.py` | Sole answer-file reader. Seal or audit scoring truth without running a model |
 | `tools/qa/score_open_answers.py` | Open-form answer scorer (pilot work order item 1.5) |
 | `tools/qa/score_qa_v3_human_calibration.py` | Score QA-v3 human calibration responses without mixing binding errors |
 | `tools/qa/score_unified_questions.py` | Score model answers for a generated unified QA question set |
@@ -430,6 +436,7 @@
 | `tools/qa/split_isolator.py` | Split isolator for pilot batches (work order item 1.3) |
 | `tools/qa/strict_two_human_cpu_finalize_queue.py` | Low-priority one-worker CPU finalization queue for strict room batches |
 | `tools/qa/strict_two_human_raw_spool.py` | Exact, crash-safe raw spool used by the shared-room full75 capture adapter |
+| `tools/qa/summarize_frozen_panel.py` | Measure accepted production receipts, CPU/GPU occupancy and retained disk |
 | `tools/qa/transcribe_audio_review.py` | Transcribe declared review audio with an installed Whisper model |
 | `tools/qa/upgrade_static_spear_suite_camera.py` | Bind legacy static-camera SPEAR plans to audited QA capture requests |
 | `tools/qa/validate_stereo_channels.py` | Stereo-channel integrity validator (pilot work order item 1.1) |
@@ -438,6 +445,7 @@
 | `tools/qa/validate_strict_two_human_native_rate_dynamic_candidates.py` | Validate a fail-closed native-rate full75 dynamic candidate pair |
 | `tools/qa/validate_strict_two_human_publication_plan.py` | Fail-closed validation for the strict two-human publication plan |
 | `tools/qa/validate_visibility_prediction.py` | Positive control for the visibility predictor: table prediction vs pixel truth |
+| `tools/qa/verify_frozen_panel.py` | Independent CPU verifier. Does not import the producer/certifier or open answers |
 | `tools/qa/verify_mp3d_visual_batch.py` | CLI wrapper for AVEngine's native MP3D visual batch verifier |
 | `tools/qa/verify_qa_v3_audio_batch.py` | Batch-level verification of qa-v3 pilot audio renders (post-render gate) |
 | `tools/qa/verify_qa_v3_visual_batch.py` | Verify a materialized QA-v3 visual batch against its runtime readbacks |
