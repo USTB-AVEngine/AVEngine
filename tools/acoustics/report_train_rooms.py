@@ -35,7 +35,7 @@ def room_row(h,room,rule,result,visual,result_path,visual_path):
 def old_house(h,rows,output,settings):
     labels=[r['room_label'] for r in h['old_sampled_rooms']]
     chosen=[r for r in rows if r['room_label'] in labels]
-    hh=copy.deepcopy(h);hh['acoustic_rooms']=[r for r in h['acoustic_rooms'] if r['room_label'] in labels];hh.pop('room_rule_records',None)
+    hh=copy.deepcopy(h);by_label={r['room_label']:r for r in h['acoustic_rooms']};hh['acoustic_rooms']=[copy.deepcopy(by_label[label]) for label in labels if label in by_label];hh.pop('room_rule_records',None)
     record=dict(house=h['house'],family=h['family'],input=hh,rirs=[],leakage=[],occluded_probe_lines=[],known_exposure=h.get('known_exposure',False),status='review',reasons=[])
     missing=[]
     for label in labels:
@@ -53,7 +53,7 @@ def old_house(h,rows,output,settings):
     status='fail' if record['status']=='fail' else 'pass' if record['status']=='pass' and visual_status=='pass' and before_verified else 'review'
     reasons=list(record.get('reasons',[]))+(['CPU_VISUAL_REQUIRES_REVIEW'] if visual_status!='pass' else [])
     if not before_verified:reasons.append('ACOUSTIC_GEOMETRY_BEFORE_WAVEFORM_UNAVAILABLE')
-    return dict(house=h['house'],family=h['family'],candidate_room_count=h['candidate_room_count'],candidate_room_labels=h['candidate_room_labels'],sampled_room_labels=labels,sampled_room_count=len(labels),native_status=record['status'],visual_status=visual_status,status=status,training_eligible=status=='pass',max_escape_fraction=record.get('max_escape_fraction'),max_foa_angle_deg=record.get('max_foa_angle_deg'),rt60_mid_median_s=record.get('rt60_mid_median_s'),reasons=reasons,input={k:hh[k] for k in ('house','family','scan_id','original_split','candidate_room_count','candidate_room_labels','candidate_area_sum_m2','acoustic_rooms','exposure') if k in hh},compute_device='CPU',scope='original predetermined <=3 rooms; combined first-batch house classifier; other candidate rooms inferred only under this old house-veto convention')
+    return dict(house=h['house'],family=h['family'],candidate_room_count=h['candidate_room_count'],candidate_room_labels=h['candidate_room_labels'],sampled_room_labels=labels,sampled_room_count=len(labels),foa_checked_probes=[x['probe'] for x in record.get('foa_checks',[])],native_status=record['status'],visual_status=visual_status,status=status,training_eligible=status=='pass',max_escape_fraction=record.get('max_escape_fraction'),max_foa_angle_deg=record.get('max_foa_angle_deg'),rt60_mid_median_s=record.get('rt60_mid_median_s'),reasons=reasons,input={k:hh[k] for k in ('house','family','scan_id','original_split','candidate_room_count','candidate_room_labels','candidate_area_sum_m2','acoustic_rooms','exposure') if k in hh},compute_device='CPU',scope='original predetermined <=3 rooms; combined first-batch house classifier; other candidate rooms inferred only under this old house-veto convention')
 
 def report(output,destination):
     for stage in ('native','visual'):
