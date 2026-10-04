@@ -211,7 +211,7 @@ def generate_alpha_parent(row,house,inputs,assets,source_admission,human_admissi
                 measured=_verify_window(dest);evidence=read_json(source/'evidence.json')
                 evidence['alpha_admission']={'status':'admitted','profile':ALPHA_RELEASE_PROFILE,
                     'media_clock':measured,'question_counts':count,'native_contact_material_masks_direction':'pass',
-                    'counterfactual_answers':'pass','full_v7_generation_ready':False}
+                    'counterfactual_answers':'pass' if len(row['members'])==4 else 'not_applicable_declared_single','full_v7_generation_ready':False}
                 answer_path=private/(wid+'_answers.json');ev_path=private/(wid+'_evidence.json')
                 write_json(answer_path,gold);write_json(ev_path,evidence)
                 required.extend(str((dest/name).relative_to(attempt)) for name in ['video.mp4','audio_foa.wav','audio_mono.wav','questions.json'])
