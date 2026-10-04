@@ -5,7 +5,7 @@
 
 自 2026-08-25 起，目录本身就是能力分组（阶段目录 m1…m7 已移除），
 本表按目录列出每个工具做什么。
-当前共 292 个工具脚本。
+当前共 339 个工具脚本。
 
 ## 资产生成与装配（`tools/assets/`）
 
@@ -77,6 +77,8 @@
 | `tools/assets/v7_human_roster_color_qa.py` | Native rendered shirt colour measurements; never used as a UE admission gate |
 | `tools/assets/v7_human_roster_cpu_build.py` | Resumable, bounded CPU-only native builds in the caller's task directory |
 | `tools/assets/v7_human_roster_delivery.py` | Build the deliverable hierarchy from saved native evidence, with qualified states |
+| `tools/assets/v7_human_roster_extend.py` | Bake official Rocketbox gesture/turn clips into task-owned derivatives |
+| `tools/assets/v7_human_roster_extend_normalize.py` | Normalize extended human rigs and emit complete source-motion pose metadata |
 | `tools/assets/v7_human_roster_feet.py` | Check semantic human shoe vertices, not just whole-asset minimum height |
 | `tools/assets/v7_human_roster_gpu.py` | One owned GPU process tree at a time, with free-memory reserve and evidence |
 | `tools/assets/v7_human_roster_habitat.py` | Native Habitat review in real MP3D/HM3D rooms; explicit RGB and garment mask |
@@ -98,6 +100,51 @@
 | `tools/assets/v7_human_roster_ue_root.py` | Include animated non-joint armature roots in derived UE skins without changing weights |
 | `tools/assets/v7_human_roster_ue_root_import.py` | Import derived root-aware Rocketbox rigs into this task's private UE project |
 | `tools/assets/v7_human_roster_ue_wide_view.py` | Find a broad unobstructed native-room review view from composed USD triangles |
+| `tools/assets/v7_pet_bird_reference.py` | Task-owned FLUX.2 pet-bird reference; 3D remains owner-review pending |
+| `tools/assets/v7_pet_bird_segment.py` | CPU ISNet cut-out of this task's pet-bird candidate |
+| `tools/assets/v7_roster_animation_nodes.py` | Discard only animation channels on unreachable, non-skin placeholder nodes |
+| `tools/assets/v7_roster_baseline_restore.py` | Restore byte-identical baseline mesh and source actions after Blender adds clips |
+| `tools/assets/v7_roster_bird_feet.py` | Measure original bird foot regions against its own derived perch, without altering either source |
+| `tools/assets/v7_roster_chair_compatibility.py` | Fit silent chair styles to exact seated surfaces, then check triangle penetration |
+| `tools/assets/v7_roster_chairs.py` | Create five matte chair styles, joined meshes, in canonical metric GLB |
+| `tools/assets/v7_roster_collision.py` | Triangle versus box SAT for seating and furniture clearance checks |
+| `tools/assets/v7_roster_colour_motion.py` | Apply a selected shirt variant's PBR appearance to the unique motion master in memory |
+| `tools/assets/v7_roster_contact_ik.py` | World-space foot planting and two-bone IK for source-authored motion |
+| `tools/assets/v7_roster_delivery.py` | Build Chinese inventories, a sourced report and one JPEG-embedded review page |
+| `tools/assets/v7_roster_disk.py` | Enforce a 50 GiB disk reserve and at most 15 GiB net growth after cleanup |
+| `tools/assets/v7_roster_dog_motion.py` | Audit dog four-paw contact using their native meshes and donor bone angles |
+| `tools/assets/v7_roster_dog_normalize.py` | Normalize native dog rigs, preserving their own skin and complete donor motion |
+| `tools/assets/v7_roster_extra_actions.py` | Build floor-fixed speech gestures and turn actions from official Rocketbox clips |
+| `tools/assets/v7_roster_extra_scene_collision.py` | Exact source-room triangle checks for stationary actions, chairs and dog motions |
+| `tools/assets/v7_roster_final_manifest.py` | Merge conservative motion, seat, dog, bird and chair admissions into one roster |
+| `tools/assets/v7_roster_floor_grid.py` | Sample real native stage floors near each verified navigation path |
+| `tools/assets/v7_roster_foot_events.py` | Export contact-onset events without confusing toe roll with a new footstep |
+| `tools/assets/v7_roster_german_shepherd.py` | Retarget the retained Beagle motion onto the original German Shepherd rig |
+| `tools/assets/v7_roster_habitat_bird.py` | Native Habitat qualification of the MIT library sparrow on its silent perch |
+| `tools/assets/v7_roster_habitat_dogs.py` | Replay full rigid-pose clips with native Habitat stage physics and FOA nodes |
+| `tools/assets/v7_roster_habitat_extra.py` | Sample official gesture/turn adapters in both native Habitat scenes, with seated chairs |
+| `tools/assets/v7_roster_habitat_motion.py` | Replay full rigid-pose clips with native Habitat stage physics and FOA nodes |
+| `tools/assets/v7_roster_habitat_walk_visual.py` | Reselect native Habitat cameras that show sampled walk mouths and both feet |
+| `tools/assets/v7_roster_kujiale_path.py` | Recast planning on actual Kujiale USD triangles; UE remains RGB authority |
+| `tools/assets/v7_roster_lx_anchors.py` | Primary LX sound anchors from manually reviewed native pixels and original triangles |
+| `tools/assets/v7_roster_native_paths.py` | Build native Recast paths in the real MP3D/HM3D rooms |
+| `tools/assets/v7_roster_native_seating.py` | Native seat fitting with floor support, furniture collision and retained navigation |
+| `tools/assets/v7_roster_scene_collision.py` | Full-frame scene triangle collision checks against the exact Kujiale USD mesh |
+| `tools/assets/v7_roster_seat_rgbd.py` | Recover existing seats from actual native RGB-D-semantic surfaces, not faulty bounds |
+| `tools/assets/v7_roster_seat_survey.py` | Survey native semantic seats and review silent fallback chairs in real homes |
+| `tools/assets/v7_roster_seated.py` | Create seat geometry fitted to source sitting pose and a seated upper-body talk clip |
+| `tools/assets/v7_roster_seated_contact.py` | Bake terrain-corrected sitting poses with actual task-owned chair geometry |
+| `tools/assets/v7_roster_source_audit.py` | Audit original mesh, old animation surfaces and inverse binds without modifying assets |
+| `tools/assets/v7_roster_sparrow_fallback.py` | Prepare the explicitly allowed library sparrow fallback, static on a silent perch |
+| `tools/assets/v7_roster_ue_camera_plan.py` | Choose UE review cameras with clear rays through the actual source-room mesh |
+| `tools/assets/v7_roster_ue_capture.py` | Sample native UE scene and isolated JPEGs for motions and paired silent seats |
+| `tools/assets/v7_roster_ue_capture_qa.py` | Audit native JPEG visibility/highlight proxies without UE texture-colour matching |
+| `tools/assets/v7_roster_ue_dog_readback.py` | Validate each native UE dog animation key and its four paw / mouth transforms |
+| `tools/assets/v7_roster_ue_extra_readback.py` | Read native UE speech/turn bone positions at every baked action key |
+| `tools/assets/v7_roster_ue_import.py` | Import new human action masters, silent chairs and static dog candidates privately |
+| `tools/assets/v7_roster_ue_lx_anchors.py` | Verify static LX primary sound anchors on their actual native UE Blueprint actors |
+| `tools/assets/v7_roster_ue_motion_readback.py` | Read every imported Kujiale walk key with native UE AnimPose evaluation |
+| `tools/assets/v7_roster_walk_compile.py` | Bake paired navigation paths and contact-corrected Rocketbox walking clips |
 | `tools/assets/wrap_uniform_scene_scale.py` | Wrap every root of one GLB scene in an explicit uniform-scale node |
 
 ## 房间（`tools/rooms/`）

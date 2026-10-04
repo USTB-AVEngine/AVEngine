@@ -63,8 +63,8 @@ def globals_at(d,b,action=None,t=0):
  for i in range(len(nodes)):calc(i)
  return result
 
-def pose(d,b,action=None,t=0,canonical_flip=True):
- g=globals_at(d,b,action,t);out=[]
+def pose(d,b,action=None,t=0,canonical_flip=True,globals_override=None,ground=True,emitter_bone=None):
+ g=globals_at(d,b,action,t) if globals_override is None else globals_override;out=[]
  for ni,node in enumerate(d['nodes']):
   if 'mesh'not in node:continue
   for pi,p in enumerate(d['meshes'][node['mesh']]['primitives']):
@@ -83,15 +83,15 @@ def pose(d,b,action=None,t=0,canonical_flip=True):
     if canonical_flip:norm[:,[0,2]]*=-1
     norm/=np.maximum(np.linalg.norm(norm,axis=1,keepdims=True),1e-9)
    out.append({'node':ni,'primitive':pi,'positions':pos,'normals':norm})
- floor=min(float(p['positions'][:,1].min()) for p in out);allpos=np.concatenate([p['positions'] for p in out])
- mouthids=[i for i,n in enumerate(d['nodes']) if n.get('name','').endswith('MUpperLip')]
+ source_floor=min(float(p['positions'][:,1].min()) for p in out);floor=source_floor if ground else 0.0;allpos=np.concatenate([p['positions'] for p in out])
+ mouthids=[i for i,n in enumerate(d['nodes']) if n.get('name','').endswith(emitter_bone or 'MUpperLip')]
  mouth=g[mouthids[0]][:3,3].copy() if mouthids else None
  if mouth is not None:
   if canonical_flip:mouth[[0,2]]*=-1
   mouth[1]-=floor
  for p in out:p['positions'][:,1]-=floor
  allpos[:,1]-=floor
- evidence={'time_s':t,'pre_ground_floor_y_m':floor,'ground_correction_m':-floor,'bounds_min_m':allpos.min(axis=0).tolist(),'bounds_max_m':allpos.max(axis=0).tolist(),'mouth_m':None if mouth is None else mouth.tolist(),'mouth_nearest_surface_m':None if mouth is None else float(np.linalg.norm(allpos-mouth,axis=1).min()),'canonical_front':'-Z' if canonical_flip else 'source','floor_y_m':float(allpos[:,1].min())}
+ evidence={'time_s':t,'pre_ground_floor_y_m':source_floor,'ground_correction_m':-floor,'bounds_min_m':allpos.min(axis=0).tolist(),'bounds_max_m':allpos.max(axis=0).tolist(),'mouth_m':None if mouth is None else mouth.tolist(),'mouth_nearest_surface_m':None if mouth is None else float(np.linalg.norm(allpos-mouth,axis=1).min()),'canonical_front':'-Z' if canonical_flip else 'source','floor_y_m':float(allpos[:,1].min())}
  return out,evidence
 
 def rigid_glb(d,b,posed,dest):
@@ -108,6 +108,7 @@ def rigid_glb(d,b,posed,dest):
   if atype=='VEC3':a.update(min=x.min(axis=0).tolist(),max=x.max(axis=0).tolist())
   nd['accessors'].append(a);return i
  for im in nd.get('images',[]):
+  if 'uri' in im:continue
   assert 'bufferView'in im;payload=viewbytes(d,b,im['bufferView'])
   if im.get('mimeType')=='image/webp' or payload[:4]==b'RIFF':
    image=Image.open(io.BytesIO(payload));buf=io.BytesIO();image.save(buf,format='PNG');payload=buf.getvalue();im['mimeType']='image/png'
