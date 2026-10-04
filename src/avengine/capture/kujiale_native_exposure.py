@@ -3,13 +3,15 @@ from __future__ import annotations
 from copy import deepcopy
 import math
 
-PROFILE = 'kujiale-native-world-lights-histogram-v2'
+PROFILE = 'kujiale-native-design-whitebalance-histogram-v3'
+LEGACY_PROFILE = 'kujiale-native-world-lights-histogram-v2'
 PARAMETERS = {
     'method': 'AEM_Histogram', 'min_ev100': -4.0, 'max_ev100': 16.0,
     'histogram_min_ev100': -10.0, 'histogram_max_ev100': 20.0,
     'low_percent': 10.0, 'high_percent': 90.0,
     'speed_up_f_stops_per_s': 3.0, 'speed_down_f_stops_per_s': 1.0,
-    'exposure_bias_ev': 0.0, 'white_balance_temp_k': 4000.0,
+    'exposure_bias_ev': 0.0, 'white_balance_temp_k': 6500.0,
+    'random_exposure_min_ev': -1.0, 'random_exposure_max_ev': 1.0,
     'warmup_frames': 300, 'fps': 15,
 }
 
@@ -17,14 +19,60 @@ PARAMETERS = {
 def is_histogram(ue):
     # Old named histogram configs must hit the world-photometry audit,
     # rather than silently falling through to legacy EV3/fill lighting.
-    return ue.get('visual_profile') in {PROFILE, 'kujiale-native-authored-lights-histogram-v1'}
+    return ue.get('visual_profile') in {PROFILE, LEGACY_PROFILE, 'kujiale-native-authored-lights-histogram-v1'}
 
 
-def bind_histogram_profile(ue):
-    """Ignore legacy EV3; this explicit named profile owns all exposure knobs."""
+def design_white_balance(light_components):
+    """Follow the designed environment white point, never rendered wall pixels.
+
+    Directional intensities share lux units, so these may be mixed together.
+    Local lights share lumens and are the fallback if no designed sunlight is
+    present. Sky multipliers are never numerically added to lux or lumens.
+    Kelvin is combined in reciprocal-temperature (mired) space. RGB-tinted
+    emitters keep their intended colour; this is not a gray-world correction.
+    """
+    lights = [r for r in light_components if r.get('visible', True)
+              and r.get('affects_world', True) and float(r.get('intensity', 0)) > 0]
+    environment = [r for r in lights if r.get('component_class') == 'DirectionalLightComponent']
+    local = [r for r in lights if r.get('component_class') in
+             {'PointLightComponent', 'SpotLightComponent', 'RectLightComponent'}
+             and 'LUMENS' in str(r.get('intensity_units', ''))]
+    selected = environment or local
+    weight = sum(float(r['intensity']) for r in selected)
+    rows = [{'actor': r.get('actor'), 'weight': float(r['intensity']),
+             'kelvin': float(r['temperature']) if r.get('use_temperature') else 6500.0}
+            for r in selected]
+    if any(not math.isfinite(r['kelvin']) or not 1000 <= r['kelvin'] <= 15000 for r in rows):
+        raise ValueError('authored light temperature is invalid')
+    temperature = weight / sum(r['weight']/r['kelvin'] for r in rows) if rows else 6500.0
+    return {'temperature_k': temperature, 'rule': 'designed-directional-white-point' if environment
+            else 'local-lumen-weighted-mired' if local else 'D65-default',
+            'weight_units': 'lux' if environment else 'lumens' if local else None,
+            'selected_lights': rows, 'sky_intensity_mixed_with_physical_units': False,
+            'image_fitted': False, 'room_specific_manual_override': False}
+
+
+def sample_scene_exposure(seed):
+    """One reproducible EV draw per whole scene, shared by every frame/view."""
+    import random
+    if not isinstance(seed, (str, int)):
+        raise ValueError('scene exposure requires a stable string or integer seed')
+    return random.Random(seed).uniform(PARAMETERS['random_exposure_min_ev'],
+                                       PARAMETERS['random_exposure_max_ev'])
+
+
+def bind_histogram_profile(ue, *, scene_seed=None):
+    """Bind the uniform design-white-point rule and an optional scene EV draw."""
+    import json
+    from pathlib import Path
     result = deepcopy(ue)
-    result.update(visual_profile=PROFILE, exposure_bias_ev=PARAMETERS['exposure_bias_ev'],
-                  white_balance_temp_k=PARAMETERS['white_balance_temp_k'])
+    lights = json.loads(Path(ue['native_lighting_audit']).read_text())['light_components'] \
+             if ue.get('native_lighting_audit') else []
+    white = design_white_balance(lights)
+    result.update(visual_profile=PROFILE, exposure_bias_ev=sample_scene_exposure(scene_seed)
+                  if scene_seed is not None else 0.0,
+                  white_balance_temp_k=white['temperature_k'], white_balance_rule=white,
+                  scene_exposure_seed=scene_seed)
     return result
 
 
@@ -36,13 +84,22 @@ def exposure_console_commands(ue):
             'r.DefaultFeature.AutoExposure.ExtendDefaultLuminanceRange 1']
 
 
-def apply_histogram_exposure(capture):
+def apply_histogram_exposure(capture, ue=None):
     """Set EV100 postprocess overrides and verify the actual component values.
 
     The launch commands must enable ExtendDefaultLuminanceRange; otherwise
     AutoExposureMin/MaxBrightness would be luminance, not the declared EV100.
     No output pixels or room/source materials are changed by this function.
     """
+    ue = ue or {}
+    legacy = ue.get('visual_profile') in {LEGACY_PROFILE, 'kujiale-native-authored-lights-histogram-v1'}
+    parameters = dict(PARAMETERS)
+    if legacy:
+        parameters.update(white_balance_temp_k=4000.0, exposure_bias_ev=0.0)
+    else:
+        resolved = bind_histogram_profile(ue, scene_seed=ue.get('scene_exposure_seed'))
+        parameters.update(white_balance_temp_k=resolved['white_balance_temp_k'],
+                          exposure_bias_ev=resolved['exposure_bias_ev'])
     capture_source = str(capture.get_property_value(property_name='CaptureSource')).split('::')[-1]
     if capture_source not in {'SCS_FinalColorLDR', 'SCS_FinalColorHDR', 'SCS_FinalToneCurveHDR'}:
         raise ValueError('histogram requires a native final-color postprocess capture source')
@@ -73,8 +130,9 @@ def apply_histogram_exposure(capture):
         'AutoExposureHighPercent': PARAMETERS['high_percent'],
         'AutoExposureSpeedUp': PARAMETERS['speed_up_f_stops_per_s'],
         'AutoExposureSpeedDown': PARAMETERS['speed_down_f_stops_per_s'],
-        'AutoExposureBias': PARAMETERS['exposure_bias_ev'],
-        'WhiteTemp': PARAMETERS['white_balance_temp_k'],
+        'AutoExposureBias': parameters['exposure_bias_ev'],
+        'WhiteTemp': parameters['white_balance_temp_k'],
+        'WhiteTint': 0.0, 'TemperatureType': 'TEMP_WhiteBalance',
         'AutoExposureApplyPhysicalCameraExposure': False,
     }
     for name, value in properties.items():
@@ -101,11 +159,13 @@ def apply_histogram_exposure(capture):
         actual = capture.get_property_value(property_name=name)
         if actual != expected:
             raise ValueError(f'native histogram capture state differs: {name}')
-    return {'status': 'pass', 'profile': PROFILE, 'parameters': dict(PARAMETERS),
+    return {'status': 'pass', 'profile': ue.get('visual_profile', PROFILE), 'parameters': parameters,
+            'white_balance_rule': None if legacy else resolved['white_balance_rule'],
+            'scene_exposure_seed': ue.get('scene_exposure_seed'),
             'native_readbacks': observed, 'capture_source': capture_source,
             'native_rgb_eye_adaptation_show_flag': True, 'native_show_flags_before': original_flags,
             'native_show_flags_after': read_flags, 'per_room_overrides': False,
-            'parameter_calibration': 'UE 5.5 histogram defaults 10/90%, bounded indoor/outdoor EV100 -4..16; unified initial profile, real native distribution validation pending',
+            'parameter_calibration': 'designed environment white point; one scene EV draw from the global distribution; native distribution validation recorded separately',
             'brightness_match_verified': False}
 
 

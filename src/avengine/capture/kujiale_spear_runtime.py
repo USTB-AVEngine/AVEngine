@@ -187,7 +187,7 @@ def close_native(instance,camera,components):
 def apply_native_rgb_profile(capture,ue):
     """Apply one declared production camera exposure/white balance everywhere."""
     from avengine.capture.kujiale_native_exposure import is_histogram,apply_histogram_exposure
-    if is_histogram(ue):return apply_histogram_exposure(capture)
+    if is_histogram(ue):return apply_histogram_exposure(capture,ue)
     from avengine.backends.spear_ue.research_runtime import apply_capture_exposure
     result=apply_capture_exposure(capture,bias_ev=float(ue.get('exposure_bias_ev',2.)))
     if ue.get('white_balance_temp_k') is not None:

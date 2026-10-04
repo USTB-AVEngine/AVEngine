@@ -46,7 +46,7 @@ def test_no_per_room_overrides_and_legacy_map_does_not_enter_fresh_generation(tm
                 'output_root': str(tmp_path)}
     current = bind_histogram_profile(original)
     assert original['exposure_bias_ev'] == 30
-    assert current['exposure_bias_ev'] == 0 and current['white_balance_temp_k'] == 4000
+    assert current['exposure_bias_ev'] == 0 and current['white_balance_temp_k'] == 6500
     assert 'r.EyeAdaptationQuality 2' in exposure_console_commands(current)
     assert 'r.DefaultFeature.AutoExposure.ExtendDefaultLuminanceRange 1' in exposure_console_commands(current)
     with pytest.raises(ValueError, match='requires measured'):

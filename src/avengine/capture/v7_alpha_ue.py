@@ -15,7 +15,7 @@ from avengine.capture.kujiale_spear_runtime import apply_camera,from_ue
 from avengine.capture.v7_alpha_native import yaw_at
 from avengine.timeline.continuous_pilot import write_json
 
-ALPHA_UE_VISUAL_REVISION='v7-alpha-ue-authored-lights-histogram-v1'
+ALPHA_UE_VISUAL_REVISION='v7-alpha-ue-design-whitebalance-histogram-v2'
 
 
 def assert_ue_alpha_visual(visual):
@@ -40,7 +40,7 @@ class NativeUEAlphaVideo(UENativeContinuousVideo):
         house=deepcopy(house)
         if house.get('family')=='kujiale':
             from avengine.capture.kujiale_native_exposure import bind_histogram_profile,require_authored_light_audit,require_histogram_room_visual_qa
-            house['input']['ue_config']=bind_histogram_profile(house['input']['ue_config'])
+            house['input']['ue_config']=bind_histogram_profile(house['input']['ue_config'],scene_seed=scene['scene_id'])
             require_authored_light_audit(house['input']['ue_config'],house['input']['ue_map_path'])
             room_id=house['room'].get('room_label') or house['room'].get('room_id')
             require_histogram_room_visual_qa(house['input']['ue_config'],room_id,house['input']['ue_map_path'])
