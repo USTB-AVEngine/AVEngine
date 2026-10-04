@@ -1,0 +1,50 @@
+{
+  "schema": "avledger_ladder_plan_v1",
+  "name": "cci_egl_diagnostic_shared_20261004_codex_r5",
+  "run_root": "/mnt/afs/xinyuanqian/jzy/hardbank/generation/cci_egl_diagnostic_20261004_codex_r5/output/scheduler_diagnostic",
+  "python": "/mnt/afs/xinyuanqian/jzy/hardbank/generation/cci_datagen_20261003_codex/env/bin/python",
+  "cwd": "/mnt/afs/xinyuanqian/jzy/hardbank/generation/cci_egl_diagnostic_20261004_codex_r5/code",
+  "env": {
+    "PYTHONPATH": "/mnt/afs/xinyuanqian/jzy/hardbank/generation/cci_egl_diagnostic_20261004_codex_r5/code/src:/mnt/afs/xinyuanqian/jzy/hardbank/generation/cci_egl_diagnostic_20261004_codex_r5/code:/mnt/afs/xinyuanqian/jzy/hardbank/generation/cci_datagen_20261003_codex/overlay",
+    "LD_LIBRARY_PATH": "/mnt/afs/xinyuanqian/jzy/hardbank/generation/cci_datagen_20261003_codex/private_glvnd:/mnt/afs/xinyuanqian/jzy/hardbank/generation/cci_datagen_20261003_codex/env/lib",
+    "PATH": "/mnt/afs/xinyuanqian/jzy/hardbank/generation/cci_pilot64_20261004_codex_r4/bin:/mnt/afs/xinyuanqian/jzy/hardbank/generation/cci_datagen_20261003_codex/env/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+    "CCI_DATAGEN_BASE": "/mnt/afs/xinyuanqian/jzy/hardbank/generation/cci_egl_diagnostic_20261004_codex_r5",
+    "DATAGEN_NATIVE_ROOT": "/mnt/afs/xinyuanqian/jzy/hardbank/generation/cci_datagen_20261003_codex/native/data/avengine_external",
+    "AVENGINE_GENERATOR_CODE_ROOT": "/mnt/afs/xinyuanqian/jzy/hardbank/generation/cci_egl_diagnostic_20261004_codex_r5/code",
+    "PYTHONDONTWRITEBYTECODE": "1",
+    "PYTHONUNBUFFERED": "1",
+    "OMP_NUM_THREADS": "1",
+    "OPENBLAS_NUM_THREADS": "1",
+    "MKL_NUM_THREADS": "1",
+    "NUMEXPR_NUM_THREADS": "1",
+    "TMPDIR": "/mnt/afs/xinyuanqian/jzy/hardbank/generation/cci_egl_diagnostic_20261004_codex_r5/tmp",
+    "NUMBA_CACHE_DIR": "/mnt/afs/xinyuanqian/jzy/hardbank/generation/cci_egl_diagnostic_20261004_codex_r5/tmp/numba",
+    "MPLCONFIGDIR": "/mnt/afs/xinyuanqian/jzy/hardbank/generation/cci_egl_diagnostic_20261004_codex_r5/tmp/mpl",
+    "XDG_CACHE_HOME": "/mnt/afs/xinyuanqian/jzy/hardbank/generation/cci_egl_diagnostic_20261004_codex_r5/tmp/cache",
+    "GIT_CONFIG_GLOBAL": "/mnt/afs/xinyuanqian/jzy/hardbank/generation/cci_egl_diagnostic_20261004_codex_r5/code/.git/CCI_SAFE_CONFIG",
+    "LIBGL_ALWAYS_SOFTWARE": "0",
+    "LD_PRELOAD": "",
+    "CCI_INFRASTRUCTURE_TRIAL": "1"
+  },
+  "max_failures_per_stage": 1,
+  "scope": "EGL_diagnostics_only",
+  "training_eligible": false,
+  "formal_dataset_count": 0,
+  "experiments": [
+    {
+      "name": "egl_diagnostic_r5",
+      "evals": [
+        {
+          "name": "job",
+          "checkpoint": "/mnt/afs/xinyuanqian/jzy/hardbank/generation/cci_egl_diagnostic_20261004_codex_r5/configs/egl_diagnostic_profile.json",
+          "checkpoint_flag": "--generator-profile",
+          "args": [
+            "/mnt/afs/xinyuanqian/jzy/hardbank/generation/cci_egl_diagnostic_20261004_codex_r5/code/tools/cci_datagen/egl_diagnostic_entry.py"
+          ]
+        }
+      ]
+    }
+  ],
+  "resource_boundary": "one ordinary scheduler rank, exact physical GPU lease only; nice 19 one CPU; <=2GiB own GPU and >=4GiB free guard; EGL/MIG metadata plus tiny/sparse render diagnostics only; no RLR, datasets, training or peer signals",
+  "queue_line": "/mnt/afs/xinyuanqian/jzy/hardbank/plans/cci_egl_diagnostic_shared_20261004_codex_r5.json 2"
+}

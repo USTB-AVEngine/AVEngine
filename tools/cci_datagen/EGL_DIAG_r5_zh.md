@@ -1,0 +1,7 @@
+旧64-world计划保留失败，不增加max_failures或重试原计划。本版本仅普通rank诊断：读取driver capabilities、实际厂商库/JSON，枚举EGL_EXT设备；default/device/实际NVIDIA JSON分别留原始stdout/stderr。仅初始化与自己的CUDA-ID唯一匹配的EGL device，MIG不借整张父卡图形权限。P19小帧仍用实际租约ID；NVML自身2GiB、同卡4GiB空闲软件守卫，只停核对PID/argv/start_ticks的自己子进程。
+
+私有软件库从48g现成Mesa/llvmpipe及依赖打包，glibc/loader不复制，root/software仅当前任务可写；实际库/许可证/SHA留manifest。CPU子进程CVD为空，NVIDIA GL/EGL在NativeContinuousVideo中被拒绝，LIBGL_ALWAYS_SOFTWARE、私有Mesa vendor JSON、swrast和原冻存software_egl selector均显式设置。只采样当前训练房30秒轨迹的26个native1280x720帧并编码，估计450帧成本；完整30秒渲染可用render_backend_sample.py --full但不由P19诊断自动批量生成。无RLR、题目或训练数据，formal_dataset_count=0。
+
+诊断parent一个nice19 CPU，不启动torchrun，不修改训练进程/共享配置；计划普通eval回执只表示诊断完成，各渲染pass/blocked单独记DIAGNOSTIC.json。capabilities进程内改值不能补挂库；缺驱动图形能力需管理员在Pod/container创建配置启用graphics，非MIG整卡并挂匹配宿主驱动厂商组件。原始数据/别线检出只读，正式生产继续等待上游冻结。
+
+若租约GPU小帧成功，最多追加4个同请求720p参考帧，与CPU相同4帧计算RGB误差、depth米级误差、semantic差异比例；GPU不可用时明确记录未验证，不用资产修复前后差异冒充后端差异。
