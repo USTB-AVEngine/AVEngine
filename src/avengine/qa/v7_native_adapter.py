@@ -9,6 +9,7 @@ from __future__ import annotations
 from copy import deepcopy
 import math
 
+from avengine.qa.v7_panel_coverage import canonical_speech_scene
 from avengine.timeline.continuous_scene import QA21_CLASSES
 from avengine.qa.v7_families import collect_questions, select_questions
 from avengine.timeline.v7_production_contract import question_allocation, validate_question_counts
@@ -88,6 +89,7 @@ def _resolved_qa21_class(proof, actor_profile):
 
 
 def native_bundle(scene, start_s, window_id, visual, evidence):
+    scene, _ = canonical_speech_scene(scene)
     fps = visual['renderer']['fps']
     if fps != scene['video_fps'] or fps != 15:
         raise ValueError('native frame clock must be 15 Hz')
@@ -181,6 +183,21 @@ def native_bundle(scene, start_s, window_id, visual, evidence):
         raw['occluder_evidence'] = _crop_occluder_evidence(
             evidence['occluder_evidence'], first, 150,
             {str(k): v for k, v in evidence.get('occluder_registry', {}).items()})
+    if 'camera_frame_readbacks' in evidence:
+        camera = evidence['camera_frame_readbacks']
+        if not isinstance(camera, list) or any(isinstance(row.get('frame_index'), bool)
+                or not isinstance(row.get('frame_index'), int) for row in camera):
+            raise ValueError('native camera frames require explicit integer indices')
+        scoped = [dict(row, frame_index=row['frame_index']-first) for row in camera
+                  if first <= row['frame_index'] < first+150]
+        if len(scoped) != 150 or [r['frame_index'] for r in scoped] != list(range(150)):
+            raise ValueError('native camera readback must retain every frame in order')
+        if any(len(r.get('position_m', [])) != 3 or
+               not all(math.isfinite(float(v)) for v in r['position_m']) or
+               not math.isfinite(float(r.get('yaw_deg', math.nan))) for r in scoped):
+            raise ValueError('native camera readback has invalid pose')
+        raw['frame_readbacks']['camera'] = scoped
+        raw['listener'] = {key: scoped[0][key] for key in ('position_m', 'yaw_deg')}
     raw['audio_readback'] = {'wet_tail_intervals': [
         {'event_id': event_id, 'start_s': max(a - start_s, 0.), 'end_s': min(b - start_s, 10.)}
         for event_id, proof in source_evidence.items()
