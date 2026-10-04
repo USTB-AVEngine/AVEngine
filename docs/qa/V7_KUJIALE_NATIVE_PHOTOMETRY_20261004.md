@@ -41,3 +41,6 @@
 两种统计口径均显示新亮度分布明显窄于STARSS：不可声称总体完全对齐，未为了拟合参考压缩EV范围。实际129相机中126个通过原像素门槛，3个黑像素失败都在0065/R1，该房间仍拒绝；全部44间的物理最终准入仍为19套33间。
 
 源代码与五个冻结判据文件再次逐字节复核；8个定向与373个fast_unit通过的结果仍适用于未改动源代码。本次只改测量文档，不重复跑相同测试。离线页350张图已逐张解码、44间名单与33个生成接口断言通过。资源采样停止、自己的原生作业全部结束；无需留后台作业。来源delivery_v1/ORIGINAL_PAGE_EXACT_PAIRING.json与FINAL_VERIFICATION.json。
+
+
+Source Length适用范围最终明确：4套小批原生回读73个光照组件，其中44点灯、21矩形灯、4既有Directional与4既有Sky。仅44个点灯有Source Length，全部实测0cm；其他29个组件没有该字段，不写成73盏灯全部长度0。65盏设计灯与既有环境组件分开计数；21套317盏原设计灯世界光度断言不变。来源evidence/native_source_size_readback.json和summary.json.source_length_readback_scope。
