@@ -95,3 +95,25 @@ def test_unfinished_patch_task_never_adds_unverified_rooms(tmp_path):
     additions,audit=patch_candidates(tmp_path,{}, {}, set())
     assert additions=={} and audit['status']=='pending_final_room_delivery'
     assert 'summary.json' in audit['missing_final_files']
+
+
+def test_completed_report_is_published_without_overwriting_prior_results(tmp_path):
+    from tools.acoustics.report_train_room_bands import publish_directory
+    staging=tmp_path/'staging';staging.mkdir();(staging/'room.csv').write_text('complete\n')
+    target=tmp_path/'report_final';publish_directory(staging,target)
+    assert not staging.exists() and (target/'room.csv').read_text()=='complete\n'
+    retry=tmp_path/'retry';retry.mkdir();(retry/'room.csv').write_text('different\n')
+    with pytest.raises(FileExistsError):publish_directory(retry,target)
+    assert (target/'room.csv').read_text()=='complete\n' and retry.is_dir()
+
+
+def test_completed_no_op_patch_never_supplies_rescue(tmp_path):
+    import json
+    (tmp_path/'evidence').mkdir()
+    (tmp_path/'summary.json').write_text(json.dumps({'missing_houses':[]}))
+    (tmp_path/'all_house_results.json').write_text(json.dumps([
+        {'house':'mp3d_noop','group':'blocked','patch_count':0}]))
+    (tmp_path/'evidence/room_verification_execution.json').write_text(json.dumps({'missing':[]}))
+    additions,audit=patch_candidates(tmp_path,{}, {}, set())
+    assert not additions and audit['status']=='completed_delivery_checked'
+    assert audit['admitted_rooms']==[]

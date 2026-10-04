@@ -5,11 +5,13 @@ from __future__ import annotations
 import argparse
 from collections import Counter, defaultdict
 import copy
+import ctypes
 import csv
 from datetime import datetime, timezone
 import hashlib
 import json
 import math
+import os
 from pathlib import Path
 import re
 import shutil
@@ -365,12 +367,26 @@ def aggregate_house(original, candidate, rows, native):
     return result
 
 
+def publish_directory(staging, destination):
+    """Publish a complete report atomically without replacing prior output."""
+    libc = ctypes.CDLL(None, use_errno=True)
+    rename = libc.renameat2
+    rename.argtypes = [ctypes.c_int, ctypes.c_char_p, ctypes.c_int, ctypes.c_char_p, ctypes.c_uint]
+    rename.restype = ctypes.c_int
+    if rename(-100, os.fsencode(staging), -100, os.fsencode(destination), 1):
+        error = ctypes.get_errno()
+        raise OSError(error, os.strerror(error), str(destination))
+
+
 def report(args):
     sys.path[:0] = [str(REPO), str(REPO/'src')]
     source, base, output = args.source_root.resolve(), args.base.resolve(), args.output.resolve()
     if not base.is_relative_to(source) or not output.is_relative_to(source.parent) or output.is_relative_to(source):
         raise ValueError('Report must be a fresh sibling of the retained round-three run')
-    destination = output/'report_final'
+    final_destination = output/'report_final'
+    if final_destination.exists():
+        raise FileExistsError(final_destination)
+    destination = output/'report_staging'
     destination.mkdir(exist_ok=False)
     sources = [base/name for name in ('all_room_results.json', 'all_house_results.json', 'training_houses_v1.json',
                                       'training_rooms_v1.json', 'old_house_veto_training_houses_v1.json', 'summary.json')]
@@ -394,7 +410,8 @@ def report(args):
         if not training_decision(row)['training_eligible'] or row['max_escape_fraction'] > .05:
             raise ValueError(f'Existing strict training room no longer passes: {key(row)}')
     old_ids = {h['house'] for h in old_houses}
-    old_rows = [r for r in rows if r['house'] in old_ids]
+    old_rows = [dict(r, old_house_veto_eligible=True, admission_scope='old whole-house sample inference')
+                for r in rows if r['house'] in old_ids]
     if len(old_rows) != sum(h['candidate_room_count'] for h in old_houses):
         raise ValueError('Original house-veto room distribution does not match its candidate labels')
     base_rows = [policy_row(r) for r in rows]
@@ -463,7 +480,8 @@ def report(args):
         'rir_count','valid_rirs','distinct_listeners','max_direct_delay_ms','rt60_mid_median_s','rt60_valid_fraction',
         'floor_area_m2','short_side_m','nav_main_area_m2','black_fraction','floor_y_m','geometry_derivation_label',
         'geometry_comparison_status','acoustic_before_waveform_available','reasons','training_exclusion_reasons',
-        'result_path','visual_path','unpatched_result_path','patch_record_path','patch_verification_path','patch_package_manifest']
+        'result_path','visual_path','unpatched_result_path','patch_record_path','patch_verification_path','patch_package_manifest',
+        'old_house_veto_eligible','admission_scope']
     csvfile(destination/'room_results.csv',columns,final_rows)
     for name in ('training_rooms_v1','review_band_admitted_rooms','review_band_blocked_rooms','acoustic_patched_rooms',
                  'strict_training_rooms_v1','old_house_veto_training_rooms_v1'):
@@ -516,6 +534,7 @@ def report(args):
     if patch_audit['status'] != 'completed_delivery_checked':
         lines += ['', '声学补洞任务尚无完整最终逐间验收交付，本版未把它的候选房屋算作已救回；其共享作业由另一任务管理，本任务只读结果。完成后可用同一工具和新的 output 目录合并，保持本版及第 3 回合产物原样。']
     (destination/'REPORT_zh.md').write_text('\n'.join(lines)+'\n')
+    publish_directory(destination, final_destination)
     print('TRAINING_BANDS_COMPLETE',json.dumps(dict(final_training=summary['final_training'], review_band_admitted=summary['review_band_admitted'],
             review_band_blocked=summary['review_band_blocked'], acoustic_patched_additions=summary['acoustic_patched_additions'],
             patch_delivery_status=summary['patch_delivery_status'], comparison=comparison),ensure_ascii=False),flush=True)
