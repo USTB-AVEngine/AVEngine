@@ -1,0 +1,228 @@
+{
+  "units": "decimal GB/MB; CPU reserved-core-hours from one-CPU wall time, not isolated RLR or actual P19 throughput",
+  "scope": "infrastructure diagnostic; zero formal worlds or questions; estimates only",
+  "generator_source_commit": "fbdedbfb58044396bfedaef063ef4c9c4214fcba",
+  "counts_source": "/data/jzy/code/AVEngine-cci-egl-diagnostic-20261004-codex-r5/V7_SPEC_zh.md §13, generator base fbdedbf; not original 3000-parent first batch",
+  "visual_sharing_assumption": "reuse only after applied mouth/action/physical-state invariance admission; no reuse forced by this diagnostic",
+  "measured_software_references": {
+    "CCI_devbox_Mesa26p2p4_1CPU": {
+      "source": "/mnt/afs/xinyuanqian/jzy/hardbank/generation/cci_egl_paths_20261004_codex_r6/evidence/devbox/condaforge_mesa_v2/software_30s/RESULT.json",
+      "total_seconds": 110.84219725697767,
+      "render_encode_seconds": 98.90092333802022,
+      "frames": 450,
+      "sampled_render_only_frame_seconds": [
+        0.1635512999491766,
+        0.17033520399127156,
+        0.16299002000596374,
+        0.16848008998204023
+      ],
+      "max_rss_GiB": 1.4330635070800781
+    },
+    "48g_Mesa26p2p4_1CPU": {
+      "source": "/data/jzy/tmp/claude_hardbank_20260923/cci_egl_paths_20261004_codex_r6/evidence/condaforge_reference_48/RESULT.json",
+      "total_seconds": 155.1243786374107,
+      "render_encode_seconds": 144.74921843968332,
+      "frames": 450,
+      "max_rss_GiB": 1.4460868835449219
+    }
+  },
+  "P19_round6": "pending ordinary rank; do not substitute devbox estimate for actual P19",
+  "fallback_48g": {
+    "unit": "decimal GB=1e9 bytes; MB/s=1e6 bytes/s",
+    "estimation_only": true,
+    "generation_launched": false,
+    "scope_source": "/data/jzy/code/AVEngine-cci-egl-diagnostic-20261004-codex-r5/V7_SPEC_zh.md §13, generator base fbdedbf; not original 3000-parent first batch",
+    "visual_measurement_source": "/data/jzy/tmp/claude_hardbank_20260923/v7_batch1_20261003/round5_material_merge_20261004/material_replay_v2/{four_member_v0,four_member_v1,S_dev,S_train}/after",
+    "video_bytes_per_visual": [
+      1941133,
+      1875493,
+      1879682,
+      2423377
+    ],
+    "portable_visual_bytes_per_visual": [
+      3261021,
+      3195386,
+      3198448,
+      3749718
+    ],
+    "portable_includes": [
+      "native_visibility_evidence.json",
+      "native_visual_evidence.json",
+      "scene_video.mp4",
+      "source_material_checks.json",
+      "source_materials.json"
+    ],
+    "portable_excludes": "debug PNG/NPZ, partial files, dense G-buffers, source-material derived asset caches, audio/media/question production indices; actual portable manifest must be validated before split-host production",
+    "reference_transfer_MBps": 1.7,
+    "legacy_GPU_30s_seconds_linear_proxy": 208.09538618920783,
+    "legacy_finalize_30s_seconds_linear_proxy": 483.12987764489435,
+    "legacy_time_source": "/data/jzy/tmp/claude_hardbank_20260923/v7_scoping_20261002/throughput.json, HM3D n=109 10s capture/finalize multiplied by 3; finalize mixed 1/8-thread logs, NOT isolated single-thread RLR",
+    "dataset_sizes": {
+      "v7-S": {
+        "parents": 500,
+        "four_member_groups": 125,
+        "members": 875,
+        "unique_visuals_if_actual_mouth_and_physical_state_shareable": 625,
+        "published_windows": 1750,
+        "logical_questions": 24500,
+        "video_only_GB": [
+          1.172183125,
+          1.514610625
+        ],
+        "portable_visual_GB": [
+          1.99711625,
+          2.34357375
+        ],
+        "video_only_transfer_hours_at_1p7MBps": [
+          0.19153319035947713,
+          0.24748539624183005
+        ],
+        "portable_visual_transfer_hours_at_1p7MBps": [
+          0.3263261846405229,
+          0.382936887254902
+        ],
+        "GPU_card_hours_legacy_linear_proxy": 36.127671213404135,
+        "finalize_worker_hours_legacy_linear_proxy": 117.42740081646738,
+        "serial_render_plus_finalize_worker_hours_legacy_linear_proxy": 153.55507202987152,
+        "full48g_four_end_to_end_workers_ideal_hours_legacy_linear_proxy": 38.38876800746788,
+        "unverified_4to8Mbit_video_GB": [
+          9.375,
+          18.75
+        ],
+        "unverified_4to8Mbit_transfer_hours_at_1p7MBps": [
+          1.5318627450980393,
+          3.0637254901960786
+        ],
+        "no_visual_reuse_video_GB_upper_range": [
+          1.641056375,
+          2.120454875
+        ],
+        "software_render_CPU_hours_devbox_proxy": 18.41963781771483,
+        "software_render_ideal_wall_hours_for_16_32_available_CPUs": [
+          1.1512273636071768,
+          0.5756136818035884
+        ]
+      },
+      "v7-full-seed": {
+        "parents": 10000,
+        "members": 16075,
+        "unique_visuals_if_actual_mouth_and_physical_state_shareable": 12025,
+        "published_windows": 16950,
+        "logical_questions": 206900,
+        "video_only_GB": [
+          22.552803325,
+          29.141108425
+        ],
+        "portable_visual_GB": [
+          38.42451665,
+          45.09035895
+        ],
+        "video_only_transfer_hours_at_1p7MBps": [
+          3.68509858251634,
+          4.761619023692811
+        ],
+        "portable_visual_transfer_hours_at_1p7MBps": [
+          6.2785157924836605,
+          7.367705710784314
+        ],
+        "GPU_card_hours_legacy_linear_proxy": 695.0963941458956,
+        "finalize_worker_hours_legacy_linear_proxy": 2157.3091064282435,
+        "serial_render_plus_finalize_worker_hours_legacy_linear_proxy": 2852.405500574139,
+        "full48g_four_end_to_end_workers_ideal_hours_legacy_linear_proxy": 713.1013751435347,
+        "unverified_4to8Mbit_video_GB": [
+          180.375,
+          360.75
+        ],
+        "unverified_4to8Mbit_transfer_hours_at_1p7MBps": [
+          29.473039215686274,
+          58.94607843137255
+        ],
+        "no_visual_reuse_video_GB_upper_range": [
+          30.148549975,
+          38.955785275
+        ],
+        "software_render_CPU_hours_devbox_proxy": 354.3938316128333,
+        "software_render_ideal_wall_hours_for_16_32_available_CPUs": [
+          22.149614475802082,
+          11.074807237901041
+        ]
+      }
+    },
+    "full_delivery_200GB_transfer_hours_at_1p7MBps": 32.6797385620915,
+    "initial_380GB_transfer_hours_at_1p7MBps": 62.091503267973856,
+    "extra_Kujiale_estimate": "2300–4800 new admitted parents, 1.6 members/parent, 1.2 visuals/parent only if actual video invariance verified; NOT assigned or generated",
+    "software_render": {
+      "measured_CCI_host": "app-a0065b3376244d93b00935073c28e751-74c766dd88-lrrr5",
+      "measurement_source": "codex_runs/cci_egl_diagnostic_20261004_codex_r5/evidence/devbox_full_software_result.json",
+      "one_CPU_total_seconds": 106.09711383003742,
+      "native_render_encode_seconds": 94.47494895802811,
+      "setup_seconds": 11.576353981043212,
+      "frames": 450,
+      "max_rss_GiB": 1.4274673461914062,
+      "NVIDIA_EGL_pixel_difference": "NOT_MEASURED; unavailable graphics renderer, GPU unassigned on 48g",
+      "P19_one_world_30s_estimate_seconds": [
+        79.57283537252806,
+        212.19422766007483
+      ],
+      "P19_range_is_unverified": "devbox throughput proxy, not P19 actual or confidence interval; CPU/cache/AFS/training competition may exceed this range",
+      "GLVND_Mesa_software_backend_verified_on_CCI_devbox": true
+    }
+  },
+  "CPU_render_only_proxies": {
+    "v7-S": {
+      "visuals_if_admitted_reuse": 625,
+      "members_without_reuse": 875,
+      "reserved_CPU_hours_devbox_to48_reference_range": [
+        19.243437023780846,
+        26.93131573566158
+      ],
+      "reserved_CPU_hours_no_reuse": [
+        26.940811833293182,
+        37.703842029926214
+      ],
+      "render_only_ideal_wall_hours_at_8_16_32_CPUs": {
+        "8": [
+          2.4054296279726057,
+          3.3664144669576976
+        ],
+        "16": [
+          1.2027148139863029,
+          1.6832072334788488
+        ],
+        "32": [
+          0.6013574069931514,
+          0.8416036167394244
+        ]
+      },
+      "unverified": "P19 CPU/cache/AFS/CPU priority and training contention may move outside this reference range; not a confidence interval or end-to-end throughput"
+    },
+    "v7-full-seed": {
+      "visuals_if_admitted_reuse": 12025,
+      "members_without_reuse": 16075,
+      "reserved_CPU_hours_devbox_to48_reference_range": [
+        370.2437283375435,
+        518.1585147541288
+      ],
+      "reserved_CPU_hours_no_reuse": [
+        494.9412002516433,
+        692.6734407212158
+      ],
+      "render_only_ideal_wall_hours_at_8_16_32_CPUs": {
+        "8": [
+          46.280466042192934,
+          64.7698143442661
+        ],
+        "16": [
+          23.140233021096467,
+          32.38490717213305
+        ],
+        "32": [
+          11.570116510548234,
+          16.192453586066524
+        ]
+      },
+      "unverified": "P19 CPU/cache/AFS/CPU priority and training contention may move outside this reference range; not a confidence interval or end-to-end throughput"
+    }
+  },
+  "coexistence_formula": "P = min(affinity, every cgroup quota) - observed/conservative training loader CPU budget - reserve; choose renderer R <= P; nice19/LP1; audio single-thread workers P-R; wall lower bound=max(V*T_render/R, M*T_audio/(P-R))/3600 hours; T_audio not measured this round"
+}

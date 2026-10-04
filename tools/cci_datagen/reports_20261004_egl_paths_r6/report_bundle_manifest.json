@@ -1,0 +1,31 @@
+{
+  "scope": "round6 render infrastructure; current P19 full diagnostic pending; no driver binaries, no formal dataset",
+  "source_commit": "58c409274ce3eae028bcfe7adaea161604b3d8fe",
+  "files": [
+    {
+      "filename": "REPORT_zh.md",
+      "bytes": 14210,
+      "sha256": "3012689ec158f0f05b2fc86247486a5c4712f316f7f431b7dbe91e4805f5d3ed"
+    },
+    {
+      "filename": "DIAGNOSTIC_RAW_zh.md",
+      "bytes": 9889,
+      "sha256": "e8b57e2999028fb2b39b4f48c790c146b0230248c99c1dc291b36dbb44207492"
+    },
+    {
+      "filename": "CUDA_RASTER_ASSESSMENT_zh.md",
+      "bytes": 2694,
+      "sha256": "426719f61d99148374caaed19203cc80232f196d9c95598665c9f928b9acc69e"
+    },
+    {
+      "filename": "ROUTE_ESTIMATES_r6.json",
+      "bytes": 9304,
+      "sha256": "56a49e0c63324306f75e59cd3403583e11b675f1933f22e78e144b4d1901050f"
+    },
+    {
+      "filename": "raw_cci_diagnostic_logs_r6.tar.gz",
+      "bytes": 273785,
+      "sha256": "97290a8de7296be9cb463c754c79c2f05d5ff51dc60c638a028cee7c0687a15f"
+    }
+  ]
+}
