@@ -82,6 +82,10 @@ def main():
     initial = gpu_snapshot()
     selected = initial[gpu_index]
     size = logical_bytes(root)
+    import shutil
+    disk_required = int(request.get('minimum_disk_free_bytes', 0))
+    if shutil.disk_usage(root).free < disk_required:
+        raise RuntimeError('external audio disk reserve is insufficient')
     reserve = int(request.get('reserve_bytes', 0))
     receipt = {'schema': 'kujiale_native_ue_guard_v1', 'request': str(args.request),
                'start_utc': dt.datetime.now(dt.timezone.utc).isoformat(),
@@ -168,7 +172,12 @@ def main():
                             else:
                                 total_mib += proc['memory_mib']
                             if gpu['index'] != gpu_index:
-                                stop_reason = 'owned_process_used_unselected_gpu'
+                                allowed = request.get('allowed_auxiliary_gpu_indices', [])
+                                cap = float(request.get('maximum_auxiliary_gpu_mib', 0))
+                                if gpu['index'] not in allowed or proc['memory_mib'] is None or proc['memory_mib'] > cap:
+                                    stop_reason = 'owned_process_used_unselected_gpu'
+                                elif gpu['free_mib'] is None or gpu['free_mib'] < 4096:
+                                    stop_reason = 'auxiliary_gpu_initialization_without_4g_reserve'
                 peak = max(peak, total_mib)
                 if peak + 4096 > selected['free_mib']:
                     stop_reason = 'measured_peak_plus_4g_exceeds_initial_free'
@@ -176,6 +185,8 @@ def main():
                 if remaining_free is not None and remaining_free < 4096 and total_mib:
                     stop_reason = 'concurrent_gpu_load_left_less_than_4g'
                 size = logical_bytes(root)
+                if shutil.disk_usage(root).free < disk_required:
+                    stop_reason = 'external_audio_disk_reserve'
                 if size > limit - int(request.get('stop_margin_bytes', 750_000_000)):
                     stop_reason = 'storage_limit_margin'
                 samples.write(json.dumps({'elapsed_seconds': time.monotonic()-started,

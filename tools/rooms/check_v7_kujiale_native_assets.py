@@ -25,17 +25,19 @@ def main():
     p.add_argument('--house',type=Path,required=True);p.add_argument('--registry',type=Path,required=True)
     p.add_argument('--inventory',type=Path,required=True);p.add_argument('--output',type=Path,required=True)
     p.add_argument('--limit-assets',type=int)
+    p.add_argument('--asset-ids',nargs='+',help='Exact native asset identities to probe with the unchanged appearance checks')
+    p.add_argument('--production-context',action='store_true',help='Keep full room in RGB; native modal versus target-depth determines visible source pixels')
     args=p.parse_args()
     house=json.loads(args.house.read_text());ue=house['input']['ue_config']
     import sys;sys.path.insert(0,ue['spear_ext_dir'])
     import cv2
     from avengine.capture.kujiale_spear_runtime import launch_native,camera_helpers,apply_camera,apply_native_rgb_profile,spawn_fill_lights,close_native,to_ue,from_ue
     from avengine.rooms.qa_episode import source_declaration
-    from avengine.assets.source_materials import measure_source_appearance
+    from avengine.capture.native_ue_source_appearance import measure_ue_source_highlights,verify_original_ue_materials
     registry=json.loads(args.registry.read_text());inventory={a['asset_id']:a for a in json.loads(args.inventory.read_text())['assets']}
     args.output.mkdir(parents=True,exist_ok=False);start=time.monotonic()
     result={'schema':'kujiale_native_source_asset_gallery_qa_v1','render_path':'ue_spear','records':[],
-        'formal_training_asset_admission_count':0,'sampling_limitations':'three native camera azimuths, idle and sampled walk phase; full action/contact coverage remains separate'}
+        'production_context':args.production_context,'appearance_gate':'original frozen highlights only; no UE texture color gate','formal_training_asset_admission_count':0,'sampling_limitations':'three native camera azimuths, idle and sampled walk phase; full action/contact coverage remains separate'}
     instance=camera=components=None;runtimes={}
     try:
         instance,game,launch=launch_native(ue,house['input']['ue_map_path'])
@@ -50,6 +52,9 @@ def main():
         with instance.end_frame():pass
         result.update(launch=launch,profile=profile,lights=lights)
         records=registry['assets'][:args.limit_assets] if args.limit_assets else registry['assets']
+        if args.asset_ids:
+            if len(set(args.asset_ids))!=len(args.asset_ids) or set(args.asset_ids)-{x['asset_id'] for x in registry['assets']}:raise ValueError('unknown or duplicate native asset identity')
+            records=[x for x in records if x['asset_id'] in args.asset_ids]
         for record in records:
             started=time.monotonic();aid=record['asset_id'];row={'asset_id':aid,'entity_class':record['entity_class'],'views':[],'status':'started'}
             try:
@@ -60,12 +65,14 @@ def main():
                 if not static:state['ue_animation']=declaration['animation_paths_by_action_id'][idle]
                 with instance.begin_frame():
                     runtimes=spawn_actors(game,{'plan':{'actors':[declaration],'frames':[{'actor_states':[state]}]}})
-                    native=runtimes['source1']
+                    native=runtimes['source1'];native['asset_id']=aid
+                    row['original_material_readback']=verify_original_ue_materials(game,native,aid,ue.get('native_source_material_bindings'))
                     bounds=native['visual_actor'].GetActorBounds(bOnlyCollidingComponents=False,bIncludeFromChildActors=True,as_dict=True)
                     center=np.array(from_ue(vector_field(bounds,'Origin')));extent=vector_field(bounds,'BoxExtent')/100
                     radius=float(np.linalg.norm(extent));distance=max(1.,radius*2.8)
-                    for component in components.values():
-                        component.set_property_value(property_name='PrimitiveRenderMode',property_value='PRM_UseShowOnlyList')
+                    for key,component in components.items():
+                        mode='PRM_RenderScenePrimitives' if args.production_context and key=='rgb' else 'PRM_UseShowOnlyList'
+                        component.set_property_value(property_name='PrimitiveRenderMode',property_value=mode)
                         component.set_property_value(property_name='ShowOnlyActors',property_value=[native['visual_actor']])
                 with instance.end_frame():pass
                 row.update(native_bounds= bounds,native_radius_m=radius,native_binding={k:declaration.get(k) for k in ['blueprint_class_path','static_mesh_object_path','skeletal_mesh_path','actor_scale']})
@@ -88,14 +95,14 @@ def main():
                     with instance.begin_frame():components['rgb'].set_property_value(property_name='CaptureSource',property_value='SCS_BaseColor')
                     with instance.end_frame():base_bgr=rgb_reader(components['rgb'])
                     mask=np.isfinite(depth)&(depth>0)&(depth<65504)
+                    if args.production_context:
+                        with instance.begin_frame():components['depth'].set_property_value(property_name='PrimitiveRenderMode',property_value='PRM_RenderScenePrimitives')
+                        with instance.end_frame():modal_depth=depth_reader(components['depth'])
+                        mask &= np.isfinite(modal_depth)&(np.abs(modal_depth-depth)<=.01+.002*depth)
+                        with instance.begin_frame():components['depth'].set_property_value(property_name='PrimitiveRenderMode',property_value='PRM_UseShowOnlyList')
+                        with instance.end_frame():pass
                     rgb=cv2.cvtColor(bgr,cv2.COLOR_BGR2RGB);reference=cv2.cvtColor(base_bgr,cv2.COLOR_BGR2RGB)
-                    metric=measure_source_appearance(rgb,mask,palette=np.asarray(source['source_palette_srgb']),max_highlight_ratio=limit,
-                        reference_rgb=reference,metallic_surface=all(v['metallic']>.5 for v in profiles),strict=False)
-                    albedo=measure_source_appearance(reference,mask,palette=np.asarray(source['source_palette_srgb']),max_highlight_ratio=limit,strict=False)
-                    # BaseColor contains no specular term. Record its palette
-                    # color test separately; highlight admission uses lit RGB
-                    # and the same-view original BaseColor above.
-                    color_fail=[x for x in albedo.get('failures',[]) if 'color' in x or 'rgb_error' in x]
+                    metric=measure_ue_source_highlights(rgb,mask,max_highlight_ratio=limit,reference_rgb=reference)
                     yy,xx=np.nonzero(mask);foot={'status':'not_run'}
                     if len(yy)>=100 and yy.max()<depth.shape[0]-1:
                         tan=math.tan(math.radians(85.)/2);rx=(2*(xx+.5)/depth.shape[1]-1)*tan;ry=(1-2*(yy+.5)/depth.shape[0])*tan*depth.shape[0]/depth.shape[1]
@@ -106,8 +113,8 @@ def main():
                     lit_path=str(prefix)+'.jpg';base_path=str(prefix)+'_basecolor.jpg'
                     cv2.imwrite(lit_path,cv2.resize(bgr,(1280,720)),[cv2.IMWRITE_JPEG_QUALITY,92]);cv2.imwrite(base_path,cv2.resize(base_bgr,(1280,720)),[cv2.IMWRITE_JPEG_QUALITY,92])
                     row['views'].append({'camera':camera_view,'action_id':action,'action_phase':state['action_phase'],'lit_path':lit_path,'basecolor_path':base_path,
-                        'appearance_metric':metric,'native_albedo_palette_color_status':'fail' if color_fail else 'pass','native_albedo_palette_metric':albedo,'native_body_contact':foot})
-                row['status']='pass' if all(v['appearance_metric']['status']=='pass' and v['native_albedo_palette_color_status']=='pass' for v in row['views']) else 'fail'
+                        'appearance_metric':metric,'color_check':'not_used_for_UE_per_user_round7','native_body_contact':foot})
+                row['status']='pass' if all(v['appearance_metric']['status']=='pass' for v in row['views']) else 'fail'
             except Exception as error:row.update(status='fail',error=f'{type(error).__name__}: {error}')
             finally:
                 if runtimes:

@@ -18,6 +18,7 @@ from avengine.capture.kujiale_spear_runtime import (
 
 
 class UENativeContinuousVideo:
+    native_floor_surface = None
     def __init__(self, house, scene, inputs, assets, *, width=1280, height=720,
                  source_material_cache_directory=None):
         import cv2
@@ -26,7 +27,7 @@ class UENativeContinuousVideo:
         from avengine.capture.qa_plan_adapters import materialize_ue_episode_plan
         self.width,self.height,self.cv2=width,height,cv2
         # Current shared v7 callers pass a source cache directory. Native UE
-        # consumes the isolated repaired MICs, rather than importing Habitat
+        # consumes the restored original MICs, rather than importing Habitat
         # GLB copies during capture; retain this input in the native receipt.
         self.source_material_cache_directory=source_material_cache_directory
         self.ue=deepcopy(house['input']['ue_config'])
@@ -41,6 +42,14 @@ class UENativeContinuousVideo:
         if not self.pf.load_nav_mesh(house['input']['navmesh_source']):
             raise ValueError('CPU navigation input is missing')
         self.floor_offset=float(house['room']['floor_reference']['native_ue_floor_offset_m'])
+        self.native_floor_surface=None
+        if self.ue.get('native_floor_surface'):
+            from avengine.capture.native_floor_reference import NativeFloorReference
+            self.native_floor_surface=NativeFloorReference(self.ue['native_floor_surface'])
+            self.native_floor_surface_check=self.native_floor_surface.validate_probes(house['room']['floor_reference'])
+        else:self.native_floor_surface_check={'status':'not_requested','method':'retained room median nav-to-native offset'}
+        if self.ue.get('source_asset_allowlist') is not None and any(a['asset_id'] not in self.ue['source_asset_allowlist'] for a in assets):
+            raise ValueError('source asset lacks native appearance/contact admission')
         inventory=json.loads(Path(self.ue['source_material_inventory']).read_text())
         self.material_inventory={a['asset_id']:a for a in inventory['assets']}
         self.acceptance=json.loads(Path(self.ue['acceptance_plan_path']).read_text())
@@ -81,13 +90,18 @@ class UENativeContinuousVideo:
                 exposure=apply_native_rgb_profile(self.components['rgb'],self.ue)
                 self.runtimes=self.spawn_actors(self.game,{'plan':driven})
                 for declaration in self.declarations:
-                    runtime=self.runtimes[declaration['actor_id']]
+                    runtime=self.runtimes[declaration['actor_id']];runtime['asset_id']=declaration['asset_id']
+                    from avengine.capture.native_ue_source_appearance import verify_original_ue_materials
+                    runtime['original_material_readback']=verify_original_ue_materials(self.game,runtime,declaration['asset_id'],self.ue.get('native_source_material_bindings'))
+                    if self.ue.get('pose_settle_native_frames') and runtime.get('motion_model')!='rigid_static':
+                        runtime['component'].set_property_value(property_name='bEnableUpdateRateOptimizations',property_value=False)
+                        runtime['component'].set_property_value(property_name='VisibilityBasedAnimTickOption',property_value='AlwaysTickPoseAndRefreshBones')
                     if runtime.get('emitter_component') is None:
                         # The retained v6 registered mouth point is a native
                         # child component, not the planner's speaking centre.
                         runtime['emitter_component']=attach_emitter_component(self.game,
                             actor_id=declaration['actor_id'],anchor_root=runtime['anchor_root'],
-                            emitter_local_ue_cm=declaration['emitter_local_ue_cm'])
+                            emitter_local_ue_cm=[float(v) for v in declaration['emitter_local_ue_cm']])
             with self.instance.end_frame():pass
             for _ in range(80):
                 with self.instance.begin_frame():pass
@@ -98,10 +112,14 @@ class UENativeContinuousVideo:
                 'hfov_deg':85.,'fps':FPS,'exposure':exposure,'lights':lights,'rgb_target_properties':self.rgb_target_properties,
                 'startup_and_warmup_seconds':time.perf_counter()-start,
                 'canonical_to_ue':'[x,y,z] m -> [100x,100z,100y] cm',
+                'pose_settle_native_frames':int(self.ue.get('pose_settle_native_frames',0)),
+                'original_material_restore_receipt':self.ue.get('original_material_restore_receipt'),
+                'source_material_overrides_applied':False,
+                'source_extra_fill_applied':False,
                 'registered_asset_ids':[d['asset_id'] for d in self.declarations],
                 'emitter_authority':'native component attached using retained v6 source_asset_runtime_registry mouth binding',
                 'animated_anatomical_mouth_contact_admission':'not_verified; shared formal blockers remain',
-                'floor_reference':house['room']['floor_reference']}
+                'floor_reference':house['room']['floor_reference'],'native_floor_surface_validation':self.native_floor_surface_check}
         except BaseException:
             self.close()
             raise
@@ -118,7 +136,8 @@ class UENativeContinuousVideo:
         foot=self.pf.snap_point(np.asarray([p[0],p[1]-1.2,p[2]],dtype=np.float32))
         if not np.isfinite(foot).all() or np.linalg.norm(np.asarray(foot)-[p[0],p[1]-1.2,p[2]])>.15:
             raise ValueError('UE actor root left admitted native navigation')
-        root=np.asarray(foot,float);root[1]+=self.floor_offset
+        root=np.asarray(self.native_floor_surface.sample(foot),float) if self.native_floor_surface is not None else np.asarray(foot,float)
+        if self.native_floor_surface is None:root[1]+=self.floor_offset
         delta=position_at(track,min(self.scene['duration_s'],t+1/FPS))-position_at(track,max(0.,t-1/FPS))
         delta[1]=0.;moving=bool(np.linalg.norm(delta)>1e-5)
         direction=delta if moving else np.asarray(self.scene['listener_m'])-p
@@ -142,7 +161,7 @@ class UENativeContinuousVideo:
             state.update(translation_ue_cm=to_ue(state['root_transform']['translation_m']),
                 actor_yaw_ue_deg=-math.degrees(2*math.atan2(q[1],q[3])),
                 ue_animation=declaration['animation_paths_by_action_id'][state['action_id']])
-            runtime=self.runtimes[declaration['actor_id']]
+            runtime=self.runtimes[declaration['actor_id']];runtime['asset_id']=declaration['asset_id']
             observed,animation=self.apply_actor(runtime,state,index)
             pose=read_scene_component_pose(runtime['anchor_root'])
             emitter=read_scene_component_pose(runtime['emitter_component'])
@@ -188,6 +207,9 @@ class UENativeContinuousVideo:
         visibility_truth=None;target_pose_max_error=0.;target_animation_max_error=0.;camera_position_max_error=0.
         try:
             for index in range(round(scene['duration_s']*FPS)):
+                for settle in range(int(self.ue.get('pose_settle_native_frames',0))):
+                    with self.instance.begin_frame():self._apply(index)
+                    with self.instance.end_frame():self.read_rgb(self.components['rgb'])
                 with self.instance.begin_frame():
                     actors=self._apply(index)
                     self.components['depth'].set_property_value(property_name='PrimitiveRenderMode',property_value='PRM_RenderScenePrimitives')
@@ -266,7 +288,7 @@ class UENativeContinuousVideo:
                             old=visibility_truth['per_instance'][aid];old['frames'].extend(value['frames'])
                             for key,count in value['state_counts'].items():old['state_counts'][key]+=count
                 if index in reviews:
-                    from avengine.assets.source_materials import measure_source_appearance
+                    from avengine.capture.native_ue_source_appearance import measure_ue_source_highlights
                     with self.instance.begin_frame():
                         self.components['rgb'].set_property_value(property_name='CaptureSource',property_value='SCS_BaseColor')
                     with self.instance.end_frame():base_bgr=self.read_rgb(self.components['rgb'])
@@ -280,13 +302,10 @@ class UENativeContinuousVideo:
                         declaration=self.material_inventory.get(actor['asset_id'])
                         if declaration is None:raise ValueError('source material receipt is missing')
                         materials=declaration['material_receipt'];profiles=materials['profiles']
-                        metric=measure_source_appearance(rendered,semantic==1001+j,
-                            palette=np.asarray(materials['source_palette_srgb']),
-                            max_highlight_ratio=min(p['max_highlight_ratio'] for p in profiles),
-                            reference_rgb=reference,
-                            metallic_surface=all(p['metallic']>0.5 for p in profiles),strict=False)
+                        metric=measure_ue_source_highlights(rendered,semantic==1001+j,
+                            max_highlight_ratio=min(p['max_highlight_ratio'] for p in profiles),reference_rgb=reference)
                         material_checks.append({'frame_index':index,'asset_id':actor['asset_id'],'metrics':metric,
-                            'reference_kind':'same native UE BaseColor view; original UV palette retained',
+                            'reference_kind':'same native UE BaseColor for retained highlight baseline; color is not an admission criterion',
                             'native_foot_contact':actor['native_foot_contact']})
                 rgb=self.cv2.cvtColor(self.cv2.resize(bgr,(self.width,self.height),interpolation=self.cv2.INTER_AREA),self.cv2.COLOR_BGR2RGB)
                 if float(rgb.std())<2:raise ValueError('native UE scene is empty')
@@ -312,8 +331,9 @@ class UENativeContinuousVideo:
         source_materials={'schema':'kujiale_native_source_material_bindings_v1','render_path':'ue_spear',
             'native_project':self.ue['uproject'],'source_material_inventory':self.ue['source_material_inventory'],
             'shared_v7_cache_directory_input':str(self.source_material_cache_directory) if self.source_material_cache_directory else None,
-            'native_material_authority':'isolated UE asset bindings with applied reviewed PBR MIC repair; no Habitat GLB substitution',
-            'assets':[{'asset_id':a['asset_id'],'native_declaration':d,'source_material_receipt':self.material_inventory[a['asset_id']]['material_receipt']}
+            'native_material_authority':'restored original UE uassets in isolated project; no Habitat PBR or extra source fill',
+            'assets':[{'asset_id':a['asset_id'],'native_declaration':d,'source_material_receipt':self.material_inventory[a['asset_id']]['material_receipt'],
+                       'original_material_readback':self.runtimes[d['actor_id']].get('original_material_readback')}
                       for a,d in zip(self.assets,self.declarations,strict=True)]}
         material_receipt={'status':result['native_source_material_status'],'checks':material_checks}
         visibility={'pixel_visibility_truth':visibility_truth if visibility_truth is not None else {'status':'not_run_unqualified_native_stream'},

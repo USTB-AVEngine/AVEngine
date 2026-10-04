@@ -14,7 +14,11 @@ def write(path,value):Path(path).write_text(json.dumps(value,indent=2,ensure_asc
 def geometry_support_alignment(plan,audit,rooms):
     import trimesh
     from trimesh.ray.ray_pyembree import RayMeshIntersector
-    b=Path(plan['build_directory']);manifest_path=b/'acoustic_package_rlr/manifest.json';m=read(manifest_path)
+    b=Path(plan['build_directory']).resolve()
+    index=read(b/'engine_asset_index.json')
+    manifest_path=(b/index['acoustic_package']).resolve()
+    if b not in manifest_path.parents:raise ValueError('acoustic package escapes the derived build')
+    m=read(manifest_path)
     acoustic=np.load(manifest_path.parent/m['arrays']['vertices']['path'],allow_pickle=False)
     source=np.load(b/'surface/vertices.npy',allow_pickle=False)
     if source.shape!=acoustic.shape:raise ValueError('acoustic/source vertex shape differs')
@@ -76,9 +80,9 @@ def main():
     house={'schema':'v7-admitted-physical-native-house-inputs-v1','house':plan['house'],'split':'train','family':'kujiale',
         'known_exposure':True,'acoustic_status':'pass','checked_room_ids':[r['room_label'] for r in checked],
         'checked_rooms':checked,'native_qa_result':str(args.qa),'native_rgb_status':'automated_native_ue_pass',
-        'acoustic_package_manifest':str(build/'acoustic_package_rlr/manifest.json'),
+        'acoustic_package_manifest':alignment['acoustic_manifest'],
         'input':{'house':plan['house'],'family':'kujiale','visual_backend':'ue_spear','ue_map_path':plan['map_path'],'ue_config':ue,
-            'navmesh_source':str(nav),'semantic_source':str(build/'semantic/rooms_screened.json')},
+            'navmesh_source':str(nav),'semantic_source':str(build/'rooms_screened.json')},
         'formal_dataset_count':0,'qualification_scope':'physical native room only; shared v7 formal generator blockers remain'}
     # Keep the actual v7 30 s / two 10 s windows / 14 logical questions contract.
     template=next(json.loads(s) for s in args.seed_template.read_text().splitlines() if json.loads(s)['members']==['v0_a0'])

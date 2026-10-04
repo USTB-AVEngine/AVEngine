@@ -80,7 +80,21 @@ def launch_native(ue, map_path):
     except BaseException:
         cleanup_failed_constructor(executable=Path(ue['unreal_editor']),temporary_directory=temporary)
         raise
-    return instance,instance.get_game(),{'temporary_directory':str(temporary),'rpc_port':port,'map_path':map_path}
+    try:
+        game=instance.get_game()
+        sampling={'status':'not_requested'}
+        if ue.get('unpause_animation_sampling'):
+            with instance.begin_frame():
+                statics=game.get_unreal_object(uclass='UGameplayStatics')
+                statics.SetGamePaused(bPaused=False)
+                paused=bool(statics.IsGamePaused())
+                if paused:raise RuntimeError('native animation sampling world remains paused')
+                sampling={'status':'pass','world_game_paused':paused,'timeline_phase_authority':'component.Stop then SetPosition; UE evaluates the sampled pose during the fixed native frame'}
+            with instance.end_frame():pass
+        return instance,game,{'temporary_directory':str(temporary),'rpc_port':port,'map_path':map_path,'animation_sampling':sampling}
+    except BaseException:
+        instance.close()
+        raise
 
 
 def camera_helpers():
