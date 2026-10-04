@@ -82,6 +82,9 @@ def main():
 
     root = Path(request['budget_root']).resolve()
     run = Path(request['run_directory']).resolve()
+    from avengine.capture.kujiale_native_gpu_policy import check_gpu_policy
+    gpu_index = int(request.get('gpu_index', 0))
+    policy = check_gpu_policy(root, gpu_index)
     if root not in run.parents or run.exists():
         raise ValueError('guard run must be new and below the budget root')
     run.mkdir(parents=True)
@@ -94,11 +97,15 @@ def main():
     required = 16 * 1024 if previous_peak is None else float(previous_peak) + 4 * 1024
     required = max(required, float(request.get('minimum_free_mib', 0)))
     shared = resource_snapshot()
-    initial = shared['gpus'] if shared else gpu_snapshot()
+    # Card reservations need a live reading, even if the disk sampler is fresh.
+    if policy:
+        required = max(required, policy['required_free_mib'])
+    initial = gpu_snapshot() if policy else (shared['gpus'] if shared else gpu_snapshot())
     selected = initial[gpu_index]
     size = shared['logical_bytes'] if shared else logical_bytes(root)
     import shutil
-    disk_required = int(request.get('minimum_disk_free_bytes', 0))
+    disk_required = max(int(request.get('minimum_disk_free_bytes', 0)),
+                        int(policy['minimum_disk_free_bytes']) if policy else 0)
     if shutil.disk_usage(root).free < disk_required:
         raise RuntimeError('shared disk free-space floor is insufficient')
     if shared and shared.get('disk_stop_reason'):
@@ -109,7 +116,8 @@ def main():
                'initial_gpu': initial, 'required_free_mib': required,
                'initial_logical_bytes': size, 'reserve_bytes': reserve,
                'storage_limit_bytes': limit, 'command': command,
-               'status': 'preflight'}
+               'status': 'preflight', 'gpu_policy': policy,
+               'render_gpu_index': gpu_index}
     if selected['free_mib'] is None or selected['free_mib'] < required or size + reserve > limit:
         receipt['status'] = 'blocked_preflight'
         write_json(run / 'result.json', receipt)
@@ -196,6 +204,9 @@ def main():
                             if gpu['index'] != gpu_index:
                                 allowed = request.get('allowed_auxiliary_gpu_indices', [])
                                 cap = float(request.get('maximum_auxiliary_gpu_mib', 0))
+                                if policy:
+                                    allowed = [i for i in allowed if i in policy.get('allowed_auxiliary_gpu_indices', [])]
+                                    cap = min(cap, float(policy.get('maximum_auxiliary_gpu_mib', 0)))
                                 if gpu['index'] not in allowed or proc['memory_mib'] is None or proc['memory_mib'] > cap:
                                     stop_reason = 'owned_process_used_unselected_gpu'
                                 elif gpu['free_mib'] is None or gpu['free_mib'] < 4096:
