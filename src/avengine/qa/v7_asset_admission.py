@@ -1,6 +1,6 @@
 """Read-only inventory and technical qualification of v7 dry/human candidates.
 
-Recording licenses and synthetic-only supervision are separate decisions. An
+Recorded mono inputs are allowed; real spatial/evaluation recordings are excluded. An
 inventory or an automatic loudness measurement never promotes a historical
 research asset to formal publication. Outputs live only in a fresh task root.
 """
@@ -86,8 +86,8 @@ def audit_sounds(pool_path, official_zip, mapping_path, output, *, workers=2, no
                'qa21_domain_member': cls in QA21_CLASSES,
                'starss_mapping': mapping[cls], 'label_provenance': 'real_recording_metadata',
                'strict_v7_eligible': False, 'formal_status': 'blocked',
-               'formal_blockers': ['real_waveform_or_real_recording_label_in_synthetic_only_mainline'],
-               'human_listening_status': (record.get('human_review') or {}).get('status', 'not_run'),
+               'formal_blockers': ['automatic_admission_receipts_missing'],
+               'human_review_required': False,
                'segmentation': record.get('event_segmentation'),
                'crop': {k: v for k, v in record.items() if k.startswith('source_crop') or k in ('source_offset_s',)},
                'activity_intervals_samples': record.get('source_activity_intervals_samples'),
@@ -185,7 +185,7 @@ def audit_sounds(pool_path, official_zip, mapping_path, output, *, workers=2, no
               'classes': by_class, 'records': records, 'record_count': len(records),
               'strict_v7_usable': 0, 'license_counts': dict(Counter(r.get('license') for r in records)),
               'normalization_applied_in_this_run': normalize_research,
-              'qualification': 'inventory complete; synthetic-only and listening admission blocked'}
+              'qualification': 'inventory only; use automatic classifier, deduplication and activity receipts for admission'}
     _write(output / 'dry_sound_admission.json', result)
     return result
 

@@ -1,7 +1,7 @@
 """Convert actual v7 native readbacks to v6 evidence without filling missing truth.
 
 Modal visible pixels alone cannot classify partial versus complete visibility.
-The producer supplies measured modal/target-only truth and appearance reviews.
+The producer supplies measured modal/target-only truth and appearance receipts.
 Likewise a planned event duration is never substituted for dry-source activity.
 """
 from __future__ import annotations
@@ -32,6 +32,61 @@ def _crop_pixel_truth(truth, first, count, actor_ids):
     return cropped
 
 
+
+def _crop_occluder_evidence(evidence, first, count, registry):
+    """Keep actual scene-frame IDs aligned with the cropped native window."""
+    result = deepcopy(evidence)
+    rows = result.get('frame_records')
+    if not isinstance(rows, list):
+        raise ValueError('occluder evidence requires explicit per-frame records')
+    scope = result.get('frame_index_scope', 'scene')
+    if scope not in {'scene', 'window'}:
+        raise ValueError('unknown occluder frame index scope')
+    offset = first if scope == 'scene' else 0
+    retained = []; seen = set()
+    for row in rows:
+        frame = row.get('frame_index')
+        if isinstance(frame, bool) or not isinstance(frame, int):
+            raise ValueError('occluder frame index must be an integer')
+        if not offset <= frame < offset + count:
+            continue
+        actor = row.get('target_instance_id', row.get('actor_id', row.get('target_actor_id')))
+        actor = str(actor) if actor is not None else ''
+        key = (actor, frame)
+        if not actor or key in seen:
+            raise ValueError('duplicate or missing occluder target/frame identity')
+        seen.add(key)
+        ids = row.get('occluder_instance_ids')
+        if not isinstance(ids, list) or len(ids) != len(set(map(str, ids))):
+            raise ValueError('occluder IDs must be a unique explicit list')
+        if any(str(value) not in registry for value in ids):
+            raise ValueError('measured occluder ID is absent from the registry')
+        if row.get('unknown_occluder_pixels', 0) and ids:
+            raise ValueError('unattributed pixels cannot certify unique occlusion')
+        retained.append(dict(row, target_instance_id=actor, frame_index=frame-offset,
+                             occluder_instance_ids=list(map(str, ids))))
+    result['frame_records'] = retained
+    result['frame_index_scope'] = 'window'
+    return result
+
+def _playback_class_is_supported(proof, actor_profile):
+    if proof.get('sound_class') not in {
+            'speech_playback', 'music_playback', 'any_audioset_class_playback'}:
+        return True
+    return (proof.get('emission_mechanism') == 'loudspeaker_playback'
+            and actor_profile.get('emission_mechanism') == 'loudspeaker_playback')
+
+
+def _resolved_qa21_class(proof, actor_profile):
+    if not _playback_class_is_supported(proof, actor_profile):
+        return None
+    label = proof.get('sound_class')
+    if label == 'any_audioset_class_playback':
+        label = proof.get('content_class')
+        return label if label in QA21_CLASSES else None
+    return label
+
+
 def native_bundle(scene, start_s, window_id, visual, evidence):
     fps = visual['renderer']['fps']
     if fps != scene['video_fps'] or fps != 15:
@@ -58,7 +113,9 @@ def native_bundle(scene, start_s, window_id, visual, evidence):
             rows.append(matches[0])
         supplied = deepcopy(appearances.get(key) or {})
         value = supplied.get('value')
-        actors[key] = {'asset_id': rows[0]['asset_id'], 'species_id': 'human',
+        profile = (evidence.get('actor_profiles') or {}).get(key, {})
+        actors[key] = {'asset_id': rows[0]['asset_id'], 'species_id': profile.get('species_id', 'human'),
+                       'entity_class': profile.get('entity_class', 'articulated_human'),
                        'display_label': supplied.get('label_zh', key)}
         if value:
             actors[key]['appearance'] = {'field': 'top_color', 'value': value,
@@ -91,7 +148,15 @@ def native_bundle(scene, start_s, window_id, visual, evidence):
                'source_endpoint_id': event['endpoint_id']}
         for name in ('sound_class', 'transcript', 'event_unit', 'event_segmentation', 'source_qc'):
             if name in proof:
-                row[name] = deepcopy(proof[name])
+                profile = (evidence.get('actor_profiles') or {}).get(str(event['source_id']), {})
+                if name == 'sound_class':
+                    resolved = _resolved_qa21_class(proof, profile)
+                    if resolved is None:
+                        row['sound_class_rejection_reason'] = 'fixed_domain_content_and_native_playback_mechanism_required'
+                        continue
+                    row[name] = resolved
+                else:
+                    row[name] = deepcopy(proof[name])
         events.append(row)
         if proof.get('activity_status') == 'observed' and 'activity_intervals_samples_global' in proof:
             activity[event_id] = [{'start_sample': max(a, lo) - lo, 'end_sample_exclusive': min(b, hi) - lo}
@@ -109,9 +174,13 @@ def native_bundle(scene, start_s, window_id, visual, evidence):
     truth = _crop_pixel_truth(evidence.get('pixel_visibility_truth'), first, 150, ids)
     if truth is not None:
         raw['pixel_visibility_truth'] = truth
-    for key in ('occluder_registry', 'occluder_evidence', 'camera_calibration'):
+    for key in ('occluder_registry', 'camera_calibration'):
         if key in evidence:
             raw[key] = deepcopy(evidence[key])
+    if 'occluder_evidence' in evidence:
+        raw['occluder_evidence'] = _crop_occluder_evidence(
+            evidence['occluder_evidence'], first, 150,
+            {str(k): v for k, v in evidence.get('occluder_registry', {}).items()})
     raw['audio_readback'] = {'wet_tail_intervals': [
         {'event_id': event_id, 'start_s': max(a - start_s, 0.), 'end_s': min(b - start_s, 10.)}
         for event_id, proof in source_evidence.items()
