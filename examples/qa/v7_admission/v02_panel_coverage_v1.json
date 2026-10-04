@@ -1,0 +1,63 @@
+{
+  "schema": "v7_v02_panel_coverage_v1",
+  "prior": "uniform_engineering_targets_no_real_dev_fitting",
+  "counts": "logical_questions_only",
+  "independent_worlds_per_exact_speaker_count": 2,
+  "speaker_counts": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8
+  ],
+  "targets": {
+    "train": {
+      "speakers_per_exact_count": 16,
+      "frustum_per_world_azimuth_class_cell": 8
+    },
+    "dev": {
+      "speakers_per_exact_count": 3,
+      "frustum_per_world_azimuth_class_cell": 2
+    }
+  },
+  "frustum": {
+    "classes": [
+      "in_frame",
+      "out_of_frame"
+    ],
+    "azimuth_frame": "world_horizontal_basis",
+    "azimuth_centers_deg": [
+      0,
+      45,
+      90,
+      135,
+      180,
+      -135,
+      -90,
+      -45
+    ],
+    "coordinate_convention": "pixel_boundaries",
+    "pixel_center_offset_xy": [
+      0.5,
+      0.5
+    ],
+    "bounds": "[0,width) x [0,height)",
+    "dead_zone_px": 0,
+    "counterfactual_members_per_pair": 2,
+    "keep_pair_together": true
+  },
+  "required_speaker_scenarios": [
+    "silent_visible_people_with_environment_sound",
+    "one_actor_multiple_segments_and_voice_assets",
+    "alternating",
+    "overlapping",
+    "offscreen_speech",
+    "same_azimuth_distinct_actors",
+    "moving_actor_repeated_speech"
+  ],
+  "note": "Original examples/dataset/v7_question_budget_v1.json minima and v6 gates are unchanged. These panel targets are additional sampler interfaces, not projected achieved counts."
+}

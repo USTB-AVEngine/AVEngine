@@ -16,6 +16,7 @@ import math
 import numpy as np
 
 from avengine.timeline.continuous_scene import QA21_CLASSES, DIRECTIONS
+from avengine.qa.v7_panel_coverage import canonical_speech_scene, boundary_projection
 
 CLASS13 = (
     'female speech', 'male speech', 'clapping', 'telephone', 'laughter',
@@ -123,18 +124,14 @@ def geometry(scene, segment, time_s):
     delta = _position(source['trajectory'], time_s) - listener
     z = float(delta @ forward)
     angle = (math.degrees(math.atan2(-float(delta @ right), z)) + 180) % 360 - 180
-    width, height = scene.get('resolution_wh', [1280, 720])
-    hfov = float(scene.get('hfov_deg', 85.))
-    focal = width / (2 * math.tan(math.radians(hfov / 2)))
-    px = (width - 1) / 2 + focal * float(delta @ right) / z if z > 0 else math.inf
-    py = (height - 1) / 2 - focal * float(delta[1]) / z if z > 0 else math.inf
-    frustum = 'in_frame' if z > 0 and 0 <= px < width and 0 <= py < height else 'out_of_frame'
-    return angle, frustum
+    projection = boundary_projection(scene, delta)
+    return angle, projection['frustum']
 
 
 def generate_questions(scene, start_s, window_id, media, *, forms=('open', 'mcq'), wording_variant='standard'):
     if wording_variant not in {'standard', 'alternate'}:
         raise ValueError('unknown answer-independent wording variant')
+    scene, identity_proof = canonical_speech_scene(scene)
     segments, flags = window_annotations(scene['events'], start_s)
     onset_counts = Counter(s['anchor_tick'] for s in segments)
     public, private, excluded = [], [], []
@@ -182,12 +179,12 @@ def generate_questions(scene, start_s, window_id, media, *, forms=('open', 'mcq'
     else:
         excluded.append({'qa_id': 'QA-23', 'reason': 'non_actor_unreliable_or_duplicate_track'})
     speech = [s for s in segments if s['class_id'] in SPEECH_CLASSES]
-    if all(s['source_id'] > 0 for s in speech) and not flags['speech_class_conflict'] and not flags['speech_duplicate']:
+    if identity_proof['identity_complete'] and all(s['source_id'] > 0 for s in speech) and not flags['speech_class_conflict'] and not flags['speech_duplicate']:
         actors = sorted({s['source_id'] for s in speech})
         count = len(actors)
         emit('STARSS-SPEAKERS', 'count', '这10秒任意时刻发出现场话声的不同说话人有多少位？同一人重复讲话只计一位，片头已在讲话者计入；播放讲话不计。', count,
              [str(i) for i in range(9)] if count <= 8 else 'nonnegative_integer',
-             {'count_kind': 'distinct_speech_actors', 'actor_ids': actors}, count <= 8)
+             {'count_kind': 'distinct_speech_actors', 'actor_ids': actors, 'identity_proof': identity_proof}, count <= 8)
     else:
         excluded.append({'qa_id': 'STARSS-SPEAKERS', 'reason': 'speech_identity_conflict_or_duplicate'})
     for rank, segment in enumerate(segments[:3], 1):
@@ -216,7 +213,9 @@ def generate_questions(scene, start_s, window_id, media, *, forms=('open', 'mcq'
                 emit('QA-04', f'target{rank}', f'{description}在起始活动帧的水平方向是什么？相机朝向为正前。', DIRECTIONS[sector], list(DIRECTIONS), dict(evidence, azimuth_deg=angle, sector_dead_zone_deg=5))
             else:
                 excluded.append({'qa_id': 'QA-04', 'candidate': rank, 'reason': 'within5deg_sector_boundary'})
-            emit('STARSS-FRUSTUM', f'target{rank}', f'{description}起始活动帧的方向是否位于画面几何视锥内？不问遮挡。', frustum, ['in_frame', 'out_of_frame'], dict(evidence, azimuth_deg=angle))
+            source_delta = _position(scene['sources'][segment['endpoint_id']]['trajectory'], start_s + anchor) - np.asarray(scene['listener_m'])
+            projection = boundary_projection(scene, source_delta)
+            emit('STARSS-FRUSTUM', f'target{rank}', f'{description}起始活动帧的方向是否位于画面几何视锥内？不问遮挡。', frustum, ['in_frame', 'out_of_frame'], dict(evidence, azimuth_deg=angle, native_projection=projection))
         query = math.ceil(segment["anchor_tick"] / 10)
         if query * 10 >= segment['window_end_tick']:
             excluded.append({'qa_id': 'QA-25', 'candidate': rank, 'reason': 'segment_ends_before_authoritative_integer_query'})
@@ -230,4 +229,4 @@ def generate_questions(scene, start_s, window_id, media, *, forms=('open', 'mcq'
         emit('QA-25', f'target{rank}', f'{description}在第{query}秒的水平角度是多少？正前0°，左正右负，输出[-180,179]整数。', integer, 'integer[-180,179]',
              dict(evidence, query_s=query, azimuth_deg=angle, full_credit_deg=15, half_credit_deg=30), False)
     return public, private, {'protocol': 'STARSS23_v0.2', 'segments': segments,
-                             'flags': flags, 'exclusions': excluded}
+                             'flags': flags, 'identity': identity_proof, 'exclusions': excluded}
