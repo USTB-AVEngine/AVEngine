@@ -1,4 +1,4 @@
-本包登记入口是 `registrations/v7_asset_roster.json`；人物兼容入口 `human_roster.json` 已更新为 v2。全部路径相对于 `artifact_root`，48g 上的包根为 `/data/jzy/tmp/claude_hardbank_20260923/v7_human_roster_20261004`，以下记作 T。本任务没有修改 v7-spec / v7-families 检出或公共登记库；这里提供接入资料与可复用实现。
+本包登记入口是 `registrations/v7_asset_roster.json`；人物兼容入口 `human_roster.json` 已更新为 v2。全部路径相对于 `artifact_root`，48g 上的包根为 `TASK_ROOT`，以下记作 T。本任务没有修改 v7-spec / v7-families 检出或公共登记库；这里提供接入资料与可复用实现。
 
 | 文件 | 用途 |
 |---|---|
@@ -13,14 +13,14 @@
 | ue_project/Content/ | UE5.5.4私有uasset；迁移时带完整依赖 |
 | reports/review.html | 单HTML、所有图内嵌JPEG；未发owner |
 
-人物采样先选不同 `major_id`，再选同一人的颜色小类。衣服颜色是实例属性，不应把一个底模的多色当成不同长相。所有题族只在 `walk_allowed=true` 时将人/狗作为移动声源；LX 和鸟永远静态。椅子与鸟架永远不发声。家养鹦鹉候选的双端状态为false，不进入采样池；麻雀只作为明确允许的兜底。
+人物采样先选不同 `major_id`，再选同一人的颜色小类。衣服颜色是实例属性，不应把一个底模的多色当成不同长相。所有题族只在 `walk_allowed=true` 时将人/狗作为移动声源；LX 和鸟永远静态。椅子与鸟架永远不发声。现成CC-BY家养鹦鹉v7_ccby_pet_parrot_chris_woods_01双端静态准入；只使用对应pet_bird_parrot真实声音引用。生成虎皮鹦鹉候选移入retired_candidates，不进采样；麻雀明确为野鸟兜底。
 
 Habitat使用MP3D/HM3D原生场景；酷家乐使用UE/SPEAR原生地图。本包检查的HM3D为TEEsavR23oF、MP3D为17DRP5sb8fy，UE地图为 `/Game/AVEngine/Optional/KujialeBakedLit/kujiale_0020_full_home_baked_lit_v1`。这些是参考验收场景，并非任意场景的通用通过结论。不要用Blender自造房间或MP3D的UE比较导入替代准入。
 
 单位和朝向：
 
 - 静态Habitat GLB是米、+Y上、-Z前。全体实例尺度沿用底模，地面取真实物理表面；不能把navmesh高度直接当脚底地面。
-- 坐标转换 `U(x,y,z)=100*(-z,x,y)`，得到UE世界厘米坐标。静态人物、狗、椅子与鸟的Actor yaw是 `90-degrees(canonical_yaw)`。
+- 坐标转换 `U(x,y,z)=100*(-z,x,y)`，得到UE世界厘米坐标。传统静态部件组合的人物、狗、椅子与麻雀的Actor yaw是 `90-degrees(canonical_yaw)`。
 - 人物动画master保持库的原始+Z前；导出刚性Habitat姿态时先绕Y旋转180°，UE人物动画Actor yaw是 `-90-degrees(canonical_yaw)`。不可与静态Actor的90°规则混用。
 - FOA点要用正在播放的姿态和实例Actor变换；不要把世界坐标转换后的U(point)直接当UE Actor局部坐标。对于UE原始glTF导入局部坐标，位置映射是 `100*(x,z,y)`，然后应用Actor Transform。或者先在规范坐标下求世界点，再用U转换到UE世界。
 - Rocketbox人体主声源骨为MUpperLip，狗为Xtra Mouth；用AnimPose/get_socket_location或同帧姿态计算，并逐帧跟随。LX的静态FOA_mouth是次级嘴部点；演奏/鼓掌题必须读 `sound_anchor.primary_local_glb_m`，在乐器或手掌建立主声源，不能默认用旧嘴部组件。鸟使用登记的鸟嘴点。
@@ -59,3 +59,13 @@ STARSS23画像来自72段非评测录音，解析帧中坐58.76%、站39.00%、�
 所有新场景均要复验；本包没有替v7生成器跑0–8人同场、多人互撞、足音同步、全屋座椅连通性或数据集episode准入。许可副本和第三方致谢必须随迁移交付；ISNet独立ONNX权重/输出许可范围仍待确认。
 
 Habitat动态换色：调用 `v7_roster_colour_motion.apply_appearance(master_d,master_blob,variant_habitat_glb)`，按材质名重映射并将选中小类的完整PBR材质/纹理并入master内存副本，然后执行pose/rigid_glb。不要直接用原色动画master渲染所有颜色，也不要把刚性站姿当皮肤动画。这个函数不保存重复动画master；骨骼、动画和所有几何accessor维持原buffer位置。110小类的真实文件逐项验证见 round3/evidence/motion_colour_binding.json。
+
+
+第4回合现成家养鹦鹉/可见嘴唇接入：
+
+- 新鸟登记ID v7_ccby_pet_parrot_chris_woods_01；GLB round4/assets/parrot/runtime.glb，+Y上/-Z前，含无声木架。UE直接spawn登记ue_generated_class_path的单Actor Blueprint，不要只挑其中一个StaticMesh。
+- Blueprint各网格component已内置+90°yaw，Actor yaw应为 -degrees(canonical_yaw)，不能再套传统部件Actor的+90°。FOA_beak组件局部厘米点读取beak_local_ue_blueprint_cm；Habitat读beak_local_glb_m后乘实例变换。实测Actor移动10cm后附着声源同步跟随。
+- walk_allowed=false；保留原15条动画不意味着动作准入；仅静态摆放。每次目标场景复检鸟架底座/地面、鸟脚/横梁和家具/墙；鸟架不发声。叫声只绑定round4/evidence/animal_audio_binding.json里的pet_bird_parrot已准入真实录音，遵守families逐条许可与筛查限制。
+- 狗只选admitted_motion_clips内的Walking_Contact_<house>/Idle_Contact_<house>，禁止把源裸Idle/Walking标签直接当接触准入。
+- 人物若题目需要可见嘴唇，要求variant.visible_lips_binding_allowed[backend]=true。消防女、警察女两端false；消防男仅UE false。保留物理MUpperLip FOA点随骨骼，不移动到衣领/头盔；不依赖可见嘴唇的题族可继续按声音/身份绑定。
+- 本包只交资产、准入证据和接入说明；没有修改v7-spec/families生成器、写共享registry或生成正式空间声音episode。完整原生UE物理碰撞、任意场景/拥挤路径、长站立待机循环和脚步声同步仍未验证。

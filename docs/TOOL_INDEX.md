@@ -5,7 +5,7 @@
 
 自 2026-08-25 起，目录本身就是能力分组（阶段目录 m1…m7 已移除），
 本表按目录列出每个工具做什么。
-当前共 339 个工具脚本。
+当前共 346 个工具脚本。
 
 ## 资产生成与装配（`tools/assets/`）
 
@@ -118,17 +118,23 @@
 | `tools/assets/v7_roster_extra_scene_collision.py` | Exact source-room triangle checks for stationary actions, chairs and dog motions |
 | `tools/assets/v7_roster_final_manifest.py` | Merge conservative motion, seat, dog, bird and chair admissions into one roster |
 | `tools/assets/v7_roster_floor_grid.py` | Sample real native stage floors near each verified navigation path |
+| `tools/assets/v7_roster_followup_audit.py` | Read-only audit of interrupted jobs, mouth qualifications and admitted audio links |
 | `tools/assets/v7_roster_foot_events.py` | Export contact-onset events without confusing toe roll with a new footstep |
 | `tools/assets/v7_roster_german_shepherd.py` | Retarget the retained Beagle motion onto the original German Shepherd rig |
 | `tools/assets/v7_roster_habitat_bird.py` | Native Habitat qualification of the MIT library sparrow on its silent perch |
 | `tools/assets/v7_roster_habitat_dogs.py` | Replay full rigid-pose clips with native Habitat stage physics and FOA nodes |
 | `tools/assets/v7_roster_habitat_extra.py` | Sample official gesture/turn adapters in both native Habitat scenes, with seated chairs |
 | `tools/assets/v7_roster_habitat_motion.py` | Replay full rigid-pose clips with native Habitat stage physics and FOA nodes |
+| `tools/assets/v7_roster_habitat_pet_parrot.py` | Qualify the licensed static pet parrot in native Habitat reference houses |
 | `tools/assets/v7_roster_habitat_walk_visual.py` | Reselect native Habitat cameras that show sampled walk mouths and both feet |
 | `tools/assets/v7_roster_kujiale_path.py` | Recast planning on actual Kujiale USD triangles; UE remains RGB authority |
 | `tools/assets/v7_roster_lx_anchors.py` | Primary LX sound anchors from manually reviewed native pixels and original triangles |
 | `tools/assets/v7_roster_native_paths.py` | Build native Recast paths in the real MP3D/HM3D rooms |
 | `tools/assets/v7_roster_native_seating.py` | Native seat fitting with floor support, furniture collision and retained navigation |
+| `tools/assets/v7_roster_pet_parrot.py` | Freeze the CC-BY author parrot idle pose on a silent matte perch |
+| `tools/assets/v7_roster_pet_parrot_geometry.py` | Check licensed parrot geometry, true source-floor support and UE camera rays |
+| `tools/assets/v7_roster_pet_parrot_qa.py` | Audit native UE parrot screenshots, actual geometry bounds and beak attachment |
+| `tools/assets/v7_roster_round4_manifest.py` | Patch final registries with explicit mouth visibility and licensed pet-bird receipts |
 | `tools/assets/v7_roster_scene_collision.py` | Full-frame scene triangle collision checks against the exact Kujiale USD mesh |
 | `tools/assets/v7_roster_seat_rgbd.py` | Recover existing seats from actual native RGB-D-semantic surfaces, not faulty bounds |
 | `tools/assets/v7_roster_seat_survey.py` | Survey native semantic seats and review silent fallback chairs in real homes |
@@ -144,6 +150,7 @@
 | `tools/assets/v7_roster_ue_import.py` | Import new human action masters, silent chairs and static dog candidates privately |
 | `tools/assets/v7_roster_ue_lx_anchors.py` | Verify static LX primary sound anchors on their actual native UE Blueprint actors |
 | `tools/assets/v7_roster_ue_motion_readback.py` | Read every imported Kujiale walk key with native UE AnimPose evaluation |
+| `tools/assets/v7_roster_ue_pet_parrot.py` | Import and capture the licensed static parrot as one native UE Blueprint actor |
 | `tools/assets/v7_roster_walk_compile.py` | Bake paired navigation paths and contact-corrected Rocketbox walking clips |
 | `tools/assets/wrap_uniform_scene_scale.py` | Wrap every root of one GLB scene in an explicit uniform-scale node |
 

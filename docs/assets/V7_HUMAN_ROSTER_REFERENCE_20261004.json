@@ -23,8 +23,11 @@
     "dog_minor_dual_backend_usable": 2,
     "dog_minor_walking_admitted": 2,
     "bird_library_fallback_dual_backend_usable": 1,
-    "pet_bird_dual_backend_usable": 0,
-    "chair_styles_dual_backend_usable": 5
+    "pet_bird_dual_backend_usable": 1,
+    "chair_styles_dual_backend_usable": 5,
+    "uniform_occluded_lips_major": 2,
+    "ue_helmet_dark_lips_major": 1,
+    "wild_bird_fallback_dual_backend_usable": 1
   },
   "humans": [
     {
@@ -65,7 +68,22 @@
         }
       ],
       "motion_master_glb": "round2/assets/humans/v7_business_female_01/final_ue_root.glb",
-      "ue_motion_namespace": "/Game/V7RosterMotionV3/v7_business_female_01"
+      "ue_motion_namespace": "/Game/V7RosterMotionV3/v7_business_female_01",
+      "mouth_visibility": {
+        "habitat_status": "pass_native_bone_projection",
+        "ue_status": "pass_native_bone_projection",
+        "uniform_occludes_lips": false,
+        "helmet_or_lighting_limits_ue": false,
+        "visible_lips_binding_allowed_habitat": true,
+        "visible_lips_binding_allowed_ue": true,
+        "voice_emission_allowed": true,
+        "physical_anchor_relocated": false,
+        "policy": "Keep physical lip point following MUpperLip; require visible_lips_binding_allowed for lip-visible questions. Uniform occlusion is explicitly marked, never relabel a helmet surface as lips.",
+        "source_evidence": [
+          "evidence/mouth_review_rocketbox.jpg",
+          "evidence/ue_mouth_review_sheet.jpg"
+        ]
+      }
     },
     {
       "major_id": "v7_business_male_01",
@@ -105,7 +123,22 @@
         }
       ],
       "motion_master_glb": "round2/assets/humans/v7_business_male_01/final_ue_root.glb",
-      "ue_motion_namespace": "/Game/V7RosterMotionV3/v7_business_male_01"
+      "ue_motion_namespace": "/Game/V7RosterMotionV3/v7_business_male_01",
+      "mouth_visibility": {
+        "habitat_status": "pass_native_bone_projection",
+        "ue_status": "pass_native_bone_projection",
+        "uniform_occludes_lips": false,
+        "helmet_or_lighting_limits_ue": false,
+        "visible_lips_binding_allowed_habitat": true,
+        "visible_lips_binding_allowed_ue": true,
+        "voice_emission_allowed": true,
+        "physical_anchor_relocated": false,
+        "policy": "Keep physical lip point following MUpperLip; require visible_lips_binding_allowed for lip-visible questions. Uniform occlusion is explicitly marked, never relabel a helmet surface as lips.",
+        "source_evidence": [
+          "evidence/mouth_review_rocketbox.jpg",
+          "evidence/ue_mouth_review_sheet.jpg"
+        ]
+      }
     },
     {
       "major_id": "v7_chef_female_01",
@@ -145,7 +178,22 @@
         }
       ],
       "motion_master_glb": "round2/assets/humans/v7_chef_female_01/final_ue_root.glb",
-      "ue_motion_namespace": "/Game/V7RosterMotionV3/v7_chef_female_01"
+      "ue_motion_namespace": "/Game/V7RosterMotionV3/v7_chef_female_01",
+      "mouth_visibility": {
+        "habitat_status": "pass_native_bone_projection",
+        "ue_status": "pass_native_bone_projection",
+        "uniform_occludes_lips": false,
+        "helmet_or_lighting_limits_ue": false,
+        "visible_lips_binding_allowed_habitat": true,
+        "visible_lips_binding_allowed_ue": true,
+        "voice_emission_allowed": true,
+        "physical_anchor_relocated": false,
+        "policy": "Keep physical lip point following MUpperLip; require visible_lips_binding_allowed for lip-visible questions. Uniform occlusion is explicitly marked, never relabel a helmet surface as lips.",
+        "source_evidence": [
+          "evidence/mouth_review_rocketbox.jpg",
+          "evidence/ue_mouth_review_sheet.jpg"
+        ]
+      }
     },
     {
       "major_id": "v7_construction_female_01",
@@ -185,7 +233,22 @@
         }
       ],
       "motion_master_glb": "round2/assets/humans/v7_construction_female_01/final_ue_root.glb",
-      "ue_motion_namespace": "/Game/V7RosterMotionV3/v7_construction_female_01"
+      "ue_motion_namespace": "/Game/V7RosterMotionV3/v7_construction_female_01",
+      "mouth_visibility": {
+        "habitat_status": "pass_native_bone_projection",
+        "ue_status": "pass_native_bone_projection",
+        "uniform_occludes_lips": false,
+        "helmet_or_lighting_limits_ue": false,
+        "visible_lips_binding_allowed_habitat": true,
+        "visible_lips_binding_allowed_ue": true,
+        "voice_emission_allowed": true,
+        "physical_anchor_relocated": false,
+        "policy": "Keep physical lip point following MUpperLip; require visible_lips_binding_allowed for lip-visible questions. Uniform occlusion is explicitly marked, never relabel a helmet surface as lips.",
+        "source_evidence": [
+          "evidence/mouth_review_rocketbox.jpg",
+          "evidence/ue_mouth_review_sheet.jpg"
+        ]
+      }
     },
     {
       "major_id": "v7_construction_male_02",
@@ -225,7 +288,22 @@
         }
       ],
       "motion_master_glb": "round2/assets/humans/v7_construction_male_02/final_ue_root.glb",
-      "ue_motion_namespace": "/Game/V7RosterMotionV3/v7_construction_male_02"
+      "ue_motion_namespace": "/Game/V7RosterMotionV3/v7_construction_male_02",
+      "mouth_visibility": {
+        "habitat_status": "pass_native_bone_projection",
+        "ue_status": "pass_native_bone_projection",
+        "uniform_occludes_lips": false,
+        "helmet_or_lighting_limits_ue": false,
+        "visible_lips_binding_allowed_habitat": true,
+        "visible_lips_binding_allowed_ue": true,
+        "voice_emission_allowed": true,
+        "physical_anchor_relocated": false,
+        "policy": "Keep physical lip point following MUpperLip; require visible_lips_binding_allowed for lip-visible questions. Uniform occlusion is explicitly marked, never relabel a helmet surface as lips.",
+        "source_evidence": [
+          "evidence/mouth_review_rocketbox.jpg",
+          "evidence/ue_mouth_review_sheet.jpg"
+        ]
+      }
     },
     {
       "major_id": "v7_female_adult_01",
@@ -295,7 +373,22 @@
         }
       ],
       "motion_master_glb": "round2/assets/humans/v7_female_adult_01/final_ue_root.glb",
-      "ue_motion_namespace": "/Game/V7RosterMotionV3/v7_female_adult_01"
+      "ue_motion_namespace": "/Game/V7RosterMotionV3/v7_female_adult_01",
+      "mouth_visibility": {
+        "habitat_status": "pass_native_bone_projection",
+        "ue_status": "pass_native_bone_projection",
+        "uniform_occludes_lips": false,
+        "helmet_or_lighting_limits_ue": false,
+        "visible_lips_binding_allowed_habitat": true,
+        "visible_lips_binding_allowed_ue": true,
+        "voice_emission_allowed": true,
+        "physical_anchor_relocated": false,
+        "policy": "Keep physical lip point following MUpperLip; require visible_lips_binding_allowed for lip-visible questions. Uniform occlusion is explicitly marked, never relabel a helmet surface as lips.",
+        "source_evidence": [
+          "evidence/mouth_review_rocketbox.jpg",
+          "evidence/ue_mouth_review_sheet.jpg"
+        ]
+      }
     },
     {
       "major_id": "v7_female_adult_02",
@@ -365,7 +458,22 @@
         }
       ],
       "motion_master_glb": "round2/assets/humans/v7_female_adult_02/final_ue_root.glb",
-      "ue_motion_namespace": "/Game/V7RosterMotionV3/v7_female_adult_02"
+      "ue_motion_namespace": "/Game/V7RosterMotionV3/v7_female_adult_02",
+      "mouth_visibility": {
+        "habitat_status": "pass_native_bone_projection",
+        "ue_status": "pass_native_bone_projection",
+        "uniform_occludes_lips": false,
+        "helmet_or_lighting_limits_ue": false,
+        "visible_lips_binding_allowed_habitat": true,
+        "visible_lips_binding_allowed_ue": true,
+        "voice_emission_allowed": true,
+        "physical_anchor_relocated": false,
+        "policy": "Keep physical lip point following MUpperLip; require visible_lips_binding_allowed for lip-visible questions. Uniform occlusion is explicitly marked, never relabel a helmet surface as lips.",
+        "source_evidence": [
+          "evidence/mouth_review_rocketbox.jpg",
+          "evidence/ue_mouth_review_sheet.jpg"
+        ]
+      }
     },
     {
       "major_id": "v7_female_adult_05",
@@ -435,7 +543,22 @@
         }
       ],
       "motion_master_glb": "round2/assets/humans/v7_female_adult_05/final_ue_root.glb",
-      "ue_motion_namespace": "/Game/V7RosterMotionV3/v7_female_adult_05"
+      "ue_motion_namespace": "/Game/V7RosterMotionV3/v7_female_adult_05",
+      "mouth_visibility": {
+        "habitat_status": "pass_native_bone_projection",
+        "ue_status": "pass_native_bone_projection",
+        "uniform_occludes_lips": false,
+        "helmet_or_lighting_limits_ue": false,
+        "visible_lips_binding_allowed_habitat": true,
+        "visible_lips_binding_allowed_ue": true,
+        "voice_emission_allowed": true,
+        "physical_anchor_relocated": false,
+        "policy": "Keep physical lip point following MUpperLip; require visible_lips_binding_allowed for lip-visible questions. Uniform occlusion is explicitly marked, never relabel a helmet surface as lips.",
+        "source_evidence": [
+          "evidence/mouth_review_rocketbox.jpg",
+          "evidence/ue_mouth_review_sheet.jpg"
+        ]
+      }
     },
     {
       "major_id": "v7_female_adult_08",
@@ -505,7 +628,22 @@
         }
       ],
       "motion_master_glb": "round2/assets/humans/v7_female_adult_08/final_ue_root.glb",
-      "ue_motion_namespace": "/Game/V7RosterMotionV3/v7_female_adult_08"
+      "ue_motion_namespace": "/Game/V7RosterMotionV3/v7_female_adult_08",
+      "mouth_visibility": {
+        "habitat_status": "pass_native_bone_projection",
+        "ue_status": "pass_native_bone_projection",
+        "uniform_occludes_lips": false,
+        "helmet_or_lighting_limits_ue": false,
+        "visible_lips_binding_allowed_habitat": true,
+        "visible_lips_binding_allowed_ue": true,
+        "voice_emission_allowed": true,
+        "physical_anchor_relocated": false,
+        "policy": "Keep physical lip point following MUpperLip; require visible_lips_binding_allowed for lip-visible questions. Uniform occlusion is explicitly marked, never relabel a helmet surface as lips.",
+        "source_evidence": [
+          "evidence/mouth_review_rocketbox.jpg",
+          "evidence/ue_mouth_review_sheet.jpg"
+        ]
+      }
     },
     {
       "major_id": "v7_female_adult_13",
@@ -575,7 +713,22 @@
         }
       ],
       "motion_master_glb": "round2/assets/humans/v7_female_adult_13/final_ue_root.glb",
-      "ue_motion_namespace": "/Game/V7RosterMotionV3/v7_female_adult_13"
+      "ue_motion_namespace": "/Game/V7RosterMotionV3/v7_female_adult_13",
+      "mouth_visibility": {
+        "habitat_status": "pass_native_bone_projection",
+        "ue_status": "pass_native_bone_projection",
+        "uniform_occludes_lips": false,
+        "helmet_or_lighting_limits_ue": false,
+        "visible_lips_binding_allowed_habitat": true,
+        "visible_lips_binding_allowed_ue": true,
+        "voice_emission_allowed": true,
+        "physical_anchor_relocated": false,
+        "policy": "Keep physical lip point following MUpperLip; require visible_lips_binding_allowed for lip-visible questions. Uniform occlusion is explicitly marked, never relabel a helmet surface as lips.",
+        "source_evidence": [
+          "evidence/mouth_review_rocketbox.jpg",
+          "evidence/ue_mouth_review_sheet.jpg"
+        ]
+      }
     },
     {
       "major_id": "v7_female_adult_14",
@@ -645,7 +798,22 @@
         }
       ],
       "motion_master_glb": "round2/assets/humans/v7_female_adult_14/final_ue_root.glb",
-      "ue_motion_namespace": "/Game/V7RosterMotionV3/v7_female_adult_14"
+      "ue_motion_namespace": "/Game/V7RosterMotionV3/v7_female_adult_14",
+      "mouth_visibility": {
+        "habitat_status": "pass_native_bone_projection",
+        "ue_status": "pass_native_bone_projection",
+        "uniform_occludes_lips": false,
+        "helmet_or_lighting_limits_ue": false,
+        "visible_lips_binding_allowed_habitat": true,
+        "visible_lips_binding_allowed_ue": true,
+        "voice_emission_allowed": true,
+        "physical_anchor_relocated": false,
+        "policy": "Keep physical lip point following MUpperLip; require visible_lips_binding_allowed for lip-visible questions. Uniform occlusion is explicitly marked, never relabel a helmet surface as lips.",
+        "source_evidence": [
+          "evidence/mouth_review_rocketbox.jpg",
+          "evidence/ue_mouth_review_sheet.jpg"
+        ]
+      }
     },
     {
       "major_id": "v7_female_adult_15",
@@ -715,7 +883,22 @@
         }
       ],
       "motion_master_glb": "round2/assets/humans/v7_female_adult_15/final_ue_root.glb",
-      "ue_motion_namespace": "/Game/V7RosterMotionV3/v7_female_adult_15"
+      "ue_motion_namespace": "/Game/V7RosterMotionV3/v7_female_adult_15",
+      "mouth_visibility": {
+        "habitat_status": "pass_native_bone_projection",
+        "ue_status": "pass_native_bone_projection",
+        "uniform_occludes_lips": false,
+        "helmet_or_lighting_limits_ue": false,
+        "visible_lips_binding_allowed_habitat": true,
+        "visible_lips_binding_allowed_ue": true,
+        "voice_emission_allowed": true,
+        "physical_anchor_relocated": false,
+        "policy": "Keep physical lip point following MUpperLip; require visible_lips_binding_allowed for lip-visible questions. Uniform occlusion is explicitly marked, never relabel a helmet surface as lips.",
+        "source_evidence": [
+          "evidence/mouth_review_rocketbox.jpg",
+          "evidence/ue_mouth_review_sheet.jpg"
+        ]
+      }
     },
     {
       "major_id": "v7_female_adult_17",
@@ -785,7 +968,22 @@
         }
       ],
       "motion_master_glb": "round2/assets/humans/v7_female_adult_17/final_ue_root.glb",
-      "ue_motion_namespace": "/Game/V7RosterMotionV3/v7_female_adult_17"
+      "ue_motion_namespace": "/Game/V7RosterMotionV3/v7_female_adult_17",
+      "mouth_visibility": {
+        "habitat_status": "pass_native_bone_projection",
+        "ue_status": "pass_native_bone_projection",
+        "uniform_occludes_lips": false,
+        "helmet_or_lighting_limits_ue": false,
+        "visible_lips_binding_allowed_habitat": true,
+        "visible_lips_binding_allowed_ue": true,
+        "voice_emission_allowed": true,
+        "physical_anchor_relocated": false,
+        "policy": "Keep physical lip point following MUpperLip; require visible_lips_binding_allowed for lip-visible questions. Uniform occlusion is explicitly marked, never relabel a helmet surface as lips.",
+        "source_evidence": [
+          "evidence/mouth_review_rocketbox.jpg",
+          "evidence/ue_mouth_review_sheet.jpg"
+        ]
+      }
     },
     {
       "major_id": "v7_fire_female_01",
@@ -825,7 +1023,22 @@
         }
       ],
       "motion_master_glb": "round2/assets/humans/v7_fire_female_01/final_ue_root.glb",
-      "ue_motion_namespace": "/Game/V7RosterMotionV3/v7_fire_female_01"
+      "ue_motion_namespace": "/Game/V7RosterMotionV3/v7_fire_female_01",
+      "mouth_visibility": {
+        "habitat_status": "qualified_uniform_occludes_lips",
+        "ue_status": "qualified_uniform_occludes_lips",
+        "uniform_occludes_lips": true,
+        "helmet_or_lighting_limits_ue": false,
+        "visible_lips_binding_allowed_habitat": false,
+        "visible_lips_binding_allowed_ue": false,
+        "voice_emission_allowed": true,
+        "physical_anchor_relocated": false,
+        "policy": "Keep physical lip point following MUpperLip; require visible_lips_binding_allowed for lip-visible questions. Uniform occlusion is explicitly marked, never relabel a helmet surface as lips.",
+        "source_evidence": [
+          "evidence/mouth_review_rocketbox.jpg",
+          "evidence/ue_mouth_review_sheet.jpg"
+        ]
+      }
     },
     {
       "major_id": "v7_fire_male_01",
@@ -865,7 +1078,22 @@
         }
       ],
       "motion_master_glb": "round2/assets/humans/v7_fire_male_01/final_ue_root.glb",
-      "ue_motion_namespace": "/Game/V7RosterMotionV3/v7_fire_male_01"
+      "ue_motion_namespace": "/Game/V7RosterMotionV3/v7_fire_male_01",
+      "mouth_visibility": {
+        "habitat_status": "pass_native_bone_projection",
+        "ue_status": "qualified_helmet_dark_lips",
+        "uniform_occludes_lips": false,
+        "helmet_or_lighting_limits_ue": true,
+        "visible_lips_binding_allowed_habitat": true,
+        "visible_lips_binding_allowed_ue": false,
+        "voice_emission_allowed": true,
+        "physical_anchor_relocated": false,
+        "policy": "Keep physical lip point following MUpperLip; require visible_lips_binding_allowed for lip-visible questions. Uniform occlusion is explicitly marked, never relabel a helmet surface as lips.",
+        "source_evidence": [
+          "evidence/mouth_review_rocketbox.jpg",
+          "evidence/ue_mouth_review_sheet.jpg"
+        ]
+      }
     },
     {
       "major_id": "v7_gardener_male_01",
@@ -905,7 +1133,22 @@
         }
       ],
       "motion_master_glb": "round2/assets/humans/v7_gardener_male_01/final_ue_root.glb",
-      "ue_motion_namespace": "/Game/V7RosterMotionV3/v7_gardener_male_01"
+      "ue_motion_namespace": "/Game/V7RosterMotionV3/v7_gardener_male_01",
+      "mouth_visibility": {
+        "habitat_status": "pass_native_bone_projection",
+        "ue_status": "pass_native_bone_projection",
+        "uniform_occludes_lips": false,
+        "helmet_or_lighting_limits_ue": false,
+        "visible_lips_binding_allowed_habitat": true,
+        "visible_lips_binding_allowed_ue": true,
+        "voice_emission_allowed": true,
+        "physical_anchor_relocated": false,
+        "policy": "Keep physical lip point following MUpperLip; require visible_lips_binding_allowed for lip-visible questions. Uniform occlusion is explicitly marked, never relabel a helmet surface as lips.",
+        "source_evidence": [
+          "evidence/mouth_review_rocketbox.jpg",
+          "evidence/ue_mouth_review_sheet.jpg"
+        ]
+      }
     },
     {
       "major_id": "v7_lx_clapping_person",
@@ -937,7 +1180,22 @@
         }
       ],
       "motion_master_glb": null,
-      "ue_motion_namespace": null
+      "ue_motion_namespace": null,
+      "mouth_visibility": {
+        "habitat_status": "pass_native_surface_medium_far",
+        "ue_status": "pass_native_surface_medium_far",
+        "uniform_occludes_lips": false,
+        "helmet_or_lighting_limits_ue": false,
+        "visible_lips_binding_allowed_habitat": true,
+        "visible_lips_binding_allowed_ue": true,
+        "voice_emission_allowed": true,
+        "physical_anchor_relocated": false,
+        "policy": "Keep physical lip point following MUpperLip; require visible_lips_binding_allowed for lip-visible questions. Uniform occlusion is explicitly marked, never relabel a helmet surface as lips.",
+        "source_evidence": [
+          "evidence/mouth_review_lx_corrected.jpg",
+          "evidence/ue_mouth_review_sheet.jpg"
+        ]
+      }
     },
     {
       "major_id": "v7_lx_coughing_person",
@@ -969,7 +1227,22 @@
         }
       ],
       "motion_master_glb": null,
-      "ue_motion_namespace": null
+      "ue_motion_namespace": null,
+      "mouth_visibility": {
+        "habitat_status": "pass_native_surface_medium_far",
+        "ue_status": "pass_native_surface_medium_far",
+        "uniform_occludes_lips": false,
+        "helmet_or_lighting_limits_ue": false,
+        "visible_lips_binding_allowed_habitat": true,
+        "visible_lips_binding_allowed_ue": true,
+        "voice_emission_allowed": true,
+        "physical_anchor_relocated": false,
+        "policy": "Keep physical lip point following MUpperLip; require visible_lips_binding_allowed for lip-visible questions. Uniform occlusion is explicitly marked, never relabel a helmet surface as lips.",
+        "source_evidence": [
+          "evidence/mouth_review_lx_corrected.jpg",
+          "evidence/ue_mouth_review_sheet.jpg"
+        ]
+      }
     },
     {
       "major_id": "v7_lx_flute_player",
@@ -1001,7 +1274,22 @@
         }
       ],
       "motion_master_glb": null,
-      "ue_motion_namespace": null
+      "ue_motion_namespace": null,
+      "mouth_visibility": {
+        "habitat_status": "pass_native_surface_medium_far",
+        "ue_status": "pass_native_surface_medium_far",
+        "uniform_occludes_lips": false,
+        "helmet_or_lighting_limits_ue": false,
+        "visible_lips_binding_allowed_habitat": true,
+        "visible_lips_binding_allowed_ue": true,
+        "voice_emission_allowed": true,
+        "physical_anchor_relocated": false,
+        "policy": "Keep physical lip point following MUpperLip; require visible_lips_binding_allowed for lip-visible questions. Uniform occlusion is explicitly marked, never relabel a helmet surface as lips.",
+        "source_evidence": [
+          "evidence/mouth_review_lx_corrected.jpg",
+          "evidence/ue_mouth_review_sheet.jpg"
+        ]
+      }
     },
     {
       "major_id": "v7_lx_guitar_player",
@@ -1033,7 +1321,22 @@
         }
       ],
       "motion_master_glb": null,
-      "ue_motion_namespace": null
+      "ue_motion_namespace": null,
+      "mouth_visibility": {
+        "habitat_status": "pass_native_surface_medium_far",
+        "ue_status": "pass_native_surface_medium_far",
+        "uniform_occludes_lips": false,
+        "helmet_or_lighting_limits_ue": false,
+        "visible_lips_binding_allowed_habitat": true,
+        "visible_lips_binding_allowed_ue": true,
+        "voice_emission_allowed": true,
+        "physical_anchor_relocated": false,
+        "policy": "Keep physical lip point following MUpperLip; require visible_lips_binding_allowed for lip-visible questions. Uniform occlusion is explicitly marked, never relabel a helmet surface as lips.",
+        "source_evidence": [
+          "evidence/mouth_review_lx_corrected.jpg",
+          "evidence/ue_mouth_review_sheet.jpg"
+        ]
+      }
     },
     {
       "major_id": "v7_lx_hand_drum_player",
@@ -1067,7 +1370,22 @@
         }
       ],
       "motion_master_glb": null,
-      "ue_motion_namespace": null
+      "ue_motion_namespace": null,
+      "mouth_visibility": {
+        "habitat_status": "pass_native_surface_medium_far",
+        "ue_status": "pass_native_surface_medium_far",
+        "uniform_occludes_lips": false,
+        "helmet_or_lighting_limits_ue": false,
+        "visible_lips_binding_allowed_habitat": true,
+        "visible_lips_binding_allowed_ue": true,
+        "voice_emission_allowed": true,
+        "physical_anchor_relocated": false,
+        "policy": "Keep physical lip point following MUpperLip; require visible_lips_binding_allowed for lip-visible questions. Uniform occlusion is explicitly marked, never relabel a helmet surface as lips.",
+        "source_evidence": [
+          "evidence/mouth_review_lx_corrected.jpg",
+          "evidence/ue_mouth_review_sheet.jpg"
+        ]
+      }
     },
     {
       "major_id": "v7_lx_megaphone_speaker",
@@ -1099,7 +1417,22 @@
         }
       ],
       "motion_master_glb": null,
-      "ue_motion_namespace": null
+      "ue_motion_namespace": null,
+      "mouth_visibility": {
+        "habitat_status": "pass_native_surface_medium_far",
+        "ue_status": "pass_native_surface_medium_far",
+        "uniform_occludes_lips": false,
+        "helmet_or_lighting_limits_ue": false,
+        "visible_lips_binding_allowed_habitat": true,
+        "visible_lips_binding_allowed_ue": true,
+        "voice_emission_allowed": true,
+        "physical_anchor_relocated": false,
+        "policy": "Keep physical lip point following MUpperLip; require visible_lips_binding_allowed for lip-visible questions. Uniform occlusion is explicitly marked, never relabel a helmet surface as lips.",
+        "source_evidence": [
+          "evidence/mouth_review_lx_corrected.jpg",
+          "evidence/ue_mouth_review_sheet.jpg"
+        ]
+      }
     },
     {
       "major_id": "v7_lx_phone_call",
@@ -1131,7 +1464,22 @@
         }
       ],
       "motion_master_glb": null,
-      "ue_motion_namespace": null
+      "ue_motion_namespace": null,
+      "mouth_visibility": {
+        "habitat_status": "pass_native_surface_medium_far",
+        "ue_status": "pass_native_surface_medium_far",
+        "uniform_occludes_lips": false,
+        "helmet_or_lighting_limits_ue": false,
+        "visible_lips_binding_allowed_habitat": true,
+        "visible_lips_binding_allowed_ue": true,
+        "voice_emission_allowed": true,
+        "physical_anchor_relocated": false,
+        "policy": "Keep physical lip point following MUpperLip; require visible_lips_binding_allowed for lip-visible questions. Uniform occlusion is explicitly marked, never relabel a helmet surface as lips.",
+        "source_evidence": [
+          "evidence/mouth_review_lx_corrected.jpg",
+          "evidence/ue_mouth_review_sheet.jpg"
+        ]
+      }
     },
     {
       "major_id": "v7_lx_pianist",
@@ -1165,7 +1513,22 @@
         }
       ],
       "motion_master_glb": null,
-      "ue_motion_namespace": null
+      "ue_motion_namespace": null,
+      "mouth_visibility": {
+        "habitat_status": "pass_native_surface_medium_far",
+        "ue_status": "pass_native_surface_medium_far",
+        "uniform_occludes_lips": false,
+        "helmet_or_lighting_limits_ue": false,
+        "visible_lips_binding_allowed_habitat": true,
+        "visible_lips_binding_allowed_ue": true,
+        "voice_emission_allowed": true,
+        "physical_anchor_relocated": false,
+        "policy": "Keep physical lip point following MUpperLip; require visible_lips_binding_allowed for lip-visible questions. Uniform occlusion is explicitly marked, never relabel a helmet surface as lips.",
+        "source_evidence": [
+          "evidence/mouth_review_lx_corrected.jpg",
+          "evidence/ue_mouth_review_sheet.jpg"
+        ]
+      }
     },
     {
       "major_id": "v7_lx_saxophone_player",
@@ -1197,7 +1560,22 @@
         }
       ],
       "motion_master_glb": null,
-      "ue_motion_namespace": null
+      "ue_motion_namespace": null,
+      "mouth_visibility": {
+        "habitat_status": "pass_native_surface_medium_far",
+        "ue_status": "pass_native_surface_medium_far",
+        "uniform_occludes_lips": false,
+        "helmet_or_lighting_limits_ue": false,
+        "visible_lips_binding_allowed_habitat": true,
+        "visible_lips_binding_allowed_ue": true,
+        "voice_emission_allowed": true,
+        "physical_anchor_relocated": false,
+        "policy": "Keep physical lip point following MUpperLip; require visible_lips_binding_allowed for lip-visible questions. Uniform occlusion is explicitly marked, never relabel a helmet surface as lips.",
+        "source_evidence": [
+          "evidence/mouth_review_lx_corrected.jpg",
+          "evidence/ue_mouth_review_sheet.jpg"
+        ]
+      }
     },
     {
       "major_id": "v7_lx_violin_player",
@@ -1229,7 +1607,22 @@
         }
       ],
       "motion_master_glb": null,
-      "ue_motion_namespace": null
+      "ue_motion_namespace": null,
+      "mouth_visibility": {
+        "habitat_status": "pass_native_surface_medium_far",
+        "ue_status": "pass_native_surface_medium_far",
+        "uniform_occludes_lips": false,
+        "helmet_or_lighting_limits_ue": false,
+        "visible_lips_binding_allowed_habitat": true,
+        "visible_lips_binding_allowed_ue": true,
+        "voice_emission_allowed": true,
+        "physical_anchor_relocated": false,
+        "policy": "Keep physical lip point following MUpperLip; require visible_lips_binding_allowed for lip-visible questions. Uniform occlusion is explicitly marked, never relabel a helmet surface as lips.",
+        "source_evidence": [
+          "evidence/mouth_review_lx_corrected.jpg",
+          "evidence/ue_mouth_review_sheet.jpg"
+        ]
+      }
     },
     {
       "major_id": "v7_male_adult_01",
@@ -1299,7 +1692,22 @@
         }
       ],
       "motion_master_glb": "round2/assets/humans/v7_male_adult_01/final_ue_root.glb",
-      "ue_motion_namespace": "/Game/V7RosterMotionV3/v7_male_adult_01"
+      "ue_motion_namespace": "/Game/V7RosterMotionV3/v7_male_adult_01",
+      "mouth_visibility": {
+        "habitat_status": "pass_native_bone_projection",
+        "ue_status": "pass_native_bone_projection",
+        "uniform_occludes_lips": false,
+        "helmet_or_lighting_limits_ue": false,
+        "visible_lips_binding_allowed_habitat": true,
+        "visible_lips_binding_allowed_ue": true,
+        "voice_emission_allowed": true,
+        "physical_anchor_relocated": false,
+        "policy": "Keep physical lip point following MUpperLip; require visible_lips_binding_allowed for lip-visible questions. Uniform occlusion is explicitly marked, never relabel a helmet surface as lips.",
+        "source_evidence": [
+          "evidence/mouth_review_rocketbox.jpg",
+          "evidence/ue_mouth_review_sheet.jpg"
+        ]
+      }
     },
     {
       "major_id": "v7_male_adult_02",
@@ -1369,7 +1777,22 @@
         }
       ],
       "motion_master_glb": "round2/assets/humans/v7_male_adult_02/final_ue_root.glb",
-      "ue_motion_namespace": "/Game/V7RosterMotionV3/v7_male_adult_02"
+      "ue_motion_namespace": "/Game/V7RosterMotionV3/v7_male_adult_02",
+      "mouth_visibility": {
+        "habitat_status": "pass_native_bone_projection",
+        "ue_status": "pass_native_bone_projection",
+        "uniform_occludes_lips": false,
+        "helmet_or_lighting_limits_ue": false,
+        "visible_lips_binding_allowed_habitat": true,
+        "visible_lips_binding_allowed_ue": true,
+        "voice_emission_allowed": true,
+        "physical_anchor_relocated": false,
+        "policy": "Keep physical lip point following MUpperLip; require visible_lips_binding_allowed for lip-visible questions. Uniform occlusion is explicitly marked, never relabel a helmet surface as lips.",
+        "source_evidence": [
+          "evidence/mouth_review_rocketbox.jpg",
+          "evidence/ue_mouth_review_sheet.jpg"
+        ]
+      }
     },
     {
       "major_id": "v7_male_adult_06",
@@ -1439,7 +1862,22 @@
         }
       ],
       "motion_master_glb": "round2/assets/humans/v7_male_adult_06/final_ue_root.glb",
-      "ue_motion_namespace": "/Game/V7RosterMotionV3/v7_male_adult_06"
+      "ue_motion_namespace": "/Game/V7RosterMotionV3/v7_male_adult_06",
+      "mouth_visibility": {
+        "habitat_status": "pass_native_bone_projection",
+        "ue_status": "pass_native_bone_projection",
+        "uniform_occludes_lips": false,
+        "helmet_or_lighting_limits_ue": false,
+        "visible_lips_binding_allowed_habitat": true,
+        "visible_lips_binding_allowed_ue": true,
+        "voice_emission_allowed": true,
+        "physical_anchor_relocated": false,
+        "policy": "Keep physical lip point following MUpperLip; require visible_lips_binding_allowed for lip-visible questions. Uniform occlusion is explicitly marked, never relabel a helmet surface as lips.",
+        "source_evidence": [
+          "evidence/mouth_review_rocketbox.jpg",
+          "evidence/ue_mouth_review_sheet.jpg"
+        ]
+      }
     },
     {
       "major_id": "v7_male_adult_08",
@@ -1509,7 +1947,22 @@
         }
       ],
       "motion_master_glb": "round2/assets/humans/v7_male_adult_08/final_ue_root.glb",
-      "ue_motion_namespace": "/Game/V7RosterMotionV3/v7_male_adult_08"
+      "ue_motion_namespace": "/Game/V7RosterMotionV3/v7_male_adult_08",
+      "mouth_visibility": {
+        "habitat_status": "pass_native_bone_projection",
+        "ue_status": "pass_native_bone_projection",
+        "uniform_occludes_lips": false,
+        "helmet_or_lighting_limits_ue": false,
+        "visible_lips_binding_allowed_habitat": true,
+        "visible_lips_binding_allowed_ue": true,
+        "voice_emission_allowed": true,
+        "physical_anchor_relocated": false,
+        "policy": "Keep physical lip point following MUpperLip; require visible_lips_binding_allowed for lip-visible questions. Uniform occlusion is explicitly marked, never relabel a helmet surface as lips.",
+        "source_evidence": [
+          "evidence/mouth_review_rocketbox.jpg",
+          "evidence/ue_mouth_review_sheet.jpg"
+        ]
+      }
     },
     {
       "major_id": "v7_male_adult_10",
@@ -1579,7 +2032,22 @@
         }
       ],
       "motion_master_glb": "round2/assets/humans/v7_male_adult_10/final_ue_root.glb",
-      "ue_motion_namespace": "/Game/V7RosterMotionV3/v7_male_adult_10"
+      "ue_motion_namespace": "/Game/V7RosterMotionV3/v7_male_adult_10",
+      "mouth_visibility": {
+        "habitat_status": "pass_native_bone_projection",
+        "ue_status": "pass_native_bone_projection",
+        "uniform_occludes_lips": false,
+        "helmet_or_lighting_limits_ue": false,
+        "visible_lips_binding_allowed_habitat": true,
+        "visible_lips_binding_allowed_ue": true,
+        "voice_emission_allowed": true,
+        "physical_anchor_relocated": false,
+        "policy": "Keep physical lip point following MUpperLip; require visible_lips_binding_allowed for lip-visible questions. Uniform occlusion is explicitly marked, never relabel a helmet surface as lips.",
+        "source_evidence": [
+          "evidence/mouth_review_rocketbox.jpg",
+          "evidence/ue_mouth_review_sheet.jpg"
+        ]
+      }
     },
     {
       "major_id": "v7_male_adult_14",
@@ -1649,7 +2117,22 @@
         }
       ],
       "motion_master_glb": "round2/assets/humans/v7_male_adult_14/final_ue_root.glb",
-      "ue_motion_namespace": "/Game/V7RosterMotionV3/v7_male_adult_14"
+      "ue_motion_namespace": "/Game/V7RosterMotionV3/v7_male_adult_14",
+      "mouth_visibility": {
+        "habitat_status": "pass_native_bone_projection",
+        "ue_status": "pass_native_bone_projection",
+        "uniform_occludes_lips": false,
+        "helmet_or_lighting_limits_ue": false,
+        "visible_lips_binding_allowed_habitat": true,
+        "visible_lips_binding_allowed_ue": true,
+        "voice_emission_allowed": true,
+        "physical_anchor_relocated": false,
+        "policy": "Keep physical lip point following MUpperLip; require visible_lips_binding_allowed for lip-visible questions. Uniform occlusion is explicitly marked, never relabel a helmet surface as lips.",
+        "source_evidence": [
+          "evidence/mouth_review_rocketbox.jpg",
+          "evidence/ue_mouth_review_sheet.jpg"
+        ]
+      }
     },
     {
       "major_id": "v7_male_adult_16",
@@ -1719,7 +2202,22 @@
         }
       ],
       "motion_master_glb": "round2/assets/humans/v7_male_adult_16/final_ue_root.glb",
-      "ue_motion_namespace": "/Game/V7RosterMotionV3/v7_male_adult_16"
+      "ue_motion_namespace": "/Game/V7RosterMotionV3/v7_male_adult_16",
+      "mouth_visibility": {
+        "habitat_status": "pass_native_bone_projection",
+        "ue_status": "pass_native_bone_projection",
+        "uniform_occludes_lips": false,
+        "helmet_or_lighting_limits_ue": false,
+        "visible_lips_binding_allowed_habitat": true,
+        "visible_lips_binding_allowed_ue": true,
+        "voice_emission_allowed": true,
+        "physical_anchor_relocated": false,
+        "policy": "Keep physical lip point following MUpperLip; require visible_lips_binding_allowed for lip-visible questions. Uniform occlusion is explicitly marked, never relabel a helmet surface as lips.",
+        "source_evidence": [
+          "evidence/mouth_review_rocketbox.jpg",
+          "evidence/ue_mouth_review_sheet.jpg"
+        ]
+      }
     },
     {
       "major_id": "v7_male_adult_20",
@@ -1789,7 +2287,22 @@
         }
       ],
       "motion_master_glb": "round2/assets/humans/v7_male_adult_20/final_ue_root.glb",
-      "ue_motion_namespace": "/Game/V7RosterMotionV3/v7_male_adult_20"
+      "ue_motion_namespace": "/Game/V7RosterMotionV3/v7_male_adult_20",
+      "mouth_visibility": {
+        "habitat_status": "pass_native_bone_projection",
+        "ue_status": "pass_native_bone_projection",
+        "uniform_occludes_lips": false,
+        "helmet_or_lighting_limits_ue": false,
+        "visible_lips_binding_allowed_habitat": true,
+        "visible_lips_binding_allowed_ue": true,
+        "voice_emission_allowed": true,
+        "physical_anchor_relocated": false,
+        "policy": "Keep physical lip point following MUpperLip; require visible_lips_binding_allowed for lip-visible questions. Uniform occlusion is explicitly marked, never relabel a helmet surface as lips.",
+        "source_evidence": [
+          "evidence/mouth_review_rocketbox.jpg",
+          "evidence/ue_mouth_review_sheet.jpg"
+        ]
+      }
     },
     {
       "major_id": "v7_medical_female_01",
@@ -1829,7 +2342,22 @@
         }
       ],
       "motion_master_glb": "round2/assets/humans/v7_medical_female_01/final_ue_root.glb",
-      "ue_motion_namespace": "/Game/V7RosterMotionV3/v7_medical_female_01"
+      "ue_motion_namespace": "/Game/V7RosterMotionV3/v7_medical_female_01",
+      "mouth_visibility": {
+        "habitat_status": "pass_native_bone_projection",
+        "ue_status": "pass_native_bone_projection",
+        "uniform_occludes_lips": false,
+        "helmet_or_lighting_limits_ue": false,
+        "visible_lips_binding_allowed_habitat": true,
+        "visible_lips_binding_allowed_ue": true,
+        "voice_emission_allowed": true,
+        "physical_anchor_relocated": false,
+        "policy": "Keep physical lip point following MUpperLip; require visible_lips_binding_allowed for lip-visible questions. Uniform occlusion is explicitly marked, never relabel a helmet surface as lips.",
+        "source_evidence": [
+          "evidence/mouth_review_rocketbox.jpg",
+          "evidence/ue_mouth_review_sheet.jpg"
+        ]
+      }
     },
     {
       "major_id": "v7_medical_male_01",
@@ -1867,7 +2395,22 @@
         }
       ],
       "motion_master_glb": "round2/assets/humans/v7_medical_male_01/final_ue_root.glb",
-      "ue_motion_namespace": "/Game/V7RosterMotionV3/v7_medical_male_01"
+      "ue_motion_namespace": "/Game/V7RosterMotionV3/v7_medical_male_01",
+      "mouth_visibility": {
+        "habitat_status": "pass_native_bone_projection",
+        "ue_status": "pass_native_bone_projection",
+        "uniform_occludes_lips": false,
+        "helmet_or_lighting_limits_ue": false,
+        "visible_lips_binding_allowed_habitat": true,
+        "visible_lips_binding_allowed_ue": true,
+        "voice_emission_allowed": true,
+        "physical_anchor_relocated": false,
+        "policy": "Keep physical lip point following MUpperLip; require visible_lips_binding_allowed for lip-visible questions. Uniform occlusion is explicitly marked, never relabel a helmet surface as lips.",
+        "source_evidence": [
+          "evidence/mouth_review_rocketbox.jpg",
+          "evidence/ue_mouth_review_sheet.jpg"
+        ]
+      }
     },
     {
       "major_id": "v7_pilot_female_01",
@@ -1907,7 +2450,22 @@
         }
       ],
       "motion_master_glb": "round2/assets/humans/v7_pilot_female_01/final_ue_root.glb",
-      "ue_motion_namespace": "/Game/V7RosterMotionV3/v7_pilot_female_01"
+      "ue_motion_namespace": "/Game/V7RosterMotionV3/v7_pilot_female_01",
+      "mouth_visibility": {
+        "habitat_status": "pass_native_bone_projection",
+        "ue_status": "pass_native_bone_projection",
+        "uniform_occludes_lips": false,
+        "helmet_or_lighting_limits_ue": false,
+        "visible_lips_binding_allowed_habitat": true,
+        "visible_lips_binding_allowed_ue": true,
+        "voice_emission_allowed": true,
+        "physical_anchor_relocated": false,
+        "policy": "Keep physical lip point following MUpperLip; require visible_lips_binding_allowed for lip-visible questions. Uniform occlusion is explicitly marked, never relabel a helmet surface as lips.",
+        "source_evidence": [
+          "evidence/mouth_review_rocketbox.jpg",
+          "evidence/ue_mouth_review_sheet.jpg"
+        ]
+      }
     },
     {
       "major_id": "v7_pilot_male_01",
@@ -1947,7 +2505,22 @@
         }
       ],
       "motion_master_glb": "round2/assets/humans/v7_pilot_male_01/final_ue_root.glb",
-      "ue_motion_namespace": "/Game/V7RosterMotionV3/v7_pilot_male_01"
+      "ue_motion_namespace": "/Game/V7RosterMotionV3/v7_pilot_male_01",
+      "mouth_visibility": {
+        "habitat_status": "pass_native_bone_projection",
+        "ue_status": "pass_native_bone_projection",
+        "uniform_occludes_lips": false,
+        "helmet_or_lighting_limits_ue": false,
+        "visible_lips_binding_allowed_habitat": true,
+        "visible_lips_binding_allowed_ue": true,
+        "voice_emission_allowed": true,
+        "physical_anchor_relocated": false,
+        "policy": "Keep physical lip point following MUpperLip; require visible_lips_binding_allowed for lip-visible questions. Uniform occlusion is explicitly marked, never relabel a helmet surface as lips.",
+        "source_evidence": [
+          "evidence/mouth_review_rocketbox.jpg",
+          "evidence/ue_mouth_review_sheet.jpg"
+        ]
+      }
     },
     {
       "major_id": "v7_police_female_01",
@@ -1986,7 +2559,22 @@
         }
       ],
       "motion_master_glb": "round2/assets/humans/v7_police_female_01/final_ue_root.glb",
-      "ue_motion_namespace": "/Game/V7RosterMotionV3/v7_police_female_01"
+      "ue_motion_namespace": "/Game/V7RosterMotionV3/v7_police_female_01",
+      "mouth_visibility": {
+        "habitat_status": "qualified_uniform_occludes_lips",
+        "ue_status": "qualified_uniform_occludes_lips",
+        "uniform_occludes_lips": true,
+        "helmet_or_lighting_limits_ue": false,
+        "visible_lips_binding_allowed_habitat": false,
+        "visible_lips_binding_allowed_ue": false,
+        "voice_emission_allowed": true,
+        "physical_anchor_relocated": false,
+        "policy": "Keep physical lip point following MUpperLip; require visible_lips_binding_allowed for lip-visible questions. Uniform occlusion is explicitly marked, never relabel a helmet surface as lips.",
+        "source_evidence": [
+          "evidence/mouth_review_rocketbox.jpg",
+          "evidence/ue_mouth_review_sheet.jpg"
+        ]
+      }
     },
     {
       "major_id": "v7_police_male_01",
@@ -2026,7 +2614,22 @@
         }
       ],
       "motion_master_glb": "round2/assets/humans/v7_police_male_01/final_ue_root.glb",
-      "ue_motion_namespace": "/Game/V7RosterMotionV3/v7_police_male_01"
+      "ue_motion_namespace": "/Game/V7RosterMotionV3/v7_police_male_01",
+      "mouth_visibility": {
+        "habitat_status": "pass_native_bone_projection",
+        "ue_status": "pass_native_bone_projection",
+        "uniform_occludes_lips": false,
+        "helmet_or_lighting_limits_ue": false,
+        "visible_lips_binding_allowed_habitat": true,
+        "visible_lips_binding_allowed_ue": true,
+        "voice_emission_allowed": true,
+        "physical_anchor_relocated": false,
+        "policy": "Keep physical lip point following MUpperLip; require visible_lips_binding_allowed for lip-visible questions. Uniform occlusion is explicitly marked, never relabel a helmet surface as lips.",
+        "source_evidence": [
+          "evidence/mouth_review_rocketbox.jpg",
+          "evidence/ue_mouth_review_sheet.jpg"
+        ]
+      }
     }
   ],
   "animals": [
@@ -2040,8 +2643,29 @@
             "walk",
             "stand"
           ],
-          "dual_backend_usable": true,
-          "habitat_glb": "round3/assets/dogs/beagle/idle.glb"
+          "walk_allowed": true,
+          "habitat_glb": "round3/assets/dogs/beagle/idle.glb",
+          "motion_master_glb": "round2/assets/dogs/beagle/motion_runtime.glb",
+          "beak_local_glb_m": null,
+          "mouth_bone": "Xtra Mouth",
+          "source_license": "Rocketbox MIT; retained Quaternius motion donor CC0",
+          "source_author": null,
+          "source_url": null,
+          "ue_blueprint_path": null,
+          "dry_recording_binding": "round4/evidence/animal_audio_binding.json#/classes/dog_bark",
+          "admitted_motion_clips": {
+            "walk": [
+              "Walking_Contact_mp3d",
+              "Walking_Contact_hm3d",
+              "Walking_Contact_kujiale"
+            ],
+            "stand": [
+              "Idle_Contact_mp3d",
+              "Idle_Contact_hm3d",
+              "Idle_Contact_kujiale"
+            ]
+          },
+          "dual_backend_usable": true
         },
         {
           "asset_id": "v7_rocketbox_german_shepherd_01",
@@ -2050,8 +2674,29 @@
             "walk",
             "stand"
           ],
-          "dual_backend_usable": true,
-          "habitat_glb": "round3/assets/dogs/german_shepherd/idle.glb"
+          "walk_allowed": true,
+          "habitat_glb": "round3/assets/dogs/german_shepherd/idle.glb",
+          "motion_master_glb": "round2/assets/dogs/german_shepherd/motion_runtime.glb",
+          "beak_local_glb_m": null,
+          "mouth_bone": "Xtra Mouth",
+          "source_license": "Rocketbox MIT; retained Quaternius motion donor CC0",
+          "source_author": null,
+          "source_url": null,
+          "ue_blueprint_path": null,
+          "dry_recording_binding": "round4/evidence/animal_audio_binding.json#/classes/dog_bark",
+          "admitted_motion_clips": {
+            "walk": [
+              "Walking_Contact_mp3d",
+              "Walking_Contact_hm3d",
+              "Walking_Contact_kujiale"
+            ],
+            "stand": [
+              "Idle_Contact_mp3d",
+              "Idle_Contact_hm3d",
+              "Idle_Contact_kujiale"
+            ]
+          },
+          "dual_backend_usable": true
         }
       ]
     },
@@ -2060,21 +2705,49 @@
       "variants": [
         {
           "asset_id": "v7_rocketbox_bird_sparrow_fallback_01",
-          "name_zh": "麻雀（MIT 库资产兜底，不是家养鹦鹉或金丝雀）",
+          "name_zh": "麻雀（野鸟）",
           "movement": [
             "static"
           ],
-          "dual_backend_usable": true,
-          "habitat_glb": "round3/assets/bird_sparrow_fallback/runtime.glb"
+          "walk_allowed": false,
+          "habitat_glb": "round3/assets/bird_sparrow_fallback/runtime.glb",
+          "motion_master_glb": null,
+          "beak_local_glb_m": [
+            -2.5685542937026185e-07,
+            0.4220470190048218,
+            -0.13031797111034393
+          ],
+          "mouth_bone": null,
+          "source_license": "MIT",
+          "source_author": null,
+          "source_url": null,
+          "ue_blueprint_path": null,
+          "dry_recording_binding": null,
+          "admitted_motion_clips": null,
+          "dual_backend_usable": true
         },
         {
-          "asset_id": "v7_pet_budgerigar_candidate_01",
-          "name_zh": "家养虎皮鹦鹉候选（未准入）",
+          "asset_id": "v7_ccby_pet_parrot_chris_woods_01",
+          "name_zh": "家养鹦鹉类（风格化，物种未定）",
           "movement": [
             "static"
           ],
-          "dual_backend_usable": false,
-          "habitat_glb": null
+          "walk_allowed": false,
+          "habitat_glb": "round4/assets/parrot/runtime.glb",
+          "motion_master_glb": null,
+          "beak_local_glb_m": [
+            0.00016314708624536595,
+            0.73855329719278,
+            -0.10340920928344603
+          ],
+          "mouth_bone": null,
+          "source_license": "CC-BY-4.0",
+          "source_author": "Chris Woods",
+          "source_url": "https://chris-woods.itch.io/parrot-rig",
+          "ue_blueprint_path": "/Game/V7RosterPetBirdsCCBY/v7_ccby_pet_parrot_chris_woods_01/BP_v7_ccby_pet_parrot_chris_woods_01.BP_v7_ccby_pet_parrot_chris_woods_01",
+          "dry_recording_binding": "round4/evidence/animal_audio_binding.json#/classes/pet_bird_parrot",
+          "admitted_motion_clips": null,
+          "dual_backend_usable": true
         }
       ]
     }
@@ -2087,5 +2760,6 @@
     "v7_chair_sofa_chair"
   ],
   "external_full_manifest": "registrations/v7_asset_roster.json",
-  "episode_admission": "not_run"
+  "episode_admission": "not_run",
+  "followup_round4": "round4/reports/REPORT_zh.md"
 }
