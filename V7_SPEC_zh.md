@@ -1,14 +1,14 @@
 # Hardbank v7 第一批规格书
 
-日期：2026-10-04。状态：第四回合声学对照与场景配额；四组移动RIR方案均未通过，正式生成仍被阻止，尚未冻结生产版。第14节为本轮现行状态。第13节、docs/V7_PRODUCTION_INTERFACE_zh.md为现行接口；第12节保留追加1实测；第9、11节的第一轮预算保留为历史依据。试点媒体为研究诊断，不计正式Episode。规模和未实测预算均为设计值。
+日期：2026-10-04。现行状态：第18节的v7-S alpha已交付160正式窗口/2240题，冻结生成器44235e5支持受限alpha生产；完整版v7的全题族/全场景配额仍未完成。第16节保留已通过的能量本底校准，第17节保留第7回合来源审计；第12–15节和首轮预算为历史记录，不代表本轮alpha拒绝状态。现行alpha接口为docs/V7_ALPHA_PRODUCTION_INTERFACE_zh.md，完整版接口继续保留。未实测CCI预算均标估算。
 
 ## 1. 目标与监督来源
 
 目标为用仿真任务监督泛化到真实场景。采用 Astra 方案第3、4节，原文：
 `/home/neos/jzy/codex_runs/20261003-124656_plan_realgap-plan/last_02.txt`。
-不使用 STARSS 波形、实测 RIR、真实问答、事件时空标注或人物对应标注训练/校准主线。公开类别定义、坐标和出题协议可作接口依据。本轮只读取了公开定义与协议文字；不从目标域波形反推声学参数。
+不使用 STARSS 波形、实测 RIR、真实问答、事件时空标注或人物对应标注训练/校准主线。公开类别定义、坐标和出题协议可作接口依据。第8回合仅为禁止来源同源排除，只读STARSS/DCASE/TAU波形作去重参考；不把它们作干声、不训练、不反推声学参数。
 
-必须区分扫描资产、干声资产、上游类别标签、通用预训练、最终仿真任务监督。“房间里播放了录音”不等于干声或类别标签是合成的。v6 声音池使用真实声音及标签；第一批主线不能默认为全部复用。保留35类词表，逐项重建或核实可用干声；主线标签由程序生成机制、作者脚本和明确的物理发声者给出。需引用真实素材标签的版本单列为兼容诊断设置，不混入最强的纯仿真任务监督声明。
+必须区分扫描资产、录制干声、公开类别/转录/说话人标签、通用预训练和最终仿真任务监督。主线允许有逐条许可和原ID的公开录制干声及公开标签，经过仿真RIR生成空间音频；不含真实空间录音或真实视频。保留35类词表，逐条准入，不能默认整库可用。物理发声机制、actor绑定和任务时空监督来自仿真；干声来源标签及自动听辨结果另列。
 
 ## 2. 房屋、来源与划分
 
@@ -34,7 +34,7 @@
 
 ## 3. 声源词表与STARSS13对应
 
-语义由 `sound_class`、`emission_mechanism`、`physical_source_id`、`actor_id`、`voice_identity_id` 和 `content_class` 分别表达。现场讲话指画面中人体发声机制，不要求干声一定来自真人录音。扬声器播放讲话、现场乐器、扬声器播放音乐必须分开；同一干声在不同物理机制下不能继承错误的声源身份。
+语义由 `sound_class`、`emission_mechanism`、`physical_source_id`、`actor_id`、`voice_identity_id` 和 `content_class` 分别表达。现场讲话指人体物理发声机制，干声使用合格真人录音，或未来许可链完整的自然TTS；禁止机器人formant讲话。扬声器播放讲话、现场乐器、扬声器播放音乐必须分开；同一干声在不同物理机制下不能继承错误的声源身份。
 
 STARSS原生类编号为0女性讲话、1男性讲话、2拍手、3电话、4笑声、5特定家务设备声、6步行脚步、7门/柜门、8播放音乐、9现场乐器、10水龙头、11手动铃、12敲击。对应是语义规则，不能靠关键词强行合并。
 公开定义来源：[DCASE 2023官方类别说明](https://dcase.community/challenge2023/task-sound-event-localization-and-detection-evaluated-in-real-spatial-sound-scenes)。
@@ -101,14 +101,14 @@ STARSS原生类编号为0女性讲话、1男性讲话、2拍手、3电话、4笑
 
 v6声音池35类与QA-21固定答案域34类不同：`any_audioset_class_playback` 为复合占位，不在旧固定分类域内。沿用v0.2主面板时，QA-21严格只使用已确认的 `music_playback` 与 `water_tap_faucet` 真值映射，公开选项仍为完整旧34类。新增13类面板使用固定公开13类域并单列统计，不能改变旧面板类别权重后声称涨分。
 
-## 4. 干声、标签与许可（第7回合口径）
+## 4. 干声、标签与许可（第7回合口径，第8回合自动准入）
 
 “只用仿真训练”指不使用真实场景的空间录音或真实视频。公开音效库录好的单声道干声、VCTK及其公开类别/转录/说话人元数据可以作为输入，经过仿真RIR得到空间声场；这是与v6一致的输入口径。机器人formant讲话、程序合成动物/家电/环境声及程序合成音乐不进入训练主线。owner的STARSS≥60是目标，本轮没有新增真实集评测成绩。
 
 | 资源 | 现有位置/状态 | 类别标签来源 | 本批用法与许可 |
 |---|---|---|---|
 | 录制的非讲话声及音乐 | v6旧池564段；按v7-families第二回合逐条准入，不整库默认放行 | 原公开音效元数据、FSD50K/AudioSet标签与版本化类别映射；自动听辨结果 | 允许录制的单声道片段。每条原始ID、来源URL、逐clip许可证和署名保留；NC/Sampling+及未过自动准入项继续排除 |
-| VCTK讲话 | `/data/avengine_external/assets/sound_library_v1/speech_playback/vctk_*/clip.json`及`clip.wav`：24人、600段、342句，本轮读取元数据核对 | VCTK原speaker_id、transcript、gender、accent，公开标签可以使用 | VCTK-Corpus 0.92，CC BY4.0。逐条保存原utterance ID及裁剪链、署名；600是库存数，不等于已完成600条自动准入。旧296条是先前pool快照，不再当现有库存总数 |
+| VCTK讲话 | `/data/avengine_external/assets/sound_library_v1/speech_playback/vctk_*/clip.json`及`clip.wav`：24人、600段、342句，第8回合600/600完成自动准入，收据见第18节 | VCTK原speaker_id、transcript、gender、accent，公开标签可以使用 | VCTK-Corpus 0.92，CC BY4.0。逐条保存原utterance ID及裁剪链、署名；600/600已获独立自动准入，性别标签核对原speaker-info，不声称听觉性别识别；旧296条仅是先前pool/拒绝收据，不改写旧审计 |
 | 自编台词内容题（QA-26至28等） | 自有台词＋自然TTS（如CosyVoice2）；现有`semantic_speech_v2.log`仅为历史线索 | 作者脚本、内容答案、实际voice/reference身份，不从服装推断 | 禁止eSpeak/formant。CosyVoice代码和CosyVoice2-0.5B模型卡公开标Apache-2.0；实际使用还须记代码/权重revision、参考音频原始ID及许可、输出条款核对。上游条款不是每条已有输出的准入证明 |
 | 现场人声、扬声器播放人声 | 可共享合格的录制干声内容，但发声机制及actor绑定在场景中明确分开 | 内容标签与物理发声机制分别记录 | 本地目录名`speech_playback`或干声库`split=eval`字段不自动决定场景机制或评测同源；同源须查原始ID/实际数据来源和去重证据 |
 | 现场乐器、播放音乐 | 有逐条许可的录制音乐/乐器干声 | 录制素材标签＋场景`instrument_live`/`loudspeaker_playback`机制 | 不用程序合成器替代缺失类；内容和物理机制分开，反事实组按预定因素变化 |
@@ -132,7 +132,7 @@ v6声音池35类与QA-21固定答案域34类不同：`any_audioset_class_playbac
 | 同人多次发声 | ≥50%窗口同actor有≥2活动段；≥20%有≥3段 | 保持物理身份，重新分配活动段ID；不让每句话创建新人物 |
 | 移动发声 | ≥40%窗口含移动时发声；其中至少一半含“走动发声→停声/停步→再次发声” | 运动状态与声活动分别建模；停步不等于停声 |
 | 速度与路径 | 人体0..1.2m/s，明确静止段≥0.5秒；路径留在本屋导航域 | 生理与几何可行的工程起点，源位不瞬移 |
-| 时变RIR | 静止同条件位置一条RIR跨窗复用；移动0.25秒或0.5米先到者为待验候选，保留拐点/停止段；FOA≤5°并通过第13节独立能量验收后才可正式采用 | 0.25、0.1、0.05秒线性插值均存在能量失败，方向通过不能授予正式生产；原生嘴部动画节点不得静默丢弃 |
+| 时变RIR | 静止同条件位置一条RIR跨成员/窗复用；移动沿第16节已校准的1线程、衍射true/10、integer-arrival-local-correlation-emission-aligned-v1与精确姿态缓存，FOA≤5°；alpha不含移动声源 | 原未校准线性插值失败为历史；第16节80中点已过。人体运动许可/全皮肤接触须另外准入，不能由能量通过替代；原生嘴部节点不得丢弃 |
 | 重叠 | ≥40%窗口有≥2源重叠≥0.5秒；≥10%有3–4源重叠 | 独立采样类别、声源和活动段；仅新增可辨认声时同步更新监督 |
 | 顺序事件容量 | ≥25%窗口包含7–12个活动段；≥5%压力窗包含21–30段 | 顺序段数与同时发声源数分开；公开MCQ域超20时改开放题，绝不截到6 |
 | 同时活动源 | 主集1–4，压力子集5–6；最多8个物理发声者 | 减少难以辨识的密度，同时测试旧事件地址容量 |
@@ -562,3 +562,61 @@ CCI不运行、不登录；代码和阻断交接由owner转发给`20261003-20591
 
 
 VCTK旧296条的上游拒绝详情为：license/自动activity/归一化许可链296条、模型receipt或音频hash缺失296条、参考去重扫描缺失296条；其中103条还有evaluation_source_split及evaluation_source_identity_overlap。来源见本轮`evidence/vctk_upstream_blockers.json`。本轮已核实VCTK 0.92公开许可与600条原utterance ID，但未新做其模型读回/归一化/完整评测同源扫描；不能把旧“无permissive逐clip许可”文字继续当VCTK发布许可结论。103条相交对象与STARSS/SAVVY实际同源关系未验证，保留原拒绝；既不能仅凭库split=eval字段判泄漏，也不能凭口径修正解除真实同源排除。上游须按允许录制干声的新口径重算并交付逐条技术证据后才能生产使用。
+
+
+## 18. 第8回合：v7-S alpha正式窗口、拒绝原因和生产交接
+
+本节为现行alpha状态；既有完整v7配额、题族最低量与判据不改。Alpha是明确声明的范围投影，`scene_quotas`里的上游请求不能当实际真值。代码版本 `44235e58eed56ebc7161738561e96be574447fb9` 在最终20父冷批之前提交；正式profile=`v7-S-alpha-recorded-static-native-14-v2`。完整版正式窗仍0，alpha正式窗160/2240题，20个独立父和40个主时间窗，四成员不增加独立数。两套训练屋各10父；本轮试点强制四成员，500父生产表保留原125四成员/375单成员计划，不能原倍率外推。
+
+产物根：`/data/jzy/tmp/claude_hardbank_20260923/v7_batch1_20261003/round8_alpha_20261004`；正式交付：`/data/jzy/tmp/claude_hardbank_20260923/v7_batch1_20261003/round8_alpha_20261004/v7_S_alpha20_release_v1`。逐父墙钟/CPU/RIR见`v7_S_alpha20_release_v1/parents.csv`，逐窗14题/模态/绑定/题族见`windows.csv`；来源为最终冷批`pilot20_frozen_r2_v1/shard_*.json`的完整成功worker计时，不计暖缓存恢复、旧诊断批或额外重放。CPU含自己及子进程：中位1873.256005秒、最小1587.112960、最大2046.697372，20父总37286.596665秒；墙钟中位1712.244415、范围1436.150490–1851.548841秒。48g实测16 worker，CPU llvmpipe，RLR1线程/衍射true10；静止源每个姿态只算一条RIR，本批共40次。
+
+### 18.1 准入、素材与实际范围
+
+VCTK收据`vctk_automatic/VCTK_ADMISSION.json`及CSV：600/600自动通过，24说话人、342句；CC BY4.0、原始utterance ID、原mic FLAC与clip裁剪链、原转录、speaker-info/性别/口音、原归因/许可原文、hash、时长、响度、自动Speech/活动检测和去重范围均保留。F300/M300是元数据一致性，不是声线性别分类。时长1.583125–5.993375秒；常数增益目标−23LUFS并限−3dBFS真峰，读回LUFS -30.83–-22.96、最高真峰-3.02dBFS；峰值限制会使部分片段低于目标LUFS。Speech阈值0.19171299、margin0.05及活动20ms/10ms、−25dB峰门沿用families已校准政策，不新调门槛。归一化保持样本时长/内容，只乘常数；采样器保留整段录音，窗裁到的内容不引用完整转录作为题面。
+
+去重参考为STARSS23/DCASE/TAU（`vctk_automatic/deduplication_v9.json`）；matches0，扫描17833个参考波形/108452指纹、errors0。SAVVY未纳入，阳性控制49/58；9个漏检使自动指纹不能证明全域无同源，原VCTK来源/ID链为主要准入依据。禁止把参考真实空间波形作干声或声学参数校准。许可归因：Junichi Yamagishi / Christophe Veaux / Kirsten MacDonald，2019，VCTK 0.92，DOI10.7488/ds/2645。
+
+源注册表`SOURCE_ADMISSION_alpha.json`包含已准入非讲话86条/19类加600条VCTK；本批实际只用8个男性录音说话人/21原ID、两位说话actor、另两位沉默旁人、1个M2底模/4许可衣色变体（可用7项的子集）。站姿逐摆放重新做全4803皮肤顶点/7440三角面、74骨骼凸包、双脚15mm、原生碰撞和故意下沉10cm坏对照；默认Stage Bullet额外40mm padding在任务内原生StageTemplate显式设0，匹配实际原网格，不改皮肤/房屋数据或15mm判据，坏对照仍检出。只使用idle_pose0，不登记走路/坐下许可。独立appearance seed打乱四衣色到四身体，audio seed另用；本批说话/沉默四衣色均有实际样本，计数见`evidence/frozen_alpha_extra_rollup.json`。组内仅交换原定两发声者衣色或干声关联，房屋/材质/相机/背景/时间共享。QA26–28明确排除，TTS链仍未闭合；无eSpeak/程序合成声/真实空间干声。
+
+### 18.2 拒绝原因与不可绕过项
+
+原输入门禁：`evidence/prior_admission_blockers_rank.json`从families第三回合原902条收据统计，许可、缺模型收据/波形hash改变、活动、归一化、去重链各410条；其内旧VCTK296条各296次，eval字段/身份排除103条。不能把库内split字段当评测同源证明；本轮以原ID及真实源链补600条独立收据，不改旧记录。7人体许可过、原实际接触门禁阻7；4衣色子集通过本轮每屋实际站姿证据，不以静止标签代替接触检查。TTS链和未验运动不靠程序声音/假动作补齐。
+
+最终候选题池分母160窗（含成员），下表为题族×窗口拒绝次数；相同窗可有多项。没有把未选题/已经满足配额的候选算失败，也没有把候选次数算失败正式窗数。
+
+| 原因码 | 题族×窗口次数 | 各题族次数 |
+|---|---:|---|
+| no_valid_post_sound_window | 480 | QA-13(160);QA-16(160);QA-17(160) |
+| authored_semantic_manifest_missing | 480 | QA-26(160);QA-27(160);QA-28(160) |
+| distractors_equal_gold | 440 | QA-06(160);QA-24(160);QA-04(120) |
+| missing_occluder_identity | 160 | QA-10(160) |
+| no_distance_trend_during_event | 160 | QA-15(160) |
+| sampling_window_missing | 160 | QA-18(160) |
+| event_segmentation_not_reviewed | 160 | QA-23(160) |
+| sound_class_truth_missing | 160 | QA-21(160) |
+| no_fully_occluded_state_observed | 80 | QA-09(80) |
+| candidate_not_emitted | 40 | QA-04(40) |
+
+alpha可暂缓无合格证据的题族，选其余真实合格题。v6/QA23的`event_segmentation_not_reviewed`仍拒160，实际选的是原STARSS_v0.2活动协议QA23=120；v6/QA04与v0.2/QA04也分别统计，见summary.panel_family_counts。更细的候选尝试拒绝排行和协议排除完整保留于`rejections.json`，不和上表不同分母合并。必须解决而不能跳过：录制来源/许可/原ID与准入、真实原生接地/皮肤/像素/材质、FOA方向与相机同步、原判分器/真值、14题和精确模态累计配额、无关模态答案不变及绑定关联交换必须变、完整视频/音频时钟与封存必需文件。本批最终20/20父满足这些alpha门禁。
+
+诊断旧`pilot20_v2`4父被QA14公开“哪个更近”未点名原比较两人的歧义阻止；额外2个已封存诊断父中16条旧题面在导出审计被剔除。`src/avengine/qa/unified_catalog.py`仅在多于2人时点名实际参与比较的两人，原距离真值/ID/原scorer不变；遵守分工，事前已在`REPORT_QA_FILE_EXCEPTION_zh.md`记录。正式冻结冷批全部使用新题面，旧产物未覆盖/删除、不计本批。
+
+### 18.3 实际题数、模态和验收
+
+每窗14逻辑题/14公有行，MCQ/open不重复计；V672/A560/AV1008=30%/25%/45%，绑定800=35.714%，20个四成员组证书均合格。题族实际量（含3个独立v0.2面板）：QA-01=45；QA-02=800；QA-03=31；QA-04=48；QA-05=36；QA-07=238；QA-08=24；QA-09=80；QA-11=177；QA-12=35；QA-14=177；QA-19=37；QA-20=22；QA-22=14；QA-23=120；QA-25=112；STARSS-CLASS13=40；STARSS-FRUSTUM=80；STARSS-SPEAKERS=124。其余QA06/10/13/15/16/17/18/21/24/26/27/28=0，完整题族最低量尚未满足，不改完整版最低量。
+
+原生40画面世界×450=18000帧；同context OBJECTS_ONLY像素证据及RGB/depth/semantic恢复的root/joint/camera/link最大误差0；4站姿/世界与坏对照均过。40世界材质总门禁pass；3892可测行pass、1548因<100声源像素not_run、fail0，不能称5440行全通过。最大高光0≤0.04，色差p500.05513425≤0.12、p950.16969953≤0.28；原summary.all_status_pass=false含not_run，详见`evidence/final_material_and_panel_audit.json`。HM3D资产全面遮挡抽检仍not_run、深色缅甸猫预期毛色未验证，当前人体检查不授予其他资产这些维度准入。
+
+80个静止直达方向读回最大0.02459618°（原首到达+0.5ms raw W×XYZ方法，5°阈值不变），晚反射方向单列不拿来代替直达判据。5个最终编码窗/10方向抽检最大0.02459618°，FOA等于全历史切片、mono等于W逐样本一致。独立复验导出目录160/160窗/2240题/150帧/FOA160000×4/16kHz，原scorer及v0.2 canonical保持，80原生视锥锚点真值一致，见`evidence/portable_release_validation_v3.json`。508 passed/36 skipped/6999 deselected（41.53s），缺旧fixture跳过日志`logs/pytest_fast_alpha_frozen_v1.log`；原生与媒体检查另跑，未以Python单测代替。
+
+实际时间覆盖：carry-in28/160=17.5%（完整40%目标未达），同actor多段160/160、>6段160/160，活动段数7–17，≥0.5秒两源重叠136/160；0–8人数题本批仅人数2，STARSS-SPEAKERS124题全2，其余层0；STARSS-CLASS13=40题全male speech/原id1，其他12类题0；完整34类QA21=0；STARSS-FRUSTUM80题全out_of_frame/in_frame0（起始相机向外100°，后续回到人物，不按真实数据比例设置）。八方位均衡、严格空间四格、运动、噪声/非讲话多样性和全部完整v5配额未实现；不能把upstream请求或可用库类别写成实际覆盖。训练E/S输入只允许部署预测，本生成器未提供预测、不得输入private真值；真实训练/STARSS评测未跑，≥60目标未验证。
+
+### 18.4 500父种子、CPU后端、预算和恢复
+
+`seeds_alpha_500_v1/v7_S_alpha_train.jsonl`400父/8训练屋×50，`v7_S_alpha_dev.jsonl`100父/2开发屋×50，与`v7_full_alpha_train_prefix400.jsonl`及`v7_full_alpha_dev_prefix100.jsonl`逐字节一致。父seed及分量seed/house/split/window起点与原表保留，room仅投影到本轮测得站位；未指定房屋的完整储备表不调度。原生布局`native_static_layouts_10.json`10屋都4站位合格；输入预检500/500、163.039851秒，预检不计原生正式场景。训练100四成员+300单成员、开发25四成员+75单成员；625画面世界/875媒体成员/1750正式计划窗/24500计划题，其中训练1400/19600、开发350/4900，成组认证绑定≥5000/24500=20.408%。只有实际封存后才能计数。
+
+完整画面450帧含mask/接触/材质验收CPU中位831.430843秒（40世界）；完整四成员父非画面CPU中位72.379441秒。预算=625×画面中位+500×完整四成员非画面中位=154.398333核时；后项保留父固定RIR/干声/验收成本，不除四外推单成员。64 CPU理想2.412474小时、含50%余量3.618711小时；CCI128理想1.206237、余量1.809355小时。64/128扩展均未实测，不保证时限。owner提供CCI单核裸RGB106秒/30秒世界，仅625×106=18.402778核时裸画面下界，不含本线完整验收。
+
+CCI规划写AFS `/mnt/afs/xinyuanqian/jzy/hardbank/v7_S_alpha_20261004/`，50个不重叠10父分片（40训练、10开发）、总worker上限按64/128规划，每父单写者、house先预检1父后49父，192核留余量。4小时重启后依据不可覆盖的完成指针、recipe一致性和精确姿态RIR续跑；未完成画面阶段重跑30秒世界，保留失败attempt。CLI`tools/timeline/generate_v7_alpha.py --render-backend cpu_llvmpipe`＋`docs/V7_ALPHA_PRODUCTION_INTERFACE_zh.md`的Mesa/CPU EGL选择器及OMP/BLAS/LP线程1、CUDA_VISIBLE_DEVICES空；actual maps证实swrast/llvmpipe且无NVIDIA GL，无GPU回退。CCI只同步冻结源码，本线未登录/启动CCI，原生ABI/路径迁移/AFS硬链接与持久化须该线实测。P19接口/输出每窗文件/内容可读答案/恢复策略与可清理临时文件见该接口；只有完整导出复验通过后才能清理未来生产临时RGB/debug/完整尾音，必需证据/原干声许可/精确RIR/失败审计保留；本轮没有清理或删除任何既有产物。
+
+可转交的代码冻结44235e58eed56ebc7161738561e96be574447fb9，最终文档HEAD见本回合HANDOFF.json；运行时基于本检出`release/avengine_release_manifest_v1.json`和原生renderer.runtime_identity读回。报告时间2026-10-04T21:15:05+08:00，最终完成时间以HANDOFF为准。
