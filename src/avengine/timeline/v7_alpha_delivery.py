@@ -203,6 +203,7 @@ def export_alpha(seeds,seal_roots,output,expected_parents=None,sealed_parent_map
     write_json(target/'rejections.json',rejection)
     def describe(values):
         ordered=sorted(float(v) for v in values)
+        if not ordered:return {'n':0,'median':None,'p95':None,'min':None,'max':None}
         return {'n':len(ordered),'median':statistics.median(ordered),'p95':ordered[min(len(ordered)-1,int(.95*len(ordered)))],'min':ordered[0],'max':ordered[-1]}
     bindings=sum(w['binding'] for w in window_rows)
     summary={'status':'formal_alpha_admitted','profile':next(iter(profiles)) if len(profiles)==1 else sorted(profiles),'independent_parent_scenes':len(rows),
