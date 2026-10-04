@@ -17,6 +17,7 @@ def fixture_parent(tmp_path, monkeypatch, *, current):
     if current:
         recipe['visual_contract'] = {'source_material_revision': MATERIAL_REVISION,
                                      'pixel_visibility_revision': VISIBILITY_REVISION}
+        recipe['audio_source_revision'] = generator.AUDIO_SOURCE_REVISION
     (root / 'input_recipe.json').write_text(json.dumps(recipe))
     attempt = root / 'delivery_attempt_retained'; attempt.mkdir()
     (attempt / 'evidence.json').write_text('{}')

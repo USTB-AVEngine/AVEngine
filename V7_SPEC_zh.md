@@ -81,11 +81,11 @@ STARSS原生类编号为0女性讲话、1男性讲话、2拍手、3电话、4笑
 | `toilet_flush` | 20 | 无，不对应 | 冲厕不自动映水龙头 |
 | `water_tap_faucet` | 16 | 10，严格 | 水龙头；QA-21 water_tap_faucet |
 
-为覆盖原生13类，另增加如下11个类，拟定词表总数46。它们是本批设计；追加1已生成两种程序声线讲话和程序拍手的研究干声，听觉类别/拟真与再分发资格仍待核验，其余新素材尚未就绪。音乐和水龙头沿用既有严格标签。
+为覆盖原生13类，另增加如下11个类，拟定词表总数46。它们是本批设计；追加1的程序声线和程序拍手只保留为历史研究诊断，不进入训练。新增素材依本节及第4节公开录制干声准入补齐。音乐和水龙头沿用既有严格标签。
 
 | 新类 | STARSS编号 | 发声机制 | 定义 |
 |---|---:|---|---|
-| `human_speech_female` | 0 | `human_live` | 女性现场讲话；类别由可核实声音/合成配置给出 |
+| `human_speech_female` | 0 | `human_live` | 女性现场讲话；类别由来源元数据和自动听辨给出 |
 | `human_speech_male` | 1 | `human_live` | 男性现场讲话；不从衣服推断 |
 | `hand_clapping` | 2 | `human_live` | 拍手活动段，非拍击次数 |
 | `human_laughter` | 4 | `human_live` | 笑声与同 actor 的讲话分开划段 |
@@ -97,32 +97,28 @@ STARSS原生类编号为0女性讲话、1男性讲话、2拍手、3电话、4笑
 | `bell_manual` | 11 | `mechanical_live` | 酒店碰铃/玻璃铃，区别于报警和门铃 |
 | `surface_knock` | 12 | `mechanical_live` | 人敲门/桌面，区别于门扇动作 |
 
-机器可读对应表位于 `examples/acoustics/v7_class_mapping.json`。电话类的音乐铃声仅在确认音乐播放机制时映原生8；手动牛铃作为乐器时为9，手动酒店铃为11。合成声是否听起来可识别须另做盲听验收，程序名称本身不是听觉正确性证明。
+机器可读对应表位于 `examples/acoustics/v7_class_mapping.json`。电话类的音乐铃声仅在确认音乐播放机制时映原生8；手动牛铃作为乐器时为9，手动酒店铃为11。公开录制干声的类别由来源标签和已校准自动听辨验收；目录名称本身不是听觉正确性证明。
 
 v6声音池35类与QA-21固定答案域34类不同：`any_audioset_class_playback` 为复合占位，不在旧固定分类域内。沿用v0.2主面板时，QA-21严格只使用已确认的 `music_playback` 与 `water_tap_faucet` 真值映射，公开选项仍为完整旧34类。新增13类面板使用固定公开13类域并单列统计，不能改变旧面板类别权重后声称涨分。
 
-## 4. 干声、标签与许可
+## 4. 干声、标签与许可（第7回合口径）
+
+“只用仿真训练”指不使用真实场景的空间录音或真实视频。公开音效库录好的单声道干声、VCTK及其公开类别/转录/说话人元数据可以作为输入，经过仿真RIR得到空间声场；这是与v6一致的输入口径。机器人formant讲话、程序合成动物/家电/环境声及程序合成音乐不进入训练主线。owner的STARSS≥60是目标，本轮没有新增真实集评测成绩。
 
 | 资源 | 现有位置/状态 | 类别标签来源 | 本批用法与许可 |
 |---|---|---|---|
-| v6非讲话事件 | 旧池564条；注册表在 `/data/datasets/avengine_workspaces/multi_home_activity_20260905/root/qa_user_acceptance_rework_20260908_v1/event_library_peak_dbfs_3_20260908_v1/` | 原声音库 `event_classes`、FSD50K/AudioSet体系与旧注册映射 | 兼容诊断可读；不默认用于严格主线。逐文件许可常缺失，旧research_use_only不等于可再分发 |
-| v6 VCTK讲话 | 旧池296条；`/data/avengine_external/assets/sound_library_v1/speech_playback/vctk_*/clip.json` | VCTK speaker/transcript/gender及作者speech_playback映射 | 官方0.92发布条款为CC BY4.0；本地元数据没有自动证明每个裁剪的许可链。真实转录/身份标签不纳入无新增真实标签主线 |
-| v6语义TTS | `semantic_speech_v2.log` 记录CosyVoice合成流程 | 作者编写的中英文内容、场景角色与合成配置 | 可作为合成方案候选；先核实实际权重版本、模型卡、参考音频、输出条款。上游通用预训练如实披露 |
-| 新主线讲话/笑声 | 拟采用已核实权重和允许使用的通用合成组件，或可核实程序合成 | 作者脚本、发声机制与合成配置 | 追加1只运行现有CPU eSpeak NG formant语音，用作者文字与两个voice配置；引擎GPL-3.0-or-later，输出许可/可辨认性/听觉性别未最终认证；笑声等记素材未就绪 |
-| 新主线机械/环境/动物声 | 程序振荡器、脉冲/冲击、模态乐器、滤波噪声/粒子水声、程序声道合成 | 生成程序的参数与受控场景操作 | 本项目自有生成代码及资产来源记录；动物/复杂家电的可辨认性未验证，不用程序标签掩盖拟真缺口 |
-| 新主线音乐 | 自有MIDI/乐谱＋许可证明确的乐器合成器/音色库 | 作者乐谱与loudspeaker/instrument机制 | 曲谱、音色库和实现分别列许可；现场演奏和播放同内容可成机制反事实 |
-| AudioSet/FSD50K词表 | 仅作本体兼容与审计来源 | AudioSet本体、FSD50K人工标签 | 不将数据/本体许可当作YouTube波形授权；严格主线不新增其逐录音类别监督 |
+| 录制的非讲话声及音乐 | v6旧池564段；按v7-families第二回合逐条准入，不整库默认放行 | 原公开音效元数据、FSD50K/AudioSet标签与版本化类别映射；自动听辨结果 | 允许录制的单声道片段。每条原始ID、来源URL、逐clip许可证和署名保留；NC/Sampling+及未过自动准入项继续排除 |
+| VCTK讲话 | `/data/avengine_external/assets/sound_library_v1/speech_playback/vctk_*/clip.json`及`clip.wav`：24人、600段、342句，本轮读取元数据核对 | VCTK原speaker_id、transcript、gender、accent，公开标签可以使用 | VCTK-Corpus 0.92，CC BY4.0。逐条保存原utterance ID及裁剪链、署名；600是库存数，不等于已完成600条自动准入。旧296条是先前pool快照，不再当现有库存总数 |
+| 自编台词内容题（QA-26至28等） | 自有台词＋自然TTS（如CosyVoice2）；现有`semantic_speech_v2.log`仅为历史线索 | 作者脚本、内容答案、实际voice/reference身份，不从服装推断 | 禁止eSpeak/formant。CosyVoice代码和CosyVoice2-0.5B模型卡公开标Apache-2.0；实际使用还须记代码/权重revision、参考音频原始ID及许可、输出条款核对。上游条款不是每条已有输出的准入证明 |
+| 现场人声、扬声器播放人声 | 可共享合格的录制干声内容，但发声机制及actor绑定在场景中明确分开 | 内容标签与物理发声机制分别记录 | 本地目录名`speech_playback`或干声库`split=eval`字段不自动决定场景机制或评测同源；同源须查原始ID/实际数据来源和去重证据 |
+| 现场乐器、播放音乐 | 有逐条许可的录制音乐/乐器干声 | 录制素材标签＋场景`instrument_live`/`loudspeaker_playback`机制 | 不用程序合成器替代缺失类；内容和物理机制分开，反事实组按预定因素变化 |
+| AudioSet/FSD50K标签 | 原本体和逐clip官方标签 | 公开数据标注，外加自动听辨准入 | 本体/元数据许可不替代波形逐clip授权；允许使用其公开干声标签，不再设置“无真实标签”限制 |
 
-本轮核对了FSD50K官方逐clip元数据（只下载metadata，不读波形）：非人声564条均匹配，涉及512个不同原clip。按旧池条目计，CC0 228条、CC-BY3.0 222条、CC-BY-NC3.0 62条、Sampling+1.0 52条；296条VCTK仅核对了官方发布层CC-BY4.0。证据为 `evidence/v6_official_license_audit.json`，含原clip ID、许可URI和署名/标题来源。部分本地clip.json泛称“CC-BY4.0 (FSD50K)”与官方逐clip条款不一致，不能沿用为整库许可；NC/Sampling+资产暂不进入后续可通用再分发素材集。其他条款和逐裁剪链也仍须保留署名与来源核验，不能把本轮归类当最终法律审核。
+必须排除STARSS23、DCASE、TAU等真实空间录音，以及与STARSS/SAVVY评测同源的片段。来源排除检查的是实际源ID/数据集/源路径，去重报告里作为参考的STARSS文件不是干声来源。每条交付保留：原始ID、来源URL、license及归因、原数据集/版本、裁剪sample坐标、标签来源和自动准入结果、场景发声机制、去重范围；TTS另记脚本作者、实际模型与参考音频许可链。没有来源/许可或自动准入的素材不可回退到机器人/程序合成声。
 
-本轮干声审计为 `evidence/v6_sound_assets_audit.json`，记录全部860条的来源、标签字段及找到的许可字段；有字段不等于完成逐文件权利核验。未找到证据时状态明确为待补，不更改原注册表。主线每个干声资产记录：原始资产ID、来源URI、生成程序/配置或数据集版本、标签来源类型、声源机制、许可证原文链接、作者/署名、允许衍生与再分发范围、预训练/参考素材来源、切分。CC0与CC BY素材也不自动满足“无真实标签”约束；许可证与监督来源是两件事。
+首轮历史许可审计（不覆盖）：非人声564条涉及512个原clip，CC0=228、CC-BY3.0=222、CC-BY-NC3.0=62、Sampling+1.0=52；当时VCTK pool为296条、合计860。原证据`evidence/v6_official_license_audit.json`及`evidence/v6_sound_assets_audit.json`继续保留；不能把新库存600改写进旧审计。当前正式准入以v7-families逐条记录加本轮来源过滤为准，不能把许可层核对等同全部技术/类别准入。
 
-许可依据：[FSD50K官方发布](https://zenodo.org/records/4060432)（逐声音许可可能不同）、
-[VCTK 0.92官方元数据](https://datashare.ed.ac.uk/items/30e7453c-9ea8-48b4-8e18-f96d0dc62928/full)、
-[AudioSet发布说明](https://research.google.com/audioset/download.html)（数据CC BY4.0、本体CC BY-SA4.0）、
-[CosyVoice代码许可](https://github.com/FunAudioLLM/CosyVoice/blob/main/LICENSE) 与
-[CosyVoice2权重模型卡](https://huggingface.co/FunAudioLLM/CosyVoice2-0.5B)。
-以上是官方发布层依据，不能替代本机实际权重与逐素材核验。
+许可依据：[FSD50K官方发布](https://zenodo.org/records/4060432)（逐声音许可可能不同）、[VCTK 0.92官方元数据](https://datashare.ed.ac.uk/items/30e7453c-9ea8-48b4-8e18-f96d0dc62928/full)、[AudioSet发布说明](https://research.google.com/audioset/download.html)、[CosyVoice代码许可](https://github.com/QwenAudio/CosyVoice/blob/main/LICENSE)、[CosyVoice2权重模型卡](https://huggingface.co/FunAudioLLM/CosyVoice2-0.5B)。许可核对不替代实际快照、参考音频或输出的逐条来源记录。
 
 ## 5. 连续场景、时间结构和独立窗口
 
@@ -140,7 +136,7 @@ v6声音池35类与QA-21固定答案域34类不同：`any_audioset_class_playbac
 | 重叠 | ≥40%窗口有≥2源重叠≥0.5秒；≥10%有3–4源重叠 | 独立采样类别、声源和活动段；仅新增可辨认声时同步更新监督 |
 | 顺序事件容量 | ≥25%窗口包含7–12个活动段；≥5%压力窗包含21–30段 | 顺序段数与同时发声源数分开；公开MCQ域超20时改开放题，绝不截到6 |
 | 同时活动源 | 主集1–4，压力子集5–6；最多8个物理发声者 | 减少难以辨识的密度，同时测试旧事件地址容量 |
-| 音量与噪声 | 同一物理源增益随距离/RIR变化；合成背景SNR设计10..30dB，四FOA通道共同增益 | 不分别归一化/翻极性；不引入真实噪声统计校准 |
+| 音量与噪声 | 同一物理源增益随距离/RIR变化；录制背景干声卷积后的SNR设计10..30dB，四FOA通道共同增益 | 不分别归一化/翻极性；不引入真实噪声统计校准 |
 | 随机化 | 房屋与材质在group内固定，源位/轨迹/时间结构/相机/人物/内容分独立随机字段 | 可检查因素相关性，避免衣服、性别或位置直接泄漏声源答案 |
 
 以上覆盖配额可重叠，不应相加为100%；统计分母都是独立场景主窗口。30秒（或60秒对照）音频整体渲染后切窗，包含T前至少4秒的卷积历史；不能在窗口内重新卷积干声并清空尾部。视频可优化为从完整连续状态轨迹读取所选10秒的帧；这是未来可选实现，必须与完整60秒状态轨迹一致，本轮未验证其吞吐。事件边界来自已声明的10Hz活动标注，混响尾部本身不另增活动段。程序活动与听觉可辨认活动的差异另保留检查结果。
@@ -547,3 +543,22 @@ v6实际false/0是`qa_production_10s_20260908.json#/base_request`经`qa_delivery
 尚缺本线记录干声程序的实际装配、完整v5原生空间/遮挡物ID resolver、人物精确皮肤接地和步态/移动时钟、其他房屋true/10准入，及families剩余视觉信号/15类素材和人物/动作许可资格。人物R7 navmesh与可见stage地面约18cm差，简单根下降只能改善脚底高度，保守骨碰撞包仍失败，不能宣布身体接触通过；当前根移动与原步行动作速度亦未对齐。正式模式继续明确拒绝，不能把完整接口、128项catalog、500种子请求或单元14题冒充生产完工。
 
 CCI不运行、不登录；代码和阻断交接由owner转发给`20261003-205913_complex_cci-datagen`和`20261003-202503_complex_test-panel-pilot`。分阶段RIR、媒体、QA选题及seal支持恢复；现阶段原生RIR缓存与未完成/不合格证据不可清理。详细命令、新提交与完成时间写在本轮`REPORT_zh.md`和`HANDOFF.json`。
+
+
+## 17. 第7回合：录制干声生产口径与人物接入
+
+本节取代早期“许可更干净所以用程序合成”的路线；第11至16节中formant/程序拍手/稠密合成噪声的数字仅是已完成的历史诊断，不属于训练素材资格或正式题数。RIR本底、校准判据与80个中点结果保持第16节不变，不重算/修改真实数据、判分器、真值或门槛。
+
+`examples/dataset/v7_audio_sources_v1.json`是新配置，`v7_audio_sources.py`只读取录制的mono片段和明确许可链的自然TTS，不调用合成器。`generate_v7_scenes.py --recorded-dry-programs`接收JSON映射`scene_id -> program`。program含`schema=v7-recorded-dry-program-v1`、`records`（v7-families合格记录原样，source ID/许可证/自动准入保留）、`events`（每个event_id精确绑定sound_asset_id、crop_start_sample，坐标为原clip样本）。所有场景事件须逐条绑定，素材过短不循环/拼合机器人声；自编内容TTS整句保留。每条输出收据保存来源ID、许可、原crop、真实采样率、时间绑定、speaker身份，四成员关联交换同步交换收据的endpoint，不重新合成音频。该接口不宣称已有完整v5干声/空间 resolver。
+
+具体失误是已准入catalog仍含42条eSpeak且旧默认合成可复用；普通音频来源revision加入已有stage recipe防止这些旧缓存被新版本自动恢复，不增加内容hash。旧数据和receipt保留只读，新生产必须显式输入合格录制程序。正式出题仍须全部native证据与原判据；单元夹具不算实际题数。
+
+人物`v7-human-roster`目标为Rocketbox16–20底模/10–16职业及lx10个动作/演奏资产，两后端登记完成后才由场景采样器按精确asset ID和原准入接入。当前仅见selection与许可记录，尚未收到完整正式登记和接入说明；不编造ID、不把许可检查当原生姿态/动作通过。第16节的HM3D遮挡`not_run`、深色缅甸猫预期毛色未验证继续保留。
+
+
+本轮实际来源审计：families候选902条，原正式准入128条；按owner新口径去掉其中42条eSpeak后，86条公开录制音效保留，19类/78个原始ID。每类数量见本轮`evidence/audio_source_facts.json`和`DRY_SOUND_ADMISSION_recorded_only.json`。音乐5条、水龙头2条，另3类真实干声CPU读回3/3通过；不是新增仿真题。VCTK600条均为mono header，24人/342句；元数据中的train400/eval200是干声库切分，不能当成STARSS评测同源。families旧296条VCTK仍正式准入0，600条库存另存原始ID/CC BY4.0归因清单，自动准入及裁剪链待该线完成；自然台词TTS正式准入0。正式14题窗口、v5逐配额合格题与严格四格组仍0。
+
+新输出在`/data/jzy/tmp/claude_hardbank_20260923/v7_batch1_20261003/round7_audio_sources_20261004/`，包含录制干声过滤catalog、600条VCTK库存、来源事实、人物交付状态、新runtime inputs、测试日志和交接。前六回合产物/种子/声学缓存、原始录音与资产均不覆盖。本轮没有运行CosyVoice模型、正式视频、GPU或CCI；下一步只能在素材和人物正式交付后绑定新程序，不能用当前86条非讲话声填人物讲话事件。
+
+
+VCTK旧296条的上游拒绝详情为：license/自动activity/归一化许可链296条、模型receipt或音频hash缺失296条、参考去重扫描缺失296条；其中103条还有evaluation_source_split及evaluation_source_identity_overlap。来源见本轮`evidence/vctk_upstream_blockers.json`。本轮已核实VCTK 0.92公开许可与600条原utterance ID，但未新做其模型读回/归一化/完整评测同源扫描；不能把旧“无permissive逐clip许可”文字继续当VCTK发布许可结论。103条相交对象与STARSS/SAVVY实际同源关系未验证，保留原拒绝；既不能仅凭库split=eval字段判泄漏，也不能凭口径修正解除真实同源排除。上游须按允许录制干声的新口径重算并交付逐条技术证据后才能生产使用。

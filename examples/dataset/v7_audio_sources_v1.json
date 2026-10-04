@@ -1,0 +1,62 @@
+{
+  "revision": "v7-public-recorded-dry-natural-tts-20261004-r1",
+  "training_scene_inputs": "simulated geometry/RIR/video; public recorded mono dry waveforms permitted",
+  "speech": {
+    "recorded_dataset": "VCTK-Corpus 0.92",
+    "license": "CC-BY-4.0",
+    "speakers": 24,
+    "clips": 600,
+    "distinct_transcripts": 342,
+    "authored_content": "natural TTS such as CosyVoice2 with actual code/weights/reference/output provenance"
+  },
+  "non_speech_and_music": {
+    "kind": "public recorded mono clips",
+    "legacy_candidates": 564,
+    "admission": "v7-families automatic admission, plus this source-kind policy"
+  },
+  "forbidden": [
+    "eSpeak",
+    "formant speech",
+    "procedurally synthesized animals/appliances/environment/music",
+    "real spatial recordings",
+    "evaluation same-origin clips"
+  ],
+  "excluded_dataset_origins": [
+    "STARSS23",
+    "DCASE",
+    "TAU",
+    "SAVVY"
+  ],
+  "required_per_clip": [
+    "original_id",
+    "license",
+    "source_uri",
+    "attribution",
+    "label provenance",
+    "automatic admission",
+    "deduplication scope"
+  ],
+  "recorded_program_schema": "v7-recorded-dry-program-v1",
+  "synthesis_fallback": false,
+  "natural_tts_upstream": {
+    "code": "https://github.com/QwenAudio/CosyVoice/blob/main/LICENSE",
+    "code_license": "Apache-2.0",
+    "weights": "https://huggingface.co/FunAudioLLM/CosyVoice2-0.5B",
+    "weights_model_card_license": "Apache-2.0",
+    "actual_local_revision_and_reference_rights": "required; upstream license alone is not per-output admission"
+  },
+  "human_roster": {
+    "provider": "v7-human-roster",
+    "status": "awaiting completed registry and integration instructions",
+    "requested_rocketbox_bases": [
+      16,
+      20
+    ],
+    "requested_professions": [
+      10,
+      16
+    ],
+    "requested_lx_assets": 10
+  },
+  "formal_generation_ready": false
+}

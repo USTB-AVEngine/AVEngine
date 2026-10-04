@@ -13,8 +13,9 @@ import numpy as np
 from avengine.assets.source_materials import MATERIAL_REVISION
 from avengine.capture.continuous_native_visibility import VISIBILITY_REVISION
 from avengine.timeline.continuous_pilot import (
-    make_scene, write_json, PositionRIRCache, FormantSpeech, make_dry_buses,
+    make_scene, write_json, PositionRIRCache,
 )
+from avengine.timeline.v7_audio_sources import (AUDIO_SOURCE_REVISION, assemble_recorded_buses, validate_dry_receipt, rebind_receipt)
 from avengine.timeline.continuous_scene import (
     plan_rir_keyframes, partitioned_convolve, raw_world_to_camera_sn3d,
 )
@@ -25,7 +26,7 @@ FORMAL_BLOCKERS = (
     'moving_RIR_requires_calibration_for_each_house_material_profile',
     'all_28_v6_question_families_and_native_evidence_admission_incomplete',
     'native_M2_assets_remain_research_and_full_motion_contact_admission_pending',
-    'recorded_dry_program_and_v5_native_layout_not_integrated',
+    'v5_native_layout_and_full_QA_recorded_source_binding_not_integrated',
 )
 
 
@@ -83,8 +84,9 @@ def seeded_scene(row, house):
     # The canary has legal idle/walk M2 figures; do not invent a clap gesture.
     scene['sources'].pop('clap1')
     scene['events']=[e for e in scene['events'] if e['endpoint_id']!='clap1']
-    for endpoint,voice in (('voice1','en-us+m1'),('voice2','en-us+m3')):
-        scene['sources'][endpoint].update(class_id=1,voice=voice)
+    for endpoint in ('voice1','voice2'):
+        scene['sources'][endpoint].pop('voice',None)
+        scene['sources'][endpoint].update(class_id=1,mechanism='human_live_recorded_dry',content_kind='speech')
     for e in scene['events']:e['class_id']=1
     if row['schema'].endswith('-v3'):
         trajectory_rng=np.random.default_rng(row['seeds']['trajectory'])
@@ -102,12 +104,9 @@ def seeded_scene(row, house):
         theta=np.radians(camera_rng.uniform(-4,4));c,s=np.cos(theta),np.sin(theta)
         scene['camera_forward']=(np.array([[c,0,s],[0,1,0],[-s,0,c]])@scene['camera_forward']).tolist()
         audio_rng=np.random.default_rng(row['seeds']['audio'])
-        voices=['en-us+m1','en-us+m3']
-        if audio_rng.integers(0,2):voices.reverse()
-        for endpoint,voice in zip(('voice1','voice2'),voices,strict=True):
-            scene['sources'][endpoint]['voice']=voice
+        audio_rng.integers(0,2)  # retain the existing independent gain stream
+        for endpoint in ('voice1','voice2'):
             scene['sources'][endpoint]['dry_gain']=float(audio_rng.uniform(.8,1.2))
-            scene['sources'][endpoint]['voice_identity_id']=voice
         scene['actor_pose_phase_ticks']={endpoint:int(row['seeds']['pose']+i*7919) for i,endpoint in enumerate(('voice1','voice2'))}
     scene['sampling_limitations']=['two male figures and speech only','three trajectory templates' if row['schema'].endswith('-v2') else 'single legal line segment with three start/stop cycles',
                                    'appearance/pose coverage is not a full-set implementation']
@@ -124,8 +123,6 @@ def member_scene(base, visual, member):
         for e in scene['events']:
             e['endpoint_id']={'voice1':'voice2','voice2':'voice1'}[e['endpoint_id']]
             e['source_id']=scene['sources'][e['endpoint_id']]['actor_id']
-        first,second=scene['sources']['voice1']['voice'],scene['sources']['voice2']['voice']
-        scene['sources']['voice1']['voice']=second;scene['sources']['voice2']['voice']=first
         for field in ('dry_gain','voice_identity_id'):
             if field in scene['sources']['voice1']:
                 x,y=scene['sources']['voice1'][field],scene['sources']['voice2'][field]
@@ -134,24 +131,24 @@ def member_scene(base, visual, member):
     return scene
 
 
-def _dry_worker(scene, output):
-    # A fresh CPU process fixes speech-engine initial state independently of
-    # how many parents this shard worker already generated.
-    output=Path(output);dry,receipt=make_dry_buses(scene,FormantSpeech())
+def _dry_worker(scene,output,program):
+    output=Path(output);dry,receipt=assemble_recorded_buses(scene,program)
     for endpoint,samples in dry.items():
-        samples*=scene['sources'][endpoint].get('dry_gain',1.)
         with (output/(endpoint+'.npy')).open('xb') as f:
             np.save(f,samples,allow_pickle=False);f.flush();os.fsync(f.fileno())
     write_json(output/'dry_receipt.json',receipt)
 
 
-def parent_dry(root, base):
+def parent_dry(root, base, program):
+    if not isinstance(program,dict):
+        raise ValueError('registered recorded_dry_program required; no eSpeak/procedural fallback')
     recipe={'seed':base['seed'],'duration_s':base['duration_s'],'events':base['events'],
-            'voices':{k:{f:v[f] for f in ('voice','dry_gain','class_id') if f in v} for k,v in base['sources'].items()}}
+            'audio_source_revision':AUDIO_SOURCE_REVISION,'recorded_dry_program':program,
+            'sources':{k:{f:v[f] for f in ('dry_gain','class_id') if f in v} for k,v in base['sources'].items()}}
     def build(attempt):
-        child=multiprocessing.get_context('spawn').Process(target=_dry_worker,args=(base,str(attempt)))
+        child=multiprocessing.get_context('spawn').Process(target=_dry_worker,args=(base,str(attempt),program))
         child.start();child.join()
-        if child.exitcode!=0:raise RuntimeError('isolated CPU dry synthesis failed')
+        if child.exitcode!=0:raise RuntimeError('isolated recorded dry assembly failed')
         receipt=read_json(attempt/'dry_receipt.json')
         return receipt,['dry_receipt.json',*[k+'.npy' for k in base['sources']]]
     directory,receipt,_=stage(root,'dry',recipe,build)
@@ -166,14 +163,14 @@ def audio_stage(scene, house, inputs, cache_root, attempt, renderer_factory=None
         from tools.timeline.pilot_continuous_scenes import native_renderer
         renderer_factory=native_renderer
     start,cpu=time.perf_counter(),time.process_time()
+    if dry_override is None:
+        dry,source_receipt=assemble_recorded_buses(scene,inputs.get('recorded_dry_program'))
+    else:
+        dry,source_receipt=dry_override,dry_receipt
+    validate_dry_receipt(source_receipt)
     renderer,identity=renderer_factory(inputs,house)
     write_json(attempt/'native_RLR_setup.json',renderer.setup_report)
     cache=PositionRIRCache(cache_root,renderer,identity)
-    if dry_override is None:
-        dry,source_receipt=make_dry_buses(scene,FormantSpeech())
-        for endpoint in dry:dry[endpoint]*=scene['sources'][endpoint].get('dry_gain',1.)
-    else:
-        dry,source_receipt=dry_override,dry_receipt
     stems={};plans={}
     for endpoint,spec in scene['sources'].items():
         # Keep every observed bone-anchor knot. This avoids silently decimating
@@ -285,7 +282,8 @@ def generate_parent(row, house, inputs, assets, output, compact=False, qa_eviden
         {'pid':os.getpid(),'parent_pid':os.getppid(),'scene_id':row['scene_id'],'house':row['house'],
          'output_root':str(root.resolve()),'compute_device':'CPU'})
     recipe={'seed_row':row,'house':house,'runtime_inputs':inputs,'assets':assets,
-            'visual_contract':{'source_material_revision':MATERIAL_REVISION,'pixel_visibility_revision':VISIBILITY_REVISION}}
+            'visual_contract':{'source_material_revision':MATERIAL_REVISION,'pixel_visibility_revision':VISIBILITY_REVISION},
+            'audio_source_revision':AUDIO_SOURCE_REVISION}
     if qa_evidence is not None:recipe['full_qa_evidence']=qa_evidence
     input_path=root/'input_recipe.json'
     if input_path.exists():
@@ -295,7 +293,9 @@ def generate_parent(row, house, inputs, assets, output, compact=False, qa_eviden
     sealed=load_sealed(root,recipe)
     if sealed is not None:return {**sealed['result'],'resumed_sealed_delivery':True}
     members=[];audio_by_factor={};reference_mouths=None
-    dry_buses,dry_receipt=parent_dry(root,base) if row['schema'].endswith('-v3') else (None,None)
+    dry_buses,dry_receipt=parent_dry(root,base,inputs.get('recorded_dry_program'))
+    for endpoint,speaker in dry_receipt['endpoint_speaker_ids'].items():
+        base['sources'][endpoint]['voice_identity_id']=speaker
     for member in row['members']:
         variant=deepcopy(assets)
         appearance_flip=(row['schema'].endswith('-v3') and row['seeds']['appearance']%2==1)
@@ -335,9 +335,11 @@ def generate_parent(row, house, inputs, assets, output, compact=False, qa_eviden
                     os.link(original/name,attempt/name)
                 return {**previous,'reused_audio_variant':factor,'wall_seconds':0.,'process_cpu_seconds':0.,
                         'RIR_cache':{k:0 for k in previous['RIR_cache']}},['scene_foa_full_tail.wav','native_RLR_setup.json','audio_evidence.json']
-            dry=dry_buses
-            if dry is not None and factor=='a1':dry={'voice1':dry_buses['voice2'],'voice2':dry_buses['voice1']}
-            return audio_stage(scene,working,inputs,root/'rir_cache',attempt,dry_override=dry,dry_receipt=dry_receipt),None
+            dry=dry_buses;source_receipt=dry_receipt
+            if factor=='a1':
+                dry={'voice1':dry_buses['voice2'],'voice2':dry_buses['voice1']}
+                source_receipt=rebind_receipt(dry_receipt,{'voice1':'voice2','voice2':'voice1'})
+            return audio_stage(scene,working,inputs,root/'rir_cache',attempt,dry_override=dry,dry_receipt=source_receipt),None
         def produce_audio(attempt):
             produced,files=make_audio(attempt)
             return produced if files is None else (produced,files)

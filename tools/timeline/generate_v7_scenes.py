@@ -19,6 +19,7 @@ def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('--houses',type=Path,required=True);p.add_argument('--seeds',type=Path,required=True)
     p.add_argument('--runtime-inputs',type=Path,required=True);p.add_argument('--assets',type=Path,required=True)
+    p.add_argument('--recorded-dry-programs',type=Path,help='JSON map scene_id -> registered mono event program; no synthesis fallback')
     p.add_argument('--qa-evidence',type=Path,help='per-parent complete native QA proof; all members collected before joint selection');p.add_argument('--output',type=Path,required=True);p.add_argument('--offset',type=int,default=0)
     p.add_argument('--limit',type=int,default=1);p.add_argument('--workers',type=int,default=1)
     p.add_argument('--compact-completed',action='store_true');p.add_argument('--candidate-only',action='store_true');p.add_argument('--plan-only',action='store_true')
@@ -55,7 +56,10 @@ def main():
     qa_proofs=json.loads(a.qa_evidence.read_text()) if a.qa_evidence else None
     if qa_proofs is not None and any(r['scene_id'] not in qa_proofs for r in rows):
         raise ValueError('full QA evidence file is missing a selected parent; fallback is forbidden')
-    tasks=[(r,by_id[r['house']],inputs,assets,str(a.output),a.compact_completed,qa_proofs[r['scene_id']] if qa_proofs is not None else None) for r in rows]
+    programs=json.loads(a.recorded_dry_programs.read_text()) if a.recorded_dry_programs else {}
+    if any(r['scene_id'] not in programs for r in rows):
+        raise ValueError('every selected parent requires --recorded-dry-programs; eSpeak/procedural fallback is forbidden')
+    tasks=[(r,by_id[r['house']],{**inputs,'recorded_dry_program':programs[r['scene_id']]},assets,str(a.output),a.compact_completed,qa_proofs[r['scene_id']] if qa_proofs is not None else None) for r in rows]
     a.output.mkdir(parents=True,exist_ok=True)
     with ProcessPoolExecutor(max_workers=a.workers,mp_context=multiprocessing.get_context('spawn')) as pool:
         results=list(pool.map(worker,tasks))
