@@ -19,3 +19,16 @@
 验证：专项目标测试 8 passed；fast_unit 373 passed、36 skipped、7029 deselected，日志为 `logs/tests_focused_verified.log`、`logs/tests_fast_verified.log`。跳过项依赖此检出未包含的历史事实文件。CPU 世界光度预检覆盖 317 灯；4 间小批有 12 张原生相机图，源尺寸回读用 NullRHI，峰值 0 MiB。小批图形进程树峰值为 3812 MiB（GPU1），用 `nvidia-smi -q -x` 按秒采样，包含图形进程。
 
 存储启动要求 /data ≥55 GB，渲染停止要求 /data ≥50 GB，本轮新增上限 5 GB，图存 JPEG。独立控制器只删自身新建、验收结束后的深度和几何中间件；保留 JPEG、回读、结果、日志和失败见证。过程与进程身份持续写入根目录 `PROGRESS_zh.md`，最终中文报告及离线对照页以本轮运行目录交付为准。
+
+
+## 全量验收封存（第11轮）
+
+21套44间、同机位129相机视角的全量原生验收已完成：19套、33间物理准入；原29间保留29间。新增kujiale_0022/R1、kujiale_0042/R0、kujiale_0043/R0、kujiale_0066/R0；掉出无。判据、几何与材料均未更改。
+
+同720p JPEG灰度均值123.46→113.55，5–95%分位43.21–186.04→107.81–120.23；STARSS总体106.08、64.76–149.52。RMS对比度均值0.1979、5–95% 0.1329–0.2721。这是静态取景与真实视频帧总体参照，不能声称完全相同。
+
+317个原设计灯原生位置／朝向／尺寸／光通量断言通过；21套新地图的LOD0数组与原地图逐套字节相同。原0.5mm声学射线对齐重新执行，候选不足3个仍保持拒绝。单进程树峰值3812MiB；渲染期资源采样最低空闲68.766GB、新增峰值0.703GB。
+
+正式交付目录 `/data/jzy/tmp/claude_hardbank_20260923/v7_kujiale_20261003/ue_round11/delivery_v1`；其中 `REPORT_zh.md`、`room_brightness_before_after.csv`、`view_brightness_before_after.csv`、`train_houses.json`、`BEFORE_AFTER_ue_round11.html` 为完整报告／名单／离线前后图；未发owner。来源 `summary.json`、`../alignment/result.json`、每套guard与QA。59资产／7人物沿用原R7见证并复核75个原MIC SHA，并非本轮另行重渲59资产。
+
+源码提交 `7d23a4dc2f2e62d71429cf0c4afd02705f8b4dc5`。生成输入全部通过新灯光和当前房间QA的接口断言；按用户指令等待共同生成器新资产版本，不进行量产或CCI传输。
