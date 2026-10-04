@@ -5,7 +5,7 @@
 
 自 2026-08-25 起，目录本身就是能力分组（阶段目录 m1…m7 已移除），
 本表按目录列出每个工具做什么。
-当前共 491 个工具脚本。
+当前共 495 个工具脚本。
 
 ## 资产生成与装配（`tools/assets/`）
 
@@ -171,6 +171,7 @@
 | `tools/acoustics/audit_skokloster_cleanup_inventory.py` | Emit the exact face inventory for a Skokloster research cleanup |
 | `tools/acoustics/build_asset_bound_rir_plan.py` | Bind concrete assets to generic root routes and plan on-demand RIR work |
 | `tools/acoustics/build_house_test_panel.py` | Build a whole-house test panel in a predeclared order from CPU acceptance |
+| `tools/acoustics/calibrate_moving_rir_baseline.py` | Measure independent native RLR repeatability before choosing motion budgets |
 | `tools/acoustics/check_high_quality_midpoints.py` | Independent CPU fixed80 diagnostic using higher native ray quality |
 | `tools/acoustics/check_moving_waveform_controls.py` | Offline nearest/arrival-aligned controls; never replace production qualification |
 | `tools/acoustics/check_native_diffraction_shadow.py` | CPU shadow controls verify diffraction behavior beyond configuration readback |
@@ -187,7 +188,9 @@
 | `tools/acoustics/plan_vctk_four_speaker_program.py` | Plan four distinct complete VCTK sentences on an AVEngine clock |
 | `tools/acoustics/prepare_authored_room_acoustics.py` | Prepare a real-surface authored room for the existing AVEngine M3/RLR compiler |
 | `tools/acoustics/probe_room_front_back_pairs.py` | Measure whether one room supports front/back mirrored source pairs |
+| `tools/acoustics/qualify_correlated_convolution.py` | Measure actual full-tail CPU convolution using retained native RIR inputs |
 | `tools/acoustics/qualify_moving_rirs.py` | Qualify moving RIR energy against retained native references (read-only) |
+| `tools/acoustics/render_fixed80_reference_repeats.py` | Three independent native reference measurements at retained fixed80 poses |
 | `tools/acoustics/render_frame_readback_sequential_speech.py` | Render multi-source research audio from SPEAR frame readbacks |
 | `tools/acoustics/render_rir_cache.py` | Render a resumable native-RLR RIR cache from an M6.x job plan |
 | `tools/acoustics/run_material_canary.py` | Run the hash-bound repeated M3 RLR material activation canary |
@@ -261,6 +264,7 @@
 | `tools/timeline/generate_v7_scenes.py` | Seed-driven restartable CPU native candidates. Formal mode fails closed |
 | `tools/timeline/pilot_continuous_scenes.py` | CPU-only restartable continuous-scene pilot and native RIR throughput probe |
 | `tools/timeline/prepare_v7_diagnostic_aliases.py` | Give diagnostic media neutral IDs and quarantine incompatible public domains |
+| `tools/timeline/prepare_v7_diagnostic_seed_tables.py` | Extend reproducible v7-S/full seeds with simulation-only diagnostic axes |
 | `tools/timeline/prepare_v7_quota_seed_tables.py` | Version v7-S/full requests with balanced speaker, spatial and class quotas |
 | `tools/timeline/prepare_v7_seed_tables.py` | Write v7-S and full-set seed tables without changing existing inputs |
 | `tools/timeline/qualify_native_counterfactuals.py` | Native 2x2 appearance/association canary; audit actual media and answers |

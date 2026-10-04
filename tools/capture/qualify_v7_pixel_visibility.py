@@ -39,7 +39,7 @@ def main():
                 visibility.close();visibility=None
                 full=primary.encode(scene,root/'scene_video.mp4',collect_pixel_visibility=a.collect_full_visibility)
             row={'full_video':{'frame_count':full['frame_count'],'source_material_checks':full['source_material_checks'],'pixel_visibility_status':full['pixel_visibility_truth']['status'],'alignment':full['native_visibility_alignment'],'wall_seconds':full['wall_seconds']} if full else None,
-                'house':house['house'],'status':'pass_sampled_frames_only_full_stream_not_admitted','checks':checks,'alignment':sampled_alignment,
+                'house':house['house'],'status':('pass_full_native_pixel_stream' if full and a.collect_full_visibility else 'pass_sampled_frames_only_full_stream_not_admitted'),'checks':checks,'alignment':sampled_alignment,
                 'formal_dataset_count':0,'producer_only_no_QA_logic_changed':True,'source_material_checks':primary.material_checks}
             write_json(root/'summary.json',row);results.append(row)
         finally:

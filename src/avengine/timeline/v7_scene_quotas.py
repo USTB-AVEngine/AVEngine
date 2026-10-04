@@ -171,3 +171,167 @@ def select_spatial_cells(candidates,listener,forward):
         result.setdefault(key,deepcopy(point))
     if set(result)!=set(CELLS):raise ValueError('native layout lacks four spatial cells')
     return result
+
+
+DIAGNOSTIC_INPUT_VERSION = 'v7-production-inputs-20261004-v5'
+DIAGNOSTIC_QUOTA_VERSION = 'v7-scene-diagnostic-quotas-20261004-v5'
+
+
+def add_diagnostic_quotas(rows):
+    """Extend fixed seeds without real-data priors or invented native truth.
+
+    World azimuth and camera-relative azimuth are different axes. The 64-cell
+    pool uses world azimuth: rotating the camera makes in/out possible in each
+    world sector. A separate uniform camera-relative direction probe includes
+    behind-camera sources; a behind-camera point cannot be in its own frustum.
+    Clear in-frame live people necessarily make frame_has_person true. Native
+    resolution must reject physically incompatible combinations, never relabel.
+    """
+    result=[];cell_counts=Counter();frustum_counts=Counter()
+    for original in rows:
+        validate_quota_row(original)
+        row=deepcopy(original);q=row['scene_quotas'];i=row['scene_index'];n=q['speakers']
+        row['base_quota_schema']=row['schema'];row['schema']=DIAGNOSTIC_INPUT_VERSION
+        row['previous_window_start_ticks']=list(row['window_start_ticks'])
+        seed=row['seeds']['window']
+        row['window_start_ticks']=[40+2*(seed%8),160+2*((seed//8)%8)]
+        raw=i%22;segments=max(n+1 if n else 0,24 if raw==21 else raw)
+        if n==0:
+            low_activity_cycle=(i//9)%11
+            if low_activity_cycle in (0,1):segments=0
+            elif low_activity_cycle in (2,3):segments=1
+        sector=i%8;choices=[]
+        for inside in (True,False):
+            for people in (False,True):
+                for occluded in (False,True):
+                    if n==0 and not people:continue
+                    if q['starss13_focus_class'] in (0,1) and inside and not occluded and not people:continue
+                    key=(sector,inside,people,occluded)
+                    choices.append((cell_counts[key],frustum_counts[inside],key))
+        _,_,key=min(choices)
+        _,inside,people,occluded=key
+        cell_counts[key]+=1;frustum_counts[inside]+=1
+        q['focus_frustum']='in_frame' if inside else 'out_of_frame'
+        q['focus_occluded']=occluded
+        q['diagnostic']={
+            'schema':DIAGNOSTIC_QUOTA_VERSION,
+            'sampling_recipe_revision':'balanced_feasible_grid_low_activity_vertical_ties_v3',
+            'focus_world_azimuth_octant':i%8,
+            'world_octant_centers_deg':[-157.5+45*j for j in range(8)],
+            'camera_relative_direction_probe_octant':(5*i)%8,
+            'frame_has_person':people,
+            'visible_silent_bystander_required':people,
+            'nonspeech_ambient_noise_required':True,
+            'target_activity_segments_per_window':segments,
+            'segment_count_scope':'protocol target activities; nonspeech room-tone noise is a separate noise bus',
+            'carry_in_required':segments>0,
+            'same_integer_second_multiple_onsets_required':segments>=4,
+            'short_stop_ticks':1 if segments>=2 else None,
+            'vertical_probe':('center','above','below','top_edge','bottom_edge','left_edge','right_edge')[(3*i)%7],
+            'near_boundary_probe_boundary_px':(.25,.75,1.25,1.75)[(i//8)%4],
+            'low_light_required':bool((i//7)%2),
+            'independent_voice_appearance_seeds':True,
+            'distance_stratum':('near','middle','far')[(i//11)%3],
+            'gain_db':(-6.,0.,6.)[(i//13)%3],
+            'overlap_stratum':('turn_taking','two_overlap','many_overlap')[(i//17)%3],
+            'counterfactual_camera_source_pair':{
+                'shared':['dry_content','voice_identity','house','materials','unaffected_actor_state'],
+                'allowed_change':'camera_pose' if (i//64)%2==0 else 'focus_source_position',
+                'refresh':['camera_FOA_rotation','all_audio_derived_readouts','native_pixels','pixel_projection','private_evidence'],
+            },
+            'e_s_model_inputs':{'source':'deployment_predictor','ground_truth_injection':False,'predictor_status':'awaiting_registered_predictor'},
+            'pixel_coordinate_contract':{'source':'zero_based_pixel_center','to_boundary_offset':.5,
+                'boundary_domain':'[0,W) x [0,H)','two_pixel_dead_zone':False},
+            'native_resolution_status':'requested_only',
+        }
+        row['native_quota_status']='awaiting_native_layout_dry_motion_family_and_predictor_admission'
+        result.append(row)
+    return result
+
+
+def validate_diagnostic_row(row):
+    if row.get('schema')!=DIAGNOSTIC_INPUT_VERSION:
+        raise ValueError('unsupported diagnostic seed schema')
+    legacy=deepcopy(row);legacy['schema']=QUOTA_INPUT_VERSION
+    q=validate_quota_row(legacy);d=q.get('diagnostic',{})
+    if d.get('schema')!=DIAGNOSTIC_QUOTA_VERSION or not 0<=d.get('focus_world_azimuth_octant',-1)<8 or not 0<=d.get('camera_relative_direction_probe_octant',-1)<8:
+        raise ValueError('diagnostic azimuth axes missing')
+    minimum=q['speakers']+1 if q['speakers'] else 0
+    if d['target_activity_segments_per_window']<minimum or row['duration_s']<30:
+        raise ValueError('independent continuous world/speaker repeat schedule is impossible')
+    if q['speakers']==0 and not d['frame_has_person']:
+        raise ValueError('zero-speaker window needs a visible silent person')
+    if d['e_s_model_inputs']['ground_truth_injection'] is not False:
+        raise ValueError('E/S inputs must come from the deployment predictor')
+    return q
+
+
+def diagnostic_summary(rows):
+    for row in rows:validate_diagnostic_row(row)
+    def count(fn):return dict(sorted(Counter(str(fn(r)) for r in rows).items()))
+    cells=count(lambda r:(r['scene_quotas']['diagnostic']['focus_world_azimuth_octant'],
+        r['scene_quotas']['focus_frustum'],r['scene_quotas']['diagnostic']['frame_has_person'],r['scene_quotas']['focus_occluded']))
+    return {'status':'requests_only','independent_parent_count':len(rows),
+        'requested_world_azimuth':count(lambda r:r['scene_quotas']['diagnostic']['focus_world_azimuth_octant']),
+        'requested_camera_relative_direction_probe':count(lambda r:r['scene_quotas']['diagnostic']['camera_relative_direction_probe_octant']),
+        'requested_frustum':count(lambda r:r['scene_quotas']['focus_frustum']),
+        'requested_frame_has_person':count(lambda r:r['scene_quotas']['diagnostic']['frame_has_person']),
+        'requested_occlusion':count(lambda r:r['scene_quotas']['focus_occluded']),
+        'requested_64_cell_counts':cells,
+        'requested_speakers':count(lambda r:r['scene_quotas']['speakers']),
+        'requested_activity_segments':count(lambda r:r['scene_quotas']['diagnostic']['target_activity_segments_per_window']),
+        'requested_vertical':count(lambda r:r['scene_quotas']['diagnostic']['vertical_probe']),
+        'requested_starss13':count(lambda r:r['scene_quotas']['starss13_focus_class']),
+        'requested_qa21_34':count(lambda r:r['scene_quotas']['qa21_34_focus_class']),
+        'actual_questions_by_request_cell':{k:0 for k in cells},
+        'actual_generated_questions':0,'formal_media_qualified_questions':0,
+        'simulation_model_recall_status':'not_run; deployment predictor not supplied',
+        'real_dev_used_for_sampling':False}
+
+
+def diagnostic_activity_events(sources, starts_s, segment_count, duration_s=30.):
+    """Independent 30s world; exact activity counts in disjoint 10s windows.
+
+    Supports are half-open 100ms ticks. Actor 1 returns after a 100ms gap;
+    extra people use different identities. This function never supplies an
+    actor-count answer: that supervision remains in the QA-family consumer.
+    """
+    if duration_s<30 or segment_count<0:
+        raise ValueError('invalid continuous world/activity request')
+    starts=[round(t*10) for t in starts_s]
+    if any(b-a<100 for a,b in zip(starts[:-1],starts[1:])):
+        raise ValueError('exact-count schedule needs disjoint crops')
+    if any(t<7 or t+100>round(duration_s*10) for t in starts):
+        raise ValueError('crops must have continuous history and fit the world')
+    speakers=sorted((k for k,v in sources.items() if v['class_id'] in (0,1)),key=lambda k:sources[k]['actor_id'])
+    nonvoices=sorted(k for k,v in sources.items() if v['class_id'] not in (0,1))
+    if speakers and segment_count<len(speakers)+1:
+        raise ValueError('schedule cannot realize all actors and a repeated person')
+    if segment_count and not (speakers or nonvoices):
+        raise ValueError('activity requires admitted physical sound sources')
+    events=[]
+    for window,t in enumerate(starts):
+        if not segment_count:continue
+        endpoint_order=([speakers[0],speakers[0],*speakers[1:]] if speakers else [nonvoices[0]]*2)
+        while len(endpoint_order)<segment_count:endpoint_order.extend(speakers or nonvoices)
+        lo=[t-7]
+        if segment_count>=2:lo.append(t+4)
+        if segment_count==3:lo.append(t+8)
+        elif segment_count>=4:
+            # Two onsets in one integer second for every crop offset, while
+            # keeping separate half-open activities and the 100ms first stop.
+            paired_first=10*math.ceil((t+7)/10)+1
+            lo.extend((paired_first,paired_first+4))
+            if segment_count>4:lo.extend(np.linspace(paired_first+8,t+92,segment_count-4,dtype=int).tolist())
+        for j,(start,endpoint) in enumerate(zip(lo,endpoint_order[:segment_count],strict=True)):
+            end=t+3 if j==0 else min(start+2,t+99)
+            spec=sources[endpoint]
+            events.append({'event_id':f'diagnostic_w{window}_e{j:03d}','endpoint_id':endpoint,
+                'source_id':spec['actor_id'],'class_id':spec['class_id'],'start_tick':start,'end_tick':end})
+    return events
+
+
+def pixel_center_to_boundary(u,v,width,height):
+    """Convert once; near-edge centers have no unlabelled two-pixel exclusion."""
+    u,v=float(u)+.5,float(v)+.5
+    return [u,v], bool(0<=u<width and 0<=v<height)

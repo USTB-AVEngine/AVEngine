@@ -1,0 +1,133 @@
+"""Collect every native member before joint QA selection and window delivery.
+
+Question-family logic stays in avengine.qa. Missing source evidence, assets or
+candidate stems cannot be padded by the delivery driver. Selected questions
+remain research candidates until the independent dataset admissions pass.
+"""
+from __future__ import annotations
+from copy import deepcopy
+from pathlib import Path
+import os
+from avengine.timeline.continuous_pilot import write_json
+from avengine.timeline.v7_production_contract import question_allocation,validate_question_counts
+
+QUESTION_DELIVERY_REVISION='v7-native-full-pool-joint-selection-v1'
+
+
+def collect_native_pool(scene,start,window_id,visual,media,evidence,quota_index,count):
+    from avengine.qa.v7_native_adapter import make_full_questions
+    proof=deepcopy(evidence)
+    # The producer's observed mask stream owns this field; caller requests and
+    # sparse snapshots never replace native 150-frame visibility readback.
+    truth=visual.get('pixel_visibility_truth')
+    if not truth or truth.get('status')!='computed_modal_target_only_v1':
+        raise ValueError('full QA needs the measured native modal/target mask stream')
+    proof['pixel_visibility_truth']=truth
+    if 'native_appearance_review' in visual:proof['appearance_review']=deepcopy(visual['native_appearance_review'])
+    return make_full_questions(scene,start,window_id,visual,media,proof,
+        quota_index=quota_index,count=count,collect_all=True)
+
+
+def finalize_parent_question_pools(row,members,root,*,binding_items_per_window=5):
+    from avengine.timeline.v7_candidate_generation import stage,read_json
+    from avengine.qa.v7_families import select_questions
+    from avengine.qa.v7_group_selection import select_counterfactual_group
+    names={m['member'] for m in members}
+    quartet={'v0_a0','v0_a1','v1_a0','v1_a1'}
+    if names!=set(row['members']) or (names!=quartet and names!={'v0_a0'}):
+        raise ValueError('complete native quartet or declared single parent required')
+    if any(len(m['windows'])!=row['window_count'] for m in members):
+        raise ValueError('parent has an incomplete native member crop')
+    selected={name:[] for name in names};audits=[]
+    for index in range(row['window_count']):
+        public={};private={};allocations={}
+        for member in members:
+            name=member['member'];wid=member['windows'][index]['window_id']
+            folder=Path(member['windows_directory'])/wid
+            public[name]=read_json(folder/'questions.json');private[name]=read_json(folder/'private_answers.json')
+            quota=row['question_quota_base']+row['members'].index(name)*row['window_count']+index
+            allocations[name]=question_allocation(quota,row['questions_per_window'])
+        if names==quartet:
+            chosen,gold,audit=select_counterfactual_group(public,private,allocations,
+                binding_items_per_window=binding_items_per_window,quota_index=row['question_quota_base']+index)
+        else:
+            q,a=select_questions(public['v0_a0'],private['v0_a0'],allocations['v0_a0'],quota_index=row['question_quota_base']+index)
+            chosen,gold,audit={'v0_a0':q},{'v0_a0':a},{'status':'single_selected','binding_items_per_member':0}
+        audits.append(audit)
+        for name in names:
+            check=validate_question_counts(chosen[name],gold[name],expected_allocation=allocations[name])
+            selected[name].append((chosen[name],gold[name],check))
+    # Selection of every actual member succeeds before any selected stage is
+    # published. All unselected pools remain available for deficit diagnostics.
+    result=[]
+    for member in members:
+        name=member['member'];source=Path(member['windows_directory'])
+        def publish(attempt):
+            required=[];windows=[]
+            for index,old in enumerate(member['windows']):
+                wid=old['window_id'];dest=attempt/wid;dest.mkdir()
+                q,a,check=deepcopy(selected[name][index])
+                portable={'video':'video.mp4','audio_foa':'audio_foa.wav','audio_mono':'audio_mono.wav'}
+                for role,filename in portable.items():os.link(source/wid/filename,dest/filename)
+                for item in q:item['media']={**portable,'foa_format':'ACN_WYZX_SN3D_camera'}
+                qbyid={item['question_id']:item for item in q}
+                binding_keys={tuple(key) for key in audits[index].get('binding_keys',[])}
+                for item in a:
+                    question=qbyid[item['question_id']]
+                    key=(question.get('protocol_panel','v6'),question['qa_id'],question['question_zh'])
+                    item.setdefault('comparison_key','/'.join(key))
+                    item['counterfactual_role']='binding' if key in binding_keys else question['modality']
+                write_json(dest/'questions.json',q);write_json(dest/'private_answers.json',a)
+                evidence=read_json(source/wid/'evidence.json')
+                evidence['full_qa_selection']={'revision':QUESTION_DELIVERY_REVISION,'audit':audits[index],
+                    'question_check':check,'formal_dataset_count':0}
+                write_json(dest/'evidence.json',evidence)
+                windows.append({'window_id':wid,**check})
+                required.extend(f'{wid}/{file}' for file in (*portable.values(),'questions.json','private_answers.json','evidence.json'))
+            return {'windows':windows,'formal_dataset_count':0},required
+        stage_name='selected_windows_'+name
+        directory,receipt,resumed=stage(root,stage_name,{'seed_row':row,'revision':QUESTION_DELIVERY_REVISION,
+            'binding_items_per_window':binding_items_per_window,'pool_directory':str(source)},publish)
+        result.append({**member,'question_pool_directory':str(source),'windows_directory':str(directory),'windows':receipt['windows'],
+            'window_stage_name':stage_name,'selected_full_qa':True,'full_qa_selection_resumed':resumed})
+    return result,{'revision':QUESTION_DELIVERY_REVISION,'window_audits':audits,'formal_dataset_count':0}
+
+
+def validate_legacy_source_evidence(evidence):
+    """Refuse recording labels that the current formant producer never emitted.
+
+    The full recorded-source compiler is still required. An admission catalog
+    or QA JSON cannot change the waveform produced by parent_dry.
+    """
+    if evidence.get('recorded_dry_program') is not None:
+        raise RuntimeError('recorded dry-program assembly is not integrated into this producer')
+    for proof in evidence.get('members', {}).values():
+        if proof.get('events') or proof.get('protocol_scene') or proof.get('semantic_manifest'):
+            raise RuntimeError('full source QA evidence is not bound to this producer\'s actual formant dry buses; recorded dry-program assembly is required')
+        profiles=proof.get('actor_profiles',{})
+        if any(p.get('entity_class','articulated_human')!='articulated_human' for p in profiles.values()):
+            raise RuntimeError('the current native producer renders articulated humans; external actor profiles cannot declare a loudspeaker')
+
+
+def derive_native_appearance_evidence(directory,visual,assets):
+    """Use the family's unchanged automatic color screen on actual snapshots."""
+    import numpy as np
+    from PIL import Image
+    from avengine.qa.v7_visual_admission import measure_native_color,COLOR_HUE_DEGREES
+    directory=Path(directory);by_asset={a['asset_id']:a for a in assets};reviews={};screens=[]
+    for png in sorted(directory.glob('native_frame_*.png')):
+        index=int(png.stem.rsplit('_',1)[1]);mask=directory/f'native_masks_{index:04d}.npz'
+        if not mask.is_file() or not 0<=index<len(visual['frames']):continue
+        rgb=np.asarray(Image.open(png));semantic=np.load(mask,allow_pickle=False)['semantic']
+        for actor in visual['frames'][index]['actors']:
+            asset=by_asset.get(actor['asset_id']);color=(asset or {}).get('appearance',{}).get('top_color')
+            if color not in COLOR_HUE_DEGREES:continue
+            result=measure_native_color(rgb,semantic,actor['semantic_id'],color)
+            screens.append({'frame_index':index,'actor_id':actor['actor_id'],'asset_id':actor['asset_id'],**result})
+            if result['status']!='pass':continue
+            key=str(actor['actor_id']);label=asset.get('appearance_zh',{'blue':'蓝色上衣的人','yellow':'黄色上衣的人','green':'绿色上衣的人','burgundy':'酒红色上衣的人'}[color])
+            review=reviews.setdefault(key,{'status':'reviewed','value':color,'label_zh':label,'label_en':color,'frame_refs':[],'review_method':'automatic_native_color_pixels','human_viewing_used':False})
+            if review['value']!=color:raise ValueError('native appearance changed within a physical actor')
+            review['frame_refs'].append(index)
+    return {'revision':'automatic_native_hue_review_v1','review':{'actors':reviews},'screens':screens,
+            'status':'pass' if reviews else 'not_run_or_no_eligible_color_pixels','human_viewing_used':False}
