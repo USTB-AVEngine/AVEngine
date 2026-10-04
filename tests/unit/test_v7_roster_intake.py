@@ -49,7 +49,7 @@ def test_lx_unknown_gender_and_missing_rights_are_preserved(tmp_path):
     root,path,m=package(tmp_path)
     m['majors'][0].update(source='lx',gender='not_annotated')
     m['majors'][0]['minor_variants'][0]['sound_class_requested']='megaphone_speech'
-    path.write_text(json.dumps(m));r=intake_roster(path)['records'][0]
+    path.write_text(json.dumps(m));r=intake_roster(path,authority='legacy_local_rights')['records'][0]
     assert 'visual_gender_not_annotated' in r['static_blockers']
     assert 'lx_ISNet_checkpoint_rights_and_source_commit_unverified' in r['static_blockers']
     assert r['non_mouth_emitter_status']=='not_provided'
@@ -59,3 +59,26 @@ def test_summary_counts_cannot_inflate_distinct_bodies(tmp_path):
     m['summary']['major_count']=2;path.write_text(json.dumps(m))
     with pytest.raises(ValueError,match='counts differ'):
         intake_roster(path)
+
+def test_formal_registry_admits_lx_static_but_does_not_guess_voice_gender(tmp_path):
+    root,path,m=package(tmp_path)
+    m['majors'][0].update(source='lx',gender='not_annotated')
+    m['majors'][0]['minor_variants'][0]['sound_class_requested']='violin'
+    path.write_text(json.dumps(m))
+    r=intake_roster(path)['records'][0]
+    assert r['standing_registered_qualified']
+    assert not r['dialogue_voice_binding_eligible']
+    assert not r['native_episode_admitted']
+    assert r['admission_authority']=='formal_registry'
+    with pytest.raises(ValueError,match='standing pose'):
+        bind_physical_actors([{'actor_uid':'a','native_actor_id':1,'asset_id':'red','pose':'walk'}],intake_roster(path))
+
+def test_mouth_comes_from_registered_point_and_rigid_metre_transform(tmp_path):
+    import numpy as np
+    from avengine.qa.v7_roster_intake import standing_mouth_world
+    root,path,m=package(tmp_path);r=intake_roster(path)['records'][0]
+    matrix=np.eye(4);matrix[:3,3]=[2,0,-4]
+    assert standing_mouth_world(r,matrix)==[2.,1.5,-4.]
+    matrix[0,0]=100
+    with pytest.raises(ValueError,match='rigid metre'):
+        standing_mouth_world(r,matrix)

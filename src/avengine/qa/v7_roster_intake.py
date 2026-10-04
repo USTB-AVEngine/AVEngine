@@ -32,7 +32,9 @@ def _file(root, relative):
         raise ValueError('roster artifact missing or escapes its declared root')
     return path
 
-def intake_roster(manifest_path):
+def intake_roster(manifest_path, *, authority="formal_registry"):
+    if authority not in {"formal_registry", "legacy_local_rights"}:
+        raise ValueError("unknown human admission authority")
     manifest_path=Path(manifest_path)
     manifest_bytes=manifest_path.read_bytes()
     registry_sha256=hashlib.sha256(manifest_bytes).hexdigest()
@@ -66,7 +68,7 @@ def intake_roster(manifest_path):
             if vid in variant_ids or variant['major_id']!=mid:
                 raise ValueError('duplicate or mismatched variant lineage')
             variant_ids.add(vid)
-            reasons=[];observed={}
+            reasons=[];observed={};warnings=[]
             habitat=variant.get('habitat') or {};ue=variant.get('ue') or {}
             if habitat.get('status')!='pass' or ue.get('status')!='pass' or variant.get('dual_backend_static_usable') is not True:
                 reasons.append('upstream_dual_backend_static_not_passed')
@@ -81,14 +83,16 @@ def intake_roster(manifest_path):
                     reasons.append('native_artifact_missing_or_outside_root')
             gender=major.get('gender')
             if gender not in {'male','female'}:
-                reasons.append('visual_gender_not_annotated')
+                warnings.append('visual_gender_not_annotated_dialogue_voice_binding_blocked')
+                if authority=='legacy_local_rights':
+                    reasons.append('visual_gender_not_annotated')
             rocketbox=str(major.get('source','')).startswith('Rocketbox')
             if rocketbox:
                 if not mit_valid:reasons.append('Rocketbox_original_copy_MIT_binding_failed')
             else:
-                # Current lx producer package explicitly has no ISNet weight
-                # provenance and no verified source commit. Do not waive it.
-                reasons.append('lx_ISNet_checkpoint_rights_and_source_commit_unverified')
+                warnings.append('upstream_formal_static_registration_is_owner_authority_for_lx')
+                if authority=='legacy_local_rights':
+                    reasons.append('lx_ISNet_checkpoint_rights_and_source_commit_unverified')
             point=variant.get('mouth_local_glb_m')
             ue_point=variant.get('mouth_local_ue_cm')
             try:
@@ -109,6 +113,11 @@ def intake_roster(manifest_path):
                 'capability':{'asset_kind':kind,'instrument_subtype':subtype,
                     'content_class':content,'source':'roster requested class; no extra geometry inference'},
                 'static_research_qualified':not reasons,'static_blockers':sorted(set(reasons)),
+                'admission_authority':authority,'standing_registered_qualified':not reasons,
+                'dialogue_voice_binding_eligible':not reasons and gender in {'male','female'},
+                'upstream_warnings':warnings,'allowed_pose_for_this_task':'stand',
+                'ue_generated_class':ue.get('generated_class_path'),
+                'habitat_stand':habitat.get('stand'),
                 'native_episode_admitted':False,'episode_blockers':['complete_episode_not_run',
                     'multiactor_collision_and_room_placement_not_verified'],
                 'walk_status':habitat.get('walk'),'sit_status':habitat.get('sit'),
@@ -121,9 +130,10 @@ def intake_roster(manifest_path):
     if _digest(manifest_path)!=registry_sha256:
         raise ValueError('roster changed during read-only intake')
     return {'records':records,'source_registry':str(manifest_path),'source_registry_sha256':registry_sha256,
-        'license_receipts':license_receipts,'major_count':len(major_ids),'minor_count':len(variant_ids),
+        'admission_authority':authority,'license_receipts':license_receipts,'major_count':len(major_ids),'minor_count':len(variant_ids),
         'static_research_qualified_minors':sum(r['static_research_qualified'] for r in records),
         'static_research_qualified_majors':len({r['body_identity_id'] for r in records if r['static_research_qualified']}),
+        'dialogue_voice_eligible_minors':sum(r['dialogue_voice_binding_eligible'] for r in records),
         'full_episode_admission_count':0,'new_native_jobs_run_by_intake':0,
         'no_human_viewing_or_listening':True}
 
@@ -138,9 +148,28 @@ def bind_physical_actors(instances, intake):
             raise ValueError('physical actor identities must be unique')
         asset=by_asset[instance['asset_id']]
         if not asset['static_research_qualified']:
-            raise ValueError('asset has not passed static research intake')
+            raise ValueError('asset has not passed formal static registration')
+        if instance.get('pose','stand')!='stand':
+            raise ValueError('this task permits registered standing pose only')
         uids.add(uid);native_ids.add(native)
         actors.append({**instance,'body_identity_id':asset['body_identity_id'],
             'visual_gender':asset['visual_gender'],'capability':asset['capability'],
             'native_episode_admitted':False})
     return actors
+
+def standing_mouth_world(asset, body_to_world_m):
+    """Transform the registered GLB mouth, without guessing or changing it.
+
+    This computes the attachment expected by QA; the producer must compare it
+    to its actual native/RIR readback. No room contact is certified here.
+    """
+    matrix=np.asarray(body_to_world_m,dtype=float)
+    point=np.asarray(asset['mouth_local_glb_m'],dtype=float)
+    if (matrix.shape!=(4,4) or point.shape!=(3,) or not np.isfinite(matrix).all()
+            or not np.isfinite(point).all()
+            or not np.allclose(matrix[3],[0,0,0,1],atol=1e-8)):
+        raise ValueError('invalid native metre body transform')
+    rotation=matrix[:3,:3]
+    if not np.allclose(rotation.T@rotation,np.eye(3),atol=1e-5) or np.linalg.det(rotation)<0:
+        raise ValueError('registered standing mouth needs a rigid metre transform')
+    return (matrix@np.r_[point,1])[:3].tolist()

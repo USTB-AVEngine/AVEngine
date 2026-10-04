@@ -44,11 +44,37 @@ def normalize_transcript_tokens(text):
     text = text.lower().replace("’", "'")
     contractions = {"we're":"we are", "i'm":"i am", "you're":"you are",
                     "they're":"they are", "it's":"it is", "that's":"that is",
-                    "i'll":"i will", "we'll":"we will", "don't":"do not",
-                    "can't":"cannot", "won't":"will not"}
+                    "i'll":"i will", "we'll":"we will", "let's":"let us", "don't":"do not",
+                    "can't":"cannot", "won't":"will not", "isn't":"is not", "didn't":"did not", "wasn't":"was not", "aren't":"are not"}
     for source, expanded in contractions.items():
         text = re.sub(r"\b"+re.escape(source)+r"\b", expanded, text)
-    return re.findall(r"[a-z0-9]+", text.replace("-", " "))
+    def spoken_number(n):
+        small=("zero one two three four five six seven eight nine ten eleven twelve "
+               "thirteen fourteen fifteen sixteen seventeen eighteen nineteen").split()
+        if n<20:return small[n]
+        tens={20:'twenty',30:'thirty',40:'forty',50:'fifty'}
+        return tens[n//10*10]+(' '+small[n%10] if n%10 else '')
+    # Clock notation only after "at": no guess based on the gold time.
+    def clock(match):
+        hour,minute=int(match.group(1)),int(match.group(2))
+        if not 1<=hour<=12 or not 0<=minute<60:return match.group(0)
+        return 'at '+spoken_number(hour)+' '+spoken_number(minute)
+    text=re.sub(r"\bat\s+(\d{1,2})[:.](\d{2})\b",clock,text)
+    text=re.sub(r"\bat\s+(\d{1,2})(\d{2})\b",clock,text)
+    # Integer spelling is a value-preserving lexical equivalence, never
+    # phonetic repair. Values outside this fixed 0..59 range stay unchanged.
+    text=re.sub(r"\b\d{1,2}\b",lambda m:spoken_number(int(m[0])) if int(m[0])<60 else m[0],text)
+    words=re.findall(r"[a-z0-9]+",text.replace("-"," "))
+    compounds={('tea','spoon'):'teaspoon',('work','book'):'workbook',
+               ('door','mat'):'doormat',('door','step'):'doorstep',
+               ('coat','hook'):'coathook',('back','pack'):'backpack',('notice','board'):'noticeboard'}
+    result=[];i=0
+    while i<len(words):
+        key=tuple(words[i:i+2])
+        if key in compounds:result.append(compounds[key]);i+=2
+        else:result.append(words[i]);i+=1
+    spelling={'tyre':'tire','yoghurt':'yogurt','omelette':'omelet'}
+    return [spelling.get(word,word) for word in result]
 
 
 def semantic_asr_comparison(reference, blind_hypothesis, critical_slots):
@@ -62,13 +88,18 @@ def semantic_asr_comparison(reference, blind_hypothesis, critical_slots):
                                previous[j-1]+int(word!=observed)))
         previous = current
     wer = previous[-1]/max(1,len(a))
-    slots = [{'slot':slot,'present':' '.join(normalize_transcript_tokens(slot)) in ' '.join(b)}
-             for slot in critical_slots]
-    all_correct = bool(slots) and all(row['present'] for row in slots)
+    def complete_slot(slot):
+        tokens=normalize_transcript_tokens(slot)
+        return bool(tokens) and any(b[i:i+len(tokens)]==tokens for i in range(len(b)-len(tokens)+1))
+    slots = [{'slot':slot,'present':complete_slot(slot)} for slot in critical_slots]
+    negators={'not','no','never','without','cannot'}
+    polarity={word:a.count(word)==b.count(word) for word in negators}
+    all_correct = bool(slots) and all(row['present'] for row in slots) and all(polarity.values())
     return {'status':'pass' if wer<=.1 and all_correct else 'blocked',
             'wer':wer, 'all_critical_slots_correct':all_correct,'critical_slots':slots,
             'normalized_reference_tokens':a,'normalized_blind_hypothesis_tokens':b,
-            'normalization':'case/punctuation/hyphen plus fixed lexical contraction expansions',
+            'negation_counts_match':all(polarity.values()),'negation_token_comparison':polarity,
+            'normalization':'v2: fixed contractions/compound and standard English spelling, integers 0..59, valid numeric clocks after at; no phonetic repair',
             'maximum_wer':.1}
 
 def natural_speech_blockers(sound):

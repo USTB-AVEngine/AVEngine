@@ -340,3 +340,101 @@ def four_state_review(members):
     return {'status': 'pass' if not blockers else 'blocked',
             'answers': answers, 'native_four_member_binding_eligible': not blockers,
             'blockers': sorted(set(blockers))}
+
+def collect_content_binding(bundle, window_id, media, *, seed='v7'):
+    """Publish evidence-qualified content binding as its own panel.
+
+    No v6 family is renamed and no score/gate is relaxed. Missing producer
+    readbacks yield exact deferrals, never inferred native questions.
+    """
+    from copy import deepcopy
+    from avengine.qa.v7_roster_intake import intake_roster,standing_mouth_world
+    import numpy as np
+    scene=bundle['scene']
+    public=[];private=[];deferred=[]
+    path=bundle.get('source_registry') or scene.get('source_registry')
+    try:
+        if not path:raise ValueError('formal standing roster missing')
+        roster=intake_roster(path)
+        assets={r['asset_id']:r for r in roster['records']}
+    except (KeyError,TypeError,ValueError,OSError) as error:
+        return [],[],{'status':'blocked','deferred':[{'qa_id':PANEL_ID,'code':'formal_standing_roster_missing_or_invalid','detail':str(error)}]}
+    actor_map={str(r['actor_id']):r for r in scene['actors']}
+    standing_reasons=[]
+    for actor in scene['actors']:
+        asset=assets.get(actor.get('asset_id'))
+        if not asset or not asset['standing_registered_qualified']:
+            standing_reasons.append('content_actor_not_formally_registered')
+            continue
+        if actor.get('pose')!='stand':
+            standing_reasons.append('content_actor_not_standing')
+        if (actor.get('capability') or {}).get('asset_kind')!=asset['capability']['asset_kind']:
+            standing_reasons.append('content_actor_capability_not_registered')
+        pose=actor.get('standing_pose_readback') or {}
+        if (pose.get('status')!='pass' or not pose.get('source')
+                or not Path(str(pose['source']).partition('#')[0]).is_file()
+                or str(pose.get('actor_id'))!=str(actor['actor_id'])
+                or pose.get('asset_id')!=asset['asset_id']
+                or pose.get('source_registry_sha256')!=roster['source_registry_sha256']):
+            standing_reasons.append('content_native_standing_resource_readback_missing')
+    for emission in scene['emissions']:
+        if emission['mechanism']=='actor_live' and emission.get('emitter_point_kind')=='mouth':
+            actor=actor_map.get(str(emission.get('actor_id'))) or {}
+            asset=assets.get(actor.get('asset_id'))
+            try:
+                expected=np.asarray(standing_mouth_world(asset,actor['body_to_world_m']),float)
+                observed=np.asarray(emission['native_emitter_world_m'],float)
+                if observed.shape!=(3,) or not np.isfinite(observed).all() or np.linalg.norm(observed-expected)>.002:
+                    standing_reasons.append('content_native_mouth_differs_from_formal_registration')
+            except (KeyError,TypeError,ValueError):
+                standing_reasons.append('content_registered_mouth_attachment_readback_missing')
+    counts={k:0 for k in KINDS}
+    for index,record in enumerate(bundle.get('queries',[])):
+        query=record.get('query',record)
+        try:
+            truth=content_truth(scene,query)
+            witness=record.get('binding_witness',{})
+            blockers=sorted(set(standing_reasons+admission_blockers(scene,query,binding_witness=witness)))
+            standard,alternate=question_text(query),question_text(query,'alternate')
+            supplied_domain=record.get('answer_domain')
+            if query['kind']=='offscreen_origin':domain=['是','否']
+            elif query['kind']=='live_or_playback':domain=['现场人物','音箱播放']
+            else:domain=sorted(a['descriptor_zh'] for a in scene['actors'] if a.get('visible') is True)
+            if supplied_domain is not None and set(supplied_domain)!=set(domain):
+                blockers.append('public_answer_domain_does_not_match_visible_candidates')
+            if truth['answer'] not in domain or len(domain)<2 or len(set(domain))!=len(domain):
+                blockers.append('public_answer_domain_invalid')
+            if blockers:
+                deferred.extend({'qa_id':PANEL_ID,'kind':query['kind'],'query_index':index,'code':reason} for reason in blockers)
+                continue
+            wording=record.get('wording_variant','standard')
+            if wording not in {'standard','alternate'}:raise ValueError('unknown wording variant')
+            text=standard if wording=='standard' else alternate
+            pairing=bundle.get('pairing_id',bundle.get('base_world_id',''))
+            order=sorted(domain,key=lambda d:hashlib.sha256(
+                (str(seed)+'|'+str(pairing)+'|'+standard+'|'+d).encode()).digest())
+            logical=f'{window_id}__content__q{index:05d}'
+            for form in ('open','mcq'):
+                qid=logical+'__'+form
+                row={'question_id':qid,'logical_question_id':logical,'qa_id':PANEL_ID,
+                    'protocol_panel':'v7_content_binding','modality':'audiovisual','form':form,
+                    'question_zh':text,'media':deepcopy(media),'answer_type':'closed_set',
+                    'question_variant':query['kind']}
+                answer=truth['answer']
+                if form=='mcq':
+                    row['choices']=[{'id':chr(65+i),'text':d} for i,d in enumerate(order)]
+                    answer=chr(65+order.index(truth['answer']))
+                public.append(row)
+                private.append({'question_id':qid,'logical_question_id':logical,
+                    'answer':answer,'canonical_answer':truth['answer'],
+                    'evidence':{'query':deepcopy(query),'scene':deepcopy(scene),
+                        'truth':truth,'answer_domain':domain,'source_registry_sha256':roster['source_registry_sha256'],
+                        'native_witness':deepcopy(witness),'wording_variant':wording,
+                        'wording_exchange':{'standard':standard,'alternate':alternate,
+                            'canonical_answer_invariant':True,'selection_depends_on_answer':False}},
+                    'authority':'v7_content_binding_v1'})
+            counts[query['kind']]+=1
+        except (KeyError,TypeError,ValueError) as error:
+            deferred.append({'qa_id':PANEL_ID,'query_index':index,'code':'content_truth_or_public_query_invalid','detail':str(error)})
+    return public,private,{'status':'pass' if public else 'blocked','logical_counts_by_kind':counts,
+        'deferred':deferred,'formal_dataset_count':0,'source_registry_sha256':roster['source_registry_sha256']}
