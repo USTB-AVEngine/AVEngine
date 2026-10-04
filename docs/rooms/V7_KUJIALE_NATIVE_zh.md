@@ -1,3 +1,5 @@
+当前结果以 [第7回合原材质恢复与全量房源准入](V7_KUJIALE_NATIVE_ROUND7_zh.md) 为准；本页保留两套先期试跑记录。
+
 # Kujiale 原生 UE/SPEAR 验收与连续试跑
 
 Kujiale 的视觉路线显式指定 `input.visual_backend = ue_spear`，复用 v6
