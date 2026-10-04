@@ -3,9 +3,9 @@
   "source_commit": "58c409274ce3eae028bcfe7adaea161604b3d8fe",
   "files": [
     {
-      "filename": "REPORT_zh.md",
-      "bytes": 14210,
-      "sha256": "3012689ec158f0f05b2fc86247486a5c4712f316f7f431b7dbe91e4805f5d3ed"
+      "filename": "CUDA_RASTER_ASSESSMENT_zh.md",
+      "bytes": 2694,
+      "sha256": "426719f61d99148374caaed19203cc80232f196d9c95598665c9f928b9acc69e"
     },
     {
       "filename": "DIAGNOSTIC_RAW_zh.md",
@@ -13,9 +13,14 @@
       "sha256": "e8b57e2999028fb2b39b4f48c790c146b0230248c99c1dc291b36dbb44207492"
     },
     {
-      "filename": "CUDA_RASTER_ASSESSMENT_zh.md",
-      "bytes": 2694,
-      "sha256": "426719f61d99148374caaed19203cc80232f196d9c95598665c9f928b9acc69e"
+      "filename": "QUEUE_WAIT_STATUS_20261004T0844Z.json",
+      "bytes": 2345,
+      "sha256": "b73dd7374cce72c548d12fd924f0a0966579e1dcd9606667995b30d81d38f80c"
+    },
+    {
+      "filename": "REPORT_zh.md",
+      "bytes": 14806,
+      "sha256": "a8c280a88e7777c333c1b961995f7961ed232151c79f7154f993bb6b5aa19f53"
     },
     {
       "filename": "ROUTE_ESTIMATES_r6.json",
@@ -27,5 +32,8 @@
       "bytes": 273785,
       "sha256": "97290a8de7296be9cb463c754c79c2f05d5ff51dc60c638a028cee7c0687a15f"
     }
-  ]
+  ],
+  "previous_report_commit": "f6aaab9306e00843aba39d88e9d18c0e633e8ba4",
+  "snapshot_utc": "2026-10-04T08:43:54.861076+00:00",
+  "status": "queued; P19 round6 not executed at last verified snapshot"
 }

@@ -1,0 +1,73 @@
+{
+  "snapshot_utc": "2026-10-04T08:43:54.861076+00:00",
+  "runner_log": "/mnt/afs/xinyuanqian/jzy/hardbank/runs/p19_run_logs/job_20261004T035951Z_b69cc9-t8wb6.log",
+  "own_queue_line": 116,
+  "own_dispatch_log_seen": false,
+  "own_attempt_directory_exists": false,
+  "own_P19_pid_known": null,
+  "preceding_rank7_events": [
+    {
+      "utc": "2026-10-04T08:43:25Z",
+      "event": "stage_exit",
+      "rank": 7,
+      "gpu": null,
+      "queue_line": null,
+      "plan": "scheme_a_clean_scratch_25526_s19_20261004",
+      "experiment": "scheme_a_clean_seed20260919",
+      "stage": "eval_real_dev_v02"
+    },
+    {
+      "utc": "2026-10-04T08:43:25Z",
+      "event": "stage_start",
+      "rank": 7,
+      "gpu": "3",
+      "queue_line": null,
+      "plan": "scheme_a_clean_scratch_25526_s19_20261004",
+      "experiment": "scheme_a_clean_seed20260919",
+      "stage": "score_real_dev_v02"
+    },
+    {
+      "utc": "2026-10-04T08:43:27Z",
+      "event": "stage_exit",
+      "rank": 7,
+      "gpu": null,
+      "queue_line": null,
+      "plan": "scheme_a_clean_scratch_25526_s19_20261004",
+      "experiment": "scheme_a_clean_seed20260919",
+      "stage": "score_real_dev_v02"
+    },
+    {
+      "utc": "2026-10-04T08:43:27Z",
+      "event": "experiment_end",
+      "rank": 7,
+      "gpu": null,
+      "queue_line": null,
+      "plan": "scheme_a_clean_scratch_25526_s19_20261004",
+      "experiment": "scheme_a_clean_seed20260919",
+      "stage": null
+    },
+    {
+      "utc": "2026-10-04T08:43:29Z",
+      "event": "experiment_start",
+      "rank": 7,
+      "gpu": null,
+      "queue_line": 115,
+      "plan": "scheme_a_clean_scratch_25526_s20_20261004",
+      "experiment": "scheme_a_clean_seed20260920",
+      "stage": null
+    },
+    {
+      "utc": "2026-10-04T08:43:29Z",
+      "event": "stage_start",
+      "rank": 7,
+      "gpu": "3",
+      "queue_line": null,
+      "plan": "scheme_a_clean_scratch_25526_s20_20261004",
+      "experiment": "scheme_a_clean_seed20260920",
+      "stage": "train"
+    }
+  ],
+  "subsequent_read_attempts": "CCI direct and via48 login timed out during SSH banner exchange; no later P19 status verified",
+  "stop_boundary": "No ordinary-rank lease received; do not borrow idle card, resurrect worker, reprioritize queue or stop training",
+  "render_source_commit": "58c409274ce3eae028bcfe7adaea161604b3d8fe"
+}
