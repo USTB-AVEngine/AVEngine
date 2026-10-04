@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+set -euo pipefail
+: "${CCI_NVIDIA_TAR_LOG:?private extraction log is required}"
+printf 'private extraction tar argv:' >> "$CCI_NVIDIA_TAR_LOG"
+printf ' %q' "$@" >> "$CCI_NVIDIA_TAR_LOG"
+printf '\n' >> "$CCI_NVIDIA_TAR_LOG"
+# Private archive files retain this user's ownership/permissions and fresh timestamps.
+# File contents are unchanged and later checked against the official package manifest.
+exec /usr/bin/tar "$@" --no-same-owner --no-same-permissions --touch 2>> "$CCI_NVIDIA_TAR_LOG"

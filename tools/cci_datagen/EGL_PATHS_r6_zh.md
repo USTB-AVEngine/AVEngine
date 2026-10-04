@@ -7,3 +7,5 @@ CUDA_VISIBLE_DEVICES 必须是受保护 worker 给本进程的单一卡号。只
 CPU 路径用个人 conda-forge mesa-libgallium/mesa-llvmpipe 26.2.4、libegl/libopengl/libglvnd 1.7.0，记录所有实解 build/依赖 SHA。旧 mesalib 25.2.8 的本次构建只带 Vulkan lavapipe，不能误记为软件 EGL。CPU 子进程隐藏 CUDA，设置私有厂商 JSON、surfaceless、LIBGL_ALWAYS_SOFTWARE、LP_NUM_THREADS=1、原冻结 software-only selector；所有环境变量只作用于自己的子进程。渲同一30秒训练房并保存4帧，与本轮成功 P19 NVIDIA EGL 及已有48g Habitat软件参考比 RGB MAE/max/不同像素比例、depth米级误差、semantic误差。版本可替换，但 source/request/ref 必须一起冻结核验。
 
 nvdiffrast CUDA backend 只作技术和人日评估，本计划不下载/编译/运行它。开发机 MIG 只测 CPU 环境，无硬件尝试；48g 没分配 GPU，不自选卡开作业。所有诊断正式数据数为0；不采测试房。P19 未派发或硬件无成功参考，像素差/吞吐/训练影响必须标为未验证。
+
+兼容修复：Mesa 26 的 DRI 注册是 libdril/libgallium，基础设施软件守卫同时验证个人环境路径与实际 GL_RENDERER=llvmpipe，仍拒 NVIDIA 图形 DSOs。官方 .run 的 tar 只在个人抽取子进程使用 no-same-owner/no-same-permissions/touch，并记录 tar stderr；不会改变共享 tar/驱动或图形库内容。发布到 code_v2，保留前一次预检的 code/失败目录。

@@ -3,14 +3,14 @@
   "name": "cci_egl_paths_ordered_shared_20261004_codex_r6",
   "run_root": "/mnt/afs/xinyuanqian/jzy/hardbank/generation/cci_egl_paths_20261004_codex_r6/output/scheduler_paths",
   "python": "/mnt/afs/xinyuanqian/jzy/hardbank/generation/cci_datagen_20261003_codex/env/bin/python",
-  "cwd": "/mnt/afs/xinyuanqian/jzy/hardbank/generation/cci_egl_paths_20261004_codex_r6/code",
+  "cwd": "/mnt/afs/xinyuanqian/jzy/hardbank/generation/cci_egl_paths_20261004_codex_r6/code_v2",
   "env": {
-    "PYTHONPATH": "/mnt/afs/xinyuanqian/jzy/hardbank/generation/cci_egl_paths_20261004_codex_r6/code/src:/mnt/afs/xinyuanqian/jzy/hardbank/generation/cci_egl_paths_20261004_codex_r6/code:/mnt/afs/xinyuanqian/jzy/hardbank/generation/cci_datagen_20261003_codex/overlay",
+    "PYTHONPATH": "/mnt/afs/xinyuanqian/jzy/hardbank/generation/cci_egl_paths_20261004_codex_r6/code_v2/src:/mnt/afs/xinyuanqian/jzy/hardbank/generation/cci_egl_paths_20261004_codex_r6/code:/mnt/afs/xinyuanqian/jzy/hardbank/generation/cci_datagen_20261003_codex/overlay",
     "LD_LIBRARY_PATH": "/mnt/afs/xinyuanqian/jzy/hardbank/generation/cci_datagen_20261003_codex/private_glvnd:/mnt/afs/xinyuanqian/jzy/hardbank/generation/cci_datagen_20261003_codex/env/lib",
     "PATH": "/mnt/afs/xinyuanqian/jzy/hardbank/generation/cci_pilot64_20261004_codex_r4/bin:/mnt/afs/xinyuanqian/jzy/hardbank/generation/cci_datagen_20261003_codex/env/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
     "CCI_DATAGEN_BASE": "/mnt/afs/xinyuanqian/jzy/hardbank/generation/cci_egl_paths_20261004_codex_r6",
     "DATAGEN_NATIVE_ROOT": "/mnt/afs/xinyuanqian/jzy/hardbank/generation/cci_datagen_20261003_codex/native/data/avengine_external",
-    "AVENGINE_GENERATOR_CODE_ROOT": "/mnt/afs/xinyuanqian/jzy/hardbank/generation/cci_egl_paths_20261004_codex_r6/code",
+    "AVENGINE_GENERATOR_CODE_ROOT": "/mnt/afs/xinyuanqian/jzy/hardbank/generation/cci_egl_paths_20261004_codex_r6/code_v2",
     "PYTHONDONTWRITEBYTECODE": "1",
     "PYTHONUNBUFFERED": "1",
     "OMP_NUM_THREADS": "1",
@@ -21,7 +21,7 @@
     "NUMBA_CACHE_DIR": "/mnt/afs/xinyuanqian/jzy/hardbank/generation/cci_egl_paths_20261004_codex_r6/tmp/numba",
     "MPLCONFIGDIR": "/mnt/afs/xinyuanqian/jzy/hardbank/generation/cci_egl_paths_20261004_codex_r6/tmp/mpl",
     "XDG_CACHE_HOME": "/mnt/afs/xinyuanqian/jzy/hardbank/generation/cci_egl_paths_20261004_codex_r6/tmp/cache",
-    "GIT_CONFIG_GLOBAL": "/mnt/afs/xinyuanqian/jzy/hardbank/generation/cci_egl_paths_20261004_codex_r6/code/.git/CCI_SAFE_CONFIG",
+    "GIT_CONFIG_GLOBAL": "/mnt/afs/xinyuanqian/jzy/hardbank/generation/cci_egl_paths_20261004_codex_r6/code_v2/.git/CCI_SAFE_CONFIG",
     "LIBGL_ALWAYS_SOFTWARE": "0",
     "LD_PRELOAD": "",
     "CCI_INFRASTRUCTURE_TRIAL": "1"
@@ -36,20 +36,20 @@
       "evals": [
         {
           "name": "nvidia",
-          "checkpoint": "/mnt/afs/xinyuanqian/jzy/hardbank/generation/cci_egl_paths_20261004_codex_r6/configs/egl_paths_profile.json",
+          "checkpoint": "/mnt/afs/xinyuanqian/jzy/hardbank/generation/cci_egl_paths_20261004_codex_r6/configs/egl_paths_profile_v2.json",
           "checkpoint_flag": "--generator-profile",
           "args": [
-            "/mnt/afs/xinyuanqian/jzy/hardbank/generation/cci_egl_paths_20261004_codex_r6/code/tools/cci_datagen/egl_paths_entry.py",
+            "/mnt/afs/xinyuanqian/jzy/hardbank/generation/cci_egl_paths_20261004_codex_r6/code_v2/tools/cci_datagen/egl_paths_entry.py",
             "--route",
             "nvidia"
           ]
         },
         {
           "name": "mesa",
-          "checkpoint": "/mnt/afs/xinyuanqian/jzy/hardbank/generation/cci_egl_paths_20261004_codex_r6/configs/egl_paths_profile.json",
+          "checkpoint": "/mnt/afs/xinyuanqian/jzy/hardbank/generation/cci_egl_paths_20261004_codex_r6/configs/egl_paths_profile_v2.json",
           "checkpoint_flag": "--generator-profile",
           "args": [
-            "/mnt/afs/xinyuanqian/jzy/hardbank/generation/cci_egl_paths_20261004_codex_r6/code/tools/cci_datagen/egl_paths_entry.py",
+            "/mnt/afs/xinyuanqian/jzy/hardbank/generation/cci_egl_paths_20261004_codex_r6/code_v2/tools/cci_datagen/egl_paths_entry.py",
             "--route",
             "mesa"
           ]

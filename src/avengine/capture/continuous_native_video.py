@@ -58,7 +58,16 @@ class NativeContinuousVideo:
         self.sim=hs.Simulator(configuration)
         maps=Path('/proc/self/maps').read_text()
         if infra_gpu is None:
-            if 'swrast_dri.so' not in maps or 'libEGL_nvidia' in maps or 'libnvidia-gl' in maps:
+            software_loaded='swrast_dri.so' in maps
+            mesa_root=os.environ.get('CCI_INFRA_SOFTWARE_MESA_ROOT')
+            if mesa_root and os.environ.get('CCI_INFRASTRUCTURE_TRIAL')=='1':
+                import ctypes
+                lib=ctypes.CDLL('libOpenGL.so.0');lib.glGetString.argtypes=[ctypes.c_uint];lib.glGetString.restype=ctypes.c_char_p
+                renderer=lib.glGetString(0x1F01)
+                self.infrastructure_GL_renderer=renderer.decode(errors='replace') if renderer else None
+                canonical=str(Path(mesa_root).resolve())+'/lib/'
+                software_loaded=bool(renderer and b'llvmpipe' in renderer.lower() and any(canonical in line and ('libgallium' in line or 'libdril_dri' in line) for line in maps.splitlines()))
+            if not software_loaded or 'libEGL_nvidia' in maps or 'libnvidia-gl' in maps:
                 self.sim.close();raise RuntimeError('native CPU renderer did not load only the software driver')
         elif 'swrast_dri.so' in maps or not any(x in maps for x in ('libEGL_nvidia','libnvidia-gl')):
             self.sim.close();raise RuntimeError('GPU infrastructure renderer did not load the NVIDIA EGL driver')
@@ -121,6 +130,8 @@ class NativeContinuousVideo:
                 'sample_rate_hz':a['bundle'].action_sets_by_role[a['bundle'].action_roles_by_id['walk']].sample_rate_hz,
                 'time_base_hz':a['bundle'].action_sets_by_role[a['bundle'].action_roles_by_id['walk']].time_base_hz} for a in self.actors]}
 
+        if hasattr(self,'infrastructure_GL_renderer'):
+            self.receipt['infrastructure_GL_renderer']=self.infrastructure_GL_renderer
         if infra_gpu is not None:
             self.receipt.update(compute_device='GPU',software_driver=None,gpu_device_id=cfg.gpu_device_id,physical_gpu_lease=infra_gpu,physical_uuid=os.environ.get('CCI_INFRA_HABITAT_PHYSICAL_UUID'),
                                 hardware_EGL_devices_excluded=False,infrastructure_trial_only=True,

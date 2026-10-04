@@ -52,7 +52,7 @@ def main():
   if a.route=='nvidia':
    gpu=lease['gpu']
    if not str(gpu).isdigit() or os.environ.get('CUDA_VISIBLE_DEVICES')!=gpu:raise ValueError('exact single physical worker GPU lease required')
-   driver=live_version(gpu,out);write_json(out/'LIVE_DRIVER.json',driver);before=device_files(gpu);write_json(out/'device_files_before.json',before);runtime=prepare(base,driver,out);mapping=prove_cuda_lease(driver);write_json(out/'CUDA_LEASE_PROOF.json',mapping)
+   driver=live_version(gpu,out);write_json(out/'LIVE_DRIVER.json',driver);before=device_files(gpu);write_json(out/'device_files_before.json',before);runtime=prepare(base,driver,out,runtime_root=profile.get('driver_runtime_root'));mapping=prove_cuda_lease(driver);write_json(out/'CUDA_LEASE_PROOF.json',mapping)
    env={**os.environ,'CUDA_VISIBLE_DEVICES':gpu,'LD_PRELOAD':'','LIBGL_ALWAYS_SOFTWARE':'0','__EGL_VENDOR_LIBRARY_FILENAMES':str(runtime/'10_nvidia_private.json'),'LD_LIBRARY_PATH':str(runtime/'lib')+':'+profile['base_native_library_path'],'CCI_INFRA_HABITAT_DEVICE_ID':str(mapping['cuda_ordinal']),'CCI_INFRA_HABITAT_PHYSICAL_UUID':mapping['physical_uuid'],'CCI_RENDER_CAP_GIB':'2','CCI_RENDER_TRAINING_RESERVE_GIB':'4','CCI_RENDER_CPU_COUNT':'1','MESA_SHADER_CACHE_DISABLE':'true','CUDA_CACHE_PATH':str(base/'tmp/cuda_cache'),'__GL_SHADER_DISK_CACHE_PATH':str(base/'tmp/gl_shader_cache')}
    for k in ('MESA_LOADER_DRIVER_OVERRIDE','LIBGL_DRIVERS_PATH','EGL_PLATFORM'):env.pop(k,None)
    # NVIDIA EGL device enumeration can map all handles; initialize only UUID-proved CUDA ordinal.
@@ -77,7 +77,7 @@ def main():
    after=device_files(gpu);write_json(out/'device_files_after.json',after)
    if after!=before:raise RuntimeError('device metadata changed; no further graphics attempts')
   else:
-   software=Path(profile['mesa_root']);selector=Path(profile['cpu_selector']);env={**os.environ,'CUDA_VISIBLE_DEVICES':'','LIBGL_ALWAYS_SOFTWARE':'1','MESA_LOADER_DRIVER_OVERRIDE':'llvmpipe','EGL_PLATFORM':'surfaceless','__EGL_VENDOR_LIBRARY_FILENAMES':profile['mesa_vendor_json'],'LD_PRELOAD':str(selector),'LIBGL_DRIVERS_PATH':str(software/'lib/dri'),'LD_LIBRARY_PATH':str(software/'lib')+':'+profile['base_native_library_path'],'LP_NUM_THREADS':'1','CCI_RENDER_CPU_COUNT':'1','MESA_SHADER_CACHE_DISABLE':'true'}
+   software=Path(profile['mesa_root']);selector=Path(profile['cpu_selector']);env={**os.environ,'CUDA_VISIBLE_DEVICES':'','LIBGL_ALWAYS_SOFTWARE':'1','MESA_LOADER_DRIVER_OVERRIDE':'llvmpipe','EGL_PLATFORM':'surfaceless','__EGL_VENDOR_LIBRARY_FILENAMES':profile['mesa_vendor_json'],'LD_PRELOAD':str(selector),'LIBGL_DRIVERS_PATH':str(software/'lib/dri'),'LD_LIBRARY_PATH':str(software/'lib')+':'+profile['base_native_library_path'],'CCI_INFRA_SOFTWARE_MESA_ROOT':str(software),'CCI_INFRASTRUCTURE_TRIAL':'1','LP_NUM_THREADS':'1','CCI_RENDER_CPU_COUNT':'1','MESA_SHADER_CACHE_DISABLE':'true'}
    for k in ('CCI_INFRA_RENDER_GPU','CCI_INFRA_HABITAT_DEVICE_ID','CCI_INFRA_HABITAT_PHYSICAL_UUID'):env.pop(k,None)
    full={'name':'condaforge_llvmpipe_30s_720p_1CPU',**run_child(frame_command(code,profile,out/'software_30s',full=True),env,out/'software_30s.log',profile['software_timeout_seconds'])};runs.append(full)
    if full['status']=='passed':

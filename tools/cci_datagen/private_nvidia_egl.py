@@ -42,23 +42,26 @@ def download(url,path,limit,deadline):
    f.write(block)
   f.flush();os.fsync(f.fileno())
  return {'bytes':total,'seconds':time.monotonic()-start}
-def prepare(base,driver,out):
+def prepare(base,driver,out,runtime_root=None):
  version=driver['version'];cache=base/'driver_cache'/version;cache.mkdir(parents=True,exist_ok=True)
  package='NVIDIA-Linux-x86_64-'+version+'-no-compat32.run';root='https://download.nvidia.com/XFree86/Linux-x86_64/'+version+'/'
  deadline=time.monotonic()+600;downloads={}
  for name,cap in [(package+'.sha256sum',65536),('license.txt',131072),(package,600*1024**2)]:downloads[name]=download(root+name,cache/name,cap,deadline)
  parts=(cache/(package+'.sha256sum')).read_text().split()
  if len(parts)!=2 or not re.fullmatch('[0-9a-f]{64}',parts[0]) or parts[1].lstrip('*')!=package or file_sha(cache/package)!=parts[0]:raise ValueError('official SHA256 mismatch; no extraction or DSO loading')
- runtime=base/'driver_runtime'/version;complete=runtime/'COMPLETE.json'
+ runtime_parent=Path(runtime_root) if runtime_root else base/'driver_runtime'
+ if not runtime_parent.resolve().is_relative_to(base.resolve()):raise ValueError('driver runtime outside owned base')
+ runtime=runtime_parent/version;complete=runtime/'COMPLETE.json'
  if complete.exists():
   record=json.loads(complete.read_text())
   if record['version']!=version or any(file_sha(runtime/'lib'/r['filename'])!=r['sha256'] for r in record['libraries']):raise RuntimeError('private installed graphics library hash mismatch')
   write_json(out/'PRIVATE_DRIVER.json',record);return runtime
- runtime.mkdir(parents=True,exist_ok=False);quarantine=runtime/'extract_quarantine';quarantine.mkdir();private_tmp=runtime/'tmp';private_tmp.mkdir();env={**os.environ,'TMPDIR':str(private_tmp),'CUDA_VISIBLE_DEVICES':''}
+ runtime.mkdir(parents=True,exist_ok=False);quarantine=runtime/'extract_quarantine';quarantine.mkdir();private_tmp=runtime/'tmp';private_tmp.mkdir();env={**os.environ,'TMPDIR':str(private_tmp),'CUDA_VISIBLE_DEVICES':'','PATH':str(Path(__file__).parent/'driver_tar/bin')+':'+os.environ['PATH'],'CCI_NVIDIA_TAR_LOG':str(out/'driver_tar_raw.log')}
  argv=['sh',str(cache/package),'--extract-only','--target',str(quarantine/'payload')]
- with (out/'driver_extract.log').open('x') as f:
-  p=subprocess.run(argv,cwd=quarantine,env=env,stdout=f,stderr=subprocess.STDOUT,timeout=180)
- if p.returncode:raise RuntimeError('official --extract-only failed; no installer was run')
+ from egl_diagnostic_entry import run_child
+ # Separate verified child session; extraction never shares a worker process group.
+ p=run_child(argv,env,out/'driver_extract_child.log',180)
+ if p['status']!='passed':raise RuntimeError('official --extract-only failed; inspect driver_extract_child.log and driver_tar_raw.log; no installer was run')
  lib=runtime/'lib';lib.mkdir();libraries=[];seen=set()
  for p in (quarantine/'payload').rglob('*.so.*'):
   if not p.is_file() or p.is_symlink() or not graphics_name(p.name,version):continue
