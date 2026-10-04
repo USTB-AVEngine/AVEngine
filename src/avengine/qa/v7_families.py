@@ -18,6 +18,7 @@ import soundfile as sf
 from avengine.qa import unified_catalog as u
 from avengine.qa.semantic_questions import generate_semantic_questions
 from avengine.qa.v7_protocol import generate_questions as generate_protocol_questions
+from avengine.qa.v7_recorded_audio import natural_speech_blockers
 
 FAMILIES = tuple(f'QA-{i:02d}' for i in range(1, 29))
 PANELS = ('STARSS-SPEAKERS', 'STARSS-FRUSTUM', 'STARSS-CLASS13')
@@ -70,7 +71,7 @@ def _semantic_manifest(facts, manifest):
         if sound is None:
             continue
         proof = sound.get('synthesis_readback') or {}
-        reasons = []
+        reasons = natural_speech_blockers(sound)
         path = Path(proof.get('path', ''))
         if not path.is_file():
             reasons.append('actual_synthesized_audio_missing')
