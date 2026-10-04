@@ -534,7 +534,7 @@ def write_planning(root, output, summary, trials, house_rows):
                 'transfer_rate_source': 'user round5: existing 48g -> CCI measurement about 1.7 MB/s, not remeasured in this task',
                 'transfer_tool': '/home/neos/jzy/tools/cci_pull_from_48g.sh',
                 'transfer_performed': False,
-                'storage_policy': 'task <=80GB; shared /data reserve >=150GB. Bulk media exceeds remaining task capacity; needs assigned storage or explicit authorization to release verified local delivered copies. No deletion of delivered media is inferred.',
+                'storage_policy': 'task <=80GB; shared /data reserve >=150GB. The upper design-range media estimate exceeds remaining task capacity; the lower core-media-only estimate fits before intermediates. Needs assigned storage for the upper range or explicit authorization to release verified local delivered copies. No deletion of delivered media is inferred.',
                 'capacity_scope': 'only frozen three-position two-source room feasibility is measured; 0..8-actor/full class capacity and independent seed diversity are not established'}
     write(output/'generation_and_transfer_plan.json', planning)
     per_house = []
@@ -693,7 +693,7 @@ def write_report(root, output, summary, house_rows, asset_rows, motion, planning
              '|---|---:|---:|---|---:|---:|---|']
     for row in house_rows:
         seconds = row['native_import_to_acceptance_machine_seconds']
-        note = '房源准入；仅列出的房间可用' if row['training_admitted'] else row['reasons']
+        note = '房源准入；仅列出的房间可用' if int(row['admitted_room_count']) > 0 else row['reasons']
         lines.append('|'+row['house'].removeprefix('kujiale_')+'|'+str(row['metadata_room_count'])+'|'+
                      f'{row["metadata_area_sum_m2"]:.2f}'+'|'+row.get('native_status', '')+'|'+
                      str(row['native_candidate_rooms'])+'/'+str(row['admitted_room_count'])+'|'+
@@ -818,13 +818,14 @@ def write_report(root, output, summary, house_rows, asset_rows, motion, planning
               f'逐路径逻辑占用{storage["logical_path_bytes"]/1e9:.3f}GB；快照时/data空闲'
               f'{storage["shared_data_free_bytes"]/1e9:.3f}GB。80GB本任务上限及150GB共享盘预留保持；'
               'STORAGE_SNAPSHOT.json含命令等价统计方法和时间，最终封存后再次刷新。'
-              '大批量媒体会超出剩余本任务存储额度，需要另行指定容量；未擅自删除交付物或他人的数据。', '',
+              '设计上界核心媒体约66.09GB，会超出剩余额度；下界约31.67GB仅算核心媒体可容纳，尚未含生成中间件。'
+              '上界方案需要另行指定容量；未擅自删除交付物或他人的数据。', '',
               '派生资产体积/sha256：NATIVE_DERIVED_ENGINE_ASSETS.json与NATIVE_SOURCE_CONTENT_DEPENDENCIES.json；'
               '两套研究窗口及见证的拟传清单：CCI_GENERATED_WINDOWS_AND_PROVENANCE.json/.sha256/.list。'
               '仅内部非商业研究、引用、不得再分发；此次没有实际传输。', '',
               '清理只针对本任务已完成中间件：先封存完整窗口和必要见证，再调用原v7_compaction；'
               '原材质备份、已作废Habitat产物、原始包和共享缓存保留。0042是通用声学包例外，'
-              '先前错误清理的3个数组已按原manifest SHA逐字节恢复，见'
+              '先前错误清理的3个数组及debug OBJ共4个文件已按原manifest SHA逐字节恢复，见'
               ' ue_round7/evidence/current_0042_package_restoration_v1/result.json；没有用重算门槛放行。', '',
               '## 改动、验证与交付位置', '',
               '只在48g自有 AVEngine-codex-v7-kujiale-20261003 worktree/分支中改动；独立提交、不push。'
