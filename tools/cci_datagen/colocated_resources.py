@@ -48,6 +48,34 @@ def child_loader_counts(workers,exclude_parent):
    if pid in counts:counts[pid]+=1;break
  return counts
 
+def peer_loading_details(worker_pid):
+ result={'configured_prefetch_threads':0,'active_decoder_processes':0,'python_processes':[],
+         'note':'thread count is not occupied cores; prefetch configuration is separate from pt_data_worker processes'}
+ for p in Path('/proc').iterdir():
+  if not p.name.isdigit():continue
+  try:
+   if p.stat().st_uid!=os.getuid():continue
+   pid=int(p.name);cursor=pid;seen=set();is_child=False
+   while cursor>1 and cursor not in seen:
+    seen.add(cursor);status=Path(f'/proc/{cursor}/status').read_text()
+    cursor=int(next(l.split()[1] for l in status.splitlines() if l.startswith('PPid:')))
+    if cursor==worker_pid:is_child=True;break
+   if not is_child:continue
+   argv=[v.decode(errors='replace') for v in (p/'cmdline').read_bytes().split(b'\0') if v]
+   if not argv:continue
+   program=Path(argv[0]).name
+   if program in ('ffmpeg','ffprobe'):result['active_decoder_processes']+=1
+   if 'python' in program:
+    n=0
+    if '--prefetch' in argv:
+     try:n=int(argv[argv.index('--prefetch')+1])
+     except (ValueError,IndexError):pass
+    result['configured_prefetch_threads']=max(result['configured_prefetch_threads'],n)
+    status=(p/'status').read_text();threads=int(next(l.split()[1] for l in status.splitlines() if l.startswith('Threads:')))
+    result['python_processes'].append({'pid':pid,'threads':threads,'configured_prefetch_threads':n})
+  except (OSError,StopIteration,ValueError):continue
+ return result
+
 def observe(afs_root,io=False):
  parent=os.getppid();penv=process_env(parent)
  argv=(read(f'/proc/{parent}/cmdline') or '').replace('\x00',' ')
@@ -75,12 +103,17 @@ def observe(afs_root,io=False):
   row['gpus'].update(visible=allowed,visible_count=len(allowed),CUDA_VISIBLE_DEVICES=visible,provenance='read-only observer NVML, peer process env and device access; lease index inferred from unchanged worker mapping')
   rows.append(row)
  counts=child_loader_counts(workers,parent)
+ for row in rows:
+  row['observed_pt_data_worker_processes']=counts.get(row['pid'],0)
+  row['loader_observation_note']='process-name count is a lower bound; inline loading, thread prefetch and ffmpeg are separate'
+  row['loading_details']=peer_loading_details(row['pid'])
+ current['observed_loader_counts_by_worker_pid']=counts
  return {'observer':current,'rank_observations':rows,'scheduler_lease':{'verified_parent_worker':leased,'parent_pid':parent,'global_rank':int(penv.get('RANK',str(local_rank))),'local_rank':local_rank,'world_size':int(penv.get('WORLD_SIZE',str(local_world))),'local_world_size':local_world,'nodes':int(penv.get('GROUP_WORLD_SIZE',penv.get('SENSECORE_PYTORCH_NNODES','1'))),'gpu':os.environ.get('CUDA_VISIBLE_DEVICES',''),'rank_env_source':f'/proc/{parent}/environ (allowlisted keys only)','observed_local_ranks':len(rows),'unobserved_local_ranks':max(0,local_world-len(rows))},'observed_loader_counts':counts}
 
 def capacity(observation,policy):
  r=observation['observer'];lease=observation['scheduler_lease'];peers=[p for p in observation['rank_observations'] if p['pid']!=lease['parent_pid']]
  training=max(0,lease['local_world_size']-1);unknown=max(0,training-len(peers))
- loaders=max(int(policy.get('loader_workers_per_training_rank',4)),max(observation.get('observed_loader_counts',{}).values(),default=0))
+ loaders=max(int(policy.get('loader_workers_per_training_rank',4)),max(observation.get('observed_loader_counts',{}).values(),default=0),max((p.get('loading_details',{}).get('configured_prefetch_threads',0) for p in peers),default=0))
  cpu_fraction=float(policy.get('cpu_reserve_fraction',.10));mem_fraction=float(policy.get('memory_reserve_fraction',.10));train_mem=float(policy.get('training_gib_per_rank',33))*GIB;worker_mem=float(policy.get('worker_gib',4))*GIB
  def shared(scope,field):
   return unknown+sum(any(x.get('canonical_path',x['path'])==scope and field in x for x in p['cgroup_limits']) for p in peers)
@@ -97,4 +130,4 @@ def capacity(observation,policy):
   if 'memory_limit_bytes' in x:
    n=shared(scope,'memory_limit_bytes');memory_caps.append(int(x['memory_limit_bytes']*(1-mem_fraction))-n*train_mem)
  spare=max(0,int(min(memory_caps)));count=min(min(x['usable'] for x in bounds),int(spare//worker_mem));cpus=r['affinity_cpus'][:count]
- return {'cpu_processes':count,'affinity_cpus':cpus,'effective_cpu_cores':r['effective_cpu_cores'],'cpu_bounds':bounds,'other_training_ranks':training,'loader_workers_per_training_rank':loaders,'loader_estimate_source':'max(policy conservative default, locally observed pt_data_worker count); main training overhead is in CPU reserve','training_memory_bytes_per_rank':int(train_mem),'generation_memory_available_bytes':spare,'worker_memory_budget_bytes':int(worker_mem),'nice':19,'gpu_lease':lease['gpu'],'generation_scheduler_ranks':1,'torchrun_children_launched':0,'training_processes_modified':0}
+ return {'cpu_processes':count,'affinity_cpus':cpus,'effective_cpu_cores':r['effective_cpu_cores'],'cpu_bounds':bounds,'other_training_ranks':training,'loader_workers_per_training_rank':loaders,'observed_loader_counts_by_worker_pid':observation.get('observed_loader_counts',{}),'loader_estimate_source':'max(policy conservative default, locally observed pt_data_worker count); main training overhead is in CPU reserve','training_memory_bytes_per_rank':int(train_mem),'generation_memory_available_bytes':spare,'worker_memory_budget_bytes':int(worker_mem),'nice':19,'gpu_lease':lease['gpu'],'generation_scheduler_ranks':1,'torchrun_children_launched':0,'training_processes_modified':0}

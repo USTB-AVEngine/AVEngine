@@ -13,8 +13,8 @@ def tree_bytes(directory):
  return total
 from resources import write_json
 
-def pool_allowance(owner_used_bytes,workspace_used_bytes,*,owner_limit=2_000_000_000_000,checkpoint_reserve=64_000_000_000,panel_reserve=32_000_000_000,validation_reserve=16_000_000_000,deployment_reserve=12_000_000_000):
- return max(0,int(owner_limit-owner_used_bytes+workspace_used_bytes-checkpoint_reserve-panel_reserve-validation_reserve-deployment_reserve))
+def pool_allowance(owner_used_bytes,workspace_used_bytes,*,owner_limit=2_000_000_000_000,checkpoint_reserve=64_000_000_000,panel_reserve=32_000_000_000,validation_reserve=16_000_000_000,deployment_reserve=12_000_000_000,safety_reserve=0):
+ return max(0,int(owner_limit-owner_used_bytes+workspace_used_bytes-checkpoint_reserve-panel_reserve-validation_reserve-deployment_reserve-safety_reserve))
 
 class AFSSpace:
  def __init__(self,workspace,run_root,budget_bytes,worlds):
@@ -37,17 +37,18 @@ class AFSSpace:
   if s['actual_bytes']>self.limit or s['projected_bytes']>self.limit:raise RuntimeError('generation AFS allowance exceeded: '+str(s))
   for wid in set(active):
    if tree_bytes(self.root/'scratch'/wid)>self.worlds[wid]['scratch_bytes_peak']:raise RuntimeError('world scratch peak declaration exceeded: '+wid)
+   if tree_bytes(self.root/'worlds'/wid)>self.worlds[wid]['delivery_bytes_upper']:raise RuntimeError('world delivery declaration exceeded: '+wid)
   return s
 
 class OwnerUsageWatch:
  """Periodically remeasure shared owner usage; only its own du child is stopped."""
- def __init__(self,owner_root,workspace,log_root,interval=600):
-  self.owner=Path(owner_root);self.workspace=Path(workspace);self.log=Path(log_root);self.interval=interval;self.next_check=0;self.child=None;self.handle=None;self.latest=None
+ def __init__(self,owner_root,workspace,log_root,interval=600,reserve_policy=None):
+  self.owner=Path(owner_root);self.workspace=Path(workspace);self.log=Path(log_root);self.interval=interval;self.next_check=0;self.child=None;self.handle=None;self.latest=None;self.reserve_policy=reserve_policy or {}
  def poll(self):
   if self.child is not None and self.child.poll() is not None:
    rc=self.child.returncode;self.handle.close();self.handle=None;self.child=None
    if rc:raise RuntimeError('owner du failed; storage boundary cannot be refreshed')
-   used=int((self.log/'owner_usage_latest.txt').read_text().split()[0]);self.latest=pool_allowance(used,tree_bytes(self.workspace));write_json(self.log/'owner_usage_latest.json',{'utc':time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime()),'owner_used_bytes':used,'generation_pool_allowance_bytes':self.latest,'command':['nice','-n','19','timeout','300','du','-sB1',str(self.owner)],'checkpoint_growth_reserve_bytes':64_000_000_000})
+   used=int((self.log/'owner_usage_latest.txt').read_text().split()[0]);self.latest=pool_allowance(used,tree_bytes(self.workspace),**self.reserve_policy);write_json(self.log/'owner_usage_latest.json',{'utc':time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime()),'owner_used_bytes':used,'generation_pool_allowance_bytes':self.latest,'command':['nice','-n','19','timeout','300','du','-sB1',str(self.owner)],'owner_reserve_policy':self.reserve_policy,'checkpoint_growth_reserve_bytes':self.reserve_policy.get('checkpoint_reserve',64000000000)})
   if self.child is None and time.monotonic()>=self.next_check:
    self.log.mkdir(parents=True,exist_ok=True);self.handle=(self.log/'owner_usage_latest.txt').open('w');self.child=subprocess.Popen(['nice','-n','19','timeout','300','du','-sB1',str(self.owner)],stdout=self.handle,stderr=subprocess.DEVNULL,start_new_session=True);self.next_check=time.monotonic()+self.interval
   return self.latest

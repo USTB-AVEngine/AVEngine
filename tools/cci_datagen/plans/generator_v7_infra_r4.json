@@ -1,0 +1,43 @@
+{
+  "base": "/mnt/afs/xinyuanqian/jzy/hardbank/generation/cci_pilot64_20261004_codex_r4",
+  "delivery_mib_per_world": 512,
+  "expected_generator_base_commit": "fbdedbfb58044396bfedaef063ef4c9c4214fcba",
+  "generation_run_root": "/mnt/afs/xinyuanqian/jzy/hardbank/generation/cci_pilot64_20261004_codex_r4/output/generation_workspace/pilot64_v7_infra_r4",
+  "generator_code_root": "/mnt/afs/xinyuanqian/jzy/hardbank/generation/cci_pilot64_20261004_codex_r4/code",
+  "generator_release": "/mnt/afs/xinyuanqian/jzy/hardbank/generation/cci_pilot64_20261004_codex_r4/RELEASE.json",
+  "gpu_boundary": {
+    "max_renderer_gib": 12,
+    "minimum_free_training_reserve_gib": 4,
+    "scheduler_ranks": 1
+  },
+  "infrastructure_trial": true,
+  "max_active_worlds": 11,
+  "owner_reserve_policy": {
+    "checkpoint_reserve": 128000000000,
+    "deployment_reserve": 32000000000,
+    "panel_reserve": 16000000000,
+    "safety_reserve": 64000000000,
+    "validation_reserve": 32000000000
+  },
+  "production_allowed": false,
+  "profile_name": "v7_p19_infrastructure_only_64_r4",
+  "recommended_houses": "/mnt/afs/xinyuanqian/jzy/hardbank/generation/cci_datagen_20261003_codex/mirror/data/jzy/tmp/claude_hardbank_20260923/v7_batch1_20261003/report_final/recommended_houses.json",
+  "request_paths": "/mnt/afs/xinyuanqian/jzy/hardbank/generation/cci_pilot64_20261004_codex_r4/configs/request_paths.json",
+  "resources": {
+    "cpu_reserve_fraction": 0.1,
+    "loader_workers_per_training_rank": 4,
+    "memory_reserve_fraction": 0.1,
+    "training_gib_per_rank": 33,
+    "worker_gib": 4
+  },
+  "restart_drill_after_completed_worlds": 4,
+  "schema": "cci_datagen_generator_profile_v1",
+  "scope_note": "64 baseline native legacy-v3 canaries, 8 train houses x8,30 seconds/scene,2 ten-second windows, single v0_a0 member; independent infrastructure namespace; no v7-S/full training eligibility or scientific v4 fallback",
+  "scratch_gib_per_world": 8,
+  "stage_adapter": "/mnt/afs/xinyuanqian/jzy/hardbank/generation/cci_pilot64_20261004_codex_r4/code/tools/cci_datagen/v7_infra_stage.py",
+  "training_eligible": false,
+  "trial_stop_limit_bytes": 150000000000,
+  "version_switch": "new immutable code/release/profile/request hashes/run root; v7 and materials from round5; formal freeze remains a separate handoff",
+  "workspace_operating_limit_bytes": 140000000000,
+  "workspace_root": "/mnt/afs/xinyuanqian/jzy/hardbank/generation/cci_pilot64_20261004_codex_r4/output/generation_workspace"
+}

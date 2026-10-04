@@ -1,0 +1,59 @@
+{
+  "schema": "avledger_ladder_plan_v1",
+  "name": "cci_datagen_pilot64_v7_infra_shared_20261004_codex_r4",
+  "run_root": "/mnt/afs/xinyuanqian/jzy/hardbank/generation/cci_pilot64_20261004_codex_r4/output/scheduler_pilot64",
+  "python": "/mnt/afs/xinyuanqian/jzy/hardbank/generation/cci_datagen_20261003_codex/env/bin/python",
+  "cwd": "/mnt/afs/xinyuanqian/jzy/hardbank/generation/cci_pilot64_20261004_codex_r4/code",
+  "max_failures_per_stage": 1,
+  "env": {
+    "PYTHONPATH": "/mnt/afs/xinyuanqian/jzy/hardbank/generation/cci_pilot64_20261004_codex_r4/code/src:/mnt/afs/xinyuanqian/jzy/hardbank/generation/cci_pilot64_20261004_codex_r4/code:/mnt/afs/xinyuanqian/jzy/hardbank/generation/cci_datagen_20261003_codex/overlay",
+    "LD_LIBRARY_PATH": "/mnt/afs/xinyuanqian/jzy/hardbank/generation/cci_datagen_20261003_codex/private_glvnd:/mnt/afs/xinyuanqian/jzy/hardbank/generation/cci_datagen_20261003_codex/env/lib:/mnt/afs/xinyuanqian/jzy/hardbank/generation/cci_pilot64_20261004_codex_r4/deps/speech/lib",
+    "PATH": "/mnt/afs/xinyuanqian/jzy/hardbank/generation/cci_pilot64_20261004_codex_r4/bin:/mnt/afs/xinyuanqian/jzy/hardbank/generation/cci_datagen_20261003_codex/env/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+    "CCI_DATAGEN_BASE": "/mnt/afs/xinyuanqian/jzy/hardbank/generation/cci_pilot64_20261004_codex_r4",
+    "DATAGEN_NATIVE_ROOT": "/mnt/afs/xinyuanqian/jzy/hardbank/generation/cci_datagen_20261003_codex/native/data/avengine_external",
+    "DATAGEN_PYTHON": "/mnt/afs/xinyuanqian/jzy/hardbank/generation/cci_datagen_20261003_codex/env/bin/python",
+    "PYTHONDONTWRITEBYTECODE": "1",
+    "PYTHONUNBUFFERED": "1",
+    "OMP_NUM_THREADS": "1",
+    "OPENBLAS_NUM_THREADS": "1",
+    "MKL_NUM_THREADS": "1",
+    "NUMEXPR_NUM_THREADS": "1",
+    "AVENGINE_RLR_THREADS": "1",
+    "TMPDIR": "/mnt/afs/xinyuanqian/jzy/hardbank/generation/cci_pilot64_20261004_codex_r4/tmp",
+    "NUMBA_CACHE_DIR": "/mnt/afs/xinyuanqian/jzy/hardbank/generation/cci_pilot64_20261004_codex_r4/tmp/numba",
+    "MPLCONFIGDIR": "/mnt/afs/xinyuanqian/jzy/hardbank/generation/cci_pilot64_20261004_codex_r4/tmp/matplotlib",
+    "XDG_CACHE_HOME": "/mnt/afs/xinyuanqian/jzy/hardbank/generation/cci_pilot64_20261004_codex_r4/tmp/cache",
+    "GIT_CONFIG_GLOBAL": "/mnt/afs/xinyuanqian/jzy/hardbank/generation/cci_pilot64_20261004_codex_r4/code/.git/CCI_SAFE_CONFIG",
+    "AVENGINE_ESPEAK_NG_LIBRARY": "/mnt/afs/xinyuanqian/jzy/hardbank/generation/cci_pilot64_20261004_codex_r4/deps/speech/lib/libespeak-ng.so.1",
+    "AVENGINE_ESPEAK_DATA_ROOT": "/mnt/afs/xinyuanqian/jzy/hardbank/generation/cci_pilot64_20261004_codex_r4/deps/speech/share",
+    "LIBGL_ALWAYS_SOFTWARE": "0",
+    "LD_PRELOAD": "",
+    "CCI_INFRASTRUCTURE_TRIAL": "1"
+  },
+  "experiments": [
+    {
+      "name": "datagen_pilot64_r4",
+      "evals": [
+        {
+          "name": "job",
+          "checkpoint": "/mnt/afs/xinyuanqian/jzy/hardbank/generation/cci_pilot64_20261004_codex_r4/configs/generator_v7_infra_r4.json",
+          "checkpoint_flag": "--generator-profile",
+          "args": [
+            "/mnt/afs/xinyuanqian/jzy/hardbank/generation/cci_pilot64_20261004_codex_r4/code/tools/cci_datagen/normal_entry.py",
+            "--mode",
+            "pilot"
+          ]
+        }
+      ]
+    }
+  ],
+  "scope": "infrastructure_trial",
+  "training_eligible": false,
+  "formal_dataset_count": 0,
+  "generator_base_commit": "fbdedbfb58044396bfedaef063ef4c9c4214fcba",
+  "trial_peak_budget_bytes": 150000000000,
+  "resource_boundary": "one existing worker rank and its one leased GPU; nice 19 CPU stages and single-thread RLR; auto CPU/rank quotas; 11 or fewer active worlds by storage; no shared-worker or training changes",
+  "queue_line": "/mnt/afs/xinyuanqian/jzy/hardbank/plans/cci_datagen_pilot64_v7_infra_shared_20261004_codex_r4.json 2",
+  "restart_protocol": "own generator SIGTERM after four completed worlds; same manifest/root resume and hash readback; real host 4h restart separately measured",
+  "receipt_note": "generic eval ABI; checkpoint is profile JSON; completed_worlds means infrastructure media worlds, never admitted training data"
+}

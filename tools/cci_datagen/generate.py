@@ -92,7 +92,7 @@ def stop(signum,frame):
 def execute(root, world, phase, spec, all_receipts, python, job, plan_sha, gpu, affinity, nice):
     attempt=contained(root/'scratch'/world/(phase+'-'+uuid.uuid4().hex),root)
     attempt.mkdir(parents=True)
-    replacements={'python':python,'attempt':str(attempt),'world_root':str(root/'worlds'/world),'world':world,'gpu':gpu or ''}
+    replacements={'python':python,'attempt':str(attempt),'world_root':str(root/'worlds'/world),'world':world,'gpu':gpu or '', 'scratch_parent':str(root/'scratch'/world)}
     for key,r in all_receipts.items():
         replacements[key+'_root']=r['attempt']
     argv=[x.format_map(replacements) for x in spec['argv']]
@@ -145,7 +145,8 @@ def main():
     p.add_argument('--mode',choices=['dedicated','mixed','cpu'],default='dedicated');p.add_argument('--render-gpus',default=None)
     p.add_argument('--training-ranks',type=int,default=0);p.add_argument('--loader-workers',type=int,default=0);p.add_argument('--training-gib',type=float,default=33)
     p.add_argument('--resource-assignment',help='single scheduler lease CPU allocation; never starts extra torchrun ranks')
-    p.add_argument('--generation-space-budget-bytes',type=int);p.add_argument('--storage-workspace');p.add_argument('--storage-owner-root')
+    p.add_argument('--storage-reserve-policy');p.add_argument('--generation-space-budget-bytes',type=int);p.add_argument('--storage-workspace');p.add_argument('--storage-owner-root')
+    p.add_argument('--max-active-worlds',type=int);p.add_argument('--storage-check-seconds',type=float,default=10)
     p.add_argument('--worker-gib',type=float,default=4);p.add_argument('--nice',type=int,default=19)
     p.add_argument('--scratch-budget-gib',type=float,default=32);p.add_argument('--media-budget-gib',type=float,default=380000000000/GIB)
     p.add_argument('--timeout-seconds',type=int,default=14400);p.add_argument('--prune-owned-intermediates',action='store_true');p.add_argument('--dry-run',action='store_true')
@@ -186,6 +187,7 @@ def main():
         except FileExistsError:
             if load(owner).get('manifest_sha256')!=plan_sha:raise
     report=probe(); reports_dir=root/'resources'/job; reports_dir.mkdir(parents=True,exist_ok=True)
+    if not (root/'STARTED.json').exists():write_json(root/'STARTED.json',{'first_started_unix':time.time(),'manifest_sha256':plan_sha,'scope':plan.get('scope','research_pilot'),'training_eligible':False})
     write_json(reports_dir/f'rank{rank:05d}.json',report)
     deadline=time.monotonic()+a.timeout_seconds
     while len(list(reports_dir.glob('rank*.json')))<world_size:
@@ -223,9 +225,10 @@ def main():
         if not a.storage_workspace:raise ValueError('AFS workspace required for shared storage pool')
         from space_budget import AFSSpace,OwnerUsageWatch
         space=AFSSpace(a.storage_workspace,root,a.generation_space_budget_bytes,worlds)
-        if a.storage_owner_root:owner_watch=OwnerUsageWatch(a.storage_owner_root,a.storage_workspace,reports_dir/'owner_storage')
+        if a.storage_owner_root:owner_watch=OwnerUsageWatch(a.storage_owner_root,a.storage_workspace,reports_dir/'owner_storage',reserve_policy=load(a.storage_reserve_policy) if a.storage_reserve_policy else None)
     max_scratch=max(w['scratch_bytes_peak'] for w in worlds); slots=(sum(x['total_cpu_workers'] for x in allocations.values()) if space else int(a.scratch_budget_gib*GIB//max_scratch))
-    if slots<1:raise ValueError('scratch budget cannot fit one world')
+    if a.max_active_worlds is not None:slots=min(slots,a.max_active_worlds)
+    if slots<1 or a.storage_check_seconds<=0:raise ValueError('invalid storage slots/check interval')
     # Claims and slots live in the unique launch namespace; restart ignores
     # interrupted claims while completed receipts remain bound to the manifest.
     claims=root/'claims'/job;claims.mkdir(parents=True,exist_ok=True)
@@ -260,7 +263,7 @@ def main():
                 usage=space.check(owned_slots) if space else storage_usage(root,a.scratch_budget_gib*GIB,a.media_budget_gib*GIB)
                 if space and tree_bytes(root/'worlds')>a.media_budget_gib*GIB:raise RuntimeError('durable media allowance exceeded')
                 write_json(reports_dir/f'storage{rank:05d}.json',usage)
-                storage_check=time.monotonic()+10
+                storage_check=time.monotonic()+a.storage_check_seconds
             for key,(future,claim) in list(running.items()):
                 if future.done():
                     try:future.result()
@@ -307,7 +310,7 @@ def main():
             if complete==len(worlds):
                 finished=True
                 write_json(root/'complete'/f'{job}-rank{rank}.json',{'rank':rank,'worlds':complete})
-                if rank==0:write_json(root/'ALL_DONE.json',{'worlds':complete,'manifest_sha256':plan_sha,'job':job})
+                if rank==0:write_json(root/'ALL_DONE.json',{'worlds':complete,'manifest_sha256':plan_sha,'job':job,'scope':plan.get('scope','research_pilot'),'training_eligible':False,'formal_dataset_count':0,'completed_unix':time.time(),'elapsed_with_restart_seconds':time.time()-load(root/'STARTED.json')['first_started_unix']})
                 break
             if failures and not running:raise RuntimeError('; '.join(failures))
             if time.monotonic()>deadline:raise RuntimeError('generation timeout; unfinished stages are resumable')

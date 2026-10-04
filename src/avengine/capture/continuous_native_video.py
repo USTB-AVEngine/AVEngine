@@ -20,7 +20,14 @@ from avengine.timeline.continuous_pilot import write_json
 class NativeContinuousVideo:
     def __init__(self, house, scene, inputs, assets, *, width=1280, height=720,
                  source_material_cache_directory=None):
-        if os.environ.get('LIBGL_ALWAYS_SOFTWARE') != '1' or not os.environ.get('LD_PRELOAD'):
+        infra_gpu = os.environ.get('CCI_INFRA_RENDER_GPU')
+        if infra_gpu is not None:
+            if (os.environ.get('CCI_INFRASTRUCTURE_TRIAL') != '1' or
+                    not infra_gpu.isdigit() or os.environ.get('CUDA_VISIBLE_DEVICES') != infra_gpu):
+                raise RuntimeError('GPU rendering requires the explicit single-device infrastructure lease')
+            if os.environ.get('LIBGL_ALWAYS_SOFTWARE') == '1' or os.environ.get('LD_PRELOAD'):
+                raise RuntimeError('GPU infrastructure renderer cannot inherit a software EGL override')
+        elif os.environ.get('LIBGL_ALWAYS_SOFTWARE') != '1' or not os.environ.get('LD_PRELOAD'):
             raise RuntimeError('CPU renderer requires the task-local software-only EGL selector')
         os.environ.setdefault('MESA_SHADER_CACHE_DISABLE','true')
         from avengine.acoustics.runtime import load_habitat_runtime
@@ -37,7 +44,7 @@ class NativeContinuousVideo:
         self.width,self.height=width,height
         cfg=hs.SimulatorConfiguration()
         cfg.scene_id=house['input'].get('visual_source') or str(Path(house['input']['scene_directory'])/(house['input']['scan_id']+'.glb'))
-        cfg.gpu_device_id=-1
+        cfg.gpu_device_id=int(infra_gpu) if infra_gpu is not None else -1
         cfg.enable_physics=True
         cfg.load_semantic_mesh=False
         sensors=[]
@@ -50,8 +57,11 @@ class NativeContinuousVideo:
         configuration=hs.Configuration(cfg,[agent])
         self.sim=hs.Simulator(configuration)
         maps=Path('/proc/self/maps').read_text()
-        if 'swrast_dri.so' not in maps or 'libEGL_nvidia' in maps or 'libnvidia-gl' in maps:
-            self.sim.close();raise RuntimeError('native CPU renderer did not load only the software driver')
+        if infra_gpu is None:
+            if 'swrast_dri.so' not in maps or 'libEGL_nvidia' in maps or 'libnvidia-gl' in maps:
+                self.sim.close();raise RuntimeError('native CPU renderer did not load only the software driver')
+        elif 'swrast_dri.so' in maps or not any(x in maps for x in ('libEGL_nvidia','libnvidia-gl')):
+            self.sim.close();raise RuntimeError('GPU infrastructure renderer did not load the NVIDIA EGL driver')
         # The scan may itself use native PBR. Configure sources after the scan
         # has loaded so its existing drawables keep the original PBR handle.
         self.material_rendering=configure_source_pbr(configuration,hs,
@@ -110,6 +120,11 @@ class NativeContinuousVideo:
             'action_clocks':[{'endpoint_id':a['endpoint_id'],
                 'sample_rate_hz':a['bundle'].action_sets_by_role[a['bundle'].action_roles_by_id['walk']].sample_rate_hz,
                 'time_base_hz':a['bundle'].action_sets_by_role[a['bundle'].action_roles_by_id['walk']].time_base_hz} for a in self.actors]}
+
+        if infra_gpu is not None:
+            self.receipt.update(compute_device='GPU',software_driver=None,gpu_device_id=int(infra_gpu),
+                                hardware_EGL_devices_excluded=False,infrastructure_trial_only=True,
+                                training_eligible=False)
 
     def _apply(self, scene, frame_index):
         from avengine.assets.habitat_capture import _apply_root_with_habitat,transform_to_matrix

@@ -1,0 +1,17 @@
+P19 CPU探测已成功；本计划仅验证基础设施，GPU EGL、真实显存峰值、吞吐及真实4小时重启尚未验证，正式训练数据数始终为0。
+
+上游采用v7第五回合fbdedbfb58044396bfedaef063ef4c9c4214fcba，含d790e8c/486799f对应的6f1eb873/7ee6c6f8材质修复，不取b6fa5e7。原生RIR、题目、科学准入门槛不改。独立检出只为NativeContinuousVideo增加显式试跑GPU租约参数，为FormantSpeech增加私有库/数据根参数；默认CPU路径保留。上游正式生产仍被移动能量、像素/题族、v4 resolver和资产准入阻止。
+
+64个独立命名的legacy-v3基线canary：原8个训练房各8个CPU PathFinder全450帧导航支持通过的seed，30秒、1280×720/15fps，单成员v0_a0，每个切2个10秒窗。不使用开发/测试房，不是v7-S/full的正式v4请求表。问题生成失败单独记录native错误和0题，不造题、不改真值、不标成科学验收通过；基础设施媒体完成与科学验收分开。
+
+普通计划只认领一个现有torchrun rank，其leased GPU按未修改worker映射取得，rank4/GPU0是已测探测例子，不固定rank。nice19单线程声学；CPU数量取quota/affinity，保守扣每潜在训练rank至少4个加载器及10%CPU余量，预留训练每rank33GiB和10%内存。6/8观察不足仍按7个潜在训练rank预留；新回执含pt_data_worker、prefetch配置、活动ffmpeg与Python线程数，线程数不是占用核数。
+
+AFS工作区/output/generation_workspace，最大11活动世界，实际取CPU上界与空间允许数较小者。每world中间件8GiB、交付512MiB；先为全部64交付和2GB元数据留量。11×8GiB+64×512MiB+2GB=130849018880字节；工作区运行限额140GB，整个私有试跑根每秒采样，150GB停止自己的生成器。源码/包/依赖/输入也算入试跑根；150GB是软件守卫，不能声称AFS硬配额或已测峰值。owner2TB另预留272GB（checkpoint128、输入32、面板16、S/验证32、安全64），启动及每600秒du，增长则降低预算/停止；不删除旧数据腾空间。
+
+渲染前须leased卡至少16GiB可用（自身最多12GiB+同卡训练空闲4GiB），每秒NVML记录自身进程树与整卡空闲。不可查询、不可归属或越界只停自己的renderer；守卫不是硬件显存分区。先做64×64真EGL，失败封存stderr并退出，不改系统库。完整渲染没有自身显存观测会拒收。所有CPU阶段CUDA_VISIBLE_DEVICES为空。
+
+每parent单writer，workspace flock排斥并发尝试；完成receipt和输入/版本SHA绑定，重新启动先逐文件读回哈希。RIR缓存在parent的持久scratch下，失败attempt计入预算。四个完成world后校验PID、start_ticks、PPid、PGroup、argv，再只SIGTERM自己的generate进程组，重启同manifest/root并检查四个已完成receipt不变。此为进程中断恢复演练，不是实际主机4h重启；自然重启后仍沿用相同generation root，新scheduler attempt。已有失败达到上限时用单独retry计划名，不修改在跑计划/队列前缀。
+
+只在交付媒体/诊断/哈希读回后清本world的scratch。交付root保留NO_TRAINING_INGEST、H264/FOA、帧哈希、题目生成结果、材质/native/同步/RLR证据、ARTIFACTS与COMPLETE。不会连接任何训练views/index。默认参数、generator release、stage adapter、profile/request hashes和run root均可换版，正式定版必须建新版本根。
+
+排队须先完成CCI CPU预检、依赖/源码/输入SHA核验和普通worker load_plan验证，然后备份p19_queue.txt并只尾部追加本计划2，标注round4授权及上游/本分支提交；P19_DRY=1只读预览。未修改p19_run.sh或p19_worker，禁止调用exclusive或停止共享torchrun。详细资源原始回执为旧探测scheduler_probe/datagen_probe/eval_job_a01_job_20261003T162437Z_b69cc9-ltsvm/，本轮服务器/local证据以最终REPORT_zh.md为准。

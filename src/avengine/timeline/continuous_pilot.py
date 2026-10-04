@@ -49,12 +49,13 @@ def write_json(path, value):
 class FormantSpeech:
     """Existing eSpeak NG synchronous formant library; no playback device."""
     def __init__(self):
-        name = ctypes.util.find_library("espeak-ng")
+        name = os.environ.get("AVENGINE_ESPEAK_NG_LIBRARY") or ctypes.util.find_library("espeak-ng")
         if not name:
             raise RuntimeError("existing CPU eSpeak NG library is required")
         self.lib = lib = ctypes.CDLL(name)
         lib.espeak_Initialize.argtypes = [ctypes.c_int, ctypes.c_int, ctypes.c_char_p, ctypes.c_int]
-        self.sample_rate = lib.espeak_Initialize(2, 0, None, 0x8000)
+        data_root = os.environ.get("AVENGINE_ESPEAK_DATA_ROOT")
+        self.sample_rate = lib.espeak_Initialize(2, 0, data_root.encode() if data_root else None, 0x8000)
         if self.sample_rate <= 0:
             raise RuntimeError("existing eSpeak NG language data unavailable")
         self.parts = []
