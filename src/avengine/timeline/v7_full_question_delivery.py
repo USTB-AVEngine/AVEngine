@@ -15,7 +15,7 @@ QUESTION_DELIVERY_REVISION='v7-native-full-pool-joint-selection-v1'
 
 
 def collect_native_pool(scene,start,window_id,visual,media,evidence,quota_index,count):
-    from avengine.qa.v7_native_adapter import make_full_questions
+    from avengine.qa.v7_native_adapter import native_bundle, collect_questions
     proof=deepcopy(evidence)
     # The producer's observed mask stream owns this field; caller requests and
     # sparse snapshots never replace native 150-frame visibility readback.
@@ -24,11 +24,34 @@ def collect_native_pool(scene,start,window_id,visual,media,evidence,quota_index,
         raise ValueError('full QA needs the measured native modal/target mask stream')
     proof['pixel_visibility_truth']=truth
     if 'native_appearance_review' in visual:proof['appearance_review']=deepcopy(visual['native_appearance_review'])
-    return make_full_questions(scene,start,window_id,visual,media,proof,
-        quota_index=quota_index,count=count,collect_all=True)
+    raw=native_bundle(scene,start,window_id,visual,proof)
+    bind_native_listener_frames(raw)
+    public,private,audit=collect_questions(raw,window_id,media,
+        seed=str(proof.get('question_seed','v7')),foa_readback=proof.get('foa_readback'),
+        semantic_manifest=proof.get('semantic_manifest'),protocol_scene=proof.get('protocol_scene'),
+        window_start_s=start,native_dialogue_evidence=proof.get('native_dialogue_evidence'),
+        semantic_wording_variant=proof.get('semantic_wording_variant','standard'),
+        content_binding_bundle=proof.get('content_binding_bundle'))
+    audit['native_bundle']=raw
+    audit['native_listener_binding']='all measured native camera frames, no static pose shadow'
+    return public,private,audit
 
 
-def finalize_parent_question_pools(row,members,root,*,binding_items_per_window=5):
+def bind_native_listener_frames(raw):
+    """The QA normalizer gives root.listener precedence over frame camera.
+
+    Preserve the actual per-frame listener track in that authoritative slot.
+    This is producer evidence wiring; QA predicates and scoring are unchanged.
+    """
+    frames=raw.get('frame_readbacks',{}).get('camera')
+    count=int(raw['clock']['frame_count'])
+    if not isinstance(frames,list) or len(frames)!=count or [r.get('frame_index') for r in frames]!=list(range(count)):
+        raise ValueError('native listener requires every indexed camera frame')
+    raw['listener']={'frames':deepcopy(frames),'source':'actual native camera per-frame readback'}
+
+
+
+def finalize_parent_question_pools(row,members,root,*,binding_items_per_window=5,family_counts=None):
     from avengine.timeline.v7_candidate_generation import stage,read_json
     from avengine.qa.v7_families import select_questions
     from avengine.qa.v7_group_selection import select_counterfactual_group
@@ -49,9 +72,9 @@ def finalize_parent_question_pools(row,members,root,*,binding_items_per_window=5
             allocations[name]=question_allocation(quota,row['questions_per_window'])
         if names==quartet:
             chosen,gold,audit=select_counterfactual_group(public,private,allocations,
-                binding_items_per_window=binding_items_per_window,quota_index=row['question_quota_base']+index)
+                binding_items_per_window=binding_items_per_window,quota_index=row['question_quota_base']+index,family_counts=family_counts)
         else:
-            q,a=select_questions(public['v0_a0'],private['v0_a0'],allocations['v0_a0'],quota_index=row['question_quota_base']+index)
+            q,a=select_questions(public['v0_a0'],private['v0_a0'],allocations['v0_a0'],quota_index=row['question_quota_base']+index,family_counts=family_counts)
             chosen,gold,audit={'v0_a0':q},{'v0_a0':a},{'status':'single_selected','binding_items_per_member':0}
         audits.append(audit)
         for name in names:
@@ -122,7 +145,11 @@ def derive_native_appearance_evidence(directory,visual,assets):
         for actor in visual['frames'][index]['actors']:
             asset=by_asset.get(actor['asset_id']);color=(asset or {}).get('appearance',{}).get('top_color')
             if color not in COLOR_HUE_DEGREES:continue
-            result=measure_native_color(rgb,semantic,actor['semantic_id'],color)
+            try:
+                result=measure_native_color(rgb,semantic,actor['semantic_id'],color)
+            except IndexError as error:
+                if 'size 0' not in str(error):raise
+                result={'status':'blocked','reason':'insufficient_or_ambiguous_native_color','expected_color':color,'semantic_id':actor['semantic_id'],'saturated_pixels':0,'upstream_empty_roi_exception':str(error),'gate_changed':False}
             screens.append({'frame_index':index,'actor_id':actor['actor_id'],'asset_id':actor['asset_id'],**result})
             if result['status']!='pass':continue
             key=str(actor['actor_id']);label=asset.get('appearance_zh',{'blue':'蓝色上衣的人','yellow':'黄色上衣的人','green':'绿色上衣的人','burgundy':'酒红色上衣的人'}[color])

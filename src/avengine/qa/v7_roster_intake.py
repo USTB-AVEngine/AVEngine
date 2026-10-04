@@ -43,7 +43,13 @@ def intake_roster(manifest_path, *, authority="formal_registry"):
         raise ValueError('unsupported human roster schema')
     root=Path(manifest['artifact_root'])
     if manifest_path.resolve()!=root.resolve()/'registrations/human_roster.json':
-        raise ValueError('roster root and registry disagree')
+        # An exact archived registry may survive an upstream atomic update.
+        # Its declared asset root and every artifact/license gate stay intact.
+        snapshot=manifest_path.resolve()
+        if (snapshot.name!='human_roster.json' or snapshot.parent.name!='registrations'
+                or snapshot.parents[2].name!='human' or snapshot.parents[3].name!='input_snapshots'
+                or snapshot.parents[1].name!=registry_sha256):
+            raise ValueError('roster root and registry disagree')
     license_path=_file(root,'evidence/license_sources.json')
     licenses=json.loads(license_path.read_text())
     license_receipts={}

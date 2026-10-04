@@ -18,8 +18,18 @@ def load(path):return json.loads(Path(path).read_text())
 def _copy(source,target):
     target.parent.mkdir(parents=True,exist_ok=True)
     if target.exists():raise ValueError('export must not replace an existing artifact')
-    try:os.link(source,target)
-    except OSError:shutil.copyfile(source,target)
+    from avengine.timeline.v7_storage_budget import ENV_KEY,check_write
+    policy=json.loads(os.environ[ENV_KEY]) if os.environ.get(ENV_KEY) else {}
+    owner_root=Path(policy['root']).resolve() if policy.get('root') else None
+    own_pair=(owner_root is not None and Path(source).resolve().is_relative_to(owner_root)
+              and Path(target).resolve().is_relative_to(owner_root))
+    if own_pair:
+        try:os.link(source,target);return
+        except OSError:pass
+    # Original datasets and other deliveries stay read-only, including their
+    # inode/link metadata. Only our own immutable artifacts are hardlinked.
+    check_write(target,expected_bytes=Path(source).stat().st_size)
+    shutil.copyfile(source,target)
 
 
 def _answer_text(value):
@@ -38,6 +48,11 @@ def readable_training_answer(question,gold,authority):
             if score.get('status')=='scored' and score.get('score')==1.:
                 return value,{'status':'pass','method':'unchanged_v6_scorer','result':score}
         raise ValueError('readable training target is not accepted by the original scorer')
+    if gold.get('authority')=='v7_content_binding_v1':
+        from avengine.qa.v7_content_binding import content_truth,admission_blockers
+        evidence=gold['evidence'];actual=content_truth(evidence['scene'],evidence['query'])['answer']
+        if actual!=gold['canonical_answer'] or admission_blockers(evidence['scene'],evidence['query'],binding_witness=evidence['native_witness']):raise ValueError('original content-binding authority or actual pair admission failed')
+        return _answer_text(actual),{'status':'pass','method':'unchanged_v7_content_binding_authority_and_native_pairs'}
     return _answer_text(gold['canonical_answer']),{'status':'canonical_preserved','method':'original_v0.2_protocol_canonical'}
 
 
@@ -56,7 +71,7 @@ def export_alpha(seeds,seal_roots,output,expected_parents=None,sealed_parent_map
     preferred=load(sealed_parent_map)['parents'] if sealed_parent_map else {}
     if preferred and set(preferred)!={r['scene_id'] for r in rows}:raise ValueError('explicit seal selection differs from the release seeds')
     chosen={};parent_rows=[];window_rows=[];training=[];family=Counter();modality=Counter();rejects=Counter();candidate_rejects=Counter();protocol_rejects=Counter()
-    material_rows=[];directions=[];activity_counts=Counter();speaker_counts=Counter();panel_family=Counter();temporal=Counter();used_source_ids=set();used_speakers=set();native_checks=[];native_visual_cpu=[];sources={};reference_cpu=[]
+    material_rows=[];directions=[];activity_counts=Counter();speaker_counts=Counter();panel_family=Counter();temporal=Counter();used_source_ids=set();used_speakers=set();native_checks=[];native_visual_cpu=[];sources={};reference_cpu=[];profiles=set();classes=Counter();sound_classes=Counter();genders=Counter();mechanisms=Counter();humans={};moving_windows=0;tts_event_count=0
     for row in rows:
         candidates=[]
         search=[Path(preferred[row['scene_id']])] if preferred else [Path(root)/'parents'/row['scene_id'] for root in seal_roots]
@@ -64,7 +79,8 @@ def export_alpha(seeds,seal_roots,output,expected_parents=None,sealed_parent_map
             pointer=parent/'alpha_seal_completed.json'
             if pointer.is_file():candidates.append((parent,load(pointer)))
         if len(candidates)!=1:raise ValueError(f'{row["scene_id"]} has {len(candidates)} qualified seals; explicit unique input required')
-        parent,pointer=candidates[0];seal=parent/pointer['attempt'];result=pointer['result']
+        parent,pointer=candidates[0];seal=parent/pointer['attempt'];result=pointer['result'];profiles.add(result['profile'])
+        for asset in pointer['recipe']['input_recipe']['assets']:humans[asset['asset_id']]=asset
         if result['status']!='formal_alpha_admitted' or result['full_v7_generation_ready']:raise ValueError('wrong alpha release status')
         if pointer['recipe']['input_recipe']['seed_row']!=row:raise ValueError('qualified seed differs from the requested seed')
         for name in pointer['required_files']:
@@ -86,7 +102,7 @@ def export_alpha(seeds,seal_roots,output,expected_parents=None,sealed_parent_map
         reference_cpu.append(measured['cpu_seconds_including_children'])
         native_visual_cpu.extend(t['cpu_seconds_including_children'] for t in measured['stage_timings'] if t['stage'].startswith('visual_') and not t['resumed'])
         program=load(seal/'private/dry_program.json');receipt=load(seal/'private/dry_emission_receipt.json')
-        used_source_ids.update(r['original_id'] for r in program['records']);used_speakers.update(receipt['endpoint_speaker_ids'].values())
+        used_source_ids.update(r['original_id'] for r in program['records']);used_speakers.update(x for x in receipt['endpoint_speaker_ids'].values() if isinstance(x,str) and x)
         for source in program['records']:sources[source['sound_asset_id']]=source
         # Retain the exact persistent RIR payloads used for this parent. The
         # production process is finished before export; database files are proof,
@@ -110,8 +126,8 @@ def export_alpha(seeds,seal_roots,output,expected_parents=None,sealed_parent_map
             wid=win['window_id'];q=load(seal/'windows'/wid/'questions.json');gold=load(seal/'private'/(wid+'_answers.json'));by_id={g['question_id']:g for g in gold}
             quota=row['question_quota_base']+row['members'].index(win['member'])*row['window_count']+int(wid.rsplit('w',1)[1])
             validate_question_counts(q,gold,expected_allocation=question_allocation(quota,14))
-            raw=load(parent/('windows_'+win['member']+'_completed.json'))
-            raw_dir=parent/raw['attempt']/wid;audit=load(raw_dir/'candidate_audit.json');authority={x['question_id']:x for x in audit['v6_items']}
+            selected=load(parent/('selected_windows_'+win['member']+'_completed.json'))
+            raw_dir=Path(selected['recipe']['pool_directory'])/wid;audit=load(raw_dir/'candidate_audit.json');authority={x['question_id']:x for x in audit['v6_items']}
             _copy(raw_dir/'candidate_audit.json',delivery/'private'/(wid+'_candidate_audit.json'))
             for rejected in audit['deferred']:rejects[(rejected.get('qa_id','unknown'),rejected.get('code',rejected.get('reason','unknown')))]+=1
             for attempt in audit['v6_generation'].get('candidate_attempts',[]):
@@ -119,6 +135,18 @@ def export_alpha(seeds,seal_roots,output,expected_parents=None,sealed_parent_map
             for excluded in audit['protocol']['exclusions']:
                 for qa in excluded.get('qa_ids',[excluded.get('qa_id','unspecified_candidate')]):protocol_rejects[(qa,excluded.get('reason','unknown'))]+=1
             evidence=load(seal/'private'/(wid+'_evidence.json'));segments=audit['protocol']['segments']
+            classes.update(s['class_id'] for s in segments)
+            event_bindings={r['event_id']:r for r in receipt['events']};record_by_id={r['sound_asset_id']:r for r in program['records']}
+            lo=round(win['start_s']*16000);hi=lo+160000
+            scene=evidence['scene']
+            moving_windows+=int(any(any(k['position_m']!=spec['trajectory'][0]['position_m'] for k in spec['trajectory']) for spec in scene['sources'].values()))
+            for event in scene['events']:
+                b=event_bindings[event['event_id']]
+                if b['output_start_sample']>=hi or b['output_end_sample_exclusive']<=lo:continue
+                record=record_by_id[b['sound_asset_id']]
+                sound_classes[record.get('sound_class','unknown')]+=1;mechanisms[event.get('mechanism','unknown')]+=1
+                if event['class_id'] in {0,1}:genders['F' if event['class_id']==0 else 'M']+=1
+                tts_event_count+=int(record.get('source_type')=='author_tts')
             activity_counts[len(segments)]+=1;speaker_counts[len({s['source_id'] for s in segments if s['class_id'] in {0,1}})]+=1
             temporal['carry_in_windows']+=int(any(s.get('carry_in') for s in segments))
             temporal['more_than_6_activity_segments_windows']+=int(len(segments)>6)
@@ -170,14 +198,14 @@ def export_alpha(seeds,seal_roots,output,expected_parents=None,sealed_parent_map
     def ranked(counter):return [{'qa_id':qa,'reason':reason,'count':count} for (qa,reason),count in counter.most_common()]
     rejection={'denominator':'qualified window candidate pools, including counterfactual members; not independent worlds',
         'window_pools':len(window_rows),'family_deferrals':ranked(rejects),'candidate_attempt_rejections':ranked(candidate_rejects),'protocol_candidate_exclusions':ranked(protocol_rejects),
-        'alpha_skippable_families':['QA-06','QA-10','QA-13','QA-15','QA-16','QA-17','QA-18','QA-21','QA-26','QA-27','QA-28'],
+        'alpha_skippable_families':sorted({qa for qa,_ in rejects}-set(family)),
         'cannot_skip':['recorded_source_license_and_origin','native_static_contact_material_masks','FOA_camera_direction','14_selected_questions_and_modality_counts','counterfactual_answer_invariance_or_flip','complete_media_clocks']}
     write_json(target/'rejections.json',rejection)
     def describe(values):
         ordered=sorted(float(v) for v in values)
         return {'n':len(ordered),'median':statistics.median(ordered),'p95':ordered[min(len(ordered)-1,int(.95*len(ordered)))],'min':ordered[0],'max':ordered[-1]}
     bindings=sum(w['binding'] for w in window_rows)
-    summary={'status':'formal_alpha_admitted','profile':'v7-S-alpha-recorded-static-native-14-v2','independent_parent_scenes':len(rows),
+    summary={'status':'formal_alpha_admitted','profile':next(iter(profiles)) if len(profiles)==1 else sorted(profiles),'independent_parent_scenes':len(rows),
         'base_time_windows':sum(r['window_count'] for r in rows),'formal_windows':len(window_rows),'formal_logical_questions':len(training),
         'questions_per_window':dict(Counter(w['logical_questions'] for w in window_rows)),
         'family_counts':dict(family),'panel_family_counts':{panel+'/'+qa:n for (panel,qa),n in panel_family.items()},'actual_temporal_window_counts':dict(temporal),'family_zero_counts':{f'QA-{i:02d}':0 for i in range(1,29) if f'QA-{i:02d}' not in family},
@@ -186,16 +214,16 @@ def export_alpha(seeds,seal_roots,output,expected_parents=None,sealed_parent_map
         'parent_wall_seconds':describe([r['wall_seconds'] for r in parent_rows]),'parent_cpu_seconds_including_children':describe(reference_cpu),
         'native_visual_world_cpu_seconds':describe(native_visual_cpu),'successful_parent_cpu_seconds_total':sum(reference_cpu),
         'native_RIR_calls':sum(r['RIR_calls'] for r in parent_rows),'used_recorded_original_ids':sorted(used_source_ids),'used_vctk_speakers':sorted(used_speakers),
-        'actual_non_speech_classes':0,'actual_class13_ids':[1],'actual_gender_labels':['M'],
+        'actual_non_speech_classes':len(set(classes)-{0,1}),'actual_class13_ids':sorted(classes),'actual_class13_segment_counts':dict(classes),'actual_sound_class_emission_counts':dict(sound_classes),'actual_gender_labels':sorted(genders),'actual_speech_gender_emission_counts':dict(genders),'actual_emission_mechanism_counts':dict(mechanisms),'actual_moving_source_windows':moving_windows,'actual_natural_TTS_emissions':tts_event_count,
         'actual_speakers_per_window':dict(speaker_counts),'actual_activity_segments_per_window':dict(activity_counts),
         'full_v5_quota_realized':False,'full_v7_formal_windows':0,'full_v7_generation_ready':False,
-        'human_asset_body_templates_used':1,'human_asset_color_variants_used':4,'human_motion_scope':'native-qualified static pose0 only',
-        'TTS_license_status':'not_admitted; QA-26--28 excluded','E_S_predictions':'not_emitted; deployment predictor required by downstream training',
+        'human_asset_body_templates_used':len({a.get('body_identity_id',a.get('asset_id')) for a in humans.values()}),'human_asset_color_variants_used':len(humans),'human_motion_scope':'native-qualified standing only',
+        'TTS_license_status':'actual_admitted_CosyVoice2_source_chain_and_native_episode' if tts_event_count else 'no_TTS_emissions_in_this_release','E_S_predictions':'not_emitted; deployment predictor required by downstream training',
         'native_visual_checks':native_checks,'source_material_checks':{'observations':len(material_rows),'all_status_pass':all(r['status']=='pass' for r in material_rows),
             'max_highlight_ratio':max(r['highlight_ratio'] for r in material_rows if r.get('highlight_ratio') is not None),
             'max_chromaticity_error_p50':max(r['texture_chromaticity_error_p50'] for r in material_rows if r.get('texture_chromaticity_error_p50') is not None),
             'max_chromaticity_error_p95':max(r['texture_chromaticity_error_p95'] for r in material_rows if r.get('texture_chromaticity_error_p95') is not None)},
         'FOA_direction_checks':directions,'chosen_seals':chosen,'packaged_sources':len(sources),'packaged_license_texts':license_files,
-        'claim_boundary':'alpha is a narrow static/speech subset; no STARSS evaluation or full-v7 quota/family completion claim'}
+        'claim_boundary':'only actual qualified standing recorded/TTS native windows; no STARSS evaluation or full-v7 quota/family completion claim'}
     write_json(target/'summary.json',summary)
     return summary

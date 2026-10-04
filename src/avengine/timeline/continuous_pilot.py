@@ -40,10 +40,13 @@ def write_json(path, value):
     # Reboot/kill before publication must leave only an uncommitted sibling,
     # never a truncated final JSON which would permanently block resumption.
     pending = path.with_name(f".{path.name}.{uuid.uuid4().hex}.partial")
+    from avengine.timeline.v7_storage_budget import check_write
+    check_write(path, expected_bytes=len(payload.encode("utf-8")))
     with pending.open("x", encoding="utf-8") as f:
         f.write(payload)
         f.flush(); os.fsync(f.fileno())
     os.link(pending, path)
+    pending.unlink()
 
 
 class FormantSpeech:
