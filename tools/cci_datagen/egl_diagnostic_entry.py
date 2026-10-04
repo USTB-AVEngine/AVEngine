@@ -24,7 +24,11 @@ def run_child(argv,env,log,seconds,gpu=None):
   child=subprocess.Popen(argv,env=env,stdout=out,stderr=subprocess.STDOUT,start_new_session=True,stdin=subprocess.DEVNULL)
   from trial_limits import identity,verified_stop
   expected=identity(child.pid);OWN_CHILD=child;OWN_IDENTITY=expected;write_json(log.with_suffix('.process.json'),{'host':socket.gethostname(),**expected})
-  watch=GPUWatch(gpu,child,log.with_suffix('.gpu.json'),cap_gib=2,reserve_gib=4,strict_ownership=False).start() if gpu else None
+  def forward_own(signum,frame):
+   if child.poll() is None:verified_stop(child,expected)
+   raise SystemExit(128+signum)
+  handlers={sig:signal.signal(sig,forward_own) for sig in (signal.SIGTERM,signal.SIGINT)}
+  watch=GPUWatch(gpu,child,log.with_suffix('.gpu.json'),cap_gib=2,reserve_gib=4,strict_ownership=any(str(arg).endswith('/render_backend_sample.py') for arg in argv)).start() if gpu else None
   try:rc=child.wait(timeout=seconds)
   except subprocess.TimeoutExpired:
    verified_stop(child,expected)
@@ -33,6 +37,7 @@ def run_child(argv,env,log,seconds,gpu=None):
     if identity(child.pid)!=expected:raise RuntimeError('own process changed; refuse forced signal')
     os.killpg(child.pid,signal.SIGKILL);rc=child.wait()
    result['timed_out']=True
+  for sig,handler in handlers.items():signal.signal(sig,handler)
   if watch:
    try:watch.close()
    except Exception as e:result['GPU_guard_error']=str(e)

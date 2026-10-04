@@ -44,7 +44,7 @@ class NativeContinuousVideo:
         self.width,self.height=width,height
         cfg=hs.SimulatorConfiguration()
         cfg.scene_id=house['input'].get('visual_source') or str(Path(house['input']['scene_directory'])/(house['input']['scan_id']+'.glb'))
-        cfg.gpu_device_id=int(infra_gpu) if infra_gpu is not None else -1
+        cfg.gpu_device_id=int(os.environ.get('CCI_INFRA_HABITAT_DEVICE_ID',infra_gpu)) if infra_gpu is not None else -1
         cfg.enable_physics=True
         cfg.load_semantic_mesh=False
         sensors=[]
@@ -122,7 +122,7 @@ class NativeContinuousVideo:
                 'time_base_hz':a['bundle'].action_sets_by_role[a['bundle'].action_roles_by_id['walk']].time_base_hz} for a in self.actors]}
 
         if infra_gpu is not None:
-            self.receipt.update(compute_device='GPU',software_driver=None,gpu_device_id=int(infra_gpu),
+            self.receipt.update(compute_device='GPU',software_driver=None,gpu_device_id=cfg.gpu_device_id,physical_gpu_lease=infra_gpu,physical_uuid=os.environ.get('CCI_INFRA_HABITAT_PHYSICAL_UUID'),
                                 hardware_EGL_devices_excluded=False,infrastructure_trial_only=True,
                                 training_eligible=False)
 
