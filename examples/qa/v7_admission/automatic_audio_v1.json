@@ -1,0 +1,342 @@
+{
+  "schema": "v7_automatic_dry_label_mapping_v1",
+  "model": "BEATs AudioSet 527-class AS2M cpt2",
+  "class_label_names": {
+    "air_conditioning": [
+      "Air conditioning"
+    ],
+    "alarm_beep": [
+      "Beep, bleep"
+    ],
+    "alarm_bell": [
+      "Alarm"
+    ],
+    "alarm_clock": [
+      "Alarm clock"
+    ],
+    "any_audioset_class_playback": [],
+    "bathtub_filling_washing": [
+      "Bathtub (filling or washing)"
+    ],
+    "blender": [
+      "Blender"
+    ],
+    "busy_signal": [
+      "Busy signal"
+    ],
+    "cat_meow": [
+      "Meow"
+    ],
+    "cellphone_vibration_alert": [
+      "Cellphone buzz, vibrating alert"
+    ],
+    "chime": [
+      "Chime"
+    ],
+    "clock_tick": [
+      "Tick-tock",
+      "Tick"
+    ],
+    "crackle": [
+      "Crackle"
+    ],
+    "ding_dong": [
+      "Ding-dong"
+    ],
+    "dog_bark": [
+      "Bark"
+    ],
+    "doorbell": [
+      "Doorbell"
+    ],
+    "doorbell_chime": [
+      "Doorbell"
+    ],
+    "drip": [
+      "Drip"
+    ],
+    "fire": [
+      "Fire"
+    ],
+    "fire_alarm": [
+      "Fire alarm"
+    ],
+    "gurgling": [
+      "Gurgling"
+    ],
+    "microwave_beep": [
+      "Microwave oven"
+    ],
+    "microwave_hum": [
+      "Microwave oven"
+    ],
+    "music_playback": [
+      "Music"
+    ],
+    "phone_ring": [
+      "Telephone bell ringing"
+    ],
+    "printer": [
+      "Printer"
+    ],
+    "ringtone": [
+      "Ringtone"
+    ],
+    "sink_filling_washing": [
+      "Sink (filling or washing)"
+    ],
+    "smoke_alarm": [
+      "Smoke detector, smoke alarm"
+    ],
+    "speech_playback": [
+      "Speech"
+    ],
+    "telephone": [
+      "Telephone"
+    ],
+    "telephone_bell_ringing": [
+      "Telephone bell ringing"
+    ],
+    "telephone_dialing_dtmf": [
+      "Telephone dialing, DTMF"
+    ],
+    "toilet_flush": [
+      "Toilet flush"
+    ],
+    "water_tap_faucet": [
+      "Water tap, faucet"
+    ]
+  },
+  "class_mids": {
+    "air_conditioning": [
+      "/m/025wky1"
+    ],
+    "alarm_beep": [
+      "/m/02fs_r"
+    ],
+    "alarm_bell": [
+      "/m/07pp_mv"
+    ],
+    "alarm_clock": [
+      "/m/046dlr"
+    ],
+    "any_audioset_class_playback": [],
+    "bathtub_filling_washing": [
+      "/m/03dnzn"
+    ],
+    "blender": [
+      "/m/02pjr4"
+    ],
+    "busy_signal": [
+      "/m/01z47d"
+    ],
+    "cat_meow": [
+      "/m/07qrkrw"
+    ],
+    "cellphone_vibration_alert": [
+      "/m/01jwx6"
+    ],
+    "chime": [
+      "/m/0f8s22"
+    ],
+    "clock_tick": [
+      "/m/07qjznl",
+      "/m/07qjznt"
+    ],
+    "crackle": [
+      "/m/07pzfmf"
+    ],
+    "ding_dong": [
+      "/m/07r67yg"
+    ],
+    "dog_bark": [
+      "/m/05tny_"
+    ],
+    "doorbell": [
+      "/m/03wwcy"
+    ],
+    "doorbell_chime": [
+      "/m/03wwcy"
+    ],
+    "drip": [
+      "/m/07r5v4s"
+    ],
+    "fire": [
+      "/m/02_41"
+    ],
+    "fire_alarm": [
+      "/m/0c3f7m"
+    ],
+    "gurgling": [
+      "/m/07swgks"
+    ],
+    "microwave_beep": [
+      "/m/0fx9l"
+    ],
+    "microwave_hum": [
+      "/m/0fx9l"
+    ],
+    "music_playback": [
+      "/m/04rlf"
+    ],
+    "phone_ring": [
+      "/m/07pp8cl"
+    ],
+    "printer": [
+      "/m/01m4t"
+    ],
+    "ringtone": [
+      "/m/01hnzm"
+    ],
+    "sink_filling_washing": [
+      "/m/0130jx"
+    ],
+    "smoke_alarm": [
+      "/m/01y3hg"
+    ],
+    "speech_playback": [
+      "/m/09x0r"
+    ],
+    "telephone": [
+      "/m/07cx4"
+    ],
+    "telephone_bell_ringing": [
+      "/m/07pp8cl"
+    ],
+    "telephone_dialing_dtmf": [
+      "/m/02c8p"
+    ],
+    "toilet_flush": [
+      "/m/01jt3m"
+    ],
+    "water_tap_faucet": [
+      "/m/02jz0l"
+    ]
+  },
+  "ambiguous_model_classes": [
+    "alarm_bell",
+    "doorbell_chime",
+    "microwave_beep",
+    "microwave_hum",
+    "phone_ring",
+    "telephone_bell_ringing"
+  ],
+  "mechanism_note": "Classifier verifies acoustic content; source subtype/mechanism must independently follow its original provenance and scene emission declaration. No label is inferred from a room or clothing.",
+  "specific_metadata_groups": {
+    "cellphone_vibration_alert": [
+      [
+        "phone",
+        "mobile",
+        "cellular"
+      ],
+      [
+        "vibrat",
+        "buzz"
+      ]
+    ],
+    "alarm_bell": [
+      [
+        "alarm",
+        "warning"
+      ],
+      [
+        "bell"
+      ]
+    ],
+    "doorbell_chime": [
+      [
+        "doorbell",
+        "door bell"
+      ],
+      [
+        "chime",
+        "ding"
+      ]
+    ],
+    "microwave_beep": [
+      [
+        "microwave"
+      ],
+      [
+        "beep",
+        "bing",
+        "ding"
+      ]
+    ],
+    "microwave_hum": [
+      [
+        "microwave"
+      ],
+      [
+        "hum",
+        "running",
+        "run",
+        "motor"
+      ]
+    ],
+    "phone_ring": [
+      [
+        "phone",
+        "telephone",
+        "mobile"
+      ],
+      [
+        "ring"
+      ]
+    ],
+    "telephone_bell_ringing": [
+      [
+        "telephone",
+        "phone"
+      ],
+      [
+        "bell",
+        "ring"
+      ]
+    ],
+    "busy_signal": [
+      [
+        "busy",
+        "engaged"
+      ],
+      [
+        "telephone",
+        "phone",
+        "signal",
+        "tone"
+      ]
+    ],
+    "alarm_clock": [
+      [
+        "alarm"
+      ],
+      [
+        "clock"
+      ]
+    ],
+    "ding_dong": [
+      [
+        "ding",
+        "doorbell",
+        "door bell"
+      ]
+    ],
+    "fire_alarm": [
+      [
+        "fire"
+      ],
+      [
+        "alarm"
+      ]
+    ],
+    "smoke_alarm": [
+      [
+        "smoke"
+      ],
+      [
+        "alarm",
+        "detector"
+      ]
+    ]
+  }
+}

@@ -217,9 +217,9 @@ def generate_questions(scene, start_s, window_id, media, *, forms=('open', 'mcq'
             else:
                 excluded.append({'qa_id': 'QA-04', 'candidate': rank, 'reason': 'within5deg_sector_boundary'})
             emit('STARSS-FRUSTUM', f'target{rank}', f'{description}起始活动帧的方向是否位于画面几何视锥内？不问遮挡。', frustum, ['in_frame', 'out_of_frame'], dict(evidence, azimuth_deg=angle))
-        query = math.floor(anchor) + 1
+        query = math.ceil(segment["anchor_tick"] / 10)
         if query * 10 >= segment['window_end_tick']:
-            excluded.append({'qa_id': 'QA-25', 'candidate': rank, 'reason': 'segment_ends_before_next_integer_second'})
+            excluded.append({'qa_id': 'QA-25', 'candidate': rank, 'reason': 'segment_ends_before_authoritative_integer_query'})
             continue
         try:
             angle, _ = geometry(scene, segment, start_s + query)
