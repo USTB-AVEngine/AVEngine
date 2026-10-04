@@ -34,6 +34,9 @@ def parse_gpu_xml(raw: str) -> list[dict]:
         rows.append({'index': index, 'uuid': gpu.findtext('uuid'),
                      'free_mib': memory(gpu.findtext('./fb_memory_usage/free')),
                      'used_mib': memory(gpu.findtext('./fb_memory_usage/used')),
+                     'utilization_gpu_percent': memory(gpu.findtext('./utilization/gpu_util')),
+                     'utilization_memory_percent': memory(gpu.findtext('./utilization/memory_util')),
+                     'power_draw_watts': memory(gpu.findtext('./gpu_power_readings/power_draw')),
                      'processes': processes})
     return rows
 
@@ -66,6 +69,17 @@ def main():
     parser.add_argument('--request', type=Path, required=True)
     args = parser.parse_args()
     request = json.loads(args.request.read_text())
+    resource_path = request.get('resource_snapshot_path')
+    def resource_snapshot():
+        if not resource_path:
+            return None
+        value = json.loads(Path(resource_path).read_text())
+        if value.get('schema') != 'kujiale_round8_resource_snapshot_v1' or value.get('budget_root') != str(Path(request['budget_root']).resolve()):
+            raise RuntimeError('resource snapshot scope differs from this task')
+        if not 0 <= time.time()-value['sample_epoch'] <= 8:
+            raise RuntimeError('task resource snapshot is stale')
+        return value
+
     root = Path(request['budget_root']).resolve()
     run = Path(request['run_directory']).resolve()
     if root not in run.parents or run.exists():
@@ -79,13 +93,16 @@ def main():
     previous_peak = request.get('previous_peak_mib')
     required = 16 * 1024 if previous_peak is None else float(previous_peak) + 4 * 1024
     required = max(required, float(request.get('minimum_free_mib', 0)))
-    initial = gpu_snapshot()
+    shared = resource_snapshot()
+    initial = shared['gpus'] if shared else gpu_snapshot()
     selected = initial[gpu_index]
-    size = logical_bytes(root)
+    size = shared['logical_bytes'] if shared else logical_bytes(root)
     import shutil
     disk_required = int(request.get('minimum_disk_free_bytes', 0))
     if shutil.disk_usage(root).free < disk_required:
-        raise RuntimeError('external audio disk reserve is insufficient')
+        raise RuntimeError('shared disk free-space floor is insufficient')
+    if shared and shared.get('disk_stop_reason'):
+        raise RuntimeError(shared['disk_stop_reason'])
     reserve = int(request.get('reserve_bytes', 0))
     receipt = {'schema': 'kujiale_native_ue_guard_v1', 'request': str(args.request),
                'start_utc': dt.datetime.now(dt.timezone.utc).isoformat(),
@@ -160,7 +177,12 @@ def main():
                             active_cpu.append(row)
                     except (psutil.NoSuchProcess, psutil.AccessDenied):
                         pass
-                snapshot = gpu_snapshot()
+                try:
+                    shared = resource_snapshot()
+                except (RuntimeError, FileNotFoundError, json.JSONDecodeError) as error:
+                    stop_reason = f'resource_snapshot_unavailable:{error}'
+                    shared = None
+                snapshot = shared['gpus'] if shared else gpu_snapshot()
                 mine = []
                 total_mib = 0.0
                 for gpu in snapshot:
@@ -184,9 +206,11 @@ def main():
                 remaining_free = snapshot[gpu_index]['free_mib']
                 if remaining_free is not None and remaining_free < 4096 and total_mib:
                     stop_reason = 'concurrent_gpu_load_left_less_than_4g'
-                size = logical_bytes(root)
+                size = shared['logical_bytes'] if shared else logical_bytes(root)
+                if shared and shared.get('disk_stop_reason'):
+                    stop_reason = shared['disk_stop_reason']
                 if shutil.disk_usage(root).free < disk_required:
-                    stop_reason = 'external_audio_disk_reserve'
+                    stop_reason = 'shared_disk_free_space_floor'
                 if size > limit - int(request.get('stop_margin_bytes', 750_000_000)):
                     stop_reason = 'storage_limit_margin'
                 samples.write(json.dumps({'elapsed_seconds': time.monotonic()-started,
@@ -195,7 +219,11 @@ def main():
                                           'owned_process_cpu_times': active_cpu,
                                           'owned_tree_cpu_seconds_lower_bound': sum(v['user_seconds'] + v['system_seconds'] for v in cpu_by_identity.values()),
                                           'peak_mib': peak, 'selected_free_mib': remaining_free,
-                                          'logical_bytes': size}) + '\n')
+                                          'logical_bytes': size,
+                                          'shared_data_free_bytes': shutil.disk_usage(root).free,
+                                          'resource_sample_epoch': shared.get('sample_epoch') if shared else None,
+                                          'allocated_bytes': shared.get('allocated_bytes') if shared else None,
+                                          'new_allocated_bytes': shared.get('new_allocated_bytes') if shared else None}) + '\n')
                 samples.flush()
                 if stop_reason or child.poll() is not None:
                     break

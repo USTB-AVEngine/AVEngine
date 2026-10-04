@@ -10,14 +10,22 @@ def read(p):return json.loads(Path(p).read_text())
 def write(p,d):Path(p).write_text(json.dumps(d,indent=2,ensure_ascii=False)+'\n')
 
 def choose_topology(snapshot, instances, measured_peak_mib):
- if instances not in (1,2,4,8):raise ValueError('supported concurrency is 1, 2, 4 or 8')
+ if instances not in (1,2,4,8,12):raise ValueError('supported concurrency is 1, 2, 4, 8 or 12')
  if measured_peak_mib<=0:raise ValueError('measured peak must be positive')
  ordered=sorted((g for g in snapshot if g['free_mib'] is not None),key=lambda g:g['free_mib'],reverse=True)
  single=[g for g in ordered if g['free_mib']>=instances*measured_peak_mib+4096]
  if single:return [single[0]['index']]*instances
- if instances==8:
-  four=[g for g in ordered if g['free_mib']>=4*measured_peak_mib+4096]
-  if len(four)>=2:return [four[0]['index']]*4+[four[1]['index']]*4
+ if instances in (8,12):
+  half=instances//2
+  feasible=[g for g in ordered if g['free_mib']>=half*measured_peak_mib+4096]
+  if len(feasible)>=2:return [feasible[0]['index']]*half+[feasible[1]['index']]*half
+  if instances==12:
+   for large in ordered:
+    for small in ordered:
+     if large['index']!=small['index'] and large['free_mib']>=8*measured_peak_mib+4096 and small['free_mib']>=4*measured_peak_mib+4096:
+      return [large['index']]*8+[small['index']]*4
+   four=[g for g in ordered if g['free_mib']>=4*measured_peak_mib+4096]
+   if len(four)>=3:return sum(([g['index']]*4 for g in four[:3]),[])
  raise RuntimeError(f'n{instances} has no authorized topology with measured peaks plus 4GiB per card')
 
 def main():

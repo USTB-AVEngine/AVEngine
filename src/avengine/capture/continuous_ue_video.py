@@ -17,6 +17,15 @@ from avengine.capture.kujiale_spear_runtime import (
 )
 
 
+def native_material_sample_status(checks,asset_ids,*,allow_invisible_samples=False):
+    if not checks:return 'fail'
+    if not allow_invisible_samples:return 'pass' if all(x['metrics']['status']=='pass' for x in checks) else 'fail'
+    observed={x['asset_id'] for x in checks if x['metrics']['status']=='pass'}
+    if set(asset_ids)-observed or any(x['metrics']['status'] not in ('pass','not_run') for x in checks):return 'fail'
+    if any(x['metrics']['status']=='not_run' and x['metrics'].get('reason')!='fewer_than_100_source_pixels' for x in checks):return 'fail'
+    return 'pass'
+
+
 class UENativeContinuousVideo:
     native_floor_surface = None
     def __init__(self, house, scene, inputs, assets, *, width=1280, height=720,
@@ -183,8 +192,11 @@ class UENativeContinuousVideo:
             self.foot_components['depth'].set_property_value(property_name='PrimitiveRenderMode',property_value='PRM_UseShowOnlyList')
             self.foot_components['depth'].set_property_value(property_name='ShowOnlyActors',property_value=[runtime['visual_actor']])
         with self.instance.end_frame():target=self.read_depth(self.foot_components['depth'])
+        for _ in range(2):
+            with self.instance.begin_frame():pass
+            with self.instance.end_frame():target=self.read_depth(self.foot_components['depth'])
         yy,xx=np.nonzero(np.isfinite(target)&(target>0)&(target<65504))
-        if len(yy)<100 or yy.max()>=target.shape[0]-1:
+        if len(yy)<100 or yy.max()>=target.shape[0]-1 or xx.min()<=0 or xx.max()>=target.shape[1]-1:
             return {'status':'not_run','reason':'independent_native_foot_probe_cropped_or_no_depth'}
         tan=math.tan(math.radians(85.)/2)
         rx=(2*(xx+.5)/target.shape[1]-1)*tan
@@ -246,7 +258,7 @@ class UENativeContinuousVideo:
                     # Reconstruct actual visible native body surfaces; this is
                     # a diagnostic contact measurement, not a bone/root proxy.
                     ty,tx=np.nonzero(target<65504)
-                    if len(ty) and ty.max()<target.shape[0]-1:
+                    if len(ty)>=100 and ty.max()<target.shape[0]-1 and tx.min()>0 and tx.max()<target.shape[1]-1:
                         tan=math.tan(math.radians(85.)/2)
                         rx=(2*(tx+.5)/target.shape[1]-1)*tan
                         ry=(1-2*(ty+.5)/target.shape[0])*tan*target.shape[0]/target.shape[1]
@@ -326,7 +338,7 @@ class UENativeContinuousVideo:
         result={'renderer':self.receipt,'frames':frames,'observed_mouth_trajectories':mouths,
                 'frame_count':len(frames),'wall_seconds':time.perf_counter()-start,
                 'native_source_material_checks':material_checks,
-                'native_source_material_status':'pass' if material_checks and all(x['metrics']['status']=='pass' for x in material_checks) else 'fail',
+                'native_source_material_status':native_material_sample_status(material_checks,[a['asset_id'] for a in self.assets],allow_invisible_samples=bool(self.ue.get('allow_invisible_source_material_samples'))),
                 'native_body_foot_status':'pass' if frames and all(a['native_foot_contact']['status']=='pass' for f in frames for a in f['actors']) else 'fail_or_unverified'}
         source_materials={'schema':'kujiale_native_source_material_bindings_v1','render_path':'ue_spear',
             'native_project':self.ue['uproject'],'source_material_inventory':self.ue['source_material_inventory'],

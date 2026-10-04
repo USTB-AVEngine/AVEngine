@@ -5,7 +5,7 @@
 
 自 2026-08-25 起，目录本身就是能力分组（阶段目录 m1…m7 已移除），
 本表按目录列出每个工具做什么。
-当前共 497 个工具脚本。
+当前共 510 个工具脚本。
 
 ## 资产生成与装配（`tools/assets/`）
 
@@ -109,11 +109,15 @@
 
 | 工具 | 做什么 |
 |---|---|
+| `tools/rooms/alpha_live_status.py` | Atomically replace explicit live counters; never replace sealed artifacts |
+| `tools/rooms/alpha_storage_contract.py` | Storage boundaries for immutable native alpha seal and derived bundles |
 | `tools/rooms/assemble_kujiale_native_training_admission.py` | Assemble native Kujiale room admission and offline evidence without new gates |
 | `tools/rooms/audit_real_surface_mesh.py` | Audit a glTF/GLB as evidence for the M1 real-surface geometry gate |
 | `tools/rooms/audit_skokloster_glb.py` | Audit the exact Habitat Skokloster GLB for visual and acoustic staging |
 | `tools/rooms/author_current_residential_visual_episode.py` | Author one current residential visual-only research episode |
+| `tools/rooms/benchmark_kujiale_alpha_concurrency.py` | Measured 2/4/8/12 native UE recorded-alpha end-to-end worker rounds |
 | `tools/rooms/benchmark_kujiale_native_concurrency.py` | Measure full native UE+RLR+question pilots under bounded GPU concurrency |
+| `tools/rooms/bind_kujiale_formal_seed.py` | Bind a capped room seed to its own admitted native house/layout, never another room |
 | `tools/rooms/blender_build_exterior_proxy.py` | Blender-side builder for an inward-facing, textured exterior sphere |
 | `tools/rooms/build_fixed_apartment_canary.py` | Build the fixed SPEAR Apartment S0--S5 M6.x review bundle |
 | `tools/rooms/build_render_surface_navigation.py` | Build reusable CPU navigation from a room's declared render surface |
@@ -124,6 +128,7 @@
 | `tools/rooms/check_kujiale_native_motion_contact.py` | Measure registered native idle/walk skin contact without changing animation |
 | `tools/rooms/check_v7_kujiale_native_assets.py` | Render all registered native source assets with fixed production appearance QA |
 | `tools/rooms/check_v7_kujiale_ue.py` | Native UE room images, measured depth floor and exact exported geometry QA |
+| `tools/rooms/compact_kujiale_alpha.py` | Remove only a completed round8 alpha parent's verified intermediates |
 | `tools/rooms/compile_ue_navigation.py` | Build free navigation from current UE collision geometry and null areas |
 | `tools/rooms/emit_hm3d_room_manifest.py` | Emit an AVEngine room manifest for an HM3D scene directory |
 | `tools/rooms/extract_interioragent_scene_metadata.py` | Extract a room polygon and navigation footprints from InteriorAgent USD |
@@ -133,11 +138,16 @@
 | `tools/rooms/measure_habitat_floor_reference.py` | Measure Habitat floor levels from a declared scene and navmesh |
 | `tools/rooms/measure_ue_room_floor_reference.py` | Measure an UE room floor from the currently loaded map |
 | `tools/rooms/native_guard_safe_stop.py` | Stop one recorded task guard after verifying PID creation time and argv |
+| `tools/rooms/package_kujiale_alpha.py` | Publish portable alpha delivery without changing questions or any answers |
+| `tools/rooms/pilot_kujiale_alpha.py` | Run the canonical recorded alpha question/selection/seal pipeline with UE |
 | `tools/rooms/plan_furnished_camera_review.py` | Build a short multi-view camera review plan for one furnished room |
 | `tools/rooms/plan_furnished_residential_episode.py` | Plan a static furnished residential episode through the AVEngine room API |
+| `tools/rooms/plan_kujiale_room_quota.py` | Training-only Kujiale budgets bounded by admitted rooms, with nested seeds |
 | `tools/rooms/preflight_v7_kujiale_native.py` | Select a measured witness whose unchanged seeded motion stays navigable |
 | `tools/rooms/prepare_3d_front_toolbox_sample_proxy.py` | Build a clearly labelled 3D-FRONT Toolbox sample review proxy in USD |
 | `tools/rooms/prepare_interioragent_kujiale_adapter.py` | Prepare an external InteriorAgent USD stage for UE's runtime USD importer |
+| `tools/rooms/prepare_kujiale_alpha_layout.py` | Find a static four-body alpha layout in an already admitted native room |
+| `tools/rooms/prepare_kujiale_cci_batch.py` | Freeze exact owned derived-file list before invoking the provided CCI pull |
 | `tools/rooms/prepare_legacy_apartment.py` | Prepare the real-surface UE apartment export as an M1 Habitat room package |
 | `tools/rooms/prepare_skokloster_interchange_glb.py` | Bake Skokloster's legacy source axes into a canonical glTF for UE import |
 | `tools/rooms/prepare_spear_apartment_exterior.py` | Export UE's approaching_storm HDRI and build a visual-only Habitat GLB |
@@ -147,8 +157,10 @@
 | `tools/rooms/prepare_v7_kujiale_native_motion_plan.py` | Find frozen legal native witnesses with navigable seeded actor motion |
 | `tools/rooms/prepare_v7_kujiale_ue.py` | Prepare isolated native UE requests with three frozen-rule pose witnesses |
 | `tools/rooms/rebuild_replicacad_obstacle_review.py` | Rebuild the retained ReplicaCAD review with live furniture obstacles |
+| `tools/rooms/reclaim_kujiale_cci_batch.py` | Reclaim only exact owned bytes after independently checked CCI SHA receipts |
 | `tools/rooms/recover_kujiale_native_audit.py` | Read back an own saved map after interrupted import; rerun native QA |
 | `tools/rooms/report_kujiale_batch.py` | Report CPU Kujiale conversion, missing native evidence and internal CCI files |
+| `tools/rooms/report_kujiale_round8.py` | Publish measured native-alpha budget, resource curves and source paths |
 | `tools/rooms/reselect_kujiale_native_capsule_witnesses.py` | Reselect only already-frozen legal witnesses that clear the native capsule |
 | `tools/rooms/restore_kujiale_native_source_assets.py` | Restore only task-local UE MIC backups and archive withdrawn derived assets |
 | `tools/rooms/room_screening_candidates.py` | Compute provisional HM3D semantic-ground/navmesh overlap candidates |
@@ -170,6 +182,7 @@
 | `tools/rooms/run_spear_replicacad_canary.py` | Render the retained 270-frame ReplicaCAD route in an isolated SPEAR editor |
 | `tools/rooms/run_spear_residential_episode.py` | Render one AVEngine residential visual episode through SPEAR/UE |
 | `tools/rooms/select_furnished_camera_review.py` | Choose a furnished-room camera from actual SPEAR per-person visibility masks |
+| `tools/rooms/v7_kujiale_round8_resources.py` | One task-owned sampler for graphics processes and shared disk protection |
 | `tools/rooms/v7_kujiale_ue_guard.py` | Run one isolated native UE task with graphics-aware GPU and disk accounting |
 | `tools/rooms/verify_kujiale_native_floor_references.py` | Verify spatial support references against audited, unmodified UE LOD0 |
 
