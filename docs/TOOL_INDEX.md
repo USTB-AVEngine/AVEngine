@@ -5,7 +5,7 @@
 
 自 2026-08-25 起，目录本身就是能力分组（阶段目录 m1…m7 已移除），
 本表按目录列出每个工具做什么。
-当前共 261 个工具脚本。
+当前共 292 个工具脚本。
 
 ## 资产生成与装配（`tools/assets/`）
 
@@ -27,6 +27,7 @@
 | `tools/assets/build_cross_species_appearance_lineage.py` | Build one diagnostic-only cross-species appearance lineage |
 | `tools/assets/build_joint_mapping.py` | Emit the exact Habitat joint mapping bound to a rebase report |
 | `tools/assets/build_research_review_request.py` | Build an exact 75-state M2 request for research-only human review |
+| `tools/assets/build_sound_harvest_map.py` | 生成事件类到 FSD50K 标签的对照表草案。 |
 | `tools/assets/capture_animal_variant_review.py` | Build and run one single-view animal-variant Habitat review capture |
 | `tools/assets/capture_canary.py` | Run one formal 75-state M2 canary capture in Habitat |
 | `tools/assets/capture_installed_research_review.py` | Run the current installed-prefix M2 Blender-room research review |
@@ -39,6 +40,8 @@
 | `tools/assets/gate_retopology.py` | Reject a mesh preparation that damaged the animal, before it is rigged |
 | `tools/assets/gate_rigged_asset.py` | Accept or reject a rigged animal from how its surface tears during the walk |
 | `tools/assets/generate_canonical_2d.py` | Generate one canonical 2D animal candidate from a clay pose guide |
+| `tools/assets/harvest_fsd50k_clips.py` | Fill the sound-effect classes from the FSD50K copy already on this machine |
+| `tools/assets/harvest_vctk_speech.py` | Pull English speech with transcripts from the VCTK copy on this machine |
 | `tools/assets/measure_deformation_stretch.py` | Measure how much of the surface a pose stretches |
 | `tools/assets/measure_mesh_topology.py` | Compare mesh structure after welding, without a glTF round trip in between |
 | `tools/assets/measure_static_resting_pose.py` | Measure the resting or mounting pose of a published rigid static asset |
@@ -47,12 +50,14 @@
 | `tools/assets/model_roots.py` | Where shared model weights live, resolved instead of hard-coded |
 | `tools/assets/normalize_materials.py` | Normalize GLB PBR materials without modifying geometry or animation data |
 | `tools/assets/plan_instance_variants.py` | Derive the instance-level variant plan for accepted source assets |
+| `tools/assets/prepare_sound_library.py` | Convert the collected dry clips into the form the pipeline consumes |
 | `tools/assets/preprocess_glb.py` | Select GLB actions and strip provably unweighted controller roots |
 | `tools/assets/probe_habitat_skin_rest.py` | Generate and exercise a temporary Habitat skinned-AO rest-pose descriptor |
 | `tools/assets/probe_heading_axis.py` |  |
 | `tools/assets/promote_canary.py` | Promote one hash-closed M2 research candidate to a new canary package |
 | `tools/assets/publish_animal_assets.py` | Publish accepted generated animals into the shared sound-source asset tree |
 | `tools/assets/publish_static_source_assets.py` | Publish admitted static sound sources into the shared asset tree |
+| `tools/assets/qc_sound_library.py` | Check every clip in the dry-sound library and say what is wrong, in words |
 | `tools/assets/rebase_skin_root.py` | Create a Habitat-native, root-local GLB research candidate |
 | `tools/assets/rebind_appearance_actions.py` | Reuse one validated M2 package action set on a compatible appearance rig |
 | `tools/assets/rebind_appearance_visual.py` | Preserve a source M2 package actor frame on one appearance realization |
@@ -67,6 +72,32 @@
 | `tools/assets/run_pixal3d_mesh.py` | Run the vendored Pixal3D image-to-3D stage on an already-matted candidate |
 | `tools/assets/segment_canonical_2d.py` | Cut the canonical 2D candidate out of its background with the local ISNet model |
 | `tools/assets/spike_habitat_local_tr.py` | Prove one bounded local-translation-plus-rotation Habitat AO encoding |
+| `tools/assets/v7_human_roster_actions.py` | Materialize real source-motion frames for native Habitat action-family probes |
+| `tools/assets/v7_human_roster_blender.py` | Task-scoped Rocketbox UV extraction and native animation builds |
+| `tools/assets/v7_human_roster_color_qa.py` | Native rendered shirt colour measurements; never used as a UE admission gate |
+| `tools/assets/v7_human_roster_cpu_build.py` | Resumable, bounded CPU-only native builds in the caller's task directory |
+| `tools/assets/v7_human_roster_delivery.py` | Build the deliverable hierarchy from saved native evidence, with qualified states |
+| `tools/assets/v7_human_roster_feet.py` | Check semantic human shoe vertices, not just whole-asset minimum height |
+| `tools/assets/v7_human_roster_gpu.py` | One owned GPU process tree at a time, with free-memory reserve and evidence |
+| `tools/assets/v7_human_roster_habitat.py` | Native Habitat review in real MP3D/HM3D rooms; explicit RGB and garment mask |
+| `tools/assets/v7_human_roster_materials.py` | Explicit garment masks and single-attribute counterfactual GLBs |
+| `tools/assets/v7_human_roster_motion_cache.py` | Repair source-motion caches using every animation channel's key times |
+| `tools/assets/v7_human_roster_pose.py` | glTF linear skinning, metric pose GLBs and resumable Habitat motion cache |
+| `tools/assets/v7_human_roster_profiles.py` | Write legacy-strict three-value profiles and immutable requests for the 96 colours |
+| `tools/assets/v7_human_roster_roi.py` | Perspective-correct visible shirt ROI from native camera and glTF UVs |
+| `tools/assets/v7_human_roster_survey.py` | Read-only source survey for the v7 human roster |
+| `tools/assets/v7_human_roster_ue_actions.py` | Capture source-matched skeletal poses in native UE, with dynamic FOA readback |
+| `tools/assets/v7_human_roster_ue_animation_qa.py` | Compare UE-native animation anchors to the source metric glTF rig |
+| `tools/assets/v7_human_roster_ue_blueprints.py` | Build one-actor static human Blueprints and audit their native component transforms |
+| `tools/assets/v7_human_roster_ue_capture_qa.py` | Read UE scene captures and fail closed on occlusion, scale and placement |
+| `tools/assets/v7_human_roster_ue_floor.py` | Locate an empty review volume in the actual USD geometry; no stage mutation |
+| `tools/assets/v7_human_roster_ue_import.py` | Executed by UE 5.5 Python commandlet; imports into this task's project only |
+| `tools/assets/v7_human_roster_ue_namespace.sh` |  |
+| `tools/assets/v7_human_roster_ue_rendered_floor.py` | Check visible feet/support height from native UE SceneDepth |
+| `tools/assets/v7_human_roster_ue_review.py` | UE-native image review and composite actor readback in the copied Kujiale map |
+| `tools/assets/v7_human_roster_ue_root.py` | Include animated non-joint armature roots in derived UE skins without changing weights |
+| `tools/assets/v7_human_roster_ue_root_import.py` | Import derived root-aware Rocketbox rigs into this task's private UE project |
+| `tools/assets/v7_human_roster_ue_wide_view.py` | Find a broad unobstructed native-room review view from composed USD triangles |
 | `tools/assets/wrap_uniform_scene_scale.py` | Wrap every root of one GLB scene in an explicit uniform-scale node |
 
 ## 房间（`tools/rooms/`）
