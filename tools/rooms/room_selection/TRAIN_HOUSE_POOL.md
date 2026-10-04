@@ -94,3 +94,41 @@ Numba median-triangle BVH. It retains every source face, uses no area cutoff,
 and records its backend. Validate full real-scan reference images against
 completed Trimesh output before admitting further scans. This is a CPU
 selection diagnostic, not a replacement for native Habitat RGB production.
+
+## Per-room CPU training acceptance
+
+The per-room follow-up uses `train_room_acceptance.py` and the unchanged
+first-batch classifier. Each automatic room gets the existing single-room
+eight-probe plan at two listeners, with matching saved native RIRs reused and
+only missing positions measured. Six **valid** RIRs are required per admitted
+room. Human labels and exposure remain descriptive; reserved holdouts remain
+excluded. Development and test house-veto selection does not change.
+
+`run_train_rooms.py` samples idle CPUs and caps the native pool at four
+eight-thread workers. `run_train_room_visuals.py` initially uses two other idle CPUs (four after an owned-child resume) for
+the validated scan-ray BVH and unchanged source-projection checks. These are
+CPU selection diagnostics, not Habitat production RGB or counted Episodes.
+
+The follow-up calls `derive_zero_area_glb.py` in strict mode: double-coordinate
+cross product exactly zero, tolerance zero. Positive-area native upload
+rejections remain review; the native guard is not relaxed. Before/after
+GLB views and all candidate overheads must be pixel-identical. The semantic
+acoustic package and cached waveforms are unchanged by visual GLB derivation,
+with every acoustic metric recomputed on both sides.
+
+`compare_train_room_repeats.py` selects no new rooms; it compares the ten
+preselected random reruns against saved waveforms and completed room decisions,
+recording Monte Carlo late-tail differences. `audit_train_room_native_failures.py`
+records strict physical areas and the actual native squared-cross cutoff.
+`report_train_rooms.py` writes exact accepted room labels, separate 5–15% leakage
+review rooms, and both frozen and completed original-sample house-veto lists.
+
+Semantic-array strict-zero derivations with no original before waveform remain
+review even when the real after measurements pass. This preserves the required
+acoustic before/after evidence; visual-only GLB metric equality cannot supply
+missing acoustic propagation evidence for a separate semantic derivation.
+
+CPU views bound their own address space to 16 GiB. Identical RGB texture bytes
+are shared across GLB primitives by content to avoid repeated image allocations;
+UVs, texels, raster parameters and scoring remain unchanged. Interrupted view
+outputs stay intact; a retry records a separate owned destination.

@@ -4,7 +4,7 @@ Black pixels retain the frozen RGB<8 definition; missing texture evidence is
 unknown rather than a neutral-color pass. No Simulator or GPU is constructed.
 """
 from pathlib import Path
-import os, struct, subprocess
+import hashlib, os, struct, subprocess, weakref
 import numpy as np
 from PIL import Image
 import trimesh
@@ -77,9 +77,31 @@ def basis_material_images(path, decoder):
         materials[name]=im
     return materials,diagnostics
 
+def texture_pixels(image,cache,identity_cache=None):
+    """Share byte-identical RGB texture data across raw GLB primitives.
+
+    Content identity is required: material names, copied PIL object identities,
+    UVs and alpha are not used to infer an image. RGB conversion and nearest
+    texel values are exactly the original renderer's values.
+    """
+    # Images are read-only throughout CPUOverhead construction. A weak
+    # identity cache avoids repeated conversion/hash work for shared PIL
+    # objects; copied images still require byte-content identity.
+    if identity_cache is not None:
+        previous=identity_cache.get(id(image))
+        if previous is not None and previous[0]() is image:return previous[1]
+    rgb=image.convert('RGB')
+    data=rgb.tobytes()
+    key=(rgb.size,hashlib.sha256(data).digest())
+    if key not in cache:
+        cache[key]=np.frombuffer(data,dtype=np.uint8).reshape(rgb.height,rgb.width,3)
+    if identity_cache is not None:identity_cache[id(image)]=(weakref.ref(image),cache[key])
+    return cache[key]
+
 class CPUOverhead:
-    def __init__(self,path):
+    def __init__(self,path,texture_cache=None):
         self.path=Path(path);self.items=[];self.basis_diagnostics=[];self.basis_error=None
+        texture_cache={} if texture_cache is None else texture_cache;identity_cache={}
         basis={};decoder=os.environ.get('AVENGINE_BASIS_CPU_DECODER')
         if decoder:
             try:basis,self.basis_diagnostics=basis_material_images(path,decoder)
@@ -96,7 +118,7 @@ class CPUOverhead:
                 if im is None:im=basis.get(getattr(material,'name',None))
                 if im is None and hasattr(material,'to_simple'):im=material.to_simple().image
                 if im is not None and m.visual.uv is not None:
-                    tex=np.asarray(im.convert('RGB'));uv=np.asarray(m.visual.uv)[m.faces].astype(float)
+                    tex=texture_pixels(im,texture_cache,identity_cache);uv=np.asarray(m.visual.uv)[m.faces].astype(float)
             elif m.visual.kind in ('face','vertex'):solid=np.asarray(m.visual.face_colors)[:,:3].astype(np.uint8)
             self.items.append((triangles,uv,tex,solid))
         if not self.items:raise ValueError('no raw visual triangles')

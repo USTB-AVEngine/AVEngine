@@ -5,7 +5,7 @@ from pathlib import Path
 import numpy as np
 from avengine.acoustics.gltf import load_glb_bytes,_decode_accessor
 
-def zero_surface_mask(vertices,faces):
+def zero_surface_mask(vertices,faces,*,strict=False):
     """No generic small-area cutoff: zero in float64 or zero in native float32.
 
     A float32-zero face with a double residue is accepted only within the
@@ -20,9 +20,10 @@ def zero_surface_mask(vertices,faces):
     exact=np.all(c64==0,axis=1);native_zero=np.all(c32==0,axis=1)
     tolerance=4*np.finfo(np.float32).eps*np.linalg.norm(e1,axis=1)*np.linalg.norm(e2,axis=1)
     rounding=native_zero & ~exact & (area<=tolerance)
-    return exact|rounding,dict(exact_zero=int(exact.sum()),native_float32_zero_with_double_residue=int(rounding.sum()),maximum_omitted_area_m2=float(area[exact|rounding].max(initial=0)),total_omitted_area_m2=float(area[exact|rounding].sum()),maximum_used_roundoff_area_tolerance_m2=float(tolerance[rounding].max(initial=0)),roundoff_rule='area <= 4*eps(float32)*norm(edge1)*norm(edge2), AND native float32 cross product exactly zero; no positive-area-only cutoff')
+    if strict:rounding[:]=False
+    return exact|rounding,dict(exact_zero=int(exact.sum()),native_float32_zero_with_double_residue=int(rounding.sum()),maximum_omitted_area_m2=float(area[exact|rounding].max(initial=0)),total_omitted_area_m2=float(area[exact|rounding].sum()),maximum_used_roundoff_area_tolerance_m2=float(tolerance[rounding].max(initial=0)),roundoff_rule=('disabled: strict double-coordinate cross is exactly zero; tolerance 0 m2' if strict else 'area <= 4*eps(float32)*norm(edge1)*norm(edge2), AND native float32 cross product exactly zero; no positive-area-only cutoff'))
 
-def derive(source,destination):
+def derive(source,destination,*,strict=False):
     source=Path(source);destination=Path(destination)
     if source.resolve()==destination.resolve():raise ValueError('Derived destination must differ from source')
     original=load_glb_bytes(source.read_bytes(),source_path=source);doc=copy.deepcopy(original.document)
@@ -40,7 +41,7 @@ def derive(source,destination):
             old_accessor=primitive['indices']
             indices=_decode_accessor(original,old_accessor,expected_type='SCALAR',allowed_component_types={5121,5123,5125})
             if len(indices)%3:raise ValueError('Triangle index count not divisible by three')
-            faces=indices.reshape(-1,3);mask,metrics=zero_surface_mask(positions,faces)
+            faces=indices.reshape(-1,3);mask,metrics=zero_surface_mask(positions,faces,strict=strict)
             if not mask.any():continue
             kept=indices.reshape(-1,3)[~mask].ravel()
             key=f'mesh_{mi}_primitive_{pi}';removed[key]=np.flatnonzero(mask)
@@ -78,4 +79,4 @@ def derive(source,destination):
     assert after.binary[:len(original.binary)]==original.binary
     assert original.sha256==load_glb_bytes(source.read_bytes(),source_path=source).sha256
     index_path=destination.with_suffix('.removed_faces.npz');np.savez_compressed(index_path,**removed)
-    return dict(source=str(source),derived=str(destination),source_sha256=original.sha256,derived_sha256=after.sha256,operation='派生几何：清退化三角形',removed_faces=total,by_primitive=records,omitted_indices=str(index_path),vertices_normals_uv_materials_textures_unchanged=True,node_attributes_except_mesh_bindings_unchanged=True,empty_primitives_removed=len(empty_primitives),empty_meshes=empty_meshes,mesh_reference_map=mesh_map,original_binary_prefix_unchanged=True,original_source_unchanged=True,maximum_omitted_area_m2=max((r['maximum_omitted_area_m2'] for r in records),default=0),total_omitted_area_m2=sum(r['total_omitted_area_m2'] for r in records),exact_zero_faces=sum(r['exact_zero'] for r in records),float32_roundoff_zero_faces=sum(r['native_float32_zero_with_double_residue'] for r in records))
+    return dict(strict_zero_only=strict,tolerance_m2=0.0 if strict else None,source=str(source),derived=str(destination),source_sha256=original.sha256,derived_sha256=after.sha256,operation='派生几何：清退化三角形',removed_faces=total,by_primitive=records,omitted_indices=str(index_path),vertices_normals_uv_materials_textures_unchanged=True,node_attributes_except_mesh_bindings_unchanged=True,empty_primitives_removed=len(empty_primitives),empty_meshes=empty_meshes,mesh_reference_map=mesh_map,original_binary_prefix_unchanged=True,original_source_unchanged=True,maximum_omitted_area_m2=max((r['maximum_omitted_area_m2'] for r in records),default=0),total_omitted_area_m2=sum(r['total_omitted_area_m2'] for r in records),exact_zero_faces=sum(r['exact_zero'] for r in records),float32_roundoff_zero_faces=sum(r['native_float32_zero_with_double_residue'] for r in records))

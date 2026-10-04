@@ -5,7 +5,7 @@
 
 自 2026-08-25 起，目录本身就是能力分组（阶段目录 m1…m7 已移除），
 本表按目录列出每个工具做什么。
-当前共 473 个工具脚本。
+当前共 480 个工具脚本。
 
 ## 资产生成与装配（`tools/assets/`）
 
@@ -167,9 +167,11 @@
 | `tools/acoustics/accept_houses.py` | Select, measure and report a CPU-only house acoustic acceptance batch |
 | `tools/acoustics/audit_jaeger_rir.py` | JAEGER SpatialSceneQA 公开包 RIR 混响审计脚本(可重跑版)。 |
 | `tools/acoustics/audit_skokloster_cleanup_inventory.py` | Emit the exact face inventory for a Skokloster research cleanup |
+| `tools/acoustics/audit_train_room_native_failures.py` | Distinguish strict zero surfaces from positive-area native upload rejects |
 | `tools/acoustics/build_asset_bound_rir_plan.py` | Bind concrete assets to generic root routes and plan on-demand RIR work |
 | `tools/acoustics/build_house_test_panel.py` | Build a whole-house test panel in a predeclared order from CPU acceptance |
 | `tools/acoustics/cleanup_dynamic_rir_cache.py` | Clear completed numeric RIR payloads while retaining replayable evidence |
+| `tools/acoustics/compare_train_room_repeats.py` | Report random room reruns against retained native measurements |
 | `tools/acoustics/compile_semantic_research_package.py` | Compile one room's semantic mesh into an M3/RLR research acoustic package |
 | `tools/acoustics/cpu_scan_rays.py` | CPU BVH reference rays on intact raw scan faces, without native upload |
 | `tools/acoustics/derive_authored_geometry_proxy.py` | Locate authored-GLB topology roots and optionally derive a fresh acoustic proxy |
@@ -185,11 +187,16 @@
 | `tools/acoustics/render_frame_readback_sequential_speech.py` | Render multi-source research audio from SPEAR frame readbacks |
 | `tools/acoustics/render_rir_cache.py` | Render a resumable native-RLR RIR cache from an M6.x job plan |
 | `tools/acoustics/report_train_house_followup.py` | Publish the automatic pool with explicit historical and current gate evidence |
+| `tools/acoustics/report_train_rooms.py` | Room-level training lists and frozen/finished house-veto comparisons |
 | `tools/acoustics/run_material_canary.py` | Run the hash-bound repeated M3 RLR material activation canary |
+| `tools/acoustics/run_train_room_visuals.py` | Complete CPU room views as owned acoustic house jobs finish |
+| `tools/acoustics/run_train_rooms.py` | Bounded CPU subprocess driver with identities and completion receipts |
 | `tools/acoustics/summarize_house_acceptance.py` | Summarize CPU house acceptance evidence, plots and whole-house recommendations |
 | `tools/acoustics/summarize_train_house_pool.py` | Prepare MP3D acoustic samples and report CPU training houses in batch1 schema |
 | `tools/acoustics/train_house_followup.py` | Automatic training pool follow-up; immutable historical inputs, CPU only |
 | `tools/acoustics/train_house_pool.py` | Prepare an all-exposure training pool and verify first-batch CPU repeats |
+| `tools/acoustics/train_room_acceptance.py` | CPU per-room training measurements, retaining previously measured RIRs |
+| `tools/acoustics/train_room_visuals.py` | CPU views for all training rooms and strict-zero geometry comparisons |
 | `tools/acoustics/verify_material_canary.py` | Verify M3 canary schema, lineage, raw IRs and recomputed gates |
 | `tools/acoustics/verify_package_frame_parity.py` | Cross-system frame parity: the same rays in Habitat and in the package |
 | `tools/acoustics/verify_package_ray_leakage.py` | Run the modern RLR TraceRay checks for a compiled acoustic package |
