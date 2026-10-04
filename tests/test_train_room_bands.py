@@ -117,3 +117,11 @@ def test_completed_no_op_patch_never_supplies_rescue(tmp_path):
     additions,audit=patch_candidates(tmp_path,{}, {}, set())
     assert not additions and audit['status']=='completed_delivery_checked'
     assert audit['admitted_rooms']==[]
+
+
+def test_reused_waveform_requires_its_explicit_retained_root(tmp_path):
+    from tools.acoustics.report_train_room_bands import checked_path
+    current=tmp_path/'current';current.mkdir()
+    retained=tmp_path/'retained';retained.mkdir();wave=retained/'rirs.npz';wave.write_bytes(b'retained')
+    with pytest.raises(ValueError,match='escaped'):checked_path(wave,[current])
+    assert checked_path(wave,[current,retained])==wave.resolve()

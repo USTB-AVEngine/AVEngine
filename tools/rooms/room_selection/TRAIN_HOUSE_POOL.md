@@ -154,3 +154,7 @@ original placement and all current checks can rescue a previously ineligible
 room. Those additional rooms are marked `acoustic_patched`, train only, and counted
 separately from the three original-geometry comparisons. No-op and incomplete
 deliveries supply no rescue count. The tool never launches the other task.
+
+`--retained-root` explicitly permits reading older waveform archives reused by
+the per-room delivery, within the task-owned output root. The tool never copies
+or modifies those archives; unrelated paths remain outside the read closure.

@@ -422,7 +422,7 @@ def report(args):
     accepted = [r for r in final_rows if r['training_eligible']]
     native = {}
     new_native = []
-    roots = [source] + ([args.patch_root] if args.patch_root else [])
+    roots = [source] + args.retained_root + ([args.patch_root] if args.patch_root else [])
     for row in accepted:
         result = read(checked_path(row['result_path'], roots))
         native[key(row)] = result
@@ -547,6 +547,7 @@ def main():
     parser.add_argument('--output',type=Path,required=True)
     parser.add_argument('--holdout-source',type=Path,action='append',default=[])
     parser.add_argument('--patch-root',type=Path)
+    parser.add_argument('--retained-root',type=Path,action='append',default=[])
     report(parser.parse_args())
 
 
