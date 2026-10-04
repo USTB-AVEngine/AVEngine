@@ -175,7 +175,8 @@ def deduplicate_questions(public, private):
 
 def collect_questions(raw, window_id, media, *, seed='v7', items_per_family=5,
                       foa_readback=None, semantic_manifest=None, protocol_scene=None,
-                      window_start_s=0.):
+                      window_start_s=0., content_binding_bundle=None, native_dialogue_evidence=None,
+                      semantic_wording_variant='standard'):
     """Collect every family with the v6 implementation, plus distinct v0.2 panels."""
     facts = normalize_v7_facts(raw, foa_readback=foa_readback)
     result = u.generate_unified_questions(facts, qa_ids=list(u.QA_IDS), seed=str(seed),
@@ -200,10 +201,30 @@ def collect_questions(raw, window_id, media, *, seed='v7', items_per_family=5,
         result['v7_QA21_fixed_domain_authority_run'] = class_result
     items = list(u.iter_unified_items(result))
     deferred = deepcopy(result['deferred'])
-    manifest, semantic_deferred = _semantic_manifest(facts, semantic_manifest)
+    prepared_manifest=semantic_manifest
+    semantic_facts=deepcopy(facts)
+    if semantic_manifest is not None and native_dialogue_evidence is not None:
+        from avengine.qa.v7_dialogue_binding import attach_dialogue_sources
+        try:
+            prepared_manifest,attachment_deferred=attach_dialogue_sources(
+                semantic_facts,semantic_manifest,native_dialogue_evidence.get('registered_actors',[]),
+                native_dialogue_evidence.get('placements',{}),native_dialogue_evidence.get('roles',{}),
+                wording_variant=semantic_wording_variant)
+            deferred.extend(attachment_deferred)
+        except (KeyError,TypeError,ValueError,OSError) as error:
+            prepared_manifest={**semantic_manifest,'sounds':[]}
+            deferred.extend({'qa_id':f,'code':'registered_native_dialogue_input_invalid','detail':str(error)}
+                            for f in ('QA-26','QA-27','QA-28'))
+    elif semantic_manifest is not None:
+        # A batch author plan cannot bypass actual standing/native attachment.
+        prepared_manifest={**semantic_manifest,'sounds':[]}
+        deferred.extend({'qa_id':f,'code':'registered_native_dialogue_evidence_missing'}
+                        for f in ('QA-26','QA-27','QA-28'))
+    manifest, semantic_deferred = _semantic_manifest(semantic_facts, prepared_manifest)
     deferred.extend(semantic_deferred)
     if manifest is not None:
-        semantic = generate_semantic_questions(facts, manifest, variant_id=window_id, seed=str(seed))
+        semantic = generate_semantic_questions(semantic_facts, manifest, variant_id=window_id, seed=str(seed))
+        family_fact_overrides.update({f:semantic_facts for f in ('QA-26','QA-27','QA-28')})
         items.extend(semantic['items'])
         deferred.extend(semantic['deferred'])
     public, private = export_items(items, window_id, media)
@@ -211,6 +232,11 @@ def collect_questions(raw, window_id, media, *, seed='v7', items_per_family=5,
     if protocol_scene is not None:
         p, g, protocol = generate_protocol_questions(protocol_scene, window_start_s, window_id, media)
         public.extend(p); private.extend(g)
+    content={'status':'not_run','deferred':[]}
+    if content_binding_bundle is not None:
+        from avengine.qa.v7_content_binding import collect_content_binding
+        cp,cg,content=collect_content_binding(content_binding_bundle,window_id,media,seed=seed)
+        public.extend(cp);private.extend(cg);deferred.extend(content['deferred'])
     public, private, duplicates = deduplicate_questions(public, private)
     counts = Counter()
     seen = set()
@@ -219,9 +245,9 @@ def collect_questions(raw, window_id, media, *, seed='v7', items_per_family=5,
         if logical not in seen:
             counts[row['qa_id']] += 1
             seen.add(logical)
-    return public, private, {'family_counts': {f: counts[f] for f in (*FAMILIES, *PANELS)},
+    return public, private, {'family_counts': {f: counts[f] for f in (*FAMILIES, *PANELS, 'V7-CONTENT-BIND')},
                              'duplicate_question_groups': duplicates, 'deferred': deferred, 'v6_generation': result,
-                             'v6_items': items, 'facts': facts, 'semantic_manifest': manifest, 'family_fact_overrides': family_fact_overrides, 'protocol': protocol,
+                             'v6_items': items, 'facts': facts, 'semantic_manifest': manifest, 'content_binding':content, 'family_fact_overrides': family_fact_overrides, 'protocol': protocol,
                              'formal_dataset_count': 0,
                              'qualification': 'research candidates; native and asset admission remain separate'}
 
@@ -238,8 +264,9 @@ def select_questions(public, private, allocation, *, quota_index=0, family_count
             continue
         seen.add(key)
         pool[row['modality']].append(row)
-    priority = {f: (i - quota_index) % len(FAMILIES + PANELS)
-                for i, f in enumerate(FAMILIES + PANELS)}
+    selection_families=FAMILIES+PANELS+tuple(f for f in ('V7-CONTENT-BIND',) if any(q['qa_id']==f for q in public))
+    priority = {f: (i - quota_index) % len(selection_families)
+                for i, f in enumerate(selection_families)}
     counts = Counter(family_counts or {})
     selected = []
     for modality, need in allocation.items():
