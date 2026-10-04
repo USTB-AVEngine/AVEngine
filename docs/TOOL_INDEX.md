@@ -5,7 +5,7 @@
 
 自 2026-08-25 起，目录本身就是能力分组（阶段目录 m1…m7 已移除），
 本表按目录列出每个工具做什么。
-当前共 487 个工具脚本。
+当前共 490 个工具脚本。
 
 ## 资产生成与装配（`tools/assets/`）
 
@@ -170,8 +170,10 @@
 | `tools/acoustics/audit_jaeger_rir.py` | JAEGER SpatialSceneQA 公开包 RIR 混响审计脚本(可重跑版)。 |
 | `tools/acoustics/audit_skokloster_cleanup_inventory.py` | Emit the exact face inventory for a Skokloster research cleanup |
 | `tools/acoustics/build_asset_bound_rir_plan.py` | Bind concrete assets to generic root routes and plan on-demand RIR work |
+| `tools/acoustics/check_high_quality_midpoints.py` | Independent CPU fixed80 diagnostic using higher native ray quality |
 | `tools/acoustics/check_moving_waveform_controls.py` | Offline nearest/arrival-aligned controls; never replace production qualification |
 | `tools/acoustics/check_native_diffraction_shadow.py` | CPU shadow controls verify diffraction behavior beyond configuration readback |
+| `tools/acoustics/check_native_rir_repeat_quality.py` | CPU repeatability diagnostic at unchanged poses and higher native ray counts |
 | `tools/acoustics/cleanup_dynamic_rir_cache.py` | Clear completed numeric RIR payloads while retaining replayable evidence |
 | `tools/acoustics/compare_moving_energy_policies.py` | Compare four diffraction/refinement arms against fixed native mouth midpoints |
 | `tools/acoustics/compile_semantic_research_package.py` | Compile one room's semantic mesh into an M3/RLR research acoustic package |
@@ -232,6 +234,7 @@
 | `tools/capture/capture_mp3d_multi_actor.py` | Capture one explicit N-actor MP3D case through the installed Habitat runtime |
 | `tools/capture/capture_two_human_mp3d.py` | Run the Habitat-native MP3D two-human production visual capture |
 | `tools/capture/materialize_common_plan_habitat.py` | Materialize one common renderer-neutral plan into a Habitat case |
+| `tools/capture/qualify_v7_material_replay.py` | Replay v3 source-material changes in fresh CPU native processes |
 | `tools/capture/qualify_v7_pixel_visibility.py` | CPU native paired visibility check with unchanged published house pixels |
 | `tools/capture/run_apartment_four_motion_pilot.py` | Run one shared Apartment capture for the four human/dog motion cases |
 | `tools/capture/write_neutral_readback.py` | Convert retained native UE or Habitat capture into a fresh neutral readback |
