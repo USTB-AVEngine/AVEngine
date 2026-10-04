@@ -12,7 +12,11 @@ from avengine.timeline.continuous_scene import activity_segments,window_segments
 from avengine.timeline.v7_production_contract import question_allocation,validate_question_counts
 
 
-def make_questions(scene,start_s,window_id,visual,appearances,media,*,quota_index=0,count=14):
+def make_questions(scene,start_s,window_id,visual,appearances,media,*,quota_index=0,count=14,qa_evidence=None,family_counts=None):
+    if qa_evidence is not None:
+        from avengine.qa.v7_native_adapter import make_full_questions
+        return make_full_questions(scene,start_s,window_id,visual,media,qa_evidence,
+            quota_index=quota_index,count=count,family_counts=family_counts)
     frames=visual['frames'];lo=round(start_s*15);end=lo+150
     if len(frames[lo:end])!=150:raise ValueError('window lacks 150 native frames')
     actors=[a['actor_id'] for a in frames[lo]['actors']]

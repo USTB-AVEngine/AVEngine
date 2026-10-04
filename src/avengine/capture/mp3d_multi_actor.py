@@ -31,6 +31,9 @@ from avengine.assets.habitat_capture import (
     _validate_observation_arrays,
     load_runtime_asset_bundle,
 )
+from avengine.assets.source_materials import (
+    configure_source_pbr, prepare_source_glb, prepare_source_ao_config, measure_source_appearance, read_glb,
+)
 from avengine.assets.habitat_static_assets import (
     HabitatStaticAssetError,
     load_habitat_asset_bindings,
@@ -470,6 +473,7 @@ def _instantiate_actor_with_semantic_template(
     semantic_id: int,
     actor_index: int,
     base_handle: str,
+    render_asset_path: str | Path | None = None,
 ) -> tuple[Any, Any]:
     # Imported lazily so CPU input tests do not import another native backend.
     from avengine.timeline.visual import _instantiate_actor_with_semantic_template as instantiate
@@ -481,13 +485,15 @@ def _instantiate_actor_with_semantic_template(
         base_handle=base_handle,
         semantic_id=semantic_id,
         actor_index=actor_index,
+        shader_type="pbr",
+        render_asset_path=render_asset_path,
     )
 
 
 def _base_template_handle(
-    simulator: Any, bundle: Any, *, cache: dict[Path, str]
+    simulator: Any, bundle: Any, *, cache: dict[Path, str], ao_config_path: Path | None = None
 ) -> str:
-    config_path = Path(bundle.paths_by_role["habitat_ao_config"]).resolve()
+    config_path = Path(ao_config_path or bundle.paths_by_role["habitat_ao_config"]).resolve()
     if config_path in cache:
         return cache[config_path]
     manager = simulator.metadata_mediator.ao_template_manager
@@ -574,6 +580,9 @@ def _instantiate_rigid_object(
     habitat_sim: Any,
     semantic_id: int,
     object_index: int,
+    shader_type: str | None = "pbr",
+    uniform_scale: float | None = None,
+    light_setup_key: str | None = None,
 ) -> Any:
     glb_raw = binding.get("glb_path")
     if not isinstance(glb_raw, str) or not glb_raw:
@@ -594,11 +603,15 @@ def _instantiate_rigid_object(
         raise MP3DMultiActorCaptureError("Habitat failed to create rigid object template")
     try:
         attributes.render_asset_handle = str(glb_path)
+        if shader_type is not None:
+            attributes.shader_type = shader_type
         attributes.collision_asset_handle = str(glb_path)
         # finalized.glb and its registered emitter/resting_pose share the
         # authored asset origin. Habitat otherwise shifts the visual mesh to
         # its bounding-box centre while root readbacks still look correct.
-        attributes.com = (0.0, 0.0, 0.0)
+        attributes.com = type(attributes.com)((0.0, 0.0, 0.0))
+        if uniform_scale is not None:
+            attributes.scale = type(attributes.scale)(float(uniform_scale))
         attributes.compute_COM_from_shape = False
         attributes.semantic_id = semantic
         attributes.is_collidable = True
@@ -613,7 +626,8 @@ def _instantiate_rigid_object(
             f"Habitat failed to register rigid object template {handle!r}"
         )
     object_manager = simulator.get_rigid_object_manager()
-    obj = object_manager.add_object_by_template_handle(handle)
+    obj = (object_manager.add_object_by_template_handle(handle) if light_setup_key is None else
+           object_manager.add_object_by_template_handle(handle, light_setup_key=light_setup_key))
     if obj is None:
         raise MP3DMultiActorCaptureError(
             f"Habitat failed to instantiate rigid object {handle!r}"
@@ -913,6 +927,8 @@ def _capture_target_only_blank(
         configuration.sim_cfg.gpu_device_id = gpu_device_id
         factory = simulator_factory or runtime.habitat_sim.Simulator
         with factory(configuration) as simulator:
+            configure_source_pbr(configuration, runtime.habitat_sim,
+                                 metadata_mediator=simulator.metadata_mediator)
             target_item_is_rigid = bool(target["is_rigid"])
             if target_item_is_rigid:
                 target_actor = _instantiate_rigid_object(
@@ -925,7 +941,8 @@ def _capture_target_only_blank(
             else:
                 manager_cache: dict[Path, str] = {}
                 base_handle = _base_template_handle(
-                    simulator, target["bundle"], cache=manager_cache
+                    simulator, target["bundle"], cache=manager_cache,
+                    ao_config_path=target.get("material_ao_config_path"),
                 )
                 target_actor, _target_binding = _instantiate_actor_with_semantic_template(
                     simulator,
@@ -934,6 +951,7 @@ def _capture_target_only_blank(
                     semantic_id=int(target["track"]["semantic_id"]),
                     actor_index=target_index,
                     base_handle=base_handle,
+                    render_asset_path=target.get("material_glb_path"),
                 )
             agent = simulator.initialize_agent(
                 0, _camera_agent_state(runtime, room_inputs.request)
@@ -1192,6 +1210,8 @@ def _capture_with_runtime(
     # As in mixed_capture: Bullet object creation is required even though
     # kinematic apply/readback executes zero physics integration steps.
     configuration.sim_cfg.enable_physics = True
+    # Reject compressed RGB inputs before Simulator can enter a native importer.
+    read_glb(resolved_scene["scene_id"])
     if list(modality_to_uuid) != ["rgb", "depth", "semantic"]:
         raise MP3DMultiActorCaptureError("M1 modalities must remain rgb/depth/semantic")
     if simulator_factory is None:
@@ -1245,6 +1265,23 @@ def _capture_with_runtime(
                     "actor_index": index,
                 }
             )
+    material_cache = Path(os.environ.get("AVENGINE_SOURCE_MATERIAL_CACHE", str(output / "source_material_cache")))
+    for item in actor_runtime:
+        source_path = (item["habitat_binding"]["glb_path"] if item["entity_class"] in RIGID_ENTITY_CLASSES
+                       else item["bundle"].paths_by_role["visual"])
+        derived, material = prepare_source_glb(source_path,
+            asset_id=str(item["track"]["asset"]["asset_id"]), entity_class=item["entity_class"],
+            output_directory=material_cache)
+        item["material_glb_path"] = derived
+        item["source_material"] = material
+        if item["entity_class"] in RIGID_ENTITY_CLASSES:
+            item["habitat_binding"]["glb_path"] = str(derived)
+        else:
+            item["material_ao_config_path"] = prepare_source_ao_config(
+                item["bundle"].paths_by_role["habitat_ao_config"],
+                item["bundle"].paths_by_role["habitat_urdf"], derived, derived.parent)
+            material["derived_ao_config_path"] = str(item["material_ao_config_path"])
+    material_checks = []
     rgb_frames: list[np.ndarray] = []
     depth_frames: list[np.ndarray] = []
     semantic_frames: list[np.ndarray] = []
@@ -1261,6 +1298,9 @@ def _capture_with_runtime(
     }
     expected_frames: list[list[dict[str, Any]]] = []
     with simulator_factory(configuration) as simulator:
+        material_rendering = configure_source_pbr(configuration, runtime.habitat_sim,
+                                                 metadata_mediator=simulator.metadata_mediator)
+        _write_json(output / "source_materials.json", {"rendering": material_rendering, "sources": [item["source_material"] for item in actor_runtime]})
         navmesh = resolved_scene.get("navmesh")
         if navmesh is None or not Path(navmesh).is_file():
             raise MP3DMultiActorCaptureError(
@@ -1303,7 +1343,8 @@ def _capture_with_runtime(
                 )
                 continue
             base_handle = _base_template_handle(
-                simulator, item["bundle"], cache=manager_cache
+                simulator, item["bundle"], cache=manager_cache,
+                ao_config_path=item["material_ao_config_path"],
             )
             actor, binding = _instantiate_actor_with_semantic_template(
                 simulator,
@@ -1312,6 +1353,7 @@ def _capture_with_runtime(
                 semantic_id=int(item["track"]["semantic_id"]),
                 actor_index=index,
                 base_handle=base_handle,
+                render_asset_path=item["material_glb_path"],
             )
             emitter_id = _emitter_link_id(actor, item["track"])
             actors_runtime.append(
@@ -1519,6 +1561,19 @@ def _capture_with_runtime(
             rgb = np.ascontiguousarray(arrays["rgb"][..., :3])
             depth = np.ascontiguousarray(arrays["depth"])
             semantic = np.ascontiguousarray(arrays["semantic"])
+            if frame_index in {0, frame_count // 2, frame_count - 1}:
+                for item in actors_runtime:
+                    material = item["source_material"]
+                    source_mask = np.asarray(observation[modality_to_uuid["semantic"]]) == int(item["track"]["semantic_id"])
+                    measured = measure_source_appearance(
+                        np.asarray(observation[modality_to_uuid["rgb"]]), source_mask,
+                        palette=np.asarray(material["source_palette_srgb"]),
+                        max_highlight_ratio=max(p["max_highlight_ratio"] for p in material["profiles"]),
+                        strict=False)
+                    material_checks.append({"actor_id": item["track"]["actor_id"], "frame_index": frame_index, **measured})
+                    if measured["status"] == "fail":
+                        _write_json(output / "source_material_checks.json", {"status": "fail", "checks": material_checks})
+                        raise MP3DMultiActorCaptureError("inserted source material acceptance failed: " + json.dumps(material_checks[-1]))
             rgb_frames.append(rgb)
             depth_frames.append(depth)
             semantic_frames.append(semantic)
@@ -1566,6 +1621,10 @@ def _capture_with_runtime(
             f"Habitat target-only capture failed: {exc}"
         ) from exc
     _write_json(output / "target_only_readback_alignment.json", target_alignment)
+    _write_json(output / "source_material_checks.json", {
+        "status": "pass" if any(c["status"] == "pass" for c in material_checks) else "not_run",
+        "checks": material_checks,
+    })
     _save_array(output, "rgb", rgb_frames)
     _save_array(output, "depth", depth_frames)
     _save_array(output, "semantic", semantic_frames)

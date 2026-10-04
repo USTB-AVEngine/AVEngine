@@ -106,6 +106,7 @@ def _instantiate_actor_with_semantic_template(
     actor_index: int,
     light_setup_key: str | None = None,
     shader_type: str | None = None,
+    render_asset_path: str | Path | None = None,
 ) -> tuple[Any, Any]:
     if light_setup_key is not None and (
         not isinstance(light_setup_key, str) or not light_setup_key
@@ -127,6 +128,8 @@ def _instantiate_actor_with_semantic_template(
     if attributes is None:
         raise HabitatCaptureError("cannot retrieve the loaded M5 AO template")
     attributes.semantic_id = int(semantic_id)
+    if render_asset_path is not None:
+        attributes.render_asset_handle = str(Path(render_asset_path).resolve())
     if shader_type is not None:
         attributes.shader_type = shader_type
     handle = f"{base_handle}.m5_actor{actor_index}_semantic{semantic_id}"
@@ -173,6 +176,12 @@ def _instantiate_actor_with_semantic_template(
         joint_position_count=len(articulated_object.joint_positions),
     )
     creation = articulated_object.creation_attributes
+    if render_asset_path is not None:
+        # Habitat stores a hidden full path separately from the public handle.
+        # Verify the full path that the native skin loader actually consumes.
+        actual_render_path = creation.get("__renderAssetFullPath")
+        if Path(actual_render_path).resolve() != Path(render_asset_path).resolve():
+            raise HabitatCaptureError("M5 AO cached render path differs from the requested material asset")
     if int(creation.semantic_id) != semantic_id:
         raise HabitatCaptureError(
             "M5 AO creation semantic ID differs from its template"

@@ -31,7 +31,8 @@ def compact_parent(root, receipt):
     current=load_sealed(root,recipe)
     if current is not None:return current
     members=recipe['seed_row']['members'];pointers={};stages=[]
-    for name in sorted({f'visual_{m[:2]}' for m in members}|{f'audio_{m}' for m in members}|{f'windows_{m}' for m in members}):
+    window_stages={m['member']:m.get('window_stage_name','windows_'+m['member']) for m in receipt['members']}
+    for name in sorted({f'visual_{m[:2]}' for m in members}|{f'audio_{m}' for m in members}|{window_stages[m] for m in members}):
         pointer=root/(name+'_completed.json');stage=_read(pointer);attempt=root/stage['attempt']
         if attempt.parent!=root or not attempt.name.startswith(name+'_attempt_') or attempt.is_symlink():
             raise ValueError('intermediate stage escaped owned parent')
@@ -47,26 +48,34 @@ def compact_parent(root, receipt):
             removable.append(p)
     final=root/('delivery_attempt_'+uuid.uuid4().hex);final.mkdir();required=[];updated=[]
     for member in receipt['members']:
-        name=member['member'];wp=pointers['windows_'+name];source=root/wp['attempt']
+        name=member['member'];wp=pointers[window_stages[name]];source=root/wp['attempt']
         vp=pointers['visual_'+name[:2]];ap=pointers['audio_'+name]
         visual=_read(root/vp['attempt']/'native_visual_evidence.json')
         setup=_read(root/ap['attempt']/'native_RLR_setup.json')
         metadata=final/('provenance_'+name+'.json')
         # Readback poses/masks remain metadata. Dense arrays/full media are not
         # needed to evaluate a delivered window or reconstruct its world state.
+        appearance={}
+        if member['windows']:
+            evidence_path=source/member['windows'][0]['window_id']/'evidence.json'
+            appearance_path=_read(evidence_path).get('native_appearance_evidence')
+            if appearance_path:
+                resolved=Path(appearance_path).resolve()
+                resolved.relative_to(root)
+                appearance=_read(resolved)
         write_json(metadata,{'native_visual_readback':visual,'native_RLR_setup':setup,
-                             'native_audio_evidence':ap['result'],'input_recipe':recipe,'member':name})
+                             'native_audio_evidence':ap['result'],'native_appearance_readback':appearance,'input_recipe':recipe,'member':name})
         required.append(metadata.name)
         for window in member['windows']:
             wid=window['window_id'];destination=final/wid;destination.mkdir()
             for file in (source/wid).iterdir():
                 if file.name.startswith('.'):continue
                 if file.name=='evidence.json':
-                    evidence=_read(file);evidence.pop('native_visual_evidence',None);evidence.pop('native_audio_evidence',None)
+                    evidence=_read(file);evidence.pop('native_visual_evidence',None);evidence.pop('native_audio_evidence',None);evidence.pop('native_appearance_evidence',None)
                     evidence['self_contained_provenance']='../'+metadata.name;write_json(destination/file.name,evidence)
                 else:os.link(file,destination/file.name)
                 required.append(str((destination/file.name).relative_to(final)))
-        updated.append({**member,'windows_directory':str(final)})
+        updated.append({**{k:v for k,v in member.items() if k!='question_pool_directory'},'windows_directory':str(final)})
     result={**receipt,'members':updated,'compacted':True}
     sealed={'schema':'v7-sealed-candidate-v1','recipe':recipe,'attempt':final.name,'required_files':required,'result':result}
     write_json(root/'delivery_completed.json',sealed)
