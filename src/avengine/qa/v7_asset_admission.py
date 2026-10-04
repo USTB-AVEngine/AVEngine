@@ -28,6 +28,8 @@ PERMISSIVE = {
     'http://creativecommons.org/licenses/by/3.0/',
     'https://creativecommons.org/publicdomain/zero/1.0/',
     'https://creativecommons.org/licenses/by/3.0/',
+    'http://creativecommons.org/licenses/by/4.0/',
+    'https://creativecommons.org/licenses/by/4.0/',
 }
 
 
@@ -107,7 +109,7 @@ def audit_sounds(pool_path, official_zip, mapping_path, output, *, workers=2, no
                 row['license_candidate_eligible'] = False
                 row['formal_blockers'].append('official_clip_metadata_missing')
         elif 'vctk_' in str(source):
-            row.update(license='CC-BY-4.0', license_candidate_eligible=False,
+            row.update(license='CC-BY-4.0', license_candidate_eligible=True,
                        license_status='official_release_only_crop_chain_pending',
                        source_uri='https://datashare.ed.ac.uk/handle/10283/3443')
         else:

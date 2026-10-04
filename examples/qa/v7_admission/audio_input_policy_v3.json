@@ -1,0 +1,31 @@
+{
+  "schema": "v7_audio_input_policy_v3",
+  "speech": {
+    "recorded": "VCTK-0.92 CC-BY-4.0; individually bound originals and heldout identities",
+    "authored_content": "CosyVoice2 natural neural TTS with licensed VCTK reference; no eSpeak",
+    "language": "en",
+    "language_ratio": {
+      "en": 1,
+      "zh": 0
+    },
+    "actual_reference_speakers": [],
+    "plan_reference_pool": "VCTK corpus speaker metadata; actual references reported by synthesis manifest only"
+  },
+  "non_speech": {
+    "requires_real_recording": true,
+    "per_clip_licenses": [
+      "CC0-1.0",
+      "CC-BY-3.0",
+      "CC-BY-4.0"
+    ],
+    "exclude_synthetic_effects": true,
+    "exclude_sources": [
+      "STARSS",
+      "DCASE",
+      "TAU-SRIR",
+      "evaluation_original_identity"
+    ]
+  },
+  "qa21_fixed_domain_unchanged": true,
+  "no_human_viewing_or_listening": true
+}

@@ -152,7 +152,8 @@ def calibrate_label_gate(rows, class_mids, *, calibration_ids, minimum_positive_
 
 def qualify_dry_record(record, screens):
     required=("license","provenance","deduplication","automatic_label","automatic_activity","normalization")
-    blockers=provenance_blockers(record)
+    from avengine.qa.v7_recorded_audio import source_policy_blockers
+    blockers=provenance_blockers(record)+source_policy_blockers(record)
     for key in required:
         proof=screens.get(key) or {}
         if proof.get("status")!="pass":blockers.append(key+":"+str(proof.get("reason","missing_or_failed_receipt")))

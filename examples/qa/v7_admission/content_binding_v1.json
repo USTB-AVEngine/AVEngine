@@ -1,0 +1,37 @@
+{
+  "schema": "v7_content_binding_design_v1",
+  "panel_id": "V7-CONTENT-BIND",
+  "status": "design_pending_native_assets",
+  "qa01_28_names_and_truth_unchanged": true,
+  "subtypes": [
+    "same_class_actor",
+    "mixed_class_actor",
+    "offscreen_origin",
+    "live_or_playback",
+    "first_actor"
+  ],
+  "paired_states": {
+    "active_choice": [
+      0,
+      1
+    ],
+    "appearance_permutation": [
+      0,
+      1
+    ],
+    "member_count": 4
+  },
+  "binding_quota_requires": [
+    "same_V_different_A_answer_flip",
+    "same_A_different_V_answer_flip",
+    "actual_native_media_and_capability"
+  ],
+  "auxiliary_examples_excluded_from_binding_quota": [
+    "named_impossible_instrument_elimination",
+    "audio_alone_known_FOV_offscreen",
+    "unverified_live_playback_spatial_shortcut"
+  ],
+  "actual_native_items": 0,
+  "large_question_generation_requested": false,
+  "reference_design": "DESIGN_CONTENT_BINDING_zh.md"
+}

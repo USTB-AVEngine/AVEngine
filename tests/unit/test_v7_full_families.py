@@ -158,11 +158,26 @@ def test_semantic_assets_require_native_placement_and_roles(tmp_path):
     assert 'complete_native_utterance_placement_missing' in {x['code'] for x in deferred}
     assert 'native_dialogue_role_evidence_missing' in {x['code'] for x in deferred}
     sound['native_placement_readback'] = {'status': 'pass', 'event_id': 'e', 'actor_id': '1',
-                                        'full_content_preserved': True, 'source': 'retained-placement.json'}
+                                        'full_content_preserved': True, 'source': 'retained-placement.json', 'visual_gender':'female'}
     sound['dialogue_role_evidence'] = {'role': 'requester', 'actor_id': '1', 'scenario_id': 'request',
                                      'source': 'retained-role.json'}
+    # The updated owner policy requires a natural model + real licensed reference
+    # and machine ASR. These are explicit unit receipts, not native qualification.
+    sound['speech_policy']='v7_natural_authored_speech_v1'
+    sound['voice_gender']='female'
+    sound['synthesis_readback']['engine']={'name':'CosyVoice2','natural_neural_tts':True,
+       'model_id':'test-natural-model','model_license':'Apache-2.0','code_revision':'unit-fixture'}
+    sound['voice_reference']={'dataset':'VCTK-0.92','license_spdx':'CC-BY-4.0',
+       'license_chain_status':'pass','speaker_id':'unit-speaker','utterance_id':'unit-sentence',
+       'source_waveform':'unit-original.flac','source_transcript':'unit prompt','gender':'female','split':'train'}
+    sound['automatic_content_readback']={'status':'pass','model_id':'unit-ASR','source':'unit-asr.json',
+       'reference_text':sound['transcript'],'audio_sha256':__import__('hashlib').sha256(wav.read_bytes()).hexdigest(),'wer':0.0,'all_critical_slots_correct':True,'human_listening_used':False}
     filtered, deferred = _semantic_manifest(facts, {'sounds': [sound]})
     assert filtered['sounds'] == [sound] and not deferred
+    sound['synthesis_readback']['engine']='eSpeak-ng'
+    filtered, deferred = _semantic_manifest(facts, {'sounds': [sound]})
+    assert not filtered['sounds']
+    assert 'espeak_formant_not_permitted' in {x['code'] for x in deferred}
 
 
 def test_v7_fixed_domain_does_not_change_other_v6_family_results():
