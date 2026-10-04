@@ -5,7 +5,7 @@
 
 自 2026-08-25 起，目录本身就是能力分组（阶段目录 m1…m7 已移除），
 本表按目录列出每个工具做什么。
-当前共 512 个工具脚本。
+当前共 513 个工具脚本。
 
 ## 资产生成与装配（`tools/assets/`）
 
@@ -597,6 +597,7 @@
 | `tools/ue/assemble_research_editor_stage.py` | Create an isolated SPEAR Editor stage using current source and installed binaries |
 | `tools/ue/audit_v7_kujiale_native_assets_editor.py` | Audit native asset material parameters, changing only an isolated project |
 | `tools/ue/bake_kujiale_native_usd.py` | Bake composed USD mesh transforms for exact UE import, preserving geometry |
+| `tools/ue/build_kujiale_authored_light_sidecar.py` | Bake authored USD world emitting dimensions for isolated UE light import |
 | `tools/ue/build_minimal_closure_report.py` | Build a minimal-closure report for the current Apartment visual stage |
 | `tools/ue/create_extra_animals_blueprints_editor.py` |  |
 | `tools/ue/create_spear_kujiale_map_editor.py` | Create a UE map containing one external USD stage |

@@ -143,7 +143,7 @@ def spawn_fill_lights(game, plan):
     return result
 
 
-def capture_view(instance,camera,components,view,warmup_frames=40):
+def capture_view(instance,camera,components,view,warmup_frames=40,exposure_trace=None):
     _spawn,depth_reader,rgb_reader,*_=camera_helpers()
     with instance.begin_frame():
         apply_camera(camera,view)
@@ -155,9 +155,13 @@ def capture_view(instance,camera,components,view,warmup_frames=40):
                 component.set_property_value(property_name='OrthoWidth',property_value=float(view['ortho_width_cm']))
     with instance.end_frame():pass
     # Real readback, rather than only UE ticks, drives streamed texture pages.
-    for _ in range(warmup_frames):
+    for frame in range(warmup_frames):
         with instance.begin_frame():pass
-        with instance.end_frame():rgb_reader(components['rgb'])
+        with instance.end_frame():pixels=rgb_reader(components['rgb'])
+        if exposure_trace is not None and (frame in {0,1,4,14,29,59,119,179,239} or frame>=warmup_frames-15):
+            import cv2
+            grey=cv2.cvtColor(pixels,cv2.COLOR_BGR2GRAY).astype(float)
+            exposure_trace.append({'frame':frame+1,'gray_mean_255':float(grey.mean()),'gray_std_255':float(grey.std()),'overexposed_fraction':float(np.mean(np.all(pixels>247,axis=2))),'black_fraction':float(np.mean(np.all(pixels<10,axis=2)))})
     with instance.begin_frame():pass
     with instance.end_frame():
         rgb=rgb_reader(components['rgb'])

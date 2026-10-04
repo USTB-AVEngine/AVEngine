@@ -3,7 +3,7 @@ from __future__ import annotations
 from copy import deepcopy
 import math
 
-PROFILE = 'kujiale-native-authored-lights-histogram-v1'
+PROFILE = 'kujiale-native-world-lights-histogram-v2'
 PARAMETERS = {
     'method': 'AEM_Histogram', 'min_ev100': -4.0, 'max_ev100': 16.0,
     'histogram_min_ev100': -10.0, 'histogram_max_ev100': 20.0,
@@ -15,7 +15,9 @@ PARAMETERS = {
 
 
 def is_histogram(ue):
-    return ue.get('visual_profile') == PROFILE
+    # Old named histogram configs must hit the world-photometry audit,
+    # rather than silently falling through to legacy EV3/fill lighting.
+    return ue.get('visual_profile') in {PROFILE, 'kujiale-native-authored-lights-histogram-v1'}
 
 
 def bind_histogram_profile(ue):
@@ -47,14 +49,19 @@ def apply_histogram_exposure(capture):
     flags = capture.get_property_value(property_name='ShowFlagSettings')
     if not isinstance(flags, list):
         raise ValueError('native capture show-flag array is unreadable')
-    flags = [dict(row) for row in flags if row['ShowFlagName'] != 'EyeAdaptation']
+    original_flags = flags
+    flag_name = lambda row: row.get('ShowFlagName', row.get('showFlagName'))
+    flag_enabled = lambda row: row.get('Enabled', row.get('enabled'))
+    if any(not isinstance(flag_name(row), str) or not isinstance(flag_enabled(row), bool) for row in flags):
+        raise ValueError(f'native show-flag schema unsupported: {flags!r}')
+    flags = [dict(row) for row in flags if flag_name(row) != 'EyeAdaptation']
     flags.append({'ShowFlagName': 'EyeAdaptation', 'Enabled': True})
     # Direct property writes do not refresh FEngineShowFlags. UE 5.5's
     # BlueprintSetter updates both settings and the actual capture show flags.
     # Apply to RGB only; never force exposure on native depth/ID passes.
     capture.SetShowFlagSettings(InShowFlagSettings=flags)
     read_flags = capture.get_property_value(property_name='ShowFlagSettings')
-    if not any(row['ShowFlagName'] == 'EyeAdaptation' and row['Enabled'] for row in read_flags):
+    if not any(flag_name(row) == 'EyeAdaptation' and flag_enabled(row) for row in read_flags):
         raise ValueError('native RGB EyeAdaptation show-flag readback differs')
     properties = {
         'AutoExposureMethod': PARAMETERS['method'],
@@ -96,7 +103,8 @@ def apply_histogram_exposure(capture):
             raise ValueError(f'native histogram capture state differs: {name}')
     return {'status': 'pass', 'profile': PROFILE, 'parameters': dict(PARAMETERS),
             'native_readbacks': observed, 'capture_source': capture_source,
-            'native_rgb_eye_adaptation_show_flag': True, 'per_room_overrides': False,
+            'native_rgb_eye_adaptation_show_flag': True, 'native_show_flags_before': original_flags,
+            'native_show_flags_after': read_flags, 'per_room_overrides': False,
             'parameter_calibration': 'UE 5.5 histogram defaults 10/90%, bounded indoor/outdoor EV100 -4..16; unified initial profile, real native distribution validation pending',
             'brightness_match_verified': False}
 
@@ -121,6 +129,8 @@ def require_authored_light_audit(ue, map_path):
         raise ValueError('authored-light component inventory is incomplete')
     if not audit.get('light_transform_assertions_passed') or audit.get('ad_hoc_fill_count') != 0:
         raise ValueError('authored lights require native transform assertion and no ad hoc fill')
+    if not audit.get('world_photometry_assertions_passed'):
+        raise ValueError('native authored world-size photometry has not been measured')
     return audit
 
 

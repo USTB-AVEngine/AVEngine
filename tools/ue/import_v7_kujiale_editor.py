@@ -92,6 +92,16 @@ try:
     else:
         importer=Path(__file__).with_name('import_usd_stage_to_level_editor.py')
         runpy.run_path(str(importer),run_name='__main__')
+    if request.get('base_native_map_path'):
+        original=json.loads(Path(request['base_native_editor_audit']).read_text())
+        if original['map_path']!=request['base_native_map_path'] or original['house']!=plan['house'] or original['status']!='measured':
+            raise ValueError('base native geometry/material provenance differs')
+        material_reference=Path(request['geometry_material_reference_usd'])
+        if not material_reference.is_file() or material_reference.stem!=Path(original['source_usd']).stem:
+            raise ValueError('native material reference must preserve original imported stage namespace')
+        audit.update(light_import_source_usd=request['source_usd'],source_usd=str(material_reference),
+                     base_native_editor_audit=request['base_native_editor_audit'],
+                     base_geometry_source_usd=original['source_usd'],geometry_material_reference_qa_only=True)
     audit['import_script_seconds']=time.monotonic()-start
     world=unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_editor_world()
     actors=unreal.EditorLevelLibrary.get_all_level_actors()
@@ -116,8 +126,16 @@ try:
                     saved.append((component,point(component.get_world_location()),
                                   [rotation.pitch,rotation.yaw,rotation.roll],
                                   point(component.get_forward_vector()),point(component.get_up_vector())))
+            # A reflected parent has negative determinant. UE FTransform's
+            # parent-relative quaternion decomposition cannot represent that
+            # reflection for child lights. Keep their original world state,
+            # detach only lamp actors, then reflect positions and yaw/roll.
+            for actor in light_actors:
+                actor.detach_from_actor(unreal.DetachmentRule.KEEP_WORLD,
+                                        unreal.DetachmentRule.KEEP_WORLD,
+                                        unreal.DetachmentRule.KEEP_WORLD)
             roots=[]
-            for actor in mesh_actors+light_actors:
+            for actor in ([] if request.get("base_native_map_path") else mesh_actors):
                 parent=actor.get_attach_parent_actor()
                 while parent is not None:
                     actor=parent;parent=actor.get_attach_parent_actor()
@@ -129,14 +147,21 @@ try:
             direction_assertions=[]
             for component,position,rotation,forward,up in saved:
                 position,rotation=reflect_native_light_pose(position,rotation)
-                component.set_world_location_and_rotation(vector(position),unreal.Rotator(*rotation),False,True)
+                component.set_world_location_and_rotation(vector(position),unreal.Rotator(pitch=rotation[0],yaw=rotation[1],roll=rotation[2]),False,True)
                 observed_position=point(component.get_world_location())
                 position_error=max(abs(a-b) for a,b in zip(position,observed_position))/100
                 errors=[]
                 for before,observed in [(forward,point(component.get_forward_vector())),(up,point(component.get_up_vector()))]:
                     reflected=[before[0],-before[1],before[2]]
                     errors.append(max(abs(a-b) for a,b in zip(reflected,observed)))
-                if position_error>.0005 or max(errors)>1e-4:raise ValueError('native authored light reflection readback disagrees')
+                if position_error>.0005 or max(errors)>1e-4:
+                    audit['failed_light_pose']={'component':component.get_path_name(),'position_expected':position,
+                                                'position_observed':observed_position,'position_error_m':position_error,
+                                                'rotation_expected':rotation,'forward_up_errors':errors,
+                                                'forward_before':forward,'up_before':up,
+                                                'forward_after':point(component.get_forward_vector()),
+                                                'up_after':point(component.get_up_vector())}
+                    raise ValueError('native authored light reflection readback disagrees')
                 direction_assertions.append({'component':component.get_path_name(),
                                              'position_error_m':position_error,'forward_up_max_error':max(errors)})
             audit['light_direction_assertions']=direction_assertions
@@ -146,6 +171,7 @@ try:
             for actor in roots:
                 actor.set_actor_scale3d(unreal.Vector(1.,-1.,1.))
                 actor.set_actor_location(unreal.Vector(0.,0.,0.),False,True)
+        audit['base_native_geometry_reused_without_transform']=bool(request.get('base_native_map_path'))
         audit['native_coordinate_adapter']={
             'source':'USD Z-up right handed; UE USD importer reverses Y',
             'canonical_source_to_world':'source USD [x,y,z] m -> canonical [x,z,y] m',
@@ -184,7 +210,7 @@ try:
                         'position_ue_cm':point(component.get_world_location()),
                         'rotation_pitch_yaw_roll':[rotation.pitch,rotation.yaw,rotation.roll],
                         'intensity':float(component.get_editor_property('intensity'))}
-                for property_name in ['intensity_units','light_color','temperature','use_temperature',
+                for property_name in ['visible','mobility','affects_world','cast_shadows','indirect_lighting_intensity','intensity_units','light_color','temperature','use_temperature',
                                       'source_radius','source_width','source_height','attenuation_radius',
                                       'inner_cone_angle','outer_cone_angle']:
                     try:
@@ -201,6 +227,24 @@ try:
                   'native_direction_readbacks_recorded':True,'new_geometry_parity_required':True,
                   'engine_version':audit['engine_version'],'source_usd':request['source_usd']}
         if lighting['ad_hoc_fill_count']:raise ValueError('new authored-light route forbids invented fill lights')
+        if request.get('authored_light_sidecar_receipt'):
+            sidecar=json.loads(Path(request['authored_light_sidecar_receipt']).read_text())
+            size_checks=[]
+            for entry in sidecar['lights']:
+                name=entry['sidecar_prim'].rsplit('/',1)[-1]
+                matches=[c for c in native_lights if c['actor']==name or name in c['component'].split('.')[-1]]
+                if len(matches)!=1:raise ValueError('native photometry component match not unique: '+name)
+                native=matches[0];photometry=entry['photometry']
+                if not photometry.get('world_size_bake_required'):continue
+                expected={'intensity':photometry['expected_native_intensity_lumens']}
+                for attr,prop in [('inputs:radius','source_radius'),('inputs:width','source_width'),('inputs:height','source_height')]:
+                    if attr in photometry['baked_inputs']:expected[prop]=photometry['baked_inputs'][attr]*sidecar['meters_per_unit']*100
+                errors={key:abs(float(native[key])-value)/max(abs(value),1.) for key,value in expected.items()}
+                if max(errors.values(),default=0)>1e-5:raise ValueError('native world-size/photometry differs from sidecar: '+name+' '+str(errors))
+                size_checks.append({'source_prim':entry['source_prim'],'native_component':native['component'],'expected':expected,'readback':{k:native[k] for k in expected},'relative_errors':errors,'status':'pass'})
+            lighting['world_photometry_assertions']=size_checks
+            lighting['world_photometry_assertions_passed']=True
+            lighting['authored_light_sidecar_receipt']=request['authored_light_sidecar_receipt']
         audit['authored_light_import']=lighting
     material_by_path={}
     for actor in actors:

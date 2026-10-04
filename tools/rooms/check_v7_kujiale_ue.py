@@ -131,7 +131,8 @@ def main():
                 view=dict(view_original)
                 if view.get('kind')=='orthographic':view['yaw_deg']=-90.
                 from avengine.capture.kujiale_native_exposure import is_histogram,PARAMETERS
-                bgr,depth=capture_view(instance,camera,components,view,warmup_frames=PARAMETERS["warmup_frames"] if is_histogram(ue) else 40)
+                trace=[] if is_histogram(ue) else None
+                bgr,depth=capture_view(instance,camera,components,view,warmup_frames=PARAMETERS["warmup_frames"] if is_histogram(ue) else 40,exposure_trace=trace)
                 rgb=cv2.cvtColor(bgr,cv2.COLOR_BGR2RGB)
                 small=cv2.resize(rgb,(1280,720),interpolation=cv2.INTER_AREA)
                 native_path=args.output/(view['view_id']+'_1440p.jpg')
@@ -144,8 +145,12 @@ def main():
                 with instance.end_frame():pass
                 error=float(np.max(np.abs(np.asarray(pose['location_cm'])-to_ue(view['position_m']))))/100
                 candidate={'view':view,'native_pose':pose,'native_position_error_m':error,
-                                'path_1440p':str(native_path),'path_720p':str(small_path),'metrics':metrics}
+                                'path_1440p':str(native_path),'path_720p':str(small_path),'metrics':metrics,'exposure_warmup_trace':trace,
+                                'brightness_uncompressed':{'gray_mean_255':float(cv2.cvtColor(bgr,cv2.COLOR_BGR2GRAY).mean()),'rms_contrast_01':float(cv2.cvtColor(bgr,cv2.COLOR_BGR2GRAY).std()/255)}}
                 tested.append(candidate)
+                write(args.output/(view['view_id']+'_metrics.json'),candidate)
+                receipt['in_progress_room']={'room_id':room['room_id'],'tested_views':tested}
+                write(args.output/'live_receipt.json',receipt)
                 if view['kind']=='orthographic':records.append(candidate)
                 elif metrics['status']=='pixel_checks_pass' and error<.0005:
                     records.append(candidate)
@@ -192,8 +197,12 @@ def main():
                     'native_pose_alignment_status':'pass' if len(records)==4 and all(r['native_position_error_m']<.0005 for r in records) else 'fail',
                     'status':('review_pending_material_and_depth_geometry_checks' if len(selected_witnesses)==3 and all(v['metrics']['status']=='pixel_checks_pass' for v in records) else 'pixel_checks_fail'),'elapsed_seconds':time.monotonic()-room_start}
             receipt['rooms'].append(record)
+            receipt.pop('in_progress_room',None)
             write(args.output/'live_receipt.json',receipt)
             write(args.output/'floor_reference.json',{'house':plan['house'],'rooms':[r['floor_reference'] for r in receipt['rooms']]})
+        if ue.get('audit_authored_light_effect'):
+            from avengine.capture.kujiale_native_light_readback import audit_native_light_effect
+            receipt['native_light_effect']=audit_native_light_effect(instance,game,camera,components,plan,args.output/'light_effect')
         receipt['status']='native_pixels_and_floor_measured'
     except BaseException as error:
         receipt.update(status='failed',error=f'{type(error).__name__}: {error}')

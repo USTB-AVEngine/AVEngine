@@ -7,7 +7,7 @@ import numpy as np
 import pytest
 from avengine.capture.kujiale_native_exposure import (
     PARAMETERS, PROFILE, apply_histogram_exposure, bind_histogram_profile,
-    exposure_console_commands, require_authored_light_audit,
+    exposure_console_commands, require_authored_light_audit, is_histogram,
 )
 from avengine.capture.kujiale_native_lighting import assert_authored_light_positions, reflect_native_light_pose
 pytestmark = pytest.mark.fast_unit
@@ -51,10 +51,14 @@ def test_no_per_room_overrides_and_legacy_map_does_not_enter_fresh_generation(tm
     assert 'r.DefaultFeature.AutoExposure.ExtendDefaultLuminanceRange 1' in exposure_console_commands(current)
     with pytest.raises(ValueError, match='requires measured'):
         require_authored_light_audit(current, '/Game/OwnNewMap')
+    assert is_histogram({'visual_profile':'kujiale-native-authored-lights-histogram-v1'})
     audit_path = tmp_path/'audit.json'
     audit = {'status': 'pass', 'map_path': '/Game/OwnNewMap', 'expected_light_count': 1,
              'light_components': [{}], 'light_transform_assertions_passed': True, 'ad_hoc_fill_count': 0}
     audit_path.write_text(json.dumps(audit)); current['native_lighting_audit'] = str(audit_path)
+    with pytest.raises(ValueError, match='world-size photometry'):
+        require_authored_light_audit(current, '/Game/OwnNewMap')
+    audit['world_photometry_assertions_passed']=True; audit_path.write_text(json.dumps(audit))
     assert require_authored_light_audit(current, '/Game/OwnNewMap') == audit
     with pytest.raises(ValueError, match='another map'):
         require_authored_light_audit(current, '/Game/LegacyMap')
