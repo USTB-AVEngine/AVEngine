@@ -5,7 +5,7 @@
 
 自 2026-08-25 起，目录本身就是能力分组（阶段目录 m1…m7 已移除），
 本表按目录列出每个工具做什么。
-当前共 480 个工具脚本。
+当前共 481 个工具脚本。
 
 ## 资产生成与装配（`tools/assets/`）
 
@@ -187,6 +187,7 @@
 | `tools/acoustics/render_frame_readback_sequential_speech.py` | Render multi-source research audio from SPEAR frame readbacks |
 | `tools/acoustics/render_rir_cache.py` | Render a resumable native-RLR RIR cache from an M6.x job plan |
 | `tools/acoustics/report_train_house_followup.py` | Publish the automatic pool with explicit historical and current gate evidence |
+| `tools/acoustics/report_train_room_bands.py` | Apply training-only leakage-band policy to retained per-room native evidence |
 | `tools/acoustics/report_train_rooms.py` | Room-level training lists and frozen/finished house-veto comparisons |
 | `tools/acoustics/run_material_canary.py` | Run the hash-bound repeated M3 RLR material activation canary |
 | `tools/acoustics/run_train_room_visuals.py` | Complete CPU room views as owned acoustic house jobs finish |

@@ -132,3 +132,25 @@ CPU views bound their own address space to 16 GiB. Identical RGB texture bytes
 are shared across GLB primitives by content to avoid repeated image allocations;
 UVs, texels, raster parameters and scoring remain unchanged. Interrupted view
 outputs stay intact; a retry records a separate owned destination.
+
+## Training-only leakage band (owner 2026-10-04)
+
+`report_train_room_bands.py` reads the completed per-room delivery and writes a
+fresh sibling run. Only the 5–15% geometric-leakage review reason is waived for
+training; every other native review/fail reason, valid-RIR count, listener count,
+direct delay, frozen room rule, CPU view and geometry comparison remains required.
+The original acoustic status is retained. Admitted review rooms are `qualified`,
+marked `acoustic_review_band_5_15`, and restricted to `allowed_splits=[train]`.
+Strict development/test admission and the shared classifier are unchanged.
+
+The report compares the original predetermined house-veto candidate scope,
+strict per-room admission, and per-room admission plus the leakage band, including
+original room-type distributions. Unknown types remain unknown. Explicit
+`--holdout-source` inputs augment earlier reservations before reporting.
+
+An explicit read-only `--patch-root` can supply completed acoustic-hole-patch
+results. Only a real applied patch with completed per-room measurements at the
+original placement and all current checks can rescue a previously ineligible
+room. Those additional rooms are marked `acoustic_patched`, train only, and counted
+separately from the three original-geometry comparisons. No-op and incomplete
+deliveries supply no rescue count. The tool never launches the other task.
