@@ -97,3 +97,6 @@ guard 的 `launch.json`/`result.json` 保存 PID、创建时间和命令。
 磁盘超过 50 GB 减预留余量时停止，不删除别人或本任务历史结果。
 实际时间、显存、机器和证据写在运行目录的 REPORT_zh.md 与 PROGRESS_zh.md，
 不将 UE、原始数据或生成媒体提交到 Git。
+
+
+本次两套实测、失败限制及阶段提交见 [原生试点结果](V7_KUJIALE_NATIVE_RESULTS_20261003_zh.md)。
