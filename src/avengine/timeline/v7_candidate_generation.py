@@ -56,6 +56,10 @@ def stage(root, name, recipe, run):
 
 
 def seeded_scene(row, house):
+    from avengine.timeline.v7_scene_profile import PROFILE_INPUT_VERSION,validate_profile_row
+    if row.get('schema')==PROFILE_INPUT_VERSION:
+        validate_profile_row(row)
+        raise RuntimeError('aggregate-profile requests require native layout and admitted recorded dry/actions/QA; frozen alpha/two-person fallback is forbidden')
     from avengine.timeline.v7_scene_quotas import QUOTA_INPUT_VERSION,DIAGNOSTIC_INPUT_VERSION,validate_quota_row,validate_diagnostic_row
     if row.get('schema')==DIAGNOSTIC_INPUT_VERSION:
         validate_diagnostic_row(row)

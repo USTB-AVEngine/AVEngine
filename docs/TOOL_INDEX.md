@@ -268,7 +268,7 @@
 | `tools/timeline/pilot_continuous_scenes.py` | CPU-only restartable continuous-scene pilot and native RIR throughput probe |
 | `tools/timeline/prepare_v7_diagnostic_aliases.py` | Give diagnostic media neutral IDs and quarantine incompatible public domains |
 | `tools/timeline/prepare_v7_diagnostic_seed_tables.py` | Extend reproducible v7-S/full seeds with simulation-only diagnostic axes |
-| `tools/timeline/prepare_v7_quota_seed_tables.py` | Version v7-S/full requests with balanced speaker, spatial and class quotas |
+| `tools/timeline/prepare_v7_quota_seed_tables.py` | Default aggregate-profile v7 requests with a separate 0--8 coverage stratum |
 | `tools/timeline/prepare_v7_seed_tables.py` | Write v7-S and full-set seed tables without changing existing inputs |
 | `tools/timeline/project_v7_alpha_seeds.py` | Project fixed S parent seeds onto measured alpha layouts, preserving prefixes |
 | `tools/timeline/qualify_native_counterfactuals.py` | Native 2x2 appearance/association canary; audit actual media and answers |

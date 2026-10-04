@@ -37,10 +37,14 @@ def main():
         from avengine.timeline.v7_candidate_generation import seeded_scene
         from copy import deepcopy
         from avengine.timeline.v7_scene_quotas import QUOTA_INPUT_VERSION,DIAGNOSTIC_INPUT_VERSION,validate_quota_row,validate_diagnostic_row,quota_summary,diagnostic_summary
+        from avengine.timeline.v7_scene_profile import PROFILE_INPUT_VERSION,validate_profile_row,profile_request_summary
+        profile_rows=[r for r in rows if r.get('schema')==PROFILE_INPUT_VERSION]
         quota_rows=[r for r in rows if r.get('schema')==QUOTA_INPUT_VERSION]
         diagnostic_rows=[r for r in rows if r.get('schema')==DIAGNOSTIC_INPUT_VERSION]
         for r in rows:
             check=deepcopy(r)
+            if r.get('schema')==PROFILE_INPUT_VERSION:
+                validate_profile_row(r);check['schema']=r['base_seed_schema']
             if r.get('schema')==DIAGNOSTIC_INPUT_VERSION:
                 validate_diagnostic_row(r);check['schema']=r['base_seed_schema']
             if r.get('schema')==QUOTA_INPUT_VERSION:
@@ -48,8 +52,8 @@ def main():
             seeded_scene(check,by_id[r['house']])
         print(json.dumps({'status':'input_plan_valid','parents':len(rows),'members':sum(len(r['members']) for r in rows),
                           'formal_generation_ready':False,'blocking_reasons':list(FORMAL_BLOCKERS),
-                          'scenario_quota_status':'requested_only_native_not_admitted' if quota_rows or diagnostic_rows else 'legacy_two_person_canary',
-                          'scenario_quotas':diagnostic_summary(diagnostic_rows) if diagnostic_rows else quota_summary(quota_rows) if quota_rows else None}));return
+                          'scenario_quota_status':'requested_only_native_not_admitted' if quota_rows or diagnostic_rows or profile_rows else 'legacy_two_person_canary',
+                          'scenario_quotas':profile_request_summary(profile_rows) if profile_rows else diagnostic_summary(diagnostic_rows) if diagnostic_rows else quota_summary(quota_rows) if quota_rows else None}));return
     if os.environ.get('CUDA_VISIBLE_DEVICES')!='':raise ValueError('candidate command requires CUDA_VISIBLE_DEVICES empty')
     inputs=json.loads(a.runtime_inputs.read_text());assets=json.loads(a.assets.read_text())
     if isinstance(assets,dict):assets=assets['assets']
