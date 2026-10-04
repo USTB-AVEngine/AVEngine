@@ -100,7 +100,7 @@ def main():
     import sys
     ue=json.loads(args.ue_config.read_text());sys.path.insert(0,ue['spear_ext_dir'])
     import cv2
-    from avengine.capture.kujiale_spear_runtime import launch_native,camera_helpers,capture_view,close_native,spawn_fill_lights,to_ue,apply_native_rgb_profile
+    from avengine.capture.kujiale_spear_runtime import launch_native,camera_helpers,capture_view,close_native,configure_scene_lighting,to_ue,apply_native_rgb_profile
     from avengine.backends.spear_ue.research_runtime import apply_capture_exposure,read_scene_component_pose
     # Extension must precede the first optional client import.
     plan=json.loads(args.plan.read_text());audit=json.loads(args.editor_audit.read_text())
@@ -119,7 +119,7 @@ def main():
         spawn,*_=camera_helpers()
         with instance.begin_frame():
             camera,components=spawn(game,horizontal_fov_deg=85.,width=2560,height=1440)
-            receipt['lights']=spawn_fill_lights(game,plan)
+            receipt['lights']=configure_scene_lighting(game,plan,ue)
             game.get_unreal_object(uclass='UGameplayStatics').SetGamePaused(bPaused=False)
             receipt['exposure']=apply_native_rgb_profile(components['rgb'],ue)
         with instance.end_frame():pass
@@ -130,7 +130,8 @@ def main():
             for view_original in room['views']:
                 view=dict(view_original)
                 if view.get('kind')=='orthographic':view['yaw_deg']=-90.
-                bgr,depth=capture_view(instance,camera,components,view)
+                from avengine.capture.kujiale_native_exposure import is_histogram,PARAMETERS
+                bgr,depth=capture_view(instance,camera,components,view,warmup_frames=PARAMETERS["warmup_frames"] if is_histogram(ue) else 40)
                 rgb=cv2.cvtColor(bgr,cv2.COLOR_BGR2RGB)
                 small=cv2.resize(rgb,(1280,720),interpolation=cv2.INTER_AREA)
                 native_path=args.output/(view['view_id']+'_1440p.jpg')

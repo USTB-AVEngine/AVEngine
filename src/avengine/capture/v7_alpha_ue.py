@@ -1,7 +1,8 @@
 """Recorded/static alpha rendered in the admitted isolated UE/SPEAR project.
 
-The original native MICs, EV3/4000K profile, 2cm UE contact tolerance and
-native modal/target depth checks are unchanged. The Habitat alpha renderer's
+Original native MICs, 2cm UE contact tolerance and native modal/target depth
+checks are retained. Kujiale now requires the unified histogram exposure and
+measured authored-light map; previous EV3 maps cannot enter fresh generation. The Habitat alpha renderer's
 root correction and PBR overrides are never used by this adapter.
 """
 from __future__ import annotations
@@ -14,7 +15,7 @@ from avengine.capture.kujiale_spear_runtime import apply_camera,from_ue
 from avengine.capture.v7_alpha_native import yaw_at
 from avengine.timeline.continuous_pilot import write_json
 
-ALPHA_UE_VISUAL_REVISION='v7-alpha-ue-original-static-camera-readbacks-v2'
+ALPHA_UE_VISUAL_REVISION='v7-alpha-ue-authored-lights-histogram-v1'
 
 
 def assert_ue_alpha_visual(visual):
@@ -37,6 +38,12 @@ class NativeUEAlphaVideo(UENativeContinuousVideo):
             if any(not np.array_equal(k['position_m'],spec['trajectory'][0]['position_m']) for k in spec['trajectory']):
                 raise ValueError('alpha static-human contract forbids translation')
         house=deepcopy(house)
+        if house.get('family')=='kujiale':
+            from avengine.capture.kujiale_native_exposure import bind_histogram_profile,require_authored_light_audit,require_histogram_room_visual_qa
+            house['input']['ue_config']=bind_histogram_profile(house['input']['ue_config'])
+            require_authored_light_audit(house['input']['ue_config'],house['input']['ue_map_path'])
+            room_id=house['room'].get('room_label') or house['room'].get('room_id')
+            require_histogram_room_visual_qa(house['input']['ue_config'],room_id,house['input']['ue_map_path'])
         house['input']['ue_config']['allow_invisible_source_material_samples']=True
         self.alpha_time=0.;self.alpha_lower_endpoint=None;self.alpha_camera_rows={}
         super().__init__(house,scene,inputs,assets,**kwargs)

@@ -68,7 +68,8 @@ def launch_native(ue, map_path):
     arguments.nop4=None
     arguments.userdir=str(output/'ue_v1/user')
     arguments.abslog=str(temporary/'UnrealEditor.log')
-    arguments.execcmds=','.join(['r.EyeAdaptationQuality 0','r.DefaultFeature.AutoExposure 0',
+    from avengine.capture.kujiale_native_exposure import exposure_console_commands
+    arguments.execcmds=','.join(exposure_console_commands(ue)+[
         'r.Lumen.DiffuseIndirect.Allow 1','r.Lumen.Reflections.Allow 1',
         'sg.ViewDistanceQuality 3','sg.ShadowQuality 3','sg.GlobalIlluminationQuality 3','sg.ReflectionQuality 3'])
     config.SPEAR.ENVIRONMENT_VARS.UE_LocalDataCachePath=str(output/'ue_v1/ddc')
@@ -179,6 +180,8 @@ def close_native(instance,camera,components):
 
 def apply_native_rgb_profile(capture,ue):
     """Apply one declared production camera exposure/white balance everywhere."""
+    from avengine.capture.kujiale_native_exposure import is_histogram,apply_histogram_exposure
+    if is_histogram(ue):return apply_histogram_exposure(capture)
     from avengine.backends.spear_ue.research_runtime import apply_capture_exposure
     result=apply_capture_exposure(capture,bias_ev=float(ue.get('exposure_bias_ev',2.)))
     if ue.get('white_balance_temp_k') is not None:
@@ -190,3 +193,11 @@ def apply_native_rgb_profile(capture,ue):
         if not override or abs(observed-temperature)>1e-5:raise ValueError('native white-balance readback differs')
         result.update(white_balance_temp_k=observed,white_balance_override=override)
     return result
+
+
+def configure_scene_lighting(game,plan,ue):
+    """New profile uses the measured imported design lights without room fills."""
+    from avengine.capture.kujiale_native_exposure import is_histogram,require_authored_light_audit
+    if not is_histogram(ue):return spawn_fill_lights(game,plan)
+    audit=require_authored_light_audit(ue,plan['map_path'])
+    return audit['light_components']

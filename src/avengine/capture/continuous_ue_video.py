@@ -13,7 +13,7 @@ from avengine.timeline.continuous_scene import FPS, camera_basis, position_at
 from avengine.timeline.continuous_pilot import write_json
 from avengine.capture.kujiale_spear_runtime import (
     launch_native, camera_helpers, apply_camera, close_native, to_ue, from_ue,
-    spawn_fill_lights,apply_native_rgb_profile,
+    configure_scene_lighting,apply_native_rgb_profile,
 )
 
 
@@ -92,7 +92,7 @@ class UENativeContinuousVideo:
                 for name in ('rgb','object_ids'):
                     self.foot_components[name].set_property_value(property_name='bCaptureEveryFrame',property_value=False)
                 apply_camera(self.camera,self._camera())
-                lights=spawn_fill_lights(self.game,self.acceptance)
+                lights=configure_scene_lighting(self.game,self.acceptance,self.ue)
                 self.original_capture_source=self.components['rgb'].get_property_value(property_name='CaptureSource')
                 target=self.components['rgb'].get_property_value(property_name='TextureTarget',as_unreal_object=True)
                 self.rgb_target_properties={name:target.get_property_value(property_name=name) for name in ['RenderTargetFormat','TargetGamma','bForceLinearGamma','SRGB']}
@@ -112,7 +112,8 @@ class UENativeContinuousVideo:
                             actor_id=declaration['actor_id'],anchor_root=runtime['anchor_root'],
                             emitter_local_ue_cm=[float(v) for v in declaration['emitter_local_ue_cm']])
             with self.instance.end_frame():pass
-            for _ in range(80):
+            from avengine.capture.kujiale_native_exposure import is_histogram,PARAMETERS
+            for _ in range(PARAMETERS["warmup_frames"] if is_histogram(self.ue) else 80):
                 with self.instance.begin_frame():pass
                 with self.instance.end_frame():self.read_rgb(self.components['rgb'])
             self.receipt={'backend':'UE/SPEAR native','compute_device':'GPU',

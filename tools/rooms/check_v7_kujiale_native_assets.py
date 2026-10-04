@@ -31,7 +31,7 @@ def main():
     house=json.loads(args.house.read_text());ue=house['input']['ue_config']
     import sys;sys.path.insert(0,ue['spear_ext_dir'])
     import cv2
-    from avengine.capture.kujiale_spear_runtime import launch_native,camera_helpers,apply_camera,apply_native_rgb_profile,spawn_fill_lights,close_native,to_ue,from_ue
+    from avengine.capture.kujiale_spear_runtime import launch_native,camera_helpers,apply_camera,apply_native_rgb_profile,configure_scene_lighting,close_native,to_ue,from_ue
     from avengine.rooms.qa_episode import source_declaration
     from avengine.capture.native_ue_source_appearance import measure_ue_source_highlights,verify_original_ue_materials
     registry=json.loads(args.registry.read_text());inventory={a['asset_id']:a for a in json.loads(args.inventory.read_text())['assets']}
@@ -47,7 +47,7 @@ def main():
         plan=json.loads(Path(ue['acceptance_plan_path']).read_text())
         with instance.begin_frame():
             camera,components=spawn(game,horizontal_fov_deg=85.,width=2560,height=1440)
-            profile=apply_native_rgb_profile(components['rgb'],ue);lights=spawn_fill_lights(game,plan)
+            profile=apply_native_rgb_profile(components['rgb'],ue);lights=configure_scene_lighting(game,plan,ue)
             original_source=components['rgb'].get_property_value(property_name='CaptureSource')
         with instance.end_frame():pass
         result.update(launch=launch,profile=profile,lights=lights)

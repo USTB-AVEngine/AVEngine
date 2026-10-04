@@ -84,6 +84,8 @@ audit={'schema':'kujiale_native_ue_editor_audit_v1','house':plan['house'],
        'source_usd':request['source_usd'],'map_path':request['map_path'],
        'floor_reference':[],'materials':[],'mesh_components':[],'errors':[]}
 try:
+    if request.get('expected_authored_lights') and (request.get('audit_only') or not request.get('correct_native_usd_y_reflection')):
+        raise ValueError('new authored-light route requires a fresh map import and explicit native Y adapter')
     if request.get('audit_only'):
         if not unreal.get_editor_subsystem(unreal.LevelEditorSubsystem).load_level(request['map_path']):
             raise RuntimeError('could not load own imported map for audit resume')
@@ -96,10 +98,54 @@ try:
     expected=request.get('expected_bounds_ue_cm')
     if request.get('correct_native_usd_y_reflection'):
         mesh_actors=[a for a in actors if a.get_components_by_class(unreal.StaticMeshComponent)]
-        roots=[a for a in mesh_actors if a.get_attach_parent_actor() not in mesh_actors]
-        for actor in roots:
-            actor.set_actor_scale3d(unreal.Vector(1.,-1.,1.))
-            actor.set_actor_location(unreal.Vector(0.,0.,0.),False,True)
+        if request.get('expected_authored_lights'):
+            # New bake_v3 preserves lamps' complete world matrices. Mirror the
+            # entire imported hierarchy once, then reflect emitted light poses
+            # explicitly: negative actor scale alone does not mirror light yaw.
+            import importlib.util
+            helper_path=Path(__file__).resolve().parents[2]/'src/avengine/capture/kujiale_native_lighting.py'
+            spec=importlib.util.spec_from_file_location('own_native_light_assertions',helper_path)
+            native_light_helpers=importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(native_light_helpers)
+            reflect_native_light_pose=native_light_helpers.reflect_native_light_pose
+            light_actors=[a for a in actors if a.get_components_by_class(unreal.LightComponentBase)]
+            saved=[]
+            for actor in light_actors:
+                for component in actor.get_components_by_class(unreal.LightComponentBase):
+                    rotation=component.get_world_rotation()
+                    saved.append((component,point(component.get_world_location()),
+                                  [rotation.pitch,rotation.yaw,rotation.roll],
+                                  point(component.get_forward_vector()),point(component.get_up_vector())))
+            roots=[]
+            for actor in mesh_actors+light_actors:
+                parent=actor.get_attach_parent_actor()
+                while parent is not None:
+                    actor=parent;parent=actor.get_attach_parent_actor()
+                if actor not in roots:roots.append(actor)
+            for actor in roots:
+                position=point(actor.get_actor_location());scale=point(actor.get_actor_scale3d())
+                actor.set_actor_scale3d(vector([scale[0],-scale[1],scale[2]]))
+                actor.set_actor_location(vector([position[0],-position[1],position[2]]),False,True)
+            direction_assertions=[]
+            for component,position,rotation,forward,up in saved:
+                position,rotation=reflect_native_light_pose(position,rotation)
+                component.set_world_location_and_rotation(vector(position),unreal.Rotator(*rotation),False,True)
+                observed_position=point(component.get_world_location())
+                position_error=max(abs(a-b) for a,b in zip(position,observed_position))/100
+                errors=[]
+                for before,observed in [(forward,point(component.get_forward_vector())),(up,point(component.get_up_vector()))]:
+                    reflected=[before[0],-before[1],before[2]]
+                    errors.append(max(abs(a-b) for a,b in zip(reflected,observed)))
+                if position_error>.0005 or max(errors)>1e-4:raise ValueError('native authored light reflection readback disagrees')
+                direction_assertions.append({'component':component.get_path_name(),
+                                             'position_error_m':position_error,'forward_up_max_error':max(errors)})
+            audit['light_direction_assertions']=direction_assertions
+            audit['light_coordinate_adapter']='original native world light position, yaw and roll mirrored once in Y; no fitted placement'
+        else:
+            roots=[a for a in mesh_actors if a.get_attach_parent_actor() not in mesh_actors]
+            for actor in roots:
+                actor.set_actor_scale3d(unreal.Vector(1.,-1.,1.))
+                actor.set_actor_location(unreal.Vector(0.,0.,0.),False,True)
         audit['native_coordinate_adapter']={
             'source':'USD Z-up right handed; UE USD importer reverses Y',
             'canonical_source_to_world':'source USD [x,y,z] m -> canonical [x,z,y] m',
@@ -126,6 +172,36 @@ try:
             'before_bounds_ue_cm':[lo,hi],'expected_bounds_ue_cm':expected,
             'delta_ue_cm':delta,'extent_max_error_cm':extent_error,
             'native_export_vertex_or_ray_assertion_required':True}
+    if request.get('expected_authored_lights'):
+        assert_authored_light_positions=native_light_helpers.assert_authored_light_positions
+        expected_lights=json.loads(Path(request['expected_authored_lights']).read_text())['lights']
+        native_lights=[]
+        for actor in actors:
+            for component in actor.get_components_by_class(unreal.LightComponentBase):
+                rotation=component.get_world_rotation()
+                record={'component':component.get_path_name(),'actor':actor.get_actor_label(),
+                        'component_class':component.get_class().get_name(),
+                        'position_ue_cm':point(component.get_world_location()),
+                        'rotation_pitch_yaw_roll':[rotation.pitch,rotation.yaw,rotation.roll],
+                        'intensity':float(component.get_editor_property('intensity'))}
+                for property_name in ['intensity_units','light_color','temperature','use_temperature',
+                                      'source_radius','source_width','source_height','attenuation_radius',
+                                      'inner_cone_angle','outer_cone_angle']:
+                    try:
+                        value=component.get_editor_property(property_name)
+                        record[property_name]=value if isinstance(value,(str,bool,int,float)) else str(value)
+                    except Exception:pass
+                native_lights.append(record)
+        audit['light_components']=native_lights
+        assertions=assert_authored_light_positions(expected_lights,native_lights)
+        lighting={'status':'pass','map_path':request['map_path'],'expected_light_count':len(expected_lights),
+                  'light_components':native_lights,'light_position_assertions':assertions,
+                  'light_direction_assertions':audit.get('light_direction_assertions',[]),
+                  'light_transform_assertions_passed':True,'ad_hoc_fill_count':len(request.get('visual_lights',[])),
+                  'native_direction_readbacks_recorded':True,'new_geometry_parity_required':True,
+                  'engine_version':audit['engine_version'],'source_usd':request['source_usd']}
+        if lighting['ad_hoc_fill_count']:raise ValueError('new authored-light route forbids invented fill lights')
+        audit['authored_light_import']=lighting
     material_by_path={}
     for actor in actors:
         for component in actor.get_components_by_class(unreal.StaticMeshComponent):
@@ -217,6 +293,10 @@ try:
     audit['map_saved']=bool(unreal.EditorLoadingAndSavingUtils.save_map(world,request['map_path']))
     if not audit['map_saved']:raise RuntimeError('own native map could not be saved')
     audit['status']='measured'
+    if request.get('native_lighting_audit_path'):
+        if not audit.get('authored_light_import'):raise ValueError('cannot write an unmeasured lighting audit')
+        with Path(request['native_lighting_audit_path']).open('x') as stream:
+            json.dump(audit['authored_light_import'],stream,indent=2);stream.write('\n')
 except Exception as error:
     audit['status']='failed';audit['errors'].append(f'{type(error).__name__}: {error}')
     raise

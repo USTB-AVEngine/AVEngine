@@ -5,7 +5,7 @@
 
 自 2026-08-25 起，目录本身就是能力分组（阶段目录 m1…m7 已移除），
 本表按目录列出每个工具做什么。
-当前共 510 个工具脚本。
+当前共 512 个工具脚本。
 
 ## 资产生成与装配（`tools/assets/`）
 
@@ -112,6 +112,7 @@
 | `tools/rooms/alpha_live_status.py` | Atomically replace explicit live counters; never replace sealed artifacts |
 | `tools/rooms/alpha_storage_contract.py` | Storage boundaries for immutable native alpha seal and derived bundles |
 | `tools/rooms/assemble_kujiale_native_training_admission.py` | Assemble native Kujiale room admission and offline evidence without new gates |
+| `tools/rooms/audit_kujiale_native_lighting.py` | Read authored USD lights and retained native room pixels without starting UE |
 | `tools/rooms/audit_real_surface_mesh.py` | Audit a glTF/GLB as evidence for the M1 real-surface geometry gate |
 | `tools/rooms/audit_skokloster_glb.py` | Audit the exact Habitat Skokloster GLB for visual and acoustic staging |
 | `tools/rooms/author_current_residential_visual_episode.py` | Author one current residential visual-only research episode |
@@ -160,6 +161,7 @@
 | `tools/rooms/reclaim_kujiale_cci_batch.py` | Reclaim only exact owned bytes after independently checked CCI SHA receipts |
 | `tools/rooms/recover_kujiale_native_audit.py` | Read back an own saved map after interrupted import; rerun native QA |
 | `tools/rooms/report_kujiale_batch.py` | Report CPU Kujiale conversion, missing native evidence and internal CCI files |
+| `tools/rooms/report_kujiale_native_exposure.py` | Export measured baseline, pending native exposure status and offline witnesses |
 | `tools/rooms/report_kujiale_round8.py` | Publish measured native-alpha budget, resource curves and source paths |
 | `tools/rooms/reselect_kujiale_native_capsule_witnesses.py` | Reselect only already-frozen legal witnesses that clear the native capsule |
 | `tools/rooms/restore_kujiale_native_source_assets.py` | Restore only task-local UE MIC backups and archive withdrawn derived assets |
