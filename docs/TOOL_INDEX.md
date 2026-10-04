@@ -5,7 +5,7 @@
 
 自 2026-08-25 起，目录本身就是能力分组（阶段目录 m1…m7 已移除），
 本表按目录列出每个工具做什么。
-当前共 495 个工具脚本。
+当前共 500 个工具脚本。
 
 ## 资产生成与装配（`tools/assets/`）
 
@@ -238,6 +238,7 @@
 | `tools/capture/capture_mp3d_multi_actor.py` | Capture one explicit N-actor MP3D case through the installed Habitat runtime |
 | `tools/capture/capture_two_human_mp3d.py` | Run the Habitat-native MP3D two-human production visual capture |
 | `tools/capture/materialize_common_plan_habitat.py` | Materialize one common renderer-neutral plan into a Habitat case |
+| `tools/capture/qualify_v7_alpha_layouts.py` | Qualify four static licensed bodies in already acoustically checked rooms |
 | `tools/capture/qualify_v7_material_replay.py` | Replay v3 source-material changes in fresh CPU native processes |
 | `tools/capture/qualify_v7_pixel_visibility.py` | CPU native paired visibility check with unchanged published house pixels |
 | `tools/capture/run_apartment_four_motion_pilot.py` | Run one shared Apartment capture for the four human/dog motion cases |
@@ -261,14 +262,18 @@
 | `tools/timeline/audit_v7_question_budget.py` | Audit actual v7 logical items, modality ratios, family floors and CF proofs |
 | `tools/timeline/audit_v7_scene_quotas.py` | Count realized v7 protocol answers separately from scene requests and formal media |
 | `tools/timeline/export_native_pilot_windows.py` | Export checked native video windows and balanced pilot question candidates |
+| `tools/timeline/export_v7_alpha.py` | Package immutable admitted alpha parents and training-ready relative media |
+| `tools/timeline/generate_v7_alpha.py` | Restartable CPU-only formal static/recorded alpha shards |
 | `tools/timeline/generate_v7_scenes.py` | Seed-driven restartable CPU native candidates. Formal mode fails closed |
 | `tools/timeline/pilot_continuous_scenes.py` | CPU-only restartable continuous-scene pilot and native RIR throughput probe |
 | `tools/timeline/prepare_v7_diagnostic_aliases.py` | Give diagnostic media neutral IDs and quarantine incompatible public domains |
 | `tools/timeline/prepare_v7_diagnostic_seed_tables.py` | Extend reproducible v7-S/full seeds with simulation-only diagnostic axes |
 | `tools/timeline/prepare_v7_quota_seed_tables.py` | Version v7-S/full requests with balanced speaker, spatial and class quotas |
 | `tools/timeline/prepare_v7_seed_tables.py` | Write v7-S and full-set seed tables without changing existing inputs |
+| `tools/timeline/project_v7_alpha_seeds.py` | Project fixed S parent seeds onto measured alpha layouts, preserving prefixes |
 | `tools/timeline/qualify_native_counterfactuals.py` | Native 2x2 appearance/association canary; audit actual media and answers |
 | `tools/timeline/qualify_v7_scenario_quotas.py` | CPU native static-crowd diagnostics for actual v0.2 speaker/spatial questions |
+| `tools/timeline/qualify_v7_vctk.py` | Automatically qualify recorded VCTK inputs, preserving original clip clocks |
 | `tools/timeline/review_native_windows.py` | Read five encoded native windows and compare head pixels to native FOA |
 | `tools/timeline/summarize_continuous_pilot.py` | Read back continuous-pilot media, summarize coverage, and estimate CPU throughput |
 | `tools/timeline/synthesize_native_pilot.py` | Resume native-mouth CPU audio and complete 10 s qualification candidates |

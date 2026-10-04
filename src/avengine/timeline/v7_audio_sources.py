@@ -136,13 +136,18 @@ def assemble_recorded_buses(scene, program):
         divisor = math.gcd(sr, int(native_sr))
         clip = resample_poly(samples[crop:], sr // divisor, int(native_sr) // divisor)
         authored = record.get("source_type") == "author_tts"
+        whole_recording = binding.get("preserve_full_recorded_clip") is True
+        if whole_recording and (authored or record.get("source_type", "recorded") != "recorded"
+                or not record.get("speaker_id") or not record.get("transcript")
+                or crop or length < len(clip) or length - len(clip) > 1600):
+            raise ValueError("whole recorded utterance must preserve every sample, with at most one tick of trailing silence")
         if authored and (crop or length < len(clip) or length - len(clip) > 1600):
             raise ValueError("authored natural TTS cannot be trimmed or repeated")
-        if not authored and len(clip) < length:
+        if not authored and not whole_recording and len(clip) < length:
             raise ValueError("recorded clip is too short; looping/synthesis fallback is forbidden")
         take = min(length, len(clip))
         segment = np.zeros(length); segment[:take] = clip[:take]
-        if not authored:
+        if not authored and not whole_recording:
             fade = min(80, take // 2)
             if fade:
                 ramp = np.linspace(0, 1, fade)
@@ -163,7 +168,9 @@ def assemble_recorded_buses(scene, program):
                          "input_path": path, "source_sample_rate_hz": native_sr,
                          "crop_start_sample": crop, "output_start_sample": lo,
                          "output_end_sample_exclusive": hi, "waveform_sample_count": take,
-                         "semantic_content_complete": authored, "repeat_or_time_stretch": False})
+                         "semantic_content_complete": authored or whole_recording,
+                         "preserved_full_recorded_clip": whole_recording,
+                         "trailing_padding_samples": length - take, "repeat_or_time_stretch": False})
     return buses, {"audio_source_revision": AUDIO_SOURCE_REVISION,
                    "status": "recorded_inputs_assembled", "admitted_records": admitted,
                    "events": evidence, "endpoint_speaker_ids": speakers,

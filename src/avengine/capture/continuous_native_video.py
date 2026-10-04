@@ -48,6 +48,21 @@ class NativeContinuousVideo:
         agent=hs.agent.AgentConfiguration();agent.sensor_specifications=sensors
         read_glb(cfg.scene_id)  # Reject Basis before entering a native importer.
         configuration=hs.Configuration(cfg,[agent])
+        self.stage_contact_geometry={'mode':'native_default'}
+        if inputs.get('native_stage_collision_margin_m') is not None:
+            margin=float(inputs['native_stage_collision_margin_m'])
+            if margin!=0.:raise ValueError('exact-stage contact measurement requires zero artificial stage margin')
+            from habitat_sim.metadata import MetadataMediator
+            mediator=MetadataMediator(cfg)
+            manager=mediator.stage_template_manager
+            attributes=manager.create_template(cfg.scene_id,True)
+            original=float(attributes.margin)
+            attributes.margin=margin
+            manager.register_template(attributes,cfg.scene_id)
+            configuration.metadata_mediator=mediator
+            self.stage_contact_geometry={'mode':'exact_original_stage_mesh',
+                'original_native_stage_margin_m':original,'applied_native_stage_margin_m':margin,
+                'asset_contact_tolerance_changed':False,'original_render_and_collision_assets_preserved':True}
         self.sim=hs.Simulator(configuration)
         maps=Path('/proc/self/maps').read_text()
         if 'swrast_dri.so' not in maps or 'libEGL_nvidia' in maps or 'libnvidia-gl' in maps:
@@ -104,7 +119,7 @@ class NativeContinuousVideo:
         self.receipt={'backend':'Habitat-Sim native M2','compute_device':'CPU','software_driver':'Mesa llvmpipe',
             'gpu_device_id':-1,'hardware_EGL_devices_excluded':True,'resolution_hw':[height,width],
             'hfov_deg':85.,'fps':FPS,'runtime':runtime,'stage':cfg.scene_id,
-            'source_material_rendering':self.material_rendering,
+            'source_material_rendering':self.material_rendering,'stage_contact_geometry':self.stage_contact_geometry,
             'source_materials':[a['source_material'] for a in self.actors],
             'asset_admission_states':[a['inputs'].asset.get('admission_state') for a in self.actors],
             'action_clocks':[{'endpoint_id':a['endpoint_id'],
