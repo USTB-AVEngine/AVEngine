@@ -69,6 +69,6 @@ PY
    summary=sshcci(script)
    if summary.returncode:raise RuntimeError('own additive CCI index failed: '+summary.stderr)
    (LOCAL/'round14_CCI_aggregate_status.json').write_text(summary.stdout)
-  if queue.get('complete'):return
+  if queue.get('complete') or queue.get('dispatch_finished'):return
   time.sleep(30)
 if __name__=='__main__':main()

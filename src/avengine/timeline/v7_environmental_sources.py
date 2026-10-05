@@ -70,12 +70,59 @@ def attach_environmental_program(scene,program,plan,admitted,rng,starts):
                 program['events'].append({'event_id':eid,'sound_asset_id':record['sound_asset_id'],'crop_start_sample':crop})
 
 
-def augment_environmental_native_bundle(raw,scene):
-    ids={str(s['actor_id']) for s in scene['sources'].values() if s.get('native_visual_kind')=='audio_only'}
+def augment_environmental_native_bundle(raw,scene,visual=None,start_s=None):
+    """Register observed audio-only components without inventing a person.
+
+    Matches the producer bridge fix cd9256a. UE and Habitat readbacks retain
+    their own native pose evidence. QA functions and admission gates are shared.
+    """
+    by_id={str(s['actor_id']):(ep,s) for ep,s in scene['sources'].items()
+           if s.get('native_visual_kind')=='audio_only'}
     for event in raw['audio_program']['events']:
-        if event.get('actor_id') in ids:
-            event['native_audio_source_id']=event['actor_id'];event['actor_id']=None
-            event['visual_binding']='unbound_audio_only_native_emitter'
+        sid=str(event.get('native_audio_source_id',event.get('actor_id')))
+        if sid not in by_id:continue
+        ep,spec=by_id[sid]
+        event['native_audio_source_id']=sid
+        event['native_source_endpoint_id']=event.pop('source_endpoint_id',None)
+        event.pop('source_endpoint_index',None)
+        event['visual_binding']='no drawable; observed native audio-only component'
+        if visual is None or start_s is None:
+            event['actor_id']=None
+            continue
+        first=round(float(start_s)*15)
+        frames=visual['environmental_emitter_readbacks'][first:first+150]
+        if len(frames)!=150:raise ValueError('audio-only source requires 150 actual native readback frames')
+        observed=[]
+        for i,frame in enumerate(frames):
+            if frame['frame_index']!=first+i:raise ValueError('native audio-only component clock mismatch')
+            matches=[r for r in frame['emitters'] if r['endpoint_id']==ep and str(r['source_id'])==sid]
+            if len(matches)!=1:raise ValueError('native audio-only component identity is not unique')
+            node=matches[0];point=node['position_m']
+            if 'transform_m' in node:
+                transform=node['transform_m'];kind='observed_Habitat_audio_only_SceneGraph_child'
+            else:
+                # The UE point is an actual USceneComponent, read after setting
+                # its transform. Orientation is irrelevant to an omnidirectional
+                # point, but is checked rather than inferred from the plan.
+                pose=node['native_component_pose']
+                if any(abs(float(x))>1e-4 for x in pose['rotation_deg']):
+                    raise ValueError('UE audio-only component orientation changed')
+                actual=[float(pose['location_cm'][0])/100.,float(pose['location_cm'][2])/100.,float(pose['location_cm'][1])/100.]
+                if max(abs(a-b) for a,b in zip(actual,point,strict=True))>.0005:
+                    raise ValueError('UE audio-only component coordinate conversion mismatch')
+                transform=[[1.,0.,0.,point[0]],[0.,1.,0.,point[1]],[0.,0.,1.,point[2]],[0.,0.,0.,1.]]
+                kind='observed_UE_audio_only_USceneComponent'
+            observed.append({'frame_index':i,'position_m':point,'emitter_position_m':point,
+                'actor_id':sid,'moving':False,'action_id':'static_audio_point',
+                'body_to_world_m':transform,'joint_state':'no_joint_DOFs_no_drawable',
+                'native_source_kind':kind,'native_pose_evidence':node})
+        raw['actors'][sid]={'asset_id':'native_audio_point:'+ep,'species_id':None,
+            'entity_class':'environmental_audio_point','display_label':'背景环境声源'+ep.removeprefix('environment'),
+            'visual_geometry':'none; no person/object is claimed',
+            'native_registration_source':'environmental_emitter_readbacks'}
+        raw['frame_readbacks']['actors'][sid]=observed
+        raw['frame_readbacks']['emitters'][sid]=[{'frame_index':r['frame_index'],'position_m':r['emitter_position_m']} for r in observed]
+        event['actor_id']=sid
     return raw
 
 

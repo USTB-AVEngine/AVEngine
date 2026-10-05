@@ -21,6 +21,7 @@ from avengine.timeline.v7_production_contract import validate_question_counts,qu
 from avengine.spatial_audio.audio import write_float32_wav
 
 ALPHA_RELEASE_PROFILE='v7-S-recorded-registered-native-14-v6-critical-coverage'
+PRODUCER_QA_REVISION='registered-native-UE-audio-only-component-v3'
 
 
 def _cpu():
@@ -82,7 +83,7 @@ def generate_registered_parent(row,house,inputs,assets,source_admission,human_ad
             'sha256':hashlib.sha256(Path(inputs['semantic_manifest']).read_bytes()).hexdigest(),
             'scope':'only actual parent sound IDs and authored scenarios copied into each private window'}
     else:semantic=None
-    recipe={'profile':ALPHA_RELEASE_PROFILE,'seed_row':row,'house':working,'runtime_inputs':inputs,
+    recipe={'profile':ALPHA_RELEASE_PROFILE,'producer_qa_revision':PRODUCER_QA_REVISION,'seed_row':row,'house':working,'runtime_inputs':inputs,
         'assets':assets,'recorded_program':program,'visual_revision':ALPHA_VISUAL_REVISION,
         'source_material_revision':MATERIAL_REVISION,'pixel_visibility_revision':VISIBILITY_REVISION}
     existing=root/'input_recipe.json'
@@ -201,7 +202,7 @@ def generate_registered_parent(row,house,inputs,assets,source_admission,human_ad
                 required.extend(f'{wid}/{n}' for n in ['video.mp4','audio_foa.wav','audio_mono.wav','questions.json','private_answers.json','evidence.json','candidate_audit.json'])
             return {'windows':records},required
         wc=_cpu();ww=time.perf_counter();wd,wr,resumed=stage(root,'windows_'+member,{'scene':scene,'source_receipt':local_receipt,
-            'profile':ALPHA_RELEASE_PROFILE,'quota_index':row['question_quota_base']},windows)
+            'profile':ALPHA_RELEASE_PROFILE,'producer_qa_revision':PRODUCER_QA_REVISION,'quota_index':row['question_quota_base']},windows)
         timings.append({'stage':'windows_'+member,'wall_seconds':time.perf_counter()-ww,'cpu_seconds_including_children':_cpu()-wc,'resumed':resumed})
         for wi,win in enumerate(wr['windows']):clip_paths.setdefault((v,wi),wd/win['window_id']/'video.mp4')
         members.append({'member':member,'windows_directory':str(wd),'windows':wr['windows'],'audio_directory':str(ad),'visual_directory':str(vd)})

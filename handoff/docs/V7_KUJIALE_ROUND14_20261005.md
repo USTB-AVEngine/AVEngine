@@ -1,14 +1,14 @@
-酷家乐已用33b5b12正式管线封存单屋2窗口/28题，并在48g启动132父场景的受限量产；这里只记录开跑交接，全部132完成前不能宣称最终数据完成。
+酷家乐原生 UE 已接入 33b5b12 的正式生成流程。旧 3 父场景 / 6 窗口 / 84 题因为环境端点身份桥接问题撤出待训练索引，原封存证据保留。新源端关联修复后，固定请求 000033 重新通过原正式门禁，产出 1 父场景 / 2 窗口 / 28 题；该新批次仍须在 CCI 核对全文件 SHA 才计作转存完成。
 
-- 本任务 worktree：/data/jzy/code/AVEngine-codex-v7-kujiale-round14-20261005；产物及PROGRESS在 /data/jzy/tmp/claude_hardbank_20260923/v7_kujiale_20261003/ue_round14（PROGRESS在上一级）。
-- 生成冻结33b5b12df1a45ca265bf0c4fbe9b26b664577a7c，规格8910727；R13原生白平衡/灯位/自动曝光沿用766f7ed。QA、真值、配额代码保持33b5b12原样。
-- 19套33间train-only，每间4父场景；同34类干声/120登记人物变体输入。预计498窗口/6972题只是计划，已封存数量看PRODUCTION_STATUS.json及batch_evidence。
-- GPU2，nice10，affinity80–95，共最多16核心，最多4原生实例；每批按实测峰值乘实例数加4GiB检查，使用nvidia-smi -q -x记录图形进程树。GPU0只有SPEAR已知的6MiB/实例Vulkan初始化，保护上限64MiB，不用GPU1/3。
-- /data至少100GB空闲，本回合新增至多30GB；CCI仅接收封存窗口/录音/许可/证据，不传原始InteriorAgent和UE项目。CCI命名空间 /mnt/afs/xinyuanqian/jzy/hardbank/generation/v7_s_kujiale_20261005。
-- 控制源：v7_kujiale_production.py是48g协调器；v7_kujiale_transfer_local.py是本机转存源副本，实际部署为本机任务目录round14_transfer_driver.py；v7_kujiale_CCI_index.py的实际副本是round14_cci_aggregate.py，转存器在CCI执行，只写自己的追加索引。
-- 先原生成器封存，再原export_alpha导出、原check_critical_delivery(require_full=False)/open_delivered_media读取，再CCI端拉取与全数据SHA核验，回执到达后才删该批48g副本。留下SHA、summary、parents/windows.csv、native guard和输入登记证据。
-- 不能把追加132伪装成原500主批次。现family25等待脚本强制400 train+100 dev；同数据行格式的小批读取已通过，但自动追加接入仍由训练侧增入口。CCI总索引完成132之前标partial，完成后封存；原等待脚本、队列和别的检出没有修改。
-- 首单屋wall912.524s，GPU2峰4013MiB；54数据文件37272765B，CCI传输/全SHA回读33.682s，两窗口在CCI也完成150帧视频、RGB、FOA/W读回。来源是ue_round14/evidence、transfer_receipts和batch_evidence。完整四实例新版本吞吐看该批guard/result.json与parents.csv，不冒用旧版数据。
-- 继续运行PID和停止方法见运行目录REPORT_zh.md；stop_round14.sh只核对自己的PID/create_time/argv，由guard清理自己的子进程。重启前先核对该身份，不自动偷锁或重启别人。
+- 自有 worktree：`/data/jzy/code/AVEngine-codex-v7-kujiale-round14-20261005`；运行根：`/data/jzy/tmp/claude_hardbank_20260923/v7_kujiale_20261003/ue_round14`；阶段结论在上一级 `PROGRESS_zh.md`。
+- QA 函数、判分、原真值函数和 `v7_production_contract.py` 与冻结生成提交 33b5b12 完全一致。只修生产输入：参照生成器的 cd9256a，把实际 UE 音频组件的 150 帧读回登记为 1001+ 音频源，禁止 environment1 数字回退为人物 1。无可见网格、外观或人体声明。缺少读回的坏例拒绝。
+- 旧 CCI 答案实查：父场景 32 的 QA08 / QA20 和 35 的 QA20 错绑环境声；父场景 33 一并重新验收。旧题和答案不改，新题池使用新 producer_qa_revision 与独立输出根，不继承旧选题或封存。
+- 零说话人 34 / 36 用原生阶段复用重建题池后仍不合格：视听 3 道需要 6 道；视觉 4 道需要 5 道。没有降门槛、改种子或伪造配额。
+- 32 / 35 用 CCI 封存且逐文件 SHA 核对的原生画面和音频重编题池，旧答案不导入，原 `seal` 函数按 AST 与冻结提交核对相同：改正环境声身份后分别只有 4 / 5 道合法视听候选，各需 6 道。33 按同一路径通过；三者结果见 `evidence/sealed_media_requalification.json`。四个未过请求保留原种子并计作正式拒收。
+- 当前原房间准入保持 R13 的 19 套 / 33 间、train-only；132 父场景请求（每间 4）、498 窗口 / 6972 题为计划，不等于已交付。录音为同 34 类准入池，人物为同 120 登记变体及原 UE 材质；未套用 Habitat 材质修复。
+- GPU2 / nice10 / CPU affinity80–95，最多 16 核、4 实例。每次检查实测峰值 × 实例数 + 4GiB。GPU0只保留已知 6MiB / 实例初始化上下文，上限64MiB；不用 GPU1 / 3。/data 至少100GB空闲、新增至多30GB。
+- 单实例 UE 实测 4013MiB；四实例合计 16059MiB，965.052s 完成 4 个尝试（其中2个旧门禁通过，已撤回重判）。实际场景准入吞吐不能冒称4个都通过。
+- 48g副本仅在CCI全SHA后清理。CCI独立命名空间 `/mnt/afs/xinyuanqian/jzy/hardbank/generation/v7_s_kujiale_20261005`。WITHDRAWN / partial 索引不会标为500父场景主交付；现family25等待脚本只收400 train +100 dev，追加批次接口仍须由训练侧接入。本任务不改其队列、脚本、共享Content、环境或其他检出。
+- 大批完整前最后使用原 `audit_batch_budget` 审计模态比例、反事实绑定≥20%及必需题族；题数、0–8人数及34类必须按真实窗口统计。来源路径和停止方法见运行根 `REPORT_zh.md`、每批guard与实际进程回执。
 
-集成提交ef57840（合并33b5b12）；原生扩展导入/UE指标出口修复79f2456；受限量产a7fbc33。本分支无push。生成配额、所有正式门槛、测试分割与原素材均不改变。
+集成 ef57840、原生导入/指标修复79f2456、受限量产a7fbc33，控制源和交接ecbdd1b。生产身份修复提交见运行根 `evidence/producer_bridge_commit.json`；不push，不发owner。
