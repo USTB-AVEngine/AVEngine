@@ -1,0 +1,27 @@
+{
+  "io": {
+    "source_file": "/data/jzy/tmp/claude_hardbank_20260923/v7_human_roster_20261004/worktree/tools/assets/v7_human_roster_materials.py",
+    "sha256": "e39edd584aca63a3efad3a8d658d517f52d422d02f83c19ff69dbb39dc1abfb0",
+    "upstream_commit": "57b3ae39a4fffcb88ad7109b75a2007fac11a45e"
+  },
+  "pose": {
+    "source_file": "/data/jzy/tmp/claude_hardbank_20260923/v7_human_roster_20261004/worktree/tools/assets/v7_human_roster_pose.py",
+    "sha256": "47179c0ff89286e62f555f61587dbd22887a619d8ed90616729c89f1ce7f4b9f",
+    "upstream_commit": "57b3ae39a4fffcb88ad7109b75a2007fac11a45e"
+  },
+  "contact": {
+    "source_file": "/data/jzy/tmp/claude_hardbank_20260923/v7_human_roster_20261004/worktree/tools/assets/v7_roster_contact_ik.py",
+    "sha256": "7eaca6095cdce2ad93d11403fd3a615a5a497873c99b563eb9ac3cf4f8e0242f",
+    "upstream_commit": "57b3ae39a4fffcb88ad7109b75a2007fac11a45e"
+  },
+  "collision": {
+    "source_file": "/data/jzy/tmp/claude_hardbank_20260923/v7_human_roster_20261004/worktree/tools/assets/v7_roster_collision.py",
+    "sha256": "bb37332e288a56aeed06a8ec5c0f368eb103db4063d4ac1d42c4cb547c50fdc6",
+    "upstream_commit": "57b3ae39a4fffcb88ad7109b75a2007fac11a45e"
+  },
+  "appearance": {
+    "source_file": "/data/jzy/tmp/claude_hardbank_20260923/v7_human_roster_20261004/worktree/tools/assets/v7_roster_colour_motion.py",
+    "sha256": "6e7eddcae8fdbeee4b469dabe079ed0c932461e6e4b70808926cc0aab16cf9df",
+    "upstream_commit": "57b3ae39a4fffcb88ad7109b75a2007fac11a45e"
+  }
+}

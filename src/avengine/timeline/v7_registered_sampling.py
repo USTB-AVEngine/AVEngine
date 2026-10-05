@@ -109,6 +109,7 @@ def build_registered_scene(row,house,records,assets,semantic_manifest=None):
     candidates=[[float(x),height,float(z)] for x in np.arange(x0+.1,x1,.5) for z in np.arange(z0+.1,z1,.5) if floor_poly.covers(Point(x,z)) and math.hypot(x-layout['listener_m'][0],z-layout['listener_m'][2])>.5]
     candidates.sort(key=lambda p:abs(math.hypot(p[0]-layout['listener_m'][0],p[2]-layout['listener_m'][2])-1.87))
     scene['native_placement_candidates']=candidates[:192]
+    if plan.get('motion_requests'):scene['production_scenario']['motion_floor_polygon']=layout['room_floor_polygon']
     for i,(a,p) in enumerate(zip(assets,placements,strict=True)):
         ep=a['endpoint_id'];g='F' if a['visual_gender']=='female' else 'M'
         scene['sources'][ep]={'actor_id':i+1,'class_id':0 if g=='F' else 1,'content_kind':'speech' if i<n else 'silent','body_yaw_deg':p['body_yaw_deg'],'mechanism':'human_live_recorded','visual_gender':a['visual_gender'],'dry_gain':1.,'trajectory':[{'time_s':0.,'position_m':p['position_m']},{'time_s':30.,'position_m':p['position_m']}]}

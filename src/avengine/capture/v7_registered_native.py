@@ -13,7 +13,7 @@ from avengine.capture.v7_alpha_native import NativeAlphaVideo,forward_at,stage_s
 from avengine.timeline.continuous_pilot import write_json
 from avengine.timeline.continuous_scene import camera_basis
 
-REGISTERED_VISUAL_REVISION='registered-standing-native-audio-only-emitter-v5'
+REGISTERED_VISUAL_REVISION='registered-contact-movement-native-emitter-v6'
 
 class RigidStandingInstance:
     """Native rigid object with an explicitly empty articulated state."""
@@ -43,7 +43,7 @@ class NativeRegisteredVideo(NativeAlphaVideo):
         if inputs.get('render_backend')!='cpu_llvmpipe':raise ValueError('registered CPU backend required')
         NativeContinuousVideo.__init__(self,house,scene,inputs,[],**kwargs)
         from avengine.assets.source_materials import prepare_source_glb
-        self.camera_frame_readbacks=[];self.standing_checks=[]
+        self.camera_frame_readbacks=[];self.standing_checks=[];self.motion_house=house;self.motion_inputs=inputs
         self.environment_nodes={};self.environment_frame_readbacks=[]
         for ep,spec in scene['sources'].items():
             if spec.get('native_visual_kind')=='audio_only':
@@ -66,10 +66,12 @@ class NativeRegisteredVideo(NativeAlphaVideo):
             obj=self.sim.get_rigid_object_manager().add_object_by_template_id(tid)
             obj.motion_type=self.hs.physics.MotionType.KINEMATIC;obj.semantic_id=1000+int(asset['native_instance_id'])
             mesh=loaded_mesh(path)
-            self.actors.append({'object':RigidStandingInstance(obj),'endpoint_id':asset['endpoint_id'],'semantic_id':1000+int(asset['native_instance_id']),'declaration':asset,'source_material':material,'original_mesh':mesh,'applied_joint_input':np.empty(0),'native_actor_kind':'registered_rigid'})
+            self.actors.append({'object':RigidStandingInstance(obj),'endpoint_id':asset['endpoint_id'],'semantic_id':1000+int(asset['native_instance_id']),'declaration':asset,'source_material':material,'original_mesh':mesh,'applied_joint_input':np.empty(0),'native_actor_kind':'registered_rigid','prepared_glb':str(derived)})
         self.receipt.update(backend='Habitat-Sim registered standing GLB',source_materials=[a['source_material'] for a in self.actors],action_clocks=[],asset_admission_states=['formal_static_registration_episode_pending']*len(self.actors))
 
-    def _apply_entry(self,entry,scene):
+    def _apply_entry(self,entry,scene,frame_index=None):
+        if frame_index is not None and entry.get("motion_episode"):
+            return self._apply_motion_entry(entry,frame_index*2)
         from avengine.assets.habitat_capture import _apply_root_with_habitat
         asset=entry['declaration'];spec=scene['sources'][entry['endpoint_id']]
         if any(k['position_m']!=spec['trajectory'][0]['position_m'] for k in spec['trajectory']):raise ValueError('registered standing body moved without walking qualification')
@@ -95,8 +97,42 @@ class NativeRegisteredVideo(NativeAlphaVideo):
         mouth=(native@np.r_[asset['mouth_local_glb_m'],1.])[:3]
         return {'endpoint_id':entry['endpoint_id'],'actor_id':asset['native_instance_id'],'native_object_id':int(entry['object'].object_id),'semantic_id':entry['semantic_id'],'asset_id':asset['asset_id'],'position_m':native[:3,3].tolist(),'body_to_world_m':native.tolist(),'emitter_position_m':mouth.tolist(),'moving':False,'action_id':'stand','action_sample_index':0,'action_tick':0,'root_max_error':error,'joint_max_error':0.,'joint_state':'no_joint_DOFs_registered_static_GLB','source_registry_sha256':asset['source_registry_sha256'],'loaded_artifact_sha256':asset['actual_artifact_sha256'][asset['habitat_glb']]}
 
+    def _apply_motion_entry(self,entry,index):
+        from avengine.assets.habitat_capture import _apply_root_with_habitat
+        import hashlib
+        record=entry['motion_episode'];frame=record['source_frames'][index]
+        path=record['pose_glbs'][index];rm=self.sim.get_rigid_object_manager()
+        if entry.get('motion_pose_index')!=index:
+            rm.remove_object_by_id(entry['object'].object_id)
+            tm=self.sim.get_object_template_manager()
+            name='motion_'+entry['declaration']['asset_id']+'_'+str(index)
+            template=tm.create_new_template(name);template.render_asset_handle=path;template.collision_asset_handle=path
+            template.is_collidable=False;template.compute_COM_from_shape=False;template.shader_type='pbr'
+            tid=tm.register_template(template);obj=rm.add_object_by_template_id(tid)
+            obj.motion_type=self.hs.physics.MotionType.KINEMATIC;obj.semantic_id=entry['semantic_id']
+            entry['object']=RigidStandingInstance(obj);entry['motion_pose_index']=index
+        from avengine.assets.roster_motion.contact import yaw_matrix
+        root=np.eye(4);root[:3,:3]=yaw_matrix(record['yaw_rad']);root[:3,3]=record['world_roots_m'][index]
+        _apply_root_with_habitat(entry['object'],root,qt=self.qt,mn=self.mn)
+        native=np.asarray(entry['object'].root_scene_node.absolute_transformation(),float)
+        child=entry['object'].root_scene_node.create_child();child.translation=self.mn.Vector3(frame['mouth_m'])
+        mouth=np.asarray(child.absolute_translation(),float);expected=(root@np.r_[frame['mouth_m'],1.])[:3]
+        error=float(np.linalg.norm(mouth-expected))
+        if error>.0001:raise ValueError('moving native mouth differs from posed lip point')
+        entry['applied_root_input']=native.copy()
+        a=entry['declaration']
+        return {'endpoint_id':entry['endpoint_id'],'actor_id':a['native_instance_id'],
+            'native_object_id':int(entry['object'].object_id),'semantic_id':entry['semantic_id'],'asset_id':a['asset_id'],
+            'position_m':native[:3,3].tolist(),'body_to_world_m':native.tolist(),'emitter_position_m':mouth.tolist(),
+            'moving':frame['moving'],'action_id':'walk' if frame['moving'] else 'planted_pause',
+            'action_sample_index':index,'action_tick':index,'root_max_error':float(np.max(np.abs(native-root))),
+            'joint_max_error':0.,'joint_state':'30Hz CPU skin evaluated from admitted contact clip; native rigid posed mesh',
+            'source_registry_sha256':a['source_registry_sha256'],
+            'loaded_artifact_sha256':hashlib.sha256(Path(path).read_bytes()).hexdigest(),
+            'motion_master_sha256':record['lineage']['master_sha256'],'native_emitter_readback_error_m':error}
+
     def _apply(self,scene,frame_index):
-        rows=[self._apply_entry(entry,scene) for entry in self.actors]
+        rows=[self._apply_entry(entry,scene,frame_index) for entry in self.actors]
         f,r,u=camera_basis(forward_at(scene,frame_index/15))
         state=self.hs.AgentState();state.position=np.asarray(scene['listener_m'],dtype=np.float32)
         state.rotation=self.qt.from_rotation_matrix(np.stack((r,u,-f),axis=1));self.sim.get_agent(0).set_state(state)
@@ -115,6 +151,10 @@ class NativeRegisteredVideo(NativeAlphaVideo):
         result=super().encode(scene,path,review_frames,collect_pixel_visibility=collect_pixel_visibility)
         if len(self.environment_frame_readbacks)!=450:raise ValueError('incomplete native environmental source clock')
         result['environmental_emitter_readbacks']=self.environment_frame_readbacks
+        result['native_motion_admissions']={e['endpoint_id']:e['motion_episode'] for e in self.actors if e.get('motion_episode')}
+        for ep,record in result['native_motion_admissions'].items():
+            result['observed_mouth_trajectories'][ep]=[{'time_s':r['time_s'],'position_m':r['emitter_position_m']} for r in record['native_30Hz_readbacks']]
+
         for ep in self.environment_nodes:
             result['observed_mouth_trajectories'][ep]=[{'time_s':r['time_s'],'position_m':next(e['position_m'] for e in r['emitters'] if e['endpoint_id']==ep)} for r in self.environment_frame_readbacks]
         write_json(Path(path).parent/'native_environmental_emitters.json',{'frames':self.environment_frame_readbacks,'visual_geometry':'none; audio-only source points'})
@@ -201,5 +241,24 @@ class NativeRegisteredVideo(NativeAlphaVideo):
                 result=admit(ep,actual) if admit else {'status':'not_requested'}
                 if result['status']=='pass':accepted=result;break
             if accepted is None:raise ValueError('audio-only source lacks unchanged native 5deg admission')
+        requests=scene.get('production_scenario',{}).get('motion_requests',{})
+        if requests:
+            from avengine.assets.roster_motion.episode import compile_walking
+            for entry in self.actors:
+                ep=entry['endpoint_id']
+                if ep not in requests:continue
+                request=requests[ep]
+                if request['action']!='walk':raise ValueError('unsupported motion action; no static substitution')
+                record=compile_walking(self,entry,scene,self.motion_house,self.motion_inputs,directory/ep,request)
+                entry['motion_episode']=record;actual=[]
+                for index in range(901):
+                    row=self._apply_motion_entry(entry,index);row.update(frame_index=index,time_s=index/30)
+                    actual.append(row)
+                record['native_30Hz_readbacks']=actual
+                self._apply_motion_entry(entry,0)
+                check=next(c for c in checks if c['endpoint_id']==ep)
+                check.update(action='walk_and_planted_pause',motion_admission=record,
+                    native_full_skin_bounds_m=record['full_skin_bounds_m'],known_bad_detected=record['known_bad_10cm_floor_detected'])
+                write_json(directory/ep/'native_motion_readbacks.json',{'status':'pass','frames':actual,'geometry_receipt':str(directory/ep/'motion_geometry.json')})
         self.environment_frame_readbacks=[]
         self.standing_checks=checks;write_json(directory/'standing_admission.json',{'status':'pass','checks':checks,'placement_attempts':attempts,'original_contact_gate_preserved':True});self.camera_frame_readbacks=[];return checks
