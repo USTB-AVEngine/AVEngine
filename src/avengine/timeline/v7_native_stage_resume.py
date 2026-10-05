@@ -13,6 +13,8 @@ STAGES=('dry','visual_v0','visual_v1','audio_v0_a0','audio_v0_a1','audio_v1_a0',
 def _link_tree(source,target):
     target.mkdir(parents=True,exist_ok=True)
     for item in source.iterdir():
+        # This is a derived QA certificate, not an original RGB/RIR stage.
+        if item.name=="registry_namespace_readback.json":continue
         dest=target/item.name
         if item.is_symlink():raise ValueError('native predecessor must not contain symlinked artifacts')
         if item.is_dir():_link_tree(item,dest)

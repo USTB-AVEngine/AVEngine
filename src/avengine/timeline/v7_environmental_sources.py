@@ -70,18 +70,47 @@ def attach_environmental_program(scene,program,plan,admitted,rng,starts):
                 program['events'].append({'event_id':eid,'sound_asset_id':record['sound_asset_id'],'crop_start_sample':crop})
 
 
-def augment_environmental_native_bundle(raw,scene):
-    ids={str(s['actor_id']) for s in scene['sources'].values() if s.get('native_visual_kind')=='audio_only'}
+def augment_environmental_native_bundle(raw,scene,visual=None,start_s=None):
+    """Retain real audio-only nodes, never infer a person from an endpoint digit.
+
+    v6 requires every audible event to have a registered physical emitter.
+    An actual Habitat SceneGraph node is an audio-only entity with no drawable,
+    appearance or human identity. Its emitter track is read back natively.
+    Missing readbacks stay unbound and cannot qualify a production window.
+    """
+    by_id={str(s['actor_id']):(ep,s) for ep,s in scene['sources'].items()
+           if s.get('native_visual_kind')=='audio_only'}
     for event in raw['audio_program']['events']:
-        if event.get('actor_id') in ids:
-            event['native_audio_source_id']=event['actor_id'];event['actor_id']=None
-            # v6's visible-actor resolver also inspects endpoint names. The
-            # digit in environment1 is not evidence of human actor 1. Preserve
-            # the true native endpoint in a separate provenance field, while
-            # removing the visible-actor hint from this audio-only QA input.
-            event['native_source_endpoint_id']=event.pop('source_endpoint_id',None)
-            event.pop('source_endpoint_index',None)
-            event['visual_binding']='unbound_audio_only_native_emitter'
+        sid=str(event.get('actor_id'))
+        if sid not in by_id:continue
+        ep,spec=by_id[sid]
+        event['native_audio_source_id']=sid
+        event['native_source_endpoint_id']=event.pop('source_endpoint_id',None)
+        event.pop('source_endpoint_index',None)
+        event['visual_binding']='no_drawable; actual native audio-only SceneGraph node'
+        if visual is None or start_s is None:
+            event['actor_id']=None
+            continue
+        first=round(float(start_s)*15)
+        frames=visual['environmental_emitter_readbacks'][first:first+150]
+        if len(frames)!=150:raise ValueError('audio-only native source needs all 150 actual node readbacks')
+        observed=[]
+        for i,frame in enumerate(frames):
+            if frame['frame_index']!=first+i:raise ValueError('audio-only node clock differs from the observed window')
+            matches=[r for r in frame['emitters'] if r['endpoint_id']==ep and str(r['source_id'])==sid]
+            if len(matches)!=1:raise ValueError('audio-only native source identity is not unique')
+            node=matches[0];point=node['position_m']
+            observed.append({'frame_index':i,'position_m':point,'emitter_position_m':point,
+                'actor_id':sid,'moving':False,'action_id':'static_audio_point',
+                'body_to_world_m':node['transform_m'],'joint_state':'no_joint_DOFs_no_drawable',
+                'native_source_kind':'observed_Habitat_audio_only_SceneGraph_child'})
+        raw['actors'][sid]={'asset_id':'native_audio_point:'+ep,'species_id':None,
+            'entity_class':'environmental_audio_point','display_label':'背景环境声源'+ep.removeprefix('environment'),
+            'visual_geometry':'none; no rendered person/object is claimed',
+            'native_registration_source':'environmental_emitter_readbacks'}
+        raw['frame_readbacks']['actors'][sid]=observed
+        raw['frame_readbacks']['emitters'][sid]=[{'frame_index':r['frame_index'],'position_m':r['emitter_position_m']} for r in observed]
+        event['actor_id']=sid
     return raw
 
 

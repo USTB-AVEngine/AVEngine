@@ -27,7 +27,7 @@ def collect_native_pool(scene,start,window_id,visual,media,evidence,quota_index,
     raw=native_bundle(scene,start,window_id,visual,proof)
     bind_native_listener_frames(raw)
     from avengine.timeline.v7_environmental_sources import augment_environmental_native_bundle,collect_admitted_class_questions
-    augment_environmental_native_bundle(raw,scene)
+    augment_environmental_native_bundle(raw,scene,visual,start)
     public,private,audit=collect_questions(raw,window_id,media,
         seed=str(proof.get('question_seed','v7')),foa_readback=proof.get('foa_readback'),
         semantic_manifest=proof.get('semantic_manifest'),protocol_scene=proof.get('protocol_scene'),

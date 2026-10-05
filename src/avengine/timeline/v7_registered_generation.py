@@ -21,7 +21,7 @@ from avengine.timeline.v7_production_contract import validate_question_counts,qu
 from avengine.spatial_audio.audio import write_float32_wav
 
 ALPHA_RELEASE_PROFILE='v7-S-recorded-registered-native-14-v6-critical-coverage'
-PRODUCER_QA_REVISION='native-audio-only-endpoint-unbound-v2'
+PRODUCER_QA_REVISION='registered-native-audio-only-scenegraph-v3'
 
 
 def _cpu():

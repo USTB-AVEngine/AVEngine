@@ -82,7 +82,7 @@ def augment_content_binding(row,members,root):
     from avengine.timeline.v7_audio_sources import source_blockers
     if any(source_blockers(record) for record in program['records']):raise ValueError('actual authored source admission failed')
     from avengine.timeline.v7_registry_snapshot import resolve_registry,qualify_namespace
-    reference_path=Path(members[0]['visual_directory'])/'native_alpha_visual_evidence.json'
+    reference_path=Path(members[0]['visual_directory'])/'native_registered_visual_evidence.json'
     registry,original_registry_sha,mapped_sha=resolve_registry(reference_path,read_json(reference_path),recipe['assets'][0]['source_registry'])
     roster=intake_roster(registry)
     # Reuse a fully published content stage after a later selection/seal
@@ -112,7 +112,7 @@ def augment_content_binding(row,members,root):
         source=Path(member['windows_directory']);name=member['member']
         def requalify(attempt):
             required=[];windows=[]
-            visual=read_json(Path(member['visual_directory'])/'native_alpha_visual_evidence.json')
+            visual=read_json(Path(member['visual_directory'])/'native_registered_visual_evidence.json')
             visual['native_appearance_review']=read_json(Path(member['visual_directory'])/'native_appearance_review.json')['review']
             for wi,window in enumerate(member['windows']):
                 wid=window['window_id'];old=source/wid;dest=attempt/wid;dest.mkdir()
@@ -120,7 +120,7 @@ def augment_content_binding(row,members,root):
                 if not proof.get('native_dialogue_evidence'):raise ValueError('no actual native dialogue attachment to requalify')
                 native_shas={a['standing_pose_readback']['source_registry_sha256'] for a in proof['native_dialogue_evidence']['registered_actors']}
                 if not native_shas.issubset({original_registry_sha,mapped_sha}):raise ValueError('actual native dialogue registry version differs from retained snapshot')
-                vp=Path(member['visual_directory'])/'native_alpha_visual_evidence.json'
+                vp=Path(member['visual_directory'])/'native_registered_visual_evidence.json'
                 _,ns=qualify_namespace(visual,registry,original_registry_sha,vp.with_name('registry_namespace_readback.json'),vp)
                 for actor in proof['native_dialogue_evidence']['registered_actors']:
                     stand=actor['standing_pose_readback'];stand['source']=ns['source']
@@ -151,10 +151,10 @@ def augment_content_binding(row,members,root):
     assets={r['asset_id']:r for r in roster['records']};by_member={m['member']:m for m in members}
     contexts={};visuals={};component_cache={};counts=Counter();deferrals=[];pools={m:[] for m in MEMBERS};proofroot=root/'content_binding';proofroot.mkdir(exist_ok=True)
     for member in MEMBERS:
-        m=by_member[member];vd=Path(m['visual_directory']);visuals[member]=read_json(vd/'native_alpha_visual_evidence.json')
+        m=by_member[member];vd=Path(m['visual_directory']);visuals[member]=read_json(vd/'native_registered_visual_evidence.json')
         for wi,w in enumerate(m['windows']):
             folder=Path(m['windows_directory'])/w['window_id'];ev=read_json(folder/'evidence.json');scene=ev['scene'];start=ev['start_s'];scene=deepcopy(scene);scene['_content_start_s']=start
-            vp=Path(m['visual_directory'])/'native_alpha_visual_evidence.json'
+            vp=Path(m['visual_directory'])/'native_registered_visual_evidence.json'
             _,namespace=qualify_namespace(visuals[member],registry,original_registry_sha,vp.with_name('registry_namespace_readback.json'),vp)
             proof=_verified_native(visuals[member],folder,scene,assets,roster,namespace)
             audio=read_json(Path(m['audio_directory'])/'audio_evidence.json')
