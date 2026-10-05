@@ -102,7 +102,7 @@ class NativeRegisteredVideo(NativeAlphaVideo):
         import hashlib
         record=entry['motion_episode'];frame=record['source_frames'][index]
         path=record['pose_glbs'][index];rm=self.sim.get_rigid_object_manager()
-        if entry.get('motion_pose_index')!=index:
+        if entry.get('motion_pose_path')!=path:
             rm.remove_object_by_id(entry['object'].object_id)
             tm=self.sim.get_object_template_manager()
             name='motion_'+entry['declaration']['asset_id']+'_'+str(index)
@@ -110,7 +110,7 @@ class NativeRegisteredVideo(NativeAlphaVideo):
             template.is_collidable=False;template.compute_COM_from_shape=False;template.shader_type='pbr'
             tid=tm.register_template(template);obj=rm.add_object_by_template_id(tid)
             obj.motion_type=self.hs.physics.MotionType.KINEMATIC;obj.semantic_id=entry['semantic_id']
-            entry['object']=RigidStandingInstance(obj);entry['motion_pose_index']=index
+            entry['object']=RigidStandingInstance(obj);entry['motion_pose_index']=index;entry['motion_pose_path']=path
         from avengine.assets.roster_motion.contact import yaw_matrix
         root=np.eye(4);root[:3,:3]=yaw_matrix(record['yaw_rad']);root[:3,3]=record['world_roots_m'][index]
         _apply_root_with_habitat(entry['object'],root,qt=self.qt,mn=self.mn)
@@ -124,7 +124,7 @@ class NativeRegisteredVideo(NativeAlphaVideo):
         return {'endpoint_id':entry['endpoint_id'],'actor_id':a['native_instance_id'],
             'native_object_id':int(entry['object'].object_id),'semantic_id':entry['semantic_id'],'asset_id':a['asset_id'],
             'position_m':native[:3,3].tolist(),'body_to_world_m':native.tolist(),'emitter_position_m':mouth.tolist(),
-            'moving':frame['moving'],'action_id':'walk' if frame['moving'] else 'planted_pause',
+            'moving':frame['moving'],'action_id':frame.get('action_id','walk' if frame['moving'] else 'planted_pause'),
             'action_sample_index':index,'action_tick':index,'root_max_error':float(np.max(np.abs(native-root))),
             'joint_max_error':0.,'joint_state':'30Hz CPU skin evaluated from admitted contact clip; native rigid posed mesh',
             'source_registry_sha256':a['source_registry_sha256'],
@@ -248,8 +248,11 @@ class NativeRegisteredVideo(NativeAlphaVideo):
                 ep=entry['endpoint_id']
                 if ep not in requests:continue
                 request=requests[ep]
-                if request['action']!='walk':raise ValueError('unsupported motion action; no static substitution')
-                record=compile_walking(self,entry,scene,self.motion_house,self.motion_inputs,directory/ep,request)
+                if request['action']=='walk':record=compile_walking(self,entry,scene,self.motion_house,self.motion_inputs,directory/ep,request)
+                elif request['action']=='sit':
+                    from avengine.assets.roster_motion.seating import compile_seated
+                    record=compile_seated(self,entry,scene,self.motion_house,self.motion_inputs,directory/ep,request)
+                else:raise ValueError('unsupported admitted motion action; no static substitution')
                 entry['motion_episode']=record;actual=[]
                 for index in range(901):
                     row=self._apply_motion_entry(entry,index);row.update(frame_index=index,time_s=index/30)

@@ -85,26 +85,28 @@ def externalize_unchanged_images(d,b,directory):
     return out
 
 
-def admitted_master(entry, inputs, house):
+def admitted_master(entry, inputs, house,kind="walk"):
     import json
     registry=Path(inputs['v7_asset_roster']);data=json.loads(registry.read_text());root=Path(data['artifact_root'])
     major=entry['declaration']['body_identity_id']
     record=next(r for r in data['humans']['majors'] if r['major_id']==major)
     variant=next(r for r in record['minor_variants'] if r['color']==entry['declaration']['color'])
-    if not variant.get('walk_allowed') or variant['habitat']['walk']['status']!='pass_admitted_routes':raise ValueError('human walk was not admitted by roster')
+    if kind=='walk' and (not variant.get('walk_allowed') or variant['habitat']['walk']['status']!='pass_admitted_routes'):raise ValueError('human walk was not admitted by roster')
+    if kind=='sit' and variant['habitat']['sit']['status']!='pass_with_verified_seat':raise ValueError('human sitting was not admitted by roster')
     path=root/variant['habitat']['motion_master'];d,b=read_glb(path)
     family='mp3d' if house['input'].get('dataset',house['house']).lower().startswith('mp3d') or house['house'].startswith('mp3d') else 'hm3d'
-    action=next(a for a in d['animations'] if a['name']=='Walking_Contact_'+family)
+    action=next(a for a in d['animations'] if a['name']==('Walking_Contact_'if kind=='walk'else'Sitting_Contact_')+family)
     # Same body, selected registered shirt. No shape replacement or resizing.
     d,b=apply_appearance(d,b,entry['prepared_glb'])
     return d,b,action,{'roster':str(registry),'roster_sha256':hashlib.sha256(registry.read_bytes()).hexdigest(),
         'master':str(path),'master_sha256':hashlib.sha256(path.read_bytes()).hexdigest(),'admitted_clip':action['name'],
-        'upstream_scope':variant['habitat']['walk']['scope'],'new_house_admission_required':True}
+        'upstream_scope':variant['habitat']['walk']['scope'] if kind=='walk' else variant['habitat']['sit']['implementation'],'new_house_admission_required':True}
 
 
 def compile_walking(video,entry,scene,house,inputs,directory,request):
     from shapely.geometry import shape,LineString
     from avengine.timeline.v7_storage_budget import check_write
+    directory=Path(directory);directory.mkdir(parents=True,exist_ok=True)
     d,b,action,lineage=admitted_master(entry,inputs,house)
     times=np.arange(901)/30.;speed=float(request.get('speed_m_s',.5))
     if not .15<=speed<=1.2:raise ValueError('human walking speed outside explicit slow-to-normal production support')

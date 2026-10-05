@@ -32,7 +32,12 @@ def render_alpha_audio(scene,house,inputs,cache_directory,attempt,dry,receipt,ca
         if not np.any(dry[ep]):
             plans[ep]={'RIR_count':0,'reason':'visible silent bystander'};continue
         trajectory=spec['trajectory'];point=np.asarray(trajectory[0]['position_m'])
-        if any(not np.array_equal(k['position_m'],point) for k in trajectory):raise ValueError('unadmitted human movement')
+        if any(not np.array_equal(k['position_m'],point) for k in trajectory):
+            from avengine.timeline.v7_registered_motion_audio import moving_stem
+            stems[ep],motion,observed=moving_stem(spec,scene,inputs,cache,dry[ep],attempt,ep)
+            plans[ep]={'RIR_count':motion['RIR_count'],'motion':'admitted native 30Hz source; midpoint-qualified emission-aligned crossfade','moving_energy':motion}
+            directions.extend(observed)
+            continue
         rir=cache.get(point);distance=float(np.linalg.norm(point-np.asarray(scene['listener_m'])))
         direction=foa_direction(rir,scene["listener_m"],point,scene["camera_forward"],sample_rate=16000)
         target=(point-np.asarray(scene['listener_m']))/distance
@@ -54,7 +59,7 @@ def render_alpha_audio(scene,house,inputs,cache_directory,attempt,dry,receipt,ca
     energy_error=float(np.max(np.abs(np.sum(before*before,axis=0)-np.sum(after*after,axis=0))))
     if energy_error>1e-10:raise ValueError('camera FOA rotation failed vector-energy conservation')
     write_float32_wav(attempt/'scene_foa_full_tail.wav',camera,16000,channel_axis=0)
-    result={'status':'pass','static_only':True,'moving_energy_gate':'not_applicable_no_moving_sources',
+    result={'status':'pass','static_only':not any('moving_energy'in p for p in plans.values()),'moving_energy_gate':'pass' if any('moving_energy'in p for p in plans.values()) else 'not_applicable_no_moving_sources',
         'directions':directions,'camera_rotation_energy_absolute_error':energy_error,
         'RIR_plan':plans,'RIR_cache':cache.stats.copy(),'dry_assets_receipt':receipt,
         'wall_seconds':time.perf_counter()-start,'process_cpu_seconds':time.process_time()-cpu,
@@ -108,8 +113,10 @@ def source_qa_evidence(scene,program,dry_receipt,visual,foa_path,audio_evidence,
     cameras=visual['protocol_camera_readbacks']
     listener=np.asarray(scene['listener_m'])
     for ep,spec in protocol['sources'].items():
-        point=np.asarray(scene['sources'][ep]['trajectory'][0]['position_m']);delta=point-listener;track=[]
+        from avengine.timeline.v7_registered_motion_audio import position_at
+        track=[]
         for row in cameras:
+            point=position_at(scene['sources'][ep]['trajectory'],row['time_s']);delta=point-listener
             angle=math.radians(row['yaw_deg']-reference);c,s=math.cos(angle),math.sin(angle)
             rotation=np.array([[c,0.,s],[0.,1.,0.],[-s,0.,c]])
             track.append({'time_s':row['time_s'],'position_m':(listener+rotation@delta).tolist()})
