@@ -710,3 +710,12 @@ R12 P19运行时修正：10:35的R2尝试在共享`/tmp/xdg-runtime-mesa-0`创�
 
 
 AFS运行时所有权实测：CCI任务目录stat为UID/GID10740、私有目录0700，而P19协调器euid为0。不chown AFS、不动共享/tmp，原生检查和原生父场景子进程使用本任务目录实际UID/GID运行；协调器保留原身份以监测和停止自己的进程组。子进程UID10740在CCI已读出Mesa26软件RGB；48g以本任务实际UID复验通过。临时运行目录仍在任务AFS根目录，原始录音/许可证、物理设置、真值和门槛不变。
+
+
+### R12 首批最终冻结和队列交接（新加坡11:39）
+
+生产代码冻结`33b5b12df1a45ca265bf0c4fbe9b26b664577a7c`；物理渲染/RIR/QA源码相对完整媒体冒烟提交ceead4d逐文件一致，见`round12/readback/physical_module_parity_r4.json`。AFS私有运行目录与实际原生子进程UID/GID在CCI匹配，最终版本已真实读出32×32软件RGB，见AFS`readback/activation_r4.json`；旧共享/tmp目录不动。协调器使用原身份、原生子进程仅使用本任务目录所有者身份，无chown或共享配置改变。
+
+2026-10-05新加坡11:39:53，R4计划`plans/v7_s_critical_cpu_batch1_20261005_r4.json`重新入P19待派发首位，备份后P19_DRY=1核对通过，runner不改。12初始工作进程、所有子进程32核亲和上限，沿用训练吞吐下降>10%就减半的原规则。每个P19实际运行环境先读软件RGB，失败则不派发父场景。新阶段目录`production_r4/`、主日志`p19_run_r4/v7_s_CPU_500_parents_r4/`；永久交付仍为AFS任务根目录`release/train.jsonl`、`release/dev.jsonl`、`release/DELIVERY_MANIFEST.json`，sealed且500父才发布。旧R2已停止、正式交付0；R3没有入队。当前派发状态见AFS`readback/dispatch_r4_latest.json`，没有拿旧PROGRESS当新版本进度。
+
+12进程以356.528 CPU秒/世界×875/12/3600推算理想7.22小时，含IO、验收和差异余量预计派发后8–12小时；若午前派发预计今晚20:00–24:00（未验证，排队或进一步降并行会顺延）。人数/声音类别的500父实际源程序覆盖已检查，但全量正式题族量、V/A/AV比例和绑定比例只能从最终封存读取；计划仍为1750窗、24500题、30/25/45%、绑定≥20%。本轮第二批与未验证项保留，不为了量产更改原门禁。详细交接见本轮REPORT_zh.md和HANDOFF.json。
