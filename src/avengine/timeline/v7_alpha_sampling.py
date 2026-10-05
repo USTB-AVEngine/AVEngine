@@ -30,6 +30,15 @@ def alpha_row(original,layout,index,*,force_quartet=True):
     return row
 
 
+def parent_appearance_assets(assets,row):
+    """Use only the independent appearance seed; keep all emitter slots fixed."""
+    endpoints=[a['endpoint_id'] for a in assets]
+    permutation=np.random.default_rng(row['seeds']['appearance']).permutation(len(assets))
+    result=[deepcopy(assets[int(i)]) for i in permutation]
+    for asset,endpoint in zip(result,endpoints,strict=True):asset['endpoint_id']=endpoint
+    return result
+
+
 def camera_knots(starts,yaw):
     knots={0.:float(yaw)}
     for start in starts:

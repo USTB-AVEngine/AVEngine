@@ -1,0 +1,48 @@
+{
+  "revision": "v7-moving-rir-native-baseline-v1",
+  "baseline_pose_count": 40,
+  "independent_repeats_per_pose": 3,
+  "calibration_poses": 32,
+  "heldout_good_poses": 8,
+  "baseline_statistic": "per-metric 95th percentile of worst pair within each calibration pose",
+  "finite_sample_uncertainty": "95% bootstrap upper confidence bound; resample whole pose clusters, 1000 draws",
+  "bootstrap_seed": 2026100406,
+  "energy_and_DRR_extra_margin_db": 0.5,
+  "energy_margin_reason": "Half of the former 1dB engineering budget; allows 12.2% energy / 5.9% pressure discretization variation, while known 3/6dB faults must fail. Not fitted to the fixed80 test.",
+  "arrival_extra_margin_ms": 0.125,
+  "arrival_margin_reason": "Two 16kHz samples allow endpoint and interpolated first-arrival quantization. The first-arrival measurement is e3dc246; no late-peak search.",
+  "minimum_good_accept_fraction": 0.95,
+  "required_known_bad_gain_delay_reject_fraction": 1.0,
+  "unchanged_direction_limit_deg": 5.0,
+  "unchanged_RT60_difference": "max(0.05,0.1*reference)",
+  "unchanged_tail_truncation_allowed": false,
+  "native_thread_choices": [
+    1,
+    8
+  ],
+  "selected_native_threads": 1,
+  "selected_formal_interpolation": null,
+  "native_seed_control": "unavailable; SDK defaults retained",
+  "fixed80_required_pass_count": 80,
+  "target_domain_waveforms_used": false,
+  "crossfade_candidate": {
+    "revision": "integer-arrival-local-correlation-crossfade-v1",
+    "coherent_direct_window_s": 0.0005,
+    "transition_s": 0.0015,
+    "correlation_window_s": 0.02,
+    "reason": "The rejected direct-only equal-power candidate produced a coherent-reflection +3dB bump. Use endpoint correlation: rho=1 gives linear weights; rho=0 gives constant-power normalized-linear weights. Twenty milliseconds pools 320 W samples while remaining shorter than the 0.25s trajectory interval. One scalar envelope is shared by all FOA channels. No native RIR normalization, per-channel gain, midpoint fitting, or target waveform is used. Negative correlation is clipped to zero to cap amplification at sqrt(2); independently failed intervals must be refined."
+  },
+  "selected_formal_policy": null,
+  "qualified_acoustic_candidate": {
+    "revision": "integer-arrival-local-correlation-emission-aligned-v1",
+    "virtual_kernel_step_samples": 160,
+    "diffraction": true,
+    "max_diffraction_order": 10,
+    "native_thread_count": 1,
+    "measurement_reference_repeats": 3,
+    "aggregation": "median absolute metrics; worst validity/direction/tail",
+    "qualification_scope": "two measured HM3D houses, fixed80 and independent baseline/control cases; full QA/assets remain separately blocked",
+    "production_ready": false
+  },
+  "selected_acoustic_interpolation": "integer-arrival-local-correlation-emission-aligned-v1"
+}

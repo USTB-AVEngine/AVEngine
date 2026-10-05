@@ -65,7 +65,7 @@ class NativeContinuousVideo:
                 'asset_contact_tolerance_changed':False,'original_render_and_collision_assets_preserved':True}
         self.sim=hs.Simulator(configuration)
         maps=Path('/proc/self/maps').read_text()
-        if 'swrast_dri.so' not in maps or 'libEGL_nvidia' in maps or 'libnvidia-gl' in maps:
+        if not any(driver in maps for driver in ('swrast_dri.so','libgallium')) or 'libEGL_nvidia' in maps or 'libnvidia-gl' in maps:
             self.sim.close();raise RuntimeError('native CPU renderer did not load only the software driver')
         # The scan may itself use native PBR. Configure sources after the scan
         # has loaded so its existing drawables keep the original PBR handle.
@@ -188,7 +188,9 @@ class NativeContinuousVideo:
                 raise ValueError('inserted source material acceptance failed: '+json.dumps(record))
 
     def encode(self,scene,path,review_frames=None,*,collect_pixel_visibility=False):
-        path=Path(path);start=time.perf_counter();frames=[];mouths={a['endpoint_id']:[] for a in self.actors}
+        from avengine.timeline.v7_storage_budget import check_write
+        path=Path(path);check_write(path,expected_bytes=32_000_000)
+        start=time.perf_counter();frames=[];mouths={a['endpoint_id']:[] for a in self.actors}
         write_json(path.parent/'source_materials.json',{'rendering':self.material_rendering,
                    'sources':[a['source_material'] for a in self.actors]})
         frame_count=round(scene['duration_s']*FPS)
@@ -200,6 +202,7 @@ class NativeContinuousVideo:
         process=subprocess.Popen(command,stdin=subprocess.PIPE)
         try:
             for index in range(frame_count):
+                if index%15==0:check_write(path,expected_bytes=16_000_000)
                 actors=self._apply(scene,index)
                 obs=self.sim.get_sensor_observations()
                 rgb=np.asarray(obs['rgb'])[:,:,:3];depth=np.asarray(obs['depth']);semantic=np.asarray(obs['semantic'])
@@ -236,7 +239,8 @@ class NativeContinuousVideo:
         material_checks={'status':'pass' if any(r['status']=='pass' for r in self.material_checks) else 'not_run',
                          'checks':self.material_checks}
         write_json(path.parent/'source_material_checks.json',material_checks)
-        visibility_receipt={'pixel_visibility_truth':visibility.truth if visibility is not None else {'status':'not_run_unqualified_native_stream'},
+        visibility_receipt={'occluder_evidence':{'frame_index_scope':'scene','frame_records':visibility.occluder_frames} if visibility is not None else {'status':'not_run'},
+                            'pixel_visibility_truth':visibility.truth if visibility is not None else {'status':'not_run_unqualified_native_stream'},
                             'alignment':visibility.receipt() if visibility is not None else {'status':'not_run','full_stream_qualification':'failed; sampler controls retained'}}
         write_json(path.parent/'native_visibility_evidence.json',visibility_receipt)
         result={**visibility_receipt,'native_visibility_alignment':visibility_receipt['alignment'],

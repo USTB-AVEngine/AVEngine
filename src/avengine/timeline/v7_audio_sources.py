@@ -18,8 +18,14 @@ FORBIDDEN_DATASETS = ("STARSS23", "DCASE", "TAU", "SAVVY")
 
 def source_blockers(record):
     """Keep existing automatic admission; reject forbidden kinds/provenance."""
+    if record.get("source_type") == "author_tts" and record.get("speech_policy"):
+        # Use the QA owner's natural-TTS source authority, including SHA-bound
+        # blind ASR, licensed VCTK reference and matching registered gender.
+        # Native episode/role/mouth proofs remain separate QA gates.
+        from avengine.qa.v7_recorded_audio import natural_speech_blockers
+        return natural_speech_blockers(record)
     reasons = []
-    if record.get("strict_v7_eligible") is not True or record.get("formal_status") != "admitted":
+    if record.get("strict_v7_eligible") is not True or record.get("formal_status") not in {"admitted", "admitted_under_listed_screens"}:
         reasons.append("upstream_automatic_admission_missing")
     screens = record.get("screens", {})
     license_screen = screens.get("license", {})

@@ -31,7 +31,7 @@ DIRECTORIES: list[tuple[str, str, str]] = [
     ("routes", "相机与路径", "相机机位、可行域、路径库、轨迹选择、发声锚点"),
     ("capture", "episode 捕获", "演员级 episode 的视觉捕获与动作试点"),
     ("visual", "视觉回放", "在 AVEngine 原生视觉路径中回放、渲染与核验放置结果"),
-    ("timeline", "时间线", "权威时间线、音频程序（src/avengine/timeline，工具暂无）"),
+    ("timeline", "时间线", "权威时间线、连续场景、时变空间音频与吞吐诊断"),
     ("audio", "空间音频", "双耳/FOA 渲染与混音（src/avengine/spatial_audio，工具暂无）"),
     ("qa", "出题与认证", "题型设计、出题、闸门核验、held-out 划分、评测与打分"),
     ("dataset", "数据集装配", "训练/评测数据的规模化装配、重组、吞吐批与验证"),

@@ -1,0 +1,162 @@
+{
+  "schema": "v7-aggregate-scene-profile-v1",
+  "provenance": {
+    "recommendations": "real_scene_profile_20261004/v7_recommended_config.json",
+    "profile": "real_scene_profile_20261004/target_scene_profile.json",
+    "audit": "real_scene_profile_20261004/selection_audit.json",
+    "profile_sha256": "214230b2fc0efe00804ee91d19170d97ae6eae8e4c398875358f47ca8adb054b",
+    "statistical_recordings": 72,
+    "video_recordings": 60,
+    "audio_only_recordings": 12,
+    "excluded_panel_recordings": 78,
+    "excluded_heldout_room_recordings": 18,
+    "panel_overlap": 0,
+    "heldout_room_overlap": 0,
+    "SAVVY_media_used": 0,
+    "allowed": "aggregate marginals only; no per-recording frames/audio/pose/trajectory/layout/event boundaries; no test-score tuning"
+  },
+  "mixture": {
+    "profile_parent_fraction": 0.9,
+    "coverage_parent_fraction": 0.1,
+    "coverage_period": 10,
+    "coverage_slot": 0,
+    "coverage_speaker_counts": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8
+    ],
+    "coverage_visible_count_offset": 1,
+    "policy": "one coverage parent every 10 scene indices; cycle distinct speakers 0..8; visible-count cycle offset keeps a visible silent person in zero-speaker worlds"
+  },
+  "people_count": {
+    "distribution": {
+      "0": 0.005156537753222836,
+      "1": 0.06279926335174954,
+      "2": 0.2376611418047882,
+      "3": 0.519889502762431,
+      "4": 0.1744014732965009,
+      "5": 9.208103130755064e-05
+    },
+    "scope": "detected people in horizontal 360-degree panorama band, not people inside one 85-degree crop and not true room occupancy",
+    "evidence": "target_scene_profile.json#/datasets/STARSS23/people/visible_people_360",
+    "proxy_unverified": true
+  },
+  "posture": {
+    "resolved_branch_probability": 0.3942627540098146,
+    "unresolved_branch_probability": 0.6057372459901854,
+    "resolved_distribution": {
+      "crouching": 0.009857154790744298,
+      "sitting": 0.5875866677804694,
+      "standing": 0.3900258959151282,
+      "walking": 0.012530281513658008
+    },
+    "unresolved_distribution": {
+      "standing": 0.25,
+      "sitting": 0.25,
+      "walking": 0.25,
+      "crouching": 0.25
+    },
+    "unresolved_policy": "independent engineering randomization; not recovered real postures",
+    "evidence": "target_scene_profile.json#/datasets/STARSS23/people/posture",
+    "proxy_unverified": true,
+    "runtime_policy": "requests only; use only an admitted action, never silently replace sitting/walking/crouching with standing"
+  },
+  "concurrent_speakers": {
+    "distribution": {
+      "0": 0.4138745558689323,
+      "1": 0.5405661876184517,
+      "2": 0.04508206474098439,
+      "3": 0.0004771917716315898,
+      "4": 0.0,
+      "5": 0.0,
+      "6": 0.0,
+      "7": 0.0,
+      "8": 0.0
+    },
+    "tick_seconds": 0.1,
+    "scope": "concurrent distinct speaking actor IDs per 100 ms; not distinct speakers per 10-second window",
+    "default_identity_pool_minimum": 3,
+    "identity_pool_status": "independent engineering choice, not a measured 10-second unique-speaker distribution",
+    "hold_ticks_inclusive": [
+      5,
+      30
+    ],
+    "hold_duration_status": "independent engineering blocks; never copied real event boundaries",
+    "evidence": "target_scene_profile.json#/datasets/STARSS23/people/speaking_people_per_100ms"
+  },
+  "speech_distance_m": {
+    "histogram_edges": [
+      0.0,
+      0.5,
+      1.0,
+      2.0,
+      3.0,
+      4.0,
+      6.0,
+      10.0,
+      null
+    ],
+    "histogram_proportions": [
+      0.0014567414019149496,
+      0.06312987511753816,
+      0.506747361311254,
+      0.4211969117093948,
+      0.007124789765755416,
+      0.00034432069499933235,
+      0.0,
+      0.0
+    ],
+    "quantiles": {
+      "0.05": 0.97,
+      "0.1": 1.05,
+      "0.25": 1.29,
+      "0.5": 1.87,
+      "0.75": 2.26,
+      "0.9": 2.52,
+      "0.95": 2.64
+    },
+    "sampling": "monotone inverse CDF through both aggregate bin masses and supplied quantiles; independent uniform draws; native feasibility remains mandatory",
+    "coverage_range_m": [
+      0.5,
+      9.0
+    ],
+    "coverage_range_status": "independent design sweep; SAVVY public range only, no empirical SAVVY probabilities",
+    "evidence": "target_scene_profile.json#/datasets/STARSS23/people/distance_from_annotation_m"
+  },
+  "azimuth": {
+    "distribution": "uniform",
+    "range_deg": [
+      -180.0,
+      180.0
+    ],
+    "hfov_deg": 85.0,
+    "horizontal_out_of_frame_expectation": 0.7638888888888888,
+    "profile_observed_out_of_frame": 0.7593728066111194,
+    "policy": "no out-of-frame reweighting; camera and source directions independent; native full frustum and occlusion determine truth"
+  },
+  "weak_proxies": {
+    "groups": {
+      "mode": "independent coverage hint only",
+      "maximum_prior_strength": 0.1,
+      "verified": false
+    },
+    "gestures": {
+      "mode": "independent coverage hint only",
+      "maximum_prior_strength": 0.1,
+      "verified": false
+    },
+    "clothing_colour": {
+      "mode": "retain independent appearance seed and existing admitted palette",
+      "maximum_prior_strength": 0.1,
+      "verified": false
+    },
+    "hard_matching": false
+  },
+  "admission": "sampler requests only; native layout, licensed assets/actions/recorded dry, RIR and original QA evidence must pass; no fallback to frozen alpha or two-person canary"
+}

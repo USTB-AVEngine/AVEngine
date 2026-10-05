@@ -19,7 +19,8 @@ def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('--houses',type=Path,required=True);p.add_argument('--seeds',type=Path,required=True)
     p.add_argument('--runtime-inputs',type=Path,required=True);p.add_argument('--assets',type=Path,required=True)
-    p.add_argument('--output',type=Path,required=True);p.add_argument('--offset',type=int,default=0)
+    p.add_argument('--recorded-dry-programs',type=Path,help='JSON map scene_id -> registered mono event program; no synthesis fallback')
+    p.add_argument('--qa-evidence',type=Path,help='per-parent complete native QA proof; all members collected before joint selection');p.add_argument('--output',type=Path,required=True);p.add_argument('--offset',type=int,default=0)
     p.add_argument('--limit',type=int,default=1);p.add_argument('--workers',type=int,default=1)
     p.add_argument('--compact-completed',action='store_true');p.add_argument('--candidate-only',action='store_true');p.add_argument('--plan-only',action='store_true')
     a=p.parse_args()
@@ -34,13 +35,35 @@ def main():
         raise RuntimeError('formal generation blocked: '+', '.join(FORMAL_BLOCKERS))
     if a.plan_only:
         from avengine.timeline.v7_candidate_generation import seeded_scene
-        for r in rows:seeded_scene(r,by_id[r['house']])
+        from copy import deepcopy
+        from avengine.timeline.v7_scene_quotas import QUOTA_INPUT_VERSION,DIAGNOSTIC_INPUT_VERSION,validate_quota_row,validate_diagnostic_row,quota_summary,diagnostic_summary
+        from avengine.timeline.v7_scene_profile import PROFILE_INPUT_VERSION,validate_profile_row,profile_request_summary
+        profile_rows=[r for r in rows if r.get('schema')==PROFILE_INPUT_VERSION]
+        quota_rows=[r for r in rows if r.get('schema')==QUOTA_INPUT_VERSION]
+        diagnostic_rows=[r for r in rows if r.get('schema')==DIAGNOSTIC_INPUT_VERSION]
+        for r in rows:
+            check=deepcopy(r)
+            if r.get('schema')==PROFILE_INPUT_VERSION:
+                validate_profile_row(r);check['schema']=r['base_seed_schema']
+            if r.get('schema')==DIAGNOSTIC_INPUT_VERSION:
+                validate_diagnostic_row(r);check['schema']=r['base_seed_schema']
+            if r.get('schema')==QUOTA_INPUT_VERSION:
+                validate_quota_row(r);check['schema']=r['base_seed_schema']
+            seeded_scene(check,by_id[r['house']])
         print(json.dumps({'status':'input_plan_valid','parents':len(rows),'members':sum(len(r['members']) for r in rows),
-                          'formal_generation_ready':False,'blocking_reasons':list(FORMAL_BLOCKERS)}));return
+                          'formal_generation_ready':False,'blocking_reasons':list(FORMAL_BLOCKERS),
+                          'scenario_quota_status':'requested_only_native_not_admitted' if quota_rows or diagnostic_rows or profile_rows else 'legacy_two_person_canary',
+                          'scenario_quotas':profile_request_summary(profile_rows) if profile_rows else diagnostic_summary(diagnostic_rows) if diagnostic_rows else quota_summary(quota_rows) if quota_rows else None}));return
     if os.environ.get('CUDA_VISIBLE_DEVICES')!='':raise ValueError('candidate command requires CUDA_VISIBLE_DEVICES empty')
     inputs=json.loads(a.runtime_inputs.read_text());assets=json.loads(a.assets.read_text())
     if isinstance(assets,dict):assets=assets['assets']
-    tasks=[(r,by_id[r['house']],inputs,assets,str(a.output),a.compact_completed) for r in rows]
+    qa_proofs=json.loads(a.qa_evidence.read_text()) if a.qa_evidence else None
+    if qa_proofs is not None and any(r['scene_id'] not in qa_proofs for r in rows):
+        raise ValueError('full QA evidence file is missing a selected parent; fallback is forbidden')
+    programs=json.loads(a.recorded_dry_programs.read_text()) if a.recorded_dry_programs else {}
+    if any(r['scene_id'] not in programs for r in rows):
+        raise ValueError('every selected parent requires --recorded-dry-programs; eSpeak/procedural fallback is forbidden')
+    tasks=[(r,by_id[r['house']],{**inputs,'recorded_dry_program':programs[r['scene_id']]},assets,str(a.output),a.compact_completed,qa_proofs[r['scene_id']] if qa_proofs is not None else None) for r in rows]
     a.output.mkdir(parents=True,exist_ok=True)
     with ProcessPoolExecutor(max_workers=a.workers,mp_context=multiprocessing.get_context('spawn')) as pool:
         results=list(pool.map(worker,tasks))

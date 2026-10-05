@@ -86,3 +86,53 @@ def validate_v6_items(public, private, audit, *, seed='v7'):
             'checked_forms': len(checked), 'passed_forms': sum(x['status'] == 'pass' for x in checked),
             'mismatches': mismatches, 'items': checked,
             'status': 'pass' if checked and not mismatches else 'fail' if mismatches else 'not_run'}
+
+def validate_content_items(public, private):
+    """Independent table reduction for the separate content-binding panel.
+
+    Does not rerun its emitter/selection functions. Native media qualification
+    is checked by collection; this reference recomputes the offered answer.
+    """
+    by_id={r['question_id']:r for r in private}
+    checked=[];mismatches=[]
+    for request in public:
+        if request.get('protocol_panel')!='v7_content_binding':continue
+        gold=by_id[request['question_id']];e=gold['evidence'];scene=e['scene'];query=e['query']
+        lo,hi=map(float,scene['window_s'])
+        actor={str(a['actor_id']):a for a in scene['actors']}
+        eligible=[]
+        for source in scene['emissions']:
+            if query.get('names_sound_class_in_question') is True and source['content_class']!=query['content_class']:continue
+            eligible.append(source)
+        if query['kind']=='first_actor':
+            onset={}
+            for source in eligible:
+                if source['mechanism']!='actor_live':continue
+                key=str(source['actor_id'])
+                for a,b in source['measured_activity_s']:
+                    if a<hi and b>lo:onset[key]=min(onset.get(key,float('inf')),max(a,lo))
+            first=min(onset.values());keys=[k for k,v in onset.items() if v==first]
+            if len(keys)!=1:raise ValueError('independent first-actor tie')
+            expected=actor[keys[0]]['descriptor_zh']
+        else:
+            time=query['time_s'];active=set()
+            for source in eligible:
+                if any(a<=time<b for a,b in source['measured_activity_s']):
+                    active.add(('actor',str(source['actor_id'])) if source['mechanism']=='actor_live'
+                               else ('device',str(source['device_id'])))
+            if len(active)!=1:raise ValueError('independent physical source is not unique')
+            entity,key=next(iter(active))
+            if query['kind']=='live_or_playback':expected='现场人物' if entity=='actor' else '音箱播放'
+            elif query['kind']=='offscreen_origin':expected='是' if entity=='actor' and key==str(query['subject_actor_id']) else '否'
+            else:expected=actor[key]['descriptor_zh']
+        form_answer=expected
+        if request['form']=='mcq':
+            form_answer=next(c['id'] for c in request['choices'] if c['text']==expected)
+        ok=expected==gold['canonical_answer'] and form_answer==gold['answer']
+        row={'question_id':request['question_id'],'status':'pass' if ok else 'fail',
+             'expected_canonical':expected,'expected_form_answer':form_answer}
+        checked.append(row)
+        if not ok:mismatches.append({**row,'actual_canonical':gold['canonical_answer'],'actual_form_answer':gold['answer']})
+    return {'method':'independent half-open emission table / actor set / clipped onset reduction',
+            'checked_forms':len(checked),'passed_forms':sum(r['status']=='pass' for r in checked),
+            'mismatches':mismatches,'items':checked,'native_qualification_not_replaced':True}

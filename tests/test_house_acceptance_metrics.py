@@ -151,3 +151,42 @@ def test_boundary_diagnostic_survives_without_native_rir_or_views(tmp_path, monk
     assert not diagnostic["ray_origins_available"]
     assert (tmp_path/"hole_locators.png").exists()
     assert (tmp_path/"raw_boundary_edges.npz").exists()
+
+
+def test_stronger_early_reflection_cannot_replace_direct_arrival_for_distance_fit():
+    # Direct pressure follows 1/r. A fixed stronger echo at +1.6875 ms made
+    # the former largest-peak search assign the far probe's echo as direct.
+    energies = []
+    for distance in [1., 2., 4.]:
+        geometric = round(distance / 343 * 16000)
+        w = np.zeros(64000)
+        w[geometric] = 1. / distance
+        w[geometric + 27] = .6
+        result, _ = rir_metrics(np.stack([w, w, w, w]), 16000, distance, 4.)
+        assert result["direct_peak_s"] == pytest.approx(geometric / 16000)
+        assert result["direct_energy"] == pytest.approx(1. / distance ** 2)
+        energies.append(result["direct_energy"])
+    assert distance_attenuation([1., 2., 4.], energies)["pressure_exponent"] == pytest.approx(1.)
+
+
+def test_late_first_arrival_is_measured_instead_of_forced_to_geometric_time():
+    w = np.zeros(64000)
+    w[round(1. / 343 * 16000) + 96] = 1.
+    result, _ = rir_metrics(np.stack([w, w, w, w]), 16000, 1., 4.)
+    assert result["direct_delay_error_ms"] > 3.
+    assert result["direct_energy"] == pytest.approx(1.)
+
+
+def test_distance_energy_and_foa_share_the_fixed_first_arrival_window():
+    energies = []
+    for distance in [1., 2., 4.]:
+        arrival = round(distance / 343 * 16000)
+        w = np.zeros(64000)
+        w[arrival] = 1. / distance
+        # At 0.5 ms the echo is outside the predeclared FOA direct window,
+        # but was included by the former larger distance-energy window.
+        w[arrival + 8] = .6
+        result, _ = rir_metrics(np.stack([w, w, w, w]), 16000, distance, 4.)
+        assert result["direct_gate_samples"] == [arrival, arrival + 8]
+        energies.append(result["direct_energy"])
+    assert distance_attenuation([1., 2., 4.], energies)["pressure_exponent"] == pytest.approx(1.)

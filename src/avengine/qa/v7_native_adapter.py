@@ -211,7 +211,10 @@ def make_full_questions(scene, start_s, window_id, visual, media, evidence, *,
     public, private, audit = collect_questions(
         raw, window_id, media, seed=str(evidence.get('question_seed', 'v7')),
         foa_readback=evidence.get('foa_readback'), semantic_manifest=evidence.get('semantic_manifest'),
-        protocol_scene=evidence.get('protocol_scene'), window_start_s=start_s)
+        protocol_scene=evidence.get('protocol_scene'), window_start_s=start_s,
+        native_dialogue_evidence=evidence.get('native_dialogue_evidence'),
+        semantic_wording_variant=evidence.get('semantic_wording_variant','standard'),
+        content_binding_bundle=evidence.get('content_binding_bundle'))
     # Keep private evidence out of the producer's public question metadata.
     audit['native_bundle'] = raw
     if collect_all:

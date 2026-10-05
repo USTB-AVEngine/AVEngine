@@ -1,0 +1,53 @@
+{
+  "version": 1,
+  "status": "proposal_only_not_measured",
+  "coefficient_source": "examples/acoustics/semantic_materials/residential_material_rules.json",
+  "method_source": "https://proceedings.neurips.cc/paper_files/paper/2022/file/3a48b0eaba26ba862220a307a9edb0bb-Paper-Datasets_and_Benchmarks.pdf",
+  "target_house_rt60_median_s": [1.5, 2.5],
+  "desired_long_tail_houses_in_first_batch": [2, 3],
+  "priority_unmeasured_rooms": [
+    {"house": "hm3d_train_00638_iePHCSf119p", "room": "R5", "usable_area_m2": 49.55035257585894},
+    {"house": "hm3d_val_00810_CrMo8WxCyVb", "room": "R11", "usable_area_m2": 46.828192792608554},
+    {"house": "hm3d_train_00330_WhNyDTnd9g5", "room": "R12", "usable_area_m2": 43.54704633784117},
+    {"house": "hm3d_train_00444_sX9xad6ULKc", "room": "R1", "usable_area_m2": 39.0815893042834},
+    {"house": "hm3d_val_00821_eF36g7L6Z9M", "room": "R0", "usable_area_m2": 36.98620203073241},
+    {"house": "hm3d_val_00873_bxsVRursffK", "room": "R9", "usable_area_m2": 35.37534182672812}
+  ],
+  "preserve_geometry_camera_sources_rays_and_speed": true,
+  "STARSS_waveforms_annotations_or_real_RIRs_used": false,
+  "profiles": {
+    "current_residential": {"purpose": "baseline unchanged"},
+    "hard_finish": {
+      "eligible_floor_candidates": ["ceramic_tile", "concrete"],
+      "eligible_wall_candidates": ["painted_brick", "plaster"],
+      "eligible_ceiling_candidates": ["plaster"],
+      "visual_admission": "Only when scan evidence is compatible; visible carpet/acoustic tiles/soft furniture retain their semantic material families. Unknown surfaces remain qualified."
+    },
+    "wood_finish": {
+      "eligible_floor_candidates": ["wood_floor"],
+      "eligible_wall_candidates": ["plaster", "painted_brick"],
+      "eligible_ceiling_candidates": ["plaster"],
+      "visual_admission": "Same semantic and visual constraints as hard_finish."
+    }
+  },
+  "jitter_proposal": {
+    "hard_absorption_std": 0.005,
+    "other_absorption_std": 0.02,
+    "relative_clip": [0.8, 1.2],
+    "absolute_absorption_bounds": [0.005, 0.99],
+    "neighbor_band_noise_correlation": "common instance draw plus smaller smooth octave residual",
+    "energy_constraint": "0<=absorption,transmission<=1 and absorption+transmission<=1; reflected energy remains nonnegative",
+    "note": "Engineering prior from current representative material curves; not calibrated material measurements or a reproduction of the paper's exact Gaussian variance."
+  },
+  "screen_plan": {
+    "rooms": 6,
+    "profiles_per_house": 3,
+    "seeds_per_profile": 2,
+    "source_listener_pairs_per_profile_seed": 6,
+    "planned_RIRs": 216,
+    "retain_v6_max_ir_seconds": 4,
+    "admission": "Repeat ray leakage, band T20/T30, DRR, early reflection, attenuation, direct FOA, independent forward-tail check and CPU view checks; do not admit truncation or mesh leaks to achieve the RT target.",
+    "split": "All material variants follow the physical parent house; no variant crosses train/development/test."
+  },
+  "unverified": ["actual ceiling height and volume", "hard-finish compatibility of the nominated scan surfaces", "RT60 in the target interval", "material calibration", "generalization gain"]
+}

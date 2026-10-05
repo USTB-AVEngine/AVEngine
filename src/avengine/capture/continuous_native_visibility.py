@@ -17,6 +17,7 @@ class NativeVisibilityStream:
         self.rendered_target_masks=0;self.reused_target_masks=0
         self.root_max_error=self.joint_max_error=self.camera_max_error=self.link_max_error=0.
         self.restored_modal_frames=0
+        self.occluder_frames=[]
 
     def _target_mask(self,target):
         p=self.primary;hidden=[a for a in p.actors if a is not target]
@@ -41,10 +42,16 @@ class NativeVisibilityStream:
         finally:
             from avengine.assets.habitat_capture import _apply_root_with_habitat
             for a,old in zip(hidden,previous,strict=True):
-                _apply_root_with_habitat(a['object'],a['applied_root_input'],qt=p.qt,mn=p.mn)
+                if a.get('native_actor_kind')=='registered_rigid':
+                    # Target passes changed translation only. Retain the native
+                    # rotation exactly instead of normalizing its quaternion twice.
+                    a['object'].translation=p.mn.Vector3(old['root'][:3,3])
+                else:
+                    _apply_root_with_habitat(a['object'],a['applied_root_input'],qt=p.qt,mn=p.mn)
                 obj=a['object']
                 root_error=float(np.max(np.abs(np.asarray(obj.root_scene_node.absolute_transformation())-old['root'])))
-                joint_error=float(np.max(np.abs(np.asarray(obj.joint_positions)-old['joints'])))
+                joint_delta=np.abs(np.asarray(obj.joint_positions)-old['joints'])
+                joint_error=float(np.max(joint_delta)) if joint_delta.size else 0.
                 link_error=max((float(np.max(np.abs(np.asarray(obj.get_link_scene_node(k).absolute_transformation())-v))) for k,v in old['links'].items()),default=0.)
                 self.root_max_error=max(self.root_max_error,root_error);self.joint_max_error=max(self.joint_max_error,joint_error);self.link_max_error=max(self.link_max_error,link_error)
                 if root_error or joint_error or link_error:raise ValueError('target-only pass failed exact native actor restoration')
@@ -69,6 +76,25 @@ class NativeVisibilityStream:
             else:
                 mask=self._target_mask(entry);self.last[actor]=(pose,mask);self.rendered_target_masks+=1
             masks[actor]=[mask];ids[actor]=sid
+        # IDs are measured from the context pixels inside each actual target
+        # projection. Unregistered stage pixels are counted explicitly, never
+        # inferred as a unique occluder or silently replaced by zero.
+        registry_ids={sid:actor for actor,sid in ids.items()}
+        for actor,values in masks.items():
+            target=values[0]==ids[actor]
+            hidden=target & (np.asarray(modal)!=ids[actor])
+            values_seen,counts=np.unique(np.asarray(modal)[hidden],return_counts=True)
+            known=[];unknown=0
+            for sid,count in zip(values_seen,counts,strict=True):
+                other=registry_ids.get(int(sid))
+                if other is not None and other!=actor:known.append(other)
+                else:unknown+=int(count)
+            self.occluder_frames.append({'target_instance_id':actor,'frame_index':index,
+                'occluder_instance_ids':sorted(set(known)),'unknown_occluder_pixels':unknown,
+                'context_pixels':int(np.count_nonzero(np.asarray(modal)==ids[actor])),
+                'target_only_pixels':int(np.count_nonzero(target)),
+                'occluded_pixels':int(np.count_nonzero(hidden)),
+                'identity_source':'actual_context_semantic_IDs_within_native_OBJECTS_ONLY_target_mask'})
         restored=p.sim.get_sensor_observations()
         if any(not np.array_equal(observed[k],restored[k]) for k in observed):
             raise ValueError('target-only controls changed published native RGB/depth/semantic')

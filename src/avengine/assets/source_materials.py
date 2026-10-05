@@ -23,51 +23,10 @@ from PIL import Image
 MATERIAL_REVISION = 'source_materials_v1'
 PBR_HANDLE = 'avengine_inserted_source_pbr_v1'
 COMPRESSED_EXTENSIONS = {'GOOGLE_texture_basis', 'KHR_texture_basisu'}
-_GL = None
-_GL_CULL_FACE = 0x0B44
 
 
 class SourceMaterialError(ValueError):
     pass
-
-
-def _gl_api():
-    global _GL
-    if _GL is None:
-        import ctypes
-        _GL = ctypes.CDLL('libGL.so.1')
-        _GL.glIsEnabled.argtypes = [ctypes.c_uint]
-        _GL.glIsEnabled.restype = ctypes.c_ubyte
-        for name in ['glEnable', 'glDisable']:
-            function = getattr(_GL, name)
-            function.argtypes = [ctypes.c_uint]; function.restype = None
-    return _GL
-
-
-def source_culling_state() -> bool:
-    """Read only the current owned Simulator context, before adding sources."""
-    return bool(_gl_api().glIsEnabled(_GL_CULL_FACE))
-
-
-def observe_source_sensors(simulator: Any, *, culling_enabled: bool) -> dict:
-    """Native observations with the original scan culling state per sensor.
-
-    Installed PbrDrawable::draw() enables GL_CULL_FACE after a double-sided
-    draw even when it was disabled on entry. Without restoration, the next
-    sensor/frame culls the scan's open back faces. Preserve actual native
-    draws and readbacks; never composite or recolor pixels. This is the current
-    Habitat single-agent RGB/depth/semantic loop with GL state restoration.
-    """
-    if simulator.config.enable_batch_renderer:
-        raise SourceMaterialError('source sensor state restoration requires non-batch rendering')
-    gl = _gl_api(); restore = gl.glEnable if culling_enabled else gl.glDisable
-    registry = simulator._sensor_registry
-    sensors = [registry[key] for key in simulator.get_agent(0).scene_node.subtree_sensors if key in registry]
-    for sensor in sensors:
-        restore(_GL_CULL_FACE)
-        try: sensor.draw_observation()
-        finally: restore(_GL_CULL_FACE)
-    return {sensor.uuid: sensor.get_observation() for sensor in sensors}
 
 
 def read_glb(path: str | Path) -> tuple[dict, bytes]:

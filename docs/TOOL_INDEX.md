@@ -5,7 +5,7 @@
 
 自 2026-08-25 起，目录本身就是能力分组（阶段目录 m1…m7 已移除），
 本表按目录列出每个工具做什么。
-当前共 513 个工具脚本。
+当前共 502 个工具脚本。
 
 ## 资产生成与装配（`tools/assets/`）
 
@@ -19,6 +19,7 @@
 | `tools/assets/assemble_variant_package.py` | Assemble a generic M2 animal research package from real QA evidence |
 | `tools/assets/audit_candidate.py` | Write bounded automatic QA reports for an M2 research candidate |
 | `tools/assets/audit_habitat_mesh_grounding.py` | Audit exact skinned-vertex grounding and declared source anchors |
+| `tools/assets/audit_source_materials.py` | Inventory and native before/after acceptance for inserted source materials |
 | `tools/assets/audit_variant_candidate.py` | Run body-plan-neutral automatic M2 QA using explicit variant anchors |
 | `tools/assets/audit_world_contacts.py` | Fit M2 root cadence and emit hash-bound world-contact artifacts |
 | `tools/assets/bake_actions.py` | Bake the strict M2 Idle/Walking action artifact and hash-bound report |
@@ -49,6 +50,7 @@
 | `tools/assets/capture_installed_research_review.py` | Run the current installed-prefix M2 Blender-room research review |
 | `tools/assets/capture_research_review.py` | Run the 75-state single-view M2 research-review capture in Habitat |
 | `tools/assets/check_prompt_token_budget.py` | Fail closed when a candidate profile's effective prompt cannot fit the model window |
+| `tools/assets/check_source_material_matrix.py` | Gate the complete source-material matrix and emit an offline review page |
 | `tools/assets/compile_animal_package.py` | Compile a bounded M2 research-candidate package |
 | `tools/assets/compose_topdown_review.py` | Derive synchronized RGB + navmesh/descriptor top-down QA review media |
 | `tools/assets/derive_variant_contacts.py` | Derive generic package anchors and actor-space four-paw contacts |
@@ -109,62 +111,28 @@
 
 | 工具 | 做什么 |
 |---|---|
-| `tools/rooms/alpha_live_status.py` | Atomically replace explicit live counters; never replace sealed artifacts |
-| `tools/rooms/alpha_storage_contract.py` | Storage boundaries for immutable native alpha seal and derived bundles |
-| `tools/rooms/assemble_kujiale_native_training_admission.py` | Assemble native Kujiale room admission and offline evidence without new gates |
-| `tools/rooms/audit_kujiale_native_lighting.py` | Read authored USD lights and retained native room pixels without starting UE |
 | `tools/rooms/audit_real_surface_mesh.py` | Audit a glTF/GLB as evidence for the M1 real-surface geometry gate |
 | `tools/rooms/audit_skokloster_glb.py` | Audit the exact Habitat Skokloster GLB for visual and acoustic staging |
 | `tools/rooms/author_current_residential_visual_episode.py` | Author one current residential visual-only research episode |
-| `tools/rooms/benchmark_kujiale_alpha_concurrency.py` | Measured 2/4/8/12 native UE recorded-alpha end-to-end worker rounds |
-| `tools/rooms/benchmark_kujiale_native_concurrency.py` | Measure full native UE+RLR+question pilots under bounded GPU concurrency |
-| `tools/rooms/bind_kujiale_formal_seed.py` | Bind a capped room seed to its own admitted native house/layout, never another room |
 | `tools/rooms/blender_build_exterior_proxy.py` | Blender-side builder for an inward-facing, textured exterior sphere |
 | `tools/rooms/build_fixed_apartment_canary.py` | Build the fixed SPEAR Apartment S0--S5 M6.x review bundle |
 | `tools/rooms/build_render_surface_navigation.py` | Build reusable CPU navigation from a room's declared render surface |
 | `tools/rooms/build_residential_source_episode.py` | Build AVEngine Timeline, Topdown and binaural audio for a residential room |
 | `tools/rooms/build_support_surface_catalog.py` | Fit a room's wall and ceiling support surfaces from its own render surface |
-| `tools/rooms/check_kujiale_native_acoustic_alignment.py` | Compare actual native LOD0 and final acoustic geometry at frozen room poses |
-| `tools/rooms/check_kujiale_native_capsule_contact.py` | Check measured native witness capsules against actual UE render LOD0 geometry |
-| `tools/rooms/check_kujiale_native_motion_contact.py` | Measure registered native idle/walk skin contact without changing animation |
-| `tools/rooms/check_v7_kujiale_native_assets.py` | Render all registered native source assets with fixed production appearance QA |
-| `tools/rooms/check_v7_kujiale_ue.py` | Native UE room images, measured depth floor and exact exported geometry QA |
-| `tools/rooms/compact_kujiale_alpha.py` | Remove only a completed round8 alpha parent's verified intermediates |
 | `tools/rooms/compile_ue_navigation.py` | Build free navigation from current UE collision geometry and null areas |
 | `tools/rooms/emit_hm3d_room_manifest.py` | Emit an AVEngine room manifest for an HM3D scene directory |
 | `tools/rooms/extract_interioragent_scene_metadata.py` | Extract a room polygon and navigation footprints from InteriorAgent USD |
-| `tools/rooms/finalize_v7_kujiale_ue.py` | Finish native room QA from measured RGB/depth and actual UE asset bindings |
-| `tools/rooms/kujiale_batch.py` | CPU InteriorAgent inventory and conversion; never grants native UE admission |
-| `tools/rooms/kujiale_material_translation.py` | Explicit extra InteriorAgent MDL inputs for research Preview Surface USD |
 | `tools/rooms/measure_habitat_floor_reference.py` | Measure Habitat floor levels from a declared scene and navmesh |
 | `tools/rooms/measure_ue_room_floor_reference.py` | Measure an UE room floor from the currently loaded map |
-| `tools/rooms/native_guard_safe_stop.py` | Stop one recorded task guard after verifying PID creation time and argv |
-| `tools/rooms/package_kujiale_alpha.py` | Publish portable alpha delivery without changing questions or any answers |
-| `tools/rooms/pilot_kujiale_alpha.py` | Run the canonical recorded alpha question/selection/seal pipeline with UE |
 | `tools/rooms/plan_furnished_camera_review.py` | Build a short multi-view camera review plan for one furnished room |
 | `tools/rooms/plan_furnished_residential_episode.py` | Plan a static furnished residential episode through the AVEngine room API |
-| `tools/rooms/plan_kujiale_room_quota.py` | Training-only Kujiale budgets bounded by admitted rooms, with nested seeds |
-| `tools/rooms/preflight_v7_kujiale_native.py` | Select a measured witness whose unchanged seeded motion stays navigable |
 | `tools/rooms/prepare_3d_front_toolbox_sample_proxy.py` | Build a clearly labelled 3D-FRONT Toolbox sample review proxy in USD |
 | `tools/rooms/prepare_interioragent_kujiale_adapter.py` | Prepare an external InteriorAgent USD stage for UE's runtime USD importer |
-| `tools/rooms/prepare_kujiale_alpha_layout.py` | Find a static four-body alpha layout in an already admitted native room |
-| `tools/rooms/prepare_kujiale_cci_batch.py` | Freeze exact owned derived-file list before invoking the provided CCI pull |
 | `tools/rooms/prepare_legacy_apartment.py` | Prepare the real-surface UE apartment export as an M1 Habitat room package |
 | `tools/rooms/prepare_skokloster_interchange_glb.py` | Bake Skokloster's legacy source axes into a canonical glTF for UE import |
 | `tools/rooms/prepare_spear_apartment_exterior.py` | Export UE's approaching_storm HDRI and build a visual-only Habitat GLB |
 | `tools/rooms/prepare_ue_room.py` | Prepare an audited UE render-surface export for the shared room compiler |
-| `tools/rooms/prepare_v7_kujiale_native_generation.py` | Prepare explicit native UE inputs from already measured physical room QA |
-| `tools/rooms/prepare_v7_kujiale_native_materials.py` | Map existing reviewed source GLB PBR repairs to isolated native UE materials |
-| `tools/rooms/prepare_v7_kujiale_native_motion_plan.py` | Find frozen legal native witnesses with navigable seeded actor motion |
-| `tools/rooms/prepare_v7_kujiale_ue.py` | Prepare isolated native UE requests with three frozen-rule pose witnesses |
 | `tools/rooms/rebuild_replicacad_obstacle_review.py` | Rebuild the retained ReplicaCAD review with live furniture obstacles |
-| `tools/rooms/reclaim_kujiale_cci_batch.py` | Reclaim only exact owned bytes after independently checked CCI SHA receipts |
-| `tools/rooms/recover_kujiale_native_audit.py` | Read back an own saved map after interrupted import; rerun native QA |
-| `tools/rooms/report_kujiale_batch.py` | Report CPU Kujiale conversion, missing native evidence and internal CCI files |
-| `tools/rooms/report_kujiale_native_exposure.py` | Export measured baseline, pending native exposure status and offline witnesses |
-| `tools/rooms/report_kujiale_round8.py` | Publish measured native-alpha budget, resource curves and source paths |
-| `tools/rooms/reselect_kujiale_native_capsule_witnesses.py` | Reselect only already-frozen legal witnesses that clear the native capsule |
-| `tools/rooms/restore_kujiale_native_source_assets.py` | Restore only task-local UE MIC backups and archive withdrawn derived assets |
 | `tools/rooms/room_screening_candidates.py` | Compute provisional HM3D semantic-ground/navmesh overlap candidates |
 | `tools/rooms/room_screening_furniture_audit.py` | Audit provisional HM3D furniture footprints against candidate navmesh areas |
 | `tools/rooms/room_screening_inventory.py` | Build an input inventory from an explicit external HM3D house list |
@@ -174,8 +142,6 @@
 | `tools/rooms/room_selection_compare.py` | Compare shared room measurements against retained calibration evidence |
 | `tools/rooms/room_selection_protocol.py` | Register and measure the shared HM3D room-selection protocol on CPU |
 | `tools/rooms/run_habitat_replicacad_lighting_canary.py` | Run the real ReplicaCAD Habitat capture with one shared lighting profile |
-| `tools/rooms/run_kujiale_native_reselected_checks.py` | Re-render safe frozen witness subsets and publish overrides only after QA |
-| `tools/rooms/run_kujiale_native_room_batch.py` | Resume task-isolated native import/capture/QA without changing frozen rules |
 | `tools/rooms/run_native_qa_room.py` | Materialize one native Apartment QA plan without launching UE |
 | `tools/rooms/run_room_qualification_attempt.py` | Run or verify the read-only M6 representative-room qualification attempt |
 | `tools/rooms/run_spear_apartment_canary.py` | Render M6.x S0/S3/S4 through the native SPEAR Apartment map |
@@ -184,9 +150,6 @@
 | `tools/rooms/run_spear_replicacad_canary.py` | Render the retained 270-frame ReplicaCAD route in an isolated SPEAR editor |
 | `tools/rooms/run_spear_residential_episode.py` | Render one AVEngine residential visual episode through SPEAR/UE |
 | `tools/rooms/select_furnished_camera_review.py` | Choose a furnished-room camera from actual SPEAR per-person visibility masks |
-| `tools/rooms/v7_kujiale_round8_resources.py` | One task-owned sampler for graphics processes and shared disk protection |
-| `tools/rooms/v7_kujiale_ue_guard.py` | Run one isolated native UE task with graphics-aware GPU and disk accounting |
-| `tools/rooms/verify_kujiale_native_floor_references.py` | Verify spatial support references against audited, unmodified UE LOD0 |
 
 ## 场景放置（`tools/scene/`）
 
@@ -207,20 +170,32 @@
 | `tools/acoustics/audit_jaeger_rir.py` | JAEGER SpatialSceneQA 公开包 RIR 混响审计脚本(可重跑版)。 |
 | `tools/acoustics/audit_skokloster_cleanup_inventory.py` | Emit the exact face inventory for a Skokloster research cleanup |
 | `tools/acoustics/build_asset_bound_rir_plan.py` | Bind concrete assets to generic root routes and plan on-demand RIR work |
+| `tools/acoustics/build_house_test_panel.py` | Build a whole-house test panel in a predeclared order from CPU acceptance |
+| `tools/acoustics/calibrate_moving_rir_baseline.py` | Measure independent native RLR repeatability before choosing motion budgets |
+| `tools/acoustics/check_high_quality_midpoints.py` | Independent CPU fixed80 diagnostic using higher native ray quality |
+| `tools/acoustics/check_moving_waveform_controls.py` | Offline nearest/arrival-aligned controls; never replace production qualification |
+| `tools/acoustics/check_native_diffraction_shadow.py` | CPU shadow controls verify diffraction behavior beyond configuration readback |
+| `tools/acoustics/check_native_rir_repeat_quality.py` | CPU repeatability diagnostic at unchanged poses and higher native ray counts |
 | `tools/acoustics/cleanup_dynamic_rir_cache.py` | Clear completed numeric RIR payloads while retaining replayable evidence |
+| `tools/acoustics/compare_moving_energy_policies.py` | Compare four diffraction/refinement arms against fixed native mouth midpoints |
 | `tools/acoustics/compile_semantic_research_package.py` | Compile one room's semantic mesh into an M3/RLR research acoustic package |
 | `tools/acoustics/derive_authored_geometry_proxy.py` | Locate authored-GLB topology roots and optionally derive a fresh acoustic proxy |
 | `tools/acoustics/derive_research_rlr_package.py` | Derive an RLR-loadable research package by removing QA-degenerate faces |
 | `tools/acoustics/derive_skokloster_two_face_research_package.py` | Derive the bounded Skokloster package by removing exactly two QA faces |
+| `tools/acoustics/diagnose_moving_energy.py` | Native LOS, repeatability and phase-cancellation controls at fixed poses |
 | `tools/acoustics/diagnose_region_ray_leakage.py` | Replay declared rays from an actual room region or route path |
 | `tools/acoustics/extract_usd_acoustic_snapshot.py` | Expand a static USD room into one auditable M3 acoustic snapshot |
 | `tools/acoustics/plan_vctk_four_speaker_program.py` | Plan four distinct complete VCTK sentences on an AVEngine clock |
 | `tools/acoustics/prepare_authored_room_acoustics.py` | Prepare a real-surface authored room for the existing AVEngine M3/RLR compiler |
 | `tools/acoustics/probe_room_front_back_pairs.py` | Measure whether one room supports front/back mirrored source pairs |
+| `tools/acoustics/qualify_correlated_convolution.py` | Measure actual full-tail CPU convolution using retained native RIR inputs |
+| `tools/acoustics/qualify_moving_rirs.py` | Qualify moving RIR energy against retained native references (read-only) |
+| `tools/acoustics/render_fixed80_reference_repeats.py` | Three independent native reference measurements at retained fixed80 poses |
 | `tools/acoustics/render_frame_readback_sequential_speech.py` | Render multi-source research audio from SPEAR frame readbacks |
 | `tools/acoustics/render_rir_cache.py` | Render a resumable native-RLR RIR cache from an M6.x job plan |
 | `tools/acoustics/run_material_canary.py` | Run the hash-bound repeated M3 RLR material activation canary |
 | `tools/acoustics/summarize_house_acceptance.py` | Summarize CPU house acceptance evidence, plots and whole-house recommendations |
+| `tools/acoustics/summarize_moving_energy_experiment.py` | Summarize fixed-threshold native diffraction/refinement controls and plot errors |
 | `tools/acoustics/verify_material_canary.py` | Verify M3 canary schema, lineage, raw IRs and recomputed gates |
 | `tools/acoustics/verify_package_frame_parity.py` | Cross-system frame parity: the same rays in Habitat and in the package |
 | `tools/acoustics/verify_package_ray_leakage.py` | Run the modern RLR TraceRay checks for a compiled acoustic package |
@@ -254,6 +229,7 @@
 
 | 工具 | 做什么 |
 |---|---|
+| `tools/capture/build_cpu_egl.sh` | Build only into a caller-owned task directory, never an installed runtime. |
 | `tools/capture/build_habitat_binding_delta.py` | Build a reviewable Habitat binding delta from the two source registries |
 | `tools/capture/build_mp3d_beagle_rigid_case.py` | Prepare one fresh beagle plus rigid-object Habitat capture case |
 | `tools/capture/capture_human_beagle_legacy.py` | Capture the committed 270-frame Rocketbox-human + Beagle legacy route |
@@ -262,6 +238,9 @@
 | `tools/capture/capture_mp3d_multi_actor.py` | Capture one explicit N-actor MP3D case through the installed Habitat runtime |
 | `tools/capture/capture_two_human_mp3d.py` | Run the Habitat-native MP3D two-human production visual capture |
 | `tools/capture/materialize_common_plan_habitat.py` | Materialize one common renderer-neutral plan into a Habitat case |
+| `tools/capture/qualify_v7_alpha_layouts.py` | Qualify four static licensed bodies in already acoustically checked rooms |
+| `tools/capture/qualify_v7_material_replay.py` | Replay v3 source-material changes in fresh CPU native processes |
+| `tools/capture/qualify_v7_pixel_visibility.py` | CPU native paired visibility check with unchanged published house pixels |
 | `tools/capture/run_apartment_four_motion_pilot.py` | Run one shared Apartment capture for the four human/dog motion cases |
 | `tools/capture/write_neutral_readback.py` | Convert retained native UE or Habitat capture into a fresh neutral readback |
 
@@ -276,14 +255,30 @@
 
 ## 时间线（`tools/timeline/`）
 
-*权威时间线、音频程序（src/avengine/timeline，工具暂无）*
+*权威时间线、连续场景、时变空间音频与吞吐诊断*
 
 | 工具 | 做什么 |
 |---|---|
+| `tools/timeline/audit_v7_question_budget.py` | Audit actual v7 logical items, modality ratios, family floors and CF proofs |
+| `tools/timeline/audit_v7_scene_quotas.py` | Count realized v7 protocol answers separately from scene requests and formal media |
+| `tools/timeline/export_native_pilot_windows.py` | Export checked native video windows and balanced pilot question candidates |
+| `tools/timeline/export_v7_alpha.py` | Package immutable admitted alpha parents and training-ready relative media |
+| `tools/timeline/generate_v7_alpha.py` | Restartable CPU-only formal static/recorded alpha shards |
+| `tools/timeline/generate_v7_registered.py` | Restartable CPU-only formal static/recorded alpha shards |
 | `tools/timeline/generate_v7_scenes.py` | Seed-driven restartable CPU native candidates. Formal mode fails closed |
 | `tools/timeline/pilot_continuous_scenes.py` | CPU-only restartable continuous-scene pilot and native RIR throughput probe |
-| `tools/timeline/pilot_v7_kujiale_ue.py` | Run one measured Kujiale UE/SPEAR research pilot through unchanged v7 stages |
+| `tools/timeline/prepare_v7_diagnostic_aliases.py` | Give diagnostic media neutral IDs and quarantine incompatible public domains |
+| `tools/timeline/prepare_v7_diagnostic_seed_tables.py` | Extend reproducible v7-S/full seeds with simulation-only diagnostic axes |
+| `tools/timeline/prepare_v7_quota_seed_tables.py` | Default aggregate-profile v7 requests with a separate 0--8 coverage stratum |
 | `tools/timeline/prepare_v7_seed_tables.py` | Write v7-S and full-set seed tables without changing existing inputs |
+| `tools/timeline/project_v7_alpha_seeds.py` | Project fixed S parent seeds onto measured alpha layouts, preserving prefixes |
+| `tools/timeline/qualify_native_counterfactuals.py` | Native 2x2 appearance/association canary; audit actual media and answers |
+| `tools/timeline/qualify_v7_scenario_quotas.py` | CPU native static-crowd diagnostics for actual v0.2 speaker/spatial questions |
+| `tools/timeline/qualify_v7_vctk.py` | Automatically qualify recorded VCTK inputs, preserving original clip clocks |
+| `tools/timeline/review_native_windows.py` | Read five encoded native windows and compare head pixels to native FOA |
+| `tools/timeline/summarize_continuous_pilot.py` | Read back continuous-pilot media, summarize coverage, and estimate CPU throughput |
+| `tools/timeline/synthesize_native_pilot.py` | Resume native-mouth CPU audio and complete 10 s qualification candidates |
+| `tools/timeline/v7_s_production.py` | CPU-only P19 coordinator for the frozen recorded v7-S critical batch |
 
 ## 空间音频（`tools/audio/`）
 
@@ -595,9 +590,6 @@
 |---|---|
 | `tools/ue/assemble_package_stage.py` | Assemble a fresh UE package stage for the current Apartment visual route |
 | `tools/ue/assemble_research_editor_stage.py` | Create an isolated SPEAR Editor stage using current source and installed binaries |
-| `tools/ue/audit_v7_kujiale_native_assets_editor.py` | Audit native asset material parameters, changing only an isolated project |
-| `tools/ue/bake_kujiale_native_usd.py` | Bake composed USD mesh transforms for exact UE import, preserving geometry |
-| `tools/ue/build_kujiale_authored_light_sidecar.py` | Bake authored USD world emitting dimensions for isolated UE light import |
 | `tools/ue/build_minimal_closure_report.py` | Build a minimal-closure report for the current Apartment visual stage |
 | `tools/ue/create_extra_animals_blueprints_editor.py` |  |
 | `tools/ue/create_spear_kujiale_map_editor.py` | Create a UE map containing one external USD stage |
@@ -613,12 +605,9 @@
 | `tools/ue/import_spear_skokloster_editor.py` | Import the prepared Skokloster GLB into one isolated SPEAR/UE content root |
 | `tools/ue/import_static_source_editor.py` | Import declared rigid source GLBs into fresh Unreal content directories |
 | `tools/ue/import_usd_stage_to_level_editor.py` | Import an external USD stage into ordinary Unreal assets and a saved level |
-| `tools/ue/import_v7_kujiale_editor.py` | Materialize one isolated Kujiale map and record native floor/material evidence |
-| `tools/ue/inspect_kujiale_source_materials_editor.py` |  |
 | `tools/ue/prepare_spear_mp3d_execution.py` | Bind a compiled Timeline-v2 visual plan to the imported MP3D UE scene |
 | `tools/ue/prepare_spear_replicacad_scene.py` | Prepare the complete ReplicaCAD scene request for the optional UE backend |
 | `tools/ue/probe_spear_replicacad_environment.py` | Probe whether ReplicaCAD can be imported/cooked without touching old SPEAR |
-| `tools/ue/repair_v7_kujiale_native_materials_editor.py` | Apply reviewed GLB PBR changes only to MICs in the task's isolated project |
 | `tools/ue/unreal_export_approaching_storm.py` | Unreal Editor-side exporter for the stock approaching_storm TextureCube |
 | `tools/ue/verify_extra_animals_editor.py` |  |
 
@@ -645,3 +634,6 @@
 | `tools/motion/build_self_retarget_profile.py` | Build a hash-bound identity-skeleton retarget probe profile |
 | `tools/motion/derive_contacts.py` | Derive hash-bound M2 four-paw contact phases from explicit inputs |
 | `tools/motion/retarget_blender.py` | Retarget audited GLB motion onto an audited target GLB in Blender |
+
+
+CPU runtime preflight: `tools/timeline/v7_s_production.py --mode runtime_probe --generator-profile PROFILE --output OUTPUT` reads a 32x32 native software RGB frame in the task-owned private Mesa runtime; launch Python with the frozen profile cpu_env so the software EGL selector is preloaded. No house or GPU access.

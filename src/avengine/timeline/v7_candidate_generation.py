@@ -56,6 +56,10 @@ def stage(root, name, recipe, run):
 
 
 def seeded_scene(row, house):
+    from avengine.timeline.v7_scene_profile import PROFILE_INPUT_VERSION,validate_profile_row
+    if row.get('schema')==PROFILE_INPUT_VERSION:
+        validate_profile_row(row)
+        raise RuntimeError('aggregate-profile requests require native layout and admitted recorded dry/actions/QA; frozen alpha/two-person fallback is forbidden')
     from avengine.timeline.v7_scene_quotas import QUOTA_INPUT_VERSION,DIAGNOSTIC_INPUT_VERSION,validate_quota_row,validate_diagnostic_row
     if row.get('schema')==DIAGNOSTIC_INPUT_VERSION:
         validate_diagnostic_row(row)
@@ -115,13 +119,22 @@ def seeded_scene(row, house):
 
 def member_scene(base, visual, member):
     scene=deepcopy(base)
+    frames=visual.get('frames',[])
+    actors=frames[0]['actors'] if frames else []
+    identities={a['endpoint_id']:a['actor_id'] for a in actors}
+    for frame in frames:
+        if {a['endpoint_id']:a['actor_id'] for a in frame['actors']}!=identities:
+            raise ValueError('native emitter instance identity changed inside a world')
     for key,trajectory in visual['observed_mouth_trajectories'].items():
         scene['sources'][key]['trajectory']=trajectory
+        if frames and key in identities:scene['sources'][key]['actor_id']=identities[key]
+    for event in scene['events']:
+        event['source_id']=scene['sources'][event['endpoint_id']]['actor_id']
     if member.endswith('a1'):
         # Swap only dry content/activity association between the two physical
         # emitters; roots, bone poses, event times and background stay fixed.
         for e in scene['events']:
-            e['endpoint_id']={'voice1':'voice2','voice2':'voice1'}[e['endpoint_id']]
+            e['endpoint_id']={'voice1':'voice2','voice2':'voice1'}.get(e['endpoint_id'],e['endpoint_id'])
             e['source_id']=scene['sources'][e['endpoint_id']]['actor_id']
         for field in ('dry_gain','voice_identity_id'):
             if field in scene['sources']['voice1']:
@@ -205,6 +218,20 @@ def audio_stage(scene, house, inputs, cache_root, attempt, renderer_factory=None
     return result,['scene_foa_full_tail.wav','native_RLR_setup.json','audio_evidence.json']
 
 
+def authority_physical_query_key(item,gold,window_id,fallback):
+    # export comparison_key ends with an enumeration index, which changes
+    # when unrelated candidates are deferred. The authority ID records the
+    # actual frame/event/actor query. Remove only this member's window ID.
+    original=gold.get('comparison_key',fallback)
+    authority=gold.get('authority_question_id','')
+    separator='__'+str(window_id)+'__'
+    if authority.count(separator)!=1:return original
+    family,query=authority.split(separator,1)
+    if family.lower()!=item['qa_id'].replace('-','_').lower() or not query:
+        raise ValueError('authority physical query identity is malformed')
+    return 'authority/'+family+'/'+query
+
+
 def audit_parent_group(row, base, members):
     from avengine.timeline.v7_production_contract import audit_counterfactuals
     import soundfile as sf
@@ -226,7 +253,10 @@ def audit_parent_group(row, base, members):
             media[(name,i)]={'video':(path/'video.mp4').read_bytes(),'audio':sf.read(path/'audio_foa.wav',dtype='float32',always_2d=True)[0]}
             def comparison_key(item,gold):
                 fallback='/'.join((item.get('protocol_panel','v6'),item['qa_id'],item['question_zh']))
-                return f'{i}/{item["qa_id"]}/{gold.get("comparison_key",fallback)}'
+                # Full-pool selection pairs the same public query, not the
+                # authority's hidden event serial. Keep that serial in gold.
+                actual=fallback if full and item['modality']=='audiovisual' else authority_physical_query_key(item,gold,w['window_id'],fallback)
+                return f'{i}/{item["qa_id"]}/{actual}'
             for item in q:
                 gold=private[item['question_id']];key=comparison_key(item,gold)
                 selected_keys[name][key]=item['modality'];logical[(name,key)]=item['logical_question_id']
@@ -262,7 +292,9 @@ def audit_parent_group(row, base, members):
     result=audit_counterfactuals(declarations,answers,checks)
     result['verified_binding_logical_question_ids']=sorted({logical[(c[side],c['comparison_key'])] for c in result['checks']
              if c['kind']=='binding' and c['pass'] for side in ('left','right')})
-    if full:result['observed_private_answers']=answers
+    if full:
+        result['observed_private_answers']=answers
+        result['comparison_key_source']='binding: identical public protocol/family/question stem; V/A: authority physical-query ID with member window removed; enumeration and original IDs retained in gold'
     if result['status']!='pass':raise ValueError('observed counterfactual answers failed')
     return result
 

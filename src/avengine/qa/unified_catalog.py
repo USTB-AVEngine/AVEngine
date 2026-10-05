@@ -5939,14 +5939,20 @@ def _generate_qa_14(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
     if display is None:
         _defer("query_interval_too_short_for_display", "the distance interval has no public range")
     display_en, display_zh = display
+    pair_en = pair_zh = ""
+    if len(facts["actors"]) > 2:
+        first_en, first_zh = _appearance_phrases(first_actor["appearance"])
+        second_en, second_zh = _appearance_phrases(second_actor["appearance"])
+        pair_en = f"among {first_en} and {second_en}, "
+        pair_zh = f"{first_zh}和{second_zh}这两个个体中，"
     return _question_item(
         qa_id="QA-14",
         facts=facts,
         seed=seed,
         question_en=(
-            f"During {display_en}, which actor was closer to the listener?"
+            f"During {display_en}, {pair_en}which actor was closer to the listener?"
         ),
-        question_zh=f"{display_zh}内，哪个个体离听者更近？",
+        question_zh=f"{display_zh}内，{pair_zh}哪个个体离听者更近？",
         open_answer_type="closed_set",
         open_truth=truth,
         truth_label=_appearance_phrases(facts["actors"][truth]["appearance"])[0],

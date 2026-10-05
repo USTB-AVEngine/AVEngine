@@ -13,14 +13,14 @@ import numpy as np
 import soundfile as sf
 from avengine.timeline.continuous_pilot import write_json
 from avengine.timeline.v7_candidate_generation import stage,read_json,parent_dry,member_scene,audit_parent_group
-from avengine.timeline.v7_alpha_sampling import build_alpha_scene,ALPHA_INPUT_SCHEMA
+from avengine.timeline.v7_alpha_sampling import build_alpha_scene,ALPHA_INPUT_SCHEMA,parent_appearance_assets
 from avengine.timeline.v7_alpha_audio import render_alpha_audio,source_qa_evidence
 from avengine.timeline.v7_audio_sources import rebind_receipt,source_blockers
 from avengine.timeline.v7_full_question_delivery import collect_native_pool,derive_native_appearance_evidence,finalize_parent_question_pools
 from avengine.timeline.v7_production_contract import validate_question_counts,question_allocation
 from avengine.spatial_audio.audio import write_float32_wav
 
-ALPHA_RELEASE_PROFILE='v7-S-alpha-recorded-static-native-14-v1'
+ALPHA_RELEASE_PROFILE='v7-S-alpha-recorded-static-native-14-v2'
 
 
 def _cpu():
@@ -58,14 +58,12 @@ def _verify_window(folder):
 
 
 def generate_alpha_parent(row,house,inputs,assets,source_admission,human_admission,output):
-    if house['input'].get('visual_backend') == 'ue_spear':
-        from avengine.capture.v7_alpha_ue import NativeUEAlphaVideo as NativeAlphaVideo,ALPHA_UE_VISUAL_REVISION as ALPHA_VISUAL_REVISION
-    else:
-        from avengine.capture.v7_alpha_native import NativeAlphaVideo,ALPHA_VISUAL_REVISION
+    from avengine.capture.v7_alpha_native import NativeAlphaVideo,ALPHA_VISUAL_REVISION
     from avengine.assets.source_materials import MATERIAL_REVISION
     from avengine.capture.continuous_native_visibility import VISIBILITY_REVISION
     start_wall=time.perf_counter();start_cpu=_cpu()
     root=Path(output)/'parents'/row['scene_id'];root.mkdir(parents=True,exist_ok=True)
+    assets=parent_appearance_assets(assets,row)
     licenses=qualify_licenses(assets,human_admission)
     working,base,program=build_alpha_scene(row,house,source_admission['records'])
     recipe={'profile':ALPHA_RELEASE_PROFILE,'seed_row':row,'house':working,'runtime_inputs':inputs,
@@ -86,8 +84,8 @@ def generate_alpha_parent(row,house,inputs,assets,source_admission,human_admissi
     dry,receipt=parent_dry(root,base,program)
     for ep,speaker in receipt['endpoint_speaker_ids'].items():base['sources'][ep]['voice_identity_id']=speaker
     visual_dirs={};visuals={};variants={};audio_factors={};members=[];timings=[];clip_paths={}
-    visual_variants = sorted({m.split('_')[0] for m in row['members']})
-    for v in visual_variants:
+    visual_names=sorted({m.split('_')[0] for m in row['members']})
+    for v in visual_names:
         variant=deepcopy(assets)
         if v=='v1':
             endpoints=[a['endpoint_id'] for a in variant[:2]];variant[:2]=variant[:2][::-1]
@@ -96,11 +94,7 @@ def generate_alpha_parent(row,house,inputs,assets,source_admission,human_admissi
             video=NativeAlphaVideo(working,base,inputs,variant,source_material_cache_directory=attempt/'source_material_cache')
             try:visual=video.encode(base,attempt/'scene_video.mp4',collect_pixel_visibility=True)
             finally:video.close()
-            if house['input'].get('visual_backend') == 'ue_spear':
-                from avengine.timeline.v7_ue_appearance import derive_ue_appearance_evidence
-                appearance=derive_ue_appearance_evidence(attempt,visual,variant)
-            else:
-                appearance=derive_native_appearance_evidence(attempt,visual,variant)
+            appearance=derive_native_appearance_evidence(attempt,visual,variant)
             write_json(attempt/'native_appearance_review.json',appearance)
             return {'wall_seconds':visual['wall_seconds'],'appearance_status':appearance['status']},[
                 'scene_video.mp4','native_alpha_visual_evidence.json','native_visual_evidence.json',
@@ -113,10 +107,7 @@ def generate_alpha_parent(row,house,inputs,assets,source_admission,human_admissi
         if appearance['status']!='pass' or len(appearance['review']['actors'])!=4:raise ValueError('four observed native appearance reviews required')
         visual['native_appearance_review']=appearance['review']
         if visual['frame_count']!=450 or len(visual['camera_frame_readbacks'])!=450:raise ValueError('incomplete native world')
-        if house['input'].get('visual_backend') == 'ue_spear':
-            from avengine.capture.v7_alpha_ue import assert_ue_alpha_visual
-            assert_ue_alpha_visual(visual)
-        elif visual['source_material_checks']['status']!='pass' or any(visual['alignment'][k]!=0 for k in ['root_max_error','joint_max_error','camera_max_error','link_max_error']) or visual['alignment']['restored_modal_RGB_depth_semantic_frames']!=450:
+        if visual['source_material_checks']['status']!='pass' or any(visual['alignment'][k]!=0 for k in ['root_max_error','joint_max_error','camera_max_error','link_max_error']) or visual['alignment']['restored_modal_RGB_depth_semantic_frames']!=450:
             raise ValueError('native material or mask restoration qualification failed')
         for a in visual['standing_admission']:
             if a['status']!='pass' or a['known_bad_detected'] is not True:raise ValueError('native static contact admission incomplete')
@@ -191,7 +182,7 @@ def generate_alpha_parent(row,house,inputs,assets,source_admission,human_admissi
     elapsed=time.perf_counter()-start_wall;cpu=_cpu()-start_cpu
     def seal(attempt):
         required=[];stats=[];private=attempt/'private';private.mkdir();shared=private/'native';shared.mkdir()
-        for v in visual_variants:
+        for v in visual_names:
             target=shared/v;target.mkdir()
             for name in ['native_alpha_visual_evidence.json','source_materials.json','source_material_checks.json','native_visibility_evidence.json','native_appearance_review.json']:
                 shutil.copyfile(visual_dirs[v]/name,target/name);required.append(str((target/name).relative_to(attempt)))

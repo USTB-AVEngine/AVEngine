@@ -47,6 +47,7 @@ avengine = "avengine.cli:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
+"avengine.timeline" = ["v7_scene_profile_defaults.json"]
 "avengine.backends.spear_ue" = ["capture_defaults.json"]
 "avengine.backends.spear_ue.client" = ["config/*.yaml"]
 
