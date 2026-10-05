@@ -5,7 +5,7 @@
 
 自 2026-08-25 起，目录本身就是能力分组（阶段目录 m1…m7 已移除），
 本表按目录列出每个工具做什么。
-当前共 501 个工具脚本。
+当前共 502 个工具脚本。
 
 ## 资产生成与装配（`tools/assets/`）
 
@@ -278,6 +278,7 @@
 | `tools/timeline/review_native_windows.py` | Read five encoded native windows and compare head pixels to native FOA |
 | `tools/timeline/summarize_continuous_pilot.py` | Read back continuous-pilot media, summarize coverage, and estimate CPU throughput |
 | `tools/timeline/synthesize_native_pilot.py` | Resume native-mouth CPU audio and complete 10 s qualification candidates |
+| `tools/timeline/v7_s_production.py` | CPU-only P19 coordinator for the frozen recorded v7-S critical batch |
 
 ## 空间音频（`tools/audio/`）
 

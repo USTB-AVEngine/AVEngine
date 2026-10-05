@@ -127,7 +127,7 @@ def member_scene(base, visual, member):
             raise ValueError('native emitter instance identity changed inside a world')
     for key,trajectory in visual['observed_mouth_trajectories'].items():
         scene['sources'][key]['trajectory']=trajectory
-        if frames:scene['sources'][key]['actor_id']=identities[key]
+        if frames and key in identities:scene['sources'][key]['actor_id']=identities[key]
     for event in scene['events']:
         event['source_id']=scene['sources'][event['endpoint_id']]['actor_id']
     if member.endswith('a1'):

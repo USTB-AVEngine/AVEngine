@@ -20,7 +20,7 @@ from avengine.timeline.v7_full_question_delivery import collect_native_pool,deri
 from avengine.timeline.v7_production_contract import validate_question_counts,question_allocation
 from avengine.spatial_audio.audio import write_float32_wav
 
-ALPHA_RELEASE_PROFILE='v7-S-recorded-registered-native-14-v5-native-camera'
+ALPHA_RELEASE_PROFILE='v7-S-recorded-registered-native-14-v6-critical-coverage'
 
 
 def _cpu():
@@ -115,13 +115,13 @@ def generate_registered_parent(row,house,inputs,assets,source_admission,human_ad
             appearance=derive_native_appearance_evidence(attempt,visual,variant)
             write_json(attempt/'native_appearance_review.json',appearance)
             return {'wall_seconds':visual['wall_seconds'],'appearance_status':appearance['status']},[
-                'scene_video.mp4','native_alpha_visual_evidence.json','native_visual_evidence.json',
-                'source_materials.json','source_material_checks.json','native_visibility_evidence.json','native_appearance_review.json','standing/standing_admission.json','acoustic_placement_admission.json']
+                'scene_video.mp4','native_registered_visual_evidence.json','native_visual_evidence.json',
+                'source_materials.json','source_material_checks.json','native_visibility_evidence.json','native_appearance_review.json','native_environmental_emitters.json','standing/standing_admission.json','acoustic_placement_admission.json']
         vc=_cpu();vw=time.perf_counter()
         vd,vr,resumed=stage(root,'visual_'+v,{'scene':base,'inputs':inputs,'assets':variant,
             'visual_revision':ALPHA_VISUAL_REVISION,'source_material_revision':MATERIAL_REVISION},render)
         timings.append({'stage':'visual_'+v,'wall_seconds':time.perf_counter()-vw,'cpu_seconds_including_children':_cpu()-vc,'resumed':resumed})
-        visual=read_json(vd/'native_alpha_visual_evidence.json');appearance=read_json(vd/'native_appearance_review.json')
+        visual=read_json(vd/'native_registered_visual_evidence.json');appearance=read_json(vd/'native_appearance_review.json')
         if appearance['status']!='pass' or len(appearance['review']['actors'])<2:raise ValueError('at least two observed native appearance reviews required')
         visual['native_appearance_review']=appearance['review']
         if visual['frame_count']!=450 or len(visual['camera_frame_readbacks'])!=450:raise ValueError('incomplete native world')
@@ -178,7 +178,7 @@ def generate_registered_parent(row,house,inputs,assets,source_admission,human_ad
                 proof=source_qa_evidence(scene,program,local_receipt,visual,dest/'audio_foa.wav',ar,question_episode_id=wid,window_start_s=start)
                 if semantic:
                     from avengine.timeline.v7_registered_semantics import dialogue_evidence
-                    proof.update(dialogue_evidence(scene,program,local_receipt,visual,semantic,start,str(vd/'native_alpha_visual_evidence.json')))
+                    proof.update(dialogue_evidence(scene,program,local_receipt,visual,semantic,start,str(vd/'native_registered_visual_evidence.json')))
                 quota=row['question_quota_base']+row['members'].index(member)*row['window_count']+wi
                 q,a,audit=collect_native_pool(scene,start,wid,visual,media,proof,quota,row['questions_per_window'])
                 excluded=set();keep={x['question_id'] for x in q if x['qa_id'] not in excluded}
@@ -186,7 +186,7 @@ def generate_registered_parent(row,house,inputs,assets,source_admission,human_ad
                 write_json(dest/'questions.json',q);write_json(dest/'private_answers.json',a)
                 write_json(dest/'candidate_audit.json',audit)
                 ev={'release_profile':ALPHA_RELEASE_PROFILE,'seed_row':row,'member':member,'start_s':start,
-                    'scene':scene,'native_visual_evidence':str(vd/'native_alpha_visual_evidence.json'),
+                    'scene':scene,'native_visual_evidence':str(vd/'native_registered_visual_evidence.json'),
                     'native_audio_evidence':str(ad/'audio_evidence.json'),'source_qa_evidence':proof,
                     'candidate_family_counts':dict(Counter(x['qa_id'] for x in q if x['form']=='open')),
                     'full_v7_formal_count':0,'alpha_selection':'pending'}
@@ -219,7 +219,7 @@ def generate_registered_parent(row,house,inputs,assets,source_admission,human_ad
         required=[];stats=[];private=attempt/'private';private.mkdir();shared=private/'native';shared.mkdir()
         for v in visual_names:
             target=shared/v;target.mkdir()
-            for name in ['native_alpha_visual_evidence.json','source_materials.json','source_material_checks.json','native_visibility_evidence.json','native_appearance_review.json','acoustic_placement_admission.json']:
+            for name in ['native_registered_visual_evidence.json','source_materials.json','source_material_checks.json','native_visibility_evidence.json','native_appearance_review.json','native_environmental_emitters.json','acoustic_placement_admission.json']:
                 os.link(visual_dirs[v]/name,target/name);required.append(str((target/name).relative_to(attempt)))
         for factor,(directory,result) in audio_factors.items():
             for name in ['audio_evidence.json','native_RLR_setup.json']:

@@ -156,9 +156,13 @@ def build_registered_scene(row,house,records,assets,semantic_manifest=None):
                     add(ep,when,candidates[int(rng.integers(len(candidates)))])
     # Laughter is a recorded non-speech mouth emission; it is not a speaker.
     # No clapping/footstep/instrument capability is invented for standing people.
+    from avengine.timeline.v7_environmental_sources import attach_environmental_program
+    program['records']=list(by_id.values())
+    attach_environmental_program(scene,program,plan,admitted,rng,starts)
+    by_id.update({r['sound_asset_id']:r for r in program['records']})
     ns=plan.get('non_speech_class','laughter')
     if ns is None:
-        if n==0:raise ValueError('zero-speaking window still requires actual non-speech sound')
+        if n==0 and not plan.get('environment_sound_classes'):raise ValueError('zero-speaking window still requires actual non-speech sound')
         program['records']=list(by_id.values());working=deepcopy(house);working['room']=next(r for r in house['checked_rooms'] if r['room_label']==row['room_id']);working['room']['placement']=deepcopy(working['room']['placement']);working['room']['placement']['camera_m']=scene['listener_m']
         return working,scene,program
     if ns!='laughter':raise ValueError('this standing profile admits only mouth-attached recorded laughter; other mechanisms need native object intake')

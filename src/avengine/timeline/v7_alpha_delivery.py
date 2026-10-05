@@ -21,6 +21,11 @@ def _copy(source,target):
     from avengine.timeline.v7_storage_budget import ENV_KEY,check_write
     policy=json.loads(os.environ[ENV_KEY]) if os.environ.get(ENV_KEY) else {}
     owner_root=Path(policy['root']).resolve() if policy.get('root') else None
+    afs=os.environ.get('AVENGINE_V7_AFS_OWN_ROOT')
+    if afs:
+        afsroot=Path(afs).resolve()
+        if not str(afsroot).startswith('/mnt/afs/xinyuanqian/jzy/hardbank/generation/v7_s_'):raise ValueError('invalid private AFS artifact root')
+        owner_root=afsroot
     own_pair=(owner_root is not None and Path(source).resolve().is_relative_to(owner_root)
               and Path(target).resolve().is_relative_to(owner_root))
     if own_pair:
@@ -113,7 +118,8 @@ def export_alpha(seeds,seal_roots,output,expected_parents=None,sealed_parent_map
                 if p.is_file() and not p.name.startswith('.') and not p.name.endswith(('-wal','-shm','.lock')):
                     _copy(p,delivery/'private/rir_cache'/p.relative_to(cache))
         for v in sorted({m.split('_')[0] for m in row['members']}):
-            visual=load(seal/'private/native'/v/'native_alpha_visual_evidence.json')
+            native=seal/'private/native'/v
+            visual=load(native/('native_registered_visual_evidence.json' if (native/'native_registered_visual_evidence.json').is_file() else 'native_alpha_visual_evidence.json'))
             material_rows.extend(visual['source_material_checks']['checks'])
             native_checks.append({'scene_id':row['scene_id'],'visual_variant':v,'frame_count':visual['frame_count'],
                 'alignment':visual['alignment'],'standing_bodies':len(visual['standing_admission']),

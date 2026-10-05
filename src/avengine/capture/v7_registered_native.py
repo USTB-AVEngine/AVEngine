@@ -13,7 +13,7 @@ from avengine.capture.v7_alpha_native import NativeAlphaVideo,forward_at,stage_s
 from avengine.timeline.continuous_pilot import write_json
 from avengine.timeline.continuous_scene import camera_basis
 
-REGISTERED_VISUAL_REVISION='registered-standing-native-instance-layout-acoustic-occluder-v4'
+REGISTERED_VISUAL_REVISION='registered-standing-native-audio-only-emitter-v5'
 
 class RigidStandingInstance:
     """Native rigid object with an explicitly empty articulated state."""
@@ -44,6 +44,13 @@ class NativeRegisteredVideo(NativeAlphaVideo):
         NativeContinuousVideo.__init__(self,house,scene,inputs,[],**kwargs)
         from avengine.assets.source_materials import prepare_source_glb
         self.camera_frame_readbacks=[];self.standing_checks=[]
+        self.environment_nodes={};self.environment_frame_readbacks=[]
+        for ep,spec in scene['sources'].items():
+            if spec.get('native_visual_kind')=='audio_only':
+                node=self.sim.get_active_scene_graph().get_root_node().create_child()
+                node.translation=self.mn.Vector3(spec['trajectory'][0]['position_m'])
+                self.environment_nodes[ep]={'node':node,'source_id':spec['actor_id']}
+
         manager=self.sim.get_object_template_manager()
         for i,asset in enumerate(assets):
             if not asset.get('standing_registered_qualified') or asset['allowed_pose_for_this_task']!='stand':
@@ -97,7 +104,22 @@ class NativeRegisteredVideo(NativeAlphaVideo):
         self.camera_frame_readbacks.append({'frame_index':frame_index,'time_s':frame_index/15,'position_m':np.asarray(actual.position,float).tolist(),'yaw_deg':math.degrees(math.atan2(actual_f[0],-actual_f[2])),'forward_m':actual_f.tolist(),'orientation_wxyz':[float(actual.rotation.w),*actual.rotation.imag.tolist()],'camera_contract':'native observer rotation; listener position static'})
         if frame_index%15==0:
             obs=self.sim.get_sensor_observations();self._check_source_frame(np.asarray(obs['rgb'])[:,:,:3],np.asarray(obs['semantic']),frame_index)
+        environmental=[]
+        for ep,item in self.environment_nodes.items():
+            actual=np.asarray(item['node'].absolute_transformation(),float)
+            environmental.append({'endpoint_id':ep,'source_id':item['source_id'],'position_m':actual[:3,3].tolist(),'transform_m':actual.tolist(),'native_readback':'actual Habitat scenegraph audio-only child; no visual mesh'})
+        self.environment_frame_readbacks.append({'frame_index':frame_index,'time_s':frame_index/15,'emitters':environmental})
         return rows
+
+    def encode(self,scene,path,review_frames=None,*,collect_pixel_visibility=True):
+        result=super().encode(scene,path,review_frames,collect_pixel_visibility=collect_pixel_visibility)
+        if len(self.environment_frame_readbacks)!=450:raise ValueError('incomplete native environmental source clock')
+        result['environmental_emitter_readbacks']=self.environment_frame_readbacks
+        for ep in self.environment_nodes:
+            result['observed_mouth_trajectories'][ep]=[{'time_s':r['time_s'],'position_m':next(e['position_m'] for e in r['emitters'] if e['endpoint_id']==ep)} for r in self.environment_frame_readbacks]
+        write_json(Path(path).parent/'native_environmental_emitters.json',{'frames':self.environment_frame_readbacks,'visual_geometry':'none; audio-only source points'})
+        write_json(Path(path).parent/'native_registered_visual_evidence.json',result)
+        return result
 
     def _probe_entry(self,entry,directory):
         from avengine.assets.world_contact import REFERENCE_MAXIMUM_CONTACT_HORIZONTAL_STEP_M as tolerance
@@ -170,4 +192,14 @@ class NativeRegisteredVideo(NativeAlphaVideo):
                 write_json(directory/'placement_search_failed.json',{'status':'blocked','attempts':attempts})
                 raise ValueError('registered actor has no native-qualified nonoverlapping room placement')
             accepted['resolved_body_root_world_m']=entry['applied_root_input'][:3,3].tolist();accepted['candidate_emitter_plan_m']=entry['placement_override_m'];checks.append(accepted)
+        for ep,item in self.environment_nodes.items():
+            accepted=None
+            for point in [scene['sources'][ep]['trajectory'][0]['position_m'],*candidates]:
+                item['node'].translation=self.mn.Vector3(point)
+                actual=np.asarray(item['node'].absolute_transformation(),float)[:3,3]
+                admit=getattr(self,'acoustic_position_admission',None)
+                result=admit(ep,actual) if admit else {'status':'not_requested'}
+                if result['status']=='pass':accepted=result;break
+            if accepted is None:raise ValueError('audio-only source lacks unchanged native 5deg admission')
+        self.environment_frame_readbacks=[]
         self.standing_checks=checks;write_json(directory/'standing_admission.json',{'status':'pass','checks':checks,'placement_attempts':attempts,'original_contact_gate_preserved':True});self.camera_frame_readbacks=[];return checks

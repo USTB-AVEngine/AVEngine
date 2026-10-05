@@ -74,14 +74,15 @@ def source_qa_evidence(scene,program,dry_receipt,visual,foa_path,audio_evidence,
         if intervals is None:raise ValueError('source lacks measured activity')
         actual=[]
         for lo,hi in intervals:
-            a=max(offset+lo,binding['output_start_sample']);b=min(offset+hi,binding['output_end_sample_exclusive'])
+            crop=binding.get('crop_start_sample',0)
+            a=max(offset+lo-crop,binding['output_start_sample']);b=min(offset+hi-crop,binding['output_end_sample_exclusive'])
             if b>a:actual.append([int(a),int(b)])
         events[event['event_id']]={'sound_asset_id':record['sound_asset_id'],'transcript':record.get('transcript',''),
             'event_unit':'utterance' if record.get('transcript') else 'recorded_event','event_segmentation':record.get('segmentation',{'method':'complete admitted utterance','original_id':record.get('original_id')}),
             'source_qc':{'status':'pass','verdict':'pass','full_content_preserved':binding['semantic_content_complete'],
                 'source':record['path'],'license':record['screens']['license']['license'],'original_id':record.get('original_id',record['screens']['license']['original_id'])},
             'activity_status':'observed','activity_intervals_samples_global':actual,
-            'emission_mechanism':event.get('mechanism','human_live_recorded'), 'sound_class':record.get('sound_class')}
+            'emission_mechanism':event.get('mechanism','human_live_recorded'), 'sound_class':record.get('sound_class'), 'native_endpoint_id':event['endpoint_id']}
         if window_start_s is not None:
             lo=round(window_start_s*16000);hi=lo+160000
             whole=binding['output_start_sample']>=lo and binding['output_end_sample_exclusive']<=hi
@@ -98,7 +99,9 @@ def source_qa_evidence(scene,program,dry_receipt,visual,foa_path,audio_evidence,
                         'class_id':event['class_id'],'start_tick':start,'end_tick':previous+1,'mechanism':event.get('mechanism','human_live_recorded')})
                     start=tick
                 previous=tick
-    protocol=deepcopy(scene);protocol['events']=protocol_events
+    protocol=deepcopy(scene);protocol['events']=[e for e in protocol_events if isinstance(e['class_id'],int) and 0<=e['class_id']<13]
+    protocol['outside_class13_events']=[e for e in protocol_events if e not in protocol['events']]
+    protocol['class13_scope']='only declared taxonomy targets; full audio program and class admission remain retained'
     # All source positions are static. Native camera poses at 100 ms are
     # measured by the renderer, then used in this exact change of coordinates.
     reference=math.degrees(math.atan2(scene['camera_forward'][0],-scene['camera_forward'][2]))
@@ -120,6 +123,10 @@ def source_qa_evidence(scene,program,dry_receipt,visual,foa_path,audio_evidence,
         'foa_readback':{'path':str(foa_path),'format':'ACN_WYZX_SN3D_camera',
             'spatial_review':{'status':'pass','source':'self-contained native RIR direct-direction and camera rotation receipt',
                 'directions':audio_evidence['directions'],'camera_frames':len(visual['camera_frame_readbacks'])}}}
+    for ep,spec in scene['sources'].items():
+        if spec.get('native_visual_kind')=='audio_only':
+            proof['actor_profiles'][str(spec['actor_id'])]={'entity_class':'environmental_audio_point','species_id':None,'emission_mechanism':spec['mechanism'],'visual_binding':'none'}
+    proof['window_start_s']=window_start_s
     occluder_frames=visual.get('occluder_evidence',{}).get('frame_records',[])
     proof['occluder_interface_status']={'status':'measured_partial' if any(r['unknown_occluder_pixels'] for r in occluder_frames) else 'measured_complete' if occluder_frames else 'not_run','frames':len(occluder_frames),'frames_with_unknown_pixels':sum(r['unknown_occluder_pixels']>0 for r in occluder_frames),'unknown_pixels':sum(r['unknown_occluder_pixels'] for r in occluder_frames),'retained_source':'native_alpha_visual_evidence.json#occluder_evidence','strict_QA10_policy':'incomplete measured IDs remain private; only complete unambiguous stream supplied'}
     if occluder_frames and all(r['unknown_occluder_pixels']==0 for r in occluder_frames):

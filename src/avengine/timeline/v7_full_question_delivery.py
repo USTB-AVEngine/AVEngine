@@ -26,12 +26,21 @@ def collect_native_pool(scene,start,window_id,visual,media,evidence,quota_index,
     if 'native_appearance_review' in visual:proof['appearance_review']=deepcopy(visual['native_appearance_review'])
     raw=native_bundle(scene,start,window_id,visual,proof)
     bind_native_listener_frames(raw)
+    from avengine.timeline.v7_environmental_sources import augment_environmental_native_bundle,collect_admitted_class_questions
+    augment_environmental_native_bundle(raw,scene)
     public,private,audit=collect_questions(raw,window_id,media,
         seed=str(proof.get('question_seed','v7')),foa_readback=proof.get('foa_readback'),
         semantic_manifest=proof.get('semantic_manifest'),protocol_scene=proof.get('protocol_scene'),
         window_start_s=start,native_dialogue_evidence=proof.get('native_dialogue_evidence'),
         semantic_wording_variant=proof.get('semantic_wording_variant','standard'),
         content_binding_bundle=proof.get('content_binding_bundle'))
+    if scene.get('admitted_sound_class_domain'):
+        extra,extra_gold=collect_admitted_class_questions(raw,window_id,media,proof,audit,scene['admitted_sound_class_domain'])
+        public.extend(extra);private.extend(extra_gold)
+    if any(e['start_tick']<round((start+10)*10) and e['end_tick']>round(start*10) for e in proof.get('protocol_scene',{}).get('outside_class13_events',[])):
+        excluded={q['question_id'] for q in public if q.get('protocol_panel')=='STARSS23_v0.2' and q['qa_id']=='QA-23'}
+        public=[q for q in public if q['question_id'] not in excluded];private=[g for g in private if g['question_id'] not in excluded]
+        audit['out_of_domain_activity_count_exclusions']=sorted(excluded)
     audit['native_bundle']=raw
     audit['native_listener_binding']='all measured native camera frames, no static pose shadow'
     return public,private,audit
@@ -70,12 +79,19 @@ def finalize_parent_question_pools(row,members,root,*,binding_items_per_window=5
             public[name]=read_json(folder/'questions.json');private[name]=read_json(folder/'private_answers.json')
             quota=row['question_quota_base']+row['members'].index(name)*row['window_count']+index
             allocations[name]=question_allocation(quota,row['questions_per_window'])
+        ordinary={name:[q for q in public[name] if q['qa_id']!='V7-CLASS34'] for name in names}
         if names==quartet:
-            chosen,gold,audit=select_counterfactual_group(public,private,allocations,
+            chosen,gold,audit=select_counterfactual_group(ordinary,private,allocations,
                 binding_items_per_window=binding_items_per_window,quota_index=row['question_quota_base']+index,family_counts=family_counts)
         else:
-            q,a=select_questions(public['v0_a0'],private['v0_a0'],allocations['v0_a0'],quota_index=row['question_quota_base']+index,family_counts=family_counts)
+            q,a=select_questions(ordinary['v0_a0'],private['v0_a0'],allocations['v0_a0'],quota_index=row['question_quota_base']+index,family_counts=family_counts)
             chosen,gold,audit={'v0_a0':q},{'v0_a0':a},{'status':'single_selected','binding_items_per_member':0}
+        focus=row.get('production_scenario',{}).get('category_focus_class')
+        if focus:
+            from avengine.timeline.v7_environmental_sources import reserve_critical_audio_questions
+            for name in names:
+                chosen[name],gold[name]=reserve_critical_audio_questions(chosen[name],gold[name],public[name],private[name],focus)
+            audit['critical_audio_reservation']={'speaker_count':True,'category_focus_class':focus,'modality_quota_changed':False}
         audits.append(audit)
         for name in names:
             check=validate_question_counts(chosen[name],gold[name],expected_allocation=allocations[name])
