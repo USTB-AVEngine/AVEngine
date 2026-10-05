@@ -701,3 +701,6 @@ CCI最终代码在开发机做1父2窗28题的实际CPU冒烟：450帧原生连�
 正式500父版本2026-10-05新加坡10:27入P19待派发首位，计划`plans/v7_s_critical_cpu_batch1_20261005_r2.json`。10:29仍等待空位，未开始量产；收据位于AFS根目录`readback/p19_enqueue_receipt_20261005T022745Z_aa844cde.json`和`readback/dispatch_r2_latest.json`。队列有备份、P19_DRY=1复核、runner SHA前后相同。本版本四成员分别真实渲染，125四成员父+375单成员父=875画面世界，不沿用第8回合625画面世界的成本。24工作进程理想核时外推约3.61小时，考虑IO/人数/封存余量预计派发后4–6小时；若10:30–11:00派发预计15:00–17:00完整交付（未验证，排队或训练保护降并行会顺延）。
 
 等待脚本匹配AFS根目录`release/train.jsonl`、`release/dev.jsonl`、`release/DELIVERY_MANIFEST.json`的sealed/500父口径；目前尚未发布。完整覆盖、模态及绑定比例、各题族实际数只从最终封存汇总读取。最终48g余量59,703,218,176字节、R10+R12占用9,450,729,472字节，见`readback/disk_final_r12.json`。本批没有设置`semantic_scenario_id`，QA-26–28及完整内容绑定列第二批，QA-28为0不能推断原出题层不可用。详情与逐题族实测数见本轮`REPORT_zh.md`；提交、作业、停止说明见`HANDOFF.json`。
+
+
+R12 已派发最终状态：2026-10-05新加坡10:35:33 P19派发，本次作业`job_20261004T172748Z_b69cc9-z8t55`，主机`app-1dff3cc086ac4793abc303ebd21c53c4-5848b69cc9-z8t55`；协调器PID3095792、production模式及时间由`coordinator.lock/owner.json`读回。主日志`p19_run/v7_s_CPU_500_parents_r2/eval_job_a01_job_20261004T172748Z_b69cc9-z8t55.log`；停止方式是AFS任务根目录创建`STOP`。按4–6小时预测，预计14:35–16:35出齐（未验证，降并行/IO会顺延）；10:29待派发是历史状态，不能用来判断当前进展。
