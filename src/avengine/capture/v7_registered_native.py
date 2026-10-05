@@ -23,6 +23,10 @@ class RigidStandingInstance:
     def joint_positions(self): return np.empty(0)
     def get_link_ids(self): return []
     @property
+    def motion_type(self): return self.native.motion_type
+    @motion_type.setter
+    def motion_type(self,value): self.native.motion_type=value
+    @property
     def translation(self): return self.native.translation
     @translation.setter
     def translation(self,value): self.native.translation=value

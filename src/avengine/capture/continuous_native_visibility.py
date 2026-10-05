@@ -8,7 +8,7 @@ from __future__ import annotations
 import numpy as np
 from avengine.qa.pixel_visibility import compile_pixel_visibility_truth
 
-VISIBILITY_REVISION='native_same_context_objects_only_v4_complete_native_objects'
+VISIBILITY_REVISION='native_same_context_objects_only_v5_static_control_restoration'
 
 
 def native_mask_pose(obj,camera,entry):
@@ -51,12 +51,22 @@ class NativeVisibilityStream:
                 seen.add(int(obj.object_id))
         previous=[{'root':np.asarray(a['object'].root_scene_node.absolute_transformation()).copy(),
                    'joints':np.asarray(a['object'].joint_positions).copy(),
+                   'motion_type':getattr(a['object'],'motion_type',None),
                    'links':{k:np.asarray(a['object'].get_link_scene_node(k).absolute_transformation()).copy() for k in a['object'].get_link_ids()}}
                   for a in hidden]
         sensor=p.sim._sensors['semantic']._sensor_object
         camera=np.asarray(sensor.render_camera.camera_matrix).copy()
         try:
-            for i,a in enumerate(hidden):a['object'].translation=p.mn.Vector3(2000+i*10,2000,2000)
+            for i,a in enumerate(hidden):
+                obj=a['object']
+                # A STATIC Bullet instance can ignore transformation writes.
+                # This is a reversible control pass without a simulation step.
+                if getattr(obj,'motion_type',None)==p.hs.physics.MotionType.STATIC:
+                    obj.motion_type=p.hs.physics.MotionType.KINEMATIC
+                expected=np.array([2000+i*10,2000,2000])
+                obj.translation=p.mn.Vector3(expected)
+                actual=np.asarray(obj.root_scene_node.absolute_transformation())[:3,3]
+                if not np.array_equal(actual,expected):raise ValueError('native non-target control transform was not applied')
             data=np.empty((p.height,p.width),dtype=np.uint32)
             view=p.mn.MutableImageView2D(p.mn.PixelFormat.R32UI,(p.width,p.height),memoryview(data).cast('B'))
             with sensor.render_target:
@@ -85,6 +95,10 @@ class NativeVisibilityStream:
                 else:
                     _apply_root_with_habitat(a['object'],a['applied_root_input'],qt=p.qt,mn=p.mn)
                 obj=a['object']
+                if old['motion_type'] is not None and obj.motion_type!=old['motion_type']:
+                    obj.motion_type=old['motion_type']
+                if old['motion_type'] is not None and obj.motion_type!=old['motion_type']:
+                    raise ValueError('target-only pass failed exact native motion type restoration')
                 root_error=float(np.max(np.abs(np.asarray(obj.root_scene_node.absolute_transformation())-old['root'])))
                 joint_delta=np.abs(np.asarray(obj.joint_positions)-old['joints'])
                 joint_error=float(np.max(joint_delta)) if joint_delta.size else 0.
