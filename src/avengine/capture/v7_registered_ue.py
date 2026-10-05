@@ -13,7 +13,7 @@ from avengine.capture.kujiale_spear_runtime import (launch_native,camera_helpers
     from_ue,to_ue,configure_scene_lighting,apply_native_rgb_profile)
 from avengine.timeline.continuous_pilot import write_json
 
-REGISTERED_UE_VISUAL_REVISION='registered-native-UE-design-whitebalance-v2-nav-preflight'
+REGISTERED_UE_VISUAL_REVISION='registered-native-UE-design-whitebalance-v3-nav-frame-precheck'
 
 
 class NativeRegisteredUEVideo(NativeUEAlphaVideo):
@@ -187,6 +187,13 @@ class NativeRegisteredUEVideo(NativeUEAlphaVideo):
         for a,d in zip(self.assets,self.declarations,strict=True):
             accepted=None;ep=a['endpoint_id'];original=self.scene['sources'][ep]['trajectory'][0]['position_m']
             for p in [original,*self.scene.get('native_placement_candidates',[])]:
+                # SPEAR's begin_frame marks its transaction permanently in
+                # error if a ValueError escapes _apply. Check the unchanged
+                # 15 cm navigation rule before entering that transaction so
+                # the original next-candidate search can actually continue.
+                try:self._navigation_foot(p)
+                except ValueError as e:
+                    attempts.append({'endpoint_id':ep,'candidate':p,'reason':str(e)});continue
                 self.placement_overrides[ep]=p
                 try:
                     with self.instance.begin_frame():actor=next(x for x in self._apply(0) if x['endpoint_id']==ep)

@@ -155,8 +155,9 @@ def main():
   if delivered:
    rejected=sum(x.get('batch')==name for x in state['rejections'].values())
    preflight_retry=sum(x.get('batch')==name for x in state.get('preflight_retry_history',{}).values())
-   assert delivered['parents']+rejected+preflight_retry==len(batch)
-   state['dispatches'][name].update(status='processed',passed_parents=delivered['parents'],rejected_parents=rejected,preflight_retry_parents=preflight_retry,wall_seconds=g['elapsed_seconds'],peak_mib=g['peak_mib']);atomic(RUN/'PRODUCTION_STATUS.json',state);return
+   frame_retry=sum(x.get('batch')==name for x in state.get('frame_retry_history',{}).values())
+   assert delivered['parents']+rejected+preflight_retry+frame_retry==len(batch)
+   state['dispatches'][name].update(status='processed',passed_parents=delivered['parents'],rejected_parents=rejected,preflight_retry_parents=preflight_retry,frame_retry_parents=frame_retry,wall_seconds=g['elapsed_seconds'],peak_mib=g['peak_mib']);atomic(RUN/'PRODUCTION_STATUS.json',state);return
   passed=[]
   for row in batch:
    previous_rejection=state['rejections'].get(row['scene_id'])
@@ -177,6 +178,14 @@ def main():
      # placement search. Keep this failed attempt as evidence, and retry the
      # exact same fixed request once with the repaired v2 initialization.
      state.setdefault('preflight_retry_history',{})[row['scene_id']]={'batch':name,'reason':f['reason'],'visual_revision':recipe['visual_revision'],'witness':str(RUN/'scene_witnesses'/name/row['scene_id'])};atomic(RUN/'PRODUCTION_STATUS.json',state);retain_witness_then_remove(parent,name);continue
+    if (f.get('error_type')=='AssertionError' and not f.get('reason')
+            and recipe.get('visual_revision')=='registered-native-UE-design-whitebalance-v2-nav-preflight'
+            and row['scene_id'] in state.get('preflight_retry_history',{})
+            and 'engine_service.py' in f.get('traceback','') and 'begin_frame' in f['traceback']):
+     # Same immutable request: v2 reached the original search, but an
+     # off-nav candidate raised inside SPEAR begin_frame and poisoned its
+     # transaction. v3 checks that candidate before entering the frame.
+     state.setdefault('frame_retry_history',{})[row['scene_id']]={'batch':name,'reason':'SPEAR frame state poisoned by original off-nav trial','visual_revision':recipe['visual_revision'],'witness':str(RUN/'scene_witnesses'/name/row['scene_id'])};atomic(RUN/'PRODUCTION_STATUS.json',state);retain_witness_then_remove(parent,name);continue
     if not scientific_rejection(f):raise RuntimeError('unclassified generation error; stop for review '+row['scene_id']+': '+f.get('reason',''))
     state['rejections'][row['scene_id']]={**f,'batch':name,'witness':str(RUN/'scene_witnesses'/name/row['scene_id'])};state['attempted_parent_ids']=sorted(set(state['attempted_parent_ids'])|{row['scene_id']});atomic(RUN/'PRODUCTION_STATUS.json',state);retain_witness_then_remove(parent,name)
   workers=state['dispatches'][name]['workers'];peak=max(peak,float(g['peak_mib'])/workers)
@@ -185,9 +194,10 @@ def main():
    if not (release/'summary.json').is_file():export_alpha(seeds,[phase/'production'],release,expected_parents=len(passed))
    deliver(name+'_passed',release,phase,passed)
   preflight_retry=sum(x.get('batch')==name for x in state.get('preflight_retry_history',{}).values())
-  rejected=len(batch)-len(passed)-preflight_retry
-  state['dispatches'][name].update(status='processed',passed_parents=len(passed),rejected_parents=rejected,preflight_retry_parents=preflight_retry,wall_seconds=g['elapsed_seconds'],peak_mib=g['peak_mib']);state['active_workers']=0;atomic(RUN/'PRODUCTION_STATUS.json',state)
-  progress(f'{name}完成{len(batch)}个原请求尝试：通过{len(passed)}、原门禁拒绝{rejected}、同固定请求初始化修复后待重验{preflight_retry}；不补题、不换种子。')
+  frame_retry=sum(x.get('batch')==name for x in state.get('frame_retry_history',{}).values())
+  rejected=len(batch)-len(passed)-preflight_retry-frame_retry
+  state['dispatches'][name].update(status='processed',passed_parents=len(passed),rejected_parents=rejected,preflight_retry_parents=preflight_retry,frame_retry_parents=frame_retry,wall_seconds=g['elapsed_seconds'],peak_mib=g['peak_mib']);state['active_workers']=0;atomic(RUN/'PRODUCTION_STATUS.json',state)
+  progress(f'{name}完成{len(batch)}个原请求尝试：通过{len(passed)}、原门禁拒绝{rejected}、同固定请求接口修复后待重验{preflight_retry+frame_retry}；不补题、不换种子。')
  try:
   phase=Path(canary['release']).parent;fixrows=[byid[x] for x in canary['parent_ids']]
   deliver('batch_002_endpoint_fixed',Path(canary['release']),phase,fixrows,remove_whole_phase=True)
