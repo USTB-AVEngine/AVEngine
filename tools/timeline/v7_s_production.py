@@ -269,6 +269,9 @@ def main():
             cpu_recorder.update(active_limit,len(children))
             while pending and len(children)<active_limit and not stopping:
                 index,row=pending.pop(0);sid=row['scene_id'];seed=work/(sid+'_seed.jsonl')
+                if profile.get('completed_native_stage_source'):
+                    from avengine.timeline.v7_native_stage_resume import reuse_native_parent
+                    reuse_native_parent(profile['completed_native_stage_source'],work,row)
                 if not seed.exists():seed.write_text(json.dumps(row,ensure_ascii=False)+'\n')
                 logfile=(root/'logs'/(sid+'_'+str(time.time_ns())+'.log')).open('x')
                 cmd=[sys.executable,str(code/'tools/timeline/generate_v7_registered.py'),'--houses',str(inputs/'houses.json'),'--seeds',str(seed),'--runtime-inputs',str(inputs/'runtime.json'),'--assets',str(inputs/'assets.json'),'--source-admission',str(inputs/'source_admission.json'),'--human-admission',str(inputs/'human_admission.json'),'--output',str(work),'--workers','1','--limit','1','--render-backend','cpu_llvmpipe']
