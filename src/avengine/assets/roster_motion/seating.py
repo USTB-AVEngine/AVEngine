@@ -10,6 +10,25 @@ from avengine.assets.roster_motion.collision import clipped_surface_minimum,inte
 from avengine.timeline.continuous_pilot import write_json
 
 
+
+def original_factor_palette_srgb(doc):
+    """These authored untextured chairs use linear glTF baseColorFactor.
+
+    Only the reference input is encoded into the RGB observation space. The
+    original GLB, rendered PBR material, measurement function and gates stay
+    unchanged. Texture-backed furniture needs a separate explicit path.
+    """
+    rows=[]
+    for material in doc['materials']:
+        pbr=material.get('pbrMetallicRoughness',{})
+        if pbr.get('baseColorTexture'):raise ValueError('factor-only chair reference cannot handle a texture')
+        value=np.array(pbr.get('baseColorFactor',[1,1,1,1])[:3],float)
+        if not np.isfinite(value).all()or np.any(value<0)or np.any(value>1):raise ValueError('invalid original chair factor')
+        rows.append(np.where(value<=.0031308,12.92*value,1.055*value**(1/2.4)-.055))
+    if not rows:raise ValueError('original chair has no declared material colors')
+    return np.array(rows)
+
+
 def existing_native_seats(video,scene,directory):
     from avengine.timeline.continuous_scene import camera_basis
     labels={i:o.category.name().lower()for i,o in enumerate(video.sim.semantic_scene.objects or [])if o is not None and o.category is not None}
@@ -101,6 +120,13 @@ def compile_seated(video,entry,scene,house,inputs,directory,request):
                     chair_path=directory/'verified_chair.glb';write_glb(chair_path,cd,cb)
                     from avengine.assets.source_materials import prepare_source_glb
                     derived,chair_material=prepare_source_glb(chair_path,asset_id=chair['asset_id'],entity_class='furniture',output_directory=video.source_material_cache_directory)
+                    chair_material={**chair_material,
+                        'legacy_factor_palette_mislabeled_srgb':chair_material['source_palette_srgb'],
+                        'source_palette_srgb':original_factor_palette_srgb(cd).tolist(),
+                        'reference_color_revision':'original-gltf-linear-factor-to-srgb-v1',
+                        'reference_source':'https://registry.khronos.org/glTF/specs/2.0/glTF-2.0.html',
+                        'measurement_function_changed':False,'thresholds_changed':False}
+                    write_json(directory/'chair_material_reference.json',chair_material)
                     from avengine.capture.v7_registered_native import loaded_mesh
                     cm=loaded_mesh(chair_path);cv=np.asarray(cm.vertices)@rot.T+cr
                     clearance.check_world(cv,cm.faces)
