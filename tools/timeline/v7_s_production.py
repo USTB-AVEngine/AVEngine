@@ -5,7 +5,7 @@ stages; a host restart can rerun this entry with the same profile. Formal
 delivery is published only after measured count/class and original gates pass.
 """
 from __future__ import annotations
-import argparse,json,os,re,signal,socket,statistics,subprocess,sys,time,uuid
+import argparse,json,os,re,signal,socket,statistics,subprocess,sys,time,uuid,threading
 from pathlib import Path
 
 
@@ -136,6 +136,29 @@ def record_cpu_sample(root,profile,workers,active,previous):
     return total,idle,now
 
 
+
+class CpuRecorder:
+    """Minute sampling must continue while the dispatch thread scans AFS."""
+    def __init__(self,root,profile,workers,interval=60.):
+        self.root=root;self.profile=profile;self.workers=workers;self.active=0
+        self.interval=interval;self.error=None;self.stop_event=threading.Event()
+        self.thread=threading.Thread(target=self._run,name='v7-own-cpu-telemetry',daemon=True)
+        self.thread.start()
+    def _run(self):
+        previous=None
+        try:
+            while not self.stop_event.is_set():
+                before=time.monotonic()
+                previous=record_cpu_sample(self.root,self.profile,self.workers,self.active,previous)
+                self.stop_event.wait(max(.01,self.interval-(time.monotonic()-before)))
+        except Exception as error:self.error=error
+    def update(self,workers,active):
+        self.workers=workers;self.active=active
+        if self.error:raise RuntimeError('CPU telemetry failed') from self.error
+    def close(self):
+        self.stop_event.set();self.thread.join(timeout=5.)
+
+
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--generator-profile',required=True,type=Path)
@@ -221,6 +244,7 @@ def main():
     paths=profile.get('training_step_files',[]);baseline=training_sample(paths)
     active_limit=min(cpu_limit,int(profile.get('workers',40)));protected_limit=active_limit;last_control=None;cpu_previous=None;cpu_monitor_time=0.;last_storage=time.monotonic();storage_limit=int(profile.get('owner_quota_bytes',2_000_000_000_000));reserve=int(profile.get('owner_reserve_bytes',80_000_000_000))
     pending=list(enumerate(rows))
+    cpu_recorder=CpuRecorder(root,profile,active_limit)
     try:
         if owner_bytes(profile['owner_root'])+reserve>=storage_limit:raise ValueError('owner 2 TB quota reserve insufficient')
         while pending or children:
@@ -242,9 +266,7 @@ def main():
                 if control!=last_control:
                     active_limit=requested;protected_limit=requested;last_control=control
                     atomic(root/('dispatch_control_applied_'+str(time.time_ns())+'.json'),{'control':control,'workers':active_limit,'pid':os.getpid(),'hostname':socket.gethostname()})
-            if time.monotonic()-cpu_monitor_time>=60:
-                cpu_previous=record_cpu_sample(root,profile,active_limit,len(children),cpu_previous)
-                cpu_monitor_time=time.monotonic()
+            cpu_recorder.update(active_limit,len(children))
             while pending and len(children)<active_limit and not stopping:
                 index,row=pending.pop(0);sid=row['scene_id'];seed=work/(sid+'_seed.jsonl')
                 if not seed.exists():seed.write_text(json.dumps(row,ensure_ascii=False)+'\n')
@@ -287,6 +309,7 @@ def main():
         atomic(args.output/'run.json',{'status':'complete','count':len(rows),'kind':'CPU generation receipts, not model predictions'})
         atomic(args.output/'metrics.json',{'status':'complete','parents':len(rows),'delivery_root':str(release),'windows':summary['formal_windows'],'questions':summary['formal_logical_questions']})
     finally:
+        cpu_recorder.close()
         # A failed coordinator must not leave its own renderers running.
         if children:
             stop(signal.SIGTERM,None)
