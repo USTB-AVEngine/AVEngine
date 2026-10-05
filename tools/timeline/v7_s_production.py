@@ -107,6 +107,35 @@ def native_cpu_probe(profile,output):
     print(json.dumps(result),flush=True)
 
 
+def record_cpu_sample(root,profile,workers,active,previous):
+    """Container-visible CPU counters; retain cgroup quota with host context."""
+    stat=Path('/proc/stat').read_text();load=Path('/proc/loadavg').read_text().strip()
+    counters=[int(v) for v in stat.splitlines()[0].split()[1:]]
+    # guest and guest_nice are already included in user/nice; do not double count.
+    total=sum(counters[:8]);idle=counters[3]+counters[4]
+    now=time.monotonic();fraction=None;cores=None;delta=None
+    if previous is not None:
+        before_total,before_idle,before_time=previous;dt=now-before_time
+        delta=total-before_total
+        if delta>0 and dt>0:
+            busy=delta-(idle-before_idle);fraction=busy/delta
+            cores=busy/os.sysconf('SC_CLK_TCK')/dt
+    cgroup={}
+    for name in ('cpu.max','cpu.stat','cpuset.cpus.effective'):
+        p=Path('/sys/fs/cgroup')/name
+        if p.is_file():cgroup[name]=p.read_text().strip()
+    sample={'utc':time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime()),'hostname':socket.gethostname(),
+        'pid':os.getpid(),'workers_limit':workers,'active_parents':active,
+        'proc_stat':stat,'proc_loadavg':load,'visible_logical_cpus':os.cpu_count(),
+        'task_affinity_cpus':sorted(os.sched_getaffinity(0)),'owner_P19_cpu_allocation':88,
+        'aggregate_busy_fraction':fraction,'aggregate_busy_core_equivalent':cores,
+        'cgroup':cgroup,'scope':'container-visible /proc counters; host aggregate may exceed P19 88-core allocation'}
+    folder=Path(root)/'cpu_monitor';folder.mkdir(exist_ok=True)
+    with (folder/('cpu_'+profile['plan_name']+'.jsonl')).open('a') as f:
+        f.write(json.dumps(sample,ensure_ascii=False)+'\n');f.flush()
+    return total,idle,now
+
+
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--generator-profile',required=True,type=Path)
@@ -120,7 +149,9 @@ def main():
     for folder in reversed(profile['cpu_env']['PYTHONPATH'].split(os.pathsep)):
         if folder not in sys.path:sys.path.insert(0,folder)
     if os.environ.get('LIBGL_ALWAYS_SOFTWARE')!='1' or os.environ.get('LP_NUM_THREADS')!='1':raise ValueError('CPU software-rendering contract missing')
-    cpus=sorted(os.sched_getaffinity(0));os.sched_setaffinity(0,set(cpus[:32]))
+    cpus=sorted(os.sched_getaffinity(0));cpu_limit=int(profile.get('cpu_affinity_limit',40))
+    if not 1<=cpu_limit<=40:raise ValueError('CPU affinity exceeds owner-authorized 40-core maximum')
+    os.sched_setaffinity(0,set(cpus[:cpu_limit]))
     if args.mode=='runtime_probe':
         if credentials:
             subprocess.run([sys.executable,*sys.argv],check=True,env=os.environ.copy(),**credentials)
@@ -188,7 +219,7 @@ def main():
             if p.poll() is None:os.killpg(p.pid,signal.SIGTERM)
     signal.signal(signal.SIGTERM,stop);signal.signal(signal.SIGINT,stop)
     paths=profile.get('training_step_files',[]);baseline=training_sample(paths)
-    active_limit=min(24,int(profile.get('workers',24)));last_storage=time.monotonic();storage_limit=int(profile.get('owner_quota_bytes',2_000_000_000_000));reserve=int(profile.get('owner_reserve_bytes',80_000_000_000))
+    active_limit=min(cpu_limit,int(profile.get('workers',40)));protected_limit=active_limit;last_control=None;cpu_previous=None;cpu_monitor_time=0.;last_storage=time.monotonic();storage_limit=int(profile.get('owner_quota_bytes',2_000_000_000_000));reserve=int(profile.get('owner_reserve_bytes',80_000_000_000))
     pending=list(enumerate(rows))
     try:
         if owner_bytes(profile['owner_root'])+reserve>=storage_limit:raise ValueError('owner 2 TB quota reserve insufficient')
@@ -199,8 +230,21 @@ def main():
                 last_storage=time.monotonic()
             if time.monotonic()-monitor_time>120:
                 current=training_sample(paths);loss=slowdown(baseline,current)
-                if loss is not None and loss>.10:active_limit=max(2,active_limit//2)
-                atomic(root/'training_throughput_monitor.json',{'baseline':baseline,'current':current,'worst_comparable_throughput_drop':loss,'active_limit':active_limit,'rule':'more than 10 percent => halve new dispatch; in-flight parents finish','checked_utc':time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime())});monitor_time=time.monotonic()
+                threshold=float(profile.get('training_slowdown_threshold',.35))
+                if not 0<threshold<=.35:raise ValueError('training slowdown threshold exceeds owner rule')
+                if loss is not None and loss>threshold:
+                    active_limit=max(2,active_limit//2);protected_limit=active_limit
+                atomic(root/'training_throughput_monitor.json',{'baseline':baseline,'current':current,'worst_comparable_throughput_drop':loss,'active_limit':active_limit,'rule':'more than 35 percent => halve new dispatch; in-flight parents finish','threshold':threshold,'checked_utc':time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime())});monitor_time=time.monotonic()
+            control_path=root/'dispatch_control.json'
+            if control_path.is_file():
+                control=json.loads(control_path.read_text());requested=int(control['workers'])
+                if not 1<=requested<=cpu_limit:raise ValueError('online dispatch control exceeds authorized affinity')
+                if control!=last_control:
+                    active_limit=requested;protected_limit=requested;last_control=control
+                    atomic(root/('dispatch_control_applied_'+str(time.time_ns())+'.json'),{'control':control,'workers':active_limit,'pid':os.getpid(),'hostname':socket.gethostname()})
+            if time.monotonic()-cpu_monitor_time>=60:
+                cpu_previous=record_cpu_sample(root,profile,active_limit,len(children),cpu_previous)
+                cpu_monitor_time=time.monotonic()
             while pending and len(children)<active_limit and not stopping:
                 index,row=pending.pop(0);sid=row['scene_id'];seed=work/(sid+'_seed.jsonl')
                 if not seed.exists():seed.write_text(json.dumps(row,ensure_ascii=False)+'\n')
