@@ -48,6 +48,8 @@ def compile_seated(video,entry,scene,house,inputs,directory,request):
     d,b,action,lineage=admitted_master(entry,inputs,house,kind='sit')
     roster=json.loads(Path(inputs['v7_asset_roster']).read_text());root=Path(roster['artifact_root'])
     survey=existing_native_seats(video,scene,directory)
+    original_navmesh=directory/'original_private_navmesh.navmesh'
+    if not video.sim.pathfinder.save_nav_mesh(str(original_navmesh)):raise ValueError('cannot snapshot private seating navigation')
     major=entry['declaration']['body_identity_id'];reference=json.loads((root/'round2/assets/humans'/major/'seated_contact/hm3d/seated.json').read_text())
     compat=next(r for r in json.loads((root/'round3/evidence/chair_body_compatibility.json').read_text())if r['asset_id']==major)
     styles={r['chair_id']:r for r in compat['styles']if r['status']=='pass'}
@@ -95,6 +97,8 @@ def compile_seated(video,entry,scene,house,inputs,directory,request):
                     for node in cd['nodes']:
                         if 'mesh'in node:node['scale']=[1,scale,1]
                     chair_path=directory/'verified_chair.glb';write_glb(chair_path,cd,cb)
+                    from avengine.assets.source_materials import prepare_source_glb
+                    derived,chair_material=prepare_source_glb(chair_path,asset_id=chair['asset_id'],entity_class='furniture',output_directory=video.source_material_cache_directory)
                     from avengine.capture.v7_registered_native import loaded_mesh
                     cm=loaded_mesh(chair_path);cv=np.asarray(cm.vertices)@rot.T+cr
                     import fcl
@@ -104,7 +108,7 @@ def compile_seated(video,entry,scene,house,inputs,directory,request):
                         wp=cr+rot@np.asarray(p);legs.append(float(wp[1]-floor(wp)))
                     if any(abs(x)>.012 for x in legs):raise ValueError('new chair support does not meet actual 12mm native floor gate')
                     tm=video.sim.get_object_template_manager();attr=tm.create_new_template('verified_seat_'+entry['endpoint_id'])
-                    attr.render_asset_handle=str(chair_path);attr.collision_asset_handle=str(chair_path);attr.is_collidable=True;attr.compute_COM_from_shape=False;attr.shader_type='pbr';attr.margin=.001
+                    attr.render_asset_handle=str(derived);attr.collision_asset_handle=str(derived);attr.is_collidable=True;attr.compute_COM_from_shape=False;attr.shader_type='pbr';attr.margin=.001
                     tid=tm.register_template(attr);chair_obj=video.sim.get_rigid_object_manager().add_object_by_template_id(tid)
                     from avengine.assets.habitat_capture import _apply_root_with_habitat
                     matrix=np.eye(4);matrix[:3,:3]=rot;matrix[:3,3]=cr
@@ -144,9 +148,13 @@ def compile_seated(video,entry,scene,house,inputs,directory,request):
             except ValueError as error:
                 failures.append({'seat_kind':seat['kind'],'start_m':cr.tolist(),'reason':str(error)})
                 if chair_obj is not None:video.sim.get_rigid_object_manager().remove_object_by_id(chair_obj.object_id)
-                native_nav=house['input'].get('navmesh_source')
-                if native_nav:video.sim.pathfinder.load_nav_mesh(str(native_nav))
+                video.sim.pathfinder.load_nav_mesh(str(original_navmesh))
         if accepted:break
     if not accepted:
         write_json(directory/'seat_rejected.json',{'status':'blocked','failures':failures,'existing_seat_survey':survey});raise ValueError('no existing or fallback chair passed native seated episode gates')
+    if chair_obj is not None:
+        item={'object':chair_obj,'endpoint_id':'silent_seat_'+entry['endpoint_id'],
+            'semantic_id':int(chair_obj.semantic_id),'declaration':{'asset_id':seat['chair']['asset_id']},'source_material':chair_material}
+        video.seat_material_entries=getattr(video,'seat_material_entries',[])+[item]
+        video.receipt['source_materials'].append(chair_material)
     accepted['failed_candidate_count']=len(failures);write_json(directory/'seated_geometry.json',accepted);return accepted

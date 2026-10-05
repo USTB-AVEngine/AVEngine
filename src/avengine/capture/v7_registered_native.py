@@ -97,6 +97,14 @@ class NativeRegisteredVideo(NativeAlphaVideo):
         mouth=(native@np.r_[asset['mouth_local_glb_m'],1.])[:3]
         return {'endpoint_id':entry['endpoint_id'],'actor_id':asset['native_instance_id'],'native_object_id':int(entry['object'].object_id),'semantic_id':entry['semantic_id'],'asset_id':asset['asset_id'],'position_m':native[:3,3].tolist(),'body_to_world_m':native.tolist(),'emitter_position_m':mouth.tolist(),'moving':False,'action_id':'stand','action_sample_index':0,'action_tick':0,'root_max_error':error,'joint_max_error':0.,'joint_state':'no_joint_DOFs_registered_static_GLB','source_registry_sha256':asset['source_registry_sha256'],'loaded_artifact_sha256':asset['actual_artifact_sha256'][asset['habitat_glb']]}
 
+    def _check_source_frame(self,rgb,semantic,frame_index):
+        # Furniture has material checks but never becomes a speaking actor.
+        actors=self.actors
+        try:
+            self.actors=[*actors,*getattr(self,'seat_material_entries',[])]
+            super()._check_source_frame(rgb,semantic,frame_index)
+        finally:self.actors=actors
+
     def _apply_motion_entry(self,entry,index):
         from avengine.assets.habitat_capture import _apply_root_with_habitat
         import hashlib
@@ -116,7 +124,7 @@ class NativeRegisteredVideo(NativeAlphaVideo):
         _apply_root_with_habitat(entry['object'],root,qt=self.qt,mn=self.mn)
         native=np.asarray(entry['object'].root_scene_node.absolute_transformation(),float)
         child=entry['object'].root_scene_node.create_child();child.translation=self.mn.Vector3(frame['mouth_m'])
-        mouth=np.asarray(child.absolute_translation(),float);expected=(root@np.r_[frame['mouth_m'],1.])[:3]
+        mouth=np.asarray(child.absolute_transformation(),float)[:3,3];expected=(root@np.r_[frame['mouth_m'],1.])[:3]
         error=float(np.linalg.norm(mouth-expected))
         if error>.0001:raise ValueError('moving native mouth differs from posed lip point')
         entry['applied_root_input']=native.copy()

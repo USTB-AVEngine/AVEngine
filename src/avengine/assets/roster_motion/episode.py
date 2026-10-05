@@ -138,14 +138,18 @@ def compile_walking(video,entry,scene,house,inputs,directory,request):
     real_nodes.append(30.);phase_nodes.append(cumulative+phase[0]);clock=np.interp(times,real_nodes,phase_nodes)
     static_bounds=[np.asarray(a['original_mesh'].vertices)@a['applied_root_input'][:3,:3].T+a['applied_root_input'][:3,3] for a in video.actors if a is not entry]
     accepted=None;failures=[]
-    candidates=[entry['applied_root_input'][:3,3].tolist(),*[np.asarray(p)-[0.,1.3,0.] for p in scene['native_placement_candidates']]]
-    for p0 in candidates[:96]:
+    poly=shape(scene['production_scenario']['motion_floor_polygon']).buffer(-.55)
+    x0,z0,x1,z1=poly.bounds
+    from shapely.geometry import Point
+    extra=[[float(x),float(entry['applied_root_input'][1,3]),float(z)] for x in np.arange(x0,x1,.2) for z in np.arange(z0,z1,.2) if poly.covers(Point(x,z))]
+    extra.sort(key=lambda p:float(np.linalg.norm(np.asarray(p)[[0,2]]-entry['applied_root_input'][[0,2],3])))
+    candidates=[entry['applied_root_input'][:3,3].tolist(),*extra]
+    for p0 in candidates[:512]:
         p0=np.asarray(p0,float)
         for yaw in [0.,math.pi/2,math.pi,-math.pi/2]:
             direction=yaw_matrix(yaw)@np.array([0.,0.,-1.]);positions=p0+distance[:,None]*direction
-            poly=shape(scene['production_scenario']['motion_floor_polygon']).buffer(-.55)
             if not poly.covers(LineString([positions[0][[0,2]],positions[-1][[0,2]]])):continue
-            if any(np.any((positions[:,0]>v[:,0].min()-.7)&(positions[:,0]<v[:,0].max()+.7)&(positions[:,2]>v[:,2].min()-.7)&(positions[:,2]<v[:,2].max()+.7))for v in static_bounds):continue
+            if any(np.any((positions[:,0]>v[:,0].min()-.4)&(positions[:,0]<v[:,0].max()+.4)&(positions[:,2]>v[:,2].min()-.4)&(positions[:,2]<v[:,2].max()+.4))for v in static_bounds):continue
             try:
                 snaps=np.array([video.sim.pathfinder.snap_point(p) for p in positions]);nav=float(np.linalg.norm((snaps-positions)[:,[0,2]],axis=1).max())
                 if not np.isfinite(nav) or nav>.002:raise ValueError('motion actual native navigation horizontal drift exceeds 2mm')
