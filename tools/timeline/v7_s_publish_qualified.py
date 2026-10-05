@@ -105,7 +105,7 @@ def main():
         os.rename(stage,final)
     manifest=load(final/'DELIVERY_MANIFEST.json')
     atomic(root/'HANDOFF.json',{'status':'sealed','release_directory':str(final),'independent_parent_scenes':manifest['independent_parent_scenes'],'formal_windows':manifest['formal_windows'],'formal_logical_questions':manifest['formal_logical_questions'],'owner_round16_partial_delivery':True,'manifest_sha256':sha(final/'DELIVERY_MANIFEST.json'),'consumer_old_500_parent_contract_detected':True})
-    atomic(a.output/'metrics.json',{'status':'complete',**manifest})
+    atomic(a.output/'metrics.json',{**manifest,'status':'complete'})
     atomic(a.output/'run.json',{'status':'complete','kind':'qualified simulated data publication, no model evaluation','count':len(good)})
     (a.output/'input_manifest.jsonl').write_text(''.join(json.dumps({'scene_id':r['scene_id']})+'\n'for r in good))
     (a.output/'predictions.jsonl').write_text(''.join(json.dumps({'scene_id':r['scene_id'],'status':'formal_alpha_admitted'})+'\n'for r in good))

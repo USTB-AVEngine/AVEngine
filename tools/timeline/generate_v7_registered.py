@@ -43,6 +43,9 @@ def main():
     from avengine.timeline.v7_storage_budget import configure_local_review
     storage_policy=configure_local_review(a.output,a.storage_budget_root,parents=len(rows),workers=a.workers)
     inputs=json.loads(a.runtime_inputs.read_text());inputs['render_backend']=a.render_backend
+    if any(r.get('production_scenario',{}).get('motion_requests')for r in rows):
+        for name in ('v7_asset_roster','moving_energy_budget'):
+            if not inputs.get(name) or not Path(inputs[name]).is_file():raise ValueError('motion runtime requires an existing frozen '+name)
     assets=json.loads(a.assets.read_text());assets=assets['assets'] if isinstance(assets,dict) else assets
     source=json.loads(a.source_admission.read_text());human=json.loads(a.human_admission.read_text())
     tasks=[(row,by_house[row['house']],inputs,assets,source,human,str(a.output)) for row in rows]
