@@ -51,7 +51,7 @@ def retain_witness_then_remove(parent,label):
 def scientific_rejection(result):
  if result.get('error_type')!='ValueError':return False
  message=result.get('reason','')
- return any(word in message for word in ['legal candidates','counterfactual','qualified placement','native appearance reviews','static contact','body envelopes overlap','environmental emitter direction not admitted','native material or mask restoration qualification','original native highlight/contact','complete utterance fitting','admitted non-speech mouth-source deficit'])
+ return any(word in message for word in ['legal candidates','counterfactual','qualified placement','registered candidate off navigation','native appearance reviews','static contact','body envelopes overlap','environmental emitter direction not admitted','native material or mask restoration qualification','original native highlight/contact','complete utterance fitting','admitted non-speech mouth-source deficit'])
 
 def main():
  parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--max-workers',type=int,default=4);args=parser.parse_args()
@@ -154,8 +154,9 @@ def main():
   delivered=next((e for e in state['batches'] if e['batch_id']==name+'_passed' and e['status']=='CCI_SHA_verified_local_copies_removed'),None)
   if delivered:
    rejected=sum(x.get('batch')==name for x in state['rejections'].values())
-   assert delivered['parents']+rejected==len(batch)
-   state['dispatches'][name].update(status='processed',passed_parents=delivered['parents'],rejected_parents=rejected,wall_seconds=g['elapsed_seconds'],peak_mib=g['peak_mib']);atomic(RUN/'PRODUCTION_STATUS.json',state);return
+   preflight_retry=sum(x.get('batch')==name for x in state.get('preflight_retry_history',{}).values())
+   assert delivered['parents']+rejected+preflight_retry==len(batch)
+   state['dispatches'][name].update(status='processed',passed_parents=delivered['parents'],rejected_parents=rejected,preflight_retry_parents=preflight_retry,wall_seconds=g['elapsed_seconds'],peak_mib=g['peak_mib']);atomic(RUN/'PRODUCTION_STATUS.json',state);return
   passed=[]
   for row in batch:
    parent=phase/'production/parents'/row['scene_id'];marker=parent/'alpha_seal_completed.json'
@@ -165,6 +166,12 @@ def main():
     failures=sorted(parent.glob('failed_*.json'),key=lambda p:p.stat().st_mtime)
     if not failures:raise RuntimeError('no terminal original-gate receipt '+row['scene_id'])
     f=json.loads(failures[-1].read_text())
+    recipe=json.loads((parent/'input_recipe.json').read_text())
+    if f.get('error_type')=='ValueError' and f.get('reason')=='registered candidate off navigation' and recipe.get('visual_revision')=='registered-native-UE-design-whitebalance-v1':
+     # The v1 UE constructor called _apply before its existing qualified
+     # placement search. Keep this failed attempt as evidence, and retry the
+     # exact same fixed request once with the repaired v2 initialization.
+     state.setdefault('preflight_retry_history',{})[row['scene_id']]={'batch':name,'reason':f['reason'],'visual_revision':recipe['visual_revision'],'witness':str(RUN/'scene_witnesses'/name/row['scene_id'])};atomic(RUN/'PRODUCTION_STATUS.json',state);retain_witness_then_remove(parent,name);continue
     if not scientific_rejection(f):raise RuntimeError('unclassified generation error; stop for review '+row['scene_id']+': '+f.get('reason',''))
     state['rejections'][row['scene_id']]={**f,'batch':name,'witness':str(RUN/'scene_witnesses'/name/row['scene_id'])};state['attempted_parent_ids']=sorted(set(state['attempted_parent_ids'])|{row['scene_id']});atomic(RUN/'PRODUCTION_STATUS.json',state);retain_witness_then_remove(parent,name)
   workers=state['dispatches'][name]['workers'];peak=max(peak,float(g['peak_mib'])/workers)
@@ -172,8 +179,10 @@ def main():
    seeds=phase/'passed_seeds.jsonl';seeds.write_text(''.join(json.dumps(r,ensure_ascii=False)+'\n' for r in passed));release=phase/'release'
    if not (release/'summary.json').is_file():export_alpha(seeds,[phase/'production'],release,expected_parents=len(passed))
    deliver(name+'_passed',release,phase,passed)
-  state['dispatches'][name].update(status='processed',passed_parents=len(passed),rejected_parents=len(batch)-len(passed),wall_seconds=g['elapsed_seconds'],peak_mib=g['peak_mib']);state['active_workers']=0;atomic(RUN/'PRODUCTION_STATUS.json',state)
-  progress(f'{name}完成{len(batch)}个固定请求，通过{len(passed)}、原门禁拒绝{len(batch)-len(passed)}；不补题、不换种子。')
+  preflight_retry=sum(x.get('batch')==name for x in state.get('preflight_retry_history',{}).values())
+  rejected=len(batch)-len(passed)-preflight_retry
+  state['dispatches'][name].update(status='processed',passed_parents=len(passed),rejected_parents=rejected,preflight_retry_parents=preflight_retry,wall_seconds=g['elapsed_seconds'],peak_mib=g['peak_mib']);state['active_workers']=0;atomic(RUN/'PRODUCTION_STATUS.json',state)
+  progress(f'{name}完成{len(batch)}个原请求尝试：通过{len(passed)}、原门禁拒绝{rejected}、同固定请求初始化修复后待重验{preflight_retry}；不补题、不换种子。')
  try:
   phase=Path(canary['release']).parent;fixrows=[byid[x] for x in canary['parent_ids']]
   deliver('batch_002_endpoint_fixed',Path(canary['release']),phase,fixrows,remove_whole_phase=True)
@@ -188,8 +197,10 @@ def main():
     except psutil.NoSuchProcess:pass
    finish_phase(name)
   pending=[r for r in rows if r['scene_id'] not in set(state['attempted_parent_ids'])];pending.sort(key=lambda r:r['house']!='kujiale_0022')
-  for i in range(0,len(pending),4):
-   snap=safe();batch=pending[i:i+4];free=snap['gpus'][2]['free_mib'];workers=min(args.max_workers,len(batch),int(max(0,free-4096)//peak))
+  # Keep four UE instances busy as short scientific rejections release slots;
+  # this changes shard size only, never fixed requests, seeds or gates.
+  for i in range(0,len(pending),8):
+   snap=safe();batch=pending[i:i+8];free=snap['gpus'][2]['free_mib'];workers=min(args.max_workers,len(batch),int(max(0,free-4096)//peak))
    if workers<1:raise RuntimeError('GPU2 lacks measured peak+4GiB; foreign jobs untouched')
    seq=3
    while (RUN/'production_batches'/f'batch_{seq:03d}').exists():seq+=1

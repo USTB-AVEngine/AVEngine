@@ -13,7 +13,7 @@ from avengine.capture.kujiale_spear_runtime import (launch_native,camera_helpers
     from_ue,to_ue,configure_scene_lighting,apply_native_rgb_profile)
 from avengine.timeline.continuous_pilot import write_json
 
-REGISTERED_UE_VISUAL_REVISION='registered-native-UE-design-whitebalance-v1'
+REGISTERED_UE_VISUAL_REVISION='registered-native-UE-design-whitebalance-v2-nav-preflight'
 
 
 class NativeRegisteredUEVideo(NativeUEAlphaVideo):
@@ -54,6 +54,7 @@ class NativeRegisteredUEVideo(NativeUEAlphaVideo):
         self.instance=self.camera=self.components=self.foot_camera=self.foot_components=None
         self.runtimes={};self.environment_nodes={};self.environment_frame_readbacks=[]
         self.placement_overrides={};self.alpha_time=0.;self.alpha_lower_endpoint=None;self.alpha_camera_rows={}
+        self.initial_placement_preflight=self._seed_initial_navigation_placements()
         self.declarations=[{'actor_id':f'source{i+1}','asset_id':a['asset_id'],'ue_generated_class':a['ue_generated_class']} for i,a in enumerate(assets)]
         self.material_inventory={a['asset_id']:{'material_receipt':{'authority':'original registered UE package materials',
             'source_registry':a['source_registry'],'source_registry_sha256':a['source_registry_sha256'],
@@ -88,6 +89,7 @@ class NativeRegisteredUEVideo(NativeUEAlphaVideo):
                 'capture_resolution_hw':[height*2,width*2],'resolution_hw':[height,width],
                 'startup_and_warmup_seconds':time.perf_counter()-start,'original_materials':True,
                 'source_material_overrides_applied':False,'source_extra_fill_applied':False,
+                'initial_placement_preflight':self.initial_placement_preflight,
                 'registered_asset_ids':[a['asset_id'] for a in assets],'native_floor_surface_validation':self.native_floor_surface_check,
                 'registered_content_copy_receipt':inputs['native_registered_content_receipt'],
                 'action_scope':'actual original registered static Blueprint; no walk/sit substitution'}
@@ -116,11 +118,37 @@ class NativeRegisteredUEVideo(NativeUEAlphaVideo):
             'components':components,'emitter_component':emitter,'motion_model':'rigid_static',
             'original_material_readback':{'status':'pass','paths':observed,'source_registry':a['source_registry'],'material_overrides_applied':False}}
 
+    def _navigation_foot(self,position):
+        p=np.asarray(position,float)
+        target=np.asarray([p[0],p[1]-1.3,p[2]],float)
+        foot=np.asarray(self.pf.snap_point(target),float)
+        distance=float(np.linalg.norm(foot-target))
+        if not np.isfinite(foot).all() or distance>.15:raise ValueError('registered candidate off navigation')
+        return foot,distance
+
+    def _seed_initial_navigation_placements(self):
+        # Native standing qualification already searches these same frozen
+        # candidates. Seed the editor before its first _apply, otherwise an
+        # invalid original fourth body aborts before that full check can run.
+        # This preflight only uses the existing 15 cm navigation check; full
+        # capsule, contact, visibility and acoustic gates run afterward.
+        results=[]
+        for asset in self.assets:
+            ep=asset['endpoint_id'];original=self.scene['sources'][ep]['trajectory'][0]['position_m']
+            for rank,p in enumerate([original,*self.scene.get('native_placement_candidates',[])]):
+                try:_,distance=self._navigation_foot(p)
+                except ValueError:continue
+                if rank:self.placement_overrides[ep]=p
+                results.append({'endpoint_id':ep,'candidate_rank':rank,'navigation_snap_delta_m':distance,
+                                'unchanged_navigation_gate_m':.15,'initial_only':True})
+                break
+            else:raise ValueError('registered candidate off navigation')
+        return results
+
     def _body(self,a):
         ep=a['endpoint_id'];spec=self.scene['sources'][ep]
         p=np.asarray(self.placement_overrides.get(ep,spec['trajectory'][0]['position_m']),float)
-        foot=np.asarray(self.pf.snap_point([p[0],p[1]-1.3,p[2]]),float)
-        if not np.isfinite(foot).all() or np.linalg.norm(foot-[p[0],p[1]-1.3,p[2]])>.15:raise ValueError('registered candidate off navigation')
+        foot,_=self._navigation_foot(p)
         root=np.asarray(self.native_floor_surface.sample(foot),float)
         if ep==self.alpha_lower_endpoint:root[1]-=.1
         direction=np.asarray(self.scene['listener_m'])-p
