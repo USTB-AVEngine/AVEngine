@@ -11,7 +11,7 @@ import os
 from avengine.timeline.continuous_pilot import write_json
 from avengine.timeline.v7_production_contract import question_allocation,validate_question_counts
 
-QUESTION_DELIVERY_REVISION='v7-native-full-pool-joint-selection-v2-observed-nuisance-pairs'
+QUESTION_DELIVERY_REVISION='v7-native-full-pool-joint-selection-v2-observed-nuisance-pairs-r16-supplement'
 
 
 def collect_native_pool(scene,start,window_id,visual,media,evidence,quota_index,count):

@@ -63,7 +63,7 @@ class NativeVisibilityStream:
                 # This is a reversible control pass without a simulation step.
                 if getattr(obj,'motion_type',None)==p.hs.physics.MotionType.STATIC:
                     obj.motion_type=p.hs.physics.MotionType.KINEMATIC
-                expected=np.array([2000+i*10,2000,2000])
+                expected=np.array([2000+i*10,2000,2000],dtype=float)
                 obj.translation=p.mn.Vector3(expected)
                 actual=np.asarray(obj.root_scene_node.absolute_transformation())[:3,3]
                 if not np.array_equal(actual,expected):raise ValueError('native non-target control transform was not applied')

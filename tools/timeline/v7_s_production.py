@@ -159,6 +159,48 @@ class CpuRecorder:
         self.stop_event.set();self.thread.join(timeout=5.)
 
 
+
+def validate_supplement_contract(profile,rows):
+    """Owner R16 authorizes fresh seeds for rejected original parents only.
+
+    This cannot relax the ordinary exact-500 entry. Validate the actual sealed
+    subset and deterministically reconstruct replacements from the original
+    seed rows and unchanged parent receipts before accepting any new row.
+    """
+    import hashlib,importlib.util
+    if profile.get('batch_kind')!='owner_r16_supplement_1':return False
+    original=Path(profile['original_task_root']).resolve()
+    if Path(profile['root']).resolve()!=original/'supplement_r16_1':
+        raise ValueError('supplement must use its own original-task subdirectory')
+    source=Path(profile['original_seeds']).resolve()
+    delivery=Path(profile['original_delivery_manifest']).resolve()
+    failure=Path(profile['original_failure_summary']).resolve()
+    if not all(p.is_relative_to(original)for p in (source,delivery,failure)):
+        raise ValueError('supplement authority escaped original task')
+    manifest=json.loads(delivery.read_text());failed=json.loads(failure.read_text())
+    if manifest['status']!='sealed' or manifest['source_requested_parents']!=500 or not manifest['no_gate_changed']:
+        raise ValueError('supplement lacks a sealed original qualified release')
+    if failed['original_attempts']!=500 or failed['qualified_parents']!=manifest['independent_parent_scenes']:
+        raise ValueError('original failure and publication receipts disagree')
+    if manifest['failed_parents_excluded']!=failed['failed_parents']:
+        raise ValueError('original excluded-parent count changed')
+    seedfile=Path(profile['seeds'])
+    if hashlib.sha256(seedfile.read_bytes()).hexdigest()!=failed['replacement_seed_sha256']:
+        raise ValueError('replacement manifest bytes differ from original publisher')
+    original_rows=[json.loads(l)for l in source.read_text().splitlines()if l.strip()]
+    if len(original_rows)!=500 or len({r['scene_id']for r in original_rows})!=500:
+        raise ValueError('supplement original manifest is not exactly 500 distinct parents')
+    spec=importlib.util.spec_from_file_location('v7_original_publisher',Path(__file__).with_name('v7_s_publish_qualified.py'))
+    publisher=importlib.util.module_from_spec(spec);spec.loader.exec_module(publisher)
+    good,rejected=publisher.qualified_rows(original_rows,original/'production_r6')
+    if len(good)!=manifest['independent_parent_scenes'] or len(rejected)!=failed['failed_parents']:
+        raise ValueError('original parent evidence changed since formal publication')
+    expected=publisher.supplement_rows(original_rows,rejected)
+    if rows!=expected or len({r['scene_seed']for r in rows})!=len(rows):
+        raise ValueError('supplement changed house, count, class, family quota or deterministic fresh seed')
+    return True
+
+
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--generator-profile',required=True,type=Path)
@@ -191,8 +233,9 @@ def main():
         active=Path(profile['owner_root'])/'hardbank/tmp/p19_active'/profile['plan_name']
         if not job or not active.is_file() or active.read_text().split()[:2]!=[job,socket.gethostname()]:raise ValueError('P19 active ownership does not match this host/job')
     rows=[json.loads(l) for l in Path(profile['seeds']).read_text().splitlines() if l.strip()]
+    is_supplement=validate_supplement_contract(profile,rows)
     if args.mode=='smoke':rows=rows[:profile.get('smoke_parents',1)]
-    if args.mode=='production' and len(rows)!=500:raise ValueError('production requires exact frozen 500-parent manifest')
+    if args.mode=='production' and not is_supplement and len(rows)!=500:raise ValueError('production requires exact frozen 500-parent manifest')
     if len({r['scene_id'] for r in rows})!=len(rows):raise ValueError('duplicate physical parents')
     inputs=Path(profile['inputs']);houses=json.loads((inputs/'houses.json').read_text())['houses'];byh={h['house']:h for h in houses}
     for r in rows:
@@ -203,7 +246,8 @@ def main():
     final=root/('release' if args.mode=='production' else 'smoke_delivery')
     if (final/'DELIVERY_MANIFEST.json').is_file():
         delivered=json.loads((final/'DELIVERY_MANIFEST.json').read_text())
-        if delivered['generator_commit']!=profile['generator_commit'] or delivered['independent_parent_scenes']!=len(rows):raise ValueError('completed release belongs to a different immutable profile')
+        expected=delivered.get('source_requested_parents',delivered['independent_parent_scenes']) if is_supplement else delivered['independent_parent_scenes']
+        if delivered['generator_commit']!=profile['generator_commit'] or expected!=len(rows):raise ValueError('completed release belongs to a different immutable profile')
         (args.output/'input_manifest.jsonl').write_text(''.join(json.dumps({'scene_id':r['scene_id']})+'\n' for r in rows))
         (args.output/'predictions.jsonl').write_text(''.join(json.dumps({'scene_id':r['scene_id'],'status':'formal_alpha_admitted'})+'\n' for r in rows))
         atomic(args.output/'run.json',{'status':'complete','count':len(rows),'kind':'CPU generation receipts, not model predictions'})
@@ -211,6 +255,7 @@ def main():
     work=root/(profile.get('production_work_directory','production') if args.mode=='production' else 'cci_smoke')
     if work.resolve().parent!=root.resolve():raise ValueError('parent work directory must stay directly within this task root')
     work.mkdir(exist_ok=True)
+    (root/'logs').mkdir(exist_ok=True)
     # AFS atomic mkdir gives one writer; restart release is through explicit host
     # identity verification rather than timeouts that could steal a live job.
     if (root/'STOP').exists():raise RuntimeError('this task STOP is present')
@@ -305,23 +350,56 @@ def main():
             if stopping and not children:break
             dispatch_phase('draining' if stopping else 'dispatch_loop')
             time.sleep(5)
-        if stopping or failures:raise RuntimeError('production incomplete; failures retained; rerun resumes immutable stages')
+        terminal={'status':'stopped'if stopping else ('completed_with_rejections'if failures else 'completed'),
+            'formal_parents':len(done),'formal_windows':sum(r['alpha_formal_windows']for r in done),
+            'formal_questions':sum(r['alpha_formal_logical_questions']for r in done),
+            'active_parents':[],'remaining_parents':len(pending),'failures':failures,
+            'workers_limit':active_limit,'elapsed_seconds':time.monotonic()-started,
+            'pid':os.getpid(),'hostname':socket.gethostname(),'GPU_started':False,
+            'checked_utc':time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime())}
+        atomic(root/'PROGRESS.json',terminal)
+        if stopping or (failures and not is_supplement):raise RuntimeError('production incomplete; failures retained; rerun resumes immutable stages')
+        if not done:raise RuntimeError('no qualified parents; no formal delivery published')
+        export_rows=rows
+        export_seeds=profile['seeds']
+        if is_supplement:
+            admitted={r['scene_id']for r in done};export_rows=[r for r in rows if r['scene_id']in admitted]
+            export_seeds=root/'qualified_seeds.jsonl'
+            text=''.join(json.dumps(r,ensure_ascii=False)+'\n'for r in export_rows)
+            if export_seeds.exists()and export_seeds.read_text()!=text:raise ValueError('qualified supplement manifest changed')
+            if not export_seeds.exists():export_seeds.write_text(text)
+            export_seeds=str(export_seeds)
         from avengine.timeline.v7_alpha_delivery import export_alpha
         staging=root/'tmp'/('export_attempt_'+uuid.uuid4().hex)
         release=staging
-        summary=export_alpha(profile['seeds'],[work],release,expected_parents=len(rows))
+        summary=export_alpha(export_seeds,[work],release,expected_parents=len(export_rows))
         from avengine.timeline.v7_s_batch_checks import check_critical_delivery,open_delivered_media
-        coverage=check_critical_delivery(release,require_full=args.mode=='production')
+        coverage=check_critical_delivery(release,require_full=args.mode=='production'and not is_supplement)
         media=open_delivered_media(release)
         if coverage['status']!='pass' or media['status']!='pass':raise ValueError('critical final delivery checks failed')
         final=root/('release' if args.mode=='production' else 'smoke_delivery')
-        atomic(release/'DELIVERY_MANIFEST.json',{'status':'sealed','independent_parent_scenes':len(rows),'train_jsonl':str(final/'train.jsonl'),'dev_jsonl':str(final/'dev.jsonl'),'coverage':coverage,'media_readback':media,'generator_commit':profile['generator_commit'],'GPU_started':False})
+        from collections import Counter
+        import hashlib
+        manifest={'status':'sealed','independent_parent_scenes':len(export_rows),'source_requested_parents':len(rows),
+            'parent_split_counts':dict(Counter(r['split']for r in export_rows)),
+            'formal_windows':summary['formal_windows'],'formal_logical_questions':summary['formal_logical_questions'],
+            'train_jsonl':str(final/'train.jsonl'),'dev_jsonl':str(final/'dev.jsonl'),
+            'coverage':coverage,'media_readback':media,'generator_commit':profile['generator_commit'],
+            'GPU_started':False,'test_house_access':0,'no_gate_changed':True,
+            'batch_kind':profile.get('batch_kind','critical500'),'failed_parents_excluded':len(failures)}
+        if is_supplement:
+            manifest['release_policy']='owner round16: separate qualified fresh-seed supplement; actual counts only'
+            manifest['original_delivery_manifest']=profile['original_delivery_manifest']
+            manifest['original_full_batch_coverage']=check_critical_delivery(release,require_full=True)
+        manifest['file_sha256']={n:hashlib.sha256((release/n).read_bytes()).hexdigest()for n in ['train.jsonl','dev.jsonl','summary.json','parents.csv','windows.csv','rejections.json']}
+        atomic(release/'DELIVERY_MANIFEST.json',manifest)
         os.rename(release,final)
         release=final
-        (args.output/'input_manifest.jsonl').write_text(''.join(json.dumps({'scene_id':r['scene_id']})+'\n' for r in rows))
-        (args.output/'predictions.jsonl').write_text(''.join(json.dumps({'scene_id':r['scene_id'],'status':'formal_alpha_admitted'})+'\n' for r in rows))
-        atomic(args.output/'run.json',{'status':'complete','count':len(rows),'kind':'CPU generation receipts, not model predictions'})
-        atomic(args.output/'metrics.json',{'status':'complete','parents':len(rows),'delivery_root':str(release),'windows':summary['formal_windows'],'questions':summary['formal_logical_questions']})
+        (args.output/'input_manifest.jsonl').write_text(''.join(json.dumps({'scene_id':r['scene_id']})+'\n' for r in export_rows))
+        (args.output/'predictions.jsonl').write_text(''.join(json.dumps({'scene_id':r['scene_id'],'status':'formal_alpha_admitted'})+'\n' for r in export_rows))
+        atomic(args.output/'run.json',{'status':'complete','count':len(export_rows),'kind':'CPU generation receipts, not model predictions'})
+        atomic(args.output/'metrics.json',{'status':'complete','parents':len(export_rows),'delivery_root':str(release),'windows':summary['formal_windows'],'questions':summary['formal_logical_questions'],'requested_parents':len(rows),'rejected_parents':len(failures)})
+        atomic(root/'HANDOFF.json',{'status':'sealed','release_directory':str(release),'manifest':manifest})
     finally:
         cpu_recorder.close()
         # A failed coordinator must not leave its own renderers running.
