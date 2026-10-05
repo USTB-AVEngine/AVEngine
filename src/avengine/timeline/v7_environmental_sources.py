@@ -11,9 +11,13 @@ import numpy as np
 
 # Published taxonomy, independent of any real recording's parameters.
 STRICT_CLASS13={'clapping':2,'telephone':3,'phone_ring':3,'telephone_bell_ringing':3,
- 'laughter':4,'coughing':5,'footsteps':6,'door_open_close':7,'music_playback':8,
+ 'laughter':4,'footsteps':6,'door_open_close':7,'music_playback':8,
  'guitar_live':9,'violin_live':9,'saxophone_live':9,'hand_drum_live':9,
  'piano_live':9,'flute_live':9,'water_tap_faucet':10,'door_knock':12}
+# The admitted families crosswalk is authoritative, including explicit None
+# for cough and bird calls. Never relabel them as STARSS domestic sounds.
+from avengine.qa.v7_sound_extensions import STARSS_EXTENSION_MAP
+STRICT_CLASS13.update(STARSS_EXTENSION_MAP)
 
 
 def recording_header(record):

@@ -688,3 +688,5 @@ CCI 根目录 /mnt/afs/xinyuanqian/jzy/hardbank/generation/v7_s_20261005_batch1/
 可删中间件：封存成功后本父场景source_material_cache下可重建GLB，删除前保留路径清单；精确RIR、全量原生证据、材质检查、候选题审计、封存10秒媒体和来源/许可均保留。断点恢复复用未改配方的完成标记；跨主机恢复只接受P19当前作业/主机所有权的交接证据。停止本作业：在本根目录创建STOP，协调器只终止自己创建的子进程组，不碰训练进程。
 
 第二批：已验收移动对象的完整场景接入、QA-28（先前稳定可见性不足的候选不放宽门槛）、其余仍为0的题族、走坐座椅完整动作、尚未实际覆盖的STARSS13细类；HM3D遮挡抽检仍not_run，深色缅甸猫预期毛色仍未验证。
+
+R12 最终核对修正：新增环境音适配器曾误将 coughing 写为 STARSS 13 的 domestic sounds（5）。该映射已撤回，直接复用 families 的 `src/avengine/qa/v7_sound_extensions.py:STARSS_EXTENSION_MAP`；coughing、两种鸟声保持 None，并继续在 V7-CLASS34 中使用原始准入标签。没有修改 QA 目录、原判分器、原真值或验收阈值；旧 85673c1 队列在派发前仅撤下本任务行并保留备份。
