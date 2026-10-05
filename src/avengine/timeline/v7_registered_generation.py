@@ -119,8 +119,10 @@ def generate_registered_parent(row,house,inputs,assets,source_admission,human_ad
                 'scene_video.mp4','native_registered_visual_evidence.json','native_visual_evidence.json',
                 'source_materials.json','source_material_checks.json','native_visibility_evidence.json','native_appearance_review.json','native_environmental_emitters.json','standing/standing_admission.json','acoustic_placement_admission.json']
         vc=_cpu();vw=time.perf_counter()
-        vd,vr,resumed=stage(root,'visual_'+v,{'scene':base,'inputs':inputs,'assets':variant,
-            'visual_revision':ALPHA_VISUAL_REVISION,'source_material_revision':MATERIAL_REVISION},render)
+        from avengine.timeline.v7_native_stage_resume import compatible_static_native_recipe
+        visual_recipe=compatible_static_native_recipe(root,'visual_'+v,{'scene':base,'inputs':inputs,'assets':variant,
+            'visual_revision':ALPHA_VISUAL_REVISION,'source_material_revision':MATERIAL_REVISION},row)
+        vd,vr,resumed=stage(root,'visual_'+v,visual_recipe,render)
         timings.append({'stage':'visual_'+v,'wall_seconds':time.perf_counter()-vw,'cpu_seconds_including_children':_cpu()-vc,'resumed':resumed})
         visual=read_json(vd/'native_registered_visual_evidence.json');appearance=read_json(vd/'native_appearance_review.json')
         if appearance['status']!='pass' or len(appearance['review']['actors'])<2:raise ValueError('at least two observed native appearance reviews required')

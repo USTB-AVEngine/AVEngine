@@ -95,6 +95,24 @@ def filter_observed_nuisance_candidates(public,private,window_ids):
     return result,{'status':'measured_preselection','removed_unpaired_candidates':removed,'canonical_answers_changed':False,'final_gate_unchanged':True}
 
 
+
+def reserve_actual_audio_family(chosen,gold,pool,private,family):
+    """Retain actual content-direction candidates after critical reservations.
+
+    The original 14-question modality allocation and all answers are retained.
+    No fallback answer is created when the original candidate is absent.
+    """
+    byid={a['question_id']:a for a in private};chosen=list(chosen);gold=list(gold)
+    eligible=[q for q in pool if q['qa_id']==family and q['form']=='open' and q['modality']=='audio']
+    if not eligible:raise ValueError('requested audio family lacks an actual eligible candidate: '+family)
+    if any(q in eligible for q in chosen):return chosen,gold
+    protected={'STARSS-SPEAKERS','V7-CLASS34'}
+    slots=[i for i,q in enumerate(chosen)if q['modality']=='audio'and q['qa_id']not in protected]
+    if not slots:raise ValueError('content reservation exceeds unchanged audio allocation')
+    index=slots[-1];q=min(eligible,key=lambda q:q['question_id']);chosen[index]=q;gold[index]=byid[q['question_id']]
+    return chosen,gold
+
+
 def finalize_parent_question_pools(row,members,root,*,binding_items_per_window=5,family_counts=None):
     from avengine.timeline.v7_candidate_generation import stage,read_json
     from avengine.qa.v7_families import select_questions
@@ -129,6 +147,10 @@ def finalize_parent_question_pools(row,members,root,*,binding_items_per_window=5
             for name in names:
                 chosen[name],gold[name]=reserve_critical_audio_questions(chosen[name],gold[name],public[name],private[name],focus)
             audit['critical_audio_reservation']={'speaker_count':True,'category_focus_class':focus,'modality_quota_changed':False}
+        if row.get('production_scenario',{}).get('semantic_scenario_id'):
+            for name in names:
+                chosen[name],gold[name]=reserve_actual_audio_family(chosen[name],gold[name],ordinary[name],private[name],'QA-28')
+            audit['actual_content_direction_reservation']={'family':'QA-28','original_candidates_only':True,'modality_quota_changed':False}
         audits.append(audit)
         for name in names:
             check=validate_question_counts(chosen[name],gold[name],expected_allocation=allocations[name])

@@ -127,7 +127,7 @@ def collect_admitted_class_questions(raw,window_id,media,proof,base_audit,domain
     tracks={}
     for eid,event in proof['events'].items():
         cls=event.get('sound_class')
-        if cls not in domain or event.get('emission_mechanism','').startswith('human_live'):continue
+        if cls not in domain or (event.get('emission_mechanism','').startswith('human_live') and event.get('emission_mechanism')!='human_live_recorded_laughter'):continue
         endpoint=event.get('native_endpoint_id')
         if not endpoint:raise ValueError('admitted class panel needs actual native source identity')
         key=(cls,endpoint);ticks=tracks.setdefault(key,set())
@@ -161,7 +161,7 @@ def collect_admitted_class_questions(raw,window_id,media,proof,base_audit,domain
         # A unique onset identifies the target; labels and waveform provenance
         # remain private, like the original STARSS class question.
         q={'question_id':logical+'__open','logical_question_id':logical,'qa_id':'V7-CLASS34','protocol_panel':'v7_admitted_recording_classes','modality':'audio','form':'open','question_zh':when+'属于哪一类声音？','question_en':'Which admitted sound class is the sound at the stated onset?','media':dict(media),'answer_type':'closed_set','choices':[{'id':c,'text':c} for c in domain]}
-        a={'question_id':q['question_id'],'logical_question_id':logical,'canonical_answer':s['sound_class'],'answer':s['sound_class'],'comparison_key':'admitted_class34/'+tag,'evidence':{'protocol':'continuous_sim_recorded_class_100ms_v1','window_start_s':proof['window_start_s'],'activity':s,'domain':list(domain),'source':'actual emitted dry source measured activity and upstream recording admission','native_source':'observed Habitat audio-only scenegraph point'},'counterfactual_role':'audio'}
+        a={'question_id':q['question_id'],'logical_question_id':logical,'canonical_answer':s['sound_class'],'answer':s['sound_class'],'comparison_key':'admitted_class34/'+tag,'evidence':{'protocol':'continuous_sim_recorded_class_100ms_v1','window_start_s':proof['window_start_s'],'activity':s,'domain':list(domain),'source':'actual emitted dry source measured activity and upstream recording admission','native_source':'observed Habitat source; mouth or audio-only node recorded in native_endpoint_id'},'counterfactual_role':'audio'}
         authority={'status':'pass','question_id':q['question_id'],'qa_id':q['qa_id'],'modality':'audio',
             'authority_kind':'v7_admitted_recording_class_100ms_v1','predicate_source':'actual admitted dry receipt activity; no v6 QA predicate modified',
             'forms':{'open':{'answer_type':'closed_set','closed_set_policy':'token_negation_v2','classes':{c:[c] for c in domain},'truth':s['sound_class']}}}

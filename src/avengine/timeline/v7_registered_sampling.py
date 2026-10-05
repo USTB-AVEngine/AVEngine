@@ -180,6 +180,7 @@ def build_registered_scene(row,house,records,assets,semantic_manifest=None):
     attach_environmental_program(scene,program,plan,admitted,rng,starts)
     by_id.update({r['sound_asset_id']:r for r in program['records']})
     ns=plan.get('non_speech_class','laughter')
+    if ns is not None:scene['admitted_sound_class_domain']=sorted({r['sound_class']for r in admitted if r.get('dataset')!='VCTK-Corpus 0.92'})
     if ns is None:
         if n==0 and not plan.get('environment_sound_classes'):raise ValueError('zero-speaking window still requires actual non-speech sound')
         program['records']=list(by_id.values());working=deepcopy(house);working['room']=next(r for r in house['checked_rooms'] if r['room_label']==row['room_id']);working['room']['placement']=deepcopy(working['room']['placement']);working['room']['placement']['camera_m']=scene['listener_m']

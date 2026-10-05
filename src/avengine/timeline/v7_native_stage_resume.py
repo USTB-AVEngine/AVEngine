@@ -23,7 +23,7 @@ def _link_tree(source,target):
             if hashlib.sha256(item.read_bytes()).digest()!=hashlib.sha256(dest.read_bytes()).digest():
                 raise ValueError('native reuse target differs from immutable predecessor')
 
-def reuse_native_parent(source_work,target_work,row):
+def reuse_native_parent(source_work,target_work,row,*,allow_selection_baseline_change=False):
     source=Path(source_work)/'parents'/row['scene_id'];target=Path(target_work)/'parents'/row['scene_id']
     pointer=target/'native_stage_reuse.json'
     if pointer.is_file():
@@ -33,7 +33,10 @@ def reuse_native_parent(source_work,target_work,row):
     recipe_path=source/'input_recipe.json'
     if not recipe_path.is_file():return {'status':'no_completed_predecessor','scene_id':row['scene_id']}
     original=json.loads(recipe_path.read_text())
-    if original['seed_row']!=row:raise ValueError('native reuse seed differs; no metadata substitution allowed')
+    previous=dict(original['seed_row']);requested=dict(row)
+    if allow_selection_baseline_change:
+        previous.pop('selection_coverage_seals',None);requested.pop('selection_coverage_seals',None)
+    if previous!=requested:raise ValueError('native reuse seed differs; no physical metadata substitution allowed')
     if target.resolve().is_relative_to(source.resolve()) or source.resolve()==target.resolve():raise ValueError('fresh QA root must be distinct from its predecessor')
     target.mkdir(parents=True,exist_ok=True);stages=[]
     for name in STAGES:
@@ -62,3 +65,32 @@ def reuse_native_parent(source_work,target_work,row):
             'SQLite':'independent backup; never hardlinked mutable databases',
             'native_attempt_files':'immutable hardlinks; original byte evidence retained'}
     write_json(pointer,result);return result
+
+
+def compatible_static_native_recipe(root,name,requested,row):
+    """Retain the actual revision of a completed, unchanged static render.
+
+    The v7 renderer changed animation geometry caching and silent furniture
+    controls. Neither is present in an admitted standing-only predecessor.
+    Every remaining physical input must still match exactly.
+    """
+    root=Path(root);reuse=root/'native_stage_reuse.json';mark=root/(name+'_completed.json')
+    if not reuse.is_file()or not mark.is_file():return requested
+    if row.get('production_scenario',{}).get('motion_requests'):return requested
+    saved=json.loads(mark.read_text());previous=saved['recipe']
+    old=previous.get('visual_revision');new=requested.get('visual_revision')
+    if old==new:return requested
+    if old!='registered-contact-movement-native-emitter-v6' or new!='registered-contact-movement-native-emitter-v7-exact-target-mask':
+        raise ValueError('unreviewed native visual revision transition')
+    if previous.get('scene',{}).get('production_scenario',{}).get('motion_requests'):
+        raise ValueError('moving or seated native stages cannot use static compatibility')
+    a=dict(previous);b=dict(requested);a.pop('visual_revision',None);b.pop('visual_revision',None)
+    if a!=b:raise ValueError('static native physical inputs changed')
+    for filename in saved['required_files']:
+        if not(root/saved['attempt']/filename).is_file():raise ValueError('completed static native artifact missing')
+    write_json(root/(name+'_static_native_compatibility.json'),{
+        'status':'reused_exact_static_physical_inputs','actual_native_visual_revision':old,
+        'requested_generator_visual_revision':new,'animation_or_seating_present':False,
+        'completed_marker_sha256':hashlib.sha256(mark.read_bytes()).hexdigest(),
+        'new_native_render_claim':False,'thresholds_changed':False})
+    return previous
