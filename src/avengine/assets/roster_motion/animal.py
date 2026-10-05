@@ -55,7 +55,7 @@ def compile_continuous_dog_walking(video,entry,scene,house,inputs,directory,requ
     accepted=None;failures=[];prefilter={"polygon_rejected":0,"bystander_rejected":0,"full_gate_attempted":0}
     search_start=time.process_time();max_attempts=8;cpu_budget_s=1800.
     def search_progress(**extra):
-        write_json(directory/'motion_search_progress.json',{'status':'searching_not_admitted','cpu_seconds':time.process_time()-search_start,'prefilter':dict(prefilter),'failures':list(failures),'max_native_route_attempts':max_attempts,'search_CPU_budget_s':cpu_budget_s,'thresholds_changed':False,**extra})
+        write_json(directory/('motion_search_progress_'+str(time.time_ns())+'.json'),{'status':'searching_not_admitted','cpu_seconds':time.process_time()-search_start,'prefilter':dict(prefilter),'failures':list(failures),'max_native_route_attempts':max_attempts,'search_CPU_budget_s':cpu_budget_s,'thresholds_changed':False,**extra})
     poly=shape(scene['production_scenario']['motion_floor_polygon']).buffer(-.02)
     x0,z0,x1,z1=poly.bounds
     from shapely.geometry import Point
