@@ -78,8 +78,50 @@ def slowdown(baseline,current):
 
 
 def owner_bytes(root):
-    output=subprocess.check_output(['du','-s','-B1',str(root)],text=True,timeout=300)
-    return int(output.split()[0])
+    # AFS inventories measured 355 seconds even for a successful scan. Keep
+    # the same allocated-byte quota, but allow a bounded complete inventory.
+    output=subprocess.check_output(['du','-s','-B1',str(root)],text=True,timeout=1200)
+    value=int(output.split()[0])
+    if value<0:raise ValueError('negative owner allocation inventory')
+    return value
+
+
+class OwnerQuotaScan:
+    """Pause new dispatch during an inventory; active parents keep receipts.
+
+    No stale or failed reading grants dispatch. One bounded read at a time
+    avoids blocking result collection, CPU logging and the training guard.
+    """
+    def __init__(self,root,quota,reserve,*,reader=owner_bytes,clock=time.monotonic):
+        from concurrent.futures import ThreadPoolExecutor
+        self.root=root;self.quota=quota;self.reserve=reserve
+        self.reader=reader;self.clock=clock;self.executor=ThreadPoolExecutor(max_workers=1)
+        self.future=None;self.last=None;self.value=None;self.error=None
+        self.start()
+
+    def start(self):
+        if self.future is not None:raise RuntimeError('owner inventory already running')
+        self.future=self.executor.submit(self.reader,self.root)
+
+    @property
+    def check_in_progress(self):return self.future is not None
+
+    def poll(self):
+        if self.future is None and self.error is None and self.last is not None and self.clock()-self.last>=900:self.start()
+        if self.future is not None and self.future.done():
+            try:
+                value=self.future.result()
+                if type(value) is not int or value<0:raise ValueError('invalid owner inventory')
+                self.value=value;self.last=self.clock()
+            except Exception as exc:self.error=type(exc).__name__+': '+str(exc)
+            self.future=None
+        status='error' if self.error else ('checking' if self.future is not None else ('exhausted' if self.value+self.reserve>=self.quota else 'pass'))
+        return {'status':status,'new_dispatch_allowed':status=='pass','allocated_bytes':self.value,
+            'quota_bytes':self.quota,'reserve_bytes':self.reserve,'error':self.error,
+            'inventory_timeout_seconds':1200,'rescan_interval_seconds':900,
+            'policy':'checking/error => no new dispatch; no stale-reading fallback'}
+
+    def close(self):self.executor.shutdown(wait=True,cancel_futures=True)
 
 
 
@@ -300,7 +342,7 @@ def main():
             if p.poll() is None:os.killpg(p.pid,signal.SIGTERM)
     signal.signal(signal.SIGTERM,stop);signal.signal(signal.SIGINT,stop)
     paths=profile.get('training_step_files',[]);baseline=training_sample(paths)
-    active_limit=min(cpu_limit,int(profile.get('workers',40)));protected_limit=active_limit;last_control=None;cpu_previous=None;cpu_monitor_time=0.;last_storage=time.monotonic();storage_limit=int(profile.get('owner_quota_bytes',2_000_000_000_000));reserve=int(profile.get('owner_reserve_bytes',80_000_000_000))
+    active_limit=min(cpu_limit,int(profile.get('workers',40)));protected_limit=active_limit;last_control=None;cpu_previous=None;cpu_monitor_time=0.;storage_limit=int(profile.get('owner_quota_bytes',2_000_000_000_000));reserve=int(profile.get('owner_reserve_bytes',80_000_000_000))
     pending=list(enumerate(rows))
     def dispatch_phase(name,**detail):
         atomic(root/'dispatch_phase.json',{'phase':name,'utc':time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime()),
@@ -308,15 +350,19 @@ def main():
             'active_parents':len(children),'stopping':stopping,**detail})
     cpu_recorder=CpuRecorder(root,profile,active_limit)
     dispatch_phase('initial_owner_quota_scan',owner_root=profile['owner_root'])
+    quota_scan=OwnerQuotaScan(profile['owner_root'],storage_limit,reserve)
+    last_quota_state=None
     try:
-        initial_bytes=owner_bytes(profile['owner_root'])
-        dispatch_phase('owner_quota_scan_complete',allocated_bytes=initial_bytes,quota_bytes=storage_limit,reserve_bytes=reserve)
-        if initial_bytes+reserve>=storage_limit:raise ValueError('owner 2 TB quota reserve insufficient')
-        while pending or children:
+        while pending or children or quota_scan.check_in_progress:
             if (root/'STOP').exists():stop(signal.SIGTERM,None)
-            if time.monotonic()-last_storage>900:
-                if owner_bytes(profile['owner_root'])+reserve>=storage_limit:stop(signal.SIGTERM,None);failures.append({'reason':'owner_quota_reserve_exhausted'})
-                last_storage=time.monotonic()
+            quota_state=quota_scan.poll()
+            if quota_state!=last_quota_state:
+                atomic(root/'owner_quota_monitor.json',{**quota_state,'checked_utc':time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime())})
+                dispatch_phase('owner_quota_'+quota_state['status'],**quota_state)
+                last_quota_state=quota_state
+            if quota_state['status'] in ('exhausted','error') and not stopping:
+                failures.append({'reason':'owner_quota_'+quota_state['status'],'inventory':quota_state})
+                stop(signal.SIGTERM,None)
             if time.monotonic()-monitor_time>120:
                 current=training_sample(paths);loss=slowdown(baseline,current)
                 threshold=float(profile.get('training_slowdown_threshold',.35))
@@ -332,7 +378,7 @@ def main():
                     active_limit=requested;protected_limit=requested;last_control=control
                     atomic(root/('dispatch_control_applied_'+str(time.time_ns())+'.json'),{'control':control,'workers':active_limit,'pid':os.getpid(),'hostname':socket.gethostname()})
             cpu_recorder.update(active_limit,len(children))
-            while pending and len(children)<active_limit and not stopping:
+            while pending and len(children)<active_limit and not stopping and quota_state['new_dispatch_allowed']:
                 index,row=pending.pop(0);sid=row['scene_id'];seed=work/(sid+'_seed.jsonl')
                 dispatch_phase('resume_native_stage',scene_id=sid)
                 if profile.get('completed_native_stage_source'):
@@ -414,6 +460,7 @@ def main():
         atomic(args.output/'metrics.json',{'status':'complete','parents':len(export_rows),'delivery_root':str(release),'windows':summary['formal_windows'],'questions':summary['formal_logical_questions'],'requested_parents':len(rows),'rejected_parents':len(failures)})
         atomic(root/'HANDOFF.json',{'status':'sealed','release_directory':str(release),'manifest':manifest})
     finally:
+        quota_scan.close()
         cpu_recorder.close()
         # A failed coordinator must not leave its own renderers running.
         if children:
