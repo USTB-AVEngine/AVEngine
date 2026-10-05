@@ -124,7 +124,7 @@ def source_qa_evidence(scene,program,dry_receipt,visual,foa_path,audio_evidence,
     protocol['coordinate_system']='measured_native_camera_track_transformed_into_fixed_reference_basis'
     protocol['resolution_wh']=list(reversed(visual['renderer']['resolution_hw']))
     protocol['hfov_deg']=visual['renderer']['hfov_deg']
-    proof={'events':events,'actor_profiles':{str(a['actor_id']):{'entity_class':'articulated_human','species_id':'human','emission_mechanism':scene['sources'][a['endpoint_id']]['mechanism'],'native_object_id':a['native_object_id']} for a in visual['frames'][0]['actors']},
+    proof={'events':events,'actor_profiles':{str(a['actor_id']):{'entity_class':scene['sources'][a['endpoint_id']].get('entity_class','articulated_human'),'species_id':scene['sources'][a['endpoint_id']].get('species_id','human'),'emission_mechanism':scene['sources'][a['endpoint_id']]['mechanism'],'native_object_id':a['native_object_id']} for a in visual['frames'][0]['actors']},
         'camera_frame_readbacks':visual['camera_frame_readbacks'],'protocol_scene':protocol,
         'question_episode_id':question_episode_id,'question_seed':str(scene['seed']),
         'foa_readback':{'path':str(foa_path),'format':'ACN_WYZX_SN3D_camera',
@@ -141,7 +141,7 @@ def source_qa_evidence(scene,program,dry_receipt,visual,foa_path,audio_evidence,
         for actor in visual['frames'][0]['actors']:
             registry[str(actor['actor_id'])]={'native_instance_id':actor['actor_id'],
                 'native_object_id':actor['native_object_id'],'semantic_id':actor['semantic_id'],
-                'asset_id':actor['asset_id'],'entity_class':'articulated_human','species_id':'human',
+                'asset_id':actor['asset_id'],'entity_class':scene['sources'][actor['endpoint_id']].get('entity_class','articulated_human'),'species_id':scene['sources'][actor['endpoint_id']].get('species_id','human'),
                 'status':'measured_native_registered_standing',
                 'identity_source':'actual_native_object_and_semantic_readback'}
         reviewed=visual.get('native_appearance_review',{}).get('actors',{})

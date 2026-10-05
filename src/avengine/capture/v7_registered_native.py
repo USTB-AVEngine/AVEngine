@@ -38,6 +38,14 @@ def loaded_mesh(path):
     if not len(mesh.vertices) or not len(mesh.faces):raise ValueError('registered original mesh empty')
     return mesh
 
+def sole_regions(local,asset):
+    if asset.get('entity_class')=='articulated_animal':
+        x,z=np.median(local[:,0]),np.median(local[:,2])
+        masks=[(local[:,0]<x)&(local[:,2]<z),(local[:,0]>=x)&(local[:,2]<z),(local[:,0]<x)&(local[:,2]>=z),(local[:,0]>=x)&(local[:,2]>=z)]
+        if any(not m.any()for m in masks):raise ValueError('registered dog four-paw regions missing')
+        return masks
+    return [local[:,0]<0,local[:,0]>=0]
+
 class NativeRegisteredVideo(NativeAlphaVideo):
     def __init__(self,house,scene,inputs,assets,**kwargs):
         if inputs.get('render_backend')!='cpu_llvmpipe':raise ValueError('registered CPU backend required')
@@ -57,7 +65,7 @@ class NativeRegisteredVideo(NativeAlphaVideo):
                 raise ValueError('registered standing authority missing')
             path=Path(asset['habitat_glb']);digest=hashlib.sha256(path.read_bytes()).hexdigest()
             if asset['actual_artifact_sha256'].get(str(path))!=digest:raise ValueError('registered GLB changed')
-            derived,material=prepare_source_glb(path,asset_id=asset['asset_id'],entity_class='articulated_human',output_directory=self.source_material_cache_directory)
+            derived,material=prepare_source_glb(path,asset_id=asset['asset_id'],entity_class=asset.get('entity_class','articulated_human'),output_directory=self.source_material_cache_directory)
             attr=manager.create_new_template('v7_registered_'+str(i))
             attr.render_asset_handle=str(derived);attr.collision_asset_handle=str(derived)
             attr.is_collidable=False;attr.compute_COM_from_shape=False
@@ -82,7 +90,7 @@ class NativeRegisteredVideo(NativeAlphaVideo):
         if 'floor_adjustment' not in entry:
             vertices=np.asarray(entry['original_mesh'].vertices)@root[:3,:3].T+root[:3,3]
             points=[]
-            for side in [np.asarray(entry['original_mesh'].vertices)[:,0]<0,np.asarray(entry['original_mesh'].vertices)[:,0]>=0]:
+            for side in sole_regions(np.asarray(entry['original_mesh'].vertices),asset):
                 values=vertices[side];points.append(values[np.argmin(values[:,1])])
             soles=stage_sole_rays(self,points);delta=-min(x['signed_contact_error_m'] for x in soles)
             if abs(delta)>.5:raise ValueError('registered floor adjustment outside bounded support')
@@ -207,7 +215,7 @@ class NativeRegisteredVideo(NativeAlphaVideo):
             actual=contacts();obj.translation=self.mn.Vector3(matrix[:3,3]-[0.,.1,0.]);bad=contacts()
         finally:rm.remove_object_by_id(obj.object_id)
         points=[]
-        for side in [local[:,0]<0,local[:,0]>=0]:
+        for side in sole_regions(local,entry['declaration']):
             v=vertices[side];points.append(v[np.argmin(v[:,1])])
         soles=stage_sole_rays(self,points);floor_ok=all(abs(x['signed_contact_error_m'])<=tolerance for x in soles);skin_ok=all(x['contact_distance_m']>=-tolerance for x in actual);bad_detected=any(x['contact_distance_m']<-tolerance for x in bad)
         return {'status':'pass' if floor_ok and skin_ok and bad_detected else 'blocked','endpoint_id':entry['endpoint_id'],'asset_id':entry['declaration']['asset_id'],'action':'registered_stand','contact_tolerance_m':tolerance,'tolerance_changed':False,'sole_readbacks':soles,'native_skin_vertices':len(vertices),'native_triangles':len(original.faces),'full_skin_covered':True,'native_full_skin_bounds_m':[vertices.min(0).tolist(),vertices.max(0).tolist()],'compound_hulls':hulls,'compound_margin_m':.001,'contacts':actual,'known_bad_10cm_floor_contacts':bad,'known_bad_detected':bad_detected,'proxy_path':path,'source_original_glb':entry['declaration']['habitat_glb'],'motion_admission':'stand only; no walk/sit/seat qualification'}
@@ -256,7 +264,10 @@ class NativeRegisteredVideo(NativeAlphaVideo):
                 ep=entry['endpoint_id']
                 if ep not in requests:continue
                 request=requests[ep]
-                if request['action']=='walk':record=compile_walking(self,entry,scene,self.motion_house,self.motion_inputs,directory/ep,request)
+                if request['action']=='walk'and entry['declaration'].get('entity_class')=='articulated_animal':
+                    from avengine.assets.roster_motion.animal import compile_continuous_dog_walking
+                    record=compile_continuous_dog_walking(self,entry,scene,self.motion_house,self.motion_inputs,directory/ep,request)
+                elif request['action']=='walk':record=compile_walking(self,entry,scene,self.motion_house,self.motion_inputs,directory/ep,request)
                 elif request['action']=='sit':
                     from avengine.assets.roster_motion.seating import compile_seated
                     record=compile_seated(self,entry,scene,self.motion_house,self.motion_inputs,directory/ep,request)

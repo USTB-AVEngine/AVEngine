@@ -30,6 +30,11 @@ def choose_assets(catalog,row):
             available=sorted({x['body_identity_id'] for x in catalog if x['dialogue_voice_binding_eligible'] and x['visual_gender']==g and x['color']=='blue'})
             selected=body if i<2 else str(rng.choice(available))
             assets.append(deepcopy(next(x for x in catalog if x['body_identity_id']==selected and x['color']==(colors[i] if i<3 else ('white' if i%2 else 'black')))))
+    additional=row['production_scenario'].get('additional_source_assets',[])
+    for aid in additional:
+        a=deepcopy(by_id[aid])
+        if a.get('entity_class')!='articulated_animal' or a.get('species_id')!='dog' or not a.get('static_registered_reference_pass'):raise ValueError('additional source lacks explicit admitted dog intake')
+        assets.append(a)
     for i,a in enumerate(assets):
         a['endpoint_id']='voice'+str(i+1)
         a['native_instance_id']=i+1
@@ -115,6 +120,10 @@ def build_registered_scene(row,house,records,assets,semantic_manifest=None):
     for i,(a,p) in enumerate(zip(assets,placements,strict=True)):
         ep=a['endpoint_id'];g='F' if a['visual_gender']=='female' else 'M'
         scene['sources'][ep]={'actor_id':i+1,'class_id':0 if g=='F' else 1,'content_kind':'speech' if i<n else 'silent','body_yaw_deg':p['body_yaw_deg'],'mechanism':'human_live_recorded','visual_gender':a['visual_gender'],'dry_gain':1.,'trajectory':[{'time_s':0.,'position_m':p['position_m']},{'time_s':30.,'position_m':p['position_m']}]}
+    for a in assets:
+        if a.get('entity_class')=='articulated_animal':
+            from avengine.timeline.v7_environmental_sources import STRICT_CLASS13
+            scene['sources'][a['endpoint_id']].update(class_id=STRICT_CLASS13.get(a['sound_class']),content_kind='recorded_animal',mechanism='animal_live_recorded',entity_class='articulated_animal',species_id=a['species_id'])
     program={'schema':PROGRAM_SCHEMA,'records':[],'events':[]};by_id={};used_voices=set();busy=[]
     def add(ep,when,record,whole=True):
         lo=round(max(0.,when)*10);duration=record['header']['sample_count']/16000 if whole else min(2.,record['duration_s'])
@@ -157,6 +166,13 @@ def build_registered_scene(row,house,records,assets,semantic_manifest=None):
                     candidates=[r for r in clips if not any(e==ep and round(max(0.,when)*10)<b and round(max(0.,when)*10)+math.ceil(r['duration_s']*10)>a for e,a,b in busy)]
                     if not candidates:raise ValueError('speaker lacks a complete utterance fitting this activity slot')
                     add(ep,when,candidates[int(rng.integers(len(candidates)))])
+    for animal in [a for a in assets if a.get('entity_class')=='articulated_animal']:
+        from avengine.timeline.v7_environmental_sources import recording_header
+        pool=[r for r in admitted if r.get('sound_class')==animal['sound_class']and r.get('duration_s',r.get('readback',{}).get('duration_s',0))>=2.]
+        if not pool:raise ValueError('admitted recorded dog source deficit')
+        r=recording_header(pool[int(rng.integers(len(pool)))])
+        for start in starts:
+            for offset in [.2,2.6,5.2,7.7]:add(animal['endpoint_id'],start+offset,r,whole=False)
     # Laughter is a recorded non-speech mouth emission; it is not a speaker.
     # No clapping/footstep/instrument capability is invented for standing people.
     from avengine.timeline.v7_environmental_sources import attach_environmental_program
