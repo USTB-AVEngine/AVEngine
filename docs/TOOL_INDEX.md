@@ -5,7 +5,7 @@
 
 自 2026-08-25 起，目录本身就是能力分组（阶段目录 m1…m7 已移除），
 本表按目录列出每个工具做什么。
-当前共 502 个工具脚本。
+当前共 512 个工具脚本。
 
 ## 资产生成与装配（`tools/assets/`）
 
@@ -264,21 +264,31 @@
 | `tools/timeline/export_native_pilot_windows.py` | Export checked native video windows and balanced pilot question candidates |
 | `tools/timeline/export_v7_alpha.py` | Package immutable admitted alpha parents and training-ready relative media |
 | `tools/timeline/generate_v7_alpha.py` | Restartable CPU-only formal static/recorded alpha shards |
+| `tools/timeline/generate_v7_full_preproduction.py` | Explicit TRAIN-only 1500-world preproduction, separate from the eight-world review |
 | `tools/timeline/generate_v7_registered.py` | Restartable CPU-only formal static/recorded alpha shards |
 | `tools/timeline/generate_v7_scenes.py` | Seed-driven restartable CPU native candidates. Formal mode fails closed |
 | `tools/timeline/pilot_continuous_scenes.py` | CPU-only restartable continuous-scene pilot and native RIR throughput probe |
+| `tools/timeline/plot_v7_cpu_monitor.py` | Plot recorded P19 cgroup counters separately from host /proc statistics |
 | `tools/timeline/prepare_v7_diagnostic_aliases.py` | Give diagnostic media neutral IDs and quarantine incompatible public domains |
 | `tools/timeline/prepare_v7_diagnostic_seed_tables.py` | Extend reproducible v7-S/full seeds with simulation-only diagnostic axes |
+| `tools/timeline/prepare_v7_full_preproduction.py` | Prepare new TRAIN-only worlds without rendering or opening held-out assets |
 | `tools/timeline/prepare_v7_quota_seed_tables.py` | Default aggregate-profile v7 requests with a separate 0--8 coverage stratum |
 | `tools/timeline/prepare_v7_seed_tables.py` | Write v7-S and full-set seed tables without changing existing inputs |
 | `tools/timeline/project_v7_alpha_seeds.py` | Project fixed S parent seeds onto measured alpha layouts, preserving prefixes |
 | `tools/timeline/qualify_native_counterfactuals.py` | Native 2x2 appearance/association canary; audit actual media and answers |
 | `tools/timeline/qualify_v7_scenario_quotas.py` | CPU native static-crowd diagnostics for actual v0.2 speaker/spatial questions |
 | `tools/timeline/qualify_v7_vctk.py` | Automatically qualify recorded VCTK inputs, preserving original clip clocks |
+| `tools/timeline/relay_v7_full_shards_cci.sh` |  |
 | `tools/timeline/review_native_windows.py` | Read five encoded native windows and compare head pixels to native FOA |
 | `tools/timeline/summarize_continuous_pilot.py` | Read back continuous-pilot media, summarize coverage, and estimate CPU throughput |
 | `tools/timeline/synthesize_native_pilot.py` | Resume native-mouth CPU audio and complete 10 s qualification candidates |
+| `tools/timeline/v7_live_training_guard.py` | Read current-job training logs and control only this v7 coordinator |
+| `tools/timeline/v7_quota_cache.py` | Read the restartable personal AFS quota cache; wait on unknown measurements |
 | `tools/timeline/v7_s_production.py` | CPU-only P19 coordinator for the frozen recorded v7-S critical batch |
+| `tools/timeline/v7_s_publish_qualified.py` | Publish actual sealed v7-S parents after the original attempt naturally ends |
+| `tools/timeline/v7_storage_accounting.py` | Read-only file allocation accounting; deletion proposals never unlink files |
+| `tools/timeline/verify_v7_transferred_shard.py` | Verify an own AFS shard before returning permission to delete its 48g copy |
+| `tools/timeline/wait_v7_space_resume.py` | Wait outside P19 for personal headroom, then enqueue one checkpointed supplement |
 
 ## 空间音频（`tools/audio/`）
 
@@ -634,6 +644,3 @@
 | `tools/motion/build_self_retarget_profile.py` | Build a hash-bound identity-skeleton retarget probe profile |
 | `tools/motion/derive_contacts.py` | Derive hash-bound M2 four-paw contact phases from explicit inputs |
 | `tools/motion/retarget_blender.py` | Retarget audited GLB motion onto an audited target GLB in Blender |
-
-
-CPU runtime preflight: `tools/timeline/v7_s_production.py --mode runtime_probe --generator-profile PROFILE --output OUTPUT` reads a 32x32 native software RGB frame in the task-owned private Mesa runtime; launch Python with the frozen profile cpu_env so the software EGL selector is preloaded. No house or GPU access.

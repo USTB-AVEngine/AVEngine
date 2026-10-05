@@ -246,8 +246,14 @@ def main():
     for r in rows:
         h=byh[r['house']]
         if h['split']=='test' or {'development':'dev'}.get(h['split'],h['split'])!=r['split']:raise ValueError('house split crossed')
+    resume_counts=None
+    if profile.get('resume_checkpoint'):
+        if not is_supplement:raise ValueError('space resume is only authorized for the existing supplement')
+        from avengine.timeline.v7_storage_resume import initialize_resume
+        previous,rejected,resume_pending=initialize_resume(profile,rows,root/profile.get('production_work_directory','production'))
+        resume_counts={'sealed':len(previous),'retained_rejections':len(rejected),'pending_including_interrupted':len(resume_pending)}
     if args.mode=='validate':
-        atomic(args.output/'metrics.json',{'status':'profile_validated','parents':len(rows),'test_house_access':0,'GPU_started':False});return
+        atomic(args.output/'metrics.json',{'status':'profile_validated','parents':len(rows),'resume_counts':resume_counts,'test_house_access':0,'GPU_started':False});return
     final=root/('release' if args.mode=='production' else 'smoke_delivery')
     if (final/'DELIVERY_MANIFEST.json').is_file():
         delivered=json.loads((final/'DELIVERY_MANIFEST.json').read_text())
@@ -297,6 +303,9 @@ def main():
     paths=profile.get('training_step_files',[]);baseline=training_sample(paths)
     active_limit=min(cpu_limit,int(profile.get('workers',40)));protected_limit=active_limit;last_control=None;cpu_previous=None;cpu_monitor_time=0.;storage_limit=int(profile.get('owner_quota_bytes',2_000_000_000_000));reserve=int(profile.get('owner_reserve_bytes',80_000_000_000))
     pending=list(enumerate(rows))
+    if profile.get('resume_checkpoint'):
+        from avengine.timeline.v7_storage_resume import initialize_resume
+        done,failures,pending=initialize_resume(profile,rows,work)
     def dispatch_phase(name,**detail):
         atomic(root/'dispatch_phase.json',{'phase':name,'utc':time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime()),
             'pid':os.getpid(),'hostname':socket.gethostname(),'pending_parents':len(pending),
@@ -355,7 +364,7 @@ def main():
                     # source inputs, exact RIRs, full native evidence and media.
                     cache=parent/'source_material_cache'
                     files=[f for f in cache.rglob('*.glb') if f.is_file()] if cache.is_dir() else []
-                    if files:
+                    if files and profile.get('discard_material_cache_after_seal',True):
                         atomic(parent/'discarded_material_cache.json',{'paths':[str(f) for f in files],'reason':'parent seal complete; original source assets and material checks retained'})
                         for f in files:f.unlink()
                 else:failures.append({'scene_id':sid,'returncode':p.returncode,'failure_receipts':[str(f) for f in parent.glob('failed_*.json')]})
