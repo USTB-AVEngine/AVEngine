@@ -18,7 +18,17 @@ def atomic(path,value):
 
 
 
-def private_mesa_runtime(root):
+def native_process_credentials(root):
+    # Use the actual task directory owner for native children only. AFS may
+    # expose UID 10740 even when a P19 coordinator starts as root; Mesa checks
+    # XDG_RUNTIME_DIR against the native process UID. Never chown AFS or /tmp.
+    root=Path(root);root.mkdir(parents=True,exist_ok=True);owner=root.stat()
+    if owner.st_uid==os.geteuid():return {}
+    if os.geteuid()!=0:raise ValueError('native task owner differs and this coordinator cannot delegate credentials')
+    return {'user':owner.st_uid,'group':owner.st_gid,'extra_groups':[]}
+
+
+def private_mesa_runtime(root,runtime_uid=None):
     # Mesa otherwise falls back to a shared /tmp/xdg-runtime-mesa-UID. P19
     # containers can inherit a directory they cannot use. Own this temporary
     # directory under the task root; never chmod or remove a shared directory.
@@ -26,10 +36,10 @@ def private_mesa_runtime(root):
     runtime=root/'tmp'/('mesa_runtime_'+str(os.getpid())+'_'+uuid.uuid4().hex)
     runtime.mkdir(parents=True,mode=0o700,exist_ok=False)
     info=runtime.stat()
-    if info.st_uid!=os.geteuid() or info.st_mode & 0o777 != 0o700:
+    if info.st_uid!=(os.geteuid() if runtime_uid is None else runtime_uid) or info.st_mode & 0o777 != 0o700:
         raise ValueError('private Mesa runtime ownership or mode mismatch')
     os.environ['XDG_RUNTIME_DIR']=str(runtime)
-    atomic(runtime/'runtime_owner.json',{'pid':os.getpid(),'hostname':socket.gethostname(),'uid':os.geteuid(),'mode':'0700','shared_tmp_touched':False})
+    atomic(runtime/'runtime_owner.json',{'pid':os.getpid(),'hostname':socket.gethostname(),'creator_uid':os.geteuid(),'native_uid':info.st_uid,'mode':'0700','shared_tmp_touched':False})
     return runtime
 
 
@@ -92,7 +102,7 @@ def native_cpu_probe(profile,output):
     finally:sim.close()
     result={'status':'pass','actual_RGB_shape':list(rgb.shape),'software_driver_mapped':software,
         'XDG_RUNTIME_DIR':os.environ['XDG_RUNTIME_DIR'],'hostname':socket.gethostname(),
-        'scene_id':'NONE','house_access':0,'GPU_started':False}
+        'scene_id':'NONE','house_access':0,'GPU_started':False,'native_uid':os.geteuid(),'native_gid':os.getegid()}
     atomic(Path(output)/'native_cpu_readback.json',result)
     print(json.dumps(result),flush=True)
 
@@ -105,12 +115,17 @@ def main():
     args=parser.parse_args();profile=json.loads(args.generator_profile.read_text());root=Path(profile['root']);code=Path(profile['code']);args.output.mkdir(parents=True,exist_ok=True)
     # P19 may lease a GPU to its rank; this entry clears it before native imports.
     os.environ.update(profile['cpu_env']);os.environ['CUDA_VISIBLE_DEVICES']=''
-    private_mesa_runtime(root)
+    credentials=native_process_credentials(root)
+    private_mesa_runtime(root,runtime_uid=credentials.get('user',os.geteuid()))
     for folder in reversed(profile['cpu_env']['PYTHONPATH'].split(os.pathsep)):
         if folder not in sys.path:sys.path.insert(0,folder)
     if os.environ.get('LIBGL_ALWAYS_SOFTWARE')!='1' or os.environ.get('LP_NUM_THREADS')!='1':raise ValueError('CPU software-rendering contract missing')
     cpus=sorted(os.sched_getaffinity(0));os.sched_setaffinity(0,set(cpus[:32]))
-    if args.mode=='runtime_probe':native_cpu_probe(profile,args.output);return
+    if args.mode=='runtime_probe':
+        if credentials:
+            subprocess.run([sys.executable,*sys.argv],check=True,env=os.environ.copy(),**credentials)
+        else:native_cpu_probe(profile,args.output)
+        return
     if args.mode=='production':
         match=re.fullmatch(r'eval_job_a[0-9]{2}_(job_[A-Za-z0-9_.-]+)',args.output.name)
         run_root=root/profile.get('p19_run_directory','p19_run')
@@ -147,7 +162,7 @@ def main():
     if (root/'STOP').exists():raise RuntimeError('this task STOP is present')
     subprocess.run([sys.executable,str(code/'tools/timeline/v7_s_production.py'),
         '--generator-profile',str(args.generator_profile),'--mode','runtime_probe',
-        '--output',str(args.output/'cpu_runtime_probe')],check=True,env=os.environ.copy(),cwd=code)
+        '--output',str(args.output/'cpu_runtime_probe')],check=True,env=os.environ.copy(),cwd=code,**credentials)
     lock=root/('coordinator.lock' if args.mode=='production' else 'smoke.lock')
     try:lock.mkdir()
     except FileExistsError:
@@ -191,7 +206,7 @@ def main():
                 if not seed.exists():seed.write_text(json.dumps(row,ensure_ascii=False)+'\n')
                 logfile=(root/'logs'/(sid+'_'+str(time.time_ns())+'.log')).open('x')
                 cmd=[sys.executable,str(code/'tools/timeline/generate_v7_registered.py'),'--houses',str(inputs/'houses.json'),'--seeds',str(seed),'--runtime-inputs',str(inputs/'runtime.json'),'--assets',str(inputs/'assets.json'),'--source-admission',str(inputs/'source_admission.json'),'--human-admission',str(inputs/'human_admission.json'),'--output',str(work),'--workers','1','--limit','1','--render-backend','cpu_llvmpipe']
-                p=subprocess.Popen(cmd,env=os.environ.copy(),stdout=logfile,stderr=subprocess.STDOUT,start_new_session=True,cwd=code);children[sid]=(p,logfile,row)
+                p=subprocess.Popen(cmd,env=os.environ.copy(),stdout=logfile,stderr=subprocess.STDOUT,start_new_session=True,cwd=code,**credentials);children[sid]=(p,logfile,row)
             for sid,(p,logfile,row) in list(children.items()):
                 if p.poll() is None:continue
                 logfile.close();del children[sid];parent=work/'parents'/sid;seal=parent/'alpha_seal_completed.json'
