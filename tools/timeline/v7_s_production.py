@@ -77,53 +77,6 @@ def slowdown(baseline,current):
     return 1-min(ratios) if ratios else None
 
 
-def owner_bytes(root):
-    # AFS inventories measured 355 seconds even for a successful scan. Keep
-    # the same allocated-byte quota, but allow a bounded complete inventory.
-    output=subprocess.check_output(['du','-s','-B1',str(root)],text=True,timeout=1200)
-    value=int(output.split()[0])
-    if value<0:raise ValueError('negative owner allocation inventory')
-    return value
-
-
-class OwnerQuotaScan:
-    """Pause new dispatch during an inventory; active parents keep receipts.
-
-    No stale or failed reading grants dispatch. One bounded read at a time
-    avoids blocking result collection, CPU logging and the training guard.
-    """
-    def __init__(self,root,quota,reserve,*,reader=owner_bytes,clock=time.monotonic):
-        from concurrent.futures import ThreadPoolExecutor
-        self.root=root;self.quota=quota;self.reserve=reserve
-        self.reader=reader;self.clock=clock;self.executor=ThreadPoolExecutor(max_workers=1)
-        self.future=None;self.last=None;self.value=None;self.error=None
-        self.start()
-
-    def start(self):
-        if self.future is not None:raise RuntimeError('owner inventory already running')
-        self.future=self.executor.submit(self.reader,self.root)
-
-    @property
-    def check_in_progress(self):return self.future is not None
-
-    def poll(self):
-        if self.future is None and self.error is None and self.last is not None and self.clock()-self.last>=900:self.start()
-        if self.future is not None and self.future.done():
-            try:
-                value=self.future.result()
-                if type(value) is not int or value<0:raise ValueError('invalid owner inventory')
-                self.value=value;self.last=self.clock()
-            except Exception as exc:self.error=type(exc).__name__+': '+str(exc)
-            self.future=None
-        status='error' if self.error else ('checking' if self.future is not None else ('exhausted' if self.value+self.reserve>=self.quota else 'pass'))
-        return {'status':status,'new_dispatch_allowed':status=='pass','allocated_bytes':self.value,
-            'quota_bytes':self.quota,'reserve_bytes':self.reserve,'error':self.error,
-            'inventory_timeout_seconds':1200,'rescan_interval_seconds':900,
-            'policy':'checking/error => no new dispatch; no stale-reading fallback'}
-
-    def close(self):self.executor.shutdown(wait=True,cancel_futures=True)
-
-
 
 def native_cpu_probe(profile,output):
     selector=profile['cpu_env'].get('LD_PRELOAD','')
@@ -350,7 +303,8 @@ def main():
             'active_parents':len(children),'stopping':stopping,**detail})
     cpu_recorder=CpuRecorder(root,profile,active_limit)
     dispatch_phase('initial_owner_quota_scan',owner_root=profile['owner_root'])
-    quota_scan=OwnerQuotaScan(profile['owner_root'],storage_limit,reserve)
+    from avengine.timeline.v7_owner_quota import CachedOwnerQuota
+    quota_scan=CachedOwnerQuota(profile['owner_root'],root,root/'quota_cache/personal_allocation.json',storage_limit,reserve)
     last_quota_state=None
     try:
         while pending or children or quota_scan.check_in_progress:
@@ -360,8 +314,8 @@ def main():
                 atomic(root/'owner_quota_monitor.json',{**quota_state,'checked_utc':time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime())})
                 dispatch_phase('owner_quota_'+quota_state['status'],**quota_state)
                 last_quota_state=quota_state
-            if quota_state['status'] in ('exhausted','error') and not stopping:
-                failures.append({'reason':'owner_quota_'+quota_state['status'],'inventory':quota_state})
+            if quota_state['confirmed_full'] and not stopping:
+                failures.append({'reason':'owner_quota_confirmed_full','inventory':quota_state})
                 stop(signal.SIGTERM,None)
             if time.monotonic()-monitor_time>120:
                 current=training_sample(paths);loss=slowdown(baseline,current)
@@ -405,9 +359,9 @@ def main():
                         atomic(parent/'discarded_material_cache.json',{'paths':[str(f) for f in files],'reason':'parent seal complete; original source assets and material checks retained'})
                         for f in files:f.unlink()
                 else:failures.append({'scene_id':sid,'returncode':p.returncode,'failure_receipts':[str(f) for f in parent.glob('failed_*.json')]})
-            atomic(root/'PROGRESS.json',{'status':'stopped' if stopping else 'running','formal_parents':len(done),'formal_windows':sum(r['alpha_formal_windows'] for r in done),'formal_questions':sum(r['alpha_formal_logical_questions'] for r in done),'active_parents':list(children),'remaining_parents':len(pending),'failures':failures,'workers_limit':active_limit,'elapsed_seconds':time.monotonic()-started,'pid':os.getpid(),'hostname':socket.gethostname(),'GPU_started':False})
+            atomic(root/'PROGRESS.json',{'status':'stopped' if stopping else 'running','formal_parents':len(done),'formal_windows':sum(r['alpha_formal_windows'] for r in done),'formal_questions':sum(r['alpha_formal_logical_questions'] for r in done),'active_parents':list(children),'remaining_parents':len(pending),'failures':failures,'workers_limit':active_limit,'elapsed_seconds':time.monotonic()-started,'pid':os.getpid(),'hostname':socket.gethostname(),'GPU_started':False,'quota_guard':quota_state})
             if stopping and not children:break
-            dispatch_phase('draining' if stopping else 'dispatch_loop')
+            dispatch_phase('draining' if stopping else ('dispatch_loop' if quota_state['new_dispatch_allowed'] else 'awaiting_quota_cache'),quota_guard=quota_state)
             time.sleep(5)
         terminal={'status':'stopped'if stopping else ('completed_with_rejections'if failures else 'completed'),
             'formal_parents':len(done),'formal_windows':sum(r['alpha_formal_windows']for r in done),
@@ -419,6 +373,13 @@ def main():
         atomic(root/'PROGRESS.json',terminal)
         if stopping or (failures and not is_supplement):raise RuntimeError('production incomplete; failures retained; rerun resumes immutable stages')
         if not done:raise RuntimeError('no qualified parents; no formal delivery published')
+        while not quota_scan.poll()['new_dispatch_allowed']:
+            state=quota_scan.poll()
+            atomic(root/'owner_quota_monitor.json',state)
+            atomic(root/'PROGRESS.json',{**terminal,'status':'waiting_for_safe_quota_before_export','quota_guard':state})
+            if state['confirmed_full']:raise RuntimeError('confirmed owner quota exhausted before export; native seals retained')
+            cpu_recorder.update(active_limit,0)
+            time.sleep(5)
         export_rows=rows
         export_seeds=profile['seeds']
         if is_supplement:
