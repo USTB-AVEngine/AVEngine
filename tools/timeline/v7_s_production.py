@@ -201,6 +201,16 @@ def validate_supplement_contract(profile,rows):
     return True
 
 
+
+def completed_admitted_rows(root,rows,delivered,is_supplement):
+    if not is_supplement:return rows
+    admitted=[json.loads(l)for l in (Path(root)/'qualified_seeds.jsonl').read_text().splitlines()if l.strip()]
+    originals={r['scene_id']:r for r in rows}
+    if len(admitted)!=delivered['independent_parent_scenes'] or len({r['scene_id']for r in admitted})!=len(admitted) or any(originals.get(r['scene_id'])!=r for r in admitted):
+        raise ValueError('completed supplement admission rows differ from sealed delivery')
+    return admitted
+
+
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--generator-profile',required=True,type=Path)
@@ -248,9 +258,12 @@ def main():
         delivered=json.loads((final/'DELIVERY_MANIFEST.json').read_text())
         expected=delivered.get('source_requested_parents',delivered['independent_parent_scenes']) if is_supplement else delivered['independent_parent_scenes']
         if delivered['generator_commit']!=profile['generator_commit'] or expected!=len(rows):raise ValueError('completed release belongs to a different immutable profile')
-        (args.output/'input_manifest.jsonl').write_text(''.join(json.dumps({'scene_id':r['scene_id']})+'\n' for r in rows))
-        (args.output/'predictions.jsonl').write_text(''.join(json.dumps({'scene_id':r['scene_id'],'status':'formal_alpha_admitted'})+'\n' for r in rows))
-        atomic(args.output/'run.json',{'status':'complete','count':len(rows),'kind':'CPU generation receipts, not model predictions'})
+        resumed_rows=completed_admitted_rows(root,rows,delivered,is_supplement)
+        (args.output/'input_manifest.jsonl').write_text(''.join(json.dumps({'scene_id':r['scene_id']})+'\n' for r in resumed_rows))
+        (args.output/'predictions.jsonl').write_text(''.join(json.dumps({'scene_id':r['scene_id'],'status':'formal_alpha_admitted'})+'\n' for r in resumed_rows))
+        atomic(args.output/'run.json',{'status':'complete','count':len(resumed_rows),'kind':'CPU generation receipts, not model predictions'})
+        summary=json.loads((final/'summary.json').read_text())
+        atomic(args.output/'metrics.json',{'status':'complete','parents':len(resumed_rows),'delivery_root':str(final),'windows':summary['formal_windows'],'questions':summary['formal_logical_questions'],'source_requested_parents':len(rows),'no_failed_parent_promoted':True})
         return
     work=root/(profile.get('production_work_directory','production') if args.mode=='production' else 'cci_smoke')
     if work.resolve().parent!=root.resolve():raise ValueError('parent work directory must stay directly within this task root')
