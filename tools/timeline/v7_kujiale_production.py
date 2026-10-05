@@ -57,11 +57,12 @@ def main():
    # The guard handles SIGTERM and verifies every descendant before stopping it.
    active.terminate()
  signal.signal(signal.SIGTERM,stop);signal.signal(signal.SIGINT,stop)
+ (RUN/'transfer_receipts').mkdir(exist_ok=True)
  queue={'schema':'kujiale_v7_s_transfer_queue_v1','complete':False,'batches':[]}
  peak=max(3814.,float(canary['peak_mib']))
  canary_ids={r['scene_id'] for r in map(json.loads,(RUN/'inputs/canary.jsonl').read_text().splitlines())}
  pending=[r for r in rows if r['scene_id'] not in canary_ids]
- # Complete this same house first, including its quartet parents; no recipe
+ # Complete this same house first; no recipe
  # or seed is changed, only dispatch order.
  canary_house=next(r['house'] for r in rows if r['scene_id'] in canary_ids)
  pending.sort(key=lambda r:r['house']!=canary_house)
