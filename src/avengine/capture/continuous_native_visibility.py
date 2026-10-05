@@ -8,7 +8,7 @@ from __future__ import annotations
 import numpy as np
 from avengine.qa.pixel_visibility import compile_pixel_visibility_truth
 
-VISIBILITY_REVISION='native_same_context_objects_only_v3_geometry_and_furniture'
+VISIBILITY_REVISION='native_same_context_objects_only_v4_complete_native_objects'
 
 
 def native_mask_pose(obj,camera,entry):
@@ -36,7 +36,19 @@ class NativeVisibilityStream:
         self.occluder_frames=[]
 
     def _target_mask(self,target):
-        p=self.primary;hidden=[a for a in [*p.actors,*getattr(p,'seat_material_entries',[])] if a is not target]
+        p=self.primary
+        # All native rigid instances belong in an objects-only control, including
+        # native rigid furniture that has no speaking actor registration.
+        # Discover them from the actual manager; retain and restore every root.
+        from avengine.capture.v7_registered_native import RigidStandingInstance
+        hidden=[];seen={int(target['object'].object_id)}
+        for a in [*p.actors,*getattr(p,'seat_material_entries',[])]:
+            oid=int(a['object'].object_id)
+            if oid not in seen:hidden.append(a);seen.add(oid)
+        for obj in p.sim.get_rigid_object_manager().get_objects_by_handle_substring().values():
+            if int(obj.object_id) not in seen:
+                hidden.append({'object':RigidStandingInstance(obj),'native_actor_kind':'registered_rigid'})
+                seen.add(int(obj.object_id))
         previous=[{'root':np.asarray(a['object'].root_scene_node.absolute_transformation()).copy(),
                    'joints':np.asarray(a['object'].joint_positions).copy(),
                    'links':{k:np.asarray(a['object'].get_link_scene_node(k).absolute_transformation()).copy() for k in a['object'].get_link_ids()}}
@@ -53,7 +65,15 @@ class NativeVisibilityStream:
                 sensor.render_target.read_frame_object_id(view)
             data=np.flipud(data).copy();sid=int(target['semantic_id'])
             foreign=set(np.unique(data))-{0,2**32-1,sid}
-            if foreign:raise ValueError('target-only native pass contains another actor or stage')
+            if foreign:
+                from pathlib import Path
+                import json,time
+                if self.debug_directory is not None:
+                    d=Path(self.debug_directory);d.mkdir(parents=True,exist_ok=True)
+                    name='target_only_foreign_'+str(time.time_ns())
+                    (d/(name+'.json')).write_text(json.dumps({'target_semantic_id':sid,'foreign_semantic_ids':sorted(int(x)for x in foreign),'hidden_native_object_ids':[int(a['object'].object_id)for a in hidden]},indent=2)+'\n')
+                    np.savez_compressed(d/(name+'.npz'),actual_target_only_native_object_ID_pixels=data)
+                raise ValueError('target-only native pass contains another actor or stage: target='+str(sid)+', foreign='+str(sorted(int(x)for x in foreign)))
             return np.where(data==sid,sid,0).astype(np.int32)
         finally:
             from avengine.assets.habitat_capture import _apply_root_with_habitat
