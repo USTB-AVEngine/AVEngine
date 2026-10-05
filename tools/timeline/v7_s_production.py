@@ -244,9 +244,16 @@ def main():
     paths=profile.get('training_step_files',[]);baseline=training_sample(paths)
     active_limit=min(cpu_limit,int(profile.get('workers',40)));protected_limit=active_limit;last_control=None;cpu_previous=None;cpu_monitor_time=0.;last_storage=time.monotonic();storage_limit=int(profile.get('owner_quota_bytes',2_000_000_000_000));reserve=int(profile.get('owner_reserve_bytes',80_000_000_000))
     pending=list(enumerate(rows))
+    def dispatch_phase(name,**detail):
+        atomic(root/'dispatch_phase.json',{'phase':name,'utc':time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime()),
+            'pid':os.getpid(),'hostname':socket.gethostname(),'pending_parents':len(pending),
+            'active_parents':len(children),'stopping':stopping,**detail})
     cpu_recorder=CpuRecorder(root,profile,active_limit)
+    dispatch_phase('initial_owner_quota_scan',owner_root=profile['owner_root'])
     try:
-        if owner_bytes(profile['owner_root'])+reserve>=storage_limit:raise ValueError('owner 2 TB quota reserve insufficient')
+        initial_bytes=owner_bytes(profile['owner_root'])
+        dispatch_phase('owner_quota_scan_complete',allocated_bytes=initial_bytes,quota_bytes=storage_limit,reserve_bytes=reserve)
+        if initial_bytes+reserve>=storage_limit:raise ValueError('owner 2 TB quota reserve insufficient')
         while pending or children:
             if (root/'STOP').exists():stop(signal.SIGTERM,None)
             if time.monotonic()-last_storage>900:
@@ -269,6 +276,7 @@ def main():
             cpu_recorder.update(active_limit,len(children))
             while pending and len(children)<active_limit and not stopping:
                 index,row=pending.pop(0);sid=row['scene_id'];seed=work/(sid+'_seed.jsonl')
+                dispatch_phase('resume_native_stage',scene_id=sid)
                 if profile.get('completed_native_stage_source'):
                     from avengine.timeline.v7_native_stage_resume import reuse_native_parent
                     reuse_native_parent(profile['completed_native_stage_source'],work,row)
@@ -276,6 +284,8 @@ def main():
                 logfile=(root/'logs'/(sid+'_'+str(time.time_ns())+'.log')).open('x')
                 cmd=[sys.executable,str(code/'tools/timeline/generate_v7_registered.py'),'--houses',str(inputs/'houses.json'),'--seeds',str(seed),'--runtime-inputs',str(inputs/'runtime.json'),'--assets',str(inputs/'assets.json'),'--source-admission',str(inputs/'source_admission.json'),'--human-admission',str(inputs/'human_admission.json'),'--output',str(work),'--workers','1','--limit','1','--render-backend','cpu_llvmpipe']
                 p=subprocess.Popen(cmd,env=os.environ.copy(),stdout=logfile,stderr=subprocess.STDOUT,start_new_session=True,cwd=code,**credentials);children[sid]=(p,logfile,row)
+                cpu_recorder.update(active_limit,len(children))
+                dispatch_phase('parent_dispatched',scene_id=sid,child_pid=p.pid)
             for sid,(p,logfile,row) in list(children.items()):
                 if p.poll() is None:continue
                 logfile.close();del children[sid];parent=work/'parents'/sid;seal=parent/'alpha_seal_completed.json'
@@ -293,6 +303,7 @@ def main():
                 else:failures.append({'scene_id':sid,'returncode':p.returncode,'failure_receipts':[str(f) for f in parent.glob('failed_*.json')]})
             atomic(root/'PROGRESS.json',{'status':'stopped' if stopping else 'running','formal_parents':len(done),'formal_windows':sum(r['alpha_formal_windows'] for r in done),'formal_questions':sum(r['alpha_formal_logical_questions'] for r in done),'active_parents':list(children),'remaining_parents':len(pending),'failures':failures,'workers_limit':active_limit,'elapsed_seconds':time.monotonic()-started,'pid':os.getpid(),'hostname':socket.gethostname(),'GPU_started':False})
             if stopping and not children:break
+            dispatch_phase('draining' if stopping else 'dispatch_loop')
             time.sleep(5)
         if stopping or failures:raise RuntimeError('production incomplete; failures retained; rerun resumes immutable stages')
         from avengine.timeline.v7_alpha_delivery import export_alpha
