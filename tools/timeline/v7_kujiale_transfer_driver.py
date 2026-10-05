@@ -65,18 +65,25 @@ for row in m['files']:
 print(json.dumps({'status':'verified','release_directory':str(p),'file_count':len(checks),'bytes':sum(r['bytes'] for r in m['files'])}))
 PY
 '''.replace('RELEASE',repr(release))
-   verified=sshcci_retry(script,'CCI SHA/readback; source retained')
+   try:verified=sshcci_retry(script,'CCI SHA/readback; source retained')
+   except RuntimeError as error:
+    print('CCI_SHA_PENDING_RETRY_NEXT_QUEUE_POLL',name,str(error),flush=True)
+    continue
    proof=json.loads(verified.stdout);proof.update(batch_id=name,wall_seconds=time.time()-started)
    receipt.write_text(json.dumps(proof,ensure_ascii=False,indent=2)+'\n')
    # The producer deletes its own rendered intermediates/local delivery only
    # after this receipt reaches its own run directory.
-   publish(receipt,name)
+   try:publish(receipt,name)
+   except RuntimeError as error:
+    print('CCI_RECEIPT_PENDING_RETRY_NEXT_QUEUE_POLL',name,str(error),flush=True)
+    continue
    print(json.dumps(proof),flush=True)
   # Rebuild only our additive index; the existing 500-parent waiter is read-only.
   receipts={}
   for item in queue['batches']:
    receipt=LOCAL/('round14_CCI_'+item['batch_id']+'_verified.json')
    if receipt.is_file():receipts[item['batch_id']]=json.loads(receipt.read_text())
+  index_ok=True
   if receipts:
    aggregate=(LOCAL/'round14_cci_aggregate.py').read_text()
    import base64
@@ -84,8 +91,11 @@ PY
    q=base64.b64encode(json.dumps(queue).encode()).decode()
    r=base64.b64encode(json.dumps(receipts).encode()).decode()
    script="set -euo pipefail\npython3 - <<'PY'\nimport base64,json\nnamespace={'__name__':'aggregate_readback'}\nexec(base64.b64decode("+repr(payload)+").decode(),namespace)\nvalue=namespace['main'](json.loads(base64.b64decode("+repr(q)+")),json.loads(base64.b64decode("+repr(r)+")),complete="+repr(bool(queue.get('complete')))+")\nprint(json.dumps({'status':value['status'],'formal_windows':value['formal_windows'],'formal_logical_questions':value['formal_logical_questions'],'independent_parent_scenes':value['independent_parent_scenes']}))\nPY\n"
-   summary=sshcci_retry(script,'own additive CCI index')
-   (LOCAL/'round14_CCI_aggregate_status.json').write_text(summary.stdout)
-  if queue.get('complete') or queue.get('dispatch_finished'):return
+   try:summary=sshcci_retry(script,'own additive CCI index')
+   except RuntimeError as error:
+    index_ok=False
+    print('CCI_INDEX_PENDING_RETRY_NEXT_QUEUE_POLL',str(error),flush=True)
+   else:(LOCAL/'round14_CCI_aggregate_status.json').write_text(summary.stdout)
+  if (queue.get('complete') or queue.get('dispatch_finished')) and index_ok:return
   time.sleep(30)
 if __name__=='__main__':main()
