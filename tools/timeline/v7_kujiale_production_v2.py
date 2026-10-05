@@ -1,7 +1,7 @@
 """Resume fixed v7 UE requests without padding rejected scenes or changing seeds."""
 from pathlib import Path
 from collections import Counter
-import argparse,json,os,subprocess,time,signal,hashlib,shutil,traceback
+import argparse,json,os,subprocess,time,signal,hashlib,shutil,traceback,re
 import psutil
 ROOT=Path('/data/jzy/tmp/claude_hardbank_20260923/v7_kujiale_20261003');RUN=ROOT/'ue_round14';REPO=Path('/data/jzy/code/AVEngine-codex-v7-kujiale-round14-20261005')
 GENERATOR='33b5b12df1a45ca265bf0c4fbe9b26b664577a7c'
@@ -51,6 +51,10 @@ def retain_witness_then_remove(parent,label):
 def scientific_rejection(result):
  if result.get('error_type')!='ValueError':return False
  message=result.get('reason','')
+ # Frozen five-item binding quota: media SHA has already passed before
+ # select_counterfactual_group emits this exact scientific insufficiency.
+ if re.fullmatch(r'only [0-4] measured binding questions; need 5',message) and 'select_counterfactual_group' in result.get('traceback',''):
+  return True
  return any(word in message for word in ['legal candidates','counterfactual','qualified placement','registered candidate off navigation','native appearance reviews','static contact','body envelopes overlap','environmental emitter direction not admitted','native material or mask restoration qualification','original native highlight/contact','complete utterance fitting','admitted non-speech mouth-source deficit'])
 
 def main():
