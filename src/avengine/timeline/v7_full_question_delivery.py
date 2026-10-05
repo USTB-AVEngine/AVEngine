@@ -42,7 +42,7 @@ def collect_native_pool(scene,start,window_id,visual,media,evidence,quota_index,
         excluded={q['question_id'] for q in public if q.get('protocol_panel')=='STARSS23_v0.2' and q['qa_id']=='QA-23'}
         public=[q for q in public if q['question_id'] not in excluded];private=[g for g in private if g['question_id'] not in excluded]
         audit['out_of_domain_activity_count_exclusions']=sorted(excluded)
-    audit['candidate_budget']={'items_per_family':12,'QA14_candidate_budget':32,'QA14_query_partition_s':2,'modality_and_binding_gates_unchanged':True,'duplicate_stems_still_count_once':True}
+    audit['candidate_budget']={'items_per_family':12,'QA14_additional_query_runs':5,'QA14_candidates_per_query_run':12,'QA14_query_partition_s':2,'modality_and_binding_gates_unchanged':True,'duplicate_stems_still_count_once':True}
     audit['native_bundle']=raw
     audit['native_listener_binding']='all measured native camera frames, no static pose shadow'
     return public,private,audit
