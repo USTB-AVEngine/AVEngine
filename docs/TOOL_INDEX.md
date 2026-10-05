@@ -634,3 +634,6 @@
 | `tools/motion/build_self_retarget_profile.py` | Build a hash-bound identity-skeleton retarget probe profile |
 | `tools/motion/derive_contacts.py` | Derive hash-bound M2 four-paw contact phases from explicit inputs |
 | `tools/motion/retarget_blender.py` | Retarget audited GLB motion onto an audited target GLB in Blender |
+
+
+CPU runtime preflight: `tools/timeline/v7_s_production.py --mode runtime_probe --generator-profile PROFILE --output OUTPUT` reads a 32x32 native software RGB frame in the task-owned private Mesa runtime; launch Python with the frozen profile cpu_env so the software EGL selector is preloaded. No house or GPU access.

@@ -17,6 +17,22 @@ def atomic(path,value):
     os.replace(tmp,path)
 
 
+
+def private_mesa_runtime(root):
+    # Mesa otherwise falls back to a shared /tmp/xdg-runtime-mesa-UID. P19
+    # containers can inherit a directory they cannot use. Own this temporary
+    # directory under the task root; never chmod or remove a shared directory.
+    root=Path(root).resolve()
+    runtime=root/'tmp'/('mesa_runtime_'+str(os.getpid())+'_'+uuid.uuid4().hex)
+    runtime.mkdir(parents=True,mode=0o700,exist_ok=False)
+    info=runtime.stat()
+    if info.st_uid!=os.geteuid() or info.st_mode & 0o777 != 0o700:
+        raise ValueError('private Mesa runtime ownership or mode mismatch')
+    os.environ['XDG_RUNTIME_DIR']=str(runtime)
+    atomic(runtime/'runtime_owner.json',{'pid':os.getpid(),'hostname':socket.gethostname(),'uid':os.geteuid(),'mode':'0700','shared_tmp_touched':False})
+    return runtime
+
+
 def read_tail(path,limit=512000):
     with Path(path).open('rb') as f:
         f.seek(max(0,Path(path).stat().st_size-limit));data=f.read().decode(errors='replace')
@@ -56,21 +72,50 @@ def owner_bytes(root):
     return int(output.split()[0])
 
 
+
+def native_cpu_probe(profile,output):
+    selector=profile['cpu_env'].get('LD_PRELOAD','')
+    if not selector or str(Path(selector).resolve()) not in Path('/proc/self/maps').read_text():
+        raise ValueError('CPU EGL selector was not preloaded at process start; launch with frozen profile cpu_env before Python')
+    from avengine.acoustics.runtime import load_habitat_runtime
+    inputs=json.loads((Path(profile['inputs'])/'runtime.json').read_text())
+    hs,_runtime=load_habitat_runtime(runtime_mode='current-installed',**inputs['runtime'])
+    cfg=hs.SimulatorConfiguration();cfg.scene_id='NONE';cfg.gpu_device_id=-1;cfg.enable_physics=False
+    camera=hs.CameraSensorSpec();camera.uuid='rgb';camera.sensor_type=hs.SensorType.COLOR;camera.resolution=[32,32]
+    agent=hs.agent.AgentConfiguration();agent.sensor_specifications=[camera]
+    sim=hs.Simulator(hs.Configuration(cfg,[agent]))
+    try:
+        rgb=sim.get_sensor_observations()['rgb'];maps=Path('/proc/self/maps').read_text()
+        software=any(v in maps for v in ('swrast_dri.so','libgallium'))
+        if list(rgb.shape[:2])!=[32,32] or not software or 'libEGL_nvidia' in maps or 'libnvidia-gl' in maps:
+            raise ValueError('native CPU context probe did not read an exclusively software RGB frame')
+    finally:sim.close()
+    result={'status':'pass','actual_RGB_shape':list(rgb.shape),'software_driver_mapped':software,
+        'XDG_RUNTIME_DIR':os.environ['XDG_RUNTIME_DIR'],'hostname':socket.gethostname(),
+        'scene_id':'NONE','house_access':0,'GPU_started':False}
+    atomic(Path(output)/'native_cpu_readback.json',result)
+    print(json.dumps(result),flush=True)
+
+
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--generator-profile',required=True,type=Path)
     parser.add_argument('--output',required=True,type=Path)
-    parser.add_argument('--mode',choices=['production','smoke','validate'],default='production')
+    parser.add_argument('--mode',choices=['production','smoke','validate','runtime_probe'],default='production')
     args=parser.parse_args();profile=json.loads(args.generator_profile.read_text());root=Path(profile['root']);code=Path(profile['code']);args.output.mkdir(parents=True,exist_ok=True)
     # P19 may lease a GPU to its rank; this entry clears it before native imports.
     os.environ.update(profile['cpu_env']);os.environ['CUDA_VISIBLE_DEVICES']=''
+    private_mesa_runtime(root)
     for folder in reversed(profile['cpu_env']['PYTHONPATH'].split(os.pathsep)):
         if folder not in sys.path:sys.path.insert(0,folder)
     if os.environ.get('LIBGL_ALWAYS_SOFTWARE')!='1' or os.environ.get('LP_NUM_THREADS')!='1':raise ValueError('CPU software-rendering contract missing')
     cpus=sorted(os.sched_getaffinity(0));os.sched_setaffinity(0,set(cpus[:32]))
+    if args.mode=='runtime_probe':native_cpu_probe(profile,args.output);return
     if args.mode=='production':
         match=re.fullmatch(r'eval_job_a[0-9]{2}_(job_[A-Za-z0-9_.-]+)',args.output.name)
-        if not match or not args.output.resolve().is_relative_to((root/'p19_run').resolve()):raise ValueError('production output lacks the P19 eval ABI')
+        run_root=root/profile.get('p19_run_directory','p19_run')
+        if run_root.resolve().parent!=root.resolve():raise ValueError('P19 run directory must stay directly within this task root')
+        if not match or not args.output.resolve().is_relative_to(run_root.resolve()):raise ValueError('production output lacks the P19 eval ABI')
         os.environ['AVENGINE_V7_P19_OWNER_JOB']=match.group(1)
     if args.mode=='production':
         job=os.environ.get('AVENGINE_V7_P19_OWNER_JOB','')
@@ -94,9 +139,15 @@ def main():
         (args.output/'predictions.jsonl').write_text(''.join(json.dumps({'scene_id':r['scene_id'],'status':'formal_alpha_admitted'})+'\n' for r in rows))
         atomic(args.output/'run.json',{'status':'complete','count':len(rows),'kind':'CPU generation receipts, not model predictions'})
         return
-    work=root/('production' if args.mode=='production' else 'cci_smoke');work.mkdir(exist_ok=True)
+    work=root/(profile.get('production_work_directory','production') if args.mode=='production' else 'cci_smoke')
+    if work.resolve().parent!=root.resolve():raise ValueError('parent work directory must stay directly within this task root')
+    work.mkdir(exist_ok=True)
     # AFS atomic mkdir gives one writer; restart release is through explicit host
     # identity verification rather than timeouts that could steal a live job.
+    if (root/'STOP').exists():raise RuntimeError('this task STOP is present')
+    subprocess.run([sys.executable,str(code/'tools/timeline/v7_s_production.py'),
+        '--generator-profile',str(args.generator_profile),'--mode','runtime_probe',
+        '--output',str(args.output/'cpu_runtime_probe')],check=True,env=os.environ.copy(),cwd=code)
     lock=root/('coordinator.lock' if args.mode=='production' else 'smoke.lock')
     try:lock.mkdir()
     except FileExistsError:
