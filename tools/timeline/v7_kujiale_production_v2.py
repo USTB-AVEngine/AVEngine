@@ -54,7 +54,7 @@ def scientific_rejection(result):
  return any(word in message for word in ['legal candidates','counterfactual','qualified placement','registered candidate off navigation','native appearance reviews','static contact','body envelopes overlap','environmental emitter direction not admitted','native material or mask restoration qualification','original native highlight/contact','complete utterance fitting','admitted non-speech mouth-source deficit'])
 
 def main():
- parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--max-workers',type=int,default=4);args=parser.parse_args()
+ parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--max-workers',type=int,default=4);parser.add_argument('--seeds',type=Path,default=RUN/'inputs/kujiale_v7_S_train.jsonl');args=parser.parse_args()
  if not 1<=args.max_workers<=4 or os.environ.get('CUDA_VISIBLE_DEVICES')!='2' or os.nice(0)<10 or len(os.sched_getaffinity(0))>16:raise ValueError('GPU2 / nice10 / CPU16 contract missing')
  from avengine.timeline.v7_registered_generation import PRODUCER_QA_REVISION
  from avengine.timeline.v7_storage_budget import configure_kujiale_production
@@ -62,7 +62,9 @@ def main():
  from avengine.timeline.v7_s_batch_checks import check_critical_delivery,open_delivered_media
  canary=json.loads((RUN/'evidence/canary_result.json').read_text())
  if canary.get('status')!='pass' or canary.get('producer_qa_revision')!=PRODUCER_QA_REVISION:raise RuntimeError('corrected one-house canary required')
- rows=[json.loads(s) for s in (RUN/'inputs/kujiale_v7_S_train.jsonl').read_text().splitlines() if s.strip()];byid={r['scene_id']:r for r in rows};counts=Counter((r['house'],r['room_id']) for r in rows)
+ input_path=args.seeds.resolve();
+ if not input_path.is_relative_to((RUN/'inputs').resolve()) or not input_path.is_file():raise ValueError('only own frozen input rows are permitted')
+ rows=[json.loads(s) for s in input_path.read_text().splitlines() if s.strip()];byid={r['scene_id']:r for r in rows};counts=Counter((r['house'],r['room_id']) for r in rows)
  if len(rows)!=132 or len(counts)!=33 or set(counts.values())!={4} or any(r['split']!='train' for r in rows):raise ValueError('fixed 33 x4 train-only requests differ')
  # A new private lock keeps the old stopped coordinator's identity intact.
  lock=RUN/'production_coordinator_v2.lock';lock.mkdir(exist_ok=True)
@@ -87,7 +89,7 @@ def main():
    if failed['status']=='formal_alpha_admitted':continue
    if failed['status']!='failed_original_gate' or failed.get('error_type')!='ValueError':raise ValueError('sealed media requalification interface error remains')
    state['rejections'][failed['scene_id']]=failed;state['attempted_parent_ids'].append(failed['scene_id'])
- state.update(status='running',pid=os.getpid(),started_epoch=started,native_backend_commit=native_commit,error=None,active_workers=0)
+ state.update(status='running',pid=os.getpid(),started_epoch=started,native_backend_commit=native_commit,input_rows_path=str(input_path),input_rows_sha256=sha(input_path),error=None,active_workers=0)
  state['generation_sessions'].append({'started_epoch':started,'pid':os.getpid(),'native_backend_commit':native_commit})
  atomic(RUN/'PRODUCTION_STATUS.json',state)
  def stop(number,frame):
@@ -117,11 +119,17 @@ def main():
    for file in ['summary.json','DELIVERY_MANIFEST.json','parents.csv','windows.csv','rejections.json','TRANSFER_SHA256.json']:shutil.copyfile(release/file,evidence/file)
    progress(f"{name}原门禁封存{len(seedrows)}父场景、{summary['formal_windows']}窗口、{summary['formal_logical_questions']}题；等待CCI SHA。")
   receipt=RUN/'transfer_receipts'/(name+'.json');deadline=time.time()+7200
-  while not receipt.is_file():
+  # scp creates the destination before its JSON payload is complete. A
+  # present but empty/partial receipt is not a transfer failure.
+  while True:
    safe()
-   if time.time()>deadline:raise RuntimeError('CCI transfer timeout; own copies retained')
-   time.sleep(5)
-  proof=json.loads(receipt.read_text());files=json.loads((evidence/'TRANSFER_SHA256.json').read_text())['files']
+   if receipt.is_file():
+    try:proof=json.loads(receipt.read_text())
+    except json.JSONDecodeError:pass
+    else:break
+   if time.time()>deadline:raise RuntimeError('CCI transfer receipt incomplete or timed out; own copies retained')
+   time.sleep(1)
+  files=json.loads((evidence/'TRANSFER_SHA256.json').read_text())['files']
   if proof['status']!='verified' or proof['batch_id']!=name or proof['file_count']!=len(files) or proof['bytes']!=sum(x['bytes'] for x in files):raise ValueError('CCI verification differs')
   atomic(evidence/'CCI_verified.json',proof)
   if (release/'train.jsonl').is_file():
