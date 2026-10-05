@@ -39,7 +39,10 @@ def main():
   queue=json.loads(tmp.read_text())
   for item in queue['batches']:
    name=item['batch_id'];receipt=LOCAL/('round14_CCI_'+name+'_verified.json')
-   if receipt.is_file():publish(receipt,name);continue
+   if receipt.is_file():
+    try:publish(receipt,name)
+    except RuntimeError as error:print('CCI_RECEIPT_PENDING_RETRY_NEXT_QUEUE_POLL',name,str(error),flush=True)
+    continue
    if not name.replace('_','').isalnum() or not item['list_path'].startswith(REMOTE+'/'):raise ValueError('transfer entry outside own namespace')
    # This helper uses a bounded, forwarded SSH agent and the established
    # CCI-side lab48 SSH config; no global auth/config is changed.
@@ -48,7 +51,9 @@ def main():
    started=time.time()
    with logfile.open('a') as f:
     result=subprocess.run(command,stdout=f,stderr=subprocess.STDOUT)
-   if result.returncode:raise RuntimeError('CCI pull failed, source copies retained: '+name)
+   if result.returncode:
+    print('CCI_PULL_PENDING_RETRY_NEXT_QUEUE_POLL; source copies retained',name,'returncode',result.returncode,flush=True)
+    continue
    release=DEST+'/mirror'+item['release_path']
    script='''set -euo pipefail
 python3 - <<'PY'
