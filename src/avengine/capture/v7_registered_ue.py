@@ -34,6 +34,9 @@ class NativeRegisteredUEVideo(NativeUEAlphaVideo):
         self.width,self.height,self.cv2=width,height,cv2
         self.source_material_cache_directory=source_material_cache_directory
         self.ue=bind_histogram_profile(self.house['input']['ue_config'],scene_seed=scene['scene_id'])
+        # The camera helper imports the native client; resolve the task-owned
+        # extension before that import can cache an unavailable client.
+        sys.path.insert(0,str(Path(self.ue['spear_ext_dir']).resolve()))
         self.ue['allow_invisible_source_material_samples']=True
         self.ue['source_material_inventory']=str(Path(inputs['native_registered_content_receipt']).parent.parent/'inputs/assets.json')
         self.ue['source_material_inventory']=str(Path(inputs['native_registered_content_receipt']).parent.parent/'inputs/assets.json')

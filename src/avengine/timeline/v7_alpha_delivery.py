@@ -124,7 +124,7 @@ def export_alpha(seeds,seal_roots,output,expected_parents=None,sealed_parent_map
             native_checks.append({'scene_id':row['scene_id'],'visual_variant':v,'frame_count':visual['frame_count'],
                 'alignment':visual['alignment'],'standing_bodies':len(visual['standing_admission']),
                 'known_bad_contacts_detected':all(r['known_bad_detected'] for r in visual['standing_admission']),
-                'contact_tolerance_m':.015,'material_status':visual['source_material_checks']['status']})
+                'contact_tolerance_m':visual.get('native_contact_tolerance_m',.02 if 'UE' in str(visual.get('backend','')) else .015),'material_status':visual['source_material_checks']['status']})
         for factor in sorted({m.split('_')[1] for m in row['members']}):
             audio=load(seal/'private/native'/(factor+'_audio_evidence.json'))
             directions.extend(audio['directions']);
@@ -228,8 +228,8 @@ def export_alpha(seeds,seal_roots,output,expected_parents=None,sealed_parent_map
         'TTS_license_status':'actual_admitted_CosyVoice2_source_chain_and_native_episode' if tts_event_count else 'no_TTS_emissions_in_this_release','E_S_predictions':'not_emitted; deployment predictor required by downstream training',
         'native_visual_checks':native_checks,'source_material_checks':{'observations':len(material_rows),'all_status_pass':all(r['status']=='pass' for r in material_rows),
             'max_highlight_ratio':max(r['highlight_ratio'] for r in material_rows if r.get('highlight_ratio') is not None),
-            'max_chromaticity_error_p50':max(r['texture_chromaticity_error_p50'] for r in material_rows if r.get('texture_chromaticity_error_p50') is not None),
-            'max_chromaticity_error_p95':max(r['texture_chromaticity_error_p95'] for r in material_rows if r.get('texture_chromaticity_error_p95') is not None)},
+            'max_chromaticity_error_p50':max((r['texture_chromaticity_error_p50'] for r in material_rows if r.get('texture_chromaticity_error_p50') is not None),default=None),
+            'max_chromaticity_error_p95':max((r['texture_chromaticity_error_p95'] for r in material_rows if r.get('texture_chromaticity_error_p95') is not None),default=None)},
         'FOA_direction_checks':directions,'chosen_seals':chosen,'packaged_sources':len(sources),'packaged_license_texts':license_files,
         'claim_boundary':'only actual qualified standing recorded/TTS native windows; no STARSS evaluation or full-v7 quota/family completion claim'}
     write_json(target/'summary.json',summary)
