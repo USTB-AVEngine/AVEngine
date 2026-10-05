@@ -179,7 +179,8 @@ def compile_seated(video,entry,scene,house,inputs,directory,request):
     if not accepted:
         write_json(directory/'seat_rejected.json',{'status':'blocked','failures':failures,'existing_seat_survey':survey});raise ValueError('no existing or fallback chair passed native seated episode gates')
     if chair_obj is not None:
-        item={'object':chair_obj,'endpoint_id':'silent_seat_'+entry['endpoint_id'],
+        from avengine.capture.v7_registered_native import RigidStandingInstance
+        item={'object':RigidStandingInstance(chair_obj),'native_actor_kind':'registered_rigid','endpoint_id':'silent_seat_'+entry['endpoint_id'],
             'semantic_id':int(chair_obj.semantic_id),'declaration':{'asset_id':seat['chair']['asset_id']},'source_material':chair_material}
         video.seat_material_entries=getattr(video,'seat_material_entries',[])+[item]
         video.receipt['source_materials'].append(chair_material)

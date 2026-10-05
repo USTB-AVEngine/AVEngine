@@ -13,7 +13,7 @@ from avengine.capture.v7_alpha_native import NativeAlphaVideo,forward_at,stage_s
 from avengine.timeline.continuous_pilot import write_json
 from avengine.timeline.continuous_scene import camera_basis
 
-REGISTERED_VISUAL_REVISION='registered-contact-movement-native-emitter-v6'
+REGISTERED_VISUAL_REVISION='registered-contact-movement-native-emitter-v7-exact-target-mask'
 
 class RigidStandingInstance:
     """Native rigid object with an explicitly empty articulated state."""

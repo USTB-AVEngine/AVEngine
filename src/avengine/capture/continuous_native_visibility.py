@@ -8,7 +8,23 @@ from __future__ import annotations
 import numpy as np
 from avengine.qa.pixel_visibility import compile_pixel_visibility_truth
 
-VISIBILITY_REVISION='native_same_context_objects_only_v2'
+VISIBILITY_REVISION='native_same_context_objects_only_v3_geometry_and_furniture'
+
+
+def native_mask_pose(obj,camera,entry):
+    # Posed rigid GLBs have no joint DOFs. Their actual geometry identity must
+    # accompany the root transform; a planted root can still change limb pose.
+    geometry=entry.get('motion_pose_path',entry.get('prepared_glb',''))
+    if entry.get('motion_episode') and not geometry:
+        raise ValueError('moving target mask requires actual posed GLB identity')
+    return (np.asarray(obj.root_scene_node.absolute_transformation()).copy(),
+            np.asarray(obj.joint_positions).copy(),np.asarray(camera.position).copy(),
+            np.asarray([camera.rotation.w,*camera.rotation.imag]).copy(),
+            np.asarray([str(geometry)],dtype=str))
+
+
+def same_native_mask_pose(a,b):
+    return len(a)==len(b) and all(np.array_equal(x,y)for x,y in zip(a,b,strict=True))
 
 
 class NativeVisibilityStream:
@@ -20,7 +36,7 @@ class NativeVisibilityStream:
         self.occluder_frames=[]
 
     def _target_mask(self,target):
-        p=self.primary;hidden=[a for a in p.actors if a is not target]
+        p=self.primary;hidden=[a for a in [*p.actors,*getattr(p,'seat_material_entries',[])] if a is not target]
         previous=[{'root':np.asarray(a['object'].root_scene_node.absolute_transformation()).copy(),
                    'joints':np.asarray(a['object'].joint_positions).copy(),
                    'links':{k:np.asarray(a['object'].get_link_scene_node(k).absolute_transformation()).copy() for k in a['object'].get_link_ids()}}
@@ -68,10 +84,9 @@ class NativeVisibilityStream:
         camera=p.sim.get_agent(0).get_state()
         for entry in p.actors:
             obj=entry['object'];actor=actor_ids[entry['endpoint_id']];sid=int(entry['semantic_id'])
-            pose=(np.asarray(obj.root_scene_node.absolute_transformation()).copy(),np.asarray(obj.joint_positions).copy(),
-                  np.asarray(camera.position).copy(),np.asarray([camera.rotation.w,*camera.rotation.imag]).copy())
+            pose=native_mask_pose(obj,camera,entry)
             old=self.last.get(actor)
-            if old is not None and all(np.array_equal(a,b) for a,b in zip(pose,old[0],strict=True)):
+            if old is not None and same_native_mask_pose(pose,old[0]):
                 mask=old[1];self.reused_target_masks+=1
             else:
                 mask=self._target_mask(entry);self.last[actor]=(pose,mask);self.rendered_target_masks+=1
