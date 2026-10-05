@@ -21,7 +21,7 @@ def moving_stem(spec,scene,inputs,cache,dry,attempt,endpoint):
     for row in trajectory[1:]:
         sample=min(n-1,round(row['time_s']*sample_rate));point=np.asarray(row['position_m'])
         if sample<=key_samples[-1]:continue
-        if row['time_s']-previous>=.25-1e-12 or np.linalg.norm(point-last)>=.5:
+        if row['time_s']-previous>=.2-1e-12 or np.linalg.norm(point-last)>=.5:
             key_samples.append(sample);last=point;previous=row['time_s']
     if key_samples[-1]!=n-1:key_samples.append(n-1)
     filters={};directions=[];checks=[];refinements=[]
@@ -66,7 +66,7 @@ def moving_stem(spec,scene,inputs,cache,dry,attempt,endpoint):
     bad_qualification=qualify_calibrated([bad],budget)
     if bad_qualification['status']=='pass':raise ValueError('wrong-pose control was not distinguishable; motion calibration not admitted')
     wet=correlated_convolve(dry,[native(k)for k in keys],keys,sample_rate=sample_rate,block_samples=160)
-    receipt={'status':'pass','crossfade_revision':CROSSFADE_REVISION,'native_step_policy':'.25s or .5m; failing intervals bisected, minimum .1s',
+    receipt={'status':'pass','crossfade_revision':CROSSFADE_REVISION,'native_step_policy':'.2s or .5m; failing intervals bisected, minimum .1s',
         'key_samples':keys,'RIR_count':len(keys),'independent_midpoints':len(final_checks),
         'native_unique_pose_count_including_midpoints':len(filters),'refinements':refinements,
         'midpoint_checks':final_checks,'energy_qualification':qualification,

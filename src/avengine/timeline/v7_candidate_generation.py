@@ -222,6 +222,11 @@ def authority_physical_query_key(item,gold,window_id,fallback):
     # export comparison_key ends with an enumeration index, which changes
     # when unrelated candidates are deferred. The authority ID records the
     # actual frame/event/actor query. Remove only this member's window ID.
+    # A QA-28 query identifies spoken meaning, independently of the pictured
+    # actor identity. Its authority ID contains a member-local semantic ID and
+    # target actor, neither of which is the public audio query identity. Keep
+    # those original IDs intact in gold; compare the identical public query.
+    if item['qa_id']=='QA-28':return 'public_semantic_query/'+fallback
     original=gold.get('comparison_key',fallback)
     authority=gold.get('authority_question_id','')
     separator='__'+str(window_id)+'__'

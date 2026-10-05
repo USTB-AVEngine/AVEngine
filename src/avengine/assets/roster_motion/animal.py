@@ -37,7 +37,7 @@ from avengine.assets.roster_motion.episode import (PhysicalFloor,TriangleClearan
 from avengine.assets.roster_motion.pose import animation_times,rigid_glb
 from avengine.assets.roster_motion.contact import FootPlant,yaw_matrix
 from avengine.timeline.continuous_pilot import write_json
-import math
+import math,time
 
 def compile_continuous_dog_walking(video,entry,scene,house,inputs,directory,request):
     from shapely.geometry import shape,LineString
@@ -53,6 +53,9 @@ def compile_continuous_dog_walking(video,entry,scene,house,inputs,directory,requ
     clock=float(ts[0])+times*speed/.3
     static_bounds=[np.asarray(a['original_mesh'].vertices)@a['applied_root_input'][:3,:3].T+a['applied_root_input'][:3,3] for a in video.actors if a is not entry]
     accepted=None;failures=[];prefilter={"polygon_rejected":0,"bystander_rejected":0,"full_gate_attempted":0}
+    search_start=time.process_time();max_attempts=8;cpu_budget_s=1800.
+    def search_progress(**extra):
+        write_json(directory/'motion_search_progress.json',{'status':'searching_not_admitted','cpu_seconds':time.process_time()-search_start,'prefilter':dict(prefilter),'failures':list(failures),'max_native_route_attempts':max_attempts,'search_CPU_budget_s':cpu_budget_s,'thresholds_changed':False,**extra})
     poly=shape(scene['production_scenario']['motion_floor_polygon']).buffer(-.02)
     x0,z0,x1,z1=poly.bounds
     from shapely.geometry import Point
@@ -66,7 +69,11 @@ def compile_continuous_dog_walking(video,entry,scene,house,inputs,directory,requ
             if not poly.covers(LineString([positions[0][[0,2]],positions[-1][[0,2]]])):
                 prefilter['polygon_rejected']+=1;continue
             if any(np.any((positions[:,0]>v[:,0].min()-.05)&(positions[:,0]<v[:,0].max()+.05)&(positions[:,2]>v[:,2].min()-.05)&(positions[:,2]<v[:,2].max()+.05))for v in static_bounds):continue
+            if prefilter['full_gate_attempted']>=max_attempts or time.process_time()-search_start>cpu_budget_s:
+                write_json(directory/'motion_rejected.json',{'status':'blocked','reason':'bounded route search exhausted; no physical admission','failures':failures,'lineage':lineage,'prefilter':prefilter,'thresholds_changed':False})
+                raise ValueError('dog native route search budget exhausted without admission')
             prefilter['full_gate_attempted']+=1
+            search_progress(start_m=p0.tolist(),yaw_rad=yaw,frame_index=None)
             try:
                 snaps=np.array([video.pathfinder.snap_point(p) for p in positions]);nav=float(np.linalg.norm((snaps-positions)[:,[0,2]],axis=1).max())
                 if not np.isfinite(nav) or nav>.002:raise ValueError('motion actual native navigation horizontal drift exceeds 2mm')
@@ -81,6 +88,8 @@ def compile_continuous_dog_walking(video,entry,scene,house,inputs,directory,requ
                 for values in solver.active.values():values[~moving]=True
                 clearance=TriangleClearance(video,house,floor_y,entry);geometry=[];frames=[];minimum=math.inf
                 for i,t in enumerate(times):
+                    if i%90==0:search_progress(start_m=p0.tolist(),yaw_rad=yaw,frame_index=i)
+                    if time.process_time()-search_start>cpu_budget_s:raise ValueError('dog route CPU budget exhausted; no admission')
                     _,parts,ev=solver.frame(i);v,f=triangle_mesh(d,b,parts);dist,world=clearance.check(v,f,positions[i],yaw);minimum=min(minimum,dist)
                     feet=list(ev['feet'].values());contacts=[x for x in feet if x['in_contact']]
                     if not contacts:raise ValueError('dog gait has no planted paw at an actual 30Hz sample')
