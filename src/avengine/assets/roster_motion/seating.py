@@ -49,7 +49,8 @@ def compile_seated(video,entry,scene,house,inputs,directory,request):
     roster=json.loads(Path(inputs['v7_asset_roster']).read_text());root=Path(roster['artifact_root'])
     survey=existing_native_seats(video,scene,directory)
     original_navmesh=directory/'original_private_navmesh.navmesh'
-    if not video.sim.pathfinder.save_nav_mesh(str(original_navmesh)):raise ValueError('cannot snapshot private seating navigation')
+    video.sim.pathfinder.save_nav_mesh(str(original_navmesh))
+    if not original_navmesh.is_file() or original_navmesh.stat().st_size==0:raise ValueError('cannot snapshot private seating navigation')
     major=entry['declaration']['body_identity_id'];reference=json.loads((root/'round2/assets/humans'/major/'seated_contact/hm3d/seated.json').read_text())
     compat=next(r for r in json.loads((root/'round3/evidence/chair_body_compatibility.json').read_text())if r['asset_id']==major)
     styles={r['chair_id']:r for r in compat['styles']if r['status']=='pass'}
@@ -101,9 +102,7 @@ def compile_seated(video,entry,scene,house,inputs,directory,request):
                     derived,chair_material=prepare_source_glb(chair_path,asset_id=chair['asset_id'],entity_class='furniture',output_directory=video.source_material_cache_directory)
                     from avengine.capture.v7_registered_native import loaded_mesh
                     cm=loaded_mesh(chair_path);cv=np.asarray(cm.vertices)@rot.T+cr
-                    import fcl
-                    cobj=fcl_model(cv,cm.faces);res=fcl.CollisionResult()
-                    if fcl.collide(cobj,clearance.stage,fcl.CollisionRequest(),res)or fcl.distance(cobj,clearance.stage,fcl.DistanceRequest(),fcl.DistanceResult())<=.02:raise ValueError('new chair intersects actual nonfloor stage or lacks 2cm clearance')
+                    clearance.check_world(cv,cm.faces)
                     for p in chair['support_points_m']:
                         wp=cr+rot@np.asarray(p);legs.append(float(wp[1]-floor(wp)))
                     if any(abs(x)>.012 for x in legs):raise ValueError('new chair support does not meet actual 12mm native floor gate')
@@ -141,7 +140,7 @@ def compile_seated(video,entry,scene,house,inputs,directory,request):
                     'known_bad_10cm_floor_detected':min(e['floor_delta_m']-.1 for e in ev['feet'].values())<-.008,
                     'seat_source':seat['kind'],'seat_record':seat,'chair_glb':str(chair_path)if chair_path else None,
                     'chair_scale_y':scale,'native_support_deltas_m':legs,'seat_contact_gap_m':gap,
-                    'maximum_navmesh_horizontal_error_m':ne,'minimum_exact_triangle_nonfloor_clearance_m':minimum,
+                    'maximum_navmesh_horizontal_error_m':ne,'minimum_certified_triangle_nonfloor_clearance_m':minimum,
                     'existing_seat_survey':survey,'thresholds_changed':False,'chair_produces_sound':False,
                     'anatomical_buttock_surface':'not independently segmented; lowest original clothing triangles in seat footprint as upstream'}
                 accepted=record;break

@@ -43,7 +43,7 @@ def triangle_mesh(d,b,parts):
 
 def fcl_model(vertices,faces):
     import fcl
-    model=fcl.BVHModel();model.beginModel(len(vertices),len(faces))
+    model=fcl.BVHModel();model.beginModel(len(faces),len(vertices))
     model.addSubModel(np.asarray(vertices,float),np.asarray(faces,np.int32));model.endModel()
     return fcl.CollisionObject(model)
 
@@ -53,24 +53,44 @@ class TriangleClearance:
         import fcl
         self.fcl=fcl
         path=Path(house.get('input',{}).get('visual_source') or Path(house['input']['scene_directory'])/(house['input']['scan_id']+'.glb'))
-        mesh=loaded_mesh(path);v=np.asarray(mesh.vertices);f=np.asarray(mesh.faces)
-        tri=v[f];normal=np.cross(tri[:,1]-tri[:,0],tri[:,2]-tri[:,0]);n=np.linalg.norm(normal,axis=1)
-        ground=(np.abs(normal[:,1])>.98*np.maximum(n,1e-20)) & (np.max(np.abs(tri[:,:,1]-reference),axis=1)<.02)
-        self.stage=fcl_model(v,f[~ground]);self.source=str(path);self.removed=int(ground.sum());self.triangles=int((~ground).sum())
-        self.bystanders=[]
+        mesh=loaded_mesh(path);self.vertices=np.asarray(mesh.vertices);faces=np.asarray(mesh.faces)
+        ground=np.zeros(len(faces),bool)
+        lo=np.empty((len(faces),3));hi=np.empty_like(lo)
+        for start in range(0,len(faces),50000):
+            t=self.vertices[faces[start:start+50000]]
+            normal=np.cross(t[:,1]-t[:,0],t[:,2]-t[:,0]);norm=np.linalg.norm(normal,axis=1)
+            ground[start:start+len(t)]=(np.abs(normal[:,1])>.98*np.maximum(norm,1e-20))&(np.max(np.abs(t[:,:,1]-reference),axis=1)<.02)
+            lo[start:start+len(t)]=t.min(1);hi[start:start+len(t)]=t.max(1)
+        self.faces=faces[~ground];self.lo=lo[~ground];self.hi=hi[~ground]
+        self.source=str(path);self.removed=int(ground.sum());self.triangles=len(self.faces)
+        self.bystanders=[];self.cache={}
         for entry in video.actors:
             if entry is excluded_entry:continue
-            mesh=entry['original_mesh'];root=entry['applied_root_input']
-            self.bystanders.append(fcl_model(np.asarray(mesh.vertices)@root[:3,:3].T+root[:3,3],mesh.faces))
-    def check(self, vertices,faces,root,yaw):
-        fcl=self.fcl;world=np.asarray(vertices)@yaw_matrix(yaw).T+root;obj=fcl_model(world,faces)
+            m=entry['original_mesh'];root=entry['applied_root_input']
+            self.bystanders.append(fcl_model(np.asarray(m.vertices)@root[:3,:3].T+root[:3,3],m.faces))
+    def check_world(self, world, faces):
+        # Every possible <=20mm triangle is included. A discarded face's AABB
+        # is farther than 20.0001mm along at least one axis, so it cannot violate
+        # the unchanged Euclidean 20mm gate. This prunes memory, not geometry
+        # from the native renderer or the full-scene RLR acoustic simulation.
+        key=hashlib.sha256(np.ascontiguousarray(world).tobytes()).digest()
+        if key in self.cache:return self.cache[key]
+        fcl=self.fcl;obj=fcl_model(world,faces);epsilon=.0200001
+        inside=np.all(self.lo<=world.max(0)+epsilon,axis=1)&np.all(self.hi>=world.min(0)-epsilon,axis=1)
+        others=list(self.bystanders)
+        if inside.any():
+            selected=self.faces[inside];unique,inverse=np.unique(selected,return_inverse=True)
+            others.append(fcl_model(self.vertices[unique],inverse.reshape(-1,3)))
         distances=[]
-        for other in [self.stage,*self.bystanders]:
-            result=fcl.CollisionResult()
-            if fcl.collide(obj,other,fcl.CollisionRequest(num_max_contacts=1),result):raise ValueError('new motion pose intersects actual stage or another body')
+        for other in others:
+            if fcl.collide(obj,other,fcl.CollisionRequest(num_max_contacts=1),fcl.CollisionResult()):raise ValueError('new motion pose intersects actual stage or another body')
             distances.append(float(fcl.distance(obj,other,fcl.DistanceRequest(),fcl.DistanceResult())))
-        if min(distances)<=.02:raise ValueError('motion full-triangle nonfloor clearance is not above frozen 2cm reference criterion')
-        return min(distances),world
+        bound=min([epsilon,*distances])
+        if bound<=.02:raise ValueError('motion full-triangle nonfloor clearance is not above frozen 2cm reference criterion')
+        self.cache[key]=bound;return bound
+    def check(self, vertices, faces, root, yaw):
+        world=np.asarray(vertices)@yaw_matrix(yaw).T+root
+        return self.check_world(world,faces),world
 
 
 def externalize_unchanged_images(d,b,directory):
@@ -191,7 +211,7 @@ def compile_walking(video,entry,scene,house,inputs,directory,request):
         vertices,_=triangle_mesh(d,b,parts);world=vertices@yaw_matrix(yaw).T+positions[i];bounds.append([world.min(0),world.max(0)])
     evidence={'status':'pass','revision':REVISION,'lineage':lineage,'frame_count':901,'sample_rate_hz':30,
         'source_frames':frames,'world_roots_m':positions.tolist(),'yaw_rad':yaw,'pose_glbs':files,
-        'maximum_navmesh_horizontal_error_m':nav,'minimum_exact_triangle_nonfloor_clearance_m':minimum,
+        'maximum_navmesh_horizontal_error_m':nav,'minimum_certified_triangle_nonfloor_clearance_m':minimum,'collision_method':'exact FCL for every triangle whose AABB can be within 20.0001mm; excluded AABB axis bounds certify >20mm',
         'stage_original_glb':clearance.source,'true_ground_triangles_removed':clearance.removed,
         'nonfloor_stage_triangles':clearance.triangles,'physical_ground_y_m':floor_y,
         'pause_policy':'zero root motion and observed double-support pose, foot IK stays planted',

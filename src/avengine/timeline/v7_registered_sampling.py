@@ -96,7 +96,9 @@ def build_registered_scene(row,house,records,assets,semantic_manifest=None):
             if not math.isfinite(peak) or not 0.<peak<=120.:raise ValueError('invalid native review camera sweep')
             track={0.:yaw,30.:yaw}
             for start in starts:
-                for offset,delta in ((0.,0.),(4.,0.),(6.,peak),(8.,-peak),(10.,0.)):
+                schedule=plan.get('camera_sweep_schedule',[(0.,0.),(4.,0.),(6.,peak),(8.,-peak),(10.,0.)])
+                if len(schedule)<2 or schedule[0][0]!=0 or schedule[-1][0]!=10 or any(not math.isfinite(float(x))for row in schedule for x in row)or any(not 0<=row[0]<=10 or abs(row[1])>120 for row in schedule)or any(b[0]<=a[0]for a,b in zip(schedule[:-1],schedule[1:])):raise ValueError('invalid native shared camera sweep schedule')
+                for offset,delta in schedule:
                     track[start+offset]=yaw+delta
             scene['camera_yaw_knots']=[{'time_s':t,'yaw_deg':v} for t,v in sorted(track.items())]
         scene['camera_sampling']='explicit native-visible binding review stratum; not an aggregate profile fit'
