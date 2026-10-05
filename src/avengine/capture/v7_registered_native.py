@@ -268,7 +268,7 @@ class NativeRegisteredVideo(NativeAlphaVideo):
                 record['native_30Hz_readbacks']=actual
                 self._apply_motion_entry(entry,0)
                 check=next(c for c in checks if c['endpoint_id']==ep)
-                check.update(action='walk_and_planted_pause',motion_admission=record,
+                check.update(action='sit' if record.get('motion_kind')=='sit' else 'walk_and_planted_pause',motion_admission=record,
                     native_full_skin_bounds_m=record['full_skin_bounds_m'],known_bad_detected=record['known_bad_10cm_floor_detected'])
                 write_json(directory/ep/'native_motion_readbacks.json',{'status':'pass','frames':actual,'geometry_receipt':str(directory/ep/'motion_geometry.json')})
         self.environment_frame_readbacks=[]

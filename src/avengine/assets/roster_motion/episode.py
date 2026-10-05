@@ -127,6 +127,7 @@ def compile_walking(video,entry,scene,house,inputs,directory,request):
     from shapely.geometry import shape,LineString
     from avengine.timeline.v7_storage_budget import check_write
     directory=Path(directory);directory.mkdir(parents=True,exist_ok=True)
+    if not video.pathfinder.is_loaded:raise ValueError('explicit read-only admitted native NavMesh was not loaded')
     d,b,action,lineage=admitted_master(entry,inputs,house)
     times=np.arange(901)/30.;speed=float(request.get('speed_m_s',.5))
     if not .15<=speed<=1.2:raise ValueError('human walking speed outside explicit slow-to-normal production support')
@@ -173,7 +174,7 @@ def compile_walking(video,entry,scene,house,inputs,directory,request):
             if any(np.any((positions[:,0]>v[:,0].min()-.05)&(positions[:,0]<v[:,0].max()+.05)&(positions[:,2]>v[:,2].min()-.05)&(positions[:,2]<v[:,2].max()+.05))for v in static_bounds):continue
             prefilter['full_gate_attempted']+=1
             try:
-                snaps=np.array([video.sim.pathfinder.snap_point(p) for p in positions]);nav=float(np.linalg.norm((snaps-positions)[:,[0,2]],axis=1).max())
+                snaps=np.array([video.pathfinder.snap_point(p) for p in positions]);nav=float(np.linalg.norm((snaps-positions)[:,[0,2]],axis=1).max())
                 if not np.isfinite(nav) or nav>.002:raise ValueError('motion actual native navigation horizontal drift exceeds 2mm')
                 # The actual stage ground, rather than the NavMesh voxel height.
                 ray=video.hs.geo.Ray(video.mn.Vector3(p0+[0.,.2,0.]),video.mn.Vector3(0.,-1.,0.))

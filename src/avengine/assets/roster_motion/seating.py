@@ -45,11 +45,12 @@ def existing_native_seats(video,scene,directory):
 
 def compile_seated(video,entry,scene,house,inputs,directory,request):
     directory=Path(directory);directory.mkdir(parents=True,exist_ok=True)
+    if not video.pathfinder.is_loaded:raise ValueError('explicit read-only admitted native NavMesh was not loaded')
     d,b,action,lineage=admitted_master(entry,inputs,house,kind='sit')
     roster=json.loads(Path(inputs['v7_asset_roster']).read_text());root=Path(roster['artifact_root'])
     survey=existing_native_seats(video,scene,directory)
     original_navmesh=directory/'original_private_navmesh.navmesh'
-    video.sim.pathfinder.save_nav_mesh(str(original_navmesh))
+    video.pathfinder.save_nav_mesh(str(original_navmesh))
     if not original_navmesh.is_file() or original_navmesh.stat().st_size==0:raise ValueError('cannot snapshot private seating navigation')
     major=entry['declaration']['body_identity_id'];reference=json.loads((root/'round2/assets/humans'/major/'seated_contact/hm3d/seated.json').read_text())
     compat=next(r for r in json.loads((root/'round3/evidence/chair_body_compatibility.json').read_text())if r['asset_id']==major)
@@ -122,7 +123,7 @@ def compile_seated(video,entry,scene,house,inputs,directory,request):
                     if abs(gap)>.012:raise ValueError('existing native seat gap exceeds 12mm')
                 # A private navigation rebuild only: preserve every protected
                 # endpoint and its originally available connection.
-                nav=video.sim.pathfinder;before=[np.asarray(nav.snap_point(p))for p in protected]
+                nav=video.pathfinder;before=[np.asarray(nav.snap_point(p))for p in protected]
                 ns=video.hs.NavMeshSettings();ns.set_defaults();ns.include_static_objects=True
                 if not video.sim.recompute_navmesh(nav,ns):raise ValueError('verified seat private navigation rebuild failed')
                 after=[np.asarray(nav.snap_point(p))for p in protected];ne=max(float(np.linalg.norm((a-b)[[0,2]]))for a,b in zip(before,after))
@@ -147,7 +148,7 @@ def compile_seated(video,entry,scene,house,inputs,directory,request):
             except ValueError as error:
                 failures.append({'seat_kind':seat['kind'],'start_m':cr.tolist(),'reason':str(error)})
                 if chair_obj is not None:video.sim.get_rigid_object_manager().remove_object_by_id(chair_obj.object_id)
-                video.sim.pathfinder.load_nav_mesh(str(original_navmesh))
+                video.pathfinder.load_nav_mesh(str(original_navmesh))
         if accepted:break
     if not accepted:
         write_json(directory/'seat_rejected.json',{'status':'blocked','failures':failures,'existing_seat_survey':survey});raise ValueError('no existing or fallback chair passed native seated episode gates')
