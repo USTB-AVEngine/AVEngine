@@ -39,9 +39,11 @@ def main():
         if any(os.environ.get(k)!=v for k,v in required.items()) or not os.environ.get('LD_PRELOAD'):
             raise ValueError('CPU llvmpipe env and CPU EGL device selector must be explicitly supplied')
     else:
-        if os.environ.get('CUDA_VISIBLE_DEVICES')!='2' or os.nice(0)<10 or len(os.sched_getaffinity(0))>16:
+        if os.environ.get('CUDA_VISIBLE_DEVICES') not in {'1','2','3'} or os.nice(0)<10 or len(os.sched_getaffinity(0))>16:
             raise ValueError('Kujiale production requires GPU2, nice10 and affinity <=16 cores')
     by_house={h['house']:h for h in json.loads(a.houses.read_text())['houses']}
+    if a.render_backend=='ue_spear' and any(int(h['input']['ue_config']['graphics_adapter'])!=int(os.environ['CUDA_VISIBLE_DEVICES']) for h in by_house.values()):
+        raise ValueError('Kujiale house graphics adapter does not match selected card')
     rows=[json.loads(l) for l in a.seeds.read_text().splitlines() if l.strip()][a.offset:a.offset+a.limit]
     if not rows or len({r['scene_id'] for r in rows})!=len(rows):raise ValueError('empty or duplicate seed shard')
     from avengine.timeline.v7_storage_budget import configure_local_review

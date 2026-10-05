@@ -80,7 +80,7 @@ def main():
   except psutil.NoSuchProcess:pass
   with (lock/'previous_owners.jsonl').open('a') as f:f.write(json.dumps(owner)+'\n')
  proc=psutil.Process();atomic(lock/'owner.json',{'pid':proc.pid,'create_time':proc.create_time(),'command':proc.cmdline()})
- state=json.loads((RUN/'PRODUCTION_STATUS.json').read_text());queue=json.loads((RUN/'transfer_queue.json').read_text());started=time.time();active=None
+ state=json.loads((RUN/'PRODUCTION_STATUS.json').read_text());queue=json.loads((RUN/'transfer_queue.json').read_text());started=time.time();active=[]
  native_commit=subprocess.check_output(['git','rev-parse','HEAD'],cwd=REPO,text=True).strip()
  if state.get('coordinator_schema')!='fixed-v7-UE-resume-v2':
   state.update(coordinator_schema='fixed-v7-UE-resume-v2',producer_qa_revision=PRODUCER_QA_REVISION,dispatches={},rejections={},attempted_parent_ids=[],generation_sessions=[])
@@ -98,7 +98,8 @@ def main():
  atomic(RUN/'PRODUCTION_STATUS.json',state)
  def stop(number,frame):
   (RUN/'STOP_PRODUCTION').touch()
-  if active and active.poll() is None:active.terminate()
+  for child in active:
+   if child.poll() is None:child.terminate()
  signal.signal(signal.SIGTERM,stop);signal.signal(signal.SIGINT,stop)
  peak=max(3814.,float(canary['peak_mib']))
  configure_kujiale_production(RUN/'production',RUN,workers=args.max_workers)
@@ -224,23 +225,38 @@ def main():
     except psutil.NoSuchProcess:pass
    finish_phase(name)
   pending=[r for r in rows if r['scene_id'] not in set(state['attempted_parent_ids'])];pending.sort(key=lambda r:r['house']!='kujiale_0022')
-  # Keep four UE instances busy as short scientific rejections release slots;
-  # this changes shard size only, never fixed requests, seeds or gates.
+  # One coordinator owns the fixed queue. A spare card may run a disjoint
+  # half-batch; both original gate receipts are complete before either is
+  # classified. Never launch a second coordinator against the shared ledger.
   for i in range(0,len(pending),8):
-   snap=safe();batch=pending[i:i+8];free=snap['gpus'][2]['free_mib'];workers=min(args.max_workers,len(batch),int(max(0,free-4096)//peak))
-   if workers<1:raise RuntimeError('GPU2 lacks measured peak+4GiB; foreign jobs untouched')
-   seq=3
-   while (RUN/'production_batches'/f'batch_{seq:03d}').exists():seq+=1
-   name=f'batch_{seq:03d}';phase=RUN/'production_batches'/name;phase.mkdir();seeds=phase/'seeds.jsonl';seeds.write_text(''.join(json.dumps(r,ensure_ascii=False)+'\n' for r in batch))
-   cmd=[os.sys.executable,str(REPO/'tools/timeline/generate_v7_registered.py'),'--houses',str(RUN/'inputs/houses.json'),'--seeds',str(seeds),'--runtime-inputs',str(RUN/'inputs/runtime.json'),'--assets',str(RUN/'inputs/assets.json'),'--source-admission',str(RUN/'inputs/source_admission_v2.json'),'--human-admission',str(RUN/'inputs/human_admission.json'),'--output',str(phase/'production'),'--storage-budget-root',str(RUN),'--workers',str(workers),'--limit',str(len(batch)),'--render-backend','ue_spear']
-   request={'budget_root':str(ROOT),'run_directory':str(phase/'guard'),'command':cmd,'cwd':str(REPO),'gpu_index':2,'cpu_affinity':list(range(80,96)),'previous_peak_mib':workers*peak,'minimum_free_mib':workers*peak+4096,'minimum_disk_free_bytes':100_000_000_000,'storage_limit_bytes':snap['logical_bytes']+max(0,30_000_000_000-snap['new_allocated_bytes']),'reserve_bytes':1_000_000_000,'stop_margin_bytes':500_000_000,'maximum_seconds':21600,'allowed_auxiliary_gpu_indices':[0],'maximum_auxiliary_gpu_mib':64.,'resource_snapshot_path':str(RUN/'resource_sampler/resource_snapshot.json'),'environment':{'CUDA_VISIBLE_DEVICES':'2','PYTHONDONTWRITEBYTECODE':'1','OMP_NUM_THREADS':'1','OPENBLAS_NUM_THREADS':'1','MKL_NUM_THREADS':'1','NUMEXPR_NUM_THREADS':'1'}}
-   atomic(phase/'guard_request.json',request);state['dispatches'][name]={'status':'started','parent_ids':[r['scene_id'] for r in batch],'workers':workers};state.update(active_batch=name,active_workers=workers);atomic(RUN/'PRODUCTION_STATUS.json',state)
-   with (phase/'driver.log').open('x') as log:active=subprocess.Popen([os.sys.executable,str(REPO/'tools/rooms/v7_kujiale_ue_guard.py'),'--request',str(phase/'guard_request.json')],stdout=log,stderr=subprocess.STDOUT,cwd=REPO)
-   p=psutil.Process(active.pid);atomic(phase/'guard_process.json',{'pid':p.pid,'create_time':p.create_time(),'command':p.cmdline()});active.wait();active=None;finish_phase(name)
+   snap=safe();batch=pending[i:i+8]
+   secondary=next((gpu for gpu in (1,3) if snap['gpus'][gpu]['free_mib'] is not None and snap['gpus'][gpu]['free_mib']>=max(12288,peak+4096)),None)
+   midpoint=(len(batch)+1)//2 if secondary is not None and len(batch)>1 else len(batch)
+   shards=[(2,batch[:midpoint])]
+   if midpoint<len(batch):shards.append((secondary,batch[midpoint:]))
+   launched=[]
+   for gpu,part in shards:
+    free=snap['gpus'][gpu]['free_mib'];workers=min(args.max_workers,len(part),int(max(0,free-4096)//peak))
+    if workers<1:raise RuntimeError(f'GPU{gpu} lacks measured peak+4GiB; foreign jobs untouched')
+    seq=3
+    while (RUN/'production_batches'/f'batch_{seq:03d}').exists():seq+=1
+    name=f'batch_{seq:03d}';phase=RUN/'production_batches'/name;phase.mkdir();seeds=phase/'seeds.jsonl';seeds.write_text(''.join(json.dumps(r,ensure_ascii=False)+'\n' for r in part))
+    houses=RUN/'inputs'/('houses.json' if gpu==2 else f'houses_gpu{gpu}.json')
+    if not houses.is_file():raise RuntimeError(f'GPU{gpu} derived house config missing')
+    cmd=[os.sys.executable,str(REPO/'tools/timeline/generate_v7_registered.py'),'--houses',str(houses),'--seeds',str(seeds),'--runtime-inputs',str(RUN/'inputs/runtime.json'),'--assets',str(RUN/'inputs/assets.json'),'--source-admission',str(RUN/'inputs/source_admission_v2.json'),'--human-admission',str(RUN/'inputs/human_admission.json'),'--output',str(phase/'production'),'--storage-budget-root',str(RUN),'--workers',str(workers),'--limit',str(len(part)),'--render-backend','ue_spear']
+    request={'budget_root':str(ROOT),'run_directory':str(phase/'guard'),'command':cmd,'cwd':str(REPO),'gpu_index':gpu,'cpu_affinity':list(range(80,96)),'previous_peak_mib':workers*peak,'minimum_free_mib':workers*peak+4096,'minimum_disk_free_bytes':100_000_000_000,'storage_limit_bytes':snap['logical_bytes']+max(0,30_000_000_000-snap['new_allocated_bytes']),'reserve_bytes':1_000_000_000,'stop_margin_bytes':500_000_000,'maximum_seconds':21600,'allowed_auxiliary_gpu_indices':[0],'maximum_auxiliary_gpu_mib':64.,'resource_snapshot_path':str(RUN/'resource_sampler/resource_snapshot.json'),'environment':{'CUDA_VISIBLE_DEVICES':str(gpu),'PYTHONDONTWRITEBYTECODE':'1','OMP_NUM_THREADS':'1','OPENBLAS_NUM_THREADS':'1','MKL_NUM_THREADS':'1','NUMEXPR_NUM_THREADS':'1'}}
+    atomic(phase/'guard_request.json',request);state['dispatches'][name]={'status':'started','parent_ids':[r['scene_id'] for r in part],'workers':workers,'gpu_index':gpu};state.update(active_batch='+'.join([x[0] for x in launched]+[name]),active_workers=sum(x[2] for x in launched)+workers);atomic(RUN/'PRODUCTION_STATUS.json',state)
+    with (phase/'driver.log').open('x') as log:child=subprocess.Popen([os.sys.executable,str(REPO/'tools/rooms/v7_kujiale_ue_guard.py'),'--request',str(phase/'guard_request.json')],stdout=log,stderr=subprocess.STDOUT,cwd=REPO)
+    active.append(child);launched.append((name,child,workers))
+    p=psutil.Process(child.pid);atomic(phase/'guard_process.json',{'pid':p.pid,'create_time':p.create_time(),'command':p.cmdline()})
+   for _name,child,_workers in launched:child.wait()
+   active.clear()
+   for name,_child,_workers in launched:finish_phase(name)
   queue['dispatch_finished']=True;queue['complete']=state['formal_parents']==132;atomic(RUN/'transfer_queue.json',queue);state.update(status='complete' if queue['complete'] else 'finished_with_original_rejections',wall_seconds=time.time()-started,active_workers=0)
   progress(f"固定132请求已处理：实际封存{state['formal_parents']}父/{state['formal_windows']}窗口/{state['formal_questions']}题，拒绝{len(state['rejections'])}；未完成完整132准入时不得标为完整训练交付。")
  except BaseException as e:
-  if active and active.poll() is None:active.terminate();active.wait(timeout=60)
+  for child in active:
+   if child.poll() is None:child.terminate();child.wait(timeout=60)
   state.update(status='stopped_not_complete',error=str(e),traceback=traceback.format_exc(),wall_seconds=time.time()-started,active_workers=0);progress('v2停止：'+str(e)+'；门槛不变、失败证据保留。');raise
  finally:
   state['generation_sessions'][-1].update(ended_epoch=time.time(),wall_seconds=time.time()-started);atomic(RUN/'PRODUCTION_STATUS.json',state)
