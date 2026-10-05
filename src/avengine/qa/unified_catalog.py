@@ -6652,6 +6652,8 @@ def _generate_qa_19(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
 
 def _generate_qa_20(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
     _require_actor_count(facts, 2)
+    from avengine.qa.v7_nonvisual_entity_scope import nonvisual_entity_ids_for_qa
+    nonvisual_ids = nonvisual_entity_ids_for_qa(facts)
     _require_stereo(facts)
     try:
         reviewed = _reviewed_appearances(facts)
@@ -6665,6 +6667,8 @@ def _generate_qa_20(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
         missing_visibility_ids: list[str] = []
         visible_ids: list[str] = []
         for actor_id in facts["actors"]:
+            if str(actor_id) in nonvisual_ids:
+                continue
             if actor_id not in facts.get("visibility", {}):
                 missing_visibility_ids.append(str(actor_id))
                 continue
@@ -7036,6 +7040,8 @@ def _public_entity_count_values(facts: Mapping[str, Any]) -> list[int] | None:
 
 def _generate_qa_22(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
     _require_actor_count(facts, 2)
+    from avengine.qa.v7_nonvisual_entity_scope import nonvisual_entity_ids_for_qa
+    nonvisual_ids = nonvisual_entity_ids_for_qa(facts)
     events = facts.get("events")
     if not _is_sequence(events):
         _defer("missing_events", "QA-22 needs a whole-clip event table")
@@ -7051,6 +7057,8 @@ def _generate_qa_22(facts: Mapping[str, Any], seed: str) -> dict[str, Any]:
     visible_actor_ids: set[str] = set()
     unknown_actor_ids: list[str] = []
     for actor_id in actors:
+        if str(actor_id) in nonvisual_ids:
+            continue
         frames = visibility.get(actor_id)
         if not isinstance(frames, Mapping) or not frames:
             unknown_actor_ids.append(str(actor_id))

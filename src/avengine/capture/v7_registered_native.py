@@ -168,6 +168,8 @@ class NativeRegisteredVideo(NativeAlphaVideo):
         return rows
 
     def encode(self,scene,path,review_frames=None,*,collect_pixel_visibility=True):
+        from avengine.timeline.v7_camera_evidence import review_frame_indices
+        if review_frames is None:review_frames=review_frame_indices(scene)
         result=super().encode(scene,path,review_frames,collect_pixel_visibility=collect_pixel_visibility)
         if len(self.environment_frame_readbacks)!=450:raise ValueError('incomplete native environmental source clock')
         result['environmental_emitter_readbacks']=self.environment_frame_readbacks
@@ -287,4 +289,6 @@ class NativeRegisteredVideo(NativeAlphaVideo):
                     native_full_skin_bounds_m=record['full_skin_bounds_m'],known_bad_detected=record['known_bad_10cm_floor_detected'])
                 write_json(directory/ep/'native_motion_readbacks.json',{'status':'pass','frames':actual,'geometry_receipt':str(directory/ep/'motion_geometry.json')})
         self.environment_frame_readbacks=[]
+        from avengine.timeline.v7_camera_evidence import recenter_on_actual_roots
+        recenter_on_actual_roots(scene,self.actors)
         self.standing_checks=checks;write_json(directory/'standing_admission.json',{'status':'pass','checks':checks,'placement_attempts':attempts,'original_contact_gate_preserved':True});self.camera_frame_readbacks=[];return checks

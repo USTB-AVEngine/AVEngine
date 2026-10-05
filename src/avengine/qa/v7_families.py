@@ -27,6 +27,9 @@ PANELS = ('STARSS-SPEAKERS', 'STARSS-FRUSTUM', 'STARSS-CLASS13')
 def normalize_v7_facts(raw, *, foa_readback=None):
     facts = (u._restore_normalized_frame_keys(raw) if raw.get('schema') == u.UNIFIED_FACT_SCHEMA
              else u.normalize_episode_bundle(raw))
+    from avengine.qa.v7_nonvisual_entity_scope import validate_native_nonvisual_registry
+    scope = validate_native_nonvisual_registry(raw)
+    if scope is not None: facts['native_nonvisual_entity_scope'] = scope
     if foa_readback is None:
         return facts
     if foa_readback.get('format') != 'ACN_WYZX_SN3D_camera':

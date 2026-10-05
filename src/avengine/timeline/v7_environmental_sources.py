@@ -111,6 +111,10 @@ def augment_environmental_native_bundle(raw,scene,visual=None,start_s=None):
         raw['frame_readbacks']['actors'][sid]=observed
         raw['frame_readbacks']['emitters'][sid]=[{'frame_index':r['frame_index'],'position_m':r['emitter_position_m']} for r in observed]
         event['actor_id']=sid
+    from avengine.qa.v7_nonvisual_entity_scope import SCHEMA
+    records=[{'actor_id':sid,'endpoint_id':a['asset_id'].removeprefix('native_audio_point:')}
+        for sid,a in raw['actors'].items() if a.get('entity_class')=='environmental_audio_point']
+    if records:raw['native_nonvisual_source_registry']={'schema':SCHEMA,'authority':'observed_Habitat_audio_only_SceneGraph_child','records':records}
     return raw
 
 

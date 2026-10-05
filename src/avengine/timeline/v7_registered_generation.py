@@ -21,7 +21,7 @@ from avengine.timeline.v7_production_contract import validate_question_counts,qu
 from avengine.spatial_audio.audio import write_float32_wav
 
 ALPHA_RELEASE_PROFILE='v7-S-recorded-registered-native-14-v6-critical-coverage'
-PRODUCER_QA_REVISION='registered-native-audio-only-scenegraph-v3-r16-supplement'
+PRODUCER_QA_REVISION='registered-native-r17-nonvisual-source-domain-candidates12'
 
 
 def _cpu():
@@ -89,7 +89,7 @@ def generate_registered_parent(row,house,inputs,assets,source_admission,human_ad
     assets=choose_assets(assets,row)
     licenses=qualify_licenses(assets,human_admission)
     semantic=read_json(inputs['semantic_manifest']) if inputs.get('semantic_manifest') else None
-    working,base,program=build_registered_scene(row,house,source_admission['records'],assets,semantic)
+    working,base,program=build_registered_scene(row,house,source_admission['records'],assets,semantic,camera_evidence_policy=inputs.get('registered_camera_evidence_policy'))
     authored_ids={r['sound_asset_id'] for r in program['records'] if r.get('source_type')=='author_tts'}
     if authored_ids:
         full=semantic;semantic=deepcopy(full)

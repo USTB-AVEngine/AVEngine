@@ -73,7 +73,7 @@ def semantic_record(sound,gender):
     record['screens']={'license':{'license':engine['model_license']+' + '+ref['license_spdx'],'original_id':record['original_id'],'source_uri':record['source_uri'],'retained_text':engine['model_license_path']}}
     return record
 
-def build_registered_scene(row,house,records,assets,semantic_manifest=None):
+def build_registered_scene(row,house,records,assets,semantic_manifest=None,*,camera_evidence_policy=None):
     if row['schema']!=REGISTERED_INPUT_SCHEMA or house['house']!=row['house'] or house['split']=='test':raise ValueError('registered production row on train/dev house required')
     if house['acoustic_status']!='pass' or row['room_id'] not in house['checked_room_ids']:raise ValueError('unaccepted physical house/room')
     if {'development':'dev'}.get(house['split'],house['split'])!=row['split']:raise ValueError('house split crossed')
@@ -116,6 +116,8 @@ def build_registered_scene(row,house,records,assets,semantic_manifest=None):
     candidates=[[float(x),height,float(z)] for x in np.arange(x0+.1,x1,.5) for z in np.arange(z0+.1,z1,.5) if floor_poly.covers(Point(x,z)) and math.hypot(x-layout['listener_m'][0],z-layout['listener_m'][2])>.5]
     candidates.sort(key=lambda p:abs(math.hypot(p[0]-layout['listener_m'][0],p[2]-layout['listener_m'][2])-1.87))
     scene['native_placement_candidates']=candidates[:192]
+    from avengine.timeline.v7_camera_evidence import configure_camera_evidence
+    configure_camera_evidence(scene,row,camera_evidence_policy)
     if plan.get('motion_requests'):scene['production_scenario']['motion_floor_polygon']=layout['room_floor_polygon']
     for i,(a,p) in enumerate(zip(assets,placements,strict=True)):
         ep=a['endpoint_id'];g='F' if a['visual_gender']=='female' else 'M'

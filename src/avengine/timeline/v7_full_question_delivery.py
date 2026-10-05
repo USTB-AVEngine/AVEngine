@@ -11,7 +11,7 @@ import os
 from avengine.timeline.continuous_pilot import write_json
 from avengine.timeline.v7_production_contract import question_allocation,validate_question_counts
 
-QUESTION_DELIVERY_REVISION='v7-native-full-pool-joint-selection-v3-observed-semantic-nuisance-pairs-r16-supplement'
+QUESTION_DELIVERY_REVISION='v7-native-full-pool-r17-native-nonvisual-scope-candidates12'
 
 
 def collect_native_pool(scene,start,window_id,visual,media,evidence,quota_index,count):
@@ -29,7 +29,7 @@ def collect_native_pool(scene,start,window_id,visual,media,evidence,quota_index,
     from avengine.timeline.v7_environmental_sources import augment_environmental_native_bundle,collect_admitted_class_questions
     augment_environmental_native_bundle(raw,scene,visual,start)
     public,private,audit=collect_questions(raw,window_id,media,
-        seed=str(proof.get('question_seed','v7')),foa_readback=proof.get('foa_readback'),
+        seed=str(proof.get('question_seed','v7')),items_per_family=12,foa_readback=proof.get('foa_readback'),
         semantic_manifest=proof.get('semantic_manifest'),protocol_scene=proof.get('protocol_scene'),
         window_start_s=start,native_dialogue_evidence=proof.get('native_dialogue_evidence'),
         semantic_wording_variant=proof.get('semantic_wording_variant','standard'),
@@ -41,6 +41,7 @@ def collect_native_pool(scene,start,window_id,visual,media,evidence,quota_index,
         excluded={q['question_id'] for q in public if q.get('protocol_panel')=='STARSS23_v0.2' and q['qa_id']=='QA-23'}
         public=[q for q in public if q['question_id'] not in excluded];private=[g for g in private if g['question_id'] not in excluded]
         audit['out_of_domain_activity_count_exclusions']=sorted(excluded)
+    audit['candidate_budget']={'items_per_family':12,'modality_and_binding_gates_unchanged':True,'duplicate_stems_still_count_once':True}
     audit['native_bundle']=raw
     audit['native_listener_binding']='all measured native camera frames, no static pose shadow'
     return public,private,audit
