@@ -28,6 +28,17 @@ def validate_v6_items(public, private, audit, *, seed='v7'):
         family = request['qa_id']
         if authority_id not in cache:
             facts = u._restore_normalized_frame_keys(audit.get('family_fact_overrides', {}).get(family, audit['facts']))
+            context = audit.get('item_sampling_contexts', {}).get(authority_id)
+            if context is not None:
+                if (family != 'QA-14' or not isinstance(context, dict)
+                        or set(context) != {'profile', 'partition_index'}
+                        or context['profile'] != 'native_fixed_qa14_query2s_v2'
+                        or type(context['partition_index']) is not int
+                        or not 0 <= context['partition_index'] < 5
+                        or not authority_id.endswith(f"__native_fixed_query2s_{context['partition_index']:02d}")):
+                    raise ValueError('unknown per-item native sampling context')
+                from avengine.qa.v7_families import native_qa14_query_facts
+                facts = native_qa14_query_facts(facts, context['partition_index'])
             if family in u.QA_IDS:
                 prepared = prepare_facts_for_qa(deepcopy(facts), family)
                 attempt = attempts[authority_id]

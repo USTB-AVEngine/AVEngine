@@ -24,12 +24,44 @@ FAMILIES = tuple(f'QA-{i:02d}' for i in range(1, 29))
 PANELS = ('STARSS-SPEAKERS', 'STARSS-FRUSTUM', 'STARSS-CLASS13')
 
 
+def apply_native_candidate_query_request(facts, raw):
+    """Record a fixed producer request; do not change original family facts."""
+    request = raw.get('native_candidate_query_request')
+    if request is None:
+        return
+    expected = {'schema': 'v7-native-fixed-query-windows-r17-v3',
+                'qa14_partition_seconds': 2, 'qa14_candidate_budget': 12}
+    if request != expected:
+        raise ValueError('unsupported native candidate query-window request')
+    if facts['time']['frame_count'] != 150 or facts['time']['frame_rate_hz'] != 15:
+        raise ValueError('fixed query windows require the actual 10s/15fps clock')
+    facts['native_candidate_query_request'] = deepcopy(request)
+
+
+def native_qa14_query_facts(facts, partition_index):
+    """Rebuild compact sampling context from the verified native clock."""
+    request = facts.get('native_candidate_query_request')
+    probe = {'time': facts['time']}
+    apply_native_candidate_query_request(probe, {'native_candidate_query_request': request})
+    if request is None:
+        raise ValueError('query context lacks the fixed producer request')
+    if type(partition_index) is not int or not 0 <= partition_index < 5:
+        raise ValueError('native query partition index must be an integer in 0..4')
+    result = deepcopy(facts)
+    declared = result.setdefault('sampling', {}).setdefault('legal_window_by_qa', {})
+    if 'QA-14' in declared:
+        raise ValueError('fixed query grid cannot overwrite an existing declared QA-14 domain')
+    declared['QA-14'] = [partition_index * 30, (partition_index + 1) * 30]
+    return result
+
+
 def normalize_v7_facts(raw, *, foa_readback=None):
     facts = (u._restore_normalized_frame_keys(raw) if raw.get('schema') == u.UNIFIED_FACT_SCHEMA
              else u.normalize_episode_bundle(raw))
     from avengine.qa.v7_nonvisual_entity_scope import validate_native_nonvisual_registry
     scope = validate_native_nonvisual_registry(raw)
     if scope is not None: facts['native_nonvisual_entity_scope'] = scope
+    apply_native_candidate_query_request(facts, raw)
     if foa_readback is None:
         return facts
     if foa_readback.get('format') != 'ACN_WYZX_SN3D_camera':
@@ -184,6 +216,27 @@ def collect_questions(raw, window_id, media, *, seed='v7', items_per_family=5,
     facts = normalize_v7_facts(raw, foa_readback=foa_readback)
     result = u.generate_unified_questions(facts, qa_ids=list(u.QA_IDS), seed=str(seed),
                                           items_per_type=items_per_family, include_angle_followups=False)
+    item_sampling_contexts = {}
+    if facts.get('native_candidate_query_request'):
+        query_runs = []
+        for partition_index in range(5):
+            query_facts = native_qa14_query_facts(facts, partition_index)
+            query_result = u.generate_unified_questions(query_facts, qa_ids=['QA-14'], seed=str(seed),
+                items_per_type=12, include_angle_followups=False)
+            suffix = f'__native_fixed_query2s_{partition_index:02d}'
+            for item in query_result['items']:
+                item['question_id'] += suffix
+                item_sampling_contexts[item['question_id']] = {
+                    'profile': 'native_fixed_qa14_query2s_v2', 'partition_index': partition_index}
+            for attempt in query_result['candidate_attempts']:
+                if attempt.get('question_id'): attempt['question_id'] += suffix
+            # Each documented authority call receives one legal frame domain.
+            # Every original candidate/answer remains in the original pool.
+            result['items'].extend(query_result['items'])
+            result['deferred'].extend(query_result['deferred'])
+            result['candidate_attempts'].extend(query_result['candidate_attempts'])
+            query_runs.append({'partition_index': partition_index, 'result': query_result})
+        result['v7_QA14_fixed_query_windows_authority_runs'] = query_runs
     family_fact_overrides = {}
     fixed_domain = (facts.get('sampling') or {}).get('v7_sound_class_options')
     if fixed_domain is not None:
@@ -250,7 +303,7 @@ def collect_questions(raw, window_id, media, *, seed='v7', items_per_family=5,
             seen.add(logical)
     return public, private, {'family_counts': {f: counts[f] for f in (*FAMILIES, *PANELS, 'V7-CONTENT-BIND')},
                              'duplicate_question_groups': duplicates, 'deferred': deferred, 'v6_generation': result,
-                             'v6_items': items, 'facts': facts, 'semantic_manifest': manifest, 'content_binding':content, 'family_fact_overrides': family_fact_overrides, 'protocol': protocol,
+                             'v6_items': items, 'facts': facts, 'semantic_manifest': manifest, 'content_binding':content, 'family_fact_overrides': family_fact_overrides, 'item_sampling_contexts': item_sampling_contexts, 'protocol': protocol,
                              'formal_dataset_count': 0,
                              'qualification': 'research candidates; native and asset admission remain separate'}
 

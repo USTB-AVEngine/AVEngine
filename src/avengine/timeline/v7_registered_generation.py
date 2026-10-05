@@ -21,7 +21,7 @@ from avengine.timeline.v7_production_contract import validate_question_counts,qu
 from avengine.spatial_audio.audio import write_float32_wav
 
 ALPHA_RELEASE_PROFILE='v7-S-recorded-registered-native-14-v6-critical-coverage'
-PRODUCER_QA_REVISION='registered-native-r17-nonvisual-source-domain-candidates12'
+PRODUCER_QA_REVISION='registered-native-r17-nonvisual-fixed-query2s-union-v4'
 
 
 def _cpu():
@@ -146,6 +146,16 @@ def generate_registered_parent(row,house,inputs,assets,source_admission,human_ad
         vd,vr,resumed=stage(root,'visual_'+v,visual_recipe,render)
         timings.append({'stage':'visual_'+v,'wall_seconds':time.perf_counter()-vw,'cpu_seconds_including_children':_cpu()-vc,'resumed':resumed})
         visual=read_json(vd/'native_registered_visual_evidence.json');appearance=read_json(vd/'native_appearance_review.json')
+        # Reconstruct the producer state also when v0 was resumed. Its actual
+        # SDK standing roots originally drove the camera recentering; leaving
+        # the prototype here would change the exact v1 stage recipe on restart.
+        if base.get('camera_evidence_policy'):
+            from avengine.timeline.v7_camera_evidence import recenter_on_actual_roots
+            replay_entries=[]
+            for admitted in visual['standing_admission']:
+                matrix=np.eye(4);matrix[:3,3]=admitted['resolved_body_root_world_m']
+                replay_entries.append({'endpoint_id':admitted['endpoint_id'],'applied_root_input':matrix.tolist()})
+            recenter_on_actual_roots(base,replay_entries)
         if appearance['status']!='pass' or len(appearance['review']['actors'])<2:raise ValueError('at least two observed native appearance reviews required')
         visual['native_appearance_review']=appearance['review']
         if visual['frame_count']!=450 or len(visual['camera_frame_readbacks'])!=450:raise ValueError('incomplete native world')
