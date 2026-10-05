@@ -9,8 +9,15 @@ def sshcci(script):
 def publish(receipt,name):
  marker=receipt.with_suffix('.published')
  if marker.exists():return
- subprocess.run([sys.executable,str(LOCAL/'round10_remote.py'),'put',str(receipt),REMOTE+'/transfer_receipts/'+name+'.json'],check=True)
- marker.write_text(str(time.time())+'\n')
+ last=None
+ for attempt in range(5):
+  try:
+   subprocess.run([sys.executable,str(LOCAL/'round10_remote.py'),'put',str(receipt),REMOTE+'/transfer_receipts/'+name+'.json'],check=True,timeout=80)
+   marker.write_text(str(time.time())+'\n');return
+  except (subprocess.CalledProcessError,subprocess.TimeoutExpired) as error:
+   last=error;print(f'RECEIPT_PUBLISH_RETRY {name} {attempt+1}: {error}',flush=True)
+   time.sleep(min(30,2**(attempt+1)))
+ raise RuntimeError(f'CCI SHA receipt could not be returned to own 48g run after retries: {name}: {last}')
 def main():
  # Queue entries are explicit own paths published after local formal gates.
  while not (LOCAL/'ROUND14_STOP_TRANSFER').exists():
