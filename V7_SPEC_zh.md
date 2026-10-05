@@ -690,3 +690,14 @@ CCI 根目录 /mnt/afs/xinyuanqian/jzy/hardbank/generation/v7_s_20261005_batch1/
 第二批：已验收移动对象的完整场景接入、QA-28（先前稳定可见性不足的候选不放宽门槛）、其余仍为0的题族、走坐座椅完整动作、尚未实际覆盖的STARSS13细类；HM3D遮挡抽检仍not_run，深色缅甸猫预期毛色仍未验证。
 
 R12 最终核对修正：新增环境音适配器曾误将 coughing 写为 STARSS 13 的 domestic sounds（5）。该映射已撤回，直接复用 families 的 `src/avengine/qa/v7_sound_extensions.py:STARSS_EXTENSION_MAP`；coughing、两种鸟声保持 None，并继续在 V7-CLASS34 中使用原始准入标签。没有修改 QA 目录、原判分器、原真值或验收阈值；旧 85673c1 队列在派发前仅撤下本任务行并保留备份。
+
+
+### 第12回合实测、入队与最终交接
+
+本节解除第10/11回合“关键覆盖未打通、禁止500父量产”的历史阻塞，仅授权首批关键覆盖版本；完整版所有题族/动作仍未齐。生产代码冻结 `ceead4d0c33e6690eceaf4727be35c6b02c53c6d`，之后规格书记录不更换该冻结代码。500个实际源程序检查通过，两侧均0–8讲话人数、34类；女性/男性讲话事件2500/2548，详见`round12_production_20261005/readback/source_preflight500_verified_v2.json`。初版检查器误排除扬声器播放，29个原程序重新读取准入录音后通过，未改生产者或门禁。源程序覆盖不等于正式题目覆盖。
+
+CCI最终代码在开发机做1父2窗28题的实际CPU冒烟：450帧原生连续世界、150帧10秒视频、完整FOA/W读回，2/2窗通过；4讲话人、咳嗽类各2正式题。V/A/AV=9/7/12；独立单成员冒烟绑定为0，不冒充全量绑定验收。墙钟346.317秒、CPU356.528秒，见AFS根目录`verification_v2/cci_smoke/shard_000000_000001_1791166605507935365.json`和`verification_v2/smoke_delivery/DELIVERY_MANIFEST.json`。容器缺少媒体工具时使用本任务私有FFmpeg4.4.2及依赖闭包，许可文本/二进制清单一并保留；无共享环境修改。每次真实媒体验收仍使用原帧数/时间/声道/FOA一致性门槛。
+
+正式500父版本2026-10-05新加坡10:27入P19待派发首位，计划`plans/v7_s_critical_cpu_batch1_20261005_r2.json`。10:29仍等待空位，未开始量产；收据位于AFS根目录`readback/p19_enqueue_receipt_20261005T022745Z_aa844cde.json`和`readback/dispatch_r2_latest.json`。队列有备份、P19_DRY=1复核、runner SHA前后相同。本版本四成员分别真实渲染，125四成员父+375单成员父=875画面世界，不沿用第8回合625画面世界的成本。24工作进程理想核时外推约3.61小时，考虑IO/人数/封存余量预计派发后4–6小时；若10:30–11:00派发预计15:00–17:00完整交付（未验证，排队或训练保护降并行会顺延）。
+
+等待脚本匹配AFS根目录`release/train.jsonl`、`release/dev.jsonl`、`release/DELIVERY_MANIFEST.json`的sealed/500父口径；目前尚未发布。完整覆盖、模态及绑定比例、各题族实际数只从最终封存汇总读取。最终48g余量59,703,218,176字节、R10+R12占用9,450,729,472字节，见`readback/disk_final_r12.json`。本批没有设置`semantic_scenario_id`，QA-26–28及完整内容绑定列第二批，QA-28为0不能推断原出题层不可用。详情与逐题族实测数见本轮`REPORT_zh.md`；提交、作业、停止说明见`HANDOFF.json`。
