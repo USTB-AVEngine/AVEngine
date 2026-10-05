@@ -101,6 +101,7 @@ def sample(c,max_wait=1200):
 
 def enqueue_ready(c,measurement):
     task,watch=validate_scope(c);receipt=watch/'QUEUE_RECEIPT.json';q=Path(c['queue']);plan=Path(c['new_plan']);profile=Path(c['profile'])
+    if (watch/'PAUSE_SPACE_RESUME_R19').exists():return {'status':'paused_owner_marker','queue_mutated':False}
     if receipt.is_file():return json.loads(receipt.read_text())
     if measurement.get('status')!='space_ready'or not measurement.get('new_personal_measurement_this_call')or not enough_space(measurement['quota_state']):return {'status':'waiting_for_120GB','queue_mutated':False}
     observed=time.strptime(measurement['UTC'],'%Y-%m-%dT%H:%M:%SZ')
@@ -115,6 +116,7 @@ def enqueue_ready(c,measurement):
     after,_count=transform_queue(before,c['old_plan'],plan);stamp=str(time.time_ns());backup=watch/('queue_before_enqueue_'+stamp+'.txt');candidate=watch/('queue_candidate_enqueue_'+stamp+'.txt');backup.write_bytes(before);candidate.write_bytes(after)
     one=dry(c,candidate,'dry_enqueue_candidate',True);quiet_task(task)
     if time.time()-__import__('calendar').timegm(observed)>900:raise ValueError('space sample aged while validating queue; remeasure')
+    if (watch/'PAUSE_SPACE_RESUME_R19').exists():return {'status':'paused_owner_marker','queue_mutated':False}
     compare_and_replace(q,before,after);two=dry(c,q,'dry_enqueued_actual',True)
     r={'status':'queued','plan':str(plan),'profile':str(profile),'queue_position_zero_based':0,'backup':str(backup),'dry_before':one,'dry_after':two,'original_measurement':measurement,'producer_commit':p['generator_commit'],'seed_SHA256':c['seed_SHA256'],'resume_work_directory':'production_r12','CPU_workers_limit':40,'training_slowdown_threshold':.35,'STOP_used':False,'other_lines_unchanged':True,'runner_SHA256':c['runner_SHA256'],'UTC':time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime())};atomic(receipt,r);return r
 
@@ -123,6 +125,8 @@ def main():
     if args.operation=='hold_old':r=retire_old(c)
     else:
         task,watch=validate_scope(c)
+        if args.operation=='enqueue_if_ready'and(watch/'PAUSE_SPACE_RESUME_R19').exists():
+            print(json.dumps({'status':'paused_owner_marker','queue_mutated':False}),flush=True);return
         if args.operation=='enqueue_if_ready'and(watch/'QUEUE_RECEIPT.json').is_file():r=json.loads((watch/'QUEUE_RECEIPT.json').read_text())
         else:
             measurement=sample(c);r=enqueue_ready(c,measurement)if args.operation=='enqueue_if_ready'else measurement

@@ -83,3 +83,16 @@ def test_accounting_external_link_has_zero_reclamation_credit(tmp_path):
     root=tmp_path/'source';folder=root/'parents/a/dry_attempt_test';folder.mkdir(parents=True);f=folder/'voice.npy';f.write_bytes(b'x'*8192);os.link(f,tmp_path/'outside_retained.npy')
     summary=account.inspect({'task':str(root)},tmp_path/'out');proposal=json.loads((tmp_path/'out/DELETION_PROPOSAL_ONLY.json').read_text())
     assert summary['proposal_only_release_upper_bound_bytes']==0 and proposal[0]['possible_external_links']
+
+
+def test_owner_pause_does_not_mutate_queue(tmp_path,monkeypatch):
+    import importlib.util
+    from pathlib import Path
+    path=Path(__file__).resolve().parents[2]/"tools/timeline/wait_v7_space_resume.py"
+    spec=importlib.util.spec_from_file_location("paused_space_wait",path);m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
+    watch=tmp_path/"watch";watch.mkdir();(watch/"PAUSE_SPACE_RESUME_R19").write_text("owner pause")
+    q=tmp_path/"queue";q.write_bytes(b"other_plan 2\n")
+    monkeypatch.setattr(m,"validate_scope",lambda c:(tmp_path,watch))
+    result=m.enqueue_ready({"queue":str(q),"new_plan":str(tmp_path/"new"),"profile":str(tmp_path/"profile")},{"status":"space_ready"})
+    assert result=={"status":"paused_owner_marker","queue_mutated":False}
+    assert q.read_bytes()==b"other_plan 2\n"
