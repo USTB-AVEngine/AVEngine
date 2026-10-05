@@ -159,6 +159,11 @@ def main():
    state['dispatches'][name].update(status='processed',passed_parents=delivered['parents'],rejected_parents=rejected,preflight_retry_parents=preflight_retry,wall_seconds=g['elapsed_seconds'],peak_mib=g['peak_mib']);atomic(RUN/'PRODUCTION_STATUS.json',state);return
   passed=[]
   for row in batch:
+   previous_rejection=state['rejections'].get(row['scene_id'])
+   if previous_rejection and previous_rejection.get('batch')==name:
+    # The preceding coordinator may have retained the witness and deleted
+    # this owned failed intermediate before stopping on another row.
+    continue
    parent=phase/'production/parents'/row['scene_id'];marker=parent/'alpha_seal_completed.json'
    if marker.is_file():
     proof=json.loads(marker.read_text());assert proof['result']['status']=='formal_alpha_admitted' and proof['recipe']['input_recipe']['producer_qa_revision']==PRODUCER_QA_REVISION;passed.append(row)
