@@ -11,7 +11,7 @@ import os
 from avengine.timeline.continuous_pilot import write_json
 from avengine.timeline.v7_production_contract import question_allocation,validate_question_counts
 
-QUESTION_DELIVERY_REVISION='v7-native-full-pool-joint-selection-v1'
+QUESTION_DELIVERY_REVISION='v7-native-full-pool-joint-selection-v2-observed-nuisance-pairs'
 
 
 def collect_native_pool(scene,start,window_id,visual,media,evidence,quota_index,count):
@@ -60,6 +60,41 @@ def bind_native_listener_frames(raw):
 
 
 
+def filter_observed_nuisance_candidates(public,private,window_ids):
+    """Do not reserve a V/A item whose actual nuisance partner was not emitted.
+
+    Both original pools and every original answer stay intact. Equal answers
+    are not assumed or substituted: the original final audit still checks all
+    common V/A questions, including unselected ones, and all selected bindings.
+    """
+    from avengine.timeline.v7_candidate_generation import authority_physical_query_key
+    from avengine.qa.v7_families import deduplicate_questions
+    lookup={};keys={};canonical={};removed=[]
+    for name in public:
+        p,g,_=deduplicate_questions(public[name],private[name]);gold={r['question_id']:r for r in g}
+        lookup[name]={};keys[name]={};canonical[name]={}
+        for q in p:
+            if q['modality']not in {'vision','audio'}:continue
+            a=gold[q['question_id']];fallback='/'.join((q.get('protocol_panel','v6'),q['qa_id'],q['question_zh']))
+            key=(q['qa_id'],authority_physical_query_key(q,a,window_ids[name],fallback),q['modality'])
+            keys[name][q['logical_question_id']]=key;lookup[name][key]=q;canonical[name][key]=a['canonical_answer']
+    result={}
+    for name,pool in public.items():
+        kept=[]
+        for q in pool:
+            if q['modality']not in {'vision','audio'}:kept.append(q);continue
+            key=keys[name][q['logical_question_id']]
+            other=name[:3]+('a1'if name.endswith('a0')else'a0')if q['modality']=='vision'else('v1'if name.startswith('v0')else'v0')+name[2:]
+            if key not in lookup[other]:
+                removed.append({'member':name,'question_id':q['question_id'],'logical_question_id':q['logical_question_id'],'qa_id':q['qa_id'],'modality':q['modality'],'comparison_key':list(key),'reason':'actual nuisance partner missing from original native pool'})
+                continue
+            # A disagreement is retained so the unchanged original audit can
+            # reject it. Filtering a wrong truth would conceal a producer bug.
+            kept.append(q)
+        result[name]=kept
+    return result,{'status':'measured_preselection','removed_unpaired_candidates':removed,'canonical_answers_changed':False,'final_gate_unchanged':True}
+
+
 def finalize_parent_question_pools(row,members,root,*,binding_items_per_window=5,family_counts=None):
     from avengine.timeline.v7_candidate_generation import stage,read_json
     from avengine.qa.v7_families import select_questions
@@ -72,17 +107,19 @@ def finalize_parent_question_pools(row,members,root,*,binding_items_per_window=5
         raise ValueError('parent has an incomplete native member crop')
     selected={name:[] for name in names};audits=[]
     for index in range(row['window_count']):
-        public={};private={};allocations={}
+        public={};private={};allocations={};window_ids={}
         for member in members:
-            name=member['member'];wid=member['windows'][index]['window_id']
+            name=member['member'];wid=member['windows'][index]['window_id'];window_ids[name]=wid
             folder=Path(member['windows_directory'])/wid
             public[name]=read_json(folder/'questions.json');private[name]=read_json(folder/'private_answers.json')
             quota=row['question_quota_base']+row['members'].index(name)*row['window_count']+index
             allocations[name]=question_allocation(quota,row['questions_per_window'])
         ordinary={name:[q for q in public[name] if q['qa_id']!='V7-CLASS34'] for name in names}
         if names==quartet:
+            ordinary,pair_audit=filter_observed_nuisance_candidates(ordinary,private,window_ids)
             chosen,gold,audit=select_counterfactual_group(ordinary,private,allocations,
                 binding_items_per_window=binding_items_per_window,quota_index=row['question_quota_base']+index,family_counts=family_counts)
+            audit['observed_nuisance_preselection']=pair_audit
         else:
             q,a=select_questions(ordinary['v0_a0'],private['v0_a0'],allocations['v0_a0'],quota_index=row['question_quota_base']+index,family_counts=family_counts)
             chosen,gold,audit={'v0_a0':q},{'v0_a0':a},{'status':'single_selected','binding_items_per_member':0}
