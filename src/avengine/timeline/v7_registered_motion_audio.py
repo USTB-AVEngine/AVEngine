@@ -51,7 +51,7 @@ def moving_stem(spec,scene,inputs,cache,dry,attempt,endpoint):
             verdict=qualify_calibrated([check],budget)
             if verdict['status']=='pass':accepted.append((lo,hi,mid,check));continue
             refinements.append({'interval_samples':[lo,hi],'midpoint':mid,'check':check,'failures':verdict['failures']})
-            if (hi-lo)/sample_rate<=.1+1e-12:
+            if min(mid-lo,hi-mid)/sample_rate<.1-1e-12:
                 write_json(attempt/(endpoint+'_moving_energy_rejection.json'),{'status':'blocked','refinements':refinements,'frozen_budget':budget})
                 raise ValueError('moving gate fails at minimum native interval; no budget changes')
             new_keys.append(mid)

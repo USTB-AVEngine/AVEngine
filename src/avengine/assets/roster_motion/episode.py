@@ -137,8 +137,8 @@ def compile_walking(video,entry,scene,house,inputs,directory,request):
         real_nodes.append(float(hi));phase_nodes.append(target)
     real_nodes.append(30.);phase_nodes.append(cumulative+phase[0]);clock=np.interp(times,real_nodes,phase_nodes)
     static_bounds=[np.asarray(a['original_mesh'].vertices)@a['applied_root_input'][:3,:3].T+a['applied_root_input'][:3,3] for a in video.actors if a is not entry]
-    accepted=None;failures=[]
-    poly=shape(scene['production_scenario']['motion_floor_polygon']).buffer(-.55)
+    accepted=None;failures=[];prefilter={"polygon_rejected":0,"bystander_rejected":0,"full_gate_attempted":0}
+    poly=shape(scene['production_scenario']['motion_floor_polygon']).buffer(-.02)
     x0,z0,x1,z1=poly.bounds
     from shapely.geometry import Point
     extra=[[float(x),float(entry['applied_root_input'][1,3]),float(z)] for x in np.arange(x0,x1,.2) for z in np.arange(z0,z1,.2) if poly.covers(Point(x,z))]
@@ -148,8 +148,10 @@ def compile_walking(video,entry,scene,house,inputs,directory,request):
         p0=np.asarray(p0,float)
         for yaw in [0.,math.pi/2,math.pi,-math.pi/2]:
             direction=yaw_matrix(yaw)@np.array([0.,0.,-1.]);positions=p0+distance[:,None]*direction
-            if not poly.covers(LineString([positions[0][[0,2]],positions[-1][[0,2]]])):continue
-            if any(np.any((positions[:,0]>v[:,0].min()-.4)&(positions[:,0]<v[:,0].max()+.4)&(positions[:,2]>v[:,2].min()-.4)&(positions[:,2]<v[:,2].max()+.4))for v in static_bounds):continue
+            if not poly.covers(LineString([positions[0][[0,2]],positions[-1][[0,2]]])):
+                prefilter['polygon_rejected']+=1;continue
+            if any(np.any((positions[:,0]>v[:,0].min()-.05)&(positions[:,0]<v[:,0].max()+.05)&(positions[:,2]>v[:,2].min()-.05)&(positions[:,2]<v[:,2].max()+.05))for v in static_bounds):continue
+            prefilter['full_gate_attempted']+=1
             try:
                 snaps=np.array([video.sim.pathfinder.snap_point(p) for p in positions]);nav=float(np.linalg.norm((snaps-positions)[:,[0,2]],axis=1).max())
                 if not np.isfinite(nav) or nav>.002:raise ValueError('motion actual native navigation horizontal drift exceeds 2mm')
@@ -173,12 +175,19 @@ def compile_walking(video,entry,scene,house,inputs,directory,request):
             except ValueError as error:failures.append({'start_m':p0.tolist(),'yaw_rad':yaw,'reason':str(error)})
         if accepted:break
     if not accepted:
-        write_json(directory/'motion_rejected.json',{'status':'blocked','failures':failures,'lineage':lineage});raise ValueError('admitted human has no fully qualified new-house walking route')
+        write_json(directory/'motion_rejected.json',{'status':'blocked','failures':failures,'lineage':lineage,'prefilter':prefilter,'candidate_count':len(candidates),'floor_polygon_eroded_area_m2':poly.area,'translation_m':float(distance[-1])});raise ValueError('admitted human has no fully qualified new-house walking route')
     positions,yaw,parts_list,frames,floor_y,nav,clearance,minimum=accepted
-    folder=directory/'frames';folder.mkdir(parents=True,exist_ok=True);ed=externalize_unchanged_images(d,b,directory/'textures');files=[];bounds=[]
+    folder=directory/'frames';folder.mkdir(parents=True,exist_ok=True);ed=externalize_unchanged_images(d,b,directory/'textures');files=[];bounds=[];pose_cache={}
     for i,parts in enumerate(parts_list):
         if i%30==0:check_write(folder,expected_bytes=32_000_000)
-        path=folder/(f'{i:04d}.glb');rigid_glb(ed,b,parts,path);files.append(str(path))
+        digest=hashlib.sha256()
+        for part in parts:
+            digest.update(np.ascontiguousarray(part['positions']).tobytes())
+            if 'normals'in part:digest.update(np.ascontiguousarray(part['normals']).tobytes())
+        key=digest.hexdigest()
+        if key not in pose_cache:
+            path=folder/(key+'.glb');rigid_glb(ed,b,parts,path);pose_cache[key]=str(path)
+        files.append(pose_cache[key])
         vertices,_=triangle_mesh(d,b,parts);world=vertices@yaw_matrix(yaw).T+positions[i];bounds.append([world.min(0),world.max(0)])
     evidence={'status':'pass','revision':REVISION,'lineage':lineage,'frame_count':901,'sample_rate_hz':30,
         'source_frames':frames,'world_roots_m':positions.tolist(),'yaw_rad':yaw,'pose_glbs':files,
@@ -188,5 +197,5 @@ def compile_walking(video,entry,scene,house,inputs,directory,request):
         'pause_policy':'zero root motion and observed double-support pose, foot IK stays planted',
         'known_bad_10cm_floor_detected':min(frames[0]['feet'][s]['floor_delta_m']-.1 for s in frames[0]['feet'])<-.008,
         'full_skin_bounds_m':[np.array(bounds)[:,0].min(0).tolist(),np.array(bounds)[:,1].max(0).tolist()],
-        'failed_candidate_count':len(failures),'thresholds_changed':False}
+        'failed_candidate_count':len(failures),'unique_native_pose_meshes':len(pose_cache),'prefilter':prefilter,'thresholds_changed':False}
     write_json(directory/'motion_geometry.json',evidence);return evidence
