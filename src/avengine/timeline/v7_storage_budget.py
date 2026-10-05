@@ -1,7 +1,7 @@
 """CPU production disk headroom; never treat shared filesystem free as quota.
 
 Local review writers inherit an explicit own-output budget through their
-spawned processes. The 48g /data policy is mandatory: 50 decimal GB free,
+spawned processes. The 48g /data policy is mandatory: 100 decimal GB free,
 10 decimal GB for this task, at most eight parent scenes. Allocated size
 counts hardlinks once and is conservative for XFS reflinks.
 """
@@ -39,7 +39,7 @@ def configure_local_review(output,budget_root,*,parents,workers):
     root=Path(budget_root).resolve()
     if not output.is_relative_to(root) or root==Path("/data"):
         raise StorageBudgetExceeded("output must be inside the declared task-owned storage budget")
-    policy={"root":str(root),"filesystem":"/data","minimum_free_bytes":50_000_000_000,
+    policy={"root":str(root),"filesystem":"/data","minimum_free_bytes":100_000_000_000,
             "maximum_task_bytes":10_000_000_000,"concurrent_write_margin_bytes":max(64_000_000,workers*64_000_000),
             "policy":"48g explicit owner disk discipline; decimal bytes", "local_48g":True}
     os.environ[ENV_KEY]=json.dumps(policy,sort_keys=True)

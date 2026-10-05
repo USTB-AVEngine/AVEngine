@@ -75,6 +75,12 @@ def augment_environmental_native_bundle(raw,scene):
     for event in raw['audio_program']['events']:
         if event.get('actor_id') in ids:
             event['native_audio_source_id']=event['actor_id'];event['actor_id']=None
+            # v6's visible-actor resolver also inspects endpoint names. The
+            # digit in environment1 is not evidence of human actor 1. Preserve
+            # the true native endpoint in a separate provenance field, while
+            # removing the visible-actor hint from this audio-only QA input.
+            event['native_source_endpoint_id']=event.pop('source_endpoint_id',None)
+            event.pop('source_endpoint_index',None)
             event['visual_binding']='unbound_audio_only_native_emitter'
     return raw
 
