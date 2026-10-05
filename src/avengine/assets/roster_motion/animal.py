@@ -83,44 +83,55 @@ def compile_continuous_dog_walking(video,entry,scene,house,inputs,directory,requ
     extra=[[float(x),float(entry['applied_root_input'][1,3]),float(z)] for x in np.arange(x0,x1,.2) for z in np.arange(z0,z1,.2) if poly.covers(Point(x,z))]
     extra.sort(key=lambda p:float(np.linalg.norm(np.asarray(p)[[0,2]]-entry['applied_root_input'][[0,2],3])))
     candidates=[entry['applied_root_input'][:3,3].tolist(),*extra]
-    for p0 in candidates[:512]:
-        p0=np.asarray(p0,float)
+    # Prioritize the actual clear floor and separation from other bodies.
+    # Closest-first consumed all eight FCL attempts around a cluttered emitter.
+    # This is a candidate prefilter/order only; full native criteria are intact.
+    from shapely.geometry import box
+    routes=[]
+    for candidate in candidates[:512]:
+        p0=np.asarray(candidate,float)
         for yaw in [0.,math.pi/2,math.pi,-math.pi/2]:
             direction=yaw_matrix(yaw)@np.array([0.,0.,-1.]);positions=p0+distance[:,None]*direction
-            if not poly.covers(LineString([positions[0][[0,2]],positions[-1][[0,2]]])):
+            line=LineString([positions[0][[0,2]],positions[-1][[0,2]]])
+            if not poly.covers(line):
                 prefilter['polygon_rejected']+=1;continue
-            if any(np.any((positions[:,0]>v[:,0].min()-.05)&(positions[:,0]<v[:,0].max()+.05)&(positions[:,2]>v[:,2].min()-.05)&(positions[:,2]<v[:,2].max()+.05))for v in static_bounds):continue
-            if prefilter['full_gate_attempted']>=max_attempts or time.process_time()-search_start>cpu_budget_s:
-                write_json(directory/'motion_rejected.json',{'status':'blocked','reason':'bounded route search exhausted; no physical admission','failures':failures,'lineage':lineage,'prefilter':prefilter,'thresholds_changed':False})
-                raise ValueError('dog native route search budget exhausted without admission')
-            prefilter['full_gate_attempted']+=1
-            search_progress(start_m=p0.tolist(),yaw_rad=yaw,frame_index=None)
-            try:
-                snaps=np.array([video.pathfinder.snap_point(p) for p in positions]);nav=float(np.linalg.norm((snaps-positions)[:,[0,2]],axis=1).max())
-                if not np.isfinite(nav) or nav>.002:raise ValueError('motion actual native navigation horizontal drift exceeds 2mm')
-                # The actual stage ground, rather than the NavMesh voxel height.
-                ray=video.hs.geo.Ray(video.mn.Vector3(p0+[0.,.2,0.]),video.mn.Vector3(0.,-1.,0.))
-                hits=[h for h in video.sim.cast_ray(ray,.85).hits if int(h.object_id)not in {int(a['object'].object_id)for a in video.actors}]
-                if not hits:raise ValueError('motion route has no actual native ground')
-                floor_y=float(hits[0].point[1]);positions[:,1]=floor_y
-                floor=PhysicalFloor(video,floor_y,{int(a['object'].object_id)for a in video.actors})
-                solver=FootPlant(d,b,action,clock.tolist(),positions.tolist(),[yaw]*len(times),1.,float(ts[0]),duration,floor,basis=np.eye(4),chains=chains,masks=masks,emitter_bone='Xtra Mouth',canonical_flip=False,backward_threshold=.08)
-                solver.times=times
-                support_repairs=ground_slow_gait_support(solver)
-                for values in solver.active.values():values[~moving]=True
-                clearance=TriangleClearance(video,house,floor_y,entry);geometry=[];frames=[];minimum=math.inf
-                for i,t in enumerate(times):
-                    if i%90==0:search_progress(start_m=p0.tolist(),yaw_rad=yaw,frame_index=i)
-                    if time.process_time()-search_start>cpu_budget_s:raise ValueError('dog route CPU budget exhausted; no admission')
-                    _,parts,ev=solver.frame(i);v,f=triangle_mesh(d,b,parts);dist,world=clearance.check(v,f,positions[i],yaw);minimum=min(minimum,dist)
-                    feet=list(ev['feet'].values());contacts=[x for x in feet if x['in_contact']]
-                    if not contacts:raise ValueError('dog gait has no planted paw at an actual 30Hz sample')
-                    if min(x['floor_delta_m']for x in feet)<-.008 or any(abs(x['floor_delta_m'])>=.008 or x['support_lock_error_m']>=.003 for x in contacts):raise ValueError('motion source foot contact or lock violates unchanged 8mm/3mm admission')
-                    if solver.max_reach>=.001 or ev['pelvis_lowering_m']>=.08:raise ValueError('motion IK reach or pelvis bound failed')
-                    geometry.append(parts);frames.append({**ev,'time_s':float(t),'moving':bool(moving[i]),'minimum_nonfloor_clearance_m':dist})
-                accepted=(positions,yaw,geometry,frames,floor_y,nav,clearance,minimum,support_repairs);break
-            except ValueError as error:failures.append({'start_m':p0.tolist(),'yaw_rad':yaw,'reason':str(error)})
-        if accepted:break
+            bodies=[box(v[:,0].min()-.05,v[:,2].min()-.05,v[:,0].max()+.05,v[:,2].max()+.05)for v in static_bounds]
+            if any(line.intersects(body)for body in bodies):
+                prefilter['bystander_rejected']+=1;continue
+            score=min([float(line.distance(poly.boundary))]+[float(line.distance(body))for body in bodies])
+            routes.append((score,p0,yaw,positions))
+    routes.sort(key=lambda route:(-route[0],float(np.linalg.norm(route[1][[0,2]]-entry['applied_root_input'][[0,2],3])),route[2]))
+    for score,p0,yaw,positions in routes:
+        if prefilter['full_gate_attempted']>=max_attempts or time.process_time()-search_start>cpu_budget_s:
+            write_json(directory/'motion_rejected.json',{'status':'blocked','reason':'bounded route search exhausted; no physical admission','failures':failures,'lineage':lineage,'prefilter':prefilter,'thresholds_changed':False})
+            raise ValueError('dog native route search budget exhausted without admission')
+        prefilter['full_gate_attempted']+=1
+        search_progress(start_m=p0.tolist(),yaw_rad=yaw,frame_index=None)
+        try:
+            snaps=np.array([video.pathfinder.snap_point(p) for p in positions]);nav=float(np.linalg.norm((snaps-positions)[:,[0,2]],axis=1).max())
+            if not np.isfinite(nav) or nav>.002:raise ValueError('motion actual native navigation horizontal drift exceeds 2mm')
+            # The actual stage ground, rather than the NavMesh voxel height.
+            ray=video.hs.geo.Ray(video.mn.Vector3(p0+[0.,.2,0.]),video.mn.Vector3(0.,-1.,0.))
+            hits=[h for h in video.sim.cast_ray(ray,.85).hits if int(h.object_id)not in {int(a['object'].object_id)for a in video.actors}]
+            if not hits:raise ValueError('motion route has no actual native ground')
+            floor_y=float(hits[0].point[1]);positions[:,1]=floor_y
+            floor=PhysicalFloor(video,floor_y,{int(a['object'].object_id)for a in video.actors})
+            solver=FootPlant(d,b,action,clock.tolist(),positions.tolist(),[yaw]*len(times),1.,float(ts[0]),duration,floor,basis=np.eye(4),chains=chains,masks=masks,emitter_bone='Xtra Mouth',canonical_flip=False,backward_threshold=.08)
+            solver.times=times
+            support_repairs=ground_slow_gait_support(solver)
+            for values in solver.active.values():values[~moving]=True
+            clearance=TriangleClearance(video,house,floor_y,entry);geometry=[];frames=[];minimum=math.inf
+            for i,t in enumerate(times):
+                if i%90==0:search_progress(start_m=p0.tolist(),yaw_rad=yaw,frame_index=i)
+                if time.process_time()-search_start>cpu_budget_s:raise ValueError('dog route CPU budget exhausted; no admission')
+                _,parts,ev=solver.frame(i);v,f=triangle_mesh(d,b,parts);dist,world=clearance.check(v,f,positions[i],yaw);minimum=min(minimum,dist)
+                feet=list(ev['feet'].values());contacts=[x for x in feet if x['in_contact']]
+                if not contacts:raise ValueError('dog gait has no planted paw at an actual 30Hz sample')
+                if min(x['floor_delta_m']for x in feet)<-.008 or any(abs(x['floor_delta_m'])>=.008 or x['support_lock_error_m']>=.003 for x in contacts):raise ValueError('motion source foot contact or lock violates unchanged 8mm/3mm admission')
+                if solver.max_reach>=.001 or ev['pelvis_lowering_m']>=.08:raise ValueError('motion IK reach or pelvis bound failed')
+                geometry.append(parts);frames.append({**ev,'time_s':float(t),'moving':bool(moving[i]),'minimum_nonfloor_clearance_m':dist})
+            accepted=(positions,yaw,geometry,frames,floor_y,nav,clearance,minimum,support_repairs);break
+        except ValueError as error:failures.append({'start_m':p0.tolist(),'yaw_rad':yaw,'reason':str(error)})
     if not accepted:
         write_json(directory/'motion_rejected.json',{'status':'blocked','failures':failures,'lineage':lineage,'prefilter':prefilter,'candidate_count':len(candidates),'floor_polygon_eroded_area_m2':poly.area,'translation_m':float(distance[-1])});raise ValueError('admitted dog has no fully qualified new-house walking route')
     positions,yaw,parts_list,frames,floor_y,nav,clearance,minimum,support_repairs=accepted
