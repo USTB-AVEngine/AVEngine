@@ -191,10 +191,22 @@ def export_alpha(seeds,seal_roots,output,expected_parents=None,sealed_parent_map
         write_json(target/'sources'/asset_id/'source.json',packaged)
     for parent in rows:
         licenses=load(target/'parents'/parent['scene_id']/'private/human_license_admission.json')
+        packaged_assets=[]
         for human in licenses:
+            packaged_asset={**human,'license':dict(human['license'])};extras=[]
+            for extra in human.get('additional_licenses',[]):
+                original=Path(extra['retained_text']);digest=extra['sha256']
+                import hashlib
+                if not original.is_file()or hashlib.sha256(original.read_bytes()).hexdigest()!=digest:
+                    raise ValueError('additional source license changed before export')
+                if str(original)not in license_files:
+                    dest=target/'licenses'/(digest[:16]+'_'+original.name);_copy(original,dest);license_files[str(original)]=str(dest.relative_to(target))
+                extras.append({**extra,'packaged_license_text':license_files[str(original)]})
+            packaged_asset['additional_licenses']=extras;packaged_assets.append(packaged_asset)
             path=Path(human['license']['retained_text'])
             if str(path) not in license_files:
                 name=f'license_{len(license_files):02d}.txt';_copy(path,target/'licenses'/name);license_files[str(path)]=str(Path('licenses')/name)
+        write_json(target/'parents'/parent['scene_id']/'private/packaged_asset_licenses.json',packaged_assets)
     for split in sorted({r['split'] for r in rows}):
         with (target/(split+'.jsonl')).open('x') as f:
             for record in training:
@@ -224,7 +236,10 @@ def export_alpha(seeds,seal_roots,output,expected_parents=None,sealed_parent_map
         'actual_non_speech_classes':len(set(classes)-{0,1}),'actual_class13_ids':sorted(classes),'actual_class13_segment_counts':dict(classes),'actual_sound_class_emission_counts':dict(sound_classes),'actual_gender_labels':sorted(genders),'actual_speech_gender_emission_counts':dict(genders),'actual_emission_mechanism_counts':dict(mechanisms),'actual_moving_source_windows':moving_windows,'actual_natural_TTS_emissions':tts_event_count,
         'actual_speakers_per_window':dict(speaker_counts),'actual_activity_segments_per_window':dict(activity_counts),
         'full_v5_quota_realized':False,'full_v7_formal_windows':0,'full_v7_generation_ready':False,
-        'human_asset_body_templates_used':len({a.get('body_identity_id',a.get('asset_id')) for a in humans.values()}),'human_asset_color_variants_used':len(humans),'human_motion_scope':'native-qualified standing only',
+        'human_asset_body_templates_used':len({a.get('body_identity_id',a.get('asset_id')) for a in humans.values()if a.get('entity_class','articulated_human')=='articulated_human'}),
+        'human_asset_color_variants_used':sum(a.get('entity_class','articulated_human')=='articulated_human'for a in humans.values()),
+        'animal_assets_used':sum(a.get('entity_class')=='articulated_animal'for a in humans.values()),
+        'human_motion_scope':'actions only as recorded in actual native_visual_checks; no static-to-motion promotion',
         'TTS_license_status':'actual_admitted_CosyVoice2_source_chain_and_native_episode' if tts_event_count else 'no_TTS_emissions_in_this_release','E_S_predictions':'not_emitted; deployment predictor required by downstream training',
         'native_visual_checks':native_checks,'source_material_checks':{'observations':len(material_rows),'all_status_pass':all(r['status']=='pass' for r in material_rows),
             'max_highlight_ratio':max(r['highlight_ratio'] for r in material_rows if r.get('highlight_ratio') is not None),

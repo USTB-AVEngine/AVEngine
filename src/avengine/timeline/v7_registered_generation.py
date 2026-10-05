@@ -39,7 +39,28 @@ def qualify_licenses(assets,admission):
         if not row['standing_registered_qualified']:raise ValueError('static registered authority missing')
         for path,digest in row['actual_artifact_sha256'].items():
             if hashlib.sha256(Path(path).read_bytes()).hexdigest()!=digest:raise ValueError('registered input changed')
-        checks.append({'asset_id':asset['asset_id'],'license':{'status':'pass','license':mit['license'],'retained_text':str(Path(row['source_registry']).parent.parent/mit['retained_copy']),'sha256':mit['sha256']},'source_chain_verified':True,'motion_scope':'registered stand only; complete native contact checked separately'})
+        additional=[]
+        for filename in asset.get('additional_license_texts',[]):
+            path=Path(filename)
+            if not path.is_file()or not path.read_bytes():raise ValueError('additional asset license text missing')
+            text=path.read_text()
+            if 'CC0'not in text or 'Universal'not in text:raise ValueError('unrecognized canine animation license text')
+            additional.append({'status':'pass','license':'CC0-1.0','retained_text':str(path),
+                'sha256':hashlib.sha256(path.read_bytes()).hexdigest(),
+                'source_uri':'https://creativecommons.org/publicdomain/zero/1.0/legalcode.txt',
+                'declaration_uri':'https://quaternius.com/packs/ultimateanimatedanimals.html',
+                'scope':'original admitted canine Walking_Contact animation; original Rocketbox body uses MIT'})
+        motion_scope='registered stand; any requested action requires complete native episode contact and visibility'
+        if asset.get('entity_class')=='articulated_animal':
+            authority=Path(asset['static_pose_authority']);records=json.loads(authority.read_text())
+            record=next((x for x in records if x.get('breed')==asset.get('animal_variant')or x.get('static_glb')==asset['habitat_glb']),None)
+            if record is None or record.get('status')!='pass'or record.get('static_glb')!=asset['habitat_glb']:
+                raise ValueError('original canine static pose authority does not match this GLB')
+            if not additional:raise ValueError('canine motion requires retained CC0 license')
+            motion_scope='registered original static canine; continuous admitted contact walk only; no planted pause claimed'
+        checks.append({'asset_id':asset['asset_id'],'entity_class':asset.get('entity_class','articulated_human'),
+            'license':{'status':'pass','license':mit['license'],'retained_text':str(Path(row['source_registry']).parent.parent/mit['retained_copy']),'sha256':mit['sha256']},
+            'additional_licenses':additional,'source_chain_verified':True,'motion_scope':motion_scope})
     return checks
 
 
