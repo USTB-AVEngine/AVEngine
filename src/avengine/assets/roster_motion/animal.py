@@ -39,6 +39,27 @@ from avengine.assets.roster_motion.contact import FootPlant,yaw_matrix
 from avengine.timeline.continuous_pilot import write_json
 import math,time
 
+def ground_slow_gait_support(solver):
+    """Plant a near-ground authored paw when re-timing removes a stance label.
+
+    The source Contact clips already contain IK rotations. Their ankle
+    derivatives are not a reliable stance classifier after a second retiming.
+    This changes the generated pose through the existing world-space IK;
+    it never fabricates a contact certificate or changes its tolerances.
+    """
+    changed=[]
+    sides=list(solver.chains)
+    for i,source in enumerate(solver.source):
+        if any(solver.active[side][i] for side in sides):continue
+        heights=source[2]
+        near=[side for side in sides if heights[side]<.025]
+        if not near:raise ValueError("slow canine gait has no near-ground authored support candidate")
+        side=min(near,key=lambda key:heights[key])
+        solver.active[side][i]=True
+        changed.append({"frame_index":i,"paw":side,"source_floor_height_m":float(heights[side])})
+    return changed
+
+
 def compile_continuous_dog_walking(video,entry,scene,house,inputs,directory,request):
     from shapely.geometry import shape,LineString
     from avengine.timeline.v7_storage_budget import check_write
@@ -85,6 +106,7 @@ def compile_continuous_dog_walking(video,entry,scene,house,inputs,directory,requ
                 floor=PhysicalFloor(video,floor_y,{int(a['object'].object_id)for a in video.actors})
                 solver=FootPlant(d,b,action,clock.tolist(),positions.tolist(),[yaw]*len(times),1.,float(ts[0]),duration,floor,basis=np.eye(4),chains=chains,masks=masks,emitter_bone='Xtra Mouth',canonical_flip=False,backward_threshold=.08)
                 solver.times=times
+                support_repairs=ground_slow_gait_support(solver)
                 for values in solver.active.values():values[~moving]=True
                 clearance=TriangleClearance(video,house,floor_y,entry);geometry=[];frames=[];minimum=math.inf
                 for i,t in enumerate(times):
@@ -96,12 +118,12 @@ def compile_continuous_dog_walking(video,entry,scene,house,inputs,directory,requ
                     if min(x['floor_delta_m']for x in feet)<-.008 or any(abs(x['floor_delta_m'])>=.008 or x['support_lock_error_m']>=.003 for x in contacts):raise ValueError('motion source foot contact or lock violates unchanged 8mm/3mm admission')
                     if solver.max_reach>=.001 or ev['pelvis_lowering_m']>=.08:raise ValueError('motion IK reach or pelvis bound failed')
                     geometry.append(parts);frames.append({**ev,'time_s':float(t),'moving':bool(moving[i]),'minimum_nonfloor_clearance_m':dist})
-                accepted=(positions,yaw,geometry,frames,floor_y,nav,clearance,minimum);break
+                accepted=(positions,yaw,geometry,frames,floor_y,nav,clearance,minimum,support_repairs);break
             except ValueError as error:failures.append({'start_m':p0.tolist(),'yaw_rad':yaw,'reason':str(error)})
         if accepted:break
     if not accepted:
         write_json(directory/'motion_rejected.json',{'status':'blocked','failures':failures,'lineage':lineage,'prefilter':prefilter,'candidate_count':len(candidates),'floor_polygon_eroded_area_m2':poly.area,'translation_m':float(distance[-1])});raise ValueError('admitted dog has no fully qualified new-house walking route')
-    positions,yaw,parts_list,frames,floor_y,nav,clearance,minimum=accepted
+    positions,yaw,parts_list,frames,floor_y,nav,clearance,minimum,support_repairs=accepted
     folder=directory/'frames';folder.mkdir(parents=True,exist_ok=True);ed=externalize_unchanged_images(d,b,directory/'textures');files=[];bounds=[];pose_cache={}
     for i,parts in enumerate(parts_list):
         if i%30==0:check_write(folder,expected_bytes=32_000_000)
@@ -119,7 +141,7 @@ def compile_continuous_dog_walking(video,entry,scene,house,inputs,directory,requ
         'maximum_navmesh_horizontal_error_m':nav,'minimum_certified_triangle_nonfloor_clearance_m':minimum,'collision_method':'exact FCL for every triangle whose AABB can be within 20.0001mm; excluded AABB axis bounds certify >20mm',
         'stage_original_glb':clearance.source,'true_ground_triangles_removed':clearance.removed,
         'nonfloor_stage_triangles':clearance.triangles,'physical_ground_y_m':floor_y,
-        'motion_kind':'dog_continuous_walk','pause_policy':'continuous slow walk only; no four-paw stop is declared','species_id':'dog',
+        'motion_kind':'dog_continuous_walk','slow_gait_support_IK_repairs':support_repairs,'pause_policy':'continuous slow walk only; no four-paw stop is declared','species_id':'dog',
         'known_bad_10cm_floor_detected':min(frames[0]['feet'][s]['floor_delta_m']-.1 for s in frames[0]['feet'])<-.008,
         'full_skin_bounds_m':[np.array(bounds)[:,0].min(0).tolist(),np.array(bounds)[:,1].max(0).tolist()],
         'failed_candidate_count':len(failures),'unique_native_pose_meshes':len(pose_cache),'prefilter':prefilter,'thresholds_changed':False}
