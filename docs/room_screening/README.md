@@ -76,7 +76,7 @@ Manifest 结构见 [JSON Schema](../../schemas/room_screening_review_manifest_v1
 ## 验证
 
 ```bash
-python -m unittest tests.unit.room_screening.test_geometry tests.unit.room_screening.test_review_server tests.unit.room_screening.test_inventory_contract -v
+python -m unittest discover -s tests/unit/room_screening -p 'test_*.py' -v
 python tools/build_tool_index.py --check
 ```
 
