@@ -844,3 +844,7 @@ MP3D原Basis直接native对照发生段错误，保留PNG/JPEG预检。9训练�
 owner审批建议（仅列、零删除）：已有可重建材质34.071GB、连续媒体17.191GB、干声数组9.839GB、工作窗媒体10.549GB、未选候选池11.356GB，共83.006GB上限；先保证完整可读交付及下游接收，并保留拒绝/好坏对照见证。另RGB/G-buffer上限20.854+44.386=65.240GB，但必要抽检与失败见证还未扣，不能宣称全可删。大原生/交付JSON用12个只读zlib3样本回读SHA验证，压缩后约5.1–5.5%；只对此次盘点的大JSON外推可省约22.189GB，整池未验证，需保留解码和原始哈希契约。后三类不能在审批前纳入可用空间。已封存清单的required RIR/私有证据不能原地删掉；RIR精确逐字节再生未证明，若减存应新保留版本/冷归档并保留渲染设置、坐标、随机上下文、声学门禁统计和来源。
 
 外部等待器在本机运行，持久缓存/回执在AFS `supplement_r16_1/space_resume_r19/`；CCI每4小时重启后重连。周期为每次新测量后600秒退避；唯一新plan为`v7_s_supplement_r19_space_r14_20261006`。实际入队会再次备份+P19_DRY+CAS并写QUEUE_RECEIPT。任务专用`PAUSE_SPACE_RESUME_R19`只暂停等待入队，不是生产STOP；暂停脚本先标本机，再写AFS标记，排队前会再次检查。若已入队，暂停等待器不会撤销P19任务。本回合判分器、真值、14题门槛、模态门槛及QA代码均未改。
+
+## 第20回合补充：P19领取状态与重启
+
+P19一个rank的`all_runnable_claimed`只表示当前job内实验已被其他rank领取，不能据此判为整份v7计划失败。正式运行状态同时核对当前active租约、claims/<job>/实验、全部rank事件、coordinator身份及新鲜PROGRESS；新增只读inspect_v7_p19_progress工具。一个CPU生成实验占1个P19位置，队列末尾2是每GPU的worker数量。r14旧job由rank5领取，owner重启后新job由rank4实际续跑；生产仍382cfc1、40CPU上限、35%训练保护、2TB个人盘额/80GB预留，判分器/真值/门槛不改。详见docs/V7_P19_DISPATCH_R20_zh.md。
