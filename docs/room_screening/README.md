@@ -85,3 +85,5 @@ python tools/build_tool_index.py --check
 ## 公开与数据边界
 
 本分支不包含真实场景清单、扫描资产、审核图像/视频、审核文本、运行输出或反馈 JSON。方法文档是去除样本编号和个人工作区追溯信息后的仓库副本。任何真实场景 ID、任务记录或审阅产物仅在本地外部输入中使用。
+
+HM3D 的公开说明限定其用于学术、非商业研究；Matterport 学术使用协议也要求随发布的派生信息附上协议链接。分发较大规模的派生信息前，还须确保接收者按协议接受条款并留存记录。请遵守[HM3D 使用说明](https://aihabitat.org/datasets/hm3d/)及[Matterport 学术使用协议](https://matterport.com/legal/matterport-end-user-license-agreement-academic-use-model-data)。本仓库只公开汇总信息，不公开逐房派生表或场景素材。

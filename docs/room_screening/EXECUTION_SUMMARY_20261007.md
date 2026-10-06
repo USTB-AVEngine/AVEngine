@@ -36,3 +36,5 @@
 ## 结果边界
 
 “暂列可用/舍弃/裁剪”是本项目的派生建议，不是正式审核结论，也不证明真实人物移动、声学、摄像机或具体下游任务适用。19 条范围敏感及 3 条不可评估记录不会阻断其他对象的初筛交付，也不要求负责人逐条重审。逐房表、图像、视频和原始意见保留在受限工作区；仓库仅含去标识规则和汇总。
+
+本汇总基于 HM3D 场景数据及其派生信息。HM3D 仅供学术、非商业研究使用；发布派生信息时应附上[Matterport 学术使用协议](https://matterport.com/legal/matterport-end-user-license-agreement-academic-use-model-data)，并遵守[HM3D 使用说明](https://aihabitat.org/datasets/hm3d/)。
