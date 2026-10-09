@@ -82,3 +82,13 @@ used as the production delivery.
 InteriorAgent inputs and derived review images remain noncommercial research
 only and must not be redistributed. No dataset assets or generated media enter
 Git.
+
+
+Optional original-room physical evidence may live in `original_physical_v1/`
+under the artifact root. A previously found witness is reused only for an
+identical real polygon, identical frozen parameters, and the same recorded
+navigation and raw surface input paths. The final worker independently checks
+its camera and two source points inside that exact polygon, their current
+navmesh support, and all three current raw-mesh segment rays. Failed or absent
+evidence falls back to the normal frozen search. Original evidence is a
+precheck and never substitutes for final v6 shape/connectivity admission.

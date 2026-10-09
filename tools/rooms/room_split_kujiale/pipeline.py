@@ -1,6 +1,6 @@
 """Apply HM3D v6 shape construction and frozen CPU placement to all CAD rooms."""
 from __future__ import annotations
-import argparse, math, os, resource, time, traceback, multiprocessing
+import argparse, copy, math, os, resource, time, traceback, multiprocessing
 from pathlib import Path
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from collections import Counter
@@ -262,7 +262,14 @@ def source_region(row,h,scene_adapter,mesh,pf,hs,nav_polys,nav_ys,p):
             if dominant is not None and dominant<p['dominant_floor_area_fraction_min']-1e-8:reasons.append('DOMINANT_FLOOR_BELOW_FROZEN_THRESHOLD')
             check=connectivity_check(q,pf,hs,points,ctx,other)
             if not check['pass_']:pending.append('DIRECT_NAV_CONNECTIVITY_UNRESOLVED')
-            witness=witness_check(placement(mesh,points,clearance,adj,p),q,mesh,pf,p)
+            prior=scene_adapter.get('original_physical_cache',{}).get(row['room_label'])
+            if prior and prior['placement_witness'].get('found') and shape(prior['floor_polygon_xz_m']).equals(q):
+                # The original search used the same frozen parameters and input
+                # navmesh. Re-check all three real-shape/support/ray facts now.
+                witness=witness_check(copy.deepcopy(prior['placement_witness']),q,mesh,pf,p)
+                witness['search_evidence_source']=scene_adapter['original_physical_cache_source']
+            if not witness.get('found'):
+                witness=witness_check(placement(mesh,points,clearance,adj,p),q,mesh,pf,p)
             if not witness['found']:reasons.append('PLACEMENT_NO_WITNESS_WITHIN_FROZEN_BUDGET')
         decision='discard' if reasons else 'unresolved' if pending else 'retain'
         bid=h['house']+'__'+row['room_label']+'__'+fid+'__K%03d'%i
@@ -298,6 +305,12 @@ def worker(h,out,p):
     started=time.time();out=Path(out);hs=load_native();pf,navp,navy=navmesh_triangles(hs,Path(h['navmesh']))
     adapter=read(out/'scene_adapters_v1'/(h['house']+'.json'))
     adapter['stair_masks_by_region']=read(out/'scene_stairs_v1'/(h['house']+'.json'))['rooms']
+    original_cache=out/'original_physical_v1'/(h['house']+'.json')
+    if original_cache.is_file():
+        cache=read(original_cache)
+        if cache['parameters']==p and cache['navmesh']==h['navmesh'] and cache['surface_source']==h['build']+'/surface':
+            adapter['original_physical_cache']={r['source_region']:r for r in cache['rows']}
+            adapter['original_physical_cache_source']=str(original_cache)
     if adapter['existing_surface_parity']['fraction_within_1mm']<.999:raise ValueError('Unaligned original USD surface')
     vertices=np.load(Path(h['build'])/'surface/vertices.npy',mmap_mode='r');faces=np.load(Path(h['build'])/'surface/triangles.npy',mmap_mode='r')
     mesh=trimesh.Trimesh(vertices=vertices,faces=faces,process=False);mesh.ray=CPUScanRayIntersector(mesh)
