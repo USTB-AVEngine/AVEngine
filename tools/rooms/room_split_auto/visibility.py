@@ -9,6 +9,7 @@ from scipy.optimize import milp,Bounds,LinearConstraint
 from scipy.sparse import coo_matrix
 from tools.rooms.room_selection.navigation import ray_clear_batch,farthest_sample,cells_polygon
 from tools.rooms.room_screening.geometry import union_projected_polygons
+from tools.rooms.room_selection.media import polygons
 
 
 def visibility_matrix(mesh,points,camera_ids,p,max_distance):
@@ -41,7 +42,7 @@ def grid_atoms(scope,nav_scope,points,step=0.25):
     owner=cKDTree(points[:,[0,2]]).query(xy)[1]
     atoms=[];floor_weights=[];nav_weights=[]
     for i in range(len(points)):
-        atom=shapely.union_all(floor_cells[owner==i]) if np.any(owner==i) else GeometryCollection()
+        atom=union_projected_polygons([p for cell in floor_cells[owner==i] for p in polygons(cell)]) if np.any(owner==i) else GeometryCollection()
         atoms.append(atom);floor_weights.append(float(atom.area));nav_weights.append(float(atom.intersection(nav_scope).area))
     rebuilt=shapely.union_all(atoms)
     if rebuilt.symmetric_difference(scope).area>1e-7:raise ValueError('grid atoms do not cover the measured floor')
@@ -109,7 +110,7 @@ def partition_visibility(mesh,scope,nav_scope,points,p,coverage=0.8,max_distance
     if (assignment<0).any():return [scope],[],dict(receipt,status='unresolved',reason='VISIBILITY_INTEGER_ASSIGNMENT_INCOMPLETE')
     pieces=[];witnesses=[]
     for j in sorted(set(assignment)):
-        ids=np.flatnonzero(assignment==j);piece=shapely.union_all([atoms[i] for i in ids])
+        ids=np.flatnonzero(assignment==j);piece=union_projected_polygons([poly for i in ids for poly in polygons(atoms[i])])
         if piece.is_empty:continue
         cov=float(sum(nw[ids]*vis[j,ids])/sum(nw[ids])) if sum(nw[ids]) else 0.0
         far=float(dist[j,ids].max())

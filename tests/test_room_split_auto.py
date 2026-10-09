@@ -107,3 +107,16 @@ def test_merged_internal_cut_is_not_a_final_interface():
     finalize_interfaces(blocks,cuts)
     assert cuts[0]['active_in_final_partition'] and not cuts[1]['active_in_final_partition']
     assert all(b['cut_ids']==['actual'] for b in blocks)
+
+
+def test_cell_boundary_lines_do_not_turn_rooms_into_geometry_collections():
+    # The upper polygon touches a lower grid cell with a remote line segment.
+    # It belongs to another owner; that one-dimensional fragment is not ground.
+    scope=box(0,0,.12,.12).union(box(.2,.25,.22,.3))
+    points=np.array([[.06,0,.06],[.21,0,.275]])
+    atoms,fw,nw=grid_atoms(scope,scope,points,.25)
+    assert all(g.geom_type in ('Polygon','MultiPolygon') for g in atoms if not g.is_empty)
+    assert all(g.boundary is not None for g in atoms if not g.is_empty)
+    assert sum(fw)==pytest.approx(scope.area) and sum(nw)==pytest.approx(scope.area)
+    assert shapely.union_all(atoms).symmetric_difference(scope).area<1e-10
+    assert atoms[0].intersection(atoms[1]).area==0

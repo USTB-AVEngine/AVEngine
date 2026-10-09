@@ -32,6 +32,9 @@ new diagnostic fails. Only oversized sources create new room candidates.
    continuous navmesh intersections, and 0.25 m grid samples. All floor area is
    conserved through exact clipped cell unions. Navigation cell weights are
    clipped continuous nav areas, rather than nominal grid-cell areas.
+   Non-area lines introduced where a grid cell touches a remote polygon boundary
+   are omitted from owned floor atoms. All two-dimensional floor area is retained;
+   exported room polygons therefore have valid polygon boundaries.
 5. Raw scan GLB triangles provide CPU BVH occlusion rays at frozen camera and
    source heights of 1.5 and 1.2 m. `cpu_rays.py` retains the implementation from
    repository commit `82196bb`, `tools/acoustics/cpu_scan_rays.py`; no raw face
