@@ -184,3 +184,25 @@ def test_circle_boundary_repair_keeps_both_large_parts():
     assert all(not x["forced"] and not x["error"] and disk(x["g"])["fits"] for x in leaves)
     assert abs(sum(x["g"].area for x in leaves)-a.union(b).area)<1e-8
     assert all(len(cut[0].coords)-1<=3 for cut in cuts)
+
+def test_incremental_room_ids_reserve_preserved_retry_blocks():
+    from tools.rooms.room_split_auto.shape_quality_repair import fresh_room_id
+    used={"h__R1__F0__Q003","h__R1__F0__Q004"}
+    assert fresh_room_id("h","R1","F0",used,3)=="h__R1__F0__Q005"
+    assert fresh_room_id("h","R1","F0",used,3)=="h__R1__F0__Q006"
+
+def test_imported_retry_duplicate_ids_rebuild_adjacency_without_changing_polygons():
+    from shapely.geometry import mapping
+    from tools.rooms.room_split_auto.shape_quality_delivery import canonical_interfaces
+    a,b=box(0,0,3,4),box(3,0,6,4)
+    original=dict(house="h",source_region="R1",blocks=[
+        dict(id="h__R1__F0__Q003",floor_id="F0",floor_polygon_xz_m=mapping(g),decision="retain")
+        for g in (a,b)],cut_lines=[])
+    repaired=canonical_interfaces(original)
+    assert len({x["id"] for x in repaired["blocks"]})==2
+    assert len({x["id"] for x in original["blocks"]})==1
+    for before,after in zip(original["blocks"],repaired["blocks"]):
+        assert before["floor_polygon_xz_m"]==after["floor_polygon_xz_m"]
+        assert all(x["id"]!=after["id"] for x in after["adjacent_rooms"])
+    assert repaired["blocks"][0]["adjacent_rooms"][0]["id"]==repaired["blocks"][1]["id"]
+    assert repaired["blocks"][1]["adjacent_rooms"][0]["id"]==repaired["blocks"][0]["id"]

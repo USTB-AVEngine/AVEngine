@@ -24,6 +24,8 @@ def score(r):
 def canonical_interfaces(reg):
     """Persist the same surviving design span used by furniture and review."""
     r=copy.deepcopy(reg)
+    from tools.rooms.room_split_auto.shape_quality_repair import unique_block_ids
+    if "blocks" in r:unique_block_ids(r)
     for c in r["cut_lines"]:
         current=c.get("current_design_span_geometry_xz_m")
         if current is None:continue
@@ -79,6 +81,7 @@ def assemble(root,attempts=("attempt_v2",),name="final_v1"):
             reasons.append(dict(reason="RETRY_PROPOSAL_SEPARATE_TO_PRESERVE_65_SOURCE_BYTES"))
         ischanged=best is not before
         if ischanged:best=canonical_interfaces(best)
+        assert len({b["id"] for b in best["blocks"]})==len(best["blocks"]), "duplicate room ID"
         new[filename]=best
         if ischanged:
             changed.append(filename);dump(out/"regions"/filename,best)
