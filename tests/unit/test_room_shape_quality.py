@@ -206,3 +206,85 @@ def test_imported_retry_duplicate_ids_rebuild_adjacency_without_changing_polygon
         assert all(x["id"]!=after["id"] for x in after["adjacent_rooms"])
     assert repaired["blocks"][0]["adjacent_rooms"][0]["id"]==repaired["blocks"][1]["id"]
     assert repaired["blocks"][1]["adjacent_rooms"][0]["id"]==repaired["blocks"][0]["id"]
+
+def test_circle_admission_matches_own_outline_and_discards_only_failed_cell():
+    from shapely.geometry import mapping
+    from tools.rooms.room_split_auto.shape_quality_repair import enforce_room_disk_admission,room_disk_certificate
+    narrow=box(0,0,2.35,4);wide=box(3,0,6,4)
+    blocks=[dict(id=str(i),decision="retain",floor_polygon_xz_m=mapping(g),floor_area_m2=g.area,placement_witness={"found":True}) for i,g in enumerate([narrow,wide])]
+    old_polygon=blocks[0]["floor_polygon_xz_m"]
+    audit=enforce_room_disk_admission(blocks)
+    assert len(audit)==1 and blocks[0]["decision"]=="discard"
+    assert blocks[0]["discard_reasons"]==["NO_2_4M_DISK"]
+    assert blocks[0]["floor_polygon_xz_m"]==old_polygon
+    assert blocks[1]["decision"]=="retain" and room_disk_certificate(wide)["fits"]
+
+def test_wide_discard_recovery_needs_native_measurement_and_keeps_raw_holes():
+    from shapely.geometry import mapping
+    from tools.rooms.room_split_auto.shape_quality_repair import recover_wide_dropped_candidates
+    raw=box(0,0,4,5).difference(box(1,1,1.2,1.2))
+    old=dict(id="wide",floor_id="F0",decision="discard",discard_reasons=["CORRIDOR_BODY_WIDTH_BELOW_1_5"],floor_polygon_xz_m=mapping(raw))
+    candidates,audit=recover_wide_dropped_candidates([old])
+    assert len(audit)==1 and candidates[0]["decision"]=="retain"
+    assert candidates[0]["wide_body_recovery_requires_native_measurement"]
+    assert candidates[0]["floor_polygon_xz_m"]==old["floor_polygon_xz_m"]
+    assert old["decision"]=="discard"
+
+def test_stairs_and_actual_narrow_corridor_are_not_recovered():
+    from shapely.geometry import mapping
+    from tools.rooms.room_split_auto.shape_quality_repair import recover_wide_dropped_candidates
+    blocks=[dict(id="stairs",decision="discard",discard_reasons=["STAIRS"],floor_polygon_xz_m=mapping(box(0,0,4,5))),
+        dict(id="corridor",decision="discard",discard_reasons=["CORRIDOR"],floor_polygon_xz_m=mapping(box(5,0,6.4,8)))]
+    candidates,audit=recover_wide_dropped_candidates(blocks)
+    assert not audit and all(b["decision"]=="discard" for b in candidates)
+
+def test_disk_merge_does_not_allow_overcap_or_wrapping_union():
+    from shapely.geometry import mapping
+    from tools.rooms.room_split_auto.shape_quality_repair import merge_nodisk_candidates
+    a,b=box(0,0,2.35,4),box(2.35,0,6,4)
+    blocks=[dict(id=str(i),floor_id="F0",decision="retain",floor_polygon_xz_m=mapping(g)) for i,g in enumerate([a,b])]
+    merged,audit=merge_nodisk_candidates(blocks)
+    assert len(merged)==1 and audit
+    assert merged[0]["disk_merge_requires_native_measurement"]
+    assert shape(merged[0]["floor_polygon_xz_m"]).area==pytest.approx(24)
+    unchanged,audit=merge_nodisk_candidates(blocks,cap_m2=20)
+    assert len(unchanged)==2 and not audit
+
+def test_wide_recovery_plan_conserves_raw_floor_and_requires_legal_children():
+    from tools.rooms.room_split_auto.shape_quality_repair import wide_body_recovery_plan,room_disk_certificate,wide_body_candidates
+    g=box(0,0,6,6).difference(box(1,1,1.1,1.1))
+    plan=wide_body_recovery_plan(g,[],0,budget_seconds=2)
+    assert plan is not None
+    assert abs(sum(q.area for q in plan["retained"]+plan["discarded"])-g.area)<1e-8
+    assert all(6<=q.area<=35 and room_disk_certificate(q)["fits"] for q in plan["retained"])
+    assert all(not wide_body_candidates(q) for q in plan["discarded"])
+    assert len(plan["line"].coords)<=4
+    assert plan["measurement"]["furniture_intersection_length_m"]<=.5
+
+def test_wide_recovery_preparation_reserves_ids_and_never_claims_a_witness():
+    from shapely.geometry import mapping
+    from tools.rooms.room_split_auto.shape_quality_repair import prepare_wide_body_recovery
+    block=dict(id="h__R1__F0__Q000",house="h",floor_id="F0",decision="discard",
+        discard_reasons=["CORRIDOR_BODY_WIDTH_BELOW_1_5"],floor_polygon_xz_m=mapping(box(0,0,6,6)),
+        floor_area_m2=36,placement_witness={"found":True},black_fraction=0)
+    old=dict(house="h",source_region="R1",blocks=[block],cut_lines=[],wall_axes={"F0":{"primary_deg":0}})
+    planned,audit=prepare_wide_body_recovery(old,{"F0":[]})
+    assert any(x["status"]=="planned_raw_recovery" for x in audit)
+    ids=[b["id"] for b in planned["blocks"]]
+    assert len(set(ids))==len(ids) and block["id"] not in ids
+    assert block["id"] in planned["shape_admission_reserved_ids"]
+    assert all(not b["placement_witness"]["found"] for b in planned["blocks"])
+    assert all(b["wide_body_recovery_requires_native_measurement"] for b in planned["blocks"] if b["decision"]=="retain")
+    assert abs(sum(b["floor_area_m2"] for b in planned["blocks"])-36)<1e-8
+    assert old["blocks"][0]["placement_witness"]["found"]
+
+def test_new_unresolved_disk_cell_is_local_discard_without_changing_other_unknowns():
+    from shapely.geometry import mapping
+    from tools.rooms.room_split_auto.shape_quality_repair import enforce_room_disk_admission
+    bad=dict(id="bad",decision="unresolved",unresolved_reasons=["NO_2_4_M_OWN_ROOM_DISK"],
+        floor_polygon_xz_m=mapping(box(0,0,2.3,4)),floor_area_m2=9.2)
+    other=dict(id="unknown",decision="unresolved",unresolved_reasons=["SEMANTIC_PALETTE_AMBIGUOUS"],
+        floor_polygon_xz_m=mapping(box(3,0,6,4)),floor_area_m2=12)
+    audit=enforce_room_disk_admission([bad,other])
+    assert bad["decision"]=="discard" and bad["discard_reasons"]==["NO_2_4M_DISK"]
+    assert len(audit)==1 and other["decision"]=="unresolved"

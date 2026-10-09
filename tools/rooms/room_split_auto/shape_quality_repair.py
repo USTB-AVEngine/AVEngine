@@ -44,6 +44,174 @@ def unique_block_ids(result):
         adjacency(result["blocks"],[c for c in result["cut_lines"] if c.get("active_in_final_partition",True)])
     return audit
 
+def room_disk_certificate(g,tolerance=.0005):
+    """The room's own outline, with the reviewer's maximum-circle precision."""
+    envelope=own_outline(g)
+    choices=[shapely.maximum_inscribed_circle(q,tolerance=tolerance) for q in polygons(envelope)]
+    circle=max(choices,key=lambda q:q.length) if choices else None
+    radius=float(circle.length) if circle is not None else 0.
+    centre=list(circle.coords[0]) if circle is not None else None
+    return dict(fits=radius>=1.2,diameter_m=2.4,radius_m=radius,centre_xz_m=centre,
+        maximum_circle_tolerance_m=tolerance,
+        shape_basis="room own exterior; <=0.05m seams closed, holes filled; no navmesh or neighbour floor")
+
+def wide_body_candidates(g):
+    """Detect real-sized wide cores without replacing any raw measured floor."""
+    if g.area<6:return []
+    opening=own_outline(g).buffer(-.75,join_style=2).buffer(.75,join_style=2)
+    return [q for q in polygons(opening) if q.area>=6 and shapely.maximum_inscribed_circle(q,tolerance=.0005).length>=1.2]
+
+def recover_wide_dropped_candidates(blocks):
+    """Re-open eligible discards for native admission; stairs stay unchanged.
+
+    Returned candidates are planning records, not an admission claim. The
+    process() consumer recomputes raw geometry metrics and the frozen witness.
+    """
+    result=[];audit=[]
+    for block in blocks:
+        b=copy.deepcopy(block)
+        if b["decision"]=="discard" and "STAIRS" not in b.get("discard_reasons",[]):
+            g=shape(b["floor_polygon_xz_m"]);cores=wide_body_candidates(g)
+            if cores:
+                audit.append(dict(id=b["id"],old_reasons=b.get("discard_reasons",[]),
+                    raw_floor_area_m2=g.area,wide_outline_areas_m2=[q.area for q in cores],
+                    method="raw floor re-enters normal room/neck/corridor/cap pipeline"))
+                b["decision"]="retain";b["discard_reasons"]=[];b["unresolved_reasons"]=[]
+                b["wide_body_recovery_requires_native_measurement"]=True
+                b["wide_body_recovery_original_id"]=block["id"]
+        result.append(b)
+    return result,audit
+
+def merge_nodisk_candidates(blocks,cap_m2=35.):
+    """Prefer a legal adjacent merge before boundary and bent-line searches."""
+    result=copy.deepcopy(blocks);audit=[]
+    for _ in range(len(blocks)):
+        invalid=[i for i,b in enumerate(result) if b["decision"]=="retain" and not room_disk_certificate(shape(b["floor_polygon_xz_m"]))["fits"]]
+        if not invalid:break
+        merged=False
+        for i in invalid:
+            a=result[i];ga=shape(a["floor_polygon_xz_m"])
+            for j,b in enumerate(result):
+                if i==j or b["decision"]!="retain" or a["floor_id"]!=b["floor_id"]:continue
+                gb=shape(b["floor_polygon_xz_m"])
+                if ga.distance(gb)>.600001:continue
+                union=ga.union(gb)
+                if not(6<=union.area<=cap_m2) or short_side(union)<2.4 or not room_disk_certificate(union)["fits"]:continue
+                d=defects(union)
+                if d["neck_count"] or d["corridor_count"]:continue
+                other=[shape(x["floor_polygon_xz_m"]) for k,x in enumerate(result) if k not in (i,j) and x["decision"]=="retain" and x["floor_id"]==a["floor_id"]]
+                if wrap_count([union]+other):continue
+                new=copy.deepcopy(a);new["floor_polygon_xz_m"]=mapping(union)
+                new["floor_area_m2"]=float(union.area)
+                new["disk_merge_requires_native_measurement"]=True
+                new["disk_merge_source_ids"]=[a["id"],b["id"]]
+                audit.append(dict(source_ids=[a["id"],b["id"]],merged_area_m2=union.area))
+                result=[x for k,x in enumerate(result) if k not in (i,j)]+[new]
+                merged=True;break
+            if merged:break
+        if not merged:break
+    return result,audit
+
+def enforce_room_disk_admission(blocks):
+    """An unsuccessful disk construction discards that cell, never the source."""
+    audit=[]
+    for b in blocks:
+        known_disk_failure=b["decision"]=="unresolved" and "NO_2_4_M_OWN_ROOM_DISK" in b.get("unresolved_reasons",[])
+        if b["decision"]!="retain" and not known_disk_failure:continue
+        certificate=room_disk_certificate(shape(b["floor_polygon_xz_m"]))
+        b["inscribed_circle"]=certificate
+        if certificate["fits"]:continue
+        b["decision"]="discard";b["discard_reasons"]=["NO_2_4M_DISK"];b["unresolved_reasons"]=[]
+        reason=b.get("shape_repair_remaining_reason","finite legal boundary/axis/angle/bent/merge search did not yield a 2.4m own-outline disk")
+        b["disk_admission_failure"]=dict(reason=reason,global_impossibility_proved=False)
+        audit.append(dict(id=b["id"],area_m2=b["floor_area_m2"],radius_m=certificate["radius_m"],reason=reason))
+    return audit
+
+def wide_body_recovery_plan(g,furniture,axis,neighbors=(),cap_m2=35.,budget_seconds=30.):
+    """Plan on raw floor; opening cores only suggest cuts, never add floor."""
+    from shapely.affinity import rotate
+    started=time.monotonic();best=None
+    cores=wide_body_candidates(g)
+    for angle in [axis,axis+90,axis-15,axis+15,axis+75,axis+105]:
+        local=rotate(own_outline(g),-angle,origin=(0,0))
+        if local.is_empty:continue
+        a,b,c,d=local.bounds;extra=max(c-a,d-b)+2
+        positions=set(np.arange(a+.1,c-.1,.15))
+        for core in cores:
+            q=rotate(core,-angle,origin=(0,0));positions.update([q.bounds[0],q.bounds[2]])
+        for position in sorted(positions,key=lambda x:abs(x-(a+c)/2)):
+            if time.monotonic()-started>budget_seconds:return best
+            line=rotate(LineString([(position,b-extra),(position,d+extra)]),angle,origin=(0,0))
+            cells=raw_cells(g,line)
+            if len(cells)!=2:continue
+            kept=[];discarded=[];valid=True
+            for cell in cells:
+                certificate=room_disk_certificate(cell);flags=defects(cell)
+                if 6<=cell.area<=cap_m2 and short_side(cell)>=2.4 and certificate["fits"] and not flags["neck_count"] and not flags["corridor_count"]:
+                    kept.append(cell)
+                elif wide_body_candidates(cell):valid=False;break
+                elif not certificate["fits"] or cell.area<6:
+                    discarded.append(cell)
+                else:valid=False;break
+            if not valid or not kept or wrap_count(kept+list(neighbors))>wrap_count(neighbors):continue
+            measurement=cs.cut_measure(line,g,furniture)
+            if measurement["furniture_intersection_length_m"]>.5:continue
+            score=(-sum(q.area for q in kept),measurement["furniture_intersection_length_m"],max(cap.angle_errors(line,axis)))
+            if best is None or score<best["score"]:
+                best=dict(score=score,line=line,retained=kept,discarded=discarded,measurement=measurement)
+    return best
+
+def prepare_wide_body_recovery(result,furniture_by_floor,cap_m2=35.):
+    """Recover a wide discard after disk rejection, possibly moving its neighbour.
+
+    Returns planning cells requiring native witness/black/nav measurement.
+    No neighbour floor outside this source or floor is borrowed.
+    """
+    planned=copy.deepcopy(result);audit=[]
+    used={b["id"] for b in planned["blocks"]}
+    for discarded in list(planned["blocks"]):
+        if discarded not in planned["blocks"] or discarded["decision"]!="discard" or "STAIRS" in discarded.get("discard_reasons",[]):continue
+        g=shape(discarded["floor_polygon_xz_m"])
+        if not wide_body_candidates(g):continue
+        fid=discarded["floor_id"];axis=planned.get("wall_axes",{}).get(fid,{}).get("primary_deg",cap.main_axis(g))
+        options=[[]]+[[b] for b in planned["blocks"] if b["decision"]=="retain" and b["floor_id"]==fid and g.distance(shape(b["floor_polygon_xz_m"]))<=.600001]
+        best=None
+        for neighbours in options:
+            union=shapely.union_all([g]+[shape(b["floor_polygon_xz_m"]) for b in neighbours])
+            other=[shape(b["floor_polygon_xz_m"]) for b in planned["blocks"] if b["decision"]=="retain" and b["floor_id"]==fid and all(b is not n for n in neighbours)]
+            candidate=wide_body_recovery_plan(union,furniture_by_floor[fid],axis,other,cap_m2)
+            if candidate and (best is None or candidate["score"]<best[0]["score"]):best=(candidate,neighbours,union)
+        if best is None:
+            audit.append(dict(id=discarded["id"],status="no_legal_raw_floor_recovery_cut",reason="bounded raw axis/angle search found no legal disk room without a remaining wide discard"))
+            continue
+        candidate,neighbours,union=best
+        removed={discarded["id"]}|{b["id"] for b in neighbours}
+        planned["blocks"]=[b for b in planned["blocks"] if b["id"] not in removed]
+        created=[]
+        for retained,cells in [(True,candidate["retained"]),(False,candidate["discarded"])]:
+            for cell in cells:
+                b=copy.deepcopy(discarded)
+                b["id"]=fresh_room_id(planned["house"],planned["source_region"],fid,used)
+                b["floor_polygon_xz_m"]=mapping(cell);b["floor_area_m2"]=float(cell.area);b["short_side_m"]=short_side(cell)
+                b["inscribed_circle"]=room_disk_certificate(cell);b["unresolved_reasons"]=[]
+                b["placement_witness"]=dict(found=False,not_run_reason="native admission pending" if retained else "local geometry rejection")
+                b["black_fraction"]=None;b["black_measurement"]=dict(status="pending native remeasurement")
+                b["decision"]="retain" if retained else "discard"
+                b["discard_reasons"]=[] if retained else ["NO_2_4M_DISK" if cell.area>=6 else "FLOOR_AREA_BELOW_6"]
+                if retained:b.pop("disk_admission_failure",None)
+                elif cell.area>=6:
+                    b["disk_admission_failure"]=dict(reason="remaining raw floor after a legal wide-body boundary reallocation has no 2.4m own-outline disk",global_impossibility_proved=False)
+                b["wide_body_recovery_original_id"]=discarded["id"]
+                b["wide_body_recovery_requires_native_measurement"]=retained
+                b["admission_recovery_local_discard"]=not retained
+                b["new_room"]=True;b["cut_ids"]=[];b["adjacent_rooms"]=[]
+                planned["blocks"].append(b);created.append(b["id"])
+        apply_cuts(planned,[(candidate["line"],"WIDE_RECOVERY",candidate["measurement"],union)],fid,axis)
+        audit.append(dict(id=discarded["id"],status="planned_raw_recovery",neighbour_ids=[b["id"] for b in neighbours],created_ids=created,
+            raw_parent_area_m2=union.area,retained_area_m2=sum(q.area for q in candidate["retained"]),furniture_intersection_length_m=candidate["measurement"]["furniture_intersection_length_m"]))
+    planned["shape_admission_reserved_ids"]=sorted(used)
+    return planned,audit
+
 def shape_flags(leaves):
     retained=[x["g"] for x in leaves if not x.get("forced") and (not x.get("error") or x.get("original",{}).get("decision")=="retain")]
     return sum(defects(g)["neck_count"]+defects(g)["corridor_count"] for g in retained)+wrap_count(retained)
@@ -151,9 +319,13 @@ def local_circle_repair(prior,furniture,axis):
 def repair_floor(old,floor,nav,furniture):
     fid=floor["floor_id"];axis=old.get("wall_axes",{}).get(fid,{}).get("primary_deg",cap.main_axis(shape(floor["floor_polygon"])))
     solver=Repair(furniture,axis)
+    prepared,recovery_audit=recover_wide_dropped_candidates([b for b in old["blocks"] if b["floor_id"]==fid])
+    prepared,merge_disk_audit=merge_nodisk_candidates(prepared)
+    old=copy.deepcopy(old)
+    old["blocks"]=[b for b in old["blocks"] if b["floor_id"]!=fid]+prepared
     stable=[copy.deepcopy(b) for b in old["blocks"] if b["floor_id"]==fid and b["decision"] not in ("retain","unresolved")]
     prior=[b for b in old["blocks"] if b["floor_id"]==fid and b["decision"] in ("retain","unresolved")]
-    leaves=[];cuts=[];audit=[]
+    leaves=[];cuts=[];audit=[dict(status="wide_body_recovery_candidates",entries=recovery_audit),dict(status="disk_merge_candidates",entries=merge_disk_audit)]
     joint_done=False
     live_prior=[b for b in prior if b["decision"]=="retain"]
     if len(live_prior)==len(prior) and len(prior)>=2 and any(not disk(shape(b["floor_polygon_xz_m"]))["fits"] for b in prior):
@@ -237,7 +409,7 @@ def repair_floor(old,floor,nav,furniture):
 def process(old,mesh,pf,hs,nav_polys,nav_ys,objects,p,root):
     row=old["source_geometry"];result=copy.deepcopy(old);result["revision"]="own_shape_quality_v6"
     result["blocks"]=[];result["shape_repair_audit"]=[];furniture_by_floor={}
-    reserved_ids={b["id"] for b in old["blocks"]}
+    reserved_ids={b["id"] for b in old["blocks"]}|set(old.get("shape_admission_reserved_ids",[]))
     for floor in row["floors"]:
         fid=floor["floor_id"];fy=floor["floor_y_m"];scope=shape(floor["floor_polygon"])
         nav=nav_scope_at(nav_polys,nav_ys,fy,own_outline(scope).buffer(.3),p)
@@ -267,9 +439,16 @@ def process(old,mesh,pf,hs,nav_polys,nav_ys,objects,p,root):
         else:
             sensor=dict(path=ref["image_path"],projection=metadata["projection"],span_m=metadata["span_m"])
         rgb=(metadata,sensor,Image.open(ref["image_path"]).convert("RGB"),ref)
+        for stable_block in stable:
+            if stable_block.get("admission_recovery_local_discard"):
+                stable_g=shape(stable_block["floor_polygon_xz_m"])
+                stable_black=measured_black(stable_g,fy,rgb,p)
+                stable_block["black_fraction"]=stable_black["black_fraction"]
+                stable_block["black_measurement"]=stable_black
+                stable_block["nav_walkable_area_m2"]=float(nav.intersection(stable_g).area)
         for i,x in enumerate(leaves):
             g=x["g"];template=x.get("original")
-            if template and g.symmetric_difference(shape(template["floor_polygon_xz_m"])).area<=1e-8 and not x.get("forced"):
+            if template and g.symmetric_difference(shape(template["floor_polygon_xz_m"])).area<=1e-8 and not x.get("forced") and not template.get("wide_body_recovery_requires_native_measurement") and not template.get("disk_merge_requires_native_measurement"):
                 # A failed retry preserves the full old block record.
                 b=copy.deepcopy(template)
                 if b["decision"]=="retain" and x.get("error"):
@@ -300,7 +479,21 @@ def process(old,mesh,pf,hs,nav_polys,nav_ys,objects,p,root):
                 inscribed_circle=dc,decision=decision,discard_reasons=reasons if decision=="discard" else [],unresolved_reasons=unknown if decision=="unresolved" else [],
                 room_type=kind,type_evidence=evidence,cut_ids=[],adjacent_rooms=[],new_room=True,max_room_area_m2=35,acoustics="not_run_per_task",
                 measurement_source=row["semantic_source"],area_method=row["ground_measurement"],source_selection=row.get("source_selection"))
+            if template and template.get("wide_body_recovery_original_id"):
+                b["recovered_from_discard_id"]=template["wide_body_recovery_original_id"]
+            if template and template.get("disk_merge_source_ids"):
+                b["disk_merge_source_ids"]=template["disk_merge_source_ids"]
             result["blocks"].append(b)
+    result["disk_admission_audit"]=enforce_room_disk_admission(result["blocks"])
+    # Disk rejection may expose a wide discarded body; recover on raw ground,
+    # then re-enter native admission once with the newly planned valid cells.
+    if not old.get("post_disk_wide_body_recovery_pass"):
+        prepared,recovery=prepare_wide_body_recovery(result,furniture_by_floor)
+        if any(x["status"]=="planned_raw_recovery" for x in recovery):
+            prepared["post_disk_wide_body_recovery_pass"]=True
+            prepared["post_disk_wide_body_recovery_audit"]=recovery
+            return process(prepared,mesh,pf,hs,nav_polys,nav_ys,objects,p,root)
+        result["post_disk_wide_body_recovery_audit"]=recovery
     # Final certificates exclude all other retained polygons on this floor.
     for b in result["blocks"]:
         if b["decision"]!="retain":continue
