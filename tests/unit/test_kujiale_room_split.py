@@ -107,3 +107,37 @@ def test_embedded_review_has_no_eager_image_src(tmp_path):
     assert '<script id="embedded-jpegs" type="application/json">' in page
     assert 'data:image/jpeg;base64,' in page and "rootMargin:'0px'" in page
     assert page.index('1. 被切的客厅')<page.index('2. 与旧')<page.index('3. 其余保留')
+
+
+@pytest.mark.parametrize('borrow_other_room',[False,True])
+def test_direct_nav_path_cannot_borrow_another_cad_room(borrow_other_room):
+    from shapely.geometry import mapping, GeometryCollection
+    from tools.rooms.room_split_kujiale.pipeline import connectivity_check
+    g=shapely.union_all([box(0,0,3,3),box(3.2,0,6.2,3)])
+    bridge=box(3,0,3.2,3)
+    class Context:
+        def record(self,g):return dict(links=[dict(bridge_geometry_xz_m=mapping(bridge))])
+        def certificate(self,g):return dict(test_pair_bridge=True)
+    class Pathfinder:
+        def find_path(self,p):
+            p.points=[p.requested_start,p.requested_end]
+            p.geodesic_distance=float(np.linalg.norm(p.requested_end-p.requested_start))
+            return True
+    points=np.array([[1.,0.,1.5],[4.2,0.,1.5]])
+    result=connectivity_check(g,Pathfinder(),SimpleNamespace(ShortestPath=SimpleNamespace),points,Context(),bridge if borrow_other_room else GeometryCollection())
+    assert result['pass_'] is (not borrow_other_room)
+    assert result['far_paths'][0]['route_in_other_room_floor_m']==pytest.approx(.2 if borrow_other_room else 0.)
+
+
+def test_committed_v6_cut_keeps_real_circle_and_avoids_furniture():
+    pytest.importorskip('tools.rooms.room_split_auto.shape_quality_geometry',reason='committed HM3D v6 must be merged before final split')
+    from tools.rooms.room_split_kujiale.pipeline import make_repair
+    from tools.rooms.room_split_auto.connected_split import FurnitureList,cut_measure
+    from tools.rooms.room_selection.geometry import short_side
+    g=box(0,0,8,6);furniture=FurnitureList([dict(instance_id='central_cabinet',category='cabinet',geometry=box(3.9,0,4.1,6))])
+    repair=make_repair(furniture,0);leaves,cuts=repair.solve(g)
+    assert len(leaves)==2 and all(q['forced'] is None and q['error'] is None for q in leaves)
+    assert all(6<=q['g'].area<=35 and short_side(q['g'])>=2.4 and raw_disk(q['g'])['fits'] for q in leaves)
+    assert sum(q['g'].area for q in leaves)==pytest.approx(g.area)
+    assert cuts and all(cut_measure(line,parent,furniture)['furniture_intersection_length_m']<=.5 for line,kind,m,parent in cuts)
+    assert all(len(line.coords)-1==1 for line,kind,m,parent in cuts)

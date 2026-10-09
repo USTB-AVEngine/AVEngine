@@ -42,26 +42,58 @@ def raw_disk(g):
 def make_repair(furniture,axis):
     quality,_=v6_api()
     class StrictRepair(quality.Repair):
+        phase = 'axis'
+
+        def primitive_lines(self,g,angles=None,near_line=None):
+            axial=all(min(abs((a-self.axis)%90),90-abs((a-self.axis)%90))<1e-6 for a in (angles or [self.axis,self.axis+90]))
+            if (self.phase=='axis' and axial) or (self.phase=='tilt' and not axial):
+                yield from super().primitive_lines(g,angles,near_line)
+
+        def bent_lines(self,g,near_line=None):
+            if self.phase=='two_leg':
+                # The owner permits a two-leg fallback, rather than introducing
+                # an extra turn merely because the shared v6 generator has one.
+                for line in super().bent_lines(g,near_line):
+                    if len(line.coords)-1<=2:yield line
+
         def choices(self,g,cause=None,near_line=None,neighbors=(),fallback=True):
-            choices=super().choices(g,cause,near_line,neighbors,fallback)
-            choices=[x for x in choices if x[2]['furniture_intersection_length_m']<=.5]
-            if choices or near_line is not None or not fallback:return choices
-            # Required last fallback: two orthogonal legs, using the HM3D v5 generator.
+            answer=[]
+            phases=('axis','tilt','two_leg') if fallback else ('axis',)
+            for phase in phases:
+                self.phase=phase
+                candidates=super().choices(g,cause,near_line,neighbors,phase!='axis')
+                current=[]
+                for score,line,_ in candidates:
+                    m=cs.cut_measure(line,g,self.furniture)
+                    if m['furniture_intersection_length_m']>.5:continue
+                    cells=quality.raw_cells(g,line)
+                    large=[q for q in cells if self.classify(q,cause) is None]
+                    if not large or any(short_side(q)<2.4-1e-7 or not raw_disk(q)['fits'] for q in large):continue
+                    actual=list(score);actual[2]=False;actual[6]=m['furniture_intersection_length_m']
+                    current.append((tuple(actual),line,m))
+                current.sort(key=lambda x:x[0])
+                answer+=current
+                if current and current[0][0][:4]==(0,0,False,0.):break
+            self.phase='axis'
+            if answer or near_line is not None or not fallback:return sorted(answer,key=lambda x:x[0])
+            # Reuse the older orthogonal generator if v6's bounded bends fail.
             from tools.rooms.room_split_auto.walkable_split import two_leg_candidates
             mode='corridor' if cause=='CORRIDOR' else 'connectivity' if cause=='NECK' else 'rooms'
             for _,line,children,m in two_leg_candidates(g,self.furniture,self.cap,self.axis,mode):
+                m=cs.cut_measure(line,g,self.furniture)
                 if m['furniture_intersection_length_m']>.5:continue
                 cells=quality.raw_cells(g,line)
                 if len(cells)!=2:continue
                 large=[q for q in cells if self.classify(q,cause) is None]
-                if not large or any(short_side(q)<2.4-1e-7 or not quality.disk(q)['fits'] for q in large):continue
+                if not large or any(short_side(q)<2.4-1e-7 or not raw_disk(q)['fits'] for q in large):continue
                 bad=sum(quality.defects(q)['neck_count']+quality.defects(q)['corridor_count'] for q in large)
                 wraps=quality.wrap_count(large+list(neighbors))
                 over=sum(max(0,math.ceil((q.area-1e-7)/self.cap)-1) for q in large)
                 score=(wraps,bad,False,0.,sum(q.area for q in cells if q not in large),over,
                        m['furniture_intersection_length_m'],abs(cells[0].area-cells[1].area),2)
-                choices.append((score,line,m))
-            return sorted(choices,key=lambda x:x[0])
+                answer.append((score,line,m))
+            return sorted(answer,key=lambda x:x[0])
+
     return StrictRepair(furniture,axis,max_nodes=48)
 
 
@@ -103,7 +135,7 @@ def connectivity_check(g,pf,hs,points,ctx,forbidden):
     allowed=g.union(bridges).buffer(.05)
     all_ok=True
     for part in far:
-        if part.area<.3:continue
+        if part.area<1e-8:continue
         ids_a=np.flatnonzero(shapely.contains_xy(part,points[:,0],points[:,2]))
         ids_b=np.flatnonzero(shapely.contains_xy(blob,points[:,0],points[:,2]))
         a,b=nearest_points(part,blob)
