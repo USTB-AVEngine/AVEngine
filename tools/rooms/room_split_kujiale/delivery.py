@@ -25,8 +25,11 @@ def assemble(root):
     root=Path(root);delivery=root/'kujiale_delivery_v1/final_v1';plan=read(root/'input_plan_v1.json');quality,_=v6_api()
     files=sorted((delivery/'regions').glob('*.json'));regs=[read(p) for p in files]
     expected={(h['house'],r['room_label']) for h in plan['houses'] for r in h['rooms']}
-    if {(r['house'],r['source_region']) for r in regs}!=expected:raise ValueError('Missing or duplicate input source rooms')
+    if len(regs)!=len(expected) or {(r['house'],r['source_region']) for r in regs}!=expected:raise ValueError('Missing or duplicate input source rooms')
     rooms=[b for r in regs for b in r['blocks']];kept=[b for b in rooms if b['decision']=='retain'];pending=[b for b in rooms if b['decision']=='unresolved']
+    roomids=[b['id'] for b in rooms]
+    if len(roomids)!=len(set(roomids)) or {p.stem for p in (delivery/'rooms').glob('*.json')}!=set(roomids):
+        raise ValueError('Duplicate, missing or extra final room files')
     oldkeys={tuple(x) for x in plan['old_production_keys']}
     columns=['id','house','source_region','source_region_id','floor_id','floor_y_m','floor_area_m2','short_side_m','black_fraction','source','origin_list','source_selection','floor_polygon_xz_m','placement_witness','leakage']
     draft=[]
@@ -38,6 +41,7 @@ def assemble(root):
             leakage_policy={'test_max':.05,'train_max':.15,'above_train_max':'exclude'},production_integrated=False)
         draft.append(row)
     comparisons=[];source_outcomes=[];large=[];errors=[];shape_counts=Counter();activecuts=[]
+    maximum_partition_symmetric_difference_m2=0.;maximum_partition_overlap_m2=0.
     required=('id','house','source_region','floor_id','floor_y_m','floor_polygon_xz_m','floor_area_m2','short_side_m','decision','placement_witness')
     for reg in regs:
         key=(reg['house'],reg['source_region']);live=[b for b in reg['blocks'] if b['decision']=='retain'];unres=[b for b in reg['blocks'] if b['decision']=='unresolved'];drop=[b for b in reg['blocks'] if b['decision']=='discard']
@@ -58,6 +62,13 @@ def assemble(root):
         if reg['requires_split']:large.append(row)
         part_error=abs(sum(b['floor_area_m2'] for b in reg['blocks'])-original.area)
         if part_error>1e-5:errors.append(dict(region=list(key),kind='area_partition',error_m2=part_error))
+        partition=shapely.union_all([shape(b['floor_polygon_xz_m']) for b in reg['blocks']])
+        difference=partition.symmetric_difference(original).area
+        overlap=max(0.,sum(b['floor_area_m2'] for b in reg['blocks'])-partition.area)
+        maximum_partition_symmetric_difference_m2=max(maximum_partition_symmetric_difference_m2,difference)
+        maximum_partition_overlap_m2=max(maximum_partition_overlap_m2,overlap)
+        if difference>1e-5:errors.append(dict(region=list(key),kind='partition_gaps_or_escape',area_m2=difference))
+        if overlap>1e-5:errors.append(dict(region=list(key),kind='overlapping_partition_blocks',area_m2=overlap))
         retained_shapes=[]
         for b in reg['blocks']:
             if any(k not in b for k in required):errors.append(dict(room=b['id'],kind='missing_fields'))
@@ -83,7 +94,8 @@ def assemble(root):
     bins=dict(Counter(area_bin(b['floor_area_m2']) for b in kept))
     for k in ('6_10','10_20','20_30','30_35'):bins.setdefault(k,0)
     all_counts={k:int(shape_counts[k]) for k in ('NECK','CORRIDOR','WRAP','FURNITURE')}
-    validation=dict(source_rooms=len(regs),retained_rooms=len(kept),errors=errors,all_room_shape_counts=all_counts,
+    validation=dict(maximum_partition_symmetric_difference_m2=maximum_partition_symmetric_difference_m2,
+         maximum_partition_overlap_m2=maximum_partition_overlap_m2,source_rooms=len(regs),retained_rooms=len(kept),errors=errors,all_room_shape_counts=all_counts,
          validated_placement_witnesses=sum(b['placement_witness'].get('validation',{}).get('status')=='pass' for b in kept),
          all_room_scope=True,independent_claude_checkers_scope='requires_split sources; supplementary all-source audit view also supplied',
          active_cut_lines=len(activecuts),cut_segment_hist=dict(Counter(c['segment_count'] for c in activecuts)),
