@@ -21,7 +21,7 @@ from tools.rooms.room_split_auto import mp3d_adapter as a
 from tools.rooms.room_split_auto.mp3d_run import dump, bounded, now
 from tools.rooms.room_selection.geometry import short_side
 from tools.rooms.room_selection.measurements import navmesh_triangles
-from tools.rooms.room_split_auto.pipeline import nav_scope_at, finalize_interfaces, adjacency
+from tools.rooms.room_split_auto.pipeline import nav_scope_at
 
 
 def frame_for(row, floor, cache, root, old):
@@ -133,8 +133,8 @@ def audit_final(reg, room, mesh, pf, hs, nav_polys, nav_ys, objects, p, root):
                  origin_list="strict" if "strict" in room["source_list_name"] else "review band",
                  source_selection=room["source_list_name"], leakage=None, acoustics="not_run_per_task",
                  production_placement="real filled exterior; 0.25 m margin; native navmesh feet; three CPU raw-scan rays")
-    finalize_interfaces(reg["blocks"], reg["cut_lines"])
-    adjacency(reg["blocks"], reg["cut_lines"])
+    # Rename adjacency targets without reactivating point-only, superseded cuts.
+    q.evaluate_interfaces(reg, {fid: furniture})
     measured = shapely.union_all([shape(b["floor_polygon_xz_m"]) for b in reg["blocks"]])
     difference = float(measured.symmetric_difference(source).area)
     overlap = sum(b["floor_area_m2"] for b in reg["blocks"]) - measured.area

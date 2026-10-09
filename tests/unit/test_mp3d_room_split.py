@@ -196,3 +196,40 @@ def test_delivery_ledger_and_draft_serialize_originals_and_cut_sources_once(tmp_
     assert check["original_rooms"] == 235
     assert check["max_area_error_m2"] == 0
     assert len(json.loads((root / "area_ledger.json").read_text())) == 235
+
+
+def test_final_export_never_reactivates_a_point_only_cut(monkeypatch, tmp_path):
+    q = pytest.importorskip('tools.rooms.room_split_auto.shape_quality_repair')
+    from shapely.geometry import mapping, LineString, GeometryCollection
+    from tools.rooms.room_split_auto import mp3d_split as split, connected_split as cs
+    source = box(0, 0, 8, 4)
+    room = dict(house='mp3d_fixture', room_label='R0', room_id='mp3d_fixture/R0', region_id=0,
+                selected_floor_id='F0', floor_y_m=0., height_range_m=[0, 0], ground_face_count=2,
+                floor_area_m2=source.area, short_side_m=4., floor_polygon_xz_m=mapping(source),
+                source_list_name='strict.csv', floor_area_method='fixture', semantic_source='fixture',
+                scene_directory='fixture', annotation_source='fixture', navmesh_source='fixture',
+                whole_house_visual_source='fixture', whole_house_acoustic_manifest='fixture')
+    reg = a.source_region(room)
+    reg['requires_split'] = True
+    for i, geom in enumerate([box(0, 0, 4, 4), box(4, 0, 8, 4)]):
+        reg['blocks'].append(dict(id='prior_' + str(i), floor_id='F0', floor_y_m=0., decision='retain',
+                                  floor_polygon_xz_m=mapping(geom), floor_area_m2=16., short_side_m=4.,
+                                  discard_reasons=[], unresolved_reasons=[]))
+    # This design touches the surviving interface at one point, while its old furniture metric is invalid.
+    # v6 must leave it inactive; the legacy finalizer would turn that point's 1e-6 buffer back into a cut.
+    line = LineString([(0, 2), (4, 2)])
+    reg['cut_lines'] = [dict(id='superseded', floor_id='F0', line_xz_m=list(line.coords),
+                             line_geometry_xz_m=mapping(line), applied_parent_geometry_xz_m=mapping(source),
+                             segment_count=1, furniture_intersection_length_m=1., type='wall_axis', width_m=0.)]
+    monkeypatch.setattr(split, 'nav_scope_at', lambda *args: source.buffer(.3))
+    monkeypatch.setattr(cs, 'furniture_for', lambda *args: [])
+    monkeypatch.setattr(a, 'foreign_floor_geometry', lambda *args: GeometryCollection())
+    monkeypatch.setattr(a, 'placement_in_outline', lambda *args: {'found': True, 'validation': {'passed': True}})
+    result = split.audit_final(reg, room, None, None, None, None, None, None, {}, tmp_path)
+    cut = result['cut_lines'][0]
+    assert not cut['active_in_final_partition']
+    assert 'crossing point only' in cut['inactive_reason']
+    assert result['retained_new_rooms'] == 2
+    ids = {b['id'] for b in result['blocks']}
+    assert not any(b['cut_ids'] for b in result['blocks'])
+    assert {n['id'] for b in result['blocks'] for n in b['adjacent_rooms']} <= ids
