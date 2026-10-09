@@ -297,7 +297,7 @@ def report(root):
 
 机器 48g（48g-jump），分支 claude/room-split-mp3d-20261010，提交 {source}。基线 47aca4f，v6 合入证据见 logs/merge_v6.log。所有代码只改新 worktree；所有产物只写本目录。没有 push，没有动旧名单、原始数据、共享环境或其他 worktree。全程 CPU、nice 12，最多 4 worker 加 1 父进程，地址空间最多 50 GiB。完整执行脚本、实际日志在 scripts/ 和 logs/。
 
-原有 235 间逐间去向：面积大于 35 m² 的 22 间改由大房切分交付；其余原有房保留主房 {n["native_retained_main"]} 间，整房丢弃 {n["originals_fully_discarded"]} 间，待定 {n["subcap_originals_pending"]} 间；新冒出的 ≥6 m² 独立候选 {n["detached_candidates_ge6"]} 间，其中保留 {n["new_detached_candidates_retained"]} 间。小飞地丢弃 {n["discard_count"]} 块、{n["discard_area_m2"]:.6f} m²。原有 ≤35 m² 房间没有切线，也没有新增形状/空地圆/可见性/黑区淘汰条件。原有门槛例外和未找到生产边距见证的房间保留为待定。数字出处 mp3d_existing_rooms_connectivity_v1/summary.json、pending.json、regions/。
+原有 235 间逐间去向：面积大于 35 m² 的 22 间改由大房切分交付；其余原有房保留主房 {n["native_retained_main"]} 间，整房丢弃 {n["originals_fully_discarded"]} 间，待定 {n["subcap_originals_pending"]} 间；新分出的 ≥6 m² 独立地块 {n["detached_candidates_ge6"]} 间，其中保留 {n["new_detached_candidates_retained"]} 间。去飞地共丢弃 {n["discard_count"]} 块、{n["discard_area_m2"]:.6f} m²。原有 ≤35 m² 房间没有切线，也没有新增形状/空地圆/可见性/黑区淘汰条件。原有门槛例外和未找到生产边距见证的房间保留为待定。数字出处 mp3d_existing_rooms_connectivity_v1/summary.json、pending.json、regions/。
 
 22 间大房切出并保留 {d["retained_rooms"]} 间，保留面积 {d["retained_area_m2"]:.6f} m²；丢弃 {d["discarded_parts"]} 块、{d["discarded_area_m2"]:.6f} m²。丢弃面积按主原因：{json.dumps(d["discarded_area_by_reason_m2"], ensure_ascii=False)}。待定 {d["pending_parts"]} 块、{d["pending_area_m2"]:.6f} m²，来源 {json.dumps(d["unresolved_source_regions"], ensure_ascii=False)}。数字出处 mp3d_delivery_v1/final_v1/summary.json、unresolved.json。失败尝试保存在 mp3d_delivery_v1/attempt_v1/，没有把不合规尝试当成最终可用房。
 
