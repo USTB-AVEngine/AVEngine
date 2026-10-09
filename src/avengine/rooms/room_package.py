@@ -358,6 +358,17 @@ def write_room_package_plan_snapshot(
 def package_from_catalog_entry(entry: Mapping[str, Any], *,
                                 runtime: Mapping[str, Any] | None = None,
                                 catalog_path: str | Path | None = None) -> dict:
+    package = _package_from_catalog_entry(entry, runtime=runtime, catalog_path=catalog_path)
+    if "floor_polygon_xz_m" in entry:
+        for key in ("floor_polygon_xz_m", "floor_y_m", "room_polygon_placement", "planning_region_m"):
+            if key in entry:
+                package[key] = deepcopy(entry[key])
+    return package
+
+
+def _package_from_catalog_entry(entry: Mapping[str, Any], *,
+                                 runtime: Mapping[str, Any] | None = None,
+                                 catalog_path: str | Path | None = None) -> dict:
     """Wrap old catalog metadata, preserving any unmeasured fields as missing.
 
     Explicit packages are strict. Legacy drafts do not retroactively invalidate

@@ -223,6 +223,13 @@ def _load_native_apartment_recast_navmesh(
 
 
 def load_planning_resources(room, request):
+    """Load whole-house resources and apply only an optional placement constraint."""
+    from avengine.rooms.room_polygon import constrain_space_to_room
+    space, mesh, layout = _load_planning_resources(room, request)
+    return constrain_space_to_room(space, _expanded_room(room, request), request), mesh, layout
+
+
+def _load_planning_resources(room, request):
     """Load once per request; return an existing solver plus shared static mesh."""
     from avengine.rooms import native_qa_room as nq
     from avengine.rooms.qa_episode import build_room_navigation

@@ -82,6 +82,8 @@ def compile_seated(video,entry,scene,house,inputs,directory,request):
     for point in [entry['applied_root_input'][:3,3].tolist(),*[np.asarray(p)-[0,1.3,0]for p in scene['native_placement_candidates'][:96]]]:
         for chair in roster['chairs']:
             if chair['asset_id']in styles and chair.get('habitat_status')=='pass_reference_placements':candidates.append(({'kind':'fallback','chair':chair},point,styles[chair['asset_id']]['human_local_offset_m']))
+    from avengine.rooms.room_polygon import RoomPolygon
+    constraint=RoomPolygon.from_room(house.get('room'))
     accepted=None;failures=[]
     all_ids={int(a['object'].object_id)for a in video.actors}
     protected=[np.asarray(scene['listener_m'])-np.array([0,1.3,0]),*[a['applied_root_input'][:3,3]for a in video.actors if a is not entry]]
@@ -89,6 +91,9 @@ def compile_seated(video,entry,scene,house,inputs,directory,request):
         cr=np.asarray(point,float);offset=np.asarray(offset,float)
         for yaw in [math.radians(scene['sources'][entry['endpoint_id']]['body_yaw_deg']),0.,math.pi/2,math.pi,-math.pi/2]:
             rot=yaw_matrix(yaw);hr=cr+rot@offset
+            if constraint is not None and not constraint.placement_contains(hr):
+                failures.append({'reason':'room_polygon_seated_root_below_boundary_margin'})
+                continue
             if any(np.linalg.norm((hr-p)[[0,2]])<.9 for p in protected[1:]):continue
             chair_obj=None
             try:

@@ -95,13 +95,21 @@ class HabitatWalkableSpace:
         return None
 
 
-def camera_grid(space, *, step_m=.55, height_above_floor_m=1.55, region=None):
+def camera_grid(space, *, step_m=.55, height_above_floor_m=1.55, region=None,
+                floor_polygon_xz_m=None, boundary_margin_m=.25):
     """Full existing-resolution grid; no ranked/truncated position subset."""
+    if floor_polygon_xz_m is not None:
+        from avengine.rooms.room_polygon import RoomPolygon, PolygonWalkableSpace
+        space = PolygonWalkableSpace(space, RoomPolygon(
+            floor_polygon_xz_m, boundary_margin_m=boundary_margin_m))
+    polygon = getattr(space, "room_polygon", None)
     bounds = space.bounds() if region is None else np.asarray(region, dtype=float)
     result = []
     for x in np.arange(bounds[0, 0]+step_m/2, bounds[1, 0], step_m):
         for z in np.arange(bounds[0, 2]+step_m/2, bounds[1, 2], step_m):
             probe = [x, space.metadata['floor_height_m'], z]
+            if polygon is not None and not polygon.placement_contains(probe):
+                continue
             try:
                 floor = space.floor_height(probe)
             except ValueError:

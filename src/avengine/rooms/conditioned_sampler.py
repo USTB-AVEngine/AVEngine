@@ -23,6 +23,7 @@ from avengine.capture.neutral_readback import COORDINATE_FRAME
 from avengine.qa.answerability import line_of_sight
 from avengine.rooms import floor_levels
 from avengine.rooms.walkable_space import camera_grid
+from avengine.rooms.room_polygon import constrain_space_to_room, room_polygon_record, RoomPolygonError
 from avengine.routes.trajectory import resample_polyline_by_arc_length
 
 POLICY = 'conditioned_static_v2'
@@ -492,6 +493,12 @@ def lock_same_floor_region(space, rng, region=None, room=None, mesh=None):
     of a house whose roof is the biggest walkable surface it has.
     """
     bounds = space.bounds().copy() if region is None else np.asarray(region, dtype=float).copy()
+    polygon_record = room_polygon_record(room)
+    if polygon_record is not None and polygon_record.get("floor_y_m") is not None:
+        floor_y = float(polygon_record["floor_y_m"])
+        bounds[0, 1] = floor_y - SAME_FLOOR_Y_TOLERANCE_M
+        bounds[1, 1] = floor_y + SAME_FLOOR_Y_TOLERANCE_M
+        return bounds, floor_y
     decision = planning_floor_decision(room, space, mesh)
     floors = [float(value) for value in decision['legal_heights_m']]
     if len(floors) > 1:
@@ -4308,6 +4315,39 @@ def sample_routes(space, actors, profile, clock, rng, region=None, *,
                  motion_budget=None, static_placements=None,
                  constructive_motion=False, mesh=None,
                  visibility_requirements=(), visibility_route_plan=None):
+    space = constrain_space_to_room(space, room)
+    options = dict(required_windows=required_windows, room=room,
+                   motion_requirements=motion_requirements, motion_budget=motion_budget,
+                   static_placements=static_placements, constructive_motion=constructive_motion,
+                   mesh=mesh, visibility_requirements=visibility_requirements,
+                   visibility_route_plan=visibility_route_plan)
+    polygon = getattr(space, "room_polygon", None)
+    if polygon is None:
+        return _sample_routes(space, actors, profile, clock, rng, region, **options)
+    last = "room_polygon_no_legal_route"
+    for _ in range(polygon.max_route_attempts):
+        space.last_polygon_failure = None
+        try:
+            result = _sample_routes(space, actors, profile, clock, rng, region, **options)
+            for path in result[0]:
+                reason = polygon.route_reason(path)
+                if reason:
+                    raise RoomPolygonError(reason)
+                # Every still placement, including non-ground supports, has the margin.
+                if np.allclose(path, path[0], atol=1e-8, rtol=0) and not polygon.placement_mask(path).all():
+                    raise RoomPolygonError("room_polygon_static_placement_below_boundary_margin")
+            return result
+        except (CandidateFailure, RoomPolygonError) as exc:
+            last = space.last_polygon_failure or str(exc)
+    raise CandidateFailure("routes",
+                           f"room_polygon_route_attempts_exhausted:{polygon.max_route_attempts}:{last}")
+
+
+def _sample_routes(space, actors, profile, clock, rng, region=None, *,
+                 required_windows=None, room=None, motion_requirements=None,
+                 motion_budget=None, static_placements=None,
+                 constructive_motion=False, mesh=None,
+                 visibility_requirements=(), visibility_route_plan=None):
     frames, fps = int(clock['frame_count']), float(clock['frame_rate_hz'])
     flags = _moving_flags(profile, actors, rng, motion_requirements)
     visibility_only_movers: set[int] = set()
@@ -6306,6 +6346,7 @@ def _sampling_provenance(seed, attempt, sampling_candidate_index):
 
 def build_conditioned_plan(*, room, request, source_registry, sounds, space, mesh,
                            clock, condition_profile=None, region=None, generator=None):
+    space = constrain_space_to_room(space, room, request)
     sampling_candidate_index = _sampling_candidate_index(request)
     profile,questions=resolve_conditioned_request(request,source_registry,
                                                   condition_profile=condition_profile,
@@ -7138,6 +7179,7 @@ def solve_conditioned_episode(*, request, source_registry, sounds, room=None, ro
         else:
             raise ValueError('solve_conditioned_episode needs a room, a room_id with a '
                              'room_catalog, or an already loaded space and mesh')
+    space = constrain_space_to_room(space, room, effective)
     placement_plan = _prepare_static_placement_plan(
         effective, source_registry, room, mesh=mesh, space=space
     )

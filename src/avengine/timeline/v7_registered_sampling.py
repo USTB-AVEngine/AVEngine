@@ -42,19 +42,25 @@ def choose_assets(catalog,row):
             a['appearance']={'top_color':a['color']};a['appearance_zh']={'blue':'蓝色上衣的人','yellow':'黄色上衣的人','green':'绿色上衣的人'}[a['color']]
     return assets
 
-def _placements(layout,n):
+def _placements(layout,n,room=None):
+    from avengine.rooms.room_polygon import RoomPolygon
+    constraint=RoomPolygon.from_room(room)
     values=deepcopy(layout['valid'])
+    if constraint is not None:
+        values=[row for row in values if constraint.placement_contains(row['position_m'])]
+    if constraint is not None and not values:
+        raise ValueError('room_polygon_no_retained_native_placement_with_boundary_margin')
     if n>len(values):
         # New positions are candidate placements, not inherited admissions.
         # Every registered complete mesh is probed in its actual episode.
         from shapely.geometry import shape,Point
-        polygon=shape(layout['room_floor_polygon'])
+        polygon=constraint.geometry if constraint is not None else shape(layout['room_floor_polygon'])
         floor=float(np.median([p['position_m'][1]-1.3 for p in values]))
         x0,z0,x1,z1=polygon.bounds
         candidates=[]
         for x in np.arange(x0+.3,x1,.65):
             for z in np.arange(z0+.3,z1,.65):
-                if polygon.covers(Point(x,z)) and min(np.linalg.norm(np.array([x,z])-np.array([p['position_m'][0],p['position_m'][2]])) for p in values)>.7:
+                if polygon.covers(Point(x,z)) and (constraint is None or constraint.placement_contains([x,floor,z])) and min(np.linalg.norm(np.array([x,z])-np.array([p['position_m'][0],p['position_m'][2]])) for p in values)>.7:
                     d=math.hypot(x-layout['listener_m'][0],z-layout['listener_m'][2]);candidates.append((abs(d-1.87),x,z))
         for _,x,z in sorted(candidates):
             if min(np.linalg.norm(np.array([x,z])-np.array([p['position_m'][0],p['position_m'][2]])) for p in values)<.65:continue
@@ -87,7 +93,12 @@ def build_registered_scene(row,house,records,assets,semantic_manifest=None,*,cam
     if camera_policy not in {'uniform_static','binding_static','binding_sweep','review_sweep_360'}:raise ValueError('unsupported camera policy')
     knots=[{'time_s':float(i),'yaw_deg':yaw+(36*i if camera_policy=='review_sweep_360' else 0)} for i in range(31)]
     scene={'scene_id':row['scene_id'],'independent_parent_scene_id':row['scene_id'],'seed':row['scene_seed'],'split':row['split'],'duration_s':30.,'video_fps':15,'sample_rate_hz':16000,'listener_m':layout['listener_m'],'camera_forward':[math.sin(angle),0.,-math.cos(angle)],'camera_yaw_knots':knots,'window_starts_s':starts,'sources':{},'events':[],'production_scenario':plan,'source_motion_policy':'registered standing only; independent objects require separate motion admission','sampling_limitations':['walk/sit/seat pending complete episode admission','unadmitted old sound classes are not generated','moving object episode intake pending','profile requests are not measured realized marginals']}
-    placements=_placements(layout,len(assets))
+    selected_room=next(r for r in house['checked_rooms'] if r['room_label']==row['room_id'])
+    from avengine.rooms.room_polygon import RoomPolygon
+    constraint=RoomPolygon.from_room(selected_room)
+    if constraint is not None and not constraint.placement_contains(layout['listener_m']):
+        raise ValueError('room_polygon_retained_camera_below_boundary_margin; remeasure layout in this room')
+    placements=_placements(layout,len(assets),room=selected_room)
     if camera_policy in {'binding_static','binding_sweep'}:
         vectors=[np.asarray(p['position_m'])-np.asarray(layout['listener_m']) for p in placements[:2]]
         forward=sum(v/np.linalg.norm(v) for v in vectors);forward[1]=0.;forward/=np.linalg.norm(forward)
@@ -109,11 +120,14 @@ def build_registered_scene(row,house,records,assets,semantic_manifest=None,*,cam
         scene['camera_sampling']='explicit native-visible binding review stratum; not an aggregate profile fit'
     else:scene['camera_sampling']=camera_policy
     from shapely.geometry import shape,Point
-    floor_poly=shape(layout['room_floor_polygon']).buffer(-.3)
+    floor_poly=(shape(layout['room_floor_polygon']).buffer(-.3) if constraint is None
+                else constraint.geometry.buffer(-constraint.boundary_margin_m))
     if layout.get('room_furniture_polygon'):floor_poly=floor_poly.difference(shape(layout['room_furniture_polygon']).buffer(.5))
     x0,z0,x1,z1=floor_poly.bounds
     height=float(np.median([p['position_m'][1] for p in layout['valid'][:3]]))
     candidates=[[float(x),height,float(z)] for x in np.arange(x0+.1,x1,.5) for z in np.arange(z0+.1,z1,.5) if floor_poly.covers(Point(x,z)) and math.hypot(x-layout['listener_m'][0],z-layout['listener_m'][2])>.5]
+    if constraint is not None:
+        candidates=[point for point in candidates if constraint.placement_contains(point)]
     candidates.sort(key=lambda p:abs(math.hypot(p[0]-layout['listener_m'][0],p[2]-layout['listener_m'][2])-1.87))
     scene['native_placement_candidates']=candidates[:192]
     from avengine.timeline.v7_camera_evidence import configure_camera_evidence

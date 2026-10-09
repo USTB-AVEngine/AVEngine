@@ -530,6 +530,11 @@ def planning_room_mapping(package: Mapping[str, Any]) -> dict[str, Any]:
         base = package.get("planning_inputs") or {}
     room = {**deepcopy(dict(base)), "room_id": package.get("room_id")}
     room["room_package"] = deepcopy(dict(package))
+    # An opt-in catalog polygon overrides the old whole-room template geometry.
+    if "floor_polygon_xz_m" in package:
+        for key in ("floor_polygon_xz_m", "floor_y_m", "room_polygon_placement", "planning_region_m"):
+            if key in package:
+                room[key] = deepcopy(package[key])
     return room
 
 

@@ -77,12 +77,17 @@ def compile_continuous_dog_walking(video,entry,scene,house,inputs,directory,requ
     search_start=time.process_time();max_attempts=8;cpu_budget_s=1800.
     def search_progress(**extra):
         write_json(directory/('motion_search_progress_'+str(time.time_ns())+'.json'),{'status':'searching_not_admitted','cpu_seconds':time.process_time()-search_start,'prefilter':dict(prefilter),'failures':list(failures),'max_native_route_attempts':max_attempts,'search_CPU_budget_s':cpu_budget_s,'thresholds_changed':False,**extra})
-    poly=shape(scene['production_scenario']['motion_floor_polygon']).buffer(-.02)
+    from avengine.rooms.room_polygon import RoomPolygon
+    constraint=RoomPolygon.from_room(house.get('room'))
+    poly=(shape(scene['production_scenario']['motion_floor_polygon']).buffer(-.02)
+          if constraint is None else constraint.geometry)
     x0,z0,x1,z1=poly.bounds
     from shapely.geometry import Point
     extra=[[float(x),float(entry['applied_root_input'][1,3]),float(z)] for x in np.arange(x0,x1,.2) for z in np.arange(z0,z1,.2) if poly.covers(Point(x,z))]
     extra.sort(key=lambda p:float(np.linalg.norm(np.asarray(p)[[0,2]]-entry['applied_root_input'][[0,2],3])))
     candidates=[entry['applied_root_input'][:3,3].tolist(),*extra]
+    if constraint is not None:
+        candidates=[point for point in candidates if constraint.placement_contains(point)]
     # Prioritize the actual clear floor and separation from other bodies.
     # Closest-first consumed all eight FCL attempts around a cluttered emitter.
     # This is a candidate prefilter/order only; full native criteria are intact.
@@ -92,6 +97,9 @@ def compile_continuous_dog_walking(video,entry,scene,house,inputs,directory,requ
         p0=np.asarray(candidate,float)
         for yaw in [0.,math.pi/2,math.pi,-math.pi/2]:
             direction=yaw_matrix(yaw)@np.array([0.,0.,-1.]);positions=p0+distance[:,None]*direction
+            if constraint is not None and constraint.route_reason(positions):
+                prefilter['polygon_rejected']+=1
+                continue
             line=LineString([positions[0][[0,2]],positions[-1][[0,2]]])
             if not poly.covers(line):
                 prefilter['polygon_rejected']+=1;continue
@@ -133,7 +141,10 @@ def compile_continuous_dog_walking(video,entry,scene,house,inputs,directory,requ
             accepted=(positions,yaw,geometry,frames,floor_y,nav,clearance,minimum,support_repairs);break
         except ValueError as error:failures.append({'start_m':p0.tolist(),'yaw_rad':yaw,'reason':str(error)})
     if not accepted:
-        write_json(directory/'motion_rejected.json',{'status':'blocked','failures':failures,'lineage':lineage,'prefilter':prefilter,'candidate_count':len(candidates),'floor_polygon_eroded_area_m2':poly.area,'translation_m':float(distance[-1])});raise ValueError('admitted dog has no fully qualified new-house walking route')
+        write_json(directory/'motion_rejected.json',{'status':'blocked','failures':failures,'lineage':lineage,'prefilter':prefilter,'candidate_count':len(candidates),'floor_polygon_eroded_area_m2':poly.area,'translation_m':float(distance[-1])})
+        if constraint is not None:
+            raise ValueError(f'room_polygon_dog_route_search_exhausted; candidates={len(candidates)}; prefilter={prefilter}; failures={failures[-1:]}')
+        raise ValueError('admitted dog has no fully qualified new-house walking route')
     positions,yaw,parts_list,frames,floor_y,nav,clearance,minimum,support_repairs=accepted
     folder=directory/'frames';folder.mkdir(parents=True,exist_ok=True);ed=externalize_unchanged_images(d,b,directory/'textures');files=[];bounds=[];pose_cache={}
     for i,parts in enumerate(parts_list):

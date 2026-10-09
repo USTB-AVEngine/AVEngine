@@ -622,11 +622,16 @@ def sample_activity_routes(
     rigid_actor_indices: Sequence[int] = (),
 ) -> tuple[dict[str, np.ndarray], dict[str, Any]]:
     points = navigation_points(pf, nav)
+    if not len(points) and getattr(pf, "room_polygon", None) is not None:
+        raise QAPlanningError("room_polygon_no_navigable_points_with_boundary_margin")
     if len(points) > 1600:
         points = points[rng.choice(len(points), 1600, replace=False)]
     patterns = ["hold_walk_hold", "walk_hold_walk", "stand", "hold_walk_hold"]
     rng.shuffle(patterns)
-    for attempt in range(96):
+    polygon = getattr(pf, "room_polygon", None)
+    attempt_limit = 96 if polygon is None else polygon.max_route_attempts
+    last_polygon_reason = "no separated navigable route in room polygon"
+    for attempt in range(attempt_limit):
         hub = points[int(rng.integers(len(points)))]
         near = points[np.linalg.norm(points - hub, axis=1) < 3.1]
         if len(near) < actor_count * 3:
@@ -685,6 +690,13 @@ def sample_activity_routes(
                     intervals = [[0, split], [split + pause, moving_frames + pause]]
             else:
                 intervals = []
+            polygon = getattr(pf, "room_polygon", None)
+            if polygon is not None:
+                reason = polygon.route_reason(route)
+                if reason:
+                    last_polygon_reason = reason
+                    failed = True
+                    break
             if not all(pf.is_navigable(p) for p in route):
                 failed = True
                 break
@@ -706,6 +718,8 @@ def sample_activity_routes(
                 "minimum_actor_separation_m": 0.78,
                 "native_body_collision_status": "not_run",
             }
+    if polygon is not None:
+        raise QAPlanningError(f"room_polygon_route_attempts_exhausted:{attempt_limit}:{last_polygon_reason}")
     raise QAPlanningError("bounded route sampling found no separated paths; try another room/seed/activity")
 
 
@@ -771,6 +785,10 @@ def select_question_camera(
     )
     candidates = [x for x in pool["candidates"] if pf.is_navigable(
         [x["position_habitat_m"][0], floor, x["position_habitat_m"][2]])]
+    polygon = getattr(pf, "room_polygon", None)
+    if polygon is not None:
+        candidates = [row for row in candidates
+                      if polygon.placement_contains(row["position_habitat_m"])]
     centers = []
     for actor in actors:
         route = routes[actor["actor_id"]]
@@ -1039,6 +1057,8 @@ def build_qa_episode_plan(
     pf, nav = build_room_navigation(
         layout, clearance_m=float(request.get("body_clearance_m", 0.38)),
         floor_height_m=room.get("floor_height_m"))
+    from avengine.rooms.room_polygon import constrain_pathfinder_to_room
+    pf = constrain_pathfinder_to_room(pf, room, request)
     selected_assets = list(request["source_asset_ids"])
     if len(selected_assets) < 2 or len(selected_assets) > 4:
         raise QAPlanningError("select two to four registered source assets")
@@ -1089,6 +1109,12 @@ def build_qa_episode_plan(
                 if actor.get("entity_class") in {"rigid_object", "rigid_static_object"}
                 or actor.get("motion_model") == "rigid_static"
             ])
+    polygon = getattr(pf, "room_polygon", None)
+    if polygon is not None:
+        for path in routes.values():
+            reason = polygon.route_reason(path)
+            if reason:
+                raise QAPlanningError(reason)
     capability = room_capabilities(layout, nav, actors, sounds)
     matching = match_question_conditions(qa_ids, capability)
     if matching["status"] == "unsupported":

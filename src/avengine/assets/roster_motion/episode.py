@@ -159,16 +159,24 @@ def compile_walking(video,entry,scene,house,inputs,directory,request):
     real_nodes.append(30.);phase_nodes.append(cumulative+phase[0]);clock=np.interp(times,real_nodes,phase_nodes)
     static_bounds=[np.asarray(a['original_mesh'].vertices)@a['applied_root_input'][:3,:3].T+a['applied_root_input'][:3,3] for a in video.actors if a is not entry]
     accepted=None;failures=[];prefilter={"polygon_rejected":0,"bystander_rejected":0,"full_gate_attempted":0}
-    poly=shape(scene['production_scenario']['motion_floor_polygon']).buffer(-.02)
+    from avengine.rooms.room_polygon import RoomPolygon
+    constraint=RoomPolygon.from_room(house.get('room'))
+    poly=(shape(scene['production_scenario']['motion_floor_polygon']).buffer(-.02)
+          if constraint is None else constraint.geometry)
     x0,z0,x1,z1=poly.bounds
     from shapely.geometry import Point
     extra=[[float(x),float(entry['applied_root_input'][1,3]),float(z)] for x in np.arange(x0,x1,.2) for z in np.arange(z0,z1,.2) if poly.covers(Point(x,z))]
     extra.sort(key=lambda p:float(np.linalg.norm(np.asarray(p)[[0,2]]-entry['applied_root_input'][[0,2],3])))
     candidates=[entry['applied_root_input'][:3,3].tolist(),*extra]
+    if constraint is not None:
+        candidates=[point for point in candidates if constraint.placement_contains(point)]
     for p0 in candidates[:512]:
         p0=np.asarray(p0,float)
         for yaw in [0.,math.pi/2,math.pi,-math.pi/2]:
             direction=yaw_matrix(yaw)@np.array([0.,0.,-1.]);positions=p0+distance[:,None]*direction
+            if constraint is not None and constraint.route_reason(positions):
+                prefilter['polygon_rejected']+=1
+                continue
             if not poly.covers(LineString([positions[0][[0,2]],positions[-1][[0,2]]])):
                 prefilter['polygon_rejected']+=1;continue
             if any(np.any((positions[:,0]>v[:,0].min()-.05)&(positions[:,0]<v[:,0].max()+.05)&(positions[:,2]>v[:,2].min()-.05)&(positions[:,2]<v[:,2].max()+.05))for v in static_bounds):continue
@@ -196,7 +204,10 @@ def compile_walking(video,entry,scene,house,inputs,directory,request):
             except ValueError as error:failures.append({'start_m':p0.tolist(),'yaw_rad':yaw,'reason':str(error)})
         if accepted:break
     if not accepted:
-        write_json(directory/'motion_rejected.json',{'status':'blocked','failures':failures,'lineage':lineage,'prefilter':prefilter,'candidate_count':len(candidates),'floor_polygon_eroded_area_m2':poly.area,'translation_m':float(distance[-1])});raise ValueError('admitted human has no fully qualified new-house walking route')
+        write_json(directory/'motion_rejected.json',{'status':'blocked','failures':failures,'lineage':lineage,'prefilter':prefilter,'candidate_count':len(candidates),'floor_polygon_eroded_area_m2':poly.area,'translation_m':float(distance[-1])})
+        if constraint is not None:
+            raise ValueError(f'room_polygon_human_route_search_exhausted; candidates={len(candidates)}; prefilter={prefilter}; failures={failures[-1:]}')
+        raise ValueError('admitted human has no fully qualified new-house walking route')
     positions,yaw,parts_list,frames,floor_y,nav,clearance,minimum=accepted
     folder=directory/'frames';folder.mkdir(parents=True,exist_ok=True);ed=externalize_unchanged_images(d,b,directory/'textures');files=[];bounds=[];pose_cache={}
     for i,parts in enumerate(parts_list):
