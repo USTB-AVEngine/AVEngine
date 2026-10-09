@@ -1,6 +1,6 @@
 MP3D 房间切分与去飞地
 
-本工具从 MP3D 准备清单读取准确的语义地面，使用只读 MP3D selection adapter 加载真实 .house / semantic PLY，复用 HM3D v5 切分和已合入的 v6 形状修正。执行顺序为 prepare、existing、render、split、delivery。split 和最终 existing 必须先合入提交过的 shape_quality_geometry / shape_quality_repair。产物默认独占创建，不覆盖旧产物。
+本工具从 MP3D 准备清单读取准确的语义地面，使用只读 MP3D selection adapter 加载真实 .house / semantic PLY，复用 HM3D v5 切分和已合入的 v6 形状修正。执行顺序为 prepare、existing、render、split、delivery。split 必须先合入提交过的 shape_quality_geometry / shape_quality_repair；existing 可先用精确两块交集连通适配，v6 可用后优先使用同一 PartConnectivity。产物默认独占创建，不覆盖旧产物。
 
 ```bash
 python -m tools.rooms.room_split_auto.mp3d_run prepare --root "$OUT" --prep "$PREP" --reference-artifacts "$HM3D_ARTIFACTS" --adapter-root "$MP3D_ADAPTER" --workers 4

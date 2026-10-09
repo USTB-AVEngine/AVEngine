@@ -201,3 +201,83 @@ def foreign_floor_geometry(objects, region_id, floor_y, scope, p):
         return shapely.GeometryCollection()
     from tools.rooms.room_screening.geometry import union_projected_polygons
     return union_projected_polygons([geometries[i] for i in ids]).intersection(scope)
+
+
+class PairConnectivity:
+    """Exact original-room pair joins, without applying new room-shape gates.
+
+    This wrapper reuses the shared Connectivity expansion and certificate API.
+    The committed v6 PartConnectivity is preferred when it is available.
+    """
+    def __new__(cls, nav, forbidden=None):
+        from tools.rooms.room_split_auto.seam_connectivity import Connectivity, proxy_difference
+        try:
+            from tools.rooms.room_split_auto.shape_quality_geometry import PartConnectivity
+            return PartConnectivity(nav, forbidden)
+        except ImportError:
+            pass
+
+        class ExactPairs(Connectivity):
+            def __init__(self, nav, forbidden):
+                self.forbidden = forbidden
+                super().__init__(proxy_difference(nav, forbidden) if forbidden is not None else nav)
+
+            def record(self, g):
+                key = g.wkb
+                if key in self.cache:
+                    return self.cache[key]
+                raw = sorted((q for q in shapely.get_parts(g) if q.geom_type == "Polygon"),
+                             key=lambda q: (-q.area, q.bounds))
+                parent = list(range(len(raw)))
+                links = []
+                def find(i):
+                    while parent[i] != i:
+                        parent[i] = parent[parent[i]]
+                        i = parent[i]
+                    return i
+                tree = shapely.STRtree(raw) if raw else None
+                for i, part in enumerate(raw):
+                    for j in sorted(map(int, tree.query(part.buffer(.60000001)))):
+                        if j <= i:
+                            continue
+                        other = raw[j]
+                        gap = float(part.distance(other))
+                        support = shapely.GeometryCollection()
+                        accepted = gap <= .05 + 1e-9
+                        kind = "original_parts_seam_le_0_05"
+                        if not accepted and gap <= .6 + 1e-9:
+                            overlap = self.expanded(part).intersection(self.expanded(other)).intersection(self.nav)
+                            ps = [q for q in shapely.get_parts(overlap) if q.geom_type == "Polygon" and
+                                  q.intersection(part).area > 1e-10 and q.intersection(other).area > 1e-10]
+                            accepted = bool(ps)
+                            support = shapely.union_all(ps)
+                            kind = "distinct_parts_pair_overlap_native_nav"
+                        if not accepted:
+                            continue
+                        ai, bi = find(i), find(j)
+                        if ai != bi:
+                            parent[bi] = ai
+                        bridge = support.difference(part.union(other))
+                        links.append(dict(part_a=i, part_b=j, distance_m=gap, kind=kind,
+                                          expansion_m=.3, bridge_geometry_xz_m=mapping(bridge),
+                                          nav_support_geometry_xz_m=mapping(support) if not support.is_empty else None))
+                groups = {}
+                for i, part in enumerate(raw):
+                    groups.setdefault(find(i), []).append(part)
+                outline = exterior(exterior(g).buffer(.03, join_style=2).buffer(-.03, join_style=2))
+                opening = outline.buffer(-.3, join_style=2).buffer(.3, join_style=2)
+                result = dict(groups=sorted([shapely.union_all(q) for q in groups.values()], key=lambda q: -q.area),
+                              envelope=outline, links=links, raw_part_count=len(raw),
+                              direct_group_count=len(groups),
+                              opened_count=sum(q.geom_type == "Polygon" and q.area >= .05 for q in shapely.get_parts(opening)),
+                              opening=opening)
+                self.cache[key] = result
+                return result
+
+            def certificate(self, g):
+                value = super().certificate(g)
+                value.update(rule="mp3d_exact_distinct_part_seam_nav", shape_basis="own exterior only; navigation never widens a shape",
+                             bridge_policy="dilate(i,.3) intersect dilate(j,.3) intersect native nav, i!=j; other semantic room floor excluded",
+                             forbidden_other_retained_area_m2=float(self.forbidden.area) if self.forbidden is not None else 0.)
+                return value
+        return ExactPairs(nav, forbidden)

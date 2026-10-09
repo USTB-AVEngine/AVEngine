@@ -117,7 +117,6 @@ def existing_worker(job, out, p, adapter_root=None):
     receipt = None
     regions = []
     try:
-        from tools.rooms.room_split_auto.shape_quality_geometry import PartConnectivity
         objects = a.selection_adapter(adapter_root).load_mp3d_scene(job["scene_directory"])
         hs = a.load_native()
         pf, nav_polys, nav_ys = navmesh_triangles(hs, Path(job["navmesh"]))
@@ -126,7 +125,7 @@ def existing_worker(job, out, p, adapter_root=None):
                 g = shape(room["floor_polygon_xz_m"])
                 nav = nav_scope_at(nav_polys, nav_ys, room["floor_y_m"], exterior(g).buffer(.3), p)
                 foreign = a.foreign_floor_geometry(objects, room["region_id"], room["floor_y_m"], exterior(g).buffer(.3), p)
-                ctx = PartConnectivity(nav, foreign)
+                ctx = a.PairConnectivity(nav, foreign)
                 groups = sorted(ctx.groups(g), key=lambda q: (-q.area, q.bounds))
                 metrics = dict(room_id=room["room_id"], house=room["house"], room_label=room["room_label"],
                                floor_area_m2=float(g.area), listed_area_m2=room["listed_floor_area_m2"],

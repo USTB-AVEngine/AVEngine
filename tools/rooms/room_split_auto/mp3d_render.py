@@ -64,7 +64,7 @@ def render_house(job, root, adapter_root, p):
         low, high = fy - p["floor_height_separation_m"], fy + p["camera_height_m"]
         for t, uv, tex, solid in renderer.items:
             module.raster(t, uv, tex, solid, span, cx, cz, low, high, rgb, height, known)
-        path = root / "house_renders" / (job["house"] + f"__Y{i:03d}.jpg")
+        path = root / "house_renders" / (job["house"] + "__" + job.get("frame_prefix", "Y") + f"{i:03d}.jpg")
         with path.open("xb") as f:
             Image.fromarray(rgb).save(f, format="JPEG", quality=88)
         record = dict(projection(cx, cz, fy, span, size), path=str(path),
@@ -157,11 +157,59 @@ def run(root, workers=2):
     print("MP3D_RENDER_DONE", len(wanted), "MISSING", missing, flush=True)
 
 
+
+
+def supplement(root, workers=2):
+    root = Path(root)
+    plan = json.loads((root / "plan.json").read_text())
+    wanted = []
+    for job in plan["jobs"]:
+        for room in job["rooms"]:
+            reg = json.loads((root / "mp3d_existing_rooms_connectivity_v1/regions" /
+                             (room["house"] + "__" + room["room_label"] + ".json")).read_text())
+            stem = room["house"] + "__" + room["room_label"] + "__" + room["selected_floor_id"]
+            if (room["floor_area_m2"] > 35 + 1e-8 or reg.get("metrics", {}).get("affected", False)) and not (
+                    root / "region_renders" / (stem + ".json")).exists():
+                wanted.append(room)
+    jobs, reused = {}, []
+    for room in wanted:
+        candidates = []
+        for path in (root / "house_renders").glob(room["house"] + "__Y*.json"):
+            meta = json.loads(path.read_text())
+            if abs(meta["floor_y_m"] - room["floor_y_m"]) <= .05:
+                candidates.append((abs(meta["floor_y_m"] - room["floor_y_m"]), meta))
+        if candidates:
+            _, meta = min(candidates, key=lambda q: q[0])
+            reused.append(region_meta(room, meta, root / "region_renders"))
+            continue
+        job = jobs.setdefault(room["house"], dict(house=room["house"], scene_glb=room["whole_house_visual_source"],
+                                                  frame_prefix="Yadditional_v1_", levels=[]))
+        level = next((x for x in job["levels"] if abs(x["floor_y_m"] - room["floor_y_m"]) <= .05), None)
+        if level is None:
+            level = dict(floor_y_m=room["floor_y_m"], rooms=[])
+            job["levels"].append(level)
+        level["rooms"].append(room)
+    receipts = []
+    with ProcessPoolExecutor(max_workers=workers, mp_context=multiprocessing.get_context("fork")) as pool:
+        fs = {pool.submit(render_house, j, root, plan["adapter_root"], plan["parameters"]): j for j in jobs.values()}
+        for f in as_completed(fs):
+            try:
+                receipts.append(f.result())
+            except Exception:
+                receipts.append(dict(house=fs[f]["house"], error=traceback.format_exc()))
+    missing = [r["room_id"] for r in wanted if not (root / "region_renders" /
+                   (r["house"] + "__" + r["room_label"] + "__" + r["selected_floor_id"] + ".json")).exists()]
+    dump(root / "render_supplement_v1.json", dict(added_regions=len(wanted), reused=reused,
+                                                receipts=receipts, missing=missing, passed=not missing))
+    print("MP3D_RENDER_SUPPLEMENT", len(wanted), "MISSING", missing, flush=True)
+
+
 if __name__ == "__main__":
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--root", required=True)
     p.add_argument("--workers", type=int, default=2)
+    p.add_argument("--supplement", action="store_true")
     args = p.parse_args()
     if not 1 <= args.workers <= 8:
         p.error("workers must be 1..8")
-    run(args.root, args.workers)
+    (supplement if args.supplement else run)(args.root, args.workers)
