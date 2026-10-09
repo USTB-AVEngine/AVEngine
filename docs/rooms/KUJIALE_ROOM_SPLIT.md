@@ -92,3 +92,11 @@ its camera and two source points inside that exact polygon, their current
 navmesh support, and all three current raw-mesh segment rays. Failed or absent
 evidence falls back to the normal frozen search. Original evidence is a
 precheck and never substitutes for final v6 shape/connectivity admission.
+
+
+Connectivity groups are re-evaluated on every delivered leaf after geometric
+cuts. A cut may detach a tiny part that was joined in the parent. Unsupported
+components below 6 m² are separate discarded fragments; larger components
+become separate room candidates and go through the normal shape/navigation/
+placement checks. A valid pair bridge still keeps a supported small part in
+its room. This does not enlarge the real delivered floor geometry.

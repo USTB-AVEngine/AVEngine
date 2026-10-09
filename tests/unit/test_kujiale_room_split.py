@@ -141,3 +141,21 @@ def test_committed_v6_cut_keeps_real_circle_and_avoids_furniture():
     assert sum(q['g'].area for q in leaves)==pytest.approx(g.area)
     assert cuts and all(cut_measure(line,parent,furniture)['furniture_intersection_length_m']<=.5 for line,kind,m,parent in cuts)
     assert all(len(line.coords)-1==1 for line,kind,m,parent in cuts)
+
+
+@pytest.mark.parametrize('supported_bridge',[False,True])
+def test_postcut_sliver_is_detached_only_without_pair_nav_support(supported_bridge):
+    from tools.rooms.room_split_auto.shape_quality_geometry import PartConnectivity
+    from tools.rooms.room_split_kujiale.pipeline import post_cut_components
+    main=box(0,0,4.5,4);sliver=box(4.7,1,4.7015,2.27)
+    g=shapely.union_all([main,sliver])
+    nav=box(0,0,4.8,4) if supported_bridge else main
+    items,audit=post_cut_components([dict(g=g,forced=None,error=None)],PartConnectivity(nav))
+    assert sum(x['g'].area for x in items)==pytest.approx(g.area)
+    if supported_bridge:
+        assert len(items)==1 and items[0]['forced'] is None and not audit
+        assert items[0]['g'].equals(g)
+    else:
+        assert len(items)==2 and len(audit)==1
+        assert items[0]['g'].equals(main) and items[0]['forced'] is None
+        assert items[1]['g'].equals(sliver) and items[1]['forced']=='DETACHED_FRAGMENT'

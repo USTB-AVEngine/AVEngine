@@ -189,6 +189,26 @@ def witness_check(witness,g,mesh,pf,p):
     return witness
 
 
+def post_cut_components(leaves,ctx):
+    """Recheck distinct parts after a cut, retaining supported pair bridges."""
+    result=[];audit=[]
+    for item in leaves:
+        if item.get('forced') or item.get('error'):
+            result.append(item);continue
+        groups=ctx.groups(item['g'])
+        if len(groups)<=1:
+            result.append(item);continue
+        record=dict(original_area_m2=float(item['g'].area),components=[],
+                    reason='cut separated original parts; pair navmesh support is rechecked on each delivered leaf')
+        for group in groups:
+            forced='DETACHED_FRAGMENT' if group.area<6-1e-8 else None
+            result.append(dict(item,g=group,forced=forced))
+            record['components'].append(dict(area_m2=float(group.area),classification=forced or 'SEPARATE_ROOM_CANDIDATE',
+                                             geometry_xz_m=mapping(group),connectivity=ctx.certificate(group)))
+        audit.append(record)
+    return result,audit
+
+
 def source_region(row,h,scene_adapter,mesh,pf,hs,nav_polys,nav_ys,p):
     quality,wrap_repair=v6_api()
     g=shape(row['floor_polygon_xz_m']);fy=row['floor_y_m'];fid=row['floor_id'];axis=row['wall_axes']['primary_deg']
@@ -226,12 +246,13 @@ def source_region(row,h,scene_adapter,mesh,pf,hs,nav_polys,nav_ys,p):
         if needs_repair:
             repair.nodes=0;leaves,cc,wrap_audit=wrap_repair(leaves,repair);cuts+=cc
         else:wrap_audit=[]
+    leaves,post_cut_audit=post_cut_components(leaves,ctx)
     result=dict(schema='kujiale_auto_room_split_v1',house=h['house'],source_region=row['room_label'],
                 source_region_id=int(row['room_label'][1:]),requires_split=row['requires_split'],
                 shape_repair_applied=needs_repair and not excluded,source_floor_area_m2=float(g.area),
                 cad_area_m2=row['cad_area_m2'],cad_without_measured_floor_m2=row['cad_without_measured_floor_m2'],
                 source_geometry=row,cut_lines=[],blocks=[],door_instance_audit=door_audit,
-                stair_partition_audit=stair_record,wall_axes={fid:row['wall_axes']},navmesh_source=h['navmesh'],matrix_source=h['matrix_source'],
+                stair_partition_audit=stair_record,post_cut_connectivity_audit=post_cut_audit,wall_axes={fid:row['wall_axes']},navmesh_source=h['navmesh'],matrix_source=h['matrix_source'],
                 max_room_area_m2=35.,license='noncommercial research only; no redistribution',
                 acoustics='not_run_per_task',production_modified=False)
     for line,kind,m,parent in cuts:
