@@ -19,6 +19,31 @@ from tools.rooms.room_split_auto.shape_quality_geometry import own_outline,defec
 def dump(p,d):
     with Path(p).open("x") as f:json.dump(d,f,ensure_ascii=False,indent=2,allow_nan=False)
 def key(reg):return reg["house"]+"/"+reg["source_region"]
+def fresh_room_id(house,region,fid,used,start=0):
+    """Reserve every input ID before creating cells during an incremental retry."""
+    index=start
+    while True:
+        bid=house+"__"+region+"__"+fid+f"__Q{index:03d}"
+        if bid not in used:
+            used.add(bid)
+            return bid
+        index+=1
+
+def unique_block_ids(result):
+    """Repair imported retry ID collisions without changing any geometry."""
+    used={b["id"] for b in result["blocks"]};seen=set();audit=[]
+    for b in result["blocks"]:
+        original=b["id"]
+        if original in seen:
+            b["id"]=fresh_room_id(result["house"],result["source_region"],b["floor_id"],used)
+            audit.append(dict(original_id=original,id=b["id"],floor_id=b["floor_id"],
+                raw_polygon_sha256=hashlib.sha256(json.dumps(b["floor_polygon_xz_m"],sort_keys=True).encode()).hexdigest()))
+        seen.add(b["id"])
+    if audit:
+        result["room_id_repair_audit"]=audit
+        adjacency(result["blocks"],[c for c in result["cut_lines"] if c.get("active_in_final_partition",True)])
+    return audit
+
 def shape_flags(leaves):
     retained=[x["g"] for x in leaves if not x.get("forced") and (not x.get("error") or x.get("original",{}).get("decision")=="retain")]
     return sum(defects(g)["neck_count"]+defects(g)["corridor_count"] for g in retained)+wrap_count(retained)
@@ -212,6 +237,7 @@ def repair_floor(old,floor,nav,furniture):
 def process(old,mesh,pf,hs,nav_polys,nav_ys,objects,p,root):
     row=old["source_geometry"];result=copy.deepcopy(old);result["revision"]="own_shape_quality_v6"
     result["blocks"]=[];result["shape_repair_audit"]=[];furniture_by_floor={}
+    reserved_ids={b["id"] for b in old["blocks"]}
     for floor in row["floors"]:
         fid=floor["floor_id"];fy=floor["floor_y_m"];scope=shape(floor["floor_polygon"])
         nav=nav_scope_at(nav_polys,nav_ys,fy,own_outline(scope).buffer(.3),p)
@@ -265,7 +291,7 @@ def process(old,mesh,pf,hs,nav_polys,nav_ys,objects,p,root):
             if not witness["found"] and not forced and not err:reasons.append("PLACEMENT_NO_WITNESS_WITHIN_FROZEN_BUDGET")
             if err:unknown.append(err)
             decision="discard" if reasons else "unresolved" if unknown else "retain"
-            bid=old["house"]+"__"+old["source_region"]+"__"+fid+f"__Q{i:03d}"
+            bid=fresh_room_id(old["house"],old["source_region"],fid,reserved_ids,i)
             b=dict(schema="hm3d_auto_room_shape_v6",id=bid,house=old["house"],source_region=old["source_region"],source_region_id=old["source_region_id"],
                 source_region_origins=row["origins"],floor_id=fid,floor_y_m=fy,floor_height_range_m=floor["height_range_m"],
                 floor_polygon_xz_m=mapping(g),floor_area_m2=float(g.area),short_side_m=short,nav_walkable_area_m2=float(nav.intersection(g).area),
