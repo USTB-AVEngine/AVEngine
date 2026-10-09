@@ -98,7 +98,7 @@ python tools/rooms/split_large_hm3d.py prepare --output "$OUTPUT" \
 python tools/rooms/split_large_hm3d.py run --output "$OUTPUT" \
   --scope tune --run-name tune_v2 --workers 8
 python tools/rooms/split_large_hm3d.py select --output "$OUTPUT" --run-name tune_v2
-python tools/rooms/split_large_hm3d.py render-overheads --output "$OUTPUT" --workers 4
+python tools/rooms/split_large_hm3d.py render-overheads --output "$OUTPUT" --workers 4 --render-attempt v2
 python tools/rooms/split_large_hm3d.py run --output "$OUTPUT" \
   --scope holdout --run-name holdout_v1 --workers 8
 python tools/rooms/split_large_hm3d.py evaluate --output "$OUTPUT" \
@@ -112,7 +112,8 @@ python tools/rooms/split_large_hm3d.py validate --output "$OUTPUT" --run-name al
 `NUMPY_MADVISE_HUGEPAGE=0`, single-thread BLAS/Numba, and an external `TMPDIR`
 are required for the CPU launcher. A splitter parent has a 12 GiB address-space
 limit; up to 16 workers each have 6 GiB (aggregate at most 108 GiB). A renderer
-parent has 6 GiB and up to four workers each have 8 GiB. Those maxima cannot run
+parent has a 6 GiB soft / 8 GiB hard address-space limit, allowing children to
+inherit the 8 GiB ceiling; up to four workers each have 8 GiB. Those maxima cannot run
 simultaneously at full concurrency; the launcher sequences them. Core dumps are
 disabled in owned jobs. The limits are process-local.
 

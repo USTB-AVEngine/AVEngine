@@ -79,9 +79,11 @@ def render_house(job,output):
     return {'house':job['house'],'seconds':time.time()-started,'peak_rss_kb':resource.getrusage(resource.RUSAGE_SELF).ru_maxrss,'results':results}
 
 
-def run(root,workers=4):
-    resource.setrlimit(resource.RLIMIT_AS,(6*1024**3,6*1024**3))
-    root=Path(root);plan=json.loads((root/'processing_plan_v1.json').read_text());output=root/'overhead_cpu_render_v1';output.mkdir(exist_ok=False);jobs=[]
+def run(root,workers=4,attempt="v1"):
+    resource.setrlimit(resource.RLIMIT_AS,(6*1024**3,8*1024**3))
+    import re
+    if not re.fullmatch(r'v[1-9][0-9]*',attempt):raise ValueError('Rendering attempt must be v followed by a positive integer')
+    root=Path(root);plan=json.loads((root/'processing_plan_v1.json').read_text());output=root/('overhead_cpu_render_'+attempt);output.mkdir(exist_ok=False);jobs=[]
     for job in plan['jobs']:
         targets=[]
         for row in job['rows']:
@@ -90,13 +92,13 @@ def run(root,workers=4):
                 if floor['floor_area_m2']<6 and floor is not largest:continue
                 if not cache_covers(row,floor,plan['overhead_cache']):targets.append({'row':row,'floor':floor})
         if targets:jobs.append(dict(job,targets=targets))
-    receipt={'started_at_utc':now(),'code_commit':subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip(),'pid':os.getpid(),'machine':os.uname().nodename,'cpu_only':True,'workers':workers,'worker_memory_limit_gib':8,'parent_memory_limit_gib':6,'targets':sum(len(j['targets']) for j in jobs),'houses':len(jobs),'policy':'reuse existing same-floor orthographic RGB; render incomplete floor frames >=6 m² and each region largest floor; small discarded/unchanged layers without RGB remain explicitly unverified','jobs':[]}
-    dump(root/'cpu_render_start_v1.json',receipt)
+    receipt={'started_at_utc':now(),'code_commit':subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip(),'pid':os.getpid(),'machine':os.uname().nodename,'cpu_only':True,'workers':workers,'worker_memory_limit_gib':8,'parent_memory_limit_gib':6,'parent_inherited_hard_limit_gib':8,'attempt':attempt,'targets':sum(len(j['targets']) for j in jobs),'houses':len(jobs),'policy':'reuse existing same-floor orthographic RGB; render incomplete floor frames >=6 m² and each region largest floor; small discarded/unchanged layers without RGB remain explicitly unverified','jobs':[]}
+    dump(root/('cpu_render_start_'+attempt+'.json'),receipt)
     with ProcessPoolExecutor(max_workers=workers,max_tasks_per_child=1) as pool:
         futures={pool.submit(render_house,j,output):j['house'] for j in jobs}
         for future in as_completed(futures):
             try:result=future.result()
             except Exception as e:result={'house':futures[future],'results':[{'status':'unresolved','error':type(e).__name__+': '+str(e),'reason':'CPU_SOFTWARE_RENDER_WORKER_FAILED; no hardware fallback'}]}
             receipt['jobs'].append(result);print('RENDER_HOUSE',json.dumps(result,ensure_ascii=False),flush=True)
-    receipt['finished_at_utc']=now();dump(root/'cpu_render_complete_v1.json',receipt)
+    receipt['finished_at_utc']=now();dump(root/('cpu_render_complete_'+attempt+'.json'),receipt)
     return receipt

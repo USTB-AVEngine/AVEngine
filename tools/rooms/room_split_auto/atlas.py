@@ -21,10 +21,13 @@ def floor_overhead(row,floor,cache,output,base=None):
     from existing real orthographic views is resampling, not a new rendering.
     """
     floor_y=floor['floor_y_m'];scope=shape(floor['floor_polygon']);cache=Path(cache);output=Path(output)
-    rendered=output.parent/'overhead_cpu_render_v1';render_key=row['house']+'__'+row['room_label']+'__'+floor['floor_id'];render_meta=rendered/(render_key+'.json');render_png=rendered/(render_key+'.png')
-    if render_meta.exists() and render_png.exists():
-        entry=json.loads(render_meta.read_text());im=entry['images'][0];image=Image.open(render_png).convert('RGB')
-        return entry,im,image,{'metadata_path':str(render_meta),'image_path':str(render_png),'source':entry['source'],'orientation':entry['orientation'],'gl_renderer':entry['gl_renderer'],'compute_device':'CPU'}
+    render_key=row['house']+'__'+row['room_label']+'__'+floor['floor_id']
+    attempts=[p for p in output.parent.glob('overhead_cpu_render_v*') if p.name.rsplit('_v',1)[-1].isdigit()]
+    for rendered in sorted(attempts,key=lambda p:int(p.name.rsplit('_v',1)[-1]),reverse=True):
+        render_meta=rendered/(render_key+'.json');render_png=rendered/(render_key+'.png')
+        if render_meta.exists() and render_png.exists():
+            entry=json.loads(render_meta.read_text());im=entry['images'][0];image=Image.open(render_png).convert('RGB')
+            return entry,im,image,{'metadata_path':str(render_meta),'image_path':str(render_png),'source':entry['source'],'orientation':entry['orientation'],'gl_renderer':entry['gl_renderer'],'compute_device':'CPU'}
     if base is not None and abs(base[0]['floor_y_m']-floor_y)<=0.3:
         frame=frame_polygon(base[0],base[1],floor_y)
         if scope.difference(frame).area<=max(1e-8,scope.area*1e-6):return base
