@@ -1,0 +1,303 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>__TITLE__</title>
+<link rel="icon" href="data:,">
+<style>
+:root{color-scheme:light;--bg:#f6f5f2;--card:#fff;--fg:#16181b;--fg2:#5b5f66;--line:#e1dfda;--acc:#eb6834;--ok:#1f8a4c;--bad:#c2372d;--unsure:#b07a00;--chip:#f0eee9;--sel:#16181b}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){color-scheme:dark;--bg:#18191b;--card:#222326;--fg:#f0f0ee;--fg2:#b9bab4;--line:#3a3b3e;--chip:#2e2f33;--ok:#4cc27e;--bad:#ff7a6e;--unsure:#f0bd4a;--sel:#f0f0ee}}
+:root[data-theme="dark"]{color-scheme:dark;--bg:#18191b;--card:#222326;--fg:#f0f0ee;--fg2:#b9bab4;--line:#3a3b3e;--chip:#2e2f33;--ok:#4cc27e;--bad:#ff7a6e;--unsure:#f0bd4a;--sel:#f0f0ee}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.55 -apple-system,"PingFang SC","Microsoft YaHei","Noto Sans SC",sans-serif}
+header{position:sticky;top:0;z-index:10;background:var(--card);border-bottom:1px solid var(--line);padding:10px 16px}
+.hrow{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;max-width:1400px;margin:0 auto}
+h1{font-size:18px;margin:0 8px 0 0}
+select,input[type=text],input[type=search]{font:inherit;background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:5px 8px}
+button{font:inherit;cursor:pointer;background:var(--chip);color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:5px 10px}
+button:hover{border-color:var(--fg2)}
+#progress{font-weight:600}
+#save{color:var(--fg2);font-size:13px}
+#reviewer.need{border-color:var(--bad);box-shadow:0 0 0 2px color-mix(in srgb,var(--bad) 30%,transparent)}
+main{max-width:1400px;margin:0 auto;padding:14px 16px 80px}
+.box{background:var(--card);border:1px solid var(--line);border-left:4px solid var(--acc);border-radius:8px;padding:10px 16px;margin:0 0 14px}
+.box p{margin:6px 0}.box ul{margin:6px 0;padding-left:20px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px;margin:0 0 14px;display:grid;grid-template-columns:minmax(0,560px) minmax(0,1fr);gap:14px}
+.card.hide{display:none}
+@media (max-width:900px){.card{grid-template-columns:1fr}}
+.imgs img{display:block;width:100%;height:auto;aspect-ratio:1;background:#000;border-radius:6px}
+.imgs img+img{margin-top:8px}
+.imgs .none{padding:30px;color:var(--fg2);border:1px dashed var(--line);border-radius:6px}
+.head h3{font-size:16px;margin:0;word-break:break-all}
+.fam{display:inline-block;font-size:12px;font-weight:700;padding:1px 7px;border-radius:9px;background:var(--chip);margin-right:6px;vertical-align:2px}
+.sub{color:var(--fg2);font-size:13.5px;margin:2px 0 6px}
+.prior{font-size:13px;color:var(--fg2)}
+ol.rooms{list-style:none;padding:0;margin:8px 0 0}
+li.room{border-top:1px solid var(--line);padding:8px 0}
+.rline{display:flex;flex-wrap:wrap;align-items:center;gap:2px 8px}
+.sw{display:inline-block;width:14px;height:14px;border-radius:3px;flex:none}
+.meta{color:var(--fg2);font-size:13.5px}
+.band-测试{color:var(--ok)}.band-只训练{color:var(--unsure)}.band-不用{color:var(--bad)}
+.vb{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+.vb button[data-v=ok].on{background:var(--ok);border-color:var(--ok);color:#fff}
+.vb button[data-v=bad].on{background:var(--bad);border-color:var(--bad);color:#fff}
+.vb button[data-v=unsure].on{background:var(--unsure);border-color:var(--unsure);color:#fff}
+.reasons{display:none;flex-wrap:wrap;gap:5px;margin-top:6px}
+li.room.need-reason .reasons,.dropv.need-reason .reasons{display:flex}
+.reasons button{font-size:12.5px;padding:3px 8px;border-radius:12px}
+.reasons button.on{background:var(--sel);color:var(--bg);border-color:var(--sel)}
+input.note{width:100%;margin-top:6px;font-size:13.5px}
+ul.dropped{list-style:none;padding:0;margin:8px 0 0;color:var(--fg2);font-size:13.5px}
+.dropv{border-top:1px solid var(--line);padding:8px 0 0;margin-top:8px}
+.cardbar{margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.done-mark{font-size:13px;color:var(--ok)}
+#empty{color:var(--fg2);padding:30px;text-align:center}
+</style>
+</head>
+<body>
+<header>
+  <div class="hrow">
+    <h1>__TITLE__</h1>
+    <label>审核人 <input type="text" id="reviewer" size="8" placeholder="填名字"></label>
+    <span id="progress"></span>
+    <span id="save"></span>
+  </div>
+  <div class="hrow" style="margin-top:6px">
+    <select id="fFam"><option value="">全部家族</option></select>
+    <select id="fKind"><option value="">切开的和原有的</option><option value="split">只看切开的大房</option><option value="native">只看原有房间</option></select>
+    <select id="fState"><option value="">全部状态</option><option value="todo">还没审完的</option><option value="bad">有“不对”的</option><option value="unsure">有“不确定”的</option><option value="prior">smy 9 月标过“不用/存疑”的</option></select>
+    <select id="fBand"><option value="">全部漏声档</option><option value="测试">有测试档的</option><option value="只训练">有只训练档的</option><option value="不用">有不用档的</option></select>
+    <input type="search" id="fText" placeholder="房子编号，如 00006" size="16">
+    <span id="shown" class="meta"></span>
+    <button id="expJson">导出 JSON</button><button id="expCsv">导出 CSV</button>
+    <label><button id="impBtn" type="button">导入 JSON</button><input type="file" id="impFile" accept="application/json,.json" hidden></label>
+  </div>
+</header>
+<main>
+  <div class="box">__LEAD_HTML__</div>
+  <div class="box"><b>图怎么看：</b>真实俯视图上，名单里的每间房一种颜色、正中大号数字是编号、下面是面积；斜线是切分时丢掉的块（×编号），网格是没判定或不在名单里的块（?编号）；白色细线是同一层别的房间（另有自己的卡片）。整套房子照常渲染，没有涂黑任何地方。</div>
+  <div id="cards"></div>
+  <div id="empty" hidden>没有符合筛选条件的卡片。</div>
+</main>
+<script>
+'use strict';
+const DATA = __DATA__;
+const KEY = 'room_split_review:' + DATA.build_id;
+const RKEY = 'room_split_review:reviewer';
+const FAM_ZH = {HM3D: 'HM3D', MP3D: 'MP3D', Kujiale: '酷家乐'};
+const $ = id => document.getElementById(id);
+const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e; };
+let fb = {}, serverMode = false, timers = new Map();
+const store = {get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }, set(k, v) { try { localStorage.setItem(k, v); return true; } catch (e) { return false; } }};
+try { fb = JSON.parse(store.get(KEY) || '{}') || {}; } catch (e) { fb = {}; }
+$('reviewer').value = store.get(RKEY) || '';
+$('reviewer').oninput = () => { store.set(RKEY, $('reviewer').value.trim()); $('reviewer').classList.remove('need'); };
+const sgt = iso => { try { return new Date(iso).toLocaleString('zh-CN', {hour12: false, timeZone: 'Asia/Singapore'}); } catch (e) { return iso; } };
+const roomIds = [], cardOf = new Map(), cardEls = [];
+for (const c of DATA.cards) { for (const r of c.rooms) { roomIds.push(r.id); cardOf.set(r.id, c); } }
+
+function setSave(text) { $('save').textContent = text; }
+function persistLocal() { if (!store.set(KEY, JSON.stringify(fb))) setSave('浏览器存储不可用：请定时导出 JSON'); }
+function post(id) {
+  if (!serverMode) return;
+  clearTimeout(timers.get(id));
+  timers.set(id, setTimeout(async () => {
+    try {
+      const r = await fetch('api/feedback', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({id, feedback: fb[id]})});
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || !j.ok) throw new Error(j.error || ('HTTP ' + r.status));
+      setSave('已存到服务器 ' + sgt(new Date().toISOString()));
+    } catch (e) { setSave('存服务器失败：' + e.message + '（本浏览器里还在，可导出 JSON）'); }
+  }, 400));
+}
+function update(id, patch) {
+  const reviewer = $('reviewer').value.trim();
+  if (!reviewer) $('reviewer').classList.add('need');
+  fb[id] = Object.assign({assessment: '', reason_codes: [], note: ''}, fb[id] || {}, patch, {reviewer, updated_at: new Date().toISOString()});
+  persistLocal();
+  if (!serverMode) setSave('已存在本浏览器 ' + sgt(fb[id].updated_at) + '（看完请导出 JSON 交回）');
+  post(id);
+}
+
+function reasonChips(id, holder) {
+  holder.replaceChildren();
+  for (const [code, label] of Object.entries(DATA.reasons)) {
+    const b = el('button', '', label); b.type = 'button'; b.dataset.code = code;
+    b.onclick = () => { const cur = new Set((fb[id] || {}).reason_codes || []); cur.has(code) ? cur.delete(code) : cur.add(code); update(id, {reason_codes: [...cur]}); paintItem(id); refreshCounts(); };
+    holder.append(b);
+  }
+}
+const itemEls = new Map();
+function paintItem(id) {
+  const e = itemEls.get(id); if (!e) return;
+  const rec = fb[id] || {};
+  e.querySelectorAll('.vb button').forEach(b => b.classList.toggle('on', b.dataset.v === rec.assessment));
+  e.querySelectorAll('.reasons button').forEach(b => b.classList.toggle('on', (rec.reason_codes || []).includes(b.dataset.code)));
+  e.classList.toggle('need-reason', rec.assessment === 'bad' || rec.assessment === 'unsure');
+  const n = e.querySelector('input.note'); if (n && document.activeElement !== n) n.value = rec.note || '';
+}
+function verdictButtons(id, labels) {
+  const vb = el('div', 'vb');
+  for (const [v, label] of labels) {
+    const b = el('button', '', label); b.type = 'button'; b.dataset.v = v;
+    b.onclick = () => { const cur = (fb[id] || {}).assessment; update(id, {assessment: cur === v ? '' : v}); paintItem(id); refreshCounts(); };
+    vb.append(b);
+  }
+  return vb;
+}
+function noteInput(id, ph) {
+  const n = el('input', 'note'); n.type = 'text'; n.placeholder = ph; n.value = (fb[id] || {}).note || '';
+  n.oninput = () => update(id, {note: n.value});
+  return n;
+}
+
+const io = 'IntersectionObserver' in window ? new IntersectionObserver(es => {
+  for (const en of es) if (en.isIntersecting) { const img = en.target; img.src = img.dataset.src; io.unobserve(img); }
+}, {rootMargin: '700px 0px'}) : null;
+
+function buildCard(c, idx) {
+  const s = el('section', 'card'); s.id = 'card-' + idx;
+  const imgs = el('div', 'imgs');
+  if (!c.images.length) imgs.append(el('div', 'none', '这一间没有俯视底图'));
+  for (const src of c.images) {
+    const img = el('img'); img.alt = c.house + ' ' + c.region; img.decoding = 'async'; img.loading = 'lazy'; img.width = 720; img.height = 720;
+    if (io) { img.dataset.src = src; io.observe(img); } else img.src = src;
+    imgs.append(img);
+  }
+  const right = el('div');
+  const head = el('div', 'head');
+  const h3 = el('h3'); h3.append(el('span', 'fam', FAM_ZH[c.family] || c.family), document.createTextNode(c.house + ' / ' + c.region));
+  head.append(h3);
+  const kind = c.split ? `原区域 ${c.source_area.toFixed(1)} m²，切成 ${c.rooms.length} 间进名单` : `原有房间（原区域 ${c.source_area.toFixed(1)} m²）`;
+  head.append(el('div', 'sub', kind));
+  if (c.prior) head.append(el('div', 'prior', `smy 9 月对原区域的判断：${c.prior.verdict_zh}${c.prior.note ? '（' + c.prior.note + '）' : ''}`));
+  right.append(head);
+  const ol = el('ol', 'rooms');
+  for (const r of c.rooms) {
+    const li = el('li', 'room'); itemEls.set(r.id, li);
+    const line = el('div', 'rline');
+    const sw = el('span', 'sw'); sw.style.background = r.colour;
+    line.append(sw, el('b', '', r.no + ' 号'), el('span', '', r.area.toFixed(1) + ' m²'));
+    const bits = ['短边 ' + r.short.toFixed(1) + ' m'];
+    if (r.type) bits.push(r.type);
+    if (c.images.length > 1 && r.floor) bits.push(r.floor);
+    line.append(el('span', 'meta', bits.join(' · ')));
+    if (r.leak !== null && r.leak !== undefined) line.append(el('span', 'meta band-' + r.band, `漏声 ${(r.leak * 100).toFixed(1)}%（${r.band}）`));
+    else line.append(el('span', 'meta', '漏声未测'));
+    li.append(line, verdictButtons(r.id, [['ok', '对'], ['bad', '不对'], ['unsure', '不确定']]));
+    const rs = el('div', 'reasons'); reasonChips(r.id, rs); li.append(rs, noteInput(r.id, '备注（可不填；不对时写清哪里不对）'));
+    ol.append(li);
+  }
+  right.append(ol);
+  const big = c.dropped.filter(d => d.area >= 0.5);
+  if (big.length) {
+    const ul = el('ul', 'dropped');
+    for (const d of big) ul.append(el('li', '', (d.kind === 'unresolved' ? '?' : '×') + d.no + (d.kind === 'unresolved' ? ' 没进名单 ' : ' 丢掉 ') + d.area.toFixed(1) + ' m²（' + d.reasons.join('、') + '）'));
+    right.append(ul);
+    const did = 'dropped:' + c.card;
+    const dv = el('div', 'dropv'); itemEls.set(did, dv);
+    dv.append(el('span', 'meta', '丢掉/没进名单的部分：'), verdictButtons(did, [['ok', '丢得对'], ['bad', '有该留下的']]));
+    dv.append(noteInput(did, '哪块该留、为什么（可不填）'));
+    right.append(dv);
+  }
+  const bar = el('div', 'cardbar');
+  const all = el('button', '', '这张卡没问题（没标过的全标“对”）'); all.type = 'button';
+  all.onclick = () => {
+    for (const r of c.rooms) if (!(fb[r.id] || {}).assessment) { update(r.id, {assessment: 'ok'}); paintItem(r.id); }
+    const did = 'dropped:' + c.card; if (big.length && !(fb[did] || {}).assessment) { update(did, {assessment: 'ok'}); paintItem(did); }
+    refreshCounts();
+  };
+  bar.append(all, el('span', 'done-mark'));
+  right.append(bar);
+  s.append(imgs, right);
+  return s;
+}
+
+function cardState(c) {
+  const vs = c.rooms.map(r => (fb[r.id] || {}).assessment || '');
+  return {done: vs.every(Boolean), bad: vs.includes('bad'), unsure: vs.includes('unsure')};
+}
+function refreshCounts() {
+  let ok = 0, bad = 0, unsure = 0;
+  for (const id of roomIds) { const a = (fb[id] || {}).assessment; if (a === 'ok') ok++; else if (a === 'bad') bad++; else if (a === 'unsure') unsure++; }
+  $('progress').textContent = `已审 ${ok + bad + unsure} / ${roomIds.length} 间（对 ${ok}、不对 ${bad}、不确定 ${unsure}）`;
+  DATA.cards.forEach((c, i) => { const st = cardState(c); cardEls[i].querySelector('.done-mark').textContent = st.done ? '✓ 这张卡审完了' : ''; });
+}
+function applyFilters() {
+  const fam = $('fFam').value, kind = $('fKind').value, state = $('fState').value, band = $('fBand').value, text = $('fText').value.trim().toLowerCase();
+  let shown = 0, rooms = 0;
+  DATA.cards.forEach((c, i) => {
+    let ok = (!fam || c.family === fam) && (!kind || (kind === 'split') === c.split) && (!band || c.rooms.some(r => r.band === band)) && (!text || (c.house + '/' + c.region).toLowerCase().includes(text));
+    if (ok && state) { const st = cardState(c); ok = state === 'todo' ? !st.done : state === 'bad' ? st.bad : state === 'unsure' ? st.unsure : !!(c.prior && c.prior.verdict !== 'use'); }
+    cardEls[i].classList.toggle('hide', !ok); if (ok) { shown++; rooms += c.rooms.length; }
+  });
+  $('shown').textContent = `显示 ${shown} 张卡、${rooms} 间`; $('empty').hidden = shown > 0;
+}
+
+function download(name, text, type) {
+  const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text], {type})); a.download = name; document.body.append(a); a.click();
+  setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+}
+const stamp = () => new Date().toISOString().slice(0, 16).replace(/[-:T]/g, '');
+$('expJson').onclick = () => download(`room_split_review_${$('reviewer').value.trim() || 'reviewer'}_${stamp()}.json`,
+  JSON.stringify({schema: 'avengine_room_split_review_feedback_v1', build_id: DATA.build_id, reviewer: $('reviewer').value.trim(), exported_at: new Date().toISOString(), feedback: fb}, null, 1), 'application/json');
+$('expCsv').onclick = () => {
+  const q = v => '"' + String(v ?? '').replace(/"/g, '""') + '"';
+  const rows = [['family', 'house', 'region', 'item_id', 'no', 'area_m2', 'leak_band', 'assessment', 'reasons', 'note', 'reviewer', 'updated_at'].join(',')];
+  for (const c of DATA.cards) {
+    for (const r of c.rooms) { const f = fb[r.id] || {}; rows.push([c.family, c.house, c.region, r.id, r.no, r.area, r.band, f.assessment, (f.reason_codes || []).map(k => DATA.reasons[k]).join('；'), f.note, f.reviewer, f.updated_at].map(q).join(',')); }
+    const did = 'dropped:' + c.card; if (fb[did]) { const f = fb[did]; rows.push([c.family, c.house, c.region, did, '', '', '', f.assessment, (f.reason_codes || []).map(k => DATA.reasons[k]).join('；'), f.note, f.reviewer, f.updated_at].map(q).join(',')); }
+  }
+  download(`room_split_review_${$('reviewer').value.trim() || 'reviewer'}_${stamp()}.csv`, '﻿' + rows.join('\n'), 'text/csv');
+};
+const validIds = new Set([...roomIds, ...DATA.cards.map(c => 'dropped:' + c.card)]);
+function mergeIn(map) {
+  const changed = {};
+  for (const [id, rec] of Object.entries(map || {})) {
+    if (!validIds.has(id) || !rec || typeof rec !== 'object') continue;
+    const cur = fb[id];
+    if (!cur || String(rec.updated_at || '') > String(cur.updated_at || '')) { fb[id] = rec; changed[id] = rec; }
+  }
+  return changed;
+}
+$('impBtn').onclick = () => $('impFile').click();
+$('impFile').onchange = async () => {
+  const f = $('impFile').files[0]; if (!f) return;
+  try {
+    const j = JSON.parse(await f.text()); const changed = mergeIn(j.feedback || j);
+    persistLocal(); for (const id of Object.keys(changed)) paintItem(id); refreshCounts(); applyFilters();
+    if (serverMode && Object.keys(changed).length) await pushBulk(changed);
+    setSave(`导入了 ${Object.keys(changed).length} 条（旧的不覆盖新的）`);
+  } catch (e) { setSave('导入失败：' + e.message); }
+  $('impFile').value = '';
+};
+async function pushBulk(items) {
+  const r = await fetch('api/feedback/bulk', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({items})});
+  const j = await r.json().catch(() => ({})); if (!r.ok || !j.ok) throw new Error(j.error || ('HTTP ' + r.status));
+}
+
+for (const f of DATA.families) { const o = el('option', '', `${FAM_ZH[f.name] || f.name}（${f.rooms} 间）`); o.value = f.name; $('fFam').append(o); }
+const frag = document.createDocumentFragment();
+DATA.cards.forEach((c, i) => { const e = buildCard(c, i); cardEls.push(e); frag.append(e); });
+$('cards').append(frag);
+for (const id of Object.keys(fb)) paintItem(id);
+for (const id of ['fFam', 'fKind', 'fState', 'fBand']) $(id).onchange = applyFilters;
+$('fText').oninput = applyFilters;
+refreshCounts(); applyFilters();
+setSave(location.protocol === 'file:' ? '本地文件模式：结果存在本浏览器，看完请导出 JSON 交回' : '正在连接服务器……');
+if (location.protocol !== 'file:') {
+  fetch('api/feedback').then(r => r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status))).then(async server => {
+    serverMode = true;
+    const local = Object.assign({}, fb);
+    mergeIn(server);
+    const newer = {};
+    for (const [id, rec] of Object.entries(local)) if (!server[id] || String(rec.updated_at || '') > String(server[id].updated_at || '')) newer[id] = rec;
+    persistLocal(); for (const id of Object.keys(fb)) paintItem(id); refreshCounts(); applyFilters();
+    if (Object.keys(newer).length) await pushBulk(newer);
+    setSave('已连上服务器：每次点击都会自动存盘');
+  }).catch(() => { serverMode = false; setSave('没连上保存服务：结果只存在本浏览器，看完请导出 JSON 交回'); });
+}
+</script>
+</body>
+</html>
