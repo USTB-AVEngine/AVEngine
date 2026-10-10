@@ -5,7 +5,7 @@
 
 自 2026-08-25 起，目录本身就是能力分组（阶段目录 m1…m7 已移除），
 本表按目录列出每个工具做什么。
-当前共 463 个工具脚本。
+当前共 464 个工具脚本。
 
 ## 资产生成与装配（`tools/assets/`）
 
@@ -148,6 +148,7 @@
 | `tools/rooms/run_spear_replicacad_canary.py` | Render the retained 270-frame ReplicaCAD route in an isolated SPEAR editor |
 | `tools/rooms/run_spear_residential_episode.py` | Render one AVEngine residential visual episode through SPEAR/UE |
 | `tools/rooms/select_furnished_camera_review.py` | Choose a furnished-room camera from actual SPEAR per-person visibility masks |
+| `tools/rooms/split_kujiale_rooms.py` | Select InteriorAgent CAD rooms and build real CPU overhead reviews |
 | `tools/rooms/split_large_hm3d.py` | Split oversized HM3D semantic regions on CPU and compare frozen manual references |
 
 ## 场景放置（`tools/scene/`）
