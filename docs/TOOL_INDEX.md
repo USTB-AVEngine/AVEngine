@@ -5,7 +5,7 @@
 
 自 2026-08-25 起，目录本身就是能力分组（阶段目录 m1…m7 已移除），
 本表按目录列出每个工具做什么。
-当前共 464 个工具脚本。
+当前共 468 个工具脚本。
 
 ## 资产生成与装配（`tools/assets/`）
 
@@ -169,6 +169,7 @@
 | `tools/acoustics/audit_jaeger_rir.py` | JAEGER SpatialSceneQA 公开包 RIR 混响审计脚本(可重跑版)。 |
 | `tools/acoustics/audit_skokloster_cleanup_inventory.py` | Emit the exact face inventory for a Skokloster research cleanup |
 | `tools/acoustics/build_asset_bound_rir_plan.py` | Bind concrete assets to generic root routes and plan on-demand RIR work |
+| `tools/acoustics/check_split_room_escape.py` | Measure retained polygon rooms with the original CPU whole-house escape rays |
 | `tools/acoustics/cleanup_dynamic_rir_cache.py` | Clear completed numeric RIR payloads while retaining replayable evidence |
 | `tools/acoustics/compile_semantic_research_package.py` | Compile one room's semantic mesh into an M3/RLR research acoustic package |
 | `tools/acoustics/derive_authored_geometry_proxy.py` | Locate authored-GLB topology roots and optionally derive a fresh acoustic proxy |
@@ -178,10 +179,13 @@
 | `tools/acoustics/extract_usd_acoustic_snapshot.py` | Expand a static USD room into one auditable M3 acoustic snapshot |
 | `tools/acoustics/plan_vctk_four_speaker_program.py` | Plan four distinct complete VCTK sentences on an AVEngine clock |
 | `tools/acoustics/prepare_authored_room_acoustics.py` | Prepare a real-surface authored room for the existing AVEngine M3/RLR compiler |
+| `tools/acoustics/prepare_split_house_inputs.py` | Build complete split-acoustics inputs from retained HM3D and historical family sources |
 | `tools/acoustics/probe_room_front_back_pairs.py` | Measure whether one room supports front/back mirrored source pairs |
 | `tools/acoustics/render_frame_readback_sequential_speech.py` | Render multi-source research audio from SPEAR frame readbacks |
 | `tools/acoustics/render_rir_cache.py` | Render a resumable native-RLR RIR cache from an M6.x job plan |
+| `tools/acoustics/room_split_escape.py` | Original 2026-10-03 CPU ray-escape measurement and whole-house setup |
 | `tools/acoustics/run_material_canary.py` | Run the hash-bound repeated M3 RLR material activation canary |
+| `tools/acoustics/split_house_inputs.py` | External inputs and placement geometry for split-room escape measurements |
 | `tools/acoustics/verify_material_canary.py` | Verify M3 canary schema, lineage, raw IRs and recomputed gates |
 | `tools/acoustics/verify_package_frame_parity.py` | Cross-system frame parity: the same rays in Habitat and in the package |
 | `tools/acoustics/verify_package_ray_leakage.py` | Run the modern RLR TraceRay checks for a compiled acoustic package |
