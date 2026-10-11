@@ -5,7 +5,7 @@
 
 自 2026-08-25 起，目录本身就是能力分组（阶段目录 m1…m7 已移除），
 本表按目录列出每个工具做什么。
-当前共 346 个工具脚本。
+当前共 359 个工具脚本。
 
 ## 资产生成与装配（`tools/assets/`）
 
@@ -33,6 +33,7 @@
 | `tools/assets/capture_installed_research_review.py` | Run the current installed-prefix M2 Blender-room research review |
 | `tools/assets/capture_research_review.py` | Run the 75-state single-view M2 research-review capture in Habitat |
 | `tools/assets/check_prompt_token_budget.py` | Fail closed when a candidate profile's effective prompt cannot fit the model window |
+| `tools/assets/check_source_material_matrix.py` | Gate the complete source-material matrix and emit an offline review page |
 | `tools/assets/compile_animal_package.py` | Compile a pinned Rocketbox Beagle M2 research-candidate package |
 | `tools/assets/compose_topdown_review.py` | Derive synchronized RGB + navmesh/descriptor top-down QA review media |
 | `tools/assets/derive_variant_contacts.py` | Derive generic package anchors and actor-space four-paw contacts |
@@ -102,6 +103,18 @@
 | `tools/assets/v7_human_roster_ue_wide_view.py` | Find a broad unobstructed native-room review view from composed USD triangles |
 | `tools/assets/v7_pet_bird_reference.py` | Task-owned FLUX.2 pet-bird reference; 3D remains owner-review pending |
 | `tools/assets/v7_pet_bird_segment.py` | CPU ISNet cut-out of this task's pet-bird candidate |
+| `tools/assets/v7_pet_birds_hy3d_generate.py` | Local-weight Hunyuan3D 2.1 shape/PBR generation into one task-owned asset directory |
+| `tools/assets/v7_pet_birds_hy3d_habitat.py` | Qualify static Hunyuan birds in native MP3D/HM3D using production PBR preparation |
+| `tools/assets/v7_pet_birds_hy3d_habitat_geometry.py` | Check complete bird meshes against original Habitat scene triangles and native floor rays |
+| `tools/assets/v7_pet_birds_hy3d_landmarks.py` | Resolve reviewed 2D landmark pixels onto the generated mesh with Blender rays |
+| `tools/assets/v7_pet_birds_hy3d_normalize.py` | Scale the reviewed generated bird and repair only its wooden stand for floor placement |
+| `tools/assets/v7_pet_birds_hy3d_pbr.py` | Export Hunyuan's UV mesh and generated albedo/metal/roughness maps as a PBR GLB |
+| `tools/assets/v7_pet_birds_hy3d_preview.py` | Four cardinal CPU Blender views of a generated bird; record exact camera matrices |
+| `tools/assets/v7_pet_birds_hy3d_reference.py` | Generate fixed-seed canary references using the installed FLUX.2-klein-4B |
+| `tools/assets/v7_pet_birds_hy3d_segment.py` | CPU ISNet segmentation and image-boundary checks for generated bird references |
+| `tools/assets/v7_pet_birds_hy3d_ue.py` | Import both generated birds and capture their native one-actor Kujiale placements |
+| `tools/assets/v7_pet_birds_hy3d_ue_geometry.py` | Check static birds against the read-only composed Kujiale source mesh and plan UE cameras |
+| `tools/assets/v7_pet_birds_hy3d_ue_qa.py` | Audit native UE scene context, matte appearance, bounds and emitter attachment |
 | `tools/assets/v7_roster_animation_nodes.py` | Discard only animation channels on unreachable, non-skin placeholder nodes |
 | `tools/assets/v7_roster_baseline_restore.py` | Restore byte-identical baseline mesh and source actions after Blender adds clips |
 | `tools/assets/v7_roster_bird_feet.py` | Measure original bird foot regions against its own derived perch, without altering either source |
