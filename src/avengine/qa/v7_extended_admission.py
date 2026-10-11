@@ -82,8 +82,16 @@ def normalize_recorded(row, output):
        'measured_activity':profile,'human_listening_used':False}
 
 def build_recorded_admission(*,pool,old_inventory,old_admission,vctk_lineages,fsd_rows,
-        beats_rows,clap_rows,ontology,collection_mids,class_targets,deduplications,output):
-    """Receipt-driven admission. The caller loads read-only corpora explicitly."""
+        beats_rows,clap_rows,ontology,collection_mids,class_targets,deduplications,output,
+        existing_gate_classes=('dog_bark',),existing_subtype_metadata_groups=None):
+    """Receipt-driven admission. The caller loads read-only corpora explicitly.
+
+    New original recordings for an existing (pre-extension) class keep that
+    class's unchanged BEATs gate, as dog_bark did; CLAP stays a new-class
+    alternative only. existing_subtype_metadata_groups re-applies the original
+    class's required source-metadata tokens (same substring rule as the
+    automatic_audio_v1 screen). Defaults reproduce the round-4 behaviour.
+    """
     output=Path(output);output.mkdir(parents=True,exist_ok=False)
     beat={r['sound_asset_id']:r for r in beats_rows}
     clap={r['sound_asset_id']:r for r in clap_rows}
@@ -200,6 +208,11 @@ def build_recorded_admission(*,pool,old_inventory,old_admission,vctk_lineages,fs
         for cls in r['candidate_classes']:
             group='fsd:'+r['original_id']
             reasons=source_policy_blockers(r)+recording_metadata_blockers({**r,'sound_class':cls})
+            groups=(existing_subtype_metadata_groups or {}).get(cls) or []
+            if groups:
+                subtype_text=' '.join(str(r['source_metadata'].get(k,'')) for k in ('title','description','tags')).lower()
+                if not all(any(token.lower() in subtype_text for token in group) for group in groups):
+                    reasons.append('original_metadata_does_not_confirm_specific_subtype')
             lic=r['source_license'].replace('https://','http://').rstrip('/')
             if lic not in PERMITTED_LICENSES or not r.get('official_zip_crc_verified'):
                 reasons.append('per_clip_license_or_official_waveform_association_missing')
@@ -209,9 +222,10 @@ def build_recorded_admission(*,pool,old_inventory,old_admission,vctk_lineages,fs
                 reasons.append('complete_reference_fingerprint_missing_or_blocked')
             scored=beat.get(sid);caption=clap.get(sid);model_proofs=[];accepted=[]
             bg=extended_gate.get(cls) or {}
-            if cls=='dog_bark':
+            if cls in existing_gate_classes:
                 bg={'status':'pass','threshold':.1917129977,'minimum_margin':.05,
-                    'source':'unchanged existing dry target confidence, new original Bark recordings'}
+                    'source':'unchanged existing dry target confidence, new original Bark recordings' if cls=='dog_bark'
+                        else 'unchanged existing dry target confidence, new original recordings for an existing class'}
             if scored and scored['sha256']==_digest(r['path']) and bg.get('status')=='pass':
                 confidence,rival,rival_mid=score_and_rival(scored,targets.get(cls,r['target_mids']),relatives)
                 passed=confidence>=bg['threshold'] and confidence-rival>=bg['minimum_margin']
@@ -224,7 +238,7 @@ def build_recorded_admission(*,pool,old_inventory,old_admission,vctk_lineages,fs
             cg=caption_gate.get(cls) or {}
             # Existing dog_bark screening is retained. CLAP is only a new-class
             # alternative, calibrated before applying it to new recordings.
-            if cls!='dog_bark' and caption and caption['sha256']==_digest(r['path']) and cg.get('status')=='pass':
+            if cls not in existing_gate_classes and caption and caption['sha256']==_digest(r['path']) and cg.get('status')=='pass':
                 confidence,margin=caption_score(caption,cls)
                 passed=confidence>=cg['threshold_cosine'] and margin>=cg['minimum_cosine_margin']
                 accepted.append(passed)
