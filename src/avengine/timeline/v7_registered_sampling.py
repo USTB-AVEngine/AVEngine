@@ -19,17 +19,24 @@ def choose_assets(catalog,row):
     else:
         gender='female' if row['production_scenario']['gender']=='F' else 'male'
         bodies=sorted({x['body_identity_id'] for x in catalog if x['dialogue_voice_binding_eligible'] and x['visual_gender']==gender and x['color']=='blue'})
-        rng=np.random.default_rng(row['seeds']['appearance']);body=str(rng.choice(bodies));colors=['blue','yellow','green','white','black']
+        rng=np.random.default_rng(row['seeds']['appearance']);body=str(rng.choice(bodies))
+        # Shirt colour must not encode speaking order or gender. The three
+        # referable (hue-verifiable) colours are shuffled over the first three
+        # actors; silent actors get a random gender; extra actors draw white or
+        # black at random. Index-fixed colours made blue/yellow the speakers and
+        # green/black female, white male (owner 2026-10-12).
+        referable=[str(c) for c in rng.permutation(['blue','yellow','green'])]
         assets=[];speech_genders=[]
         for i in range(count):
             if i<min(n,2):g=gender
             elif i<n:
                 g=min(('female','male'),key=lambda k:(speech_genders.count(k),k))
-            else:g='female' if i%2==0 else 'male'
+            else:g=str(rng.choice(['female','male']))
             if i<n:speech_genders.append(g)
             available=sorted({x['body_identity_id'] for x in catalog if x['dialogue_voice_binding_eligible'] and x['visual_gender']==g and x['color']=='blue'})
             selected=body if i<2 else str(rng.choice(available))
-            assets.append(deepcopy(next(x for x in catalog if x['body_identity_id']==selected and x['color']==(colors[i] if i<3 else ('white' if i%2 else 'black')))))
+            color=referable[i] if i<3 else str(rng.choice(['white','black']))
+            assets.append(deepcopy(next(x for x in catalog if x['body_identity_id']==selected and x['color']==color)))
     additional=row['production_scenario'].get('additional_source_assets',[])
     for aid in additional:
         a=deepcopy(by_id[aid])
