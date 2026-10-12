@@ -5,7 +5,7 @@
 
 自 2026-08-25 起，目录本身就是能力分组（阶段目录 m1…m7 已移除），
 本表按目录列出每个工具做什么。
-当前共 490 个工具脚本。
+当前共 492 个工具脚本。
 
 ## 资产生成与装配（`tools/assets/`）
 
@@ -353,6 +353,7 @@
 | `tools/qa/design_qa_v3_scene_batch.py` | Integrated qa-v3 batch: generic scene solver + per-type audio + facts |
 | `tools/qa/evaluate_question_specs.py` | Evaluate registry-bound QuestionSpecs and render a standalone review page |
 | `tools/qa/expand_dialogue_voices_cpu.py` | Run resumable resident CPU TTS workers with three seeds and calibrated readback |
+| `tools/qa/expand_dialogue_voices_pipe_cpu.py` | Use resident CPU workers and pipes to keep six-worker scheduling below32 threads |
 | `tools/qa/export_binding_delivery.py` | Export a self-contained delivery, build its dataset index, attach a layout |
 | `tools/qa/export_qa_v3_dataset.py` | Export one completed QA-v3 pipeline run without model-specific fields |
 | `tools/qa/filter_cross_time_points.py` | Cross-time sampling filter (pilot work order item 1.7) |
@@ -420,6 +421,7 @@
 | `tools/qa/run_dialogue_voice_audit.sh` | Run the retained dialogue language audit on CPU using the round5 dependency layout. |
 | `tools/qa/run_dialogue_voice_expansion.sh` | Task-specific CPU runner; every output/cache stays in the authorized artifact root. |
 | `tools/qa/run_dialogue_voice_final_tests.sh` |  |
+| `tools/qa/run_dialogue_voice_pipe_batch.sh` |  |
 | `tools/qa/run_dialogue_voice_test_suite.py` | Run CPU test receipts; optional file groups isolate existing daemon workers |
 | `tools/qa/run_qa_v3_audio_batch.py` | Sequential dynamic-audio runner for a qa-v3 design batch (stage two) |
 | `tools/qa/run_qa_v3_capture_batch.py` | Sequential UE capture runner for a qa-v3 design batch (stage two) |
