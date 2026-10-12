@@ -85,7 +85,7 @@ def build_registered_scene(row,house,records,assets,semantic_manifest=None,*,cam
     if house['acoustic_status']!='pass' or row['room_id'] not in house['checked_room_ids']:raise ValueError('unaccepted physical house/room')
     if {'development':'dev'}.get(house['split'],house['split'])!=row['split']:raise ValueError('house split crossed')
     if house.get('known_exposure') and row['split']!='train':raise ValueError('exposed heldout house')
-    admitted,rejected=filter_admission(records)
+    admitted,rejected=filter_admission(records,split=row['split'])
     if rejected:raise ValueError('registered source pool contains blocked inputs: '+str(rejected[:3]))
     plan=row['production_scenario'];n=plan['speaker_count'];rng=np.random.default_rng(row['seeds']['audio'])
     layout=row['measured_static_layout'];starts=[t/10 for t in row['window_start_ticks'][:2]]

@@ -5,7 +5,7 @@
 
 自 2026-08-25 起，目录本身就是能力分组（阶段目录 m1…m7 已移除），
 本表按目录列出每个工具做什么。
-当前共 513 个工具脚本。
+当前共 517 个工具脚本。
 
 ## 资产生成与装配（`tools/assets/`）
 
@@ -58,6 +58,7 @@
 | `tools/assets/gate_retopology.py` | Reject a mesh preparation that damaged the animal, before it is rigged |
 | `tools/assets/gate_rigged_asset.py` | Accept or reject a rigged animal from how its surface tears during the walk |
 | `tools/assets/generate_canonical_2d.py` | Generate one canonical 2D animal candidate from a clay pose guide |
+| `tools/assets/generate_sao_candidates.py` | Generate bounded, seed-recorded Stable Audio Open candidate WAVs offline |
 | `tools/assets/generated_animal_support_plane.py` | Pure NumPy support-plane authority for generated quadrupeds |
 | `tools/assets/generated_animal_support_plane_contract.py` | Stdlib-only validation contract for generated-animal support planes |
 | `tools/assets/generated_quadruped_semantics.py` | Bone-name-independent semantic decomposition for generated quadruped rigs |
@@ -318,6 +319,7 @@
 |---|---|
 | `tools/qa/adapt_four_speaker_research_qa.py` | Adapt four-speaker SPEAR/audio research inputs to existing QuestionSpec Facts |
 | `tools/qa/adapt_strict_two_human_both_move_v1_preflight.py` | Bind the reviewed both-move geometry handoff to A's materializer contract |
+| `tools/qa/admit_sao_topup.py` | Screen SAO top-up candidates with unchanged BEATs and recorded admission |
 | `tools/qa/assemble_binding_groups.py` | Assemble controlled binding groups from completed native episode variants |
 | `tools/qa/assemble_qa_v3_room_pilot.py` | Assemble one quota-complete room-centric QA-v3 research pilot manifest |
 | `tools/qa/audio_profiles.py` | Question-type audio profiles: one schedule per question type, not one for all |
@@ -442,6 +444,7 @@
 | `tools/qa/replay_appearance_review.py` | 重放已渲染 episode 的登记外观复核，按房间给出"登记值 × 判定"混淆表。 |
 | `tools/qa/replay_audio_variant.py` | Render a bounded audio answer variant over retained native pixels into a fresh episode |
 | `tools/qa/report_qa_v3_card1_conditional_baseline.py` | Card1 realized conditional tables and best-response unimodal baselines |
+| `tools/qa/report_sao_topup.py` | Build a standalone Chinese machine-admission report with audio plots |
 | `tools/qa/route_synthesis.py` | Routes designed by the solver for the pose it has chosen |
 | `tools/qa/run_answer_prior_pipeline.py` | Generate, augment and audit the original 25 QA types from one reusable config |
 | `tools/qa/run_audio_answer_balance.py` | Plan and render answer-balanced audio over retained two-actor captures; resume safely |
@@ -490,6 +493,7 @@
 | `tools/qa/verify_qa_v3_visual_batch.py` | Verify a materialized QA-v3 visual batch against its runtime readbacks |
 | `tools/qa/visibility_prediction.py` | Predict actor visibility from the camera clearance table, before rendering |
 | `tools/qa/walkable_grid.py` | Per-scene walkable-floor grid: where an actor may stand, and how far the |
+| `tools/qa/whisper_sao_screen.py` | Apply Whisper-small's standard multilingual no-speech decoding to SAO |
 
 ## 数据集装配（`tools/dataset/`）
 

@@ -83,9 +83,12 @@ def normalize_recorded(row, output):
 
 def build_recorded_admission(*,pool,old_inventory,old_admission,vctk_lineages,fsd_rows,
         beats_rows,clap_rows,ontology,collection_mids,class_targets,deduplications,output,
-        existing_gate_classes=('dog_bark',),existing_subtype_metadata_groups=None):
+        existing_gate_classes=('dog_bark',),existing_subtype_metadata_groups=None,
+        generated_source_authorization=None):
     """Receipt-driven admission. The caller loads read-only corpora explicitly.
 
+    Generated audio requires an explicit owner authorization and bound
+    multilingual no-speech/activity receipts. Its model gate is unchanged.
     New original recordings for an existing (pre-extension) class keep that
     class's unchanged BEATs gate, as dog_bark did; CLAP stays a new-class
     alternative only. existing_subtype_metadata_groups re-applies the original
@@ -206,15 +209,21 @@ def build_recorded_admission(*,pool,old_inventory,old_admission,vctk_lineages,fs
         rows.append(row)
     for sid,r in source.items():
         for cls in r['candidate_classes']:
-            group='fsd:'+r['original_id']
-            reasons=source_policy_blockers(r)+recording_metadata_blockers({**r,'sound_class':cls})
+            generated=r.get('source_type')=='generated_audio'
+            group=('sao:' if generated else 'fsd:')+r['original_id']
+            if generated:
+                from avengine.qa.v7_sao_admission import generated_source_blockers
+                reasons=generated_source_blockers({**r,'sound_class':cls},generated_source_authorization)
+            else:
+                reasons=source_policy_blockers(r)
+            reasons+=recording_metadata_blockers({**r,'sound_class':cls})
             groups=(existing_subtype_metadata_groups or {}).get(cls) or []
             if groups:
                 subtype_text=' '.join(str(r['source_metadata'].get(k,'')) for k in ('title','description','tags')).lower()
                 if not all(any(token.lower() in subtype_text for token in group) for group in groups):
                     reasons.append('original_metadata_does_not_confirm_specific_subtype')
             lic=r['source_license'].replace('https://','http://').rstrip('/')
-            if lic not in PERMITTED_LICENSES or not r.get('official_zip_crc_verified'):
+            if not generated and (lic not in PERMITTED_LICENSES or not r.get('official_zip_crc_verified')):
                 reasons.append('per_clip_license_or_official_waveform_association_missing')
             if group in evaluations:
                 reasons.append('evaluation_original_identity_overlap')
@@ -282,7 +291,9 @@ def build_recorded_admission(*,pool,old_inventory,old_admission,vctk_lineages,fs
         list(executor.map(normalize,pending))
     for row in rows:
         row['acquisition_provenance_status']=row.get('provenance_status')
-        row['provenance_status']='qualified_recorded_input_under_listed_screens' if row.get('strict_v7_eligible') else 'blocked'
+        qualified=('qualified_generated_input_under_listed_screens' if row.get('source_type')=='generated_audio'
+                   else 'qualified_recorded_input_under_listed_screens')
+        row['provenance_status']=qualified if row.get('strict_v7_eligible') else 'blocked'
     class_names=list(dict.fromkeys(list(QA21_CLASSES)+['any_audioset_class_playback']+list(EXTENDED_CLASSES)))
     by_class=[]
     for cls in class_names:
@@ -295,7 +306,10 @@ def build_recorded_admission(*,pool,old_inventory,old_admission,vctk_lineages,fs
           'target_deficit':max(0,20-len(originals)) if cls in EXTENDED_CLASSES else None,
           'typical_rejections':dict(reasons.most_common(6)) if cls!='any_audioset_class_playback' else {'composite_placeholder_not_a_fixed_answer':1},
           'example_rejected_ids':[r['sound_asset_id'] for r in members if not r.get('strict_v7_eligible')][:5]})
-    result={'policy':'recorded_real_inputs_no_espeak_no_synthetic_effects_v3','records':rows,'by_class':by_class,
+    policy=('v7_recorded_plus_owner_authorized_sao_train_only_20261012'
+            if any(r.get('source_type')=='generated_audio' for r in source.values())
+            else 'recorded_real_inputs_no_espeak_no_synthetic_effects_v3')
+    result={'policy':policy,'records':rows,'by_class':by_class,
        'admitted_records':sum(r.get('strict_v7_eligible',False) for r in rows),
        'admitted_distinct_original_ids':len({r['original_group'] for r in rows if r.get('strict_v7_eligible')}),
        'old_35_classes_nonempty':sum(r['admitted_records']>0 for r in by_class if r['sound_class'] not in EXTENDED_CLASSES),

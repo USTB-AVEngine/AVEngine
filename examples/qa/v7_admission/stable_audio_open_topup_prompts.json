@@ -1,0 +1,1680 @@
+{
+  "schema": "v7_sao_topup_prompts_v1",
+  "model_id": "stabilityai/stable-audio-open-1.0",
+  "model_sha256": "7b20458a071231aaf32613b6fbc7945f28f34dbba4f295bb49bad56f5f66b57e",
+  "license": "Stability AI Community License",
+  "owner_acceptance": "owner 2026-10-12 接受 IV(b) 风险",
+  "allowed_splits": [
+    "train"
+  ],
+  "steps": 100,
+  "cfg_scale": 7,
+  "primary_multiplier": 3,
+  "retry_multiplier": 1,
+  "classes": {
+    "fire_alarm": {
+      "needed": 28,
+      "existing_originals": 2,
+      "prompts": [
+        {
+          "id": "fire_alarm_p00",
+          "duration_s": 4,
+          "text": "A ceiling-mounted photoelectric smoke detector fire alarm sounding three sharp high-pitched warning beeps in repeated groups. Dry sound, close microphone at 20 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "fire_alarm_p01",
+          "duration_s": 5,
+          "text": "An older red mechanical fire alarm bell ringing rapidly with a bright metallic buzz. Dry sound, close microphone at 35 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "fire_alarm_p02",
+          "duration_s": 6,
+          "text": "A wall-mounted commercial fire alarm sounder producing a loud pulsed evacuation tone. Dry sound, close microphone at 50 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "fire_alarm_p03",
+          "duration_s": 7,
+          "text": "A battery-operated home fire alarm chirping a repeated urgent three-beep warning. Dry sound, close microphone at 65 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "fire_alarm_p04",
+          "duration_s": 8,
+          "text": "A mains-powered fire alarm with a piercing continuous electronic warning whine. Dry sound, close microphone at 80 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "fire_alarm_p05",
+          "duration_s": 9,
+          "text": "A small ceiling fire alarm sounding short staccato high frequency pulses. Dry sound, close microphone at 95 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "fire_alarm_p06",
+          "duration_s": 4,
+          "text": "A vintage electric fire alarm bell with rough vibrating metal rattles. Dry sound, close microphone at 20 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "fire_alarm_p07",
+          "duration_s": 5,
+          "text": "A modern flat fire alarm unit producing clean alternating high and low warning tones. Dry sound, close microphone at 35 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "fire_alarm_p08",
+          "duration_s": 6,
+          "text": "A compact kitchen fire alarm beeping in a steady repeated triple pattern. Dry sound, close microphone at 50 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "fire_alarm_p09",
+          "duration_s": 7,
+          "text": "A red industrial fire alarm horn making a harsh rapidly cycling warning sound. Dry sound, close microphone at 65 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "fire_alarm_p10",
+          "duration_s": 8,
+          "text": "A plastic home smoke detector fire alarm producing a thin nasal high-pitched repeated warning. Dry sound, close microphone at 80 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "fire_alarm_p11",
+          "duration_s": 9,
+          "text": "A low-profile corridor fire alarm sounding an urgent square-wave electronic alarm. Dry sound, close microphone at 95 centimetres, no reverberation, no music, no human speech, no human singing."
+        }
+      ],
+      "retry_prompts": [
+        {
+          "id": "fire_alarm_retry_p00",
+          "duration_s": 6,
+          "text": "A fire alarm siren sounding in repeated urgent pulses. Dry sound, close microphone at 20 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "fire_alarm_retry_p01",
+          "duration_s": 8,
+          "text": "A red electromechanical fire alarm bell ringing. Dry sound, close microphone at 35 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "fire_alarm_retry_p02",
+          "duration_s": 5,
+          "text": "A smoke detector fire alarm emitting three piercing beeps. Dry sound, close microphone at 50 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "fire_alarm_retry_p03",
+          "duration_s": 7,
+          "text": "A fire alarm horn sounding a rough low warning buzz. Dry sound, close microphone at 65 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "fire_alarm_retry_p04",
+          "duration_s": 9,
+          "text": "A battery smoke detector fire alarm with a thin high squeal. Dry sound, close microphone at 80 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "fire_alarm_retry_p05",
+          "duration_s": 4,
+          "text": "A commercial fire alarm sounder alternating two electronic pitches. Dry sound, close microphone at 95 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "fire_alarm_retry_p06",
+          "duration_s": 6,
+          "text": "A home fire alarm repeating a bright triple warning tone. Dry sound, close microphone at 20 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "fire_alarm_retry_p07",
+          "duration_s": 8,
+          "text": "A vintage fire alarm bell vibrating with a metallic clatter. Dry sound, close microphone at 35 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "fire_alarm_retry_p08",
+          "duration_s": 5,
+          "text": "A ceiling smoke detector fire alarm sounding short sharp beeps. Dry sound, close microphone at 50 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "fire_alarm_retry_p09",
+          "duration_s": 7,
+          "text": "A wall fire alarm producing a continuous harsh electronic tone. Dry sound, close microphone at 65 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "fire_alarm_retry_p10",
+          "duration_s": 9,
+          "text": "A compact fire alarm giving a fast rising and falling siren. Dry sound, close microphone at 80 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "fire_alarm_retry_p11",
+          "duration_s": 4,
+          "text": "A mains fire alarm repeating a nasal square wave warning. Dry sound, close microphone at 95 centimetres, no reverberation, no music, no human speech, no human singing."
+        }
+      ]
+    },
+    "microwave_hum": {
+      "needed": 27,
+      "existing_originals": 3,
+      "prompts": [
+        {
+          "id": "microwave_hum_p00",
+          "duration_s": 4,
+          "text": "A countertop microwave oven running, its steady low motor hum and cooling fan. Dry sound, close microphone at 20 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "microwave_hum_p01",
+          "duration_s": 5,
+          "text": "A large stainless steel microwave oven running with a deep electric hum and gentle fan hiss. Dry sound, close microphone at 35 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "microwave_hum_p02",
+          "duration_s": 6,
+          "text": "A small compact microwave oven running with a thin buzzing motor hum. Dry sound, close microphone at 50 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "microwave_hum_p03",
+          "duration_s": 7,
+          "text": "An older microwave oven running, producing a rough low hum and faint turntable vibration. Dry sound, close microphone at 65 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "microwave_hum_p04",
+          "duration_s": 8,
+          "text": "A built-in microwave oven running at full power with a smooth sustained motor hum. Dry sound, close microphone at 80 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "microwave_hum_p05",
+          "duration_s": 9,
+          "text": "A white tabletop microwave oven running quietly with a soft continuous fan and transformer hum. Dry sound, close microphone at 95 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "microwave_hum_p06",
+          "duration_s": 4,
+          "text": "A microwave oven running with a resonant low hum and slight periodic mechanical rattle. Dry sound, close microphone at 20 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "microwave_hum_p07",
+          "duration_s": 5,
+          "text": "A modern inverter microwave oven running with an even airy fan hum. Dry sound, close microphone at 35 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "microwave_hum_p08",
+          "duration_s": 6,
+          "text": "A microwave oven running with a medium-pitched electric motor buzz. Dry sound, close microphone at 50 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "microwave_hum_p09",
+          "duration_s": 7,
+          "text": "A heavy commercial microwave oven running with a strong low-frequency humming fan. Dry sound, close microphone at 65 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "microwave_hum_p10",
+          "duration_s": 8,
+          "text": "A small microwave oven running, the rotating plate and fan making a pulsing hum. Dry sound, close microphone at 80 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "microwave_hum_p11",
+          "duration_s": 9,
+          "text": "A microwave oven running steadily with a textured electric hum, its timer stays silent. Dry sound, close microphone at 95 centimetres, no reverberation, no music, no human speech, no human singing."
+        }
+      ],
+      "retry_prompts": [
+        {
+          "id": "microwave_hum_retry_p00",
+          "duration_s": 6,
+          "text": "A microwave oven running and heating food with a steady electrical hum. Dry sound, close microphone at 20 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "microwave_hum_retry_p01",
+          "duration_s": 8,
+          "text": "A compact microwave oven running with a low fan and motor buzz. Dry sound, close microphone at 35 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "microwave_hum_retry_p02",
+          "duration_s": 5,
+          "text": "A large microwave oven heating with a deep resonant hum. Dry sound, close microphone at 50 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "microwave_hum_retry_p03",
+          "duration_s": 7,
+          "text": "A microwave oven turntable motor turning steadily while cooking. Dry sound, close microphone at 65 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "microwave_hum_retry_p04",
+          "duration_s": 9,
+          "text": "A countertop microwave oven running with an airy cooling fan. Dry sound, close microphone at 80 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "microwave_hum_retry_p05",
+          "duration_s": 4,
+          "text": "An older microwave oven running with a rough vibrating motor hum. Dry sound, close microphone at 95 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "microwave_hum_retry_p06",
+          "duration_s": 6,
+          "text": "A built-in microwave oven operating with a smooth bass hum. Dry sound, close microphone at 20 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "microwave_hum_retry_p07",
+          "duration_s": 8,
+          "text": "A small microwave oven cooking with a thin electric whine. Dry sound, close microphone at 35 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "microwave_hum_retry_p08",
+          "duration_s": 5,
+          "text": "A microwave oven fan running with a soft rushing and humming sound. Dry sound, close microphone at 50 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "microwave_hum_retry_p09",
+          "duration_s": 7,
+          "text": "A stainless steel microwave oven heating with a pulsing low buzz. Dry sound, close microphone at 65 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "microwave_hum_retry_p10",
+          "duration_s": 9,
+          "text": "A microwave oven cooking at high power with a strong motor drone. Dry sound, close microphone at 80 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "microwave_hum_retry_p11",
+          "duration_s": 4,
+          "text": "A microwave oven turntable and cooling fan operating together. Dry sound, close microphone at 95 centimetres, no reverberation, no music, no human speech, no human singing."
+        }
+      ]
+    },
+    "cat_meow": {
+      "needed": 24,
+      "existing_originals": 6,
+      "prompts": [
+        {
+          "id": "cat_meow_p00",
+          "duration_s": 4,
+          "text": "A single adult domestic cat making several clear short meows. Dry sound, close microphone at 20 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "cat_meow_p01",
+          "duration_s": 5,
+          "text": "A small kitten calling with soft high-pitched meows. Dry sound, close microphone at 35 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "cat_meow_p02",
+          "duration_s": 6,
+          "text": "A large domestic cat giving a deep raspy drawn-out meow. Dry sound, close microphone at 50 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "cat_meow_p03",
+          "duration_s": 7,
+          "text": "A young cat making repeated nasal asking meows. Dry sound, close microphone at 65 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "cat_meow_p04",
+          "duration_s": 8,
+          "text": "A mature house cat giving a bright rising and falling meow. Dry sound, close microphone at 80 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "cat_meow_p05",
+          "duration_s": 9,
+          "text": "A relaxed domestic cat making quiet breathy meows. Dry sound, close microphone at 95 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "cat_meow_p06",
+          "duration_s": 4,
+          "text": "A short-haired pet cat making sharp clipped meow calls. Dry sound, close microphone at 20 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "cat_meow_p07",
+          "duration_s": 5,
+          "text": "A long-haired adult cat giving a long low plaintive meow. Dry sound, close microphone at 35 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "cat_meow_p08",
+          "duration_s": 6,
+          "text": "A small adult cat making a thin squeaky repeated meow. Dry sound, close microphone at 50 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "cat_meow_p09",
+          "duration_s": 7,
+          "text": "A domestic cat giving two throaty meows with short pauses. Dry sound, close microphone at 65 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "cat_meow_p10",
+          "duration_s": 8,
+          "text": "A pet kitten making a wavering high-pitched meow call. Dry sound, close microphone at 80 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "cat_meow_p11",
+          "duration_s": 9,
+          "text": "A house cat calling in a rough gravelly meow with a rising ending. Dry sound, close microphone at 95 centimetres, no reverberation, no music, no human speech, no human singing."
+        }
+      ],
+      "retry_prompts": [
+        {
+          "id": "cat_meow_retry_p00",
+          "duration_s": 6,
+          "text": "A cat meowing repeatedly. Dry sound, close microphone at 20 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "cat_meow_retry_p01",
+          "duration_s": 8,
+          "text": "A small kitten making short squeaky meows. Dry sound, close microphone at 35 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "cat_meow_retry_p02",
+          "duration_s": 5,
+          "text": "An adult cat giving a long low meow. Dry sound, close microphone at 50 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "cat_meow_retry_p03",
+          "duration_s": 7,
+          "text": "A domestic cat making two clear nasal meows. Dry sound, close microphone at 65 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "cat_meow_retry_p04",
+          "duration_s": 9,
+          "text": "A young cat calling with a rising high pitched meow. Dry sound, close microphone at 80 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "cat_meow_retry_p05",
+          "duration_s": 4,
+          "text": "A large cat making a rough raspy meow. Dry sound, close microphone at 95 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "cat_meow_retry_p06",
+          "duration_s": 6,
+          "text": "A house cat giving soft short plaintive meows. Dry sound, close microphone at 20 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "cat_meow_retry_p07",
+          "duration_s": 8,
+          "text": "A tabby cat meowing with a wavering pitch. Dry sound, close microphone at 35 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "cat_meow_retry_p08",
+          "duration_s": 5,
+          "text": "A kitten making a long thin drawn out meow. Dry sound, close microphone at 50 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "cat_meow_retry_p09",
+          "duration_s": 7,
+          "text": "A mature cat giving a deep hoarse meow. Dry sound, close microphone at 65 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "cat_meow_retry_p10",
+          "duration_s": 9,
+          "text": "A pet cat repeating loud insistent meows. Dry sound, close microphone at 80 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "cat_meow_retry_p11",
+          "duration_s": 4,
+          "text": "A cat making a chirpy meow followed by a longer meow. Dry sound, close microphone at 95 centimetres, no reverberation, no music, no human speech, no human singing."
+        }
+      ]
+    },
+    "printer": {
+      "needed": 20,
+      "existing_originals": 10,
+      "prompts": [
+        {
+          "id": "printer_p00",
+          "duration_s": 4,
+          "text": "A desktop laser printer feeding paper and printing, with motor whirs and roller clicks. Dry sound, close microphone at 20 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "printer_p01",
+          "duration_s": 5,
+          "text": "An inkjet printer printing a page, its carriage sliding back and forth with short mechanical whines. Dry sound, close microphone at 35 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "printer_p02",
+          "duration_s": 6,
+          "text": "A dot matrix office printer printing with fast sharp chattering taps. Dry sound, close microphone at 50 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "printer_p03",
+          "duration_s": 7,
+          "text": "A compact thermal receipt printer feeding paper with a fine high-pitched mechanical buzz. Dry sound, close microphone at 65 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "printer_p04",
+          "duration_s": 8,
+          "text": "A large office laser printer drawing in a sheet with low motor whirs and crisp relay clicks. Dry sound, close microphone at 80 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "printer_p05",
+          "duration_s": 9,
+          "text": "A small home inkjet printer moving its print head in uneven whirring passes. Dry sound, close microphone at 95 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "printer_p06",
+          "duration_s": 4,
+          "text": "An older dot matrix printer making repeated gritty rapid printing chatter. Dry sound, close microphone at 20 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "printer_p07",
+          "duration_s": 5,
+          "text": "A monochrome laser printer printing a sheet, soft fan and rubber paper roller sounds. Dry sound, close microphone at 35 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "printer_p08",
+          "duration_s": 6,
+          "text": "A portable thermal label printer producing a brief smooth motor whine and paper feed rattle. Dry sound, close microphone at 50 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "printer_p09",
+          "duration_s": 7,
+          "text": "A desktop colour printer working with alternating carriage whirs and soft gear clicks. Dry sound, close microphone at 65 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "printer_p10",
+          "duration_s": 8,
+          "text": "A compact laser printer feeding paper, its gear train buzzing and clicking. Dry sound, close microphone at 80 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "printer_p11",
+          "duration_s": 9,
+          "text": "An office inkjet printer printing slowly with a scratchy sliding head and repeated rollers. Dry sound, close microphone at 95 centimetres, no reverberation, no music, no human speech, no human singing."
+        }
+      ],
+      "retry_prompts": [
+        {
+          "id": "printer_retry_p00",
+          "duration_s": 6,
+          "text": "A laser printer printing a page with whirring rollers. Dry sound, close microphone at 20 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "printer_retry_p01",
+          "duration_s": 8,
+          "text": "An inkjet printer printing with a moving print head. Dry sound, close microphone at 35 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "printer_retry_p02",
+          "duration_s": 5,
+          "text": "A dot matrix printer printing with rapid mechanical chatter. Dry sound, close microphone at 50 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "printer_retry_p03",
+          "duration_s": 7,
+          "text": "A receipt printer feeding a strip of paper. Dry sound, close microphone at 65 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "printer_retry_p04",
+          "duration_s": 9,
+          "text": "A desktop printer pulling in a sheet and printing. Dry sound, close microphone at 80 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "printer_retry_p05",
+          "duration_s": 4,
+          "text": "A large office printer printing several pages. Dry sound, close microphone at 95 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "printer_retry_p06",
+          "duration_s": 6,
+          "text": "A compact printer making short rhythmic motor movements. Dry sound, close microphone at 20 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "printer_retry_p07",
+          "duration_s": 8,
+          "text": "A monochrome laser printer feeding and ejecting paper. Dry sound, close microphone at 35 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "printer_retry_p08",
+          "duration_s": 5,
+          "text": "An inkjet printer carriage moving back and forth. Dry sound, close microphone at 50 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "printer_retry_p09",
+          "duration_s": 7,
+          "text": "A small thermal printer printing with a thin motor whine. Dry sound, close microphone at 65 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "printer_retry_p10",
+          "duration_s": 9,
+          "text": "An older office printer rattling while printing paper. Dry sound, close microphone at 80 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "printer_retry_p11",
+          "duration_s": 4,
+          "text": "A home inkjet printer making repeated carriage clicks and roller hums. Dry sound, close microphone at 95 centimetres, no reverberation, no music, no human speech, no human singing."
+        }
+      ]
+    },
+    "alarm_beep": {
+      "needed": 19,
+      "existing_originals": 11,
+      "prompts": [
+        {
+          "id": "alarm_beep_p00",
+          "duration_s": 4,
+          "text": "A small electronic alarm making evenly spaced short clean high-pitched beeps. Dry sound, close microphone at 20 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "alarm_beep_p01",
+          "duration_s": 5,
+          "text": "A digital safety alarm emitting repeated double beeps with a sharp square-wave tone. Dry sound, close microphone at 35 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "alarm_beep_p02",
+          "duration_s": 6,
+          "text": "A compact battery alarm producing thin piercing warning beeps. Dry sound, close microphone at 50 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "alarm_beep_p03",
+          "duration_s": 7,
+          "text": "A handheld alarm unit sounding a low electronic beep in repeated bursts. Dry sound, close microphone at 65 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "alarm_beep_p04",
+          "duration_s": 8,
+          "text": "A home appliance warning alarm making three brisk electronic beeps. Dry sound, close microphone at 80 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "alarm_beep_p05",
+          "duration_s": 9,
+          "text": "A digital timer alarm sounding a rapid regular sequence of bright beeps. Dry sound, close microphone at 95 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "alarm_beep_p06",
+          "duration_s": 4,
+          "text": "A small electronic warning buzzer making separated medium-pitched beep tones. Dry sound, close microphone at 20 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "alarm_beep_p07",
+          "duration_s": 5,
+          "text": "A plastic alarm unit producing a soft nasal beep at regular intervals. Dry sound, close microphone at 35 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "alarm_beep_p08",
+          "duration_s": 6,
+          "text": "A monitoring device alarm emitting urgent repeated high and low beeps. Dry sound, close microphone at 50 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "alarm_beep_p09",
+          "duration_s": 7,
+          "text": "A simple electronic alarm sounding a repeated four-beep pattern. Dry sound, close microphone at 65 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "alarm_beep_p10",
+          "duration_s": 8,
+          "text": "A compact warning alarm making a rough buzzy short electronic beep. Dry sound, close microphone at 80 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "alarm_beep_p11",
+          "duration_s": 9,
+          "text": "A digital alert alarm producing clipped pure-tone beeps in a steady rhythm. Dry sound, close microphone at 95 centimetres, no reverberation, no music, no human speech, no human singing."
+        }
+      ],
+      "retry_prompts": [
+        {
+          "id": "alarm_beep_retry_p00",
+          "duration_s": 6,
+          "text": "An electronic alarm beeping regularly. Dry sound, close microphone at 20 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "alarm_beep_retry_p01",
+          "duration_s": 8,
+          "text": "A small warning alarm sounding repeated triple beeps. Dry sound, close microphone at 35 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "alarm_beep_retry_p02",
+          "duration_s": 5,
+          "text": "A digital alarm producing sharp high pitched beeps. Dry sound, close microphone at 50 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "alarm_beep_retry_p03",
+          "duration_s": 7,
+          "text": "A warning alarm emitting slow square wave beeps. Dry sound, close microphone at 65 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "alarm_beep_retry_p04",
+          "duration_s": 9,
+          "text": "A battery alarm giving short bright chirping beeps. Dry sound, close microphone at 80 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "alarm_beep_retry_p05",
+          "duration_s": 4,
+          "text": "An electronic warning device alternating two beep pitches. Dry sound, close microphone at 95 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "alarm_beep_retry_p06",
+          "duration_s": 6,
+          "text": "A small alarm making repeated double beeps. Dry sound, close microphone at 20 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "alarm_beep_retry_p07",
+          "duration_s": 8,
+          "text": "A buzzer alarm sounding a nasal staccato beep pattern. Dry sound, close microphone at 35 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "alarm_beep_retry_p08",
+          "duration_s": 5,
+          "text": "A digital warning alarm sounding long and short beeps. Dry sound, close microphone at 50 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "alarm_beep_retry_p09",
+          "duration_s": 7,
+          "text": "A plastic alarm unit making a thin piercing beep. Dry sound, close microphone at 65 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "alarm_beep_retry_p10",
+          "duration_s": 9,
+          "text": "An electronic alarm sounding a clean regular pure tone beep. Dry sound, close microphone at 80 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "alarm_beep_retry_p11",
+          "duration_s": 4,
+          "text": "A portable warning alarm repeating a quick high frequency beep. Dry sound, close microphone at 95 centimetres, no reverberation, no music, no human speech, no human singing."
+        }
+      ]
+    },
+    "clock_tick": {
+      "needed": 19,
+      "existing_originals": 11,
+      "prompts": [
+        {
+          "id": "clock_tick_p00",
+          "duration_s": 4,
+          "text": "A small mechanical desk clock ticking evenly with crisp tick-tock sounds. Dry sound, close microphone at 20 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "clock_tick_p01",
+          "duration_s": 5,
+          "text": "A large pendulum wall clock making deep alternating tick and tock clicks. Dry sound, close microphone at 35 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "clock_tick_p02",
+          "duration_s": 6,
+          "text": "A quiet quartz wall clock with one sharp delicate tick every second. Dry sound, close microphone at 50 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "clock_tick_p03",
+          "duration_s": 7,
+          "text": "An old wind-up mantel clock producing dry metallic tick-tock clicks. Dry sound, close microphone at 65 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "clock_tick_p04",
+          "duration_s": 8,
+          "text": "A compact analogue bedside clock ticking rapidly with a fine light mechanism. Dry sound, close microphone at 80 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "clock_tick_p05",
+          "duration_s": 9,
+          "text": "A heavy wooden wall clock producing hollow low tick-tock sounds. Dry sound, close microphone at 95 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "clock_tick_p06",
+          "duration_s": 4,
+          "text": "A small pocket watch ticking with fast tiny precise metal clicks. Dry sound, close microphone at 20 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "clock_tick_p07",
+          "duration_s": 5,
+          "text": "A vintage mechanical table clock with slightly rough alternating ticks. Dry sound, close microphone at 35 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "clock_tick_p08",
+          "duration_s": 6,
+          "text": "A plastic kitchen wall clock ticking regularly with soft short taps. Dry sound, close microphone at 50 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "clock_tick_p09",
+          "duration_s": 7,
+          "text": "A metal-cased wind-up clock making bright resonant tick-tock sounds. Dry sound, close microphone at 65 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "clock_tick_p10",
+          "duration_s": 8,
+          "text": "A mechanical pendulum clock ticking slowly with short dull alternating clicks. Dry sound, close microphone at 80 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "clock_tick_p11",
+          "duration_s": 9,
+          "text": "A wristwatch movement making very quiet fast high-frequency ticks. Dry sound, close microphone at 95 centimetres, no reverberation, no music, no human speech, no human singing."
+        }
+      ],
+      "retry_prompts": [
+        {
+          "id": "clock_tick_retry_p00",
+          "duration_s": 6,
+          "text": "A mechanical clock ticking and tocking steadily. Dry sound, close microphone at 20 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "clock_tick_retry_p01",
+          "duration_s": 8,
+          "text": "A small quartz clock making sharp regular ticks. Dry sound, close microphone at 35 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "clock_tick_retry_p02",
+          "duration_s": 5,
+          "text": "A pendulum clock ticking with alternating low and high clicks. Dry sound, close microphone at 50 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "clock_tick_retry_p03",
+          "duration_s": 7,
+          "text": "A wall clock ticking once every second. Dry sound, close microphone at 65 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "clock_tick_retry_p04",
+          "duration_s": 9,
+          "text": "A wind up clock making soft rapid mechanical ticks. Dry sound, close microphone at 80 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "clock_tick_retry_p05",
+          "duration_s": 4,
+          "text": "A pocket watch ticking quickly. Dry sound, close microphone at 95 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "clock_tick_retry_p06",
+          "duration_s": 6,
+          "text": "A large wooden clock making deep rhythmic tick tock sounds. Dry sound, close microphone at 20 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "clock_tick_retry_p07",
+          "duration_s": 8,
+          "text": "A tabletop clock making crisp evenly spaced ticks. Dry sound, close microphone at 35 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "clock_tick_retry_p08",
+          "duration_s": 5,
+          "text": "An old mechanical clock ticking with a loose metal click. Dry sound, close microphone at 50 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "clock_tick_retry_p09",
+          "duration_s": 7,
+          "text": "A wristwatch movement making faint rapid ticking sounds. Dry sound, close microphone at 65 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "clock_tick_retry_p10",
+          "duration_s": 9,
+          "text": "A plastic wall clock making dry short ticking clicks. Dry sound, close microphone at 80 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "clock_tick_retry_p11",
+          "duration_s": 4,
+          "text": "A brass clock making a steady metallic tick tock. Dry sound, close microphone at 95 centimetres, no reverberation, no music, no human speech, no human singing."
+        }
+      ]
+    },
+    "blender": {
+      "needed": 18,
+      "existing_originals": 12,
+      "prompts": [
+        {
+          "id": "blender_p00",
+          "duration_s": 4,
+          "text": "A countertop kitchen blender running with a loud grinding motor whir. Dry sound, close microphone at 20 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "blender_p01",
+          "duration_s": 5,
+          "text": "A small smoothie blender running, its high-pitched motor buzzing steadily. Dry sound, close microphone at 35 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "blender_p02",
+          "duration_s": 6,
+          "text": "A heavy glass-jar blender blending with a rough low motor roar. Dry sound, close microphone at 50 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "blender_p03",
+          "duration_s": 7,
+          "text": "A handheld immersion blender running with a thin raspy electric whine. Dry sound, close microphone at 65 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "blender_p04",
+          "duration_s": 8,
+          "text": "A powerful kitchen blender spinning with a dense mechanical buzz. Dry sound, close microphone at 80 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "blender_p05",
+          "duration_s": 9,
+          "text": "A compact plastic-jar blender running, a steady motor hum and light rattling blades. Dry sound, close microphone at 95 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "blender_p06",
+          "duration_s": 4,
+          "text": "An old countertop blender running with an uneven coarse grinding whir. Dry sound, close microphone at 20 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "blender_p07",
+          "duration_s": 5,
+          "text": "A modern personal blender running smoothly with a bright high motor whine. Dry sound, close microphone at 35 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "blender_p08",
+          "duration_s": 6,
+          "text": "A kitchen blender pulsing twice, with loud motor starts and brief spinning bursts. Dry sound, close microphone at 50 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "blender_p09",
+          "duration_s": 7,
+          "text": "A small immersion blender making a scratchy electric motor buzz. Dry sound, close microphone at 65 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "blender_p10",
+          "duration_s": 8,
+          "text": "A high-speed blender running with a sharp rising motor whine and thick grinding texture. Dry sound, close microphone at 80 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "blender_p11",
+          "duration_s": 9,
+          "text": "A tabletop blender running at a low speed with a deep vibrating motor hum. Dry sound, close microphone at 95 centimetres, no reverberation, no music, no human speech, no human singing."
+        }
+      ],
+      "retry_prompts": [
+        {
+          "id": "blender_retry_p00",
+          "duration_s": 6,
+          "text": "A blender blending food at high speed. Dry sound, close microphone at 20 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "blender_retry_p01",
+          "duration_s": 8,
+          "text": "A kitchen blender grinding and whirring while making a smoothie. Dry sound, close microphone at 35 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "blender_retry_p02",
+          "duration_s": 5,
+          "text": "A countertop blender running with a harsh motor roar. Dry sound, close microphone at 50 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "blender_retry_p03",
+          "duration_s": 7,
+          "text": "A compact blender running with a high pitched electric whine. Dry sound, close microphone at 65 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "blender_retry_p04",
+          "duration_s": 9,
+          "text": "A heavy blender crushing ice with a grinding motor sound. Dry sound, close microphone at 80 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "blender_retry_p05",
+          "duration_s": 4,
+          "text": "A tabletop blender mixing liquid with a steady buzzing roar. Dry sound, close microphone at 95 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "blender_retry_p06",
+          "duration_s": 6,
+          "text": "A food blender starting and running at medium speed. Dry sound, close microphone at 20 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "blender_retry_p07",
+          "duration_s": 8,
+          "text": "A handheld blender blending with a narrow buzzing sound. Dry sound, close microphone at 35 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "blender_retry_p08",
+          "duration_s": 5,
+          "text": "An older kitchen blender running with a rough rattling motor. Dry sound, close microphone at 50 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "blender_retry_p09",
+          "duration_s": 7,
+          "text": "A powerful blender running with a deep grinding hum. Dry sound, close microphone at 65 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "blender_retry_p10",
+          "duration_s": 9,
+          "text": "A small smoothie blender whirring in a short burst. Dry sound, close microphone at 80 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "blender_retry_p11",
+          "duration_s": 4,
+          "text": "A blender motor running with a fast rotating blade buzz. Dry sound, close microphone at 95 centimetres, no reverberation, no music, no human speech, no human singing."
+        }
+      ]
+    },
+    "microwave_beep": {
+      "needed": 18,
+      "existing_originals": 12,
+      "prompts": [
+        {
+          "id": "microwave_beep_p00",
+          "duration_s": 4,
+          "text": "A countertop microwave oven timer finishing with three short clean beeps. Dry sound, close microphone at 20 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "microwave_beep_p01",
+          "duration_s": 5,
+          "text": "A small microwave oven control panel producing two high-pitched electronic beeps. Dry sound, close microphone at 35 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "microwave_beep_p02",
+          "duration_s": 6,
+          "text": "A stainless steel microwave oven announcing completion with four evenly spaced beeps. Dry sound, close microphone at 50 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "microwave_beep_p03",
+          "duration_s": 7,
+          "text": "An older microwave oven timer giving a low nasal beep repeated three times. Dry sound, close microphone at 65 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "microwave_beep_p04",
+          "duration_s": 8,
+          "text": "A compact microwave oven finishing its heating cycle with bright double beeps. Dry sound, close microphone at 80 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "microwave_beep_p05",
+          "duration_s": 9,
+          "text": "A built-in microwave oven control panel making short sharp button beeps. Dry sound, close microphone at 95 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "microwave_beep_p06",
+          "duration_s": 4,
+          "text": "A white kitchen microwave oven timer sounding five quick completion beeps. Dry sound, close microphone at 20 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "microwave_beep_p07",
+          "duration_s": 5,
+          "text": "A modern microwave oven giving a soft medium-pitched completion beep in repeated groups. Dry sound, close microphone at 35 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "microwave_beep_p08",
+          "duration_s": 6,
+          "text": "A microwave oven timer emitting a thin high-pitched repeated beep alert. Dry sound, close microphone at 50 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "microwave_beep_p09",
+          "duration_s": 7,
+          "text": "A small tabletop microwave oven producing three separated buzzy timer beeps. Dry sound, close microphone at 65 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "microwave_beep_p10",
+          "duration_s": 8,
+          "text": "A commercial microwave oven completion alarm sounding two short strong electronic beeps. Dry sound, close microphone at 80 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "microwave_beep_p11",
+          "duration_s": 9,
+          "text": "A microwave oven keypad and completion timer making crisp brief beeps. Dry sound, close microphone at 95 centimetres, no reverberation, no music, no human speech, no human singing."
+        }
+      ],
+      "retry_prompts": [
+        {
+          "id": "microwave_beep_retry_p00",
+          "duration_s": 6,
+          "text": "A microwave oven timer beeping when cooking finishes. Dry sound, close microphone at 20 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "microwave_beep_retry_p01",
+          "duration_s": 8,
+          "text": "A countertop microwave oven sounding three completion beeps. Dry sound, close microphone at 35 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "microwave_beep_retry_p02",
+          "duration_s": 5,
+          "text": "A microwave oven keypad making short confirmation beeps. Dry sound, close microphone at 50 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "microwave_beep_retry_p03",
+          "duration_s": 7,
+          "text": "A small microwave oven giving a thin high pitched timer beep. Dry sound, close microphone at 65 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "microwave_beep_retry_p04",
+          "duration_s": 9,
+          "text": "A large microwave oven sounding a slow double completion beep. Dry sound, close microphone at 80 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "microwave_beep_retry_p05",
+          "duration_s": 4,
+          "text": "An older microwave oven timer making a nasal electronic beep. Dry sound, close microphone at 95 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "microwave_beep_retry_p06",
+          "duration_s": 6,
+          "text": "A digital microwave oven giving five regular completion beeps. Dry sound, close microphone at 20 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "microwave_beep_retry_p07",
+          "duration_s": 8,
+          "text": "A microwave oven control panel making two bright keypad beeps. Dry sound, close microphone at 35 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "microwave_beep_retry_p08",
+          "duration_s": 5,
+          "text": "A built-in microwave oven making a long timer beep. Dry sound, close microphone at 50 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "microwave_beep_retry_p09",
+          "duration_s": 7,
+          "text": "A microwave oven ending a cycle with a sequence of sharp beeps. Dry sound, close microphone at 65 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "microwave_beep_retry_p10",
+          "duration_s": 9,
+          "text": "A compact microwave oven repeating a short reminder beep. Dry sound, close microphone at 80 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "microwave_beep_retry_p11",
+          "duration_s": 4,
+          "text": "A microwave oven timer producing a clean pure tone beep. Dry sound, close microphone at 95 centimetres, no reverberation, no music, no human speech, no human singing."
+        }
+      ]
+    },
+    "telephone": {
+      "needed": 16,
+      "existing_originals": 14,
+      "prompts": [
+        {
+          "id": "telephone_p00",
+          "duration_s": 4,
+          "text": "An old rotary telephone ringing with two bright mechanical bells. Dry sound, close microphone at 20 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "telephone_p01",
+          "duration_s": 5,
+          "text": "A beige desk telephone ringing in repeated metallic bell bursts. Dry sound, close microphone at 35 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "telephone_p02",
+          "duration_s": 6,
+          "text": "A wired office telephone making a repeated electronic ring-ring tone. Dry sound, close microphone at 50 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "telephone_p03",
+          "duration_s": 7,
+          "text": "A small cordless telephone handset ringing with a clean two-tone electronic call. Dry sound, close microphone at 65 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "telephone_p04",
+          "duration_s": 8,
+          "text": "A black vintage telephone ringing with a rough metal bell rattle. Dry sound, close microphone at 80 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "telephone_p05",
+          "duration_s": 9,
+          "text": "A modern desk telephone producing a simple repeated digital ringing tone. Dry sound, close microphone at 95 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "telephone_p06",
+          "duration_s": 4,
+          "text": "A compact landline telephone ringing in short shrill twin pulses. Dry sound, close microphone at 20 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "telephone_p07",
+          "duration_s": 5,
+          "text": "A heavy rotary telephone ringing with a low bright vibrating bell. Dry sound, close microphone at 35 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "telephone_p08",
+          "duration_s": 6,
+          "text": "A white home telephone producing a nasal alternating electronic ring. Dry sound, close microphone at 50 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "telephone_p09",
+          "duration_s": 7,
+          "text": "A push-button office telephone ringing with a sharp repeated call signal. Dry sound, close microphone at 65 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "telephone_p10",
+          "duration_s": 8,
+          "text": "A wall-mounted telephone ringing with a traditional metallic double bell. Dry sound, close microphone at 80 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "telephone_p11",
+          "duration_s": 9,
+          "text": "A small landline handset producing a steady repeated telephone ring tone. Dry sound, close microphone at 95 centimetres, no reverberation, no music, no human speech, no human singing."
+        }
+      ],
+      "retry_prompts": [
+        {
+          "id": "telephone_retry_p00",
+          "duration_s": 6,
+          "text": "An old rotary telephone ringing. Dry sound, close microphone at 20 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "telephone_retry_p01",
+          "duration_s": 8,
+          "text": "A corded landline telephone ringing with a double bell. Dry sound, close microphone at 35 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "telephone_retry_p02",
+          "duration_s": 5,
+          "text": "An office telephone ringing with a bright electronic tone. Dry sound, close microphone at 50 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "telephone_retry_p03",
+          "duration_s": 7,
+          "text": "A vintage telephone ringing with a rough metal bell. Dry sound, close microphone at 65 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "telephone_retry_p04",
+          "duration_s": 9,
+          "text": "A compact desk telephone ringing in short bursts. Dry sound, close microphone at 80 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "telephone_retry_p05",
+          "duration_s": 4,
+          "text": "A wall telephone ringing with a low buzzing bell. Dry sound, close microphone at 95 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "telephone_retry_p06",
+          "duration_s": 6,
+          "text": "A push button telephone ringing with repeated two tone pulses. Dry sound, close microphone at 20 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "telephone_retry_p07",
+          "duration_s": 8,
+          "text": "A home landline telephone giving a shrill ring. Dry sound, close microphone at 35 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "telephone_retry_p08",
+          "duration_s": 5,
+          "text": "A black rotary telephone ringing with a rapid bell rattle. Dry sound, close microphone at 50 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "telephone_retry_p09",
+          "duration_s": 7,
+          "text": "A hotel desk telephone ringing twice and pausing. Dry sound, close microphone at 65 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "telephone_retry_p10",
+          "duration_s": 9,
+          "text": "A cordless landline telephone sounding a simple ring tone. Dry sound, close microphone at 80 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "telephone_retry_p11",
+          "duration_s": 4,
+          "text": "An older office telephone ringing with a harsh nasal tone. Dry sound, close microphone at 95 centimetres, no reverberation, no music, no human speech, no human singing."
+        }
+      ]
+    },
+    "pet_bird_parrot": {
+      "needed": 10,
+      "existing_originals": 20,
+      "prompts": [
+        {
+          "id": "pet_bird_parrot_p00",
+          "duration_s": 4,
+          "text": "A pet African grey parrot making rough short squawks and natural bird calls. Dry sound, close microphone at 20 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "pet_bird_parrot_p01",
+          "duration_s": 5,
+          "text": "A small pet budgie chirping and chattering with bright quick bird calls. Dry sound, close microphone at 35 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "pet_bird_parrot_p02",
+          "duration_s": 6,
+          "text": "A pet cockatiel giving sharp short natural whistles and bird calls. Dry sound, close microphone at 50 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "pet_bird_parrot_p03",
+          "duration_s": 7,
+          "text": "A pet macaw making deep raspy squawks in separated bursts. Dry sound, close microphone at 65 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "pet_bird_parrot_p04",
+          "duration_s": 8,
+          "text": "A small parakeet making quick soft twittering bird calls. Dry sound, close microphone at 80 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "pet_bird_parrot_p05",
+          "duration_s": 9,
+          "text": "A pet cockatoo giving hoarse nasal squawks. Dry sound, close microphone at 95 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "pet_bird_parrot_p06",
+          "duration_s": 4,
+          "text": "A single green pet parrot chirping with rough scratchy calls. Dry sound, close microphone at 20 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "pet_bird_parrot_p07",
+          "duration_s": 5,
+          "text": "A pet conure making thin high-pitched chattering squawks. Dry sound, close microphone at 35 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "pet_bird_parrot_p08",
+          "duration_s": 6,
+          "text": "A small pet budgerigar producing rapid gentle chirps. Dry sound, close microphone at 50 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "pet_bird_parrot_p09",
+          "duration_s": 7,
+          "text": "A pet African grey parrot making low throaty chattering bird noises. Dry sound, close microphone at 65 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "pet_bird_parrot_p10",
+          "duration_s": 8,
+          "text": "A cockatiel making repeated clear rising bird calls. Dry sound, close microphone at 80 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "pet_bird_parrot_p11",
+          "duration_s": 9,
+          "text": "A pet Amazon parrot producing strong short coarse squawks. Dry sound, close microphone at 95 centimetres, no reverberation, no music, no human speech, no human singing."
+        }
+      ],
+      "retry_prompts": [
+        {
+          "id": "pet_bird_parrot_retry_p00",
+          "duration_s": 6,
+          "text": "A pet parrot squawking. Dry sound, close microphone at 20 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "pet_bird_parrot_retry_p01",
+          "duration_s": 8,
+          "text": "A small pet parrot chirping sharply. Dry sound, close microphone at 35 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "pet_bird_parrot_retry_p02",
+          "duration_s": 5,
+          "text": "A large parrot making a loud raspy squawk. Dry sound, close microphone at 50 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "pet_bird_parrot_retry_p03",
+          "duration_s": 7,
+          "text": "A pet conure parrot making high pitched calls. Dry sound, close microphone at 65 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "pet_bird_parrot_retry_p04",
+          "duration_s": 9,
+          "text": "A pet cockatiel parrot making short bright chirps. Dry sound, close microphone at 80 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "pet_bird_parrot_retry_p05",
+          "duration_s": 4,
+          "text": "A pet budgerigar parrot chattering quickly. Dry sound, close microphone at 95 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "pet_bird_parrot_retry_p06",
+          "duration_s": 6,
+          "text": "A pet parrot making a wavering whistle call. Dry sound, close microphone at 20 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "pet_bird_parrot_retry_p07",
+          "duration_s": 8,
+          "text": "A small green parrot giving repeated nasal squawks. Dry sound, close microphone at 35 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "pet_bird_parrot_retry_p08",
+          "duration_s": 5,
+          "text": "A pet parrot making soft low chattering calls. Dry sound, close microphone at 50 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "pet_bird_parrot_retry_p09",
+          "duration_s": 7,
+          "text": "A parrot making a short harsh screech. Dry sound, close microphone at 65 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "pet_bird_parrot_retry_p10",
+          "duration_s": 9,
+          "text": "A pet parrot repeating clear rising bird calls. Dry sound, close microphone at 80 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "pet_bird_parrot_retry_p11",
+          "duration_s": 4,
+          "text": "A pet parrot giving a rapid series of chirps and squawks. Dry sound, close microphone at 95 centimetres, no reverberation, no music, no human speech, no human singing."
+        }
+      ]
+    },
+    "doorbell": {
+      "needed": 9,
+      "existing_originals": 21,
+      "prompts": [
+        {
+          "id": "doorbell_p00",
+          "duration_s": 4,
+          "text": "A wired house doorbell sounding a clear traditional two-note ding-dong. Dry sound, close microphone at 20 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "doorbell_p01",
+          "duration_s": 5,
+          "text": "A small electronic doorbell making a short high-pitched ding-dong. Dry sound, close microphone at 35 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "doorbell_p02",
+          "duration_s": 6,
+          "text": "An older mechanical doorbell buzzing and ringing sharply. Dry sound, close microphone at 50 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "doorbell_p03",
+          "duration_s": 7,
+          "text": "A wall-mounted doorbell chime giving two warm resonant struck notes. Dry sound, close microphone at 65 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "doorbell_p04",
+          "duration_s": 8,
+          "text": "A compact wireless doorbell sounding a simple bright double chime. Dry sound, close microphone at 80 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "doorbell_p05",
+          "duration_s": 9,
+          "text": "A vintage electric doorbell making a fast metallic ringing buzz. Dry sound, close microphone at 95 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "doorbell_p06",
+          "duration_s": 4,
+          "text": "A small brass doorbell ringing with short crisp metal tones. Dry sound, close microphone at 20 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "doorbell_p07",
+          "duration_s": 5,
+          "text": "A plastic electronic doorbell producing a soft nasal two-note chime. Dry sound, close microphone at 35 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "doorbell_p08",
+          "duration_s": 6,
+          "text": "A household doorbell sounding a low rounded ding followed by a higher dong. Dry sound, close microphone at 50 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "doorbell_p09",
+          "duration_s": 7,
+          "text": "A wired doorbell mechanism giving a hard sharp double chime. Dry sound, close microphone at 65 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "doorbell_p10",
+          "duration_s": 8,
+          "text": "A compact home doorbell making three short clean ringing notes. Dry sound, close microphone at 80 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "doorbell_p11",
+          "duration_s": 9,
+          "text": "A small mechanical doorbell sounder buzzing in a brief uneven burst. Dry sound, close microphone at 95 centimetres, no reverberation, no music, no human speech, no human singing."
+        }
+      ],
+      "retry_prompts": [
+        {
+          "id": "doorbell_retry_p00",
+          "duration_s": 6,
+          "text": "A house doorbell ringing ding dong. Dry sound, close microphone at 20 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "doorbell_retry_p01",
+          "duration_s": 8,
+          "text": "A mechanical doorbell sounding two metal chimes. Dry sound, close microphone at 35 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "doorbell_retry_p02",
+          "duration_s": 5,
+          "text": "An electric doorbell ringing with a bright buzzing bell. Dry sound, close microphone at 50 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "doorbell_retry_p03",
+          "duration_s": 7,
+          "text": "A wireless doorbell making a short two tone chime. Dry sound, close microphone at 65 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "doorbell_retry_p04",
+          "duration_s": 9,
+          "text": "An older doorbell ringing with a rough vibrating bell. Dry sound, close microphone at 80 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "doorbell_retry_p05",
+          "duration_s": 4,
+          "text": "A front door chime making a deep ding dong sound. Dry sound, close microphone at 95 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "doorbell_retry_p06",
+          "duration_s": 6,
+          "text": "A small doorbell making a thin sharp ring. Dry sound, close microphone at 20 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "doorbell_retry_p07",
+          "duration_s": 8,
+          "text": "A brass doorbell producing a clear double chime. Dry sound, close microphone at 35 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "doorbell_retry_p08",
+          "duration_s": 5,
+          "text": "A digital doorbell sounding a simple descending two tone. Dry sound, close microphone at 50 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "doorbell_retry_p09",
+          "duration_s": 7,
+          "text": "A doorbell push activating a quick buzzer ring. Dry sound, close microphone at 65 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "doorbell_retry_p10",
+          "duration_s": 9,
+          "text": "A tubular doorbell making two resonant bell notes. Dry sound, close microphone at 80 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "doorbell_retry_p11",
+          "duration_s": 4,
+          "text": "A compact electric doorbell ringing twice with a pause. Dry sound, close microphone at 95 centimetres, no reverberation, no music, no human speech, no human singing."
+        }
+      ]
+    },
+    "alarm_clock": {
+      "needed": 4,
+      "existing_originals": 26,
+      "prompts": [
+        {
+          "id": "alarm_clock_p00",
+          "duration_s": 4,
+          "text": "A digital bedside alarm clock sounding a repeated three-beep wake-up alarm. Dry sound, close microphone at 20 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "alarm_clock_p01",
+          "duration_s": 5,
+          "text": "A twin-bell wind-up alarm clock ringing rapidly with a bright metal rattle. Dry sound, close microphone at 35 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "alarm_clock_p02",
+          "duration_s": 6,
+          "text": "A small travel alarm clock producing thin high-pitched repeated beeps. Dry sound, close microphone at 50 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "alarm_clock_p03",
+          "duration_s": 7,
+          "text": "A vintage mechanical alarm clock giving a rough buzzing bell alarm. Dry sound, close microphone at 65 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "alarm_clock_p04",
+          "duration_s": 8,
+          "text": "A modern digital alarm clock beeping in repeated pairs. Dry sound, close microphone at 80 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "alarm_clock_p05",
+          "duration_s": 9,
+          "text": "A compact plastic bedside alarm clock sounding a soft nasal electronic alarm. Dry sound, close microphone at 95 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "alarm_clock_p06",
+          "duration_s": 4,
+          "text": "A heavy metal alarm clock ringing with a coarse vibrating double bell. Dry sound, close microphone at 20 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "alarm_clock_p07",
+          "duration_s": 5,
+          "text": "A quartz alarm clock making a fast rising series of electronic beeps. Dry sound, close microphone at 35 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "alarm_clock_p08",
+          "duration_s": 6,
+          "text": "A small analogue alarm clock ringing with a sharp metallic buzzer. Dry sound, close microphone at 50 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "alarm_clock_p09",
+          "duration_s": 7,
+          "text": "A digital desk alarm clock giving regular medium-pitched warning beeps. Dry sound, close microphone at 65 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "alarm_clock_p10",
+          "duration_s": 8,
+          "text": "A compact wind-up alarm clock ringing with a thin scratchy metal bell. Dry sound, close microphone at 80 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "alarm_clock_p11",
+          "duration_s": 9,
+          "text": "A battery-powered alarm clock emitting a repeated urgent four-beep signal. Dry sound, close microphone at 95 centimetres, no reverberation, no music, no human speech, no human singing."
+        }
+      ],
+      "retry_prompts": [
+        {
+          "id": "alarm_clock_retry_p00",
+          "duration_s": 6,
+          "text": "A wind up alarm clock ringing. Dry sound, close microphone at 20 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "alarm_clock_retry_p01",
+          "duration_s": 8,
+          "text": "A twin bell alarm clock rattling loudly. Dry sound, close microphone at 35 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "alarm_clock_retry_p02",
+          "duration_s": 5,
+          "text": "A digital alarm clock sounding repeated beeps. Dry sound, close microphone at 50 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "alarm_clock_retry_p03",
+          "duration_s": 7,
+          "text": "A small travel alarm clock making a bright electronic buzz. Dry sound, close microphone at 65 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "alarm_clock_retry_p04",
+          "duration_s": 9,
+          "text": "A bedside alarm clock sounding a slow double beep. Dry sound, close microphone at 80 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "alarm_clock_retry_p05",
+          "duration_s": 4,
+          "text": "An old mechanical alarm clock ringing with a metal clatter. Dry sound, close microphone at 95 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "alarm_clock_retry_p06",
+          "duration_s": 6,
+          "text": "A plastic digital alarm clock giving high pitched pulses. Dry sound, close microphone at 20 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "alarm_clock_retry_p07",
+          "duration_s": 8,
+          "text": "A brass alarm clock sounding a rough mechanical bell. Dry sound, close microphone at 35 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "alarm_clock_retry_p08",
+          "duration_s": 5,
+          "text": "A compact bedside alarm clock sounding a nasal beep pattern. Dry sound, close microphone at 50 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "alarm_clock_retry_p09",
+          "duration_s": 7,
+          "text": "A quartz alarm clock making a clean repeating electronic tone. Dry sound, close microphone at 65 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "alarm_clock_retry_p10",
+          "duration_s": 9,
+          "text": "A red twin bell alarm clock ringing rapidly. Dry sound, close microphone at 80 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "alarm_clock_retry_p11",
+          "duration_s": 4,
+          "text": "A pocket travel alarm clock giving short urgent beeps. Dry sound, close microphone at 95 centimetres, no reverberation, no music, no human speech, no human singing."
+        }
+      ]
+    },
+    "pet_bird_canary": {
+      "needed": 2,
+      "existing_originals": 28,
+      "prompts": [
+        {
+          "id": "pet_bird_canary_p00",
+          "duration_s": 4,
+          "text": "A single pet canary bird singing clear delicate high-pitched trills. Dry sound, close microphone at 20 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "pet_bird_canary_p01",
+          "duration_s": 5,
+          "text": "A yellow pet canary chirping in short bright melodic bird calls. Dry sound, close microphone at 35 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "pet_bird_canary_p02",
+          "duration_s": 6,
+          "text": "A pet canary bird making a long fine rapid natural warbling call. Dry sound, close microphone at 50 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "pet_bird_canary_p03",
+          "duration_s": 7,
+          "text": "A small pet canary singing gentle soft whistles and trills. Dry sound, close microphone at 65 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "pet_bird_canary_p04",
+          "duration_s": 8,
+          "text": "A single canary bird producing crisp high-pitched repeated chirps. Dry sound, close microphone at 80 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "pet_bird_canary_p05",
+          "duration_s": 9,
+          "text": "A pet canary giving fast thin fluttering bird-song trills. Dry sound, close microphone at 95 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "pet_bird_canary_p06",
+          "duration_s": 4,
+          "text": "A young pet canary bird making light soft rising chirps. Dry sound, close microphone at 20 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "pet_bird_canary_p07",
+          "duration_s": 5,
+          "text": "A mature pet canary singing a rich rapid natural warble. Dry sound, close microphone at 35 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "pet_bird_canary_p08",
+          "duration_s": 6,
+          "text": "A small pet canary producing short clear whistle-like bird calls. Dry sound, close microphone at 50 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "pet_bird_canary_p09",
+          "duration_s": 7,
+          "text": "A pet canary bird singing a quiet breathy fine trill. Dry sound, close microphone at 65 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "pet_bird_canary_p10",
+          "duration_s": 8,
+          "text": "A single canary bird making bright chattering notes followed by a short trill. Dry sound, close microphone at 80 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "pet_bird_canary_p11",
+          "duration_s": 9,
+          "text": "A pet canary making delicate repeated twittering natural bird calls. Dry sound, close microphone at 95 centimetres, no reverberation, no music, no human speech, no human singing."
+        }
+      ],
+      "retry_prompts": [
+        {
+          "id": "pet_bird_canary_retry_p00",
+          "duration_s": 6,
+          "text": "A canary bird singing. Dry sound, close microphone at 20 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "pet_bird_canary_retry_p01",
+          "duration_s": 8,
+          "text": "A pet canary making clear high pitched chirps. Dry sound, close microphone at 35 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "pet_bird_canary_retry_p02",
+          "duration_s": 5,
+          "text": "A yellow canary singing a fast bright trill. Dry sound, close microphone at 50 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "pet_bird_canary_retry_p03",
+          "duration_s": 7,
+          "text": "A canary bird making a rising whistle phrase. Dry sound, close microphone at 65 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "pet_bird_canary_retry_p04",
+          "duration_s": 9,
+          "text": "A pet canary singing several short clear notes. Dry sound, close microphone at 80 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "pet_bird_canary_retry_p05",
+          "duration_s": 4,
+          "text": "A canary bird making a wavering long trill. Dry sound, close microphone at 95 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "pet_bird_canary_retry_p06",
+          "duration_s": 6,
+          "text": "A small canary chirping twice and pausing. Dry sound, close microphone at 20 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "pet_bird_canary_retry_p07",
+          "duration_s": 8,
+          "text": "A pet canary singing with rapid twittering notes. Dry sound, close microphone at 35 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "pet_bird_canary_retry_p08",
+          "duration_s": 5,
+          "text": "A canary making a soft high bird whistle. Dry sound, close microphone at 50 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "pet_bird_canary_retry_p09",
+          "duration_s": 7,
+          "text": "A canary bird singing a descending series of chirps. Dry sound, close microphone at 65 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "pet_bird_canary_retry_p10",
+          "duration_s": 9,
+          "text": "A canary singing a long bright warbling phrase. Dry sound, close microphone at 80 centimetres, no reverberation, no music, no human speech, no human singing."
+        },
+        {
+          "id": "pet_bird_canary_retry_p11",
+          "duration_s": 4,
+          "text": "A pet canary making short flute like bird calls. Dry sound, close microphone at 95 centimetres, no reverberation, no music, no human speech, no human singing."
+        }
+      ]
+    }
+  }
+}

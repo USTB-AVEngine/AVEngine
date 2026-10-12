@@ -66,18 +66,31 @@ def source_blockers(record):
             reasons.append("tts_output_terms_not_recorded")
         if not record.get("script_author") or not record.get("transcript") or not chain.get("voice_id"):
             reasons.append("tts_script_or_voice_identity_missing")
+    elif kind == "generated_audio":
+        from avengine.qa.v7_sao_admission import generated_source_blockers, OWNER_ACCEPTANCE
+        reasons += generated_source_blockers(record, {
+            "owner_acceptance": OWNER_ACCEPTANCE, "allowed_splits": ["train"],
+            "classes": [record.get("sound_class")]})
     elif kind != "recorded":
         reasons.append("unrecognized_dry_source_kind")
     return list(dict.fromkeys(reasons))
 
 
-def filter_admission(records):
+def source_allowed_in_split(record, split):
+    """Respect per-source split restrictions before any sampling or assembly."""
+    if record.get("source_type") == "generated_audio" and split != "train":
+        return False
+    allowed = record.get("allowed_splits")
+    return allowed is None or split in allowed
+
+
+def filter_admission(records, *, split=None):
     admitted, rejected = [], []
     for record in records:
         reasons = source_blockers(record)
         if reasons:
             rejected.append({"sound_asset_id": record.get("sound_asset_id"), "reasons": reasons})
-        else:
+        elif split is None or source_allowed_in_split(record, split):
             admitted.append(deepcopy(record))
     return admitted, rejected
 
@@ -104,6 +117,8 @@ def assemble_recorded_buses(scene, program):
     admitted, rejected = filter_admission(records)
     if rejected:
         raise ValueError("recorded source not admitted: " + str(rejected))
+    if any(not source_allowed_in_split(r, scene.get("split")) for r in records):
+        raise ValueError("dry source is not allowed in this scene split")
     sr = int(scene.get("sample_rate_hz", 16000))
     if sr != 16000:
         raise ValueError("recorded v7 program requires the existing 16 kHz contract")

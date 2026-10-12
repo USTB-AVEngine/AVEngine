@@ -56,7 +56,7 @@ def build_alpha_scene(row,house,records):
     if {'development':'dev'}.get(house['split'],house['split'])!=row['split']:
         raise ValueError('physical house crossed splits')
     if house.get('known_exposure') and row['split']!='train':raise ValueError('exposed house cannot be held out')
-    admitted,rejected=filter_admission(records)
+    admitted,rejected=filter_admission(records,split=row['split'])
     if rejected:raise ValueError('alpha source pool contains unadmitted records')
     # The current four colored bodies are male. Voice identities vary
     # independently of color and camera, while their original sex labels remain.
