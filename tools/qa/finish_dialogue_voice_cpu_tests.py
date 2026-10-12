@@ -24,9 +24,9 @@ def run_groups(phase):
  if active:raise RuntimeError('resident model workers must finish before full tests: '+str(active))
  conf=json.loads((STAGE/'config.json').read_text())
  groups=[
-  (phase+'_main',['--ignore','tests/unit/test_studio_server.py','--ignore','tests/unit/test_studio_tasks.py']),
   (phase+'_server',['--test-path','tests/unit/test_studio_server.py']),
   (phase+'_tasks',['--test-path','tests/unit/test_studio_tasks.py']),
+  (phase+'_main',['--ignore','tests/unit/test_studio_server.py','--ignore','tests/unit/test_studio_tasks.py']),
  ]
  receipts=[];peak=0
  wt=Path(conf['worktree'])
