@@ -55,9 +55,11 @@ def main() -> int:
     current = {"nodeid": None}
     peak = [0]
     stop = threading.Event()
+    list_native_tasks = os.listdir
+    wait_for_stop = stop.wait
     def monitor():
-        while not stop.wait(.1):
-            count = len(list(Path("/proc/self/task").iterdir()))
+        while not wait_for_stop(.1):
+            count = len(list_native_tasks("/proc/self/task"))
             peak[0] = max(peak[0], count)
             if count > 32:
                 receipt = {"pid": os.getpid(), "threads": count, "timestamp": time.time(),
