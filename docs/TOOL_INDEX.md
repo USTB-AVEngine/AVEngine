@@ -418,7 +418,7 @@
 | `tools/qa/run_audio_answer_balance.py` | Plan and render answer-balanced audio over retained two-actor captures; resume safely |
 | `tools/qa/run_dialogue_voice_audit.sh` | Run the retained dialogue language audit on CPU using the round5 dependency layout. |
 | `tools/qa/run_dialogue_voice_expansion.sh` | Task-specific CPU runner; every output/cache stays in the authorized artifact root. |
-| `tools/qa/run_dialogue_voice_test_suite.py` | Run matching CPU baseline/final suites and record exact failure/error test IDs |
+| `tools/qa/run_dialogue_voice_test_suite.py` | Run CPU test receipts; optional file groups isolate existing daemon workers |
 | `tools/qa/run_qa_v3_audio_batch.py` | Sequential dynamic-audio runner for a qa-v3 design batch (stage two) |
 | `tools/qa/run_qa_v3_capture_batch.py` | Sequential UE capture runner for a qa-v3 design batch (stage two) |
 | `tools/qa/run_qa_v3_pipeline.py` | Run one declared QA-v3 request through design, media and verification |
