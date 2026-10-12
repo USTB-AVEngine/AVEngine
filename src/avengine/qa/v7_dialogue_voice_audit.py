@@ -33,3 +33,27 @@ def baseline_language_status(records, expected_count):
             'passing_count': passing, 'nonpassing_count': len(records) - passing,
             'complete': complete, 'threshold': 0.9,
             'threshold_adoptable': complete and passing == expected_count}
+
+
+def contains_han(text):
+    """Cover BMP ideographs, compatibility ideographs and supplementary CJK."""
+    return any("\u3400" <= ch <= "\u9fff" or "\uf900" <= ch <= "\ufaff"
+               or "\U00020000" <= ch <= "\U000323af" for ch in text)
+
+
+def english_language_gate(asr, top_language, free_transcription):
+    """Apply the owner-calibrated gate; probability magnitude is diagnostic."""
+    reasons = []
+    if (asr.get("status") != "pass" or not isinstance(asr.get("wer"), (float, int))
+            or isinstance(asr.get("wer"), bool) or not math.isfinite(asr["wer"])
+            or not 0 <= asr["wer"] <= .1
+            or asr.get("all_critical_slots_correct") is not True):
+        reasons.append("forced_English_ASR_failed")
+    if top_language != "en":
+        reasons.append("language_top1_not_en")
+    if contains_han(free_transcription):
+        reasons.append("free_transcription_contains_Han")
+    return {"status": "pass" if not reasons else "blocked", "reasons": reasons,
+            "top_language": top_language,
+            "free_transcription_contains_han": contains_han(free_transcription),
+            "english_probability_is_diagnostic_only": True}

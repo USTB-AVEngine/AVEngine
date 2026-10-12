@@ -5,7 +5,7 @@
 
 自 2026-08-25 起，目录本身就是能力分组（阶段目录 m1…m7 已移除），
 本表按目录列出每个工具做什么。
-当前共 479 个工具脚本。
+当前共 488 个工具脚本。
 
 ## 资产生成与装配（`tools/assets/`）
 
@@ -278,6 +278,7 @@
 
 | 工具 | 做什么 |
 |---|---|
+| `tools/qa/_dialogue_voice_runtime.py` | Private resident Whisper judge and task receipts for CPU dialogue expansion |
 | `tools/qa/adapt_four_speaker_research_qa.py` | Adapt four-speaker SPEAR/audio research inputs to existing QuestionSpec Facts |
 | `tools/qa/adapt_strict_two_human_both_move_v1_preflight.py` | Bind the reviewed both-move geometry handoff to A's materializer contract |
 | `tools/qa/assemble_binding_groups.py` | Assemble controlled binding groups from completed native episode variants |
@@ -293,6 +294,7 @@
 | `tools/qa/audit_strict_two_human_room_expansion.py` | Audit two additional cooked SPEAR maps for the strict M/F/C room closure |
 | `tools/qa/author_observed_f2_direction.py` | Author backend-independent F2 direction facts from observed native frames |
 | `tools/qa/balance_bank_answers.py` | Thin over-represented answers per split; see avengine.qa.answer_balance |
+| `tools/qa/benchmark_dialogue_whisper_encoder.py` | Compare legacy and shared-encoder Whisper outputs on full English/Chinese clips |
 | `tools/qa/bind_native_paper_balance_episode.py` | Bind one full native SPEAR capture to the paper-balance QuestionSpec strata |
 | `tools/qa/bind_native_pixel_fact_episode.py` | Bind one full native SPEAR pixel capture to Facts and QuestionSpecs |
 | `tools/qa/bind_native_spear_episode.py` | Bind one compiled QA Fact table to retained native SPEAR/UE evidence |
@@ -328,6 +330,7 @@
 | `tools/qa/build_strict_two_human_native_rate_dynamic_candidates.py` | Build CPU-only native-rate full75 dynamic candidate preflights |
 | `tools/qa/build_strict_two_human_row7_v2_acoustic.py` | Prepare and finalize the CPU-only strict two-human row7 v2 acoustics |
 | `tools/qa/build_strict_two_human_row7_v2_preflight.py` | Validate and publish the CPU-only strict two-human row7 v2 overlay |
+| `tools/qa/calibrate_dialogue_voice_language.py` | Independently calibrate the English gate against v7 positives and Chinese negatives |
 | `tools/qa/camera_clearance.py` | Camera clearance table: cube-ring depth geometry and the solver-side reader |
 | `tools/qa/capture_qa_v3_timeline_pixel.py` | Capture native pixel visibility for one current QA-v3 visual timeline |
 | `tools/qa/capture_skokloster_strict_two_human_episode.py` | Bind the native pixel runner to the isolated Skokloster package archive |
@@ -349,6 +352,7 @@
 | `tools/qa/design_qa_v3_pilot_batch.py` | Design one qa-v3 dual-source pilot batch (stage two assembler) |
 | `tools/qa/design_qa_v3_scene_batch.py` | Integrated qa-v3 batch: generic scene solver + per-type audio + facts |
 | `tools/qa/evaluate_question_specs.py` | Evaluate registry-bound QuestionSpecs and render a standalone review page |
+| `tools/qa/expand_dialogue_voices_cpu.py` | Run resumable resident CPU TTS workers with three seeds and calibrated readback |
 | `tools/qa/export_binding_delivery.py` | Export a self-contained delivery, build its dataset index, attach a layout |
 | `tools/qa/export_qa_v3_dataset.py` | Export one completed QA-v3 pipeline run without model-specific fields |
 | `tools/qa/filter_cross_time_points.py` | Cross-time sampling filter (pilot work order item 1.7) |
@@ -377,6 +381,7 @@
 | `tools/qa/merge_semantic_into_bank.py` | Append QA-26 to QA-28 from semantic builder runs to a copy of a question bank |
 | `tools/qa/mine_simple_questions.py` | Mine simple (A-group) questions from compiled QA fact tables |
 | `tools/qa/mine_temporal_questions.py` | Mine temporal (B-group) and numeric questions over intermittent fact tables |
+| `tools/qa/plan_dialogue_voice_expansion.py` | Balance two fresh voice variants for every authored dialogue line |
 | `tools/qa/pre_gpu_launch_ledger.py` | Fail-closed archival for prepared attempts that never reached a GPU launch |
 | `tools/qa/preflight_camera_clearance_depth.py` | Camera-only depth preflight: is the view from a candidate camera pose clear? |
 | `tools/qa/prepare_qa_v3_mcq.py` | Glue: facts (generator) -> split plan (1.3) -> MCQ items (1.4 input) |
@@ -406,11 +411,14 @@
 | `tools/qa/replay_appearance_review.py` | 重放已渲染 episode 的登记外观复核，按房间给出"登记值 × 判定"混淆表。 |
 | `tools/qa/replay_audio_variant.py` | Render a bounded audio answer variant over retained native pixels into a fresh episode |
 | `tools/qa/report_dialogue_voice_audit.py` | Build a Chinese standalone audit page and a clearly blocked retained-source manifest |
+| `tools/qa/report_dialogue_voice_expansion.py` | Verify accepted voice variants and write a Chinese standalone evidence report |
 | `tools/qa/report_qa_v3_card1_conditional_baseline.py` | Card1 realized conditional tables and best-response unimodal baselines |
 | `tools/qa/route_synthesis.py` | Routes designed by the solver for the pose it has chosen |
 | `tools/qa/run_answer_prior_pipeline.py` | Generate, augment and audit the original 25 QA types from one reusable config |
 | `tools/qa/run_audio_answer_balance.py` | Plan and render answer-balanced audio over retained two-actor captures; resume safely |
 | `tools/qa/run_dialogue_voice_audit.sh` | Run the retained dialogue language audit on CPU using the round5 dependency layout. |
+| `tools/qa/run_dialogue_voice_expansion.sh` | Task-specific CPU runner; every output/cache stays in the authorized artifact root. |
+| `tools/qa/run_dialogue_voice_test_suite.py` | Run matching CPU baseline/final suites and record exact failure/error test IDs |
 | `tools/qa/run_qa_v3_audio_batch.py` | Sequential dynamic-audio runner for a qa-v3 design batch (stage two) |
 | `tools/qa/run_qa_v3_capture_batch.py` | Sequential UE capture runner for a qa-v3 design batch (stage two) |
 | `tools/qa/run_qa_v3_pipeline.py` | Run one declared QA-v3 request through design, media and verification |
@@ -434,6 +442,7 @@
 | `tools/qa/score_unified_questions.py` | Score model answers for a generated unified QA question set |
 | `tools/qa/search_mp3d_strict_two_human_nav_positions.py` | Search the real MP3D navmesh for a safer two-adult static probe pair |
 | `tools/qa/search_skokloster_strict_listener.py` | Search one coupled Skokloster camera/listener for a strict two-adult probe |
+| `tools/qa/select_dialogue_voice_references.py` | Qualify diverse gender-matched VCTK reference speakers by machine transcription |
 | `tools/qa/select_qa_v3_card16_pixel_quota.py` | Select card16 candidates after native-pixel truth, stratified by gold state |
 | `tools/qa/select_qa_v3_run02_dev.py` | Reproduce the QA-v3 run02-dev pixel-qualified 6-per-profile selection |
 | `tools/qa/spear_imported_glb_room_adapter.py` | Runtime adapter for reload-verified GLB scenes imported into cooked SPEAR |
