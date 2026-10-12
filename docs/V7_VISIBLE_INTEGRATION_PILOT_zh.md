@@ -28,7 +28,7 @@
 
 种子 schema 是 `v7-visible-registered-pilot-v1`，显式填写训练 house/room、listener_m、原资产 ID、30 秒相机 yaw knots、两窗及原题目配额。仅 HM3D/MP3D 的已准入训练房间可用； owner 列出的 12 套测试屋直接拒绝。发声事件的分类必须属于该实体许可类别，`audio_only`、足音和静音空调的声音事件均拒绝。
 
-CPU 环境沿用登记生产文档，CUDA 置空；入口要求 nice 至少 10，BLAS/OMP/Mesa 渲染线程配置为 1，并在原生初始化之前把 worker 绑定到一个 CPU。RLR 辅助线程也只能使用这一个 CPU。试产单次不超过 30 个父场景、16 workers；共享服务器全任务总限额以 owner 任务书为准。明确的 storage budget root 必须在 `/data` 内，输出必须属于它；写入前检查共享剩余至少 150 GB，任务输出限 99 GB，另留 1 GB 给 worktree。
+CPU 环境沿用登记生产文档，CUDA 置空；入口要求 nice 至少 10，BLAS/OMP/Mesa 渲染线程配置为 1，worker 的重型生产模块采用延迟导入，在模块载入与原生初始化之前绑定一个 CPU，并收紧已有 worker 线程的亲和性，使新原生线程继承同一 CPU。RLR 的线程设置仍为 1；SDK 可能保留额外等待线程，不能把操作系统 NLWP 写成 1。试产单次不超过 30 个父场景、16 workers；共享服务器全任务总限额以 owner 任务书为准。明确的 storage budget root 必须在 `/data` 内，输出必须属于它；写入前检查共享剩余至少 150 GB，任务输出限 99 GB，另留 1 GB 给 worktree。
 
 `source_material_cache_directory` 可显式指向任务自有派生材质缓存；复用原子发布的相同材质配方，原资产始终只读。数据集、公共环境和其他任务缓存不作清理对象。
 

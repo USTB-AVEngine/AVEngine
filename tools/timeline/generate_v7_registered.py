@@ -4,8 +4,21 @@ from __future__ import annotations
 import argparse,json,multiprocessing,os,resource,time,traceback
 from concurrent.futures import ProcessPoolExecutor,as_completed
 from pathlib import Path
-from avengine.timeline.continuous_pilot import write_json
-from avengine.timeline.v7_registered_generation import generate_registered_parent as generate_alpha_parent,ALPHA_RELEASE_PROFILE
+
+
+def pin_integration_worker_cpu():
+    """Pin before native imports; restrict any pre-existing worker threads too."""
+    if not hasattr(os,'sched_getaffinity'):
+        raise RuntimeError('integration pilot requires Linux CPU affinity')
+    allowed=sorted(os.sched_getaffinity(0))
+    selected={allowed[os.getpid()%len(allowed)]}
+    os.sched_setaffinity(0,selected)
+    for task in Path('/proc/self/task').iterdir():
+        try:
+            os.sched_setaffinity(int(task.name),selected)
+        except ProcessLookupError:
+            continue
+    return next(iter(selected))
 
 
 def worker(task):
@@ -13,10 +26,10 @@ def worker(task):
     cpu=usage.ru_utime+usage.ru_stime+child.ru_utime+child.ru_stime
     try:
         if task[2].get('integration_pilot'):
-            if hasattr(os,'sched_getaffinity'):
-                allowed=sorted(os.sched_getaffinity(0));os.sched_setaffinity(0,{allowed[os.getpid()%len(allowed)]})
+            pin_integration_worker_cpu()
             from avengine.timeline.v7_visible_generation import generate_visible_parent
             return generate_visible_parent(*task)
+        from avengine.timeline.v7_registered_generation import generate_registered_parent as generate_alpha_parent
         return generate_alpha_parent(*task)
     except Exception as error:
         row=task[0];root=Path(task[-1])/'parents'/row['scene_id'];root.mkdir(parents=True,exist_ok=True)
@@ -25,6 +38,7 @@ def worker(task):
             'alpha_formal_windows':0,'alpha_formal_logical_questions':0}
         usage=resource.getrusage(resource.RUSAGE_SELF);child=resource.getrusage(resource.RUSAGE_CHILDREN)
         result.update(wall_seconds=time.perf_counter()-start,cpu_seconds_including_children=usage.ru_utime+usage.ru_stime+child.ru_utime+child.ru_stime-cpu)
+        from avengine.timeline.continuous_pilot import write_json
         try:write_json(root/f'failed_{time.time_ns()}.json',result)
         except Exception as report_error:
             print('failure receipt stopped by storage guard: '+str(report_error),flush=True)
@@ -78,6 +92,8 @@ def main():
                 line=datetime.datetime.now(datetime.timezone.utc).isoformat()+' '+result['scene_id']+' '+result['status']+' '+result.get('reason','父场景机器检查和私有封存完成')+'\n'
                 with (a.storage_budget_root/'PROGRESS.md').open('a') as progress:progress.write(line)
             print(json.dumps({k:result.get(k) for k in ['scene_id','status','alpha_formal_windows','alpha_formal_logical_questions','wall_seconds','cpu_seconds_including_children','reason']},ensure_ascii=False),flush=True)
+    from avengine.timeline.continuous_pilot import write_json
+    from avengine.timeline.v7_registered_generation import ALPHA_RELEASE_PROFILE
     profile=ALPHA_RELEASE_PROFILE;pilot_fields={}
     if a.integration_pilot:
         from avengine.timeline.v7_visible_generation import PILOT_PROFILE
