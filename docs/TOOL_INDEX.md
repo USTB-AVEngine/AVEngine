@@ -5,7 +5,7 @@
 
 自 2026-08-25 起，目录本身就是能力分组（阶段目录 m1…m7 已移除），
 本表按目录列出每个工具做什么。
-当前共 475 个工具脚本。
+当前共 479 个工具脚本。
 
 ## 资产生成与装配（`tools/assets/`）
 
@@ -285,6 +285,7 @@
 | `tools/qa/audio_profiles.py` | Question-type audio profiles: one schedule per question type, not one for all |
 | `tools/qa/audit_answer_priors.py` | Audit a retained question bank and optional splits into a new private receipt |
 | `tools/qa/audit_binding_feasibility.py` | 绑定可行性与逐题难度画像审计（research_only）。 |
+| `tools/qa/audit_dialogue_voice_language.py` | Audit retained dialogue clips with unprompted Whisper language probabilities |
 | `tools/qa/audit_gatea_by_form.py` |  |
 | `tools/qa/audit_gatea_semantics.py` |  |
 | `tools/qa/audit_qa_v3_prescale_candidates.py` | Revalidate an existing room-pilot manifest against prescale QA-v3 rules |
@@ -396,6 +397,7 @@
 | `tools/qa/qa_v3_event_pool.py` | Load a task-configured sound event pool and require each audio file to exist |
 | `tools/qa/qa_v3_pixel_thresholds.py` | Explicit placeholder pixel-answerability thresholds for QA-v3 base cards |
 | `tools/qa/qa_v3_request.py` | Plan QA-v3 request budgets without hiding per-profile shortages |
+| `tools/qa/receipt_dialogue_voice_license.py` | Record local CosyVoice weight-license declarations and artifact hashes |
 | `tools/qa/recompile_native_pixel_truth.py` | Recompile retained metric-depth truth with the current lossless fields |
 | `tools/qa/recompute_qa_v3_gateb_gold.py` | Recompute Gate-B gold for every selected QA-v3 pilot candidate |
 | `tools/qa/refresh_strict_two_human_row8_ready.py` | Refresh the row8 sparse request against the current split visibility contract |
@@ -403,10 +405,12 @@
 | `tools/qa/render_intermittent_batch.py` | Render intermittent-window binaural mixtures for a declared episode subset |
 | `tools/qa/replay_appearance_review.py` | 重放已渲染 episode 的登记外观复核，按房间给出"登记值 × 判定"混淆表。 |
 | `tools/qa/replay_audio_variant.py` | Render a bounded audio answer variant over retained native pixels into a fresh episode |
+| `tools/qa/report_dialogue_voice_audit.py` | Build a Chinese standalone audit page and a clearly blocked retained-source manifest |
 | `tools/qa/report_qa_v3_card1_conditional_baseline.py` | Card1 realized conditional tables and best-response unimodal baselines |
 | `tools/qa/route_synthesis.py` | Routes designed by the solver for the pose it has chosen |
 | `tools/qa/run_answer_prior_pipeline.py` | Generate, augment and audit the original 25 QA types from one reusable config |
 | `tools/qa/run_audio_answer_balance.py` | Plan and render answer-balanced audio over retained two-actor captures; resume safely |
+| `tools/qa/run_dialogue_voice_audit.sh` | Run the retained dialogue language audit on CPU using the round5 dependency layout. |
 | `tools/qa/run_qa_v3_audio_batch.py` | Sequential dynamic-audio runner for a qa-v3 design batch (stage two) |
 | `tools/qa/run_qa_v3_capture_batch.py` | Sequential UE capture runner for a qa-v3 design batch (stage two) |
 | `tools/qa/run_qa_v3_pipeline.py` | Run one declared QA-v3 request through design, media and verification |
