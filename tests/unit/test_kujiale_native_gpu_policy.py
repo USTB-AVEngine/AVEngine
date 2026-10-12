@@ -72,3 +72,25 @@ def test_invalid_policy_cannot_reduce_required_headroom(tmp_path):
     policy(tmp_path);p=tmp_path/gpu.POLICY_FILENAME;x=json.loads(p.read_text());x['headroom_mib']=1024;p.write_text(json.dumps(x))
     with pytest.raises(ValueError,match="at least 4GiB"):
         gpu.check_gpu_policy(tmp_path,2)
+
+
+def test_isolated_visible_card_keeps_physical_uuid_reservation(tmp_path, monkeypatch):
+    policy(tmp_path)
+    path = tmp_path/gpu.POLICY_FILENAME
+    value = json.loads(path.read_text())
+    value["gpu_uuids"] = {"2": "card-2"}
+    path.write_text(json.dumps(value))
+    # A device namespace exposes only physical GPU 2 at visible ordinal zero.
+    one_card = ('<nvidia_smi_log><gpu><uuid>card-2</uuid>'
+                '<fb_memory_usage><free>7908 MiB</free></fb_memory_usage>'
+                '</gpu></nvidia_smi_log>')
+    monkeypatch.setattr(gpu.subprocess, "run",
+                        lambda *a, **kw: SimpleNamespace(stdout=one_card))
+    monkeypatch.setattr(gpu.shutil, "disk_usage",
+                        lambda p: SimpleNamespace(free=50_000_000_000))
+    result = gpu.native_gpu_preflight(tmp_path, 2)
+    assert result["gpu_index"] == 2 and result["gpu_uuid"] == "card-2"
+    monkeypatch.setattr(gpu.subprocess, "run", lambda *a, **kw: SimpleNamespace(
+        stdout=one_card.replace("card-2", "card-0")))
+    with pytest.raises(RuntimeError, match="UUID"):
+        gpu.native_gpu_preflight(tmp_path, 2)

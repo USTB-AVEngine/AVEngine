@@ -29,7 +29,7 @@ def launch_native(ue, map_path):
     if output not in project.parents:
         raise ValueError('native project must be isolated inside the output root')
     from avengine.capture.kujiale_native_gpu_policy import native_gpu_preflight
-    gpu_preflight = native_gpu_preflight(output, int(ue['graphics_adapter']))
+    gpu_preflight = native_gpu_preflight(output, int(ue.get('physical_gpu_index',ue['graphics_adapter'])))
     sys.path.insert(0,str(ext))
     from avengine.backends.spear_ue import client
     from avengine.backends.spear_ue.research_runtime import cleanup_failed_constructor

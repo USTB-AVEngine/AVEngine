@@ -13,7 +13,7 @@ from avengine.capture.kujiale_spear_runtime import (launch_native,camera_helpers
     from_ue,to_ue,configure_scene_lighting,apply_native_rgb_profile)
 from avengine.timeline.continuous_pilot import write_json
 
-REGISTERED_UE_VISUAL_REVISION='registered-native-UE-design-whitebalance-v3-nav-frame-precheck'
+REGISTERED_UE_VISUAL_REVISION='registered-native-UE-design-whitebalance-v4-room-floor-face'
 
 
 class NativeRegisteredUEVideo(NativeUEAlphaVideo):
@@ -55,6 +55,11 @@ class NativeRegisteredUEVideo(NativeUEAlphaVideo):
         self.runtimes={};self.environment_nodes={};self.environment_frame_readbacks=[]
         self.placement_overrides={};self.alpha_time=0.;self.alpha_lower_endpoint=None;self.alpha_camera_rows={}
         self.initial_placement_preflight=self._seed_initial_navigation_placements()
+        self.physical_environment_bindings={}
+        if inputs.get("kujiale_ue_asset_admission"):
+            from avengine.capture.kujiale_registered_environment import environment_bindings, require_binding_project
+            self.physical_environment_bindings=environment_bindings(scene,house["house"],inputs["kujiale_ue_asset_admission"],{a["endpoint_id"] for a in assets})
+            require_binding_project(self.physical_environment_bindings,self.ue)
         self.declarations=[{'actor_id':f'source{i+1}','asset_id':a['asset_id'],'ue_generated_class':a['ue_generated_class']} for i,a in enumerate(assets)]
         self.material_inventory={a['asset_id']:{'material_receipt':{'authority':'original registered UE package materials',
             'source_registry':a['source_registry'],'source_registry_sha256':a['source_registry_sha256'],
@@ -74,7 +79,9 @@ class NativeRegisteredUEVideo(NativeUEAlphaVideo):
                 exposure=apply_native_rgb_profile(self.components['rgb'],self.ue)
                 for a,d in zip(assets,self.declarations,strict=True):self.runtimes[d['actor_id']]=self._spawn_registered(a,d)
                 for ep,spec in scene['sources'].items():
-                    if spec.get('native_visual_kind')=='audio_only':
+                    if ep in self.physical_environment_bindings:
+                        self.environment_nodes[ep]=self._spawn_physical_environment(ep,self.physical_environment_bindings[ep])
+                    elif spec.get('native_visual_kind')=='audio_only':
                         actor=self.game.unreal_service.spawn_actor(uclass='AActor',spawn_parameters={'SpawnCollisionHandlingOverride':'AlwaysSpawn'})
                         root=self.game.unreal_service.create_scene_component_for_actor(owner=actor,scene_component_name=ep+'_audio_only',uclass='USceneComponent')
                         root.SetMobility(NewMobility='Movable');actor.SetActorEnableCollision(bNewActorEnableCollision=False)
@@ -118,12 +125,25 @@ class NativeRegisteredUEVideo(NativeUEAlphaVideo):
             'components':components,'emitter_component':emitter,'motion_model':'rigid_static',
             'original_material_readback':{'status':'pass','paths':observed,'source_registry':a['source_registry'],'material_overrides_applied':False}}
 
+    def _spawn_physical_environment(self,endpoint,binding):
+        from avengine.backends.spear_ue.research_runtime import spawn_attached_static_actor
+        row,native=binding["asset"],binding["native"];placement=native["placement"]
+        runtimes=[spawn_attached_static_actor(self.game,actor_id=endpoint+"_"+str(i),static_mesh_object_path=path,
+            position_ue_cm=to_ue(placement["root_m"]),yaw_ue_degrees=-math.degrees(placement["yaw_rad"]),
+            actor_scale=1.,emitter_local_ue_cm=to_ue(row["emitter_local_m"]))
+            for i,path in enumerate(native["ue_asset_paths"])]
+        return {"physical":True,"runtimes":runtimes,"source_id":binding["source_id"],
+            "asset_id":row["asset_id"],"point":native["emitter"]["actual_m"],
+            "native_admission":binding["registration"],"native_evidence":native}
+
     def _navigation_foot(self,position):
         p=np.asarray(position,float)
         target=np.asarray([p[0],p[1]-1.3,p[2]],float)
         foot=np.asarray(self.pf.snap_point(target),float)
         distance=float(np.linalg.norm(foot-target))
         if not np.isfinite(foot).all() or distance>.15:raise ValueError('registered candidate off navigation')
+        # Reject furniture navigation before entering any SPEAR transaction.
+        self.native_floor_surface.sample(foot)
         return foot,distance
 
     def _seed_initial_navigation_placements(self):
@@ -172,6 +192,13 @@ class NativeRegisteredUEVideo(NativeUEAlphaVideo):
                 'source_registry_sha256':a['source_registry_sha256']})
         env=[]
         for ep,native in self.environment_nodes.items():
+            if native.get('physical'):
+                emitter=read_scene_component_pose(native['runtimes'][0]['emitter_component']);point=from_ue(emitter['location_cm'])
+                if np.max(np.abs(np.asarray(point)-native['point']))>.0005:raise ValueError('native physical source emitter moved away from admitted sound position')
+                env.append({'endpoint_id':ep,'source_id':native['source_id'],'asset_id':native['asset_id'],
+                    'position_m':point,'native_component_pose':emitter,'native_readback':'actual UE visible StaticMesh and attached physical emitter',
+                    'native_visual_admission':native['native_admission']})
+                continue
             native['actor'].K2_SetActorLocationAndRotation(NewLocation=dict(zip(['X','Y','Z'],to_ue(native['point']))),NewRotation={'Roll':0.,'Pitch':0.,'Yaw':0.},bSweep=False,bTeleport=True)
             pose=read_scene_component_pose(native['root']);env.append({'endpoint_id':ep,'source_id':native['source_id'],
                 'position_m':from_ue(pose['location_cm']),'native_component_pose':pose,'native_readback':'actual UE audio-only component; no visual geometry'})
@@ -223,6 +250,10 @@ class NativeRegisteredUEVideo(NativeUEAlphaVideo):
                 write_json(directory/'placement_search_failed.json',{'status':'blocked','attempts':attempts});raise ValueError('registered UE actor lacks original qualified placement')
             checks.append(accepted)
         for ep,native in self.environment_nodes.items():
+            if native.get('physical'):
+                result=self.acoustic_position_admission(ep,np.asarray(native['point']))
+                if result['status']=='blocked':raise ValueError('visible native environmental emitter acoustics rejected')
+                continue
             success=False
             for p in [native['point'],*self.scene.get('native_placement_candidates',[])]:
                 native['point']=p
@@ -255,7 +286,7 @@ class NativeRegisteredUEVideo(NativeUEAlphaVideo):
         for ep in self.environment_nodes:
             result['observed_mouth_trajectories'][ep]=[{'time_s':r['time_s'],'position_m':next(e['position_m'] for e in r['emitters'] if e['endpoint_id']==ep)} for r in result['environmental_emitter_readbacks']]
         result['alignment']=result['native_visibility_alignment'];result['registered_visual_revision']=REGISTERED_UE_VISUAL_REVISION
-        write_json(Path(path).parent/'native_environmental_emitters.json',{'frames':result['environmental_emitter_readbacks'],'visual_geometry':'none; original registered audio-only source points'})
+        write_json(Path(path).parent/'native_environmental_emitters.json',{'frames':result['environmental_emitter_readbacks'],'visual_geometry':'admitted original physical StaticMesh assets' if self.physical_environment_bindings else 'legacy audio-only source points'})
         write_json(Path(path).parent/'native_registered_visual_evidence.json',result)
         return result
 

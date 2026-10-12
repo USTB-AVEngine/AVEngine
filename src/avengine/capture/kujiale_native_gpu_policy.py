@@ -44,9 +44,16 @@ def native_gpu_preflight(output_root, gpu_index):
     raw = subprocess.run(["nvidia-smi", "-q", "-x"], check=True,
                          text=True, capture_output=True, timeout=15).stdout
     cards = ET.fromstring(raw).findall("gpu")
-    if not 0 <= int(gpu_index) < len(cards):
-        raise RuntimeError("reserved native GPU is unavailable")
-    card = cards[int(gpu_index)]
+    declared_uuid = policy.get("gpu_uuids", {}).get(str(int(gpu_index)))
+    if declared_uuid:
+        matches = [c for c in cards if c.findtext("uuid") == declared_uuid]
+        if len(matches) != 1:
+            raise RuntimeError("reserved physical GPU UUID is unavailable")
+        card = matches[0]
+    else:
+        if not 0 <= int(gpu_index) < len(cards):
+            raise RuntimeError("reserved native GPU is unavailable")
+        card = cards[int(gpu_index)]
     text = card.findtext("./fb_memory_usage/free")
     if not text or not text.endswith(" MiB"):
         raise RuntimeError("reserved native GPU free memory is unavailable")

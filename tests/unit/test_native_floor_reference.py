@@ -44,3 +44,30 @@ def test_floor_cannot_claim_native_agreement_without_nine_measured_probes(tmp_pa
 def test_geometry_mutation_is_rejected_before_actor_spawn(tmp_path):
     declaration=floor(tmp_path);(tmp_path/'vertices.f32').write_bytes(b'changed')
     with pytest.raises(ValueError,match='geometry identity'):NativeFloorReference(declaration)
+
+
+def test_a_bed_surface_cannot_pass_as_floor_even_with_perfect_foot_contact(tmp_path):
+    declaration=floor(tmp_path)
+    vp=tmp_path/'vertices.f32';tp=tmp_path/'triangles.u32';ap=tmp_path/'audit.json'
+    raw=np.fromfile(vp,dtype='<f4').reshape(-1,3)
+    bed=raw.copy();bed[:,2]=53.6
+    np.concatenate([raw,bed]).astype('<f4').tofile(vp)
+    np.array([[0,1,2],[0,2,3],[4,5,6],[4,6,7]],dtype='<u4').tofile(tp)
+    audit=json.loads(ap.read_text());audit['native_render_geometry']['sections']=[
+        {'triangle_count':2,'material_path':'/Game/Imported/Root/Meshes/floor/floor_0/Looks/MI'},
+        {'triangle_count':2,'material_path':'/Game/Imported/Root/Meshes/bedroom/bed_0/Looks/MI'}]
+    ap.write_text(json.dumps(audit))
+    declaration.update(native_editor_audit_sha256=file_sha256(ap),native_vertices_sha256=file_sha256(vp),native_triangles_sha256=file_sha256(tp))
+    reference=NativeFloorReference(declaration)
+    assert reference.sample([0,.01,0])==[0.,0.,0.]
+    with pytest.raises(ValueError,match='not room floor'):reference.sample([0,.54,0])
+
+
+def test_room_probe_baseline_rejects_an_elevated_unclassified_support(tmp_path):
+    declaration=floor(tmp_path);reference=NativeFloorReference(declaration)
+    reference.validate_probes(probes())
+    # A new support cannot inherit room-floor identity from local contact alone.
+    reference.mesh.vertices[:,1]=.1
+    from trimesh.ray.ray_pyembree import RayMeshIntersector
+    reference.mesh.ray=RayMeshIntersector(reference.mesh)
+    with pytest.raises(ValueError,match='measured room floor baseline'):reference.sample([0,.1,0])
