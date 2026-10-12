@@ -5,7 +5,7 @@
 
 自 2026-08-25 起，目录本身就是能力分组（阶段目录 m1…m7 已移除），
 本表按目录列出每个工具做什么。
-当前共 488 个工具脚本。
+当前共 490 个工具脚本。
 
 ## 资产生成与装配（`tools/assets/`）
 
@@ -366,6 +366,7 @@
 | `tools/qa/finalize_strict_two_human_dynamic_full75_canary.py` | Fail-closed finalizer for strict two-human dynamic full75 canaries |
 | `tools/qa/finalize_strict_two_human_full75_canary.py` | Fail-closed finalizer for one strict two-human 75-frame native canary |
 | `tools/qa/finalize_strict_two_human_raw_episode.py` | CPU-only finalizer for one atomically published strict full75 raw spool |
+| `tools/qa/finish_dialogue_voice_cpu_tests.py` | Recheck baseline and final CPU scopes without accumulating studio daemon threads |
 | `tools/qa/floor_reference.py` | Per-room floor reference: the measured UE z of the walkable floor |
 | `tools/qa/generate_qa_v2_questions.py` | QA v2 question generation for a constraint-driven batch |
 | `tools/qa/generate_qa_v3_questions.py` | Generate qa-v3 pilot fact records + question candidates (cards ①⑦⑧⑨) |
@@ -418,6 +419,7 @@
 | `tools/qa/run_audio_answer_balance.py` | Plan and render answer-balanced audio over retained two-actor captures; resume safely |
 | `tools/qa/run_dialogue_voice_audit.sh` | Run the retained dialogue language audit on CPU using the round5 dependency layout. |
 | `tools/qa/run_dialogue_voice_expansion.sh` | Task-specific CPU runner; every output/cache stays in the authorized artifact root. |
+| `tools/qa/run_dialogue_voice_final_tests.sh` |  |
 | `tools/qa/run_dialogue_voice_test_suite.py` | Run CPU test receipts; optional file groups isolate existing daemon workers |
 | `tools/qa/run_qa_v3_audio_batch.py` | Sequential dynamic-audio runner for a qa-v3 design batch (stage two) |
 | `tools/qa/run_qa_v3_capture_batch.py` | Sequential UE capture runner for a qa-v3 design batch (stage two) |
