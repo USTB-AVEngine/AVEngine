@@ -39,7 +39,7 @@ def intake_roster(manifest_path, *, authority="formal_registry"):
     manifest_bytes=manifest_path.read_bytes()
     registry_sha256=hashlib.sha256(manifest_bytes).hexdigest()
     manifest=json.loads(manifest_bytes)
-    if manifest.get('schema')!='avengine_v7_human_roster_v1':
+    if manifest.get('schema') not in {'avengine_v7_human_roster_v1','avengine_v7_human_roster_v2'}:
         raise ValueError('unsupported human roster schema')
     root=Path(manifest['artifact_root'])
     if manifest_path.resolve()!=root.resolve()/'registrations/human_roster.json':

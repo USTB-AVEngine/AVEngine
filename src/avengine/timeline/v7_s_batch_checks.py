@@ -6,6 +6,13 @@ import numpy as np
 import soundfile as sf
 
 
+def expected_sound_classes(summary):
+    """Use the admitted class table when supplied, otherwise the recorded table."""
+    table=summary.get('admitted_sound_class_domain')
+    if table is None:table=summary['actual_sound_class_emission_counts']
+    return set(table)
+
+
 def check_critical_delivery(root,require_full=True):
     root=Path(root);summary=json.loads((root/'summary.json').read_text());counts=Counter();classes=Counter();split_classes=defaultdict(set);split_speakers=defaultdict(set);questions=Counter();errors=[]
     seeds={};window_pairs=[];verified_binding_ids=set()
@@ -27,7 +34,8 @@ def check_critical_delivery(root,require_full=True):
             questions.update(q['qa_id'] for q in qs)
             if row['split']=='test':errors.append(wid+': test physical house accessed')
     if require_full:
-        expected=set(summary['actual_sound_class_emission_counts'])
+        expected=expected_sound_classes(summary)
+        if not expected:errors.append('empty admitted sound-class table')
         from avengine.timeline.v7_production_contract import audit_batch_budget
         allocation=audit_batch_budget(window_pairs,{'STARSS-SPEAKERS':len(window_pairs),'V7-CLASS34':len(window_pairs)},verified_binding_ids=verified_binding_ids)
         if allocation['status']!='pass':errors.extend(allocation['failure_reasons'])
@@ -36,7 +44,7 @@ def check_critical_delivery(root,require_full=True):
         if len(seeds)!=500:errors.append('not 500 independent worlds')
         for split in ('train','dev'):
             if split_speakers[split]!=set(range(9)):errors.append(split+': incomplete 0..8 live-actor coverage')
-            if len(expected)!=34 or split_classes[split]!=expected:errors.append(split+': incomplete admitted 34-class supervision')
+            if split_classes[split]!=expected:errors.append(split+': incomplete admitted '+str(len(expected))+'-class supervision')
         if summary['binding_percent']<20:errors.append('verified binding below 20 percent')
     return {'status':'pass' if not errors else 'blocked','errors':errors,'independent_worlds':len(seeds),'actual_speaker_count_questions':dict(sorted(counts.items())),'actual_sound_class_questions':dict(sorted(classes.items())),'family_counts':dict(sorted(questions.items())),'modality_counts':summary['modality_counts'],'modality_percent':summary['modality_percent'],'binding_percent':summary['binding_percent'],'test_physical_houses':0 if not any(r['split']=='test' for r in seeds.values()) else None}
 

@@ -1,0 +1,138 @@
+"""CPU registered integration pilot with complete native/QA evidence and no export."""
+from __future__ import annotations
+from collections import Counter
+from copy import deepcopy
+from pathlib import Path
+import json,os,resource,subprocess,time
+import numpy as np
+import soundfile as sf
+from avengine.timeline.continuous_pilot import write_json
+from avengine.timeline.v7_candidate_generation import stage,read_json,parent_dry,member_scene
+from avengine.timeline.v7_registered_audio import render_alpha_audio,source_qa_evidence
+from avengine.timeline.v7_registered_generation import _verify_window
+from avengine.timeline.v7_full_question_delivery import collect_native_pool,finalize_parent_question_pools
+from avengine.timeline.v7_visible_sources import build_visible_scene,audit_native_bindings
+from avengine.timeline.v7_storage_budget import check_write
+from avengine.spatial_audio.audio import write_float32_wav
+
+PILOT_PROFILE='v7-integration-pilot-static-visible-v1'
+
+def cpu_seconds():
+    a=resource.getrusage(resource.RUSAGE_SELF);b=resource.getrusage(resource.RUSAGE_CHILDREN)
+    return a.ru_utime+a.ru_stime+b.ru_utime+b.ru_stime
+
+def native_checks(scene,assets,visual,audio=None):
+    bind=audit_native_bindings(scene,assets,visual);attachments=visual['visible_attachment_checks'];mats=visual['source_material_checks']['checks']
+    measured=[r for r in mats if r['status'] in {'pass','fail'}];fail=[r for r in measured if r['status']=='fail']
+    by_asset={a['asset_id']:[r for r in measured if r['asset_id']==a['asset_id']] for a in assets}
+    missing=[aid for aid,r in by_asset.items() if not r];alignment=visual['alignment']
+    errors=list(bind['errors'])
+    if fail:errors.append('native source highlight/appearance failure')
+    if missing:errors.append('source material never measured: '+','.join(missing))
+    if any(a['attachment_surface']!=a['support_type'] or a['attachment_worst_error_m']>.015 or not a['skin_pass'] for a in attachments):errors.append('attachment or collision failure')
+    if any(alignment[k]!=0 for k in ['root_max_error','joint_max_error','camera_max_error','link_max_error']) or alignment['restored_modal_RGB_depth_semantic_frames']!=450:errors.append('native mask restoration or frame alignment failed')
+    directions=audio.get('directions',[]) if audio else []
+    return {'status':'pass' if not errors else 'fail','errors':errors,'bindings':bind,
+        'attachments':{'passed':sum(a['status']=='pass' for a in attachments),'checked':len(attachments),
+            'worst_error_m':max((a['attachment_worst_error_m'] for a in attachments),default=0),
+            'worst_penetration_m':min((c['contact_distance_m'] for a in attachments for c in a['contacts']),default=0)},
+        'highlights':{'passed':sum(r['status']=='pass' for r in measured),'failed':len(fail),'checked':len(measured),
+            'not_run':len(mats)-len(measured),'worst_ratio':max((r.get('highlight_ratio',0) for r in measured),default=0),'unmeasured_asset_ids':missing},
+        'RIR_direction':{'status':'pass' if audio and all(r['passed_5deg'] for r in directions) else 'not_run',
+            'passed':sum(r['passed_5deg'] for r in directions),'checked':len(directions),
+            'worst_error_deg':max((r['angular_error_deg'] for r in directions),default=None)},
+        'native_frames':visual['frame_count'],'alignment':alignment,
+        'color_observations':{'matched':sum(r['matched'] for r in visual['visible_color_checks']),
+            'measured':len(visual['visible_color_checks']),'engineering_measured':sum(r['engineering_only'] for r in visual['visible_color_checks'])}}
+
+
+def generate_visible_parent(row,house,inputs,catalog,source_admission,human_admission,output):
+    from avengine.capture.v7_visible_native import NativeVisibleVideo,VISUAL_REVISION
+    from avengine.timeline.v7_position_admission import PositionAdmission
+    from avengine.qa.v7_validation import validate_v6_items,validate_content_items
+    from avengine.qa.v7_visible_truth import validate_additional_items
+    root=Path(output)/'parents'/row['scene_id'];check_write(root,expected_bytes=1_000_000_000);root.mkdir(parents=True,exist_ok=True)
+    wall=time.perf_counter();cpu=cpu_seconds();semantic=read_json(inputs['semantic_manifest']) if row.get('semantic_scenario_id') else None
+    working,base,program,assets=build_visible_scene(row,house,source_admission['records'],catalog,semantic)
+    recipe={'profile':PILOT_PROFILE,'visual_revision':VISUAL_REVISION,'row':row,'house':working,'inputs':inputs,'assets':assets,'program':program}
+    if (root/'input_recipe.json').exists():
+        if read_json(root/'input_recipe.json')!=recipe:raise ValueError('pilot recipe changed; use a fresh scene ID')
+    else:write_json(root/'input_recipe.json',recipe)
+    if (root/'integration_seal_completed.json').exists():
+        saved=read_json(root/'integration_seal_completed.json');directory=root/saved['attempt']
+        if saved['recipe']!={'input_recipe':recipe} or any(not (directory/f).is_file() for f in saved['required_files']):raise ValueError('pilot seal incomplete')
+        return {**saved['result'],'delivery_directory':str(directory),'resumed':True}
+    dry,receipt=parent_dry(root,base,program)
+    for ep,voice in receipt['endpoint_speaker_ids'].items():base['sources'][ep]['voice_identity_id']=voice
+    def render(attempt):
+        if row.get('reuse_completed_native_parent'):
+            from avengine.capture.v7_visible_native_reuse import reuse_completed_native
+            return reuse_completed_native(row['reuse_completed_native_parent'],recipe,attempt,base,Path(output).parent)
+        check_write(attempt,expected_bytes=200_000_000)
+        material_cache=Path(inputs.get('source_material_cache_directory',root/'source_material_cache'))
+        check_write(material_cache,expected_bytes=64_000_000)
+        video=NativeVisibleVideo(working,base,inputs,assets,source_material_cache_directory=material_cache)
+        gate=PositionAdmission(base,working,inputs,root/'rir_cache',attempt/'acoustic_placement_admission.json');video.acoustic_position_admission=gate.check
+        try:visual=video.encode(base,attempt/'scene_video.mp4',collect_pixel_visibility=True)
+        finally:gate.close();video.close()
+        checks=native_checks(base,assets,visual);write_json(attempt/'native_checks.json',checks)
+        if checks['status']!='pass':raise ValueError('native integration gate failed: '+str(checks['errors']))
+        return {'status':'pass','native_checks':checks},['scene_video.mp4','native_visible_visual_evidence.json','native_color_checks.json','native_checks.json','source_material_checks.json','native_visibility_evidence.json','acoustic_placement_admission.json','standing/standing_admission.json','standing/native_support_survey.json']
+    vd,vr,_=stage(root,'visible_native',{'scene':base,'assets':assets,'inputs':inputs,'revision':VISUAL_REVISION},render)
+    visual=read_json(vd/'native_visible_visual_evidence.json')
+    from avengine.assets.v7_visible_color import rebuild_appearance_review,COLOR_EVIDENCE_REVISION
+    visual['native_appearance_review'],color_eligibility=rebuild_appearance_review(
+        visual['visible_color_checks'],assets,(inputs.get('animal_color_thresholds') or {}).get('min_pixels',200))
+    scene=member_scene(base,visual,'v0_a0')
+    def audio(attempt):return render_alpha_audio(scene,working,inputs,root/'rir_cache',attempt,dry,receipt,visual['camera_frame_readbacks'])
+    ad,ar,_=stage(root,'audio_v0_a0',{'scene':scene,'inputs':inputs},audio)
+    checks=native_checks(scene,assets,visual,ar)
+    def windows(attempt):
+        samples,sr=sf.read(ad/'scene_foa_full_tail.wav',dtype='float64',always_2d=True);required=[];wins=[]
+        for wi,start in enumerate(scene['window_starts_s']):
+            check_write(attempt,expected_bytes=32_000_000);wid=f'{row["scene_id"]}__v0_a0__w{wi:02d}';dest=attempt/wid;dest.mkdir();first=round(start*15)
+            subprocess.run(['ffmpeg','-hide_banner','-loglevel','error','-nostdin','-n','-threads','1','-i',str(vd/'scene_video.mp4'),
+                '-vf',f'select=between(n\\,{first}\\,{first+149}),setpts=N/(15*TB)','-frames:v','150','-an','-c:v','libx264','-threads','1','-preset','veryfast','-crf','18','-pix_fmt','yuv420p',str(dest/'video.mp4')],check=True)
+            crop=samples[round(start*16000):round(start*16000)+160000]
+            if sr!=16000 or crop.shape!=(160000,4):raise ValueError('pilot FOA/media clock differs')
+            write_float32_wav(dest/'audio_foa.wav',crop,16000,channel_axis=1);write_float32_wav(dest/'audio_mono.wav',crop[:,:1],16000,channel_axis=1)
+            media={k:str(dest/f) for k,f in [('video','video.mp4'),('audio_foa','audio_foa.wav'),('audio_mono','audio_mono.wav')]}
+            proof=source_qa_evidence(scene,program,receipt,visual,dest/'audio_foa.wav',ar,question_episode_id=wid,window_start_s=start)
+            if any(not e['activity_intervals_samples_global'] for e in proof['events'].values()):raise ValueError('scheduled event lacks actual measured emitted activity')
+            if semantic:
+                from avengine.timeline.v7_visible_semantics import visible_dialogue_evidence
+                proof.update(visible_dialogue_evidence(scene,program,receipt,visual,semantic,start,str(vd/'native_visible_visual_evidence.json')))
+            q,g,audit=collect_native_pool(scene,start,wid,visual,media,proof,row['question_quota_base']+wi,14)
+            parts=[validate_v6_items(q,g,audit,seed=str(scene['seed'])),validate_additional_items(q,g,proof),validate_content_items(q,g)]
+            replay={'status':'pass','checked_forms':sum(p['checked_forms'] for p in parts),'passed_forms':sum(p['passed_forms'] for p in parts),'mismatches':[r for p in parts for r in p['mismatches']],'panels':parts}
+            if replay['checked_forms']!=len(q):raise ValueError('independent replay did not cover every question form')
+            if replay['mismatches']:replay['status']='fail'
+            write_json(dest/'independent_v6_truth.json',replay)
+            if replay['mismatches']:raise ValueError('independent original-family truth mismatch')
+            write_json(dest/'questions.json',q);write_json(dest/'private_answers.json',g);audit['native_color_eligibility']=color_eligibility
+            write_json(dest/'candidate_audit.json',audit)
+            write_json(dest/'evidence.json',{'profile':PILOT_PROFILE,'seed_row':row,'scene':scene,'source_qa_evidence':proof,
+                'native_visual_evidence':str(vd/'native_visible_visual_evidence.json'),'native_audio_evidence':str(ad/'audio_evidence.json'),
+                'machine_checks':checks,'independent_v6_truth':replay,'formal_dataset_count':0})
+            wins.append({'window_id':wid});required.extend(wid+'/'+f for f in ['video.mp4','audio_foa.wav','audio_mono.wav','questions.json','private_answers.json','candidate_audit.json','evidence.json','independent_v6_truth.json'])
+        return {'windows':wins},required
+    wd,wr,_=stage(root,'windows_v0_a0',{'scene':scene,'receipt':receipt,'profile':PILOT_PROFILE,'color_evidence_revision':COLOR_EVIDENCE_REVISION},windows)
+    members,selection=finalize_parent_question_pools(row,[{'member':'v0_a0','windows_directory':str(wd),'windows':wr['windows'],'audio_directory':str(ad),'visual_directory':str(vd)}],root)
+    def seal(attempt):
+        required=[];stats=[];source=Path(members[0]['windows_directory']);private=attempt/'private';private.mkdir()
+        for win in members[0]['windows']:
+            wid=win['window_id'];dest=attempt/'windows'/wid;dest.mkdir(parents=True)
+            for f in ['video.mp4','audio_foa.wav','audio_mono.wav','questions.json']:os.link(source/wid/f,dest/f);required.append(str((dest/f).relative_to(attempt)))
+            for old,new in [('private_answers.json',wid+'_answers.json'),('evidence.json',wid+'_evidence.json')]:os.link(source/wid/old,private/new);required.append('private/'+new)
+            qs=read_json(dest/'questions.json');stats.append({'window_id':wid,'media_readback':_verify_window(dest),'logical_questions':len({q['logical_question_id'] for q in qs}),'family_counts':dict(Counter(q['qa_id'] for q in qs if q['form']=='open'))})
+        write_json(private/'machine_checks.json',checks);write_json(private/'assets.json',assets);write_json(private/'dry_program.json',program);write_json(private/'dry_receipt.json',receipt)
+        required.extend('private/'+f for f in ['machine_checks.json','assets.json','dry_program.json','dry_receipt.json'])
+        result={'status':'integration_pilot_admitted','profile':PILOT_PROFILE,'scene_id':row['scene_id'],'house':row['house'],
+            'family':house['family'],'room_id':row['room_id'],'windows':stats,'machine_checks':checks,
+            'asset_counts':dict(Counter(a['asset_id'] for a in assets)),'class_event_counts':dict(Counter(e['sound_class'] for e in scene['events'])),
+            'pilot_windows':len(stats),'pilot_logical_questions':sum(w['logical_questions'] for w in stats),
+            'alpha_formal_windows':0,'alpha_formal_logical_questions':0,'train_table_exported':False,
+            'wall_seconds':time.perf_counter()-wall,'cpu_seconds_including_children':cpu_seconds()-cpu}
+        write_json(attempt/'pilot_manifest.json',result);required.append('pilot_manifest.json');return result,required
+    directory,result,_=stage(root,'integration_seal',{'input_recipe':recipe},seal)
+    return {**result,'delivery_directory':str(directory)}

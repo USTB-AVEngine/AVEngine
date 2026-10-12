@@ -62,3 +62,18 @@ def check_write(path,*,expected_bytes=0):
         raise StorageBudgetExceeded(f"own output budget stop: allocated={used}, expected={requested}, limit={policy['maximum_task_bytes']}")
     return {"free_bytes":free,"own_allocated_bytes":used,"expected_write_bytes":requested,
             "checked_unix":time.time(),"policy":policy}
+
+
+def configure_integration_pilot(output,budget_root,*,parents,workers):
+    """Explicit owner-authorized small pilot; the older review policy stays intact."""
+    output=Path(output).resolve()
+    if budget_root is None:raise StorageBudgetExceeded('integration pilot requires its own budget root')
+    root=Path(budget_root).resolve()
+    if not root.is_relative_to(Path('/data')) or root==Path('/data') or not output.is_relative_to(root):
+        raise StorageBudgetExceeded('integration pilot output escaped its task root')
+    if not 1<=parents<=30 or not 1<=workers<=16:raise StorageBudgetExceeded('integration pilot is limited to 30 parents and 16 workers')
+    policy={'root':str(root),'filesystem':'/data','minimum_free_bytes':150_000_000_000,
+        'maximum_task_bytes':99_000_000_000,'concurrent_write_margin_bytes':workers*64_000_000,
+        'policy':'owner stage-one integration pilot: <=100GB including worktree, >=150GB shared free','local_48g':True}
+    os.environ[ENV_KEY]=json.dumps(policy,sort_keys=True);check_write(output,expected_bytes=0)
+    return policy

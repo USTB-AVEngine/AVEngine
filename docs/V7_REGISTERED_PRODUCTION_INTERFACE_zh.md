@@ -42,3 +42,5 @@ AFS新目录 `/mnt/afs/xinyuanqian/jzy/hardbank/generation/v7_s_round10_20261004
 已有单成员世界可用 `v7_native_requalification.requalify_native_single_parent` 复核；只接受已经封存且 train/dev 的完整 standing world，拒绝测试屋和反事实组。必须重新检查视频/FOA、完整 450 帧 native 读回、材质、许可、RIR 和真实逐帧相机，重新出题并封存到新目录；原物理阶段不覆盖，成本注明重用。
 
 场景 recipe 可用 `semantic_sound_subset_ids` 显式选择已准入完整语句场景中至少两个不同角色，`semantic_sound_ids` 指定顺序，`semantic_role_start_offsets_s` 指定起点，`camera_policy=binding_static` 及 `binding_camera_yaw_offset_deg` 控制固定相机。任何源 ID、性别、许可或完整音频 SHA 不满足仍拒绝。运行结束不代表所有题族/覆盖配额已达标；以生产准入收据为准。
+
+第一阶段设备/静态演奏者/动物可见声源接入试产通过显式 `--integration-pilot` 启用，接口、严格检查和断点规则见 [V7_VISIBLE_INTEGRATION_PILOT_zh.md](V7_VISIBLE_INTEGRATION_PILOT_zh.md)。该接口只封存任务自有试产目录，不能视作已具备完整量产或训练表导出资格。

@@ -120,7 +120,7 @@ def native_bundle(scene, start_s, window_id, visual, evidence):
                        'entity_class': profile.get('entity_class', 'articulated_human'),
                        'display_label': supplied.get('label_zh', key)}
         if value:
-            actors[key]['appearance'] = {'field': 'top_color', 'value': value,
+            actors[key]['appearance'] = {'field': supplied.get('field','top_color'), 'value': value,
                                          'label_zh': supplied.get('label_zh', value),
                                          'label_en': supplied.get('label_en', value)}
         actor_readbacks[key] = [dict(row, frame_index=i) for i, row in enumerate(rows)]
