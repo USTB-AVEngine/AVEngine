@@ -51,7 +51,11 @@ def main():
     h.append('<h2>拒绝原因（允许重叠）</h2><table><tr><th>原因</th><th>数量</th></tr>')
     for name,n in rejects.most_common():
         h.append('<tr><td>'+esc(name)+'</td><td>'+str(n)+'</td></tr>')
-    h.append('</table><h3>逐类屏幕读数</h3><table><tr><th>类别</th><th>目标分不足</th><th>间隔不足</th><th>Whisper 有词</th><th>活动不足</th><th>最终构建器阻断</th></tr>')
+    fp_reasons=collections.Counter(r["reason"] for r in dedup["records"].values() if r["status"]=="blocked")
+    h.append('</table><h3>指纹阻断明细</h3><table><tr><th>原因</th><th>数量</th></tr>')
+    for name,n in fp_reasons.most_common():
+        h.append('<tr><td>'+esc(name)+'</td><td>'+str(n)+'</td></tr>')
+    h.append('</table><p>fingerprint_positive_control_failed 表示本候选的指纹未检出自身增益、重采样或裁切版本，无法验证此候选的去重覆盖，因此保守阻断；此类不声称找到了近重复。</p><h3>逐类屏幕读数</h3><table><tr><th>类别</th><th>目标分不足</th><th>间隔不足</th><th>Whisper 有词</th><th>活动不足</th><th>最终构建器阻断</th></tr>')
     for s in d["by_class"]:
         h.append('<tr>'+''.join('<td>'+esc(x)+'</td>' for x in [s["sound_class"],s["beats_below_threshold"],s["beats_margin_below_threshold"],s["whisper_lexical_rejections"],s["activity_rejections"],json.dumps(s["rejection_reasons"],ensure_ascii=False)])+'</tr>')
     h.append('</table><h2>机器检查与适用范围</h2><p>沿用 thin top-up a9d11be 的 build_recorded_admission、existing_gate_classes 和 existing_subtype_metadata_groups：BEATs AS2M cpt2 目标类 ≥0.1917129977，且比不相容 AudioSet 类高 ≥0.05。活动检测和响度归一化代码保持原实现；有效活动总时长及最长连续事件组均须 ≥1 秒，事件组内活动时长不含间隙。44.1 kHz 双声道先取通道平均，再重采样到 16 kHz 单声道，归一化沿用 -23 LUFS/-3 dBTP。</p>')
