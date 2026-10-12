@@ -6,6 +6,9 @@ import json
 import os
 from pathlib import Path
 import resource
+import shutil
+import shlex
+import subprocess
 import sys
 import threading
 import time
@@ -20,6 +23,27 @@ def main() -> int:
     options = parser.parse_args()
     if os.environ.get("CUDA_VISIBLE_DEVICES") != "" or os.getpriority(os.PRIO_PROCESS, 0) < 10:
         raise RuntimeError("CPU-only nice 10 test process required")
+    # Restrict this process and its children; FFmpeg otherwise uses all host CPUs.
+    allowed_cpus = os.sched_getaffinity(0)
+    os.sched_setaffinity(0, set(sorted(allowed_cpus)[:2]))
+    # Keep the FFmpeg override local to this test process and its descendants.
+    real_ffmpeg = shutil.which("ffmpeg")
+    if real_ffmpeg:
+        shim_dir = options.output / "ffmpeg_cpu_bin"
+        shim_dir.mkdir(exist_ok=True)
+        shim = shim_dir / "ffmpeg"
+        cpu_library = options.output / "ffmpeg_cpu_count.so"
+        if not cpu_library.exists():
+            cpu_source = options.output / "ffmpeg_cpu_count.c"
+            cpu_source.write_text('#define _GNU_SOURCE\n#include <unistd.h>\n#include <dlfcn.h>\nint av_cpu_count(void) { return 1; }\nint get_nprocs(void) { return 1; }\nint get_nprocs_conf(void) { return 1; }\nlong sysconf(int name) {\n    if (name == _SC_NPROCESSORS_ONLN || name == _SC_NPROCESSORS_CONF) return 1;\n    static long (*original)(int) = 0;\n    if (!original) original = (long (*)(int))dlsym(RTLD_NEXT, "sysconf");\n    return original ? original(name) : -1;\n}\n')
+            subprocess.run(["cc", "-shared", "-fPIC", "-O2", "-o", str(cpu_library), str(cpu_source), "-ldl"], check=True)
+        content = "#!/usr/bin/env bash\nset -euo pipefail\nexport LD_PRELOAD=" + shlex.quote(str(cpu_library)) + "${LD_PRELOAD:+:$LD_PRELOAD}\nexec " + shlex.quote(real_ffmpeg) + " -filter_threads 1 -filter_complex_threads 1 \"$@\"\n"
+        if shim.exists():
+            assert shim.read_text() == content
+        else:
+            shim.write_text(content)
+            shim.chmod(0o755)
+        os.environ["PATH"] = str(shim_dir) + os.pathsep + os.environ["PATH"]
     # These controls affect this process only.
     try:
         import torch
@@ -100,7 +124,8 @@ def main() -> int:
                "skipped": sum(r["outcome"] == "skipped" for r in reports),
                "wall_seconds": time.monotonic() - tick, "cpu_user_seconds": usage.ru_utime,
                "cpu_system_seconds": usage.ru_stime, "os_threads_peak": peak[0],
-               "private_runtime_caps": ["torch intra/inter 1", "cv2 1", "onnxruntime intra/inter 1", "BLAS/OMP/numba 1"],
+               "private_runtime_caps": ["torch intra/inter 1", "cv2 1", "onnxruntime intra/inter 1", "BLAS/OMP/numba 1", "process-local two-CPU affinity", "private FFmpeg CPU-count override and filter threads 1"],
+               "cpu_affinity_cpus": sorted(os.sched_getaffinity(0)),
                "collected_ids": collected, "reports": reports}
     (out / (label + ".json")).write_text(json.dumps(summary, ensure_ascii=False, indent=2) + "\n")
     print("JSON_SUMMARY", json.dumps({k: v for k, v in summary.items() if k not in ("reports", "collected_ids")}), flush=True)

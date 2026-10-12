@@ -31,6 +31,16 @@ def run_groups(phase):
  receipts=[];peak=0
  wt=Path(conf['worktree'])
  for label,extra in groups:
+  completed=STAGE/'evidence'/(label+'_pre_affinity.json')
+  if phase=='final' and label in {'final_server','final_tasks'} and completed.exists():
+   previous=json.loads(completed.read_text())
+   assert not previous['failure_ids'] and not previous['error_ids']
+   canonical=STAGE/'evidence'/(label+'.json')
+   assert not canonical.exists()
+   shutil.copyfile(completed,canonical)
+   receipts.append(previous)
+   progress('复用重启前已完成测试 '+label+'：通过 '+str(previous['passed'])+'；原收据不改，不重复跑。')
+   continue
   if time.time()>conf['deadline_epoch']-300:raise RuntimeError('final test deadline reserve five minutes')
   log=STAGE/'logs'/(label+'.log');timer=STAGE/'evidence'/(label+'_time.txt')
   if log.exists() or timer.exists() or (STAGE/'evidence'/(label+'.json')).exists():raise RuntimeError('preserve existing final group evidence before a rerun')
@@ -60,7 +70,7 @@ def run_groups(phase):
  missing=sorted(baseline_ids-final_ids)
  if missing:raise RuntimeError('final grouped scope omitted baseline test IDs: '+str(missing))
  failures=sorted({sid for r in receipts for sid in r['failure_ids']});errors=sorted({sid for r in receipts for sid in r['error_ids']})
- final={'label':phase,'commit':os.environ['TEST_COMMIT'],'command':['run_final_grouped.sh'],'pytest_args':receipts[0]['pytest_args'],'scope':'all repository CPU tests; same native/integration/media/canary exclusions as baseline; disjoint file groups isolate existing studio daemon queues','exit_code':1 if failures or errors else 0,'failure_ids':failures,'error_ids':errors,'passed':sum(r['passed'] for r in receipts),'skipped':sum(r['skipped'] for r in receipts),'wall_seconds':time.monotonic()-tick,'cpu_user_seconds':sum(r['cpu_user_seconds'] for r in receipts),'cpu_system_seconds':sum(r['cpu_system_seconds'] for r in receipts),'process_tree_threads_peak':peak,'os_threads_peak':max(r['os_threads_peak'] for r in receipts),'private_runtime_caps':receipts[0]['private_runtime_caps'],'group_receipts':[str(STAGE/'evidence'/(r['label']+'.json')) for r in receipts],'baseline_coverage_missing_ids':missing,'baseline_unique_report_ids':len(baseline_ids),'final_unique_report_ids':len(final_ids),'new_report_ids':sorted(final_ids-baseline_ids),'reports':reports,'finished_utc':stamp()}
+ final={'label':phase,'commit':os.environ['TEST_COMMIT'],'command':['run_final_grouped.sh'],'pytest_args':receipts[0]['pytest_args'],'scope':'all repository CPU tests; same native/integration/media/canary exclusions as baseline; disjoint file groups isolate existing studio daemon queues','exit_code':1 if failures or errors else 0,'failure_ids':failures,'error_ids':errors,'passed':sum(r['passed'] for r in receipts),'skipped':sum(r['skipped'] for r in receipts),'wall_seconds':time.monotonic()-tick,'cpu_user_seconds':sum(r['cpu_user_seconds'] for r in receipts),'cpu_system_seconds':sum(r['cpu_system_seconds'] for r in receipts),'process_tree_threads_peak':peak,'os_threads_peak':max(r['os_threads_peak'] for r in receipts),'private_runtime_caps':receipts[-1]['private_runtime_caps'],'caps_by_group':{r['label']:r['private_runtime_caps'] for r in receipts},'reused_completed_groups':['final_server','final_tasks'] if phase=='final' else [],'group_receipts':[str(STAGE/'evidence'/(r['label']+'.json')) for r in receipts],'baseline_coverage_missing_ids':missing,'baseline_unique_report_ids':len(baseline_ids),'final_unique_report_ids':len(final_ids),'new_report_ids':sorted(final_ids-baseline_ids),'reports':reports,'finished_utc':stamp()}
  save(STAGE/'evidence'/(phase+'.json'),final)
  finish('stage2_'+phase+'_groups',tick,failures=len(failures),errors=len(errors),process_tree_threads_peak=peak)
  print('FULL_TEST_COUNTS',len(failures),len(errors),'NEW_FAILURES',len(set(failures)-set(baseline['failure_ids'])),'NEW_ERRORS',len(set(errors)-set(baseline['error_ids'])),flush=True)
