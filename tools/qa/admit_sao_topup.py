@@ -149,6 +149,12 @@ def score(a):
 def duplicate(alignment):
  return alignment["exact_normalized_pcm"] or alignment["matched_hashes"]>=12 and alignment["aligned_fraction"]>=.25
 
+def candidate_reference_keys(counts, query_hash_count, reference_indices):
+ # Either direction can pass alignment: a short reference inside a long query
+ # must not be pruned by the long query's denominator.
+ return {key for key,n in counts.items() if n>=12 and
+  (n/max(1,query_hash_count)>=.20 or n/max(1,len(reference_indices[key]))>=.20)}
+
 def dedup(a):
  o=a.output;start=time.time();rows=load_scored(o)
  v9=json.loads(a.v9.read_text())
@@ -178,7 +184,7 @@ def dedup(a):
   q=audio_fingerprint(x,16000);qi=fingerprint_index(q,query=True)
   hashes={h for h,t in q["landmarks"]};counts=collections.Counter()
   for h in hashes:counts.update(inverted.get(h,[]))
-  possible={k for k,n in counts.items() if n>=12 and n/max(1,len(hashes))>=.20}
+  possible=candidate_reference_keys(counts,len(hashes),reference_indices)
   possible.update(pcm.get(q["pcm_sha256"],[]))
   nearest=None;hits=[]
   for key in sorted(possible):

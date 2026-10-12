@@ -61,6 +61,9 @@ def main():
     h.append('</table><h2>机器检查与适用范围</h2><p>沿用 thin top-up a9d11be 的 build_recorded_admission、existing_gate_classes 和 existing_subtype_metadata_groups：BEATs AS2M cpt2 目标类 ≥0.1917129977，且比不相容 AudioSet 类高 ≥0.05。活动检测和响度归一化代码保持原实现；有效活动总时长及最长连续事件组均须 ≥1 秒，事件组内活动时长不含间隙。44.1 kHz 双声道先取通道平均，再重采样到 16 kHz 单声道，归一化沿用 -23 LUFS/-3 dBTP。</p>')
     h.append('<p>Whisper-small 自动识别语言，自由转写，无参考文本；使用 <a href="https://raw.githubusercontent.com/openai/whisper/main/whisper/transcribe.py">官方默认无语音处理</a>：p_no_speech &gt;0.6 且 avg_logprob &lt;-1 时跳过无语音片段，其余最终转写有任何 Unicode 字母或数字均拒绝。初始直接 generate 转写、标准处理所有原始尝试及概率均保留，不使用词白名单。3 条真实 VCTK 人声阳性对照均被拒绝，见 evidence/whisper_standard_pilot.json。机器转写可能误检/漏检；真实听感与人声检出准确率未验证。</p>')
     h.append('<p>指纹范围为 v9 全 '+str(dedup["reference_file_count"])+' 条及全部生成候选；使用原 thin 音频指纹（8 kHz 归一化 PCM 和谱峰星座），双向对齐，完全相同 PCM 或 ≥12 匹配哈希且对齐比例 ≥0.25 判近重复。增益/重采样/裁切阳性对照检出 '+str(dedup["positive_control_detected"])+'/'+str(dedup["positive_control_count"])+'。此方法不能证明遮盖声源或主观相似性不存在；未做新的 STARSS/DCASE/TAU 扫描。</p>')
+    symmetric=read(o/"evidence/fingerprint_symmetric_final.json")
+    assert symmetric["status"]=="pass"
+    h.append('<p>最终写入 v10 的 '+str(symmetric["selected_generated"])+' 条生成来源另做了参考短片段覆盖复核：筛选同时考虑候选和参考两个方向的比例，追加短参考候选对 '+str(symmetric["new_short_reference_pairs"])+'，检出近重复 '+str(symmetric["detected_matches"])+'。见 evidence/fingerprint_symmetric_final.json；匹配门槛保持原值。</p>')
     h.append('<p>首轮 100 步、cfg 7，按片长加 1 秒对齐缩短采样张量；第二轮改为官方 model_config 的完整 sample_size=2097152 后截取提示时长。两轮所有种子、批内位置、完整批条件、提示词和模型校验值均逐条记录；没有改模型或共享环境。</p>')
     h.append('<h2>BEATs 分布</h2>')
     fig,axes=plt.subplots(4,4,figsize=(15,12));axes=axes.ravel()
