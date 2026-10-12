@@ -5,7 +5,7 @@
 
 自 2026-08-25 起，目录本身就是能力分组（阶段目录 m1…m7 已移除），
 本表按目录列出每个工具做什么。
-当前共 492 个工具脚本。
+当前共 495 个工具脚本。
 
 ## 资产生成与装配（`tools/assets/`）
 
@@ -358,6 +358,8 @@
 | `tools/qa/export_qa_v3_dataset.py` | Export one completed QA-v3 pipeline run without model-specific fields |
 | `tools/qa/filter_cross_time_points.py` | Cross-time sampling filter (pilot work order item 1.7) |
 | `tools/qa/finalize_batch_visuals.py` | Retire raw rgb.npy arrays for a finished QA v2 batch (owner policy |
+| `tools/qa/finalize_dialogue_voice_receipt.py` | Final evidence receipt; run after synthesis and full-test processes have exited |
+| `tools/qa/finalize_dialogue_voice_report.py` | Build final dialogue report and record its CPU usage |
 | `tools/qa/finalize_native_full_occlusion_reappearance_episode.py` | Compile Facts and finalize the native full-occlusion suite after audio render |
 | `tools/qa/finalize_native_paper_balance_episode.py` | Finalize one paper-balance recipe after native RLR binaural rendering |
 | `tools/qa/finalize_native_pixel_artifacts.py` | Finalize and verify a native SPEAR pixel-capture artifact inventory |
@@ -419,6 +421,7 @@
 | `tools/qa/run_answer_prior_pipeline.py` | Generate, augment and audit the original 25 QA types from one reusable config |
 | `tools/qa/run_audio_answer_balance.py` | Plan and render answer-balanced audio over retained two-actor captures; resume safely |
 | `tools/qa/run_dialogue_voice_audit.sh` | Run the retained dialogue language audit on CPU using the round5 dependency layout. |
+| `tools/qa/run_dialogue_voice_delivery.sh` |  |
 | `tools/qa/run_dialogue_voice_expansion.sh` | Task-specific CPU runner; every output/cache stays in the authorized artifact root. |
 | `tools/qa/run_dialogue_voice_final_tests.sh` |  |
 | `tools/qa/run_dialogue_voice_pipe_batch.sh` |  |
