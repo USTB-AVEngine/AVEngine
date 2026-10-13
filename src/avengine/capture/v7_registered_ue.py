@@ -13,7 +13,7 @@ from avengine.capture.kujiale_spear_runtime import (launch_native,camera_helpers
     from_ue,to_ue,configure_scene_lighting,apply_native_rgb_profile)
 from avengine.timeline.continuous_pilot import write_json
 
-REGISTERED_UE_VISUAL_REVISION='registered-native-UE-design-whitebalance-v5-frontal-comparison'
+REGISTERED_UE_VISUAL_REVISION='registered-native-UE-design-whitebalance-v6-mouth-distance-contrast'
 
 
 class NativeRegisteredUEVideo(NativeUEAlphaVideo):
@@ -287,6 +287,12 @@ class NativeRegisteredUEVideo(NativeUEAlphaVideo):
                 try:
                     with self.instance.begin_frame():actor=next(x for x in self._apply(0) if x['endpoint_id']==ep)
                     with self.instance.end_frame():pass
+                    if (self.current_native_environment and self.scene['production_scenario'].get('camera_policy')=='pilot_binding_coverage'
+                            and self.alpha_standing_refs):
+                        from avengine.capture.kujiale_pilot_environment import binding_mouth_distance_contrast
+                        mouths=[x['emitter_position_m'] for x in self.alpha_standing_refs.values()]
+                        if not binding_mouth_distance_contrast(self.scene['listener_m'],actor['emitter_position_m'],mouths):
+                            attempts.append({'endpoint_id':ep,'candidate':p,'reason':'actual native mouth distances need 0.6 m sampling contrast above unchanged 0.5 m QA gate'});continue
                     root=np.asarray(actor['position_m']);probe={'witness_index':0,'role':ep,'capsule':{'radius_cm':20.,'half_height_cm':75.,'center_ue_cm':to_ue(root+[0.,.75,0.])}}
                     capsule=query_capsule(self.native_floor_surface.mesh,probe)
                     if capsule['status']!='pass':attempts.append({'endpoint_id':ep,'candidate':p,'capsule':capsule['status']});continue
@@ -309,7 +315,7 @@ class NativeRegisteredUEVideo(NativeUEAlphaVideo):
                         'native_sole_depth':good,'native_capsule_static_geometry':capsule,'native_full_skin_bounds_m':[lo.tolist(),hi.tolist()],
                         'bounds_authority':'actual UE GetActorBounds of all original registered mesh components',
                         'known_bad_10cm_floor_contacts':bad,'known_bad_detected':detected,'acoustic_position_readback':acoustic}
-                    bounds.append((lo,hi));self.alpha_standing_refs[ep]={'position_m':actor['position_m'],'reference':good};break
+                    bounds.append((lo,hi));self.alpha_standing_refs[ep]={'position_m':actor['position_m'],'emitter_position_m':actor['emitter_position_m'],'reference':good};break
                 except ValueError as e:attempts.append({'endpoint_id':ep,'candidate':p,'reason':str(e)})
             if accepted is None:
                 write_json(directory/'placement_search_failed.json',{'status':'blocked','attempts':attempts});raise ValueError('registered UE actor lacks original qualified placement')

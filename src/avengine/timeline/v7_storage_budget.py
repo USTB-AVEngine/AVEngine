@@ -75,7 +75,13 @@ def configure_kujiale_production(output,budget_root,*,workers):
     policy={"root":str(root),"filesystem":"/data","minimum_free_bytes":100_000_000_000,
             "maximum_task_bytes":24_000_000_000,"concurrent_write_margin_bytes":workers*128_000_000,
             "policy":"Round14 native production; separate full task growth monitor <=30GB including UE Content/DDC/worktree", "local_48g":True}
-    if root.name=='ue_round21_pilot':policy.update(minimum_free_bytes=150_000_000_000,maximum_task_bytes=60_000_000_000,policy='Round21 train-only native pilot; no training export or transfer')
+    if root.name=='ue_round21_pilot':
+        policy.update(minimum_free_bytes=150_000_000_000,maximum_task_bytes=60_000_000_000,policy='Round21 train-only native pilot; no training export or transfer')
+        scope_path=root/'inputs/task_scope.json'
+        if scope_path.is_file():
+            scope=json.loads(scope_path.read_text())
+            policy['maximum_task_bytes']=min(policy['maximum_task_bytes'],int(scope['maximum_task_bytes']))
+            policy['minimum_free_bytes']=max(policy['minimum_free_bytes'],int(scope['minimum_disk_free_bytes']))
     os.environ[ENV_KEY]=json.dumps(policy,sort_keys=True)
     check_write(output,expected_bytes=0)
     return policy

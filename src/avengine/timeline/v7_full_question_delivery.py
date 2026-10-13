@@ -8,10 +8,116 @@ from __future__ import annotations
 from copy import deepcopy
 from pathlib import Path
 import os
+import itertools
+import math
 from avengine.timeline.continuous_pilot import write_json
 from avengine.timeline.v7_production_contract import question_allocation,validate_question_counts
 
-QUESTION_DELIVERY_REVISION='v7-native-full-pool-joint-selection-v1'
+QUESTION_DELIVERY_REVISION='v7-native-full-pool-joint-selection-v2-native-pilot-query-frame'
+
+
+def sample_pilot_comparison_frame(raw,scene,*,seed='v7'):
+    """Sample one proven native QA14 frame; predicates and family quotas stay intact.
+
+    The authority limits emitted frame candidates before the v7 public-stem
+    deduplication. A single query frame preserves each distinct comparison,
+    instead of spending the candidate budget on repeated frames of one pair.
+    Missing evidence leaves the original sampling untouched and records why.
+    """
+    audit={'status':'not_applicable','qa_id':'QA-14','sampling_revision':QUESTION_DELIVERY_REVISION,
+           'scope':'query-frame sampling only; no asset or parent admission',
+           'thresholds_changed':False,'frame_readbacks_modified':False}
+    if scene.get('production_scenario',{}).get('camera_policy')!='pilot_binding_coverage':
+        audit['reason']='camera_policy_does_not_request_pilot_comparison_sampling'
+        return audit
+    audit['status']='blocked'
+    truth=raw.get('pixel_visibility_truth')
+    if not isinstance(truth,dict) or truth.get('status')!='computed_modal_target_only_v1':
+        audit['reason']='complete_native_modal_target_visibility_missing'
+        return audit
+    from avengine.qa import unified_catalog as authority
+    from avengine.qa.v7_families import normalize_v7_facts
+    from avengine.qa.visibility_interpretation import prepare_facts_for_qa
+    try:
+        facts=prepare_facts_for_qa(normalize_v7_facts(raw),'QA-14')
+        count=int(facts['time']['frame_count']);fps=float(facts['time']['frame_rate_hz'])
+        appearances=authority._appearance_candidates(facts)
+        people=[actor_id for actor_id,actor,_ in appearances if actor.get('species_id')=='human']
+        if len(people)<3:
+            audit['reason']='fewer_than_three_distinct_native_reviewed_people'
+            return audit
+        listener=facts['listener']
+        tracks=[listener.get('positions_m'),*[facts['actors'][actor].get('emitter_positions_m') for actor in people]]
+        if (listener.get('status')!='pass' or count<=0 or not math.isfinite(fps) or fps<=0
+                or any(not isinstance(track,list) or len(track)!=count for track in tracks)
+                or any(not isinstance(point,(list,tuple)) or len(point)!=3
+                       or any(not isinstance(v,(float,int)) or not math.isfinite(v) for v in point)
+                       for track in tracks for point in track)):
+            audit['reason']='complete_finite_native_listener_or_mouth_track_missing'
+            return audit
+        for actor in people:
+            masks=truth.get('per_instance',{}).get(actor,{}).get('frames',[])
+            if ([row.get('frame_index') for row in masks]!=list(range(count))
+                    or set(facts.get('visibility',{}).get(actor,{}))!=set(range(count))):
+                audit['reason']='complete_indexed_native_target_mask_stream_missing'
+                audit['actor_id']=actor
+                return audit
+        candidates=authority._P8_CANDIDATES['QA-14'](facts)
+        by_pair={};by_pair_frame={}
+        for candidate in candidates:
+            pair=frozenset(candidate['actor_ids']);frame=candidate['query_frame']
+            by_pair.setdefault(pair,set()).add(frame)
+            by_pair_frame[pair,frame]=candidate
+        audit['original_frame_candidate_count']=len(candidates)
+        audit['native_pair_candidate_counts']=[{'actor_ids':sorted(pair),'frames':len(frames)}
+                                              for pair,frames in sorted(by_pair.items(),key=lambda x:sorted(x[0]))]
+        options=[]
+        for people_group in itertools.combinations(people,3):
+            pairs=[frozenset(pair) for pair in itertools.combinations(people_group,2)]
+            common=set.intersection(*(by_pair.get(pair,set()) for pair in pairs))
+            runs=[]
+            for frame in sorted(common):
+                if not runs or runs[-1][1]!=frame:runs.append([frame,frame+1])
+                else:runs[-1][1]=frame+1
+            for run in runs:
+                try:window=authority._query_window_fields(facts,run)
+                except authority._Deferred:continue
+                lo,hi=window['query_window_s']
+                frame=min(run[1]-1,max(run[0],int((lo+hi)*fps/2)))
+                options.append((-(run[1]-run[0]),run[0],people_group,pairs,run,window,frame))
+        audit['publishable_common_run_count']=len(options)
+        for _,_,people_group,pairs,run,window,frame in sorted(options,key=lambda row:row[:3]):
+            proofs=[];stems=set()
+            try:
+                for pair in pairs:
+                    item=authority._P8_EMITTERS['QA-14'](facts,by_pair_frame[pair,frame],str(seed))
+                    proofs.append({'actor_ids':sorted(pair),'authority_status':item['status'],
+                                   'distances_m':item['evidence']['distances_m'],
+                                   'query_window_frames':item['evidence']['query_window_frames'],
+                                   'query_window_s':item['evidence']['query_window_s']})
+                    stems.add(item['question']['zh'])
+            except authority._Deferred as error:
+                audit.setdefault('rejected_sampling_runs',[]).append({'run_frames':run,'code':error.code})
+                continue
+            if len(stems)!=3:
+                audit.setdefault('rejected_sampling_runs',[]).append({'run_frames':run,'code':'comparison_public_stems_not_distinct'})
+                continue
+            sampling=deepcopy(raw.get('sampling') or {})
+            sampling.setdefault('query_frame_by_qa',{})['QA-14']=frame
+            raw['sampling']=sampling
+            audit.update(status='pass',reason='one_native_frame_for_three_distinct_proven_distance_pairs',
+                         query_frame=frame,frame_index_scope='window',people=list(people_group),
+                         common_run_frames=run,common_run_public_s=window['query_window_s'],
+                         authority_comparison_proofs=proofs)
+            return audit
+        audit['reason']='no_three_native_distance_pairs_in_a_publishable_common_run'
+        return audit
+    except authority._Deferred as error:
+        audit.update(reason='native_qa14_sampling_evidence_deferred',code=error.code,detail=error.detail)
+        return audit
+    except (KeyError,TypeError,ValueError) as error:
+        audit.update(reason='native_qa14_sampling_evidence_invalid',detail=str(error))
+        return audit
 
 
 def collect_native_pool(scene,start,window_id,visual,media,evidence,quota_index,count):
@@ -28,6 +134,7 @@ def collect_native_pool(scene,start,window_id,visual,media,evidence,quota_index,
     bind_native_listener_frames(raw)
     from avengine.timeline.v7_environmental_sources import augment_environmental_native_bundle,collect_admitted_class_questions
     augment_environmental_native_bundle(raw,scene,visual,start)
+    comparison_sampling=sample_pilot_comparison_frame(raw,scene,seed=str(proof.get('question_seed','v7')))
     public,private,audit=collect_questions(raw,window_id,media,
         seed=str(proof.get('question_seed','v7')),foa_readback=proof.get('foa_readback'),
         semantic_manifest=proof.get('semantic_manifest'),protocol_scene=proof.get('protocol_scene'),
@@ -41,6 +148,7 @@ def collect_native_pool(scene,start,window_id,visual,media,evidence,quota_index,
         excluded={q['question_id'] for q in public if q.get('protocol_panel')=='STARSS23_v0.2' and q['qa_id']=='QA-23'}
         public=[q for q in public if q['question_id'] not in excluded];private=[g for g in private if g['question_id'] not in excluded]
         audit['out_of_domain_activity_count_exclusions']=sorted(excluded)
+    audit['pilot_native_comparison_sampling']=comparison_sampling
     audit['native_bundle']=raw
     audit['native_listener_binding']='all measured native camera frames, no static pose shadow'
     return public,private,audit

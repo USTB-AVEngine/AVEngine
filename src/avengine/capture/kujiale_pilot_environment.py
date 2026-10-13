@@ -77,6 +77,17 @@ def binding_pair_fits_view(listener,first,second):
     return 16.<=angle<=60.
 
 
+def binding_mouth_distance_contrast(listener,emitter,existing_emitters):
+    """Sample distinct real mouth distances above the unchanged QA-14 0.5 m gate."""
+    listener=np.asarray(listener,float);emitter=np.asarray(emitter,float)
+    points=np.asarray(existing_emitters,float)
+    if points.size==0:return True
+    if not np.isfinite(listener).all() or not np.isfinite(emitter).all() or not np.isfinite(points).all():return False
+    distance=float(np.linalg.norm(emitter-listener))
+    distances=np.linalg.norm(points-listener,axis=1)
+    return bool(np.all(np.abs(distances-distance)>=.6))
+
+
 def comparison_person_candidates(listener,positions,candidates):
     """Sample a visible third person with real distance contrast, not QA waivers."""
     listener=np.asarray(listener,float);points=np.asarray(positions,float)

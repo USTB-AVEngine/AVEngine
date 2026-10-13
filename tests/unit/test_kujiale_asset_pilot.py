@@ -217,3 +217,13 @@ def test_depth_only_capture_restores_sensor_state_even_after_a_failure():
             assert components['depth'].value
             raise RuntimeError('target depth error')
     assert components['rgb'].value and not components['object_ids'].value and components['depth'].value
+
+
+def test_binding_distance_contrast_uses_actual_mouths_not_feet():
+    from avengine.capture.kujiale_pilot_environment import binding_mouth_distance_contrast
+    listener=[0.,1.5,0.]
+    assert not binding_mouth_distance_contrast(listener,[0.,1.5,2.08163280856],[[0.,1.5,1.87542555615]])
+    assert binding_mouth_distance_contrast(listener,[0.,1.5,2.6],[[0.,1.5,1.87542555615]])
+    assert not binding_mouth_distance_contrast(listener,[0.,1.5,2.6],[[0.,1.5,1.87542555615],[0.,1.5,2.8]])
+    assert binding_mouth_distance_contrast(listener,[0.,3.5,1.],[[0.,1.5,1.]])
+    assert not binding_mouth_distance_contrast(listener,[float('nan'),1.5,2.6],[[0.,1.5,1.]])
