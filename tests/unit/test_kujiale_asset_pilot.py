@@ -182,3 +182,12 @@ def test_static_foot_reference_still_rejects_pose_or_root_changes():
     assert video._uncropped_foot_probe(actor)['gap_m']==.003
     for change in [{'moving':True},{'action_id':'walk'},{'position_m':[1.,.001,2.]}]:
         with pytest.raises(ValueError,match='support reference changed'):video._uncropped_foot_probe(dict(actor,**change))
+
+
+def test_repeated_binding_shortage_is_one_failure_cause():
+    from avengine.timeline.kujiale_asset_pilot import NativePilotBatchGate
+    gate=NativePilotBatchGate(canary_passed=True)
+    gate.observe({'status':'failed','error_type':'ValueError','reason':'only 4 measured binding questions; need 5'})
+    gate.require_next_batch()
+    gate.observe({'status':'failed','error_type':'ValueError','reason':'only 0 measured binding questions; need 5'})
+    with pytest.raises(RuntimeError,match='two consecutive'):gate.require_next_batch()

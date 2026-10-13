@@ -81,7 +81,10 @@ class NativePilotBatchGate:
             self.last_batch_failed=False
             return
         self.last_batch_failed=True
-        signature=(result.get('error_type','native_gate'),result.get('reason','worker exited before recording a gate result').split(':',1)[0])
+        import re
+        reason=result.get('reason','worker exited before recording a gate result').split(':',1)[0]
+        reason=re.sub(r'only \d+ measured binding questions','insufficient measured binding questions',reason)
+        signature=(result.get('error_type','native_gate'),reason)
         self.consecutive_failures=self.consecutive_failures+1 if signature==self.last_failure else 1
         self.last_failure=signature
 
