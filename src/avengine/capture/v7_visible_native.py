@@ -191,9 +191,21 @@ class NativeVisibleVideo(NativeRegisteredVideo):
         r=SimpleNamespace(habitat_sim=self.hs,magnum=self.mn,pathfinder=self.pathfinder)
         floor=float(self.motion_house['room']['measured_floor_y_m']);poly=shape(self.motion_house['room']['floor_polygon'])
         from avengine.capture.v7_visible_semantic_support import SemanticSupports
-        semantic_support=SemanticSupports(self.motion_house)
+        semantic_support=getattr(self,'_original_semantic_support_cache',None)
+        if semantic_support is None:
+            semantic_support=SemanticSupports(self.motion_house)
+            self._original_semantic_support_cache=semantic_support
         r.semantic_anchors=dict(semantic_support.anchors)
-        supports=survey(self.sim,r,{'object_position':[scene['listener_m'][0],floor,scene['listener_m'][2]]})
+        origin=[scene['listener_m'][0],floor,scene['listener_m'][2]]
+        cached=getattr(self,'_independent_probe_survey_cache',None)
+        if self.motion_inputs.get('cache_native_support_survey_for_independent_probes') and cached is not None and cached[0]==origin:
+            from copy import deepcopy
+            supports=deepcopy(cached[1])
+        else:
+            supports=survey(self.sim,r,{'object_position':origin})
+            if self.motion_inputs.get('cache_native_support_survey_for_independent_probes'):
+                from copy import deepcopy
+                self._independent_probe_survey_cache=(origin,deepcopy(supports))
         parts=list(poly.geoms) if hasattr(poly,'geoms') else [poly]
         room_extent=MultiPolygon([Polygon(p.exterior) for p in parts])
         # The floor polygon describes free floor. Mounts are admitted by the
