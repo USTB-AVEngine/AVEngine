@@ -25,6 +25,25 @@ def production_sound_class(value):
     return 'telephone_bell_ringing' if value in {'telephone','phone_ring'} else value
 
 
+def production_audio_record_views(records):
+    """Expose the existing calibrated v13 screen under its legacy input key.
+
+    This is a read-only schema view. Keep the BEATs model, actual score,
+    owner-fixed threshold, status and SHA untouched; never claim new ASR.
+    The original source blocker still validates the actual waveform and
+    rejects a failed screen or one bound to a different audio SHA.
+    """
+    result=[]
+    for record in records:
+        if (record.get('source_type')=='generated_audio'
+                and 'automatic_no_speech' not in record
+                and 'human_speech_screen' in record):
+            record=deepcopy(record)
+            record['automatic_no_speech']=deepcopy(record['human_speech_screen'])
+            record['production_screen_schema_mapping']='human_speech_screen -> automatic_no_speech; existing calibrated evidence, no new transcription'
+        result.append(record)
+    return result
+
 def validate_english_source_admission(source):
     """Reject accidental use of the pre-English v8 pool or its removed clips."""
     policy=source.get('scope_change_5') or {}
@@ -41,7 +60,7 @@ def validate_english_source_admission(source):
         if policy.get('records_after')+len(generated)!=len(ids) or supplement.get('added_records')!=len(generated):
             raise ValueError('English admission record count differs from audited base plus generated supplements')
         from avengine.timeline.v7_audio_sources import filter_admission
-        _,rejected=filter_admission(generated)
+        _,rejected=filter_admission(production_audio_record_views(generated))
         if rejected:raise ValueError('generated supplement admission failed: '+str(rejected))
     return {'status':'pass','admitted_record_count':len(ids),'removed_non_English_records_absent':len(removed),
             'language_audit':policy['evidence'],'new_ASR_run':False}
@@ -179,7 +198,7 @@ def build_visible_scene(row,house,records,catalog,semantic_manifest=None):
     if any(name in row['house'] for name in ('y9hTuugGdiq','4ok3usBNeis','q5QZSEeHe5g','QaLdnwvtxbs','eF36g7L6Z9M','qyAac8rV8Zk','wcojb4TFT35','zt1RVoi7PcG','CrMo8WxCyVb','VBzV5z6i1WS','svBbv1Pavdk','6s7QHgap2fW')):
         raise ValueError('owner prohibited testing house')
     if row.get('motion_requests'):raise ValueError('walking/sitting/moving RIR belongs to stage two')
-    admitted,rejected=filter_admission(records)
+    admitted,rejected=filter_admission(production_audio_record_views(records))
     if rejected:raise ValueError('v9 source pool contains unadmitted records: '+str(rejected[:3]))
     by_id={a['asset_id']:a for a in catalog};assets=[deepcopy(by_id[aid]) for aid in row['asset_ids']]
     if len(assets)>16:raise ValueError('pilot entity capacity exceeded')

@@ -3,7 +3,7 @@ from copy import deepcopy
 from pathlib import Path
 import math
 import numpy as np
-from avengine.timeline.v7_visible_sources import build_visible_scene,SCHEMA,point
+from avengine.timeline.v7_visible_sources import build_visible_scene,SCHEMA,point,production_audio_record_views
 PHASE2_SCHEMA='v7-visible-registered-pilot-phase2-v1'
 
 def build_phase2_scene(row,house,records,catalog,semantic_manifest=None):
@@ -38,7 +38,7 @@ def build_phase2_scene(row,house,records,catalog,semantic_manifest=None):
     requests={}
     scene['planned_footsteps']=[]
     from avengine.timeline.v7_audio_sources import filter_admission
-    admitted,rejected=filter_admission(records)
+    admitted,rejected=filter_admission(production_audio_record_views(records))
     if rejected:raise ValueError('new sound input has rejected records')
     from avengine.timeline.v7_environmental_sources import recording_header,STRICT_CLASS13
     foot_pool=[r for r in admitted if r['sound_class']=='footsteps']
