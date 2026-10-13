@@ -191,24 +191,36 @@ class NativeVisibleVideo(NativeRegisteredVideo):
         r=SimpleNamespace(habitat_sim=self.hs,magnum=self.mn,pathfinder=self.pathfinder)
         floor=float(self.motion_house['room']['measured_floor_y_m']);poly=shape(self.motion_house['room']['floor_polygon'])
         from avengine.capture.v7_visible_semantic_support import SemanticSupports
-        semantic_support=SemanticSupports(self.motion_house)
-        r.semantic_anchors=dict(semantic_support.anchors)
-        supports=survey(self.sim,r,{'object_position':[scene['listener_m'][0],floor,scene['listener_m'][2]]})
-        parts=list(poly.geoms) if hasattr(poly,'geoms') else [poly]
-        room_extent=MultiPolygon([Polygon(p.exterior) for p in parts])
-        # The floor polygon describes free floor. Mounts are admitted by the
-        # original in-room ray origin, and tabletops by the room exterior, so
-        # furniture holes and a navmesh wall clearance do not erase supports.
-        def in_room(key,p):
-            q=p.get('originating_native_floor_m',p['point'])
-            authority=room_extent if key=='table' else poly
-            return authority.buffer(.01).covers(Point(q[0],q[2]))
-        # Floor type is bound to the measured room level, never a bed/table top.
-        for key in ('floor','table','wall','ceiling','doorbell_wall','high_wall','window_wall'):
-            supports[key]=[p for p in supports[key] if in_room(key,p) and abs(p.get('floor_y',floor)-floor)<=.08]
-        for key in ('table','wall','ceiling','doorbell_wall','high_wall','window_wall'):
-            kind='wall' if key.endswith('wall') else key
-            supports[key]=semantic_support.qualify_points(kind,supports[key])
+        from copy import deepcopy
+        free_floor_buffer=poly.buffer(.01)
+        reuse=bool(self.motion_inputs.get('reuse_native_room_support_survey',False))
+        context=(self.motion_house['room']['room_label'],tuple(scene['listener_m']),floor)
+        cached=getattr(self,'_visible_room_support_cache',None)
+        if reuse and cached is not None and cached[0]==context:
+            semantic_support=cached[1];supports=deepcopy(cached[2])
+            r.semantic_anchors=dict(semantic_support.anchors)
+        else:
+            semantic_support=SemanticSupports(self.motion_house)
+            r.semantic_anchors=dict(semantic_support.anchors)
+            supports=survey(self.sim,r,{'object_position':[scene['listener_m'][0],floor,scene['listener_m'][2]]})
+            parts=list(poly.geoms) if hasattr(poly,'geoms') else [poly]
+            room_extent=MultiPolygon([Polygon(p.exterior) for p in parts])
+            room_extent_buffer=room_extent.buffer(.01)
+            # The floor polygon describes free floor. Mounts are admitted by the
+            # original in-room ray origin, and tabletops by the room exterior, so
+            # furniture holes and a navmesh wall clearance do not erase supports.
+            def in_room(key,p):
+                q=p.get('originating_native_floor_m',p['point'])
+                authority=room_extent if key=='table' else poly
+                return (room_extent_buffer if key=='table' else free_floor_buffer).covers(Point(q[0],q[2]))
+            # Floor type is bound to the measured room level, never a bed/table top.
+            for key in ('floor','table','wall','ceiling','doorbell_wall','high_wall','window_wall'):
+                supports[key]=[p for p in supports[key] if in_room(key,p) and abs(p.get('floor_y',floor)-floor)<=.08]
+            for key in ('table','wall','ceiling','doorbell_wall','high_wall','window_wall'):
+                kind='wall' if key.endswith('wall') else key
+                supports[key]=semantic_support.qualify_points(kind,supports[key])
+            if reuse:
+                self._visible_room_support_cache=(context,semantic_support,deepcopy(supports))
         write_json(directory/'native_support_survey.json',supports)
         bounds=[];checks=[];attempts=[];placed=[]
         # Pending original drawables are parked during layout search only.
@@ -288,7 +300,7 @@ class NativeVisibleVideo(NativeRegisteredVideo):
                     nearest=min(nearby,key=lambda d:anchor_distance(point,d))
                     placement['support']['native_door_anchor']=nearest
                     placement['support']['distance_to_native_door_aabb_m']=anchor_distance(point,nearest)
-                if key=='floor' and any(abs(p[1]-floor)>.08 or not poly.buffer(.01).covers(Point(p[0],p[2])) for p in placement['support_raycast_points_m']):
+                if key=='floor' and any(abs(p[1]-floor)>.08 or not free_floor_buffer.covers(Point(p[0],p[2])) for p in placement['support_raycast_points_m']):
                     reject('ground_probes_outside_measured_free_floor');continue
                 kind='wall' if key.endswith('wall') else key
                 typed=semantic_support.qualify_points(kind,[{'point':p} for p in placement['support_raycast_points_m']])
