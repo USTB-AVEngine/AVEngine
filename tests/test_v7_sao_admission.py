@@ -96,3 +96,20 @@ def test_human_score_at_calibrated_boundary_is_retained():
 def test_nonfinite_active_group_cannot_satisfy_one_second_gate():
  r=sample();r["automatic_activity_readback"]["longest_group_s"]=float("nan")
  assert "generated_source_effective_activity_below_one_second_or_missing" in generated_source_blockers(r,grant())
+
+@pytest.mark.parametrize("score,accepted",[(.38,True),(.3800001,False)])
+def test_owner_fixed_threshold_retains_boundary_and_allows_recorded_bird_exceptions(score,accepted):
+ r=sample();h=r["human_speech_screen"]
+ h.update(maximum_score=score,threshold=.38,heads=[{"mid":str(i),"name":"test"} for i in range(20)])
+ h["calibration"].update(threshold_policy="owner_fixed_0.38_20261013",
+  positive_count=183,positive_pass=178,positive_pass_rate=178/183,negative_count=739,negative_block_rate=1.)
+ assert (not generated_source_blockers(r,grant())) == accepted
+
+@pytest.mark.parametrize("field,value",[("threshold_policy","unapproved"),("positive_pass",177),("negative_block_rate",.99)])
+def test_fixed_policy_does_not_authorize_a_different_calibration(field,value):
+ r=sample();h=r["human_speech_screen"]
+ h.update(threshold=.38,heads=[{"mid":str(i),"name":"test"} for i in range(20)])
+ h["calibration"].update(threshold_policy="owner_fixed_0.38_20261013",
+  positive_count=183,positive_pass=178,positive_pass_rate=178/183,negative_count=739,negative_block_rate=1.)
+ h["calibration"][field]=value
+ assert generated_source_blockers(r,grant())

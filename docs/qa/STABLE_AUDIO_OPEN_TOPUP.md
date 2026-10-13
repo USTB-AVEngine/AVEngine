@@ -19,7 +19,7 @@ Every generated record requires allowed_splits=["train"] and split=train.
 Both samplers filter by scene split; bus assembly also refuses generated inputs
 outside an explicitly training scene. These requirements continue to apply.
 
-## Human speech policy, owner revision 2026-10-13
+## Historical v11 human speech calibration, 2026-10-13
 
 Whisper transcription is recording-only. The metadata field is
 whisper_transcription_recording_only, with role=recording_only and
@@ -41,6 +41,33 @@ A poor operating point must not be silently substituted for the requested one.
 The emitted human_speech_screen binds the measured audio and calibration receipt.
 Old generated records lacking the revised receipt need readmission under this
 policy; their historical input files are not edited.
+
+## Current v12 human speech policy, owner decision 2026-10-13
+
+The owner replaced the all-real-positive retention constraint with a fixed
+threshold of 0.38. Keep the same 20 BEATs heads and five-second mean pooling.
+Reject generated audio only when its maximum human-voice posterior is greater
+than 0.38; the boundary is retained. The reused calibration scores retain
+178/183 target recordings and reject 739/739 VCTK readings. Four parrots and one
+canary exceed this threshold; list their IDs, scores and Speech head in the new
+receipt. Their bird-mimicry explanation is an owner judgment, not a listening
+claim by this machine run. All original v9 records remain unchanged.
+
+The explicit owner_fixed_0.38_20261013 receipt permits that measured real-positive
+exception while preserving the fixed threshold, 20 heads and complete VCTK
+rejection. A missing or different policy cannot weaken the original calibration
+contract. v11 remains immutable. The first two rounds reuse their completed
+fingerprint checks; the third round generates at most three times each remaining
+source gap after actual admission. Include every qualified generated record in
+v12, including classes exceeding 30. Do not cap admitted records at the gap.
+
+tools/qa/finalize_sao_topup.py plans round three, checks new candidates against
+all v9 and prior generated waveforms with the repaired method, publishes both
+v12 variants and creates listen_v12/index.html with standalone MP3 and PNG files.
+Generated listening examples must already be admitted; if fewer than two are
+available, label any admitted v9 real examples explicitly. MP3 links are relative
+filenames, with no embedded audio data URI. Check actual MP3 encoding and all
+referenced files; do not claim human listening or browser playback unless run.
 
 ## Fingerprint repair
 

@@ -24,10 +24,10 @@ def candidate_plan(config, round_number, selected):
     for c, spec in config["classes"].items():
         if selected and c not in selected:
             continue
-        count = spec["needed"] * (3 if round_number == 1 else 1)
+        count = spec["round3_gap"] * 3 if round_number == 3 else spec["needed"] * (3 if round_number == 1 else 1)
         active = min(12, max(1, count // 2))
         for i in range(count):
-            bank = spec["retry_prompts"] if round_number == 2 else spec["prompts"]
+            bank = spec["round3_prompts"] if round_number == 3 else spec["retry_prompts"] if round_number == 2 else spec["prompts"]
             assert len(bank) >= 12
             p = copy.deepcopy(bank[i % active])
             tasks.append(dict(sound_asset_id=f"sao_r{round_number}_{c}_{i:04d}",
@@ -43,7 +43,7 @@ def main():
     p.add_argument("--config", type=pathlib.Path, required=True)
     p.add_argument("--model-dir", type=pathlib.Path, required=True)
     p.add_argument("--output", type=pathlib.Path, required=True)
-    p.add_argument("--round", type=int, choices=[1,2], default=1)
+    p.add_argument("--round", type=int, choices=[1,2,3], default=1)
     p.add_argument("--classes", nargs="*", default=[])
     p.add_argument("--batch-size", type=int, default=2)
     p.add_argument("--deadline-utc", type=float, required=True)
@@ -83,7 +83,7 @@ def main():
     progress(root, f"Stable Audio Open 模型与离线 T5 加载成功；第 {args.round} 轮生成开始。")
     tasks=candidate_plan(config,args.round,set(args.classes))
     dump(root/f"candidate_plan_r{args.round}.json",tasks)
-    dump(root/("prompt_library.json" if args.round == 1 else "prompt_library_r2.json"),config)
+    dump(root/("prompt_library.json" if args.round == 1 else f"prompt_library_r{args.round}.json"),config)
     target=root/f"candidates_r{args.round}.jsonl"
     complete={}
     if target.exists():
@@ -100,7 +100,7 @@ def main():
             seed=202610120 + args.round*100000 + index*97
             duration=max(r["duration_s"] for r in batch)
             align=model.pretransform.downsampling_ratio
-            sample_size=mc["sample_size"] if args.round == 2 else math.ceil((duration+1)*44100/align)*align
+            sample_size=mc["sample_size"] if args.round >= 2 else math.ceil((duration+1)*44100/align)*align
             cond=[{"prompt":r["prompt"],"seconds_start":0,"seconds_total":r["duration_s"]} for r in batch]
             before=time.time()
             try:

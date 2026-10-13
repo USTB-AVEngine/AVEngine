@@ -150,6 +150,8 @@ def main():
     for name in ('output', 'v9', 'config', 'mapping', 'ontology'):
         p.add_argument('--' + name, type=pathlib.Path, required=True)
     p.add_argument('--stage', default='v11_r12')
+    p.add_argument('--calibration',type=pathlib.Path)
+    p.add_argument('--rounds',type=int,nargs='+')
     a = p.parse_args()
     worktree = pathlib.Path(__file__).resolve().parents[2]
     source_paths = ['tools/qa/readmit_sao_topup.py', 'tools/qa/admit_sao_topup.py',

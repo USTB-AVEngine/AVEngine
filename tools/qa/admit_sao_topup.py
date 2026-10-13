@@ -44,18 +44,18 @@ def maximum_group_activity(intervals,rate,max_gap_s=1.0):
   total+=(hi-lo)/rate;best=max(best,total);end=hi
  return best
 
-def load_scored(o):
+def load_scored(o, calibration_path=None):
  rows=[]
  for path in sorted(o.glob("model_scores_r*.jsonl")):rows+=lines(path)
  assert len({r["candidate"]["sound_asset_id"] for r in rows})==len(rows)
  standard={}
  for path in sorted(o.glob("whisper_standard_r*.jsonl")):
   standard.update({r["sound_asset_id"]:r for r in lines(path)})
- calibration_path=o/"HUMAN_SPEECH_CALIBRATION_v11.json"
+ calibration_path=pathlib.Path(calibration_path) if calibration_path else o/"HUMAN_SPEECH_CALIBRATION_v11.json"
  calibration=json.loads(calibration_path.read_text()) if calibration_path.exists() else None
  for r in rows:
   candidate=r["candidate"]
-  proof=standard.get(candidate["sound_asset_id"],candidate.get("automatic_no_speech",{}))
+  proof=standard.get(candidate["sound_asset_id"],candidate.get("whisper_transcription_recording_only") or candidate.get("automatic_no_speech",{}))
   assert proof.get("audio_sha256")==candidate["sha256"]
   recorded=copy.deepcopy(proof)
   recorded["historical_status"]=recorded.get("status")
@@ -73,7 +73,7 @@ def load_scored(o):
     model_id="BEATs_AS2M_cpt2",audio_sha256=candidate["sha256"],maximum_score=value,maximum_head=maximum_head,
     threshold=calibration["threshold"],heads=calibration["heads"],calibration_path=str(calibration_path),
     calibration_sha256=sha(calibration_path),human_listening_used=False,
-    calibration={k:calibration[k] for k in ["status","positive_count","positive_pass_rate","negative_count","negative_block_rate","checkpoint_sha256","v9_sha256"]})
+    calibration={k:calibration[k] for k in ["status","positive_count","positive_pass_rate","negative_count","negative_block_rate","checkpoint_sha256","v9_sha256"] + [k for k in ("positive_pass","threshold_policy","threshold_authority") if k in calibration]})
    r["human_speech_pass"]=passed
   else:r["human_speech_pass"]=False
  return rows
@@ -129,10 +129,10 @@ def score(a):
      task="transcribe",language=None,do_sample=False,max_new_tokens=128)
    text=processor.batch_decode(ids,skip_special_tokens=True)[0].strip()
    lexical=any(ch.isalpha() or ch.isdigit() for ch in text)
-   asr=dict(status="blocked" if lexical else "pass",model_id="openai/whisper-small",model_path=str(a.whisper),
+   asr=dict(status="recorded",role="recording_only",participates_in_admission=False,model_id="openai/whisper-small",model_path=str(a.whisper),
     audio_sha256=r["sha256"],blind_decoded_text=text,token_ids=ids[0].tolist(),
     language_forced=False,reference_text_prompted=False,human_listening_used=False,
-    device="cuda",precision="float32",rule="reject any Unicode letter or digit in blind automatic multilingual transcription",
+    device="cuda",precision="float32",rule="free multilingual transcription retained only; never participates in admission",
     machine_only_no_audibility_claim=True)
    activity=measure_activity(x,16000,sound_class="unknown")
    group=maximum_group_activity(activity["source_activity_intervals_samples"],16000)
@@ -145,15 +145,15 @@ def score(a):
      tags=[r["sound_class"]],license=r["source_license"],uploader="Stable Audio Open 1.0"),
     official_collection_labels=[],official_zip_crc_verified=False,
     source_original_waveform=r["stereo_path"],source_origin=r["stereo_path"],
-    provenance_status="generated_candidate_pending_machine_screens",automatic_no_speech=asr,
+    provenance_status="generated_candidate_pending_machine_screens",whisper_transcription_recording_only=asr,
     automatic_activity_readback=act,license=r["source_license"])
    row=dict(candidate=candidate,beats=b,target_confidence=confidence,margin=confidence-rival,rival_mid=rival_mid,
-    beats_pass=confidence>=.1917129977 and confidence-rival>=.05,whisper_pass=not lexical,
+    beats_pass=confidence>=.1917129977 and confidence-rival>=.05,
     activity_pass=act["status"]=="pass")
    stream.write(json.dumps(row,ensure_ascii=False,allow_nan=False)+"\n");stream.flush();completed.append(row)
    if len(completed)%12==0:
     print("SCORED",len(completed),"BEATS",sum(t["beats_pass"] for t in completed),
-     "WHISPER",sum(t["whisper_pass"] for t in completed),"ACTIVITY",sum(t["activity_pass"] for t in completed),flush=True)
+     "WHISPER_RECORDING_ONLY",len(completed),"ACTIVITY",sum(t["activity_pass"] for t in completed),flush=True)
  receipt=dict(count=len(completed),expected=len(records),complete=len(completed)==len(records),
   seconds=time.time()-start,checkpoint=str(a.beats_weight),checkpoint_sha256=sha(a.beats_weight),
   source_files={n:sha(source/n) for n in ["BEATs.py","backbone.py","modules.py"]},
@@ -180,7 +180,8 @@ def dedup(a):
 def build(a):
  o=a.output;start=time.time()
  config=json.loads(a.config.read_text());v9=json.loads(a.v9.read_text());mapping=json.loads(a.mapping.read_text())
- targets=target_mapping(config,v9,mapping);scored=load_scored(o)
+ targets=target_mapping(config,v9,mapping);scored=load_scored(o,getattr(a,"calibration",None))
+ if getattr(a,"rounds",None):scored=[r for r in scored if r["candidate"]["round"] in a.rounds]
  dedup=json.loads((o/f"deduplication_{a.stage}.json").read_text())
  assert dedup["complete_for_listed_roots"] and not dedup["errors"]
  classes=list(config["classes"]);groups={c:mapping["specific_metadata_groups"][c] for c in classes if mapping["specific_metadata_groups"].get(c)}
@@ -300,6 +301,6 @@ def main():
  p.add_argument("--config",type=pathlib.Path,required=True);p.add_argument("--v9",type=pathlib.Path,required=True)
  p.add_argument("--cci-v9",type=pathlib.Path);p.add_argument("--mapping",type=pathlib.Path,required=True);p.add_argument("--ontology",type=pathlib.Path,required=True)
  p.add_argument("--beats-source",type=pathlib.Path);p.add_argument("--beats-weight",type=pathlib.Path);p.add_argument("--whisper",type=pathlib.Path)
- p.add_argument("--round",type=int,default=1);p.add_argument("--stage",default="r1");p.add_argument("--deadline",type=float,default=float("inf"))
+ p.add_argument("--calibration",type=pathlib.Path);p.add_argument("--rounds",type=int,nargs="+");p.add_argument("--round",type=int,default=1);p.add_argument("--stage",default="r1");p.add_argument("--deadline",type=float,default=float("inf"))
  a=p.parse_args();{"score":score,"dedup":dedup,"build":build,"publish":publish}[a.action](a)
 if __name__=="__main__":main()

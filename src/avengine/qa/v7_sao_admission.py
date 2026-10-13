@@ -5,6 +5,7 @@ MODEL_ID = "stabilityai/stable-audio-open-1.0"
 PROVENANCE = "generated_stable_audio_open_1.0"
 LICENSE = "Stability AI Community License"
 OWNER_ACCEPTANCE = "owner 2026-10-12 接受 IV(b) 风险"
+HUMAN_THRESHOLD_POLICY = "owner_fixed_0.38_20261013"
 
 def generated_source_blockers(record, authorization):
     """Validate the explicit exception; ordinary recorded-source policy is unchanged."""
@@ -33,6 +34,15 @@ def generated_source_blockers(record, authorization):
     human=record.get("human_speech_screen") or {}
     calibration=human.get("calibration") or {}
     score=human.get("maximum_score"); threshold=human.get("threshold")
+    fixed_policy = (calibration.get("threshold_policy") == HUMAN_THRESHOLD_POLICY
+                    and threshold == .38
+                    and calibration.get("positive_count") == 183
+                    and calibration.get("positive_pass") == 178
+                    and calibration.get("positive_pass_rate") == 178 / 183
+                    and calibration.get("negative_count") == 739
+                    and calibration.get("negative_block_rate") == 1.
+                    and len(human.get("heads") or []) == 20)
+    positive_retention_valid = calibration.get("positive_pass_rate") == 1. or fixed_policy
     if calibration.get("status") not in (None,"pass"):
         reasons.append("generated_source_human_speech_calibration_failed")
     elif (human.get("status") != "pass" or human.get("model_id") != "BEATs_AS2M_cpt2"
@@ -42,7 +52,7 @@ def generated_source_blockers(record, authorization):
             or not 0 <= score <= threshold < 1
             or not human.get("heads") or not human.get("calibration_sha256")
             or calibration.get("status") != "pass"
-            or calibration.get("positive_pass_rate") != 1.0
+            or not positive_retention_valid
             or calibration.get("negative_count",0) < 100
             or calibration.get("negative_block_rate",0) < .95):
         reasons.append("generated_source_human_speech_or_missing_calibrated_receipt")

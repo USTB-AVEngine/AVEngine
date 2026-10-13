@@ -5,7 +5,7 @@
 
 自 2026-08-25 起，目录本身就是能力分组（阶段目录 m1…m7 已移除），
 本表按目录列出每个工具做什么。
-当前共 520 个工具脚本。
+当前共 521 个工具脚本。
 
 ## 资产生成与装配（`tools/assets/`）
 
@@ -398,6 +398,7 @@
 | `tools/qa/finalize_native_pixel_artifacts.py` | Finalize and verify a native SPEAR pixel-capture artifact inventory |
 | `tools/qa/finalize_qa_v3_gateb_precheck.py` | Finalize representative Gate-B audio and native-pixel precert evidence |
 | `tools/qa/finalize_qa_v3_room_pilot.py` | Validate and finalize representative runtime evidence for a room pilot |
+| `tools/qa/finalize_sao_topup.py` | Finish owner-authorized SAO readmission, bounded top-up and file-based listening report |
 | `tools/qa/finalize_strict_two_human_canary.py` | Finalize and fail-closed validate the strict two-human sparse canary |
 | `tools/qa/finalize_strict_two_human_dynamic_full75_canary.py` | Fail-closed finalizer for strict two-human dynamic full75 canaries |
 | `tools/qa/finalize_strict_two_human_full75_canary.py` | Fail-closed finalizer for one strict two-human 75-frame native canary |
