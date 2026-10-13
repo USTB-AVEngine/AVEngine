@@ -23,6 +23,17 @@ def completed_checks(native,audio,mode):
     return {'status':'fail' if failures else 'pass','failures':failures,'geometry':checks}
 
 
+def validate_reused_route(native,route,*,speed,seconds):
+    from avengine.assets.roster_motion.contact import yaw_matrix
+    frames=native['frames'];times=np.asarray([f['time_s'] for f in frames],float)
+    if len(times)<2 or abs(times[0])>1e-10 or abs(times[-1]-seconds)>1e-10:
+        raise ValueError('reused_native_duration_differs')
+    expected=np.asarray(route['root_m'],float)+np.outer(times,[0.,0.,-speed])@yaw_matrix(route['yaw_rad']).T
+    observed=np.asarray([f['root_world_m'] for f in frames],float)
+    if not np.isfinite(observed).all() or np.max(np.linalg.norm(observed-expected,axis=1))>1e-5:
+        raise ValueError('reused_native_route_or_speed_differs')
+
+
 def execute_request(record,house,inputs,route,output,*,speed=.05,seconds=4.8,ray_multiplier=9,reuse=None):
     """Compile and qualify one requested animal in its actual single-source room.
 
@@ -40,6 +51,13 @@ def execute_request(record,house,inputs,route,output,*,speed=.05,seconds=4.8,ray
             npath=Path(reuse[mode]['native']);native=json.loads(npath.read_text())
             if native['asset_id']!=record['asset_id'] or native['house']!=house['house'] or native['motion_mode']!=mode:
                 raise ValueError('reused_native_asset_house_or_mode_differs')
+            validate_reused_route(native,route,speed=actual_speed,seconds=seconds)
+            if mode=='walk_animation':
+                files=record['files'];key=next(k for k in ('motion_master_glb','motion_runtime_glb','walking_candidate_master') if k in files)
+                if Path(native['source_master']).resolve()!=Path(files[key]['path']).resolve():
+                    raise ValueError('reused_native_motion_source_differs')
+                if native.get('source_provenance',{}).get('explicit_motion_profile')!=record.get('motion_profile'):
+                    raise ValueError('reused_native_target_motion_profile_differs')
         else:
             npath=directory/'native_motion.json';native=run_habitat(record,house,inputs,route,directory,speed=actual_speed,seconds=seconds,mode=mode)
         if native.get('checks',{}).get('status')!='pass':
@@ -60,6 +78,9 @@ def execute_request(record,house,inputs,route,output,*,speed=.05,seconds=4.8,ray
     receipt={'asset_id':record['asset_id'],'species':record['species'],'house':house['house'],**choice.metadata(),'receipts':attempt_files,'status':'pass' if choice.motion_mode!='cannot_move' else 'blocked'}
     if choice.payload:
         native=choice.payload['native'];scene={'sources':{'animal':{'asset_id':record['asset_id'],'trajectory':[{'time_s':f['time_s'],'position_m':f['mouth_world_m']} for f in native['frames']]}},'listener_m':native['listener_m'],'duration_s':native['frames'][-1]['time_s']}
+        scene['camera_forward']=native['camera_forward']
+        scene['sources']['animal']['animal_motion_audio']=choice.payload['receipt_paths']
+        scene['sources']['animal']['native_frame_source']=choice.payload['receipt_paths']['native']
         attach_to_scene(scene,'animal',choice);(root/'motion_scene.json').write_text(json.dumps(scene,indent=2))
     (root/'admission.json').write_text(json.dumps(receipt,ensure_ascii=False,indent=2))
     return receipt

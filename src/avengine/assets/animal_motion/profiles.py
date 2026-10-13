@@ -10,6 +10,29 @@ from avengine.assets.roster_motion.contact import subtree, find_bone
 PAWS = ('FL', 'FR', 'HL', 'HR')
 ANCHORS = ('paw_front_left', 'paw_front_right', 'paw_hind_left', 'paw_hind_right')
 
+def explicit_chains(document, mapping):
+    """Resolve caller-audited target chains, including intermediate paw bones."""
+    if set(mapping) != set(PAWS):
+        raise ValueError('explicit_motion_profile_requires_four_paws')
+    names={n.get('name'):i for i,n in enumerate(document['nodes'])}
+    result={}
+    for side, chain in mapping.items():
+        if len(chain) not in (3,4):
+            raise ValueError('explicit_chain_requires_hip_knee_ankle_optional_toe')
+        ids=[names[name] for name in chain]
+        if len(set(ids[:3])) != 3:
+            raise ValueError('explicit_limb_joints_must_be_distinct')
+        for parent,child in zip(ids,ids[1:]):
+            if parent==child or child not in subtree(document,parent):
+                raise ValueError('explicit_chain_must_follow_target_ancestry')
+        result[side]=ids if len(ids)==4 else ids+[ids[-1]]
+    for side, chain in result.items():
+        descendants=set(subtree(document,chain[0]))
+        if any(other!=side and other_chain[-1] in descendants for other,other_chain in result.items()):
+            raise ValueError('limb_hip_includes_another_paw_or_spine')
+    return result
+
+
 @dataclass
 class Rig:
     asset_id: str
@@ -61,6 +84,8 @@ class Rig:
                         raise ValueError('semantic_paw_ancestry_too_short:' + side)
                     chain.append(parents[chain[-1]])
                 chains[side] = list(reversed(chain))
+            if record.get('motion_profile',{}).get('chains'):
+                chains=explicit_chains(d,record['motion_profile']['chains'])
             # Tail is the rear-most central joint in this target, excluding
             # all mapped limb and head subtrees. Save the chosen node identity.
             excluded = set(subtree(d, head))
@@ -81,6 +106,9 @@ class Rig:
                 ('FL','L',('UpperArm','Forearm','Hand','Finger0')),('FR','R',('UpperArm','Forearm','Hand','Finger0')),
                 ('HL','L',('Thigh','Calf','Foot','Toe0')),('HR','R',('Thigh','Calf','Foot','Toe0')))}
             provenance={'tail_definition':'original named Tail root','source_basis':basis.tolist()}
+        if record.get('motion_profile',{}).get('chains'):
+            chains=explicit_chains(d,record['motion_profile']['chains'])
+            provenance['explicit_motion_profile']=record['motion_profile']
         masks=[];head_masks=[]
         for node in d['nodes']:
             if 'mesh' not in node:continue

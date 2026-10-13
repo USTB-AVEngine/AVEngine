@@ -14,6 +14,9 @@ def position_at(trajectory,time_s):
 
 
 def moving_stem(spec,scene,inputs,cache,dry,attempt,endpoint):
+    if spec.get('animal_motion_audio'):
+        from avengine.assets.animal_motion.render import render_qualified_stem
+        return render_qualified_stem(spec,scene,inputs,cache,dry,attempt,endpoint)
     path=Path(inputs['moving_energy_budget']);budget=json.loads(path.read_text())
     if 'baseline_p95_upper' not in budget['metrics']['direct_energy_difference_db']:raise ValueError('frozen renderer-noise energy calibration missing')
     n=len(dry);trajectory=spec['trajectory'];sample_rate=16000

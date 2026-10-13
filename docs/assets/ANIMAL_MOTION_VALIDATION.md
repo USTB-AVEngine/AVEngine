@@ -16,3 +16,12 @@ Four-paw gap remains 12 mm; full-skin floor penetration retains the existing 1 m
 The geometry adapters stage.py and UE adapters ue_floor.py, ue_runtime.py, ue_exposure.py and ue_gpu_policy.py incorporate the task's previously inspected integration/Kujiale implementations as owned modules. They execute installed runtime prefixes and caller-declared inputs; they do not import or execute another agent's worktree. Static rigging records donor motion provenance and preserves target geometry.
 
 Inputs are supplied by private inventory, candidate/semantic anchor, house, runtime and route JSON files. Generic rigs require Idle and Walking, a head/mouth attachment, and four hip-knee-ankle-toe chains in uniform target normalization. The full reproducible 48g handoff, measurements and per-animal receipts are external task artifacts named VALIDATE_RIGGED_ANIMAL.md, PROGRESS.md and JOBS.json. They must be read for current native status; this source document makes no whole-roster or whole-room admission claim.
+
+
+## Audited target chains and engine consumption
+
+For target skeletons with extra finger, wrist or hock joints, a private inventory record may specify motion_profile.chains. Each of FL/FR/HL/HR lists the target's own hip, knee, ankle and optional toe node names. Intermediate descendants may be skipped, but reversed ancestry and a hip containing another paw or the spine are rejected. Three-node limbs use their terminal foot directly. No registered source file is rewritten.
+
+execute_request verifies the requested route, speed, duration and target source when reusing native evidence. Its motion_scene output carries animal_motion_audio and native_frame_source alongside motion_metadata. The engine's existing v7_registered_motion_audio.moving_stem entry consumes this explicit qualified animal binding: it matches the existing acoustic-package/runtime identity, checks the actual mouth trajectory and listener, reevaluates all three raw native midpoint references and the +6 dB negative control, and runs the frequency-coherent full-tail convolution. Requests without this binding retain their existing renderer path.
+
+UE capture writes the measured frame receipt and MP4 before cleanup. It measures unobstructed pixels against an isolated native animal depth capture, and checks route navigation. The separate UE direction-control tool physically rotates the same native skeletal actor by 180 and 90 degrees; these controls are excluded from admission. Engine cleanup status remains separate from persisted measurements.

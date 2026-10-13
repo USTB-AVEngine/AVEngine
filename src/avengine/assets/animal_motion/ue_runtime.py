@@ -171,11 +171,12 @@ def capture_view(instance,camera,components,view,warmup_frames=40,exposure_trace
     return rgb,depth
 
 
-def close_native(instance,camera,components):
+def close_native(instance,camera,components,*,game=None):
     from avengine.backends.spear_ue.research_runtime import close_scene_capture
     if camera is not None and components:
+        game=game if game is not None else instance.get_game()
         for name in ('object_ids','depth','rgb'):
-            try:close_scene_capture(instance=instance,game=instance.get_game(),camera=None,capture=components[name])
+            try:close_scene_capture(instance=instance,game=game,camera=None,capture=components[name])
             except Exception:pass
         try:
             with instance.begin_frame():camera.K2_DestroyActor()

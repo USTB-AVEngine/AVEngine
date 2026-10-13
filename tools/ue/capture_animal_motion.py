@@ -1,5 +1,5 @@
 """Moving native UE skeletal replay, actual bones, mouth and rendered paw soles."""
-import argparse,json,math,time,traceback
+import argparse,json,math,time,traceback,subprocess
 from pathlib import Path
 import numpy as np
 from avengine.assets.animal_motion.ue_runtime import apply_native_rgb_profile,launch_native,camera_helpers,apply_camera,to_ue,from_ue,close_native
@@ -27,7 +27,7 @@ def matrix(v):
  v=unbox(v);m=np.eye(4);q=unbox(v['rotation']);m[:3,:3]=quat_matrix([q[k] for k in ('x','y','z','w')])@np.diag(xyz(v['scale3d']));m[:3,3]=xyz(v['translation']);return m
 
 def main():
- p=argparse.ArgumentParser();p.add_argument('--root',type=Path,required=True);p.add_argument('--house',type=Path,required=True);p.add_argument('--motion',type=Path,required=True);p.add_argument('--imported',type=Path,required=True);p.add_argument('--output',type=Path,required=True);p.add_argument('--limit',type=int);a=p.parse_args();a.output.mkdir(parents=True,exist_ok=False)
+ p=argparse.ArgumentParser();p.add_argument('--root',type=Path,required=True);p.add_argument('--house',type=Path,required=True);p.add_argument('--motion',type=Path,required=True);p.add_argument('--imported',type=Path,required=True);p.add_argument('--output',type=Path,required=True);p.add_argument('--limit',type=int);p.add_argument('--camera-offset',type=float,nargs=3,default=[1.25,.65,-.45]);a=p.parse_args();a.output.mkdir(parents=True,exist_ok=False)
  h=json.loads(a.house.read_text());m=json.loads(a.motion.read_text());imp=json.loads(a.imported.read_text());ue=h['input']['ue_config'].copy();ue.update(uproject=str(a.root/'ue/SpearSim/SpearSim.uproject'),output_root=str(a.root),graphics_adapter=0,physical_gpu_index=0,network_guard_so=str(a.root/'ue/network_guard.so'),unpause_animation_sampling=True)
  if imp['status']!='native_clip_imported_pose_readback_pending_geometry':raise ValueError('native clip readback is missing')
  (a.output/'ue_config.json').write_text(json.dumps(ue,indent=2))
@@ -42,7 +42,7 @@ def main():
   runtime=json.loads((a.root/'inputs/runtime.json').read_text());hs,_=load_habitat_runtime(runtime_mode='current-installed',**runtime['runtime']);pf=hs.PathFinder()
   if not pf.load_nav_mesh(h['input']['navmesh_source']):raise ValueError('admitted UE-derived NavMesh missing')
   d,b=read_glb(m['motion_glb']);names={n['name']:i for i,n in enumerate(d['nodes'])};joint_names=m['bone_names'];C=np.array([[1,0,0],[0,0,1],[0,1,0]]);A=np.eye(4);A[:3,:3]=C*100;Ai=np.linalg.inv(A)
-  p0=np.array(m['root_m']);reference=np.asarray(m['frames'][0]['mouth_m']);end=np.asarray(m['frames'][-1]['world_root_m']);center=p0+end/2+[0,.3,0];eye=center+[1.25,.65,-.45];delta=center-eye
+  p0=np.array(m['root_m']);reference=np.asarray(m['frames'][0]['mouth_m']);end=np.asarray(m['frames'][-1]['world_root_m']);center=p0+end/2+[0,.3,0];eye=center+np.asarray(a.camera_offset);delta=center-eye
   view={'position_m':eye.tolist(),'yaw_deg':math.degrees(math.atan2(delta[2],delta[0])),'pitch_deg':math.degrees(math.atan2(delta[1],np.linalg.norm(delta[[0,2]]))),'hfov_deg':85.}
   def setup():
    nonlocal actor,component,emitter,cam,components,footcam,footcomponents
@@ -88,17 +88,28 @@ def main():
    with instance.begin_frame():pass
    with instance.end_frame():animal_depth=depth_reader(components['depth']).copy()
    frame(lambda:components['depth'].set_property_value(property_name='PrimitiveRenderMode',property_value='PRM_RenderScenePrimitives'))
-   mask=np.isfinite(animal_depth)&(animal_depth>.03)&(animal_depth<30)&(np.abs(scene_depth-animal_depth)<.001);yy,xx=np.where(mask);row['visible_pixels']=int(mask.sum());row['complete_silhouette_in_frame']=bool(len(xx)>100 and min(xx.min(),yy.min(),639-xx.max(),479-yy.max())>=3)
-   if i in selected:
-    fwd=delta/np.linalg.norm(delta);right=np.cross(fwd,[0,1,0]);right/=np.linalg.norm(right);up=np.cross(right,fwd);image=a.output/f'frame_{i:04d}.png';overlay(rgb[...,::-1],eye,(fwd,right,up),head,tail,actual_root+[0,.02,0],np.array([0,0,-.08])).save(image);result['images'].append(str(image))
+   full_mask=np.isfinite(animal_depth)&(animal_depth>.03)&(animal_depth<30);mask=full_mask&(np.abs(scene_depth-animal_depth)<.001);yy,xx=np.where(full_mask);row['visible_pixels']=int(mask.sum());row['projected_animal_pixels']=int(full_mask.sum());row['unoccluded_fraction']=float(mask.sum()/max(1,full_mask.sum()));row['complete_silhouette_in_frame']=bool(len(xx)>100 and min(xx.min(),yy.min(),639-xx.max(),479-yy.max())>=3 and row['unoccluded_fraction']>=.98)
+   fwd=delta/np.linalg.norm(delta);right=np.cross(fwd,[0,1,0]);right/=np.linalg.norm(right);up=np.cross(right,fwd)
+   image=a.output/f'frame_{i:04d}.png'
+   velocity=(actual_root-np.asarray(result['frames'][-1]['root_world_m']))/(t-result['frames'][-1]['time_s']) if result['frames'] else np.asarray(m['frames'][1]['world_root_m'])/(m['frames'][1]['time_s']-m['frames'][0]['time_s'])
+   overlay(rgb[...,::-1],eye,(fwd,right,up),head,tail,actual_root+[0,.02,0],velocity).save(image)
+   if i in selected:result['images'].append(str(image))
    result['frames'].append(row)
    if i%15==0:(a.output/'progress.json').write_text(json.dumps(result,indent=2));print('UE_FRAME',i,bone_error,mouth_error,min(f['floor_delta_m'] for f in feet.values()),flush=True)
   checks=frame_checks(result['frames'],native=True)
   if not all(f['complete_silhouette_in_frame'] for f in result['frames']):checks['status']='fail';checks['failures'].append('native_whole_animal_clipped_or_invisible')
   result.update(status='geometry_pass_audio_pending' if checks['status']=='pass' else 'geometry_fail',checks=checks,direction_negative_controls=direction_negative_controls(result['frames']),listener_m=eye.tolist(),camera_forward=(delta/np.linalg.norm(delta)).tolist(),frame_count=len(rows),full_original_skin_reconstructed_from_actual_native_bones=True,native_soles_measured_by_UE_depth=True)
   if a.limit:result['status']='native_smoke_measured_not_admitted'
+  if len(result['frames'])>2:
+   video=a.output/'native_motion.mp4'
+   command=['ffmpeg','-nostdin','-v','error','-n','-framerate','30','-i',str(a.output/'frame_%04d.png'),'-c:v','libx264','-threads','1','-pix_fmt','yuv420p','-crf','20',str(video)]
+   encoded=subprocess.run(command,capture_output=True,text=True)
+   result['video']={'path':str(video),'exit_code':encoded.returncode,'stderr':encoded.stderr,'source':'actual_native_RGB_with_landmark_velocity_overlay'}
+   (a.output/'native_motion.json').write_text(json.dumps(result,indent=2))
  except Exception as e:result.update(status='failed',error=repr(e),traceback=traceback.format_exc())
  finally:
+  # Persist the measured result before native engine shutdown, which may stall.
+  (a.output/'native_motion.json').write_text(json.dumps(result,indent=2))
   if footcam is not None:
    for name in ('object_ids','depth','rgb'):
     try:close_scene_capture(instance=instance,game=game,camera=None,capture=footcomponents[name])
@@ -108,7 +119,9 @@ def main():
   if actor is not None:
    try:frame(lambda:actor.K2_DestroyActor())
    except Exception:pass
-  close_native(instance,cam,components);(a.output/'native_motion.json').write_text(json.dumps(result,indent=2))
+  try:close_native(instance,cam,components,game=game)
+  except Exception as error:result['cleanup_error']=repr(error)
+  (a.output/'native_motion.json').write_text(json.dumps(result,indent=2))
  print(result['status'],result.get('error'),flush=True)
  if result['status'] not in ('geometry_pass_audio_pending','native_smoke_measured_not_admitted'):raise SystemExit(2)
 if __name__=='__main__':main()
