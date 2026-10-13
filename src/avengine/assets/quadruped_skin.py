@@ -10,7 +10,7 @@ def segment_distance(vertices,a,b):
     delta=b-a
     u=np.clip((vertices-a)@delta/max(float(delta@delta),1e-20),0,1)
     return np.linalg.norm(vertices-(a+u[:,None]*delta),axis=1)
-def capsule_skin_weights(vertices,names,heads,feet,height,head_min):
+def capsule_skin_weights(vertices,names,heads,feet,height,head_min,*,paw_only=False):
     v=np.asarray(vertices,float);feet=np.asarray(feet,float);heads=np.asarray(heads,float)
     if v.ndim!=2 or v.shape[1]!=3 or not np.isfinite(v).all() or height<=0:
         raise ValueError("finite target metric geometry required")
@@ -26,6 +26,10 @@ def capsule_skin_weights(vertices,names,heads,feet,height,head_min):
         radial=1-smoothstep((distance-radius*.7)/(radius*.8))
         y=points[:,1]-foot[1]
         strength=radial*(1-smoothstep((y-height*.30)/(height*.18)))
+        if paw_only:
+            # A second envelope recipe: each distal limb moves rigidly with
+            # its ankle, blending into the body over 26% of target height.
+            strength=radial*(1-smoothstep((y-height*.04)/(height*.26)))
         # Signed distance to every nearest-foot Voronoi bisector. Each limb's
         # field and derivative vanish at its ownership boundary, even where
         # fitted limb axes are asymmetric. This avoids a left/right bone jump.
@@ -36,6 +40,8 @@ def capsule_skin_weights(vertices,names,heads,feet,height,head_min):
         ankle=1-smoothstep((y-height*.12)/(height*.18))
         hip=smoothstep((y-height*.32)/(height*.16))
         knee=np.maximum(0,1-ankle-hip)
+        if paw_only:
+            ankle=np.ones_like(y);hip=np.zeros_like(y);knee=np.zeros_like(y)
         w[ids,body]=1-strength
         w[ids,ai]=strength*ankle;w[ids,ki]=strength*knee;w[ids,hi]=strength*hip
     head=names.index("Head");hc=heads[head]

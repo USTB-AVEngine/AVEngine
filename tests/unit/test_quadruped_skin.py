@@ -50,3 +50,13 @@ def test_nearest_leg_boundary_does_not_switch_discontinuous_bone_weights():
     w=capsule_skin_weights(points,names,heads,feet,1.,[0,.55,0])
     assert np.max(np.abs(np.diff(w,axis=0)))<1e-6
     assert w[1,names.index("Body")]==pytest.approx(1.)
+
+def test_paw_envelope_keeps_contacts_and_continuous_body_transition():
+    names,heads,feet=fixture()
+    y=np.linspace(0,.45,30001)
+    points=np.column_stack([np.full(len(y),feet[0,0]),y,np.full(len(y),feet[0,2])])
+    w=capsule_skin_weights(points,names,heads,feet,1.,[0,.55,0],paw_only=True)
+    assert w[0,names.index("Ankle_FL")]==pytest.approx(1.)
+    assert np.max(np.abs(np.diff(w,axis=0)))<.001
+    assert np.all(w[:,names.index("Knee_FL")]==0)
+    np.testing.assert_allclose(w.sum(1),1,atol=1e-12)

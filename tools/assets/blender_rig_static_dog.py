@@ -144,26 +144,26 @@ def main():
   w/=w.sum(1,keepdims=True)
   weights.append(w)
  w=np.concatenate(weights)
- if req["method"]=="envelope":
+ if req["method"] in ("envelope","blender_envelope"):
   repo=pathlib.Path(__file__).resolve().parents[2]
   import importlib.util
   spec=importlib.util.spec_from_file_location("quadruped_skin",repo/"src/avengine/assets/quadruped_skin.py")
   skinmod=importlib.util.module_from_spec(spec);spec.loader.exec_module(skinmod)
-  w=skinmod.capsule_skin_weights(vertices,names,heads,feet,height,req["registration"]["landmarks_local_m"]["head_bbox_min"])
+  w=skinmod.capsule_skin_weights(vertices,names,heads,feet,height,req["registration"]["landmarks_local_m"]["head_bbox_min"],paw_only=req["method"]=="blender_envelope")
  before=w.copy();sole_count={};head_count=0
  separ=np.linalg.norm(feet[:,None,[0,2]]-feet[None,:,[0,2]],axis=2);np.fill_diagonal(separ,np.inf)
  distance=np.linalg.norm(vertices[:,None,[0,2]]-feet[None,:,[0,2]],axis=2);nearest=distance.argmin(1)
  for pi,side in enumerate(SIDES):
   radius=min(height*.14,separ[pi].min()*.40)
   sole=(nearest==pi)&(vertices[:,1]<feet[pi,1]+height*.095)&(distance[:,pi]<radius)
-  if req["method"] in ("heat","blender_envelope"):w[sole]=0;w[sole,names.index("Ankle_"+side)]=1;sole_count[side]=int(sole.sum())
+  if req["method"]=="heat":w[sole]=0;w[sole,names.index("Ankle_"+side)]=1;sole_count[side]=int(sole.sum())
   if not sole.any():raise ValueError("semantic_sole_empty:"+side)
  head=np.asarray(req["registration"]["head_center_local_m"]);mouth=np.asarray(req["registration"]["emit_point_local_m"])
  hb=req["registration"]["landmarks_local_m"];headmin=np.asarray(hb["head_bbox_min"]);headmax=np.asarray(hb["head_bbox_max"])
  headmask=np.all(vertices>=headmin,axis=1)&np.all(vertices<=headmax,axis=1)&(vertices[:,1]>headmin[1]+height*.02)
  mouthmask=np.linalg.norm(vertices-mouth,axis=1)<height*.09
  headmask|=mouthmask
- if req["method"] in ("heat","blender_envelope"):w[headmask]=0;w[headmask,names.index("Head")]=1
+ if req["method"]=="heat":w[headmask]=0;w[headmask,names.index("Head")]=1
  head_count=int(headmask.sum())
  selection=np.argsort(w,axis=1)[:,-4:];values=np.take_along_axis(w,selection,axis=1);values/=values.sum(1,keepdims=True)
  actions={"Idle":np.tile(rest,(len(source_frames),1,1,1))}
@@ -193,7 +193,7 @@ def main():
    frames.append(g)
   actions[action]=np.array(frames)
  np.savez_compressed(out/"binding.npz",positions=vertices,joints=selection.astype(np.uint16),weights=values.astype(np.float32),rest_matrices=rest,times=(source_frames-source_frames[0])/30,**actions)
- report={"schema":"blender_target_landmark_rig_v1","blender_version":bpy.app.version_string,"bone_names":names,"parent_indices":parents,"fitted_head_points_habitat_m":heads.tolist(),"fitted_tail_points_habitat_m":tails.tolist(),"semantic_paws":{s:feet[i].tolist() for i,s in enumerate(SIDES)},"registration_foot_order":order.tolist(),"target_front":"-Z","target_up":"+Y","donor_basis_to_habitat":DONOR_TO_HAB.tolist(),"donor_side_mapping_from_geometry":footmap,"source_donor_bone_map":dict(zip(names,mappings)),"motion_transfer":"world left rotation delta relative original CC0 Idle, forward source samples; fitted target bone lengths and own mesh","motion_amplitude":amplitude,"weights_method":req["method"],"fallback_method":"normalized own fitted bone-segment Gaussian envelopes","heat_errors":heat_errors,"blender_weight_solve_counts":weight_solve_counts,"temporary_binding_mesh_weld":binding_weld_counts,"semantic_sole_vertices":sole_count,"head_vertices":head_count,"weight_fixups":"heat: semantic sole/head repair; envelope: continuous own limb capsule bands, own Body/Head/Tail blend, at most four influences without truncation","target_vertices":len(vertices),"deform_bones":len(names),"cpu_s":time.process_time()-start,"status":"candidate_not_admitted"}
+ report={"schema":"blender_target_landmark_rig_v1","blender_version":bpy.app.version_string,"bone_names":names,"parent_indices":parents,"fitted_head_points_habitat_m":heads.tolist(),"fitted_tail_points_habitat_m":tails.tolist(),"semantic_paws":{s:feet[i].tolist() for i,s in enumerate(SIDES)},"registration_foot_order":order.tolist(),"target_front":"-Z","target_up":"+Y","donor_basis_to_habitat":DONOR_TO_HAB.tolist(),"donor_side_mapping_from_geometry":footmap,"source_donor_bone_map":dict(zip(names,mappings)),"motion_transfer":"world left rotation delta relative original CC0 Idle, forward source samples; fitted target bone lengths and own mesh","motion_amplitude":amplitude,"weights_method":req["method"],"envelope_postprocessing":"continuous_ankle_body_paw_envelope" if req["method"]=="blender_envelope" else "continuous_multijoint_capsule" if req["method"]=="envelope" else "heat_semantic_repairs","fallback_method":"normalized own fitted bone-segment Gaussian envelopes","heat_errors":heat_errors,"blender_weight_solve_counts":weight_solve_counts,"temporary_binding_mesh_weld":binding_weld_counts,"semantic_sole_vertices":sole_count,"head_vertices":head_count,"weight_fixups":"heat: semantic sole/head repair; envelope: smooth Voronoi-boundary multijoint capsules; blender_envelope: continuous distal paw/body envelopes without abrupt sole/head overwrites; both envelope recipes retain own Body/Head/Tail and <=4 influences without truncation","target_vertices":len(vertices),"deform_bones":len(names),"cpu_s":time.process_time()-start,"status":"candidate_not_admitted"}
  (out/"blender_binding.json").write_text(json.dumps(report,ensure_ascii=False,indent=2))
  print("BLENDER_BINDING",json.dumps(report,ensure_ascii=False),flush=True)
 if __name__=="__main__":main()
