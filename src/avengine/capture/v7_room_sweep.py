@@ -59,7 +59,7 @@ def static_categories(house,room,inputs,catalog,categories,directory,save_sample
                     # Quadruped paw readbacks retain the task's stricter 12mm
                     # bound; never accept the native 15mm outer band alone.
                     paw_errors=checks[0]['placement']['contact_deltas_m'][-4:]if category in {'floor_dog','floor_cat'}else []
-                    if paw_errors and max(abs(v)for v in paw_errors)>.012:raise ValueError('animal_four_paw_contact_exceeds_12mm')
+                    if category in {'floor_dog','floor_cat'} and (len(paw_errors)!=4 or max(abs(v)for v in paw_errors)>.012):raise ValueError('animal_four_paw_contact_exceeds_12mm')
                     maximum=0;measured_views=[];best_rgb=None;best_yaw=None;readbacks=[]
                     for i in range(8):
                         yaw=i*45.;f=[math.sin(math.radians(yaw)),0.,-math.cos(math.radians(yaw))]
