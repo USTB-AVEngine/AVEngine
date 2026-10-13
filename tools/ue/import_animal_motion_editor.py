@@ -35,5 +35,7 @@ for row in request['assets']:
   result.update(status='native_clip_imported_pose_readback_pending_geometry',skeletal_mesh=mesh.get_path_name(),animation=clip.get_path_name(),bone_mapping=mapped,animation_length_s=float(clip.get_editor_property('sequence_length')))
  except Exception:result['error']=traceback.format_exc()
  dump(ROOT/'ue/imports'/request['revision']/(row['case']+'.json'),result);results.append(result);unreal.log('ANIMAL_MOTION_IMPORT '+row['asset_id']+' '+result['status'])
-unreal.SystemLibrary.execute_console_command(None,'Editor.AsyncAssetCompilationFinishAll')
-dump(ROOT/'ue/imports'/request['revision']/'complete.json',{'results':results,'status':'pass' if all(x['status']!='failed' for x in results) else 'failed'})
+# Saved target assets and native pose readback define this import stage.
+# Full-room native replay below is authoritative; unrelated editor shader jobs
+# must not hold this import receipt open after its assets have been saved.
+dump(ROOT/'ue/imports'/request['revision']/'complete.json',{'results':results,'status':'pass' if all(x['status']!='failed' for x in results) else 'failed','scope':'saved_import_and_native_pose_readback_only','next_required_step':'full_native_room_replay_and_moving_RIR'})
