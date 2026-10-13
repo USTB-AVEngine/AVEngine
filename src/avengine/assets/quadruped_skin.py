@@ -23,6 +23,10 @@ def capsule_skin_weights(vertices,names,heads,feet,height,head_min,*,paw_only=Fa
         hi,ki,ai=[names.index(n+"_"+side) for n in ("Hip","Knee","Ankle")]
         distance=np.minimum.reduce([segment_distance(points,foot,heads[ai]),segment_distance(points,heads[ai],heads[ki]),segment_distance(points,heads[ki],heads[hi])])
         radius=min(height*.13,float(separation[pi].min())*.4)
+        if paw_only:
+            # Broad paw envelopes keep the animal's whole own paw rigid;
+            # smooth Voronoi extinction still prevents influence crossing.
+            radius=height*.25
         radial=1-smoothstep((distance-radius*.7)/(radius*.8))
         y=points[:,1]-foot[1]
         strength=radial*(1-smoothstep((y-height*.30)/(height*.18)))
