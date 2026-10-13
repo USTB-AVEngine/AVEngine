@@ -4,7 +4,7 @@ import numpy as np
 from avengine.assets.roster_motion.pose import pose,accessor
 from avengine.assets.roster_motion.episode import triangle_mesh
 def main():
- p=argparse.ArgumentParser();p.add_argument("--inventory",type=pathlib.Path,required=True);p.add_argument("--asset",required=True);p.add_argument("--output",type=pathlib.Path,required=True);p.add_argument("--speed",type=float,default=.05);p.add_argument("--period",type=float,default=2.4);p.add_argument("--seconds",type=float,default=4.8);p.add_argument("--registration-request",type=pathlib.Path);p.add_argument("--reference-code-root",type=pathlib.Path);p.add_argument("--blender",type=pathlib.Path);a=p.parse_args()
+ p=argparse.ArgumentParser();p.add_argument("--inventory",type=pathlib.Path,required=True);p.add_argument("--asset",required=True);p.add_argument("--output",type=pathlib.Path,required=True);p.add_argument("--speed",type=float,default=.05);p.add_argument("--period",type=float,default=2.4);p.add_argument("--seconds",type=float,default=4.8);p.add_argument("--authored-rigging",type=pathlib.Path);p.add_argument("--registration-request",type=pathlib.Path);p.add_argument("--reference-code-root",type=pathlib.Path);p.add_argument("--blender",type=pathlib.Path);a=p.parse_args()
  reference=None
  if a.reference_code_root:
   import avengine.assets
@@ -17,7 +17,11 @@ def main():
  result={"asset_id":a.asset,"status":"pending","reference_code":reference,"native_habitat":"not_run","native_audio":"not_run","thresholds_changed":False}
  try:
   r=next(x for x in json.loads(a.inventory.read_text())["assets"] if x["asset_id"]==a.asset)
-  rig=Rig.load(r).enable_skin_cache();walk=ConstrainedWalk(rig,speed=a.speed,period=a.period)
+  rig=Rig.load(r).enable_skin_cache()
+  if a.authored_rigging:
+   from avengine.assets.animal_motion.authored import AuthoredWalk
+   walk=AuthoredWalk(rig,json.loads(a.authored_rigging.read_text()));a.speed=walk.speed;a.period=walk.period
+  else:walk=ConstrainedWalk(rig,speed=a.speed,period=a.period)
   v0,faces=triangle_mesh(rig.document,rig.binary,walk.reference_parts)
   face0=v0[faces];e0=np.max(np.linalg.norm(face0-np.roll(face0,1,axis=1),axis=2),axis=1)
   from pathlib import Path

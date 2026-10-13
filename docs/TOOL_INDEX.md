@@ -5,7 +5,7 @@
 
 自 2026-08-25 起，目录本身就是能力分组（阶段目录 m1…m7 已移除），
 本表按目录列出每个工具做什么。
-当前共 546 个工具脚本。
+当前共 547 个工具脚本。
 
 ## 资产生成与装配（`tools/assets/`）
 
@@ -89,6 +89,7 @@
 | `tools/assets/model_roots.py` | Where shared model weights live, resolved instead of hard-coded |
 | `tools/assets/native_animal_direction_controls.py` | Actually rotate Habitat drawables backwards and sideways on the same route |
 | `tools/assets/normalize_materials.py` | Normalize GLB PBR materials without modifying geometry or animation data |
+| `tools/assets/normalize_owned_cat_rig_scale.py` | Restore the registered source scale of an existing owned Blender rig |
 | `tools/assets/pixal3d_transform_profile.py` | Load the class-level Pixal3D / SkinTokens transform profile |
 | `tools/assets/plan_instance_variants.py` | Derive the instance-level variant plan for accepted source assets |
 | `tools/assets/prepare_animal_audio_endpoints.py` | Fresh exact-pose RIR endpoints, at most six single-core native children |

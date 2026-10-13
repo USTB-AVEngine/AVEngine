@@ -43,3 +43,16 @@ all skin sets. Default Rig.skin behavior remains unchanged. Comparison against
 the original pose evaluator includes integer-normalized, repeated, four/eight
 influences, bind transforms and static parts. Actual cat vertices and normals
 are independently compared before this opt-in is used for native validation.
+
+For existing cat bindings, normalize_owned_cat_rig_scale verifies every
+rest triangle against the registered source under the already recorded rigid
+support-plane placement, checks decoded texture pixels and semantic PBR
+defaults, and applies only a uniform source-coordinate correction to a new
+derivative. It then fixes upper Body/Head/Tail at fitted Idle while retaining
+the previously Blender-baked limb world transforms, following the dog method.
+AuthoredWalk replays that actual baked Walking clip directly; it does not
+apply a second IK solve. Actual physical speed, stride and lift include the
+registered source scale and are recorded explicitly. Both CPU and native
+runners retain every existing frame, contact, stretch, visibility, floor,
+clearance, emitter, 180/90 and acoustic gate. A full native pass is still
+required; no source mesh, texture or registration is repaired.

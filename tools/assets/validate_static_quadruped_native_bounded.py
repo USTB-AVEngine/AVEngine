@@ -16,7 +16,7 @@ from avengine.assets.roster_motion.pose import rigid_glb
 from avengine.assets.roster_motion.contact import yaw_matrix
 from avengine.capture.continuous_native_video import NativeContinuousVideo
 
-def run(record,house,inputs,route,output,*,speed=.05,period=2.4,seconds=4.8,slots=8,mode="walk_animation",animation_attempts=None,rigid_vertical_shift_m=0.0):
+def run(record,house,inputs,route,output,*,speed=.05,period=2.4,seconds=4.8,slots=8,mode="walk_animation",animation_attempts=None,rigid_vertical_shift_m=0.0,authored_rigging=None):
     if not math.isfinite(rigid_vertical_shift_m):raise ValueError("finite_rigid_vertical_shift_required")
     if mode!="slide_no_animation" and rigid_vertical_shift_m:raise ValueError("vertical_placement_adjustment_is_only_for_original_standing_slide")
     output=pathlib.Path(output);output.mkdir(parents=True,exist_ok=False);(output/"frames").mkdir()
@@ -39,7 +39,11 @@ def run(record,house,inputs,route,output,*,speed=.05,period=2.4,seconds=4.8,slot
             def __call__(self,p):return float(self.many([p])[0])
         floor=RouteFloor()
         if mode=="walk_animation":
-            rig=Rig.load(record).enable_skin_cache();walk=ConstrainedWalk(rig,speed=speed,period=period,floor=floor)
+            rig=Rig.load(record).enable_skin_cache()
+            if authored_rigging is not None:
+                from avengine.assets.animal_motion.authored import AuthoredWalk
+                walk=AuthoredWalk(rig,authored_rigging,floor=floor);speed=walk.speed;period=walk.period
+            else:walk=ConstrainedWalk(rig,speed=speed,period=period,floor=floor)
         else:
             from avengine.assets.animal_motion.slide import StandingSlide
             walk=StandingSlide(record,speed=speed,floor=floor);rig=walk.rig
@@ -124,10 +128,11 @@ def main():
     p=argparse.ArgumentParser(description=__doc__)
     for flag in ("inventory","house","runtime","route","output"):p.add_argument("--"+flag,type=pathlib.Path,required=True)
     p.add_argument("--asset",required=True);p.add_argument("--speed",type=float,default=.05);p.add_argument("--period",type=float,default=2.4);p.add_argument("--seconds",type=float,default=4.8);p.add_argument("--pose-slots",type=int,default=8)
+    p.add_argument("--authored-rigging",type=pathlib.Path)
     p.add_argument("--rigid-vertical-shift-m",type=float,default=0.0)
     p.add_argument("--mode",choices=("walk_animation","slide_no_animation"),default="walk_animation");p.add_argument("--animation-attempts",type=pathlib.Path)
     a=p.parse_args();record=next(r for r in json.loads(a.inventory.read_text())["assets"] if r["asset_id"]==a.asset)
-    result=run(record,json.loads(a.house.read_text()),json.loads(a.runtime.read_text()),json.loads(a.route.read_text()),a.output,speed=a.speed,period=a.period,seconds=a.seconds,slots=a.pose_slots,mode=a.mode,animation_attempts=json.loads(a.animation_attempts.read_text()) if a.animation_attempts else None,rigid_vertical_shift_m=a.rigid_vertical_shift_m)
+    result=run(record,json.loads(a.house.read_text()),json.loads(a.runtime.read_text()),json.loads(a.route.read_text()),a.output,speed=a.speed,period=a.period,seconds=a.seconds,slots=a.pose_slots,mode=a.mode,animation_attempts=json.loads(a.animation_attempts.read_text()) if a.animation_attempts else None,rigid_vertical_shift_m=a.rigid_vertical_shift_m,authored_rigging=json.loads(a.authored_rigging.read_text()) if a.authored_rigging else None)
     print({k:result.get(k) for k in ("asset_id","status","error","frame_count","max_emitter_error_m","min_visible_pixels","cpu_s")},flush=True)
     if result["status"]!="geometry_pass_audio_pending":raise SystemExit(2)
 if __name__=="__main__":main()
