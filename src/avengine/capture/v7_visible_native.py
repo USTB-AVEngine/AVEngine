@@ -292,7 +292,12 @@ class NativeVisibleVideo(NativeRegisteredVideo):
             ordinary=[p for p in candidates if pinned is None or p!=dict(pinned,point=pinned['original_surface_point_m'])]
             proposals=([dict(pinned,point=pinned['original_surface_point_m'],_outward_clearance_m=pinned['_outward_clearance_m'])] if pinned is not None else [])
             proposals.extend(dict(p,_outward_clearance_m=offset) for p in ordinary[:320] for offset in (0.,.002,.005,.010,.014))
-            for support in proposals:
+            proposal_budget=self.motion_inputs.get('visible_placement_max_proposals_per_asset')
+            if proposal_budget is not None and not 1<=int(proposal_budget)<=1601:
+                raise ValueError('invalid support proposal search budget')
+            for proposal_index,support in enumerate(proposals):
+                if proposal_budget is not None and proposal_index>=int(proposal_budget):
+                    search_exhausted=True;reject('bounded_support_proposal_search_exhausted');break
                 support=dict(support);support['original_surface_point_m']=support['point'];support['point']=(np.asarray(support['point'])+np.asarray(support['normal'])*support['_outward_clearance_m']).tolist()
                 if key=='floor':
                     delta=listener-np.asarray(support['point'])

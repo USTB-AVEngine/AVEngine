@@ -28,6 +28,10 @@ def witness_scene(room,assets):
 
 
 def static_categories(house,room,inputs,catalog,categories,directory,save_samples=False):
+    inputs=deepcopy(inputs)
+    # Finite census proposals only; the complete parent runtime is untouched.
+    inputs['visible_placement_max_proposals_per_asset']=192
+    inputs['visible_placement_max_contact_attempts_per_asset']=24
     start=time.monotonic();cpu=time.process_time();directory=Path(directory)
     directory.mkdir(parents=True,exist_ok=False)
     by_id={a['asset_id']:a for a in catalog};ids=list(dict.fromkeys([x for v in categories.values()for x in v]+['v7_male_adult_14_blue_v1']))
@@ -105,6 +109,7 @@ def static_categories(house,room,inputs,catalog,categories,directory,save_sample
             'categories':results,'chair_seated_status':results['chair_seated']['status'],
             'room_area_m2':room['floor_area_m2'],'native_renderer':video.receipt,
             'wall_seconds':time.monotonic()-start,'process_cpu_seconds':time.process_time()-cpu,
+            'sampling_budget':{'support_proposals_per_asset':192,'native_contact_attempts_per_asset':24,'exhaustion_is_not_proof_of_room_impossibility':True},
             'max_rss_kib':resource.getrusage(resource.RUSAGE_SELF).ru_maxrss,
             'formal_parent_count':0,'GPU_jobs':0}
     except Exception as error:
