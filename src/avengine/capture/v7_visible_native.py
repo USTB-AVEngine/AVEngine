@@ -236,7 +236,18 @@ class NativeVisibleVideo(NativeRegisteredVideo):
                 supports[key]=[p for p in supports[key] if in_room(key,p) and abs(p.get('floor_y',floor)-floor)<=.08]
             for key in ('table','wall','ceiling','doorbell_wall','high_wall','window_wall'):
                 kind='wall' if key.endswith('wall') else key
-                supports[key]=semantic_support.qualify_points(kind,supports[key])
+                batch_size=self.motion_inputs.get('candidate_semantic_filter_batch_size')
+                if batch_size is None:
+                    supports[key]=semantic_support.qualify_points(kind,supports[key])
+                else:
+                    # Candidate filtering only: pass every point, in its
+                    # original order, to the unchanged semantic qualifier.
+                    batch_size=int(batch_size)
+                    if not 1<=batch_size<=1024:raise ValueError('invalid semantic candidate batch size')
+                    points=supports[key]
+                    supports[key]=[row for offset in range(0,len(points),batch_size)
+                                   for row in semantic_support.qualify_points(kind,points[offset:offset+batch_size])]
+
             if probe_cache:
                 from copy import deepcopy
                 self._independent_qualified_survey_cache=(qualified_key,deepcopy(supports))
