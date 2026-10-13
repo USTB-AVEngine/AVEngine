@@ -33,8 +33,10 @@ Calibration includes every real v9 recording in the requested 13 target classes
 and at least 100 VCTK speech_playback records. The tool uses all such VCTK rows.
 The proposed threshold is the maximum real-positive score plus 0.01. It is
 usable only when positive retention is 100% and negative rejection is >=95%.
-When calibration fails, threshold is null, generated records remain blocked for
-calibration, and neither third-round generation nor a production v11 is issued.
+When calibration fails, threshold is null and generated records remain blocked.
+Third-round generation is not started. The v11 files retain v9 plus zero qualified
+generated records and explicitly mark the top-up as blocked; original records
+and paired CCI paths remain unchanged. A pull list contains only the new CCI JSON.
 A poor operating point must not be silently substituted for the requested one.
 The emitted human_speech_screen binds the measured audio and calibration receipt.
 Old generated records lacking the revised receipt need readmission under this

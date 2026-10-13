@@ -1,6 +1,6 @@
 """Render the revised SAO readmission and speech-calibration evidence in Chinese."""
 from __future__ import annotations
-import argparse, collections, html, json, pathlib, time
+import argparse, collections, copy, html, json, pathlib, time
 import numpy as np
 import soundfile as sf
 from scipy.signal import spectrogram
@@ -13,7 +13,73 @@ def esc(value):
     return html.escape(str(value))
 
 
-def summarize(output, v9_path, config_path, stage, destination):
+def prepare_baseline_v11(output, v9_path, cci_v9_path, by_class):
+    """Write v9 plus zero additions when no human-speech threshold qualifies."""
+    main = json.loads(v9_path.read_text())
+    cci = json.loads(cci_v9_path.read_text())
+    assert [r['sound_asset_id'] for r in main['records']] == [r['sound_asset_id'] for r in cci['records']]
+    mirror = None
+    for real, remote in zip(main['records'], cci['records']):
+        p = real.get('normalized_path'); q = remote.get('normalized_path')
+        if p and q and p != q and q.endswith(p):
+            mirror = q[:-len(p)]
+            break
+    assert mirror
+    readbacks = []
+    for r in main['records']:
+        info = sf.info(norm_path(r))
+        assert info.samplerate == 16000 and info.channels == 1 and info.frames > 0
+        assert r.get('label_provenance') != 'generated_stable_audio_open_1.0'
+        readbacks.append(dict(sound_asset_id=r['sound_asset_id'], path=norm_path(r),
+                             sample_rate_hz=info.samplerate, channels=info.channels, sample_count=info.frames))
+    outputs = []
+    for base, original, name in [(main,v9_path,'source_admission_v11_classes27_english_sao.json'),
+                                (cci,cci_v9_path,'cci_source_admission_v11_classes27_english_sao.json')]:
+        doc = copy.deepcopy(base)
+        doc['profile'] += '-sao-v11-baseline-only-calibration-blocked-20261013'
+        doc['derived_from_v9'] = dict(path=str(original), sha256=sha(original))
+        doc['sao_topup'] = dict(status='blocked_human_speech_calibration_failed', added_records=0,
+                               base_records_only=True, human_speech_threshold=None,
+                               calibration=str(output/'HUMAN_SPEECH_CALIBRATION_v11.json'),
+                               license='Stability AI Community License',
+                               owner_acceptance='owner 2026-10-12 接受 IV(b) 风险',
+                               allowed_splits_for_generated=['train'], machine_only=True,
+                               shortfalls=[r for r in by_class if r['deficit']],
+                               explanation='v11 = v9 + zero qualified generated records; no threshold was adopted; every existing record is unchanged')
+        assert doc['records'] == base['records']
+        ids = [r['sound_asset_id'] for r in doc['records']]
+        assert len(ids) == len(set(ids)) == 1914
+        destination = output/name
+        if destination.exists():
+            assert json.loads(destination.read_text()) == doc, 'existing v11 is different or incomplete'
+        else:
+            with destination.open('x') as stream:
+                json.dump(doc,stream,ensure_ascii=False,indent=2,allow_nan=False)
+        outputs.append(dict(path=str(destination),records=len(ids),sha256=sha(destination)))
+    pull = output/'cci_pull_list_v11.txt'
+    pull_content = (output/'cci_source_admission_v11_classes27_english_sao.json').as_posix().lstrip('/')+'\n'
+    if pull.exists():
+        assert pull.read_text() == pull_content
+    else:
+        with pull.open('x') as stream: stream.write(pull_content)
+    readback = dict(status='pass_existing_records_only', records=1914, generated_additions=0,
+                    unique_ids=True, mono_16000=True, existing_records_unchanged=True,
+                    cci_records_unchanged_from_v9=True, cci_prefix=mirror,
+                    generated_topup_status='blocked_human_speech_calibration_failed',
+                    generated_train_only=True, readbacks=readbacks, outputs=outputs,
+                    cci_execution='not_run; files prepared on 48g only')
+    readback_path = output/'V11_READBACK.json'
+    if readback_path.exists():
+        assert json.loads(readback_path.read_text()) == readback
+    else:
+        with readback_path.open('x') as stream:
+            json.dump(readback,stream,ensure_ascii=False,indent=2)
+    with (output/'PROGRESS.md').open('a') as stream:
+        stream.write('- '+time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime())+' v11 基线输入与 CCI 清单完成：v9+0 条生成音频，共 1914 条；明确标记校准阻塞，原记录及镜像前缀不变。\n')
+    return outputs, str(pull), mirror
+
+
+def summarize(output, v9_path, cci_v9_path, config_path, stage, destination):
     cal = json.loads((output / 'HUMAN_SPEECH_CALIBRATION_v11.json').read_text())
     assert cal['status'] != 'pass' and cal['threshold'] is None
     config = json.loads(config_path.read_text())
@@ -59,6 +125,7 @@ def summarize(output, v9_path, config_path, stage, destination):
                              independent_prechecks_pass=len(independent), accepted=0,
                              existing_originals=all_counts[c], final_originals=all_counts[c], deficit=30-all_counts[c],
                              rejection_and_blocking_reasons=dict(collections.Counter(reason for r in rows for reason in r.get('current_policy_blockers',[])))))
+    outputs, pull, mirror = prepare_baseline_v11(output,v9_path,cci_v9_path,by_class)
     result = dict(status='blocked_human_speech_calibration_failed', candidate_count=len(raw), accepted=0,
                   by_class=by_class, all_class_original_counts=all_counts,
                   beats_pass=sum(r['beats_pass'] for r in scored),
@@ -78,13 +145,14 @@ def summarize(output, v9_path, config_path, stage, destination):
                   target_beats_threshold=.1917129977, minimum_incompatible_margin=.05,
                   normalization_status='not_run; calibration blocks admission before normalization',
                   third_round=dict(status='not_run_human_speech_calibration_failed', classes=[], candidates=0),
-                  v11_outputs=[], v11_entry_count=None, v11_sha256=None,
-                  v11_cci_input_and_pull_list_status='not_created; no production v11 can pass the requested human speech check',
+                  v11_outputs=outputs, v11_entry_count=1914, v11_sha256=outputs[0]['sha256'],
+                  cci_pull_list=pull, cci_mirror_prefix=mirror,
+                  v11_cci_input_and_pull_list_status='prepared_existing_records_only_on_48g; CCI copy/jobs not_run',
                   report=str(output/'REPORT_v11.html'), human_listening_used=False)
     with destination.open('x') as stream:
         json.dump(result, stream, ensure_ascii=False, indent=2)
     with (output/'PROGRESS.md').open('a') as stream:
-        stream.write('- '+time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime())+' 全部 856 候选 v11 前置复查与仅记录 Whisper 元数据校验完成；人声校准阻塞，正式新增 0；未生成第三轮及 v11 输入。\n')
+        stream.write('- '+time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime())+' 全部 856 候选 v11 前置复查与仅记录 Whisper 元数据校验完成；人声校准阻塞，正式新增 0；v11 保留 1914 条原记录，第三轮未生成。\n')
     return result
 
 
@@ -94,14 +162,15 @@ def main():
     parser.add_argument('--summary', type=pathlib.Path, required=True)
     parser.add_argument('--v9', type=pathlib.Path)
     parser.add_argument('--config', type=pathlib.Path)
+    parser.add_argument('--cci-v9', type=pathlib.Path)
     parser.add_argument('--stage', default='v11_r12_polyphase')
     args = parser.parse_args()
     o = args.output
     if args.summary.exists():
         report = json.loads(args.summary.read_text())
     else:
-        assert args.v9 and args.config
-        report = summarize(o, args.v9, args.config, args.stage, args.summary)
+        assert args.v9 and args.cci_v9 and args.config
+        report = summarize(o, args.v9, args.cci_v9, args.config, args.stage, args.summary)
     cal = json.loads((o / 'HUMAN_SPEECH_CALIBRATION_v11.json').read_text())
     controls = json.loads(pathlib.Path(report['fingerprint_validation']).read_text())
     scored = []
@@ -115,8 +184,8 @@ def main():
          '<meta name="viewport" content="width=device-width,initial-scale=1">',
          '<title>v7 SAO v11 重新准入：校准阻塞报告</title>',
          '<style>body{max-width:1120px;margin:24px auto;padding:0 18px;font:16px/1.65 system-ui;color:#202631}h1{font-size:26px}h2{margin-top:32px}table{border-collapse:collapse;width:100%;font-size:14px}td,th{border:1px solid #d7dee7;padding:7px;text-align:left}th{background:#edf2f8}img{max-width:100%}code{overflow-wrap:anywhere}.warn{padding:16px;background:#fff0d6}.ok{padding:14px;background:#eaf5ef}figcaption{font-size:13px;overflow-wrap:anywhere}figure{margin:14px 0}</style><body>',
-         '<h1>结论：人说话检查无法同时满足两项校准要求；v11 未发布，第三轮未生成</h1>',
-         '<p class="warn">全部 856 条已有候选重新检查，Whisper 已改为仅记录。人声校准要求保留全部真实薄类录音并拦截 ≥95% 真人朗读，当前 BEATs 分数分布无法满足。未硬定阈值，未把暂缓候选写进输入，v9/v10 和旧报告均保留。</p>']
+         '<h1>结论：人说话检查无法同时满足两项校准要求；v11 保留 v9 原记录，新增 0；第三轮未生成</h1>',
+         '<p class="warn">全部 856 条已有候选重新检查，Whisper 已改为仅记录。人声校准要求保留全部真实薄类录音并拦截 ≥95% 真人朗读，当前 BEATs 分数分布无法满足。未硬定阈值，v11 写为 v9+0 条合格生成音频并标记增补阻塞，v9/v10 和旧报告均保留。</p>']
     h.append('<h2>人说话检查的校准</h2><p>取 Speech、Singing 及其 AudioSet 子类、Whispering、Hubbub/speech babble 共 '+str(len(cal['heads']))+' 个头的最大值。使用同一 BEATs AS2M cpt2、float32、5 秒块平均，末块补至至少 1 秒。正例为 v9 全部 183 条指定薄类真实录音；反例为全部 739 条 VCTK 真人朗读，无抽样挑选。</p>')
     h.append('<table><tr><th>指标</th><th>实测</th></tr>')
     fields = [('正式阈值', '未设置；校准失败'),
@@ -184,7 +253,10 @@ def main():
             axes[1].set(xlabel='seconds', ylabel='Hz', ylim=(0,8000)); fig.tight_layout()
             h.append('<figure>'+png(fig)+'<figcaption>未准入 '+esc(r['sound_asset_id'])+'；BEATs='+f"{member['target_confidence']:.6f}"+'；margin='+f"{member['margin']:.6f}"+'；seed='+str(r['seed'])+' / batch index='+str(r['seed_batch_index'])+'<br><code>'+esc(r['path'])+'</code></figcaption></figure>')
     h.append('<h2>许可、交付和出处</h2><p>生成音频仍标注 Stability AI Community License、label_provenance=generated_stable_audio_open_1.0 和“owner 2026-10-12 接受 IV(b) 风险”。第 IV(b) 条的输出使用限制沿用原任务说明；没有额外许可结论。所有生成来源限定 allowed_splits=["train"]，开发和测试仍仅使用真实录音。</p>')
-    h.append('<p>v11 输入、CCI 镜像输入及拉取清单：未生成，等待可满足要求的人声检查方案。未提交 ACP/CCI 作业、未训练、未 push。v9/v10 校验值未变。旧报告 REPORT.html 保留。</p>')
+    h.append('<p>v11 输入、CCI 镜像输入及拉取清单：已准备，仅包含 v9 的 1914 条原记录，新增 0 条。增补仍等待可满足要求的人声检查方案。未提交 ACP/CCI 作业、未训练、未 push。v9/v10 校验值未变。旧报告 REPORT.html 保留。</p>')
+    for item in report['v11_outputs']:
+        h.append('<p><code>'+esc(item['path'])+'</code><br>'+str(item['records'])+' 条；sha256 <code>'+esc(item['sha256'])+'</code></p>')
+    h.append('<p>新增文件拉取清单：<code>'+esc(report['cci_pull_list'])+'</code>，只列新 CCI 输入 JSON；无新音频文件。镜像前缀：<code>'+esc(report['cci_mirror_prefix'])+'</code>。</p>')
     for key in ('raw_admission', 'fingerprint_validation', 'deduplication', 'calibration', 'execution_identity'):
         h.append('<p>'+esc(key)+'：<code>'+esc(report[key])+'</code></p>')
     h.append('<p>汇总：<code>'+esc(args.summary)+'</code>；完整最终审计：<code>'+esc(o/'FINAL_AUDIT_v11.json')+'</code>；过程记录：PROGRESS.md / JOBS.json。提交、GPU 用时及磁盘以最终审计为准。</p>')
