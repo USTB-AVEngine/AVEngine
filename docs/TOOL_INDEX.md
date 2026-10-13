@@ -5,7 +5,7 @@
 
 自 2026-08-25 起，目录本身就是能力分组（阶段目录 m1…m7 已移除），
 本表按目录列出每个工具做什么。
-当前共 514 个工具脚本。
+当前共 515 个工具脚本。
 
 ## 资产生成与装配（`tools/assets/`）
 
@@ -242,6 +242,7 @@
 | `tools/capture/qualify_v7_material_replay.py` | Replay v3 source-material changes in fresh CPU native processes |
 | `tools/capture/qualify_v7_pixel_visibility.py` | CPU native paired visibility check with unchanged published house pixels |
 | `tools/capture/run_apartment_four_motion_pilot.py` | Run one shared Apartment capture for the four human/dog motion cases |
+| `tools/capture/sweep_v7_hm3d_rooms.py` | Run one CPU HM3D room category witness job, without full media generation |
 | `tools/capture/write_neutral_readback.py` | Convert retained native UE or Habitat capture into a fresh neutral readback |
 
 ## 视觉回放（`tools/visual/`）
