@@ -77,6 +77,28 @@ def binding_pair_fits_view(listener,first,second):
     return 16.<=angle<=60.
 
 
+def comparison_person_candidates(listener,positions,candidates):
+    """Sample a visible third person with real distance contrast, not QA waivers."""
+    listener=np.asarray(listener,float);points=np.asarray(positions,float)
+    rays=points-listener;rays[:,1]=0.
+    radii=np.linalg.norm(rays,axis=1)
+    if len(points)!=2 or np.any(radii<.5):return []
+    middle=(rays/radii[:,None]).sum(axis=0)
+    middle/=np.linalg.norm(middle)
+    accepted=[]
+    for rank,candidate in enumerate(candidates):
+        p=np.asarray(candidate,float)
+        ray=p-listener;ray[1]=0.;radius=float(np.linalg.norm(ray))
+        if not np.isfinite(p).all() or radius<.5:continue
+        unit=ray/radius
+        off=math.degrees(math.acos(float(np.clip(np.dot(unit,middle),-1.,1.))))
+        separations=[math.degrees(math.acos(float(np.clip(np.dot(unit,v/r),-1.,1.)))) for v,r in zip(rays,radii)]
+        if off>30. or min(separations)<8. or min(abs(radius-r) for r in radii)<.6:continue
+        # Prefer a farther visible body to avoid occluding the two speakers.
+        accepted.append((radius<=max(radii)+.6,rank,candidate))
+    return [p for _,_,p in sorted(accepted,key=lambda x:x[:2])]
+
+
 def human_clear_of_environment(video,low,high):
     for node in video.environment_nodes.values():
         if node.get('physical'):

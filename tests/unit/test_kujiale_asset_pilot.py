@@ -191,3 +191,29 @@ def test_repeated_binding_shortage_is_one_failure_cause():
     gate.require_next_batch()
     gate.observe({'status':'failed','error_type':'ValueError','reason':'only 0 measured binding questions; need 5'})
     with pytest.raises(RuntimeError,match='two consecutive'):gate.require_next_batch()
+
+def test_comparison_person_prefers_a_far_visible_distinct_body():
+    from avengine.capture.kujiale_pilot_environment import comparison_person_candidates
+    listener=[0.,1.5,0.];pair=[[-2.,0.,1.],[-2.,0.,-1.]]
+    far=[-3.,1.3,.7];near=[-1.,1.3,0.]
+    candidates=[near,far,[3.,1.3,0.],[-2.,1.3,0.],[-4.,1.3,2.]]
+    assert comparison_person_candidates(listener,pair,candidates)==[far,near]
+    assert comparison_person_candidates(listener,pair,[[float('nan'),1.3,0.]])==[]
+
+
+def test_depth_only_capture_restores_sensor_state_even_after_a_failure():
+    from contextlib import nullcontext
+    from types import SimpleNamespace
+    from avengine.capture.continuous_ue_video import isolated_depth_capture_sensors
+    class Component:
+        def __init__(self,value):self.value=value
+        def get_property_value(self,**kw):return self.value
+        def set_property_value(self,**kw):self.value=kw['property_value']
+    components={k:Component(v) for k,v in {'rgb':True,'object_ids':False,'depth':True}.items()}
+    video=SimpleNamespace(components=components,instance=SimpleNamespace(begin_frame=nullcontext,end_frame=nullcontext))
+    with pytest.raises(RuntimeError,match='target depth error'):
+        with isolated_depth_capture_sensors(video):
+            assert not components['rgb'].value and not components['object_ids'].value
+            assert components['depth'].value
+            raise RuntimeError('target depth error')
+    assert components['rgb'].value and not components['object_ids'].value and components['depth'].value

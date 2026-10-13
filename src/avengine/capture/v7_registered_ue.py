@@ -13,7 +13,7 @@ from avengine.capture.kujiale_spear_runtime import (launch_native,camera_helpers
     from_ue,to_ue,configure_scene_lighting,apply_native_rgb_profile)
 from avengine.timeline.continuous_pilot import write_json
 
-REGISTERED_UE_VISUAL_REVISION='registered-native-UE-design-whitebalance-v4-room-floor-face'
+REGISTERED_UE_VISUAL_REVISION='registered-native-UE-design-whitebalance-v5-frontal-comparison'
 
 
 class NativeRegisteredUEVideo(NativeUEAlphaVideo):
@@ -263,7 +263,13 @@ class NativeRegisteredUEVideo(NativeUEAlphaVideo):
         self.alpha_standing_refs={};self.current_camera_yaw_offset=0.
         for a,d in zip(self.assets,self.declarations,strict=True):
             accepted=None;ep=a['endpoint_id'];original=self.scene['sources'][ep]['trajectory'][0]['position_m']
-            for p in [original,*self.scene.get('native_placement_candidates',[])]:
+            candidates=[original,*self.scene.get('native_placement_candidates',[])]
+            if (self.current_native_environment and self.scene['production_scenario'].get('camera_policy')=='pilot_binding_coverage'
+                    and len(self.assets)>2 and a is self.assets[2]):
+                from avengine.capture.kujiale_pilot_environment import comparison_person_candidates
+                points=[self.alpha_standing_refs[x['endpoint_id']]['position_m'] for x in self.assets[:2]]
+                candidates=comparison_person_candidates(self.scene['listener_m'],points,candidates)
+            for p in candidates:
                 # SPEAR's begin_frame marks its transaction permanently in
                 # error if a ValueError escapes _apply. Check the unchanged
                 # 15 cm navigation rule before entering that transaction so
@@ -343,6 +349,7 @@ class NativeRegisteredUEVideo(NativeUEAlphaVideo):
             with self.instance.end_frame():pass
             self.receipt['static_foot_capture_policy']='qualified front/rear rigid support cache; unchanged per-frame root/pose verification'
             self.receipt['qualified_binding_camera_yaw_offset_deg']=self.current_camera_yaw_offset
+            self.receipt['isolated_depth_capture_policy']='every native target depth frame rendered; unused RGB/object-ID sensors suspended only during isolated passes and restored'
         write_json(directory/'standing_admission.json',{'status':'pass','checks':checks,'placement_attempts':attempts})
         self.alpha_camera_rows={};self.environment_frame_readbacks=[]
         return checks

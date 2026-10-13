@@ -6,6 +6,7 @@ blockers. Registered v6 UE assets and animation driving are reused directly.
 """
 from __future__ import annotations
 from copy import deepcopy
+from contextlib import contextmanager,nullcontext
 import json, math, os, subprocess, sys, time
 from pathlib import Path
 import numpy as np
@@ -24,6 +25,26 @@ def native_material_sample_status(checks,asset_ids,*,allow_invisible_samples=Fal
     if set(asset_ids)-observed or any(x['metrics']['status'] not in ('pass','not_run') for x in checks):return 'fail'
     if any(x['metrics']['status']=='not_run' and x['metrics'].get('reason')!='fewer_than_100_source_pixels' for x in checks):return 'fail'
     return 'pass'
+
+
+@contextmanager
+def isolated_depth_capture_sensors(video):
+    """Keep every native depth pass; suspend only unused RGB/ID captures."""
+    previous={}
+    try:
+        with video.instance.begin_frame():
+            for name in ('rgb','object_ids'):
+                component=video.components[name]
+                previous[name]=component.get_property_value(property_name='bCaptureEveryFrame')
+                component.set_property_value(property_name='bCaptureEveryFrame',property_value=False)
+        with video.instance.end_frame():pass
+        yield
+    finally:
+        if previous:
+            with video.instance.begin_frame():
+                for name,value in previous.items():
+                    video.components[name].set_property_value(property_name='bCaptureEveryFrame',property_value=value)
+            with video.instance.end_frame():pass
 
 
 class UENativeContinuousVideo:
@@ -230,65 +251,66 @@ class UENativeContinuousVideo:
                     bgr=self.read_rgb(self.components['rgb']);normal=self.read_depth(self.components['depth'])
                 semantic=np.zeros(normal.shape,dtype=np.uint16)
                 targets={};ids={};pose_id=None
-                for j,actor in enumerate(actors):
-                    runtime=self.runtimes[actor['native_actor_id']]
-                    with self.instance.begin_frame():
-                        from avengine.backends.spear_ue.research_runtime import read_scene_component_pose
-                        import hashlib
-                        camera_pose=read_scene_component_pose(self.camera.K2_GetRootComponent())
-                        current_id=hashlib.sha256(json.dumps(camera_pose,sort_keys=True).encode()).hexdigest()
-                        if pose_id is not None and current_id!=pose_id:raise ValueError('native modal/target-only camera pose changed')
-                        pose_id=current_id
-                        camera_error=float(np.max(np.abs(np.asarray(from_ue(camera_pose['location_cm']))-scene['listener_m'])))
-                        camera_position_max_error=max(camera_position_max_error,camera_error)
-                        if camera_error>.0005:raise ValueError('native target camera left listener coordinates')
-                        root_pose=read_scene_component_pose(runtime['anchor_root'])
-                        root_error=float(np.max(np.abs(np.asarray(from_ue(root_pose['location_cm']))-actor['position_m'])))
-                        target_pose_max_error=max(target_pose_max_error,root_error)
-                        if root_error>.0005:raise ValueError('native target-only actor root changed after modal capture')
-                        if runtime.get('motion_model')!='rigid_static':
-                            animation_error=abs(float(runtime['component'].GetPosition())-actor['native_animation']['observed_position_seconds'])
-                            target_animation_max_error=max(target_animation_max_error,animation_error)
-                            if animation_error>1e-4:raise ValueError('native target-only animation changed after modal capture')
-                        self.components['depth'].set_property_value(property_name='PrimitiveRenderMode',property_value='PRM_UseShowOnlyList')
-                        self.components['depth'].set_property_value(property_name='ShowOnlyActors',property_value=[runtime['visual_actor']])
-                    with self.instance.end_frame():target=self.read_depth(self.components['depth'])
-                    targets[str(actor['actor_id'])]=[np.ascontiguousarray(target[::2,::2])]
-                    ids[str(actor['actor_id'])]=1001+j
-                    visible=(target<65504)&(np.abs(normal-target)<=.01+.002*target)
-                    # Reconstruct actual visible native body surfaces; this is
-                    # a diagnostic contact measurement, not a bone/root proxy.
-                    ty,tx=np.nonzero(target<65504)
-                    if len(ty)>=100 and ty.max()<target.shape[0]-1 and tx.min()>0 and tx.max()<target.shape[1]-1:
-                        tan=math.tan(math.radians(85.)/2)
-                        rx=(2*(tx+.5)/target.shape[1]-1)*tan
-                        ry=(1-2*(ty+.5)/target.shape[0])*tan*target.shape[0]/target.shape[1]
-                        camera=self._camera()
-                        pitch=math.radians(camera['pitch_deg'])
-                        # Camera forward/up in canonical world coordinates.
-                        # UE camera roll is zero; right.y is zero.
-                        direction_y=(math.sin(pitch)+ry*math.cos(pitch))/np.sqrt(1+rx*rx+ry*ry)
-                        surface_y=scene['listener_m'][1]+direction_y*target[ty,tx]
-                        native_foot=float(surface_y.min())
-                        floor_y=actor['position_m'][1]
-                        actor['native_foot_contact']={'method':'native target-only ray depth reconstructed in world coordinates',
-                            'lowest_rendered_body_y_m':native_foot,'support_floor_y_m':floor_y,
-                            'gap_m':native_foot-floor_y,
-                            'status':'pass' if abs(native_foot-floor_y)<=.02 else 'fail',
-                            'raster_depth_tolerance_m':.02}
-                    else:actor['native_foot_contact']=self._uncropped_foot_probe(actor)
-                    semantic[visible]=1001+j
-                    small_mask=self.cv2.resize(visible.astype('uint8'),(self.width,self.height),interpolation=self.cv2.INTER_NEAREST)>0
-                    ys,xs=np.nonzero(small_mask)
-                    actor.update(semantic_id=1001+j,visible_pixels=len(xs),
-                        mask_centroid_px=[float(xs.mean()),float(ys.mean())] if len(xs) else None,
-                        mask_bbox_xyxy=[int(xs.min()),int(ys.min()),int(xs.max()),int(ys.max())] if len(xs) else None)
-                    mouths[actor['endpoint_id']].append({'time_s':index/FPS,'position_m':actor['emitter_position_m']})
-                physical_actors=[]
-                if getattr(self,'current_native_environment',False):
-                    from avengine.capture.kujiale_pilot_environment import capture_frame
-                    if any(abs(a['native_foot_contact']['gap_m'])>.015 for a in actors):raise ValueError('current pilot human contact exceeds 15 mm')
-                    physical_actors=capture_frame(self,index,bgr,normal,semantic,targets,ids,pose_id)
+                with (isolated_depth_capture_sensors(self) if getattr(self,'current_native_environment',False) else nullcontext()):
+                    for j,actor in enumerate(actors):
+                        runtime=self.runtimes[actor['native_actor_id']]
+                        with self.instance.begin_frame():
+                            from avengine.backends.spear_ue.research_runtime import read_scene_component_pose
+                            import hashlib
+                            camera_pose=read_scene_component_pose(self.camera.K2_GetRootComponent())
+                            current_id=hashlib.sha256(json.dumps(camera_pose,sort_keys=True).encode()).hexdigest()
+                            if pose_id is not None and current_id!=pose_id:raise ValueError('native modal/target-only camera pose changed')
+                            pose_id=current_id
+                            camera_error=float(np.max(np.abs(np.asarray(from_ue(camera_pose['location_cm']))-scene['listener_m'])))
+                            camera_position_max_error=max(camera_position_max_error,camera_error)
+                            if camera_error>.0005:raise ValueError('native target camera left listener coordinates')
+                            root_pose=read_scene_component_pose(runtime['anchor_root'])
+                            root_error=float(np.max(np.abs(np.asarray(from_ue(root_pose['location_cm']))-actor['position_m'])))
+                            target_pose_max_error=max(target_pose_max_error,root_error)
+                            if root_error>.0005:raise ValueError('native target-only actor root changed after modal capture')
+                            if runtime.get('motion_model')!='rigid_static':
+                                animation_error=abs(float(runtime['component'].GetPosition())-actor['native_animation']['observed_position_seconds'])
+                                target_animation_max_error=max(target_animation_max_error,animation_error)
+                                if animation_error>1e-4:raise ValueError('native target-only animation changed after modal capture')
+                            self.components['depth'].set_property_value(property_name='PrimitiveRenderMode',property_value='PRM_UseShowOnlyList')
+                            self.components['depth'].set_property_value(property_name='ShowOnlyActors',property_value=[runtime['visual_actor']])
+                        with self.instance.end_frame():target=self.read_depth(self.components['depth'])
+                        targets[str(actor['actor_id'])]=[np.ascontiguousarray(target[::2,::2])]
+                        ids[str(actor['actor_id'])]=1001+j
+                        visible=(target<65504)&(np.abs(normal-target)<=.01+.002*target)
+                        # Reconstruct actual visible native body surfaces; this is
+                        # a diagnostic contact measurement, not a bone/root proxy.
+                        ty,tx=np.nonzero(target<65504)
+                        if len(ty)>=100 and ty.max()<target.shape[0]-1 and tx.min()>0 and tx.max()<target.shape[1]-1:
+                            tan=math.tan(math.radians(85.)/2)
+                            rx=(2*(tx+.5)/target.shape[1]-1)*tan
+                            ry=(1-2*(ty+.5)/target.shape[0])*tan*target.shape[0]/target.shape[1]
+                            camera=self._camera()
+                            pitch=math.radians(camera['pitch_deg'])
+                            # Camera forward/up in canonical world coordinates.
+                            # UE camera roll is zero; right.y is zero.
+                            direction_y=(math.sin(pitch)+ry*math.cos(pitch))/np.sqrt(1+rx*rx+ry*ry)
+                            surface_y=scene['listener_m'][1]+direction_y*target[ty,tx]
+                            native_foot=float(surface_y.min())
+                            floor_y=actor['position_m'][1]
+                            actor['native_foot_contact']={'method':'native target-only ray depth reconstructed in world coordinates',
+                                'lowest_rendered_body_y_m':native_foot,'support_floor_y_m':floor_y,
+                                'gap_m':native_foot-floor_y,
+                                'status':'pass' if abs(native_foot-floor_y)<=.02 else 'fail',
+                                'raster_depth_tolerance_m':.02}
+                        else:actor['native_foot_contact']=self._uncropped_foot_probe(actor)
+                        semantic[visible]=1001+j
+                        small_mask=self.cv2.resize(visible.astype('uint8'),(self.width,self.height),interpolation=self.cv2.INTER_NEAREST)>0
+                        ys,xs=np.nonzero(small_mask)
+                        actor.update(semantic_id=1001+j,visible_pixels=len(xs),
+                            mask_centroid_px=[float(xs.mean()),float(ys.mean())] if len(xs) else None,
+                            mask_bbox_xyxy=[int(xs.min()),int(ys.min()),int(xs.max()),int(ys.max())] if len(xs) else None)
+                        mouths[actor['endpoint_id']].append({'time_s':index/FPS,'position_m':actor['emitter_position_m']})
+                    physical_actors=[]
+                    if getattr(self,'current_native_environment',False):
+                        from avengine.capture.kujiale_pilot_environment import capture_frame
+                        if any(abs(a['native_foot_contact']['gap_m'])>.015 for a in actors):raise ValueError('current pilot human contact exceeds 15 mm')
+                        physical_actors=capture_frame(self,index,bgr,normal,semantic,targets,ids,pose_id)
                 if collect_pixel_visibility:
                     from avengine.qa.pixel_visibility import compile_depth_pixel_visibility_truth
                     common={'renderer_backend':'ue_spear','rgb_renderer_backend':'ue_spear',
