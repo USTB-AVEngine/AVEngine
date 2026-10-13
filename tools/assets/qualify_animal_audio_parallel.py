@@ -53,7 +53,7 @@ def main():
     for rep in range(3):
      wave=a.output/f'reference_{mid:06d}_{rep}.npy'
      if wave.exists():continue
-     folder=requests/f'{mid:06d}_{rep}';folder.mkdir();request=folder/'request.json';request.write_text(json.dumps({'inputs':inputs,'house':house,'position_m':point,'wave':str(wave),'receipt':str(folder/'receipt.json')},indent=2));jobs.append((request,folder))
+     folder=requests/f'{mid:06d}_{rep}';folder.mkdir();request=folder/'request.json';request.write_text(json.dumps({'inputs':inputs,'house':house,'position_m':point,'wave':str(wave),'receipt':str(folder/'receipt.json'),'immutable_wave_root':str(a.immutable_cache_root) if a.immutable_cache_root is not None else None},indent=2));jobs.append((request,folder))
    for offset in range(0,len(jobs),len(cores)):
     running=[]
     for core,(request,folder) in zip(cores,jobs[offset:offset+len(cores)]):

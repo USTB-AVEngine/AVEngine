@@ -1,13 +1,15 @@
 """Anatomical-region surface QA for unchanged cat meshes.
 
-Counts are diagnostic only. Areas are a conservative upper bound: half the
-sum of unique visible contacting triangle areas, without repairing the mesh.
-Depth is relative to the approved binding pose. Exterior depth uses the nearest
-outward surface of the other region, checking the complete material region,
-including vertices beyond the intersection boundary. Internal layer depth uses
-the smaller positive/negative extent across each crossing triangle plane.
+Counts are diagnostic only. Contact fragments are clipped to the opposing
+triangle footprint; unrelated distant corners contribute no area or depth.
+Complete-region containment requires outward exits before nearest surface
+distance is compared with the approved binding pose. The source is unchanged.
 """
 import numpy as np
+import pathlib,runpy
+_contact=runpy.run_path(str(pathlib.Path(__file__).with_name('cat_contact_patches.py')))
+clipped_internal_depths=_contact['clipped_internal_depths']
+clipped_penetrating_patches=_contact['clipped_penetrating_patches']
 from mathutils import Vector
 from mathutils.bvhtree import BVHTree
 
@@ -35,17 +37,7 @@ def internal_plane_depth(vertices, faces, pairs):
         return 0.
     ids = np.asarray(list(pairs), int)
     aa, bb = vertices[faces[ids[:, 0]]], vertices[faces[ids[:, 1]]]
-    result = np.full(len(ids), np.inf)
-    for source, target in ((aa, bb), (bb, aa)):
-        normal = np.cross(target[:, 1]-target[:, 0],
-                          target[:, 2]-target[:, 0])
-        length = np.linalg.norm(normal, axis=1)
-        normal /= np.maximum(length[:, None], 1e-30)
-        signed = np.sum((source-target[:, 0, None])*normal[:, None], axis=2)
-        extent = np.minimum(np.maximum(signed.max(1), 0),
-                            np.maximum(-signed.min(1), 0))
-        result = np.minimum(result, extent)
-    return float(result.max(initial=0))
+    return float(clipped_internal_depths(aa,bb).max(initial=0))
 
 class RegionSurfaceChecks:
     def __init__(self, vertices, faces, vertex_regions, crossings,
@@ -135,69 +127,78 @@ class RegionSurfaceChecks:
     def region_tree(self, vertices, region):
         return self.tree(vertices, self.faces[self.outer_faces[region]])
 
-    def depths(self, vertices, region, against, tree):
-        ids = self.outer_vertices[region]
-        result = np.zeros(len(ids))
-        if tree is None or not len(ids):
-            return result
-        triangles = self.faces[self.outer_faces[against]]
-        outer = vertices[np.unique(triangles)]
-        low, high = outer.min(0)-.00005, outer.max(0)+.00005
-        eligible = np.flatnonzero(np.all((vertices[ids] >= low) &
-                                        (vertices[ids] <= high), axis=1))
+    def inside(self,point,tree,region,basis):
+        # Missing anatomical cut caps must not turn an infinite plane or a
+        # bounding box into a solid. Require outward exits in four directions.
+        exits=0
+        for direction in np.concatenate([basis.T,-basis.T]):
+            hit,normal,face_index,_=tree.ray_cast(Vector(point+direction*1e-7),Vector(direction))
+            if hit is not None:
+                sign=self.orientation[self.outer_faces[region][face_index]]
+                if float(np.asarray(normal)@direction)*sign>.1:exits+=1
+        return exits>=4
+
+    def depths(self,vertices,region,against,tree):
+        ids=self.outer_vertices[region];result=np.zeros(len(ids))
+        if tree is None or not len(ids):return result
+        triangles=self.faces[self.outer_faces[against]]
+        outer=vertices[np.unique(triangles)]
+        low,high=outer.min(0)-.00005,outer.max(0)+.00005
+        eligible=np.flatnonzero(np.all((vertices[ids]>=low)&(vertices[ids]<=high),axis=1))
         for k in eligible:
-            point = vertices[ids[k]]
-            nearest, normal, face_index, _ = tree.find_nearest(Vector(point))
-            if nearest is None:
-                continue
-            global_face = self.outer_faces[against][face_index]
-            outward = np.asarray(normal)*self.orientation[global_face]
-            signed = float(np.dot(point-np.asarray(nearest), outward))
-            # Compare against this same material face in the binding pose.
-            # A changed nearest face or crossing an open region's AABB must
-            # never invent a deep penetration from a zero cached baseline.
-            original = self.rest[self.faces[global_face]]
-            reference_normal = (self.rest_normals[global_face] *
-                                self.orientation[global_face])
-            reference_signed = float(np.dot(
-                self.rest[ids[k]]-original[0], reference_normal))
-            baseline_depth = max(0., -reference_signed)
-            if self.closed_region[against]:
-                key = (region, against, int(ids[k]))
-                if key not in self.closed_baseline_depths:
-                    baseline_depth = 0.
-                    reference_low, reference_high = self.rest_region_bounds[against]
-                    reference_point = self.rest[ids[k]]
-                    if np.all(reference_point >= reference_low) and np.all(reference_point <= reference_high):
-                        ref_point, ref_normal, ref_face, _ = self.rest_trees[against].find_nearest(Vector(reference_point))
-                        if ref_point is not None:
-                            sign = self.orientation[self.outer_faces[against][ref_face]]
-                            baseline_depth = max(0., -float(np.dot(reference_point-np.asarray(ref_point), np.asarray(ref_normal)*sign)))
-                    self.closed_baseline_depths[key] = baseline_depth
-                baseline_depth = self.closed_baseline_depths[key]
-            result[k] = max(0., max(0., -signed)-baseline_depth)
+            point=vertices[ids[k]]
+            if not self.inside(point,tree,against,self.posed_ray_basis[against]):continue
+            nearest,normal,face_index,distance=tree.find_nearest(Vector(point))
+            if nearest is None:continue
+            key=(region,against,int(ids[k]))
+            if key not in self.closed_baseline_depths:
+                baseline=0.;reference=self.rest[ids[k]];bounds=self.rest_region_bounds[against]
+                if bounds is not None and np.all(reference>=bounds[0]) and np.all(reference<=bounds[1]):
+                    reference_tree=self.rest_trees[against]
+                    if reference_tree is not None and self.inside(reference,reference_tree,against,np.eye(3)):
+                        ref_point,_,_,ref_distance=reference_tree.find_nearest(Vector(reference))
+                        if ref_point is not None:baseline=float(ref_distance)
+                self.closed_baseline_depths[key]=baseline
+            result[k]=max(0.,float(distance)-self.closed_baseline_depths[key])
         return result
 
     def inspect(self, vertices, pairs=None):
         vertices = np.asarray(vertices, float)
         pairs = self.crossings(vertices, self.faces) if pairs is None else pairs
         novel = pairs-self.baseline
-        same = {(i, j) for i, j in novel
+        physical = self.new_contacts(novel, self.rest, self.faces)
+        same = {(i, j) for i, j in physical
                 if self.fregions[i] == self.fregions[j]}
         same_depth = internal_plane_depth(vertices, self.faces, same)
-        physical = self.new_contacts(novel, self.rest, self.faces)
         visible_contacts = {tuple(sorted((int(self.fregions[i]), int(self.fregions[j]))))
                             for i,j in pairs if self.fregions[i] != self.fregions[j]
                             and self.visible[i] and self.visible[j]}
-        patches = {}
-        for i, j in physical:
-            a, b = int(self.fregions[i]), int(self.fregions[j])
-            if a != b and self.visible[i] and self.visible[j]:
-                key = tuple(sorted((a, b)))
-                patches.setdefault(key, set()).update((i, j))
-        triangles = vertices[self.faces]
-        areas = np.linalg.norm(np.cross(triangles[:, 1]-triangles[:, 0],
-                                        triangles[:, 2]-triangles[:, 0]), axis=1)*.5
+        patches={}
+        for i,j in physical:
+            a,b=int(self.fregions[i]),int(self.fregions[j])
+            if a!=b and self.visible[i] and self.visible[j]:
+                key=tuple(sorted((a,b)))
+                patches.setdefault(key,[]).append((i,j))
+        triangles=vertices[self.faces]
+        patch_measurements={}
+        for key,pairs_for_key in patches.items():
+            pair_ids=np.asarray(pairs_for_key,int)
+            aa,bb=triangles[pair_ids[:,0]],triangles[pair_ids[:,1]]
+            first,_=clipped_penetrating_patches(aa,bb,self.orientation[pair_ids[:,1]])
+            second,_=clipped_penetrating_patches(bb,aa,self.orientation[pair_ids[:,0]])
+            patch_measurements[key]=(float((first+second).sum()*.5),
+                                     float(clipped_internal_depths(aa,bb).max(initial=0)))
+        self.posed_ray_basis=[]
+        for region,ids in enumerate(self.outer_vertices):
+            rotation=np.eye(3)
+            if len(ids)>=3:
+                original=self.rest[ids]-self.rest[ids].mean(0)
+                posed=vertices[ids]-vertices[ids].mean(0)
+                u,_,vt=np.linalg.svd(original.T@posed)
+                rotation=vt.T@u.T
+                if np.linalg.det(rotation)<0:
+                    vt[-1]*=-1;rotation=vt.T@u.T
+            self.posed_ray_basis.append(rotation)
         region_rows = []
         total_area = 0.
         max_depth = 0.
@@ -208,13 +209,7 @@ class RegionSurfaceChecks:
         for a in range(len(REGIONS)):
             for b in range(a+1, len(REGIONS)):
                 key = (a, b)
-                active = patches.get(key, set())-self.baseline_visible_faces.get(key, set())
-                area = float(areas[list(active)].sum()*.5) if active else 0.
-                depth = 0.
-                if key not in visible_contacts and not (self.closed_region[a] and self.closed_region[b]):
-                    if area:
-                        raise ValueError('visible_area_without_contact')
-                    continue
+                area,depth=patch_measurements.get(key,(0.,0.))
                 for region, against in ((a, b), (b, a)):
                     now = self.depths(vertices, region, against, posed_trees[against])
                     if not np.all(np.isfinite(now)):
@@ -249,6 +244,7 @@ class RegionSurfaceChecks:
     def provenance(self):
         return {
             "rule": "owner_20261014_023x_visible_penetration",
+            "measurement_revision": "contact_footprints_v3",
             "regions": list(REGIONS),
             "region_assignment": "fixed binding-pose summed skin-weight family; face majority",
             "visible_triangle_count": int(self.visible.sum()),
@@ -257,8 +253,8 @@ class RegionSurfaceChecks:
             "new_interregion_area_limit_m2": AREA_LIMIT,
             "new_penetration_depth_limit_m": DEPTH_LIMIT,
             "exposure_method": "global binding surface: two normal rays and eight oblique rays; anatomical cut surfaces do not become exterior; 10 micrometre ray endpoint accuracy",
-            "area_method": "conservative half-sum of unique newly contacting exposed triangle areas across all region pairs per frame; binding-pose physical contacts excluded",
-            "depth_method": "complete exposed material region nearest outward opposing-region surface; subtract the same material vertex/face binding-pose plane depth; open regional cut boundaries without an actual exposed crossing are not a solid volume; same-region new crossings use the minimum separating translation across either face plane",
+            "area_method": "half-sum of actual penetrating triangle fragments clipped to the opposing triangular footprint; pair sum conservatively bounds overlapping fragments; binding-pose physical contacts excluded",
+            "depth_method": "relative complete-region nearest-surface distance only after four of six outward exit rays confirm containment; axes follow each material region rigid fit; subtract actual binding containment distance; intersecting pairs use separating face depths clipped to their mutual footprints; pair counts do not gate",
             "baseline_contact_gap_m": .0001,
             "mesh_repaired": False,
         }

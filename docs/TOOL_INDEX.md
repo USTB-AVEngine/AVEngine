@@ -5,7 +5,7 @@
 
 自 2026-08-25 起，目录本身就是能力分组（阶段目录 m1…m7 已移除），
 本表按目录列出每个工具做什么。
-当前共 538 个工具脚本。
+当前共 540 个工具脚本。
 
 ## 资产生成与装配（`tools/assets/`）
 
@@ -53,6 +53,7 @@
 | `tools/assets/capture_canary.py` | Run one formal 75-state M2 canary capture in Habitat |
 | `tools/assets/capture_installed_research_review.py` | Run the current installed-prefix M2 Blender-room research review |
 | `tools/assets/capture_research_review.py` | Run the 75-state single-view M2 research-review capture in Habitat |
+| `tools/assets/cat_contact_patches.py` | Clip intersecting surface triangles to their actual contact footprints |
 | `tools/assets/cat_surface_checks.py` | Anatomical-region surface QA for unchanged cat meshes |
 | `tools/assets/check_prompt_token_budget.py` | Fail closed when a candidate profile's effective prompt cannot fit the model window |
 | `tools/assets/check_source_material_matrix.py` | Gate the complete source-material matrix and emit an offline review page |
@@ -61,6 +62,7 @@
 | `tools/assets/compile_animal_package.py` | Compile a bounded M2 research-candidate package |
 | `tools/assets/compile_static_animal_slide.py` | Flat-ground compiler for explicitly unanimated registered quadrupeds |
 | `tools/assets/compose_topdown_review.py` | Derive synchronized RGB + navmesh/descriptor top-down QA review media |
+| `tools/assets/derive_static_cat_support_plane.py` | Derive a static cat using one rigid four-paw leveling transform |
 | `tools/assets/derive_variant_contacts.py` | Derive generic package anchors and actor-space four-paw contacts |
 | `tools/assets/diagnose_animal_motion.py` | Inspect all authored Walking sources and immutable old cat caches |
 | `tools/assets/export_animal_motion_ue.py` | Prepare metric skeletal clips and validate a Kujiale route before import |
