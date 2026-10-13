@@ -73,3 +73,23 @@ def test_five_millimetre_tangential_motion_does_not_increase_depth():
     source=np.array([[[.1,.1,-.02],[.3,.1,-.02],[.1,.3,-.02]]])
     _,depth=inward_footprint(source+[.005,0,0],target,source_binding=source,target_binding=target)
     assert depth[0]<1e-12
+
+def test_cross_region_area_limit_sums_all_region_pairs():
+    from avengine.assets.quadruped_penetration import visible_penetration_gate
+    groups = [
+        {"region_pair": ["Body", "FL"], "new_area_m2": 15e-6, "new_maximum_depth_m": .0001},
+        {"region_pair": ["Body", "FR"], "new_area_m2": 15e-6, "new_maximum_depth_m": .0001},
+    ]
+    failures = visible_penetration_gate(groups)
+    assert len(failures) == 1
+    assert failures[0]["area_rejected"]
+    assert failures[0]["area_scope"] == "all_different_region_pairs_in_this_frame"
+
+
+def test_internal_region_area_is_excluded_from_cross_region_sum():
+    from avengine.assets.quadruped_penetration import visible_penetration_gate
+    groups = [
+        {"region_pair": ["Body", "FL"], "new_area_m2": 10e-6, "new_maximum_depth_m": .0001},
+        {"region_pair": ["FL", "FL"], "new_area_m2": .05, "new_maximum_depth_m": .001},
+    ]
+    assert visible_penetration_gate(groups) == []

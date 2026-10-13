@@ -119,6 +119,16 @@ def visible_penetration_gate(groups):
         depth_fail = row["new_maximum_depth_m"] > DEPTH_LIMIT_M + 1e-9
         if area_fail or depth_fail:
             failures.append(dict(row, area_rejected=area_fail, depth_rejected=depth_fail))
+    cross_total = sum(row["new_area_m2"] for row in groups
+                      if row["region_pair"][0] != row["region_pair"][1])
+    if cross_total > CROSS_REGION_AREA_LIMIT_M2 + 1e-12 and not any(
+            row["area_rejected"] for row in failures):
+        failures.append({
+            "region_pair": ["all_different_regions", "combined"],
+            "new_area_m2": float(cross_total), "new_maximum_depth_m": 0.,
+            "area_rejected": True, "depth_rejected": False,
+            "area_scope": "all_different_region_pairs_in_this_frame",
+        })
     return failures
 
 def semantic_vertex_regions(vertices, feet, head_min, head_max, tail_root, floor, height):
