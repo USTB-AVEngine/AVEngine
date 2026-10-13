@@ -152,6 +152,7 @@ def _modality(item):
 
 
 def export_items(items, window_id, media):
+    from avengine.qa.answer_format import option_id
     public, private = [], []
     for index, item in enumerate(items):
         # Enumeration IDs are independent of answer, actor and asset identifiers.
@@ -167,7 +168,7 @@ def export_items(items, window_id, media):
                 row['choices'] = [{'id': option['option'], 'text': option['label_zh']}
                                   for option in request['options']]
             canonical = gold['truth'] if form == 'open' else gold['gold']['value']
-            answer = canonical if form == 'open' else chr(65 + gold['gold']['correct_index'])
+            answer = canonical if form == 'open' else option_id(gold['gold']['correct_index'], len(gold['options']))
             public.append(row)
             private.append({'question_id': qid, 'logical_question_id': logical,
                             'canonical_answer': deepcopy(canonical), 'answer': deepcopy(answer),
@@ -177,6 +178,8 @@ def export_items(items, window_id, media):
                                               str(item.get('evidence', {}).get('query_frame', '')) + '__' +
                                               str(item.get('evidence', {}).get('event_id', '')) + '__' + str(index),
                             'authority_truth': deepcopy(item['truth'])})
+    from avengine.qa.answer_format import normalize_export
+    public, private = normalize_export(public, private)
     return public, private
 
 
@@ -301,6 +304,8 @@ def collect_questions(raw, window_id, media, *, seed='v7', items_per_family=5,
         if logical not in seen:
             counts[row['qa_id']] += 1
             seen.add(logical)
+    from avengine.qa.answer_format import normalize_export
+    public, private = normalize_export(public, private)
     return public, private, {'family_counts': {f: counts[f] for f in (*FAMILIES, *PANELS, 'V7-CONTENT-BIND')},
                              'duplicate_question_groups': duplicates, 'deferred': deferred, 'v6_generation': result,
                              'v6_items': items, 'facts': facts, 'semantic_manifest': manifest, 'content_binding':content, 'family_fact_overrides': family_fact_overrides, 'item_sampling_contexts': item_sampling_contexts, 'protocol': protocol,

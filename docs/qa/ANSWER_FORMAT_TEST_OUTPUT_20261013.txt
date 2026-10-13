@@ -1,0 +1,39 @@
+LOG avengine_format_unit_v8
+test_angle_export_keeps_the_original_authority_record (__main__.AnswerFormatTests.test_angle_export_keeps_the_original_authority_record) ... ok
+test_count_and_direction_text (__main__.AnswerFormatTests.test_count_and_direction_text) ... ok
+test_every_choice_label_scores_correctly_with_existing_scorer (__main__.AnswerFormatTests.test_every_choice_label_scores_correctly_with_existing_scorer) ... ok
+test_exported_mcq_boundary_scores_with_original_scorer (__main__.AnswerFormatTests.test_exported_mcq_boundary_scores_with_original_scorer) ... ok
+test_integer_angles_are_text_without_rounding (__main__.AnswerFormatTests.test_integer_angles_are_text_without_rounding) ... ok
+test_option_boundary_and_every_index (__main__.AnswerFormatTests.test_option_boundary_and_every_index) ... ok
+test_prompt_and_export_agree_and_do_not_mutate_gold (__main__.AnswerFormatTests.test_prompt_and_export_agree_and_do_not_mutate_gold) ... ok
+test_reformatting_is_idempotent (__main__.AnswerFormatTests.test_reformatting_is_idempotent) ... ok
+test_two_counts_keep_original_array_and_order (__main__.AnswerFormatTests.test_two_counts_keep_original_array_and_order) ... ok
+
+----------------------------------------------------------------------
+Ran 9 tests in 1.624s
+
+OK
+
+LOG avengine_fast_unit_old_v2
+463 passed, 36 skipped, 6038 deselected in 25.05s
+
+LOG avengine_fast_unit_new_v8
+463 passed, 36 skipped, 6047 deselected in 27.00s
+
+LOG avengine_targeted_old_v6
+........................................................................ [ 43%]
+........................................................................ [ 87%]
+....................                                                     [100%]
+164 passed in 8.62s
+
+LOG avengine_targeted_new_v8
+........................................................................ [ 43%]
+........................................................................ [ 87%]
+....................                                                     [100%]
+164 passed in 9.48s
+
+REAL GENERATED COMPARISONS
+{"generator": "unified_semantic", "status": "PASS", "comparison_rows": 2026, "unique_question_forms": 1042, "smoke_rows": 200}
+{"generator": "v7_protocol", "status": "PASS", "comparison_rows": 501, "unique_question_forms": 501, "smoke_rows": 200}
+{"generator": "continuous_scene", "status": "PASS", "comparison_rows": 368, "unique_question_forms": 368, "smoke_rows": 200}
+{"generator": "v7_native_pool", "status": "PASS", "comparison_rows": 2703, "unique_question_forms": 2703, "smoke_rows": 200}

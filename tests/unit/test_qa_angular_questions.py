@@ -45,7 +45,8 @@ def test_all_three_subsets_have_explicit_numeric_questions_and_public_visual_cal
         assert set(item["forms"]) == {"open"}
         assert item["forms"]["open"]["answer_type"] == "angle_deg"
         assert item["certification"]["status"] == "not_run"
-        assert "[-180°, 180°)" in item["model_input"]["open"]["question_en"]
+        assert "range -180 to 179" in item["model_input"]["open"]["question_en"]
+        assert "without the degree sign" in item["model_input"]["open"]["question_en"]
         assert "left is positive" in item["model_input"]["open"]["question_en"]
         assert ("camera_calibration" in item["model_input"]["open"]) == (subset == "V")
     assert len(by_subset["AV"]["evidence"]["competing_event_ids"]) >= 1

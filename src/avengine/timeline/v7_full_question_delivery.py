@@ -45,6 +45,8 @@ def collect_native_pool(scene,start,window_id,visual,media,evidence,quota_index,
     audit['candidate_budget']={'items_per_family':12,'QA14_additional_query_runs':5,'QA14_candidates_per_query_run':12,'QA14_query_partition_s':2,'modality_and_binding_gates_unchanged':True,'duplicate_stems_still_count_once':True}
     audit['native_bundle']=raw
     audit['native_listener_binding']='all measured native camera frames, no static pose shadow'
+    from avengine.qa.answer_format import normalize_export
+    public, private = normalize_export(public, private)
     return public,private,audit
 
 

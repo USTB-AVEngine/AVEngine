@@ -228,5 +228,7 @@ def generate_questions(scene, start_s, window_id, media, *, forms=('open', 'mcq'
         integer = (int(math.floor(angle + .5)) + 180) % 360 - 180
         emit('QA-25', f'target{rank}', f'{description}在第{query}秒的水平角度是多少？正前0°，左正右负，输出[-180,179]整数。', integer, 'integer[-180,179]',
              dict(evidence, query_s=query, azimuth_deg=angle, full_credit_deg=15, half_credit_deg=30), False)
+    from avengine.qa.answer_format import normalize_export
+    public, private = normalize_export(public, private)
     return public, private, {'protocol': 'STARSS23_v0.2', 'segments': segments,
                              'flags': flags, 'identity': identity_proof, 'exclusions': excluded}

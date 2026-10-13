@@ -436,5 +436,7 @@ def collect_content_binding(bundle, window_id, media, *, seed='v7'):
             counts[query['kind']]+=1
         except (KeyError,TypeError,ValueError) as error:
             deferred.append({'qa_id':PANEL_ID,'query_index':index,'code':'content_truth_or_public_query_invalid','detail':str(error)})
+    from avengine.qa.answer_format import normalize_export
+    public, private = normalize_export(public, private)
     return public,private,{'status':'pass' if public else 'blocked','logical_counts_by_kind':counts,
         'deferred':deferred,'formal_dataset_count':0,'source_registry_sha256':roster['source_registry_sha256']}

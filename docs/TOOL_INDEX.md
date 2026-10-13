@@ -5,7 +5,7 @@
 
 自 2026-08-25 起，目录本身就是能力分组（阶段目录 m1…m7 已移除），
 本表按目录列出每个工具做什么。
-当前共 513 个工具脚本。
+当前共 514 个工具脚本。
 
 ## 资产生成与装配（`tools/assets/`）
 
@@ -414,6 +414,7 @@
 | `tools/qa/merge_semantic_into_bank.py` | Append QA-26 to QA-28 from semantic builder runs to a copy of a question bank |
 | `tools/qa/mine_simple_questions.py` | Mine simple (A-group) questions from compiled QA fact tables |
 | `tools/qa/mine_temporal_questions.py` | Mine temporal (B-group) and numeric questions over intermittent fact tables |
+| `tools/qa/normalize_retained_v7_questions.py` | Export a format-only copy of a sealed v7 delivery; media remain read-only |
 | `tools/qa/pre_gpu_launch_ledger.py` | Fail-closed archival for prepared attempts that never reached a GPU launch |
 | `tools/qa/preflight_camera_clearance_depth.py` | Camera-only depth preflight: is the view from a candidate camera pose clear? |
 | `tools/qa/prepare_qa_v3_mcq.py` | Glue: facts (generator) -> split plan (1.3) -> MCQ items (1.4 input) |

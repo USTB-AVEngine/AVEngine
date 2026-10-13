@@ -93,5 +93,7 @@ def make_questions(scene,start_s,window_id,visual,appearances,media,*,quota_inde
             private.append({'question_id':logical+'__open','canonical_answer':item['canonical_answer'],
                 'answer':item['canonical_answer'],'evidence':item['evidence'],'comparison_key':item['key']})
     check=validate_question_counts(public,private,expected_allocation=allocation)
+    from avengine.qa.answer_format import normalize_export
+    public, private = normalize_export(public, private)
     return public,private,{'question_check':check,'protocol':audit,'candidate_pool_counts':{k:len(v) for k,v in pool.items()},
         'qualification':'native-pixel pilot candidates; full family floor and moving RIR energy must also pass'}

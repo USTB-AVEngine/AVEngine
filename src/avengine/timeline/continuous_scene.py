@@ -305,5 +305,7 @@ def generate_v02_questions(scene, start_s, window_id, media):
             emit("QA-21", f"target{rank+1}", f"{description}属于哪个声音类别？", mapped, list(QA21_CLASSES))
         else:
             excluded.append({"qa_id": "QA-21", "candidate": rank+1, "reason": "no_strict_v6_class_mapping"})
+    from avengine.qa.answer_format import normalize_export
+    public, private = normalize_export(public, private)
     return public, private, {"segments": segments, "exclusions": excluded,
                              "coverage": window_coverage(scene, start_s), "protocol": "STARSS23_v0.2"}

@@ -9,6 +9,7 @@ from __future__ import annotations
 from copy import deepcopy
 
 from avengine.qa import unified_catalog as u
+from avengine.qa.answer_format import option_id
 from avengine.qa.visibility_interpretation import prepare_facts_for_qa
 
 
@@ -84,7 +85,7 @@ def validate_v6_items(public, private, audit, *, seed='v7'):
                 cache[authority_id] = expected_forms
         expected = cache[authority_id][request['form']]
         canonical = expected['truth'] if request['form'] == 'open' else expected['gold']['value']
-        answer = canonical if request['form'] == 'open' else chr(65 + expected['gold']['correct_index'])
+        answer = canonical if request['form'] == 'open' else option_id(expected['gold']['correct_index'], len(expected['options']))
         ok = canonical == gold['canonical_answer'] and answer == gold['answer']
         row = {'question_id': request['question_id'], 'qa_id': family,
                'canonical_match': canonical == gold['canonical_answer'],

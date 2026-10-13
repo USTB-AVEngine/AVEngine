@@ -22,8 +22,10 @@ from avengine.qa.azimuth_publication import (
     PUBLISHED_CONVENTION, publish_azimuth_deg,
 )
 
-CONVENTION_EN = f" Report one integer horizontal angle in whole degrees: {_ANGLE_EN}."
-CONVENTION_ZH = f" 请只回答整数水平角度（度）：{_ANGLE_ZH}。"
+from avengine.qa.answer_format import ANGLE_INSTRUCTION
+
+CONVENTION_EN = " " + ANGLE_INSTRUCTION
+CONVENTION_ZH = " " + ANGLE_INSTRUCTION
 
 
 def public_camera_calibration(raw: Mapping[str, Any]) -> dict[str, Any] | None:

@@ -3850,6 +3850,7 @@ def _question_item(
     open_deferred_reason: Mapping[str, Any] | None = None,
     slug: str,
 ) -> dict[str, Any]:
+    from avengine.qa.answer_format import answer_text, format_prompt, option_id
     canonical = _canonical_qa_id(qa_id)
     if open_answer_type == "angle_deg" or (
         open_answer_type in {"time_s", "time_range_s"} and _time_display_precision(facts) == 0
@@ -3858,6 +3859,7 @@ def _question_item(
         evidence["answer_full_precision"] = copy.deepcopy(open_truth)
         if open_answer_type == "angle_deg":
             open_truth = (int(round(float(open_truth))) + 180) % 360 - 180
+            # The authority record retains its original display label.
             truth_label = f"{open_truth}°"
             if "integer" not in question_en:
                 question_en += " Answer in whole degrees."
@@ -3872,6 +3874,8 @@ def _question_item(
             truth_label = f"[{open_truth[0]}, {open_truth[1]}) s"
             question_en += " Answer in whole seconds."
             question_zh += " 请回答整数秒。"
+    question_en = format_prompt(question_en, answer_type=open_answer_type, qa_id=canonical, truth=open_truth)
+    question_zh = format_prompt(question_zh, answer_type=open_answer_type, qa_id=canonical, truth=open_truth)
     question_id = _question_id_for(
         canonical,
         facts,
@@ -3936,6 +3940,9 @@ def _question_item(
         "answer_type": open_answer_type,
         "truth": copy.deepcopy(open_truth),
     }
+    # Training serialization is separate from the raw authority record.
+    if open_answer_type in {"angle_deg", "count_pair", "count_single"} or canonical in {"QA-04", "QA-28"}:
+        open_form["teacher_answer"] = answer_text(open_truth, answer_type=open_answer_type, qa_id=canonical)
     if classes is not None:
         open_form["classes"] = classes
     if open_answer_type == "closed_set":
@@ -3954,6 +3961,8 @@ def _question_item(
     mcq_text_en = mcq_question_en if mcq_question_en is not None else question_en
     mcq_text_zh = mcq_question_zh if mcq_question_zh is not None else question_zh
     if order:
+        mcq_text_en = format_prompt(mcq_text_en, form="mcq", option_count=len(order))
+        mcq_text_zh = format_prompt(mcq_text_zh, form="mcq", option_count=len(order))
         forms["mcq"] = {
             "question_en": mcq_text_en,
             "question_zh": mcq_text_zh,
@@ -3980,7 +3989,7 @@ def _question_item(
             "question_zh": mcq_text_zh,
             "options": [
                 {
-                    "option": chr(ord("A") + index),
+                    "option": option_id(index, len(order)),
                     "label_en": option["label_en"],
                     "label_zh": option["label_zh"],
                 }
