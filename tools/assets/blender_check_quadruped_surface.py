@@ -170,8 +170,13 @@ def main():
    "new_pair_examples_diagnostic":[list(p) for p in sorted(new)[:10]]}
   rows.append(row)
   if index%30==0:print("SURFACE_FRAME",index,"pairs",len(hits),"baseline",len(baseline),"new_visible_failures",len(macro),"stretch",row["max_edge_growth"],flush=True)
+  if failures:
+   print("SURFACE_REJECTION_WITNESS",index,failures,flush=True)
+   break
  result={"schema":"blender_quadruped_visible_regional_surface_check_v3","gate_revision":"owner_20261014_023x","depth_metric":"relative_inward_material_depth_v1",
   "input":str(a.glb),"action":a.action,"frames":rows,"frame_count":len(rows),
+  "requested_frame_count":a.frames,"full_sequence_evaluated":len(rows)==a.frames,
+  "early_stop_reason":"first_verified_surface_rejection" if len(rows)<a.frames else None,
   "source_baseline_true_intersections":len(baseline),"source_baseline_coplanar_candidates":len(coplanar0),
   "new_true_triangle_pair_count_diagnostic":len(newpairs),"intersection_counts_are_admission_criteria":False,
   "relative_failures":failures,"worst_shard_share_area":max(x["shard_share_area"] for x in rows),

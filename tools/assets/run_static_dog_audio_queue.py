@@ -1,5 +1,5 @@
 """Qualify queued native dogs with fresh RIRs and a 45 minute asset timebox."""
-import argparse,datetime,fcntl,gc,json,os,pathlib,runpy,sys,time
+import argparse,datetime,fcntl,gc,json,os,pathlib,runpy,sys,time,signal
 import numpy as np
 ROOT=pathlib.Path("/data/jzy/tmp/claude_hardbank_20260923/v7_rig_dogs_20261014")
 WT=pathlib.Path(__file__).resolve().parents[2]
@@ -46,38 +46,75 @@ def main():
   items=queue()["items"];row=next((r for r in items if r["state"]=="pending"),None)
   if row is None:
    coverage=ROOT/"batch/coverage.json";c=json.loads(coverage.read_text()) if coverage.exists() else {}
-   if c.get("binding_and_geometry_finished"):
+   expected=(ROOT/"batch/owner023x_recheck_expected.json").exists()
+   recheck=ROOT/"batch/legacy_rechecks.json"
+   recheck_done=not expected or (recheck.exists() and json.loads(recheck.read_text()).get("finished"))
+   if c.get("binding_and_geometry_finished") and recheck_done:
     progress("移动RIR待验队列已处理；全部结果在batch/audio_queue.json，失败项未准入。");break
    time.sleep(10);continue
-  motion=pathlib.Path(row["native_motion"]);m=json.loads(motion.read_text());aid=m["asset_id"];start=time.monotonic()
-  update(motion,{"state":"running","started":stamp(),"asset_id":aid,"motion_mode":m["motion_mode"]})
-  endpoint=motion.parent/"audio_endpoints_v1";common=["--motion",motion,"--house",ROOT/"inputs/house.json","--runtime",ROOT/"inputs/runtime.json"]
-  endpoint_code=tool("prepare_animal_audio_endpoints.py",[*common,"--output",endpoint,"--cores",cores()])
-  rounds=[];audio=None;last=None
-  if endpoint_code==0:
-   previous=endpoint
-   for number in range(1,a.maximum_rounds+1):
-    if time.monotonic()-start>2700:
-     update(motion,{"timebox":"45_minute_audio_asset_budget"});break
-    output=motion.parent/f"audio_v{number}"
-    flags=["--refine-failed"] if number>1 else []
-    rc=tool("qualify_animal_audio_parallel.py",[*common,"--previous",previous,"--output",output,"--cores",cores(),*flags])
-    last=output/"audio.json";result=json.loads(last.read_text()) if last.exists() else {"status":"execution_failed"}
-    rounds.append({"round":number,"returncode":rc,"audio_json":str(last),"status":result["status"]})
-    if result.get("status")=="pass":audio=last;break
-    diag=refinement_diagnosis(output);atomic(output/"diagnosis.json",diag)
-    progress(aid+" RIR两个失败区间已停并诊断："+json.dumps(diag,ensure_ascii=False)[:600])
-    if not diag["permitted"]:break
-    previous=output
-  if audio:
-   from avengine.assets.animal_motion.service import completed_checks
-   result=json.loads(audio.read_text());joint=completed_checks(m,result,m["motion_mode"])
-   physical=m.get("native_direction_negative_controls",{}).get("status")=="pass"
-   passed=joint["status"]=="pass" and physical
-   admission={"asset_id":aid,"species":"dog","status":"pass" if passed else "blocked","classification":"有动画并通过" if passed and m["motion_mode"]=="walk_animation" else "只能滑行" if passed else "未准入","motion_mode":m["motion_mode"],"joint_animation_present":m["motion_mode"]=="walk_animation","reason":None if m["motion_mode"]=="walk_animation" else "automatic_binding_attempts_rejected_or_timeboxed","animation_attempts":m.get("animation_attempts",[]),"native_motion":str(motion),"audio":str(audio),"combined_checks":joint,"native_physically_rotated_controls_pass":physical,"thresholds_changed":False,"completed":stamp()}
-   atomic(motion.parent/"admission.json",admission);update(motion,{"state":"passed" if passed else "blocked","admission":str(motion.parent/"admission.json"),"audio":str(audio),"rounds":rounds,"finished":stamp()})
-   progress(aid+" "+admission["classification"]+"；联合验收="+str(motion.parent/"admission.json"))
-  else:
-   update(motion,{"state":"blocked","endpoint_returncode":endpoint_code,"rounds":rounds,"last_audio":str(last) if last else None,"finished":stamp(),"reason":"moving_audio_not_qualified_within_timebox","fallback_geometry_needed":m["motion_mode"]=="walk_animation"})
-   progress(aid+" 移动RIR未准入，保留原生几何结果并转下一只；"+str(last))
+  motion=pathlib.Path(row["native_motion"])
+  previous_handler=signal.signal(signal.SIGALRM,audio_timeout)
+  started=time.monotonic();signal.alarm(2700)
+  try:
+   process_asset(row,a.maximum_rounds)
+  except AudioTimebox:
+   m=json.loads(motion.read_text())
+   update(motion,{"state":"blocked","finished":stamp(),"timebox":"45_minute_audio_asset_budget","wall_s":time.monotonic()-started,"reason":"fresh_native_audio_incomplete_within_timebox","fallback_geometry_needed":m["motion_mode"]=="walk_animation","partial_evidence_preserved":True})
+   progress(m["asset_id"]+" 移动RIR45分钟硬超时，已只停止核对过的自有子进程；部分端点/三次独立参考保留，未准入。")
+  finally:
+   signal.alarm(0);signal.signal(signal.SIGALRM,previous_handler);gc.collect()
+
+class AudioTimebox(BaseException):
+ pass
+
+def audio_timeout(signum,frame):
+ import psutil
+ owned=[]
+ for p in psutil.Process().children(recursive=True):
+  try:owned.append((p,p.create_time(),p.cmdline()))
+  except psutil.Error:pass
+ for p,created,command in reversed(owned):
+  try:
+   if p.create_time()==created and p.cmdline()==command:p.terminate()
+  except psutil.Error:pass
+ _,alive=psutil.wait_procs([x[0] for x in owned],timeout=3)
+ for p in alive:
+  original=next((x for x in owned if x[0].pid==p.pid),None)
+  try:
+   if original and p.create_time()==original[1] and p.cmdline()==original[2]:p.kill()
+  except psutil.Error:pass
+ raise AudioTimebox()
+
+def process_asset(row,maximum_rounds):
+ motion=pathlib.Path(row["native_motion"]);m=json.loads(motion.read_text());aid=m["asset_id"];start=time.monotonic()
+ update(motion,{"state":"running","started":stamp(),"asset_id":aid,"motion_mode":m["motion_mode"]})
+ endpoint=motion.parent/"audio_endpoints_v1";common=["--motion",motion,"--house",ROOT/"inputs/house.json","--runtime",ROOT/"inputs/runtime.json"]
+ endpoint_code=tool("prepare_animal_audio_endpoints.py",[*common,"--output",endpoint,"--cores",cores()])
+ rounds=[];audio=None;last=None
+ if endpoint_code==0:
+  previous=endpoint
+  for number in range(1,maximum_rounds+1):
+   if time.monotonic()-start>2700:
+    update(motion,{"timebox":"45_minute_audio_asset_budget"});break
+   output=motion.parent/f"audio_v{number}"
+   flags=["--refine-failed"] if number>1 else []
+   rc=tool("qualify_animal_audio_parallel.py",[*common,"--previous",previous,"--output",output,"--cores",cores(),*flags])
+   last=output/"audio.json";result=json.loads(last.read_text()) if last.exists() else {"status":"execution_failed"}
+   rounds.append({"round":number,"returncode":rc,"audio_json":str(last),"status":result["status"]})
+   if result.get("status")=="pass":audio=last;break
+   diag=refinement_diagnosis(output);atomic(output/"diagnosis.json",diag)
+   progress(aid+" RIR两个失败区间已停并诊断："+json.dumps(diag,ensure_ascii=False)[:600])
+   if not diag["permitted"]:break
+   previous=output
+ if audio:
+  from avengine.assets.animal_motion.service import completed_checks
+  result=json.loads(audio.read_text());joint=completed_checks(m,result,m["motion_mode"])
+  physical=m.get("native_direction_negative_controls",{}).get("status")=="pass"
+  passed=joint["status"]=="pass" and physical
+  admission={"asset_id":aid,"species":"dog","status":"pass" if passed else "blocked","classification":"有动画并通过" if passed and m["motion_mode"]=="walk_animation" else "只能滑行" if passed else "未准入","motion_mode":m["motion_mode"],"joint_animation_present":m["motion_mode"]=="walk_animation","reason":None if m["motion_mode"]=="walk_animation" else "automatic_binding_attempts_rejected_or_timeboxed","animation_attempts":m.get("animation_attempts",[]),"native_motion":str(motion),"audio":str(audio),"combined_checks":joint,"native_physically_rotated_controls_pass":physical,"thresholds_changed":False,"completed":stamp()}
+  atomic(motion.parent/"admission.json",admission);update(motion,{"state":"passed" if passed else "blocked","admission":str(motion.parent/"admission.json"),"audio":str(audio),"rounds":rounds,"finished":stamp()})
+  progress(aid+" "+admission["classification"]+"；联合验收="+str(motion.parent/"admission.json"))
+ else:
+  update(motion,{"state":"blocked","endpoint_returncode":endpoint_code,"rounds":rounds,"last_audio":str(last) if last else None,"finished":stamp(),"reason":"moving_audio_not_qualified_within_timebox","fallback_geometry_needed":m["motion_mode"]=="walk_animation"})
+  progress(aid+" 移动RIR未准入，保留原生几何结果并转下一只；"+str(last))
 if __name__=="__main__":main()

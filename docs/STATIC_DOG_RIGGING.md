@@ -15,3 +15,11 @@
 监督器、CPU EGL配置、机器、PID、PSS、磁盘与停止命令在任务产物的JOBS.json。新作业需available≥40GB、/data free≥150GB；仅CPU、nice≥10、单核亲和性、总PSS≤6GB、新增≤8GB，截止2026-10-14 18:00 SGT。不push，不改共享环境，不删除源或已有证据。
 
 每只结果及真实证据最终汇总在任务产物，几何通过与联合通过分开。单个HM3D房间通过不能宣称任意房间均可用；执行故障不能冒充动物没有动画。
+
+The replacement audio queue applies a hard 2700-second SIGALRM per asset across endpoint generation and qualification. It verifies PID creation time and command before terminating only its own child tree; incomplete endpoints/reference arrays remain as evidence and receive no admission. The older running queue is replaced only between assets.
+
+Rejected surface candidates stop at the first measured failure and record requested versus evaluated frame counts and the rejection witness. Admission still requires all 145 CPU/surface/native frames.
+
+Later bindings keep upper-body/Head/Tail local Idle transforms while transferring CC0 Walking on all four fitted limbs. The submitted solver still advances 48 mm per cycle and lifts each paw 8 mm; skin deformation and every original gate remain mandatory. This avoids incidental tail/head movement increasing crossed regional area; it does not alter target geometry or relax a gate.
+
+A standing-slide-only rigid vertical placement parameter translates the entire native drawable, mouth and all foot coordinates consistently. It can lower the discretionary 0.4 mm clearance only when measured full-skin floor clearance and the over-height paw leave a positive feasible interval. Native rays and checks are rerun on all 145 frames; no source foot landmark or floor truth is edited.

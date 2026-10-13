@@ -16,7 +16,9 @@ from avengine.assets.roster_motion.pose import rigid_glb
 from avengine.assets.roster_motion.contact import yaw_matrix
 from avengine.capture.continuous_native_video import NativeContinuousVideo
 
-def run(record,house,inputs,route,output,*,speed=.05,period=2.4,seconds=4.8,slots=8,mode="walk_animation",animation_attempts=None):
+def run(record,house,inputs,route,output,*,speed=.05,period=2.4,seconds=4.8,slots=8,mode="walk_animation",animation_attempts=None,rigid_vertical_shift_m=0.0):
+    if not math.isfinite(rigid_vertical_shift_m):raise ValueError("finite_rigid_vertical_shift_required")
+    if mode!="slide_no_animation" and rigid_vertical_shift_m:raise ValueError("vertical_placement_adjustment_is_only_for_original_standing_slide")
     output=pathlib.Path(output);output.mkdir(parents=True,exist_ok=False);(output/"frames").mkdir()
     p0=np.array(route["root_m"],float);yaw=float(route["yaw_rad"]);rotation=yaw_matrix(yaw)
     eye=np.asarray(house["room"]["placement"]["camera_m"],float);target=p0+rotation@np.array([0,.4,-speed*seconds/2])
@@ -27,7 +29,7 @@ def run(record,house,inputs,route,output,*,speed=.05,period=2.4,seconds=4.8,slot
     video=None;encoder=None;start=time.process_time()
     code_root=pathlib.Path(__file__).resolve().parents[2]
     commit=subprocess.check_output(["git","-C",str(code_root),"rev-parse","HEAD"],text=True).strip()
-    result={"asset_id":record["asset_id"],"status":"pending","backend":"Habitat CPU llvmpipe","house":house["house"],"motion_mode":mode,"joint_animation_present":mode=="walk_animation","animation_attempts":animation_attempts or [],"frames":[],"audio_status":"not_run","native_validation_code_commit":commit,"bounded_adapter":{"pose_slots":slots,"reset_before_buffer_reuse":True,"all_frame_checks_retained":True,"thresholds_changed":False},"native_direction_negative_frames":{"180":[],"90":[]}}
+    result={"asset_id":record["asset_id"],"status":"pending","backend":"Habitat CPU llvmpipe","house":house["house"],"motion_mode":mode,"joint_animation_present":mode=="walk_animation","animation_attempts":animation_attempts or [],"frames":[],"audio_status":"not_run","native_validation_code_commit":commit,"bounded_adapter":{"pose_slots":slots,"reset_before_buffer_reuse":True,"all_frame_checks_retained":True,"thresholds_changed":False},"native_direction_negative_frames":{"180":[],"90":[]},"rigid_vertical_placement_shift_m":rigid_vertical_shift_m}
     try:
         video,(eye,cf,cr,cu)=fresh();renderer=copy.deepcopy(video.receipt)
         stagepath=pathlib.Path(house["input"].get("visual_source") or pathlib.Path(house["input"]["scene_directory"])/(house["input"]["scan_id"]+".glb"))
@@ -49,7 +51,13 @@ def run(record,house,inputs,route,output,*,speed=.05,period=2.4,seconds=4.8,slot
             if i and i%slots==0:
                 video.close();video=None;gc.collect()
                 video,(eye,cf,cr,cu)=fresh();resets.append(i)
-            parts,row=walk.frame(float(t));v,f=triangle_mesh(rig.document,rig.binary,parts);root=p0+rotation@np.asarray(row["world_root_m"]);world=v@rotation.T+root
+            parts,row=walk.frame(float(t))
+            if rigid_vertical_shift_m:
+                # Physical placement only: source parts, floor rays and judges remain unchanged.
+                row["world_root_m"][1]+=rigid_vertical_shift_m
+                for foot in row["feet"].values():
+                    for key in ("support_world_m","support_target_world_m","sole_world_m"):foot[key][1]+=rigid_vertical_shift_m
+            v,f=triangle_mesh(rig.document,rig.binary,parts);root=p0+rotation@np.asarray(row["world_root_m"]);world=v@rotation.T+root
             row["minimum_nonfloor_clearance_m"]=clearance.check(world,f)
             near=world[world[:,1]<=p0[1]+.08]
             if not len(near):raise ValueError("no_near_floor_skin_vertices")
@@ -72,7 +80,7 @@ def run(record,house,inputs,route,output,*,speed=.05,period=2.4,seconds=4.8,slot
             bone=obj.root_scene_node.create_child();bone.transformation=video.mn.Matrix4(np.asarray(row["mouth_bone_matrix"]))
             mouth=bone.create_child();mouth.translation=video.mn.Vector3(row["mouth_bone_local_m"]);actual_mouth=np.asarray(mouth.absolute_transformation(),float)[:3,3]
             hn=obj.root_scene_node.create_child();hn.translation=video.mn.Vector3(row["head_m"]);tn=obj.root_scene_node.create_child();tn.translation=video.mn.Vector3(row["tail_m"])
-            row.update(frame_index=i,root_world_m=native[:3,3].tolist(),head_world_m=np.asarray(hn.absolute_translation).tolist(),tail_world_m=np.asarray(tn.absolute_translation).tolist(),mouth_world_m=actual_mouth.tolist(),pose_glb=str(path),pose_buffer_is_transient=True,pose_reconstruction={"source_master":str(rig.path),"source_inventory":record.get("walking_candidate"),"time_s":float(t),"speed_m_s":speed,"period_s":period,"route":route},native_root_error_m=float(np.max(np.abs(native-matrix))),native_emitter_readback_error_m=float(np.linalg.norm(actual_mouth-(native@np.r_[row["mouth_m"],1])[:3])))
+            row.update(frame_index=i,root_world_m=native[:3,3].tolist(),head_world_m=np.asarray(hn.absolute_translation).tolist(),tail_world_m=np.asarray(tn.absolute_translation).tolist(),mouth_world_m=actual_mouth.tolist(),pose_glb=str(path),pose_buffer_is_transient=True,pose_reconstruction={"source_master":str(rig.path),"source_inventory":record.get("walking_candidate"),"time_s":float(t),"speed_m_s":speed,"period_s":period,"route":route,"rigid_vertical_shift_m":rigid_vertical_shift_m},native_root_error_m=float(np.max(np.abs(native-matrix))),native_emitter_readback_error_m=float(np.linalg.norm(actual_mouth-(native@np.r_[row["mouth_m"],1])[:3])))
             for foot in row["feet"].values():
                 for k in ("support_world_m","support_target_world_m","sole_world_m"):foot[k]=(native@np.r_[np.asarray(foot[k])-np.asarray(row["world_root_m"]),1])[:3].tolist()
                 wp=np.asarray(foot["sole_world_m"]);ray=video.hs.geo.Ray(video.mn.Vector3(wp+[0,.2,0]),video.mn.Vector3(0,-1,0));hits=[h for h in video.sim.cast_ray(ray,.85).hits if int(h.object_id)!=obj.object_id]
@@ -116,9 +124,10 @@ def main():
     p=argparse.ArgumentParser(description=__doc__)
     for flag in ("inventory","house","runtime","route","output"):p.add_argument("--"+flag,type=pathlib.Path,required=True)
     p.add_argument("--asset",required=True);p.add_argument("--speed",type=float,default=.05);p.add_argument("--period",type=float,default=2.4);p.add_argument("--seconds",type=float,default=4.8);p.add_argument("--pose-slots",type=int,default=8)
+    p.add_argument("--rigid-vertical-shift-m",type=float,default=0.0)
     p.add_argument("--mode",choices=("walk_animation","slide_no_animation"),default="walk_animation");p.add_argument("--animation-attempts",type=pathlib.Path)
     a=p.parse_args();record=next(r for r in json.loads(a.inventory.read_text())["assets"] if r["asset_id"]==a.asset)
-    result=run(record,json.loads(a.house.read_text()),json.loads(a.runtime.read_text()),json.loads(a.route.read_text()),a.output,speed=a.speed,period=a.period,seconds=a.seconds,slots=a.pose_slots,mode=a.mode,animation_attempts=json.loads(a.animation_attempts.read_text()) if a.animation_attempts else None)
+    result=run(record,json.loads(a.house.read_text()),json.loads(a.runtime.read_text()),json.loads(a.route.read_text()),a.output,speed=a.speed,period=a.period,seconds=a.seconds,slots=a.pose_slots,mode=a.mode,animation_attempts=json.loads(a.animation_attempts.read_text()) if a.animation_attempts else None,rigid_vertical_shift_m=a.rigid_vertical_shift_m)
     print({k:result.get(k) for k in ("asset_id","status","error","frame_count","max_emitter_error_m","min_visible_pixels","cpu_s")},flush=True)
     if result["status"]!="geometry_pass_audio_pending":raise SystemExit(2)
 if __name__=="__main__":main()
