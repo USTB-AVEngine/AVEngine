@@ -30,8 +30,8 @@ def witness_scene(room,assets):
 def static_categories(house,room,inputs,catalog,categories,directory,save_samples=False):
     inputs=deepcopy(inputs)
     # Finite census proposals only; the complete parent runtime is untouched.
-    inputs['visible_placement_max_proposals_per_asset']=192
-    inputs['visible_placement_max_contact_attempts_per_asset']=24
+    inputs['visible_placement_max_proposals_per_asset']=128
+    inputs['visible_placement_max_contact_attempts_per_asset']=16
     inputs['room_sweep_one_view_witness']=True
     inputs['room_sweep_max_asset_wall_seconds']=180
     start=time.monotonic();cpu=time.process_time();directory=Path(directory)
@@ -117,7 +117,7 @@ def static_categories(house,room,inputs,catalog,categories,directory,save_sample
             'categories':results,'chair_seated_status':results['chair_seated']['status'],
             'room_area_m2':room['floor_area_m2'],'native_renderer':video.receipt,
             'wall_seconds':time.monotonic()-start,'process_cpu_seconds':time.process_time()-cpu,
-            'sampling_budget':{'support_proposals_per_asset':192,'native_contact_attempts_per_asset':24,'exhaustion_is_not_proof_of_room_impossibility':True,'single_measured_native_view':True,'asset_wall_timebox_seconds':180},
+            'sampling_budget':{'support_proposals_per_asset':128,'native_contact_attempts_per_asset':16,'exhaustion_is_not_proof_of_room_impossibility':True,'single_measured_native_view':True,'asset_wall_timebox_seconds':180},
             'max_rss_kib':resource.getrusage(resource.RUSAGE_SELF).ru_maxrss,
             'formal_parent_count':0,'GPU_jobs':0}
     except Exception as error:
