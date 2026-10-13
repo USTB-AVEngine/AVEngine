@@ -284,6 +284,11 @@ class UENativeContinuousVideo:
                         mask_centroid_px=[float(xs.mean()),float(ys.mean())] if len(xs) else None,
                         mask_bbox_xyxy=[int(xs.min()),int(ys.min()),int(xs.max()),int(ys.max())] if len(xs) else None)
                     mouths[actor['endpoint_id']].append({'time_s':index/FPS,'position_m':actor['emitter_position_m']})
+                physical_actors=[]
+                if getattr(self,'current_native_environment',False):
+                    from avengine.capture.kujiale_pilot_environment import capture_frame
+                    if any(abs(a['native_foot_contact']['gap_m'])>.015 for a in actors):raise ValueError('current pilot human contact exceeds 15 mm')
+                    physical_actors=capture_frame(self,index,bgr,normal,semantic,targets,ids,pose_id)
                 if collect_pixel_visibility:
                     from avengine.qa.pixel_visibility import compile_depth_pixel_visibility_truth
                     common={'renderer_backend':'ue_spear','rgb_renderer_backend':'ue_spear',
@@ -322,6 +327,7 @@ class UENativeContinuousVideo:
                             'native_foot_contact':actor['native_foot_contact']})
                 rgb=self.cv2.cvtColor(self.cv2.resize(bgr,(self.width,self.height),interpolation=self.cv2.INTER_AREA),self.cv2.COLOR_BGR2RGB)
                 if float(rgb.std())<2:raise ValueError('native UE scene is empty')
+                actors.extend(physical_actors)
                 frames.append({'frame_index':index,'time_s':index/FPS,'actors':actors,'rgb_std':float(rgb.std())})
                 if index in reviews:
                     self.cv2.imwrite(str(path.parent/f'native_frame_{index:04d}.png'),self.cv2.cvtColor(rgb,self.cv2.COLOR_RGB2BGR))
@@ -352,7 +358,7 @@ class UENativeContinuousVideo:
         visibility={'pixel_visibility_truth':visibility_truth if visibility_truth is not None else {'status':'not_run_unqualified_native_stream'},
             'alignment':{'status':'pass' if visibility_truth is not None else 'not_run','mode':'same_UE_scene_per_instance_native_depth_rerender',
                 'renderer_backend':'ue_spear','published_RGB_scene':self.house['input']['ue_map_path'],
-                'rendered_native_target_depth_passes':len(frames)*len(self.assets),
+                'rendered_native_target_depth_passes':sum(len(f['actors']) for f in frames),
                 'root_max_error_m':max((a['root_max_error'] for f in frames for a in f['actors']),default=0.),
                 'target_only_root_max_error_m':target_pose_max_error,'target_only_animation_max_error_s':target_animation_max_error,
                 'camera_position_max_error_m':camera_position_max_error,

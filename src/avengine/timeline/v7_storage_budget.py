@@ -69,12 +69,13 @@ def configure_kujiale_production(output,budget_root,*,workers):
     output=Path(output).resolve()
     if budget_root is None:raise StorageBudgetExceeded("native production needs explicit own output root")
     root=Path(budget_root).resolve()
-    if root.name!='ue_round14' or not str(root).startswith('/data/jzy/tmp/claude_hardbank_20260923/v7_kujiale_20261003/') or not output.is_relative_to(root):
+    if root.name not in {'ue_round14','ue_round21_pilot'} or not str(root).startswith('/data/jzy/tmp/claude_hardbank_20260923/v7_kujiale_20261003/') or not output.is_relative_to(root):
         raise StorageBudgetExceeded("Kujiale native production output escaped authorized task")
     if not 1<=workers<=4:raise StorageBudgetExceeded("Kujiale resource profile supports one to four native workers")
     policy={"root":str(root),"filesystem":"/data","minimum_free_bytes":100_000_000_000,
             "maximum_task_bytes":24_000_000_000,"concurrent_write_margin_bytes":workers*128_000_000,
             "policy":"Round14 native production; separate full task growth monitor <=30GB including UE Content/DDC/worktree", "local_48g":True}
+    if root.name=='ue_round21_pilot':policy.update(minimum_free_bytes=150_000_000_000,maximum_task_bytes=60_000_000_000,policy='Round21 train-only native pilot; no training export or transfer')
     os.environ[ENV_KEY]=json.dumps(policy,sort_keys=True)
     check_write(output,expected_bytes=0)
     return policy

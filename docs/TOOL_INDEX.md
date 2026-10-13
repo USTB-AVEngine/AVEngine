@@ -5,7 +5,7 @@
 
 自 2026-08-25 起，目录本身就是能力分组（阶段目录 m1…m7 已移除），
 本表按目录列出每个工具做什么。
-当前共 569 个工具脚本。
+当前共 572 个工具脚本。
 
 ## 资产生成与装配（`tools/assets/`）
 
@@ -307,6 +307,7 @@
 | `tools/timeline/generate_v7_scenes.py` | Seed-driven restartable CPU native candidates. Formal mode fails closed |
 | `tools/timeline/pilot_continuous_scenes.py` | CPU-only restartable continuous-scene pilot and native RIR throughput probe |
 | `tools/timeline/pilot_v7_kujiale_ue.py` | Run one measured Kujiale UE/SPEAR research pilot through unchanged v7 stages |
+| `tools/timeline/prepare_kujiale_asset_pilot.py` | Prepare joint native-LOD placements for a train-only Kujiale asset pilot |
 | `tools/timeline/prepare_v7_diagnostic_aliases.py` | Give diagnostic media neutral IDs and quarantine incompatible public domains |
 | `tools/timeline/prepare_v7_diagnostic_seed_tables.py` | Extend reproducible v7-S/full seeds with simulation-only diagnostic axes |
 | `tools/timeline/prepare_v7_quota_seed_tables.py` | Default aggregate-profile v7 requests with a separate 0--8 coverage stratum |
@@ -315,6 +316,8 @@
 | `tools/timeline/qualify_native_counterfactuals.py` | Native 2x2 appearance/association canary; audit actual media and answers |
 | `tools/timeline/qualify_v7_scenario_quotas.py` | CPU native static-crowd diagnostics for actual v0.2 speaker/spatial questions |
 | `tools/timeline/qualify_v7_vctk.py` | Automatically qualify recorded VCTK inputs, preserving original clip clocks |
+| `tools/timeline/repair_kujiale_asset_pilot.py` | Prepare fresh failed-parent recipes with native view and RIR-qualified supports |
+| `tools/timeline/report_kujiale_asset_pilot.py` | Write the local native Kujiale asset pilot's Chinese, image-embedded report |
 | `tools/timeline/review_native_windows.py` | Read five encoded native windows and compare head pixels to native FOA |
 | `tools/timeline/summarize_continuous_pilot.py` | Read back continuous-pilot media, summarize coverage, and estimate CPU throughput |
 | `tools/timeline/synthesize_native_pilot.py` | Resume native-mouth CPU audio and complete 10 s qualification candidates |

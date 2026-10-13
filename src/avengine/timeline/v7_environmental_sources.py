@@ -39,8 +39,15 @@ def attach_environmental_program(scene,program,plan,admitted,rng,starts):
     scene['production_scope']='v7-S critical coverage batch1; optional families/motion batch2'
     candidates=scene['native_placement_candidates']
     if not candidates:raise ValueError('native environmental placement candidates missing')
+    physical=plan.get('native_environment')
+    if physical is not None:
+        audible=[x for x in physical if not x.get('silent_decor')]
+        if [x['sound_class'] for x in audible]!=classes:raise ValueError('physical asset classes differ from recording requests')
+        scene['require_current_native_environment']=True
+        scene['decorations']=[deepcopy(x) for x in physical if x.get('silent_decor')]
     for index,cls in enumerate(classes):
-        pool=[r for r in admitted if r.get('sound_class')==cls and r.get('dataset')!='VCTK-Corpus 0.92']
+        binding=audible[index] if physical is not None else None
+        pool=[r for r in admitted if r.get('sound_class')==cls and (binding is not None or r.get('dataset')!='VCTK-Corpus 0.92')]
         if not pool:raise ValueError('actual recorded environmental class pool absent: '+cls)
         record=recording_header(pool[int(rng.integers(len(pool)))]);ep='environment'+str(index+1)
         is_playback=cls in {'speech_playback','music_playback','any_audioset_class_playback'}
@@ -52,6 +59,11 @@ def attach_environmental_program(scene,program,plan,admitted,rng,starts):
             'trajectory':[{'time_s':0.,'position_m':point},{'time_s':30.,'position_m':point}],
             'sound_class_provenance':{'original_id':record['original_id'],'source_uri':record['screens']['license'].get('source_uri'),'license':record['screens']['license']['license'],'label':'upstream automatic recording admission'},
             'visual_binding':'none; actual native scenegraph point has no mesh'}
+        if binding is not None:
+            point=deepcopy(binding['expected_emitter_m'])
+            scene['sources'][ep].update(native_asset_id=binding['asset_id'],native_visual_kind='registered_physical',
+                native_scene_plan=deepcopy(binding),visual_binding='registered original native UE mesh; current joint-scene qualification required',
+                trajectory=[{'time_s':0.,'position_m':point},{'time_s':30.,'position_m':point}])
         # Short observed excerpts are allowed for effects, never for authored
         # transcript supervision. Keep the actual crop in the dry receipt.
         length=min(2.,record['duration_s']);ticks=max(1,math.floor(length*10))
@@ -62,7 +74,8 @@ def attach_environmental_program(scene,program,plan,admitted,rng,starts):
         for start in starts:
             # A late class probe and a carry-in excerpt occur in a continuous
             # world. Counts remain based on actual measured activity.
-            for offset in (0.,float(plan.get('environment_probe_offset_s',7.6))):
+            offsets=(.9+index*.5,6.+index*.5) if binding is not None else (0.,float(plan.get('environment_probe_offset_s',7.6)))
+            for offset in offsets:
                 lo=round((start+offset)*10);hi=lo+ticks
                 if hi>300:raise ValueError('environment crop exceeds the continuous world')
                 eid=f'event_{len(scene["events"]):04d}'
@@ -173,7 +186,7 @@ def collect_admitted_class_questions(raw,window_id,media,proof,base_audit,domain
         # A unique onset identifies the target; labels and waveform provenance
         # remain private, like the original STARSS class question.
         q={'question_id':logical+'__open','logical_question_id':logical,'qa_id':'V7-CLASS34','protocol_panel':'v7_admitted_recording_classes','modality':'audio','form':'open','question_zh':when+'属于哪一类声音？','question_en':'Which admitted sound class is the sound at the stated onset?','media':dict(media),'answer_type':'closed_set','choices':[{'id':c,'text':c} for c in domain]}
-        a={'question_id':q['question_id'],'logical_question_id':logical,'canonical_answer':s['sound_class'],'answer':s['sound_class'],'comparison_key':'admitted_class34/'+tag,'evidence':{'protocol':'continuous_sim_recorded_class_100ms_v1','window_start_s':proof['window_start_s'],'activity':s,'domain':list(domain),'source':'actual emitted dry source measured activity and upstream recording admission','native_source':'observed Habitat audio-only scenegraph point'},'counterfactual_role':'audio'}
+        a={'question_id':q['question_id'],'logical_question_id':logical,'canonical_answer':s['sound_class'],'answer':s['sound_class'],'comparison_key':'admitted_class34/'+tag,'evidence':{'protocol':'continuous_sim_recorded_class_100ms_v1','window_start_s':proof['window_start_s'],'activity':s,'domain':list(domain),'source':'actual emitted dry source measured activity and upstream recording admission','native_source':'observed registered native mesh and attached emitter' if any(x.get('visual_binding')=='actual registered native UE mesh' for x in proof.get('actor_profiles',{}).values()) else 'observed native audio component'},'counterfactual_role':'audio'}
         authority={'status':'pass','question_id':q['question_id'],'qa_id':q['qa_id'],'modality':'audio',
             'authority_kind':'v7_admitted_recording_class_100ms_v1','predicate_source':'actual admitted dry receipt activity; no v6 QA predicate modified',
             'forms':{'open':{'answer_type':'closed_set','closed_set_policy':'token_negation_v2','classes':{c:[c] for c in domain},'truth':s['sound_class']}}}

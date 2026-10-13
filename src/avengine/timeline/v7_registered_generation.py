@@ -21,7 +21,7 @@ from avengine.timeline.v7_production_contract import validate_question_counts,qu
 from avengine.spatial_audio.audio import write_float32_wav
 
 ALPHA_RELEASE_PROFILE='v7-S-recorded-registered-native-14-v6-critical-coverage'
-PRODUCER_QA_REVISION='registered-native-UE-audio-only-component-v3'
+PRODUCER_QA_REVISION='registered-native-UE-physical-emitter-v4-current-scene'
 
 
 def _cpu():
@@ -188,6 +188,10 @@ def generate_registered_parent(row,house,inputs,assets,source_admission,human_ad
                     proof.update(dialogue_evidence(scene,program,local_receipt,visual,semantic,start,str(vd/'native_registered_visual_evidence.json')))
                 quota=row['question_quota_base']+row['members'].index(member)*row['window_count']+wi
                 q,a,audit=collect_native_pool(scene,start,wid,visual,media,proof,quota,row['questions_per_window'])
+                if base.get('require_current_native_environment'):
+                    from avengine.qa.kujiale_current_color import filter_current_scene_colors
+                    q,a,color_audit=filter_current_scene_colors(q,a,audit,visual,start)
+                    audit['current_scene_colour_gate']=color_audit
                 excluded=set();keep={x['question_id'] for x in q if x['qa_id'] not in excluded}
                 q=[x for x in q if x['question_id'] in keep];a=[x for x in a if x['question_id'] in keep]
                 write_json(dest/'questions.json',q);write_json(dest/'private_answers.json',a)

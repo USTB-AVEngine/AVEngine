@@ -25,7 +25,16 @@ def environment_bindings(scene, house_id, registration, human_endpoints):
             raise ValueError(f"{endpoint}: individual native physical admission is incomplete")
         witnesses=row.get("native_house_admissions",{})
         native=witnesses.get(house_id)
-        if not native or native.get("status")!="pass_static_native":
+        plan=spec.get("native_scene_plan")
+        if plan is not None:
+            if not scene.get("require_current_native_environment") or plan.get("status")!="pass_geometry_requires_current_native_scene":
+                raise ValueError(f"{endpoint}: current joint scene requires explicit native requalification")
+            if plan.get("asset_id")!=asset_id or plan.get("silent_decor"):
+                raise ValueError(f"{endpoint}: current geometry plan identity or emitter kind differs")
+            if plan.get("sound_class") not in (row.get("allowed_v7_classes_candidate") or []):
+                raise ValueError(f"{endpoint}: requested sound is outside the registered asset classes")
+            native={**plan,"emitter":{"actual_m":plan["expected_emitter_m"]}}
+        elif not native or native.get("status")!="pass_static_native":
             raise ValueError(f"{endpoint}: no passed native visual in {house_id}")
         if not native.get("ue_asset_paths"):
             raise ValueError(f"{endpoint}: native StaticMesh paths are missing")

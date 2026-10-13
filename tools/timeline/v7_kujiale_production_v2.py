@@ -261,4 +261,8 @@ def main():
  finally:
   state['generation_sessions'][-1].update(ended_epoch=time.time(),wall_seconds=time.time()-started);atomic(RUN/'PRODUCTION_STATUS.json',state)
 
-if __name__=='__main__':main()
+if __name__=='__main__':
+ if '--pilot-root' in os.sys.argv:
+  from avengine.timeline.kujiale_asset_pilot import main as pilot_main
+  pilot_main()
+ else:main()

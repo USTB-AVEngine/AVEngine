@@ -41,6 +41,28 @@ class NativeRegisteredUEVideo(NativeUEAlphaVideo):
         self.ue['source_material_inventory']=str(Path(inputs['native_registered_content_receipt']).parent.parent/'inputs/assets.json')
         self.ue['source_material_inventory']=str(Path(inputs['native_registered_content_receipt']).parent.parent/'inputs/assets.json')
         self.house['input']['ue_config']=self.ue
+        if scene.get('require_current_native_environment'):
+            # Same accepted authored lights, copied into this isolated launch root.
+            import shutil
+            source_light=Path(self.ue['native_lighting_audit'])
+            own_light=Path(self.ue['output_root'])/'inputs/authored_lights'/house['house']/'native_lighting_audit.json'
+            own_light.parent.mkdir(parents=True,exist_ok=True)
+            if not own_light.exists():shutil.copy2(source_light,own_light)
+            elif json.loads(own_light.read_text())!=json.loads(source_light.read_text()):raise ValueError('task light audit copy differs')
+            self.ue['native_lighting_audit']=str(own_light)
+            source_qa=Path(self.ue['native_room_visual_qa'])
+            own_qa=Path(self.ue['output_root'])/'inputs/accepted_room_qa'/house['house']/'result_v2.json'
+            expected_qa=json.loads(source_qa.read_text())
+            source_capture=Path(expected_qa['inputs']['capture'])/'result.json'
+            own_capture=own_qa.parent/'capture/result.json'
+            own_capture.parent.mkdir(parents=True,exist_ok=True)
+            if not own_capture.exists():shutil.copy2(source_capture,own_capture)
+            elif json.loads(own_capture.read_text())!=json.loads(source_capture.read_text()):raise ValueError('task native capture copy differs')
+            expected_qa['inputs']['capture']=str(own_capture.parent)
+            expected_qa['prior_admission_provenance']={'qa':str(source_qa),'capture':str(source_capture)}
+            if not own_qa.exists():own_qa.write_text(json.dumps(expected_qa,ensure_ascii=False,indent=2)+'\n')
+            elif json.loads(own_qa.read_text())!=expected_qa:raise ValueError('task room QA copy differs')
+            self.ue['native_room_visual_qa']=str(own_qa)
         require_authored_light_audit(self.ue,self.house['input']['ue_map_path'])
         require_histogram_room_visual_qa(self.ue,self.house['room']['room_label'],self.house['input']['ue_map_path'])
         content=json.loads(Path(inputs['native_registered_content_receipt']).read_text())
@@ -56,19 +78,35 @@ class NativeRegisteredUEVideo(NativeUEAlphaVideo):
         self.placement_overrides={};self.alpha_time=0.;self.alpha_lower_endpoint=None;self.alpha_camera_rows={}
         self.initial_placement_preflight=self._seed_initial_navigation_placements()
         self.physical_environment_bindings={}
+        self.current_native_environment=bool(scene.get('require_current_native_environment'))
         if inputs.get("kujiale_ue_asset_admission"):
             from avengine.capture.kujiale_registered_environment import environment_bindings, require_binding_project
             self.physical_environment_bindings=environment_bindings(scene,house["house"],inputs["kujiale_ue_asset_admission"],{a["endpoint_id"] for a in assets})
+            if self.current_native_environment:
+                inventory=json.loads(Path(inputs["kujiale_ue_asset_admission"]).read_text())
+                byid={x['asset_id']:x for x in inventory['assets']}
+                for i,plan in enumerate(scene.get('decorations',[])):
+                    row=byid[plan['asset_id']]
+                    if not row.get('silent_decor') or row.get('ue_native_physical_status')!='pass' or plan.get('status')!='pass_geometry_requires_current_native_scene':
+                        raise ValueError('silent decoration requires an admitted native physical asset and current scene plan')
+                    native={**plan,'emitter':{'actual_m':plan['expected_emitter_m']}}
+                    self.physical_environment_bindings['decoration'+str(i+1)]={'asset':row,'native':native,'source_id':20001+i,'registration':inputs['kujiale_ue_asset_admission']}
             require_binding_project(self.physical_environment_bindings,self.ue)
         self.declarations=[{'actor_id':f'source{i+1}','asset_id':a['asset_id'],'ue_generated_class':a['ue_generated_class']} for i,a in enumerate(assets)]
         self.material_inventory={a['asset_id']:{'material_receipt':{'authority':'original registered UE package materials',
             'source_registry':a['source_registry'],'source_registry_sha256':a['source_registry_sha256'],
             'profiles':[{'max_highlight_ratio':.08}],'no_Habitat_PBR_overrides':True}} for a in assets}
+        if self.current_native_environment:
+            for declaration in self.material_inventory.values():
+                declaration['material_receipt']['profiles']=[{'max_highlight_ratio':.02}]
         self.spawn,self.read_depth,self.read_rgb,_old,_actor,_spawn,_apply,_destroy=camera_helpers()
         self.destroy=self._destroy_registered
         start=time.perf_counter()
         try:
             self.instance,self.game,launch=launch_native(self.ue,self.house['input']['ue_map_path'])
+            if self.current_native_environment:
+                from avengine.capture.kujiale_pilot_environment import verify_gpu
+                launch['actual_graphics_gpu']=verify_gpu(self.ue,launch)
             with self.instance.begin_frame():
                 self.camera,self.components=self.spawn(self.game,horizontal_fov_deg=85.,width=width*2,height=height*2)
                 self.foot_camera,self.foot_components=self.spawn(self.game,horizontal_fov_deg=85.,width=1024,height=1024)
@@ -86,6 +124,8 @@ class NativeRegisteredUEVideo(NativeUEAlphaVideo):
                         root=self.game.unreal_service.create_scene_component_for_actor(owner=actor,scene_component_name=ep+'_audio_only',uclass='USceneComponent')
                         root.SetMobility(NewMobility='Movable');actor.SetActorEnableCollision(bNewActorEnableCollision=False)
                         self.environment_nodes[ep]={'actor':actor,'root':root,'point':spec['trajectory'][0]['position_m'],'source_id':spec['actor_id']}
+                for ep,binding in self.physical_environment_bindings.items():
+                    if ep not in self.environment_nodes:self.environment_nodes[ep]=self._spawn_physical_environment(ep,binding)
                 self._apply(0)
             with self.instance.end_frame():pass
             for _ in range(PARAMETERS['warmup_frames']):
@@ -101,6 +141,16 @@ class NativeRegisteredUEVideo(NativeUEAlphaVideo):
                 'registered_content_copy_receipt':inputs['native_registered_content_receipt'],
                 'action_scope':'actual original registered static Blueprint; no walk/sit substitution'}
         except BaseException:self.close();raise
+
+    def _camera(self):
+        view=super()._camera()
+        view['yaw_deg']+=getattr(self,'current_camera_yaw_offset',0.)
+        return view
+
+    def _expected_camera_yaw(self,time_s):
+        # The qualified binding view rotates the planned pan as a whole.
+        # Retain the exact native pose tolerance; FOA and truth use readbacks.
+        return super()._expected_camera_yaw(time_s)+getattr(self,'current_camera_yaw_offset',0.)
 
     def _spawn_registered(self,a,d):
         from avengine.backends.spear_ue.research_runtime import attach_emitter_component
@@ -130,7 +180,7 @@ class NativeRegisteredUEVideo(NativeUEAlphaVideo):
         row,native=binding["asset"],binding["native"];placement=native["placement"]
         runtimes=[spawn_attached_static_actor(self.game,actor_id=endpoint+"_"+str(i),static_mesh_object_path=path,
             position_ue_cm=to_ue(placement["root_m"]),yaw_ue_degrees=-math.degrees(placement["yaw_rad"]),
-            actor_scale=1.,emitter_local_ue_cm=to_ue(row["emitter_local_m"]))
+            actor_scale=1.,emitter_local_ue_cm=to_ue(row.get("emitter_local_m") or [0,0,0]))
             for i,path in enumerate(native["ue_asset_paths"])]
         return {"physical":True,"runtimes":runtimes,"source_id":binding["source_id"],
             "asset_id":row["asset_id"],"point":native["emitter"]["actual_m"],
@@ -210,7 +260,7 @@ class NativeRegisteredUEVideo(NativeUEAlphaVideo):
         from tools.rooms.check_kujiale_native_capsule_contact import query_capsule
         from tools.rooms.check_v7_kujiale_native_assets import vector_field
         directory=Path(directory);directory.mkdir(parents=True,exist_ok=True);checks=[];bounds=[];attempts=[]
-        self.alpha_standing_refs={}
+        self.alpha_standing_refs={};self.current_camera_yaw_offset=0.
         for a,d in zip(self.assets,self.declarations,strict=True):
             accepted=None;ep=a['endpoint_id'];original=self.scene['sources'][ep]['trajectory'][0]['position_m']
             for p in [original,*self.scene.get('native_placement_candidates',[])]:
@@ -233,9 +283,12 @@ class NativeRegisteredUEVideo(NativeUEAlphaVideo):
                     with self.instance.end_frame():pass
                     center=np.asarray(from_ue(vector_field(b,'Origin')));ext=np.abs(np.asarray(from_ue(vector_field(b,'BoxExtent'))));lo,hi=center-ext,center+ext
                     if any(np.all(np.minimum(hi,bhi)>np.maximum(lo,blo)) for blo,bhi in bounds):continue
+                    if self.current_native_environment:
+                        from avengine.capture.kujiale_pilot_environment import human_clear_of_environment
+                        if not human_clear_of_environment(self,lo,hi):continue
                     good=self._depth_contact_probe(actor);bad=self._depth_contact_probe(actor,lower=True)
                     detected=bad['status']=='fail' and bad['gap_m']<-.02
-                    if good['status']!='pass' or not detected:
+                    if good['status']!='pass' or not detected or (self.current_native_environment and abs(good['gap_m'])>.015):
                         attempts.append({'endpoint_id':ep,'candidate':p,'good':good,'known_bad':bad});continue
                     gate=getattr(self,'acoustic_position_admission',None);acoustic=gate(ep,np.asarray(actor['emitter_position_m'])) if gate else {'status':'not_requested'}
                     if acoustic['status']=='blocked':continue
@@ -263,6 +316,16 @@ class NativeRegisteredUEVideo(NativeUEAlphaVideo):
                 result=self.acoustic_position_admission(ep,point)
                 if result['status']!='blocked':success=True;break
             if not success:raise ValueError('registered UE environmental emitter direction not admitted')
+        if self.current_native_environment:
+            if self.scene['production_scenario'].get('camera_policy')=='pilot_binding_coverage':
+                points=[np.array(self.alpha_standing_refs[a['endpoint_id']]['position_m']) for a in self.assets[:2]]
+                listener=np.array(self.scene['listener_m'])
+                forward=sum((p-listener)/np.linalg.norm(p-listener) for p in points)
+                current=math.degrees(math.atan2(forward[0],-forward[2]))
+                original=math.degrees(math.atan2(self.scene['camera_forward'][0],-self.scene['camera_forward'][2]))
+                self.current_camera_yaw_offset=(current-original+180)%360-180
+            from avengine.capture.kujiale_pilot_environment import qualify_scene
+            qualify_scene(self,directory.parent/'physical_environment',checks)
         write_json(directory/'standing_admission.json',{'status':'pass','checks':checks,'placement_attempts':attempts})
         self.alpha_camera_rows={};self.environment_frame_readbacks=[]
         return checks
@@ -284,7 +347,11 @@ class NativeRegisteredUEVideo(NativeUEAlphaVideo):
         if len(rows)!=450:raise ValueError('registered UE environmental clock incomplete')
         result['environmental_emitter_readbacks']=[rows[i] for i in range(450)]
         for ep in self.environment_nodes:
+            if ep not in self.scene['sources']:continue
             result['observed_mouth_trajectories'][ep]=[{'time_s':r['time_s'],'position_m':next(e['position_m'] for e in r['emitters'] if e['endpoint_id']==ep)} for r in result['environmental_emitter_readbacks']]
+        if self.current_native_environment:
+            from avengine.capture.kujiale_pilot_environment import finish_scene
+            finish_scene(self,result,path)
         result['alignment']=result['native_visibility_alignment'];result['registered_visual_revision']=REGISTERED_UE_VISUAL_REVISION
         write_json(Path(path).parent/'native_environmental_emitters.json',{'frames':result['environmental_emitter_readbacks'],'visual_geometry':'admitted original physical StaticMesh assets' if self.physical_environment_bindings else 'legacy audio-only source points'})
         write_json(Path(path).parent/'native_registered_visual_evidence.json',result)

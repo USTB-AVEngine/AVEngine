@@ -61,11 +61,14 @@ class NativeUEAlphaVideo(UENativeContinuousVideo):
             state['root_transform']['translation_m'][1]-=.1
         return state
 
+    def _expected_camera_yaw(self,time_s):
+        return yaw_at(self.scene,time_s)
+
     def _camera_readback(self,time_s):
         from avengine.backends.spear_ue.research_runtime import read_scene_component_pose
         pose=read_scene_component_pose(self.camera.K2_GetRootComponent())
         actual_yaw=float(pose['rotation_deg'][2])+90.
-        position=from_ue(pose['location_cm']);expected=yaw_at(self.scene,time_s)
+        position=from_ue(pose['location_cm']);expected=self._expected_camera_yaw(time_s)
         delta=(actual_yaw-expected+180.)%360.-180.
         if abs(delta)>1e-4 or np.max(np.abs(np.asarray(position)-self.scene['listener_m']))>.0005:
             raise ValueError('native UE camera readback differs from the alpha pan')
