@@ -118,6 +118,7 @@ def run_habitat(record,house,inputs,route,output,*,speed=.08,period=2.4,seconds=
             if pose_stream is not None:
                 # Read the rendered resource's local bounding box. A fresh path
                 # must load this pose, even when its private backing inode is reused.
+                obj.root_scene_node.compute_cumulative_bb()
                 bb=obj.root_scene_node.cumulative_bb
                 actual=np.stack((np.asarray(bb.min,float),np.asarray(bb.max,float)))
                 expected=np.stack((v.min(0),v.max(0)))

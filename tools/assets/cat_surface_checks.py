@@ -65,23 +65,32 @@ class RegionSurfaceChecks:
         norms = np.linalg.norm(normals, axis=1)
         normals /= np.maximum(norms[:, None], 1e-30)
         centers = triangles.mean(1)
-        region_surfaces = [self.tree(self.rest, self.faces[self.fregions == r])
-                           for r in range(len(REGIONS))]
+        full_surface = self.tree(self.rest, self.faces)
+        self.rest_normals = normals.copy()
         distance = float(np.linalg.norm(self.rest.max(0)-self.rest.min(0))*2+1)
         self.visible = np.zeros(len(self.faces), bool)
         self.orientation = np.ones(len(self.faces))
-        # The rest-pose geometric face is exposed if a ray from infinity along
-        # either face-normal direction reaches that face first within its own region.
-        # Other limbs may occlude an exterior face from a particular view; that
-        # occlusion does not turn it into an internal mesh layer. No edits.
+        # Global exposure excludes internal layers at anatomical cut edges.
+        # Oblique exterior rays retain faces occluded only along their normal
+        # by a separate limb, without treating internal region cuts as visible.
         for index, (center, normal) in enumerate(zip(centers, normals)):
             if norms[index] < 1e-20:
                 continue
-            for sign in (1., -1.):
-                hit, _, _, _ = region_surfaces[int(self.fregions[index])].ray_cast(Vector(center+normal*sign*distance),
-                                             Vector(-normal*sign),
-                                             distance+.00005)
-                if hit is not None and np.linalg.norm(np.asarray(hit)-center) <= .00005:
+            tangent = np.cross(normal, [1., 0., 0.])
+            if np.linalg.norm(tangent) < .1:
+                tangent = np.cross(normal, [0., 1., 0.])
+            tangent /= np.linalg.norm(tangent)
+            other = np.cross(normal, tangent)
+            directions = [(normal, 1.), (-normal, -1.)]
+            directions.extend((sign*normal+8*axis, sign)
+                              for sign in (1., -1.)
+                              for axis in (tangent, -tangent, other, -other))
+            for direction, sign in directions:
+                direction = direction/np.linalg.norm(direction)
+                hit, _, _, _ = full_surface.ray_cast(
+                    Vector(center+direction*distance), Vector(-direction),
+                    distance+.00001)
+                if hit is not None and np.linalg.norm(np.asarray(hit)-center) <= .00001:
                     self.visible[index] = True
                     self.orientation[index] = sign
                     break
@@ -92,7 +101,21 @@ class RegionSurfaceChecks:
             for r, ids in enumerate(self.outer_faces)]
         self.rest_trees = [self.region_tree(self.rest, r)
                            for r in range(len(REGIONS))]
-        self.rest_depth = {}
+        self.closed_region = []
+        _, welded = np.unique(np.round(self.rest/1e-7).astype(np.int64),
+                              axis=0, return_inverse=True)
+        for face_ids in self.outer_faces:
+            triangles = welded[self.faces[face_ids]]
+            edges = np.sort(np.concatenate([triangles[:, [0, 1]],
+                                             triangles[:, [1, 2]],
+                                             triangles[:, [2, 0]]]), axis=1)
+            _, counts = np.unique(edges, axis=0, return_counts=True)
+            self.closed_region.append(bool(len(counts) and np.all(counts >= 2)))
+        self.rest_region_bounds = []
+        for ids in self.outer_faces:
+            points = self.rest[np.unique(self.faces[ids])]
+            self.rest_region_bounds.append((points.min(0), points.max(0)) if len(points) else None)
+        self.closed_baseline_depths = {}
         self.baseline_visible_faces = {}
         for i, j in self.baseline:
             a, b = int(self.fregions[i]), int(self.fregions[j])
@@ -127,9 +150,32 @@ class RegionSurfaceChecks:
             nearest, normal, face_index, _ = tree.find_nearest(Vector(point))
             if nearest is None:
                 continue
-            outward = np.asarray(normal)*self.orientation[self.outer_faces[against][face_index]]
+            global_face = self.outer_faces[against][face_index]
+            outward = np.asarray(normal)*self.orientation[global_face]
             signed = float(np.dot(point-np.asarray(nearest), outward))
-            result[k] = max(0., -signed)
+            # Compare against this same material face in the binding pose.
+            # A changed nearest face or crossing an open region's AABB must
+            # never invent a deep penetration from a zero cached baseline.
+            original = self.rest[self.faces[global_face]]
+            reference_normal = (self.rest_normals[global_face] *
+                                self.orientation[global_face])
+            reference_signed = float(np.dot(
+                self.rest[ids[k]]-original[0], reference_normal))
+            baseline_depth = max(0., -reference_signed)
+            if self.closed_region[against]:
+                key = (region, against, int(ids[k]))
+                if key not in self.closed_baseline_depths:
+                    baseline_depth = 0.
+                    reference_low, reference_high = self.rest_region_bounds[against]
+                    reference_point = self.rest[ids[k]]
+                    if np.all(reference_point >= reference_low) and np.all(reference_point <= reference_high):
+                        ref_point, ref_normal, ref_face, _ = self.rest_trees[against].find_nearest(Vector(reference_point))
+                        if ref_point is not None:
+                            sign = self.orientation[self.outer_faces[against][ref_face]]
+                            baseline_depth = max(0., -float(np.dot(reference_point-np.asarray(ref_point), np.asarray(ref_normal)*sign)))
+                    self.closed_baseline_depths[key] = baseline_depth
+                baseline_depth = self.closed_baseline_depths[key]
+            result[k] = max(0., max(0., -signed)-baseline_depth)
         return result
 
     def inspect(self, vertices, pairs=None):
@@ -140,6 +186,9 @@ class RegionSurfaceChecks:
                 if self.fregions[i] == self.fregions[j]}
         same_depth = internal_plane_depth(vertices, self.faces, same)
         physical = self.new_contacts(novel, self.rest, self.faces)
+        visible_contacts = {tuple(sorted((int(self.fregions[i]), int(self.fregions[j]))))
+                            for i,j in pairs if self.fregions[i] != self.fregions[j]
+                            and self.visible[i] and self.visible[j]}
         patches = {}
         for i, j in physical:
             a, b = int(self.fregions[i]), int(self.fregions[j])
@@ -162,16 +211,15 @@ class RegionSurfaceChecks:
                 active = patches.get(key, set())-self.baseline_visible_faces.get(key, set())
                 area = float(areas[list(active)].sum()*.5) if active else 0.
                 depth = 0.
+                if key not in visible_contacts and not (self.closed_region[a] and self.closed_region[b]):
+                    if area:
+                        raise ValueError('visible_area_without_contact')
+                    continue
                 for region, against in ((a, b), (b, a)):
-                    cache_key = (region, against)
-                    if cache_key not in self.rest_depth:
-                        self.rest_depth[cache_key] = self.depths(
-                            self.rest, region, against, self.rest_trees[against])
                     now = self.depths(vertices, region, against, posed_trees[against])
-                    if not np.all(np.isfinite(now)) or not np.all(np.isfinite(self.rest_depth[cache_key])):
+                    if not np.all(np.isfinite(now)):
                         raise ValueError('nonfinite_surface_penetration_depth')
-                    depth = max(depth, float(np.maximum(
-                        now-self.rest_depth[cache_key], 0).max(initial=0)))
+                    depth = max(depth, float(now.max(initial=0)))
                 total_area += area
                 max_depth = max(max_depth, depth)
                 if area or depth:
@@ -204,11 +252,13 @@ class RegionSurfaceChecks:
             "regions": list(REGIONS),
             "region_assignment": "fixed binding-pose summed skin-weight family; face majority",
             "visible_triangle_count": int(self.visible.sum()),
+            "closed_regions": [REGIONS[i] for i,closed in enumerate(self.closed_region) if closed],
             "counts_participate_in_acceptance": False,
             "new_interregion_area_limit_m2": AREA_LIMIT,
             "new_penetration_depth_limit_m": DEPTH_LIMIT,
+            "exposure_method": "global binding surface: two normal rays and eight oblique rays; anatomical cut surfaces do not become exterior; 10 micrometre ray endpoint accuracy",
             "area_method": "conservative half-sum of unique newly contacting exposed triangle areas across all region pairs per frame; binding-pose physical contacts excluded",
-            "depth_method": "complete exposed material region nearest outward opposing-region surface; subtract each material vertex binding-pose depth; same-region new crossings use the minimum separating translation across either face plane",
+            "depth_method": "complete exposed material region nearest outward opposing-region surface; subtract the same material vertex/face binding-pose plane depth; open regional cut boundaries without an actual exposed crossing are not a solid volume; same-region new crossings use the minimum separating translation across either face plane",
             "baseline_contact_gap_m": .0001,
             "mesh_repaired": False,
         }
