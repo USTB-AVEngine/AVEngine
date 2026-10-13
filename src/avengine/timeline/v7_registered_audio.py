@@ -88,6 +88,8 @@ def source_qa_evidence(scene,program,dry_receipt,visual,foa_path,audio_evidence,
                 'source':record['path'],'license':record['screens']['license']['license'],'original_id':record.get('original_id',record['screens']['license']['original_id'])},
             'activity_status':'observed','activity_intervals_samples_global':actual,
             'emission_mechanism':event.get('mechanism','human_live_recorded'), 'sound_class':record.get('sound_class'), 'native_endpoint_id':event['endpoint_id']}
+        motion_meta=scene['sources'][event['endpoint_id']].get('motion_metadata')
+        if motion_meta:events[event['event_id']]['motion_metadata']=deepcopy(motion_meta)
         if window_start_s is not None:
             lo=round(window_start_s*16000);hi=lo+160000
             whole=binding['output_start_sample']>=lo and binding['output_end_sample_exclusive']<=hi
