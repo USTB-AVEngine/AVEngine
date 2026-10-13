@@ -183,6 +183,12 @@ class NativeVisibleVideo(NativeRegisteredVideo):
             seen.add(yaw);pixels=self._native_pair_pixels(scene,entries,forward_at(scene,knot['time_s']))
             observed.append({'time_s':knot['time_s'],'pixels':pixels})
             maximum={k:max(maximum[k],pixels[k]) for k in maximum}
+            # Opt-in proposal search can stop after an actual positive witness
+            # for every current entity. The original existential 100px gate
+            # is identical; negative cases still inspect the complete path.
+            # Final video and all material/color/clock observations are intact.
+            if self.motion_inputs.get('visible_placement_stop_after_native_visibility_witness',False) and all(n>=100 for n in maximum.values()):
+                break
         return maximum,observed
 
     def qualify_standing(self,scene,directory):
