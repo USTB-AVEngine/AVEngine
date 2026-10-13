@@ -32,6 +32,7 @@ def static_categories(house,room,inputs,catalog,categories,directory,save_sample
     # Finite census proposals only; the complete parent runtime is untouched.
     inputs['visible_placement_max_proposals_per_asset']=192
     inputs['visible_placement_max_contact_attempts_per_asset']=24
+    inputs['room_sweep_one_view_witness']=True
     start=time.monotonic();cpu=time.process_time();directory=Path(directory)
     directory.mkdir(parents=True,exist_ok=False)
     by_id={a['asset_id']:a for a in catalog};ids=list(dict.fromkeys([x for v in categories.values()for x in v]+['v7_male_adult_14_blue_v1']))
@@ -66,6 +67,9 @@ def static_categories(house,room,inputs,catalog,categories,directory,save_sample
                         video._check_source_frame(rgb,semantic,i)
                         measured_views.append({'yaw_deg':yaw,'visible_pixels':count})
                         if best_rgb is None or count>=max(v['visible_pixels']for v in measured_views):best_rgb=rgb.copy();best_yaw=yaw
+                        # One complete, measured camera witness is the census goal.
+                        # Full parent encoding still checks all 450 native frames.
+                        if inputs['room_sweep_one_view_witness']:break
                     measured=[m for m in video.material_checks if m['status']in {'pass','fail'}]
                     failed=[m for m in measured if m['status']=='fail']
                     if maximum<100:raise ValueError('actual_native_visibility_below_100_pixels')
@@ -109,7 +113,7 @@ def static_categories(house,room,inputs,catalog,categories,directory,save_sample
             'categories':results,'chair_seated_status':results['chair_seated']['status'],
             'room_area_m2':room['floor_area_m2'],'native_renderer':video.receipt,
             'wall_seconds':time.monotonic()-start,'process_cpu_seconds':time.process_time()-cpu,
-            'sampling_budget':{'support_proposals_per_asset':192,'native_contact_attempts_per_asset':24,'exhaustion_is_not_proof_of_room_impossibility':True},
+            'sampling_budget':{'support_proposals_per_asset':192,'native_contact_attempts_per_asset':24,'exhaustion_is_not_proof_of_room_impossibility':True,'single_measured_native_view':True},
             'max_rss_kib':resource.getrusage(resource.RUSAGE_SELF).ru_maxrss,
             'formal_parent_count':0,'GPU_jobs':0}
     except Exception as error:

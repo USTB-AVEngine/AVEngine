@@ -43,6 +43,7 @@ def seated_witness(video,scene,room,entry,directory,save_sample=False):
             obs=video.sim.get_sensor_observations();rgb=np.asarray(obs['rgb'])[:,:,:3];semantic=np.asarray(obs['semantic'])
             video._check_source_frame(rgb,semantic,i);views.append({'yaw_deg':yaw,'native_pixels':pixels})
             if best is None:best=rgb.copy()
+            if video.motion_inputs.get('room_sweep_one_view_witness'):break
         measured=[m for m in video.material_checks if m['status']in {'pass','fail'}]
         if not views:raise ValueError('seated body and chair lack a simultaneous actual native 100 pixel view')
         if any(m['status']=='fail'for m in measured):raise ValueError('seated_native_material_failure')
