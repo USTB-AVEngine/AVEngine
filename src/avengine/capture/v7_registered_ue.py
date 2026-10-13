@@ -271,6 +271,12 @@ class NativeRegisteredUEVideo(NativeUEAlphaVideo):
                 try:self._navigation_foot(p)
                 except ValueError as e:
                     attempts.append({'endpoint_id':ep,'candidate':p,'reason':str(e)});continue
+                if (self.current_native_environment and self.scene['production_scenario'].get('camera_policy')=='pilot_binding_coverage'
+                        and a is self.assets[1] and self.assets[0]['endpoint_id'] in self.alpha_standing_refs):
+                    from avengine.capture.kujiale_pilot_environment import binding_pair_fits_view
+                    first=self.alpha_standing_refs[self.assets[0]['endpoint_id']]['position_m']
+                    if not binding_pair_fits_view(self.scene['listener_m'],first,p):
+                        attempts.append({'endpoint_id':ep,'candidate':p,'reason':'both active speakers need separated bearings within the production binding view'});continue
                 self.placement_overrides[ep]=p
                 try:
                     with self.instance.begin_frame():actor=next(x for x in self._apply(0) if x['endpoint_id']==ep)
@@ -320,12 +326,23 @@ class NativeRegisteredUEVideo(NativeUEAlphaVideo):
             if self.scene['production_scenario'].get('camera_policy')=='pilot_binding_coverage':
                 points=[np.array(self.alpha_standing_refs[a['endpoint_id']]['position_m']) for a in self.assets[:2]]
                 listener=np.array(self.scene['listener_m'])
-                forward=sum((p-listener)/np.linalg.norm(p-listener) for p in points)
-                current=math.degrees(math.atan2(forward[0],-forward[2]))
+                from avengine.capture.kujiale_pilot_environment import binding_camera_yaw
+                current=binding_camera_yaw(listener,points)
                 original=math.degrees(math.atan2(self.scene['camera_forward'][0],-self.scene['camera_forward'][2]))
                 self.current_camera_yaw_offset=(current-original+180)%360-180
             from avengine.capture.kujiale_pilot_environment import qualify_scene
             qualify_scene(self,directory.parent/'physical_environment',checks)
+        if self.current_native_environment:
+            # Static foot support was measured front/rear and with a negative
+            # 10-cm control. Every frame still verifies the identical rigid
+            # pose/root before reusing that reference; these captures are not
+            # read during the 450-frame static video.
+            with self.instance.begin_frame():
+                for component in self.foot_components.values():
+                    component.set_property_value(property_name='bCaptureEveryFrame',property_value=False)
+            with self.instance.end_frame():pass
+            self.receipt['static_foot_capture_policy']='qualified front/rear rigid support cache; unchanged per-frame root/pose verification'
+            self.receipt['qualified_binding_camera_yaw_offset_deg']=self.current_camera_yaw_offset
         write_json(directory/'standing_admission.json',{'status':'pass','checks':checks,'placement_attempts':attempts})
         self.alpha_camera_rows={};self.environment_frame_readbacks=[]
         return checks

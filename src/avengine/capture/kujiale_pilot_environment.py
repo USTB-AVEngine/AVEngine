@@ -54,6 +54,29 @@ def native_bounds(video,node):
     with video.instance.end_frame():pass
     return np.min([x[0] for x in bounds],axis=0),np.max([x[1] for x in bounds],axis=0)
 
+def binding_camera_yaw(listener,positions):
+    # A yaw-only camera needs equal horizontal bearings, independent of the
+    # feet's vertical distance from its lens.
+    rays=np.asarray(positions,float)-np.asarray(listener,float)
+    rays[:,1]=0.
+    norms=np.linalg.norm(rays,axis=1)
+    if np.any(norms<1e-6):raise ValueError('binding source coincides with listener')
+    forward=(rays/norms[:,None]).sum(axis=0)
+    if np.linalg.norm(forward)<1e-6:raise ValueError('binding speakers have opposing bearings')
+    return math.degrees(math.atan2(forward[0],-forward[2]))
+
+
+def binding_pair_fits_view(listener,first,second):
+    rays=np.asarray([first,second],float)-np.asarray(listener,float)
+    rays[:,1]=0.
+    norms=np.linalg.norm(rays,axis=1)
+    if np.any(norms<.5):return False
+    angle=math.degrees(math.acos(float(np.clip(np.dot(rays[0],rays[1])/np.prod(norms),-1.,1.))))
+    # Placement, not acceptance: leave room for both complete torso masks
+    # within the unchanged 85-degree production camera.
+    return 16.<=angle<=60.
+
+
 def human_clear_of_environment(video,low,high):
     for node in video.environment_nodes.values():
         if node.get('physical'):

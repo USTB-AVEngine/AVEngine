@@ -132,3 +132,53 @@ def test_qualified_camera_offset_keeps_exact_native_pose_gate(monkeypatch):
     with pytest.raises(ValueError,match='camera readback'):video._camera_readback(0.)
     pose['rotation_deg'][2]= -33.;pose['location_cm'][0]+=.1
     with pytest.raises(ValueError,match='camera readback'):video._camera_readback(0.)
+
+
+def test_native_rollout_requires_first_seal_and_stops_repeated_gate_failures():
+    from avengine.timeline.kujiale_asset_pilot import NativePilotBatchGate
+    gate=NativePilotBatchGate()
+    assert gate.batch_limit==1
+    gate.observe({'status':'formal_alpha_admitted'})
+    with pytest.raises(RuntimeError,match='canary failed'):gate.require_next_batch()
+    gate=NativePilotBatchGate()
+    good={'status':'formal_alpha_admitted','independent_truth':{'status':'pass'}}
+    gate.observe(good)
+    assert gate.batch_limit==2
+    bad={'status':'failed','error_type':'ValueError','reason':'native UE camera readback differs from the alpha pan'}
+    gate.observe(bad);gate.require_next_batch()
+    gate.observe(bad)
+    with pytest.raises(RuntimeError,match='two consecutive'):gate.require_next_batch()
+    gate.observe(good);gate.require_next_batch()
+
+
+def test_formal_native_pilot_requires_actual_seal_and_independent_truth(tmp_path):
+    from avengine.timeline.kujiale_asset_pilot import formal_native_parent_passed
+    scene='canary';terminal=tmp_path/'evidence/parent_results'/f'{scene}.json';terminal.parent.mkdir(parents=True)
+    terminal.write_text(json.dumps({'status':'formal_alpha_admitted'}))
+    parent=tmp_path/'production/parents'/scene;parent.mkdir(parents=True)
+    assert not formal_native_parent_passed(tmp_path,scene)
+    (parent/'alpha_seal_completed.json').write_text('{}')
+    proof=parent/'independent_truth_audit.json';proof.write_text(json.dumps({'status':'fail','mismatches':['tampered truth']}))
+    assert not formal_native_parent_passed(tmp_path,scene)
+    proof.write_text(json.dumps({'status':'pass','mismatches':[]}))
+    assert formal_native_parent_passed(tmp_path,scene)
+
+
+def test_binding_view_centres_horizontal_rays_and_rejects_unbindable_pairs():
+    from avengine.capture.kujiale_pilot_environment import binding_camera_yaw,binding_pair_fits_view
+    listener=[0.,1.5,0.]
+    assert binding_camera_yaw(listener,[[1.,0.,-1.],[-2.,0.,-2.]])==pytest.approx(0.)
+    assert binding_camera_yaw(listener,[[1.,-5.,-1.],[-2.,4.,-2.]])==pytest.approx(0.)
+    assert binding_pair_fits_view(listener,[0.,0.,-2.],[1.,0.,-2.])
+    assert not binding_pair_fits_view(listener,[0.,0.,-2.],[0.,0.,-4.])
+    assert not binding_pair_fits_view(listener,[-2.,0.,0.],[2.,0.,0.])
+
+
+def test_static_foot_reference_still_rejects_pose_or_root_changes():
+    from avengine.capture.v7_registered_ue import NativeRegisteredUEVideo
+    video=object.__new__(NativeRegisteredUEVideo)
+    video.alpha_standing_refs={'voice1':{'position_m':[1.,0.,2.],'reference':{'status':'pass','gap_m':.003,'views':['front','rear']}}}
+    actor={'endpoint_id':'voice1','position_m':[1.,0.,2.],'moving':False,'action_id':'registered_stand'}
+    assert video._uncropped_foot_probe(actor)['gap_m']==.003
+    for change in [{'moving':True},{'action_id':'walk'},{'position_m':[1.,.001,2.]}]:
+        with pytest.raises(ValueError,match='support reference changed'):video._uncropped_foot_probe(dict(actor,**change))

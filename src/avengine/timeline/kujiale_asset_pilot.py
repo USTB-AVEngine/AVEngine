@@ -61,7 +61,77 @@ def worker(root,index,gpu,seed_path=None):
     progress(root,row['scene_id']+' 完成原生生成、声音和题目门禁。')
     print(json.dumps(result,ensure_ascii=False),flush=True)
 
+class NativePilotBatchGate:
+    """Require one fully sealed native parent, then stop on repeated failures."""
+    def __init__(self,canary_passed=False):
+        self.canary_passed=canary_passed
+        self.last_failure=None
+        self.consecutive_failures=0
+        self.last_batch_failed=False
+
+    @property
+    def batch_limit(self):
+        return 2 if self.canary_passed else 1
+
+    def observe(self,result):
+        if result.get('status')=='formal_alpha_admitted' and result.get('independent_truth',{}).get('status')=='pass':
+            self.canary_passed=True
+            self.last_failure=None
+            self.consecutive_failures=0
+            self.last_batch_failed=False
+            return
+        self.last_batch_failed=True
+        signature=(result.get('error_type','native_gate'),result.get('reason','worker exited before recording a gate result').split(':',1)[0])
+        self.consecutive_failures=self.consecutive_failures+1 if signature==self.last_failure else 1
+        self.last_failure=signature
+
+    def require_next_batch(self):
+        if self.last_batch_failed and not self.canary_passed:
+            raise RuntimeError('native canary failed; inspect and repair before starting another parent')
+        if self.consecutive_failures>=2:
+            raise RuntimeError('two consecutive native parents failed the same gate; rollout stopped for diagnosis')
+
+    def state(self):
+        return {'canary_passed':self.canary_passed,'batch_limit':self.batch_limit,
+                'last_failure':self.last_failure,'consecutive_failures':self.consecutive_failures}
+
+
+def formal_native_parent_passed(root,scene_id):
+    terminal=root/'evidence/parent_results'/f'{scene_id}.json'
+    parent=root/'production/parents'/scene_id
+    proof=parent/'independent_truth_audit.json'
+    if not terminal.exists() or not proof.exists() or not (parent/'alpha_seal_completed.json').exists():return False
+    result=json.loads(terminal.read_text());truth=json.loads(proof.read_text())
+    return result.get('status')=='formal_alpha_admitted' and truth.get('status')=='pass' and not truth.get('mismatches')
+
+
+def live_parent_workers(root):
+    jobs=root/'JOBS.json'
+    if not jobs.exists():return []
+    result=[]
+    for job in json.loads(jobs.read_text()):
+        if job.get('status')!='running' or not job.get('name','').startswith('parent_'):continue
+        try:parts=(Path('/proc')/str(job['pid'])/'cmdline').read_bytes().split(b'\0')[:-1]
+        except FileNotFoundError:continue
+        expected=[os.fsencode(x) for x in job['command']]
+        if parts!=expected:raise RuntimeError('recorded own worker PID has a different command; do not reuse its slot')
+        result.append(job)
+    return result
+
+
 def launch_worker(root,index,gpu,slot,seed_path=None):
+    scope=json.loads((root/'inputs/task_scope.json').read_text())
+    if scope.get('require_formal_canary_before_rollout'):
+        seed=Path(seed_path or scope['seed_path'])
+        rows=[json.loads(l) for l in seed.read_text().splitlines()]
+        passed=any(formal_native_parent_passed(root,row['scene_id']) for row in rows)
+        active=live_parent_workers(root)
+        limit=2 if passed else 1
+        if len(active)>=limit:raise RuntimeError('native pilot batch capacity reached; wait for current results')
+        if any('--parent-index' in j['command'] and int(j['command'][j['command'].index('--parent-index')+1])==index for j in active):
+            raise RuntimeError('native parent is already running; duplicate launch rejected')
+        if not passed and index!=scope.get('canary_parent_index',0):
+            raise RuntimeError('formal native canary has not passed; rollout is not authorized yet')
     repo=Path(__file__).resolve().parents[3]
     env=os.environ.copy();env.update(json.loads((root/'ue_env.json').read_text()))
     env.update(PYTHONPATH=str(repo/'src')+':'+str(repo)+':'+str(root/'pydeps')+':'+env['PYTHONPATH'],
@@ -87,14 +157,31 @@ def main():
     if a.parent_index is not None:worker(root,a.parent_index,a.physical_gpu,a.seed_path);return
     if not 1<=a.workers_per_gpu<=4:raise ValueError('one to four instances per assigned card')
     if not (root/'evidence/input_seal.json').exists():freeze_inputs(root)
-    rows=[json.loads(l) for l in (Path(json.loads((root/'inputs/task_scope.json').read_text())['seed_path'])).read_text().splitlines()][:a.limit]
+    scope=json.loads((root/'inputs/task_scope.json').read_text())
+    seed=Path(a.seed_path or scope['seed_path'])
+    rows=[json.loads(l) for l in seed.read_text().splitlines()][:a.limit]
+    controlled=bool(scope.get('require_formal_canary_before_rollout'))
+    gate=NativePilotBatchGate(any(formal_native_parent_passed(root,row['scene_id']) for row in rows))
     pending=[]
     for i,row in enumerate(rows):
         if i<a.start_index:continue
         path=root/'evidence/parent_results'/f'{row["scene_id"]}.json'
         if path.exists() and json.loads(path.read_text()).get('status')=='formal_alpha_admitted':continue
         pending.append(i)
-    active=[];deadline=json.loads((root/'inputs/task_scope.json').read_text())['deadline_epoch']
+    active=[];processed=[];deadline=json.loads((root/'inputs/task_scope.json').read_text())['deadline_epoch']
+    checkpoint=root/'evidence/controlled_gate_checkpoint.json'
+    import hashlib
+    digest=hashlib.sha256()
+    for source_file in sorted(Path(__file__).resolve().parents[1].rglob('*.py')):
+        digest.update(str(source_file.relative_to(Path(__file__).resolve().parents[1])).encode())
+        digest.update(source_file.read_bytes())
+    digest.update(seed.read_bytes());revision=digest.hexdigest()
+    if controlled and checkpoint.exists():
+        previous=json.loads(checkpoint.read_text())
+        if previous.get('code_and_seed_revision')==revision:
+            gate.last_failure=tuple(previous['gate']['last_failure']) if previous['gate'].get('last_failure') else None
+            gate.consecutive_failures=previous['gate']['consecutive_failures']
+    if controlled:gate.require_next_batch()
     import fcntl,signal
     lock=(root/'coordinator.lock').open('a')
     fcntl.flock(lock.fileno(),fcntl.LOCK_EX|fcntl.LOCK_NB)
@@ -104,11 +191,19 @@ def main():
         signal.signal(signum,interrupted)
     try:
         while pending or active:
-            if time.time()>deadline:raise RuntimeError('pilot six-hour deadline reached')
+            if time.time()>deadline:raise RuntimeError('authorized pilot deadline reached')
             if (root/'STOP').exists():raise RuntimeError('own STOP requested')
+            # Under the owner's repair policy, finish the whole current batch
+            # before dispatching the next one. Each card gets at most one of
+            # the two workers; the first verified native canary runs alone.
+            dispatch_allowed=not controlled or not active
+            if controlled and dispatch_allowed:gate.require_next_batch()
+            limit=gate.batch_limit if controlled else 2*a.workers_per_gpu
+            per_gpu=1 if controlled else a.workers_per_gpu
             for gpu in (2,3):
+                if not dispatch_allowed:break
                 count=sum(g==gpu for _,_,g,_ in active)
-                while pending and count<a.workers_per_gpu:
+                while pending and count<per_gpu and len(active)<limit:
                     # XML graphics processes and measured instance budget are checked
                     # again by launch_native before every actual UE launch.
                     import xml.etree.ElementTree as ET
@@ -116,10 +211,27 @@ def main():
                     cards=ET.fromstring(xml).findall('gpu')
                     free=float(cards[gpu].findtext('fb_memory_usage/free').split()[0])
                     if free<10240:break
-                    index=pending.pop(0);proc=launch_worker(root,index,gpu,len(active));active.append((proc,index,gpu,time.time()));count+=1
+                    index=pending.pop(0)
+                    previous=root/'production/parents'/rows[index]['scene_id']/'input_recipe.json'
+                    if previous.exists() and json.loads(previous.read_text())['house']['input']['ue_config']['physical_gpu_index']!=gpu:
+                        pending.insert(0,index);break
+                    proc=launch_worker(root,index,gpu,len(active),seed);processed.append(index);active.append((proc,index,gpu,time.time()));count+=1
                     live_json(root/'evidence/coordinator_state.json',{'status':'running','active':[{'supervisor_pid':q.pid,'parent_index':i,'gpu':g} for q,i,g,_ in active],'pending':pending,'original_generator':'33b5b12df1a45ca265bf0c4fbe9b26b664577a7c'})
             for entry in list(active):
-                if entry[0].poll() is not None:active.remove(entry)
+                if entry[0].poll() is not None:
+                    active.remove(entry)
+                    if controlled:
+                        path=root/'evidence/parent_results'/f'{rows[entry[1]]["scene_id"]}.json'
+                        result=json.loads(path.read_text()) if path.exists() else {'status':'failed','reason':'worker exited before recording a gate result'}
+                        if formal_native_parent_passed(root,rows[entry[1]]['scene_id']):
+                            result=dict(result,independent_truth={'status':'pass'})
+                        gate.observe(result)
+                        live_json(checkpoint,{'code_and_seed_revision':revision,'gate':gate.state()})
+                        live_json(root/'evidence/controlled_rollout_state.json',{'status':'batch_result','gate':gate.state(),'scene_id':rows[entry[1]]['scene_id'],'result':result,'pending':pending})
+            if controlled and processed and not active:
+                gate.require_next_batch()
+                progress(root,'本批 '+str(len(processed))+' 个父场景全部结束；剩余 '+str(len(pending))+' 个不自动排队，先检查本批结果。')
+                break
             time.sleep(5)
     finally:
         # Only Popen children launched by this coordinator are stopped. Their
@@ -131,7 +243,8 @@ def main():
             except subprocess.TimeoutExpired:
                 raise RuntimeError('own worker supervisor has not finished cleanup: '+str(proc.pid))
         lock.close()
-    results=[json.loads((root/'evidence/parent_results'/f'{r["scene_id"]}.json').read_text()) for r in rows[a.start_index:]]
-    live_json(root/'evidence/coordinator_state.json',{'status':'finished','parents':len(results),'passed':sum(r['status']=='formal_alpha_admitted' for r in results),'results':results,'training_exported':False,'CCI_transferred':False})
+    result_rows=[rows[i] for i in processed] if controlled else rows[a.start_index:]
+    results=[json.loads((root/'evidence/parent_results'/f'{r["scene_id"]}.json').read_text()) for r in result_rows]
+    live_json(root/'evidence/coordinator_state.json',{'status':'batch_review_required' if controlled and pending else 'finished','pending_not_queued':pending if controlled else [],'parents':len(results),'passed':sum(r['status']=='formal_alpha_admitted' for r in results),'results':results,'training_exported':False,'CCI_transferred':False})
     progress(root,'试产协调器结束，所有子进程已退出，结果留在本轮目录。')
 if __name__=='__main__':main()

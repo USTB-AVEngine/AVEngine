@@ -24,7 +24,7 @@ def main():
     expected_animals={(x['category'],x['body_id']) for x in selected if x['category']!='object'}
     expected_objects={x['object_type'] for x in selected if x['category']=='object'}
     parent_dirs=sorted((root/'production/parents').glob('*'));results=[];passed=[];partial=[];history=[];assets_seen=set();houses=set()
-    events=Counter();attempt_events=Counter();programs={};partial_assets=set();metrics=defaultdict(list);colours={};samples=[];candidate_colour_checks={};candidate_colour_rejections={};truth_forms=0
+    events=Counter();attempt_events=Counter();programs={};partial_assets=set();joint_assets={};house_samples={};metrics=defaultdict(list);colours={};samples=[];candidate_colour_checks={};candidate_colour_rejections={};truth_forms=0
     for parent in parent_dirs:
         if not (parent/'input_recipe.json').exists():continue
         recipe=read(parent/'input_recipe.json');row=recipe['seed_row'];sid=row['scene_id']
@@ -41,6 +41,16 @@ def main():
                     events['logical_questions']+=win['logical_questions'];events['windows']+=1
             except Exception as exc:
                 result=dict(result,status='independent_truth_failed',reason=str(exc))
+        for proof in parent.glob('visual*/physical_environment/admission.json'):
+            data=read(proof)
+            if data.get('status')=='pass':
+                for node in data['entities'].values():
+                    joint_assets[node['asset_id']]={'scene_id':sid,'house':row['house'],'proof':str(proof),
+                        'views':sum(v['status']=='pass' for v in node['views']),'attachment_gap_mm':node['attachment']['gap_m']*1000,
+                        'maximum_highlight_ratio':max(v['highlight_ratio'] for v in node['views'] if v['status']=='pass')}
+        for folder in sorted(parent.glob('visual*_attempt*')):
+            pngs=sorted(folder.glob('native_frame_*.png'))
+            if pngs:house_samples[row['house']]=(sid+' / '+row['house'],pngs[len(pngs)//2],sealed)
         results.append(result)
         logical=re.search(r'pilot_(\d{6})',sid)
         if logical and (parent/'dry_completed.json').exists():programs[int(logical.group(1))]=recipe['recorded_program']
@@ -154,6 +164,13 @@ def main():
              'colour_checked_forms':len(candidate_colour_checks),'colour_discarded_forms':len(candidate_colour_rejections),'colour_discarded_logical_questions':len({qid.rsplit('__',1)[0] for qid in candidate_colour_rejections}),
              'event_counts_completed_dry_base_programs_unsealed':dict(attempt_events),'event_counts_sealed_parent_base_programs':dict(events),'unit_tests':unit,'gpu_assigned_card_union_seconds':gpu_card_seconds,'gpu_allocated_seconds_summed':gpu_seconds,'gpu_time_definition':'sum of assigned-card worker wall time, including startup, RIR, encoding and question work; not CUDA kernel timing',
              'own_output_logical_bytes':own_bytes,'own_output_allocated_bytes':allocated,'active_jobs':[j['name'] for j in jobs if j['status']=='running'],'source_labels_modified':False,'training_table_exported':False,'CCI_transferred':False}
+    summary['joint_scene_physical_admission_appearances']=joint_assets
+    summary['joint_scene_physical_admission_count']=len(joint_assets)
+    summary['implementation_commit']=subprocess.check_output(['git','rev-parse','HEAD'],cwd=Path(__file__).resolve().parents[2],text=True).strip()
+    summary['camera_root_cause_evidence']=str(root/'evidence/camera_root_cause_v2.json')
+    summary['audio_input_seal']=read(root/'evidence/input_seal.json')
+    preferred=list(house_samples.values());paths={str(x[1]) for x in preferred}
+    samples=(preferred+[x for x in samples if str(x[1]) not in paths])[:12]
     stamp=datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')
     summary_path=root/'evidence'/('pilot_report_'+stamp+'.json');summary_path.open('x').write(json.dumps(summary,ensure_ascii=False,indent=2)+'\n')
     rows=[['不可见声源',0 if passed else '未形成通过父场景','只对封存且独立真值通过的父场景成立'],
@@ -173,12 +190,15 @@ def main():
     page+='<p class="note">仅本机非商业研究试产。没有导出训练表，没有传 CCI，没有修改源登记。动物及物件静态出场；空调为静音摆设。失败阶段保留，原门槛未放宽。</p><h2>原生门禁数字</h2>'+table(['项目','实测 / 结论','数字范围与出处'],rows)
     page+='<p>详细数值来源：<code>'+html.escape(str(summary_path))+'</code>。未形成全部门禁通过的父场景时，部分阶段的通过数字不代表父场景已通过。</p>'
     page+='<h2>资产覆盖</h2>'+table(['范围','封存父场景实际出场','要求'],[['动物身体',len(seen_animals),len(expected_animals)],['物件种类',len(seen_objects),len(expected_objects)],['代表外观',len(assets_seen),len(selected)],['训练房子',len(houses),6]])
+    page+='<p>同场物理验收证据已覆盖 '+str(len(joint_assets))+' 个代表外观；它只说明三视角与贴附阶段通过，不代替完整视频、题目与封存。</p>'+table(['资产','类别 / 身体或种类','同场物理阶段','完整视频出场','封存出场'],
+        [[x['asset_id'],x['body_id'] if x['category']!='object' else x['object_type'],('三视角通过；贴附 '+format(joint_assets[x['asset_id']]['attachment_gap_mm'],'.3f')+' mm') if x['asset_id'] in joint_assets else '未完成',x['asset_id'] in partial_assets,x['asset_id'] in assets_seen] for x in selected])
     page+='<h3>覆盖缺口</h3><pre>'+html.escape(json.dumps(gaps,ensure_ascii=False,indent=2))+'</pre>'
     page+='<h2>每类事件数</h2><p>统计封存父场景的基础事件程序一次；四成员的反事实复用不重复计数。</p>'+table(['事件类别','事件数'],sorted(events.items()))
     page+='<p>已完成但未封存的干音程序，按逻辑父场景去重；以下数字不代表音频与全部门禁通过。</p>'+table(['事件类别','干音事件数'],sorted(attempt_events.items()))
     page+='<h2>失败清单</h2>'+table(['父场景 / 尝试','房子','失败原因'],history)
     page+='<h3>失败尝试的实测超限</h3>'+table(['父场景','项目','实测值','门槛','出处'],[(v['scene_id'],v['check'],v['value'],v['limit'],v['source']) for v in failed_measurements])
     page+='<h2>UE 原生样张</h2><div class="gallery">'+''.join('<figure>'+image(path)+'<figcaption>'+html.escape(label)+('；封存通过' if sealed else '；部分阶段 / 未通过全部封存门禁')+'</figcaption></figure>' for label,path,sealed in samples)+'</div>'
+    page+='<h2>相机故障与修复</h2><p>原因是验收站位后给下发相机添加了偏航偏移，继承的读回检查仍按原时间表计算期望。已使两边使用同一偏航计划，保留 0.0001° 和 0.5 mm 容差。后续单场的读回错误未重现，但旧视角导致一个说话人偏离主视角 67.12°，有效绑定题 0/5；这些完成阶段与失败都保留。当前改用水平角平分，并限制两名说话人的相对站位，继续单场验收。</p><p>故障证据：<code>'+html.escape(str(root/'evidence/camera_root_cause_v2.json'))+'</code>。</p>'
     page+='<h2>验证及资源</h2><pre>'+html.escape(json.dumps({'unit_tests':unit,'GPU卡时间并集小时':{g:s/3600 for g,s in gpu_card_seconds.items()},'GPU实例累计墙钟小时':gpu_seconds/3600,'新增产物逻辑GiB':own_bytes/2**30,'新增产物分配GiB':allocated/2**30,'仍在运行':summary['active_jobs']},ensure_ascii=False,indent=2))+'</pre>'
     page+='<p>颜色规则：在当前场景画面中重测。对不上只丢掉依赖颜色的题，资产照常准入，登记标签保持原样。数据许可限非商业研究，不再分发。</p></body></html>'
     path=root/a.name
