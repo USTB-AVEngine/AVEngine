@@ -189,7 +189,7 @@ def worker(root,index,gpu,seed_path=None,input_directory=None,shared_worker_pool
 
 class NativePilotBatchGate:
     """Require one fully sealed native parent, then stop on repeated failures."""
-    def __init__(self,canary_passed=False,reviewed_parallel_batch_limit=2):
+    def __init__(self,canary_passed=False,reviewed_parallel_batch_limit=2,canary_parallel_limit=1):
         self.canary_passed=canary_passed
         if type(reviewed_parallel_batch_limit) is not int or not 1<=reviewed_parallel_batch_limit<=12:
             raise ValueError('reviewed native batch limit must be from one to twelve')
@@ -197,16 +197,20 @@ class NativePilotBatchGate:
         self.last_failure=None
         self.consecutive_failures=0
         self.last_batch_failed=False
+        if type(canary_parallel_limit) is not int or canary_parallel_limit not in (1,3):
+            raise ValueError('explicit native canary cohort must contain one or three parents')
+        self.canary_parallel_limit=canary_parallel_limit
+        self.canary_failure_counts={}
 
     @property
     def batch_limit(self):
-        return self.reviewed_parallel_batch_limit if self.canary_passed else 1
+        return self.reviewed_parallel_batch_limit if self.canary_passed else self.canary_parallel_limit
 
     def observe(self,result):
         if result.get('status')=='formal_alpha_admitted' and result.get('independent_truth',{}).get('status')=='pass':
             self.canary_passed=True
             self.last_failure=None
-            self.consecutive_failures=0
+            self.consecutive_failures=max(self.canary_failure_counts.values(),default=0) if self.canary_parallel_limit==3 else 0
             self.last_batch_failed=False
             return
         self.last_batch_failed=True
@@ -214,11 +218,16 @@ class NativePilotBatchGate:
         reason=result.get('reason','worker exited before recording a gate result').split(':',1)[0]
         reason=re.sub(r'only \d+ measured binding questions','insufficient measured binding questions',reason)
         signature=(result.get('error_type','native_gate'),reason)
-        self.consecutive_failures=self.consecutive_failures+1 if signature==self.last_failure else 1
+        if self.canary_parallel_limit==3:
+            key=json.dumps(signature)
+            self.canary_failure_counts[key]=self.canary_failure_counts.get(key,0)+1
+            self.consecutive_failures=max(self.canary_failure_counts.values())
+        else:
+            self.consecutive_failures=self.consecutive_failures+1 if signature==self.last_failure else 1
         self.last_failure=signature
 
     def require_next_batch(self):
-        if self.last_batch_failed and not self.canary_passed:
+        if self.last_batch_failed and not self.canary_passed and self.canary_parallel_limit==1:
             raise RuntimeError('native canary failed; inspect and repair before starting another parent')
         if self.consecutive_failures>=2:
             raise RuntimeError('two consecutive native parents failed the same gate; rollout stopped for diagnosis')
@@ -227,7 +236,9 @@ class NativePilotBatchGate:
         return {'canary_passed':self.canary_passed,'batch_limit':self.batch_limit,
                 'last_failure':self.last_failure,'consecutive_failures':self.consecutive_failures,
                 'last_batch_failed':self.last_batch_failed,
-                'reviewed_parallel_batch_limit':self.reviewed_parallel_batch_limit}
+                'reviewed_parallel_batch_limit':self.reviewed_parallel_batch_limit,
+                'canary_parallel_limit':self.canary_parallel_limit,
+                'canary_failure_counts':dict(self.canary_failure_counts)}
 
 
 def formal_native_parent_passed(root,scene_id):
@@ -273,7 +284,46 @@ def update_job(root,name,updates,register=False):
         return dict(job)
 
 
+def parallel_canary_ids(scope):
+    ids=scope.get('canary_scene_ids')
+    if ids is None:return []
+    if (not isinstance(ids,list) or len(ids)!=3 or len(set(ids))!=3 or
+            any(not isinstance(sid,str) or Path(sid).name!=sid or sid in ('.','..') for sid in ids)):
+        raise ValueError('parallel canary scope must declare exactly three unique scene IDs')
+    if authorized_gpus(scope)!=[1,2,3]:
+        raise ValueError('parallel canaries require explicitly assigned physical GPUs 1/2/3')
+    return list(ids)
+
+
+def parallel_canary_directory(root,scope):
+    directory=own_input_directory(root,scope.get('canary_input_directory'))
+    if not scope.get('canary_input_directory') or not directory.is_relative_to((Path(root)/'inputs').resolve()):
+        raise ValueError('parallel canary input directory must exist inside its own inputs')
+    return directory
+
+
+def require_initial_canary_batch(root,scope,rows,directory,limit,start_index):
+    ids=parallel_canary_ids(scope)
+    if ids:
+        if (directory!=parallel_canary_directory(root,scope) or limit!=3 or start_index!=0 or
+                len(rows)!=3 or {row['scene_id'] for row in rows}!=set(ids)):
+            raise RuntimeError('only the three explicitly declared native canaries are authorized before formal pass')
+    elif directory!=own_input_directory(root):
+        raise RuntimeError('required formal native canary has not passed; full rollout is not authorized yet')
+
+
+def automatic_initial_batch_limit(scope,passed):
+    value=scope.get('automatic_initial_reviewed_batch_limit',1)
+    if type(value) is not int or not 1<=value<=min(4,reviewed_batch_limit(scope,True)):
+        raise ValueError('automatic initial batch must be within the reviewed one to four parent limit')
+    if value>1 and not passed:
+        raise ValueError('larger automatic initial batch requires an actual formally passed canary')
+    return value
+
+
 def formal_canary_passed(root,scope,rows):
+    ids=parallel_canary_ids(scope)
+    if ids:return any(formal_native_parent_passed(root,sid) for sid in ids)
     required=scope.get('required_formal_canary_scene_id')
     if required:return formal_native_parent_passed(root,required)
     return any(formal_native_parent_passed(root,row['scene_id']) for row in rows)
@@ -313,11 +363,18 @@ def require_launch_authorization(root,index,gpu,seed_path,input_directory,shared
            (job.get('parent_index')==index and job.get('seed_path')==str(own_seed_path(root,seed_path)))
            for job in active):raise RuntimeError('native parent is already running; duplicate launch rejected')
     passed=formal_canary_passed(root,scope,rows)
-    limit=reviewed_batch_limit(scope,shared_worker_pool) if passed else 1
+    ids=parallel_canary_ids(scope)
+    limit=reviewed_batch_limit(scope,shared_worker_pool) if passed else (len(ids) or 1)
     if len(active)>=limit:raise RuntimeError('native pilot batch capacity reached; wait for current results')
     if scope.get('require_formal_canary_before_rollout') and not passed:
         required=scope.get('required_formal_canary_scene_id')
-        if directory!=own_input_directory(root) or (required and rows[index]['scene_id']!=required) or (
+        if ids:
+            require_initial_canary_batch(root,scope,rows,directory,len(rows),0)
+            if rows[index]['scene_id'] not in ids:
+                raise RuntimeError('native parent is outside the explicitly declared canary cohort')
+            if any(job.get('gpu_physical')==gpu for job in active):
+                raise RuntimeError('parallel native canaries use one instance per physical GPU')
+        elif directory!=own_input_directory(root) or (required and rows[index]['scene_id']!=required) or (
                 not required and index!=scope.get('canary_parent_index',0)):
             raise RuntimeError('required formal native canary has not passed; full rollout is not authorized yet')
     if shared_worker_pool:require_shared_gpu_isolation(scope)
@@ -626,9 +683,10 @@ def main():
     for row in rows:validate_training_room(root,row,bundle['houses']['houses'])
     if live_parent_workers(root):raise RuntimeError('existing own parent workers are still running; no duplicate coordinator dispatch')
     passed=formal_canary_passed(root,scope,rows)
-    if directory!=own_input_directory(root) and not passed:
-        raise RuntimeError('required formal native canary has not passed; full rollout is not authorized yet')
-    gate=NativePilotBatchGate(passed,1 if a.continue_reviewed_batches else reviewed_batch_limit(scope,a.shared_worker_pool))
+    if not passed:require_initial_canary_batch(root,scope,rows,directory,a.limit,a.start_index)
+    initial_limit=automatic_initial_batch_limit(scope,passed) if a.continue_reviewed_batches else reviewed_batch_limit(scope,a.shared_worker_pool)
+    cohort_limit=3 if parallel_canary_ids(scope) and not passed else 1
+    gate=NativePilotBatchGate(passed,initial_limit,cohort_limit)
     pending=[index for index,row in enumerate(rows) if index>=a.start_index and
              not formal_native_parent_passed(root,row['scene_id'])]
     active=[];processed=[];finished_results=[];last_snapshot=None;last_monitor=0.;hold={}
@@ -648,6 +706,7 @@ def main():
             gate.last_failure=tuple(previous['gate']['last_failure']) if previous['gate'].get('last_failure') else None
             gate.consecutive_failures=previous['gate']['consecutive_failures']
             gate.last_batch_failed=previous['gate'].get('last_batch_failed',False)
+            gate.canary_failure_counts=dict(previous['gate'].get('canary_failure_counts',{}))
     gate.require_next_batch()
     lock=(root/'coordinator.lock').open('a');fcntl.flock(lock.fileno(),fcntl.LOCK_EX|fcntl.LOCK_NB)
     cpus=scope.get('non_ue_worker_cpu_ids',scope.get('worker_cpu_ids',sorted(os.sched_getaffinity(0))))
@@ -657,7 +716,7 @@ def main():
     os.sched_setaffinity(0,{controller_cpu})
     def interrupted(signum,frame):raise RuntimeError('own coordinator interrupted by signal '+str(signum))
     for signum in (signal.SIGTERM,signal.SIGINT):signal.signal(signum,interrupted)
-    if a.continue_reviewed_batches:record_automatic_batch_limit(root,1)
+    if a.continue_reviewed_batches:record_automatic_batch_limit(root,initial_limit)
     try:
         # One invocation dispatches only its reviewed batch. An early result
         # never opens a new slot before the rest of that batch has completed.
@@ -675,9 +734,10 @@ def main():
                     raise RuntimeError('hard task resource limit: '+', '.join(last_snapshot['hard_stop_reasons']))
             if not dispatch_done:
                 gate.require_next_batch();batch_limit=min(gate.batch_limit,len(gpus)*a.workers_per_gpu)
+                per_gpu_limit=1 if cohort_limit==3 and not gate.canary_passed else a.workers_per_gpu
                 for gpu in gpus:
                     count=sum(handle.gpu==gpu for handle in active)
-                    while pending and count<a.workers_per_gpu and len(active)<batch_limit:
+                    while pending and count<per_gpu_limit and len(active)<batch_limit:
                         index=pending[0]
                         previous_recipe=root/'production/parents'/rows[index]['scene_id']/'input_recipe.json'
                         if previous_recipe.exists() and json.loads(previous_recipe.read_text())['house']['input']['ue_config']['physical_gpu_index']!=gpu:break

@@ -457,3 +457,105 @@ def test_resource_helper_scope_override_is_own_filename_and_default_stays_v3(roo
     (root/'scripts/escaped.py').symlink_to(external)
     scope['resource_snapshot_helper']='escaped.py';put(root/'inputs/task_scope.json',scope)
     with pytest.raises(ValueError,match='escaped own scripts'):pilot.load_local_helper(root,'pilot_resource_snapshot_v3.py')
+
+
+def configure_parallel_canaries(root):
+    scope=pilot.read_scope(root)
+    scope.update(canary_scene_ids=['new_0','new_1','new_2'],
+                 canary_input_directory=str(root/'inputs/full_coverage_v1'),
+                 reviewed_parallel_batch_limit=3)
+    put(root/'inputs/task_scope.json',scope)
+    return scope
+
+
+def test_declared_three_canaries_require_native_seal_and_any_one_can_unlock(root):
+    scope=configure_parallel_canaries(root)
+    seal(root,'required_canary')
+    assert not pilot.formal_canary_passed(root,scope,[])
+    seal(root,'new_1',status='fail')
+    assert not pilot.formal_canary_passed(root,scope,[])
+    seal(root,'new_1')
+    assert pilot.formal_canary_passed(root,scope,[])
+    (root/'production/parents/new_1/alpha_seal_completed.json').unlink()
+    assert not pilot.formal_canary_passed(root,scope,[])
+
+
+def test_three_canaries_launch_only_in_declared_directory_before_formal(root,monkeypatch):
+    configure_parallel_canaries(root)
+    monkeypatch.setattr(pilot,'live_parent_workers',lambda root:[])
+    for index,gpu in enumerate([1,2,3]):
+        _,row,directory=pilot.require_launch_authorization(root,index,gpu,None,root/'inputs/full_coverage_v1',False)
+        assert row['scene_id']==f'new_{index}'
+    with pytest.raises(RuntimeError,match='explicitly declared'):
+        pilot.require_launch_authorization(root,0,1,None,root/'inputs',False)
+
+
+def test_parallel_canaries_reject_same_card_and_capacity_duplicates(root,monkeypatch):
+    configure_parallel_canaries(root)
+    active=[{'scene_id':'new_1','gpu_physical':1}]
+    monkeypatch.setattr(pilot,'live_parent_workers',lambda root:active)
+    with pytest.raises(RuntimeError,match='one instance per physical GPU'):
+        pilot.require_launch_authorization(root,0,1,None,root/'inputs/full_coverage_v1',False)
+
+
+@pytest.mark.parametrize('change',[{'canary_scene_ids':['new_0']},
+    {'canary_scene_ids':['new_0','new_0','new_2']},{'canary_scene_ids':['../other','new_1','new_2']},
+    {'physical_gpus':[2,3]}])
+def test_parallel_canary_scope_rejects_invalid_ids_and_gpus(root,change):
+    scope=configure_parallel_canaries(root);scope.update(change)
+    with pytest.raises(ValueError):pilot.parallel_canary_ids(scope)
+
+
+def test_declared_canary_input_rejects_escape_and_symlink_escape(root):
+    scope=configure_parallel_canaries(root)
+    outside=root.parent/'outside_canary';outside.mkdir()
+    scope['canary_input_directory']=str(outside)
+    with pytest.raises(ValueError):pilot.parallel_canary_directory(root,scope)
+    link=root/'inputs/escape_canary';link.symlink_to(outside,target_is_directory=True)
+    scope['canary_input_directory']=str(link)
+    with pytest.raises(ValueError):pilot.parallel_canary_directory(root,scope)
+
+
+@pytest.mark.parametrize('limit,start,rows',[ (1,0,['new_0']), (3,1,['new_0','new_1','new_2']),
+    (4,0,['new_0','new_1','new_2','unlisted']), (3,0,['new_0','new_1','unlisted'])])
+def test_before_formal_coordinator_cannot_mix_rollout_into_canaries(root,limit,start,rows):
+    scope=configure_parallel_canaries(root)
+    with pytest.raises(RuntimeError,match='explicitly declared'):
+        pilot.require_initial_canary_batch(root,scope,[{'scene_id':sid} for sid in rows],
+                                          root/'inputs/full_coverage_v1',limit,start)
+
+
+def test_parallel_cohort_two_same_failures_stop_even_when_pass_is_between():
+    gate=pilot.NativePilotBatchGate(False,3,3);assert gate.batch_limit==3
+    failure={'status':'failed','error_type':'ValueError','reason':'only 2 measured binding questions; need 5'}
+    gate.observe(failure);gate.require_next_batch()
+    gate.observe({'status':'formal_alpha_admitted','independent_truth':{'status':'pass'}})
+    gate.observe(dict(failure,reason='only 4 measured binding questions; need 5'))
+    with pytest.raises(RuntimeError,match='same gate'):gate.require_next_batch()
+
+
+def test_parallel_different_failures_do_not_stop_other_canaries():
+    gate=pilot.NativePilotBatchGate(False,3,3)
+    for reason in ('unsupported placement','insufficient visibility'):
+        gate.observe({'status':'failed','error_type':'ValueError','reason':reason})
+        gate.require_next_batch()
+
+
+def test_reviewed_automatic_start_keeps_original_default_and_requires_real_pass():
+    assert pilot.automatic_initial_batch_limit({'reviewed_parallel_batch_limit':3},True)==1
+    scope={'reviewed_parallel_batch_limit':3,'automatic_initial_reviewed_batch_limit':3}
+    assert pilot.automatic_initial_batch_limit(scope,True)==3
+    with pytest.raises(ValueError,match='actual formally passed'):pilot.automatic_initial_batch_limit(scope,False)
+    with pytest.raises(ValueError):pilot.automatic_initial_batch_limit(dict(scope,automatic_initial_reviewed_batch_limit=4),True)
+
+
+def test_parallel_coordinator_dispatches_one_each_on_three_cards_without_prior_pass(root,monkeypatch):
+    spawned=coordinator_fakes(root,monkeypatch)
+    configure_parallel_canaries(root)
+    monkeypatch.setattr(sys,'argv',['pilot','--pilot-root',str(root),'--input-directory',str(root/'inputs/full_coverage_v1'),
+                                   '--limit','3','--workers-per-gpu','2'])
+    pilot.main()
+    assert spawned==[(0,1),(1,2),(2,3)]
+    state=json.loads((root/'evidence/coordinator_state.json').read_text())
+    assert state['parents']==state['passed']==3
+    assert state['training_exported'] is False and state['CCI_transferred'] is False
