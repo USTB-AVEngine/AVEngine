@@ -15,6 +15,16 @@ PHASE2_CLASSES={'footsteps'}
 LIVE_CLASSES={'clapping','coughing','flute_live','guitar_live','hand_drum_live','piano_live','saxophone_live','violin_live'}
 ANCHOR_CLASS={'hand_clap':'clapping','clapping':'clapping','cough':'coughing','flute':'flute_live','acoustic_guitar':'guitar_live','hand_drum':'hand_drum_live','piano':'piano_live','saxophone':'saxophone_live','violin':'violin_live'}
 
+def production_sound_class(value):
+    """Map legacy phone permissions into the admitted v13 production domain.
+
+    Registration bytes and the published STARSS 13-class taxonomy are retained.
+    Only live registered-pilot permissions and explicit recipe requests use this
+    mapping; actual admitted recording labels remain authoritative.
+    """
+    return 'telephone_bell_ringing' if value in {'telephone','phone_ring'} else value
+
+
 def validate_english_source_admission(source):
     """Reject accidental use of the pre-English v8 pool or its removed clips."""
     policy=source.get('scope_change_5') or {}
@@ -105,7 +115,7 @@ def object_catalog(registry):
         a=_base(r['asset_id'],r['derived_glb'],registry,'object')
         a.update(name_zh=r.get('object_type','object'),object_type=r['object_type'],body_identity_id=r['asset_id'],
                  form_factor=r.get('form_factor'),attachment_surface=r['attachment_surface'],
-                 allowed_classes=list(r['allowed_v7_classes_candidate']),silent_decor=r.get('silent_decor',False),
+                 allowed_classes=list(dict.fromkeys(production_sound_class(c) for c in r['allowed_v7_classes_candidate'])),silent_decor=r.get('silent_decor',False),
                  registered_label_color=r.get('label_color'),label_color=r.get('label_color'),
                  geometry=deepcopy(r['geometry_checks']),asset_metadata=r['asset_metadata'],
                  license_authority=deepcopy(r.get('license')),material_receipt=deepcopy(r.get('material_receipt')))
@@ -198,7 +208,7 @@ def build_visible_scene(row,house,records,catalog,semantic_manifest=None):
         ep='voice'+str(i+1);a.update(endpoint_id=ep,native_instance_id=i+1)
         classes=[c for c in a['allowed_classes'] if c not in PHASE2_CLASSES]
         requested=row.get('source_classes',{}).get(a['asset_id'])
-        if requested is not None:classes=list(requested)
+        if requested is not None:classes=list(dict.fromkeys(production_sound_class(c) for c in requested))
         elif a['kind']=='human':classes=['speech_playback']
         elif a['kind']=='performer' and len(classes)>1:classes=['speech_playback']
         if not a['silent_decor'] and not classes:raise ValueError('registered asset has no stage-one sound mechanism')
