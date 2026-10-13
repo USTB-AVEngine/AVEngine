@@ -257,10 +257,12 @@ class NativeVisibleVideo(NativeRegisteredVideo):
             if key=='floor':candidates=list({tuple(round(v,5) for v in p['point']):p for p in candidates}.values())
             listener=np.asarray(scene['listener_m']);rejections={}
             def reject(reason):rejections[reason]=rejections.get(reason,0)+1
+            from avengine.capture.v7_alpha_native import forward_at
+            camera_path_vectors=[(forward_at(scene,k['time_s']),None) for k in scene['camera_yaw_knots']]
+            camera_path_vectors=[(f,np.cross(f,[0.,1.,0.])) for f,_ in camera_path_vectors]
             def visible_from_path(delta):
-                from avengine.capture.v7_alpha_native import forward_at
-                for knot in scene['camera_yaw_knots']:
-                    f=forward_at(scene,knot['time_s']);right=np.cross(f,[0.,1.,0.]);depth=float(delta@f)
+                for f,right in camera_path_vectors:
+                    depth=float(delta@f)
                     if depth>0 and abs(math.degrees(math.atan2(float(delta@right),depth)))<=37. and abs(math.degrees(math.atan2(delta[1],depth)))<=24.:return True
                 return False
             target=scene.get('phase2_semantic_azimuth_targets_deg',{}).get(a['asset_id']) if scene.get('phase2_profile') else None
@@ -289,6 +291,13 @@ class NativeVisibleVideo(NativeRegisteredVideo):
                 if key=='floor':
                     delta=listener-np.asarray(support['point'])
                     support['yaw_rad']=math.atan2(-delta[0],-delta[2]) if a['kind'] in {'human','performer','animal'} else math.atan2(-delta[2],delta[0])
+                # Pure candidate filtering: the support transform is identical
+                # to check_support's proposed root. Every surviving candidate
+                # still runs all original rays, contacts and real native pixels.
+                proposed_root,proposed_yaw,_,_=support_points(meta,support)
+                proposed_rep=(proposed_root+rotation(proposed_yaw)@np.asarray(a['emitter_local_m'])) if not a['silent_decor'] else proposed_root+np.array([0.,.5,0.])
+                if not visible_from_path(proposed_rep-listener):
+                    reject('outside_observed_camera_path');continue
                 placement=check_support(self.sim,r,meta,support)
                 if placement is None:
                     reject("attachment_rays");continue

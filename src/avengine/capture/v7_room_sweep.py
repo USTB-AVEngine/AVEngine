@@ -40,7 +40,7 @@ def static_categories(house,room,inputs,catalog,categories,directory,save_sample
         for e in all_entries:e['object'].translation=video.mn.Vector3(0.,-1000.,0.)
         for category,choices in categories.items():
             # Camera height is a sampling choice, not a contact/frustum gate.
-            scene['listener_m'][1]=float(room['measured_floor_y_m'])+(1.65 if category=='ceiling_object'else 1.25)
+            scene['listener_m'][1]=float(room['measured_floor_y_m'])+(1.65 if category=='ceiling_object'else .95 if category in {'floor_dog','floor_cat','perched_bird'}else 1.25)
             attempts=[]
             for asset_id in choices:
                 entry=entries[asset_id];asset=entry['declaration'];video.actors=[entry]
