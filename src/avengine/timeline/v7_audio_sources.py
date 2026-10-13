@@ -66,6 +66,27 @@ def source_blockers(record):
             reasons.append("tts_output_terms_not_recorded")
         if not record.get("script_author") or not record.get("transcript") or not chain.get("voice_id"):
             reasons.append("tts_script_or_voice_identity_missing")
+    elif kind == "generated_audio":
+        # Explicit owner-admitted SAO supplements retain generated provenance.
+        # They are never relabelled as recordings or admitted to dev/test.
+        generation = record.get("generation", {})
+        if generation.get("model_id") != "stabilityai/stable-audio-open-1.0" or not generation.get("model_sha256"):
+            reasons.append("generated_model_lineage_missing")
+        if record.get("allowed_splits") != ["train"] or not record.get("owner_acceptance"):
+            reasons.append("generated_owner_train_only_authority_missing")
+        digest = record.get("sha256")
+        for key in ("automatic_no_speech", "automatic_activity_readback"):
+            evidence = record.get(key, {})
+            if evidence.get("status") != "pass" or evidence.get("audio_sha256") != digest:
+                reasons.append("generated_" + key + "_missing_or_wrong_sha")
+        if record.get("automatic_no_speech", {}).get("blind_decoded_text", "").strip():
+            reasons.append("generated_nonempty_speech_transcription")
+        if not digest or not Path(record.get("path", "")).is_file():
+            reasons.append("generated_waveform_missing")
+        else:
+            import hashlib
+            if hashlib.sha256(Path(record["path"]).read_bytes()).hexdigest() != digest:
+                reasons.append("generated_waveform_sha_changed")
     elif kind != "recorded":
         reasons.append("unrecognized_dry_source_kind")
     return list(dict.fromkeys(reasons))
@@ -114,6 +135,8 @@ def assemble_recorded_buses(scene, program):
         binding = bindings[event["event_id"]]
         record = by_id[binding["sound_asset_id"]]
         source = scene["sources"][event["endpoint_id"]]
+        if record.get("allowed_splits") and scene.get("split") not in record["allowed_splits"]:
+            raise ValueError("sound input is not licensed/admitted for this scene split")
         if source.get("content_kind") == "speech":
             if record.get("sound_class") not in ("speech_playback", "human_speech_male", "human_speech_female"):
                 raise ValueError("a speaking actor requires a speech dry clip, not an appliance/animal sound")

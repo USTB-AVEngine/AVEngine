@@ -25,9 +25,9 @@ def dog_chains_masks(d,b):
 
 def dog_master(entry,inputs,house):
     registry=Path(inputs['v7_asset_roster']);data=json.loads(registry.read_text());root=Path(data['artifact_root'])
-    record=next(v for major in data['animals']if major['major_id']=='dog'for v in major['minor_variants']if v['asset_id']==entry['declaration']['asset_id'])
+    record=next(v for major in data['animals']if major['major_id']=='dog'for v in major['minor_variants']if v['asset_id']==entry['declaration'].get('source_roster_id',entry['declaration']['asset_id']))
     if not record.get('walk_allowed')or not record.get('dual_backend_static_usable')or not record.get('original_target_geometry_preserved'):raise ValueError('dog roster motion authority missing')
-    path=root/record['motion_master_glb'];d,b=read_glb(path)
+    path=Path(entry['declaration'].get('motion_runtime_glb') or root/record['motion_master_glb']);d,b=read_glb(path)
     family='mp3d'if house['house'].startswith('mp3d')else'hm3d';name='Walking_Contact_'+family
     if name not in record['admitted_motion_clips']['walk']:raise ValueError('canine contact clip not admitted')
     action=next(a for a in d['animations']if a['name']==name);d,b=apply_appearance(d,b,entry['prepared_glb'])
@@ -68,11 +68,22 @@ def compile_continuous_dog_walking(video,entry,scene,house,inputs,directory,requ
     d,b,action,lineage=dog_master(entry,inputs,house)
     times=np.arange(901)/30.;speed=float(request.get('speed_m_s',.05))
     if not .03<=speed<=.3:raise ValueError('dog speed outside explicitly supported slow walk')
-    if request.get('intervals_s')not in (None,[[0.,30.]]):raise ValueError('dog pause is unsupported; no raised-paw freeze')
+    intervals=request.get('intervals_s')
+    if intervals not in (None,[[0.,30.]]) and not inputs.get('phase2'):
+        raise ValueError('dog pause requires explicit phase-two four-paw native admission')
     moving=np.ones(len(times),bool);distance=times*speed
+    if intervals not in (None,[[0.,30.]]):
+        moving=np.zeros(len(times),bool);velocity=np.zeros(len(times))
+        for lo,hi in intervals:
+            if not 0<=lo<hi<=30:raise ValueError('canine interval outside continuous world')
+            active=(times>=lo)&(times<hi);moving|=active
+            edge=np.clip(np.minimum(times-lo,hi-times)/.25,0,1)
+            velocity[active]=speed*edge[active]**2*(3-2*edge[active])
+        distance=np.r_[0.,np.cumsum((velocity[1:]+velocity[:-1])/60)]
+        if distance[-1]<.2:raise ValueError('canine route lacks genuine translated walking')
     ts=animation_times(d,b,action);duration=float(ts[-1]-ts[0]);chains,masks=dog_chains_masks(d,b)
-    clock=float(ts[0])+times*speed/.3
-    static_bounds=[np.asarray(a['original_mesh'].vertices)@a['applied_root_input'][:3,:3].T+a['applied_root_input'][:3,3] for a in video.actors if a is not entry]
+    clock=float(ts[0])+distance/.3
+    static_bounds=[np.asarray(a['original_mesh'].vertices)@a['applied_root_input'][:3,:3].T+a['applied_root_input'][:3,3] for a in video.actors if a is not entry and a.get('phase2_layout_qualified') is not False]
     accepted=None;failures=[];prefilter={"polygon_rejected":0,"bystander_rejected":0,"full_gate_attempted":0}
     search_start=time.process_time();max_attempts=8;cpu_budget_s=1800.
     def search_progress(**extra):
@@ -105,11 +116,12 @@ def compile_continuous_dog_walking(video,entry,scene,house,inputs,directory,requ
         if prefilter['full_gate_attempted']>=max_attempts or time.process_time()-search_start>cpu_budget_s:
             write_json(directory/'motion_rejected.json',{'status':'blocked','reason':'bounded route search exhausted; no physical admission','failures':failures,'lineage':lineage,'prefilter':prefilter,'thresholds_changed':False})
             raise ValueError('dog native route search budget exhausted without admission')
+        snaps=np.array([video.pathfinder.snap_point(p) for p in positions]);nav=float(np.linalg.norm((snaps-positions)[:,[0,2]],axis=1).max())
+        if not np.isfinite(nav) or nav>.002:
+            prefilter['native_navmesh_rejected']=prefilter.get('native_navmesh_rejected',0)+1;continue
         prefilter['full_gate_attempted']+=1
         search_progress(start_m=p0.tolist(),yaw_rad=yaw,frame_index=None)
         try:
-            snaps=np.array([video.pathfinder.snap_point(p) for p in positions]);nav=float(np.linalg.norm((snaps-positions)[:,[0,2]],axis=1).max())
-            if not np.isfinite(nav) or nav>.002:raise ValueError('motion actual native navigation horizontal drift exceeds 2mm')
             # The actual stage ground, rather than the NavMesh voxel height.
             ray=video.hs.geo.Ray(video.mn.Vector3(p0+[0.,.2,0.]),video.mn.Vector3(0.,-1.,0.))
             hits=[h for h in video.sim.cast_ray(ray,.85).hits if int(h.object_id)not in {int(a['object'].object_id)for a in video.actors}]
@@ -150,9 +162,9 @@ def compile_continuous_dog_walking(video,entry,scene,house,inputs,directory,requ
     evidence={'status':'pass','revision':REVISION,'lineage':lineage,'frame_count':901,'sample_rate_hz':30,
         'source_frames':frames,'world_roots_m':positions.tolist(),'yaw_rad':yaw,'pose_glbs':files,
         'maximum_navmesh_horizontal_error_m':nav,'minimum_certified_triangle_nonfloor_clearance_m':minimum,'collision_method':'exact FCL for every triangle whose AABB can be within 20.0001mm; excluded AABB axis bounds certify >20mm',
-        'stage_original_glb':clearance.source,'true_ground_triangles_removed':clearance.removed,
-        'nonfloor_stage_triangles':clearance.triangles,'physical_ground_y_m':floor_y,
-        'motion_kind':'dog_continuous_walk','slow_gait_support_IK_repairs':support_repairs,'pause_policy':'continuous slow walk only; no four-paw stop is declared','species_id':'dog',
+        'stage_original_glb':clearance.source,'native_stage_transform_readback':clearance.native_transform_evidence,'true_ground_triangles_removed':clearance.removed,
+        'nonfloor_stage_triangles':clearance.triangles,'original_full_skin_floor_collision':clearance.floor_certificate(),'physical_ground_y_m':floor_y,'support_ray_method':{'candidate_search':'exact intersections with every original stage triangle, no planes/quantization/decimation' if floor.original_ray is not None else 'native only','native_selected_rays':floor.native_ray_count,'candidate_original_stage_points':floor.original_ray.requested_points if floor.original_ray is not None else 0,'native_original_worst_difference_m':max(floor.native_ray_agreements,default=0.),'agreement_gate_m':.0001},
+        'motion_kind':'dog_continuous_walk' if intervals in (None,[[0.,30.]]) else 'dog_walk_intervals','slow_gait_support_IK_repairs':support_repairs,'pause_policy':'continuous walk' if intervals in (None,[[0.,30.]]) else 'zero translated root and fixed authored phase, four actual original paws planted through existing IK; every frame independently admitted','species_id':'dog',
         'known_bad_10cm_floor_detected':min(frames[0]['feet'][s]['floor_delta_m']-.1 for s in frames[0]['feet'])<-.008,
         'full_skin_bounds_m':[np.array(bounds)[:,0].min(0).tolist(),np.array(bounds)[:,1].max(0).tolist()],
         'failed_candidate_count':len(failures),'unique_native_pose_meshes':len(pose_cache),'prefilter':prefilter,'thresholds_changed':False}

@@ -9,7 +9,12 @@ def dialogue_evidence(scene,program,receipt,visual,manifest,start,retained_visua
         instances.append({'native_actor_id':aid,'asset_id':actor['asset_id'],'pose':'stand','body_to_world_m':actor['body_to_world_m'],'standing_pose_readback':{'status':'pass','source':retained_visual,'actor_id':aid,'asset_id':actor['asset_id'],'source_registry_sha256':actor['source_registry_sha256'],'loaded_artifact_sha256':actor['loaded_artifact_sha256']}})
     from avengine.timeline.v7_registry_snapshot import resolve_registry,qualify_namespace
     registry,original_sha,registry_sha=resolve_registry(retained_visual,visual,manifest['source_registry'])
-    _,namespace=qualify_namespace(visual,registry,original_sha,Path(retained_visual).with_name('registry_namespace_readback.json'),retained_visual)
+    namespace_path=Path(retained_visual).with_name('registry_namespace_readback.json')
+    if scene.get('phase2_profile'):
+        import hashlib
+        location=hashlib.sha256(str(Path(retained_visual).resolve()).encode()).hexdigest()[:16]
+        namespace_path=Path(retained_visual).with_name('registry_namespace_phase2_'+location+'.json')
+    _,namespace=qualify_namespace(visual,registry,original_sha,namespace_path,retained_visual)
     for instance in instances:
         stand=instance['standing_pose_readback'];stand['source']=namespace['source']
         stand['source_registry_sha256']=registry_sha;stand['original_native_registry_sha256']=original_sha

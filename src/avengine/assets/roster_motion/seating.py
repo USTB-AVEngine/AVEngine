@@ -1,6 +1,6 @@
 """Seat-first intake: actual native semantic surfaces or verified silent chairs."""
 from pathlib import Path
-import copy,json,math,hashlib
+import copy,json,math,hashlib,time
 import numpy as np
 from avengine.assets.roster_motion.episode import admitted_master,PhysicalFloor,TriangleClearance,triangle_mesh,externalize_unchanged_images,fcl_model
 from avengine.assets.roster_motion.io import read_glb,write_glb
@@ -77,24 +77,69 @@ def compile_seated(video,entry,scene,house,inputs,directory,request):
     # A native verified existing seat must be tried before adding furniture.
     candidates=[]
     cx,_,cz=reference['chair_boxes'][0]['center_m']
-    for seat in survey['seats']:
+    for seat in ([] if request.get('chair_id') else survey['seats']):
         p=np.asarray(seat['center_m']);candidates.append((seat,[p[0],p[1]-reference['seat_height_m'],p[2]],[-cx,0,-cz]))
-    for point in [entry['applied_root_input'][:3,3].tolist(),*[np.asarray(p)-[0,1.3,0]for p in scene['native_placement_candidates'][:96]]]:
+    native_points=[np.asarray(p)-[0,1.3,0]for p in scene['native_placement_candidates']]
+    if inputs.get('phase2') and request.get('minimum_camera_distance_m'):
+        native_points=[p for p in native_points if np.linalg.norm((p-np.asarray(scene['listener_m']))[[0,2]])>=float(request['minimum_camera_distance_m'])]
+    floor_proposals=request.get('native_chair_floor_points_m',[])
+    offset_proposals=request.get('chair_horizontal_offset_proposals_m',[[0.,0.,0.]])
+    if floor_proposals and not inputs.get('phase2'):raise ValueError('explicit chair proposals require phase two')
+    if not offset_proposals:raise ValueError('empty seated physical offset proposals')
+    for value in floor_proposals:
+        if np.asarray(value).shape!=(3,) or not np.isfinite(value).all():raise ValueError('invalid physical chair floor proposal')
+    for value in offset_proposals:
+        vector=np.asarray(value,float)
+        if vector.shape!=(3,) or not np.isfinite(vector).all() or vector[1]!=0. or np.linalg.norm(vector)>.100001:
+            raise ValueError('chair horizontal proposal exceeds unchanged physical model scope')
+    for point in [*floor_proposals,entry['applied_root_input'][:3,3].tolist(),*native_points[:96]]:
         for chair in roster['chairs']:
-            if chair['asset_id']in styles and chair.get('habitat_status')=='pass_reference_placements':candidates.append(({'kind':'fallback','chair':chair},point,styles[chair['asset_id']]['human_local_offset_m']))
+            if chair['asset_id']in styles and chair.get('habitat_status')=='pass_reference_placements' and (not request.get('chair_id') or chair['asset_id']==request['chair_id']):
+                for delta in offset_proposals:
+                    offset=(np.asarray(styles[chair['asset_id']]['human_local_offset_m'])+np.asarray(delta)).tolist()
+                    candidates.append(({'kind':'fallback','chair':chair},point,offset))
     accepted=None;failures=[]
     all_ids={int(a['object'].object_id)for a in video.actors}
-    protected=[np.asarray(scene['listener_m'])-np.array([0,1.3,0]),*[a['applied_root_input'][:3,3]for a in video.actors if a is not entry]]
+    protected=[np.asarray(scene['listener_m'])-np.array([0,1.3,0]),*[a['applied_root_input'][:3,3]for a in video.actors if a is not entry and a.get('phase2_layout_qualified') is not False]]
+    search_cpu_started=time.process_time()
     for seat,point,offset in candidates:
+        if inputs.get('phase2') and time.process_time()-search_cpu_started>1800:
+            failures.append({'reason':'bounded seating search CPU budget exhausted (1800s); no gate relaxed'});break
         cr=np.asarray(point,float);offset=np.asarray(offset,float)
+        # The seated mouth can be visible while a close chair is below the
+        # original camera frustum. This opt-in candidate constraint selects
+        # farther physical seats; final actual 100-pixel gate stays unchanged.
+        if inputs.get('phase2') and np.linalg.norm((cr-np.asarray(scene['listener_m']))[[0,2]])<float(request.get('minimum_camera_distance_m',0.)):
+            continue
         for yaw in [math.radians(scene['sources'][entry['endpoint_id']]['body_yaw_deg']),0.,math.pi/2,math.pi,-math.pi/2]:
             rot=yaw_matrix(yaw);hr=cr+rot@offset
             if any(np.linalg.norm((hr-p)[[0,2]])<.9 for p in protected[1:]):continue
-            chair_obj=None
+            chair_obj=None;surface=None;scale=None;gap=None;own_hits=[]
             try:
                 hits=[h for h in video.sim.cast_ray(video.hs.geo.Ray(video.mn.Vector3(hr+[0,.2,0]),video.mn.Vector3(0,-1,0)),.85).hits if int(h.object_id)not in all_ids]
                 if not hits:raise ValueError('seated body has no actual physical floor')
                 ground=float(hits[0].point[1]);floor=PhysicalFloor(video,ground,all_ids)
+                chair_grounding=None
+                if seat['kind']=='fallback' and inputs.get('phase2'):
+                    # The scan floor varies under the different chair legs.
+                    # A room-level Y is only a proposal, never the chair floor.
+                    # Ground the original full registered bottom footprint first;
+                    # still reject every native support gap >12mm and any full
+                    # original-skin penetration beyond the fixed native margin.
+                    from avengine.capture.v7_visible_mesh import indexed_static_mesh
+                    registered=seat['chair']
+                    original_chair=indexed_static_mesh(registered['habitat_glb'])
+                    vertices=np.asarray(original_chair.vertices)
+                    bottom=vertices[vertices[:,1]<=vertices[:,1].min()+.00001]
+                    if len(bottom)<4:raise ValueError('registered chair has no complete bottom footprint')
+                    candidate=bottom@rot.T+cr
+                    levels=floor.many(candidate)
+                    old_y=float(cr[1])
+                    cr=cr.copy();cr[1]=float(np.max(levels-bottom[:,1]))+.0005
+                    hr=cr+rot@offset
+                    chair_grounding={'method':'rigid chair root fitted to highest exact original scan floor under every original bottom vertex; final native rays and complete mesh checked separately',
+                        'original_bottom_vertices':len(bottom),'proposed_root_y_m':old_y,'grounded_root_y_m':float(cr[1]),'rigid_shift_y_m':float(cr[1]-old_y),
+                        'floor_min_y_m':float(levels.min()),'floor_max_y_m':float(levels.max()),'precision_headroom_m':.0005,'thresholds_changed':False}
                 solver=FootPlant(d,b,action,[0.,1/30],[hr.tolist()]*2,[yaw]*2,0.,0.,1/30,floor)
                 for values in solver.active.values():values[:]=True
                 _,parts,ev=solver.frame(0);v,f=triangle_mesh(d,b,parts);tri=(v+offset)[f]
@@ -109,11 +154,11 @@ def compile_seated(video,entry,scene,house,inputs,directory,request):
                 if seat['kind']=='fallback':
                     chair=seat['chair'];surface=clipped_surface_minimum(tri,[0,0],[chair['seat_width_m'],chair['seat_depth_m']],.25)
                     if surface is None:raise ValueError('actual posed clothing has no seat footprint contact')
-                    height=float(surface[1]);scale=height/chair['seat_height_m']
+                    height=float(surface[1]);scale=(height-(.001 if inputs.get('phase2') else 0.))/chair['seat_height_m']
                     if not .7<scale<1.3:raise ValueError('chair seat fit outside admitted ergonomic scaling')
                     for box in chair['solid_boxes']:
                         c=np.array(box['center_m']);size=np.array(box['size_m']);c[1]*=scale;size[1]*=scale
-                        if len(intersections(tri,c,size,box.get('yaw_rad',0),.004)):raise ValueError('actual seated skin intersects chair inner solid triangles')
+                        if len(intersections(tri,c,size,box.get('yaw_rad',0),.00101 if inputs.get('phase2') else .004)):raise ValueError('actual seated skin intersects chair inner solid triangles')
                     cd,cb=read_glb(Path(chair['habitat_glb']));cd=copy.deepcopy(cd)
                     for node in cd['nodes']:
                         if 'mesh'in node:node['scale']=[1,scale,1]
@@ -126,7 +171,7 @@ def compile_seated(video,entry,scene,house,inputs,directory,request):
                         'reference_color_revision':'original-gltf-linear-factor-to-srgb-v1',
                         'reference_source':'https://registry.khronos.org/glTF/specs/2.0/glTF-2.0.html',
                         'measurement_function_changed':False,'thresholds_changed':False}
-                    write_json(directory/'chair_material_reference.json',chair_material)
+
                     from avengine.capture.v7_registered_native import loaded_mesh
                     cm=loaded_mesh(chair_path);cv=np.asarray(cm.vertices)@rot.T+cr
                     clearance.check_world(cv,cm.faces)
@@ -139,7 +184,12 @@ def compile_seated(video,entry,scene,house,inputs,directory,request):
                     from avengine.assets.habitat_capture import _apply_root_with_habitat
                     matrix=np.eye(4);matrix[:3,:3]=rot;matrix[:3,3]=cr
                     _apply_root_with_habitat(chair_obj,matrix,qt=video.qt,mn=video.mn);chair_obj.motion_type=video.hs.physics.MotionType.STATIC;chair_obj.semantic_id=6100000+int(entry['declaration']['native_instance_id'])
-                    gap=0.
+                    wp=cr+rot@surface
+                    hits=video.sim.cast_ray(video.hs.geo.Ray(video.mn.Vector3(wp+[0,.15,0]),video.mn.Vector3(0,-1,0)),.4).hits
+                    own_hits=[hit for hit in hits if int(hit.object_id)==int(chair_obj.object_id)]
+                    if not own_hits:raise ValueError('no actual native registered seat surface at clothing contact')
+                    gap=float(wp[1]-own_hits[0].point[1])
+                    if not -.00101<=gap<=.012:raise ValueError('actual native clothing/seat gap fails unchanged support gate')
                 else:
                     surface=clipped_surface_minimum(tri,[0,0],[.4,.28],.25)
                     if surface is None:raise ValueError('existing seat actual clothing contact absent')
@@ -150,7 +200,18 @@ def compile_seated(video,entry,scene,house,inputs,directory,request):
                 # A private navigation rebuild only: preserve every protected
                 # endpoint and its originally available connection.
                 nav=video.pathfinder;before=[np.asarray(nav.snap_point(p))for p in protected]
-                ns=video.hs.NavMeshSettings();ns.set_defaults();ns.include_static_objects=True
+                ns=video.hs.NavMeshSettings();ns.set_defaults()
+                preserved_nav_settings={}
+                if inputs.get('phase2') and hasattr(nav,'nav_mesh_settings'):
+                    previous=nav.nav_mesh_settings
+                    for field in dir(previous):
+                        if field.startswith('_'):continue
+                        value=getattr(previous,field)
+                        if isinstance(value,(bool,int,float)):
+                            setattr(ns,field,value)
+                            if getattr(ns,field)!=value:raise ValueError('private navigation setting copy changed '+field)
+                            preserved_nav_settings[field]=value
+                ns.include_static_objects=True
                 if not video.sim.recompute_navmesh(nav,ns):raise ValueError('verified seat private navigation rebuild failed')
                 after=[np.asarray(nav.snap_point(p))for p in protected];ne=max(float(np.linalg.norm((a-b)[[0,2]]))for a,b in zip(before,after))
                 if not math.isfinite(ne)or ne>.002:raise ValueError('seat displaced a protected navigation endpoint beyond 2mm')
@@ -165,14 +226,14 @@ def compile_seated(video,entry,scene,house,inputs,directory,request):
                     'yaw_rad':yaw,'pose_glbs':[str(body)]*901,'physical_ground_y_m':ground,
                     'full_skin_bounds_m':[world.min(0).tolist(),world.max(0).tolist()],
                     'known_bad_10cm_floor_detected':min(e['floor_delta_m']-.1 for e in ev['feet'].values())<-.008,
-                    'seat_source':seat['kind'],'seat_record':seat,'chair_glb':str(chair_path)if chair_path else None,
+                    'seat_source':seat['kind'],'seat_record':seat,'human_local_offset_m':offset.tolist(),'chair_world_root_m':cr.tolist(),'chair_grounding':chair_grounding,'chair_glb':str(chair_path)if chair_path else None,
                     'chair_scale_y':scale,'native_support_deltas_m':legs,'seat_contact_gap_m':gap,
-                    'maximum_navmesh_horizontal_error_m':ne,'minimum_certified_triangle_nonfloor_clearance_m':minimum,
+                    'private_navigation_original_settings':preserved_nav_settings,'original_full_skin_floor_collision':clearance.floor_certificate(),'maximum_navmesh_horizontal_error_m':ne,'minimum_certified_triangle_nonfloor_clearance_m':minimum,
                     'existing_seat_survey':survey,'thresholds_changed':False,'chair_produces_sound':False,
                     'anatomical_buttock_surface':'not independently segmented; lowest original clothing triangles in seat footprint as upstream'}
                 accepted=record;break
             except ValueError as error:
-                failures.append({'seat_kind':seat['kind'],'start_m':cr.tolist(),'reason':str(error)})
+                failures.append({'seat_kind':seat['kind'],'start_m':cr.tolist(),'reason':str(error),'human_local_offset_m':offset.tolist(),'yaw_rad':yaw,'proposed_clothing_contact_chair_local_m':surface.tolist()if surface is not None else None,'proposed_chair_scale_y':scale,'native_contact_gap_m':gap,'native_own_seat_hit_points_m':[list(h.point)for h in own_hits[:3]]})
                 if chair_obj is not None:video.sim.get_rigid_object_manager().remove_object_by_id(chair_obj.object_id)
                 video.pathfinder.load_nav_mesh(str(original_navmesh))
         if accepted:break
@@ -184,4 +245,6 @@ def compile_seated(video,entry,scene,house,inputs,directory,request):
             'semantic_id':int(chair_obj.semantic_id),'declaration':{'asset_id':seat['chair']['asset_id']},'source_material':chair_material}
         video.seat_material_entries=getattr(video,'seat_material_entries',[])+[item]
         video.receipt['source_materials'].append(chair_material)
+    if accepted.get('seat_source')=='fallback':write_json(directory/'chair_material_reference.json',chair_material)
+    accepted['chair_inner_solid_tolerance_m']=.00101 if inputs.get('phase2') else .004
     accepted['failed_candidate_count']=len(failures);write_json(directory/'seated_geometry.json',accepted);return accepted

@@ -25,7 +25,14 @@ def validate_english_source_admission(source):
     if len(ids)!=len(set(ids)):raise ValueError('duplicate admitted sound identity')
     restored=set(ids).intersection(removed)
     if restored:raise ValueError('removed non-English recording restored: '+','.join(sorted(restored)))
-    if policy.get('records_after')!=len(ids):raise ValueError('English admission record count differs from its language audit')
+    if policy.get('records_after')!=len(ids):
+        generated=[r for r in source['records'] if r.get('source_type')=='generated_audio']
+        supplement=source.get('sao_topup',{})
+        if policy.get('records_after')+len(generated)!=len(ids) or supplement.get('added_records')!=len(generated):
+            raise ValueError('English admission record count differs from audited base plus generated supplements')
+        from avengine.timeline.v7_audio_sources import filter_admission
+        _,rejected=filter_admission(generated)
+        if rejected:raise ValueError('generated supplement admission failed: '+str(rejected))
     return {'status':'pass','admitted_record_count':len(ids),'removed_non_English_records_absent':len(removed),
             'language_audit':policy['evidence'],'new_ASR_run':False}
 

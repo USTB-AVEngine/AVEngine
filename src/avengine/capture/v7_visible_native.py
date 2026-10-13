@@ -213,7 +213,9 @@ class NativeVisibleVideo(NativeRegisteredVideo):
         bounds=[];checks=[];attempts=[];placed=[]
         # Pending original drawables are parked during layout search only.
         # Every final source must receive a checked placement before any media.
-        for pending in self.actors:pending["object"].translation=self.mn.Vector3(0.,-1000.,0.)
+        for pending in self.actors:
+            pending["object"].translation=self.mn.Vector3(0.,-1000.,0.)
+            if scene.get('phase2_profile'):pending['phase2_layout_qualified']=False
         paired=[e for e in self.actors if e['declaration'].get('controlled_shirt')]
         require_pair=bool(self.motion_inputs.get('required_simultaneous_controlled_pair')) and len(paired)>1
         placed_pair=[]
@@ -223,6 +225,10 @@ class NativeVisibleVideo(NativeRegisteredVideo):
             a=entry['declaration'];surface=a['attachment_surface']
             priority={'ceiling':0,'wall':1,'table':2,'floor':3}[surface]
             if surface=='floor' and a['kind']!='object':priority=4 if a['kind'] in {'human','performer'} else 5
+            if scene.get('phase2_profile') and surface=='floor':
+                priority=2.3 if a['kind']=='object' else 2.4 if a['kind']=='performer' else 2.5 if a['endpoint_id'] in scene['production_scenario'].get('motion_requests',{}) else 2.7
+            if scene.get('phase2_profile') and a['asset_id'] in scene.get('native_attachment_supports',{}):
+                priority=-1  # Reserve an explicitly requested qualified site; recheck every physical gate.
             extent=np.ptp(np.asarray(entry['original_mesh'].vertices),axis=0)
             return priority,-float(np.prod(extent))
         for entry in sorted(self.actors,key=layout_order):
@@ -243,6 +249,8 @@ class NativeVisibleVideo(NativeRegisteredVideo):
                     f=forward_at(scene,knot['time_s']);right=np.cross(f,[0.,1.,0.]);depth=float(delta@f)
                     if depth>0 and abs(math.degrees(math.atan2(float(delta@right),depth)))<=37. and abs(math.degrees(math.atan2(delta[1],depth)))<=24.:return True
                 return False
+            target=scene.get('phase2_semantic_azimuth_targets_deg',{}).get(a['asset_id']) if scene.get('phase2_profile') else None
+            distance_target=float(scene.get('native_attachment_distance_targets_m',{}).get(a['asset_id'],2.5)) if scene.get('phase2_profile') else 2.5
             def candidate_score(p):
                 p=dict(p)
                 if key=='floor':
@@ -251,7 +259,10 @@ class NativeVisibleVideo(NativeRegisteredVideo):
                 delta=rep-listener;f=np.asarray(scene['camera_forward']);right=np.cross(f,[0.,1.,0.]);depth=float(delta@f)
                 visible=visible_from_path(delta)
                 central=depth>0 and abs(math.degrees(math.atan2(float(delta@right),depth)))<=20.
-                return (not visible,not central if a['kind'] in {'human','performer'} else False,abs(float(np.linalg.norm(delta[[0,2]]))-2.5))
+                az=math.degrees(math.atan2(float(delta@right),depth))
+                if target is not None:
+                    return (not visible,abs(az-float(target)),abs(float(np.linalg.norm(delta[[0,2]]))-distance_target))
+                return (not visible,not central if a['kind'] in {'human','performer'} else False,abs(float(np.linalg.norm(delta[[0,2]]))-distance_target))
             candidates.sort(key=candidate_score)
             accepted=None;native_attempts=0;search_exhausted=False
             contact_budget=int(self.motion_inputs.get('visible_placement_max_contact_attempts_per_asset',64))
@@ -289,6 +300,8 @@ class NativeVisibleVideo(NativeRegisteredVideo):
                 representative=(root+rotation(yaw)@np.asarray(a['emitter_local_m'])) if not a['silent_decor'] else root+np.array([0.,.5,0.])
                 delta=representative-listener;forward=np.asarray(scene['camera_forward']);right=np.cross(forward,[0.,1.,0.]);depth=float(delta@forward)
                 horizontal=math.degrees(math.atan2(float(delta@right),depth));vertical=math.degrees(math.atan2(delta[1],max(1e-9,depth)))
+                if target is not None and abs(horizontal-float(target))>3.4:
+                    reject('outside_requested_distinct_semantic_sector');continue
                 if not visible_from_path(delta):
                     reject("outside_observed_camera_path");continue
                 if require_pair and a.get('controlled_shirt') and (depth<=0 or abs(horizontal)>35.):
@@ -329,6 +342,13 @@ class NativeVisibleVideo(NativeRegisteredVideo):
                           'floor_type_authority':'native navmesh + all native support rays within 80mm of measured room floor/free polygon + original floor or ground-covering triangles <=15mm; contact itself <=15mm',
                           'table_type_authority':'actual native horizontal patch + original scan table/desk/counter-labelled triangles within <=15mm',
                           'motion_admission':'original static complete mesh; no new walking/sitting motion'}
+                if scene.get('phase2_profile'):
+                    entry['phase2_layout_qualified']=True
+                    hook=getattr(self,'_on_phase2_placement_accepted',None)
+                    if hook:hook(entry,scene,directory,supports,accepted)
+                    if entry.get('motion_episode'):
+                        motion_bounds=np.asarray(entry['motion_episode']['full_skin_bounds_m'])
+                        lo,hi=motion_bounds[0]-.02,motion_bounds[1]+.02
                 bounds.append((lo,hi));checks.append(accepted);placed.append(entry);break
             if accepted is None:
                 write_json(directory/'attachment_rejection.json',{'status':'fail','failed_asset_id':a['asset_id'],'surface':key,'candidates':len(candidates),'attempts':attempts,'accepted_checks':checks,'rejection_counts':rejections})

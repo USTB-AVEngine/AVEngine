@@ -17,12 +17,40 @@ from avengine.capture.v7_alpha_native import rotate_world_foa
 from avengine.spatial_audio.audio import write_float32_wav
 
 
+def phase2_ray_multiplier(scene,dry):
+    active_moving=[spec for ep,spec in scene['sources'].items() if np.any(dry[ep]) and any(
+        not np.array_equal(k['position_m'],spec['trajectory'][0]['position_m']) for k in spec['trajectory'])]
+    if not scene.get('phase2_profile') or not active_moving:return 1
+    # Preserve the qualified human budget; fresh contexts prevent native
+    # history dependence without changing any energy or direction criterion.
+    return 9
+
 def render_alpha_audio(scene,house,inputs,cache_directory,attempt,dry,receipt,camera_frames):
     from tools.timeline.pilot_continuous_scenes import native_renderer
     from avengine.timeline.v7_audio_sources import validate_dry_receipt
     from avengine.acoustics.house_acceptance_metrics import foa_direction
     validate_dry_receipt(receipt);start=time.perf_counter();cpu=time.process_time()
-    renderer,identity=native_renderer(inputs,house)
+    effective_inputs=inputs;sampling_profile=None
+    multiplier=phase2_ray_multiplier(scene,dry)
+    if multiplier>1:
+        # Same backend/materials and absolute gates, with more native rays.
+        # Baseline same-position repeats exceed the 1dB octave criterion;
+        # step refinement alone cannot remove that sampling variance.
+        effective_inputs=deepcopy(inputs)
+        original=deepcopy(inputs['simulation'])
+        for key in ('direct_ray_count','indirect_ray_count','source_ray_count'):
+            effective_inputs['simulation'][key]=multiplier*int(original[key])
+        cache_directory=Path(cache_directory).with_name(Path(cache_directory).name+f'_phase2_native_rays_x{multiplier}')
+        sampling_profile={'revision':f'same-native-engine-rays-x{multiplier}-all-reference-gates-v2',
+            'baseline_simulation':original,'effective_simulation':effective_inputs['simulation'],
+            'ray_counts_multiplier':multiplier,'thresholds_changed':False,'noise_budget_refitted':False}
+    renderer,identity=native_renderer(effective_inputs,house)
+    if sampling_profile is not None:
+        from avengine.timeline.v7_phase2_fresh_rir import FreshNativeContextRenderer,REVISION as CONTEXT_REVISION
+        renderer=FreshNativeContextRenderer(effective_inputs,house,identity,renderer.setup_report,attempt/'fresh_native_rirs')
+        identity={**identity,'phase2_context_policy':CONTEXT_REVISION}
+        cache_directory=Path(str(cache_directory)+'_fresh_context_v1')
+        sampling_profile.update(context_policy=CONTEXT_REVISION,primary_and_reference_processes_independent=True)
     simulation=identity['simulation']
     if simulation['thread_count']!=1 or simulation['diffraction'] is not True or simulation['max_diffraction_order']!=10:
         raise ValueError('alpha acoustic recipe must keep the calibrated native one-thread diffraction setup')
@@ -33,8 +61,11 @@ def render_alpha_audio(scene,house,inputs,cache_directory,attempt,dry,receipt,ca
             plans[ep]={'RIR_count':0,'reason':'visible silent bystander'};continue
         trajectory=spec['trajectory'];point=np.asarray(trajectory[0]['position_m'])
         if any(not np.array_equal(k['position_m'],point) for k in trajectory):
-            from avengine.timeline.v7_registered_motion_audio import moving_stem
-            stems[ep],motion,observed=moving_stem(spec,scene,inputs,cache,dry[ep],attempt,ep)
+            if scene.get("phase2_profile"):
+                from avengine.timeline.v7_phase2_motion_audio import moving_stem_phase2 as moving_stem
+            else:
+                from avengine.timeline.v7_registered_motion_audio import moving_stem
+            stems[ep],motion,observed=moving_stem(spec,scene,effective_inputs,cache,dry[ep],attempt,ep)
             plans[ep]={'RIR_count':motion['RIR_count'],'motion':'admitted native 30Hz source; midpoint-qualified emission-aligned crossfade','moving_energy':motion}
             directions.extend(observed)
             continue
@@ -64,6 +95,9 @@ def render_alpha_audio(scene,house,inputs,cache_directory,attempt,dry,receipt,ca
         'RIR_plan':plans,'RIR_cache':cache.stats.copy(),'dry_assets_receipt':receipt,
         'wall_seconds':time.perf_counter()-start,'process_cpu_seconds':time.process_time()-cpu,
         'format':'ACN_WYZX_SN3D_camera','full_emission_history_and_tail':True}
+    if sampling_profile is not None:
+        result['phase2_native_sampling_profile']=sampling_profile
+        result['fresh_native_process_evidence']=renderer.process_evidence
     write_json(attempt/'audio_evidence.json',result);cache.db.close()
     return result,['scene_foa_full_tail.wav','native_RLR_setup.json','audio_evidence.json']
 

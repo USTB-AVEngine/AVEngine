@@ -21,15 +21,35 @@ REVISION='admitted-contact-clip-new-house-full-triangle-native-v1'
 class PhysicalFloor:
     def __init__(self, video, reference, ignore=()):
         self.video=video;self.reference=float(reference);self.ignore=set(ignore)
+        self.original_ray=None;self.native_ray_agreements=[];self.native_ray_count=0
+        if getattr(video,'motion_inputs',{}).get('phase2'):
+            from avengine.assets.v7_phase2_floor import OriginalVerticalStageRay
+            h=video.motion_house
+            path=Path(h.get('input',{}).get('visual_source') or Path(h['input']['scene_directory'])/(h['input']['scan_id']+'.glb'))
+            rays=getattr(video,'phase2_original_vertical_ray_cache',{})
+            if str(path)not in rays:
+                from avengine.assets.v7_phase2_floor import original_native_stage_mesh
+                mesh,basis=original_native_stage_mesh(video,path)
+                rays[str(path)]=OriginalVerticalStageRay(path,mesh=mesh,transform_evidence=basis)
+            video.phase2_original_vertical_ray_cache=rays
+            self.original_ray=rays[str(path)]
     def __call__(self, point):
         v=self.video;p=np.asarray(point,float)
         hits=v.sim.cast_ray(v.hs.geo.Ray(v.mn.Vector3(p+[0.,.2,0.]),v.mn.Vector3(0.,-1.,0.)),.85).hits
         hits=[h for h in hits if int(h.object_id) not in self.ignore]
         if not hits:raise ValueError('motion support ray has no actual stage floor')
-        y=float(hits[0].point[1])
+        y=float(hits[0].point[1]);self.native_ray_count+=1
+        if self.original_ray is not None:
+            original=float(self.original_ray.many([p])[0])
+            error=abs(original-y);self.native_ray_agreements.append(error)
+            if error>.0001:raise ValueError('original full-stage support differs from native floor ray by >0.1mm')
         if abs(y-self.reference)>.015:raise ValueError('motion support ray hit furniture or a different floor level')
         return y
-    def many(self, points):return np.array([self(p) for p in points])
+    def many(self, points):
+        if self.original_ray is None:return np.array([self(p) for p in points])
+        y=self.original_ray.many(points)
+        if np.any(abs(y-self.reference)>.015):raise ValueError('candidate support hit furniture or a different floor level')
+        return y
 
 
 def triangle_mesh(d,b,parts):
@@ -53,7 +73,22 @@ class TriangleClearance:
         import fcl
         self.fcl=fcl
         path=Path(house.get('input',{}).get('visual_source') or Path(house['input']['scene_directory'])/(house['input']['scan_id']+'.glb'))
-        mesh=loaded_mesh(path);self.vertices=np.asarray(mesh.vertices);faces=np.asarray(mesh.faces)
+        if getattr(video,'motion_inputs',{}).get('phase2'):
+            from avengine.assets.v7_phase2_floor import original_native_stage_mesh
+            mesh,self.native_transform_evidence=original_native_stage_mesh(video,path)
+        else:
+            mesh=loaded_mesh(path);self.native_transform_evidence=None
+        self.floor_ray=None;self.floor_reference_m=float(reference)
+        self.floor_probe_poses=0;self.floor_probe_vertices=0;self.floor_worst_delta_m=0.
+        if getattr(video,'motion_inputs',{}).get('phase2'):
+            from avengine.assets.v7_phase2_floor import OriginalVerticalStageRay
+            key=(str(path),'all-original-floor-triangles')
+            cache=getattr(video,'phase2_floor_collision_ray_cache',{})
+            if key not in cache:
+                cache[key]=OriginalVerticalStageRay(path,mesh=mesh,transform_evidence=self.native_transform_evidence)
+                video.phase2_floor_collision_ray_cache=cache
+            self.floor_ray=cache[key]
+        self.vertices=np.asarray(mesh.vertices);faces=np.asarray(mesh.faces)
         ground=np.zeros(len(faces),bool)
         lo=np.empty((len(faces),3));hi=np.empty_like(lo)
         for start in range(0,len(faces),50000):
@@ -66,6 +101,7 @@ class TriangleClearance:
         self.bystanders=[];self.cache={}
         for entry in video.actors:
             if entry is excluded_entry:continue
+            if getattr(video,'motion_inputs',{}).get('phase2') and entry.get('phase2_layout_qualified') is False:continue
             m=entry['original_mesh'];root=entry['applied_root_input']
             self.bystanders.append(fcl_model(np.asarray(m.vertices)@root[:3,:3].T+root[:3,3],m.faces))
     def check_world(self, world, faces):
@@ -75,6 +111,15 @@ class TriangleClearance:
         # from the native renderer or the full-scene RLR acoustic simulation.
         key=hashlib.sha256(np.ascontiguousarray(world).tobytes()).digest()
         if key in self.cache:return self.cache[key]
+        if self.floor_ray is not None:
+            low=np.asarray(world)[np.asarray(world)[:,1]<=self.floor_reference_m+.04]
+            if len(low):
+                levels=self.floor_ray.many(low)
+                delta=float(np.min(low[:,1]-levels))
+                self.floor_probe_poses+=1;self.floor_probe_vertices+=len(low)
+                self.floor_worst_delta_m=min(self.floor_worst_delta_m,delta)
+                if delta<-.00101:
+                    raise ValueError('actual original posed skin penetrates original floor beyond native 1mm margin plus 10um epsilon')
         fcl=self.fcl;obj=fcl_model(world,faces);epsilon=.0200001
         inside=np.all(self.lo<=world.max(0)+epsilon,axis=1)&np.all(self.hi>=world.min(0)-epsilon,axis=1)
         others=list(self.bystanders)
@@ -88,6 +133,14 @@ class TriangleClearance:
         bound=min([epsilon,*distances])
         if bound<=.02:raise ValueError('motion full-triangle nonfloor clearance is not above frozen 2cm reference criterion')
         self.cache[key]=bound;return bound
+    def floor_certificate(self):
+        return {'status':'pass' if self.floor_ray is not None and self.floor_probe_poses else 'not_run',
+            'original_low_vertices_checked':self.floor_probe_vertices,'unique_original_pose_tests':self.floor_probe_poses,
+            'worst_original_skin_floor_delta_m':self.floor_worst_delta_m,
+            'native_collision_margin_m':.001,'numerical_epsilon_m':.00001,
+            'source':self.source,'native_stage_transform_readback':self.native_transform_evidence,
+            'method':'all original near-floor posed skin vertices versus exact original complete stage triangles; native basis and selected supports separately read back',
+            'thresholds_changed':False}
     def check(self, vertices, faces, root, yaw):
         world=np.asarray(vertices)@yaw_matrix(yaw).T+root
         return self.check_world(world,faces),world
@@ -157,7 +210,7 @@ def compile_walking(video,entry,scene,house,inputs,directory,request):
         target=min(candidates,key=lambda p:abs(p-desired));cumulative=target-phase[0]
         real_nodes.append(float(hi));phase_nodes.append(target)
     real_nodes.append(30.);phase_nodes.append(cumulative+phase[0]);clock=np.interp(times,real_nodes,phase_nodes)
-    static_bounds=[np.asarray(a['original_mesh'].vertices)@a['applied_root_input'][:3,:3].T+a['applied_root_input'][:3,3] for a in video.actors if a is not entry]
+    static_bounds=[np.asarray(a['original_mesh'].vertices)@a['applied_root_input'][:3,:3].T+a['applied_root_input'][:3,3] for a in video.actors if a is not entry and a.get('phase2_layout_qualified') is not False]
     accepted=None;failures=[];prefilter={"polygon_rejected":0,"bystander_rejected":0,"full_gate_attempted":0}
     poly=shape(scene['production_scenario']['motion_floor_polygon']).buffer(-.02)
     x0,z0,x1,z1=poly.bounds
@@ -165,9 +218,16 @@ def compile_walking(video,entry,scene,house,inputs,directory,request):
     extra=[[float(x),float(entry['applied_root_input'][1,3]),float(z)] for x in np.arange(x0,x1,.2) for z in np.arange(z0,z1,.2) if poly.covers(Point(x,z))]
     extra.sort(key=lambda p:float(np.linalg.norm(np.asarray(p)[[0,2]]-entry['applied_root_input'][[0,2],3])))
     candidates=[entry['applied_root_input'][:3,3].tolist(),*extra]
+    import time
+    route_cpu_started=time.process_time()
     for p0 in candidates[:512]:
+        if inputs.get('phase2') and time.process_time()-route_cpu_started>1800:
+            failures.append({'reason':'bounded new-house CPU route-search budget exhausted (1800s); no gate relaxed'})
+            break
         p0=np.asarray(p0,float)
         for yaw in [0.,math.pi/2,math.pi,-math.pi/2]:
+            if inputs.get('phase2') and time.process_time()-route_cpu_started>1800:
+                break
             direction=yaw_matrix(yaw)@np.array([0.,0.,-1.]);positions=p0+distance[:,None]*direction
             if not poly.covers(LineString([positions[0][[0,2]],positions[-1][[0,2]]])):
                 prefilter['polygon_rejected']+=1;continue
@@ -184,6 +244,8 @@ def compile_walking(video,entry,scene,house,inputs,directory,request):
                 floor=PhysicalFloor(video,floor_y,{int(a['object'].object_id)for a in video.actors})
                 solver=FootPlant(d,b,action,clock.tolist(),positions.tolist(),[yaw]*len(times),1.,float(ts[0]),duration,floor)
                 solver.times=times
+                from avengine.assets.roster_motion.animal import ground_slow_gait_support
+                support_repairs=ground_slow_gait_support(solver) if inputs.get('phase2') else 0
                 for values in solver.active.values():values[~moving]=True
                 clearance=TriangleClearance(video,house,floor_y,entry);geometry=[];frames=[];minimum=math.inf
                 for i,t in enumerate(times):
@@ -213,10 +275,10 @@ def compile_walking(video,entry,scene,house,inputs,directory,request):
     evidence={'status':'pass','revision':REVISION,'lineage':lineage,'frame_count':901,'sample_rate_hz':30,
         'source_frames':frames,'world_roots_m':positions.tolist(),'yaw_rad':yaw,'pose_glbs':files,
         'maximum_navmesh_horizontal_error_m':nav,'minimum_certified_triangle_nonfloor_clearance_m':minimum,'collision_method':'exact FCL for every triangle whose AABB can be within 20.0001mm; excluded AABB axis bounds certify >20mm',
-        'stage_original_glb':clearance.source,'true_ground_triangles_removed':clearance.removed,
-        'nonfloor_stage_triangles':clearance.triangles,'physical_ground_y_m':floor_y,
+        'stage_original_glb':clearance.source,'native_stage_transform_readback':clearance.native_transform_evidence,'true_ground_triangles_removed':clearance.removed,
+        'nonfloor_stage_triangles':clearance.triangles,'original_full_skin_floor_collision':clearance.floor_certificate(),'physical_ground_y_m':floor_y,'support_ray_method':{'candidate_search':'exact intersections with every original stage triangle, no planes/quantization/decimation' if floor.original_ray is not None else 'native only','native_selected_rays':floor.native_ray_count,'candidate_original_stage_points':floor.original_ray.requested_points if floor.original_ray is not None else 0,'native_original_worst_difference_m':max(floor.native_ray_agreements,default=0.),'agreement_gate_m':.0001},
         'pause_policy':'zero root motion and observed double-support pose, foot IK stays planted',
         'known_bad_10cm_floor_detected':min(frames[0]['feet'][s]['floor_delta_m']-.1 for s in frames[0]['feet'])<-.008,
         'full_skin_bounds_m':[np.array(bounds)[:,0].min(0).tolist(),np.array(bounds)[:,1].max(0).tolist()],
-        'failed_candidate_count':len(failures),'unique_native_pose_meshes':len(pose_cache),'prefilter':prefilter,'thresholds_changed':False}
+        'failed_candidate_count':len(failures),'unique_native_pose_meshes':len(pose_cache),'prefilter':prefilter,'slow_gait_support_IK_repairs':support_repairs,'thresholds_changed':False}
     write_json(directory/'motion_geometry.json',evidence);return evidence

@@ -131,7 +131,10 @@ class FootPlant:
     if active:
      spi,svi=state['support_id'];actual=root+rot@parts[spi]['positions'][svi]
      # A new part of the rolling sole becomes the support only when it is lower.
-     if wp[1]<floor-.001 and (pi,vi)!=(spi,svi):
+     # Roll onto the actual lower sole earlier in the private phase-two
+     # adapter, leaving precision headroom inside the unchanged native margin.
+     switch_depth=.0008 if getattr(self.floor,'original_ray',None) is not None else .001
+     if wp[1]<floor-switch_depth and (pi,vi)!=(spi,svi):
       state['support_world']=wp.copy();state['support_world'][1]=floor;state['support_id']=[pi,vi];state['switches']+=1;state['start']=i;actual=root+rot@parts[pi]['positions'][vi]
      delta=state['support_world']-actual
     elif wp[1]<floor+.003:delta[1]=floor+.003-wp[1]
@@ -141,7 +144,7 @@ class FootPlant:
   raw={j:self.basis@m for j,m in g.items()};parts,ev=pose(d,self.b,None,phase,globals_override=raw,ground=False,canonical_flip=self.canonical_flip,emitter_bone=self.emitter_bone);feet={}
   for side in self.chains:
    state,active=states[side];pi,vi,p=support(parts,side);world=root+rot@p;level=self.floor(world);ankle=self.chains[side][2]
-   feet[side]={'in_contact':active,'min_world_y_m':float(world[1]),'floor_y_m':float(level),'floor_delta_m':float(world[1]-level),'ankle_world_m':(root+rot@g[ankle][:3,3]).tolist(),'target_world_m':targets[side][0].tolist(),'ik_error_m':float(np.linalg.norm(root+rot@g[ankle][:3,3]-targets[side][0]))}
+   feet[side]={'in_contact':active,'min_world_y_m':float(world[1]),'floor_y_m':float(level),'floor_delta_m':float(world[1]-level),'sole_local_m':p.tolist(),'sole_world_m':world.tolist(),'ankle_world_m':(root+rot@g[ankle][:3,3]).tolist(),'target_world_m':targets[side][0].tolist(),'ik_error_m':float(np.linalg.norm(root+rot@g[ankle][:3,3]-targets[side][0]))}
    if active:
     spi,svi=state['support_id'];actual=root+rot@parts[spi]['positions'][svi];feet[side].update(support_vertex=[spi,svi],support_world_m=actual.tolist(),support_target_world_m=state['support_world'].tolist(),support_lock_error_m=float(np.linalg.norm(actual-state['support_world'])),support_segment_start_frame=state['start'],support_switches=state['switches'])
   ev.update(source_phase_s=float(phase),time_s=float(self.times[i]),world_root_m=root.tolist(),yaw_rad=float(self.yaw[i]),feet=feet,mouth_world_m=(root+rot@np.asarray(ev['mouth_m'])).tolist(),root_motion_grounded_in_clip=True,pelvis_lowering_m=lower)
