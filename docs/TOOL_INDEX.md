@@ -5,7 +5,7 @@
 
 自 2026-08-25 起，目录本身就是能力分组（阶段目录 m1…m7 已移除），
 本表按目录列出每个工具做什么。
-当前共 517 个工具脚本。
+当前共 520 个工具脚本。
 
 ## 资产生成与装配（`tools/assets/`）
 
@@ -367,6 +367,7 @@
 | `tools/qa/build_strict_two_human_native_rate_dynamic_candidates.py` | Build CPU-only native-rate full75 dynamic candidate preflights |
 | `tools/qa/build_strict_two_human_row7_v2_acoustic.py` | Prepare and finalize the CPU-only strict two-human row7 v2 acoustics |
 | `tools/qa/build_strict_two_human_row7_v2_preflight.py` | Validate and publish the CPU-only strict two-human row7 v2 overlay |
+| `tools/qa/calibrate_sao_human_speech.py` | Calibrate a BEATs human speech/singing screen against retained real v9 audio |
 | `tools/qa/camera_clearance.py` | Camera clearance table: cube-ring depth geometry and the solver-side reader |
 | `tools/qa/capture_qa_v3_timeline_pixel.py` | Capture native pixel visibility for one current QA-v3 visual timeline |
 | `tools/qa/capture_skokloster_strict_two_human_episode.py` | Bind the native pixel runner to the isolated Skokloster package archive |
@@ -436,6 +437,7 @@
 | `tools/qa/qa_v3_event_pool.py` | Load a task-configured sound event pool and require each audio file to exist |
 | `tools/qa/qa_v3_pixel_thresholds.py` | Explicit placeholder pixel-answerability thresholds for QA-v3 base cards |
 | `tools/qa/qa_v3_request.py` | Plan QA-v3 request budgets without hiding per-profile shortages |
+| `tools/qa/readmit_sao_topup.py` | Repair SAO fingerprint checks and audit every retained candidate under v11 policy |
 | `tools/qa/recompile_native_pixel_truth.py` | Recompile retained metric-depth truth with the current lossless fields |
 | `tools/qa/recompute_qa_v3_gateb_gold.py` | Recompute Gate-B gold for every selected QA-v3 pilot candidate |
 | `tools/qa/refresh_strict_two_human_row8_ready.py` | Refresh the row8 sparse request against the current split visibility contract |
@@ -444,6 +446,7 @@
 | `tools/qa/replay_appearance_review.py` | 重放已渲染 episode 的登记外观复核，按房间给出"登记值 × 判定"混淆表。 |
 | `tools/qa/replay_audio_variant.py` | Render a bounded audio answer variant over retained native pixels into a fresh episode |
 | `tools/qa/report_qa_v3_card1_conditional_baseline.py` | Card1 realized conditional tables and best-response unimodal baselines |
+| `tools/qa/report_sao_readmission.py` | Render the revised SAO readmission and speech-calibration evidence in Chinese |
 | `tools/qa/report_sao_topup.py` | Build a standalone Chinese machine-admission report with audio plots |
 | `tools/qa/route_synthesis.py` | Routes designed by the solver for the pose it has chosen |
 | `tools/qa/run_answer_prior_pipeline.py` | Generate, augment and audit the original 25 QA types from one reusable config |

@@ -30,20 +30,23 @@ def generated_source_blockers(record, authorization):
             or g.get("steps") != 100 or g.get("cfg_scale") != 7):
         reasons.append("generated_source_generation_receipt_missing")
     digest=record.get("sha256")
-    asr=record.get("automatic_no_speech") or {}
-    if (asr.get("status") != "pass" or asr.get("model_id") != "openai/whisper-small"
-            or not digest or asr.get("audio_sha256") != digest
-            or asr.get("language_forced") is not False
-            or asr.get("reference_text_prompted") is not False
-            or asr.get("human_listening_used") is not False
-            or any(ch.isalpha() or ch.isdigit() for ch in asr.get("blind_decoded_text",""))):
-        reasons.append("generated_source_whisper_lexical_content_or_missing_receipt")
-    if asr.get("standard_no_speech_skipped") is True:
-        ns=asr.get("no_speech_prob");lp=asr.get("avg_logprob")
-        if (asr.get("no_speech_threshold") != .6 or asr.get("logprob_threshold") != -1.
-                or not isinstance(ns,(int,float)) or not math.isfinite(ns) or not .6 < ns <= 1.
-                or not isinstance(lp,(int,float)) or not math.isfinite(lp) or not lp < -1.):
-            reasons.append("generated_source_standard_no_speech_probability_receipt_invalid")
+    human=record.get("human_speech_screen") or {}
+    calibration=human.get("calibration") or {}
+    score=human.get("maximum_score"); threshold=human.get("threshold")
+    if calibration.get("status") not in (None,"pass"):
+        reasons.append("generated_source_human_speech_calibration_failed")
+    elif (human.get("status") != "pass" or human.get("model_id") != "BEATs_AS2M_cpt2"
+            or not digest or human.get("audio_sha256") != digest
+            or not isinstance(score,(int,float)) or not math.isfinite(score)
+            or not isinstance(threshold,(int,float)) or not math.isfinite(threshold)
+            or not 0 <= score <= threshold < 1
+            or not human.get("heads") or not human.get("calibration_sha256")
+            or calibration.get("status") != "pass"
+            or calibration.get("positive_pass_rate") != 1.0
+            or calibration.get("negative_count",0) < 100
+            or calibration.get("negative_block_rate",0) < .95):
+        reasons.append("generated_source_human_speech_or_missing_calibrated_receipt")
+    # Whisper transcription is recording-only, including hallucinated words.
     a=record.get("automatic_activity_readback") or {}
     if (a.get("status") != "pass" or a.get("audio_sha256") != digest
             or not isinstance(a.get("active_duration_s"),(int,float))

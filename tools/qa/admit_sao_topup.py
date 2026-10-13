@@ -51,13 +51,31 @@ def load_scored(o):
  standard={}
  for path in sorted(o.glob("whisper_standard_r*.jsonl")):
   standard.update({r["sound_asset_id"]:r for r in lines(path)})
- if standard:
-  assert set(standard)=={r["candidate"]["sound_asset_id"] for r in rows},"standard ASR must cover every scored candidate"
-  for r in rows:
-   proof=standard[r["candidate"]["sound_asset_id"]]
-   assert proof["audio_sha256"]==r["candidate"]["sha256"]
-   r["candidate"]["automatic_no_speech"]=proof
-   r["whisper_pass"]=proof["status"]=="pass"
+ calibration_path=o/"HUMAN_SPEECH_CALIBRATION_v11.json"
+ calibration=json.loads(calibration_path.read_text()) if calibration_path.exists() else None
+ for r in rows:
+  candidate=r["candidate"]
+  proof=standard.get(candidate["sound_asset_id"],candidate.get("automatic_no_speech",{}))
+  assert proof.get("audio_sha256")==candidate["sha256"]
+  recorded=copy.deepcopy(proof)
+  recorded["historical_status"]=recorded.get("status")
+  recorded.update(status="recorded",role="recording_only",participates_in_admission=False,
+   rule="transcription retained only; any historical Whisper decision is superseded")
+  candidate.pop("automatic_no_speech",None)
+  candidate["whisper_transcription_recording_only"]=recorded
+  r.pop("whisper_pass",None)
+  if calibration:
+   maximum_head=max(calibration["heads"],key=lambda h:r["beats"]["scores_by_mid"][h["mid"]])
+   value=r["beats"]["scores_by_mid"][maximum_head["mid"]]
+   valid=calibration["status"]=="pass"
+   passed=valid and value<=calibration["threshold"]
+   candidate["human_speech_screen"]=dict(status="pass" if passed else "blocked" if valid else "blocked_calibration_failed",
+    model_id="BEATs_AS2M_cpt2",audio_sha256=candidate["sha256"],maximum_score=value,maximum_head=maximum_head,
+    threshold=calibration["threshold"],heads=calibration["heads"],calibration_path=str(calibration_path),
+    calibration_sha256=sha(calibration_path),human_listening_used=False,
+    calibration={k:calibration[k] for k in ["status","positive_count","positive_pass_rate","negative_count","negative_block_rate","checkpoint_sha256","v9_sha256"]})
+   r["human_speech_pass"]=passed
+  else:r["human_speech_pass"]=False
  return rows
 
 def score(a):
@@ -156,73 +174,8 @@ def candidate_reference_keys(counts, query_hash_count, reference_indices):
   (n/max(1,query_hash_count)>=.20 or n/max(1,len(reference_indices[key]))>=.20)}
 
 def dedup(a):
- o=a.output;start=time.time();rows=load_scored(o)
- v9=json.loads(a.v9.read_text())
- refs=[dict(sound_asset_id=r["sound_asset_id"],path=norm_path(r)) for r in v9["records"]]
- fp={};reference_indices={};inverted=collections.defaultdict(list);pcm=collections.defaultdict(list)
- cache=o/"cache"/"v9_fingerprints.pkl";cache.parent.mkdir(exist_ok=True)
- if cache.exists():
-  retained=pickle.loads(cache.read_bytes());assert retained["v9_sha256"]==sha(a.v9);fp=retained["fingerprints"]
- else:
-  for i,r in enumerate(refs):
-   x,sr=sf.read(r["path"],dtype="float32",always_2d=True)
-   assert sr==16000 and x.shape[1]==1
-   fp["v9:"+r["sound_asset_id"]]=audio_fingerprint(x[:,0],sr)
-   if i%200==0:print("REFERENCE_FP",i,len(refs),flush=True)
-  cache.write_bytes(pickle.dumps(dict(v9_sha256=sha(a.v9),fingerprints=fp),protocol=4))
- refmeta={"v9:"+r["sound_asset_id"]:r for r in refs}
- def register(key,f):
-  fp[key]=f;reference_indices[key]=fingerprint_index(f)
-  for h in {h for h,t in f["landmarks"]}:inverted[h].append(key)
-  if f["pcm_sha256"]:pcm[f["pcm_sha256"]].append(key)
- for key,f in list(fp.items()):register(key,f)
- results={};matches=[];controls=[]
- ordered=sorted(rows,key=lambda r:(-int(r["beats_pass"] and r["whisper_pass"] and r["activity_pass"]),-r["target_confidence"],-r["margin"],r["candidate"]["sound_asset_id"]))
- for i,row in enumerate(ordered):
-  r=row["candidate"];sid=r["sound_asset_id"]
-  x,sr=sf.read(r["path"],dtype="float32");assert sr==16000 and x.ndim==1
-  q=audio_fingerprint(x,16000);qi=fingerprint_index(q,query=True)
-  hashes={h for h,t in q["landmarks"]};counts=collections.Counter()
-  for h in hashes:counts.update(inverted.get(h,[]))
-  possible=candidate_reference_keys(counts,len(hashes),reference_indices)
-  possible.update(pcm.get(q["pcm_sha256"],[]))
-  nearest=None;hits=[]
-  for key in sorted(possible):
-   align=fingerprint_alignment(q,fp[key],query_index=qi,reference_index=reference_indices[key])
-   # Reverse direction also detects a shorter included excerpt.
-   reverse=fingerprint_alignment(fp[key],q)
-   chosen=max([align,reverse],key=lambda t:(t["aligned_fraction"],t["matched_hashes"]))
-   proof=dict(chosen,reference_key=key,comparison_direction="candidate_to_reference" if chosen is align else "reference_to_candidate")
-   if nearest is None or chosen["aligned_fraction"]>nearest["aligned_fraction"]:nearest=proof
-   if duplicate(chosen):hits.append(proof)
-  variants={"gain":x*.137,"resample_roundtrip":signal.resample_poly(signal.resample_poly(x,3,2),2,3)[:len(x)],
-   "crop":x[len(x)//5:4*len(x)//5]}
-  control_ok=True
-  for name,wave in variants.items():
-   align=fingerprint_alignment(audio_fingerprint(wave,16000),q)
-   detected=duplicate(align);control_ok &= detected
-   controls.append(dict(sound_asset_id=sid,transform=name,detected=detected,**align))
-  reason=("audio_fingerprint_matches_existing_v9" if any(h["reference_key"].startswith("v9:") for h in hits)
-   else "audio_fingerprint_matches_generated_candidate" if hits else
-   "fingerprint_positive_control_failed" if not control_ok else None)
-  proof=dict(status="blocked" if reason else "pass",reason=reason,nearest=nearest,
-   positive_controls_pass=control_ok,coverage_complete_for_listed_roots=True,audio_sha256=r["sha256"],
-   reference_v9_records=len(refs),generated_previous_comparisons=i,threshold=dict(matched_hashes=12,aligned_fraction=.25))
-  results[sid]=proof
-  if hits:matches.append(dict(sound_asset_id=sid,matches=hits))
-  if not hits:register("generated:"+sid,q)
-  if i%24==0:print("DEDUP",i,len(ordered),"BLOCKED",sum(v["status"]=="blocked" for v in results.values()),flush=True)
- report=dict(reference_roots=[dict(manifest=str(a.v9),kind="all existing v9 admitted dry inputs"),
-   dict(root=str(o/"mono_16000"),kind="all scored generated candidates")],
-  reference_file_count=len(refs),reference_waveform_count=len(refs),errors=[],complete_for_listed_roots=True,
-  records=results,matches=matches,positive_controls=controls,
-  positive_control_count=len(controls),positive_control_detected=sum(r["detected"] for r in controls),
-  seconds=time.time()-start,human_listening_used=False,
-  scope_limit="Spectral fingerprints screen aligned spectral constellations and normalized PCM; cannot prove absence of masked sources or subjective similarity. v9 and generated inputs only; no claim of a fresh STARSS/DCASE/TAU scan.",
-  method="thin top-up audio_fingerprint / fingerprint_alignment: 8kHz gain-invariant PCM + spectral constellations; exact PCM OR >=12 aligned hashes and fraction >=0.25; both directions; greedy priority to candidates passing all machine screens")
- dump(o/f"deduplication_{a.stage}.json",report)
- progress(o,f"{a.stage} 指纹检查完成：v9 {len(refs)} 条 + 生成 {len(rows)} 条；去重阻断 {sum(v['status']=='blocked' for v in results.values())} 条，含增益/重采样/裁切阳性对照。")
- print("DEDUP_DONE",len(rows),sum(v["status"]=="blocked" for v in results.values()),time.time()-start,flush=True)
+ from tools.qa.readmit_sao_topup import dedup as repaired_dedup
+ repaired_dedup(a)
 
 def build(a):
  o=a.output;start=time.time()
@@ -248,7 +201,8 @@ def build(a):
    needed=config["classes"][c]["needed"],candidates=len(members),machine_pass=len(passed),rejection_reasons=dict(reasons),
    beats_below_threshold=sum(r["target_confidence"]<.1917129977 for r in srows),
    beats_margin_below_threshold=sum(r["margin"]<.05 for r in srows),
-   whisper_lexical_rejections=sum(not r["whisper_pass"] for r in srows),
+   human_speech_rejections=sum(not r["human_speech_pass"] for r in srows),
+   whisper_recording_only=True,
    activity_rejections=sum(not r["activity_pass"] for r in srows)))
  summary_doc=dict(stage=a.stage,by_class=summary,all_candidates=len(raw),machine_pass=sum(r["machine_pass"] for r in summary),
   retry_classes=[r["sound_class"] for r in summary if r["machine_pass"]<r["needed"]],

@@ -13,8 +13,11 @@ def sample():
   allowed_splits=["train"],split="train",sha256="bound_audio",
   generation=dict(model_id="stabilityai/stable-audio-open-1.0",model_sha256="weights",model_config_sha256="config",
    prompt="cat meow",seed=42,duration_s=5,steps=100,cfg_scale=7),
-  automatic_no_speech=dict(status="pass",model_id="openai/whisper-small",audio_sha256="bound_audio",
-   language_forced=False,reference_text_prompted=False,human_listening_used=False,blind_decoded_text=""),
+  whisper_transcription_recording_only=dict(status="recorded",role="recording_only",participates_in_admission=False,
+   model_id="openai/whisper-small",audio_sha256="bound_audio",blind_decoded_text=""),
+  human_speech_screen=dict(status="pass",model_id="BEATs_AS2M_cpt2",audio_sha256="bound_audio",
+   maximum_score=.1,threshold=.4,heads=[{"mid":"/m/09x0r","name":"Speech"}],calibration_sha256="calibration",
+   calibration=dict(status="pass",positive_count=183,positive_pass_rate=1.,negative_count=100,negative_block_rate=.99)),
   automatic_activity_readback=dict(status="pass",audio_sha256="bound_audio",active_duration_s=2,longest_group_s=2),
   strict_v7_eligible=True,formal_status="admitted_under_listed_screens",
   screens={name:dict(status="pass",license="Stability AI Community License",original_id="sao_example",
@@ -30,9 +33,9 @@ def test_exception_is_explicit_and_does_not_change_real_recording_rules():
  assert "non_speech_must_be_recorded" in source_policy_blockers(dict(r,is_program_synthesized=True))
 
 @pytest.mark.parametrize("text",["hello","你好","こんにちは","مرحبا","123","thank you"])
-def test_free_multilingual_lexical_transcript_rejects(text):
- r=sample();r["automatic_no_speech"]["blind_decoded_text"]=text
- assert "generated_source_whisper_lexical_content_or_missing_receipt" in generated_source_blockers(r,grant())
+def test_free_multilingual_transcript_is_recording_only(text):
+ r=sample();r["whisper_transcription_recording_only"]["blind_decoded_text"]=text
+ assert not generated_source_blockers(r,grant())
 
 @pytest.mark.parametrize("field,value",[("allowed_splits",["train","dev"]),("split","dev"),
  ("owner_acceptance","unapproved"),("source_license","CC0"),("label_provenance","real_recording_metadata")])
@@ -41,7 +44,7 @@ def test_false_rights_or_split_metadata_cannot_admit(field,value):
  assert generated_source_blockers(r,grant())
 
 def test_receipts_are_bound_to_actual_source_bytes_and_effective_activity():
- for screen in ["automatic_no_speech","automatic_activity_readback"]:
+ for screen in ["human_speech_screen","automatic_activity_readback"]:
   r=sample();r[screen]["audio_sha256"]="different"
   assert generated_source_blockers(r,grant())
  for field in ["active_duration_s","longest_group_s"]:
@@ -70,16 +73,25 @@ def test_train_retains_generated_and_unrestricted_real_inputs():
  assert [r["sound_asset_id"] for r in admitted]==["real"] and not rejected
 
 
-@pytest.mark.parametrize("ns,lp",[(.6,-2),(.9,-1),(.9,float("nan")),(float("inf"),-2)])
-def test_standard_no_speech_skip_requires_the_actual_upstream_probability_rule(ns,lp):
- r=sample();r["automatic_no_speech"].update(standard_no_speech_skipped=True,
-  no_speech_prob=ns,avg_logprob=lp,no_speech_threshold=.6,logprob_threshold=-1.)
- assert "generated_source_standard_no_speech_probability_receipt_invalid" in generated_source_blockers(r,grant())
+@pytest.mark.parametrize("score",[.400001,float("nan"),float("inf")])
+def test_human_speech_score_must_be_finite_and_below_calibrated_threshold(score):
+ r=sample();r["human_speech_screen"]["maximum_score"]=score
+ assert "generated_source_human_speech_or_missing_calibrated_receipt" in generated_source_blockers(r,grant())
 
-def test_standard_no_speech_skip_with_bound_valid_probabilities_is_admitted():
- r=sample();r["automatic_no_speech"].update(standard_no_speech_skipped=True,
-  no_speech_prob=.9,avg_logprob=-2.,no_speech_threshold=.6,logprob_threshold=-1.)
+def test_failed_calibration_never_authorizes_generated_audio():
+ r=sample();r["human_speech_screen"].update(status="blocked_calibration_failed",threshold=None)
+ r["human_speech_screen"]["calibration"].update(status="calibration_failed_no_threshold_authorized",negative_block_rate=.02)
+ assert "generated_source_human_speech_calibration_failed" in generated_source_blockers(r,grant())
+
+@pytest.mark.parametrize("field,value",[("positive_pass_rate",.999),("negative_block_rate",.949),("negative_count",99)])
+def test_calibration_requires_all_real_positives_and_95_percent_negative_rejection(field,value):
+ r=sample();r["human_speech_screen"]["calibration"][field]=value
+ assert generated_source_blockers(r,grant())
+
+def test_human_score_at_calibrated_boundary_is_retained():
+ r=sample();r["human_speech_screen"]["maximum_score"]=.4
  assert not generated_source_blockers(r,grant())
+
 
 def test_nonfinite_active_group_cannot_satisfy_one_second_gate():
  r=sample();r["automatic_activity_readback"]["longest_group_s"]=float("nan")

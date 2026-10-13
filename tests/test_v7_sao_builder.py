@@ -19,8 +19,11 @@ def test_generated_builder_keeps_threshold_and_incompatible_margin(tmp_path,monk
   owner_acceptance=OWNER_ACCEPTANCE,allowed_splits=["train"],split="train",source_uri="model",
   generation=dict(model_id="stabilityai/stable-audio-open-1.0",model_sha256="weights",
    model_config_sha256="config",prompt="a cat meow",seed=5,duration_s=4,steps=100,cfg_scale=7),
-  automatic_no_speech=dict(status="pass",model_id="openai/whisper-small",audio_sha256=digest,
-   language_forced=False,reference_text_prompted=False,human_listening_used=False,blind_decoded_text=""),
+  whisper_transcription_recording_only=dict(status="recorded",role="recording_only",participates_in_admission=False,
+   blind_decoded_text="Thank you for watching!",audio_sha256=digest),
+  human_speech_screen=dict(status="pass",model_id="BEATs_AS2M_cpt2",audio_sha256=digest,maximum_score=.1,
+   threshold=.4,heads=[{"mid":"/m/09x0r","name":"Speech"}],calibration_sha256="calibration",
+   calibration=dict(status="pass",positive_count=183,positive_pass_rate=1.,negative_count=100,negative_block_rate=.99)),
   automatic_activity_readback=dict(status="pass",audio_sha256=digest,active_duration_s=2,longest_group_s=2),
   source_metadata=dict(title="a cat meow"),official_zip_crc_verified=False,official_collection_labels=[])
  score=dict(sound_asset_id="candidate",sha256=digest,scores_by_mid={"/m/07qrkrw":confidence,"/m/rival":rival},top8=[])
