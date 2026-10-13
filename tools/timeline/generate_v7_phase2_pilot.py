@@ -63,7 +63,10 @@ def main():
         p.add_argument('--'+name,type=Path,required=True)
     p.add_argument('--workers',type=int,default=1);p.add_argument('--offset',type=int,default=0);p.add_argument('--limit',type=int,default=1)
     p.add_argument('--storage-budget-root',type=Path)
+    p.add_argument('--incremental-storage-baseline',type=Path)
+    p.add_argument('--incremental-storage-root',type=Path)
     p.add_argument('--integration-pilot',action='store_true',help='Explicit registered motion/seat pilot; seal privately without a training export')
+    p.add_argument('--inline-worker',action='store_true',help='One isolated single-CPU parent without idle process-pool helpers')
     p.add_argument('--render-backend',choices=['cpu_llvmpipe'],default='cpu_llvmpipe')
     a=p.parse_args()
     if not a.integration_pilot:raise ValueError('phase-two entry requires --integration-pilot; no formal export')
@@ -74,6 +77,7 @@ def main():
     by_house={h['house']:h for h in json.loads(a.houses.read_text())['houses']}
     rows=[json.loads(l) for l in a.seeds.read_text().splitlines() if l.strip()][a.offset:a.offset+a.limit]
     if not rows or len({r['scene_id'] for r in rows})!=len(rows):raise ValueError('empty or duplicate seed shard')
+    if a.inline_worker and (a.workers!=1 or len(rows)!=1):raise ValueError('inline worker requires exactly one parent and one worker')
     from avengine.timeline.v7_storage_budget import configure_local_review
     if a.integration_pilot:
         from avengine.timeline.v7_storage_budget import configure_integration_pilot
@@ -82,8 +86,35 @@ def main():
         if os.getpriority(os.PRIO_PROCESS,0)<10:raise ValueError('integration pilot must run with nice -n 10')
         if any(os.environ.get(k)!='1' for k in ('OMP_NUM_THREADS','OPENBLAS_NUM_THREADS','MKL_NUM_THREADS')):raise ValueError('integration pilot requires one thread per CPU worker')
         storage_policy=configure_integration_pilot(a.output,a.storage_budget_root,parents=len(rows),workers=a.workers)
+        if bool(a.incremental_storage_baseline) != bool(a.incremental_storage_root):
+            raise ValueError('incremental storage needs both immutable baseline and whole task root')
+        if a.incremental_storage_baseline:
+            from avengine.timeline.v7_storage_budget import ENV_KEY, allocated_bytes, check_write
+            import hashlib
+            baseline_path=a.incremental_storage_baseline.resolve()
+            whole=a.incremental_storage_root.resolve()
+            if (whole==Path('/data') or not whole.is_relative_to(Path('/data'))
+                    or not a.output.resolve().is_relative_to(whole)
+                    or not baseline_path.is_relative_to(a.storage_budget_root.resolve())):
+                raise ValueError('incremental storage baseline/root escaped the authorized pilot')
+            baseline=json.loads(baseline_path.read_text())
+            initial=int(baseline['whole_pilot_disk_baseline_bytes'])
+            allowance=int(baseline['additional_limit_bytes'])
+            if initial<0 or not 0<allowance<=35_000_000_000:
+                raise ValueError('invalid owner incremental disk allowance')
+            worktree=Path(__file__).resolve().parents[2]
+            code_added=max(0,allocated_bytes(worktree)-int(baseline['worktree_disk_baseline_bytes']))
+            storage_policy.update(root=str(whole),maximum_task_bytes=initial+allowance-code_added-64_000_000,
+                immutable_baseline_sha256=hashlib.sha256(baseline_path.read_bytes()).hexdigest(),
+                baseline_path=str(baseline_path),additional_limit_bytes=allowance,
+                worktree_added_bytes_at_launch=code_added,worktree_future_reserve_bytes=64_000_000,
+                policy='owner phase2 incremental whole-pilot disk budget including original baseline and code growth')
+            os.environ[ENV_KEY]=json.dumps(storage_policy,sort_keys=True)
+            check_write(a.output,expected_bytes=0)
     else:storage_policy=configure_local_review(a.output,a.storage_budget_root,parents=len(rows),workers=a.workers)
     inputs=json.loads(a.runtime_inputs.read_text());inputs['render_backend']=a.render_backend
+    if inputs.get('phase2_diagnostic_native_context_recycling'):
+        raise ValueError('unqualified native context recycling is diagnostic only and cannot seal parents')
     inputs['phase2']=True
     if a.integration_pilot:inputs['integration_pilot']=True
     if any(r.get('motion_requests')for r in rows):
@@ -97,15 +128,21 @@ def main():
         validate_english_source_admission(source)
     tasks=[(row,by_house[row['house']],inputs,assets,source,human,str(a.output)) for row in rows]
     a.output.mkdir(parents=True,exist_ok=True);start=time.perf_counter();results=[]
-    with ProcessPoolExecutor(max_workers=a.workers,mp_context=multiprocessing.get_context('spawn'),max_tasks_per_child=1) as pool:
-        futures=[pool.submit(worker,task) for task in tasks]
-        for future in as_completed(futures):
-            result=future.result();results.append(result)
-            if a.integration_pilot:
-                import datetime
-                line=datetime.datetime.now(datetime.timezone.utc).isoformat()+' '+result['scene_id']+' '+result['status']+' '+result.get('reason','父场景机器检查和私有封存完成')+'\n'
-                with (a.storage_budget_root.parent/'PROGRESS.md').open('a') as progress:progress.write(line)
-            print(json.dumps({k:result.get(k) for k in ['scene_id','status','alpha_formal_windows','alpha_formal_logical_questions','wall_seconds','cpu_seconds_including_children','reason']},ensure_ascii=False),flush=True)
+    def result_stream():
+        if a.inline_worker:
+            yield worker(tasks[0])
+            return
+        with ProcessPoolExecutor(max_workers=a.workers,mp_context=multiprocessing.get_context('spawn'),max_tasks_per_child=1) as pool:
+            futures=[pool.submit(worker,task) for task in tasks]
+            for future in as_completed(futures):
+                yield future.result()
+    for result in result_stream():
+        results.append(result)
+        if a.integration_pilot:
+            import datetime
+            line=datetime.datetime.now(datetime.timezone.utc).isoformat()+' '+result['scene_id']+' '+result['status']+' '+result.get('reason','父场景机器检查和私有封存完成')+'\n'
+            with (a.storage_budget_root.parent/'PROGRESS.md').open('a') as progress:progress.write(line)
+        print(json.dumps({k:result.get(k) for k in ['scene_id','status','alpha_formal_windows','alpha_formal_logical_questions','wall_seconds','cpu_seconds_including_children','reason']},ensure_ascii=False),flush=True)
     from avengine.timeline.continuous_pilot import write_json
     from avengine.timeline.v7_registered_generation import ALPHA_RELEASE_PROFILE
     profile=ALPHA_RELEASE_PROFILE;pilot_fields={}
