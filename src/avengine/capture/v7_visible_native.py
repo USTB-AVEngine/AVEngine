@@ -194,7 +194,9 @@ class NativeVisibleVideo(NativeRegisteredVideo):
         from copy import deepcopy
         free_floor_buffer=poly.buffer(.01)
         reuse=bool(self.motion_inputs.get('reuse_native_room_support_survey',False))
-        context=(self.motion_house['room']['room_label'],tuple(scene['listener_m']),floor)
+        # survey origins use listener X/Z and the measured floor only.
+        # Camera-height sampling cannot change these native support proposals.
+        context=(self.motion_house['room']['room_label'],scene['listener_m'][0],scene['listener_m'][2],floor)
         cached=getattr(self,'_visible_room_support_cache',None)
         if reuse and cached is not None and cached[0]==context:
             semantic_support=cached[1];supports=deepcopy(cached[2])
