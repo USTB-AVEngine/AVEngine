@@ -8,7 +8,7 @@ from pathlib import Path
 from collections import Counter
 import gc,json,math,os,resource,time,traceback
 import numpy as np
-from avengine.capture.v7_visible_native import NativeVisibleVideo
+from avengine.capture.v7_phase2_native import NativePhase2Video
 from avengine.timeline.continuous_pilot import write_json
 
 
@@ -30,15 +30,17 @@ def witness_scene(room,assets):
 def static_categories(house,room,inputs,catalog,categories,directory,save_samples=False):
     start=time.monotonic();cpu=time.process_time();directory=Path(directory)
     directory.mkdir(parents=True,exist_ok=False)
-    by_id={a['asset_id']:a for a in catalog};ids=list(dict.fromkeys(x for v in categories.values()for x in v))
+    by_id={a['asset_id']:a for a in catalog};ids=list(dict.fromkeys([x for v in categories.values()for x in v]+['v7_male_adult_14_blue_v1']))
     assets=[deepcopy(by_id[x])for x in ids];scene=witness_scene(room,assets)
     working=deepcopy(house);working['room']=deepcopy(room)
     video=None;results={}
     try:
-        video=NativeVisibleVideo(working,scene,inputs,assets,source_material_cache_directory=Path(inputs['source_material_cache_directory']))
+        video=NativePhase2Video(working,scene,inputs,assets,source_material_cache_directory=Path(inputs['source_material_cache_directory']))
         entries={e['declaration']['asset_id']:e for e in video.actors};all_entries=list(video.actors)
         for e in all_entries:e['object'].translation=video.mn.Vector3(0.,-1000.,0.)
         for category,choices in categories.items():
+            # Camera height is a sampling choice, not a contact/frustum gate.
+            scene['listener_m'][1]=float(room['measured_floor_y_m'])+(1.65 if category=='ceiling_object'else 1.25)
             attempts=[]
             for asset_id in choices:
                 entry=entries[asset_id];asset=entry['declaration'];video.actors=[entry]
@@ -74,7 +76,7 @@ def static_categories(house,room,inputs,catalog,categories,directory,save_sample
                         'observed_views':measured_views,'material_checks':video.material_checks,'color_checks':video.color_checks,
                         'worst_highlight_ratio':max(m.get('highlight_ratio',0.)for m in measured),
                         'attached_emitter_readbacks':readbacks,'sample_image':str(sample)if sample else None,
-                        'sample_yaw_deg':best_yaw,'wall_seconds':time.monotonic()-before,
+                        'sample_yaw_deg':best_yaw,'listener_m':list(scene['listener_m']),'wall_seconds':time.monotonic()-before,
                         'scope':'native category witness only; no RIR, audio, QA or sealed parent',
                         'code_revision':'unchanged native placement plus task quadruped 12mm'}
                 except Exception as error:
@@ -93,9 +95,14 @@ def static_categories(house,room,inputs,catalog,categories,directory,save_sample
             write_json(directory/('partial_'+category+'.json'),results)
             print(json.dumps({'room_id':room['room_label'],'category':category,'status':results[category]['status'],'wall_seconds':sum(r['wall_seconds']for r in attempts),'reasons':results[category]['failure_reasons']},ensure_ascii=False),flush=True)
             gc.collect()
+        scene['listener_m'][1]=float(room['measured_floor_y_m'])+1.25
+        from avengine.capture.v7_room_seated_witness import seated_witness
+        results['chair_seated']=seated_witness(video,scene,room,entries['v7_male_adult_14_blue_v1'],directory/'chair_seated',save_samples)
+        write_json(directory/'partial_chair_seated.json',results)
+        print(json.dumps({'room_id':room['room_label'],'category':'chair_seated','status':results['chair_seated']['status'],'reasons':results['chair_seated']['failure_reasons']},ensure_ascii=False),flush=True)
         video.actors=all_entries
         result={'status':'static_complete','house':house['house'],'room_id':room['room_label'],
-            'categories':results,'chair_seated_status':'not_run_pending_phase2_snapshot',
+            'categories':results,'chair_seated_status':results['chair_seated']['status'],
             'room_area_m2':room['floor_area_m2'],'native_renderer':video.receipt,
             'wall_seconds':time.monotonic()-start,'process_cpu_seconds':time.process_time()-cpu,
             'max_rss_kib':resource.getrusage(resource.RUSAGE_SELF).ru_maxrss,
