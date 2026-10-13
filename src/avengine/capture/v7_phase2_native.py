@@ -1,7 +1,7 @@
 """Phase-two native integration; immutable phase-one profile remains available."""
 from copy import deepcopy
 from avengine.capture.v7_visible_native import NativeVisibleVideo
-PHASE2_VISUAL_REVISION='v7-visible-phase2-native-v14-optional-physical-turn-dwell'
+PHASE2_VISUAL_REVISION='v7-visible-phase2-native-v15-original-chair-component-collision'
 class NativePhase2Video(NativeVisibleVideo):
     def __init__(self,house,scene,inputs,assets,**kwargs):
         super().__init__(house,scene,inputs,assets,**kwargs)

@@ -180,6 +180,13 @@ def compile_seated(video,entry,scene,house,inputs,directory,request):
                     if any(abs(x)>.012 for x in legs):raise ValueError('new chair support does not meet actual 12mm native floor gate')
                     tm=video.sim.get_object_template_manager();attr=tm.create_new_template('verified_seat_'+entry['endpoint_id'])
                     attr.render_asset_handle=str(derived);attr.collision_asset_handle=str(derived);attr.is_collidable=True;attr.compute_COM_from_shape=False;attr.shader_type='pbr';attr.margin=.001
+                    chair_collision=None
+                    if inputs.get('phase2'):
+                        from avengine.assets.roster_motion.chair_collision import prepare_chair_collision
+                        collision=derived.parent/'chair_collision_components_v1.glb'
+                        chair_collision=prepare_chair_collision(derived,collision)
+                        attr.collision_asset_handle=str(collision)
+                        attr.join_collision_meshes=False
                     tid=tm.register_template(attr);chair_obj=video.sim.get_rigid_object_manager().add_object_by_template_id(tid)
                     from avengine.assets.habitat_capture import _apply_root_with_habitat
                     matrix=np.eye(4);matrix[:3,:3]=rot;matrix[:3,3]=cr
@@ -227,7 +234,7 @@ def compile_seated(video,entry,scene,house,inputs,directory,request):
                     'full_skin_bounds_m':[world.min(0).tolist(),world.max(0).tolist()],
                     'known_bad_10cm_floor_detected':min(e['floor_delta_m']-.1 for e in ev['feet'].values())<-.008,
                     'seat_source':seat['kind'],'seat_record':seat,'human_local_offset_m':offset.tolist(),'chair_world_root_m':cr.tolist(),'chair_grounding':chair_grounding,'chair_glb':str(chair_path)if chair_path else None,
-                    'chair_scale_y':scale,'native_support_deltas_m':legs,'seat_contact_gap_m':gap,
+                    'chair_scale_y':scale,'native_support_deltas_m':legs,'seat_contact_gap_m':gap,'chair_collision':chair_collision if seat['kind']=='fallback' else None,
                     'private_navigation_original_settings':preserved_nav_settings,'original_full_skin_floor_collision':clearance.floor_certificate(),'maximum_navmesh_horizontal_error_m':ne,'minimum_certified_triangle_nonfloor_clearance_m':minimum,
                     'existing_seat_survey':survey,'thresholds_changed':False,'chair_produces_sound':False,
                     'anatomical_buttock_surface':'not independently segmented; lowest original clothing triangles in seat footprint as upstream'}
