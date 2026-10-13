@@ -183,6 +183,11 @@ class NativeVisibleVideo(NativeRegisteredVideo):
             seen.add(yaw);pixels=self._native_pair_pixels(scene,entries,forward_at(scene,knot['time_s']))
             observed.append({'time_s':knot['time_s'],'pixels':pixels})
             maximum={k:max(maximum[k],pixels[k]) for k in maximum}
+            # A feasibility probe asks for one genuinely observed placement.
+            # Continue every failed search; stop only after the unchanged
+            # native 100px requirement has actually passed for all entries.
+            if self.motion_inputs.get('independent_probe_camera_search') and all(n>=100 for n in maximum.values()):
+                break
         return maximum,observed
 
     def qualify_standing(self,scene,directory):
@@ -274,7 +279,7 @@ class NativeVisibleVideo(NativeRegisteredVideo):
                 az=math.degrees(math.atan2(float(delta@right),depth))
                 if target is not None:
                     return (not visible,abs(az-float(target)),abs(float(np.linalg.norm(delta[[0,2]]))-distance_target))
-                return (not visible,not central if a['kind'] in {'human','performer'} else False,abs(float(np.linalg.norm(delta[[0,2]]))-distance_target))
+                return (not visible,not central if a['kind'] in {'human','performer'} or self.motion_inputs.get('independent_probe_camera_search') else False,abs(float(np.linalg.norm(delta[[0,2]]))-distance_target))
             candidates.sort(key=candidate_score)
             accepted=None;native_attempts=0;search_exhausted=False
             contact_budget=int(self.motion_inputs.get('visible_placement_max_contact_attempts_per_asset',64))
