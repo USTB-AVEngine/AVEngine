@@ -67,3 +67,9 @@ def test_material_depth_measures_new_half_millimetre_inside_overlap():
     source=np.array([[[.1,.1,-.02],[.3,.1,-.02],[.1,.3,-.02]]])
     _,depth=inward_footprint(source+[0,0,-.0005],target,source_binding=source,target_binding=target)
     assert np.isclose(depth[0],.0005,atol=1e-12)
+
+def test_five_millimetre_tangential_motion_does_not_increase_depth():
+    target=np.array([[[0.,0,0],[1.,0,0],[0,1.,0]]])
+    source=np.array([[[.1,.1,-.02],[.3,.1,-.02],[.1,.3,-.02]]])
+    _,depth=inward_footprint(source+[.005,0,0],target,source_binding=source,target_binding=target)
+    assert depth[0]<1e-12

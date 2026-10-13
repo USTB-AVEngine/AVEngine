@@ -85,11 +85,12 @@ def inward_footprint(source, target, *, source_binding=None, target_binding=None
         inherited_separation=a0-b0
         if region_rotation is not None:
             inherited_separation=np.einsum("nij,nkj->nki",region_rotation,inherited_separation)
-        # A conservative bound on new penetration from actual matched material
-        # displacement, after common anatomical-region rigid motion. Unlike
-        # extension of a thin triangle's plane, this cannot manufacture a depth
-        # jump from a changing projection boundary.
-        depth=np.linalg.norm((polygons-target_current)-inherited_separation,axis=2)
+        # Actual inward increment of matched material separation. Tangential
+        # motion does not increase penetration. Bound by current inward depth
+        # so travel across an original outward gap is not counted as penetration.
+        relative=(polygons-target_current)-inherited_separation
+        inward=-np.einsum("nij,nj->ni",relative,normal)
+        depth=np.maximum(0.,np.minimum(depth,inward))
         depth[positions>=counts[:,None]]=0
     depth = np.maximum(depth.max(axis=1), 0)
     degenerate = (counts < 3) | (length <= 1e-20)
