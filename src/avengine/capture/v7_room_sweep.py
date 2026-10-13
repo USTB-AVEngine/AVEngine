@@ -112,4 +112,9 @@ def static_categories(house,room,inputs,catalog,categories,directory,save_sample
             'error':str(error),'traceback':traceback.format_exc(),'wall_seconds':time.monotonic()-start,'process_cpu_seconds':time.process_time()-cpu,'formal_parent_count':0}
     finally:
         if video is not None:video.close()
+    if inputs.get('witness_evidence_cache_directory'):
+        from avengine.capture.v7_witness_storage import share_identical_witness_files
+        sharing=share_identical_witness_files(directory,inputs['witness_evidence_cache_directory'])
+        write_json(directory/'evidence_sharing_receipt.json',sharing)
+        result['evidence_sharing_receipt']=str(directory/'evidence_sharing_receipt.json')
     write_json(directory/'result.json',result);return result
