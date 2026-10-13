@@ -112,8 +112,9 @@ def main():
             if value is not None:
                 all_measurements['UE_highlight_ratio'].append(value)
                 if value>.02:failed_measurements.append({'scene_id':proof.parent.parent.name,'check':'UE highlight','value':value,'limit':.02,'source':str(proof)})
-    candidate_audit=root/'evidence/candidate_truth_audit_v1.json'
-    candidate_truth=read(candidate_audit) if candidate_audit.exists() else {}
+    candidate_audits=sorted((root/'evidence').glob('candidate_truth_audit_v*.json'),key=lambda p:p.stat().st_mtime)
+    candidate_audit=candidate_audits[-1] if candidate_audits else None
+    candidate_truth=read(candidate_audit) if candidate_audit else {}
     seen_animals={(byid[x]['category'],byid[x]['body_id']) for x in assets_seen if x in byid and byid[x]['category']!='object'}
     seen_objects={byid[x]['object_type'] for x in assets_seen if x in byid and byid[x]['category']=='object'}
     unique_logical=set()
