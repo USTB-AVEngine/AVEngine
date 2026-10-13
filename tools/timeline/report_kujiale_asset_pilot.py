@@ -170,12 +170,15 @@ def main():
     summary['implementation_commit']=subprocess.check_output(['git','rev-parse','HEAD'],cwd=Path(__file__).resolve().parents[2],text=True).strip()
     summary['camera_root_cause_evidence']=str(root/'evidence/camera_root_cause_v2.json')
     summary['audio_input_seal']=read(root/'evidence/input_seal.json')
+    camera_files=sorted((root/'evidence').glob('canary_010_camera_audit_v*.json'),key=lambda p:p.stat().st_mtime)
+    camera_audit=read(camera_files[-1]) if camera_files else {}
+    summary['canary_camera_audit']=dict(camera_audit,source=str(camera_files[-1]) if camera_files else None)
     preferred=list(house_samples.values());paths={str(x[1]) for x in preferred}
     samples=(preferred+[x for x in samples if str(x[1]) not in paths])[:12]
     stamp=datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')
     summary_path=root/'evidence'/('pilot_report_'+stamp+'.json');summary_path.open('x').write(json.dumps(summary,ensure_ascii=False,indent=2)+'\n')
     rows=[['不可见声源',0 if passed else '未形成通过父场景','只对封存且独立真值通过的父场景成立'],
-          ['附件贴附 ≤15 mm',summaries.get('attachment_gap_mm',{}).get('maximum','未验证'),'已完成原生视觉阶段的最大值'],
+          ['动物及物件贴附 ≤15 mm',summaries.get('attachment_gap_mm',{}).get('maximum','未验证'),'已完成原生视觉阶段的最大值'],
           ['人物房间地面 ≤15 mm',summaries.get('human_floor_gap_mm',{}).get('maximum','未验证'),'地板基准和语义支持面检查'],
           ['发声点读回',summaries.get('emitter_readback_error_mm',{}).get('maximum','未验证'),'逐帧原生组件读回；单位 mm'],
           ['RIR 方向 ≤5°',summaries.get('RIR_angle_deg',{}).get('maximum','未验证'),'通过位置最大角误差'],
@@ -185,7 +188,10 @@ def main():
           ['独立真值重算',truth_forms,'封存保留形式数'],
            ['候选池独立真值重算',candidate_truth.get('checked_forms','未验证'),'候选池通过不代表父场景封存通过'],
            ['当场颜色重测',len(candidate_colour_checks),'检查的候选题目形式数'],
-          ['颜色不一致丢题',len(candidate_colour_rejections),'形式数；候选池，标签不改']]
+          ['颜色不一致丢题',len(candidate_colour_rejections),'形式数；候选池，标签不改'],
+          ['相机偏航读回 ≤0.0001°',camera_audit.get('maximum_yaw_error_deg','未验证'),'独立重建单场水平角与偏航时间表；单位 °'],
+          ['相机位置读回 ≤0.5 mm',camera_audit.get('maximum_position_error_mm','未验证'),'已完成单场相机采样；单位 mm'],
+          ['相机帧号 / 协议时钟',camera_audit.get('maximum_clock_error_s','未验证'),'最大时钟误差，单位 s；证据含实际采样数']]
     page='<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>酷家乐 UE 原生小批试产</title><style>body{font:16px/1.6 system-ui,sans-serif;background:#f4f6fa;color:#172238;margin:24px auto;max-width:1280px;padding:0 20px}h1{font-size:26px}.top{background:#fff1d6;padding:20px;border-radius:12px}table{width:100%;border-collapse:collapse;background:white;font-size:13px}th,td{padding:9px;border:1px solid #d7dfeb;overflow-wrap:anywhere}th{background:#eaf0f9}img{max-width:100%;border-radius:8px}.gallery{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px}figure{margin:0;background:white;padding:12px}code{overflow-wrap:anywhere}.note{color:#465875}</style><body>'
     page+='<h1>酷家乐 UE 原生：动物、物件与人物同场</h1><p class="top">'+html.escape(conclusion)+'</p>'
     page+='<p class="note">仅本机非商业研究试产。没有导出训练表，没有传 CCI，没有修改源登记。动物及物件静态出场；空调为静音摆设。失败阶段保留，原门槛未放宽。</p><h2>原生门禁数字</h2>'+table(['项目','实测 / 结论','数字范围与出处'],rows)
@@ -199,7 +205,7 @@ def main():
     page+='<h2>失败清单</h2>'+table(['父场景 / 尝试','房子','失败原因'],history)
     page+='<h3>失败尝试的实测超限</h3>'+table(['父场景','项目','实测值','门槛','出处'],[(v['scene_id'],v['check'],v['value'],v['limit'],v['source']) for v in failed_measurements])
     page+='<h2>UE 原生样张</h2><div class="gallery">'+''.join('<figure>'+image(path)+'<figcaption>'+html.escape(label)+('；封存通过' if sealed else '；部分阶段 / 未通过全部封存门禁')+'</figcaption></figure>' for label,path,sealed in samples)+'</div>'
-    page+='<h2>相机故障与修复</h2><p>原因是验收站位后给下发相机添加了偏航偏移，继承的读回检查仍按原时间表计算期望。已使两边使用同一偏航计划，保留 0.0001° 和 0.5 mm 容差。后续单场的读回错误未重现，但旧视角导致一个说话人偏离主视角 67.12°，有效绑定题 0/5；这些完成阶段与失败都保留。当前改用水平角平分，并限制两名说话人的相对站位，继续单场验收。</p><p>故障证据：<code>'+html.escape(str(root/'evidence/camera_root_cause_v2.json'))+'</code>。</p>'
+    page+='<h2>相机故障与修复</h2><p>原因是验收站位后给下发相机添加了偏航偏移，继承的读回检查仍按原时间表计算期望。已使两边使用同一偏航计划，保留 0.0001° 和 0.5 mm 容差。后续单场的读回错误未重现，但旧视角导致一个说话人偏离主视角 67.12°，有效绑定题 0/5；这些完成阶段与失败都保留。当前改用水平角平分，并限制两名说话人的相对站位，按单场顺序验收，最终封存结论见顶部。</p><p>故障证据：<code>'+html.escape(str(root/'evidence/camera_root_cause_v2.json'))+'</code>。</p>'
     page+='<h2>验证及资源</h2><pre>'+html.escape(json.dumps({'unit_tests':unit,'GPU卡时间并集小时':{g:s/3600 for g,s in gpu_card_seconds.items()},'GPU实例累计墙钟小时':gpu_seconds/3600,'新增产物逻辑GiB':own_bytes/2**30,'新增产物分配GiB':allocated/2**30,'仍在运行':summary['active_jobs']},ensure_ascii=False,indent=2))+'</pre>'
     page+='<p>颜色规则：在当前场景画面中重测。对不上只丢掉依赖颜色的题，资产照常准入，登记标签保持原样。数据许可限非商业研究，不再分发。</p></body></html>'
     path=root/a.name
