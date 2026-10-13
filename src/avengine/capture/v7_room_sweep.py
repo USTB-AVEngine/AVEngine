@@ -33,6 +33,7 @@ def static_categories(house,room,inputs,catalog,categories,directory,save_sample
     inputs['visible_placement_max_proposals_per_asset']=192
     inputs['visible_placement_max_contact_attempts_per_asset']=24
     inputs['room_sweep_one_view_witness']=True
+    inputs['room_sweep_max_asset_wall_seconds']=180
     start=time.monotonic();cpu=time.process_time();directory=Path(directory)
     directory.mkdir(parents=True,exist_ok=False)
     by_id={a['asset_id']:a for a in catalog};ids=list(dict.fromkeys([x for v in categories.values()for x in v]+['v7_male_adult_14_blue_v1']))
@@ -51,6 +52,8 @@ def static_categories(house,room,inputs,catalog,categories,directory,save_sample
                 entry=entries[asset_id];asset=entry['declaration'];video.actors=[entry]
                 attempt_dir=directory/category/asset_id;attempt_dir.mkdir(parents=True,exist_ok=False)
                 before=time.monotonic();video.material_checks=[];video.color_checks=[]
+                from avengine.capture.v7_census_timebox import arm_sampling_timebox,disarm_sampling_timebox
+                previous_alarm=arm_sampling_timebox(inputs['room_sweep_max_asset_wall_seconds'])
                 try:
                     checks=video.qualify_standing(scene,attempt_dir)
                     # Quadruped paw readbacks retain the task's stricter 12mm
@@ -93,6 +96,7 @@ def static_categories(house,room,inputs,catalog,categories,directory,save_sample
                         'failure_reason_counts':detail.get('rejection_counts',{}),'native_rejection_receipt':str(rejected)if rejected.is_file()else None,
                         'material_checks':video.material_checks,'wall_seconds':time.monotonic()-before,'traceback':traceback.format_exc()}
                 finally:
+                    disarm_sampling_timebox(previous_alarm)
                     entry['object'].translation=video.mn.Vector3(0.,-1000.,0.)
                 write_json(attempt_dir/'result.json',result);attempts.append(result)
                 if result['status']=='pass':break
@@ -113,7 +117,7 @@ def static_categories(house,room,inputs,catalog,categories,directory,save_sample
             'categories':results,'chair_seated_status':results['chair_seated']['status'],
             'room_area_m2':room['floor_area_m2'],'native_renderer':video.receipt,
             'wall_seconds':time.monotonic()-start,'process_cpu_seconds':time.process_time()-cpu,
-            'sampling_budget':{'support_proposals_per_asset':192,'native_contact_attempts_per_asset':24,'exhaustion_is_not_proof_of_room_impossibility':True,'single_measured_native_view':True},
+            'sampling_budget':{'support_proposals_per_asset':192,'native_contact_attempts_per_asset':24,'exhaustion_is_not_proof_of_room_impossibility':True,'single_measured_native_view':True,'asset_wall_timebox_seconds':180},
             'max_rss_kib':resource.getrusage(resource.RUSAGE_SELF).ru_maxrss,
             'formal_parent_count':0,'GPU_jobs':0}
     except Exception as error:

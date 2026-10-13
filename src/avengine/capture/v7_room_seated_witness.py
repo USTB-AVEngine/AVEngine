@@ -9,6 +9,8 @@ from avengine.timeline.continuous_pilot import write_json
 def seated_witness(video,scene,room,entry,directory,save_sample=False):
     directory=Path(directory);directory.mkdir(parents=True,exist_ok=False)
     start=time.monotonic();video.actors=[entry]
+    from avengine.capture.v7_census_timebox import arm_sampling_timebox,disarm_sampling_timebox
+    previous_alarm=arm_sampling_timebox(video.motion_inputs.get('room_sweep_max_asset_wall_seconds',2700))
     try:
         # Proposals only. Final body, chair, feet, clothing, stage clearance,
         # native floor agreement and private route preservation are checked by
@@ -63,6 +65,8 @@ def seated_witness(video,scene,room,entry,directory,save_sample=False):
     except Exception as error:
         result={'status':'fail','category':'chair_seated','asset_id':entry['declaration']['asset_id'],'error':str(error),
             'seated_rejection_receipt':str(directory/'native_seated/seat_rejected.json'),'traceback':traceback.format_exc(),'wall_seconds':time.monotonic()-start}
+    finally:
+        disarm_sampling_timebox(previous_alarm)
     write_json(directory/'result.json',result)
     return {'status':result['status'],'selected':result if result['status']=='pass'else None,'attempts':[str(directory/'result.json')],
         'failure_reasons':{}if result['status']=='pass'else {result['error']:1}}
