@@ -20,6 +20,20 @@ def accessor(d,b,i):
   if lim.min<0:x=np.maximum(x,-1)
  return x
 
+def skin_influences(d,b,attributes):
+ """Read and jointly normalize all standard glTF influence sets.
+
+ Blender may export a continuous fitted skin in JOINTS_1 and later sets.
+ Normalizing JOINTS_0 alone silently discards those bones and changes shape.
+ """
+ sets=sorted(int(k.rsplit('_',1)[1]) for k in attributes if k.startswith('JOINTS_'))
+ if not sets:raise ValueError('skin_joint_attributes_missing')
+ js=np.concatenate([accessor(d,b,attributes[f'JOINTS_{k}']).astype(int) for k in sets],axis=1)
+ ws=np.concatenate([accessor(d,b,attributes[f'WEIGHTS_{k}']).astype(float) for k in sets],axis=1)
+ total=ws.sum(axis=1,keepdims=True)
+ if not np.isfinite(ws).all() or np.any(ws<0) or np.any(total<=0):raise ValueError('skin_weights_must_be_finite_nonnegative_and_nonzero')
+ return js,ws/total
+
 def quat_matrix(q):
  q=np.asarray(q,float);q=q/np.linalg.norm(q);x,y,z,w=q
  return np.array([[1-2*(y*y+z*z),2*(x*y-z*w),2*(x*z+y*w)],
@@ -72,8 +86,14 @@ def pose(d,b,action=None,t=0,canonical_flip=True,globals_override=None,ground=Tr
    if 'skin'in node:
     skin=d['skins'][node['skin']];ibm=accessor(d,b,skin['inverseBindMatrices']).reshape(-1,4,4).transpose(0,2,1)
     matrices=np.stack([g[j]@ib for j,ib in zip(skin['joints'],ibm)])
-    js=accessor(d,b,p['attributes']['JOINTS_0']).astype(int);ws=accessor(d,b,p['attributes']['WEIGHTS_0']).astype(float);ws/=ws.sum(axis=1,keepdims=True)
-    trans=np.einsum('vk,vkij->vij',ws,matrices[js]);pos=np.einsum('vij,vj->vi',trans[:,:3,:3],pos)+trans[:,:3,3]
+    js,ws=skin_influences(d,b,p['attributes'])
+    if js.shape[1]<=4:
+     trans=np.einsum('vk,vkij->vij',ws,matrices[js])
+    else:
+     # Accumulate the affine rows, avoiding a V x influence x 4 x 4 tensor.
+     trans=np.zeros((len(pos),3,4),float)
+     for k in range(js.shape[1]):trans+=ws[:,k,None,None]*matrices[js[:,k],:3,:]
+    pos=np.einsum('vij,vj->vi',trans[:,:3,:3],pos)+trans[:,:3,3]
     if norm is not None:norm=np.einsum('vij,vj->vi',trans[:,:3,:3],norm)
    else:
     m=g[ni];pos=pos@m[:3,:3].T+m[:3,3]

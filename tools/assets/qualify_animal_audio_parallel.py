@@ -9,9 +9,17 @@ from avengine.acoustics.house_acceptance_metrics import foa_direction
 from avengine.timeline.v7_registered_motion_audio import position_at
 
 def main():
- p=argparse.ArgumentParser();p.add_argument('--previous',type=pathlib.Path,required=True);p.add_argument('--motion',type=pathlib.Path,required=True);p.add_argument('--house',type=pathlib.Path,required=True);p.add_argument('--runtime',type=pathlib.Path,required=True);p.add_argument('--output',type=pathlib.Path,required=True);p.add_argument('--cores',default='20,21,22,23,24,25');p.add_argument('--refine-failed',action='store_true');a=p.parse_args()
- a.output.mkdir(parents=True,exist_ok=False);shutil.copytree(a.previous/'cache',a.output/'cache');cores=[int(x) for x in a.cores.split(',')];assert 1<=len(cores)<=6
- for path in a.previous.glob('reference_*.npy'):shutil.copy2(path,a.output/path.name)
+ p=argparse.ArgumentParser();p.add_argument('--previous',type=pathlib.Path,required=True);p.add_argument('--motion',type=pathlib.Path,required=True);p.add_argument('--house',type=pathlib.Path,required=True);p.add_argument('--runtime',type=pathlib.Path,required=True);p.add_argument('--output',type=pathlib.Path,required=True);p.add_argument('--cores',default='20,21,22,23,24,25');p.add_argument('--refine-failed',action='store_true');p.add_argument('--immutable-cache-root',type=pathlib.Path);a=p.parse_args()
+ def copy_cache(src,dst,*,follow_symlinks=True):
+  # Optional storage optimization only: never link the mutable SQLite DB.
+  source=pathlib.Path(src);target=pathlib.Path(dst)
+  if a.immutable_cache_root is not None and source.suffix=='.npy':
+   allowed=a.immutable_cache_root.resolve()
+   if not source.resolve().is_relative_to(allowed) or not target.parent.resolve().is_relative_to(allowed):raise ValueError('immutable_cache_link_outside_owned_root')
+   os.link(source,target);return str(target)
+  return shutil.copy2(src,dst,follow_symlinks=follow_symlinks)
+ a.output.mkdir(parents=True,exist_ok=False);shutil.copytree(a.previous/'cache',a.output/'cache',copy_function=copy_cache);cores=[int(x) for x in a.cores.split(',')];assert 1<=len(cores)<=6
+ for path in a.previous.glob('reference_*.npy'):copy_cache(path,a.output/path.name)
  inputs=json.loads(a.runtime.read_text());house=json.loads(a.house.read_text());m=json.loads(a.motion.read_text());frames=m['frames'];track=[{'time_s':f['time_s'],'position_m':f['mouth_world_m']} for f in frames];house['room']['placement']['camera_m']=m['listener_m'];listener=np.array(m['listener_m']);forward=np.array(m['camera_forward']);forward[1]=0;forward/=np.linalg.norm(forward)
  oldid=json.loads((a.output/'cache/configuration.json').read_text());inputs['simulation']=oldid['simulation']
  sr=16000;n=round(frames[-1]['time_s']*sr)+1;keys=sorted(set([*range(0,n,3200),n-1]));db=sqlite3.connect(a.output/'cache/positions.sqlite3');filters=[];directions=[]
@@ -27,7 +35,7 @@ def main():
    if not all(np.array_equal(waves[0],x) for x in waves[1:]):raise ValueError('only identical deterministic native references can be promoted to an endpoint')
    point=position_at(track,mid/sr);key=json.dumps(point.tolist(),separators=(',',':'));db.execute('INSERT INTO rirs(pose) VALUES (?) ON CONFLICT(pose) DO NOTHING',(key,));idx=db.execute('SELECT id FROM rirs WHERE pose=?',(key,)).fetchone()[0];target=a.output/'cache'/f'rir_{idx:06d}.npy'
    if target.exists() and not np.array_equal(np.load(target,allow_pickle=False),waves[0]):raise ValueError('promoted native endpoint differs')
-   if not target.exists():shutil.copy2(files[0],target)
+   if not target.exists():copy_cache(files[0],target)
    db.execute('UPDATE rirs SET completed=1 WHERE id=?',(idx,));db.commit();keys.append(mid)
   keys=sorted(set(keys))
   (a.output/'refinement.json').write_text(json.dumps({'failed_intervals':failed,'new_native_keys':keys,'reference_waveforms_modified':False,'new_midpoints_require_three_fresh_native_executions':True},indent=2))

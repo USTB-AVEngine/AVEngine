@@ -5,7 +5,7 @@
 
 自 2026-08-25 起，目录本身就是能力分组（阶段目录 m1…m7 已移除），
 本表按目录列出每个工具做什么。
-当前共 531 个工具脚本。
+当前共 538 个工具脚本。
 
 ## 资产生成与装配（`tools/assets/`）
 
@@ -27,12 +27,15 @@
 | `tools/assets/bake_local_tr_actions.py` | Bake deterministic research-only local-translation action poses from one GLB |
 | `tools/assets/bake_uniform_skin_scale.py` | Bake one positive uniform skin-ancestor scale into GLB payload data |
 | `tools/assets/blender_apply_pixal3d_import_transform.py` | Apply the class-level Pixal3D Blender import/root transform after glTF import |
+| `tools/assets/blender_check_cat_native_skin.py` | Check actual native-replay skins from a bounded private overwriteable stream |
+| `tools/assets/blender_check_cat_rig.py` | Independent GLB skin readback and nonadjacent triangle intersection QA |
 | `tools/assets/blender_level_generated_animal_support_plane.py` | Level a generated quadruped from two independent visible-foot authorities |
 | `tools/assets/blender_normalize_generated_animal_heading.py` | Rigidly align a generated animal rig to a reviewed cardinal heading |
 | `tools/assets/blender_probe_skin_action.py` | Add a short in-place bone rotation so a SkinTokens rig can play one action |
 | `tools/assets/blender_record_emitter_anchors.py` | Record research-only emitter anchors from a reviewed GLB bounding box |
 | `tools/assets/blender_render_generated_asset_review.py` | Render front/side/back stills, a turntable, and a short action clip |
 | `tools/assets/blender_retarget_quaternius_to_generated_quadruped.py` | Transfer Quaternius Walk/Idle to a generated, skinned quadruped rig |
+| `tools/assets/blender_rig_static_cats.py` | Fit a target-owned quadruped, skin in Blender and retarget CC0 Cat motion |
 | `tools/assets/build_appearance_variant_inputs.py` | Bind one realized appearance request into package spec and source lineage |
 | `tools/assets/build_canary_request.py` | Build one hash-bound formal M2 canary capture request |
 | `tools/assets/build_cross_species_appearance_lineage.py` | Build one diagnostic-only cross-species appearance lineage |
@@ -50,10 +53,13 @@
 | `tools/assets/capture_canary.py` | Run one formal 75-state M2 canary capture in Habitat |
 | `tools/assets/capture_installed_research_review.py` | Run the current installed-prefix M2 Blender-room research review |
 | `tools/assets/capture_research_review.py` | Run the 75-state single-view M2 research-review capture in Habitat |
+| `tools/assets/cat_surface_checks.py` | Anatomical-region surface QA for unchanged cat meshes |
 | `tools/assets/check_prompt_token_budget.py` | Fail closed when a candidate profile's effective prompt cannot fit the model window |
 | `tools/assets/check_source_material_matrix.py` | Gate the complete source-material matrix and emit an offline review page |
+| `tools/assets/check_static_cat_geometry.py` | Measure a registered static cat baseline and prove rigid slide preservation |
 | `tools/assets/compile_animal_motion.py` | Compile a bounded target-preserving walking probe for native validation |
 | `tools/assets/compile_animal_package.py` | Compile a bounded M2 research-candidate package |
+| `tools/assets/compile_static_animal_slide.py` | Flat-ground compiler for explicitly unanimated registered quadrupeds |
 | `tools/assets/compose_topdown_review.py` | Derive synchronized RGB + navmesh/descriptor top-down QA review media |
 | `tools/assets/derive_variant_contacts.py` | Derive generic package anchors and actor-space four-paw contacts |
 | `tools/assets/diagnose_animal_motion.py` | Inspect all authored Walking sources and immutable old cat caches |
@@ -101,6 +107,7 @@
 | `tools/assets/render_mesh_rgba_review.py` | Render a mesh to a transparent RGBA review preview |
 | `tools/assets/render_turntable_review.py` | Orbit the camera once around a posed asset, with soft shadow-free lighting |
 | `tools/assets/render_walk_review.py` | Render a walk cycle with soft, shadow-free lighting and the asset's own materials |
+| `tools/assets/replay_animal_motion_bounded.py` | Replay every native frame with bounded resource lifetime; unchanged gates |
 | `tools/assets/replay_animal_motion_habitat.py` | Re-render an identical qualified pose sequence with a true 3-D camera |
 | `tools/assets/report_animal_motion.py` | Chinese, self-contained per-individual motion admissions and native evidence |
 | `tools/assets/retime_actions.py` | Apply explicit action durations without changing sampled pose values |

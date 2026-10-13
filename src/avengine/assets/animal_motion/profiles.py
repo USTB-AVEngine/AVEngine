@@ -4,7 +4,7 @@ from pathlib import Path
 import json
 import numpy as np
 from avengine.assets.roster_motion.io import read_glb
-from avengine.assets.roster_motion.pose import accessor, globals_at, pose, animation_times
+from avengine.assets.roster_motion.pose import accessor, globals_at, pose, animation_times, skin_influences
 from avengine.assets.roster_motion.contact import subtree, find_bone
 
 PAWS = ('FL', 'FR', 'HL', 'HR')
@@ -87,8 +87,7 @@ class Rig:
             if 'skin' not in node:raise ValueError('unskinned_part_in_motion_master')
             joints=d['skins'][node['skin']]['joints']
             for primitive in d['meshes'][node['mesh']]['primitives']:
-                js=accessor(d,b,primitive['attributes']['JOINTS_0']).astype(int)
-                ws=accessor(d,b,primitive['attributes']['WEIGHTS_0'])
+                js,ws=skin_influences(d,b,primitive['attributes'])
                 def mask(nodes):return (np.isin(js,[k for k,j in enumerate(joints) if j in nodes])*ws).sum(1)>.15
                 masks.append({s:mask(set(subtree(d,c[2]))) for s,c in chains.items()})
                 head_masks.append(mask(set(subtree(d,head))))
