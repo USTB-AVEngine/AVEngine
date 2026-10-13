@@ -17,14 +17,18 @@ def seated_witness(video,scene,room,entry,directory,save_sample=False):
         cache=getattr(video,'_visible_room_support_cache',None)
         points=[p['point']for p in cache[2]['floor']]if cache else []
         points=list({tuple(round(float(x),5)for x in p):p for p in points}.values())
-        points.sort(key=lambda p:abs(np.linalg.norm((np.asarray(p)-listener)[[0,2]])-2.5))
-        points=[p for p in points if np.linalg.norm((np.asarray(p)-listener)[[0,2]])>=2.2][:16]
+        from shapely.geometry import shape,Point
+        boundary=shape(room['floor_polygon']).boundary
+        # Chair/feet need a complete floor footprint. Prefer the room interior
+        # rather than a distance shell populated by boundary-snapped points.
+        points.sort(key=lambda p:(-boundary.distance(Point(p[0],p[2])),abs(np.linalg.norm((np.asarray(p)-listener)[[0,2]])-2.2)))
+        points=[p for p in points if np.linalg.norm((np.asarray(p)-listener)[[0,2]])>=1.6][:24]
         if not points:raise ValueError('no measured floor proposal at visible seated camera distance')
         entry.update(resolved_root_m=np.asarray(points[0]),resolved_yaw_rad=0.)
         video._apply_entry(entry,scene)
         scene['sources'][entry['endpoint_id']]['body_yaw_deg']=0.
         scene['native_placement_candidates']=[]
-        request={'action':'sit','chair_id':'v7_chair_stool','minimum_camera_distance_m':2.2,'native_chair_floor_points_m':points}
+        request={'action':'sit','chair_id':'v7_chair_stool','minimum_camera_distance_m':1.6,'native_chair_floor_points_m':points}
         record=compile_seated(video,entry,scene,video.motion_house,video.motion_inputs,directory/'native_seated',request)
         if len(set(record['pose_glbs']))!=1 or len({tuple(x)for x in record['world_roots_m']})!=1 or any(f['moving']for f in record['source_frames']):
             raise ValueError('seated feasibility only accepts the original static seated pose')

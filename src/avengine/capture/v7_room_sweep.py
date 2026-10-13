@@ -95,7 +95,7 @@ def static_categories(house,room,inputs,catalog,categories,directory,save_sample
             write_json(directory/('partial_'+category+'.json'),results)
             print(json.dumps({'room_id':room['room_label'],'category':category,'status':results[category]['status'],'wall_seconds':sum(r['wall_seconds']for r in attempts),'reasons':results[category]['failure_reasons']},ensure_ascii=False),flush=True)
             gc.collect()
-        scene['listener_m'][1]=float(room['measured_floor_y_m'])+1.25
+        scene['listener_m'][1]=float(room['measured_floor_y_m'])+.95
         from avengine.capture.v7_room_seated_witness import seated_witness
         results['chair_seated']=seated_witness(video,scene,room,entries['v7_male_adult_14_blue_v1'],directory/'chair_seated',save_samples)
         write_json(directory/'partial_chair_seated.json',results)
