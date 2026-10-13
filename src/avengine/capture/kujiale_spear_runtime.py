@@ -30,6 +30,11 @@ def launch_native(ue, map_path):
         raise ValueError('native project must be isolated inside the output root')
     from avengine.capture.kujiale_native_gpu_policy import native_gpu_preflight
     gpu_preflight = native_gpu_preflight(output, int(ue.get('physical_gpu_index',ue['graphics_adapter'])))
+    from avengine.capture.kujiale_vulkan_devices import enumerate_vulkan_devices
+    vulkan_devices=enumerate_vulkan_devices()
+    adapter=int(ue['graphics_adapter'])
+    if adapter>=len(vulkan_devices) or adapter<0 or vulkan_devices[adapter]['gpu_uuid']!=gpu_preflight['gpu_uuid']:
+        raise ValueError('assigned adapter does not identify its physical Vulkan GPU UUID')
     sys.path.insert(0,str(ext))
     from avengine.backends.spear_ue import client
     from avengine.backends.spear_ue.research_runtime import cleanup_failed_constructor
@@ -94,7 +99,7 @@ def launch_native(ue, map_path):
                 if paused:raise RuntimeError('native animation sampling world remains paused')
                 sampling={'status':'pass','world_game_paused':paused,'timeline_phase_authority':'component.Stop then SetPosition; UE evaluates the sampled pose during the fixed native frame'}
             with instance.end_frame():pass
-        return instance,game,{'temporary_directory':str(temporary),'rpc_port':port,'map_path':map_path,'animation_sampling':sampling,'gpu_resource_preflight':gpu_preflight}
+        return instance,game,{'temporary_directory':str(temporary),'rpc_port':port,'map_path':map_path,'animation_sampling':sampling,'gpu_resource_preflight':gpu_preflight,'native_ue_pid':instance._process.pid,'vulkan_devices':vulkan_devices}
     except BaseException:
         instance.close()
         raise

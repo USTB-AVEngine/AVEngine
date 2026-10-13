@@ -13,27 +13,47 @@ COLOR_THRESHOLDS={'neutral_chroma_max':10,'black_L_max':20,'white_L_min':45,'mai
 
 
 def verify_gpu(ue,launch):
-    """Match this exact UE command and PID to the assigned graphics GPU UUID."""
-    import subprocess,xml.etree.ElementTree as ET
+    """Read this UE PID's selected Vulkan GPU; report all permitted contexts."""
+    import re,subprocess,xml.etree.ElementTree as ET
     policy=json.loads((Path(ue['output_root'])/'kujiale_native_gpu_policy.json').read_text())
     expected=int(ue['physical_gpu_index'])
+    expected_uuid=policy['gpu_uuids'][str(expected)]
+    pid=int(launch['native_ue_pid'])
+    argv=(Path('/proc')/str(pid)/'cmdline').read_bytes().decode().split('\0')
+    if str(ue['uproject']) not in argv or not any(launch['temporary_directory'] in a for a in argv):
+        raise ValueError('native UE GPU readback PID does not match this launch')
+    # UE may create an auxiliary graphics context on its first visible device
+    # before initializing Vulkan on another one. NVML reports both for one PID.
+    # Read the actual renderer selection instead of treating every context as it.
+    log=(Path(launch['temporary_directory'])/'UnrealEditor.log').read_text()
+    selections={int(x) for x in re.findall(
+        r'LogVulkanRHI: Using device at index (\d+) of \d+',log)}
+    if selections!={int(ue['graphics_adapter'])}:
+        raise ValueError('native Vulkan renderer selection differs from assigned adapter')
+    index=next(iter(selections))
+    devices={int(row['vulkan_index']):row for row in launch['vulkan_devices']}
+    if index not in devices or devices[index]['gpu_uuid']!=expected_uuid:
+        raise ValueError('native Vulkan renderer is on an unauthorized physical GPU')
+    permitted={policy['gpu_uuids'][str(i)] for i in policy['allowed_gpu_indices']}
     cards=ET.fromstring(subprocess.check_output(['nvidia-smi','-q','-x'],text=True)).findall('gpu')
-    matched=[]
-    for index,card in enumerate(cards):
+    matched=[];auxiliary=[]
+    for visible_index,card in enumerate(cards):
         for process in card.findall('processes/process_info'):
-            pid=int(process.findtext('pid'))
-            try:argv=(Path('/proc')/str(pid)/'cmdline').read_bytes().decode().split('\0')
-            except (FileNotFoundError,PermissionError):continue
-            if str(ue['uproject']) not in argv or not any(launch['temporary_directory'] in a for a in argv):
-                continue
-            # The device sandbox exposes one GPU, so NVML may enumerate it as
-            # local card zero. Its immutable UUID still identifies physical 2/3.
-            if card.findtext('uuid')!=policy['gpu_uuids'][str(expected)]:raise ValueError('own native UE process is on an unauthorized physical GPU')
-            matched.append({'pid':pid,'physical_gpu':expected,'nvml_visible_index':index,'uuid':card.findtext('uuid'),'command':argv,
-                'used_memory':process.findtext('used_memory')})
-    if not matched:raise ValueError('own UE graphics PID was not found in nvidia-smi XML')
+            if int(process.findtext('pid'))!=pid:continue
+            uuid=card.findtext('uuid')
+            record={'pid':pid,'nvml_visible_index':visible_index,'uuid':uuid,
+                    'command':argv,'used_memory':process.findtext('used_memory'),
+                    'process_type':process.findtext('type')}
+            if uuid not in permitted:
+                raise ValueError('own native UE context is on a GPU outside the task scope')
+            if uuid==expected_uuid:
+                record['physical_gpu']=expected;matched.append(record)
+            else:auxiliary.append(record)
+    if not matched:raise ValueError('own UE graphics PID was not found on its renderer GPU in nvidia-smi XML')
     return {'status':'pass','expected_physical_gpu':expected,'processes':matched,
-            'scope':'this exact private UE project and launch temporary directory'}
+            'vulkan_renderer':devices[index],'auxiliary_permitted_contexts':auxiliary,
+            'scope':'exact UE PID, private project/launch, native Vulkan device UUID and task GPU scope'}
+
 
 def _context(video):
     from tools.ue.capture_kujiale_admission import Capture
