@@ -24,12 +24,12 @@ def main():
     expected_animals={(x['category'],x['body_id']) for x in selected if x['category']!='object'}
     expected_objects={x['object_type'] for x in selected if x['category']=='object'}
     parent_dirs=sorted((root/'production/parents').glob('*'));results=[];passed=[];partial=[];history=[];assets_seen=set();houses=set()
-    events=Counter();attempt_events=Counter();programs={};partial_assets=set();joint_assets={};house_samples={};metrics=defaultdict(list);colours={};samples=[];candidate_colour_checks={};candidate_colour_rejections={};truth_forms=0
+    events=Counter();attempt_events=Counter();programs={};partial_assets=set();joint_assets={};house_samples={};metrics=defaultdict(list);sealed_metrics=defaultdict(list);colours={};samples=[];candidate_colour_checks={};candidate_colour_rejections={};truth_forms=0
     for parent in parent_dirs:
         if not (parent/'input_recipe.json').exists():continue
         recipe=read(parent/'input_recipe.json');row=recipe['seed_row'];sid=row['scene_id']
         terminal=root/'evidence/parent_results'/f'{sid}.json'
-        result=read(terminal) if terminal.exists() else {'scene_id':sid,'house':row['house'],'status':'unfinished','reason':'原生作业尚未结束'}
+        result=read(terminal) if terminal.exists() else {'scene_id':sid,'house':row['house'],'status':'unfinished','reason':'本尝试尚未完成封存；状态以作业记录和阶段完成指针为准'}
         seal=parent/'alpha_seal_completed.json';sealed=False
         if seal.exists():
             pointer=read(seal);delivery=parent/pointer['attempt']
@@ -61,32 +61,40 @@ def main():
                 for checked in gate.get('checks',[]):candidate_colour_checks[checked['question_id']]=checked
                 for rejected in gate.get('rejected',[]):candidate_colour_rejections[rejected['question_id']]=rejected
         for pointer in parent.glob('visual_v*_completed.json'):
+            frame_metrics=defaultdict(list)
             directory=parent/read(pointer)['attempt'];visual=read(directory/'native_registered_visual_evidence.json')
             physical=visual.get('native_physical_environment',{})
             expected_emitters={n['asset_id']:n.get('expected_emitter_m') for n in row['production_scenario']['native_environment']}
             partial.append({'scene_id':sid,'visual':pointer.stem,'native_physical_status':physical.get('status'),'frame_count':visual.get('frame_count')})
-            for standing in visual.get('standing_admission',[]):metrics['human_floor_gap_mm'].append(abs(standing['native_sole_depth']['gap_m'])*1000)
+            for standing in visual.get('standing_admission',[]):
+                frame_metrics['human_floor_gap_mm'].append(abs(standing['native_sole_depth']['gap_m'])*1000)
+                frame_metrics['human_collision_intersections'].append(len(standing['native_capsule_static_geometry']['interior_intersections']))
             for entry in read(directory/'acoustic_placement_admission.json')['checks']:
-                if entry['status']=='pass':metrics['RIR_angle_deg'].append(entry['direction']['check']['angle_deg'])
+                if entry['status']=='pass':frame_metrics['RIR_angle_deg'].append(entry['direction']['check']['angle_deg'])
             for node in physical.get('current_joint_admission',{}).values():
-                metrics['attachment_gap_mm'].append(node['attachment']['gap_m']*1000)
+                frame_metrics['attachment_gap_mm'].append(node['attachment']['gap_m']*1000)
+                frame_metrics['asset_collision_intersections'].append(node['attachment']['collision']['intersecting_native_triangles'])
+                frame_metrics['asset_collision_tested_triangles'].append(node['attachment']['collision']['tested_native_triangles'])
                 actual=node['emitter'].get('actual_m');expected=expected_emitters.get(node['asset_id'])
-                if actual is not None and expected is not None:metrics['emitter_readback_error_mm'].append(max(abs(x-y) for x,y in zip(actual,expected))*1000)
-                metrics['size_relative_error'].extend(node['size']['relative_errors'])
-                metrics['complete_views'].append(sum(v['status']=='pass' for v in node['views']))
+                if actual is not None and expected is not None:frame_metrics['emitter_readback_error_mm'].append(max(abs(x-y) for x,y in zip(actual,expected))*1000)
+                frame_metrics['size_relative_error'].extend(node['size']['relative_errors'])
+                frame_metrics['complete_views'].append(sum(v['status']=='pass' for v in node['views']))
                 for view in node['views']:
-                    if view['status']=='pass':metrics['UE_highlight_ratio'].append(view['highlight_ratio'])
+                    if view['status']=='pass':frame_metrics['UE_highlight_ratio'].append(view['highlight_ratio'])
             for frame in physical.get('frames',[]):
                 for entity in frame['entities']:
                     actual=entity.get('emitter_position_m');expected=expected_emitters.get(entity['asset_id'])
-                    if actual is not None and expected is not None:metrics['emitter_readback_error_mm'].append(max(abs(x-y) for x,y in zip(actual,expected))*1000)
-                    metrics['native_root_error_mm'].append(entity['root_error_m']*1000)
-                    if entity.get('highlight_ratio') is not None:metrics['UE_highlight_ratio'].append(entity['highlight_ratio'])
+                    if actual is not None and expected is not None:frame_metrics['emitter_readback_error_mm'].append(max(abs(x-y) for x,y in zip(actual,expected))*1000)
+                    frame_metrics['native_root_error_mm'].append(entity['root_error_m']*1000)
+                    if entity.get('highlight_ratio') is not None:frame_metrics['UE_highlight_ratio'].append(entity['highlight_ratio'])
                     if entity['visible_pixels']>=80:partial_assets.add(entity['asset_id'])
                     if sealed and entity['visible_pixels']>=80:assets_seen.add(entity['asset_id'])
                     if entity.get('color'):colours[entity['asset_id']]=entity['color']
             for check in visual['source_material_checks']['checks']:
-                if check['metrics'].get('highlight_ratio') is not None:metrics['UE_highlight_ratio'].append(check['metrics']['highlight_ratio'])
+                if check['metrics'].get('highlight_ratio') is not None:frame_metrics['UE_highlight_ratio'].append(check['metrics']['highlight_ratio'])
+            for key,values in frame_metrics.items():
+                metrics[key].extend(values)
+                if sealed:sealed_metrics[key].extend(values)
             pngs=sorted(directory.glob('native_frame_*.png'))
             if pngs and len(samples)<12:samples.append((sid+' / '+row['house'],pngs[len(pngs)//2],sealed))
         if sealed:
@@ -157,11 +165,14 @@ def main():
         suite=ET.parse(unit_files[-1]).getroot().find('testsuite')
         unit=dict(suite.attrib);unit['source']=str(unit_files[-1])
     summaries={k:{'count':len(values),'maximum':max(values),'minimum':min(values)} for k,values in metrics.items() if values}
+    sealed_summaries={k:{'count':len(values),'maximum':max(values),'minimum':min(values)} for k,values in sealed_metrics.items() if values}
+    shown=sealed_summaries if passed else summaries
+    metric_scope='封存且独立真值通过的父场景' if passed else '已完成的部分原生视觉阶段，尚未封存'
     ready=len(unique_logical)>=12 and len(houses)>=6 and not gaps['animal_bodies'] and not gaps['object_types'] and unit.get('failures')=='0' and unit.get('errors')=='0'
     conclusion=('通过：酷家乐动物、物件和人物同场试产完成。' if ready else '未通过完整试产验收；当前产物不具备接入量产条件。')+f' 全部门禁通过父场景 {len(unique_logical)}/12，训练房子 {len(houses)}/6。'
     summary={'status':'pass' if ready else 'not_ready','conclusion':conclusion,'parents_passed':len(unique_logical),'parents_requested':12,'houses_passed':sorted(houses),
              'passed_parents':passed,'attempt_results':results,'coverage':{'selected_appearances':len(selected),'native_visual_stage_appearances_seen':len(partial_assets),'sealed_appearances_seen':len(assets_seen),'animal_bodies_seen':len(seen_animals),'animal_bodies_expected':len(expected_animals),'object_types_seen':len(seen_objects),'object_types_expected':len(expected_objects),'gaps':gaps},
-             'metrics':summaries,'failed_measurements':failed_measurements,'all_attempt_measured_maxima':{k:max(v) for k,v in all_measurements.items() if v},'candidate_truth':{k:candidate_truth.get(k) for k in ['status','scope','checked_forms','passed_forms','mismatches','errors']},'independent_truth_checked_forms':truth_forms,'independent_truth_mismatches':sum(len(read(p)['mismatches']) for p in root.glob('production/parents/*/independent_truth_audit.json')),
+             'metrics':summaries,'sealed_native_metrics':sealed_summaries,'reported_native_metric_scope':metric_scope,'failed_measurements':failed_measurements,'all_attempt_measured_maxima':{k:max(v) for k,v in all_measurements.items() if v},'candidate_truth':{k:candidate_truth.get(k) for k in ['status','scope','checked_forms','passed_forms','mismatches','errors']},'independent_truth_checked_forms':truth_forms,'independent_truth_mismatches':sum(len(read(p)['mismatches']) for p in root.glob('production/parents/*/independent_truth_audit.json')),
              'colour_checked_forms':len(candidate_colour_checks),'colour_discarded_forms':len(candidate_colour_rejections),'colour_discarded_logical_questions':len({qid.rsplit('__',1)[0] for qid in candidate_colour_rejections}),
              'event_counts_completed_dry_base_programs_unsealed':dict(attempt_events),'event_counts_sealed_parent_base_programs':dict(events),'unit_tests':unit,'gpu_assigned_card_union_seconds':gpu_card_seconds,'gpu_allocated_seconds_summed':gpu_seconds,'gpu_time_definition':'sum of assigned-card worker wall time, including startup, RIR, encoding and question work; not CUDA kernel timing',
              'own_output_logical_bytes':own_bytes,'own_output_allocated_bytes':allocated,'active_jobs':[j['name'] for j in jobs if j['status']=='running'],'source_labels_modified':False,'training_table_exported':False,'CCI_transferred':False}
@@ -178,13 +189,15 @@ def main():
     stamp=datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')
     summary_path=root/'evidence'/('pilot_report_'+stamp+'.json');summary_path.open('x').write(json.dumps(summary,ensure_ascii=False,indent=2)+'\n')
     rows=[['不可见声源',0 if passed else '未形成通过父场景','只对封存且独立真值通过的父场景成立'],
-          ['动物及物件贴附 ≤15 mm',summaries.get('attachment_gap_mm',{}).get('maximum','未验证'),'已完成原生视觉阶段的最大值'],
-          ['人物房间地面 ≤15 mm',summaries.get('human_floor_gap_mm',{}).get('maximum','未验证'),'地板基准和语义支持面检查'],
-          ['发声点读回',summaries.get('emitter_readback_error_mm',{}).get('maximum','未验证'),'逐帧原生组件读回；单位 mm'],
-          ['RIR 方向 ≤5°',summaries.get('RIR_angle_deg',{}).get('maximum','未验证'),'通过位置最大角误差'],
-          ['UE 高光 ≤2%',summaries.get('UE_highlight_ratio',{}).get('maximum','未验证'),'比率；已完成视觉阶段'],
-          ['尺寸误差 ≤15%',summaries.get('size_relative_error',{}).get('maximum','未验证'),'原生 LOD0 与登记尺寸'],
-          ['完整视角 ≥3',summaries.get('complete_views',{}).get('minimum','未验证'),'每个同场资产的完整视角数'],
+          ['动物及物件贴附 ≤15 mm',shown.get('attachment_gap_mm',{}).get('maximum','未验证'),metric_scope+'；最大值'],
+          ['人物房间地面 ≤15 mm',shown.get('human_floor_gap_mm',{}).get('maximum','未验证'),'地板基准和语义支持面检查'],
+          ['发声点读回',shown.get('emitter_readback_error_mm',{}).get('maximum','未验证'),'逐帧原生组件读回；单位 mm'],
+          ['RIR 方向 ≤5°',shown.get('RIR_angle_deg',{}).get('maximum','未验证'),'通过位置最大角误差'],
+          ['UE 高光 ≤2%',shown.get('UE_highlight_ratio',{}).get('maximum','未验证'),metric_scope+'；比率'],
+          ['物件及动物穿插',shown.get('asset_collision_intersections',{}).get('maximum','未验证'),'原生 LOD0 与视觉 OBB；相交三角形最大数'],
+           ['人物穿插',shown.get('human_collision_intersections',{}).get('maximum','未验证'),'原生胶囊体几何探测；内部交点最大数'],
+           ['尺寸误差 ≤15%',shown.get('size_relative_error',{}).get('maximum','未验证'),'原生 LOD0 与登记尺寸'],
+          ['完整视角 ≥3',shown.get('complete_views',{}).get('minimum','未验证'),'每个同场资产的完整视角数'],
           ['独立真值重算',truth_forms,'封存保留形式数'],
            ['候选池独立真值重算',candidate_truth.get('checked_forms','未验证'),'候选池通过不代表父场景封存通过'],
            ['当场颜色重测',len(candidate_colour_checks),'检查的候选题目形式数'],
@@ -195,6 +208,7 @@ def main():
     page='<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>酷家乐 UE 原生小批试产</title><style>body{font:16px/1.6 system-ui,sans-serif;background:#f4f6fa;color:#172238;margin:24px auto;max-width:1280px;padding:0 20px}h1{font-size:26px}.top{background:#fff1d6;padding:20px;border-radius:12px}table{width:100%;border-collapse:collapse;background:white;font-size:13px}th,td{padding:9px;border:1px solid #d7dfeb;overflow-wrap:anywhere}th{background:#eaf0f9}img{max-width:100%;border-radius:8px}.gallery{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px}figure{margin:0;background:white;padding:12px}code{overflow-wrap:anywhere}.note{color:#465875}</style><body>'
     page+='<h1>酷家乐 UE 原生：动物、物件与人物同场</h1><p class="top">'+html.escape(conclusion)+'</p>'
     page+='<p class="note">仅本机非商业研究试产。没有导出训练表，没有传 CCI，没有修改源登记。动物及物件静态出场；空调为静音摆设。失败阶段保留，原门槛未放宽。</p><h2>原生门禁数字</h2>'+table(['项目','实测 / 结论','数字范围与出处'],rows)
+    page+='<p>上表原生指标范围：'+html.escape(metric_scope)+'。保留的旧尝试指标另见 JSON 中 metrics 与 failed_measurements。</p>'
     page+='<p>详细数值来源：<code>'+html.escape(str(summary_path))+'</code>。未形成全部门禁通过的父场景时，部分阶段的通过数字不代表父场景已通过。</p>'
     page+='<h2>资产覆盖</h2>'+table(['范围','封存父场景实际出场','要求'],[['动物身体',len(seen_animals),len(expected_animals)],['物件种类',len(seen_objects),len(expected_objects)],['代表外观',len(assets_seen),len(selected)],['训练房子',len(houses),6]])
     page+='<p>同场物理验收证据已覆盖 '+str(len(joint_assets))+' 个代表外观；它只说明三视角与贴附阶段通过，不代替完整视频、题目与封存。</p>'+table(['资产','类别 / 身体或种类','同场物理阶段','完整视频出场','封存出场'],
