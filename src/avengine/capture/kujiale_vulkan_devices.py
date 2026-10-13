@@ -2,7 +2,21 @@
 from __future__ import annotations
 
 
-def enumerate_vulkan_devices():
+def enumerate_vulkan_devices(icd_filename='/etc/vulkan/icd.d/nvidia_icd.json'):
+    """Use the same task-local driver selection passed to the UE subprocess."""
+    import os
+    previous = os.environ.get('VK_ICD_FILENAMES')
+    os.environ['VK_ICD_FILENAMES'] = icd_filename
+    try:
+        return _enumerate_vulkan_devices()
+    finally:
+        if previous is None:
+            os.environ.pop('VK_ICD_FILENAMES', None)
+        else:
+            os.environ['VK_ICD_FILENAMES'] = previous
+
+
+def _enumerate_vulkan_devices():
     import ctypes as c
 
     class App(c.Structure):

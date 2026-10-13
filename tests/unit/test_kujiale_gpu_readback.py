@@ -117,3 +117,33 @@ def test_adapter_to_uuid_inventory_required(launch, monkeypatch):
     receipt["vulkan_devices"] = []
     with pytest.raises(ValueError, match="renderer is on an unauthorized"):
         verify_gpu(ue, receipt)
+
+
+@pytest.mark.parametrize("previous", [None, "/task/other-driver.json"])
+def test_vulkan_inventory_uses_ue_driver_and_restores_process_environment(monkeypatch, previous):
+    import os
+    from avengine.capture import kujiale_vulkan_devices as devices
+    if previous is None:
+        monkeypatch.delenv("VK_ICD_FILENAMES", raising=False)
+    else:
+        monkeypatch.setenv("VK_ICD_FILENAMES", previous)
+    calls = []
+    def enumerate_current():
+        calls.append(os.environ["VK_ICD_FILENAMES"])
+        return [{"vulkan_index": 0, "gpu_uuid": "GPU-two"}]
+    monkeypatch.setattr(devices, "_enumerate_vulkan_devices", enumerate_current)
+    assert devices.enumerate_vulkan_devices() == [{"vulkan_index": 0, "gpu_uuid": "GPU-two"}]
+    assert calls == ["/etc/vulkan/icd.d/nvidia_icd.json"]
+    assert os.environ.get("VK_ICD_FILENAMES") == previous
+
+
+def test_vulkan_loader_error_restores_process_environment(monkeypatch):
+    import os
+    from avengine.capture import kujiale_vulkan_devices as devices
+    monkeypatch.setenv("VK_ICD_FILENAMES", "/task/prior.json")
+    def fail():
+        raise RuntimeError("driver enumeration failed")
+    monkeypatch.setattr(devices, "_enumerate_vulkan_devices", fail)
+    with pytest.raises(RuntimeError, match="enumeration failed"):
+        devices.enumerate_vulkan_devices()
+    assert os.environ["VK_ICD_FILENAMES"] == "/task/prior.json"

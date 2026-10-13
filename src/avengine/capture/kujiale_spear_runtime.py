@@ -31,10 +31,12 @@ def launch_native(ue, map_path):
     from avengine.capture.kujiale_native_gpu_policy import native_gpu_preflight
     gpu_preflight = native_gpu_preflight(output, int(ue.get('physical_gpu_index',ue['graphics_adapter'])))
     from avengine.capture.kujiale_vulkan_devices import enumerate_vulkan_devices
-    vulkan_devices=enumerate_vulkan_devices()
-    adapter=int(ue['graphics_adapter'])
-    if adapter>=len(vulkan_devices) or adapter<0 or vulkan_devices[adapter]['gpu_uuid']!=gpu_preflight['gpu_uuid']:
-        raise ValueError('assigned adapter does not identify its physical Vulkan GPU UUID')
+    vulkan_devices=[]
+    if gpu_preflight is not None:
+        vulkan_devices=enumerate_vulkan_devices()
+        adapter=int(ue['graphics_adapter'])
+        if adapter>=len(vulkan_devices) or adapter<0 or vulkan_devices[adapter]['gpu_uuid']!=gpu_preflight['gpu_uuid']:
+            raise ValueError('assigned adapter does not identify its physical Vulkan GPU UUID')
     sys.path.insert(0,str(ext))
     from avengine.backends.spear_ue import client
     from avengine.backends.spear_ue.research_runtime import cleanup_failed_constructor
