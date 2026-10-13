@@ -278,6 +278,14 @@ class NativeVisibleVideo(NativeRegisteredVideo):
                 placement=check_support(self.sim,r,meta,support)
                 if placement is None:
                     reject("attachment_rays");continue
+                # An optional recipe-side filter can request tighter quadruped
+                # support. The original 15mm admission check remains unchanged.
+                paw_limit=self.motion_inputs.get('quadruped_candidate_max_paw_gap_m')
+                if paw_limit is not None and a['kind']=='animal' and len(a.get('landmarks_local_m',{})) and all(k in a['landmarks_local_m'] for k in ('foot_0','foot_1','foot_2','foot_3')):
+                    paw_limit=float(paw_limit)
+                    if not 0.<paw_limit<=.015:raise ValueError('paw candidate filter must be within the original 15mm gate')
+                    if any(abs(v)>paw_limit for v in placement['contact_deltas_m'][-4:]):
+                        reject('quadruped_paw_candidate_gap');continue
                 if key=='doorbell_wall':
                     from avengine.capture.v7_visible_attachment import anchor_distance
                     point=placement['support']['original_surface_point_m']
