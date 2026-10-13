@@ -559,3 +559,31 @@ def test_parallel_coordinator_dispatches_one_each_on_three_cards_without_prior_p
     state=json.loads((root/'evidence/coordinator_state.json').read_text())
     assert state['parents']==state['passed']==3
     assert state['training_exported'] is False and state['CCI_transferred'] is False
+
+
+def test_dispatch_selection_retains_authorized_devices_and_default():
+    scope={'physical_gpus':[3,1,2],'dispatch_gpus':[2]}
+    assert pilot.dispatch_gpus(scope)==[2]
+    assert pilot.authorized_gpus(scope)==[1,2,3]
+    assert pilot.dispatch_gpus({'physical_gpus':[3,2]})==[2,3]
+
+
+@pytest.mark.parametrize('dispatch',[[0],[1],[2,2],[True],[],None])
+def test_dispatch_selection_rejects_unauthorized_or_invalid_cards(dispatch):
+    with pytest.raises(ValueError,match='subset of authorized'):
+        pilot.dispatch_gpus({'physical_gpus':[2,3],'dispatch_gpus':dispatch})
+
+
+def test_coordinator_places_all_reviewed_parents_on_selected_gpu_two(root,monkeypatch):
+    spawned=coordinator_fakes(root,monkeypatch)
+    scope=pilot.read_scope(root)
+    scope.update(dispatch_gpus=[2],reviewed_parallel_batch_limit=3)
+    put(root/'inputs/task_scope.json',scope)
+    monkeypatch.setattr(sys,'argv',['pilot','--pilot-root',str(root),'--input-directory',
+        str(root/'inputs/full_coverage_v1'),'--limit','3','--workers-per-gpu','3'])
+    pilot.main()
+    assert spawned==[(0,2),(1,2),(2,2)]
+    assert pilot.authorized_gpus(pilot.read_scope(root))==[1,2,3]
+    state=json.loads((root/'evidence/coordinator_state.json').read_text())
+    assert state['parents']==state['passed']==3
+    assert state['training_exported'] is False and state['CCI_transferred'] is False

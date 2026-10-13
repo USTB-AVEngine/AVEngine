@@ -102,6 +102,16 @@ def authorized_gpus(scope):
     return sorted(values)
 
 
+def dispatch_gpus(scope):
+    """Schedule only selected cards; retain authorized device and readback checks."""
+    allowed=authorized_gpus(scope)
+    values=scope.get('dispatch_gpus',allowed)
+    if (not isinstance(values,list) or not values or len(set(values))!=len(values)
+            or any(type(gpu) is not int or gpu not in allowed for gpu in values)):
+        raise ValueError('dispatch GPUs must be a nonempty unique subset of authorized physical GPUs')
+    return sorted(values)
+
+
 def load_pilot_inputs(root,input_directory=None):
     directory=own_input_directory(root,input_directory);bundle={}
     for name in ('houses','runtime','assets','source_admission','human_admission'):
@@ -675,7 +685,7 @@ def main():
         if own_input_directory(root,a.input_directory)!=own_input_directory(root):
             raise ValueError('derived full inputs require retained original input seal')
         freeze_inputs(root)
-    scope=read_scope(root);gpus=authorized_gpus(scope)
+    scope=read_scope(root);gpus=dispatch_gpus(scope)
     if a.shared_worker_pool:require_shared_gpu_isolation(scope)
     directory,bundle=load_pilot_inputs(root,a.input_directory);seed=own_seed_path(root,a.seed_path)
     rows=[json.loads(line) for line in seed.read_text().splitlines() if line.strip()][:a.limit]
