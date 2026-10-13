@@ -25,10 +25,10 @@ def main():
   import gc
   gc.collect();renderer=FreshProcessRenderer(runtime,house,a.output/'fresh_native',setup);identity['context_policy']='fresh_process_per_RIR_deterministic_native_replay'
  (a.output/'setup.json').write_text(json.dumps(renderer.setup_report,indent=2));cache=PositionRIRCache(a.output/'cache',renderer,identity)
- timeline_type=CorrelatedRIRTimeline
+ timeline_type=CorrelatedRIRTimeline;revision=None
  if a.frequency_coherence:
-  from avengine.assets.animal_motion.rir_crossfade import FrequencyCoherentTimeline
-  timeline_type=FrequencyCoherentTimeline
+  from avengine.assets.animal_motion.rir_crossfade import FrequencyCoherentTimeline,REVISION
+  timeline_type=FrequencyCoherentTimeline;revision=REVISION
  sr=16000;n=round(frames[-1]['time_s']*sr)+1;keys=sorted(set([*range(0,n,round(a.step*sr)),n-1]));directions={};refs={};checks=[]
  def native(sample):
   pos=position_at(track,sample/sr);wave=cache.get(pos);d=foa_direction(wave,listener,pos,forward,sample_rate=sr);angle=d['check']['angle_deg']
@@ -82,7 +82,7 @@ def main():
       policy='all three independent raw native references individually pass unchanged 1dB/5deg/delay/decay gates; no median, gain fit or noise subtraction',convolution='existing correlated emission-aligned kernel, independently tested midpoints')
  except Exception as error:out.update(status='blocked',error=repr(error),traceback=traceback.format_exc(),directions=list(directions.values()),cache_stats=cache.stats)
  finally:
-  cache.db.close();out['cpu_s']=time.process_time()-start;out['fresh_process_per_RIR']=a.fresh_process;out['frequency_coherence']=a.frequency_coherence;(a.output/'audio.json').write_text(json.dumps(out,indent=2))
+  cache.db.close();out['cpu_s']=time.process_time()-start;out['fresh_process_per_RIR']=a.fresh_process;out['frequency_coherence']=a.frequency_coherence;out['crossfade_revision']=revision;(a.output/'audio.json').write_text(json.dumps(out,indent=2))
  print({k:v for k,v in out.items() if k not in ('segments','directions','refinements','traceback','amplitude_6dB_negative_control')},flush=True)
  if out['status']!='pass':raise SystemExit(2)
 if __name__=='__main__':main()

@@ -3,23 +3,49 @@ import argparse,base64,collections,datetime,html,json,subprocess
 from pathlib import Path
 
 def main():
- p=argparse.ArgumentParser();p.add_argument('--root',type=Path,required=True);a=p.parse_args();r=a.root;inv=json.loads((r/'diagnostics/inventory.json').read_text())['assets'];native=[];audio=[]
+ p=argparse.ArgumentParser();p.add_argument('--root',type=Path,required=True);a=p.parse_args();r=a.root;inv=json.loads((r/'diagnostics/inventory.json').read_text())['assets'];native=[];audio=[];ue_native=[];raw_audio=[];requests={}
  for path in [*r.glob('habitat/*/native_motion.json'),*r.glob('requests/*/*/native_motion.json')]:
   d=json.loads(path.read_text());d['_path']=str(path)
   if d.get('checks',{}).get('status')=='pass' and all(f.get('complete_silhouette_in_frame') for f in d['frames']):native.append(d)
- for path in [*r.glob('habitat/*/audio.json'),*r.glob('requests/*/*/audio/audio.json')]:
+ for path in r.glob('ue/*/native_motion.json'):
   d=json.loads(path.read_text());d['_path']=str(path)
+  if d.get('checks',{}).get('status')=='pass' and all(f.get('complete_silhouette_in_frame') for f in d['frames']):ue_native.append(d)
+ for path in [*r.glob('habitat/*/audio.json'),*r.glob('requests/*/*/audio/audio.json'),*r.glob('requests/*/audio.json'),*r.glob('ue/*/audio.json')]:
+  d=json.loads(path.read_text());d['_path']=str(path)
+  raw_audio.append(d)
   if d.get('status')=='pass':
    ref=Path(d['motion_receipt']);d['_motion']=json.loads(ref.read_text());audio.append(d)
+ for path in r.glob('requests/*/admission.json'):
+  d=json.loads(path.read_text());d['_path']=str(path);requests[d['asset_id']]=d
  rows=[]
  def identity(n):return (n['house'],n['listener_m'],[(f['time_s'],f['mouth_world_m']) for f in n['frames']])
  for x in inv:
-  ns=[n for n in native if n['asset_id']==x['asset_id']];n=ns[-1] if ns else None;matches=[s for s in audio if n and identity(n)==identity(s['_motion'])]
+  ns=[n for n in native if n['asset_id']==x['asset_id']]
+  qualified=[(n,a) for n in ns for a in audio if identity(n)==identity(a['_motion'])]
+  animated=[pair for pair in qualified if pair[0].get('motion_mode','walk_animation')=='walk_animation']
+  pair=(animated or qualified)[-1] if qualified else None
+  n=pair[0] if pair else (ns[-1] if ns else None)
+  matches=[pair[1]] if pair else []
   mode=n.get('motion_mode','walk_animation') if matches else 'cannot_move'
   reason='完整原生几何和移动RIR准入通过' if matches else ('几何通过，移动RIR未通过或未完成' if n else '本轮完整运动准入未完成；不等于已证明个体永远不能移动')
   row={'asset_id':x['asset_id'],'species':x['species'],'source_has_skeleton':x['has_skeleton'],'source_has_Walking':x['has_walking'],'motion_mode':mode,'reason':reason,'habitat_geometry_status':'pass' if n else 'not_admitted','habitat_motion':n['_path'] if n else None,'audio':matches[-1]['_path'] if matches else None,'ue_status':'not_admitted','scope':'本轮指定房间和路线；未验证的新房间/路线仍须重新准入'}
   if n:row['metrics']={k:n['checks'][k] for k in ('frame_count','max_all_four_paw_gap_m','max_stance_drift_m','max_stance_speed_m_s','min_full_skin_floor_m')};row['metrics']['max_heading_deg']=n['checks']['direction']['maximum_angle_deg'];row['metrics']['max_mouth_error_m']=n.get('max_emitter_error_m',max(f['native_emitter_readback_error_m'] for f in n['frames']))
   if matches:row['audio_reuse_identity']={'original_asset':matches[-1]['_motion']['asset_id'],'every_actual_mouth_time_position_and_listener_exactly_equal':True,'same_static_room_acoustic_geometry':True};row['audio_metrics']={k:matches[-1].get(k) for k in ('maximum_native_direction_error_deg','maximum_segment_direction_sweep_deg','maximum_abs_energy_error_db')}
+  if not matches:
+   rejected=requests.get(x['asset_id'])
+   if rejected and rejected.get('motion_mode')=='cannot_move':
+    row['reason']=rejected.get('motion_reason','运动准入未通过');row['failure_evidence']=rejected['_path']
+   else:
+    rejected_audio=[v for v in raw_audio if v.get('asset_id')==x['asset_id'] and v.get('status')!='pass']
+    if rejected_audio:
+     bad=rejected_audio[-1];row['reason']='几何通过；声学未通过：'+str(bad.get('error') or bad.get('qualification',{}).get('failures'));row['failure_evidence']=bad['_path']
+  row['responsibility']='原有骨骼17只' if x['has_walking'] else '新绑骨由其他代理负责；本任务保留滑行兜底'
+  uns=[u for u in ue_native if u['asset_id']==x['asset_id']]
+  upairs=[(u,a) for u in uns for a in audio if identity(u)==identity(a['_motion'])]
+  un=upairs[-1][0] if upairs else (uns[-1] if uns else None)
+  row['ue_status']='pass' if upairs else ('geometry_pass_audio_pending' if un else 'not_run_or_not_admitted')
+  if un:row['ue_motion']=un['_path'];row['ue_video']=un.get('video',{}).get('path')
+  if upairs:row['ue_audio']=upairs[-1][1]['_path']
   rows.append(row)
  counts={s:dict(collections.Counter(x['motion_mode'] for x in rows if x['species']==s)) for s in ('dog','cat')};result={'generated_utc':datetime.datetime.now(datetime.timezone.utc).isoformat(),'counts':counts,'assets':rows,'registry_files_modified':False,'training_tables_exported':False}
  (r/'motion_admissions.json').write_text(json.dumps(result,ensure_ascii=False,indent=2))
@@ -28,7 +54,7 @@ def main():
   p=Path(path)
   return '<figure><img src="data:image/png;base64,'+base64.b64encode(p.read_bytes()).decode()+'"><figcaption>'+esc(caption)+'</figcaption></figure>' if p.exists() else ''
  mode_names={'walk_animation':'有动画且完整通过','slide_no_animation':'只能滑行且完整通过','cannot_move':'本轮不能移动 / 未准入'}
- lead='；'.join(s+'：'+', '.join(mode_names[k]+str(counts[s].get(k,0)) for k in mode_names) for s in counts)
+ lead='；'.join({'dog':'狗','cat':'猫'}[s]+'：'+', '.join(mode_names[k]+str(counts[s].get(k,0)) for k in mode_names) for s in counts)
  content=['<!doctype html><html lang="zh"><meta charset="utf-8"><title>v7 狗猫运动修复</title><style>body{font:16px/1.65 system-ui,sans-serif;max-width:1380px;margin:32px auto;padding:0 20px;color:#1b2530}table{border-collapse:collapse;width:100%;font-size:13px}td,th{padding:8px;border:1px solid #ccd5df;overflow-wrap:anywhere}th{background:#edf3f8}figure{display:inline-block;width:46%;vertical-align:top;margin:1%}img{max-width:100%}.note{background:#fff6df;padding:18px}code{overflow-wrap:anywhere}details{margin:12px 0}h1,h2{line-height:1.3}</style><h1>v7 狗猫运动：原生证据报告</h1><p><b>'+esc(lead)+'</b></p>',
  '<p class="note">完整通过须同时满足：逐帧头尾前向与平移速度夹角≤15°；支撑脚固定材料顶点漂移≤3 mm、滑速≤30 mm/s；四爪（含本轮8 mm摆动）距地≤12 mm；全皮肤穿地不超过原1 mm+10 µm数值余量；原始场景三角净空&gt;20 mm；NavMesh水平偏差≤2 mm；嘴部原生读回≤0.1 mm；RIR方向/分段扫角≤5°，原1 dB能量、DRR、到达时间及衰减门槛全部通过。滑行明确不作步态/锁脚动画声明。未验证不计入通过。</p>',
  '<p>原输入：37狗、26猫。实读GLB确认12狗、5猫有骨骼和Walking；25狗、21猫无骨骼。17个原Walking经过登记规范化后的方向未发现180°反向；新接口显式统一规范化矩阵，关闭人物默认180°翻转，并逐帧从实际根读回验证。独立180°/90°负例包含真实旋转的Habitat实体。</p>',
@@ -45,12 +71,24 @@ def main():
   for path in n.get('images',[])[::2]:content.append(picture(path,'修复后：'+Path(path).name))
   for path in n.get('before_images',[])[::2]:content.append(picture(path,'原Walking（未做本轮接触修复）：'+Path(path).name))
   content.append('<details><summary>逐帧机器检查</summary><pre>'+esc(json.dumps({k:v for k,v in n['checks'].items() if k!='direction'},ensure_ascii=False,indent=2))+'</pre><code>'+esc(n['_path'])+'</code></details>')
+ content.append('<h2>酷家乐 UE / SPEAR</h2><p>以下结果限定实测房间与路线。几何和视频通过、声学尚未通过时仍不计完整准入。</p>')
+ for x in rows:
+  if x.get('ue_motion'):
+   u=json.loads(Path(x['ue_motion']).read_text())
+   content.append('<h3>'+esc(x['asset_id'])+'：'+esc(x['ue_status'])+'</h3><code>'+esc(x['ue_motion'])+'</code>')
+   for path in u.get('images',[]):content.append(picture(path,'UE 实际回放：'+Path(path).name))
+   content.append('<details><summary>UE 数值与视频路径</summary><pre>'+esc(json.dumps({'checks':{k:v for k,v in u['checks'].items() if k!='direction'},'minimum_unoccluded_fraction':min((f.get('unoccluded_fraction',0) for f in u['frames']),default=0),'clip_end_s':u['frames'][-1]['time_s'],'measurement_source':u.get('measurement_source'),'selection_reason':u.get('selection_reason'),'original_longer_clip_failure':u.get('original_4p8s_audio_failure'),'video':u.get('video'),'audio':x.get('ue_audio')},ensure_ascii=False,indent=2))+'</pre></details>')
  controls=r/'diagnostics/native_direction_controls_v1/controls.json'
  if controls.exists():
   cc=json.loads(controls.read_text());content.append('<h2>真正反向与横向的负例</h2><p>'+esc(cc['status'])+'；这些实例故意旋转，只用于证明检测器拒绝，不计准入。</p>')
   for c in cc['controls']:
    for f in c['frames']:
     if f.get('image'):content.append(picture(f['image'],c['asset_id']+' / 故意旋转 '+str(c['body_rotation_error_deg'])+'° / 检测 '+c['check']['status']))
+ ue_controls=r/'ue/beagle_direction_controls_v1/native_motion.json'
+ if ue_controls.exists():
+  cc=json.loads(ue_controls.read_text());content.append('<h2>UE 实际方向负例</h2><p>'+esc(cc['status'])+'；180°和90°均在原生房间里实际旋转骨骼实例后读回。</p>')
+  for c in cc.get('controls',[]):
+   if len(c['frames'])>1:content.append(picture(c['frames'][1]['image'],'UE 故意旋转 '+str(c['body_rotation_error_deg'])+'°；检测 '+c['check']['status']))
  content.append('<h2>失败与未完成</h2>')
  for pth in sorted((r/'derived').glob('rig_*/rigging.json')):
   content.append('<pre>'+esc(pth.read_text())+'</pre>')

@@ -28,13 +28,17 @@ def validate_reused_route(native,route,*,speed,seconds):
     frames=native['frames'];times=np.asarray([f['time_s'] for f in frames],float)
     if len(times)<2 or abs(times[0])>1e-10 or abs(times[-1]-seconds)>1e-10:
         raise ValueError('reused_native_duration_differs')
-    expected=np.asarray(route['root_m'],float)+np.outer(times,[0.,0.,-speed])@yaw_matrix(route['yaw_rad']).T
+    nominal=np.outer(times,[0.,0.,-speed])
+    local=np.asarray([f.get('world_root_m',nominal[i]) for i,f in enumerate(frames)],float)
+    if not np.isfinite(local).all() or np.max(np.abs(local[:,[0,2]]-nominal[:,[0,2]]))>1e-5:
+        raise ValueError('reused_native_route_or_speed_differs')
+    expected=np.asarray(route['root_m'],float)+local@yaw_matrix(route['yaw_rad']).T
     observed=np.asarray([f['root_world_m'] for f in frames],float)
     if not np.isfinite(observed).all() or np.max(np.linalg.norm(observed-expected,axis=1))>1e-5:
         raise ValueError('reused_native_route_or_speed_differs')
 
 
-def execute_request(record,house,inputs,route,output,*,speed=.05,seconds=4.8,ray_multiplier=9,reuse=None):
+def execute_request(record,house,inputs,route,output,*,speed=.05,seconds=4.8,ray_multiplier=9,reuse=None,audio_cores=None):
     """Compile and qualify one requested animal in its actual single-source room.
 
     The explicit per-room native request is required for both modes. No static
@@ -67,7 +71,14 @@ def execute_request(record,house,inputs,route,output,*,speed=.05,seconds=4.8,ray
             apath=Path(reuse[mode]['audio']);audio=json.loads(apath.read_text())
         else:
             directory.mkdir(exist_ok=True);hp=directory/'house_input.json';ip=directory/'runtime_input.json';hp.write_text(json.dumps(house,indent=2));ip.write_text(json.dumps(inputs,indent=2));apath=directory/'audio/audio.json'
-            result=subprocess.run([sys.executable,'-m','tools.assets.validate_animal_motion_audio','--motion',str(npath),'--house',str(hp),'--runtime',str(ip),'--output',str(apath.parent),'--ray-multiplier',str(ray_multiplier),'--fresh-process','--frequency-coherence'])
+            if audio_cores:
+                base=[sys.executable,'-m','tools.assets.prepare_animal_audio_endpoints','--motion',str(npath),'--house',str(hp),'--runtime',str(ip),'--cores',str(audio_cores)]
+                endpoints=directory/'audio_endpoints'
+                result=subprocess.run([*base,'--output',str(endpoints),'--ray-multiplier',str(ray_multiplier)])
+                if result.returncode:raise RuntimeError('native_audio_endpoints_failed:'+str(result.returncode))
+                result=subprocess.run([sys.executable,'-m','tools.assets.qualify_animal_audio_parallel','--motion',str(npath),'--house',str(hp),'--runtime',str(ip),'--cores',str(audio_cores),'--previous',str(endpoints),'--output',str(apath.parent)])
+            else:
+                result=subprocess.run([sys.executable,'-m','tools.assets.validate_animal_motion_audio','--motion',str(npath),'--house',str(hp),'--runtime',str(ip),'--output',str(apath.parent),'--ray-multiplier',str(ray_multiplier),'--fresh-process','--frequency-coherence'])
             if not apath.exists():raise RuntimeError('audio_execution_failed_without_receipt:'+str(result.returncode))
             audio=json.loads(apath.read_text())
         attempt_files[mode]={'native':str(npath),'audio':str(apath)}

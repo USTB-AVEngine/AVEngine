@@ -47,7 +47,8 @@ def render_qualified_stem(spec, scene, inputs, cache, dry, attempt, endpoint):
     expected = [{'time_s':f['time_s'], 'position_m':f['mouth_world_m']} for f in native['frames']]
     if spec['trajectory'] != expected or scene['listener_m'] != native['listener_m']:
         raise ValueError('animal_audio_actual_native_trajectory_or_listener_differs')
-    if audio['crossfade_revision'] != REVISION:
+    revision=audio.get('crossfade_revision') or (REVISION if audio.get('frequency_coherence') is True else None)
+    if revision != REVISION:
         raise ValueError('animal_audio_crossfade_revision_differs')
     directory = audio_path.parent
     admitted_identity = json.loads((directory/'cache/configuration.json').read_text())
