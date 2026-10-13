@@ -32,3 +32,14 @@ final classification. Only the measured room and route are qualified.
 The private controller preserves previous sliding receipts and enforces a
 900-second per-asset attempt and a two-hour aggregate retry window. Timeboxed
 or incomplete attempts remain unverified, never falsely admitted.
+
+Existing target-owned cat bindings can also be rechecked with these surface
+measurements. TailRoot is accepted as the cat spelling of the Tail anchor;
+--registration-request supplies anatomical labels in that binding coordinate
+system. This changes bone-name compatibility, not the penetration thresholds.
+
+The optional Rig.enable_skin_cache precomputes fixed linear contributions from
+all skin sets. Default Rig.skin behavior remains unchanged. Comparison against
+the original pose evaluator includes integer-normalized, repeated, four/eight
+influences, bind transforms and static parts. Actual cat vertices and normals
+are independently compared before this opt-in is used for native validation.

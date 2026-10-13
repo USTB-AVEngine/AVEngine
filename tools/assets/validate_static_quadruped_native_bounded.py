@@ -39,7 +39,7 @@ def run(record,house,inputs,route,output,*,speed=.05,period=2.4,seconds=4.8,slot
             def __call__(self,p):return float(self.many([p])[0])
         floor=RouteFloor()
         if mode=="walk_animation":
-            rig=Rig.load(record);walk=ConstrainedWalk(rig,speed=speed,period=period,floor=floor)
+            rig=Rig.load(record).enable_skin_cache();walk=ConstrainedWalk(rig,speed=speed,period=period,floor=floor)
         else:
             from avengine.assets.animal_motion.slide import StandingSlide
             walk=StandingSlide(record,speed=speed,floor=floor);rig=walk.rig

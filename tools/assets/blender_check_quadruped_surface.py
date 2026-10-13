@@ -89,7 +89,8 @@ def main():
    f=np.empty(len(m.loop_triangles)*3,dtype=np.int64);m.loop_triangles.foreach_get("vertices",f);f=f.reshape(-1,3)
    allv.append(v);allf.append(f+off);off+=len(v);ev.to_mesh_clear()
   return np.concatenate(allv),np.concatenate(allf)
- region_bones=("Body","Head","Tail","Ankle_FL","Ankle_FR","Ankle_HL","Ankle_HR")
+ tail_bone="Tail" if "Tail" in rig.data.bones else "TailRoot"
+ region_bones=("Body","Head",tail_bone,"Ankle_FL","Ankle_FR","Ankle_HL","Ankle_HR")
  binding_region_matrices=np.array([rig.matrix_world@rig.data.bones[name].matrix_local for name in region_bones])
  v0,f=geometry();regional_weights=[]
  for o in meshes:
@@ -115,7 +116,7 @@ def main():
   # Blender glTF importer maps Habitat Y-up to Blender Z-up.
   hab_from_blender=np.array([[1,0,0],[0,0,1],[0,-1,0]],float)
   habitat_vertices=v0@hab_from_blender.T
-  tail_blender=np.asarray(rig.matrix_world@rig.data.bones["Tail"].head_local)
+  tail_blender=np.asarray(rig.matrix_world@rig.data.bones[tail_bone].head_local)
   tail=hab_from_blender@tail_blender
   floor=float(habitat_vertices[:,1].min());height=float(np.ptp(habitat_vertices[:,1]))
   vl=semantic_vertex_regions(habitat_vertices,feet,marks["head_bbox_min"],marks["head_bbox_max"],tail,floor,height)

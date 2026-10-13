@@ -102,7 +102,14 @@ class Rig:
     def globals(self,time_s,action='Walking'):
         return {j:self.basis@m for j,m in globals_at(self.document,self.binary,self.action(action),float(time_s)).items()}
 
+    def enable_skin_cache(self):
+        from .skin_cache import CachedSkin
+        self._skin_cache=CachedSkin(self.document,self.binary)
+        return self
+
     def skin(self,g):
+        cached=getattr(self,'_skin_cache',None)
+        if cached is not None:return cached(g)
         return pose(self.document,self.binary,None,globals_override=g,canonical_flip=False,ground=False)[0]
 
     def landmarks(self,g):
