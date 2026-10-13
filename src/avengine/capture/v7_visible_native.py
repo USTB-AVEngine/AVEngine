@@ -235,6 +235,17 @@ class NativeVisibleVideo(NativeRegisteredVideo):
             for key in ('floor','table','wall','ceiling','doorbell_wall','high_wall','window_wall'):
                 supports[key]=[p for p in supports[key] if in_room(key,p) and abs(p.get('floor_y',floor)-floor)<=.08]
             semantic_candidate_surfaces=('floor','table','wall','ceiling','doorbell_wall','high_wall','window_wall') if self.motion_inputs.get('candidate_floor_semantic_prefilter') else ('table','wall','ceiling','doorbell_wall','high_wall','window_wall')
+            # Sampling budget only: query a deterministic spread of the
+            # original surface proposals, then retain all original qualifiers.
+            survey_limit=self.motion_inputs.get('candidate_semantic_survey_max_points_per_surface')
+            if survey_limit is not None:
+                survey_limit=int(survey_limit)
+                if not 1<=survey_limit<=1024:raise ValueError('invalid semantic survey sampling budget')
+                for key in semantic_candidate_surfaces:
+                    points=supports[key]
+                    if len(points)>survey_limit:
+                        indices=np.linspace(0,len(points)-1,survey_limit,dtype=int)
+                        supports[key]=[points[int(i)] for i in indices]
             for key in semantic_candidate_surfaces:
                 kind='wall' if key.endswith('wall') else key
                 batch_size=self.motion_inputs.get('candidate_semantic_filter_batch_size')
