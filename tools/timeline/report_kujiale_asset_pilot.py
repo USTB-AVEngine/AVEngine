@@ -6,6 +6,7 @@ from datetime import datetime,timezone
 import argparse,base64,html,io,json,os,re,subprocess
 from PIL import Image
 from avengine.qa.kujiale_pilot_truth import audit_sealed_parent
+from avengine.timeline.kujiale_asset_pilot import read_parent_result
 
 def read(path):return json.loads(Path(path).read_text())
 def image(path):
@@ -20,7 +21,20 @@ def table(headers,rows):
 def main():
     p=argparse.ArgumentParser(description=__doc__);p.add_argument('--root',type=Path,required=True);p.add_argument('--name',default='REPORT_zh.html');a=p.parse_args();root=a.root.resolve()
     if root.name!='ue_round21_pilot':raise ValueError('unexpected pilot output')
-    selected=read(root/'inputs/assets_selected.json')['assets'];byid={x['asset_id']:x for x in selected}
+    scope=read(root/'inputs/task_scope.json')
+    expanded=scope.get('target_ue_individual_assets',0)>54
+    selected_path=root/'inputs/full_coverage_dense9_v1/assets_selected.json'
+    if not selected_path.exists():selected_path=root/'inputs/full_coverage_v1/assets_selected.json'
+    if not selected_path.exists():selected_path=root/('registrations/assets_v2.json' if expanded else 'inputs/assets_selected.json')
+    selected=read(selected_path)['assets'];byid={x['asset_id']:x for x in selected}
+    for asset in selected:
+        asset.setdefault('body_id',asset.get('animal_body_id') or asset.get('body_key') or asset.get('taxonomy',{}).get('breed') or asset['asset_id'])
+        if asset['category']=='object':asset.setdefault('object_type',asset.get('taxonomy',{}).get('object_type') or asset.get('kind') or asset['asset_id'])
+    target_houses=int(scope.get('target_admitted_train_houses',6))
+    target_rooms=int(scope.get('target_admitted_train_rooms',0))
+    expected_rooms={(house['house'],room['room_label']) for house in read(root/'inputs/runtime.json')['houses']
+                    for room in house.get('checked_rooms',[])} if expanded else set()
+    rooms=set()
     expected_animals={(x['category'],x['body_id']) for x in selected if x['category']!='object'}
     expected_objects={x['object_type'] for x in selected if x['category']=='object'}
     parent_dirs=sorted((root/'production/parents').glob('*'));results=[];passed=[];partial=[];history=[];assets_seen=set();houses=set()
@@ -29,14 +43,14 @@ def main():
         if not (parent/'input_recipe.json').exists():continue
         recipe=read(parent/'input_recipe.json');row=recipe['seed_row'];sid=row['scene_id']
         terminal=root/'evidence/parent_results'/f'{sid}.json'
-        result=read(terminal) if terminal.exists() else {'scene_id':sid,'house':row['house'],'status':'unfinished','reason':'本尝试尚未完成封存；状态以作业记录和阶段完成指针为准'}
+        result=read_parent_result(root,sid) or {'scene_id':sid,'house':row['house'],'status':'unfinished','reason':'本尝试尚未完成封存；状态以作业记录和阶段完成指针为准'}
         seal=parent/'alpha_seal_completed.json';sealed=False
         if seal.exists():
             pointer=read(seal);delivery=parent/pointer['attempt']
             try:
                 truth=audit_sealed_parent(parent,delivery)
                 result=dict(result,status='formal_alpha_admitted',independent_truth={'status':'pass','checked_forms':truth['checked_forms']})
-                sealed=True;passed.append(result);truth_forms+=truth['checked_forms'];houses.add(row['house'])
+                sealed=True;passed.append(result);truth_forms+=truth['checked_forms'];houses.add(row['house']);rooms.add((row['house'],row['room_id']))
                 for win in pointer['result']['windows']:
                     events['logical_questions']+=win['logical_questions'];events['windows']+=1
             except Exception as exc:
@@ -53,7 +67,7 @@ def main():
             if pngs:house_samples[row['house']]=(sid+' / '+row['house'],pngs[len(pngs)//2],sealed)
         results.append(result)
         logical=re.search(r'pilot_(\d{6})',sid)
-        if logical and (parent/'dry_completed.json').exists():programs[int(logical.group(1))]=recipe['recorded_program']
+        if (parent/'dry_completed.json').exists():programs[int(logical.group(1)) if logical else sid]=recipe['recorded_program']
         for pointer in parent.glob('windows_*_completed.json'):
             directory=parent/read(pointer)['attempt']
             for candidate in directory.glob('*/candidate_audit.json'):
@@ -128,7 +142,7 @@ def main():
     unique_logical=set()
     for result in passed:
         match=re.search(r'pilot_(\d{6})',result['scene_id'])
-        if match:unique_logical.add(int(match.group(1)))
+        unique_logical.add(int(match.group(1)) if match else result['scene_id'])
     gaps={'animal_bodies':sorted(expected_animals-seen_animals),'object_types':sorted(expected_objects-seen_objects)}
     for program in programs.values():
         records={x['sound_asset_id']:x for x in program['records']}
@@ -136,10 +150,10 @@ def main():
     jobs=read(root/'JOBS.json');gpu_seconds=sum(j.get('gpu_allocated_seconds',0) for j in jobs)
     now=datetime.now(timezone.utc);intervals=defaultdict(list)
     for job in jobs:
-        if job.get('gpu_physical') not in (2,3):continue
+        if job.get('gpu_physical',job.get('gpu')) not in scope.get('physical_gpus',[2,3]):continue
         start=datetime.fromisoformat(job['started_utc']).timestamp()
         end=datetime.fromisoformat(job['finished_utc']).timestamp() if job.get('finished_utc') else now.timestamp()
-        intervals[job['gpu_physical']].append((start,end))
+        intervals[job.get('gpu_physical',job.get('gpu'))].append((start,end))
     gpu_card_seconds={}
     for gpu,ranges in intervals.items():
         merged=[]
@@ -164,13 +178,18 @@ def main():
         import xml.etree.ElementTree as ET
         suite=ET.parse(unit_files[-1]).getroot().find('testsuite')
         unit=dict(suite.attrib);unit['source']=str(unit_files[-1])
+        provenance=unit_files[-1].with_name(unit_files[-1].stem+'_summary.json')
+        if provenance.exists():unit['provenance']=read(provenance)
     summaries={k:{'count':len(values),'maximum':max(values),'minimum':min(values)} for k,values in metrics.items() if values}
     sealed_summaries={k:{'count':len(values),'maximum':max(values),'minimum':min(values)} for k,values in sealed_metrics.items() if values}
     shown=sealed_summaries if passed else summaries
     metric_scope='封存且独立真值通过的父场景' if passed else '已完成的部分原生视觉阶段，尚未封存'
-    ready=len(unique_logical)>=12 and len(houses)>=6 and not gaps['animal_bodies'] and not gaps['object_types'] and unit.get('failures')=='0' and unit.get('errors')=='0'
-    conclusion=('通过：酷家乐动物、物件和人物同场试产完成。' if ready else '未通过完整试产验收；当前产物不具备接入量产条件。')+f' 全部门禁通过父场景 {len(unique_logical)}/12，训练房子 {len(houses)}/6。'
-    summary={'status':'pass' if ready else 'not_ready','conclusion':conclusion,'parents_passed':len(unique_logical),'parents_requested':12,'houses_passed':sorted(houses),
+    complete_coverage=(len(rooms)>=target_rooms and not (expected_rooms-rooms) and not (set(byid)-assets_seen)) if expanded else (len(unique_logical)>=12 and not gaps['animal_bodies'] and not gaps['object_types'])
+    ready=complete_coverage and len(houses)>=target_houses and unit.get('failures')=='0' and unit.get('errors')=='0'
+    gaps['individual_assets']=sorted(set(byid)-assets_seen)
+    if expanded:gaps['admitted_train_rooms']=[{'house':house,'room_id':room} for house,room in sorted(expected_rooms-rooms)]
+    conclusion=('通过：酷家乐动物、物件和人物同场试产完成。' if ready else '未通过完整试产验收；当前产物不具备接入量产条件。')+f' 全部门禁通过父场景 {len(unique_logical)}，训练房子 {len(houses)}/{target_houses}，房间 {len(rooms)}/{target_rooms or 12}，个体 {len(assets_seen)}/{len(selected)}。'
+    summary={'status':'pass' if ready else 'not_ready','conclusion':conclusion,'parents_passed':len(unique_logical),'parents_requested':target_rooms or 12,'admitted_train_rooms_passed':[{'house':h,'room_id':r} for h,r in sorted(rooms)],'rooms_requested':target_rooms,'assets_requested':len(selected),'houses_passed':sorted(houses),
              'passed_parents':passed,'attempt_results':results,'coverage':{'selected_appearances':len(selected),'native_visual_stage_appearances_seen':len(partial_assets),'sealed_appearances_seen':len(assets_seen),'animal_bodies_seen':len(seen_animals),'animal_bodies_expected':len(expected_animals),'object_types_seen':len(seen_objects),'object_types_expected':len(expected_objects),'gaps':gaps},
              'metrics':summaries,'sealed_native_metrics':sealed_summaries,'reported_native_metric_scope':metric_scope,'failed_measurements':failed_measurements,'all_attempt_measured_maxima':{k:max(v) for k,v in all_measurements.items() if v},'candidate_truth':{k:candidate_truth.get(k) for k in ['status','scope','checked_forms','passed_forms','mismatches','errors']},'independent_truth_checked_forms':truth_forms,'independent_truth_mismatches':sum(len(read(p)['mismatches']) for p in root.glob('production/parents/*/independent_truth_audit.json')),
              'colour_checked_forms':len(candidate_colour_checks),'colour_discarded_forms':len(candidate_colour_rejections),'colour_discarded_logical_questions':len({qid.rsplit('__',1)[0] for qid in candidate_colour_rejections}),
@@ -181,6 +200,10 @@ def main():
     summary['implementation_commit']=subprocess.check_output(['git','rev-parse','HEAD'],cwd=Path(__file__).resolve().parents[2],text=True).strip()
     summary['camera_root_cause_evidence']=str(root/'evidence/camera_root_cause_v2.json')
     summary['audio_input_seal']=read(root/'evidence/input_seal.json')
+    summary['current_task_scope']=scope
+    summary['coverage_asset_input']=str(selected_path)
+    summary['additional_output_allocated_bytes_since_latest_extension']=allocated-int(scope.get('additional_disk_baseline_bytes',0))
+    summary['resource_snapshot']=read(root/'evidence/resource_guard_v5_latest.json') if (root/'evidence/resource_guard_v5_latest.json').exists() else read(root/'evidence/resource_guard_v4_latest.json') if (root/'evidence/resource_guard_v4_latest.json').exists() else None
     camera_files=sorted((root/'evidence').glob('canary_010_camera_audit_v*.json'),key=lambda p:p.stat().st_mtime)
     camera_audit=read(camera_files[-1]) if camera_files else {}
     summary['canary_camera_audit']=dict(camera_audit,source=str(camera_files[-1]) if camera_files else None)
@@ -210,8 +233,8 @@ def main():
     page+='<p class="note">仅本机非商业研究试产。没有导出训练表，没有传 CCI，没有修改源登记。动物及物件静态出场；空调为静音摆设。失败阶段保留，原门槛未放宽。</p><h2>原生门禁数字</h2>'+table(['项目','实测 / 结论','数字范围与出处'],rows)
     page+='<p>上表原生指标范围：'+html.escape(metric_scope)+'。保留的旧尝试指标另见 JSON 中 metrics 与 failed_measurements。</p>'
     page+='<p>详细数值来源：<code>'+html.escape(str(summary_path))+'</code>。未形成全部门禁通过的父场景时，部分阶段的通过数字不代表父场景已通过。</p>'
-    page+='<h2>资产覆盖</h2>'+table(['范围','封存父场景实际出场','要求'],[['动物身体',len(seen_animals),len(expected_animals)],['物件种类',len(seen_objects),len(expected_objects)],['代表外观',len(assets_seen),len(selected)],['训练房子',len(houses),6]])
-    page+='<p>同场物理验收证据已覆盖 '+str(len(joint_assets))+' 个代表外观；它只说明三视角与贴附阶段通过，不代替完整视频、题目与封存。</p>'+table(['资产','类别 / 身体或种类','同场物理阶段','完整视频出场','封存出场'],
+    page+='<h2>资产覆盖</h2>'+table(['范围','封存父场景实际出场','要求'],[['动物身体',len(seen_animals),len(expected_animals)],['物件种类',len(seen_objects),len(expected_objects)],['全部个体',len(assets_seen),len(selected)],['训练房子',len(houses),target_houses],['已准入房间',len(rooms),target_rooms or '至少6套房子']])
+    page+='<p>同场物理验收证据已覆盖 '+str(len(joint_assets))+' 个个体；它只说明三视角与贴附阶段通过，不代替完整视频、题目与封存。</p>'+table(['资产','类别 / 身体或种类','同场物理阶段','完整视频出场','封存出场'],
         [[x['asset_id'],x['body_id'] if x['category']!='object' else x['object_type'],('三视角通过；贴附 '+format(joint_assets[x['asset_id']]['attachment_gap_mm'],'.3f')+' mm') if x['asset_id'] in joint_assets else '未完成',x['asset_id'] in partial_assets,x['asset_id'] in assets_seen] for x in selected])
     page+='<h3>覆盖缺口</h3><pre>'+html.escape(json.dumps(gaps,ensure_ascii=False,indent=2))+'</pre>'
     page+='<h2>每类事件数</h2><p>统计封存父场景的基础事件程序一次；四成员的反事实复用不重复计数。</p>'+table(['事件类别','事件数'],sorted(events.items()))

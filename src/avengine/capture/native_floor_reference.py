@@ -12,6 +12,84 @@ def file_sha256(path):
     return digest.hexdigest()
 
 
+def _source_floor_lineage_faces(declaration, geometry, vertices, faces):
+    """Verify exact source-floor faces when material deduplication lost identity.
+
+    A material donor's name is not a geometry owner. The optional frozen
+    receipt links source files, the audited Native LOD, and each floor face's
+    actual coordinates; it never grants floor identity to a whole material.
+    """
+    path = declaration.get('source_floor_face_lineage_path')
+    expected = declaration.get('source_floor_face_lineage_sha256')
+    if not path and not expected:
+        return [], None
+    if not path or not expected or file_sha256(path) != expected:
+        raise ValueError('source floor lineage receipt identity changed')
+    receipt = json.loads(Path(path).read_text())
+    if receipt.get('schema') != 'kujiale_native_source_floor_lineage_v1':
+        raise ValueError('source floor lineage schema is invalid')
+    bindings = [
+        ('native_audit', declaration['native_editor_audit'], declaration['native_editor_audit_sha256']),
+        ('native_vertices', geometry['world_vertices_ue_cm_f32'], declaration['native_vertices_sha256']),
+        ('native_triangles', geometry['triangles_u32'], declaration['native_triangles_sha256']),
+    ]
+    for key, native_path, native_hash in bindings:
+        record = receipt[key]
+        if Path(record['path']).resolve() != Path(native_path).resolve() or record['sha256'] != native_hash:
+            raise ValueError('source floor lineage is for different native geometry')
+    source_files = [receipt['source_original'], receipt['source_expanded']]
+    source_files += receipt['source_prim_layer_files']
+    verified_files = set()
+    for record in source_files:
+        key = (str(Path(record['path']).resolve()), record['sha256'])
+        if key not in verified_files and file_sha256(record['path']) != record['sha256']:
+            raise ValueError('source floor lineage source geometry identity changed')
+        verified_files.add(key)
+    # Ten micrometres covers only export float rounding. Contact, navigation,
+    # floor baseline and every UE readback threshold remain unchanged.
+    tolerance = 1e-5
+    if not 0 < float(receipt['match_tolerance_m']) <= tolerance:
+        raise ValueError('source floor lineage matching tolerance is invalid')
+    selected = set()
+    import itertools
+    for surface in receipt['floor_mesh_lineage']:
+        prim = surface['source_prim']
+        if not prim.startswith('/Root/Meshes/floor/') or not prim.rsplit('/', 1)[-1].startswith('SM_Floor'):
+            raise ValueError('source floor lineage is not a source floor mesh')
+        points = np.asarray(surface['source_points_canonical_m'], dtype=float)
+        source_faces = np.asarray(surface['source_triangles'])
+        if points.ndim != 2 or points.shape[1] != 3 or not np.isfinite(points).all():
+            raise ValueError('source floor lineage vertices are invalid')
+        if source_faces.ndim != 2 or source_faces.shape[1] != 3 or not np.issubdtype(source_faces.dtype, np.integer):
+            raise ValueError('source floor lineage triangles are invalid')
+        if source_faces.size == 0 or source_faces.min() < 0 or source_faces.max() >= len(points):
+            raise ValueError('source floor lineage triangle vertices are outside source geometry')
+        mappings = surface['native_face_to_source_triangle']
+        if len(mappings) != len(source_faces):
+            raise ValueError('source floor lineage is not a complete floor mesh mapping')
+        source_indices = set()
+        for mapping in mappings:
+            native_index = mapping['native_triangle_index']
+            source_index = mapping['source_floor_triangle_index']
+            if not isinstance(native_index, int) or not isinstance(source_index, int):
+                raise ValueError('source floor lineage face indices are invalid')
+            if not 0 <= native_index < len(faces) or not 0 <= source_index < len(source_faces):
+                raise ValueError('source floor lineage faces are outside geometry')
+            if native_index in selected or source_index in source_indices:
+                raise ValueError('source floor lineage duplicates a face')
+            source_triangle = points[source_faces[source_index]]
+            native_triangle = vertices[faces[native_index]]
+            error = min(float(np.linalg.norm(native_triangle - source_triangle[list(order)], axis=1).max())
+                        for order in itertools.permutations(range(3)))
+            if error > tolerance:
+                raise ValueError('source floor lineage triangle geometry differs from native face')
+            selected.add(native_index)
+            source_indices.add(source_index)
+    if not selected:
+        raise ValueError('source floor lineage has no verified floor faces')
+    return sorted(selected), str(Path(path).resolve())
+
+
 class NativeFloorReference:
     def __init__(self, declaration):
         import trimesh
@@ -27,9 +105,9 @@ class NativeFloorReference:
         self.mesh=trimesh.Trimesh(vertices=raw[:,[0,2,1]].astype(float)/100.,faces=faces,process=False)
         self.mesh.ray=RayMeshIntersector(self.mesh)
         self.declaration=declaration
-        # Native LOD sections retain their source surface identity even when
-        # every room object was baked into one StaticMesh. A bed material
-        # section can never become floor merely by passing a downward ray.
+        # Material paths identify ordinary sections. Deduplicated materials
+        # may name another mesh; exact, frozen source triangle lineage can
+        # prove those particular faces without accepting furniture surfaces.
         sections=geometry.get('sections',[])
         self.floor_face_mask=None
         if sections:
@@ -41,6 +119,14 @@ class NativeFloorReference:
                     self.floor_face_mask[offset:offset+count]=True
                 offset+=count
             if offset!=len(faces):raise ValueError('native section triangle ranges disagree with render geometry')
+        lineage_faces, self.floor_lineage_receipt = _source_floor_lineage_faces(
+            declaration, geometry, np.asarray(self.mesh.vertices), faces)
+        self.floor_lineage_face_mask = np.zeros(len(faces), dtype=bool)
+        if lineage_faces:
+            if self.floor_face_mask is None:
+                self.floor_face_mask = np.zeros(len(faces), dtype=bool)
+            self.floor_face_mask[lineage_faces] = True
+            self.floor_lineage_face_mask[lineage_faces] = True
         self.room_floor_y_m=None
         self.last_support_readback=None
 
@@ -59,7 +145,7 @@ class NativeFloorReference:
         if self.room_floor_y_m is not None and abs(float(surface[1]-self.room_floor_y_m))>.02:
             raise ValueError('native support height differs from measured room floor baseline')
         self.last_support_readback={'triangle_index':triangle,'surface_y_m':float(surface[1]),
-            'room_floor_y_m':self.room_floor_y_m,'surface_identity':'floor section' if self.floor_face_mask is not None else 'measured horizontal floor fixture'}
+            'room_floor_y_m':self.room_floor_y_m,'surface_identity':('verified source-floor triangle lineage' if self.floor_lineage_face_mask[triangle] else 'floor section') if self.floor_face_mask is not None else 'measured horizontal floor fixture','source_floor_lineage_receipt':self.floor_lineage_receipt if self.floor_lineage_face_mask[triangle] else None}
         return [float(point[0]),float(surface[1]),float(point[2])]
 
     def validate_probes(self, floor_reference):
