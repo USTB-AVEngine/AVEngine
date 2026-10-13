@@ -5,7 +5,7 @@
 
 自 2026-08-25 起，目录本身就是能力分组（阶段目录 m1…m7 已移除），
 本表按目录列出每个工具做什么。
-当前共 613 个工具脚本。
+当前共 614 个工具脚本。
 
 ## 资产生成与装配（`tools/assets/`）
 
@@ -486,6 +486,7 @@
 | `tools/qa/materialize_strict_two_human_dynamic_canary.py` | Materialize one true-motion strict two-human full75 CPU closure |
 | `tools/qa/measure_conditioned_plan_matrix.py` | Measure fixed-profile plan feasibility without rendering or replacing quotas |
 | `tools/qa/measure_qa_v3_floor_z.py` | Measure a room's floor height in the engine and write its floor reference |
+| `tools/qa/merge_sao_topup_classes.py` | Merge owner-approved SAO catalog classes while preserving untouched JSON bytes |
 | `tools/qa/merge_semantic_into_bank.py` | Append QA-26 to QA-28 from semantic builder runs to a copy of a question bank |
 | `tools/qa/mine_simple_questions.py` | Mine simple (A-group) questions from compiled QA fact tables |
 | `tools/qa/mine_temporal_questions.py` | Mine temporal (B-group) and numeric questions over intermittent fact tables |
