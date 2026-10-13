@@ -6,11 +6,12 @@ four-paw support-plane transform precedes target-native rigging. Generated
 artifacts remain candidates until the independent Habitat/RLR checks pass.
 """
 from __future__ import annotations
-import argparse,copy,json,math,pathlib,sys,time,struct
+import argparse,copy,json,math,pathlib,sys,time,struct,runpy
 sys.path.insert(0,str(pathlib.Path(__file__).resolve().parents[2]/"src"))
 import bpy,numpy as np
 from mathutils import Matrix,Vector,Quaternion
 from mathutils.bvhtree import BVHTree
+local_from_world_delta=runpy.run_path(str(pathlib.Path(__file__).resolve().parents[2]/'src/avengine/assets/animal_motion/retarget.py'),run_name='retarget_helper')['local_from_world_delta']
 
 PAWS=('FL','FR','HL','HR')
 ANCHORS=('paw_front_left','paw_front_right','paw_hind_left','paw_hind_right')
@@ -36,7 +37,7 @@ def snapshot_meshes(meshes):
 
 def main():
  argv=sys.argv[sys.argv.index('--')+1:] if '--' in sys.argv else []
- p=argparse.ArgumentParser();p.add_argument('--roster',type=pathlib.Path,required=True);p.add_argument('--inventory',type=pathlib.Path,required=True);p.add_argument('--template-motion',type=pathlib.Path,required=True);p.add_argument('--asset',required=True);p.add_argument('--output',type=pathlib.Path,required=True);p.add_argument('--weight-method',choices=('heat','envelope'),default='heat');p.add_argument('--speed',type=float,default=.03);p.add_argument('--period',type=float,default=2.4);a=p.parse_args(argv)
+ p=argparse.ArgumentParser();p.add_argument('--roster',type=pathlib.Path,required=True);p.add_argument('--inventory',type=pathlib.Path,required=True);p.add_argument('--template-motion',type=pathlib.Path,required=True);p.add_argument('--asset',required=True);p.add_argument('--output',type=pathlib.Path,required=True);p.add_argument('--weight-method',choices=('heat','envelope'),default='heat');p.add_argument('--speed',type=float,default=.03);p.add_argument('--period',type=float,default=2.4);p.add_argument('--retarget-space',choices=('world','legacy_local'),default='world');p.add_argument('--body-fit',choices=('bbox','head'),default='bbox');p.add_argument('--donor-scale',type=float,default=1.);a=p.parse_args(argv);assert 0<a.donor_scale<=1
  a.output.mkdir(parents=True,exist_ok=False);started=time.process_time()
  row=next(r for r in json.loads(a.roster.read_text())['assets'] if r['asset_id']==a.asset)
  record=copy.deepcopy(next(r for r in json.loads(a.inventory.read_text())['assets'] if r['asset_id']==a.asset))
@@ -65,6 +66,8 @@ def main():
  bpy.context.view_layer.objects.active=meshes[0];bpy.ops.object.transform_apply(location=True,rotation=True,scale=True)
  verts=verts@level.T+shift;feet=feet@level.T+shift;foot_probe=foot_probe@level.T+shift
  head=np.asarray(row['head_center_local_m'])@level.T+shift;mouth=np.asarray(row['emit_point_local_m'])@level.T+shift
+ source_height=height
+ if a.body_fit=='head':height=min(height,max(float(head[1])/.9,.05))
  front=feet[:2].mean(0);hind=feet[2:].mean(0);body=(front+hind)/2;body[1]=height*.56
  neck=head.copy();neck[1]=min(head[1],height*.62);neck[2]+=.015
  rear=verts[verts[:,2]>np.quantile(verts[:,2],.99)];tip=rear.mean(0);tailroot=hind.copy();tailroot[0]=body[0];tailroot[1]=height*.56;tailroot[2]=max(hind[2],body[2]+.02)
@@ -184,10 +187,17 @@ def main():
     for con in pb.constraints:con.mute=(action_name=='Idle')
    if action_name=='Walking':
     index=min(len(source_samples)-1,round((t/a.period%1)*(len(source_samples)-1)));sample=source_samples[index]['bones']
+    desired_world={}
     for n,don in mapping.items():
      source_rot=np.array(sample[don]['matrix'])[:3,:3];delta=DC@source_rot@np.linalg.inv(donor_idle[don])@DC.T
-     q=quaternion_scaled(delta,.18 if n in ('Body','Spine','Neck') else .35)
-     own=rest[n].to_quaternion();arm.pose.bones[n].rotation_mode='QUATERNION';arm.pose.bones[n].rotation_quaternion=own.inverted()@q@own
+     q=quaternion_scaled(delta,a.donor_scale*(.18 if n in ('Body','Spine','Neck') else .35))
+     own=rest[n].to_quaternion();arm.pose.bones[n].rotation_mode='QUATERNION'
+     if a.retarget_space=='world':
+      parent=parents[n];parent_rest=np.array(rest[parent].to_3x3()) if parent else np.eye(3);parent_pose=np.array(desired_world[parent].to_matrix()) if parent else np.eye(3)
+      local=local_from_world_delta(np.array(own.to_matrix()),parent_rest,parent_pose,np.array(q.to_matrix()))
+      arm.pose.bones[n].rotation_quaternion=Matrix(local).to_quaternion()
+     else:arm.pose.bones[n].rotation_quaternion=own.inverted()@q@own
+     desired_world[n]=q@own
     # Root and foot route have identical +Y Blender / -Z Habitat travel.
     root_world=Vector((0,a.speed*t,0));body_pb=arm.pose.bones['Body'];local=rest['Body'].to_3x3().inverted()@root_world;body_pb.location=local
     for s,c in chains.items():
@@ -277,7 +287,7 @@ def main():
  if min_floor<-.00001:errors.append('full_skin_penetration')
  if max_pitch>45:errors.append('body_upright')
  if max_stretch>1.5:errors.append('mesh_stretch')
- result={'asset_id':a.asset,'status':'baked_candidate_needs_independent_validation' if not errors else 'failed_baked_geometry','errors':errors,'source_glb':row['runtime_glb'],'template':template['source_blend'],'license':'CC0-1.0','weight_method_requested':a.weight_method,'heat_error':heat_error,'joints':len(points),'gait_period_s':a.period,'root_speed_m_s':a.speed,'weight_regularization':'256 Jacobi iterations on welded own mesh, fixed rigid soles and mouth, no donor weights','target_rest_max_error_m':rest_error,'support_plane':manifest['target_support_plane'],'weights':weight_summaries,'metrics':metric,'frame_count':len(frames),'frames':frames,'cpu_s':time.process_time()-started,'self_intersection_status':'not_run','native_habitat_status':'not_run'}
+ result={'asset_id':a.asset,'status':'baked_candidate_needs_independent_validation' if not errors else 'failed_baked_geometry','errors':errors,'source_glb':row['runtime_glb'],'template':template['source_blend'],'license':'CC0-1.0','retarget_space':a.retarget_space,'body_fit':a.body_fit,'source_bbox_height_m':source_height,'fitted_height_m':height,'donor_rotation_scale':a.donor_scale,'weight_method_requested':a.weight_method,'heat_error':heat_error,'joints':len(points),'gait_period_s':a.period,'root_speed_m_s':a.speed,'weight_regularization':'256 Jacobi iterations on welded own mesh, fixed rigid soles and mouth, no donor weights','target_rest_max_error_m':rest_error,'support_plane':manifest['target_support_plane'],'weights':weight_summaries,'metrics':metric,'frame_count':len(frames),'frames':frames,'cpu_s':time.process_time()-started,'self_intersection_status':'not_run','native_habitat_status':'not_run'}
  (a.output/'rigging.json').write_text(json.dumps(result,indent=2)+'\n');print({k:v for k,v in result.items() if k not in ('frames','weights','support_plane')},flush=True)
  if errors:raise SystemExit(2)
 if __name__=='__main__':main()
