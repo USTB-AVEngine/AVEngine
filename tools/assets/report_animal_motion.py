@@ -152,7 +152,7 @@ def main():
  resource_path=r/'RESOURCE_USAGE.json'
  if resource_path.exists():
   resource=json.loads(resource_path.read_text());summary={k:v for k,v in resource.items() if k not in ('jobs','gpu_intervals')}
-  content.append('<h2>资源账单</h2><p>已记录CPU下界 '+esc(round(resource['recorded_cpu_hours'],3))+' 核时；GPU0相关UE作业墙钟并集 '+esc(round(resource['gpu_0_related_job_wall_seconds_union']/3600,3))+' 小时（包括启动、等待和清理，不是kernel时间）。本输出目录占用 '+esc(round(resource['own_output_allocated_bytes']/1e9,3))+' GB，较预算基线新增 '+esc(round(resource['additional_bytes_since_latest_budget']/1e9,3))+' GB。外部绑定代理成本不计入本任务目录账单。</p><details><summary>统计范围、缺失项与证据</summary><pre>'+esc(json.dumps(summary,ensure_ascii=False,indent=2))+'</pre><code>'+esc(resource_path)+'</code></details>')
+  content.append('<h2>资源账单</h2><p>已记录CPU下界 '+esc(round(resource['recorded_cpu_hours'],3))+' 核时；GPU0相关UE作业墙钟并集 '+esc(round(resource['gpu_0_related_job_wall_seconds_union']/3600,3))+' 小时（包括启动、等待和清理，不是kernel时间）。本输出目录占用 '+esc(round(resource['own_output_allocated_bytes']/1e9,3))+' GB，较预算基线新增 '+esc(round(resource['additional_bytes_since_latest_budget']/1e9,3))+' GB。磁盘数值为 '+esc(resource['generated_utc'])+' 的渲染前快照；最终HTML与审核产物完成后的磁盘账单见 RESOURCE_USAGE.json。外部绑定代理成本不计入本任务目录账单。</p><details><summary>统计范围、缺失项与证据</summary><pre>'+esc(json.dumps(summary,ensure_ascii=False,indent=2))+'</pre><code>'+esc(resource_path)+'</code></details>')
  content.append('<h2>失败与未完成</h2>')
  for pth in sorted((r/'derived').glob('rig_*/rigging.json')):
   content.append('<pre>'+esc(pth.read_text())+'</pre>')
