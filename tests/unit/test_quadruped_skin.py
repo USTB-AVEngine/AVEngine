@@ -41,3 +41,12 @@ def test_invalid_target_geometry_is_rejected():
 def test_segment_distance_includes_end_caps():
     v=np.array([[0,1,0],[2,0,0],[-1,0,0]])
     np.testing.assert_allclose(segment_distance(v,np.zeros(3),np.array([1,0,0])),[1,1,1])
+
+def test_nearest_leg_boundary_does_not_switch_discontinuous_bone_weights():
+    names,heads,feet=fixture()
+    # Fit deliberately asymmetric limb axes so competing capsules differ.
+    heads[names.index("Knee_FL")]=[.02,.26,-.25]
+    points=np.array([[-1e-8,.2,-.25],[0,.2,-.25],[1e-8,.2,-.25]])
+    w=capsule_skin_weights(points,names,heads,feet,1.,[0,.55,0])
+    assert np.max(np.abs(np.diff(w,axis=0)))<1e-6
+    assert w[1,names.index("Body")]==pytest.approx(1.)

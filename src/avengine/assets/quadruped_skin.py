@@ -26,6 +26,13 @@ def capsule_skin_weights(vertices,names,heads,feet,height,head_min):
         radial=1-smoothstep((distance-radius*.7)/(radius*.8))
         y=points[:,1]-foot[1]
         strength=radial*(1-smoothstep((y-height*.30)/(height*.18)))
+        # Signed distance to every nearest-foot Voronoi bisector. Each limb's
+        # field and derivative vanish at its ownership boundary, even where
+        # fitted limb axes are asymmetric. This avoids a left/right bone jump.
+        competitors=np.arange(4)!=pi
+        margin=(dist2[ids][:,competitors]**2-dist2[ids,pi,None]**2)/(2*separation[pi,competitors])
+        boundary_width=min(height*.15,float(separation[pi].min())*.48)
+        strength*=smoothstep(np.maximum(margin.min(1),0)/boundary_width)
         ankle=1-smoothstep((y-height*.12)/(height*.18))
         hip=smoothstep((y-height*.32)/(height*.16))
         knee=np.maximum(0,1-ankle-hip)

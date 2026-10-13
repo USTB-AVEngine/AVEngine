@@ -30,10 +30,17 @@ def main():
    ratios=longest/np.maximum(e0,1e-12);shard=ratios>=2.
    deform.append({"frame":i,"time_s":float(t),"maximum_edge_growth":float(ratios.max()),"area_in_edges_doubled_share":float(area[shard].sum()/max(area.sum(),1e-20))})
    if i%30==0:print("CPU_FRAME",i,"floor",row["body_floor_min_m"],"pawgap",max(abs(x["floor_delta_m"]) for x in row["feet"].values()),"lock",max(x["support_lock_error_m"] for x in row["feet"].values()),flush=True)
+   if float(ratios.max())>1.5+1e-6 and i>=1:
+    result["rejection_witness"]={"reason":"owner_edge_growth_limit_1_5","frame":i,"maximum_edge_growth":float(ratios.max()),"required_frame_count":round(a.seconds*30)+1,"full_sequence_checked":False}
+    print("REJECTED_EDGE_GROWTH_WITNESS",result["rejection_witness"],flush=True);break
   check=frame_checks(frames);negative=direction_negative_controls(frames)
-  # Retain measurements; the repository calibrated rig gate owns deformation admission.
+  # Owner 02:3x explicitly limits longest triangle-edge growth to 1.5.
   result.update(status="cpu_motion_pass_native_pending" if check["status"]==negative["status"]=="pass" else "cpu_motion_fail",checks=check,direction_negative_controls=negative,support_plane=walk.support_plane,deformation_diagnostics=deform,frames=frames,frame_count=len(frames),speed_m_s=a.speed,period_s=a.period,source_master=str(rig.path),source_provenance=rig.provenance,self_intersection_status="not_run")
-  if a.blender:
+  result["edge_growth_limit"]=1.5
+  result["maximum_edge_growth"]=max(x["maximum_edge_growth"] for x in deform)
+  if result["maximum_edge_growth"]>1.5+1e-6:
+   result["status"]="cpu_motion_fail";result["deformation_failure"]="owner_edge_growth_limit_1_5"
+  if a.blender and result["status"]=="cpu_motion_pass_native_pending":
    from avengine.assets.animal_motion.export import export_walk
    export=export_walk(rig,walk,np.arange(round(a.seconds*30)+1)/30,a.output/"Walking_Repaired.glb")
    (a.output/"repaired_export.json").write_text(json.dumps(export,indent=2))
@@ -41,7 +48,7 @@ def main():
    cmd=[str(a.blender),"-b","--factory-startup","--disable-autoexec","-t","1","--python-exit-code","2","--python",str(pathlib.Path(__file__).with_name("blender_check_quadruped_surface.py")),"--","--glb",str(a.output/"Walking_Repaired.glb"),"--output",str(surfacepath),"--frames",str(len(frames))]
    code=subprocess.call(cmd)
    result["surface_checks"]=json.loads(surfacepath.read_text())
-   if code or result["surface_checks"]["status"]!="pass":result["status"]="cpu_motion_fail";result["surface_failure"]="relative_self_intersection_or_macroscopic_penetration"
+   if code or result["surface_checks"]["status"]!="pass":result["status"]="cpu_motion_fail";result["surface_failure"]="visible_regional_penetration_or_edge_growth_or_uv_tear"
    if result["surface_checks"]["worst_shard_share_area"]>.025 or any(x["nonfinite_vertices"] for x in result["surface_checks"]["frames"]):
     result["status"]="cpu_motion_fail";result["deformation_failure"]="original_calibrated_2_5_percent_shard_gate_or_nonfinite_vertices"
    result["self_intersection_status"]=result["surface_checks"]["status"]
