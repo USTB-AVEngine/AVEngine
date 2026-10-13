@@ -202,30 +202,44 @@ class NativeVisibleVideo(NativeRegisteredVideo):
             self._original_semantic_support_cache=semantic_support
         r.semantic_anchors=dict(semantic_support.anchors)
         origin=[scene['listener_m'][0],floor,scene['listener_m'][2]]
-        cached=getattr(self,'_independent_probe_survey_cache',None)
-        if self.motion_inputs.get('cache_native_support_survey_for_independent_probes') and cached is not None and cached[0]==origin:
+        # Independent probes park every inserted drawable below the house.
+        # Their room-restricted, original semantic survey is immutable; cache
+        # that query, while every proposed placement still rechecks its own
+        # native support rays, labelled triangles, clearance, and contacts.
+        probe_cache=bool(self.motion_inputs.get('cache_native_support_survey_for_independent_probes'))
+        qualified_key=(tuple(origin),floor,poly.wkb_hex)
+        qualified=getattr(self,'_independent_qualified_survey_cache',None)
+        if probe_cache and qualified is not None and qualified[0]==qualified_key:
             from copy import deepcopy
-            supports=deepcopy(cached[1])
+            supports=deepcopy(qualified[1])
         else:
-            supports=survey(self.sim,r,{'object_position':origin})
-            if self.motion_inputs.get('cache_native_support_survey_for_independent_probes'):
+            cached=getattr(self,'_independent_probe_survey_cache',None)
+            if self.motion_inputs.get('cache_native_support_survey_for_independent_probes') and cached is not None and cached[0]==origin:
                 from copy import deepcopy
-                self._independent_probe_survey_cache=(origin,deepcopy(supports))
-        parts=list(poly.geoms) if hasattr(poly,'geoms') else [poly]
-        room_extent=MultiPolygon([Polygon(p.exterior) for p in parts])
-        # The floor polygon describes free floor. Mounts are admitted by the
-        # original in-room ray origin, and tabletops by the room exterior, so
-        # furniture holes and a navmesh wall clearance do not erase supports.
-        def in_room(key,p):
-            q=p.get('originating_native_floor_m',p['point'])
-            authority=room_extent if key=='table' else poly
-            return authority.buffer(.01).covers(Point(q[0],q[2]))
-        # Floor type is bound to the measured room level, never a bed/table top.
-        for key in ('floor','table','wall','ceiling','doorbell_wall','high_wall','window_wall'):
-            supports[key]=[p for p in supports[key] if in_room(key,p) and abs(p.get('floor_y',floor)-floor)<=.08]
-        for key in ('table','wall','ceiling','doorbell_wall','high_wall','window_wall'):
-            kind='wall' if key.endswith('wall') else key
-            supports[key]=semantic_support.qualify_points(kind,supports[key])
+                supports=deepcopy(cached[1])
+            else:
+                supports=survey(self.sim,r,{'object_position':origin})
+                if self.motion_inputs.get('cache_native_support_survey_for_independent_probes'):
+                    from copy import deepcopy
+                    self._independent_probe_survey_cache=(origin,deepcopy(supports))
+            parts=list(poly.geoms) if hasattr(poly,'geoms') else [poly]
+            room_extent=MultiPolygon([Polygon(p.exterior) for p in parts])
+            # The floor polygon describes free floor. Mounts are admitted by the
+            # original in-room ray origin, and tabletops by the room exterior, so
+            # furniture holes and a navmesh wall clearance do not erase supports.
+            def in_room(key,p):
+                q=p.get('originating_native_floor_m',p['point'])
+                authority=room_extent if key=='table' else poly
+                return authority.buffer(.01).covers(Point(q[0],q[2]))
+            # Floor type is bound to the measured room level, never a bed/table top.
+            for key in ('floor','table','wall','ceiling','doorbell_wall','high_wall','window_wall'):
+                supports[key]=[p for p in supports[key] if in_room(key,p) and abs(p.get('floor_y',floor)-floor)<=.08]
+            for key in ('table','wall','ceiling','doorbell_wall','high_wall','window_wall'):
+                kind='wall' if key.endswith('wall') else key
+                supports[key]=semantic_support.qualify_points(kind,supports[key])
+            if probe_cache:
+                from copy import deepcopy
+                self._independent_qualified_survey_cache=(qualified_key,deepcopy(supports))
         write_json(directory/'native_support_survey.json',supports)
         bounds=[];checks=[];attempts=[];placed=[]
         # Pending original drawables are parked during layout search only.
