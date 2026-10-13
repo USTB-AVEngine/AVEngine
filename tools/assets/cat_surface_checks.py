@@ -108,6 +108,7 @@ class RegionSurfaceChecks:
             points = self.rest[np.unique(self.faces[ids])]
             self.rest_region_bounds.append((points.min(0), points.max(0)) if len(points) else None)
         self.closed_baseline_depths = {}
+        self.reference_ray_info=self.ray_info(np.eye(3))
         self.baseline_visible_faces = {}
         for i, j in self.baseline:
             a, b = int(self.fregions[i]), int(self.fregions[j])
@@ -127,16 +128,21 @@ class RegionSurfaceChecks:
     def region_tree(self, vertices, region):
         return self.tree(vertices, self.faces[self.outer_faces[region]])
 
-    def inside(self,point,tree,region,basis):
-        # Missing anatomical cut caps must not turn an infinite plane or a
-        # bounding box into a solid. Require outward exits in four directions.
-        exits=0
-        for direction in np.concatenate([basis.T,-basis.T]):
-            hit,normal,face_index,_=tree.ray_cast(Vector(point+direction*1e-7),Vector(direction))
+    @staticmethod
+    def ray_info(basis):
+        return [(Vector(d),Vector(d)*1e-7)
+                for d in np.concatenate([basis.T,-basis.T])]
+
+    def inside(self,point,tree,region,rays):
+        exits=0;base=Vector(point)
+        for index,(direction,offset) in enumerate(rays):
+            hit,normal,face_index,_=tree.ray_cast(base+offset,direction)
             if hit is not None:
                 sign=self.orientation[self.outer_faces[region][face_index]]
-                if float(np.asarray(normal)@direction)*sign>.1:exits+=1
-        return exits>=4
+                if normal.dot(direction)*sign>.1:exits+=1
+            if exits>=4:return True
+            if exits+5-index<4:return False
+        return False
 
     def depths(self,vertices,region,against,tree):
         ids=self.outer_vertices[region];result=np.zeros(len(ids))
@@ -147,7 +153,7 @@ class RegionSurfaceChecks:
         eligible=np.flatnonzero(np.all((vertices[ids]>=low)&(vertices[ids]<=high),axis=1))
         for k in eligible:
             point=vertices[ids[k]]
-            if not self.inside(point,tree,against,self.posed_ray_basis[against]):continue
+            if not self.inside(point,tree,against,self.posed_ray_info[against]):continue
             nearest,normal,face_index,distance=tree.find_nearest(Vector(point))
             if nearest is None:continue
             key=(region,against,int(ids[k]))
@@ -155,7 +161,7 @@ class RegionSurfaceChecks:
                 baseline=0.;reference=self.rest[ids[k]];bounds=self.rest_region_bounds[against]
                 if bounds is not None and np.all(reference>=bounds[0]) and np.all(reference<=bounds[1]):
                     reference_tree=self.rest_trees[against]
-                    if reference_tree is not None and self.inside(reference,reference_tree,against,np.eye(3)):
+                    if reference_tree is not None and self.inside(reference,reference_tree,against,self.reference_ray_info):
                         ref_point,_,_,ref_distance=reference_tree.find_nearest(Vector(reference))
                         if ref_point is not None:baseline=float(ref_distance)
                 self.closed_baseline_depths[key]=baseline
@@ -188,7 +194,7 @@ class RegionSurfaceChecks:
             second,_=clipped_penetrating_patches(bb,aa,self.orientation[pair_ids[:,0]])
             patch_measurements[key]=(float((first+second).sum()*.5),
                                      float(clipped_internal_depths(aa,bb).max(initial=0)))
-        self.posed_ray_basis=[]
+        self.posed_ray_info=[]
         for region,ids in enumerate(self.outer_vertices):
             rotation=np.eye(3)
             if len(ids)>=3:
@@ -198,7 +204,12 @@ class RegionSurfaceChecks:
                 rotation=vt.T@u.T
                 if np.linalg.det(rotation)<0:
                     vt[-1]*=-1;rotation=vt.T@u.T
-            self.posed_ray_basis.append(rotation)
+            self.posed_ray_info.append(self.ray_info(rotation))
+        contact_keys={tuple(sorted((int(self.fregions[i]),int(self.fregions[j])))) for i,j in pairs if self.fregions[i]!=self.fregions[j]}
+        bounds=[]
+        for ids in self.outer_faces:
+            points=vertices[np.unique(self.faces[ids])]
+            bounds.append((points.min(0),points.max(0)) if len(points) else None)
         region_rows = []
         total_area = 0.
         max_depth = 0.
@@ -210,6 +221,15 @@ class RegionSurfaceChecks:
             for b in range(a+1, len(REGIONS)):
                 key = (a, b)
                 area,depth=patch_measurements.get(key,(0.,0.))
+                contained=False
+                if bounds[a] is not None and bounds[b] is not None:
+                    contained=any(np.all(bounds[x][0]>=bounds[y][0]-1e-8) and
+                                  np.all(bounds[x][1]<=bounds[y][1]+1e-8)
+                                  for x,y in ((a,b),(b,a)))
+                # A disjoint pair with neither boundary contacts nor complete
+                # containment has no new penetration. Complete containment is
+                # still checked even when its boundary has no intersections.
+                if key not in contact_keys and not contained:continue
                 for region, against in ((a, b), (b, a)):
                     now = self.depths(vertices, region, against, posed_trees[against])
                     if not np.all(np.isfinite(now)):
