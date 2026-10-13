@@ -234,7 +234,8 @@ class NativeVisibleVideo(NativeRegisteredVideo):
             # Floor type is bound to the measured room level, never a bed/table top.
             for key in ('floor','table','wall','ceiling','doorbell_wall','high_wall','window_wall'):
                 supports[key]=[p for p in supports[key] if in_room(key,p) and abs(p.get('floor_y',floor)-floor)<=.08]
-            for key in ('table','wall','ceiling','doorbell_wall','high_wall','window_wall'):
+            semantic_candidate_surfaces=('floor','table','wall','ceiling','doorbell_wall','high_wall','window_wall') if self.motion_inputs.get('candidate_floor_semantic_prefilter') else ('table','wall','ceiling','doorbell_wall','high_wall','window_wall')
+            for key in semantic_candidate_surfaces:
                 kind='wall' if key.endswith('wall') else key
                 batch_size=self.motion_inputs.get('candidate_semantic_filter_batch_size')
                 if batch_size is None:
@@ -311,7 +312,9 @@ class NativeVisibleVideo(NativeRegisteredVideo):
             if not 1<=contact_budget<=1280:raise ValueError('invalid native placement search budget')
             ordinary=[p for p in candidates if pinned is None or p!=dict(pinned,point=pinned['original_surface_point_m'])]
             proposals=([dict(pinned,point=pinned['original_surface_point_m'],_outward_clearance_m=pinned['_outward_clearance_m'])] if pinned is not None else [])
-            proposals.extend(dict(p,_outward_clearance_m=offset) for p in ordinary[:320] for offset in (0.,.002,.005,.010,.014))
+            support_budget=int(self.motion_inputs.get('visible_placement_max_support_candidates_per_asset',320))
+            if not 1<=support_budget<=320:raise ValueError('invalid support candidate sampling budget')
+            proposals.extend(dict(p,_outward_clearance_m=offset) for p in ordinary[:support_budget] for offset in (0.,.002,.005,.010,.014))
             for support in proposals:
                 support=dict(support);support['original_surface_point_m']=support['point'];support['point']=(np.asarray(support['point'])+np.asarray(support['normal'])*support['_outward_clearance_m']).tolist()
                 if key=='floor':
