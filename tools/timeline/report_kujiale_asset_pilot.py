@@ -185,7 +185,9 @@ def main():
     shown=sealed_summaries if passed else summaries
     metric_scope='封存且独立真值通过的父场景' if passed else '已完成的部分原生视觉阶段，尚未封存'
     complete_coverage=(len(rooms)>=target_rooms and not (expected_rooms-rooms) and not (set(byid)-assets_seen)) if expanded else (len(unique_logical)>=12 and not gaps['animal_bodies'] and not gaps['object_types'])
-    ready=complete_coverage and len(houses)>=target_houses and unit.get('failures')=='0' and unit.get('errors')=='0'
+    source_head=subprocess.check_output(['git','-C',str(Path(__file__).resolve().parents[2]),'rev-parse','HEAD'],text=True).strip()
+    unit['source_head_matches_current_commit']=unit.get('provenance',{}).get('source_commit')==source_head
+    ready=complete_coverage and len(houses)>=target_houses and unit.get('failures')=='0' and unit.get('errors')=='0' and unit['source_head_matches_current_commit']
     gaps['individual_assets']=sorted(set(byid)-assets_seen)
     if expanded:gaps['admitted_train_rooms']=[{'house':house,'room_id':room} for house,room in sorted(expected_rooms-rooms)]
     conclusion=('通过：酷家乐动物、物件和人物同场试产完成。' if ready else '未通过完整试产验收；当前产物不具备接入量产条件。')+f' 全部门禁通过父场景 {len(unique_logical)}，训练房子 {len(houses)}/{target_houses}，房间 {len(rooms)}/{target_rooms or 12}，个体 {len(assets_seen)}/{len(selected)}。'
