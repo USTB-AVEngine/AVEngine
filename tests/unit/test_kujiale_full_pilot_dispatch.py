@@ -364,3 +364,96 @@ def test_same_failed_canary_sid_can_resume_default_inputs_before_formal_pass(roo
     assert not pilot.formal_canary_passed(root,pilot.read_scope(root),rows)
     with pytest.raises(RuntimeError,match='not authorized'):
         pilot.require_launch_authorization(root,0,2,seed,root/'inputs/full_coverage_v1',False)
+
+
+def automatic_fixture_seal(root,scene):
+    # Synthetic dispatch evidence only; no fixture can certify a real UE scene.
+    parent=root/'production/parents'/scene
+    put(parent/'attempt_fixture/native_gate.json',{'status':'pass'})
+    put(parent/'alpha_seal_completed.json',{'attempt':'attempt_fixture',
+        'required_files':['native_gate.json'],'result':{'status':'formal_alpha_admitted'}})
+    put(parent/'independent_truth_audit.json',{'status':'pass','checked_forms':1,'mismatches':[]})
+    put(root/'evidence/parent_results'/f'{scene}.json',{'scene_id':scene,'status':'formal_alpha_admitted',
+        'independent_truth':{'status':'pass','checked_forms':1,'mismatches':0}})
+
+
+def automatic_coordinator_fakes(root,monkeypatch,fail_index=None):
+    coordinator_fakes(root,monkeypatch)
+    seed=pilot.own_seed_path(root)
+    original=json.loads(seed.read_text().splitlines()[0])
+    seed.write_text('\n'.join(json.dumps(dict(original,scene_id=f'new_{i}')) for i in range(7))+'\n')
+    monkeypatch.setattr(sys,'argv',['pilot','--pilot-root',str(root),'--input-directory',
+        str(root/'inputs/full_coverage_v1'),'--limit','7','--workers-per-gpu','2',
+        '--continue-reviewed-batches'])
+    monkeypatch.setattr(pilot,'resource_snapshot',lambda *a,**k:{'processes':[],'hard_stop_reasons':[]})
+    events=[];polls={}
+    def launch(root,index,gpu,*args,**kwargs):
+        events.append(('launch',index));automatic_fixture_seal(root,f'new_{index}')
+        if index==fail_index:
+            put(root/'evidence/parent_results'/f'new_{index}.json',{'status':'failed','reason':'actual native gate failed'})
+        def poll():
+            polls[index]=polls.get(index,0)+1
+            if index==1 and polls[index]==1:return None
+            events.append(('completed',index));return 1 if index==fail_index else 0
+        return SimpleNamespace(index=index,gpu=gpu,pid=100+index,name=f'parent_fake_{index}',
+            identity={'start_ticks':'1'},kind='shared',started=pilot.time.time(),
+            poll=poll,wait=lambda **kwargs:None,observed_descendants={})
+    monkeypatch.setattr(pilot,'launch_worker',launch)
+    return events
+
+
+def test_optional_automatic_batches_require_complete_one_then_two_before_four(root,monkeypatch):
+    events=automatic_coordinator_fakes(root,monkeypatch)
+    pilot.main()
+    state=json.loads((root/'evidence/coordinator_state.json').read_text())
+    reviews=[json.loads(Path(path).read_text()) for path in state['batch_reviews']]
+    assert [review['parents'] for review in reviews]==[1,2,4]
+    assert all(review['status']=='pass' and review['native_gates_relaxed'] is False for review in reviews)
+    assert [event[1] for event in events if event[0]=='launch']==list(range(7))
+    assert events.index(('launch',1))>events.index(('completed',0))
+    assert events.index(('launch',3))>events.index(('completed',1))
+    assert events.index(('launch',3))>events.index(('completed',2))
+    assert state['status']=='finished' and state['parents']==state['passed']==7
+    assert state['continue_reviewed_batches'] is True and state['pending_not_queued']==[]
+    scope=pilot.read_scope(root)
+    assert scope['reviewed_parallel_batch_limit']==4
+    assert scope['deadline_epoch']==9999999999 and scope['physical_gpus']==[1,2,3]
+
+
+def test_optional_automatic_rollout_finishes_current_batch_but_stops_on_any_failure(root,monkeypatch):
+    events=automatic_coordinator_fakes(root,monkeypatch,fail_index=2)
+    pilot.main()
+    state=json.loads((root/'evidence/coordinator_state.json').read_text())
+    assert state['status']=='automatic_batch_failed'
+    assert [event[1] for event in events if event[0]=='launch']==[0,1,2]
+    assert ('completed',1) in events and ('completed',2) in events
+    assert state['pending_not_queued']==[3,4,5,6]
+    assert json.loads(Path(state['batch_reviews'][-1]).read_text())['status']=='fail'
+    assert pilot.read_scope(root)['reviewed_parallel_batch_limit']==2
+
+
+@pytest.mark.parametrize('missing',['native_file','truth','returncode'])
+def test_automatic_review_rejects_missing_native_proof_or_failed_truth(root,missing):
+    automatic_fixture_seal(root,'new_0');returncodes={'new_0':0}
+    parent=root/'production/parents/new_0'
+    if missing=='native_file':(parent/'attempt_fixture/native_gate.json').unlink()
+    elif missing=='truth':put(parent/'independent_truth_audit.json',{'status':'fail','checked_forms':1,'mismatches':['bad']})
+    else:returncodes['new_0']=1
+    review,path=pilot.review_completed_batch(root,['new_0'],returncodes)
+    assert review['status']=='fail' and review['checks'][0]['failure']
+    assert json.loads(path.read_text())==review
+
+
+def test_resource_helper_scope_override_is_own_filename_and_default_stays_v3(root):
+    (root/'scripts/pilot_resource_snapshot_v3.py').write_text('VERSION=3\n')
+    (root/'scripts/pilot_resource_snapshot_v4.py').write_text('VERSION=4\n')
+    assert pilot.load_local_helper(root,'pilot_resource_snapshot_v3.py').VERSION==3
+    scope=pilot.read_scope(root);scope['resource_snapshot_helper']='pilot_resource_snapshot_v4.py'
+    put(root/'inputs/task_scope.json',scope)
+    assert pilot.load_local_helper(root,'pilot_resource_snapshot_v3.py').VERSION==4
+    scope['resource_snapshot_helper']='../outside.py';put(root/'inputs/task_scope.json',scope)
+    with pytest.raises(ValueError,match='one filename'):pilot.load_local_helper(root,'pilot_resource_snapshot_v3.py')
+    external=root.parent/'outside.py';external.write_text('VERSION=99\n')
+    (root/'scripts/escaped.py').symlink_to(external)
+    scope['resource_snapshot_helper']='escaped.py';put(root/'inputs/task_scope.json',scope)
+    with pytest.raises(ValueError,match='escaped own scripts'):pilot.load_local_helper(root,'pilot_resource_snapshot_v3.py')

@@ -240,9 +240,12 @@ def formal_native_parent_passed(root,scene_id):
 
 
 def load_local_helper(root,name):
-    path=(Path(root)/'scripts'/name).resolve()
-    if not path.is_relative_to(Path(root).resolve()) or not path.is_file():
-        raise ValueError('task-local helper is missing or escaped own root: '+name)
+    if name=='pilot_resource_snapshot_v3.py':name=read_scope(root).get('resource_snapshot_helper',name)
+    if not isinstance(name,str) or Path(name).name!=name or name in ('.','..'):
+        raise ValueError('task-local helper must be one filename component')
+    scripts=(Path(root)/'scripts').resolve();path=(scripts/name).resolve()
+    if not scripts.is_relative_to(Path(root).resolve()) or not path.is_relative_to(scripts) or not path.is_file():
+        raise ValueError('task-local helper is missing or escaped own scripts: '+name)
     spec=importlib.util.spec_from_file_location('_kujiale_pilot_'+name.replace('.','_'),path)
     module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
     return module
@@ -552,6 +555,50 @@ def result_for_worker(root,row,returncode):
     return result
 
 
+def review_completed_batch(root,scene_ids,returncodes):
+    """Read actual seals/truth after every member exits; no image-viewing judgement."""
+    checks=[]
+    for scene_id in scene_ids:
+        parent=Path(root)/'production/parents'/scene_id;failure=None
+        seal_path=parent/'alpha_seal_completed.json';truth_path=parent/'independent_truth_audit.json'
+        result_path=latest_parent_result_path(root,scene_id)
+        try:
+            result=read_parent_result(root,scene_id) or {}
+            seal=json.loads(seal_path.read_text());truth=json.loads(truth_path.read_text())
+            attempt=(parent/seal['attempt']).resolve()
+            files=seal.get('required_files',[])
+            if (not attempt.is_relative_to(parent.resolve()) or not files or
+                    any(not (attempt/name).resolve().is_relative_to(attempt) or not (attempt/name).is_file() for name in files)):
+                failure='completed native seal files are missing or escaped'
+            elif (returncodes.get(scene_id)!=0 or result.get('status')!='formal_alpha_admitted'
+                    or seal.get('result',{}).get('status')!='formal_alpha_admitted'
+                    or result.get('independent_truth',{}).get('status')!='pass'
+                    or result.get('independent_truth',{}).get('mismatches')!=0
+                    or truth.get('status')!='pass' or truth.get('mismatches')
+                    or int(truth.get('checked_forms',0))<=0):
+                failure='worker, completed native seal, or independent truth has not passed'
+        except (OSError,KeyError,TypeError,ValueError) as error:failure=type(error).__name__+': '+str(error)
+        checks.append({'scene_id':scene_id,'status':'fail' if failure else 'pass','failure':failure,
+            'latest_result':str(result_path) if result_path else None,'native_seal':str(seal_path),
+            'independent_truth':str(truth_path),'worker_returncode':returncodes.get(scene_id)})
+    review={'status':'pass' if checks and all(check['status']=='pass' for check in checks) else 'fail',
+            'utc':utc_now(),'parents':len(checks),'checks':checks,'native_gates_relaxed':False}
+    path=Path(root)/'evidence'/f'batch_review_{time.time_ns()}.json';write_json(path,review)
+    progress(Path(root),'自动批次核读 '+str(len(checks))+' 个父场景：'+review['status']+'；证据 '+str(path))
+    return review,path
+
+
+def record_automatic_batch_limit(root,limit,review_path=None):
+    # Only this coordinator changes the opt-in batch state. Merge fresh scope
+    # fields under a lock; deadline and resource values are never replaced.
+    with (Path(root)/'inputs/task_scope.lock').open('a') as lock:
+        fcntl.flock(lock.fileno(),fcntl.LOCK_EX);scope=read_scope(root)
+        scope['reviewed_parallel_batch_limit']=limit
+        scope['automatic_native_batch_review']={'mode':'continue-reviewed-batches','next_batch_limit':limit,
+            'last_review':str(review_path) if review_path else None,'utc':utc_now()}
+        live_json(Path(root)/'inputs/task_scope.json',scope)
+
+
 def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('--pilot-root',type=Path,required=True);p.add_argument('--parent-index',type=int)
@@ -559,6 +606,7 @@ def main():
     p.add_argument('--physical-gpu',type=int);p.add_argument('--start-index',type=int,default=0)
     p.add_argument('--limit',type=int,default=12);p.add_argument('--workers-per-gpu',type=int,default=2)
     p.add_argument('--shared-worker-pool',action='store_true');p.add_argument('--worker-cpu',type=int)
+    p.add_argument('--continue-reviewed-batches',action='store_true')
     a=p.parse_args();root=a.pilot_root.resolve()
     if root.name!='ue_round21_pilot':raise ValueError('pilot output must be the authorized round21 directory')
     if a.parent_index is not None:
@@ -580,10 +628,11 @@ def main():
     passed=formal_canary_passed(root,scope,rows)
     if directory!=own_input_directory(root) and not passed:
         raise RuntimeError('required formal native canary has not passed; full rollout is not authorized yet')
-    gate=NativePilotBatchGate(passed,reviewed_batch_limit(scope,a.shared_worker_pool))
+    gate=NativePilotBatchGate(passed,1 if a.continue_reviewed_batches else reviewed_batch_limit(scope,a.shared_worker_pool))
     pending=[index for index,row in enumerate(rows) if index>=a.start_index and
              not formal_native_parent_passed(root,row['scene_id'])]
     active=[];processed=[];finished_results=[];last_snapshot=None;last_monitor=0.;hold={}
+    batch_indices=[];batch_returncodes={};batch_reviews=[];automatic_failure=False
     checkpoint=root/'evidence/controlled_gate_checkpoint.json'
     import hashlib
     digest=hashlib.sha256()
@@ -608,6 +657,7 @@ def main():
     os.sched_setaffinity(0,{controller_cpu})
     def interrupted(signum,frame):raise RuntimeError('own coordinator interrupted by signal '+str(signum))
     for signum in (signal.SIGTERM,signal.SIGINT):signal.signal(signum,interrupted)
+    if a.continue_reviewed_batches:record_automatic_batch_limit(root,1)
     try:
         # One invocation dispatches only its reviewed batch. An early result
         # never opens a new slot before the rest of that batch has completed.
@@ -637,7 +687,7 @@ def main():
                         except ResourceLaunchHold as error:
                             hold={'gpu':gpu,'reasons':error.measurement['launch_hold_reasons']};last_snapshot=error.measurement
                             break
-                        pending.pop(0);processed.append(index);active.append(handle);count+=1
+                        pending.pop(0);processed.append(index);batch_indices.append(index);active.append(handle);count+=1
                         live_json(root/'evidence/coordinator_state.json',{'status':'running',
                             'active':[{'pid':h.pid,'start_ticks':h.identity['start_ticks'],'parent_index':h.index,'gpu':h.gpu,'worker_mode':h.kind} for h in active],
                             'pending':pending,'input_directory':str(directory),'gate':gate.state(),
@@ -654,14 +704,27 @@ def main():
                     'returncode':returncode,'finished_utc':utc_now(),'gpu_assigned_wall_seconds':time.time()-handle.started,
                     'gpu_allocated_seconds':time.time()-handle.started})
                 result=result_for_worker(root,rows[handle.index],returncode);finished_results.append(result);gate.observe(result)
+                batch_returncodes[rows[handle.index]['scene_id']]=returncode
                 live_json(checkpoint,{'code_and_seed_revision':revision,'gate':gate.state()})
                 live_json(root/'evidence/controlled_rollout_state.json',{'status':'batch_result','gate':gate.state(),
                     'scene_id':rows[handle.index]['scene_id'],'result':result,'pending':pending})
                 # A failed Python parent must not leave any observed native descendants.
                 cleanup=load_local_helper(root,'owned_process_cleanup_v1.py')
                 if any(cleanup.still_same(row) for row in handle.observed_descendants.values()):cleanup_worker(root,handle)
-            if processed and not active:
-                progress(root,'本批 '+str(len(processed))+' 个父场景全部结束；剩余 '+str(len(pending))+' 个不自动排队，先检查本批结果。')
+            if batch_indices and not active:
+                if not a.continue_reviewed_batches:
+                    progress(root,'本批 '+str(len(processed))+' 个父场景全部结束；剩余 '+str(len(pending))+' 个不自动排队，先检查本批结果。')
+                    break
+                review,path=review_completed_batch(root,[rows[index]['scene_id'] for index in batch_indices],batch_returncodes)
+                batch_reviews.append(str(path))
+                if review['status']!='pass':automatic_failure=True;break
+                gate.require_next_batch()
+                # A resource-truncated batch does not certify a higher level.
+                if len(batch_indices)==gate.batch_limit:
+                    gate.reviewed_parallel_batch_limit=min(4,gate.batch_limit*2)
+                record_automatic_batch_limit(root,gate.reviewed_parallel_batch_limit,path)
+                batch_indices=[];batch_returncodes={};dispatch_done=False
+                if pending:continue
                 break
             time.sleep(5)
     finally:
@@ -671,10 +734,11 @@ def main():
             except BaseException as error:cleanup_errors.append(str(error))
         lock.close()
         if cleanup_errors:raise RuntimeError('exact own-worker cleanup failed: '+str(cleanup_errors))
-    live_json(root/'evidence/coordinator_state.json',{'status':'batch_review_required' if pending else 'finished',
+    live_json(root/'evidence/coordinator_state.json',{'status':'automatic_batch_failed' if automatic_failure else 'batch_review_required' if pending else 'finished',
         'pending_not_queued':pending,'parents':len(finished_results),
         'passed':sum(formal_native_parent_passed(root,rows[index]['scene_id']) for index in processed),
         'results':finished_results,'gate':gate.state(),'input_directory':str(directory),
+        'continue_reviewed_batches':a.continue_reviewed_batches,'batch_reviews':batch_reviews,
         'training_exported':False,'CCI_transferred':False})
     progress(root,'试产协调器结束，所有本批 worker 已退出，结果留在本轮目录；下一批需审看结果。')
 if __name__=='__main__':main()
