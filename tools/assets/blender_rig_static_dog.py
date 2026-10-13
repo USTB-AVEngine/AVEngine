@@ -169,6 +169,7 @@ def main():
  actions={"Idle":np.tile(rest,(len(source_frames),1,1,1))}
  amplitude=float(req.get("motion_amplitude",.10))
  if not 0<amplitude<=1:raise ValueError("motion_amplitude_out_of_range")
+ torso_amplitude=min(amplitude,.003/max(height,.1))
  for action in ("Walking",):
   frames=[]
   for sf in range(len(source_frames)):
@@ -180,12 +181,12 @@ def main():
     d=DONOR_TO_HAB@d@DONOR_TO_HAB.T
     q=Matrix(d.tolist()).to_quaternion()
     if q.w<0:q.negate()
-    q=Quaternion((1,0,0,0)).slerp(q,amplitude)
+    q=Quaternion((1,0,0,0)).slerp(q,amplitude if i>=8 else torso_amplitude)
     mat[:3,:3]=np.array(q.to_matrix())@rest[i][:3,:3]
     if i==0:
      # Remove donor horizontal root motion; motion compiler owns -Z travel.
      dy=donor_mats[action][sf][source_name][2,3]-reference[source_name][2,3]
-     mat[1,3]+=float(dy)*height/max(source_span,1e-5)*amplitude
+     mat[1,3]+=float(dy)*height/max(source_span,1e-5)*torso_amplitude
     g.append(mat)
    # Distal Toe follows its ankle with exactly its own fitted rest offset.
    for side in SIDES:
@@ -193,7 +194,7 @@ def main():
    frames.append(g)
   actions[action]=np.array(frames)
  np.savez_compressed(out/"binding.npz",positions=vertices,joints=selection.astype(np.uint16),weights=values.astype(np.float32),rest_matrices=rest,times=(source_frames-source_frames[0])/30,**actions)
- report={"schema":"blender_target_landmark_rig_v1","blender_version":bpy.app.version_string,"bone_names":names,"parent_indices":parents,"fitted_head_points_habitat_m":heads.tolist(),"fitted_tail_points_habitat_m":tails.tolist(),"semantic_paws":{s:feet[i].tolist() for i,s in enumerate(SIDES)},"registration_foot_order":order.tolist(),"target_front":"-Z","target_up":"+Y","donor_basis_to_habitat":DONOR_TO_HAB.tolist(),"donor_side_mapping_from_geometry":footmap,"source_donor_bone_map":dict(zip(names,mappings)),"motion_transfer":"world left rotation delta relative original CC0 Idle, forward source samples; fitted target bone lengths and own mesh","motion_amplitude":amplitude,"weights_method":req["method"],"paw_envelope_radius_height_fraction":.25 if req["method"]=="blender_envelope" else None,"envelope_postprocessing":"continuous_ankle_body_paw_envelope" if req["method"]=="blender_envelope" else "continuous_multijoint_capsule" if req["method"]=="envelope" else "heat_semantic_repairs","fallback_method":"normalized own fitted bone-segment Gaussian envelopes","heat_errors":heat_errors,"blender_weight_solve_counts":weight_solve_counts,"temporary_binding_mesh_weld":binding_weld_counts,"semantic_sole_vertices":sole_count,"head_vertices":head_count,"weight_fixups":"heat: semantic sole/head repair; envelope: smooth Voronoi-boundary multijoint capsules; blender_envelope: continuous distal paw/body envelopes without abrupt sole/head overwrites; both envelope recipes retain own Body/Head/Tail and <=4 influences without truncation","target_vertices":len(vertices),"deform_bones":len(names),"cpu_s":time.process_time()-start,"status":"candidate_not_admitted"}
+ report={"schema":"blender_target_landmark_rig_v1","blender_version":bpy.app.version_string,"bone_names":names,"parent_indices":parents,"fitted_head_points_habitat_m":heads.tolist(),"fitted_tail_points_habitat_m":tails.tolist(),"semantic_paws":{s:feet[i].tolist() for i,s in enumerate(SIDES)},"registration_foot_order":order.tolist(),"target_front":"-Z","target_up":"+Y","donor_basis_to_habitat":DONOR_TO_HAB.tolist(),"donor_side_mapping_from_geometry":footmap,"source_donor_bone_map":dict(zip(names,mappings)),"motion_transfer":"world left rotation delta relative original CC0 Idle, forward source samples; fitted target bone lengths and own mesh","motion_amplitude":amplitude,"torso_head_tail_motion_amplitude":torso_amplitude,"torso_amplitude_reason":"metric-scale angular envelope for 2mm relative penetration certification; unchanged 48mm stride/8mm foot lift from submitted constrained gait","weights_method":req["method"],"paw_envelope_radius_height_fraction":.25 if req["method"]=="blender_envelope" else None,"envelope_postprocessing":"continuous_ankle_body_paw_envelope" if req["method"]=="blender_envelope" else "continuous_multijoint_capsule" if req["method"]=="envelope" else "heat_semantic_repairs","fallback_method":"normalized own fitted bone-segment Gaussian envelopes","heat_errors":heat_errors,"blender_weight_solve_counts":weight_solve_counts,"temporary_binding_mesh_weld":binding_weld_counts,"semantic_sole_vertices":sole_count,"head_vertices":head_count,"weight_fixups":"heat: semantic sole/head repair; envelope: smooth Voronoi-boundary multijoint capsules; blender_envelope: continuous distal paw/body envelopes without abrupt sole/head overwrites; both envelope recipes retain own Body/Head/Tail and <=4 influences without truncation","target_vertices":len(vertices),"deform_bones":len(names),"cpu_s":time.process_time()-start,"status":"candidate_not_admitted"}
  (out/"blender_binding.json").write_text(json.dumps(report,ensure_ascii=False,indent=2))
  print("BLENDER_BINDING",json.dumps(report,ensure_ascii=False),flush=True)
 if __name__=="__main__":main()

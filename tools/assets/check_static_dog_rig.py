@@ -46,6 +46,8 @@ def main():
    (a.output/"repaired_export.json").write_text(json.dumps(export,indent=2))
    surfacepath=a.output/"surface.json"
    cmd=[str(a.blender),"-b","--factory-startup","--disable-autoexec","-t","1","--python-exit-code","2","--python",str(pathlib.Path(__file__).with_name("blender_check_quadruped_surface.py")),"--","--glb",str(a.output/"Walking_Repaired.glb"),"--output",str(surfacepath),"--frames",str(len(frames))]
+   registration_request=rig.path.parent/"request.json"
+   if registration_request.exists():cmd+=["--registration-request",str(registration_request)]
    code=subprocess.call(cmd)
    result["surface_checks"]=json.loads(surfacepath.read_text())
    if code or result["surface_checks"]["status"]!="pass":result["status"]="cpu_motion_fail";result["surface_failure"]="visible_regional_penetration_or_edge_growth_or_uv_tear"
