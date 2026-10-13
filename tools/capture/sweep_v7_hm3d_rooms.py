@@ -9,7 +9,8 @@ def main():
     p.add_argument('--inputs',type=Path,required=True);p.add_argument('--room-id',required=True)
     p.add_argument('--output',type=Path,required=True);p.add_argument('--save-samples',action='store_true')
     args=p.parse_args()
-    allowed=sorted(os.sched_getaffinity(0));os.sched_setaffinity(0,{allowed[os.getpid()%len(allowed)]})
+    from avengine.capture.v7_cpu_assignment import pin_registered_cpu_task
+    pin_registered_cpu_task(args.inputs.parent)
     if os.getpriority(os.PRIO_PROCESS,0)<10:raise RuntimeError('CPU sweep requires nice >=10')
     for key in ['OMP_NUM_THREADS','OPENBLAS_NUM_THREADS','MKL_NUM_THREADS','LP_NUM_THREADS']:
         if os.environ.get(key)!='1':raise RuntimeError(key+' must be 1 before importing native modules')
