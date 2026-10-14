@@ -5,7 +5,7 @@
 
 自 2026-08-25 起，目录本身就是能力分组（阶段目录 m1…m7 已移除），
 本表按目录列出每个工具做什么。
-当前共 614 个工具脚本。
+当前共 615 个工具脚本。
 
 ## 资产生成与装配（`tools/assets/`）
 
@@ -337,6 +337,7 @@
 | `tools/timeline/prepare_v7_diagnostic_aliases.py` | Give diagnostic media neutral IDs and quarantine incompatible public domains |
 | `tools/timeline/prepare_v7_diagnostic_seed_tables.py` | Extend reproducible v7-S/full seeds with simulation-only diagnostic axes |
 | `tools/timeline/prepare_v7_full_preproduction.py` | Prepare new TRAIN-only worlds without rendering or opening held-out assets |
+| `tools/timeline/prepare_v7_production_inputs.py` | Freeze v7 room, sound, dialogue and motion input authority without rendering |
 | `tools/timeline/prepare_v7_quota_seed_tables.py` | Default aggregate-profile v7 requests with a separate 0--8 coverage stratum |
 | `tools/timeline/prepare_v7_seed_tables.py` | Write v7-S and full-set seed tables without changing existing inputs |
 | `tools/timeline/project_v7_alpha_seeds.py` | Project fixed S parent seeds onto measured alpha layouts, preserving prefixes |

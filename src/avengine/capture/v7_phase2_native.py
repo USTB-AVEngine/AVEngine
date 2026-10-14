@@ -145,6 +145,9 @@ class NativePhase2Video(NativeVisibleVideo):
         if request['action']=='walk' and a['kind']=='human':
             from avengine.assets.roster_motion.episode import compile_walking
             record=compile_walking(self,entry,scene,self.motion_house,self.motion_inputs,dest,request)
+        elif request['action']=='walk' and request.get('animal_motion_admission'):
+            from avengine.assets.animal_motion.production_episode import compile_admitted_animal
+            record=compile_admitted_animal(self,entry,scene,self.motion_house,self.motion_inputs,dest,request)
         elif request['action']=='walk' and a.get('species_id')=='dog':
             from avengine.assets.roster_motion.animal import compile_continuous_dog_walking
             record=compile_continuous_dog_walking(self,entry,scene,self.motion_house,self.motion_inputs,dest,request)

@@ -29,6 +29,8 @@ def _validate_authored_motion_support(scene, program, requests):
 
 def build_phase2_scene(row,house,records,catalog,semantic_manifest=None):
     if row.get('schema')!=PHASE2_SCHEMA:raise ValueError('explicit phase-two schema required')
+    from avengine.timeline.v7_production_inputs import validate_sampling_row
+    production_intake=validate_sampling_row(row,catalog)
     motion=row.get('motion_requests',{})
     stub=deepcopy(row);stub['schema']=SCHEMA;stub.pop('motion_requests',None)
     # The public production interface names this canonical field explicitly.
@@ -70,6 +72,9 @@ def build_phase2_scene(row,house,records,catalog,semantic_manifest=None):
         if request['action']=='walk' and not a.get('walk_allowed'):raise ValueError('walking identity lacks roster authority: '+aid)
         if request['action']=='sit' and (a['kind']!='human' or not a.get('sit_allowed')):raise ValueError('sitting identity lacks roster authority')
         requests[ep]=request
+        if request.get('animal_motion_admission'):
+            scene['sources'][ep]['motion_metadata']=deepcopy(request['animal_motion_admission'])
+            scene['sources'][ep]['motion_marker']=request['animal_motion_admission']['motion_marker']
         if aid not in walkers:continue
         if a['kind']!='human':raise ValueError('footsteps are reserved for walking registered humans')
         if not foot_pool:raise ValueError('admitted footsteps input missing')
@@ -160,6 +165,7 @@ def build_phase2_scene(row,house,records,catalog,semantic_manifest=None):
     if not math.isfinite(turn_hold) or not 0.<=turn_hold<=.6:
         raise ValueError('physical camera turn hold must be finite and in 0 to 0.6 seconds')
     if turn_hold:scene['phase2_camera_turn_hold_s']=turn_hold
+    if production_intake:scene['production_sampling_intake']=production_intake
     scene['phase2_profile']=True
     scene['production_scenario'].update(motion_requests=requests,motion_floor_polygon=working['room']['floor_polygon'])
     scene['admitted_sound_class_domain']=sorted({r['sound_class'] for r in admitted})

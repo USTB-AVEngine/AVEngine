@@ -99,7 +99,11 @@ def source_blockers(record):
         if activity.get("status") != "pass" or float(activity.get("active_duration_s",0)) < 1.0:
             reasons.append("generated_audio_activity_below_one_second")
         dedup=record.get("reference_dedup", {})
-        if dedup.get("status") != "pass" or dedup.get("coverage_complete_for_listed_roots") is not True or dedup.get("positive_controls_pass") is not True:
+        # Preserve the declared source-admission policy. v13 explicitly marks
+        # positive controls as diagnostics; the earlier UE input declares them
+        # as an admission requirement. Never fabricate a controls-pass receipt.
+        diagnostic_controls = dedup.get("positive_controls_are_not_an_admission_gate") is True
+        if dedup.get("status") != "pass" or dedup.get("coverage_complete_for_listed_roots") is not True or (not diagnostic_controls and dedup.get("positive_controls_pass") is not True):
             reasons.append("generated_audio_complete_reference_dedup_missing")
         labels=record.get("automatic_label") or []
         if not any(x.get("status")=="pass" and x.get("gate",{}).get("status")=="pass"
