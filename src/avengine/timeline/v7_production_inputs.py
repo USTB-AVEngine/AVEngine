@@ -309,3 +309,26 @@ def attach_runtime_contract(row, inputs):
     row = deepcopy(row)
     row['production_sampling'] = receipt
     return row
+
+
+def bind_semantic_registry(manifest, assets):
+    """Supply a missing manifest header from the actual admitted human assets.
+
+    Sound records and qualifications are retained verbatim. The downstream
+    native evidence intake still verifies every frame and the registry SHA.
+    """
+    if manifest is None or manifest.get('source_registry'):
+        return manifest
+    registries = {str(a['source_registry']) for a in assets
+                  if a.get('source_registry') and a.get('dialogue_voice_binding_eligible')
+                  and (a.get('species_id') == 'human' or a.get('kind') == 'human'
+                       or a.get('entity_class') == 'articulated_human')}
+    if len(registries) != 1:
+        raise ValueError('semantic header requires one actual admitted human registry')
+    result = deepcopy(manifest)
+    result['source_registry'] = next(iter(registries))
+    result['production_registry_header_view'] = {
+        'source': 'actual selected admitted human assets',
+        'sound_records_changed': False,
+        'native_registry_SHA_and_all_frame_qualification_required': True}
+    return result

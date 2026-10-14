@@ -88,6 +88,8 @@ def generate_phase2_parent(row,house,inputs,catalog,source_admission,human_admis
     root=Path(output)/'parents'/row['scene_id'];check_write(root,expected_bytes=1_000_000_000);root.mkdir(parents=True,exist_ok=True)
     wall=time.perf_counter();cpu=cpu_seconds();semantic=read_json(inputs['semantic_manifest']) if row.get('semantic_scenario_id') else None
     working,base,program,assets=build_visible_scene(row,house,source_admission['records'],catalog,semantic)
+    from avengine.timeline.v7_production_inputs import bind_semantic_registry
+    semantic=bind_semantic_registry(semantic,assets)
     # Preserve an already qualified exact native stage for audio-only resume.
     # A changed row, inputs, assets or program still fails recipe comparison.
     if (root/'visible_native_completed.json').is_file() and (root/'input_recipe.json').is_file():

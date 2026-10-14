@@ -91,3 +91,20 @@ def test_production_five_shirts_stay_unique_with_a_sixth_professional():
     colors = [a['color'] for a in assets if a['controlled_shirt']]
     assert len(assets) == 6 and len(colors) == len(set(colors)) == 5
     assert assets[-1]['color'] == 'original'
+
+
+def test_dialogue_header_uses_actual_registry_without_editing_sound_records():
+    from copy import deepcopy
+    from avengine.timeline.v7_production_inputs import bind_semantic_registry
+    manifest = {'sounds': [{'sound_asset_id': 'retained', 'sha256': 'unchanged'}]}
+    original = deepcopy(manifest)
+    human = {'kind': 'human', 'dialogue_voice_binding_eligible': True,
+             'source_registry': '/retained/registrations/human_roster.json'}
+    adapted = bind_semantic_registry(manifest, [human])
+    assert manifest == original and adapted['sounds'] == original['sounds']
+    assert adapted['source_registry'] == human['source_registry']
+    other = dict(human, source_registry='/different/registry.json')
+    with pytest.raises(ValueError, match='one actual'):
+        bind_semantic_registry(manifest, [human, other])
+    with pytest.raises(ValueError, match='one actual'):
+        bind_semantic_registry(manifest, [])

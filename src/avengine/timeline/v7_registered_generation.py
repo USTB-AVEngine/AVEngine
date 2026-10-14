@@ -96,6 +96,8 @@ def generate_registered_parent(row,house,inputs,assets,source_admission,human_ad
     production_intake=validate_registered_sampling_row(row,assets,inputs)
     licenses=qualify_licenses(assets,human_admission)
     semantic=read_json(inputs['semantic_manifest']) if inputs.get('semantic_manifest') else None
+    from avengine.timeline.v7_production_inputs import bind_semantic_registry
+    semantic=bind_semantic_registry(semantic,assets)
     from avengine.timeline.v7_visible_sources import production_audio_record_views
     working,base,program=build_registered_scene(row,house,production_audio_record_views(source_admission['records']),assets,semantic,camera_evidence_policy=inputs.get('registered_camera_evidence_policy'))
     if production_intake:base['production_sampling_intake']=production_intake
