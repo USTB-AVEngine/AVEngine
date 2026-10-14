@@ -109,13 +109,14 @@ def content_answer_en(value):
     direct={'是':'yes','否':'no','现场人物':'a person speaking live','音箱播放':'audio playback from a speaker'}
     if value in direct:return direct[value]
     for zh,en in [('蓝色','blue'),('黄色','yellow'),('绿色','green'),('白色','white'),('黑色','black')]:
-        if value==zh+'上衣的人':return 'the person in the '+en+' shirt'
+        if value in {zh+'上衣的人',zh[0]+'衣人物'}:return 'the person in the '+en+' shirt'
     return tidy_english(value)
 
 
 def content_question_en(query):
     kind=query['kind']
-    texts={'same_class_actor':'Who is speaking at this time?',
+    texts={'same_class_actor':'Who is producing the speech at this time?',
+           'mixed_class_actor':'Which visible person or object is producing the sound at this time?',
            'first_actor':'Who started speaking first in this clip?',
            'offscreen_origin':'Is the voice at this time coming from {subject}?',
            'live_or_playback':'Is the voice at this time live speech or playback from a speaker?'}

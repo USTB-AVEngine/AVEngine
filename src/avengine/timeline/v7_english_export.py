@@ -34,5 +34,9 @@ def english_public_question(question):
     for choice in row.get('choices',[]):
         if 'text' in choice:choice['text']=tidy_english(choice['text'])
         choice.pop('text_zh',None)
+    if row.get('qa_id')=='V7-CONTENT-BIND':
+        from avengine.qa.v7_english_surface import content_answer_en
+        for choice in row.get('choices',[]):
+            if 'text'in choice:choice['text']=content_answer_en(choice['text'])
     validate_english_model_text(row)
     return row

@@ -424,7 +424,7 @@ def collect_content_binding(bundle, window_id, media, *, seed='v7'):
                     'question_variant':query['kind']}
                 answer=truth['answer']
                 if form=='mcq':
-                    row['choices']=[{'id':chr(65+i),'text':content_answer_en(d)} for i,d in enumerate(order)]
+                    row['choices']=[{'id':chr(65+i),'text':d} for i,d in enumerate(order)]
                     answer=chr(65+order.index(truth['answer']))
                 public.append(row)
                 private.append({'question_id':qid,'logical_question_id':logical,
