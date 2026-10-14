@@ -28,7 +28,15 @@ def native_checks(scene,assets,visual,audio=None,*,pending_feet=False):
     missing=[aid for aid,r in by_asset.items() if not r];alignment=visual['alignment']
     errors=list(bind['errors'])
     if fail:errors.append('native source highlight/appearance failure')
-    if missing:errors.append('source material never measured: '+','.join(missing))
+    # Borrowed object references qualify only material quality. Actual missing
+    # measurements remain missing, and no appearance/position/answer is copied.
+    borrowed=visual.get('owner_material_quality_fallbacks',[])
+    quality_ids={r['asset_id']for r in borrowed if r.get('status')=='borrowed_measured_object_material_quality'
+        and r.get('same_registered_function_and_attachment_class')is True
+        and r.get('actual_asset_was_measured')is False
+        and r.get('target_appearance_color_position_and_answer_truth_borrowed')is False}
+    required_missing=[aid for aid in missing if aid not in quality_ids]
+    if required_missing:errors.append('source material never measured: '+','.join(required_missing))
     if any(a['attachment_surface']!=a['support_type'] or a['attachment_worst_error_m']>.015 or not a['skin_pass'] for a in attachments):errors.append('attachment or collision failure')
     if any(alignment[k]!=0 for k in ['root_max_error','joint_max_error','camera_max_error','link_max_error']) or alignment['restored_modal_RGB_depth_semantic_frames']!=450:errors.append('native mask restoration or frame alignment failed')
     from avengine.timeline.v7_phase2_checks import motion_checks
@@ -44,7 +52,7 @@ def native_checks(scene,assets,visual,audio=None,*,pending_feet=False):
             'worst_error_m':max((a['attachment_worst_error_m'] for a in attachments),default=0),
             'worst_penetration_m':min((c['contact_distance_m'] for a in attachments for c in a['contacts']),default=0)},
         'highlights':{'passed':sum(r['status']=='pass' for r in measured),'failed':len(fail),'checked':len(measured),
-            'not_run':len(mats)-len(measured),'worst_ratio':max((r.get('highlight_ratio',0) for r in measured),default=0),'unmeasured_asset_ids':missing},
+            'not_run':len(mats)-len(measured),'worst_ratio':max((r.get('highlight_ratio',0) for r in measured),default=0),'unmeasured_asset_ids':missing,'borrowed_object_quality_references':borrowed},
         'RIR_direction':{'status':'pass' if audio and all(r['passed_5deg'] for r in directions) else 'not_run',
             'passed':sum(r['passed_5deg'] for r in directions),'checked':len(directions),
             'worst_error_deg':max((r['angular_error_deg'] for r in directions),default=None)},
@@ -106,6 +114,9 @@ def generate_phase2_parent(row,house,inputs,catalog,source_admission,human_admis
         if saved['recipe']!={'input_recipe':recipe} or any(not (directory/f).is_file() for f in saved['required_files']):raise ValueError('pilot seal incomplete')
         return {**saved['result'],'delivery_directory':str(directory),'resumed':True}
     def render(attempt):
+        from avengine.timeline.v7_material_quality_fallback import recover_complete_native_attempt,qualify_missing_materials
+        recovered=recover_complete_native_attempt(root,attempt,base,assets,native_checks)
+        if recovered is not None:return recovered
         if row.get('reuse_qualified_phase2_native_parent'):
             import hashlib
             from shutil import copytree
@@ -139,6 +150,9 @@ def generate_phase2_parent(row,house,inputs,catalog,source_admission,human_admis
         gate=PositionAdmission(base,working,inputs,root/'rir_cache',attempt/'acoustic_placement_admission.json');video.acoustic_position_admission=gate.check
         try:visual=video.encode(native_scene,attempt/'scene_video.mp4',collect_pixel_visibility=True)
         finally:gate.close();video.close()
+        visual=qualify_missing_materials(root,assets,visual)
+        if visual.get('owner_material_quality_fallbacks'):
+            write_json(attempt/'native_visible_visual_evidence_phase2.json',visual)
         checks=native_checks(base,assets,visual,pending_feet=True);write_json(attempt/'native_checks.json',checks)
         if checks['status']!='pass':raise ValueError('native integration gate failed: '+str(checks['errors']))
         return {'status':'pass','native_checks':checks},['scene_video.mp4','native_visible_visual_evidence_phase2.json','native_color_checks.json','native_checks.json','source_material_checks.json','native_visibility_evidence.json','acoustic_placement_admission.json','standing/standing_admission.json','standing/native_support_survey.json']
