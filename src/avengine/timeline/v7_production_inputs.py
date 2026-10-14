@@ -119,6 +119,8 @@ def validate_recipe(row, catalog, manifest):
         raise ValueError('room not eligible under the original acoustic and legality gates: ' + key)
     assets = {a['asset_id']: a for a in catalog}
     requests = row.get('motion_requests', {})
+    if room['family'] == 'kujiale' and requests:
+        raise ValueError('Kujiale registered producer does not consume phase2 motion requests')
     colors = []
     categories = {}
     if len(row['asset_ids']) != len(set(row['asset_ids'])):

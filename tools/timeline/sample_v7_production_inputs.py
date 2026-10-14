@@ -56,9 +56,9 @@ def main():
                 allowed=sorted(set(allowed)&set(source_pool))
                 if allowed:
                     cl=rng.choice(allowed);row['source_classes'][item['asset_id']]=[cl]
-                    row['proposed_sound_asset_ids'][item['asset_id']]=rng.choice(source_pool[cl]);classes[cl]+=1
+                    row['proposed_sound_asset_ids'][item['asset_id']]=rng.choice(source_pool[cl])
                 aid=item['asset_id']
-                if aid in contract['animal_motion'] and index%6 in {3,4}:
+                if room['family'] != 'kujiale' and aid in contract['animal_motion'] and index%6 in {3,4}:
                     row['motion_requests'][aid]=bind_animal_motion({'speed_m_s':.03},aid,contract)
                     motion[contract['animal_motion'][aid]['mode']]+=1
             humans=[s for s in selected if s.get('kind')=='human']
@@ -82,6 +82,8 @@ def main():
                     row['semantic_human_asset_ids']=[h['asset_id'] for h in replacements]
                     for s in sounds:voices[s['voice_reference']['speaker_id']]+=1
             validate_recipe(row,selected,contract)
+            for selected_classes in row['source_classes'].values():
+                classes.update(selected_classes)
             families[room['family']]+=1;rows.append(row)
     a.output.parent.mkdir(parents=True,exist_ok=True)
     a.output.write_text(''.join(json.dumps(r,ensure_ascii=False,separators=(',',':'))+'\n' for r in rows))
@@ -89,6 +91,7 @@ def main():
              'families':dict(families),'actual_voice_counts':dict(voices),'voice_count':len(voices),
              'proposed_source_class_counts':dict(classes),'proposed_animal_motion_counts':dict(motion),
              'all_room_categories_test_exclusion_shirt_uniqueness_motion_authorities_checked':True,
+             'animal_motion_native_dispatch':'HM3D/MP3D private phase2 only; Kujiale registered producer is static and rejects these motion requests',
              'native_or_GPU_jobs_started':False,'formal_training_questions_claimed':False}
     a.output.with_suffix('.summary.json').write_text(json.dumps(summary,ensure_ascii=False,indent=2)+'\n')
     print(json.dumps(summary,ensure_ascii=False))

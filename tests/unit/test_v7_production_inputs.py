@@ -129,3 +129,12 @@ def test_expanded_dialogue_catalog_requires_exact_original_authority(tmp_path):
     original.write_text('changed bytes')
     with pytest.raises(ValueError, match='SHA changed'):
         bind_semantic_registry(manifest, [])
+
+
+def test_ue_cannot_silently_ignore_private_phase2_motion_requests():
+    manifest = {'schema': SCHEMA, 'test_houses': [], 'animal_motion': {}, 'rooms': [
+        {'key': 'ue::R0', 'family': 'kujiale', 'categories': ['animal.dog']}]}
+    row = {'house': 'ue', 'room_id': 'R0', 'split': 'train', 'asset_ids': ['dog'],
+           'motion_requests': {'dog': {'action': 'walk'}}}
+    with pytest.raises(ValueError, match='does not consume'):
+        validate_recipe(row, [{'asset_id': 'dog', 'kind': 'animal', 'species_id': 'dog'}], manifest)
