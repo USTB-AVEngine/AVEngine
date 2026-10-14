@@ -43,6 +43,8 @@ def build_phase2_scene(row,house,records,catalog,semantic_manifest=None):
     silent=set(row.get('silent_asset_ids',[]))
     stub['asset_ids']=[aid for aid in row['asset_ids'] if aid not in silent]
     walkers=[aid for aid,req in motion.items() if req.get('action')=='walk' and row.get('source_classes',{}).get(aid)==['footsteps']]
+    footstep_walkers=walkers+[aid for aid in row.get('phase2_include_footsteps_asset_ids',[])if aid not in walkers]
+    if any(motion.get(aid,{}).get('action')!='walk'for aid in footstep_walkers):raise ValueError('footsteps require actual requested walking')
     if row.get('semantic_scenario_id'):
         stub['asset_ids']=[aid for aid in stub['asset_ids'] if aid not in walkers]
     else:
@@ -75,15 +77,16 @@ def build_phase2_scene(row,house,records,catalog,semantic_manifest=None):
         if request.get('animal_motion_admission'):
             scene['sources'][ep]['motion_metadata']=deepcopy(request['animal_motion_admission'])
             scene['sources'][ep]['motion_marker']=request['animal_motion_admission']['motion_marker']
-        if aid not in walkers:continue
+        if aid not in footstep_walkers:continue
         if a['kind']!='human':raise ValueError('footsteps are reserved for walking registered humans')
         if not foot_pool:raise ValueError('admitted footsteps input missing')
         record=recording_header(foot_pool[int(rng.integers(len(foot_pool)))])
-        doomed={e['event_id'] for e in scene['events'] if e['endpoint_id']==ep}
+        doomed={e['event_id'] for e in scene['events'] if e['endpoint_id']==ep}if aid in walkers else set()
         scene['events']=[e for e in scene['events'] if e['event_id'] not in doomed]
         program['events']=[e for e in program['events'] if e['event_id'] not in doomed]
         a['allowed_classes']=sorted(set(a['allowed_classes'])|{'footsteps'})
-        base=scene['sources'][ep];base.update(content_kind='silent',class_id=None,sound_class=None,mechanism='walking_human_mouth_silent')
+        base=scene['sources'][ep]
+        if aid in walkers:base.update(content_kind='silent',class_id=None,sound_class=None,mechanism='walking_human_mouth_silent')
         for side in ('L','R'):
             alias=ep+'_foot_'+side
             scene['sources'][alias]={**deepcopy(base),'owner_endpoint_id':ep,'emitter_part':'foot_'+side,

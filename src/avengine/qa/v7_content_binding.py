@@ -410,6 +410,8 @@ def collect_content_binding(bundle, window_id, media, *, seed='v7'):
             wording=record.get('wording_variant','standard')
             if wording not in {'standard','alternate'}:raise ValueError('unknown wording variant')
             text=standard if wording=='standard' else alternate
+            from avengine.qa.v7_english_surface import content_question_en,content_answer_en
+            english=content_question_en(query)
             pairing=bundle.get('pairing_id',bundle.get('base_world_id',''))
             order=sorted(domain,key=lambda d:hashlib.sha256(
                 (str(seed)+'|'+str(pairing)+'|'+standard+'|'+d).encode()).digest())
@@ -418,11 +420,11 @@ def collect_content_binding(bundle, window_id, media, *, seed='v7'):
                 qid=logical+'__'+form
                 row={'question_id':qid,'logical_question_id':logical,'qa_id':PANEL_ID,
                     'protocol_panel':'v7_content_binding','modality':'audiovisual','form':form,
-                    'question_zh':text,'media':deepcopy(media),'answer_type':'closed_set',
+                    'question_zh':text,'question_en':english,'media':deepcopy(media),'answer_type':'closed_set',
                     'question_variant':query['kind']}
                 answer=truth['answer']
                 if form=='mcq':
-                    row['choices']=[{'id':chr(65+i),'text':d} for i,d in enumerate(order)]
+                    row['choices']=[{'id':chr(65+i),'text':content_answer_en(d)} for i,d in enumerate(order)]
                     answer=chr(65+order.index(truth['answer']))
                 public.append(row)
                 private.append({'question_id':qid,'logical_question_id':logical,

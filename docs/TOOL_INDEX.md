@@ -5,7 +5,7 @@
 
 自 2026-08-25 起，目录本身就是能力分组（阶段目录 m1…m7 已移除），
 本表按目录列出每个工具做什么。
-当前共 644 个工具脚本。
+当前共 647 个工具脚本。
 
 ## 资产生成与装配（`tools/assets/`）
 
@@ -350,12 +350,14 @@
 | `tools/timeline/export_native_pilot_windows.py` | Export checked native video windows and balanced pilot question candidates |
 | `tools/timeline/export_v7_alpha.py` | Package immutable admitted alpha parents and training-ready relative media |
 | `tools/timeline/export_v7_trial.py` | Export admitted parents to the v7 row format for an isolated trial only |
+| `tools/timeline/frozen_trial_cli_20261014.py` | Frozen CLI/modules with only the task's temporary owner resource policy |
 | `tools/timeline/generate_v7_alpha.py` | Restartable CPU-only formal static/recorded alpha shards |
 | `tools/timeline/generate_v7_full_preproduction.py` | Explicit TRAIN-only 1500-world preproduction, separate from the eight-world review |
 | `tools/timeline/generate_v7_phase2_pilot.py` | Restartable private phase-two registered CPU integration shards |
 | `tools/timeline/generate_v7_registered.py` | Restartable CPU-only formal static/recorded alpha shards |
 | `tools/timeline/generate_v7_scenes.py` | Seed-driven restartable CPU native candidates. Formal mode fails closed |
 | `tools/timeline/inspect_v7_p19_progress.py` | Read-only v7 P19 status: actual claimant, all rank events and fresh CPU progress |
+| `tools/timeline/monitor_v7_acceptance.py` | Bound and inspect only this acceptance batch's verified process trees |
 | `tools/timeline/pilot_continuous_scenes.py` | CPU-only restartable continuous-scene pilot and native RIR throughput probe |
 | `tools/timeline/pilot_v7_kujiale_ue.py` | Run one measured Kujiale UE/SPEAR research pilot through unchanged v7 stages |
 | `tools/timeline/plot_v7_cpu_monitor.py` | Plot recorded P19 cgroup counters separately from host /proc statistics |
@@ -376,6 +378,7 @@
 | `tools/timeline/repair_kujiale_asset_pilot.py` | Prepare fresh failed-parent recipes with native view and RIR-qualified supports |
 | `tools/timeline/report_kujiale_asset_pilot.py` | Write the local native Kujiale asset pilot's Chinese, image-embedded report |
 | `tools/timeline/review_native_windows.py` | Read five encoded native windows and compare head pixels to native FOA |
+| `tools/timeline/run_v7_acceptance.py` | Run isolated native acceptance parents under a committed resource policy |
 | `tools/timeline/sample_v7_production_inputs.py` | Prepare legal v7 candidate selections; run no native/GPU work or export |
 | `tools/timeline/summarize_continuous_pilot.py` | Read back continuous-pilot media, summarize coverage, and estimate CPU throughput |
 | `tools/timeline/synthesize_native_pilot.py` | Resume native-mouth CPU audio and complete 10 s qualification candidates |

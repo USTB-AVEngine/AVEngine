@@ -228,7 +228,7 @@ def augment_content_binding(row,members,root):
             readbacks={k:{'status':'pass','source':str(receipt_path)} for k in keys}
             readbacks['source_order_listener_order_agree']={'status':'pass' if order_pass else 'blocked','source':str(receipt_path)}
             scenes[member]={'window_s':[0.,10.],'actors':actors,'emissions':emissions,'native_readback':readbacks}
-            blue=next(a for a in actors if a['descriptor_zh']=='蓝色上衣的人')
+            blue=next(a for a in actors if assets[a['asset_id']].get('color')=='blue')
             queries[member]=[{'kind':'same_class_actor','time_s':anchor,'public_time_s':anchor,'content_class':'speech'},
                 {'kind':'offscreen_origin','time_s':anchor,'public_time_s':anchor,'subject_actor_id':blue['actor_id'],'subject_descriptor_zh':blue['descriptor_zh']},
                 {'kind':'first_actor'}]

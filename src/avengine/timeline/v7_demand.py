@@ -264,7 +264,7 @@ def plan_phase2_demand(row,state,catalog,records,contract,*,focus=None):
             shortest=min(r['duration_s'] for r in pool);pool=[r for r in pool if r['duration_s']<=shortest+.1]
             record=rng.choice(sorted(pool,key=lambda r:r['sound_asset_id']));aid=a['asset_id']
             row['source_classes'][aid]=['speech_playback'];row['proposed_sound_asset_ids'][aid]=record['sound_asset_id']
-            row['phase2_recorded_speech_schedule_s'][aid]=[start+offset for start in (0.,10.,20.) for offset in ((.3,2.8) if i==0 else (5.3,))]
+            row['phase2_recorded_speech_schedule_s'][aid]=[start+offset for start in (0.,10.,20.) for offset in ((.3,2.8) if i==0 else (0.,))]
         for a in humans[2:]:row['silent_asset_ids'].append(a['asset_id'])
         if focus=='human_motion':
             walker=selected[0]

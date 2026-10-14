@@ -162,7 +162,7 @@ def parent_payload(summary, output, owned_root):
 
 def export(registry_path, summary_path, output):
     registry_path=Path(registry_path).resolve();registry=load(registry_path)
-    pilot=registry_path.parent;owned_root=pilot.parent.resolve();output=Path(output).resolve()
+    pilot=registry_path.parent;owned_root=Path(registry.get('owned_output_root',pilot.parent)).resolve();output=Path(output).resolve()
     if registry.get('schema')!='v7-isolated-trial-30-parent-registry-v1':
         raise ValueError('explicit authorized isolated trial registry required')
     requested_count=registry.get('requested_parents')
@@ -170,7 +170,7 @@ def export(registry_path, summary_path, output):
         raise ValueError('trial registry parent count does not match registered slots')
     if requested_count!=30 and registry.get('owner_authorized_1500_question_expansion') is not True:
         raise ValueError('expanded trial requires the owner-authorized 1500-question task')
-    if output.parent!=pilot or output.name!='export': raise ValueError('export must be pilot_20261014/export')
+    if output.parent!=pilot or output.name!='export' or not pilot.is_relative_to(owned_root): raise ValueError('export must be the registered task-owned pilot/export')
     if registry.get('training_dataset_merge') is not False or registry.get('CCI_transfer') is not False:
         raise ValueError('isolated trial scope required')
     summary=load(summary_path);requested={r['slot']:r for r in registry['parents']}

@@ -97,6 +97,7 @@ def build_registered_scene(row,house,records,assets,semantic_manifest=None,*,cam
     if rejected:raise ValueError('registered source pool contains blocked inputs: '+str(rejected[:3]))
     plan=row['production_scenario'];n=plan['speaker_count'];rng=np.random.default_rng(row['seeds']['audio'])
     layout=row['measured_static_layout'];starts=[t/10 for t in row['window_start_ticks'][:row['window_count']]]
+    event_starts=[0.,10.,20.] if starts==[0.,5.,10.,15.,20.] else starts
     yaw=float(plan['camera_yaw_deg']);angle=math.radians(yaw)
     camera_policy=plan.get('camera_policy','uniform_static')
     if camera_policy not in {'uniform_static','binding_static','binding_sweep','review_sweep_360','pilot_binding_coverage'}:raise ValueError('unsupported camera policy')
@@ -116,7 +117,7 @@ def build_registered_scene(row,house,records,assets,semantic_manifest=None,*,cam
             peak=float(plan.get('camera_sweep_peak_deg',60.))
             if not math.isfinite(peak) or not 0.<peak<=120.:raise ValueError('invalid native review camera sweep')
             track={0.:yaw,30.:yaw}
-            for start in starts:
+            for start in event_starts:
                 schedule=plan.get('camera_sweep_schedule',[(0.,0.),(4.,0.),(6.,peak),(8.,-peak),(10.,0.)])
                 if len(schedule)<2 or schedule[0][0]!=0 or schedule[-1][0]!=10 or any(not math.isfinite(float(x))for row in schedule for x in row)or any(not 0<=row[0]<=10 or abs(row[1])>120 for row in schedule)or any(b[0]<=a[0]for a,b in zip(schedule[:-1],schedule[1:])):raise ValueError('invalid native shared camera sweep schedule')
                 for offset,delta in schedule:
@@ -127,7 +128,7 @@ def build_registered_scene(row,house,records,assets,semantic_manifest=None,*,cam
             # Keep the original production binding interval; acquire all
             # azimuths with actual native frames near the end of each window.
             track={0.:yaw,30.:yaw}
-            for start in starts:
+            for start in event_starts:
                 for offset,delta in ((0.,0.),(7.5,0.),(9.9,360.),(10.,360.)):
                     track[start+offset]=yaw+delta
             scene['camera_yaw_knots']=[{'time_s':t,'yaw_deg':v} for t,v in sorted(track.items())]
@@ -178,7 +179,7 @@ def build_registered_scene(row,house,records,assets,semantic_manifest=None,*,cam
             used_voices.add(s['voice_reference']['speaker_id'])
             offsets=plan.get('semantic_role_start_offsets_s',[2.+j*.9 for j in range(len(sounds))])
             if len(offsets)!=len(sounds) or any(not math.isfinite(float(t)) or not 0.<=float(t)<=7. for t in offsets):raise ValueError('invalid complete authored role schedule')
-            for start in starts:add(ep,start+float(offsets[i]),r)
+            for start in event_starts:add(ep,start+float(offsets[i]),r)
     else:
         pool_split='train' if row['split']=='train' else 'eval'
         for i,a in enumerate(assets[:n]):
@@ -187,7 +188,7 @@ def build_registered_scene(row,house,records,assets,semantic_manifest=None,*,cam
             if not voices:raise ValueError('distinct complete admitted voice deficit')
             speaker=str(rng.choice(voices));used_voices.add(speaker);clips=[r for r in pool if r['speaker_id']==speaker]
             ep=a['endpoint_id']
-            for start in starts:
+            for start in event_starts:
                 times=[start-.8,start+2.,start+5.,start+7.5] if i==0 else [start+.5+(i-1)*.4,start+5.+(i-1)*.4]
                 for when in times:
                     candidates=[r for r in clips if not any(e==ep and round(max(0.,when)*10)<b and round(max(0.,when)*10)+math.ceil(r['duration_s']*10)>a for e,a,b in busy)]
@@ -198,7 +199,7 @@ def build_registered_scene(row,house,records,assets,semantic_manifest=None,*,cam
         pool=[r for r in admitted if r.get('sound_class')==animal['sound_class']and r.get('duration_s',r.get('readback',{}).get('duration_s',0))>=2.]
         if not pool:raise ValueError('admitted recorded dog source deficit')
         r=recording_header(pool[int(rng.integers(len(pool)))])
-        for start in starts:
+        for start in event_starts:
             for offset in [.2,2.6,5.2,7.7]:add(animal['endpoint_id'],start+offset,r,whole=False)
     # Laughter is a recorded non-speech mouth emission; it is not a speaker.
     # No clapping/footstep/instrument capability is invented for standing people.

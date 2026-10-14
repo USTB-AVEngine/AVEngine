@@ -101,3 +101,27 @@ def reissue_item_english(item,replacements):
         result['truth']['label']=relabel_english(result['truth']['label'],replacements)
     if result['truth'].get('value')!=item['truth'].get('value'):raise ValueError('English presentation changed canonical truth')
     return result
+
+
+def content_answer_en(value):
+    """Render retained content labels without changing the private canonical."""
+    value=str(value)
+    direct={'是':'yes','否':'no','现场人物':'a person speaking live','音箱播放':'audio playback from a speaker'}
+    if value in direct:return direct[value]
+    for zh,en in [('蓝色','blue'),('黄色','yellow'),('绿色','green'),('白色','white'),('黑色','black')]:
+        if value==zh+'上衣的人':return 'the person in the '+en+' shirt'
+    return tidy_english(value)
+
+
+def content_question_en(query):
+    kind=query['kind']
+    texts={'same_class_actor':'Who is speaking at this time?',
+           'first_actor':'Who started speaking first in this clip?',
+           'offscreen_origin':'Is the voice at this time coming from {subject}?',
+           'live_or_playback':'Is the voice at this time live speech or playback from a speaker?'}
+    if kind not in texts:raise ValueError('unsupported English content query: '+kind)
+    text=texts[kind].format(subject=content_answer_en(query.get('subject_descriptor_zh','the visible person')))
+    if kind!='first_actor':
+        time=float(query.get('public_time_s',query['time_s']))
+        text='At '+format(time,'.12g')+' seconds in this clip, '+text[0].lower()+text[1:]
+    return text

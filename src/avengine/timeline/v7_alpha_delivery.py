@@ -59,7 +59,8 @@ def readable_training_answer(question,gold,authority):
         from avengine.qa.v7_content_binding import content_truth,admission_blockers
         evidence=gold['evidence'];actual=content_truth(evidence['scene'],evidence['query'])['answer']
         if actual!=gold['canonical_answer'] or admission_blockers(evidence['scene'],evidence['query'],binding_witness=evidence['native_witness']):raise ValueError('original content-binding authority or actual pair admission failed')
-        return _answer_text(actual),{'status':'pass','method':'unchanged_v7_content_binding_authority_and_native_pairs'}
+        from avengine.qa.v7_english_surface import content_answer_en
+        return content_answer_en(actual),{'status':'pass','method':'unchanged_v7_content_binding_authority_and_native_pairs','canonical_preserved':True}
     return _answer_text(gold['canonical_answer']),{'status':'canonical_preserved','method':'original_v0.2_protocol_canonical'}
 
 
