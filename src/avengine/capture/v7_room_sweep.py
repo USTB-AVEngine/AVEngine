@@ -27,16 +27,26 @@ def witness_scene(room,assets):
     return scene
 
 
-def static_categories(house,room,inputs,catalog,categories,directory,save_samples=False):
+def static_categories(house,room,inputs,catalog,categories,directory,save_samples=False,*,full_budget=False,requested_categories=None):
     inputs=deepcopy(inputs)
-    # Finite census proposals only; the complete parent runtime is untouched.
-    inputs['visible_placement_max_proposals_per_asset']=128
-    inputs['visible_placement_max_contact_attempts_per_asset']=16
+    requested=list(categories)+['chair_seated'] if requested_categories is None else list(requested_categories)
+    if not requested or len(set(requested))!=len(requested) or set(requested)-set(categories)-{'chair_seated'}:
+        raise ValueError('invalid requested census categories')
+    categories={k:v for k,v in categories.items() if k in requested}
+    if full_budget:
+        # Restore the production default: all 320 supports x 5 offsets, plus
+        # any pinned proposal, and 64 original native collision candidates.
+        inputs.pop('visible_placement_max_proposals_per_asset',None)
+        inputs['visible_placement_max_contact_attempts_per_asset']=64
+    else:
+        inputs['visible_placement_max_proposals_per_asset']=128
+        inputs['visible_placement_max_contact_attempts_per_asset']=16
+    inputs['room_sweep_full_budget']=bool(full_budget)
     inputs['room_sweep_one_view_witness']=True
-    inputs['room_sweep_max_asset_wall_seconds']=180
+    inputs['room_sweep_max_asset_wall_seconds']=2700 if full_budget else 180
     start=time.monotonic();cpu=time.process_time();directory=Path(directory)
     directory.mkdir(parents=True,exist_ok=False)
-    by_id={a['asset_id']:a for a in catalog};ids=list(dict.fromkeys([x for v in categories.values()for x in v]+['v7_male_adult_14_blue_v1']))
+    by_id={a['asset_id']:a for a in catalog};ids=list(dict.fromkeys([x for v in categories.values()for x in v]+(['v7_male_adult_14_blue_v1'] if 'chair_seated' in requested else [])))
     assets=[deepcopy(by_id[x])for x in ids];scene=witness_scene(room,assets)
     working=deepcopy(house);working['room']=deepcopy(room)
     video=None;results={}
@@ -47,13 +57,15 @@ def static_categories(house,room,inputs,catalog,categories,directory,save_sample
         for category,choices in categories.items():
             # Camera height is a sampling choice, not a contact/frustum gate.
             scene['listener_m'][1]=float(room['measured_floor_y_m'])+(1.65 if category=='ceiling_object'else .95 if category in {'floor_dog','floor_cat','perched_bird'}else 1.25)
-            attempts=[]
+            attempts=[];cell_started=time.monotonic()
             for asset_id in choices:
+                remaining=inputs['room_sweep_max_asset_wall_seconds']-(time.monotonic()-cell_started) if full_budget else inputs['room_sweep_max_asset_wall_seconds']
+                if remaining<=0:break
                 entry=entries[asset_id];asset=entry['declaration'];video.actors=[entry]
                 attempt_dir=directory/category/asset_id;attempt_dir.mkdir(parents=True,exist_ok=False)
                 before=time.monotonic();video.material_checks=[];video.color_checks=[]
                 from avengine.capture.v7_census_timebox import arm_sampling_timebox,disarm_sampling_timebox
-                previous_alarm=arm_sampling_timebox(inputs['room_sweep_max_asset_wall_seconds'])
+                previous_alarm=arm_sampling_timebox(remaining)
                 try:
                     checks=video.qualify_standing(scene,attempt_dir)
                     # Quadruped paw readbacks retain the task's stricter 12mm
@@ -103,21 +115,29 @@ def static_categories(house,room,inputs,catalog,categories,directory,save_sample
             selected=next((r for r in attempts if r['status']=='pass'),None)
             results[category]={'status':'pass'if selected else 'fail','selected':selected,
                 'attempts':[str(directory/category/r['asset_id']/'result.json')for r in attempts],
-                'failure_reasons':dict(Counter(r.get('error','')for r in attempts if r['status']!='pass'))}
+                'failure_reasons':dict(Counter(r.get('error','')for r in attempts if r['status']!='pass')),
+                'search_round':'full_budget_v2' if full_budget else 'bounded_v1',
+                'timebox_exhausted':bool(full_budget and not selected and (time.monotonic()-cell_started>=inputs['room_sweep_max_asset_wall_seconds'] or any('census_asset_sampling_timebox' in r.get('error','') for r in attempts)))}
             write_json(directory/('partial_'+category+'.json'),results)
             print(json.dumps({'room_id':room['room_label'],'category':category,'status':results[category]['status'],'wall_seconds':sum(r['wall_seconds']for r in attempts),'reasons':results[category]['failure_reasons']},ensure_ascii=False),flush=True)
             gc.collect()
-        scene['listener_m'][1]=float(room['measured_floor_y_m'])+.95
-        from avengine.capture.v7_room_seated_witness import seated_witness
-        results['chair_seated']=seated_witness(video,scene,room,entries['v7_male_adult_14_blue_v1'],directory/'chair_seated',save_samples)
-        write_json(directory/'partial_chair_seated.json',results)
-        print(json.dumps({'room_id':room['room_label'],'category':'chair_seated','status':results['chair_seated']['status'],'reasons':results['chair_seated']['failure_reasons']},ensure_ascii=False),flush=True)
+        if 'chair_seated' in requested:
+            scene['listener_m'][1]=float(room['measured_floor_y_m'])+.95
+            # An isolated chair recheck needs a native support survey, not
+            # a repeated admission of an already-passing category.
+            if getattr(video,'_visible_room_support_cache',None) is None:
+                video.actors=[]
+                video.qualify_standing(scene,directory/'support_survey_only')
+            from avengine.capture.v7_room_seated_witness import seated_witness
+            results['chair_seated']=seated_witness(video,scene,room,entries['v7_male_adult_14_blue_v1'],directory/'chair_seated',save_samples)
+            write_json(directory/'partial_chair_seated.json',results)
+            print(json.dumps({'room_id':room['room_label'],'category':'chair_seated','status':results['chair_seated']['status'],'reasons':results['chair_seated']['failure_reasons']},ensure_ascii=False),flush=True)
         video.actors=all_entries
         result={'status':'static_complete','house':house['house'],'room_id':room['room_label'],
-            'categories':results,'chair_seated_status':results['chair_seated']['status'],
+            'categories':results,'chair_seated_status':results.get('chair_seated',{}).get('status','not_requested'),
             'room_area_m2':room['floor_area_m2'],'native_renderer':video.receipt,
             'wall_seconds':time.monotonic()-start,'process_cpu_seconds':time.process_time()-cpu,
-            'sampling_budget':{'support_proposals_per_asset':128,'native_contact_attempts_per_asset':16,'exhaustion_is_not_proof_of_room_impossibility':True,'single_measured_native_view':True,'asset_wall_timebox_seconds':180},
+            'sampling_budget':{'support_proposals_per_asset':1601 if full_budget else 128,'support_proposal_limit_enabled':not full_budget,'native_contact_attempts_per_asset':64 if full_budget else 16,'exhaustion_is_not_proof_of_room_impossibility':True,'single_measured_native_view':True,'asset_wall_timebox_seconds':2700 if full_budget else 180,'search_round':'full_budget_v2' if full_budget else 'bounded_v1'},
             'max_rss_kib':resource.getrusage(resource.RUSAGE_SELF).ru_maxrss,
             'formal_parent_count':0,'GPU_jobs':0}
     except Exception as error:

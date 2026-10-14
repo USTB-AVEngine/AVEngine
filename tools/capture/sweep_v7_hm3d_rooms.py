@@ -8,6 +8,8 @@ def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('--inputs',type=Path,required=True);p.add_argument('--room-id',required=True)
     p.add_argument('--output',type=Path,required=True);p.add_argument('--save-samples',action='store_true')
+    p.add_argument('--full-budget',action='store_true',help='restore production support/collision search defaults')
+    p.add_argument('--categories',nargs='+',help='only these category cells; omit to keep the first census behavior')
     args=p.parse_args()
     from avengine.capture.v7_cpu_assignment import pin_registered_cpu_task
     pin_registered_cpu_task(args.inputs.parent)
@@ -18,7 +20,7 @@ def main():
     houses=json.loads((args.inputs/'houses.json').read_text());loc=houses['room_index'][args.room_id]
     h=next(h for h in houses['houses']if h['house']==loc['house']);room=h['checked_rooms'][loc['room_index']]
     runtime=json.loads((args.inputs/'runtime.json').read_text());assets=json.loads((args.inputs/'assets.json').read_text())['assets'];categories=json.loads((args.inputs/'categories.json').read_text())
-    result=static_categories(h,room,runtime,assets,categories,args.output,args.save_samples)
+    result=static_categories(h,room,runtime,assets,categories,args.output,args.save_samples,full_budget=args.full_budget,requested_categories=args.categories)
     print(json.dumps({k:v for k,v in result.items()if k in {'status','house','room_id','error','wall_seconds','process_cpu_seconds','max_rss_kib'}},ensure_ascii=False),flush=True)
     return 0 if result['status']=='static_complete'else 2
 
