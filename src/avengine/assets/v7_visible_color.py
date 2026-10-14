@@ -40,7 +40,7 @@ def summarize_views(colors,thresholds):
     return {'status':'pass' if passed else 'fail','label':label if passed else None,'main_share':share,'pooled_family_shares':pooled,'body_pixels_across_views':total,'dominant_agreeing_views':votes,'minimum_agreeing_views':2}
 
 
-COLOR_EVIDENCE_REVISION='v7-visible-color-ROI-normalization-v2'
+COLOR_EVIDENCE_REVISION='v7-visible-color-ROI-English-naming-v3'
 
 
 def color_roi_pixels(record):
@@ -49,6 +49,7 @@ def color_roi_pixels(record):
 
 def rebuild_appearance_review(checks,assets,animal_minimum_pixels=200):
     """Qualify actual observations without changing registered colour labels."""
+    from avengine.qa.v7_english_surface import appearance_description_en
     reviews={};excluded=[]
     names={'blue':'蓝色','yellow':'黄色','green':'绿色','white':'白色','black':'黑色','gray':'灰色','gray_silver':'灰银色','wood_brown':'木棕色','beige':'米色','brown':'棕色','red':'红色'}
     for a in assets:
@@ -67,7 +68,7 @@ def rebuild_appearance_review(checks,assets,animal_minimum_pixels=200):
             continue
         field='top_color' if a['kind'] in {'human','performer'} else 'coat_color' if a['kind']=='animal' else 'housing_color'
         reviews[str(a['native_instance_id'])]={'status':'reviewed','field':field,'value':label,
-            'label_zh':names.get(label,label)+'的'+a['name_zh'],'label_en':label+' '+a['name_zh'],
+            'label_zh':appearance_description_en(a,label),'label_en':appearance_description_en(a,label),
             'frame_refs':sorted({r['frame_index'] for r in matching}),
             'review_method':'actual native frame ROI; fixed hue/luminance rules; normalized body_pixels/roi_pixels',
             'human_viewing_used':False}

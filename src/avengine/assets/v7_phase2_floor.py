@@ -9,6 +9,7 @@ import hashlib
 import numpy as np
 
 class OriginalVerticalStageRay:
+    MAX_QUERY_POINTS=32
     def __init__(self,path,*,mesh=None,transform_evidence=None):
         import shapely
         from shapely.strtree import STRtree
@@ -25,6 +26,10 @@ class OriginalVerticalStageRay:
         import shapely
         p=np.asarray(points,float)
         if p.ndim!=2 or p.shape[1]!=3:raise ValueError('vertical stage rays require N x 3 metres')
+        # Bound the Cartesian candidate-pair allocation, keeping every exact
+        # triangle and the unchanged independent native support comparison.
+        if len(p)>self.MAX_QUERY_POINTS:
+            return np.concatenate([self.many(p[i:i+self.MAX_QUERY_POINTS]) for i in range(0,len(p),self.MAX_QUERY_POINTS)])
         pairs=self.tree.query(shapely.points(p[:,0],p[:,2]))
         result=np.full(len(p),-np.inf)
         if pairs.size:

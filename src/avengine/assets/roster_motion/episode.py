@@ -302,8 +302,8 @@ def compile_walking(video,entry,scene,house,inputs,directory,request):
                 for values in solver.active.values():values[~moving]=True
                 clearance=TriangleClearance(video,house,floor_y,entry);geometry=[];frames=[];minimum=math.inf
                 for i,t in enumerate(times):
-                    _,parts,ev=solver.frame(i);v,f=triangle_mesh(d,b,parts)
-                    if inputs.get('phase2') and moving[i] and not clear_native_foot_sound_paths(
+                    qualified_globals,parts,ev=solver.frame(i);v,f=triangle_mesh(d,b,parts)
+                    if inputs.get('phase2') and moving[i] and any(p['endpoint_id']==entry['endpoint_id'] for p in scene.get('planned_footsteps',[])) and not clear_native_foot_sound_paths(
                             video,scene['listener_m'],v,ev['feet'],positions[i],yaw,
                             {int(a['object'].object_id)for a in video.actors}):
                         prefilter['low_foot_sound_path_rejected']=prefilter.get('low_foot_sound_path_rejected',0)+1
@@ -316,7 +316,9 @@ def compile_walking(video,entry,scene,house,inputs,directory,request):
                             or x['support_lock_error_m']>quality['support_lock_limit_m']+1e-12 for x in contacts):
                         raise ValueError('motion source foot contact or lock violates declared human quality policy')
                     if solver.max_reach>=.001 or ev['pelvis_lowering_m']>=.08:raise ValueError('motion IK reach or pelvis bound failed')
-                    geometry.append(parts);frames.append({**ev,'time_s':float(t),'moving':bool(moving[i]),'minimum_nonfloor_clearance_m':dist})
+                    # Keep the small solved bone matrices, not 901 full skins.
+                    # Export re-evaluates the identical deterministic skinning.
+                    geometry.append(qualified_globals);frames.append({**ev,'time_s':float(t),'moving':bool(moving[i]),'minimum_nonfloor_clearance_m':dist})
                 accepted=(positions,yaw,geometry,frames,floor_y,nav,clearance,minimum);break
             except ValueError as error:failures.append({'start_m':p0.tolist(),'yaw_rad':yaw,'reason':str(error)})
         if accepted:break
@@ -324,7 +326,8 @@ def compile_walking(video,entry,scene,house,inputs,directory,request):
         write_json(directory/'motion_rejected.json',{'status':'blocked','failures':failures,'lineage':lineage,'prefilter':prefilter,'candidate_count':len(candidates),'floor_polygon_eroded_area_m2':poly.area,'translation_m':float(distance[-1])});raise ValueError('admitted human has no fully qualified new-house walking route')
     positions,yaw,parts_list,frames,floor_y,nav,clearance,minimum=accepted
     folder=directory/'frames';folder.mkdir(parents=True,exist_ok=True);ed=externalize_unchanged_images(d,b,directory/'textures');files=[];bounds=[];pose_cache={}
-    for i,parts in enumerate(parts_list):
+    for i,qualified_globals in enumerate(parts_list):
+        parts,_=pose(d,b,None,frames[i]['source_phase_s'],globals_override=qualified_globals,ground=False)
         if i%30==0:check_write(folder,expected_bytes=32_000_000)
         digest=hashlib.sha256()
         for part in parts:

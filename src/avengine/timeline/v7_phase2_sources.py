@@ -165,6 +165,8 @@ def build_phase2_scene(row,house,records,catalog,semantic_manifest=None):
     if not math.isfinite(turn_hold) or not 0.<=turn_hold<=.6:
         raise ValueError('physical camera turn hold must be finite and in 0 to 0.6 seconds')
     if turn_hold:scene['phase2_camera_turn_hold_s']=turn_hold
+    if row.get('native_occlusion_relations'):scene['native_occlusion_relations']=deepcopy(row['native_occlusion_relations'])
+    if row.get('category_focus_class'):scene['production_scenario']['category_focus_class']=row['category_focus_class']
     if production_intake:scene['production_sampling_intake']=production_intake
     if row.get('scene_demand'):scene['scene_demand']=deepcopy(row['scene_demand'])
     scene['phase2_profile']=True

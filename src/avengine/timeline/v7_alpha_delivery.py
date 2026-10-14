@@ -10,6 +10,8 @@ import csv,json,os,shutil,statistics
 from avengine.timeline.continuous_pilot import write_json
 from avengine.timeline.v7_production_contract import validate_question_counts,question_allocation
 from avengine.qa.unified_scoring import score_unified_item
+from avengine.timeline.v7_english_export import english_public_question,validate_english_model_text
+from avengine.timeline.v7_question_independence import independence_key,INDEPENDENCE_REVISION
 
 
 def load(path):return json.loads(Path(path).read_text())
@@ -76,7 +78,7 @@ def export_alpha(seeds,seal_roots,output,expected_parents=None,sealed_parent_map
     preferred=load(sealed_parent_map)['parents'] if sealed_parent_map else {}
     if preferred and set(preferred)!={r['scene_id'] for r in rows}:raise ValueError('explicit seal selection differs from the release seeds')
     chosen={};parent_rows=[];window_rows=[];training=[];family=Counter();modality=Counter();rejects=Counter();candidate_rejects=Counter();protocol_rejects=Counter()
-    material_rows=[];directions=[];activity_counts=Counter();speaker_counts=Counter();panel_family=Counter();temporal=Counter();used_source_ids=set();used_speakers=set();native_checks=[];native_visual_cpu=[];sources={};reference_cpu=[];profiles=set();classes=Counter();sound_classes=Counter();genders=Counter();mechanisms=Counter();humans={};moving_windows=0;tts_event_count=0
+    material_rows=[];directions=[];activity_counts=Counter();speaker_counts=Counter();panel_family=Counter();temporal=Counter();used_source_ids=set();used_speakers=set();native_checks=[];native_visual_cpu=[];sources={};reference_cpu=[];profiles=set();all_gold={};public_by_window={};classes=Counter();sound_classes=Counter();genders=Counter();mechanisms=Counter();humans={};moving_windows=0;tts_event_count=0
     for row in rows:
         candidates=[]
         search=[Path(preferred[row['scene_id']])] if preferred else [Path(root)/'parents'/row['scene_id'] for root in seal_roots]
@@ -91,7 +93,7 @@ def export_alpha(seeds,seal_roots,output,expected_parents=None,sealed_parent_map
         for name in pointer['required_files']:
             p=seal/name
             if not p.is_file():raise ValueError(f'qualified seal lacks {name}')
-            _copy(p,target/'parents'/row['scene_id']/name)
+            if Path(name).name!='questions.json':_copy(p,target/'parents'/row['scene_id']/name)
         delivery=target/'parents'/row['scene_id']
         chosen[row['scene_id']]={'source_parent_directory':str(parent),'source_seal_directory':str(seal),'portable_delivery_directory':str(delivery.relative_to(target))}
         times=[]
@@ -138,7 +140,7 @@ def export_alpha(seeds,seal_roots,output,expected_parents=None,sealed_parent_map
             audio=load(seal/'private/native'/(factor+'_audio_evidence.json'))
             directions.extend(audio['directions']);
         for win in result['windows']:
-            wid=win['window_id'];q=load(seal/'windows'/wid/'questions.json');gold=load(seal/'private'/(wid+'_answers.json'));by_id={g['question_id']:g for g in gold}
+            wid=win['window_id'];q=load(seal/'windows'/wid/'questions.json');gold=load(seal/'private'/(wid+'_answers.json'));by_id={g['question_id']:g for g in gold};all_gold.update(by_id);public_by_window[(row['scene_id'],wid)]=[]
             quota=row['question_quota_base']+row['members'].index(win['member'])*row['window_count']+int(wid.rsplit('w',1)[1])
             validate_question_counts(q,gold,expected_allocation=question_allocation(quota,14))
             selected=load(parent/('selected_windows_'+win['member']+'_completed.json'))
@@ -173,10 +175,13 @@ def export_alpha(seeds,seal_roots,output,expected_parents=None,sealed_parent_map
                 folder=Path('parents')/row['scene_id']/'windows'/wid
                 # This is explicitly supervised train/dev data. Runtime E/S
                 # predictions are not manufactured from private scene truth.
+                english=english_public_question(question)
+                public_by_window[(row['scene_id'],wid)].append(english)
+                validate_english_model_text({**english,'model_answer':answer})
                 training.append({'question_id':question['question_id'],'logical_question_id':question['logical_question_id'],
-                    'independent_parent_scene_id':row['scene_id'],'window_id':wid,'split':row['split'],'house':row['house'],
+                    'independent_parent_scene_id':row['scene_id'],'window_id':wid,'window_start_s':win['start_s'],'split':row['split'],'house':row['house'],
                     'qa_id':question['qa_id'],'protocol_panel':question['protocol_panel'],'modality':question['modality'],
-                    'question_zh':question['question_zh'],'question_en':question.get('question_en'),
+                    'question_en':english['question_en'],'choices':english.get('choices',[]),
                     'video':str(folder/'video.mp4'),'audio_foa':str(folder/'audio_foa.wav'),'audio_mono':str(folder/'audio_mono.wav'),
                     'foa_format':'ACN_WYZX_SN3D_camera','model_answer':answer,
                     'canonical_answer':by_id[question['question_id']]['canonical_answer'],
@@ -216,6 +221,23 @@ def export_alpha(seeds,seal_roots,output,expected_parents=None,sealed_parent_map
             if str(path) not in license_files:
                 name=f'license_{len(license_files):02d}.txt';_copy(path,target/'licenses'/name);license_files[str(path)]=str(Path('licenses')/name)
         write_json(target/'parents'/parent['scene_id']/'private/packaged_asset_licenses.json',packaged_assets)
+    raw_export_questions=len(training);kept={}
+    for item in sorted(training,key=lambda r:(r['window_start_s'],r['window_id'])):
+        key,_=independence_key(item['independent_parent_scene_id'],item,all_gold[item['question_id']])
+        kept.setdefault(key,item)
+    training=list(kept.values());kept_ids={r['question_id']for r in training}
+    family=Counter(r['qa_id']for r in training);modality=Counter(r['modality']for r in training)
+    panel_family=Counter((r['protocol_panel'],r['qa_id'])for r in training)
+    for (scene_id,wid),public in public_by_window.items():
+        write_json(target/'parents'/scene_id/'windows'/wid/'questions.json',[q for q in public if q['question_id']in kept_ids])
+    for parent in parent_rows:
+        parent['raw_export_questions']=parent['logical_questions']
+        parent['logical_questions']=sum(r['independent_parent_scene_id']==parent['scene_id']for r in training)
+        parent['dedup_dropped']=parent['raw_export_questions']-parent['logical_questions']
+        parent['dedup_rule_version']=INDEPENDENCE_REVISION
+    for window in window_rows:
+        window['raw_export_questions']=window['logical_questions']
+        window['logical_questions']=sum(r['window_id']==window['window_id']for r in training)
     for split in sorted({r['split'] for r in rows}):
         with (target/(split+'.jsonl')).open('x') as f:
             for record in training:
@@ -232,9 +254,10 @@ def export_alpha(seeds,seal_roots,output,expected_parents=None,sealed_parent_map
         ordered=sorted(float(v) for v in values)
         if not ordered:return {'n':0,'median':None,'p95':None,'min':None,'max':None}
         return {'n':len(ordered),'median':statistics.median(ordered),'p95':ordered[min(len(ordered)-1,int(.95*len(ordered)))],'min':ordered[0],'max':ordered[-1]}
-    bindings=sum(w['binding'] for w in window_rows)
+    bindings=sum(all_gold[r['question_id']].get('counterfactual_role')=='binding' for r in training)
     summary={'status':'formal_alpha_admitted','profile':next(iter(profiles)) if len(profiles)==1 else sorted(profiles),'independent_parent_scenes':len(rows),
-        'base_time_windows':sum(r['window_count'] for r in rows),'formal_windows':len(window_rows),'formal_logical_questions':len(training),
+        'base_time_windows':sum(r['window_count'] for r in rows),'formal_windows':len(window_rows),'formal_logical_questions':len(training),'raw_export_questions':raw_export_questions,
+        'independent_questions':len(training),'dedup_dropped':raw_export_questions-len(training),'dedup_rule_version':INDEPENDENCE_REVISION,
         'questions_per_window':dict(Counter(w['logical_questions'] for w in window_rows)),
         'family_counts':dict(family),'panel_family_counts':{panel+'/'+qa:n for (panel,qa),n in panel_family.items()},'actual_temporal_window_counts':dict(temporal),'family_zero_counts':{f'QA-{i:02d}':0 for i in range(1,29) if f'QA-{i:02d}' not in family},
         'modality_counts':dict(modality),'modality_percent':{k:100*v/len(training) for k,v in modality.items()},

@@ -28,6 +28,9 @@ CONDITION_FAMILIES = {
     'staggered_sources': ['QA-03','QA-18','QA-23','STARSS-SPEAKERS'],
     'countable_class13_activity': ['QA-23','STARSS-SPEAKERS'],
     'silent_unique_bystander': ['QA-01','QA-02','QA-14'],
+    'registered_occluder_relation': ['QA-09','QA-10','QA-11'],
+    'authored_native_quartet': ['QA-26','QA-27','QA-28','V7-CONTENT-BIND'],
+    'admitted_source_taxonomy': ['QA-21','STARSS-CLASS13','V7-CLASS34'],
     'source_direction_and_frustum': ['QA-04','QA-25','STARSS-FRUSTUM','QA-08','QA-09'],
 }
 
@@ -191,7 +194,8 @@ def record_selected_parent(path,result):
         state.update(logical_questions=state['logical_questions']-old['logical_questions']+n,
                      family_counts={k:v for k,v in aggregate.items() if v},revision=DEMAND_REVISION)
         state['parents'][key]={'scene_id':result['scene_id'],'logical_questions':n,'family_counts':dict(counts),
-                               'delivery_directory':result.get('delivery_directory')}
+                               'delivery_directory':result.get('delivery_directory'),'raw_logical_questions':result.get('raw_logical_questions',n),
+                               'dedup_dropped':result.get('dedup_dropped',0),'dedup_rule_version':result.get('dedup_rule_version')}
         demand_snapshot(state)
         tmp=p.with_name(p.name+f'.{os.getpid()}.tmp')
         with tmp.open('w') as stream:
@@ -201,10 +205,12 @@ def record_selected_parent(path,result):
 
 def add_scene_demand(row,state,*,focus=None):
     row=deepcopy(row)
+    if row.get('schema')=='v7-recorded-registered-standing-v1':
+        row['window_count']=5;row['window_start_ticks']=[0,50,100,150,200]
     request=demand_snapshot(state,next_questions=row.get('window_count',2)*row.get('questions_per_window',14)*len(row.get('members',['v0_a0'])))
     gaps=request['family_deficits'];rng=random.Random(row['scene_seed'])
-    choices=['binding','human_motion','count','animal_motion']
-    groups=[('QA-01','QA-02','QA-03','QA-12','QA-28'),('QA-06','QA-13','QA-15','QA-16','QA-17'),('QA-18','QA-19','QA-23','STARSS-SPEAKERS'),('QA-06','QA-15')]
+    choices=['binding','human_motion','count','animal_motion','occlusion','taxonomy','content_binding']
+    groups=[('QA-01','QA-02','QA-03','QA-12','QA-28'),('QA-06','QA-13','QA-15','QA-16','QA-17'),('QA-18','QA-19','QA-23','STARSS-SPEAKERS'),('QA-06','QA-15'),('QA-09','QA-10','QA-11'),('QA-21','STARSS-CLASS13','V7-CLASS34'),('QA-26','QA-27','QA-28','V7-CONTENT-BIND')]
     weights=[sum(gaps.get(f,0) for f in group)*(5 if name=='binding' else 1) for name,group in zip(choices,groups)]
     chosen=focus or rng.choices(choices,weights=weights if any(weights) else None,k=1)[0]
     if chosen not in choices:raise ValueError('unsupported demand focus')
@@ -214,7 +220,10 @@ def add_scene_demand(row,state,*,focus=None):
         request['requested_conditions']+=['walking_human' if chosen=='human_motion' else 'moving_animal',
                                          'distance_trend_during_sound','moving_after_source_and_wet_tail_stop']
     if chosen=='count':request['requested_conditions'].append('countable_class13_activity')
-    if chosen=='binding':request['requested_conditions'].append('silent_unique_bystander')
+    if chosen in {'binding','occlusion'}:request['requested_conditions'].append('silent_unique_bystander')
+    if chosen=='occlusion':request['requested_conditions'].append('registered_occluder_relation')
+    if chosen=='taxonomy':request['requested_conditions'].append('admitted_source_taxonomy')
+    if chosen=='content_binding':request['requested_conditions'].append('authored_native_quartet')
     row['scene_demand']=request
     return row
 
@@ -223,12 +232,20 @@ def plan_phase2_demand(row,state,catalog,records,contract,*,focus=None):
     """Compile concrete demands through the existing registered phase2 intake."""
     from avengine.timeline.v7_production_inputs import bind_animal_motion,validate_recipe
     row=add_scene_demand(row,state,focus=focus);request=row['scene_demand'];focus=request['focus']
+    row['acceptance_allow_partial_families']=False
+    if row.get('schema')=='v7-visible-registered-pilot-phase2-v1':
+        row['trial_only']=True
+        if row.get('members') not in (None,['v0_a0']):raise ValueError('phase2 motion producer requires a single native member')
+        row['members']=['v0_a0']
     byid={a['asset_id']:a for a in catalog};rng=random.Random(row['scene_seed'])
     if row.get('family')=='kujiale':
         request['unresolved_conditions']=['phase2 motion unavailable in the registered Kujiale producer']
         return row
     humans=[byid[aid] for aid in row['asset_ids'] if byid[aid].get('kind')=='human' and byid[aid].get('controlled_shirt')]
-    if focus in {'human_motion','count'}:
+    if focus=='content_binding':
+        request['required_producer_profile']='registered_authored_quartet'
+        request['unresolved_conditions']=['phase2 single-member row must be assigned an original registered authored quartet template']
+    elif focus in {'human_motion','count'}:
         if len(humans)<2:raise ValueError('demand needs at least two existing registered humans')
         # Keep the exact selected bodies and choose admitted whole recorded
         # speech; authored standing-only TTS is never moved or relabelled.
@@ -247,13 +264,13 @@ def plan_phase2_demand(row,state,catalog,records,contract,*,focus=None):
             shortest=min(r['duration_s'] for r in pool);pool=[r for r in pool if r['duration_s']<=shortest+.1]
             record=rng.choice(sorted(pool,key=lambda r:r['sound_asset_id']));aid=a['asset_id']
             row['source_classes'][aid]=['speech_playback'];row['proposed_sound_asset_ids'][aid]=record['sound_asset_id']
-            row['phase2_recorded_speech_schedule_s'][aid]=[.3,2.8,15.3,17.8] if i==0 else [5.3,20.3]
+            row['phase2_recorded_speech_schedule_s'][aid]=[start+offset for start in (0.,10.,20.) for offset in ((.3,2.8) if i==0 else (5.3,))]
         for a in humans[2:]:row['silent_asset_ids'].append(a['asset_id'])
         if focus=='human_motion':
             walker=selected[0]
             if not walker.get('walk_allowed'):raise ValueError('demand selected body has no registered walk')
             trend='receding' if row['scene_seed']%2 else 'approaching'
-            row['motion_requests'][walker['asset_id']]={'action':'walk','speed_m_s':.15,'intervals_s':[[0.,10.],[15.,25.]],'distance_trend':trend}
+            row['motion_requests'][walker['asset_id']]={'action':'walk','speed_m_s':.15,'intervals_s':[[0.,2.5],[8.,9.9],[10.,12.5],[18.,19.9],[20.,22.5],[28.,29.9]],'distance_trend':trend}
             request['distance_trend']=trend
         request['count_scope']='all actual human source activity in STARSS class13; no mixed-domain count'
     elif focus=='animal_motion':
@@ -264,9 +281,9 @@ def plan_phase2_demand(row,state,catalog,records,contract,*,focus=None):
             animal=rng.choice(animals);aid=animal['asset_id']
             row.setdefault('motion_requests',{})[aid]=bind_animal_motion({'speed_m_s':.03},aid,contract)
             row['phase2_single_animal_utterance_crop']=True
-            row['phase2_animal_event_limit']={aid:2}
+            row['phase2_animal_event_limit']={aid:3}
             # Actual complete calls stop while the admitted body keeps translating.
-            row['phase2_effect_start_offsets_s']=[.5,15.5,5.2,20.2,7.2,22.2]
+            row['phase2_effect_start_offsets_s']=[.5,10.5,20.5,5.2,15.2,25.2]
     else:
         used={a.get('color') for a in humans};silent=[a for a in catalog if a.get('kind')=='human' and a.get('controlled_shirt')
                 and a.get('color') not in used and a['asset_id'] not in row['asset_ids']
@@ -274,10 +291,26 @@ def plan_phase2_demand(row,state,catalog,records,contract,*,focus=None):
         if silent:
             a=rng.choice(sorted(silent,key=lambda a:a['asset_id']));row['asset_ids'].append(a['asset_id']);row.setdefault('silent_asset_ids',[]).append(a['asset_id'])
         else:request['unresolved_conditions']=['no additional uniquely colored registered silent bystander']
-    # Six real complete crops reuse one native 30s world. They keep the parent
+    # Five half-overlapping crops reuse one native 30s world. They keep the parent
     # identity and never claim six independent scenes or a counterfactual group.
     if row.get('trial_only') is True and row.get('members')==['v0_a0']:
-        row['acceptance_window_starts_s']=[0.,4.,8.,12.,16.,20.];row['window_count']=6
+        row['acceptance_window_starts_s']=[0.,5.,10.,15.,20.];row['window_count']=5
+    request.update(demand_snapshot(state,next_questions=row.get('window_count',2)*row.get('questions_per_window',14)*len(row.get('members',['v0_a0']))))
+    if focus=='occlusion':
+        audible=[a for a in humans if a['asset_id'] not in row.get('silent_asset_ids',[])]
+        silent=[byid[aid] for aid in row.get('silent_asset_ids',[]) if byid.get(aid,{}).get('kind')=='human']
+        if audible and silent:
+            target=audible[0]['asset_id'];occluder=silent[-1]['asset_id']
+            row.setdefault('semantic_azimuth_targets_deg',{}).update({target:0.,occluder:0.})
+            row.setdefault('native_attachment_distance_targets_m',{}).update({target:3.,occluder:1.5})
+            row['native_occlusion_relations']=[{'target_asset_id':target,'occluder_asset_id':occluder,
+                'relation':'registered silent foreground human partially occludes the farther speaker',
+                'minimum_stable_seconds':1.,'status':'proposal_requires_original_native_mask_and_occluder_ID_admission'}]
+        else:request.setdefault('unresolved_conditions',[]).append('registered target and uniquely referable silent occluder missing')
+    if focus=='taxonomy':
+        active=[cl for classes in row.get('source_classes',{}).values() for cl in classes if cl!='speech_playback']
+        if active:row['category_focus_class']=rng.choice(sorted(set(active)))
+        else:request.setdefault('unresolved_conditions',[]).append('no selected non-speech class34-capable physical source')
     request.update(proposed_motion_requests=deepcopy(row.get('motion_requests',{})),
                    proposed_silent_asset_ids=list(row.get('silent_asset_ids',[])))
     validate_recipe(row,catalog,contract)

@@ -152,6 +152,7 @@ def _modality(item):
 
 
 def export_items(items, window_id, media):
+    from avengine.qa.v7_english_surface import tidy_english
     public, private = [], []
     for index, item in enumerate(items):
         # Enumeration IDs are independent of answer, actor and asset identifiers.
@@ -161,10 +162,10 @@ def export_items(items, window_id, media):
             qid = logical + '__' + form
             row = {'question_id': qid, 'logical_question_id': logical, 'qa_id': item['qa_id'],
                    'protocol_panel': 'v6', 'modality': _modality(item), 'form': form,
-                   'question_zh': request['question_zh'], 'question_en': request.get('question_en', ''),
+                   'question_zh': request['question_zh'], 'question_en': tidy_english(request.get('question_en', '')),
                    'media': deepcopy(media), 'answer_type': gold['answer_type']}
             if 'options' in request:
-                row['choices'] = [{'id': option['option'], 'text': option['label_zh']}
+                row['choices'] = [{'id': option['option'], 'text': tidy_english(option.get('label_en',option['label_zh']))}
                                   for option in request['options']]
             canonical = gold['truth'] if form == 'open' else gold['gold']['value']
             answer = canonical if form == 'open' else chr(65 + gold['gold']['correct_index'])

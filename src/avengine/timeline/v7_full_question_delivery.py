@@ -436,8 +436,9 @@ def derive_native_appearance_evidence(directory,visual,assets):
                 result={'status':'blocked','reason':'insufficient_or_ambiguous_native_color','expected_color':color,'semantic_id':actor['semantic_id'],'saturated_pixels':0,'upstream_empty_roi_exception':str(error),'gate_changed':False}
             screens.append({'frame_index':index,'actor_id':actor['actor_id'],'asset_id':actor['asset_id'],**result})
             if result['status']!='pass':continue
-            key=str(actor['actor_id']);label=asset.get('appearance_zh',{'blue':'蓝色上衣的人','yellow':'黄色上衣的人','green':'绿色上衣的人','burgundy':'酒红色上衣的人'}[color])
-            review=reviews.setdefault(key,{'status':'reviewed','value':color,'label_zh':label,'label_en':color,'frame_refs':[],'review_method':'automatic_native_color_pixels','human_viewing_used':False})
+            from avengine.qa.v7_english_surface import appearance_description_en
+            key=str(actor['actor_id']);label=appearance_description_en(asset,color)
+            review=reviews.setdefault(key,{'status':'reviewed','value':color,'label_zh':label,'label_en':label,'frame_refs':[],'review_method':'automatic_native_color_pixels','human_viewing_used':False})
             if review['value']!=color:raise ValueError('native appearance changed within a physical actor')
             review['frame_refs'].append(index)
     return {'revision':'automatic_native_hue_review_v1','review':{'actors':reviews},'screens':screens,

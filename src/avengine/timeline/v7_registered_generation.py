@@ -319,5 +319,7 @@ def generate_registered_parent(row,house,inputs,assets,source_admission,human_ad
         write_json(attempt/'delivery_manifest.json',result);required.append('delivery_manifest.json')
         return result,required
     directory,result,resumed=stage(root,'alpha_seal',{'input_recipe':recipe},seal)
-    return {**result,'delivery_directory':str(directory),'wall_seconds':time.perf_counter()-start_wall,
+    from avengine.timeline.v7_question_independence import deduplicate_parent_delivery
+    delivered=deduplicate_parent_delivery(row,result,root,directory)
+    return {**delivered,'wall_seconds':time.perf_counter()-start_wall,
         'cpu_seconds_including_children':_cpu()-start_cpu,'seal_resumed':resumed}
