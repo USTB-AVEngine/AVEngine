@@ -21,7 +21,7 @@ from avengine.timeline.v7_production_contract import validate_question_counts,qu
 from avengine.spatial_audio.audio import write_float32_wav
 
 ALPHA_RELEASE_PROFILE='v7-S-recorded-registered-native-14-v6-critical-coverage'
-PRODUCER_QA_REVISION='registered-native-r17-nonvisual-fixed-query2s-union-v4'
+PRODUCER_QA_REVISION='registered-native-r17-UE-physical-emitter-v1'
 
 
 def _cpu():
@@ -77,7 +77,10 @@ def _verify_window(folder):
 
 
 def generate_registered_parent(row,house,inputs,assets,source_admission,human_admission,output):
-    from avengine.capture.v7_registered_native import NativeRegisteredVideo as NativeAlphaVideo,REGISTERED_VISUAL_REVISION as ALPHA_VISUAL_REVISION
+    if inputs.get('render_backend')=='ue_spear':
+        from avengine.capture.v7_registered_ue import NativeRegisteredUEVideo as NativeAlphaVideo,REGISTERED_UE_VISUAL_REVISION as ALPHA_VISUAL_REVISION
+    else:
+        from avengine.capture.v7_registered_native import NativeRegisteredVideo as NativeAlphaVideo,REGISTERED_VISUAL_REVISION as ALPHA_VISUAL_REVISION
     from avengine.assets.source_materials import MATERIAL_REVISION
     from avengine.capture.continuous_native_visibility import VISIBILITY_REVISION
     start_wall=time.perf_counter();start_cpu=_cpu()
@@ -159,7 +162,10 @@ def generate_registered_parent(row,house,inputs,assets,source_admission,human_ad
         if appearance['status']!='pass' or len(appearance['review']['actors'])<2:raise ValueError('at least two observed native appearance reviews required')
         visual['native_appearance_review']=appearance['review']
         if visual['frame_count']!=450 or len(visual['camera_frame_readbacks'])!=450:raise ValueError('incomplete native world')
-        if visual['source_material_checks']['status']!='pass' or any(visual['alignment'][k]!=0 for k in ['root_max_error','joint_max_error','camera_max_error','link_max_error']) or visual['alignment']['restored_modal_RGB_depth_semantic_frames']!=450:
+        if inputs.get('render_backend')=='ue_spear':
+            from avengine.capture.v7_alpha_ue import assert_ue_alpha_visual
+            assert_ue_alpha_visual(visual)
+        elif visual['source_material_checks']['status']!='pass' or any(visual['alignment'][k]!=0 for k in ['root_max_error','joint_max_error','camera_max_error','link_max_error']) or visual['alignment']['restored_modal_RGB_depth_semantic_frames']!=450:
             raise ValueError('native material or mask restoration qualification failed')
         for a in visual['standing_admission']:
             if a['status']!='pass' or a['known_bad_detected'] is not True:raise ValueError('native static contact admission incomplete')
@@ -218,6 +224,10 @@ def generate_registered_parent(row,house,inputs,assets,source_admission,human_ad
                     proof.update(dialogue_evidence(scene,program,local_receipt,visual,semantic,start,str(vd/'native_registered_visual_evidence.json')))
                 quota=row['question_quota_base']+row['members'].index(member)*row['window_count']+wi
                 q,a,audit=collect_native_pool(scene,start,wid,visual,media,proof,quota,row['questions_per_window'])
+                if base.get('require_current_native_environment'):
+                    from avengine.qa.kujiale_current_color import filter_current_scene_colors
+                    q,a,color_audit=filter_current_scene_colors(q,a,audit,visual,start)
+                    audit['current_scene_colour_gate']=color_audit
                 excluded=set();keep={x['question_id'] for x in q if x['qa_id'] not in excluded}
                 q=[x for x in q if x['question_id'] in keep];a=[x for x in a if x['question_id'] in keep]
                 write_json(dest/'questions.json',q);write_json(dest/'private_answers.json',a)

@@ -15,18 +15,31 @@ class StorageBudgetExceeded(RuntimeError):
 
 
 def allocated_bytes(root):
+    """Count allocated blocks once per inode without following symlinks.
+
+    DirEntry caches metadata, avoiding the repeated path construction and
+    lstat calls of an os.walk/Path scan. Every check still scans the whole
+    task root: no cached budget estimate can hide concurrent writes.
+    """
     total=0;seen=set()
     if not Path(root).exists():return 0
-    for folder,dirs,files in os.walk(root,followlinks=False):
-        dirs[:]=[d for d in dirs if not (Path(folder)/d).is_symlink()]
-        for name in files:
-            p=Path(folder)/name
-            try:s=p.lstat()
-            except FileNotFoundError:continue
-            if p.is_symlink():continue
-            key=(s.st_dev,s.st_ino)
-            if key in seen:continue
-            seen.add(key);total+=getattr(s,"st_blocks",(s.st_size+511)//512)*512
+    pending=[os.fspath(root)]
+    while pending:
+        folder=pending.pop()
+        try:
+            with os.scandir(folder) as entries:
+                for entry in entries:
+                    try:
+                        if entry.is_symlink():continue
+                        if entry.is_dir(follow_symlinks=False):
+                            pending.append(entry.path);continue
+                        s=entry.stat(follow_symlinks=False)
+                    except FileNotFoundError:continue
+                    key=(s.st_dev,s.st_ino)
+                    if key in seen:continue
+                    seen.add(key)
+                    total+=getattr(s,"st_blocks",(s.st_size+511)//512)*512
+        except FileNotFoundError:continue
     return total
 
 
@@ -76,4 +89,27 @@ def configure_integration_pilot(output,budget_root,*,parents,workers):
         'maximum_task_bytes':99_000_000_000,'concurrent_write_margin_bytes':workers*64_000_000,
         'policy':'owner stage-one integration pilot: <=100GB including worktree, >=150GB shared free','local_48g':True}
     os.environ[ENV_KEY]=json.dumps(policy,sort_keys=True);check_write(output,expected_bytes=0)
+    return policy
+
+
+def configure_kujiale_production(output,budget_root,*,workers):
+    """Owner-authorized Round14 native UE production, with bounded offload."""
+    output=Path(output).resolve()
+    if budget_root is None:raise StorageBudgetExceeded("native production needs explicit own output root")
+    root=Path(budget_root).resolve()
+    if root.name not in {'ue_round14','ue_round21_pilot'} or not str(root).startswith('/data/jzy/tmp/claude_hardbank_20260923/v7_kujiale_20261003/') or not output.is_relative_to(root):
+        raise StorageBudgetExceeded("Kujiale native production output escaped authorized task")
+    if not 1<=workers<=4:raise StorageBudgetExceeded("Kujiale resource profile supports one to four native workers")
+    policy={"root":str(root),"filesystem":"/data","minimum_free_bytes":100_000_000_000,
+            "maximum_task_bytes":24_000_000_000,"concurrent_write_margin_bytes":workers*128_000_000,
+            "policy":"Round14 native production; separate full task growth monitor <=30GB including UE Content/DDC/worktree", "local_48g":True}
+    if root.name=='ue_round21_pilot':
+        policy.update(minimum_free_bytes=150_000_000_000,maximum_task_bytes=60_000_000_000,policy='Round21 train-only native pilot; no training export or transfer')
+        scope_path=root/'inputs/task_scope.json'
+        if scope_path.is_file():
+            scope=json.loads(scope_path.read_text())
+            policy['maximum_task_bytes']=min(policy['maximum_task_bytes'],int(scope['maximum_task_bytes']))
+            policy['minimum_free_bytes']=max(policy['minimum_free_bytes'],int(scope['minimum_disk_free_bytes']))
+    os.environ[ENV_KEY]=json.dumps(policy,sort_keys=True)
+    check_write(output,expected_bytes=0)
     return policy

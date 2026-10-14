@@ -87,6 +87,25 @@ def source_blockers(record):
             import hashlib
             if hashlib.sha256(Path(record["path"]).read_bytes()).hexdigest() != digest:
                 reasons.append("generated_waveform_sha_changed")
+        # Owner-authorized, train-only SAO top-up remains explicitly generated.
+        # Shared license/provenance/dedup/label screens above still apply.
+        if record.get("generation", {}).get("model_id") != "stabilityai/stable-audio-open-1.0":
+            reasons.append("unsupported_generated_audio_model")
+        if not record.get("owner_acceptance") or record.get("allowed_splits") != ["train"] or record.get("split") != "train":
+            reasons.append("generated_audio_owner_or_train_only_admission_missing")
+        if record.get("automatic_no_speech", {}).get("status") != "pass":
+            reasons.append("generated_audio_no_speech_not_pass")
+        activity=record.get("automatic_activity_readback", {})
+        if activity.get("status") != "pass" or float(activity.get("active_duration_s",0)) < 1.0:
+            reasons.append("generated_audio_activity_below_one_second")
+        dedup=record.get("reference_dedup", {})
+        if dedup.get("status") != "pass" or dedup.get("coverage_complete_for_listed_roots") is not True or dedup.get("positive_controls_pass") is not True:
+            reasons.append("generated_audio_complete_reference_dedup_missing")
+        labels=record.get("automatic_label") or []
+        if not any(x.get("status")=="pass" and x.get("gate",{}).get("status")=="pass"
+                   and float(x.get("confidence",0))>=float(x["gate"].get("threshold",float("inf")))
+                   and float(x.get("margin",-1))>=float(x["gate"].get("minimum_margin",float("inf"))) for x in labels):
+            reasons.append("generated_audio_calibrated_label_gate_not_pass")
     elif kind != "recorded":
         reasons.append("unrecognized_dry_source_kind")
     return list(dict.fromkeys(reasons))

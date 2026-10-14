@@ -91,11 +91,11 @@ def build_registered_scene(row,house,records,assets,semantic_manifest=None,*,cam
     layout=row['measured_static_layout'];starts=[t/10 for t in row['window_start_ticks'][:2]]
     yaw=float(plan['camera_yaw_deg']);angle=math.radians(yaw)
     camera_policy=plan.get('camera_policy','uniform_static')
-    if camera_policy not in {'uniform_static','binding_static','binding_sweep','review_sweep_360'}:raise ValueError('unsupported camera policy')
+    if camera_policy not in {'uniform_static','binding_static','binding_sweep','review_sweep_360','pilot_binding_coverage'}:raise ValueError('unsupported camera policy')
     knots=[{'time_s':float(i),'yaw_deg':yaw+(36*i if camera_policy=='review_sweep_360' else 0)} for i in range(31)]
     scene={'scene_id':row['scene_id'],'independent_parent_scene_id':row['scene_id'],'seed':row['scene_seed'],'split':row['split'],'duration_s':30.,'video_fps':15,'sample_rate_hz':16000,'listener_m':layout['listener_m'],'camera_forward':[math.sin(angle),0.,-math.cos(angle)],'camera_yaw_knots':knots,'window_starts_s':starts,'sources':{},'events':[],'production_scenario':plan,'source_motion_policy':'registered standing only; independent objects require separate motion admission','sampling_limitations':['walk/sit/seat pending complete episode admission','unadmitted old sound classes are not generated','moving object episode intake pending','profile requests are not measured realized marginals']}
     placements=_placements(layout,len(assets))
-    if camera_policy in {'binding_static','binding_sweep'}:
+    if camera_policy in {'binding_static','binding_sweep','pilot_binding_coverage'}:
         vectors=[np.asarray(p['position_m'])-np.asarray(layout['listener_m']) for p in placements[:2]]
         forward=sum(v/np.linalg.norm(v) for v in vectors);forward[1]=0.;forward/=np.linalg.norm(forward)
         yaw=math.degrees(math.atan2(forward[0],-forward[2]))+float(plan.get('binding_camera_yaw_offset_deg',7.))
@@ -111,6 +111,15 @@ def build_registered_scene(row,house,records,assets,semantic_manifest=None,*,cam
                 schedule=plan.get('camera_sweep_schedule',[(0.,0.),(4.,0.),(6.,peak),(8.,-peak),(10.,0.)])
                 if len(schedule)<2 or schedule[0][0]!=0 or schedule[-1][0]!=10 or any(not math.isfinite(float(x))for row in schedule for x in row)or any(not 0<=row[0]<=10 or abs(row[1])>120 for row in schedule)or any(b[0]<=a[0]for a,b in zip(schedule[:-1],schedule[1:])):raise ValueError('invalid native shared camera sweep schedule')
                 for offset,delta in schedule:
+                    track[start+offset]=yaw+delta
+            scene['camera_yaw_knots']=[{'time_s':t,'yaw_deg':v} for t,v in sorted(track.items())]
+        if camera_policy=='pilot_binding_coverage':
+            if not plan.get('native_environment'):raise ValueError('pilot camera needs physical environment')
+            # Keep the original production binding interval; acquire all
+            # azimuths with actual native frames near the end of each window.
+            track={0.:yaw,30.:yaw}
+            for start in starts:
+                for offset,delta in ((0.,0.),(7.5,0.),(9.9,360.),(10.,360.)):
                     track[start+offset]=yaw+delta
             scene['camera_yaw_knots']=[{'time_s':t,'yaw_deg':v} for t,v in sorted(track.items())]
         scene['camera_sampling']='explicit native-visible binding review stratum; not an aggregate profile fit'

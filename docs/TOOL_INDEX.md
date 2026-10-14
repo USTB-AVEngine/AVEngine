@@ -5,7 +5,7 @@
 
 自 2026-08-25 起，目录本身就是能力分组（阶段目录 m1…m7 已移除），
 本表按目录列出每个工具做什么。
-当前共 515 个工具脚本。
+当前共 588 个工具脚本。
 
 ## 资产生成与装配（`tools/assets/`）
 
@@ -111,28 +111,62 @@
 
 | 工具 | 做什么 |
 |---|---|
+| `tools/rooms/alpha_live_status.py` | Atomically replace explicit live counters; never replace sealed artifacts |
+| `tools/rooms/alpha_storage_contract.py` | Storage boundaries for immutable native alpha seal and derived bundles |
+| `tools/rooms/assemble_kujiale_native_training_admission.py` | Assemble native Kujiale room admission and offline evidence without new gates |
+| `tools/rooms/audit_kujiale_native_lighting.py` | Read authored USD lights and retained native room pixels without starting UE |
 | `tools/rooms/audit_real_surface_mesh.py` | Audit a glTF/GLB as evidence for the M1 real-surface geometry gate |
 | `tools/rooms/audit_skokloster_glb.py` | Audit the exact Habitat Skokloster GLB for visual and acoustic staging |
 | `tools/rooms/author_current_residential_visual_episode.py` | Author one current residential visual-only research episode |
+| `tools/rooms/benchmark_kujiale_alpha_concurrency.py` | Measured 2/4/8/12 native UE recorded-alpha end-to-end worker rounds |
+| `tools/rooms/benchmark_kujiale_native_concurrency.py` | Measure full native UE+RLR+question pilots under bounded GPU concurrency |
+| `tools/rooms/bind_kujiale_formal_seed.py` | Bind a capped room seed to its own admitted native house/layout, never another room |
 | `tools/rooms/blender_build_exterior_proxy.py` | Blender-side builder for an inward-facing, textured exterior sphere |
 | `tools/rooms/build_fixed_apartment_canary.py` | Build the fixed SPEAR Apartment S0--S5 M6.x review bundle |
 | `tools/rooms/build_render_surface_navigation.py` | Build reusable CPU navigation from a room's declared render surface |
 | `tools/rooms/build_residential_source_episode.py` | Build AVEngine Timeline, Topdown and binaural audio for a residential room |
 | `tools/rooms/build_support_surface_catalog.py` | Fit a room's wall and ceiling support surfaces from its own render surface |
+| `tools/rooms/check_kujiale_native_acoustic_alignment.py` | Compare actual native LOD0 and final acoustic geometry at frozen room poses |
+| `tools/rooms/check_kujiale_native_capsule_contact.py` | Check measured native witness capsules against actual UE render LOD0 geometry |
+| `tools/rooms/check_kujiale_native_motion_contact.py` | Measure registered native idle/walk skin contact without changing animation |
+| `tools/rooms/check_v7_kujiale_native_assets.py` | Render all registered native source assets with fixed production appearance QA |
+| `tools/rooms/check_v7_kujiale_ue.py` | Native UE room images, measured depth floor and exact exported geometry QA |
+| `tools/rooms/compact_kujiale_alpha.py` | Remove only a completed round8 alpha parent's verified intermediates |
 | `tools/rooms/compile_ue_navigation.py` | Build free navigation from current UE collision geometry and null areas |
 | `tools/rooms/emit_hm3d_room_manifest.py` | Emit an AVEngine room manifest for an HM3D scene directory |
 | `tools/rooms/extract_interioragent_scene_metadata.py` | Extract a room polygon and navigation footprints from InteriorAgent USD |
+| `tools/rooms/finalize_v7_kujiale_ue.py` | Finish native room QA from measured RGB/depth and actual UE asset bindings |
+| `tools/rooms/kujiale_batch.py` | CPU InteriorAgent inventory and conversion; never grants native UE admission |
+| `tools/rooms/kujiale_material_translation.py` | Explicit extra InteriorAgent MDL inputs for research Preview Surface USD |
 | `tools/rooms/measure_habitat_floor_reference.py` | Measure Habitat floor levels from a declared scene and navmesh |
 | `tools/rooms/measure_ue_room_floor_reference.py` | Measure an UE room floor from the currently loaded map |
+| `tools/rooms/native_guard_safe_stop.py` | Stop one recorded task guard after verifying PID creation time and argv |
+| `tools/rooms/package_kujiale_alpha.py` | Publish portable alpha delivery without changing questions or any answers |
+| `tools/rooms/pilot_kujiale_alpha.py` | Run the canonical recorded alpha question/selection/seal pipeline with UE |
 | `tools/rooms/plan_furnished_camera_review.py` | Build a short multi-view camera review plan for one furnished room |
 | `tools/rooms/plan_furnished_residential_episode.py` | Plan a static furnished residential episode through the AVEngine room API |
+| `tools/rooms/plan_kujiale_room_quota.py` | Training-only Kujiale budgets bounded by admitted rooms, with nested seeds |
+| `tools/rooms/preflight_v7_kujiale_native.py` | Select a measured witness whose unchanged seeded motion stays navigable |
 | `tools/rooms/prepare_3d_front_toolbox_sample_proxy.py` | Build a clearly labelled 3D-FRONT Toolbox sample review proxy in USD |
 | `tools/rooms/prepare_interioragent_kujiale_adapter.py` | Prepare an external InteriorAgent USD stage for UE's runtime USD importer |
+| `tools/rooms/prepare_kujiale_alpha_layout.py` | Find a static four-body alpha layout in an already admitted native room |
+| `tools/rooms/prepare_kujiale_cci_batch.py` | Freeze exact owned derived-file list before invoking the provided CCI pull |
 | `tools/rooms/prepare_legacy_apartment.py` | Prepare the real-surface UE apartment export as an M1 Habitat room package |
 | `tools/rooms/prepare_skokloster_interchange_glb.py` | Bake Skokloster's legacy source axes into a canonical glTF for UE import |
 | `tools/rooms/prepare_spear_apartment_exterior.py` | Export UE's approaching_storm HDRI and build a visual-only Habitat GLB |
 | `tools/rooms/prepare_ue_room.py` | Prepare an audited UE render-surface export for the shared room compiler |
+| `tools/rooms/prepare_v7_kujiale_native_generation.py` | Prepare explicit native UE inputs from already measured physical room QA |
+| `tools/rooms/prepare_v7_kujiale_native_materials.py` | Map existing reviewed source GLB PBR repairs to isolated native UE materials |
+| `tools/rooms/prepare_v7_kujiale_native_motion_plan.py` | Find frozen legal native witnesses with navigable seeded actor motion |
+| `tools/rooms/prepare_v7_kujiale_ue.py` | Prepare isolated native UE requests with three frozen-rule pose witnesses |
 | `tools/rooms/rebuild_replicacad_obstacle_review.py` | Rebuild the retained ReplicaCAD review with live furniture obstacles |
+| `tools/rooms/reclaim_kujiale_cci_batch.py` | Reclaim only exact owned bytes after independently checked CCI SHA receipts |
+| `tools/rooms/recover_kujiale_native_audit.py` | Read back an own saved map after interrupted import; rerun native QA |
+| `tools/rooms/report_kujiale_batch.py` | Report CPU Kujiale conversion, missing native evidence and internal CCI files |
+| `tools/rooms/report_kujiale_native_exposure.py` | Export measured baseline, pending native exposure status and offline witnesses |
+| `tools/rooms/report_kujiale_round8.py` | Publish measured native-alpha budget, resource curves and source paths |
+| `tools/rooms/reselect_kujiale_native_capsule_witnesses.py` | Reselect only already-frozen legal witnesses that clear the native capsule |
+| `tools/rooms/restore_kujiale_native_source_assets.py` | Restore only task-local UE MIC backups and archive withdrawn derived assets |
 | `tools/rooms/room_screening_candidates.py` | Compute provisional HM3D semantic-ground/navmesh overlap candidates |
 | `tools/rooms/room_screening_furniture_audit.py` | Audit provisional HM3D furniture footprints against candidate navmesh areas |
 | `tools/rooms/room_screening_inventory.py` | Build an input inventory from an explicit external HM3D house list |
@@ -142,6 +176,8 @@
 | `tools/rooms/room_selection_compare.py` | Compare shared room measurements against retained calibration evidence |
 | `tools/rooms/room_selection_protocol.py` | Register and measure the shared HM3D room-selection protocol on CPU |
 | `tools/rooms/run_habitat_replicacad_lighting_canary.py` | Run the real ReplicaCAD Habitat capture with one shared lighting profile |
+| `tools/rooms/run_kujiale_native_reselected_checks.py` | Re-render safe frozen witness subsets and publish overrides only after QA |
+| `tools/rooms/run_kujiale_native_room_batch.py` | Resume task-isolated native import/capture/QA without changing frozen rules |
 | `tools/rooms/run_native_qa_room.py` | Materialize one native Apartment QA plan without launching UE |
 | `tools/rooms/run_room_qualification_attempt.py` | Run or verify the read-only M6 representative-room qualification attempt |
 | `tools/rooms/run_spear_apartment_canary.py` | Render M6.x S0/S3/S4 through the native SPEAR Apartment map |
@@ -150,6 +186,9 @@
 | `tools/rooms/run_spear_replicacad_canary.py` | Render the retained 270-frame ReplicaCAD route in an isolated SPEAR editor |
 | `tools/rooms/run_spear_residential_episode.py` | Render one AVEngine residential visual episode through SPEAR/UE |
 | `tools/rooms/select_furnished_camera_review.py` | Choose a furnished-room camera from actual SPEAR per-person visibility masks |
+| `tools/rooms/v7_kujiale_round8_resources.py` | One task-owned sampler for graphics processes and shared disk protection |
+| `tools/rooms/v7_kujiale_ue_guard.py` | Run one isolated native UE task with graphics-aware GPU and disk accounting |
+| `tools/rooms/verify_kujiale_native_floor_references.py` | Verify spatial support references against audited, unmodified UE LOD0 |
 
 ## 场景放置（`tools/scene/`）
 
@@ -271,7 +310,9 @@
 | `tools/timeline/generate_v7_scenes.py` | Seed-driven restartable CPU native candidates. Formal mode fails closed |
 | `tools/timeline/inspect_v7_p19_progress.py` | Read-only v7 P19 status: actual claimant, all rank events and fresh CPU progress |
 | `tools/timeline/pilot_continuous_scenes.py` | CPU-only restartable continuous-scene pilot and native RIR throughput probe |
+| `tools/timeline/pilot_v7_kujiale_ue.py` | Run one measured Kujiale UE/SPEAR research pilot through unchanged v7 stages |
 | `tools/timeline/plot_v7_cpu_monitor.py` | Plot recorded P19 cgroup counters separately from host /proc statistics |
+| `tools/timeline/prepare_kujiale_asset_pilot.py` | Prepare joint native-LOD placements for a train-only Kujiale asset pilot |
 | `tools/timeline/prepare_v7_diagnostic_aliases.py` | Give diagnostic media neutral IDs and quarantine incompatible public domains |
 | `tools/timeline/prepare_v7_diagnostic_seed_tables.py` | Extend reproducible v7-S/full seeds with simulation-only diagnostic axes |
 | `tools/timeline/prepare_v7_full_preproduction.py` | Prepare new TRAIN-only worlds without rendering or opening held-out assets |
@@ -282,9 +323,20 @@
 | `tools/timeline/qualify_v7_scenario_quotas.py` | CPU native static-crowd diagnostics for actual v0.2 speaker/spatial questions |
 | `tools/timeline/qualify_v7_vctk.py` | Automatically qualify recorded VCTK inputs, preserving original clip clocks |
 | `tools/timeline/relay_v7_full_shards_cci.sh` |  |
+| `tools/timeline/repair_kujiale_asset_pilot.py` | Prepare fresh failed-parent recipes with native view and RIR-qualified supports |
+| `tools/timeline/report_kujiale_asset_pilot.py` | Write the local native Kujiale asset pilot's Chinese, image-embedded report |
 | `tools/timeline/review_native_windows.py` | Read five encoded native windows and compare head pixels to native FOA |
 | `tools/timeline/summarize_continuous_pilot.py` | Read back continuous-pilot media, summarize coverage, and estimate CPU throughput |
 | `tools/timeline/synthesize_native_pilot.py` | Resume native-mouth CPU audio and complete 10 s qualification candidates |
+| `tools/timeline/v7_kujiale_CCI_index.py` | Index SHA-verified own native deliveries as an additive training release |
+| `tools/timeline/v7_kujiale_balance_speakers.py` | Version pending Kujiale requests to balance actual native 1–4 speakers |
+| `tools/timeline/v7_kujiale_production.py` | Bounded Kujiale v7-S production; original formal pipeline and gates |
+| `tools/timeline/v7_kujiale_production_v2.py` | Resume fixed v7 UE requests without padding rejected scenes or changing seeds |
+| `tools/timeline/v7_kujiale_report.py` | Create a truthful Round14 production snapshot from own receipts |
+| `tools/timeline/v7_kujiale_requalify_media.py` | Recompile the original QA and seal against unchanged, SHA-verified UE media |
+| `tools/timeline/v7_kujiale_train_only_manifest.py` | Snapshot SHA-verified Kujiale rows for an explicit train-only v7-S intake |
+| `tools/timeline/v7_kujiale_transfer_driver.py` | Pull only sealed own releases into own CCI namespace, verify all SHA |
+| `tools/timeline/v7_kujiale_transfer_local.py` | Pull only sealed own releases into own CCI namespace, verify all SHA |
 | `tools/timeline/v7_live_training_guard.py` | Read current-job training logs and control only this v7 coordinator |
 | `tools/timeline/v7_quota_cache.py` | Read the restartable personal AFS quota cache; wait on unknown measurements |
 | `tools/timeline/v7_s_production.py` | CPU-only P19 coordinator for the frozen recorded v7-S critical batch |
@@ -603,7 +655,17 @@
 |---|---|
 | `tools/ue/assemble_package_stage.py` | Assemble a fresh UE package stage for the current Apartment visual route |
 | `tools/ue/assemble_research_editor_stage.py` | Create an isolated SPEAR Editor stage using current source and installed binaries |
+| `tools/ue/audit_v7_kujiale_native_assets_editor.py` | Audit native asset material parameters, changing only an isolated project |
+| `tools/ue/bake_kujiale_native_usd.py` | Bake composed USD mesh transforms for exact UE import, preserving geometry |
+| `tools/ue/build_kujiale_authored_light_sidecar.py` | Bake authored USD world emitting dimensions for isolated UE light import |
 | `tools/ue/build_minimal_closure_report.py` | Build a minimal-closure report for the current Apartment visual stage |
+| `tools/ue/capture_kujiale_admission.py` | Native SPEAR/UE multi-view individual admission in the production Kujiale map |
+| `tools/ue/capture_kujiale_asset_trial.py` | Render each registered body/kind with a visible human in three native houses |
+| `tools/ue/capture_kujiale_dog_motion.py` | Native skeletal motion and per-paw metric-depth admission in Kujiale |
+| `tools/ue/capture_kujiale_floor_reproduction.py` | UE-native before/after replay of the retained Kujiale bedroom defect |
+| `tools/ue/capture_kujiale_production_binding.py` | Exercise the production physical-source spawn method in native UE |
+| `tools/ue/capture_kujiale_room_legality.py` | Native UE render availability and visibility of room placement witnesses |
+| `tools/ue/check_kujiale_room_legality.py` | Preflight admitted Kujiale rooms using audited native LOD geometry |
 | `tools/ue/create_extra_animals_blueprints_editor.py` |  |
 | `tools/ue/create_spear_kujiale_map_editor.py` | Create a UE map containing one external USD stage |
 | `tools/ue/export_apartment_gltf.py` | Export a selected SPEAR map as real UE render-surface geometry |
@@ -612,15 +674,26 @@
 | `tools/ue/fix_spear_mp3d_materials_editor.py` | Repair and verify MP3D glTF color semantics inside an isolated UE project |
 | `tools/ue/import_controlled_humans_editor.py` | Import one catalog-described controlled human with generic Unreal APIs |
 | `tools/ue/import_extra_animals_editor.py` | Import research-only animated animal GLBs into isolated UE SkeletalMesh roots |
+| `tools/ue/import_kujiale_admission_editor.py` | UE 5.5 editor import of all staged admitted individuals; no source edits |
 | `tools/ue/import_seated_human_editor.py` | Import four seated skeletal GLBs and create independent UE Blueprints |
 | `tools/ue/import_spear_3d_front_sample_editor.py` | Import the local 3D-FRONT Toolbox sample proxy into a persistent UE map |
 | `tools/ue/import_spear_replicacad_editor.py` | Import and assemble the prepared ReplicaCAD apt_0 scene inside UE 5.5 |
 | `tools/ue/import_spear_skokloster_editor.py` | Import the prepared Skokloster GLB into one isolated SPEAR/UE content root |
 | `tools/ue/import_static_source_editor.py` | Import declared rigid source GLBs into fresh Unreal content directories |
 | `tools/ue/import_usd_stage_to_level_editor.py` | Import an external USD stage into ordinary Unreal assets and a saved level |
+| `tools/ue/import_v7_kujiale_editor.py` | Materialize one isolated Kujiale map and record native floor/material evidence |
+| `tools/ue/inspect_kujiale_source_materials_editor.py` |  |
+| `tools/ue/plan_kujiale_admission.py` | Plan admitted native assets on measured floor/table/wall/ceiling surfaces |
+| `tools/ue/prepare_kujiale_asset_admission.py` | Copy admitted animal/object GLBs into a task-owned UE import staging area |
 | `tools/ue/prepare_spear_mp3d_execution.py` | Bind a compiled Timeline-v2 visual plan to the imported MP3D UE scene |
 | `tools/ue/prepare_spear_replicacad_scene.py` | Prepare the complete ReplicaCAD scene request for the optional UE backend |
 | `tools/ue/probe_spear_replicacad_environment.py` | Probe whether ReplicaCAD can be imported/cooked without touching old SPEAR |
+| `tools/ue/read_kujiale_dog_animation_editor.py` | Read every Kujiale contact-animation key from each imported UE dog |
+| `tools/ue/repair_v7_kujiale_native_materials_editor.py` | Apply reviewed GLB PBR changes only to MICs in the task's isolated project |
+| `tools/ue/report_kujiale_asset_admission.py` | Compile per-individual native admission and one self-contained Chinese HTML |
+| `tools/ue/report_kujiale_room_legality.py` | Assemble a machine-readable Kujiale room/category whitelist and short Chinese report |
+| `tools/ue/reproduce_kujiale_room_floor.py` | Replay retained standing-on-bed coordinates against the real native floor |
+| `tools/ue/save_kujiale_dog_materials_editor.py` | Persist skeletal usage on task-owned imported dog materials before QA |
 | `tools/ue/unreal_export_approaching_storm.py` | Unreal Editor-side exporter for the stock approaching_storm TextureCube |
 | `tools/ue/verify_extra_animals_editor.py` |  |
 

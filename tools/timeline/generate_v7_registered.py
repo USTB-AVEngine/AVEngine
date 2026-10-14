@@ -52,13 +52,19 @@ def main():
     p.add_argument('--workers',type=int,default=1);p.add_argument('--offset',type=int,default=0);p.add_argument('--limit',type=int,default=1)
     p.add_argument('--storage-budget-root',type=Path)
     p.add_argument('--integration-pilot',action='store_true',help='Explicit stationary visible-source pilot; seal privately without a training export')
-    p.add_argument('--render-backend',choices=['cpu_llvmpipe'],default='cpu_llvmpipe')
+    p.add_argument('--render-backend',choices=['cpu_llvmpipe','ue_spear'],default='cpu_llvmpipe')
     a=p.parse_args()
     if not 1<=a.workers<=64 or a.offset<0 or a.limit<1:raise ValueError('invalid CPU shard bounds')
     required={'CUDA_VISIBLE_DEVICES':'','LIBGL_ALWAYS_SOFTWARE':'1','MESA_LOADER_DRIVER_OVERRIDE':'llvmpipe','LP_NUM_THREADS':'1'}
-    if any(os.environ.get(k)!=v for k,v in required.items()) or not os.environ.get('LD_PRELOAD'):
-        raise ValueError('CPU llvmpipe env and CPU EGL device selector must be explicitly supplied')
+    if a.render_backend=='cpu_llvmpipe':
+        if any(os.environ.get(k)!=v for k,v in required.items()) or not os.environ.get('LD_PRELOAD'):
+            raise ValueError('CPU llvmpipe env and CPU EGL device selector must be explicitly supplied')
+    else:
+        if os.environ.get('CUDA_VISIBLE_DEVICES') not in {'1','2','3'} or os.nice(0)<10 or len(os.sched_getaffinity(0))>16:
+            raise ValueError('Kujiale production requires GPU2, nice10 and affinity <=16 cores')
     by_house={h['house']:h for h in json.loads(a.houses.read_text())['houses']}
+    if a.render_backend=='ue_spear' and any(int(h['input']['ue_config']['graphics_adapter'])!=int(os.environ['CUDA_VISIBLE_DEVICES']) for h in by_house.values()):
+        raise ValueError('Kujiale house graphics adapter does not match selected card')
     rows=[json.loads(l) for l in a.seeds.read_text().splitlines() if l.strip()][a.offset:a.offset+a.limit]
     if not rows or len({r['scene_id'] for r in rows})!=len(rows):raise ValueError('empty or duplicate seed shard')
     from avengine.timeline.v7_storage_budget import configure_local_review
@@ -69,6 +75,9 @@ def main():
         if os.getpriority(os.PRIO_PROCESS,0)<10:raise ValueError('integration pilot must run with nice -n 10')
         if any(os.environ.get(k)!='1' for k in ('OMP_NUM_THREADS','OPENBLAS_NUM_THREADS','MKL_NUM_THREADS')):raise ValueError('integration pilot requires one thread per CPU worker')
         storage_policy=configure_integration_pilot(a.output,a.storage_budget_root,parents=len(rows),workers=a.workers)
+    elif a.render_backend=='ue_spear':
+        from avengine.timeline.v7_storage_budget import configure_kujiale_production
+        storage_policy=configure_kujiale_production(a.output,a.storage_budget_root,workers=a.workers)
     else:storage_policy=configure_local_review(a.output,a.storage_budget_root,parents=len(rows),workers=a.workers)
     inputs=json.loads(a.runtime_inputs.read_text());inputs['render_backend']=a.render_backend
     if a.integration_pilot:inputs['integration_pilot']=True
@@ -81,6 +90,8 @@ def main():
     if a.integration_pilot:
         from avengine.timeline.v7_visible_sources import validate_english_source_admission
         validate_english_source_admission(source)
+    if a.render_backend=='ue_spear' and any(by_house[row['house']].get('family')!='kujiale' or by_house[row['house']]['split']!='train' or row['split']!='train' for row in rows):
+        raise ValueError('native Kujiale scope is the retained training-only partition')
     tasks=[(row,by_house[row['house']],inputs,assets,source,human,str(a.output)) for row in rows]
     a.output.mkdir(parents=True,exist_ok=True);start=time.perf_counter();results=[]
     with ProcessPoolExecutor(max_workers=a.workers,mp_context=multiprocessing.get_context('spawn')) as pool:

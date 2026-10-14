@@ -94,7 +94,26 @@ for index, raw in enumerate(raw_lights):
     visual_lights.append(record)
 
 level_subsystem = unreal.get_editor_subsystem(unreal.LevelEditorSubsystem)
-require(level_subsystem.new_level(map_path), f"could not create level: {map_path}")
+if request.get("base_native_map_path"):
+    require(request.get("expected_authored_lights"), "native map light sidecar needs authored inventory")
+    base_map=str(request["base_native_map_path"])
+    require(base_map != map_path, "sidecar must use a new private map")
+    require(level_subsystem.load_level(base_map), "could not read existing native map")
+    world=unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_editor_world()
+    require(unreal.EditorLoadingAndSavingUtils.save_map(world,map_path), "could not save native map copy")
+    require(level_subsystem.load_level(map_path), "could not load newly copied native map")
+    # Replace lights only in the new private map. Old raw import had zero
+    # native lamps; any retained old visual-fill lamps are not design lights.
+    removed=[]
+    for actor in unreal.EditorLevelLibrary.get_all_level_actors():
+        lights=actor.get_components_by_class(unreal.LightComponentBase)
+        if lights:
+            removed.append({"actor":actor.get_actor_label(),"light_component_count":len(lights)})
+            require(not actor.get_components_by_class(unreal.StaticMeshComponent), "old light owns visual mesh; cannot remove blindly")
+            unreal.EditorLevelLibrary.destroy_actor(actor)
+    request["removed_base_map_light_actors"]=removed
+else:
+    require(level_subsystem.new_level(map_path), f"could not create level: {map_path}")
 
 options = unreal.UsdStageImportOptions()
 option_values = {
@@ -111,6 +130,14 @@ option_values = {
     "prim_path_folder_structure": True,
     "replace_existing": False,
 }
+# Authored lights below model/component prims must remain components. The
+# default kind collapse swallowed all 19 lamps in the first native canary.
+# Keep the legacy importer defaults for every other explicit request.
+if request.get("expected_authored_lights"):
+    option_values.update(use_prim_kinds_for_collapsing=False, kinds_to_collapse=0)
+if request.get("base_native_map_path"):
+    option_values.update(import_geometry=False, import_materials=True,
+                         existing_actor_policy=unreal.ReplaceActorPolicy.APPEND)
 applied_options = {}
 for name, value in option_values.items():
     try:
@@ -121,7 +148,7 @@ for name, value in option_values.items():
             # not every UsdStageImportOptions build exposes this bool.
             continue
         raise RuntimeError(f"could not set USD import option {name}: {error}") from error
-    applied_options[name] = value
+    applied_options[name] = value if isinstance(value,(str,bool,int,float)) else str(value)
 
 factory = unreal.UsdStageImportFactory()
 task = unreal.AssetImportTask()
@@ -187,7 +214,8 @@ for object_path in asset_paths:
     class_name = str(data.asset_class_path.asset_name)
     asset_classes[class_name] = asset_classes.get(class_name, 0) + 1
 static_mesh_count = int(asset_classes.get("StaticMesh", 0))
-require(static_mesh_count > 0, "USD stage import created no StaticMesh assets")
+if not request.get("base_native_map_path"):
+    require(static_mesh_count > 0, "USD stage import created no StaticMesh assets")
 require(len(actors) > 0, "USD stage import created no level actors")
 
 result = {
@@ -207,6 +235,8 @@ result = {
     "static_mesh_count": static_mesh_count,
     "usd_stage_actor_count": usd_stage_actor_count,
     "visual_lights": light_readbacks,
+    "base_native_map_path": request.get("base_native_map_path"),
+    "removed_base_map_light_actors": request.get("removed_base_map_light_actors", []),
     "applied_options": applied_options,
     "claim_boundary": (
         "editor-materialized Unreal assets for internal research packaging; "

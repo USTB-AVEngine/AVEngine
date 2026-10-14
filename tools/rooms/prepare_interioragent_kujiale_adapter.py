@@ -109,22 +109,27 @@ def _connect_uv_texture(
 
 
 def _create_reference_stage(
-    *, source: Path, output: Path, plan: dict[str, Any]
+    *, source: Path, output: Path, plan: dict[str, Any], whole_stage: bool = False
 ) -> Any:
     stage = Usd.Stage.CreateNew(str(output))
     root = UsdGeom.Xform.Define(stage, "/Root")
     stage.SetDefaultPrim(root.GetPrim())
     UsdGeom.SetStageUpAxis(stage, UsdGeom.Tokens.z)
     UsdGeom.SetStageMetersPerUnit(stage, 1.0)
-    UsdGeom.Scope.Define(stage, "/Root/Meshes")
-    for scope in plan["selected_scopes"]:
-        prim = UsdGeom.Scope.Define(stage, f"/Root/Meshes/{scope}").GetPrim()
-        prim.GetReferences().AddReference(
-            str(source), f"/Root/Meshes/{scope}"
-        )
-    if plan["include_rendering_scope"]:
-        rendering = stage.DefinePrim("/Root/Rendering")
-        rendering.GetReferences().AddReference(str(source), "/Root/Rendering")
+    if whole_stage:
+        original = Usd.Stage.Open(str(source))
+        scopes = {p.GetName() for p in original.GetPrimAtPath('/Root/Meshes').GetChildren()}
+        if scopes != set(plan['selected_scopes']) or not plan['include_rendering_scope']:
+            raise ValueError('Whole-stage mode requires all scopes and native rendering')
+        root.GetPrim().GetReferences().AddReference(str(source), '/Root')
+    else:
+        UsdGeom.Scope.Define(stage, "/Root/Meshes")
+        for scope in plan["selected_scopes"]:
+            prim = UsdGeom.Scope.Define(stage, f"/Root/Meshes/{scope}").GetPrim()
+            prim.GetReferences().AddReference(str(source), f"/Root/Meshes/{scope}")
+        if plan["include_rendering_scope"]:
+            rendering = stage.DefinePrim("/Root/Rendering")
+            rendering.GetReferences().AddReference(str(source), "/Root/Rendering")
     stage.GetRootLayer().customLayerData = {
         "avengine:adapter": "interioragent_mdl_to_usd_preview_surface_v1",
         "avengine:backendRole": plan["backend_role"],
@@ -142,6 +147,7 @@ def prepare_adapter(
     profile_path: Path,
     result_path: Path,
     replace: bool,
+    whole_stage: bool = False,
 ) -> dict[str, Any]:
     source = source.expanduser().resolve()
     output = output.expanduser().resolve()
@@ -166,7 +172,7 @@ def prepare_adapter(
     plan = build_kujiale_review_plan(
         profile, source_stage=source, rooms=rooms
     )
-    stage = _create_reference_stage(source=source, output=output, plan=plan)
+    stage = _create_reference_stage(source=source, output=output, plan=plan, whole_stage=whole_stage)
     stage.SetEditTarget(stage.GetRootLayer())
 
     fixed_primvars = 0
@@ -292,6 +298,7 @@ def prepare_adapter(
         "output": str(output),
         "selected_scopes": plan["selected_scopes"],
         "include_rendering_scope": plan["include_rendering_scope"],
+        "whole_stage_reference": whole_stage,
         "mesh_count": mesh_count,
         "fixed_primvars": fixed_primvars,
         "fixed_material_binding_apis": fixed_material_binding_apis,
@@ -325,6 +332,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--result", type=Path)
     parser.add_argument("--replace", action="store_true")
+    parser.add_argument("--whole-stage", action="store_true", help="Retain cross-scope bindings in a full house")
     return parser.parse_args()
 
 
@@ -337,6 +345,7 @@ def main() -> None:
         profile_path=args.profile,
         result_path=result_path,
         replace=args.replace,
+        whole_stage=args.whole_stage,
     )
     print(json.dumps(result, indent=2, sort_keys=True))
 
