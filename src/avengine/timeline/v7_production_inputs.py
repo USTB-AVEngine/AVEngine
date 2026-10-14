@@ -71,7 +71,8 @@ def normalize_rooms(document, family, test_houses):
                 continue
             category = 'chair_seated' if category == 'chair_seated_human' else category
             allowed.append(category)
-            witnesses[category] = cell.get('representative_asset_id', cell.get('tested_asset_id', cell.get('witness_asset_id')))
+            witnesses[category] = (cell.get('representative_asset_id') or cell.get('tested_asset_id')
+                                   or cell.get('witness_asset_id') or cell.get('witness', {}).get('asset_id'))
         if not allowed:
             continue
         rooms.append({'family': family, 'house': house, 'room_id': r['room_id'],
@@ -186,6 +187,50 @@ def animal_authorities(document, source_path):
             if key in selected:
                 result[a['asset_id']][key] = selected[key]
     return result
+
+
+
+@lru_cache(maxsize=8)
+def _room_legality_document(path):
+    return read_json(path)
+
+
+@lru_cache(maxsize=512)
+def _seated_room_witness(path, house, room_id, family):
+    document = _room_legality_document(path)
+    raw = document['rooms']
+    entries = raw.values() if isinstance(raw, dict) else raw
+    room = next((r for r in entries if r['house'] == house and r['room_id'] == room_id), None)
+    if room is None:
+        return {}
+    cell = room['categories'].get('chair_seated', room['categories'].get('chair_seated_human', {}))
+    if not _cell_usable(cell, family):
+        return {}
+    witness = cell.get('witness', {})
+    points = []
+    geometry_path = witness.get('seated_geometry_receipt')
+    if geometry_path and Path(geometry_path).is_file():
+        geometry = read_json(geometry_path)
+        point = geometry.get('chair_world_root_m')
+        if geometry.get('status') == 'pass' and point is not None:
+            points.append(point)
+    if not points:
+        points = [p['point'] for p in cell.get('native_support_proposals', []) if p.get('surface') == 'floor']
+    return {'asset_id': witness.get('asset_id', cell.get('tested_asset_id')),
+            'chair_asset_id': witness.get('chair_asset_id'),
+            'native_chair_floor_points_m': points, 'legality_source': path,
+            'seated_geometry_receipt': geometry_path,
+            'scope': 'candidate proposal only; original combined parent gates required'}
+
+
+def seated_room_witness(room, contract):
+    """Read the actual nested census witness without widening room legality."""
+    if 'chair_seated' not in room['categories']:
+        return {}
+    source = contract.get('inputs', {}).get('room_' + room['family'], {})
+    if not source.get('path'):
+        return {}
+    return deepcopy(_seated_room_witness(source['path'], room['house'], room['room_id'], room['family']))
 
 
 def sample_unique_shirts(catalog, count, seed):

@@ -5,7 +5,7 @@ from copy import deepcopy
 import argparse, hashlib, json, random
 from avengine.timeline.v7_production_inputs import (
     COLORS, asset_category, bind_animal_motion, fingerprint,
-    sample_dialogue, sample_room_assets, validate_recipe)
+    sample_dialogue, sample_room_assets, seated_room_witness, validate_recipe)
 
 
 def main():
@@ -110,7 +110,22 @@ def main():
                 elif (index%6==2 or seated_only) and chair_pool and recorded_vctk:
                     available=[s for s in available if s.get('sit_allowed')]
                     if available:
-                        human=rng.choice(available);aid=human['asset_id']
+                        human=rng.choice(available)
+                        witness=seated_room_witness(room,contract)
+                        reference=by_id.get(witness.get('asset_id'),{})
+                        body=reference.get('body_identity_id')
+                        # The room census admitted one representative body.
+                        # Prefer its registered shirt variant; no shape, color
+                        # or speech truth is synthesized from that witness.
+                        fitting=[s for s in catalog if body and s.get('body_identity_id')==body
+                                 and s.get('kind')=='human' and s.get('sit_allowed')
+                                 and s.get('color')==human.get('color')]
+                        if fitting:
+                            replacement=deepcopy(rng.choice(fitting));slot=selected.index(human)
+                            row['source_classes'].pop(human['asset_id'],None)
+                            row['proposed_sound_asset_ids'].pop(human['asset_id'],None)
+                            selected[slot]=replacement;row['asset_ids'][slot]=replacement['asset_id'];human=replacement
+                        aid=human['asset_id']
                         gender=human.get('visual_gender');clips=[r for r in recorded_vctk if {'f':'female','m':'male'}.get(str(r.get('gender','')).lower(),str(r.get('gender','')).lower())==gender]
                         if not clips:raise ValueError('no registered complete VCTK clip matching selected seated body gender')
                         # Reuse the original seat-first compiler's admitted chair pool.
@@ -122,6 +137,9 @@ def main():
                                 [0.,0.,0.],[0.,0.,.04],[0.,0.,-.04],
                                 [0.,0.,.08],[0.,0.,-.08],[.04,0.,0.],[-.04,0.,0.]],
                             'require_observed_chair_candidate':True}
+                        if witness.get('native_chair_floor_points_m'):
+                            row['motion_requests'][aid]['native_chair_floor_points_m']=witness['native_chair_floor_points_m']
+                        row['seated_room_witness_proposal']=witness
                         row['source_classes'][aid]=['speech_playback'];row['proposed_sound_asset_ids'][aid]=rng.choice(clips)['sound_asset_id']
                         row['recorded_speech_constraints']={aid:'preserve complete registered VCTK clip; no authored TTS on moving or seated body'}
                         # Chairs are resolved by the original phase2 compiler,
