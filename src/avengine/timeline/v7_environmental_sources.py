@@ -31,7 +31,10 @@ def recording_header(record):
 
 
 def attach_environmental_program(scene,program,plan,admitted,rng,starts):
-    classes=plan.get('environment_sound_classes',[])
+    # v13 merges both legacy telephone input names before the unchanged
+    # admitted-domain and physical-binding equality checks.
+    aliases={'telephone':'telephone_bell_ringing','phone_ring':'telephone_bell_ringing'}
+    classes=[aliases.get(c,c) for c in plan.get('environment_sound_classes',[])]
     if not classes:return
     domain=sorted({r['sound_class'] for r in admitted})
     if not classes or any(c not in domain for c in classes):raise ValueError('environment requests an unadmitted class')
@@ -39,7 +42,10 @@ def attach_environmental_program(scene,program,plan,admitted,rng,starts):
     scene['production_scope']='v7-S critical coverage batch1; optional families/motion batch2'
     candidates=scene['native_placement_candidates']
     if not candidates:raise ValueError('native environmental placement candidates missing')
-    physical=plan.get('native_environment')
+    physical=deepcopy(plan.get('native_environment'))
+    if physical is not None:
+        for binding in physical:
+            if 'sound_class' in binding:binding['sound_class']=aliases.get(binding['sound_class'],binding['sound_class'])
     if physical is not None:
         audible=[x for x in physical if not x.get('silent_decor')]
         if [x['sound_class'] for x in audible]!=classes:raise ValueError('physical asset classes differ from recording requests')
