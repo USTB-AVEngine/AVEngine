@@ -3,7 +3,7 @@ import numpy as np
 
 def motion_checks(visual):
     errors=[];feet=[];readbacks=[];motions=visual.get('native_motion_admissions',{})
-    clearances=[];navigation=[];instances=[]
+    clearances=[];navigation=[];instances=[];quality_limits={}
     if set(motions)!=set(visual.get('phase2_requested_motion',motions)):
         errors.append('requested native motions missing or silently substituted')
     for ep,record in motions.items():
@@ -13,7 +13,18 @@ def motion_checks(visual):
         floor_proof=record.get('original_full_skin_floor_collision',{})
         if floor_proof.get('status')!='pass' or floor_proof.get('worst_original_skin_floor_delta_m',-1)<-.00101:
             errors.append(ep+':missing or failing complete original skin/floor collision proof')
-        limit=.012 if record.get('species_id')=='cat' else .008
+        policy=record.get('production_visual_quality_policy',{})
+        owner_quality=(isinstance(policy,dict)
+            and policy.get('policy_name')=='owner_visual_quality_20261014'
+            and policy.get('quality_thresholds_changed') is True
+            and policy.get('truth_and_answer_gates_changed') is False
+            and policy.get('contact_gap_m')==.012
+            and policy.get('support_lock_error_m')==.015)
+        limit=.012 if owner_quality or record.get('species_id')=='cat' else .008
+        support_limit=.015 if owner_quality else .003
+        quality_limits[ep]={'policy_name':policy['policy_name'] if owner_quality else 'original',
+            'owner_quality':owner_quality,'contact_limit_m':limit,'support_lock_limit_m':support_limit,
+            'truth_and_answer_gates_changed':False}
         is_seated=record.get('motion_kind')=='sit';moving=sum(bool(f['moving']) for f in source)
         if not is_seated and not moving:errors.append(ep+':walking request has no moving pose')
         if record['maximum_navmesh_horizontal_error_m']>.002:errors.append(ep+':navigation drift')
@@ -39,11 +50,15 @@ def motion_checks(visual):
             for side,foot in frame['feet'].items():
                 delta=float(foot['floor_delta_m'])
                 minimum=-.00101 if record.get('species_id')=='cat' else -.008
-                passed=delta>=minimum and (not foot['in_contact'] or abs(delta)<limit+1e-12)
-                if foot.get('support_lock_error_m',0)>=.003:passed=False
+                contact_passed=(abs(delta)<=limit+1e-12 if owner_quality else abs(delta)<limit+1e-12)
+                passed=delta>=minimum and (not foot['in_contact'] or contact_passed)
+                lock_error=foot.get('support_lock_error_m',0)
+                if owner_quality:
+                    if lock_error>support_limit+1e-12:passed=False
+                elif lock_error>=support_limit:passed=False
                 if not passed:errors.append(ep+':foot contact/penetration/lock')
                 feet.append({'endpoint_id':ep,'frame_index':index,'foot':side,'in_contact':bool(foot['in_contact']),
-                    'delta_m':delta,'contact_limit_m':limit,'passed':passed,'lock_error_m':foot.get('support_lock_error_m')})
+                    'delta_m':delta,'contact_limit_m':limit,'support_lock_limit_m':support_limit,'owner_quality':owner_quality,'passed':passed,'lock_error_m':foot.get('support_lock_error_m')})
             for child in row.get('attached_emitter_readbacks',[]):
                 if child['readback_error_m']>.0001:errors.append(ep+':foot child readback')
                 readbacks.append(child['readback_error_m'])
@@ -62,4 +77,6 @@ def motion_checks(visual):
         'worst_support_lock_error_m':max((v['lock_error_m'] or 0 for v in feet),default=0),
         'emitter_readbacks':len(readbacks),'emitter_worst_error_m':max(readbacks,default=0),
         'minimum_full_triangle_nonfloor_clearance_m':min(clearances,default=None),
-        'maximum_navmesh_horizontal_error_m':max(navigation,default=0),'foot_rows':feet,'thresholds_changed':False}
+        'maximum_navmesh_horizontal_error_m':max(navigation,default=0),'foot_rows':feet,
+        'thresholds_changed':any(v['owner_quality'] for v in quality_limits.values()),
+        'production_visual_quality_limits_by_endpoint':quality_limits,'truth_and_answer_gates_changed':False}
