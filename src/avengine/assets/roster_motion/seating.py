@@ -204,6 +204,14 @@ def compile_seated(video,entry,scene,house,inputs,directory,request):
                     hits=[h for h in hits if int(h.object_id)not in all_ids]
                     gap=float(wp[1]-hits[0].point[1])if hits else math.inf
                     if abs(gap)>.012:raise ValueError('existing native seat gap exceeds 12mm')
+                if chair_obj is not None and inputs.get('phase2') and request.get('require_observed_chair_candidate'):
+                    # Reject hidden candidates before committing a physical seat.
+                    # The final native 100px chair/person and material gates still run.
+                    chair_view={'semantic_id':int(chair_obj.semantic_id),
+                        'declaration':{'asset_id':seat['chair']['asset_id']}}
+                    visible,chair_views=video._native_observed_pixels(scene,[chair_view])
+                    if visible[seat['chair']['asset_id']]<100:
+                        raise ValueError('fallback chair candidate below unchanged native 100px visibility')
                 # A private navigation rebuild only: preserve every protected
                 # endpoint and its originally available connection.
                 nav=video.pathfinder;before=[np.asarray(nav.snap_point(p))for p in protected]
