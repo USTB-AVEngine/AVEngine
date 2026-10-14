@@ -24,7 +24,8 @@ def seated_witness(video,scene,room,entry,directory,save_sample=False):
         # Chair/feet need a complete floor footprint. Prefer the room interior
         # rather than a distance shell populated by boundary-snapped points.
         points.sort(key=lambda p:(-boundary.distance(Point(p[0],p[2])),abs(np.linalg.norm((np.asarray(p)-listener)[[0,2]])-2.2)))
-        points=[p for p in points if np.linalg.norm((np.asarray(p)-listener)[[0,2]])>=1.6][:24]
+        limit=96 if video.motion_inputs.get('room_sweep_full_budget') else 24
+        points=[p for p in points if np.linalg.norm((np.asarray(p)-listener)[[0,2]])>=1.6][:limit]
         if not points:raise ValueError('no measured floor proposal at visible seated camera distance')
         entry.update(resolved_root_m=np.asarray(points[0]),resolved_yaw_rad=0.)
         video._apply_entry(entry,scene)
