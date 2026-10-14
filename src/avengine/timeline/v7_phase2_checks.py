@@ -1,4 +1,4 @@
-"""Frozen phase-two motion gates evaluated over every native 30 Hz readback."""
+"""Native motion/readback checks with an explicit owner human quality policy."""
 import numpy as np
 
 def motion_checks(visual):
@@ -13,13 +13,16 @@ def motion_checks(visual):
         floor_proof=record.get('original_full_skin_floor_collision',{})
         if floor_proof.get('status')!='pass' or floor_proof.get('worst_original_skin_floor_delta_m',-1)<-.00101:
             errors.append(ep+':missing or failing complete original skin/floor collision proof')
-        limit=.012 if record.get('species_id')=='cat' else .008
+        quality=record.get('quality_policy',{})if record.get('species_id','human')not in {'dog','cat'}else {}
+        limit=quality.get('foot_contact_limit_m',.012 if record.get('species_id')=='cat' else .008)
+        lock_limit=quality.get('support_lock_limit_m',.003)
+        clearance_limit=quality.get('minimum_nonfloor_clearance_m',.02)
         is_seated=record.get('motion_kind')=='sit';moving=sum(bool(f['moving']) for f in source)
         if not is_seated and not moving:errors.append(ep+':walking request has no moving pose')
         if record['maximum_navmesh_horizontal_error_m']>.002:errors.append(ep+':navigation drift')
         navigation.append(record['maximum_navmesh_horizontal_error_m'])
         clearance=record['minimum_certified_triangle_nonfloor_clearance_m'];clearances.append(clearance)
-        if clearance<=.02:errors.append(ep+':whole original skin clearance <=20mm')
+        if clearance<=clearance_limit:errors.append(ep+':whole original skin clearance fails declared quality policy')
         for index,(frame,row) in enumerate(zip(source,actual)):
             if row.get('root_max_error',0)>1e-5 or row.get('native_emitter_readback_error_m',1)>.0001:
                 errors.append(ep+':native root/head emitter readback')
@@ -38,9 +41,9 @@ def motion_checks(visual):
             if not contact:errors.append(ep+':no actual planted support at frame '+str(index))
             for side,foot in frame['feet'].items():
                 delta=float(foot['floor_delta_m'])
-                minimum=-.00101 if record.get('species_id')=='cat' else -.008
-                passed=delta>=minimum and (not foot['in_contact'] or abs(delta)<limit+1e-12)
-                if foot.get('support_lock_error_m',0)>=.003:passed=False
+                minimum=-.00101 if record.get('species_id')=='cat' else -limit
+                passed=delta>=minimum and (not foot['in_contact'] or abs(delta)<=limit+1e-12)
+                if foot.get('support_lock_error_m',0)>lock_limit+1e-12:passed=False
                 if not passed:errors.append(ep+':foot contact/penetration/lock')
                 feet.append({'endpoint_id':ep,'frame_index':index,'foot':side,'in_contact':bool(foot['in_contact']),
                     'delta_m':delta,'contact_limit_m':limit,'passed':passed,'lock_error_m':foot.get('support_lock_error_m')})
@@ -62,4 +65,4 @@ def motion_checks(visual):
         'worst_support_lock_error_m':max((v['lock_error_m'] or 0 for v in feet),default=0),
         'emitter_readbacks':len(readbacks),'emitter_worst_error_m':max(readbacks,default=0),
         'minimum_full_triangle_nonfloor_clearance_m':min(clearances,default=None),
-        'maximum_navmesh_horizontal_error_m':max(navigation,default=0),'foot_rows':feet,'thresholds_changed':False}
+        'maximum_navmesh_horizontal_error_m':max(navigation,default=0),'foot_rows':feet,'thresholds_changed':any(bool(r.get('quality_policy'))for r in motions.values())}

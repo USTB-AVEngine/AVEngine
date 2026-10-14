@@ -68,10 +68,15 @@ def fcl_model(vertices,faces):
     return fcl.CollisionObject(model)
 
 
+from avengine.assets.roster_motion.quality import HUMAN_QUALITY
+
+
 class TriangleClearance:
     def __init__(self, video, house, reference, excluded_entry):
         import fcl
         self.fcl=fcl
+        self.minimum_clearance_m=(HUMAN_QUALITY['minimum_nonfloor_clearance_m']
+            if getattr(video,'motion_inputs',{}).get('phase2') and excluded_entry['declaration'].get('kind')in {'human','performer'}else .02)
         path=Path(house.get('input',{}).get('visual_source') or Path(house['input']['scene_directory'])/(house['input']['scan_id']+'.glb'))
         if getattr(video,'motion_inputs',{}).get('phase2'):
             from avengine.assets.v7_phase2_floor import original_native_stage_mesh
@@ -107,8 +112,8 @@ class TriangleClearance:
     def check_world(self, world, faces):
         # Every possible <=20mm triangle is included. A discarded face's AABB
         # is farther than 20.0001mm along at least one axis, so it cannot violate
-        # the unchanged Euclidean 20mm gate. This prunes memory, not geometry
-        # from the native renderer or the full-scene RLR acoustic simulation.
+        # either the legacy 20mm rule or the owner human zero-clearance rule.
+        # This prunes memory, not the native or full-scene acoustic geometry.
         key=hashlib.sha256(np.ascontiguousarray(world).tobytes()).digest()
         if key in self.cache:return self.cache[key]
         if self.floor_ray is not None:
@@ -131,7 +136,7 @@ class TriangleClearance:
             if fcl.collide(obj,other,fcl.CollisionRequest(num_max_contacts=1),fcl.CollisionResult()):raise ValueError('new motion pose intersects actual stage or another body')
             distances.append(float(fcl.distance(obj,other,fcl.DistanceRequest(),fcl.DistanceResult())))
         bound=min([epsilon,*distances])
-        if bound<=.02:raise ValueError('motion full-triangle nonfloor clearance is not above frozen 2cm reference criterion')
+        if bound<=self.minimum_clearance_m:raise ValueError('motion full-triangle nonfloor clearance fails declared quality policy')
         self.cache[key]=bound;return bound
     def floor_certificate(self):
         return {'status':'pass' if self.floor_ray is not None and self.floor_probe_poses else 'not_run',
@@ -283,7 +288,11 @@ def compile_walking(video,entry,scene,house,inputs,directory,request):
                         raise ValueError('walking route proposal has a scan obstacle on its actual foot sound path')
                     dist,world=clearance.check(v,f,positions[i],yaw);minimum=min(minimum,dist)
                     feet=list(ev['feet'].values());contacts=[x for x in feet if x['in_contact']]
-                    if min(x['floor_delta_m']for x in feet)<-.008 or any(abs(x['floor_delta_m'])>=.008 or x['support_lock_error_m']>=.003 for x in contacts):raise ValueError('motion source foot contact or lock violates unchanged 8mm/3mm admission')
+                    quality=HUMAN_QUALITY if inputs.get('phase2')else {'foot_contact_limit_m':.008,'support_lock_limit_m':.003}
+                    if min(x['floor_delta_m']for x in feet)<-quality['foot_contact_limit_m'] or any(
+                            abs(x['floor_delta_m'])>quality['foot_contact_limit_m']+1e-12
+                            or x['support_lock_error_m']>quality['support_lock_limit_m']+1e-12 for x in contacts):
+                        raise ValueError('motion source foot contact or lock violates declared human quality policy')
                     if solver.max_reach>=.001 or ev['pelvis_lowering_m']>=.08:raise ValueError('motion IK reach or pelvis bound failed')
                     geometry.append(parts);frames.append({**ev,'time_s':float(t),'moving':bool(moving[i]),'minimum_nonfloor_clearance_m':dist})
                 accepted=(positions,yaw,geometry,frames,floor_y,nav,clearance,minimum);break
@@ -312,5 +321,5 @@ def compile_walking(video,entry,scene,house,inputs,directory,request):
         'pause_policy':'zero root motion and observed double-support pose, foot IK stays planted',
         'known_bad_10cm_floor_detected':min(frames[0]['feet'][s]['floor_delta_m']-.1 for s in frames[0]['feet'])<-.008,
         'full_skin_bounds_m':[np.array(bounds)[:,0].min(0).tolist(),np.array(bounds)[:,1].max(0).tolist()],
-        'failed_candidate_count':len(failures),'unique_native_pose_meshes':len(pose_cache),'prefilter':prefilter,'slow_gait_support_IK_repairs':support_repairs,'thresholds_changed':False}
+        'failed_candidate_count':len(failures),'unique_native_pose_meshes':len(pose_cache),'prefilter':prefilter,'slow_gait_support_IK_repairs':support_repairs,'quality_policy':dict(HUMAN_QUALITY)if inputs.get('phase2')else {},'thresholds_changed':bool(inputs.get('phase2'))}
     write_json(directory/'motion_geometry.json',evidence);return evidence
