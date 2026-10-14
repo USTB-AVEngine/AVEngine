@@ -76,12 +76,35 @@ def parent_payload(summary, output, owned_root):
             if kind!='integration_pilot_admitted' or row.get('trial_only') is not True or not audit_policy:
                 raise ValueError('partial trial export lacks original explicit selection policy')
             allocation=audit_policy['actual_allocation']
+        # Retain the original producer's explicitly audited available-candidate
+        # allocation. This is export metadata, not a change to any answer gate.
+        owner=evidence.get('full_qa_selection',{}).get('audit',{}).get('owner_available_candidate_allocation')
+        if owner and owner.get('changed') is True:
+            check=evidence['full_qa_selection'].get('question_check',{})
+            if (kind!='integration_pilot_admitted' or owner.get('canonical_answers_changed') is not False
+                    or owner.get('reason')!='owner: skip unavailable candidate families; keep existing legal answers'
+                    or check.get('status')!='pass' or check.get('logical_questions')!=14
+                    or evidence['full_qa_selection'].get('formal_dataset_count')!=0):
+                raise ValueError('original available-candidate allocation lacks explicit unchanged-answer proof')
+            if summary.get('origin')!='owner_authorized_helper_seated_results' and row.get('trial_only') is not True:
+                raise ValueError('available-candidate allocation requires owner-authorized isolated trial')
+            allocation=owner['actual']
         validate_question_counts(questions,answers,expected_allocation=allocation,allow_partial_window=partial)
         selected=load(parent/('selected_windows_'+member+'_completed.json'))
         raw=Path(selected['recipe']['pool_directory'])/wid
-        audit=load(raw/'candidate_audit.json')
+        audit_path=raw/'candidate_audit.json'
+        if not audit_path.resolve().is_relative_to(owned_root):
+            if summary.get('origin')!='owner_authorized_helper_seated_results':
+                raise ValueError('external candidate pool is not an authorized helper import')
+            imported=load(owned_root/'receipts/HELPER_SEATED_IMPORTED_20261014.json')
+            match=next((item for item in imported['files'] if item.get('source')==str(audit_path)),None)
+            if not match:raise ValueError('helper candidate audit missing from byte-identical import receipt')
+            audit_path=Path(match.get('destination',match.get('dest','')))
+            if not audit_path.resolve().is_relative_to(owned_root) or digest(audit_path)!=match['sha256']:
+                raise ValueError('helper candidate audit copy differs from original import receipt')
+        audit=load(audit_path)
         authority={item['question_id']:item for item in audit['v6_items']}
-        files.append(retain(raw/'candidate_audit.json',delivery/'private'/(wid+'_candidate_audit.json'),owned_root))
+        files.append(retain(audit_path,delivery/'private'/(wid+'_candidate_audit.json'),owned_root))
         for question in questions:
             gold=by_id[question['question_id']]
             answer,check=readable_training_answer(question,gold,authority)
