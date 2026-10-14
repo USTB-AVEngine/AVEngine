@@ -183,6 +183,12 @@ class NativeVisibleVideo(NativeRegisteredVideo):
             seen.add(yaw);pixels=self._native_pair_pixels(scene,entries,forward_at(scene,knot['time_s']))
             observed.append({'time_s':knot['time_s'],'pixels':pixels})
             maximum={k:max(maximum[k],pixels[k]) for k in maximum}
+            # Opt-in proposal search can stop after an actual positive witness
+            # for every current entity. The original existential 100px gate
+            # is identical; negative cases still inspect the complete path.
+            # Final video and all material/color/clock observations are intact.
+            if self.motion_inputs.get('visible_placement_stop_after_native_visibility_witness',False) and all(n>=100 for n in maximum.values()):
+                break
         return maximum,observed
 
     def qualify_standing(self,scene,directory):
@@ -191,24 +197,38 @@ class NativeVisibleVideo(NativeRegisteredVideo):
         r=SimpleNamespace(habitat_sim=self.hs,magnum=self.mn,pathfinder=self.pathfinder)
         floor=float(self.motion_house['room']['measured_floor_y_m']);poly=shape(self.motion_house['room']['floor_polygon'])
         from avengine.capture.v7_visible_semantic_support import SemanticSupports
-        semantic_support=SemanticSupports(self.motion_house)
-        r.semantic_anchors=dict(semantic_support.anchors)
-        supports=survey(self.sim,r,{'object_position':[scene['listener_m'][0],floor,scene['listener_m'][2]]})
-        parts=list(poly.geoms) if hasattr(poly,'geoms') else [poly]
-        room_extent=MultiPolygon([Polygon(p.exterior) for p in parts])
-        # The floor polygon describes free floor. Mounts are admitted by the
-        # original in-room ray origin, and tabletops by the room exterior, so
-        # furniture holes and a navmesh wall clearance do not erase supports.
-        def in_room(key,p):
-            q=p.get('originating_native_floor_m',p['point'])
-            authority=room_extent if key=='table' else poly
-            return authority.buffer(.01).covers(Point(q[0],q[2]))
-        # Floor type is bound to the measured room level, never a bed/table top.
-        for key in ('floor','table','wall','ceiling','doorbell_wall','high_wall','window_wall'):
-            supports[key]=[p for p in supports[key] if in_room(key,p) and abs(p.get('floor_y',floor)-floor)<=.08]
-        for key in ('table','wall','ceiling','doorbell_wall','high_wall','window_wall'):
-            kind='wall' if key.endswith('wall') else key
-            supports[key]=semantic_support.qualify_points(kind,supports[key])
+        from copy import deepcopy
+        free_floor_buffer=poly.buffer(.01)
+        reuse=bool(self.motion_inputs.get('reuse_native_room_support_survey',False))
+        # survey origins use listener X/Z and the measured floor only.
+        # Camera-height sampling cannot change these native support proposals.
+        context=(self.motion_house['room']['room_label'],scene['listener_m'][0],scene['listener_m'][2],floor)
+        cached=getattr(self,'_visible_room_support_cache',None)
+        if reuse and cached is not None and cached[0]==context:
+            semantic_support=cached[1];supports=deepcopy(cached[2])
+            r.semantic_anchors=dict(semantic_support.anchors)
+        else:
+            semantic_support=SemanticSupports(self.motion_house)
+            r.semantic_anchors=dict(semantic_support.anchors)
+            supports=survey(self.sim,r,{'object_position':[scene['listener_m'][0],floor,scene['listener_m'][2]]})
+            parts=list(poly.geoms) if hasattr(poly,'geoms') else [poly]
+            room_extent=MultiPolygon([Polygon(p.exterior) for p in parts])
+            room_extent_buffer=room_extent.buffer(.01)
+            # The floor polygon describes free floor. Mounts are admitted by the
+            # original in-room ray origin, and tabletops by the room exterior, so
+            # furniture holes and a navmesh wall clearance do not erase supports.
+            def in_room(key,p):
+                q=p.get('originating_native_floor_m',p['point'])
+                authority=room_extent if key=='table' else poly
+                return (room_extent_buffer if key=='table' else free_floor_buffer).covers(Point(q[0],q[2]))
+            # Floor type is bound to the measured room level, never a bed/table top.
+            for key in ('floor','table','wall','ceiling','doorbell_wall','high_wall','window_wall'):
+                supports[key]=[p for p in supports[key] if in_room(key,p) and abs(p.get('floor_y',floor)-floor)<=.08]
+            for key in ('table','wall','ceiling','doorbell_wall','high_wall','window_wall'):
+                kind='wall' if key.endswith('wall') else key
+                supports[key]=semantic_support.qualify_points(kind,supports[key])
+            if reuse:
+                self._visible_room_support_cache=(context,semantic_support,deepcopy(supports))
         write_json(directory/'native_support_survey.json',supports)
         bounds=[];checks=[];attempts=[];placed=[]
         # Pending original drawables are parked during layout search only.
@@ -243,10 +263,12 @@ class NativeVisibleVideo(NativeRegisteredVideo):
             if key=='floor':candidates=list({tuple(round(v,5) for v in p['point']):p for p in candidates}.values())
             listener=np.asarray(scene['listener_m']);rejections={}
             def reject(reason):rejections[reason]=rejections.get(reason,0)+1
+            from avengine.capture.v7_alpha_native import forward_at
+            camera_path_vectors=[(forward_at(scene,k['time_s']),None) for k in scene['camera_yaw_knots']]
+            camera_path_vectors=[(f,np.cross(f,[0.,1.,0.])) for f,_ in camera_path_vectors]
             def visible_from_path(delta):
-                from avengine.capture.v7_alpha_native import forward_at
-                for knot in scene['camera_yaw_knots']:
-                    f=forward_at(scene,knot['time_s']);right=np.cross(f,[0.,1.,0.]);depth=float(delta@f)
+                for f,right in camera_path_vectors:
+                    depth=float(delta@f)
                     if depth>0 and abs(math.degrees(math.atan2(float(delta@right),depth)))<=37. and abs(math.degrees(math.atan2(delta[1],depth)))<=24.:return True
                 return False
             target=scene.get('phase2_semantic_azimuth_targets_deg',{}).get(a['asset_id']) if scene.get('phase2_profile') else None
@@ -270,11 +292,23 @@ class NativeVisibleVideo(NativeRegisteredVideo):
             ordinary=[p for p in candidates if pinned is None or p!=dict(pinned,point=pinned['original_surface_point_m'])]
             proposals=([dict(pinned,point=pinned['original_surface_point_m'],_outward_clearance_m=pinned['_outward_clearance_m'])] if pinned is not None else [])
             proposals.extend(dict(p,_outward_clearance_m=offset) for p in ordinary[:320] for offset in (0.,.002,.005,.010,.014))
-            for support in proposals:
+            proposal_budget=self.motion_inputs.get('visible_placement_max_proposals_per_asset')
+            if proposal_budget is not None and not 1<=int(proposal_budget)<=1601:
+                raise ValueError('invalid support proposal search budget')
+            for proposal_index,support in enumerate(proposals):
+                if proposal_budget is not None and proposal_index>=int(proposal_budget):
+                    search_exhausted=True;reject('bounded_support_proposal_search_exhausted');break
                 support=dict(support);support['original_surface_point_m']=support['point'];support['point']=(np.asarray(support['point'])+np.asarray(support['normal'])*support['_outward_clearance_m']).tolist()
                 if key=='floor':
                     delta=listener-np.asarray(support['point'])
                     support['yaw_rad']=math.atan2(-delta[0],-delta[2]) if a['kind'] in {'human','performer','animal'} else math.atan2(-delta[2],delta[0])
+                # Pure candidate filtering: the support transform is identical
+                # to check_support's proposed root. Every surviving candidate
+                # still runs all original rays, contacts and real native pixels.
+                proposed_root,proposed_yaw,_,_=support_points(meta,support)
+                proposed_rep=(proposed_root+rotation(proposed_yaw)@np.asarray(a['emitter_local_m'])) if not a['silent_decor'] else proposed_root+np.array([0.,.5,0.])
+                if not visible_from_path(proposed_rep-listener):
+                    reject('outside_observed_camera_path');continue
                 placement=check_support(self.sim,r,meta,support)
                 if placement is None:
                     reject("attachment_rays");continue
@@ -288,7 +322,7 @@ class NativeVisibleVideo(NativeRegisteredVideo):
                     nearest=min(nearby,key=lambda d:anchor_distance(point,d))
                     placement['support']['native_door_anchor']=nearest
                     placement['support']['distance_to_native_door_aabb_m']=anchor_distance(point,nearest)
-                if key=='floor' and any(abs(p[1]-floor)>.08 or not poly.buffer(.01).covers(Point(p[0],p[2])) for p in placement['support_raycast_points_m']):
+                if key=='floor' and any(abs(p[1]-floor)>.08 or not free_floor_buffer.covers(Point(p[0],p[2])) for p in placement['support_raycast_points_m']):
                     reject('ground_probes_outside_measured_free_floor');continue
                 kind='wall' if key.endswith('wall') else key
                 typed=semantic_support.qualify_points(kind,[{'point':p} for p in placement['support_raycast_points_m']])
