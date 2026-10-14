@@ -15,7 +15,14 @@ def motion_checks(visual):
             errors.append(ep+':missing or failing complete original skin/floor collision proof')
         limit=.012 if record.get('species_id') in {'cat','dog'} else .008
         is_seated=record.get('motion_kind')=='sit';moving=sum(bool(f['moving']) for f in source)
-        if not is_seated and not moving:errors.append(ep+':walking request has no moving pose')
+        is_static_fallback=record.get('motion_kind')=='animal_static_fallback'
+        if is_static_fallback:
+            roots=np.asarray(record.get('world_roots_m',[]),float)
+            if (record.get('motion_mode')!='static_after_failed_route' or moving
+                    or len(set(record.get('pose_glbs',[])))!=1
+                    or roots.shape!=(901,3) or np.max(np.abs(roots-roots[0]))>1e-5):
+                errors.append(ep+':static fallback contains actual movement or changing geometry')
+        if not is_seated and not is_static_fallback and not moving:errors.append(ep+':walking request has no moving pose')
         if record['maximum_navmesh_horizontal_error_m']>.002:errors.append(ep+':navigation drift')
         navigation.append(record['maximum_navmesh_horizontal_error_m'])
         clearance=record['minimum_certified_triangle_nonfloor_clearance_m'];clearances.append(clearance)

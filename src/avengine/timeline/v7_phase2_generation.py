@@ -144,6 +144,8 @@ def generate_phase2_parent(row,house,inputs,catalog,source_admission,human_admis
         return {'status':'pass','native_checks':checks},['scene_video.mp4','native_visible_visual_evidence_phase2.json','native_color_checks.json','native_checks.json','source_material_checks.json','native_visibility_evidence.json','acoustic_placement_admission.json','standing/standing_admission.json','standing/native_support_survey.json']
     vd,vr,_=stage(root,'visible_native',{'scene':base,'assets':assets,'inputs':inputs,'revision':VISUAL_REVISION},render)
     visual=read_json(vd/'native_visible_visual_evidence_phase2.json')
+    from avengine.assets.animal_motion.production_episode import realized_animal_motion
+    realized_animal_motion(base,visual)
     if visual.get('realized_phase2_camera'):
         realized=visual['realized_phase2_camera']
         base['camera_yaw_knots']=deepcopy(realized['camera_yaw_knots'])

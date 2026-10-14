@@ -101,6 +101,30 @@ def rigid_route_placement(poses, meshes, roots, source, indices, yaw, floor, spe
                     'production_gates_changed': False}
 
 
+def motion_route_attempts(route_tiers, requested_mode, stationary):
+    """Explicit owner fallback: retimed walk, retained-pose slide, then static."""
+    attempts = [(route, requested_mode) for tier in route_tiers for route in tier[:2]]
+    if requested_mode == 'walk_animation':
+        attempts.extend((route, 'slide_no_animation') for tier in route_tiers[-2:] for route in tier[:2])
+    attempts.extend((route, 'static_after_failed_route') for route in stationary[:4])
+    return attempts
+
+
+def realized_animal_motion(scene, visual):
+    """Carry actual native motion into the scene labels used by the questions."""
+    for ep, record in visual.get('native_motion_admissions', {}).items():
+        if record.get('species_id') not in {'dog', 'cat'}:
+            continue
+        spec = scene['sources'][ep]
+        spec['motion_marker'] = record['motion_marker']
+        spec['motion_metadata'] = {**spec.get('motion_metadata', {}),
+            'requested_mode': record.get('requested_motion_mode', record['motion_mode']),
+            'realized_mode': record['motion_mode'],
+            'joint_animation_present': record['motion_mode'] == 'walk_animation',
+            'actual_speed_m_s': record.get('actual_speed_m_s'),
+            'motion_degradation': record.get('motion_degradation')}
+
+
 def compile_admitted_animal(video, entry, scene, house, inputs, directory, request):
     from shapely.geometry import shape, LineString, Point, box
     from avengine.assets.roster_motion.episode import PhysicalFloor, TriangleClearance
@@ -123,6 +147,7 @@ def compile_admitted_animal(video, entry, scene, house, inputs, directory, reque
     if len(source) < 2 or any(not Path(f['pose_glb']).is_file() for f in source):
         raise ValueError('complete retained admitted pose stream missing')
     mode = authority['mode']
+    requested_mode = mode
     period = float(source[-1]['time_s']) - float(source[0]['time_s'])
     if period <= 0:
         raise ValueError('admitted pose clock invalid')
@@ -174,7 +199,10 @@ def compile_admitted_animal(video, entry, scene, house, inputs, directory, reque
         tier.sort(key=lambda r: (-r[0], float(np.linalg.norm(r[1][[0, 2]] - start[[0, 2]]))))
         route_tiers.append(tier)
     # Keep eight proposals, while giving shorter/slower motion an actual turn.
-    routes = [route for tier in route_tiers for route in tier[:2]]
+    stationary = [(0., p0.copy(), entry['resolved_yaw_rad'],
+                   yaw_matrix(entry['resolved_yaw_rad']) @ local_forward, 0.) for p0 in candidates[:4]
+                  if poly.covers(Point(p0[0], p0[2]))]
+    routes = motion_route_attempts(route_tiers, requested_mode, stationary)
     failures = []
     begun = time.monotonic()
     ignore = {int(a['object'].object_id) for a in video.actors}
@@ -182,13 +210,13 @@ def compile_admitted_animal(video, entry, scene, house, inputs, directory, reque
     # An old validation-house sole offset can bury the actual initial skin.
     placed_floor = PhysicalFloor(video, house['room']['measured_floor_y_m'], ignore)(start)
     qualified_initial_root_offset = float(start[1] - placed_floor)
-    for _, p0, yaw, direction, route_speed in routes[:8]:
+    for (_, p0, yaw, direction, route_speed), mode in routes:
         if time.monotonic() - begun > 1800:
             break
         try:
             phase = np.mod(times * route_speed / source_speed, period)
             indices = np.minimum(len(source) - 2, np.rint(phase / period * (len(source) - 1)).astype(int))
-            if mode == 'slide_no_animation':
+            if mode != 'walk_animation':
                 indices[:] = 0
             poses = [source[int(i)]['pose_glb'] for i in indices]
             for path in set(poses):
@@ -220,15 +248,17 @@ def compile_admitted_animal(video, entry, scene, house, inputs, directory, reque
                     local = local_paw(old, old_foot)
                     sole = yaw_matrix(yaw) @ local + root
                     delta = float(sole[1] - floor(sole))
-                    planted = bool(old_foot['in_contact'])
+                    planted = True if mode != 'walk_animation' else bool(old_foot['in_contact'])
                     foot = {'sole_local_m': local.tolist(), 'sole_world_m': sole.tolist(),
                             'floor_delta_m': delta, 'in_contact': planted}
                     if mode == 'walk_animation' and planted:
                         if old_foot.get('support_world_m') is None:
                             raise ValueError('animated admission lacks its actual planted-paw target')
                         foot.update(replay_paw_support(old, old_foot, root, yaw))
-                    elif mode == 'slide_no_animation':
-                        foot.update(intentional_slide=True, planted_gait_lock_applicable=False)
+                    elif mode != 'walk_animation':
+                        foot.update(intentional_slide=mode == 'slide_no_animation',
+                                    planted_gait_lock_applicable=False,
+                                    static_supported_pose=mode == 'static_after_failed_route')
                     limit = .012
                     lower = -.00101 if entry['declaration']['species_id'] == 'cat' else -.008
                     if delta < lower or (planted and abs(delta) >= limit) or foot.get('support_lock_error_m', 0) >= .015:
@@ -246,7 +276,7 @@ def compile_admitted_animal(video, entry, scene, house, inputs, directory, reque
                 frames.append({'time_s': float(times[i]), 'source_phase_s': float(phase[i]),
                                'source_frame_index': int(indices[i]), 'mouth_m': old['mouth_m'],
                                'head_m': old['head_m'], 'tail_m': old['tail_m'], 'feet': feet,
-                               'moving': True, 'motion_mode': mode,
+                               'moving': mode != 'static_after_failed_route', 'motion_mode': mode,
                                'joint_animation_present': mode == 'walk_animation',
                                'minimum_nonfloor_clearance_m': dist})
                 bounds.append([world.min(0).tolist(), world.max(0).tolist()])
@@ -262,14 +292,19 @@ def compile_admitted_animal(video, entry, scene, house, inputs, directory, reque
                         'qualified_initial_root_floor_offset_m': qualified_initial_root_offset,
                         'rigid_route_placement': rigid_placement,
                         'requested_speed_m_s': speed, 'actual_speed_m_s': route_speed,
-                        'motion_degradation': 'slower_shorter_admitted_animation' if route_speed < speed else None,
+                        'requested_motion_mode': requested_mode,
+                        'motion_degradation': ('static_after_failed_route' if mode == 'static_after_failed_route'
+                            else 'intentional_slide_after_failed_walk_route' if mode != requested_mode
+                            else 'slower_shorter_admitted_motion' if route_speed < speed else None),
                         'owner_quality_policy': {'authority': 'owner 2026-10-14: ability to generate questions first',
                             'paw_contact_m': .012, 'support_lock_m': .015, 'full_skin_floor_margin_changed': False},
                         'maximum_navmesh_horizontal_error_m': nav,
                         'minimum_certified_triangle_nonfloor_clearance_m': minimum,
                         'species_id': entry['declaration']['species_id'],
-                        'motion_kind': 'animal_animated_walk' if mode == 'walk_animation' else 'animal_intentional_slide',
-                        'motion_mode': mode, 'motion_marker': authority['motion_marker'],
+                        'motion_kind': ('animal_animated_walk' if mode == 'walk_animation'
+                            else 'animal_intentional_slide' if mode == 'slide_no_animation' else 'animal_static_fallback'),
+                        'motion_mode': mode, 'motion_marker': ('animated_walk' if mode == 'walk_animation'
+                            else 'intentional_slide_no_animation' if mode == 'slide_no_animation' else 'static_after_failed_route'),
                         'full_skin_bounds_m': [np.asarray(bounds)[:, 0].min(0).tolist(), np.asarray(bounds)[:, 1].max(0).tolist()],
                         'unique_native_pose_meshes': len(meshes), 'failed_candidates': failures,
                         'native_gates_changed': True, 'quality_gates_changed': True,
@@ -277,7 +312,7 @@ def compile_admitted_animal(video, entry, scene, house, inputs, directory, reque
             write_json(directory / 'motion_geometry.json', evidence)
             return evidence
         except ValueError as error:
-            failures.append({'start_m': p0.tolist(), 'yaw_rad': yaw, 'speed_m_s': route_speed, 'reason': str(error)})
+            failures.append({'start_m': p0.tolist(), 'yaw_rad': yaw, 'speed_m_s': route_speed, 'mode': mode, 'reason': str(error)})
     write_json(directory / 'motion_rejected.json', {'status': 'blocked', 'mode': mode,
-               'reason': 'no newly admitted original-gate route; no silent fallback', 'failed_candidates': failures})
+               'reason': 'walk/shorter route, explicit retained-pose slide and static placement all failed physical gates', 'failed_candidates': failures})
     raise ValueError('final animal admission has no route passing unchanged production gates')
