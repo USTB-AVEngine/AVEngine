@@ -129,6 +129,8 @@ def generate_phase2_parent(row,house,inputs,catalog,source_admission,human_admis
                 raise ValueError('phase2 reused visual input differs physically')
             if any(not(source_dir/f).is_file()for f in pointer['required_files']):raise ValueError('qualified native source incomplete')
             visual=read_json(source_dir/'native_visible_visual_evidence_phase2.json')
+            if (source_dir/'owner_material_quality_references.json').is_file():
+                visual['owner_material_quality_fallbacks']=read_json(source_dir/'owner_material_quality_references.json')['references']
             checks=native_checks(base,assets,visual,pending_feet=True)
             if checks['status']!='pass':raise ValueError('exact phase2 visual reuse fails fresh native gate')
             # Link original immutable evidence bytes, including diagnostic PNGs.
@@ -152,12 +154,14 @@ def generate_phase2_parent(row,house,inputs,catalog,source_admission,human_admis
         finally:gate.close();video.close()
         visual=qualify_missing_materials(root,assets,visual)
         if visual.get('owner_material_quality_fallbacks'):
-            write_json(attempt/'native_visible_visual_evidence_phase2.json',visual)
+            write_json(attempt/'owner_material_quality_references.json',{'references':visual['owner_material_quality_fallbacks'],'actual_original_measurements_retained':True})
         checks=native_checks(base,assets,visual,pending_feet=True);write_json(attempt/'native_checks.json',checks)
         if checks['status']!='pass':raise ValueError('native integration gate failed: '+str(checks['errors']))
-        return {'status':'pass','native_checks':checks},['scene_video.mp4','native_visible_visual_evidence_phase2.json','native_color_checks.json','native_checks.json','source_material_checks.json','native_visibility_evidence.json','acoustic_placement_admission.json','standing/standing_admission.json','standing/native_support_survey.json']
+        return {'status':'pass','native_checks':checks},['scene_video.mp4','native_visible_visual_evidence_phase2.json','native_color_checks.json','native_checks.json','source_material_checks.json','native_visibility_evidence.json','acoustic_placement_admission.json','standing/standing_admission.json','standing/native_support_survey.json']+(['owner_material_quality_references.json']if visual.get('owner_material_quality_fallbacks')else [])
     vd,vr,_=stage(root,'visible_native',{'scene':base,'assets':assets,'inputs':inputs,'revision':VISUAL_REVISION},render)
     visual=read_json(vd/'native_visible_visual_evidence_phase2.json')
+    if (vd/'owner_material_quality_references.json').is_file():
+        visual['owner_material_quality_fallbacks']=read_json(vd/'owner_material_quality_references.json')['references']
     if visual.get('realized_phase2_camera'):
         realized=visual['realized_phase2_camera']
         base['camera_yaw_knots']=deepcopy(realized['camera_yaw_knots'])

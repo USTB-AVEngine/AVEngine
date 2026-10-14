@@ -121,3 +121,17 @@ def test_single_parent_skips_empty_family_and_fills_only_from_actual_legal_pool(
         questions=json.loads((folder/'questions.json').read_text())
         gold=json.loads((folder/'private_answers.json').read_text())
         assert len(questions)==14 and all(g['canonical_answer']==original[g['question_id']]for g in gold)
+
+
+def test_single_parent_zero_modality_has_no_spurious_seed_schedule_mismatch(tmp_path):
+    row,members,root=fixture_parent(tmp_path)
+    row['members']=['v0_a0']
+    for window in members[0]['windows']:
+        folder=Path(members[0]['windows_directory'])/window['window_id']
+        public=json.loads((folder/'questions.json').read_text())
+        public=[q for q in public if q['modality']!='vision']
+        allowed={q['question_id']for q in public}
+        private=[g for g in json.loads((folder/'private_answers.json').read_text())if g['question_id']in allowed]
+        (folder/'questions.json').write_text(json.dumps(public));(folder/'private_answers.json').write_text(json.dumps(private))
+    selected,audit=finalize_parent_question_pools(row,members[:1],root)
+    assert all(w['logical_questions']==14 and 'vision'not in w['modality_counts']for w in selected[0]['windows'])

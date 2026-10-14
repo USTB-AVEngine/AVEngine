@@ -13,7 +13,7 @@ import math
 from avengine.timeline.continuous_pilot import write_json
 from avengine.timeline.v7_production_contract import question_allocation,validate_question_counts
 
-QUESTION_DELIVERY_REVISION='v7-native-full-pool-owner-available-families-20261014'
+QUESTION_DELIVERY_REVISION='v7-native-full-pool-owner-available-families-20261014-zero-counts-v2'
 
 
 def sample_pilot_comparison_frame(raw,scene,*,seed='v7'):
@@ -240,6 +240,7 @@ def available_single_parent_allocation(public,private,requested):
         if not spare:raise ValueError('single parent has fewer actual legal questions than requested total')
         modality=max(spare,key=lambda m:available[m]-allocation[m])
         allocation[modality]+=1;missing-=1
+    allocation={m:n for m,n in allocation.items()if n}
     return allocation,{'requested':dict(requested),'actual':allocation,
         'changed':allocation!=requested,'reason':'owner: skip unavailable candidate families; keep existing legal answers',
         'actual_available':dict(available),'canonical_answers_changed':False}
