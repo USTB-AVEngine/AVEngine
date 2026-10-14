@@ -26,6 +26,7 @@ def choose_assets(catalog,row):
         # black at random. Index-fixed colours made blue/yellow the speakers and
         # green/black female, white male (owner 2026-10-12).
         referable=[str(c) for c in rng.permutation(['blue','yellow','green'])]
+        production_extra_colors=[str(c) for c in rng.permutation(['white','black'])] if row.get('production_sampling') else None
         assets=[];speech_genders=[]
         for i in range(count):
             if i<min(n,2):g=gender
@@ -35,7 +36,14 @@ def choose_assets(catalog,row):
             if i<n:speech_genders.append(g)
             available=sorted({x['body_identity_id'] for x in catalog if x['dialogue_voice_binding_eligible'] and x['visual_gender']==g and x['color']=='blue'})
             selected=body if i<2 else str(rng.choice(available))
-            color=referable[i] if i<3 else str(rng.choice(['white','black']))
+            if production_extra_colors is not None and i>=5:
+                pool=sorted((x for x in catalog if x['dialogue_voice_binding_eligible'] and x['visual_gender']==g
+                             and x['color']=='original' and not x.get('controlled_shirt')),
+                            key=lambda x:x['asset_id'])
+                if not pool:raise ValueError('more than five people requires an admitted uncolored professional body')
+                assets.append(deepcopy(pool[int(rng.integers(len(pool)))]))
+                continue
+            color=referable[i] if i<3 else (production_extra_colors[i-3] if production_extra_colors is not None else str(rng.choice(['white','black'])))
             assets.append(deepcopy(next(x for x in catalog if x['body_identity_id']==selected and x['color']==color)))
     additional=row['production_scenario'].get('additional_source_assets',[])
     for aid in additional:

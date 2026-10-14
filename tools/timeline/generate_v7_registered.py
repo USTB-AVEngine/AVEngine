@@ -51,6 +51,7 @@ def main():
         p.add_argument('--'+name,type=Path,required=True)
     p.add_argument('--workers',type=int,default=1);p.add_argument('--offset',type=int,default=0);p.add_argument('--limit',type=int,default=1)
     p.add_argument('--storage-budget-root',type=Path)
+    p.add_argument('--production-contract',type=Path,help='Frozen v7 room/source/motion contract; automatically applied to every recipe')
     p.add_argument('--integration-pilot',action='store_true',help='Explicit stationary visible-source pilot; seal privately without a training export')
     p.add_argument('--render-backend',choices=['cpu_llvmpipe','ue_spear'],default='cpu_llvmpipe')
     a=p.parse_args()
@@ -80,6 +81,7 @@ def main():
         storage_policy=configure_kujiale_production(a.output,a.storage_budget_root,workers=a.workers)
     else:storage_policy=configure_local_review(a.output,a.storage_budget_root,parents=len(rows),workers=a.workers)
     inputs=json.loads(a.runtime_inputs.read_text());inputs['render_backend']=a.render_backend
+    if a.production_contract:inputs['production_input_contract']=str(a.production_contract.resolve())
     if a.integration_pilot:inputs['integration_pilot']=True
     if any(r.get('production_scenario',{}).get('motion_requests')for r in rows):
         import fcl  # private task dependency must be usable before native work

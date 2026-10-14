@@ -63,6 +63,7 @@ def main():
         p.add_argument('--'+name,type=Path,required=True)
     p.add_argument('--workers',type=int,default=1);p.add_argument('--offset',type=int,default=0);p.add_argument('--limit',type=int,default=1)
     p.add_argument('--storage-budget-root',type=Path)
+    p.add_argument('--production-contract',type=Path,help='Frozen v7 room/source/motion contract; automatically applied to every recipe')
     p.add_argument('--incremental-storage-baseline',type=Path)
     p.add_argument('--incremental-storage-root',type=Path)
     p.add_argument('--integration-pilot',action='store_true',help='Explicit registered motion/seat pilot; seal privately without a training export')
@@ -113,6 +114,7 @@ def main():
             check_write(a.output,expected_bytes=0)
     else:storage_policy=configure_local_review(a.output,a.storage_budget_root,parents=len(rows),workers=a.workers)
     inputs=json.loads(a.runtime_inputs.read_text());inputs['render_backend']=a.render_backend
+    if a.production_contract:inputs['production_input_contract']=str(a.production_contract.resolve())
     if inputs.get('phase2_diagnostic_native_context_recycling'):
         raise ValueError('unqualified native context recycling is diagnostic only and cannot seal parents')
     inputs['phase2']=True

@@ -64,3 +64,30 @@ def test_v13_diagnostic_controls_do_not_fabricate_a_legacy_positive_pass():
     record['reference_dedup']['positive_controls_pass'] = True
     record['reference_dedup']['coverage_complete_for_listed_roots'] = False
     assert 'generated_audio_complete_reference_dedup_missing' in source_blockers(record)
+
+
+def test_runtime_contract_cannot_be_silently_omitted_or_replaced(tmp_path):
+    import json
+    from avengine.timeline.v7_production_inputs import attach_runtime_contract
+    path = tmp_path / 'contract.json'
+    path.write_text(json.dumps({'schema': SCHEMA}))
+    row = {'scene_id': 'candidate'}
+    result = attach_runtime_contract(row, {'production_input_contract': str(path)})
+    assert 'production_sampling' in result and 'production_sampling' not in row
+    result['production_sampling']['manifest_sha256'] = 'changed'
+    with pytest.raises(ValueError, match='differ'):
+        attach_runtime_contract(result, {'production_input_contract': str(path)})
+
+
+def test_production_five_shirts_stay_unique_with_a_sixth_professional():
+    from avengine.timeline.v7_registered_sampling import choose_assets
+    catalog = [{'asset_id': gender + c, 'body_identity_id': gender,
+                'controlled_shirt': c != 'original', 'color': c, 'dialogue_voice_binding_eligible': True,
+                'visual_gender': gender} for gender in ('male', 'female')
+               for c in ('blue', 'yellow', 'green', 'white', 'black', 'original')]
+    row = {'production_scenario': {'speaker_count': 5, 'gender': 'F'},
+           'seeds': {'appearance': 4}, 'production_sampling': {'manifest_path': 'explicit'}}
+    assets = choose_assets(catalog, row)
+    colors = [a['color'] for a in assets if a['controlled_shirt']]
+    assert len(assets) == 6 and len(colors) == len(set(colors)) == 5
+    assert assets[-1]['color'] == 'original'

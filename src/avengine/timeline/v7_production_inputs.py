@@ -295,3 +295,17 @@ def validate_registered_sampling_row(row, selected_assets, inputs):
     proxy = {'house': row['house'], 'room_id': row['room_id'], 'split': row['split'],
              'asset_ids': [a['asset_id'] for a in catalog]}
     return validate_recipe(proxy, catalog, contract)
+
+
+def attach_runtime_contract(row, inputs):
+    """Make an explicit production runtime contract effective for every row."""
+    path = inputs.get('production_input_contract')
+    if not path:
+        return row
+    proof = fingerprint(path)
+    receipt = {'manifest_path': proof['path'], 'manifest_sha256': proof['sha256']}
+    if row.get('production_sampling') is not None and row['production_sampling'] != receipt:
+        raise ValueError('recipe and runtime production input contracts differ')
+    row = deepcopy(row)
+    row['production_sampling'] = receipt
+    return row

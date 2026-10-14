@@ -77,6 +77,8 @@ def _verify_window(folder):
 
 
 def generate_registered_parent(row,house,inputs,assets,source_admission,human_admission,output):
+    from avengine.timeline.v7_production_inputs import attach_runtime_contract
+    row=attach_runtime_contract(row,inputs)
     if inputs.get('render_backend')=='ue_spear':
         from avengine.capture.v7_registered_ue import NativeRegisteredUEVideo as NativeAlphaVideo,REGISTERED_UE_VISUAL_REVISION as ALPHA_VISUAL_REVISION
     else:

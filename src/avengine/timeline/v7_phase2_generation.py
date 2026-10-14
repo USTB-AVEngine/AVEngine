@@ -79,6 +79,8 @@ def exact_phase2_visual_reuse(old_scene,new_scene):
 
 
 def generate_phase2_parent(row,house,inputs,catalog,source_admission,human_admission,output):
+    from avengine.timeline.v7_production_inputs import attach_runtime_contract
+    row=attach_runtime_contract(row,inputs)
     from avengine.capture.v7_phase2_native import NativePhase2Video as NativeVisibleVideo,PHASE2_VISUAL_REVISION as VISUAL_REVISION
     from avengine.timeline.v7_position_admission import PositionAdmission
     from avengine.qa.v7_validation import validate_v6_items,validate_content_items
