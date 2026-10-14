@@ -5,7 +5,7 @@
 
 自 2026-08-25 起，目录本身就是能力分组（阶段目录 m1…m7 已移除），
 本表按目录列出每个工具做什么。
-当前共 615 个工具脚本。
+当前共 616 个工具脚本。
 
 ## 资产生成与装配（`tools/assets/`）
 
@@ -348,6 +348,7 @@
 | `tools/timeline/repair_kujiale_asset_pilot.py` | Prepare fresh failed-parent recipes with native view and RIR-qualified supports |
 | `tools/timeline/report_kujiale_asset_pilot.py` | Write the local native Kujiale asset pilot's Chinese, image-embedded report |
 | `tools/timeline/review_native_windows.py` | Read five encoded native windows and compare head pixels to native FOA |
+| `tools/timeline/sample_v7_production_inputs.py` | Prepare legal v7 candidate selections; run no native/GPU work or export |
 | `tools/timeline/summarize_continuous_pilot.py` | Read back continuous-pilot media, summarize coverage, and estimate CPU throughput |
 | `tools/timeline/synthesize_native_pilot.py` | Resume native-mouth CPU audio and complete 10 s qualification candidates |
 | `tools/timeline/v7_kujiale_CCI_index.py` | Index SHA-verified own native deliveries as an additive training release |

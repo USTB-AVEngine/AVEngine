@@ -1,0 +1,97 @@
+"""Prepare legal v7 candidate selections; run no native/GPU work or export."""
+from pathlib import Path
+from collections import Counter, defaultdict
+from copy import deepcopy
+import argparse, hashlib, json, random
+from avengine.timeline.v7_production_inputs import (
+    COLORS, asset_category, bind_animal_motion, fingerprint,
+    sample_dialogue, sample_room_assets, validate_recipe)
+
+
+def main():
+    p=argparse.ArgumentParser(description=__doc__)
+    for flag in ['contract','plan','assets','ue-assets','ue-native-assets','output']:
+        p.add_argument('--'+flag,type=Path,required=True)
+    a=p.parse_args()
+    if a.output.exists():raise ValueError('candidate output is immutable; use a fresh filename')
+    contract=json.loads(a.contract.read_text());plan=json.loads(a.plan.read_text())
+    if plan['production_contract']['sha256']!=fingerprint(a.contract)['sha256']:
+        raise ValueError('plan and sampler contract differ')
+    def assets(path):
+        x=json.loads(path.read_text());return x.get('assets',x) if isinstance(x,dict) else x
+    cpu=assets(a.assets);human_ue=assets(a.ue_assets);native_ue=assets(a.ue_native_assets)
+    by_id={x['asset_id']:x for x in cpu};ue=deepcopy(human_ue)
+    for x in ue:
+        x.setdefault('kind','human');x.setdefault('controlled_shirt',x.get('color') in COLORS)
+    for x in deepcopy(native_ue):
+        species=x.get('species_id',x.get('category'))
+        if species in {'dog','cat','bird'}:x['species_id']=species
+        x.setdefault('kind','animal' if species in {'dog','cat','bird'} else 'object')
+        x.setdefault('allowed_classes',by_id.get(x['asset_id'],{}).get('allowed_classes',[]))
+        ue.append(x)
+    sources=json.loads(Path(contract['inputs']['source_admission']['path']).read_text())['records']
+    source_pool=defaultdict(list)
+    for r in sources:source_pool[r['sound_class']].append(r['sound_asset_id'])
+    semantic=json.loads(Path(contract['inputs']['semantic_manifest']['path']).read_text())
+    groups=defaultdict(list)
+    for s in semantic['sounds']:groups[s['scenario_id']].append(s)
+    scenarios=[key for key,rows in sorted(groups.items()) if len({r['role_id'] for r in rows})==2]
+    rooms={r['key']:r for r in contract['rooms']};rows=[];voices=Counter();classes=Counter();motion=Counter();families=Counter()
+    proof=fingerprint(a.contract);receipt={'manifest_path':proof['path'],'manifest_sha256':proof['sha256']}
+    for planned in plan['room_allocation']:
+        room=rooms[planned['room_key']];catalog=ue if room['family']=='kujiale' else cpu
+        for index in range(planned['parent_scenes']):
+            seed=int(hashlib.sha256((room['key']+':'+str(index)).encode()).hexdigest()[:12],16)
+            rng=random.Random(seed);selected=sample_room_assets(catalog,room,seed,controlled_people=4)
+            if not selected:raise ValueError('legal room has no sampler-supported candidate assets: '+room['key'])
+            row={'schema':'v7-production-candidate-inputs-v1','scene_id':f'v7_candidate_{len(rows):06d}',
+                'house':room['house'],'room_id':room['room_id'],'family':room['family'],'split':'train','scene_seed':seed,
+                'asset_ids':[s['asset_id'] for s in selected],'source_classes':{},'proposed_sound_asset_ids':{},
+                'motion_requests':{},'production_sampling':receipt,
+                'native_proposal_render_truth_and_question_gates':'not_run; pass these selected inputs to the original family producer',
+                'training_table_exported':False}
+            for item in selected:
+                allowed=[{'telephone':'telephone_bell_ringing','phone_ring':'telephone_bell_ringing'}.get(cl,cl)
+                         for cl in item.get('allowed_classes',[])]
+                allowed=sorted(set(allowed)&set(source_pool))
+                if allowed:
+                    cl=rng.choice(allowed);row['source_classes'][item['asset_id']]=[cl]
+                    row['proposed_sound_asset_ids'][item['asset_id']]=rng.choice(source_pool[cl]);classes[cl]+=1
+                aid=item['asset_id']
+                if aid in contract['animal_motion'] and index%6 in {3,4}:
+                    row['motion_requests'][aid]=bind_animal_motion({'speed_m_s':.03},aid,contract)
+                    motion[contract['animal_motion'][aid]['mode']]+=1
+            humans=[s for s in selected if s.get('kind')=='human']
+            if len(humans)>=2 and scenarios:
+                scenario=rng.choice(scenarios);roles=sorted({r['role_id'] for r in groups[scenario]})
+                genders=[next(r['voice_gender'].lower() for r in groups[scenario] if r['role_id']==role) for role in roles]
+                genders=[{'f':'female','m':'male'}.get(g,g) for g in genders]
+                # Select the same shirt color from a real matching registered body.
+                replacements=[]
+                for old,gender in zip(humans[:2],genders):
+                    pool=[s for s in catalog if s.get('kind')=='human' and s.get('color')==old['color']
+                          and s.get('visual_gender')==gender and asset_category(s,{},room['family']) in room['categories']]
+                    if not pool:break
+                    replacements.append(deepcopy(rng.choice(pool)))
+                if len(replacements)==2:
+                    for old,new in zip(humans[:2],replacements):
+                        slot=selected.index(old);selected[slot]=new
+                        row['asset_ids'][slot]=new['asset_id'];row['source_classes'].pop(old['asset_id'],None);row['proposed_sound_asset_ids'].pop(old['asset_id'],None)
+                    sounds=sample_dialogue(semantic,scenario,genders,seed)
+                    row['semantic_scenario_id']=scenario;row['semantic_sound_ids']=[s['sound_asset_id'] for s in sounds]
+                    row['semantic_human_asset_ids']=[h['asset_id'] for h in replacements]
+                    for s in sounds:voices[s['voice_reference']['speaker_id']]+=1
+            validate_recipe(row,selected,contract)
+            families[room['family']]+=1;rows.append(row)
+    a.output.parent.mkdir(parents=True,exist_ok=True)
+    a.output.write_text(''.join(json.dumps(r,ensure_ascii=False,separators=(',',':'))+'\n' for r in rows))
+    summary={'schema':'v7-production-candidate-selection-summary-v1','output':str(a.output),'rows':len(rows),
+             'families':dict(families),'actual_voice_counts':dict(voices),'voice_count':len(voices),
+             'proposed_source_class_counts':dict(classes),'proposed_animal_motion_counts':dict(motion),
+             'all_room_categories_test_exclusion_shirt_uniqueness_motion_authorities_checked':True,
+             'native_or_GPU_jobs_started':False,'formal_training_questions_claimed':False}
+    a.output.with_suffix('.summary.json').write_text(json.dumps(summary,ensure_ascii=False,indent=2)+'\n')
+    print(json.dumps(summary,ensure_ascii=False))
+
+
+if __name__=='__main__':main()
