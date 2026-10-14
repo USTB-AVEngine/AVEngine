@@ -8,6 +8,10 @@ import importlib.util
 spec=importlib.util.spec_from_file_location("quadruped_penetration",pathlib.Path(__file__).resolve().parents[2]/"src/avengine/assets/quadruped_penetration.py")
 pen=importlib.util.module_from_spec(spec);spec.loader.exec_module(pen)
 pair_footprints=pen.pair_footprints;visible_penetration_gate=pen.visible_penetration_gate;semantic_vertex_regions=pen.semantic_vertex_regions
+# Blender does not load the main asset package's runtime dependencies.
+pspec=importlib.util.spec_from_file_location("quadruped_validation_policy",pathlib.Path(__file__).resolve().parents[2]/"src/avengine/assets/animal_motion/validation_policy.py")
+policies=importlib.util.module_from_spec(pspec);pspec.loader.exec_module(policies)
+validation_policy=policies.validation_policy;VALIDATION_POLICY_NAMES=policies.VALIDATION_POLICY_NAMES
 REGIONS=("Body","Head","Tail","FL","FR","HL","HR")
 def segments_hit(a,b,c,p,q):
  e1=b-a;e2=c-a;d=q-p;h=np.cross(d,e2);det=np.einsum("ij,ij->i",e1,h)
@@ -70,6 +74,7 @@ def regional_measurements(p,area,depth,labels,areas,static_areas,basecodes,basea
  return rows
 
 def run_actual_stream(a,start):
+ policy=validation_policy(a.validation_policy)
  meta=json.loads(a.skin_stream_meta.read_text());rest=np.load(meta["rest_npz"],allow_pickle=False)
  v0=rest["positions"].astype(float);f=rest["faces"].astype(np.int64);binding=rest["region_matrices"]
  reg=meta["registration"];marks=reg["landmarks_local_m"]
@@ -118,11 +123,11 @@ def run_actual_stream(a,start):
   rotations=(current@np.linalg.inv(binding))[:,:3,:3]
   depth=pen.pair_new_depth(v,v0,f,p,labels,rotations)
   regions=regional_measurements(p,pa,pd,labels,area,area0,basecodes,baseareas,basedepths,depth)
-  macro=visible_penetration_gate(regions)
+  macro=visible_penetration_gate(regions,cross_region_area_limit_m2=policy['cross_region_area_m2'],depth_limit_m=policy['penetration_depth_m'],check_intraregion=policy['check_intraregion'])
   seam=np.linalg.norm(np.maximum.reduceat(v[ws],ss)-np.minimum.reduceat(v[ws],ss),axis=1)
   new_seam=float(np.maximum(seam-rest_seams,0).max())
   if macro:failures.append({"frame":index,"reason":"new_visible_regional_penetration","regions":macro})
-  if float(rat.max())>1.5+1e-6:failures.append({"frame":index,"reason":"edge_growth_over_1_5","maximum":float(rat.max())})
+  if float(rat.max())>policy['maximum_edge_growth']+1e-6:failures.append({"frame":index,"reason":"edge_growth_over_1_5" if a.validation_policy=='strict' else 'edge_growth_over_2_0',"maximum":float(rat.max()),"limit":policy['maximum_edge_growth']})
   if new_seam>1e-5:failures.append({"frame":index,"reason":"new_uv_seam_tear","maximum_gap_increase_m":new_seam})
   if not np.isfinite(v).all():failures.append({"frame":index,"reason":"nonfinite_vertices"})
   row={"frame":index,"time_s":timestamp,"self_intersections":hit_count,"excess_over_static_count_diagnostic":max(0,hit_count-len(baseline)),
@@ -136,7 +141,7 @@ def run_actual_stream(a,start):
   if failures:print("ACTUAL_SURFACE_REJECTION",failures,flush=True);break
  result={"schema":"blender_actual_native_skin_regional_surface_v1","status":"pass" if not failures else "fail","input":str(a.glb),
   "geometry_source":"exact float32 vertices emitted by the target-owned evaluator to native rigid GLB, not Blender glTF reimport",
-  "stream_metadata":str(a.skin_stream_meta),"depth_metric":"relative_inward_material_depth_v1","gate_revision":"owner_20261014_023x",
+  "stream_metadata":str(a.skin_stream_meta),"depth_metric":"relative_inward_material_depth_v1","gate_revision":"owner_20261014_023x" if a.validation_policy=='strict' else 'owner_relaxed_20261014',"validation_policy":policy,
   "frames":rows,"frame_count":len(rows),"requested_frame_count":a.frames,"full_sequence_evaluated":len(rows)==a.frames,
   "byte_identical_geometry_cache_hits":geometry_cache_hits,"distinct_float32_geometry_count":len(geometry_cache),
   "depth_recomputed_for_every_frame":True,"source_baseline_true_intersections":len(baseline),"source_baseline_coplanar_candidates":len(coplanar0),
@@ -145,8 +150,8 @@ def run_actual_stream(a,start):
   "worst_shard_share_area":max(x["shard_share_area"] for x in rows),"shard_edge_growth":3.,
   "static_region_areas_m2":dict(zip(REGIONS,np.bincount(labels,weights=area0,minlength=7).tolist())),
   "semantic_region_method":"registered_head_bbox_geometric_tail_and_four_own_limb_columns",
-  "thresholds":{"cross_region_new_area_maximum_m2":25e-6,"cross_region_area_scope":"sum_of_all_different_region_pairs_per_frame",
-    "new_penetration_depth_maximum_m":.002,"maximum_edge_growth":1.5,"maximum_uv_seam_gap_increase_m":1e-5},
+  "thresholds":{"cross_region_new_area_maximum_m2":policy['cross_region_area_m2'],"cross_region_area_scope":"sum_of_all_different_region_pairs_per_frame",
+    "new_penetration_depth_maximum_m":policy['penetration_depth_m'],"intraregion_depth_is_admission_criterion":policy['check_intraregion'],"maximum_edge_growth":policy['maximum_edge_growth'],"maximum_uv_seam_gap_increase_m":1e-5},
   "cpu_s":time.process_time()-start,"source_baseline_bounds_m":[v0.min(0).tolist(),v0.max(0).tolist()]}
  a.output.write_text(json.dumps(result,indent=2));print("ACTUAL_SURFACE_RESULT",result["status"],len(rows),flush=True)
  if result["status"]!="pass":raise SystemExit(2)
@@ -154,9 +159,10 @@ def run_actual_stream(a,start):
 def main():
  args=sys.argv[sys.argv.index("--")+1:];ap=argparse.ArgumentParser()
  ap.add_argument("--glb",type=pathlib.Path,required=True);ap.add_argument("--output",type=pathlib.Path,required=True)
- ap.add_argument("--skin-stream-meta",type=pathlib.Path);ap.add_argument("--registration-request",type=pathlib.Path);ap.add_argument("--action",default="Walking_Repaired");ap.add_argument("--frames",type=int,default=145);a=ap.parse_args(args)
- start=time.process_time()
+ ap.add_argument("--validation-policy",choices=VALIDATION_POLICY_NAMES,default='strict');ap.add_argument("--skin-stream-meta",type=pathlib.Path);ap.add_argument("--registration-request",type=pathlib.Path);ap.add_argument("--action",default="Walking_Repaired");ap.add_argument("--frames",type=int,default=145);a=ap.parse_args(args)
+ start=time.process_time();policy=validation_policy(a.validation_policy)
  if a.skin_stream_meta:return run_actual_stream(a,start)
+ if a.validation_policy!='strict':raise ValueError('relaxed_policy_requires_actual_native_skin_stream')
  bpy.ops.wm.read_factory_settings(use_empty=True);scene=bpy.context.scene
  scene.render.fps=30;scene.render.threads_mode="FIXED";scene.render.threads=1
  bpy.ops.import_scene.gltf(filepath=str(a.glb),merge_vertices=False)
@@ -240,11 +246,11 @@ def main():
   region_rotations=(current_region_matrices@np.linalg.inv(binding_region_matrices))[:,:3,:3]
   material_new_depth=pen.pair_new_depth(v,v0,f,p,labels,region_rotations)
   regions=regional_measurements(p,pa,pd,labels,area,static_area,basecodes,baseareas,basedepths,material_new_depth)
-  macro=visible_penetration_gate(regions)
+  macro=visible_penetration_gate(regions,cross_region_area_limit_m2=policy['cross_region_area_m2'],depth_limit_m=policy['penetration_depth_m'],check_intraregion=policy['check_intraregion'])
   seam=np.linalg.norm(np.maximum.reduceat(v[weldsort],weldstart)-np.minimum.reduceat(v[weldsort],weldstart),axis=1)
   new_seam=float(np.maximum(seam-rest_seams,0).max())
   if macro:failures.append({"frame":index,"reason":"new_visible_regional_penetration","regions":macro})
-  if float(rat.max())>1.5+1e-6:failures.append({"frame":index,"reason":"edge_growth_over_1_5","maximum":float(rat.max())})
+  if float(rat.max())>policy['maximum_edge_growth']+1e-6:failures.append({"frame":index,"reason":"edge_growth_over_1_5" if a.validation_policy=='strict' else 'edge_growth_over_2_0',"maximum":float(rat.max()),"limit":policy['maximum_edge_growth']})
   if new_seam>1e-5:failures.append({"frame":index,"reason":"new_uv_seam_tear","maximum_gap_increase_m":new_seam})
   if not np.isfinite(v).all():failures.append({"frame":index,"reason":"nonfinite_vertices"})
   row={"frame":index,"blender_frame":float(frame),"self_intersections":len(hits),
@@ -260,7 +266,7 @@ def main():
   if failures:
    print("SURFACE_REJECTION_WITNESS",index,failures,flush=True)
    break
- result={"schema":"blender_quadruped_visible_regional_surface_check_v3","gate_revision":"owner_20261014_023x","depth_metric":"relative_inward_material_depth_v1",
+ result={"schema":"blender_quadruped_visible_regional_surface_check_v3","gate_revision":"owner_20261014_023x" if a.validation_policy=='strict' else 'owner_relaxed_20261014',"validation_policy":policy,"depth_metric":"relative_inward_material_depth_v1",
   "input":str(a.glb),"action":a.action,"frames":rows,"frame_count":len(rows),
   "requested_frame_count":a.frames,"full_sequence_evaluated":len(rows)==a.frames,
   "early_stop_reason":"first_verified_surface_rejection" if len(rows)<a.frames else None,
@@ -269,7 +275,7 @@ def main():
   "relative_failures":failures,"worst_shard_share_area":max(x["shard_share_area"] for x in rows),
   "maximum_edge_growth":max(x["max_edge_growth"] for x in rows),"shard_edge_growth":3.,
   "status":"pass" if not failures else "fail",
-  "thresholds":{"cross_region_new_area_maximum_m2":25e-6,"new_penetration_depth_maximum_m":.002,
+  "thresholds":{"cross_region_new_area_maximum_m2":policy['cross_region_area_m2'],"new_penetration_depth_maximum_m":.002,
    "cross_region_area_scope":"sum_of_all_different_region_pairs_per_frame",
    "same_region_new_area_is_admission_criterion":False,"maximum_edge_growth":1.5,
    "maximum_uv_seam_gap_increase_m":1e-5,

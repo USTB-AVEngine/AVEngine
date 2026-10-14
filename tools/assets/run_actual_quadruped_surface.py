@@ -2,7 +2,7 @@
 import json,pathlib,subprocess
 import numpy as np
 from avengine.assets.roster_motion.episode import triangle_mesh
-def run(rig,walk,times,output,blender,registration_request):
+def run(rig,walk,times,output,blender,registration_request,*,validation_policy='strict'):
     output=pathlib.Path(output)
     reference=walk.reference_parts;v,f=triangle_mesh(rig.document,rig.binary,reference)
     names={n.get('name'):i for i,n in enumerate(rig.document['nodes'])}
@@ -25,7 +25,7 @@ def run(rig,walk,times,output,blender,registration_request):
     surface=output/'surface.json'
     cmd=[str(blender),'-b','--factory-startup','--disable-autoexec','-t','1','--python-exit-code','2','--python',
          str(pathlib.Path(__file__).with_name('blender_check_quadruped_surface.py')),'--','--glb',str(rig.path),
-         '--output',str(surface),'--frames',str(len(times)),'--skin-stream-meta',str(metadata)]
+         '--output',str(surface),'--frames',str(len(times)),'--skin-stream-meta',str(metadata),'--validation-policy',validation_policy]
     child=subprocess.Popen(cmd,stdin=subprocess.PIPE)
     try:
         for t in times:
