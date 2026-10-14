@@ -51,6 +51,53 @@ def replay_paw_support(frame, foot, root, yaw):
             'support_representation': representation, 'support_vertex': foot.get('support_vertex')}
 
 
+def rigid_route_placement(poses, meshes, roots, source, indices, yaw, floor, species):
+    """Place the complete admitted stream with one rigid vertical translation.
+
+    Static and animated buffers need not share a local root-to-paw offset.
+    Intersect the original skin/floor and planted-paw placement intervals over
+    the whole route. This never changes a saved joint pose or corrects a paw
+    per frame; the ordinary native gates still check every resulting pose.
+    """
+    rotation = yaw_matrix(yaw)
+    lower = -math.inf
+    upper = math.inf
+    minimum_skin_delta = math.inf
+    paw_lower = -.00101 if species == 'cat' else -.008
+    paw_limit = .012 if species == 'cat' else .008
+    for path, root, index in zip(poses, roots, indices):
+        vertices = np.asarray(meshes[path].vertices)
+        low = vertices[vertices[:, 1] + root[1] <= floor.reference + .04]
+        if len(low):
+            world = low @ rotation.T + root
+            delta = float(np.min(world[:, 1] - floor.many(world)))
+            minimum_skin_delta = min(minimum_skin_delta, delta)
+            # A positive placement target leaves numerical headroom inside the
+            # existing 1mm original-skin penetration criterion.
+            lower = max(lower, .0004 - delta)
+        frame = source[int(index)]
+        feet = list(frame['feet'].values())
+        soles = np.asarray([rotation @ local_paw(frame, foot) + root for foot in feet])
+        deltas = soles[:, 1] - floor.many(soles)
+        for foot, delta in zip(feet, deltas):
+            lower = max(lower, paw_lower + .00001 - float(delta))
+            if foot['in_contact']:
+                lower = max(lower, -paw_limit + .00001 - float(delta))
+                upper = min(upper, paw_limit - .00001 - float(delta))
+    if not math.isfinite(lower) or lower > upper:
+        raise ValueError('no constant rigid animal route height satisfies original skin and paw gates: '
+                         + json.dumps({'minimum_shift_m': lower, 'maximum_shift_m': upper}))
+    shift = min(max(0., lower), upper)
+    placed = roots.copy()
+    placed[:, 1] += shift
+    return placed, {'method': 'one rigid vertical translation of complete admitted pose stream',
+                    'vertical_translation_m': float(shift),
+                    'minimum_translation_m': float(lower), 'maximum_translation_m': float(upper),
+                    'minimum_original_skin_delta_before_translation_m': minimum_skin_delta,
+                    'per_frame_correction': False, 'joint_poses_changed': False,
+                    'production_gates_changed': False}
+
+
 def compile_admitted_animal(video, entry, scene, house, inputs, directory, request):
     from shapely.geometry import shape, LineString, Point, box
     from avengine.assets.roster_motion.episode import PhysicalFloor, TriangleClearance
@@ -117,6 +164,7 @@ def compile_admitted_animal(video, entry, scene, house, inputs, directory, reque
                 continue
             score = min([line.distance(poly.boundary), *[line.distance(b) for b in bodies]])
             routes.append((float(score), p0.copy(), yaw, direction))
+    routes = list({(tuple(r[1]), r[2]): r for r in routes}.values())
     routes.sort(key=lambda r: (-r[0], float(np.linalg.norm(r[1][[0, 2]] - start[[0, 2]]))))
     failures = []
     begun = time.monotonic()
@@ -138,6 +186,9 @@ def compile_admitted_animal(video, entry, scene, house, inputs, directory, reque
             if not math.isfinite(nav) or nav > .002:
                 raise ValueError('admitted animal route exceeds unchanged 2mm NavMesh drift')
             floor = PhysicalFloor(video, actual_floor, ignore)
+            roots, rigid_placement = rigid_route_placement(
+                poses, meshes, roots, source, indices, yaw, floor, entry['declaration']['species_id'])
+            p0 = roots[0].copy()
             clearance = TriangleClearance(video, house, actual_floor, entry)
             frames, bounds, minimum = [], [], math.inf
             for i, (path, root) in enumerate(zip(poses, roots)):
@@ -187,11 +238,12 @@ def compile_admitted_animal(video, entry, scene, house, inputs, directory, reque
                        'admitted_native_motion': authority['native_motion'],
                        'source_pose_reconstruction_receipt': reconstruction_receipt,
                        'new_house_admission_required': True, 'motion_only_does_not_admit_audio': True}
-            evidence = {'status': 'pass', 'revision': 'final-admitted-animal-poses-new-house-v2-qualified-initial-root',
+            evidence = {'status': 'pass', 'revision': 'final-admitted-animal-poses-new-house-v3-rigid-stream-placement',
                         'lineage': lineage, 'source_frames': frames, 'pose_glbs': poses,
                         'world_roots_m': roots.tolist(), 'yaw_rad': yaw, 'physical_ground_y_m': actual_floor,
                         'original_full_skin_floor_collision': clearance.floor_certificate(),
                         'qualified_initial_root_floor_offset_m': qualified_initial_root_offset,
+                        'rigid_route_placement': rigid_placement,
                         'maximum_navmesh_horizontal_error_m': nav,
                         'minimum_certified_triangle_nonfloor_clearance_m': minimum,
                         'species_id': entry['declaration']['species_id'],
