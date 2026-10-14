@@ -60,6 +60,7 @@ def main():
 
  for n in ['ue_tmp','ue_shm','ue_config']:(o/n).mkdir(exist_ok=True)
  while pending or active:
+  m=load(a.manifest)
   now=datetime.datetime.now(datetime.timezone.utc);sg=now+datetime.timedelta(hours=8);mem=next(int(s.split()[1])*1024 for s in Path('/proc/meminfo').read_text().splitlines()if s.startswith('MemAvailable:'));free=shutil.disk_usage('/data').free
   records=processes([v['process'].pid for v in active.values()]);pss=sum(v['pss_bytes']for v in records);limit=120_000_000_000 if sg.hour<4 else 140_000_000_000
   if time.monotonic()-last_size>120:size=allocated(o)+allocated(w);last_size=time.monotonic()
