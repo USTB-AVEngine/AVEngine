@@ -15,18 +15,31 @@ class StorageBudgetExceeded(RuntimeError):
 
 
 def allocated_bytes(root):
+    """Count allocated blocks once per inode without following symlinks.
+
+    DirEntry caches metadata, avoiding the repeated path construction and
+    lstat calls of an os.walk/Path scan. Every check still scans the whole
+    task root: no cached budget estimate can hide concurrent writes.
+    """
     total=0;seen=set()
     if not Path(root).exists():return 0
-    for folder,dirs,files in os.walk(root,followlinks=False):
-        dirs[:]=[d for d in dirs if not (Path(folder)/d).is_symlink()]
-        for name in files:
-            p=Path(folder)/name
-            try:s=p.lstat()
-            except FileNotFoundError:continue
-            if p.is_symlink():continue
-            key=(s.st_dev,s.st_ino)
-            if key in seen:continue
-            seen.add(key);total+=getattr(s,"st_blocks",(s.st_size+511)//512)*512
+    pending=[os.fspath(root)]
+    while pending:
+        folder=pending.pop()
+        try:
+            with os.scandir(folder) as entries:
+                for entry in entries:
+                    try:
+                        if entry.is_symlink():continue
+                        if entry.is_dir(follow_symlinks=False):
+                            pending.append(entry.path);continue
+                        s=entry.stat(follow_symlinks=False)
+                    except FileNotFoundError:continue
+                    key=(s.st_dev,s.st_ino)
+                    if key in seen:continue
+                    seen.add(key)
+                    total+=getattr(s,"st_blocks",(s.st_size+511)//512)*512
+        except FileNotFoundError:continue
     return total
 
 
