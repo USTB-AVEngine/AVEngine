@@ -110,18 +110,19 @@ def pair_footprints(vertices, faces, pairs):
     return np.column_stack((area_a, area_b)), np.column_stack((depth_a, depth_b))
 
 
-def visible_penetration_gate(groups):
+def visible_penetration_gate(groups, *, cross_region_area_limit_m2=CROSS_REGION_AREA_LIMIT_M2,
+                             depth_limit_m=DEPTH_LIMIT_M, same_region_depth_is_criterion=True):
     """Counts intentionally have no input into this gate."""
     failures = []
     for row in groups:
         different = row["region_pair"][0] != row["region_pair"][1]
-        area_fail = different and row["new_area_m2"] > CROSS_REGION_AREA_LIMIT_M2 + 1e-12
-        depth_fail = row["new_maximum_depth_m"] > DEPTH_LIMIT_M + 1e-9
+        area_fail = different and row["new_area_m2"] > cross_region_area_limit_m2 + 1e-12
+        depth_fail = (different or same_region_depth_is_criterion) and row["new_maximum_depth_m"] > depth_limit_m + 1e-9
         if area_fail or depth_fail:
             failures.append(dict(row, area_rejected=area_fail, depth_rejected=depth_fail))
     cross_total = sum(row["new_area_m2"] for row in groups
                       if row["region_pair"][0] != row["region_pair"][1])
-    if cross_total > CROSS_REGION_AREA_LIMIT_M2 + 1e-12 and not any(
+    if cross_total > cross_region_area_limit_m2 + 1e-12 and not any(
             row["area_rejected"] for row in failures):
         failures.append({
             "region_pair": ["all_different_regions", "combined"],

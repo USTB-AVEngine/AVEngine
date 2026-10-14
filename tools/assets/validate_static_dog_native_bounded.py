@@ -5,6 +5,7 @@ unchanged checks. A fresh simulator precedes reuse of a pose-buffer filename.
 Only cache lifetime and stored pose buffers differ from the standard runner.
 """
 import argparse,copy,gc,json,math,pathlib,subprocess,time
+from avengine.assets.quadruped_motion_policy import get_motion_policy, OWNER093X, policy_frame_checks, policy_direction_check, policy_direction_negative_controls
 import numpy as np
 from avengine.assets.animal_motion.profiles import Rig,PAWS
 from avengine.assets.animal_motion.walk import ConstrainedWalk
@@ -16,7 +17,8 @@ from avengine.assets.roster_motion.pose import rigid_glb
 from avengine.assets.roster_motion.contact import yaw_matrix
 from avengine.capture.continuous_native_video import NativeContinuousVideo
 
-def run(record,house,inputs,route,output,*,speed=.05,period=2.4,seconds=4.8,slots=8,mode="walk_animation",animation_attempts=None,rigid_vertical_shift_m=0.0):
+def run(record,house,inputs,route,output,*,speed=.05,period=2.4,seconds=4.8,slots=8,mode="walk_animation",animation_attempts=None,rigid_vertical_shift_m=0.0,motion_policy=None):
+    motion_policy=get_motion_policy(motion_policy)
     if not math.isfinite(rigid_vertical_shift_m):raise ValueError("finite_rigid_vertical_shift_required")
     if mode!="slide_no_animation" and rigid_vertical_shift_m:raise ValueError("vertical_placement_adjustment_is_only_for_original_standing_slide")
     output=pathlib.Path(output);output.mkdir(parents=True,exist_ok=False);(output/"frames").mkdir()
@@ -29,7 +31,7 @@ def run(record,house,inputs,route,output,*,speed=.05,period=2.4,seconds=4.8,slot
     video=None;encoder=None;start=time.process_time()
     code_root=pathlib.Path(__file__).resolve().parents[2]
     commit=subprocess.check_output(["git","-C",str(code_root),"rev-parse","HEAD"],text=True).strip()
-    result={"asset_id":record["asset_id"],"status":"pending","backend":"Habitat CPU llvmpipe","house":house["house"],"motion_mode":mode,"joint_animation_present":mode=="walk_animation","animation_attempts":animation_attempts or [],"frames":[],"audio_status":"not_run","native_validation_code_commit":commit,"bounded_adapter":{"pose_slots":slots,"reset_before_buffer_reuse":True,"all_frame_checks_retained":True,"thresholds_changed":False},"native_direction_negative_frames":{"180":[],"90":[]},"rigid_vertical_placement_shift_m":rigid_vertical_shift_m}
+    result={"asset_id":record["asset_id"],"status":"pending","backend":"Habitat CPU llvmpipe","house":house["house"],"motion_mode":mode,"joint_animation_present":mode=="walk_animation","animation_attempts":animation_attempts or [],"frames":[],"audio_status":"not_run","native_validation_code_commit":commit,"bounded_adapter":{"pose_slots":slots,"reset_before_buffer_reuse":True,"all_frame_checks_retained":True,"thresholds_changed":bool(motion_policy),"motion_policy":motion_policy.name if motion_policy else None},"native_direction_negative_frames":{"180":[],"90":[]},"rigid_vertical_placement_shift_m":rigid_vertical_shift_m}
     try:
         video,(eye,cf,cr,cu)=fresh();renderer=copy.deepcopy(video.receipt)
         stagepath=pathlib.Path(house["input"].get("visual_source") or pathlib.Path(house["input"]["scene_directory"])/(house["input"]["scan_id"]+".glb"))
@@ -105,9 +107,9 @@ def run(record,house,inputs,route,output,*,speed=.05,period=2.4,seconds=4.8,slot
             if i%30==0:print("BOUNDED_NATIVE_FRAME",record["asset_id"],i,"floor",row["body_floor_min_m"],"pixels",row["visible_pixels"],flush=True)
         encoder.stdin.close();rc=encoder.wait();encoder=None
         if rc:raise RuntimeError("video_encoder_failed")
-        checks=frame_checks(result["frames"],native=True,mode=mode);controls=direction_negative_controls(result["frames"]);actual={}
+        checks=policy_frame_checks(result["frames"],native=True,mode=mode,policy=motion_policy);controls=policy_direction_negative_controls(result["frames"],policy=motion_policy);actual={}
         for angle,rows in result["native_direction_negative_frames"].items():
-            actual[angle]={"check":direction_check([r["time_s"] for r in rows],[r["root_world_m"] for r in rows],[r["head_world_m"] for r in rows],[r["tail_world_m"] for r in rows]),"physically_rotated_native_drawable":True,"body_rotation_error_deg":rows[0]["body_rotation_error_deg"],"all_frame_max_rotation_error_deg":max(abs(r["body_rotation_error_deg"]-float(angle)) for r in rows),"native_frame_count":len(rows)}
+            actual[angle]={"check":policy_direction_check([r["time_s"] for r in rows],[r["root_world_m"] for r in rows],[r["head_world_m"] for r in rows],[r["tail_world_m"] for r in rows],policy=motion_policy),"physically_rotated_native_drawable":True,"body_rotation_error_deg":rows[0]["body_rotation_error_deg"],"all_frame_max_rotation_error_deg":max(abs(r["body_rotation_error_deg"]-float(angle)) for r in rows),"native_frame_count":len(rows)}
         actual["status"]="pass" if actual["180"]["check"]["status"]==actual["90"]["check"]["status"]=="fail" else "fail"
         if not all(r["complete_silhouette_in_frame"] for r in result["frames"]):checks["status"]="fail";checks["failures"].append("native_silhouette_clipped_or_under_100_pixels")
         result.update(status="geometry_pass_audio_pending" if checks["status"]==controls["status"]==actual["status"]=="pass" else "geometry_fail",checks=checks,direction_negative_controls=controls,native_direction_negative_controls=actual,renderer=renderer,stage_transform=transform,source_master=str(rig.path),source_provenance=rig.provenance,support_plane=walk.support_plane,listener_m=eye.tolist(),camera_forward=cf.tolist(),images=images,frame_count=len(result["frames"]),native_checks_run=True,native_stage_floor_triangles=clearance.floor_triangles,max_native_geometry_bounds_error_m=max(r["native_geometry_bounds_error_m"] for r in result["frames"]),max_emitter_error_m=max(r["native_emitter_readback_error_m"] for r in result["frames"]),min_visible_pixels=min(r["visible_pixels"] for r in result["frames"]),simulator_reset_frame_indices=resets)
@@ -126,8 +128,9 @@ def main():
     p.add_argument("--asset",required=True);p.add_argument("--speed",type=float,default=.05);p.add_argument("--period",type=float,default=2.4);p.add_argument("--seconds",type=float,default=4.8);p.add_argument("--pose-slots",type=int,default=8)
     p.add_argument("--rigid-vertical-shift-m",type=float,default=0.0)
     p.add_argument("--mode",choices=("walk_animation","slide_no_animation"),default="walk_animation");p.add_argument("--animation-attempts",type=pathlib.Path)
+    p.add_argument("--motion-policy",choices=[OWNER093X])
     a=p.parse_args();record=next(r for r in json.loads(a.inventory.read_text())["assets"] if r["asset_id"]==a.asset)
-    result=run(record,json.loads(a.house.read_text()),json.loads(a.runtime.read_text()),json.loads(a.route.read_text()),a.output,speed=a.speed,period=a.period,seconds=a.seconds,slots=a.pose_slots,mode=a.mode,animation_attempts=json.loads(a.animation_attempts.read_text()) if a.animation_attempts else None,rigid_vertical_shift_m=a.rigid_vertical_shift_m)
+    result=run(record,json.loads(a.house.read_text()),json.loads(a.runtime.read_text()),json.loads(a.route.read_text()),a.output,speed=a.speed,period=a.period,seconds=a.seconds,slots=a.pose_slots,mode=a.mode,animation_attempts=json.loads(a.animation_attempts.read_text()) if a.animation_attempts else None,rigid_vertical_shift_m=a.rigid_vertical_shift_m,motion_policy=a.motion_policy)
     print({k:result.get(k) for k in ("asset_id","status","error","frame_count","max_emitter_error_m","min_visible_pixels","cpu_s")},flush=True)
     if result["status"]!="geometry_pass_audio_pending":raise SystemExit(2)
 if __name__=="__main__":main()

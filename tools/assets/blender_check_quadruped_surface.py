@@ -9,6 +9,8 @@ spec=importlib.util.spec_from_file_location("quadruped_penetration",pathlib.Path
 pen=importlib.util.module_from_spec(spec);spec.loader.exec_module(pen)
 pair_footprints=pen.pair_footprints;visible_penetration_gate=pen.visible_penetration_gate;semantic_vertex_regions=pen.semantic_vertex_regions
 REGIONS=("Body","Head","Tail","FL","FR","HL","HR")
+policy_spec=importlib.util.spec_from_file_location("quadruped_motion_policy",pathlib.Path(__file__).resolve().parents[2]/"src/avengine/assets/quadruped_motion_policy.py")
+policy_module=importlib.util.module_from_spec(policy_spec);sys.modules[policy_spec.name]=policy_module;policy_spec.loader.exec_module(policy_module)
 def segments_hit(a,b,c,p,q):
  e1=b-a;e2=c-a;d=q-p;h=np.cross(d,e2);det=np.einsum("ij,ij->i",e1,h)
  usable=np.abs(det)>1e-18
@@ -71,7 +73,7 @@ def regional_measurements(p,area,depth,labels,areas,static_areas,basecodes,basea
 def main():
  args=sys.argv[sys.argv.index("--")+1:];ap=argparse.ArgumentParser()
  ap.add_argument("--glb",type=pathlib.Path,required=True);ap.add_argument("--output",type=pathlib.Path,required=True)
- ap.add_argument("--registration-request",type=pathlib.Path);ap.add_argument("--action",default="Walking_Repaired");ap.add_argument("--frames",type=int,default=145);a=ap.parse_args(args)
+ ap.add_argument("--registration-request",type=pathlib.Path);ap.add_argument("--action",default="Walking_Repaired");ap.add_argument("--frames",type=int,default=145);ap.add_argument("--motion-policy",choices=[policy_module.OWNER093X]);a=ap.parse_args(args);policy=policy_module.get_motion_policy(a.motion_policy);edge_limit=policy.maximum_edge_growth if policy else 1.5
  start=time.process_time();bpy.ops.wm.read_factory_settings(use_empty=True);scene=bpy.context.scene
  scene.render.fps=30;scene.render.threads_mode="FIXED";scene.render.threads=1
  bpy.ops.import_scene.gltf(filepath=str(a.glb),merge_vertices=False)
@@ -128,7 +130,8 @@ def main():
  rest_seams=np.linalg.norm(np.maximum.reduceat(v0[weldsort],weldstart)-np.minimum.reduceat(v0[weldsort],weldstart),axis=1)
  tree=BVHTree.FromPolygons(v0.tolist(),f.tolist(),all_triangles=True,epsilon=0.)
  baseline,coplanar0=intersection_candidates(v0,f,weld,tree)
- bp,ba,bd=footprints(v0,f,baseline|coplanar0)
+ measured_baseline={p for p in baseline|coplanar0 if labels[p[0]]!=labels[p[1]]} if policy else baseline|coplanar0
+ bp,ba,bd=footprints(v0,f,measured_baseline)
  basecodes=bp[:,0]*len(f)+bp[:,1];baseareas=ba.copy();basedepths=bd.copy()
  static_area=face_areas(v0,f);baseline_areas=regional_areas(bp,ba,labels,static_area)
  t0=v0[f];e0=np.max(np.linalg.norm(t0-np.roll(t0,1,axis=1),axis=2),axis=1)
@@ -143,7 +146,8 @@ def main():
   area=face_areas(v,f);rat=edge/np.maximum(e0,1e-12);shard=rat>3.
   tree=BVHTree.FromPolygons(v.tolist(),f.tolist(),all_triangles=True,epsilon=0.)
   hits,coplanar=intersection_candidates(v,f,weld,tree);new=hits-baseline;newpairs|=new
-  p,pa,pd=footprints(v,f,hits|coplanar)
+  measured_pairs={p for p in hits|coplanar if labels[p[0]]!=labels[p[1]]} if policy else hits|coplanar
+  p,pa,pd=footprints(v,f,measured_pairs)
   codes=p[:,0]*len(f)+p[:,1]
   known=np.isin(codes,basecodes);missing=p[~known]
   if len(missing):
@@ -154,11 +158,11 @@ def main():
   region_rotations=(current_region_matrices@np.linalg.inv(binding_region_matrices))[:,:3,:3]
   material_new_depth=pen.pair_new_depth(v,v0,f,p,labels,region_rotations)
   regions=regional_measurements(p,pa,pd,labels,area,static_area,basecodes,baseareas,basedepths,material_new_depth)
-  macro=visible_penetration_gate(regions)
+  macro=visible_penetration_gate(regions, cross_region_area_limit_m2=policy.cross_region_area_max_m2, depth_limit_m=policy.cross_region_depth_max_m, same_region_depth_is_criterion=False) if policy else visible_penetration_gate(regions)
   seam=np.linalg.norm(np.maximum.reduceat(v[weldsort],weldstart)-np.minimum.reduceat(v[weldsort],weldstart),axis=1)
   new_seam=float(np.maximum(seam-rest_seams,0).max())
   if macro:failures.append({"frame":index,"reason":"new_visible_regional_penetration","regions":macro})
-  if float(rat.max())>1.5+1e-6:failures.append({"frame":index,"reason":"edge_growth_over_1_5","maximum":float(rat.max())})
+  if float(rat.max())>edge_limit+1e-6:failures.append({"frame":index,"reason":"edge_growth_over_"+str(edge_limit),"maximum":float(rat.max())})
   if new_seam>1e-5:failures.append({"frame":index,"reason":"new_uv_seam_tear","maximum_gap_increase_m":new_seam})
   if not np.isfinite(v).all():failures.append({"frame":index,"reason":"nonfinite_vertices"})
   row={"frame":index,"blender_frame":float(frame),"self_intersections":len(hits),
@@ -174,7 +178,7 @@ def main():
   if failures:
    print("SURFACE_REJECTION_WITNESS",index,failures,flush=True)
    break
- result={"schema":"blender_quadruped_visible_regional_surface_check_v3","gate_revision":"owner_20261014_023x","depth_metric":"relative_inward_material_depth_v1",
+ result={"schema":"blender_quadruped_visible_regional_surface_check_v3","gate_revision":policy.name if policy else "owner_20261014_023x","same_region_footprint_depth_measured":not bool(policy),"depth_metric":"relative_inward_material_depth_v1",
   "input":str(a.glb),"action":a.action,"frames":rows,"frame_count":len(rows),
   "requested_frame_count":a.frames,"full_sequence_evaluated":len(rows)==a.frames,
   "early_stop_reason":"first_verified_surface_rejection" if len(rows)<a.frames else None,
@@ -183,11 +187,11 @@ def main():
   "relative_failures":failures,"worst_shard_share_area":max(x["shard_share_area"] for x in rows),
   "maximum_edge_growth":max(x["max_edge_growth"] for x in rows),"shard_edge_growth":3.,
   "status":"pass" if not failures else "fail",
-  "thresholds":{"cross_region_new_area_maximum_m2":25e-6,"new_penetration_depth_maximum_m":.002,
+  "thresholds":{"cross_region_new_area_maximum_m2":policy.cross_region_area_max_m2 if policy else 25e-6,"new_penetration_depth_maximum_m":policy.cross_region_depth_max_m if policy else .002,
    "cross_region_area_scope":"sum_of_all_different_region_pairs_per_frame",
-   "same_region_new_area_is_admission_criterion":False,"maximum_edge_growth":1.5,
+   "same_region_new_area_is_admission_criterion":False,"same_region_new_depth_is_admission_criterion":not bool(policy),"maximum_edge_growth":edge_limit,
    "maximum_uv_seam_gap_increase_m":1e-5,
-   "reason":"Owner 02:3x: count increases are mesh-layer noise; 2mm is below a production pixel at approximately 2m/720p. New crossed surface area between regions is limited to 5x5mm. UV seam tolerance 10 micrometres accommodates float32 evaluation and is below visible scale."},
+   "reason":("Owner 09:3x: total new cross-region area 400mm2, inward depth 10mm, same-region ignored, edge growth 2.0; counts diagnostic. UV seam tolerance 10 micrometres preserves the tear check." if policy else "Owner 02:3x: count increases are mesh-layer noise; 2mm is below a production pixel at approximately 2m/720p. New crossed surface area between regions is limited to 5x5mm. UV seam tolerance 10 micrometres accommodates float32 evaluation and is below visible scale.")},
   "semantic_region_method":classification_method,"static_region_areas_m2":dict(zip(REGIONS,region_areas.tolist())),"cpu_s":time.process_time()-start,
   "method":"Complete BVH candidates; exclude common rest geometric vertex. Exact Sutherland-Hodgman clipping of each crossing face to the other face's orthogonal triangular prism and inward plane gives local penetration footprint area and normal depth. Both surfaces are measured; each same-pair inward footprint is also measured on binding geometry, even when the binding surfaces do not intersect: a triangle can already lie inside another local prism without crossing its plane. Positive area increments are taken against that footprint, then summed/capped per source face and grouped by anatomical region. For depth, every current clipped point and target orthogonal projection are mapped by barycentric coordinates to the same binding material points. New depth is the positive inward-normal component of matched material-point relative displacement after removing common same-region bone rigid rotation (Body rotation for different regions), capped by current inward depth to avoid counting travel through a previously outward gap. Tangential motion has zero inward increment. Maximum over every clipped polygon vertex is the affine local patch maximum. This prevents a rotating thin triangle plane from manufacturing millimetres of intrusion and never relies on triangle-pair count. Strict pair presence never determines whether baseline penetration is zero. This local surface metric is not a volumetric intersection calculation. Coplanar candidates are measured by footprint, never rejected by count. Pose reset and NLA disabled for binding baseline. Longest triangle-edge growth and geometric UV seam separation measured on every frame."}
  a.output.write_text(json.dumps(result,indent=2));print({k:v for k,v in result.items() if k not in ("frames","relative_failures")},flush=True)

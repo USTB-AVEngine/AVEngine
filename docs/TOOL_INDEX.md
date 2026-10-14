@@ -5,7 +5,7 @@
 
 自 2026-08-25 起，目录本身就是能力分组（阶段目录 m1…m7 已移除），
 本表按目录列出每个工具做什么。
-当前共 539 个工具脚本。
+当前共 540 个工具脚本。
 
 ## 资产生成与装配（`tools/assets/`）
 
@@ -27,7 +27,7 @@
 | `tools/assets/bake_local_tr_actions.py` | Bake deterministic research-only local-translation action poses from one GLB |
 | `tools/assets/bake_uniform_skin_scale.py` | Bake one positive uniform skin-ancestor scale into GLB payload data |
 | `tools/assets/blender_apply_pixal3d_import_transform.py` | Apply the class-level Pixal3D Blender import/root transform after glTF import |
-| `tools/assets/blender_check_quadruped_surface.py` | Strict nonadjacent crossings compared with the target's binding pose |
+| `tools/assets/blender_check_quadruped_surface.py` | Owner-approved regional penetration gate against the unmodified binding pose |
 | `tools/assets/blender_level_generated_animal_support_plane.py` | Level a generated quadruped from two independent visible-foot authorities |
 | `tools/assets/blender_normalize_generated_animal_heading.py` | Rigidly align a generated animal rig to a reviewed cardinal heading |
 | `tools/assets/blender_probe_skin_action.py` | Add a short in-place bone rotation so a SkinTokens rig can play one action |
@@ -98,6 +98,7 @@
 | `tools/assets/rebase_skin_root.py` | Create a Habitat-native, root-local GLB research candidate |
 | `tools/assets/rebind_appearance_actions.py` | Reuse one validated M2 package action set on a compatible appearance rig |
 | `tools/assets/rebind_appearance_visual.py` | Preserve a source M2 package actor frame on one appearance realization |
+| `tools/assets/recheck_static_dog_motion.py` | Recheck owned static-dog bindings with the explicitly authorized motion-only policy |
 | `tools/assets/register_sound_event_assets.py` | Register split sound-event clips into avengine_m6_sound_asset_registry_v1 |
 | `tools/assets/render_animal_rir_once.py` | One genuinely fresh native process, scene upload and single-pose RIR |
 | `tools/assets/render_animal_rir_request.py` | Render one exact requested point in a fresh native process |
