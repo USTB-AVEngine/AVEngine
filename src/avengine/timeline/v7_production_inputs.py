@@ -295,7 +295,8 @@ def validate_registered_sampling_row(row, selected_assets, inputs):
             a.setdefault('kind', 'animal' if a.get('species_id') in {'dog', 'cat', 'bird'} else 'object')
             catalog.append(a)
     proxy = {'house': row['house'], 'room_id': row['room_id'], 'split': row['split'],
-             'asset_ids': [a['asset_id'] for a in catalog]}
+             'asset_ids': [a['asset_id'] for a in catalog],
+             'motion_requests': deepcopy(row.get('motion_requests', {}))}
     return validate_recipe(proxy, catalog, contract)
 
 

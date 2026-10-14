@@ -138,3 +138,17 @@ def test_ue_cannot_silently_ignore_private_phase2_motion_requests():
            'motion_requests': {'dog': {'action': 'walk'}}}
     with pytest.raises(ValueError, match='does not consume'):
         validate_recipe(row, [{'asset_id': 'dog', 'kind': 'animal', 'species_id': 'dog'}], manifest)
+
+
+def test_registered_ue_proxy_retains_and_rejects_unconsumed_motion(tmp_path):
+    import json
+    from avengine.timeline.v7_production_inputs import fingerprint, validate_registered_sampling_row
+    manifest = {'schema': SCHEMA, 'test_houses': [], 'animal_motion': {}, 'rooms': [
+        {'key': 'ue::R0', 'family': 'kujiale', 'categories': ['animal.dog']}]}
+    path = tmp_path / 'contract.json'
+    path.write_text(json.dumps(manifest))
+    row = {'house': 'ue', 'room_id': 'R0', 'split': 'train', 'production_scenario': {},
+           'production_sampling': {'manifest_path': str(path), 'manifest_sha256': fingerprint(path)['sha256']},
+           'motion_requests': {'dog': {'action': 'walk'}}}
+    with pytest.raises(ValueError, match='does not consume'):
+        validate_registered_sampling_row(row, [{'asset_id': 'dog', 'kind': 'animal', 'species_id': 'dog'}], {})
