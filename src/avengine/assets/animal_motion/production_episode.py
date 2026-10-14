@@ -92,12 +92,16 @@ def compile_admitted_animal(video, entry, scene, house, inputs, directory, reque
     failures = []
     begun = time.monotonic()
     ignore = {int(a['object'].object_id) for a in video.actors}
+    # Retain the already qualified initial full-skin root offset in this house.
+    # An old validation-house sole offset can bury the actual initial skin.
+    placed_floor = PhysicalFloor(video, house['room']['measured_floor_y_m'], ignore)(start)
+    qualified_initial_root_offset = float(start[1] - placed_floor)
     for _, p0, yaw, direction in routes[:8]:
         if time.monotonic() - begun > 1800:
             break
         try:
             actual_floor = PhysicalFloor(video, house['room']['measured_floor_y_m'], ignore)(p0)
-            p0[1] = actual_floor + old_origin[1] - old_floor
+            p0[1] = actual_floor + qualified_initial_root_offset
             roots = p0 + times[:, None] * speed * direction
             roots[:, 1] += [source[int(i)]['root_world_m'][1] - old_origin[1] for i in indices]
             snaps = np.asarray([video.pathfinder.snap_point(p) for p in roots])
@@ -148,10 +152,11 @@ def compile_admitted_animal(video, entry, scene, house, inputs, directory, reque
                        'master': authority['source_master'], 'master_sha256': hashlib.sha256(Path(authority['source_master']).read_bytes()).hexdigest(),
                        'admitted_native_motion': authority['native_motion'],
                        'new_house_admission_required': True, 'motion_only_does_not_admit_audio': True}
-            evidence = {'status': 'pass', 'revision': 'final-admitted-animal-poses-new-house-v1',
+            evidence = {'status': 'pass', 'revision': 'final-admitted-animal-poses-new-house-v2-qualified-initial-root',
                         'lineage': lineage, 'source_frames': frames, 'pose_glbs': poses,
                         'world_roots_m': roots.tolist(), 'yaw_rad': yaw, 'physical_ground_y_m': actual_floor,
                         'original_full_skin_floor_collision': clearance.floor_certificate(),
+                        'qualified_initial_root_floor_offset_m': qualified_initial_root_offset,
                         'maximum_navmesh_horizontal_error_m': nav,
                         'minimum_certified_triangle_nonfloor_clearance_m': minimum,
                         'species_id': entry['declaration']['species_id'],
