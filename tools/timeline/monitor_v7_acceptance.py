@@ -41,10 +41,23 @@ def allocated(root):
  return int(subprocess.check_output(['du','-sx','-B1',str(root)],text=True).split()[0])
 
 
+class AdoptedProcess:
+ def __init__(self,record):self.pid=record['pid'];self.record=record
+ def poll(self):
+  live=proc(self.pid)
+  return None if live and live['start_ticks']==self.record['start_ticks']and live['cmd']==self.record['cmd']and live['state']!='Z' else 0
+
 def main():
  p=argparse.ArgumentParser(description=__doc__);p.add_argument('--manifest',type=Path,required=True);p.add_argument('--smoke-only',action='store_true');a=p.parse_args();m=load(a.manifest);o=Path(m['output_root']);w=Path(m['worktree'])
  pending=[s for s in range(len(m['parents']))if not (o/'evidence/jobs'/f'{s:03d}.json').exists()];active={};completed=[];last_watch=0;last_size=0;size=0;previous={};peaks={'pss_bytes':0,'concurrent_parents':0};pause='';failed_reasons={}
  (o/'logs').mkdir(exist_ok=True)
+ for f in (o/'evidence/jobs').glob('[0-9][0-9][0-9].json'):
+  d=load(f)
+  if d.get('status')=='running':
+   record=proc(d['pid'])
+   if record and str(o)in record['cmd']and 'run_v7_acceptance.py'in record['cmd']:
+    active[d['slot']]={'process':AdoptedProcess(record),'stream':(o/'logs'/f"parent_{d['slot']:03d}.log").open('a')}
+
  for n in ['ue_tmp','ue_shm','ue_config']:(o/n).mkdir(exist_ok=True)
  while pending or active:
   now=datetime.datetime.now(datetime.timezone.utc);sg=now+datetime.timedelta(hours=8);mem=next(int(s.split()[1])*1024 for s in Path('/proc/meminfo').read_text().splitlines()if s.startswith('MemAvailable:'));free=shutil.disk_usage('/data').free
