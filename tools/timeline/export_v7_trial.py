@@ -86,7 +86,10 @@ def parent_payload(summary, output, owned_root):
                     or check.get('status')!='pass' or check.get('logical_questions')!=14
                     or evidence['full_qa_selection'].get('formal_dataset_count')!=0):
                 raise ValueError('original available-candidate allocation lacks explicit unchanged-answer proof')
-            if summary.get('origin')!='owner_authorized_helper_seated_results' and row.get('trial_only') is not True:
+            authorized_helper=(row.get('owner_authorized_helper_seated_results') is True
+                               or summary.get('owner_authorized_helper_seated_results') is True
+                               or summary.get('origin')=='owner_authorized_helper_seated_results')
+            if not authorized_helper and row.get('trial_only') is not True:
                 raise ValueError('available-candidate allocation requires owner-authorized isolated trial')
             allocation=owner['actual']
         validate_question_counts(questions,answers,expected_allocation=allocation,allow_partial_window=partial)
@@ -94,7 +97,9 @@ def parent_payload(summary, output, owned_root):
         raw=Path(selected['recipe']['pool_directory'])/wid
         audit_path=raw/'candidate_audit.json'
         if not audit_path.resolve().is_relative_to(owned_root):
-            if summary.get('origin')!='owner_authorized_helper_seated_results':
+            if not (row.get('owner_authorized_helper_seated_results') is True
+                    or summary.get('owner_authorized_helper_seated_results') is True
+                    or summary.get('origin')=='owner_authorized_helper_seated_results'):
                 raise ValueError('external candidate pool is not an authorized helper import')
             imported=load(owned_root/'receipts/HELPER_SEATED_IMPORTED_20261014.json')
             match=next((item for item in imported['files'] if item.get('source')==str(audit_path)),None)
