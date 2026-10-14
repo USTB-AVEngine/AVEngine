@@ -126,3 +126,25 @@ def content_question_en(query):
         time=float(query.get('public_time_s',query['time_s']))
         text='At '+format(time,'.12g')+' seconds in this clip, '+text[0].lower()+text[1:]
     return text
+
+
+def appearance_choice_replacements(item,assets,facts):
+    """Bind display aliases to existing actor/color classes, never new truths."""
+    if item.get('qa_id')not in {'QA-02','QA-03','QA-20'}:return {}
+    actors=facts.get('actors',{});byid={a['asset_id']:a for a in assets};result={}
+    evidence=item.get('truth',{}).get('evidence',{})
+    aid=evidence.get('target_actor_id',evidence.get('actor_id',evidence.get('first_event',{}).get('actor_id')))
+    primary=actors.get(str(aid),{});field=(primary.get('appearance')or{}).get('field')
+    classes=item.get('forms',{}).get('open',{}).get('classes',{})
+    for value,aliases in classes.items():
+        selected=actors.get(str(value)) if item['qa_id']in {'QA-03','QA-20'}else None
+        if selected is None and item['qa_id']=='QA-02':
+            matches=[actor for actor in actors.values()if (actor.get('appearance')or{}).get('value')==value
+                     and (field is None or (actor.get('appearance')or{}).get('field')==field)]
+            if len(matches)==1:selected=matches[0]
+        if not selected:continue
+        asset=byid.get(selected.get('asset_id'))
+        if not asset:continue
+        description=appearance_description_en(asset,(selected.get('appearance')or{}).get('value'))
+        for alias in aliases:result[alias]=description
+    return result

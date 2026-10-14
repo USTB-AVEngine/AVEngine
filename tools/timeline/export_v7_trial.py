@@ -110,10 +110,23 @@ def parent_payload(summary, output, owned_root):
             if not audit_path.resolve().is_relative_to(owned_root) or digest(audit_path)!=match['sha256']:
                 raise ValueError('helper candidate audit copy differs from original import receipt')
         audit=load(audit_path)
-        authority={item['question_id']:item for item in audit['v6_items']}
+        from avengine.qa.v7_english_surface import appearance_replacements,appearance_choice_replacements,reissue_item_english,relabel_english
+        replacements=appearance_replacements(pointer['recipe']['input_recipe']['assets'],audit['facts'])
+        authority={}
+        for item in audit['v6_items']:
+            local={**replacements,**appearance_choice_replacements(item,pointer['recipe']['input_recipe']['assets'],audit['facts'])}
+            authority[item['question_id']]=reissue_item_english(item,local) if 'truth'in item else item
         files.append(retain(audit_path,delivery/'private'/(wid+'_candidate_audit.json'),owned_root))
         for question in questions:
             gold=by_id[question['question_id']]
+            if gold.get('authority_question_id'):
+                item=authority[gold['authority_question_id']]
+                from copy import deepcopy
+                question=deepcopy(question)
+                local={**replacements,**appearance_choice_replacements(item,pointer['recipe']['input_recipe']['assets'],audit['facts'])}
+                question['question_en']=relabel_english(question.get('question_en',''),local)
+                for choice in question.get('choices',[]):
+                    if 'text'in choice:choice['text']=relabel_english(choice['text'],local)
             answer,check=readable_training_answer(question,gold,authority)
             if gold.get('authority_question_id'):
                 bad=score_unified_item(authority[gold['authority_question_id']],

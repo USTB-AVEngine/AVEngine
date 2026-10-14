@@ -136,3 +136,13 @@ def test_post_admission_parent_dedup_keeps_earliest_crop_and_sparse_counts(tmp_p
     assert [w['logical_questions']for w in result['windows']]==[1,0,1]
     assert result['original_raw_native_and_14_item_admission_preserved'] is True
     assert len(json.loads((source/'windows'/windows[1]['window_id']/'questions.json').read_text()))==1
+
+
+def test_content_dedup_keeps_same_appearance_on_different_physical_actors():
+    from avengine.timeline.v7_question_independence import independence_key
+    q={'qa_id':'V7-CONTENT-BIND','question_en':'Who spoke first?'}
+    gold=lambda actor:{'canonical_answer':'the person in the blue shirt','evidence':{'truth':{'actor_id':actor}}}
+    first=independence_key('parent',q,gold('1'))[0]
+    second=independence_key('parent',q,gold('2'))[0]
+    assert first!=second
+    assert first==independence_key('parent',q,gold('1'))[0]

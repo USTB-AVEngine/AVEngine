@@ -8,7 +8,7 @@ from __future__ import annotations
 from collections import Counter
 import json,re,math
 
-INDEPENDENCE_REVISION='parent-family-target-wording-answer-20261015-v1'
+INDEPENDENCE_REVISION='parent-family-target-wording-answer-20261015-v2'
 
 
 def normalized_wording(q):
@@ -42,11 +42,14 @@ def target_entities(q,gold=None):
             if node.get(key) is not None:return [str(node[key])]
         for key in ('target_actor_ids','actor_ids','target_entity_ids'):
             if isinstance(node.get(key),list):return sorted(map(str,node[key]))
-        for key in ('v6_item','item','target','anchor_event','target_binding','private_evidence','evidence'):
+        for key in ('v6_item','item','target','anchor_event','target_binding','private_evidence','evidence','truth'):
             if key in node:
                 found=find(node[key],depth+1)
                 if found:return found
         return []
+    query=evidence.get('query',{})
+    if query.get('kind')=='offscreen_origin'and query.get('subject_actor_id')is not None:
+        return (str(query['subject_actor_id']),),'private_physical_subject'
     found=find(evidence) or find(gold) or find(q.get('target_verification',{}))
     if found:return tuple(found),'private_physical_target'
     reference=(q.get('target_verification',{}).get('result',{}).get('question_id')
@@ -135,5 +138,5 @@ def deduplicate_parent_delivery(row,result,root,directory):
                 p=attempt/'private'/name;p.parent.mkdir(parents=True,exist_ok=True);write_json(p,data);required.append(str(p.relative_to(attempt)))
         write_json(attempt/'parent_dedup_manifest.json',actual);required.append('parent_dedup_manifest.json')
         return actual,required
-    folder,saved,_=stage(root,'deduplicated_delivery',{'source_directory':str(source),'rule_version':INDEPENDENCE_REVISION},publish)
+    folder,saved,_=stage(root,'deduplicated_delivery_v2',{'source_directory':str(source),'rule_version':INDEPENDENCE_REVISION},publish)
     return {**saved,'delivery_directory':str(folder)}

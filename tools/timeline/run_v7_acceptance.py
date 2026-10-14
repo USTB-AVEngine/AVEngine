@@ -65,10 +65,18 @@ def run_worker(manifest,slot):
         from avengine.timeline.v7_english_export import validate_english_model_text
         for item in rows:validate_english_model_text(item)
         # Native reader on this complete delivered parent, including all streams.
-        readroot=root/'reader_checks'/f'{slot:03d}';(readroot/'parents').mkdir(parents=True,exist_ok=True)
-        (readroot/'parents'/result['scene_id']).symlink_to(root/'export'/'parents'/result['scene_id'],target_is_directory=True)
+        readroot=root/'reader_checks_v2'/f'{slot:03d}';readroot.mkdir(parents=True,exist_ok=True)
+        media_rows=[]
+        for win in exported['windows']:
+            wid=win['window_id'];folder=Path('parents')/result['scene_id']/'windows'/wid
+            for name in ['video.mp4','audio_foa.wav','audio_mono.wav']:
+                source=root/'export'/folder/name;target=readroot/folder/name;target.parent.mkdir(parents=True,exist_ok=True)
+                if not target.exists():os.link(source,target)
+            media_rows.append({'window_id':wid,'video':str(folder/'video.mp4'),'audio_foa':str(folder/'audio_foa.wav'),'audio_mono':str(folder/'audio_mono.wav')})
+        (readroot/'train.jsonl').write_text(''.join(json.dumps(r)+'\n'for r in media_rows))
         reader=open_delivered_media(readroot)
-        if reader['status']!='pass':raise ValueError('delivered media reader failed: '+str(reader))
+        if reader['status']!='pass' or reader['actual_decoded_windows']!=len(exported['windows']):
+            raise ValueError('delivered media reader failed: '+str(reader))
         feedback={**result,'windows':[{'family_counts':exported['question_family_counts'],'logical_questions':exported['independent_questions']}],'raw_logical_questions':exported['raw_export_questions'],'dedup_dropped':exported['dedup_dropped']}
         record_selected_parent(root/'inputs/demand_state.json',feedback)
         receipt.update(status='passed',producer_result=result,export=exported,reader=reader,
