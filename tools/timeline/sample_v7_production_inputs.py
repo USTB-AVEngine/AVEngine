@@ -96,6 +96,7 @@ def main():
                     sounds=sample_dialogue(semantic,scenario,genders,seed)
                     row['semantic_scenario_id']=scenario;row['semantic_sound_ids']=[s['sound_asset_id'] for s in sounds]
                     row['semantic_human_asset_ids']=[h['asset_id'] for h in replacements]
+                    row['semantic_camera_sector_targets_deg']={aid:angle for aid,angle in zip(row['semantic_human_asset_ids'],[0.,31.5])}
                     for s in sounds:voices[s['voice_reference']['speaker_id']]+=1
             if room['family'] != 'kujiale':
                 available=[s for s in selected if s.get('kind')=='human' and s['asset_id'] not in row.get('semantic_human_asset_ids',[])]
