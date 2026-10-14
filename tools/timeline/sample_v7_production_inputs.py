@@ -110,15 +110,23 @@ def main():
                 elif (index%6==2 or seated_only) and chair_pool and recorded_vctk:
                     available=[s for s in available if s.get('sit_allowed')]
                     if available:
-                        human=rng.choice(available);chair=deepcopy(rng.choice(chair_pool));aid=human['asset_id']
+                        human=rng.choice(available);aid=human['asset_id']
                         gender=human.get('visual_gender');clips=[r for r in recorded_vctk if {'f':'female','m':'male'}.get(str(r.get('gender','')).lower(),str(r.get('gender','')).lower())==gender]
                         if not clips:raise ValueError('no registered complete VCTK clip matching selected seated body gender')
-                        row['motion_requests'][aid]={'action':'sit','chair_id':chair['asset_id'],'require_observed_chair_candidate':True}
+                        # Reuse the original seat-first compiler's admitted chair pool.
+                        # A random fixed chair and zero offset discarded the
+                        # phase-two physical fit search before native gates.
+                        row['motion_requests'][aid]={'action':'sit',
+                            'minimum_camera_distance_m':1.6,
+                            'chair_horizontal_offset_proposals_m':[
+                                [0.,0.,0.],[0.,0.,.04],[0.,0.,-.04],
+                                [0.,0.,.08],[0.,0.,-.08],[.04,0.,0.],[-.04,0.,0.]],
+                            'require_observed_chair_candidate':True}
                         row['source_classes'][aid]=['speech_playback'];row['proposed_sound_asset_ids'][aid]=rng.choice(clips)['sound_asset_id']
                         row['recorded_speech_constraints']={aid:'preserve complete registered VCTK clip; no authored TTS on moving or seated body'}
                         # Chairs are resolved by the original phase2 compiler,
                         # rather than becoming an audible entity in asset_ids.
-                        selected.append(chair)
+                        selected.extend(deepcopy(chair_pool))
             validate_recipe(row,selected,contract)
             for selected_classes in row['source_classes'].values():
                 classes.update(selected_classes)

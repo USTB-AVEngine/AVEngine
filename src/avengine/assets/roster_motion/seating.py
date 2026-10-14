@@ -62,6 +62,22 @@ def existing_native_seats(video,scene,directory):
     write_json(directory/'existing_native_seat_survey.json',result);return result
 
 
+
+def ranked_seated_floor_points(points,listener,room):
+    """Spread the bounded search over real interior floor, rather than ray order.
+
+    These are proposals only: every retained point still passes the original
+    complete floor, skin, chair, visibility and private navigation checks.
+    """
+    from shapely.geometry import shape,Point
+    boundary=shape(room['floor_polygon']).boundary
+    unique={tuple(round(float(v),5)for v in p):np.asarray(p,float)for p in points}
+    listener=np.asarray(listener,float)
+    return sorted(unique.values(),key=lambda p:(
+        -min(float(boundary.distance(Point(p[0],p[2]))),.6),
+        abs(float(np.linalg.norm((p-listener)[[0,2]]))-2.5)))
+
+
 def compile_seated(video,entry,scene,house,inputs,directory,request):
     directory=Path(directory);directory.mkdir(parents=True,exist_ok=True)
     if not video.pathfinder.is_loaded:raise ValueError('explicit read-only admitted native NavMesh was not loaded')
@@ -80,6 +96,8 @@ def compile_seated(video,entry,scene,house,inputs,directory,request):
     for seat in ([] if request.get('chair_id') else survey['seats']):
         p=np.asarray(seat['center_m']);candidates.append((seat,[p[0],p[1]-reference['seat_height_m'],p[2]],[-cx,0,-cz]))
     native_points=[np.asarray(p)-[0,1.3,0]for p in scene['native_placement_candidates']]
+    if inputs.get('phase2') and request.get('require_observed_chair_candidate'):
+        native_points=ranked_seated_floor_points(native_points,scene['listener_m'],house['room'])
     if inputs.get('phase2') and request.get('minimum_camera_distance_m'):
         native_points=[p for p in native_points if np.linalg.norm((p-np.asarray(scene['listener_m']))[[0,2]])>=float(request['minimum_camera_distance_m'])]
     floor_proposals=request.get('native_chair_floor_points_m',[])
