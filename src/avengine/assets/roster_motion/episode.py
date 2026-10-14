@@ -104,13 +104,14 @@ class TriangleClearance:
             lo[start:start+len(t)]=t.min(1);hi[start:start+len(t)]=t.max(1)
         self.faces=faces[~ground];self.lo=lo[~ground];self.hi=hi[~ground]
         self.source=str(path);self.removed=int(ground.sum());self.triangles=len(self.faces)
-        self.bystanders=[];self.cache={}
+        self.bystanders=[];self.cache={};self.rigid_models={}
+        self.rigid_cache_enabled=excluded_entry.get('declaration',{}).get('species_id') in {'dog','cat'}
         for entry in video.actors:
             if entry is excluded_entry:continue
             if getattr(video,'motion_inputs',{}).get('phase2') and entry.get('phase2_layout_qualified') is False:continue
             m=entry['original_mesh'];root=entry['applied_root_input']
             self.bystanders.append(fcl_model(np.asarray(m.vertices)@root[:3,:3].T+root[:3,3],m.faces))
-    def check_world(self, world, faces):
+    def check_world(self, world, faces, rigid_object=None):
         # Every possible <=20mm triangle is included. A discarded face's AABB
         # is farther than 20.0001mm along at least one axis, so it cannot violate
         # either the legacy 20mm rule or the owner human zero-clearance rule.
@@ -126,7 +127,7 @@ class TriangleClearance:
                 self.floor_worst_delta_m=min(self.floor_worst_delta_m,delta)
                 if delta<-.00101:
                     raise ValueError('actual original posed skin penetrates original floor beyond native 1mm margin plus 10um epsilon')
-        fcl=self.fcl;obj=fcl_model(world,faces);epsilon=.0200001
+        fcl=self.fcl;obj=fcl_model(world,faces) if rigid_object is None else rigid_object;epsilon=.0200001
         inside=np.all(self.lo<=world.max(0)+epsilon,axis=1)&np.all(self.hi>=world.min(0)-epsilon,axis=1)
         others=list(self.bystanders)
         if inside.any():
@@ -148,8 +149,19 @@ class TriangleClearance:
             'method':'all original near-floor posed skin vertices versus exact original complete stage triangles; native basis and selected supports separately read back',
             'thresholds_changed':False}
     def check(self, vertices, faces, root, yaw):
-        world=np.asarray(vertices)@yaw_matrix(yaw).T+root
-        return self.check_world(world,faces),world
+        vertices=np.asarray(vertices);faces=np.asarray(faces)
+        rotation=yaw_matrix(yaw);world=vertices@rotation.T+root
+        if not getattr(self,'rigid_cache_enabled',True):
+            return self.check_world(world,faces),world
+        key=hashlib.sha256(np.ascontiguousarray(vertices).tobytes()+np.ascontiguousarray(faces).tobytes()).digest()
+        obj=self.rigid_models.pop(key,None)
+        if obj is None:
+            obj=fcl_model(vertices,faces)
+            if len(self.rigid_models)>=256:
+                self.rigid_models.pop(next(iter(self.rigid_models)))
+        self.rigid_models[key]=obj
+        obj.setTransform(self.fcl.Transform(rotation,np.asarray(root,float)))
+        return self.check_world(world,faces,rigid_object=obj),world
 
 
 def externalize_unchanged_images(d,b,directory):

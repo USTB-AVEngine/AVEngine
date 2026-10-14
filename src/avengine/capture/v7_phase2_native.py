@@ -24,12 +24,13 @@ class NativePhase2Video(NativeVisibleVideo):
         row=super()._apply_motion_entry(entry,index)
         record=entry['motion_episode'];frame=record['source_frames'][index]
         row['emitter_local_m_frame']=list(frame['mouth_m'])
-        if record.get('motion_mode') in {'walk_animation','slide_no_animation'}:
+        if record.get('motion_mode') in {'walk_animation','slide_no_animation','static_after_failed_route'}:
             animated=record['motion_mode']=='walk_animation'
             row.update(motion_mode=record['motion_mode'],motion_marker=record['motion_marker'],
-                joint_animation_present=animated,intentional_slide=not animated,
+                joint_animation_present=animated,intentional_slide=record['motion_mode']=='slide_no_animation',
                 joint_state=('retained admitted joint-pose stream; native rigid original pose meshes' if animated
-                    else 'original static mesh; intentional translation with no joint animation'))
+                    else 'original static mesh; intentional translation with no joint animation' if record['motion_mode']=='slide_no_animation'
+                    else 'original retained pose; explicitly marked static after route failures'))
         row['native_emitter_present']=not entry['declaration'].get('silent_decor')
         attached=[]
         for side,foot in frame.get('feet',{}).items():
@@ -133,7 +134,7 @@ class NativePhase2Video(NativeVisibleVideo):
             record['original_full_skin_floor_collision']=clearance.floor_certificate()
             record['minimum_certified_triangle_nonfloor_clearance_m']=minimum
         self.camera_frame_readbacks=[];self.environment_frame_readbacks=[]
-        write_json(directory/'phase2_motion_admission.json',{'status':'pass','admissions':admissions,'native_readback_hz':30,'thresholds_changed':False})
+        write_json(directory/'phase2_motion_admission.json',{'status':'pass','admissions':admissions,'native_readback_hz':30,'thresholds_changed':any(r.get('quality_gates_changed',False) for r in admissions.values())})
         return checks
 
     def _on_phase2_placement_accepted(self,entry,scene,directory,supports,accepted):

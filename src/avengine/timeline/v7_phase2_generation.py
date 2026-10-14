@@ -178,6 +178,8 @@ def generate_phase2_parent(row,house,inputs,catalog,source_admission,human_admis
     visual=read_json(vd/'native_visible_visual_evidence_phase2.json')
     if (vd/'owner_material_quality_references.json').is_file():
         visual['owner_material_quality_fallbacks']=read_json(vd/'owner_material_quality_references.json')['references']
+    from avengine.assets.animal_motion.production_episode import realized_animal_motion
+    realized_animal_motion(base,visual)
     if visual.get('realized_phase2_camera'):
         realized=visual['realized_phase2_camera']
         base['camera_yaw_knots']=deepcopy(realized['camera_yaw_knots'])
