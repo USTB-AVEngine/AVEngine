@@ -1,4 +1,4 @@
-"""Two-interval batches of fresh native references with unchanged strict gates."""
+"""Bounded interval batches of fresh native references with unchanged strict gates."""
 import argparse,json,pathlib,sqlite3,subprocess,sys,os,time,copy,shutil
 import numpy as np
 from avengine.assets.animal_motion.acoustics import FreshProcessRenderer
@@ -9,7 +9,7 @@ from avengine.acoustics.house_acceptance_metrics import foa_direction
 from avengine.timeline.v7_registered_motion_audio import position_at
 
 def main():
- p=argparse.ArgumentParser();p.add_argument('--previous',type=pathlib.Path,required=True);p.add_argument('--motion',type=pathlib.Path,required=True);p.add_argument('--house',type=pathlib.Path,required=True);p.add_argument('--runtime',type=pathlib.Path,required=True);p.add_argument('--output',type=pathlib.Path,required=True);p.add_argument('--cores',default='20,21,22,23,24,25');p.add_argument('--refine-failed',action='store_true');p.add_argument('--immutable-cache-root',type=pathlib.Path);a=p.parse_args()
+ p=argparse.ArgumentParser();p.add_argument('--previous',type=pathlib.Path,required=True);p.add_argument('--motion',type=pathlib.Path,required=True);p.add_argument('--house',type=pathlib.Path,required=True);p.add_argument('--runtime',type=pathlib.Path,required=True);p.add_argument('--output',type=pathlib.Path,required=True);p.add_argument('--cores',default='20,21,22,23,24,25');p.add_argument('--refine-failed',action='store_true');p.add_argument('--interval-batch-size',type=int,choices=range(1,7),default=2);p.add_argument('--immutable-cache-root',type=pathlib.Path);a=p.parse_args()
  def copy_cache(src,dst,*,follow_symlinks=True):
   # Optional storage optimization only: never link the mutable SQLite DB.
   source=pathlib.Path(src);target=pathlib.Path(dst)
@@ -44,10 +44,10 @@ def main():
   if r is None or not r[1]:raise ValueError('existing endpoint cache incomplete')
   wave=np.load(a.output/'cache'/f'rir_{r[0]:06d}.npy',allow_pickle=False);filters.append(wave);d=foa_direction(wave,listener,point,forward,sample_rate=sr);directions.append({'time_s':k/sr,'mouth_m':point.tolist(),'angle_deg':d['check']['angle_deg'],'native':d})
  db.close();timeline=FrequencyCoherentTimeline(filters,keys);intervals=list(zip(keys[:-1],keys[1:]));segments=[];checks=[];stopped=[];start=time.time();requests=a.output/'fresh_native';requests.mkdir()
- result={'asset_id':m['asset_id'],'motion_receipt':str(a.motion),'previous_native_cache':str(a.previous),'crossfade_revision':REVISION,'thresholds_changed':False,'independent_reference_count_per_midpoint':3,'reference_rule':'every raw independently executed native reference; no mean or median','worker_cpu_affinities':cores,'status':'pending'}
+ result={'asset_id':m['asset_id'],'motion_receipt':str(a.motion),'previous_native_cache':str(a.previous),'crossfade_revision':REVISION,'thresholds_changed':False,'independent_reference_count_per_midpoint':3,'reference_rule':'every raw independently executed native reference; no mean or median','worker_cpu_affinities':cores,'interval_batch_size':a.interval_batch_size,'status':'pending'}
  try:
-  for batch_start in range(0,len(intervals),2):
-   batch=intervals[batch_start:batch_start+2];jobs=[]
+  for batch_start in range(0,len(intervals),a.interval_batch_size):
+   batch=intervals[batch_start:batch_start+a.interval_batch_size];jobs=[]
    for lo,hi in batch:
     mid=(lo+hi)//2;point=position_at(track,mid/sr).tolist()
     for rep in range(3):
@@ -67,6 +67,9 @@ def main():
     pts=np.array([position_at(track,t) for t in [lo/sr,hi/sr,*[f['time_s'] for f in frames if lo/sr<f['time_s']<hi/sr]]])-listener;pts/=np.linalg.norm(pts,axis=1,keepdims=True);sweep=float(np.degrees(np.arccos(np.clip((pts@pts.T).min(),-1,1))))
     segments.append({'start_s':lo/sr,'end_s':hi/sr,'midpoint_s':mid/sr,'raw_independent_checks':raw,'source_direction_sweep_deg':sweep,'qualification':verdict});checks.extend(raw);print('QUALIFIED_SEGMENT',lo/sr,verdict['status'],verdict['failures'],flush=True)
     if verdict['status']!='pass' or sweep>5:stopped.append(segments[-1])
+    if len(stopped)>=2:
+     (a.output/'progress.json').write_text(json.dumps({'segments':segments,'failed_intervals':stopped},indent=2))
+     raise ValueError('two_failed_intervals_stop_for_diagnosis')
    (a.output/'progress.json').write_text(json.dumps({'segments':segments,'failed_intervals':stopped},indent=2))
    if len(stopped)>=2:raise ValueError('two_failed_intervals_stop_for_diagnosis')
   qualification=qualify_energy(checks);negative=compare_rirs(filters[0]*2,filters[0],source=position_at(track,0),listener=listener,forward=forward,sample_rate=sr);bad=qualify_energy([negative])

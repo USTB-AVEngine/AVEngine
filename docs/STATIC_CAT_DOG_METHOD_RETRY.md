@@ -69,3 +69,9 @@ for cubic smoothstep. It changes target weight fitting, not the source
 action or any admission threshold. Default smoothstep behavior is unchanged.
 Actual paw minima are recorded from each source around its registered
 paw landmark and used only in owned derivative requests.
+
+Acoustic --interval-batch-size changes scheduling only. Every midpoint still
+uses three separately executed raw native references and all original energy,
+direction and +6 dB gates. The default remains two intervals. The private
+controller fuses guard and dispatch to stay within eight processes with five
+single-thread audio children; complete-tree PSS and disk limits still apply.
