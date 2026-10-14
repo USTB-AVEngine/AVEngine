@@ -23,11 +23,12 @@ def drop_failed_object(row, catalog, reason):
     if aid is None:
         return None
     result=deepcopy(row)
-    result['scene_id']=row['scene_id']+'__drop_object_1'
+    result['scene_id']=row['scene_id']+'__drop_element_1'
     result['independent_parent_scene_id']=result['scene_id']
     result['asset_ids'].remove(aid)
-    for key in ('source_classes','proposed_sound_asset_ids','motion_requests'):
+    for key in ('source_classes','proposed_sound_asset_ids','motion_requests','semantic_azimuth_targets_deg','native_attachment_distance_targets_m','phase2_recorded_speech_schedule_s'):
         result.get(key,{}).pop(aid,None)
+    result['native_occlusion_relations']=[rel for rel in result.get('native_occlusion_relations',[])if aid not in {rel.get('target_asset_id'),rel.get('occluder_asset_id')}]
     result['silent_asset_ids']=[a for a in result.get('silent_asset_ids',[])if a!=aid]
     for key in list(result):
         if key.startswith('reuse_'):
@@ -45,20 +46,20 @@ def generate_parent_with_element_fallback(row,house,inputs,catalog,source_admiss
     from avengine.timeline.v7_phase2_generation import generate_phase2_parent
     requested=row['scene_id']
     current=row
-    for attempt in range(2):
+    for attempt in range(4):
         try:
             result=generate_phase2_parent(current,house,inputs,catalog,source_admission,human_admission,output)
             return {**result,'requested_scene_id':requested,
                     'element_fallbacks':current.get('element_degradations',[])}
         except ValueError as error:
-            replacement=drop_failed_object(current,catalog,str(error))if attempt==0 else None
+            replacement=drop_failed_object(current,catalog,str(error))if attempt<3 else None
             if replacement is None:
                 raise
             write_json(Path(output)/'parents'/current['scene_id']/'element_fallback.json',{
                 'status':'retry_with_one_marked_object_removed','reason':str(error),
                 'next_scene_id':replacement['scene_id'],
                 'original_partial_outputs_retained':True,
-                'maximum_object_fallbacks_per_parent':1})
+                'maximum_single_element_fallbacks_per_parent':3})
             # The failed native context has closed in the producer's finally.
             # Do not retain its exception frame while constructing another one.
             error.__traceback__=None

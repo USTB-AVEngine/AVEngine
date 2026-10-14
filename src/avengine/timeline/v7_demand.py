@@ -301,7 +301,7 @@ def plan_phase2_demand(row,state,catalog,records,contract,*,focus=None):
         silent=[byid[aid] for aid in row.get('silent_asset_ids',[]) if byid.get(aid,{}).get('kind')=='human']
         if audible and silent:
             target=audible[0]['asset_id'];occluder=silent[-1]['asset_id']
-            row.setdefault('semantic_azimuth_targets_deg',{}).update({target:0.,occluder:0.})
+            row.setdefault('semantic_azimuth_targets_deg',{}).update({target:10.,occluder:0.})
             row.setdefault('native_attachment_distance_targets_m',{}).update({target:3.,occluder:1.5})
             row['native_occlusion_relations']=[{'target_asset_id':target,'occluder_asset_id':occluder,
                 'relation':'registered silent foreground human partially occludes the farther speaker',
