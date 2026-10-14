@@ -101,7 +101,7 @@ def main():
             baseline=json.loads(baseline_path.read_text())
             initial=int(baseline['whole_pilot_disk_baseline_bytes'])
             allowance=int(baseline['additional_limit_bytes'])
-            if initial<0 or not 0<allowance<=60_000_000_000:
+            if initial<0 or not 0<allowance<=80_000_000_000:
                 raise ValueError('invalid owner incremental disk allowance')
             worktree=Path(__file__).resolve().parents[2]
             code_added=max(0,allocated_bytes(worktree)-int(baseline['worktree_disk_baseline_bytes']))
