@@ -230,7 +230,12 @@ def build_visible_scene(row,house,records,catalog,semantic_manifest=None):
         if not semantic_manifest:raise ValueError('authored semantic manifest missing')
         wanted=row.get('semantic_sound_ids');authored=[s for s in semantic_manifest['sounds'] if s['scenario_id']==row['semantic_scenario_id'] and (not wanted or s['sound_asset_id'] in wanted)]
         if wanted:authored=sorted(authored,key=lambda s:wanted.index(s['sound_asset_id']))
-        if len(authored)!=len([a for a in assets if a['kind']=='human']):raise ValueError('complete authored roles need matching humans')
+        authored_ids=row.get('semantic_human_asset_ids')
+        if authored_ids is None:authored_ids=[a['asset_id'] for a in assets if a['kind']=='human']
+        humans={a['asset_id'] for a in assets if a['kind']=='human'}
+        if len(authored_ids)!=len(set(authored_ids)) or not set(authored_ids)<=humans:
+            raise ValueError('authored roles must bind distinct actual registered human bodies')
+        if len(authored)!=len(authored_ids):raise ValueError('complete authored roles need matching humans')
         scene['production_scenario'].update(semantic_scenario_id=row['semantic_scenario_id'],semantic_sound_ids=[s['sound_asset_id'] for s in authored])
     human_index=0
     for i,a in enumerate(assets):
@@ -252,7 +257,7 @@ def build_visible_scene(row,house,records,catalog,semantic_manifest=None):
         if a['silent_decor']:continue
         if human_speech:scene['production_scenario']['speaker_count']+=1
         choices={}
-        if a['kind']=='human' and authored:
+        if a['kind']=='human' and authored and a['asset_id'] in authored_ids:
             s=authored[human_index];g='F' if a['visual_gender']=='female' else 'M';record=semantic_record(s,g);choices['speech_playback']=record;human_index+=1
         else:
             for cls in classes:
@@ -269,7 +274,7 @@ def build_visible_scene(row,house,records,catalog,semantic_manifest=None):
             source['voice_gender']=choices['speech_playback']['gender']
             source['visual_gender_status']='registered' if a.get('visual_gender') in {'female','male'} else 'unknown_not_inferred_from_voice'
         schedule=[.2+.1*i+5*j for j in range(6)]
-        if a['kind']=='human' and authored:schedule=semantic_schedule(row.get('semantic_start_offsets_s'),human_index-1,len(authored),choices['speech_playback']['duration_s'])
+        if a['kind']=='human' and authored and a['asset_id'] in authored_ids:schedule=semantic_schedule(row.get('semantic_start_offsets_s'),human_index-1,len(authored),choices['speech_playback']['duration_s'])
         for index,start in enumerate(schedule):
             cls=classes[index%len(classes)];record=choices[cls];whole=human_speech
             duration=float(record['duration_s']);ticks=math.ceil(duration*10) if whole else max(1,math.floor(min(2.,duration)*10))

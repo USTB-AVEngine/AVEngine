@@ -57,6 +57,7 @@ def main():
             row={'schema':'v7-production-candidate-inputs-v1','scene_id':f'v7_candidate_{len(rows):06d}',
                 'house':room['house'],'room_id':room['room_id'],'family':room['family'],'split':'train','scene_seed':seed,
                 'asset_ids':[s['asset_id'] for s in selected],'source_classes':{},'proposed_sound_asset_ids':{},
+                'silent_asset_ids':[s['asset_id'] for s in selected if s.get('silent_decor')],
                 'motion_requests':{},'production_sampling':receipt,
                 'native_proposal_render_truth_and_question_gates':'not_run; pass these selected inputs to the original family producer',
                 'training_table_exported':False}

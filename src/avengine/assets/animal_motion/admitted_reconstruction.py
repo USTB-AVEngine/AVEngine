@@ -47,6 +47,31 @@ def reconstruct_frames(native, species, output, indices=None):
         if any(not Path(frames[i]['pose_glb']).is_file() for i in requested):
             raise ValueError('retained qualified pose missing')
         return frames, None
+    if native['motion_mode'] == 'slide_no_animation':
+        from avengine.capture.v7_visible_mesh import indexed_static_mesh
+        paths = {frames[i]['pose_glb'] for i in requested}
+        if native['checks']['status'] != 'pass' or any(not Path(p).is_file() for p in paths):
+            raise ValueError('qualified static slide buffer missing')
+        if len({digest(p) for p in paths}) != 1:
+            raise ValueError('slide buffers contain changing mesh bytes')
+        canonical = frames[requested[0]]['pose_glb']
+        mesh = indexed_static_mesh(canonical)
+        actual = np.stack((mesh.vertices.min(0), mesh.vertices.max(0)))
+        for i in requested:
+            if np.max(np.abs(actual - np.asarray(frames[i]['expected_pose_bounds_m']))) > 2e-5:
+                raise ValueError('qualified slide buffer geometry differs from native readback')
+            frames[i]['original_transient_pose_glb'] = frames[i]['pose_glb']
+            frames[i]['pose_glb'] = canonical
+        output = Path(output)
+        output.mkdir(parents=True, exist_ok=False)
+        receipt = {'schema': 'qualified-static-slide-buffer-view-v1', 'asset_id': native['asset_id'],
+                   'canonical_pose': canonical, 'pose_sha256': digest(canonical),
+                   'verified_byte_identical_source_buffers': sorted(paths), 'frames_verified': requested,
+                   'joint_animation_present': False, 'original_files_modified': False,
+                   'new_house_physical_admission_required': True}
+        destination = output / 'RECONSTRUCTION_RECEIPT.json'
+        destination.write_text(json.dumps(receipt, indent=2) + '\n')
+        return frames, str(destination)
     if native['motion_mode'] != 'walk_animation' or native['checks']['status'] != 'pass':
         raise ValueError('transient poses need a passed animated native receipt')
     first = frames[transient[0]]['pose_reconstruction']
@@ -84,6 +109,7 @@ def reconstruct_frames(native, species, output, indices=None):
     walk = ConstrainedWalk(rig, speed=float(first['speed_m_s']), period=float(first['period_s']), floor=floor)
     output = Path(output)
     output.mkdir(parents=True, exist_ok=False)
+    (output / 'frames').mkdir()
     document = externalize_unchanged_images(rig.document, rig.binary, output / 'textures')
     checks = []
     for i in transient:
@@ -103,7 +129,7 @@ def reconstruct_frames(native, species, output, indices=None):
         # reconstruction check, never a replacement for production admission.
         if bounds_error > 2e-5 or max(errors.values()) > 2e-5:
             raise ValueError('reconstructed qualified pose mismatch: ' + str((i, bounds_error, errors)))
-        target = output / ('frame_%04d.glb' % i)
+        target = output / 'frames' / ('frame_%04d.glb' % i)
         rigid_glb(document, rig.binary, parts, target)
         old['original_transient_pose_glb'] = old['pose_glb']
         old['pose_glb'] = str(target)

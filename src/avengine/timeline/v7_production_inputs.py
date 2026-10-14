@@ -255,7 +255,7 @@ def prepare_contract(config):
     return contract
 
 
-def sample_room_assets(catalog, room, seed, controlled_people=3, object_count=2, animal_count=1):
+def sample_room_assets(catalog, room, seed, controlled_people=3, object_count=2, animal_count=1, decor_count=1):
     """Default category-constrained candidate mix; native admission is separate.
 
     A room may have fewer candidate kinds. This never widens its allowed
@@ -269,6 +269,8 @@ def sample_room_assets(catalog, room, seed, controlled_people=3, object_count=2,
     for kind, count in [('object', object_count), ('animal', animal_count)]:
         pool = sorted((a for a in eligible if a.get('kind') == kind and a.get('allowed_classes') and not a.get('silent_decor')), key=lambda a: a['asset_id'])
         result.extend(deepcopy(rng.sample(pool, min(count, len(pool)))))
+    silent = sorted((a for a in eligible if a.get('kind') == 'object' and a.get('silent_decor')), key=lambda a:a['asset_id'])
+    result.extend(deepcopy(rng.sample(silent, min(decor_count,len(silent)))))
     return result
 
 
