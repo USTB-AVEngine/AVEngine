@@ -312,23 +312,44 @@ def attach_runtime_contract(row, inputs):
 
 
 def bind_semantic_registry(manifest, assets):
-    """Supply a missing manifest header from the actual admitted human assets.
+    """Bind missing headers to retained human and authored-scenario authorities.
 
-    Sound records and qualifications are retained verbatim. The downstream
-    native evidence intake still verifies every frame and the registry SHA.
+    Every sound record remains exact. Missing question/domain definitions come
+    only from the expansion manifest's own SHA-pinned original authored batch.
+    Native SHA/frame checks and semantic question gates remain unchanged.
     """
-    if manifest is None or manifest.get('source_registry'):
+    if manifest is None or (manifest.get('source_registry') and manifest.get('dialogues')):
         return manifest
-    registries = {str(a['source_registry']) for a in assets
-                  if a.get('source_registry') and a.get('dialogue_voice_binding_eligible') is not False
-                  and (a.get('species_id') == 'human' or a.get('kind') == 'human'
-                       or a.get('entity_class') == 'articulated_human')}
-    if len(registries) != 1:
-        raise ValueError('semantic header requires one actual admitted human registry')
     result = deepcopy(manifest)
-    result['source_registry'] = next(iter(registries))
-    result['production_registry_header_view'] = {
-        'source': 'actual selected admitted human assets',
-        'sound_records_changed': False,
-        'native_registry_SHA_and_all_frame_qualification_required': True}
+    if not result.get('source_registry'):
+        registries = {str(a['source_registry']) for a in assets
+                      if a.get('source_registry') and a.get('dialogue_voice_binding_eligible') is not False
+                      and (a.get('species_id') == 'human' or a.get('kind') == 'human'
+                           or a.get('entity_class') == 'articulated_human')}
+        if len(registries) != 1:
+            raise ValueError('semantic header requires one actual admitted human registry')
+        result['source_registry'] = next(iter(registries))
+    proof = {'source': 'actual selected admitted human assets', 'sound_records_changed': False,
+             'native_registry_SHA_and_all_frame_qualification_required': True}
+    if not result.get('dialogues'):
+        lineage = result.get('batch_summary', {})
+        path = lineage.get('source_old_manifest')
+        expected = lineage.get('source_old_manifest_sha256')
+        if not path or not expected:
+            raise ValueError('expanded dialogue catalog lacks its pinned original authored authority')
+        raw = Path(path).read_bytes()
+        if hashlib.sha256(raw).hexdigest() != expected:
+            raise ValueError('original authored dialogue manifest SHA changed')
+        original = json.loads(raw)
+        dialogues = original['dialogues']
+        roles = {(sc['id'], r['role_id']): r for sc in dialogues['scenarios'] for r in sc['roles']}
+        for sound in result['sounds']:
+            role = roles.get((sound['scenario_id'], sound['role_id']))
+            if (role is None or role['transcript'] != sound['transcript']
+                    or role['meaning_answer'] != sound['semantic_answer']['answer']):
+                raise ValueError('expanded dialogue sound differs from original authored scenario/role/meaning')
+        result['dialogues'] = deepcopy(dialogues)
+        proof['original_authored_dialogue_manifest'] = {'path': path, 'sha256': expected}
+        proof['all_sound_transcripts_roles_meanings_match_original_authority'] = True
+    result['production_registry_header_view'] = proof
     return result

@@ -96,7 +96,7 @@ def test_production_five_shirts_stay_unique_with_a_sixth_professional():
 def test_dialogue_header_uses_actual_registry_without_editing_sound_records():
     from copy import deepcopy
     from avengine.timeline.v7_production_inputs import bind_semantic_registry
-    manifest = {'sounds': [{'sound_asset_id': 'retained', 'sha256': 'unchanged'}]}
+    manifest = {'sounds': [{'sound_asset_id': 'retained', 'sha256': 'unchanged'}], 'dialogues': {'scenarios': []}}
     original = deepcopy(manifest)
     human = {'kind': 'human',
              'source_registry': '/retained/registrations/human_roster.json'}
@@ -107,4 +107,25 @@ def test_dialogue_header_uses_actual_registry_without_editing_sound_records():
     with pytest.raises(ValueError, match='one actual'):
         bind_semantic_registry(manifest, [human, other])
     with pytest.raises(ValueError, match='one actual'):
+        bind_semantic_registry(manifest, [])
+
+
+def test_expanded_dialogue_catalog_requires_exact_original_authority(tmp_path):
+    import hashlib, json
+    from avengine.timeline.v7_production_inputs import bind_semantic_registry
+    original = tmp_path / 'original.json'
+    dialogues = {'scenarios': [{'id': 'scene', 'roles': [
+        {'role_id': 'role', 'transcript': 'Retained speech.', 'meaning_answer': 'meaning'}]}]}
+    original.write_text(json.dumps({'dialogues': dialogues}))
+    sound = {'scenario_id': 'scene', 'role_id': 'role', 'transcript': 'Retained speech.',
+             'semantic_answer': {'answer': 'meaning'}}
+    manifest = {'source_registry': '/actual/registry.json', 'sounds': [sound], 'batch_summary': {
+        'source_old_manifest': str(original), 'source_old_manifest_sha256': hashlib.sha256(original.read_bytes()).hexdigest()}}
+    adapted = bind_semantic_registry(manifest, [])
+    assert adapted['sounds'] == manifest['sounds'] and adapted['dialogues'] == dialogues
+    sound['semantic_answer']['answer'] = 'invented'
+    with pytest.raises(ValueError, match='differs'):
+        bind_semantic_registry(manifest, [])
+    original.write_text('changed bytes')
+    with pytest.raises(ValueError, match='SHA changed'):
         bind_semantic_registry(manifest, [])
