@@ -99,6 +99,7 @@ class TriangleClearance:
         self.faces=faces[~ground];self.lo=lo[~ground];self.hi=hi[~ground]
         self.source=str(path);self.removed=int(ground.sum());self.triangles=len(self.faces)
         self.bystanders=[];self.cache={};self.rigid_models={}
+        self.rigid_cache_enabled=excluded_entry.get('declaration',{}).get('species_id') in {'dog','cat'}
         for entry in video.actors:
             if entry is excluded_entry:continue
             if getattr(video,'motion_inputs',{}).get('phase2') and entry.get('phase2_layout_qualified') is False:continue
@@ -144,10 +145,15 @@ class TriangleClearance:
     def check(self, vertices, faces, root, yaw):
         vertices=np.asarray(vertices);faces=np.asarray(faces)
         rotation=yaw_matrix(yaw);world=vertices@rotation.T+root
+        if not getattr(self,'rigid_cache_enabled',True):
+            return self.check_world(world,faces),world
         key=hashlib.sha256(np.ascontiguousarray(vertices).tobytes()+np.ascontiguousarray(faces).tobytes()).digest()
-        if key not in self.rigid_models:
-            self.rigid_models[key]=fcl_model(vertices,faces)
-        obj=self.rigid_models[key]
+        obj=self.rigid_models.pop(key,None)
+        if obj is None:
+            obj=fcl_model(vertices,faces)
+            if len(self.rigid_models)>=256:
+                self.rigid_models.pop(next(iter(self.rigid_models)))
+        self.rigid_models[key]=obj
         obj.setTransform(self.fcl.Transform(rotation,np.asarray(root,float)))
         return self.check_world(world,faces,rigid_object=obj),world
 
