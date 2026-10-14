@@ -5,7 +5,7 @@
 
 自 2026-08-25 起，目录本身就是能力分组（阶段目录 m1…m7 已移除），
 本表按目录列出每个工具做什么。
-当前共 616 个工具脚本。
+当前共 625 个工具脚本。
 
 ## 资产生成与装配（`tools/assets/`）
 
@@ -28,12 +28,14 @@
 | `tools/assets/bake_local_tr_actions.py` | Bake deterministic research-only local-translation action poses from one GLB |
 | `tools/assets/bake_uniform_skin_scale.py` | Bake one positive uniform skin-ancestor scale into GLB payload data |
 | `tools/assets/blender_apply_pixal3d_import_transform.py` | Apply the class-level Pixal3D Blender import/root transform after glTF import |
+| `tools/assets/blender_check_quadruped_surface.py` | Owner-approved regional penetration gate against the unmodified binding pose |
 | `tools/assets/blender_level_generated_animal_support_plane.py` | Level a generated quadruped from two independent visible-foot authorities |
 | `tools/assets/blender_normalize_generated_animal_heading.py` | Rigidly align a generated animal rig to a reviewed cardinal heading |
 | `tools/assets/blender_probe_skin_action.py` | Add a short in-place bone rotation so a SkinTokens rig can play one action |
 | `tools/assets/blender_record_emitter_anchors.py` | Record research-only emitter anchors from a reviewed GLB bounding box |
 | `tools/assets/blender_render_generated_asset_review.py` | Render front/side/back stills, a turntable, and a short action clip |
 | `tools/assets/blender_retarget_quaternius_to_generated_quadruped.py` | Transfer Quaternius Walk/Idle to a generated, skinned quadruped rig |
+| `tools/assets/blender_rig_static_dog.py` | Landmark fit, Blender heat/envelope skinning, and CC0 motion transfer |
 | `tools/assets/build_appearance_variant_inputs.py` | Bind one realized appearance request into package spec and source lineage |
 | `tools/assets/build_canary_request.py` | Build one hash-bound formal M2 canary capture request |
 | `tools/assets/build_cross_species_appearance_lineage.py` | Build one diagnostic-only cross-species appearance lineage |
@@ -47,13 +49,16 @@
 | `tools/assets/build_seated_human_skeletal.py` | Build a seated Rocketbox human skeletal asset for AVEngine SPEAR research runs |
 | `tools/assets/build_sound_event_pool.py` | Build an avengine_sound_event_pool_v1 catalog from event_manifest.json |
 | `tools/assets/build_sound_harvest_map.py` | 生成事件类到 FSD50K 标签的对照表草案。 |
+| `tools/assets/build_static_dog_rig.py` | Build a Blender-fitted derivative without replacing the target mesh |
 | `tools/assets/capture_animal_variant_review.py` | Build and run one single-view animal-variant Habitat review capture |
 | `tools/assets/capture_canary.py` | Run one formal 75-state M2 canary capture in Habitat |
 | `tools/assets/capture_installed_research_review.py` | Run the current installed-prefix M2 Blender-room research review |
 | `tools/assets/capture_research_review.py` | Run the 75-state single-view M2 research-review capture in Habitat |
+| `tools/assets/check_dog_source_preservation.py` | Verify original geometry, UVs, PBR values and decoded texture pixels |
 | `tools/assets/check_motion_only_surface_blender.py` | Owner-approved regional penetration gate against the unmodified binding pose |
 | `tools/assets/check_prompt_token_budget.py` | Fail closed when a candidate profile's effective prompt cannot fit the model window |
 | `tools/assets/check_source_material_matrix.py` | Gate the complete source-material matrix and emit an offline review page |
+| `tools/assets/check_static_dog_rig.py` | Independent CPU measurements; native Habitat/audio are separate statuses |
 | `tools/assets/compile_animal_motion.py` | Compile a bounded target-preserving walking probe for native validation |
 | `tools/assets/compile_animal_package.py` | Compile a bounded M2 research-candidate package |
 | `tools/assets/compose_topdown_review.py` | Derive synchronized RGB + navmesh/descriptor top-down QA review media |
@@ -96,6 +101,7 @@
 | `tools/assets/rebase_skin_root.py` | Create a Habitat-native, root-local GLB research candidate |
 | `tools/assets/rebind_appearance_actions.py` | Reuse one validated M2 package action set on a compatible appearance rig |
 | `tools/assets/rebind_appearance_visual.py` | Preserve a source M2 package actor frame on one appearance realization |
+| `tools/assets/recheck_static_dog_motion.py` | Recheck owned static-dog bindings with the explicitly authorized motion-only policy |
 | `tools/assets/register_sound_event_assets.py` | Register split sound-event clips into avengine_m6_sound_asset_registry_v1 |
 | `tools/assets/render_animal_rir_once.py` | One genuinely fresh native process, scene upload and single-pose RIR |
 | `tools/assets/render_animal_rir_request.py` | Render one exact requested point in a fresh native process |
@@ -116,6 +122,8 @@
 | `tools/assets/run_generated_animal_chain.sh` | Take one generated animal from a raw reconstruction to a reviewable rigged |
 | `tools/assets/run_pixal3d_mesh.py` | Run the local AVEngine Pixal3D image-to-3D stage on an RGBA candidate |
 | `tools/assets/run_skintokens_rig.py` | Run local VAST-AI SkinTokens/TokenRig inference on one mesh |
+| `tools/assets/run_static_dog_audio_queue.py` | Qualify queued native dogs with fresh RIRs and a 45 minute asset timebox |
+| `tools/assets/run_static_dog_batch.py` | Timeboxed static-dog binding coverage and native walking/slide triage |
 | `tools/assets/segment_canonical_2d.py` | Cut the canonical 2D candidate out of its background with the local ISNet model |
 | `tools/assets/skintokens_loopback_bpy_server.py` | Private Unix-socket Blender RPC endpoint for local SkinTokens inference |
 | `tools/assets/spike_habitat_local_tr.py` | Prove one bounded local-translation-plus-rotation Habitat AO encoding |
@@ -123,6 +131,7 @@
 | `tools/assets/validate_animal_motion_audio.py` | All-raw-independent native RLR qualification of measured moving mouths |
 | `tools/assets/validate_animal_motion_habitat.py` | Run one dog or cat through actual Habitat, native floor and posed geometry |
 | `tools/assets/validate_animated_animal_closure.py` | Validate an animated animal GLB and write one fresh closure report |
+| `tools/assets/validate_static_dog_native_bounded.py` | All-frame Habitat validation with bounded pose buffers and native caches |
 | `tools/assets/verify_habitat_asset_runtime_readback.py` | Read back Habitat native root, contact-link and emitter transforms |
 | `tools/assets/wrap_uniform_scene_scale.py` | Wrap every root of one GLB scene in an explicit uniform-scale node |
 

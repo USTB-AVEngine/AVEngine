@@ -1,0 +1,25 @@
+# 无骨骼狗的派生绑定与移动验收
+
+本工具链保留目标自己的三角形、UV、PBR参数、解码后贴图像素与静止外形，只在派生GLB添加骨骼与动作。源资产及源登记只读。Quaternius Animal Pack Vol.2的Dog.blend骨骼结构与Walking为CC0；作者许可页：https://opengameart.org/content/animated-animales-low-poly 。不复制模板狗的几何。
+
+`build_static_dog_rig.py`通过目标登记中的四爪、头、嘴与自身后躯几何拟合24关节，调用Blender后台热扩散、连续包络或Blender包络，再输出目标自己的Idle/Walking。连续包络在最近四爪的Voronoi区域边界处平滑归零；第二包络方案以Ankle作刚性足部、连续过渡到Body，降低短腿和密集源面片的局部拉伸。头/躯干/尾的源动作角度另按米制尺寸缩小，实际幅度记入报告；四足48mm步长和8mm抬脚仍由已提交运动模块生成，实际权重后处理明确记入blender_binding.json。热扩散未成功会明确记录未加权顶点与包络回退，不能宣称热扩散成功。`check_dog_source_preservation.py`独立验证静置顶点、法线、三角形、UV、材质参数和贴图解码像素。
+
+`check_static_dog_rig.py`调用已提交的animal_motion运动模块，通过候选完整检查145帧，并运行实际Blender变形检查。已出现1.5倍拉伸超限的候选保留明确失败帧后停止，未检查的后续帧不宣称通过。身体前向与根速度≤15°，支撑同一材质顶点累计漂移≤3mm、速度≤30mm/s，四爪距地≤12mm，皮肤地面数值容差与俯仰沿用原模块。180°、90°负例必须失败。保留原校准的2.5%碎片面积检查，另按owner 02:3x要求执行最长三角形边伸长≤1.5倍；UV缝相对静置新增分离≤10微米，用于区分浮点误差与撕裂。
+
+相交按owner 02:3x追加判定可见穿插，自交对数仅记录。绑定静置禁用NLA并清空pose，逐帧按躯干、头、尾、四肢区域测量：不同区域新增相交表面积≤25mm²，新穿插法向深度≤2mm；同一区域不限制面积，只限制新深度≤2mm。穿插面片用Sutherland-Hodgman裁剪：将每个相交三角形裁到另一三角形的垂直三角柱及内侧平面，计算真实局部面片面积与法向深度，同时测两侧。重叠面片面积按源面累加并封顶于该面面积，逐面扣除绑定基线的已有面积；同一对的基线内侧面片也在静止姿态计算，不能因静止未相交就把原有内侧深度当零。深度采用对应材料点相对位移的新增内向法向分量，先移除同一区域的共同骨骼刚体旋转；异区使用Body旋转。以当前内侧深度为上限，原外侧间隙上的运动不算穿插；纯切向移动深度增量为零。所有裁剪多边形顶点的最大值即该线性局部面片最大值，执行2mm门槛。此为局部表面穿插度量，不宣称计算封闭体交集体积。计数、共有源网格自交和共面候选均不单独拒收。完整BVH候选、严格内点相交和绑定几何邻接排除保留。原网格已有自交不修复。
+
+`validate_static_dog_native_bounded.py`在原生Habitat CPU llvmpipe逐帧实例化真正的派生皮肤，读回物体、头、尾、嘴及几何包围盒，调用原完整场景射线、三角形距离、NavMesh和原门槛；每帧实际旋转180°、90°验证检测。每8帧重建simulator后才复用自己的8个pose文件，包围盒逐帧误差≤20微米防止读回旧姿态。所有145帧的原生测量、视频与必要截图保留；pose文件标记transient，保留源、时间、运动参数与路线以重建。嘴部读回≤0.1mm、非地板间距>20mm、NavMesh水平误差≤2mm、完整可见轮廓门槛不变。支持明确标记的slide_no_animation，滑行不宣称支撑锁足步态。
+
+`run_static_dog_batch.py`是48g本任务的私有覆盖入口，每只至多3种权重或45分钟；同因两次失败记录诊断并停止该路线。绑定/平地通过后做原生验收，否则先滑行。全部输出限于v7_rig_dogs_20261014任务产物。`run_static_dog_audio_queue.py`消费真正原生通过的轨迹，调用a5d6c228的端点与独立移动RIR工具：每中点3次全新原生参考，1dB/DRR/时延/RT60/尾部/5°门槛均不变，真实端点乘2的+6dB负例必须失败。两失败区间先诊断，仅完全一致的参考可升为端点并重新测新中点；各资产时间盒45分钟。音频完成前不联合准入。
+
+监督器、CPU EGL配置、机器、PID、PSS、磁盘与停止命令在任务产物的JOBS.json。新作业需available≥40GB、/data free≥150GB；仅CPU、nice≥10、单核亲和性、总PSS≤6GB、新增≤8GB，截止2026-10-14 18:00 SGT。不push，不改共享环境，不删除源或已有证据。
+
+每只结果及真实证据最终汇总在任务产物，几何通过与联合通过分开。单个HM3D房间通过不能宣称任意房间均可用；执行故障不能冒充动物没有动画。
+
+The replacement audio queue applies a hard 2700-second SIGALRM per asset across endpoint generation and qualification. It verifies PID creation time and command before terminating only its own child tree; incomplete endpoints/reference arrays remain as evidence and receive no admission. The older running queue is replaced only between assets.
+
+Rejected surface candidates stop at the first measured failure and record requested versus evaluated frame counts and the rejection witness. Admission still requires all 145 CPU/surface/native frames.
+
+Later bindings keep upper-body/Head/Tail local Idle transforms while transferring CC0 Walking on all four fitted limbs. The submitted solver still advances 48 mm per cycle and lifts each paw 8 mm; skin deformation and every original gate remain mandatory. This avoids incidental tail/head movement increasing crossed regional area; it does not alter target geometry or relax a gate.
+
+A standing-slide-only rigid vertical placement parameter translates the entire native drawable, mouth and all foot coordinates consistently. It can lower the discretionary 0.4 mm clearance only when measured full-skin floor clearance and the over-height paw leave a positive feasible interval. Native rays and checks are rerun on all 145 frames; no source foot landmark or floor truth is edited.
