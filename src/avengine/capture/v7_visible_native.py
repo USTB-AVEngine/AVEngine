@@ -177,7 +177,18 @@ class NativeVisibleVideo(NativeRegisteredVideo):
         from avengine.capture.v7_alpha_native import forward_at
         maximum={e['declaration']['asset_id']:0 for e in entries}
         observed=[];seen=set()
-        for knot in scene['camera_yaw_knots']:
+        knots=scene['camera_yaw_knots']
+        if (self.motion_inputs.get('independent_probe_camera_search')
+                and self.motion_inputs.get('independent_probe_nearest_camera_first')):
+            # Order the existing static-probe views; keep every failed view
+            # and the same actually measured 100px requirement below.
+            target=np.mean([np.asarray(e['object'].translation,float) for e in entries],axis=0)-scene['listener_m']
+            target[1]=0.
+            if np.linalg.norm(target)>1e-9:
+                unique={}
+                for knot in knots:unique.setdefault(round(knot['yaw_deg']%360.,6),knot)
+                knots=sorted(unique.values(),key=lambda knot:-float(np.dot(target,forward_at(scene,knot['time_s']))))
+        for knot in knots:
             yaw=round(knot['yaw_deg']%360.,6)
             if yaw in seen:continue
             seen.add(yaw);pixels=self._native_pair_pixels(scene,entries,forward_at(scene,knot['time_s']))
