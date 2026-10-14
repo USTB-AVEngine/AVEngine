@@ -1,5 +1,6 @@
 """CPU registered integration pilot with complete native/QA evidence and no export."""
 from __future__ import annotations
+from avengine.timeline.v7_wet_support import WET_SUPPORT_REVISION
 from collections import Counter
 from copy import deepcopy
 from pathlib import Path
@@ -89,7 +90,7 @@ def generate_visible_parent(row,house,inputs,catalog,source_admission,human_admi
         visual['visible_color_checks'],assets,(inputs.get('animal_color_thresholds') or {}).get('min_pixels',200))
     scene=member_scene(base,visual,'v0_a0')
     def audio(attempt):return render_alpha_audio(scene,working,inputs,root/'rir_cache',attempt,dry,receipt,visual['camera_frame_readbacks'])
-    ad,ar,_=stage(root,'audio_v0_a0',{'scene':scene,'inputs':inputs},audio)
+    ad,ar,_=stage(root,'audio_v0_a0',{'scene':scene,'inputs':inputs,'wet_support_revision':WET_SUPPORT_REVISION},audio)
     checks=native_checks(scene,assets,visual,ar)
     def windows(attempt):
         samples,sr=sf.read(ad/'scene_foa_full_tail.wav',dtype='float64',always_2d=True);required=[];wins=[]

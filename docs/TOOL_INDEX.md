@@ -5,7 +5,7 @@
 
 自 2026-08-25 起，目录本身就是能力分组（阶段目录 m1…m7 已移除），
 本表按目录列出每个工具做什么。
-当前共 641 个工具脚本。
+当前共 643 个工具脚本。
 
 ## 资产生成与装配（`tools/assets/`）
 
@@ -349,6 +349,7 @@
 | `tools/timeline/audit_v7_scene_quotas.py` | Count realized v7 protocol answers separately from scene requests and formal media |
 | `tools/timeline/export_native_pilot_windows.py` | Export checked native video windows and balanced pilot question candidates |
 | `tools/timeline/export_v7_alpha.py` | Package immutable admitted alpha parents and training-ready relative media |
+| `tools/timeline/export_v7_trial.py` | Export admitted parents to the v7 row format for an isolated trial only |
 | `tools/timeline/generate_v7_alpha.py` | Restartable CPU-only formal static/recorded alpha shards |
 | `tools/timeline/generate_v7_full_preproduction.py` | Explicit TRAIN-only 1500-world preproduction, separate from the eight-world review |
 | `tools/timeline/generate_v7_phase2_pilot.py` | Restartable private phase-two registered CPU integration shards |
@@ -359,6 +360,7 @@
 | `tools/timeline/pilot_v7_kujiale_ue.py` | Run one measured Kujiale UE/SPEAR research pilot through unchanged v7 stages |
 | `tools/timeline/plot_v7_cpu_monitor.py` | Plot recorded P19 cgroup counters separately from host /proc statistics |
 | `tools/timeline/prepare_kujiale_asset_pilot.py` | Prepare joint native-LOD placements for a train-only Kujiale asset pilot |
+| `tools/timeline/prepare_v7_demand_batch.py` | Prepare a deficit-driven batch using original registries; render/export nothing |
 | `tools/timeline/prepare_v7_diagnostic_aliases.py` | Give diagnostic media neutral IDs and quarantine incompatible public domains |
 | `tools/timeline/prepare_v7_diagnostic_seed_tables.py` | Extend reproducible v7-S/full seeds with simulation-only diagnostic axes |
 | `tools/timeline/prepare_v7_full_preproduction.py` | Prepare new TRAIN-only worlds without rendering or opening held-out assets |

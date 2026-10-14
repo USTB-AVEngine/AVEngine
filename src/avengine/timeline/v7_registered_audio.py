@@ -55,7 +55,8 @@ def render_alpha_audio(scene,house,inputs,cache_directory,attempt,dry,receipt,ca
     if simulation['thread_count']!=1 or simulation['diffraction'] is not True or simulation['max_diffraction_order']!=10:
         raise ValueError('alpha acoustic recipe must keep the calibrated native one-thread diffraction setup')
     write_json(attempt/'native_RLR_setup.json',renderer.setup_report)
-    cache=PositionRIRCache(cache_directory,renderer,identity);stems={};directions=[];plans={}
+    cache=PositionRIRCache(cache_directory,renderer,identity);stems={};directions=[];plans={};wet_support={}
+    from avengine.timeline.v7_wet_support import event_wet_support,WET_SUPPORT_REVISION
     for ep,spec in scene['sources'].items():
         if not np.any(dry[ep]):
             plans[ep]={'RIR_count':0,'reason':'visible silent bystander'};continue
@@ -65,9 +66,11 @@ def render_alpha_audio(scene,house,inputs,cache_directory,attempt,dry,receipt,ca
                 from avengine.timeline.v7_phase2_motion_audio import moving_stem_phase2 as moving_stem
             else:
                 from avengine.timeline.v7_registered_motion_audio import moving_stem
-            stems[ep],motion,observed=moving_stem(spec,scene,effective_inputs,cache,dry[ep],attempt,ep)
+            stems[ep],motion,observed=moving_stem(spec,scene,effective_inputs,cache,dry[ep],attempt,ep,
+                event_bindings=[b for b in receipt['events'] if b['endpoint_id']==ep])
             plans[ep]={'RIR_count':motion['RIR_count'],'motion':'admitted native 30Hz source; midpoint-qualified emission-aligned crossfade','moving_energy':motion}
             directions.extend(observed)
+            wet_support.update(motion.get('event_wet_support',{}))
             continue
         rir=cache.get(point);distance=float(np.linalg.norm(point-np.asarray(scene['listener_m'])))
         direction=foa_direction(rir,scene["listener_m"],point,scene["camera_forward"],sample_rate=16000)
@@ -82,6 +85,7 @@ def render_alpha_audio(scene,house,inputs,cache_directory,attempt,dry,receipt,ca
             cache.db.close()
             raise ValueError('alpha native FOA direction exceeds frozen 5deg criterion')
         stems[ep]=partitioned_convolve(dry[ep],[rir],[0]);plans[ep]={'RIR_count':1,'motion':'static native MJaw'}
+        wet_support.update(event_wet_support(dry[ep],[b for b in receipt['events'] if b['endpoint_id']==ep],[rir]))
     if not stems:raise ValueError('alpha scene needs actual recorded sound')
     length=max(x.shape[1] for x in stems.values());world=np.zeros((4,length))
     for x in stems.values():world[:,:x.shape[1]]+=x
@@ -93,6 +97,8 @@ def render_alpha_audio(scene,house,inputs,cache_directory,attempt,dry,receipt,ca
     result={'status':'pass','static_only':not any('moving_energy'in p for p in plans.values()),'moving_energy_gate':'pass' if any('moving_energy'in p for p in plans.values()) else 'not_applicable_no_moving_sources',
         'directions':directions,'camera_rotation_energy_absolute_error':energy_error,
         'RIR_plan':plans,'RIR_cache':cache.stats.copy(),'dry_assets_receipt':receipt,
+        'event_wet_support':wet_support,'wet_support_revision':WET_SUPPORT_REVISION,
+        'wet_support_complete':set(wet_support)=={e['event_id'] for e in scene['events']},
         'wall_seconds':time.perf_counter()-start,'process_cpu_seconds':time.process_time()-cpu,
         'format':'ACN_WYZX_SN3D_camera','full_emission_history_and_tail':True}
     if sampling_profile is not None:
@@ -122,6 +128,10 @@ def source_qa_evidence(scene,program,dry_receipt,visual,foa_path,audio_evidence,
                 'source':record['path'],'license':record['screens']['license']['license'],'original_id':record.get('original_id',record['screens']['license']['original_id'])},
             'activity_status':'observed','activity_intervals_samples_global':actual,
             'emission_mechanism':event.get('mechanism','human_live_recorded'), 'sound_class':record.get('sound_class'), 'native_endpoint_id':event['endpoint_id']}
+        wet=audio_evidence.get('event_wet_support',{}).get(event['event_id']) if audio_evidence.get('wet_support_complete') is True else None
+        if wet:
+            events[event['event_id']]['wet_intervals_global_s']=deepcopy(wet['wet_intervals_global_s'])
+            events[event['event_id']]['wet_support_readback']=deepcopy(wet)
         motion_meta=scene['sources'][event['endpoint_id']].get('motion_metadata')
         if motion_meta:events[event['event_id']]['motion_metadata']=deepcopy(motion_meta)
         if window_start_s is not None:

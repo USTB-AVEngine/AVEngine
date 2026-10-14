@@ -166,6 +166,7 @@ def build_phase2_scene(row,house,records,catalog,semantic_manifest=None):
         raise ValueError('physical camera turn hold must be finite and in 0 to 0.6 seconds')
     if turn_hold:scene['phase2_camera_turn_hold_s']=turn_hold
     if production_intake:scene['production_sampling_intake']=production_intake
+    if row.get('scene_demand'):scene['scene_demand']=deepcopy(row['scene_demand'])
     scene['phase2_profile']=True
     scene['production_scenario'].update(motion_requests=requests,motion_floor_polygon=working['room']['floor_polygon'])
     scene['admitted_sound_class_domain']=sorted({r['sound_class'] for r in admitted})

@@ -5,6 +5,7 @@ requires actual sound admission, static contact, RGB/masks, direction, exact
 modality counts and measured counterfactual answers before immutable delivery.
 """
 from __future__ import annotations
+from avengine.timeline.v7_wet_support import WET_SUPPORT_REVISION
 from collections import Counter
 from copy import deepcopy
 from pathlib import Path
@@ -202,7 +203,7 @@ def generate_registered_parent(row,house,inputs,assets,source_admission,human_ad
                 for name in ['scene_foa_full_tail.wav','native_RLR_setup.json','audio_evidence.json']:os.link(source/name,attempt/name)
                 return result,['scene_foa_full_tail.wav','native_RLR_setup.json','audio_evidence.json']
             return render_alpha_audio(scene,working,inputs,root/'rir_cache',attempt,local_dry,local_receipt,visual['camera_frame_readbacks'])
-        audio_recipe={'scene':scene,'inputs':inputs}
+        audio_recipe={'scene':scene,'inputs':inputs,'wet_support_revision':WET_SUPPORT_REVISION}
         if any(not np.array_equal(k['position_m'],source['trajectory'][0]['position_m']) for source in scene['sources'].values() for k in source['trajectory']):
             audio_recipe['moving_native_step_revision']='registered-fixed-.2s-bisection-min-.1s-v1'
         ac=_cpu();aw=time.perf_counter();ad,ar,resumed=stage(root,'audio_'+member,audio_recipe,audio)

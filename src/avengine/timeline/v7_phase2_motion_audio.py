@@ -58,7 +58,7 @@ def wrong_registered_pose(scene,position,sample_time_s):
     return endpoint,other,angle
 
 
-def moving_stem_phase2(spec,scene,inputs,cache,dry,attempt,endpoint):
+def moving_stem_phase2(spec,scene,inputs,cache,dry,attempt,endpoint,*,event_bindings=None):
     attempt=Path(attempt);refs_dir=attempt/(endpoint+'_independent_native_references');refs_dir.mkdir()
     n=len(dry);sr=16000;trajectory=spec['trajectory'];listener=np.asarray(scene['listener_m']);forward=np.asarray(scene['camera_forward'])
     bands=emitted_intervals(dry)
@@ -174,5 +174,11 @@ def moving_stem_phase2(spec,scene,inputs,cache,dry,attempt,endpoint):
         'known_bad_controls':controls,'known_bad_controls_excluded_from_audio':True,
         'full_emission_tail':True,'thresholds_changed':False,'gains_or_RIRs_fitted_to_references':False,
         'historical_frozen_budget_source':inputs.get('moving_energy_budget'),'historical_budget_refitted':False}
+    from avengine.timeline.v7_wet_support import event_wet_support
+    timeline=CorrelatedRIRTimeline(final_filters,timeline_keys)
+    from avengine.acoustics.house_acceptance_metrics import first_arrival_samples
+    arrivals=[first_arrival_samples(h[0])[1] for h in final_filters]
+    spread=max(arrivals)-min(arrivals)
+    receipt['event_wet_support']=event_wet_support(dry,event_bindings or [],final_filters,delay_spread_samples=2*spread)
     write_json(attempt/(endpoint+'_moving_energy.json'),receipt)
     return wet,receipt,directions

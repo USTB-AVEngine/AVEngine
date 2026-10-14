@@ -13,7 +13,7 @@ import math
 from avengine.timeline.continuous_pilot import write_json
 from avengine.timeline.v7_production_contract import question_allocation,validate_question_counts
 
-QUESTION_DELIVERY_REVISION='v7-native-full-pool-owner-available-families-20261014-zero-counts-v2'
+QUESTION_DELIVERY_REVISION='v7-native-full-pool-demand-feedback-20261015-v1'
 
 
 def sample_pilot_comparison_frame(raw,scene,*,seed='v7'):
@@ -151,6 +151,19 @@ def collect_native_pool(scene,start,window_id,visual,media,evidence,quota_index,
         audit['out_of_domain_activity_count_exclusions']=sorted(excluded)
     audit['candidate_budget']={'items_per_family':12,'QA14_additional_query_runs':5,'QA14_candidates_per_query_run':12,'QA14_query_partition_s':2,'modality_and_binding_gates_unchanged':True,'duplicate_stems_still_count_once':True}
     audit['pilot_native_comparison_sampling']=comparison_sampling
+    demand=scene.get('scene_demand')
+    if demand:
+        from collections import Counter
+        actual={q['logical_question_id']:q for q in public}
+        available=Counter(q['qa_id'] for q in actual.values())
+        requested={f for condition in demand['requested_conditions'] for f in demand['condition_families'][condition]}
+        audit['demand_realization']={'requested_conditions':demand['requested_conditions'],
+            'legal_candidate_family_counts':dict(available),'missing_requested_families':sorted(f for f in requested if not available[f]),
+            'native_moving_actor_ids':sorted({actor for actor,frames in raw['frame_readbacks']['actors'].items()
+                if any(frame.get('moving') is True for frame in frames)}),
+            'wet_support_event_ids':sorted({r['event_id'] for r in raw['audio_readback']['wet_tail_intervals']}),
+            'status':'measured_candidates; unfulfilled requests remain deficits',
+            'answer_and_modality_gates_changed':False}
     audit['native_bundle']=raw
     audit['native_listener_binding']='all measured native camera frames, no static pose shadow'
     return public,private,audit
@@ -267,6 +280,13 @@ def finalize_parent_question_pools(row,members,root,*,binding_items_per_window=5
     from avengine.timeline.v7_candidate_generation import stage,read_json
     from avengine.qa.v7_families import select_questions
     from avengine.qa.v7_group_selection import select_counterfactual_group
+    demand=row.get('scene_demand')
+    if demand:
+        from avengine.timeline.v7_demand import demand_snapshot
+        snapshot=demand_snapshot({'logical_questions':demand['observed_logical_questions'],
+            'family_counts':demand['observed_family_counts'],'target_shares':demand['target_shares']},
+            next_questions=row['window_count']*row['questions_per_window']*len(members))
+        family_counts=snapshot['selection_counts']
     names={m['member'] for m in members}
     quartet={'v0_a0','v0_a1','v1_a0','v1_a1'}
     if names!=set(row['members']) or (names!=quartet and names!={'v0_a0'}):
@@ -304,7 +324,11 @@ def finalize_parent_question_pools(row,members,root,*,binding_items_per_window=5
                     if str(error)!='single parent has fewer actual legal questions than requested total':raise
                     availability={'requested':partial_audit['requested_allocation'],'actual':partial_audit['actual_allocation'],'changed':True,'reason':'fewer original legal candidates; explicit partial trial window'}
             else:
-                allocations['v0_a0'],availability=available_single_parent_allocation(ordinary['v0_a0'],private['v0_a0'],allocations['v0_a0'])
+                if demand:
+                    availability={'requested':dict(allocations['v0_a0']),'actual':dict(allocations['v0_a0']),
+                        'changed':False,'reason':'demand-driven batch retains original 30/25/45 modality schedule'}
+                else:
+                    allocations['v0_a0'],availability=available_single_parent_allocation(ordinary['v0_a0'],private['v0_a0'],allocations['v0_a0'])
             q,a=select_questions(ordinary['v0_a0'],private['v0_a0'],allocations['v0_a0'],quota_index=row['question_quota_base']+index,family_counts=family_counts)
             chosen,gold,audit={'v0_a0':q},{'v0_a0':a},{'status':'single_selected','binding_items_per_member':0,'owner_available_candidate_allocation':availability}
             if partial_audit:audit['acceptance_partial_family_policy']=partial_audit
@@ -330,6 +354,12 @@ def finalize_parent_question_pools(row,members,root,*,binding_items_per_window=5
                     if not partial or not (str(error).startswith('requested audio family lacks an actual eligible candidate:') or str(error)=='content reservation exceeds unchanged audio allocation'):raise
                     audit.setdefault('skipped_unavailable_family_reservations',[]).append({'member':name,'family':'QA-28','reason':str(error)})
             audit['actual_content_direction_reservation']={'family':'QA-28','original_candidates_only':True,'canonical_answers_changed':False,'modality_quota_changed':bool(partial and allocations['v0_a0']!=question_allocation(row['question_quota_base']+index,row['questions_per_window'])),'actually_selected':any(q['qa_id']=='QA-28' for qs in chosen.values() for q in qs),'status':'reserved' if any(q['qa_id']=='QA-28' for qs in chosen.values() for q in qs) else 'partial_skipped','skipped_empty_family':audit.get('skipped_unavailable_family_reservations',[])}
+        if demand:
+            audit['demand_feedback']=deepcopy(snapshot)
+            # Subsequent windows see only actual selections from preceding crops.
+            for qs in chosen.values():
+                for q in {q['logical_question_id']:q for q in qs}.values():
+                    family_counts[q['qa_id']]=family_counts.get(q['qa_id'],0)+1
         audits.append(audit)
         for name in names:
             check=validate_question_counts(chosen[name],gold[name],expected_allocation=allocations[name],allow_partial_window=partial)

@@ -13,7 +13,7 @@ def position_at(trajectory,time_s):
     return np.array([np.interp(time_s,times,points[:,j])for j in range(3)])
 
 
-def moving_stem(spec,scene,inputs,cache,dry,attempt,endpoint):
+def moving_stem(spec,scene,inputs,cache,dry,attempt,endpoint,*,event_bindings=None):
     if spec.get('animal_motion_audio'):
         from avengine.assets.animal_motion.render import render_qualified_stem
         return render_qualified_stem(spec,scene,inputs,cache,dry,attempt,endpoint)

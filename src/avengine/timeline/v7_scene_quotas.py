@@ -335,3 +335,9 @@ def pixel_center_to_boundary(u,v,width,height):
     """Convert once; near-edge centers have no unlabelled two-pixel exclusion."""
     u,v=float(u)+.5,float(v)+.5
     return [u,v], bool(0<=u<width and 0<=v<height)
+
+
+def add_demand_quotas(rows, observed_state):
+    """Extend v4 requests with actual-production deficits; do not relabel v4 truth."""
+    from avengine.timeline.v7_demand import add_scene_demand
+    return [add_scene_demand(row, observed_state) for row in rows]
