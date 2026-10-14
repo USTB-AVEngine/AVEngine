@@ -289,6 +289,7 @@ def validate_registered_sampling_row(row, selected_assets, inputs):
         by_id = {r['asset_id']: r for r in records}
         for binding in bindings:
             a = deepcopy(by_id[binding['asset_id']])
+            if a.get('category') in {'dog', 'cat', 'bird'}:a.setdefault('species_id',a['category'])
             a.setdefault('kind', 'animal' if a.get('species_id') in {'dog', 'cat', 'bird'} else 'object')
             catalog.append(a)
     proxy = {'house': row['house'], 'room_id': row['room_id'], 'split': row['split'],
