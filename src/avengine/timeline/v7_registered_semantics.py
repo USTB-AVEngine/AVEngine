@@ -4,6 +4,9 @@ from pathlib import Path
 
 def dialogue_evidence(scene,program,receipt,visual,manifest,start,retained_visual):
     first=round(start*15);frame=visual['frames'][first];instances=[]
+    missing=[{'actor_id':a['actor_id'],'missing':[k for k in ['body_to_world_m','loaded_artifact_sha256']if k not in a]}for a in frame['actors']if any(k not in a for k in ['body_to_world_m','loaded_artifact_sha256'])]
+    if missing:
+        return {'native_dialogue_deferred':{'status':'deferred','reason':'actual native transform or original artifact readback unavailable; planned positions are never substituted','actors':missing}}
     for actor in frame['actors']:
         aid=actor['actor_id']
         instances.append({'native_actor_id':aid,'asset_id':actor['asset_id'],'pose':'stand','body_to_world_m':actor['body_to_world_m'],'standing_pose_readback':{'status':'pass','source':retained_visual,'actor_id':aid,'asset_id':actor['asset_id'],'source_registry_sha256':actor['source_registry_sha256'],'loaded_artifact_sha256':actor['loaded_artifact_sha256']}})

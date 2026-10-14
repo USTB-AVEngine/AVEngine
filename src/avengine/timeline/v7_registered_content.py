@@ -77,6 +77,9 @@ def augment_content_binding(row,members,root):
     from avengine.capture.v7_alpha_native import rotate_world_foa
     root=Path(root);recipe=read_json(root/'input_recipe.json');program=recipe['recorded_program']
     if set(m['member'] for m in members)!=set(MEMBERS):return members,{'status':'not_applicable_single_parent'}
+    first_visual=read_json(Path(members[0]['visual_directory'])/'native_registered_visual_evidence.json')
+    if any(any(k not in a for k in ['body_to_world_m','loaded_artifact_sha256'])for a in first_visual['frames'][0]['actors']):
+        return members,{'status':'deferred','reason':'actual registered transform/artifact evidence missing; no fabricated Habitat-space matrix for UE actors'}
     if any(r.get('source_type')!='author_tts' for r in program['records']):
         return members,{'status':'deferred','reason':'standing content proof currently requires native authored speech without unregistered non-speech mechanisms'}
     from avengine.timeline.v7_audio_sources import source_blockers

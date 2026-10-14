@@ -34,7 +34,8 @@ def run_worker(manifest,slot):
         inputs.update(phase2=True,integration_pilot=True,render_backend='cpu_llvmpipe')
         from avengine.timeline.v7_phase2_fallback import generate_parent_with_element_fallback as generate
     else:
-        row=add_scene_demand(row,state,focus=task.get('focus','content_binding'))
+        previous=root/'inputs/planned'/f'{slot:03d}.json'
+        row=load(previous) if previous.exists() else add_scene_demand(row,state,focus=task.get('focus','content_binding'))
         row['window_count']=5;row['window_start_ticks']=[0,50,100,150,200]
         row['scene_demand']['requested_conditions'].append('authored_native_quartet')
         inputs['render_backend']='ue_spear' if task['device']=='ue' else 'cpu_llvmpipe'
