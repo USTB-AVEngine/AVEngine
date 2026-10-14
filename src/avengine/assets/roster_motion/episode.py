@@ -176,6 +176,32 @@ def admitted_master(entry, inputs, house,kind="walk"):
         'upstream_scope':variant['habitat']['walk']['scope'] if kind=='walk' else variant['habitat']['sit']['implementation'],'new_house_admission_required':True}
 
 
+
+def clear_native_foot_sound_paths(video,listener,vertices,feet,root,yaw,ignored_ids):
+    """Proposal filter for the actual low shoe-surface emitters.
+
+    Scan obstacles at ankle height caused retained parents to fail the original
+    5-degree RIR gate after RGB rendering. Prefer another physical route before
+    committing it; final native foot readback and all RIR gates are unchanged.
+    """
+    listener=np.asarray(listener,float);rot=yaw_matrix(yaw)
+    for foot in feet.values():
+        if not foot['in_contact']:continue
+        sole=np.asarray(foot['sole_local_m'],float);target=sole+[0.,.025,0.]
+        candidates=np.flatnonzero((np.linalg.norm(vertices-sole,axis=1)<=.05)
+            & ((vertices[:,1]-sole[1])>=.002))
+        if not len(candidates):return False
+        local=vertices[candidates[np.argmin(np.sum((vertices[candidates]-target)**2,axis=1))]]
+        actual=np.asarray(root)+rot@local;delta=actual-listener;distance=float(np.linalg.norm(delta))
+        if distance<=.05:return False
+        ray=video.hs.geo.Ray(video.mn.Vector3(listener),video.mn.Vector3(delta/distance))
+        # The last 5cm contains the original shoe; acoustic stage geometry is
+        # checked over the remaining source/listener segment.
+        hits=video.sim.cast_ray(ray,distance-.05).hits
+        if any(int(h.object_id)not in ignored_ids for h in hits):return False
+    return True
+
+
 def compile_walking(video,entry,scene,house,inputs,directory,request):
     from shapely.geometry import shape,LineString
     from avengine.timeline.v7_storage_budget import check_write
@@ -249,7 +275,13 @@ def compile_walking(video,entry,scene,house,inputs,directory,request):
                 for values in solver.active.values():values[~moving]=True
                 clearance=TriangleClearance(video,house,floor_y,entry);geometry=[];frames=[];minimum=math.inf
                 for i,t in enumerate(times):
-                    _,parts,ev=solver.frame(i);v,f=triangle_mesh(d,b,parts);dist,world=clearance.check(v,f,positions[i],yaw);minimum=min(minimum,dist)
+                    _,parts,ev=solver.frame(i);v,f=triangle_mesh(d,b,parts)
+                    if inputs.get('phase2') and moving[i] and not clear_native_foot_sound_paths(
+                            video,scene['listener_m'],v,ev['feet'],positions[i],yaw,
+                            {int(a['object'].object_id)for a in video.actors}):
+                        prefilter['low_foot_sound_path_rejected']=prefilter.get('low_foot_sound_path_rejected',0)+1
+                        raise ValueError('walking route proposal has a scan obstacle on its actual foot sound path')
+                    dist,world=clearance.check(v,f,positions[i],yaw);minimum=min(minimum,dist)
                     feet=list(ev['feet'].values());contacts=[x for x in feet if x['in_contact']]
                     if min(x['floor_delta_m']for x in feet)<-.008 or any(abs(x['floor_delta_m'])>=.008 or x['support_lock_error_m']>=.003 for x in contacts):raise ValueError('motion source foot contact or lock violates unchanged 8mm/3mm admission')
                     if solver.max_reach>=.001 or ev['pelvis_lowering_m']>=.08:raise ValueError('motion IK reach or pelvis bound failed')
