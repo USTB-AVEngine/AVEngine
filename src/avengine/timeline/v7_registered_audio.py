@@ -108,6 +108,20 @@ def render_alpha_audio(scene,house,inputs,cache_directory,attempt,dry,receipt,ca
     return result,['scene_foa_full_tail.wav','native_RLR_setup.json','audio_evidence.json']
 
 
+def complete_native_occluder_targets(visual):
+    """Retain fully measured target streams; unknown peers stay unavailable."""
+    rows=visual.get('occluder_evidence',{}).get('frame_records',[])
+    count=visual.get('frame_count',len(visual.get('frames',[])))
+    groups={}
+    for row in rows:
+        actor=str(row.get('target_instance_id',row.get('actor_id','')))
+        groups.setdefault(actor,[]).append(row)
+    complete={actor for actor,track in groups.items() if actor and len(track)==count
+        and {r.get('frame_index') for r in track}==set(range(count))
+        and all(r.get('unknown_occluder_pixels')==0 for r in track)}
+    return [deepcopy(r) for r in rows if str(r.get('target_instance_id',r.get('actor_id',''))) in complete],sorted(complete)
+
+
 def source_qa_evidence(scene,program,dry_receipt,visual,foa_path,audio_evidence,*,question_episode_id,window_start_s=None):
     by_id={r['sound_asset_id']:r for r in program['records']};bindings={b['event_id']:b for b in dry_receipt['events']}
     events={};protocol_events=[]
@@ -187,7 +201,9 @@ def source_qa_evidence(scene,program,dry_receipt,visual,foa_path,audio_evidence,
     proof['window_start_s']=window_start_s
     occluder_frames=visual.get('occluder_evidence',{}).get('frame_records',[])
     proof['occluder_interface_status']={'status':'measured_partial' if any(r['unknown_occluder_pixels'] for r in occluder_frames) else 'measured_complete' if occluder_frames else 'not_run','frames':len(occluder_frames),'frames_with_unknown_pixels':sum(r['unknown_occluder_pixels']>0 for r in occluder_frames),'unknown_pixels':sum(r['unknown_occluder_pixels'] for r in occluder_frames),'retained_source':'native_alpha_visual_evidence.json#occluder_evidence','strict_QA10_policy':'incomplete measured IDs remain private; only complete unambiguous stream supplied'}
-    if occluder_frames and all(r['unknown_occluder_pixels']==0 for r in occluder_frames):
+    complete_frames,complete_targets=complete_native_occluder_targets(visual)
+    proof['occluder_interface_status']['complete_target_ids']=complete_targets
+    if complete_frames:
         registry={}
         for actor in visual['frames'][0]['actors']:
             registry[str(actor['actor_id'])]={'native_instance_id':actor['actor_id'],
@@ -200,4 +216,7 @@ def source_qa_evidence(scene,program,dry_receipt,visual,foa_path,audio_evidence,
             if aid in reviewed:record['label_zh']=reviewed[aid]['label_zh']
         proof['occluder_registry']=registry
         proof['occluder_evidence']=deepcopy(visual['occluder_evidence'])
+        proof['occluder_evidence']['frame_records']=complete_frames
+        proof['occluder_evidence']['complete_target_ids']=complete_targets
+        proof['occluder_evidence']['incomplete_targets_supplied_as_unknown']=True
     return proof

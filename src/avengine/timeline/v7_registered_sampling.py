@@ -96,12 +96,13 @@ def build_registered_scene(row,house,records,assets,semantic_manifest=None,*,cam
     admitted,rejected=filter_admission(records)
     if rejected:raise ValueError('registered source pool contains blocked inputs: '+str(rejected[:3]))
     plan=row['production_scenario'];n=plan['speaker_count'];rng=np.random.default_rng(row['seeds']['audio'])
-    layout=row['measured_static_layout'];starts=[t/10 for t in row['window_start_ticks'][:2]]
+    layout=row['measured_static_layout'];starts=[t/10 for t in row['window_start_ticks'][:row['window_count']]]
     yaw=float(plan['camera_yaw_deg']);angle=math.radians(yaw)
     camera_policy=plan.get('camera_policy','uniform_static')
     if camera_policy not in {'uniform_static','binding_static','binding_sweep','review_sweep_360','pilot_binding_coverage'}:raise ValueError('unsupported camera policy')
     knots=[{'time_s':float(i),'yaw_deg':yaw+(36*i if camera_policy=='review_sweep_360' else 0)} for i in range(31)]
     scene={'scene_id':row['scene_id'],'independent_parent_scene_id':row['scene_id'],'seed':row['scene_seed'],'split':row['split'],'duration_s':30.,'video_fps':15,'sample_rate_hz':16000,'listener_m':layout['listener_m'],'camera_forward':[math.sin(angle),0.,-math.cos(angle)],'camera_yaw_knots':knots,'window_starts_s':starts,'sources':{},'events':[],'production_scenario':plan,'source_motion_policy':'registered standing only; independent objects require separate motion admission','sampling_limitations':['walk/sit/seat pending complete episode admission','unadmitted old sound classes are not generated','moving object episode intake pending','profile requests are not measured realized marginals']}
+    if row.get('scene_demand'):scene['scene_demand']=deepcopy(row['scene_demand'])
     placements=_placements(layout,len(assets))
     if camera_policy in {'binding_static','binding_sweep','pilot_binding_coverage'}:
         vectors=[np.asarray(p['position_m'])-np.asarray(layout['listener_m']) for p in placements[:2]]

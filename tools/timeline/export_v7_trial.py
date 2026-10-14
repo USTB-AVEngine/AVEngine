@@ -8,6 +8,8 @@ from pathlib import Path
 from collections import Counter
 from datetime import datetime, timezone
 from avengine.timeline.v7_alpha_delivery import readable_training_answer
+from avengine.timeline.v7_english_export import english_public_question,validate_english_model_text
+from avengine.timeline.v7_question_independence import independence_key,INDEPENDENCE_REVISION
 from avengine.timeline.v7_production_contract import question_allocation, validate_question_counts
 from avengine.timeline.v7_s_batch_checks import open_delivered_media
 from avengine.qa.unified_scoring import score_unified_item
@@ -60,13 +62,13 @@ def parent_payload(summary, output, owned_root):
     files=[]
     for name in pointer['required_files']:
         if Path(name).is_absolute() or '..' in Path(name).parts: raise ValueError('invalid seal payload path')
-        files.append(retain(seal/name,delivery/name,owned_root))
+        if Path(name).name!='questions.json':files.append(retain(seal/name,delivery/name,owned_root))
     files.append(retain(pointer_path,delivery/'private/source_producer_seal.json',owned_root))
-    training=[];logical=set();family=Counter();forms=Counter();negative=Counter()
+    training=[];logical=set();family=Counter();forms=Counter();negative=Counter();all_gold={};public_by_window={}
     for win in result['windows']:
         wid=win['window_id'];member=win.get('member',wid.rsplit('__',2)[-2])
         questions=load(seal/'windows'/wid/'questions.json')
-        answers=load(seal/'private'/(wid+'_answers.json'));by_id={g['question_id']:g for g in answers}
+        answers=load(seal/'private'/(wid+'_answers.json'));by_id={g['question_id']:g for g in answers};all_gold.update(by_id);public_by_window[wid]=[]
         quota=row['question_quota_base']+row['members'].index(member)*row['window_count']+int(wid.rsplit('w',1)[1])
         partial=row.get('acceptance_allow_partial_families') is True
         evidence=load(seal/'private'/(wid+'_evidence.json'))
@@ -115,22 +117,37 @@ def parent_payload(summary, output, owned_root):
                     raise ValueError('unchanged scorer accepted the invalid-answer control')
                 negative[bad.get('status','unknown')]+=1
             folder=Path('parents')/scene/'windows'/wid
+            english=english_public_question(question)
+            public_by_window[wid].append(english)
+            validate_english_model_text({**english,'model_answer':answer})
             training.append({'question_id':question['question_id'],'logical_question_id':question['logical_question_id'],
-                'independent_parent_scene_id':scene,'window_id':wid,'split':row['split'],'house':row['house'],
+                'independent_parent_scene_id':scene,'window_id':wid,'window_start_s':evidence.get('source_qa_evidence',{}).get('window_start_s',evidence.get('start_s',0.)),
+                'split':row['split'],'house':row['house'],
                 'qa_id':question['qa_id'],'protocol_panel':question['protocol_panel'],'modality':question['modality'],
-                'question_zh':question['question_zh'],'question_en':question.get('question_en'),
+                'question_en':english['question_en'],'choices':english.get('choices',[]),
                 'video':str(folder/'video.mp4'),'audio_foa':str(folder/'audio_foa.wav'),'audio_mono':str(folder/'audio_mono.wav'),
                 'foa_format':'ACN_WYZX_SN3D_camera','model_answer':answer,'canonical_answer':gold['canonical_answer'],
                 'private_evidence':str(Path('parents')/scene/'private'/(wid+'_evidence.json')),
                 'target_verification':check,'E_S_input_source':'deployment_prediction_not_supplied',
                 'dataset_role':'trial_only','producer_admission_status':kind})
             logical.add(question['logical_question_id']);forms[question['form']]+=1
+    raw_question_count=len({r['logical_question_id'] for r in training});kept={};dedup_dropped=0
+    for item in sorted(training,key=lambda r:(r['window_start_s'],r['window_id'])):
+        key,_=independence_key(scene,item,all_gold[item['question_id']])
+        if key in kept:dedup_dropped+=1
+        else:kept[key]=item
+    training=list(kept.values());kept_ids={r['question_id'] for r in training}
+    for wid,public in public_by_window.items():
+        qpath=delivery/'windows'/wid/'questions.json'
+        write(qpath,[q for q in public if q['question_id'] in kept_ids])
+        files.append({'path':str(qpath),'bytes':qpath.stat().st_size,'sha256':digest(qpath)})
     unique_questions={r['logical_question_id']:r for r in training}
     family.update(r['qa_id'] for r in unique_questions.values())
     manifest={'schema':'v7-isolated-production-format-trial-parent-v1','dataset_role':'trial_only',
         'source_seal':str(pointer_path),'source_seal_sha256':digest(pointer_path),'scene_id':scene,
         'producer_admission_status':kind,'formal_release_promoted':False,'windows':result['windows'],
-        'logical_questions':len(logical),'rows':len(training),'question_family_counts':dict(family),
+        'logical_questions':len(unique_questions),'raw_export_questions':raw_question_count,'independent_questions':len(unique_questions),
+        'dedup_dropped':dedup_dropped,'dedup_rule_version':INDEPENDENCE_REVISION,'rows':len(training),'question_family_counts':dict(family),
         'form_counts':dict(forms),'invalid_answer_control_results':dict(negative),
         'required_payload_files':files,'payload_logical_bytes':sum(f['bytes'] for f in files),
         'training_dataset_merge':False,'CCI_transfer':False}

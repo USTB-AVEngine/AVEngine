@@ -198,6 +198,16 @@ def audit_native_bindings(scene,assets,visual):
             'emitter_worst_error_m':worst,'asset_visible_frame_counts':appearance_counts,'errors':sorted(set(errors))}
 
 
+def select_proposed_record(pool, asset_id, row, rng):
+    """Resolve an explicit candidate clip inside the already admitted pool."""
+    proposed=row.get('proposed_sound_asset_ids',{}).get(asset_id)
+    if proposed is not None:
+        matches=[r for r in pool if r['sound_asset_id']==proposed]
+        if len(matches)!=1:raise ValueError('proposed recording is absent from the exact admitted class/voice pool: '+asset_id+'/'+proposed)
+        return matches[0]
+    return pool[int(rng.integers(len(pool)))]
+
+
 def build_visible_scene(row,house,records,catalog,semantic_manifest=None):
     from avengine.timeline.v7_audio_sources import PROGRAM_SCHEMA,filter_admission
     from avengine.timeline.v7_environmental_sources import recording_header,STRICT_CLASS13
@@ -267,7 +277,7 @@ def build_visible_scene(row,house,records,catalog,semantic_manifest=None):
                 elif cls=='speech_playback':
                     pool=[r for r in pool if r.get('dataset')!='VCTK-Corpus 0.92'] or pool
                 if not pool:raise ValueError('no exact admitted recording for '+a['asset_id']+'/'+cls)
-                record=recording_header(pool[int(rng.integers(len(pool)))]);choices[cls]=record
+                record=recording_header(select_proposed_record(pool,a['asset_id'],row,rng));choices[cls]=record
                 if human_speech:used_speakers.add(record['speaker_id'])
         if human_speech:
             source['class_id']=speech_class_id(choices['speech_playback'],a.get('visual_gender'))

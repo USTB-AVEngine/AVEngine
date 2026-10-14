@@ -5,7 +5,7 @@
 
 自 2026-08-25 起，目录本身就是能力分组（阶段目录 m1…m7 已移除），
 本表按目录列出每个工具做什么。
-当前共 643 个工具脚本。
+当前共 644 个工具脚本。
 
 ## 资产生成与装配（`tools/assets/`）
 
@@ -371,6 +371,7 @@
 | `tools/timeline/qualify_native_counterfactuals.py` | Native 2x2 appearance/association canary; audit actual media and answers |
 | `tools/timeline/qualify_v7_scenario_quotas.py` | CPU native static-crowd diagnostics for actual v0.2 speaker/spatial questions |
 | `tools/timeline/qualify_v7_vctk.py` | Automatically qualify recorded VCTK inputs, preserving original clip clocks |
+| `tools/timeline/reissue_v7_english.py` | Reissue admitted question presentation and export in English; render nothing |
 | `tools/timeline/relay_v7_full_shards_cci.sh` |  |
 | `tools/timeline/repair_kujiale_asset_pilot.py` | Prepare fresh failed-parent recipes with native view and RIR-qualified supports |
 | `tools/timeline/report_kujiale_asset_pilot.py` | Write the local native Kujiale asset pilot's Chinese, image-embedded report |

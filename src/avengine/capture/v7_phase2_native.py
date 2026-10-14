@@ -126,7 +126,9 @@ class NativePhase2Video(NativeVisibleVideo):
             clearance=TriangleClearance(self,self.motion_house,record['physical_ground_y_m'],entry)
             minimum=float('inf');mesh_cache={}
             for index,path in enumerate(record['pose_glbs']):
-                if path not in mesh_cache:mesh_cache[path]=indexed_static_mesh(path)
+                if path not in mesh_cache:
+                    if len(mesh_cache)>=8:mesh_cache.pop(next(iter(mesh_cache)))
+                    mesh_cache[path]=indexed_static_mesh(path)
                 mesh=mesh_cache[path]
                 dist,_=clearance.check(np.asarray(mesh.vertices),np.asarray(mesh.faces),np.asarray(record['world_roots_m'][index]),record['yaw_rad'])
                 minimum=min(minimum,dist)

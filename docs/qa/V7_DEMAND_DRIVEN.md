@@ -23,8 +23,8 @@ its prior count. Selection receives normalized deficits through the existing
 selector's `family_counts` argument and counts real selections across crops.
 Caller-supplied prepared demands are retained exactly for a resumable recipe.
 
-Six complete 10-second crops at 0/4/8/12/16/20 seconds reuse a private 30-second
-CPU parent. Their common parent identity is retained. They are not independent
+Five 10-second crops at 0/5/10/15/20 seconds reuse a private 30-second
+CPU parent. Their common parent identity is retained. They are not automatically independent
 parents or a four-member counterfactual group. No training table is exported.
 
 `v7_wet_support` records conservative finite convolution support from actual
@@ -40,3 +40,17 @@ direction, independent answer replay and scorer gates remain authoritative.
 `candidate_audit.demand_realization` records missing requested families beside
 actual candidate counts. Native verification is required before claiming that a
 requested condition or family is realized.
+
+Independent coverage counts deduplicate within each parent by family, physical
+target, normalized wording and canonical answer. Raw counts remain throughput
+metadata. Legacy six-crop parents overlap by six seconds; raw 84 does not mean 84
+independent questions. The owner decision on 2026-10-15 uses a five-second
+stride, hence five seconds of adjacent overlap. All four quartet members follow
+the same grid; dedup keeps the earliest crop before export.
+
+English-only export rejects CJK and registration-style entity names in model
+text. Admitted appearance metadata supplies natural English descriptors;
+registries and canonical values are unchanged. The private scorer alias map
+accepts these English labels. `reissue_v7_english.py` reissues already admitted
+question surfaces, verifies the unchanged scorers, copies existing media and
+exports no new rendered pixels or audio.

@@ -132,7 +132,9 @@ def generate_phase2_parent(row,house,inputs,catalog,source_admission,human_admis
     if (root/'integration_seal_completed.json').exists():
         saved=read_json(root/'integration_seal_completed.json');directory=root/saved['attempt']
         if saved['recipe']!={'input_recipe':recipe} or any(not (directory/f).is_file() for f in saved['required_files']):raise ValueError('pilot seal incomplete')
-        return {**saved['result'],'delivery_directory':str(directory),'resumed':True}
+        from avengine.timeline.v7_question_independence import deduplicate_parent_delivery
+        delivered=deduplicate_parent_delivery(row,saved['result'],root,directory)
+        return {**delivered,'resumed':True}
     def render(attempt):
         from avengine.timeline.v7_material_quality_fallback import recover_complete_native_attempt,qualify_missing_materials
         recovered=recover_complete_native_attempt(root,attempt,base,assets,native_checks)
@@ -266,4 +268,5 @@ def generate_phase2_parent(row,house,inputs,catalog,source_admission,human_admis
             'wall_seconds':time.perf_counter()-wall,'cpu_seconds_including_children':cpu_seconds()-cpu}
         write_json(attempt/'pilot_manifest.json',result);required.append('pilot_manifest.json');return result,required
     directory,result,_=stage(root,'integration_seal',{'input_recipe':recipe},seal)
-    return {**result,'delivery_directory':str(directory)}
+    from avengine.timeline.v7_question_independence import deduplicate_parent_delivery
+    return deduplicate_parent_delivery(row,result,root,directory)

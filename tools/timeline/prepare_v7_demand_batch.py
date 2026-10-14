@@ -1,6 +1,7 @@
 """Prepare a deficit-driven batch using original registries; render/export nothing."""
 from pathlib import Path
 import argparse,json
+from avengine.timeline.v7_production_inputs import attach_runtime_contract
 from avengine.timeline.v7_demand import read_demand_state,plan_phase2_demand,DEMAND_REVISION
 
 
@@ -8,7 +9,7 @@ def main():
     p=argparse.ArgumentParser(description=__doc__)
     for name in ('seeds','observed-state','assets','source-admission','contract','output'):
         p.add_argument('--'+name,type=Path,required=True)
-    p.add_argument('--focus',choices=['binding','human_motion','animal_motion','count'])
+    p.add_argument('--focus',choices=['binding','human_motion','animal_motion','count','occlusion','taxonomy','content_binding'])
     p.add_argument('--offset',type=int,default=0);p.add_argument('--limit',type=int,default=4)
     p.add_argument('--scene-prefix',required=True,help='Fresh task-owned parent IDs; original recipes remain read-only')
     a=p.parse_args()
@@ -23,6 +24,9 @@ def main():
     for i,row in enumerate(rows):
         original=row['scene_id'];row['scene_id']=a.scene_prefix+f'_{i:03d}';row['independent_parent_scene_id']=row['scene_id']
         row['demand_source_recipe_scene_id']=original
+        row['demand_source_production_sampling']=row.get('production_sampling')
+        row.pop('production_sampling',None)
+        row=attach_runtime_contract(row,{'production_input_contract':str(a.contract.resolve())})
         row=plan_phase2_demand(row,state,catalog,source['records'],contract,focus=a.focus)
         planned.append(row)
     a.output.parent.mkdir(parents=True,exist_ok=True)

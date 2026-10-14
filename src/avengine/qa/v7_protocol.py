@@ -131,6 +131,7 @@ def geometry(scene, segment, time_s):
 def generate_questions(scene, start_s, window_id, media, *, forms=('open', 'mcq'), wording_variant='standard'):
     if wording_variant not in {'standard', 'alternate'}:
         raise ValueError('unknown answer-independent wording variant')
+    from avengine.qa.v7_english_surface import protocol_question_en
     scene, identity_proof = canonical_speech_scene(scene)
     segments, flags = window_annotations(scene['events'], start_s)
     onset_counts = Counter(s['anchor_tick'] for s in segments)
@@ -158,6 +159,7 @@ def generate_questions(scene, start_s, window_id, media, *, forms=('open', 'mcq'
             row = {'question_id': qid, 'logical_question_id': logical,
                    'qa_id': family, 'protocol_panel': 'STARSS23_v0.2',
                    'modality': 'audio', 'form': form, 'question_zh': text,
+                   'question_en':protocol_question_en(family,evidence),
                    'answer_domain': deepcopy(domain), 'media': deepcopy(media)}
             answer = str(value)
             if form == 'mcq':

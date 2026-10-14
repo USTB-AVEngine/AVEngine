@@ -62,9 +62,10 @@ def main():
     for name in ['houses','seeds','runtime-inputs','assets','source-admission','human-admission','output']:
         p.add_argument('--'+name,type=Path,required=True)
     p.add_argument('--demand-state',type=Path,help='Task-owned actual selected-family feedback; plan each next batch from its deficits')
-    p.add_argument('--demand-focus',choices=['binding','human_motion','animal_motion','count'],help='Explicit validation focus; otherwise use deficit-weighted scene requests')
+    p.add_argument('--demand-focus',choices=['binding','human_motion','animal_motion','count','occlusion','taxonomy','content_binding'],help='Explicit validation focus; otherwise use deficit-weighted scene requests')
     p.add_argument('--workers',type=int,default=1);p.add_argument('--offset',type=int,default=0);p.add_argument('--limit',type=int,default=1)
     p.add_argument('--storage-budget-root',type=Path)
+    p.add_argument('--minimum-free-bytes',type=int,help='Explicit task-owned disk headroom, never below the owner 100GB floor')
     p.add_argument('--maximum-task-bytes',type=int,help='Tighter task-owned storage cap within the existing pilot allowance')
     p.add_argument('--production-contract',type=Path,help='Frozen v7 room/source/motion contract; automatically applied to every recipe')
     p.add_argument('--incremental-storage-baseline',type=Path)
@@ -116,6 +117,11 @@ def main():
             os.environ[ENV_KEY]=json.dumps(storage_policy,sort_keys=True)
             check_write(a.output,expected_bytes=0)
     else:storage_policy=configure_local_review(a.output,a.storage_budget_root,parents=len(rows),workers=a.workers)
+    if a.minimum_free_bytes is not None:
+        if a.minimum_free_bytes<100_000_000_000:raise ValueError('task disk headroom cannot be below 100GB')
+        from avengine.timeline.v7_storage_budget import ENV_KEY,check_write
+        storage_policy['minimum_free_bytes']=a.minimum_free_bytes
+        os.environ[ENV_KEY]=json.dumps(storage_policy,sort_keys=True);check_write(a.output,expected_bytes=0)
     if a.maximum_task_bytes is not None:
         if not 0<a.maximum_task_bytes<=storage_policy['maximum_task_bytes']:raise ValueError('storage override may only tighten the original pilot allowance')
         from avengine.timeline.v7_storage_budget import ENV_KEY,check_write

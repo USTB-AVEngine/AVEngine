@@ -69,3 +69,37 @@ def test_all_33_families_have_scene_requirements_and_minimum_share():
     assert set(default_targets())==set(FAMILY_SCENE_REQUIREMENTS)==expected
     assert min(default_targets().values())>=.01
     assert all(r["conditions"] for r in FAMILY_SCENE_REQUIREMENTS.values())
+
+
+def test_proposed_clip_is_resolved_inside_admitted_pool():
+    from avengine.timeline.v7_visible_sources import select_proposed_record
+    pool=[{'sound_asset_id':'long'},{'sound_asset_id':'short'}]
+    row={'proposed_sound_asset_ids':{'body':'short'}}
+    assert select_proposed_record(pool,'body',row,np.random.default_rng(1))['sound_asset_id']=='short'
+    row['proposed_sound_asset_ids']['body']='unadmitted'
+    with pytest.raises(ValueError):select_proposed_record(pool,'body',row,np.random.default_rng(1))
+
+
+def test_occluder_peer_failure_keeps_only_complete_native_target_stream():
+    from avengine.timeline.v7_registered_audio import complete_native_occluder_targets
+    rows=[{'target_instance_id':str(a),'frame_index':f,'occluder_instance_ids':['4'],
+           'unknown_occluder_pixels':1 if a==2 and f==1 else 0} for a in (1,2,3) for f in range(3)]
+    rows=[r for r in rows if not(r['target_instance_id']=='3'and r['frame_index']==2)]
+    selected,ids=complete_native_occluder_targets({'frame_count':3,'occluder_evidence':{'frame_records':rows}})
+    assert ids==['1']
+    assert selected==[r for r in rows if r['target_instance_id']=='1']
+
+
+def test_independence_ignores_crop_time_labels_but_keeps_target_and_answer():
+    from avengine.timeline.v7_question_independence import summarize_independence,window_overlap
+    q=[{'question_id':'a','logical_question_id':'a','qa_id':'QA-17','question_zh':'第8秒蓝色的人是否移动？'},
+       {'question_id':'b','logical_question_id':'b','qa_id':'QA-17','question_zh':'第4秒蓝色的人是否移动？'}]
+    gold=[{'question_id':x['question_id'],'canonical_answer':True,'evidence':{'actor_id':'1'}}for x in q]
+    report,_=summarize_independence('parent',q,gold)
+    assert report['raw_logical_questions']==2 and report['independent_questions']==1
+    gold[1]['canonical_answer']=False
+    assert summarize_independence('parent',q,gold)[0]['independent_questions']==2
+    gold[1]['canonical_answer']=True;gold[1]['evidence']['actor_id']='2'
+    assert summarize_independence('parent',q,gold)[0]['independent_questions']==2
+    assert window_overlap([0,4,8,12,16,20])['adjacent_overlap_seconds']==[6]*5
+    assert window_overlap([0,10,20])['maximum_adjacent_overlap_s']==0
