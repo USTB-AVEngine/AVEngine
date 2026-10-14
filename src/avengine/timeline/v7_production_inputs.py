@@ -255,7 +255,7 @@ def prepare_contract(config):
     return contract
 
 
-def sample_room_assets(catalog, room, seed, controlled_people=3, object_count=2, animal_count=1, decor_count=1):
+def sample_room_assets(catalog, room, seed, controlled_people=3, object_count=2, animal_count=1, decor_count=0):
     """Default category-constrained candidate mix; native admission is separate.
 
     A room may have fewer candidate kinds. This never widens its allowed

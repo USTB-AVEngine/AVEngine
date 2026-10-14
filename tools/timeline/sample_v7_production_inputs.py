@@ -12,6 +12,7 @@ def main():
     p=argparse.ArgumentParser(description=__doc__)
     for flag in ['contract','plan','assets','ue-assets','ue-native-assets','output']:
         p.add_argument('--'+flag,type=Path,required=True)
+    p.add_argument('--silent-decor-count',type=int,choices=[0,1],default=0,help='explicit optional silent visual decor; still requires original native gates')
     a=p.parse_args()
     if a.output.exists():raise ValueError('candidate output is immutable; use a fresh filename')
     contract=json.loads(a.contract.read_text());plan=json.loads(a.plan.read_text())
@@ -44,7 +45,7 @@ def main():
         catalog=[item for item in catalog if item['asset_id'] not in contract['policy'].get('temporarily_excluded_asset_ids', {})]
         for index in range(planned['parent_scenes']):
             seed=int(hashlib.sha256((room['key']+':'+str(index)).encode()).hexdigest()[:12],16)
-            rng=random.Random(seed);selected=sample_room_assets(catalog,room,seed,controlled_people=4)
+            rng=random.Random(seed);selected=sample_room_assets(catalog,room,seed,controlled_people=3,decor_count=a.silent_decor_count)
             if index%6==0 and selected:
                 professionals=[s for s in catalog if s.get('kind')=='human' and not s.get('controlled_shirt')
                                and 'Profession' in str(s.get('source','')) and asset_category(s,{},room['family']) in room['categories']]
