@@ -187,7 +187,7 @@ class NativeVisibleVideo(NativeRegisteredVideo):
             # for every current entity. The original existential 100px gate
             # is identical; negative cases still inspect the complete path.
             # Final video and all material/color/clock observations are intact.
-            if self.motion_inputs.get('visible_placement_stop_after_native_visibility_witness',False) and all(n>=100 for n in maximum.values()):
+            if (self.motion_inputs.get('visible_placement_stop_after_native_visibility_witness',False) or self.motion_inputs.get('independent_probe_camera_search',False)) and all(n>=100 for n in maximum.values()):
                 break
         return maximum,observed
 
@@ -197,23 +197,36 @@ class NativeVisibleVideo(NativeRegisteredVideo):
         r=SimpleNamespace(habitat_sim=self.hs,magnum=self.mn,pathfinder=self.pathfinder)
         floor=float(self.motion_house['room']['measured_floor_y_m']);poly=shape(self.motion_house['room']['floor_polygon'])
         from avengine.capture.v7_visible_semantic_support import SemanticSupports
-        from copy import deepcopy
-        free_floor_buffer=poly.buffer(.01)
-        reuse=bool(self.motion_inputs.get('reuse_native_room_support_survey',False))
-        # survey origins use listener X/Z and the measured floor only.
-        # Camera-height sampling cannot change these native support proposals.
-        context=(self.motion_house['room']['room_label'],scene['listener_m'][0],scene['listener_m'][2],floor)
-        cached=getattr(self,'_visible_room_support_cache',None)
-        if reuse and cached is not None and cached[0]==context:
-            semantic_support=cached[1];supports=deepcopy(cached[2])
-            r.semantic_anchors=dict(semantic_support.anchors)
-        else:
+        semantic_support=getattr(self,'_original_semantic_support_cache',None)
+        if semantic_support is None:
             semantic_support=SemanticSupports(self.motion_house)
-            r.semantic_anchors=dict(semantic_support.anchors)
-            supports=survey(self.sim,r,{'object_position':[scene['listener_m'][0],floor,scene['listener_m'][2]]})
+            self._original_semantic_support_cache=semantic_support
+        r.semantic_anchors=dict(semantic_support.anchors)
+        origin=[scene['listener_m'][0],floor,scene['listener_m'][2]]
+        # Independent probes park every inserted drawable below the house.
+        # Their room-restricted, original semantic survey is immutable; cache
+        # that query, while every proposed placement still rechecks its own
+        # native support rays, labelled triangles, clearance, and contacts.
+        probe_cache=bool(self.motion_inputs.get('cache_native_support_survey_for_independent_probes') or self.motion_inputs.get('reuse_native_room_support_survey',False))
+        qualified_key=(tuple(origin),floor,poly.wkb_hex)
+        qualified=getattr(self,'_independent_qualified_survey_cache',None)
+        if probe_cache and qualified is not None and qualified[0]==qualified_key:
+            from copy import deepcopy
+            supports=deepcopy(qualified[1])
+        else:
+            cached=getattr(self,'_independent_probe_survey_cache',None)
+            if probe_cache and cached is not None and cached[0]==origin:
+                from copy import deepcopy
+                supports=deepcopy(cached[1])
+            else:
+                supports=survey(self.sim,r,{'object_position':origin})
+                if probe_cache:
+                    from copy import deepcopy
+                    self._independent_probe_survey_cache=(origin,deepcopy(supports))
             parts=list(poly.geoms) if hasattr(poly,'geoms') else [poly]
             room_extent=MultiPolygon([Polygon(p.exterior) for p in parts])
             room_extent_buffer=room_extent.buffer(.01)
+            free_floor_buffer=poly.buffer(.01)
             # The floor polygon describes free floor. Mounts are admitted by the
             # original in-room ray origin, and tabletops by the room exterior, so
             # furniture holes and a navmesh wall clearance do not erase supports.
@@ -224,11 +237,35 @@ class NativeVisibleVideo(NativeRegisteredVideo):
             # Floor type is bound to the measured room level, never a bed/table top.
             for key in ('floor','table','wall','ceiling','doorbell_wall','high_wall','window_wall'):
                 supports[key]=[p for p in supports[key] if in_room(key,p) and abs(p.get('floor_y',floor)-floor)<=.08]
-            for key in ('table','wall','ceiling','doorbell_wall','high_wall','window_wall'):
+            semantic_candidate_surfaces=('floor','table','wall','ceiling','doorbell_wall','high_wall','window_wall') if self.motion_inputs.get('candidate_floor_semantic_prefilter') else ('table','wall','ceiling','doorbell_wall','high_wall','window_wall')
+            # Sampling budget only: query a deterministic spread of the
+            # original surface proposals, then retain all original qualifiers.
+            survey_limit=self.motion_inputs.get('candidate_semantic_survey_max_points_per_surface')
+            if survey_limit is not None:
+                survey_limit=int(survey_limit)
+                if not 1<=survey_limit<=1024:raise ValueError('invalid semantic survey sampling budget')
+                for key in semantic_candidate_surfaces:
+                    points=supports[key]
+                    if len(points)>survey_limit:
+                        indices=np.linspace(0,len(points)-1,survey_limit,dtype=int)
+                        supports[key]=[points[int(i)] for i in indices]
+            for key in semantic_candidate_surfaces:
                 kind='wall' if key.endswith('wall') else key
-                supports[key]=semantic_support.qualify_points(kind,supports[key])
-            if reuse:
-                self._visible_room_support_cache=(context,semantic_support,deepcopy(supports))
+                batch_size=self.motion_inputs.get('candidate_semantic_filter_batch_size')
+                if batch_size is None:
+                    supports[key]=semantic_support.qualify_points(kind,supports[key])
+                else:
+                    # Candidate filtering only: pass every point, in its
+                    # original order, to the unchanged semantic qualifier.
+                    batch_size=int(batch_size)
+                    if not 1<=batch_size<=1024:raise ValueError('invalid semantic candidate batch size')
+                    points=supports[key]
+                    supports[key]=[row for offset in range(0,len(points),batch_size)
+                                   for row in semantic_support.qualify_points(kind,points[offset:offset+batch_size])]
+
+            if probe_cache:
+                from copy import deepcopy
+                self._independent_qualified_survey_cache=(qualified_key,deepcopy(supports))
         write_json(directory/'native_support_survey.json',supports)
         bounds=[];checks=[];attempts=[];placed=[]
         # Pending original drawables are parked during layout search only.
@@ -284,14 +321,16 @@ class NativeVisibleVideo(NativeRegisteredVideo):
                 az=math.degrees(math.atan2(float(delta@right),depth))
                 if target is not None:
                     return (not visible,abs(az-float(target)),abs(float(np.linalg.norm(delta[[0,2]]))-distance_target))
-                return (not visible,not central if a['kind'] in {'human','performer'} else False,abs(float(np.linalg.norm(delta[[0,2]]))-distance_target))
+                return (not visible,not central if a['kind'] in {'human','performer'} or self.motion_inputs.get('independent_probe_camera_search') else False,abs(float(np.linalg.norm(delta[[0,2]]))-distance_target))
             candidates.sort(key=candidate_score)
             accepted=None;native_attempts=0;search_exhausted=False
             contact_budget=int(self.motion_inputs.get('visible_placement_max_contact_attempts_per_asset',64))
             if not 1<=contact_budget<=1280:raise ValueError('invalid native placement search budget')
             ordinary=[p for p in candidates if pinned is None or p!=dict(pinned,point=pinned['original_surface_point_m'])]
             proposals=([dict(pinned,point=pinned['original_surface_point_m'],_outward_clearance_m=pinned['_outward_clearance_m'])] if pinned is not None else [])
-            proposals.extend(dict(p,_outward_clearance_m=offset) for p in ordinary[:320] for offset in (0.,.002,.005,.010,.014))
+            support_budget=int(self.motion_inputs.get('visible_placement_max_support_candidates_per_asset',320))
+            if not 1<=support_budget<=320:raise ValueError('invalid support candidate sampling budget')
+            proposals.extend(dict(p,_outward_clearance_m=offset) for p in ordinary[:support_budget] for offset in (0.,.002,.005,.010,.014))
             proposal_budget=self.motion_inputs.get('visible_placement_max_proposals_per_asset')
             if proposal_budget is not None and not 1<=int(proposal_budget)<=1601:
                 raise ValueError('invalid support proposal search budget')
@@ -312,6 +351,14 @@ class NativeVisibleVideo(NativeRegisteredVideo):
                 placement=check_support(self.sim,r,meta,support)
                 if placement is None:
                     reject("attachment_rays");continue
+                # An optional recipe-side filter can request tighter quadruped
+                # support. The original 15mm admission check remains unchanged.
+                paw_limit=self.motion_inputs.get('quadruped_candidate_max_paw_gap_m')
+                if paw_limit is not None and a['kind']=='animal' and len(a.get('landmarks_local_m',{})) and all(k in a['landmarks_local_m'] for k in ('foot_0','foot_1','foot_2','foot_3')):
+                    paw_limit=float(paw_limit)
+                    if not 0.<paw_limit<=.015:raise ValueError('paw candidate filter must be within the original 15mm gate')
+                    if any(abs(v)>paw_limit for v in placement['contact_deltas_m'][-4:]):
+                        reject('quadruped_paw_candidate_gap');continue
                 if key=='doorbell_wall':
                     from avengine.capture.v7_visible_attachment import anchor_distance
                     point=placement['support']['original_surface_point_m']
