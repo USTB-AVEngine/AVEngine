@@ -105,3 +105,19 @@ def test_unreserved_av_items_do_not_claim_binding_and_all_nuisance_answers_are_c
     path=Path(members[1]['windows_directory'])/members[1]['windows'][0]['window_id']/'private_answers.json'
     rows=json.loads(path.read_text());rows[-1]['canonical_answer']='wrong';path.write_text(json.dumps(rows))
     with pytest.raises(ValueError,match='counterfactual answers failed'):audit_parent_group(row,base,selected)
+
+
+def test_single_parent_skips_empty_family_and_fills_only_from_actual_legal_pool(tmp_path):
+    row,members,root=fixture_parent(tmp_path,deficient_second=True)
+    row['members']=['v0_a0'];row['production_scenario']={'semantic_scenario_id':'unit_actual_pool_has_no_QA28'}
+    source=Path(members[0]['windows_directory'])
+    original={g['question_id']:g['canonical_answer']for win in members[0]['windows']
+              for g in json.loads((source/win['window_id']/'private_answers.json').read_text())}
+    selected,audit=finalize_parent_question_pools(row,members[:1],root)
+    assert audit['window_audits'][1]['owner_available_candidate_allocation']['changed']
+    assert all(a['actual_content_direction_reservation']['skipped_empty_family']for a in audit['window_audits'])
+    for win in selected[0]['windows']:
+        folder=Path(selected[0]['windows_directory'])/win['window_id']
+        questions=json.loads((folder/'questions.json').read_text())
+        gold=json.loads((folder/'private_answers.json').read_text())
+        assert len(questions)==14 and all(g['canonical_answer']==original[g['question_id']]for g in gold)
