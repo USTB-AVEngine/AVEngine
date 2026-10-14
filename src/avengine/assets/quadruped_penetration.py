@@ -110,14 +110,15 @@ def pair_footprints(vertices, faces, pairs):
     return np.column_stack((area_a, area_b)), np.column_stack((depth_a, depth_b))
 
 
-def visible_penetration_gate(groups, *, cross_region_area_limit_m2=CROSS_REGION_AREA_LIMIT_M2,
-                             depth_limit_m=DEPTH_LIMIT_M, same_region_depth_is_criterion=True):
+def visible_penetration_gate(groups, *, cross_region_area_limit_m2=CROSS_REGION_AREA_LIMIT_M2, depth_limit_m=DEPTH_LIMIT_M, check_intraregion=True, same_region_depth_is_criterion=None):
     """Counts intentionally have no input into this gate."""
+    if same_region_depth_is_criterion is not None:
+        check_intraregion = same_region_depth_is_criterion
     failures = []
     for row in groups:
         different = row["region_pair"][0] != row["region_pair"][1]
         area_fail = different and row["new_area_m2"] > cross_region_area_limit_m2 + 1e-12
-        depth_fail = (different or same_region_depth_is_criterion) and row["new_maximum_depth_m"] > depth_limit_m + 1e-9
+        depth_fail = (different or check_intraregion) and row["new_maximum_depth_m"] > depth_limit_m + 1e-9
         if area_fail or depth_fail:
             failures.append(dict(row, area_rejected=area_fail, depth_rejected=depth_fail))
     cross_total = sum(row["new_area_m2"] for row in groups

@@ -1,6 +1,6 @@
 """Native Habitat replay and full original-triangle animal motion checks."""
 from pathlib import Path
-import json,math,subprocess,time
+import json,math,subprocess,time,os
 import numpy as np
 from avengine.assets.animal_motion.stage import OriginalVerticalStageRay,original_native_stage_mesh
 from avengine.assets.roster_motion.episode import fcl_model,triangle_mesh,externalize_unchanged_images
@@ -63,7 +63,7 @@ def instantiate(video,path,root,semantic=700001):
     return obj
 
 
-def run_habitat(record,house,inputs,route,output,*,speed=.08,period=2.4,seconds=4.8,mode="walk_animation",physical_controls=False):
+def run_habitat(record,house,inputs,route,output,*,speed=.08,period=2.4,seconds=4.8,mode="walk_animation",physical_controls=False,frame_indices=None,pose_stream=None,skin_stream=None):
     from avengine.capture.continuous_native_video import NativeContinuousVideo
     output=Path(output);output.mkdir(parents=True,exist_ok=True);(output/'frames').mkdir(exist_ok=True)
     start=time.process_time();p0=np.asarray(route['root_m'],float);yaw=float(route['yaw_rad']);rotation=yaw_matrix(yaw)
@@ -72,7 +72,7 @@ def run_habitat(record,house,inputs,route,output,*,speed=.08,period=2.4,seconds=
     scene={'listener_m':eye.tolist(),'camera_forward':forward.tolist(),'sources':{}}
     video=NativeContinuousVideo(house,scene,inputs,[],width=512,height=384,source_material_cache_directory=output/'material_cache')
     result={'asset_id':record['asset_id'],'status':'pending','backend':'Habitat CPU llvmpipe','house':house['house'],'motion_mode':mode,'frames':[],'audio_status':'not_run'}
-    encoder=None
+    encoder=None;skin_frames=[];skin_indices=[]
     try:
         path=Path(house['input'].get('visual_source') or Path(house['input']['scene_directory'])/(house['input']['scan_id']+'.glb'))
         mesh,transform=original_native_stage_mesh(video,path);rays=OriginalVerticalStageRay(path,mesh=mesh,transform_evidence=transform);clearance=StageClearance(mesh,p0[1])
@@ -90,7 +90,10 @@ def run_habitat(record,house,inputs,route,output,*,speed=.08,period=2.4,seconds=
         eye,cf,cr,cu=camera(video,eye,target);n=round(seconds*30)+1;selected={0,n//4,n//2,3*n//4,n-1};images=[]
         cmd=['ffmpeg','-hide_banner','-loglevel','error','-nostdin','-n','-f','rawvideo','-pix_fmt','rgb24','-s','512x384','-r','30','-i','pipe:0','-an','-c:v','libx264','-threads','1','-preset','veryfast','-crf','20','-pix_fmt','yuv420p',str(output/'motion.mp4')]
         encoder=subprocess.Popen(cmd,stdin=subprocess.PIPE)
-        for i,t in enumerate(np.arange(n)/30):
+        indices=list(range(n)) if frame_indices is None else list(frame_indices)
+        if len(indices)<2 or indices!=sorted(set(indices)) or indices[0]<0 or indices[-1]>=n:raise ValueError('invalid_native_frame_indices')
+        for i in indices:
+            t=i/30
             parts,row=walk.frame(float(t));v,f=triangle_mesh(rig.document,rig.binary,parts);root=p0+rotation@np.asarray(row['world_root_m']);world=v@rotation.T+root
             row['minimum_nonfloor_clearance_m']=clearance.check(world,f)
             near=world[world[:,1]<=p0[1]+.08]
@@ -101,9 +104,27 @@ def run_habitat(record,house,inputs,route,output,*,speed=.08,period=2.4,seconds=
             row['navmesh_horizontal_error_m']=nav
             matrix=np.eye(4);matrix[:3,:3]=rotation;matrix[:3,3]=root
             path=output/'frames'/('standing.glb' if mode=='slide_no_animation' else f'{i:04d}.glb')
-            if not path.exists():rigid_glb(ed,rig.binary,parts,path)
+            retained=pose_stream is None or i in selected or mode=='slide_no_animation'
+            if not retained:
+                path=output/'frames'/f'{i:04d}.stream.glb'
+                working=Path(pose_stream);working.parent.mkdir(parents=True,exist_ok=True)
+                rigid_glb(ed,rig.binary,parts,working)
+                os.link(working,path)
+            elif not path.exists():rigid_glb(ed,rig.binary,parts,path)
+            if skin_stream is not None:
+                skin_frames.append(v.astype(np.float32));skin_indices.append(i)
             obj=instantiate(video,path,matrix)
             native=np.asarray(obj.root_scene_node.absolute_transformation(),float)
+            if pose_stream is not None:
+                # Read the rendered resource's local bounding box. A fresh path
+                # must load this pose, even when its private backing inode is reused.
+                obj.root_scene_node.compute_cumulative_bb()
+                bb=obj.root_scene_node.cumulative_bb
+                actual=np.stack((np.asarray(bb.min,float),np.asarray(bb.max,float)))
+                expected=np.stack((v.min(0),v.max(0)))
+                bound_error=float(np.max(np.abs(actual-expected)))
+                if bound_error>1e-5:raise ValueError('native_drawable_pose_bounds_mismatch:'+str(bound_error))
+                row['native_drawable_bounds_error_m']=bound_error
             # Attachment has two native levels: actual animated head/mouth
             # bone and its local mouth offset, following the target head.
             bone=obj.root_scene_node.create_child();bone.transformation=video.mn.Matrix4(np.asarray(row['mouth_bone_matrix']))
@@ -112,7 +133,7 @@ def run_habitat(record,house,inputs,route,output,*,speed=.08,period=2.4,seconds=
             head_node=obj.root_scene_node.create_child();head_node.translation=video.mn.Vector3(row['head_m'])
             tail_node=obj.root_scene_node.create_child();tail_node.translation=video.mn.Vector3(row['tail_m'])
             row.update(frame_index=i,root_world_m=native[:3,3].tolist(),head_world_m=np.asarray(head_node.absolute_translation).tolist(),tail_world_m=np.asarray(tail_node.absolute_translation).tolist(),
-                       mouth_world_m=actual_mouth.tolist(),pose_glb=str(path),native_root_error_m=float(np.max(np.abs(native-matrix))),
+                       mouth_world_m=actual_mouth.tolist(),pose_glb=str(path) if retained else None,pose_storage='retained' if retained else 'streamed_inplace_not_retained',native_root_error_m=float(np.max(np.abs(native-matrix))),
                        native_emitter_readback_error_m=float(np.linalg.norm(actual_mouth-(native@np.r_[row['mouth_m'],1.])[:3])))
             for foot in row['feet'].values():
                 for k in ('support_world_m','support_target_world_m','sole_world_m'):foot[k]=(p0+rotation@np.asarray(foot[k])).tolist()
@@ -163,5 +184,8 @@ def run_habitat(record,house,inputs,route,output,*,speed=.08,period=2.4,seconds=
             if encoder.stdin:encoder.stdin.close()
             encoder.wait()
         video.close()
+        if skin_stream is not None and skin_frames:
+            np.savez_compressed(Path(skin_stream),vertices=np.stack(skin_frames),indices=np.asarray(skin_indices),faces=f)
+            result['skin_stream']=str(skin_stream);result['skin_stream_note']='Private overwriteable QA stream; its SHA and per-frame results are retained by the bounded replay coordinator.'
         result['cpu_s']=time.process_time()-start;(output/'native_motion.json').write_text(json.dumps(result,ensure_ascii=False,indent=2))
     return result

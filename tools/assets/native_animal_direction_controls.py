@@ -8,7 +8,7 @@ from avengine.assets.animal_motion.checks import direction_check
 from avengine.assets.roster_motion.contact import yaw_matrix
 
 def main():
- p=argparse.ArgumentParser();p.add_argument('--motion',type=Path,nargs='+',required=True);p.add_argument('--house',type=Path,required=True);p.add_argument('--runtime',type=Path,required=True);p.add_argument('--output',type=Path,required=True);a=p.parse_args();a.output.mkdir(parents=True,exist_ok=False)
+ p=argparse.ArgumentParser();p.add_argument('--motion',type=Path,nargs='+',required=True);p.add_argument('--house',type=Path,required=True);p.add_argument('--runtime',type=Path,required=True);p.add_argument('--output',type=Path,required=True);p.add_argument('--validation-policy',choices=('strict','owner_relaxed_20261014'),default='strict');a=p.parse_args();a.output.mkdir(parents=True,exist_ok=False)
  h=json.loads(a.house.read_text());inputs=json.loads(a.runtime.read_text());first=json.loads(a.motion[0].read_text());eye=np.array(first['listener_m'])
  v=NativeContinuousVideo(h,{'listener_m':eye.tolist(),'camera_forward':first['camera_forward'],'sources':{}},inputs,[],width=640,height=480,source_material_cache_directory=a.output/'materials');results=[]
  try:
@@ -22,7 +22,7 @@ def main():
      if i==len(frames)//2:
       rgb=np.asarray(v.sim.get_sensor_observations()['rgb'])[...,:3];image=a.output/(m['asset_id']+f'_{degrees}.png');overlay(rgb,eye,(cf,cr,cu),row['head'],row['tail'],actual[:3,3]+[0,.02,0],velocity).save(image);row['image']=str(image)
      v.sim.get_rigid_object_manager().remove_object_by_id(obj.object_id)
-    check=direction_check([r['time_s'] for r in rows],[r['root'] for r in rows],[r['head'] for r in rows],[r['tail'] for r in rows]);results.append({'asset_id':m['asset_id'],'body_rotation_error_deg':degrees,'frames':rows,'check':check,'physically_rotated_native_drawable':True})
-  result={'status':'pass' if all(r['check']['status']=='fail' for r in results) else 'fail','controls':results,'excluded_from_admission':True};(a.output/'controls.json').write_text(json.dumps(result,indent=2));print(result['status'],len(results))
+    check=direction_check([r['time_s'] for r in rows],[r['root'] for r in rows],[r['head'] for r in rows],[r['tail'] for r in rows],policy=a.validation_policy);results.append({'asset_id':m['asset_id'],'body_rotation_error_deg':degrees,'frames':rows,'check':check,'physically_rotated_native_drawable':True})
+  result={'status':'pass' if all(r['check']['status']=='fail' for r in results) else 'fail','controls':results,'validation_policy':a.validation_policy,'excluded_from_admission':True};(a.output/'controls.json').write_text(json.dumps(result,indent=2));print(result['status'],len(results))
  finally:v.close()
 if __name__=='__main__':main()

@@ -1,4 +1,4 @@
-"""Two-interval batches of fresh native references with unchanged strict gates."""
+"""Bounded interval batches of fresh native references with unchanged strict gates."""
 import argparse,json,pathlib,sqlite3,subprocess,sys,os,time,copy,shutil
 import numpy as np
 from avengine.assets.animal_motion.acoustics import FreshProcessRenderer
@@ -9,9 +9,17 @@ from avengine.acoustics.house_acceptance_metrics import foa_direction
 from avengine.timeline.v7_registered_motion_audio import position_at
 
 def main():
- p=argparse.ArgumentParser();p.add_argument('--previous',type=pathlib.Path,required=True);p.add_argument('--motion',type=pathlib.Path,required=True);p.add_argument('--house',type=pathlib.Path,required=True);p.add_argument('--runtime',type=pathlib.Path,required=True);p.add_argument('--output',type=pathlib.Path,required=True);p.add_argument('--cores',default='20,21,22,23,24,25');p.add_argument('--refine-failed',action='store_true');a=p.parse_args()
- a.output.mkdir(parents=True,exist_ok=False);shutil.copytree(a.previous/'cache',a.output/'cache');cores=[int(x) for x in a.cores.split(',')];assert 1<=len(cores)<=6
- for path in a.previous.glob('reference_*.npy'):shutil.copy2(path,a.output/path.name)
+ p=argparse.ArgumentParser();p.add_argument('--previous',type=pathlib.Path,required=True);p.add_argument('--motion',type=pathlib.Path,required=True);p.add_argument('--house',type=pathlib.Path,required=True);p.add_argument('--runtime',type=pathlib.Path,required=True);p.add_argument('--output',type=pathlib.Path,required=True);p.add_argument('--cores',default='20,21,22,23,24,25');p.add_argument('--refine-failed',action='store_true');p.add_argument('--interval-batch-size',type=int,choices=range(1,7),default=2);p.add_argument('--immutable-cache-root',type=pathlib.Path);a=p.parse_args()
+ def copy_cache(src,dst,*,follow_symlinks=True):
+  # Optional storage optimization only: never link the mutable SQLite DB.
+  source=pathlib.Path(src);target=pathlib.Path(dst)
+  if a.immutable_cache_root is not None and source.suffix=='.npy':
+   allowed=a.immutable_cache_root.resolve()
+   if not source.resolve().is_relative_to(allowed) or not target.parent.resolve().is_relative_to(allowed):raise ValueError('immutable_cache_link_outside_owned_root')
+   os.link(source,target);return str(target)
+  return shutil.copy2(src,dst,follow_symlinks=follow_symlinks)
+ a.output.mkdir(parents=True,exist_ok=False);shutil.copytree(a.previous/'cache',a.output/'cache',copy_function=copy_cache);cores=[int(x) for x in a.cores.split(',')];assert 1<=len(cores)<=6
+ for path in a.previous.glob('reference_*.npy'):copy_cache(path,a.output/path.name)
  inputs=json.loads(a.runtime.read_text());house=json.loads(a.house.read_text());m=json.loads(a.motion.read_text());frames=m['frames'];track=[{'time_s':f['time_s'],'position_m':f['mouth_world_m']} for f in frames];house['room']['placement']['camera_m']=m['listener_m'];listener=np.array(m['listener_m']);forward=np.array(m['camera_forward']);forward[1]=0;forward/=np.linalg.norm(forward)
  oldid=json.loads((a.output/'cache/configuration.json').read_text());inputs['simulation']=oldid['simulation']
  sr=16000;n=round(frames[-1]['time_s']*sr)+1;keys=sorted(set([*range(0,n,3200),n-1]));db=sqlite3.connect(a.output/'cache/positions.sqlite3');filters=[];directions=[]
@@ -27,7 +35,7 @@ def main():
    if not all(np.array_equal(waves[0],x) for x in waves[1:]):raise ValueError('only identical deterministic native references can be promoted to an endpoint')
    point=position_at(track,mid/sr);key=json.dumps(point.tolist(),separators=(',',':'));db.execute('INSERT INTO rirs(pose) VALUES (?) ON CONFLICT(pose) DO NOTHING',(key,));idx=db.execute('SELECT id FROM rirs WHERE pose=?',(key,)).fetchone()[0];target=a.output/'cache'/f'rir_{idx:06d}.npy'
    if target.exists() and not np.array_equal(np.load(target,allow_pickle=False),waves[0]):raise ValueError('promoted native endpoint differs')
-   if not target.exists():shutil.copy2(files[0],target)
+   if not target.exists():copy_cache(files[0],target)
    db.execute('UPDATE rirs SET completed=1 WHERE id=?',(idx,));db.commit();keys.append(mid)
   keys=sorted(set(keys))
   (a.output/'refinement.json').write_text(json.dumps({'failed_intervals':failed,'new_native_keys':keys,'reference_waveforms_modified':False,'new_midpoints_require_three_fresh_native_executions':True},indent=2))
@@ -36,16 +44,16 @@ def main():
   if r is None or not r[1]:raise ValueError('existing endpoint cache incomplete')
   wave=np.load(a.output/'cache'/f'rir_{r[0]:06d}.npy',allow_pickle=False);filters.append(wave);d=foa_direction(wave,listener,point,forward,sample_rate=sr);directions.append({'time_s':k/sr,'mouth_m':point.tolist(),'angle_deg':d['check']['angle_deg'],'native':d})
  db.close();timeline=FrequencyCoherentTimeline(filters,keys);intervals=list(zip(keys[:-1],keys[1:]));segments=[];checks=[];stopped=[];start=time.time();requests=a.output/'fresh_native';requests.mkdir()
- result={'asset_id':m['asset_id'],'motion_receipt':str(a.motion),'previous_native_cache':str(a.previous),'crossfade_revision':REVISION,'thresholds_changed':False,'independent_reference_count_per_midpoint':3,'reference_rule':'every raw independently executed native reference; no mean or median','worker_cpu_affinities':cores,'status':'pending'}
+ result={'asset_id':m['asset_id'],'motion_receipt':str(a.motion),'previous_native_cache':str(a.previous),'crossfade_revision':REVISION,'thresholds_changed':False,'independent_reference_count_per_midpoint':3,'reference_rule':'every raw independently executed native reference; no mean or median','worker_cpu_affinities':cores,'interval_batch_size':a.interval_batch_size,'status':'pending'}
  try:
-  for batch_start in range(0,len(intervals),2):
-   batch=intervals[batch_start:batch_start+2];jobs=[]
+  for batch_start in range(0,len(intervals),a.interval_batch_size):
+   batch=intervals[batch_start:batch_start+a.interval_batch_size];jobs=[]
    for lo,hi in batch:
     mid=(lo+hi)//2;point=position_at(track,mid/sr).tolist()
     for rep in range(3):
      wave=a.output/f'reference_{mid:06d}_{rep}.npy'
      if wave.exists():continue
-     folder=requests/f'{mid:06d}_{rep}';folder.mkdir();request=folder/'request.json';request.write_text(json.dumps({'inputs':inputs,'house':house,'position_m':point,'wave':str(wave),'receipt':str(folder/'receipt.json')},indent=2));jobs.append((request,folder))
+     folder=requests/f'{mid:06d}_{rep}';folder.mkdir();request=folder/'request.json';request.write_text(json.dumps({'inputs':inputs,'house':house,'position_m':point,'wave':str(wave),'receipt':str(folder/'receipt.json'),'immutable_wave_root':str(a.immutable_cache_root) if a.immutable_cache_root is not None else None},indent=2));jobs.append((request,folder))
    for offset in range(0,len(jobs),len(cores)):
     running=[]
     for core,(request,folder) in zip(cores,jobs[offset:offset+len(cores)]):
@@ -59,6 +67,9 @@ def main():
     pts=np.array([position_at(track,t) for t in [lo/sr,hi/sr,*[f['time_s'] for f in frames if lo/sr<f['time_s']<hi/sr]]])-listener;pts/=np.linalg.norm(pts,axis=1,keepdims=True);sweep=float(np.degrees(np.arccos(np.clip((pts@pts.T).min(),-1,1))))
     segments.append({'start_s':lo/sr,'end_s':hi/sr,'midpoint_s':mid/sr,'raw_independent_checks':raw,'source_direction_sweep_deg':sweep,'qualification':verdict});checks.extend(raw);print('QUALIFIED_SEGMENT',lo/sr,verdict['status'],verdict['failures'],flush=True)
     if verdict['status']!='pass' or sweep>5:stopped.append(segments[-1])
+    if len(stopped)>=2:
+     (a.output/'progress.json').write_text(json.dumps({'segments':segments,'failed_intervals':stopped},indent=2))
+     raise ValueError('two_failed_intervals_stop_for_diagnosis')
    (a.output/'progress.json').write_text(json.dumps({'segments':segments,'failed_intervals':stopped},indent=2))
    if len(stopped)>=2:raise ValueError('two_failed_intervals_stop_for_diagnosis')
   qualification=qualify_energy(checks);negative=compare_rirs(filters[0]*2,filters[0],source=position_at(track,0),listener=listener,forward=forward,sample_rate=sr);bad=qualify_energy([negative])
