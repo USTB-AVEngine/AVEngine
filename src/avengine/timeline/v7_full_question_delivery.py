@@ -13,7 +13,7 @@ import math
 from avengine.timeline.continuous_pilot import write_json
 from avengine.timeline.v7_production_contract import question_allocation,validate_question_counts
 
-QUESTION_DELIVERY_REVISION='v7-native-full-pool-r17-UE-pilot-query-frame-v1'
+QUESTION_DELIVERY_REVISION='v7-native-full-pool-owner-available-families-20261014-zero-counts-v2'
 
 
 def sample_pilot_comparison_frame(raw,scene,*,seed='v7'):
@@ -241,6 +241,28 @@ def acceptance_pool_allocation(public, private, requested):
                     'answers_changed':False,'native_gates_changed':False}
 
 
+def available_single_parent_allocation(public,private,requested):
+    """Fill a single parent's quota from existing legal questions only."""
+    from collections import Counter
+    from avengine.qa.v7_families import deduplicate_questions
+    questions,_,_=deduplicate_questions(public,private)
+    seen=set();available=Counter()
+    for q in questions:
+        if q['logical_question_id']in seen:continue
+        seen.add(q['logical_question_id']);available[q['modality']]+=1
+    allocation={m:min(n,available[m])for m,n in requested.items()}
+    missing=sum(requested.values())-sum(allocation.values())
+    while missing:
+        spare=[m for m in requested if allocation[m]<available[m]]
+        if not spare:raise ValueError('single parent has fewer actual legal questions than requested total')
+        modality=max(spare,key=lambda m:available[m]-allocation[m])
+        allocation[modality]+=1;missing-=1
+    allocation={m:n for m,n in allocation.items()if n}
+    return allocation,{'requested':dict(requested),'actual':allocation,
+        'changed':allocation!=requested,'reason':'owner: skip unavailable candidate families; keep existing legal answers',
+        'actual_available':dict(available),'canonical_answers_changed':False}
+
+
 def finalize_parent_question_pools(row,members,root,*,binding_items_per_window=5,family_counts=None):
     from avengine.timeline.v7_candidate_generation import stage,read_json
     from avengine.qa.v7_families import select_questions
@@ -273,8 +295,18 @@ def finalize_parent_question_pools(row,members,root,*,binding_items_per_window=5
             partial_audit=None
             if partial:
                 allocations['v0_a0'],partial_audit=acceptance_pool_allocation(ordinary['v0_a0'],private['v0_a0'],allocations['v0_a0'])
+                try:
+                    allocations['v0_a0'],availability=available_single_parent_allocation(
+                        ordinary['v0_a0'],private['v0_a0'],question_allocation(row['question_quota_base']+index,row['questions_per_window']))
+                    partial_audit['actual_allocation']=dict(allocations['v0_a0'])
+                    partial_audit['quota_fill_from_original_legal_candidates']=availability
+                except ValueError as error:
+                    if str(error)!='single parent has fewer actual legal questions than requested total':raise
+                    availability={'requested':partial_audit['requested_allocation'],'actual':partial_audit['actual_allocation'],'changed':True,'reason':'fewer original legal candidates; explicit partial trial window'}
+            else:
+                allocations['v0_a0'],availability=available_single_parent_allocation(ordinary['v0_a0'],private['v0_a0'],allocations['v0_a0'])
             q,a=select_questions(ordinary['v0_a0'],private['v0_a0'],allocations['v0_a0'],quota_index=row['question_quota_base']+index,family_counts=family_counts)
-            chosen,gold,audit={'v0_a0':q},{'v0_a0':a},{'status':'single_selected','binding_items_per_member':0}
+            chosen,gold,audit={'v0_a0':q},{'v0_a0':a},{'status':'single_selected','binding_items_per_member':0,'owner_available_candidate_allocation':availability}
             if partial_audit:audit['acceptance_partial_family_policy']=partial_audit
         focus=row.get('production_scenario',{}).get('category_focus_class')
         if focus:
@@ -287,13 +319,17 @@ def finalize_parent_question_pools(row,members,root,*,binding_items_per_window=5
                     audit.setdefault('skipped_unavailable_family_reservations',[]).append({'member':name,'reason':str(error)})
             audit['critical_audio_reservation']={'speaker_count_requested':True,'category_focus_class':focus,'modality_quota_changed':bool(partial and allocations['v0_a0']!=question_allocation(row['question_quota_base']+index,row['questions_per_window'])),'actually_selected_families':sorted({q['qa_id'] for qs in chosen.values() for q in qs}),'status':'partial_skipped' if audit.get('skipped_unavailable_family_reservations') else 'reserved'}
         if row.get('production_scenario',{}).get('semantic_scenario_id'):
+            skipped=[]
             for name in names:
+                if not any(q['qa_id']=='QA-28'and q['form']=='open'and q['modality']=='audio'for q in ordinary[name]):
+                    audit.setdefault('skipped_unavailable_family_reservations',[]).append({'member':name,'family':'QA-28','reason':'no actual eligible QA-28 candidate; owner permits empty-family skip'})
+                    continue
                 try:
                     chosen[name],gold[name]=reserve_actual_audio_family(chosen[name],gold[name],ordinary[name],private[name],'QA-28')
                 except ValueError as error:
                     if not partial or not (str(error).startswith('requested audio family lacks an actual eligible candidate:') or str(error)=='content reservation exceeds unchanged audio allocation'):raise
                     audit.setdefault('skipped_unavailable_family_reservations',[]).append({'member':name,'family':'QA-28','reason':str(error)})
-            audit['actual_content_direction_reservation']={'family':'QA-28','original_candidates_only':True,'modality_quota_changed':bool(partial and allocations['v0_a0']!=question_allocation(row['question_quota_base']+index,row['questions_per_window'])),'actually_selected':any(q['qa_id']=='QA-28' for qs in chosen.values() for q in qs),'status':'reserved' if any(q['qa_id']=='QA-28' for qs in chosen.values() for q in qs) else 'partial_skipped'}
+            audit['actual_content_direction_reservation']={'family':'QA-28','original_candidates_only':True,'canonical_answers_changed':False,'modality_quota_changed':bool(partial and allocations['v0_a0']!=question_allocation(row['question_quota_base']+index,row['questions_per_window'])),'actually_selected':any(q['qa_id']=='QA-28' for qs in chosen.values() for q in qs),'status':'reserved' if any(q['qa_id']=='QA-28' for qs in chosen.values() for q in qs) else 'partial_skipped','skipped_empty_family':audit.get('skipped_unavailable_family_reservations',[])}
         audits.append(audit)
         for name in names:
             check=validate_question_counts(chosen[name],gold[name],expected_allocation=allocations[name],allow_partial_window=partial)

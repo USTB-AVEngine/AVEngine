@@ -1,5 +1,6 @@
-"""Frozen phase-two motion gates evaluated over every native 30 Hz readback."""
+"""Native motion/readback checks with an explicit owner human quality policy."""
 import numpy as np
+from avengine.assets.roster_motion.quality import HUMAN_QUALITY
 
 def motion_checks(visual):
     errors=[];feet=[];readbacks=[];motions=visual.get('native_motion_admissions',{})
@@ -20,9 +21,12 @@ def motion_checks(visual):
             and policy.get('truth_and_answer_gates_changed') is False
             and policy.get('contact_gap_m')==.012
             and policy.get('support_lock_error_m')==.015)
+        human_owner_quality=(record.get('species_id','human')not in {'dog','cat'} and record.get('quality_policy')==HUMAN_QUALITY)
+        owner_quality=owner_quality or human_owner_quality
+        clearance_limit=HUMAN_QUALITY['minimum_nonfloor_clearance_m']if human_owner_quality else .02
         limit=.012 if owner_quality or record.get('species_id')=='cat' else .008
         support_limit=.015 if owner_quality else .003
-        quality_limits[ep]={'policy_name':policy['policy_name'] if owner_quality else 'original',
+        quality_limits[ep]={'policy_name':policy.get('policy_name',HUMAN_QUALITY['revision']) if owner_quality else 'original',
             'owner_quality':owner_quality,'contact_limit_m':limit,'support_lock_limit_m':support_limit,
             'truth_and_answer_gates_changed':False}
         is_seated=record.get('motion_kind')=='sit';moving=sum(bool(f['moving']) for f in source)
@@ -30,7 +34,7 @@ def motion_checks(visual):
         if record['maximum_navmesh_horizontal_error_m']>.002:errors.append(ep+':navigation drift')
         navigation.append(record['maximum_navmesh_horizontal_error_m'])
         clearance=record['minimum_certified_triangle_nonfloor_clearance_m'];clearances.append(clearance)
-        if clearance<=.02:errors.append(ep+':whole original skin clearance <=20mm')
+        if clearance<=clearance_limit:errors.append(ep+':whole original skin clearance fails declared quality policy')
         for index,(frame,row) in enumerate(zip(source,actual)):
             if row.get('root_max_error',0)>1e-5 or row.get('native_emitter_readback_error_m',1)>.0001:
                 errors.append(ep+':native root/head emitter readback')

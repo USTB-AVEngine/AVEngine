@@ -4,6 +4,7 @@ import copy,json,math,hashlib,time
 import numpy as np
 from avengine.assets.animal_motion.production_episode import OWNER_PRODUCTION_QUALITY
 from avengine.assets.roster_motion.episode import admitted_master,PhysicalFloor,TriangleClearance,triangle_mesh,externalize_unchanged_images,fcl_model
+from avengine.assets.roster_motion.quality import HUMAN_QUALITY
 from avengine.assets.roster_motion.io import read_glb,write_glb
 from avengine.assets.roster_motion.pose import rigid_glb
 from avengine.assets.roster_motion.contact import FootPlant,yaw_matrix
@@ -162,7 +163,8 @@ def compile_seated(video,entry,scene,house,inputs,directory,request):
                 solver=FootPlant(d,b,action,[0.,1/30],[hr.tolist()]*2,[yaw]*2,0.,0.,1/30,floor)
                 for values in solver.active.values():values[:]=True
                 _,parts,ev=solver.frame(0);v,f=triangle_mesh(d,b,parts);tri=(v+offset)[f]
-                if solver.max_reach>=.001 or any(e['floor_delta_m']<-.008 or e['floor_delta_m']>OWNER_PRODUCTION_QUALITY['contact_gap_m']+1e-12 for e in ev['feet'].values()):raise ValueError('seated foot contact exceeds owner visual 12mm quality or unchanged 1mm IK residual')
+                contact_limit=HUMAN_QUALITY['foot_contact_limit_m']if inputs.get('phase2')else .008
+                if solver.max_reach>=.001 or max(abs(e['floor_delta_m'])for e in ev['feet'].values())>contact_limit+1e-12:raise ValueError('seated foot contact or reach failed declared quality policy')
                 clearance=TriangleClearance(video,house,ground,entry)
                 # Existing support is not stripped from the exact stage model.
                 # If it cannot satisfy the conservative new-house collision
@@ -263,7 +265,7 @@ def compile_seated(video,entry,scene,house,inputs,directory,request):
                     'seat_source':seat['kind'],'seat_record':seat,'human_local_offset_m':offset.tolist(),'chair_world_root_m':cr.tolist(),'chair_grounding':chair_grounding,'chair_glb':str(chair_path)if chair_path else None,
                     'chair_scale_y':scale,'native_support_deltas_m':legs,'seat_contact_gap_m':gap,'chair_collision':chair_collision if seat['kind']=='fallback' else None,
                     'private_navigation_original_settings':preserved_nav_settings,'original_full_skin_floor_collision':clearance.floor_certificate(),'maximum_navmesh_horizontal_error_m':ne,'minimum_certified_triangle_nonfloor_clearance_m':minimum,
-                    'existing_seat_survey':survey,'thresholds_changed':True,'production_visual_quality_policy':dict(OWNER_PRODUCTION_QUALITY),'truth_and_answer_gates_changed':False,'chair_produces_sound':False,
+                    'existing_seat_survey':survey,'quality_policy':dict(HUMAN_QUALITY)if inputs.get('phase2')else {},'thresholds_changed':bool(inputs.get('phase2')),'production_visual_quality_policy':dict(OWNER_PRODUCTION_QUALITY)if inputs.get('phase2')else {},'truth_and_answer_gates_changed':False,'chair_produces_sound':False,
                     'anatomical_buttock_surface':'not independently segmented; lowest original clothing triangles in seat footprint as upstream'}
                 accepted=record;break
             except ValueError as error:
