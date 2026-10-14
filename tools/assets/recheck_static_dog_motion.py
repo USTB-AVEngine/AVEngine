@@ -70,7 +70,8 @@ def cp_for_motion(m):
  return None,None
 def qualify_native(path,cp_path=None,reused=False):
  m=read(path)
- if m.get("frame_count")!=145 or not m.get("native_checks_run"):return None
+ if (m.get("frame_count")!=145 or len(m.get("frames",[]))!=145
+     or not m.get("native_checks_run") or m.get("checks",{}).get("status")!="pass"):return None
  ch=policy_frame_checks(m["frames"],mode=m["motion_mode"],native=True,policy=OWNER093X);neg=controls(m)
  if ch["status"]!=neg["status"] or ch["status"]!="pass":return None
  if m.get("motion_mode")=="walk_animation":
@@ -141,7 +142,7 @@ def main():
    record=read(winner/"inventory.json")["assets"][0];out=ROOT/"validation"/aid/"walk_owner093x_habitat_v1"
    if not (out/"native_motion.json").exists():
     if out.exists():raise RuntimeError("incomplete prior native output; preserve instead of overwrite:"+str(out))
-    run(record,read(ROOT/"inputs/house.json"),read(ROOT/"inputs/runtime.json"),read(ROOT/"inputs/route.json"),out,speed=.03,period=1.6,seconds=4.8,slots=4,mode="walk_animation",animation_attempts=rec["attempts"],motion_policy=OWNER093X)
+    run(record,read(ROOT/"inputs/house.json"),read(ROOT/"inputs/runtime.json"),read(ROOT/"inputs/route.json"),out,speed=.03,period=1.6,seconds=4.8,slots=8,mode="walk_animation",animation_attempts=rec["attempts"],motion_policy=OWNER093X)
    nm=read(out/"native_motion.json");rec["walking_native_motion"]=str(out/"native_motion.json");rec["walking_native_status"]=nm.get("status");rec["walking_native_failures"]=nm.get("checks",{}).get("failures",[])[:10];rec["walking_native_error"]=nm.get("error");atomic(path,doc)
    if nm.get("status")=="failed" and nm.get("failure_kind")=="execution_error":raise RuntimeError("native_execution_failure:"+str(out)+":"+str(nm.get("error")))
    adm=qualify_native(out/"native_motion.json",rec["winning_checks"])
