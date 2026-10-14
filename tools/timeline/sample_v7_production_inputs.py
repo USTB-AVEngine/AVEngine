@@ -45,6 +45,11 @@ def main():
         for index in range(planned['parent_scenes']):
             seed=int(hashlib.sha256((room['key']+':'+str(index)).encode()).hexdigest()[:12],16)
             rng=random.Random(seed);selected=sample_room_assets(catalog,room,seed,controlled_people=4)
+            if index%6==0 and selected:
+                professionals=[s for s in catalog if s.get('kind')=='human' and not s.get('controlled_shirt')
+                               and 'Profession' in str(s.get('source','')) and asset_category(s,{},room['family']) in room['categories']]
+                human_slots=[i for i,s in enumerate(selected) if s.get('kind')=='human']
+                if professionals and human_slots:selected[human_slots[-1]]=deepcopy(rng.choice(professionals))
             chair_pool=[s for s in catalog if s.get('kind')=='chair' and asset_category(s,{},room['family']) in room['categories']]
             seated_only=False
             if room['family'] != 'kujiale' and chair_pool and (index%6==2 or not selected) and not any(s.get('kind')=='human' for s in selected):
