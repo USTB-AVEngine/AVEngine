@@ -61,8 +61,11 @@ def main():
     p=argparse.ArgumentParser(description=__doc__)
     for name in ['houses','seeds','runtime-inputs','assets','source-admission','human-admission','output']:
         p.add_argument('--'+name,type=Path,required=True)
+    p.add_argument('--demand-state',type=Path,help='Task-owned actual selected-family feedback; plan each next batch from its deficits')
+    p.add_argument('--demand-focus',choices=['binding','human_motion','animal_motion','count'],help='Explicit validation focus; otherwise use deficit-weighted scene requests')
     p.add_argument('--workers',type=int,default=1);p.add_argument('--offset',type=int,default=0);p.add_argument('--limit',type=int,default=1)
     p.add_argument('--storage-budget-root',type=Path)
+    p.add_argument('--maximum-task-bytes',type=int,help='Tighter task-owned storage cap within the existing pilot allowance')
     p.add_argument('--production-contract',type=Path,help='Frozen v7 room/source/motion contract; automatically applied to every recipe')
     p.add_argument('--incremental-storage-baseline',type=Path)
     p.add_argument('--incremental-storage-root',type=Path)
@@ -113,6 +116,11 @@ def main():
             os.environ[ENV_KEY]=json.dumps(storage_policy,sort_keys=True)
             check_write(a.output,expected_bytes=0)
     else:storage_policy=configure_local_review(a.output,a.storage_budget_root,parents=len(rows),workers=a.workers)
+    if a.maximum_task_bytes is not None:
+        if not 0<a.maximum_task_bytes<=storage_policy['maximum_task_bytes']:raise ValueError('storage override may only tighten the original pilot allowance')
+        from avengine.timeline.v7_storage_budget import ENV_KEY,check_write
+        storage_policy['maximum_task_bytes']=a.maximum_task_bytes
+        os.environ[ENV_KEY]=json.dumps(storage_policy,sort_keys=True);check_write(a.output,expected_bytes=0)
     inputs=json.loads(a.runtime_inputs.read_text());inputs['render_backend']=a.render_backend
     if a.production_contract:inputs['production_input_contract']=str(a.production_contract.resolve())
     if inputs.get('phase2_diagnostic_native_context_recycling'):
@@ -128,6 +136,18 @@ def main():
     if a.integration_pilot:
         from avengine.timeline.v7_visible_sources import validate_english_source_admission
         validate_english_source_admission(source)
+    if a.demand_state:
+        if not a.storage_budget_root or not a.demand_state.resolve().is_relative_to(a.storage_budget_root.resolve()):
+            raise ValueError('demand feedback state must stay inside the task-owned storage root')
+        from avengine.timeline.v7_demand import read_demand_state,plan_phase2_demand
+        contract_path=inputs.get('production_input_contract')
+        if not contract_path:raise ValueError('demand planning requires the original production input contract')
+        contract=json.loads(Path(contract_path).read_text());state=read_demand_state(a.demand_state)
+        rows=[row if row.get('scene_demand') else plan_phase2_demand(row,state,assets,source['records'],contract,focus=a.demand_focus) for row in rows]
+        if any(row.get('motion_requests') for row in rows):
+            import fcl
+            for name in ('v7_asset_roster','moving_energy_budget'):
+                if not inputs.get(name) or not Path(inputs[name]).is_file():raise ValueError('demand motion requires the existing '+name)
     tasks=[(row,by_house[row['house']],inputs,assets,source,human,str(a.output)) for row in rows]
     a.output.mkdir(parents=True,exist_ok=True);start=time.perf_counter();results=[]
     def result_stream():
@@ -140,10 +160,13 @@ def main():
                 yield future.result()
     for result in result_stream():
         results.append(result)
+        if a.demand_state:
+            from avengine.timeline.v7_demand import record_selected_parent
+            record_selected_parent(a.demand_state,result)
         if a.integration_pilot:
             import datetime
             line=datetime.datetime.now(datetime.timezone.utc).isoformat()+' '+result['scene_id']+' '+result['status']+' '+result.get('reason','父场景机器检查和私有封存完成')+'\n'
-            with (a.storage_budget_root.parent/'PROGRESS.md').open('a') as progress:progress.write(line)
+            with (a.output/'PROGRESS.md').open('a') as progress:progress.write(line)
         print(json.dumps({k:result.get(k) for k in ['scene_id','status','alpha_formal_windows','alpha_formal_logical_questions','wall_seconds','cpu_seconds_including_children','reason']},ensure_ascii=False),flush=True)
     from avengine.timeline.continuous_pilot import write_json
     from avengine.timeline.v7_registered_generation import ALPHA_RELEASE_PROFILE

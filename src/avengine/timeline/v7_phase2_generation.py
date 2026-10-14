@@ -200,7 +200,8 @@ def generate_phase2_parent(row,house,inputs,catalog,source_admission,human_admis
     for ep,voice in receipt['endpoint_speaker_ids'].items():base['sources'][ep]['voice_identity_id']=voice
     scene=member_scene(base,visual,'v0_a0')
     def audio(attempt):return render_alpha_audio(scene,working,inputs,root/'rir_cache',attempt,dry,receipt,visual['camera_frame_readbacks'])
-    audio_recipe={'scene':scene,'inputs':inputs}
+    from avengine.timeline.v7_wet_support import WET_SUPPORT_REVISION
+    audio_recipe={'scene':scene,'inputs':inputs,'wet_support_revision':WET_SUPPORT_REVISION}
     if any(np.any(dry[ep]) and any(not np.array_equal(k['position_m'],spec['trajectory'][0]['position_m'])for k in spec['trajectory']) for ep,spec in scene['sources'].items()):
         from avengine.timeline.v7_phase2_motion_audio import REVISION
         from avengine.timeline.v7_phase2_fresh_rir import REVISION as CONTEXT_REVISION
@@ -250,7 +251,7 @@ def generate_phase2_parent(row,house,inputs,catalog,source_admission,human_admis
             wid=win['window_id'];dest=attempt/'windows'/wid;dest.mkdir(parents=True)
             for f in ['video.mp4','audio_foa.wav','audio_mono.wav','questions.json']:os.link(source/wid/f,dest/f);required.append(str((dest/f).relative_to(attempt)))
             for old,new in [('private_answers.json',wid+'_answers.json'),('evidence.json',wid+'_evidence.json')]:os.link(source/wid/old,private/new);required.append('private/'+new)
-            qs=read_json(dest/'questions.json');stats.append({'window_id':wid,'media_readback':_verify_window(dest),'logical_questions':len({q['logical_question_id'] for q in qs}),'family_counts':dict(Counter(q['qa_id'] for q in qs if q['form']=='open'))})
+            qs=read_json(dest/'questions.json');stats.append({'window_id':wid,'media_readback':_verify_window(dest),'logical_questions':len({q['logical_question_id'] for q in qs}),'family_counts':dict(Counter(q['qa_id'] for q in {q['logical_question_id']:q for q in qs}.values()))})
         write_json(private/'machine_checks.json',checks);write_json(private/'assets.json',assets);write_json(private/'dry_program.json',program);write_json(private/'dry_receipt.json',receipt)
         required.extend('private/'+f for f in ['machine_checks.json','assets.json','dry_program.json','dry_receipt.json'])
         result={'status':'integration_pilot_admitted','profile':PILOT_PROFILE,'scene_id':row['scene_id'],'house':row['house'],
