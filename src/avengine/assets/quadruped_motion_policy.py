@@ -70,7 +70,7 @@ def policy_frame_checks(frames, *, mode="walk_animation", native=False, policy=N
     from avengine.assets.animal_motion.checks import frame_checks
     policy = get_motion_policy(policy)
     with selected_motion_thresholds(policy):
-        result = frame_checks(frames, mode=mode, native=native)
+        result = frame_checks(frames, mode=mode, native=native, policy='owner_relaxed_20261014' if policy else 'strict')
     if policy is None:
         return result
     result["motion_policy"] = asdict(policy)
@@ -88,9 +88,9 @@ def policy_frame_checks(frames, *, mode="walk_animation", native=False, policy=N
 def policy_direction_check(*args, policy=None):
     from avengine.assets.animal_motion.checks import direction_check
     with selected_motion_thresholds(policy):
-        return direction_check(*args)
+        return direction_check(*args, policy='owner_relaxed_20261014' if policy else 'strict')
 
 def policy_direction_negative_controls(frames, *, policy=None):
     from avengine.assets.animal_motion.checks import direction_negative_controls
     with selected_motion_thresholds(policy):
-        return direction_negative_controls(frames)
+        return direction_negative_controls(frames, policy='owner_relaxed_20261014' if policy else 'strict')

@@ -128,6 +128,8 @@ def validate_recipe(row, catalog, manifest):
     if not set(requests) <= set(row['asset_ids']):
         raise ValueError('motion request is not bound to a recipe body')
     for aid in row['asset_ids']:
+        if aid in manifest.get('policy', {}).get('temporarily_excluded_asset_ids', {}):
+            raise ValueError('temporarily excluded source asset: ' + aid)
         a = assets[aid]
         category = asset_category(a, requests.get(aid, {}), room['family'])
         if category not in room['categories']:
@@ -180,6 +182,9 @@ def animal_authorities(document, source_path):
                                  'source_master': selected['source_master'],
                                  'motion_marker': 'animated_walk' if mode == 'walk_animation' else 'intentional_slide_no_animation',
                                  'audio_admission_replaced': False}
+        for key in ('native_motion_sha256', 'source_master_sha256', 'pose_reconstruction_required'):
+            if key in selected:
+                result[a['asset_id']][key] = selected[key]
     return result
 
 
@@ -222,6 +227,7 @@ def prepare_contract(config):
                 'policy': {'budget_limited_excluded': True, 'prefer_v2': True,
                            'native_gates_changed': False, 'training_export': False,
                            'shirt_colors': list(COLORS), 'animal_animation_first': True}}
+    contract['policy']['temporarily_excluded_asset_ids'] = deepcopy(config.get('temporarily_excluded_asset_ids', {}))
     contract['inputs']['room_split_summary'] = fingerprint(config['room_split_summary'])
     for family, path in config['room_legality'].items():
         path = prefer_v2(path)

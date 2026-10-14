@@ -41,6 +41,7 @@ def main():
     proof=fingerprint(a.contract);receipt={'manifest_path':proof['path'],'manifest_sha256':proof['sha256']}
     for planned in plan['room_allocation']:
         room=rooms[planned['room_key']];catalog=ue if room['family']=='kujiale' else cpu
+        catalog=[item for item in catalog if item['asset_id'] not in contract['policy'].get('temporarily_excluded_asset_ids', {})]
         for index in range(planned['parent_scenes']):
             seed=int(hashlib.sha256((room['key']+':'+str(index)).encode()).hexdigest()[:12],16)
             rng=random.Random(seed);selected=sample_room_assets(catalog,room,seed,controlled_people=4)

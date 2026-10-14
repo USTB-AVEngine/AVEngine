@@ -40,7 +40,11 @@ def compile_admitted_animal(video, entry, scene, house, inputs, directory, reque
     if selected.get('status') != 'pass' or original['motion_mode'] != authority['mode'] or selected['native_motion'] != authority['native_motion']:
         raise ValueError('final animal motion admission mismatch')
     native = json.loads(Path(authority['native_motion']).read_text())
-    source = native['frames']
+    from avengine.assets.animal_motion.admitted_reconstruction import reconstruct_frames, digest
+    for key, path in [('native_motion_sha256', authority['native_motion']), ('source_master_sha256', authority['source_master'])]:
+        if authority.get(key) and digest(path) != authority[key]:
+            raise ValueError('qualified animal source changed: ' + key)
+    source, reconstruction_receipt = reconstruct_frames(native, entry['declaration']['species_id'], directory / 'reconstructed_qualified_poses')
     if len(source) < 2 or any(not Path(f['pose_glb']).is_file() for f in source):
         raise ValueError('complete retained admitted pose stream missing')
     mode = authority['mode']
@@ -151,6 +155,7 @@ def compile_admitted_animal(video, entry, scene, house, inputs, directory, reque
             lineage = {'roster': authority['admission_path'], 'roster_sha256': hashlib.sha256(Path(authority['admission_path']).read_bytes()).hexdigest(),
                        'master': authority['source_master'], 'master_sha256': hashlib.sha256(Path(authority['source_master']).read_bytes()).hexdigest(),
                        'admitted_native_motion': authority['native_motion'],
+                       'source_pose_reconstruction_receipt': reconstruction_receipt,
                        'new_house_admission_required': True, 'motion_only_does_not_admit_audio': True}
             evidence = {'status': 'pass', 'revision': 'final-admitted-animal-poses-new-house-v2-qualified-initial-root',
                         'lineage': lineage, 'source_frames': frames, 'pose_glbs': poses,
