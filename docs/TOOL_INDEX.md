@@ -5,7 +5,7 @@
 
 自 2026-08-25 起，目录本身就是能力分组（阶段目录 m1…m7 已移除），
 本表按目录列出每个工具做什么。
-当前共 588 个工具脚本。
+当前共 613 个工具脚本。
 
 ## 资产生成与装配（`tools/assets/`）
 
@@ -17,6 +17,8 @@
 | `tools/assets/animal_review_policy.py` | Load the generated-animal review policy and record human decisions |
 | `tools/assets/append_loop_closure.py` | Append one 15 Hz return-to-start sample to each GLB action channel |
 | `tools/assets/assemble_variant_package.py` | Assemble a generic M2 animal research package from real QA evidence |
+| `tools/assets/audit_animal_rir_crossfade.py` | Compare endpoint-only crossfades against all already recorded raw references |
+| `tools/assets/audit_animal_surface_pose_equivalence.py` | Bridge existing full CPU surface measurements to saved native posed meshes |
 | `tools/assets/audit_candidate.py` | Write bounded automatic QA reports for an M2 research candidate |
 | `tools/assets/audit_habitat_mesh_grounding.py` | Audit exact skinned-vertex grounding and declared source anchors |
 | `tools/assets/audit_source_materials.py` | Inventory and native before/after acceptance for inserted source materials |
@@ -49,11 +51,15 @@
 | `tools/assets/capture_canary.py` | Run one formal 75-state M2 canary capture in Habitat |
 | `tools/assets/capture_installed_research_review.py` | Run the current installed-prefix M2 Blender-room research review |
 | `tools/assets/capture_research_review.py` | Run the 75-state single-view M2 research-review capture in Habitat |
+| `tools/assets/check_motion_only_surface_blender.py` | Owner-approved regional penetration gate against the unmodified binding pose |
 | `tools/assets/check_prompt_token_budget.py` | Fail closed when a candidate profile's effective prompt cannot fit the model window |
 | `tools/assets/check_source_material_matrix.py` | Gate the complete source-material matrix and emit an offline review page |
+| `tools/assets/compile_animal_motion.py` | Compile a bounded target-preserving walking probe for native validation |
 | `tools/assets/compile_animal_package.py` | Compile a bounded M2 research-candidate package |
 | `tools/assets/compose_topdown_review.py` | Derive synchronized RGB + navmesh/descriptor top-down QA review media |
 | `tools/assets/derive_variant_contacts.py` | Derive generic package anchors and actor-space four-paw contacts |
+| `tools/assets/diagnose_animal_motion.py` | Inspect all authored Walking sources and immutable old cat caches |
+| `tools/assets/export_animal_motion_ue.py` | Prepare metric skeletal clips and validate a Kujiale route before import |
 | `tools/assets/force_matte_materials.py` | Force a complete opaque matte-dielectric GLB material policy |
 | `tools/assets/gate_retopology.py` | Reject a mesh preparation that damaged the animal, before it is rigged |
 | `tools/assets/gate_rigged_asset.py` | Accept or reject a rigged animal from how its surface tears during the walk |
@@ -66,34 +72,47 @@
 | `tools/assets/inspect_mesh_quality.py` | Measure one GLB mesh with bounded memory and optional explicit policy |
 | `tools/assets/measure_deformation_stretch.py` | Measure how much of the surface a pose stretches |
 | `tools/assets/measure_mesh_topology.py` | Compare mesh structure after welding, without a glTF round trip in between |
+| `tools/assets/measure_native_motion_surface.py` | Measure saved actual Habitat skin; no new animation, renderer, or RIR run |
 | `tools/assets/measure_static_resting_pose.py` | Measure the resting or mounting pose of a published rigid static asset |
 | `tools/assets/measure_static_upright_correction.py` | Measure how far a rigid reconstruction is from standing straight |
 | `tools/assets/measure_walk_deformation.py` | How badly a rigged animal's surface tears, over the whole walk cycle |
 | `tools/assets/model_roots.py` | Where shared model weights live, resolved instead of hard-coded |
+| `tools/assets/native_animal_direction_controls.py` | Actually rotate Habitat drawables backwards and sideways on the same route |
 | `tools/assets/normalize_materials.py` | Normalize GLB PBR materials without modifying geometry or animation data |
 | `tools/assets/pixal3d_transform_profile.py` | Load the class-level Pixal3D / SkinTokens transform profile |
 | `tools/assets/plan_instance_variants.py` | Derive the instance-level variant plan for accepted source assets |
+| `tools/assets/prepare_animal_audio_endpoints.py` | Fresh exact-pose RIR endpoints, at most six single-core native children |
 | `tools/assets/prepare_sound_library.py` | Convert the collected dry clips into the form the pipeline consumes |
 | `tools/assets/prepare_speech_audio.py` | Build the P7 speech-band prepared set and review manifests |
 | `tools/assets/preprocess_glb.py` | Select GLB actions and strip provably unweighted controller roots |
+| `tools/assets/probe_animal_rir_variance.py` | Separate native same-pose variance from interpolation error without fitting |
 | `tools/assets/probe_habitat_skin_rest.py` | Generate and exercise a temporary Habitat skinned-AO rest-pose descriptor |
 | `tools/assets/probe_heading_axis.py` |  |
 | `tools/assets/promote_canary.py` | Promote one hash-closed M2 research candidate to a new canary package |
 | `tools/assets/publish_animal_assets.py` | Publish accepted generated animals into the shared sound-source asset tree |
 | `tools/assets/publish_static_source_assets.py` | Publish admitted static sound sources into the shared asset tree |
 | `tools/assets/qc_sound_library.py` | Check every clip in the dry-sound library and say what is wrong, in words |
+| `tools/assets/qualify_animal_audio_parallel.py` | Two-interval batches of fresh native references with unchanged strict gates |
 | `tools/assets/rebase_skin_root.py` | Create a Habitat-native, root-local GLB research candidate |
 | `tools/assets/rebind_appearance_actions.py` | Reuse one validated M2 package action set on a compatible appearance rig |
 | `tools/assets/rebind_appearance_visual.py` | Preserve a source M2 package actor frame on one appearance realization |
 | `tools/assets/register_sound_event_assets.py` | Register split sound-event clips into avengine_m6_sound_asset_registry_v1 |
+| `tools/assets/render_animal_rir_once.py` | One genuinely fresh native process, scene upload and single-pose RIR |
+| `tools/assets/render_animal_rir_request.py` | Render one exact requested point in a fresh native process |
 | `tools/assets/render_habitat_action_review.py` | Render hash-bound M2 Idle/Walk review media in Habitat |
 | `tools/assets/render_habitat_local_tr_review.py` | Render a non-qualifying 75-frame Habitat local-TR v2 review |
 | `tools/assets/render_mesh_rgba_review.py` | Render a mesh to a transparent RGBA review preview |
 | `tools/assets/render_turntable_review.py` | Orbit the camera once around a posed asset, with soft shadow-free lighting |
 | `tools/assets/render_walk_review.py` | Render a walk cycle with soft, shadow-free lighting and the asset's own materials |
+| `tools/assets/repair_animal_skin_local_weights.py` | Repair local skin-weight discontinuities in a derived copy; keep all geometry |
+| `tools/assets/replay_animal_motion_habitat.py` | Re-render an identical qualified pose sequence with a true 3-D camera |
+| `tools/assets/report_animal_motion.py` | Chinese, self-contained per-individual motion admissions and native evidence |
+| `tools/assets/report_animal_motion_only.py` | Read-only evidence requalification and a compact self-contained Chinese report |
 | `tools/assets/retime_actions.py` | Apply explicit action durations without changing sampled pose values |
 | `tools/assets/retopologize_for_rigging.py` | Rebuild a generated mesh as a manifold surface, then reduce it for rigging |
+| `tools/assets/rig_static_animal_motion.py` | Bounded target-native envelope rigging trial; original geometry stays intact |
 | `tools/assets/rigger_loopback_bpy_server.py` | Loopback-only launcher for the vendored TokenRig bpy server |
+| `tools/assets/run_animal_motion_request.py` | Execute Walking first; qualify an explicitly marked standing slide if needed |
 | `tools/assets/run_generated_animal_chain.sh` | Take one generated animal from a raw reconstruction to a reviewable rigged |
 | `tools/assets/run_pixal3d_mesh.py` | Run the local AVEngine Pixal3D image-to-3D stage on an RGBA candidate |
 | `tools/assets/run_skintokens_rig.py` | Run local VAST-AI SkinTokens/TokenRig inference on one mesh |
@@ -101,6 +120,8 @@
 | `tools/assets/skintokens_loopback_bpy_server.py` | Private Unix-socket Blender RPC endpoint for local SkinTokens inference |
 | `tools/assets/spike_habitat_local_tr.py` | Prove one bounded local-translation-plus-rotation Habitat AO encoding |
 | `tools/assets/split_sound_library_events.py` | Split a prepared sound library into one wav per sounding event |
+| `tools/assets/validate_animal_motion_audio.py` | All-raw-independent native RLR qualification of measured moving mouths |
+| `tools/assets/validate_animal_motion_habitat.py` | Run one dog or cat through actual Habitat, native floor and posed geometry |
 | `tools/assets/validate_animated_animal_closure.py` | Validate an animated animal GLB and write one fresh closure report |
 | `tools/assets/verify_habitat_asset_runtime_readback.py` | Read back Habitat native root, contact-link and emitter transforms |
 | `tools/assets/wrap_uniform_scene_scale.py` | Wrap every root of one GLB scene in an explicit uniform-scale node |
@@ -659,6 +680,7 @@
 | `tools/ue/bake_kujiale_native_usd.py` | Bake composed USD mesh transforms for exact UE import, preserving geometry |
 | `tools/ue/build_kujiale_authored_light_sidecar.py` | Bake authored USD world emitting dimensions for isolated UE light import |
 | `tools/ue/build_minimal_closure_report.py` | Build a minimal-closure report for the current Apartment visual stage |
+| `tools/ue/capture_animal_motion.py` | Moving native UE skeletal replay, actual bones, mouth and rendered paw soles |
 | `tools/ue/capture_kujiale_admission.py` | Native SPEAR/UE multi-view individual admission in the production Kujiale map |
 | `tools/ue/capture_kujiale_asset_trial.py` | Render each registered body/kind with a visible human in three native houses |
 | `tools/ue/capture_kujiale_dog_motion.py` | Native skeletal motion and per-paw metric-depth admission in Kujiale |
@@ -672,6 +694,7 @@
 | `tools/ue/export_asset_dependencies_editor.py` | Export real Unreal package dependencies for declared mounted content roots |
 | `tools/ue/export_navigation_editor.py` | Export current UE navigation input geometry, settings and native mesh bounds |
 | `tools/ue/fix_spear_mp3d_materials_editor.py` | Repair and verify MP3D glTF color semantics inside an isolated UE project |
+| `tools/ue/import_animal_motion_editor.py` | Import only owned repaired clips and read every native skeletal pose |
 | `tools/ue/import_controlled_humans_editor.py` | Import one catalog-described controlled human with generic Unreal APIs |
 | `tools/ue/import_extra_animals_editor.py` | Import research-only animated animal GLBs into isolated UE SkeletalMesh roots |
 | `tools/ue/import_kujiale_admission_editor.py` | UE 5.5 editor import of all staged admitted individuals; no source edits |
@@ -683,6 +706,8 @@
 | `tools/ue/import_usd_stage_to_level_editor.py` | Import an external USD stage into ordinary Unreal assets and a saved level |
 | `tools/ue/import_v7_kujiale_editor.py` | Materialize one isolated Kujiale map and record native floor/material evidence |
 | `tools/ue/inspect_kujiale_source_materials_editor.py` |  |
+| `tools/ue/measure_animal_motion_surface.py` | Audit skin from actual UE joint matrices against unchanged binding geometry |
+| `tools/ue/native_animal_direction_controls.py` | Reject physically reversed and sideways UE skeletal actors on the same route |
 | `tools/ue/plan_kujiale_admission.py` | Plan admitted native assets on measured floor/table/wall/ceiling surfaces |
 | `tools/ue/prepare_kujiale_asset_admission.py` | Copy admitted animal/object GLBs into a task-owned UE import staging area |
 | `tools/ue/prepare_spear_mp3d_execution.py` | Bind a compiled Timeline-v2 visual plan to the imported MP3D UE scene |

@@ -109,6 +109,8 @@ def generate_visible_parent(row,house,inputs,catalog,source_admission,human_admi
             if replay['mismatches']:replay['status']='fail'
             write_json(dest/'independent_v6_truth.json',replay)
             if replay['mismatches']:raise ValueError('independent original-family truth mismatch')
+            from avengine.assets.animal_motion.policy import annotate_question_motion
+            q=annotate_question_motion(q,scene)
             write_json(dest/'questions.json',q);write_json(dest/'private_answers.json',g);audit['native_color_eligibility']=color_eligibility
             write_json(dest/'candidate_audit.json',audit)
             write_json(dest/'evidence.json',{'profile':PILOT_PROFILE,'seed_row':row,'scene':scene,'source_qa_evidence':proof,
