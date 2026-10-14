@@ -83,3 +83,12 @@ actual region rotation matrices, every edge, seam and the unchanged gates.
 No geometric tolerance or temporal sampling is introduced. Repeated geometry
 has the exact same intersection count; the receipt records every frame and
 cache hits. This reduces repeated cycle work without changing admission.
+
+Optional native --generator-floor-plane-m replays exactly the flat-ground
+ConstrainedWalk used for full CPU surface qualification. The owned route
+places this flat gait 2 mm above the prior reference root; source scene and
+route are unchanged. This is a physical pose choice only. Every real native
+floor ray, full skin penetration, all paw gaps, stance drift, navigation,
+clearance, emitter and negative control still uses the original scene and
+original gates. A candidate that fails any actual native check is rejected.
+Default scene-following gait generation remains unchanged.
