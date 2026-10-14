@@ -90,7 +90,8 @@ def main():
         if any(r.get('schema')!=SCHEMA or r.get('split')!='train' for r in rows):raise ValueError('integration pilot accepts only its explicit training-house schema')
         if os.getpriority(os.PRIO_PROCESS,0)<10:raise ValueError('integration pilot must run with nice -n 10')
         if any(os.environ.get(k)!='1' for k in ('OMP_NUM_THREADS','OPENBLAS_NUM_THREADS','MKL_NUM_THREADS')):raise ValueError('integration pilot requires one thread per CPU worker')
-        storage_policy=configure_integration_pilot(a.output,a.storage_budget_root,parents=len(rows),workers=a.workers)
+        storage_policy=configure_integration_pilot(a.output,a.storage_budget_root,parents=len(rows),workers=a.workers,
+            minimum_free_bytes=a.minimum_free_bytes if a.minimum_free_bytes is not None else 150_000_000_000)
         if bool(a.incremental_storage_baseline) != bool(a.incremental_storage_root):
             raise ValueError('incremental storage needs both immutable baseline and whole task root')
         if a.incremental_storage_baseline:
