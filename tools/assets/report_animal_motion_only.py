@@ -32,16 +32,19 @@ def evaluate(native_path,*,surface_path=None,cpu_path=None,controls_path=None,pr
    md=read(meta);sources.append(hashed(meta));same=md.get('native_motion') in (None,str(native_path)) and md.get('source_master')==n.get('source_master')
    if not same:sf=None
    association={'same_target_source':same,'surface_scope':'actual saved native float32 skin','all_native_vertex_surface_equivalence_independently_verified':same}
+ if controls_path=='embedded_in_native_motion':controls_path=None
  controls=read(controls_path) if controls_path else None
  if controls_path:sources.append(hashed(controls_path))
  q=qualify_motion(n,sf,controls)
+ placement_proof=Path(native_path).parent.parent/'shape_preservation.json'
+ if placement_proof.is_file():sources.append(hashed(placement_proof))
  preserved=[]
  for p in preservation_paths:
   d=read(p)
   if d.get('derived_glb')==n.get('source_master') and d.get('status')=='pass':preserved.append(str(p));sources.append(hashed(p))
  return {'asset_id':n['asset_id'],'motion_mode':mode,'status':q['status'],'qualification':q,'native_motion':str(native_path),
          'surface':str(surface_path) if surface_path else None,'cpu_checks':str(cpu_path) if cpu_path else None,
-         'controls':str(controls_path) if controls_path else None,'source_preservation':preserved,'surface_association':association,
+         'controls':str(controls_path) if controls_path else None,'source_preservation':preserved,'rigid_placement_proof':str(placement_proof) if placement_proof.is_file() else None,'surface_association':association,
          'source_label':source_label,'sources':sources,'frame_count':len(n.get('frames',[])),
          'duration_s':n['frames'][-1]['time_s'] if n.get('frames') else 0,'house':n.get('house'),
          'images':n.get('images',[]),'video':n.get('video',{}),'source_master':n.get('source_master')}
@@ -61,8 +64,10 @@ def collect(root,external_index,ue_path=None):
  # New explicit requests carry exact same-source/same-route reused evidence.
  for path in sorted((root/'motion_only/repairs').glob('**/admission/admission.json')):
   d=read(path)
+  case=path.parent.parent;preservation=case/'source_preservation.json';trial=read(case/'trial.json') if (case/'trial.json').exists() else {}
+  preserved=[str(preservation)] if preservation.exists() else ([trial['reused_source_preservation']] if trial.get('reused_source_preservation') else [])
   for mode,e in d.get('receipts',{}).items():
-   if e.get('native'):add(e['native'],surface_path=e.get('surface'),controls_path=e.get('controls'),source_label='owned_CC0_repair:'+str(path))
+   if e.get('native'):add(e['native'],surface_path=e.get('surface'),controls_path=e.get('controls'),preservation_paths=preserved,source_label='owned_CC0_repair:'+str(path))
  slide_index=root/'motion_only/original17_slides_owner112x_v1/index.json'
  if slide_index.exists():
   for x in read(slide_index).get('assets',{}).values():
@@ -88,6 +93,7 @@ def collect(root,external_index,ue_path=None):
   rejected=[x for x in candidates if x['motion_mode']=='walk_animation' and x['status']!='pass']
   reason='完整同源动作表面检查、实际原生方向/支撑/房间几何及真实反向负例通过；声音交量产' if mode=='walk_animation' else ('没有通过新标准的Walking；已登记站姿的实际平移和方向负例通过' if mode=='slide_no_animation' else '本轮房间路线的运动证据未完整通过；不表示其它房间永远不能移动')
   if mode=='slide_no_animation' and rejected:reason+='；Walking失败/未验证项：'+','.join(sorted({k for x in rejected for k in x['qualification'].get('failures',[])+x['qualification'].get('missing_evidence',[])}))
+  if chosen and chosen.get('rigid_placement_proof'):reason+='；原站姿全身刚体找平，网格形状/拓扑/PBR保持，见刚体证明'
   rows.append({'asset_id':a['asset_id'],'species':a['species'],'source_has_skeleton':a['has_skeleton'],'source_has_walking':a['has_walking'],
                'motion_mode':mode,'classification':MODES[mode],'reason':reason,'selected':chosen,'candidate_evidence':candidates,
                'audio_status':'deferred_to_production','admission_scope':'motion_only','scope':'本轮指定HM3D房间/路线/短片，未验证全部房间'})
@@ -121,6 +127,9 @@ def render(result,root,filename):
   vals=[x for x in result['assets'] if x['species']==species and x['selected'] and x['motion_mode']=='walk_animation']
   if vals:selected.append(vals[0]['selected'])
  for n in selected:
+  row=next(x for x in result['assets'] if x['asset_id']==n['asset_id'])
+  before=next((v for v in row['candidate_evidence'] if v['source_label']=='original_rig_walking' and v.get('images')),None)
+  if before:body.append(pic(before['images'][0],n['asset_id']+' 原Walking：新增表面检查未过'))
   for p in n.get('images',[])[::2][:3]:body.append(pic(p,n['asset_id']+' '+Path(p).name))
   ctrl=n.get('controls')
   if ctrl:
@@ -128,7 +137,12 @@ def render(result,root,filename):
     if c.get('asset_id')!=n['asset_id']:continue
     for f in c.get('frames',[]):
      if f.get('image'):body.append(pic(f['image'],'故意旋转'+str(c['body_rotation_error_deg'])+'°：新门槛拒绝'))
- body.append('<h2>UE与剩余范围</h2><pre>'+esc(json.dumps(result['ue'],ensure_ascii=False,indent=2))+'</pre>')
+ body.append('<h2>UE与剩余范围</h2>')
+ ue=result['ue']
+ if ue.get('status')=='pass':
+  body.append('<p>酷家乐 kujiale_0020：新绑定比格1只，4秒/121帧按新动作标准通过；真实180°/90°负例被拒，未新增RIR。UE表面由逐帧实测骨骼矩阵和目标原网格权重在CPU重建，并非GPU顶点缓冲读回。旧10只原生几何及8只声学证据保留；另外9只的新表面检查仍未完成，不能写为新标准通过。</p>')
+  for p in ue.get('images',[])[:2]:body.append(pic(p,'UE 比格实际回放 '+Path(p).name))
+ body.append('<details><summary>UE逐项状态与原生证据（点击展开）</summary><pre>'+esc(json.dumps(ue,ensure_ascii=False,indent=2))+'</pre></details>')
  resources=root/'RESOURCE_USAGE.json'
  if resources.exists():
   d=read(resources);brief={k:d.get(k) for k in ['generated_utc','recorded_cpu_hours','gpu_0_related_job_wall_seconds_union','own_output_allocated_bytes','additional_bytes_since_latest_budget']}
