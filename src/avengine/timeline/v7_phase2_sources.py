@@ -6,6 +6,27 @@ import numpy as np
 from avengine.timeline.v7_visible_sources import build_visible_scene,SCHEMA,point
 PHASE2_SCHEMA='v7-visible-registered-pilot-phase2-v1'
 
+
+def _validate_authored_motion_support(scene, program, requests):
+    """Fail before native work when the requested TTS pose cannot be certified.
+
+    The existing dialogue intake verifies only standing speaking humans. Its
+    late registry check rejects a seated or walking TTS mesh; recorded speech and
+    other moving scene participants do not use that standing-only intake.
+    """
+    records = {r['sound_asset_id']: r for r in program['records']}
+    bindings = {b['event_id']: b for b in program['events']}
+    authored = {e['endpoint_id'] for e in scene['events']
+                if records[bindings[e['event_id']]['sound_asset_id']].get('source_type') == 'author_tts'}
+    unsupported = [(ep, request['action']) for ep, request in requests.items()
+                   if ep in authored and request['action'] in {'sit', 'walk'}]
+    if unsupported:
+        poses = ', '.join(f'{ep} ({action})' for ep, action in unsupported)
+        raise ValueError(
+            'authored TTS motion lacks qualified pose lineage: ' + poses +
+            '; dialogue intake currently requires standing speaking humans; '
+            'use complete recorded VCTK speech for seated speakers')
+
 def build_phase2_scene(row,house,records,catalog,semantic_manifest=None):
     if row.get('schema')!=PHASE2_SCHEMA:raise ValueError('explicit phase-two schema required')
     motion=row.get('motion_requests',{})
@@ -65,6 +86,7 @@ def build_phase2_scene(row,house,records,catalog,semantic_manifest=None):
                 'mechanism':'walking_human_registered_foot','silent_decor':False,'dry_gain':.6}
         scene['planned_footsteps'].append({'endpoint_id':ep,'asset_id':aid,'sound_asset_id':record['sound_asset_id'],'requested_events':max(6,int(request.get('footstep_events',6)))})
         program['records'].append(record)
+    _validate_authored_motion_support(scene, program, requests)
     # Optional physical planning constraints; frozen QA sector predicates are
     # untouched and independently recompute the actual accepted positions.
     targets=row.get('semantic_azimuth_targets_deg',{})

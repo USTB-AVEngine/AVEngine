@@ -1,6 +1,7 @@
 import unittest
 from copy import deepcopy
 import numpy as np
+import pytest
 from avengine.timeline.v7_phase2_sources import source_owners,validate_phase2_bindings,audit_phase2_bindings
 from avengine.timeline.v7_phase2_motion_audio import median_reference_check,emitted_intervals
 from avengine.acoustics.moving_rir_acceptance import qualify_energy
@@ -234,3 +235,77 @@ def test_no_original_surface_vertex_above_contact_keeps_rejection():
     import pytest
     with pytest.raises(ValueError, match='unchanged 50mm and 2mm gates'):
         _read_original_foot_child([[0, 0.001, 0], [0, 0.051, 0]])
+
+
+@pytest.mark.fast_unit
+@pytest.mark.parametrize('action', ['sit', 'walk'])
+def test_authored_speaking_motion_fails_before_native_work(action):
+    from avengine.timeline.v7_phase2_sources import _validate_authored_motion_support
+    scene = {'events': [{'event_id': 'spoken', 'endpoint_id': 'voice1'}]}
+    program = {'records': [{'sound_asset_id': 'line', 'source_type': 'author_tts'}],
+               'events': [{'event_id': 'spoken', 'sound_asset_id': 'line'}]}
+    with pytest.raises(ValueError, match='authored TTS motion lacks qualified pose lineage'):
+        _validate_authored_motion_support(scene, program, {'voice1': {'action': action}})
+
+
+@pytest.mark.fast_unit
+def test_complete_recorded_speech_keeps_motion_support():
+    from avengine.timeline.v7_phase2_sources import _validate_authored_motion_support
+    scene = {'events': [{'event_id': 'spoken', 'endpoint_id': 'voice1'}]}
+    program = {'records': [{'sound_asset_id': 'line', 'source_type': 'vctk_recorded'}],
+               'events': [{'event_id': 'spoken', 'sound_asset_id': 'line'}]}
+    _validate_authored_motion_support(scene, program, {'voice1': {'action': 'sit'}})
+
+
+@pytest.mark.fast_unit
+def test_standing_tts_allows_other_recorded_or_silent_moving_people():
+    from avengine.timeline.v7_phase2_sources import _validate_authored_motion_support
+    scene = {'events': [{'event_id': 'authored', 'endpoint_id': 'voice1'},
+                        {'event_id': 'recorded', 'endpoint_id': 'voice2'},
+                        {'event_id': 'step', 'endpoint_id': 'voice3_foot_L'}]}
+    program = {'records': [{'sound_asset_id': 'tts', 'source_type': 'author_tts'},
+                           {'sound_asset_id': 'recording'}, {'sound_asset_id': 'footstep'}],
+               'events': [{'event_id': 'authored', 'sound_asset_id': 'tts'},
+                          {'event_id': 'recorded', 'sound_asset_id': 'recording'},
+                          {'event_id': 'step', 'sound_asset_id': 'footstep'}]}
+    _validate_authored_motion_support(scene, program,
+                                     {'voice2': {'action': 'sit'}, 'voice3': {'action': 'walk'}})
+
+
+def _source_compile_motion_fixture(source_type):
+    asset = {'asset_id': 'person', 'endpoint_id': 'voice1', 'native_instance_id': 1,
+             'kind': 'human', 'species_id': 'human', 'sit_allowed': True,
+             'allowed_classes': ['speech_playback']}
+    scene = {'sources': {'voice1': {'asset_id': 'person', 'actor_id': 1,
+                                   'native_visual_kind': 'registered_drawable'}},
+             'events': [{'event_id': 'spoken', 'endpoint_id': 'voice1',
+                         'source_id': 1, 'sound_class': 'speech_playback'}],
+             'production_scenario': {}}
+    program = {'records': [{'sound_asset_id': 'line', 'source_type': source_type}],
+               'events': [{'event_id': 'spoken', 'sound_asset_id': 'line'}]}
+    working = {'room': {'floor_polygon': [[0, 0], [3, 0], [3, 3], [0, 3]]}}
+    return working, scene, program, [asset]
+
+
+@pytest.mark.fast_unit
+def test_seated_tts_source_compile_reports_pose_blocker_without_native(monkeypatch):
+    from avengine.timeline import v7_phase2_sources as sources
+    row = {'schema': sources.PHASE2_SCHEMA, 'scene_seed': 1, 'asset_ids': ['person'],
+           'motion_requests': {'person': {'action': 'sit'}}}
+    monkeypatch.setattr(sources, 'build_visible_scene',
+                        lambda *args: _source_compile_motion_fixture('author_tts'))
+    with pytest.raises(ValueError, match='use complete recorded VCTK speech'):
+        sources.build_phase2_scene(row, {}, [], [])
+
+
+@pytest.mark.fast_unit
+def test_seated_recording_source_compile_keeps_physical_request(monkeypatch):
+    from avengine.timeline import v7_phase2_sources as sources
+    row = {'schema': sources.PHASE2_SCHEMA, 'scene_seed': 1, 'asset_ids': ['person'],
+           'motion_requests': {'person': {'action': 'sit'}}}
+    monkeypatch.setattr(sources, 'build_visible_scene',
+                        lambda *args: _source_compile_motion_fixture('vctk_recorded'))
+    _, scene, program, assets = sources.build_phase2_scene(row, {}, [], [])
+    assert scene['production_scenario']['motion_requests'] == {'voice1': {'action': 'sit'}}
+    assert program['records'][0]['sound_asset_id'] == 'line'
+    assert assets[0]['asset_id'] == 'person'
