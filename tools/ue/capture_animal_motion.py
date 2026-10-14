@@ -27,7 +27,7 @@ def matrix(v):
  v=unbox(v);m=np.eye(4);q=unbox(v['rotation']);m[:3,:3]=quat_matrix([q[k] for k in ('x','y','z','w')])@np.diag(xyz(v['scale3d']));m[:3,3]=xyz(v['translation']);return m
 
 def main():
- p=argparse.ArgumentParser();p.add_argument('--root',type=Path,required=True);p.add_argument('--house',type=Path,required=True);p.add_argument('--motion',type=Path,required=True);p.add_argument('--imported',type=Path,required=True);p.add_argument('--output',type=Path,required=True);p.add_argument('--limit',type=int);p.add_argument('--camera-offset',type=float,nargs=3,default=[1.25,.65,-.45]);a=p.parse_args();a.output.mkdir(parents=True,exist_ok=False)
+ p=argparse.ArgumentParser();p.add_argument('--root',type=Path,required=True);p.add_argument('--house',type=Path,required=True);p.add_argument('--motion',type=Path,required=True);p.add_argument('--imported',type=Path,required=True);p.add_argument('--output',type=Path,required=True);p.add_argument('--limit',type=int);p.add_argument('--camera-offset',type=float,nargs=3,default=[1.25,.65,-.45]);p.add_argument('--motion-only',action='store_true');p.add_argument('--save-native-transforms',action='store_true');p.add_argument('--direction-controls',action='store_true');a=p.parse_args();a.output.mkdir(parents=True,exist_ok=False)
  h=json.loads(a.house.read_text());m=json.loads(a.motion.read_text());imp=json.loads(a.imported.read_text());ue=h['input']['ue_config'].copy();ue.update(uproject=str(a.root/'ue/SpearSim/SpearSim.uproject'),output_root=str(a.root),graphics_adapter=0,physical_gpu_index=0,network_guard_so=str(a.root/'ue/network_guard.so'),unpause_animation_sampling=True)
  if imp['status']!='native_clip_imported_pose_readback_pending_geometry':raise ValueError('native clip readback is missing')
  (a.output/'ue_config.json').write_text(json.dumps(ue,indent=2))
@@ -54,7 +54,7 @@ def main():
    footcomponents['depth'].set_property_value(property_name='PrimitiveRenderMode',property_value='PRM_UseShowOnlyList');footcomponents['depth'].set_property_value(property_name='ShowOnlyActors',property_value=[actor]);apply_camera(cam,view);apply_native_rgb_profile(components['rgb'],ue)
   frame(setup)
   for _ in range(45):frame()
-  rows=m['frames'][:a.limit] if a.limit else m['frames'];selected={0,len(rows)//2,len(rows)-1}
+  rows=m['frames'][:a.limit] if a.limit else m['frames'];selected={0,len(rows)//2,len(rows)-1};actual_joint_globals=[]
   for i,source in enumerate(rows):
    root=p0+np.asarray(source['world_root_m']);t=source['time_s']
    def update():
@@ -66,6 +66,7 @@ def main():
    if i==0:(a.output/'native_transform_sample.json').write_text(json.dumps(raw,indent=2))
    g={j:np.eye(4) for j in range(len(d['nodes']))}
    for name,value in raw.items():g[names[name]]=Ai@matrix(value)@A
+   if a.save_native_transforms:actual_joint_globals.append(np.asarray([g[names[name]] for name in joint_names]))
    parts,_=pose(d,b,None,globals_override=g,ground=False,canonical_flip=False);vertices,faces=triangle_mesh(d,b,parts);distance=clearance.check(vertices,faces);near=vertices[vertices[:,1]<p0[1]+.08];skin_floor=float(np.min(near[:,1]-rays.many(near)))
    expected=globals_at(d,b,d['animations'][0],t);bone_error=max(float(np.linalg.norm(g[names[name]][:3,3]-(expected[names[name]][:3,3]+root))) for name in joint_names)
    head=g[names[m['head_bone']]][:3,3];tail=g[names[m['tail_bone']]][:3,3];expected_mouth=(g[names[m['mouth_bone']]]@np.r_[m['mouth_bone_local_m'],1.])[:3];mouth_error=float(np.linalg.norm(mouth-expected_mouth));feet={}
@@ -96,9 +97,40 @@ def main():
    if i in selected:result['images'].append(str(image))
    result['frames'].append(row)
    if i%15==0:(a.output/'progress.json').write_text(json.dumps(result,indent=2));print('UE_FRAME',i,bone_error,mouth_error,min(f['floor_delta_m'] for f in feet.values()),flush=True)
+  if a.save_native_transforms:
+   transforms_path=a.output/'actual_runtime_joint_globals.npz'
+   np.savez_compressed(transforms_path,time_s=np.asarray([f['time_s'] for f in result['frames']]),joint_names=np.asarray(joint_names),joint_node_indices=np.asarray([names[name] for name in joint_names],np.int64),actual_world_globals=np.asarray(actual_joint_globals),actual_runtime_root_world_m=np.asarray([f['root_world_m'] for f in result['frames']]))
+   result['actual_runtime_joint_globals']=str(transforms_path)
+   result['actual_runtime_joint_globals_scope']='all joint full matrices measured by UE GetSocketTransform in every recorded frame; CPU LBS reconstruction, not GPU vertex-buffer capture'
+  if a.direction_controls:
+   negative={}
+   for degrees in (180,90):
+    control_rows=[]
+    for index in (0,len(rows)//2,len(rows)-1):
+     source=rows[index];control_root=p0+np.asarray(source['world_root_m'])
+     def rotate_control():
+      actor.K2_SetActorLocationAndRotation(NewLocation=dict(zip(('X','Y','Z'),to_ue(control_root))),NewRotation={'Roll':0.,'Pitch':0.,'Yaw':float(degrees)},bSweep=False,bTeleport=True)
+      component.SetPosition(InPos=source['time_s'],bFireNotifies=False)
+     frame(rotate_control);frame()
+     with instance.begin_frame():
+      read_head=component.GetSocketTransform(InSocketName=imp['bone_mapping'][m['head_bone']],TransformSpace='RTS_World',as_dict=True)
+      read_tail=component.GetSocketTransform(InSocketName=imp['bone_mapping'][m['tail_bone']],TransformSpace='RTS_World',as_dict=True)
+      read_root=from_ue(xyz(actor.K2_GetActorLocation(as_dict=True)));read_time=float(component.GetPosition())
+     with instance.end_frame():pass
+     if abs(read_time-source['time_s'])>.002:raise ValueError('negative_control_clock_mismatch')
+     control_rows.append({'time_s':source['time_s'],'native_animation_time_s':read_time,'root_world_m':read_root,'head_world_m':from_ue(matrix(read_head)[:3,3]),'tail_world_m':from_ue(matrix(read_tail)[:3,3]),'physically_rotated_native_drawable':True})
+    negative[str(degrees)]=control_rows
+   result['native_direction_negative_frames']=negative
   checks=frame_checks(result['frames'],native=True)
   if not all(f['complete_silhouette_in_frame'] for f in result['frames']):checks['status']='fail';checks['failures'].append('native_whole_animal_clipped_or_invisible')
   result.update(status='geometry_pass_audio_pending' if checks['status']=='pass' else 'geometry_fail',checks=checks,direction_negative_controls=direction_negative_controls(result['frames']),listener_m=eye.tolist(),camera_forward=(delta/np.linalg.norm(delta)).tolist(),frame_count=len(rows),full_original_skin_reconstructed_from_actual_native_bones=True,native_soles_measured_by_UE_depth=True)
+  if a.motion_only:
+   from avengine.assets.animal_motion.motion_only_policy import qualify_motion
+   result['status']='motion_only_measured_surface_pending'
+   preliminary=qualify_motion(result)
+   geometry_parts=('native_context','direction','contact','physical_controls')
+   bad=[key for key in geometry_parts if preliminary['checks'][key]['status']!='pass']
+   result.update(status='motion_only_geometry_pass_surface_pending' if not bad else 'motion_only_geometry_fail',motion_only_geometry=preliminary,audio_deferred_to_production=True)
   if a.limit:result['status']='native_smoke_measured_not_admitted'
   if len(result['frames'])>2:
    video=a.output/'native_motion.mp4'
@@ -123,5 +155,5 @@ def main():
   except Exception as error:result['cleanup_error']=repr(error)
   (a.output/'native_motion.json').write_text(json.dumps(result,indent=2))
  print(result['status'],result.get('error'),flush=True)
- if result['status'] not in ('geometry_pass_audio_pending','native_smoke_measured_not_admitted'):raise SystemExit(2)
+ if result['status'] not in ('geometry_pass_audio_pending','motion_only_geometry_pass_surface_pending','native_smoke_measured_not_admitted'):raise SystemExit(2)
 if __name__=='__main__':main()

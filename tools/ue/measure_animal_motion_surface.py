@@ -1,4 +1,4 @@
-"""Audit actual UE AnimPose skin against the target's unchanged binding geometry."""
+"""Audit skin from actual UE joint matrices against unchanged binding geometry."""
 import argparse
 import datetime
 import json
@@ -102,10 +102,10 @@ def main():
                 'source_master': str(rig.path), 'native_motion': evidence['native'],
                 'actual_pose_evidence': str(Path(evidence['actual_local_globals_npz']).parent / 'evidence.json'),
                 'frame_count': len(native['frames']), 'source_coordinate_system': 'metric +Y up, exporter basis; rigid room root excluded',
-                'position_encoding': 'float32 skin reconstructed from actual UE AnimPose WORLD joint readbacks; source target topology and weights unchanged',
+                'position_encoding': 'float32 skin reconstructed from actual UE WORLD joint matrix readbacks; source target topology and weights unchanged',
                 'reference_pose': 'unmodified original source primitive POSITION transformed only by original mesh global and exported coordinate basis; not Idle animation',
                 'inverse_bind_source_reconstruction_error_m': rest_error,
-                'region_matrix_scope': 'all seven matrices from actual UE AnimPose; only Body rotation is used by this cross-region depth policy',
+                'region_matrix_scope': 'all seven matrices from the actual UE joint readback named in evidence_boundary; only Body rotation is used by this cross-region depth policy',
                 'evidence_boundary': evidence['evidence_boundary'],
                 'runtime_correspondence': {key: evidence[key] for key in ('maximum_runtime_vs_source_joint_position_error_m', 'maximum_runtime_clock_error_s', 'first_runtime_full_matrix_comparison')},
                 'no_new_UE_render_or_RIR': True}
