@@ -98,7 +98,7 @@ def test_dialogue_header_uses_actual_registry_without_editing_sound_records():
     from avengine.timeline.v7_production_inputs import bind_semantic_registry
     manifest = {'sounds': [{'sound_asset_id': 'retained', 'sha256': 'unchanged'}]}
     original = deepcopy(manifest)
-    human = {'kind': 'human', 'dialogue_voice_binding_eligible': True,
+    human = {'kind': 'human',
              'source_registry': '/retained/registrations/human_roster.json'}
     adapted = bind_semantic_registry(manifest, [human])
     assert manifest == original and adapted['sounds'] == original['sounds']

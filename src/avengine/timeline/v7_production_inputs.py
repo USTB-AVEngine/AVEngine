@@ -320,7 +320,7 @@ def bind_semantic_registry(manifest, assets):
     if manifest is None or manifest.get('source_registry'):
         return manifest
     registries = {str(a['source_registry']) for a in assets
-                  if a.get('source_registry') and a.get('dialogue_voice_binding_eligible')
+                  if a.get('source_registry') and a.get('dialogue_voice_binding_eligible') is not False
                   and (a.get('species_id') == 'human' or a.get('kind') == 'human'
                        or a.get('entity_class') == 'articulated_human')}
     if len(registries) != 1:
