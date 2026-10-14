@@ -5,7 +5,7 @@
 
 自 2026-08-25 起，目录本身就是能力分组（阶段目录 m1…m7 已移除），
 本表按目录列出每个工具做什么。
-当前共 572 个工具脚本。
+当前共 575 个工具脚本。
 
 ## 资产生成与装配（`tools/assets/`）
 
@@ -651,6 +651,8 @@
 | `tools/ue/capture_kujiale_dog_motion.py` | Native skeletal motion and per-paw metric-depth admission in Kujiale |
 | `tools/ue/capture_kujiale_floor_reproduction.py` | UE-native before/after replay of the retained Kujiale bedroom defect |
 | `tools/ue/capture_kujiale_production_binding.py` | Exercise the production physical-source spawn method in native UE |
+| `tools/ue/capture_kujiale_room_legality.py` | Native UE render availability and visibility of room placement witnesses |
+| `tools/ue/check_kujiale_room_legality.py` | Preflight admitted Kujiale rooms using audited native LOD geometry |
 | `tools/ue/create_extra_animals_blueprints_editor.py` |  |
 | `tools/ue/create_spear_kujiale_map_editor.py` | Create a UE map containing one external USD stage |
 | `tools/ue/export_apartment_gltf.py` | Export a selected SPEAR map as real UE render-surface geometry |
@@ -676,6 +678,7 @@
 | `tools/ue/read_kujiale_dog_animation_editor.py` | Read every Kujiale contact-animation key from each imported UE dog |
 | `tools/ue/repair_v7_kujiale_native_materials_editor.py` | Apply reviewed GLB PBR changes only to MICs in the task's isolated project |
 | `tools/ue/report_kujiale_asset_admission.py` | Compile per-individual native admission and one self-contained Chinese HTML |
+| `tools/ue/report_kujiale_room_legality.py` | Assemble a machine-readable Kujiale room/category whitelist and short Chinese report |
 | `tools/ue/reproduce_kujiale_room_floor.py` | Replay retained standing-on-bed coordinates against the real native floor |
 | `tools/ue/save_kujiale_dog_materials_editor.py` | Persist skeletal usage on task-owned imported dog materials before QA |
 | `tools/ue/unreal_export_approaching_storm.py` | Unreal Editor-side exporter for the stock approaching_storm TextureCube |
