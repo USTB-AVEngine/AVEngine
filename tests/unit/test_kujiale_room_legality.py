@@ -114,3 +114,25 @@ def test_room_whitelist_rejects_native_readback_for_a_different_individual():
             {"category_key":"animal.dog","representative_asset_id":"dog_b","status":"pass"}]}
     with pytest.raises(ValueError,match="different representative asset"):
         combine_room(cpu,native)
+
+
+def test_later_room_floor_lineage_reloads_geometry_instead_of_inheriting_donor_mask(monkeypatch):
+    from tools.ue import check_kujiale_room_legality as tool
+    class Floor:
+        def __init__(self,declaration):
+            self.declaration=declaration.copy()
+        def sample(self,point):
+            if not self.declaration.get("source_floor_face_lineage_path"):
+                raise ValueError("native support face is not room floor")
+            return point
+    def construct(declaration):
+        return SimpleNamespace(floor=Floor(declaration))
+    monkeypatch.setattr(tool,"NativeSupportGeometry",construct)
+    first=tool.geometry_for_room({"native_editor_audit":"same_mesh"})
+    with pytest.raises(ValueError,match="not room floor"):
+        first.floor.sample([0.,0.,0.])
+    assert tool.geometry_for_room({"native_editor_audit":"same_mesh"},first) is first
+    later=tool.geometry_for_room({"native_editor_audit":"same_mesh",
+                                 "source_floor_face_lineage_path":"verified_source_floor"},first)
+    assert later is not first
+    assert later.floor.sample([0.,0.,0.])==[0.,0.,0.]

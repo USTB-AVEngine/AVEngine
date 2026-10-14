@@ -163,6 +163,12 @@ def find_witness(geometry, polygon, asset, vertices, catalog, limit, cell_second
                  "tested_support_yaw_pairs":tested,"sampled_support_count":len(supports),
                  "elapsed_seconds":time.monotonic()-start,"failures":dict(failures)}
 
+def geometry_for_room(declaration,geometry=None):
+    """Do not inherit a previous room's floor mask after its declaration changes."""
+    if geometry is None or geometry.floor.declaration != declaration:
+        return NativeSupportGeometry(declaration)
+    return geometry
+
 def run(args):
     root=args.root.resolve()
     if os.nice(0)<10:
@@ -192,8 +198,7 @@ def run(args):
             saved=read(args.catalogs/(label+".json"))
             declaration=deepcopy(saved["native_floor_surface"])
             declaration.update(floor_lineages.get(house["house"],{}))
-            if geometry is None:
-                geometry=NativeSupportGeometry(declaration)
+            geometry=geometry_for_room(declaration,geometry)
             room_inputs=prepare_room_inputs(room,cpu_floor_reference=saved["floor_reference"])
             floor=geometry.floor.validate_probes(floor_reference_for_planning(room_inputs))
             from shapely.geometry import shape
