@@ -85,6 +85,8 @@ def run_actual_stream(a,start):
  basecodes=bp[:,0]*len(f)+bp[:,1];baseareas=ba.copy();basedepths=bd.copy()
  area0=face_areas(v0,f);tri0=v0[f];e0=np.max(np.linalg.norm(tri0-np.roll(tri0,1,axis=1),axis=2),axis=1)
  rows=[];failures=[];newpairs=set();readable=sys.stdin.buffer
+ import hashlib
+ geometry_cache={};geometry_cache_hits=0
  def exact(n):
   parts=[];remaining=n
   while remaining:
@@ -98,8 +100,17 @@ def run_actual_stream(a,start):
   v=np.frombuffer(exact(len(v0)*3*4),dtype="<f4").reshape(-1,3).astype(float)
   if abs(timestamp-index/30)>1e-9:raise ValueError("actual_pose_stream_time_mismatch")
   tri=v[f];edge=np.max(np.linalg.norm(tri-np.roll(tri,1,axis=1),axis=2),axis=1)
-  area=face_areas(v,f);rat=edge/np.maximum(e0,1e-12);tree=BVHTree.FromPolygons(v.tolist(),f.tolist(),all_triangles=True,epsilon=0.)
-  hits,coplanar=intersection_candidates(v,f,weld,tree);new=hits-baseline;newpairs|=new;p,pa,pd=footprints(v,f,hits|coplanar)
+  area=face_areas(v,f);rat=edge/np.maximum(e0,1e-12)
+  geometry_bytes=v.astype("<f4").tobytes();key=hashlib.sha256(geometry_bytes).digest();cached=geometry_cache.get(key)
+  cache_hit=cached is not None and cached["geometry_bytes"]==geometry_bytes
+  if cache_hit:
+   geometry_cache_hits+=1;p,pa,pd=cached["pairs"],cached["areas"],cached["depths"]
+   hit_count,coplanar_count,new_pair_count=cached["counts"]
+  else:
+   tree=BVHTree.FromPolygons(v.tolist(),f.tolist(),all_triangles=True,epsilon=0.)
+   hits,coplanar=intersection_candidates(v,f,weld,tree);new=hits-baseline;newpairs|=new;p,pa,pd=footprints(v,f,hits|coplanar)
+   hit_count,coplanar_count,new_pair_count=len(hits),len(coplanar),len(new)
+   geometry_cache[key]={"geometry_bytes":geometry_bytes,"pairs":p,"areas":pa,"depths":pd,"counts":(hit_count,coplanar_count,new_pair_count)}
   codes=p[:,0]*len(f)+p[:,1];known=np.isin(codes,basecodes);missing=p[~known]
   if len(missing):
    ma,md=pair_footprints(v0,f,missing);basecodes=np.r_[basecodes,codes[~known]];baseareas=np.r_[baseareas,ma];basedepths=np.r_[basedepths,md]
@@ -114,20 +125,21 @@ def run_actual_stream(a,start):
   if float(rat.max())>1.5+1e-6:failures.append({"frame":index,"reason":"edge_growth_over_1_5","maximum":float(rat.max())})
   if new_seam>1e-5:failures.append({"frame":index,"reason":"new_uv_seam_tear","maximum_gap_increase_m":new_seam})
   if not np.isfinite(v).all():failures.append({"frame":index,"reason":"nonfinite_vertices"})
-  row={"frame":index,"time_s":timestamp,"self_intersections":len(hits),"excess_over_static_count_diagnostic":max(0,len(hits)-len(baseline)),
-       "new_pair_id_count_diagnostic":len(new),"regional_penetration_measurements":regions,
+  row={"frame":index,"time_s":timestamp,"self_intersections":hit_count,"excess_over_static_count_diagnostic":max(0,hit_count-len(baseline)),
+       "new_pair_id_count_diagnostic":new_pair_count,"byte_identical_geometry_cache_hit":cache_hit,"regional_penetration_measurements":regions,
        "cross_region_new_area_total_m2":float(sum(x["new_area_m2"] for x in regions if x["region_pair"][0]!=x["region_pair"][1])),
-       "macroscopic_penetration_failures":macro,"coplanar_candidates_diagnostic":len(coplanar),
+       "macroscopic_penetration_failures":macro,"coplanar_candidates_diagnostic":coplanar_count,
        "shard_share_area":float(area[rat>3.].sum()/max(area.sum(),1e-20)),"max_edge_growth":float(rat.max()),
        "new_maximum_uv_seam_gap_m":new_seam,"nonfinite_vertices":int((~np.isfinite(v)).any(1).sum())}
   rows.append(row)
-  if index%30==0:print("ACTUAL_SURFACE_FRAME",index,"pairs",len(hits),"baseline",len(baseline),"visible_failures",len(macro),"stretch",row["max_edge_growth"],flush=True)
+  if index%30==0:print("ACTUAL_SURFACE_FRAME",index,"pairs",hit_count,"baseline",len(baseline),"visible_failures",len(macro),"stretch",row["max_edge_growth"],flush=True)
   if failures:print("ACTUAL_SURFACE_REJECTION",failures,flush=True);break
  result={"schema":"blender_actual_native_skin_regional_surface_v1","status":"pass" if not failures else "fail","input":str(a.glb),
   "geometry_source":"exact float32 vertices emitted by the target-owned evaluator to native rigid GLB, not Blender glTF reimport",
   "stream_metadata":str(a.skin_stream_meta),"depth_metric":"relative_inward_material_depth_v1","gate_revision":"owner_20261014_023x",
   "frames":rows,"frame_count":len(rows),"requested_frame_count":a.frames,"full_sequence_evaluated":len(rows)==a.frames,
-  "source_baseline_true_intersections":len(baseline),"source_baseline_coplanar_candidates":len(coplanar0),
+  "byte_identical_geometry_cache_hits":geometry_cache_hits,"distinct_float32_geometry_count":len(geometry_cache),
+  "depth_recomputed_for_every_frame":True,"source_baseline_true_intersections":len(baseline),"source_baseline_coplanar_candidates":len(coplanar0),
   "new_true_triangle_pair_count_diagnostic":len(newpairs),"intersection_counts_are_admission_criteria":False,
   "relative_failures":failures,"maximum_edge_growth":max(x["max_edge_growth"] for x in rows),
   "worst_shard_share_area":max(x["shard_share_area"] for x in rows),"shard_edge_growth":3.,

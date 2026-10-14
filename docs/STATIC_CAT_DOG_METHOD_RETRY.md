@@ -75,3 +75,11 @@ uses three separately executed raw native references and all original energy,
 direction and +6 dB gates. The default remains two intervals. The private
 controller fuses guard and dispatch to stay within eight processes with five
 single-thread audio children; complete-tree PSS and disk limits still apply.
+
+Actual-surface replay caches BVH intersections and geometric footprints only
+when the full native float32 vertex buffer is byte-identical, verified after
+a SHA lookup. All145 frames still recompute inward material depth with their
+actual region rotation matrices, every edge, seam and the unchanged gates.
+No geometric tolerance or temporal sampling is introduced. Repeated geometry
+has the exact same intersection count; the receipt records every frame and
+cache hits. This reduces repeated cycle work without changing admission.
