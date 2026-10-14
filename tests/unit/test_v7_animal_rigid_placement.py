@@ -82,3 +82,19 @@ def test_actual_static_labels_preserve_the_original_admission_and_positions():
     assert actual['motion_metadata']['requested_mode'] == 'walk_animation'
     assert actual['motion_metadata']['admission_path'] == 'immutable.json'
     assert actual['trajectory'][0]['position_m'] == [1., 2., 3.]
+
+
+def test_route_scoring_cannot_move_an_admitted_animal_below_camera():
+    from avengine.assets.animal_motion.production_episode import route_preview_visible
+    scene = {'listener_m': [0., 1.3, 0.], 'camera_yaw_knots': [
+        {'yaw_deg': 0.}, {'yaw_deg': 80.}, {'yaw_deg': -80.}]}
+    assert route_preview_visible(scene, [0., 0., -2.5], [0., 0., -2.4], 0., [0., .3, 0.])
+    assert not route_preview_visible(scene, [0., 0., -.8], [0., 0., -.7], 0., [0., .3, 0.])
+    assert not route_preview_visible(scene, [0., 0., 2.5], [0., 0., 2.4], 0., [0., .3, 0.])
+
+
+def test_long_route_leaving_view_is_filtered_before_short_route_fallback():
+    from avengine.assets.animal_motion.production_episode import route_preview_visible
+    scene = {'listener_m': [0., 1.3, 0.], 'camera_yaw_knots': [{'yaw_deg': 0.}]}
+    assert not route_preview_visible(scene, [0., 0., -2.5], [0., 0., -1.5], 0., [0., .3, 0.])
+    assert route_preview_visible(scene, [0., 0., -2.5], [0., 0., -2.41], 0., [0., .3, 0.])

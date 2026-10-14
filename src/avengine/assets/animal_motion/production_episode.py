@@ -101,6 +101,33 @@ def rigid_route_placement(poses, meshes, roots, source, indices, yaw, floor, spe
                     'production_gates_changed': False}
 
 
+def route_preview_visible(scene, start, end, yaw, mouth):
+    """Proposal filter matching the existing observed camera-path frustum.
+
+    The complete native semantic pixel gate still runs after placement. This
+    prevents route scoring from moving a visible animal under the camera.
+    """
+    listener = np.asarray(scene['listener_m'], float)
+    offset = yaw_matrix(yaw) @ np.asarray(mouth, float)
+    directions = []
+    for knot in scene['camera_yaw_knots']:
+        angle = math.radians(float(knot['yaw_deg']))
+        forward = np.array([math.sin(angle), 0., -math.cos(angle)])
+        directions.append((forward, np.cross(forward, [0., 1., 0.])))
+    for fraction in (0., .5, 1.):
+        delta = np.asarray(start) * (1. - fraction) + np.asarray(end) * fraction + offset - listener
+        visible = False
+        for forward, right in directions:
+            depth = float(delta @ forward)
+            if (depth > 0. and abs(math.degrees(math.atan2(float(delta @ right), depth))) <= 37.
+                    and abs(math.degrees(math.atan2(float(delta[1]), depth))) <= 24.):
+                visible = True
+                break
+        if not visible:
+            return False
+    return True
+
+
 def motion_route_attempts(route_tiers, requested_mode, stationary):
     """Explicit owner fallback: retimed walk, retained-pose slide, then static."""
     attempts = [(route, requested_mode) for tier in route_tiers for route in tier[:2]]
@@ -191,17 +218,19 @@ def compile_admitted_animal(video, entry, scene, house, inputs, directory, reque
                 direction = yaw_matrix(yaw) @ local_forward
                 end = p0 + times[-1] * route_speed * direction
                 line = LineString([p0[[0, 2]], end[[0, 2]]])
-                if not poly.covers(line) or any(line.intersects(b) for b in bodies):
+                if (not poly.covers(line) or any(line.intersects(b) for b in bodies)
+                        or not route_preview_visible(scene, p0, end, yaw, source[0]['mouth_m'])):
                     continue
                 score = min([line.distance(poly.boundary), *[line.distance(b) for b in bodies]])
                 tier.append((float(score), p0.copy(), yaw, direction, route_speed))
         tier = list({(tuple(r[1]), r[2]): r for r in tier}.values())
-        tier.sort(key=lambda r: (-r[0], float(np.linalg.norm(r[1][[0, 2]] - start[[0, 2]]))))
+        tier.sort(key=lambda r: (float(np.linalg.norm(r[1][[0, 2]] - start[[0, 2]])), -r[0]))
         route_tiers.append(tier)
     # Keep eight proposals, while giving shorter/slower motion an actual turn.
     stationary = [(0., p0.copy(), entry['resolved_yaw_rad'],
                    yaw_matrix(entry['resolved_yaw_rad']) @ local_forward, 0.) for p0 in candidates[:4]
-                  if poly.covers(Point(p0[0], p0[2]))]
+                  if poly.covers(Point(p0[0], p0[2])) and route_preview_visible(
+                      scene, p0, p0, entry['resolved_yaw_rad'], source[0]['mouth_m'])]
     routes = motion_route_attempts(route_tiers, requested_mode, stationary)
     failures = []
     begun = time.monotonic()
@@ -234,6 +263,10 @@ def compile_admitted_animal(video, entry, scene, house, inputs, directory, reque
             roots, rigid_placement = rigid_route_placement(
                 poses, meshes, roots, source, indices, yaw, floor, entry['declaration']['species_id'])
             p0 = roots[0].copy()
+            snaps = np.asarray([video.pathfinder.snap_point(p) for p in roots])
+            nav = float(np.max(np.linalg.norm((snaps - roots)[:, [0, 2]], axis=1)))
+            if not math.isfinite(nav) or nav > .002:
+                raise ValueError('rigidly placed animal route exceeds unchanged 2mm NavMesh drift')
             clearance = TriangleClearance(video, house, actual_floor, entry)
             frames, bounds, minimum = [], [], math.inf
             for i, (path, root) in enumerate(zip(poses, roots)):
