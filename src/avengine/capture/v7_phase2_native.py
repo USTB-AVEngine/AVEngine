@@ -133,7 +133,7 @@ class NativePhase2Video(NativeVisibleVideo):
             record['original_full_skin_floor_collision']=clearance.floor_certificate()
             record['minimum_certified_triangle_nonfloor_clearance_m']=minimum
         self.camera_frame_readbacks=[];self.environment_frame_readbacks=[]
-        write_json(directory/'phase2_motion_admission.json',{'status':'pass','admissions':admissions,'native_readback_hz':30,'thresholds_changed':False})
+        write_json(directory/'phase2_motion_admission.json',{'status':'pass','admissions':admissions,'native_readback_hz':30,'thresholds_changed':any(r.get('quality_gates_changed',False) for r in admissions.values())})
         return checks
 
     def _on_phase2_placement_accepted(self,entry,scene,directory,supports,accepted):

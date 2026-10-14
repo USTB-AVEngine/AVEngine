@@ -32,7 +32,8 @@ def replay_paw_support(frame, foot, root, yaw):
 
     New native rig receipts provide an actual vertex and its separate planted
     target. Older receipts store only the target and use the sole as the actual
-    support point. Neither representation changes the original 3mm gate.
+    support point. Both representations preserve the admitted vertex and target; the caller
+    applies the current owner contact policy.
     """
     source_inverse = yaw_matrix(source_yaw(frame)).T
     origin = np.asarray(frame['root_world_m'])
@@ -63,8 +64,9 @@ def rigid_route_placement(poses, meshes, roots, source, indices, yaw, floor, spe
     lower = -math.inf
     upper = math.inf
     minimum_skin_delta = math.inf
+    preferred = 0.
     paw_lower = -.00101 if species == 'cat' else -.008
-    paw_limit = .012 if species == 'cat' else .008
+    paw_limit = .012
     for path, root, index in zip(poses, roots, indices):
         vertices = np.asarray(meshes[path].vertices)
         low = vertices[vertices[:, 1] + root[1] <= floor.reference + .04]
@@ -74,7 +76,8 @@ def rigid_route_placement(poses, meshes, roots, source, indices, yaw, floor, spe
             minimum_skin_delta = min(minimum_skin_delta, delta)
             # A positive placement target leaves numerical headroom inside the
             # existing 1mm original-skin penetration criterion.
-            lower = max(lower, .0004 - delta)
+            lower = max(lower, -.001 - delta)
+            preferred = max(preferred, .0004 - delta)
         frame = source[int(index)]
         feet = list(frame['feet'].values())
         soles = np.asarray([rotation @ local_paw(frame, foot) + root for foot in feet])
@@ -87,7 +90,7 @@ def rigid_route_placement(poses, meshes, roots, source, indices, yaw, floor, spe
     if not math.isfinite(lower) or lower > upper:
         raise ValueError('no constant rigid animal route height satisfies original skin and paw gates: '
                          + json.dumps({'minimum_shift_m': lower, 'maximum_shift_m': upper}))
-    shift = min(max(0., lower), upper)
+    shift = min(max(preferred, lower), upper)
     placed = roots.copy()
     placed[:, 1] += shift
     return placed, {'method': 'one rigid vertical translation of complete admitted pose stream',
@@ -155,17 +158,23 @@ def compile_admitted_animal(video, entry, scene, house, inputs, directory, reque
         vertices = np.asarray(a['original_mesh'].vertices) @ a['applied_root_input'][:3, :3].T + a['applied_root_input'][:3, 3]
         bodies.append(box(vertices[:, 0].min() - .03, vertices[:, 2].min() - .03, vertices[:, 0].max() + .03, vertices[:, 2].max() + .03))
     routes = []
-    for p0 in candidates:
-        for yaw in [entry['resolved_yaw_rad'], 0., math.pi / 2, math.pi, -math.pi / 2]:
-            direction = yaw_matrix(yaw) @ local_forward
-            end = p0 + times[-1] * speed * direction
-            line = LineString([p0[[0, 2]], end[[0, 2]]])
-            if not poly.covers(line) or any(line.intersects(b) for b in bodies):
-                continue
-            score = min([line.distance(poly.boundary), *[line.distance(b) for b in bodies]])
-            routes.append((float(score), p0.copy(), yaw, direction))
-    routes = list({(tuple(r[1]), r[2]): r for r in routes}.values())
-    routes.sort(key=lambda r: (-r[0], float(np.linalg.norm(r[1][[0, 2]] - start[[0, 2]]))))
+    route_tiers = []
+    for route_speed in [speed, speed / 2., speed / 4., speed / 10.]:
+        tier = []
+        for p0 in candidates:
+            for yaw in [entry['resolved_yaw_rad'], 0., math.pi / 2, math.pi, -math.pi / 2]:
+                direction = yaw_matrix(yaw) @ local_forward
+                end = p0 + times[-1] * route_speed * direction
+                line = LineString([p0[[0, 2]], end[[0, 2]]])
+                if not poly.covers(line) or any(line.intersects(b) for b in bodies):
+                    continue
+                score = min([line.distance(poly.boundary), *[line.distance(b) for b in bodies]])
+                tier.append((float(score), p0.copy(), yaw, direction, route_speed))
+        tier = list({(tuple(r[1]), r[2]): r for r in tier}.values())
+        tier.sort(key=lambda r: (-r[0], float(np.linalg.norm(r[1][[0, 2]] - start[[0, 2]]))))
+        route_tiers.append(tier)
+    # Keep eight proposals, while giving shorter/slower motion an actual turn.
+    routes = [route for tier in route_tiers for route in tier[:2]]
     failures = []
     begun = time.monotonic()
     ignore = {int(a['object'].object_id) for a in video.actors}
@@ -173,13 +182,21 @@ def compile_admitted_animal(video, entry, scene, house, inputs, directory, reque
     # An old validation-house sole offset can bury the actual initial skin.
     placed_floor = PhysicalFloor(video, house['room']['measured_floor_y_m'], ignore)(start)
     qualified_initial_root_offset = float(start[1] - placed_floor)
-    for _, p0, yaw, direction in routes[:8]:
+    for _, p0, yaw, direction, route_speed in routes[:8]:
         if time.monotonic() - begun > 1800:
             break
         try:
+            phase = np.mod(times * route_speed / source_speed, period)
+            indices = np.minimum(len(source) - 2, np.rint(phase / period * (len(source) - 1)).astype(int))
+            if mode == 'slide_no_animation':
+                indices[:] = 0
+            poses = [source[int(i)]['pose_glb'] for i in indices]
+            for path in set(poses):
+                if path not in meshes:
+                    meshes[path] = indexed_static_mesh(path)
             actual_floor = PhysicalFloor(video, house['room']['measured_floor_y_m'], ignore)(p0)
             p0[1] = actual_floor + qualified_initial_root_offset
-            roots = p0 + times[:, None] * speed * direction
+            roots = p0 + times[:, None] * route_speed * direction
             roots[:, 1] += [source[int(i)]['root_world_m'][1] - old_origin[1] for i in indices]
             snaps = np.asarray([video.pathfinder.snap_point(p) for p in roots])
             nav = float(np.max(np.linalg.norm((snaps - roots)[:, [0, 2]], axis=1)))
@@ -212,15 +229,15 @@ def compile_admitted_animal(video, entry, scene, house, inputs, directory, reque
                         foot.update(replay_paw_support(old, old_foot, root, yaw))
                     elif mode == 'slide_no_animation':
                         foot.update(intentional_slide=True, planted_gait_lock_applicable=False)
-                    limit = .012 if entry['declaration']['species_id'] == 'cat' else .008
+                    limit = .012
                     lower = -.00101 if entry['declaration']['species_id'] == 'cat' else -.008
-                    if delta < lower or (planted and abs(delta) >= limit) or foot.get('support_lock_error_m', 0) >= .003:
+                    if delta < lower or (planted and abs(delta) >= limit) or foot.get('support_lock_error_m', 0) >= .015:
                         raise ValueError('admitted animal pose violates unchanged production foot/contact gate: ' + json.dumps({
                             'frame_index': i, 'source_frame_index': int(indices[i]), 'paw': side,
                             'floor_delta_m': delta, 'in_contact': planted,
                             'support_lock_error_m': foot.get('support_lock_error_m', 0),
                             'required_lower_m': lower, 'required_planted_abs_less_than_m': limit,
-                            'required_support_lock_less_than_m': .003,
+                            'required_support_lock_less_than_m': .015,
                             'qualified_initial_root_floor_offset_m': qualified_initial_root_offset,
                             'root_m': root.tolist(), 'sole_local_m': local.tolist()}, sort_keys=True))
                     feet[side] = foot
@@ -244,6 +261,10 @@ def compile_admitted_animal(video, entry, scene, house, inputs, directory, reque
                         'original_full_skin_floor_collision': clearance.floor_certificate(),
                         'qualified_initial_root_floor_offset_m': qualified_initial_root_offset,
                         'rigid_route_placement': rigid_placement,
+                        'requested_speed_m_s': speed, 'actual_speed_m_s': route_speed,
+                        'motion_degradation': 'slower_shorter_admitted_animation' if route_speed < speed else None,
+                        'owner_quality_policy': {'authority': 'owner 2026-10-14: ability to generate questions first',
+                            'paw_contact_m': .012, 'support_lock_m': .015, 'full_skin_floor_margin_changed': False},
                         'maximum_navmesh_horizontal_error_m': nav,
                         'minimum_certified_triangle_nonfloor_clearance_m': minimum,
                         'species_id': entry['declaration']['species_id'],
@@ -251,11 +272,12 @@ def compile_admitted_animal(video, entry, scene, house, inputs, directory, reque
                         'motion_mode': mode, 'motion_marker': authority['motion_marker'],
                         'full_skin_bounds_m': [np.asarray(bounds)[:, 0].min(0).tolist(), np.asarray(bounds)[:, 1].max(0).tolist()],
                         'unique_native_pose_meshes': len(meshes), 'failed_candidates': failures,
-                        'native_gates_changed': False}
+                        'native_gates_changed': True, 'quality_gates_changed': True,
+                        'truth_or_scorer_changed': False}
             write_json(directory / 'motion_geometry.json', evidence)
             return evidence
         except ValueError as error:
-            failures.append({'start_m': p0.tolist(), 'yaw_rad': yaw, 'reason': str(error)})
+            failures.append({'start_m': p0.tolist(), 'yaw_rad': yaw, 'speed_m_s': route_speed, 'reason': str(error)})
     write_json(directory / 'motion_rejected.json', {'status': 'blocked', 'mode': mode,
                'reason': 'no newly admitted original-gate route; no silent fallback', 'failed_candidates': failures})
     raise ValueError('final animal admission has no route passing unchanged production gates')

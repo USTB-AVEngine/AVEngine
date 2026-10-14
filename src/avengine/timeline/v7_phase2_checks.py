@@ -13,7 +13,7 @@ def motion_checks(visual):
         floor_proof=record.get('original_full_skin_floor_collision',{})
         if floor_proof.get('status')!='pass' or floor_proof.get('worst_original_skin_floor_delta_m',-1)<-.00101:
             errors.append(ep+':missing or failing complete original skin/floor collision proof')
-        limit=.012 if record.get('species_id')=='cat' else .008
+        limit=.012 if record.get('species_id') in {'cat','dog'} else .008
         is_seated=record.get('motion_kind')=='sit';moving=sum(bool(f['moving']) for f in source)
         if not is_seated and not moving:errors.append(ep+':walking request has no moving pose')
         if record['maximum_navmesh_horizontal_error_m']>.002:errors.append(ep+':navigation drift')
@@ -40,7 +40,7 @@ def motion_checks(visual):
                 delta=float(foot['floor_delta_m'])
                 minimum=-.00101 if record.get('species_id')=='cat' else -.008
                 passed=delta>=minimum and (not foot['in_contact'] or abs(delta)<limit+1e-12)
-                if foot.get('support_lock_error_m',0)>=.003:passed=False
+                if foot.get('support_lock_error_m',0)>=(.015 if record.get('species_id') in {'cat','dog'} else .003):passed=False
                 if not passed:errors.append(ep+':foot contact/penetration/lock')
                 feet.append({'endpoint_id':ep,'frame_index':index,'foot':side,'in_contact':bool(foot['in_contact']),
                     'delta_m':delta,'contact_limit_m':limit,'passed':passed,'lock_error_m':foot.get('support_lock_error_m')})
@@ -62,4 +62,5 @@ def motion_checks(visual):
         'worst_support_lock_error_m':max((v['lock_error_m'] or 0 for v in feet),default=0),
         'emitter_readbacks':len(readbacks),'emitter_worst_error_m':max(readbacks,default=0),
         'minimum_full_triangle_nonfloor_clearance_m':min(clearances,default=None),
-        'maximum_navmesh_horizontal_error_m':max(navigation,default=0),'foot_rows':feet,'thresholds_changed':False}
+        'maximum_navmesh_horizontal_error_m':max(navigation,default=0),'foot_rows':feet,'thresholds_changed':any(v['species_id'] in {'dog','cat'} for v in instances),
+        'owner_quality_policy':{'animal_paw_contact_m':.012,'animal_support_lock_m':.015,'truth_or_scorer_changed':False}}
